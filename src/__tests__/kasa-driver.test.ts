@@ -228,7 +228,7 @@ describe("Kasa driver", () => {
 			);
 			expect(failure.kind).toBe("timeout");
 			if (failure.kind !== "timeout") throw new Error("Expected a schedule timeout");
-			expect(failure.detail).toContain("1 of 3 mutations landed");
+			expect(failure.landed).toEqual({ done: 1, total: 3 });
 			expect(mutations).toEqual(["add_rule"]);
 		} finally {
 			linked.dispose();
@@ -279,7 +279,7 @@ describe("Kasa driver", () => {
 			},
 			async (plug, driver) => {
 				const failure = await withContext((ctx) => failureOf(() => driver.set(record(), "on", ctx)));
-				expect(failure.kind).toBe("unreachable");
+				expect(failure.kind).toBe("wrong_device");
 				expect(commandNames(plug)).toEqual(["get_sysinfo"]);
 			},
 		);
@@ -374,7 +374,7 @@ describe("Kasa driver", () => {
 					),
 				);
 
-				expect(failure.kind).toBe("unreachable");
+				expect(failure.kind).toBe("wrong_device");
 				expect(
 					plug
 						.received()
@@ -480,7 +480,7 @@ describe("Kasa driver", () => {
 		});
 	});
 
-	it("carries the landed count on a refusal mid-put", async () => {
+	it("carries the landed count on a refusal mid-put, and keeps the earlier step's mark", async () => {
 		await withPlug(
 			{
 				behavior: (request) =>
@@ -489,8 +489,9 @@ describe("Kasa driver", () => {
 						: undefined,
 			},
 			async (plug, driver) => {
-				const failure = await withContext((ctx) =>
-					failureOf(() =>
+				let marked = false;
+				const failure = await withContext(async (ctx) => {
+					const refused = await failureOf(() =>
 						driver.schedule(record(), ctx).put({
 							enabled: true,
 							rules: [
@@ -502,10 +503,13 @@ describe("Kasa driver", () => {
 								},
 							],
 						}),
-					),
-				);
+					);
+					marked = ctx.effect.marked;
+					return refused;
+				});
 				expect(failure).toMatchObject({ kind: "refused", code: -3 });
-				expect((failure as { note?: string }).note).toContain("1 of 2 mutations landed");
+				expect(failure.landed).toEqual({ done: 1, total: 2 });
+				expect(marked).toBe(true);
 				expect(plug.received().filter((row) => row.command === "add_rule")).toHaveLength(1);
 			},
 		);
@@ -582,7 +586,7 @@ describe("Kasa driver", () => {
 					await ambient.advance(20);
 					const failure = await cut;
 					expect(failure).toMatchObject({ kind: "timeout", sent: true });
-					expect((failure as { detail: string }).detail).toContain("1 of 2 mutations landed");
+					expect(failure.landed).toEqual({ done: 1, total: 2 });
 				} finally {
 					linked.dispose();
 				}

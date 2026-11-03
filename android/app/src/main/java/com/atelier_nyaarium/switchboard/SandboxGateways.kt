@@ -78,7 +78,7 @@ private const val REFUSING_ID = "held-elsewhere"
 /** Each answers differently, or a grouping bug has nowhere to show. */
 private const val SECOND_GATEWAY = "parsing"
 
-private const val EMPTY_GATEWAY = "idle-box"
+internal const val EMPTY_GATEWAY = "idle-box"
 
 private const val READ_ONLY_FILE = "fixtures.json"
 private const val UNHASHED_FILE = "capture.bin"

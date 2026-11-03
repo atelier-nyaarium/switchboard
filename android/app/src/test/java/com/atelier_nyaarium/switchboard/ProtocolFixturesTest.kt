@@ -5,6 +5,9 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleForgetResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleListDirsResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRemoveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleSendResult
 import com.atelier_nyaarium.switchboard.proto.InboxRow
@@ -50,6 +53,9 @@ class ProtocolFixturesTest {
 			"ConsoleForgetResult" -> wireJson.decodeFromString<ConsoleForgetResult>(body)
 			"ConsoleListDirsResult" -> wireJson.decodeFromString<ConsoleListDirsResult>(body)
 			"ConsolePeekResult" -> wireJson.decodeFromString<ConsolePeekResult>(body)
+			"ConsoleDeviceRemoveResult" -> wireJson.decodeFromString<ConsoleDeviceRemoveResult>(body)
+			"ConsoleDeviceReadResult" -> wireJson.decodeFromString<ConsoleDeviceReadResult>(body)
+			"ConsoleDeviceSchedulePutResult" -> wireJson.decodeFromString<ConsoleDeviceSchedulePutResult>(body)
 			"WorkspaceSaveSpanAnswer" -> wireJson.decodeFromString<WorkspaceSaveSpanAnswer>(body)
 			"WorkspaceFileMutationAnswer" -> wireJson.decodeFromString<WorkspaceFileMutationAnswer>(body)
 			"WorkspaceFileStateAnswer" -> wireJson.decodeFromString<WorkspaceFileStateAnswer>(body)

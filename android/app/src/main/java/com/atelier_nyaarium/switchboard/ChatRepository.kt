@@ -276,7 +276,7 @@ class ChatRepository(
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
 			this, board, vault, assistantSends, assistantActs, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, workspaceHost, composedRequests, windowOps,
-			symbolViews, windowRequests, rawFileOps, fileOps,
+			symbolViews, windowRequests, rawFileOps, fileOps, deviceOps,
 		)
 
 	override suspend fun clearInMemory() {
@@ -394,6 +394,8 @@ class ChatRepository(
 	internal val runbookOps = RunbookOps(state = _state, host = ChatRepositoryRunbookHost(this))
 	internal val routineOps = RoutineOps(state = _state, host = ChatRepositoryRoutineHost(this))
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
+	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
+	internal val deviceOps = DeviceOps(host = ChatRepositoryDeviceHost(this, workspaceHost.generation))
 	internal val assistantOps = AssistantOps(state = _state, host = ChatRepositoryAssistantHost(this))
 	internal val assistantSendOps = com.atelier_nyaarium.switchboard.assistant.AssistantSendOps(_state, assistantSends) { gatewayId, op ->
 		clientOrNull()?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
@@ -409,7 +411,6 @@ class ChatRepository(
 	/** One shared draft writer. */
 	// Keep this directory name, since another name would orphan every held draft.
 	private val workspaceDrafts = WorkspaceDraftStore(File(filesDir, "window-drafts"), repoScope)
-	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
 	internal val composedRequests = ComposedRequests(workspaceHost)
 	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts, outbox = composedRequests)
 	internal val symbolViews = SymbolViews(workspaceHost)

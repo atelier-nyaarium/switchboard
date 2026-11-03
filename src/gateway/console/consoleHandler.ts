@@ -9,6 +9,7 @@ import {
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
+import { isDeviceConsoleOp } from "../../shared/schemasDevices.js";
 import { type HolderKey, HolderKeySchema } from "../../shared/schemasPhoneHold.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { SpawnPoint } from "../../shared/session-id.js";
@@ -142,6 +143,7 @@ export function createConsoleDispatcher({
 		signer: HolderKey | null,
 		generation = 0,
 	): Promise<ConsoleOpResult> {
+		if (isDeviceConsoleOp(op)) return requireDevices()(op);
 		switch (op.kind) {
 			case "send": {
 				const expectedSession = routes.ownerSessionKey(op.to, op.domainId);
@@ -420,33 +422,6 @@ export function createConsoleDispatcher({
 
 			case "policy_enable":
 				return requirePolicies().enable(op.policyId, op.enabled, op.baseRevision);
-
-			case "device_list":
-				return requireDevices().list();
-
-			case "device_read":
-				return requireDevices().read(op.id);
-
-			case "device_scan":
-				return requireDevices().scan();
-
-			case "device_add":
-				return requireDevices().add({ mac: op.mac, address: op.address, name: op.name });
-
-			case "device_rename":
-				return requireDevices().rename(op.id, op.name, op.revision);
-
-			case "device_remove":
-				return requireDevices().remove(op.id, op.revision);
-
-			case "device_set":
-				return requireDevices().set(op.id, op.verb);
-
-			case "device_schedule_put":
-				return requireDevices().schedulePut(op.id, op.revision, op.schedule);
-
-			case "device_setting_put":
-				return requireDevices().settingPut(op.id, op.revision, op.setting);
 
 			case "assistant_state":
 				return requireAssistant().state();

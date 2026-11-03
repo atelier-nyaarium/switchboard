@@ -1,15 +1,11 @@
 import { DeviceScheduleSchema } from "../../../shared/schemasDevices.js";
-import { DeviceDriverFailure, type DeviceSchedule, noteLanding } from "../driver.js";
+import { DeviceDriverFailure, type DeviceSchedule, withLanded } from "../driver.js";
 
 type JsonRecord = Record<string, unknown>;
 type KasaRule = JsonRecord;
 
 function failUnreachable(detail: string): never {
 	throw new DeviceDriverFailure({ kind: "unreachable", detail });
-}
-
-function refuse(code: number, message: string): never {
-	throw new DeviceDriverFailure({ kind: "refused", code, message });
 }
 
 function numberField(record: JsonRecord, key: string): number | null {
@@ -184,36 +180,34 @@ export async function putSchedule(
 	},
 ): Promise<DeviceSchedule> {
 	const checked = DeviceScheduleSchema.safeParse(schedule);
-	if (!checked.success) refuse(-1, "The schedule is invalid for this device");
+	if (!checked.success) {
+		throw new DeviceDriverFailure({ kind: "invalid", detail: "Invalid schedule" });
+	}
 	const answer = await io.getRules();
 	const mutations = reconcileSchedule(checked.data, rulesFromAnswer(answer));
-	let landed = 0;
+	let done = 0;
+	const total = mutations.length;
 	for (const mutation of mutations) {
 		if (io.signal?.aborted) {
-			throw withLanding(
+			throw withLanded(
 				new DeviceDriverFailure({
 					kind: "timeout",
 					detail: "Kasa operation ended before the command was sent",
 					sent: false,
 				}),
-				landed,
-				mutations.length,
+				{ done, total },
 			);
 		}
 		try {
 			await io.mutate(mutation.name, mutation.args);
-			landed += 1;
+			done += 1;
 		} catch (error) {
-			throw withLanding(error, landed, mutations.length);
+			throw withLanded(error, { done, total });
 		}
 	}
 	try {
 		return await io.readBack();
 	} catch (error) {
-		throw withLanding(error, landed, mutations.length);
+		throw withLanded(error, { done, total });
 	}
-}
-
-function withLanding(error: unknown, landed: number, total: number): unknown {
-	return noteLanding(error, `${landed} of ${total} mutations landed; a devices read shows the plug's state`);
 }

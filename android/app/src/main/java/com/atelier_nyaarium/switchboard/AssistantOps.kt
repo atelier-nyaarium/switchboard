@@ -227,7 +227,7 @@ internal fun rulesCountText(rules: Int, invalid: Int): String {
 }
 
 /** Location comes first. */
-internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, WATCHERS, REMOVE }
+internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, WATCHERS, INTEGRATIONS, REMOVE }
 
 /** Safety, watchers and remove are the home's. */
 internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResult?): List<AssistantSection> =
@@ -236,6 +236,7 @@ internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResul
 		AssistantSection.FEATURES,
 		AssistantSection.SAFETY.takeIf { home != null && placed?.approveEverySend != null },
 		AssistantSection.WATCHERS.takeIf { home != null && placed != null },
+		AssistantSection.INTEGRATIONS,
 		AssistantSection.REMOVE.takeIf { home != null },
 	)
 

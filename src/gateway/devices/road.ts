@@ -1,7 +1,12 @@
 import type { z } from "zod";
 import { type Ambient, type Linked, linkedSignal } from "../../shared/ambient.js";
 import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../../shared/console-protocol.js";
-import { type DeviceAddRequestSchema, type DeviceRecord, deviceRefusal } from "../../shared/schemasDevices.js";
+import {
+	type DeviceAddFieldsSchema,
+	type DeviceRecord,
+	type DeviceRefusalCode,
+	deviceRefusal,
+} from "../../shared/schemasDevices.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import {
 	type DeviceDriver,
@@ -12,13 +17,7 @@ import {
 } from "./driver.js";
 import { createKasaDriver } from "./kasa/kasaDriver.js";
 import { createKasaTransport, type KasaTransport } from "./kasa/transport.js";
-import {
-	type DeviceRefreshResult,
-	type DeviceRemoveResult,
-	type DeviceStore,
-	type DeviceWriteResult,
-	openDeviceStore,
-} from "./store.js";
+import { type DeviceStore, type DeviceStoreRefusal, openDeviceStore } from "./store.js";
 
 export const TOGGLE_DOUBT = "read the device first; the last toggle's outcome is unknown";
 
@@ -26,14 +25,21 @@ export type Surface = "console" | "assistant";
 export type Effect = "none" | "unknown";
 export type DeviceEffect = "confirms-relay" | "toggles-relay";
 
+export type Refused = {
+	kind: "refused";
+	code: DeviceRefusalCode;
+	text?: string;
+	record?: DeviceRecord;
+	effect?: Effect;
+};
+
 export type Declined =
 	| { kind: "notStarted" }
-	| { kind: "missing" }
-	| { kind: "refused"; text: string; record?: DeviceRecord }
-	| { kind: "stale"; record: DeviceRecord; text: string }
+	| Refused
 	| { kind: "failed"; failure: DeviceDriverError; effect: Effect; record?: DeviceRecord };
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; why: Declined };
+export type Written<T> = { ok: true; value: T } | { ok: false; why: Refused };
 
 export class Decline extends Error {
 	constructor(readonly why: Declined) {
@@ -47,11 +53,12 @@ export interface Shape<A> {
 	decline(why: Declined): A;
 }
 
+/** One id's store writes. */
 export interface DeviceWrites {
-	add(request: z.input<typeof DeviceAddRequestSchema>): DeviceWriteResult;
-	rename(name: string, baseRevision: number): DeviceWriteResult;
-	remove(baseRevision: number): DeviceRemoveResult;
-	refreshAddress(address: string): DeviceRefreshResult;
+	add(request: z.input<typeof DeviceAddFieldsSchema>): Written<DeviceRecord>;
+	rename(name: string, baseRevision: number): Written<DeviceRecord>;
+	remove(baseRevision: number): Written<void>;
+	refreshAddress(address: string): Written<DeviceRecord>;
 }
 
 export interface Slot {
@@ -59,7 +66,7 @@ export interface Slot {
 	readonly record: DeviceRecord | null;
 	readonly write: DeviceWrites;
 	drive<T>(work: (ctx: DeviceOperationContext) => Promise<T>, effect?: DeviceEffect): Promise<T>;
-	/** Compensation only. */
+	/** Compensation, optional reads. */
 	attempt<T>(work: (ctx: DeviceOperationContext) => Promise<T>): Promise<Outcome<T>>;
 	identify(address: string, expected: string): Promise<void>;
 	expect(revision: number): void;
@@ -106,6 +113,15 @@ const NOT_STARTED: Declined = { kind: "notStarted" };
 
 function withRecord<T extends object>(value: T, record: DeviceRecord | null): T & { record?: DeviceRecord } {
 	return record ? { ...value, record } : value;
+}
+
+function refusedBy(refusal: DeviceStoreRefusal): Refused {
+	return withRecord({ kind: "refused" as const, code: refusal.code, text: refusal.reason }, refusal.record ?? null);
+}
+
+export function unwrap<T>(outcome: Outcome<T>): T {
+	if (!outcome.ok) throw new Decline(outcome.why);
+	return outcome.value;
 }
 
 /** The one road to a store or a driver. */
@@ -168,19 +184,33 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 			id,
 			record,
 			write: {
-				add: (request) => store.add(request),
-				rename: (name, baseRevision) => store.rename(id, name, baseRevision),
+				add: (request) => {
+					const result = store.add(request);
+					return result.stored ? { ok: true, value: result.record } : { ok: false, why: refusedBy(result) };
+				},
+				rename: (name, baseRevision) => {
+					const result = store.rename(id, name, baseRevision);
+					return result.stored ? { ok: true, value: result.record } : { ok: false, why: refusedBy(result) };
+				},
 				remove: (baseRevision) => {
 					const result = store.remove(id, baseRevision);
-					if (result.deleted) doubt.delete(id);
-					return result;
+					if (!result.deleted) return { ok: false, why: refusedBy(result) };
+					doubt.delete(id);
+					return { ok: true, value: undefined };
 				},
-				refreshAddress: (address) => store.refreshAddress(id, address),
+				refreshAddress: (address) => {
+					const result = store.refreshAddress(id, address);
+					return "code" in result
+						? { ok: false, why: refusedBy(result) }
+						: { ok: true, value: result.record };
+				},
 			},
 			async drive(work, effect) {
 				if (expired(held)) throw new Decline(NOT_STARTED);
 				if (effect === "toggles-relay" && doubt.has(id)) {
-					throw new Decline(withRecord({ kind: "refused", text: TOGGLE_DOUBT }, record));
+					throw new Decline(
+						withRecord({ kind: "refused", code: "toggle_unknown", text: TOGGLE_DOUBT }, record),
+					);
 				}
 				const latch = effectLatch();
 				try {
@@ -205,7 +235,11 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 				if (actual !== expected) {
 					throw new Decline(
 						withRecord(
-							{ kind: "refused", text: `address answers ${actual}; expected ${expected}` },
+							{
+								kind: "refused",
+								code: "wrong_device",
+								text: `address answers ${actual}; expected ${expected}`,
+							},
 							record,
 						),
 					);
@@ -214,7 +248,8 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 			expect(revision) {
 				if (record && record.revision !== revision) {
 					throw new Decline({
-						kind: "stale",
+						kind: "refused",
+						code: "stale",
 						record,
 						text: `revision ${record.revision} is stored; this edits ${revision}`,
 					});
@@ -248,10 +283,14 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 					const slot = makeSlot(id, held);
 					try {
 						if (asPlug) {
-							if (!slot.record) return { ok: false, why: { kind: "missing" } };
+							if (!slot.record) return { ok: false, why: { kind: "refused", code: "not_found" } };
 							const refusal = deviceRefusal(slot.record);
-							if (refusal)
-								return { ok: false, why: { kind: "refused", text: refusal, record: slot.record } };
+							if (refusal) {
+								return {
+									ok: false,
+									why: { kind: "refused", code: "not_supported", text: refusal, record: slot.record },
+								};
+							}
 							const plug: Plug = { ...slot, record: slot.record, driver: drivers[slot.record.driver] };
 							return { ok: true, value: await (work as (plug: Plug) => Promise<T>)(plug) };
 						}
@@ -293,11 +332,6 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 			root.end("device operation ended");
 			root.dispose();
 		}
-	};
-
-	const unwrap = <T>(outcome: Outcome<T>): T => {
-		if (!outcome.ok) throw new Decline(outcome.why);
-		return outcome.value;
 	};
 
 	const close = (): Promise<void> => {

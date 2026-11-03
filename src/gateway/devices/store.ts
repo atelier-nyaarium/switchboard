@@ -3,11 +3,12 @@ import { commitChecked, type DurableStore, openDurable } from "../../shared/dura
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import {
 	DEVICE_MAX_RECORDS,
-	DeviceAddRequestSchema,
+	DeviceAddFieldsSchema,
 	DeviceAddressSchema,
 	DeviceIdSchema,
 	type DeviceRecord,
 	DeviceRecordSchema,
+	type DeviceRefusalCode,
 	DeviceRevisionSchema,
 	deviceNameRefusal,
 	deviceRefusal,
@@ -19,23 +20,19 @@ export interface DeviceStoreDeps {
 	onChanged: (deviceId: string) => void;
 }
 
-export interface DeviceWriteResult {
-	stored: boolean;
+export interface DeviceStoreRefusal {
+	code: DeviceRefusalCode;
+	reason: string;
 	record?: DeviceRecord;
-	reason?: string;
 }
 
-export interface DeviceRemoveResult {
-	deleted: boolean;
-	record?: DeviceRecord;
-	reason?: string;
-}
+export type DeviceWriteResult = { stored: true; record: DeviceRecord } | ({ stored: false } & DeviceStoreRefusal);
 
-export interface DeviceRefreshResult {
-	changed: boolean;
-	record?: DeviceRecord;
-	reason?: string;
-}
+export type DeviceRemoveResult = { deleted: true } | ({ deleted: false } & DeviceStoreRefusal);
+
+export type DeviceRefreshResult =
+	| { changed: boolean; record: DeviceRecord }
+	| ({ changed: false } & DeviceStoreRefusal);
 
 export interface DeviceStoreOpenOptions {
 	onChanged?: (deviceId: string) => void;
@@ -116,11 +113,11 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 
 	const get = (id: string): DeviceRecord | null => held(id) ?? null;
 
-	const add = (request: z.input<typeof DeviceAddRequestSchema>): DeviceWriteResult => {
+	const add = (request: z.input<typeof DeviceAddFieldsSchema>): DeviceWriteResult => {
 		const nameRefusal = deviceNameRefusal(request.name);
-		if (nameRefusal) return { stored: false, reason: nameRefusal };
-		const parsed = DeviceAddRequestSchema.safeParse(request);
-		if (!parsed.success) return { stored: false, reason: "invalid device candidate" };
+		if (nameRefusal) return { stored: false, code: "invalid", reason: nameRefusal };
+		const parsed = DeviceAddFieldsSchema.safeParse(request);
+		if (!parsed.success) return { stored: false, code: "invalid", reason: "Invalid device" };
 		const incoming = parsed.data;
 		const current = held(incoming.mac);
 		if (current) {
@@ -128,16 +125,16 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 			const same = current.address === incoming.address && current.name === incoming.name;
 			return same
 				? { stored: true, record: current }
-				: { stored: false, record: current, reason: "a device with that id is already stored" };
+				: { stored: false, code: "exists", record: current, reason: "a device with that id is already stored" };
 		}
 		if (snapshot.records.length >= DEVICE_MAX_RECORDS) {
-			return { stored: false, reason: `this Gateway holds ${DEVICE_MAX_RECORDS} devices already` };
+			return { stored: false, code: "full", reason: `this Gateway holds ${DEVICE_MAX_RECORDS} devices already` };
 		}
 		if (snapshot.revision >= REVISION_CEILING)
-			return { stored: false, reason: "the device list has no revision left" };
+			return { stored: false, code: "write_failed", reason: "the device list has no revision left" };
 		const deleted = snapshot.tombstones.find((entry) => entry.id === incoming.mac);
 		if (deleted && deleted.revision >= REVISION_CEILING) {
-			return { stored: false, reason: "this device has no revision left to write" };
+			return { stored: false, code: "write_failed", reason: "this device has no revision left to write" };
 		}
 		const record: DeviceRecord = {
 			id: incoming.mac,
@@ -148,32 +145,38 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 			revision: (deleted?.revision ?? 0) + 1,
 		};
 		const refusal = deviceRefusal(record);
-		if (refusal) return { stored: false, reason: refusal };
+		if (refusal) return { stored: false, code: "not_supported", reason: refusal };
 		const tombstones = snapshot.tombstones.filter((entry) => entry.id !== record.id);
 		if (!commit([...snapshot.records, record], snapshot.revision + 1, record.id, tombstones)) {
-			return { stored: false, reason: "could not be written" };
+			return { stored: false, code: "write_failed", reason: "could not be written" };
 		}
-		return { stored: true, record: held(record.id) };
+		return { stored: true, record: held(record.id) ?? record };
 	};
 
 	const rename = (id: string, name: string, baseRevision: number): DeviceWriteResult => {
 		const current = held(id);
-		if (!current) return { stored: false, reason: "no device with that id is stored" };
+		if (!current) return { stored: false, code: "not_found", reason: "no device with that id is stored" };
 		const nameRefusal = deviceNameRefusal(name);
-		if (nameRefusal) return { stored: false, record: current, reason: nameRefusal };
+		if (nameRefusal) return { stored: false, code: "invalid", record: current, reason: nameRefusal };
 		if (current.name === name && (baseRevision === current.revision || baseRevision + 1 === current.revision)) {
 			return { stored: true, record: current };
 		}
 		if (current.revision !== baseRevision) {
 			return {
 				stored: false,
+				code: "stale",
 				record: current,
 				reason: `revision ${current.revision} is stored; this edits ${baseRevision}`,
 			};
 		}
 		if (current.name === name) return { stored: true, record: current };
 		if (current.revision >= REVISION_CEILING || snapshot.revision >= REVISION_CEILING) {
-			return { stored: false, record: current, reason: "this device has no revision left to write" };
+			return {
+				stored: false,
+				code: "write_failed",
+				record: current,
+				reason: "this device has no revision left to write",
+			};
 		}
 		const record = frozen({ ...current, name, revision: current.revision + 1 });
 		if (
@@ -183,9 +186,9 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 				id,
 			)
 		) {
-			return { stored: false, record: current, reason: "could not be written" };
+			return { stored: false, code: "write_failed", record: current, reason: "could not be written" };
 		}
-		return { stored: true, record: held(id) };
+		return { stored: true, record: held(id) ?? record };
 	};
 
 	const remove = (id: string, baseRevision: number): DeviceRemoveResult => {
@@ -193,17 +196,23 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 		if (!current) {
 			const tombstone = snapshot.tombstones.find((entry) => entry.id === id);
 			if (tombstone?.revision === baseRevision) return { deleted: true };
-			return { deleted: false, reason: "no device with that id is stored" };
+			return { deleted: false, code: "not_found", reason: "no device with that id is stored" };
 		}
 		if (current.revision !== baseRevision) {
 			return {
 				deleted: false,
+				code: "stale",
 				record: current,
 				reason: `revision ${current.revision} is stored; this deletes ${baseRevision}`,
 			};
 		}
 		if (snapshot.revision >= REVISION_CEILING) {
-			return { deleted: false, record: current, reason: "the device list has no revision left" };
+			return {
+				deleted: false,
+				code: "write_failed",
+				record: current,
+				reason: "the device list has no revision left",
+			};
 		}
 		const tombstones = [
 			...snapshot.tombstones.filter((entry) => entry.id !== id),
@@ -217,19 +226,26 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 				tombstones,
 			)
 		) {
-			return { deleted: false, record: current, reason: "could not be written" };
+			return { deleted: false, code: "write_failed", record: current, reason: "could not be written" };
 		}
 		return { deleted: true };
 	};
 
 	const refreshAddress = (id: string, address: string): DeviceRefreshResult => {
 		const current = held(id);
-		if (!current) return { changed: false, reason: "no device with that id is stored" };
+		if (!current) return { changed: false, code: "not_found", reason: "no device with that id is stored" };
 		const parsedAddress = DeviceAddressSchema.safeParse(address);
-		if (!parsedAddress.success) return { changed: false, record: current, reason: "invalid IPv4 address" };
+		if (!parsedAddress.success) {
+			return { changed: false, code: "invalid", record: current, reason: "Invalid IPv4 address" };
+		}
 		if (current.address === parsedAddress.data) return { changed: false, record: current };
 		if (current.revision >= REVISION_CEILING || snapshot.revision >= REVISION_CEILING) {
-			return { changed: false, record: current, reason: "this device has no revision left to write" };
+			return {
+				changed: false,
+				code: "write_failed",
+				record: current,
+				reason: "this device has no revision left to write",
+			};
 		}
 		const record = frozen({ ...current, address: parsedAddress.data, revision: current.revision + 1 });
 		if (
@@ -239,9 +255,9 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 				id,
 			)
 		) {
-			return { changed: false, record: current, reason: "could not be written" };
+			return { changed: false, code: "write_failed", record: current, reason: "could not be written" };
 		}
-		return { changed: true, record: held(id) };
+		return { changed: true, record: held(id) ?? record };
 	};
 
 	const perDevice = <T>(id: string, work: () => T | PromiseLike<T>): Promise<T> => fifo.run(id, work);

@@ -70,6 +70,7 @@ describe("AAD kind residue", () => {
 	});
 
 	it("leaves no AAD literals in callers", () => {
+		const literalPattern = (parts: string[]) => new RegExp(`(?<![\\w.])${parts.join("\\.")}(?!\\w)`);
 		const forbidden = [
 			["op", "payload"],
 			["op", "result"],
@@ -84,7 +85,8 @@ describe("AAD kind residue", () => {
 			["vault", "value"],
 			["vault", "gateways"],
 			["vault", "typed"],
-		].map((parts) => parts.join("."));
+		].map(literalPattern);
+		const boardName = literalPattern(["board", "name"]);
 		const files = filesUnder(path.join(root, "src"))
 			.filter((file) => file.endsWith(".ts"))
 			.filter(
@@ -95,12 +97,14 @@ describe("AAD kind residue", () => {
 			);
 		const sources = files.map((file) => [file, read(file)] as const);
 		for (const literal of forbidden)
-			for (const [file, source] of sources) expect(source, file).not.toContain(literal);
+			for (const [file, source] of sources) expect(source, file).not.toMatch(literal);
 		for (const literal of forbidden)
 			for (const file of filesUnder(path.join(root, "android/app/src/main")).filter(
 				(file) => file.endsWith(".kt") && file !== kotlinBuilderPath,
 			)) {
-				expect(read(file), file).not.toContain(literal);
+				expect(read(file), file).not.toMatch(literal);
 			}
+		expect('kind = "board.name"').toMatch(boardName);
+		expect("import com.atelier_nyaarium.switchboard.nameReady").not.toMatch(boardName);
 	});
 });

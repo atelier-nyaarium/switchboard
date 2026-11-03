@@ -1,0 +1,12 @@
+{
+	"kind": "device_schedule_put",
+	"id": "aa:bb:cc:dd:ee:ff",
+	"revision": 2,
+	"base": { "enabled": true, "rules": [] },
+	"schedule": {
+		"enabled": true,
+		"rules": [
+			{ "days": [false, true, true, true, true, true, false], "time": "07:00", "action": "off", "enabled": true }
+		]
+	}
+}

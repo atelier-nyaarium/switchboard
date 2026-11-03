@@ -1,7 +1,6 @@
 import { admittedGatewayIds, type DomainSnapshot } from "../shared/admission.js";
 import { type ChainTimers, chainedTimer } from "../shared/chained-timer.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
-import { DEVICE_CONSOLE_OP_KINDS } from "../shared/schemasDevices.js";
 import {
 	formatInboxAddress,
 	type InboxAddress,
@@ -18,7 +17,7 @@ import { createBoardService } from "./board/boardService.js";
 import type { ConsoleSockets } from "./console/consoleSockets.js";
 import type { GatewayBridge } from "./gatewayBridge.js";
 import type { InboxService } from "./inbox/inboxService.js";
-import { type OwnerOpIntake, OwnerOpRefused } from "./inbox/ownerOpIntake.js";
+import type { OwnerOpIntake } from "./inbox/ownerOpIntake.js";
 import type { OwnerStoreRegistry } from "./inbox/ownerStoreRegistry.js";
 import { createKeyDeliveryService } from "./keyDeliveryService.js";
 import { createCursorService } from "./migration/cursorService.js";
@@ -112,11 +111,6 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 				return { opKey, outcome: "accepted" as const, result };
 			});
 	});
-	for (const kind of DEVICE_CONSOLE_OP_KINDS) {
-		deps.intake.register(kind, () => {
-			throw new OwnerOpRefused("gateway_value_required");
-		});
-	}
 	deps.intake.register("planes_read", (op, value) => ({
 		opKey: { conversationId: op.conversationId, opId: op.opId },
 		outcome: "accepted" as const,

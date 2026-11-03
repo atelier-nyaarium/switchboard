@@ -82,7 +82,7 @@ describe("device schemas", () => {
 			{ kind: "device_rename", id, name: "Desk lamp", revision: 1 },
 			{ kind: "device_remove", id, revision: 1 },
 			{ kind: "device_set", id, verb: "toggle" },
-			{ kind: "device_schedule_put", id, revision: 1, schedule },
+			{ kind: "device_schedule_put", id, revision: 1, base: schedule, schedule },
 			{
 				kind: "device_setting_put",
 				id,

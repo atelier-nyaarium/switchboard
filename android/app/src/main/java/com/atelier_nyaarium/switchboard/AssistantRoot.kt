@@ -119,6 +119,10 @@ internal sealed interface AssistantPage {
 
 	data object Watchers : AssistantPage
 
+	data object Integrations : AssistantPage
+
+	data class Device(val gatewayId: String, val deviceId: String) : AssistantPage
+
 	data class Watcher(val gatewayId: String, val watcherId: String) : AssistantPage
 
 	data class Rules(val gatewayId: String, val watcherId: String) : AssistantPage
@@ -126,19 +130,22 @@ internal sealed interface AssistantPage {
 	data class Editor(val gatewayId: String, val watcherId: String, val slot: RuleSlot) : AssistantPage
 }
 
-/** Back: Editor, Rules, Watcher, Watchers, Settings. */
 internal fun assistantPageBack(page: AssistantPage): AssistantPage? = when (page) {
 	AssistantPage.Settings -> null
-	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Watchers -> AssistantPage.Settings
+	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Watchers, AssistantPage.Integrations ->
+		AssistantPage.Settings
+	is AssistantPage.Device -> AssistantPage.Integrations
 	is AssistantPage.Watcher -> AssistantPage.Watchers
 	is AssistantPage.Rules -> AssistantPage.Watcher(page.gatewayId, page.watcherId)
 	is AssistantPage.Editor -> AssistantPage.Rules(page.gatewayId, page.watcherId)
 }
 
 /** Only answers unwind pages. */
-internal fun AssistantPage.resolved(state: ChatState): AssistantPage {
+internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> DeviceListView? = { null }): AssistantPage {
 	val (gatewayId, watcherId) = when (this) {
-		AssistantPage.Settings, AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Watchers -> return this
+		AssistantPage.Settings, AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Watchers,
+		AssistantPage.Integrations -> return this
+		is AssistantPage.Device -> return deviceResolved(state, devices(gatewayId))
 		is AssistantPage.Watcher -> gatewayId to watcherId
 		is AssistantPage.Rules -> gatewayId to watcherId
 		is AssistantPage.Editor -> gatewayId to watcherId
@@ -149,9 +156,15 @@ internal fun AssistantPage.resolved(state: ChatState): AssistantPage {
 	return if (this is AssistantPage.Watcher || rulesOf(watcher) != null) this else AssistantPage.Watcher(gatewayId, watcherId)
 }
 
-internal fun ShellNav.resolvePage(state: ChatState): ShellNav {
+private fun AssistantPage.Device.deviceResolved(state: ChatState, list: DeviceListView?): AssistantPage = when {
+	assistantLeft(state, gatewayId) -> AssistantPage.Integrations
+	list is DeviceListView.Listed && list.records.none { it.id == deviceId } -> AssistantPage.Integrations
+	else -> this
+}
+
+internal fun ShellNav.resolvePage(state: ChatState, devices: (String) -> DeviceListView? = { null }): ShellNav {
 	val page = assistantPage ?: return this
-	val now = page.resolved(state)
+	val now = page.resolved(state, devices)
 	return if (now == page) this else copy(assistantPage = now)
 }
 
@@ -161,6 +174,8 @@ internal fun pageWords(page: AssistantPage): List<String> = when (page) {
 	AssistantPage.Features -> listOf(PAGE_FEATURES)
 	AssistantPage.Safety -> listOf(PAGE_SAFETY)
 	AssistantPage.Watchers -> listOf(PAGE_WATCHERS)
+	AssistantPage.Integrations -> listOf(PAGE_INTEGRATIONS)
+	is AssistantPage.Device -> listOf(PAGE_DEVICE, page.gatewayId, page.deviceId)
 	is AssistantPage.Watcher -> listOf(PAGE_WATCHER, page.gatewayId, page.watcherId)
 	is AssistantPage.Rules -> listOf(PAGE_RULES, page.gatewayId, page.watcherId)
 	is AssistantPage.Editor -> listOf(PAGE_EDITOR, page.gatewayId, page.watcherId) + slotWords(page.slot)
@@ -175,6 +190,8 @@ internal fun pageOf(words: List<String>): AssistantPage? {
 		PAGE_FEATURES -> AssistantPage.Features
 		PAGE_SAFETY -> AssistantPage.Safety
 		PAGE_WATCHERS -> AssistantPage.Watchers
+		PAGE_INTEGRATIONS -> AssistantPage.Integrations
+		PAGE_DEVICE -> if (gatewayId != null && watcherId != null) AssistantPage.Device(gatewayId, watcherId) else null
 		PAGE_WATCHER -> if (gatewayId != null && watcherId != null) AssistantPage.Watcher(gatewayId, watcherId) else null
 		PAGE_RULES -> if (gatewayId != null && watcherId != null) AssistantPage.Rules(gatewayId, watcherId) else null
 		PAGE_EDITOR -> {
@@ -206,6 +223,8 @@ private const val PAGE_LOCATION = "location"
 private const val PAGE_FEATURES = "features"
 private const val PAGE_SAFETY = "safety"
 private const val PAGE_WATCHERS = "watchers"
+private const val PAGE_INTEGRATIONS = "integrations"
+private const val PAGE_DEVICE = "device"
 private const val PAGE_WATCHER = "watcher"
 private const val PAGE_RULES = "rules"
 private const val PAGE_EDITOR = "editor"

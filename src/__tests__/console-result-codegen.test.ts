@@ -29,6 +29,9 @@ const ALLOWLIST = new Map([
 	["ConsoleRegisterResult", "registration is answered over the socket, and no phone code parses this"],
 ]);
 
+const hasType = (kotlin: string, id: string) =>
+	kotlin.includes(`data class ${id}`) || kotlin.includes(`sealed class ${id} `);
+
 describe("every console answer the gateway can send", () => {
 	it("has a Kotlin type the phone can parse it with", () => {
 		const kotlin = fs.readFileSync(PROTOCOL, "utf8");
@@ -37,13 +40,14 @@ describe("every console answer the gateway can send", () => {
 			.filter((id): id is string => typeof id === "string");
 
 		expect(named.length).toBeGreaterThan(20);
-		const missing = named.filter((id) => !ALLOWLIST.has(id) && !kotlin.includes(`data class ${id}`));
+		const missing = named.filter((id) => !ALLOWLIST.has(id) && !hasType(kotlin, id));
 		expect(missing).toEqual([]);
 	});
 
 	it("would notice a type that is not there", () => {
 		const kotlin = fs.readFileSync(PROTOCOL, "utf8");
-		expect(kotlin.includes("data class ConsoleRoutineListResult")).toBe(true);
-		expect(kotlin.includes("data class ConsoleNothingResult")).toBe(false);
+		expect(hasType(kotlin, "ConsoleDeviceListResult")).toBe(true);
+		expect(hasType(kotlin, "ConsoleRoutineListResult")).toBe(true);
+		expect(hasType(kotlin, "ConsoleNothingResult")).toBe(false);
 	});
 });

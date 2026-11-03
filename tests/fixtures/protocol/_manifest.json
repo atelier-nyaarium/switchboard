@@ -57,6 +57,17 @@
 		{ "file": "console-op-workspace-file-history.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "workspace-symbol-facet-answer.json", "schema": "WorkspaceSymbolFacetAnswer", "expect": "pass" },
 		{ "file": "workspace-file-history-answer.json", "schema": "WorkspaceFileHistoryAnswer", "expect": "pass" },
-		{ "file": "workspace-too-large-answer.json", "schema": "WorkspaceTooLargeAnswer", "expect": "pass" }
+		{ "file": "workspace-too-large-answer.json", "schema": "WorkspaceTooLargeAnswer", "expect": "pass" },
+		{ "file": "console-op-device-schedule-put.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "invalid-console-op-device-schedule-put-no-base.json", "schema": "ConsoleOp", "expect": "fail" },
+		{ "file": "console-op-device-setting-put.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "device-remove-result-ok.json", "schema": "ConsoleDeviceRemoveResult", "expect": "pass" },
+		{ "file": "device-read-result-settings.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
+		{ "file": "device-read-result-no-settings.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
+		{
+			"file": "device-schedule-put-result-refused.json",
+			"schema": "ConsoleDeviceSchedulePutResult",
+			"expect": "pass"
+		}
 	]
 }

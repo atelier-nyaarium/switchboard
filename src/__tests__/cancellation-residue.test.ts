@@ -43,7 +43,7 @@ function suspendNames(sources: string[]): Set<string> {
 	return names;
 }
 
-/** Per file: a common name like `block` is a plain lambda elsewhere. */
+/** Per file; names collide. */
 function suspendLambdaNames(source: string): Set<string> {
 	return new Set([...source.matchAll(/\b(\w+)\s*:\s*suspend\s*(?:\w+\.)?\(/g)].map((match) => match[1] as string));
 }
@@ -52,6 +52,19 @@ function hasSuspendingCall(block: string, names: Set<string>): boolean {
 	if (SUSPENDING_CALL.test(block)) return true;
 	for (const name of names) if (new RegExp(`\\b${name}\\s*\\(`).test(block)) return true;
 	return false;
+}
+
+/** Skips earlier chained catches. */
+function tryBlockOf(source: string, catchIndex: number, opens: Map<number, number>): [number, number] | undefined {
+	let close = source.lastIndexOf("}", catchIndex - 1);
+	for (;;) {
+		const open = opens.get(close);
+		if (open === undefined) return undefined;
+		const head = source.slice(0, open).trimEnd();
+		if (/\btry$/.test(head)) return [open, close];
+		if (!/\bcatch\s*\([^()]*\)$/.test(head)) return undefined;
+		close = source.lastIndexOf("}", open - 1);
+	}
 }
 
 function lineAt(source: string, index: number): number {
@@ -95,11 +108,10 @@ function insideSuspendingContext(source: string, open: number, pairs: Map<number
 		const close = pairs.get(ancestor);
 		const nestedFunction = /\b(?:[A-Za-z_]\w*\s+)*fun\s+\w+\s*\(/.test(source.slice(ancestor + 1, open));
 		if (nestedFunction || close === undefined || ancestor >= open || close <= open) continue;
-		// Nothing inside can be cancelled.
 		if (/NonCancellable/.test(match[0])) return false;
 		suspending = true;
 	}
-	// An expression body: its first brace opens the expression.
+	// Expression body.
 	for (const match of source.matchAll(/\bsuspend\s+fun\b[^{;=]*\)\s*(?::[^={]*)?=/g)) {
 		const ancestor = source.indexOf("{", (match.index ?? 0) + match[0].length);
 		const close = pairs.get(ancestor);
@@ -111,6 +123,7 @@ function insideSuspendingContext(source: string, open: number, pairs: Map<number
 function offendersIn(file: string, source: string, suspendFunctions: Set<string>): string[] {
 	const names = new Set([...suspendFunctions, ...suspendLambdaNames(source)]);
 	const pairs = bracePairs(source);
+	const opens = new Map([...pairs].map(([open, close]) => [close, open]));
 	const offenders: string[] = [];
 
 	for (const match of source.matchAll(/\brunIsolated\s*\{/g)) {
@@ -127,9 +140,10 @@ function offendersIn(file: string, source: string, suspendFunctions: Set<string>
 
 	for (const match of source.matchAll(CATCH)) {
 		const catchOpen = (match.index ?? 0) + match[0].lastIndexOf("{");
-		const tryClose = source.lastIndexOf("}", (match.index ?? 0) - 1);
-		const tryOpen = [...pairs].find(([, close]) => close === tryClose)?.[0];
-		if (tryOpen === undefined || !insideSuspendingContext(source, tryOpen, pairs)) continue;
+		const tryBlock = tryBlockOf(source, match.index ?? 0, opens);
+		if (tryBlock === undefined) continue;
+		const [tryOpen, tryClose] = tryBlock;
+		if (!insideSuspendingContext(source, tryOpen, pairs)) continue;
 		if (!hasSuspendingCall(source.slice(tryOpen + 1, tryClose), names)) continue;
 		const catchClose = pairs.get(catchOpen);
 		const catchBody = catchClose === undefined ? "" : source.slice(catchOpen + 1, catchClose);
@@ -204,6 +218,20 @@ describe("coroutine cancellation", () => {
 		expect(
 			offendersOf("suspend fun f() = withContext(NonCancellable) { try { send() } catch (e: Exception) { } }"),
 		).toEqual([]);
+	});
+
+	it("reads a chained catch against its try block", () => {
+		const prior = "suspend fun remove(k: Int) {}";
+		expect(
+			offendersOf(
+				`${prior} suspend fun f() { try { delay(1) } catch (e: CancellationException) { set.remove(1); throw e } catch (e: Throwable) { log(e) } }`,
+			),
+		).toEqual([]);
+		expect(
+			offendersOf(
+				"suspend fun f() { try { delay(1) } catch (e: IllegalStateException) { } catch (e: Exception) { log(e) } }",
+			),
+		).toHaveLength(1);
 	});
 
 	it("reads a local suspend function as suspending", () => {

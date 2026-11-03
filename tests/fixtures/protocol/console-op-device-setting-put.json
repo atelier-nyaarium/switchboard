@@ -1,0 +1,6 @@
+{
+	"kind": "device_setting_put",
+	"id": "aa:bb:cc:dd:ee:ff",
+	"revision": 2,
+	"setting": { "driver": "kasa", "setting": { "key": "led", "value": false } }
+}

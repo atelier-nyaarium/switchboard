@@ -8,24 +8,26 @@ export const DEVICE_ACTIONS = ["on", "off"] as const;
 export const DEVICE_VERBS = ["on", "off", "toggle"] as const;
 export const DEVICE_CLOUD_STATES = ["bound", "disconnected"] as const;
 export const KASA_SETTING_KEYS = ["led", "cloud"] as const;
-export const DEVICE_SCAN_REFUSALS = ["daemon_away", "timeout", "refused"] as const;
-/** Gateway device op answers. */
-export const DEVICE_OPERATION_REASONS = ["unreachable", "timeout", "refused", "not_supported"] as const;
-export const DEVICE_CONSOLE_OP_KINDS = [
-	"device_list",
-	"device_read",
-	"device_scan",
-	"device_add",
-	"device_rename",
-	"device_remove",
-	"device_set",
-	"device_schedule_put",
-	"device_setting_put",
+export const DEVICE_REFUSAL_CODES = [
+	"not_found",
+	"stale",
+	"exists",
+	"full",
+	"invalid",
+	"wrong_device",
+	"not_supported",
+	"toggle_unknown",
+	"unreachable",
+	"timeout",
+	"device_error",
+	"write_failed",
+	"daemon_away",
+	"scan_failed",
 ] as const;
+/** Plug may have changed. */
+export const DEVICE_EFFECTS = ["none", "unknown"] as const;
 export const DEVICE_MAX_RULES = 32;
 export const DEVICE_MAX_RECORDS = 64;
-
-export type DeviceConsoleOpKind = (typeof DEVICE_CONSOLE_OP_KINDS)[number];
 
 export const DeviceKindSchema = z.enum(DEVICE_KINDS).meta({ id: "DeviceKind" });
 export const DeviceDriverSchema = z.enum(DEVICE_DRIVERS).meta({ id: "DeviceDriver" });
@@ -122,6 +124,24 @@ export const DeviceScheduleSchema = z
 	}, "a rule id names one rule")
 	.meta({ id: "DeviceSchedule" });
 
+type ScheduleValue = z.infer<typeof DeviceScheduleSchema>;
+
+/** Rule order matters. */
+export function sameSchedule(a: ScheduleValue, b: ScheduleValue): boolean {
+	if (a.enabled !== b.enabled || a.rules.length !== b.rules.length) return false;
+	return a.rules.every((rule, index) => {
+		const other = b.rules[index]!;
+		return (
+			(rule.id ?? null) === (other.id ?? null) &&
+			rule.time === other.time &&
+			rule.action === other.action &&
+			rule.enabled === other.enabled &&
+			rule.days.length === other.days.length &&
+			rule.days.every((on, day) => on === other.days[day])
+		);
+	});
+}
+
 export const KasaClockSchema = z
 	.object({
 		time: z.string().datetime({ offset: true }),
@@ -171,132 +191,170 @@ export const DeviceCandidateSchema = z
 	})
 	.meta({ id: "DeviceCandidate" });
 
-export const DeviceScanRefusalSchema = z.enum(DEVICE_SCAN_REFUSALS).meta({ id: "DeviceScanRefusal" });
-export const DeviceOperationReasonSchema = z.enum(DEVICE_OPERATION_REASONS).meta({ id: "DeviceOperationReason" });
+export const DeviceRefusalCodeSchema = z.enum(DEVICE_REFUSAL_CODES).meta({ id: "DeviceRefusalCode" });
+export const DeviceEffectSchema = z.enum(DEVICE_EFFECTS).meta({ id: "DeviceEffect" });
 
-export const DeviceListRequestSchema = z.object({}).meta({ id: "DeviceListRequest" });
-export const DeviceReadRequestSchema = z.object({ id: DeviceIdSchema }).meta({ id: "DeviceReadRequest" });
-export const DeviceScanRequestSchema = z.object({}).meta({ id: "DeviceScanRequest" });
-export const DeviceAddRequestSchema = z
-	.object({ mac: DeviceIdSchema, address: DeviceAddressSchema, name: DeviceNameSchema })
-	.meta({ id: "DeviceAddRequest" });
-export const DeviceRenameRequestSchema = z
-	.object({ id: DeviceIdSchema, name: DeviceNameSchema, revision: DeviceRevisionSchema })
-	.meta({ id: "DeviceRenameRequest" });
-export const DeviceRemoveRequestSchema = z
-	.object({ id: DeviceIdSchema, revision: DeviceRevisionSchema })
-	.meta({ id: "DeviceRemoveRequest" });
-export const DeviceSetRequestSchema = z
-	.object({ id: DeviceIdSchema, verb: DeviceVerbSchema })
-	.meta({ id: "DeviceSetRequest" });
-export const DeviceSchedulePutRequestSchema = z
-	.object({ id: DeviceIdSchema, revision: DeviceRevisionSchema, schedule: DeviceScheduleSchema })
-	.meta({ id: "DeviceSchedulePutRequest" });
-export const DeviceSettingPutRequestSchema = z
-	.object({ id: DeviceIdSchema, revision: DeviceRevisionSchema, setting: DeviceSettingPutSchema })
-	.meta({ id: "DeviceSettingPutRequest" });
+export const DeviceLandedSchema = z
+	.object({ done: z.number().int().nonnegative(), total: z.number().int().positive() })
+	.meta({ id: "DeviceLanded" });
+
+export const DeviceRefusalSchema = z
+	.object({
+		code: DeviceRefusalCodeSchema,
+		effect: DeviceEffectSchema,
+		landed: DeviceLandedSchema.optional(),
+		detail: z.string().max(400).optional(),
+		record: DeviceRecordSchema.optional(),
+	})
+	.meta({ id: "DeviceRefusal" });
+
+export type DeviceRefusalCode = z.infer<typeof DeviceRefusalCodeSchema>;
+export type DeviceRefusal = z.infer<typeof DeviceRefusalSchema>;
+export type DeviceLanded = z.infer<typeof DeviceLandedSchema>;
+
+const RefusedAnswerSchema = z.object({ kind: z.literal("refused"), refusal: DeviceRefusalSchema });
+
+export const DeviceAddFieldsSchema = z.object({
+	mac: DeviceIdSchema,
+	address: DeviceAddressSchema,
+	name: DeviceNameSchema,
+});
+
+export const DeviceListRequestSchema = z.object({ kind: z.literal("device_list") });
+export const DeviceReadRequestSchema = z.object({ kind: z.literal("device_read"), id: DeviceIdSchema });
+export const DeviceScanRequestSchema = z.object({ kind: z.literal("device_scan") });
+export const DeviceAddRequestSchema = DeviceAddFieldsSchema.extend({ kind: z.literal("device_add") });
+export const DeviceRenameRequestSchema = z.object({
+	kind: z.literal("device_rename"),
+	id: DeviceIdSchema,
+	name: DeviceNameSchema,
+	revision: DeviceRevisionSchema,
+});
+export const DeviceRemoveRequestSchema = z.object({
+	kind: z.literal("device_remove"),
+	id: DeviceIdSchema,
+	revision: DeviceRevisionSchema,
+});
+export const DeviceSetRequestSchema = z.object({
+	kind: z.literal("device_set"),
+	id: DeviceIdSchema,
+	verb: DeviceVerbSchema,
+});
+export const DeviceSchedulePutRequestSchema = z.object({
+	kind: z.literal("device_schedule_put"),
+	id: DeviceIdSchema,
+	revision: DeviceRevisionSchema,
+	/** Edit's starting schedule. */
+	base: DeviceScheduleSchema,
+	schedule: DeviceScheduleSchema,
+});
+export const DeviceSettingPutRequestSchema = z.object({
+	kind: z.literal("device_setting_put"),
+	id: DeviceIdSchema,
+	revision: DeviceRevisionSchema,
+	setting: DeviceSettingPutSchema,
+});
 
 export const ConsoleDeviceListResultSchema = z
-	.object({
-		records: z.array(DeviceRecordSchema).max(DEVICE_MAX_RECORDS).optional(),
-		revision: z.number().int().nonnegative().max(REVISION_CEILING).optional(),
-		reason: DeviceOperationReasonSchema.optional(),
-		detail: z.string().optional(),
-	})
-	.refine((result) => {
-		const available =
-			result.records !== undefined &&
-			result.revision !== undefined &&
-			result.reason === undefined &&
-			result.detail === undefined;
-		const unavailable =
-			result.records === undefined && result.revision === undefined && result.reason !== undefined;
-		return available || unavailable;
-	})
+	.discriminatedUnion("kind", [
+		z.object({
+			kind: z.literal("ok"),
+			records: z.array(DeviceRecordSchema).max(DEVICE_MAX_RECORDS),
+			revision: z.number().int().nonnegative().max(REVISION_CEILING),
+		}),
+		RefusedAnswerSchema,
+	])
 	.meta({ id: "ConsoleDeviceListResult" });
 
+export const ConsoleDeviceReadResultSchema = z
+	.discriminatedUnion("kind", [
+		z.object({
+			kind: z.literal("ok"),
+			state: DeviceLiveStateSchema,
+			schedule: DeviceScheduleSchema,
+			/** Absent if read failed. */
+			settings: DeviceSettingsSchema.optional(),
+		}),
+		RefusedAnswerSchema,
+	])
+	.meta({ id: "ConsoleDeviceReadResult" });
+
 export const ConsoleDeviceScanResultSchema = z
-	.object({
-		candidates: z.array(DeviceCandidateSchema).max(DEVICE_MAX_RECORDS).optional(),
-		reason: DeviceScanRefusalSchema.optional(),
-		detail: z.string().optional(),
-	})
-	.refine((result) => {
-		const available = result.candidates !== undefined && result.reason === undefined && result.detail === undefined;
-		const unavailable = result.candidates === undefined && result.reason !== undefined;
-		return available || unavailable;
-	})
+	.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("ok"), candidates: z.array(DeviceCandidateSchema).max(DEVICE_MAX_RECORDS) }),
+		RefusedAnswerSchema,
+	])
 	.meta({ id: "ConsoleDeviceScanResult" });
 
 export const ConsoleDeviceAddResultSchema = z
-	.object({
-		stored: z.boolean(),
-		record: DeviceRecordSchema.optional(),
-		reason: z.string().optional(),
-		detail: z.string().optional(),
-	})
+	.discriminatedUnion("kind", [z.object({ kind: z.literal("ok"), record: DeviceRecordSchema }), RefusedAnswerSchema])
 	.meta({ id: "ConsoleDeviceAddResult" });
 
 export const ConsoleDeviceRenameResultSchema = z
-	.object({
-		stored: z.boolean(),
-		record: DeviceRecordSchema.optional(),
-		reason: z.string().optional(),
-		detail: z.string().optional(),
-	})
+	.discriminatedUnion("kind", [z.object({ kind: z.literal("ok"), record: DeviceRecordSchema }), RefusedAnswerSchema])
 	.meta({ id: "ConsoleDeviceRenameResult" });
 
 export const ConsoleDeviceRemoveResultSchema = z
-	.object({
-		deleted: z.boolean(),
-		record: DeviceRecordSchema.optional(),
-		reason: z.string().optional(),
-		detail: z.string().optional(),
-	})
+	.discriminatedUnion("kind", [z.object({ kind: z.literal("ok") }), RefusedAnswerSchema])
 	.meta({ id: "ConsoleDeviceRemoveResult" });
 
-export const ConsoleDeviceReadResultSchema = z
-	.object({
-		state: DeviceLiveStateSchema.optional(),
-		schedule: DeviceScheduleSchema.optional(),
-		reason: DeviceOperationReasonSchema.optional(),
-		detail: z.string().optional(),
-	})
-	.refine((result) => {
-		const available = result.state !== undefined && result.schedule !== undefined && result.reason === undefined;
-		const unavailable = result.state === undefined && result.schedule === undefined && result.reason !== undefined;
-		return available || unavailable;
-	})
-	.meta({ id: "ConsoleDeviceReadResult" });
-
 export const ConsoleDeviceSetResultSchema = z
-	.object({
-		state: DeviceLiveStateSchema.optional(),
-		reason: DeviceOperationReasonSchema.optional(),
-		detail: z.string().optional(),
-	})
-	.refine((result) => (result.state === undefined) !== (result.reason === undefined))
+	.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("ok"), state: DeviceLiveStateSchema }),
+		RefusedAnswerSchema,
+	])
 	.meta({ id: "ConsoleDeviceSetResult" });
 
 export const ConsoleDeviceSchedulePutResultSchema = z
-	.object({
-		schedule: DeviceScheduleSchema.optional(),
-		record: DeviceRecordSchema.optional(),
-		reason: z.string().optional(),
-		detail: z.string().optional(),
-	})
-	.refine((result) => (result.schedule === undefined) !== (result.reason === undefined))
+	.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("ok"), schedule: DeviceScheduleSchema }),
+		RefusedAnswerSchema,
+	])
 	.meta({ id: "ConsoleDeviceSchedulePutResult" });
 
 export const ConsoleDeviceSettingPutResultSchema = z
-	.object({
-		settings: DeviceSettingsSchema.optional(),
-		record: DeviceRecordSchema.optional(),
-		reason: z.string().optional(),
-		detail: z.string().optional(),
-	})
-	.refine((result) => (result.settings === undefined) !== (result.reason === undefined))
+	.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("ok"), settings: DeviceSettingsSchema }),
+		RefusedAnswerSchema,
+	])
 	.meta({ id: "ConsoleDeviceSettingPutResult" });
+
+export const DEVICE_CONSOLE_REQUESTS = [
+	DeviceListRequestSchema,
+	DeviceReadRequestSchema,
+	DeviceScanRequestSchema,
+	DeviceAddRequestSchema,
+	DeviceRenameRequestSchema,
+	DeviceRemoveRequestSchema,
+	DeviceSetRequestSchema,
+	DeviceSchedulePutRequestSchema,
+	DeviceSettingPutRequestSchema,
+] as const;
+
+export type DeviceConsoleOp = z.infer<(typeof DEVICE_CONSOLE_REQUESTS)[number]>;
+export type DeviceConsoleOpKind = DeviceConsoleOp["kind"];
+
+export const DEVICE_CONSOLE_RESULTS = {
+	device_list: ConsoleDeviceListResultSchema,
+	device_read: ConsoleDeviceReadResultSchema,
+	device_scan: ConsoleDeviceScanResultSchema,
+	device_add: ConsoleDeviceAddResultSchema,
+	device_rename: ConsoleDeviceRenameResultSchema,
+	device_remove: ConsoleDeviceRemoveResultSchema,
+	device_set: ConsoleDeviceSetResultSchema,
+	device_schedule_put: ConsoleDeviceSchedulePutResultSchema,
+	device_setting_put: ConsoleDeviceSettingPutResultSchema,
+} as const satisfies Record<DeviceConsoleOpKind, z.ZodType>;
+
+export type DeviceConsoleResult<K extends DeviceConsoleOpKind> = z.infer<(typeof DEVICE_CONSOLE_RESULTS)[K]>;
+
+export const DEVICE_CONSOLE_OP_KINDS: readonly DeviceConsoleOpKind[] = DEVICE_CONSOLE_REQUESTS.map(
+	(request) => request.shape.kind.value,
+);
+
+export function isDeviceConsoleOp<T extends { kind: string }>(op: T): op is Extract<T, { kind: DeviceConsoleOpKind }> {
+	return (DEVICE_CONSOLE_OP_KINDS as readonly string[]).includes(op.kind);
+}
 
 export function deviceRefusal(device: DeviceRecord): string | null {
 	const supportedKinds: Readonly<Record<DeviceRecord["driver"], readonly DeviceRecord["kind"][]>> = {

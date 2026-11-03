@@ -195,6 +195,18 @@ internal class ChatRepositoryPolicyHost(private val repo: ChatRepository) : Poli
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsolePolicyGateway)
 }
 
+internal class ChatRepositoryDeviceHost(
+	private val repo: ChatRepository,
+	override val generation: WorkspaceGeneration,
+) : DeviceHost {
+	private val sandbox by lazy { SandboxDeviceGateway() }
+
+	override val gateway: DeviceGateway? get() =
+		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleDeviceGateway)
+
+	override fun names(gatewayId: String): Boolean = repo.state.value.gateways.has(gatewayId)
+}
+
 internal class ConsoleAssistantGateway(private val client: ConsoleClient) : AssistantGateway {
 	override suspend fun call(gatewayId: String, op: ConsoleOp) = client.assistantOp(gatewayId, op)
 

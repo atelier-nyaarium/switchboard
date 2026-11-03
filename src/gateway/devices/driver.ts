@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
 import type {
+	DeviceLanded,
 	DeviceRecord,
 	DeviceScheduleSchema,
 	DeviceSettingPutSchema,
@@ -10,21 +11,27 @@ import type {
 
 export type DeviceVerb = z.infer<typeof DeviceVerbSchema>;
 
-/** Marked before a write; none once denied. */
+/** Marked while any attempt is undenied. */
 export interface EffectLatch {
 	readonly marked: boolean;
-	mark(): void;
-	none(): void;
+	/** Returns a one-shot deny. */
+	attempt(): () => void;
 }
 
 export function effectLatch(): EffectLatch {
+	let open = 0;
 	return {
-		marked: false,
-		mark() {
-			(this as { marked: boolean }).marked = true;
+		get marked() {
+			return open > 0;
 		},
-		none() {
-			(this as { marked: boolean }).marked = false;
+		attempt() {
+			open += 1;
+			let denied = false;
+			return () => {
+				if (denied) return;
+				denied = true;
+				open -= 1;
+			};
 		},
 	};
 }
@@ -36,10 +43,13 @@ export interface DeviceOperationContext {
 }
 
 // Sent means command written.
-export type DeviceDriverError =
+export type DeviceDriverError = (
 	| { kind: "unreachable"; detail: string; sent?: boolean }
-	| { kind: "refused"; code: number; message: string; note?: string }
-	| { kind: "timeout"; detail: string; sent?: boolean };
+	| { kind: "refused"; code: number; message: string }
+	| { kind: "timeout"; detail: string; sent?: boolean }
+	| { kind: "invalid"; detail: string }
+	| { kind: "wrong_device"; detail: string }
+) & { landed?: DeviceLanded };
 
 export class DeviceDriverFailure extends Error {
 	constructor(readonly failure: DeviceDriverError) {
@@ -48,14 +58,9 @@ export class DeviceDriverFailure extends Error {
 	}
 }
 
-/** Appends a landing note. */
-export function noteLanding(error: unknown, note: string): unknown {
+export function withLanded(error: unknown, landed: DeviceLanded): unknown {
 	if (!(error instanceof DeviceDriverFailure)) return error;
-	const failure = error.failure;
-	if (failure.kind === "refused") {
-		return new DeviceDriverFailure({ ...failure, note: failure.note ? `${failure.note}; ${note}` : note });
-	}
-	return new DeviceDriverFailure({ ...failure, detail: `${failure.detail}; ${note}` });
+	return new DeviceDriverFailure({ ...error.failure, landed });
 }
 
 export type DeviceConfirmedState = {

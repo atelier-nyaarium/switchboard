@@ -4,25 +4,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +25,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,11 +59,7 @@ import com.atelier_nyaarium.switchboard.DirectoryField
 import com.atelier_nyaarium.switchboard.PhoneCapabilities
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.answerText
-import com.atelier_nyaarium.switchboard.assistantRoleHeld
-import com.atelier_nyaarium.switchboard.assistantScreenDataEnabled
-import com.atelier_nyaarium.switchboard.openAssistantPicker
 import com.atelier_nyaarium.switchboard.assistantSections
-import com.atelier_nyaarium.switchboard.canRetry
 import com.atelier_nyaarium.switchboard.LocationAction
 import com.atelier_nyaarium.switchboard.folderOf
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -79,18 +69,7 @@ import com.atelier_nyaarium.switchboard.moveErrorText
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
-import com.atelier_nyaarium.switchboard.relativeTime
-import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
-import com.atelier_nyaarium.switchboard.routines.SecretNeeded
-import com.atelier_nyaarium.switchboard.routines.grantedLine
 import com.atelier_nyaarium.switchboard.runIsolated
-import com.atelier_nyaarium.switchboard.rulesCountText
-import com.atelier_nyaarium.switchboard.unexpectedLines
-import com.atelier_nyaarium.switchboard.vault.grantableOn
-import com.atelier_nyaarium.switchboard.watcherActions
-import com.atelier_nyaarium.switchboard.watcherHealth
-import com.atelier_nyaarium.switchboard.watcherOn
-import com.atelier_nyaarium.switchboard.watcherTroubled
 
 private const val DEFAULT_FOLDER = "~/"
 
@@ -145,7 +124,10 @@ internal fun AssistantPageHost(
 		AssistantPage.Features -> AssistantFeaturesPage(repo, onBack)
 		AssistantPage.Safety -> AssistantSafetyPage(repo, state, home, onBack)
 		AssistantPage.Watchers ->
-			AssistantWatchersPage(repo, state, home, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
+			AssistantWatchersPage(state, home, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
+		AssistantPage.Integrations ->
+			AssistantIntegrationsPage(repo, state, home, onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) }, onBack)
+		is AssistantPage.Device -> AssistantDevicePage(repo, page.gatewayId, page.deviceId, onBack)
 		is AssistantPage.Watcher -> {
 			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
 			if (watcher == null) {
@@ -191,7 +173,12 @@ private fun watcherIn(placed: ConsoleAssistantStateResult?, watcherId: String): 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AssistantPageScaffold(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun AssistantPageScaffold(
+	title: String,
+	onBack: () -> Unit,
+	actions: @Composable RowScope.() -> Unit = {},
+	content: @Composable ColumnScope.() -> Unit,
+) {
 	Scaffold(
 		topBar = {
 			TopAppBar(
@@ -199,6 +186,7 @@ internal fun AssistantPageScaffold(title: String, onBack: () -> Unit, content: @
 				navigationIcon = {
 					IconButton(onClick = hapticClick(onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
 				},
+				actions = actions,
 			)
 		},
 	) { pad ->
@@ -350,8 +338,16 @@ private fun AssistantSettingsIndex(
 	val phoneSettings = remember(tick) { phoneSettingFacts(context) }
 	var removing by remember { mutableStateOf(false) }
 	val settings = settingsRunner(repo)
-	// Refresh on open.
-	LaunchedEffect(home) { home?.let { gatewayId -> repo.command { assistantOps.refresh(gatewayId) } } }
+	val deviceViews by repo.deviceOps.views.collectAsState()
+	val deviceReach = home?.let { gatewayId ->
+		state.gateways.entry(gatewayId)?.let { state.gateways.reachable(gatewayId) to it.incarnation }
+	}
+	LaunchedEffect(home, deviceReach) {
+		home?.let { gatewayId ->
+			repo.command { assistantOps.refresh(gatewayId) }
+			repo.command { deviceOps.relist(gatewayId) }
+		}
+	}
 
 	AssistantPageScaffold("Assistant settings", onBack) {
 		(work.said ?: state.homeFailure?.let(::moveErrorText))?.let {
@@ -367,6 +363,10 @@ private fun AssistantSettingsIndex(
 					SettingsRow("Safety", safetyLines(homeState?.approveEverySend)) { onPage(AssistantPage.Safety) }
 				AssistantSection.WATCHERS ->
 					SettingsRow("Watchers", watcherLines(homeState?.watchers.orEmpty())) { onPage(AssistantPage.Watchers) }
+				AssistantSection.INTEGRATIONS ->
+					SettingsRow("Integrations", integrationLines(home, home?.let { deviceViews[it]?.list })) {
+						onPage(AssistantPage.Integrations)
+					}
 				AssistantSection.REMOVE -> SettingsRow("Remove assistant", SettingsLines(line = REMOVE_LINE)) { removing = true }
 			}
 		}
@@ -426,359 +426,3 @@ private fun AssistantSafetyPage(repo: ChatRepository, state: ChatState, home: St
 	}
 }
 
-@Composable
-private fun AssistantWatchersPage(
-	repo: ChatRepository,
-	state: ChatState,
-	home: String?,
-	onWatcher: (String, String) -> Unit,
-	onBack: () -> Unit,
-) {
-	val holding = home?.let { state.gateways.assistantOn(it) }
-	val vaultRevision by repo.vault.revision
-	val entries = remember(vaultRevision) { repo.vaultOps.views() }
-	val integrations = remember(holding?.integrations, entries, home) {
-		integrationRows(holding?.integrations, entries, home)
-	}
-	val works by repo.assistantOps.work.collectAsState()
-	var granting by rememberSaveable(home) { mutableStateOf<String?>(null) }
-	var showDisabled by rememberSaveable { mutableStateOf(false) }
-	AssistantPageScaffold("Watchers", onBack) {
-		if (home != null && holding != null) {
-			val (on, off) = holding.watchers.partition(::watcherOn)
-			for (watcher in on) {
-				WatcherRow(watcher.label, watcherHealth(watcher, ::agoText), watcherTroubled(watcher)) { onWatcher(home, watcher.id) }
-			}
-			if (off.isNotEmpty()) {
-				FoldRow("Disabled", showDisabled) { showDisabled = !showDisabled }
-				if (showDisabled) {
-					for (watcher in off) WatcherRow(watcher.label, null, false) { onWatcher(home, watcher.id) }
-				}
-			}
-			if (integrations.isNotEmpty()) {
-				HorizontalDivider()
-				Text("Integrations", style = MaterialTheme.typography.labelLarge)
-				for (row in integrations) {
-					val key = WorkKey.Watcher(home, row.integration.id)
-					val work = works[key] ?: PageWork()
-					work.said?.let {
-						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-					}
-					Row(
-						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(8.dp),
-						modifier = Modifier.fillMaxWidth(),
-					) {
-						Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-							Text(row.integration.label, style = MaterialTheme.typography.bodyLarge)
-							Text(row.grantedLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-						}
-						OutlinedButton(
-							onClick = hapticClick { granting = row.integration.id },
-							enabled = !work.busy,
-						) { Text("Assign secret") }
-					}
-				}
-			}
-		}
-	}
-	val integration = integrationRowForGrant(integrations, granting)
-	if (home != null && integration != null) {
-		val key = WorkKey.Watcher(home, integration.integration.id)
-		GrantSecretsSheet(
-			entries = integration.offered,
-			granted = integration.integration.grants,
-			onDone = { picks ->
-				granting = null
-				repo.command {
-					assistantOps.runWork(key) {
-						answerText(setGrants(home, integration.integration.id, picks))
-					}
-				}
-			},
-			onDismiss = { granting = null },
-		)
-	}
-}
-
-@Composable
-private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
-	val context = androidx.compose.ui.platform.LocalContext.current
-	val toggles = repo.phoneCapabilityOps.features
-	val wanted by toggles.wanted.collectAsState()
-	var tick by remember { mutableStateOf(0) }
-	// Grants change while away.
-	androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
-		tick++
-		onPauseOrDispose {}
-	}
-	var asking by remember { mutableStateOf<String?>(null) }
-	var denied by remember { mutableStateOf(setOf<String>()) }
-	var saveFailed by remember { mutableStateOf(false) }
-	val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-		if (!granted) asking?.let { denied = denied + it }
-		asking = null
-		tick++
-	}
-	val views = remember(tick, wanted) {
-		featureViews(featureRows(PhoneCapabilities.bindings.values), wanted, repo.phoneCapabilityOps::grants)
-	}
-	val phoneSettings = remember(tick) { phoneSettingFacts(context) }
-	val open = { need: String ->
-		val manifest = manifestPermissionOf(need)
-		val rationale = manifest != null && (context as? android.app.Activity)?.shouldShowRequestPermissionRationale(manifest) == true
-		when (permissionDoor(need, askable(need, denied, rationale))) {
-			PermissionDoor.REQUEST -> manifest?.let {
-				asking = need
-				request.launch(it)
-			}
-			PermissionDoor.APP_SETTINGS -> openAppSettings(context)
-			PermissionDoor.LISTENER_SETTINGS -> openNotificationListenerSettings(context)
-		}
-	}
-	AssistantPageScaffold("Features", onBack) {
-		if (saveFailed) Text("Could not save", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-		Text("Phone settings", style = MaterialTheme.typography.labelLarge)
-		for (row in phoneSettingRows(phoneSettings)) {
-			PhoneSettingRowView(row) {
-				when (row.door) {
-					PhoneSettingDoor.PICKER -> openAssistantPicker(context)
-					PhoneSettingDoor.NOTIFICATIONS -> open("notifications")
-					PhoneSettingDoor.NOTIFICATION_PAGE -> openNotificationSettings(context)
-				}
-			}
-		}
-		HorizontalDivider()
-		Text("The assistant may", style = MaterialTheme.typography.labelLarge)
-		for (view in views) {
-			FeatureRowView(
-				view,
-				featureRowModel(view),
-				onToggle = { on -> saveFailed = !toggles.setWanted(view.row.key, toggledWanted(view, on)) },
-				onGear = { gear ->
-					when (gear) {
-						is GearTarget.Need -> open(gear.need)
-						GearTarget.AppSettings -> openAppSettings(context)
-					}
-				},
-			)
-		}
-	}
-}
-
-@Composable
-private fun PhoneSettingRowView(row: PhoneSettingRow, onGear: () -> Unit) {
-	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-		Column(Modifier.weight(1f)) {
-			Text(row.label, style = MaterialTheme.typography.bodyLarge)
-			Text(
-				if (row.on) "On" else row.offWord,
-				style = MaterialTheme.typography.bodySmall,
-				color = if (row.on) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-			)
-		}
-		IconButton(onClick = hapticClick(onGear)) { Icon(Icons.Default.Settings, contentDescription = "Open setting") }
-	}
-}
-
-@Composable
-private fun FeatureRowView(view: FeatureView, model: FeatureRowModel, onToggle: (Boolean) -> Unit, onGear: (GearTarget) -> Unit) {
-	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-			Text(view.row.label, style = MaterialTheme.typography.bodyLarge)
-			needsLine(view)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-		}
-		Switch(checked = view.wanted, onCheckedChange = onToggle, enabled = model.switchEnabled)
-		val gear = model.gear
-		if (gear == null) {
-			Spacer(Modifier.size(48.dp))
-		} else {
-			IconButton(onClick = hapticClick { onGear(gear) }) { Icon(Icons.Default.Settings, contentDescription = "Open permission") }
-		}
-	}
-}
-
-private fun phoneSettingFacts(context: android.content.Context) = PhoneSettingFacts(
-	roleHeld = assistantRoleHeld(context),
-	sessionAdopted = assistantSessionAdopted(context),
-	screenData = assistantScreenDataEnabled(context),
-	notifications = grantedOn(context, "notifications"),
-)
-
-private fun grantedOn(context: android.content.Context, need: String): Boolean {
-	val manifest = manifestPermissionOf(need) ?: return false
-	return runIsolated { context.checkSelfPermission(manifest) == android.content.pm.PackageManager.PERMISSION_GRANTED }
-		.getOrDefault(false)
-}
-
-private fun openNotificationSettings(context: android.content.Context) {
-	runIsolated {
-		context.startActivity(
-			android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-				.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-				.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-		)
-	}
-}
-
-private fun openNotificationListenerSettings(context: android.content.Context) {
-	runIsolated {
-		context.startActivity(
-			android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-				.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-		)
-	}
-}
-
-private fun openAppSettings(context: android.content.Context) {
-	runIsolated {
-		context.startActivity(
-			android.content.Intent(
-				android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-				android.net.Uri.fromParts("package", context.packageName, null),
-			).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-		)
-	}
-}
-
-/** Red health when troubled. */
-@Composable
-private fun WatcherRow(label: String, health: String?, troubled: Boolean, onOpen: () -> Unit) {
-	Row(
-		Modifier.fillMaxWidth().clickable(onClick = hapticClick(onOpen)).padding(vertical = 8.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-	) {
-		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-			Text(label, style = MaterialTheme.typography.bodyLarge)
-			health?.let {
-				Text(
-					it,
-					style = MaterialTheme.typography.bodySmall,
-					color = if (troubled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
-		}
-		Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-	}
-}
-
-@Composable
-private fun FoldRow(label: String, open: Boolean, onToggle: () -> Unit) {
-	Row(
-		Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 4.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-	) {
-		Icon(
-			if (open) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-			contentDescription = if (open) "Collapse" else "Expand",
-			modifier = Modifier.size(18.dp),
-		)
-		Text(label, style = MaterialTheme.typography.labelLarge)
-	}
-}
-
-@Composable
-private fun AssistantWatcherPage(
-	repo: ChatRepository,
-	gatewayId: String,
-	watcher: AssistantWatcher,
-	onRules: () -> Unit,
-	onBack: () -> Unit,
-) {
-	val key = WorkKey.Watcher(gatewayId, watcher.id)
-	val works by repo.assistantOps.work.collectAsState()
-	val work = works[key] ?: PageWork()
-	val busy = work.busy
-	val vaultRevision by repo.vault.revision
-	val entries = remember(vaultRevision) { repo.vaultOps.views() }
-	val offered = remember(entries, gatewayId) { entries.grantableOn(gatewayId) }
-	var granting by remember { mutableStateOf(false) }
-	val run = { op: suspend AssistantOps.() -> String? -> repo.command { assistantOps.runWork(key, op) } }
-	val on = watcherOn(watcher)
-
-	AssistantPageScaffold(watcher.label, onBack) {
-		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-			Text("Enabled", modifier = Modifier.weight(1f))
-			Switch(
-				checked = on,
-				onCheckedChange = { enabled -> run { answerText(setEnabled(gatewayId, watcher.id, enabled)) } },
-				enabled = !busy,
-			)
-		}
-		if (on) {
-			Text(
-				watcherHealth(watcher, ::agoText),
-				style = MaterialTheme.typography.bodySmall,
-				color = if (watcherTroubled(watcher)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-		}
-		watcher.secret?.let { needs ->
-			HorizontalDivider()
-			Text("Secret", style = MaterialTheme.typography.labelLarge)
-			SecretNeeded(needs)
-			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				Text(grantedLine(watcher.grants, entries), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-				OutlinedButton(onClick = hapticClick { granting = true }, enabled = !busy) { Text("Assign secret") }
-			}
-		}
-		val may = watcherActions(watcher)
-		if (may.isNotEmpty()) {
-			HorizontalDivider()
-			Text("The assistant may", style = MaterialTheme.typography.labelLarge)
-			for (action in may) {
-				Column {
-					Text(action.label, style = MaterialTheme.typography.bodyMedium)
-					Text(
-						action.description,
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-				}
-			}
-		}
-		rulesOf(watcher)?.let { rules ->
-			HorizontalDivider()
-			Row(
-				Modifier.fillMaxWidth().clickable(enabled = !busy, onClick = hapticClick(onRules)).padding(vertical = 8.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				Text("Rules", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-				Text(
-					rulesCountText(rules.held.rules.size, rules.invalid.size),
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-			}
-		}
-		val unexpected = unexpectedLines(watcher)
-		if (unexpected.isNotEmpty()) {
-			Text("Seen outside its lists", style = MaterialTheme.typography.labelLarge)
-			for (line in unexpected) {
-				Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			}
-		}
-		if (canRetry(watcher)) {
-			TextButton(onClick = hapticClick { run { answerText(retry(gatewayId, watcher)) } }, enabled = !busy) { Text("Retry") }
-		}
-	}
-
-	if (granting) {
-		GrantSecretsSheet(
-			entries = offered,
-			granted = watcher.grants,
-			onDone = { picks ->
-				granting = false
-				run { answerText(setGrants(gatewayId, watcher.id, picks)) }
-			},
-			onDismiss = { granting = false },
-			needs = watcher.secret,
-		)
-	}
-}
-
-private fun agoText(at: Long): String = relativeTime(at).let { if (it == "now") "just now" else "$it ago" }

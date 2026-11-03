@@ -5,16 +5,7 @@ import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
-import {
-	DEVICE_CONSOLE_OP_KINDS,
-	DeviceAddRequestSchema,
-	DeviceReadRequestSchema,
-	DeviceRemoveRequestSchema,
-	DeviceRenameRequestSchema,
-	DeviceSchedulePutRequestSchema,
-	DeviceSetRequestSchema,
-	DeviceSettingPutRequestSchema,
-} from "./schemasDevices.js";
+import { DEVICE_CONSOLE_OP_KINDS, DEVICE_CONSOLE_REQUESTS } from "./schemasDevices.js";
 import { PhoneCapabilityAnswerSchema } from "./schemasPhoneCapabilities.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
@@ -291,43 +282,7 @@ export const ConsoleOpSchema = z
 			enabled: z.boolean(),
 			baseRevision: z.number().int().positive(),
 		}),
-		z.object({ kind: z.literal("device_list") }),
-		z.object({ kind: z.literal("device_read"), id: DeviceReadRequestSchema.shape.id }),
-		z.object({ kind: z.literal("device_scan") }),
-		z.object({
-			kind: z.literal("device_add"),
-			mac: DeviceAddRequestSchema.shape.mac,
-			address: DeviceAddRequestSchema.shape.address,
-			name: DeviceAddRequestSchema.shape.name,
-		}),
-		z.object({
-			kind: z.literal("device_rename"),
-			id: DeviceRenameRequestSchema.shape.id,
-			name: DeviceRenameRequestSchema.shape.name,
-			revision: DeviceRenameRequestSchema.shape.revision,
-		}),
-		z.object({
-			kind: z.literal("device_remove"),
-			id: DeviceRemoveRequestSchema.shape.id,
-			revision: DeviceRemoveRequestSchema.shape.revision,
-		}),
-		z.object({
-			kind: z.literal("device_set"),
-			id: DeviceSetRequestSchema.shape.id,
-			verb: DeviceSetRequestSchema.shape.verb,
-		}),
-		z.object({
-			kind: z.literal("device_schedule_put"),
-			id: DeviceSchedulePutRequestSchema.shape.id,
-			revision: DeviceSchedulePutRequestSchema.shape.revision,
-			schedule: DeviceSchedulePutRequestSchema.shape.schedule,
-		}),
-		z.object({
-			kind: z.literal("device_setting_put"),
-			id: DeviceSettingPutRequestSchema.shape.id,
-			revision: DeviceSettingPutRequestSchema.shape.revision,
-			setting: DeviceSettingPutRequestSchema.shape.setting,
-		}),
+		...DEVICE_CONSOLE_REQUESTS,
 		z.object({ kind: z.literal("assistant_state") }),
 		/** The whole set, never a patch. */
 		z.object({

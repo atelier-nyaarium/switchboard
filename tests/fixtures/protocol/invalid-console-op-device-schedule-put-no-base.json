@@ -1,0 +1,6 @@
+{
+	"kind": "device_schedule_put",
+	"id": "aa:bb:cc:dd:ee:ff",
+	"revision": 2,
+	"schedule": { "enabled": true, "rules": [] }
+}

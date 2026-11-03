@@ -1,4 +1,4 @@
-import { DeviceDriverFailure, noteLanding } from "../driver.js";
+import { DeviceDriverFailure, withLanded } from "../driver.js";
 
 type JsonRecord = Record<string, unknown>;
 type KasaCommand = (module: string, name: string, args: JsonRecord) => Promise<JsonRecord>;
@@ -30,16 +30,16 @@ export async function disconnectCloud(command: KasaCommand, mutate: CloudMutatio
 	const server = typeof info.server === "string" ? info.server : "";
 	await mutate("unbind", {});
 	if (server.length === 0) return;
-	const unbound = "the cloud unbind landed; the server URL may still name the cloud";
+	const unbound = { done: 1, total: 2 };
 	try {
 		await mutate("set_server_url", { server: "" });
 	} catch (error) {
 		if (!(error instanceof DeviceDriverFailure) || error.failure.kind !== "refused")
-			throw noteLanding(error, unbound);
+			throw withLanded(error, unbound);
 		try {
 			await mutate("set_server_url", { server: "0.0.0.0" });
 		} catch (second) {
-			throw noteLanding(second, unbound);
+			throw withLanded(second, unbound);
 		}
 	}
 }

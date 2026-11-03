@@ -3,7 +3,6 @@ package com.atelier_nyaarium.switchboard.routines
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,11 +14,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,15 +23,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.ClockPickerDialog
 import com.atelier_nyaarium.switchboard.EditorScaffold
-import com.atelier_nyaarium.switchboard.NO_TAP_AWAY
 import com.atelier_nyaarium.switchboard.RoutineSaved
 import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -283,33 +276,14 @@ fun RoutineEditor(
 	}
 
 	if (pickingTime) {
-		val (hour, minute) = clockOf(draft.time)
-		val clock = rememberTimePickerState(
-			initialHour = hour,
-			initialMinute = minute,
-			is24Hour = android.text.format.DateFormat.is24HourFormat(LocalContext.current),
+		ClockPickerDialog(
+			time = draft.time,
+			onPick = { time ->
+				draft = draft.copy(time = time)
+				pickingTime = false
+			},
+			onDismiss = { pickingTime = false },
 		)
-		Dialog(onDismissRequest = { pickingTime = false }, properties = NO_TAP_AWAY) {
-			Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
-				Column(
-					Modifier.padding(24.dp),
-					horizontalAlignment = Alignment.CenterHorizontally,
-					verticalArrangement = Arrangement.spacedBy(20.dp),
-				) {
-					Text("Time", style = MaterialTheme.typography.titleMedium)
-					TimePicker(state = clock)
-					Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-						TextButton(onClick = hapticClick { pickingTime = false }) { Text("Cancel") }
-						TextButton(
-							onClick = hapticClick {
-								draft = draft.copy(time = clockText(clock.hour, clock.minute))
-								pickingTime = false
-							},
-						) { Text("OK") }
-					}
-				}
-			}
-		}
 	}
 
 	if (granting && !assistantTarget) {

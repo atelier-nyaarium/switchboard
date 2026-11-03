@@ -52,7 +52,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
     status line per page (`AssistantSettingsLines.kt`), refreshed on open. Session data location (the
     Gateway, the folder, Move here or Set up here), Features (below), Safety (Approve every send),
     Watchers (one row per enabled watcher with its health line, `WatcherStatus`, red when it needs a
-    secret or stopped, and a collapsible Disabled group), Integrations, Remove assistant. A watcher
+    secret or stopped, and a collapsible Disabled group), Integrations (the home Gateway's devices,
+    and each service's secret grant, such as IFTTT; `docs/devices.md`), Remove assistant. A watcher
     row opens its page: Enabled, its health, secret, grants, actions, a Rules page with its count,
     and Retry when stopped. Rules opens a rule's Editor page. Each page shows its own failure under
     its `WorkKey`.

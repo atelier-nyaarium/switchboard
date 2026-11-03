@@ -141,6 +141,10 @@ function refuse(code: number, message: string): never {
 	throw new DeviceDriverFailure({ kind: "refused", code, message });
 }
 
+function invalid(detail: string): never {
+	throw new DeviceDriverFailure({ kind: "invalid", detail });
+}
+
 function errorMessage(value: unknown): string {
 	return typeof value === "string" && value.length > 0 ? value : "Kasa refused the command";
 }
@@ -283,7 +287,7 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 		const actual = sysinfoMac(info);
 		if (actual !== record.id) {
 			throw new DeviceDriverFailure({
-				kind: "unreachable",
+				kind: "wrong_device",
 				detail: `Kasa identity mismatch at ${record.address}: expected ${record.id}, received ${actual}`,
 			});
 		}
@@ -299,14 +303,14 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 	): Promise<{ response: JsonRecord; value: T }> => {
 		const identity = await identifyInfo(record, ctx);
 		const mutation = build(identity);
-		ctx.effect.mark();
+		const deny = ctx.effect.attempt();
 		let response: JsonRecord;
 		try {
 			response = await command(record.address, module, name, mutation.args, ctx.signal);
 		} catch (error) {
 			if (error instanceof DeviceDriverFailure) {
 				const failure = error.failure;
-				if (failure.kind === "refused" || failure.sent === false) ctx.effect.none();
+				if (failure.kind === "refused" || ("sent" in failure && failure.sent === false)) deny();
 			}
 			throw error;
 		}
@@ -379,12 +383,9 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 		read: () => readSettings(record, ctx),
 		put: async (setting: DeviceSetting) => {
 			const checked = DeviceSettingPutSchema.safeParse(setting);
-			if (!checked.success || checked.data.driver !== "kasa")
-				refuse(-1, "The setting is invalid for this device");
+			if (!checked.success || checked.data.driver !== "kasa") invalid("Invalid setting");
 			const put = checked.data.setting;
-			if (put.key === "cloud" && put.value === "bound") {
-				refuse(-1, "The Kasa app binds a plug");
-			}
+			if (put.key === "cloud" && put.value === "bound") invalid("Only the Kasa app binds the cloud");
 			await identifyInfo(record, ctx);
 			if (put.key === "led") {
 				await mutate(record, "system", "set_led_off", { off: put.value ? 0 : 1 }, ctx);

@@ -711,13 +711,26 @@ class AssistantOpsTest {
 		val placed = ConsoleAssistantStateResult(workdir = "~/notes", watchers = emptyList())
 		val safe = placed.copy(approveEverySend = true)
 
-		val unplaced = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES)
-		val placedSections = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.WATCHERS, AssistantSection.REMOVE)
+		val unplaced = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.INTEGRATIONS)
+		val placedSections = listOf(
+			AssistantSection.LOCATION,
+			AssistantSection.FEATURES,
+			AssistantSection.WATCHERS,
+			AssistantSection.INTEGRATIONS,
+			AssistantSection.REMOVE,
+		)
 
 		assertEquals(unplaced, assistantSections(home = null, placed = null))
 		assertEquals(placedSections, assistantSections("sakura", placed))
 		assertEquals(
-			listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.SAFETY, AssistantSection.WATCHERS, AssistantSection.REMOVE),
+			listOf(
+				AssistantSection.LOCATION,
+				AssistantSection.FEATURES,
+				AssistantSection.SAFETY,
+				AssistantSection.WATCHERS,
+				AssistantSection.INTEGRATIONS,
+				AssistantSection.REMOVE,
+			),
 			assistantSections("sakura", safe),
 		)
 	}

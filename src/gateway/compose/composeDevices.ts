@@ -1,25 +1,23 @@
 import type { Ambient } from "../../shared/ambient.js";
-import { deviceNameRefusal } from "../../shared/schemasDevices.js";
-import type { DeviceConsoleHandlers } from "../console/consoleTypes.js";
+import {
+	type DeviceConsoleOp,
+	type DeviceConsoleOpKind,
+	type DeviceConsoleResult,
+	deviceNameRefusal,
+	sameSchedule,
+} from "../../shared/schemasDevices.js";
+import type { DeviceConsole } from "../console/consoleTypes.js";
 import type { DeviceVerb } from "../devices/driver.js";
 import type { KasaTransport } from "../devices/kasa/transport.js";
-import { createDeviceRoad, Decline, type Plug } from "../devices/road.js";
+import { createDeviceRoad, Decline, type Plug, unwrap } from "../devices/road.js";
 import { createDeviceScan, type KasaScanRelay } from "../devices/scan.js";
 import {
-	addShape,
 	assistantListShape,
 	assistantSetShape,
+	consoleShape,
 	type DeviceListActionResult,
 	type DeviceSetActionResult,
-	listShape,
-	readShape,
-	removeShape,
-	renameShape,
 	resolveTarget,
-	scanShape,
-	schedulePutShape,
-	setShape,
-	settingPutShape,
 } from "../devices/shapes.js";
 import type { DeviceStore } from "../devices/store.js";
 
@@ -39,11 +37,15 @@ export interface DeviceStageDeps {
 }
 
 export interface DeviceStage {
-	console: DeviceConsoleHandlers;
+	console: DeviceConsole;
 	listDevices: () => Promise<DeviceListActionResult>;
 	setDevice: (target: string, verb: DeviceVerb) => Promise<DeviceSetActionResult>;
 	close: () => Promise<void>;
 }
+
+type DeviceHandlers = {
+	[K in DeviceConsoleOpKind]: (op: Extract<DeviceConsoleOp, { kind: K }>) => Promise<DeviceConsoleResult<K>>;
+};
 
 /** Handler bodies; the road does the rest. */
 export function composeDevices(deps: DeviceStageDeps): DeviceStage {
@@ -56,17 +58,26 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			verb === "toggle" ? "toggles-relay" : "confirms-relay",
 		);
 
-	const handlers: DeviceConsoleHandlers = {
-		list: () => road.operation("console", listShape, async () => road.reads.list()),
-		read: (id) =>
-			road.onDevice("console", readShape, id, async (plug) => {
+	const handlers: DeviceHandlers = {
+		device_list: () =>
+			road.operation("console", consoleShape("device_list"), async () => ({ kind: "ok", ...road.reads.list() })),
+		device_read: (op) =>
+			road.onDevice("console", consoleShape("device_read"), op.id, async (plug) => {
 				const read = await plug.drive((ctx) => plug.driver.read(plug.record, ctx), "confirms-relay");
-				return { state: read.state, schedule: read.schedule };
+				// Settings fail alone.
+				const settings = await plug.attempt((ctx) => plug.driver.settings(plug.record, ctx).read());
+				return {
+					kind: "ok",
+					state: read.state,
+					schedule: read.schedule,
+					...(settings.ok ? { settings: settings.value } : {}),
+				};
 			}),
-		scan: () =>
-			road.operation("console", scanShape, async (op) => {
+		device_scan: () =>
+			road.operation("console", consoleShape("device_scan"), async (op) => {
 				const found = await op.race(runScan());
-				for (const candidate of found.candidates ?? []) {
+				if (found.kind === "refused") throw new Decline({ kind: "refused", code: found.code });
+				for (const candidate of found.candidates) {
 					await op.device(
 						candidate.mac,
 						async (slot) => {
@@ -77,46 +88,72 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 						{ bound: DEVICE_IDENTIFY_WAIT_MS },
 					);
 				}
-				return found;
+				return { kind: "ok", candidates: found.candidates };
 			}),
-		add: (request) =>
-			road.onSlot("console", addShape, request.mac, async (slot) => {
-				const refusal = deviceNameRefusal(request.name);
-				if (refusal) return { stored: false, reason: refusal };
+		device_add: (op) =>
+			road.onSlot("console", consoleShape("device_add"), op.mac, async (slot) => {
+				const refusal = deviceNameRefusal(op.name);
+				if (refusal) throw new Decline({ kind: "refused", code: "invalid", text: refusal });
 				const current = slot.record;
-				if (current && current.address === request.address && current.name === request.name) {
-					return { stored: true, record: current };
+				if (current && current.address === op.address && current.name === op.name) {
+					return { kind: "ok", record: current };
 				}
-				await slot.identify(request.address, request.mac);
-				return slot.write.add(request);
+				await slot.identify(op.address, op.mac);
+				return {
+					kind: "ok",
+					record: unwrap(slot.write.add({ mac: op.mac, address: op.address, name: op.name })),
+				};
 			}),
-		rename: (id, name, revision) =>
-			road.onDevice("console", renameShape, id, async (plug) => {
-				const refusal = deviceNameRefusal(name);
-				if (refusal) return { stored: false, record: plug.record, reason: refusal };
-				if (plug.record.name === name) return plug.write.rename(name, revision);
-				plug.expect(revision);
-				const { previous } = await plug.drive((ctx) => plug.driver.rename(plug.record, name, ctx));
-				const committed = plug.write.rename(name, revision);
-				if (committed.stored) return committed;
+		device_rename: (op) =>
+			road.onDevice("console", consoleShape("device_rename"), op.id, async (plug) => {
+				const refusal = deviceNameRefusal(op.name);
+				if (refusal)
+					throw new Decline({ kind: "refused", code: "invalid", text: refusal, record: plug.record });
+				if (plug.record.name === op.name)
+					return { kind: "ok", record: unwrap(plug.write.rename(op.name, op.revision)) };
+				plug.expect(op.revision);
+				const { previous } = await plug.drive((ctx) => plug.driver.rename(plug.record, op.name, ctx));
+				const committed = plug.write.rename(op.name, op.revision);
+				if (committed.ok) return { kind: "ok", record: committed.value };
 				const restored = await plug.attempt((ctx) =>
 					plug.driver.rename(plug.record, previous ?? plug.record.name, ctx),
 				);
-				return restored.ok ? committed : { ...committed, detail: `the plug may still be named ${name}` };
+				throw new Decline(restored.ok ? committed.why : { ...committed.why, effect: "unknown" });
 			}),
-		remove: (id, revision) => road.onSlot("console", removeShape, id, async (slot) => slot.write.remove(revision)),
-		set: (id, verb) => road.onDevice("console", setShape, id, async (plug) => ({ state: await relay(plug, verb) })),
-		schedulePut: (id, revision, schedule) =>
-			road.onDevice("console", schedulePutShape, id, async (plug) => {
-				plug.expect(revision);
-				return { schedule: await plug.drive((ctx) => plug.driver.schedule(plug.record, ctx).put(schedule)) };
+		device_remove: (op) =>
+			road.onSlot("console", consoleShape("device_remove"), op.id, async (slot) => {
+				unwrap(slot.write.remove(op.revision));
+				return { kind: "ok" };
 			}),
-		settingPut: (id, revision, setting) =>
-			road.onDevice("console", settingPutShape, id, async (plug) => {
-				plug.expect(revision);
-				return { settings: await plug.drive((ctx) => plug.driver.settings(plug.record, ctx).put(setting)) };
+		device_set: (op) =>
+			road.onDevice("console", consoleShape("device_set"), op.id, async (plug) => ({
+				kind: "ok",
+				state: await relay(plug, op.verb),
+			})),
+		device_schedule_put: (op) =>
+			road.onDevice("console", consoleShape("device_schedule_put"), op.id, async (plug) => {
+				plug.expect(op.revision);
+				const held = await plug.drive((ctx) => plug.driver.schedule(plug.record, ctx).read());
+				if (!sameSchedule(held, op.base)) {
+					throw new Decline({
+						kind: "refused",
+						code: "stale",
+						text: "the plug's schedule changed since it was read",
+					});
+				}
+				const schedule = await plug.drive((ctx) => plug.driver.schedule(plug.record, ctx).put(op.schedule));
+				return { kind: "ok", schedule };
+			}),
+		device_setting_put: (op) =>
+			road.onDevice("console", consoleShape("device_setting_put"), op.id, async (plug) => {
+				plug.expect(op.revision);
+				const settings = await plug.drive((ctx) => plug.driver.settings(plug.record, ctx).put(op.setting));
+				return { kind: "ok", settings };
 			}),
 	};
+
+	// Correlated union cast.
+	const deviceConsole: DeviceConsole = (op) => (handlers[op.kind] as (op: DeviceConsoleOp) => Promise<never>)(op);
 
 	const listDevices: DeviceStage["listDevices"] = () =>
 		road.operation("assistant", assistantListShape, async (op) => {
@@ -131,14 +168,20 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 						}),
 						{ bound: DEVICE_READ_WAIT_MS },
 					);
-					const row = { id: record.id, name: record.name, kind: record.kind };
 					if (outcome.ok) {
 						const { record: held, read } = outcome.value;
 						return { id: held.id, name: held.name, kind: held.kind, state: read.state.state };
 					}
-					if (outcome.why.kind === "missing" || outcome.why.kind === "refused") return null;
-					const unreachable = outcome.why.kind === "failed" && outcome.why.failure.kind === "unreachable";
-					return { ...row, state: unreachable ? ("unreachable" as const) : ("unknown" as const) };
+					if (outcome.why.kind === "refused") return null;
+					const unreachable =
+						outcome.why.kind === "failed" &&
+						(outcome.why.failure.kind === "unreachable" || outcome.why.failure.kind === "wrong_device");
+					return {
+						id: record.id,
+						name: record.name,
+						kind: record.kind,
+						state: unreachable ? ("unreachable" as const) : ("unknown" as const),
+					};
 				}),
 			);
 			return {
@@ -158,10 +201,9 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 					id: plug.record.id,
 					state: (await relay(plug, verb)).state,
 				}));
-				if (!outcome.ok) throw new Decline(outcome.why);
-				return { kind: "ok" as const, answer: outcome.value };
+				return { kind: "ok" as const, answer: unwrap(outcome) };
 			},
 		);
 
-	return { console: handlers, listDevices, setDevice, close: road.close };
+	return { console: deviceConsole, listDevices, setDevice, close: road.close };
 }

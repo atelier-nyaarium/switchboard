@@ -17,6 +17,11 @@ import {
 } from "../shared/schemas.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
+	ConsoleDeviceReadResultSchema,
+	ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceSchedulePutResultSchema,
+} from "../shared/schemasDevices.js";
+import {
 	FileHistoryAnswerSchema,
 	FileMutationAnswerSchema,
 	FileStateAnswerSchema,
@@ -41,6 +46,9 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsoleForgetResult: ConsoleForgetResultSchema,
 	ConsoleListDirsResult: ConsoleListDirsResultSchema,
 	ConsolePeekResult: ConsolePeekResultSchema,
+	ConsoleDeviceRemoveResult: ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceReadResult: ConsoleDeviceReadResultSchema,
+	ConsoleDeviceSchedulePutResult: ConsoleDeviceSchedulePutResultSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
 	WorkspaceFileStateAnswer: FileStateAnswerSchema,

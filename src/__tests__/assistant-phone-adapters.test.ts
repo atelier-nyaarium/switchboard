@@ -416,12 +416,13 @@ describe("Gateway device actions", () => {
 
 		try {
 			expect(
-				await devices.console.add({
+				await devices.console({
+					kind: "device_add",
 					mac: "aa:bb:cc:dd:ee:ff",
 					address: "127.0.0.2",
 					name: "Lamp",
 				}),
-			).toMatchObject({ stored: true });
+			).toMatchObject({ kind: "ok" });
 			const listed = await dispatch({ key: "devices", callId: "device-list-0001", params: {} });
 			expect(listed).toMatchObject({
 				kind: "ok",
@@ -443,12 +444,13 @@ describe("Gateway device actions", () => {
 			expect(byId).toEqual({ kind: "ok", answer: { id: "aa:bb:cc:dd:ee:ff", state: "off" } });
 
 			expect(
-				await devices.console.add({
+				await devices.console({
+					kind: "device_add",
 					mac: "aa:bb:cc:dd:ee:ee",
 					address: "127.0.0.3",
 					name: "Lamp",
 				}),
-			).toMatchObject({ stored: true });
+			).toMatchObject({ kind: "ok" });
 			const beforeRefusals = requests.length;
 			const ambiguous = await dispatch({
 				key: "device_set",

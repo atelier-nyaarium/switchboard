@@ -4,14 +4,16 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { composeDevices, DEVICE_IDENTIFY_WAIT_MS, DEVICE_READ_WAIT_MS } from "../gateway/compose/composeDevices.js";
 import { createKasaTransport, type KasaTransport } from "../gateway/devices/kasa/transport.js";
-import { createDeviceRoad, Decline, TOGGLE_DOUBT } from "../gateway/devices/road.js";
-import { addShape, NOT_STARTED, readShape } from "../gateway/devices/shapes.js";
+import { createDeviceRoad, Decline, type Shape, unwrap } from "../gateway/devices/road.js";
+import { consoleShape, NOT_STARTED } from "../gateway/devices/shapes.js";
 import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../shared/console-protocol.js";
+import type { DeviceConsoleOp, DeviceConsoleOpKind } from "../shared/schemasDevices.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 import { createFakeKasaPlug } from "../testing/fakeKasaPlug.js";
 
 const MAC = "aa:bb:cc:dd:ee:ff";
 const CONSOLE_BOUND_MS = CONSOLE_ANSWER_WAIT_MS - CONSOLE_HOP_MARGIN_MS;
+const NOT_STARTED_ANSWER = { kind: "refused", refusal: { code: "timeout", effect: "none" } };
 
 function commandName(command: object): string {
 	const [module] = Object.keys(command);
@@ -28,6 +30,9 @@ function fresh(label: string): string {
 }
 
 const noHost = async () => ({ ok: false, errorKind: "daemon_away" }) as never;
+const anyShape: Shape<unknown> = { decline: (why) => ({ declined: why }) };
+const addLamp = { kind: "device_add", mac: MAC, address: "127.0.0.1", name: "Lamp" } as const;
+const toggle = { kind: "device_set", id: MAC, verb: "toggle" } as const;
 
 describe("device road", () => {
 	it("records an unknown outcome when the confirm read aborts after the relay command landed", async () => {
@@ -49,9 +54,15 @@ describe("device road", () => {
 		};
 		const stage = composeDevices({ dataDir, ambient, transport, relayToHost: noHost });
 		try {
-			await stage.console.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" });
-			expect(await stage.console.set(MAC, "toggle")).toMatchObject({ reason: "timeout" });
-			expect(await stage.console.set(MAC, "toggle")).toEqual({ reason: "refused", detail: TOGGLE_DOUBT });
+			await stage.console(addLamp);
+			expect(await stage.console(toggle)).toMatchObject({
+				kind: "refused",
+				refusal: { code: "timeout", effect: "unknown" },
+			});
+			expect(await stage.console(toggle)).toMatchObject({
+				kind: "refused",
+				refusal: { code: "toggle_unknown", effect: "none" },
+			});
 			expect(plug.received().filter((row) => row.command === "set_relay_state")).toHaveLength(1);
 		} finally {
 			await stage.close();
@@ -77,9 +88,9 @@ describe("device road", () => {
 		};
 		const stage = composeDevices({ dataDir, ambient, transport, relayToHost: noHost });
 		try {
-			await stage.console.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" });
-			expect(await stage.console.set(MAC, "toggle")).toEqual({ reason: "timeout", detail: NOT_STARTED });
-			expect(await stage.console.set(MAC, "toggle")).toMatchObject({ state: { state: "on" } });
+			await stage.console(addLamp);
+			expect(await stage.console(toggle)).toEqual(NOT_STARTED_ANSWER);
+			expect(await stage.console(toggle)).toMatchObject({ kind: "ok", state: { state: "on" } });
 			expect(plug.received().filter((row) => row.command === "set_relay_state")).toHaveLength(1);
 		} finally {
 			await stage.close();
@@ -98,22 +109,24 @@ describe("device road", () => {
 		const road = createDeviceRoad({ dataDir, ambient: fakeAmbient(), transport: createKasaTransport(plug.port) });
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			await road.onSlot("console", addShape, MAC, async (slot) => {
+			await road.onSlot("console", consoleShape("device_add"), MAC, async (slot) => {
 				await slot.identify("127.0.0.1", MAC);
-				return slot.write.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" });
+				return {
+					kind: "ok" as const,
+					record: unwrap(slot.write.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" })),
+				};
 			});
-			const answer = await road.operation("console", readShape, async (op) => {
+			const answer = await road.operation("console", consoleShape("device_read"), async (op) => {
 				void op.plug(MAC, (plug) => plug.drive((ctx) => plug.driver.read(plug.record, ctx)));
 				await plug.waitForHeldReply();
 				throw new Error("left behind");
 			});
-			expect(answer).toMatchObject({ reason: "unreachable" });
+			expect(answer).toMatchObject({ kind: "refused", refusal: { code: "unreachable" } });
 			expect(
-				await road.onDevice("console", readShape, MAC, async (plug) => {
-					const read = await plug.drive((ctx) => plug.driver.read(plug.record, ctx));
-					return { state: read.state, schedule: read.schedule };
+				await road.onDevice("console", anyShape, MAC, async (plug) => {
+					return (await plug.drive((ctx) => plug.driver.read(plug.record, ctx))).state;
 				}),
-			).toMatchObject({ state: { state: "off" } });
+			).toMatchObject({ state: "off" });
 		} finally {
 			warn.mockRestore();
 			await road.close();
@@ -136,8 +149,8 @@ describe("device road", () => {
 			relayToHost: noHost,
 		});
 		try {
-			await stage.console.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" });
-			const setting = stage.console.set(MAC, "on");
+			await stage.console(addLamp);
+			const setting = stage.console({ kind: "device_set", id: MAC, verb: "on" });
 			let setSettled = false;
 			void setting.then(() => {
 				setSettled = true;
@@ -151,7 +164,7 @@ describe("device road", () => {
 			});
 			expect(setSettled).toBe(false);
 			await ambient.advance(CONSOLE_BOUND_MS);
-			expect(await setting).toMatchObject({ reason: "timeout" });
+			expect(await setting).toMatchObject({ kind: "refused", refusal: { code: "timeout" } });
 		} finally {
 			await stage.close();
 			await plug.close();
@@ -167,9 +180,9 @@ describe("device road", () => {
 			relayToHost: () => new Promise(() => {}),
 		});
 		try {
-			const scanning = stage.console.scan();
+			const scanning = stage.console({ kind: "device_scan" });
 			await stage.close();
-			expect(await scanning).toEqual({ reason: "timeout", detail: NOT_STARTED });
+			expect(await scanning).toEqual(NOT_STARTED_ANSWER);
 		} finally {
 			fs.rmSync(dataDir, { recursive: true, force: true });
 		}
@@ -186,28 +199,40 @@ describe("device road", () => {
 			relayToHost: relay,
 		});
 		try {
-			await stage.console.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" });
+			await stage.console(addLamp);
 			await stage.close();
 			const commandsAfterClose = plug.received().length;
-			const schedule = { enabled: true, rules: [] };
-			const entries: Record<string, () => Promise<unknown>> = {
-				list: () => stage.console.list(),
-				read: () => stage.console.read(MAC),
-				scan: () => stage.console.scan(),
-				add: () => stage.console.add({ mac: "aa:bb:cc:dd:ee:01", address: "127.0.0.1", name: "Fan" }),
-				rename: () => stage.console.rename(MAC, "Desk lamp", 1),
-				remove: () => stage.console.remove(MAC, 1),
-				set: () => stage.console.set(MAC, "on"),
-				schedulePut: () => stage.console.schedulePut(MAC, 1, schedule),
-				settingPut: () =>
-					stage.console.settingPut(MAC, 1, { driver: "kasa", setting: { key: "led", value: false } }),
-				listDevices: () => stage.listDevices(),
-				setDevice: () => stage.setDevice(MAC, "on"),
+			const ops: { [K in DeviceConsoleOpKind]: Extract<DeviceConsoleOp, { kind: K }> } = {
+				device_list: { kind: "device_list" },
+				device_read: { kind: "device_read", id: MAC },
+				device_scan: { kind: "device_scan" },
+				device_add: { kind: "device_add", mac: "aa:bb:cc:dd:ee:01", address: "127.0.0.1", name: "Fan" },
+				device_rename: { kind: "device_rename", id: MAC, name: "Desk lamp", revision: 1 },
+				device_remove: { kind: "device_remove", id: MAC, revision: 1 },
+				device_set: { kind: "device_set", id: MAC, verb: "on" },
+				device_schedule_put: {
+					kind: "device_schedule_put",
+					id: MAC,
+					revision: 1,
+					base: { enabled: true, rules: [] },
+					schedule: { enabled: true, rules: [] },
+				},
+				device_setting_put: {
+					kind: "device_setting_put",
+					id: MAC,
+					revision: 1,
+					setting: { driver: "kasa", setting: { key: "led", value: false } },
+				},
 			};
-			expect(Object.keys(stage.console).every((name) => name in entries)).toBe(true);
-			for (const [name, call] of Object.entries(entries)) {
-				expect({ name, answer: await call() }).toMatchObject({ name, answer: { detail: NOT_STARTED } });
+			for (const op of Object.values(ops)) {
+				expect({ kind: op.kind, answer: await stage.console(op) }).toEqual({
+					kind: op.kind,
+					answer: NOT_STARTED_ANSWER,
+				});
 			}
+			expect(await stage.listDevices()).toMatchObject({ kind: "unavailable", detail: NOT_STARTED });
+			expect(await stage.setDevice(MAC, "on")).toMatchObject({ kind: "unavailable", detail: NOT_STARTED });
+			expect(await stage.setDevice("Nope", "on")).toMatchObject({ kind: "unavailable", detail: NOT_STARTED });
 			expect(plug.received()).toHaveLength(commandsAfterClose);
 			expect(relay).not.toHaveBeenCalled();
 		} finally {
@@ -221,20 +246,22 @@ describe("device road", () => {
 		const plug = await createFakeKasaPlug({ mac: MAC });
 		const road = createDeviceRoad({ dataDir, ambient: fakeAmbient(), transport: createKasaTransport(plug.port) });
 		try {
-			await road.onSlot("console", addShape, MAC, async (slot) => {
+			await road.onSlot("console", consoleShape("device_add"), MAC, async (slot) => {
 				await slot.identify("127.0.0.1", MAC);
-				return slot.write.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" });
+				return {
+					kind: "ok" as const,
+					record: unwrap(slot.write.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" })),
+				};
 			});
-			const answer = await road.operation("console", readShape, async (op) => {
+			const answer = await road.operation("console", anyShape, async (op) => {
 				const outcome = await op.plug(MAC, async (plug) => {
 					await expect(op.plug(MAC, async () => ({}))).rejects.toThrow();
-					const read = await plug.drive((ctx) => plug.driver.read(plug.record, ctx));
-					return { state: read.state, schedule: read.schedule };
+					return (await plug.drive((ctx) => plug.driver.read(plug.record, ctx))).state;
 				});
 				if (!outcome.ok) throw new Decline(outcome.why);
 				return outcome.value;
 			});
-			expect(answer).toMatchObject({ state: { state: "off" } });
+			expect(answer).toMatchObject({ state: "off" });
 		} finally {
 			await road.close();
 			await plug.close();
@@ -274,9 +301,13 @@ describe("device road", () => {
 				}) as never,
 		});
 		try {
-			await stage.console.add({ mac: MAC, address: "10.0.0.1", name: "Lamp" });
-			expect(await stage.console.scan()).toMatchObject({ candidates: [{ address: "10.0.0.2" }] });
-			expect(await stage.console.list()).toMatchObject({
+			await stage.console({ kind: "device_add", mac: MAC, address: "10.0.0.1", name: "Lamp" });
+			expect(await stage.console({ kind: "device_scan" })).toMatchObject({
+				kind: "ok",
+				candidates: [{ address: "10.0.0.2" }],
+			});
+			expect(await stage.console({ kind: "device_list" })).toMatchObject({
+				kind: "ok",
 				records: [{ id: MAC, address: "10.0.0.2", revision: 2 }],
 			});
 		} finally {

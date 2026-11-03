@@ -525,7 +525,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			title = "An entry with pictures",
 			body = "Tap a row to open it. The big one waits to be asked.",
 			state = "in_progress",
-			rank = "m",
+			rank = 16L,
 			sessionId = localFieldOrSelf(SESSION),
 			attachments = listOf(present, huge, missing),
 		)
@@ -534,28 +534,25 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		// this root and skip the attachments entry above it. Every state appears once, so a screenshot
 		// of this row shows the whole state vocabulary at once.
 		val branch = listOf(
-			BoardEntry(id = "c".repeat(32), title = "Half-finished example", state = "in_progress", rank = "zm", sessionId = localFieldOrSelf(SESSION)),
-			BoardEntry(id = "d".repeat(32), title = "Child 1 - finished", state = "done", rank = "a", parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
-			BoardEntry(id = "e".repeat(32), title = "Child 2 - being worked on", state = "in_progress", rank = "b", parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
-			BoardEntry(id = "f".repeat(32), title = "Child 3 - dropped", state = "cancelled", rank = "c", parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
-			BoardEntry(id = "1".repeat(32), title = "Child 4 - not started", state = "open", rank = "d", parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
-			BoardEntry(id = "2".repeat(32), title = "Child 5 - set aside", state = "paused", rank = "e", parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
+			BoardEntry(id = "c".repeat(32), title = "Half-finished example", state = "in_progress", rank = 17L, sessionId = localFieldOrSelf(SESSION)),
+			BoardEntry(id = "d".repeat(32), title = "Child 1 - finished", state = "done", rank = 0L, parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
+			BoardEntry(id = "e".repeat(32), title = "Child 2 - being worked on", state = "in_progress", rank = 1L, parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
+			BoardEntry(id = "f".repeat(32), title = "Child 3 - dropped", state = "cancelled", rank = 2L, parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
+			BoardEntry(id = "1".repeat(32), title = "Child 4 - not started", state = "open", rank = 3L, parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
+			BoardEntry(id = "2".repeat(32), title = "Child 5 - set aside", state = "paused", rank = 4L, parent = "c".repeat(32), sessionId = localFieldOrSelf(SESSION)),
 		)
 		// No session, so these are the only entries the Backlog tab draws. Two levels deep, because the
 		// tab's drag has to be exercised against a real tree and not a flat list.
 		val backlog = listOf(
-			BoardEntry(id = "3".repeat(32), title = "Unclaimed root", state = "open", rank = "b"),
-			BoardEntry(id = "4".repeat(32), title = "Nested under the root", state = "open", rank = "a", parent = "3".repeat(32)),
-			BoardEntry(id = "5".repeat(32), title = "Nested deeper", state = "paused", rank = "a", parent = "4".repeat(32)),
-			BoardEntry(id = "6".repeat(32), title = "A second unclaimed root", state = "open", rank = "c"),
+			BoardEntry(id = "3".repeat(32), title = "Unclaimed root", state = "open", rank = 0L),
+			BoardEntry(id = "4".repeat(32), title = "Nested under the root", state = "open", rank = 0L, parent = "3".repeat(32)),
+			BoardEntry(id = "5".repeat(32), title = "Nested deeper", state = "paused", rank = 0L, parent = "4".repeat(32)),
+			BoardEntry(id = "6".repeat(32), title = "A second unclaimed root", state = "open", rank = 1L),
 		) + (1..14).map {
 			// Enough to overflow a screen, which is the only way the drag's auto-scroll is reachable at all.
-			// Letter suffixes, not numbers: a rank may not end in "0", so "d10" is not a rank at all. The
-			// id is padded to a fixed width for the same reason - "71" and "710" pad to the same string,
-			// and the board union then drops one of them.
+			// Fixed-width ids: "71" and "710" would pad to one id.
 			val suffix = "%02d".format(it)
-			val rank = "d" + ('a' + (it - 1))
-			BoardEntry(id = "7$suffix".padEnd(32, 'f'), title = "Filler $it, so the backlog scrolls", state = "open", rank = rank)
+			BoardEntry(id = "7$suffix".padEnd(32, 'f'), title = "Filler $it, so the backlog scrolls", state = "open", rank = 1L + it)
 		}
 		val shown = listOf(entry) + branch + backlog
 		val blob = BoardBlob(

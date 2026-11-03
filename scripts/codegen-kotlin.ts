@@ -162,47 +162,33 @@ import {
 	ConsoleWelcomeFrameSchema,
 } from "../src/shared/schemasConsoleSocket.js";
 import {
-	ConsoleDeviceAddResultSchema,
-	ConsoleDeviceListResultSchema,
-	ConsoleDeviceReadResultSchema,
-	ConsoleDeviceRemoveResultSchema,
-	ConsoleDeviceRenameResultSchema,
-	ConsoleDeviceScanResultSchema,
-	ConsoleDeviceSchedulePutResultSchema,
-	ConsoleDeviceSetResultSchema,
-	ConsoleDeviceSettingPutResultSchema,
 	DEVICE_ACTIONS,
 	DEVICE_CLOUD_STATES,
+	DEVICE_CONSOLE_RESULTS,
 	DEVICE_DRIVERS,
+	DEVICE_EFFECTS,
 	DEVICE_KINDS,
-	DEVICE_OPERATION_REASONS,
-	DEVICE_SCAN_REFUSALS,
+	DEVICE_MAX_RULES,
+	DEVICE_REFUSAL_CODES,
 	DEVICE_STATES,
 	DEVICE_VERBS,
-	DeviceAddRequestSchema,
 	DeviceAddressSchema,
 	DeviceCandidateSchema,
 	DeviceCloudStateSchema,
 	DeviceDriverSchema,
+	DeviceEffectSchema,
 	DeviceIdSchema,
 	DeviceKindSchema,
-	DeviceListRequestSchema,
+	DeviceLandedSchema,
 	DeviceLiveStateSchema,
 	DeviceNameSchema,
-	DeviceOperationReasonSchema,
-	DeviceReadRequestSchema,
 	DeviceRecordSchema,
-	DeviceRemoveRequestSchema,
-	DeviceRenameRequestSchema,
+	DeviceRefusalCodeSchema,
+	DeviceRefusalSchema,
 	DeviceRevisionSchema,
-	DeviceScanRefusalSchema,
-	DeviceScanRequestSchema,
 	DeviceScheduleActionSchema,
-	DeviceSchedulePutRequestSchema,
 	DeviceScheduleRuleSchema,
 	DeviceScheduleSchema,
-	DeviceSetRequestSchema,
-	DeviceSettingPutRequestSchema,
 	DeviceSettingPutSchema,
 	DeviceSettingsSchema,
 	DeviceStateSchema,
@@ -465,7 +451,6 @@ const ROOTS: z.ZodType[] = [
 	DeviceAddressSchema,
 	DeviceRevisionSchema,
 	DeviceRecordSchema,
-	DeviceOperationReasonSchema,
 	DeviceStateSchema,
 	DeviceScheduleActionSchema,
 	DeviceVerbSchema,
@@ -478,25 +463,11 @@ const ROOTS: z.ZodType[] = [
 	KasaSettingPutSchema,
 	DeviceSettingPutSchema,
 	DeviceCandidateSchema,
-	DeviceListRequestSchema,
-	DeviceReadRequestSchema,
-	DeviceScanRequestSchema,
-	DeviceAddRequestSchema,
-	DeviceRenameRequestSchema,
-	DeviceRemoveRequestSchema,
-	DeviceSetRequestSchema,
-	DeviceSchedulePutRequestSchema,
-	DeviceSettingPutRequestSchema,
-	DeviceScanRefusalSchema,
-	ConsoleDeviceListResultSchema,
-	ConsoleDeviceReadResultSchema,
-	ConsoleDeviceScanResultSchema,
-	ConsoleDeviceAddResultSchema,
-	ConsoleDeviceRenameResultSchema,
-	ConsoleDeviceRemoveResultSchema,
-	ConsoleDeviceSetResultSchema,
-	ConsoleDeviceSchedulePutResultSchema,
-	ConsoleDeviceSettingPutResultSchema,
+	DeviceRefusalCodeSchema,
+	DeviceEffectSchema,
+	DeviceLandedSchema,
+	DeviceRefusalSchema,
+	...Object.values(DEVICE_CONSOLE_RESULTS),
 	AssistantWatcherSchema,
 	ConsoleAssistantStateResultSchema,
 	AssistantHomeCarriedWatcherSchema,
@@ -677,6 +648,7 @@ const SEALED_ROOTS = new Set([
 	"DeviceSettings",
 	"DeviceSettingPut",
 	"KasaSettingPut",
+	...Object.values(DEVICE_CONSOLE_RESULTS).map(idOf),
 	"WireFixture",
 	"WorkspaceFileMutation",
 	"WorkspaceFileDestination",
@@ -1213,6 +1185,7 @@ ${INDENT}const val CREATE_SESSION_BOUND_MS: Long = ${CREATE_SESSION_BOUND_MS}L
 ${INDENT}const val FEDERATION_PROTOCOL_FLOOR: Int = ${FEDERATION_PROTOCOL_FLOOR}
 ${INDENT}const val FEDERATION_PROTOCOL_VERSION: Int = ${FEDERATION_PROTOCOL_VERSION}
 ${INDENT}const val MAX_HISTORY_COMMITS: Int = ${MAX_HISTORY_COMMITS}
+${INDENT}const val DEVICE_MAX_RULES: Int = ${DEVICE_MAX_RULES}
 
 ${INDENT}object Wire {
 ${wireConstantBlock}
@@ -1241,9 +1214,9 @@ ${schemaConstantBlock("DeviceVerb", [...DEVICE_VERBS])}
 
 ${schemaConstantBlock("DeviceCloudState", [...DEVICE_CLOUD_STATES])}
 
-${schemaConstantBlock("DeviceScanRefusal", [...DEVICE_SCAN_REFUSALS])}
+${schemaConstantBlock("DeviceRefusalCode", [...DEVICE_REFUSAL_CODES])}
 
-${schemaConstantBlock("DeviceOperationReason", [...DEVICE_OPERATION_REASONS])}
+${schemaConstantBlock("DeviceEffect", [...DEVICE_EFFECTS])}
 
 ${schemaConstantBlock("KasaSettingKey", [...KASA_SETTING_KEYS])}
 ${INDENT}}

@@ -1,0 +1,5 @@
+{
+	"kind": "ok",
+	"state": { "state": "off", "readAt": 1793660000000 },
+	"schedule": { "enabled": false, "rules": [] }
+}

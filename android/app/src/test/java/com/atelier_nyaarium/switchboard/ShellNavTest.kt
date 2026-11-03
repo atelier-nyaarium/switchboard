@@ -72,6 +72,8 @@ class ShellNavTest {
 			AssistantPage.Editor("sakura", "github", RuleSlot.Held("reviews")),
 			AssistantPage.Editor("sakura", "github", RuleSlot.New),
 			AssistantPage.Editor("sakura", "github", RuleSlot.Otherwise),
+			AssistantPage.Integrations,
+			AssistantPage.Device("sakura", "aa:bb:cc:dd:ee:01"),
 		)
 
 		val scope = SaverScope { true }

@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.watcherOn
 import com.atelier_nyaarium.switchboard.watcherTroubled
@@ -20,6 +21,16 @@ internal fun featureLines(assistantRole: Boolean, screenData: Boolean, views: Li
 
 internal fun safetyLines(approveEverySend: Boolean?): SettingsLines =
 	SettingsLines(line = approveEverySend?.let { "Approve every send: ${if (it) "on" else "off"}" })
+
+internal const val PLACE_FIRST = "Place the assistant first"
+
+internal fun integrationLines(home: String?, devices: DeviceListView?): SettingsLines = when {
+	home == null -> SettingsLines(line = PLACE_FIRST)
+	devices is DeviceListView.Listed ->
+		SettingsLines(line = "Plugs: ${devices.records.map { it.name }.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "none"}")
+	devices is DeviceListView.Unavailable -> SettingsLines(warning = devices.line)
+	else -> SettingsLines()
+}
 
 internal fun watcherLines(watchers: List<AssistantWatcher>): SettingsLines {
 	val on = watchers.filter(::watcherOn)

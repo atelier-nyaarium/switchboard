@@ -26,6 +26,7 @@ object Protocol {
 	const val FEDERATION_PROTOCOL_FLOOR: Int = 5
 	const val FEDERATION_PROTOCOL_VERSION: Int = 5
 	const val MAX_HISTORY_COMMITS: Int = 200
+	const val DEVICE_MAX_RULES: Int = 32
 
 	object Wire {
 		const val ROUTER_PATH_CONSOLE: String = "/console"
@@ -75,15 +76,6 @@ object Protocol {
 		const val OWNER_OP_ASSISTANT_HOME_PUT: String = "assistant_home_put"
 		const val OWNER_OP_HOLD_CLAIM: String = "hold_claim"
 		const val OWNER_OP_PHONE_HOLD_READ: String = "phone_hold_read"
-		const val OWNER_OP_DEVICE_LIST: String = "device_list"
-		const val OWNER_OP_DEVICE_READ: String = "device_read"
-		const val OWNER_OP_DEVICE_SCAN: String = "device_scan"
-		const val OWNER_OP_DEVICE_ADD: String = "device_add"
-		const val OWNER_OP_DEVICE_RENAME: String = "device_rename"
-		const val OWNER_OP_DEVICE_REMOVE: String = "device_remove"
-		const val OWNER_OP_DEVICE_SET: String = "device_set"
-		const val OWNER_OP_DEVICE_SCHEDULE_PUT: String = "device_schedule_put"
-		const val OWNER_OP_DEVICE_SETTING_PUT: String = "device_setting_put"
 		const val SIGNING_TAG_ADMISSION: String = "ADMISSION_V1"
 		const val SIGNING_TAG_REVOCATION: String = "REVOCATION_V1"
 		const val SIGNING_TAG_SELF_REVOCATION: String = "SELF_REVOCATION_V1"
@@ -295,17 +287,26 @@ object Protocol {
 			const val DISCONNECTED: String = "disconnected"
 		}
 
-		object DeviceScanRefusal {
-			const val DAEMON_AWAY: String = "daemon_away"
-			const val TIMEOUT: String = "timeout"
-			const val REFUSED: String = "refused"
-		}
-
-		object DeviceOperationReason {
+		object DeviceRefusalCode {
+			const val NOT_FOUND: String = "not_found"
+			const val STALE: String = "stale"
+			const val EXISTS: String = "exists"
+			const val FULL: String = "full"
+			const val INVALID: String = "invalid"
+			const val WRONG_DEVICE: String = "wrong_device"
+			const val NOT_SUPPORTED: String = "not_supported"
+			const val TOGGLE_UNKNOWN: String = "toggle_unknown"
 			const val UNREACHABLE: String = "unreachable"
 			const val TIMEOUT: String = "timeout"
-			const val REFUSED: String = "refused"
-			const val NOT_SUPPORTED: String = "not_supported"
+			const val DEVICE_ERROR: String = "device_error"
+			const val WRITE_FAILED: String = "write_failed"
+			const val DAEMON_AWAY: String = "daemon_away"
+			const val SCAN_FAILED: String = "scan_failed"
+		}
+
+		object DeviceEffect {
+			const val NONE: String = "none"
+			const val UNKNOWN: String = "unknown"
 		}
 
 		object KasaSettingKey {
@@ -1088,6 +1089,7 @@ sealed class ConsoleOp {
 	data class DeviceSchedulePut(
 		val id: String,
 		val revision: Long,
+		val base: DeviceSchedule,
 		val schedule: DeviceSchedule,
 	) : ConsoleOp()
 
@@ -1661,125 +1663,173 @@ data class DeviceCandidate(
 )
 
 @Serializable
-class DeviceListRequest
-
-@Serializable
-data class DeviceReadRequest(
-	val id: String,
+data class DeviceLanded(
+	val done: Long,
+	val total: Long,
 )
 
 @Serializable
-class DeviceScanRequest
-
-@Serializable
-data class DeviceAddRequest(
-	val mac: String,
-	val address: String,
-	val name: String,
-)
-
-@Serializable
-data class DeviceRenameRequest(
-	val id: String,
-	val name: String,
-	val revision: Long,
-)
-
-@Serializable
-data class DeviceRemoveRequest(
-	val id: String,
-	val revision: Long,
-)
-
-@Serializable
-data class DeviceSetRequest(
-	val id: String,
-	val verb: String,
-)
-
-@Serializable
-data class DeviceSchedulePutRequest(
-	val id: String,
-	val revision: Long,
-	val schedule: DeviceSchedule,
-)
-
-@Serializable
-data class DeviceSettingPutRequest(
-	val id: String,
-	val revision: Long,
-	val setting: DeviceSettingPut,
-)
-
-@Serializable
-data class ConsoleDeviceListResult(
-	val records: List<DeviceRecord>? = null,
-	val revision: Long? = null,
-	val reason: String? = null,
+data class DeviceRefusal(
+	val code: String,
+	val effect: String,
+	val landed: DeviceLanded? = null,
 	val detail: String? = null,
-)
-
-@Serializable
-data class ConsoleDeviceReadResult(
-	val state: DeviceLiveState? = null,
-	val schedule: DeviceSchedule? = null,
-	val reason: String? = null,
-	val detail: String? = null,
-)
-
-@Serializable
-data class ConsoleDeviceScanResult(
-	val candidates: List<DeviceCandidate>? = null,
-	val reason: String? = null,
-	val detail: String? = null,
-)
-
-@Serializable
-data class ConsoleDeviceAddResult(
-	val stored: Boolean,
 	val record: DeviceRecord? = null,
-	val reason: String? = null,
-	val detail: String? = null,
 )
 
 @Serializable
-data class ConsoleDeviceRenameResult(
-	val stored: Boolean,
-	val record: DeviceRecord? = null,
-	val reason: String? = null,
-	val detail: String? = null,
-)
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceListResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val records: List<DeviceRecord>,
+		val revision: Long,
+	) : ConsoleDeviceListResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceListResult()
+}
 
 @Serializable
-data class ConsoleDeviceRemoveResult(
-	val deleted: Boolean,
-	val record: DeviceRecord? = null,
-	val reason: String? = null,
-	val detail: String? = null,
-)
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceReadResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val state: DeviceLiveState,
+		val schedule: DeviceSchedule,
+		val settings: DeviceSettings? = null,
+	) : ConsoleDeviceReadResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceReadResult()
+}
 
 @Serializable
-data class ConsoleDeviceSetResult(
-	val state: DeviceLiveState? = null,
-	val reason: String? = null,
-	val detail: String? = null,
-)
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceScanResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val candidates: List<DeviceCandidate>,
+	) : ConsoleDeviceScanResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceScanResult()
+}
 
 @Serializable
-data class ConsoleDeviceSchedulePutResult(
-	val schedule: DeviceSchedule? = null,
-	val record: DeviceRecord? = null,
-	val reason: String? = null,
-	val detail: String? = null,
-)
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceAddResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val record: DeviceRecord,
+	) : ConsoleDeviceAddResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceAddResult()
+}
 
 @Serializable
-data class ConsoleDeviceSettingPutResult(
-	val settings: DeviceSettings? = null,
-	val record: DeviceRecord? = null,
-	val reason: String? = null,
-	val detail: String? = null,
-)
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceRenameResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val record: DeviceRecord,
+	) : ConsoleDeviceRenameResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceRenameResult()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceRemoveResult {
+	@Serializable
+	@SerialName("ok")
+	data object Ok : ConsoleDeviceRemoveResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceRemoveResult()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceSetResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val state: DeviceLiveState,
+	) : ConsoleDeviceSetResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceSetResult()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceSchedulePutResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val schedule: DeviceSchedule,
+	) : ConsoleDeviceSchedulePutResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceSchedulePutResult()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceSettingPutResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val settings: DeviceSettings,
+	) : ConsoleDeviceSettingPutResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceSettingPutResult()
+}
 
 @Serializable
 data class AssistantWatcher(

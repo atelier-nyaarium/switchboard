@@ -360,8 +360,9 @@ fun App(
 	LaunchedEffect(assistantRoot, nav.root, nav.conversation == null, nav.settings) {
 		nav = nav.enterAssistant(assistantRoot, factsFor)
 	}
-	LaunchedEffect(assistantRoot, openTeam, nav.root, nav.assistantPage, state.gateways) {
-		nav = nav.followAssistant(assistantRoot, state).resolvePage(state)
+	val deviceViews by repo.deviceOps.views.collectAsState()
+	LaunchedEffect(assistantRoot, openTeam, nav.root, nav.assistantPage, state.gateways, deviceViews) {
+		nav = nav.followAssistant(assistantRoot, state).resolvePage(state) { deviceViews[it]?.list }
 	}
 	// A ref's exit opens Files. Clearing first prevents duplicate routing.
 	val workspaceRequest by com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collectAsState()

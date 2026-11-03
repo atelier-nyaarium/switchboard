@@ -143,10 +143,10 @@ describe("phone capabilities through the federation harness", () => {
 			address: "127.0.0.1",
 			name: "Hall lamp",
 		});
-		expect(added.result).toMatchObject({ stored: true, record: { id: "aa:bb:cc:dd:ee:ff", name: "Hall lamp" } });
+		expect(added.result).toMatchObject({ kind: "ok", record: { id: "aa:bb:cc:dd:ee:ff", name: "Hall lamp" } });
 
 		const set = await h.phone.value({ kind: "device_set", id: "aa:bb:cc:dd:ee:ff", verb: "on" });
-		expect(set.result).toMatchObject({ state: { state: "on" } });
+		expect(set.result).toMatchObject({ kind: "ok", state: { state: "on" } });
 
 		const action = await (await postPhone("devices", "assistant-device-list-01")).json();
 		expect(action).toEqual({

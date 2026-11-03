@@ -50,6 +50,7 @@ class ClearsOnReprovisionTest {
 				"playback",
 				"phoneHoldOps",
 				"phoneCapabilityOps",
+				"deviceOps",
 				"workspaceHost",
 				"composedRequests",
 				"windowOps",

@@ -1,0 +1,17 @@
+{
+	"kind": "refused",
+	"refusal": {
+		"code": "device_error",
+		"effect": "unknown",
+		"landed": { "done": 1, "total": 2 },
+		"detail": "err_code -3: busy",
+		"record": {
+			"id": "aa:bb:cc:dd:ee:ff",
+			"name": "Lamp",
+			"kind": "switch",
+			"driver": "kasa",
+			"address": "192.0.2.10",
+			"revision": 2
+		}
+	}
+}

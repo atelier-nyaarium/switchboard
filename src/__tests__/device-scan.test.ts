@@ -21,19 +21,19 @@ describe("Gateway device scan", () => {
 	it("answers daemon_away when no host is connected", async () => {
 		const scan = createDeviceScan(async () => ({ ok: false, error: "host daemon offline" }));
 
-		expect(await scan()).toEqual({ reason: "daemon_away" });
+		expect(await scan()).toEqual({ kind: "refused", code: "daemon_away" });
 	});
 
 	it("answers timeout when the host relay bound expires", async () => {
 		const scan = createDeviceScan(async () => ({ ok: false, error: "host op timed out", errorKind: "timeout" }));
 
-		expect(await scan()).toEqual({ reason: "timeout" });
+		expect(await scan()).toEqual({ kind: "refused", code: "timeout" });
 	});
 
-	it("answers refused when the daemon returns a typed refusal", async () => {
+	it("answers scan_failed when the daemon returns a typed refusal", async () => {
 		const scan = createDeviceScan(async () => ({ ok: true, result: { reason: "no_interface" } }));
 
-		expect(await scan()).toEqual({ reason: "refused" });
+		expect(await scan()).toEqual({ kind: "refused", code: "scan_failed" });
 	});
 
 	it("relays through the host frame and coordinator", async () => {
@@ -86,7 +86,7 @@ describe("Gateway device scan", () => {
 		});
 
 		try {
-			expect(await createDeviceScan(host.relayToHost)()).toEqual({ candidates: [candidate] });
+			expect(await createDeviceScan(host.relayToHost)()).toEqual({ kind: "ok", candidates: [candidate] });
 			expect(receivedOp).toEqual({ kind: "kasaScan" });
 		} finally {
 			ambient.clearInterval(host.presenceWatchTimer);
@@ -100,6 +100,6 @@ describe("Gateway device scan", () => {
 			result: { candidates: [{ ...candidate, mac: "bad" }] },
 		}));
 
-		expect(await scan()).toEqual({ reason: "refused" });
+		expect(await scan()).toEqual({ kind: "refused", code: "scan_failed" });
 	});
 });

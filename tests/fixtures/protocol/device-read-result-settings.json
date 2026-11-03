@@ -1,0 +1,22 @@
+{
+	"kind": "ok",
+	"state": { "state": "on", "readAt": 1793660000000 },
+	"schedule": {
+		"enabled": true,
+		"rules": [
+			{
+				"id": "dusk",
+				"days": [true, true, true, true, true, true, true],
+				"time": "18:30",
+				"action": "on",
+				"enabled": true
+			}
+		]
+	},
+	"settings": {
+		"driver": "kasa",
+		"led": true,
+		"clock": { "time": "2026-11-02T18:30:00-08:00", "zone": "PST8PDT" },
+		"cloud": "bound"
+	}
+}

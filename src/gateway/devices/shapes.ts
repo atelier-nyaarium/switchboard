@@ -1,24 +1,18 @@
 import type { z } from "zod";
 import {
-	ConsoleDeviceAddResultSchema,
-	ConsoleDeviceListResultSchema,
-	ConsoleDeviceReadResultSchema,
-	ConsoleDeviceRemoveResultSchema,
-	ConsoleDeviceRenameResultSchema,
-	ConsoleDeviceScanResultSchema,
-	ConsoleDeviceSchedulePutResultSchema,
-	ConsoleDeviceSetResultSchema,
-	ConsoleDeviceSettingPutResultSchema,
-	type DeviceOperationReasonSchema,
+	DEVICE_CONSOLE_RESULTS,
+	type DeviceConsoleOpKind,
+	type DeviceConsoleResult,
 	type DeviceRecord,
+	type DeviceRefusal,
+	type DeviceRefusalCode,
 	normalizeDeviceMac,
 } from "../../shared/schemasDevices.js";
 import type { PhoneAnswerOf, UnavailableReason } from "../../shared/schemasPhoneCapabilities.js";
 import type { DeviceDriverError } from "./driver.js";
-import type { Declined, Effect, Shape } from "./road.js";
+import type { Declined, Shape } from "./road.js";
 
 export const NOT_STARTED = "not started before the deadline";
-export const NO_DEVICE = "no device with that id is stored";
 
 export type DeviceSetActionResult =
 	| { kind: "ok"; answer: PhoneAnswerOf<"device_set"> }
@@ -29,86 +23,62 @@ export type DeviceListActionResult =
 	| { kind: "ok"; answer: PhoneAnswerOf<"devices"> }
 	| { kind: "unavailable"; reason: UnavailableReason; detail?: string };
 
-/** Caps the plug's text, keeps the note. */
-export function describeFailure(failure: DeviceDriverError, effect: Effect = "none"): string {
-	const text =
-		failure.kind === "refused"
-			? `err_code ${failure.code}: ${failure.message.slice(0, 200)}${failure.note ? `; ${failure.note}` : ""}`
-			: failure.detail;
+/** Caps the plug's text. */
+export function describeFailure(failure: DeviceDriverError): string {
+	return failure.kind === "refused"
+		? `err_code ${failure.code}: ${failure.message.slice(0, 200)}`
+		: failure.detail.slice(0, 400);
+}
+
+const FAILURE_CODES: Readonly<Record<DeviceDriverError["kind"], DeviceRefusalCode>> = {
+	unreachable: "unreachable",
+	timeout: "timeout",
+	refused: "device_error",
+	invalid: "invalid",
+	wrong_device: "wrong_device",
+};
+
+/** No plug text, no address. */
+function assistantDetail(failure: DeviceDriverError, effect: "none" | "unknown"): string {
+	const text = failure.kind === "wrong_device" ? "the address answers a different device" : describeFailure(failure);
+	const landed = failure.landed ? `; ${failure.landed.done} of ${failure.landed.total} changes landed` : "";
 	const unknown = effect === "unknown" && failure.kind !== "timeout" ? "; the last command's outcome is unknown" : "";
-	return `${text}${unknown}`.slice(0, 400);
+	return `${text.slice(0, 300)}${landed}${unknown}`.slice(0, 400);
 }
 
-type Closed = { reason: z.infer<typeof DeviceOperationReasonSchema>; detail: string };
-
-function closedWhy(why: Declined): Closed {
+export function refusalOf(why: Declined): DeviceRefusal {
 	switch (why.kind) {
 		case "notStarted":
-			return { reason: "timeout", detail: NOT_STARTED };
-		case "missing":
-			return { reason: "not_supported", detail: NO_DEVICE };
+			return { code: "timeout", effect: "none" };
 		case "refused":
-			return { reason: "refused", detail: why.text };
-		case "stale":
-			return { reason: "not_supported", detail: why.text };
-		case "failed":
-			return { reason: why.failure.kind, detail: describeFailure(why.failure, why.effect) };
-	}
-}
-
-type Open = { record?: DeviceRecord; reason: string; detail?: string };
-
-function openWhy(why: Declined): Open {
-	switch (why.kind) {
-		case "notStarted":
-			return { reason: "timeout", detail: NOT_STARTED };
-		case "missing":
-			return { reason: NO_DEVICE };
-		case "refused":
-			return { ...(why.record ? { record: why.record } : {}), reason: why.text };
-		case "stale":
-			return { record: why.record, reason: why.text };
+			return {
+				code: why.code,
+				effect: why.effect ?? "none",
+				...(why.text ? { detail: why.text.slice(0, 400) } : {}),
+				...(why.record ? { record: why.record } : {}),
+			};
 		case "failed":
 			return {
+				code: FAILURE_CODES[why.failure.kind],
+				effect: why.effect,
+				detail: describeFailure(why.failure),
+				...(why.failure.landed ? { landed: why.failure.landed } : {}),
 				...(why.record ? { record: why.record } : {}),
-				reason: why.failure.kind,
-				detail: describeFailure(why.failure, why.effect),
 			};
 	}
 }
 
-function closedShape<A>(schema: z.ZodType<A>): Shape<A> {
-	return { schema, decline: (why) => schema.parse(closedWhy(why)) };
+export function consoleShape<K extends DeviceConsoleOpKind>(kind: K): Shape<DeviceConsoleResult<K>> {
+	const schema = DEVICE_CONSOLE_RESULTS[kind] as unknown as z.ZodType<DeviceConsoleResult<K>>;
+	return { schema, decline: (why) => schema.parse({ kind: "refused", refusal: refusalOf(why) }) };
 }
-
-function openShape<A>(schema: z.ZodType<A>, lead: object): Shape<A> {
-	return { schema, decline: (why) => schema.parse({ ...lead, ...openWhy(why) }) };
-}
-
-export const listShape = closedShape(ConsoleDeviceListResultSchema);
-export const readShape = closedShape(ConsoleDeviceReadResultSchema);
-export const setShape = closedShape(ConsoleDeviceSetResultSchema);
-export const scanShape: Shape<z.infer<typeof ConsoleDeviceScanResultSchema>> = {
-	schema: ConsoleDeviceScanResultSchema,
-	decline: (why) =>
-		ConsoleDeviceScanResultSchema.parse(
-			why.kind === "notStarted"
-				? { reason: "timeout", detail: NOT_STARTED }
-				: { reason: "refused", detail: closedWhy(why).detail },
-		),
-};
-export const addShape = openShape(ConsoleDeviceAddResultSchema, { stored: false });
-export const renameShape = openShape(ConsoleDeviceRenameResultSchema, { stored: false });
-export const removeShape = openShape(ConsoleDeviceRemoveResultSchema, { deleted: false });
-export const schedulePutShape = openShape(ConsoleDeviceSchedulePutResultSchema, {});
-export const settingPutShape = openShape(ConsoleDeviceSettingPutResultSchema, {});
 
 function unavailable(why: Declined): { kind: "unavailable"; reason: UnavailableReason; detail: string } {
 	if (why.kind === "failed") {
 		return {
 			kind: "unavailable",
 			reason: why.failure.kind === "timeout" ? "timeout" : "unreachable",
-			detail: describeFailure(why.failure, why.effect),
+			detail: assistantDetail(why.failure, why.effect),
 		};
 	}
 	return { kind: "unavailable", reason: "timeout", detail: NOT_STARTED };
@@ -123,14 +93,10 @@ export function assistantSetShape(
 	return {
 		decline: (why) => {
 			switch (why.kind) {
-				case "missing":
-					return {
-						kind: "refused",
-						reason: candidatesText(`no paired device matches "${target}"`, records()),
-					};
 				case "refused":
-				case "stale":
-					return { kind: "refused", reason: why.text };
+					return why.code === "not_found"
+						? { kind: "refused", reason: candidatesText(`no paired device matches "${target}"`, records()) }
+						: { kind: "refused", reason: why.text ?? why.code };
 				case "failed":
 					return why.failure.kind === "refused"
 						? { kind: "refused", reason: `the device answered err_code ${why.failure.code}` }
