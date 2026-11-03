@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRemoveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRenameResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceHomeNetworkResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
@@ -36,6 +37,9 @@ internal class ConsoleDeviceGateway(private val client: ConsoleClient) : DeviceG
 
 	override suspend fun scan(gatewayId: String) =
 		client.deviceCall(gatewayId, ConsoleOp.DeviceScan, ConsoleDeviceScanResult.serializer())
+
+	override suspend fun homeNetwork(gatewayId: String) =
+		client.deviceCall(gatewayId, ConsoleOp.DeviceHomeNetwork, ConsoleDeviceHomeNetworkResult.serializer())
 
 	override suspend fun add(gatewayId: String, mac: String, address: String, name: String) =
 		client.deviceCall(gatewayId, ConsoleOp.DeviceAdd(mac, address, name), ConsoleDeviceAddResult.serializer())

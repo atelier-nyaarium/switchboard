@@ -55,6 +55,7 @@ import {
 	sendKey,
 	sendText,
 } from "./tmuxCore.js";
+import { createWifiNetworkReader } from "./wifiNetwork.js";
 import {
 	detectedHostSpawns,
 	listWindowsDirs,
@@ -499,6 +500,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 // The runner owns single-flight and the cadence floor.
 const hostOpRunner = createHostOpRunner({
 	kasaScan: createKasaScanner(),
+	wifiNetwork: createWifiNetworkReader(),
 	// Internal callers use peekPane for its reject-on-absent.
 	peekPane: peekWithFallback,
 	sendText,

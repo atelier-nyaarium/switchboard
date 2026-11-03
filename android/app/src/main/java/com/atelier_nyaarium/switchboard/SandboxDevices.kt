@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRemoveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRenameResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceHomeNetworkResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
@@ -125,6 +126,11 @@ internal class SandboxDeviceGateway(
 			return answered(ConsoleDeviceScanResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.DAEMON_AWAY)))
 		}
 		return answered(ConsoleDeviceScanResult.Ok(found + listOfNotNull(setUp())))
+	}
+
+	override suspend fun homeNetwork(gatewayId: String): DeviceAnswer<ConsoleDeviceHomeNetworkResult> {
+		trip()
+		return answered(ConsoleDeviceHomeNetworkResult.Ok(ssid = "Sandbox Home".takeIf { gatewayId != EMPTY_GATEWAY }))
 	}
 
 	override suspend fun add(gatewayId: String, mac: String, address: String, name: String): DeviceAnswer<ConsoleDeviceAddResult> {

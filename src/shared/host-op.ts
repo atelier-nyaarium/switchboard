@@ -74,6 +74,7 @@ export const MAX_CONVERSATION_ID_LEN = 128;
 export type HostOp =
 	| { kind: "peek"; target: TmuxTarget }
 	| { kind: "kasaScan" }
+	| { kind: "wifiNetwork" }
 	// Mutations replay by dedupKey.
 	| { kind: "sendText"; target: TmuxTarget; text: string; submit?: boolean; dedupKey?: string }
 	| { kind: "sendKey"; target: TmuxTarget; key: string; dedupKey?: string }
@@ -95,6 +96,14 @@ export const HostKasaScanResultSchema = z.union([
 ]);
 
 export type HostKasaScanResult = z.infer<typeof HostKasaScanResultSchema>;
+
+/** The WiFi the host is on; `none` when it is on none or cannot tell. */
+export const HostWifiNetworkResultSchema = z.union([
+	z.object({ ssid: z.string().min(1).max(32) }).strict(),
+	z.object({ reason: z.literal("none") }).strict(),
+]);
+
+export type HostWifiNetworkResult = z.infer<typeof HostWifiNetworkResultSchema>;
 
 export interface HostListDirsResult {
 	entries: string[];

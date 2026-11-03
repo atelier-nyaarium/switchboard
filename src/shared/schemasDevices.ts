@@ -223,6 +223,7 @@ export const DeviceAddFieldsSchema = z.object({
 export const DeviceListRequestSchema = z.object({ kind: z.literal("device_list") });
 export const DeviceReadRequestSchema = z.object({ kind: z.literal("device_read"), id: DeviceIdSchema });
 export const DeviceScanRequestSchema = z.object({ kind: z.literal("device_scan") });
+export const DeviceHomeNetworkRequestSchema = z.object({ kind: z.literal("device_home_network") });
 export const DeviceAddRequestSchema = DeviceAddFieldsSchema.extend({ kind: z.literal("device_add") });
 export const DeviceRenameRequestSchema = z.object({
 	kind: z.literal("device_rename"),
@@ -286,6 +287,14 @@ export const ConsoleDeviceScanResultSchema = z
 	])
 	.meta({ id: "ConsoleDeviceScanResult" });
 
+/** Null when the host is not on WiFi or cannot tell. */
+export const ConsoleDeviceHomeNetworkResultSchema = z
+	.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("ok"), ssid: z.string().min(1).max(32).nullable() }),
+		RefusedAnswerSchema,
+	])
+	.meta({ id: "ConsoleDeviceHomeNetworkResult" });
+
 export const ConsoleDeviceAddResultSchema = z
 	.discriminatedUnion("kind", [z.object({ kind: z.literal("ok"), record: DeviceRecordSchema }), RefusedAnswerSchema])
 	.meta({ id: "ConsoleDeviceAddResult" });
@@ -323,6 +332,7 @@ export const DEVICE_CONSOLE_REQUESTS = [
 	DeviceListRequestSchema,
 	DeviceReadRequestSchema,
 	DeviceScanRequestSchema,
+	DeviceHomeNetworkRequestSchema,
 	DeviceAddRequestSchema,
 	DeviceRenameRequestSchema,
 	DeviceRemoveRequestSchema,
@@ -338,6 +348,7 @@ export const DEVICE_CONSOLE_RESULTS = {
 	device_list: ConsoleDeviceListResultSchema,
 	device_read: ConsoleDeviceReadResultSchema,
 	device_scan: ConsoleDeviceScanResultSchema,
+	device_home_network: ConsoleDeviceHomeNetworkResultSchema,
 	device_add: ConsoleDeviceAddResultSchema,
 	device_rename: ConsoleDeviceRenameResultSchema,
 	device_remove: ConsoleDeviceRemoveResultSchema,

@@ -100,7 +100,7 @@ private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 	var entry by remember { mutableStateOf(repo.plugSetupOps.memory().wifiEntry) }
 	var choosing by remember { mutableStateOf(false) }
 	var asking by remember { mutableStateOf(false) }
-	val sight = remember(run.homes) { wifiSight(run.homes, repo.plugSetupOps.memory()) }
+	val sight = remember(run.homes, run.yours) { wifiSight(run.homes, run.yours) }
 	var listing by rememberSaveable(plug.mac) { mutableStateOf(false) }
 	val entries = remember { repo.vaultOps.views() }
 	val offered = remember(entries) { entries.grantableOn(run.gatewayId) }

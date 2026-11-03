@@ -90,6 +90,9 @@ class DeviceOpsTest {
 
 		override suspend fun scan(gatewayId: String) = reply { scanAnswer }
 
+		override suspend fun homeNetwork(gatewayId: String) =
+			reply { com.atelier_nyaarium.switchboard.proto.ConsoleDeviceHomeNetworkResult.Ok(ssid = "Home") }
+
 		override suspend fun add(gatewayId: String, mac: String, address: String, name: String) =
 			reply { addAnswer ?: ConsoleDeviceAddResult.Ok(record(mac, name)) }
 

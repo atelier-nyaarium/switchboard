@@ -179,6 +179,7 @@ object Protocol {
 			const val DEVICE_LIST: String = "device_list"
 			const val DEVICE_READ: String = "device_read"
 			const val DEVICE_SCAN: String = "device_scan"
+			const val DEVICE_HOME_NETWORK: String = "device_home_network"
 			const val DEVICE_ADD: String = "device_add"
 			const val DEVICE_RENAME: String = "device_rename"
 			const val DEVICE_REMOVE: String = "device_remove"
@@ -1055,6 +1056,10 @@ sealed class ConsoleOp {
 	data object DeviceScan : ConsoleOp()
 
 	@Serializable
+	@SerialName("device_home_network")
+	data object DeviceHomeNetwork : ConsoleOp()
+
+	@Serializable
 	@SerialName("device_add")
 	data class DeviceAdd(
 		val mac: String,
@@ -1729,6 +1734,23 @@ sealed class ConsoleDeviceScanResult {
 	data class Refused(
 		val refusal: DeviceRefusal,
 	) : ConsoleDeviceScanResult()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceHomeNetworkResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val ssid: String? = null,
+	) : ConsoleDeviceHomeNetworkResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceHomeNetworkResult()
 }
 
 @Serializable

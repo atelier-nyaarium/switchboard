@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRemoveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRenameResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceHomeNetworkResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
@@ -38,6 +39,8 @@ internal interface DeviceGateway {
 	suspend fun read(gatewayId: String, id: String): DeviceAnswer<ConsoleDeviceReadResult>
 
 	suspend fun scan(gatewayId: String): DeviceAnswer<ConsoleDeviceScanResult>
+
+	suspend fun homeNetwork(gatewayId: String): DeviceAnswer<ConsoleDeviceHomeNetworkResult>
 
 	suspend fun add(gatewayId: String, mac: String, address: String, name: String): DeviceAnswer<ConsoleDeviceAddResult>
 
@@ -339,6 +342,10 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 			slots.land(ticket) { it.copy(busy = false, said = line) }
 		}
 	}
+
+	/** The WiFi the Gateway's host is on; null for any other answer. */
+	suspend fun homeNetwork(gatewayId: String): String? =
+		((ask(gatewayId) { it.homeNetwork(gatewayId) } as? DeviceAnswer.Answered)?.value as? ConsoleDeviceHomeNetworkResult.Ok)?.ssid
 
 	private suspend fun <T> ask(gatewayId: String, call: suspend (DeviceGateway) -> DeviceAnswer<T>): DeviceAnswer<T> {
 		if (!host.names(gatewayId)) return DeviceAnswer.Unreachable

@@ -34,6 +34,9 @@ internal interface SetupGateway {
 	suspend fun add(gatewayId: String, mac: String, name: String): Boolean
 
 	fun pairedName(gatewayId: String, mac: String): String?
+
+	/** The WiFi the Gateway is on, which the plug must join. */
+	suspend fun homeNetwork(gatewayId: String): String?
 }
 
 internal enum class FoundPlug { PAIRED, CANDIDATE }
@@ -54,6 +57,8 @@ internal class DeviceSetupGateway(private val devices: DeviceOps) : SetupGateway
 	}
 
 	override fun pairedName(gatewayId: String, mac: String): String? = deviceRecord(devices.view(gatewayId), mac)?.name
+
+	override suspend fun homeNetwork(gatewayId: String): String? = devices.homeNetwork(gatewayId)
 }
 
 internal class PlugSetupOps(
@@ -80,6 +85,8 @@ internal class PlugSetupOps(
 		closeLink()
 		val began = ++generation
 		state.value = SetupRun(gatewayId, networkPrefix, SetupStage.JOINING)
+		// Asked before the phone joins a network with no route to it.
+		val yours = yourWifi(gateway.homeNetwork(gatewayId), platform.memory())
 		val joined = platform.join(networkPrefix)
 		if (joined == null) return@withLock settle(began) { it.copy(stage = SetupStage.FAILED, said = NOT_JOINED) }
 		link = joined
@@ -91,8 +98,9 @@ internal class PlugSetupOps(
 				stage = SetupStage.READY,
 				plug = plug,
 				homes = homes,
-				home = preferredHome(homes, platform.memory()),
+				home = preferredHome(homes, yours),
 				name = setupName(plug, gateway.pairedName(gatewayId, plug.mac), networkPrefix),
+				yours = yours,
 			)
 		}
 	}
@@ -164,8 +172,9 @@ internal class PlugSetupOps(
 	}
 
 	private fun closeLink() {
-		link?.let { runIsolated { it.close() } }
+		val held = link
 		link = null
+		held?.let { runIsolated { it.close() }.rethrowCancellation() }
 	}
 
 	companion object {

@@ -71,6 +71,7 @@ describe("Gateway device scan", () => {
 			killSession: async () => {},
 			listDirs: async () => ({ entries: [] }),
 			kasaScan: async () => ({ candidates: [candidate] }),
+			wifiNetwork: async () => ({ ssid: "Home" }),
 		};
 		const runner = createHostOpRunner(ops);
 		let receivedOp: unknown;

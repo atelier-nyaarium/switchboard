@@ -3,6 +3,7 @@ import type {
 	HostListDirsResult,
 	HostOp,
 	HostPeekResult,
+	HostWifiNetworkResult,
 	TmuxTarget,
 } from "../../shared/host-op.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
@@ -22,6 +23,7 @@ export interface TmuxOps {
 	killSession: (target: TmuxTarget) => Promise<void>;
 	listDirs: (path: string, spawn?: string) => Promise<HostListDirsResult>;
 	kasaScan: () => Promise<HostKasaScanResult>;
+	wifiNetwork: () => Promise<HostWifiNetworkResult>;
 }
 
 export type PeekPriority = "interactive" | "derive";
@@ -96,6 +98,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 	async function run(op: HostOp): Promise<unknown> {
 		if (op.kind === "peek") return runPeek(op.target);
 		if (op.kind === "kasaScan") return ops.kasaScan();
+		if (op.kind === "wifiNetwork") return ops.wifiNetwork();
 		if (op.kind === "sendText" || op.kind === "sendKey") return runSend(op);
 		if (op.kind === "listDirs") return ops.listDirs(op.path, op.spawn);
 		if (op.kind === "createSession")

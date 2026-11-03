@@ -206,6 +206,7 @@ describe("device road", () => {
 				device_list: { kind: "device_list" },
 				device_read: { kind: "device_read", id: MAC },
 				device_scan: { kind: "device_scan" },
+				device_home_network: { kind: "device_home_network" },
 				device_add: { kind: "device_add", mac: "aa:bb:cc:dd:ee:01", address: "127.0.0.1", name: "Fan" },
 				device_rename: { kind: "device_rename", id: MAC, name: "Desk lamp", revision: 1 },
 				device_remove: { kind: "device_remove", id: MAC, revision: 1 },

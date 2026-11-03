@@ -18,6 +18,7 @@ function makeOps(): { ops: TmuxOps } {
 		killSession: vi.fn(async () => {}),
 		listDirs: vi.fn(async () => ({ entries: ["projects"] })),
 		kasaScan: vi.fn(async () => ({ candidates: [] })),
+		wifiNetwork: vi.fn(async () => ({ reason: "none" as const })),
 	};
 	return { ops };
 }
@@ -169,6 +170,7 @@ describe("createHostOpRunner", () => {
 			killSession: async () => {},
 			listDirs: async () => ({ entries: [] }),
 			kasaScan: async () => ({ candidates: [] }),
+			wifiNetwork: async () => ({ reason: "none" as const }),
 		};
 		const runner = createHostOpRunner(ops, { minPeekIntervalMs: 0 });
 
@@ -200,6 +202,7 @@ describe("createHostOpRunner", () => {
 			killSession: async () => {},
 			listDirs: async () => ({ entries: [] }),
 			kasaScan: async () => ({ candidates: [] }),
+			wifiNetwork: async () => ({ reason: "none" as const }),
 		};
 		const runner = createHostOpRunner(ops, { minPeekIntervalMs: 0 });
 		await expect(runner.run({ kind: "peek", target: T })).rejects.toThrow();
@@ -244,6 +247,7 @@ describe("createHostOpRunner peek priority lanes", () => {
 			killSession: async () => {},
 			listDirs: async () => ({ entries: [] }),
 			kasaScan: async () => ({ candidates: [] }),
+			wifiNetwork: async () => ({ reason: "none" as const }),
 		};
 		return { ops, resolveTarget: (name) => resolvers.get(name)?.(), admissionOrder };
 	}

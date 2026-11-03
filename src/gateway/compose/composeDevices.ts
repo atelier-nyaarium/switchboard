@@ -8,6 +8,7 @@ import {
 } from "../../shared/schemasDevices.js";
 import type { DeviceConsole } from "../console/consoleTypes.js";
 import type { DeviceVerb } from "../devices/driver.js";
+import { createHomeNetwork, type WifiNetworkRelay } from "../devices/homeNetwork.js";
 import type { KasaTransport } from "../devices/kasa/transport.js";
 import { createDeviceRoad, Decline, type Plug, unwrap } from "../devices/road.js";
 import { createDeviceScan, type KasaScanRelay } from "../devices/scan.js";
@@ -30,7 +31,7 @@ export const DEVICE_READ_WAIT_MS = 5_000;
 export interface DeviceStageDeps {
 	dataDir: string;
 	ambient: Ambient;
-	relayToHost: KasaScanRelay;
+	relayToHost: KasaScanRelay & WifiNetworkRelay;
 	transport?: KasaTransport;
 	deviceStore?: DeviceStore;
 	onChanged?: (deviceId: string) => void;
@@ -51,6 +52,7 @@ type DeviceHandlers = {
 export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 	const road = createDeviceRoad(deps);
 	const runScan = createDeviceScan(deps.relayToHost);
+	const readHomeNetwork = createHomeNetwork(deps.relayToHost);
 
 	const relay = (plug: Plug, verb: DeviceVerb) =>
 		plug.drive(
@@ -89,6 +91,12 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 					);
 				}
 				return { kind: "ok", candidates: found.candidates };
+			}),
+		device_home_network: () =>
+			road.operation("console", consoleShape("device_home_network"), async (op) => {
+				const found = await op.race(readHomeNetwork());
+				if (found.kind === "refused") throw new Decline({ kind: "refused", code: found.code });
+				return { kind: "ok", ssid: found.ssid };
 			}),
 		device_add: (op) =>
 			road.onSlot("console", consoleShape("device_add"), op.mac, async (slot) => {

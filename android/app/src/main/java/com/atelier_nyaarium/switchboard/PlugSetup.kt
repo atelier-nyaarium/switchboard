@@ -41,14 +41,18 @@ internal data class SetupRun(
 	val said: String? = null,
 	/** The device id once it is on the network. */
 	val deviceId: String? = null,
+	/** Your WiFi, when known. */
+	val yours: String? = null,
 )
 
-/** Your WiFi is the one the last setup used; with none yet, the owner picks. */
-internal fun preferredHome(homes: List<HomeNetwork>, memory: SetupMemory): HomeNetwork? =
-	homes.find { it.ssid == memory.ssid }
+/** The Gateway's own network, else the one the last setup used. */
+internal fun yourWifi(gateway: String?, memory: SetupMemory): String? = gateway ?: memory.ssid
+
+/** Your WiFi when the plug sees it; with none known, the owner picks. */
+internal fun preferredHome(homes: List<HomeNetwork>, yours: String?): HomeNetwork? = homes.find { it.ssid == yours }
 
 internal sealed interface WifiSight {
-	/** No setup has named your WiFi yet. */
+	/** Neither the Gateway nor a past setup named your WiFi. */
 	data object Unknown : WifiSight
 
 	data class Seen(val home: HomeNetwork) : WifiSight
@@ -56,8 +60,8 @@ internal sealed interface WifiSight {
 	data class NotSeen(val ssid: String) : WifiSight
 }
 
-internal fun wifiSight(homes: List<HomeNetwork>, memory: SetupMemory): WifiSight {
-	val ssid = memory.ssid ?: return WifiSight.Unknown
+internal fun wifiSight(homes: List<HomeNetwork>, yours: String?): WifiSight {
+	val ssid = yours ?: return WifiSight.Unknown
 	return homes.find { it.ssid == ssid }?.let { WifiSight.Seen(it) } ?: WifiSight.NotSeen(ssid)
 }
 

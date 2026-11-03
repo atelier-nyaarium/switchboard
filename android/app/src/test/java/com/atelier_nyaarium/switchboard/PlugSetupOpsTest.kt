@@ -74,6 +74,10 @@ class PlugSetupOpsTest {
 		}
 
 		override fun pairedName(gatewayId: String, mac: String): String? = "On-Air Sign".takeIf { paired }
+
+		var network: String? = null
+
+		override suspend fun homeNetwork(gatewayId: String): String? = network
 	}
 
 	private fun ops(plug: FakePlug, gateway: SetupGateway) = PlugSetupOps(plug, gateway, waitMs = 5L, gatewayEveryMs = 1L)
@@ -191,11 +195,26 @@ class PlugSetupOpsTest {
 		assertNull(setupPassword("wifi-key") { null })
 		assertNull(setupPassword(null) { "unused" })
 		val homes = listOf(HomeNetwork("Home", 3, -40), HomeNetwork("Far", 3, -80))
-		assertNull(preferredHome(homes, SetupMemory(ssid = "Gone")))
-		assertNull(preferredHome(homes, SetupMemory()))
-		assertEquals(WifiSight.Seen(homes[0]), wifiSight(homes, SetupMemory(ssid = "Home")))
-		assertEquals(WifiSight.NotSeen("Gone"), wifiSight(homes, SetupMemory(ssid = "Gone")))
-		assertEquals(WifiSight.Unknown, wifiSight(homes, SetupMemory()))
+		assertNull(preferredHome(homes, "Gone"))
+		assertNull(preferredHome(homes, null))
+		assertEquals(WifiSight.Seen(homes[0]), wifiSight(homes, "Home"))
+		assertEquals(WifiSight.NotSeen("Gone"), wifiSight(homes, "Gone"))
+		assertEquals(WifiSight.Unknown, wifiSight(homes, null))
+		assertEquals("Gateway", yourWifi("Gateway", SetupMemory(ssid = "Last")))
+		assertEquals("Last", yourWifi(null, SetupMemory(ssid = "Last")))
+	}
+
+	@Test
+	fun `the Gateway's own network is your WiFi, over the one the last setup used`() = runBlocking {
+		val plug = FakePlug().apply { stored = SetupMemory(ssid = "Far") }
+		val gateway = FakeGateway(plug).apply { network = "Home" }
+		val setup = ops(plug, gateway)
+
+		setup.start("sakura", prefix)
+		val ready = setup.view.value!!
+
+		assertEquals("Home", ready.yours)
+		assertEquals("Home", ready.home?.ssid)
 	}
 
 	@Test
