@@ -72,11 +72,10 @@ describe("every tool whose body is scanned for refs", () => {
 describe("the path from a scanned tool to the ref grammar", () => {
 	// Each hop asserted on its own output rather than on source text, since a call site can keep
 	// calling the same helper after that helper has stopped carrying what the caller needs.
-	it("names the capability and sends the agent to the tool", () => {
+	it("names the capability", () => {
 		const note = capabilityInstructions([referencesCapability()]);
 
 		expect(note).toContain("references");
-		expect(note).toContain("switchboard_capabilities");
 	});
 
 	it("ends at a tool that serves the grammar and its worked examples", () => {

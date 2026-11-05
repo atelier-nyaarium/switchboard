@@ -19,8 +19,7 @@ export const UNREPORTED_CAPABILITIES: CapabilitySnapshot = { known: false, capab
 export const CODEX_AGENT_CAPABILITY_ID = agentCapabilityId("codex");
 export const COPILOT_AGENT_CAPABILITY_ID = agentCapabilityId("copilot");
 
-// Served only by switchboard_capabilities. The always-on block carries names alone, so length here
-// is not charged against the MCP server instructions.
+// Served by capabilityGuidance, never the length-capped instructions.
 export const CODEX_AGENT_INSTRUCTIONS = `
 # Codex Agent
 
@@ -79,6 +78,7 @@ The owner's secrets, approved per use from the phone. No tool ever answers a val
 - A \`refused\` answer with a \`note\` is the owner steering you. Do what the note says instead of asking again.
 - \`capture\` on a run stores the command's stdout as a new entry the owner can edit on the phone. Use it to generate a secret that must never enter the transcript.
 - \`sudo -A\` forwards the password request through Switchboard to the owner; plain \`sudo\` refuses with no terminal and never asks.
+- Run each privileged command as \`sudo -A <command>\` itself, never \`sudo -A sh script.sh\`. The owner approves the line the phone shows, and a policy can only match a real command.
 
 stdout and stderr come back with the value's bytes replaced by \`[vault]\`. Never echo a value into a file the transcript can read, and never put it on a command line: \`ps\` shows argv.
 `.trim();

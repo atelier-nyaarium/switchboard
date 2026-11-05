@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import type { Capability } from "../capabilities.js";
-import { registerChannelReply, registerChannelReplyStructured } from "../channel/channelReply.js";
+import { handshakeGuidance, registerChannelReply, registerChannelReplyStructured } from "../channel/channelReply.js";
 import { registerBridgeDiscover } from "./bridgeDiscover.js";
 import { registerBridgeSend } from "./bridgeSend.js";
 import { registerBridgeWait } from "./bridgeWait.js";
@@ -84,8 +84,9 @@ export function registerBridgeTools(mcpServer: McpServer, capabilities: Capabili
 	registerBridgeSend(mcpServer, { guarded });
 	registerBridgeWait(mcpServer);
 
-	registerChannelReply(mcpServer, capabilities);
-	registerChannelReplyStructured(mcpServer);
+	const onHandshake = handshakeGuidance({ assistant: guarded, startup: capabilities });
+	registerChannelReply(mcpServer, capabilities, onHandshake);
+	registerChannelReplyStructured(mcpServer, onHandshake);
 	setChannelServer(mcpServer.server);
 	console.error(`[bridge] channel mode, channel_reply + channel_reply_structured registered`);
 }

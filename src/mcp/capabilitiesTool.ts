@@ -19,9 +19,9 @@ const capabilitiesSchema: any = z.object({}).strict();
 const description = `
 # Switchboard Capabilities
 
-List capabilities enabled when this session started.
+List capabilities enabled when this session started, and what changed since.
 
-Call after receiving a channel message or compacting the session.
+Their guidance already arrives with the handshake answer and after each compaction.
 `.trim();
 
 const assistantDescription = `
@@ -29,7 +29,7 @@ const assistantDescription = `
 
 List the assistant's capabilities and its standing rules.
 
-Call after receiving a channel message or compacting the session.
+They already arrive with the handshake answer and after each compaction.
 `.trim();
 
 /** Ids only: instruction text is served from the startup snapshot either way. */
@@ -94,7 +94,28 @@ export function renderAssistantCapabilities(gateway: Capability[] | null): strin
 	return lines.join("\n");
 }
 
-// The startup snapshot answers, since it is what the tool set was gated on.
+/** Null when unconfirmed. */
+export async function currentCapabilities(routerUrl: string | undefined): Promise<Capability[] | null> {
+	const bundle = routerUrl ? await readCapabilities(routerUrl) : null;
+	// Incomplete is unverifiable, not a change: a silent source owns ids it did not report.
+	const fresh = bundle && unionCapabilities(bundle);
+	return fresh?.known ? fresh.capabilities : null;
+}
+
+export interface GuidanceScope {
+	assistant?: boolean;
+	/** Tools were gated on it. */
+	startup: Capability[] | null;
+}
+
+/** Every road's one rendering. */
+export async function capabilityGuidance(scope: GuidanceScope, routerUrl: string | undefined): Promise<string | null> {
+	const current = await currentCapabilities(routerUrl);
+	if (scope.assistant) return renderAssistantCapabilities(current);
+	const startup = scope.startup ?? current;
+	return startup ? renderCapabilities(startup, current) : null;
+}
+
 export function registerCapabilitiesTool(
 	mcpServer: McpServer,
 	capabilities: Capability[],
@@ -108,14 +129,8 @@ export function registerCapabilitiesTool(
 			inputSchema: capabilitiesSchema,
 		},
 		async () => {
-			const routerUrl = process.env.BRIDGE_ROUTER_URL;
-			const bundle = routerUrl ? await readCapabilities(routerUrl) : null;
-			// Incomplete is unverifiable, not a change: a silent source owns ids it did not report.
-			const fresh = bundle && unionCapabilities(bundle);
-			const current = fresh?.known ? fresh.capabilities : null;
-			const text = options.assistant
-				? renderAssistantCapabilities(current)
-				: renderCapabilities(capabilities, current);
+			const scope = { assistant: options.assistant, startup: capabilities };
+			const text = (await capabilityGuidance(scope, process.env.BRIDGE_ROUTER_URL)) ?? "";
 			return { content: [{ type: "text" as const, text }] };
 		},
 	);

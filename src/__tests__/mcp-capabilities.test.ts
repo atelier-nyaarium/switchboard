@@ -273,11 +273,11 @@ describe("capabilityInstructions", () => {
 		expect(capabilityInstructions([{ id: "designer" }])).toContain("designer");
 	});
 
-	it("names what is enabled and leaves the guidance to the tool", () => {
+	it("names what is enabled and leaves the guidance to the handshake answer", () => {
 		const text = capabilityInstructions([{ id: "designer", instructions: "Prefer Switchboard." }, { id: "notes" }]);
 
 		expect(text).toContain("`designer`, `notes`");
-		expect(text).toContain("switchboard_capabilities");
+		expect(text).not.toContain("Prefer Switchboard.");
 	});
 
 	it("stays far enough under the harness cap that a new capability cannot overflow it", () => {

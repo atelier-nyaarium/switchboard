@@ -84,6 +84,9 @@ neutralizer for model-bound text.
   first, open routine runs, agents with a turn running, the assistant's watcher lines (for
   `host.assistant` alone), and its unfinished board entries. Board lines go last and are cut first, measured after escaping, under Claude Code's 10,000-character hook cap.
   Anything short of a valid answer prints nothing.
+- **So does the capability guidance:** a second `compact` hook, `main-session-hook capabilities`,
+  prints what `switchboard_capabilities` renders, cut at a section under the same cap. A fresh
+  session reads it first in its handshake answer.
 - **The awareness bank is left alone:** a banked change still rides the next message, and reads
   against the baseline's current state.
 - **`compact_session` always sends fixed recall-first instructions,** then the caller's own, if any.

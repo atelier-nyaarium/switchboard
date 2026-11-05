@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { z } from "zod";
 import {
 	type Capability,
 	type CapabilityBundle,
@@ -10,6 +11,7 @@ import {
 	unionCapabilities,
 } from "../shared/capabilities.js";
 import { CapabilityBundleSchema } from "../shared/schemas.js";
+import { EnabledPluginSchema } from "../shared/schemasCapability.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -143,9 +145,35 @@ export function hasCapability(capabilities: Capability[], id: CapabilityId): boo
 	return capabilities.some((c) => c.id === id);
 }
 
-// Names only: every surface this appends to is length-capped, and guidance pushes the tail past it
-// with no error on either side. The instruction is unconditional, since a precondition is something
-// an agent can decide does not apply yet.
+function startupFile(projectName: string): string {
+	return path.join(os.homedir(), ".config", "switchboard", "session-capabilities", `${projectName}.json`);
+}
+
+/** What this session's tools were gated on, for its compaction hook. */
+export function saveStartupCapabilities(projectName: string | undefined, capabilities: Capability[]): void {
+	if (!projectName) return;
+	try {
+		const file = startupFile(projectName);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, JSON.stringify(capabilities));
+	} catch {
+		// The hook falls back to the Gateway's set.
+	}
+}
+
+export function readStartupCapabilities(projectName: string | undefined): Capability[] | null {
+	if (!projectName) return null;
+	try {
+		const parsed = z
+			.array(EnabledPluginSchema)
+			.safeParse(JSON.parse(fs.readFileSync(startupFile(projectName), "utf8")));
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
+// Names only: every surface this appends to is length-capped.
 export function capabilityInstructions(capabilities: Capability[]): string {
 	if (capabilities.length === 0) return "";
 	const names = capabilities.map((c) => `\`${c.id}\``).join(", ");
@@ -156,5 +184,5 @@ export function capabilityInstructions(capabilities: Capability[]): string {
 
 Enabled: ${names}.
 
-Call \`switchboard_capabilities\` after receiving a channel message or compacting.${refs}`;
+Their guidance arrives with the handshake answer and after each compaction.${refs}`;
 }

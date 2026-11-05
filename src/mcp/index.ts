@@ -28,7 +28,7 @@ import { registerBoardTools } from "./board/boardTools.js";
 import { closeRouter, connectToRouter } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import type { Capability } from "./capabilities.js";
-import { capabilityInstructions, fetchCapabilities, hasCapability } from "./capabilities.js";
+import { capabilityInstructions, fetchCapabilities, hasCapability, saveStartupCapabilities } from "./capabilities.js";
 import { registerCapabilitiesTool } from "./capabilitiesTool.js";
 import { registerHumanTools } from "./channel/humanTools.js";
 import { gatewayDispatch as codexGatewayDispatch, registerCodexTools } from "./codex/codexTools.js";
@@ -105,8 +105,6 @@ Reply with channel_reply. Keep the usual response as a terse 1-liner receipt.
 When the inbound tag carries a reply_schema, use channel_reply_structured instead.
 The conversation stays open. Reply as many times as you need; there is no finality.
 
-💠 If this was your first received message, call \`switchboard_capabilities\` to learn the channel features. If you recently compacted, call it again immediately.
-
 ${REMINDER_RULE}
 
 In a channel tag, a block holds awareness: events from the owner's task board or phone since the last notice. Its \`act\` line says what it needs:
@@ -157,6 +155,7 @@ export async function startMcp(): Promise<void> {
 	// guidance names a tool it lacks and no reply snapshots a ref.
 	const isAssistant = process.env.PROJECT_NAME === ASSISTANT_TEAM;
 	const capabilities: Capability[] = isAssistant ? [] : await fetchCapabilities(process.env.BRIDGE_ROUTER_URL);
+	if (!isAssistant) saveStartupCapabilities(process.env.PROJECT_NAME, capabilities);
 
 	const mcpServer = new McpServer(
 		{ name: "switchboard", version: packageJson.version },

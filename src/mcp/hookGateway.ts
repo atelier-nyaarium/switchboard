@@ -5,6 +5,10 @@ import { isInsideContainer } from "../shared/env.js";
 
 export type HookEnv = Readonly<Record<string, string | undefined>>;
 
+export function gatewayBase(env: HookEnv): string {
+	return env.BRIDGE_ROUTER_URL ?? (isInsideContainer() ? "http://switchboard:20000" : "http://localhost:20000");
+}
+
 /** The answer's JSON, or null without a token, an answer or on failure. Never throws. */
 export async function askGateway(
 	env: HookEnv,
@@ -14,9 +18,8 @@ export async function askGateway(
 ): Promise<unknown> {
 	const token = env.SWITCHBOARD_SESSION_TOKEN;
 	if (!token) return null;
-	const base = env.BRIDGE_ROUTER_URL ?? (isInsideContainer() ? "http://switchboard:20000" : "http://localhost:20000");
 	try {
-		const res = await fetchImpl(`${base}${route}`, {
+		const res = await fetchImpl(`${gatewayBase(env)}${route}`, {
 			method: "POST",
 			headers: { "content-type": "application/json", "x-session-token": token },
 			body: "{}",

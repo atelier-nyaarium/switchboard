@@ -233,7 +233,9 @@ no TTL.
 - Offline fallback is the last answer that actually arrived. `GATED_CAPABILITY_IDS` drives both
   gates; the daemon id is pinned separately.
 - **Always-on instructions carry names, not guidance:** The harness caps `capabilityInstructions` and
-  silently truncates long guidance; `switchboard_capabilities` serves guidance per call.
+  silently truncates long guidance. `capabilityGuidance` renders it for the three roads that serve it:
+  the handshake answer, which a fresh session cannot skip; the `compact` hook (`main-session-hook
+  capabilities`); and `switchboard_capabilities`, kept for what changed since start.
 - That tool answers from the startup snapshot. A fresh read may warn about drift but must not
   describe tools absent from the session.
 - A running session's tools do not change until its next start.

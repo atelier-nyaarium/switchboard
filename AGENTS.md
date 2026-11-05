@@ -5,7 +5,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 ## Layout
 
 - `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` - six entry points
-- `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` - the plugin's SessionStart `compact` hook and what it prints
+- `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` / `capabilityHook.ts` - the plugin's SessionStart `compact` hooks: the baseline, and the capability guidance
+- `src/mcp/capabilitiesTool.ts` `capabilityGuidance` - the one rendering of a session's capability guidance: the handshake answer (`channelReply.ts`), the `compact` hook and `switchboard_capabilities`
+  - **A fresh session cannot skip it:** the plugin auto-answers a handshake only once the role is known, so a new process's agent answers its first one itself, and that answer carries the guidance. The hook renders the set the session started with, which the MCP process records per `PROJECT_NAME` (`saveStartupCapabilities`). Only a cut or unreadable guidance names the tool.
 - `src/mcp/devcontainer/hostResolve.ts` `assistantPermissionArgs` - the assistant's launch: Claude Code's permission engine in `dontAsk` with a closed `--tools` list and inline settings, the boundary its hook layers over
 - `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on the attachments and refs of `channel_reply` and `notify_human`
   - **Every allowed write needs a held phone hold** (`src/shared/assistant-hold.ts`): claimed from the summon panel or Assistant tab within the last 10 minutes, the claim stamped on the Router's clock and its age judged on the Gateway's; an unreadable hold refuses. `src/mcp/hookGateway.ts` is the one road a hook asks the Gateway by.
@@ -903,7 +905,7 @@ registration and its client stops with the floor in the log.
 **`main-host-daemon.ts`** host `host` WS slot, devcontainer wake, session spawn, terminal view.
 **`main-federation.ts`** self-hosted federation relay.
 **`main-vault-askpass.ts`** askpass helper in a session, host or container; asks the phone through the gateway as that session, falls back to the tty.
-**`main-session-hook.ts`** compact hook, printing the session's baseline as hook context; with `gate`, the assistant's PreToolUse gate.
+**`main-session-hook.ts`** compact hook, printing the session's baseline as hook context; with `capabilities`, its capability guidance; with `gate`, the assistant's PreToolUse gate.
 
 | Port | Service |
 |---|---|

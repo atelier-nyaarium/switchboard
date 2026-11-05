@@ -9,7 +9,23 @@ import {
 import { bridgeConversationId, confirmHandshakeRole } from "../bridge/helpers.js";
 import { postReply, readReplyAttachments, type ToolTextResult, toolError } from "../bridge/replyTool.js";
 import { type Capability, capabilityInstructions } from "../capabilities.js";
+import { capabilityGuidance, type GuidanceScope } from "../capabilitiesTool.js";
 import { appendRefArtifacts, withNotices } from "../references/attachRefs.js";
+
+/** For the handshake answer. */
+export type HandshakeGuidance = () => Promise<string | null>;
+
+export function handshakeGuidance(scope: GuidanceScope): HandshakeGuidance {
+	return () => capabilityGuidance(scope, process.env.BRIDGE_ROUTER_URL);
+}
+
+/** Only once delivered. */
+async function withGuidance(sent: ToolTextResult, guidance: HandshakeGuidance | undefined): Promise<ToolTextResult> {
+	if (sent.isError || !guidance) return sent;
+	const text = await guidance();
+	if (!text) return sent;
+	return { ...sent, content: [...sent.content, { type: "text" as const, text }] };
+}
 
 ////////////////////////////////
 //  Payload builders (pure - the wire mapping, testable without a network call)
@@ -35,9 +51,12 @@ export function isEmptyResponseData(responseData: Record<string, unknown>): bool
 ////////////////////////////////
 //  Handlers (exported directly so tests can call them without an McpServer)
 
-export async function handleChannelReply(args: ChannelReplyArgs): Promise<ToolTextResult> {
+export async function handleChannelReply(
+	args: ChannelReplyArgs,
+	guidance?: HandshakeGuidance,
+): Promise<ToolTextResult> {
 	// Parity with the gateway's /true/i fallback, or a prose-confirmed lead re-asks every reconnect.
-	confirmHandshakeRole(args.session_id, /true/i.test(args.full));
+	const handshake = confirmHandshakeRole(args.session_id, /true/i.test(args.full));
 	const payload = buildChannelReplyPayload(args);
 	let files: Awaited<ReturnType<typeof readReplyAttachments>> = [];
 	if (args.attachments && args.attachments.length > 0) {
@@ -60,28 +79,36 @@ export async function handleChannelReply(args: ChannelReplyArgs): Promise<ToolTe
 		logPrefix: "channel",
 		responseFieldLabel: "full",
 	});
-	return withNotices(sent, withRefs.notices);
+	return withNotices(await withGuidance(sent, handshake ? guidance : undefined), withRefs.notices);
 }
 
-export async function handleChannelReplyStructured(args: ChannelReplyStructuredArgs): Promise<ToolTextResult> {
+export async function handleChannelReplyStructured(
+	args: ChannelReplyStructuredArgs,
+	guidance?: HandshakeGuidance,
+): Promise<ToolTextResult> {
 	if (isEmptyResponseData(args.responseData)) {
 		return toolError(
 			`Empty responseData rejected - {} would render as the literal string "{}" on the console with no useful content.`,
 		);
 	}
 	// Scoped to a handshake this process received, so a relayed session_id cannot poison a worker.
-	if (typeof args.responseData.isMainOrLead === "boolean") {
+	const handshake =
+		typeof args.responseData.isMainOrLead === "boolean" &&
 		confirmHandshakeRole(args.session_id, args.responseData.isMainOrLead);
-	}
 	const payload = buildStructuredReplyPayload(args);
-	return postReply(payload, { toolName: "channel_reply_structured", logPrefix: "channel" });
+	const sent = await postReply(payload, { toolName: "channel_reply_structured", logPrefix: "channel" });
+	return withGuidance(sent, handshake ? guidance : undefined);
 }
 
 ////////////////////////////////
 //  Functions & Helpers
 
 // Threaded in, not read from a global, so a description cannot be composed before the answer.
-export function registerChannelReply(mcpServer: McpServer, capabilities: Capability[] = []): void {
+export function registerChannelReply(
+	mcpServer: McpServer,
+	capabilities: Capability[] = [],
+	onHandshake?: HandshakeGuidance,
+): void {
 	const guidance = capabilityInstructions(capabilities);
 	mcpServer.registerTool(
 		"channel_reply",
@@ -99,11 +126,11 @@ Send responses verbatim unless the requester asked for a summary.${guidance}
 			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
 			inputSchema: ChannelReplySchema as any,
 		},
-		handleChannelReply,
+		(args: ChannelReplyArgs) => handleChannelReply(args, onHandshake),
 	);
 }
 
-export function registerChannelReplyStructured(mcpServer: McpServer): void {
+export function registerChannelReplyStructured(mcpServer: McpServer, onHandshake?: HandshakeGuidance): void {
 	mcpServer.registerTool(
 		"channel_reply_structured",
 		{
@@ -118,6 +145,6 @@ Use only when the inbound \`<channel>\` tag has \`reply_schema\`. Otherwise use 
 			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
 			inputSchema: ChannelReplyStructuredSchema as any,
 		},
-		handleChannelReplyStructured,
+		(args: ChannelReplyStructuredArgs) => handleChannelReplyStructured(args, onHandshake),
 	);
 }

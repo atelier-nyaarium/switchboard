@@ -153,7 +153,7 @@ stay useful for scratch steps inside one.
   the only progress the owner can see.
 - **A follow-up you will not do goes to the backlog**, or it dies with your session.
 
-The full guidance comes from `switchboard_capabilities`, the same as refs above.
+The full guidance arrives with the handshake answer and after each compaction, the same as refs above.
 
 ## Receiving a Request
 
