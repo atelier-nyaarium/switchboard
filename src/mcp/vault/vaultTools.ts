@@ -128,7 +128,7 @@ Run a shell command with a vault entry's value injected, once the owner approves
 
 The command is what the owner reads. Name the real program and target: \`ssh deploy@prod\`, not \`sh script.sh\`.
 
-For a sudo password, skip this tool: run \`sudo -A <command>\` in the shell, one real command per call, never a script. \`-A\` asks the owner the same way; plain \`sudo\` has no terminal and fails.
+For a sudo password, skip this tool: run commands individually as \`sudo -A <command>\`, without a wrapper (like \`-c\` or a script). \`-A\` asks the owner the same way; plain \`sudo\` has no terminal and fails.
 
 Shapes: \`env\` puts the value in \`$${DEFAULT_ENV_NAME}\` (or \`envName\`); \`stdin\` writes it followed by a newline; \`file\` writes a 0600 file and names it in \`$${FILE_ENV_NAME}\`, gone after exit. Never expand the value onto a command line: \`ps\` shows argv.
 
