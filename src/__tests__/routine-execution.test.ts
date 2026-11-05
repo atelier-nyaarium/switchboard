@@ -47,7 +47,7 @@ function seam(over: Partial<Parameters<typeof createRoutineExecution>[0]> = {}) 
 	const delivered: Array<{ from: string; to: string; body: string; deliveryId: string }> = [];
 	const execution = createRoutineExecution({
 		getRunbook: () => runbook(),
-		workingOf: () => undefined,
+		busyOf: () => undefined,
 		hasSession: () => false,
 		forgetSession: () => {},
 		reserveSession: async (r) => ({ kind: "ok", team: routineTeam(r) }),
@@ -145,11 +145,9 @@ describe("what a routine does when its moment comes", () => {
 		expect(await execution.prepare(routine(), occurrence)).toEqual({ ok: false, reason: "session_taken" });
 	});
 
-	it("treats a session nobody has heard from as idle, and only a working one as busy", () => {
+	it("treats a session nobody has heard from as idle, and only a busy one as busy", () => {
 		const states = [undefined, false, true] as const;
-		const idle = states.map((working) =>
-			seam({ workingOf: () => working }).execution.sessionIdle("host.routine-triage"),
-		);
+		const idle = states.map((busy) => seam({ busyOf: () => busy }).execution.sessionIdle("host.routine-triage"));
 
 		expect(idle).toEqual([true, true, false]);
 	});

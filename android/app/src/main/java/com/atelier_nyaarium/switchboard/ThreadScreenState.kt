@@ -66,8 +66,6 @@ data class TerminalState(
 	val onRelaunch: suspend () -> Unit,
 	val onPeek: suspend (sinceHash: String?) -> Result<com.atelier_nyaarium.switchboard.proto.ConsolePeekResult>,
 	val onSend: suspend (text: String?, key: String?, submit: Boolean) -> Unit,
-	/** Clear a usage-limit dialog and pick the work back up (SessionOps.resumeAfterLimit). */
-	val onResumeAfterLimit: suspend () -> Unit,
 )
 
 /** What a conversation's top bar shows. */

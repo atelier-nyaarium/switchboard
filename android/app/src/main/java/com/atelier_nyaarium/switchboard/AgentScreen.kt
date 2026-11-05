@@ -63,6 +63,10 @@ object AgentScreen {
 	// The auth notice renders in both slices and needs a different rule in each. Unanchored in the
 	// toolbar, where it shares the mode label's line; anchored above the composer, where it is a row of
 	// its own and the slice holds the transcript tail. Twins in agent-screen.ts.
+	// Below the toolbar once the session waits for the reset. Anchored so prose cannot match.
+	private val limitWaitingRe = Regex(
+		"^$SPACE*\\u26A0$SPACE*(Usage limit reached)$SPACE*\\u00B7$SPACE*([^ \\t\\u00a0].*?)$SPACE*$",
+	)
 	private val loggedOutToolbarRe = Regex("Not logged in|Run /login")
 	private val loggedOutStatusRe = Regex("^$SPACE*(?:Not logged in|Run /login)\\b", RegexOption.MULTILINE)
 
@@ -128,11 +132,22 @@ object AgentScreen {
 	/** Where a marker may appear. No value spans both, so a "/login" typed in the composer stays inert. */
 	private enum class PaneRegion { TOOLBAR, STATUS }
 
-	/** The one place a pane is sliced. A marker names its region and never slices its own. */
-	private fun paneHas(screen: String, marker: Regex, where: PaneRegion): Boolean {
+	/** The one place a pane is sliced. Stripped rows of one region. */
+	private fun paneRegion(screen: String, where: PaneRegion): List<String> {
 		val lines = strip(screen).split("\n")
-		val region = if (where == PaneRegion.TOOLBAR) footerRegion(lines) else statusRegion(lines)
-		return marker.containsMatchIn(region.joinToString("\n"))
+		return if (where == PaneRegion.TOOLBAR) footerRegion(lines) else statusRegion(lines)
+	}
+
+	private fun paneHas(screen: String, marker: Regex, where: PaneRegion): Boolean =
+		marker.containsMatchIn(paneRegion(screen, where).joinToString("\n"))
+
+	/** The footer notice a session waiting out its limit shows. Twin of limitWaiting. */
+	private fun limitWaiting(screen: String): LimitNotice? {
+		for (row in paneRegion(screen, PaneRegion.TOOLBAR)) {
+			val waiting = limitWaitingRe.find(row) ?: continue
+			return LimitNotice(waiting.groupValues[1], waiting.groupValues[2])
+		}
+		return null
 	}
 
 	fun isReady(screen: String): Boolean =
@@ -224,7 +239,7 @@ object AgentScreen {
 		}
 		var divider = findDivider { if (anyRuleLineRe.matches(it.trim())) "" else null }
 		if (divider < 0) divider = findDivider { afterRuleRun(it, anyRuleRunRe) }
-		if (divider < 0) return null
+		if (divider < 0) return limitWaiting(screen)
 		// Walk up from the divider, stopping at the next border so a composer-present screen exposes
 		// only the composer row. Blank rows do not spend budget; a wrapped headline needs the full one.
 		val above = mutableListOf<String>()

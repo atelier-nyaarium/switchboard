@@ -223,6 +223,35 @@
 			"name": "no rule anywhere on the screen",
 			"screen": ["You've hit your weekly limit · resets 5pm"],
 			"expect": null
+		},
+		{
+			"name": "waiting out the limit after choosing to continue automatically (from a phone screenshot, no live capture yet)",
+			"screen": [
+				"  ⎿  Claude Code will continue automatically at Nov",
+				"     4, 4pm. Keep this session open; it may still",
+				"     pause for permission prompts.",
+				"",
+				"─────────────────────────────────────────────────────",
+				"❯ ",
+				"─────────────────────────────────────────────────────",
+				"  ⚠ Usage limit reached · limit resets Nov 4, 4pm",
+				"    Continuing automatically at Nov 4, 4pm · Esc to",
+				"    cancel · /usage-credits to continue now",
+				"  ⏵⏵ bypass permissions on · 1 monitor · ↓ to mana…"
+			],
+			"expect": { "detail": "limit resets Nov 4, 4pm" }
+		},
+		{
+			"name": "the waiting notice quoted in the transcript, above the composer",
+			"screen": [
+				"  ⚠ Usage limit reached · limit resets Nov 4, 4pm",
+				"",
+				"─────────────────────────────────────────────────────",
+				"❯ ",
+				"─────────────────────────────────────────────────────",
+				"  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+			],
+			"expect": null
 		}
 	]
 }

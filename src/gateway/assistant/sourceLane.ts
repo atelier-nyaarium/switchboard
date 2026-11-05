@@ -25,6 +25,8 @@ export const WAKE_BATCH = 20;
 export const WAKE_DEADLINE_MS = 90_000;
 export const WAKE_RETRY_MS = 30_000;
 export const WAKE_RETRY_MAX_MS = 15 * 60_000;
+/** A wake's answer while the session is working, at its limit or prompted. */
+export const WAKE_BUSY = "the assistant is busy";
 
 /** Senderless push. Null when it landed, else why not. */
 export type AssistantWake = (event: {
@@ -290,7 +292,9 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const failed = await pushAll(watcher, wakes, signal);
 		if (!live()) return;
 		if (failed) {
-			const retry = held.wakeRetryMs ?? WAKE_RETRY_MS;
+			// A busy session is not a failing one, so it does not back off further.
+			const busy = failed === WAKE_BUSY;
+			const retry = busy ? WAKE_RETRY_MS : (held.wakeRetryMs ?? WAKE_RETRY_MS);
 			const until = ambient.now() + retry;
 			console.warn(`[assistant] ${watcher.id} wake not delivered; polling again in ${retry / 1000}s: ${failed}`);
 			const kept = {
@@ -298,7 +302,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 				...read,
 				backoff: { until, reason: `wake not delivered: ${failed}` },
 				nextPollAt: until,
-				wakeRetryMs: Math.min(retry * 2, WAKE_RETRY_MAX_MS),
+				...(busy ? {} : { wakeRetryMs: Math.min(retry * 2, WAKE_RETRY_MAX_MS) }),
 			};
 			settle(watcher, kept, until);
 			return;

@@ -101,8 +101,6 @@ fun TerminalView(
 	onRelaunch: suspend () -> Unit,
 	onPeek: suspend (sinceHash: String?) -> Result<ConsolePeekResult>,
 	onSend: suspend (text: String?, key: String?, submit: Boolean) -> Unit,
-	// Answer a usage-limit dialog with choice 1 and type "resume". Throws on failure.
-	onResumeAfterLimit: suspend () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
 	var ansi by remember(team) { mutableStateOf("") }
@@ -134,9 +132,6 @@ fun TerminalView(
 	// The Wake up button's in-flight latch (the close_session + create_session round trip), so a
 	// double-tap cannot fire a second chain whose close would kill the first chain's fresh session.
 	var relaunching by remember(team) { mutableStateOf(false) }
-	// The Resume button's own in-flight latch, so a double-tap cannot inject the three-send sequence
-	// twice and leave a stray "resume" staged in the composer.
-	var resuming by remember(team) { mutableStateOf(false) }
 	val scope = rememberCoroutineScope()
 	val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -314,20 +309,6 @@ fun TerminalView(
 							fontFamily = FontFamily.Monospace,
 							fontSize = 12.sp,
 						)
-						FilledTonalButton(
-							onClick = hapticClick {
-								resuming = true
-								scope.launch {
-									runCatchingCancellable { onResumeAfterLimit() }
-										.onFailure { sendError = it.message ?: "resume failed" }
-									resuming = false
-								}
-							},
-							enabled = !resuming,
-							modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-						) {
-							Text(if (resuming) "Resuming..." else "Resume")
-						}
 					}
 				} else if (presence?.isOnline == true) {
 					Row(

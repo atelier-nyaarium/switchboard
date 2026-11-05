@@ -133,6 +133,24 @@ describe("HandshakeGate", () => {
 		expect(gate.pendingOf(hsId)).toBeUndefined();
 	});
 
+	it("holds a busy session's handshake until it is idle, and never expires it while busy", () => {
+		const { gate, advance } = makeGate();
+		let busy = true;
+		const { hsId } = gate.mint("app.dev", "s1", true);
+		expect(gate.due(() => !busy)).toEqual([]);
+
+		advance(TTL);
+		expect(gate.expirePending(() => busy)).toEqual([]);
+		busy = false;
+		const [due] = gate.due(() => !busy);
+		expect(due?.hsId).toBe(hsId);
+		gate.sent(hsId);
+		expect(gate.due(() => true)).toEqual([]);
+
+		advance(TTL);
+		expect(gate.expirePending(() => busy).map((p) => p.team)).toEqual(["app.dev"]);
+	});
+
 	it("forget drops the coordinates' pending entry so a repush finds nothing", () => {
 		const { gate } = makeGate();
 		gate.mint("app.dev", "s1");

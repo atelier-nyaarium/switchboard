@@ -10,8 +10,8 @@ import type { PrepareResult, RoutineAttempt } from "./runner.js";
 
 export interface RoutineExecutionDeps extends TargetReserve {
 	getRunbook: (runbookId: string) => Runbook | null;
-	/** Activity, when known. */
-	workingOf: (team: string) => boolean | undefined;
+	/** Working, at its limit or holding a prompt, when known. */
+	busyOf: (team: string) => boolean | undefined;
 	hasSession: (team: string) => boolean;
 	/** Match owner teardown. */
 	forgetSession: (team: string) => void;
@@ -36,7 +36,7 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 		sessionIdle(team: string): boolean {
 			// Unknown counts as idle: a session nobody has heard from is not one that is busy, and
 			// the deadline is what stops this waiting forever.
-			return deps.workingOf(team) !== true;
+			return deps.busyOf(team) !== true;
 		},
 
 		hasSession: deps.hasSession,

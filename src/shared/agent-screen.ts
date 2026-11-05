@@ -138,6 +138,11 @@ const MENU_CURSOR_RE = new RegExp(`^${SPACE}+${COMPOSER_GLYPH}${SPACE}*\\d+\\.`,
 // The usage-limit dialog's own cancel choice, matched on the label's stable tail. It collapses to a
 // bare "Stop" on usage-based billing, which is too generic to match, so that case is not detected.
 const LIMIT_MENU_RE = /wait for limit to reset/;
+// Below the toolbar once the session waits for the reset. Anchored so prose cannot match.
+const LIMIT_WAITING_RE = new RegExp(
+	`^${SPACE}*⚠${SPACE}*(Usage limit reached)${SPACE}*·${SPACE}*([^ \\t\\u00a0].*?)${SPACE}*$`,
+	"u",
+);
 // Deliberately names no model, plan, seat kind, or billing period: those churn, and an enumeration
 // fails silently the first time one is renamed. Each branch is a literal prefix of one of the CLI's
 // own headline builders, so the variable part stays payload to display rather than something to match.
@@ -269,6 +274,15 @@ export function isLoggedOut(screen: string): boolean {
  * has usually scrolled past. Requiring it missed the common case entirely.
  *
  * The Kotlin twin lives in AgentScreen.kt. */
+/** The notice a session waiting out its limit shows. */
+function limitWaiting(screen: string): LimitNotice | null {
+	for (const row of paneRegion(screen, "toolbar")) {
+		const waiting = LIMIT_WAITING_RE.exec(row);
+		if (waiting) return { headline: waiting[1], detail: waiting[2] };
+	}
+	return null;
+}
+
 export function limitNotice(screen: string): LimitNotice | null {
 	const lines = stripAnsi(screen).split("\n");
 	// Lowest divider whose region below carries both signals. Not simply the last rule: a dialog that
@@ -299,7 +313,7 @@ export function limitNotice(screen: string): LimitNotice | null {
 	};
 	let divider = findDivider((line) => (ANY_RULE_LINE_RE.test(line.trim()) ? "" : null));
 	if (divider < 0) divider = findDivider((line) => afterRuleRun(line, ANY_RULE_RUN_RE));
-	if (divider < 0) return null;
+	if (divider < 0) return limitWaiting(screen);
 	// Walk up from the divider, stopping at the next border so a composer-present screen exposes only
 	// the composer row. Blank rows do not spend budget; a wrapped headline needs the full allowance.
 	const above: string[] = [];

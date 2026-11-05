@@ -102,6 +102,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			clearLive: (team, subId) => sessions.presence.clearLive(team, subId),
 		},
 		announcePresenceDirty: () => sessions.presence.markDirty(),
+		busyOf: (team) => sessions.presence.busyOf(team),
 	});
 
 	return { channelDeliveries, wsHandlers, workspacePlane };

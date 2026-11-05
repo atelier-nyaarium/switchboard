@@ -15,6 +15,7 @@ import {
 import { ConsoleOpSchema } from "../../shared/schemasConsoleOp.js";
 import { ContentEnvelopeSchema } from "../../shared/schemasContentKey.js";
 import { PhoneHoldFrameSchema, PhoneHoldPlaneSchema } from "../../shared/schemasPhoneHold.js";
+import { WAKE_BUSY } from "../assistant/sourceLane.js";
 import type { FederationSlice, RouterFrameHandlers } from "../boot.js";
 import { createConsoleDispatcher } from "../console/consoleHandler.js";
 import { createCrossDomainHandshakePump } from "../federation/crossDomainHandshake.js";
@@ -163,7 +164,10 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			assistant: deps.assistant.console,
 		});
 
-		deps.assistant.bindWake((event) => deps.routes().deliverEvent(event));
+		// A busy assistant is not woken; the lane polls again from its checkpoint.
+		deps.assistant.bindWake(async (event) =>
+			sessions.presence.busyOf(ASSISTANT_TEAM) === true ? WAKE_BUSY : deps.routes().deliverEvent(event),
+		);
 		deps.assistant.bindNudge((nudge) => nudgeAsOwner({ ...nudge, to: ASSISTANT_TEAM }));
 		deps.assistant.bindHome({
 			open: (record) => openHome(record),
@@ -250,7 +254,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		deps.routines.bindExecution(
 			createRoutineExecution({
 				getRunbook: (runbookId) => deps.runbooks.console.get(runbookId),
-				workingOf: (team) => sessions.presence.workingOf(team),
+				busyOf: (team) => sessions.presence.busyOf(team),
 				reserveSession: (routine) => consoleHandler.reserveRoutineSession(routine),
 				reserveAssistant: async () => {
 					if (!deps.assistant.placed()) return { kind: "unplaced" };

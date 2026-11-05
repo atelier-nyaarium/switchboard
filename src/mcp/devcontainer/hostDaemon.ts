@@ -43,7 +43,7 @@ import {
 import { createKasaScanner } from "./kasaScan.js";
 import { PromptOccurrences, seePrompt } from "./permissionPrompt.js";
 import { PresenceScheduler, type WatchEntry } from "./presenceScheduler.js";
-import { answerPrompt, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
+import { answerPrompt, continueAfterLimit, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
 import {
 	awaitReady,
@@ -503,6 +503,9 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 
 // One count per pane, read by presence and the answer alike.
 const promptOccurrences = new PromptOccurrences();
+// One press per dialog sighting, while its frame repeats.
+const LIMIT_ANSWER_GAP_MS = 15_000;
+const limitAnsweredAt = new Map<string, number>();
 const sightOf =
 	(target: TmuxTarget): PromptSight =>
 	(screen) =>
@@ -573,6 +576,15 @@ const presenceScheduler = new PresenceScheduler({
 				...(value.workflow ? { workflow: true } : {}),
 			});
 		else safeSend({ type: "presence_derive", team });
+	},
+	onLimitDialog: (target) => {
+		const key = paneKey(target);
+		const now = Date.now();
+		if (now - (limitAnsweredAt.get(key) ?? 0) < LIMIT_ANSWER_GAP_MS) return;
+		limitAnsweredAt.set(key, now);
+		void withPane(target, (hands) => continueAfterLimit(hands)).catch((e) =>
+			console.error("[presence] limit answer failed:", e),
+		);
 	},
 	onAutoDeny: (target, promptId) => {
 		void withPane(target, (hands) => stopAutoDeny(hands, sightOf(target), promptId)).catch((e) =>

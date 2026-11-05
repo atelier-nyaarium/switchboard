@@ -1,3 +1,4 @@
+import { stripAnsi } from "../../shared/agent-screen.js";
 import type { PromptDecision, PromptOutcome } from "../../shared/host-op.js";
 import { noOption, type SeenPrompt } from "./permissionPrompt.js";
 import type { PaneHands } from "./tmuxCore.js";
@@ -70,6 +71,55 @@ export async function stopAutoDeny(hands: PaneHands, sight: PromptSight, promptI
 	await hands.press("Down");
 	await hands.press("Up");
 	return true;
+}
+
+// Explicit class: the Windows build emits U+00A0.
+const SPACE = "[ \\t\\u00a0]";
+const LIMIT_MENU_RE = /wait for limit to reset/u;
+const CONTINUE_ROW_RE = new RegExp(`^${SPACE}*(?:[❯>]${SPACE}*)?(\\d+)\\.${SPACE}+.*continue automatically`, "u");
+// The dialog's own footer, always the pane's last row.
+const CONFIRM_FOOTER_RE = new RegExp(`^${SPACE}*Enter to confirm`, "u");
+
+/** The limit dialog's "continue automatically" digit, or null when no such dialog shows. */
+export function limitContinueDigit(screen: string): string | null {
+	const rows = stripAnsi(screen)
+		.split("\n")
+		.filter((row) => row.trim() !== "");
+	if (!CONFIRM_FOOTER_RE.test(rows.at(-1) ?? "")) return null;
+	const dialog = rows.slice(-12);
+	if (!dialog.some((row) => LIMIT_MENU_RE.test(row))) return null;
+	for (const row of dialog) {
+		const match = CONTINUE_ROW_RE.exec(row);
+		if (match) return match[1];
+	}
+	return null;
+}
+
+/**
+ * Chooses to wait out the limit and continue on its own, while the dialog still shows.
+ *
+ * Enter follows only if the digit alone left the dialog up.
+ */
+export async function continueAfterLimit(hands: PaneHands, timing: AnswerTiming = {}): Promise<boolean> {
+	const digit = limitContinueDigit(await hands.read());
+	if (!digit) return false;
+	await hands.type(digit);
+	const gone = async () => limitContinueDigit(await hands.read()) === null;
+	if (await settled(gone, timing)) return true;
+	await hands.press("Enter");
+	if (await settled(gone, timing)) return true;
+	throw new Error("the limit dialog is still showing");
+}
+
+async function settled(done: () => Promise<boolean>, timing: AnswerTiming): Promise<boolean> {
+	const settleMs = timing.settleMs ?? 1_000;
+	const pollMs = timing.pollMs ?? POLL_MS;
+	const sleep = timing.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	for (let waited = 0; ; waited += pollMs) {
+		if (await done()) return true;
+		if (waited >= settleMs) return false;
+		await sleep(pollMs);
+	}
 }
 
 /** Control characters act as keys. */

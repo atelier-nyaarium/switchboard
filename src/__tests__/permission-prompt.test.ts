@@ -81,6 +81,7 @@ describe("permissionPrompt over live captures", () => {
 
 	it("reads no prompt from panes without one", () => {
 		expect(permissionPrompt(screen("idle-workflow"))).toBeNull();
+		expect(permissionPrompt(screen("limit-dialog"))).toBeNull();
 		for (const corpus of ["agent-screen", "limit-notice"]) {
 			const file = JSON.parse(fs.readFileSync(path.join(FIXTURES, corpus, "vectors.json"), "utf8"));
 			const all = (file.vectors ?? file) as { name: string; screen?: unknown }[];

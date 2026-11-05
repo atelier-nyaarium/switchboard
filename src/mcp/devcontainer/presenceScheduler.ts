@@ -1,7 +1,7 @@
 import { hasWorkflow, isAgentWorking, isLoggedOut, limitNotice } from "../../shared/agent-screen.js";
 import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
 import { PromptOccurrences, type SeenPrompt, seePrompt } from "./permissionPrompt.js";
-import type { PromptSight } from "./promptAnswer.js";
+import { limitContinueDigit, type PromptSight } from "./promptAnswer.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -99,6 +99,7 @@ export class PresenceScheduler {
 	private readonly peek: NoResizePeek;
 	private readonly report: (team: string, value: DerivedState | undefined) => void;
 	private readonly onAutoDeny: (target: TmuxTarget, promptId: string) => void;
+	private readonly onLimitDialog: (target: TmuxTarget) => void;
 	private readonly occurrences: PromptOccurrences;
 	private readonly now: () => number;
 	private readonly watches = new Map<string, WatchEntry>();
@@ -115,6 +116,8 @@ export class PresenceScheduler {
 		report: (team: string, value: DerivedState | undefined) => void;
 		/** A confirmed prompt is counting down to a deny. */
 		onAutoDeny?: (target: TmuxTarget, promptId: string) => void;
+		/** A frame shows the usage-limit dialog with a wait option. */
+		onLimitDialog?: (target: TmuxTarget) => void;
 		/** Shared with the answer, so both name a prompt alike. */
 		occurrences?: PromptOccurrences;
 		now?: () => number;
@@ -122,6 +125,7 @@ export class PresenceScheduler {
 		this.peek = opts.peek;
 		this.report = opts.report;
 		this.onAutoDeny = opts.onAutoDeny ?? (() => {});
+		this.onLimitDialog = opts.onLimitDialog ?? (() => {});
 		this.occurrences = opts.occurrences ?? new PromptOccurrences();
 		this.now = opts.now ?? (() => Date.now());
 	}
@@ -204,6 +208,7 @@ export class PresenceScheduler {
 				seePrompt(this.occurrences, paneKey(entry.target), screen),
 			);
 			if (!derived) return; // Logs derive no state.
+			if (peek.kind === "tmux" && limitContinueDigit(peek.ansi)) this.onLimitDialog(entry.target);
 			const confirmed = tracker.observe(derived);
 			if (!confirmed) return;
 			this.report(team, confirmed);

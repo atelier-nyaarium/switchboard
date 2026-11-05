@@ -49,6 +49,8 @@ export interface WebSocketDeps {
 		clearLive: SessionStore["clearLive"];
 	};
 	announcePresenceDirty?: () => void;
+	/** Working, at its limit or prompted; undefined until derived. Holds the handshake. */
+	busyOf?: (team: string) => boolean | undefined;
 }
 
 export interface WsData {
@@ -81,7 +83,6 @@ export const HANDSHAKE_REPUSH_MAX_ATTEMPTS = 5;
 
 // Lets late answers confirm while expiring reply blocking.
 export const HANDSHAKE_PENDING_TTL_MS = 600_000;
-
 export type HandshakeRepushOutcome = "pushed" | "throttled" | "capped" | "no-pending" | "socket-gone";
 
 export function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): ServerWebSocket<WsData>[] {

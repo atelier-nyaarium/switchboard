@@ -46,13 +46,15 @@ export function createWebSocketHandlers({
 	presenceWriter,
 	announcePresenceDirty,
 	ambient,
+	busyOf,
 }: WebSocketDeps) {
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
 	// Use the session store as presence fallback.
 	const liveWriter = presenceWriter ?? sessionStore;
 
 	function heartbeatTick() {
-		for (const pending of handshakeGate.expirePending()) {
+		flushHandshakes();
+		for (const pending of handshakeGate.expirePending((team) => busyOf?.(team) === true)) {
 			const ws = registry.get(pending.team)?.get(pending.subId);
 			if (ws && !ws.data.handshakeConfirmed) evictSocket(ws);
 		}
@@ -74,13 +76,32 @@ export function createWebSocketHandlers({
 
 	const handshakeGate = new HandshakeGate(ambient);
 
+	/** A session known busy is not handed a handshake yet. */
+	const handshakeReady = (team: string): boolean => busyOf?.(team) !== true;
+
 	function mintHandshake(ws: ServerWebSocket<WsData>, team: string, subId: string): void {
-		const { hsId, push } = handshakeGate.mint(team, subId);
+		const held = !handshakeReady(team);
+		const { hsId, push } = handshakeGate.mint(team, subId, held);
+		if (held) {
+			console.log(`[ws] handshake held for ${team}/${subId} [${hsId}] until it is idle`);
+			return;
+		}
 		if (!reached(sendOn(ws, push, `handshake to ${team}/${subId}`))) return;
 		console.log(`[ws] handshake sent to ${team}/${subId} [${hsId}]`);
 	}
 
+	function flushHandshakes(): void {
+		for (const due of handshakeGate.due((p) => handshakeReady(p.team))) {
+			const ws = registry.get(due.team)?.get(due.subId);
+			if (ws?.readyState !== 1 || !reached(sendOn(ws, due.push, `handshake to ${due.team}/${due.subId}`)))
+				continue;
+			handshakeGate.sent(due.hsId);
+			console.log(`[ws] held handshake sent to ${due.team}/${due.subId} [${due.hsId}]`);
+		}
+	}
+
 	function repushHandshake(team: string, subId: string): HandshakeRepushOutcome {
+		if (busyOf?.(team) === true) return "throttled";
 		const decision = handshakeGate.decideRepush(team, subId);
 		if (decision.kind !== "send") return decision.kind;
 		const ws = registry.get(team)?.get(subId);
@@ -372,6 +393,7 @@ export function createWebSocketHandlers({
 				msg.team,
 				cleared ? undefined : { working, needsLogin, limitBlocked, limitDetail, prompt, workflow },
 			);
+			flushHandshakes();
 		}
 
 		ws.data.missedPings = 0;

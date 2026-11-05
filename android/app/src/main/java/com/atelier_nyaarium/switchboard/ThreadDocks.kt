@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -142,15 +141,10 @@ fun GoalDock(rec: PendingGoal, onCancel: () -> Unit) {
 	}
 }
 
-/** Usage-limit notice: the session holds an unanswered limit dialog, so nothing sent to it is read
- * until cleared. A plain sibling in ThreadScreen's Column, stacking above the composer like
- * [ScheduledSendDock] and the plugin dock slots.
- *
- * Deliberately has no dismiss: this is a fact about the session, not a message about it, so hiding it
- * would only hide the affordance that resolves it. Clears itself once the dialog is answered and the
- * daemon's next derivation shows the composer back. */
+/** Usage-limit notice: the session waits out its limit and continues on its own. No dismiss, since it
+ * is a fact about the session; it clears once the session is back. */
 @Composable
-fun SessionLimitDock(detail: String?, onResume: () -> Unit, resumeEnabled: Boolean) {
+fun SessionLimitDock(detail: String?) {
 	Surface(
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
 		color = MaterialTheme.colorScheme.errorContainer,
@@ -175,9 +169,6 @@ fun SessionLimitDock(detail: String?, onResume: () -> Unit, resumeEnabled: Boole
 						color = MaterialTheme.colorScheme.onErrorContainer,
 					)
 				}
-			}
-			FilledTonalButton(onClick = hapticClick(onResume), enabled = resumeEnabled) {
-				Text(if (resumeEnabled) "Resume" else "Resuming...")
 			}
 		}
 	}

@@ -206,6 +206,13 @@ export class PresenceFacade {
 		this.markDirty();
 	}
 
+	/** Working, at its limit or holding a prompt. Undefined until derived. */
+	busyOf(team: string): boolean | undefined {
+		const w = this.working.get(team);
+		if (!w) return undefined;
+		return w.working === true || w.limitBlocked === true || w.prompt !== undefined;
+	}
+
 	promptOf(team: string): SessionPrompt | undefined {
 		return this.working.get(team)?.prompt;
 	}

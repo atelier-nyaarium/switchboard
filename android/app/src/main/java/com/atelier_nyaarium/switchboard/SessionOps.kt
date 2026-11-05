@@ -95,13 +95,6 @@ internal class SessionOps(
 	suspend fun tmuxSend(team: String, text: String? = null, key: String? = null, submit: Boolean = true) =
 		withContext(Dispatchers.IO) { host.tmuxSend(team, text, key, submit) }
 
-	/** Sends the dialog choice, resume text, and Enter separately. */
-	suspend fun resumeAfterLimit(team: String) = withContext(Dispatchers.IO) {
-		tmuxSend(team, text = "1", submit = false)
-		tmuxSend(team, text = "resume", submit = false)
-		tmuxSend(team, key = "Enter")
-	}
-
 	/** `hostTarget` selects the machine whose filesystem is listed. */
 	suspend fun listDirs(path: String, hostTarget: String, spawn: String): DirListing = withContext(Dispatchers.IO) {
 		host.sandboxDirs?.let { return@withContext DirListing(it[path].orEmpty()) }

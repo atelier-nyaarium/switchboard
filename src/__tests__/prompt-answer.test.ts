@@ -2,7 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PromptOccurrences, seePrompt } from "../mcp/devcontainer/permissionPrompt.js";
-import { answerPrompt, type PromptSight, stopAutoDeny } from "../mcp/devcontainer/promptAnswer.js";
+import {
+	answerPrompt,
+	continueAfterLimit,
+	limitContinueDigit,
+	type PromptSight,
+	stopAutoDeny,
+} from "../mcp/devcontainer/promptAnswer.js";
 import type { PaneHands } from "../mcp/devcontainer/tmuxCore.js";
 
 const LABELS = ["Yes", "Yes, and don't ask again", "Yes, and switch to auto mode", "No"];
@@ -101,6 +107,52 @@ describe("answerPrompt", () => {
 		await expect(answerPrompt(d.hands, d.sight, d.id(), "approve", undefined, fast)).rejects.toThrow(
 			/still waiting/,
 		);
+	});
+});
+
+describe("continueAfterLimit", () => {
+	const fixtures = path.join(import.meta.dirname, "..", "..", "tests", "fixtures", "permission-prompt", "panes.json");
+	const { vectors } = JSON.parse(fs.readFileSync(fixtures, "utf8")) as {
+		vectors: { name: string; screen: string }[];
+	};
+
+	const dialog = vectors.find((v) => v.name === "limit-dialog")?.screen ?? "";
+	const composer = `❯ \n${"─".repeat(53)}\n  ⏵⏵ bypass permissions on`;
+
+	/** A dialog a digit either answers or only highlights. */
+	const fakeLimit = (digitConfirms: boolean) => {
+		const keys: string[] = [];
+		let open = true;
+		const hands: PaneHands = {
+			read: async () => (open ? dialog : composer),
+			press: async (key) => {
+				keys.push(key);
+				if (key === "Enter") open = false;
+			},
+			type: async (text) => {
+				keys.push(`type:${text}`);
+				if (digitConfirms) open = false;
+			},
+		};
+		return { hands, keys };
+	};
+
+	it("chooses the continue row, confirming with Enter only when the digit did not", async () => {
+		const answers = fakeLimit(true);
+		expect(await continueAfterLimit(answers.hands, fast)).toBe(true);
+		expect(answers.keys).toEqual(["type:2"]);
+
+		const highlights = fakeLimit(false);
+		expect(await continueAfterLimit(highlights.hands, fast)).toBe(true);
+		expect(highlights.keys).toEqual(["type:2", "Enter"]);
+	});
+
+	it("reads no dialog from other panes, or from its words quoted above a composer", () => {
+		for (const v of vectors.filter((x) => x.name !== "limit-dialog")) {
+			expect(limitContinueDigit(v.screen), v.name).toBeNull();
+		}
+		const quoted = `   1. Stop and wait for limit to reset\n   2. Wait here, then continue automatically\n${composer}`;
+		expect(limitContinueDigit(quoted)).toBeNull();
 	});
 });
 

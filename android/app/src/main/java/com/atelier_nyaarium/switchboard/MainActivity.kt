@@ -773,7 +773,6 @@ fun App(
 					refreshMs = repo.sessions.terminalRefreshMs,
 					onPeek = { hash -> repo.sessions.peekTerminal(openTeam!!, hash) },
 					onSend = { text, key, submit -> repo.sessions.tmuxSend(openTeam!!, text, key, submit) },
-					onResumeAfterLimit = { repo.sessions.resumeAfterLimit(openTeam!!) },
 				),
 				onKickPoll = repo::kickPoll,
 				view = shown,

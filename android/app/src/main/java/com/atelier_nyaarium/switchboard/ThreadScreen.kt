@@ -177,11 +177,6 @@ internal fun ThreadScreen(
 	// tap's own cleanup already clears it before the second tap's handler reads it.
 	var scheduleSubmitting by remember { mutableStateOf(false) }
 	val scheduleScope = rememberCoroutineScope()
-	// ThreadScreen-scoped rather than scoped to the limit dock itself: the dock leaves composition as
-	// soon as the block clears, and a scope dying mid-sequence would strand a partial injection (the
-	// dialog answered, but "resume" never typed).
-	var resumingAfterLimit by remember(team) { mutableStateOf(false) }
-	val resumeScope = rememberCoroutineScope()
 	// Bumped every time a NEW Schedule Send dialog session opens (a fresh schedule via the menu, or a
 	// dock edit) - never on a bare dismiss. scheduleSubmitting/scheduleScope are ThreadScreen-scoped,
 	// so a launched onConfirm continuation OUTLIVES the dialog: if the user dismisses while it is
@@ -464,7 +459,6 @@ internal fun ThreadScreen(
 					onRelaunch = terminal.onRelaunch,
 					onPeek = terminal.onPeek,
 					onSend = terminal.onSend,
-					onResumeAfterLimit = terminal.onResumeAfterLimit,
 					modifier = Modifier.weight(1f).fillMaxWidth(),
 				)
 			} else {
@@ -509,19 +503,7 @@ internal fun ThreadScreen(
 			}
 			// Above the plugin slots deliberately: nothing sent to a limit-blocked session is read until
 			// the dialog clears, so this outranks anything else docked here.
-			if (terminal.limitBlocked) {
-				SessionLimitDock(
-					detail = terminal.limitDetail,
-					onResume = {
-						resumingAfterLimit = true
-						resumeScope.launch {
-							runCatchingCancellable { terminal.onResumeAfterLimit() }
-							resumingAfterLimit = false
-						}
-					},
-					resumeEnabled = !resumingAfterLimit,
-				)
-			}
+			if (terminal.limitBlocked) SessionLimitDock(detail = terminal.limitDetail)
 			// Plugin dock slots (e.g. the Designer dock) sit between the messages and the
 			// composer; each slot draws nothing when it has nothing to show for this thread. The
 			// scope carries a composer-insert seam (e.g. the Designer's "Reference in chat"), team-bound

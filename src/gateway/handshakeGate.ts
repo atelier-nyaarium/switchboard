@@ -7,6 +7,16 @@ export interface HandshakePending {
 	subId: string;
 	sentAt: number;
 	repushCount: number;
+	/** Held unsent while the session is busy. */
+	deferred: boolean;
+}
+
+/** A held handshake ready to go. */
+export interface DueHandshake {
+	hsId: string;
+	team: string;
+	subId: string;
+	push: string;
 }
 
 // Commit a repush only after the socket send succeeds.
@@ -47,12 +57,30 @@ export class HandshakeGate {
 		return typeof replyAsJson?.isMainOrLead === "boolean" ? replyAsJson.isMainOrLead : undefined;
 	}
 
-	mint(team: string, subId: string): { hsId: string; push: string } {
+	mint(team: string, subId: string, deferred = false): { hsId: string; push: string } {
 		// Replace old coordinates before minting a new handshake.
 		this.forget(team, subId);
 		const hsId = `hs-${this.ambient.newId().slice(0, 8)}`;
-		this.pending.set(hsId, { team, subId, sentAt: this.now(), repushCount: 0 });
+		this.pending.set(hsId, { team, subId, sentAt: this.now(), repushCount: 0, deferred });
 		return { hsId, push: HandshakeGate.buildPush(hsId) };
+	}
+
+	/** Held handshakes `ready` now lets go. */
+	due(ready: (pending: HandshakePending) => boolean): DueHandshake[] {
+		const out: DueHandshake[] = [];
+		for (const [hsId, p] of this.pending) {
+			if (p.deferred && ready(p))
+				out.push({ hsId, team: p.team, subId: p.subId, push: HandshakeGate.buildPush(hsId) });
+		}
+		return out;
+	}
+
+	/** A held handshake reached its socket. */
+	sent(hsId: string): void {
+		const p = this.pending.get(hsId);
+		if (!p) return;
+		p.deferred = false;
+		p.sentAt = this.now();
 	}
 
 	private expired(p: HandshakePending, now: number): boolean {
@@ -103,6 +131,7 @@ export class HandshakeGate {
 			attempt: entry.repushCount + 1,
 			commit: () => {
 				entry.sentAt = now;
+				entry.deferred = false;
 				entry.repushCount += 1;
 				this.teamLastRepushAt.set(team, now);
 			},
@@ -131,11 +160,17 @@ export class HandshakeGate {
 		return dropped;
 	}
 
-	expirePending(): HandshakePending[] {
+	/** A busy session cannot answer, so its handshake is held again rather than expired. */
+	expirePending(busy: (team: string) => boolean = () => false): HandshakePending[] {
 		const now = this.now();
 		const expired: HandshakePending[] = [];
 		for (const [hsId, pending] of this.pending) {
 			if (!this.expired(pending, now)) continue;
+			if (busy(pending.team)) {
+				pending.deferred = true;
+				pending.sentAt = now;
+				continue;
+			}
 			expired.push(pending);
 			this.pending.delete(hsId);
 		}
