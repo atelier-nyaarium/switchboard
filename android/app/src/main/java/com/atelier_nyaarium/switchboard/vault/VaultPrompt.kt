@@ -1,59 +1,77 @@
 package com.atelier_nyaarium.switchboard.vault
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
-import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.SwitchboardTheme
 import com.atelier_nyaarium.switchboard.runIsolated
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * The request itself, drawn over whatever app is in front, the way an authenticator prompt is.
- *
- * PLAIN VIEWS, not Compose, for the reason QueueBubble gives: a Service owns none of the ViewTree
- * owners a ComposeView needs.
+ * The request itself, drawn over whatever app is in front, the way an authenticator prompt is. It
+ * draws [VaultRequestCard], the app's own sheet, so the two cannot drift.
  *
  * Unlike the speech bubble, this is not an addition to the shade. A request the owner never sees
  * costs a whole run, so the vault capability is withheld until the overlay can be drawn at all.
  */
 class VaultPrompt(
 	private val context: Context,
-	private val onAnswer: (requestId: String, decision: String, typed: String?) -> Unit,
+	private val repo: ChatRepository,
 	private val onOpenSession: (team: String) -> Unit,
 	/** The request this is currently drawing, so the conversation knows not to tile it twice. */
-	private val visible: kotlinx.coroutines.flow.MutableStateFlow<String?>,
-) {
+	private val visible: MutableStateFlow<String?>,
+) : LifecycleOwner, SavedStateRegistryOwner {
 	private val windows = context.getSystemService(WindowManager::class.java)
-	private var root: LinearLayout? = null
-	private var title: TextView? = null
-	private var expiry: TextView? = null
-	private var who: TextView? = null
-	private var command: TextView? = null
-	private var password: EditText? = null
-	private var actions: LinearLayout? = null
+	private val registry = LifecycleRegistry(this)
+	private val savedState = SavedStateRegistryController.create(this)
+	override val lifecycle: Lifecycle get() = registry
+	override val savedStateRegistry: SavedStateRegistry get() = savedState.savedStateRegistry
 
-	private var shown: VaultPendingRequest? = null
-	private var expanded = false
+	private var root: ComposeView? = null
+	private val drawn = MutableStateFlow<String?>(null)
+	private val expanded = MutableStateFlow(false)
 
-	// The pending list only re-emits when something settles, so without this the countdown on a
-	// security prompt would read whatever it said when the request arrived.
-	private val ticker = android.os.Handler(android.os.Looper.getMainLooper())
-	private val tick = object : Runnable {
-		override fun run() {
-			val pending = shown ?: return
-			expiry?.text = expiresIn(pending.deadlineAt).text
-			ticker.postDelayed(this, 15_000)
-		}
-	}
+	/** Out of the way while the presence prompt shows over the app in front. */
+	private var stepped = false
 
 	/** Swiped away by hand; the shade still carries it and a tap there brings this back. */
 	private val parked = mutableSetOf<String>()
+
+	init {
+		savedState.performRestore(null)
+		registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+	}
 
 	fun canShow(): Boolean = OverlayPermission.granted(context)
 
@@ -62,82 +80,79 @@ class VaultPrompt(
 		parked.remove(requestId)
 	}
 
-	fun show(pending: VaultPendingRequest, requestTitle: String, requester: String) {
+	fun show(requestId: String) {
 		if (!canShow()) {
 			release()
 			return
 		}
-		if (pending.requestId in parked) return
+		if (requestId in parked) return
 		val view = attached() ?: return
-		val changed = shown?.requestId != pending.requestId
-		shown = pending
-		if (changed) {
-			expanded = false
-			password?.setText("")
-		}
-		title?.text = requestTitle
-		expiry?.text = expiresIn(pending.deadlineAt).text
-		who?.text = requester
-		command?.text = pending.operation
-		render()
+		if (drawn.value != requestId) expanded.value = false
+		drawn.value = requestId
+		place()
 		view.visibility = View.VISIBLE
-		visible.value = pending.requestId
-		ticker.removeCallbacks(tick)
-		ticker.postDelayed(tick, 15_000)
+		visible.value = requestId
 	}
 
 	/** Settled or gone: nothing to answer, so nothing is drawn. */
 	fun clear(requestId: String) {
 		parked.remove(requestId)
-		if (shown?.requestId != requestId) return
-		shown = null
-		expanded = false
+		if (drawn.value != requestId) return
 		release()
 	}
 
 	fun release() {
 		visible.value = null
-		ticker.removeCallbacks(tick)
+		drawn.value = null
+		expanded.value = false
+		stepped = false
 		root?.let { runIsolated { windows.removeView(it) } }
 		root = null
-		title = null
-		expiry = null
-		who = null
-		command = null
-		password = null
-		actions = null
 	}
 
-	private fun render() {
-		command?.maxLines = if (expanded) 8 else 1
-		password?.visibility = if (expanded) View.VISIBLE else View.GONE
-		actions?.visibility = if (expanded) View.VISIBLE else View.GONE
-		root?.let { runIsolated { windows.updateViewLayout(it, layoutFor(expanded)) } }
+	private fun place() {
+		root?.let { runIsolated { windows.updateViewLayout(it, layout()) } }
 	}
 
 	private fun expand() {
-		if (expanded) return
-		expanded = true
-		render()
-		password?.requestFocus()
+		if (expanded.value) return
+		expanded.value = true
+		place()
 	}
 
 	private fun park() {
-		shown?.let { parked.add(it.requestId) }
+		drawn.value?.let { parked.add(it) }
 		release()
+	}
+
+	/** Asks only when the gate would; the card steps aside so the prompt is not drawn under it. */
+	private suspend fun confirmPresence(): Boolean {
+		if (repo.vaultOps.ownerPresent(null)) return true
+		step(aside = true)
+		try {
+			return PresencePrompt.ask(context)
+		} finally {
+			step(aside = false)
+		}
+	}
+
+	private fun step(aside: Boolean) {
+		stepped = aside
+		root?.visibility = if (aside) View.INVISIBLE else View.VISIBLE
+		place()
 	}
 
 	/**
 	 * Collapsed the window must not take focus, or the banner steals the keyboard from the app
 	 * behind it. Expanded it must, or the password field cannot be typed into.
 	 */
-	private fun layoutFor(open: Boolean): WindowManager.LayoutParams {
-		val flags = if (open) {
-			WindowManager.LayoutParams.FLAG_DIM_BEHIND
-		} else {
-			// Dims collapsed too. NOT_TOUCH_MODAL keeps taps passing through, so the screen reads as
-			// held without the card taking it: the one separator that works on any backdrop.
-			WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+	private fun layout(): WindowManager.LayoutParams {
+		val open = expanded.value
+		val flags = when {
+			stepped -> WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+			open -> WindowManager.LayoutParams.FLAG_DIM_BEHIND
+			// NOT_TOUCH_MODAL lets taps pass, so the dim reads as held without the card taking the screen.
+			else -> WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
 				WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
 				WindowManager.LayoutParams.FLAG_DIM_BEHIND
 		}
@@ -149,18 +164,20 @@ class VaultPrompt(
 			android.graphics.PixelFormat.TRANSLUCENT,
 		).apply {
 			gravity = if (open) Gravity.CENTER else Gravity.TOP
-			dimAmount = if (open) 0.55f else 0.3f
-			// The card's own top, not the window's, so the gutter does not shift what 15% means.
-			y = if (open) 0 else (context.resources.displayMetrics.heightPixels * 0.15f).toInt() - gutter
+			dimAmount = if (stepped) 0f else if (open) 0.55f else 0.3f
+			y = if (open) 0 else (context.resources.displayMetrics.heightPixels * 0.15f).toInt()
 		}
 	}
 
 	/** Null when the add failed, keeping nothing, so the next show tries again. */
-	private fun attached(): LinearLayout? {
+	private fun attached(): ComposeView? {
 		root?.let { return it }
-		val view = build()
-		val added = runIsolated { windows.addView(view, layoutFor(false)) }.isSuccess
-		if (!added) {
+		val view = ComposeView(context).apply {
+			setViewTreeLifecycleOwner(this@VaultPrompt)
+			setViewTreeSavedStateRegistryOwner(this@VaultPrompt)
+			setContent { Prompt() }
+		}
+		if (runIsolated { windows.addView(view, layout()) }.isFailure) {
 			release()
 			return null
 		}
@@ -168,197 +185,53 @@ class VaultPrompt(
 		return view
 	}
 
-	private fun build(): LinearLayout {
-		val head = LinearLayout(context).apply {
-			orientation = LinearLayout.HORIZONTAL
-			gravity = Gravity.CENTER_VERTICAL
-		}
-		val name = text(17f, ON_PANEL).apply {
-			setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
-		}.also { title = it }
-		val left = text(12f, MUTED).also { expiry = it }
-		head.addView(name, LinearLayout.LayoutParams(0, WRAP, 1f))
-		head.addView(left)
-
-		val requester = text(12.5f, MUTED).also { who = it }
-		val op = text(12.5f, ON_PANEL).apply {
-			setTypeface(android.graphics.Typeface.MONOSPACE)
-			ellipsize = android.text.TextUtils.TruncateAt.END
-			setPadding(dp(12), dp(10), dp(12), dp(10))
-			background = rounded(FIELD, 10)
-		}.also { command = it }
-
-		val secret = EditText(context).apply {
-			hint = "Password"
-			inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-			textSize = 15f
-			setTextColor(ON_PANEL)
-			setHintTextColor(MUTED)
-			setPadding(dp(13), dp(12), dp(13), dp(12))
-			background = outlined(10)
-			visibility = View.GONE
-		}.also { password = it }
-
-		val row = LinearLayout(context).apply {
-			orientation = LinearLayout.HORIZONTAL
-			gravity = Gravity.END
-			visibility = View.GONE
-			addView(flat("Deny", ERROR) { answer(VAULT_DECISION_DENY) })
-			addView(flat("Go to session") { shown?.let { onOpenSession(it.team) }; park() })
-			addView(filled("Send") { answer(VAULT_DECISION_ONCE) })
-		}.also { actions = it }
-
-		val card = LinearLayout(context).apply {
-			orientation = LinearLayout.VERTICAL
-			setPadding(dp(18), dp(16), dp(18), dp(16))
-			background = panel()
-			elevation = dp(24).toFloat()
-			outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
-			outlineSpotShadowColor = Color.BLACK
-			outlineAmbientShadowColor = Color.BLACK
-			addView(head)
-			addView(requester, spaced(8))
-			addView(op, spaced(8))
-			addView(secret, spaced(12))
-			addView(row, spaced(12))
-			setOnTouchListener(
-				PromptTouch(onTap = { expand() }, onSwipeAway = { park() }, threshold = dp(56), slop = dp(16)),
-			)
-		}
-		// The window spans the screen; this inset is what keeps the card off both walls, since a
-		// window margin is ignored at MATCH_PARENT width. The shadow draws into it, so nothing clips.
-		return LinearLayout(context).apply {
-			orientation = LinearLayout.VERTICAL
-			setPadding(dp(14), gutter, dp(14), gutter)
-			clipToPadding = false
-			clipChildren = false
-			addView(card, LinearLayout.LayoutParams(MATCH, WRAP))
-		}
-	}
-
-	/** Room above and below for the shadow to fall into, which the window's y then backs out. */
-	private val gutter: Int
-		get() = dp(28)
-
-	private fun spaced(top: Int) = LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(top) }
-
-	private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
-		cornerRadius = dp(radius).toFloat()
-		setColor(color)
-	}
-
-	/**
-	 * The card's own edge. The shadow alone separates it over a light app and vanishes over a dark
-	 * one, since it is black on black, so the two cover different backdrops rather than doubling up.
-	 */
-	private fun panel() = GradientDrawable().apply {
-		cornerRadius = dp(24).toFloat()
-		setColor(PANEL)
-		setStroke(dp(1) + 1, EDGE)
-	}
-
-	private fun outlined(radius: Int) = GradientDrawable().apply {
-		cornerRadius = dp(radius).toFloat()
-		setColor(Color.TRANSPARENT)
-		setStroke(dp(1).coerceAtLeast(1), OUTLINE)
-	}
-
-	/** Deny and Go to session read as text, so Send is the only thing that looks like the answer.
-	 * Deny takes the error colour, the way both authenticators mark the refusing half. */
-	private fun flat(label: String, color: Int = PRIMARY, onClick: () -> Unit) = Button(context).apply {
-		text = label
-		textSize = 13f
-		isAllCaps = false
-		setTextColor(color)
-		background = null
-		minWidth = 0
-		minimumWidth = 0
-		setPadding(dp(12), dp(10), dp(12), dp(10))
-		setOnClickListener { onClick() }
-	}
-
-	private fun filled(label: String, onClick: () -> Unit) = Button(context).apply {
-		text = label
-		textSize = 13f
-		isAllCaps = false
-		setTextColor(ON_PRIMARY)
-		background = rounded(PRIMARY, 999)
-		minWidth = 0
-		minimumWidth = 0
-		setPadding(dp(22), dp(10), dp(22), dp(10))
-		setOnClickListener { onClick() }
-	}
-
-	private fun answer(decision: String) {
-		val pending = shown ?: return
-		val typed = password?.text?.toString()?.ifBlank { null }
-		onAnswer(pending.requestId, decision, if (decision == VAULT_DECISION_DENY) null else typed)
-		release()
-	}
-
-	private fun text(size: Float, color: Int) = TextView(context).apply {
-		textSize = size
-		setTextColor(color)
-	}
-
-	private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
-
-	/**
-	 * A tap opens it, a swipe past `threshold` parks it. A gesture earning neither is neither, the
-	 * rule the speech bubble learned: treating "did not swipe" as a tap fires on an ordinary drag.
-	 * Expanded, the card's own controls take their taps and this only still hears a swipe.
-	 */
-	private class PromptTouch(
-		private val onTap: () -> Unit,
-		private val onSwipeAway: () -> Unit,
-		private val threshold: Int,
-		private val slop: Int,
-	) : View.OnTouchListener {
-		private var startX = 0f
-		private var travelled = 0f
-
-		override fun onTouch(view: View, event: android.view.MotionEvent): Boolean {
-			when (event.actionMasked) {
-				android.view.MotionEvent.ACTION_DOWN -> {
-					startX = event.rawX
-					travelled = 0f
-				}
-				android.view.MotionEvent.ACTION_MOVE -> {
-					val dx = event.rawX - startX
-					travelled = maxOf(travelled, kotlin.math.abs(dx))
-					view.translationX = dx
-				}
-				android.view.MotionEvent.ACTION_UP -> {
-					val dx = event.rawX - startX
-					view.translationX = 0f
-					when {
-						kotlin.math.abs(dx) > threshold -> onSwipeAway()
-						travelled <= slop -> onTap()
+	@Composable
+	private fun Prompt() {
+		SwitchboardTheme {
+			val id by drawn.collectAsState()
+			val open by expanded.collectAsState()
+			val pending by repo.vault.pending.collectAsState()
+			val state by repo.state.collectAsState()
+			val request = pending.firstOrNull { it.requestId == id } ?: return@SwitchboardTheme
+			val exits = remember(request.requestId) {
+				VaultPromptExits(
+					goToSession = {
+						onOpenSession(request.team)
+						park()
+					},
+					confirmPresence = ::confirmPresence,
+				)
+			}
+			// A swipe past this parks it; a tap opens it.
+			val threshold = with(LocalDensity.current) { 56.dp.toPx() }
+			var dx by remember(request.requestId) { mutableFloatStateOf(0f) }
+			val gestures = Modifier
+				.offset { IntOffset(dx.roundToInt(), 0) }
+				.pointerInput(request.requestId) {
+					detectHorizontalDragGestures(
+						onDragEnd = {
+							if (abs(dx) > threshold) park()
+							dx = 0f
+						},
+						onDragCancel = { dx = 0f },
+					) { change, amount ->
+						change.consume()
+						dx += amount
 					}
 				}
-				android.view.MotionEvent.ACTION_CANCEL -> view.translationX = 0f
-				else -> return false
+			val interactions = remember { MutableInteractionSource() }
+			val tap = if (open) Modifier else Modifier.clickable(interactions, null) { expand() }
+			Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+				VaultRequestCard(
+					repo = repo,
+					state = state,
+					request = request,
+					onClose = { clear(request.requestId) },
+					modifier = gestures.then(tap),
+					collapsed = !open,
+					exits = exits,
+				)
 			}
-			return true
 		}
-	}
-
-	/**
-	 * On a dark theme elevation IS the surface tone: a black shadow over a dark app draws nothing,
-	 * however high it is set. So the card sits above the tier any app surface uses, and the shadow
-	 * is kept only for the light backdrops where it can be seen.
-	 */
-	private companion object {
-		const val WRAP = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-		const val MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-		val PANEL: Int = Color.parseColor("#48434F")
-		val ON_PANEL: Int = Color.parseColor("#E6E0E9")
-		val MUTED: Int = Color.parseColor("#CAC4D0")
-		val FIELD: Int = Color.parseColor("#241F2D")
-		val OUTLINE: Int = Color.parseColor("#938F99")
-		val PRIMARY: Int = Color.parseColor("#D0BCFF")
-		val ON_PRIMARY: Int = Color.parseColor("#381E72")
-		val ERROR: Int = Color.parseColor("#F2B8B5")
-		val EDGE: Int = Color.argb(96, 255, 255, 255)
 	}
 }

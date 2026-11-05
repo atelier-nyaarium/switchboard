@@ -2,4 +2,8 @@
 <resources>
     <!-- Compose owns the real theming; this is just a no-action-bar host theme. -->
     <style name="Theme.SwitchboardConsole" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Draws nothing; the presence prompt shows over the app behind it. -->
+    <style name="Theme.SwitchboardPresence" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

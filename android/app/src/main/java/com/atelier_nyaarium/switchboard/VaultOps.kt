@@ -25,6 +25,7 @@ import com.atelier_nyaarium.switchboard.vault.VaultSealing
 import com.atelier_nyaarium.switchboard.vault.sealDraft
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -138,12 +139,31 @@ internal class VaultOps(
 
 	suspend fun ownerPresent(activity: FragmentActivity?): Boolean = collaborators.gate.require(activity)
 
-	/** Answers one request; a typed value seals under the request id, and a deny may carry a steering note. */
+	/**
+	 * Answers one request; a typed value seals under the request id, and a deny may carry a steering
+	 * note. Runs on the repository's scope, so closing the card that asked cannot cut it short.
+	 */
 	suspend fun answer(
 		pending: VaultPendingRequest,
 		decision: String,
 		typedValue: String? = null,
 		note: String? = null,
+		/** Also store the typed value as an entry, scoped to the gateway that asked. */
+		saveTyped: Boolean = false,
+	): Boolean = repoScope.async {
+		val ok = answerNow(pending, decision, typedValue, note)
+		if (ok && saveTyped && typedValue != null) {
+			val gateway = runIsolated { gatewayOf(pending.team) }.getOrNull()
+			save(VaultDraft(publicTitle = pending.displayShape, value = typedValue, gateways = listOfNotNull(gateway)))
+		}
+		ok
+	}.await()
+
+	private suspend fun answerNow(
+		pending: VaultPendingRequest,
+		decision: String,
+		typedValue: String?,
+		note: String?,
 	): Boolean {
 		val client = collaborators.client
 		if (client == null && valueAnswer == null) return false.also { report("Vault: not connected") }
@@ -182,11 +202,6 @@ internal class VaultOps(
 		}
 		if (result.ok && decision != VAULT_DECISION_DENY) refreshGrantsNow(gatewayId)
 		return result.ok
-	}
-
-	suspend fun answerById(requestId: String, decision: String, typedValue: String? = null): Boolean {
-		val pending = manager.request(requestId) ?: return false
-		return answer(pending, decision, typedValue)
 	}
 
 	fun refreshGrants() {

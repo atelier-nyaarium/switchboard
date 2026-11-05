@@ -9,10 +9,6 @@ import android.os.Bundle
 import android.service.voice.VoiceInteractionSession
 import android.view.View
 import android.view.WindowManager
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,6 +32,7 @@ import com.atelier_nyaarium.switchboard.MainActivity
 import com.atelier_nyaarium.switchboard.OpenAttachment
 import com.atelier_nyaarium.switchboard.Repo
 import com.atelier_nyaarium.switchboard.RowPress
+import com.atelier_nyaarium.switchboard.SwitchboardTheme
 import com.atelier_nyaarium.switchboard.appLockAsks
 import com.atelier_nyaarium.switchboard.plugins.Plugins
 import com.atelier_nyaarium.switchboard.rememberBoundRendererPool
@@ -147,7 +144,6 @@ internal class AssistantPanelSession(context: Context) :
 		setViewTreeLifecycleOwner(this@AssistantPanelSession)
 		setViewTreeSavedStateRegistryOwner(this@AssistantPanelSession)
 		setContent {
-			val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
 			val shown by team.collectAsState()
 			val held by screen.collectAsState()
 			val isAttached by attached.collectAsState()
@@ -167,7 +163,7 @@ internal class AssistantPanelSession(context: Context) :
 				remember { mutableStateOf<RowPress?>(null) },
 			)
 			LaunchedEffect(shown != null) { pool.setVisible(shown != null) }
-			MaterialTheme(colorScheme = colors) {
+			SwitchboardTheme {
 				shown?.let { at ->
 					AssistantPanel(
 						repo = repo,

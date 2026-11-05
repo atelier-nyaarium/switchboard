@@ -8,12 +8,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -81,8 +77,7 @@ class MainActivity : FragmentActivity() {
 			?.let { runIsolated { String(android.util.Base64.decode(it, android.util.Base64.DEFAULT)) }.getOrNull() }
 		consume(intent, restored = savedInstanceState != null)
 		setContent {
-			val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
-			MaterialTheme(colorScheme = colors) {
+			SwitchboardTheme {
 				App(repo, injected, openTeamRequest, openQueueRequest, vaultRequestRequest, assistantSendRequestRequest, assistantActRequestRequest)
 			}
 		}

@@ -21,9 +21,9 @@ function kotlinFiles(dir: string): string[] {
 }
 
 function activities(manifest: string): { name: string; body: string }[] {
-	return [...manifest.matchAll(/<activity\b([\s\S]*?)<\/activity>/g)].map((match) => ({
+	return [...manifest.matchAll(/<activity\b([^>]*?)(?:\/>|>([\s\S]*?)<\/activity>)/g)].map((match) => ({
 		name: /android:name="([^"]+)"/.exec(match[1])?.[1] ?? "",
-		body: match[1],
+		body: match[1] + (match[2] ?? ""),
 	}));
 }
 

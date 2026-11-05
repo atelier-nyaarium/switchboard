@@ -268,6 +268,12 @@ session holds a binding token. `vaultRun.ts` is the child run.
   The footer is Deny as text and a split button: `Approve` answers once, and the arrow holds 30 min
   and This session; for a typed value, `Send`, with Send and save behind the arrow, which stores the
   value under the shape as its title. Deny opens a `Steer` field whose note rides the refusal.
+- **The overlay is the same card:** `VaultPrompt` draws `VaultRequestCard`, the sheet's own body,
+  over the app in front, in the system theme. It opens as a one-line banner; a tap expands it, a
+  swipe parks it, and Go to session sits beside Deny. An entry approval there passes the same
+  `ApprovalGate` through `PresenceActivity`, a see-through activity in its own task, so the prompt
+  shows over the app in front and Switchboard never comes forward. The card steps aside while it
+  shows, and comes back on a cancel.
 - **The sheet names what a window would cover:** `windowCovers` in `VaultRequestText.kt` prints the
   request's `coveredShapes` under the operation, in full, since the content scrolls. It says nothing
   when the line already names the one shape, and when the request is typed, since a typed value is
@@ -295,6 +301,7 @@ session holds a binding token. `vaultRun.ts` is the child run.
 - `src/shared/vault-askpass-wrapper.ts` - the wrapper the daemon and the plugin lay down.
 - `src/shared/schemasVault.ts` - wire shapes, the request row, the loopback shapes, the constants.
 - `src/federation-server/vault/` - the Router service.
-- `android/.../vault/` - sealing, the held entry set, the writer, the view, the editor, the request sheet.
+- `android/.../vault/` - sealing, the held entry set, the writer, the view, the editor, the request card
+  with its sheet and overlay, and `PresenceActivity`.
 - `android/.../vault/VaultRequestText.kt` - the sheet's pure text rules, `windowCovers` and `grantCovers` among them.
 - `android/.../VaultOps.kt`, `plugins/vault/VaultPlugin.kt` - repository operations and the plugin's claims.

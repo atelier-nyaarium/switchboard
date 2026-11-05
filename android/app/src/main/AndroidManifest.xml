@@ -73,6 +73,14 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.SwitchboardConsole">
+        <!-- Its own task, so the prompt never brings MainActivity forward. -->
+        <activity
+            android:name=".vault.PresenceActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.SwitchboardPresence"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

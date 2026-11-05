@@ -21,8 +21,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.VaultPrompt
-import com.atelier_nyaarium.switchboard.vault.requestTitle
-import com.atelier_nyaarium.switchboard.vault.requester
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -219,9 +217,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		)
 		vaultPrompt = VaultPrompt(
 			this,
-			onAnswer = { requestId, decision, typed ->
-				repo.command { vaultOps.answerById(requestId, decision, typed) }
-			},
+			repo,
 			visible = repo.vault.promptShowing,
 			onOpenSession = { team ->
 				startActivity(
@@ -381,9 +377,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 			mainHandler.post { vaultPrompt?.clear(pending.requestId) }
 			return
 		}
-		val title = requestTitle(pending, pending.entryId?.let { repo.vaultOps.view(it)?.title })
-		val who = requester(repo.state.value, pending)
-		mainHandler.post { vaultPrompt?.show(pending, title, who) }
+		mainHandler.post { vaultPrompt?.show(pending.requestId) }
 	}
 
 	private var transport: SttsTransport? = null
