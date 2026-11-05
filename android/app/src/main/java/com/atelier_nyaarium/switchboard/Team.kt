@@ -123,6 +123,7 @@ internal fun teamInfoToTeam(it: TeamInfo): Team {
 			limitDetail = it.limitDetail,
 			promptId = it.promptId,
 			workflow = it.workflow,
+			teammates = it.teammates,
 		),
 		kind = it.kind,
 		sessionLabel = it.sessionLabel,

@@ -62,6 +62,8 @@ export const TeamInfoSchema = z
 		promptId: z.string().max(64).optional(),
 		// A workflow runs. Absent otherwise.
 		workflow: z.boolean().optional(),
+		// A teammate works. Absent otherwise.
+		teammates: z.boolean().optional(),
 		// Same-Domain federation freshness for a PEER-gateway-sourced row (this gateway's own local
 		// rows never carry it - absent, not a fourth "local" value). "unreachable" is the honest
 		// stale-mark Q4 requires; "quiet" is healthy idle, not stale.

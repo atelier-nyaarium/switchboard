@@ -100,6 +100,8 @@ private constructor(
 	val promptId: String?,
 	/** A workflow runs. */
 	val workflow: Boolean?,
+	/** A teammate works. */
+	val teammates: Boolean?,
 ) {
 	/** A live socket serves this session: confirmed online, or verifying its handshake (connected but
 	 * the LLM has not re-answered, e.g. across a gateway restart). Both count as awake. */
@@ -156,7 +158,21 @@ private constructor(
 	fun withReceipt(r: ActionReceipt?): Presence = rebuild(r = r)
 
 	private fun rebuild(a: Authority = authority, r: ActionReceipt? = receipt): Presence =
-		Presence(status, a, r, mode, queueDepth, version, working, needsLogin, limitBlocked, limitDetail, promptId, workflow)
+		Presence(
+			status,
+			a,
+			r,
+			mode,
+			queueDepth,
+			version,
+			working,
+			needsLogin,
+			limitBlocked,
+			limitDetail,
+			promptId,
+			workflow,
+			teammates,
+		)
 
 	override fun equals(other: Any?): Boolean =
 		other is Presence &&
@@ -171,7 +187,8 @@ private constructor(
 			limitBlocked == other.limitBlocked &&
 			limitDetail == other.limitDetail &&
 			promptId == other.promptId &&
-			workflow == other.workflow
+			workflow == other.workflow &&
+			teammates == other.teammates
 
 	override fun hashCode(): Int {
 		var h = status.hashCode()
@@ -186,6 +203,7 @@ private constructor(
 		h = 31 * h + (limitDetail?.hashCode() ?: 0)
 		h = 31 * h + (promptId?.hashCode() ?: 0)
 		h = 31 * h + (workflow?.hashCode() ?: 0)
+		h = 31 * h + (teammates?.hashCode() ?: 0)
 		return h
 	}
 
@@ -227,6 +245,7 @@ private constructor(
 			limitDetail: String? = null,
 			promptId: String? = null,
 			workflow: Boolean? = null,
+			teammates: Boolean? = null,
 		): Presence =
 			Presence(
 				status,
@@ -241,9 +260,10 @@ private constructor(
 				limitDetail,
 				promptId,
 				workflow,
+				teammates,
 			)
 
 		/** A thread whose session has left the bridge. No Gateway speaks for it, hence NONE. */
-		fun ended(): Presence = Presence(ENDED, Authority.NONE, null, "", 0, null, null, null, null, null, null, null)
+		fun ended(): Presence = reported(ENDED, Authority.NONE)
 	}
 }

@@ -47,6 +47,20 @@ describe("deriveFromPeek", () => {
 		});
 	});
 
+	it("derives a working teammate and a running workflow apart", () => {
+		const crew = (row: string) =>
+			`● done\n${RULE}\n❯ \n${RULE}\n  ⏵⏵ bypass permissions on · ↓ to manage\n  ● main\n${row}`;
+		const teammate = deriveFromPeek(tmuxFrame(crew("  ◯ ieee  IEEE 754… 15s · ↓ 191.5k tokens"), "t1"));
+		const workflow = deriveFromPeek(tmuxFrame(crew("  ◯ red-team  ▰▰▰▱▱▱  3/6 · 9s"), "t2"));
+		const idle = deriveFromPeek(tmuxFrame(crew("  ◯ ieee  IEEE 754 subnormals   idle"), "t3"));
+
+		expect([teammate, workflow, idle]).toEqual([
+			{ working: true, needsLogin: false, limitBlocked: false, teammates: true },
+			{ working: true, needsLogin: false, limitBlocked: false, workflow: true },
+			{ working: false, needsLogin: false, limitBlocked: false },
+		]);
+	});
+
 	it("derives the usage-limit block and its reset text from the dialog frame", () => {
 		expect(deriveFromPeek(tmuxFrame(LIMITED, "h4"))).toEqual({
 			working: false,

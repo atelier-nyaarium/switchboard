@@ -111,13 +111,22 @@ describe("PresenceFacade working/needsLogin", () => {
 		expect(facade.promptOf("proj.main")).toBeUndefined();
 	});
 
-	it("projects a running workflow, and drops it when it ends", () => {
+	it("projects a running workflow and working teammates, and drops each when it ends", () => {
 		const { facade } = makeFacade();
 		facade.adoptById("main", { spawn: "proj" });
+		const row = () => facade.snapshot().find((r) => r.team === "proj.main");
 		facade.setWorking("proj.main", { working: true, workflow: true });
-		expect(facade.snapshot().find((r) => r.team === "proj.main")?.workflow).toBe(true);
+		const withWorkflow = { workflow: row()?.workflow, teammates: row()?.teammates };
+		facade.setWorking("proj.main", { working: true, teammates: true });
+		const withTeammates = { workflow: row()?.workflow, teammates: row()?.teammates };
 		facade.setWorking("proj.main", { working: true });
-		expect(facade.snapshot().find((r) => r.team === "proj.main")?.workflow).toBeUndefined();
+		const plain = { workflow: row()?.workflow, teammates: row()?.teammates };
+
+		expect([withWorkflow, withTeammates, plain]).toEqual([
+			{ workflow: true, teammates: undefined },
+			{ workflow: undefined, teammates: true },
+			{ workflow: undefined, teammates: undefined },
+		]);
 	});
 
 	it("clearWorkingFor clears only that session, not others", () => {

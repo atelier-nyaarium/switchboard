@@ -58,13 +58,20 @@ class ComposerFieldTest {
 	}
 
 	@Test
-	fun aBusySessionRunsOneCometAndAWorkflowRunsThree() {
-		assertEquals(null, cometFor(SessionWord.LIVE, workflow = true))
+	fun aBusySessionRunsOneCometTeammatesTwoAndAWorkflowThree() {
+		assertEquals(null, cometFor(SessionWord.LIVE, workflow = true, teammates = true))
 		assertEquals(null, cometFor(null, workflow = false))
 		assertEquals(Comet.TURN, cometFor(SessionWord.WORKING, workflow = false))
-		assertEquals(Comet.WORKFLOW, cometFor(SessionWord.WORKING, workflow = true))
-		val state = ChatState(teams = listOf(testTeam("a", working = true, workflow = true)))
+		assertEquals(Comet.TEAMMATES, cometFor(SessionWord.WORKING, workflow = false, teammates = true))
+		assertEquals(Comet.WORKFLOW, cometFor(SessionWord.WORKING, workflow = true, teammates = true))
+		val state = ChatState(
+			teams = listOf(
+				testTeam("a", working = true, workflow = true),
+				testTeam("b", working = true, teammates = true),
+			),
+		)
 		assertEquals(Comet.WORKFLOW, cometOf(state, "a", 0L))
+		assertEquals(Comet.TEAMMATES, cometOf(state, "b", 0L))
 		assertEquals(null, cometOf(state, "missing", 0L))
 	}
 

@@ -35,19 +35,22 @@ internal data class CometSpan(val start: Float, val end: Float, val alpha: Float
 /** How the working border animates. Tail is a share of the border. */
 internal enum class Comet(val count: Int, val lapMs: Int, val tail: Float, val parts: Int) {
 	TURN(1, 2400, 0.18f, 12),
+	TEAMMATES(2, 2000, 0.14f, 10),
 	WORKFLOW(3, 1600, 0.10f, 8),
 }
 
-/** None unless busy; a running workflow gets the triple. */
-internal fun cometFor(word: SessionWord?, workflow: Boolean): Comet? = when {
+/** None unless busy. */
+internal fun cometFor(word: SessionWord?, workflow: Boolean, teammates: Boolean = false): Comet? = when {
 	word?.busy != true -> null
 	workflow -> Comet.WORKFLOW
+	teammates -> Comet.TEAMMATES
 	else -> Comet.TURN
 }
 
 internal fun cometOf(state: ChatState, team: String, now: Long): Comet? {
 	val session = state.teams.firstOrNull { it.name == team } ?: return null
-	return cometFor(state.sessionWord(team, session.presence, now), session.presence.workflow == true)
+	val presence = session.presence
+	return cometFor(state.sessionWord(team, presence, now), presence.workflow == true, presence.teammates == true)
 }
 
 @Composable
