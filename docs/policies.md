@@ -29,10 +29,16 @@ save is never refused for it, since the vault and the policy store are written o
 1. `withoutAskpassFlags` drops sudo's `-A` and `--askpass`, as the helper's brief does.
 2. `selectorKey` also drops sudo's end-of-options `--`, which the brief keeps, since the brief
    shows the owner what ran and the key says what was meant.
-3. `shapeFrom` keeps the program's basename and its first argument; when that argument is a flag,
+3. After `sudo`, once the askpass flags are gone and no option of sudo's own leads, leading
+   `VAR=value` words are dropped and the wrappers in `shared/command-wrappers.ts` peeled, the table
+   a window grant peels with. Whatever does not peel to a program keys its whole line: a wrapper
+   left running a string, such as `env -S`, and assignments with no command or a flag after them.
+4. `shapeFrom` keeps the program's basename and its first argument; when that argument is a flag,
    the whole line, since a flag's value could hide the target. Case is kept.
 
-So `sudo -A apt install foo` keys as `sudo apt`, and so does the helper's brief of it. The phone
+So `sudo -A apt install foo` keys as `sudo apt`, and so does the helper's brief of it, and
+`sudo env DEBIAN_FRONTEND=noninteractive apt-get install foo` keys as `sudo apt-get`. A shell is
+not a wrapper: `sudo sh -c …` keys as `sudo sh`. The phone
 sends examples as the owner typed them; `canonicalPolicy` derives the keys and the stored record
 holds keys only. `policyRefusal` expects keys: it refuses an empty list, a key that names no
 command, a key that is not canonical, and a key named twice. A put canonicalizes first, so only a

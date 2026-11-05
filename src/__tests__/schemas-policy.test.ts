@@ -27,6 +27,20 @@ describe("selectorKey", () => {
 		expect(selectorKey("sudo -A -- apt update")).toBe("sudo apt");
 	});
 
+	it("sees through what sudo runs to the command, but not through sudo's own options or a shell", () => {
+		expect(selectorKey("sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install docker-ce")).toBe(
+			"sudo apt-get",
+		);
+		expect(selectorKey("sudo DEBIAN_FRONTEND=noninteractive apt-get -y install docker-ce")).toBe("sudo apt-get");
+		expect(selectorKey("sudo -A nice -n 5 nohup apt-get upgrade")).toBe("sudo apt-get");
+		expect(selectorKey("sudo -u bob env X=1 apt-get install x")).toBe("sudo -u bob env X=1 apt-get install x");
+		expect(selectorKey("sudo sh -c 'apt-get update'")).toBe("sudo sh");
+		expect(selectorKey("sudo env -S 'apt-get update'")).toBe("sudo env -S 'apt-get update'");
+		expect(selectorKey("sudo X=1")).toBe("sudo X=1");
+		expect(selectorKey("sudo X=1 --foo")).toBe("sudo X=1 --foo");
+		expect(selectorKey("sudo sudo apt update")).toBe("sudo apt");
+	});
+
 	it("derives distinct keys for a prefix and for a substring of a target", () => {
 		expect(selectorKey("ssh deploy@prod uptime")).toBe("ssh deploy@prod");
 		expect(selectorKey("ssh deploy@prod uptime")).not.toBe(selectorKey("ssh deploy"));

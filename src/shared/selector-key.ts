@@ -1,11 +1,9 @@
 // The one shape rule: program and first argument, or every argument once a flag leads.
 
+import { basenameOf, isWrapper, peelWrappers, withoutAssignments } from "./command-wrappers.js";
+
 /** sudo options that take a value, so the value is never read as the command. */
 const SUDO_VALUED_FLAGS = new Set(["-C", "-D", "-g", "-h", "-p", "-r", "-t", "-T", "-u", "-U"]);
-
-export function basenameOf(program: string): string {
-	return program.slice(program.lastIndexOf("/") + 1) || program;
-}
 
 export function shapeFrom(words: string[]): string {
 	const program = words[0];
@@ -42,5 +40,13 @@ export function selectorKey(example: string): string {
 	const words = withoutAskpassFlags(example.trim().split(/\s+/).filter(Boolean));
 	const mark = words.indexOf("--");
 	const keyed = mark > 0 && basenameOf(words[0] as string) === "sudo" ? words.filter((_, i) => i !== mark) : words;
-	return shapeFrom(keyed);
+	const [program, ...rest] = keyed;
+	if (program === undefined || basenameOf(program) !== "sudo" || rest[0] === undefined || rest[0].startsWith("-")) {
+		return shapeFrom(keyed);
+	}
+	const inner = peelWrappers(withoutAssignments(rest));
+	const head = inner[0];
+	// Otherwise the whole line.
+	const peeled = head !== undefined && !head.startsWith("-") && !(inner.length > 1 && isWrapper(head));
+	return peeled ? shapeFrom([program, ...inner]) : [basenameOf(program), ...rest].join(" ");
 }

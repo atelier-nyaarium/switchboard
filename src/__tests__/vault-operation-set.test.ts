@@ -39,6 +39,7 @@ describe("the programs a command line runs", () => {
 		expect(operationSet("sudo apt upgrade")).toEqual(["apt upgrade"]);
 		expect(operationSet("sudo -u postgres -H psql -c 'select 1'")).toEqual(["psql -c select 1"]);
 		expect(operationSet("env -u HOME FOO=1 nice -n 5 nohup /usr/bin/make -j4 all")).toEqual(["make -j4 all"]);
+		expect(operationSet("sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade")).toEqual(["apt-get -y upgrade"]);
 		expect(operationSet("command -v git")).toEqual(["command -v git"]);
 		expect(operationSet("exec -a name ssh host")).toEqual(["ssh host"]);
 		expect(operationSet("sudo -v")).toEqual(["sudo -v"]);

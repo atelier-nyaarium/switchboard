@@ -54,8 +54,9 @@ and the delta list are in `docs/federation.md` under Owner state.
   `printf %s "$V" | sha256sum` never covers `printf %s "$V" | curl`. A parse failure, or a program
   count over the wire's limit, makes the line its own single shape. A window recorded without its
   set covers nothing.
-- **A wrapper is peeled to the program it runs:** `sudo` and the rest of the table, their own
-  options aside. A mode that runs no program is not peeled, as `sudo -e` and `command -v` are not.
+- **A wrapper is peeled to the program it runs:** `sudo` and the rest of the table in
+  `shared/command-wrappers.ts`, their own options aside, and `sudo`'s and `env`'s `VAR=value`
+  words. A policy's key reads the same table (`docs/policies.md`). A mode that runs no program is not peeled, as `sudo -e` and `command -v` are not.
   An option the table does not list stops the peel, so an unlisted one never takes its own value
   for the program. The reading is of the words, not of the machine: a program named for a wrapper
   is peeled like one, and what a program does with its arguments stays opaque. `ssh host` is one
@@ -287,7 +288,8 @@ session holds a binding token. `vaultRun.ts` is the child run.
 - `src/gateway/router/vaultClient.ts` - sealing, opening, the delta copy, the create.
 - `src/gateway/vault/decisions.ts`, `requests.ts`, `vaultRoutes.ts` - grants, requests, routes.
 - `src/gateway/vault/vaultUse.ts` - the one release a value leaves by, for the routes and a watcher.
-- `src/gateway/vault/operationSet.ts` - the shape rule, the wrapper table, and the set a window grant covers.
+- `src/gateway/vault/operationSet.ts` - the set a window grant covers.
+- `src/shared/command-wrappers.ts` - the wrapper table and `peelWrappers`, which a policy's key reads too.
 - `src/mcp/vault/vaultTools.ts`, `vaultRun.ts` - the session's tools and the scrubbed child run.
 - `src/main-vault-askpass.ts`, `src/vault-askpass/askpass.ts` - the helper entry and its decision over ports.
 - `src/shared/vault-askpass-wrapper.ts` - the wrapper the daemon and the plugin lay down.
