@@ -66,22 +66,19 @@ class AgentScreenTest {
 		assertEquals(false, AgentScreen.isWorking(pane("- fix the thing…")))
 	}
 
-	/**
-	 * The circle marker is GONE, and this test used to pin it.
-	 *
-	 * It read the glyph anywhere in the footer as a turn in flight. A live idle pane disproved that:
-	 * the CLI renders a sub-agent list below the toolbar whose rows begin with it, so an idle session
-	 * reported as working. No corpus vector ever used the marker, so only a real capture could catch
-	 * it - and the test that pinned it kept it alive in the meantime.
-	 */
 	@Test
-	fun subAgentListBelowTheToolbarIsNotThisSessionWorking() {
+	fun aTeammateBelowTheToolbarReadsWorkingUntilItsRowSaysIdle() {
 		val rule = "─".repeat(40)
-		assertEquals(false, AgentScreen.isWorking("❯ \n$rule\n  ◯ idle-pushback"))
-		assertEquals(false, AgentScreen.isWorking("  ◯ idle-pushback\n$rule\n❯ "))
-		// Those rows carry their own duration and token run. Unparenthesised, which is what keeps the
-		// status-line rule off them.
-		assertEquals(false, AgentScreen.isWorking("❯ \n$rule\n  ◯ phase2-chain  Repo… 8m 18s · ↓ 244.9k tokens"))
+		val crew = { rows: String -> "❯ \n$rule\n  ⏵⏵ bypass permissions on · ↓ to manage\n  ● main\n$rows" }
+		assertEquals(true, AgentScreen.isWorking(crew("  ◯ ieee  IEEE 754… 15s · ↓ 191.5k tokens")))
+		assertEquals(true, AgentScreen.isWorking(crew("  ◯ ieee  IEEE 754 subnormals 1s")))
+		// Viewing the teammate swaps the dots.
+		assertEquals(true, AgentScreen.isWorking("❯ \n$rule\n  ◯ main\n  ● ieee  IEEE 754… 15s"))
+		assertEquals(false, AgentScreen.isWorking(crew("  ◯ ieee  IEEE 754 subnormals                idle")))
+		assertEquals(false, AgentScreen.isWorking(crew("  ◯ red-team  ▰▰▰▰▰▰  6/6")))
+		assertEquals(false, AgentScreen.isWorking(crew("")))
+		// Above the composer is transcript.
+		assertEquals(false, AgentScreen.isWorking("  ◯ ieee  IEEE 754… 15s\n$rule\n❯ "))
 	}
 
 	/**

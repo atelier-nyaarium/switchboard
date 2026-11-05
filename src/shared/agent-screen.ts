@@ -43,18 +43,7 @@ const SPACE = "[ \\t\\u00a0]";
 // Toolbar only. Prose-shaped, so a transcript tail in the status rows would trip it.
 const WORKING_HINT_RE = /· esc/u;
 
-/**
- * The status line a running turn draws immediately ABOVE the composer: a spinner, a verb, and a
- * parenthesised elapsed time with a token count, e.g. "✶ Composing… (46m 51s · ↓ 154.1k tokens)".
- *
- * Matched on the PARENTHESISED run, never on the verb or the spinner. The verb cycles through a set
- * the CLI owns and renames freely, and the spinner animates, so an enumeration of either fails
- * silently the first time one changes - the same reasoning already written into LIMIT_HEADLINE_RE.
- *
- * The closing "tokens)" is load-bearing, not decoration. A sub-agent list renders rows carrying the
- * same duration-and-token run WITHOUT the parentheses, and those rows sit in the footer where a
- * looser rule would read them as this session working.
- */
+// Status line token run: "✶ Composing… (46m 51s · ↓ 154.1k tokens)".
 const WORKING_STATUS_RE = /\(\d+[hms][^()]*tokens\)/u;
 
 // Spinner frames. A new frame falls back to idle, never to busy.
@@ -65,6 +54,10 @@ const RUNNING_ROW_RE = new RegExp(`^${SPINNER}${SPACE}+[^ \\t\\u00a0()…\\n\\r]
 const WORKFLOW_BAR_RE = /◯[^\n]*?(?=[▰▱]{3,})[▰▱]*▱/u;
 // A full bar still running: "✻ Waiting for 1 dynamic workflow to finish".
 const WORKFLOW_WAIT_RE = new RegExp(`^${SPINNER}${SPACE}+Waiting for \\d+ [^\\n]*workflow`, "mu");
+// Teammate row: dot, name, then more. Bare "● main" excluded.
+const TEAMMATE_ROW_RE = new RegExp(`^${SPACE}*[●◯]${SPACE}+[^ \\t\\u00a0]+${SPACE}+[^ \\t\\u00a0]`, "u");
+const TEAMMATE_IDLE_RE = new RegExp(`${SPACE}idle${SPACE}*$`, "u");
+const METER_RE = /[▰▱]/u;
 
 /**
  * How far above the composer's top rule the status line may sit.
@@ -200,16 +193,24 @@ export function isAgentReady(screen: string): boolean {
 		});
 }
 
-/** Whether a captured pane shows claude working: the "esc to interrupt" hint or an unfinished
- * workflow row below the last rule, or a running turn's status line above the composer. The Kotlin
- * twin lives in AgentScreen.kt. */
+/** Whether a captured pane shows claude working: the "esc to interrupt" hint, an unfinished workflow
+ * row or an active teammate below the last rule, or a running turn's status line above the composer.
+ * The Kotlin twin lives in AgentScreen.kt. */
 export function isAgentWorking(screen: string): boolean {
 	// Not one alternation over both slices: each marker is only safe in its own.
 	return (
 		paneHas(screen, WORKING_HINT_RE, "toolbar") ||
 		paneHas(screen, WORKING_STATUS_RE, "status") ||
 		paneHas(screen, RUNNING_ROW_RE, "status") ||
-		hasWorkflow(screen)
+		hasWorkflow(screen) ||
+		hasActiveTeammate(screen)
+	);
+}
+
+/** A teammate row below the toolbar that is neither idle nor a workflow. Twin: AgentScreen.hasActiveTeammate. */
+export function hasActiveTeammate(screen: string): boolean {
+	return paneRegion(screen, "toolbar").some(
+		(row) => TEAMMATE_ROW_RE.test(row) && !TEAMMATE_IDLE_RE.test(row) && !METER_RE.test(row),
 	);
 }
 
@@ -223,12 +224,8 @@ export function hasWorkflow(screen: string): boolean {
  *
  * A different region from `footerRegion`, and it has to be: that one starts at the LAST rule run and
  * reads downward, so it covers the toolbar and everything under it and can never see a line above
- * the composer. Two live panes proved both halves of that, on one machine, minutes apart:
- *
- * - a working session read as NOT working, because its status line sits above the composer and its
- *   toolbar had elided "esc to interrupt" to "…" for want of width;
- * - an idle session read as WORKING, because a sub-agent list below the toolbar drew "◯" rows and
- *   the old circle marker matched one. No fixture ever used that marker, so nothing caught it.
+ * the composer, where a working session's status line sits while its toolbar elides "esc to
+ * interrupt" for want of width.
  *
  * The top rule is found by scanning DOWN for the first toolbar run: the composer's own top border is
  * the first rule on a settled pane, and starting from the bottom would find the lower border instead

@@ -511,21 +511,19 @@ describe("tmuxCore isAgentWorking", () => {
 		);
 	});
 
-	/**
-	 * The circle marker is GONE, and this test used to pin it.
-	 *
-	 * It read "◯" anywhere in the footer as a turn in flight. A live idle pane disproved it: the CLI
-	 * renders a sub-agent list below the toolbar whose rows begin with that glyph, so an idle session
-	 * reported as working. No corpus vector ever used the marker, so only a real capture could catch
-	 * it - and the test that pinned it kept it alive in the meantime.
-	 */
-	it("does not read a sub-agent list below the toolbar as this session working", () => {
+	it("reads a teammate below the toolbar as working until its row says idle", () => {
 		const rule = "─".repeat(40);
-		expect(isAgentWorking(`❯ \n${rule}\n  ◯ idle-pushback`)).toBe(false);
-		expect(isAgentWorking(`  ◯ idle-pushback\n${rule}\n❯ `)).toBe(false);
-		// The rows carry a duration and token run of their own. Unparenthesised, which is exactly what
-		// keeps the status-line rule off them.
-		expect(isAgentWorking(`❯ \n${rule}\n  ◯ phase2-chain  Repo… 8m 18s · ↓ 244.9k tokens`)).toBe(false);
+		const crew = (...rows: string[]) =>
+			`❯ \n${rule}\n  ⏵⏵ bypass permissions on · ↓ to manage\n  ● main\n${rows.join("\n")}`;
+		expect(isAgentWorking(crew("  ◯ ieee  IEEE 754… 15s · ↓ 191.5k tokens"))).toBe(true);
+		expect(isAgentWorking(crew("  ◯ ieee  IEEE 754 subnormals 1s"))).toBe(true);
+		// Viewing the teammate swaps the dots.
+		expect(isAgentWorking(`❯ \n${rule}\n  ◯ main\n  ● ieee  IEEE 754… 15s`)).toBe(true);
+		expect(isAgentWorking(crew("  ◯ ieee  IEEE 754 subnormals                idle"))).toBe(false);
+		expect(isAgentWorking(crew("  ◯ red-team  ▰▰▰▰▰▰  6/6"))).toBe(false);
+		expect(isAgentWorking(crew())).toBe(false);
+		// Above the composer is transcript.
+		expect(isAgentWorking(`  ◯ ieee  IEEE 754… 15s\n${rule}\n❯ `)).toBe(false);
 	});
 
 	it("reads only an unfinished workflow row below the toolbar as working", () => {

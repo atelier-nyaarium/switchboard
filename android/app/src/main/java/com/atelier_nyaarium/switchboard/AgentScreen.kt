@@ -6,8 +6,8 @@ package com.atelier_nyaarium.switchboard
  * which is where the constants to compare against live.
  * isReady: the REPL composer prompt (U+276F) sits at column 0; the dev-channels / folder-trust /
  * resume-picker menus show an indented cursor, so the line-start anchor matches only the real
- * composer. isWorking: the "esc to interrupt" hint or an unfinished workflow bar below the last
- * U+2500 rule, or a running turn's status line above the composer.
+ * composer. isWorking: the "esc to interrupt" hint, an unfinished workflow bar or an active teammate
+ * below the last U+2500 rule, or a running turn's status line above the composer.
  * isLoggedOut: the bottom toolbar (below the composer's lower
  * rule of U+2500 dashes) prints "Not
  * logged in" / "Run /login"; checked separately since a logged-out session still shows a composer,
@@ -24,12 +24,7 @@ object AgentScreen {
 	// Toolbar only. Prose-shaped, so a transcript tail in the status rows would trip it.
 	private val workingHintRe = Regex("· esc")
 
-	// The status line a running turn draws immediately ABOVE the composer, e.g.
-	// "✶ Composing… (46m 51s · ↓ 154.1k tokens)". Matched on the PARENTHESISED run, never the verb or
-	// the spinner: the verb cycles through a set the CLI renames freely and the spinner animates, so an
-	// enumeration of either fails silently the first time one changes. The closing "tokens)" is
-	// load-bearing - a sub-agent list draws rows with the same duration-and-token run WITHOUT the
-	// parentheses, below the toolbar, and a looser rule reads those as this session working.
+	// Status line token run: "✶ Composing… (46m 51s · ↓ 154.1k tokens)".
 	private val workingStatusRe = Regex("""\(\d+[hms][^()]*tokens\)""")
 
 	// Spinner frames. A new frame falls back to idle, never to busy.
@@ -46,6 +41,11 @@ object AgentScreen {
 
 	// A full bar still running: "Waiting for 1 dynamic workflow to finish".
 	private val workflowWaitRe = Regex("^$SPINNER$SPACE+Waiting for \\d+ [^\\n]*workflow", RegexOption.MULTILINE)
+
+	// Teammate row: dot, name, then more. Bare "main" excluded.
+	private val teammateRowRe = Regex("^$SPACE*[\\u25CF\\u25EF]$SPACE+[^ \\t\\u00A0]+$SPACE+[^ \\t\\u00A0]")
+	private val teammateIdleRe = Regex(SPACE + "idle$SPACE*$")
+	private val meterRe = Regex("[\\u25B0\\u25B1]")
 
 	// How far above the composer's top rule that status line may sit. Observed immediately above it;
 	// the extra slack is deliberate, against a layout that shifts again. Bounded because unbounded
@@ -175,8 +175,15 @@ object AgentScreen {
 		return paneHas(screen, workingHintRe, PaneRegion.TOOLBAR) ||
 			paneHas(screen, workingStatusRe, PaneRegion.STATUS) ||
 			paneHas(screen, runningRowRe, PaneRegion.STATUS) ||
-			hasWorkflow(screen)
+			hasWorkflow(screen) ||
+			hasActiveTeammate(screen)
 	}
+
+	/** A teammate row below the toolbar that is neither idle nor a workflow. */
+	fun hasActiveTeammate(screen: String): Boolean =
+		paneRegion(screen, PaneRegion.TOOLBAR).any {
+			teammateRowRe.containsMatchIn(it) && !teammateIdleRe.containsMatchIn(it) && !meterRe.containsMatchIn(it)
+		}
 
 	/** An unfinished workflow row, or the live line waiting on one. */
 	fun hasWorkflow(screen: String): Boolean =
@@ -187,10 +194,8 @@ object AgentScreen {
 	 *
 	 * A different region from [footerRegion], and it has to be: that one starts at the LAST rule run and
 	 * reads downward, so it covers the toolbar and everything under it and can never see a line above
-	 * the composer. Two live panes proved both halves of that, on one machine, minutes apart: a working
-	 * session read as NOT working, because its status line sits above the composer and its toolbar had
-	 * elided the esc hint for want of width; and an idle session read as WORKING, because a sub-agent
-	 * list below the toolbar drew circle rows that the retired circle marker matched.
+	 * the composer, where a working session's status line sits while its toolbar elides the esc hint
+	 * for want of width.
 	 *
 	 * Scans DOWN for the FIRST toolbar run: the composer's top border is the first rule on a settled
 	 * pane, and starting from the bottom finds the lower border and puts the region inside the box.

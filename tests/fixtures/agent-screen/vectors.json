@@ -57,12 +57,12 @@
 			"expectWorking": true
 		},
 		{
-			"name": "lin-idle-with-subagent-list",
+			"name": "lin-main-idle-teammates-working",
 			"platform": "linux",
-			"shape": "CAPTURED LIVE, and the other half of the same bug. An IDLE session renders a sub-agent list below the toolbar whose rows carry a circle glyph and a bare 'Nm Ns · ↓ Nk tokens' run. The retired circle marker matched those rows and reported this pane as working; no fixture ever used that marker, so nothing caught it. The duration run here is NOT parenthesised, which is what keeps WORKING_STATUS_RE off it.",
+			"shape": "CAPTURED LIVE. Main is idle and its teammate list sits below the toolbar: two rows read 'idle', two still carry a running 'Nm Ns · ↓ Nk tokens' run. A teammate that is not idle is this session working.",
 			"screen": "\u001b[38;5;114m●\u001b[39m Fixed and relayed. The helpers and docs agents are\n  the only open items; nothing else can proceed until\n  they report.\n  \u001b[38;5;114m✔ Update installed · Restart…\u001b[38;5;153m◎ /goal active (48m)\n\u001b[38;5;244m────────────────────────────────────────────────\n\u001b[38;5;246m❯ \u001b[39m\n\u001b[38;5;244m────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;211m⏵⏵ bypass permissions on\u001b[38;5;246m (shift+tab to cycle) · …\u001b[39m\n\n  \u001b[38;5;114m●\u001b[39m main\n  \u001b[38;5;246m◯ phase2-statedir  Repo…                     idle\u001b[39m\n  \u001b[38;5;246m◯ phase2-connect   Repo…                     idle\u001b[39m\n  \u001b[38;5;246m◯ phase2-chain     Repo… 8m 18s · ↓ 244.9k tokens\u001b[39m\n  \u001b[38;5;246m◯ phase2-docs      Repo… 5m 50s · ↓ 235.1k tokens\u001b[39m",
 			"expectReady": true,
-			"expectWorking": false
+			"expectWorking": true
 		},
 		{
 			"name": "lin-idle-waiting-on-workflow",
