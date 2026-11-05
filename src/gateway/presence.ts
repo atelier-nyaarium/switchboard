@@ -3,22 +3,11 @@ import { isAssistantRecord } from "../shared/assistant-session.js";
 import type { PlanePersistedState, PlaneRegistry } from "../shared/plane-registry.js";
 import type { PresenceRow } from "../shared/presence-identity.js";
 import { presenceIdentityOf } from "../shared/presence-identity.js";
-import type { SessionPrompt } from "../shared/schemasConsoleResults.js";
+import { type DerivedPresence, projectDerived, type SessionPrompt, sameDerived } from "../shared/schemasPresence.js";
 import { isComposite, isSlug, parseSessionName } from "../shared/session-id.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
 import { ASSISTANT_ROLE } from "../shared/wire-vocabulary.js";
 import { resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
-
-export interface WorkingState {
-	working?: boolean;
-	needsLogin?: boolean;
-	limitBlocked?: boolean;
-	limitDetail?: string;
-	/** Projected as its id alone. */
-	prompt?: SessionPrompt;
-	workflow?: boolean;
-	teammates?: boolean;
-}
 
 export type { PresenceRow } from "../shared/presence-identity.js";
 
@@ -42,7 +31,7 @@ export class PresenceFacade {
 
 	private readonly wakeInFlight = new Set<string>();
 	private readonly createInFlight = new Set<string>();
-	private readonly working = new Map<string, WorkingState>();
+	private readonly working = new Map<string, DerivedPresence>();
 
 	constructor(deps: PresenceFacadeDeps) {
 		this.sessionStore = deps.sessionStore;
@@ -191,19 +180,9 @@ export class PresenceFacade {
 		return this.wakeInFlight.has(team) || this.createInFlight.has(team);
 	}
 
-	setWorking(team: string, state: WorkingState): void {
-		// Unknown working state differs from observed false.
+	setWorking(team: string, state: DerivedPresence): void {
 		const prev = this.working.get(team);
-		if (
-			prev?.working === state.working &&
-			prev?.needsLogin === state.needsLogin &&
-			prev?.limitBlocked === state.limitBlocked &&
-			prev?.limitDetail === state.limitDetail &&
-			prev?.prompt?.id === state.prompt?.id &&
-			prev?.workflow === state.workflow &&
-			prev?.teammates === state.teammates
-		)
-			return;
+		if (prev && sameDerived(prev, state)) return;
 		this.working.set(team, state);
 		this.markDirty();
 	}
@@ -212,7 +191,7 @@ export class PresenceFacade {
 	busyOf(team: string): boolean | undefined {
 		const w = this.working.get(team);
 		if (!w) return undefined;
-		return w.working === true || w.limitBlocked === true || w.prompt !== undefined;
+		return w.working || w.limitBlocked || w.prompt !== undefined;
 	}
 
 	promptOf(team: string): SessionPrompt | undefined {
@@ -260,13 +239,7 @@ export class PresenceFacade {
 				kind: "loose",
 				sessionLabel: record.sessionLabel,
 				...(isAssistantRecord(record) ? { role: ASSISTANT_ROLE } : {}),
-				...(w?.working !== undefined ? { working: w.working } : {}),
-				...(w?.needsLogin !== undefined ? { needsLogin: w.needsLogin } : {}),
-				...(w?.limitBlocked !== undefined ? { limitBlocked: w.limitBlocked } : {}),
-				...(w?.limitDetail !== undefined ? { limitDetail: w.limitDetail } : {}),
-				...(w?.prompt ? { promptId: w.prompt.id } : {}),
-				...(w?.workflow ? { workflow: true } : {}),
-				...(w?.teammates ? { teammates: true } : {}),
+				...(w ? projectDerived(w) : {}),
 				queue_depth: 0,
 			});
 		}

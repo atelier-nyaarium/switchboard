@@ -2,10 +2,10 @@ import type { ServerWebSocket } from "bun";
 import type { Ambient } from "../shared/ambient.js";
 import type { Capability } from "../shared/capabilities.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
+import type { DerivedPresence } from "../shared/schemasPresence.js";
 import type { SessionStore } from "../shared/session-store.js";
 import type { ConnectionMode, WebSocketConfig } from "../shared/types.js";
 import type { WorkspaceOpResult } from "../shared/workspace-op.js";
-import type { WorkingState } from "./presence.js";
 import type { SessionAuthority } from "./sessionAuthority.js";
 import type { WakeCoordinator } from "./wake.js";
 
@@ -37,7 +37,7 @@ export interface WebSocketDeps {
 	onTeamDisconnect?: (team: string) => void;
 	onDeliveryAck?: (team: string, deliveryId: string) => void;
 	onCatalogChange?: () => void;
-	onPresenceDerive?: (team: string, derived: WorkingState | undefined) => void;
+	onPresenceDerive?: (team: string, derived: DerivedPresence | undefined) => void;
 	onVirtualPeerEvicted?: (conversationId: string) => void;
 	onDaemonCapabilities?: (capabilities: Capability[]) => void;
 	onCodexHostMessage?: (msg: Record<string, unknown>) => void;

@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.TeamInfo
+
 ////////////////////////////////
 //  Interfaces & Types
 
@@ -82,7 +84,8 @@ data class ActionReceipt(
  * inheriting the assumption that the value is current. A new presence field added here inherits
  * [authority] for free, which is the difference between fixing this defect and fixing its class.
  */
-class Presence
+@ConsistentCopyVisibility
+data class Presence
 private constructor(
 	private val status: String,
 	val authority: Authority,
@@ -90,8 +93,8 @@ private constructor(
 	val mode: String,
 	val queueDepth: Int,
 	val version: String?,
-	// Daemon-derived, from the presence plane. Null means unknown (never observed, or derivation
-	// just became impossible), never false - a tile shows no pulse rather than a stale frozen one.
+	// No defaults: a field reported() misses does not compile.
+	// Daemon-derived. Null means unknown, never false.
 	val working: Boolean?,
 	val needsLogin: Boolean?,
 	val limitBlocked: Boolean?,
@@ -153,59 +156,9 @@ private constructor(
 	 * machine from being peeked at the terminal's cadence. */
 	val gatewayReachable: Boolean get() = authority != Authority.UNREACHABLE && authority != Authority.NONE
 
-	fun withAuthority(a: Authority): Presence = rebuild(a = a)
+	fun withAuthority(a: Authority): Presence = copy(authority = a)
 
-	fun withReceipt(r: ActionReceipt?): Presence = rebuild(r = r)
-
-	private fun rebuild(a: Authority = authority, r: ActionReceipt? = receipt): Presence =
-		Presence(
-			status,
-			a,
-			r,
-			mode,
-			queueDepth,
-			version,
-			working,
-			needsLogin,
-			limitBlocked,
-			limitDetail,
-			promptId,
-			workflow,
-			teammates,
-		)
-
-	override fun equals(other: Any?): Boolean =
-		other is Presence &&
-			status == other.status &&
-			authority == other.authority &&
-			receipt == other.receipt &&
-			mode == other.mode &&
-			queueDepth == other.queueDepth &&
-			version == other.version &&
-			working == other.working &&
-			needsLogin == other.needsLogin &&
-			limitBlocked == other.limitBlocked &&
-			limitDetail == other.limitDetail &&
-			promptId == other.promptId &&
-			workflow == other.workflow &&
-			teammates == other.teammates
-
-	override fun hashCode(): Int {
-		var h = status.hashCode()
-		h = 31 * h + authority.hashCode()
-		h = 31 * h + (receipt?.hashCode() ?: 0)
-		h = 31 * h + mode.hashCode()
-		h = 31 * h + queueDepth
-		h = 31 * h + (version?.hashCode() ?: 0)
-		h = 31 * h + (working?.hashCode() ?: 0)
-		h = 31 * h + (needsLogin?.hashCode() ?: 0)
-		h = 31 * h + (limitBlocked?.hashCode() ?: 0)
-		h = 31 * h + (limitDetail?.hashCode() ?: 0)
-		h = 31 * h + (promptId?.hashCode() ?: 0)
-		h = 31 * h + (workflow?.hashCode() ?: 0)
-		h = 31 * h + (teammates?.hashCode() ?: 0)
-		return h
-	}
+	fun withReceipt(r: ActionReceipt?): Presence = copy(receipt = r)
 
 	override fun toString(): String = "Presence($status, $authority, receipt=$receipt)"
 
@@ -232,38 +185,26 @@ private constructor(
 			else -> "ended"
 		}
 
-		/** The one construction path from a Gateway's report. */
-		fun reported(
-			status: String,
-			authority: Authority,
-			mode: String = "",
-			queueDepth: Int = 0,
-			version: String? = null,
-			working: Boolean? = null,
-			needsLogin: Boolean? = null,
-			limitBlocked: Boolean? = null,
-			limitDetail: String? = null,
-			promptId: String? = null,
-			workflow: Boolean? = null,
-			teammates: Boolean? = null,
-		): Presence =
+		/** The one construction path from a Gateway's row. */
+		fun reported(row: TeamInfo, authority: Authority): Presence =
 			Presence(
-				status,
-				authority,
-				null,
-				mode,
-				queueDepth,
-				version,
-				working,
-				needsLogin,
-				limitBlocked,
-				limitDetail,
-				promptId,
-				workflow,
-				teammates,
+				status = row.status,
+				authority = authority,
+				receipt = null,
+				mode = row.mode ?: "",
+				queueDepth = row.queue_depth.toInt(),
+				version = row.version,
+				working = row.working,
+				needsLogin = row.needsLogin,
+				limitBlocked = row.limitBlocked,
+				limitDetail = row.limitDetail,
+				promptId = row.promptId,
+				workflow = row.workflow,
+				teammates = row.teammates,
 			)
 
 		/** A thread whose session has left the bridge. No Gateway speaks for it, hence NONE. */
-		fun ended(): Presence = reported(ENDED, Authority.NONE)
+		fun ended(): Presence =
+			reported(TeamInfo(team = "", gatewayId = "", domainId = "", status = ENDED, kind = "", queue_depth = 0), Authority.NONE)
 	}
 }

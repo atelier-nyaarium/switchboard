@@ -18,6 +18,7 @@ import {
 	PresenceVersionSchema,
 	ReadAnchorsVersionSchema,
 	ReadAnchorWireEntrySchema,
+	SessionPromptSchema,
 	TaskBoardVersionSchema,
 	TeamInfoSchema,
 } from "./schemasPresence.js";
@@ -218,17 +219,6 @@ export const ConsoleReloadPluginsResultSchema = z
 		initiated: z.boolean(),
 	})
 	.meta({ id: "ConsoleReloadPluginsResult" });
-
-/** A permission prompt a session is holding. */
-export const SessionPromptSchema = z
-	.object({
-		id: z.string().min(1).max(64),
-		title: z.string().max(512),
-		body: z.array(z.string().max(512)).max(80),
-	})
-	.meta({ id: "SessionPrompt" });
-
-export type SessionPrompt = z.infer<typeof SessionPromptSchema>;
 
 export const ConsoleSessionPromptResultSchema = z
 	.object({

@@ -2,7 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { agentInboundFrameTypes } from "../shared/agent-backend.js";
 import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
-import { SessionPromptSchema } from "../shared/schemasConsoleResults.js";
+import { DerivedPresenceSchema } from "../shared/schemasPresence.js";
 import { isComposite } from "../shared/session-id.js";
 import type { ConnectionMode } from "../shared/types.js";
 import { WORKSPACE_OP_REPLY_FRAME, type WorkspaceOpResult } from "../shared/workspace-op.js";
@@ -382,18 +382,13 @@ export function createWebSocketHandlers({
 		}
 
 		if (msg.type === "presence_derive" && ws.data.teamName === "host" && typeof msg.team === "string") {
-			const working = typeof msg.working === "boolean" ? msg.working : undefined;
-			const needsLogin = typeof msg.needsLogin === "boolean" ? msg.needsLogin : undefined;
-			const limitBlocked = typeof msg.limitBlocked === "boolean" ? msg.limitBlocked : undefined;
-			const limitDetail = typeof msg.limitDetail === "string" ? msg.limitDetail : undefined;
-			const prompt = SessionPromptSchema.safeParse(msg.prompt).data;
-			const workflow = msg.workflow === true ? true : undefined;
-			const teammates = msg.teammates === true ? true : undefined;
-			const cleared = working === undefined && needsLogin === undefined && limitBlocked === undefined;
-			onPresenceDerive?.(
-				msg.team,
-				cleared ? undefined : { working, needsLogin, limitBlocked, limitDetail, prompt, workflow, teammates },
-			);
+			// A bare frame clears.
+			if (msg.working === undefined) onPresenceDerive?.(msg.team, undefined);
+			else {
+				const derived = DerivedPresenceSchema.safeParse(msg);
+				if (derived.success) onPresenceDerive?.(msg.team, derived.data);
+				else console.warn(`[ws] presence_derive refused for ${msg.team}`);
+			}
 			flushHandshakes();
 		}
 

@@ -171,7 +171,11 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		daemon,
 		sendCodex,
 		reportWorking: (team, working) =>
-			send({ type: "presence_derive", team, ...(working === null ? {} : { working }) }),
+			send({
+				type: "presence_derive",
+				team,
+				...(working === null ? {} : { working, needsLogin: false, limitBlocked: false }),
+			}),
 		close: () => {
 			socket.ws.close();
 			graph.wsHandlers.close(socket.ws);

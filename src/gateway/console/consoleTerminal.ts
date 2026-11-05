@@ -9,7 +9,7 @@ import {
 	type PromptOutcome,
 	type TmuxTarget,
 } from "../../shared/host-op.js";
-import type { SessionPrompt } from "../../shared/schemasConsoleResults.js";
+import type { SessionPrompt } from "../../shared/schemasPresence.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { ConsoleTargets } from "./consoleTargets.js";

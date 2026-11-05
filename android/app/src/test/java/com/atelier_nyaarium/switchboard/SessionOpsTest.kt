@@ -114,7 +114,7 @@ class SessionOpsTest {
 		val team = "dom.gw.host.session"
 		host.state.value = ChatState(
 			gateways = testRegistry("gw"),
-			teams = listOf(Team(name = team, presence = Presence.reported(Presence.ONLINE, Authority.LIVE))),
+			teams = listOf(testTeam(team)),
 			threads = mapOf(team to listOf(Message(false, "hello", 1L))),
 			labels = mapOf(team to "label"),
 			drafts = mapOf(team to Draft(text = "draft")),

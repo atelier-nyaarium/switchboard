@@ -8,7 +8,7 @@ class SessionWordTest {
 	private val now = 1_000_000L
 
 	private fun row(status: String, limitBlocked: Boolean? = null, promptId: String? = null) =
-		Presence.reported(status = status, authority = Authority.LIVE, limitBlocked = limitBlocked, promptId = promptId)
+		testTeam("dom.gw.app.main", status = status, limitBlocked = limitBlocked, promptId = promptId).presence
 
 	private fun word(presence: Presence, working: Boolean = false, needsLogin: Boolean = false) =
 		sessionWord(presence, working = working, needsLogin = needsLogin, now = now)

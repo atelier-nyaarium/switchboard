@@ -18,7 +18,7 @@ class PresenceTest {
 	private val now = 1_000_000L
 
 	private fun row(status: String, authority: Authority = Authority.LIVE) =
-		Presence.reported(status = status, authority = authority)
+		testTeam("dom.gw.app.main", status = status, authority = authority).presence
 
 	////////////////////////////////
 	//  What a row is worth
@@ -140,7 +140,8 @@ class PresenceTest {
 
 	@Test
 	fun reStampingKeepsEverythingElse() {
-		val p = Presence.reported(
+		val p = testTeam(
+			"dom.gw.app.main",
 			status = Presence.ONLINE,
 			authority = Authority.POLLED,
 			mode = "m",
@@ -150,7 +151,7 @@ class PresenceTest {
 			needsLogin = false,
 			limitBlocked = true,
 			limitDetail = "resets 5pm",
-		)
+		).presence
 		val re = p.withAuthority(Authority.LIVE).withReceipt(ActionReceipt("op", now))
 		assertEquals(Authority.LIVE, re.authority)
 		assertEquals("m", re.mode)

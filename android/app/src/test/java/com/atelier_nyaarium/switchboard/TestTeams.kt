@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.TeamInfo
+
 /**
  * A Team for tests, so the presence shape has ONE construction site across the suite rather than a
  * hand-rolled `Team(...)` per file. Defaults to a LIVE row: most suites are about labels, ordering
@@ -24,18 +26,24 @@ internal fun testTeam(
 ): Team = Team(
 	name = name,
 	presence = Presence.reported(
-		status = status,
-		authority = authority,
-		mode = mode,
-		queueDepth = queueDepth,
-		version = version,
-		working = working,
-		needsLogin = needsLogin,
-		limitBlocked = limitBlocked,
-		limitDetail = limitDetail,
-		promptId = promptId,
-		workflow = workflow,
-		teammates = teammates,
+		TeamInfo(
+			team = name,
+			gatewayId = "gw",
+			domainId = "dom",
+			status = status,
+			mode = mode,
+			kind = kind,
+			queue_depth = queueDepth.toLong(),
+			version = version,
+			working = working,
+			needsLogin = needsLogin,
+			limitBlocked = limitBlocked,
+			limitDetail = limitDetail,
+			promptId = promptId,
+			workflow = workflow,
+			teammates = teammates,
+		),
+		authority,
 	),
 	kind = kind,
 	sessionLabel = sessionLabel,

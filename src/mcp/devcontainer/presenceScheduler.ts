@@ -1,24 +1,14 @@
 import { hasActiveTeammate, hasWorkflow, isAgentWorking, isLoggedOut, limitNotice } from "../../shared/agent-screen.js";
 import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
+import { type DerivedPresence, sameDerived } from "../../shared/schemasPresence.js";
 import { PromptOccurrences, type SeenPrompt, seePrompt } from "./permissionPrompt.js";
 import { limitContinueDigit, type PromptSight } from "./promptAnswer.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
-export interface DerivedState {
-	working: boolean;
-	needsLogin: boolean;
-	/** Holding an unanswered usage-limit dialog. */
-	limitBlocked: boolean;
-	/** Text after the limit headline's middle dot. */
-	limitDetail?: string;
-	prompt?: SeenPrompt;
-	/** Set only when a workflow runs. */
-	workflow?: true;
-	/** Set only when a teammate works. */
-	teammates?: true;
-}
+/** The frame's shape, with the prompt as seen. */
+export type DerivedState = Omit<DerivedPresence, "prompt"> & { prompt?: SeenPrompt };
 
 export interface WatchEntry {
 	team: string;
@@ -65,18 +55,9 @@ class HysteresisTracker {
 	}
 }
 
+// autoDeny stays local.
 function sameValue(a: DerivedState, b: DerivedState | undefined): boolean {
-	return (
-		b !== undefined &&
-		a.working === b.working &&
-		a.needsLogin === b.needsLogin &&
-		a.limitBlocked === b.limitBlocked &&
-		a.limitDetail === b.limitDetail &&
-		a.prompt?.id === b.prompt?.id &&
-		a.prompt?.autoDeny === b.prompt?.autoDeny &&
-		a.workflow === b.workflow &&
-		a.teammates === b.teammates
-	);
+	return b !== undefined && sameDerived(a, b) && a.prompt?.autoDeny === b.prompt?.autoDeny;
 }
 
 /** Tmux frames only: boot text in container logs would false-positive. */
@@ -93,8 +74,8 @@ export function deriveFromPeek(
 		limitBlocked: limit !== null,
 		...(limit?.detail ? { limitDetail: limit.detail } : {}),
 		...(prompt ? { prompt } : {}),
-		...(hasWorkflow(peek.ansi) ? { workflow: true as const } : {}),
-		...(hasActiveTeammate(peek.ansi) ? { teammates: true as const } : {}),
+		...(hasWorkflow(peek.ansi) ? { workflow: true } : {}),
+		...(hasActiveTeammate(peek.ansi) ? { teammates: true } : {}),
 	};
 }
 

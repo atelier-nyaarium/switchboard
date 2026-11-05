@@ -20,6 +20,59 @@ export const GatewaySpawnPointsSchema = z
 	})
 	.meta({ id: "GatewaySpawnPoints" });
 
+/** A permission prompt a session is holding. */
+export const SessionPromptSchema = z
+	.object({
+		id: z.string().min(1).max(64),
+		title: z.string().max(512),
+		body: z.array(z.string().max(512)).max(80),
+	})
+	.meta({ id: "SessionPrompt" });
+
+export type SessionPrompt = z.infer<typeof SessionPromptSchema>;
+
+/** What the daemon derives from a session's pane: the `presence_derive` frame. */
+export const DerivedPresenceSchema = z.object({
+	working: z.boolean(),
+	needsLogin: z.boolean(),
+	// An unanswered usage-limit dialog.
+	limitBlocked: z.boolean(),
+	// Limit reset text.
+	limitDetail: z.string().optional(),
+	prompt: SessionPromptSchema.optional(),
+	// Set only while one runs.
+	workflow: z.boolean().optional(),
+	// Set only while one works.
+	teammates: z.boolean().optional(),
+});
+
+export type DerivedPresence = z.infer<typeof DerivedPresenceSchema>;
+
+/** The row's view of a derived state: every field absent until observed, the prompt as its id. */
+const ProjectedPresenceSchema = DerivedPresenceSchema.omit({ prompt: true })
+	.partial()
+	.extend({
+		// Its text is sealed.
+		promptId: z.string().max(64).optional(),
+	});
+
+export type ProjectedPresence = z.infer<typeof ProjectedPresenceSchema>;
+
+export function projectDerived(derived: DerivedPresence): ProjectedPresence {
+	const { prompt, ...rest } = derived;
+	return { ...rest, ...(prompt ? { promptId: prompt.id } : {}) };
+}
+
+/** Every derived field, the prompt by id. */
+export function sameDerived(a: DerivedPresence, b: DerivedPresence): boolean {
+	for (const key of Object.keys(DerivedPresenceSchema.shape) as (keyof DerivedPresence)[]) {
+		if (key === "prompt") {
+			if (a.prompt?.id !== b.prompt?.id) return false;
+		} else if (a[key] !== b[key]) return false;
+	}
+	return true;
+}
+
 export const TeamInfoSchema = z
 	.object({
 		team: z.string(),
@@ -46,24 +99,8 @@ export const TeamInfoSchema = z
 		// show recency ("active 5m ago"). Absent for sessions with no resume record.
 		lastActive: z.number().int().optional(),
 		queue_depth: z.number().int().nonnegative(),
-		// Daemon-derived from the session's own tmux pane (2-frame-hysteresis confirmed). Absent
-		// means UNKNOWN (never observed, or derivation just became impossible - daemon disconnect,
-		// a peek-failure streak, or the session going asleep), never false: a tile shows no pulse
-		// rather than a stale frozen one. Only tmux-backed live sessions ever carry a value.
-		working: z.boolean().optional(),
-		needsLogin: z.boolean().optional(),
-		// The session is holding an unanswered usage-limit dialog, so it cannot progress until the
-		// choice is answered. limitDetail is the text after the headline's middle dot ("resets 5pm"),
-		// absent when that headline carried no dot. Two flat fields rather than one, because a blocked
-		// session with no reset text still has to render as blocked.
-		limitBlocked: z.boolean().optional(),
-		limitDetail: z.string().optional(),
-		// A waiting permission prompt. The id only; its text is sealed.
-		promptId: z.string().max(64).optional(),
-		// A workflow runs. Absent otherwise.
-		workflow: z.boolean().optional(),
-		// A teammate works. Absent otherwise.
-		teammates: z.boolean().optional(),
+		// Absent means unknown, never false.
+		...ProjectedPresenceSchema.shape,
 		// Same-Domain federation freshness for a PEER-gateway-sourced row (this gateway's own local
 		// rows never carry it - absent, not a fourth "local" value). "unreachable" is the honest
 		// stale-mark Q4 requires; "quiet" is healthy idle, not stale.

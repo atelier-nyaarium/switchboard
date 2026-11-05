@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { PresenceFacade, type TeamRegistry } from "../gateway/presence.js";
 import { processAmbient } from "../shared/ambient.js";
 import { PlaneRegistry } from "../shared/plane-registry.js";
+import type { DerivedPresence } from "../shared/schemasPresence.js";
 import { SessionStore } from "../shared/session-store.js";
+
+const derived = (d: Partial<DerivedPresence>): DerivedPresence => ({
+	working: false,
+	needsLogin: false,
+	limitBlocked: false,
+	...d,
+});
 
 function makeRegistry(entries: Record<string, unknown>): TeamRegistry {
 	const registry = new Map() as TeamRegistry;
@@ -92,7 +100,7 @@ describe("PresenceFacade working/needsLogin", () => {
 		let row = facade.snapshot().find((r) => r.team === "proj.main");
 		expect(row?.working).toBeUndefined();
 
-		facade.setWorking("proj.main", { working: true });
+		facade.setWorking("proj.main", derived({ working: true }));
 		row = facade.snapshot().find((r) => r.team === "proj.main");
 		expect(row?.working).toBe(true);
 	});
@@ -101,12 +109,12 @@ describe("PresenceFacade working/needsLogin", () => {
 		const { facade } = makeFacade();
 		facade.adoptById("main", { spawn: "proj" });
 		const prompt = { id: "p1", title: "Bash command", body: ["rm -f out/x"] };
-		facade.setWorking("proj.main", { working: false, prompt });
+		facade.setWorking("proj.main", derived({ prompt }));
 		const row = facade.snapshot().find((r) => r.team === "proj.main");
 		expect(row?.promptId).toBe("p1");
 		expect(JSON.stringify(row)).not.toContain("rm -f");
 		expect(facade.promptOf("proj.main")).toEqual(prompt);
-		facade.setWorking("proj.main", { working: false });
+		facade.setWorking("proj.main", derived({}));
 		expect(facade.snapshot().find((r) => r.team === "proj.main")?.promptId).toBeUndefined();
 		expect(facade.promptOf("proj.main")).toBeUndefined();
 	});
@@ -115,11 +123,11 @@ describe("PresenceFacade working/needsLogin", () => {
 		const { facade } = makeFacade();
 		facade.adoptById("main", { spawn: "proj" });
 		const row = () => facade.snapshot().find((r) => r.team === "proj.main");
-		facade.setWorking("proj.main", { working: true, workflow: true });
+		facade.setWorking("proj.main", derived({ working: true, workflow: true }));
 		const withWorkflow = { workflow: row()?.workflow, teammates: row()?.teammates };
-		facade.setWorking("proj.main", { working: true, teammates: true });
+		facade.setWorking("proj.main", derived({ working: true, teammates: true }));
 		const withTeammates = { workflow: row()?.workflow, teammates: row()?.teammates };
-		facade.setWorking("proj.main", { working: true });
+		facade.setWorking("proj.main", derived({ working: true }));
 		const plain = { workflow: row()?.workflow, teammates: row()?.teammates };
 
 		expect([withWorkflow, withTeammates, plain]).toEqual([
@@ -133,8 +141,8 @@ describe("PresenceFacade working/needsLogin", () => {
 		const { facade } = makeFacade();
 		facade.adoptById("a", { spawn: "proj" });
 		facade.adoptById("b", { spawn: "proj" });
-		facade.setWorking("proj.a", { working: true });
-		facade.setWorking("proj.b", { working: true });
+		facade.setWorking("proj.a", derived({ working: true }));
+		facade.setWorking("proj.b", derived({ working: true }));
 		facade.clearWorkingFor("proj.a");
 		const rows = facade.snapshot();
 		expect(rows.find((r) => r.team === "proj.a")?.working).toBeUndefined();
@@ -145,8 +153,8 @@ describe("PresenceFacade working/needsLogin", () => {
 		const { facade } = makeFacade();
 		facade.adoptById("a", { spawn: "proj" });
 		facade.adoptById("b", { spawn: "proj" });
-		facade.setWorking("proj.a", { working: true });
-		facade.setWorking("proj.b", { needsLogin: true });
+		facade.setWorking("proj.a", derived({ working: true }));
+		facade.setWorking("proj.b", derived({ needsLogin: true }));
 		facade.clearAllWorking();
 		const rows = facade.snapshot();
 		expect(rows.find((r) => r.team === "proj.a")?.working).toBeUndefined();
@@ -157,7 +165,7 @@ describe("PresenceFacade working/needsLogin", () => {
 		const { facade } = makeFacade();
 		facade.adoptById("main", { spawn: "proj" });
 		facade.confirm("proj.main", { team: "proj.main", subId: "sub-1" });
-		facade.setWorking("proj.main", { working: true });
+		facade.setWorking("proj.main", derived({ working: true }));
 		facade.clearLive("proj.main", "sub-1");
 		expect(facade.snapshot().find((r) => r.team === "proj.main")?.working).toBeUndefined();
 	});
@@ -228,11 +236,11 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 		expectBumped();
 		facade.createEnd("proj.other");
 		expectBumped();
-		facade.setWorking("proj.main", { working: true });
+		facade.setWorking("proj.main", derived({ working: true }));
 		expectBumped();
 		facade.clearWorkingFor("proj.main");
 		expectBumped();
-		facade.setWorking("proj.main", { working: true });
+		facade.setWorking("proj.main", derived({ working: true }));
 		expectBumped();
 		facade.clearAllWorking();
 		expectBumped();

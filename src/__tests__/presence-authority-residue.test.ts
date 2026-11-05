@@ -84,6 +84,8 @@ describe("presence authority: the status string has one owner", () => {
 	it("keeps Presence's constructor private, so there is one construction path", () => {
 		const owner = fs.readFileSync(OWNER, "utf8");
 		expect(owner).toMatch(/class Presence\s*\nprivate constructor\(/);
+		// Keeps the data class's copy as private as its constructor.
+		expect(owner).toMatch(/@ConsistentCopyVisibility\s*\ndata class Presence/);
 		// The status string itself, which is what a consumer must not be able to reach.
 		expect(owner).toMatch(/private val status: String/);
 		// The two named factories every caller goes through.

@@ -20,6 +20,7 @@ import {
 import { isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
 import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
+import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
 import { parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
@@ -562,21 +563,13 @@ const presenceScheduler = new PresenceScheduler({
 	peek: (target) => hostOpRunner.peek(target, { resize: false, priority: "derive" }),
 	occurrences: promptOccurrences,
 	report: (team, value) => {
-		if (value)
-			safeSend({
-				type: "presence_derive",
-				team,
-				working: value.working,
-				needsLogin: value.needsLogin,
-				limitBlocked: value.limitBlocked,
-				...(value.limitDetail ? { limitDetail: value.limitDetail } : {}),
-				...(value.prompt
-					? { prompt: { id: value.prompt.id, title: value.prompt.title, body: value.prompt.body } }
-					: {}),
-				...(value.workflow ? { workflow: true } : {}),
-				...(value.teammates ? { teammates: true } : {}),
-			});
-		else safeSend({ type: "presence_derive", team });
+		// Parse drops autoDeny. A refused state reads unknown.
+		const frame = value ? DerivedPresenceSchema.safeParse(value) : undefined;
+		if (frame?.success) safeSend({ type: "presence_derive", team, ...frame.data });
+		else {
+			if (frame) console.error(`[presence] derived state refused for ${team}`);
+			safeSend({ type: "presence_derive", team });
+		}
 	},
 	onLimitDialog: (target) => {
 		const key = paneKey(target);

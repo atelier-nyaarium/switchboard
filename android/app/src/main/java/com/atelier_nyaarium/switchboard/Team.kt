@@ -111,20 +111,7 @@ internal fun teamInfoToTeam(it: TeamInfo): Team {
 	return Team(
 		name = canonicalName,
 		// Caller reapplies channel freshness.
-		presence = Presence.reported(
-			status = it.status,
-			authority = Authority.POLLED,
-			mode = it.mode ?: "",
-			queueDepth = it.queue_depth.toInt(),
-			version = it.version,
-			working = it.working,
-			needsLogin = it.needsLogin,
-			limitBlocked = it.limitBlocked,
-			limitDetail = it.limitDetail,
-			promptId = it.promptId,
-			workflow = it.workflow,
-			teammates = it.teammates,
-		),
+		presence = Presence.reported(it, Authority.POLLED),
 		kind = it.kind,
 		sessionLabel = it.sessionLabel,
 		presenceFresh = it.presenceFresh,

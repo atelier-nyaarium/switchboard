@@ -125,6 +125,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     refuse close and forget for that long.
 - `src/gateway/sessionAuthority.ts` - sole owner of credential-field access; residue-tested
 - `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - presence, read anchors, host RPC correlation
+- `src/shared/schemasPresence.ts` `DerivedPresenceSchema` - what the daemon derives from a pane, the `presence_derive` frame
+  - **One schema, every road:** the daemon's state, the frame, the Gateway's parse, `TeamInfo`'s derived fields (`projectDerived`) and the one equality (`sameDerived`) all read it. A new field is a schema line, its derivation, and on the phone a `Presence` property that `reported` must fill to compile.
 - `src/gateway/router/boardClient.ts` - Router-held task board client
 - `src/gateway/router/vaultClient.ts` - vault sealing/opening, delta-held Router list, approval-gated values, and the gateway write
 - `src/gateway/vault/decisions.ts` / `requests.ts` / `vaultRoutes.ts` - grants and `displayShape`; request rows that settle once, admit a joining caller, and cap open requests per target; loopback routes, each resolving the one principal, a session by its token

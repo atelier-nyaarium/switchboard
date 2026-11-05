@@ -15,7 +15,7 @@ class TerminalAsleepTest {
 	private val now = 1_000L
 
 	private fun presence(status: String, authority: Authority) =
-		Presence.reported(status = status, authority = authority, mode = "", queueDepth = 0)
+		testTeam("dom.gw.app.main", status = status, authority = authority).presence
 
 	@Test
 	fun `an available session is probed before it is called asleep`() {

@@ -36,6 +36,7 @@ import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.RefFileMeta
 import com.atelier_nyaarium.switchboard.proto.RefKeyMeta
 import com.atelier_nyaarium.switchboard.proto.RefSpanMeta
+import com.atelier_nyaarium.switchboard.proto.TeamInfo
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlinx.serialization.json.Json
@@ -85,7 +86,18 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 	/** LIVE, because a seeded session stands in for one the route Gateway just pushed. Anything less
 	 * authoritative makes the surfaces that gate on evidence, like the terminal's peek, sit idle. */
 	private fun sandboxPresence(): Presence =
-		Presence.reported(status = Presence.ONLINE, authority = Authority.LIVE, mode = "channel")
+		Presence.reported(
+			TeamInfo(
+				team = SESSION,
+				gatewayId = GATEWAY,
+				domainId = DOMAIN,
+				status = Presence.ONLINE,
+				mode = "channel",
+				kind = "loose",
+				queue_depth = 0,
+			),
+			Authority.LIVE,
+		)
 
 	/** Three admitted machines for two with sessions, so the board's idle-Gateway section is reachable. */
 	fun roster(): List<String> = listOf(GATEWAY, "parsing", "idle-box")

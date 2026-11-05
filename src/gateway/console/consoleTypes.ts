@@ -20,7 +20,6 @@ import type {
 	ConsoleAssistantRulesResult,
 } from "../../shared/schemasAssistantRules.js";
 import type { ConsoleAssistantSendAnswerResult } from "../../shared/schemasAssistantSend.js";
-import type { SessionPrompt } from "../../shared/schemasConsoleResults.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type { DeviceConsoleOp, DeviceConsoleResult } from "../../shared/schemasDevices.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
@@ -31,6 +30,7 @@ import type {
 	ConsolePolicyListResult,
 	ConsolePolicyPutResult,
 } from "../../shared/schemasPolicy.js";
+import type { SessionPrompt } from "../../shared/schemasPresence.js";
 import type {
 	ConsoleRoutineDeleteResult,
 	ConsoleRoutineListResult,
