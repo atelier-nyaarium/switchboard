@@ -139,7 +139,22 @@ Defaults taken without a question, open to the owner:
 - Unread is the inbox, as for GitHub. `clear` archives (removing the inbox label, never `\Deleted`) and marks seen; fetches are `PEEK`. Only search, fetch, `STORE \Seen` and archive are used. Item ids are `uidvalidity:uid`; a UIDVALIDITY change recounts. The event is sender plus subject. A partial clear maps to per-item outcomes.
 - A fake IMAP server with IDLE in the harness, and a check that the client runs under Bun.
 
-## Phase 8 - Acceptance
+## Phase 8 - The GitHub kind's fields
+
+Asked for by the assistant from running the GitHub watcher, most useful first. Each is a declared field on the GitHub kind, so rules can match it and the assistant reads it without a round trip:
+
+1. **Author** of the PR or issue (login), for its `repo #n - Title (@author)` forwards.
+2. **State:** a PR's open, draft, merged or closed; an issue's open or closed.
+3. **Review:** the review decision, whether the owner is a requested reviewer, and whether the owner already approved.
+4. **The new activity:** comment, review, push, state change, label, assignment, with who did it.
+5. **Comment text** for comment activity (author plus a snippet), and whether it mentions the owner or replies to one of the owner's comments, untagged replies included.
+
+From running it:
+
+- **Repeats:** an active PR wakes 3 to 6 times an hour as one thread returns. Collapse repeats of a thread inside a short window; item 4 tells a push from a comment.
+- **`github_done` batches:** about 40 ids ran out of time partway (`not_attempted`, `uncertain`), about 25 finish. Raise the limit or finish the rest in the background.
+
+## Phase 9 - Acceptance
 
 Two GitHub accounts side by side, a feed, a webhook from the LAN, Gmail; the assistant reads, clears and is woken by each; a live run, with the docs and `AGENTS.md` already current from each phase.
 
