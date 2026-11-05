@@ -38,8 +38,9 @@ function sessionOf(methods: Record<string, () => unknown>): () => Promise<Sessio
 		"declarationOf",
 		"describe",
 		"indexFile",
+		"previewStep",
+		"applyStep",
 		"readNote",
-		"refactorReplaceSpan",
 		"symbolSource",
 		"typeHierarchy",
 	];
@@ -94,9 +95,18 @@ const emptyHierarchy = () => ({
 	subtypes: [],
 });
 
+const previewed = () => ({ ok: true, kind: "replaceSpan", guard: "g", files: [], issues: [] });
+
 const saved = (issueModule?: string) => ({
-	replaced: true,
-	transaction: "own",
+	ok: true,
+	applied: "step",
+	kind: "replaceSpan",
+	refactor: { id: "r", hold: "own" },
+	stepNo: 1,
+	files: [],
+	fixed: [],
+	forwarded: [],
+	reverse: null,
 	issues:
 		issueModule === undefined
 			? []
@@ -179,12 +189,14 @@ describe("what a built answer may name", () => {
 	it("leaves a save whose read-back or whose issue names a withheld module unknown, never refused", async () => {
 		const readBack = await ask(save, {
 			indexFile: () => ({ action: "current" }),
-			refactorReplaceSpan: () => saved(),
+			previewStep: previewed,
+			applyStep: () => saved(),
 			symbolSource: sourceIn(WITHHELD),
 		});
 		const issue = await ask(save, {
 			indexFile: () => ({ action: "current" }),
-			refactorReplaceSpan: () => saved(WITHHELD),
+			previewStep: previewed,
+			applyStep: () => saved(WITHHELD),
 			symbolSource: sourceIn("src/app.ts"),
 		});
 
@@ -198,7 +210,8 @@ describe("what a built answer may name", () => {
 	it("answers a save whose read-back and issue are served", async () => {
 		const result = await ask(save, {
 			indexFile: () => ({ action: "current" }),
-			refactorReplaceSpan: () => saved("src/other.ts"),
+			previewStep: previewed,
+			applyStep: () => saved("src/other.ts"),
 			symbolSource: sourceIn("src/app.ts"),
 		});
 

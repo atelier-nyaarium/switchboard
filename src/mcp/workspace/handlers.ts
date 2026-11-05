@@ -8,6 +8,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Session } from "@nyaa-lexicon/client";
 import {
+	type AppliedStep,
+	type ApplyStepResult,
 	type DescribeResult,
 	findRefLinks,
 	findRefs,
@@ -304,9 +306,51 @@ async function spanNow(
 	}
 }
 
+type SpanWrite =
+	| { kind: "applied"; step: AppliedStep }
+	| { kind: "refused"; stale: boolean; reason: string }
+	| { kind: "unknown"; reason: string };
+
 /**
- * The owner's text over one span, only while it still holds what they were shown. Standalone, so it
- * commits a transaction it opened and joins, without closing, one an agent holds.
+ * Previews then applies, previewing once more when the apply goes stale. A preview writes nothing, so
+ * it throws. An apply refuses stale only before writing; any other failure may have landed.
+ */
+async function writeSpan(
+	session: Session,
+	op: Extract<WorkspaceOp, { kind: "saveSpan" }>,
+	deadline: number,
+): Promise<SpanWrite> {
+	for (let attempt = 0; ; attempt++) {
+		const preview = await byDeadline(deadline, () =>
+			session.previewStep({
+				kind: "replaceSpan",
+				symbolId: op.symbolId,
+				expectedSpanHash: op.expectedSpanHash,
+				newText: op.text,
+			}),
+		);
+		if (!preview.ok) return { kind: "refused", stale: preview.stale === true, reason: preview.reason };
+		let outcome: ApplyStepResult;
+		try {
+			outcome = await byDeadline(
+				deadline,
+				() => session.applyStep({ guard: preview.guard, settle: "own" }),
+				"the save did not answer in time, so whether it landed is unknown",
+			);
+		} catch (error) {
+			if (lexiconRefusal(error) !== null) throw error;
+			return { kind: "unknown", reason: error instanceof Error ? error.message : String(error) };
+		}
+		if (outcome.ok && outcome.applied === "step") return { kind: "applied", step: outcome };
+		if (outcome.ok) return { kind: "unknown", reason: `the save applied as ${outcome.applied}` };
+		if (outcome.stale !== true) return { kind: "unknown", reason: outcome.reason };
+		if (attempt > 0) return { kind: "refused", stale: true, reason: outcome.reason };
+	}
+}
+
+/**
+ * The owner's text over one span, only while it still holds what they were shown. Commits a
+ * refactor it opened, and joins without closing one an agent holds.
  */
 async function saveSpanOf(
 	deps: HandlerDeps,
@@ -325,30 +369,21 @@ async function saveSpanOf(
 	// A watcher still behind an edit elsewhere would refuse the save as a stale index.
 	await byDeadline(deadline, () => session.indexFile({ module }));
 
-	let outcome: Awaited<ReturnType<Session["refactorReplaceSpan"]>>;
+	let write: SpanWrite;
 	try {
-		outcome = await byDeadline(
-			deadline,
-			() =>
-				session.refactorReplaceSpan({
-					symbolId: op.symbolId,
-					expectedSpanHash: op.expectedSpanHash,
-					newText: op.text,
-					standalone: true,
-				}),
-			"the save did not answer in time, so whether it landed is unknown",
-		);
+		write = await writeSpan(session, op, deadline);
 	} catch (error) {
-		const refusal = lexiconRefusal(error);
-		if (refusal !== null) return refused(refusal);
-		// Asked and not answered: the write may land after this, so the phone reads the span back.
+		return refused(lexiconRefusal(error) ?? (error instanceof Error ? error.message : String(error)));
+	}
+	if (write.kind === "unknown") {
+		// The phone reads the span back.
 		return {
 			ok: true,
 			answer: {
 				kind: "saveSpan",
 				symbolId: op.symbolId,
 				outcome: "unknown",
-				reason: (error instanceof Error ? error.message : String(error)).slice(0, 2048),
+				reason: write.reason.slice(0, 2048),
 			},
 		};
 	}
@@ -356,21 +391,22 @@ async function saveSpanOf(
 	const answer: SaveSpanAnswer = {
 		kind: "saveSpan",
 		symbolId: op.symbolId,
-		outcome: outcome.replaced ? "saved" : outcome.stale === true ? "stale" : "rejected",
+		outcome: write.kind === "applied" ? "saved" : write.stale ? "stale" : "rejected",
 		...(await spanNow(session, op.symbolId, deadline)),
 	};
-	if (outcome.replaced) {
-		answer.joined = outcome.transaction === "joined";
-		if (outcome.issues.length > 0) {
-			answer.issues = outcome.issues.slice(0, 64).map((issue) => ({
+	if (write.kind === "applied") {
+		const { step } = write;
+		answer.joined = step.refactor.hold === "joined";
+		if (step.issues.length > 0) {
+			answer.issues = step.issues.slice(0, 64).map((issue) => ({
 				kind: issue.kind.slice(0, 64),
 				detail: issue.detail.slice(0, 2048),
 				...(issue.module === undefined ? {} : { module: issue.module.slice(0, 512) }),
 				...(issue.line === undefined ? {} : { line: issue.line }),
 			}));
 		}
-	} else if (outcome.stale !== true) {
-		answer.reason = (outcome.reason ?? "the save was refused").slice(0, 2048);
+	} else if (!write.stale) {
+		answer.reason = write.reason.slice(0, 2048);
 	}
 	return { ok: true, answer };
 }
@@ -433,13 +469,15 @@ function withoutRefs(text: string): string {
 }
 
 function knowledgeNoteOf(note: Note): KnowledgeNote {
-	const refsIn = (state: "changed" | "broken") => note.links.filter((link) => link.state === state).length;
+	const refsIn = (...states: Note["links"][number]["state"][]) =>
+		note.links.filter((link) => states.includes(link.state)).length;
 	return {
 		text: withoutRefs(note.text),
 		revision: note.revision,
 		sourceChanged: note.sourceChanged,
 		changedRefs: refsIn("changed"),
-		brokenRefs: refsIn("broken"),
+		// A withheld target cannot be followed from here.
+		brokenRefs: refsIn("broken", "withheld"),
 	};
 }
 

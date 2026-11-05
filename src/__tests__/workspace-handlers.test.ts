@@ -706,8 +706,31 @@ describe("saving a span", () => {
 	const save = (text = "after") =>
 		({ kind: "saveSpan", symbolId: SERVED_ID, expectedSpanHash: "seen", text }) as const;
 
-	/** Records what the daemon was asked, in order, so a test reads the sequence the save took. */
-	function daemon(replaced: Record<string, unknown> | Error, after?: Record<string, unknown>) {
+	type Answer = Record<string, unknown> | Error;
+	const previewed = { ok: true, kind: "replaceSpan", guard: "g", files: [], issues: [] };
+	const step = (hold: string, issues: unknown[] = []) => ({
+		ok: true,
+		applied: "step",
+		kind: "replaceSpan",
+		refactor: { id: "r", hold },
+		stepNo: 1,
+		files: [],
+		fixed: [],
+		forwarded: [],
+		reverse: null,
+		issues,
+	});
+	const refusal = (reason: string, stale?: true) => ({
+		ok: false,
+		kind: "replaceSpan",
+		reason,
+		blockers: [],
+		issues: [],
+		stale,
+	});
+
+	/** Records what the daemon was asked, in order. Each call takes its queue's next answer. */
+	function daemon(applies: Answer[], after?: Record<string, unknown>, previews: Answer[] = []) {
 		const asked: string[] = [];
 		const session = async () =>
 			({
@@ -715,10 +738,17 @@ describe("saving a span", () => {
 					asked.push(`indexFile ${module}`);
 					return { module, action: "current" };
 				},
-				refactorReplaceSpan: async (params: Record<string, unknown>) => {
-					asked.push(`refactorReplaceSpan ${params.expectedSpanHash} standalone=${params.standalone}`);
-					if (replaced instanceof Error) throw replaced;
-					return replaced;
+				previewStep: async (params: Record<string, unknown>) => {
+					asked.push(`previewStep ${params.kind} ${params.expectedSpanHash}`);
+					const answer = previews.shift() ?? previewed;
+					if (answer instanceof Error) throw answer;
+					return answer;
+				},
+				applyStep: async (params: Record<string, unknown>) => {
+					asked.push(`applyStep ${params.guard} ${params.settle}`);
+					const answer = applies.shift() ?? new Error("no answer left");
+					if (answer instanceof Error) throw answer;
+					return answer;
 				},
 				symbolSource: async () => after ?? { found: false, reason: "gone" },
 			}) as unknown as Session;
@@ -727,12 +757,12 @@ describe("saving a span", () => {
 
 	const now = { found: true, module: "src/app.ts", name: "f", text: "after", range: SPAN, spanHash: "new" };
 
-	it("reindexes first, saves standalone, and answers the span as it now stands", async () => {
-		const { asked, session } = daemon({ replaced: true, issues: [], transaction: "own" }, now);
+	it("reindexes first, previews, applies under its own settlement, and answers the span as it now stands", async () => {
+		const { asked, session } = daemon([step("own")], now);
 
 		const result = await ask(workspace(), save(), session);
 
-		expect(asked).toEqual(["indexFile src/app.ts", "refactorReplaceSpan seen standalone=true"]);
+		expect(asked).toEqual(["indexFile src/app.ts", "previewStep replaceSpan seen", "applyStep g own"]);
 		expect(result).toEqual({
 			ok: true,
 			answer: {
@@ -756,7 +786,7 @@ describe("saving a span", () => {
 
 	it("says a save joined another session's transaction, with what it broke", async () => {
 		const issue = { kind: "UnboundReference", detail: "g no longer binds", module: "src/b.ts", line: 3 };
-		const { session } = daemon({ replaced: true, issues: [issue], transaction: "joined" }, now);
+		const { session } = daemon([step("joined", [issue])], now);
 
 		expect(await ask(workspace(), save(), session)).toMatchObject({
 			ok: true,
@@ -765,8 +795,8 @@ describe("saving a span", () => {
 	});
 
 	it("answers a changed span as stale with what it holds now, and a refusal with its reason", async () => {
-		const stale = daemon({ replaced: false, issues: [], stale: true, reason: "changed" }, now);
-		const broken = daemon({ replaced: false, issues: [], reason: "the replacement does not parse" });
+		const stale = daemon([], now, [refusal("changed", true)]);
+		const broken = daemon([], undefined, [refusal("the replacement does not parse")]);
 
 		expect(await ask(workspace(), save(), stale.session)).toMatchObject({
 			ok: true,
@@ -780,10 +810,37 @@ describe("saving a span", () => {
 		expect(refused.ok && refused.answer.kind === "saveSpan" && refused.answer.current).toBeUndefined();
 	});
 
+	it("previews once more after a stale apply, still under the owner's span hash", async () => {
+		const staleApply = { ok: false, reason: "the preview is gone", issues: [], stale: true };
+		const recovers = daemon([staleApply, step("own")], now);
+		const spanMoved = daemon([staleApply], now, [previewed, refusal("changed", true)]);
+		const keepsMoving = daemon([staleApply, staleApply], now);
+
+		expect(await ask(workspace(), save(), recovers.session)).toMatchObject({ answer: { outcome: "saved" } });
+		expect(recovers.asked.filter((line) => line.startsWith("previewStep"))).toEqual([
+			"previewStep replaceSpan seen",
+			"previewStep replaceSpan seen",
+		]);
+		expect(await ask(workspace(), save(), spanMoved.session)).toMatchObject({
+			answer: { outcome: "stale", current: { text: "after" } },
+		});
+		expect(await ask(workspace(), save(), keepsMoving.session)).toMatchObject({ answer: { outcome: "stale" } });
+	});
+
+	// Lexicon strands a write it cannot undo, and says so only in prose.
+	it("answers an apply refused without going stale as unknown, since it may have written", async () => {
+		const { session } = daemon([{ ok: false, reason: "the journaled step remains", issues: [] }], now);
+
+		expect(await ask(workspace(), save(), session)).toEqual({
+			ok: true,
+			answer: { kind: "saveSpan", symbolId: SERVED_ID, outcome: "unknown", reason: "the journaled step remains" },
+		});
+	});
+
 	// A failed read back says nothing about the span; only the index saying it is gone does.
 	it("tells a span that no longer resolves from one it could not read back", async () => {
-		const gone = daemon({ replaced: true, issues: [], transaction: "own" });
-		const unread = daemon({ replaced: true, issues: [], transaction: "own" });
+		const gone = daemon([step("own")]);
+		const unread = daemon([step("own")]);
 		const throwing = async () => {
 			const held = await unread.session();
 			return {
@@ -806,13 +863,13 @@ describe("saving a span", () => {
 
 	it("refuses a Lexicon too old to check the span, rather than failing", async () => {
 		const { DaemonError } = await import("@nyaa-lexicon/client");
-		const { session } = daemon(new DaemonError("unknown method: refactorReplaceSpan", "unknownMethod"));
+		const { session } = daemon([], undefined, [new DaemonError("unknown method: previewStep", "unknownMethod")]);
 
 		expect(await ask(workspace(), save(), session)).toMatchObject({ ok: false, failure: "refused" });
 	});
 
 	it("refuses a span in a withheld module before asking the daemon anything", async () => {
-		const { asked, session } = daemon({ replaced: true, issues: [] }, now);
+		const { asked, session } = daemon([step("own")], now);
 
 		expect(
 			await ask(
@@ -824,21 +881,26 @@ describe("saving a span", () => {
 		expect(asked).toEqual([]);
 	});
 
-	it("answers a save that ran out of time as unknown, since it may still land", async () => {
-		const hangs = async () =>
+	it("answers an apply that ran out of time as unknown, and a preview that did as refused", async () => {
+		const hanging = (previewStep: () => Promise<unknown>) => async () =>
 			({
 				indexFile: async () => ({ action: "current" }),
-				refactorReplaceSpan: () => new Promise(() => {}),
+				previewStep,
+				applyStep: () => new Promise(() => {}),
 			}) as unknown as Session;
+		const run = (session: () => Promise<Session>) =>
+			answerWorkspaceOp({ root: () => workspace(), session, budgetMs: 50 }, save());
 
-		const result = await answerWorkspaceOp({ root: () => workspace(), session: hangs, budgetMs: 50 }, save());
-
-		expect(result).toMatchObject({ ok: true, answer: { kind: "saveSpan", outcome: "unknown" } });
+		expect(await run(hanging(async () => previewed))).toMatchObject({
+			ok: true,
+			answer: { kind: "saveSpan", outcome: "unknown" },
+		});
+		expect(await run(hanging(() => new Promise(() => {})))).toMatchObject({ ok: false, failure: "refused" });
 	});
 
 	// The schema bounds characters; the answer cap is bytes, and would refuse only after the write.
 	it("refuses a span too large to carry back before writing anything", async () => {
-		const { asked, session } = daemon({ replaced: true, issues: [] }, now);
+		const { asked, session } = daemon([step("own")], now);
 
 		expect(await ask(workspace(), save("😀".repeat(600_000)), session)).toMatchObject({
 			ok: false,
@@ -1257,7 +1319,7 @@ describe("the index deadline", () => {
 		const asked: unknown[] = [];
 		const bounded = boundedSession(
 			{
-				refactorReplaceSpan: async (_params: unknown, options?: unknown) => {
+				applyStep: async (_params: unknown, options?: unknown) => {
 					asked.push(options);
 					return {};
 				},
@@ -1265,7 +1327,7 @@ describe("the index deadline", () => {
 			Date.now() + 5_000,
 		);
 
-		await bounded.refactorReplaceSpan({ symbolId: "s", expectedSpanHash: "h", newText: "x", standalone: true });
+		await bounded.applyStep({ guard: "g", settle: "own" });
 
 		expect(asked).toEqual([undefined]);
 	});

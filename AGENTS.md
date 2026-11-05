@@ -683,10 +683,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The plugin answers off the agent's turn:** the socket callback and the agent's work share a process
     but not a thread of control, which is what makes an op cost no tokens.
   - **An op this build cannot read is refused at once:** silence would hold the Gateway to its full wait.
-  - **The save is Lexicon's compare-and-swap:** `saveSpanOf` reindexes the module, calls
-    `refactorReplaceSpan` standalone, and answers the span as it now stands. `gone` is only the index saying
-    the span no longer resolves; a read back that failed says neither. From Lexicon 3.9 a module whose bytes a
-    UTF-8 decode would change, or text holding a lone surrogate, is refused with its reason.
+  - **The save is Lexicon's compare-and-swap:** `saveSpanOf` reindexes the module, previews a
+    `replaceSpan` step, applies its guard with `settle: "own"`, and answers the span as it now stands. An
+    apply refuses stale only before writing, so it previews once more, still under the owner's span hash.
+    A preview writes nothing, so its refusal is `rejected` or `stale`. Any other apply failure, answered
+    or not, may have written, and answers `unknown`. `gone` is only the index saying the span no longer
+    resolves; a read back that failed says neither. A module whose bytes a UTF-8 decode would change, or
+    text holding a lone surrogate, is refused with its reason.
   - **At-most-once is defined HERE, because nothing upstream defines it:** the plane is neither a transient
     value op nor the Router's delivery ledger. `createOpDedupe` replays a settled answer for a repeated key
     AND joins a flight already open, since a replay arriving before the first answer would otherwise do the
