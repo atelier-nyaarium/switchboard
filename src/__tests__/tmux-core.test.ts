@@ -487,7 +487,7 @@ describe("tmuxCore isAgentWorking", () => {
 	});
 
 	it("ignores a hint more than two lines back when there is no rule to bound the search by", () => {
-		expect(isAgentWorking("(12s · esc to interrupt)\n✻ Prestidigitating…\n❯ ")).toBe(false);
+		expect(isAgentWorking("(12s · esc to interrupt)\n● Done.\n❯ ")).toBe(false);
 	});
 
 	it("finds the hint any distance below the rule, since the footer's height is dynamic", () => {
@@ -501,7 +501,7 @@ describe("tmuxCore isAgentWorking", () => {
 		).toBe(true);
 		// A hint ABOVE the rule is transcript/history, not the live footer - never counts, even when
 		// it would fall within some arbitrary distance of the bottom.
-		expect(isAgentWorking(`✻ Prestidigitating… (12s · esc to interrupt)\n${rule}\n❯ `)).toBe(false);
+		expect(isAgentWorking(`● It said (12s · esc to interrupt)\n${rule}\n❯ `)).toBe(false);
 	});
 
 	it("strips the SGR escapes around the hint", () => {
@@ -534,6 +534,9 @@ describe("tmuxCore isAgentWorking", () => {
 		expect(isAgentWorking(pane("  ◯ red-team  ▰▰▰▱▱▱  3/6 · 9s"))).toBe(true);
 		expect(isAgentWorking(pane("  ◯ red-team  ▱▱▱▱▱▱  0/6 · 0s"))).toBe(true);
 		expect(isAgentWorking(pane("  ◯ red-team  ▰▰▰▰▰▰  6/6"))).toBe(false);
+		// A full bar still finishing says so above the composer.
+		const finishing = `✻ Waiting for 1 dynamic workflow to finish\n${rule}\n❯ \n${rule}\n  ◯ red-team  ▰▰▰▰▰▰  6/6`;
+		expect(isAgentWorking(finishing)).toBe(true);
 		// A meter that is not a workflow row.
 		expect(isAgentWorking(pane("  ctx ▰▰▱▱▱▱ 31%"))).toBe(false);
 		expect(isAgentWorking(`  ◯ red-team  ▱▱▱▱▱▱\n${rule}\n❯ `)).toBe(false);
@@ -553,6 +556,20 @@ describe("tmuxCore isAgentWorking", () => {
 		expect(isAgentWorking(working)).toBe(true);
 		const idle = `● Done.\n${rule}\n❯ \n${rule}\n${toolbar}`;
 		expect(isAgentWorking(idle)).toBe(false);
+	});
+
+	it("reads a spinner and its verb as working with or without a token run, and a finished turn as idle", () => {
+		const rule = "─".repeat(40);
+		const toolbar = "  ⏵⏵ bypass permissions on (shift+tab to cycle) · …";
+		const pane = (status: string) => `${status}\n${rule}\n❯ \n${rule}\n${toolbar}`;
+		expect(isAgentWorking(pane("✢ Cogitating…"))).toBe(true);
+		expect(isAgentWorking(pane("* Calling plugin:switchboard:switchboard…"))).toBe(true);
+		expect(isAgentWorking(pane("✻ Churned for 2h 6m 20s · done 3:31 PM"))).toBe(false);
+		expect(isAgentWorking(pane("● Bash(cd /tmp/claude-1000/kit && rm -f out/…)"))).toBe(false);
+		expect(isAgentWorking(pane("  ✔ Update installed · Restart…"))).toBe(false);
+		expect(isAgentWorking(pane("\n  ✔ Update installed · Restart…"))).toBe(false);
+		expect(isAgentWorking(pane("❯ please check the logs…"))).toBe(false);
+		expect(isAgentWorking(pane("- fix the thing…"))).toBe(false);
 	});
 
 	// Bounded on purpose. Far enough above the composer is transcript, and a transcript can quote

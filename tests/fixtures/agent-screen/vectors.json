@@ -72,6 +72,30 @@
 			"expectReady": true,
 			"expectWorking": true,
 			"expectWorkflow": true
+		},
+		{
+			"name": "lin-working-thinking-no-tokens",
+			"platform": "linux",
+			"shape": "CAPTURED LIVE. Mid-turn while thinking: the status run reads (28s · thinking with xhigh effort), with no token count.",
+			"screen": "\u001b[38;5;174m✽\u001b[39m \u001b[38;5;174mComp\u001b[38;5;216mosi\u001b[38;5;174mng… \u001b[38;5;246m(28s · \u001b[38;5;248mthinking with xhigh effort\u001b[38;5;246m)\u001b[39m   \n\u001b[38;5;246m  ⎿  Tip: Name your conversations with /rename to \u001b[39m   \n     \u001b[38;5;246mfind them easily in /resume later\u001b[39m               \n             \u001b[38;5;114m✔ Update installed · /restart to apply\u001b[39m  \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[38;5;246m❯ \u001b[39m                                                 \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;211m⏵⏵ bypass permissions on\u001b[38;5;246m (shift+tab to cycle) · …\u001b[39m  \n",
+			"expectReady": true,
+			"expectWorking": true
+		},
+		{
+			"name": "lin-working-tokens-then-thought",
+			"platform": "linux",
+			"shape": "CAPTURED LIVE. The token count sits mid-run, (3s · ↓ 50 tokens · thought for 2s), so the run does not end in tokens.",
+			"screen": "                         \n\u001b[38;5;174m*\u001b[39m \u001b[38;5;174mInfusing… \u001b[38;5;246m(3s · ↓\u001b[39m \u001b[38;5;246m50 tokens · thought for 2s)\n  ⎿  Tip: Connect Claude to your IDE · /ide\u001b[39m        \n             \u001b[38;5;114m✔ Update installed · /restart to apply\n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[38;5;246m❯ \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;211m⏵⏵ bypass permissions on\u001b[38;5;246m (shift+tab to cycle) · …\u001b[39m  \n",
+			"expectReady": true,
+			"expectWorking": true
+		},
+		{
+			"name": "lin-working-verb-only",
+			"platform": "linux",
+			"shape": "CAPTURED LIVE. The first moments of a turn: a spinner and its verb with no run at all.",
+			"screen": "\u001b[38;5;174m✢\u001b[39m \u001b[38;5;174mCogitati\u001b[38;5;216mng…\u001b[38;5;174m \u001b[39m                                      \n\u001b[38;5;246m  ⎿  Tip: Name your conversations with /rename to \u001b[39m   \n     \u001b[38;5;246mfind them easily in /resume later\u001b[39m               \n             \u001b[38;5;114m✔ Update installed · /restart to apply\u001b[39m  \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[38;5;246m❯ \u001b[39m                                                   \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;211m⏵⏵ bypass permissions on\u001b[38;5;246m (shift+tab to cycle) · …\n\n  \u001b[38;5;114m◯ \u001b[38;5;246ma4-red-team-fix-luna\u001b[39m  ▰▰▰▰▰▰▰▰▰▰▰▰  \u001b[38;5;246m↓ 1.4m\u001b[39m       \n",
+			"expectReady": true,
+			"expectWorking": true
 		}
 	]
 }

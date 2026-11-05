@@ -29,7 +29,7 @@ class AgentScreenTest {
 		assertEquals(false, AgentScreen.isWorking("Claude Code v2.1.0\n❯ "))
 		// A line more than two back does not count - ONLY absent a rule to bound the search by; see
 		// findsTheWorkingHintAnyDistanceBelowTheRule below for the same distance with a rule present.
-		assertEquals(false, AgentScreen.isWorking("(12s · esc to interrupt)\n✻ Prestidigitating…\n❯ "))
+		assertEquals(false, AgentScreen.isWorking("(12s · esc to interrupt)\n● Done.\n❯ "))
 	}
 
 	@Test
@@ -48,8 +48,22 @@ class AgentScreenTest {
 		// it would fall within some arbitrary distance of the bottom.
 		assertEquals(
 			false,
-			AgentScreen.isWorking("✻ Prestidigitating… (12s · esc to interrupt)\n$rule\n❯ "),
+			AgentScreen.isWorking("● It said (12s · esc to interrupt)\n$rule\n❯ "),
 		)
+	}
+
+	@Test
+	fun aSpinnerAndItsVerbReadWorkingAndAFinishedTurnReadsIdle() {
+		val rule = "─".repeat(40)
+		val pane = { status: String -> "$status\n$rule\n❯ \n$rule\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · …" }
+		assertEquals(true, AgentScreen.isWorking(pane("✢ Cogitating…")))
+		assertEquals(true, AgentScreen.isWorking(pane("* Calling plugin:switchboard:switchboard…")))
+		assertEquals(false, AgentScreen.isWorking(pane("✻ Churned for 2h 6m 20s · done 3:31 PM")))
+		assertEquals(false, AgentScreen.isWorking(pane("● Bash(cd /tmp/claude-1000/kit && rm -f out/…)")))
+		assertEquals(false, AgentScreen.isWorking(pane("  ✔ Update installed · Restart…")))
+		assertEquals(false, AgentScreen.isWorking(pane("\n  ✔ Update installed · Restart…")))
+		assertEquals(false, AgentScreen.isWorking(pane("❯ please check the logs…")))
+		assertEquals(false, AgentScreen.isWorking(pane("- fix the thing…")))
 	}
 
 	/**

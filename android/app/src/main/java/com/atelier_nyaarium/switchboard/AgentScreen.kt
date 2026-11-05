@@ -32,8 +32,20 @@ object AgentScreen {
 	// parentheses, below the toolbar, and a looser rule reads those as this session working.
 	private val workingStatusRe = Regex("""\(\d+[hms][^()]*tokens\)""")
 
+	// Spinner frames. A new frame falls back to idle, never to busy.
+	private const val SPINNER = "[\\u00B7\\u2722\\u2733\\u2736\\u273B\\u273D*]"
+
+	// Spinner, any verb, ellipsis before a bracket. Twin of RUNNING_ROW_RE.
+	private val runningRowRe = Regex(
+		"^$SPINNER$SPACE+[^ \\t\\u00A0()\\u2026\\n\\r]+(?:\\u2026|$SPACE[^()\\n]*\\u2026)",
+		RegexOption.MULTILINE,
+	)
+
 	// Unfinished workflow row.
 	private val workflowBarRe = Regex("\\u25EF[^\\n]*?(?=[\\u25B0\\u25B1]{3,})[\\u25B0\\u25B1]*\\u25B1")
+
+	// A full bar still running: "Waiting for 1 dynamic workflow to finish".
+	private val workflowWaitRe = Regex("^$SPINNER$SPACE+Waiting for \\d+ [^\\n]*workflow", RegexOption.MULTILINE)
 
 	// How far above the composer's top rule that status line may sit. Observed immediately above it;
 	// the extra slack is deliberate, against a layout that shifts again. Bounded because unbounded
@@ -162,11 +174,13 @@ object AgentScreen {
 		// Not one alternation over both slices: each marker is only safe in its own.
 		return paneHas(screen, workingHintRe, PaneRegion.TOOLBAR) ||
 			paneHas(screen, workingStatusRe, PaneRegion.STATUS) ||
+			paneHas(screen, runningRowRe, PaneRegion.STATUS) ||
 			hasWorkflow(screen)
 	}
 
-	/** An unfinished workflow row below the last rule. */
-	fun hasWorkflow(screen: String): Boolean = paneHas(screen, workflowBarRe, PaneRegion.TOOLBAR)
+	/** An unfinished workflow row, or the live line waiting on one. */
+	fun hasWorkflow(screen: String): Boolean =
+		paneHas(screen, workflowBarRe, PaneRegion.TOOLBAR) || paneHas(screen, workflowWaitRe, PaneRegion.STATUS)
 
 	/**
 	 * The bounded rows just above the composer's TOP rule, where a running turn draws its status line.

@@ -56,8 +56,15 @@ const WORKING_HINT_RE = /· esc/u;
  * looser rule would read them as this session working.
  */
 const WORKING_STATUS_RE = /\(\d+[hms][^()]*tokens\)/u;
+
+// Spinner frames. A new frame falls back to idle, never to busy.
+const SPINNER = "[·✢✳✶✻✽*]";
+// Spinner, any verb, ellipsis before a bracket.
+const RUNNING_ROW_RE = new RegExp(`^${SPINNER}${SPACE}+[^ \\t\\u00a0()…\\n\\r]+(?:…|${SPACE}[^()\\n]*…)`, "mu");
 // Unfinished workflow row.
 const WORKFLOW_BAR_RE = /◯[^\n]*?(?=[▰▱]{3,})[▰▱]*▱/u;
+// A full bar still running: "✻ Waiting for 1 dynamic workflow to finish".
+const WORKFLOW_WAIT_RE = new RegExp(`^${SPINNER}${SPACE}+Waiting for \\d+ [^\\n]*workflow`, "mu");
 
 /**
  * How far above the composer's top rule the status line may sit.
@@ -65,8 +72,7 @@ const WORKFLOW_BAR_RE = /◯[^\n]*?(?=[▰▱]{3,})[▰▱]*▱/u;
  * It is drawn immediately above the rule with at most a blank row between, so 3 covers what has been
  * observed; 5 is the owner's call, two rows of slack against a layout that shifts again. The bound
  * matters more than its exact value - unbounded means reading the transcript, which is precisely what
- * scoping regions in this module exists to prevent, and `WORKING_STATUS_RE` is specific enough that
- * a transcript line would have to quote a running status verbatim to trip it.
+ * scoping regions in this module exists to prevent.
  */
 const STATUS_LOOKBACK = 5;
 // The auth notice renders in both slices and needs a different rule in each.
@@ -202,13 +208,14 @@ export function isAgentWorking(screen: string): boolean {
 	return (
 		paneHas(screen, WORKING_HINT_RE, "toolbar") ||
 		paneHas(screen, WORKING_STATUS_RE, "status") ||
+		paneHas(screen, RUNNING_ROW_RE, "status") ||
 		hasWorkflow(screen)
 	);
 }
 
-/** An unfinished workflow row below the last rule. Twin: AgentScreen.hasWorkflow. */
+/** An unfinished workflow row, or the live line waiting on one. Twin: AgentScreen.hasWorkflow. */
 export function hasWorkflow(screen: string): boolean {
-	return paneHas(screen, WORKFLOW_BAR_RE, "toolbar");
+	return paneHas(screen, WORKFLOW_BAR_RE, "toolbar") || paneHas(screen, WORKFLOW_WAIT_RE, "status");
 }
 
 /**
