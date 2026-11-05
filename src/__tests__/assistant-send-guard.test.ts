@@ -26,21 +26,21 @@ describe("the origin marker", () => {
 		marker.delivered(row(1, "owner"));
 		const owner = marker.readsOwner();
 		// Late acknowledgements cannot rewind origin.
-		marker.delivered(row(3, "event"));
+		marker.delivered(row(3, "session"));
 		marker.delivered(row(2, "owner"));
-		const afterEvent = marker.readsOwner();
+		const afterSession = marker.readsOwner();
 		marker.delivered(row(4, "owner"));
 		const ownerAgain = marker.readsOwner();
 		marker.replyPushed(4);
 		const afterReply = marker.readsOwner();
-		marker.delivered(row(5, "owner"));
-		const afterNewerOwner = marker.readsOwner();
+		marker.delivered(row(5, "event"));
+		const afterEvent = marker.readsOwner();
 		marker.delivered(row(6, undefined));
 		const legacy = marker.readsOwner();
 		marker.delivered(row(7, "owner", "host.other"));
 		const otherTeam = marker.readsOwner();
 
-		expect([missing, owner, afterEvent, ownerAgain, afterReply, afterNewerOwner, legacy, otherTeam]).toEqual([
+		expect([missing, owner, afterSession, ownerAgain, afterReply, afterEvent, legacy, otherTeam]).toEqual([
 			false,
 			true,
 			false,
@@ -52,19 +52,31 @@ describe("the origin marker", () => {
 		]);
 	});
 
-	it("asks after a session ends, and never reads an owner row accepted before boot", () => {
+	it("asks after a session ends, and never reads an owner or event row accepted before boot", () => {
 		const marker = createOriginMarker(10);
 		marker.delivered(row(9, "owner"));
 		const preboot = marker.readsOwner();
+		marker.delivered(row(9, "event"));
+		const prebootEvent = marker.readsOwner();
 		marker.delivered(row(10, "owner"));
 		const owner = marker.readsOwner();
 		marker.ended();
 		const afterEnd = marker.readsOwner();
-		marker.offered(row(11, "event"));
+		marker.offered(row(11, "session"));
 		marker.delivered(row(12, "owner"));
-		const ownerAfterEvent = marker.readsOwner();
+		const ownerAfterSession = marker.readsOwner();
+		marker.offered(row(13, "session"));
+		marker.offered(row(14, "event"));
+		const eventOfferedOnly = marker.readsOwner();
 
-		expect([preboot, owner, afterEnd, ownerAfterEvent]).toEqual([false, true, false, true]);
+		expect([preboot, prebootEvent, owner, afterEnd, ownerAfterSession, eventOfferedOnly]).toEqual([
+			false,
+			false,
+			true,
+			false,
+			true,
+			false,
+		]);
 	});
 
 	it("never reads an owner row carrying screen text as the owner's words", () => {

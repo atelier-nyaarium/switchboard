@@ -208,14 +208,16 @@ guard; `docs/vault.md` holds the request lifecycle it shares with the vault.
   approved card, or unasked when the setting is off. The session gets a minted id, never the typed
   name, and the `sent` answer's `target` names it. Another Gateway's host is not reached this way.
 - **Approve every send:** an owner setting per Gateway, on by default, read at every send; a failed
-  read asks. Off, a send goes without asking only while the owner spoke last: `createOriginMarker`
-  holds the origin of the newest row it saw in acceptance order. An owner row counts once
-  acknowledged; any other row counts as soon as it is offered; a reply counts as it is pushed. Every
-  channel row reaches the session through the delivery queue, whose observer is required, so no
-  road skips the marker. A restart, a session's end and a fresh placement clear it, and an owner row
-  accepted before boot never reads owner.
-- **Accepted risk:** the marker sees only channel rows. An earlier event still in context, or data
-  the assistant read through a tool after an owner input, does not make it ask. A check-in is an
+  read asks. Off, a send goes without asking only while the owner spoke last, and a watcher event
+  speaks as the owner: `createOriginMarker` holds the origin of the newest row it saw in acceptance
+  order. An owner row or an event counts once acknowledged; any other row counts as soon as it is
+  offered; a reply counts as it is pushed. Every channel row reaches the session through the
+  delivery queue, whose observer is required, so no road skips the marker. A restart, a session's
+  end and a fresh placement clear it, and an owner row or event accepted before boot never reads
+  owner.
+- **Accepted risk:** the marker sees only channel rows, and an event's text, a GitHub title or
+  comment, can steer a send unasked. Data the assistant read through a tool after an owner input
+  does not make it ask either. A check-in is an
   owner input (see Check-ins), so a runbook that has the assistant read its inbox and then send
   carries the same risk as asking it to in chat.
 - **Recorded where accepted:** a sent message lands in the owner's view of both conversations

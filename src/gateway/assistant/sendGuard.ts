@@ -59,7 +59,7 @@ export type SafetyStore = ReturnType<typeof createSafetyStore>;
 type MarkOrigin = DeliveryOrigin | "reply" | "unknown";
 
 /**
- * Last speaker, by acceptance order. Owner rows mark on ack, others on offer.
+ * Last speaker, by acceptance order. Owner-side rows mark on ack, others on offer.
  * Memory only; rows from before boot never read owner.
  */
 export function createOriginMarker(bootSeq: number) {
@@ -68,7 +68,8 @@ export function createOriginMarker(bootSeq: number) {
 		if (!mark || seq >= mark.seq) mark = { seq, origin };
 	};
 	const saw = (seq: number, origin: MarkOrigin) => move(seq, origin);
-	const ownerSide = (origin: MarkOrigin) => origin === "owner" || origin === "routine";
+	// Events read as owner.
+	const ownerSide = (origin: MarkOrigin) => origin === "owner" || origin === "routine" || origin === "event";
 	const originOf = (row: PendingDelivery): MarkOrigin => {
 		const origin = row.origin ?? "unknown";
 		if (!ownerSide(origin)) return origin;

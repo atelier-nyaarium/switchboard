@@ -306,21 +306,12 @@ describe("the assistant's guarded sends", () => {
 		expect(await records("while asleep")).toHaveLength(2);
 	});
 
-	it("with approval off, sends unasked only while the owner spoke last", async () => {
+	it("with approval off, sends unasked only while the owner or a watcher spoke last", async () => {
 		const off = await safety(false);
 		await ownerSays("go ahead");
 		const afterOwner = await send(worker.team, "unasked one");
-
-		events.push({ id: "e1", at: 10, title: "mention e1", fields: { kind: "mention" } });
-		await h.phone.value({ kind: "assistant_watcher_grants", watcherId: "fake", entryIds: [] });
-		await h.waitFor(() => assistant().inbound.find((frame) => frame.event === true), "the watcher's event");
-		const afterEvent = await send(worker.team, "after an event");
-		await post("/assistant/send/withdraw", { requestId: afterEvent.json.requestId });
-
-		await ownerSays("again");
-		const afterOwnerAgain = await send(worker.team, "unasked two");
 		const push = await h.waitFor(
-			() => worker.inbound.find((frame) => frame.body === "unasked two"),
+			() => worker.inbound.find((frame) => frame.body === "unasked one"),
 			"the delivery",
 		);
 		await worker.reply(String(push.session_id), "a reply");
@@ -330,6 +321,11 @@ describe("the assistant's guarded sends", () => {
 		);
 		const afterReply = await send(worker.team, "after a reply");
 		await post("/assistant/send/withdraw", { requestId: afterReply.json.requestId });
+
+		events.push({ id: "e1", at: 10, title: "mention e1", fields: { kind: "mention" } });
+		await h.phone.value({ kind: "assistant_watcher_grants", watcherId: "fake", entryIds: [] });
+		await h.waitFor(() => assistant().inbound.find((frame) => frame.event === true), "the watcher's event");
+		const afterEvent = await send(worker.team, "unasked two");
 		// Mirrors use outbox delivery.
 		const unasked = await h.waitFor(async () => {
 			const found = await records("unasked one");
@@ -338,9 +334,8 @@ describe("the assistant's guarded sends", () => {
 
 		expect(off.approveEverySend).toBe(false);
 		expect(afterOwner.json).toMatchObject({ outcome: "sent", guard: "unasked" });
-		expect(afterEvent.json.outcome).toBe("pending");
-		expect(afterOwnerAgain.json).toMatchObject({ outcome: "sent", guard: "unasked" });
 		expect(afterReply.json.outcome).toBe("pending");
+		expect(afterEvent.json).toMatchObject({ outcome: "sent", guard: "unasked" });
 		expect(unasked.map((entry) => entry.guard)).toEqual(["unasked", "unasked"]);
 	});
 
