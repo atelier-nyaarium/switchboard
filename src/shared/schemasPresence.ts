@@ -44,6 +44,8 @@ export const DerivedPresenceSchema = z.object({
 	workflow: z.boolean().optional(),
 	// Set only while one works.
 	teammates: z.boolean().optional(),
+	// Set only while it runs.
+	compacting: z.boolean().optional(),
 });
 
 export type DerivedPresence = z.infer<typeof DerivedPresenceSchema>;

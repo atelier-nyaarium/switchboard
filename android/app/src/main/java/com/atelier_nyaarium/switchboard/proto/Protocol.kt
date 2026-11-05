@@ -634,6 +634,7 @@ data class TeamInfo(
 	val limitDetail: String? = null,
 	val workflow: Boolean? = null,
 	val teammates: Boolean? = null,
+	val compacting: Boolean? = null,
 	val promptId: String? = null,
 	val presenceFresh: String? = null,
 )

@@ -65,6 +65,7 @@ import {
 	sendKey,
 	sendText,
 } from "../mcp/devcontainer/tmuxCore.js";
+import { isCompacting } from "../shared/agent-screen.js";
 import type { TmuxTarget } from "../shared/host-op.js";
 import { DEFAULT_SESSION } from "../shared/session-id.js";
 
@@ -509,6 +510,15 @@ describe("tmuxCore isAgentWorking", () => {
 		expect(isAgentWorking(`✻ Prestidigitating${esc}[2m… (12s ${esc}[2m·${esc}[0m esc to interrupt)${esc}[0m`)).toBe(
 			true,
 		);
+	});
+
+	it("reads compacting through a wrapped tip, but not from far up the transcript", () => {
+		const rule = "─".repeat(40);
+		const tip = "  ⎿  Tip: Run claude --continue or\n     claude --resume to resume a\n     conversation";
+		const pane = `· Compacting conversation… (10s)\n${tip}\n   0% until auto-compact\n${rule}\n❯ \n${rule}`;
+		expect(isCompacting(pane)).toBe(true);
+		expect(isCompacting(pane.replace("Compacting", "Composing"))).toBe(false);
+		expect(isCompacting(pane.replace(tip, `${tip}\n\n\n\n`))).toBe(false);
 	});
 
 	it("reads a teammate below the toolbar as working until its row says idle", () => {

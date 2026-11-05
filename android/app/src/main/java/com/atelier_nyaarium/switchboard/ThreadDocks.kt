@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -141,13 +142,17 @@ fun GoalDock(rec: PendingGoal, onCancel: () -> Unit) {
 	}
 }
 
-/** Usage-limit notice: the session waits out its limit and continues on its own. No dismiss, since it
- * is a fact about the session; it clears once the session is back. */
+private val COMPACTING_BLUE = Color(0xFF0969DA)
+
+/** No dismiss; clears itself. */
 @Composable
-fun SessionLimitDock(detail: String?) {
+fun SessionStatusDock(dock: SessionDock, detail: String?) {
+	val limit = dock == SessionDock.LIMIT
+	val container = if (limit) MaterialTheme.colorScheme.errorContainer else COMPACTING_BLUE
+	val content = if (limit) MaterialTheme.colorScheme.onErrorContainer else Color.White
 	Surface(
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-		color = MaterialTheme.colorScheme.errorContainer,
+		color = container,
 		shape = MaterialTheme.shapes.medium,
 	) {
 		Row(
@@ -155,19 +160,19 @@ fun SessionLimitDock(detail: String?) {
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(10.dp),
 		) {
-			Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+			if (limit) {
+				Icon(Icons.Default.Warning, contentDescription = null, tint = content)
+			} else {
+				CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = content)
+			}
 			Column(Modifier.weight(1f)) {
 				Text(
-					"Session Limit hit",
+					if (limit) "Session Limit hit" else "Compacting...",
 					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onErrorContainer,
+					color = content,
 				)
-				if (detail != null) {
-					Text(
-						detail,
-						style = MaterialTheme.typography.labelSmall,
-						color = MaterialTheme.colorScheme.onErrorContainer,
-					)
+				if (limit && detail != null) {
+					Text(detail, style = MaterialTheme.typography.labelSmall, color = content)
 				}
 			}
 		}

@@ -60,6 +60,7 @@ data class TerminalState(
 	val needsLogin: Boolean,
 	val limitBlocked: Boolean,
 	val limitDetail: String?,
+	val compacting: Boolean,
 	val refreshMs: Long,
 	val onWake: () -> Unit,
 	/** Force-relaunch claude in a still-existing pane (SessionOps.relaunchSession). */
@@ -97,6 +98,16 @@ internal fun terminalEligible(state: ChatState, team: String): Boolean {
 	val admin = state.domainId.orEmpty()
 	val dom = state.sessions().firstOrNull { it.name == team }?.domainId
 	return dom.isNullOrEmpty() || admin.isEmpty() || dom == admin
+}
+
+/** The floating status above the composer. */
+enum class SessionDock { LIMIT, COMPACTING }
+
+/** A limit outranks compacting. */
+internal fun sessionDock(limitBlocked: Boolean, compacting: Boolean): SessionDock? = when {
+	limitBlocked -> SessionDock.LIMIT
+	compacting -> SessionDock.COMPACTING
+	else -> null
 }
 
 /** Still booting, and waiting on a login. */

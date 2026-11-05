@@ -768,6 +768,7 @@ fun App(
 					needsLogin = session?.presence?.needsLogin == true,
 					limitBlocked = session?.presence?.limitBlocked == true,
 					limitDetail = session?.presence?.limitDetail,
+					compacting = session?.presence?.compacting == true,
 					onWake = { repo.sessions.wakeSession(openTeam!!) },
 					onRelaunch = { repo.sessions.relaunchSession(openTeam!!) },
 					refreshMs = repo.sessions.terminalRefreshMs,

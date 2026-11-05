@@ -105,6 +105,8 @@ private constructor(
 	val workflow: Boolean?,
 	/** A teammate works. */
 	val teammates: Boolean?,
+	/** The conversation compacts. */
+	val compacting: Boolean?,
 ) {
 	/** A live socket serves this session: confirmed online, or verifying its handshake (connected but
 	 * the LLM has not re-answered, e.g. across a gateway restart). Both count as awake. */
@@ -201,6 +203,7 @@ private constructor(
 				promptId = row.promptId,
 				workflow = row.workflow,
 				teammates = row.teammates,
+				compacting = row.compacting,
 			)
 
 		/** A thread whose session has left the bridge. No Gateway speaks for it, hence NONE. */

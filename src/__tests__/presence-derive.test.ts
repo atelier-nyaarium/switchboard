@@ -9,6 +9,7 @@ const full: DerivedPresence = {
 	prompt: { id: "p1", title: "Bash command", body: ["rm -f out/x"] },
 	workflow: true,
 	teammates: true,
+	compacting: true,
 };
 
 const keys = Object.keys(DerivedPresenceSchema.shape) as (keyof DerivedPresence)[];

@@ -96,6 +96,15 @@
 			"screen": "\u001b[38;5;174m✢\u001b[39m \u001b[38;5;174mCogitati\u001b[38;5;216mng…\u001b[38;5;174m \u001b[39m                                      \n\u001b[38;5;246m  ⎿  Tip: Name your conversations with /rename to \u001b[39m   \n     \u001b[38;5;246mfind them easily in /resume later\u001b[39m               \n             \u001b[38;5;114m✔ Update installed · /restart to apply\u001b[39m  \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[38;5;246m❯ \u001b[39m                                                   \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;211m⏵⏵ bypass permissions on\u001b[38;5;246m (shift+tab to cycle) · …\n\n  \u001b[38;5;114m◯ \u001b[38;5;246ma4-red-team-fix-luna\u001b[39m  ▰▰▰▰▰▰▰▰▰▰▰▰  \u001b[38;5;246m↓ 1.4m\u001b[39m       \n",
 			"expectReady": true,
 			"expectWorking": true
+		},
+		{
+			"name": "lin-compacting",
+			"platform": "linux",
+			"shape": "CAPTURED LIVE. The conversation is compacting: a spinner row reading 'Compacting conversation' above the composer, held still for about a minute.",
+			"screen": "                                                  \n\u001b[38;5;147m·\u001b[39m \u001b[38;5;147mCompacting conversat\u001b[38;5;153mion\u001b[38;5;147m… \u001b[38;5;246m(10s)\u001b[39m                     \n\u001b[38;5;246m  ⎿  Tip: Run claude --continue or claude --resume to\n\u001b[39m     \u001b[38;5;246mresume a conversation\u001b[39m                           \n                              \u001b[38;5;246m0% until auto-compact\u001b[39m  \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[38;5;246m❯ \u001b[39m                                                 \n\u001b[38;5;244m─────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;211m⏵⏵ bypass permissions on\u001b[38;5;246m (shift+tab to cycle) · …\u001b[39m  ",
+			"expectReady": true,
+			"expectWorking": true,
+			"expectCompacting": true
 		}
 	]
 }

@@ -54,6 +54,10 @@ const RUNNING_ROW_RE = new RegExp(`^${SPINNER}${SPACE}+[^ \\t\\u00a0()…\\n\\r]
 const WORKFLOW_BAR_RE = /◯[^\n]*?(?=[▰▱]{3,})[▰▱]*▱/u;
 // A full bar still running: "✻ Waiting for 1 dynamic workflow to finish".
 const WORKFLOW_WAIT_RE = new RegExp(`^${SPINNER}${SPACE}+Waiting for \\d+ [^\\n]*workflow`, "mu");
+// "· Compacting conversation… (10s)"
+const COMPACTING_RE = new RegExp(`^${SPINNER}${SPACE}+Compacting conversation`, "mu");
+// Tip and meter rows sit below it.
+const COMPACTING_LOOKBACK = 8;
 // Teammate row: dot, name, then more. Bare "● main" excluded.
 const TEAMMATE_ROW_RE = new RegExp(`^${SPACE}*[●◯]${SPACE}+[^ \\t\\u00a0]+${SPACE}+[^ \\t\\u00a0]`, "u");
 const TEAMMATE_IDLE_RE = new RegExp(`${SPACE}idle${SPACE}*$`, "u");
@@ -219,6 +223,11 @@ export function hasWorkflow(screen: string): boolean {
 	return paneHas(screen, WORKFLOW_BAR_RE, "toolbar") || paneHas(screen, WORKFLOW_WAIT_RE, "status");
 }
 
+/** The conversation is compacting. Twin: AgentScreen.isCompacting. */
+export function isCompacting(screen: string): boolean {
+	return paneHas(screen, COMPACTING_RE, "status", COMPACTING_LOOKBACK);
+}
+
 /**
  * The bounded rows just above the composer's TOP rule, where a running turn draws its status line.
  *
@@ -231,10 +240,10 @@ export function hasWorkflow(screen: string): boolean {
  * the first rule on a settled pane, and starting from the bottom would find the lower border instead
  * and put the region inside the composer box.
  */
-function statusRegion(lines: string[]): string[] {
+function statusRegion(lines: string[], lookback: number): string[] {
 	for (let i = 0; i < lines.length; i++) {
 		if (afterRuleRun(lines[i]!, TOOLBAR_RUN_RE) !== null) {
-			return lines.slice(Math.max(0, i - STATUS_LOOKBACK), i);
+			return lines.slice(Math.max(0, i - lookback), i);
 		}
 	}
 	// No rule at all: a startup or partial frame. The same last-two-lines fallback the footer uses,
@@ -247,13 +256,13 @@ function statusRegion(lines: string[]): string[] {
 export type PaneRegion = "toolbar" | "status";
 
 /** The one place a pane is sliced. Stripped rows of one region. */
-export function paneRegion(screen: string, where: PaneRegion): string[] {
+export function paneRegion(screen: string, where: PaneRegion, lookback = STATUS_LOOKBACK): string[] {
 	const lines = stripAnsi(screen).split("\n");
-	return where === "toolbar" ? footerRegion(lines) : statusRegion(lines);
+	return where === "toolbar" ? footerRegion(lines) : statusRegion(lines, lookback);
 }
 
-function paneHas(screen: string, marker: RegExp, where: PaneRegion): boolean {
-	return marker.test(paneRegion(screen, where).join("\n"));
+function paneHas(screen: string, marker: RegExp, where: PaneRegion, lookback = STATUS_LOOKBACK): boolean {
+	return marker.test(paneRegion(screen, where, lookback).join("\n"));
 }
 
 /** Whether the captured pane shows claude logged out: it prints "Not logged in" / "Run /login" in its

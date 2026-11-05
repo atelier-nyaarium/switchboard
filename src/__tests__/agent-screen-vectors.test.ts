@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { hasWorkflow, isAgentReady, isAgentWorking } from "../shared/agent-screen.js";
+import { hasWorkflow, isAgentReady, isAgentWorking, isCompacting } from "../shared/agent-screen.js";
 
 /**
  * Real captured panes, Linux and Windows, read by BOTH runtimes.
@@ -35,6 +35,7 @@ interface Vector {
 	expectReady: boolean;
 	expectWorking: boolean;
 	expectWorkflow?: boolean;
+	expectCompacting?: boolean;
 }
 
 const vectorsPath = path.join(import.meta.dirname, "..", "..", "tests", "fixtures", "agent-screen", "vectors.json");
@@ -55,6 +56,7 @@ describe("agent-screen: real captured panes, both platforms", () => {
 		expect(isAgentReady(v.screen), `${v.name}: isAgentReady`).toBe(v.expectReady);
 		expect(isAgentWorking(v.screen), `${v.name}: isAgentWorking`).toBe(v.expectWorking);
 		expect(hasWorkflow(v.screen), `${v.name}: hasWorkflow`).toBe(v.expectWorkflow ?? false);
+		expect(isCompacting(v.screen), `${v.name}: isCompacting`).toBe(v.expectCompacting ?? false);
 	});
 
 	it("keeps the three Windows causes separable", () => {

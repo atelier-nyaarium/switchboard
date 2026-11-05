@@ -42,6 +42,12 @@ object AgentScreen {
 	// A full bar still running: "Waiting for 1 dynamic workflow to finish".
 	private val workflowWaitRe = Regex("^$SPINNER$SPACE+Waiting for \\d+ [^\\n]*workflow", RegexOption.MULTILINE)
 
+	// "Compacting conversation" under a spinner.
+	private val compactingRe = Regex("^$SPINNER$SPACE+Compacting conversation", RegexOption.MULTILINE)
+
+	// Tip and meter rows sit below it.
+	private const val COMPACTING_LOOKBACK = 8
+
 	// Teammate row: dot, name, then more. Bare "main" excluded.
 	private val teammateRowRe = Regex("^$SPACE*[\\u25CF\\u25EF]$SPACE+[^ \\t\\u00A0]+$SPACE+[^ \\t\\u00A0]")
 	private val teammateIdleRe = Regex(SPACE + "idle$SPACE*$")
@@ -145,13 +151,13 @@ object AgentScreen {
 	private enum class PaneRegion { TOOLBAR, STATUS }
 
 	/** The one place a pane is sliced. Stripped rows of one region. */
-	private fun paneRegion(screen: String, where: PaneRegion): List<String> {
+	private fun paneRegion(screen: String, where: PaneRegion, lookback: Int = STATUS_LOOKBACK): List<String> {
 		val lines = strip(screen).split("\n")
-		return if (where == PaneRegion.TOOLBAR) footerRegion(lines) else statusRegion(lines)
+		return if (where == PaneRegion.TOOLBAR) footerRegion(lines) else statusRegion(lines, lookback)
 	}
 
-	private fun paneHas(screen: String, marker: Regex, where: PaneRegion): Boolean =
-		marker.containsMatchIn(paneRegion(screen, where).joinToString("\n"))
+	private fun paneHas(screen: String, marker: Regex, where: PaneRegion, lookback: Int = STATUS_LOOKBACK): Boolean =
+		marker.containsMatchIn(paneRegion(screen, where, lookback).joinToString("\n"))
 
 	/** The footer notice a session waiting out its limit shows. Twin of limitWaiting. */
 	private fun limitWaiting(screen: String): LimitNotice? {
@@ -189,6 +195,9 @@ object AgentScreen {
 	fun hasWorkflow(screen: String): Boolean =
 		paneHas(screen, workflowBarRe, PaneRegion.TOOLBAR) || paneHas(screen, workflowWaitRe, PaneRegion.STATUS)
 
+	/** The conversation is compacting. */
+	fun isCompacting(screen: String): Boolean = paneHas(screen, compactingRe, PaneRegion.STATUS, COMPACTING_LOOKBACK)
+
 	/**
 	 * The bounded rows just above the composer's TOP rule, where a running turn draws its status line.
 	 *
@@ -201,10 +210,10 @@ object AgentScreen {
 	 * pane, and starting from the bottom finds the lower border and puts the region inside the box.
 	 * Twin of statusRegion in agent-screen.ts.
 	 */
-	private fun statusRegion(lines: List<String>): List<String> {
+	private fun statusRegion(lines: List<String>, lookback: Int): List<String> {
 		for (i in lines.indices) {
 			if (afterRuleRun(lines[i], toolbarRunRe) != null) {
-				return lines.subList(maxOf(0, i - STATUS_LOOKBACK), i)
+				return lines.subList(maxOf(0, i - lookback), i)
 			}
 		}
 		// No rule at all: a startup or partial frame. The same fallback the footer uses, so a pane with

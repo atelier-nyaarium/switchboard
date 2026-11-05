@@ -1,4 +1,11 @@
-import { hasActiveTeammate, hasWorkflow, isAgentWorking, isLoggedOut, limitNotice } from "../../shared/agent-screen.js";
+import {
+	hasActiveTeammate,
+	hasWorkflow,
+	isAgentWorking,
+	isCompacting,
+	isLoggedOut,
+	limitNotice,
+} from "../../shared/agent-screen.js";
 import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
 import { type DerivedPresence, sameDerived } from "../../shared/schemasPresence.js";
 import { PromptOccurrences, type SeenPrompt, seePrompt } from "./permissionPrompt.js";
@@ -76,6 +83,7 @@ export function deriveFromPeek(
 		...(prompt ? { prompt } : {}),
 		...(hasWorkflow(peek.ansi) ? { workflow: true } : {}),
 		...(hasActiveTeammate(peek.ansi) ? { teammates: true } : {}),
+		...(isCompacting(peek.ansi) ? { compacting: true } : {}),
 	};
 }
 

@@ -67,6 +67,16 @@ class AgentScreenTest {
 	}
 
 	@Test
+	fun compactingReadsThroughAWrappedTipButNotFromFarUpTheTranscript() {
+		val rule = "─".repeat(40)
+		val tip = "  ⎿  Tip: Run claude --continue or\n     claude --resume to resume a\n     conversation"
+		val pane = { above: String -> "$above· Compacting conversation… (10s)\n$tip\n   0% until auto-compact\n$rule\n❯ \n$rule" }
+		assertEquals(true, AgentScreen.isCompacting(pane("")))
+		assertEquals(false, AgentScreen.isCompacting(pane("").replace("Compacting", "Composing")))
+		assertEquals(false, AgentScreen.isCompacting(pane("").replace(tip, "$tip\n\n\n\n")))
+	}
+
+	@Test
 	fun aTeammateBelowTheToolbarReadsWorkingUntilItsRowSaysIdle() {
 		val rule = "─".repeat(40)
 		val crew = { rows: String -> "❯ \n$rule\n  ⏵⏵ bypass permissions on · ↓ to manage\n  ● main\n$rows" }
