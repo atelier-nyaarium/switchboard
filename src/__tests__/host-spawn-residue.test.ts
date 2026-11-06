@@ -96,7 +96,7 @@ describe("host spawn residue", () => {
 
 	it("refuses an unregistered spawn point rather than building a command for it", () => {
 		expect(() =>
-			buildHostLaunch("plan9", { composite: "plan9.a1", claudeArgs: "--model opus", exportToken: "" }),
+			buildHostLaunch("plan9", { composite: "plan9.a1", agentArgs: "--model opus", exportToken: "" }),
 		).toThrow(/not a host spawn point/);
 	});
 
@@ -104,7 +104,7 @@ describe("host spawn residue", () => {
 		expect(() =>
 			buildHostLaunch(HOST_SPAWN, {
 				composite: "host.a1",
-				claudeArgs: "--model opus",
+				agentArgs: "--model opus",
 				exportToken: "",
 				workdir: `/${"x".repeat(MAX_LAUNCH_COMMAND_LEN)}`,
 			}),
@@ -117,7 +117,7 @@ describe("host spawn residue", () => {
 describe("windows spawn point", () => {
 	const ctx = (over: Partial<Parameters<typeof buildHostLaunch>[1]> = {}) => ({
 		composite: "windows.a1",
-		claudeArgs: "--model opus --effort xhigh",
+		agentArgs: "--model opus --effort xhigh",
 		exportToken: "",
 		workdir: "C:\\Users\\me\\project",
 		...over,

@@ -614,3 +614,27 @@ describe("SessionStore Copilot catalogs", () => {
 		expect(store.copilotCatalog(owner!)).toEqual({ version: 1, revision: 7, agents: [healthy] });
 	});
 });
+
+describe("a Copilot session's record", () => {
+	const uuid = "0f8b2a4c-1d3e-4f5a-9b6c-7d8e9f0a1b2c";
+
+	it("mints its own session id at create and keeps it across a restart", () => {
+		const store = new SessionStore({ ambient: processAmbient(), uuidGen: () => uuid });
+		const record = store.mint({ spawn: "host", sessionLabel: "cop", harness: "copilot" });
+		const restored = new SessionStore({ ambient: processAmbient() });
+
+		restored.restore(store.snapshot());
+
+		expect(record).toMatchObject({ harness: "copilot", copilotSessionId: uuid });
+		expect(restored.getByTeam(store.teamOf(record))).toMatchObject({ harness: "copilot", copilotSessionId: uuid });
+		expect(store.mint({ spawn: "host", sessionLabel: "plain" }).harness).toBeUndefined();
+	});
+
+	it("drops a stored Copilot harness whose session id is not a UUID", () => {
+		const store = new SessionStore({ ambient: processAmbient() });
+
+		store.restore({ "host.cop": { id: "cop", harness: "copilot", copilotSessionId: "nope", lastSeen: 1 } });
+
+		expect(store.getByTeam("host.cop")?.harness).toBeUndefined();
+	});
+});

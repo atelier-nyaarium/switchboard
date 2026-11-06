@@ -14,6 +14,38 @@ import {
 
 const dc = { kind: "devcontainer" as const, name: "recipe-app", sessionName: "scratch" };
 
+describe("a Copilot launch", () => {
+	const id = "0f8b2a4c-1d3e-4f5a-9b6c-7d8e9f0a1b2c";
+	const host = { kind: "host" as const, name: "host", sessionName: "cop" };
+
+	it("runs copilot with full access, no questions, and its own session id, naming itself to the plugin", () => {
+		const cmd = buildLaunchCommand(host, { harness: "copilot", resumeSessionId: id });
+
+		expect(cmd).toContain(`copilot --allow-all --no-ask-user --session-id ${id}`);
+		expect(cmd).toContain("export AGENT_TYPE=copilot;");
+		expect(cmd).not.toContain("claude");
+		expect(cmd).not.toContain("--dangerously-load-development-channels");
+	});
+
+	it("runs copilot.exe on Windows and carries AGENT_TYPE across the boundary", () => {
+		const cmd = buildLaunchCommand(
+			{ kind: "host", name: "windows", sessionName: "cop" },
+			{ harness: "copilot", resumeSessionId: id, workdir: "C:\\Users\\me" },
+		);
+		const encoded = /-EncodedCommand ([A-Za-z0-9+/=]+)'$/.exec(cmd)?.[1] ?? "";
+
+		expect(Buffer.from(encoded, "base64").toString("utf16le")).toContain(`copilot.exe --allow-all`);
+		expect(cmd).toContain("AGENT_TYPE/w");
+	});
+
+	it("refuses a container or the assistant", () => {
+		expect(() => buildLaunchCommand(dc, { harness: "copilot" })).toThrow(/host spawn point/);
+		expect(() =>
+			buildLaunchCommand({ kind: "host", name: "host", sessionName: "assistant" }, { harness: "copilot" }),
+		).toThrow(/assistant/);
+	});
+});
+
 describe("buildLaunchCommand", () => {
 	it("overrides PROJECT_NAME to the composite, cds to the workspace, and runs claude with a bash fallback", () => {
 		const cmd = buildLaunchCommand(dc);

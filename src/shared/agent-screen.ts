@@ -43,6 +43,9 @@ const SPACE = "[ \\t\\u00a0]";
 // Toolbar only. Prose-shaped, so a transcript tail in the status rows would trip it.
 const WORKING_HINT_RE = /· esc/u;
 
+// Copilot's footer while busy: "◎ Working · 470 B esc interrupt", its glyph cycling.
+const COPILOT_WORKING_RE = /\bWorking\b[^\n]*\besc interrupt\b/u;
+
 // Status line token run: "✶ Composing… (46m 51s · ↓ 154.1k tokens)".
 const WORKING_STATUS_RE = /\(\d+[hms][^()]*tokens\)/u;
 
@@ -204,6 +207,7 @@ export function isAgentWorking(screen: string): boolean {
 	// Not one alternation over both slices: each marker is only safe in its own.
 	return (
 		paneHas(screen, WORKING_HINT_RE, "toolbar") ||
+		paneHas(screen, COPILOT_WORKING_RE, "toolbar") ||
 		paneHas(screen, WORKING_STATUS_RE, "status") ||
 		paneHas(screen, RUNNING_ROW_RE, "status") ||
 		hasWorkflow(screen) ||

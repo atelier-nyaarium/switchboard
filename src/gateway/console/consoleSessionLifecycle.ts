@@ -2,6 +2,7 @@ import { type Ambient, withinMs } from "../../shared/ambient.js";
 import type { BoardDisposition } from "../../shared/board-authority.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { type HostOp, type HostOpResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
+import { isHostSpawn } from "../../shared/host-spawn.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
@@ -72,6 +73,8 @@ export function createSessionLifecycleHandlers({
 			throw new Error("create_session needs a sessionName or a displayLabel");
 		}
 		const spawn = targets.localSpawn(op.target);
+		const harness = op.harness === "copilot" ? ("copilot" as const) : undefined;
+		if (harness && !isHostSpawn(spawn)) throw new Error("Copilot sessions run only on a host spawn point");
 		if (op.workdir != null && !isSpawnWorkdirPath(spawn, op.workdir)) {
 			throw new Error("invalid workdir: must be an absolute, ~-rooted, or Windows drive path");
 		}
@@ -88,6 +91,7 @@ export function createSessionLifecycleHandlers({
 				sessionLabel: label,
 				workdirHint: label,
 				workdirPath: op.workdir,
+				harness,
 				mintedFrom: dedupKey,
 			});
 		} else {
@@ -97,6 +101,7 @@ export function createSessionLifecycleHandlers({
 				sessionLabel: label,
 				workdirHint: label,
 				workdirPath: op.workdir,
+				harness,
 				mintedFrom: dedupKey,
 			});
 			sessionId = minted?.record.id ?? label;
@@ -128,7 +133,9 @@ export function createSessionLifecycleHandlers({
 						kind: "createSession",
 						target,
 						workdirHint,
-						resumeSessionId: adopted?.record.claudeSessionId,
+						...(adopted?.record.harness === "copilot"
+							? { harness: "copilot" as const, resumeSessionId: adopted.record.copilotSessionId }
+							: { resumeSessionId: adopted?.record.claudeSessionId }),
 						sessionToken: adopted ? sessionStore?.ensureBindToken(adopted.record) : undefined,
 						dedupKey,
 					});

@@ -302,6 +302,8 @@ interface WakeMessage {
 	type: "wake";
 	team: string;
 	projectPath?: string;
+	// Host only. Absent is Claude.
+	harness?: "copilot";
 	resumeSessionId?: string;
 	// Host only: ~/projects/<hint>.
 	workdirHint?: string;
@@ -377,6 +379,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 				workdir: resolved.workdir,
 				sessionToken: msg.sessionToken,
 				pathPrefix: LAUNCH_PATH_PREFIX,
+				...(msg.harness === "copilot" ? { harness: "copilot" as const } : {}),
 			});
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -522,7 +525,7 @@ const hostOpRunner = createHostOpRunner({
 	sendKey,
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
-	createSession: async (target, workdirHint, resumeSessionId, sessionToken) => {
+	createSession: async (target, workdirHint, resumeSessionId, sessionToken, harness) => {
 		let workdir: string | undefined;
 		if (target.kind === "host") {
 			const resolved = resolveSpawnWorkdir(target.name, workdirHint);
@@ -533,7 +536,13 @@ const hostOpRunner = createHostOpRunner({
 		}
 		const { created } = await ensureSession(
 			target,
-			buildLaunchCommand(target, { workdir, resumeSessionId, sessionToken, pathPrefix: LAUNCH_PATH_PREFIX }),
+			buildLaunchCommand(target, {
+				workdir,
+				resumeSessionId,
+				sessionToken,
+				pathPrefix: LAUNCH_PATH_PREFIX,
+				harness,
+			}),
 		);
 		if (created) {
 			const ready = await awaitReady(target);

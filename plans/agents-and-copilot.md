@@ -34,6 +34,13 @@ A: The engine throws at registration, and the build fails. Shipped in `012a6019`
 
 > Let's make the Switchboard engine itself throw an error instantly upon any listed tool being above character count. So we know sooner. Should fail build.
 
+## Question 7 - Restarts
+
+Q: May I restart the Gateway and host daemon to deploy?
+A: Yes, always. No need to ask again.
+
+> yes always
+
 # Plan
 
 ## Phase A - Small fixes (shipped, 8.14.31 and 012a6019)

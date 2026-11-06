@@ -24,6 +24,9 @@ object AgentScreen {
 	// Toolbar only. Prose-shaped, so a transcript tail in the status rows would trip it.
 	private val workingHintRe = Regex("· esc")
 
+	// Copilot's footer while busy: "Working · 470 B esc interrupt", its glyph cycling.
+	private val copilotWorkingRe = Regex("""\bWorking\b[^\n]*\besc interrupt\b""")
+
 	// Status line token run: "✶ Composing… (46m 51s · ↓ 154.1k tokens)".
 	private val workingStatusRe = Regex("""\(\d+[hms][^()]*tokens\)""")
 
@@ -179,6 +182,7 @@ object AgentScreen {
 	fun isWorking(screen: String): Boolean {
 		// Not one alternation over both slices: each marker is only safe in its own.
 		return paneHas(screen, workingHintRe, PaneRegion.TOOLBAR) ||
+			paneHas(screen, copilotWorkingRe, PaneRegion.TOOLBAR) ||
 			paneHas(screen, workingStatusRe, PaneRegion.STATUS) ||
 			paneHas(screen, runningRowRe, PaneRegion.STATUS) ||
 			hasWorkflow(screen) ||

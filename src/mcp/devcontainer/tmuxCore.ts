@@ -41,7 +41,9 @@ const DEAD_LAUNCH_PROBES = 8;
 
 // Answered by choosing the first option: "1" while the menu is numbered, Enter once it is not.
 const STARTUP_PROMPT_RE =
-	/I am using this for local development|Is this a project you created|trust this folder|Try the new fullscreen renderer/;
+	/I am using this for local development|Is this a project you created|trust this folder|Try the new fullscreen renderer|Do you trust the files in this folder/;
+// Copilot's boxed trust dialog: a border precedes the numbered rows, and "1. Yes" is its first option.
+const COPILOT_TRUST_RE = /Do you trust the files in this folder/u;
 // Numbered options, the older shape, where a digit selects and confirms.
 const NUMBERED_MENU_RE = /^[ \t\u00a0]*[❯>][ \t\u00a0]*\d+\./mu;
 // The highlighted row of an unnumbered menu: an indented cursor glyph and the option text.
@@ -370,7 +372,7 @@ function pressKey(target: TmuxTarget, key: "Up" | "Down" | "Enter"): Promise<voi
  * pick "No, exit", and an unanswered menu is still answerable from the terminal view.
  */
 async function answerStartupPrompt(target: TmuxTarget, clean: string): Promise<void> {
-	if (NUMBERED_MENU_RE.test(clean)) return pressDigit(target, "1");
+	if (NUMBERED_MENU_RE.test(clean) || COPILOT_TRUST_RE.test(clean)) return pressDigit(target, "1");
 	const lines = clean.split("\n");
 	const yes = lines.findIndex((line) => TRUST_YES_RE.test(line));
 	if (yes >= 0) {

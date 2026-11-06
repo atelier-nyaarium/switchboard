@@ -20,15 +20,21 @@
 ////////////////////////////////
 //  Interfaces & Types
 
+/** The agent CLI a session runs, fixed for its life. Absent on a record means Claude. */
+export const SESSION_HARNESSES = ["claude", "copilot"] as const;
+export type SessionHarness = (typeof SESSION_HARNESSES)[number];
+
 /** Everything a launch command is built from. Each field is already validated by the caller: the
  * token is hex or absent, and the workdir carries no quote that could break out of the nesting. */
 export interface HostLaunchContext {
 	/** `PROJECT_NAME`, the `spawn.session` composite the launched MCP registers under. */
 	composite: string;
+	/** Absent is Claude. The binary per spawn point follows from it. */
+	harness?: SessionHarness;
 	/** The agent invocation WITHOUT its binary name: flags, `--resume`, everything after argv[0].
 	 * Split out because the binary differs per spawn point - measured on a WSL box, bare `claude`
 	 * and `claude.cmd` do not resolve from Windows PowerShell and only `claude.exe` does. */
-	claudeArgs: string;
+	agentArgs: string;
 	/** `export SWITCHBOARD_SESSION_TOKEN=<hex>; ` or empty. Already shell-safe. */
 	exportToken: string;
 	/** Absolute, quote-free, already resolved. For a spawn point whose shell does not share the
@@ -108,6 +114,11 @@ export const ASKPASS_EXPORTS = ["SUDO_ASKPASS", "SSH_ASKPASS", "GIT_ASKPASS"]
 	.map((name) => `export ${name}="$HOME/${VAULT_ASKPASS_HOME_PATH}"; `)
 	.join("");
 
+/** A session that is not Claude names itself, since the plugin cannot tell from its parent process. */
+function agentTypeExport(harness: SessionHarness | undefined): string {
+	return harness === "copilot" ? "export AGENT_TYPE=copilot; " : "";
+}
+
 const HOST: HostSpawnPoint = {
 	id: HOST_SPAWN,
 	alwaysAvailable: true,
@@ -118,7 +129,8 @@ const HOST: HostSpawnPoint = {
 		const cd = ctx.workdir ? `cd "${ctx.workdir}"; ` : "";
 		// ~/.bashrc returns early for a non-interactive shell, so it adds nothing to PATH here.
 		const path = ctx.pathPrefix ? `export PATH="${ctx.pathPrefix}:$PATH"; ` : "";
-		return `bash -c 'source ~/.bashrc; ${path}export PROJECT_NAME=${ctx.composite}; ${ctx.exportToken}${ASKPASS_EXPORTS}${cd}claude ${ctx.claudeArgs}; exec bash'`;
+		const binary = ctx.harness === "copilot" ? "copilot" : "claude";
+		return `bash -c 'source ~/.bashrc; ${path}export PROJECT_NAME=${ctx.composite}; ${agentTypeExport(ctx.harness)}${ctx.exportToken}${ASKPASS_EXPORTS}${cd}${binary} ${ctx.agentArgs}; exec bash'`;
 	},
 };
 
@@ -150,13 +162,16 @@ const WINDOWS: HostSpawnPoint = {
 		if (!ctx.workdir) {
 			throw new Error("refusing to launch: a windows session needs a resolved Windows working directory");
 		}
-		const script = `Set-Location -LiteralPath '${ctx.workdir}'\nclaude.exe ${ctx.claudeArgs}\n`;
-		const crossed = ctx.exportToken
-			? // biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-				'export WSLENV="${WSLENV:+$WSLENV:}PROJECT_NAME/w:SWITCHBOARD_SESSION_TOKEN/w"; '
-			: // biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-				'export WSLENV="${WSLENV:+$WSLENV:}PROJECT_NAME/w"; ';
-		return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${ctx.composite}; ${ctx.exportToken}${crossed}exec ${WINDOWS_SHELL} -NoLogo -NoExit -EncodedCommand ${encodePowerShellCommand(script)}'`;
+		// `copilot.exe` resolves through VS Code's Copilot shim on a Windows host.
+		const binary = ctx.harness === "copilot" ? "copilot.exe" : "claude.exe";
+		const script = `Set-Location -LiteralPath '${ctx.workdir}'\n${binary} ${ctx.agentArgs}\n`;
+		const names = [
+			"PROJECT_NAME/w",
+			...(ctx.exportToken ? ["SWITCHBOARD_SESSION_TOKEN/w"] : []),
+			...(ctx.harness === "copilot" ? ["AGENT_TYPE/w"] : []),
+		].join(":");
+		const crossed = `export WSLENV="\${WSLENV:+$WSLENV:}${names}"; `;
+		return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${ctx.composite}; ${agentTypeExport(ctx.harness)}${ctx.exportToken}${crossed}exec ${WINDOWS_SHELL} -NoLogo -NoExit -EncodedCommand ${encodePowerShellCommand(script)}'`;
 	},
 };
 

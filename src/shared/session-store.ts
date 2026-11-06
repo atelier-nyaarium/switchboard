@@ -13,7 +13,9 @@ import {
 } from "./copilot-agent.js";
 import { composeSessionName, isComposite, isSlug, parseSessionName } from "./session-id.js";
 import { LABEL_MAX, sanitizeLabel, sanitizeWorkdirPath } from "./session-sanitize.js";
-import { bindingTokensEqual, randomBindToken, randomId } from "./session-tokens.js";
+import { bindingTokensEqual, randomBindToken, randomId, randomSessionUuid } from "./session-tokens.js";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export interface LiveRef {
 	team: string;
@@ -27,6 +29,10 @@ export interface SessionRecord {
 	workdirHint?: string;
 	workdirPath?: string;
 	claudeSessionId?: string;
+	/** Absent is Claude. Fixed at create. */
+	harness?: "copilot";
+	/** Minted at create; Copilot starts and resumes the session under it. */
+	copilotSessionId?: string;
 	mintedFrom?: string;
 	bindToken?: string;
 	bindActiveAt?: number;
@@ -79,6 +85,7 @@ export interface SessionStoreOptions {
 	ambient: Clock;
 	idGen?: () => string;
 	tokenGen?: () => string;
+	uuidGen?: () => string;
 	codexCatalogPersistence?: {
 		persistChecked: () => boolean | undefined;
 		receiveWriter: (writer: CodexCatalogWriter) => void;
@@ -95,6 +102,7 @@ interface CreateOpts {
 	workdirHint?: string;
 	workdirPath?: string;
 	claudeSessionId?: string;
+	harness?: "copilot";
 	mintedFrom?: string;
 }
 
@@ -189,12 +197,14 @@ export class SessionStore {
 	private readonly now: () => number;
 	private readonly idGen: () => string;
 	private readonly tokenGen: () => string;
+	private readonly uuidGen: () => string;
 
 	constructor(opts: SessionStoreOptions) {
 		this.clash = opts.clash ?? (() => false);
 		this.now = () => opts.ambient.now();
 		this.idGen = opts.idGen ?? randomId;
 		this.tokenGen = opts.tokenGen ?? randomBindToken;
+		this.uuidGen = opts.uuidGen ?? randomSessionUuid;
 		if (opts.codexCatalogPersistence) {
 			const { persistChecked, receiveWriter } = opts.codexCatalogPersistence;
 			receiveWriter({
@@ -476,6 +486,9 @@ export class SessionStore {
 				workdirHint: sanitizeLabel(v.workdirHint) ?? undefined,
 				workdirPath: sanitizeWorkdirPath(v.workdirPath) ?? undefined,
 				claudeSessionId: typeof v.claudeSessionId === "string" ? v.claudeSessionId : undefined,
+				...(v.harness === "copilot" && typeof v.copilotSessionId === "string" && UUID.test(v.copilotSessionId)
+					? { harness: "copilot" as const, copilotSessionId: v.copilotSessionId }
+					: {}),
 				mintedFrom: typeof v.mintedFrom === "string" ? v.mintedFrom : undefined,
 				// Restored records never mint a token for an unbound session.
 				bindToken: typeof v.bindToken === "string" ? v.bindToken : undefined,
@@ -515,6 +528,7 @@ export class SessionStore {
 			workdirHint: sanitizeLabel(opts.workdirHint) ?? undefined,
 			workdirPath: sanitizeWorkdirPath(opts.workdirPath) ?? undefined,
 			claudeSessionId: opts.claudeSessionId,
+			...(opts.harness === "copilot" ? { harness: "copilot" as const, copilotSessionId: this.uuidGen() } : {}),
 			mintedFrom: opts.mintedFrom,
 			lastSeen: this.now(),
 		};

@@ -724,6 +724,7 @@ sealed class ConsoleOp {
 		val sessionName: String? = null,
 		val displayLabel: String? = null,
 		val workdir: String? = null,
+		val harness: String? = null,
 	) : ConsoleOp()
 
 	@Serializable

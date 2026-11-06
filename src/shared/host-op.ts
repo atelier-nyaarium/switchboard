@@ -90,6 +90,8 @@ export type HostOp =
 			kind: "createSession";
 			target: TmuxTarget;
 			workdirHint?: string;
+			/** Absent is Claude. A Copilot session's `resumeSessionId` is its minted UUID. */
+			harness?: "copilot";
 			resumeSessionId?: string;
 			sessionToken?: string;
 			dedupKey?: string;

@@ -10,6 +10,11 @@ export function randomId(): string {
 /** The session binding secret. Unlike the 6-hex id (a display/address segment that only needs to be
  * unique within its spawn), this is guessing-resistant: it is the only thing standing between a
  * neighbouring container and this session's name. */
+/** The id a Copilot session starts and resumes under. */
+export function randomSessionUuid(): string {
+	return crypto.randomUUID();
+}
+
 export function randomBindToken(): string {
 	return crypto.randomBytes(32).toString("hex");
 }

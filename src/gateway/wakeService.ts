@@ -122,7 +122,8 @@ export class WakeService {
 
 		const projectPath = this.deps.offlineCatalog.get(project) ?? this.deps.knownTeamPaths.get(project);
 		const record = this.deps.sessionStore.getByTeam(wakeTeam);
-		const resumeSessionId = record?.claudeSessionId;
+		const copilot = record?.harness === "copilot";
+		const resumeSessionId = copilot ? record?.copilotSessionId : record?.claudeSessionId;
 		const workdirHint = record ? this.deps.sessionStore.hostWorkdirHint(record) : undefined;
 		const requested = sendOn(
 			hostWs,
@@ -130,6 +131,7 @@ export class WakeService {
 				type: "wake",
 				team: wakeTeam,
 				...(projectPath ? { projectPath } : {}),
+				...(copilot ? { harness: "copilot" } : {}),
 				...(resumeSessionId ? { resumeSessionId } : {}),
 				...(workdirHint ? { workdirHint } : {}),
 				...(record ? { sessionToken: this.deps.sessionStore.ensureBindToken(record) } : {}),
