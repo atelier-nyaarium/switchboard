@@ -75,8 +75,9 @@ suspend fun ConsoleClient.createSession(
 	displayLabel: String? = null,
 	workdir: String? = null,
 	opId: String = ambient.newOpId(),
+	harness: String? = null,
 ): ConsoleCreateSessionResult =
-	valueResult(sendValueOp(transport.gatewayOf(target), ConsoleOp.CreateSession(target = target, sessionName = sessionName, displayLabel = displayLabel, workdir = workdir), opId), Protocol.Wire.ConsoleOpKind.CREATE_SESSION)
+	valueResult(sendValueOp(transport.gatewayOf(target), ConsoleOp.CreateSession(target = target, sessionName = sessionName, displayLabel = displayLabel, workdir = workdir, harness = harness), opId), Protocol.Wire.ConsoleOpKind.CREATE_SESSION)
 
 // Resolve paths on the host target.
 suspend fun ConsoleClient.listDirs(path: String, hostTarget: String, spawn: String): ConsoleListDirsResult =

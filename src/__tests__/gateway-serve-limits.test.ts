@@ -61,6 +61,7 @@ const SHORT_POST_PATHS = [
 	"/routine/session",
 	"/routine/report",
 	"/session/baseline",
+	"/session/type",
 	"/assistant/hold",
 ];
 

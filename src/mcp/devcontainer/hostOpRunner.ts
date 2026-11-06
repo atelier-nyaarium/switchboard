@@ -8,6 +8,7 @@ import {
 	type PromptOutcome,
 	paneKey,
 	type TmuxTarget,
+	type TypeIntoPaneResult,
 } from "../../shared/host-op.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
@@ -34,6 +35,7 @@ export interface TmuxOps {
 	listDirs: (path: string, spawn?: string) => Promise<HostListDirsResult>;
 	kasaScan: () => Promise<HostKasaScanResult>;
 	wifiNetwork: () => Promise<HostWifiNetworkResult>;
+	typeIntoPane: (target: TmuxTarget, text: string) => Promise<TypeIntoPaneResult>;
 }
 
 export type PeekPriority = "interactive" | "derive";
@@ -109,6 +111,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		if (op.kind === "peek") return runPeek(op.target);
 		if (op.kind === "kasaScan") return ops.kasaScan();
 		if (op.kind === "wifiNetwork") return ops.wifiNetwork();
+		if (op.kind === "typeIntoPane") return ops.typeIntoPane(op.target, op.text);
 		if (op.kind === "sendText" || op.kind === "sendKey") return runSend(op);
 		if (op.kind === "answerPrompt")
 			return runDeduped(

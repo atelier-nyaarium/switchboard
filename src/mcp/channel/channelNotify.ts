@@ -29,16 +29,28 @@ function awarenessReminder(awareness: RidingAwareness | undefined): ReminderBloc
 	return reminderBlock([`awareness: ${awareness.from}`, `act: ${awareness.act}`, awareness.body]);
 }
 
-/** Arrives as a `<channel ...>content</channel>` tag. */
-export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
+export interface ChannelNotification {
+	content: string;
+	meta: Record<string, unknown>;
+}
+
+export async function buildChannelNotification(
+	payload: ChannelPushPayload | ResponsePushPayload,
+): Promise<ChannelNotification> {
+	if (payload.type === "response_push") {
+		const filesBlock = await filesBlockFor(payload.message_id, payload.files);
+		return {
+			content: composeModelMessage({ files: filesBlock, body: payload.response }),
+			meta: {
+				session_id: payload.session_id,
+				...(payload.status ? { status: payload.status } : {}),
+			},
+		};
+	}
+
 	// Data only: no sender, no conversation, no instructions, so nothing reads as a reply owed.
 	if (payload.event === true) {
-		await server.notification({
-			method: "notifications/claude/channel",
-			params: { content: composeModelMessage({ body: payload.body }), meta: { event: "true" } },
-		});
-		console.error(`[channel] emitted an event`);
-		return;
+		return { content: composeModelMessage({ body: payload.body }), meta: { event: "true" } };
 	}
 
 	const filesBlock = await filesBlockFor(payload.message_id, payload.files);
@@ -66,24 +78,28 @@ export async function emitChannelNotification(server: Server, payload: ChannelPu
 							? `Reply with the channel_reply_structured tool using this session_id and a responseData matching reply_schema.`
 							: `They are waiting on a reply. Reply with the channel_reply tool using this session_id. Plain text output does not reach the sender.`;
 
-	await server.notification({
-		method: "notifications/claude/channel",
-		params: {
-			content,
-			meta: {
-				session_id: payload.session_id,
-				from: payload.from,
-				...(payload.replyJsonSchema ? { reply_schema: payload.replyJsonSchema } : {}),
-				// A STRING: a boolean took the whole notification down silently. Snake_case too, since
-				// the harness drops a key failing /^[a-zA-Z_][a-zA-Z0-9_]*$/ without a word.
-				...(payload.no_ack === true ? { no_ack: "true" } : {}),
-				...(payload.awareness ? { awareness_act: payload.awareness.act } : {}),
-				...(payload.disposition ? { disposition: payload.disposition } : {}),
-				...(payload.no_ack === true && payload.act === "act_now" ? { act: "act_now" } : {}),
-				instructions,
-			},
+	return {
+		content,
+		meta: {
+			session_id: payload.session_id,
+			from: payload.from,
+			...(payload.replyJsonSchema ? { reply_schema: payload.replyJsonSchema } : {}),
+			...(payload.no_ack === true ? { no_ack: "true" } : {}),
+			...(payload.awareness ? { awareness_act: payload.awareness.act } : {}),
+			...(payload.disposition ? { disposition: payload.disposition } : {}),
+			...(payload.no_ack === true && payload.act === "act_now" ? { act: "act_now" } : {}),
+			instructions,
 		},
-	});
+	};
+}
+
+export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
+	const params = await buildChannelNotification(payload);
+	await server.notification({ method: "notifications/claude/channel", params: { ...params } });
+	if (payload.event === true) {
+		console.error(`[channel] emitted an event`);
+		return;
+	}
 
 	// The EMIT, not the delivery: the harness drops it silently when this plugin is not in the
 	// session's --channels list, visible only as "Channel notifications skipped" in its own logs.
@@ -93,18 +109,26 @@ export async function emitChannelNotification(server: Server, payload: ChannelPu
 }
 
 export async function emitResponseNotification(server: Server, payload: ResponsePushPayload): Promise<void> {
-	const filesBlock = await filesBlockFor(payload.message_id, payload.files);
-
-	await server.notification({
-		method: "notifications/claude/channel",
-		params: {
-			// Prose only; status rides in meta, not as a label flattened into the body.
-			content: composeModelMessage({ files: filesBlock, body: payload.response }),
-			meta: {
-				session_id: payload.session_id,
-				...(payload.status ? { status: payload.status } : {}),
-			},
-		},
-	});
+	const params = await buildChannelNotification(payload);
+	await server.notification({ method: "notifications/claude/channel", params: { ...params } });
 	console.error(`[channel] response pushed to sender [${payload.session_id.slice(0, 8)}...]`);
+}
+
+function escapeAttribute(value: unknown): string {
+	const text = typeof value === "string" ? value : JSON.stringify(value);
+	return (text ?? "").replace(/[&<>"']/gu, (char) => {
+		if (char === "&") return "&amp;";
+		if (char === "<") return "&lt;";
+		if (char === ">") return "&gt;";
+		if (char === '"') return "&quot;";
+		return "&#39;";
+	});
+}
+
+export async function renderChannelTag(payload: ChannelPushPayload | ResponsePushPayload): Promise<string> {
+	const { content, meta } = await buildChannelNotification(payload);
+	const attributes = Object.entries(meta)
+		.map(([key, value]) => ` ${key}="${escapeAttribute(value)}"`)
+		.join("");
+	return `<channel source="switchboard"${attributes}>${content}</channel>`;
 }

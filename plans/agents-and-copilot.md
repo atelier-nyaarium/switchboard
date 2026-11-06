@@ -78,6 +78,11 @@ A: Yes, always. No need to ask again.
 
 - Shipped: `424f00d3`, plugin 8.14.32. Needs a Gateway restart (the watch) and a host daemon restart (Codex full access) to go live; asked the owner.
 
+### Phase C status
+
+- Slices 1 to 4 shipped in `7faf0991`: harness on the record (`harness`, `copilotSessionId` via `uuidGen`), `create_session.harness`, host create and wake carry it, `buildLaunchCommand` builds the Copilot launch (`agentArgs`, `copilot` / `copilot.exe`, `AGENT_TYPE=copilot` exported and crossed via WSLENV), `COPILOT_TRUST_RE` answers the trust box with `1`, `COPILOT_WORKING_RE` in both readers, five Copilot vectors.
+- Next: slice 5 (typed delivery), slice 6 (no handshake), slice 7 (detection and the phone toggle).
+
 ### Phase C design
 
 Slices, each committed on its own:

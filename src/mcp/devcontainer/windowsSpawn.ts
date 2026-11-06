@@ -18,6 +18,8 @@ export interface WindowsSpawnAvailability {
 	/** `$env:USERPROFILE`, the Windows-side default working directory. A Windows session must never
 	 * fall back to the WSL home, which translates to a UNC path. */
 	userProfile?: string;
+	/** `copilot.exe` resolves too, so a Copilot session can run there. */
+	copilot?: boolean;
 	/** Why it is unavailable, for the log. Never surfaced to a caller as a target. */
 	reason?: string;
 }
@@ -58,7 +60,7 @@ export function probeWindowsSpawn(): WindowsSpawnAvailability {
 		"-NoLogo",
 		"-NoProfile",
 		"-Command",
-		'$c = Get-Command claude.exe -ErrorAction SilentlyContinue; if ($c) { Write-Output "claude=$($c.Source)" }; Write-Output "profile=$env:USERPROFILE"',
+		'$c = Get-Command claude.exe -ErrorAction SilentlyContinue; if ($c) { Write-Output "claude=$($c.Source)" }; $p = Get-Command copilot.exe -ErrorAction SilentlyContinue; if ($p) { Write-Output "copilot=$($p.Source)" }; Write-Output "profile=$env:USERPROFILE"',
 	]);
 	if (out == null) return { available: false, reason: `powershell.exe did not run` };
 	const claude = /^claude=(.+)$/m.exec(out)?.[1]?.trim();
@@ -67,7 +69,7 @@ export function probeWindowsSpawn(): WindowsSpawnAvailability {
 	if (!userProfile || isUncPath(userProfile)) {
 		return { available: false, reason: `unusable Windows home ${userProfile ?? "(none)"}` };
 	}
-	return { available: true, userProfile };
+	return { available: true, userProfile, copilot: /^copilot=.+$/m.test(out) };
 }
 
 /**

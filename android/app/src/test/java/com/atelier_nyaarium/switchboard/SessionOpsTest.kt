@@ -46,6 +46,7 @@ class SessionOpsTest {
 			displayLabel: String?,
 			workdir: String?,
 			opId: String,
+			harness: String?,
 		) = ConsoleCreateSessionResult(created = true, id = sessionName ?: "minted").also { created += target }
 		override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) = Unit
 		override suspend fun listDirs(path: String, hostTarget: String, spawn: String) = ConsoleListDirsResult(emptyList())

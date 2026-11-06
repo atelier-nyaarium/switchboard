@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHttpRouter, NOT_ENROLLED } from "../gateway/httpRouter.js";
 import { unenrolledHealth } from "../gateway/routes/routesStatus.js";
 
@@ -33,6 +33,7 @@ describe("createHttpRouter before a Domain", () => {
 
 		for (const [method, path] of [
 			["POST", "/send"],
+			["POST", "/session/type"],
 			["GET", "/teams"],
 			["POST", "/vault/entries"],
 			["POST", "/blob/stat"],
@@ -43,6 +44,23 @@ describe("createHttpRouter before a Domain", () => {
 			expect(answer.status).toBe(503);
 			expect(await answer.json()).toEqual({ error: NOT_ENROLLED });
 		}
+	});
+
+	it("routes typed session delivery through the active routes", async () => {
+		const typeSession = vi.fn(async () => Response.json({ typed: true }));
+		const router = unenrolledRouter(() => Response.json({ ok: true }), {
+			routes: () => ({ typeSession }) as never,
+		});
+		const body = { text: '<channel source="switchboard">hello</channel>' };
+
+		const response = await router(
+			new Request("http://gateway/session/type", {
+				method: "POST",
+				body: JSON.stringify(body),
+			}),
+		);
+		expect(await response.json()).toEqual({ typed: true });
+		expect(typeSession).toHaveBeenCalledWith(expect.any(Request), body);
 	});
 
 	it("still takes the enrollment post", async () => {

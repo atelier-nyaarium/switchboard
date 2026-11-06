@@ -28,6 +28,14 @@ const COMPOSER_GLYPH = "[❯>]";
 // real composer and never a menu line. Applied per line, and per post-rule remainder: see
 // isAgentReady for why the composer is not always at column 0.
 const COMPOSER_RE = new RegExp(`^${COMPOSER_GLYPH}`, "u");
+// Dim prompt is placeholder.
+function withoutDimText(line: string): string {
+	const start = line.indexOf("\x1b[2m");
+	if (start < 0) return line;
+	const reset = line.indexOf("\x1b[0m", start);
+	return line.slice(0, start) + (reset < 0 ? "" : line.slice(reset + 4));
+}
+const COMPOSER_EMPTY_RE = new RegExp(`^${COMPOSER_GLYPH}[ \\t\\u00a0]*\\r?$`, "u");
 // Whitespace as an EXPLICIT class, never \s. The Windows build emits U+00A0 after the glyph, and JS's
 // \s matches it while the JVM's default does not - so \s here would make the Kotlin twin disagree on a
 // real frame, silently, in the one direction no fixture currently covers. Spelled out, both languages
@@ -198,6 +206,34 @@ export function isAgentReady(screen: string): boolean {
 			const after = afterRuleRun(line, TOOLBAR_RUN_RE);
 			return after !== null && COMPOSER_RE.test(after);
 		});
+}
+
+// Empty composer only.
+export function isAgentComposerEmpty(screen: string): boolean {
+	const rawLines = screen.split("\n");
+	const lines = stripAnsi(screen).split("\n");
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const line = lines[i]!;
+		const afterTopRule = afterRuleRun(line, TOOLBAR_RUN_RE);
+		const composer = COMPOSER_RE.test(line)
+			? line
+			: afterTopRule !== null && COMPOSER_RE.test(afterTopRule)
+				? afterTopRule
+				: null;
+		if (composer === null) continue;
+
+		const hasTopRule =
+			afterTopRule !== null ||
+			(i > 0 && /^[ \t\u00a0]*$/u.test(afterRuleRun(lines[i - 1]!, TOOLBAR_RUN_RE) ?? "x"));
+		const hasBottomRule = lines[i + 1] !== undefined && afterRuleRun(lines[i + 1]!, TOOLBAR_RUN_RE) !== null;
+		if (hasTopRule && hasBottomRule) {
+			const visible = stripAnsi(withoutDimText(rawLines[i] ?? line));
+			const afterVisibleRule = afterRuleRun(visible, TOOLBAR_RUN_RE);
+			const visibleComposer = COMPOSER_RE.test(visible) ? visible : afterVisibleRule;
+			return visibleComposer !== null && visibleComposer !== undefined && COMPOSER_EMPTY_RE.test(visibleComposer);
+		}
+	}
+	return false;
 }
 
 /** Whether a captured pane shows claude working: the "esc to interrupt" hint, an unfinished workflow

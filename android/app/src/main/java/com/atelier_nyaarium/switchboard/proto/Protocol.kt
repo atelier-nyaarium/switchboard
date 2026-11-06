@@ -4060,6 +4060,7 @@ data class GatewaySpawnPoints(
 	val domainId: String,
 	val gatewayId: String,
 	val hostSpawns: List<String>,
+	val copilotSpawns: List<String>? = null,
 )
 
 @Serializable

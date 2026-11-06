@@ -20,6 +20,8 @@ data class GatewayEntry(
 	val lastRegisteredAt: Long,
 	/** Null until the Gateway projects its spawn points. */
 	val hostSpawns: List<String>? = null,
+	/** Spawn points whose shell has Copilot CLI, `host` included. Empty from an older Gateway. */
+	val copilotSpawns: List<String> = emptyList(),
 	val routines: List<RoutineState>? = null,
 	/** Schedule zone from answer. */
 	val routineZone: String = "",
@@ -59,6 +61,9 @@ data class GatewayRegistry(
 	fun connected(gatewayId: String): Boolean? = entry(gatewayId)?.connected
 
 	fun hostSpawns(gatewayId: String): List<String>? = entry(gatewayId)?.hostSpawns
+
+	/** Whether a host spawn point on this Gateway can run a Copilot session. */
+	fun offersCopilot(gatewayId: String, spawn: String): Boolean = entry(gatewayId)?.copilotSpawns?.contains(spawn) == true
 
 	/** Roster live, Router-held. */
 	fun reachable(gatewayId: String): Boolean = current && connected(gatewayId) == true
@@ -118,6 +123,7 @@ data class GatewayRegistry(
 		storedRunbooks: (String) -> List<Runbook>?,
 	): GatewayRegistry {
 		val spawns = projection.spawnPoints.associate { it.gatewayId to it.hostSpawns }
+		val copilot = projection.spawnPoints.associate { it.gatewayId to it.copilotSpawns.orEmpty() }
 		val kept = gateways.associateBy { it.id }
 		return GatewayRegistry(
 			provenance = provenance,
@@ -134,6 +140,7 @@ data class GatewayRegistry(
 						incarnation = row.incarnation,
 						lastRegisteredAt = row.lastRegisteredAt,
 						hostSpawns = spawns[row.gatewayId],
+						copilotSpawns = copilot[row.gatewayId].orEmpty(),
 						routines = prior?.routines,
 						routineZone = prior?.routineZone.orEmpty(),
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),

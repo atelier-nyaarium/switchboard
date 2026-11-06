@@ -375,6 +375,10 @@ export function createWebSocketHandlers({
 				if (Array.isArray(spawns) && hostSpawnPoints) {
 					hostSpawnPoints.ids = spawns.filter((s): s is string => typeof s === "string" && s.length > 0);
 					hostSpawnPoints.known = true;
+					const copilot = msg.copilotSpawns;
+					hostSpawnPoints.copilot = Array.isArray(copilot)
+						? copilot.filter((s): s is string => typeof s === "string" && s.length > 0)
+						: [];
 					console.log(`[ws] host spawn points: ${hostSpawnPoints.ids.join(", ") || "(none beyond host)"}`);
 				}
 				onCatalogChange?.();
@@ -421,6 +425,7 @@ export function createWebSocketHandlers({
 					if (hostSpawnPoints) {
 						hostSpawnPoints.known = false;
 						hostSpawnPoints.ids = [];
+						hostSpawnPoints.copilot = [];
 					}
 					hostOpCoordinator?.failAll("host daemon disconnected");
 					wakeCoordinator.failAll();

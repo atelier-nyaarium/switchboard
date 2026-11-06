@@ -16,7 +16,7 @@ import {
 	type RidingAwareness,
 } from "../../shared/types.js";
 import { WORKSPACE_OP_FRAME } from "../../shared/workspace-op.js";
-import { emitChannelNotification, emitResponseNotification } from "../channel/channelNotify.js";
+import { emitChannelNotification, emitResponseNotification, renderChannelTag } from "../channel/channelNotify.js";
 import { answerOnPlane, parseWorkspaceOpRequest, refusedOnPlane } from "../workspace/plane.js";
 import { createChannelPushDelivery } from "./channelPushDelivery.js";
 
@@ -80,10 +80,44 @@ const reconnector = createReconnector(() => connectToRouter());
 
 let channelServer: Server | null = null;
 
+const COPILOT_TYPE_RETRY_MS = 1000;
+let typedDeliveryTail = Promise.resolve();
+
+function serializeTypedDelivery<T>(work: () => Promise<T>): Promise<T> {
+	const run = typedDeliveryTail.then(work);
+	typedDeliveryTail = run.then(
+		() => undefined,
+		() => undefined,
+	);
+	return run;
+}
+
+async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPayload): Promise<void> {
+	const text = await renderChannelTag(payload);
+	let retries = 0;
+	for (;;) {
+		const result = (await routerPost("/session/type", { text }, { retries: 0 })) as {
+			typed?: unknown;
+			reason?: unknown;
+		};
+		if (result?.typed === true) return;
+		if (result?.typed !== false || result.reason !== "busy") {
+			throw new Error("typed delivery was refused");
+		}
+		retries++;
+		console.error(`[channel] Copilot pane busy, retry ${retries} in ${COPILOT_TYPE_RETRY_MS}ms`);
+		await new Promise((resolve) => setTimeout(resolve, COPILOT_TYPE_RETRY_MS));
+	}
+}
+
 /** Dedupe ids across reconnects. */
 const deliverChannelPush = createChannelPushDelivery({
-	emit: (push) =>
-		channelServer ? emitChannelNotification(channelServer, push) : Promise.reject(new Error("no channel server")),
+	emit: (push) => {
+		if (AGENT_TYPE === "copilot") return emitTypedChannelTag(push);
+		return channelServer
+			? emitChannelNotification(channelServer, push)
+			: Promise.reject(new Error("no channel server"));
+	},
 	ack: (deliveryId) => routerWs?.send(JSON.stringify({ type: "channel_delivery_ack", delivery_id: deliveryId })),
 	maxRemembered: MAX_PENDING_DELIVERIES,
 });
@@ -317,7 +351,7 @@ export function connectToRouter(): void {
 	opLedgerProtocol = 0;
 	routerWs = new WebSocket(wsUrl);
 
-	const isChannel = AGENT_TYPE === "claude";
+	const canReceivePush = AGENT_TYPE === "claude" || AGENT_TYPE === "copilot";
 	const mode: ConnectionMode = "channel";
 
 	routerWs.on("open", () => {
@@ -346,7 +380,7 @@ export function connectToRouter(): void {
 			const hsSessionId = msg.session_id as string;
 			handshakeRole.noteReceived(hsSessionId);
 			const role = handshakeRole.get();
-			if (role !== null) {
+			if (role !== null && AGENT_TYPE !== "copilot") {
 				const refusal = opLedgerRefusal();
 				if (refusal) {
 					console.error(`[bridge] handshake reply withheld: ${refusal}`);
@@ -377,15 +411,22 @@ export function connectToRouter(): void {
 			return;
 		}
 
-		if (msg.type === "channel_push" && isChannel && channelServer) {
-			deliverChannelPush(msg as unknown as ChannelPushPayload).catch((err: Error) => {
+		if (msg.type === "channel_push" && canReceivePush && (channelServer || AGENT_TYPE === "copilot")) {
+			const delivery = () => deliverChannelPush(msg as unknown as ChannelPushPayload);
+			const queued = AGENT_TYPE === "copilot" ? serializeTypedDelivery(delivery) : delivery();
+			queued.catch((err: Error) => {
 				// Retain failed deliveries.
 				console.error(`[channel] notification error: ${err.message}`);
 			});
 		}
 
-		if (msg.type === "response_push" && isChannel && channelServer) {
-			emitResponseNotification(channelServer, msg as unknown as ResponsePushPayload).catch((err: Error) => {
+		if (msg.type === "response_push" && canReceivePush && (channelServer || AGENT_TYPE === "copilot")) {
+			const emit = () =>
+				AGENT_TYPE === "copilot"
+					? emitTypedChannelTag(msg as unknown as ResponsePushPayload)
+					: emitResponseNotification(channelServer!, msg as unknown as ResponsePushPayload);
+			const queued = AGENT_TYPE === "copilot" ? serializeTypedDelivery(emit) : emit();
+			queued.catch((err: Error) => {
 				console.error(`[channel] response notification error: ${err.message}`);
 			});
 		}

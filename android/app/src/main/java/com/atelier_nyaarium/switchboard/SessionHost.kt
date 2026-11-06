@@ -30,6 +30,7 @@ internal interface SessionHost {
 		displayLabel: String? = null,
 		workdir: String? = null,
 		opId: String,
+		harness: String? = null,
 	): ConsoleCreateSessionResult
 	suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean)
 	suspend fun listDirs(path: String, hostTarget: String, spawn: String): ConsoleListDirsResult
@@ -78,7 +79,8 @@ internal class ChatRepositorySessionHost(private val repo: ChatRepository) : Ses
 		displayLabel: String?,
 		workdir: String?,
 		opId: String,
-	) = repo.client().createSession(target, sessionName, displayLabel, workdir, opId)
+		harness: String?,
+	) = repo.client().createSession(target, sessionName, displayLabel, workdir, opId, harness)
 	override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) =
 		repo.client().tmuxSend(team, text, key, submit)
 	override suspend fun listDirs(path: String, hostTarget: String, spawn: String) =

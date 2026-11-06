@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // Capture every spawned argv and simulate a clean (or failing) child, so we can assert
 // the exact tmux command shapes without a real tmux/docker.
 const calls: string[][] = [];
+const captureScreens: string[] = [];
+const stdinWrites: string[] = [];
 let exitCode = 0;
 // Per-spawn exit codes consumed in order; falls back to the global exitCode when empty. Lets a test
 // drive a multi-spawn sequence (e.g. has-session fails, then new-session succeeds).
@@ -23,17 +25,27 @@ vi.mock("node:child_process", () => ({
 		calls.push([cmd, ...args]);
 		const code = exitQueue.length ? (exitQueue.shift() as number) : exitCode;
 		const child = new EventEmitter() as EventEmitter & {
+			stdin: EventEmitter & { end: (data?: string | Uint8Array) => void };
 			stdout: EventEmitter;
 			stderr: EventEmitter;
 			kill: () => void;
 		};
+		child.stdin = Object.assign(new EventEmitter(), {
+			end: (data?: string | Uint8Array) => {
+				if (data !== undefined) stdinWrites.push(String(data));
+			},
+		});
 		child.stdout = new EventEmitter();
 		child.stderr = new EventEmitter();
 		child.kill = () => {};
 		// Only a reading command returns stdout; a send-keys / has-session / etc. has none, so a
 		// scripted screen is not consumed by the "1" keypresses awaitReady interleaves with its peeks.
 		const reads = ["capture-pane", "logs", "display-message", "ps"];
-		const out = args.some((a) => reads.includes(a)) ? stdoutData : "";
+		const out = args.includes("capture-pane")
+			? (captureScreens.shift() ?? stdoutData)
+			: args.some((a) => reads.includes(a))
+				? stdoutData
+				: "";
 		const exit = () => {
 			if (out) child.stdout.emit("data", Buffer.from(out));
 			if (args.includes("logs") && logsStderr) child.stderr.emit("data", Buffer.from(logsStderr));
@@ -64,6 +76,7 @@ import {
 	selfSessionTarget,
 	sendKey,
 	sendText,
+	typeIntoPane,
 } from "../mcp/devcontainer/tmuxCore.js";
 import { isCompacting } from "../shared/agent-screen.js";
 import type { TmuxTarget } from "../shared/host-op.js";
@@ -71,6 +84,8 @@ import { DEFAULT_SESSION } from "../shared/session-id.js";
 
 afterEach(() => {
 	calls.length = 0;
+	captureScreens.length = 0;
+	stdinWrites.length = 0;
 	exitCode = 0;
 	exitQueue.length = 0;
 	stdoutData = "";
@@ -166,6 +181,56 @@ describe("tmuxCore sendKey", () => {
 	it("refuses a control key to a reserved host session without spawning anything", async () => {
 		await expect(sendKey({ kind: "host", name: "host", sessionName: "host-daemon" }, "C-c")).rejects.toThrow();
 		expect(calls).toHaveLength(0);
+	});
+});
+
+describe("tmuxCore typeIntoPane", () => {
+	const target: TmuxTarget = { kind: "host", name: "host", sessionName: "copilot" };
+
+	it("waits for an empty idle composer, then pastes once and submits", async () => {
+		captureScreens.push("──────\n❯ a draft\n──────", "──────\n❯ \n──────");
+
+		expect(await typeIntoPane(target, "first line\nsecond line", { timeoutMs: 100, pollMs: 1 })).toEqual({
+			typed: true,
+		});
+		expect(calls.filter((call) => call.includes("capture-pane"))).toHaveLength(2);
+		const load = calls.find((call) => call.includes("load-buffer"));
+		const paste = calls.find((call) => call.includes("paste-buffer"));
+		expect(stdinWrites).toEqual(["first line\nsecond line"]);
+		expect(load?.slice(1)).toEqual(["load-buffer", "-b", expect.any(String), "-"]);
+		expect(paste?.slice(1)).toEqual(["paste-buffer", "-p", "-d", "-b", load?.[3], "-t", "=copilot.0"]);
+		expect(calls.at(-1)).toEqual(["tmux", "send-keys", "-t", "=copilot.0", "Enter"]);
+	});
+
+	it("returns busy at its deadline without typing", async () => {
+		stdoutData = "──────\n❯ \n──────\n◎ Working · 470 B esc interrupt";
+
+		expect(await typeIntoPane(target, "wait", { timeoutMs: 8, pollMs: 2 })).toEqual({
+			typed: false,
+			reason: "busy",
+		});
+		expect(calls.some((call) => call.includes("load-buffer") || call.includes("paste-buffer"))).toBe(false);
+		expect(calls.some((call) => call.includes("send-keys"))).toBe(false);
+	});
+
+	it("keeps stdin attached when loading a buffer inside Docker", async () => {
+		captureScreens.push("──────\n❯ \n──────");
+		const target: TmuxTarget = { kind: "devcontainer", name: "recipe-app", sessionName: "copilot" };
+
+		await expect(typeIntoPane(target, "hello", { timeoutMs: 100, pollMs: 1 })).resolves.toEqual({ typed: true });
+		expect(calls.find((call) => call.includes("load-buffer"))).toEqual([
+			"docker",
+			"exec",
+			"-i",
+			"-u",
+			"vscode",
+			"recipe-app_devcontainer-dev-1",
+			"tmux",
+			"load-buffer",
+			"-b",
+			expect.any(String),
+			"-",
+		]);
 	});
 });
 

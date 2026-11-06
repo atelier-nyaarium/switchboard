@@ -47,6 +47,14 @@ keeps it across reconnects.
 - The plugin shows a held push once per delivery id for its process's life
   (`mcp/bridge/channelPushDelivery.ts`), so a row re-offered after a lost ack is acked again without
   reaching the session twice. A restart forgets, so delivery stays at least once.
+- Claude receives channel pushes as MCP notifications. Copilot receives the same content and
+  metadata in a `<channel source="switchboard">` tag typed into its own host pane.
+- `/session/type` requires the caller's confirmed Copilot host-session token. The Gateway derives the
+  pane from that session record and caps text at 128 KB. The host serializes typing with other sends,
+  polls the pane once per second, and answers `{ typed: false, reason: "busy" }` when its 200-second
+  wait expires.
+- Copilot channel and response pushes share one arrival-order queue. A busy answer retries after one
+  second, and a channel row is acknowledged only after the tag is typed and submitted.
 
 ### What a session's model reads
 
@@ -54,7 +62,8 @@ keeps it across reconnects.
 neutralizer for model-bound text.
 
 - **A message is files, reminder, then body:** `composeModelMessage` orders the parts so the
-  sender's words come last. Both channel notifications build through it.
+  sender's words come last. `buildChannelNotification` gives both delivery roads the same content
+  and metadata.
 - **Foreign text is neutralized at one chokepoint per path:** `composeModelMessage` for a channel
   body, a reply and a `[FILES]` block, `reminderBlock` for its own lines, `guardTools` for
   every string in a tool result and every thrown tool error, since a result can echo another

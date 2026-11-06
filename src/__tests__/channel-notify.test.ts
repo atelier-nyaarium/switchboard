@@ -2,7 +2,12 @@ import { rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { emitChannelNotification, emitResponseNotification } from "../mcp/channel/channelNotify.js";
+import {
+	buildChannelNotification,
+	emitChannelNotification,
+	emitResponseNotification,
+	renderChannelTag,
+} from "../mcp/channel/channelNotify.js";
 import { BlobStore, blobIdFor } from "../shared/blob-store.js";
 import { neutralizeMarkup, REMINDER_TAG } from "../shared/system-reminder.js";
 import type { ChannelPushPayload } from "../shared/types.js";
@@ -111,6 +116,43 @@ describe("channel notification delivery", () => {
 });
 
 describe("what a session's model reads", () => {
+	it("renders notification metadata as escaped typed tag attributes", async () => {
+		const replyJsonSchema = '{"type":"object","description":"A&B <value>"}';
+		const payload: ChannelPushPayload = {
+			type: "channel_push",
+			from: 'peer "one" & <two>',
+			body: "please reply",
+			session_id: "s1",
+			replyJsonSchema,
+		};
+		const notification = await buildChannelNotification(payload);
+		const sent: Sent[] = [];
+		await emitChannelNotification({ notification: async (value: Sent) => sent.push(value) } as never, payload);
+		const emittedParams = sent[0].params;
+		const tag = await renderChannelTag(payload);
+		const header = tag.match(/^<channel ([^>]*)>/u)?.[1] ?? "";
+		const attributes = Object.fromEntries(
+			[...header.matchAll(/([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"/gu)].map((match) => [
+				match[1],
+				match[2]!
+					.replaceAll("&quot;", '"')
+					.replaceAll("&#39;", "'")
+					.replaceAll("&gt;", ">")
+					.replaceAll("&lt;", "<")
+					.replaceAll("&amp;", "&"),
+			]),
+		);
+
+		expect(notification).toEqual(emittedParams);
+		expect(Object.keys(attributes).sort()).toEqual(["source", ...Object.keys(notification.meta)].sort());
+		expect(attributes.source).toBe("switchboard");
+		for (const [key, value] of Object.entries(notification.meta)) {
+			expect(attributes[key]).toBe(typeof value === "string" ? value : JSON.stringify(value));
+		}
+		expect(tag).toContain("&amp;");
+		expect(tag.endsWith(`${notification.content}</channel>`)).toBe(true);
+	});
+
 	it("neutralizes tags forged in a sender's body and file names", async () => {
 		const { content } = await emitted({
 			from: "peer",

@@ -887,7 +887,9 @@ fun App(
 						onRename = { team, name -> repo.command { rename(team, name) } },
 						onForget = { team -> forgetSession.forget(team) },
 						// Spawn stays on board; next poll reveals session.
-						onSpawn = { target, label, workdir -> repo.command { sessions.spawnSession(target, label, workdir) } },
+						onSpawn = { target, label, workdir, harness ->
+							repo.command { sessions.spawnSession(target, label, workdir, harness) }
+						},
 						onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
 						// Offer pending enrollment verification.
 						onVerifyEnroll = (if (state.provisioned) repo.ceremony.pendingEnrolleeCeremony() else null)

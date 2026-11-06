@@ -47,7 +47,7 @@ internal class SessionOps(
 		host.rememberProject(target)
 	}
 
-	suspend fun spawnSession(target: String, label: String, workdir: String? = null) = coroutineScope {
+	suspend fun spawnSession(target: String, label: String, workdir: String? = null, harness: String? = null) = coroutineScope {
 		val key = target to label
 		val before = host.state.getAndUpdate { s ->
 			if (key in s.pendingSpawns) s else s.copy(pendingSpawns = s.pendingSpawns + key)
@@ -60,7 +60,7 @@ internal class SessionOps(
 		recentSpawnOpIds[key] = opId to now
 		try {
 			runCatchingCancellable {
-				withContext(Dispatchers.IO) { host.createSession(target, displayLabel = label, workdir = workdir, opId = opId) }
+				withContext(Dispatchers.IO) { host.createSession(target, displayLabel = label, workdir = workdir, opId = opId, harness = harness) }
 			}
 				.onSuccess { result ->
 					recentSpawnOpIds.remove(key)

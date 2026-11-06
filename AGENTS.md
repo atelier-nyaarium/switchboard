@@ -99,21 +99,22 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composeStores.ts` - every durable writer and the restored session-resume payload
 - `src/gateway/compose/composeSessions.ts` - registries, `SessionStore`, planes, presence, session authority
 - `src/gateway/compose/composePersistence.ts` - the flush every writer takes part in, and its tick
-- `src/gateway/compose/composeHost.ts` - the host socket, wake service, host relay, presence watch
+- `src/gateway/compose/composeHost.ts` - the host socket, wake service, host relay, presence watch, and the typed pane wait
 - `src/gateway/compose/composeAgents.ts` - Codex and Copilot services, relays, and HTTP routes
 - `src/gateway/compose/composeAwareness.ts` - the awareness bank and its tick
 - `src/gateway/compose/composeFederation.ts` - `buildSlice`, the Router client, and the share mirror's registration read and delta apply
 - `src/gateway/compose/composeEnrollment.ts` - the enrollment window, its TLS door, and the install
 - `src/gateway/compose/composeWebSockets.ts` - session sockets and held-delivery handover
-- `src/gateway/compose/composeRoutes.ts` - the route surface, built once a Domain is active and rebuilt when federation activates; null before, so no route mints an address
+- `src/gateway/compose/composeRoutes.ts` - the route surface, built once a Domain is active and rebuilt when federation activates; passes the host relay to session typing
 - `src/gateway/compose/composeRouterFrames.ts` - Router frame dispatch and the console dispatcher
 - `src/gateway/compose/composeRouterPresence.ts` - the Router presence dirty hook, unlink and untrust teardown
 - `src/gateway/compose/composeListener.ts` - the HTTP entry point
 - `src/gateway/compose/composeFaults.ts` - the fault port's construction
-- `src/gateway/httpRouter.ts` - HTTP dispatch, the enrollment routes, and the blob routes; before a Domain it answers health and enrollment alone
-- `src/gateway/routes.ts` - `RoutesDeps`, `RoutesCarryOver`, and the composer that wires the route modules
+- `src/gateway/httpRouter.ts` - HTTP dispatch, including `/session/type`, enrollment, and blob routes; before a Domain it answers health and enrollment alone
+- `src/gateway/routes.ts` - `RoutesDeps`, `RoutesCarryOver`, and the composer that wires session typing with the other route modules
 - `src/gateway/routes/addressing.ts` / `callerGuards.ts` / `relay.ts` - local address minting, the refusal gates, cross-Gateway relay
 - `src/gateway/routes/routesStatus.ts` / `routesCapabilities.ts` / `routesPresence.ts` - health, pending and teams; the capability fold; discovery
+- `src/gateway/routes/routesSession.ts` - `/session/type`, authenticated against the caller's Copilot host-session record
 - `src/gateway/routes/routesSend.ts` / `routesRespond.ts` / `routesBoard.ts` - the send and `deliverEvent`, the senderless watcher event, sharing `reach`; the reply and its poll; the task board
 - `src/gateway/routes/routesHumanNotify.ts` / `routesBlob.ts` - console push, and the local-then-Router blob read
 - `src/gateway/boot.ts` - `GatewayBootstrap.resolve`, the boot phase decision, the federation slice types, and `RouterHandlers` split into frames and presence
@@ -620,9 +621,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
   - **A pushed row reaches the session once per delivery id:** `channelPushDelivery.ts` acks a repeat
     it already emitted, across reconnects. A restart forgets, so delivery stays at least once.
+  - **Copilot uses typed channel tags:** `channelNotify.ts` builds shared content and metadata; `helpers.ts` serializes typed pushes, retries busy panes, and acks after typing.
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
 - `src/shared/workspace-op.ts` - the workspace plane's wire vocabulary, beside `host-op.ts` and for the same reason: Gateway to an MCP-side process, never to Kotlin
+- `src/shared/host-op.ts` / `src/mcp/devcontainer/hostOpRunner.ts` / `tmuxCore.ts` / `hostDaemon.ts` - `typeIntoPane` wire, dispatch, idle polling, bracketed paste, and host handler
   - **`WORKSPACE_BOUNDS` owns every wait on one op:** each class's plane wait and handler budget sit
     inside the phone's read timeout, `CONSOLE_ANSWER_WAIT_MS` in `console-protocol.ts`, generated into
     `Protocol.kt` and diffed by the Kotlin gate. `workspace-bounds.test.ts` pins the order. A save's
@@ -881,6 +884,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **`limitNotice` searches in two passes:** whole-line matches precede welded-rule matches.
   - **The composer glyph has two members:** Linux uses U+276F; Windows uses U+003E. Whitespace is explicit because JS and JVM `\s` differ for U+00A0.
   - **The last-two-lines fallback is uniform:** readers scope it to the final region.
+  - **Typed delivery needs an empty composer:** `isAgentComposerEmpty` checks the prompt between toolbar rules.
 - `src/shared/schemasConsoleOp.ts` - ConsoleOp schema, `DELIVERY_OP_KINDS`, and `VALUE_OP_KINDS`
 - `src/shared/pending-job-store.ts` / `plane-registry.ts` / `reconnect.ts` / `process-guards.ts` - shared jobs, planes, reconnect, and process guards
 - `android/` - Gradle/Kotlin console app; `proto/Protocol.kt` generated

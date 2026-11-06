@@ -107,7 +107,7 @@ fun SessionsScreen(
 	onOpen: (String) -> Unit,
 	onRename: (String, String) -> Unit,
 	onForget: (String) -> Unit,
-	onSpawn: (String, String, String?) -> Unit,
+	onSpawn: (String, String, String?, String?) -> Unit,
 	onListDirs: suspend (String, String, String) -> DirListing = { _, _, _ -> DirListing(emptyList()) },
 	onVerifyEnroll: (() -> Unit)? = null,
 	onRouterEndpoint: (() -> Unit)? = null,
@@ -187,8 +187,9 @@ fun SessionsScreen(
 			targetOf = opened::targetFor,
 				onListDirs = { path, spawn -> onListDirs(path, opened.targetFor(spawn), spawn) },
 			rememberedProject = state.lastProjectByGateway[opened.gatewayId],
-			onSpawn = { target, session, workdir ->
-				onSpawn(target, session, workdir)
+			copilotSpawns = state.gateways.entry(opened.gatewayId)?.copilotSpawns.orEmpty(),
+			onSpawn = { target, session, workdir, harness ->
+				onSpawn(target, session, workdir, harness)
 				createDialogFor = null
 			},
 			onDismiss = { createDialogFor = null },

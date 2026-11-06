@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
 import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, COPILOT_BACKEND } from "../../shared/agent-backend.js";
+import { isBinaryOnPath } from "../../shared/agent-binary.js";
 import type { LimitNotice } from "../../shared/agent-screen.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
@@ -17,7 +18,7 @@ import {
 	paneKey,
 	type TmuxTarget,
 } from "../../shared/host-op.js";
-import { isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
+import { HOST_SPAWN, isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
 import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
@@ -58,6 +59,7 @@ import {
 	reattachStep,
 	sendKey,
 	sendText,
+	typeIntoPane,
 	withPane,
 } from "./tmuxCore.js";
 import { createWifiNetworkReader } from "./wifiNetwork.js";
@@ -225,8 +227,14 @@ function connect(): void {
 		// `hostSpawns` names the DETECTED spawn points only; `host` is on every machine and is not
 		// announced. An older gateway ignores the field, which is the whole point of announcing before
 		// anything consumes it: daemon first, gateway next, console last, each safe on its own.
-		const hostSpawns = detectedHostSpawns(windowsAvailability());
-		ws!.send(JSON.stringify({ type: "catalog", projects, hostSpawns }));
+		const windows = windowsAvailability();
+		const hostSpawns = detectedHostSpawns(windows);
+		// Which spawn points can run a Copilot session; the phone's create pick reads it.
+		const copilotSpawns = [
+			...(isBinaryOnPath("copilot") ? [HOST_SPAWN] : []),
+			...(windows.available && windows.copilot ? [WINDOWS_SPAWN] : []),
+		];
+		ws!.send(JSON.stringify({ type: "catalog", projects, hostSpawns, copilotSpawns }));
 		console.error(
 			`[host-wake] sent catalog with ${projects.length} projects` +
 				(hostSpawns.length ? ` and host spawn points: ${hostSpawns.join(", ")}` : ""),
@@ -519,6 +527,7 @@ const sightOf =
 const hostOpRunner = createHostOpRunner({
 	kasaScan: createKasaScanner(),
 	wifiNetwork: createWifiNetworkReader(),
+	typeIntoPane,
 	// Internal callers use peekPane for its reject-on-absent.
 	peekPane: peekWithFallback,
 	sendText,

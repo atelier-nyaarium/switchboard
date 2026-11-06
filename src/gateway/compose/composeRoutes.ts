@@ -24,7 +24,7 @@ export interface RoutesStageDeps {
 		SessionsStage,
 		"registry" | "conversationRegistry" | "sessionAuthority" | "sessionStore" | "presence" | "hostSpawnPoints"
 	>;
-	host: Pick<HostStage, "wakeService">;
+	host: Pick<HostStage, "wakeService" | "relayToHost">;
 	awareness: Pick<AwarenessStage, "awareness">;
 	websockets: WebSocketsStage;
 	/** Local reply push. */
@@ -64,6 +64,7 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 			config: { localGatewayId: deps.localGatewayId, localDomainId },
 			producerSignPriv: f ? deps.identity().sign.priv : undefined,
 			tryWakeTeam: (team, createOpts) => host.wakeService.tryWakeTeam(team, createOpts),
+			relayToHost: host.relayToHost,
 			sessionStore: sessions.sessionStore,
 			presence: sessions.presence,
 			hostSpawnPoints: sessions.hostSpawnPoints,

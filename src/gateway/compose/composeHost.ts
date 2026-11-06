@@ -11,6 +11,7 @@ import { resolveLiveIncarnation, type WsData } from "../wsTypes.js";
 import type { SessionsStage } from "./composeSessions.js";
 
 const HOST_OP_TIMEOUT_MS = 20_000;
+const TYPE_INTO_PANE_TIMEOUT_MS = 240_000;
 export const PRESENCE_PEEK_MS = 2_000;
 const WATCH_PUSH_MS = 2_000;
 
@@ -64,7 +65,10 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 		// Dropped requests never answer.
 		if (!reached(sendOn(hostWs, JSON.stringify({ type: "host_op", reqId, op }), `host_op ${op.kind}`)))
 			return { ok: false, error: "the host daemon did not take the request" };
-		return hostOpCoordinator.wait(reqId, HOST_OP_TIMEOUT_MS);
+		return hostOpCoordinator.wait(
+			reqId,
+			op.kind === "typeIntoPane" ? TYPE_INTO_PANE_TIMEOUT_MS : HOST_OP_TIMEOUT_MS,
+		);
 	}
 
 	let lastPushedWatch = "";

@@ -126,6 +126,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			case "sendText":
 			case "sendKey":
 				return { sent: true };
+			case "typeIntoPane":
+				return { typed: true };
 			case "killSession":
 				return { killed: true };
 			case "reloadPlugins":

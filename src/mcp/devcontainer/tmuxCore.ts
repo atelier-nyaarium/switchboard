@@ -1,6 +1,13 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
-import { isAgentReady, isAgentWorking, type LimitNotice, limitNotice, stripAnsi } from "../../shared/agent-screen.js";
+import {
+	isAgentComposerEmpty,
+	isAgentReady,
+	isAgentWorking,
+	type LimitNotice,
+	limitNotice,
+	stripAnsi,
+} from "../../shared/agent-screen.js";
 import {
 	ALLOWED_KEYS,
 	assertTmuxName,
@@ -10,6 +17,7 @@ import {
 	paneKey,
 	type TmuxPeek,
 	type TmuxTarget,
+	type TypeIntoPaneResult,
 } from "../../shared/host-op.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import { trimPaneRowPadding } from "../../shared/pane-trim.js";
@@ -24,6 +32,8 @@ export { isAgentReady, isAgentWorking, isLoggedOut, limitNotice } from "../../sh
 
 const containerName = (team: string): string => `${team}_devcontainer-dev-1`;
 const EXEC_TIMEOUT_MS = 8_000;
+const TYPE_INTO_PANE_WAIT_MS = 200_000;
+const TYPE_INTO_PANE_POLL_MS = 1_000;
 // Bounds one sealed reply.
 const MAX_CAPTURE_BYTES = 256_000;
 const CONTAINER_LOGS_TAIL = 200;
@@ -90,6 +100,13 @@ function tmuxArgv(target: TmuxTarget, sub: string[]): string[] {
 	return ["docker", "exec", "-u", "vscode", containerName(target.name), "tmux", ...sub];
 }
 
+/** Load one paste buffer. */
+function tmuxStdinArgv(target: TmuxTarget, sub: string[]): string[] {
+	if (target.kind === "host") return ["tmux", ...sub];
+	assertTmuxName(target.name);
+	return ["docker", "exec", "-i", "-u", "vscode", containerName(target.name), "tmux", ...sub];
+}
+
 /** Any other command, in the same place that target's tmux lives. Sibling of tmuxArgv, because a
  * probe about a pane's processes is only true in the namespace the pane actually runs in. */
 function execArgv(target: TmuxTarget, argv: string[]): string[] {
@@ -99,9 +116,16 @@ function execArgv(target: TmuxTarget, argv: string[]): string[] {
 }
 
 /** Spawn argv (no shell) and resolve stdout. */
-function run(argv: string[], timeoutMs = EXEC_TIMEOUT_MS, opts: { mergeStderr?: boolean } = {}): Promise<string> {
+function run(
+	argv: string[],
+	timeoutMs = EXEC_TIMEOUT_MS,
+	opts: { input?: string; mergeStderr?: boolean } = {},
+): Promise<string> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(argv[0], argv.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
+		const child = spawn(argv[0], argv.slice(1), {
+			stdio: [opts.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+		});
+		if (opts.input !== undefined) child.stdin?.end(opts.input);
 		// Decode once: a chunk boundary splits multi-byte chars.
 		const chunks: Buffer[] = [];
 		let bytes = 0;
@@ -110,7 +134,7 @@ function run(argv: string[], timeoutMs = EXEC_TIMEOUT_MS, opts: { mergeStderr?: 
 			child.kill("SIGKILL");
 			reject(new Error(`tmux command timed out`));
 		}, timeoutMs);
-		child.stdout.on("data", (d: Buffer) => {
+		child.stdout?.on("data", (d: Buffer) => {
 			// Still drain past the cap.
 			if (bytes < MAX_CAPTURE_BYTES) {
 				chunks.push(d);
@@ -118,7 +142,7 @@ function run(argv: string[], timeoutMs = EXEC_TIMEOUT_MS, opts: { mergeStderr?: 
 			}
 		});
 		let errBytes = 0;
-		child.stderr.on("data", (d: Buffer) => {
+		child.stderr?.on("data", (d: Buffer) => {
 			// Own buffer: the streams schedule independently.
 			if (errBytes < MAX_CAPTURE_BYTES) {
 				errChunks.push(d);
@@ -228,6 +252,44 @@ export function sendText(target: TmuxTarget, text: string, submit = true): Promi
 		assertNotReservedHostSink(target);
 		await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), "-l", "--", text]));
 		if (submit) await sendKeyRaw(target, "Enter");
+	});
+}
+
+export interface TypeIntoPaneOptions {
+	timeoutMs?: number;
+	pollMs?: number;
+}
+
+export function typeIntoPane(
+	target: TmuxTarget,
+	text: string,
+	options: TypeIntoPaneOptions = {},
+): Promise<TypeIntoPaneResult> {
+	const deadline = Date.now() + (options.timeoutMs ?? TYPE_INTO_PANE_WAIT_MS);
+	const pollMs = options.pollMs ?? TYPE_INTO_PANE_POLL_MS;
+	return sends.run(targetKey(target), async () => {
+		assertNotReservedHostSink(target);
+		while (Date.now() < deadline) {
+			const screen = (await peekPane(target, false)).ansi;
+			if (
+				Date.now() < deadline &&
+				isAgentReady(screen) &&
+				!isAgentWorking(screen) &&
+				isAgentComposerEmpty(screen)
+			) {
+				const bufferName = `switchboard-${crypto.randomUUID()}`;
+				await run(tmuxStdinArgv(target, ["load-buffer", "-b", bufferName, "-"]), EXEC_TIMEOUT_MS, {
+					input: text,
+				});
+				await run(tmuxArgv(target, ["paste-buffer", "-p", "-d", "-b", bufferName, "-t", paneTarget(target)]));
+				await sendKeyRaw(target, "Enter");
+				return { typed: true };
+			}
+			const remaining = deadline - Date.now();
+			if (remaining <= 0) break;
+			await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
+		}
+		return { typed: false, reason: "busy" };
 	});
 }
 

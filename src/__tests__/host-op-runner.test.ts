@@ -20,6 +20,7 @@ function makeOps(): { ops: TmuxOps } {
 		listDirs: vi.fn(async () => ({ entries: ["projects"] })),
 		kasaScan: vi.fn(async () => ({ candidates: [] })),
 		wifiNetwork: vi.fn(async () => ({ reason: "none" as const })),
+		typeIntoPane: vi.fn(async () => ({ typed: true as const })),
 	};
 	return { ops };
 }
@@ -62,6 +63,15 @@ describe("createHostOpRunner", () => {
 		expect(h.ops.sendText).toHaveBeenCalledWith(T, "hi", undefined);
 		expect(await runner.run({ kind: "sendKey", target: T, key: "C-c" })).toEqual({ sent: true });
 		expect(h.ops.sendKey).toHaveBeenCalledWith(T, "C-c");
+	});
+
+	it("relays typeIntoPane and returns its idle outcome", async () => {
+		const h = makeOps();
+		const runner = createHostOpRunner(h.ops);
+		expect(await runner.run({ kind: "typeIntoPane", target: T, text: "<channel>hi</channel>" })).toEqual({
+			typed: true,
+		});
+		expect(h.ops.typeIntoPane).toHaveBeenCalledWith(T, "<channel>hi</channel>");
 	});
 
 	it("threads submit:false to sendText so the text is typed without a trailing Enter", async () => {
@@ -191,6 +201,7 @@ describe("createHostOpRunner", () => {
 			listDirs: async () => ({ entries: [] }),
 			kasaScan: async () => ({ candidates: [] }),
 			wifiNetwork: async () => ({ reason: "none" as const }),
+			typeIntoPane: async () => ({ typed: true }),
 		};
 		const runner = createHostOpRunner(ops, { minPeekIntervalMs: 0 });
 
@@ -224,6 +235,7 @@ describe("createHostOpRunner", () => {
 			listDirs: async () => ({ entries: [] }),
 			kasaScan: async () => ({ candidates: [] }),
 			wifiNetwork: async () => ({ reason: "none" as const }),
+			typeIntoPane: async () => ({ typed: true }),
 		};
 		const runner = createHostOpRunner(ops, { minPeekIntervalMs: 0 });
 		await expect(runner.run({ kind: "peek", target: T })).rejects.toThrow();
@@ -270,6 +282,7 @@ describe("createHostOpRunner peek priority lanes", () => {
 			listDirs: async () => ({ entries: [] }),
 			kasaScan: async () => ({ candidates: [] }),
 			wifiNetwork: async () => ({ reason: "none" as const }),
+			typeIntoPane: async () => ({ typed: true }),
 		};
 		return { ops, resolveTarget: (name) => resolvers.get(name)?.(), admissionOrder };
 	}

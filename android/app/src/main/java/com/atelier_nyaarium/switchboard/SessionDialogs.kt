@@ -24,6 +24,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -224,9 +227,14 @@ fun CreateSessionDialog(
 	onListDirs: suspend (String, String) -> DirListing,
 	// The project this Gateway was last spawned on, if it still offers it. Only a suggestion.
 	rememberedProject: String?,
-	onSpawn: (String, String, String?) -> Unit,
+	// Spawn points that can run a Copilot session.
+	copilotSpawns: List<String>,
+	// (target, label, workdir, harness); a null harness is Claude.
+	onSpawn: (String, String, String?, String?) -> Unit,
 	onDismiss: () -> Unit,
 ) {
+	var harness by remember { mutableStateOf(SessionHarness.CLAUDE) }
+	val offered = harnessProjects(projects, copilotSpawns, harness)
 	// Null until picked. `host` is not a neutral default - it is one real target among several, so
 	// preselecting it lets a mis-tap spawn on the wrong machine's shell in silence.
 	var selectedProject by remember { mutableStateOf(initialProject(rememberedProject, projects)) }
@@ -249,9 +257,25 @@ fun CreateSessionDialog(
 			Column {
 				// `selectedProject` keeps the wire word, which is an address segment keying session
 				// records, resume state and board work; the label is shown and never stored.
+				if (offersHarnessPick(projects, copilotSpawns)) {
+					SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+						SessionHarness.entries.forEachIndexed { index, option ->
+							SegmentedButton(
+								selected = harness == option,
+								onClick = hapticClick {
+									harness = option
+									// A project the other agent cannot run is not a pick.
+									if (selectedProject !in harnessProjects(projects, copilotSpawns, option)) selectedProject = null
+								},
+								shape = SegmentedButtonDefaults.itemShape(index = index, count = SessionHarness.entries.size),
+							) { Text(option.label) }
+						}
+					}
+					Spacer(Modifier.height(12.dp))
+				}
 				PickMenu(
 					label = "Project",
-					choices = projects,
+					choices = offered,
 					picked = selectedProject,
 					labelOf = { hostSpawnLabel(it, projects) },
 					onPick = { picked ->
@@ -300,7 +324,7 @@ fun CreateSessionDialog(
 					val project = selectedProject ?: return@hapticClick
 					val target = selectedTarget ?: return@hapticClick
 					val workdir = dirText.takeIf { project in HOST_SPAWN_IDS && it.isNotEmpty() }
-					onSpawn(target, trimmed, workdir)
+					onSpawn(target, trimmed, workdir, harness.wire)
 				},
 			) { Text("Spawn") }
 		},
@@ -315,6 +339,20 @@ fun CreateSessionDialog(
 // client-side too so pasting a long string reads as "can't type more" rather than a confusing
 // server-side rejection once submitted.
 internal const val SESSION_LABEL_MAX_CHARS = 64
+
+/** The agent CLI a new session runs; `wire` is what `create_session` carries, null for Claude. */
+internal enum class SessionHarness(val label: String, val wire: String?) {
+	CLAUDE("Claude", null),
+	COPILOT("Copilot", "copilot"),
+}
+
+/** The pick shows only when some project on this Gateway can run Copilot. */
+internal fun offersHarnessPick(projects: List<String>, copilotSpawns: List<String>): Boolean =
+	projects.any { it in copilotSpawns }
+
+/** The projects a harness can run on: every one for Claude, Copilot's spawn points for Copilot. */
+internal fun harnessProjects(projects: List<String>, copilotSpawns: List<String>, harness: SessionHarness): List<String> =
+	if (harness == SessionHarness.COPILOT) projects.filter { it in copilotSpawns } else projects
 
 internal const val WORKDIR_MAX_CHARS = 512
 

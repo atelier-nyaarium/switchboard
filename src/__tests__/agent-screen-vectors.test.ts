@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { hasWorkflow, isAgentReady, isAgentWorking, isCompacting } from "../shared/agent-screen.js";
+import {
+	hasWorkflow,
+	isAgentComposerEmpty,
+	isAgentReady,
+	isAgentWorking,
+	isCompacting,
+} from "../shared/agent-screen.js";
 
 /**
  * Real captured panes, Linux and Windows, read by BOTH runtimes.
@@ -57,6 +63,14 @@ describe("agent-screen: real captured panes, both platforms", () => {
 		expect(isAgentWorking(v.screen), `${v.name}: isAgentWorking`).toBe(v.expectWorking);
 		expect(hasWorkflow(v.screen), `${v.name}: hasWorkflow`).toBe(v.expectWorkflow ?? false);
 		expect(isCompacting(v.screen), `${v.name}: isCompacting`).toBe(v.expectCompacting ?? false);
+	});
+
+	it("finds empty composers in Claude and Copilot captures", () => {
+		const byName = new Map(vectors.map((vector) => [vector.name, vector]));
+		for (const name of ["lin-composer", "win-composer", "copilot-idle", "copilot-done"]) {
+			expect(isAgentComposerEmpty(byName.get(name)!.screen), name).toBe(true);
+		}
+		expect(isAgentComposerEmpty(byName.get("copilot-typing")!.screen)).toBe(false);
 	});
 
 	it("keeps the three Windows causes separable", () => {

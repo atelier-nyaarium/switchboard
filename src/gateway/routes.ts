@@ -1,5 +1,6 @@
 import type { Ambient } from "../shared/ambient.js";
 import type { BoardReply } from "../shared/board-structure.js";
+import type { HostOp, HostOpResult } from "../shared/host-op.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { GatewayConfig, ResponsePayload, TeamInfo } from "../shared/types.js";
@@ -16,6 +17,7 @@ import { createHumanNotifyRoutes } from "./routes/routesHumanNotify.js";
 import { createPresenceRoutes } from "./routes/routesPresence.js";
 import { createRespondRoutes } from "./routes/routesRespond.js";
 import { createSendRoutes } from "./routes/routesSend.js";
+import { createSessionRoutes } from "./routes/routesSession.js";
 import { createStatusRoutes } from "./routes/routesStatus.js";
 import type { Presented, SessionAuthority } from "./sessionAuthority.js";
 import type { WakeCreate, WakeResult } from "./wake.js";
@@ -30,6 +32,7 @@ export interface RoutesDeps {
 	tryWakeTeam: (team: string, createOpts?: WakeCreate) => Promise<WakeResult>;
 	// Resolves a live incarnation.
 	sessionStore?: import("../shared/session-store.js").SessionStore;
+	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	capabilityStore?: Pick<import("./console/capabilityStore.js").CapabilityStore, "snapshot">;
 	daemonCapabilityStore?: Pick<import("./daemonCapabilities.js").DaemonCapabilityStore, "snapshot">;
 	// Backs teams().
@@ -222,6 +225,7 @@ export function createRoutes(deps: RoutesDeps) {
 		boardOperationReplies: carryOver.boardOperationReplies,
 		refuseImpersonation,
 	});
+	const { typeSession } = createSessionRoutes({ auth, relayToHost: deps.relayToHost });
 
 	return {
 		pending,
@@ -238,6 +242,7 @@ export function createRoutes(deps: RoutesDeps) {
 		sendFromAssistant,
 		respond,
 		poll,
+		typeSession,
 		readBlob,
 		health,
 		humanNotify,

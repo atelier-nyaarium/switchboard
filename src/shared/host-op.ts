@@ -75,6 +75,7 @@ export type HostOp =
 	| { kind: "peek"; target: TmuxTarget }
 	| { kind: "kasaScan" }
 	| { kind: "wifiNetwork" }
+	| { kind: "typeIntoPane"; target: TmuxTarget; text: string }
 	// Mutations replay by dedupKey.
 	| { kind: "sendText"; target: TmuxTarget; text: string; submit?: boolean; dedupKey?: string }
 	| { kind: "sendKey"; target: TmuxTarget; key: string; dedupKey?: string }
@@ -130,6 +131,8 @@ export interface TmuxPeek {
 export const paneKey = (t: TmuxTarget): string => `${t.kind}:${t.name}:${t.sessionName}`;
 
 export type PromptDecision = "approve" | "deny";
+
+export type TypeIntoPaneResult = { typed: true } | { typed: false; reason: "busy" };
 
 /** Stale: the pane holds another prompt, or none. */
 export type PromptOutcome = "answered" | "stale";
