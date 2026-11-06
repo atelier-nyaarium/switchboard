@@ -259,7 +259,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/copilotAgentReducers.ts` - Copilot pure decision functions: target matching, activity append
 - `src/gateway/copilotAgentApply.ts` - Copilot daemon event and receipt folding, with its fence checks
 - `src/gateway/copilotAgentTypes.ts` - Copilot service deps, transition results, and the application union
-- `src/gateway/agentRelayCore.ts` - the relay both families run: acknowledgement, held frames, the reconcile guard, per-agent serialization; `codexRelay.ts` and `copilotRelay.ts` are its adapters
+- `src/gateway/agentRelayCore.ts` - the relay both families run: acknowledgement, held frames, the reconcile guard, per-agent serialization, the register pass and the catalog resend; `codexRelay.ts` and `copilotRelay.ts` are its adapters
+- `src/shared/agent-recovery.ts` - the recovery decisions both families take: whether an op is stale under the live daemon, and whether a reconcile loses, keeps or adopts a turn
+  - **Every turn and every op ends:** an op dispatched under a dead daemon is abandoned at the next register, a turn the daemon's process lost settles `interrupted`, and a stale agent is asked again on every hello and persist tick. Each family only translates its record and applies the verdict; `agent-recovery-vectors.json` runs through both. `docs/agents.md` holds the rules.
 - `src/gateway/agentCatalogPersistence.ts` - one owner's agent catalog for both families: reads, the strict agent lookup, commits, daemon-change applies, durable checks, and replay; a write that does not land answers `persistence_failed` to a caller and `reconcile` to the relay
 - `src/gateway/agentExecutionTarget.ts` - where an owner's agent runs, for both families
 - `src/gateway/router/` - Router WS client; `pinnedSocket.ts` owns certificate pinning
@@ -738,7 +740,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/codexThreadLifecycle.ts` - one queue per thread record, so a record `started()` replaces gets a fresh one; settled-turn archival; bounded retirement
 - `src/mcp/devcontainer/codexTurnTracker.ts` - turn output; sole `answerOf` reader
 - `src/mcp/devcontainer/codexLiveTurns.ts` - live-turn bindings, clocks, and warnings
-- `src/mcp/devcontainer/agentDaemonCore.ts` - shared daemon registry, generation fence, serialization, numbering, and outbox
+- `src/mcp/devcontainer/agentDaemonCore.ts` - shared daemon registry, generation fence, serialization, numbering, outbox, the once-per-id op ledger, and retire-before-remove
 - `src/mcp/devcontainer/codexDaemonService.ts` / `copilotDaemonService.ts` - daemon relay services
 - `src/mcp/devcontainer/codexCommandDispatch.ts` - one command kind per run: session acquire, turn start and steer
 - `src/mcp/devcontainer/codexSessionLifecycle.ts` - session open, retire, and held-terminal deadlines

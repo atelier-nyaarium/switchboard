@@ -30,6 +30,26 @@ refusal and abandonment paths take it, and both throw one `AgentTransitionError`
 `CodexRelay` and `CopilotRelay` supply only their wire schemas, applier, agent listing, and
 reconcile request. An agent is askable exactly when its family can build that request.
 
+**Every turn and every op ends.** The recovery decisions live once in `agent-recovery.ts`, and each
+family translates its record into them and applies the result through its own terminal path; the
+shared vectors in `src/__tests__/fixtures/agent-recovery-vectors.json` run through both adapters.
+- **An op knows its daemon:** a route stamps each op with the host register frame's
+  `daemonInstanceId`, which the host socket keeps and drops with the socket. Both relays read it
+  through one callback.
+- **Register pass:** at each host register, before the family hellos, a `requested` op stamped with
+  another daemon is abandoned through `uncertainDeliveryState` (a stop also clears `pendingInterrupt`).
+- **Resend:** at the catalog frame after a register, a `requested` op stamped with the live daemon is
+  sent again under its own operation id. `AgentDaemonCore` takes an op once per id: a repeat in
+  flight is dropped and a settled one replays its answer, within a count-bounded ledger.
+- **Lost turns:** a reconcile answered under another fence (instance, target or generation) settles
+  the known turn `interrupted`, reason "turn lost: its agent process ended", unless it reports that
+  turn settled. Codex binds a turn a reconcile read as running only on a thread its child holds.
+  A retiring generation ends its own bound turns first (`AgentDaemonCore`'s retire-before-remove), and
+  Copilot answers `active: false` for a session it cannot resume.
+- **Stale agents are asked again:** a `recovering` agent, and a `working` one fenced to another
+  daemon, is asked on every hello and every persist tick, paced per agent by `RECONCILE_GUARD_MS`
+  from its last ask whether answered or refused.
+
 **An acknowledgement retires the daemon's only copy.** `ignored` and `applied` permit it; only a
 withheld decision does not. Held frames are keyed by agent, although the stream is per target.
 
