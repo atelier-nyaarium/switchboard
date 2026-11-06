@@ -33,6 +33,7 @@ export interface CodexIntentInput {
 	agentId: string;
 	operationId: string;
 	daemonInstanceId?: string;
+	runId?: string;
 	prompt: string;
 	outputSchema?: Record<string, unknown>;
 	at: number;

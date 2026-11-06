@@ -42,11 +42,11 @@ export function composeBaseline({ context, stores, sessions, routines, assistant
 				return [
 					...sessionStore
 						.listCodexAgents(record)
-						.filter((agent) => agent.activeTurnId !== undefined)
+						.filter((agent) => agent.runId === undefined && agent.activeTurnId !== undefined)
 						.map((agent) => ({ family: "codex" as const, agentId: agent.agentId })),
 					...sessionStore
 						.listCopilotAgents(record)
-						.filter((agent) => agent.activeTurnId !== undefined)
+						.filter((agent) => agent.runId === undefined && agent.activeTurnId !== undefined)
 						.map((agent) => ({ family: "copilot" as const, agentId: agent.agentId })),
 				];
 			},

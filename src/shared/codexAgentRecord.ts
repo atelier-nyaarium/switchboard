@@ -290,6 +290,7 @@ export const CodexPersistedAgentSchema = z
 	.object({
 		version: z.literal(1),
 		agentId: CodexAgentIdSchema,
+		runId: OpaqueIdSchema.optional(),
 		agentState: CodexAgentStateSchema,
 		requestedTarget: CodexExecutionTargetSchema,
 		resolvedTarget: CodexResolvedTargetSchema.optional(),

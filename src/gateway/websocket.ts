@@ -278,6 +278,7 @@ export function createWebSocketHandlers({
 			ws.data.cwdName = reg.data.cwdName;
 			ws.data.agentPid = reg.data.agentPid;
 			ws.data.daemonInstanceId = reg.data.daemonInstanceId;
+			ws.data.catalogProjects = undefined;
 			subs.set(subId, ws);
 			announcePresenceDirty?.();
 
@@ -395,13 +396,16 @@ export function createWebSocketHandlers({
 		if (msg.type === "catalog" && ws.data.teamName === "host") {
 			const projects = msg.projects;
 			if (Array.isArray(projects)) {
+				const catalogProjects = new Set<string>();
 				offlineCatalog.clear();
 				for (const p of projects) {
 					if (typeof p.team === "string" && typeof p.projectPath === "string") {
 						offlineCatalog.set(p.team, p.projectPath);
 						knownTeamPaths.set(p.team, p.projectPath);
+						catalogProjects.add(p.team);
 					}
 				}
+				ws.data.catalogProjects = catalogProjects;
 				console.log(`[ws] catalog received: ${offlineCatalog.size} projects`);
 				const spawns = msg.hostSpawns;
 				if (Array.isArray(spawns) && hostSpawnPoints) {
@@ -453,6 +457,8 @@ export function createWebSocketHandlers({
 		if (!teamName) return;
 
 		if (teamName === "host") {
+			ws.data.daemonInstanceId = undefined;
+			ws.data.catalogProjects = undefined;
 			const subs = registry.get(teamName);
 			if (subs) {
 				subs.delete(subId);

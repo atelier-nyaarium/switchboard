@@ -22,6 +22,7 @@ import {
 	codexOperationIdentity,
 } from "../shared/codex-agent.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
+import type { AgentCatalogRetirement } from "./agentCatalogPersistence.js";
 import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
 import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
 import { AgentTransitionError, validateTimestamp } from "./agentRouteEnvelope.js";
@@ -83,6 +84,14 @@ export class CodexAgentService {
 		return this.sessionStore.listCodexAgents(owner);
 	}
 
+	findOwnedAgent(owner: SessionRecord, agentId: string): CodexPersistedAgent | undefined {
+		return this.persistence.find(owner, agentId);
+	}
+
+	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement {
+		return this.persistence.retire(owner, agentId);
+	}
+
 	resolveExecutionTarget(owner: SessionRecord, cwd?: string): CodexExecutionTarget | null {
 		return resolveAgentExecutionTarget(owner, cwd, this.sessionStore, this.offlineCatalog);
 	}
@@ -103,8 +112,7 @@ export class CodexAgentService {
 		return matches.length === 1 ? { ...owned, operation: matches[0]! } : null;
 	}
 
-	beginStart(req: Request, input: CodexStartIntentInput): CodexTransitionResult {
-		const owner = this.requireOwner(req);
+	beginStart(owner: SessionRecord, input: CodexStartIntentInput): CodexTransitionResult {
 		const agentId = CodexAgentIdSchema.parse(input.agentId);
 		const operationId = CodexOperationIdSchema.parse(input.operationId);
 		const prompt = CodexPromptSchema.parse(input.prompt);
@@ -121,6 +129,7 @@ export class CodexAgentService {
 		const agent = CodexPersistedAgentSchema.parse({
 			version: 1,
 			agentId,
+			...(input.runId === undefined ? {} : { runId: input.runId }),
 			agentState: "creating",
 			requestedTarget: target,
 			...(input.serviceTier === undefined ? {} : { serviceTier: input.serviceTier }),
@@ -155,8 +164,7 @@ export class CodexAgentService {
 		return this.commit(owner, catalog, [...catalog.agents, agent], agent, operationId);
 	}
 
-	beginMessage(req: Request, input: CodexExistingAgentIntentInput): CodexTransitionResult {
-		const owner = this.requireOwner(req);
+	beginMessage(owner: SessionRecord, input: CodexExistingAgentIntentInput): CodexTransitionResult {
 		const agentId = CodexAgentIdSchema.parse(input.agentId);
 		const operationId = CodexOperationIdSchema.parse(input.operationId);
 		const prompt = CodexPromptSchema.parse(input.prompt);
@@ -222,8 +230,7 @@ export class CodexAgentService {
 		return this.commit(owner, catalog, agents, next, operationId);
 	}
 
-	beginStop(req: Request, input: CodexStopIntentInput): CodexTransitionResult {
-		const owner = this.requireOwner(req);
+	beginStop(owner: SessionRecord, input: CodexStopIntentInput): CodexTransitionResult {
 		const agentId = CodexAgentIdSchema.parse(input.agentId);
 		const operationId = CodexOperationIdSchema.parse(input.operationId);
 		const at = validateTimestamp(input.at);

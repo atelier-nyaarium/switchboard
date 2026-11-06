@@ -102,6 +102,7 @@ export const CopilotPersistedAgentSchema = z
 	.object({
 		version: z.literal(1),
 		agentId: CopilotAgentIdSchema,
+		runId: CopilotOpaqueIdSchema.optional(),
 		agentState: CopilotAgentStateSchema,
 		requestedTarget: CopilotExecutionTargetSchema,
 		resolvedTarget: CopilotResolvedTargetSchema.optional(),

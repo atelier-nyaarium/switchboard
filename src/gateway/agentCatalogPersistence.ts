@@ -14,7 +14,15 @@ import { AgentTransitionError } from "./agentRouteEnvelope.js";
 export interface AgentCatalogAgent {
 	agentId: string;
 	operations: readonly AgentReplayOperation[];
+	turns: readonly { state: string }[];
 }
+
+export type AgentCatalogRetirement =
+	| { retired: true; catalogRevision: number }
+	| {
+			retired: false;
+			reason: "not_found" | "active_turn" | "requested_operation" | "owner_missing" | "catalog_changed";
+	  };
 
 export interface AgentCatalog<TAgent> {
 	version: 1;
@@ -111,6 +119,33 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		if (!committed.committed) return { disposition: "reconcile", owner, agent: next };
 		const agent = committed.catalog.agents.find((candidate) => candidate.agentId === next.agentId)!;
 		return { disposition: "applied", owner, agent, catalogRevision: committed.catalog.revision };
+	}
+
+	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement {
+		const catalog = this.read(owner);
+		const index = this.matchOf(catalog, agentId);
+		if (index === undefined) return { retired: false, reason: "not_found" };
+		const agent = catalog.agents[index]!;
+		if (agent.turns.some((turn) => turn.state === "inProgress")) return { retired: false, reason: "active_turn" };
+		if (agent.operations.some((operation) => operation.state === "requested"))
+			return { retired: false, reason: "requested_operation" };
+		let committed: ReturnType<AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>["commit"]>;
+		try {
+			committed = this.family.writer.commit(
+				owner,
+				catalog.revision,
+				catalog.agents.filter((candidate) => candidate.agentId !== agentId),
+			);
+		} catch {
+			return { retired: false, reason: "catalog_changed" };
+		}
+		if (!committed.committed) {
+			return {
+				retired: false,
+				reason: committed.reason === "owner_missing" ? "owner_missing" : "catalog_changed",
+			};
+		}
+		return { retired: true, catalogRevision: committed.catalog.revision };
 	}
 
 	replay(

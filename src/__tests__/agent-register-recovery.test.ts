@@ -68,10 +68,9 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		localGatewayId: "sakura",
 	});
 	const owner = store.mint({ spawn: "recipe-app", sessionLabel: "Work" });
-	const token = store.ensureBindToken(owner);
+	store.ensureBindToken(owner);
 	store.activateBinding(owner);
 	store.confirm(store.teamOf(owner));
-	const request = new Request("http://gateway/agents", { headers: { "x-session-token": token } });
 	const codex = new CodexAgentService({
 		auth,
 		sessionStore: store,
@@ -119,7 +118,7 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 	}
 
 	for (const operationId of codexStartIds) {
-		codex.beginStart(request, {
+		codex.beginStart(owner, {
 			agentId: codexAgentIdForOperation(operationId),
 			operationId,
 			daemonInstanceId: oldDaemon,
@@ -129,7 +128,7 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		});
 	}
 	for (const operationId of copilotStartIds) {
-		copilot.beginStart(request, {
+		copilot.beginStart(owner, {
 			agentId: copilotAgentIdForOperation(operationId),
 			operationId,
 			daemonInstanceId: oldDaemon,
@@ -184,27 +183,27 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		);
 	}
 
-	codex.beginMessage(request, {
+	codex.beginMessage(owner, {
 		agentId: codexAgents[1]!,
 		operationId: codexOps[2]!,
 		daemonInstanceId: oldDaemon,
 		prompt: "message",
 		at: at + 1,
 	});
-	codex.beginStop(request, {
+	codex.beginStop(owner, {
 		agentId: codexAgents[2]!,
 		operationId: codexOps[4]!,
 		daemonInstanceId: oldDaemon,
 		at: at + 1,
 	});
-	copilot.beginMessage(request, {
+	copilot.beginMessage(owner, {
 		agentId: copilotAgents[1]!,
 		operationId: copilotOps[2]!,
 		daemonInstanceId: oldDaemon,
 		prompt: "message",
 		at: at + 1,
 	});
-	copilot.beginStop(request, {
+	copilot.beginStop(owner, {
 		agentId: copilotAgents[2]!,
 		operationId: copilotOps[4]!,
 		daemonInstanceId: oldDaemon,

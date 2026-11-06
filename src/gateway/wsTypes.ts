@@ -64,6 +64,7 @@ export interface WsData {
 	/** The agent process running the plugin, as the register named it. */
 	agentPid?: number;
 	daemonInstanceId?: string;
+	catalogProjects?: ReadonlySet<string>;
 	boundToken?: string;
 	missedPings: number;
 	isStale: boolean;

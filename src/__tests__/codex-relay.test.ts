@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createCodexAgentCommands } from "../gateway/codexAgentCommands.js";
 import { CodexAgentService } from "../gateway/codexAgentService.js";
 import { CodexRelay } from "../gateway/codexRelay.js";
 import { CodexRoute } from "../gateway/codexRoute.js";
@@ -100,8 +101,17 @@ function setup(
 	const route = new CodexRoute({
 		service,
 		relay,
+		commands: createCodexAgentCommands({
+			service,
+			relay,
+			readLiveness: () => ({
+				socket: {} as never,
+				daemonInstanceId: liveDaemonInstanceId,
+				containerInCatalog: (target) => target.kind === "devcontainer",
+			}),
+			ambient,
+		}),
 		ambient,
-		daemonInstanceId: () => liveDaemonInstanceId,
 		waitBudgetMs: options.waitBudgetMs ?? 100,
 	});
 	const request = (tokenValue = token) =>

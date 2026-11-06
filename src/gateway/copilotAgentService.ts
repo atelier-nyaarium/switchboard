@@ -20,6 +20,7 @@ import {
 	copilotOperationIdentity,
 } from "../shared/copilot-agent.js";
 import type { SessionRecord } from "../shared/session-store.js";
+import type { AgentCatalogRetirement } from "./agentCatalogPersistence.js";
 import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
 import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
 import { AgentTransitionError, validateTimestamp } from "./agentRouteEnvelope.js";
@@ -68,6 +69,14 @@ export class CopilotAgentService {
 		return this.deps.sessionStore.listCopilotAgents(owner);
 	}
 
+	findOwnedAgent(owner: SessionRecord, agentId: string): CopilotPersistedAgent | undefined {
+		return this.persistence.find(owner, agentId);
+	}
+
+	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement {
+		return this.persistence.retire(owner, agentId);
+	}
+
 	resolveExecutionTarget(owner: SessionRecord, cwd?: string): CopilotExecutionTarget | null {
 		return resolveAgentExecutionTarget(owner, cwd, this.deps.sessionStore, this.deps.offlineCatalog);
 	}
@@ -80,8 +89,7 @@ export class CopilotAgentService {
 		return agent ? { owner, agent } : null;
 	}
 
-	beginStart(req: Request, input: CopilotIntentInput): CopilotTransitionResult {
-		const owner = this.requireOwner(req);
+	beginStart(owner: SessionRecord, input: CopilotIntentInput): CopilotTransitionResult {
 		const agentId = CopilotAgentIdSchema.parse(input.agentId);
 		const operationId = CopilotOperationIdSchema.parse(input.operationId);
 		const prompt = CopilotPromptSchema.parse(input.prompt);
@@ -97,6 +105,7 @@ export class CopilotAgentService {
 		const agent = CopilotPersistedAgentSchema.parse({
 			version: 1,
 			agentId,
+			...(input.runId === undefined ? {} : { runId: input.runId }),
 			agentState: "creating",
 			requestedTarget: target,
 			operations: [
@@ -121,8 +130,7 @@ export class CopilotAgentService {
 		return this.commit(owner, catalog, [...catalog.agents, agent], agent, operationId);
 	}
 
-	beginMessage(req: Request, input: CopilotExistingAgentIntentInput): CopilotTransitionResult {
-		const owner = this.requireOwner(req);
+	beginMessage(owner: SessionRecord, input: CopilotExistingAgentIntentInput): CopilotTransitionResult {
 		const agentId = CopilotAgentIdSchema.parse(input.agentId);
 		const operationId = CopilotOperationIdSchema.parse(input.operationId);
 		const prompt = CopilotPromptSchema.parse(input.prompt);
@@ -169,8 +177,7 @@ export class CopilotAgentService {
 		return this.commit(owner, catalog, replaceAt(catalog.agents, index, next), next, operationId);
 	}
 
-	beginStop(req: Request, input: CopilotStopIntentInput): CopilotTransitionResult {
-		const owner = this.requireOwner(req);
+	beginStop(owner: SessionRecord, input: CopilotStopIntentInput): CopilotTransitionResult {
 		const agentId = CopilotAgentIdSchema.parse(input.agentId);
 		const operationId = CopilotOperationIdSchema.parse(input.operationId);
 		const at = validateTimestamp(input.at);
@@ -294,12 +301,6 @@ export class CopilotAgentService {
 		identity: AgentOperationIdentity,
 	): CopilotTransitionResult | null {
 		return this.persistence.replay(owner, operationId, identity);
-	}
-
-	private requireOwner(req: Request): SessionRecord {
-		const owner = this.resolveOwner(req);
-		if (!owner) throw new AgentTransitionError("not_found", "session was not found");
-		return owner;
 	}
 
 	private catalog(owner: SessionRecord): CopilotAgentCatalog {

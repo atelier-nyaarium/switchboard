@@ -22,8 +22,11 @@
 		"postinstall": "bun scripts/link-lexicon.mjs || node scripts/link-lexicon.mjs"
 	},
 	"dependencies": {
+		"@jitl/quickjs-wasmfile-release-sync": "0.32.0",
 		"@modelcontextprotocol/sdk": "1.30.0",
+		"ajv": "8.20.0",
 		"micromark": "4.0.2",
+		"quickjs-emscripten-core": "0.32.0",
 		"qrcode-generator": "2.0.4",
 		"unbash": "4.0.11",
 		"vscode-jsonrpc": "9.0.2",

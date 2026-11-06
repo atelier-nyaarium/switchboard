@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createCopilotAgentCommands } from "../gateway/copilotAgentCommands.js";
 import { CopilotAgentService } from "../gateway/copilotAgentService.js";
 import { CopilotRelay } from "../gateway/copilotRelay.js";
 import { CopilotRoute } from "../gateway/copilotRoute.js";
@@ -61,8 +62,17 @@ function setup(options: { dispatch?: boolean; waitBudgetMs?: number } = {}) {
 	const route = new CopilotRoute({
 		service,
 		relay,
+		commands: createCopilotAgentCommands({
+			service,
+			relay,
+			readLiveness: () => ({
+				socket: {} as never,
+				daemonInstanceId: liveDaemonInstanceId,
+				containerInCatalog: (target) => target.kind === "devcontainer",
+			}),
+			ambient: processAmbient(),
+		}),
 		ambient: processAmbient(),
-		daemonInstanceId: () => liveDaemonInstanceId,
 		waitBudgetMs: options.waitBudgetMs ?? 1_000,
 	});
 	return {

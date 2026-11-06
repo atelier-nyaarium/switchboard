@@ -18,6 +18,7 @@ export interface RosterAgent {
 	ownerKey: string;
 	family: AgentBackendId;
 	agentId: string;
+	runId?: string;
 	agentState: string;
 	turns: readonly { id: string; state: string; updatedAt: number; notes: readonly string[] }[];
 }

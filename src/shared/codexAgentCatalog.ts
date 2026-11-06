@@ -275,8 +275,9 @@ export function projectCodexListResult(
 		options.limit ?? defaultLimit,
 		detail === "full" ? CODEX_LIST_FULL_MAX_LIMIT : CODEX_LIST_MAX_LIMIT,
 	);
-	const selected = agents.slice(-limit).reverse();
-	const omitted = Math.max(0, agents.length - selected.length);
+	const visible = agents.filter((agent) => agent.runId === undefined);
+	const selected = visible.slice(-limit).reverse();
+	const omitted = Math.max(0, visible.length - selected.length);
 	return CodexListAgentsResultSchema.parse({
 		detail,
 		agents:

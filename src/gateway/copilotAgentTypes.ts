@@ -14,6 +14,7 @@ export interface CopilotIntentInput {
 	agentId: string;
 	operationId: string;
 	daemonInstanceId?: string;
+	runId?: string;
 	prompt: string;
 	target: unknown;
 	model?: string;

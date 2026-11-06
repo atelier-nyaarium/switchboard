@@ -3,9 +3,11 @@
 import { agentHttpPath } from "../../shared/agent-backend.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { RosterAgent } from "../agentAwareness.js";
+import { type CodexAgentCommands, createCodexAgentCommands } from "../codexAgentCommands.js";
 import { CodexAgentService } from "../codexAgentService.js";
 import { CodexRelay } from "../codexRelay.js";
 import { CodexRoute } from "../codexRoute.js";
+import { type CopilotAgentCommands, createCopilotAgentCommands } from "../copilotAgentCommands.js";
 import { CopilotAgentService } from "../copilotAgentService.js";
 import { CopilotRelay } from "../copilotRelay.js";
 import { CopilotRoute } from "../copilotRoute.js";
@@ -18,13 +20,15 @@ export interface AgentsStageDeps {
 		SessionsStage,
 		"sessionAuthority" | "sessionStore" | "offlineCatalog" | "codexCatalogWriter" | "copilotCatalogWriter"
 	>;
-	host: Pick<HostStage, "liveHostSocket" | "liveHostDaemonInstanceId">;
+	host: Pick<HostStage, "readLiveness">;
 	ambient: Ambient;
 }
 
 export interface AgentsStage {
 	codexRelay: CodexRelay;
 	copilotRelay: CopilotRelay;
+	codexCommands: CodexAgentCommands;
+	copilotCommands: CopilotAgentCommands;
 	agentRoutes: Map<string, (req: Request, body: unknown) => Promise<Response>>;
 	reconcileStaleAgents: () => void;
 	/** Every agent of both families with its turns, for the awareness watch. */
@@ -39,7 +43,7 @@ function commentaryOf(activities: readonly { kind: string; text?: string }[]): s
 
 export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): AgentsStage {
 	const sendToHost = (message: unknown): boolean => {
-		const hostWs = host.liveHostSocket();
+		const hostWs = host.readLiveness().socket;
 		if (!hostWs) return false;
 		return reached(sendOn(hostWs, JSON.stringify(message), "agent daemon command"));
 	};
@@ -60,28 +64,40 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 	const codexRelay = new CodexRelay({
 		service: codexAgentService,
 		sessionStore: sessions.sessionStore,
-		liveDaemonInstanceId: host.liveHostDaemonInstanceId,
+		liveDaemonInstanceId: () => host.readLiveness().daemonInstanceId,
 		sendToHost,
 		ambient,
 	});
 	const copilotRelay = new CopilotRelay({
 		service: copilotAgentService,
 		sessionStore: sessions.sessionStore,
-		liveDaemonInstanceId: host.liveHostDaemonInstanceId,
+		liveDaemonInstanceId: () => host.readLiveness().daemonInstanceId,
 		sendToHost,
+		ambient,
+	});
+	const codexCommands = createCodexAgentCommands({
+		service: codexAgentService,
+		relay: codexRelay,
+		readLiveness: host.readLiveness,
+		ambient,
+	});
+	const copilotCommands = createCopilotAgentCommands({
+		service: copilotAgentService,
+		relay: copilotRelay,
+		readLiveness: host.readLiveness,
 		ambient,
 	});
 	const codexRoute = new CodexRoute({
 		service: codexAgentService,
 		relay: codexRelay,
+		commands: codexCommands,
 		ambient,
-		daemonInstanceId: host.liveHostDaemonInstanceId,
 	});
 	const copilotRoute = new CopilotRoute({
 		service: copilotAgentService,
 		relay: copilotRelay,
+		commands: copilotCommands,
 		ambient,
-		daemonInstanceId: host.liveHostDaemonInstanceId,
 	});
 
 	const agentRoutes = new Map<string, (req: Request, body: unknown) => Promise<Response>>([
@@ -97,18 +113,20 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 				["copilot", copilotAgentService.listOwnedAgents(owner)],
 			] as const;
 			return families.flatMap(([family, agents]) =>
-				agents.map((agent) => ({
-					ownerKey,
-					family,
-					agentId: agent.agentId,
-					agentState: agent.agentState,
-					turns: agent.turns.map((turn) => ({
-						id: turn.id,
-						state: turn.state,
-						updatedAt: turn.updatedAt,
-						notes: commentaryOf(turn.activities),
+				agents
+					.filter((agent) => agent.runId === undefined)
+					.map((agent) => ({
+						ownerKey,
+						family,
+						agentId: agent.agentId,
+						agentState: agent.agentState,
+						turns: agent.turns.map((turn) => ({
+							id: turn.id,
+							state: turn.state,
+							updatedAt: turn.updatedAt,
+							notes: commentaryOf(turn.activities),
+						})),
 					})),
-				})),
 			);
 		});
 
@@ -119,5 +137,13 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		}
 	};
 
-	return { codexRelay, copilotRelay, agentRoutes, agentRoster, reconcileStaleAgents };
+	return {
+		codexRelay,
+		copilotRelay,
+		codexCommands,
+		copilotCommands,
+		agentRoutes,
+		agentRoster,
+		reconcileStaleAgents,
+	};
 }

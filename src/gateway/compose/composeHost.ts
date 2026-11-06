@@ -3,6 +3,7 @@
 import type { ServerWebSocket } from "bun";
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
+import type { HostLivenessReader } from "../hostLiveness.js";
 import { HostOpCoordinator } from "../hostOpCoordinator.js";
 import { WakeCoordinator } from "../wake.js";
 import { WakeService } from "../wakeService.js";
@@ -26,7 +27,7 @@ export interface HostStageDeps {
 
 export interface HostStage {
 	liveHostSocket: () => ServerWebSocket<WsData> | undefined;
-	liveHostDaemonInstanceId: () => string | undefined;
+	readLiveness: HostLivenessReader;
 	wakeCoordinator: WakeCoordinator;
 	hostOpCoordinator: HostOpCoordinator;
 	wakeService: WakeService;
@@ -47,9 +48,16 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 		return hostSubs ? [...hostSubs.values()].find((ws) => ws.readyState === 1) : undefined;
 	}
 
-	function liveHostDaemonInstanceId(): string | undefined {
-		return liveHostSocket()?.data.daemonInstanceId;
-	}
+	const readLiveness: HostLivenessReader = () => {
+		const socket = liveHostSocket();
+		const catalogProjects = socket?.data.catalogProjects;
+		return {
+			socket,
+			daemonInstanceId: socket?.data.daemonInstanceId,
+			containerInCatalog: (target) =>
+				target.kind === "devcontainer" && (catalogProjects?.has(target.project) ?? false),
+		};
+	};
 
 	const wakeService = new WakeService({
 		registry: sessions.registry,
@@ -95,7 +103,7 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 
 	return {
 		liveHostSocket,
-		liveHostDaemonInstanceId,
+		readLiveness,
 		wakeCoordinator,
 		hostOpCoordinator,
 		wakeService,

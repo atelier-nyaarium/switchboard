@@ -55,6 +55,7 @@ export type CopilotListAgentsResult = z.infer<typeof CopilotListAgentsResultSche
 
 export interface CopilotListAgentSource {
 	agentId: string;
+	runId?: string;
 	agentState: z.infer<typeof CopilotAgentStateSchema>;
 	activeTurnId?: string;
 	turns: ReadonlyArray<{ id: string; state: z.infer<typeof CopilotTurnStateSchema>; reason?: string }>;
@@ -81,5 +82,7 @@ export function projectCopilotListAgent(agent: CopilotListAgentSource): CopilotL
 }
 
 export function projectCopilotListResult(agents: readonly CopilotListAgentSource[]): CopilotListAgentsResult {
-	return CopilotListAgentsResultSchema.parse({ agents: agents.map(projectCopilotListAgent) });
+	return CopilotListAgentsResultSchema.parse({
+		agents: agents.filter((agent) => agent.runId === undefined).map(projectCopilotListAgent),
+	});
 }

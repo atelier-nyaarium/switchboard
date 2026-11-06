@@ -5,11 +5,13 @@ import type { SessionRecord } from "../shared/session-store.js";
 
 interface TestAgent {
 	agentId: string;
+	agentState?: string;
 	operations: Array<{ operationId: string; fingerprint: string; state: string }>;
+	turns: Array<{ state: string }>;
 }
 
 function agent(agentId: string, state = "requested"): TestAgent {
-	return { agentId, operations: [{ operationId: `op-${agentId}`, fingerprint: "f", state }] };
+	return { agentId, operations: [{ operationId: `op-${agentId}`, fingerprint: "f", state }], turns: [] };
 }
 
 type Write = "lands" | "conflicts" | "orphaned" | "throws";
@@ -99,5 +101,21 @@ describe("agent catalog persistence", () => {
 		expect(refusalOf(() => context.persistence.indexOf(catalog, "a"))).toBe("not_found");
 		expect(context.persistence.indexOf(catalog, "b")).toBe(2);
 		expect(context.persistence.apply(context.owner, agent("a", "accepted")).disposition).toBe("ignored");
+	});
+
+	it("retires only agents without a running turn or requested operation", () => {
+		const idle = setup("lands", [agent("idle", "accepted")]);
+		expect(idle.persistence.retire(idle.owner, "idle")).toMatchObject({ retired: true });
+		expect(idle.persistence.find(idle.owner, "idle")).toBeUndefined();
+
+		const working = setup("lands", [{ ...agent("working", "accepted"), turns: [{ state: "inProgress" }] }]);
+		expect(working.persistence.retire(working.owner, "working")).toEqual({ retired: false, reason: "active_turn" });
+		expect(working.persistence.find(working.owner, "working")).toBeDefined();
+
+		const requested = setup("lands", [{ ...agent("requested"), agentState: "unavailable" }]);
+		expect(requested.persistence.retire(requested.owner, "requested")).toEqual({
+			retired: false,
+			reason: "requested_operation",
+		});
 	});
 });

@@ -339,7 +339,7 @@ describe("Codex agent contracts", () => {
 		const { service, sessionStore } = ownedService();
 		const record = owner(sessionStore, "recipe-app");
 		const request = new Request("http://gateway/codex", { headers: { "x-session-token": record.bindToken! } });
-		service.beginStart(request, {
+		service.beginStart(record, {
 			agentId: AGENT_ID,
 			operationId: OPERATION_ID,
 			prompt: "Review",
@@ -356,7 +356,7 @@ describe("Codex agent contracts", () => {
 			fence: fence(2),
 			at: 21,
 		});
-		service.beginMessage(request, {
+		service.beginMessage(record, {
 			agentId: AGENT_ID,
 			operationId: "123e4567-e89b-42d3-a456-426614174001",
 			prompt: "Continue",

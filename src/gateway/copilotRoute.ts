@@ -13,9 +13,9 @@ import {
 	projectCopilotListResult,
 	sanitizeCopilotErrorText,
 } from "../shared/copilot-agent.js";
-import { isHostSpawn } from "../shared/host-spawn.js";
 import type { SessionRecord } from "../shared/session-store.js";
 import { AGENT_FAILURE_ANSWERS, AgentTransitionError, jsonResponse as json } from "./agentRouteEnvelope.js";
+import type { CopilotAgentCommands } from "./copilotAgentCommands.js";
 import type { CopilotAgentService } from "./copilotAgentService.js";
 import type { CopilotRelay } from "./copilotRelay.js";
 import { presentedByRequest } from "./sessionAuthority.js";
@@ -23,8 +23,8 @@ import { presentedByRequest } from "./sessionAuthority.js";
 export interface CopilotRouteDeps {
 	service: CopilotAgentService;
 	relay: CopilotRelay;
+	commands: CopilotAgentCommands;
 	ambient: Clock;
-	daemonInstanceId: () => string | undefined;
 	waitBudgetMs?: number;
 }
 
@@ -130,13 +130,13 @@ export class CopilotRoute {
 		try {
 			switch (parsed.data.kind) {
 				case "start":
-					return json(await this.start(req, owner, parsed.data));
+					return json(await this.start(owner, parsed.data));
 				case "message":
-					return json(await this.message(req, owner, parsed.data));
+					return json(await this.message(owner, parsed.data));
 				case "await":
 					return json(await this.awaitAgent(req, owner, parsed.data.agentId));
 				case "stop":
-					return json(await this.stop(req, owner, parsed.data));
+					return json(await this.stop(owner, parsed.data));
 				case "list":
 					return json(this.list(owner));
 			}
@@ -169,108 +169,51 @@ export class CopilotRoute {
 	}
 
 	private async start(
-		req: Request,
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CopilotGatewayRequestSchema.parse>, { kind: "start" }>,
 	): Promise<CopilotAgentResult> {
-		const agentId = copilotAgentIdForOperation(request.operationId);
-		if (request.cwd !== undefined && !isHostSpawn(owner.spawn))
-			throw new AgentTransitionError("invalid_input", "cwd applies to host sessions only");
-		const target = this.deps.service.resolveExecutionTarget(owner, request.cwd);
-		if (!target) return unavailable(agentId, "daemon_unavailable", "no trusted execution target for this session");
-		const daemonInstanceId = this.deps.daemonInstanceId();
-		if (!daemonInstanceId) return unavailable(agentId, "daemon_unavailable", "host daemon identity is unavailable");
-		const committed = this.deps.service.beginStart(req, {
-			agentId,
-			operationId: request.operationId,
-			daemonInstanceId,
-			prompt: request.prompt,
-			target,
-			model: request.model,
-			reasoningEffort: request.reasoningEffort,
-			outputSchema: request.outputSchema,
-			at: this.now(),
-		});
-		let dispatched = true;
-		if (committed.disposition === "committed") {
-			dispatched = this.deps.relay.dispatch({
-				kind: "start",
-				ownerKey: this.deps.service.ownerKeyOf(owner),
-				agentId,
-				operationId: request.operationId,
-				target,
-				prompt: request.prompt,
-				...(request.model ? { model: request.model } : {}),
-				...(request.reasoningEffort === undefined ? {} : { reasoningEffort: request.reasoningEffort }),
-				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
-			});
-		}
-		return this.settle(owner, agentId, request.operationId, "started", committed.agent, dispatched);
+		const result = this.deps.commands.start(owner, request);
+		if (result.kind === "refused") return unavailable(result.agentId, result.code, result.reason);
+		return this.settle(
+			owner,
+			result.transition.agent.agentId,
+			request.operationId,
+			"started",
+			result.transition.agent,
+			result.dispatched,
+		);
 	}
 
 	private async message(
-		req: Request,
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CopilotGatewayRequestSchema.parse>, { kind: "message" }>,
 	): Promise<CopilotAgentResult> {
-		const daemonInstanceId = this.deps.daemonInstanceId();
-		if (!daemonInstanceId)
-			return unavailable(request.agentId, "daemon_unavailable", "host daemon identity is unavailable");
-		const committed = this.deps.service.beginMessage(req, {
-			agentId: request.agentId,
-			operationId: request.operationId,
-			daemonInstanceId,
-			prompt: request.prompt,
-			outputSchema: request.outputSchema,
-			at: this.now(),
-		});
-		let dispatched = true;
-		if (committed.disposition === "committed") {
-			const agent = committed.agent;
-			dispatched = this.deps.relay.dispatch({
-				kind: "message",
-				ownerKey: this.deps.service.ownerKeyOf(owner),
-				agentId: request.agentId,
-				operationId: request.operationId,
-				target: agent.resolvedTarget!,
-				sessionId: agent.sessionId!,
-				prompt: request.prompt,
-				// Names the turn a steer is meant for; the daemon opens a new one if it has settled.
-				...(committed.operation.expectedTurnId ? { expectedTurnId: committed.operation.expectedTurnId } : {}),
-				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
-			});
-		}
-		return this.settle(owner, request.agentId, request.operationId, "followup", committed.agent, dispatched);
+		if (this.deps.commands.observe(owner, request.agentId).agent?.runId)
+			throw new AgentTransitionError("state_conflict", "run agents must be controlled with workflowStop");
+		const result = this.deps.commands.message(owner, request);
+		if (result.kind === "refused") return unavailable(request.agentId, result.code, result.reason);
+		return this.settle(
+			owner,
+			request.agentId,
+			request.operationId,
+			"followup",
+			result.transition.agent,
+			result.dispatched,
+		);
 	}
 
 	private async stop(
-		req: Request,
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CopilotGatewayRequestSchema.parse>, { kind: "stop" }>,
 	): Promise<CopilotAgentResult> {
-		const daemonInstanceId = this.deps.daemonInstanceId();
-		if (!daemonInstanceId)
-			return unavailable(request.agentId, "daemon_unavailable", "host daemon identity is unavailable");
-		const committed = this.deps.service.beginStop(req, {
-			agentId: request.agentId,
-			operationId: request.operationId,
-			daemonInstanceId,
-			at: this.now(),
-		});
-		if (committed.disposition === "committed" && committed.operation.state === "requested") {
-			this.deps.relay.dispatch({
-				kind: "interrupt",
-				ownerKey: this.deps.service.ownerKeyOf(owner),
-				agentId: request.agentId,
-				operationId: request.operationId,
-				target: committed.agent.resolvedTarget!,
-				sessionId: committed.agent.sessionId!,
-				turnId: committed.operation.turnId!,
-			});
-		}
-		return describeAgent(committed.agent, {
-			observation: committed.operation.state === "accepted" ? "idle" : "interruptRequested",
-			turnId: committed.agent.activeTurnId,
+		if (this.deps.commands.observe(owner, request.agentId).agent?.runId)
+			throw new AgentTransitionError("state_conflict", "run agents must be controlled with workflowStop");
+		const result = this.deps.commands.stop(owner, request);
+		if (result.kind === "refused") return unavailable(request.agentId, result.code, result.reason);
+		const agent = this.deps.commands.observe(owner, request.agentId).agent ?? result.transition.agent;
+		return describeAgent(agent, {
+			observation: result.transition.operation.state === "accepted" ? "idle" : "interruptRequested",
+			turnId: agent.activeTurnId,
 		});
 	}
 
@@ -334,11 +277,11 @@ export class CopilotRoute {
 		const current = this.current(owner, agentId) ?? initial;
 		const operation = current.operations.find((candidate) => candidate.operationId === operationId);
 		if (!operation || operation.state === "requested") {
-			const abandoned = this.deps.service.abandonDelivery(owner, agentId, operationId, this.now());
+			const abandoned = this.deps.commands.abandon(owner, agentId, operationId, this.now());
 			if (!abandoned) return unavailable(agentId, "not_found", "Copilot agent was not found");
 			if (abandoned.agentState === "creating")
 				return describeAgent(abandoned, { observation: "waitTimedOut", delivery });
-			const refusal = this.deps.service.takeRefusal(operationId);
+			const refusal = this.deps.commands.observe(owner, agentId, operationId).refusal;
 			return unavailable(
 				agentId,
 				refusal?.code ?? (abandoned.agentState === "unavailable" ? "daemon_unavailable" : "indeterminate"),
@@ -347,7 +290,7 @@ export class CopilotRoute {
 		}
 		if (!operation.turnId) {
 			if (operation.state === "accepted") return describeAgent(current, { observation: "idle" });
-			const refusal = this.deps.service.takeRefusal(operationId);
+			const refusal = this.deps.commands.observe(owner, agentId, operationId).refusal;
 			return unavailable(
 				agentId,
 				refusal?.code ?? (current.agentState === "unavailable" ? "daemon_unavailable" : "indeterminate"),
@@ -370,7 +313,7 @@ export class CopilotRoute {
 	}
 
 	private current(owner: SessionRecord, agentId: string): CopilotPersistedAgent | undefined {
-		return this.deps.service.listOwnedAgents(owner).find((agent) => agent.agentId === agentId);
+		return this.deps.commands.observe(owner, agentId).agent;
 	}
 
 	private deadline(): number {

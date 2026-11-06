@@ -14,9 +14,9 @@ import {
 	projectCodexListResult,
 	sanitizeCodexErrorText,
 } from "../shared/codex-agent.js";
-import { isHostSpawn } from "../shared/host-spawn.js";
 import type { SessionRecord } from "../shared/session-store.js";
 import { AGENT_FAILURE_ANSWERS, AgentTransitionError, jsonResponse as json } from "./agentRouteEnvelope.js";
+import type { CodexAgentCommands } from "./codexAgentCommands.js";
 import type { CodexAgentService } from "./codexAgentService.js";
 import type { CodexRelay } from "./codexRelay.js";
 import { presentedByRequest } from "./sessionAuthority.js";
@@ -24,8 +24,8 @@ import { presentedByRequest } from "./sessionAuthority.js";
 export interface CodexRouteDeps {
 	service: CodexAgentService;
 	relay: CodexRelay;
+	commands: CodexAgentCommands;
 	ambient: Clock;
-	daemonInstanceId: () => string | undefined;
 	/** Wait budget covers acceptance and turn settlement together. */
 	waitBudgetMs?: number;
 }
@@ -51,10 +51,6 @@ const AGENT_NOT_FOUND = { code: "not_found" as const, retryable: false };
 
 function turnOf(agent: CodexPersistedAgent, turnId: string | undefined): CodexStoredTurn | undefined {
 	return turnId ? agent.turns.find((turn) => turn.id === turnId) : undefined;
-}
-
-function startModelOf(agent: CodexPersistedAgent): string | undefined {
-	return agent.exchanges.find((exchange) => exchange.kind === "start")?.model;
 }
 
 /** `accepted` names a turn the daemon took and nothing yet waited on, as a start or message answers. */
@@ -139,13 +135,13 @@ export class CodexRoute {
 		try {
 			switch (request.kind) {
 				case "start":
-					return json(await this.start(req, owner, request));
+					return json(await this.start(owner, request));
 				case "message":
-					return json(await this.message(req, owner, request));
+					return json(await this.message(owner, request));
 				case "await":
 					return json(await this.awaitAgent(req, owner, request.agentId));
 				case "stop":
-					return json(await this.stop(req, owner, request));
+					return json(await this.stop(owner, request));
 				case "list":
 					return json(this.list(owner, request));
 				default:
@@ -180,114 +176,45 @@ export class CodexRoute {
 	}
 
 	private async start(
-		req: Request,
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CodexGatewayRequestSchema.parse>, { kind: "start" }>,
 	): Promise<CodexAgentResult> {
-		// Derive agent identity from operationId so retries replay the same start.
-		const agentId = codexAgentIdForOperation(request.operationId);
-		// Only host sessions may override the execution working directory.
-		if (request.cwd !== undefined && !isHostSpawn(owner.spawn)) {
-			throw new AgentTransitionError("invalid_input", "cwd applies to host sessions only");
-		}
-		const target = this.deps.service.resolveExecutionTarget(owner, request.cwd);
-		if (!target) return unavailable(agentId, TARGET_UNAVAILABLE, "no trusted execution target for this session");
-		const daemonInstanceId = this.deps.daemonInstanceId();
-		if (!daemonInstanceId) return unavailable(agentId, TARGET_UNAVAILABLE, "host daemon identity is unavailable");
-
-		const committed = this.deps.service.beginStart(req, {
-			agentId,
-			operationId: request.operationId,
-			daemonInstanceId,
-			prompt: request.prompt,
-			outputSchema: request.outputSchema,
-			target,
-			model: request.model,
-			serviceTier: request.serviceTier,
-			at: this.now(),
-		});
-		let dispatched = true;
-		if (committed.disposition === "committed") {
-			dispatched = this.deps.relay.dispatch({
-				kind: "start",
-				ownerKey: this.ownerKey(owner),
-				agentId,
-				operationId: request.operationId,
-				target,
-				prompt: request.prompt,
-				// Persisted model and tier are the replay source of truth.
-				model: request.model,
-				...(request.serviceTier === undefined ? {} : { serviceTier: request.serviceTier }),
-				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
-			});
-		}
-		return this.settle(owner, agentId, request.operationId, dispatched);
+		const result = this.deps.commands.start(owner, request);
+		if (result.kind === "refused") return unavailable(result.agentId, TARGET_UNAVAILABLE, result.reason);
+		return this.settle(owner, result.transition.agent.agentId, request.operationId, result.dispatched);
 	}
 
 	private async message(
-		req: Request,
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CodexGatewayRequestSchema.parse>, { kind: "message" }>,
 	): Promise<CodexAgentResult> {
-		const daemonInstanceId = this.deps.daemonInstanceId();
-		if (!daemonInstanceId)
-			return unavailable(request.agentId, TARGET_UNAVAILABLE, "host daemon identity is unavailable");
-		const committed = this.deps.service.beginMessage(req, {
-			agentId: request.agentId,
-			operationId: request.operationId,
-			daemonInstanceId,
-			prompt: request.prompt,
-			outputSchema: request.outputSchema,
-			serviceTier: request.serviceTier,
-			at: this.now(),
-		});
-		let dispatched = true;
-		if (committed.disposition === "committed") {
-			const agent = committed.agent;
-			dispatched = this.deps.relay.dispatch({
-				kind: "message",
-				ownerKey: this.ownerKey(owner),
-				agentId: request.agentId,
-				operationId: request.operationId,
-				target: agent.resolvedTarget!,
-				threadId: agent.threadId!,
-				expectedTurnId: committed.operation.expectedTurnId,
-				prompt: request.prompt,
-				...(agent.serviceTier === undefined ? {} : { serviceTier: agent.serviceTier }),
-				...(startModelOf(agent) === undefined ? {} : { model: startModelOf(agent) }),
-				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
-			});
-		}
-		return this.settle(owner, request.agentId, request.operationId, dispatched);
+		if (this.deps.commands.observe(owner, request.agentId).agent?.runId)
+			throw new AgentTransitionError("state_conflict", "run agents must be controlled with workflowStop");
+		const result = this.deps.commands.message(owner, request);
+		if (result.kind === "refused")
+			return unavailable(
+				request.agentId,
+				result.code === "not_found" ? AGENT_NOT_FOUND : TARGET_UNAVAILABLE,
+				result.reason,
+			);
+		return this.settle(owner, request.agentId, request.operationId, result.dispatched);
 	}
 
 	private async stop(
-		req: Request,
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CodexGatewayRequestSchema.parse>, { kind: "stop" }>,
 	): Promise<CodexAgentResult> {
-		const daemonInstanceId = this.deps.daemonInstanceId();
-		if (!daemonInstanceId)
-			return unavailable(request.agentId, TARGET_UNAVAILABLE, "host daemon identity is unavailable");
-		const committed = this.deps.service.beginStop(req, {
-			agentId: request.agentId,
-			operationId: request.operationId,
-			daemonInstanceId,
-			at: this.now(),
-		});
-		const agent = committed.agent;
-		if (committed.disposition === "committed" && !committed.operation.noOp) {
-			this.deps.relay.dispatch({
-				kind: "interrupt",
-				ownerKey: this.ownerKey(owner),
-				agentId: request.agentId,
-				operationId: request.operationId,
-				target: agent.resolvedTarget!,
-				threadId: agent.threadId!,
-				turnId: committed.operation.turnId!,
-			});
-		}
-		return describeAgent(this.current(owner, request.agentId) ?? agent, agent.activeTurnId);
+		if (this.deps.commands.observe(owner, request.agentId).agent?.runId)
+			throw new AgentTransitionError("state_conflict", "run agents must be controlled with workflowStop");
+		const result = this.deps.commands.stop(owner, request);
+		if (result.kind === "refused")
+			return unavailable(
+				request.agentId,
+				result.code === "not_found" ? AGENT_NOT_FOUND : TARGET_UNAVAILABLE,
+				result.reason,
+			);
+		const agent = this.deps.commands.observe(owner, request.agentId).agent ?? result.transition.agent;
+		return describeAgent(agent, agent.activeTurnId);
 	}
 
 	private async awaitAgent(req: Request, owner: SessionRecord, agentId: string): Promise<CodexAgentResult> {
@@ -337,7 +264,8 @@ export class CodexRoute {
 					activities: [],
 				});
 			}
-			const recovering = this.deps.service.abandonDelivery(owner, agentId, operationId, this.now());
+			const recovering = this.deps.commands.abandon(owner, agentId, operationId, this.now());
+			const refusalReason = this.deps.commands.observe(owner, agentId, operationId).refusalReason;
 			if (!dispatched) {
 				return unavailable(
 					agentId,
@@ -354,9 +282,7 @@ export class CodexRoute {
 				error: {
 					code: "indeterminate",
 					retryable: true,
-					message:
-						this.deps.service.takeRefusalReason(operationId) ??
-						"codex delivery was not confirmed within the wait budget",
+					message: refusalReason ?? "codex delivery was not confirmed within the wait budget",
 				},
 			});
 		}
@@ -394,7 +320,7 @@ export class CodexRoute {
 	}
 
 	private current(owner: SessionRecord, agentId: string): CodexPersistedAgent | undefined {
-		return this.deps.service.listOwnedAgents(owner).find((agent) => agent.agentId === agentId);
+		return this.deps.commands.observe(owner, agentId).agent;
 	}
 
 	private ownerKey(owner: SessionRecord): string {
