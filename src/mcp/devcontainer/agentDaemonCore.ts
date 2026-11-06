@@ -1,6 +1,7 @@
 import { type AgentBackendId, agentFrameType } from "../../shared/agent-backend.js";
 import type { AgentResolvedTarget } from "../../shared/agent-execution-target.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
+import { createOpDedupe } from "../../shared/op-dedupe.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
 import type { TargetLease, TargetSupervisor } from "./codexTargets.js";
 
@@ -26,7 +27,7 @@ export interface AgentEventAck {
 	throughEventId: number;
 }
 
-export interface AgentDaemonCoreOptions {
+export interface AgentDaemonCoreOptions<TSession extends AgentDaemonSession> {
 	backendId: AgentBackendId;
 	daemonInstanceId: string;
 	targets: TargetSupervisor;
@@ -35,11 +36,13 @@ export interface AgentDaemonCoreOptions {
 	// Validates hello() before it is sent, matching every sibling frame on this wire. The receiver's
 	// schema is .strict(), so an unvalidated drift here is rejected at the far end with no local sign.
 	helloSchema?: { parse(value: unknown): unknown };
+	onRetire?: (session: TSession) => void;
 }
 
 interface AgentCommand {
 	ownerKey: string;
 	agentId: string;
+	operationId?: string;
 }
 
 type EventIdPlacement = "first" | "last";
@@ -48,6 +51,7 @@ type EventIdPlacement = "first" | "last";
 //  Constants
 
 const OUTBOX_MAX_ENTRIES = 1_000;
+const OPERATION_LEDGER_MAX_ENTRIES = 1_000;
 
 ////////////////////////////////
 //  Class
@@ -64,9 +68,20 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 	private readonly opening = createSingleFlight<string, TSession | null>();
 	private readonly outbox: Array<{ targetId: string; generation: number; eventId: number; message: object }> = [];
 	private readonly commands = createKeyedFifo<string>();
+	private readonly activeOperations = new Set<string>();
+	private readonly operationAnswers = new Map<string, Record<string, unknown>>();
+	private readonly operations = createOpDedupe<Record<string, unknown>>({
+		now: () => Date.now(),
+		maxEntries: OPERATION_LEDGER_MAX_ENTRIES,
+	});
 	private rejections = 0;
 
-	constructor(private readonly options: AgentDaemonCoreOptions) {}
+	constructor(private readonly options: AgentDaemonCoreOptions<TSession>) {
+		options.targets.onRetire?.((targetId, generation) => {
+			const session = this.sessions.get(targetId);
+			if (session?.generation === generation) this.retire(session);
+		});
+	}
 
 	hello(): Record<string, unknown> {
 		const frame = {
@@ -106,18 +121,42 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		reject: (command: TCommand, error: string) => void,
 		describe: (error: unknown) => string,
 	): void {
-		// Answer rejection before successors.
-		void this.commands.run(`${command.ownerKey} ${command.agentId}`, async () => {
-			try {
-				await dispatch(command);
-			} catch (error) {
-				try {
-					reject(command, describe(error));
-				} catch (failed) {
-					console.error(`[${this.options.backendId}-daemon] rejecting a command failed:`, failed);
+		const run = async (): Promise<Record<string, unknown> | undefined> =>
+			this.commands.run(`${command.ownerKey} ${command.agentId}`, async () => {
+				const operationId = command.operationId;
+				if (operationId) {
+					this.activeOperations.add(operationId);
+					this.operationAnswers.delete(operationId);
 				}
-			}
-		});
+				try {
+					try {
+						await dispatch(command);
+					} catch (error) {
+						try {
+							reject(command, describe(error));
+						} catch (failed) {
+							console.error(`[${this.options.backendId}-daemon] rejecting a command failed:`, failed);
+						}
+					}
+					return operationId ? this.operationAnswers.get(operationId) : undefined;
+				} finally {
+					if (operationId) {
+						this.activeOperations.delete(operationId);
+						this.operationAnswers.delete(operationId);
+					}
+				}
+			});
+		if (!command.operationId) {
+			void run();
+			return;
+		}
+		void this.operations.once(
+			command.operationId,
+			async () => (await run()) ?? {},
+			(answer) => {
+				if (Object.keys(answer).length > 0) this.options.send(answer);
+			},
+		);
 	}
 
 	async acquireSession(
@@ -150,12 +189,23 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 
 	/** Give up a generation: it serves and publishes nothing new. Retained entries still replay. */
 	retire(session: TSession): void {
-		if (this.live(session)) this.sessions.delete(session.targetId);
+		if (!this.live(session)) return;
+		try {
+			this.options.onRetire?.(session);
+		} catch (error) {
+			console.error(`[${this.options.backendId}-daemon] retiring a session failed:`, error);
+		} finally {
+			this.sessions.delete(session.targetId);
+			try {
+				session.client.close();
+			} catch (error) {
+				console.error(`[${this.options.backendId}-daemon] closing a retired session failed:`, error);
+			}
+		}
 	}
 
 	shutdown(): void {
-		for (const session of this.sessions.values()) session.client.close();
-		this.sessions.clear();
+		for (const session of [...this.sessions.values()]) this.retire(session);
 	}
 
 	rejectionId(): number {
@@ -168,13 +218,13 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		partial: Record<string, unknown>,
 		schema: AgentDaemonSchema<T>,
 		eventIdPlacement: EventIdPlacement = "last",
-	): void {
+	): Record<string, unknown> | undefined {
 		// The gateway fences a retired generation out, so publishing under one only looks delivered.
 		if (!this.live(session)) {
 			console.error(
 				`[${this.options.backendId}-daemon] dropped a ${partial.kind} from a retired generation on ${session.targetId}`,
 			);
-			return;
+			return undefined;
 		}
 		const eventId = session.nextEventId;
 		session.nextEventId += 1;
@@ -200,10 +250,18 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 			console.error(
 				`[${this.options.backendId}-daemon] dropped an unpublishable ${partial.kind} on ${session.targetId}`,
 			);
-			return;
+			return undefined;
 		}
 		if (this.options.isReliable(parsed.data)) this.retain(session.targetId, session.generation, eventId, message);
+		const operationId = (message as { operationId?: unknown }).operationId;
+		if (typeof operationId === "string" && this.activeOperations.has(operationId))
+			this.operationAnswers.set(operationId, message);
 		this.options.send(message);
+		return message;
+	}
+
+	rememberOperationAnswer(operationId: string | undefined, message: Record<string, unknown>): void {
+		if (operationId && this.activeOperations.has(operationId)) this.operationAnswers.set(operationId, message);
 	}
 
 	private async open(
@@ -215,12 +273,7 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		// An open for an older generation must not close the one already serving, nor replace it when
 		// it finishes. The caller is handed that live session instead, since its target is healthy.
 		if (before && before.generation > lease.generation) return before;
-		if (before) {
-			// Deregistered before it is closed: a closed session left registered is still advertised by
-			// hello() and still passes the publish fence.
-			this.sessions.delete(target.targetId);
-			before.client.close();
-		}
+		if (before) this.retire(before);
 		const session = await buildSession(target, lease);
 		if (!session) return null;
 		const current = this.sessions.get(target.targetId);

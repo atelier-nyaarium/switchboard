@@ -40,4 +40,67 @@ describe("agent daemon commands", () => {
 
 		await vi.waitFor(() => expect(log).toEqual(["reject first: refused", "dispatch second"]));
 	});
+
+	it("drops an in-flight operation replay and resends its held answer", async () => {
+		const sent: Record<string, unknown>[] = [];
+		const daemon = new AgentDaemonCore({
+			backendId: "codex",
+			daemonInstanceId: "daemon-1",
+			targets: {} as TargetSupervisor,
+			send: (message) => sent.push(message),
+			isReliable: () => false,
+		});
+		const command = { ownerKey: "owner", agentId: "agent", operationId: "operation-1" };
+		let resolve!: () => void;
+		const held = new Promise<void>((done) => {
+			resolve = done;
+		});
+		let dispatched = 0;
+		const dispatch = async () => {
+			dispatched += 1;
+			await held;
+			const answer = { kind: "accepted", operationId: command.operationId };
+			daemon.rememberOperationAnswer(command.operationId, answer);
+			sent.push(answer);
+		};
+		const reject = () => {};
+
+		daemon.enqueue(command, dispatch, reject, String);
+		daemon.enqueue({ ...command }, dispatch, reject, String);
+		await Promise.resolve();
+		expect(dispatched).toBe(1);
+		resolve();
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		daemon.rememberOperationAnswer(command.operationId, { kind: "late", operationId: command.operationId });
+		daemon.enqueue({ ...command }, dispatch, reject, String);
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		expect(sent[1]).toEqual({ kind: "accepted", operationId: command.operationId });
+		expect(dispatched).toBe(1);
+	});
+
+	it("does not replay an answer recorded while an operation is stopped", async () => {
+		const sent: Record<string, unknown>[] = [];
+		const daemon = new AgentDaemonCore({
+			backendId: "codex",
+			daemonInstanceId: "daemon-1",
+			targets: {} as TargetSupervisor,
+			send: (message) => sent.push(message),
+			isReliable: () => false,
+		});
+		const command = { ownerKey: "owner", agentId: "agent", operationId: "operation-stopped" };
+		daemon.rememberOperationAnswer(command.operationId, { kind: "rejected", operationId: command.operationId });
+		let dispatched = false;
+
+		daemon.enqueue(
+			command,
+			async () => {
+				dispatched = true;
+			},
+			() => {},
+			String,
+		);
+		await vi.waitFor(() => expect(dispatched).toBe(true));
+
+		expect(sent).toEqual([]);
+	});
 });

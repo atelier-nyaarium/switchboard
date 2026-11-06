@@ -25,6 +25,7 @@ export interface CodexRouteDeps {
 	service: CodexAgentService;
 	relay: CodexRelay;
 	ambient: Clock;
+	daemonInstanceId: () => string | undefined;
 	/** Wait budget covers acceptance and turn settlement together. */
 	waitBudgetMs?: number;
 }
@@ -105,7 +106,7 @@ function describeAgent(
 		agentId: agent.agentId,
 		agentState: "idle",
 		observation: "terminal",
-		turn: { id: turn.id, state: turn.state },
+		turn: { id: turn.id, state: turn.state, ...(turn.state === "interrupted" ? { reason: turn.reason } : {}) },
 		delivery: exchange?.delivery,
 		activities,
 		...(turn.state === "completed" ? { finalResponse: turn.finalResponse } : {}),
@@ -191,11 +192,15 @@ export class CodexRoute {
 		}
 		const target = this.deps.service.resolveExecutionTarget(owner, request.cwd);
 		if (!target) return unavailable(agentId, TARGET_UNAVAILABLE, "no trusted execution target for this session");
+		const daemonInstanceId = this.deps.daemonInstanceId();
+		if (!daemonInstanceId) return unavailable(agentId, TARGET_UNAVAILABLE, "host daemon identity is unavailable");
 
 		const committed = this.deps.service.beginStart(req, {
 			agentId,
 			operationId: request.operationId,
+			daemonInstanceId,
 			prompt: request.prompt,
+			outputSchema: request.outputSchema,
 			target,
 			model: request.model,
 			serviceTier: request.serviceTier,
@@ -224,10 +229,15 @@ export class CodexRoute {
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CodexGatewayRequestSchema.parse>, { kind: "message" }>,
 	): Promise<CodexAgentResult> {
+		const daemonInstanceId = this.deps.daemonInstanceId();
+		if (!daemonInstanceId)
+			return unavailable(request.agentId, TARGET_UNAVAILABLE, "host daemon identity is unavailable");
 		const committed = this.deps.service.beginMessage(req, {
 			agentId: request.agentId,
 			operationId: request.operationId,
+			daemonInstanceId,
 			prompt: request.prompt,
+			outputSchema: request.outputSchema,
 			serviceTier: request.serviceTier,
 			at: this.now(),
 		});
@@ -256,9 +266,13 @@ export class CodexRoute {
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CodexGatewayRequestSchema.parse>, { kind: "stop" }>,
 	): Promise<CodexAgentResult> {
+		const daemonInstanceId = this.deps.daemonInstanceId();
+		if (!daemonInstanceId)
+			return unavailable(request.agentId, TARGET_UNAVAILABLE, "host daemon identity is unavailable");
 		const committed = this.deps.service.beginStop(req, {
 			agentId: request.agentId,
 			operationId: request.operationId,
+			daemonInstanceId,
 			at: this.now(),
 		});
 		const agent = committed.agent;

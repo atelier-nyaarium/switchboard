@@ -18,7 +18,7 @@ export interface AgentsStageDeps {
 		SessionsStage,
 		"sessionAuthority" | "sessionStore" | "offlineCatalog" | "codexCatalogWriter" | "copilotCatalogWriter"
 	>;
-	host: Pick<HostStage, "liveHostSocket">;
+	host: Pick<HostStage, "liveHostSocket" | "liveHostDaemonInstanceId">;
 	ambient: Ambient;
 }
 
@@ -26,6 +26,7 @@ export interface AgentsStage {
 	codexRelay: CodexRelay;
 	copilotRelay: CopilotRelay;
 	agentRoutes: Map<string, (req: Request, body: unknown) => Promise<Response>>;
+	reconcileStaleAgents: () => void;
 	/** Every agent of both families with its turns, for the awareness watch. */
 	agentRoster: () => RosterAgent[];
 }
@@ -68,8 +69,18 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		sendToHost,
 		ambient,
 	});
-	const codexRoute = new CodexRoute({ service: codexAgentService, relay: codexRelay, ambient });
-	const copilotRoute = new CopilotRoute({ service: copilotAgentService, relay: copilotRelay, ambient });
+	const codexRoute = new CodexRoute({
+		service: codexAgentService,
+		relay: codexRelay,
+		ambient,
+		daemonInstanceId: host.liveHostDaemonInstanceId,
+	});
+	const copilotRoute = new CopilotRoute({
+		service: copilotAgentService,
+		relay: copilotRelay,
+		ambient,
+		daemonInstanceId: host.liveHostDaemonInstanceId,
+	});
 
 	const agentRoutes = new Map<string, (req: Request, body: unknown) => Promise<Response>>([
 		[agentHttpPath("codex"), (req, body) => codexRoute.handle(req, body)],
@@ -99,5 +110,12 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 			);
 		});
 
-	return { codexRelay, copilotRelay, agentRoutes, agentRoster };
+	const reconcileStaleAgents = (): void => {
+		for (const owner of sessions.sessionStore.list()) {
+			codexRelay.reconcileStale(owner);
+			copilotRelay.reconcileStale(owner);
+		}
+	};
+
+	return { codexRelay, copilotRelay, agentRoutes, agentRoster, reconcileStaleAgents };
 }

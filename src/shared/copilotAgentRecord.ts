@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { agentFingerprintVerdict, agentTurnHistoryIssues } from "./agent-record.js";
+import { AgentOutputSchemaSchema, agentFingerprintVerdict, agentTurnHistoryIssues } from "./agent-record.js";
 import { CopilotStoredActivitiesSchema } from "./copilotAgentActivities.js";
 import {
 	CopilotAgentIdSchema,
@@ -44,6 +44,7 @@ export const CopilotStoredTurnSchema = z.discriminatedUnion("state", [
 			id: CopilotOpaqueIdSchema,
 			state: z.literal("interrupted"),
 			activities: CopilotStoredActivitiesSchema,
+			reason: CopilotErrorTextSchema.optional(),
 			updatedAt: z.number().int().nonnegative(),
 		})
 		.strict(),
@@ -52,10 +53,14 @@ export const CopilotStoredTurnSchema = z.discriminatedUnion("state", [
 export const CopilotStoredOperationSchema = z
 	.object({
 		operationId: CopilotOperationIdSchema,
+		daemonInstanceId: CopilotOpaqueIdSchema.optional(),
 		kind: z.enum(["start", "message", "stop"]),
 		prompt: CopilotPromptSchema.optional(),
 		/** Optional for legacy records. Required to recheck start fingerprints. */
 		model: z.string().min(1).max(128).optional(),
+		reasoningEffort: z.string().min(1).max(32).optional(),
+		outputSchema: AgentOutputSchemaSchema.optional(),
+		expectedTurnId: CopilotOpaqueIdSchema.optional(),
 		fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
 		state: z.enum(["requested", "accepted", "indeterminate"]),
 		turnId: CopilotOpaqueIdSchema.optional(),
@@ -69,8 +74,12 @@ export const CopilotStoredOperationSchema = z
 	.superRefine((value, ctx) => {
 		if (value.updatedAt < value.createdAt)
 			ctx.addIssue({ code: "custom", message: "operation update predates creation" });
-		if (value.kind !== "start" && value.model !== undefined)
-			ctx.addIssue({ code: "custom", message: "only a start operation carries a model" });
+		if (value.kind !== "start" && (value.model !== undefined || value.reasoningEffort !== undefined))
+			ctx.addIssue({ code: "custom", message: "only a start operation carries model settings" });
+		if (value.kind !== "message" && value.expectedTurnId !== undefined)
+			ctx.addIssue({ code: "custom", message: "only a message operation carries an expected turn" });
+		if (value.kind === "stop" && value.outputSchema !== undefined)
+			ctx.addIssue({ code: "custom", message: "stop operation carries no turn options" });
 		if (
 			(value.kind === "start" || value.kind === "message") &&
 			value.state === "accepted" &&

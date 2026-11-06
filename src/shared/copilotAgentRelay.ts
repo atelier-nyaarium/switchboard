@@ -98,8 +98,14 @@ export const CopilotDaemonEventSchema = z.discriminatedUnion("kind", [
 			state: z.enum(["completed", "failed", "interrupted"]),
 			finalResponse: z.string().optional(),
 			error: CopilotErrorTextSchema.optional(),
+			reason: CopilotErrorTextSchema.optional(),
 		})
-		.strict(),
+		.strict()
+		.superRefine((value, ctx) => {
+			if (value.state !== "interrupted" && value.reason !== undefined) {
+				ctx.addIssue({ code: "custom", message: "only interrupted turns carry a reason" });
+			}
+		}),
 ]);
 
 const ReceiptFenced = {

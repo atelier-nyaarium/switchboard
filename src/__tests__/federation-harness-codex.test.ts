@@ -235,6 +235,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		sessions.push(reattached);
 		expect(await reattached.registered()).toMatchObject({ type: "register_ok" });
 		await reattached.ready();
+		alice = reattached;
 		const listed = await h.waitFor(async () => {
 			const answer = (await (await reattached.post("/codex", { kind: "list" })).json()) as {
 				agents?: Array<{ agentId: string }>;
@@ -256,7 +257,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 	});
 
 	it("after a daemon restart, awaits the agent's first message on the new daemon", async () => {
-		const caller = sessions.at(-1) as FakeSession;
+		const caller = alice;
 		const started = await codex(caller, {
 			kind: "start",
 			operationId: operationId(),
@@ -274,5 +275,256 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			turn: { state: "completed" },
 			finalResponse: "done: who are you now?",
 		});
+	});
+
+	it("abandons an old daemon's pending start before the new host catalog", async () => {
+		h.host.handlers.onCodexCommand = () => undefined;
+		try {
+			const startId = operationId();
+			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "hold for restart" });
+			await h.waitFor(
+				() =>
+					h.host.codexCommands.find(
+						(command) => "operationId" in command && command.operationId === startId,
+					) || undefined,
+				"start dispatch on the first daemon",
+			);
+			const firstDaemonId = h.host.daemon.daemonInstanceId;
+			h.restartHost({ newDaemon: true });
+			const secondHost = h.host;
+
+			expect(secondHost.daemon.daemonInstanceId).not.toBe(firstDaemonId);
+			expect(await starting).toMatchObject({ agentState: "unavailable", observation: "indeterminate" });
+			expect(
+				secondHost.codexCommands.filter(
+					(command) => "operationId" in command && command.operationId === startId,
+				),
+			).toHaveLength(0);
+		} finally {
+			h.host.handlers.onCodexCommand = undefined;
+		}
+	});
+
+	it("collects a Codex turn lost when its daemon restarts", async () => {
+		h.host.handlers.onCodexCommand = (command, daemon) => {
+			const frames = stockCodexResponder(command, daemon) ?? [];
+			return command.kind === "start" ? frames.slice(0, 1) : frames;
+		};
+		try {
+			const started = await codex(alice, {
+				kind: "start",
+				operationId: operationId(),
+				prompt: "keep running",
+			});
+			expect(started).toMatchObject({ agentState: "working", turn: { state: "inProgress" } });
+			h.restartHost({ newDaemon: true });
+			const collected = await h.waitFor(async () => {
+				const answer = await codex(alice, { kind: "await", agentId: started.agentId });
+				return answer.turn?.state === "interrupted" ? answer : undefined;
+			}, "the lost turn collector");
+			expect(collected).toMatchObject({
+				agentState: "idle",
+				observation: "terminal",
+				turn: { state: "interrupted", reason: "turn lost: its agent process ended" },
+			});
+		} finally {
+			h.host.handlers.onCodexCommand = undefined;
+		}
+	});
+
+	it("clears an accepted stop when its turn is lost and accepts a later message", async () => {
+		h.host.handlers.onCodexCommand = (command, daemon) => {
+			if (command.kind === "start") return (stockCodexResponder(command, daemon) ?? []).slice(0, 1);
+			if (command.kind === "interrupt") {
+				const targetId = command.target.targetId;
+				return [
+					{
+						type: "codex_receipt",
+						kind: "interruptResult",
+						requestId: command.requestId,
+						ownerKey: command.ownerKey,
+						daemonInstanceId: daemon.daemonInstanceId,
+						targetId,
+						generation: daemon.generation,
+						eventId: daemon.nextEventId(targetId),
+						agentId: command.agentId,
+						operationId: command.operationId,
+						threadId: command.threadId,
+						turnId: command.turnId,
+						ok: true,
+					},
+				];
+			}
+			return stockCodexResponder(command, daemon);
+		};
+		try {
+			const caller = alice;
+			const started = await codex(caller, {
+				kind: "start",
+				operationId: operationId(),
+				prompt: "wait for stop",
+			});
+			const stopped = await codex(caller, {
+				kind: "stop",
+				operationId: operationId(),
+				agentId: started.agentId,
+			});
+			expect(stopped).toMatchObject({ observation: "interruptRequested" });
+			h.restartHost({ newDaemon: true });
+			const lost = await h.waitFor(async () => {
+				const answer = await codex(caller, { kind: "await", agentId: started.agentId });
+				return answer.agentState === "idle" && answer.turn?.state === "interrupted" ? answer : undefined;
+			}, "the interrupted stopped turn");
+			expect(lost).toMatchObject({ agentState: "idle", turn: { state: "interrupted" } });
+			const messageId = operationId();
+			const next = await codex(caller, {
+				kind: "message",
+				operationId: messageId,
+				agentId: started.agentId,
+				prompt: "continue after restart",
+			});
+			expect(next).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+			expect(await codex(caller, { kind: "await", agentId: started.agentId })).toMatchObject({
+				turn: { state: "completed" },
+				finalResponse: "done: continue after restart",
+			});
+		} finally {
+			h.host.handlers.onCodexCommand = undefined;
+		}
+	});
+
+	it("resends lost start, message, and stop answers once per operation", async () => {
+		const answers = new Map<string, CodexDaemonReceipt[]>();
+		const takes = new Map<string, number>();
+		const responder: CodexResponder = (command, daemon) => {
+			if (command.kind === "reconcile") return stockCodexResponder(command, daemon);
+			const previous = answers.get(command.operationId);
+			if (previous) return previous;
+			takes.set(command.operationId, (takes.get(command.operationId) ?? 0) + 1);
+			const resolvedTarget = command.kind === "start" ? daemon.resolve(command.target) : command.target;
+			const threadId = command.kind === "start" ? `thread-${command.agentId}` : command.threadId;
+			const turnId =
+				command.kind === "interrupt"
+					? command.turnId
+					: command.kind === "message" && command.expectedTurnId
+						? command.expectedTurnId
+						: `turn-${command.operationId}`;
+			const common = {
+				type: "codex_receipt" as const,
+				requestId: command.requestId,
+				ownerKey: command.ownerKey,
+				daemonInstanceId: daemon.daemonInstanceId,
+				targetId: resolvedTarget.targetId,
+				generation: daemon.generation,
+				eventId: daemon.nextEventId(resolvedTarget.targetId),
+				agentId: command.agentId,
+			};
+			const answer: CodexDaemonReceipt =
+				command.kind === "interrupt"
+					? {
+							...common,
+							kind: "interruptResult",
+							operationId: command.operationId,
+							threadId: command.threadId,
+							turnId,
+							ok: true,
+						}
+					: {
+							...common,
+							kind: "accepted",
+							operationId: command.operationId,
+							resolvedTarget,
+							threadId,
+							turnId,
+							delivery: command.kind === "start" ? "started" : "steered",
+						};
+			answers.set(command.operationId, [answer]);
+			return undefined;
+		};
+		h.host.handlers.onCodexCommand = responder;
+		try {
+			const startId = operationId();
+			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "start once" });
+			await h.waitFor(
+				() =>
+					h.host.codexCommands.some(
+						(command) => "operationId" in command && command.operationId === startId,
+					) || undefined,
+				"first start dispatch",
+			);
+			const firstHost = h.host;
+			h.restartHost();
+			const secondHost = h.host;
+			const started = await starting;
+			expect(started).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+			expect(
+				secondHost.codexCommands.filter(
+					(command) => "operationId" in command && command.operationId === startId,
+				),
+			).toHaveLength(1);
+
+			const messageId = operationId();
+			const messaging = codex(alice, {
+				kind: "message",
+				operationId: messageId,
+				agentId: started.agentId,
+				prompt: "message once",
+			});
+			await h.waitFor(
+				() =>
+					secondHost.codexCommands.some(
+						(command) => "operationId" in command && command.operationId === messageId,
+					) || undefined,
+				"first message dispatch",
+			);
+			h.restartHost();
+			const thirdHost = h.host;
+			const messaged = await messaging;
+			expect(messaged).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+			expect(
+				thirdHost.codexCommands.filter(
+					(command) => "operationId" in command && command.operationId === messageId,
+				),
+			).toHaveLength(1);
+
+			const stopId = operationId();
+			const stopped = await codex(alice, { kind: "stop", operationId: stopId, agentId: started.agentId });
+			expect(stopped).toMatchObject({ observation: "interruptRequested" });
+			await h.waitFor(
+				() =>
+					thirdHost.codexCommands.some(
+						(command) => "operationId" in command && command.operationId === stopId,
+					) || undefined,
+				"first stop dispatch",
+			);
+			h.restartHost();
+			const fourthHost = h.host;
+			await h.waitFor(
+				() =>
+					fourthHost.codexCommands.some(
+						(command) => "operationId" in command && command.operationId === stopId,
+					) || undefined,
+				"resent stop dispatch",
+			);
+			expect(
+				fourthHost.codexCommands.filter(
+					(command) => "operationId" in command && command.operationId === stopId,
+				),
+			).toHaveLength(1);
+			expect(takes).toEqual(
+				new Map([
+					[startId, 1],
+					[messageId, 1],
+					[stopId, 1],
+				]),
+			);
+			expect(
+				firstHost.codexCommands.filter(
+					(command) => "operationId" in command && command.operationId === startId,
+				),
+			).toHaveLength(1);
+		} finally {
+			h.host.handlers.onCodexCommand = undefined;
+		}
 	});
 });

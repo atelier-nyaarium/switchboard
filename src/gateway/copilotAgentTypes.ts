@@ -13,22 +13,28 @@ export interface CopilotAgentServiceDeps {
 export interface CopilotIntentInput {
 	agentId: string;
 	operationId: string;
+	daemonInstanceId?: string;
 	prompt: string;
 	target: unknown;
 	model?: string;
+	reasoningEffort?: string;
+	outputSchema?: Record<string, unknown>;
 	at: number;
 }
 
 export interface CopilotExistingAgentIntentInput {
 	agentId: string;
 	operationId: string;
+	daemonInstanceId?: string;
 	prompt: string;
+	outputSchema?: Record<string, unknown>;
 	at: number;
 }
 
 export interface CopilotStopIntentInput {
 	agentId: string;
 	operationId: string;
+	daemonInstanceId?: string;
 	at: number;
 }
 

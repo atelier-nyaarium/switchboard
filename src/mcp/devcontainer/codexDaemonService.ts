@@ -1,3 +1,4 @@
+import { AGENT_TURN_LOST_REASON } from "../../shared/agent-record.js";
 import {
 	CodexAppServerTurnCompletedSchema,
 	type CodexDaemonCommand,
@@ -57,6 +58,15 @@ export class CodexDaemonService {
 			send: deps.send,
 			isReliable: isReliableCodexMessage,
 			helloSchema: CodexDaemonHelloSchema,
+			onRetire: (session) => {
+				this.sessions.retired(session);
+				for (const { turnId, binding } of session.turns.entries()) {
+					this.publishTerminal(session, binding.threadId, turnId, {
+						status: "interrupted",
+						reason: AGENT_TURN_LOST_REASON,
+					});
+				}
+			},
 		});
 		const sessionHost: SessionLifecycleHost = {
 			deps: this.deps,
@@ -271,7 +281,7 @@ export class CodexDaemonService {
 				this.emitEvent(session, { ...base, state: "failed", error: sanitizeCodexErrorText(outcome.error) });
 				return;
 			default:
-				this.emitEvent(session, { ...base, state: "interrupted" });
+				this.emitEvent(session, { ...base, state: "interrupted", reason: outcome.reason });
 		}
 	}
 
@@ -312,6 +322,7 @@ export class CodexDaemonService {
 		};
 		console.error(`[codex-daemon] refused ${command.kind} for ${command.agentId}: ${message.error}`);
 		if (!CodexDaemonReceiptSchema.safeParse(message).success) return;
+		this.core.rememberOperationAnswer(command.kind === "reconcile" ? undefined : command.operationId, message);
 		this.deps.send(message);
 	}
 }

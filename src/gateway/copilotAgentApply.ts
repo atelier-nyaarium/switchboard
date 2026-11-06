@@ -1,6 +1,6 @@
 import { sameResolvedTarget } from "../shared/agent-execution-target.js";
 import { classifyAcceptanceFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
-import { replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
+import { AGENT_TURN_LOST_REASON, replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
 import {
 	type CopilotDaemonEvent,
 	type CopilotDaemonFailureCode,
@@ -140,6 +140,41 @@ export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): Co
 		return deps.catalog.apply(owner, next);
 	}
 
+	function withTerminal(
+		current: CopilotPersistedAgent,
+		turnIndex: number,
+		terminal: {
+			state: "completed" | "failed" | "interrupted";
+			finalResponse?: string;
+			error?: string;
+			reason?: string;
+		},
+		at: number,
+		fence: ReturnType<typeof fenceOf>,
+	): CopilotPersistedAgent {
+		const turn = current.turns[turnIndex]!;
+		const settled: CopilotStoredTurn =
+			terminal.state === "completed"
+				? { ...turn, state: "completed", finalResponse: terminal.finalResponse ?? "", updatedAt: at }
+				: terminal.state === "failed"
+					? { ...turn, state: "failed", error: terminal.error ?? "Copilot turn failed", updatedAt: at }
+					: { ...turn, state: "interrupted", reason: terminal.reason, updatedAt: at };
+		const operations = current.operations.map((operation) =>
+			operation.kind === "stop" && operation.state === "requested" && operation.turnId === turn.id
+				? { ...operation, state: "accepted" as const, updatedAt: at }
+				: operation,
+		);
+		return CopilotPersistedAgentSchema.parse({
+			...current,
+			agentState: "idle",
+			activeTurnId: undefined,
+			operations,
+			turns: replaceAt(current.turns, turnIndex, settled),
+			fence,
+			updatedAt: at,
+		});
+	}
+
 	function applyReconciled(
 		owner: SessionRecord,
 		current: CopilotPersistedAgent,
@@ -159,21 +194,40 @@ export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): Co
 		if (standing === "duplicate") return { disposition: "ignored", reason: "duplicate reconciliation" };
 		if (standing === "stale") return { disposition: "ignored", reason: "reconciliation from an older generation" };
 		const activeTurn = receipt.active && receipt.turnId ? receipt.turnId : undefined;
-		if (current.activeTurnId && activeTurn && current.activeTurnId !== activeTurn)
-			return { disposition: "reconcile", owner, agent: current };
-		// Missing turn status preserves a previously active turn during recovery.
 		const knownActiveTurn = current.activeTurnId;
+		const previousFence = current.fence;
+		const changedProcess =
+			previousFence !== undefined &&
+			(previousFence.daemonInstanceId !== fence.daemonInstanceId ||
+				previousFence.targetId !== fence.targetId ||
+				previousFence.generation !== fence.generation);
+		const knownActiveIndex = knownActiveTurn
+			? current.turns.findIndex((turn) => turn.id === knownActiveTurn && turn.state === "inProgress")
+			: -1;
+		if (knownActiveTurn && activeTurn && knownActiveTurn !== activeTurn && !changedProcess)
+			return { disposition: "reconcile", owner, agent: current };
+		let base = current;
+		if (changedProcess && knownActiveIndex >= 0 && activeTurn !== knownActiveTurn) {
+			base = withTerminal(
+				current,
+				knownActiveIndex,
+				{ state: "interrupted", reason: AGENT_TURN_LOST_REASON },
+				timestamp,
+				fence,
+			);
+			if (!activeTurn) return deps.catalog.apply(owner, base);
+		}
 		const nextTurns =
-			activeTurn && !current.turns.some((turn) => turn.id === activeTurn)
+			activeTurn && !base.turns.some((turn) => turn.id === activeTurn)
 				? [
-						...current.turns,
+						...base.turns,
 						{ id: activeTurn, state: "inProgress" as const, activities: [], updatedAt: timestamp },
 					]
-				: current.turns;
+				: base.turns;
 		const next = CopilotPersistedAgentSchema.parse({
-			...current,
-			agentState: activeTurn ? "working" : knownActiveTurn ? "recovering" : "idle",
-			activeTurnId: activeTurn ?? knownActiveTurn,
+			...base,
+			agentState: activeTurn ? "working" : changedProcess ? "idle" : knownActiveTurn ? "recovering" : "idle",
+			activeTurnId: activeTurn ?? (changedProcess ? undefined : knownActiveTurn),
 			turns: nextTurns,
 			fence,
 			updatedAt: timestamp,
@@ -272,26 +326,7 @@ export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): Co
 		}
 		if (turn.state !== "inProgress") return { disposition: "ignored", reason: "duplicate terminal" };
 		const timestamp = Math.max(at, current.updatedAt);
-		const terminal: CopilotStoredTurn =
-			event.state === "completed"
-				? { ...turn, state: "completed", finalResponse: event.finalResponse ?? "", updatedAt: timestamp }
-				: event.state === "failed"
-					? { ...turn, state: "failed", error: event.error ?? "Copilot turn failed", updatedAt: timestamp }
-					: { ...turn, state: "interrupted", updatedAt: timestamp };
-		const operations = current.operations.map((operation) =>
-			operation.kind === "stop" && operation.state === "requested" && operation.turnId === event.turnId
-				? { ...operation, state: "accepted" as const, updatedAt: timestamp }
-				: operation,
-		);
-		const next = CopilotPersistedAgentSchema.parse({
-			...current,
-			agentState: "idle",
-			activeTurnId: undefined,
-			operations,
-			turns: replaceAt(current.turns, turnIndex, terminal),
-			fence,
-			updatedAt: timestamp,
-		});
+		const next = withTerminal(current, turnIndex, event, timestamp, fence);
 		return deps.catalog.apply(owner, next);
 	}
 

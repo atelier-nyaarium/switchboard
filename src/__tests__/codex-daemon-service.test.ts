@@ -8,7 +8,8 @@ import { CODEX_DEFAULT_MODEL, CodexDaemonEventSchema, CodexDaemonReceiptSchema }
 const OWNER_KEY = "recipe-app.work";
 const AGENT_ID = "codex_0123456789abcdef0123456789abcdef";
 const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
-const OPERATION_ID = "123e4567-e89b-42d3-a456-426614174001";
+let operationSequence = 1;
+const nextOperationId = () => `123e4567-e89b-42d3-a456-${(operationSequence++).toString(16).padStart(12, "0")}`;
 const TARGET_ID = "container:recipe-app";
 const REAP_QUIET = 900_000;
 const RESOLVED_TARGET: CodexResolvedTarget = {
@@ -180,7 +181,7 @@ function startCommand(overrides: Record<string, unknown> = {}) {
 		requestId: REQUEST_ID,
 		ownerKey: OWNER_KEY,
 		agentId: AGENT_ID,
-		operationId: OPERATION_ID,
+		operationId: nextOperationId(),
 		target: { kind: "devcontainer", project: "recipe-app", hostProjectPath: "/projects/recipe-app" },
 		prompt: "Audit the parser",
 		...overrides,
@@ -221,6 +222,7 @@ function setup(options: { availability?: TargetAvailability } = {}) {
 	const sent: Record<string, unknown>[] = [];
 	const released: Array<{ targetId: string; generation: number }> = [];
 	const acquired: number[] = [];
+	const retireListeners = new Set<(targetId: string, generation: number) => void>();
 	let generation = 3;
 	const targets: TargetSupervisor = {
 		acquire: () => {
@@ -234,6 +236,10 @@ function setup(options: { availability?: TargetAvailability } = {}) {
 			if (oldGeneration !== generation) return;
 			released.push({ targetId, generation: oldGeneration });
 			generation += 1;
+		},
+		onRetire: (listener) => {
+			retireListeners.add(listener);
+			return () => retireListeners.delete(listener);
 		},
 	};
 	const timers: Array<{ run: () => void; cleared: boolean }> = [];
@@ -283,6 +289,9 @@ function setup(options: { availability?: TargetAvailability } = {}) {
 		fireDeadlines,
 		sweep,
 		advance: (ms: number) => (clock += ms),
+		childExited: (targetId = TARGET_ID, oldGeneration = generation) => {
+			for (const listener of retireListeners) listener(targetId, oldGeneration);
+		},
 	};
 }
 
@@ -323,6 +332,41 @@ describe("Codex execution targets", () => {
 		context.sent.length = 0;
 		context.service.replay();
 		expect(context.sent).toEqual([]);
+	});
+
+	it("interrupts every turn held by an exiting child", async () => {
+		const context = setup();
+		const secondAgent = "codex_fedcba9876543210fedcba9876543210";
+		context.service.handleCommand(startCommand());
+		context.service.handleCommand(
+			startCommand({
+				agentId: secondAgent,
+				operationId: "123e4567-e89b-42d3-a456-426614174002",
+			}),
+		);
+		await settle();
+		expect(receipts(context.sent).filter((receipt) => receipt.kind === "accepted")).toHaveLength(2);
+
+		context.childExited();
+		await settle();
+
+		const terminalEvents = events(context.sent).filter((event) => event.kind === "terminal");
+		expect(terminalEvents).toHaveLength(2);
+		expect(terminalEvents).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					agentId: AGENT_ID,
+					state: "interrupted",
+					reason: "turn lost: its agent process ended",
+				}),
+				expect.objectContaining({
+					agentId: secondAgent,
+					state: "interrupted",
+					reason: "turn lost: its agent process ended",
+				}),
+			]),
+		);
+		expect(context.service.hello().targets).toEqual([]);
 	});
 });
 
@@ -452,7 +496,9 @@ describe("Codex poison and reconciliation", () => {
 		context.app.emit(item("thread-1", "turn-late", { id: "late", text: "late", phase: "final_answer" }));
 		context.app.emit(terminal("thread-1", "turn-late"));
 		await settle();
-		expect(events(context.sent)).toEqual([]);
+		expect(events(context.sent)).toMatchObject([
+			{ kind: "terminal", turnId: "turn-1", state: "interrupted", reason: "turn lost: its agent process ended" },
+		]);
 		context.sent.length = 0;
 		context.service.handleCommand(startCommand({ operationId: "123e4567-e89b-42d3-a456-426614174009" }));
 		await settle();
@@ -695,7 +741,7 @@ describe("Codex daemon commands", () => {
 			requestId: REQUEST_ID,
 			ownerKey: OWNER_KEY,
 			agentId: AGENT_ID,
-			operationId: OPERATION_ID,
+			operationId: nextOperationId(),
 			target: RESOLVED_TARGET,
 			threadId: "thread-1",
 			turnId: "turn-1",
@@ -772,7 +818,7 @@ describe("Codex daemon commands", () => {
 			requestId: REQUEST_ID,
 			ownerKey: OWNER_KEY,
 			agentId: AGENT_ID,
-			operationId: OPERATION_ID,
+			operationId: nextOperationId(),
 			target: RESOLVED_TARGET,
 			threadId: "thread-1",
 			turnId: "turn-1",
@@ -797,7 +843,7 @@ describe("Codex daemon commands", () => {
 			requestId: REQUEST_ID,
 			ownerKey: OWNER_KEY,
 			agentId: AGENT_ID,
-			operationId: OPERATION_ID,
+			operationId: nextOperationId(),
 			target: RESOLVED_TARGET,
 			threadId: "thread-1",
 			turnId: "turn-1",
@@ -814,7 +860,9 @@ describe("Codex daemon commands", () => {
 		await settle();
 		context.service.shutdown();
 		await context.fireDeadlines();
-		expect(events(context.sent)).toEqual([]);
+		expect(events(context.sent)).toMatchObject([
+			{ kind: "terminal", turnId: "turn-1", state: "interrupted", reason: "turn lost: its agent process ended" },
+		]);
 	});
 
 	it("replays and acknowledges reliable receipts, and announces live targets", async () => {

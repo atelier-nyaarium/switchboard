@@ -157,13 +157,19 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		}
 	});
 	graph.wsHandlers.open(socket.ws);
-	send({ type: "register", team: "host", subId: "fake-host", token: options.token });
-	send({ type: "catalog", projects: options.projects ?? [], hostSpawns: options.hostSpawns ?? [] });
+	send({
+		type: "register",
+		team: "host",
+		subId: "fake-host",
+		token: options.token,
+		daemonInstanceId: daemon.daemonInstanceId,
+	});
 	send({
 		type: "codex_hello",
 		daemonInstanceId: daemon.daemonInstanceId,
 		targets: [...daemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
 	});
+	send({ type: "catalog", projects: options.projects ?? [], hostSpawns: options.hostSpawns ?? [] });
 	return {
 		frames: socket.sent,
 		ops,

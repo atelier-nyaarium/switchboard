@@ -76,6 +76,7 @@ export const CodexListTurnSchema = z.discriminatedUnion("state", [
 			id: OpaqueIdSchema,
 			state: z.literal("interrupted"),
 			activities: CodexActivitiesSchema,
+			reason: CodexErrorTextSchema.optional(),
 			updatedAt: z.number().int().nonnegative(),
 		})
 		.strict(),
@@ -245,8 +246,9 @@ export function projectCodexListAgent(agent: CodexPersistedAgent): CodexListAgen
 			case "failed":
 				return { ...base, state: turn.state, error: turn.error };
 			case "inProgress":
-			case "interrupted":
 				return { ...base, state: turn.state };
+			case "interrupted":
+				return { ...base, state: turn.state, reason: turn.reason };
 			default:
 				throw new Error("unsupported Codex turn state");
 		}

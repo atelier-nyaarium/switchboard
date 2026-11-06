@@ -55,6 +55,11 @@ export class CodexSessionLifecycle {
 		this.host.deps.targets.release(session.targetId, session.generation);
 	}
 
+	retired(session: TargetSession): void {
+		this.clearDeadlines(session);
+		this.deadlineSessions.delete(session);
+	}
+
 	holdDeadline(session: TargetSession, threadId: string, turnId: string): void {
 		if (session.held.has(turnId)) return;
 		const setTimer = this.host.deps.setTimer ?? ((run, ms) => setTimeout(run, ms));
@@ -138,6 +143,7 @@ export class CodexSessionLifecycle {
 			nextEventId: 0,
 			turns: new CodexLiveTurns(() => this.host.now()),
 			threads: new Map(),
+			loadedThreads: new Set(),
 			held: new Map(),
 			usedAt: this.host.now(),
 		};

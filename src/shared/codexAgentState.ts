@@ -73,6 +73,7 @@ export const CodexAgentResultSchema = z
 			.object({
 				id: OpaqueIdSchema,
 				state: CodexTurnStateSchema,
+				reason: CodexErrorTextSchema.optional(),
 			})
 			.strict()
 			.optional(),
@@ -85,6 +86,13 @@ export const CodexAgentResultSchema = z
 	.superRefine((value, ctx) => {
 		if (value.delivery && !value.turn) {
 			ctx.addIssue({ code: "custom", message: "delivery requires an accepted turn", path: ["delivery"] });
+		}
+		if (value.turn?.reason !== undefined && value.turn.state !== "interrupted") {
+			ctx.addIssue({
+				code: "custom",
+				message: "only an interrupted turn carries a reason",
+				path: ["turn", "reason"],
+			});
 		}
 		if (value.activities.length > 0 && !value.turn) {
 			ctx.addIssue({ code: "custom", message: "activities require a turn", path: ["activities"] });

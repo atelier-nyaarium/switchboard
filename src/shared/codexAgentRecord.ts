@@ -4,7 +4,7 @@
 // for both this private shape and the public projection in codexAgentCatalog.ts.
 
 import { z } from "zod";
-import { agentFingerprintVerdict, agentTurnHistoryIssues } from "./agent-record.js";
+import { AgentOutputSchemaSchema, agentFingerprintVerdict, agentTurnHistoryIssues } from "./agent-record.js";
 import { CodexStoredActivitiesSchema } from "./codexAgentActivities.js";
 import {
 	CodexAgentIdSchema,
@@ -52,6 +52,7 @@ export const CodexStoredTurnSchema = z.discriminatedUnion("state", [
 			id: OpaqueIdSchema,
 			state: z.literal("interrupted"),
 			activities: CodexStoredActivitiesSchema,
+			reason: CodexErrorTextSchema.optional(),
 			updatedAt: z.number().int().nonnegative(),
 		})
 		.strict(),
@@ -95,6 +96,7 @@ export const CodexStoredExchangeSchema = CodexListExchangeSchema.safeExtend({
 	 * operation's fingerprint folds it in, and a fingerprint the record cannot recompute is a check
 	 * that quietly stops happening. Optional so every pre-existing record still parses. */
 	model: z.string().min(1).max(128).optional(),
+	outputSchema: AgentOutputSchemaSchema.optional(),
 })
 	.strict()
 	.superRefine((value, ctx) => {
@@ -109,6 +111,7 @@ export const CodexStoredExchangeSchema = CodexListExchangeSchema.safeExtend({
 export const CodexStoredOperationSchema = z
 	.object({
 		operationId: OperationIdSchema,
+		daemonInstanceId: z.string().min(1).max(64).optional(),
 		kind: z.enum(["start", "message", "stop"]),
 		fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
 		state: z.enum(["requested", "accepted", "indeterminate"]),

@@ -30,6 +30,10 @@ export class CodexLiveTurns {
 		return this.held.size;
 	}
 
+	entries(): Array<{ turnId: string; binding: TurnBinding }> {
+		return [...this.held].map(([turnId, known]) => ({ turnId, binding: known.binding }));
+	}
+
 	/**
 	 * Rebinding onto the SAME thread keeps the clock and the warning, since the gateway asking again
 	 * is not the turn working. Onto another thread it is a different identity, which inherits neither

@@ -35,7 +35,14 @@ const operations = {
 };
 const dirs: string[] = [];
 
-function setup(options: { attached?: boolean; project?: string; waitBudgetMs?: number } = {}) {
+function setup(
+	options: {
+		attached?: boolean;
+		project?: string;
+		waitBudgetMs?: number;
+		ambient?: ReturnType<typeof processAmbient>;
+	} = {},
+) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-relay-"));
 	dirs.push(dir);
 	let catalogWriter: CodexCatalogWriter | undefined;
@@ -67,12 +74,13 @@ function setup(options: { attached?: boolean; project?: string; waitBudgetMs?: n
 		offlineCatalog: new Map([["recipe-app", "/trusted/recipe-app"]]),
 		catalogWriter,
 	});
+	const ambient = options.ambient ?? processAmbient();
 	let attached = options.attached ?? true;
 	const outbound: (CodexDaemonCommand | CodexEventAck)[] = [];
 	const relay = new CodexRelay({
 		service,
 		sessionStore: store,
-		ambient: processAmbient(),
+		ambient,
 		sendToHost: (message) => {
 			if (!attached) return false;
 			outbound.push(
@@ -90,7 +98,8 @@ function setup(options: { attached?: boolean; project?: string; waitBudgetMs?: n
 	const route = new CodexRoute({
 		service,
 		relay,
-		ambient: processAmbient(),
+		ambient,
+		daemonInstanceId: () => "daemon-1",
 		waitBudgetMs: options.waitBudgetMs ?? 100,
 	});
 	const request = (tokenValue = token) =>
@@ -443,6 +452,67 @@ describe("Codex relay behavior", () => {
 		context.feed(late({ daemonInstanceId: "daemon-2", generation: 1 }));
 		await settle();
 		expect(context.agent()?.fence).toMatchObject({ daemonInstanceId: "daemon-2", generation: 2 });
+	});
+
+	it("reasks after a refused reconciliation and settles the lost turn", async () => {
+		let now = 1_000;
+		const ambient = { ...processAmbient(), now: () => now };
+		const context = setup({ ambient, waitBudgetMs: 1_000 });
+		await startWorking(context);
+		context.feed(
+			CodexDaemonHelloSchema.parse({
+				type: "codex_hello",
+				daemonInstanceId: "daemon-2",
+				targets: [{ targetId, generation: 2 }],
+			}),
+		);
+		await settle();
+		const first = context.commands().find((command) => command.kind === "reconcile");
+		expect(first).toBeDefined();
+		context.feed(
+			CodexDaemonReceiptSchema.parse({
+				type: "codex_receipt",
+				kind: "rejected",
+				requestId: first!.requestId,
+				ownerKey: context.store.teamOf(context.owner),
+				daemonInstanceId: "daemon-2",
+				eventId: 0,
+				agentId: first!.agentId,
+				error: "target unavailable",
+			}),
+		);
+		await settle();
+
+		now += 299_999;
+		context.relay.reconcileStale(context.owner);
+		await settle();
+		expect(context.commands().filter((command) => command.kind === "reconcile")).toHaveLength(1);
+
+		now += 1;
+		context.relay.reconcileStale(context.owner);
+		await settle();
+		const second = context.commands().filter((command) => command.kind === "reconcile")[1];
+		expect(second).toBeDefined();
+		context.feed(
+			CodexDaemonReceiptSchema.parse({
+				type: "codex_receipt",
+				kind: "reconciled",
+				requestId: second!.requestId,
+				ownerKey: context.store.teamOf(context.owner),
+				daemonInstanceId: "daemon-2",
+				targetId,
+				generation: 2,
+				eventId: 1,
+				agentId: second!.agentId,
+				resolvedTarget,
+				threadId: "thread-1",
+			}),
+		);
+		await settle();
+		expect(context.agent()).toMatchObject({
+			agentState: "idle",
+			turns: [{ state: "interrupted", reason: "turn lost: its agent process ended" }],
+		});
 	});
 
 	it("maps disconnect and timeout answers, isolates owners, and replays an operation answer", async () => {

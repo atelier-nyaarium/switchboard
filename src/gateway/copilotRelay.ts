@@ -35,8 +35,60 @@ export class CopilotRelay extends AgentRelayCore<
 			receiptSchema: CopilotDaemonReceiptSchema,
 			commandSchema: CopilotDaemonCommandSchema,
 			listAgents: (owner) => deps.service.listOwnedAgents(owner),
+			fenceInstanceId: (agent) => agent.fence?.daemonInstanceId,
 			applyEvent: (event, at) => deps.service.applyEvent(event, at),
 			applyReceipt: (receipt, at) => deps.service.applyReceipt(receipt, at),
+			abandonStaleOperations: (owner, agent, daemonInstanceId, at) =>
+				deps.service.abandonStaleOperations(owner, agent, daemonInstanceId, at),
+			requestedOperations: (ownerKey, agent, daemonInstanceId) =>
+				agent.operations.flatMap((operation): CopilotCommandRequest[] => {
+					if (operation.state !== "requested" || operation.daemonInstanceId !== daemonInstanceId) return [];
+					if (operation.kind === "start") {
+						if (!operation.prompt) return [];
+						return [
+							{
+								kind: "start",
+								ownerKey,
+								agentId: agent.agentId,
+								operationId: operation.operationId,
+								target: agent.requestedTarget,
+								prompt: operation.prompt,
+								model: operation.model,
+								reasoningEffort: operation.reasoningEffort,
+								outputSchema: operation.outputSchema,
+							},
+						];
+					}
+					if (!agent.resolvedTarget || !operation.sessionId) return [];
+					if (operation.kind === "stop") {
+						if (!operation.turnId) return [];
+						return [
+							{
+								kind: "interrupt",
+								ownerKey,
+								agentId: agent.agentId,
+								operationId: operation.operationId,
+								target: agent.resolvedTarget,
+								sessionId: operation.sessionId,
+								turnId: operation.turnId,
+							},
+						];
+					}
+					if (!operation.prompt) return [];
+					return [
+						{
+							kind: "message",
+							ownerKey,
+							agentId: agent.agentId,
+							operationId: operation.operationId,
+							target: agent.resolvedTarget,
+							sessionId: operation.sessionId,
+							expectedTurnId: operation.expectedTurnId,
+							prompt: operation.prompt,
+							outputSchema: operation.outputSchema,
+						},
+					];
+				}),
 			reconcileRequest: (ownerKey, agent) =>
 				agent.sessionId && agent.resolvedTarget
 					? {

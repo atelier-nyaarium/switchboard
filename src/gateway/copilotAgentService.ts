@@ -94,9 +94,12 @@ export class CopilotAgentService {
 			operations: [
 				{
 					operationId,
+					...(input.daemonInstanceId === undefined ? {} : { daemonInstanceId: input.daemonInstanceId }),
 					kind: "start",
 					prompt,
 					...(input.model === undefined ? {} : { model: input.model }),
+					...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
+					...(input.outputSchema === undefined ? {} : { outputSchema: input.outputSchema }),
 					fingerprint,
 					state: "requested",
 					createdAt: at,
@@ -139,11 +142,16 @@ export class CopilotAgentService {
 				...current.operations,
 				{
 					operationId,
+					...(input.daemonInstanceId === undefined ? {} : { daemonInstanceId: input.daemonInstanceId }),
 					kind: "message",
 					prompt,
+					...(input.outputSchema === undefined ? {} : { outputSchema: input.outputSchema }),
 					fingerprint,
 					state: "requested",
 					sessionId: current.sessionId,
+					...(current.agentState === "working" && current.activeTurnId
+						? { expectedTurnId: current.activeTurnId }
+						: {}),
 					createdAt: timestamp,
 					updatedAt: timestamp,
 				},
@@ -178,6 +186,7 @@ export class CopilotAgentService {
 		const noOp = current.agentState === "idle";
 		const operation = {
 			operationId,
+			...(input.daemonInstanceId === undefined ? {} : { daemonInstanceId: input.daemonInstanceId }),
 			kind: "stop" as const,
 			fingerprint,
 			state: noOp ? ("accepted" as const) : ("requested" as const),
@@ -223,8 +232,46 @@ export class CopilotAgentService {
 			operations: replaceAt(current.operations, operationIndex, operation),
 			updatedAt: Math.max(at, current.updatedAt),
 		});
-		this.persistence.apply(owner, next);
-		return next;
+		const applied = this.persistence.apply(owner, next);
+		return applied.disposition === "applied" ? applied.agent : current;
+	}
+
+	abandonStaleOperations(
+		owner: SessionRecord,
+		agent: CopilotPersistedAgent,
+		daemonInstanceId: string,
+		at: number,
+	): CopilotApplication {
+		const current = this.persistence.find(owner, agent.agentId);
+		if (!current) return { disposition: "ignored", reason: "agent left the catalog" };
+		const stale = current.operations.filter(
+			(operation) =>
+				operation.state === "requested" &&
+				operation.daemonInstanceId !== undefined &&
+				operation.daemonInstanceId !== daemonInstanceId,
+		);
+		if (stale.length === 0) return { disposition: "ignored", reason: "agent has no operation from another daemon" };
+		const staleIds = new Set(stale.map((operation) => operation.operationId));
+		const timestamp = Math.max(at, current.updatedAt);
+		try {
+			const next = CopilotPersistedAgentSchema.parse({
+				...current,
+				agentState: stale.some((operation) => operation.kind === "start")
+					? "unavailable"
+					: stale.some((operation) => operation.kind === "message")
+						? "recovering"
+						: current.agentState,
+				operations: current.operations.map((operation) =>
+					staleIds.has(operation.operationId)
+						? { ...operation, state: "indeterminate" as const, updatedAt: timestamp }
+						: operation,
+				),
+				updatedAt: timestamp,
+			});
+			return this.persistence.apply(owner, next);
+		} catch {
+			return { disposition: "failed", reason: "stale operations did not produce a valid record" };
+		}
 	}
 
 	takeRefusal(operationId: string): { code?: CopilotDaemonFailureCode; message: string } | undefined {

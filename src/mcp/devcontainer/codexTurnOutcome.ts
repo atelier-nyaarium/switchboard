@@ -8,7 +8,7 @@ import type { TurnOutcome } from "./codexTurnTracker.js";
 export type TerminalOutcome =
 	| { status: "completed"; finalResponse?: string; finalItemId?: string }
 	| { status: "failed"; error: string }
-	| { status: "interrupted" };
+	| { status: "interrupted"; reason?: string };
 
 /**
  * Three answers, not two. Collapsing `running` and `unknown` reports a live turn as a failed one:

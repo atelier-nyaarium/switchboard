@@ -38,6 +38,7 @@ export interface TargetSession {
 	nextEventId: number;
 	turns: CodexLiveTurns;
 	threads: Map<string, TurnBinding>;
+	loadedThreads: Set<string>;
 	/** A terminal the tracker holds for its final item, and the deadline that settles it regardless. */
 	held: Map<string, ReturnType<typeof setTimeout>>;
 	/** This session's own quiet, which a server event refreshes. Not the daemon's; never merge them. */

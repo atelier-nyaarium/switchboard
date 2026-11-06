@@ -51,6 +51,7 @@ async function runStart(
 		model: command.model,
 		serviceTier: command.serviceTier,
 	});
+	session.loadedThreads.add(threadId);
 	const binding: TurnBinding = { ownerKey: command.ownerKey, agentId: command.agentId, threadId };
 	host.bindThread(session, threadId, binding);
 	const turnId = await beginTurn(session, binding, command.prompt, { outputSchema: command.outputSchema });
@@ -151,6 +152,7 @@ async function runMessage(
 	}
 
 	await session.client.resumeThread(command.threadId);
+	session.loadedThreads.add(command.threadId);
 	const turnId = await beginTurn(session, binding, command.prompt, {
 		model: command.model,
 		serviceTier: command.serviceTier,
@@ -210,6 +212,7 @@ async function runReconcile(
 		agentId: command.agentId,
 		threadId: command.threadId,
 	};
+	const wasLoaded = session.loadedThreads.has(command.threadId);
 	host.bindThread(session, command.threadId, binding);
 
 	let observed: ReadOutcome = { known: "unknown" };
@@ -229,7 +232,9 @@ async function runReconcile(
 			observed = { known: "unknown" };
 		}
 	}
-	if (observed.known === "running" && command.turnId) session.turns.bind(command.turnId, binding);
+	if (observed.known === "running" && command.turnId && wasLoaded) {
+		session.turns.bind(command.turnId, binding);
+	}
 
 	// Install the fence before later terminal events.
 	host.emitReceipt(session, command, {

@@ -24,6 +24,7 @@ export interface CopilotRouteDeps {
 	service: CopilotAgentService;
 	relay: CopilotRelay;
 	ambient: Clock;
+	daemonInstanceId: () => string | undefined;
 	waitBudgetMs?: number;
 }
 
@@ -75,7 +76,15 @@ function describeAgent(
 							? "indeterminate"
 							: "unavailable"),
 		activities,
-		...(turn ? { turn: { id: turn.id, state: turn.state } } : {}),
+		...(turn
+			? {
+					turn: {
+						id: turn.id,
+						state: turn.state,
+						...(turn.state === "interrupted" ? { reason: turn.reason } : {}),
+					},
+				}
+			: {}),
 		...(options.delivery && !uncertain ? { delivery: options.delivery } : {}),
 	};
 	if (uncertain) {
@@ -169,12 +178,17 @@ export class CopilotRoute {
 			throw new AgentTransitionError("invalid_input", "cwd applies to host sessions only");
 		const target = this.deps.service.resolveExecutionTarget(owner, request.cwd);
 		if (!target) return unavailable(agentId, "daemon_unavailable", "no trusted execution target for this session");
+		const daemonInstanceId = this.deps.daemonInstanceId();
+		if (!daemonInstanceId) return unavailable(agentId, "daemon_unavailable", "host daemon identity is unavailable");
 		const committed = this.deps.service.beginStart(req, {
 			agentId,
 			operationId: request.operationId,
+			daemonInstanceId,
 			prompt: request.prompt,
 			target,
 			model: request.model,
+			reasoningEffort: request.reasoningEffort,
+			outputSchema: request.outputSchema,
 			at: this.now(),
 		});
 		let dispatched = true;
@@ -199,10 +213,15 @@ export class CopilotRoute {
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CopilotGatewayRequestSchema.parse>, { kind: "message" }>,
 	): Promise<CopilotAgentResult> {
+		const daemonInstanceId = this.deps.daemonInstanceId();
+		if (!daemonInstanceId)
+			return unavailable(request.agentId, "daemon_unavailable", "host daemon identity is unavailable");
 		const committed = this.deps.service.beginMessage(req, {
 			agentId: request.agentId,
 			operationId: request.operationId,
+			daemonInstanceId,
 			prompt: request.prompt,
+			outputSchema: request.outputSchema,
 			at: this.now(),
 		});
 		let dispatched = true;
@@ -217,7 +236,7 @@ export class CopilotRoute {
 				sessionId: agent.sessionId!,
 				prompt: request.prompt,
 				// Names the turn a steer is meant for; the daemon opens a new one if it has settled.
-				...(agent.agentState === "working" && agent.activeTurnId ? { expectedTurnId: agent.activeTurnId } : {}),
+				...(committed.operation.expectedTurnId ? { expectedTurnId: committed.operation.expectedTurnId } : {}),
 				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
 			});
 		}
@@ -229,9 +248,13 @@ export class CopilotRoute {
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CopilotGatewayRequestSchema.parse>, { kind: "stop" }>,
 	): Promise<CopilotAgentResult> {
+		const daemonInstanceId = this.deps.daemonInstanceId();
+		if (!daemonInstanceId)
+			return unavailable(request.agentId, "daemon_unavailable", "host daemon identity is unavailable");
 		const committed = this.deps.service.beginStop(req, {
 			agentId: request.agentId,
 			operationId: request.operationId,
+			daemonInstanceId,
 			at: this.now(),
 		});
 		if (committed.disposition === "committed" && committed.operation.state === "requested") {

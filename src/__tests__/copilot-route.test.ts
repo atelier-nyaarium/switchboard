@@ -4,6 +4,9 @@ import { CopilotRelay } from "../gateway/copilotRelay.js";
 import { CopilotRoute } from "../gateway/copilotRoute.js";
 import { createSessionAuthority } from "../gateway/sessionAuthority.js";
 import { resolveLiveIncarnation, type TeamRegistry } from "../gateway/wsTypes.js";
+import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
+import { CopilotDaemonService } from "../mcp/devcontainer/copilotDaemonService.js";
+import type { CopilotHeadlessClient } from "../mcp/devcontainer/copilotHeadless.js";
 import { processAmbient } from "../shared/ambient.js";
 import { CopilotAgentResultSchema, copilotAgentIdForOperation } from "../shared/copilot-agent.js";
 import { type CopilotCatalogWriter, SessionStore } from "../shared/session-store.js";
@@ -57,6 +60,7 @@ function setup(options: { dispatch?: boolean; waitBudgetMs?: number } = {}) {
 		service,
 		relay,
 		ambient: processAmbient(),
+		daemonInstanceId: () => "daemon-1",
 		waitBudgetMs: options.waitBudgetMs ?? 1_000,
 	});
 	return { route, relay, sent, owner, token, service, sessionStore };
@@ -182,6 +186,114 @@ describe("Copilot gateway route", () => {
 			finalResponse: "Done.",
 		});
 		expect(body.activities[0]).not.toHaveProperty("itemId");
+	});
+
+	it("settles a turn when a restarted target cannot resume its session", async () => {
+		const context = setup();
+		const agentId = copilotAgentIdForOperation(START_OPERATION_ID);
+		const starting = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await starting;
+
+		context.relay.handleHostMessage({
+			type: "copilot_hello",
+			daemonInstanceId: "daemon-2",
+			targets: [{ targetId: "container:recipe-app", generation: 2 }],
+		});
+		await flush();
+		const reconcile = context.sent.findLast(
+			(frame) => frame.type === "copilot_command" && frame.kind === "reconcile",
+		);
+		expect(reconcile).toBeDefined();
+
+		const receipts: Record<string, unknown>[] = [];
+		const client = {
+			onEvent: () => {},
+			createSession: async () => "session-2",
+			listModels: async () => [],
+			resumeSession: async () => {
+				throw new Error("session is no longer available");
+			},
+			send: async () => "message-1",
+			abort: async () => {},
+			close: () => {},
+		} as unknown as CopilotHeadlessClient;
+		const targets: TargetSupervisor = {
+			acquire: () => ({ state: "running", lease: { generation: 2, child: {} as AgentChild } }),
+			release: () => {},
+		};
+		const daemon = new CopilotDaemonService({
+			targets,
+			daemonInstanceId: "daemon-2",
+			send: (frame) => receipts.push(frame),
+			openClient: async () => client,
+			resolveHostCwd: () => "/home/agent",
+		});
+		daemon.handleCommand(reconcile);
+		await flush();
+		expect(receipts).toContainEqual(expect.objectContaining({ kind: "reconciled", active: false }));
+		context.relay.handleHostMessage(receipts[0]!);
+		await flush();
+
+		const collected = await context.route.handle(post(context.token), { kind: "await", agentId });
+		expect(await collected.json()).toMatchObject({
+			agentState: "idle",
+			observation: "terminal",
+			turn: { id: "turn-1", state: "interrupted", reason: "turn lost: its agent process ended" },
+		});
+	});
+
+	it("settles the prior turn before adopting a different turn from a new process", async () => {
+		const context = setup();
+		const agentId = copilotAgentIdForOperation(START_OPERATION_ID);
+		const starting = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await starting;
+
+		context.relay.handleHostMessage({
+			type: "copilot_hello",
+			daemonInstanceId: "daemon-2",
+			targets: [{ targetId: "container:recipe-app", generation: 2 }],
+		});
+		await flush();
+		const reconcile = context.sent.findLast(
+			(frame) => frame.type === "copilot_command" && frame.kind === "reconcile",
+		);
+		expect(reconcile).toBeDefined();
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: reconcile!.requestId,
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-2",
+			targetId: "container:recipe-app",
+			generation: 2,
+			eventId: 0,
+			agentId,
+			sessionId: "session-1",
+			active: true,
+			turnId: "turn-2",
+		});
+		await flush();
+
+		expect(context.service.listOwnedAgents(context.owner)[0]).toMatchObject({
+			agentState: "working",
+			activeTurnId: "turn-2",
+			turns: [
+				{ id: "turn-1", state: "interrupted", reason: "turn lost: its agent process ended" },
+				{ id: "turn-2", state: "inProgress" },
+			],
+		});
 	});
 
 	it("steers a follow-up into the running turn the Gateway named, without a second turn", async () => {

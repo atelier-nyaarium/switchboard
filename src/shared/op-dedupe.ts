@@ -11,7 +11,8 @@ interface Settled<T> {
 export interface DedupeDeps {
 	now: () => number;
 	/** How long a settled key answers from memory. */
-	holdMs: number;
+	holdMs?: number;
+	maxEntries?: number;
 }
 
 export function createOpDedupe<T>(deps: DedupeDeps) {
@@ -19,21 +20,32 @@ export function createOpDedupe<T>(deps: DedupeDeps) {
 	const inFlight = createSingleFlight<string, T>();
 
 	const sweep = (): void => {
-		const cutoff = deps.now() - deps.holdMs;
-		for (const [key, entry] of [...settled]) {
-			if (entry.at <= cutoff) settled.delete(key);
+		if (deps.holdMs !== undefined) {
+			const cutoff = deps.now() - deps.holdMs;
+			for (const [key, entry] of [...settled]) {
+				if (entry.at <= cutoff) settled.delete(key);
+			}
 		}
 	};
 
 	/** Runs `work` at most once per key, joining a flight already open and replaying a settled answer. */
-	const once = (key: string, work: () => Promise<T>): Promise<T> => {
+	const once = (key: string, work: () => Promise<T>, replay?: (result: T) => void): Promise<T> => {
 		sweep();
 		const already = settled.get(key);
-		if (already !== undefined) return Promise.resolve(already.result);
+		if (already !== undefined) {
+			replay?.(already.result);
+			return Promise.resolve(already.result);
+		}
 
 		return inFlight.run(key, async () => {
 			const result = await work();
+			settled.delete(key);
 			settled.set(key, { at: deps.now(), result });
+			while (deps.maxEntries !== undefined && settled.size > deps.maxEntries) {
+				const oldest = settled.keys().next().value;
+				if (oldest === undefined) break;
+				settled.delete(oldest);
+			}
 			return result;
 		});
 	};

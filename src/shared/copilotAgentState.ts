@@ -61,7 +61,14 @@ export const CopilotAgentResultSchema = z
 		agentId: CopilotAgentIdSchema,
 		agentState: CopilotAgentStateSchema,
 		observation: CopilotObservationSchema,
-		turn: z.object({ id: CopilotOpaqueIdSchema, state: CopilotTurnStateSchema }).strict().optional(),
+		turn: z
+			.object({
+				id: CopilotOpaqueIdSchema,
+				state: CopilotTurnStateSchema,
+				reason: CopilotErrorTextSchema.optional(),
+			})
+			.strict()
+			.optional(),
 		delivery: CopilotDeliverySchema.optional(),
 		activities: CopilotActivitiesSchema,
 		finalResponse: z.string().optional(),
@@ -71,6 +78,12 @@ export const CopilotAgentResultSchema = z
 	.superRefine((value, ctx) => {
 		if (value.delivery && !value.turn)
 			ctx.addIssue({ code: "custom", message: "delivery requires an accepted turn", path: ["delivery"] });
+		if (value.turn?.reason !== undefined && value.turn.state !== "interrupted")
+			ctx.addIssue({
+				code: "custom",
+				message: "only an interrupted turn carries a reason",
+				path: ["turn", "reason"],
+			});
 		if (value.activities.length > 0 && !value.turn)
 			ctx.addIssue({ code: "custom", message: "activities require a turn", path: ["activities"] });
 		const creationTimedOut =

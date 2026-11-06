@@ -69,8 +69,12 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		wakeCoordinator: host.wakeCoordinator,
 		hostOpCoordinator: host.hostOpCoordinator,
 		workspacePlane,
-		onTeamConnect: (team) => {
-			if (team === "host") host.pushPresenceWatch(true);
+		onTeamConnect: (team, ws) => {
+			if (team === "host") {
+				agents.codexRelay.onHostRegister(ws.data.daemonInstanceId);
+				agents.copilotRelay.onHostRegister(ws.data.daemonInstanceId);
+				host.pushPresenceWatch(true);
+			}
 			const handed = channelDeliveries.drain(team);
 			if (handed === "migrating") return;
 			if (handed > 0) console.log(`[delivery] handed ${handed} held message(s) to ${team}`);
@@ -87,7 +91,11 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 				sessions.presence.markDirty();
 			}
 		},
-		onCatalogChange: () => sessions.presence.markDirty(),
+		onCatalogChange: (daemonInstanceId) => {
+			sessions.presence.markDirty();
+			agents.codexRelay.resendRequested(daemonInstanceId);
+			agents.copilotRelay.resendRequested(daemonInstanceId);
+		},
 		onDaemonCapabilities: (capabilities) => stores.daemonCapabilityStore.declare(capabilities),
 		onCodexHostMessage: (msg) => agents.codexRelay.handleHostMessage(msg),
 		onCopilotHostMessage: (msg) => agents.copilotRelay.handleHostMessage(msg),

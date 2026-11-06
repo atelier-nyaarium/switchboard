@@ -28,7 +28,15 @@ export const CopilotListAgentSchema = z
 		agentId: CopilotAgentIdSchema,
 		agentState: CopilotAgentStateSchema,
 		activeTurnId: CopilotOpaqueIdSchema.optional(),
-		turns: z.array(z.object({ id: CopilotOpaqueIdSchema, state: CopilotTurnStateSchema }).strict()),
+		turns: z.array(
+			z
+				.object({
+					id: CopilotOpaqueIdSchema,
+					state: CopilotTurnStateSchema,
+					reason: z.string().optional(),
+				})
+				.strict(),
+		),
 		operations: z.array(
 			z
 				.object({
@@ -49,7 +57,7 @@ export interface CopilotListAgentSource {
 	agentId: string;
 	agentState: z.infer<typeof CopilotAgentStateSchema>;
 	activeTurnId?: string;
-	turns: ReadonlyArray<{ id: string; state: z.infer<typeof CopilotTurnStateSchema> }>;
+	turns: ReadonlyArray<{ id: string; state: z.infer<typeof CopilotTurnStateSchema>; reason?: string }>;
 	operations: ReadonlyArray<{ kind: "start" | "message" | "stop"; state: string; prompt?: string }>;
 }
 
@@ -59,7 +67,11 @@ export function projectCopilotListAgent(agent: CopilotListAgentSource): CopilotL
 		agentId: agent.agentId,
 		agentState: agent.agentState,
 		...(agent.activeTurnId ? { activeTurnId: agent.activeTurnId } : {}),
-		turns: agent.turns.map((turn) => ({ id: turn.id, state: turn.state })),
+		turns: agent.turns.map((turn) => ({
+			id: turn.id,
+			state: turn.state,
+			...(turn.state === "interrupted" && turn.reason !== undefined ? { reason: turn.reason } : {}),
+		})),
 		operations: agent.operations.map((operation) => ({
 			kind: operation.kind,
 			state: operation.state,

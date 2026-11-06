@@ -3,7 +3,6 @@ import { advancesFence, classifyAcceptanceFence, sameFence } from "../shared/age
 import { appendAgentActivity, replaceAt } from "../shared/agent-record.js";
 import {
 	CODEX_ACTIVITY_MAX_ITEMS,
-	type CodexDaemonEvent,
 	type CodexPersistedAgent,
 	CodexPersistedAgentSchema,
 	type CodexReconciliationFence,
@@ -186,7 +185,13 @@ export function withActivity(
 export function withTerminal(
 	agent: CodexPersistedAgent,
 	turnIndex: number,
-	event: Extract<CodexDaemonEvent, { kind: "terminal" }>,
+	event: {
+		state: "completed" | "failed" | "interrupted";
+		finalItemId?: string;
+		finalResponse?: string;
+		error?: string;
+		reason?: string;
+	},
 	at: number,
 	fence: CodexReconciliationFence,
 ): CodexPersistedAgent {
@@ -199,14 +204,18 @@ export function withTerminal(
 				...base,
 				state: "completed",
 				finalItemId: event.finalItemId,
-				finalResponse: event.finalResponse,
+				finalResponse: event.finalResponse ?? "",
 			};
 			break;
 		case "failed":
-			settled = { ...base, state: "failed", error: sanitizeCodexErrorText(event.error) };
+			settled = {
+				...base,
+				state: "failed",
+				error: sanitizeCodexErrorText(event.error ?? "Codex turn failed"),
+			};
 			break;
 		default:
-			settled = { ...base, state: "interrupted" };
+			settled = { ...base, state: "interrupted", reason: event.reason };
 	}
 	const operations = agent.operations.map((operation) =>
 		operation.kind === "stop" && operation.state === "requested" && operation.turnId === turn.id

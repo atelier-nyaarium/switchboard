@@ -134,6 +134,7 @@ export const CodexDaemonEventSchema = z.union([
 			kind: z.literal("terminal"),
 			turnId: OpaqueIdSchema,
 			state: z.literal("interrupted"),
+			reason: CodexErrorTextSchema.optional(),
 		})
 		.strict(),
 ]);

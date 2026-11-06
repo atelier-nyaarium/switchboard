@@ -59,8 +59,16 @@ export interface AgentRelayFamily<
 	receiptSchema: AgentRelaySchema<TReceipt>;
 	commandSchema: { safeParse(value: unknown): { success: boolean } };
 	listAgents(owner: SessionRecord): readonly TAgent[];
+	fenceInstanceId(agent: TAgent): string | undefined;
 	applyEvent(event: TEvent, at: number): AgentApplication<TAgent>;
 	applyReceipt(receipt: TReceipt, at: number): AgentApplication<TAgent>;
+	abandonStaleOperations(
+		owner: SessionRecord,
+		agent: TAgent,
+		daemonInstanceId: string,
+		at: number,
+	): AgentApplication<TAgent>;
+	requestedOperations(ownerKey: string, agent: TAgent, daemonInstanceId: string): readonly TRequest[];
 	/** Undefined marks an unaskable agent. */
 	reconcileRequest(ownerKey: string, agent: TAgent): TRequest | undefined;
 }
@@ -115,6 +123,7 @@ export class AgentRelayCore<
 	private readonly listeners = new Map<string, Set<() => void>>();
 	// Match request IDs before clearing.
 	private readonly reconciling = new Map<string, { requestId: string; askedAt: number }>();
+	private readonly lastReconcileAskedAt = new Map<string, number>();
 	private readonly deferred = new Map<string, Array<HeldFrame<TEvent, TReceipt>>>();
 	private liveInstanceId: string | undefined;
 
@@ -131,6 +140,40 @@ export class AgentRelayCore<
 		const ownerKey = this.deps.sessionStore.teamOf(owner);
 		for (const agent of this.family.listAgents(owner)) {
 			if (this.needsReconciliation(ownerKey, agent)) this.requestReconciliation(ownerKey, agent);
+		}
+	}
+
+	onHostRegister(daemonInstanceId: string | undefined): void {
+		this.liveInstanceId = daemonInstanceId;
+		this.reconciling.clear();
+		if (!daemonInstanceId) return;
+		for (const owner of this.deps.sessionStore.list()) {
+			const ownerKey = this.deps.sessionStore.teamOf(owner);
+			for (const agent of this.family.listAgents(owner)) {
+				void this.serialize(ownerKey, agent.agentId, () => {
+					const application = this.family.abandonStaleOperations(owner, agent, daemonInstanceId, this.now());
+					this.notifyChanged(ownerKey, agent.agentId, application);
+				});
+			}
+		}
+	}
+
+	resendRequested(daemonInstanceId: string | undefined): void {
+		if (!daemonInstanceId || daemonInstanceId !== this.liveInstanceId) return;
+		for (const owner of this.deps.sessionStore.list()) {
+			const ownerKey = this.deps.sessionStore.teamOf(owner);
+			for (const agent of this.family.listAgents(owner)) {
+				void this.serialize(ownerKey, agent.agentId, () => {
+					if (daemonInstanceId !== this.liveInstanceId) return;
+					const current = this.family
+						.listAgents(owner)
+						.find((candidate) => candidate.agentId === agent.agentId);
+					if (!current) return;
+					for (const command of this.family.requestedOperations(ownerKey, current, daemonInstanceId)) {
+						this.send(this.deps.ambient.newId(), command);
+					}
+				});
+			}
 		}
 	}
 
@@ -175,15 +218,20 @@ export class AgentRelayCore<
 	private onHello(raw: Record<string, unknown>): void {
 		const hello = this.parse(this.family.helloSchema, raw, "hello");
 		if (!hello) return;
+		if (this.liveInstanceId !== undefined && hello.daemonInstanceId !== this.liveInstanceId) return;
 		this.liveInstanceId = hello.daemonInstanceId;
 		this.reconciling.clear();
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
 			for (const agent of this.family.listAgents(owner)) {
-				// Held frames need reconciling, even idle.
-				if (this.needsReconciliation(ownerKey, agent) || this.deferred.has(agentKey(ownerKey, agent.agentId))) {
-					this.requestReconciliation(ownerKey, agent);
-				}
+				void this.serialize(ownerKey, agent.agentId, () => {
+					if (
+						this.needsReconciliation(ownerKey, agent) ||
+						this.deferred.has(agentKey(ownerKey, agent.agentId))
+					) {
+						this.requestReconciliation(ownerKey, agent);
+					}
+				});
 			}
 		}
 	}
@@ -239,8 +287,7 @@ export class AgentRelayCore<
 			}
 		}
 		if (isFenced(message)) this.advance(message, repairable ? "hold" : "decided");
-		if (application.disposition !== "applied") return;
-		for (const listener of this.listeners.get(agentKey(message.ownerKey, message.agentId)) ?? []) listener();
+		this.notifyChanged(message.ownerKey, message.agentId, application);
 	}
 
 	private advance(message: FencedFrame, outcome: "hold" | "decided"): void {
@@ -326,7 +373,9 @@ export class AgentRelayCore<
 	}
 
 	private needsReconciliation(ownerKey: string, agent: TAgent): boolean {
-		return this.isAskable(ownerKey, agent) && (agent.agentState === "working" || agent.agentState === "recovering");
+		if (!this.liveInstanceId || !this.isAskable(ownerKey, agent)) return false;
+		if (agent.agentState === "recovering") return true;
+		return agent.agentState === "working" && this.family.fenceInstanceId(agent) !== this.liveInstanceId;
 	}
 
 	private requestReconciliation(ownerKey: string, agent: TAgent): void {
@@ -334,12 +383,21 @@ export class AgentRelayCore<
 		if (!request) return;
 		const key = agentKey(ownerKey, agent.agentId);
 		// Time-bound each agent guard.
-		const asked = this.reconciling.get(key);
-		if (asked !== undefined && this.now() - asked.askedAt < RECONCILE_GUARD_MS) return;
+		const now = this.now();
+		const askedAt = this.lastReconcileAskedAt.get(key);
+		if (askedAt !== undefined && now - askedAt < RECONCILE_GUARD_MS) return;
 		const requestId = this.deps.ambient.newId();
-		this.reconciling.set(key, { requestId, askedAt: this.now() });
-		// Failed sends release guards.
-		if (!this.send(requestId, request)) this.reconciling.delete(key);
+		this.reconciling.set(key, { requestId, askedAt: now });
+		if (!this.send(requestId, request)) {
+			this.reconciling.delete(key);
+			return;
+		}
+		this.lastReconcileAskedAt.set(key, now);
+	}
+
+	private notifyChanged(ownerKey: string, agentId: string, application: AgentApplication<TAgent>): void {
+		if (application.disposition !== "applied") return;
+		for (const listener of this.listeners.get(agentKey(ownerKey, agentId)) ?? []) listener();
 	}
 
 	/** Serialize reducers per agent. */

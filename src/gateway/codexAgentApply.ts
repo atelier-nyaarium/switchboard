@@ -1,6 +1,6 @@
 import { sameResolvedTarget } from "../shared/agent-execution-target.js";
 import { classifyEventFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
-import { replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
+import { AGENT_TURN_LOST_REASON, replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
 import {
 	CodexAgentIdSchema,
 	type CodexDaemonEvent,
@@ -176,12 +176,33 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 			? agent.turns.find((turn) => turn.id === agent.activeTurnId && turn.state === "inProgress")
 			: undefined;
 		const survives = active !== undefined && receipt.turnId === active.id && receipt.turnState === "inProgress";
+		const previousFence = agent.fence;
+		const changedProcess =
+			previousFence !== undefined &&
+			(previousFence.daemonInstanceId !== fence.daemonInstanceId ||
+				previousFence.targetId !== fence.targetId ||
+				previousFence.generation !== fence.generation);
 		const at2 = Math.max(at, agent.updatedAt);
 		try {
-			const next = CodexPersistedAgentSchema.parse({
-				...agent,
-				agentState: active ? (survives ? "working" : "recovering") : "idle",
-				operations: refenceUnverified(agent.operations, fence),
+			let next = agent;
+			if (
+				active &&
+				changedProcess &&
+				!survives &&
+				(receipt.turnState === undefined || receipt.turnState === "inProgress")
+			) {
+				next = withTerminal(
+					agent,
+					agent.turns.findIndex((turn) => turn.id === active.id),
+					{ state: "interrupted", reason: AGENT_TURN_LOST_REASON },
+					at2,
+					fence,
+				);
+			}
+			next = CodexPersistedAgentSchema.parse({
+				...next,
+				agentState: active ? (next.activeTurnId ? (survives ? "working" : "recovering") : "idle") : "idle",
+				operations: refenceUnverified(next.operations, fence),
 				fence,
 				updatedAt: at2,
 			});

@@ -134,6 +134,7 @@ export function createWebSocketHandlers({
 		ws.data.isStale = false;
 		ws.data.handshakeConfirmed = false;
 		ws.data.conversationId = null;
+		ws.data.daemonInstanceId = undefined;
 	}
 
 	/**
@@ -276,6 +277,7 @@ export function createWebSocketHandlers({
 			ws.data.claudeSessionId = reg.data.claudeSessionId;
 			ws.data.cwdName = reg.data.cwdName;
 			ws.data.agentPid = reg.data.agentPid;
+			ws.data.daemonInstanceId = reg.data.daemonInstanceId;
 			subs.set(subId, ws);
 			announcePresenceDirty?.();
 
@@ -416,7 +418,7 @@ export function createWebSocketHandlers({
 					hostSpawnPoints.copilot = named(msg.copilotSpawns);
 					console.log(`[ws] host spawn points: ${hostSpawnPoints.ids.join(", ") || "(none beyond host)"}`);
 				}
-				onCatalogChange?.();
+				onCatalogChange?.(ws.data.daemonInstanceId);
 			}
 		}
 

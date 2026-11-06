@@ -25,7 +25,7 @@ import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
 import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
 import { AgentTransitionError, validateTimestamp } from "./agentRouteEnvelope.js";
 import { type CodexReceiptApplier, createCodexReceiptApplier } from "./codexAgentApply.js";
-import { decideAcceptance, hasPendingPrompt, indeterminate } from "./codexAgentReducers.js";
+import { decideAcceptance, failed, hasPendingPrompt, ignore, indeterminate } from "./codexAgentReducers.js";
 import type {
 	CodexAcceptanceResult,
 	CodexAgentServiceDeps,
@@ -123,6 +123,7 @@ export class CodexAgentService {
 					kind: "start",
 					prompt,
 					...(input.model === undefined ? {} : { model: input.model }),
+					...(input.outputSchema === undefined ? {} : { outputSchema: input.outputSchema }),
 					status: "requested",
 					createdAt: at,
 				},
@@ -131,6 +132,7 @@ export class CodexAgentService {
 			operations: [
 				{
 					operationId,
+					...(input.daemonInstanceId === undefined ? {} : { daemonInstanceId: input.daemonInstanceId }),
 					kind: "start",
 					fingerprint,
 					state: "requested",
@@ -182,6 +184,7 @@ export class CodexAgentService {
 					operationId,
 					kind: "message",
 					prompt,
+					...(input.outputSchema === undefined ? {} : { outputSchema: input.outputSchema }),
 					status: "requested",
 					createdAt: timestamp,
 				},
@@ -190,6 +193,7 @@ export class CodexAgentService {
 				...current.operations,
 				{
 					operationId,
+					...(input.daemonInstanceId === undefined ? {} : { daemonInstanceId: input.daemonInstanceId }),
 					kind: "message",
 					fingerprint,
 					state: "requested",
@@ -239,6 +243,7 @@ export class CodexAgentService {
 		const noOp = current.agentState === "idle";
 		const operation = {
 			operationId,
+			...(input.daemonInstanceId === undefined ? {} : { daemonInstanceId: input.daemonInstanceId }),
 			kind: "stop" as const,
 			fingerprint,
 			state: noOp ? ("accepted" as const) : ("requested" as const),
@@ -325,17 +330,12 @@ export class CodexAgentService {
 		const existingTurn = current.turns.find((turn) => turn.id === input.turnId);
 		try {
 			const timestamp = Math.max(at, current.updatedAt);
-			const turns = !existingTurn
-				? [
+			const turns = existingTurn
+				? current.turns.map((turn) => (turn.id === input.turnId ? { ...turn, updatedAt: timestamp } : turn))
+				: [
 						...current.turns,
 						{ id: input.turnId, state: "inProgress" as const, activities: [], updatedAt: timestamp },
-					]
-				: steeredIntoSettledTurn
-					? // The turn settled before delivery was recorded; preserve the ordering invariant.
-						current.turns.map((turn) =>
-							turn.id === input.turnId ? { ...turn, updatedAt: timestamp } : turn,
-						)
-					: current.turns;
+					];
 			const acceptedOperation = {
 				...operation,
 				state: "accepted" as const,
@@ -422,10 +422,78 @@ export class CodexAgentService {
 		if (index < 0) return undefined;
 		const agent = catalog.agents[index]!;
 		const operationIndex = agent.operations.findIndex((operation) => operation.operationId === operationId);
+		if (operationIndex < 0) return agent;
+		const operation = agent.operations[operationIndex]!;
+		if (operation.kind === "stop") {
+			if (operation.state !== "requested") return agent;
+			const timestamp = Math.max(at, agent.updatedAt);
+			try {
+				const next = CodexPersistedAgentSchema.parse({
+					...agent,
+					pendingInterrupt:
+						agent.pendingInterrupt?.operationId === operationId ? undefined : agent.pendingInterrupt,
+					operations: replaceAt(agent.operations, operationIndex, {
+						...operation,
+						state: "indeterminate",
+						updatedAt: timestamp,
+					}),
+					updatedAt: timestamp,
+				});
+				const applied = this.persistence.apply(owner, next);
+				return applied.disposition === "applied" ? applied.agent : agent;
+			} catch {
+				return agent;
+			}
+		}
 		const exchangeIndex = agent.exchanges.findIndex((exchange) => exchange.operationId === operationId);
-		if (operationIndex < 0 || exchangeIndex < 0) return agent;
+		if (exchangeIndex < 0) return agent;
 		const result = this.refuseDelivery(owner, catalog, index, operationIndex, exchangeIndex, at);
 		return result.agent;
+	}
+
+	abandonStaleOperations(
+		owner: SessionRecord,
+		agent: CodexPersistedAgent,
+		daemonInstanceId: string,
+		at: number,
+	): CodexApplication {
+		const current = this.persistence.find(owner, agent.agentId);
+		if (!current) return ignore("agent left the catalog");
+		const stale = current.operations.filter(
+			(operation) =>
+				operation.state === "requested" &&
+				operation.daemonInstanceId !== undefined &&
+				operation.daemonInstanceId !== daemonInstanceId,
+		);
+		if (stale.length === 0) return ignore("agent has no operation from another daemon");
+		const staleIds = new Set(stale.map((operation) => operation.operationId));
+		const timestamp = Math.max(at, current.updatedAt);
+		try {
+			const next = CodexPersistedAgentSchema.parse({
+				...current,
+				agentState: stale.some((operation) => operation.kind === "start")
+					? "unavailable"
+					: stale.some((operation) => operation.kind === "message")
+						? "recovering"
+						: current.agentState,
+				pendingInterrupt:
+					current.pendingInterrupt && staleIds.has(current.pendingInterrupt.operationId)
+						? undefined
+						: current.pendingInterrupt,
+				exchanges: current.exchanges.map((exchange) =>
+					staleIds.has(exchange.operationId) ? { ...exchange, status: "indeterminate" as const } : exchange,
+				),
+				operations: current.operations.map((operation) =>
+					staleIds.has(operation.operationId)
+						? { ...operation, state: "indeterminate" as const, updatedAt: timestamp }
+						: operation,
+				),
+				updatedAt: timestamp,
+			});
+			return this.persistence.apply(owner, next);
+		} catch {
+			return failed("stale operations did not produce a valid record");
+		}
 	}
 
 	applyEvent(event: CodexDaemonEvent, at: number): CodexApplication {

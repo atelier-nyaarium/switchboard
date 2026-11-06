@@ -36,7 +36,7 @@ export interface WebSocketDeps {
 	onTeamConnect?: (team: string, ws: ServerWebSocket<WsData>) => void;
 	onTeamDisconnect?: (team: string) => void;
 	onDeliveryAck?: (team: string, deliveryId: string) => void;
-	onCatalogChange?: () => void;
+	onCatalogChange?: (daemonInstanceId: string | undefined) => void;
 	onPresenceDerive?: (team: string, derived: DerivedPresence | undefined) => void;
 	onVirtualPeerEvicted?: (conversationId: string) => void;
 	onDaemonCapabilities?: (capabilities: Capability[]) => void;
@@ -63,6 +63,7 @@ export interface WsData {
 	cwdName?: string;
 	/** The agent process running the plugin, as the register named it. */
 	agentPid?: number;
+	daemonInstanceId?: string;
 	boundToken?: string;
 	missedPings: number;
 	isStale: boolean;

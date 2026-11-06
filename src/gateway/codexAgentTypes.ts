@@ -32,7 +32,9 @@ export interface OwnedCodexOperation extends OwnedCodexAgent {
 export interface CodexIntentInput {
 	agentId: string;
 	operationId: string;
+	daemonInstanceId?: string;
 	prompt: string;
+	outputSchema?: Record<string, unknown>;
 	at: number;
 }
 
@@ -54,6 +56,7 @@ export interface CodexExistingAgentIntentInput extends CodexIntentInput {
 export interface CodexStopIntentInput {
 	agentId: string;
 	operationId: string;
+	daemonInstanceId?: string;
 	at: number;
 }
 

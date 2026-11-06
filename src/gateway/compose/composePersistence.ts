@@ -39,6 +39,7 @@ export interface PersistenceStageDeps {
 	sweepDeliveries?: () => number | undefined;
 	/** Queued data names bytes. */
 	namesBlob?: (blobId: string) => boolean;
+	onPersistTick?: () => void;
 }
 
 /** Unreferenced staging lifetime. */
@@ -61,6 +62,7 @@ export function composePersistence({
 	sessionReserved,
 	sweepDeliveries,
 	namesBlob,
+	onPersistTick,
 }: PersistenceStageDeps): PersistenceStage {
 	const runPersistSteps = createPersistRunner();
 	const sweepSessions = (ttlMs: number): string[] => {
@@ -129,6 +131,7 @@ export function composePersistence({
 		if (!fenced()) {
 			fencedSince = null;
 			settled = false;
+			onPersistTick?.();
 			persistDelivery(false);
 			return;
 		}

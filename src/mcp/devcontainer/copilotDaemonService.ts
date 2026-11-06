@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { AgentResolvedTarget } from "../../shared/agent-execution-target.js";
+import { AGENT_TURN_LOST_REASON } from "../../shared/agent-record.js";
 import {
 	COPILOT_DEFAULT_MODEL,
 	type CopilotDaemonCommand,
@@ -91,6 +92,15 @@ export class CopilotDaemonService {
 			send: deps.send,
 			isReliable: isReliableCopilotMessage,
 			helloSchema: CopilotDaemonHelloSchema,
+			onRetire: (session) => {
+				for (const active of session.active.values()) {
+					this.emitTerminal(session, active, {
+						state: "interrupted",
+						reason: AGENT_TURN_LOST_REASON,
+					});
+				}
+				session.active.clear();
+			},
 		});
 	}
 
@@ -250,7 +260,7 @@ export class CopilotDaemonService {
 		outcome:
 			| { state: "completed"; finalResponse: string }
 			| { state: "failed"; error: string }
-			| { state: "interrupted" },
+			| { state: "interrupted"; reason?: string },
 	): void {
 		this.emitEvent(session, {
 			kind: "terminal",
@@ -301,8 +311,17 @@ export class CopilotDaemonService {
 		if (!active) {
 			try {
 				await session.client.resumeSession(command.sessionId, command.target.cwd);
-			} catch (error) {
-				return this.reject(command, describe(error));
+			} catch {
+				this.emitReceipt(session, command, {
+					kind: "reconciled",
+					requestId: command.requestId,
+					ownerKey: command.ownerKey,
+					agentId: command.agentId,
+					sessionId: command.sessionId,
+					turnId: command.turnId,
+					active: false,
+				});
+				return;
 			}
 			session.sessions.set(command.sessionId, {
 				ownerKey: command.ownerKey,
@@ -422,7 +441,10 @@ export class CopilotDaemonService {
 			failureCode: failureCode(normalized),
 			error: normalized,
 		};
-		if (CopilotDaemonReceiptSchema.safeParse(message).success) this.deps.send(message);
+		if (CopilotDaemonReceiptSchema.safeParse(message).success) {
+			this.core.rememberOperationAnswer(command.kind === "reconcile" ? undefined : command.operationId, message);
+			this.deps.send(message);
+		}
 	}
 }
 

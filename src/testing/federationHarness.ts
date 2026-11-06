@@ -237,11 +237,13 @@ async function attachDomain(
 		});
 	// The daemon survives gateway restarts.
 	let daemon = createFakeCodexDaemon();
+	let codexResponder = options.host?.onCodexCommand;
 	const attachHost = (graph: GatewayGraph): FakeHost =>
 		attachFakeHost(graph, {
 			token: set.tokens.host,
 			projects: [{ team: "fixture-app", projectPath: path.join(base.root, "fixture-app") }],
 			...options.host,
+			onCodexCommand: codexResponder,
 			daemon,
 		});
 	let gateway: GatewayGraph | undefined;
@@ -269,6 +271,7 @@ async function attachDomain(
 		phone2: base.phoneFor(set, 2),
 		target: (team) => [set.domain.id, set.gateway.id, team].join("."),
 		restartGateway: async () => {
+			codexResponder = host.handlers.onCodexCommand;
 			host.close();
 			await currentGateway.close();
 			currentGateway = compose();
@@ -276,6 +279,7 @@ async function attachDomain(
 			host = attachHost(currentGateway);
 		},
 		restartHost: (restart = {}) => {
+			codexResponder = host.handlers.onCodexCommand;
 			host.close();
 			if (restart.newDaemon) daemon = createFakeCodexDaemon();
 			host = attachHost(currentGateway);

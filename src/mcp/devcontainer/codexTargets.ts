@@ -32,6 +32,7 @@ export interface TargetSupervisor {
 	acquire(target: AgentResolvedTarget): TargetAvailability;
 	/** The generation names the lease being given up, so a late release cannot take its successor. */
 	release(targetId: string, generation: number): void;
+	onRetire?(listener: (targetId: string, generation: number) => void): () => void;
 }
 
 export type TargetAvailability =
@@ -216,6 +217,7 @@ const defaultLog = targetLogger("codex-target");
  * Every thread multiplexes through it, so the process count tracks targets, not conversations.
  */
 export class ExecutionTargetManager implements TargetSupervisor {
+	private readonly retireListeners = new Set<(targetId: string, generation: number) => void>();
 	private readonly targets = new Map<
 		string,
 		{
@@ -294,6 +296,7 @@ export class ExecutionTargetManager implements TargetSupervisor {
 			const live = this.targets.get(target.targetId);
 			if (live?.lease?.generation !== lease.generation) return;
 			live.lease = undefined;
+			this.notifyRetired(target.targetId, lease.generation);
 			this.recordFailure(target.targetId, describeExit(info));
 		});
 
@@ -307,8 +310,15 @@ export class ExecutionTargetManager implements TargetSupervisor {
 		// A late release must not tear down its successor.
 		if (entry?.lease?.generation !== generation) return;
 		this.log({ targetId, generation, state: "reaped" });
-		entry.lease.child.kill();
+		const child = entry.lease.child;
 		entry.lease = undefined;
+		this.notifyRetired(targetId, generation);
+		child.kill();
+	}
+
+	onRetire(listener: (targetId: string, generation: number) => void): () => void {
+		this.retireListeners.add(listener);
+		return () => this.retireListeners.delete(listener);
 	}
 
 	/** Generation counters survive, so no generation a late exit carries is handed out again. */
@@ -316,6 +326,10 @@ export class ExecutionTargetManager implements TargetSupervisor {
 		for (const [targetId, entry] of [...this.targets]) {
 			if (entry.lease) this.release(targetId, entry.lease.generation);
 		}
+	}
+
+	private notifyRetired(targetId: string, generation: number): void {
+		for (const listener of this.retireListeners) listener(targetId, generation);
 	}
 
 	private recordFailure(targetId: string, errorClass: string): TargetAvailability {

@@ -60,6 +60,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	let presenceHandlers: RouterPresenceBuild | undefined;
 	let vault: VaultStage | undefined;
 	let devices: DeviceStage | undefined;
+	let reconcileStaleAgents = (): void => {};
 
 	const requireRoutes = (): GatewayRoutes => {
 		if (!routes) throw new Error("the routes stage is not composed yet");
@@ -164,9 +165,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		sessionReserved: (team) => routines.reserves(team) || assistant.reserves(team),
 		sweepDeliveries: () => websockets?.channelDeliveries.sweep(),
 		namesBlob: (blobId) => assistant.namesBlob(blobId) || (routes?.current()?.namesBlob(blobId) ?? true),
+		onPersistTick: () => reconcileStaleAgents(),
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });
+	reconcileStaleAgents = agents.reconcileStaleAgents;
 	const awareness = composeAwareness({ sessions, host, agents, ambient: bootstrap.ambient });
 
 	federation = composeFederation({

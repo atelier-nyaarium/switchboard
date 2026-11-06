@@ -26,6 +26,7 @@ export interface HostStageDeps {
 
 export interface HostStage {
 	liveHostSocket: () => ServerWebSocket<WsData> | undefined;
+	liveHostDaemonInstanceId: () => string | undefined;
 	wakeCoordinator: WakeCoordinator;
 	hostOpCoordinator: HostOpCoordinator;
 	wakeService: WakeService;
@@ -44,6 +45,10 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 	function liveHostSocket(): ServerWebSocket<WsData> | undefined {
 		const hostSubs = sessions.registry.get("host");
 		return hostSubs ? [...hostSubs.values()].find((ws) => ws.readyState === 1) : undefined;
+	}
+
+	function liveHostDaemonInstanceId(): string | undefined {
+		return liveHostSocket()?.data.daemonInstanceId;
 	}
 
 	const wakeService = new WakeService({
@@ -90,6 +95,7 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 
 	return {
 		liveHostSocket,
+		liveHostDaemonInstanceId,
 		wakeCoordinator,
 		hostOpCoordinator,
 		wakeService,
