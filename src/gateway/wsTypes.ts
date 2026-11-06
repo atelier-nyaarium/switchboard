@@ -61,6 +61,8 @@ export interface WsData {
 	version?: string;
 	claudeSessionId?: string;
 	cwdName?: string;
+	/** The agent process running the plugin, as the register named it. */
+	agentPid?: number;
 	boundToken?: string;
 	missedPings: number;
 	isStale: boolean;

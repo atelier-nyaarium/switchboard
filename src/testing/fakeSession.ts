@@ -11,6 +11,8 @@ export interface FakeSessionOptions {
 	sessionToken?: string;
 	/** Defaults to one fixed id, so a second attach replaces the first socket. */
 	subId?: string;
+	/** The agent process the register names. */
+	agentPid?: number;
 	cwdName?: string;
 	/** A bare project's register also names its path, as a devcontainer plugin does. */
 	projectPath?: string;
@@ -89,6 +91,7 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 		cwdName: options.cwdName ?? options.team,
 		...(options.sessionToken ? { sessionToken: options.sessionToken } : {}),
 		...(options.projectPath ? { projectPath: options.projectPath } : {}),
+		...(options.agentPid ? { agentPid: options.agentPid } : {}),
 	};
 	WsRegisterSchema.parse(register);
 	graph.wsHandlers.message(socket.ws, JSON.stringify(register));

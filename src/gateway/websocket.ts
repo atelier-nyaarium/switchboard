@@ -275,6 +275,7 @@ export function createWebSocketHandlers({
 			ws.data.version = reg.data.version;
 			ws.data.claudeSessionId = reg.data.claudeSessionId;
 			ws.data.cwdName = reg.data.cwdName;
+			ws.data.agentPid = reg.data.agentPid;
 			subs.set(subId, ws);
 			announcePresenceDirty?.();
 
@@ -310,15 +311,30 @@ export function createWebSocketHandlers({
 				const sameConfirmer = !!auth && !!confirmedBy && auth.sameAs(confirmedBy, auth.toAnswerFor(ws));
 				// A Copilot pane has no channel to answer a handshake through; its launch token stands in.
 				const copilot = isBound && boundRecord?.harness === "copilot";
-				// A process the pane spawned inherits the token too; the pane's own socket came first.
-				const paneHeld = [...subs.values()].some(
-					(other) => other !== ws && other.readyState === 1 && other.data.handshakeConfirmed,
-				);
-				if (copilot && paneHeld) {
-					console.log(`[ws] ${team}/${subId} refused - its Copilot session already has a socket`);
-					sendOn(ws, JSON.stringify({ type: "handshake_reject" }), "handshake_reject");
-					evictSocket(ws);
-					return;
+				// One socket types for a Copilot pane. A plugin reloaded under the same agent replaces the
+				// old one, which Copilot may leave running; a nested agent inheriting the token is refused.
+				const held = copilot
+					? [...subs.values()].filter(
+							(other) => other !== ws && other.readyState === 1 && other.data.handshakeConfirmed,
+						)
+					: [];
+				if (held.length > 0) {
+					// FIXME 2026-11-20: drop `=== undefined`, which lets a plugin naming its agent replace an older one.
+					const reload =
+						ws.data.agentPid !== undefined &&
+						held.every(
+							(other) => other.data.agentPid === undefined || other.data.agentPid === ws.data.agentPid,
+						);
+					const losers = reload ? held : [ws];
+					const why = reload
+						? "replaced by its agent's reloaded plugin"
+						: "refused - another agent holds the session";
+					for (const loser of losers) {
+						console.log(`[ws] ${team}/${loser.data.subId} ${why}`);
+						sendOn(loser, JSON.stringify({ type: "handshake_reject" }), "handshake_reject");
+						evictSocket(loser);
+					}
+					if (!reload) return;
 				}
 				if (copilot || (reg.data.isMainOrLead === true && sameConfirmer)) {
 					if (establishRecord(ws, { team, subId }) === "refused") {

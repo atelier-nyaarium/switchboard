@@ -83,7 +83,10 @@ describe("sessions, bindings, and console operations", () => {
 	it("confirms a Copilot session at registration, so the first message can be typed into its pane", async () => {
 		const before = sessions.length;
 		h.host.handlers.onCreateSession = (op) =>
-			session(composeSessionName(op.target.name, op.target.sessionName), { sessionToken: op.sessionToken });
+			session(composeSessionName(op.target.name, op.target.sessionName), {
+				sessionToken: op.sessionToken,
+				agentPid: 100,
+			});
 		const { result } = await h.phone.value({
 			kind: "create_session",
 			target: h.target("host"),
@@ -102,8 +105,26 @@ describe("sessions, bindings, and console operations", () => {
 			target: { sessionName: copilot.team.split(".")[1] },
 		});
 
-		const child = session(copilot.team, { sessionToken: copilot.sessionToken, subId: "child" });
-		await h.waitFor(() => child.frames.find((frame) => frame.type === "handshake_reject"), "the child refused");
+		const nested = session(copilot.team, { sessionToken: copilot.sessionToken, subId: "nested", agentPid: 200 });
+		await h.waitFor(
+			() => nested.frames.find((frame) => frame.type === "handshake_reject"),
+			"the nested agent refused",
+		);
+		expect(copilot.frames.some((frame) => frame.type === "handshake_reject")).toBe(false);
+
+		const reloaded = session(copilot.team, {
+			sessionToken: copilot.sessionToken,
+			subId: "reloaded",
+			agentPid: 100,
+		});
+		await h.waitFor(
+			() => copilot.frames.find((frame) => frame.type === "handshake_reject"),
+			"the old plugin replaced",
+		);
+		expect(reloaded.frames.some((frame) => frame.type === "handshake_reject")).toBe(false);
+		expect(await (await reloaded.post("/session/type", { text: "<channel>again</channel>" })).json()).toEqual({
+			typed: true,
+		});
 
 		const claude = await ensureBound();
 		expect((await claude.post("/session/type", { text: "x" })).status).toBe(403);

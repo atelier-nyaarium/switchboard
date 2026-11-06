@@ -31,6 +31,8 @@ export const WsRegisterSchema = z.object({
 	token: z.string().optional(),
 	sessionToken: z.string().max(256).optional(),
 	isMainOrLead: z.boolean().optional().catch(undefined),
+	/** The agent process that runs this plugin, so a reload under it is told from a nested agent. */
+	agentPid: z.number().int().positive().optional(),
 	daemonCapabilities: z.array(EnabledPluginSchema).max(64).optional(),
 	daemonInstanceId: z.string().max(64).optional(),
 });

@@ -50,8 +50,11 @@ keeps it across reconnects.
 - Claude receives channel pushes as MCP notifications. Copilot receives the same content and
   metadata in a `<channel source="switchboard">` tag typed into its own host pane.
 - A Copilot session is confirmed at registration by its launch token, since it has no channel to
-  answer a handshake through. A second socket presenting the same token while the first is live is
-  refused with `handshake_reject`, so a process the pane spawned cannot type every push twice.
+  answer a handshake through. One socket types for the pane: the register names its agent process
+  (`agentPid`), a plugin reloaded under the same agent (Copilot's `/clear` and `/resume` start a new
+  one and may leave the old running) replaces the held socket, and one under another agent, a nested
+  process inheriting the token, is refused. Either loser gets `handshake_reject` and stops
+  reconnecting, so no push is typed twice.
 - `/session/type` requires the caller's confirmed Copilot host-session token. The Gateway derives the
   pane from that session record and caps text at 128 KB. The host serializes typing with other sends,
   polls the pane once per second, drops control characters but tab and newline so nothing ends the

@@ -365,6 +365,7 @@ export function buildRegisterMsg(
 	}
 	const cwdName = basename(process.cwd());
 	if (cwdName) registerMsg.cwdName = cwdName;
+	registerMsg.agentPid = process.ppid;
 	if (process.env.SWITCHBOARD_SESSION_TOKEN) {
 		registerMsg.sessionToken = process.env.SWITCHBOARD_SESSION_TOKEN;
 	}
