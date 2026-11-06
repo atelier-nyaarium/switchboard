@@ -34,6 +34,7 @@ export interface WebSocketDeps {
 	};
 	config: WebSocketConfig;
 	onTeamConnect?: (team: string, ws: ServerWebSocket<WsData>) => void;
+	onHandshakeConfirmed?: (team: string) => void;
 	onTeamDisconnect?: (team: string) => void;
 	onDeliveryAck?: (team: string, deliveryId: string) => void;
 	onCatalogChange?: (daemonInstanceId: string | undefined) => void;

@@ -75,6 +75,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 		if (!turn) return { disposition: "reconcile", owner, agent };
 		if (turn.state !== "inProgress") return ignore("turn is already settled");
 		if (agent.activeTurnId !== turn.id) return { disposition: "reconcile", owner, agent };
+		if (parsed.data.kind === "counter") return ignore("counter-only");
 
 		const timestamp = Math.max(at, agent.updatedAt);
 		let next: CodexPersistedAgent;

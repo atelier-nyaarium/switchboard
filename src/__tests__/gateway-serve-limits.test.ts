@@ -63,6 +63,10 @@ const SHORT_POST_PATHS = [
 	"/session/baseline",
 	"/session/type",
 	"/assistant/hold",
+	"/workflow/start",
+	"/workflow/collect",
+	"/workflow/list",
+	"/workflow/stop",
 ];
 
 function quotedPaths(source: string): string[] {

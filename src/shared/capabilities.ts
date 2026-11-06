@@ -19,6 +19,18 @@ export const UNREPORTED_CAPABILITIES: CapabilitySnapshot = { known: false, capab
 export const CODEX_AGENT_CAPABILITY_ID = agentCapabilityId("codex");
 export const COPILOT_AGENT_CAPABILITY_ID = agentCapabilityId("copilot");
 
+export const WORKFLOW_INSTRUCTIONS = `
+# Workflow
+
+Tools: \`workflowStart\`, \`workflowCollect\`, \`workflowList\` (find run ids), \`workflowStop\` (cancel). Scripts return JSON. \`parallel\`, \`pipeline\`, \`phase\`, \`log\`, \`args\`, and \`label\` follow Workflow. Steps use Codex or Copilot; Claude is unavailable.
+
+\`agent(prompt, options)\`: \`backend\` defaults to the run's backend; \`model\` id; \`effort\` (Copilot); \`tier\` (Codex); \`thread\` reuses an agent; \`skills\` paths prepend to the prompt; \`schema\` validates the answer. Start takes \`scriptPath\`, \`args\`, \`backend\`, \`resumeFrom\`.
+
+Schema dialect: every property required; \`additionalProperties: false\`; nullable via \`["string", "null"]\`. Failed steps return null; collect shows outcome and reason.
+
+Outcomes: completed, invalid, failed, interrupted, lost, declined, rejected, unavailable. Checkups every 10 minutes; settle notices name \`workflowCollect\`. Caps: 4 runs per session, 8 concurrent dispatches, 200 calls per run. Runs and journals survive Gateway restarts.
+`.trim();
+
 // Served by capabilityGuidance, never the length-capped instructions.
 export const CODEX_AGENT_INSTRUCTIONS = `
 # Codex Agent
@@ -138,11 +150,14 @@ const AGENT_BACKEND_INSTRUCTIONS: Record<AgentBackendId, string> = {
  * lost a binary replace a declaration it made while the CLI was there.
  */
 export function daemonCapabilityDeclaration(env: Record<string, string | undefined>): Capability[] {
-	return AGENT_BACKENDS.flatMap((backend) =>
+	const capabilities = AGENT_BACKENDS.flatMap((backend) =>
 		isAgentBackendInstalled(backend, env)
 			? [{ id: agentCapabilityId(backend.id), instructions: AGENT_BACKEND_INSTRUCTIONS[backend.id] }]
 			: [],
 	);
+	return capabilities.length > 0
+		? [...capabilities, { id: "workflow", instructions: WORKFLOW_INSTRUCTIONS }]
+		: capabilities;
 }
 
 /**

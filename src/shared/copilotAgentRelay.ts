@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentCounterKindSchema } from "./agent-counter.js";
 import { AgentOutputSchemaSchema } from "./agent-record.js";
 import {
 	boundedUtf8,
@@ -83,6 +84,14 @@ const Fenced = {
 	turnId: CopilotOpaqueIdSchema,
 };
 export const CopilotDaemonEventSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			...Fenced,
+			kind: z.literal("counter"),
+			turnId: CopilotOpaqueIdSchema,
+			counterKind: AgentCounterKindSchema,
+		})
+		.strict(),
 	z
 		.object({
 			...Fenced,
@@ -193,6 +202,7 @@ export type CopilotEventAck = z.infer<typeof CopilotEventAckSchema>;
 // Keyed by the event union so new kinds require an explicit policy.
 export const COPILOT_RELIABLE_EVENT_KIND: Record<CopilotDaemonEvent["kind"], boolean> = {
 	activity: false,
+	counter: true,
 	terminal: true,
 };
 export const COPILOT_RELIABLE_RECEIPT_KIND: Record<CopilotDaemonReceipt["kind"], boolean> = {

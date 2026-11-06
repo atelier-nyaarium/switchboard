@@ -21,6 +21,9 @@ import { createSessionRoutes } from "./routes/routesSession.js";
 import { createStatusRoutes } from "./routes/routesStatus.js";
 import type { Presented, SessionAuthority } from "./sessionAuthority.js";
 import type { WakeCreate, WakeResult } from "./wake.js";
+import type { WorkflowEngine } from "./workflows/engine.js";
+import { createWorkflowRoutes } from "./workflows/routes.js";
+import type { WorkflowRunner } from "./workflows/runner.js";
 import type { ConversationRegistry, HandshakeRepushOutcome, TeamRegistry } from "./wsTypes.js";
 
 export interface RoutesDeps {
@@ -79,6 +82,7 @@ export interface RoutesDeps {
 	// State that must survive a rebuild.
 	carryOver?: RoutesCarryOver;
 	awareness?: Pick<AwarenessBank, "prepareFor">;
+	workflows?: { engine: WorkflowEngine; runner: WorkflowRunner };
 	// Holds a channel message a session could not take.
 	deliveries: ChannelDeliveryCoordinator;
 }
@@ -226,6 +230,24 @@ export function createRoutes(deps: RoutesDeps) {
 		refuseImpersonation,
 	});
 	const { typeSession } = createSessionRoutes({ auth, relayToHost: deps.relayToHost });
+	const workflowRoutes = deps.workflows
+		? createWorkflowRoutes({
+				auth,
+				ambient,
+				runner: deps.workflows.runner,
+				engine: deps.workflows.engine,
+				sessionStore: deps.sessionStore ?? { teamOf: () => "" },
+			})
+		: {
+				workflowStart: async () =>
+					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
+				workflowCollect: async () =>
+					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
+				workflowList: () =>
+					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
+				workflowStop: () =>
+					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
+			};
 
 	return {
 		pending,
@@ -243,6 +265,7 @@ export function createRoutes(deps: RoutesDeps) {
 		respond,
 		poll,
 		typeSession,
+		...workflowRoutes,
 		readBlob,
 		health,
 		humanNotify,

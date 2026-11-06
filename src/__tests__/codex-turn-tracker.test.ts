@@ -19,6 +19,23 @@ function terminal(status: "completed" | "failed" | "interrupted" = "completed", 
 }
 
 describe("CodexTurnTracker protocol outcomes", () => {
+	it("counts completed Codex tool items and file change items separately", () => {
+		const counted: Array<{ kind: string; filesChanged?: number }> = [];
+		const tracker = new CodexTurnTracker(undefined, (item) => counted.push(item));
+		for (const [id, type] of [
+			["shell", "commandExecution"],
+			["edit", "fileChange"],
+			["read", "fileRead"],
+		]) {
+			tracker.accept({ method: "item/completed", params: { threadId, turnId, item: { id, type } } });
+		}
+		expect(counted).toEqual([
+			{ threadId, turnId, itemId: "shell", kind: "shell" },
+			{ threadId, turnId, itemId: "edit", kind: "edit", filesChanged: 1 },
+			{ threadId, turnId, itemId: "read", kind: "read" },
+		]);
+	});
+
 	it("chooses a final answer over later unphased text and preserves commentary", () => {
 		const tracker = new CodexTurnTracker();
 		tracker.accept(item("thinking", "commentary"));

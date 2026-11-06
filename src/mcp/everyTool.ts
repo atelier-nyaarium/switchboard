@@ -22,6 +22,7 @@ import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
 import { registerSetEffortLevel } from "./devcontainer/setEffortLevel.js";
 import { registerRoutineTools } from "./routines/routineTools.js";
 import { registerVaultTools } from "./vault/vaultTools.js";
+import { registerWorkflowTools } from "./workflows/workflowTools.js";
 
 /** The registrars `index.ts` calls, listed by name so a fence can compare the two. */
 export const EVERY_TOOL_REGISTRAR = [
@@ -36,6 +37,7 @@ export const EVERY_TOOL_REGISTRAR = [
 	"registerBoardTools",
 	"registerVaultTools",
 	"registerRoutineTools",
+	"registerWorkflowTools",
 	"registerInboxTool",
 	"registerActionFront",
 	"registerDeviceTool",
@@ -63,6 +65,7 @@ export function registerEveryTool(server: McpServer): void {
 	registerBoardTools(server);
 	registerVaultTools(server);
 	registerRoutineTools(server);
+	registerWorkflowTools(server);
 	registerInboxTool(server);
 	registerActionFront(server);
 	registerDeviceTool(server);

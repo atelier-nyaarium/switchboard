@@ -78,6 +78,7 @@ function setup() {
 		stores: { jobs: { conversationsTo: () => [] } } as never,
 		sessions: { sessionAuthority, sessionStore } as never,
 		routines: { openRuns: () => [] },
+		workflows: { runner: { running: () => [] }, engine: { phase: () => null } } as never,
 		assistant: { baselineFor: () => undefined },
 	});
 	return {

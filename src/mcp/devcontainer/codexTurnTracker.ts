@@ -1,7 +1,9 @@
+import type { AgentCounterKind } from "../../shared/agent-counter.js";
 import {
 	CODEX_ACTIVITY_MAX_BYTES,
 	CODEX_ACTIVITY_MAX_ITEMS,
 	CodexAppServerAgentMessageCompletedSchema,
+	CodexAppServerOtherItemCompletedSchema,
 	CodexAppServerTurnCompletedSchema,
 	classifyCodexItemPhase,
 	sanitizeCodexErrorText,
@@ -52,6 +54,7 @@ interface TrackedTurn {
 	lastCandidate?: string;
 	lastFinalAnswer?: string;
 	pendingTerminal?: { status: "completed" | "failed" | "interrupted"; error?: string };
+	counterIds: Set<string>;
 }
 
 /** The one place an answer is chosen, so the hold and the outcome cannot disagree. */
@@ -74,12 +77,22 @@ export class CodexTurnTracker {
 			itemId: string;
 			text: string;
 		}) => void = () => {},
+		private readonly onCounter: (item: {
+			threadId: string;
+			turnId: string;
+			itemId: string;
+			kind: AgentCounterKind;
+			filesChanged?: number;
+		}) => void = () => {},
 	) {}
 
 	/** Feed one server event. Returns an outcome only when a turn is genuinely settled. */
 	accept(message: unknown): TurnOutcome | null {
 		const item = CodexAppServerAgentMessageCompletedSchema.safeParse(message);
 		if (item.success) return this.onItemCompleted(item.data.params);
+
+		const otherItem = CodexAppServerOtherItemCompletedSchema.safeParse(message);
+		if (otherItem.success) return this.onOtherItemCompleted(otherItem.data.params);
 
 		const terminal = CodexAppServerTurnCompletedSchema.safeParse(message);
 		if (terminal.success) return this.onTurnCompleted(terminal.data.params);
@@ -117,7 +130,13 @@ export class CodexTurnTracker {
 	private entryFor(threadId: string, turnId: string): TrackedTurn {
 		const existing = this.turns.get(turnId);
 		if (existing) return existing;
-		const created: TrackedTurn = { threadId, activities: [], activityBytes: 0, truncated: false };
+		const created: TrackedTurn = {
+			threadId,
+			activities: [],
+			activityBytes: 0,
+			truncated: false,
+			counterIds: new Set(),
+		};
 		this.turns.set(turnId, created);
 		return created;
 	}
@@ -171,6 +190,27 @@ export class CodexTurnTracker {
 		return this.finish(params.turn.id, terminal);
 	}
 
+	private onOtherItemCompleted(params: {
+		threadId: string;
+		turnId: string;
+		item: { id: string; type: string };
+	}): null {
+		if (this.settled.has(params.turnId)) return null;
+		const kind = counterKind(params.item.type);
+		if (!kind) return null;
+		const entry = this.entryFor(params.threadId, params.turnId);
+		if (entry.threadId !== params.threadId || entry.counterIds.has(params.item.id)) return null;
+		entry.counterIds.add(params.item.id);
+		this.onCounter({
+			threadId: params.threadId,
+			turnId: params.turnId,
+			itemId: params.item.id,
+			kind,
+			...(params.item.type === "fileChange" ? { filesChanged: 1 } : {}),
+		});
+		return null;
+	}
+
 	private finish(
 		turnId: string,
 		terminal: { status: "completed" | "failed" | "interrupted"; error?: string },
@@ -209,5 +249,21 @@ export class CodexTurnTracker {
 		entry.activities.push({ kind: "commentary", itemId, text });
 		entry.activityBytes += size;
 		this.onCommentary({ ...origin, itemId, text });
+	}
+}
+
+function counterKind(type: string): AgentCounterKind | undefined {
+	switch (type) {
+		case "commandExecution":
+			return "shell";
+		case "fileChange":
+			return "edit";
+		case "fileRead":
+			return "read";
+		case "mcpToolCall":
+		case "webSearch":
+			return "other";
+		default:
+			return undefined;
 	}
 }

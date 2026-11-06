@@ -6,17 +6,24 @@ import type { BoardEntry } from "../../shared/console-protocol.js";
 import { agentAwarenessSubscriber, createAgentWatch } from "../agentAwareness.js";
 import { type AwarenessBank, createAwarenessBank } from "../awarenessBank.js";
 import { boardAwarenessSubscriber } from "../boardAwareness.js";
+import {
+	createWorkflowAwarenessSubscriber,
+	createWorkflowWatch,
+	type WorkflowWatch,
+} from "../workflows/workflowAwareness.js";
 import { type WorkspaceChange, workspaceAwarenessSubscriber } from "../workspaceAwareness.js";
 import { reached, sendOn } from "../wsSend.js";
 import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { AgentsStage } from "./composeAgents.js";
 import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
+import type { WorkflowsStage } from "./composeWorkflows.js";
 
 export interface AwarenessStageDeps {
 	sessions: Pick<SessionsStage, "registry" | "sessionStore">;
 	host: Pick<HostStage, "wakeService">;
-	agents: Pick<AgentsStage, "agentRoster">;
+	agents: Pick<AgentsStage, "agentRoster" | "workflowProgress">;
+	workflows: Pick<WorkflowsStage, "runner" | "engine">;
 	ambient: Pick<Ambient, "now" | "randomBytes" | "setInterval">;
 }
 
@@ -27,10 +34,11 @@ export interface AwarenessStage {
 	awareness: AwarenessBank;
 	boardObserve: (observations: readonly AwarenessObservation<BoardEntry>[]) => void;
 	workspaceObserve: (observations: readonly AwarenessObservation<WorkspaceChange>[]) => void;
+	workflowWatch: WorkflowWatch;
 	awarenessTimer: IntervalHandle;
 }
 
-export function composeAwareness({ sessions, host, agents, ambient }: AwarenessStageDeps): AwarenessStage {
+export function composeAwareness({ sessions, host, agents, workflows, ambient }: AwarenessStageDeps): AwarenessStage {
 	const awareness = createAwarenessBank({
 		ambient,
 		liveness: (sessionKey) => {
@@ -47,22 +55,32 @@ export function composeAwareness({ sessions, host, agents, ambient }: AwarenessS
 	});
 	const boardObserve = awareness.register(boardAwarenessSubscriber);
 	const workspaceObserve = awareness.register(workspaceAwarenessSubscriber);
+	const workflowObserve = awareness.register(
+		createWorkflowAwarenessSubscriber((runId) => workflows.runner.markNotified(runId)),
+	);
+	const workflowWatch = createWorkflowWatch({
+		runner: workflows.runner,
+		engine: workflows.engine,
+		progressCounts: agents.workflowProgress,
+		observe: workflowObserve,
+		now: () => ambient.now(),
+	});
 	const agentWatch = createAgentWatch({
 		roster: agents.agentRoster,
 		observe: awareness.register(agentAwarenessSubscriber),
 		now: () => ambient.now(),
-		// Each notice types into a Copilot pane and costs a turn.
-		takesProgress: (ownerKey) => sessions.sessionStore?.getByTeam(ownerKey)?.harness !== "copilot",
 	});
 	let ticks = 0;
+	workflowWatch.tick();
 	const awarenessTimer = ambient.setInterval(() => {
 		try {
 			if (ticks++ % AGENT_WATCH_TICKS === 0) agentWatch.tick();
+			workflowWatch.tick();
 			awareness.tick();
 		} catch (err) {
 			console.error("[awareness] tick failed:", err);
 		}
 	}, 1_000);
 
-	return { awareness, boardObserve, workspaceObserve, awarenessTimer };
+	return { awareness, boardObserve, workspaceObserve, workflowWatch, awarenessTimer };
 }

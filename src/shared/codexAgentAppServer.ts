@@ -75,6 +75,15 @@ export const CodexAppServerAgentMessageCompletedSchema = z.looseObject({
 	}),
 });
 
+export const CodexAppServerOtherItemCompletedSchema = z.looseObject({
+	method: z.literal("item/completed"),
+	params: z.looseObject({
+		threadId: OpaqueIdSchema,
+		turnId: OpaqueIdSchema,
+		item: z.looseObject({ id: OpaqueIdSchema, type: z.string().min(1) }),
+	}),
+});
+
 export const CodexAppServerTurnCompletedSchema = z.looseObject({
 	method: z.literal("turn/completed"),
 	params: z.looseObject({

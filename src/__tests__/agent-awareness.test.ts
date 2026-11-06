@@ -2,15 +2,14 @@ import { describe, expect, it } from "vitest";
 import { agentAwarenessSubscriber, createAgentWatch, type RosterAgent } from "../gateway/agentAwareness.js";
 import type { AgentNotice } from "../shared/agent-notice.js";
 
-function harness(roster: RosterAgent[], start = 100, takesProgress?: (ownerKey: string) => boolean) {
+function harness(roster: RosterAgent[], start = 100, everyMs = 10) {
 	const clock = { now: start };
 	const notices: AgentNotice[] = [];
 	const lines: string[] = [];
 	const watch = createAgentWatch({
 		roster: () => roster,
 		now: () => clock.now,
-		everyMs: 10,
-		takesProgress,
+		everyMs,
 		observe(observations) {
 			notices.push(...observations.flatMap(({ post }) => (post ? [post] : [])));
 			lines.push(
@@ -30,7 +29,7 @@ function agent(agentId: string, family: "codex" | "copilot", agentState: string,
 }
 
 describe("agent awareness", () => {
-	it("skips history, tells each completion once, and paces progress with the newest notes", () => {
+	it("skips history, tells each completion once, and paces progress with the newest note", () => {
 		const old = agent("codex-old", "codex", "idle", [{ id: "old", state: "completed", updatedAt: 50, notes: [] }]);
 		const codex = agent("codex-running", "codex", "working", [
 			{ id: "c1", state: "inProgress", updatedAt: 100, notes: [] },
@@ -49,7 +48,7 @@ describe("agent awareness", () => {
 		clock.now = 110;
 		watch.tick();
 		expect(notices.map((notice) => notice.kind)).toEqual(["progress", "progress"]);
-		expect(lines.at(-1)).toContain("Latest notes:\n- old\n- middle\n- latest");
+		expect(lines.at(-1)).toContain("Latest: latest");
 		expect(lines.at(-1)).not.toContain("older");
 
 		codex.turns = [{ id: "c1", state: "completed", updatedAt: 120, notes: [] }];
@@ -112,19 +111,49 @@ describe("agent awareness", () => {
 		expect(done()).toEqual([{ kind: "done", family: "codex", agentId: "codex-a", outcome: "completed" }]);
 	});
 
-	it("tells an owner that takes no progress only the completion", () => {
+	it("reports only counters since the previous ten-minute checkup", () => {
 		const codex = agent("codex-a", "codex", "working", [
-			{ id: "t1", state: "inProgress", updatedAt: 100, notes: ["note"] },
+			{
+				id: "t1",
+				state: "inProgress",
+				updatedAt: 100,
+				notes: ["first note"],
+				progress: { modelTurns: 0, filesChanged: 0, toolCalls: 0, shell: 0, edits: 0, reads: 0, other: 0 },
+			},
 		]);
-		const { clock, notices, watch } = harness([codex], 100, (ownerKey) => ownerKey !== "owner");
+		const { clock, notices, lines, watch } = harness([codex], 100, 10 * 60_000);
 
 		watch.tick();
-		clock.now = 130;
+		codex.turns = [
+			{
+				id: "t1",
+				state: "inProgress",
+				updatedAt: 100,
+				notes: ["first note", "latest one"],
+				progress: { modelTurns: 5, filesChanged: 3, toolCalls: 6, shell: 3, edits: 2, reads: 1, other: 0 },
+			},
+		];
+		clock.now = 100 + 10 * 60_000;
 		watch.tick();
-		codex.turns = [{ id: "t1", state: "completed", updatedAt: 140, notes: [] }];
-		clock.now = 140;
+		expect(lines.at(-1)).toContain(
+			"Since last check: 5 model turns, 6 tool calls (3 shell, 2 edits, 1 read), 3 files changed. Latest: latest one",
+		);
+
+		codex.turns = [
+			{
+				id: "t1",
+				state: "inProgress",
+				updatedAt: 100,
+				notes: ["latest two"],
+				progress: { modelTurns: 6, filesChanged: 3, toolCalls: 8, shell: 4, edits: 2, reads: 1, other: 1 },
+			},
+		];
+		clock.now += 10 * 60_000;
 		watch.tick();
 
-		expect(notices.map((notice) => notice.kind)).toEqual(["done"]);
+		expect(lines.at(-1)).toContain(
+			"Since last check: 1 model turn, 2 tool calls (1 shell, 1 other). Latest: latest two",
+		);
+		expect(notices.filter((notice) => notice.kind === "progress")).toHaveLength(2);
 	});
 });

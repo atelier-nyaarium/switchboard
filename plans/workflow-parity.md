@@ -306,6 +306,29 @@ Recommended because it halves the tool definitions every session carries, and gi
 - **Restarts and cancel:** the turn is journaled `dispatched` before the send. The daemon holds each result in an outbox replayed on Gateway reconnect; a daemon restart fails the turn with a typed `runnerLost`, at most once. Cancel signals the process group (TERM, then KILL), or wraps the container command in `timeout`, since a `docker exec` child outlives its client.
 - **Availability:** `claude`'s presence counts toward the `workflow` declaration, appended after the `AGENT_BACKENDS` flatMap in `daemonCapabilityDeclaration`. An absent `claude` is a dispatch-time step failure.
 
+## Follow-up after Phase 2 - Copilot compaction status (Q15)
+
+- **Source:** Copilot writes `session.compaction_start` and `session.compaction_complete` to `~/.copilot/session-state/<copilot-session-id>/events.jsonl`. The pane cannot show a whole compaction: Copilot prints `● Compacting conversation history...` as a transcript line that scrolls off in about 15 s while the background compaction runs over a minute (seen on Testing: 90 frames, our `isCompacting` matched none).
+- **Session id:** the plugin's sessionStart hook records the Copilot session id Copilot hands every hook, against the Switchboard session.
+- **Daemon:** follows that events file for each Copilot session and sets `DerivedPresenceSchema.compacting` from start to complete, through the same derived-presence road the pane reader feeds, so the phone's existing compacting dock shows it with no phone change.
+- **Tests:** a start event sets compacting and a complete clears it; a session with no recorded id falls back to the pane reader.
+
+## Question 16 - What does a 10-minute checkup say?
+
+Q: Counts since the last check plus the newest note, counts only, or notes only?
+A: Counts since the last check, plus the newest note. "Since last check: 30 model turns, 14 tool calls (9 shell, 4 edits, 1 read), 3 files changed. Latest: <newest note>." The Gateway keeps running counters per turn from the event stream (Copilot tool starts and turn boundaries, Codex command, file-change and turn items), never from the capped notes, and resets the window at each notice. A workflow run's checkup sums its steps and adds steps settled and failed. Agent turns get the same line.
+
+Recommended because counts show it is moving and the note shows on what; high counts with the same note across checkups is the looping signal. The notes are native model narration (Codex `commentary`-phase agent messages, Copilot intermediate assistant messages); only Copilot's `tool: command` lines are formatted by Switchboard.
+
+> "A. But I want to know first if "I'm rerunning the full suite" is a native status feature, or something we jammed on"
+
+## Question 15 - How does Switchboard see a Copilot compaction?
+
+Q: Read Copilot's own events file, or teach the pane reader Copilot's line?
+A: Read the events file; recorded under "Follow-up after Phase 2".
+
+> "ok read that."
+
 ## Phase 4 - One set of agent tools (Q14)
 
 - **Tools:** `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, `agentList` replace `codexStartAgent`, `codexMessageAgent`, `codexCollectAgent`, `codexStopAgent`, `codexListAgents` and their `copilot*` twins. One registrar replaces `registerCodexTools` and `registerCopilotTools`.

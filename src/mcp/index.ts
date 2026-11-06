@@ -50,6 +50,7 @@ import { registerRoutineTools } from "./routines/routineTools.js";
 import { resolveSessionNaming } from "./team-name.js";
 import { guardTools } from "./toolGuard.js";
 import { registerVaultTools } from "./vault/vaultTools.js";
+import { registerWorkflowTools } from "./workflows/workflowTools.js";
 import { setWorkspacePlane } from "./workspace/plane.js";
 
 ////////////////////////////////
@@ -191,6 +192,14 @@ export async function startMcp(): Promise<void> {
 	if (hasCapability(capabilities, "designer")) registerDesignerTools(mcpServer);
 	// Reaches a child process, so the gate is whether one can be reached: a daemon, or the CLI here.
 	if (!isAssistant) for (const backend of AGENT_BACKENDS) registerAgentBackend(mcpServer, backend, capabilities);
+	if (
+		!isAssistant &&
+		process.env.SWITCHBOARD_SESSION_TOKEN &&
+		hasCapability(capabilities, "workflow") &&
+		(agentType === "claude" || agentType === "copilot")
+	) {
+		registerWorkflowTools(mcpServer);
+	}
 	// Without the board plugin the owner cannot see or answer anything a session writes.
 	if (hasCapability(capabilities, "taskboard")) registerBoardTools(mcpServer);
 	// The vault routes require the session's binding token.

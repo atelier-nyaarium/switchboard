@@ -1,6 +1,7 @@
 // The Codex and Copilot catalogs, their host relays, and their HTTP routes.
 
 import { agentHttpPath } from "../../shared/agent-backend.js";
+import { type AgentProgressCounts, addAgentProgressCounts } from "../../shared/agent-counter.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { RosterAgent } from "../agentAwareness.js";
 import { type CodexAgentCommands, createCodexAgentCommands } from "../codexAgentCommands.js";
@@ -33,6 +34,7 @@ export interface AgentsStage {
 	reconcileStaleAgents: () => void;
 	/** Every agent of both families with its turns, for the awareness watch. */
 	agentRoster: () => RosterAgent[];
+	workflowProgress: (runId: string) => AgentProgressCounts;
 }
 
 function commentaryOf(activities: readonly { kind: string; text?: string }[]): string[] {
@@ -125,10 +127,17 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 							state: turn.state,
 							updatedAt: turn.updatedAt,
 							notes: commentaryOf(turn.activities),
+							progress:
+								family === "codex"
+									? codexRelay.progressCounts(ownerKey, agent.agentId, turn.id)
+									: copilotRelay.progressCounts(ownerKey, agent.agentId, turn.id),
 						})),
 					})),
 			);
 		});
+
+	const workflowProgress = (runId: string): AgentProgressCounts =>
+		addAgentProgressCounts(codexRelay.progressForRun(runId), copilotRelay.progressForRun(runId));
 
 	const reconcileStaleAgents = (): void => {
 		for (const owner of sessions.sessionStore.list()) {
@@ -144,6 +153,7 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		copilotCommands,
 		agentRoutes,
 		agentRoster,
+		workflowProgress,
 		reconcileStaleAgents,
 	};
 }

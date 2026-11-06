@@ -7,6 +7,12 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { EVERY_TOOL_REGISTRAR, registerEveryTool } from "../mcp/everyTool.js";
 import { guardTools, TOOL_DESCRIPTION_LIMIT, toolDefinitionProblems } from "../mcp/toolGuard.js";
+import {
+	WORKFLOW_COLLECT_DESCRIPTION,
+	WORKFLOW_LIST_DESCRIPTION,
+	WORKFLOW_START_DESCRIPTION,
+	WORKFLOW_STOP_DESCRIPTION,
+} from "../mcp/workflows/workflowTools.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -34,6 +40,24 @@ describe("every tool a session lists", () => {
 		expect(tools.length).toBeGreaterThan(30);
 		expect(tools.flatMap((tool) => toolDefinitionProblems(tool.name, tool))).toEqual([]);
 		expect(tools.filter((tool) => (tool.inputSchema as { type?: unknown }).type !== "object")).toEqual([]);
+	});
+
+	it("keeps workflow descriptions short and carries the requested agent options", () => {
+		const descriptions = [
+			WORKFLOW_START_DESCRIPTION,
+			WORKFLOW_COLLECT_DESCRIPTION,
+			WORKFLOW_LIST_DESCRIPTION,
+			WORKFLOW_STOP_DESCRIPTION,
+		];
+
+		expect(descriptions.every((description) => description.length <= TOOL_DESCRIPTION_LIMIT)).toBe(true);
+		expect(WORKFLOW_START_DESCRIPTION).toContain(
+			'backend,  // "codex" | "copilot" | "claude"; defaults to the run\'s',
+		);
+		expect(WORKFLOW_START_DESCRIPTION).toContain(
+			"schema,   // JSON Schema; the answer is validated, null on failure",
+		);
+		expect(WORKFLOW_START_DESCRIPTION).toContain("when a step needs GPT or another model family");
 	});
 
 	it("covers every registrar the server calls", () => {

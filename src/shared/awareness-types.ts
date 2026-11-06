@@ -16,6 +16,10 @@ export interface AwarenessObservation<S> {
 
 export interface AwarenessSubscriber<S> {
 	readonly source: string;
+	/** Called when a carrier containing this change is accepted. */
+	delivered?(sessionKey: string, change: Change<S>): void;
+	/** Delay before a self-pushed no-act change is delivered. */
+	pushAfterMs?: number;
 	/** Decides whether a change arms a deadline and stamps its push. */
 	act(sessionKey: string, pre: S | undefined, post: S | undefined): ActAxis;
 	/** A `no_act` change that pushes on its own deadline rather than waiting for a message. */

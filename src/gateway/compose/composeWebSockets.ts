@@ -36,6 +36,7 @@ export interface WebSocketsStageDeps {
 	/** Composes after routes. */
 	retireStaging?: (blobIds: string[]) => void;
 	observer: ChannelDeliveryObserver;
+	onSessionConfirmed?: (team: string) => void;
 }
 
 export interface WebSocketsStage {
@@ -118,6 +119,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			if (handed === "migrating") return;
 			if (handed > 0) console.log(`[delivery] handed ${handed} held message(s) to ${team}`);
 		},
+		onHandshakeConfirmed: (team) => deps.onSessionConfirmed?.(team),
 		onDeliveryAck: (team, deliveryId) => {
 			federation.channelDeliveryAck(team, deliveryId);
 			if (channelDeliveries.acknowledge(deliveryId, team) === true) {

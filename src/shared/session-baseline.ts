@@ -34,6 +34,11 @@ export const SessionBaselineSchema = z.object({
 		)
 		.nullable(),
 	routines: z.array(z.object({ occurrenceId: z.string(), routine: z.string() })),
+	runningRuns: z
+		.array(
+			z.object({ runId: z.string(), phase: z.string().nullable(), stepsRunning: z.number().int().nonnegative() }),
+		)
+		.optional(),
 	/** With a turn running. */
 	agents: z.array(z.object({ family: z.enum(["codex", "copilot"]), agentId: z.string() })),
 	/** The assistant's session alone. */

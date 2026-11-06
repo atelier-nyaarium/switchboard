@@ -1,4 +1,10 @@
 import { type AgentBackendId, type AgentFrameKind, agentFrameType } from "../shared/agent-backend.js";
+import {
+	type AgentCounterKind,
+	type AgentProgressCounts,
+	addAgentProgressCounts,
+	emptyAgentProgressCounts,
+} from "../shared/agent-counter.js";
 import { fromReplacedDaemon } from "../shared/agent-fence.js";
 import type { Ambient } from "../shared/ambient.js";
 import { createKeyedFifo } from "../shared/keyed-fifo.js";
@@ -32,6 +38,7 @@ export interface AgentRelayReceipt extends AgentRelayFrame {
 export interface AgentRelayAgent {
 	agentId: string;
 	agentState: string;
+	runId?: string;
 }
 
 export interface AgentRelaySchema<T> {
@@ -72,6 +79,8 @@ export interface AgentRelayFamily<
 	requestedOperations(ownerKey: string, agent: TAgent, daemonInstanceId: string): readonly TRequest[];
 	/** Undefined marks an unaskable agent. */
 	reconcileRequest(ownerKey: string, agent: TAgent): TRequest | undefined;
+	counterEvent(event: TEvent): { turnId: string; kind: AgentCounterKind; filesChanged?: number } | undefined;
+	modelTurn(receipt: TReceipt): string | undefined;
 }
 
 interface StreamProgress {
@@ -85,11 +94,14 @@ interface StreamProgress {
 type HeldFrame<TEvent, TReceipt> = { frame: "event"; message: TEvent } | { frame: "receipt"; message: TReceipt };
 
 type FencedFrame = AgentRelayFrame & { targetId: string; generation: number };
+type ProgressEntry = { runId?: string; counts: AgentProgressCounts };
 
 ////////////////////////////////
 //  Constants
 
 const MAX_DEFERRED_PER_AGENT = 128;
+const MAX_COUNTED_EVENTS = 4096;
+const MAX_PROGRESS_TURNS = 4096;
 
 export const RECONCILE_GUARD_MS = 300_000;
 
@@ -126,11 +138,25 @@ export class AgentRelayCore<
 	private readonly reconciling = new Map<string, { requestId: string; askedAt: number }>();
 	private readonly lastReconcileAskedAt = new Map<string, { daemonInstanceId: string; askedAt: number }>();
 	private readonly deferred = new Map<string, Array<HeldFrame<TEvent, TReceipt>>>();
+	private readonly progress = new Map<string, ProgressEntry>();
+	private readonly countedEvents = new Set<string>();
 
 	constructor(
 		private readonly deps: AgentRelayDeps,
 		private readonly family: AgentRelayFamily<TEvent, TReceipt, TRequest, TAgent>,
 	) {}
+
+	progressCounts(ownerKey: string, agentId: string, turnId: string): AgentProgressCounts | undefined {
+		const held = this.progress.get(`${agentKey(ownerKey, agentId)} ${turnId}`)?.counts;
+		return held ? { ...held } : undefined;
+	}
+
+	progressForRun(runId: string): AgentProgressCounts {
+		let counts = emptyAgentProgressCounts();
+		for (const held of this.progress.values())
+			if (held.runId === runId) counts = addAgentProgressCounts(counts, held.counts);
+		return counts;
+	}
 
 	dispatch(command: TRequest): boolean {
 		return this.send(this.deps.ambient.newId(), command);
@@ -278,6 +304,10 @@ export class AgentRelayCore<
 		// Would install a dead fence.
 		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.deps.liveDaemonInstanceId(), receipt)) return;
 		const application = this.family.applyReceipt(receipt, this.now());
+		if (application.disposition === "applied") {
+			const turnId = this.family.modelTurn(receipt);
+			if (turnId) this.countModelTurn(receipt.ownerKey, receipt.agentId, turnId, application.agent.runId);
+		}
 		this.settle({ frame: "receipt", message: receipt }, application);
 		// Operation refusals skip guard clearing.
 		if (receipt.kind === "rejected" && receipt.operationId !== undefined) return;
@@ -289,7 +319,87 @@ export class AgentRelayCore<
 	}
 
 	private reduceEvent(event: TEvent): void {
-		this.settle({ frame: "event", message: event }, this.family.applyEvent(event, this.now()));
+		const application = this.family.applyEvent(event, this.now());
+		const counter = this.family.counterEvent(event);
+		if (
+			counter &&
+			(application.disposition === "applied" ||
+				(application.disposition === "ignored" && application.reason === "counter-only")) &&
+			this.rememberCountedEvent(event)
+		) {
+			this.countToolCall(
+				event.ownerKey,
+				event.agentId,
+				counter.turnId,
+				counter.kind,
+				this.runIdForAgent(event.ownerKey, event.agentId),
+				counter.filesChanged,
+			);
+		}
+		this.settle({ frame: "event", message: event }, application);
+	}
+
+	private rememberCountedEvent(event: TEvent): boolean {
+		if (!isFenced(event)) return false;
+		const key = `${streamKey(event)} ${event.eventId}`;
+		if (this.countedEvents.has(key)) return false;
+		this.countedEvents.add(key);
+		while (this.countedEvents.size > MAX_COUNTED_EVENTS) {
+			const oldest = this.countedEvents.values().next().value;
+			if (oldest === undefined) break;
+			this.countedEvents.delete(oldest);
+		}
+		return true;
+	}
+
+	private countModelTurn(ownerKey: string, agentId: string, turnId: string, runId?: string): void {
+		const key = `${agentKey(ownerKey, agentId)} ${turnId}`;
+		const entry = this.progress.get(key);
+		const current = entry?.counts ?? emptyAgentProgressCounts();
+		this.setProgress(
+			key,
+			{
+				...current,
+				modelTurns: (current.modelTurns ?? 0) + 1,
+				...(this.family.backendId === "codex" ? { filesChanged: current.filesChanged ?? 0 } : {}),
+			},
+			runId ?? entry?.runId,
+		);
+	}
+
+	private countToolCall(
+		ownerKey: string,
+		agentId: string,
+		turnId: string,
+		kind: AgentCounterKind,
+		runId?: string,
+		filesChanged = 0,
+	): void {
+		const key = `${agentKey(ownerKey, agentId)} ${turnId}`;
+		const entry = this.progress.get(key);
+		const current = entry?.counts ?? emptyAgentProgressCounts();
+		const next = { ...current, toolCalls: current.toolCalls + 1 };
+		if (filesChanged > 0) next.filesChanged = (next.filesChanged ?? 0) + filesChanged;
+		if (kind === "shell") next.shell += 1;
+		else if (kind === "edit") next.edits += 1;
+		else if (kind === "read") next.reads += 1;
+		else next.other += 1;
+		this.setProgress(key, next, runId ?? entry?.runId);
+	}
+
+	private setProgress(key: string, counts: AgentProgressCounts, runId?: string): void {
+		this.progress.delete(key);
+		this.progress.set(key, { ...(runId ? { runId } : {}), counts });
+		while (this.progress.size > MAX_PROGRESS_TURNS) {
+			const oldest = this.progress.keys().next().value;
+			if (oldest === undefined) break;
+			this.progress.delete(oldest);
+		}
+	}
+
+	private runIdForAgent(ownerKey: string, agentId: string): string | undefined {
+		const owner = this.deps.sessionStore.getByTeam(ownerKey);
+		return owner ? this.family.listAgents(owner).find((agent) => agent.agentId === agentId)?.runId : undefined;
 	}
 
 	private settle(held: HeldFrame<TEvent, TReceipt>, application: AgentApplication<TAgent>): void {

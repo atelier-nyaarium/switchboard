@@ -14,6 +14,7 @@ export interface WorkflowsStageDeps {
 	retireAgents?: WorkflowAgentRetirement;
 	dispatch?: WorkflowDispatchPort;
 	threadAdoption?: WorkflowThreadAdoptionPort;
+	onChanged?: (team: string) => void;
 	buildDispatch?: (runner: WorkflowRunner) => {
 		port: WorkflowDispatchPort;
 		retireRun: WorkflowAgentRetirement;
@@ -49,6 +50,7 @@ export function composeWorkflows(deps: WorkflowsStageDeps): WorkflowsStage {
 		runner,
 		ambient: deps.ambient,
 		dispatch: built?.port ?? deps.dispatch ?? { dispatch: () => {} },
+		onChanged: deps.onChanged,
 		...(built
 			? { threadAdoption: { inspect: built.inspectThread, retag: built.retagThread } }
 			: deps.threadAdoption

@@ -9,6 +9,7 @@ import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
 import type { WebSocketsStage } from "./composeWebSockets.js";
+import type { WorkflowsStage } from "./composeWorkflows.js";
 import type { FederationContext } from "./federationContext.js";
 
 export type GatewayRoutes = ReturnType<typeof createRoutes>;
@@ -26,6 +27,7 @@ export interface RoutesStageDeps {
 	>;
 	host: Pick<HostStage, "wakeService" | "relayToHost">;
 	awareness: Pick<AwarenessStage, "awareness">;
+	workflows: Pick<WorkflowsStage, "runner" | "engine">;
 	websockets: WebSocketsStage;
 	/** Local reply push. */
 	onReplyPushed: (team: string) => void;
@@ -84,6 +86,7 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 			boardClient: f?.boardClient,
 			boardReplays: stores.boardReplays,
 			awareness: deps.awareness.awareness,
+			workflows: deps.workflows,
 			ambient: deps.ambient,
 			onReplyPushed: deps.onReplyPushed,
 		});

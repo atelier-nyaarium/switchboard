@@ -182,6 +182,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	workflows = composeWorkflows({
 		dataDir: bootstrap.dataDir,
 		ambient: bootstrap.ambient,
+		onChanged: () => sessions.presence.markDirty(),
 		buildDispatch: (runner) => {
 			const dispatch = createWorkflowAgentDispatch({
 				sessionStore: sessions.sessionStore,
@@ -202,7 +203,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			};
 		},
 	});
-	const awareness = composeAwareness({ sessions, host, agents, ambient: bootstrap.ambient });
+	sessions.presence.setWorkflowRunningReader(
+		(team) => workflows?.runner.running().some((run) => run.team === team) ?? false,
+	);
+	const awareness = composeAwareness({ sessions, host, agents, workflows, ambient: bootstrap.ambient });
 
 	federation = composeFederation({
 		dataDir: bootstrap.dataDir,
@@ -253,6 +257,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			offered: (row) => assistant.offered(row),
 			acknowledged: (row) => assistant.delivered(row),
 		},
+		onSessionConfirmed: awareness.workflowWatch.sessionConfirmed,
 	});
 	routes = composeRoutes({
 		dataDir: bootstrap.dataDir,
@@ -265,6 +270,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		host,
 		awareness,
 		websockets,
+		workflows,
 		onReplyPushed: (team) => assistant.replyPushed(team),
 	});
 	vault = composeVault({
@@ -302,7 +308,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return record ? sessions.sessionStore.teamOf(record) : null;
 		},
 	});
-	const baseline = composeBaseline({ context, stores, sessions, routines, assistant });
+	const baseline = composeBaseline({ context, stores, sessions, routines, workflows, assistant });
 	const policies = composePolicies({
 		dataDir: bootstrap.dataDir,
 		onPolicyMoved: (policyId) => vault?.policyMoved(policyId),

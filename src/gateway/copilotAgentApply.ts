@@ -325,6 +325,10 @@ export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): Co
 		if (turnIndex < 0) return { disposition: "reconcile", owner, agent: current };
 		if (current.activeTurnId !== event.turnId) return { disposition: "reconcile", owner, agent: current };
 		const turn = current.turns[turnIndex]!;
+		if (event.kind === "counter") {
+			if (turn.state !== "inProgress") return { disposition: "ignored", reason: "counter after terminal" };
+			return { disposition: "ignored", reason: "counter-only" };
+		}
 		if (event.kind === "activity") {
 			if (turn.state !== "inProgress") return { disposition: "ignored", reason: "activity after terminal" };
 			const nextTurn = {

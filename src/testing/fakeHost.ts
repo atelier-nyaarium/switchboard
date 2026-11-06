@@ -11,6 +11,14 @@ import {
 	type CodexDaemonReceipt,
 	CodexDaemonReceiptSchema,
 } from "../shared/codexAgentRelay.js";
+import {
+	type CopilotDaemonCommand,
+	CopilotDaemonCommandSchema,
+	type CopilotDaemonEvent,
+	CopilotDaemonEventSchema,
+	type CopilotDaemonReceipt,
+	CopilotDaemonReceiptSchema,
+} from "../shared/copilotAgentRelay.js";
 import type { HostOp } from "../shared/host-op.js";
 import { createFakeSocket, type Frame } from "./fakeSocket.js";
 
@@ -21,9 +29,11 @@ export interface FakeHostHandlers {
 	onWake?: (frame: Frame) => void;
 	/** Absent means accept and complete. */
 	onCodexCommand?: CodexResponder;
+	onCopilotCommand?: CopilotResponder;
 }
 
 export type CodexResponder = (command: CodexDaemonCommand, daemon: FakeCodexDaemon) => Array<Frame> | undefined;
+export type CopilotResponder = (command: CopilotDaemonCommand, daemon: FakeCopilotDaemon) => Array<Frame> | undefined;
 
 export type FakeTurnState = "inProgress" | "completed" | "failed" | "interrupted";
 
@@ -36,6 +46,15 @@ export interface FakeCodexDaemon {
 	/** What a reconcile answers per turn. */
 	turns: Map<string, FakeTurnState>;
 	/** Next event id per target. */
+	nextEventId(targetId: string): number;
+	resolve(target: AgentExecutionTarget): AgentResolvedTarget;
+}
+
+export interface FakeCopilotDaemon {
+	daemonInstanceId: string;
+	generation: number;
+	targets: Map<string, number>;
+	turns: Map<string, FakeTurnState>;
 	nextEventId(targetId: string): number;
 	resolve(target: AgentExecutionTarget): AgentResolvedTarget;
 }
@@ -60,10 +79,13 @@ export interface FakeHost {
 	wakes: Frame[];
 	/** Every Codex command, schema-checked. */
 	codexCommands: CodexDaemonCommand[];
+	copilotCommands: CopilotDaemonCommand[];
 	handlers: FakeHostHandlers;
 	daemon: FakeCodexDaemon;
+	copilotDaemon: FakeCopilotDaemon;
 	/** One daemon frame to the gateway. */
 	sendCodex(frame: CodexDaemonEvent | CodexDaemonReceipt): void;
+	sendCopilot(frame: CopilotDaemonEvent | CopilotDaemonReceipt): void;
 	announceCatalog(): void;
 	/** What the daemon derives from that session's pane; null is nobody having said. */
 	reportWorking(team: string, working: boolean | null): void;
@@ -92,18 +114,41 @@ export function createFakeCodexDaemon(daemonInstanceId = `fake-daemon-${randomBy
 	return daemon;
 }
 
+export function createFakeCopilotDaemon(daemonInstanceId: string) {
+	const eventIds = new Map<string, number>();
+	const daemon: FakeCopilotDaemon = {
+		daemonInstanceId,
+		generation: 1,
+		targets: new Map(),
+		turns: new Map(),
+		nextEventId: (targetId) => {
+			const next = (eventIds.get(targetId) ?? -1) + 1;
+			eventIds.set(targetId, next);
+			return next;
+		},
+		resolve: (target) =>
+			target.kind === "host"
+				? { kind: "host", targetId: "host", cwd: HOST_HOME }
+				: { kind: "devcontainer", targetId: `container:${target.project}`, cwd: target.hostProjectPath },
+	};
+	return daemon;
+}
+
 export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): FakeHost {
 	const socket = createFakeSocket();
 	socket.onPing(() => graph.wsHandlers.pong(socket.ws));
 	const ops: HostOp[] = [];
 	const wakes: Frame[] = [];
 	const codexCommands: CodexDaemonCommand[] = [];
+	const copilotCommands: CopilotDaemonCommand[] = [];
 	const handlers: FakeHostHandlers = {
 		onCreateSession: options.onCreateSession,
 		onWake: options.onWake,
 		onCodexCommand: options.onCodexCommand,
+		onCopilotCommand: options.onCopilotCommand,
 	};
 	const daemon = options.daemon ?? createFakeCodexDaemon();
+	const copilotDaemon = createFakeCopilotDaemon(daemon.daemonInstanceId);
 	const send = (frame: Frame): void => graph.wsHandlers.message(socket.ws, JSON.stringify(frame));
 	const sendCodex = (frame: CodexDaemonEvent | CodexDaemonReceipt): void => {
 		const checked =
@@ -112,6 +157,17 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			daemon.turns.set(checked.turnId, "inProgress");
 		if (checked.type === "codex_event" && checked.kind === "terminal")
 			daemon.turns.set(checked.turnId, checked.state);
+		send(checked);
+	};
+	const sendCopilot = (frame: CopilotDaemonEvent | CopilotDaemonReceipt): void => {
+		const checked =
+			frame.type === "copilot_event"
+				? CopilotDaemonEventSchema.parse(frame)
+				: CopilotDaemonReceiptSchema.parse(frame);
+		if (checked.type === "copilot_receipt" && checked.kind === "accepted")
+			copilotDaemon.turns.set(checked.turnId, "inProgress");
+		if (checked.type === "copilot_event" && checked.kind === "terminal")
+			copilotDaemon.turns.set(checked.turnId, checked.state);
 		send(checked);
 	};
 	const answer = (op: HostOp): unknown => {
@@ -160,6 +216,16 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			for (const reply of responder(command, daemon) ?? [])
 				sendCodex(reply as CodexDaemonEvent | CodexDaemonReceipt);
 		}
+		if (frame.type === "copilot_command") {
+			const command = CopilotDaemonCommandSchema.parse(frame);
+			copilotCommands.push(command);
+			const targetId =
+				command.kind === "start" ? copilotDaemon.resolve(command.target).targetId : command.target.targetId;
+			if (!copilotDaemon.targets.has(targetId)) copilotDaemon.targets.set(targetId, copilotDaemon.generation);
+			const responder = handlers.onCopilotCommand ?? stockCopilotResponder;
+			for (const reply of responder(command, copilotDaemon) ?? [])
+				sendCopilot(reply as CopilotDaemonEvent | CopilotDaemonReceipt);
+		}
 	});
 	graph.wsHandlers.open(socket.ws);
 	send({
@@ -175,6 +241,11 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			daemonInstanceId: daemon.daemonInstanceId,
 			targets: [...daemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
 		});
+		send({
+			type: "copilot_hello",
+			daemonInstanceId: copilotDaemon.daemonInstanceId,
+			targets: [...copilotDaemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
+		});
 		send({ type: "catalog", projects: options.projects ?? [], hostSpawns: options.hostSpawns ?? [] });
 	};
 	if (!options.deferCatalog) announceCatalog();
@@ -183,9 +254,12 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		ops,
 		wakes,
 		codexCommands,
+		copilotCommands,
 		handlers,
 		daemon,
+		copilotDaemon,
 		sendCodex,
+		sendCopilot,
 		announceCatalog,
 		reportWorking: (team, working) =>
 			send({
@@ -277,6 +351,44 @@ export const stockCodexResponder: CodexResponder = (command, daemon) => {
 			resolvedTarget: command.target,
 			threadId: command.threadId,
 			...(command.turnId && turnState ? { turnId: command.turnId, turnState } : {}),
+		},
+	];
+};
+
+export const stockCopilotResponder: CopilotResponder = (command, daemon) => {
+	if (command.kind !== "start" && command.kind !== "message") return [];
+	const resolvedTarget = command.kind === "start" ? daemon.resolve(command.target) : command.target;
+	const sessionId = command.kind === "start" ? `session-${command.agentId}` : command.sessionId;
+	const turnId = `turn-${command.operationId}`;
+	const base = {
+		ownerKey: command.ownerKey,
+		daemonInstanceId: daemon.daemonInstanceId,
+		targetId: resolvedTarget.targetId,
+		generation: daemon.generation,
+		agentId: command.agentId,
+	};
+	return [
+		{
+			type: "copilot_receipt",
+			requestId: command.requestId,
+			...base,
+			eventId: daemon.nextEventId(resolvedTarget.targetId),
+			kind: "accepted",
+			operationId: command.operationId,
+			resolvedTarget,
+			sessionId,
+			turnId,
+			delivery: command.kind === "start" ? "started" : "followup",
+		},
+		{
+			type: "copilot_event",
+			...base,
+			eventId: daemon.nextEventId(resolvedTarget.targetId),
+			sessionId,
+			turnId,
+			kind: "terminal",
+			state: "completed",
+			finalResponse: `done: ${command.prompt}`,
 		},
 	];
 };

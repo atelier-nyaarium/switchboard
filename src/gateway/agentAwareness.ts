@@ -2,6 +2,11 @@
 
 import type { AgentBackendId } from "../shared/agent-backend.js";
 import {
+	type AgentProgressCounts,
+	deltaAgentProgressCounts,
+	emptyAgentProgressCounts,
+} from "../shared/agent-counter.js";
+import {
 	AGENT_NOTICE_SOURCE,
 	AGENT_PROGRESS_EVERY_MS,
 	type AgentNotice,
@@ -20,7 +25,13 @@ export interface RosterAgent {
 	agentId: string;
 	runId?: string;
 	agentState: string;
-	turns: readonly { id: string; state: string; updatedAt: number; notes: readonly string[] }[];
+	turns: readonly {
+		id: string;
+		state: string;
+		updatedAt: number;
+		notes: readonly string[];
+		progress?: AgentProgressCounts;
+	}[];
 }
 
 export interface AgentWatch {
@@ -48,12 +59,10 @@ export function createAgentWatch(deps: {
 	observe: (observations: readonly AwarenessObservation<AgentNotice>[]) => void;
 	now: () => number;
 	everyMs?: number;
-	/** False for an owner told only completions. */
-	takesProgress?: (ownerKey: string) => boolean;
 }): AgentWatch {
 	const everyMs = deps.everyMs ?? AGENT_PROGRESS_EVERY_MS;
 	const told = new Set<string>();
-	const running = new Map<string, { since: number; lastNotice: number }>();
+	const running = new Map<string, { since: number; lastNotice: number; lastCounts: AgentProgressCounts }>();
 	const began = deps.now();
 
 	return {
@@ -87,18 +96,21 @@ export function createAgentWatch(deps: {
 					}
 					const held = running.get(key);
 					if (!held) {
-						running.set(key, { since: now, lastNotice: now });
+						running.set(key, { since: now, lastNotice: now, lastCounts: emptyAgentProgressCounts() });
 						continue;
 					}
 					if (now - held.lastNotice < everyMs) continue;
 					held.lastNotice = now;
-					if (deps.takesProgress?.(agent.ownerKey) === false) continue;
+					const currentCounts = turn.progress ?? emptyAgentProgressCounts();
+					const counts = deltaAgentProgressCounts(currentCounts, held.lastCounts);
+					held.lastCounts = currentCounts;
 					const post: AgentNotice = {
 						kind: "progress",
 						family: agent.family,
 						agentId: agent.agentId,
 						minutes: Math.round((now - held.since) / 60_000),
 						notes: turn.notes,
+						counts,
 					};
 					observations.push({ sessionKey: agent.ownerKey, identity, pre: undefined, post });
 				}

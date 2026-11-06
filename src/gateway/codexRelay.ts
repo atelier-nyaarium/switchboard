@@ -37,6 +37,16 @@ export class CodexRelay extends AgentRelayCore<
 			commandSchema: CodexDaemonCommandSchema,
 			listAgents: (owner) => deps.sessionStore.listCodexAgents(owner),
 			fenceInstanceId: (agent) => agent.fence?.daemonInstanceId,
+			counterEvent: (event) =>
+				event.kind === "counter"
+					? {
+							turnId: event.turnId,
+							kind: event.counterKind,
+							...(event.filesChanged === undefined ? {} : { filesChanged: event.filesChanged }),
+						}
+					: undefined,
+			modelTurn: (receipt) =>
+				receipt.kind === "accepted" && receipt.delivery !== "steered" ? receipt.turnId : undefined,
 			applyEvent: (event, at) => deps.service.applyEvent(event, at),
 			applyReceipt: (receipt, at) => deps.service.applyReceipt(receipt, at),
 			abandonStaleOperations: (owner, agent, daemonInstanceId, at) =>

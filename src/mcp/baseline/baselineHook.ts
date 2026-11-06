@@ -32,6 +32,10 @@ function linesOf(baseline: SessionBaseline): string[] {
 				: `conversation: ${sessionId} ${flat(peer.name)}`,
 		),
 		...baseline.routines.map(({ occurrenceId, routine }) => `routine: ${occurrenceId} ${flat(routine)}`),
+		...(baseline.runningRuns ?? []).map(
+			({ runId, phase, stepsRunning }) =>
+				`workflow: ${runId} running, phase ${flat(phase ?? "not started")}, ${stepsRunning} step(s) running`,
+		),
 		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
 		...(baseline.assistant?.hold === undefined ? [] : [holdLine(baseline.assistant.hold)]),
 		...(baseline.assistant?.watchers ?? []).map(

@@ -1,10 +1,14 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import https from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type WebSocket from "ws";
 import { pinnedDial, realWebSocket } from "../src/gateway/router/pinnedSocket.js";
+import { createWorkflowEngine } from "../src/gateway/workflows/engine.js";
+import { createWorkflowRunner } from "../src/gateway/workflows/runner.js";
+import { createWorkflowRunStore } from "../src/gateway/workflows/store.js";
 import { ASSISTANT_ONLY_TOOLS, ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../src/shared/assistant-session.js";
 import { SESSION_COMMANDS } from "../src/shared/session-commands.js";
 import { loadIdentitySet, seedGateway, seedRouter } from "../src/testing/identitySet.js";
@@ -14,6 +18,57 @@ type Child = ReturnType<typeof spawn>;
 
 const root = mkdtempSync(path.join(tmpdir(), "boot-runtime-"));
 const children: Array<{ name: string; child: Child; output: string[] }> = [];
+
+async function checkWorkflowSandbox(dataDir: string): Promise<void> {
+	const ambient = { now: () => performance.now(), newId: () => randomUUID() };
+	const store = createWorkflowRunStore(dataDir, ambient);
+	const runner = createWorkflowRunner({ store, ambient });
+	const engine = createWorkflowEngine({ runner, ambient, dispatch: { dispatch: () => {} } });
+	engine.start();
+	const start = (operationId: string, body: string) => {
+		const result = engine.startRun({
+			team: "boot-workflow",
+			operationId,
+			resumeFrom: null,
+			script: `export const meta = {phases: ["Boot"]};\n${body}`,
+			args: {},
+			defaultBackend: "codex",
+			phases: [],
+		});
+		if (result.kind !== "started") throw new Error(`workflow ${operationId} did not start`);
+		return result.run.runId;
+	};
+	const settled = async (runId: string, label: string) =>
+		waitFor(async () => {
+			const record = runner.get(runId);
+			return record && record.status !== "running" ? record : undefined;
+		}, label);
+
+	try {
+		const successfulId = start("boot-success", 'phase("Boot"); log("sandbox ready"); return {ok: true};');
+		const successful = await settled(successfulId, "workflow sandbox success");
+		if (successful.status !== "succeeded" || JSON.stringify(successful.result) !== JSON.stringify({ ok: true })) {
+			throw new Error("workflow sandbox did not return its JSON result");
+		}
+
+		const runawayId = start("boot-runaway", 'try { while (true) {} } catch (error) { return "caught"; }');
+		const runaway = await settled(runawayId, "interrupted workflow runaway");
+		if (runaway.status !== "failed" || runaway.failureReason === "caught") {
+			throw new Error("workflow runaway escaped its instruction interrupt");
+		}
+		const memoryId = start(
+			"boot-memory",
+			'try { const values = []; while (true) values.push("x".repeat(8192)); } catch (error) { return "caught"; }',
+		);
+		const memory = await settled(memoryId, "refused workflow memory overrun");
+		if (memory.status !== "failed" || memory.failureReason === "caught") {
+			throw new Error("workflow memory overrun escaped its budget");
+		}
+	} finally {
+		engine.stop();
+		runner.stop();
+	}
+}
 
 function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -226,6 +281,7 @@ async function main(): Promise<void> {
 		console.log(`[boot] ${name}`);
 	};
 
+	await step("workflow sandbox", () => checkWorkflowSandbox(path.join(root, "workflows")));
 	await step("seed Router", async () => {
 		await seedRouter(routerDir, set);
 	});

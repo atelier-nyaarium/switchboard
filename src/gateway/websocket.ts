@@ -33,6 +33,7 @@ export function createWebSocketHandlers({
 	workspacePlane,
 	config,
 	onTeamConnect,
+	onHandshakeConfirmed,
 	onTeamDisconnect,
 	onDeliveryAck,
 	onVirtualPeerEvicted,
@@ -144,6 +145,7 @@ export function createWebSocketHandlers({
 	function confirmHandshake(ws: ServerWebSocket<WsData>): void {
 		ws.data.handshakeConfirmed = true;
 		announcePresenceDirty?.();
+		if (ws.data.teamName) onHandshakeConfirmed?.(ws.data.teamName);
 	}
 
 	function message(ws: ServerWebSocket<WsData>, raw: string | Buffer): void {

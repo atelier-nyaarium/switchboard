@@ -209,6 +209,7 @@ describe("what the daemon announces", () => {
 	it("declares only Codex when its CLI is installed", () => {
 		expect(daemonCapabilityDeclaration(envWithExecutables("codex")).map((c) => c.id)).toEqual([
 			CODEX_AGENT_CAPABILITY_ID,
+			"workflow",
 		]);
 	});
 });
@@ -227,10 +228,15 @@ describe("what the daemon announces", () => {
 	it("declares both capabilities with guidance when both CLIs are installed", () => {
 		const capabilities = daemonCapabilityDeclaration(envWithExecutables("codex", "copilot"));
 
-		expect(capabilities.map((c) => c.id)).toEqual([CODEX_AGENT_CAPABILITY_ID, COPILOT_AGENT_CAPABILITY_ID]);
+		expect(capabilities.map((c) => c.id)).toEqual([
+			CODEX_AGENT_CAPABILITY_ID,
+			COPILOT_AGENT_CAPABILITY_ID,
+			"workflow",
+		]);
 		expect(capabilities).toEqual([
 			expect.objectContaining({ id: CODEX_AGENT_CAPABILITY_ID, instructions: expect.any(String) }),
 			expect.objectContaining({ id: COPILOT_AGENT_CAPABILITY_ID, instructions: expect.any(String) }),
+			expect.objectContaining({ id: "workflow", instructions: expect.any(String) }),
 		]);
 	});
 });

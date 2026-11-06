@@ -162,6 +162,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The fake plug applies a held command:** `hold` runs the command and withholds only the reply, so a held relay command flips the fake's relay; one `waitForHeldReply` takes one hold.
 - `src/gateway/runbooks/store.ts` - gateway-held runbooks; sole writer, so a stored record has passed the rules
 - `src/gateway/routines/store.ts` - gateway-held routines; sole writer, and it publishes `onChanged` so the runner cannot be left armed for what the store no longer says
+- `src/gateway/workflows/` / `src/gateway/compose/composeWorkflows.ts` / `src/gateway/workflows/routes.ts` / `src/mcp/workflows/workflowTools.ts` - the durable sandboxed workflow engine and journal, dispatch bridge, owner-scoped routes, MCP tools, progress and settle notices; `docs/workflows.md` holds the tool and script contract
 - `src/gateway/routines/memory.ts` - what a routine remembers between runs, keyed by its incarnation
   - **The incarnation, not the id:** minted once and carried across edits, so memory survives a
     rename and dies with the routine. An id reused after a delete gets a new one, which is what stops

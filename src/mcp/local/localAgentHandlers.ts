@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { emptyAgentProgressCounts } from "../../shared/agent-counter.js";
 import { AGENT_PROGRESS_EVERY_MS } from "../../shared/agent-notice.js";
 import { AGENT_ERROR_MAX_BYTES, agentIdForOperation, sanitizeAgentErrorText } from "../../shared/agent-record.js";
 import type { CodexServiceTier } from "../../shared/codex-agent.js";
@@ -296,6 +297,7 @@ export class LocalAgentHandlers {
 				agentId: agent.agentId,
 				minutes: Math.round((this.host.now() - since) / 60_000),
 				notes: [...turn.commentary],
+				counts: emptyAgentProgressCounts(),
 			});
 		}, this.host.spec.progressEveryMs ?? AGENT_PROGRESS_EVERY_MS);
 		agent.progress.unref?.();

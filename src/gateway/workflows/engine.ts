@@ -161,6 +161,7 @@ export interface WorkflowEngineDeps {
 	ambient: Pick<Ambient, "now" | "newId">;
 	dispatch: WorkflowDispatchPort;
 	threadAdoption?: WorkflowThreadAdoptionPort;
+	onChanged?: (team: string) => void;
 }
 
 export type WorkflowEngineStartResult =
@@ -412,6 +413,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		if (changed) {
 			run.record = runner.get(run.record.runId) ?? run.record;
 			dispatch.terminal?.(run.record, status);
+			deps.onChanged?.(run.record.team);
 		}
 		disposeRun(run);
 	};
@@ -1166,7 +1168,9 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		try {
 			script = extractWorkflowScript(record.script);
 		} catch (error) {
-			runner.transition(record.runId, "running", "failed", { failureReason: extractError(error) });
+			if (runner.transition(record.runId, "running", "failed", { failureReason: extractError(error) })) {
+				deps.onChanged?.(record.team);
+			}
 			return false;
 		}
 		const state = createRunState(record, script, mode, resumeSource);
@@ -1183,6 +1187,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			if (!runner.start()) return false;
 			started = true;
 			for (const record of runner.running()) beginRun(record, "restart", { record, rows: rowsFor(record.runId) });
+			for (const record of runner.running()) deps.onChanged?.(record.team);
 			return true;
 		},
 		startRun(input) {
@@ -1218,7 +1223,10 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 				resumeSource = { record: source, rows: rowsFor(source.runId) };
 			}
 			const result = runner.startRun({ ...parsed.data, phases: script.phases });
-			if (result.kind === "started") beginRun(result.run, resumeSource ? "resume" : "live", resumeSource);
+			if (result.kind === "started") {
+				deps.onChanged?.(result.run.team);
+				beginRun(result.run, resumeSource ? "resume" : "live", resumeSource);
+			}
 			return result;
 		},
 		cancel(runId) {
@@ -1236,6 +1244,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			});
 			if (!changed) return false;
 			dispatch.terminal?.(runner.get(runId) ?? record, "cancelled");
+			deps.onChanged?.(record.team);
 			return true;
 		},
 		replay(runId) {
@@ -1277,6 +1286,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 					if (changed) {
 						const current = runner.get(record.runId) ?? { ...record, status: "cancelled" as const };
 						dispatch.terminal?.(current, "cancelled");
+						deps.onChanged?.(record.team);
 					}
 					if (run) disposeRun(run);
 				} else {

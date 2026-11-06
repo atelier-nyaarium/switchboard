@@ -1,14 +1,34 @@
 // What a session is told about its delegated agents' turns, rendered once for the Gateway and local mode.
 
 import type { AgentBackendId } from "./agent-backend.js";
+import { type AgentProgressCounts, formatAgentProgressCounts } from "./agent-counter.js";
 import type { Ambient } from "./ambient.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
 export type AgentNotice =
-	| { kind: "progress"; family: AgentBackendId; agentId: string; minutes: number; notes: readonly string[] }
+	| {
+			kind: "progress";
+			family: AgentBackendId;
+			agentId: string;
+			minutes: number;
+			notes: readonly string[];
+			counts: AgentProgressCounts;
+	  }
 	| { kind: "done"; family: AgentBackendId; agentId: string; outcome: string };
+
+export interface WorkflowNoticeText {
+	runId: string;
+	status: string;
+	phase: string | null;
+	stepsSettled: number;
+	stepsRunning: number;
+	failed: number;
+	newestFailure: string | null;
+	logs: readonly string[];
+	counts: AgentProgressCounts;
+}
 
 ////////////////////////////////
 //  Constants
@@ -20,8 +40,6 @@ export const AGENT_NOTICE_SOURCE = "agents";
 
 /** A reply to this session id is absorbed rather than delivered. */
 const NO_ACK_SESSION_PREFIX = "na-";
-
-const NOTES_SHOWN = 3;
 
 const NOTE_CHARS = 300;
 
@@ -48,14 +66,33 @@ function clipped(note: string): string {
 	return line.length <= NOTE_CHARS ? line : `${line.slice(0, NOTE_CHARS - 3)}...`;
 }
 
+export function progressCheckupLine(counts: AgentProgressCounts, latest: string): string {
+	return `Since last check: ${formatAgentProgressCounts(counts)}. Latest: ${clipped(latest || "No new note")}`;
+}
+
 export function agentNoticeLine(notice: AgentNotice): string {
 	const agent = `${LABEL[notice.family]} agent \`${notice.agentId}\``;
 	if (notice.kind === "done") {
 		return `${agent} finished its turn: ${notice.outcome}. Call \`${AGENT_AWAIT_TOOL[notice.family]}\` with its agentId for the result.`;
 	}
-	const head = `${agent} is still working (${notice.minutes} min). No action needed.`;
-	const notes = notice.notes.slice(-NOTES_SHOWN).map((note) => `- ${clipped(note)}`);
-	return notes.length === 0 ? head : `${head} Latest notes:\n${notes.join("\n")}`;
+	const check = progressCheckupLine(notice.counts, notice.notes.at(-1) ?? "");
+	return `${check}\n${agent} is still working (${notice.minutes} min). No action needed.`;
+}
+
+export function workflowNoticeLine(state: WorkflowNoticeText): string {
+	if (state.status !== "running") {
+		return `Workflow ${state.runId} ${state.status}. Call workflowCollect with runId ${state.runId}.`;
+	}
+	const latest = state.logs.at(-1)?.replace(/\s+/g, " ").trim() || "No new log line";
+	const lines = [
+		progressCheckupLine(state.counts, latest),
+		`Workflow ${state.runId} is running. Phase: ${state.phase ?? "not started"}. Steps settled: ${state.stepsSettled}; running: ${state.stepsRunning}.`,
+	];
+	if (state.failed > 0 && state.newestFailure) {
+		lines.push(`Failed steps: ${state.failed}; newest ${state.newestFailure}.`);
+	}
+	if (state.logs.length > 0) lines.push(`Recent log: ${state.logs.join(" | ")}`);
+	return lines.join("\n");
 }
 
 /** A completion asks the session to fetch its result; progress asks nothing. */

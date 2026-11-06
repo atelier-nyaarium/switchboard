@@ -22,6 +22,16 @@ export interface SessionLifecycleHost {
 		session: TargetSession,
 		item: { threadId: string; turnId: string; itemId: string; text: string },
 	): void;
+	onCounter(
+		session: TargetSession,
+		item: {
+			threadId: string;
+			turnId: string;
+			itemId: string;
+			kind: import("../../shared/agent-counter.js").AgentCounterKind;
+			filesChanged?: number;
+		},
+	): void;
 	publishTerminal(session: TargetSession, threadId: string, turnId: string, terminal: TerminalOutcome): void;
 	settleHeld(session: TargetSession, threadId: string, turnId: string): Promise<void>;
 }
@@ -137,9 +147,14 @@ export class CodexSessionLifecycle {
 			targetId: target.targetId,
 			generation: lease.generation,
 			client,
-			tracker: new CodexTurnTracker((item) => {
-				if (session) this.host.onCommentary(session, item);
-			}),
+			tracker: new CodexTurnTracker(
+				(item) => {
+					if (session) this.host.onCommentary(session, item);
+				},
+				(item) => {
+					if (session) this.host.onCounter(session, item);
+				},
+			),
 			nextEventId: 0,
 			turns: new CodexLiveTurns(() => this.host.now()),
 			threads: new Map(),

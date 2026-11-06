@@ -1,3 +1,4 @@
+import type { AgentCounterKind } from "../../shared/agent-counter.js";
 import {
 	CodexAppServerTurnCompletedSchema,
 	type CodexDaemonCommand,
@@ -74,6 +75,7 @@ export class CodexDaemonService {
 			lease: (run) => this.lease(run),
 			onServerEvent: (session, message) => this.onServerEvent(session, message),
 			onCommentary: (session, item) => this.onCommentary(session, item),
+			onCounter: (session, item) => this.onCounter(session, item),
 			publishTerminal: (session, threadId, turnId, terminal) =>
 				this.publishTerminal(session, threadId, turnId, terminal),
 			settleHeld: (session, threadId, turnId) => this.settleHeld(session, threadId, turnId),
@@ -253,6 +255,25 @@ export class CodexDaemonService {
 			turnId: item.turnId,
 			itemId: item.itemId,
 			text: item.text,
+		});
+	}
+
+	private onCounter(
+		session: TargetSession,
+		item: { threadId: string; turnId: string; itemId: string; kind: AgentCounterKind; filesChanged?: number },
+	): void {
+		if (!this.core.live(session)) return;
+		const { binding } = this.bindingFor(session, item.threadId, item.turnId);
+		if (!binding) return;
+		this.emitEvent(session, {
+			kind: "counter",
+			ownerKey: binding.ownerKey,
+			agentId: binding.agentId,
+			threadId: item.threadId,
+			turnId: item.turnId,
+			itemId: item.itemId,
+			counterKind: item.kind,
+			...(item.filesChanged === undefined ? {} : { filesChanged: item.filesChanged }),
 		});
 	}
 

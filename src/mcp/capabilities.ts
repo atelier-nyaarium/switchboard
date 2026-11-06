@@ -39,6 +39,7 @@ export const GATED_CAPABILITY_IDS = [
 	"vault",
 	CODEX_AGENT_CAPABILITY_ID,
 	COPILOT_AGENT_CAPABILITY_ID,
+	"workflow",
 ] as const;
 
 export type CapabilityId = (typeof GATED_CAPABILITY_IDS)[number];

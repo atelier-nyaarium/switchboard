@@ -59,7 +59,9 @@ class ComposerFieldTest {
 
 	@Test
 	fun aBusySessionRunsOneCometTeammatesTwoAndAWorkflowThree() {
-		assertEquals(null, cometFor(SessionWord.LIVE, workflow = true, teammates = true))
+		assertEquals(Comet.WORKFLOW, cometFor(SessionWord.LIVE, workflow = true, teammates = true))
+		assertEquals(null, cometFor(SessionWord.ENDED, workflow = true, teammates = true))
+		assertEquals(null, cometFor(SessionWord.AVAILABLE, workflow = true, teammates = true))
 		assertEquals(null, cometFor(null, workflow = false))
 		assertEquals(Comet.TURN, cometFor(SessionWord.WORKING, workflow = false))
 		assertEquals(Comet.TEAMMATES, cometFor(SessionWord.WORKING, workflow = false, teammates = true))

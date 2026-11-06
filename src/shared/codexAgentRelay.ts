@@ -6,6 +6,7 @@
 // record what an operation last saw.
 
 import { z } from "zod";
+import { AgentCounterKindSchema } from "./agent-counter.js";
 import { AgentOutputSchemaSchema } from "./agent-record.js";
 import {
 	boundedUtf8,
@@ -100,6 +101,16 @@ const DaemonEventBase = {
 };
 
 export const CodexDaemonEventSchema = z.union([
+	z
+		.object({
+			...DaemonEventBase,
+			kind: z.literal("counter"),
+			turnId: OpaqueIdSchema,
+			itemId: OpaqueIdSchema,
+			counterKind: AgentCounterKindSchema,
+			filesChanged: z.number().int().nonnegative().optional(),
+		})
+		.strict(),
 	z
 		.object({
 			...DaemonEventBase,
@@ -263,6 +274,7 @@ export type CodexDaemonReceipt = z.infer<typeof CodexDaemonReceiptSchema>;
  */
 export const CODEX_RELIABLE_EVENT_KIND: Record<CodexDaemonEvent["kind"], boolean> = {
 	activity: false,
+	counter: true,
 	terminal: true,
 };
 export const CODEX_RELIABLE_RECEIPT_KIND: Record<CodexDaemonReceipt["kind"], boolean> = {

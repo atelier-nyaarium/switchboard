@@ -160,6 +160,15 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 			commit() {
 				if (settled) return;
 				settled = true;
+				for (const [entry, changes] of carried) {
+					if (!entry.subscriber.delivered) continue;
+					if (!entry.subscriber.render(sessionKey, [...changes.values()])) continue;
+					for (const change of changes.values()) {
+						try {
+							entry.subscriber.delivered(sessionKey, change);
+						} catch {}
+					}
+				}
 				settle(sessionKey, bank, carried);
 			},
 			release() {
@@ -225,12 +234,13 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 					});
 					const pre = observation.pre as S;
 					const post = observation.post as S;
-					if (
-						subscriber.act(observation.sessionKey, pre, post) === "act_now" ||
-						subscriber.push?.(observation.sessionKey, pre, post) === true
-					) {
+					const urgent = subscriber.act(observation.sessionKey, pre, post) === "act_now";
+					const pushed = subscriber.push?.(observation.sessionKey, pre, post) === true;
+					if (urgent || pushed) {
 						if (bank.heldSince === undefined) bank.heldSince = clock();
-						bank.dueAt = bank.heldSince + ACT_NOW_HOLD_MS;
+						bank.dueAt = urgent
+							? bank.heldSince + ACT_NOW_HOLD_MS
+							: clock() + (subscriber.pushAfterMs ?? ACT_NOW_HOLD_MS);
 					}
 				}
 			};

@@ -59,6 +59,14 @@ async function hookLines(routeDeps: BaselineRoutesDeps): Promise<string[]> {
 }
 
 describe("compact baseline", () => {
+	it("includes a running workflow after compaction", async () => {
+		const lines = await hookLines(
+			deps({ runningRuns: () => [{ runId: "run-1", phase: "implement", stepsRunning: 2 }] }),
+		);
+
+		expect(lines).toContain("workflow: run-1 running, phase implement, 2 step(s) running");
+	});
+
 	it("hands a compacted session what it holds, and only that", async () => {
 		const { output } = await hookRun(deps());
 

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { AgentCounterKind } from "../../shared/agent-counter.js";
 import type { AgentResolvedTarget } from "../../shared/agent-execution-target.js";
 import {
 	COPILOT_DEFAULT_MODEL,
@@ -74,6 +75,15 @@ function failureCode(error: string): CopilotDaemonFailureCode {
 	if (/timed out|timeout|exited|closed|broken pipe/i.test(error)) return "app_server_unavailable";
 	if (/target|container|binary|unavailable/i.test(error)) return "daemon_unavailable";
 	return "protocol_error";
+}
+
+function counterKindOf(event: SessionEvent): AgentCounterKind {
+	const raw = event.data?.toolName;
+	const name = typeof raw === "string" ? raw.toLowerCase() : "";
+	if (/shell|bash|terminal|command|run/.test(name)) return "shell";
+	if (/edit|write|patch|create_file/.test(name)) return "edit";
+	if (/read|view|list/.test(name)) return "read";
+	return "other";
 }
 
 ////////////////////////////////
@@ -367,6 +377,16 @@ export class CopilotDaemonService {
 	private onEvent(session: TargetSession, sessionId: string, event: SessionEvent): void {
 		const active = session.active.get(sessionId);
 		if (!active) return;
+		if (event.type === "tool.execution_start") {
+			this.emitEvent(session, {
+				kind: "counter",
+				ownerKey: active.binding.ownerKey,
+				agentId: active.binding.agentId,
+				sessionId: active.binding.sessionId,
+				turnId: active.turnId,
+				counterKind: counterKindOf(event),
+			});
+		}
 		for (const text of active.turn.fold(event)) {
 			this.emitEvent(session, {
 				kind: "activity",

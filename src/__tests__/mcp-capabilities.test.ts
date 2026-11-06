@@ -325,7 +325,7 @@ describe("the gated capability ids", () => {
 		// the old id, the gate stops matching, and the surface vanishes from every session while the
 		// gate still holds the old name, so the outage looks intermittent.
 		const consoleGated = GATED_CAPABILITY_IDS.filter(
-			(id) => id !== CODEX_AGENT_CAPABILITY_ID && id !== COPILOT_AGENT_CAPABILITY_ID,
+			(id) => id !== CODEX_AGENT_CAPABILITY_ID && id !== COPILOT_AGENT_CAPABILITY_ID && id !== "workflow",
 		);
 
 		expect(shippedPlugins().map((p) => p.id)).toEqual(expect.arrayContaining(consoleGated));
@@ -336,7 +336,11 @@ describe("the gated capability ids", () => {
 		// above cannot see it. Naming it here keeps a rename from silently un-gating the Codex tools.
 		expect(GATED_CAPABILITY_IDS).toContain(CODEX_AGENT_CAPABILITY_ID);
 		expect(GATED_CAPABILITY_IDS).toContain(COPILOT_AGENT_CAPABILITY_ID);
-		expect(daemonCapabilityDeclaration({ PATH: codexDir }).map((c) => c.id)).toEqual([CODEX_AGENT_CAPABILITY_ID]);
+		expect(GATED_CAPABILITY_IDS).toContain("workflow");
+		expect(daemonCapabilityDeclaration({ PATH: codexDir }).map((c) => c.id)).toEqual([
+			CODEX_AGENT_CAPABILITY_ID,
+			"workflow",
+		]);
 	});
 });
 

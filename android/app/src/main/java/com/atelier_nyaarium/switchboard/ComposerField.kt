@@ -41,8 +41,8 @@ internal enum class Comet(val count: Int, val lapMs: Int, val tail: Float, val p
 
 /** None unless busy. */
 internal fun cometFor(word: SessionWord?, workflow: Boolean, teammates: Boolean = false): Comet? = when {
+	workflow && word != null && word != SessionWord.ENDED && word != SessionWord.AVAILABLE -> Comet.WORKFLOW
 	word?.busy != true -> null
-	workflow -> Comet.WORKFLOW
 	teammates -> Comet.TEAMMATES
 	else -> Comet.TURN
 }

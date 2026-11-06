@@ -56,6 +56,9 @@ it("streams a Copilot ACP turn into accepted, activity, and terminal frames", as
 	const event = (type: string, data: Record<string, unknown> = {}) => listener("session-1", { type, data });
 	event("assistant.message", { content: "Reading the parser." });
 	event("tool.execution_start", { toolName: "bash", arguments: { command: "cat parser.ts" } });
+	expect(sent).toContainEqual(
+		expect.objectContaining({ type: "copilot_event", kind: "counter", counterKind: "shell" }),
+	);
 	event("assistant.message", { content: "Done." });
 	event("session.idle");
 	await settle();

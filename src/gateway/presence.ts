@@ -28,6 +28,7 @@ export class PresenceFacade {
 	private readonly localDomainId: () => string | null;
 	private planeRegistry: PlaneRegistry | undefined;
 	private onDirty?: () => void;
+	private workflowRunning: (team: string) => boolean = () => false;
 
 	private readonly wakeInFlight = new Set<string>();
 	private readonly createInFlight = new Set<string>();
@@ -48,6 +49,11 @@ export class PresenceFacade {
 
 	onMarkDirty(fn: () => void): void {
 		this.onDirty = fn;
+	}
+
+	setWorkflowRunningReader(read: (team: string) => boolean): void {
+		this.workflowRunning = read;
+		this.markDirty();
 	}
 
 	markDirty(): void {
@@ -225,6 +231,7 @@ export class PresenceFacade {
 			seen.add(name);
 			const live = resolveLiveIncarnation(this.registry, this.sessionStore, name);
 			const w = this.working.get(name);
+			const derived = w ? projectDerived(w) : {};
 			rows.push({
 				team: name,
 				...commonFields,
@@ -239,7 +246,8 @@ export class PresenceFacade {
 				kind: "loose",
 				sessionLabel: record.sessionLabel,
 				...(isAssistantRecord(record) ? { role: ASSISTANT_ROLE } : {}),
-				...(w ? projectDerived(w) : {}),
+				...derived,
+				...(this.workflowRunning(name) ? { workflow: true } : {}),
 				queue_depth: 0,
 			});
 		}

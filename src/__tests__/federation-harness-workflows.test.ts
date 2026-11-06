@@ -105,6 +105,68 @@ describe("workflow steps through the federation harness", () => {
 		expect(implementer[0]?.agentId).toBe(implementer[1]?.agentId);
 	});
 
+	it("runs a step through each installed agent backend", async () => {
+		const run = startRun(
+			`export const meta = {}; await agent("codex step", {backend: "codex"}); await agent("copilot step", {backend: "copilot"}); return true;`,
+		);
+		const record = await waitForStatus(run.runId, "succeeded");
+		expect(record.result).toBe(true);
+		expect(
+			h.host.codexCommands.some((command) => command.kind === "start" && command.prompt.includes("codex step")),
+		).toBe(true);
+		expect(
+			h.host.copilotCommands.some(
+				(command) => command.kind === "start" && command.prompt.includes("copilot step"),
+			),
+		).toBe(true);
+		expect(h.gateway.faults.workflowRows(run.runId).filter((row) => row.kind === "settle")).toEqual([
+			expect.objectContaining({ issueOrdinal: 1, outcome: "completed" }),
+			expect.objectContaining({ issueOrdinal: 2, outcome: "completed" }),
+		]);
+	});
+
+	it("serves authenticated owner-scoped workflow start, collect, list and stop routes", async () => {
+		const operationId = randomUUID();
+		const body = { operationId, script: `export const meta = {}; return {ok: true};` };
+		const started = await session.post("/workflow/start", body);
+		expect(started.status).toBe(200);
+		const first = (await started.json()) as { runId: string; existing: boolean };
+		expect(first.existing).toBe(false);
+		const repeated = await session.post("/workflow/start", body);
+		expect(repeated.status).toBe(200);
+		expect(await repeated.json()).toMatchObject({ runId: first.runId, existing: true });
+		await waitForStatus(first.runId, "succeeded");
+		const collected = await session.post("/workflow/collect", { runId: first.runId });
+		expect(collected.status).toBe(200);
+		expect(await collected.json()).toMatchObject({ status: "succeeded", result: { ok: true }, steps: [] });
+		expect(await (await session.post("/workflow/list", {})).json()).toMatchObject({
+			runs: [expect.objectContaining({ runId: first.runId, status: "succeeded" })],
+		});
+
+		const foreign = h.gateway.faults.workflowStart({
+			team: "foreign-session",
+			operationId: randomUUID(),
+			resumeFrom: null,
+			script: `export const meta = {}; return true;`,
+			args: {},
+			defaultBackend: "codex",
+			phases: [],
+		});
+		expect(foreign.kind).toBe("started");
+		if (foreign.kind !== "started") throw new Error("foreign workflow did not start");
+		await waitForStatus(foreign.run.runId, "succeeded");
+		const hidden = await session.post("/workflow/collect", { runId: foreign.run.runId });
+		expect(hidden.status).toBe(404);
+		const unauthenticated = await h.gateway.router(
+			new Request("http://gateway.test/workflow/list", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: "{}",
+			}),
+		);
+		expect(unauthenticated.status).toBe(403);
+	});
+
 	it("opens two correction turns on the same agent and journals invalid", async () => {
 		h.host.handlers.onCodexCommand = (command, daemon) => {
 			const replies = stockCodexResponder(command, daemon) ?? [];
@@ -235,7 +297,9 @@ describe("workflow steps through the federation harness", () => {
 					.some((agent) => agent.runId === run.runId && agent.state === "working") || undefined,
 			"working run agent",
 		);
-		expect(h.gateway.faults.workflowCancel(run.runId)).toBe(true);
+		const stopped = await session.post("/workflow/stop", { runId: run.runId });
+		expect(stopped.status).toBe(200);
+		expect(await stopped.json()).toMatchObject({ runId: run.runId, status: "cancelled", stopped: true });
 		await waitForStatus(run.runId, "cancelled");
 		await waitFor(
 			() => h.host.codexCommands.some((command) => command.kind === "interrupt") || undefined,
@@ -324,7 +388,7 @@ describe("workflow steps through the federation harness", () => {
 		);
 	});
 
-	it("keeps working step agents out of session notices", async () => {
+	it("sends one workflow notice chain and no step agent notices", async () => {
 		const held: HeldTurn[] = [];
 		h.host.handlers.onCodexCommand = (command, daemon) => {
 			if (command.kind !== "start" && command.kind !== "message") return stockCodexResponder(command, daemon);
@@ -340,13 +404,34 @@ describe("workflow steps through the federation harness", () => {
 		);
 		await waitFor(() => (held.length === 3 ? held : undefined), "three working steps");
 		await h.ambient.advance(11 * 60_000);
-		expect(session.inbound).toEqual([]);
+		await waitFor(
+			() => session.inbound.find((frame) => JSON.stringify(frame.awareness ?? {}).includes("Workflow")),
+			"workflow progress notice",
+		);
+		const progress = session.inbound.filter((frame) => JSON.stringify(frame.awareness ?? {}).includes(run.runId));
+		expect(progress).toHaveLength(1);
+		expect(JSON.stringify(progress[0]?.awareness ?? {})).toContain("no_act");
+		expect(JSON.stringify(progress[0]?.awareness ?? {})).not.toContain("Codex agent");
 		for (const { daemon, terminal } of held) {
 			const eventId = daemon.nextEventId(terminal.targetId);
 			h.host.sendCodex({ ...terminal, eventId });
 		}
 		await waitForStatus(run.runId, "succeeded");
-		expect(session.inbound).toEqual([]);
+		await h.ambient.advance(61_000);
+		await waitFor(
+			() =>
+				session.inbound.find(
+					(frame) =>
+						JSON.stringify(frame.awareness ?? {}).includes(run.runId) &&
+						JSON.stringify(frame.awareness ?? {}).includes("act_now"),
+				),
+			"workflow settle notice",
+		);
+		const chain = session.inbound.filter((frame) => JSON.stringify(frame.awareness ?? {}).includes(run.runId));
+		expect(chain).toHaveLength(2);
+		expect(JSON.stringify(chain[1]?.awareness ?? {})).toContain("workflowCollect");
+		expect(chain.some((frame) => JSON.stringify(frame.awareness ?? {}).includes("Codex agent"))).toBe(false);
+		expect(h.gateway.faults.workflowRecord(run.runId)?.notified).toBe(true);
 	});
 
 	it("cancels before forget and reserves the session from the sweep", async () => {

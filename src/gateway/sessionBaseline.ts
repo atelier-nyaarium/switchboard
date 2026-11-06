@@ -16,6 +16,7 @@ export interface BaselineRoutesDeps {
 	/** Null when the board cannot be read. */
 	board: () => Promise<readonly BoardEntry[] | null>;
 	openRuns: (team: string) => SessionBaseline["routines"];
+	runningRuns?: (team: string) => NonNullable<SessionBaseline["runningRuns"]>;
 	runningAgents: (team: string) => SessionBaseline["agents"];
 	/** Undefined for any session but the assistant's. */
 	assistant: (team: string) => SessionBaseline["assistant"];
@@ -57,12 +58,14 @@ export function createBaselineRoutes(deps: BaselineRoutesDeps): Map<string, Hand
 		const team = deps.resolveCaller(req);
 		if (!team) return json({ error: "this token names no session" }, 401);
 		const entries = await deps.board();
+		const runningRuns = deps.runningRuns?.(team) ?? [];
 		const answer: SessionBaseline = {
 			conversations: deps
 				.conversations(team, CONVERSATION_LIMIT)
 				.map(({ id, from, contract }) => ({ sessionId: id, peer: peerOf(from, contract) })),
 			board: entries === null ? null : heldBy(team, entries),
 			routines: deps.openRuns(team),
+			...(runningRuns.length > 0 ? { runningRuns } : {}),
 			agents: deps.runningAgents(team),
 		};
 		const assistant = deps.assistant(team);

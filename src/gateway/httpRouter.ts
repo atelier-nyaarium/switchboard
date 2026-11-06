@@ -26,6 +26,10 @@ export type HttpRoutes = Pick<
 	| "humanNotify"
 	| "pluginAction"
 	| "taskBoard"
+	| "workflowStart"
+	| "workflowCollect"
+	| "workflowList"
+	| "workflowStop"
 	| "readBlob"
 >;
 
@@ -160,6 +164,10 @@ export function createHttpRouter({
 		if (method === "POST" && url.pathname === "/human/notify") return r.humanNotify(req, body);
 		if (method === "POST" && url.pathname === "/plugin-action") return r.pluginAction(req, body);
 		if (method === "POST" && url.pathname === "/task-board") return r.taskBoard(req, body);
+		if (method === "POST" && url.pathname === "/workflow/start") return r.workflowStart(req, body);
+		if (method === "POST" && url.pathname === "/workflow/collect") return r.workflowCollect(req, body);
+		if (method === "POST" && url.pathname === "/workflow/list") return r.workflowList(req, body);
+		if (method === "POST" && url.pathname === "/workflow/stop") return r.workflowStop(req, body);
 		if (method === "POST") {
 			const agentRoute = loopbackRoutes.get(url.pathname);
 			if (agentRoute) return agentRoute(req, body);
