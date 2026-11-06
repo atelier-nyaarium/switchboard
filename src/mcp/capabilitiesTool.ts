@@ -21,7 +21,7 @@ const description = `
 
 List capabilities enabled when this session started, and what changed since.
 
-Their guidance already arrives with the handshake answer and after each compaction.
+Their guidance already arrives at session start and after each compaction.
 `.trim();
 
 const assistantDescription = `

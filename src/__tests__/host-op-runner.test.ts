@@ -74,6 +74,21 @@ describe("createHostOpRunner", () => {
 		expect(h.ops.typeIntoPane).toHaveBeenCalledWith(T, "<channel>hi</channel>");
 	});
 
+	it("types a keyed text once, but waits again after a busy answer", async () => {
+		const h = makeOps();
+		h.ops.typeIntoPane = vi
+			.fn()
+			.mockResolvedValueOnce({ typed: false, reason: "busy" })
+			.mockResolvedValue({ typed: true });
+		const runner = createHostOpRunner(h.ops);
+		const op = { kind: "typeIntoPane", target: T, text: "<channel>hi</channel>", dedupKey: "type:k1" } as const;
+
+		expect(await runner.run(op)).toEqual({ typed: false, reason: "busy" });
+		expect(await runner.run(op)).toEqual({ typed: true });
+		expect(await runner.run(op)).toEqual({ typed: true });
+		expect(h.ops.typeIntoPane).toHaveBeenCalledTimes(2);
+	});
+
 	it("threads submit:false to sendText so the text is typed without a trailing Enter", async () => {
 		const h = makeOps();
 		const runner = createHostOpRunner(h.ops);

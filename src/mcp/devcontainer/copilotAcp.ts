@@ -1,3 +1,5 @@
+import { cutUtf8 } from "../../shared/agent-record.js";
+import { COPILOT_ACTIVITY_MAX_BYTES } from "../../shared/copilotAgentIdentity.js";
 import type { AgentChild } from "./codexTargets.js";
 
 ////////////////////////////////
@@ -249,5 +251,41 @@ export async function defaultOpenCopilotClient(child: AgentChild): Promise<Copil
 	} catch (error) {
 		transport.close();
 		throw error;
+	}
+}
+
+/**
+ * One ACP turn's text. Chunks since the last tool call form one message: told as a note when a tool
+ * call follows, and the answer when the turn ends on it.
+ */
+export class AcpTurnText {
+	private all = "";
+	private message = "";
+
+	/** The notes this update tells, in order. */
+	fold(update: { sessionUpdate?: unknown; content?: unknown; title?: unknown; status?: unknown }): string[] {
+		if (update.sessionUpdate === "agent_message_chunk" && typeof update.content === "object" && update.content) {
+			const content = update.content as { type?: unknown; text?: unknown };
+			if (content.type === "text" && typeof content.text === "string") {
+				this.all += content.text;
+				this.message += content.text;
+			}
+			return [];
+		}
+		if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") return [];
+		const said = this.message.trim();
+		this.message = "";
+		const label =
+			typeof update.title === "string"
+				? update.title
+				: typeof update.status === "string"
+					? update.status
+					: `Copilot used a tool`;
+		return (said ? [said, label] : [label]).map((note) => cutUtf8(note, COPILOT_ACTIVITY_MAX_BYTES));
+	}
+
+	/** The text after the last tool call, or the whole turn's when that is blank. */
+	answer(): string {
+		return this.message.trim() ? this.message : this.all;
 	}
 }

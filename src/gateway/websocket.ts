@@ -308,13 +308,27 @@ export function createWebSocketHandlers({
 			if (mode === "channel" && team !== "host") {
 				const confirmedBy = handshakeGate.confirmedBy(team);
 				const sameConfirmer = !!auth && !!confirmedBy && auth.sameAs(confirmedBy, auth.toAnswerFor(ws));
-				if (reg.data.isMainOrLead === true && sameConfirmer) {
+				// A Copilot pane has no channel to answer a handshake through; its launch token stands in.
+				const copilot = isBound && boundRecord?.harness === "copilot";
+				// A process the pane spawned inherits the token too; the pane's own socket came first.
+				const paneHeld = [...subs.values()].some(
+					(other) => other !== ws && other.readyState === 1 && other.data.handshakeConfirmed,
+				);
+				if (copilot && paneHeld) {
+					console.log(`[ws] ${team}/${subId} refused - its Copilot session already has a socket`);
+					sendOn(ws, JSON.stringify({ type: "handshake_reject" }), "handshake_reject");
+					evictSocket(ws);
+					return;
+				}
+				if (copilot || (reg.data.isMainOrLead === true && sameConfirmer)) {
 					if (establishRecord(ws, { team, subId }) === "refused") {
 						evictSocket(ws);
 						return;
 					}
 					confirmHandshake(ws);
-					console.log(`[ws] ${team}/${subId} reconnected as remembered lead - handshake skipped`);
+					console.log(
+						`[ws] ${team}/${subId} ${copilot ? "is a Copilot session" : "reconnected as remembered lead"} - handshake skipped`,
+					);
 				} else {
 					mintHandshake(ws, team, subId);
 				}

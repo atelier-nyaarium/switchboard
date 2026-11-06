@@ -81,6 +81,8 @@ const reconnector = createReconnector(() => connectToRouter());
 let channelServer: Server | null = null;
 
 const COPILOT_TYPE_RETRY_MS = 1000;
+const COPILOT_TYPE_BACKOFF_MAX_MS = 30_000;
+const COPILOT_TYPE_GIVE_UP_MS = 15 * 60_000;
 let typedDeliveryTail = Promise.resolve();
 
 function serializeTypedDelivery<T>(work: () => Promise<T>): Promise<T> {
@@ -92,14 +94,34 @@ function serializeTypedDelivery<T>(work: () => Promise<T>): Promise<T> {
 	return run;
 }
 
-async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPayload): Promise<void> {
+/** A daemon or Gateway that is down may come back; anything else answered is final. */
+const typingRetries = (err: unknown): boolean =>
+	!(err instanceof RouterHttpError) || err.status === 503 || err.status === 504;
+
+/**
+ * Types `payload` once its pane is idle. `key` makes a retry after a lost answer replay rather
+ * than type twice. A pane busy for a long turn is waited out; a daemon down past the deadline
+ * gives up, leaving the row held for the next connection.
+ */
+async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPayload, key: string): Promise<void> {
 	const text = await renderChannelTag(payload);
 	let retries = 0;
+	let failures = 0;
+	let failingSince: number | null = null;
 	for (;;) {
-		const result = (await routerPost("/session/type", { text }, { retries: 0 })) as {
-			typed?: unknown;
-			reason?: unknown;
-		};
+		let result: { typed?: unknown; reason?: unknown };
+		try {
+			result = (await routerPost("/session/type", { text, key }, { retries: 0 })) as typeof result;
+		} catch (err) {
+			failingSince ??= Date.now();
+			if (!typingRetries(err) || Date.now() - failingSince > COPILOT_TYPE_GIVE_UP_MS) throw err;
+			const wait = Math.min(COPILOT_TYPE_RETRY_MS * 2 ** ++failures, COPILOT_TYPE_BACKOFF_MAX_MS);
+			console.error(`[channel] typed delivery failed (${(err as Error).message}), retry in ${wait}ms`);
+			await new Promise((resolve) => setTimeout(resolve, wait));
+			continue;
+		}
+		failures = 0;
+		failingSince = null;
 		if (result?.typed === true) return;
 		if (result?.typed !== false || result.reason !== "busy") {
 			throw new Error("typed delivery was refused");
@@ -113,7 +135,12 @@ async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPay
 /** Dedupe ids across reconnects. */
 const deliverChannelPush = createChannelPushDelivery({
 	emit: (push) => {
-		if (AGENT_TYPE === "copilot") return emitTypedChannelTag(push);
+		if (AGENT_TYPE === "copilot") {
+			return emitTypedChannelTag(
+				push,
+				typeof push.delivery_id === "string" ? push.delivery_id : crypto.randomUUID(),
+			);
+		}
 		return channelServer
 			? emitChannelNotification(channelServer, push)
 			: Promise.reject(new Error("no channel server"));
@@ -404,6 +431,14 @@ export function connectToRouter(): void {
 			return;
 		}
 
+		// This process's credentials never change, so retrying is a loop; a held reserved name may free up.
+		if (msg.type === "register_reject" && msg.reason === "unauthorized") {
+			console.error(`[bridge] registration refused as unauthorized - not reconnecting`);
+			suppressReconnect = true;
+			routerWs?.close();
+			return;
+		}
+
 		if (msg.type === "handshake_reject") {
 			console.error(`[bridge] handshake rejected - this is a worker, disconnecting permanently`);
 			suppressReconnect = true;
@@ -423,7 +458,7 @@ export function connectToRouter(): void {
 		if (msg.type === "response_push" && canReceivePush && (channelServer || AGENT_TYPE === "copilot")) {
 			const emit = () =>
 				AGENT_TYPE === "copilot"
-					? emitTypedChannelTag(msg as unknown as ResponsePushPayload)
+					? emitTypedChannelTag(msg as unknown as ResponsePushPayload, crypto.randomUUID())
 					: emitResponseNotification(channelServer!, msg as unknown as ResponsePushPayload);
 			const queued = AGENT_TYPE === "copilot" ? serializeTypedDelivery(emit) : emit();
 			queued.catch((err: Error) => {

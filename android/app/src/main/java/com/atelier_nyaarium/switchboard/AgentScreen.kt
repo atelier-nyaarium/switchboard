@@ -24,8 +24,8 @@ object AgentScreen {
 	// Toolbar only. Prose-shaped, so a transcript tail in the status rows would trip it.
 	private val workingHintRe = Regex("· esc")
 
-	// Copilot's footer while busy: "Working · 470 B esc interrupt", its glyph cycling.
-	private val copilotWorkingRe = Regex("""\bWorking\b[^\n]*\besc interrupt\b""")
+	// Copilot's busy footer: "Working · 470 B esc interrupt"; 1.0.106 says "ctrl+c interrupt".
+	private val copilotWorkingRe = Regex("""\bWorking\b[^\n]*\b(?:esc|ctrl\+c) interrupt\b""")
 
 	// Status line token run: "✶ Composing… (46m 51s · ↓ 154.1k tokens)".
 	private val workingStatusRe = Regex("""\(\d+[hms][^()]*tokens\)""")

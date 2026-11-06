@@ -58,17 +58,18 @@ it("streams a Copilot ACP turn into accepted, activity, and terminal frames", as
 	expect(sent).toContainEqual(
 		expect.objectContaining({ type: "copilot_receipt", kind: "accepted", sessionId: "session-1" }),
 	);
-	listener({
-		method: "session/update",
-		params: {
-			sessionId: "session-1",
-			update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done." } },
-		},
-	});
+	const update = (body: Record<string, unknown>) =>
+		listener({ method: "session/update", params: { sessionId: "session-1", update: body } });
+	const chunk = (text: string) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+	chunk("Reading ");
+	chunk("the parser.");
+	update({ sessionUpdate: "tool_call", title: "Read parser.ts" });
+	chunk("Done.");
 	finishPrompt?.({ stopReason: "end_turn" });
 	await settle();
 
-	expect(sent).toContainEqual(expect.objectContaining({ type: "copilot_event", kind: "activity", text: "Done." }));
+	const notes = sent.filter((frame) => frame.type === "copilot_event" && frame.kind === "activity");
+	expect(notes.map((frame) => frame.text)).toEqual(["Reading the parser.", "Read parser.ts"]);
 	expect(sent).toContainEqual(
 		expect.objectContaining({
 			type: "copilot_event",

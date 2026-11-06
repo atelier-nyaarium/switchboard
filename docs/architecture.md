@@ -49,12 +49,29 @@ keeps it across reconnects.
   reaching the session twice. A restart forgets, so delivery stays at least once.
 - Claude receives channel pushes as MCP notifications. Copilot receives the same content and
   metadata in a `<channel source="switchboard">` tag typed into its own host pane.
+- A Copilot session is confirmed at registration by its launch token, since it has no channel to
+  answer a handshake through. A second socket presenting the same token while the first is live is
+  refused with `handshake_reject`, so a process the pane spawned cannot type every push twice.
 - `/session/type` requires the caller's confirmed Copilot host-session token. The Gateway derives the
   pane from that session record and caps text at 128 KB. The host serializes typing with other sends,
-  polls the pane once per second, and answers `{ typed: false, reason: "busy" }` when its 200-second
-  wait expires.
+  polls the pane once per second, drops control characters but tab and newline so nothing ends the
+  bracketed paste early, and answers `{ typed: false, reason: "busy" }` when its 200-second wait
+  expires.
+- A typing request carries a key, the delivery id when there is one, which the host scopes to the
+  session and holds for a minute once typed, so a retry after a lost answer replays rather than types
+  twice. A busy answer is not held.
 - Copilot channel and response pushes share one arrival-order queue. A busy answer retries after one
-  second, and a channel row is acknowledged only after the tag is typed and submitted.
+  second for as long as the turn runs. A 503, a 504 or a network failure backs off up to 30 seconds and
+  gives up after 15 minutes, leaving a channel row held for the next connection. A channel row is
+  acknowledged only after the tag is typed and submitted.
+- A Copilot session gets the channel rules and the full capability guidance as MCP server
+  instructions, no 10-minute agent progress notices, and no `compact_session`, `set_effort_level` or
+  `reload_plugins`, which type Claude slash commands. Its compaction hooks are no-ops, so a compacted
+  Copilot session gets no baseline back.
+- **Every plugin hook carries `bash` and `powershell` no-ops for Copilot:** Copilot runs a
+  Claude-format hook's `command` as a shell line and drops `args`, and a `preToolUse` hook that errors
+  denies the tool, so the `sh` gate denied every tool in every Copilot session. Claude reads `command`
+  and `args` and ignores the two keys.
 
 ### What a session's model reads
 
@@ -95,7 +112,8 @@ neutralizer for model-bound text.
   Anything short of a valid answer prints nothing.
 - **So does the capability guidance:** a second `compact` hook, `main-session-hook capabilities`,
   prints what `switchboard_capabilities` renders, cut at a section under the same cap. A fresh
-  session reads it first in its handshake answer.
+  Claude session reads it first in its handshake answer; a Copilot session reads it in its MCP
+  server instructions.
 - **The awareness bank is left alone:** a banked change still rides the next message, and reads
   against the baseline's current state.
 - **`compact_session` always sends fixed recall-first instructions,** then the caller's own, if any.

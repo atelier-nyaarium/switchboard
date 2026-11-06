@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { COPILOT_DEFAULT_MODEL } from "../../shared/copilot-agent.js";
 import type { AgentChild } from "../devcontainer/codexTargets.js";
 import type { CopilotAcpClient } from "../devcontainer/copilotAcp.js";
-import { defaultOpenCopilotClient } from "../devcontainer/copilotAcp.js";
+import { AcpTurnText, defaultOpenCopilotClient } from "../devcontainer/copilotAcp.js";
 import type { LocalBackendSession, LocalTerminal, LocalTurnHandle } from "./localAgentSession.js";
 
 ////////////////////////////////
@@ -13,7 +13,7 @@ import type { LocalBackendSession, LocalTerminal, LocalTurnHandle } from "./loca
 
 interface ActiveTurn {
 	turnId: string;
-	response: string;
+	text: AcpTurnText;
 	cancelled: boolean;
 }
 
@@ -61,7 +61,7 @@ export class CopilotLocalSession implements LocalBackendSession {
 	async startTurn(sessionId: string, prompt: string): Promise<LocalTurnHandle> {
 		// Minted here: ACP names no turn, and the runtime needs an id before the outcome exists.
 		const turnId = crypto.randomUUID();
-		const turn: ActiveTurn = { turnId, response: "", cancelled: false };
+		const turn: ActiveTurn = { turnId, text: new AcpTurnText(), cancelled: false };
 		this.active.set(sessionId, turn);
 
 		const settled = this.client
@@ -69,7 +69,9 @@ export class CopilotLocalSession implements LocalBackendSession {
 			.then((result): LocalTerminal => {
 				this.retire(sessionId, turn);
 				const interrupted = turn.cancelled || result.stopReason === "cancelled";
-				return interrupted ? { status: "interrupted" } : { status: "completed", finalResponse: turn.response };
+				return interrupted
+					? { status: "interrupted" }
+					: { status: "completed", finalResponse: turn.text.answer() };
 			})
 			.catch((error): LocalTerminal => {
 				this.retire(sessionId, turn);
@@ -104,30 +106,6 @@ export class CopilotLocalSession implements LocalBackendSession {
 		if (typeof params.sessionId !== "string" || typeof params.update !== "object" || params.update === null) return;
 		const turn = this.active.get(params.sessionId);
 		if (!turn) return;
-		const update = params.update as {
-			sessionUpdate?: unknown;
-			content?: unknown;
-			title?: unknown;
-			status?: unknown;
-		};
-
-		if (update.sessionUpdate === "agent_message_chunk" && typeof update.content === "object" && update.content) {
-			const content = update.content as { type?: unknown; text?: unknown };
-			if (content.type === "text" && typeof content.text === "string") {
-				// The chunks ARE the answer, so they accumulate as well as narrate.
-				turn.response += content.text;
-				this.activityListener?.(turn.turnId, content.text);
-			}
-			return;
-		}
-		if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
-			const label =
-				typeof update.title === "string"
-					? update.title
-					: typeof update.status === "string"
-						? update.status
-						: `Copilot used a tool`;
-			this.activityListener?.(turn.turnId, label);
-		}
+		for (const text of turn.text.fold(params.update)) this.activityListener?.(turn.turnId, text);
 	}
 }

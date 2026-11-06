@@ -260,6 +260,20 @@ export interface TypeIntoPaneOptions {
 	pollMs?: number;
 }
 
+/**
+ * Drops C0 and C1 controls but tab and newline. An escape could end the bracketed paste early
+ * and type the rest as live keys.
+ */
+export function typeableText(text: string): string {
+	let out = "";
+	for (const ch of text) {
+		const code = ch.codePointAt(0) ?? 0;
+		const control = code < 0x20 ? code !== 0x09 && code !== 0x0a : code === 0x7f || (code >= 0x80 && code <= 0x9f);
+		if (!control) out += ch;
+	}
+	return out;
+}
+
 export function typeIntoPane(
 	target: TmuxTarget,
 	text: string,
@@ -267,8 +281,11 @@ export function typeIntoPane(
 ): Promise<TypeIntoPaneResult> {
 	const deadline = Date.now() + (options.timeoutMs ?? TYPE_INTO_PANE_WAIT_MS);
 	const pollMs = options.pollMs ?? TYPE_INTO_PANE_POLL_MS;
+	const typeable = typeableText(text);
 	return sends.run(targetKey(target), async () => {
 		assertNotReservedHostSink(target);
+		// Nothing left to type is delivered; an empty buffer would fail the load.
+		if (!typeable.trim()) return { typed: true };
 		while (Date.now() < deadline) {
 			const screen = (await peekPane(target, false)).ansi;
 			if (
@@ -279,7 +296,7 @@ export function typeIntoPane(
 			) {
 				const bufferName = `switchboard-${crypto.randomUUID()}`;
 				await run(tmuxStdinArgv(target, ["load-buffer", "-b", bufferName, "-"]), EXEC_TIMEOUT_MS, {
-					input: text,
+					input: typeable,
 				});
 				await run(tmuxArgv(target, ["paste-buffer", "-p", "-d", "-b", bufferName, "-t", paneTarget(target)]));
 				await sendKeyRaw(target, "Enter");
@@ -319,7 +336,7 @@ export function withPane<T>(target: TmuxTarget, work: (hands: PaneHands) => Prom
 				await sendKeyRaw(target, key);
 			},
 			type: async (text) => {
-				await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), "-l", "--", text]));
+				await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), "-l", "--", typeableText(text)]));
 			},
 		});
 	});

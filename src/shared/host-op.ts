@@ -75,7 +75,7 @@ export type HostOp =
 	| { kind: "peek"; target: TmuxTarget }
 	| { kind: "kasaScan" }
 	| { kind: "wifiNetwork" }
-	| { kind: "typeIntoPane"; target: TmuxTarget; text: string }
+	| { kind: "typeIntoPane"; target: TmuxTarget; text: string; dedupKey?: string }
 	// Mutations replay by dedupKey.
 	| { kind: "sendText"; target: TmuxTarget; text: string; submit?: boolean; dedupKey?: string }
 	| { kind: "sendKey"; target: TmuxTarget; key: string; dedupKey?: string }

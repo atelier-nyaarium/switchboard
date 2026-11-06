@@ -52,7 +52,7 @@ data class ShellMacro(val label: String, val cmd: String)
 internal val PALETTE_SHELL_CLAUDE = listOf(
 	ShellMacro("Install Claude", "curl -fsSL https://claude.ai/install.sh | bash"),
 	ShellMacro(
-		"Install Tools",
+		"Claude Tools",
 		"claude plugin marketplace add atelier-nyaarium/claude-marketplace || claude plugin marketplace update atelier-nyaarium; " +
 			"for p in switchboard nyaaskills lexicon; do claude plugin install \$p@atelier-nyaarium && claude plugin update -y \$p@atelier-nyaarium; done",
 	),

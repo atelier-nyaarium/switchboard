@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { agentAwarenessSubscriber, createAgentWatch, type RosterAgent } from "../gateway/agentAwareness.js";
 import type { AgentNotice } from "../shared/agent-notice.js";
 
-function harness(roster: RosterAgent[], start = 100) {
+function harness(roster: RosterAgent[], start = 100, takesProgress?: (ownerKey: string) => boolean) {
 	const clock = { now: start };
 	const notices: AgentNotice[] = [];
 	const lines: string[] = [];
@@ -10,6 +10,7 @@ function harness(roster: RosterAgent[], start = 100) {
 		roster: () => roster,
 		now: () => clock.now,
 		everyMs: 10,
+		takesProgress,
 		observe(observations) {
 			notices.push(...observations.flatMap(({ post }) => (post ? [post] : [])));
 			lines.push(
@@ -109,5 +110,21 @@ describe("agent awareness", () => {
 		codex.turns = [{ id: "t1", state: "completed", updatedAt: 130, notes: [] }];
 		watch.tick();
 		expect(done()).toEqual([{ kind: "done", family: "codex", agentId: "codex-a", outcome: "completed" }]);
+	});
+
+	it("tells an owner that takes no progress only the completion", () => {
+		const codex = agent("codex-a", "codex", "working", [
+			{ id: "t1", state: "inProgress", updatedAt: 100, notes: ["note"] },
+		]);
+		const { clock, notices, watch } = harness([codex], 100, (ownerKey) => ownerKey !== "owner");
+
+		watch.tick();
+		clock.now = 130;
+		watch.tick();
+		codex.turns = [{ id: "t1", state: "completed", updatedAt: 140, notes: [] }];
+		clock.now = 140;
+		watch.tick();
+
+		expect(notices.map((notice) => notice.kind)).toEqual(["done"]);
 	});
 });

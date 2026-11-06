@@ -80,6 +80,35 @@ describe("sessions, bindings, and console operations", () => {
 		if (h) await h.close();
 	});
 
+	it("confirms a Copilot session at registration, so the first message can be typed into its pane", async () => {
+		const before = sessions.length;
+		h.host.handlers.onCreateSession = (op) =>
+			session(composeSessionName(op.target.name, op.target.sessionName), { sessionToken: op.sessionToken });
+		const { result } = await h.phone.value({
+			kind: "create_session",
+			target: h.target("host"),
+			displayLabel: "Copilot",
+			harness: "copilot",
+		});
+		expect(result).toMatchObject({ created: true });
+		const copilot = await h.waitFor(() => sessions[before], "the daemon's launch");
+		expect(await copilot.registered()).toMatchObject({ type: "register_ok" });
+
+		expect(copilot.frames.filter((frame) => frame.type === "channel_push")).toEqual([]);
+		const typed = await copilot.post("/session/type", { text: "<channel>hello</channel>" });
+		expect(await typed.json()).toEqual({ typed: true });
+		expect(h.host.ops.at(-1)).toMatchObject({
+			kind: "typeIntoPane",
+			target: { sessionName: copilot.team.split(".")[1] },
+		});
+
+		const child = session(copilot.team, { sessionToken: copilot.sessionToken, subId: "child" });
+		await h.waitFor(() => child.frames.find((frame) => frame.type === "handshake_reject"), "the child refused");
+
+		const claude = await ensureBound();
+		expect((await claude.post("/session/type", { text: "x" })).status).toBe(403);
+	});
+
 	it("refuses a host socket without the daemon token, and the real daemon keeps answering", async () => {
 		const impostor = createFakeSocket();
 		h.gateway.wsHandlers.open(impostor.ws);

@@ -14,7 +14,9 @@
 							"--no-install",
 							"${CLAUDE_PLUGIN_ROOT}/dist/main-session-hook.js"
 						],
-						"timeout": 15
+						"timeout": 15,
+						"bash": "exit 0",
+						"powershell": "exit 0"
 					},
 					{
 						"type": "command",
@@ -27,7 +29,9 @@
 							"${CLAUDE_PLUGIN_ROOT}/dist/main-session-hook.js",
 							"capabilities"
 						],
-						"timeout": 15
+						"timeout": 15,
+						"bash": "exit 0",
+						"powershell": "exit 0"
 					}
 				]
 			}
@@ -45,7 +49,9 @@
 							"${CLAUDE_PLUGIN_ROOT}"
 						],
 						"timeout": 15,
-						"onFailure": "block"
+						"onFailure": "block",
+						"bash": "exit 0",
+						"powershell": "exit 0"
 					}
 				]
 			}

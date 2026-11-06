@@ -43,6 +43,8 @@ export type PeekPriority = "interactive" | "derive";
 const MIN_PEEK_INTERVAL_MS = 300;
 const MAX_CONCURRENT_PEEKS = 6;
 const SEND_DEDUP_TTL_MS = 60_000;
+/** Thrown so a joined flight's busy answer is not held. */
+const PANE_BUSY = Symbol("pane busy");
 
 const targetKey = paneKey;
 
@@ -107,11 +109,26 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		return runDeduped(op.dedupKey, exec, { sent: true });
 	}
 
+	/** A repeat of typed text replays; a busy answer is not held, so the retry waits again. */
+	async function runTyping(op: Extract<HostOp, { kind: "typeIntoPane" }>): Promise<unknown> {
+		if (!op.dedupKey) return ops.typeIntoPane(op.target, op.text);
+		try {
+			return await sendDedupe.once(op.dedupKey, async () => {
+				const outcome = await ops.typeIntoPane(op.target, op.text);
+				if (!outcome.typed) throw PANE_BUSY;
+				return outcome;
+			});
+		} catch (error) {
+			if (error === PANE_BUSY) return { typed: false, reason: "busy" };
+			throw error;
+		}
+	}
+
 	async function run(op: HostOp): Promise<unknown> {
 		if (op.kind === "peek") return runPeek(op.target);
 		if (op.kind === "kasaScan") return ops.kasaScan();
 		if (op.kind === "wifiNetwork") return ops.wifiNetwork();
-		if (op.kind === "typeIntoPane") return ops.typeIntoPane(op.target, op.text);
+		if (op.kind === "typeIntoPane") return runTyping(op);
 		if (op.kind === "sendText" || op.kind === "sendKey") return runSend(op);
 		if (op.kind === "answerPrompt")
 			return runDeduped(

@@ -75,17 +75,22 @@ export function sanitizeAgentErrorText(raw: string, maxBytes: number): string {
 		.replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]+/gu, " ")
 		.replace(/\s+/gu, " ")
 		.trim();
-	if (new TextEncoder().encode(normalized).byteLength <= maxBytes) return normalized;
+	return cutUtf8(normalized, maxBytes).trimEnd();
+}
 
+/** `text` cut to the byte budget on a character edge. */
+export function cutUtf8(text: string, maxBytes: number): string {
+	const encoder = new TextEncoder();
+	if (encoder.encode(text).byteLength <= maxBytes) return text;
 	let result = "";
 	let bytes = 0;
-	for (const character of normalized) {
-		const characterBytes = new TextEncoder().encode(character).byteLength;
+	for (const character of text) {
+		const characterBytes = encoder.encode(character).byteLength;
 		if (bytes + characterBytes > maxBytes) break;
 		result += character;
 		bytes += characterBytes;
 	}
-	return result.trimEnd();
+	return result;
 }
 
 /**

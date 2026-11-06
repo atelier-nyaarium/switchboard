@@ -16,7 +16,7 @@ import {
 import { AgentDaemonCore, type AgentEventAck } from "./agentDaemonCore.js";
 import { resolveAgentTarget } from "./agentTargetResolve.js";
 import type { AgentChild, TargetLease, TargetSupervisor } from "./codexTargets.js";
-import { type CopilotAcpClient, defaultOpenCopilotClient } from "./copilotAcp.js";
+import { AcpTurnText, type CopilotAcpClient, defaultOpenCopilotClient } from "./copilotAcp.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -39,7 +39,7 @@ interface Binding {
 interface ActivePrompt {
 	binding: Binding;
 	turnId: string;
-	response: string;
+	text: AcpTurnText;
 	cancelled: boolean;
 }
 
@@ -186,7 +186,7 @@ export class CopilotDaemonService {
 	}
 
 	private async runPrompt(session: TargetSession, binding: Binding, turnId: string, prompt: string): Promise<void> {
-		const active: ActivePrompt = { binding, turnId, response: "", cancelled: false };
+		const active: ActivePrompt = { binding, turnId, text: new AcpTurnText(), cancelled: false };
 		session.active.set(binding.sessionId, active);
 		try {
 			const result = await session.client.prompt(binding.sessionId, prompt);
@@ -200,7 +200,7 @@ export class CopilotDaemonService {
 				sessionId: binding.sessionId,
 				turnId,
 				state: interrupted ? "interrupted" : "completed",
-				...(interrupted ? {} : { finalResponse: active.response }),
+				...(interrupted ? {} : { finalResponse: active.text.answer() }),
 			});
 		} catch (error) {
 			if (session.active.get(binding.sessionId) !== active) return;
@@ -305,39 +305,7 @@ export class CopilotDaemonService {
 		if (typeof params.sessionId !== "string" || typeof params.update !== "object" || params.update === null) return;
 		const active = session.active.get(params.sessionId);
 		if (!active) return;
-		const update = params.update as {
-			sessionUpdate?: unknown;
-			content?: unknown;
-			title?: unknown;
-			status?: unknown;
-		};
-		if (
-			update.sessionUpdate === "agent_message_chunk" &&
-			typeof update.content === "object" &&
-			update.content !== null
-		) {
-			const content = update.content as { type?: unknown; text?: unknown };
-			if (content.type === "text" && typeof content.text === "string") {
-				active.response += content.text;
-				this.emitEvent(session, {
-					kind: "activity",
-					ownerKey: active.binding.ownerKey,
-					agentId: active.binding.agentId,
-					sessionId: active.binding.sessionId,
-					turnId: active.turnId,
-					itemId: crypto.randomUUID(),
-					text: content.text,
-				});
-			}
-			return;
-		}
-		if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
-			const label =
-				typeof update.title === "string"
-					? update.title
-					: typeof update.status === "string"
-						? update.status
-						: `Copilot used a tool`;
+		for (const text of active.text.fold(params.update)) {
 			this.emitEvent(session, {
 				kind: "activity",
 				ownerKey: active.binding.ownerKey,
@@ -345,7 +313,7 @@ export class CopilotDaemonService {
 				sessionId: active.binding.sessionId,
 				turnId: active.turnId,
 				itemId: crypto.randomUUID(),
-				text: label,
+				text,
 			});
 		}
 	}

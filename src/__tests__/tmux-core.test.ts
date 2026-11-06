@@ -187,16 +187,18 @@ describe("tmuxCore sendKey", () => {
 describe("tmuxCore typeIntoPane", () => {
 	const target: TmuxTarget = { kind: "host", name: "host", sessionName: "copilot" };
 
-	it("waits for an empty idle composer, then pastes once and submits", async () => {
+	it("waits for an empty idle composer, then pastes once and submits, with no key a paste could end on", async () => {
 		captureScreens.push("──────\n❯ a draft\n──────", "──────\n❯ \n──────");
+		const [esc, cr, csi] = [0x1b, 0x0d, 0x9b].map((code) => String.fromCharCode(code));
+		const text = `first line${cr}\nsecond${esc}[201~ line\tend${csi}2J`;
 
-		expect(await typeIntoPane(target, "first line\nsecond line", { timeoutMs: 100, pollMs: 1 })).toEqual({
+		expect(await typeIntoPane(target, text, { timeoutMs: 100, pollMs: 1 })).toEqual({
 			typed: true,
 		});
 		expect(calls.filter((call) => call.includes("capture-pane"))).toHaveLength(2);
 		const load = calls.find((call) => call.includes("load-buffer"));
 		const paste = calls.find((call) => call.includes("paste-buffer"));
-		expect(stdinWrites).toEqual(["first line\nsecond line"]);
+		expect(stdinWrites).toEqual(["first line\nsecond[201~ line\tend2J"]);
 		expect(load?.slice(1)).toEqual(["load-buffer", "-b", expect.any(String), "-"]);
 		expect(paste?.slice(1)).toEqual(["paste-buffer", "-p", "-d", "-b", load?.[3], "-t", "=copilot.0"]);
 		expect(calls.at(-1)).toEqual(["tmux", "send-keys", "-t", "=copilot.0", "Enter"]);

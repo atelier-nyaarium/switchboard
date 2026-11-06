@@ -47,6 +47,8 @@ export function createAgentWatch(deps: {
 	observe: (observations: readonly AwarenessObservation<AgentNotice>[]) => void;
 	now: () => number;
 	everyMs?: number;
+	/** False for an owner told only completions. */
+	takesProgress?: (ownerKey: string) => boolean;
 }): AgentWatch {
 	const everyMs = deps.everyMs ?? AGENT_PROGRESS_EVERY_MS;
 	const told = new Set<string>();
@@ -89,6 +91,7 @@ export function createAgentWatch(deps: {
 					}
 					if (now - held.lastNotice < everyMs) continue;
 					held.lastNotice = now;
+					if (deps.takesProgress?.(agent.ownerKey) === false) continue;
 					const post: AgentNotice = {
 						kind: "progress",
 						family: agent.family,

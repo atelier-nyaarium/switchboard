@@ -60,6 +60,16 @@ describe("the plugin's hooks", () => {
 		expect(ENTRYPOINTS).toContain(path.join("src", `${bundle}.ts`));
 	});
 
+	it("give Copilot a no-op for every hook, since it drops args and denies a tool on a hook error", () => {
+		const hooks = JSON.parse(fs.readFileSync(path.join(ROOT, "hooks", "hooks.json"), "utf8"));
+		const every = Object.values(hooks.hooks as Record<string, { hooks: Record<string, unknown>[] }[]>).flatMap(
+			(groups) => groups.flatMap((group) => group.hooks),
+		);
+
+		expect(every.length).toBeGreaterThan(0);
+		for (const hook of every) expect(hook).toMatchObject({ bash: "exit 0", powershell: "exit 0" });
+	});
+
 	describe("the assistant gate, run as hooks.json runs it", () => {
 		const hooks = JSON.parse(fs.readFileSync(path.join(ROOT, "hooks", "hooks.json"), "utf8"));
 		const [gate] = hooks.hooks.PreToolUse;

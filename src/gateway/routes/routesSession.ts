@@ -5,6 +5,7 @@ import { jsonResponse } from "../routeSchemas.js";
 import type { SessionAuthority } from "../sessionAuthority.js";
 
 const MAX_TYPE_TEXT_BYTES = 128_000;
+const MAX_TYPE_KEY_LENGTH = 200;
 const TypeSessionRequestSchema = z
 	.object({
 		text: z
@@ -12,6 +13,8 @@ const TypeSessionRequestSchema = z
 			.min(1)
 			.max(MAX_TYPE_TEXT_BYTES)
 			.refine((text) => Buffer.byteLength(text, "utf8") <= MAX_TYPE_TEXT_BYTES),
+		/** The same key types once, so a retry after a lost answer does not type twice. */
+		key: z.string().min(1).max(MAX_TYPE_KEY_LENGTH).optional(),
 	})
 	.strict();
 
@@ -33,7 +36,14 @@ export function createSessionRoutes({ auth, relayToHost }: SessionRoutesDeps) {
 		if (!relayToHost) return jsonResponse({ error: "host daemon unavailable" }, 503);
 
 		const target = { kind: "host" as const, name: record.spawn, sessionName: record.id };
-		const relayed = await relayToHost({ kind: "typeIntoPane", target, text: parsed.data.text });
+		const { key } = parsed.data;
+		const relayed = await relayToHost({
+			kind: "typeIntoPane",
+			target,
+			text: parsed.data.text,
+			// Scoped to the session, so one session's key never replays another's.
+			...(key ? { dedupKey: `type:${record.spawn}.${record.id}:${key}` } : {}),
+		});
 		if (!relayed.ok) {
 			return jsonResponse(
 				{ error: relayed.error ?? "host daemon unavailable" },

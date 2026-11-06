@@ -81,7 +81,10 @@ A: Yes, always. No need to ask again.
 ### Phase C status
 
 - Slices 1 to 4 shipped in `7faf0991`: harness on the record (`harness`, `copilotSessionId` via `uuidGen`), `create_session.harness`, host create and wake carry it, `buildLaunchCommand` builds the Copilot launch (`agentArgs`, `copilot` / `copilot.exe`, `AGENT_TYPE=copilot` exported and crossed via WSLENV), `COPILOT_TRUST_RE` answers the trust box with `1`, `COPILOT_WORKING_RE` in both readers, five Copilot vectors.
-- Next: slice 5 (typed delivery), slice 6 (no handshake), slice 7 (detection and the phone toggle).
+- Slices 5 and 7 shipped in `dacddfe9`, plugin 8.14.33: the plugin types each push through `POST /session/type` into the pane (`typeIntoPane` host op, bracketed paste on an idle, empty composer, busy then retried); the daemon reports `copilotSpawns`; the phone's create dialog picks Claude or Copilot.
+- `1ac559c6`, plugin 8.14.34: the daemon also reports `claudeSpawns`; the terminal view's install macros come in a Claude pair and a Copilot pair, each gated on its CLI (both where neither is); the README gained Copilot setup.
+- Slice 6 and the live walk's fixes, reviewed by the Copilot session Testing: a Copilot session confirms at registration by its launch token and a second socket under it is refused; every hook carries `bash` and `powershell` no-ops, since Copilot drops `args` and denies every tool on a hook error (the work computer's crash); typed text loses control characters; a typing key replays a retry; a 503, 504 or network failure backs off and gives up after 15 minutes; Copilot gets MCP instructions with the full guidance, no progress notices and no Claude slash-command tools; ACP chunks form one note per message; the 1.0.106 working footer (`ctrl+c interrupt`) is read; an unauthorized registration stops reconnecting.
+- Follow-ups on the board under slice C.
 
 ### Phase C design
 

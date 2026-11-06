@@ -51,8 +51,8 @@ const SPACE = "[ \\t\\u00a0]";
 // Toolbar only. Prose-shaped, so a transcript tail in the status rows would trip it.
 const WORKING_HINT_RE = /· esc/u;
 
-// Copilot's footer while busy: "◎ Working · 470 B esc interrupt", its glyph cycling.
-const COPILOT_WORKING_RE = /\bWorking\b[^\n]*\besc interrupt\b/u;
+// Copilot's busy footer: "◎ Working · 470 B esc interrupt"; 1.0.106 says "ctrl+c interrupt".
+const COPILOT_WORKING_RE = /\bWorking\b[^\n]*\b(?:esc|ctrl\+c) interrupt\b/u;
 
 // Status line token run: "✶ Composing… (46m 51s · ↓ 154.1k tokens)".
 const WORKING_STATUS_RE = /\(\d+[hms][^()]*tokens\)/u;

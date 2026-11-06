@@ -9,6 +9,8 @@ export interface FakeSessionOptions {
 	team: string;
 	conversationId: string;
 	sessionToken?: string;
+	/** Defaults to one fixed id, so a second attach replaces the first socket. */
+	subId?: string;
 	cwdName?: string;
 	/** A bare project's register also names its path, as a devcontainer plugin does. */
 	projectPath?: string;
@@ -80,7 +82,7 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 	const register = {
 		type: "register",
 		team: options.team,
-		subId: "fake-session",
+		subId: options.subId ?? "fake-session",
 		mode: "channel",
 		conversationId: options.conversationId,
 		version: "harness",

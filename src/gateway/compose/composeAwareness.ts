@@ -51,6 +51,8 @@ export function composeAwareness({ sessions, host, agents, ambient }: AwarenessS
 		roster: agents.agentRoster,
 		observe: awareness.register(agentAwarenessSubscriber),
 		now: () => ambient.now(),
+		// Each notice types into a Copilot pane and costs a turn.
+		takesProgress: (ownerKey) => sessions.sessionStore?.getByTeam(ownerKey)?.harness !== "copilot",
 	});
 	let ticks = 0;
 	const awarenessTimer = ambient.setInterval(() => {
