@@ -142,7 +142,7 @@ Recommended because four audit laps found blockers in the same mechanism, each t
 
 # Plan
 
-## Phase 1 - Agent layer: every turn and op ends
+## Phase 1 - Agent layer: every turn and op ends ✅
 
 ### Bug Classes
 
@@ -255,3 +255,8 @@ Recommended because four audit laps found blockers in the same mechanism, each t
 - **Sessions:** the first turn pre-mints its id with `--session-id` from a journaled uuid; later turns `--resume` it from the same cwd. The runner reads `structured_output`, then `result`. `is_error`, a non-zero exit or "No conversation found" fails the turn. A rebuilt container loses the transcript, so its thread degrades to a fresh agent.
 - **Restarts and cancel:** the turn is journaled `dispatched` before the send. The daemon holds each result in an outbox replayed on Gateway reconnect; a daemon restart fails the turn with a typed `runnerLost`, at most once. Cancel signals the process group (TERM, then KILL), or wraps the container command in `timeout`, since a `docker exec` child outlives its client.
 - **Availability:** `claude`'s presence counts toward the `workflow` declaration, appended after the `AGENT_BACKENDS` flatMap in `daemonCapabilityDeclaration`. An absent `claude` is a dispatch-time step failure.
+
+## Painpoints
+
+- **The fake daemon drifted from the real one:** `src/testing/fakeHost.ts` registered without a `daemonInstanceId` and sent its catalog before hello, unlike `src/mcp/devcontainer/hostDaemon.ts`. Every harness test passed against an order production never uses, so a frame-order bug was invisible to the gates. Nothing pins the fake's frame order to the daemon's; a shared frame-sequence fixture both read would.
+- **Two near-identical family stacks:** Codex and Copilot each carry their own reducers, applier, service, relay adapter and route (`src/gateway/codex*` and `copilot*`). Phase 1 moved the recovery decisions into `agent-recovery.ts`, but start, message and stop sequencing is still written twice; Phase 2's seam extraction is the place to finish it.
