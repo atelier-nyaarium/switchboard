@@ -28,14 +28,16 @@ export function guardedAnswerText(answer: AssistantSendAnswer): ToolText {
 			const how = answer.guard === "approved" ? "approved by the owner" : "sent without asking";
 			return text(`Sent to ${answer.target}, ${how}.\n\n[session_id: ${answer.sessionId}]`);
 		}
-		case "pending":
+		case "pending": {
+			const why = answer.heldBecause ? ` Held because ${oneLine(answer.heldBecause)}.` : "";
 			return text(
 				`
-Waiting on the owner's approval.
+Waiting on the owner's approval.${why}
 
 Continue with \`${ASSISTANT_CROSSTALK_TOOLS.collect}\` and request_id "${answer.requestId}", or give it up with \`${ASSISTANT_CROSSTALK_TOOLS.withdraw}\`.
 				`.trim(),
 			);
+		}
 		case "denied":
 			return toolError(
 				answer.note
