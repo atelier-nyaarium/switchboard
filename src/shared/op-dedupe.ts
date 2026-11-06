@@ -1,7 +1,6 @@
 import { createSingleFlight } from "./single-flight.js";
 
-// At-most-once by caller key.
-// In-flight replays join; settled replays reuse the answer.
+// Keys join in-flight work or reuse retained answers. Expiry and count eviction permit reruns.
 
 interface Settled<T> {
 	at: number;
@@ -12,6 +11,7 @@ export interface DedupeDeps {
 	now: () => number;
 	/** How long a settled key answers from memory. */
 	holdMs?: number;
+	/** Maximum number of settled answers retained. */
 	maxEntries?: number;
 }
 
@@ -28,7 +28,7 @@ export function createOpDedupe<T>(deps: DedupeDeps) {
 		}
 	};
 
-	/** Runs `work` at most once per key, joining a flight already open and replaying a settled answer. */
+	/** Runs at most once while a key is in flight or its settled answer is retained. */
 	const once = (key: string, work: () => Promise<T>, replay?: (result: T) => void): Promise<T> => {
 		sweep();
 		const already = settled.get(key);

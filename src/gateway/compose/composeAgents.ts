@@ -60,12 +60,14 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 	const codexRelay = new CodexRelay({
 		service: codexAgentService,
 		sessionStore: sessions.sessionStore,
+		liveDaemonInstanceId: host.liveHostDaemonInstanceId,
 		sendToHost,
 		ambient,
 	});
 	const copilotRelay = new CopilotRelay({
 		service: copilotAgentService,
 		sessionStore: sessions.sessionStore,
+		liveDaemonInstanceId: host.liveHostDaemonInstanceId,
 		sendToHost,
 		ambient,
 	});

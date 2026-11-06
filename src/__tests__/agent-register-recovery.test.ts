@@ -84,15 +84,18 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		offlineCatalog: new Map([["recipe-app", "/trusted/recipe-app"]]),
 		catalogWriter: copilotCatalogWriter!,
 	});
+	let liveDaemonInstanceId: string | undefined = oldDaemon;
 	const codexRelay = new CodexRelay({
 		service: codex,
 		sessionStore: store,
+		liveDaemonInstanceId: () => liveDaemonInstanceId,
 		ambient: processAmbient(),
 		sendToHost: () => true,
 	});
 	const copilotRelay = new CopilotRelay({
 		service: copilot,
 		sessionStore: store,
+		liveDaemonInstanceId: () => liveDaemonInstanceId,
 		ambient: processAmbient(),
 		sendToHost: () => true,
 	});
@@ -208,8 +211,9 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		at: at + 1,
 	});
 
-	codexRelay.onHostRegister(newDaemon);
-	copilotRelay.onHostRegister(newDaemon);
+	liveDaemonInstanceId = newDaemon;
+	codexRelay.onHostRegister();
+	copilotRelay.onHostRegister();
 	await settle();
 
 	const codexRows = codex.listOwnedAgents(owner);

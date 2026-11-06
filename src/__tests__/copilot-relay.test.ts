@@ -162,6 +162,7 @@ function setup(options: SetupOptions = {}) {
 	let agent = options.agent ?? askableAgent();
 	let attached = options.attached ?? true;
 	const sent: Record<string, unknown>[] = [];
+	const liveDaemonInstanceId: string | undefined = DAEMON_INSTANCE_ID;
 	const eventCalls: CopilotDaemonEvent[] = [];
 	const receiptCalls: CopilotDaemonReceipt[] = [];
 	const sessionStore = {
@@ -182,6 +183,7 @@ function setup(options: SetupOptions = {}) {
 	const relay = new CopilotRelay({
 		service,
 		sessionStore,
+		liveDaemonInstanceId: () => liveDaemonInstanceId,
 		ambient: processAmbient(),
 		sendToHost: (message) => {
 			if (!attached) return false;

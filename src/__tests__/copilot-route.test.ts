@@ -42,9 +42,11 @@ function setup(options: { dispatch?: boolean; waitBudgetMs?: number } = {}) {
 		catalogWriter,
 	});
 	const sent: Record<string, unknown>[] = [];
+	let liveDaemonInstanceId: string | undefined = "daemon-1";
 	const relay = new CopilotRelay({
 		service,
 		sessionStore,
+		liveDaemonInstanceId: () => liveDaemonInstanceId,
 		ambient: processAmbient(),
 		sendToHost: (message) => {
 			if (options.dispatch === false) return false;
@@ -60,10 +62,22 @@ function setup(options: { dispatch?: boolean; waitBudgetMs?: number } = {}) {
 		service,
 		relay,
 		ambient: processAmbient(),
-		daemonInstanceId: () => "daemon-1",
+		daemonInstanceId: () => liveDaemonInstanceId,
 		waitBudgetMs: options.waitBudgetMs ?? 1_000,
 	});
-	return { route, relay, sent, owner, token, service, sessionStore };
+	return {
+		route,
+		relay,
+		sent,
+		owner,
+		token,
+		service,
+		sessionStore,
+		registerHost: (daemonInstanceId: string) => {
+			liveDaemonInstanceId = daemonInstanceId;
+			relay.onHostRegister();
+		},
+	};
 }
 
 function post(token: string): Request {
@@ -200,6 +214,7 @@ describe("Copilot gateway route", () => {
 		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
 		await starting;
 
+		context.registerHost("daemon-2");
 		context.relay.handleHostMessage({
 			type: "copilot_hello",
 			daemonInstanceId: "daemon-2",
@@ -260,6 +275,7 @@ describe("Copilot gateway route", () => {
 		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
 		await starting;
 
+		context.registerHost("daemon-2");
 		context.relay.handleHostMessage({
 			type: "copilot_hello",
 			daemonInstanceId: "daemon-2",
@@ -421,6 +437,7 @@ describe("Copilot gateway route", () => {
 		await start;
 
 		const relaunched = { daemonInstanceId: "daemon-2", generation: 1 };
+		context.registerHost(relaunched.daemonInstanceId);
 		const message = context.route.handle(post(context.token), {
 			kind: "message",
 			operationId: MESSAGE_OPERATION_ID,

@@ -1,5 +1,6 @@
 import { type AgentBackendId, agentFrameType } from "../../shared/agent-backend.js";
 import type { AgentResolvedTarget } from "../../shared/agent-execution-target.js";
+import { AGENT_TURN_LOST_REASON } from "../../shared/agent-record.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
@@ -36,6 +37,7 @@ export interface AgentDaemonCoreOptions<TSession extends AgentDaemonSession> {
 	// Validates hello() before it is sent, matching every sibling frame on this wire. The receiver's
 	// schema is .strict(), so an unvalidated drift here is rejected at the far end with no local sign.
 	helloSchema?: { parse(value: unknown): unknown };
+	retiredTurnTerminalizers?: (session: TSession) => readonly ((reason: string) => void)[];
 	onRetire?: (session: TSession) => void;
 }
 
@@ -51,6 +53,7 @@ type EventIdPlacement = "first" | "last";
 //  Constants
 
 const OUTBOX_MAX_ENTRIES = 1_000;
+// At most once while in flight or among 1,000 retained answers.
 const OPERATION_LEDGER_MAX_ENTRIES = 1_000;
 
 ////////////////////////////////
@@ -191,15 +194,27 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 	retire(session: TSession): void {
 		if (!this.live(session)) return;
 		try {
-			this.options.onRetire?.(session);
+			for (const terminalize of this.options.retiredTurnTerminalizers?.(session) ?? []) {
+				try {
+					terminalize(AGENT_TURN_LOST_REASON);
+				} catch (error) {
+					console.error(`[${this.options.backendId}-daemon] ending a retired turn failed:`, error);
+				}
+			}
 		} catch (error) {
-			console.error(`[${this.options.backendId}-daemon] retiring a session failed:`, error);
+			console.error(`[${this.options.backendId}-daemon] listing retired turns failed:`, error);
 		} finally {
-			this.sessions.delete(session.targetId);
 			try {
-				session.client.close();
+				this.options.onRetire?.(session);
 			} catch (error) {
-				console.error(`[${this.options.backendId}-daemon] closing a retired session failed:`, error);
+				console.error(`[${this.options.backendId}-daemon] retiring a session failed:`, error);
+			} finally {
+				this.sessions.delete(session.targetId);
+				try {
+					session.client.close();
+				} catch (error) {
+					console.error(`[${this.options.backendId}-daemon] closing a retired session failed:`, error);
+				}
 			}
 		}
 	}
@@ -254,14 +269,14 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		}
 		if (this.options.isReliable(parsed.data)) this.retain(session.targetId, session.generation, eventId, message);
 		const operationId = (message as { operationId?: unknown }).operationId;
-		if (typeof operationId === "string" && this.activeOperations.has(operationId))
-			this.operationAnswers.set(operationId, message);
-		this.options.send(message);
+		if (typeof operationId === "string") this.sendOperationAnswer(operationId, message);
+		else this.options.send(message);
 		return message;
 	}
 
-	rememberOperationAnswer(operationId: string | undefined, message: Record<string, unknown>): void {
+	sendOperationAnswer(operationId: string | undefined, message: Record<string, unknown>): void {
 		if (operationId && this.activeOperations.has(operationId)) this.operationAnswers.set(operationId, message);
+		this.options.send(message);
 	}
 
 	private async open(

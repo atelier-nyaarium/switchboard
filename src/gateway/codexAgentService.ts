@@ -4,6 +4,7 @@ import {
 	replaceAt,
 	uncertainDeliveryState,
 } from "../shared/agent-record.js";
+import { decideRegisterRecovery, type RegisterRecoveryDecision } from "../shared/agent-recovery.js";
 import {
 	type CodexAgentCatalog,
 	CodexAgentIdSchema,
@@ -40,6 +41,13 @@ import type {
 	OwnedCodexOperation,
 } from "./codexAgentTypes.js";
 import type { SessionAuthority } from "./sessionAuthority.js";
+
+export function decideCodexRegisterRecovery(
+	agent: Pick<CodexPersistedAgent, "agentState" | "operations">,
+	liveDaemonInstanceId: string,
+): RegisterRecoveryDecision {
+	return decideRegisterRecovery(agent.agentState, agent.operations, liveDaemonInstanceId);
+}
 
 export class CodexAgentService {
 	private readonly auth: SessionAuthority;
@@ -459,23 +467,14 @@ export class CodexAgentService {
 	): CodexApplication {
 		const current = this.persistence.find(owner, agent.agentId);
 		if (!current) return ignore("agent left the catalog");
-		const stale = current.operations.filter(
-			(operation) =>
-				operation.state === "requested" &&
-				operation.daemonInstanceId !== undefined &&
-				operation.daemonInstanceId !== daemonInstanceId,
-		);
-		if (stale.length === 0) return ignore("agent has no operation from another daemon");
-		const staleIds = new Set(stale.map((operation) => operation.operationId));
+		const recovery = decideCodexRegisterRecovery(current, daemonInstanceId);
+		if (recovery.staleOperationIds.length === 0) return ignore("agent has no operation from another daemon");
+		const staleIds = new Set(recovery.staleOperationIds);
 		const timestamp = Math.max(at, current.updatedAt);
 		try {
 			const next = CodexPersistedAgentSchema.parse({
 				...current,
-				agentState: stale.some((operation) => operation.kind === "start")
-					? "unavailable"
-					: stale.some((operation) => operation.kind === "message")
-						? "recovering"
-						: current.agentState,
+				agentState: recovery.nextAgentState,
 				pendingInterrupt:
 					current.pendingInterrupt && staleIds.has(current.pendingInterrupt.operationId)
 						? undefined

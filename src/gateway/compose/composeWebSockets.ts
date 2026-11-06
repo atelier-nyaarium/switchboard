@@ -71,8 +71,8 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		workspacePlane,
 		onTeamConnect: (team, ws) => {
 			if (team === "host") {
-				agents.codexRelay.onHostRegister(ws.data.daemonInstanceId);
-				agents.copilotRelay.onHostRegister(ws.data.daemonInstanceId);
+				agents.codexRelay.onHostRegister();
+				agents.copilotRelay.onHostRegister();
 				host.pushPresenceWatch(true);
 			}
 			const handed = channelDeliveries.drain(team);

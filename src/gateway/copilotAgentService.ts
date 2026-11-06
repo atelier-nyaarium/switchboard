@@ -4,6 +4,7 @@ import {
 	replaceAt,
 	uncertainDeliveryState,
 } from "../shared/agent-record.js";
+import { decideRegisterRecovery, type RegisterRecoveryDecision } from "../shared/agent-recovery.js";
 import {
 	type CopilotAgentCatalog,
 	CopilotAgentIdSchema,
@@ -32,6 +33,13 @@ import type {
 	CopilotTransitionResult,
 	OwnedCopilotAgent,
 } from "./copilotAgentTypes.js";
+
+export function decideCopilotRegisterRecovery(
+	agent: Pick<CopilotPersistedAgent, "agentState" | "operations">,
+	liveDaemonInstanceId: string,
+): RegisterRecoveryDecision {
+	return decideRegisterRecovery(agent.agentState, agent.operations, liveDaemonInstanceId);
+}
 
 export class CopilotAgentService {
 	private readonly persistence: AgentCatalogPersistence<CopilotPersistedAgent>;
@@ -244,23 +252,15 @@ export class CopilotAgentService {
 	): CopilotApplication {
 		const current = this.persistence.find(owner, agent.agentId);
 		if (!current) return { disposition: "ignored", reason: "agent left the catalog" };
-		const stale = current.operations.filter(
-			(operation) =>
-				operation.state === "requested" &&
-				operation.daemonInstanceId !== undefined &&
-				operation.daemonInstanceId !== daemonInstanceId,
-		);
-		if (stale.length === 0) return { disposition: "ignored", reason: "agent has no operation from another daemon" };
-		const staleIds = new Set(stale.map((operation) => operation.operationId));
+		const recovery = decideCopilotRegisterRecovery(current, daemonInstanceId);
+		if (recovery.staleOperationIds.length === 0)
+			return { disposition: "ignored", reason: "agent has no operation from another daemon" };
+		const staleIds = new Set(recovery.staleOperationIds);
 		const timestamp = Math.max(at, current.updatedAt);
 		try {
 			const next = CopilotPersistedAgentSchema.parse({
 				...current,
-				agentState: stale.some((operation) => operation.kind === "start")
-					? "unavailable"
-					: stale.some((operation) => operation.kind === "message")
-						? "recovering"
-						: current.agentState,
+				agentState: recovery.nextAgentState,
 				operations: current.operations.map((operation) =>
 					staleIds.has(operation.operationId)
 						? { ...operation, state: "indeterminate" as const, updatedAt: timestamp }

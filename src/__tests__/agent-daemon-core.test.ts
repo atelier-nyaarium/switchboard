@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { AgentDaemonCore } from "../mcp/devcontainer/agentDaemonCore.js";
-import type { TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
+import { AgentDaemonCore, type AgentDaemonSession } from "../mcp/devcontainer/agentDaemonCore.js";
+import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
+import type { AgentResolvedTarget } from "../shared/agent-execution-target.js";
 
 const core = () =>
 	new AgentDaemonCore({
@@ -60,8 +61,7 @@ describe("agent daemon commands", () => {
 			dispatched += 1;
 			await held;
 			const answer = { kind: "accepted", operationId: command.operationId };
-			daemon.rememberOperationAnswer(command.operationId, answer);
-			sent.push(answer);
+			daemon.sendOperationAnswer(command.operationId, answer);
 		};
 		const reject = () => {};
 
@@ -71,14 +71,15 @@ describe("agent daemon commands", () => {
 		expect(dispatched).toBe(1);
 		resolve();
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
-		daemon.rememberOperationAnswer(command.operationId, { kind: "late", operationId: command.operationId });
+		daemon.sendOperationAnswer(command.operationId, { kind: "late", operationId: command.operationId });
 		daemon.enqueue({ ...command }, dispatch, reject, String);
-		await vi.waitFor(() => expect(sent).toHaveLength(2));
-		expect(sent[1]).toEqual({ kind: "accepted", operationId: command.operationId });
+		await vi.waitFor(() => expect(sent).toHaveLength(3));
+		expect(sent[1]).toEqual({ kind: "late", operationId: command.operationId });
+		expect(sent[2]).toEqual({ kind: "accepted", operationId: command.operationId });
 		expect(dispatched).toBe(1);
 	});
 
-	it("does not replay an answer recorded while an operation is stopped", async () => {
+	it("sends but does not retain an answer while an operation is stopped", async () => {
 		const sent: Record<string, unknown>[] = [];
 		const daemon = new AgentDaemonCore({
 			backendId: "codex",
@@ -88,7 +89,7 @@ describe("agent daemon commands", () => {
 			isReliable: () => false,
 		});
 		const command = { ownerKey: "owner", agentId: "agent", operationId: "operation-stopped" };
-		daemon.rememberOperationAnswer(command.operationId, { kind: "rejected", operationId: command.operationId });
+		daemon.sendOperationAnswer(command.operationId, { kind: "rejected", operationId: command.operationId });
 		let dispatched = false;
 
 		daemon.enqueue(
@@ -101,6 +102,46 @@ describe("agent daemon commands", () => {
 		);
 		await vi.waitFor(() => expect(dispatched).toBe(true));
 
-		expect(sent).toEqual([]);
+		expect(sent).toEqual([{ kind: "rejected", operationId: command.operationId }]);
+	});
+
+	it("terminalizes bound work before removing and closing a retired session", async () => {
+		const order: string[] = [];
+		const session: AgentDaemonSession = {
+			targetId: "container:recipe-app",
+			generation: 1,
+			nextEventId: 0,
+			client: {
+				close: () => {
+					order.push("close");
+				},
+			},
+		};
+		let daemon!: AgentDaemonCore<AgentDaemonSession>;
+		daemon = new AgentDaemonCore({
+			backendId: "codex",
+			daemonInstanceId: "daemon-1",
+			targets: {
+				acquire: () => ({ state: "running", lease: { generation: 1, child: {} as AgentChild } }),
+				release: () => {},
+			} as TargetSupervisor,
+			send: () => {},
+			isReliable: () => false,
+			retiredTurnTerminalizers: (current) => [(reason) => order.push(`turn ${reason} ${daemon.live(current)}`)],
+			onRetire: (current) => order.push(`cleanup ${daemon.live(current)}`),
+		});
+		await daemon.acquireSession(
+			{
+				kind: "devcontainer",
+				targetId: "container:recipe-app",
+				cwd: "/workspace/recipe-app",
+			} as AgentResolvedTarget,
+			async () => session,
+		);
+
+		daemon.retire(session);
+
+		expect(order).toEqual(["turn turn lost: its agent process ended true", "cleanup true", "close"]);
+		expect(daemon.live(session)).toBe(false);
 	});
 });

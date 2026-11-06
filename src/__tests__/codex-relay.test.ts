@@ -75,11 +75,13 @@ function setup(
 		catalogWriter,
 	});
 	const ambient = options.ambient ?? processAmbient();
+	let liveDaemonInstanceId: string | undefined = "daemon-1";
 	let attached = options.attached ?? true;
 	const outbound: (CodexDaemonCommand | CodexEventAck)[] = [];
 	const relay = new CodexRelay({
 		service,
 		sessionStore: store,
+		liveDaemonInstanceId: () => liveDaemonInstanceId,
 		ambient,
 		sendToHost: (message) => {
 			if (!attached) return false;
@@ -99,12 +101,16 @@ function setup(
 		service,
 		relay,
 		ambient,
-		daemonInstanceId: () => "daemon-1",
+		daemonInstanceId: () => liveDaemonInstanceId,
 		waitBudgetMs: options.waitBudgetMs ?? 100,
 	});
 	const request = (tokenValue = token) =>
 		new Request("http://gateway/codex", { method: "POST", headers: { "x-session-token": tokenValue } });
 	const feed = (value: CodexDaemonReceipt | CodexDaemonEvent | CodexDaemonHello) => relay.handleHostMessage(value);
+	const registerHost = (daemonInstanceId: string) => {
+		liveDaemonInstanceId = daemonInstanceId;
+		relay.onHostRegister();
+	};
 	const agent = (agentId = codexAgentIdForOperation(operations.start)) =>
 		store.listCodexAgents(owner).find((candidate) => candidate.agentId === agentId);
 	const commands = () => outbound.filter((frame): frame is CodexDaemonCommand => frame.type === "codex_command");
@@ -119,6 +125,7 @@ function setup(
 		commands,
 		request,
 		feed,
+		registerHost,
 		agent,
 		setAttached: (value: boolean) => (attached = value),
 	};
@@ -336,6 +343,7 @@ describe("Codex relay behavior", () => {
 			context.feed(event(context, 1, { kind: "terminal", state: "completed", finalResponse: "done" }));
 			await settle();
 			const agentId = codexAgentIdForOperation(operations.start);
+			if (daemonInstanceId !== "daemon-1") context.registerHost(daemonInstanceId);
 			const pending = context.route.handle(context.request(), {
 				kind: "message",
 				operationId: operations.message,
@@ -391,6 +399,7 @@ describe("Codex relay behavior", () => {
 		await startWorking(context);
 		context.feed(event(context, 1, { kind: "activity", turnId: "unknown-turn", itemId: "held", text: "held" }));
 		await settle();
+		context.registerHost("daemon-2");
 		context.feed(
 			CodexDaemonHelloSchema.parse({
 				type: "codex_hello",
@@ -459,6 +468,7 @@ describe("Codex relay behavior", () => {
 		const ambient = { ...processAmbient(), now: () => now };
 		const context = setup({ ambient, waitBudgetMs: 1_000 });
 		await startWorking(context);
+		context.registerHost("daemon-2");
 		context.feed(
 			CodexDaemonHelloSchema.parse({
 				type: "codex_hello",

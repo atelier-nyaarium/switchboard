@@ -1,6 +1,7 @@
 import { sameResolvedTarget } from "../shared/agent-execution-target.js";
-import { classifyEventFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
+import { classifyEventFence, fenceOf } from "../shared/agent-fence.js";
 import { AGENT_TURN_LOST_REASON, replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
+import { type AgentReconciliationDecision, decideAgentReconciliation } from "../shared/agent-recovery.js";
 import {
 	CodexAgentIdSchema,
 	type CodexDaemonEvent,
@@ -25,6 +26,24 @@ export interface CodexReceiptApplier {
 	applyEvent: (event: CodexDaemonEvent, at: number) => CodexApplication;
 	applyReceipt: (receipt: CodexDaemonReceipt, at: number) => CodexApplication;
 	takeRefusalReason: (operationId: string) => string | undefined;
+}
+
+export function decideCodexReconciliation(
+	agent: Pick<CodexPersistedAgent, "fence" | "activeTurnId" | "turns">,
+	receipt: Pick<
+		Extract<CodexDaemonReceipt, { kind: "reconciled" }>,
+		"daemonInstanceId" | "targetId" | "generation" | "eventId" | "turnId" | "turnState"
+	>,
+): AgentReconciliationDecision {
+	const active = agent.activeTurnId
+		? agent.turns.find((turn) => turn.id === agent.activeTurnId && turn.state === "inProgress")
+		: undefined;
+	return decideAgentReconciliation({
+		currentFence: agent.fence,
+		receiptFence: fenceOf(receipt),
+		knownActiveTurn: active?.id,
+		report: { family: "codex", turnId: receipt.turnId, turnState: receipt.turnState },
+	});
 }
 
 export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexReceiptApplier {
@@ -168,32 +187,16 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 			return ignore("reconciliation names a different execution target");
 		}
 		const fence = fenceOf(receipt);
-		const standing = classifyReconciliationFence(agent.fence, fence);
-		if (standing === "duplicate") return ignore("reconciliation was already applied");
-		if (standing === "stale") return ignore("reconciliation comes from an older generation");
-
-		const active = agent.activeTurnId
-			? agent.turns.find((turn) => turn.id === agent.activeTurnId && turn.state === "inProgress")
-			: undefined;
-		const survives = active !== undefined && receipt.turnId === active.id && receipt.turnState === "inProgress";
-		const previousFence = agent.fence;
-		const changedProcess =
-			previousFence !== undefined &&
-			(previousFence.daemonInstanceId !== fence.daemonInstanceId ||
-				previousFence.targetId !== fence.targetId ||
-				previousFence.generation !== fence.generation);
+		const recovery = decideCodexReconciliation(agent, receipt);
+		if (recovery.kind === "duplicate") return ignore("reconciliation was already applied");
+		if (recovery.kind === "stale") return ignore("reconciliation comes from an older generation");
 		const at2 = Math.max(at, agent.updatedAt);
 		try {
 			let next = agent;
-			if (
-				active &&
-				changedProcess &&
-				!survives &&
-				(receipt.turnState === undefined || receipt.turnState === "inProgress")
-			) {
+			if (recovery.kind === "lost") {
 				next = withTerminal(
 					agent,
-					agent.turns.findIndex((turn) => turn.id === active.id),
+					agent.turns.findIndex((turn) => turn.id === recovery.turnId),
 					{ state: "interrupted", reason: AGENT_TURN_LOST_REASON },
 					at2,
 					fence,
@@ -201,7 +204,8 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 			}
 			next = CodexPersistedAgentSchema.parse({
 				...next,
-				agentState: active ? (next.activeTurnId ? (survives ? "working" : "recovering") : "idle") : "idle",
+				agentState:
+					recovery.kind === "survives" ? "working" : recovery.kind === "recovering" ? "recovering" : "idle",
 				operations: refenceUnverified(next.operations, fence),
 				fence,
 				updatedAt: at2,

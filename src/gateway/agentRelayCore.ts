@@ -42,6 +42,7 @@ export interface AgentRelaySchema<T> {
 
 export interface AgentRelayDeps {
 	sessionStore: SessionStore;
+	liveDaemonInstanceId(): string | undefined;
 	/** Reconnect reconciliation retries unsent commands. */
 	sendToHost(message: Record<string, unknown>): boolean;
 	ambient: Pick<Ambient, "now" | "newId" | "setTimer" | "clearTimer">;
@@ -125,7 +126,6 @@ export class AgentRelayCore<
 	private readonly reconciling = new Map<string, { requestId: string; askedAt: number }>();
 	private readonly lastReconcileAskedAt = new Map<string, number>();
 	private readonly deferred = new Map<string, Array<HeldFrame<TEvent, TReceipt>>>();
-	private liveInstanceId: string | undefined;
 
 	constructor(
 		private readonly deps: AgentRelayDeps,
@@ -143,9 +143,9 @@ export class AgentRelayCore<
 		}
 	}
 
-	onHostRegister(daemonInstanceId: string | undefined): void {
-		this.liveInstanceId = daemonInstanceId;
+	onHostRegister(): void {
 		this.reconciling.clear();
+		const daemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (!daemonInstanceId) return;
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
@@ -159,12 +159,12 @@ export class AgentRelayCore<
 	}
 
 	resendRequested(daemonInstanceId: string | undefined): void {
-		if (!daemonInstanceId || daemonInstanceId !== this.liveInstanceId) return;
+		if (!daemonInstanceId || daemonInstanceId !== this.deps.liveDaemonInstanceId()) return;
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
 			for (const agent of this.family.listAgents(owner)) {
 				void this.serialize(ownerKey, agent.agentId, () => {
-					if (daemonInstanceId !== this.liveInstanceId) return;
+					if (daemonInstanceId !== this.deps.liveDaemonInstanceId()) return;
 					const current = this.family
 						.listAgents(owner)
 						.find((candidate) => candidate.agentId === agent.agentId);
@@ -218,8 +218,8 @@ export class AgentRelayCore<
 	private onHello(raw: Record<string, unknown>): void {
 		const hello = this.parse(this.family.helloSchema, raw, "hello");
 		if (!hello) return;
-		if (this.liveInstanceId !== undefined && hello.daemonInstanceId !== this.liveInstanceId) return;
-		this.liveInstanceId = hello.daemonInstanceId;
+		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
+		if (liveDaemonInstanceId !== undefined && hello.daemonInstanceId !== liveDaemonInstanceId) return;
 		this.reconciling.clear();
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
@@ -258,7 +258,7 @@ export class AgentRelayCore<
 
 	private reduceReceipt(receipt: TReceipt): void {
 		// Would install a dead fence.
-		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.liveInstanceId, receipt)) return;
+		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.deps.liveDaemonInstanceId(), receipt)) return;
 		const application = this.family.applyReceipt(receipt, this.now());
 		this.settle({ frame: "receipt", message: receipt }, application);
 		// Operation refusals skip guard clearing.
@@ -373,9 +373,10 @@ export class AgentRelayCore<
 	}
 
 	private needsReconciliation(ownerKey: string, agent: TAgent): boolean {
-		if (!this.liveInstanceId || !this.isAskable(ownerKey, agent)) return false;
+		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
+		if (!liveDaemonInstanceId || !this.isAskable(ownerKey, agent)) return false;
 		if (agent.agentState === "recovering") return true;
-		return agent.agentState === "working" && this.family.fenceInstanceId(agent) !== this.liveInstanceId;
+		return agent.agentState === "working" && this.family.fenceInstanceId(agent) !== liveDaemonInstanceId;
 	}
 
 	private requestReconciliation(ownerKey: string, agent: TAgent): void {

@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import type { AgentResolvedTarget } from "../../shared/agent-execution-target.js";
-import { AGENT_TURN_LOST_REASON } from "../../shared/agent-record.js";
 import {
 	COPILOT_DEFAULT_MODEL,
 	type CopilotDaemonCommand,
@@ -92,15 +91,11 @@ export class CopilotDaemonService {
 			send: deps.send,
 			isReliable: isReliableCopilotMessage,
 			helloSchema: CopilotDaemonHelloSchema,
-			onRetire: (session) => {
-				for (const active of session.active.values()) {
-					this.emitTerminal(session, active, {
-						state: "interrupted",
-						reason: AGENT_TURN_LOST_REASON,
-					});
-				}
-				session.active.clear();
-			},
+			retiredTurnTerminalizers: (session) =>
+				[...session.active.values()].map(
+					(active) => (reason) => this.emitTerminal(session, active, { state: "interrupted", reason }),
+				),
+			onRetire: (session) => session.active.clear(),
 		});
 	}
 
@@ -442,8 +437,7 @@ export class CopilotDaemonService {
 			error: normalized,
 		};
 		if (CopilotDaemonReceiptSchema.safeParse(message).success) {
-			this.core.rememberOperationAnswer(command.kind === "reconcile" ? undefined : command.operationId, message);
-			this.deps.send(message);
+			this.core.sendOperationAnswer(command.kind === "reconcile" ? undefined : command.operationId, message);
 		}
 	}
 }
