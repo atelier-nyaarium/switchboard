@@ -239,7 +239,7 @@ export class CopilotHeadlessClient {
 		});
 	}
 
-	/** Created with every tool approved, as the delegating session itself runs. */
+	/** Created in allow-all mode, as the delegating session itself runs. */
 	async createSession(options: { cwd: string; model?: string; reasoningEffort?: string }): Promise<string> {
 		const result = (await this.transport.request("session.create", {
 			workingDirectory: options.cwd,
@@ -250,7 +250,7 @@ export class CopilotHeadlessClient {
 		})) as { sessionId?: unknown } | undefined;
 		const sessionId = result?.sessionId;
 		if (typeof sessionId !== "string" || sessionId.length === 0) throw new Error(`Copilot returned no session ID`);
-		await this.approveAll(sessionId);
+		await this.allowAll(sessionId);
 		return sessionId;
 	}
 
@@ -261,11 +261,12 @@ export class CopilotHeadlessClient {
 			clientName: CLIENT_NAME,
 			streaming: false,
 		});
-		await this.approveAll(sessionId);
+		await this.allowAll(sessionId);
 	}
 
-	private async approveAll(sessionId: string): Promise<void> {
-		await this.transport.request("session.permissions.setApproveAll", { sessionId, enabled: true });
+	/** Tools, paths and URLs alike; approve-all alone leaves a read outside the directory denied. */
+	private async allowAll(sessionId: string): Promise<void> {
+		await this.transport.request("session.permissions.setMode", { sessionId, mode: "allow-all" });
 	}
 
 	/** Answers the message id; the turn ends with `session.idle`. */

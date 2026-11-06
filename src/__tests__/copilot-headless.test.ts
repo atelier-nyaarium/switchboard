@@ -56,7 +56,7 @@ async function tick(): Promise<void> {
 const event = (type: string, data: Record<string, unknown> = {}): SessionEvent => ({ type, data });
 
 describe("Copilot headless client", () => {
-	it("opens on protocol version 3, creates an approved session, then sends, steers and aborts", async () => {
+	it("opens on protocol version 3, creates an allow-all session, then sends, steers and aborts", async () => {
 		const context = fakeChild();
 		const transport = createHeadlessTransport(context.child);
 		const open = CopilotHeadlessClient.open(transport);
@@ -87,8 +87,8 @@ describe("Copilot headless client", () => {
 		await tick();
 		expect(context.written.at(-1)).toMatchObject({
 			id: 3,
-			method: "session.permissions.setApproveAll",
-			params: { sessionId: "session-1", enabled: true },
+			method: "session.permissions.setMode",
+			params: { sessionId: "session-1", mode: "allow-all" },
 		});
 		context.feed({ jsonrpc: "2.0", id: 3, result: { success: true } });
 		expect(await created).toBe("session-1");
