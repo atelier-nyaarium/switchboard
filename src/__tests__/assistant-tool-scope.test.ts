@@ -9,7 +9,7 @@ import { ASSISTANT_CAPABILITIES, ASSISTANT_INSTRUCTIONS, scopeTools } from "../m
 import { sendGuarded } from "../mcp/assistant/sendTools.js";
 import { RouterHttpError } from "../mcp/bridge/helpers.js";
 import { renderAssistantCapabilities } from "../mcp/capabilitiesTool.js";
-import { guardToolResults } from "../mcp/toolResultGuard.js";
+import { guardTools } from "../mcp/toolGuard.js";
 import {
 	ASSISTANT_CROSSTALK_TOOLS,
 	ASSISTANT_ROUTINE_TOOLS,
@@ -52,7 +52,7 @@ beforeEach(() => {
 
 async function connected(register: (server: McpServer) => void): Promise<Client> {
 	const server = new McpServer({ name: "probe", version: "0.0.0" });
-	guardToolResults(server);
+	guardTools(server);
 	scopeTools(server, new Set(ASSISTANT_SWITCHBOARD_TOOLS));
 	register(server);
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();

@@ -246,6 +246,14 @@ function main(argv: string[]): void {
 	// bump is worse than none (the marketplace updates, the running server reports the old version).
 	checkDerivedSites(ROOT);
 
+	// A tool a GPT host refuses fails every message a Copilot session sends.
+	try {
+		execFileSync("bun", ["scripts/check-tool-definitions.ts"], { cwd: ROOT, stdio: "inherit" });
+	} catch {
+		console.error("\nbuild refused: a tool definition is over the limit");
+		process.exit(1);
+	}
+
 	// A clean tree is what makes the rollback below safe. --build-only writes no tracked file, so it
 	// has nothing to roll back and no reason to care.
 	if (!buildOnly) {

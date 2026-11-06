@@ -48,7 +48,7 @@ import { closeReferenceSession, referenceSession, setReferencesEnabled } from ".
 import { adoptHostRoots, expectHostRoots, workspaceRoot } from "./references/refWorkspace.js";
 import { registerRoutineTools } from "./routines/routineTools.js";
 import { resolveSessionNaming } from "./team-name.js";
-import { guardToolResults } from "./toolResultGuard.js";
+import { guardTools } from "./toolGuard.js";
 import { registerVaultTools } from "./vault/vaultTools.js";
 import { setWorkspacePlane } from "./workspace/plane.js";
 
@@ -169,7 +169,7 @@ export async function startMcp(): Promise<void> {
 			: undefined,
 	);
 	// Before any tool registers.
-	guardToolResults(mcpServer);
+	guardTools(mcpServer);
 	if (isAssistant) scopeTools(mcpServer, new Set(ASSISTANT_SWITCHBOARD_TOOLS));
 
 	registerBridgeTools(mcpServer, capabilities);

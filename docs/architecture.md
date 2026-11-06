@@ -56,7 +56,7 @@ neutralizer for model-bound text.
 - **A message is files, reminder, then body:** `composeModelMessage` orders the parts so the
   sender's words come last. Both channel notifications build through it.
 - **Foreign text is neutralized at one chokepoint per path:** `composeModelMessage` for a channel
-  body, a reply and a `[FILES]` block, `reminderBlock` for its own lines, `guardToolResults` for
+  body, a reply and a `[FILES]` block, `reminderBlock` for its own lines, `guardTools` for
   every string in a tool result and every thrown tool error, since a result can echo another
   session's text, and `compact_session` for the instructions that outlive a compact.
   `neutralizeMarkup` rewrites the opener of a `system-reminder` or `channel` tag to `&lt;`. ASCII

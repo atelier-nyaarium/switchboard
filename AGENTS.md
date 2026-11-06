@@ -613,7 +613,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../Federation.kt` / `FederationManager.kt` / `CrossDomainLink.kt` / `ConsoleClientCrossDomain.kt` / `CrossDomainPresenceUi.kt` - cross-Gateway routing, identity, allowlist, sealing, replay, and presence
 - `src/mcp/` - Claude Code tools
 - `src/shared/system-reminder.ts` - sole builder of the reminder tag, `neutralizeMarkup` and `oneLine` for model-bound text, and the files, reminder, body order; never for phone-bound text
-- `src/mcp/toolResultGuard.ts` - every tool result and thrown error neutralized, wrapped at registration
+- `src/mcp/toolGuard.ts` / `everyTool.ts` / `scripts/check-tool-definitions.ts` - the wrap every tool registers through: its definition checked, its results and thrown errors neutralized; every tool group with every capability on; the build's run of the two
+  - **A definition a GPT host refuses never registers:** `guardTools` throws at registration when a description, or any field's, passes `TOOL_DESCRIPTION_LIMIT` (1024). A Copilot or Codex host sends every tool with every request, so one long tool fails every message. `bun run build` registers `registerEveryTool` through the guard before it versions anything, and `tool-description-budget.test.ts` checks that list against every registrar `index.ts` calls.
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
   - **A pushed row reaches the session once per delivery id:** `channelPushDelivery.ts` acks a repeat
     it already emitted, across reconnects. A restart forgets, so delivery stays at least once.
