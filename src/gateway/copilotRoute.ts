@@ -46,7 +46,7 @@ function describeAgent(
 	options: {
 		observation?: CopilotAgentResult["observation"];
 		turnId?: string;
-		delivery?: "started" | "followup";
+		delivery?: "started" | "followup" | "steered";
 		includeLastSettled?: boolean;
 	} = {},
 ): CopilotAgentResult {
@@ -187,6 +187,8 @@ export class CopilotRoute {
 				target,
 				prompt: request.prompt,
 				...(request.model ? { model: request.model } : {}),
+				...(request.reasoningEffort === undefined ? {} : { reasoningEffort: request.reasoningEffort }),
+				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
 			});
 		}
 		return this.settle(owner, agentId, request.operationId, "started", committed.agent, dispatched);
@@ -214,6 +216,9 @@ export class CopilotRoute {
 				target: agent.resolvedTarget!,
 				sessionId: agent.sessionId!,
 				prompt: request.prompt,
+				// Names the turn a steer is meant for; the daemon opens a new one if it has settled.
+				...(agent.agentState === "working" && agent.activeTurnId ? { expectedTurnId: agent.activeTurnId } : {}),
+				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
 			});
 		}
 		return this.settle(owner, request.agentId, request.operationId, "followup", committed.agent, dispatched);
@@ -286,7 +291,7 @@ export class CopilotRoute {
 		owner: SessionRecord,
 		agentId: string,
 		operationId: string,
-		delivery: "started" | "followup",
+		delivery: "started" | "followup" | "steered",
 		initial: CopilotPersistedAgent,
 		dispatched = true,
 	): Promise<CopilotAgentResult> {
@@ -330,7 +335,8 @@ export class CopilotRoute {
 		const taken = current.turns.find((candidate) => candidate.id === operation.turnId);
 		return describeAgent(current, {
 			turnId: operation.turnId,
-			delivery,
+			// The daemon's word, where the receipt recorded one.
+			delivery: operation.delivery ?? delivery,
 			observation:
 				current.agentState === "working" && taken?.state === "inProgress"
 					? "accepted"

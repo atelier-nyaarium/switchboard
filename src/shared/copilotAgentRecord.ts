@@ -9,7 +9,7 @@ import {
 	CopilotPromptSchema,
 	copilotOperationIdentity,
 } from "./copilotAgentIdentity.js";
-import { CopilotAgentStateSchema } from "./copilotAgentState.js";
+import { CopilotAgentStateSchema, CopilotDeliverySchema } from "./copilotAgentState.js";
 import { CopilotExecutionTargetSchema, CopilotResolvedTargetSchema } from "./copilotAgentTargets.js";
 
 export const CopilotStoredTurnSchema = z.discriminatedUnion("state", [
@@ -60,6 +60,8 @@ export const CopilotStoredOperationSchema = z
 		state: z.enum(["requested", "accepted", "indeterminate"]),
 		turnId: CopilotOpaqueIdSchema.optional(),
 		sessionId: CopilotOpaqueIdSchema.optional(),
+		/** How the daemon took it; absent on a record from before steering. */
+		delivery: CopilotDeliverySchema.optional(),
 		createdAt: z.number().int().nonnegative(),
 		updatedAt: z.number().int().nonnegative(),
 	})

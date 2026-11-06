@@ -143,7 +143,10 @@ the opt-in.
 
 A Codex thread starts with `danger-full-access` and `approvalPolicy: "never"`, so it can write
 anywhere, reach the network, and run anything the delegating session could. The prompt is the only
-boundary, as it is for the session itself.
+boundary, as it is for the session itself. A start's or a new turn's `outputSchema` rides as
+`turn/start.outputSchema`, which constrains the final message; a steer keeps the running turn's. The
+caller validates the `finalResponse` text, on both families: the schema is not persisted on the
+operation, so a turn re-dispatched after a Gateway restart runs without it.
 
 ## Copilot delegation
 
@@ -154,8 +157,12 @@ than 1.0.106 is refused before a session exists. A session is created in allow-a
 URLs; approve-all alone still denies a read outside the directory), as the delegating session runs. A send answers at once with a message id; the turn's events follow, and
 `session.idle` settles it. `HeadlessTurn` is the one fold for the daemon and the local backend: each
 assistant message is a note, a tool start is a note with its command, an error the turn ends on fails
-it, an aborted idle interrupts it, and the last assistant message is the answer. Follow-ups wait for
-the previous turn until steering lands on the wire.
+it, an aborted idle interrupts it, and the last assistant message is the answer. A follow-up into a
+running turn is a steer (`session.send` in `immediate` mode, answered `steered`); the message names
+the turn it means (`expectedTurnId`), and one that has settled since opens a new turn instead. A
+start's `reasoningEffort` is refused when the catalog the daemon read at open does not list it for the
+model. A start's or a new turn's `outputSchema` rides as the send's `responseFormat` with `strict`
+on; the provider holds the answer to it, and the caller validates the `finalResponse` text.
 
 **Enabling it:** `copilot` on `PATH` announces the capability. Login uses the CLI and `/login`; no
 API key is forwarded. Default model `gpt-6-luna`.

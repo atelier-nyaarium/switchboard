@@ -20,6 +20,7 @@ it("streams a Copilot ACP turn into accepted, activity, and terminal frames", as
 			listener = next;
 		},
 		createSession: async () => "session-1",
+		listModels: async () => [{ id: "gpt-6-luna", reasoningEfforts: ["low", "medium"] }],
 		resumeSession: async () => {},
 		send: async () => "message-1",
 		abort: async () => {},
@@ -78,6 +79,7 @@ it("rejects a start whose session the runtime refused", async () => {
 		createSession: async () => {
 			throw new Error("model unavailable is not offered");
 		},
+		listModels: async () => [{ id: "gpt-6-luna", reasoningEfforts: ["low", "medium"] }],
 		resumeSession: async () => {},
 		send: async () => "message-1",
 		abort: async () => {},
@@ -125,6 +127,7 @@ it("refuses a command whose generation retires while it is in flight", async () 
 	const client = {
 		onEvent: () => {},
 		createSession: async () => "session-1",
+		listModels: async () => [{ id: "gpt-6-luna", reasoningEfforts: ["low", "medium"] }],
 		resumeSession: async () => {},
 		send: async () => "message-1",
 		abort: async () => {},
@@ -210,4 +213,118 @@ it("classifies login failures in rejected receipts", async () => {
 			failureCode: "authentication_required",
 		}),
 	);
+});
+
+it("steers a follow-up into the running turn it names, and refuses one that names another", async () => {
+	const sent: Record<string, unknown>[] = [];
+	const sends: Array<{ prompt: string; options?: unknown }> = [];
+	const client = {
+		onEvent: () => {},
+		listModels: async () => [],
+		createSession: async () => "session-1",
+		resumeSession: async () => {},
+		send: async (_sessionId: string, prompt: string, options?: unknown) => {
+			sends.push({ prompt, options });
+			return "message-1";
+		},
+		steer: async (_sessionId: string, prompt: string) => {
+			sends.push({ prompt, options: "steer" });
+			return "message-2";
+		},
+		abort: async () => {},
+		close: () => {},
+	} as unknown as CopilotHeadlessClient;
+	const service = new CopilotDaemonService({
+		targets: {
+			acquire: () => ({ state: "running", lease: { generation: 1, child: {} as AgentChild } }),
+			release: () => {},
+		},
+		daemonInstanceId: "daemon-1",
+		send: (message) => sent.push(message),
+		openClient: async () => client,
+		resolveHostCwd: () => "/home/agent",
+	});
+	const target = { kind: "devcontainer", project: "recipe-app", hostProjectPath: "/projects/recipe-app" } as const;
+	service.handleCommand({
+		type: "copilot_command",
+		kind: "start",
+		requestId: REQUEST_ID,
+		ownerKey: OWNER_KEY,
+		agentId: AGENT_ID,
+		operationId: OPERATION_ID,
+		target,
+		prompt: "Review the parser",
+		outputSchema: { type: "object" },
+	});
+	await settle();
+	const accepted = sent.find((message) => message.kind === "accepted") as { turnId: string; resolvedTarget: unknown };
+	expect(sends).toEqual([{ prompt: "Review the parser", options: { outputSchema: { type: "object" } } }]);
+
+	const message = (requestId: string, expectedTurnId: string) =>
+		service.handleCommand({
+			type: "copilot_command",
+			kind: "message",
+			requestId,
+			ownerKey: OWNER_KEY,
+			agentId: AGENT_ID,
+			operationId: requestId,
+			target: accepted.resolvedTarget,
+			sessionId: "session-1",
+			expectedTurnId,
+			prompt: "Also check the lexer",
+		});
+	message("123e4567-e89b-42d3-a456-426614174010", accepted.turnId);
+	await settle();
+	expect(sent.at(-1)).toMatchObject({ kind: "accepted", delivery: "steered", turnId: accepted.turnId });
+	expect(sends.at(-1)).toEqual({ prompt: "Also check the lexer", options: "steer" });
+
+	message("123e4567-e89b-42d3-a456-426614174011", "some-settled-turn");
+	await settle();
+	expect(sent.at(-1)).toMatchObject({ kind: "rejected", error: "Copilot agent is still working" });
+});
+
+it("refuses a reasoning effort the catalog does not list for the model", async () => {
+	const sent: Record<string, unknown>[] = [];
+	let created = 0;
+	const client = {
+		onEvent: () => {},
+		listModels: async () => [{ id: "gpt-6-luna", reasoningEfforts: ["low", "medium"] }],
+		createSession: async () => {
+			created += 1;
+			return "session-1";
+		},
+		resumeSession: async () => {},
+		send: async () => "message-1",
+		abort: async () => {},
+		close: () => {},
+	} as unknown as CopilotHeadlessClient;
+	const service = new CopilotDaemonService({
+		targets: {
+			acquire: () => ({ state: "running", lease: { generation: 1, child: {} as AgentChild } }),
+			release: () => {},
+		},
+		daemonInstanceId: "daemon-1",
+		send: (message) => sent.push(message),
+		openClient: async () => client,
+		resolveHostCwd: () => "/home/agent",
+	});
+	service.handleCommand({
+		type: "copilot_command",
+		kind: "start",
+		requestId: REQUEST_ID,
+		ownerKey: OWNER_KEY,
+		agentId: AGENT_ID,
+		operationId: OPERATION_ID,
+		target: { kind: "devcontainer", project: "recipe-app", hostProjectPath: "/projects/recipe-app" },
+		prompt: "Review the parser",
+		model: "gpt-6-luna",
+		reasoningEffort: "max",
+	});
+	await settle();
+
+	expect(created).toBe(0);
+	expect(sent.at(-1)).toMatchObject({
+		kind: "rejected",
+		error: expect.stringContaining("not offered for gpt-6-luna"),
+	});
 });

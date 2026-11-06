@@ -73,7 +73,7 @@ export class CodexLocalSession implements LocalBackendSession {
 	async startTurn(
 		threadId: string,
 		prompt: string,
-		turn?: { model?: string; serviceTier?: CodexServiceTier },
+		turn?: { model?: string; serviceTier?: CodexServiceTier; outputSchema?: Record<string, unknown> },
 	): Promise<LocalTurnHandle> {
 		// Built from inside the start, which is where the owner guarantees nothing has published yet.
 		// The whole handle, so its id and its promise name one turn whatever the start goes on to return.

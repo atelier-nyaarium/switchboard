@@ -88,7 +88,7 @@ async function accept(
 	operationId: string,
 	turnId: string,
 	eventId: number,
-	delivery: "started" | "followup",
+	delivery: "started" | "followup" | "steered",
 	stream = FIRST_CHILD,
 ): Promise<void> {
 	const command = commandFor(context, operationId);
@@ -182,6 +182,49 @@ describe("Copilot gateway route", () => {
 			finalResponse: "Done.",
 		});
 		expect(body.activities[0]).not.toHaveProperty("itemId");
+	});
+
+	it("steers a follow-up into the running turn the Gateway named, without a second turn", async () => {
+		const context = setup();
+		const agentId = copilotAgentIdForOperation(START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+			reasoningEffort: "low",
+			outputSchema: { type: "object" },
+		});
+		await flush();
+		expect(commandFor(context, START_OPERATION_ID)).toMatchObject({
+			reasoningEffort: "low",
+			outputSchema: { type: "object" },
+		});
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+
+		const steered = context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: MESSAGE_OPERATION_ID,
+			agentId,
+			prompt: "Also the lexer",
+		});
+		await flush();
+		expect(commandFor(context, MESSAGE_OPERATION_ID)).toMatchObject({ expectedTurnId: "turn-1" });
+		await accept(context, MESSAGE_OPERATION_ID, "turn-1", 1, "steered");
+		const body = await (await steered).json();
+		expect(() => CopilotAgentResultSchema.parse(body)).not.toThrow();
+		expect(body).toMatchObject({
+			agentState: "working",
+			observation: "accepted",
+			turn: { id: "turn-1", state: "inProgress" },
+			delivery: "steered",
+		});
+
+		await terminal(context, agentId, "turn-1", 2);
+		const settled = await (await context.route.handle(post(context.token), { kind: "await", agentId })).json();
+		expect(settled).toMatchObject({ observation: "terminal", turn: { id: "turn-1", state: "completed" } });
+		const listed = await (await context.route.handle(post(context.token), { kind: "list" })).json();
+		expect(listed.agents[0].turns).toHaveLength(1);
 	});
 
 	it("answers a disconnected start without waiting out the budget", async () => {

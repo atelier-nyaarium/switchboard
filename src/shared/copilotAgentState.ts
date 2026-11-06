@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentOutputSchemaSchema } from "./agent-record.js";
 import { CopilotActivitiesSchema } from "./copilotAgentActivities.js";
 import {
 	CopilotAgentIdSchema,
@@ -19,7 +20,9 @@ export const CopilotObservationSchema = z.enum([
 	"indeterminate",
 	"unavailable",
 ]);
-export const CopilotDeliverySchema = z.enum(["started", "followup"]);
+export const CopilotDeliverySchema = z.enum(["started", "followup", "steered"]);
+/** Checked against the model's own offer where the session is created. */
+export const CopilotReasoningEffortSchema = z.string().min(1).max(32);
 export const CopilotErrorCodeSchema = z.enum([
 	"invalid_input",
 	"not_found",
@@ -189,10 +192,17 @@ export const CopilotStartAgentInputSchema = z
 		prompt: CopilotPromptSchema,
 		model: z.string().min(1).max(128).optional(),
 		cwd: z.string().min(1).max(512).optional(),
+		reasoningEffort: CopilotReasoningEffortSchema.optional(),
+		outputSchema: AgentOutputSchemaSchema.optional(),
 	})
 	.strict();
 export const CopilotMessageAgentInputSchema = z
-	.object({ agentId: CopilotAgentIdSchema, prompt: CopilotPromptSchema })
+	.object({
+		agentId: CopilotAgentIdSchema,
+		prompt: CopilotPromptSchema,
+		/** Ignored when the message steers a running turn, which keeps that turn's schema. */
+		outputSchema: AgentOutputSchemaSchema.optional(),
+	})
 	.strict();
 export const CopilotAwaitAgentInputSchema = z.object({ agentId: CopilotAgentIdSchema }).strict();
 export const CopilotStopAgentInputSchema = z.object({ agentId: CopilotAgentIdSchema }).strict();

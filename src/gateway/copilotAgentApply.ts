@@ -41,7 +41,8 @@ export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): Co
 		if (operation.state === "accepted") return { disposition: "ignored", reason: "duplicate acceptance" };
 		if (operation.state !== "requested") return { disposition: "ignored", reason: "operation already settled" };
 		if (operation.kind === "stop") return { disposition: "ignored", reason: "stop cannot accept a prompt" };
-		if (current.turns.some((turn) => turn.id === receipt.turnId))
+		const steered = operation.kind === "message" && receipt.delivery === "steered";
+		if (!steered && current.turns.some((turn) => turn.id === receipt.turnId))
 			return { disposition: "reconcile", owner, agent: current };
 		const fence = fenceOf(receipt);
 		const fencePosition = classifyAcceptanceFence(current.fence, fence);
@@ -53,13 +54,33 @@ export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): Co
 				(receipt.delivery !== "started" ||
 					!resolvedTargetMatchesRequest(current.requestedTarget, receipt.resolvedTarget))) ||
 			(operation.kind === "message" &&
-				(receipt.delivery !== "followup" ||
+				(receipt.delivery === "started" ||
 					receipt.sessionId !== operation.sessionId ||
 					!current.resolvedTarget ||
 					!sameResolvedTarget(current.resolvedTarget, receipt.resolvedTarget)))
 		)
 			return { disposition: "reconcile", owner, agent: current };
 		const timestamp = Math.max(at, current.updatedAt);
+		if (steered) {
+			// Into the running turn: only the operation's acceptance is new.
+			const running = current.turns.find((turn) => turn.id === receipt.turnId);
+			if (running?.state !== "inProgress" || current.activeTurnId !== receipt.turnId)
+				return { disposition: "reconcile", owner, agent: current };
+			const next = CopilotPersistedAgentSchema.parse({
+				...current,
+				fence,
+				operations: replaceAt(current.operations, operationIndex, {
+					...operation,
+					state: "accepted",
+					turnId: receipt.turnId,
+					sessionId: receipt.sessionId,
+					delivery: "steered",
+					updatedAt: timestamp,
+				}),
+				updatedAt: timestamp,
+			});
+			return deps.catalog.apply(owner, next);
+		}
 		const turn: CopilotStoredTurn = {
 			id: receipt.turnId,
 			state: "inProgress",
@@ -79,6 +100,7 @@ export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): Co
 				state: "accepted",
 				turnId: receipt.turnId,
 				sessionId: receipt.sessionId,
+				delivery: receipt.delivery,
 				updatedAt: timestamp,
 			}),
 			updatedAt: timestamp,

@@ -137,4 +137,4 @@ A: Switch to the SDK protocol. Copilot's own Dynamic Workflows stay off.
 ### Phase E status
 
 - Slice 1 shipped 2026-11-06: `copilotHeadless.ts` under the daemon and the local backend, `--headless --stdio` launches, ACP removed. Proven live through the launcher before the gates: 12 models listed, a gpt-6-luna session created, `echo hiii` run with the notes `bash: echo hiii` and `hiii`, terminal `completed`. A message while working is still refused.
-- Slice 2 next.
+- Slice 2 shipped 2026-11-06: `steered` delivery for Copilot with `expectedTurnId` on the message command, `reasoningEffort` on start checked against the catalog the daemon read at open, `outputSchema` on start and message for both families (Codex `turn/start.outputSchema`, Copilot `responseFormat` strict). The schema is not persisted on the operation, so a turn re-dispatched after a Gateway restart runs without it. The Codex start tool's reuse paragraph moved out of its description to stay under the 1024-character guard.

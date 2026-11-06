@@ -213,6 +213,7 @@ export class CodexRoute {
 				// Persisted model and tier are the replay source of truth.
 				model: request.model,
 				...(request.serviceTier === undefined ? {} : { serviceTier: request.serviceTier }),
+				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
 			});
 		}
 		return this.settle(owner, agentId, request.operationId, dispatched);
@@ -244,6 +245,7 @@ export class CodexRoute {
 				prompt: request.prompt,
 				...(agent.serviceTier === undefined ? {} : { serviceTier: agent.serviceTier }),
 				...(startModelOf(agent) === undefined ? {} : { model: startModelOf(agent) }),
+				...(request.outputSchema === undefined ? {} : { outputSchema: request.outputSchema }),
 			});
 		}
 		return this.settle(owner, request.agentId, request.operationId, dispatched);

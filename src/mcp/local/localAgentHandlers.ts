@@ -112,6 +112,7 @@ export class LocalAgentHandlers {
 				cwd: request.cwd ?? this.host.spec.defaultCwd(),
 				model: request.model,
 				serviceTier: request.serviceTier,
+				reasoningEffort: request.reasoningEffort,
 			});
 		} catch (error) {
 			return this.fail(agentId, "app_server_unavailable", errorText(error), true);
@@ -128,7 +129,7 @@ export class LocalAgentHandlers {
 			exchanges: [],
 		};
 		this.agents.set(agentId, agent);
-		return this.dispatchTurn(session, agent, prompt, "start");
+		return this.dispatchTurn(session, agent, prompt, "start", { outputSchema: request.outputSchema });
 	}
 
 	async message(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal> {
@@ -166,7 +167,11 @@ export class LocalAgentHandlers {
 		}
 
 		const serviceTier = request.serviceTier ?? agent.serviceTier;
-		const answer = await this.dispatchTurn(session, agent, prompt, "message", { model: agent.model, serviceTier });
+		const answer = await this.dispatchTurn(session, agent, prompt, "message", {
+			model: agent.model,
+			serviceTier,
+			outputSchema: request.outputSchema,
+		});
 		if (serviceTier !== undefined && answer.observation !== "unavailable") agent.serviceTier = serviceTier;
 		return answer;
 	}
@@ -226,7 +231,7 @@ export class LocalAgentHandlers {
 		agent: LocalAgentRecord,
 		prompt: string,
 		kind: "start" | "message",
-		settings: { model?: string; serviceTier?: CodexServiceTier } = {},
+		settings: { model?: string; serviceTier?: CodexServiceTier; outputSchema?: Record<string, unknown> } = {},
 	): Promise<LocalAgentAnswer> {
 		let handle: LocalTurnHandle;
 		try {

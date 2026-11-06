@@ -123,8 +123,13 @@ export class CopilotAgentService {
 		const catalog = this.catalog(owner);
 		const index = this.indexOf(catalog, agentId);
 		const current = catalog.agents[index]!;
-		if (!current.sessionId || !current.resolvedTarget || current.agentState !== "idle")
-			throw new AgentTransitionError("state_conflict", "Copilot agent is not idle");
+		// A working agent takes it as a steer; the daemon says which it was.
+		if (
+			!current.sessionId ||
+			!current.resolvedTarget ||
+			(current.agentState !== "idle" && current.agentState !== "working")
+		)
+			throw new AgentTransitionError("state_conflict", "Copilot agent cannot take a message now");
 		if (current.operations.some((operation) => operation.state === "requested"))
 			throw new AgentTransitionError("state_conflict", "Copilot agent has an unresolved operation");
 		const timestamp = Math.max(at, current.updatedAt);

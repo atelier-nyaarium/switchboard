@@ -63,6 +63,15 @@ export type AgentReplayOutcome<Agent, Operation> =
 ////////////////////////////////
 //  Functions & Helpers
 
+export const AGENT_OUTPUT_SCHEMA_MAX_BYTES = 32 * 1024;
+
+/** A JSON Schema the provider holds a turn's answer to. The caller validates the answer itself. */
+export const AgentOutputSchemaSchema = z
+	.record(z.string(), z.unknown())
+	.refine((schema) => new TextEncoder().encode(JSON.stringify(schema)).byteLength <= AGENT_OUTPUT_SCHEMA_MAX_BYTES, {
+		message: `output schema must be at most ${AGENT_OUTPUT_SCHEMA_MAX_BYTES} UTF-8 bytes`,
+	});
+
 export function boundedUtf8(maxBytes: number, name: string) {
 	return z.string().refine((value) => new TextEncoder().encode(value).byteLength <= maxBytes, {
 		message: `${name} must be at most ${maxBytes} UTF-8 bytes`,

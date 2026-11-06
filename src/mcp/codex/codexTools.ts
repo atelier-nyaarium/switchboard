@@ -31,11 +31,9 @@ Models, spelled exactly:
 
 The agent runs with full access, as this session does. State allowed writes, network access, and completion criteria in the prompt.
 
-\`${CODEX_PRIORITY_SERVICE_TIER}\` runs faster and spends more usage; \`${CODEX_STANDARD_SERVICE_TIER}\` does not. A tier holds until \`codexMessageAgent\` changes it; a model and \`cwd\` are fixed for the agent's life.
+\`${CODEX_PRIORITY_SERVICE_TIER}\` runs faster and spends more usage; \`${CODEX_STANDARD_SERVICE_TIER}\` does not. A tier holds until \`codexMessageAgent\` changes it; a model and \`cwd\` are fixed for the agent's life. \`outputSchema\` holds the answer to a JSON Schema; validate it yourself.
 
 Naming neither \`model\` nor \`serviceTier\` starts ${CODEX_DEFAULT_MODEL} at \`${CODEX_PRIORITY_SERVICE_TIER}\`. Naming a model leaves the tier standard.
-
-Reuse an agent with \`codexMessageAgent\` to keep its history. Agents belong to the whole session; \`codexListAgents\` finds them after a caller ends.
 `.trim();
 
 const MESSAGE_DESCRIPTION = `
@@ -53,7 +51,9 @@ Returns once the agent takes the turn. A completion notice arrives as awareness;
 
 - \`serviceTier\` - \`${CODEX_PRIORITY_SERVICE_TIER}\` runs faster and spends more usage, \`${CODEX_STANDARD_SERVICE_TIER}\` goes back to not. Omit to keep the agent's current tier.
 
-A steered turn keeps the tier it started with, so a change lands on the next turn.
+- \`outputSchema\` - a JSON Schema a new turn's answer is held to; validate it yourself.
+
+A steered turn keeps the tier and schema it started with, so a change lands on the next turn.
 `.trim();
 
 const AWAIT_DESCRIPTION = `
@@ -107,11 +107,13 @@ export function codexRequestBody(
 		model?: string;
 		cwd?: string;
 		serviceTier?: CodexServiceTier;
+		outputSchema?: Record<string, unknown>;
 		detail?: "summary" | "full";
 		limit?: number;
 	} = {},
 ): Record<string, unknown> {
 	const chosen = kind === "start" ? codexStartDefaults(args) : { serviceTier: args.serviceTier };
+	const turn = kind === "start" || kind === "message";
 	return {
 		...requestHead(kind),
 		...(args.agentId === undefined ? {} : { agentId: args.agentId }),
@@ -120,9 +122,8 @@ export function codexRequestBody(
 		...(args.prompt === undefined ? {} : { prompt: args.prompt }),
 		...(kind === "start" && chosen.model !== undefined ? { model: chosen.model } : {}),
 		...(kind === "start" && args.cwd !== undefined ? { cwd: args.cwd } : {}),
-		...((kind === "start" || kind === "message") && chosen.serviceTier !== undefined
-			? { serviceTier: chosen.serviceTier }
-			: {}),
+		...(turn && chosen.serviceTier !== undefined ? { serviceTier: chosen.serviceTier } : {}),
+		...(turn && args.outputSchema !== undefined ? { outputSchema: args.outputSchema } : {}),
 	};
 }
 
@@ -150,15 +151,24 @@ export function registerCodexTools(mcpServer: McpServer, dispatch: AgentDispatch
 	mcpServer.registerTool(
 		"codexStartAgent",
 		{ title: `Codex Start Agent`, description: START_DESCRIPTION, inputSchema: startSchema },
-		async (args: { prompt: string; model?: string; cwd?: string; serviceTier?: CodexServiceTier }) =>
-			post(dispatch, codexRequestBody("start", args)),
+		async (args: {
+			prompt: string;
+			model?: string;
+			cwd?: string;
+			serviceTier?: CodexServiceTier;
+			outputSchema?: Record<string, unknown>;
+		}) => post(dispatch, codexRequestBody("start", args)),
 	);
 
 	mcpServer.registerTool(
 		"codexMessageAgent",
 		{ title: `Codex Message Agent`, description: MESSAGE_DESCRIPTION, inputSchema: messageSchema },
-		async (args: { agentId: string; prompt: string; serviceTier?: CodexServiceTier }) =>
-			post(dispatch, codexRequestBody("message", args)),
+		async (args: {
+			agentId: string;
+			prompt: string;
+			serviceTier?: CodexServiceTier;
+			outputSchema?: Record<string, unknown>;
+		}) => post(dispatch, codexRequestBody("message", args)),
 	);
 
 	mcpServer.registerTool(

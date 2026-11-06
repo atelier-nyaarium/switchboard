@@ -151,7 +151,7 @@ stay useful for scratch steps inside one.
   holds refuses, so repeating a claim whose reply you lost is safe.
 - **Break work down as children of the entry it belongs to** and tick them as you go. That tree is
   the only progress the owner can see.
-- **A follow-up you will not do goes to the backlog**, or it dies with your session.
+- **Don't put tasks into the unclaimed backlog unless asked.**
 
 The full guidance arrives with the handshake answer and after each compaction, the same as refs above.
 

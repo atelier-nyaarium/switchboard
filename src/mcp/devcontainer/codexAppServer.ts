@@ -381,12 +381,17 @@ export class CodexAppServerClient {
 		threadId: string,
 		text: string,
 		onStarted: (turnId: string) => void,
-		turn: { model?: string; serviceTier?: CodexServiceTier } = {},
+		turn: { model?: string; serviceTier?: CodexServiceTier; outputSchema?: Record<string, unknown> } = {},
 	): Promise<string> {
 		const tier = this.checkedTier(turn.model, turn.serviceTier);
 		return this.lifecycle.startTurn(
 			threadId,
-			{ threadId, input: [{ type: "text", text }], ...(tier === undefined ? {} : { serviceTier: tier }) },
+			{
+				threadId,
+				input: [{ type: "text", text }],
+				...(tier === undefined ? {} : { serviceTier: tier }),
+				...(turn.outputSchema === undefined ? {} : { outputSchema: turn.outputSchema }),
+			},
 			onStarted,
 		);
 	}

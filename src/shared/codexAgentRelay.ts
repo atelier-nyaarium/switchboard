@@ -6,6 +6,7 @@
 // record what an operation last saw.
 
 import { z } from "zod";
+import { AgentOutputSchemaSchema } from "./agent-record.js";
 import {
 	boundedUtf8,
 	CODEX_ACTIVITY_MAX_BYTES,
@@ -46,6 +47,7 @@ export const CodexDaemonCommandSchema = z.discriminatedUnion("kind", [
 			prompt: CodexPromptSchema,
 			model: z.string().min(1).max(128).optional(),
 			serviceTier: CodexServiceTierSchema.optional(),
+			outputSchema: AgentOutputSchemaSchema.optional(),
 		})
 		.strict(),
 	z
@@ -62,6 +64,7 @@ export const CodexDaemonCommandSchema = z.discriminatedUnion("kind", [
 			/** The thread's model, carried only for the tier check. A restarted daemon never saw the
 			 * start that chose it. */
 			model: z.string().min(1).max(128).optional(),
+			outputSchema: AgentOutputSchemaSchema.optional(),
 		})
 		.strict(),
 	z

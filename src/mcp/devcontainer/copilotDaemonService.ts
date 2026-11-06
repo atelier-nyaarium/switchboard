@@ -19,6 +19,7 @@ import type { AgentChild, TargetLease, TargetSupervisor } from "./codexTargets.j
 import {
 	type CopilotHeadlessClient,
 	defaultOpenCopilotClient,
+	type HeadlessModel,
 	HeadlessTurn,
 	type SessionEvent,
 } from "./copilotHeadless.js";
@@ -52,6 +53,8 @@ interface TargetSession {
 	targetId: string;
 	generation: number;
 	client: CopilotHeadlessClient;
+	/** The catalog at open; empty when it could not be read, which checks nothing. */
+	models: HeadlessModel[];
 	nextEventId: number;
 	sessions: Map<string, Binding>;
 	active: Map<string, ActivePrompt>;
@@ -137,12 +140,18 @@ export class CopilotDaemonService {
 		const session = await this.session(target);
 		if (!session)
 			return this.reject(command, this.openErrors.get(target.targetId) ?? `execution target is unavailable`);
+		const model = command.model ?? COPILOT_DEFAULT_MODEL;
+		const effort = command.reasoningEffort;
+		const offered = session.models.find((candidate) => candidate.id === model)?.reasoningEfforts;
+		if (effort !== undefined && offered !== undefined && !offered.includes(effort)) {
+			return this.reject(
+				command,
+				`reasoning effort ${effort} is not offered for ${model}; offered: ${offered.join(", ")}`,
+			);
+		}
 		let sessionId: string;
 		try {
-			sessionId = await session.client.createSession({
-				cwd: target.cwd,
-				model: command.model ?? COPILOT_DEFAULT_MODEL,
-			});
+			sessionId = await session.client.createSession({ cwd: target.cwd, model, reasoningEffort: effort });
 		} catch (error) {
 			return this.reject(command, describe(error));
 		}
@@ -160,7 +169,7 @@ export class CopilotDaemonService {
 			turnId,
 			delivery: "started",
 		});
-		void this.runPrompt(session, binding, turnId, command.prompt);
+		void this.runPrompt(session, binding, turnId, command.prompt, command.outputSchema);
 	}
 
 	private async runMessage(command: Extract<CopilotDaemonCommand, { kind: "message" }>): Promise<void> {
@@ -171,7 +180,28 @@ export class CopilotDaemonService {
 				this.openErrors.get(command.target.targetId) ?? `execution target is unavailable`,
 			);
 		const binding: Binding = { ownerKey: command.ownerKey, agentId: command.agentId, sessionId: command.sessionId };
-		if (session.active.has(command.sessionId)) return this.reject(command, `Copilot agent is still working`);
+		const active = session.active.get(command.sessionId);
+		if (active) {
+			// Only the turn the caller meant; one that settled since is a new turn below.
+			if (command.expectedTurnId !== active.turnId) return this.reject(command, `Copilot agent is still working`);
+			try {
+				await session.client.steer(command.sessionId, command.prompt);
+			} catch (error) {
+				return this.reject(command, describe(error));
+			}
+			this.emitReceipt(session, command, {
+				kind: "accepted",
+				requestId: command.requestId,
+				ownerKey: command.ownerKey,
+				agentId: command.agentId,
+				operationId: command.operationId,
+				resolvedTarget: command.target,
+				sessionId: command.sessionId,
+				turnId: active.turnId,
+				delivery: "steered",
+			});
+			return;
+		}
 		if (!session.sessions.has(command.sessionId)) {
 			try {
 				await session.client.resumeSession(command.sessionId, command.target.cwd);
@@ -192,15 +222,21 @@ export class CopilotDaemonService {
 			turnId,
 			delivery: "followup",
 		});
-		void this.runPrompt(session, binding, turnId, command.prompt);
+		void this.runPrompt(session, binding, turnId, command.prompt, command.outputSchema);
 	}
 
 	/** The send answers at once; the turn settles from its events in `onEvent`. */
-	private async runPrompt(session: TargetSession, binding: Binding, turnId: string, prompt: string): Promise<void> {
+	private async runPrompt(
+		session: TargetSession,
+		binding: Binding,
+		turnId: string,
+		prompt: string,
+		outputSchema?: Record<string, unknown>,
+	): Promise<void> {
 		const active: ActivePrompt = { binding, turnId, turn: new HeadlessTurn(), cancelled: false };
 		session.active.set(binding.sessionId, active);
 		try {
-			await session.client.send(binding.sessionId, prompt);
+			await session.client.send(binding.sessionId, prompt, { outputSchema });
 		} catch (error) {
 			if (session.active.get(binding.sessionId) !== active) return;
 			session.active.delete(binding.sessionId);
@@ -300,10 +336,12 @@ export class CopilotDaemonService {
 			return null;
 		}
 		this.openErrors.delete(target.targetId);
+		const models = await client.listModels().catch((): HeadlessModel[] => []);
 		const session: TargetSession = {
 			targetId: target.targetId,
 			generation: lease.generation,
 			client,
+			models,
 			nextEventId: 0,
 			sessions: new Map(),
 			active: new Map(),

@@ -134,9 +134,6 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 				console.error(`[${backend.id}-local] notice failed:`, error),
 			);
 		},
-		...(isCodex
-			? {}
-			: { busyMessage: `Copilot is still working. Await the turn or stop it before sending another.` }),
 		openSession: async (): Promise<LocalBackendSession> => {
 			const target: AgentResolvedTarget = AgentResolvedTargetSchema.parse({
 				kind: "host",
@@ -217,6 +214,12 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 				...("cwd" in request && request.cwd !== undefined ? { cwd: resolveLocalCwd(request.cwd) } : {}),
 				// Narrowed by the schema itself: only the Codex half of this union declares the field.
 				...serviceTierOf(request),
+				...("reasoningEffort" in request && request.reasoningEffort !== undefined
+					? { reasoningEffort: request.reasoningEffort }
+					: {}),
+				...("outputSchema" in request && request.outputSchema !== undefined
+					? { outputSchema: request.outputSchema }
+					: {}),
 			});
 			return "refused" in answer ? refuse(answer.refused) : resultSchema.parse(answer);
 		},

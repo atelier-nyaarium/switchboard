@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentOutputSchemaSchema } from "./agent-record.js";
 import {
 	boundedUtf8,
 	COPILOT_ACTIVITY_MAX_BYTES,
@@ -9,7 +10,11 @@ import {
 	CopilotOwnerKeySchema,
 	CopilotPromptSchema,
 } from "./copilotAgentIdentity.js";
-import { CopilotDaemonFailureCodeSchema, CopilotDeliverySchema } from "./copilotAgentState.js";
+import {
+	CopilotDaemonFailureCodeSchema,
+	CopilotDeliverySchema,
+	CopilotReasoningEffortSchema,
+} from "./copilotAgentState.js";
 import { CopilotExecutionTargetSchema, CopilotResolvedTargetSchema } from "./copilotAgentTargets.js";
 
 const CopilotDaemonCommandBase = {
@@ -28,6 +33,8 @@ export const CopilotDaemonCommandSchema = z.discriminatedUnion("kind", [
 			target: CopilotExecutionTargetSchema,
 			prompt: CopilotPromptSchema,
 			model: z.string().min(1).max(128).optional(),
+			reasoningEffort: CopilotReasoningEffortSchema.optional(),
+			outputSchema: AgentOutputSchemaSchema.optional(),
 		})
 		.strict(),
 	z
@@ -37,7 +44,10 @@ export const CopilotDaemonCommandSchema = z.discriminatedUnion("kind", [
 			operationId: CopilotOperationIdSchema,
 			target: CopilotResolvedTargetSchema,
 			sessionId: CopilotOpaqueIdSchema,
+			/** The running turn a steer is meant for; the daemon opens a new turn once it has settled. */
+			expectedTurnId: CopilotOpaqueIdSchema.optional(),
 			prompt: CopilotPromptSchema,
+			outputSchema: AgentOutputSchemaSchema.optional(),
 		})
 		.strict(),
 	z

@@ -124,7 +124,7 @@ describe("Codex App Server JSONL transport", () => {
 		const f = child(standard);
 		const client = await CodexAppServerClient.open(createJsonlTransport(f.child), MODEL);
 		const thread = await client.startThread({ cwd: "/workspace/app" });
-		await client.startTurn(thread, "inspect", () => {});
+		await client.startTurn(thread, "inspect", () => {}, { outputSchema: { type: "object" } });
 		await client.steerTurn(thread, "turn-1", "continue");
 		await client.interruptTurn(thread, "turn-1");
 
@@ -140,6 +140,7 @@ describe("Codex App Server JSONL transport", () => {
 		expect((f.outbound[4] as { params: unknown }).params).toEqual({
 			threadId: "thread-1",
 			input: [{ type: "text", text: "inspect" }],
+			outputSchema: { type: "object" },
 		});
 		expect((f.outbound[5] as { params: unknown }).params).toMatchObject({ expectedTurnId: "turn-1" });
 	});

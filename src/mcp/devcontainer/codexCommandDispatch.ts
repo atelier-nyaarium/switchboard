@@ -53,7 +53,7 @@ async function runStart(
 	});
 	const binding: TurnBinding = { ownerKey: command.ownerKey, agentId: command.agentId, threadId };
 	host.bindThread(session, threadId, binding);
-	const turnId = await beginTurn(session, binding, command.prompt);
+	const turnId = await beginTurn(session, binding, command.prompt, { outputSchema: command.outputSchema });
 	if (!turnId) return host.reject(command, `codex thread produced no turn`);
 	host.emitReceipt(session, command, {
 		kind: "accepted",
@@ -72,7 +72,7 @@ async function beginTurn(
 	session: TargetSession,
 	binding: TurnBinding,
 	prompt: string,
-	turn: { model?: string; serviceTier?: CodexServiceTier } = {},
+	turn: { model?: string; serviceTier?: CodexServiceTier; outputSchema?: Record<string, unknown> } = {},
 ): Promise<string | undefined> {
 	let bound: string | undefined;
 	try {
@@ -154,6 +154,7 @@ async function runMessage(
 	const turnId = await beginTurn(session, binding, command.prompt, {
 		model: command.model,
 		serviceTier: command.serviceTier,
+		outputSchema: command.outputSchema,
 	});
 	if (!turnId) return host.reject(command, `codex thread produced no turn`);
 	host.emitReceipt(session, command, {

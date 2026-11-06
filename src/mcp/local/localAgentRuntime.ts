@@ -44,6 +44,8 @@ export interface LocalRequest {
 	model?: string;
 	cwd?: string;
 	serviceTier?: CodexServiceTier;
+	reasoningEffort?: string;
+	outputSchema?: Record<string, unknown>;
 }
 
 export interface LocalBackendSpec {

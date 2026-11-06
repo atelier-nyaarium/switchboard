@@ -2,6 +2,7 @@
 // tool answers with, and the five tools' own input and gateway-request envelopes.
 
 import { z } from "zod";
+import { AgentOutputSchemaSchema } from "./agent-record.js";
 import { CodexActivitiesSchema } from "./codexAgentActivities.js";
 import {
 	CodexAgentIdSchema,
@@ -291,6 +292,7 @@ export const CodexStartAgentInputSchema = z
 		/** Host-only, and on start alone: a thread's working directory is fixed for its life. Resolved
 		 * by the daemon's `resolveHostWorkdir`, which falls back to home rather than trusting a path. */
 		cwd: z.string().min(1).max(512).optional(),
+		outputSchema: AgentOutputSchemaSchema.optional(),
 		/** Unlike a model, a tier holds until changed rather than for the thread's life. */
 		serviceTier: CodexServiceTierSchema.optional(),
 	})
@@ -303,6 +305,8 @@ export const CodexMessageAgentInputSchema = z
 		/** Changes the agent's tier from here on. `turn/steer` carries no tier, so a change asked for
 		 * while a turn runs lands on the next one. */
 		serviceTier: CodexServiceTierSchema.optional(),
+		/** Ignored when the message steers a running turn, which keeps that turn's schema. */
+		outputSchema: AgentOutputSchemaSchema.optional(),
 	})
 	.strict();
 

@@ -25,12 +25,17 @@ export interface LocalTurnHandle {
 
 export interface LocalBackendSession {
 	/** The working directory is fixed here for the thread's life. */
-	openThread(options: { cwd: string; model?: string; serviceTier?: CodexServiceTier }): Promise<string>;
+	openThread(options: {
+		cwd: string;
+		model?: string;
+		serviceTier?: CodexServiceTier;
+		reasoningEffort?: string;
+	}): Promise<string>;
 	/** A backend without service tiers ignores `turn`. `model` is the thread's, for the tier check. */
 	startTurn(
 		threadId: string,
 		prompt: string,
-		turn?: { model?: string; serviceTier?: CodexServiceTier },
+		turn?: { model?: string; serviceTier?: CodexServiceTier; outputSchema?: Record<string, unknown> },
 	): Promise<LocalTurnHandle>;
 	/** Absent on a backend with no steer, making "cannot follow up while working" a type-level fact. */
 	steerTurn?(threadId: string, turnId: string, prompt: string): Promise<void>;

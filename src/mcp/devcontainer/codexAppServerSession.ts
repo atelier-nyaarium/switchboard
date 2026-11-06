@@ -26,7 +26,7 @@ export interface AppServerSession {
 		threadId: string,
 		text: string,
 		onStarted: (turnId: string) => void,
-		turn?: { model?: string; serviceTier?: CodexServiceTier },
+		turn?: { model?: string; serviceTier?: CodexServiceTier; outputSchema?: Record<string, unknown> },
 	): Promise<string>;
 	steerTurn(threadId: string, turnId: string, text: string): Promise<void>;
 	interruptTurn(threadId: string, turnId: string): Promise<void>;
