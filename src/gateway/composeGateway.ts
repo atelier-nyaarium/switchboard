@@ -28,6 +28,7 @@ import { composeSessions } from "./compose/composeSessions.js";
 import { composeStores } from "./compose/composeStores.js";
 import { composeVault, type VaultStage } from "./compose/composeVault.js";
 import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSockets.js";
+import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflows.js";
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
 import { routineOwns } from "./routines/reservation.js";
@@ -60,6 +61,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	let presenceHandlers: RouterPresenceBuild | undefined;
 	let vault: VaultStage | undefined;
 	let devices: DeviceStage | undefined;
+	let workflows: WorkflowsStage | undefined;
 	let reconcileStaleAgents = (): void => {};
 
 	const requireRoutes = (): GatewayRoutes => {
@@ -97,6 +99,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			slice.handlers = { frames };
 			// Here rather than beside the active boot, so enrolling into an arming one arms this too.
 			routines?.start();
+			workflows?.start();
 			assistant.start();
 			vault?.retractStale();
 		},
@@ -115,6 +118,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		context,
 	});
+	workflows = composeWorkflows({ dataDir: bootstrap.dataDir, ambient: bootstrap.ambient });
 	const assistant = composeAssistant({
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
@@ -165,6 +169,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		sessionReserved: (team) => routines.reserves(team) || assistant.reserves(team),
 		sweepDeliveries: () => websockets?.channelDeliveries.sweep(),
 		namesBlob: (blobId) => assistant.namesBlob(blobId) || (routes?.current()?.namesBlob(blobId) ?? true),
+		sweepWorkflows: () => workflows?.sweep(),
 		onPersistTick: () => reconcileStaleAgents(),
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
@@ -341,6 +346,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				await capture(() => devices?.close());
 				await capture(() => federation?.drainInboxPump());
 				await capture(() => routines.stop());
+				await capture(() => workflows?.stop());
 				await capture(() => assistant.stop());
 				await capture(() => stores.jobsDurable.saveChecked(stores.jobs.snapshot()));
 				await capture(() => stores.sessionResumeDurable.saveChecked(sessions.sessionResumeSnapshot(true)));

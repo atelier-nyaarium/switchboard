@@ -114,7 +114,7 @@ function noHardlinks(error: unknown): boolean {
 	return code === "EPERM" || code === "ENOTSUP" || code === "EOPNOTSUPP" || code === "ENOSYS";
 }
 
-function syncDirectory(directory: string): void {
+export function syncDirectory(directory: string): void {
 	if (process.platform === "win32") return;
 	const descriptor = fs.openSync(directory, "r");
 	try {

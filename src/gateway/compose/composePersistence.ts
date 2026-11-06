@@ -39,6 +39,7 @@ export interface PersistenceStageDeps {
 	sweepDeliveries?: () => number | undefined;
 	/** Queued data names bytes. */
 	namesBlob?: (blobId: string) => boolean;
+	sweepWorkflows?: () => void;
 	onPersistTick?: () => void;
 }
 
@@ -62,6 +63,7 @@ export function composePersistence({
 	sessionReserved,
 	sweepDeliveries,
 	namesBlob,
+	sweepWorkflows,
 	onPersistTick,
 }: PersistenceStageDeps): PersistenceStage {
 	const runPersistSteps = createPersistRunner();
@@ -96,6 +98,7 @@ export function composePersistence({
 			{ name: "op-idempotency-sweep", run: () => stores.durableOpStore.sweep() },
 			{ name: "board-idempotency-sweep", run: () => stores.boardReplays.sweep() },
 			{ name: "console-capabilities-sweep", run: () => stores.capabilityStore.sweep() },
+			{ name: "workflow-sweep", run: () => sweepWorkflows?.() },
 			{
 				name: "delivery-sweep",
 				run: () => {

@@ -20,7 +20,7 @@ const DIRECT_WRITE_EXCEPTIONS = new Map([
 	["gateway/federation/bootstrapInstall.ts", { writes: 3, reason: "staged install artifacts" }],
 	["gateway/federation/enrollTls.ts", { writes: 1, reason: "temporary OpenSSL extension input" }],
 ]);
-const directWrite = /\b(?:fs\.)?writeFileSync\s*\(|\bwriteFileAtomic\s*\(/g;
+const directWrite = /\b(?:(?:fs\.)?(?:writeFileSync|appendFileSync|writeSync|ftruncateSync)|writeFileAtomic)\s*\(/g;
 const installedCheck = /instanceof\s+DurableStoreInstalledError/;
 
 describe("checked commit ownership", () => {
@@ -40,7 +40,7 @@ describe("checked commit ownership", () => {
 		expect(stale).toEqual([]);
 	});
 
-	it("limits gateway file writes to reasoned exceptions", () => {
+	it("limits gateway append and descriptor writes", () => {
 		const counts = new Map(
 			filesUnder(path.join(SRC, "gateway"))
 				.map((file) => path.relative(SRC, file))
