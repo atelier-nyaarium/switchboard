@@ -310,7 +310,7 @@ export const CodexMessageAgentInputSchema = z
 	})
 	.strict();
 
-export const CodexAwaitAgentInputSchema = z.object({ agentId: CodexAgentIdSchema }).strict();
+export const CodexCollectAgentInputSchema = z.object({ agentId: CodexAgentIdSchema }).strict();
 export const CodexStopAgentInputSchema = z.object({ agentId: CodexAgentIdSchema }).strict();
 export const CodexListAgentsInputSchema = z
 	.object({
@@ -323,7 +323,7 @@ export const CodexListAgentsInputSchema = z
 export const CodexGatewayRequestSchema = z.discriminatedUnion("kind", [
 	CodexStartAgentInputSchema.extend({ kind: z.literal("start"), operationId: OperationIdSchema }).strict(),
 	CodexMessageAgentInputSchema.extend({ kind: z.literal("message"), operationId: OperationIdSchema }).strict(),
-	CodexAwaitAgentInputSchema.extend({ kind: z.literal("await") }).strict(),
+	CodexCollectAgentInputSchema.extend({ kind: z.literal("await") }).strict(),
 	CodexStopAgentInputSchema.extend({ kind: z.literal("stop"), operationId: OperationIdSchema }).strict(),
 	CodexListAgentsInputSchema.extend({ kind: z.literal("list") }).strict(),
 ]);

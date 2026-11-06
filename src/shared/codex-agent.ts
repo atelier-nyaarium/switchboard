@@ -44,7 +44,7 @@ export type {
 export {
 	CodexAgentResultSchema,
 	CodexAgentStateSchema,
-	CodexAwaitAgentInputSchema,
+	CodexCollectAgentInputSchema,
 	CodexDeliverySchema,
 	CodexErrorCodeSchema,
 	CodexErrorSchema,

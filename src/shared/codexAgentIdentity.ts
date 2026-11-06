@@ -34,7 +34,7 @@ export const CODEX_AGENT_ID_RE = /^codex_[0-9a-f]{32}$/;
  * all. Raising the client limit would mean an undici `Agent`, which is not a dependency of this
  * package and resolves on the host only by accident, so the server holds for less instead.
  *
- * A turn outliving this budget is not lost: it keeps running and `codexAwaitAgent` collects it.
+ * A turn outliving this budget is not lost: it keeps running and `codexCollectAgent` collects it.
  */
 export const CODEX_WAIT_BUDGET_MS = CODEX_BACKEND.waitBudgetMs;
 /** Deliberately not the App Server's own default: a thread runs whatever tier this names, so leaving

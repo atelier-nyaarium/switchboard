@@ -10,8 +10,8 @@ brief only tells you how to run the threads well.
 
 ## Running several at once
 
-You can hold more than one Codex thread yourself. Open each with `codexStartAgent` passing
-`awaitResponse: false` so they run side by side, then collect them with `codexAwaitAgent`.
+You can hold more than one Codex thread yourself. Each `codexStartAgent` returns once its agent takes
+the turn, so open them all, then collect each with `codexCollectAgent` after its completion notice.
 
 Do not spawn a sub-agent per thread. Measured on the same task, a wrapper agent per Codex thread cost
 roughly four times the tokens and found no more: each wrapper spends its budget re-reading the same
@@ -27,9 +27,8 @@ Spend what that saves on the collecting step.
   relearns the problem.
 - **Re-task, don't restart.** A thin or unsupported answer is a reason to push back on that same
   thread, naming what was missing. Codex will retract a claim it cannot support.
-- **A waiting call blocks about four minutes.** A longer turn is not lost: it keeps running and
-  `codexAwaitAgent` collects it. This is why `awaitResponse: false` is right whenever you are running
-  several.
+- **A collect waits about four minutes.** A longer turn is not lost: it keeps running, and a later
+  `codexCollectAgent` picks it up.
 - **Threads outlive their caller.** `codexListAgents` returns every thread this session owns with its
   full history, so if something dies, re-run the collecting, not the work.
 

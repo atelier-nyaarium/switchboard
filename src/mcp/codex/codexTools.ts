@@ -4,7 +4,7 @@ import {
 	CODEX_DEFAULT_MODEL,
 	CODEX_PRIORITY_SERVICE_TIER,
 	CODEX_STANDARD_SERVICE_TIER,
-	CodexAwaitAgentInputSchema,
+	CodexCollectAgentInputSchema,
 	CodexListAgentsInputSchema,
 	CodexMessageAgentInputSchema,
 	type CodexServiceTier,
@@ -23,7 +23,7 @@ const START_DESCRIPTION = `
 
 Start a session-owned Codex agent for a self-contained subtask.
 
-Returns once the agent takes the turn. A completion notice follows; then call \`codexAwaitAgent\` for the result. A no-act progress notice arrives every 10 minutes.
+Returns once the agent takes the turn. A completion notice follows; then call \`codexCollectAgent\` for the result. A no-act progress notice arrives every 10 minutes.
 
 Models, spelled exactly:
 - \`gpt-6-luna\` - Default. Long-running exploration, audits, and implementation.
@@ -45,7 +45,7 @@ A follow-up keeps the agent's history. Repeat any guardrails that still apply.
 
 A running turn is steered. An idle agent starts a new turn.
 
-Returns once the agent takes the turn. A completion notice arrives as awareness; then call \`codexAwaitAgent\` for the result. While it works, a no-act progress notice arrives every 10 minutes.
+Returns once the agent takes the turn. A completion notice arrives as awareness; then call \`codexCollectAgent\` for the result. While it works, a no-act progress notice arrives every 10 minutes.
 
 ## Options
 
@@ -56,12 +56,12 @@ Returns once the agent takes the turn. A completion notice arrives as awareness;
 A steered turn keeps the tier and schema it started with, so a change lands on the next turn.
 `.trim();
 
-const AWAIT_DESCRIPTION = `
-# Await Codex Agent
+const COLLECT_DESCRIPTION = `
+# Collect Codex Agent
 
-Wait for a Codex agent's current turn to finish and return its outcome.
+Return a Codex agent's turn outcome.
 
-Use after a completion notice, or to wait on purpose. If no turn is running, returns the latest settled state.
+Call after a completion notice. A turn still running is waited on; with no turn running, returns the latest settled state.
 `.trim();
 
 const STOP_DESCRIPTION = `
@@ -142,7 +142,7 @@ export function registerCodexTools(mcpServer: McpServer, dispatch: AgentDispatch
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
 	const messageSchema: any = CodexMessageAgentInputSchema;
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
-	const awaitSchema: any = CodexAwaitAgentInputSchema;
+	const collectSchema: any = CodexCollectAgentInputSchema;
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
 	const stopSchema: any = CodexStopAgentInputSchema;
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
@@ -172,8 +172,8 @@ export function registerCodexTools(mcpServer: McpServer, dispatch: AgentDispatch
 	);
 
 	mcpServer.registerTool(
-		"codexAwaitAgent",
-		{ title: `Codex Await Agent`, description: AWAIT_DESCRIPTION, inputSchema: awaitSchema },
+		"codexCollectAgent",
+		{ title: `Codex Collect Agent`, description: COLLECT_DESCRIPTION, inputSchema: collectSchema },
 		async (args: { agentId: string }) => post(dispatch, codexRequestBody("await", args)),
 	);
 

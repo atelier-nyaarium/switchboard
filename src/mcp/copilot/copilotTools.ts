@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { agentHttpPath, COPILOT_BACKEND } from "../../shared/agent-backend.js";
 import {
-	CopilotAwaitAgentInputSchema,
+	CopilotCollectAgentInputSchema,
 	CopilotListAgentsInputSchema,
 	CopilotMessageAgentInputSchema,
 	CopilotStartAgentInputSchema,
@@ -46,7 +46,7 @@ export function registerCopilotTools(mcpServer: McpServer, dispatch: AgentDispat
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
 	const messageSchema: any = CopilotMessageAgentInputSchema;
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
-	const awaitSchema: any = CopilotAwaitAgentInputSchema;
+	const collectSchema: any = CopilotCollectAgentInputSchema;
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
 	const stopSchema: any = CopilotStopAgentInputSchema;
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
@@ -57,7 +57,7 @@ export function registerCopilotTools(mcpServer: McpServer, dispatch: AgentDispat
 		{
 			title: `Copilot Start Agent`,
 			description: `
-Start a Copilot Agent for a self-contained task. Returns once it takes the turn; a completion notice follows, then call \`copilotAwaitAgent\` for the result.
+Start a Copilot Agent for a self-contained task. Returns once it takes the turn; a completion notice follows, then call \`copilotCollectAgent\` for the result.
 
 \`reasoningEffort\` must be one the model offers (the gpt-6 family: none, low, medium, high, xhigh, max). \`outputSchema\` is a JSON Schema the model's answer is held to; validate the answer yourself.
 `.trim(),
@@ -76,11 +76,11 @@ Start a Copilot Agent for a self-contained task. Returns once it takes the turn;
 			post(dispatch, copilotRequestBody("message", args)),
 	);
 	mcpServer.registerTool(
-		"copilotAwaitAgent",
+		"copilotCollectAgent",
 		{
-			title: `Copilot Await Agent`,
-			description: `Wait for a Copilot Agent turn to finish, or read the last settled one. Use after a completion notice.`,
-			inputSchema: awaitSchema,
+			title: `Copilot Collect Agent`,
+			description: `Return a Copilot Agent's turn outcome. Call after a completion notice. A turn still running is waited on.`,
+			inputSchema: collectSchema,
 		},
 		async (args: { agentId: string }) => post(dispatch, copilotRequestBody("await", args)),
 	);

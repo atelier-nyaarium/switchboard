@@ -204,7 +204,7 @@ export const CopilotMessageAgentInputSchema = z
 		outputSchema: AgentOutputSchemaSchema.optional(),
 	})
 	.strict();
-export const CopilotAwaitAgentInputSchema = z.object({ agentId: CopilotAgentIdSchema }).strict();
+export const CopilotCollectAgentInputSchema = z.object({ agentId: CopilotAgentIdSchema }).strict();
 export const CopilotStopAgentInputSchema = z.object({ agentId: CopilotAgentIdSchema }).strict();
 export const CopilotListAgentsInputSchema = z.object({}).strict();
 export const CopilotGatewayRequestSchema = z.discriminatedUnion("kind", [
@@ -213,7 +213,7 @@ export const CopilotGatewayRequestSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("message"),
 		operationId: CopilotOperationIdSchema,
 	}).strict(),
-	CopilotAwaitAgentInputSchema.extend({ kind: z.literal("await") }).strict(),
+	CopilotCollectAgentInputSchema.extend({ kind: z.literal("await") }).strict(),
 	CopilotStopAgentInputSchema.extend({ kind: z.literal("stop"), operationId: CopilotOperationIdSchema }).strict(),
 	CopilotListAgentsInputSchema.extend({ kind: z.literal("list") }).strict(),
 ]);

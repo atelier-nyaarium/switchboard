@@ -96,7 +96,7 @@ and is never silently substituted.
 acknowledged, because this gateway could not build its record.
 
 **A start or message answers once the daemon takes the turn**, with `observation: "accepted"`, on both
-families and in local mode. Only `codexAwaitAgent` and `copilotAwaitAgent` wait for a turn.
+families and in local mode. Only `codexCollectAgent` and `copilotCollectAgent` wait for a turn.
 
 **The session hears about its turns as awareness.** `createAgentWatch` in `src/gateway/agentAwareness.ts`
 reads every agent of both families every 5 seconds. A turn that settles gets one `act_now` notice

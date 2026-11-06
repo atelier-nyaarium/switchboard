@@ -26,8 +26,8 @@ const NOTES_SHOWN = 3;
 const NOTE_CHARS = 300;
 
 export const AGENT_AWAIT_TOOL: Record<AgentBackendId, string> = {
-	codex: "codexAwaitAgent",
-	copilot: "copilotAwaitAgent",
+	codex: "codexCollectAgent",
+	copilot: "copilotCollectAgent",
 };
 
 const LABEL: Record<AgentBackendId, string> = { codex: "Codex", copilot: "Copilot" };
