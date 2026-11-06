@@ -85,12 +85,22 @@ export class GithubDone extends WatcherAction<"github_done"> {
 		if (late) return { thread: { ...known, outcome: "not_attempted" }, stop: late };
 		const cleared = await bounded(ctx, ASSISTANT_WAITS.request, (signal) =>
 			this.client.request(token, path, { method: "DELETE" }, signal),
-		).catch(() => null);
+		).catch((error: Error) => ({ failed: error.message }));
 		// Lost replies stay uncertain.
-		if (cleared === null) return { thread: { ...known, outcome: "uncertain" } };
+		if ("failed" in cleared) {
+			return {
+				thread: { ...known, outcome: "uncertain" },
+				note: `clearing ${threadId}: no answer from GitHub (${cleared.failed}); send it again`,
+			};
+		}
 		if (isRefusal(cleared)) return refused(known, cleared);
 		if (cleared.status === 404) return { thread: { ...known, outcome: "not_found" } };
-		if (!cleared.ok) return { thread: { ...known, outcome: "uncertain" } };
+		if (!cleared.ok) {
+			return {
+				thread: { ...known, outcome: "uncertain" },
+				note: `clearing ${threadId}: GitHub answered ${cleared.status}; send it again`,
+			};
+		}
 		// Mark done before read.
 		const marked = await bounded(ctx, ASSISTANT_WAITS.request, (signal) =>
 			this.client.request(token, path, { method: "PATCH" }, signal),

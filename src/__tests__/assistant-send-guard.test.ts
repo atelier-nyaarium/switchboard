@@ -216,8 +216,38 @@ describe("the send guard", () => {
 
 		expect(went.body).toMatchObject({ outcome: "sent", guard: "unasked", sessionId: "s1" });
 		expect(unasked.cards).toEqual([]);
-		expect(held.body).toMatchObject({ outcome: "pending" });
-		expect(asked.body).toMatchObject({ outcome: "pending" });
+		expect(held.body).toMatchObject({
+			outcome: "pending",
+			heldBecause: expect.stringContaining("since this session"),
+		});
+		expect(asked.body).toMatchObject({ outcome: "pending", heldBecause: "the approval setting could not be read" });
+	});
+
+	it("names the source a held send's newest read came from, on the send and on a later collect", async () => {
+		const bench2 = bench({ approveEverySend: false, readsOwner: false });
+		const guard = createSendGuard({
+			ambient: bench2.ambient,
+			approveEverySend: () => false,
+			readsOwner: () => false,
+			lastOrigin: () => "session",
+			routes: () => ({
+				bindTarget: () => ({ ok: true, target, exists: true }),
+				sendFromAssistant: async () => new Response("{}"),
+			}),
+			blobSize: () => null,
+			deliverCard: (request) => Boolean(bench2.cards.push(request)),
+			retractCard: () => true,
+		});
+
+		const held = await bench2.stepped(
+			guard.send(bench2.caller, { to: target, body: "a", waitMs: 0 }, bench2.signal),
+		);
+		const requestId = bench2.cards[0]?.requestId ?? "";
+		const later = await bench2.stepped(guard.collect(ASSISTANT_TEAM, requestId, 0, bench2.signal));
+
+		const why = "the newest message you read came from another session, not the owner";
+		expect(held.body).toMatchObject({ outcome: "pending", heldBecause: why });
+		expect(later.body).toMatchObject({ outcome: "pending", heldBecause: why });
 	});
 
 	it("delivers an approved send once, and a session's end leaves an answer already underway to finish", async () => {

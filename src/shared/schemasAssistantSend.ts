@@ -89,7 +89,12 @@ export const AssistantSendAnswerSchema = z.discriminatedUnion("outcome", [
 		target: z.string(),
 		guard: z.enum(SEND_GUARDS),
 	}),
-	z.object({ outcome: z.literal("pending"), requestId, deadlineAt: z.number().int() }),
+	z.object({
+		outcome: z.literal("pending"),
+		requestId,
+		deadlineAt: z.number().int(),
+		heldBecause: z.string().optional(),
+	}),
 	z.object({ outcome: z.literal("denied"), note: z.string().optional() }),
 	z.object({ outcome: z.literal("expired") }),
 	z.object({ outcome: z.literal("withdrawn") }),

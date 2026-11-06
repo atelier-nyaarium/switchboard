@@ -191,6 +191,20 @@ describe("github_done", () => {
 		expect(asked).toEqual(["GET /notifications/threads/1", "DELETE /notifications/threads/1"]);
 	});
 
+	it("says why a delete GitHub answered with an error is uncertain, and goes on to the next id", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const { run } = github(ambient, [
+			{ status: 200, body: thread("1") },
+			{ status: 502, body: null },
+			{ status: 404, body: null },
+		]);
+
+		const answer = await run(["1", "2"], 10_000);
+
+		expect(answer.threads.map((item) => item.outcome)).toEqual(["uncertain", "not_found"]);
+		expect(answer.note).toMatch(/clearing 1: GitHub answered 502; send it again/);
+	});
+
 	it("attempts nothing without a usable token", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { run, asked } = github(ambient, [], { kind: "stopped", reason: "needs a secret" });

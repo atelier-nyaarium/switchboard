@@ -4,6 +4,9 @@ import { z } from "zod";
 import { RECORD_SUMMARY_MAX, RECORD_THREADS_MAX, RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { ASSISTANT_COMMANDS } from "./session-commands.js";
 
+/** What fits one action deadline at three GitHub requests per id. */
+export const GITHUB_DONE_IDS_MAX = 25;
+
 const INBOX = ASSISTANT_COMMANDS.inbox.tool;
 
 export const GITHUB_WATCHER_ID = "github";
@@ -53,13 +56,15 @@ Answers per id what GitHub confirmed, and whether your summary was recorded.
 
 - \`not_attempted\`: safe to send again. Once your summary is recorded, send the rest without it.
 - \`rate_limited\`: GitHub refused; the note names the wait.
-- \`uncertain\`: may already be done.
+- \`uncertain\`: GitHub gave no clear answer; the note names why. May already be done; send it again, and a done thread answers \`not_found\`.
+
+Send at most ${GITHUB_DONE_IDS_MAX} ids per call; each id takes three GitHub requests inside one deadline.
 		`.trim(),
 		params: {
 			ids: z
 				.array(z.string().regex(/^\d{1,32}$/))
 				.min(1)
-				.max(RECORD_THREADS_MAX)
+				.max(GITHUB_DONE_IDS_MAX)
 				.refine((ids) => new Set(ids).size === ids.length, "each id once")
 				.meta({ uniqueItems: true })
 				.describe(`Thread ids, as events and \`${INBOX}\` give them.`),

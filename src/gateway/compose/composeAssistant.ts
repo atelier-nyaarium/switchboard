@@ -405,6 +405,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			ambient,
 			approveEverySend: () => safety.approveEverySend(),
 			readsOwner: () => marker.readsOwner(),
+			lastOrigin: () => marker.lastOrigin(),
 			routes: () => deps.routes(),
 			blobSize: deps.blobSize,
 			ledger,

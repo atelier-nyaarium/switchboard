@@ -58,6 +58,16 @@ export type SafetyStore = ReturnType<typeof createSafetyStore>;
 
 type MarkOrigin = DeliveryOrigin | "reply" | "unknown";
 
+const ORIGIN_WORDS: Record<MarkOrigin, string> = {
+	owner: "the owner",
+	routine: "a routine",
+	event: "a watcher event",
+	session: "another session",
+	gateway: "the Gateway",
+	reply: "your own reply",
+	unknown: "a source that cannot speak for the owner (a screenshot, or a row from before the Gateway started)",
+};
+
 /**
  * Last speaker, by acceptance order. Owner-side rows mark on ack, others on offer.
  * Memory only; rows from before boot never read owner.
@@ -94,6 +104,7 @@ export function createOriginMarker(bootSeq: number) {
 		},
 		/** A check-in reads as the owner for sends. */
 		readsOwner: () => mark !== null && ownerSide(mark.origin),
+		lastOrigin: (): MarkOrigin | null => mark?.origin ?? null,
 	};
 }
 
@@ -117,6 +128,7 @@ export interface SendGuardDeps {
 	/** Errors require approval. */
 	approveEverySend: () => boolean;
 	readsOwner: () => boolean;
+	lastOrigin?: () => MarkOrigin | null;
 	routes: () => SendGuardRoutes;
 	/** Null unless fully staged. */
 	blobSize: (blobId: string) => number | null;
@@ -230,15 +242,19 @@ export function createSendGuard(deps: SendGuardDeps) {
 		return { ok: true, intent, files };
 	};
 
-	/** An unreadable setting asks. */
-	const asks = (): boolean => {
+	/** Null sends unasked; an unreadable setting asks. */
+	const holdReason = (): string | null => {
 		try {
-			if (deps.approveEverySend()) return true;
+			if (deps.approveEverySend()) return "the owner has every send set to need approval";
 		} catch {
-			return true;
+			return "the approval setting could not be read";
 		}
-		return !deps.readsOwner();
+		if (deps.readsOwner()) return null;
+		const origin = deps.lastOrigin?.() ?? null;
+		if (origin === null) return "nothing from the owner has been read since this session or the Gateway started";
+		return `the newest message you read came from ${ORIGIN_WORDS[origin]}, not the owner`;
 	};
+	const heldBecause = new Map<string, string>();
 
 	const deliver = async (
 		intent: AssistantSendIntent,
@@ -301,11 +317,18 @@ export function createSendGuard(deps: SendGuardDeps) {
 
 	const replyOf = (answer: AssistantSendAnswer | null, request: AssistantSendRequest): GuardReply => {
 		if (answer === null) {
+			const why = heldBecause.get(request.requestId);
 			return {
 				status: 200,
-				body: { outcome: "pending", requestId: request.requestId, deadlineAt: request.deadlineAt },
+				body: {
+					outcome: "pending",
+					requestId: request.requestId,
+					deadlineAt: request.deadlineAt,
+					...(why === undefined ? {} : { heldBecause: why }),
+				},
 			};
 		}
+		heldBecause.delete(request.requestId);
 		return { status: 200, body: answer };
 	};
 
@@ -336,7 +359,8 @@ export function createSendGuard(deps: SendGuardDeps) {
 			joined.payload.conversationId = caller.conversationId;
 			return replyOf(await waitAnswer(joined.answer, waitFor(input.waitMs), signal), joined.request);
 		}
-		if (!asks()) {
+		const reason = holdReason();
+		if (reason === null) {
 			const record: SendRecord = { key: ambient.newId(), guard: "unasked" };
 			return { status: 200, body: await deliver(bound.intent, bound.files, caller.conversationId, record) };
 		}
@@ -358,6 +382,7 @@ export function createSendGuard(deps: SendGuardDeps) {
 			}),
 		});
 		if (opened.kind !== "opened") return unopened(opened);
+		heldBecause.set(opened.request.requestId, reason);
 		return replyOf(await waitAnswer(opened.answer, waitFor(input.waitMs), signal), opened.request);
 	};
 
