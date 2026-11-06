@@ -322,7 +322,7 @@ export function sendKey(target: TmuxTarget, key: string): Promise<void> {
 export interface PaneHands {
 	/** The pane, never resized. */
 	read: () => Promise<string>;
-	press: (key: "Up" | "Down" | "Tab" | "Enter") => Promise<void>;
+	press: (key: "Up" | "Down" | "Tab" | "Enter" | "C-x") => Promise<void>;
 	type: (text: string) => Promise<void>;
 }
 

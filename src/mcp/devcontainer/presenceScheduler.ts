@@ -9,7 +9,7 @@ import {
 import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
 import { type DerivedPresence, sameDerived } from "../../shared/schemasPresence.js";
 import { PromptOccurrences, type SeenPrompt, seePrompt } from "./permissionPrompt.js";
-import { limitContinueDigit, type PromptSight } from "./promptAnswer.js";
+import { limitContinueDigit, type PromptSight, surveyShowing } from "./promptAnswer.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -93,6 +93,7 @@ export class PresenceScheduler {
 	private readonly report: (team: string, value: DerivedState | undefined) => void;
 	private readonly onAutoDeny: (target: TmuxTarget, promptId: string) => void;
 	private readonly onLimitDialog: (target: TmuxTarget) => void;
+	private readonly onSurvey: (target: TmuxTarget) => void;
 	private readonly occurrences: PromptOccurrences;
 	private readonly now: () => number;
 	private readonly watches = new Map<string, WatchEntry>();
@@ -111,6 +112,8 @@ export class PresenceScheduler {
 		onAutoDeny?: (target: TmuxTarget, promptId: string) => void;
 		/** A frame shows the usage-limit dialog with a wait option. */
 		onLimitDialog?: (target: TmuxTarget) => void;
+		/** A frame shows Copilot's feedback box. */
+		onSurvey?: (target: TmuxTarget) => void;
 		/** Shared with the answer, so both name a prompt alike. */
 		occurrences?: PromptOccurrences;
 		now?: () => number;
@@ -119,6 +122,7 @@ export class PresenceScheduler {
 		this.report = opts.report;
 		this.onAutoDeny = opts.onAutoDeny ?? (() => {});
 		this.onLimitDialog = opts.onLimitDialog ?? (() => {});
+		this.onSurvey = opts.onSurvey ?? (() => {});
 		this.occurrences = opts.occurrences ?? new PromptOccurrences();
 		this.now = opts.now ?? (() => Date.now());
 	}
@@ -202,6 +206,7 @@ export class PresenceScheduler {
 			);
 			if (!derived) return; // Logs derive no state.
 			if (peek.kind === "tmux" && limitContinueDigit(peek.ansi)) this.onLimitDialog(entry.target);
+			if (peek.kind === "tmux" && surveyShowing(peek.ansi)) this.onSurvey(entry.target);
 			const confirmed = tracker.observe(derived);
 			if (!confirmed) return;
 			this.report(team, confirmed);

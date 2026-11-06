@@ -45,7 +45,7 @@ import {
 import { createKasaScanner } from "./kasaScan.js";
 import { PromptOccurrences, seePrompt } from "./permissionPrompt.js";
 import { PresenceScheduler, type WatchEntry } from "./presenceScheduler.js";
-import { answerPrompt, continueAfterLimit, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
+import { answerPrompt, continueAfterLimit, dismissSurvey, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
 import {
 	awaitReady,
@@ -523,6 +523,7 @@ const promptOccurrences = new PromptOccurrences();
 // One press per dialog sighting, while its frame repeats.
 const LIMIT_ANSWER_GAP_MS = 15_000;
 const limitAnsweredAt = new Map<string, number>();
+const surveyDismissedAt = new Map<string, number>();
 const sightOf =
 	(target: TmuxTarget): PromptSight =>
 	(screen) =>
@@ -601,6 +602,15 @@ const presenceScheduler = new PresenceScheduler({
 		limitAnsweredAt.set(key, now);
 		void withPane(target, (hands) => continueAfterLimit(hands)).catch((e) =>
 			console.error("[presence] limit answer failed:", e),
+		);
+	},
+	onSurvey: (target) => {
+		const key = paneKey(target);
+		const now = Date.now();
+		if (now - (surveyDismissedAt.get(key) ?? 0) < LIMIT_ANSWER_GAP_MS) return;
+		surveyDismissedAt.set(key, now);
+		void withPane(target, (hands) => dismissSurvey(hands)).catch((e) =>
+			console.error("[presence] survey dismiss failed:", e),
 		);
 	},
 	onAutoDeny: (target, promptId) => {

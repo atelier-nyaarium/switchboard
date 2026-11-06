@@ -5,9 +5,11 @@ import { PromptOccurrences, seePrompt } from "../mcp/devcontainer/permissionProm
 import {
 	answerPrompt,
 	continueAfterLimit,
+	dismissSurvey,
 	limitContinueDigit,
 	type PromptSight,
 	stopAutoDeny,
+	surveyShowing,
 } from "../mcp/devcontainer/promptAnswer.js";
 import type { PaneHands } from "../mcp/devcontainer/tmuxCore.js";
 
@@ -179,5 +181,42 @@ describe("stopAutoDeny", () => {
 		expect(await stopAutoDeny(handsOver(screen("workflow-held"), keys), sight, id)).toBe(false);
 		expect(await stopAutoDeny(handsOver(counting, keys), sight, "other")).toBe(false);
 		expect(keys).toEqual(["Down", "Up"]);
+	});
+});
+
+describe("dismissSurvey", () => {
+	const esc = String.fromCharCode(27);
+	const survey = [
+		"┌───────────────────────────────────────────────────┐",
+		`│${esc}[39m ${esc}[34mHow did Copilot Fusion work?${esc}[39m                      │`,
+		"│ ctrl+x → y worked well · ctrl+x → n not well      │",
+		`│${esc}[39m  · ${esc}[1mctrl+x → d${esc}[0m dismiss                             │`,
+		"└───────────────────────────────────────────────────┘",
+		` ~/.../switchboard [⎇ main]  Session: 96.53 AIC used`,
+		"─".repeat(53),
+		"❯ ",
+		"─".repeat(53),
+	].join("\n");
+	const composer = ["─".repeat(53), "❯ ", "─".repeat(53)].join("\n");
+
+	it("presses Copilot's own chord while the survey shows, and nothing otherwise", async () => {
+		const keys: string[] = [];
+		let open = true;
+		const hands: PaneHands = {
+			read: async () => (open ? survey : composer),
+			press: async (key) => {
+				keys.push(key);
+			},
+			type: async (text) => {
+				keys.push(`type:${text}`);
+				if (keys.at(-2) === "C-x") open = false;
+			},
+		};
+
+		expect(surveyShowing(survey)).toBe(true);
+		expect(await dismissSurvey(hands, fast)).toBe(true);
+		expect(keys).toEqual(["C-x", "type:d"]);
+		expect(await dismissSurvey(hands, fast)).toBe(false);
+		expect(keys).toHaveLength(2);
 	});
 });

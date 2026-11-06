@@ -79,6 +79,7 @@ const LIMIT_MENU_RE = /wait for limit to reset/u;
 const CONTINUE_ROW_RE = new RegExp(`^${SPACE}*(?:[❯>]${SPACE}*)?(\\d+)\\.${SPACE}+.*continue automatically`, "u");
 // The dialog's own footer, always the pane's last row.
 const CONFIRM_FOOTER_RE = new RegExp(`^${SPACE}*Enter to confirm`, "u");
+const SURVEY_DISMISS_RE = /\bctrl\+x\s*→\s*d\s+dismiss\b/u;
 
 /** The limit dialog's "continue automatically" digit, or null when no such dialog shows. */
 export function limitContinueDigit(screen: string): string | null {
@@ -109,6 +110,20 @@ export async function continueAfterLimit(hands: PaneHands, timing: AnswerTiming 
 	await hands.press("Enter");
 	if (await settled(gone, timing)) return true;
 	throw new Error("the limit dialog is still showing");
+}
+
+/** Copilot's feedback box: "How did Copilot Fusion work? ... ctrl+x → d dismiss". */
+export function surveyShowing(screen: string): boolean {
+	return SURVEY_DISMISS_RE.test(stripAnsi(screen));
+}
+
+/** Dismisses Copilot's feedback box with its own chord, ctrl+x then d, while it still shows. */
+export async function dismissSurvey(hands: PaneHands, timing: AnswerTiming = {}): Promise<boolean> {
+	if (!surveyShowing(await hands.read())) return false;
+	await hands.press("C-x");
+	await hands.type("d");
+	if (await settled(async () => !surveyShowing(await hands.read()), timing)) return true;
+	throw new Error("the survey is still showing");
 }
 
 async function settled(done: () => Promise<boolean>, timing: AnswerTiming): Promise<boolean> {
