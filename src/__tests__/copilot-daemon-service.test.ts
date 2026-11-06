@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
-import type { CopilotAcpClient } from "../mcp/devcontainer/copilotAcp.js";
 import { CopilotDaemonService } from "../mcp/devcontainer/copilotDaemonService.js";
+import type { CopilotHeadlessClient, SessionEvent } from "../mcp/devcontainer/copilotHeadless.js";
 
 const OWNER_KEY = "recipe-app.work";
 const AGENT_ID = "copilot_0123456789abcdef0123456789abcdef";
@@ -14,23 +14,17 @@ async function settle(): Promise<void> {
 it("streams a Copilot ACP turn into accepted, activity, and terminal frames", async () => {
 	const child = {} as AgentChild;
 	const sent: Record<string, unknown>[] = [];
-	let listener: (event: { method: string; params?: unknown }) => void = () => {};
-	let finishPrompt: ((result: { stopReason: string }) => void) | undefined;
+	let listener: (sessionId: string, event: SessionEvent) => void = () => {};
 	const client = {
-		onEvent(next: (event: { method: string; params?: unknown }) => void) {
+		onEvent(next: (sessionId: string, event: SessionEvent) => void) {
 			listener = next;
 		},
-		async newSession() {
-			return { sessionId: "session-1", model: { state: "applied", model: "auto" } };
-		},
-		prompt: () =>
-			new Promise<{ stopReason: string }>((resolve) => {
-				finishPrompt = resolve;
-			}),
-		loadSession: async () => {},
-		cancel: () => {},
+		createSession: async () => "session-1",
+		resumeSession: async () => {},
+		send: async () => "message-1",
+		abort: async () => {},
 		close: () => {},
-	} as unknown as CopilotAcpClient;
+	} as unknown as CopilotHeadlessClient;
 	const targets: TargetSupervisor = {
 		acquire: () => ({ state: "running", lease: { generation: 3, child } }),
 		release: () => {},
@@ -58,18 +52,15 @@ it("streams a Copilot ACP turn into accepted, activity, and terminal frames", as
 	expect(sent).toContainEqual(
 		expect.objectContaining({ type: "copilot_receipt", kind: "accepted", sessionId: "session-1" }),
 	);
-	const update = (body: Record<string, unknown>) =>
-		listener({ method: "session/update", params: { sessionId: "session-1", update: body } });
-	const chunk = (text: string) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
-	chunk("Reading ");
-	chunk("the parser.");
-	update({ sessionUpdate: "tool_call", title: "Read parser.ts" });
-	chunk("Done.");
-	finishPrompt?.({ stopReason: "end_turn" });
+	const event = (type: string, data: Record<string, unknown> = {}) => listener("session-1", { type, data });
+	event("assistant.message", { content: "Reading the parser." });
+	event("tool.execution_start", { toolName: "bash", arguments: { command: "cat parser.ts" } });
+	event("assistant.message", { content: "Done." });
+	event("session.idle");
 	await settle();
 
 	const notes = sent.filter((frame) => frame.type === "copilot_event" && frame.kind === "activity");
-	expect(notes.map((frame) => frame.text)).toEqual(["Reading the parser.", "Read parser.ts"]);
+	expect(notes.map((frame) => frame.text)).toEqual(["Reading the parser.", "bash: cat parser.ts", "Done."]);
 	expect(sent).toContainEqual(
 		expect.objectContaining({
 			type: "copilot_event",
@@ -80,19 +71,18 @@ it("streams a Copilot ACP turn into accepted, activity, and terminal frames", as
 	);
 });
 
-it("rejects an explicitly requested model that ACP did not apply", async () => {
+it("rejects a start whose session the runtime refused", async () => {
 	const sent: Record<string, unknown>[] = [];
 	const client = {
 		onEvent: () => {},
-		newSession: async () => ({
-			sessionId: "session-1",
-			model: { state: "notApplied" as const, requested: "unavailable", reason: "model option is not offered" },
-		}),
-		loadSession: async () => {},
-		prompt: async () => ({ stopReason: "end_turn" }),
-		cancel: () => {},
+		createSession: async () => {
+			throw new Error("model unavailable is not offered");
+		},
+		resumeSession: async () => {},
+		send: async () => "message-1",
+		abort: async () => {},
 		close: () => {},
-	} as unknown as CopilotAcpClient;
+	} as unknown as CopilotHeadlessClient;
 	const targets: TargetSupervisor = {
 		acquire: () => ({ state: "running", lease: { generation: 1, child: {} as AgentChild } }),
 		release: () => {},
@@ -121,7 +111,7 @@ it("rejects an explicitly requested model that ACP did not apply", async () => {
 	expect(sent).toContainEqual(
 		expect.objectContaining({
 			kind: "rejected",
-			error: "requested model was not applied: model option is not offered",
+			error: "model unavailable is not offered",
 		}),
 	);
 });
@@ -134,12 +124,12 @@ it("refuses a command whose generation retires while it is in flight", async () 
 	});
 	const client = {
 		onEvent: () => {},
-		newSession: async () => ({ sessionId: "session-1", model: { state: "applied", model: "auto" } }),
-		loadSession: async () => {},
-		prompt: async () => ({ stopReason: "end_turn" }),
-		cancel: () => {},
+		createSession: async () => "session-1",
+		resumeSession: async () => {},
+		send: async () => "message-1",
+		abort: async () => {},
 		close: () => {},
-	} as unknown as CopilotAcpClient;
+	} as unknown as CopilotHeadlessClient;
 	let generation = 1;
 	const service = new CopilotDaemonService({
 		targets: {

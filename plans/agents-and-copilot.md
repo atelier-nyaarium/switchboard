@@ -101,3 +101,40 @@ Slices, each committed on its own:
 ## Phase D - The walk
 
 - A Copilot session on Switchboard running gpt-6-luna starts a Codex agent that mulls for 5 minutes and reports back with a poem, exercising Phase B's notices end to end.
+- Passed 2026-11-06 00:50: completion typed into the idle pane, poem shown, no progress pings for a Copilot owner.
+
+## Question 8 - ACP or the SDK protocol for Copilot agents?
+
+Q: Keep driving Copilot agents over ACP, or move to the SDK protocol (`copilot --headless --stdio`)?
+A: Switch to the SDK protocol. Copilot's own Dynamic Workflows stay off.
+
+> "switch it. But we won't enable their Workflows, because I need it to be agnostic and Switchboard driven."
+
+## Phase E - Copilot agents on the SDK protocol
+
+### Wire facts (probed 2026-11-06 on Copilot CLI 1.0.106, headless protocol version 3)
+
+- Transport: `copilot --headless --stdio`, JSON-RPC 2.0 with `Content-Length` framing (ACP used newline framing). `ping` answers `{protocolVersion: 3}`; refuse anything else. `connect` is optional and takes `editorName`, `editorVersion`, `extensionName`, `extensionVersion`.
+- `session.create {workingDirectory, model, reasoningEffort, clientName, streaming: false}` answers `{sessionId}`. `session.resume {sessionId, workingDirectory}` in a fresh process restores the conversation; a tool call left pending completes as failed.
+- `session.permissions.setApproveAll {sessionId, enabled: true}` after create; a shell call then runs with no `permission.requested` event. Agents keep full access, as Codex does.
+- `session.send {sessionId, prompt, mode?: "enqueue" | "immediate", wait?: boolean, responseFormat?: {type: "json_schema", jsonSchema: {name, schema, strict?}}}` answers `{messageId}`. `mode: "immediate"` steers the running turn. `session.abort {sessionId, reason: "remote_command"}` ends it: `abort`, `assistant.turn_end`, `session.idle {aborted: true}`.
+- Events arrive as `session.event` notifications `{sessionId, event: {type, data, id, timestamp}}`. The ones folded: `assistant.message` (whole `content`, `originatingMessageId` names the send), `tool.execution_start` (`toolName`, `arguments`), `tool.execution_complete` (`success`), `session.idle` (`aborted?`), `session.error` (`errorType`, `message`), `abort`, `assistant.usage`, `session.compaction_start` and `session.compaction_complete`.
+- The runtime's `turnId` is `"0"` on every message, so our minted turn ids stay and a turn is the events between its send and `session.idle`.
+- `responseFormat` is enforced by the provider: asked for purple under a red, green or blue enum, gpt-6-luna could only answer blue. Every catalog model reports `structured_outputs: true`. `models.list` carries each model's `supportedReasoningEfforts` (the gpt-6 family includes `none`) and price category.
+- The npm `@github/copilot-sdk` depends on `koffi`, a native FFI module, so the protocol is spoken directly, as the Codex App Server is.
+
+### Two slices, each one commit and one deploy
+
+1. **The protocol switch, plugin side only.** `copilotHeadless.ts` replaces `copilotAcp.ts`: a Content-Length JSON-RPC transport over the child and `CopilotHeadlessClient` (`open` pings and refuses a protocol version other than 3; `createSession({cwd, model, reasoningEffort})` creates then approves all; `resumeSession`; `send`; `steer`, a send in `immediate` mode; `abort`; `listModels`; `onEvent`). An unknown server-to-client request is answered method-not-found; none is expected without handlers configured. `HeadlessTurn` folds one session's events into notes (a non-empty assistant message, a tool label with its command) and a terminal (`session.idle` completes with the last assistant message, `aborted` interrupts, a `session.error` before idle fails), replacing `AcpTurnText`. `copilotTargets.ts` spawns `copilot --headless --stdio` on the host, in a container and on Windows; the child still loads the owner's plugins, so the hook no-ops stay load bearing. `copilotDaemonService` and `CopilotLocalSession` ride the new client with their commands, receipts and events unchanged, so the Gateway is untouched; a message while working is still refused until slice 2. Tests: `copilot-headless.test.ts` replaces `copilot-acp.test.ts` (framing, the protocol refusal, create then approve-all, send, steer and abort params, the fold), the daemon test drives `session.event` shapes, `codex-failure-residue.test.ts` names the new file. Docs: `docs/agents.md`, the AGENTS.md map line, the Copilot guidance and `docs/architecture.md` drop ACP. Deploy: plugin release, daemon restart.
+2. **Steer, effort and schema on the wire.** `CopilotDeliverySchema` gains `steered`, the `message` command gains `expectedTurnId`, the `start` command and `copilotStartAgent` gain `reasoningEffort` (refused when the catalog does not list it for the model), and start and message gain `outputSchema?` for both families: Codex `turn/start.outputSchema`, Copilot `responseFormat` with `strict: true`; the terminal's `finalResponse` is the JSON text as written, and the caller validates. The daemon steers when `expectedTurnId` names the active turn and falls through to a new turn when it just settled, as Codex does; the local backend implements `steerTurn`. `copilotAgentApply` and the reducers accept a steered receipt the way `codexAgentReducers` does; `copilotRoute.message` passes the agent's `activeTurnId`; the MCP descriptions say a running turn is steered. Tests for the steer case and the schema pass-through on both relays. Deploy: Gateway first, since `steered` is a new enum value it parses strictly, then plugin release and daemon restart.
+
+### Verification
+
+- From this session: `copilotStartAgent` with an effort, `copilotMessageAgent` into the running turn (steered), `copilotStopAgent`, then a follow-up on the idle agent (followup) and a start on a container target, which checks the container's Copilot answers protocol version 3.
+- A Copilot session reviews the batch (one Testing lap) once the owner creates one.
+- The compaction watcher keeps following the next Copilot TUI session; a compaction under the headless runtime shows as `session.compaction_start` on an agent too, which the fold can note.
+
+### Phase E status
+
+- Slice 1 shipped 2026-11-06: `copilotHeadless.ts` under the daemon and the local backend, `--headless --stdio` launches, ACP removed. Proven live through the launcher before the gates: 12 models listed, a gpt-6-luna session created, `echo hiii` run with the notes `bash: echo hiii` and `hiii`, terminal `completed`. A message while working is still refused.
+- Slice 2 next.

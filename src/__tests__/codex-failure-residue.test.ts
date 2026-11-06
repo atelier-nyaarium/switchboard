@@ -14,7 +14,7 @@ const OWNER = path.join(REPO_ROOT, "src", "mcp", "devcontainer", "codexAppServer
 const TESTS = path.join(REPO_ROOT, "src", "__tests__");
 
 /** The Copilot transport mints its own timeout sentence; a minter is not a branch. */
-const COPILOT_TRANSPORT = path.join(REPO_ROOT, "src", "mcp", "devcontainer", "copilotAcp.ts");
+const COPILOT_TRANSPORT = path.join(REPO_ROOT, "src", "mcp", "devcontainer", "copilotHeadless.ts");
 
 /** The transport's own sentences, by the fragment each carries. */
 const TRANSPORT_FRAGMENTS = ["timed out:", "unreadable response", "app server exited"];

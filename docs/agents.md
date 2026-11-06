@@ -147,9 +147,15 @@ boundary, as it is for the session itself.
 
 ## Copilot delegation
 
-A session can delegate a self-contained task to a logged-in Copilot CLI through ACP stdio. Follow-ups
-wait for the previous turn, because ACP has no steer operation.
+A session can delegate a self-contained task to a logged-in Copilot CLI through Copilot's own
+protocol, the one its SDK speaks: `copilot --headless --stdio`, JSON-RPC with Content-Length framing
+(`copilotHeadless.ts`). `open` pings and refuses a protocol version other than 3, so a Copilot older
+than 1.0.106 is refused before a session exists. A session is created with every tool approved, as
+the delegating session runs. A send answers at once with a message id; the turn's events follow, and
+`session.idle` settles it. `HeadlessTurn` is the one fold for the daemon and the local backend: each
+assistant message is a note, a tool start is a note with its command, an error the turn ends on fails
+it, an aborted idle interrupts it, and the last assistant message is the answer. Follow-ups wait for
+the previous turn until steering lands on the wire.
 
 **Enabling it:** `copilot` on `PATH` announces the capability. Login uses the CLI and `/login`; no
-API key is forwarded. Default model `gpt-6-luna`, with agent permissions enabled for the supervised
-target.
+API key is forwarded. Default model `gpt-6-luna`.

@@ -16,7 +16,12 @@ import {
 import { AgentDaemonCore, type AgentEventAck } from "./agentDaemonCore.js";
 import { resolveAgentTarget } from "./agentTargetResolve.js";
 import type { AgentChild, TargetLease, TargetSupervisor } from "./codexTargets.js";
-import { AcpTurnText, type CopilotAcpClient, defaultOpenCopilotClient } from "./copilotAcp.js";
+import {
+	type CopilotHeadlessClient,
+	defaultOpenCopilotClient,
+	HeadlessTurn,
+	type SessionEvent,
+} from "./copilotHeadless.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -25,7 +30,7 @@ export interface CopilotDaemonDeps {
 	targets: TargetSupervisor;
 	daemonInstanceId: string;
 	send(message: Record<string, unknown>): void;
-	openClient?(child: AgentChild): Promise<CopilotAcpClient>;
+	openClient?(child: AgentChild): Promise<CopilotHeadlessClient>;
 	resolveHostCwd(hint: string | undefined): string;
 	now?(): number;
 }
@@ -39,14 +44,14 @@ interface Binding {
 interface ActivePrompt {
 	binding: Binding;
 	turnId: string;
-	text: AcpTurnText;
+	turn: HeadlessTurn;
 	cancelled: boolean;
 }
 
 interface TargetSession {
 	targetId: string;
 	generation: number;
-	client: CopilotAcpClient;
+	client: CopilotHeadlessClient;
 	nextEventId: number;
 	sessions: Map<string, Binding>;
 	active: Map<string, ActivePrompt>;
@@ -62,7 +67,7 @@ function describe(error: unknown): string {
 
 function failureCode(error: string): CopilotDaemonFailureCode {
 	if (/auth|login|not logged in|unauthori[sz]ed|credential/i.test(error)) return "authentication_required";
-	if (/protocol version|unsupported ACP|incompatible/i.test(error)) return "protocol_incompatible";
+	if (/protocol version|incompatible/i.test(error)) return "protocol_incompatible";
 	if (/timed out|timeout|exited|closed|broken pipe/i.test(error)) return "app_server_unavailable";
 	if (/target|container|binary|unavailable/i.test(error)) return "daemon_unavailable";
 	return "protocol_error";
@@ -132,13 +137,18 @@ export class CopilotDaemonService {
 		const session = await this.session(target);
 		if (!session)
 			return this.reject(command, this.openErrors.get(target.targetId) ?? `execution target is unavailable`);
-		const requested = command.model;
-		const info = await session.client.newSession(target.cwd, requested ?? COPILOT_DEFAULT_MODEL);
-		if (requested !== undefined && info.model.state === "notApplied")
-			return this.reject(command, `requested model was not applied: ${info.model.reason}`);
+		let sessionId: string;
+		try {
+			sessionId = await session.client.createSession({
+				cwd: target.cwd,
+				model: command.model ?? COPILOT_DEFAULT_MODEL,
+			});
+		} catch (error) {
+			return this.reject(command, describe(error));
+		}
 		const turnId = crypto.randomUUID();
-		const binding: Binding = { ownerKey: command.ownerKey, agentId: command.agentId, sessionId: info.sessionId };
-		session.sessions.set(info.sessionId, binding);
+		const binding: Binding = { ownerKey: command.ownerKey, agentId: command.agentId, sessionId };
+		session.sessions.set(sessionId, binding);
 		this.emitReceipt(session, command, {
 			kind: "accepted",
 			requestId: command.requestId,
@@ -146,7 +156,7 @@ export class CopilotDaemonService {
 			agentId: command.agentId,
 			operationId: command.operationId,
 			resolvedTarget: target,
-			sessionId: info.sessionId,
+			sessionId,
 			turnId,
 			delivery: "started",
 		});
@@ -164,7 +174,7 @@ export class CopilotDaemonService {
 		if (session.active.has(command.sessionId)) return this.reject(command, `Copilot agent is still working`);
 		if (!session.sessions.has(command.sessionId)) {
 			try {
-				await session.client.loadSession(command.sessionId, command.target.cwd);
+				await session.client.resumeSession(command.sessionId, command.target.cwd);
 			} catch (error) {
 				return this.reject(command, describe(error));
 			}
@@ -185,36 +195,35 @@ export class CopilotDaemonService {
 		void this.runPrompt(session, binding, turnId, command.prompt);
 	}
 
+	/** The send answers at once; the turn settles from its events in `onEvent`. */
 	private async runPrompt(session: TargetSession, binding: Binding, turnId: string, prompt: string): Promise<void> {
-		const active: ActivePrompt = { binding, turnId, text: new AcpTurnText(), cancelled: false };
+		const active: ActivePrompt = { binding, turnId, turn: new HeadlessTurn(), cancelled: false };
 		session.active.set(binding.sessionId, active);
 		try {
-			const result = await session.client.prompt(binding.sessionId, prompt);
-			if (session.active.get(binding.sessionId) !== active) return;
-			session.active.delete(binding.sessionId);
-			const interrupted = active.cancelled || result.stopReason === "cancelled";
-			this.emitEvent(session, {
-				kind: "terminal",
-				ownerKey: binding.ownerKey,
-				agentId: binding.agentId,
-				sessionId: binding.sessionId,
-				turnId,
-				state: interrupted ? "interrupted" : "completed",
-				...(interrupted ? {} : { finalResponse: active.text.answer() }),
-			});
+			await session.client.send(binding.sessionId, prompt);
 		} catch (error) {
 			if (session.active.get(binding.sessionId) !== active) return;
 			session.active.delete(binding.sessionId);
-			this.emitEvent(session, {
-				kind: "terminal",
-				ownerKey: binding.ownerKey,
-				agentId: binding.agentId,
-				sessionId: binding.sessionId,
-				turnId,
-				state: "failed",
-				error: describe(error),
-			});
+			this.emitTerminal(session, active, { state: "failed", error: describe(error) });
 		}
+	}
+
+	private emitTerminal(
+		session: TargetSession,
+		active: ActivePrompt,
+		outcome:
+			| { state: "completed"; finalResponse: string }
+			| { state: "failed"; error: string }
+			| { state: "interrupted" },
+	): void {
+		this.emitEvent(session, {
+			kind: "terminal",
+			ownerKey: active.binding.ownerKey,
+			agentId: active.binding.agentId,
+			sessionId: active.binding.sessionId,
+			turnId: active.turnId,
+			...outcome,
+		});
 	}
 
 	private async runInterrupt(command: Extract<CopilotDaemonCommand, { kind: "interrupt" }>): Promise<void> {
@@ -228,7 +237,11 @@ export class CopilotDaemonService {
 		if (!active || active.turnId !== command.turnId)
 			return this.reject(command, `Copilot turn is no longer active`);
 		active.cancelled = true;
-		session.client.cancel(command.sessionId);
+		try {
+			await session.client.abort(command.sessionId);
+		} catch (error) {
+			return this.reject(command, describe(error));
+		}
 		this.emitReceipt(session, command, {
 			kind: "interruptResult",
 			requestId: command.requestId,
@@ -251,7 +264,7 @@ export class CopilotDaemonService {
 		const active = session.active.get(command.sessionId);
 		if (!active) {
 			try {
-				await session.client.loadSession(command.sessionId, command.target.cwd);
+				await session.client.resumeSession(command.sessionId, command.target.cwd);
 			} catch (error) {
 				return this.reject(command, describe(error));
 			}
@@ -278,7 +291,7 @@ export class CopilotDaemonService {
 
 	private async open(target: AgentResolvedTarget, lease: TargetLease): Promise<TargetSession | null> {
 		const opened = this.deps.openClient ?? defaultOpenCopilotClient;
-		let client: CopilotAcpClient;
+		let client: CopilotHeadlessClient;
 		try {
 			client = await opened(lease.child);
 		} catch (error) {
@@ -295,17 +308,14 @@ export class CopilotDaemonService {
 			sessions: new Map(),
 			active: new Map(),
 		};
-		client.onEvent((event) => this.onEvent(session, event));
+		client.onEvent((sessionId, event) => this.onEvent(session, sessionId, event));
 		return session;
 	}
 
-	private onEvent(session: TargetSession, event: { method: string; params?: unknown }): void {
-		if (event.method !== "session/update" || typeof event.params !== "object" || event.params === null) return;
-		const params = event.params as { sessionId?: unknown; update?: unknown };
-		if (typeof params.sessionId !== "string" || typeof params.update !== "object" || params.update === null) return;
-		const active = session.active.get(params.sessionId);
+	private onEvent(session: TargetSession, sessionId: string, event: SessionEvent): void {
+		const active = session.active.get(sessionId);
 		if (!active) return;
-		for (const text of active.text.fold(params.update)) {
+		for (const text of active.turn.fold(event)) {
 			this.emitEvent(session, {
 				kind: "activity",
 				ownerKey: active.binding.ownerKey,
@@ -315,6 +325,19 @@ export class CopilotDaemonService {
 				itemId: crypto.randomUUID(),
 				text,
 			});
+		}
+		const terminal = active.turn.settle(event);
+		if (!terminal) return;
+		session.active.delete(sessionId);
+		if (active.cancelled || terminal.status === "interrupted") {
+			this.emitTerminal(session, active, { state: "interrupted" });
+		} else if (terminal.status === "failed") {
+			this.emitTerminal(session, active, {
+				state: "failed",
+				error: sanitizeCopilotErrorText(terminal.error) || `Copilot turn failed`,
+			});
+		} else {
+			this.emitTerminal(session, active, { state: "completed", finalResponse: terminal.finalResponse });
 		}
 	}
 

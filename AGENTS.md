@@ -734,6 +734,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/buildTranscript.ts` - latest `devcontainer up` transcript and pane-less terminal fallback
 - `src/mcp/devcontainer/codexTargets.ts` - one supervised Codex App Server per execution target
 - `src/mcp/devcontainer/codexAppServer.ts` - JSONL transport and fail-closed App Server client
+- `src/mcp/devcontainer/copilotHeadless.ts` - Content-Length JSON-RPC transport, the headless Copilot client (protocol version 3, every tool approved at create) and `HeadlessTurn`, the one fold of a turn's events for the daemon and the local backend
 - `src/mcp/devcontainer/codexThreadLifecycle.ts` - one queue per thread record, so a record `started()` replaces gets a fresh one; settled-turn archival; bounded retirement
 - `src/mcp/devcontainer/codexTurnTracker.ts` - turn output; sole `answerOf` reader
 - `src/mcp/devcontainer/codexLiveTurns.ts` - live-turn bindings, clocks, and warnings

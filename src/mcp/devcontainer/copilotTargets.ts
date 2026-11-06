@@ -21,7 +21,7 @@ export const copilotLauncher: ExecutionTargetLauncher = {
 					...containerEnvArgs(env, agentEnvPrefix("copilot")),
 					`${parsed.project}_devcontainer-dev-1`,
 					"copilot",
-					"--acp",
+					"--headless",
 					"--stdio",
 				]);
 			}
@@ -29,7 +29,7 @@ export const copilotLauncher: ExecutionTargetLauncher = {
 				if (parseAgentTargetId(target.targetId)?.kind !== "host") {
 					throw Object.assign(new Error(`target is not a host id`), { code: "badTarget" });
 				}
-				return spawnCopilot(["copilot", "--acp", "--stdio"], env);
+				return spawnCopilot(["copilot", "--headless", "--stdio"], env);
 			default:
 				throw Object.assign(new Error(`unknown execution target kind`), { code: "badTarget" });
 		}

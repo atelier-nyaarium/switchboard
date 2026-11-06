@@ -1,11 +1,11 @@
-// The daemon's own ACP client. The prompt call IS the turn, so no terminal needs correlating; the
-// events carry the answer itself, as chunks, which is why a running turn is tracked at all.
+// The daemon's own headless client, driven directly. A send answers at once; the turn's events carry
+// the answer and `session.idle` settles it, which is why a running turn is tracked at all.
 
 import crypto from "node:crypto";
 import { COPILOT_DEFAULT_MODEL } from "../../shared/copilot-agent.js";
 import type { AgentChild } from "../devcontainer/codexTargets.js";
-import type { CopilotAcpClient } from "../devcontainer/copilotAcp.js";
-import { AcpTurnText, defaultOpenCopilotClient } from "../devcontainer/copilotAcp.js";
+import type { CopilotHeadlessClient, SessionEvent } from "../devcontainer/copilotHeadless.js";
+import { defaultOpenCopilotClient, HeadlessTurn } from "../devcontainer/copilotHeadless.js";
 import type { LocalBackendSession, LocalTerminal, LocalTurnHandle } from "./localAgentSession.js";
 
 ////////////////////////////////
@@ -13,33 +13,34 @@ import type { LocalBackendSession, LocalTerminal, LocalTurnHandle } from "./loca
 
 interface ActiveTurn {
 	turnId: string;
-	text: AcpTurnText;
+	turn: HeadlessTurn;
 	cancelled: boolean;
+	settle: (terminal: LocalTerminal) => void;
 }
 
 ////////////////////////////////
 //  Class
 
 /**
- * One `copilot --acp` child, driven directly.
+ * One `copilot --headless --stdio` child, driven directly.
  *
- * No `steerTurn`: ACP exposes none, and its absence is what makes the runtime refuse a follow-up
- * rather than open a second turn on the same session.
+ * No `steerTurn` yet, so the runtime refuses a follow-up rather than open a second turn on the same
+ * session.
  */
 export class CopilotLocalSession implements LocalBackendSession {
 	private readonly active = new Map<string, ActiveTurn>();
 	private activityListener?: (turnId: string, text: string) => void;
 	private closedListener?: () => void;
 
-	private constructor(private readonly client: CopilotAcpClient) {}
+	private constructor(private readonly client: CopilotHeadlessClient) {}
 
 	static async open(child: AgentChild): Promise<CopilotLocalSession> {
 		const client = await defaultOpenCopilotClient(child);
 		const session = new CopilotLocalSession(client);
-		client.onEvent((event) => session.onEvent(event));
-		// The transport settles running turns; this stops the RUNTIME handing it later calls.
+		client.onEvent((sessionId, event) => session.onEvent(sessionId, event));
+		// A running turn has no pending request to reject, so the exit settles it here.
 		child.onExit(() => {
-			session.active.clear();
+			session.settleAll({ status: "failed", error: `Copilot exited` });
 			session.closedListener?.();
 		});
 		return session;
@@ -54,58 +55,58 @@ export class CopilotLocalSession implements LocalBackendSession {
 	}
 
 	async openThread(options: { cwd: string; model?: string }): Promise<string> {
-		const info = await this.client.newSession(options.cwd, options.model ?? COPILOT_DEFAULT_MODEL);
-		return info.sessionId;
+		return this.client.createSession({ cwd: options.cwd, model: options.model ?? COPILOT_DEFAULT_MODEL });
 	}
 
 	async startTurn(sessionId: string, prompt: string): Promise<LocalTurnHandle> {
-		// Minted here: ACP names no turn, and the runtime needs an id before the outcome exists.
+		// Minted here: the runtime's turn ids repeat per message, and the runtime needs one up front.
 		const turnId = crypto.randomUUID();
-		const turn: ActiveTurn = { turnId, text: new AcpTurnText(), cancelled: false };
+		let settle: (terminal: LocalTerminal) => void = () => undefined;
+		const settled = new Promise<LocalTerminal>((resolve) => {
+			settle = resolve;
+		});
+		const turn: ActiveTurn = { turnId, turn: new HeadlessTurn(), cancelled: false, settle };
 		this.active.set(sessionId, turn);
-
-		const settled = this.client
-			.prompt(sessionId, prompt)
-			.then((result): LocalTerminal => {
-				this.retire(sessionId, turn);
-				const interrupted = turn.cancelled || result.stopReason === "cancelled";
-				return interrupted
-					? { status: "interrupted" }
-					: { status: "completed", finalResponse: turn.text.answer() };
-			})
-			.catch((error): LocalTerminal => {
-				this.retire(sessionId, turn);
-				const text = error instanceof Error ? error.message : String(error);
-				return { status: "failed", error: text.trim() || `copilot turn failed` };
-			});
-
+		try {
+			await this.client.send(sessionId, prompt);
+		} catch (error) {
+			this.retire(sessionId, turn);
+			const text = error instanceof Error ? error.message : String(error);
+			settle({ status: "failed", error: text.trim() || `copilot turn failed` });
+		}
 		return { turnId, settled };
 	}
 
 	async interruptTurn(sessionId: string, turnId: string): Promise<void> {
 		const turn = this.active.get(sessionId);
 		if (!turn || turn.turnId !== turnId) return;
-		// Marked before the notify, so the resolution reads it as interrupted either way.
+		// Marked before the abort, so the idle it causes reads as interrupted either way.
 		turn.cancelled = true;
-		this.client.cancel(sessionId);
+		await this.client.abort(sessionId);
 	}
 
 	close(): void {
-		this.active.clear();
+		this.settleAll({ status: "failed", error: `Copilot closed` });
 		this.client.close();
 	}
 
-	/** A late resolution from a replaced turn must not clear its successor. */
+	private settleAll(terminal: LocalTerminal): void {
+		for (const turn of this.active.values()) turn.settle(terminal);
+		this.active.clear();
+	}
+
+	/** A late event from a replaced turn must not clear its successor. */
 	private retire(sessionId: string, turn: ActiveTurn): void {
 		if (this.active.get(sessionId) === turn) this.active.delete(sessionId);
 	}
 
-	private onEvent(event: { method: string; params?: unknown }): void {
-		if (event.method !== "session/update" || typeof event.params !== "object" || event.params === null) return;
-		const params = event.params as { sessionId?: unknown; update?: unknown };
-		if (typeof params.sessionId !== "string" || typeof params.update !== "object" || params.update === null) return;
-		const turn = this.active.get(params.sessionId);
+	private onEvent(sessionId: string, event: SessionEvent): void {
+		const turn = this.active.get(sessionId);
 		if (!turn) return;
-		for (const text of turn.text.fold(params.update)) this.activityListener?.(turn.turnId, text);
+		for (const text of turn.turn.fold(event)) this.activityListener?.(turn.turnId, text);
+		const terminal = turn.turn.settle(event);
+		if (!terminal) return;
+		this.retire(sessionId, turn);
+		turn.settle(turn.cancelled ? { status: "interrupted" } : terminal);
 	}
 }
