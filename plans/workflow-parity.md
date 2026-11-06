@@ -112,9 +112,50 @@ Recommended because four audit laps found blockers in the same mechanism, each t
 
 > "A it is"
 
+## Question 13 - How does a script see why a step failed?
+
+Q: Null by default with details on request, always a full result object, or null only?
+A: Null only; reasons live in the journal. Every step settles with one outcome, the same across backends, and its reason text, on its settle row in the journal and nowhere else. `agent()` answers `null` for any outcome but `completed` (Workflow parity, no extra option), and the run log stays script-authored. `workflowCollect` and the progress notices read outcomes and reasons from the journal (each step's outcome and reason; failed steps counted, the newest named). That is the debugging road, as Workflow's own journal is for a crashed agent.
+
+> "let's keep detail param out. I want it simpler to write, and informative when it needs to debug."
+
+> "maybe we don't capture error inside of the script then. the journal is where it should go?"
+
+| Outcome | Meaning |
+|---|---|
+| `completed` | answered, and passed its schema |
+| `invalid` | answered, but still failed the schema after 2 correction turns |
+| `failed` | the turn errored |
+| `interrupted` | stopped by a cancel |
+| `lost` | its process died with a daemon restart |
+| `declined` | the provider refused the content: a safety classifier, terms of service, or the model declining |
+| `rejected` | a bad parameter to `agent()` the call could not catch: a model or effort the daemon refuses, a missing skill file, a schema the provider will not take |
+| `unavailable` | the backend is not served, or the host is down |
+
+Recommended because it keeps Workflow parity by default while a fix-until-green loop can tell a broken build from a daemon restart.
+
+> "split refused between a provider refusal (like a over sensitive classifier or TOS) vs a bad param to the agent(). Otherwise I think that's a good structure."
+
 ## Defaults (not asked)
 
 - **Tools:** `workflowStart` (`script` or `scriptPath`, `args`, default `backend`, `resumeFrom`), `workflowCollect`, `workflowList`, `workflowStop`. Descriptions stay short and point to `switchboard_capabilities`; the `agent()` reference lives in the capability guidance, since `guardTools` refuses a description past 1024 characters. `workflowStart` carries a per-invocation id through `requestHead`, so a retried post starts one run. `workflowCollect` waits within `AGENT_WAIT_BUDGET_MS`, the name matching `codexCollectAgent`, `copilotCollectAgent` and `vault_collect`.
+- **Tool description (owner's ask):** `workflowStart`'s description says plainly that this is Switchboard's own Workflow, running steps on other providers' CLIs (Codex, Copilot, `claude -p`), and when to reach for it over a built-in Workflow tool: when a step needs GPT or another model family. It then lists only the `agent()` options that differ from Workflow's, one line each, in this shape:
+
+  ```js
+  agent(prompt, {
+    backend,  // "codex" | "copilot" | "claude"; defaults to the run's
+    model,    // that backend's model id
+    effort,   // Copilot and claude only
+    tier,     // Codex only: "priority" or "standard"
+    thread,   // reuse one agent for every call naming this key
+    skills,   // skill file paths prepended to the prompt
+    schema,   // JSON Schema; the answer is validated, null on failure
+  })
+  ```
+
+  Everything shared with Workflow (`parallel`, `pipeline`, `phase`, `log`, `args`, `label`) is named, not re-explained. The full reference stays in the capability guidance, within `guardTools`' 1024-character limit.
+
+  > "the description of the tool (if loaded by Claude) should say this is a Switchboard version that utilitizes other provider CLI's or something. Use if you need GPT or other models. Few new parameters you have to explain on `agent`"
 - **Capability:** `workflow`, declared by the daemon (`daemonCapabilityDeclaration`) when any agent backend is installed, added to `GATED_CAPABILITY_IDS`, registered beside `registerAgentBackend` for Claude and Copilot sessions, and listed in `registerEveryTool`.
 - **Notices:** one chain per run, shaped like one agent turn's: a `no_act` progress notice every 10 minutes while it runs (current phase, steps settled and running, newest log lines), then one `act_now` notice at settle naming `workflowCollect`. Sourced from the run store and worded in one shared module. Step agents send none.
   - The settle notice is at-least-once: never dropped, repeated at most once after a crash, harmless since `workflowCollect` is idempotent. `notified` is written when the awareness bank commits a carrier holding the run's settle change (a new per-subscriber delivered hook), not when the change is observed, since the bank is memory only and holds a closed session's notice. Un-notified terminal runs are observed again at boot and when their session's handshake is confirmed.

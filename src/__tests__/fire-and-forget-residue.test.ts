@@ -9,6 +9,7 @@ const ALLOWLIST = new Map([
 	["sessionRegistryReporter.ts", "a refused write stays pending and retries"],
 	["keyRequester.ts", "the batch reports its own failure"],
 	["relay.ts", "tryOnce catches every attempt and resolves the outcome"],
+	["engine.ts", "prepare owns VM failures and disposal"],
 ]);
 // Fences the gateway only, where the owner lives. The Router and the MCP plugin answer failure
 // their own way and are not covered. A multi-line `void` and a chain that rejects after its

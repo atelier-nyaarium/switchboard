@@ -18,6 +18,7 @@ const ALLOWED: ReadonlyArray<{ file: string; why: string }> = [
 	{ file: "shared/reconnect.ts", why: "the MCP host daemon builds one with no graph to take an ambient from" },
 	{ file: "shared/tmp-files.ts", why: "only the MCP process sweeps a tmp directory" },
 	{ file: "federation-server/owner/ownerLock.ts", why: "heartbeat compared against another process's clock" },
+	{ file: "gateway/workflows/prelude.ts", why: "the sandbox prelude refuses nondeterministic guest globals" },
 ];
 
 describe("ambient residue", () => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WORKFLOW_AGENT_OUTCOMES } from "../../shared/workflow-agent-outcome.js";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -118,12 +119,23 @@ export const WorkflowSettleRowSchema = z
 		kind: z.literal("settle"),
 		settleOrdinal: z.number().int().positive(),
 		issueOrdinal: z.number().int().positive(),
-		outcome: z.discriminatedUnion("kind", [
-			z.object({ kind: z.literal("answer"), answer: JsonValueSchema }).strict(),
-			z.object({ kind: z.literal("failure"), reason: z.string().min(1) }).strict(),
-		]),
+		outcome: z.enum(WORKFLOW_AGENT_OUTCOMES),
+		answer: JsonValueSchema.nullable(),
+		reason: z.string().min(1).nullable(),
 	})
-	.strict();
+	.strict()
+	.superRefine((row, context) => {
+		if (row.outcome === "completed" && row.reason !== null) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["reason"],
+				message: "completed settle has a reason",
+			});
+		}
+		if (row.outcome !== "completed" && row.reason === null) {
+			context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "settle reason is missing" });
+		}
+	});
 
 export const WorkflowThreadMapRowSchema = z
 	.object({
@@ -168,4 +180,7 @@ export type WorkflowRunRecord = z.infer<typeof WorkflowRunRecordSchema>;
 export type WorkflowRunStatus = z.infer<typeof WorkflowRunStatusSchema>;
 export type WorkflowTerminalStatus = z.infer<typeof WorkflowTerminalStatusSchema>;
 export type WorkflowJournalRow = z.infer<typeof WorkflowJournalRowSchema>;
+export type WorkflowCallOptions = z.infer<typeof WorkflowCallOptionsSchema>;
+export type WorkflowIssueRow = z.infer<typeof WorkflowIssueRowSchema>;
+export type WorkflowSettleRow = z.infer<typeof WorkflowSettleRowSchema>;
 export type WorkflowStartInput = z.infer<typeof WorkflowStartInputSchema>;

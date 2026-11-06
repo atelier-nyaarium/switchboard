@@ -34,6 +34,7 @@ export type WorkflowStartResult =
 export interface WorkflowRunner {
 	start(): boolean;
 	startRun(input: unknown): WorkflowStartResult;
+	existingStart(operationId: string): WorkflowRunRecord | null;
 	transition(
 		runId: string,
 		from: WorkflowRunStatus,
@@ -92,6 +93,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 			} catch {
 				return { kind: "refused", reason: "storage" };
 			}
+		},
+		existingStart(operationId) {
+			if (stopped) return null;
+			return store.byStartOperationId(operationId);
 		},
 		transition(runId, from, to, outcome = {}) {
 			if (stopped || !NEXT_STATUS[from].includes(to) || (to === "failed" && !outcome.failureReason)) return false;
