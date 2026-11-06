@@ -26,30 +26,19 @@ Start a session-owned Codex agent for a self-contained subtask.
 Waits for the turn. A turn beyond the wait budget keeps running and is returned later.
 
 Models, spelled exactly:
-- \`gpt-6-luna\` - Efficient for long-running exploration, audits, and implementation. Use it by default.
-- \`gpt-6.1-sol\` - For the hardest reasoning and coding. Ask permission first.
+- \`gpt-6-luna\` - Default. Long-running exploration, audits, and implementation.
+- \`gpt-6.1-sol\` - Hardest reasoning and coding. Ask permission first.
 
-## Prompt
+The agent runs with full access, as this session does. State allowed writes, network access, and completion criteria in the prompt.
 
-State allowed writes, network access, and completion criteria.
+Options:
+- \`model\` - fixed for the agent's lifetime
+- \`cwd\` - working directory, fixed for its lifetime; an unresolved one falls back to home
+- \`serviceTier\` - \`${CODEX_PRIORITY_SERVICE_TIER}\` runs faster and spends more usage; \`${CODEX_STANDARD_SERVICE_TIER}\` does not. Holds until \`codexMessageAgent\` changes it.
 
-## Options
+Naming neither \`model\` nor \`serviceTier\` starts ${CODEX_DEFAULT_MODEL} at \`${CODEX_PRIORITY_SERVICE_TIER}\`. Naming a model leaves the tier standard.
 
-- \`model\` - optional and fixed for the agent's lifetime
-- \`cwd\` - host-session working directory, fixed for the agent's lifetime
-- \`serviceTier\` - \`${CODEX_PRIORITY_SERVICE_TIER}\` runs faster and spends more usage. \`${CODEX_STANDARD_SERVICE_TIER}\` does not.
-
-Naming neither \`model\` nor \`serviceTier\` starts ${CODEX_DEFAULT_MODEL} at \`${CODEX_PRIORITY_SERVICE_TIER}\`. Naming a model leaves the tier standard, so a heavier model does not also cost the faster one.
-
-The tier holds until \`codexMessageAgent\` changes it.
-
-\`cwd\` does not grant write access. Agents can write only this session's project and the temp directory. An unresolved \`cwd\` falls back to the home directory.
-
-## Reuse
-
-To retain history, reuse an agent with \`codexMessageAgent\` instead of starting one per turn.
-
-Agents belong to this whole session, not the caller. Use \`codexListAgents\` to resume work after a caller ends.
+Reuse an agent with \`codexMessageAgent\` to keep its history. Agents belong to the whole session; \`codexListAgents\` finds them after a caller ends.
 `.trim();
 
 const MESSAGE_DESCRIPTION = `

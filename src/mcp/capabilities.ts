@@ -173,7 +173,22 @@ export function readStartupCapabilities(projectName: string | undefined): Capabi
 	}
 }
 
-// Names only: every surface this appends to is length-capped.
+/**
+ * A tool description's share: names and where the guidance lives. The ref grammar would pass the
+ * 1024 characters a GPT model accepts for a whole description.
+ */
+export function capabilityNote(capabilities: Capability[]): string {
+	if (capabilities.length === 0) return "";
+	const names = capabilities.map((c) => `\`${c.id}\``).join(", ");
+	const refs = capabilities.some((c) => c.id === "references")
+		? ` \`ref://\` links in \`full\` render as code snapshots; \`switchboard_capabilities\` serves their grammar.`
+		: "";
+	return `
+
+Capabilities enabled: ${names}. Their guidance arrives with the handshake answer and after each compaction.${refs}`;
+}
+
+/** The server instructions' share, which carries the ref grammar whole. */
 export function capabilityInstructions(capabilities: Capability[]): string {
 	if (capabilities.length === 0) return "";
 	const names = capabilities.map((c) => `\`${c.id}\``).join(", ");

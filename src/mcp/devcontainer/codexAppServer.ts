@@ -325,7 +325,7 @@ export class CodexAppServerClient {
 		this.transport.onEvent(listener);
 	}
 
-	/** Sandbox is explicit: the default is read-only, and `approvalPolicy: "never"` cannot escalate. */
+	/** Full access, as the delegating session has. `never` answers no approvals. */
 	async startThread(settings: ThreadSettings): Promise<string> {
 		const model = settings.model ?? this.defaultModel;
 		// An override is checked against the same list the default was.
@@ -340,7 +340,7 @@ export class CodexAppServerClient {
 			...(offered.effort ? { reasoningEffort: offered.effort } : {}),
 			...(serviceTier === undefined ? {} : { serviceTier }),
 			approvalPolicy: "never",
-			sandbox: "workspace-write",
+			sandbox: "danger-full-access",
 		});
 		const threadId = CodexAppServerThreadStartResultSchema.parse(result).thread.id;
 		this.lifecycle.started(threadId);

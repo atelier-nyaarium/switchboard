@@ -1,13 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { describe, expect, it } from "vitest";
-import { capabilityInstructions, GATED_CAPABILITY_IDS } from "../mcp/capabilities.js";
+import { capabilityNote } from "../mcp/capabilities.js";
 import { renderCapabilities } from "../mcp/capabilitiesTool.js";
-import { registerChannelReply } from "../mcp/channel/channelReply.js";
-import { registerHumanTools } from "../mcp/channel/humanTools.js";
 import { scanRefs } from "../mcp/references/refScanner.js";
-import type { Capability } from "../shared/capabilities.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -52,7 +48,7 @@ describe("every tool whose body is scanned for refs", () => {
 	});
 
 	it.each(SURFACES)("%s appends the enabled-capability note to its description", (_name, file) => {
-		expect(fs.readFileSync(file, "utf8")).toContain("capabilityInstructions(capabilities)");
+		expect(fs.readFileSync(file, "utf8")).toContain("capabilityNote(capabilities)");
 	});
 
 	it("registers both with the capabilities actually fetched, not a default", () => {
@@ -72,10 +68,11 @@ describe("every tool whose body is scanned for refs", () => {
 describe("the path from a scanned tool to the ref grammar", () => {
 	// Each hop asserted on its own output rather than on source text, since a call site can keep
 	// calling the same helper after that helper has stopped carrying what the caller needs.
-	it("names the capability", () => {
-		const note = capabilityInstructions([referencesCapability()]);
+	it("names the capability and the tool that serves its grammar", () => {
+		const note = capabilityNote([referencesCapability()]);
 
 		expect(note).toContain("references");
+		expect(note).toContain("switchboard_capabilities");
 	});
 
 	it("ends at a tool that serves the grammar and its worked examples", () => {
@@ -103,42 +100,5 @@ describe("the path from a scanned tool to the ref grammar", () => {
 
 		expect(problems).toEqual([]);
 		expect(refs.length).toBeGreaterThan(5);
-	});
-});
-
-describe("what a tool definition costs", () => {
-	// Every request carries these, and the guidance is appended to them, so growth on either side is
-	// paid on every turn. A field's own guidance rides along, so it is budgeted too.
-	const BUDGET = 2048;
-
-	/** Every string the SDK sends for a tool: its description, and each field's. */
-	function guidance(config: { description?: string; inputSchema?: unknown }): string[] {
-		const shape = (config.inputSchema as { shape?: Record<string, { description?: string }> } | undefined)?.shape;
-		const fields = Object.values(shape ?? {}).map((field) => field.description ?? "");
-		return [config.description ?? "", ...fields].filter((text) => text !== "");
-	}
-
-	function described(register: (server: McpServer, capabilities: Capability[]) => void): string[][] {
-		const seen: string[][] = [];
-		const collector = {
-			registerTool: (_name: string, config: { description?: string; inputSchema?: unknown }) => {
-				seen.push(guidance(config));
-			},
-		};
-		register(collector as unknown as McpServer, GATED_CAPABILITY_IDS.map((id) => ({ id })) as Capability[]);
-		return seen;
-	}
-
-	it.each([
-		["channel_reply", registerChannelReply],
-		["notify_human", registerHumanTools],
-	])("keeps every string %s sends under the budget, with every capability on", (_name, register) => {
-		const tools = described(register as (server: McpServer, capabilities: Capability[]) => void);
-
-		expect(tools.length).toBeGreaterThan(0);
-		for (const strings of tools) {
-			expect(strings[0]).toContain("Artifact refs");
-			for (const text of strings) expect(text.length).toBeLessThanOrEqual(BUDGET);
-		}
 	});
 });

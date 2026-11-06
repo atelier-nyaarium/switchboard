@@ -9,14 +9,7 @@ import {
 } from "../../shared/schemasVault.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
 import { routerPost } from "../bridge/helpers.js";
-import {
-	DEFAULT_ENV_NAME,
-	FILE_ENV_NAME,
-	OUTPUT_CAP_CHARS,
-	runWithValue,
-	type VaultRunHandle,
-	type VaultRunResult,
-} from "./vaultRun.js";
+import { DEFAULT_ENV_NAME, FILE_ENV_NAME, runWithValue, type VaultRunHandle, type VaultRunResult } from "./vaultRun.js";
 
 ////////////////////////////////
 //  Schemas
@@ -59,9 +52,9 @@ const RunInputSchema = {
 		.optional()
 		.describe(
 			`
-\`env\`: the value in \`$VAULT_VALUE\` (default).
+\`env\`: the value in \`$${DEFAULT_ENV_NAME}\` (default), or \`envName\`.
 \`stdin\`: the value followed by a newline on stdin.
-\`file\`: a 0600 file holding the value, its path in \`$VAULT_FILE\`, gone after exit.
+\`file\`: a 0600 file holding the value, its path in \`$${FILE_ENV_NAME}\`, gone after exit.
 `.trim(),
 		),
 	envName: z
@@ -71,7 +64,11 @@ const RunInputSchema = {
 		.optional()
 		.describe(`Variable name for the \`env\` shape only; ignored by the others.`),
 	capture: CaptureSchema.optional().describe(
-		`Store the command's stdout as a new entry; stdout is then never returned.`,
+		`
+Store stdout as a new entry the owner can edit; stdout is then never returned. \`captured\` is its id, or null with a reason when empty, oversized or refused.
+
+With no \`entryId\` the command runs at once: the road for generating a secret.
+`.trim(),
 	),
 	waitMs: WaitSchema,
 };
@@ -124,23 +121,19 @@ No tool answers a value. Use the id with \`vault_run\`.
 const RUN_DESCRIPTION = `
 # Vault Run
 
-Run a shell command with a vault entry's value injected, once the owner approves the operation on the phone.
+Run a shell command with a vault entry's value injected, once the owner approves it on the phone.
 
-The command is what the owner reads. Name the real program and target: \`ssh deploy@prod\`, not \`sh script.sh\`.
+The owner reads the command. Name the real program and target: \`ssh deploy@prod\`, not \`sh script.sh\`. Never expand the value onto a command line: \`ps\` shows argv.
 
-For a sudo password, skip this tool: run commands individually as \`sudo -A <command>\`, without a wrapper (like \`-c\` or a script). \`-A\` asks the owner the same way; plain \`sudo\` has no terminal and fails.
-
-Shapes: \`env\` puts the value in \`$${DEFAULT_ENV_NAME}\` (or \`envName\`); \`stdin\` writes it followed by a newline; \`file\` writes a 0600 file and names it in \`$${FILE_ENV_NAME}\`, gone after exit. Never expand the value onto a command line: \`ps\` shows argv.
+For a sudo password, skip this tool: run commands individually as \`sudo -A <command>\`, without a wrapper (like \`-c\` or a script).
 
 Answers:
-- \`ran\`: exit code or the signal that ended it, stdout, and stderr, with the value's bytes replaced by \`[vault]\`. Each stream is capped at ${OUTPUT_CAP_CHARS} characters; \`truncated\` says when.
-- \`pending\`: the owner has not answered yet. \`jobId\` is the request id. \`vault_collect\` waits again; \`vault_withdraw\` gives up.
-- \`running\`: the command outlived the wait. \`jobId\` names it in this process. \`vault_collect\` waits for it.
-- \`refused\`: the owner declined, the request expired, or this session may not use the entry. A \`note\` is the owner steering you: do what it says instead.
+- \`ran\`: exit code or signal, stdout and stderr with the value replaced by \`[vault]\`.
+- \`pending\`: the owner has not answered. \`vault_collect\` waits again; \`vault_withdraw\` gives up.
+- \`running\`: the command outlived the wait. \`vault_collect\` waits for it.
+- \`refused\`: declined, expired, or not allowed. A \`note\` is the owner steering you: do what it says.
 
-The wait is capped at ${WAIT_SECONDS} seconds per call. Jobs live in this process only; a lost answer is not recoverable, but a repeated \`vault_run\` with the same entry and command joins the request still open for it.
-
-\`capture\` stores stdout as a new entry the owner can edit on the phone: \`captured\` is its id, and stdout is never returned. An empty, oversized, or refused capture answers \`captured: null\` with a reason. With no \`entryId\` the command runs at once with nothing injected: the road for generating a secret.
+A repeated \`vault_run\` with the same entry and command joins the request still open.
 `.trim();
 
 const COLLECT_DESCRIPTION = `

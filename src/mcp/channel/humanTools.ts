@@ -5,7 +5,7 @@ import { GuidedNoticeTiers } from "../../shared/schemas.js";
 import type { ChannelFile } from "../../shared/types.js";
 import { bridgeProjectName, routerPost } from "../bridge/helpers.js";
 import { literalEscapeHazard, literalEscapeReject, readReplyAttachments, toolError } from "../bridge/replyTool.js";
-import { type Capability, capabilityInstructions } from "../capabilities.js";
+import { type Capability, capabilityNote } from "../capabilities.js";
 import { appendRefArtifacts, withNotices } from "../references/attachRefs.js";
 
 ////////////////////////////////
@@ -51,7 +51,7 @@ export function registerHumanTools(mcpServer: McpServer, capabilities: Capabilit
 		"notify_human",
 		{
 			title: `Notify Human`,
-			description: `${NOTIFY_DESCRIPTION}${capabilityInstructions(capabilities)}`.trim(),
+			description: `${NOTIFY_DESCRIPTION}${capabilityNote(capabilities)}`.trim(),
 			inputSchema: notifySchema,
 		},
 		async (args: NotifyHumanArgs) => {

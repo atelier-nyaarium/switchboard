@@ -8,7 +8,7 @@ import {
 } from "../../shared/schemas.js";
 import { bridgeConversationId, confirmHandshakeRole } from "../bridge/helpers.js";
 import { postReply, readReplyAttachments, type ToolTextResult, toolError } from "../bridge/replyTool.js";
-import { type Capability, capabilityInstructions } from "../capabilities.js";
+import { type Capability, capabilityNote } from "../capabilities.js";
 import { capabilityGuidance, type GuidanceScope } from "../capabilitiesTool.js";
 import { appendRefArtifacts, withNotices } from "../references/attachRefs.js";
 
@@ -109,7 +109,7 @@ export function registerChannelReply(
 	capabilities: Capability[] = [],
 	onHandshake?: HandshakeGuidance,
 ): void {
-	const guidance = capabilityInstructions(capabilities);
+	const guidance = capabilityNote(capabilities);
 	mcpServer.registerTool(
 		"channel_reply",
 		{

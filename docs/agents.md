@@ -127,8 +127,9 @@ the opt-in.
   `onTerminal` resolves the caller. Child exit, close, and retirement settle parked turns directly.
 - **`LocalTurnHandle.settled` never rejects.** A rejection becomes a failed terminal.
 
-The Codex thread retains workspace-write and network access for its whole life. Switchboard does not
-enforce a stronger boundary.
+A Codex thread starts with `danger-full-access` and `approvalPolicy: "never"`, so it can write
+anywhere, reach the network, and run anything the delegating session could. The prompt is the only
+boundary, as it is for the session itself.
 
 ## Copilot delegation
 

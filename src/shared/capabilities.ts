@@ -34,7 +34,7 @@ But, choose your terms **very literally**, because if you say "Never" in the beg
 
 You are the triage gate for what Codex says and does. A confident tone is not evidence; verify their work and claims against the code.
 
-Codex sandbox denies outbound network access. Writes can only happen in the directory you start it in. Otherwise, all other executions are permitted.
+A Codex agent runs with full access, as this session does: any directory, the network, and any command. Bound it in the prompt.
 
 ## Codex Models
 
