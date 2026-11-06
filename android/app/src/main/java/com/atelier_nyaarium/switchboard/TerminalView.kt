@@ -101,6 +101,8 @@ fun TerminalView(
 	onRelaunch: suspend () -> Unit,
 	onPeek: suspend (sinceHash: String?) -> Result<ConsolePeekResult>,
 	onSend: suspend (text: String?, key: String?, submit: Boolean) -> Unit,
+	// The install macros this pane's spawn point offers.
+	shellMacros: List<ShellMacro>,
 	modifier: Modifier = Modifier,
 ) {
 	var ansi by remember(team) { mutableStateOf("") }
@@ -338,7 +340,7 @@ fun TerminalView(
 						Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
 						horizontalArrangement = Arrangement.spacedBy(6.dp),
 					) {
-						PALETTE_SHELL.forEach { macro ->
+						shellMacros.forEach { macro ->
 							AssistChip(
 								onClick = hapticClick { fire(macro.cmd, null) },
 								label = { Text(macro.label, fontFamily = FontFamily.Monospace, color = MACRO_AUTO_SEND_COLOR) },

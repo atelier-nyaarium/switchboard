@@ -58,6 +58,8 @@ export interface HostLaunchContext {
 export interface HostSpawnState {
 	known: boolean;
 	ids: string[];
+	/** Spawn points whose shell has Claude Code, `host` included. */
+	claude?: string[];
 	/** Spawn points whose shell has Copilot CLI, `host` included. */
 	copilot?: string[];
 }

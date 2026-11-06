@@ -764,6 +764,7 @@ fun App(
 					limitBlocked = session?.presence?.limitBlocked == true,
 					limitDetail = session?.presence?.limitDetail,
 					compacting = session?.presence?.compacting == true,
+					shellMacros = shellMacros(state.gateways.agentsOnSession(openTeam!!)),
 					onWake = { repo.sessions.wakeSession(openTeam!!) },
 					onRelaunch = { repo.sessions.relaunchSession(openTeam!!) },
 					refreshMs = repo.sessions.terminalRefreshMs,

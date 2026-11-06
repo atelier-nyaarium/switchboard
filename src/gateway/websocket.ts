@@ -375,10 +375,15 @@ export function createWebSocketHandlers({
 				if (Array.isArray(spawns) && hostSpawnPoints) {
 					hostSpawnPoints.ids = spawns.filter((s): s is string => typeof s === "string" && s.length > 0);
 					hostSpawnPoints.known = true;
-					const copilot = msg.copilotSpawns;
-					hostSpawnPoints.copilot = Array.isArray(copilot)
-						? copilot.filter((s): s is string => typeof s === "string" && s.length > 0)
-						: [];
+					const named = (list: unknown): string[] =>
+						Array.isArray(list)
+							? list.filter((s): s is string => typeof s === "string" && s.length > 0)
+							: [];
+					// Absent from an older daemon, which spawns Claude everywhere it spawns at all.
+					hostSpawnPoints.claude = Array.isArray(msg.claudeSpawns)
+						? named(msg.claudeSpawns)
+						: ["host", ...hostSpawnPoints.ids];
+					hostSpawnPoints.copilot = named(msg.copilotSpawns);
 					console.log(`[ws] host spawn points: ${hostSpawnPoints.ids.join(", ") || "(none beyond host)"}`);
 				}
 				onCatalogChange?.();
@@ -425,6 +430,7 @@ export function createWebSocketHandlers({
 					if (hostSpawnPoints) {
 						hostSpawnPoints.known = false;
 						hostSpawnPoints.ids = [];
+						hostSpawnPoints.claude = [];
 						hostSpawnPoints.copilot = [];
 					}
 					hostOpCoordinator?.failAll("host daemon disconnected");

@@ -290,6 +290,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				gatewayId: localGatewayId,
 				domainId,
 				hostSpawns: sessions.hostSpawnPoints.known ? sessions.hostSpawnPoints.ids : [],
+				claudeSpawns: sessions.hostSpawnPoints.known ? (sessions.hostSpawnPoints.claude ?? []) : [],
 				copilotSpawns: sessions.hostSpawnPoints.known ? (sessions.hostSpawnPoints.copilot ?? []) : [],
 			}),
 			send: (action, params) => routerClient.callInboxTool(action, params),

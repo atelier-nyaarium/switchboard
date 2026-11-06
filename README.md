@@ -69,6 +69,17 @@ Autoupdate is a settings flag. One-line jq version:
 tmp=$(mktemp) && jq '. * {extraKnownMarketplaces: {"atelier-nyaarium": {autoUpdate: true}}}' ~/.claude/settings.json > "$tmp" && mv "$tmp" ~/.claude/settings.json
 ```
 
+**Optional: Copilot sessions.** A host spawn point with [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli) installed offers a Claude | Copilot pick when creating a session. Copilot keeps its own plugin copies and never updates them, so install them once and rerun the update after each release (the terminal view's Copilot Tools macro does both):
+
+```
+curl -fsSL https://gh.io/copilot-install | bash
+copilot plugin marketplace add atelier-nyaarium/claude-marketplace
+for p in switchboard nyaaskills lexicon; do copilot plugin install $p@atelier-nyaarium; done
+copilot plugin marketplace update && for p in switchboard nyaaskills lexicon; do copilot plugin update $p@atelier-nyaarium; done
+```
+
+On Windows, `copilot.exe` must resolve from PowerShell, as VS Code's Copilot shim provides.
+
 **2. Set environment variables** in your devcontainer - this is what lets your team's MCP plugin find its gateway, and is required for every devcontainer regardless of whether that gateway is enrolled into federation:
 
 - `PROJECT_NAME` - Your team's name on the bridge (e.g. `my-project`)

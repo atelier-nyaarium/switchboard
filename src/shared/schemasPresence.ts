@@ -17,6 +17,8 @@ export const GatewaySpawnPointsSchema = z
 		gatewayId: z.string().min(1),
 		// Host is implicit.
 		hostSpawns: z.array(z.string().min(1).max(64)).max(8),
+		/** Spawn points whose shell has Claude Code, `host` included. Absent from an older Gateway. */
+		claudeSpawns: z.array(z.string().min(1).max(64)).max(9).optional(),
 		/** Spawn points whose shell has Copilot CLI, `host` included. Absent from an older Gateway. */
 		copilotSpawns: z.array(z.string().min(1).max(64)).max(9).optional(),
 	})

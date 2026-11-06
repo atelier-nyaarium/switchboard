@@ -4060,6 +4060,7 @@ data class GatewaySpawnPoints(
 	val domainId: String,
 	val gatewayId: String,
 	val hostSpawns: List<String>,
+	val claudeSpawns: List<String>? = null,
 	val copilotSpawns: List<String>? = null,
 )
 

@@ -229,12 +229,17 @@ function connect(): void {
 		// anything consumes it: daemon first, gateway next, console last, each safe on its own.
 		const windows = windowsAvailability();
 		const hostSpawns = detectedHostSpawns(windows);
-		// Which spawn points can run a Copilot session; the phone's create pick reads it.
+		// Which agent CLIs each spawn point can run; the phone's create pick and install macros read it.
+		// A Windows spawn point exists only where `claude.exe` resolves.
+		const claudeSpawns = [
+			...(isBinaryOnPath("claude") ? [HOST_SPAWN] : []),
+			...(windows.available ? [WINDOWS_SPAWN] : []),
+		];
 		const copilotSpawns = [
 			...(isBinaryOnPath("copilot") ? [HOST_SPAWN] : []),
 			...(windows.available && windows.copilot ? [WINDOWS_SPAWN] : []),
 		];
-		ws!.send(JSON.stringify({ type: "catalog", projects, hostSpawns, copilotSpawns }));
+		ws!.send(JSON.stringify({ type: "catalog", projects, hostSpawns, claudeSpawns, copilotSpawns }));
 		console.error(
 			`[host-wake] sent catalog with ${projects.length} projects` +
 				(hostSpawns.length ? ` and host spawn points: ${hostSpawns.join(", ")}` : ""),

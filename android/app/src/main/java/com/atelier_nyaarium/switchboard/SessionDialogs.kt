@@ -227,14 +227,14 @@ fun CreateSessionDialog(
 	onListDirs: suspend (String, String) -> DirListing,
 	// The project this Gateway was last spawned on, if it still offers it. Only a suggestion.
 	rememberedProject: String?,
-	// Spawn points that can run a Copilot session.
-	copilotSpawns: List<String>,
+	// Which agent CLIs a project's spawn point can run.
+	agentsOf: (String) -> SpawnAgents,
 	// (target, label, workdir, harness); a null harness is Claude.
 	onSpawn: (String, String, String?, String?) -> Unit,
 	onDismiss: () -> Unit,
 ) {
 	var harness by remember { mutableStateOf(SessionHarness.CLAUDE) }
-	val offered = harnessProjects(projects, copilotSpawns, harness)
+	val offered = harnessProjects(projects, agentsOf, harness)
 	// Null until picked. `host` is not a neutral default - it is one real target among several, so
 	// preselecting it lets a mis-tap spawn on the wrong machine's shell in silence.
 	var selectedProject by remember { mutableStateOf(initialProject(rememberedProject, projects)) }
@@ -257,7 +257,7 @@ fun CreateSessionDialog(
 			Column {
 				// `selectedProject` keeps the wire word, which is an address segment keying session
 				// records, resume state and board work; the label is shown and never stored.
-				if (offersHarnessPick(projects, copilotSpawns)) {
+				if (offersHarnessPick(projects, agentsOf)) {
 					SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
 						SessionHarness.entries.forEachIndexed { index, option ->
 							SegmentedButton(
@@ -265,7 +265,7 @@ fun CreateSessionDialog(
 								onClick = hapticClick {
 									harness = option
 									// A project the other agent cannot run is not a pick.
-									if (selectedProject !in harnessProjects(projects, copilotSpawns, option)) selectedProject = null
+									if (selectedProject !in harnessProjects(projects, agentsOf, option)) selectedProject = null
 								},
 								shape = SegmentedButtonDefaults.itemShape(index = index, count = SessionHarness.entries.size),
 							) { Text(option.label) }
@@ -346,13 +346,13 @@ internal enum class SessionHarness(val label: String, val wire: String?) {
 	COPILOT("Copilot", "copilot"),
 }
 
-/** The pick shows only when some project on this Gateway can run Copilot. */
-internal fun offersHarnessPick(projects: List<String>, copilotSpawns: List<String>): Boolean =
-	projects.any { it in copilotSpawns }
+/** The pick shows only when this Gateway has a project for each agent. */
+internal fun offersHarnessPick(projects: List<String>, agentsOf: (String) -> SpawnAgents): Boolean =
+	projects.any { agentsOf(it).claude } && projects.any { agentsOf(it).copilot }
 
-/** The projects a harness can run on: every one for Claude, Copilot's spawn points for Copilot. */
-internal fun harnessProjects(projects: List<String>, copilotSpawns: List<String>, harness: SessionHarness): List<String> =
-	if (harness == SessionHarness.COPILOT) projects.filter { it in copilotSpawns } else projects
+/** The projects whose spawn point has the picked agent installed. */
+internal fun harnessProjects(projects: List<String>, agentsOf: (String) -> SpawnAgents, harness: SessionHarness): List<String> =
+	projects.filter { if (harness == SessionHarness.COPILOT) agentsOf(it).copilot else agentsOf(it).claude }
 
 internal const val WORKDIR_MAX_CHARS = 512
 

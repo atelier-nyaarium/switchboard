@@ -32,6 +32,7 @@ export function createPresenceRoutes({
 				domainId: localDomainId,
 				gatewayId: localGatewayId,
 				hostSpawns: [...hostSpawnPoints.ids],
+				claudeSpawns: [...(hostSpawnPoints.claude ?? [])],
 				copilotSpawns: [...(hostSpawnPoints.copilot ?? [])],
 			},
 		];

@@ -61,6 +61,8 @@ data class TerminalState(
 	val limitBlocked: Boolean,
 	val limitDetail: String?,
 	val compacting: Boolean,
+	/** The install macros the session's spawn point offers. */
+	val shellMacros: List<ShellMacro> = PALETTE_SHELL_CLAUDE,
 	val refreshMs: Long,
 	val onWake: () -> Unit,
 	/** Force-relaunch claude in a still-existing pane (SessionOps.relaunchSession). */

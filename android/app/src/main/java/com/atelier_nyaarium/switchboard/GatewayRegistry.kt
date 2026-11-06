@@ -1,17 +1,22 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 
 /** `NeverLoaded` differs from empty. */
 enum class RegistryProvenance { NeverLoaded, Cached, Current }
 
 /** What the roster says about one Gateway. */
 enum class GatewayStanding { Unknown, NeverSeen, Offline, Online }
+
+/** The agent CLIs one spawn point's shell has. */
+data class SpawnAgents(val claude: Boolean, val copilot: Boolean)
 
 data class GatewayEntry(
 	val id: String,
@@ -20,6 +25,8 @@ data class GatewayEntry(
 	val lastRegisteredAt: Long,
 	/** Null until the Gateway projects its spawn points. */
 	val hostSpawns: List<String>? = null,
+	/** Spawn points whose shell has Claude Code, `host` included. Null from an older Gateway. */
+	val claudeSpawns: List<String>? = null,
 	/** Spawn points whose shell has Copilot CLI, `host` included. Empty from an older Gateway. */
 	val copilotSpawns: List<String> = emptyList(),
 	val routines: List<RoutineState>? = null,
@@ -62,8 +69,23 @@ data class GatewayRegistry(
 
 	fun hostSpawns(gatewayId: String): List<String>? = entry(gatewayId)?.hostSpawns
 
-	/** Whether a host spawn point on this Gateway can run a Copilot session. */
-	fun offersCopilot(gatewayId: String, spawn: String): Boolean = entry(gatewayId)?.copilotSpawns?.contains(spawn) == true
+	/** [agentsOn] for a session's own spawn point; an address that does not parse reads as Claude only. */
+	fun agentsOnSession(address: String): SpawnAgents {
+		val parsed = runIsolated { parseQualifiedTarget(address) }.getOrNull() as? Address
+			?: return SpawnAgents(claude = true, copilot = false)
+		return agentsOn(parsed.gateway, parsed.spawn)
+	}
+
+	/** Which agent CLIs a spawn point can run. An older Gateway names no Claude list: Claude everywhere. */
+	fun agentsOn(gatewayId: String, spawn: String): SpawnAgents {
+		// A devcontainer runs Claude; only a host spawn point is probed.
+		if (spawn !in HOST_SPAWN_IDS) return SpawnAgents(claude = true, copilot = false)
+		val held = entry(gatewayId)
+		return SpawnAgents(
+			claude = held?.claudeSpawns?.contains(spawn) ?: true,
+			copilot = held?.copilotSpawns?.contains(spawn) == true,
+		)
+	}
 
 	/** Roster live, Router-held. */
 	fun reachable(gatewayId: String): Boolean = current && connected(gatewayId) == true
@@ -123,6 +145,7 @@ data class GatewayRegistry(
 		storedRunbooks: (String) -> List<Runbook>?,
 	): GatewayRegistry {
 		val spawns = projection.spawnPoints.associate { it.gatewayId to it.hostSpawns }
+		val claude = projection.spawnPoints.associate { it.gatewayId to it.claudeSpawns }
 		val copilot = projection.spawnPoints.associate { it.gatewayId to it.copilotSpawns.orEmpty() }
 		val kept = gateways.associateBy { it.id }
 		return GatewayRegistry(
@@ -140,6 +163,7 @@ data class GatewayRegistry(
 						incarnation = row.incarnation,
 						lastRegisteredAt = row.lastRegisteredAt,
 						hostSpawns = spawns[row.gatewayId],
+						claudeSpawns = claude[row.gatewayId],
 						copilotSpawns = copilot[row.gatewayId].orEmpty(),
 						routines = prior?.routines,
 						routineZone = prior?.routineZone.orEmpty(),
