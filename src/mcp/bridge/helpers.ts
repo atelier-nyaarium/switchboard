@@ -3,6 +3,8 @@ import { basename } from "node:path";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import WebSocket from "ws";
 import packageJson from "../../../package.json";
+import { mintNoAckSessionId } from "../../shared/agent-notice.js";
+import { processAmbient } from "../../shared/ambient.js";
 import { isGatewayLongWaitRoute, resendsAfterFailure } from "../../shared/gateway-long-waits.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
@@ -11,6 +13,7 @@ import {
 	type ConnectionMode,
 	MAX_PENDING_DELIVERIES,
 	type ResponsePushPayload,
+	type RidingAwareness,
 } from "../../shared/types.js";
 import { WORKSPACE_OP_FRAME } from "../../shared/workspace-op.js";
 import { emitChannelNotification, emitResponseNotification } from "../channel/channelNotify.js";
@@ -123,6 +126,24 @@ export function initBridge(config: BridgeConfig): void {
 
 export function setChannelServer(server: Server): void {
 	channelServer = server;
+}
+
+/**
+ * A notice this process raises itself, shaped as the Gateway's awareness push. False with no channel
+ * to carry it: only a Claude session has one.
+ */
+export async function emitLocalAwareness(awareness: RidingAwareness): Promise<boolean> {
+	if (!channelServer || AGENT_TYPE !== "claude") return false;
+	await emitChannelNotification(channelServer, {
+		type: "channel_push",
+		from: awareness.from,
+		body: "",
+		awareness,
+		session_id: mintNoAckSessionId(processAmbient()),
+		no_ack: true,
+		act: awareness.act,
+	});
+	return true;
 }
 
 /** Unknown ids are no-ops. */

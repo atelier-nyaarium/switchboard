@@ -23,7 +23,7 @@ const START_DESCRIPTION = `
 
 Start a session-owned Codex agent for a self-contained subtask.
 
-Waits for the turn. A turn beyond the wait budget keeps running and is returned later.
+Returns once the agent takes the turn. A completion notice follows; then call \`codexAwaitAgent\` for the result. A no-act progress notice arrives every 10 minutes.
 
 Models, spelled exactly:
 - \`gpt-6-luna\` - Default. Long-running exploration, audits, and implementation.
@@ -31,10 +31,7 @@ Models, spelled exactly:
 
 The agent runs with full access, as this session does. State allowed writes, network access, and completion criteria in the prompt.
 
-Options:
-- \`model\` - fixed for the agent's lifetime
-- \`cwd\` - working directory, fixed for its lifetime; an unresolved one falls back to home
-- \`serviceTier\` - \`${CODEX_PRIORITY_SERVICE_TIER}\` runs faster and spends more usage; \`${CODEX_STANDARD_SERVICE_TIER}\` does not. Holds until \`codexMessageAgent\` changes it.
+\`${CODEX_PRIORITY_SERVICE_TIER}\` runs faster and spends more usage; \`${CODEX_STANDARD_SERVICE_TIER}\` does not. A tier holds until \`codexMessageAgent\` changes it; a model and \`cwd\` are fixed for the agent's life.
 
 Naming neither \`model\` nor \`serviceTier\` starts ${CODEX_DEFAULT_MODEL} at \`${CODEX_PRIORITY_SERVICE_TIER}\`. Naming a model leaves the tier standard.
 
@@ -50,7 +47,7 @@ A follow-up keeps the agent's history. Repeat any guardrails that still apply.
 
 A running turn is steered. An idle agent starts a new turn.
 
-Waits for the turn. A turn beyond the wait budget keeps running and is returned later.
+Returns once the agent takes the turn. A completion notice arrives as awareness; then call \`codexAwaitAgent\` for the result. While it works, a no-act progress notice arrives every 10 minutes.
 
 ## Options
 
@@ -64,7 +61,7 @@ const AWAIT_DESCRIPTION = `
 
 Wait for a Codex agent's current turn to finish and return its outcome.
 
-Use after \`waitTimedOut\`. If no turn is running, returns the latest settled state.
+Use after a completion notice, or to wait on purpose. If no turn is running, returns the latest settled state.
 `.trim();
 
 const STOP_DESCRIPTION = `

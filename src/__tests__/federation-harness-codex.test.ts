@@ -59,28 +59,41 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		if (h) await h.close();
 	});
 
-	it("starts an agent on the host, and the daemon's completed turn comes back as the answer", async () => {
+	it("accepts a host start, then reads the completed turn through await", async () => {
 		const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "count to three" });
 		expect(started).toMatchObject({
+			agentState: "working",
+			observation: "accepted",
+			turn: { state: "inProgress" },
+			delivery: "started",
+		});
+		const completed = await codex(alice, { kind: "await", agentId: started.agentId });
+		expect(completed).toMatchObject({
 			agentState: "idle",
 			observation: "terminal",
 			turn: { state: "completed" },
 			finalResponse: "done: count to three",
 		});
-		expect(started.activities.map((activity) => activity.text)).toContain("working");
+		expect(completed.activities.map((activity) => activity.text)).toContain("working");
 		const command = h.host.codexCommands.find((candidate) => candidate.kind === "start");
 		expect(command).toMatchObject({ target: { kind: "host" }, prompt: "count to three", agentId: started.agentId });
 	});
 
-	it("continues the same thread on a message, and replays a duplicated operation without a second turn", async () => {
+	it("accepts follow-ups and replays them without a second turn", async () => {
 		const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "first" });
 		const followUp = operationId();
-		const answered = await codex(alice, {
+		const accepted = await codex(alice, {
 			kind: "message",
 			operationId: followUp,
 			agentId: started.agentId,
 			prompt: "second",
 		});
+		expect(accepted).toMatchObject({
+			observation: "accepted",
+			turn: { state: "inProgress" },
+			delivery: "started",
+		});
+		const answered = await codex(alice, { kind: "await", agentId: started.agentId });
 		expect(answered).toMatchObject({ turn: { state: "completed" }, finalResponse: "done: second" });
 		const thread = h.host.codexCommands.find((c) => c.kind === "message" && c.agentId === started.agentId);
 		expect(thread).toMatchObject({ threadId: `thread-${started.agentId}` });
@@ -90,6 +103,11 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			operationId: followUp,
 			agentId: started.agentId,
 			prompt: "second",
+		});
+		expect(again).toMatchObject({
+			observation: "terminal",
+			turn: { state: "completed" },
+			finalResponse: "done: second",
 		});
 		expect(again.turn?.id).toBe(answered.turn?.id);
 		expect(h.host.codexCommands.filter((c) => c.kind === "message" && c.operationId === followUp)).toHaveLength(1);
@@ -117,7 +135,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		expect(response.status).toBe(401);
 	});
 
-	it("interrupts a running turn: the daemon's interrupt result settles the start as interrupted", async () => {
+	it("interrupts a running turn and reads its terminal result through await", async () => {
 		const running: CodexResponder = (command, daemon) => {
 			if (command.kind === "start") return stockCodexResponder(command, daemon)?.slice(0, 2);
 			if (command.kind === "interrupt") {
@@ -169,7 +187,12 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			}, "an accepted turn in progress");
 			const stopped = await codex(alice, { kind: "stop", operationId: operationId(), agentId: working.agentId });
 			expect(stopped.agentId, JSON.stringify(stopped)).toBe(working.agentId);
-			expect(await starting).toMatchObject({ agentState: "idle", turn: { state: "interrupted" } });
+			expect(await starting).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+			expect(await codex(alice, { kind: "await", agentId: working.agentId })).toMatchObject({
+				agentState: "idle",
+				observation: "terminal",
+				turn: { state: "interrupted" },
+			});
 			expect(h.host.codexCommands.find((c) => c.kind === "interrupt")).toMatchObject({
 				agentId: working.agentId,
 			});
@@ -201,7 +224,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		}
 	});
 
-	it("survives a gateway restart: the agent is still listed and answers a new message", async () => {
+	it("survives a gateway restart and awaits a new message", async () => {
 		const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "before restart" });
 		await h.restartGateway();
 		const reattached = attachFakeSession(h.gateway, {
@@ -219,16 +242,20 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			return answer.agents?.some((agent) => agent.agentId === started.agentId) ? answer : undefined;
 		}, "the agent after restart");
 		expect(listed.agents?.map((agent) => agent.agentId)).toContain(started.agentId);
-		const answered = await codex(reattached, {
+		const accepted = await codex(reattached, {
 			kind: "message",
 			operationId: operationId(),
 			agentId: started.agentId,
 			prompt: "after restart",
 		});
-		expect(answered).toMatchObject({ turn: { state: "completed" }, finalResponse: "done: after restart" });
+		expect(accepted).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+		expect(await codex(reattached, { kind: "await", agentId: started.agentId })).toMatchObject({
+			turn: { state: "completed" },
+			finalResponse: "done: after restart",
+		});
 	});
 
-	it("after a daemon restart, an idle agent's first message lands on the new daemon", async () => {
+	it("after a daemon restart, awaits the agent's first message on the new daemon", async () => {
 		const caller = sessions.at(-1) as FakeSession;
 		const started = await codex(caller, {
 			kind: "start",
@@ -242,6 +269,10 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			agentId: started.agentId,
 			prompt: "who are you now?",
 		});
-		expect(first).toMatchObject({ turn: { state: "completed" }, finalResponse: "done: who are you now?" });
+		expect(first).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+		expect(await codex(caller, { kind: "await", agentId: started.agentId })).toMatchObject({
+			turn: { state: "completed" },
+			finalResponse: "done: who are you now?",
+		});
 	});
 });

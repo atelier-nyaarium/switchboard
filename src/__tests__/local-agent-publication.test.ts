@@ -9,6 +9,7 @@ import {
 } from "../mcp/local/localAgentRuntime.js";
 import type { LocalBackendSession, LocalTerminal } from "../mcp/local/localAgentSession.js";
 import type { AgentBackendId } from "../shared/agent-backend.js";
+import type { AgentNotice } from "../shared/agent-notice.js";
 import { CodexListAgentsResultSchema } from "../shared/codexAgentCatalog.js";
 import { CODEX_ACTIVITY_MAX_ITEMS } from "../shared/codexAgentIdentity.js";
 import { CodexAgentResultSchema } from "../shared/codexAgentState.js";
@@ -69,6 +70,7 @@ function setup(
 ) {
 	let now = 1_000;
 	const backend = new ValueBackendAdapter(options);
+	const notices: AgentNotice[] = [];
 	const spec: LocalBackendSpec = {
 		backendId,
 		openSession: async () => backend,
@@ -78,11 +80,13 @@ function setup(
 		maxActivities: CODEX_ACTIVITY_MAX_ITEMS,
 		threadsResumable: backendId === "codex",
 		replaysOperations: false,
+		notify: (notice) => notices.push(notice),
 		...(backendId === "copilot" ? { busyMessage: "busy" } : {}),
 	};
 	return {
 		runtime: new LocalAgentRuntime(spec, () => now++),
 		backend,
+		notices,
 		advance(ms: number) {
 			now += ms;
 		},
@@ -110,12 +114,18 @@ function publicList(backendId: AgentBackendId, runtime: LocalAgentRuntime) {
 
 describe("local publication", () => {
 	for (const backendId of ["codex", "copilot"] as const) {
-		it(`${backendId} publishes completed values through its public schema`, async () => {
+		it(`${backendId} publishes awaited completion through its public schema`, async () => {
 			const h = setup(backendId);
 			const pending = h.runtime.handle({ kind: "start", prompt: "first job" });
+			const started = answered(await pending);
+			expect(started).toMatchObject({
+				observation: "accepted",
+				agentState: "working",
+				turn: { id: "turn-1", state: "inProgress" },
+			});
 			await turnReady(h.backend);
 			h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
-			const answer = await pending;
+			const answer = await h.runtime.handle({ kind: "await", agentId: started.agentId });
 			const listed = publicList(backendId, h.runtime);
 			expect(
 				(backendId === "codex" ? CodexAgentResultSchema : CopilotAgentResultSchema).parse(answer),
@@ -125,12 +135,27 @@ describe("local publication", () => {
 		});
 	}
 
+	it("returns acceptance immediately and notifies when the turn settles", async () => {
+		const h = setup();
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "first job" }));
+		expect(started).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+		expect(h.notices).toEqual([]);
+
+		await turnReady(h.backend);
+		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
+		const result = answered(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
+
+		expect(result).toMatchObject({ observation: "terminal", finalResponse: "done" });
+		expect(h.notices).toEqual([{ kind: "done", family: "codex", agentId: started.agentId, outcome: "completed" }]);
+	});
+
 	it("projects Copilot operations and rejects the unprojected runtime row", async () => {
 		const h = setup("copilot");
 		const pending = h.runtime.handle({ kind: "start", prompt: "first prompt" });
+		const started = answered(await pending);
 		await turnReady(h.backend);
 		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "ok" });
-		const started = answered(await pending);
+		const settled = answered(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
 		await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "second prompt" });
 		const raw = CopilotAgentResultSchema.safeParse({ agents: h.runtime.list() });
 		expect(raw.success).toBe(false);
@@ -138,32 +163,45 @@ describe("local publication", () => {
 			{ kind: "start", state: "accepted", prompt: "first prompt" },
 			{ kind: "message", state: "accepted", prompt: "second prompt" },
 		]);
+		h.backend.emitTerminal("turn-2", { status: "interrupted" });
+		await h.runtime.handle({ kind: "await", agentId: settled.agentId });
 	});
 
 	it("returns normalized failures and interrupted terminals", async () => {
 		const h = setup();
 		const failed = h.runtime.handle({ kind: "start", prompt: "fail" });
+		const failedStart = answered(await failed);
 		await turnReady(h.backend);
 		h.backend.emitTerminal("turn-1", { status: "failed", error: "spawn failed\n at /x.js:1" });
-		expect(await failed).toMatchObject({
+		expect(await h.runtime.handle({ kind: "await", agentId: failedStart.agentId })).toMatchObject({
 			observation: "terminal",
 			turn: { state: "failed" },
 			error: { code: "turn_failed" },
 		});
 		const interrupted = h.runtime.handle({ kind: "start", prompt: "interrupt" });
+		const interruptedStart = answered(await interrupted);
 		await turnReady(h.backend, "turn-2");
 		h.backend.emitTerminal("turn-2", { status: "interrupted" });
-		expect(await interrupted).toMatchObject({ observation: "terminal", turn: { state: "interrupted" } });
+		expect(await h.runtime.handle({ kind: "await", agentId: interruptedStart.agentId })).toMatchObject({
+			observation: "terminal",
+			turn: { state: "interrupted" },
+		});
 	});
 
 	it("keeps only the newest activities and reports omission", async () => {
 		const h = setup();
 		const pending = h.runtime.handle({ kind: "start", prompt: "work" });
+		const started = answered(await pending);
 		await turnReady(h.backend);
 		for (let index = 0; index <= CODEX_ACTIVITY_MAX_ITEMS; index += 1)
 			h.backend.emitActivity("turn-1", `item-${index}`);
-		const answer = answered(await pending);
+		const answer = answered(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
 		expect(answer.observation).toBe("waitTimedOut");
+		expect(answer.activities[0]).toEqual({ kind: "commentary", text: "item-1" });
+		expect(answer.activities.at(-2)).toEqual({
+			kind: "commentary",
+			text: `item-${CODEX_ACTIVITY_MAX_ITEMS}`,
+		});
 		expect(answer.activities.at(-1)).toEqual({ kind: "truncated", omitted: 1 });
 		h.backend.emitTerminal("turn-1", { status: "interrupted" });
 	});
@@ -171,21 +209,28 @@ describe("local publication", () => {
 	it("steers Codex and refuses a busy Copilot follow-up", async () => {
 		const codex = setup();
 		const first = codex.runtime.handle({ kind: "start", prompt: "begin" });
+		const firstStart = answered(await first);
 		await turnReady(codex.backend);
 		codex.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
+		await codex.runtime.handle({ kind: "await", agentId: firstStart.agentId });
 		const followUp = codex.runtime.handle({
 			kind: "message",
-			agentId: answered(await first).agentId,
+			agentId: firstStart.agentId,
 			prompt: "follow up",
 		});
+		const followUpStart = answered(await followUp);
 		await turnReady(codex.backend, "turn-2");
 		codex.backend.emitTerminal("turn-2", { status: "completed", finalResponse: "again" });
-		expect(answered(await followUp)).toMatchObject({ observation: "terminal", finalResponse: "again" });
+		expect(await codex.runtime.handle({ kind: "await", agentId: followUpStart.agentId })).toMatchObject({
+			observation: "terminal",
+			finalResponse: "again",
+		});
 
 		const copilot = setup("copilot", { steer: false });
 		const busy = copilot.runtime.handle({ kind: "start", prompt: "begin" });
+		const busyStart = answered(await busy);
 		await turnReady(copilot.backend);
-		const id = answered(await busy).agentId;
+		const id = busyStart.agentId;
 		expect(await copilot.runtime.handle({ kind: "message", agentId: id, prompt: "again" })).toEqual({
 			refused: "busy",
 		});
@@ -204,21 +249,24 @@ describe("local publication", () => {
 		const h = setup();
 		const first = h.runtime.handle({ kind: "start", prompt: "one" });
 		const second = h.runtime.handle({ kind: "start", prompt: "two" });
+		const [firstStart, secondStart] = (await Promise.all([first, second])).map(answered);
 		await turnReady(h.backend);
 		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "one" });
 		h.backend.emitTerminal("turn-2", { status: "completed", finalResponse: "two" });
-		expect((await Promise.all([first, second])).map((answer) => answered(answer).turn?.state)).toEqual([
-			"completed",
-			"completed",
+		const completed = await Promise.all([
+			h.runtime.handle({ kind: "await", agentId: firstStart.agentId }),
+			h.runtime.handle({ kind: "await", agentId: secondStart.agentId }),
 		]);
+		expect(completed.map((answer) => answered(answer).turn?.state)).toEqual(["completed", "completed"]);
 	});
 
 	it("reaps only an idle resumable backend at the controlled timestamp", async () => {
 		const h = setup();
 		const pending = h.runtime.handle({ kind: "start", prompt: "work" });
+		const started = answered(await pending);
 		await turnReady(h.backend);
 		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
-		await pending;
+		await h.runtime.handle({ kind: "await", agentId: started.agentId });
 		expect(h.runtime.reapIfIdle()).toBe(false);
 		h.advance(LOCAL_IDLE_REAP_MS);
 		expect(h.runtime.reapIfIdle()).toBe(true);

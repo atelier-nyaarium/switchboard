@@ -11,6 +11,7 @@ import {
 	type AgentResolvedTarget,
 	AgentResolvedTargetSchema,
 } from "../../shared/agent-execution-target.js";
+import { AGENT_NOTICE_SOURCE, agentNoticeAct, agentNoticeLine } from "../../shared/agent-notice.js";
 import { resolveWorkdir, workdirOrFallback } from "../../shared/agent-workdir.js";
 import {
 	CODEX_ACTIVITY_MAX_ITEMS,
@@ -33,6 +34,7 @@ import {
 	CopilotRequestErrorSchema,
 	projectCopilotListResult,
 } from "../../shared/copilot-agent.js";
+import { emitLocalAwareness } from "../bridge/helpers.js";
 import { ExecutionTargetManager, realLauncher, targetLogger } from "../devcontainer/codexTargets.js";
 import { copilotLauncher } from "../devcontainer/copilotTargets.js";
 import { CodexLocalSession } from "./codexLocalSession.js";
@@ -126,6 +128,12 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 		// Never, on either backend, and stated rather than absent. See the spec field: there is no
 		// transport that can retry unseen and no record that survives the process to replay from.
 		replaysOperations: false,
+		notify: (notice) => {
+			const awareness = { from: AGENT_NOTICE_SOURCE, body: agentNoticeLine(notice), act: agentNoticeAct(notice) };
+			void emitLocalAwareness(awareness).catch((error) =>
+				console.error(`[${backend.id}-local] notice failed:`, error),
+			);
+		},
 		...(isCodex
 			? {}
 			: { busyMessage: `Copilot is still working. Await the turn or stop it before sending another.` }),

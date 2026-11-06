@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { AGENT_PROGRESS_EVERY_MS } from "../../shared/agent-notice.js";
 import { AGENT_ERROR_MAX_BYTES, agentIdForOperation, sanitizeAgentErrorText } from "../../shared/agent-record.js";
 import type { CodexServiceTier } from "../../shared/codex-agent.js";
 import type {
@@ -51,6 +52,7 @@ interface LocalAgentRecord {
 	turns: LocalTurnRecord[];
 	exchanges: LocalExchangeRecord[];
 	settled?: Promise<LocalTerminal>;
+	progress?: ReturnType<typeof setInterval>;
 }
 
 function errorText(error: unknown): string {
@@ -160,7 +162,7 @@ export class LocalAgentHandlers {
 				acceptedAt: at,
 			});
 			if (request.serviceTier !== undefined) agent.serviceTier = request.serviceTier;
-			return this.waitFor(agent, active.id, "steered");
+			return this.acceptedAnswer(agent, active.id, "steered");
 		}
 
 		const serviceTier = request.serviceTier ?? agent.serviceTier;
@@ -256,8 +258,42 @@ export class LocalAgentHandlers {
 			acceptedAt: at,
 		});
 		void settled.then((terminal) => this.applyTerminal(agent, turn.id, terminal));
+		this.watchProgress(agent, turn);
 
-		return this.waitFor(agent, turn.id, kind === "start" ? "started" : this.host.spec.followupDelivery);
+		return this.acceptedAnswer(agent, turn.id, kind === "start" ? "started" : this.host.spec.followupDelivery);
+	}
+
+	/** The turn as taken, without waiting on it; a completion notice follows. */
+	private acceptedAnswer(agent: LocalAgentRecord, turnId: string, delivery: string): LocalAgentAnswer {
+		const turn = agent.turns.find((candidate) => candidate.id === turnId);
+		if (!turn) return this.notFound(agent.agentId);
+		if (turn.state !== "inProgress") return this.terminalAnswer(agent, turn, delivery);
+		return {
+			agentId: agent.agentId,
+			agentState: "working",
+			observation: "accepted",
+			turn: { id: turn.id, state: "inProgress" },
+			delivery,
+			activities: this.activitiesOf(turn),
+		};
+	}
+
+	private watchProgress(agent: LocalAgentRecord, turn: LocalTurnRecord): void {
+		const notify = this.host.spec.notify;
+		if (!notify) return;
+		const since = this.host.now();
+		if (agent.progress) clearInterval(agent.progress);
+		agent.progress = setInterval(() => {
+			if (turn.state !== "inProgress") return;
+			notify({
+				kind: "progress",
+				family: this.host.spec.backendId,
+				agentId: agent.agentId,
+				minutes: Math.round((this.host.now() - since) / 60_000),
+				notes: [...turn.commentary],
+			});
+		}, this.host.spec.progressEveryMs ?? AGENT_PROGRESS_EVERY_MS);
+		agent.progress.unref?.();
 	}
 
 	private async waitFor(agent: LocalAgentRecord, turnId: string, delivery?: string): Promise<LocalAgentAnswer> {
@@ -302,9 +338,17 @@ export class LocalAgentHandlers {
 		if (agent.activeTurnId === turnId) {
 			agent.activeTurnId = undefined;
 			agent.settled = undefined;
+			if (agent.progress) clearInterval(agent.progress);
+			agent.progress = undefined;
 		}
 		agent.updatedAt = Math.max(agent.updatedAt, turn.updatedAt);
 		this.host.markUsed(turn.updatedAt);
+		this.host.spec.notify?.({
+			kind: "done",
+			family: this.host.spec.backendId,
+			agentId: agent.agentId,
+			outcome: turn.state,
+		});
 	}
 
 	private activitiesOf(turn: LocalTurnRecord): LocalAgentAnswer["activities"] {

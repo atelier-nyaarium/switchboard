@@ -18,6 +18,8 @@ export interface AwarenessSubscriber<S> {
 	readonly source: string;
 	/** Decides whether a change arms a deadline and stamps its push. */
 	act(sessionKey: string, pre: S | undefined, post: S | undefined): ActAxis;
+	/** A `no_act` change that pushes on its own deadline rather than waiting for a message. */
+	push?(sessionKey: string, pre: S | undefined, post: S | undefined): boolean;
 	/** Empty output suppresses delivery. */
 	render(sessionKey: string, changes: readonly Change<S>[]): string;
 }

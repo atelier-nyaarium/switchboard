@@ -46,7 +46,7 @@ export function registerCopilotTools(mcpServer: McpServer, dispatch: AgentDispat
 		"copilotStartAgent",
 		{
 			title: `Copilot Start Agent`,
-			description: `Start a Copilot Agent for a self-contained task.`,
+			description: `Start a Copilot Agent for a self-contained task. Returns once it takes the turn; a completion notice follows, then call \`copilotAwaitAgent\` for the result.`,
 			inputSchema: startSchema,
 		},
 		async (args: { prompt: string; model?: string; cwd?: string }) =>
@@ -56,7 +56,7 @@ export function registerCopilotTools(mcpServer: McpServer, dispatch: AgentDispat
 		"copilotMessageAgent",
 		{
 			title: `Copilot Message Agent`,
-			description: `Send a follow-up to an idle Copilot Agent.`,
+			description: `Send a follow-up to an idle Copilot Agent. Returns once it takes the turn; a completion notice follows.`,
 			inputSchema: messageSchema,
 		},
 		async (args: { agentId: string; prompt: string }) => post(dispatch, copilotRequestBody("message", args)),
@@ -65,7 +65,7 @@ export function registerCopilotTools(mcpServer: McpServer, dispatch: AgentDispat
 		"copilotAwaitAgent",
 		{
 			title: `Copilot Await Agent`,
-			description: `Wait for a Copilot Agent turn to finish.`,
+			description: `Wait for a Copilot Agent turn to finish, or read the last settled one. Use after a completion notice.`,
 			inputSchema: awaitSchema,
 		},
 		async (args: { agentId: string }) => post(dispatch, copilotRequestBody("await", args)),

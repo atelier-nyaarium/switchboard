@@ -1,4 +1,5 @@
 import type { AgentBackendId } from "../../shared/agent-backend.js";
+import type { AgentNotice } from "../../shared/agent-notice.js";
 import type { CodexServiceTier } from "../../shared/codex-agent.js";
 import type { LocalExchangeRecord } from "./localAgentHandlers.js";
 import { LocalAgentHandlers } from "./localAgentHandlers.js";
@@ -10,7 +11,7 @@ export { LOCAL_IDLE_REAP_MS } from "./localChildSession.js";
 
 export type LocalAgentState = "idle" | "working" | "unavailable";
 export type LocalTurnState = "inProgress" | "completed" | "failed" | "interrupted";
-export type LocalObservation = "terminal" | "waitTimedOut" | "idle" | "interruptRequested" | "unavailable";
+export type LocalObservation = "accepted" | "terminal" | "waitTimedOut" | "idle" | "interruptRequested" | "unavailable";
 
 export type LocalErrorCode = "not_found" | "app_server_unavailable" | "turn_failed";
 
@@ -57,6 +58,9 @@ export interface LocalBackendSpec {
 	threadsResumable: boolean;
 	// In-process operations refuse reuse instead of replaying answers.
 	replaysOperations: false;
+	/** Tells the session of a turn's progress and its end, as the Gateway's awareness does. */
+	notify?: (notice: AgentNotice) => void;
+	progressEveryMs?: number;
 }
 
 export interface LocalListAgent {

@@ -2,6 +2,7 @@
 
 import { agentHttpPath } from "../../shared/agent-backend.js";
 import type { Ambient } from "../../shared/ambient.js";
+import type { RosterAgent } from "../agentAwareness.js";
 import { CodexAgentService } from "../codexAgentService.js";
 import { CodexRelay } from "../codexRelay.js";
 import { CodexRoute } from "../codexRoute.js";
@@ -25,6 +26,14 @@ export interface AgentsStage {
 	codexRelay: CodexRelay;
 	copilotRelay: CopilotRelay;
 	agentRoutes: Map<string, (req: Request, body: unknown) => Promise<Response>>;
+	/** Every agent of both families with its turns, for the awareness watch. */
+	agentRoster: () => RosterAgent[];
+}
+
+function commentaryOf(activities: readonly { kind: string; text?: string }[]): string[] {
+	return activities.flatMap((activity) =>
+		activity.kind === "commentary" && activity.text !== undefined ? [activity.text] : [],
+	);
 }
 
 export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): AgentsStage {
@@ -67,5 +76,28 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		[agentHttpPath("copilot"), (req, body) => copilotRoute.handle(req, body)],
 	]);
 
-	return { codexRelay, copilotRelay, agentRoutes };
+	const agentRoster = (): RosterAgent[] =>
+		sessions.sessionStore.list().flatMap((owner) => {
+			const ownerKey = sessions.sessionStore.teamOf(owner);
+			const families = [
+				["codex", codexAgentService.listOwnedAgents(owner)],
+				["copilot", copilotAgentService.listOwnedAgents(owner)],
+			] as const;
+			return families.flatMap(([family, agents]) =>
+				agents.map((agent) => ({
+					ownerKey,
+					family,
+					agentId: agent.agentId,
+					agentState: agent.agentState,
+					turns: agent.turns.map((turn) => ({
+						id: turn.id,
+						state: turn.state,
+						updatedAt: turn.updatedAt,
+						notes: commentaryOf(turn.activities),
+					})),
+				})),
+			);
+		});
+
+	return { codexRelay, copilotRelay, agentRoutes, agentRoster };
 }

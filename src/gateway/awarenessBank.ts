@@ -1,3 +1,4 @@
+import { mintNoAckSessionId } from "../shared/agent-notice.js";
 import type { Ambient } from "../shared/ambient.js";
 import type { AwarenessObservation, AwarenessSubscriber, Change } from "../shared/awareness-types.js";
 import type { ActAxis, ChannelPushPayload, RidingAwareness } from "../shared/types.js";
@@ -44,9 +45,6 @@ type SessionBank = {
 	leased: boolean;
 };
 
-/** No-ack replies are absorbed by `respond()`. */
-const NO_ACK_SESSION_PREFIX = "na-";
-
 /** Hold window for riding an act-now message. */
 export const ACT_NOW_HOLD_MS = 60_000;
 
@@ -60,14 +58,6 @@ const TRUNCATED_NOTE = "(More changed than fits here.)";
 
 /** Between pushes that failed. */
 const RETRY_MS = 1_000;
-
-export function isNoAckSessionId(sessionId: string): boolean {
-	return sessionId.startsWith(NO_ACK_SESSION_PREFIX);
-}
-
-export function mintNoAckSessionId(ambient: Pick<Ambient, "randomBytes">): string {
-	return `${NO_ACK_SESSION_PREFIX}${ambient.randomBytes(8).toString("hex")}`;
-}
 
 export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 	const sessions = new Map<string, SessionBank>();
@@ -88,6 +78,13 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 
 	function isUrgent(sessionKey: string, entry: Entry, change: Change<unknown>): boolean {
 		return entry.subscriber.act(sessionKey, change.pre, change.post) === "act_now";
+	}
+
+	/** Pushes on a deadline: urgent, or a `no_act` change its subscriber pushes anyway. */
+	function isDue(sessionKey: string, entry: Entry, change: Change<unknown>): boolean {
+		return (
+			isUrgent(sessionKey, entry, change) || entry.subscriber.push?.(sessionKey, change.pre, change.post) === true
+		);
 	}
 
 	function bounded(body: string): string {
@@ -138,10 +135,10 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 			sessions.delete(sessionKey);
 			return;
 		}
-		const urgent = [...bank.entries.values()].some((entry) =>
-			[...entry.changes.values()].some((change) => isUrgent(sessionKey, entry, change)),
+		const due = [...bank.entries.values()].some((entry) =>
+			[...entry.changes.values()].some((change) => isDue(sessionKey, entry, change)),
 		);
-		if (!urgent) {
+		if (!due) {
 			bank.heldSince = undefined;
 			bank.dueAt = undefined;
 		}
@@ -226,9 +223,11 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 						pre: previous?.pre ?? observation.pre,
 						post: observation.post,
 					});
+					const pre = observation.pre as S;
+					const post = observation.post as S;
 					if (
-						subscriber.act(observation.sessionKey, observation.pre as S, observation.post as S) ===
-						"act_now"
+						subscriber.act(observation.sessionKey, pre, post) === "act_now" ||
+						subscriber.push?.(observation.sessionKey, pre, post) === true
 					) {
 						if (bank.heldSince === undefined) bank.heldSince = clock();
 						bank.dueAt = bank.heldSince + ACT_NOW_HOLD_MS;

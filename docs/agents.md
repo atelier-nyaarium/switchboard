@@ -95,9 +95,23 @@ and is never silently substituted.
 **`ignored` and `failed` differ.** `ignored` may be acknowledged and retired; `failed` is never
 acknowledged, because this gateway could not build its record.
 
+**A start or message answers once the daemon takes the turn**, with `observation: "accepted"`, on both
+families and in local mode. Only `codexAwaitAgent` and `copilotAwaitAgent` wait for a turn.
+
+**The session hears about its turns as awareness.** `createAgentWatch` in `src/gateway/agentAwareness.ts`
+reads every agent of both families every 5 seconds. A turn that settles gets one `act_now` notice
+naming its await tool. A running turn gets a `no_act` notice every 10 minutes with its newest notes;
+its subscriber's `push` makes the bank push it rather than wait for a message, so an idle session
+reads it and ends its turn. A turn settled before the watch began is history and is not announced, so
+a restart announces only what settled since, the downtime included. Each turn is its own awareness
+identity, so two quick completions stay two notices. A `recovering` agent may resume its turn, so only
+`unavailable` ends one early. Local mode raises the same notices from the MCP process through
+`emitLocalAwareness`, and both render through `src/shared/agent-notice.ts`. Only a Claude session
+receives them.
+
 **A waiting call holds for less than the client survives**, bounded by `CODEX_WAIT_BUDGET_MS`. Node's
 fetch abandons a silent connection at 300s and `routerPost` re-posts, so a longer hold never delivers
-its answer. A turn outliving the budget keeps running, and `codexAwaitAgent` collects it.
+its answer. A turn outliving an await's budget keeps running, and the completion notice still arrives.
 
 **Enabling it:** the capability is announced when `codex` is on `PATH`. A session picks the tools up
 at its next start, never mid-session.

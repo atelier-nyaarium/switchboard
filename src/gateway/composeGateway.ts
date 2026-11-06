@@ -167,7 +167,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });
-	const awareness = composeAwareness({ sessions, host, ambient: bootstrap.ambient });
+	const awareness = composeAwareness({ sessions, host, agents, ambient: bootstrap.ambient });
 
 	federation = composeFederation({
 		dataDir: bootstrap.dataDir,

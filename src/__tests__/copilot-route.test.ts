@@ -135,7 +135,7 @@ async function terminal(
 }
 
 describe("Copilot gateway route", () => {
-	it("returns a terminal result after an accepted ACP turn", async () => {
+	it("returns acceptance first and the terminal result through await", async () => {
 		const context = setup();
 		const agentId = copilotAgentIdForOperation(START_OPERATION_ID);
 		const request = context.route.handle(post(context.token), {
@@ -163,9 +163,17 @@ describe("Copilot gateway route", () => {
 		await terminal(context, agentId, "turn-1", 2);
 
 		const response = await request;
-		const body = await response.json();
+		const acceptedBody = await response.json();
+		const terminalResponse = await context.route.handle(post(context.token), { kind: "await", agentId });
+		const body = await terminalResponse.json();
 		expect(response.status).toBe(200);
 		expect(() => CopilotAgentResultSchema.parse(body)).not.toThrow();
+		expect(acceptedBody).toMatchObject({
+			agentState: "working",
+			observation: "accepted",
+			turn: { id: "turn-1", state: "inProgress" },
+			delivery: "started",
+		});
 		expect(body).toMatchObject({
 			agentId,
 			observation: "terminal",
@@ -207,7 +215,11 @@ describe("Copilot gateway route", () => {
 		await flush();
 		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
 		await terminal(context, agentId, "turn-1", 1);
-		await start;
+		const startAnswer = await start;
+		expect(await startAnswer.json()).toMatchObject({
+			observation: "accepted",
+			turn: { id: "turn-1", state: "inProgress" },
+		});
 
 		const message = context.route.handle(post(context.token), {
 			kind: "message",
@@ -264,7 +276,14 @@ describe("Copilot gateway route", () => {
 		await accept(context, MESSAGE_OPERATION_ID, "turn-2", 0, "followup", relaunched);
 		await terminal(context, agentId, "turn-2", 1, "Continued.", relaunched);
 
-		expect(await (await message).json()).toMatchObject({ turn: { id: "turn-2", state: "completed" } });
+		const messageResponse = await message;
+		expect(await messageResponse.json()).toMatchObject({
+			observation: "accepted",
+			turn: { id: "turn-2", state: "inProgress" },
+			delivery: "followup",
+		});
+		const awaited = await context.route.handle(post(context.token), { kind: "await", agentId });
+		expect(await awaited.json()).toMatchObject({ turn: { id: "turn-2", state: "completed" } });
 		expect(context.sent.filter((frame) => frame.kind === "reconcile")).toEqual([]);
 
 		context.relay.handleHostMessage({

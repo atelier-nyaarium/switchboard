@@ -233,15 +233,20 @@ describe("activity append", () => {
 		expect(appendAgentActivity(commentary(1), "i0", "again", 3)).toBeNull();
 	});
 
-	it("keeps the earliest items and counts the rest", () => {
+	it("keeps the newest items and counts dropped ones", () => {
 		const full = commentary(3);
-		expect(appendAgentActivity(full, "late", "x", 3)).toEqual([...full, { kind: "truncated", omitted: 1 }]);
+		expect(appendAgentActivity(full, "late", "x", 3)).toEqual([
+			...full.slice(1),
+			{ kind: "commentary", itemId: "late", text: "x" },
+			{ kind: "truncated", omitted: 1 },
+		]);
 	});
 
 	it("accumulates the omitted count across further items", () => {
 		const withMarker = [...commentary(3), { kind: "truncated" as const, omitted: 4 }];
 		expect(appendAgentActivity(withMarker, "later", "x", 3)).toEqual([
-			...commentary(3),
+			...commentary(3).slice(1),
+			{ kind: "commentary", itemId: "later", text: "x" },
 			{ kind: "truncated", omitted: 5 },
 		]);
 	});
@@ -249,7 +254,11 @@ describe("activity append", () => {
 	it("takes its cap from the caller, so one shared bound moves both backends", () => {
 		expect(
 			appendAgentActivity(commentary(AGENT_ACTIVITY_MAX_ITEMS), "late", "x", AGENT_ACTIVITY_MAX_ITEMS),
-		).toEqual([...commentary(AGENT_ACTIVITY_MAX_ITEMS), { kind: "truncated", omitted: 1 }]);
+		).toEqual([
+			...commentary(AGENT_ACTIVITY_MAX_ITEMS).slice(1),
+			{ kind: "commentary", itemId: "late", text: "x" },
+			{ kind: "truncated", omitted: 1 },
+		]);
 		expect(
 			appendAgentActivity(commentary(AGENT_ACTIVITY_MAX_ITEMS), "late", "x", AGENT_ACTIVITY_MAX_ITEMS + 1),
 		).toEqual([...commentary(AGENT_ACTIVITY_MAX_ITEMS), { kind: "commentary", itemId: "late", text: "x" }]);

@@ -234,6 +234,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     anything else runs. The key is released only once the completion is durable, or a success the
     migration fence refused to record could be delivered twice.
 - `src/gateway/boardAwareness.ts` - board awareness recipients and net-change classification
+- `src/gateway/agentAwareness.ts` / `src/shared/agent-notice.ts` - delegated agents' turns told to their owning session: the watch over both catalogs, its subscriber, and the one wording the Gateway and local mode share
+  - **A start answers at acceptance; the session learns the rest as awareness:** each settled turn gets one `act_now` notice naming its await tool, each running turn a pushed `no_act` notice every 10 minutes with its newest notes. A subscriber's `push` is what arms a deadline for a `no_act` change. A turn settled before the watch began is history, each turn is its own identity, and only `unavailable` ends a turn early, since a `recovering` agent may resume it.
 - `src/gateway/workspaceAwareness.ts` - what a phone workspace op changed, banked `no_act` for the session; `workspaceAnswerNoting` is the console's one road from a plane result to an answer
 - `src/gateway/awarenessBank.ts` - subscriber state, deadlines, and liveness reads
 - `src/gateway/daemonCapabilities.ts` - daemon capability answer

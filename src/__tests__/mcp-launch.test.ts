@@ -19,8 +19,8 @@ describe("the plugin's MCP launch", () => {
 			files: ["launch/bunfig.toml", "launch/tsconfig.json"].map((file) => fs.existsSync(path.join(root, file))),
 		}).toEqual({
 			flags: [
-				"--config=${CLAUDE_PLUGIN_ROOT}/launch/bunfig.toml",
-				"--tsconfig-override=${CLAUDE_PLUGIN_ROOT}/launch/tsconfig.json",
+				`--config=\${CLAUDE_PLUGIN_ROOT}/launch/bunfig.toml`,
+				`--tsconfig-override=\${CLAUDE_PLUGIN_ROOT}/launch/tsconfig.json`,
 				"--no-env-file",
 				"--no-install",
 			],

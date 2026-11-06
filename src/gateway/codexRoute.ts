@@ -56,7 +56,12 @@ function startModelOf(agent: CodexPersistedAgent): string | undefined {
 	return agent.exchanges.find((exchange) => exchange.kind === "start")?.model;
 }
 
-function describeAgent(agent: CodexPersistedAgent, waitedTurnId: string | undefined): CodexAgentResult {
+/** `accepted` names a turn the daemon took and nothing yet waited on, as a start or message answers. */
+function describeAgent(
+	agent: CodexPersistedAgent,
+	waitedTurnId: string | undefined,
+	accepted = false,
+): CodexAgentResult {
 	// Unavailable and recovering states override any previously settled turn.
 	if (agent.agentState === "unavailable" || agent.agentState === "recovering") {
 		const dead = agent.agentState === "unavailable";
@@ -85,10 +90,11 @@ function describeAgent(agent: CodexPersistedAgent, waitedTurnId: string | undefi
 	const exchange = agent.exchanges.findLast((candidate) => candidate.turnId === turn.id);
 	if (turn.state === "inProgress") {
 		const interrupting = agent.pendingInterrupt !== undefined;
+		const delivered = accepted && exchange?.delivery !== undefined;
 		return CodexAgentResultSchema.parse({
 			agentId: agent.agentId,
 			agentState: "working",
-			observation: interrupting ? "interruptRequested" : "waitTimedOut",
+			observation: interrupting ? "interruptRequested" : delivered ? "accepted" : "waitTimedOut",
 			turn: { id: turn.id, state: turn.state },
 			// Interrupting turns omit delivery.
 			delivery: interrupting ? undefined : exchange?.delivery,
@@ -293,13 +299,13 @@ export class CodexRoute {
 		});
 	}
 
+	/** Waits for the daemon to take the turn, not for the turn; a completion notice follows it. */
 	private async settle(
 		owner: SessionRecord,
 		agentId: string,
 		operationId: string,
 		dispatched = true,
 	): Promise<CodexAgentResult> {
-		// Acceptance and turn settlement share one deadline.
 		const deadline = dispatched ? this.deadline() : this.now();
 		const accepted = await this.waitForAcceptance(owner, agentId, operationId, deadline);
 		const agent = this.current(owner, agentId);
@@ -338,8 +344,7 @@ export class CodexRoute {
 				},
 			});
 		}
-		await this.waitForTurn(owner, agentId, turnId, deadline);
-		return describeAgent(this.current(owner, agentId) ?? agent, turnId);
+		return describeAgent(this.current(owner, agentId) ?? agent, turnId, true);
 	}
 
 	private async waitForAcceptance(

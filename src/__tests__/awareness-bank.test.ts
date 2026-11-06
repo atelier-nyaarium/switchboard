@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	type AwarenessBank,
 	createAwarenessBank,
-	isNoAckSessionId,
 	MAX_AWARENESS_BODY_CHARS,
 	MAX_HOLD_MS,
 } from "../gateway/awarenessBank.js";
+import { isNoAckSessionId } from "../shared/agent-notice.js";
 import { processAmbient } from "../shared/ambient.js";
 import type { ChannelPushPayload } from "../shared/types.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -325,21 +325,37 @@ describe("awareness bank", () => {
 		expect(take(bank, "ended")).toBeNull();
 	});
 
-	it("never pushes a no_act-only bank", () => {
+	it("pushes opted-in no_act changes and carries the rest", () => {
 		const sent: ChannelPushPayload[] = [];
+		let now = 0;
 		const bank = createAwarenessBank({
 			liveness: () => "live",
 			deliver: (_s, p) => {
 				sent.push(p);
 				return true;
 			},
-			ambient: processAmbient(),
+			ambient: fakeAmbient({ now: () => now }),
 		});
-		const observe = bank.register<string>({ source: "fake", act: () => "no_act", render: () => "body" });
-		// No deadline is needed for awareness that can ride a later message.
-		observe([{ sessionKey: "s", identity: "x", pre: "a", post: "b" }]);
-		bank.tick(10_000_000);
-		expect(sent).toHaveLength(0);
+		const pushed = bank.register<string>({
+			source: "progress",
+			act: () => "no_act",
+			push: (_sessionKey, _pre, post) => post === "push",
+			render: () => "progress",
+		});
+		const carried = bank.register<string>({ source: "later", act: () => "no_act", render: () => "carrier" });
+		pushed([{ sessionKey: "pushed", identity: "x", pre: "idle", post: "push" }]);
+		carried([{ sessionKey: "carried", identity: "y", pre: "a", post: "b" }]);
+
+		expect(take(bank, "carried")).toEqual({ from: "later", body: "carrier", act: "no_act" });
+		now = 60_000;
+		bank.tick();
+		expect(sent).toHaveLength(1);
+		expect(sent[0]).toMatchObject({
+			no_ack: true,
+			act: "no_act",
+			awareness: { from: "progress", body: "progress", act: "no_act" },
+		});
+		expect(take(bank, "pushed")).toBeNull();
 	});
 
 	it("combines sources and omits empty subscribers", () => {

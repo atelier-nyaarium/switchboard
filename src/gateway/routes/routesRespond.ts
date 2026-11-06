@@ -1,9 +1,9 @@
+import { isNoAckSessionId } from "../../shared/agent-notice.js";
 import type { Ambient } from "../../shared/ambient.js";
 import { pickTiers } from "../../shared/notice.js";
 import type { PendingJobStore } from "../../shared/pending-job-store.js";
 import { type Address, parseStoreKey } from "../../shared/session-id.js";
 import type { GatewayConfig, ResponsePayload, ResponsePushPayload } from "../../shared/types.js";
-import { isNoAckSessionId } from "../awarenessBank.js";
 import {
 	fileBytes,
 	jsonResponse,

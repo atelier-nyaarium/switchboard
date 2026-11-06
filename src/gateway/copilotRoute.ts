@@ -326,29 +326,15 @@ export class CopilotRoute {
 				refusal?.message ?? "Copilot delivery could not be confirmed",
 			);
 		}
-		await this.deps.relay.waitFor(
-			this.deps.service.ownerKeyOf(owner),
-			agentId,
-			() => {
-				const next = this.current(owner, agentId);
-				const turn = next?.turns.find((candidate) => candidate.id === operation.turnId);
-				return (
-					!next ||
-					next.agentState === "recovering" ||
-					next.agentState === "unavailable" ||
-					turn?.state !== "inProgress"
-				);
-			},
-			deadline,
-		);
-		const settled = this.current(owner, agentId) ?? current;
-		return describeAgent(settled, {
+		// The turn is not waited on; a completion notice follows it.
+		const taken = current.turns.find((candidate) => candidate.id === operation.turnId);
+		return describeAgent(current, {
 			turnId: operation.turnId,
 			delivery,
 			observation:
-				settled.agentState === "working"
-					? "waitTimedOut"
-					: settled.agentState === "recovering"
+				current.agentState === "working" && taken?.state === "inProgress"
+					? "accepted"
+					: current.agentState === "recovering"
 						? "indeterminate"
 						: "terminal",
 		});

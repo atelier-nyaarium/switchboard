@@ -175,7 +175,7 @@ afterEach(() => {
 });
 
 describe("Codex relay behavior", () => {
-	it("starts, records activity, and returns the terminal result", async () => {
+	it("accepts a start and returns its terminal result through await", async () => {
 		const context = setup();
 		const pending = context.route.handle(context.request(), {
 			kind: "start",
@@ -186,8 +186,17 @@ describe("Codex relay behavior", () => {
 		accepted(context);
 		context.feed(event(context, 1, { kind: "activity", itemId: "item-1", text: "reading" }));
 		context.feed(event(context, 2, { kind: "terminal", state: "completed", finalResponse: "done" }));
-		const body = CodexAgentResultSchema.parse(await (await pending).json());
+		const started = CodexAgentResultSchema.parse(await (await pending).json());
+		const body = CodexAgentResultSchema.parse(
+			await (await context.route.handle(context.request(), { kind: "await", agentId: started.agentId })).json(),
+		);
 
+		expect(started).toMatchObject({
+			agentState: "working",
+			observation: "accepted",
+			turn: { state: "inProgress" },
+			delivery: "started",
+		});
 		expect(body).toMatchObject({ agentState: "idle", observation: "terminal", finalResponse: "done" });
 		expect(context.agent()?.turns[0]).toMatchObject({ state: "completed", activities: [{ itemId: "item-1" }] });
 		expect(context.commands().find((frame) => frame.kind === "start")).toMatchObject({
@@ -310,50 +319,63 @@ describe("Codex relay behavior", () => {
 	it.each([
 		["a reaped target relaunched", "daemon-1", 2],
 		["a restarted daemon", "daemon-2", 1],
-	])("delivers an idle agent's follow-up to %s", async (_name, daemonInstanceId, generation) => {
-		const context = setup({ waitBudgetMs: 1_000 });
-		await startWorking(context);
-		context.feed(event(context, 1, { kind: "terminal", state: "completed", finalResponse: "done" }));
-		await settle();
-		const agentId = codexAgentIdForOperation(operations.start);
-		const pending = context.route.handle(context.request(), {
-			kind: "message",
-			operationId: operations.message,
-			agentId,
-			prompt: "Again",
-		});
-		await settle();
-		const command = context.commands().find((frame) => frame.kind === "message")!;
-		const stream = { ownerKey: context.store.teamOf(context.owner), daemonInstanceId, targetId, generation };
-		context.feed(
-			CodexDaemonReceiptSchema.parse({
-				type: "codex_receipt",
-				kind: "accepted",
-				requestId: command.requestId,
-				...stream,
-				eventId: 0,
-				agentId,
+	])(
+		"accepts an idle agent's follow-up to %s and awaits its terminal result",
+		async (_name, daemonInstanceId, generation) => {
+			const context = setup({ waitBudgetMs: 1_000 });
+			await startWorking(context);
+			context.feed(event(context, 1, { kind: "terminal", state: "completed", finalResponse: "done" }));
+			await settle();
+			const agentId = codexAgentIdForOperation(operations.start);
+			const pending = context.route.handle(context.request(), {
+				kind: "message",
 				operationId: operations.message,
-				resolvedTarget,
-				threadId: "thread-1",
-				turnId: "turn-2",
-				delivery: "started",
-			}),
-		);
-		context.feed(
-			CodexDaemonEventSchema.parse({
-				...event(context, 1, { kind: "terminal", state: "completed", finalResponse: "again" }),
-				...stream,
-				turnId: "turn-2",
-			}),
-		);
+				agentId,
+				prompt: "Again",
+			});
+			await settle();
+			const command = context.commands().find((frame) => frame.kind === "message")!;
+			const stream = { ownerKey: context.store.teamOf(context.owner), daemonInstanceId, targetId, generation };
+			context.feed(
+				CodexDaemonReceiptSchema.parse({
+					type: "codex_receipt",
+					kind: "accepted",
+					requestId: command.requestId,
+					...stream,
+					eventId: 0,
+					agentId,
+					operationId: operations.message,
+					resolvedTarget,
+					threadId: "thread-1",
+					turnId: "turn-2",
+					delivery: "started",
+				}),
+			);
+			context.feed(
+				CodexDaemonEventSchema.parse({
+					...event(context, 1, { kind: "terminal", state: "completed", finalResponse: "again" }),
+					...stream,
+					turnId: "turn-2",
+				}),
+			);
 
-		expect(CodexAgentResultSchema.parse(await (await pending).json())).toMatchObject({
-			agentState: "idle",
-			observation: "terminal",
-			finalResponse: "again",
-		});
-	});
+			const acceptedAnswer = CodexAgentResultSchema.parse(await (await pending).json());
+			const terminalAnswer = CodexAgentResultSchema.parse(
+				await (await context.route.handle(context.request(), { kind: "await", agentId })).json(),
+			);
+			expect(acceptedAnswer).toMatchObject({
+				agentState: "working",
+				observation: "accepted",
+				turn: { id: "turn-2", state: "inProgress" },
+				delivery: "started",
+			});
+			expect(terminalAnswer).toMatchObject({
+				agentState: "idle",
+				observation: "terminal",
+				finalResponse: "again",
+			});
+		},
+	);
 
 	it("re-fences held frames after a new hello generation and ignores stale frames", async () => {
 		const context = setup();
