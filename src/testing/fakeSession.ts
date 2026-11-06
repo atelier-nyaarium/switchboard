@@ -41,6 +41,7 @@ export interface FakeSession {
 
 export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptions): FakeSession {
 	const socket = createFakeSocket();
+	socket.onPing(() => graph.wsHandlers.pong(socket.ws));
 	const inbound: Frame[] = [];
 	let confirm: () => void = () => undefined;
 	const confirmed = new Promise<void>((resolve) => {

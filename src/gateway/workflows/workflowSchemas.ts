@@ -151,8 +151,9 @@ export const WorkflowThreadMapRowSchema = z
 export const WorkflowSkillTextRowSchema = z
 	.object({
 		kind: z.literal("skill_text"),
+		path: z.string().min(1),
 		sha256: z.string().regex(/^[0-9a-f]{64}$/),
-		text: z.string(),
+		text: z.string().optional(),
 	})
 	.strict();
 

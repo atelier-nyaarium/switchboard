@@ -81,6 +81,15 @@ const CopilotCallOptionsSchema = z
 	})
 	.strict();
 
+const ClaudeCallOptionsSchema = z
+	.object({
+		...commonOptionShape,
+		model: z.string().optional(),
+		effort: WorkflowCallOptionsSchema.shape.effort,
+		schema: CodexStartAgentInputSchema.shape.outputSchema,
+	})
+	.strict();
+
 const CodexMessageOptionsSchema = z
 	.object({
 		prompt: CodexMessageAgentInputSchema.shape.prompt,
@@ -108,7 +117,7 @@ export interface WorkflowIssuedCall {
 	issueOrdinal: number;
 	callHash: string;
 	prompt: string;
-	backend: "codex" | "copilot";
+	backend: NonNullable<WorkflowCallOptions["backend"]>;
 	options: WorkflowCallOptions;
 	threadMode: "start" | "message";
 	threadAgent?: Extract<WorkflowJournalRow, { kind: "thread_map" }>;
@@ -133,6 +142,13 @@ export type WorkflowDispatchSettle = (outcome: WorkflowDispatchOutcome) => void;
 
 export interface WorkflowDispatchPort {
 	dispatch(call: WorkflowIssuedCall, settle: WorkflowDispatchSettle): void;
+	settled?(call: WorkflowIssuedCall, outcome: WorkflowDispatchOutcome): void;
+	terminal?(record: WorkflowRunRecord, status: WorkflowRunRecord["status"]): void;
+	hostRegistering?(): void;
+	hostRegistered?(): void;
+	catalogChanged?(): void;
+	tick?(): void;
+	stop?(): void;
 }
 
 export interface WorkflowThreadAdoptionPort {
@@ -155,8 +171,14 @@ export type WorkflowEngineStartResult =
 export interface WorkflowEngine {
 	start(): boolean;
 	startRun(input: unknown): WorkflowEngineStartResult;
+	cancel(runId: string): boolean;
 	replay(runId: string): boolean;
 	tick(): void;
+	hostRegistering(): void;
+	hostRegistered(): void;
+	catalogChanged(): void;
+	forgetSession(team: string): void;
+	reserves(team: string): boolean;
 	logs(runId: string): string[];
 	phase(runId: string): string | null;
 	stop(): void;
@@ -175,7 +197,7 @@ interface CallState {
 }
 
 interface ThreadState {
-	backend: "codex" | "copilot";
+	backend: NonNullable<WorkflowCallOptions["backend"]>;
 	model?: string;
 	effort?: WorkflowCallOptions["effort"];
 	tier?: WorkflowCallOptions["tier"];
@@ -249,7 +271,11 @@ function stableSkills(value: string[] | undefined): string[] {
 	return [...(value ?? [])];
 }
 
-function callFingerprint(prompt: string, backend: "codex" | "copilot", options: WorkflowCallOptions): string {
+function callFingerprint(
+	prompt: string,
+	backend: NonNullable<WorkflowCallOptions["backend"]>,
+	options: WorkflowCallOptions,
+): string {
 	const fields: Record<string, JsonValue> = {
 		prompt,
 		backend,
@@ -374,7 +400,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 
 	const terminalize = (
 		run: RunState,
-		status: "succeeded" | "failed",
+		status: "succeeded" | "failed" | "cancelled",
 		result: JsonValue | null,
 		reason: string | null,
 	) => {
@@ -383,7 +409,10 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			result,
 			failureReason: reason,
 		});
-		if (changed) run.record = runner.get(run.record.runId) ?? run.record;
+		if (changed) {
+			run.record = runner.get(run.record.runId) ?? run.record;
+			dispatch.terminal?.(run.record, status);
+		}
 		disposeRun(run);
 	};
 
@@ -490,7 +519,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		};
 		if (!appendRow(run, row)) return false;
 		run.settleOrdinal = settleOrdinal;
-		if (outcome.outcome === "completed" && outcome.threadMap) appendRow(run, outcome.threadMap);
+		if (outcome.threadMap && !appendRow(run, outcome.threadMap)) return false;
 		return true;
 	};
 
@@ -561,9 +590,10 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			const thread = run.threads.get(call.issued.options.thread);
 			if (thread) {
 				thread.active = false;
-				if (outcome.outcome === "completed" && outcome.threadMap) thread.agent = outcome.threadMap;
+				if (outcome.threadMap) thread.agent = outcome.threadMap;
 			}
 		}
+		dispatch.settled?.(call.issued, outcome);
 		run.releasedIssueOrdinals.add(call.issued.issueOrdinal);
 		settlePromise(run, call, callAnswer(outcome));
 		drive(run, true);
@@ -622,10 +652,13 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		const optionValue = optionsHandle ? context.dump(optionsHandle) : {};
 		const parsedOptions = WorkflowCallOptionsSchema.parse(optionValue ?? {});
 		const backend = parsedOptions.backend ?? run.record.defaultBackend;
-		if (backend === "claude") throw new Error("claude backend is not available yet");
-		const familyParsed = (backend === "codex" ? CodexCallOptionsSchema : CopilotCallOptionsSchema).safeParse(
-			parsedOptions,
-		);
+		const familySchema =
+			backend === "codex"
+				? CodexCallOptionsSchema
+				: backend === "copilot"
+					? CopilotCallOptionsSchema
+					: ClaudeCallOptionsSchema;
+		const familyParsed = familySchema.safeParse(parsedOptions);
 		if (!familyParsed.success) throw new Error(familyParsed.error.issues[0]?.message ?? "invalid backend options");
 		const options = familyParsed.data as WorkflowCallOptions;
 		const threadKey = options.thread;
@@ -654,7 +687,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 						serviceTier: options.tier,
 						outputSchema: options.schema,
 					});
-				} else {
+				} else if (backend === "copilot") {
 					CopilotMessageOptionsSchema.parse({ prompt, outputSchema: options.schema });
 				}
 			} else {
@@ -828,6 +861,18 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 	const copyResumeTurns = (run: RunState, issueOrdinal: number): void => {
 		if (!run.resumeSource) return;
 		for (const row of rowsForResume(run.resumeSource, issueOrdinal)) appendRow(run, row);
+		for (const row of run.resumeSource.rows) {
+			if (row.kind === "thread_map" && row.lastIssueOrdinal === issueOrdinal) appendRow(run, row);
+		}
+		const sourceIssue = issueRows(run.resumeSource.rows).get(issueOrdinal);
+		const skillPaths = new Set(sourceIssue?.options.skills ?? []);
+		const skillHashes = new Set<string>();
+		for (const row of run.resumeSource.rows) {
+			if (row.kind === "skill_text" && skillPaths.has(row.path)) skillHashes.add(row.sha256);
+		}
+		for (const row of run.resumeSource.rows) {
+			if (row.kind === "skill_text" && skillHashes.has(row.sha256)) appendRow(run, row);
+		}
 	};
 
 	const adoptResumeThreads = (run: RunState): void => {
@@ -1176,6 +1221,23 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			if (result.kind === "started") beginRun(result.run, resumeSource ? "resume" : "live", resumeSource);
 			return result;
 		},
+		cancel(runId) {
+			if (stopped) return false;
+			const record = runner.get(runId);
+			if (record?.status !== "running") return false;
+			const run = active.get(runId);
+			if (run) {
+				terminalize(run, "cancelled", null, null);
+				return runner.get(runId)?.status === "cancelled";
+			}
+			const changed = runner.transition(runId, "running", "cancelled", {
+				result: null,
+				failureReason: null,
+			});
+			if (!changed) return false;
+			dispatch.terminal?.(runner.get(runId) ?? record, "cancelled");
+			return true;
+		},
 		replay(runId) {
 			if (stopped || !started) return false;
 			const record = runner.get(runId);
@@ -1185,11 +1247,45 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		},
 		tick() {
 			if (stopped) return;
+			dispatch.tick?.();
 			for (const record of runner.running()) {
 				const run = active.get(record.runId);
 				if (run) enter(run, () => drive(run, run.mode !== "restart"));
 				else beginRun(record, "restart", { record, rows: rowsFor(record.runId) });
 			}
+		},
+		hostRegistering() {
+			if (!stopped) dispatch.hostRegistering?.();
+		},
+		hostRegistered() {
+			if (!stopped) dispatch.hostRegistered?.();
+		},
+		catalogChanged() {
+			if (!stopped) dispatch.catalogChanged?.();
+		},
+		forgetSession(team) {
+			if (stopped) return;
+			for (const record of runner.runs()) {
+				if (record.team !== team) continue;
+				if (record.status === "running") {
+					const run = active.get(record.runId);
+					const changed = runner.transition(record.runId, "running", "cancelled", {
+						result: null,
+						failureReason: null,
+						notified: true,
+					});
+					if (changed) {
+						const current = runner.get(record.runId) ?? { ...record, status: "cancelled" as const };
+						dispatch.terminal?.(current, "cancelled");
+					}
+					if (run) disposeRun(run);
+				} else {
+					runner.markNotified(record.runId);
+				}
+			}
+		},
+		reserves(team) {
+			return !stopped && runner.running().some((record) => record.team === team);
 		},
 		logs(runId) {
 			return [...(active.get(runId)?.logs ?? [])];
@@ -1200,6 +1296,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		stop() {
 			if (stopped) return;
 			stopped = true;
+			dispatch.stop?.();
 			for (const run of active.values()) disposeRun(run);
 			active.clear();
 		},

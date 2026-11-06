@@ -71,6 +71,7 @@ describe("Gateway device scan", () => {
 			reloadPlugins: async () => {},
 			killSession: async () => {},
 			listDirs: async () => ({ entries: [] }),
+			readSkill: async () => ({ kind: "refused", code: "missing" }),
 			kasaScan: async () => ({ candidates: [candidate] }),
 			wifiNetwork: async () => ({ ssid: "Home" }),
 			typeIntoPane: async () => ({ typed: true }),

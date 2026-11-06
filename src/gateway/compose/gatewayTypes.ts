@@ -6,6 +6,8 @@ import type { Watcher } from "../assistant/watcher.js";
 import type { KasaTransport } from "../devices/kasa/transport.js";
 import type { RouterToolCallResult } from "../router/routerClient.js";
 import type { createWebSocketHandlers } from "../websocket.js";
+import type { WorkflowEngineStartResult } from "../workflows/engine.js";
+import type { WorkflowJournalRow, WorkflowRunRecord } from "../workflows/workflowSchemas.js";
 
 export interface GatewayConfig {
 	dataDir: string;
@@ -65,6 +67,20 @@ export interface GatewayFaultPort {
 	routerInboxCall(name: string, params: Record<string, unknown>): Promise<RouterToolCallResult>;
 	/** One routine sweep now, off the clock. */
 	sweepRoutines(): Promise<void>;
+	workflowStart(input: unknown): WorkflowEngineStartResult;
+	workflowCancel(runId: string): boolean;
+	workflowForgetSession(team: string): void;
+	workflowRecord(runId: string): WorkflowRunRecord | null;
+	workflowRows(runId: string): WorkflowJournalRow[];
+	workflowAgents(team: string): Array<{
+		family: "codex" | "copilot";
+		agentId: string;
+		runId?: string;
+		state: string;
+		activeTurnId?: string;
+		operations: Array<{ operationId: string; kind: string; state: string; daemonInstanceId?: string }>;
+		turns: Array<{ id: string; state: string }>;
+	}>;
 	/** Empty until a snapshot landed. */
 	sharesHeld(): { revision: number; ready: boolean; sessionTargets: string[] };
 	activateAgain(): void;

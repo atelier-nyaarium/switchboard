@@ -9,6 +9,7 @@ import type { FederationStage } from "./composeFederation.js";
 import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
+import type { WorkflowsStage } from "./composeWorkflows.js";
 
 const HEARTBEAT_INTERVAL_MS = 30000;
 const MISSED_PINGS_LIMIT = 2;
@@ -28,8 +29,9 @@ export interface WebSocketsStageDeps {
 		| "sessionStore"
 		| "sessionAuthority"
 	>;
-	host: Pick<HostStage, "wakeCoordinator" | "hostOpCoordinator" | "pushPresenceWatch">;
+	host: Pick<HostStage, "wakeCoordinator" | "hostOpCoordinator" | "pushPresenceWatch" | "readLiveness">;
 	agents: Pick<AgentsStage, "codexRelay" | "copilotRelay">;
+	workflows: Pick<WorkflowsStage, "hostRegistering" | "hostRegistered" | "catalogChanged">;
 	federation: Pick<FederationStage, "channelDeliveryAck">;
 	/** Composes after routes. */
 	retireStaging?: (blobIds: string[]) => void;
@@ -43,7 +45,28 @@ export interface WebSocketsStage {
 }
 
 export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
-	const { sessions, stores, host, agents, federation, ambient } = deps;
+	const { sessions, stores, host, agents, federation, ambient, workflows } = deps;
+	let hostRegisterPass: Promise<void> = Promise.resolve();
+	let hostFamilyPass: Promise<void> = Promise.resolve();
+	let hostRegisterSocket: object | undefined;
+	let hostFamilyReady = true;
+	type HostFamilyFrame = { socket: object; backend: "codex" | "copilot"; message: Record<string, unknown> };
+	let pendingHostFrames: HostFamilyFrame[] = [];
+	const applyHostFrame = async (frame: HostFamilyFrame): Promise<void> => {
+		if (host.readLiveness().socket !== frame.socket) return;
+		const relay = frame.backend === "codex" ? agents.codexRelay : agents.copilotRelay;
+		await relay.handleHostMessage(frame.message);
+	};
+	const queueHostFrame = (backend: HostFamilyFrame["backend"], message: Record<string, unknown>): void => {
+		const socket = hostRegisterSocket;
+		if (!socket) return;
+		const frame = { socket, backend, message };
+		if (!hostFamilyReady) {
+			pendingHostFrames.push(frame);
+			return;
+		}
+		hostFamilyPass = hostFamilyPass.then(() => applyHostFrame(frame));
+	};
 	// Built here because it needs the registry this stage owns, and the socket handler settles onto it.
 	const workspacePlane = createWorkspacePlane({
 		registry: sessions.registry,
@@ -71,9 +94,25 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		workspacePlane,
 		onTeamConnect: (team, ws) => {
 			if (team === "host") {
-				agents.codexRelay.onHostRegister();
-				agents.copilotRelay.onHostRegister();
-				host.pushPresenceWatch(true);
+				hostRegisterSocket = ws;
+				hostFamilyReady = false;
+				const frames: HostFamilyFrame[] = [];
+				pendingHostFrames = frames;
+				workflows.hostRegistering();
+				hostRegisterPass = Promise.all([
+					agents.codexRelay.onHostRegister(),
+					agents.copilotRelay.onHostRegister(),
+				]).then(() => undefined);
+				hostFamilyPass = hostRegisterPass.then(async () => {
+					if (host.readLiveness().socket !== ws) return;
+					while (frames.length > 0) await applyHostFrame(frames.shift()!);
+					if (hostRegisterSocket === ws) hostFamilyReady = true;
+				});
+				void hostFamilyPass.then(() => {
+					if (host.readLiveness().socket !== ws) return;
+					workflows.hostRegistered();
+					host.pushPresenceWatch(true);
+				});
 			}
 			const handed = channelDeliveries.drain(team);
 			if (handed === "migrating") return;
@@ -93,12 +132,21 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		},
 		onCatalogChange: (daemonInstanceId) => {
 			sessions.presence.markDirty();
-			agents.codexRelay.resendRequested(daemonInstanceId);
-			agents.copilotRelay.resendRequested(daemonInstanceId);
+			const socket = hostRegisterSocket;
+			void hostFamilyPass.then(async () => {
+				const live = host.readLiveness();
+				if (!socket || live.socket !== socket || live.daemonInstanceId !== daemonInstanceId) return;
+				await Promise.all([
+					agents.codexRelay.resendRequested(daemonInstanceId),
+					agents.copilotRelay.resendRequested(daemonInstanceId),
+				]);
+				if (host.readLiveness().socket !== socket) return;
+				workflows.catalogChanged();
+			});
 		},
 		onDaemonCapabilities: (capabilities) => stores.daemonCapabilityStore.declare(capabilities),
-		onCodexHostMessage: (msg) => agents.codexRelay.handleHostMessage(msg),
-		onCopilotHostMessage: (msg) => agents.copilotRelay.handleHostMessage(msg),
+		onCodexHostMessage: (msg) => queueHostFrame("codex", msg),
+		onCopilotHostMessage: (msg) => queueHostFrame("copilot", msg),
 		onPresenceDerive: (team, derived) => {
 			if (!derived) sessions.presence.clearWorkingFor(team);
 			else sessions.presence.setWorking(team, derived);

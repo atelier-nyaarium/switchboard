@@ -13,6 +13,7 @@ import { CopilotEventAckSchema } from "../../shared/copilot-agent.js";
 import {
 	classifyPeekError,
 	type HostOp,
+	HostReadSkillOpSchema,
 	isReservedHostSession,
 	isTmuxName,
 	paneKey,
@@ -70,6 +71,7 @@ import {
 	resolveWindowsWorkdir,
 	type WindowsSpawnAvailability,
 } from "./windowsSpawn.js";
+import { readWorkflowSkill } from "./workflowSkillRead.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -577,6 +579,7 @@ const hostOpRunner = createHostOpRunner({
 	// Linux directories the launch then refuses, and would miss every network drive.
 	listDirs: async (p, spawn) =>
 		spawn === WINDOWS_SPAWN ? listWindowsDirs(p, windowsAvailability().userProfile) : listHostDirs(p),
+	readSkill: async (target, skillPath) => readWorkflowSkill(target, skillPath),
 });
 
 ////////////////////////////////
@@ -622,6 +625,14 @@ const presenceScheduler = new PresenceScheduler({
 
 async function handleHostOp(reqId: string, op: HostOp): Promise<void> {
 	try {
+		if (op.kind === "readSkill") {
+			const checked = HostReadSkillOpSchema.safeParse(op);
+			if (!checked.success) {
+				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid readSkill operation" });
+				return;
+			}
+			op = checked.data;
+		}
 		const result = await hostOpRunner.run(op);
 		safeSend({ type: "host_op_reply", reqId, ok: true, result });
 	} catch (err) {

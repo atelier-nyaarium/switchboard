@@ -25,6 +25,8 @@ export type CopilotDispatchResult =
 	| { kind: "committed"; transition: CopilotTransitionResult; dispatched: boolean };
 
 export interface CopilotAgentCommands {
+	resolveTarget(owner: SessionRecord): CopilotPersistedAgent["requestedTarget"] | null;
+	list(owner: SessionRecord): readonly CopilotPersistedAgent[];
 	start(owner: SessionRecord, input: CopilotStartCommandInput): CopilotDispatchResult;
 	message(owner: SessionRecord, input: CopilotMessageCommandInput): CopilotDispatchResult;
 	stop(owner: SessionRecord, input: CopilotStopCommandInput): CopilotDispatchResult;
@@ -35,6 +37,7 @@ export interface CopilotAgentCommands {
 	): { agent: CopilotPersistedAgent | undefined; refusal?: { code?: CopilotDaemonFailureCode; message: string } };
 	abandon(owner: SessionRecord, agentId: string, operationId: string, at: number): CopilotPersistedAgent | undefined;
 	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement;
+	retagRun(owner: SessionRecord, agentId: string, fromRunId: string, toRunId: string, at: number): boolean;
 }
 
 export function createCopilotAgentCommands(deps: {
@@ -55,6 +58,12 @@ export function createCopilotAgentCommands(deps: {
 	}
 
 	return {
+		resolveTarget(owner) {
+			return deps.service.resolveExecutionTarget(owner);
+		},
+		list(owner) {
+			return deps.service.listOwnedAgents(owner);
+		},
 		start(owner, input) {
 			const agentId = copilotAgentIdForOperation(input.operationId);
 			if (input.cwd !== undefined && !isHostSpawn(owner.spawn)) {
@@ -181,6 +190,9 @@ export function createCopilotAgentCommands(deps: {
 		},
 		retire(owner, agentId) {
 			return deps.service.retire(owner, agentId);
+		},
+		retagRun(owner, agentId, fromRunId, toRunId, at) {
+			return deps.service.retagRunId(owner, agentId, fromRunId, toRunId, at);
 		},
 	};
 }

@@ -21,8 +21,14 @@ function parseRows(rawRows: unknown[]): WorkflowJournalRow[] {
 	const skills = new Map<string, string>();
 	for (const row of rows) {
 		if (row.kind !== "skill_text") continue;
+		if (row.text === undefined) {
+			if (!skills.has(row.sha256)) throw new Error("workflow skill reference has no text");
+			continue;
+		}
 		const hash = crypto.createHash("sha256").update(row.text, "utf8").digest("hex");
-		if (hash !== row.sha256 || skills.has(row.sha256)) throw new Error("invalid workflow skill text row");
+		if (hash !== row.sha256 || skills.has(row.sha256)) {
+			throw new Error("invalid workflow skill text row");
+		}
 		skills.set(row.sha256, row.text);
 	}
 	return rows;
@@ -147,15 +153,22 @@ export function createWorkflowRunStore(dataDir: string, ambient: Pick<Ambient, "
 			const heldRows = journalRows.get(runId);
 			if (record?.status !== "running" || !heldRows) return false;
 			if (checked.kind === "skill_text") {
-				const hash = crypto.createHash("sha256").update(checked.text, "utf8").digest("hex");
-				if (hash !== checked.sha256) throw new Error("workflow skill hash does not match its text");
+				const byPath = heldRows.find(
+					(candidate) => candidate.kind === "skill_text" && candidate.path === checked.path,
+				);
+				if (byPath?.kind === "skill_text" && byPath.sha256 === checked.sha256) return false;
 				const held = heldRows.find(
 					(candidate) => candidate.kind === "skill_text" && candidate.sha256 === checked.sha256,
 				);
-				if (held?.kind === "skill_text") {
-					if (held.text !== checked.text) throw new Error("workflow skill hash collision");
-					return false;
+				const text = checked.text ?? (held?.kind === "skill_text" ? held.text : undefined);
+				if (text === undefined) throw new Error("workflow skill text is missing");
+				if (crypto.createHash("sha256").update(text, "utf8").digest("hex") !== checked.sha256) {
+					throw new Error("workflow skill hash does not match its text");
 				}
+				if (checked.text !== undefined && held?.kind === "skill_text" && held.text !== checked.text) {
+					throw new Error("workflow skill hash collision");
+				}
+				if (held?.kind === "skill_text") checked.text = undefined;
 			}
 			const journal = openAppendJournal(path.join(runDirectory(runId), JOURNAL_FILE));
 			try {

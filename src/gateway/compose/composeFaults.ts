@@ -6,6 +6,7 @@ import type { FederationSlice } from "../boot.js";
 import type { PersistenceStage } from "./composePersistence.js";
 import type { RoutineStage } from "./composeRoutines.js";
 import type { SessionsStage } from "./composeSessions.js";
+import type { WorkflowsStage } from "./composeWorkflows.js";
 import type { FederationContext } from "./federationContext.js";
 import type { GatewayFaultPort, PeerAddress } from "./gatewayTypes.js";
 
@@ -13,10 +14,17 @@ export interface FaultsStageDeps {
 	context: FederationContext;
 	sessions: Pick<SessionsStage, "sessionStore">;
 	routines: Pick<RoutineStage, "reconcile">;
+	workflows: Pick<WorkflowsStage, "engine" | "runner" | "forgetSession">;
 	persistence: Pick<PersistenceStage, "sweepSessions">;
 }
 
-export function composeFaults({ context, sessions, routines, persistence }: FaultsStageDeps): GatewayFaultPort {
+export function composeFaults({
+	context,
+	sessions,
+	routines,
+	workflows,
+	persistence,
+}: FaultsStageDeps): GatewayFaultPort {
 	function federated(): FederationSlice {
 		const slice = context.slice();
 		if (!slice) throw new Error("this Gateway is not federated");
@@ -56,6 +64,49 @@ export function composeFaults({ context, sessions, routines, persistence }: Faul
 		routerCall: (name, params) => federated().routerClient.callTool(name, params),
 		routerInboxCall: (name, params) => federated().routerClient.callInboxTool(name, params),
 		sweepRoutines: () => routines.reconcile(),
+		workflowStart: (input) => workflows.engine.startRun(input),
+		workflowCancel: (runId) => workflows.engine.cancel(runId),
+		workflowForgetSession: (team) => workflows.forgetSession(team),
+		workflowRecord: (runId) => workflows.runner.get(runId),
+		workflowRows: (runId) => workflows.runner.rows(runId),
+		workflowAgents: (team) => {
+			const owner = sessions.sessionStore.getByTeam(team);
+			if (!owner) return [];
+			return [
+				...sessions.sessionStore.listCodexAgents(owner).map((agent) => ({
+					family: "codex" as const,
+					agentId: agent.agentId,
+					...(agent.runId === undefined ? {} : { runId: agent.runId }),
+					state: agent.agentState,
+					...(agent.activeTurnId === undefined ? {} : { activeTurnId: agent.activeTurnId }),
+					operations: agent.operations.map((operation) => ({
+						operationId: operation.operationId,
+						kind: operation.kind,
+						state: operation.state,
+						...(operation.daemonInstanceId === undefined
+							? {}
+							: { daemonInstanceId: operation.daemonInstanceId }),
+					})),
+					turns: agent.turns.map((turn) => ({ id: turn.id, state: turn.state })),
+				})),
+				...sessions.sessionStore.listCopilotAgents(owner).map((agent) => ({
+					family: "copilot" as const,
+					agentId: agent.agentId,
+					...(agent.runId === undefined ? {} : { runId: agent.runId }),
+					state: agent.agentState,
+					...(agent.activeTurnId === undefined ? {} : { activeTurnId: agent.activeTurnId }),
+					operations: agent.operations.map((operation) => ({
+						operationId: operation.operationId,
+						kind: operation.kind,
+						state: operation.state,
+						...(operation.daemonInstanceId === undefined
+							? {}
+							: { daemonInstanceId: operation.daemonInstanceId }),
+					})),
+					turns: agent.turns.map((turn) => ({ id: turn.id, state: turn.state })),
+				})),
+			];
+		},
 		sharesHeld: () => {
 			const shares = federated().shareState;
 			return {

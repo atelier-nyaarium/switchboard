@@ -136,6 +136,15 @@ Recommended because it keeps Workflow parity by default while a fix-until-green 
 
 > "split refused between a provider refusal (like a over sensitive classifier or TOS) vs a bad param to the agent(). Otherwise I think that's a good structure."
 
+## Question 14 - Merge the per-provider agent tools?
+
+Q: Five shared tools with a clean break, the same with aliases for a while, or keep them separate?
+A: Five shared tools, clean break: `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, `agentList`, replacing the ten `codex*Agent` and `copilot*Agent` tools. Only start takes `backend`; the others read it off the agent id. Start's options match the workflow's `agent()`. The old names go in the same release that updates every mention, in this repo and in the nyaaskills repo.
+
+Recommended because it halves the tool definitions every session carries, and gives sessions and scripts one vocabulary.
+
+> "Plan a clean break and an update of the projects/nyaaskills repo"
+
 ## Defaults (not asked)
 
 - **Tools:** `workflowStart` (`script` or `scriptPath`, `args`, default `backend`, `resumeFrom`), `workflowCollect`, `workflowList`, `workflowStop`. Descriptions stay short and point to `switchboard_capabilities`; the `agent()` reference lives in the capability guidance, since `guardTools` refuses a description past 1024 characters. `workflowStart` carries a per-invocation id through `requestHead`, so a retried post starts one run. `workflowCollect` waits within `AGENT_WAIT_BUDGET_MS`, the name matching `codexCollectAgent`, `copilotCollectAgent` and `vault_collect`.
@@ -296,6 +305,17 @@ Recommended because it keeps Workflow parity by default while a fix-until-green 
 - **Sessions:** the first turn pre-mints its id with `--session-id` from a journaled uuid; later turns `--resume` it from the same cwd. The runner reads `structured_output`, then `result`. `is_error`, a non-zero exit or "No conversation found" fails the turn. A rebuilt container loses the transcript, so its thread degrades to a fresh agent.
 - **Restarts and cancel:** the turn is journaled `dispatched` before the send. The daemon holds each result in an outbox replayed on Gateway reconnect; a daemon restart fails the turn with a typed `runnerLost`, at most once. Cancel signals the process group (TERM, then KILL), or wraps the container command in `timeout`, since a `docker exec` child outlives its client.
 - **Availability:** `claude`'s presence counts toward the `workflow` declaration, appended after the `AGENT_BACKENDS` flatMap in `daemonCapabilityDeclaration`. An absent `claude` is a dispatch-time step failure.
+
+## Phase 4 - One set of agent tools (Q14)
+
+- **Tools:** `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, `agentList` replace `codexStartAgent`, `codexMessageAgent`, `codexCollectAgent`, `codexStopAgent`, `codexListAgents` and their `copilot*` twins. One registrar replaces `registerCodexTools` and `registerCopilotTools`.
+  - `agentStart` takes `prompt`, `backend` (only the backends this session has enabled; `claude` stays workflow-only), `model`, `effort`, `tier`, `schema` (renamed from `outputSchema`) and `cwd`, checked per backend by mapping onto each family's strict start schema, the same rule the workflow's `agent()` uses. One option set for both, so a session call and a script call read alike.
+  - `agentMessage`, `agentCollect` and `agentStop` take an `agentId` and route by its `codex_` or `copilot_` prefix; `agentMessage` takes `tier` and `schema` per turn. `agentList` lists both families, filtered by `backend` if given.
+  - Descriptions stay under `guardTools`' 1024 characters; model lists and backend notes move into the capability guidance.
+- **Capabilities:** `codex-agent` and `copilot-agent` stay as the per-backend switches, and the tools register when either is on. The guidance merges into one `agents` section naming which backends are on.
+- **Everything that names the old tools, updated in the same release:** completion notices (`agent-notice.ts`), `codexAgentIdentity.ts`, `capabilities.ts` guidance, the assistant's tool scope and gate tests, `agents/codex.md` (becomes a backend-neutral agent driver), `docs/agents.md`, `AGENTS.md`, and the tool-description budget test.
+- **nyaaskills repo (`~/projects/nyaaskills`):** replace every old name in `skills/architecture`, `skills/security`, `skills/testability`, `skills/quality`, `skills/compliance`, `cycles/audited-implementation.md` and `cycles/plan-refinement.md`, with "relay to Luna via `codexStartAgent`" becoming `agentStart` with `backend: "codex"`. Committed and released in that repo's own build flow, landed together with the Switchboard plugin release so no session sees a name that is gone.
+- **Clean break:** no aliases. Deploy order: the Switchboard plugin release and the nyaaskills release together; the Gateway routes (`/codex`, `/copilot`) stay as they are, since only the MCP surface is renamed.
 
 ## Painpoints
 

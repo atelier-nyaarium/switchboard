@@ -1,8 +1,10 @@
+import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
 import {
 	type HostKasaScanResult,
 	type HostListDirsResult,
 	type HostOp,
 	type HostPeekResult,
+	type HostReadSkillResult,
 	type HostWifiNetworkResult,
 	type PromptDecision,
 	type PromptOutcome,
@@ -33,6 +35,7 @@ export interface TmuxOps {
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
 	listDirs: (path: string, spawn?: string) => Promise<HostListDirsResult>;
+	readSkill: (target: AgentExecutionTarget, path: string) => Promise<HostReadSkillResult>;
 	kasaScan: () => Promise<HostKasaScanResult>;
 	wifiNetwork: () => Promise<HostWifiNetworkResult>;
 	typeIntoPane: (target: TmuxTarget, text: string) => Promise<TypeIntoPaneResult>;
@@ -137,6 +140,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 				null,
 			);
 		if (op.kind === "listDirs") return ops.listDirs(op.path, op.spawn);
+		if (op.kind === "readSkill") return ops.readSkill(op.target, op.path);
 		if (op.kind === "createSession")
 			return runDeduped(
 				op.dedupKey,

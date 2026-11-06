@@ -32,6 +32,7 @@ import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflow
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
 import { routineOwns } from "./routines/reservation.js";
+import { createWorkflowAgentDispatch } from "./workflows/agentDispatch.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
 export type {
@@ -118,7 +119,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		context,
 	});
-	workflows = composeWorkflows({ dataDir: bootstrap.dataDir, ambient: bootstrap.ambient });
 	const assistant = composeAssistant({
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
@@ -166,15 +166,42 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			routines.sessionEnded(team);
 			assistant.sessionEnded(team);
 		},
-		sessionReserved: (team) => routines.reserves(team) || assistant.reserves(team),
+		sessionReserved: (team) =>
+			routines.reserves(team) || assistant.reserves(team) || (workflows?.reserves(team) ?? false),
 		sweepDeliveries: () => websockets?.channelDeliveries.sweep(),
 		namesBlob: (blobId) => assistant.namesBlob(blobId) || (routes?.current()?.namesBlob(blobId) ?? true),
 		sweepWorkflows: () => workflows?.sweep(),
-		onPersistTick: () => reconcileStaleAgents(),
+		onPersistTick: () => {
+			reconcileStaleAgents();
+			workflows?.engine.tick();
+		},
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });
 	reconcileStaleAgents = agents.reconcileStaleAgents;
+	workflows = composeWorkflows({
+		dataDir: bootstrap.dataDir,
+		ambient: bootstrap.ambient,
+		buildDispatch: (runner) => {
+			const dispatch = createWorkflowAgentDispatch({
+				sessionStore: sessions.sessionStore,
+				ambient: bootstrap.ambient,
+				runner,
+				readLiveness: host.readLiveness,
+				relayToHost: host.relayToHost,
+				codex: agents.codexCommands,
+				copilot: agents.copilotCommands,
+				codexRelay: agents.codexRelay,
+				copilotRelay: agents.copilotRelay,
+			});
+			return {
+				port: dispatch.port,
+				retireRun: dispatch.retireRun,
+				inspectThread: dispatch.inspectThread,
+				retagThread: dispatch.retagThread,
+			};
+		},
+	});
 	const awareness = composeAwareness({ sessions, host, agents, ambient: bootstrap.ambient });
 
 	federation = composeFederation({
@@ -219,6 +246,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		sessions,
 		host,
 		agents,
+		workflows,
 		federation,
 		retireStaging: (blobIds) => routes?.current()?.retireStaging(blobIds),
 		observer: {
@@ -303,6 +331,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		workspacePlane: websockets.workspacePlane,
 		awareness,
 		assistant,
+		workflows,
 	});
 
 	if (bootstrap.gatewayBoot.kind === "arming") enrollment.enterArming(bootstrap.gatewayBoot.nonce);
@@ -385,6 +414,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		router: listener.router,
 		wsHandlers,
 		close,
-		faults: composeFaults({ context, sessions, routines, persistence }),
+		faults: composeFaults({ context, sessions, routines, workflows, persistence }),
 	};
 }

@@ -11,11 +11,14 @@ export interface FakeSocket {
 	sent: Frame[];
 	/** Called for every frame the gateway sends, after the current handler returns. */
 	onFrame: (handler: (frame: Frame) => void) => void;
+	/** Called when the Gateway pings this socket. */
+	onPing: (handler: () => void) => void;
 }
 
 export function createFakeSocket(): FakeSocket {
 	const sent: Frame[] = [];
 	const handlers: Array<(frame: Frame) => void> = [];
+	const pingHandlers: Array<() => void> = [];
 	const ws = {
 		data: {
 			teamName: null,
@@ -38,13 +41,20 @@ export function createFakeSocket(): FakeSocket {
 		close() {
 			ws.readyState = 3;
 		},
-		ping() {},
+		ping() {
+			queueMicrotask(() => {
+				for (const handler of pingHandlers) handler();
+			});
+		},
 	};
 	return {
 		ws: ws as unknown as ServerWebSocket<WsData>,
 		sent,
 		onFrame: (handler) => {
 			handlers.push(handler);
+		},
+		onPing: (handler) => {
+			pingHandlers.push(handler);
 		},
 	};
 }

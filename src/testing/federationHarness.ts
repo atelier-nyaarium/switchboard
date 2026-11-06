@@ -76,7 +76,7 @@ export interface DomainPeer {
 	/** The console target for a local team field (`spawn` or `spawn.session`) on this Gateway. */
 	target(team: string): string;
 	restartGateway(): Promise<void>;
-	restartHost(restart?: { newDaemon?: boolean }): void;
+	restartHost(restart?: { newDaemon?: boolean; deferCatalog?: boolean }): void;
 	close(): Promise<void>;
 }
 
@@ -238,13 +238,14 @@ async function attachDomain(
 	// The daemon survives gateway restarts.
 	let daemon = createFakeCodexDaemon();
 	let codexResponder = options.host?.onCodexCommand;
-	const attachHost = (graph: GatewayGraph): FakeHost =>
+	const attachHost = (graph: GatewayGraph, hostOptions: Pick<FakeHostOptions, "deferCatalog"> = {}): FakeHost =>
 		attachFakeHost(graph, {
 			token: set.tokens.host,
 			projects: [{ team: "fixture-app", projectPath: path.join(base.root, "fixture-app") }],
 			...options.host,
 			onCodexCommand: codexResponder,
 			daemon,
+			...hostOptions,
 		});
 	let gateway: GatewayGraph | undefined;
 	try {
@@ -282,7 +283,7 @@ async function attachDomain(
 			codexResponder = host.handlers.onCodexCommand;
 			host.close();
 			if (restart.newDaemon) daemon = createFakeCodexDaemon();
-			host = attachHost(currentGateway);
+			host = attachHost(currentGateway, { deferCatalog: restart.deferCatalog ?? false });
 		},
 		close: async () => {
 			host.close();

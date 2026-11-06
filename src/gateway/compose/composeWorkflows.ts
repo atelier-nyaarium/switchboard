@@ -14,6 +14,12 @@ export interface WorkflowsStageDeps {
 	retireAgents?: WorkflowAgentRetirement;
 	dispatch?: WorkflowDispatchPort;
 	threadAdoption?: WorkflowThreadAdoptionPort;
+	buildDispatch?: (runner: WorkflowRunner) => {
+		port: WorkflowDispatchPort;
+		retireRun: WorkflowAgentRetirement;
+		inspectThread: NonNullable<WorkflowThreadAdoptionPort["inspect"]>;
+		retagThread: NonNullable<WorkflowThreadAdoptionPort["retag"]>;
+	};
 }
 
 export interface WorkflowsStage {
@@ -23,20 +29,31 @@ export interface WorkflowsStage {
 	start: () => boolean;
 	stop: () => void;
 	sweep: () => number;
+	forgetSession: (team: string) => void;
+	reserves: (team: string) => boolean;
+	hostRegistering: () => void;
+	hostRegistered: () => void;
+	catalogChanged: () => void;
 }
 
 export function composeWorkflows(deps: WorkflowsStageDeps): WorkflowsStage {
 	const store = createWorkflowRunStore(deps.dataDir, deps.ambient);
+	let built: ReturnType<NonNullable<WorkflowsStageDeps["buildDispatch"]>> | undefined;
 	const runner = createWorkflowRunner({
 		store,
 		ambient: deps.ambient,
-		...(deps.retireAgents ? { retireAgents: deps.retireAgents } : {}),
+		retireAgents: (run) => built?.retireRun(run) ?? deps.retireAgents?.(run) ?? true,
 	});
+	built = deps.buildDispatch?.(runner);
 	const engine = createWorkflowEngine({
 		runner,
 		ambient: deps.ambient,
-		dispatch: deps.dispatch ?? { dispatch: () => {} },
-		...(deps.threadAdoption ? { threadAdoption: deps.threadAdoption } : {}),
+		dispatch: built?.port ?? deps.dispatch ?? { dispatch: () => {} },
+		...(built
+			? { threadAdoption: { inspect: built.inspectThread, retag: built.retagThread } }
+			: deps.threadAdoption
+				? { threadAdoption: deps.threadAdoption }
+				: {}),
 	});
 	return {
 		store,
@@ -48,5 +65,10 @@ export function composeWorkflows(deps: WorkflowsStageDeps): WorkflowsStage {
 			runner.stop();
 		},
 		sweep: () => runner.sweep(),
+		forgetSession: (team) => engine.forgetSession(team),
+		reserves: (team) => engine.reserves(team),
+		hostRegistering: () => engine.hostRegistering(),
+		hostRegistered: () => engine.hostRegistered(),
+		catalogChanged: () => engine.catalogChanged(),
 	};
 }

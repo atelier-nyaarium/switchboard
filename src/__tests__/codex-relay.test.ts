@@ -535,6 +535,48 @@ describe("Codex relay behavior", () => {
 		});
 	});
 
+	it("asks a new daemon immediately after the previous daemon refused", async () => {
+		const context = setup();
+		await startWorking(context);
+		context.registerHost("daemon-2");
+		await settle();
+		context.feed(
+			CodexDaemonHelloSchema.parse({
+				type: "codex_hello",
+				daemonInstanceId: "daemon-2",
+				targets: [{ targetId, generation: 2 }],
+			}),
+		);
+		await settle();
+		const first = context.commands().find((command) => command.kind === "reconcile");
+		expect(first).toBeDefined();
+		context.feed(
+			CodexDaemonReceiptSchema.parse({
+				type: "codex_receipt",
+				kind: "rejected",
+				requestId: first!.requestId,
+				ownerKey: context.store.teamOf(context.owner),
+				daemonInstanceId: "daemon-2",
+				eventId: 0,
+				agentId: first!.agentId,
+				error: "target unavailable",
+			}),
+		);
+		await settle();
+
+		context.registerHost("daemon-3");
+		await settle();
+		context.feed(
+			CodexDaemonHelloSchema.parse({
+				type: "codex_hello",
+				daemonInstanceId: "daemon-3",
+				targets: [{ targetId, generation: 3 }],
+			}),
+		);
+		await settle();
+		expect(context.commands().filter((command) => command.kind === "reconcile")).toHaveLength(2);
+	});
+
 	it("maps disconnect and timeout answers, isolates owners, and replays an operation answer", async () => {
 		const disconnected = setup({ attached: false, waitBudgetMs: 1_000 });
 		const disconnectedBody = CodexAgentResultSchema.parse(

@@ -124,7 +124,7 @@ export class AgentRelayCore<
 	private readonly listeners = new Map<string, Set<() => void>>();
 	// Match request IDs before clearing.
 	private readonly reconciling = new Map<string, { requestId: string; askedAt: number }>();
-	private readonly lastReconcileAskedAt = new Map<string, number>();
+	private readonly lastReconcileAskedAt = new Map<string, { daemonInstanceId: string; askedAt: number }>();
 	private readonly deferred = new Map<string, Array<HeldFrame<TEvent, TReceipt>>>();
 
 	constructor(
@@ -143,44 +143,58 @@ export class AgentRelayCore<
 		}
 	}
 
-	onHostRegister(): void {
+	async onHostRegister(): Promise<void> {
 		this.reconciling.clear();
 		const daemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (!daemonInstanceId) return;
+		const pending: Promise<void>[] = [];
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
 			for (const agent of this.family.listAgents(owner)) {
-				void this.serialize(ownerKey, agent.agentId, () => {
-					const application = this.family.abandonStaleOperations(owner, agent, daemonInstanceId, this.now());
-					this.notifyChanged(ownerKey, agent.agentId, application);
-				});
+				pending.push(
+					this.serialize(ownerKey, agent.agentId, () => {
+						const application = this.family.abandonStaleOperations(
+							owner,
+							agent,
+							daemonInstanceId,
+							this.now(),
+						);
+						this.notifyChanged(ownerKey, agent.agentId, application);
+					}),
+				);
 			}
 		}
+		await Promise.all(pending);
 	}
 
-	resendRequested(daemonInstanceId: string | undefined): void {
+	async resendRequested(daemonInstanceId: string | undefined): Promise<void> {
 		if (!daemonInstanceId || daemonInstanceId !== this.deps.liveDaemonInstanceId()) return;
+		const pending: Promise<void>[] = [];
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
 			for (const agent of this.family.listAgents(owner)) {
-				void this.serialize(ownerKey, agent.agentId, () => {
-					if (daemonInstanceId !== this.deps.liveDaemonInstanceId()) return;
-					const current = this.family
-						.listAgents(owner)
-						.find((candidate) => candidate.agentId === agent.agentId);
-					if (!current) return;
-					for (const command of this.family.requestedOperations(ownerKey, current, daemonInstanceId)) {
-						this.send(this.deps.ambient.newId(), command);
-					}
-				});
+				pending.push(
+					this.serialize(ownerKey, agent.agentId, () => {
+						if (daemonInstanceId !== this.deps.liveDaemonInstanceId()) return;
+						const current = this.family
+							.listAgents(owner)
+							.find((candidate) => candidate.agentId === agent.agentId);
+						if (!current) return;
+						for (const command of this.family.requestedOperations(ownerKey, current, daemonInstanceId)) {
+							this.send(this.deps.ambient.newId(), command);
+						}
+					}),
+				);
 			}
 		}
+		await Promise.all(pending);
 	}
 
-	handleHostMessage(raw: Record<string, unknown>): void {
-		if (raw.type === this.frameType("hello")) this.onHello(raw);
-		else if (raw.type === this.frameType("receipt")) this.onReceipt(raw);
-		else if (raw.type === this.frameType("event")) this.onEvent(raw);
+	handleHostMessage(raw: Record<string, unknown>): Promise<void> {
+		if (raw.type === this.frameType("hello")) return this.onHello(raw);
+		if (raw.type === this.frameType("receipt")) return this.onReceipt(raw);
+		if (raw.type === this.frameType("event")) return this.onEvent(raw);
+		return Promise.resolve();
 	}
 
 	onAgentChange(ownerKey: string, agentId: string, listener: () => void): () => void {
@@ -215,37 +229,41 @@ export class AgentRelayCore<
 		return this.deps.sendToHost(message);
 	}
 
-	private onHello(raw: Record<string, unknown>): void {
+	private async onHello(raw: Record<string, unknown>): Promise<void> {
 		const hello = this.parse(this.family.helloSchema, raw, "hello");
 		if (!hello) return;
 		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (liveDaemonInstanceId !== undefined && hello.daemonInstanceId !== liveDaemonInstanceId) return;
 		this.reconciling.clear();
+		const pending: Promise<void>[] = [];
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
 			for (const agent of this.family.listAgents(owner)) {
-				void this.serialize(ownerKey, agent.agentId, () => {
-					if (
-						this.needsReconciliation(ownerKey, agent) ||
-						this.deferred.has(agentKey(ownerKey, agent.agentId))
-					) {
-						this.requestReconciliation(ownerKey, agent);
-					}
-				});
+				pending.push(
+					this.serialize(ownerKey, agent.agentId, () => {
+						if (
+							this.needsReconciliation(ownerKey, agent) ||
+							this.deferred.has(agentKey(ownerKey, agent.agentId))
+						) {
+							this.requestReconciliation(ownerKey, agent);
+						}
+					}),
+				);
 			}
 		}
+		await Promise.all(pending);
 	}
 
-	private onReceipt(raw: Record<string, unknown>): void {
+	private onReceipt(raw: Record<string, unknown>): Promise<void> {
 		const receipt = this.parse(this.family.receiptSchema, raw, "receipt");
-		if (!receipt) return;
-		void this.serialize(receipt.ownerKey, receipt.agentId, () => this.reduceReceipt(receipt));
+		if (!receipt) return Promise.resolve();
+		return this.serialize(receipt.ownerKey, receipt.agentId, () => this.reduceReceipt(receipt));
 	}
 
-	private onEvent(raw: Record<string, unknown>): void {
+	private onEvent(raw: Record<string, unknown>): Promise<void> {
 		const event = this.parse(this.family.eventSchema, raw, "event");
-		if (!event) return;
-		void this.serialize(event.ownerKey, event.agentId, () => this.reduceEvent(event));
+		if (!event) return Promise.resolve();
+		return this.serialize(event.ownerKey, event.agentId, () => this.reduceEvent(event));
 	}
 
 	private parse<T>(schema: AgentRelaySchema<T>, raw: unknown, what: string): T | undefined {
@@ -385,15 +403,18 @@ export class AgentRelayCore<
 		const key = agentKey(ownerKey, agent.agentId);
 		// Time-bound each agent guard.
 		const now = this.now();
-		const askedAt = this.lastReconcileAskedAt.get(key);
-		if (askedAt !== undefined && now - askedAt < RECONCILE_GUARD_MS) return;
+		const daemonInstanceId = this.deps.liveDaemonInstanceId();
+		if (!daemonInstanceId) return;
+		const previousAsk = this.lastReconcileAskedAt.get(key);
+		if (previousAsk?.daemonInstanceId === daemonInstanceId && now - previousAsk.askedAt < RECONCILE_GUARD_MS)
+			return;
 		const requestId = this.deps.ambient.newId();
 		this.reconciling.set(key, { requestId, askedAt: now });
 		if (!this.send(requestId, request)) {
 			this.reconciling.delete(key);
 			return;
 		}
-		this.lastReconcileAskedAt.set(key, now);
+		this.lastReconcileAskedAt.set(key, { daemonInstanceId, askedAt: now });
 	}
 
 	private notifyChanged(ownerKey: string, agentId: string, application: AgentApplication<TAgent>): void {

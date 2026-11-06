@@ -49,6 +49,7 @@ export interface FakeHostOptions extends FakeHostHandlers {
 	entries?: string[];
 	/** A reconnecting daemon brings its own. */
 	daemon?: FakeCodexDaemon;
+	deferCatalog?: boolean;
 }
 
 export interface FakeHost {
@@ -63,6 +64,7 @@ export interface FakeHost {
 	daemon: FakeCodexDaemon;
 	/** One daemon frame to the gateway. */
 	sendCodex(frame: CodexDaemonEvent | CodexDaemonReceipt): void;
+	announceCatalog(): void;
 	/** What the daemon derives from that session's pane; null is nobody having said. */
 	reportWorking(team: string, working: boolean | null): void;
 	close(): void;
@@ -92,6 +94,7 @@ export function createFakeCodexDaemon(daemonInstanceId = `fake-daemon-${randomBy
 
 export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): FakeHost {
 	const socket = createFakeSocket();
+	socket.onPing(() => graph.wsHandlers.pong(socket.ws));
 	const ops: HostOp[] = [];
 	const wakes: Frame[] = [];
 	const codexCommands: CodexDaemonCommand[] = [];
@@ -117,6 +120,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				return { kind: "tmux", ansi: options.screen ?? "$ ", hash: "h1" };
 			case "listDirs":
 				return { entries: options.entries ?? ["projects"], path: op.path || HOST_HOME };
+			case "readSkill":
+				return { kind: "refused", code: "missing" };
 			case "kasaScan":
 				return { candidates: [] };
 			case "createSession":
@@ -164,12 +169,15 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		token: options.token,
 		daemonInstanceId: daemon.daemonInstanceId,
 	});
-	send({
-		type: "codex_hello",
-		daemonInstanceId: daemon.daemonInstanceId,
-		targets: [...daemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
-	});
-	send({ type: "catalog", projects: options.projects ?? [], hostSpawns: options.hostSpawns ?? [] });
+	const announceCatalog = (): void => {
+		send({
+			type: "codex_hello",
+			daemonInstanceId: daemon.daemonInstanceId,
+			targets: [...daemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
+		});
+		send({ type: "catalog", projects: options.projects ?? [], hostSpawns: options.hostSpawns ?? [] });
+	};
+	if (!options.deferCatalog) announceCatalog();
 	return {
 		frames: socket.sent,
 		ops,
@@ -178,6 +186,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		handlers,
 		daemon,
 		sendCodex,
+		announceCatalog,
 		reportWorking: (team, working) =>
 			send({
 				type: "presence_derive",

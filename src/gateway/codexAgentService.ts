@@ -92,6 +92,23 @@ export class CodexAgentService {
 		return this.persistence.retire(owner, agentId);
 	}
 
+	retagRunId(owner: SessionRecord, agentId: string, fromRunId: string, toRunId: string, at: number): boolean {
+		const current = this.persistence.find(owner, agentId);
+		if (
+			!current ||
+			current.runId !== fromRunId ||
+			current.turns.some((turn) => turn.state === "inProgress") ||
+			current.operations.some((operation) => operation.state === "requested")
+		)
+			return false;
+		const next = CodexPersistedAgentSchema.safeParse({
+			...current,
+			runId: toRunId,
+			updatedAt: Math.max(at, current.updatedAt),
+		});
+		return next.success && this.persistence.apply(owner, next.data).disposition === "applied";
+	}
+
 	resolveExecutionTarget(owner: SessionRecord, cwd?: string): CodexExecutionTarget | null {
 		return resolveAgentExecutionTarget(owner, cwd, this.sessionStore, this.offlineCatalog);
 	}

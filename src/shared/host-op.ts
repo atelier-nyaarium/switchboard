@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type AgentExecutionTarget, AgentExecutionTargetSchema } from "./agent-execution-target.js";
 import { WINDOWS_SPAWN } from "./host-spawn.js";
 import { DEVICE_MAX_RECORDS, DeviceCandidateSchema } from "./schemasDevices.js";
 
@@ -98,6 +99,7 @@ export type HostOp =
 			dedupKey?: string;
 	  }
 	| { kind: "listDirs"; path: string; spawn?: string }
+	| { kind: "readSkill"; target: AgentExecutionTarget; path: string }
 	| { kind: "reloadPlugins"; target: TmuxTarget; dedupKey?: string }
 	| { kind: "killSession"; target: TmuxTarget; dedupKey?: string };
 
@@ -121,6 +123,26 @@ export interface HostListDirsResult {
 	truncated?: boolean;
 	path?: string;
 }
+
+export const HostReadSkillOpSchema = z
+	.object({
+		kind: z.literal("readSkill"),
+		target: AgentExecutionTargetSchema,
+		path: z.string().min(1).max(4096),
+	})
+	.strict();
+
+export const HostReadSkillResultSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("read"), text: z.string() }).strict(),
+	z
+		.object({
+			kind: z.literal("refused"),
+			code: z.enum(["missing", "non_regular", "non_utf8", "too_large", "outside_target"]),
+		})
+		.strict(),
+]);
+
+export type HostReadSkillResult = z.infer<typeof HostReadSkillResultSchema>;
 
 export interface TmuxPeek {
 	ansi: string;

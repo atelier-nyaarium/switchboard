@@ -39,7 +39,7 @@ export interface WorkflowRunner {
 		runId: string,
 		from: WorkflowRunStatus,
 		to: WorkflowTerminalStatus,
-		outcome?: { result?: JsonValue; failureReason?: string | null },
+		outcome?: { result?: JsonValue; failureReason?: string | null; notified?: boolean },
 	): boolean;
 	markNotified(runId: string): boolean;
 	append(runId: string, row: WorkflowJournalRow): boolean;
@@ -107,6 +107,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 				status: to,
 				result: outcome.result ?? null,
 				failureReason: outcome.failureReason ?? null,
+				notified: outcome.notified ?? current.notified,
 				settledAt: ambient.now(),
 			};
 			try {

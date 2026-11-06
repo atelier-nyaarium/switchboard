@@ -35,6 +35,7 @@ import type { RunbookStage } from "./composeRunbooks.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
 import type { VaultStage } from "./composeVault.js";
+import type { WorkflowsStage } from "./composeWorkflows.js";
 import type { FederationContext } from "./federationContext.js";
 
 export interface RouterFramesStageDeps {
@@ -66,6 +67,7 @@ export interface RouterFramesStageDeps {
 		| "followPhoneHold"
 		| "phoneHoldLine"
 	>;
+	workflows: Pick<WorkflowsStage, "forgetSession">;
 }
 
 const HOME_READ_RETRY_MS = 10_000;
@@ -91,6 +93,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		// Named, because the routine stage forgets a finished run's session by the same steps an
 		// owner's forget takes. Written twice they would drift, and the copy nobody taps drifts first.
 		const dropSessionResume = (team: string, disposition: BoardDisposition): void => {
+			deps.workflows.forgetSession(team);
 			const released = context.slice()?.boardClient.sessionEnded(team, disposition);
 			if (released) fireAndForget(`board release for ${team}`, released);
 			sessions.presence.forget(team);

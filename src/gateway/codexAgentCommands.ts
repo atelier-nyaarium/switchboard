@@ -25,6 +25,8 @@ export type CodexDispatchResult =
 	| { kind: "committed"; transition: CodexTransitionResult; dispatched: boolean };
 
 export interface CodexAgentCommands {
+	resolveTarget(owner: SessionRecord): CodexExecutionTarget | null;
+	list(owner: SessionRecord): readonly CodexPersistedAgent[];
 	start(owner: SessionRecord, input: CodexStartCommandInput): CodexDispatchResult;
 	message(owner: SessionRecord, input: CodexMessageCommandInput): CodexDispatchResult;
 	stop(owner: SessionRecord, input: CodexStopCommandInput): CodexDispatchResult;
@@ -35,6 +37,7 @@ export interface CodexAgentCommands {
 	): { agent: CodexPersistedAgent | undefined; refusalReason?: string };
 	abandon(owner: SessionRecord, agentId: string, operationId: string, at: number): CodexPersistedAgent | undefined;
 	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement;
+	retagRun(owner: SessionRecord, agentId: string, fromRunId: string, toRunId: string, at: number): boolean;
 }
 
 export function createCodexAgentCommands(deps: {
@@ -55,6 +58,12 @@ export function createCodexAgentCommands(deps: {
 	}
 
 	return {
+		resolveTarget(owner) {
+			return deps.service.resolveExecutionTarget(owner);
+		},
+		list(owner) {
+			return deps.service.listOwnedAgents(owner);
+		},
 		start(owner, input) {
 			const agentId = codexAgentIdForOperation(input.operationId);
 			if (input.cwd !== undefined && !isHostSpawn(owner.spawn)) {
@@ -183,6 +192,9 @@ export function createCodexAgentCommands(deps: {
 		},
 		retire(owner, agentId) {
 			return deps.service.retire(owner, agentId);
+		},
+		retagRun(owner, agentId, fromRunId, toRunId, at) {
+			return deps.service.retagRunId(owner, agentId, fromRunId, toRunId, at);
 		},
 	};
 }
