@@ -69,7 +69,19 @@ A: The engine throws at registration, and the build fails. Shipped in `012a6019`
 
 ### Phase B status
 
-- Built, uncommitted: routes answer `accepted`, `agentAwareness.ts` watch and subscriber, bank `push`, `agent-notice.ts` shared wording, local `notify` and `acceptedAnswer`, newest-window activity retention, tool descriptions. Tests being updated by a Codex Luna agent.
+- Shipped: `424f00d3`, plugin 8.14.32. Needs a Gateway restart (the watch) and a host daemon restart (Codex full access) to go live; asked the owner.
+
+### Phase C design
+
+Slices, each committed on its own:
+
+1. **Harness on the record and the wire.** `SessionRecord.harness?: "claude" | "copilot"` (absent is Claude), persisted in the session-store snapshot; `create_session` takes an optional `harness`; the host create and wake ops carry it. A Copilot session mints its own UUID at create (`copilotSessionId`), launched with `--session-id` the first time and `--resume` after. The harness is fixed for the session's life.
+2. **Launch.** `buildLaunchCommand` builds `copilot --allow-all --no-ask-user [--session-id|--resume] <uuid>` with `AGENT_TYPE=copilot` exported beside `PROJECT_NAME` and the token, since `detectAgentType` picks Claude when both are installed. Windows: check how Copilot is installed on Mikan (`ssh mikan`) before choosing `copilot.exe` or the npm shim. No `--model`: Copilot's own default, unless the owner wants one.
+3. **Daemon readiness.** Answer Copilot's "Confirm folder trust" box with `1`, as the Claude trust prompt is answered.
+4. **Pane reader.** TS and Kotlin twins in `agent-screen` gain Copilot reads: working when the footer after the last rule shows `Working ... esc interrupt`; ready when the `❯` composer sits between rules; composer empty when nothing follows `❯`. Vectors from the captured frames.
+5. **Typed delivery.** The Gateway keeps the delivery queue as is. For a Copilot session, a pending row is handed to the host daemon instead of a socket: the daemon waits until the pane reads idle with an empty composer, pastes the rendered `<channel ...>` message with `tmux paste-buffer -p`, presses Enter, and the Gateway acknowledges the row. The rendering reuses `composeModelMessage`, so session id, sender, instructions, awareness and files read as they do for Claude. Progress notices are Claude-only, so the agent watch skips pushing `no_act` progress to a Copilot session; completions still go.
+6. **No handshake.** A Copilot session counts as confirmed without the `isMainOrLead` handshake; its first delivery carries the capability guidance.
+7. **Detection and the phone.** The daemon reports which CLIs each spawn point has (`claude`, `copilot`) on its spawn records; the phone's create dialog shows a Claude | Copilot pick above the project pick only when the chosen spawn point has both.
 
 ## Phase D - The walk
 
