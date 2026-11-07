@@ -37,7 +37,7 @@ function cancelOf(
 	};
 }
 
-/** Fake timers that run when the test says. */
+/** Controlled fake timers. */
 function manualTimers() {
 	const pending = new Map<number, { run: () => void; ms: number }>();
 	let nextId = 1;

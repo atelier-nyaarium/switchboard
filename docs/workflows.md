@@ -32,6 +32,73 @@ it uses the current phase. Checkups list the phases of running steps. Scripts re
 step answers `null`; `workflowCollect` shows each step's outcome and reason from the journal. A
 script that throws fails the run with the error's message.
 
+## Backends and outcomes
+
+`createWorkflowAgentDispatch` in `src/gateway/workflows/agentDispatch.ts` routes Codex and Copilot
+through the Gateway's delegated-agent commands. Codex uses its App Server session and turn protocol
+(`src/gateway/codexAgentCommands.ts`, `src/mcp/devcontainer/codexAppServer.ts`). Copilot uses
+`copilot --headless --stdio` and its JSON-RPC session protocol
+(`src/gateway/copilotAgentCommands.ts`, `src/mcp/devcontainer/copilotHeadless.ts`). Claude is
+workflow-only: `createClaudeSteps` in `src/gateway/workflows/claudeSteps.ts` asks the daemon to start
+one `claude -p` process per turn; a workflow thread resumes its stored Claude session id through
+`createClaudeRunner` in `src/mcp/devcontainer/claudeRunner.ts`. See `docs/agents.md` for the
+delegated-agent protocols.
+
+Finished answers pass through `answerOutcome` in `src/gateway/workflows/agentViews.ts`; failures and
+refusals use `failureOutcome` and `refusalOutcome` there. `answerOutcome` treats a completed text answer as a
+decline only when no schema was requested. A schema-backed answer is never a decline based on its
+answer text. The engine validates it, sends up to two correction turns, then records `invalid` if it
+still fails. A completed step returns its answer to the script. Other outcomes return `null`;
+`workflowCollect` shows each step's outcome and reason and the run's result. `settle` rows in the
+journal retain each step answer.
+
+| Outcome | Meaning |
+|---|---|
+| `completed` | The answer is available to the script. |
+| `invalid` | The answer failed schema validation after correction turns. |
+| `declined` | An unstructured answer matched the decline rules. |
+| `rejected` | The target or requested capability is not accepted. |
+| `unavailable` | The backend or required execution service is unavailable. |
+| `interrupted` | The turn was stopped or interrupted. |
+| `lost` | The agent turn was lost when its process ended. |
+| `failed` | The step failed for another reason. |
+
+## Journal and ownership
+
+`src/gateway/workflows/workflowSchemas.ts` defines the journal rows.
+`src/gateway/workflows/engine.ts` appends and replays them; `src/gateway/workflows/runner.ts` owns
+their durable storage.
+
+| Row | Purpose |
+|---|---|
+| `issue` | The call, selected backend, options and replay fingerprint. |
+| `turn` | One dispatch attempt, including its target and backend identifiers. |
+| `settle` | The step outcome, answer and reason; may include `threadMap`. |
+| `thread_map` | The latest agent or Claude session for a named thread. |
+| `skill_text` | Project instructions or skill text needed for replay. |
+
+A settled call carries its thread mapping on the `settle` row. A standalone `thread_map` row is
+written only when a Claude `sessionMissing` result switches a thread to a fresh session mid-step.
+`threadMapsOf` in `src/gateway/workflows/workflowSchemas.ts` reads both forms in journal order, so
+replay and `resumeFrom` recover the same thread.
+
+`createWorkflowAgentDispatch` in `src/gateway/workflows/agentDispatch.ts` coordinates backend dispatch
+and run cleanup.
+`createClaudeSteps` in `src/gateway/workflows/claudeSteps.ts` owns Claude turns, result acknowledgements
+and journal-derived cancellation retries. `createWorkflowPrompt` in
+`src/gateway/workflows/dispatchPrompt.ts` reads skills and project instructions.
+`src/gateway/workflows/dispatchCore.ts` exports turn, thread and host-failure helpers.
+`answerOutcome` and `failureOutcome` in `src/gateway/workflows/agentViews.ts` own shared outcome mapping.
+`createAgentFamilies` in `src/gateway/workflows/agentFamilies.ts` owns normalized Codex and Copilot
+operations; `createTerminalAgents` in `src/gateway/workflows/terminalAgents.ts` stops and retires
+agents after a run.
+
+`src/mcp/devcontainer/claudeRunner.ts` runs the CLI in the host daemon.
+`src/shared/host-op.ts` defines its run, cancel and result frames; `src/mcp/devcontainer/hostDaemon.ts`
+routes them. `agentTeams` in `src/gateway/compose/composeAwareness.ts` samples running agent turns
+and feeds `setAgentsRunningReader`; `snapshot` in `src/gateway/presence.ts` projects `teammates` for
+their owning sessions.
+
 ### Claude steps
 
 Claude steps run `claude -p` with `--safe-mode` and `--disable-slash-commands`. Switchboard appends
@@ -46,9 +113,14 @@ The daemon runs at most eight Claude turns at once. Further calls wait for a tic
 daemon restart interrupts open turns with reason `runner lost: the host daemon restarted`.
 
 Ending a run cancels its open Claude turns. A daemon restart also cancels interrupted turns while the
-run continues. The runner sends TERM, then tries KILL five seconds later. It acknowledges after a
-KILL attempt or when no process matches. The Gateway retries unacknowledged cancels each tick.
-Container turns use pidfiles; host orphans must match the turn tag. Gateway close cancels nothing.
+run continues. The Gateway derives cancel debt from journaled Claude turns. It retries unacknowledged
+cancels each tick and after daemon registration. The runner sends TERM, then tries KILL five seconds
+later. It acknowledges after a KILL attempt or when no process matches. Container turns use
+turn-tagged pidfiles; host orphan processes must match the turn tag. Gateway close cancels nothing.
+
+The runner keeps each result in its outbox until `claude_turn_ack`. The Gateway sends that ack only
+after a new recognized result's `claudeTurnResult` resolves at the settle write. Duplicate, terminal
+and unknown results are acknowledged without another settle.
 
 A missing CLI settles `unavailable`. An invalid target settles `failed`. `busy` waits for a tick.
 

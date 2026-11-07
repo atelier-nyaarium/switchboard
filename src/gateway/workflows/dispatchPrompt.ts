@@ -16,6 +16,7 @@ interface DispatchPromptDeps {
 	relayToHost: (op: HostOp) => Promise<HostOpResult>;
 }
 
+/** Owns workflow prompts. */
 export function createWorkflowPrompt(
 	deps: DispatchPromptDeps,
 	settle: (task: PendingCall, outcome: WorkflowDispatchOutcome) => void,

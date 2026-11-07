@@ -4,6 +4,7 @@ import type { WorkflowDispatchOutcome, WorkflowIssuedCall } from "./engine.js";
 import type { WorkflowRunner } from "./runner.js";
 import { threadMapsOf, type WorkflowJournalRow } from "./workflowSchemas.js";
 
+/** Shared workflow call state. */
 export interface PendingCall {
 	issued: WorkflowIssuedCall;
 	settle: (outcome: WorkflowDispatchOutcome) => void;
@@ -67,7 +68,7 @@ export function latestThreadMap(
 		.at(-1);
 }
 
-/** The mapping a thread call settles with. */
+/** Settled thread mapping. */
 export function threadMapRow(
 	task: PendingCall,
 	agentId: string,

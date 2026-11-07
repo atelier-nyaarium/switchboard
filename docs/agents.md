@@ -5,6 +5,21 @@ child per execution target; the gateway owns the durable record.
 
 `claude -p` is available as a workflow backend only. It is not a session agent.
 
+## Workflow backends
+
+Workflow Codex calls use the Codex App Server family; Copilot calls use its headless CLI family
+described below. Claude runs as a daemon-managed `claude -p` process for each turn; a named workflow
+thread resumes its Claude session id. `createClaudeSteps` in
+`src/gateway/workflows/claudeSteps.ts` owns Gateway turn handling, and `createClaudeRunner` in
+`src/mcp/devcontainer/claudeRunner.ts` owns process execution,
+cancellation and the result outbox.
+
+All three backends share `answerOutcome` and `failureOutcome` in
+`src/gateway/workflows/agentViews.ts`. A completed answer reaches the script; other outcomes return
+`null` and are available with their reasons through `workflowCollect`. Schema-backed completed
+answers are not classified as declines. The workflow journal, outcomes and recovery contract are in
+`docs/workflows.md`.
+
 ## Codex delegation
 
 **A fence is `(daemonInstanceId, targetId, generation, lastEventId)`.** Reconciliation is the only

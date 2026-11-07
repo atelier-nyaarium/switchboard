@@ -40,7 +40,7 @@ export function responseValue(text: string): JsonValue {
 	}
 }
 
-/** One reading of a finished answer, for every backend. A schema answer is never a decline. */
+/** Maps shared answer outcomes. */
 export function answerOutcome(answer: JsonValue | string, structured: boolean): WorkflowDispatchOutcome {
 	if (typeof answer !== "string") return { outcome: "completed", answer, reason: null };
 	if (!structured && DECLINE_TEXT.test(answer)) return { outcome: "declined", answer: null, reason: answer };

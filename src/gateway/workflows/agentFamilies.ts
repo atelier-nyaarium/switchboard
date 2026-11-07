@@ -25,6 +25,7 @@ export interface AgentFamilies {
 	familyOfAgent(owner: SessionRecord, agentId: string): "codex" | "copilot" | undefined;
 }
 
+/** Owns family agent views. */
 export function createAgentFamilies(deps: AgentFamilyDeps): AgentFamilies {
 	function snapshot(
 		owner: SessionRecord,

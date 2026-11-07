@@ -101,7 +101,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composePersistence.ts` - the flush every writer takes part in, and its tick
 - `src/gateway/compose/composeHost.ts` - the host socket, wake service, host relay, presence watch, and the typed pane wait
 - `src/gateway/compose/composeAgents.ts` - Codex and Copilot services, relays, and HTTP routes
-- `src/gateway/compose/composeAwareness.ts` - the awareness bank and its tick
+- `src/gateway/compose/composeAwareness.ts` - awareness bank and watches; five-second agent sampling dirties presence when the owner set changes
 - `src/gateway/compose/composeFederation.ts` - `buildSlice`, the Router client, and the share mirror's registration read and delta apply
 - `src/gateway/compose/composeEnrollment.ts` - the enrollment window, its TLS door, and the install
 - `src/gateway/compose/composeWebSockets.ts` - session sockets and held-delivery handover
@@ -127,7 +127,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     waited on for registration, which would otherwise hold the team for the whole wake timeout and
     refuse close and forget for that long.
 - `src/gateway/sessionAuthority.ts` - sole owner of credential-field access; residue-tested
-- `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - presence, read anchors, host RPC correlation
+- `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - session presence including running-agent `teammates`, read anchors, host RPC correlation
 - `src/shared/schemasPresence.ts` `DerivedPresenceSchema` - what the daemon derives from a pane, the `presence_derive` frame
   - **One schema, every road:** the daemon's state, the frame, the Gateway's parse, `TeamInfo`'s derived fields (`projectDerived`) and the one equality (`sameDerived`) all read it. A new field is a schema line, its derivation, and on the phone a `Presence` property that `reported` must fill to compile.
   - **A Copilot compaction is read from Copilot's own events file, never the pane:** `copilotCompaction.ts` follows `~/.copilot/session-state/<id>/events.jsonl` for each watch entry carrying a `copilotSessionId` (the Gateway puts the record's on `presence_watch`), and `PresenceScheduler.setOverlay` merges `compacting` into every report, so the phone needs nothing new. The pane's spinner line scrolls off in seconds while the compaction runs for a minute.
@@ -168,13 +168,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Call options:** `callOptions.ts` validates backend options, joins thread settings and fingerprints replay calls. Replay fingerprints omit `label` and `phase`.
   - **A script's syntax is QuickJS's call, never a scanner's:** `script.ts` cuts only the `export const meta` statement; the validator in `vm.ts` compiles the exact wrapper with `compileOnly` inside the synchronous start section, on one module loaded at engine start, so no lexer guesses whether a `/` starts a regex.
   - **Claude results settle before ack:** duplicate, terminal and unknown results are acked without another settle.
-  - **Claude turn rows use the reread daemon id:** the Gateway reads liveness after project instructions.
-- `src/gateway/workflows/agentDispatch.ts` - Codex and Copilot dispatch
-- `src/gateway/workflows/claudeSteps.ts` - Claude turns and cancellation
-- `src/gateway/workflows/dispatchPrompt.ts` - prompts and project instructions
-- `src/gateway/workflows/dispatchCore.ts` - journal helpers and host failures
-- `src/gateway/workflows/agentViews.ts` / `agentFamilies.ts` / `terminalAgents.ts` - agent views, families and terminal cleanup
-  - **Cancel acknowledgements follow KILL attempts or no match:** the runner retries failed container commands; the Gateway retries unacknowledged requests each tick. Pidfiles identify container turns and host orphans; host processes must match the turn tag. Gateway close sends no cancel.
+  - **Claude turn rows use a reread daemon id:** `attemptClaude` rereads liveness after host reads, before journaling.
+- `src/gateway/workflows/agentDispatch.ts` - `createWorkflowAgentDispatch`, shared dispatch and run cleanup
+- `src/gateway/workflows/claudeSteps.ts` - `createClaudeSteps`, Claude turns and journal-derived cancel retries
+- `src/gateway/workflows/dispatchPrompt.ts` - `createWorkflowPrompt`, skills and project instructions
+- `src/gateway/workflows/dispatchCore.ts` - call state, journal helpers, host-failure mapping
+- `src/gateway/workflows/agentViews.ts` / `agentFamilies.ts` / `terminalAgents.ts` - outcomes and views; family operations; terminal cleanup
+  - **Cancel acknowledgements follow KILL attempts or no match:** the runner retries failed kill attempts; the Gateway retries unacknowledged requests each tick. Pidfiles identify container turns and host orphans; host orphan kills check the turn tag. Gateway close sends no cancel.
 - `src/gateway/routines/memory.ts` - what a routine remembers between runs, keyed by its incarnation
   - **The incarnation, not the id:** minted once and carried across edits, so memory survives a
     rename and dies with the routine. An id reused after a delete gets a new one, which is what stops
@@ -742,7 +742,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/windowsSpawn.ts` - Windows PowerShell probing, WSL path translation, and native directory listing
 - `src/mcp/devcontainer/buildTranscript.ts` - latest `devcontainer up` transcript and pane-less terminal fallback
 - `src/mcp/devcontainer/codexTargets.ts` - one supervised Codex App Server per execution target
-- `src/mcp/devcontainer/claudeRunner.ts` - isolated `claude -p` turns, cancellation and result outbox
+- `src/mcp/devcontainer/claudeRunner.ts` - `claude -p`, pidfiles, TERM/KILL cancellation state, replayable result outbox
 - `src/mcp/devcontainer/codexAppServer.ts` - JSONL transport and fail-closed App Server client
 - `src/mcp/devcontainer/copilotHeadless.ts` - Content-Length JSON-RPC transport, the headless Copilot client (protocol version 3, allow-all mode at create) and `HeadlessTurn`, the one fold of a turn's events for the daemon and the local backend
 - `src/mcp/devcontainer/codexThreadLifecycle.ts` - one queue per thread record, so a record `started()` replaces gets a fresh one; settled-turn archival; bounded retirement

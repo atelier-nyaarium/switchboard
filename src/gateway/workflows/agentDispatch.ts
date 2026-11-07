@@ -47,6 +47,7 @@ export interface WorkflowAgentDispatch {
 	retagThread(input: { team: string; agentId: string; fromRunId: string; toRunId: string }): boolean;
 }
 
+/** Owns workflow dispatch. */
 export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): WorkflowAgentDispatch {
 	const pending = new Map<string, PendingCall>();
 	let stopped = false;

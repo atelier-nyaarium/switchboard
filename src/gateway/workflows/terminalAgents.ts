@@ -18,6 +18,7 @@ interface TerminalAgentDeps {
 	copilotRelay: CopilotRelay;
 }
 
+/** Owns terminal cleanup. */
 export function createTerminalAgents(
 	deps: TerminalAgentDeps,
 	families: AgentFamilies,

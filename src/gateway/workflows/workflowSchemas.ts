@@ -203,7 +203,7 @@ export const WorkflowJournalRowSchema = z.union([
 	WorkflowSkillTextRowSchema,
 ]);
 
-/** Thread mappings in journal order, standalone or on a settle. */
+/** Ordered thread mappings. */
 export function threadMapsOf(rows: readonly WorkflowJournalRow[]): Array<z.infer<typeof WorkflowThreadMapRowSchema>> {
 	return rows.flatMap((row) =>
 		row.kind === "thread_map" ? [row] : row.kind === "settle" && row.threadMap ? [row.threadMap] : [],

@@ -50,6 +50,7 @@ interface ClaudeStepsContext {
 	) => Promise<{ text: string | null } | null>;
 }
 
+/** Owns Claude turn lifecycle. */
 export function createClaudeSteps(ctx: ClaudeStepsContext) {
 	const { deps, pending, isStopped, settle, attempt, composePrompt, projectInstructions } = ctx;
 	const claudeWaiters = new Map<string, Set<{ resolve: () => void; reject: (error: Error) => void }>>();

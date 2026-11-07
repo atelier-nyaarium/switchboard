@@ -324,6 +324,7 @@ function hostSignalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 	child.kill(signal);
 }
 
+/** Owns Claude process runs. */
 export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 	const env = deps.env ?? process.env;
 	const spawnChild = deps.spawn ?? ((command, args, options) => spawn(command, args, options));
