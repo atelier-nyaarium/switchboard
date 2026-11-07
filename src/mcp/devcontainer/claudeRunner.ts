@@ -29,6 +29,11 @@ const ORPHAN_KILL_ATTEMPTS = 6;
 /** Tags a run's environment with its turn. */
 const TURN_ENV = "SWITCHBOARD_CLAUDE_TURN";
 
+/** The wrapper's exit when its pidfile could not be written; it stopped the run first. */
+const UNRECORDED_EXIT = 97;
+
+const UNRECORDED_REASON = "claude run could not be recorded for cancel, so it was stopped";
+
 // In the container, so a cancel can reach claude after the docker exec client is gone. setsid gives
 // the run its own process group, whose id the pidfile holds.
 const CONTAINER_WRAPPER = `
@@ -38,7 +43,11 @@ shift 2
 exec 3<&0
 if command -v setsid >/dev/null 2>&1; then setsid "$@" <&3 & else "$@" <&3 & fi
 child=$!
-printf %s "$child" >"$pidfile"
+if ! printf %s "$child" >"$pidfile"; then
+	kill -s KILL -- "-$child" 2>/dev/null || kill -KILL "-$child" 2>/dev/null || kill -s KILL "$child" 2>/dev/null
+	wait "$child" 2>/dev/null
+	exit ${UNRECORDED_EXIT}
+fi
 wait "$child"
 status=$?
 rm -f "$pidfile"
@@ -247,6 +256,8 @@ function resultFrame(
 			reason,
 		});
 	if (stoppedBecause !== undefined) return frame("failed", null, stoppedBecause);
+	if (input.target.kind === "devcontainer" && code === UNRECORDED_EXIT)
+		return frame("failed", null, UNRECORDED_REASON);
 	if (cancelled) return frame("cancelled", null, "cancelled");
 	const parsed = jsonObjects(stdout).at(-1);
 	const result = parsed?.type === "result" ? parsed : undefined;
@@ -497,7 +508,7 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 			active.set(key, turn);
 			// Without a pidfile a restarted daemon could never stop it.
 			if (input.target.kind === "host" && !writeHostPidfile(input.turnId, child.pid)) {
-				turn.stoppedBecause = "claude run could not be recorded for cancel, so it was stopped";
+				turn.stoppedBecause = UNRECORDED_REASON;
 				signalGroup(child, "SIGKILL");
 			}
 			child.stdin?.on("error", () => {});

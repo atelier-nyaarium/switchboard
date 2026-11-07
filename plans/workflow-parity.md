@@ -305,6 +305,15 @@ Recommended because it halves the tool definitions every session carries, and gi
 
 ## Phase 3 - claude -p steps
 
+### Bug Classes
+
+- **Mechanism:** cancelling a `claude -p` turn (dispatcher cancel set, daemon runner, container kill). **Defect class:** a cancel is counted as done while the run may still be alive, so a cancelled workflow keeps a full-access agent running.
+  - Round 1: the cancel set came from in-memory "accepted" state, so a lost accept reply or a lost cancel was never retried; the container cancel killed only the `docker exec` client. Fixed by reading the set from the journal, retrying until the daemon answers, and a pidfile wrapper that signals the group inside the container.
+  - Round 2: an active container cancel answered before the in-container kill did; the orphan check matched the session id a resumed thread reuses. Fixed by awaiting the kill's three-way answer and tagging each run's environment with its turn id.
+  - Round 3: a host pidfile write could fail silently; an unanswered KILL after a TERM was never retried. Fixed by stopping a run that cannot be recorded and re-asking a failed KILL.
+  - Round 4: the container wrapper's pidfile write could fail the same way (a full or read-only `/tmp`). Fixed by the wrapper killing its run's group and exiting 97, which the runner reports as a failed step.
+  - The shape now: the daemon answers `signaled`, `absent` or an error, and only `signaled` or `absent` ends the Gateway's asking. Every path that could leave a run unrecorded stops it instead.
+
 - **Runner:** a short-lived `spawnOnce(target, argv, env)` in the daemon, reusing `scrubChildEnv`, the `docker exec` argument builder and the stderr classifier. `bypassPermissions`, `--safe-mode`, `--disable-slash-commands`, `--append-system-prompt`, `--model`, `--effort`, `--json-schema`, `--output-format json`, the prompt over stdin.
 - **Isolation:** `--safe-mode` disables CLAUDE.md, plugins, hooks, MCP servers, custom commands and agents, and `--disable-slash-commands` drops the bundled skills, while auth and built-in tools work.
 - **Project instructions (Q11):** the step's project `AGENTS.md`, else `CLAUDE.md`, read where the step runs through the skills host read, stored once per run by sha256 like skill text, and passed with `--append-system-prompt` on every turn, resumes included. A missing file appends nothing. Replay uses the journaled text.
@@ -323,7 +332,7 @@ Recommended because it halves the tool definitions every session carries, and gi
   - A terminal run's cancels are read from the journal (the latest Claude turn of each issue with no settle or an interrupted one), retried every tick until the live daemon answers, and asked again of a new daemon instance. Gateway close cancels nothing.
   - A container run starts under a `setsid` wrapper that writes its process group to a pidfile inside the container; a cancel signals that group there, since killing the `docker exec` client leaves it running. A host run writes a pidfile too, for a restarted daemon. A signal goes only to a process whose environment carries `SWITCHBOARD_CLAUDE_TURN` for that turn. The daemon answers an error when a container run could not be signaled, so the Gateway asks again.
   - Turn ids use a bounded filename-safe form; cancel carries the execution target.
-  - A host run whose pidfile cannot be written is stopped at once and fails its step, so every accepted host run can be cancelled after a daemon restart. A KILL that goes unanswered is asked again: while an active run lives, and a bounded number of times for an orphan.
+  - A host or container run whose pidfile cannot be written is stopped at once and fails its step (the container wrapper exits 97), so every accepted host run can be cancelled after a daemon restart. A KILL that goes unanswered is asked again: while an active run lives, and a bounded number of times for an orphan.
   - `resumeFrom` copies a claude call's journaled `AGENTS.md` or `CLAUDE.md` row with its skills, so an adopted thread resumes with the same instructions appended.
   - The isolation test uses stream-json to inspect the init event; production keeps json output. It makes a model call on the owner's login, so it runs only with `SWITCHBOARD_CLAUDE_LIVE=1`; it passed live once (`AGENTS.md` canary, no skills or MCP servers, no hook).
 

@@ -435,6 +435,15 @@ describe("Claude runner lifecycle", () => {
 		expect(h.sent[0]).toMatchObject({ outcome: "failed", reason: expect.stringMatching(/could not be recorded/) });
 	});
 
+	it("fails a container turn whose wrapper could not write its pidfile and stopped it", async () => {
+		const h = harness();
+		h.runner.start(input({ target: CONTAINER_TARGET }));
+		const run = h.children[0];
+		if (!run) throw new Error("missing fake child");
+		await finish(run, "", "", 97);
+		expect(h.sent[0]).toMatchObject({ outcome: "failed", reason: expect.stringMatching(/could not be recorded/) });
+	});
+
 	it("asks the container again when a KILL goes unanswered", async () => {
 		const clock = manualTimers();
 		const h = harness(clock);
