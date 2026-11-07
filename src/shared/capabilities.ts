@@ -56,23 +56,21 @@ You are the triage gate for what an agent says and does. A confident tone is not
 
 ## Driving Agents From a Workflow
 
-To keep your context free of clutter, it's recommended to use Workflows.
+To keep your context free of clutter, run fan-outs as a Switchboard \`workflowStart\` script. Each step goes to the agent directly, with no relay.
 
-Code editing or fan-outs run on an agent: Audits, assessments, adversarial second reads.
+Research is the exception, web research especially. It stays on Opus in Claude's own Workflow.
 
-Research is the exception, web research especially. It stays on Opus.
-
-Choose model depending on task:
-- Haiku relays verbatim to the agent. Or Sonnet if you want to remove a whole report phase.
-- Sonnet collates, Opus decides.
+Choose backend per step:
+- \`codex\` (Luna) for audits, assessments, edits and adversarial second reads.
+- \`claude\` with \`model: "sonnet"\` to collate, \`model: "opus"\` to decide.
 
 Single Iterative Phase Style:
-- Iterative fix until pass (Sonnet working with agents) and report
+- Iterative fix until pass (Luna steps) and report
 
 Fan Out ► Join Style
-- Research (Opuses) ► Rank Sort (Opus or Sonnet)
-- Audits (Haikus verbatim agents) ► Synthesize (Opus)
-- Assessments (Haikus verbatim agents) ► Synthesize (Opus)
+- Research (Opuses in Claude's Workflow) ► Rank Sort (Opus or Sonnet)
+- Audits (Luna steps) ► Synthesize (Opus step)
+- Assessments (Luna steps) ► Synthesize (Opus step)
 
 ## Recovery
 
