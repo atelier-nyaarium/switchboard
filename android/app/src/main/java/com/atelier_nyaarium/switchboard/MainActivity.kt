@@ -195,7 +195,7 @@ fun App(
 	val bootState by repo.bootState.collectAsState()
 	val missingBoot = bootState as? BootState.Missing
 	val context = LocalContext.current
-	val activity = context as? FragmentActivity
+	val activity = context.fragmentActivity()
 	var nav by rememberSaveable(stateSaver = ShellNavSaver) { mutableStateOf(ShellNav()) }
 	val openTeam = nav.conversation?.team
 	// Composition mirror; store persists.

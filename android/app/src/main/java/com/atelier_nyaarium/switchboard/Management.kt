@@ -43,7 +43,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.proto.ConsoleApprovalJoin
 import kotlinx.coroutines.delay
@@ -192,7 +191,7 @@ fun GatewaysScreen(
 ) {
 	val scope = rememberCoroutineScope()
 	val context = LocalContext.current
-	val activity = context as? FragmentActivity
+	val activity = context.fragmentActivity()
 	// Re-read after a revoke, a resume, or a cleared record so the list reflects the change.
 	var refresh by remember { mutableStateOf(0) }
 	var busyId by remember { mutableStateOf<String?>(null) }
@@ -315,7 +314,7 @@ fun GatewaysScreen(
 @Composable
 fun AddGatewayScreen(repo: ChatRepository, onBack: () -> Unit, onDone: () -> Unit) {
 	val scope = rememberCoroutineScope()
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	val context = LocalContext.current
 	var scanning by remember { mutableStateOf(false) }
 	var scanned by remember { mutableStateOf<ScannedGateway?>(null) }
@@ -425,7 +424,7 @@ fun AddGatewayScreen(repo: ChatRepository, onBack: () -> Unit, onDone: () -> Uni
 @Composable
 fun YourDevicesScreen(repo: ChatRepository, onBack: () -> Unit, onAddDevice: () -> Unit) {
 	val scope = rememberCoroutineScope()
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	// Re-read after a revoke so the removed device drops off the list.
 	var refresh by remember { mutableStateOf(0) }
 	val devices = remember(refresh) { repo.ownerFacts.admittedMembers().filter { it.kind == "console" } }
@@ -479,7 +478,7 @@ fun YourDevicesScreen(repo: ChatRepository, onBack: () -> Unit, onAddDevice: () 
 @Composable
 fun ApprovalWindowScreen(repo: ChatRepository, onBack: () -> Unit) {
 	val scope = rememberCoroutineScope()
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	var armed by remember { mutableStateOf<DeviceApprovalArmed?>(null) }
 	var join by remember { mutableStateOf<ConsoleApprovalJoin?>(null) }
 	var status by remember { mutableStateOf("Starting...") }

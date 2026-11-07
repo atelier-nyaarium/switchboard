@@ -36,12 +36,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.PasswordSource
 import com.atelier_nyaarium.switchboard.SetupRun
@@ -51,6 +49,7 @@ import com.atelier_nyaarium.switchboard.WifiLine
 import com.atelier_nyaarium.switchboard.defaultSource
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.homeRows
+import com.atelier_nyaarium.switchboard.hostActivity
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.scrollThumb
 import com.atelier_nyaarium.switchboard.setupPassword
@@ -108,7 +107,7 @@ private fun Waiting(line: String) {
 @Composable
 private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 	val plug = run.plug ?: return
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	val scope = rememberCoroutineScope()
 	var name by rememberSaveable(plug.mac) { mutableStateOf(run.name.orEmpty()) }
 	val memory = remember { repo.plugSetupOps.memory() }

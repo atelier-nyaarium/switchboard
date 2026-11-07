@@ -30,9 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.plugins.PluginManager
 import kotlinx.coroutines.launch
 
@@ -169,7 +167,7 @@ internal fun NetworksSettings(
 @Composable
 internal fun DomainDangerSection(repo: ChatRepository, onClear: () -> Unit) {
 	val scope = rememberCoroutineScope()
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	var confirmDelete by remember { mutableStateOf(false) }
 	var deleting by remember { mutableStateOf(false) }
 	var deleteError by remember { mutableStateOf<String?>(null) }
@@ -418,7 +416,7 @@ internal fun RouterEndpointCard(repo: ChatRepository) {
 @Composable
 internal fun SecuritySettings(state: ChatState, repo: ChatRepository, onToggleBiometric: (Boolean) -> Unit) {
 	val scope = rememberCoroutineScope()
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 		Text("Biometric lock", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
 		// Disabling the lock requires owner presence.

@@ -1,11 +1,23 @@
 package com.atelier_nyaarium.switchboard
 
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+
+/** Through wrappers; a dialog's context is one. */
+fun Context.fragmentActivity(): FragmentActivity? =
+	generateSequence(this) { (it as? ContextWrapper)?.baseContext }.firstNotNullOfOrNull { it as? FragmentActivity }
+
+/** The activity a prompt shows on. */
+@Composable
+fun hostActivity(): FragmentActivity? = LocalContext.current.fragmentActivity()
 
 private const val AUTHENTICATORS =
 	BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL

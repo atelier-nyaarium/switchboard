@@ -37,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -45,10 +44,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.hostActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -96,7 +95,7 @@ fun VaultRequestCard(
 	exits: VaultPromptExits? = null,
 ) {
 	val requestId = request.requestId
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	val scope = rememberCoroutineScope()
 	val revision by repo.vault.revision
 	val entry = remember(revision, request.entryId) { request.entryId?.let { repo.vaultOps.view(it) } }

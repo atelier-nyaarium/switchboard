@@ -367,6 +367,14 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				showVaultPrompt(repo, repo.vault.pending.value.firstOrNull { it.requestId == requestId })
 			}
 		}
+		// Swiped away while still pending: post it again.
+		val vaultOn = { com.atelier_nyaarium.switchboard.plugins.Plugins.get(this).isActive("vault") }
+		if (intent?.action == ACTION_VAULT_REPOST && vaultOn()) {
+			intent.getStringExtra(EXTRA_VAULT_REQUEST)?.let { requestId ->
+				val repo = Repo.get(this)
+				repo.vault.pending.value.firstOrNull { it.requestId == requestId }?.let { notifications.notifyVaultRequest(repo, it, silent = true) }
+			}
+		}
 		return START_STICKY
 	}
 
@@ -584,6 +592,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		const val EXTRA_ASSISTANT_ACT_REQUEST = "assistant_act_request"
 		const val EXTRA_ASSISTANT_ACT_GATEWAY = "assistant_act_gateway"
 		const val ACTION_VAULT_REOPEN = "com.atelier_nyaarium.switchboard.VAULT_REOPEN"
+		const val ACTION_VAULT_REPOST = "com.atelier_nyaarium.switchboard.VAULT_REPOST"
 
 		/** Its own request code, so the queue's PendingIntent cannot collapse into a team's. */
 		private const val REQUEST_OPEN_QUEUE = 4272

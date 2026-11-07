@@ -448,11 +448,24 @@ internal class ServiceNotifications(private val context: Context) {
 		)
 	}
 
+	/** Posted again on a swipe; Android 14+ lets one clear an ongoing row. */
+	private fun vaultRepostIntent(pending: VaultPendingRequest): PendingIntent {
+		val intent = Intent(context, SwitchboardService::class.java)
+			.setAction(SwitchboardService.ACTION_VAULT_REPOST)
+			.putExtra(EXTRA_VAULT_REQUEST, pending.requestId)
+		return PendingIntent.getService(
+			context,
+			pending.requestId.hashCode() xor SwitchboardService.ACTION_VAULT_REPOST.hashCode(),
+			intent,
+			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+		)
+	}
+
 	/**
-	 * Tap opens the sheet, where every answer lives. It cannot be swiped away, because brushing past
+	 * Tap opens the sheet, where every answer lives. A swipe posts it again, because brushing past
 	 * one while busy used to deny it outright. Only an answer or the deadline ends a request.
 	 */
-	internal fun notifyVaultRequest(repo: ChatRepository, pending: VaultPendingRequest) {
+	internal fun notifyVaultRequest(repo: ChatRepository, pending: VaultPendingRequest, silent: Boolean = false) {
 		if (!repo.phoneHoldOps.alerts(true, repo.isVisible)) {
 			NotificationManagerCompat.from(context).cancel(vaultNotificationId(pending.requestId))
 			return
@@ -472,6 +485,8 @@ internal class ServiceNotifications(private val context: Context) {
 			.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
 			.setPublicVersion(publicVersion)
 			.setOngoing(true)
+			.setSilent(silent)
+			.setDeleteIntent(vaultRepostIntent(pending))
 			.setContentIntent(vaultContentIntent(pending))
 		NotificationManagerCompat.from(context).notify(vaultNotificationId(pending.requestId), builder.build())
 	}

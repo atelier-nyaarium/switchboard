@@ -27,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -35,10 +34,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.hostActivity
 import kotlinx.coroutines.launch
 
 /** One entry as a modal; a null id composes one. An unrevealed value stays sealed through Save. */
@@ -55,7 +54,7 @@ fun VaultEntryDialog(
 	// An entry deleted elsewhere closes the editor after this frame.
 	LaunchedEffect(gone) { if (gone) onClose() }
 	if (gone) return
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	val scope = rememberCoroutineScope()
 	var publicTitle by remember(entryId) { mutableStateOf(existing?.publicTitle.orEmpty()) }
 	var publicDescription by remember(entryId) { mutableStateOf(existing?.publicDescription.orEmpty()) }

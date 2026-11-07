@@ -24,13 +24,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.hostActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -40,7 +39,7 @@ fun AssistantActSheet(repo: ChatRepository, gatewayId: String, requestId: String
 	val request = pending.firstOrNull { it.gatewayId == gatewayId && it.request.requestId == requestId }
 	LaunchedEffect(request == null) { if (request == null) onClose() }
 	if (request == null) return
-	val activity = LocalContext.current as? FragmentActivity
+	val activity = hostActivity()
 	val scope = rememberCoroutineScope()
 	var steering by remember(gatewayId, requestId) { mutableStateOf(false) }
 	var note by remember(gatewayId, requestId) { mutableStateOf("") }

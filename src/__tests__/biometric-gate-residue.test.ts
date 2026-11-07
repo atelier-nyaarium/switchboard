@@ -46,4 +46,15 @@ describe("biometric gate residue", () => {
 			}
 		}
 	});
+
+	// A dialog's context wraps the activity, so a bare cast answers null and the gate denies silently.
+	it("finds the activity through fragmentActivity, never a bare cast", () => {
+		for (const file of kotlinFiles(KOTLIN_DIR)) {
+			if (file === "Biometric.kt") continue;
+			const content = fs.readFileSync(path.join(KOTLIN_DIR, file), "utf8");
+			expect(content, `${file} must use hostActivity() or fragmentActivity()`).not.toMatch(
+				/as\?\s*FragmentActivity\b/,
+			);
+		}
+	});
 });
