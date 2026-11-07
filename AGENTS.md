@@ -674,14 +674,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     nothing about the module Lexicon answers with, so the fields come off the schemas rather than a hand
     list, and a field added later is covered without anyone remembering. A write refuses as a failure,
     never as a refusal, since a refusal tells the phone nothing was written.
-- `src/mcp/workspace/highlight.ts` - the fixed highlight.js language set, the strict HTML-to-triples parser, and `CODE_TOKENS`; `tests/fixtures/code-spans/vectors.json` pins it
-  - **The HTML never leaves the plugin:** anything but a known span class, `</span>` and five entities is
-    refused rather than guessed. `bun run build` fails if the bundle carries the full language set, by
-    name AND by weight: a sentinel reads a spelling, `MAX_PLUGIN_BUNDLE_BYTES` reads the bytes, so bulk
-    carried under another spelling still shows.
-  - **A registered grammar nothing maps to is dead weight and a silent hole:** `GRAMMAR_OF` is the only
-    road from a Lexicon language to a grammar, and `css` sat registered and unreachable through it.
-    `workspace-highlight.test.ts` walks every registered grammar rather than trusting the table.
+- `src/mcp/workspace/paint.ts` - code spans painted from Lexicon's own facts (declaration kinds, reference roles, literal kinds) onto `CODE_TOKENS`, with no second parser; `tests/fixtures/code-spans/vectors.json` pins the tokens
+  - **No grammar ships in the plugin:** paint reads Lexicon's facts, so a highlighter's language set cannot be bundled by mistake, and the bundle has no size ceiling.
   - **A file write is plain file work, never Lexicon:** `writeOf` compares the sha256 of the bytes on disk,
     fills a sibling temp through `writeFileAtomic`, hashes the file again, confines the resolved path again,
     and renames. The gap between that hash and the rename is not closed, and the rename gives the path a new

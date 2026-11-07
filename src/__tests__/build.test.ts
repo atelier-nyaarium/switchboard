@@ -7,9 +7,7 @@ import {
 	checkDerivedSites,
 	dirtyTrackedFiles,
 	ENTRYPOINTS,
-	MAX_PLUGIN_BUNDLE_BYTES,
 	nextVersion,
-	overBundleCeiling,
 	readVersion,
 	setVersion,
 	versionTargets,
@@ -26,29 +24,8 @@ afterAll(() => {
 	for (const at of bundles.splice(0)) fs.rmSync(at, { recursive: true, force: true });
 });
 
-/** Same flags as the release build. */
-function bundleBytes(entry: string): number {
-	const outdir = fs.mkdtempSync(path.join(os.tmpdir(), "bundle-"));
-	bundles.push(outdir);
-	execFileSync("bun", ["build", entry, "--outdir", outdir, "--target", "node", "--minify", "--format", "esm"], {
-		cwd: ROOT,
-		stdio: "ignore",
-	});
-	const [written] = fs.readdirSync(outdir);
-	return fs.statSync(path.join(outdir, written as string)).size;
-}
-
 ////////////////////////////////
 //  Tests
-
-describe("the plugin bundle ceiling", () => {
-	it("passes the bundle the release writes, with headroom for growth", () => {
-		const plugin = bundleBytes(path.join("src", "main-mcp.ts"));
-
-		expect(overBundleCeiling(plugin)).toBeNull();
-		expect(plugin).toBeLessThan(MAX_PLUGIN_BUNDLE_BYTES * 0.95);
-	});
-});
 
 describe("the plugin's hooks", () => {
 	it("run the compact hook from a bundle the release builds", () => {
