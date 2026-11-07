@@ -129,6 +129,83 @@ describe("workflow steps through the federation harness", () => {
 		]);
 	});
 
+	it("runs two Claude steps with one workflow notice", async () => {
+		h.host.handlers.onClaudeRun = (op) => ({ answer: op.prompt.includes("second") ? "two" : "one" });
+		const run = startRun(
+			`export const meta = {}; const first = await agent("first"); const second = await agent("second"); return [first, second];`,
+			{ defaultBackend: "claude" },
+		);
+		const record = await waitForStatus(run.runId, "succeeded");
+		expect(record.result).toEqual(["one", "two"]);
+		const settleNotice = () =>
+			session.inbound.find(
+				(frame) =>
+					JSON.stringify(frame.awareness ?? {}).includes(run.runId) &&
+					JSON.stringify(frame.awareness ?? {}).includes("act_now"),
+			);
+		for (let attempt = 0; attempt < 65 && !settleNotice(); attempt += 1) await h.ambient.advance(1_000);
+		await waitFor(() => settleNotice(), "Claude settle notice");
+		const chain = session.inbound.filter((frame) => JSON.stringify(frame.awareness ?? {}).includes(run.runId));
+		expect(chain).toHaveLength(1);
+		expect(chain.filter((frame) => JSON.stringify(frame.awareness ?? {}).includes("act_now"))).toHaveLength(1);
+		expect(chain.some((frame) => JSON.stringify(frame.awareness ?? {}).includes("Claude agent"))).toBe(false);
+		expect(h.gateway.faults.workflowRecord(run.runId)?.notified).toBe(true);
+	});
+
+	it("resumes a Claude thread session on its second step", async () => {
+		const run = startRun(
+			`export const meta = {}; await agent("first", {thread: "implementer"}); await agent("second", {thread: "implementer"}); return true;`,
+			{ defaultBackend: "claude" },
+		);
+		await waitForStatus(run.runId, "succeeded");
+		expect(h.host.claudeRuns).toHaveLength(2);
+		expect(h.host.claudeRuns[1]?.sessionId).toBe(h.host.claudeRuns[0]?.sessionId);
+		expect(h.host.claudeRuns.map(({ resume }) => resume)).toEqual([false, true]);
+	});
+
+	it("journals and acknowledges a Claude result after the session goes offline", async () => {
+		let runId = "";
+		let settlesAtAck = 0;
+		h.host.handlers.onClaudeRun = () => ({ answer: { ok: true }, delayMs: 50 });
+		h.host.handlers.onClaudeAck = () => {
+			settlesAtAck = h.gateway.faults.workflowRows(runId).filter((row) => row.kind === "settle").length;
+		};
+		const run = startRun(`export const meta = {}; return await agent("offline result");`, {
+			defaultBackend: "claude",
+		});
+		runId = run.runId;
+		await waitFor(() => (h.host.claudeRuns.length === 1 ? true : undefined), "Claude turn accepted");
+		session.close();
+		const record = await waitForStatus(run.runId, "succeeded");
+		await waitFor(() => (h.host.claudeAcks.length === 1 ? true : undefined), "Claude result ack");
+		expect(record.result).toEqual({ ok: true });
+		expect(settlesAtAck).toBe(1);
+		expect(h.gateway.faults.workflowRows(run.runId)).toContainEqual(
+			expect.objectContaining({ kind: "settle", issueOrdinal: 1, outcome: "completed" }),
+		);
+	});
+
+	it("settles a Claude step lost to a daemon restart as interrupted", async () => {
+		h.host.handlers.onClaudeRun = () => ({ answer: "late", delayMs: 100 });
+		const run = startRun(`export const meta = {}; return await agent("held turn");`, {
+			defaultBackend: "claude",
+		});
+		const oldDaemonId = h.host.daemon.daemonInstanceId;
+		await waitFor(() => (h.host.claudeRuns.length === 1 ? true : undefined), "Claude turn accepted");
+		h.restartHost({ newDaemon: true });
+		const record = await waitForStatus(run.runId, "succeeded");
+		expect(record.result).toBeNull();
+		expect(h.host.daemon.daemonInstanceId).not.toBe(oldDaemonId);
+		expect(h.gateway.faults.workflowRows(run.runId)).toContainEqual(
+			expect.objectContaining({
+				kind: "settle",
+				issueOrdinal: 1,
+				outcome: "interrupted",
+				reason: "runner lost: the host daemon restarted",
+			}),
+		);
+	});
+
 	it("serves authenticated owner-scoped workflow start, collect, list and stop routes", async () => {
 		const operationId = randomUUID();
 		const body = { operationId, script: `export const meta = {}; return {ok: true};` };

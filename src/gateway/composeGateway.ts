@@ -32,7 +32,6 @@ import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflow
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
 import { routineOwns } from "./routines/reservation.js";
-import { createWorkflowAgentDispatch } from "./workflows/agentDispatch.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
 export type {
@@ -184,20 +183,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		ambient: bootstrap.ambient,
 		onChanged: () => sessions.presence.markDirty(),
 		buildDispatch: (runner) => {
-			const dispatch = createWorkflowAgentDispatch({
-				sessionStore: sessions.sessionStore,
-				ambient: bootstrap.ambient,
-				runner,
-				readLiveness: host.readLiveness,
-				relayToHost: host.relayToHost,
-				codex: agents.codexCommands,
-				copilot: agents.copilotCommands,
-				codexRelay: agents.codexRelay,
-				copilotRelay: agents.copilotRelay,
-			});
+			const dispatch = agents.createWorkflowDispatch(runner);
 			return {
 				port: dispatch.port,
 				retireRun: dispatch.retireRun,
+				claudeTurnResult: dispatch.claudeTurnResult,
 				inspectThread: dispatch.inspectThread,
 				retagThread: dispatch.retagThread,
 			};

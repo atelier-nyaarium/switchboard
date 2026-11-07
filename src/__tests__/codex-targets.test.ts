@@ -84,6 +84,7 @@ describe("child environment", () => {
 		expect(
 			containerEnvArgs({ CODEX_AGENT_MODEL: "gpt-6-luna", PATH: "/usr/bin", HOST_WS_TOKEN: "secret" }, "CODEX_"),
 		).toEqual(["-e", "CODEX_AGENT_MODEL=gpt-6-luna"]);
+		expect(containerEnvArgs({ PATH: "/usr/bin", HOST_WS_TOKEN: "secret" }, "")).toEqual([]);
 	});
 });
 

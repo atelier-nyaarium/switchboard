@@ -24,13 +24,34 @@ the Gateway boots, while the compiler loads.
 
 ## Script API
 
-`agent(prompt, options)` runs a Codex or Copilot step. Options are `backend`, `model`, `effort`
-(Copilot), `tier` (Codex), `thread`, `skills`, `schema`, `label` and `phase`. `thread` reuses an
-agent and queues calls for that thread. `parallel`, `pipeline`, `phase`, `log`, `args` and `label`
-follow Workflow semantics. A call's `phase` selects a declared phase; otherwise it uses the current
-phase. Checkups list the phases of running steps. Scripts return JSON. A failed step answers
-`null`; `workflowCollect` shows each step's outcome and reason from the journal. A script that
-throws fails the run with the error's message.
+`agent(prompt, options)` runs a Codex, Copilot or Claude step. Options are `backend`, `model`,
+`effort` (Copilot and Claude), `tier` (Codex), `thread`, `skills`, `schema`, `label` and `phase`.
+`thread` reuses an agent and queues calls for that thread. `parallel`, `pipeline`, `phase`, `log`,
+`args` and `label` follow Workflow semantics. A call's `phase` selects a declared phase; otherwise
+it uses the current phase. Checkups list the phases of running steps. Scripts return JSON. A failed
+step answers `null`; `workflowCollect` shows each step's outcome and reason from the journal. A
+script that throws fails the run with the error's message.
+
+### Claude steps
+
+Claude steps run `claude -p`. `--safe-mode` disables project `CLAUDE.md`, skills, installed plugins,
+hooks, MCP servers, custom commands and agents. `--disable-slash-commands` disables skills and
+commands. Authentication, model selection and built-in tools remain available.
+
+Each turn appends project `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is missing. A missing pair
+adds no project instructions. The same journaled text is used on resumed turns. The first turn uses
+`--session-id`; later turns use `--resume`. A `sessionMissing` result switches a thread to one fresh
+session once. Another missing-session result fails the step.
+
+The daemon runs at most eight Claude turns at once. Further calls wait for a tick after `busy`. A
+daemon restart interrupts open turns with reason `runner lost: the host daemon restarted`.
+
+Ending a run cancels its open Claude turns: TERM to the turn's whole process group, then KILL after
+five seconds. A container turn is signaled inside the container through its pidfile. Gateway close
+cancels nothing.
+
+`src/__tests__/claude-isolation.test.ts` checks the isolation against the real CLI. It makes a model
+call on your login, so it runs only with `SWITCHBOARD_CLAUDE_LIVE=1`.
 
 Schemas use a strict subset: every property is required, set `additionalProperties: false`, and use
 a type list such as `["string", "null"]` for nullable values. An answer gets two schema correction

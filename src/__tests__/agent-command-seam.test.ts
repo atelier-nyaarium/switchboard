@@ -70,6 +70,7 @@ function setup() {
 				daemonInstanceId,
 				containerInCatalog: (target) => target.kind === "devcontainer" && containerInCatalog,
 			}),
+			relayToHost: async () => ({ ok: false, error: "not used" }),
 		},
 		ambient,
 	});

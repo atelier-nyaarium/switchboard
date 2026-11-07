@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { AGENT_BACKENDS, type AgentBackendId, agentCapabilityId } from "./agent-backend.js";
-import { isAgentBackendInstalled } from "./agent-binary.js";
+import { isAgentBackendInstalled, isBinaryOnPath } from "./agent-binary.js";
 import type { CapabilityBundleSchema, CapabilitySnapshotSchema, EnabledPluginSchema } from "./schemas.js";
 
 ////////////////////////////////
@@ -22,7 +22,7 @@ export const COPILOT_AGENT_CAPABILITY_ID = agentCapabilityId("copilot");
 export const WORKFLOW_INSTRUCTIONS = `
 # Workflow
 
-Tools: \`workflowStart\`, \`workflowCollect\`, \`workflowList\` (find run ids), \`workflowStop\` (cancel). Scripts return JSON. \`parallel\`, \`pipeline\`, \`phase\`, \`log\`, \`args\`, and \`label\` follow Workflow. Steps use Codex or Copilot; Claude is unavailable.
+Tools: \`workflowStart\`, \`workflowCollect\`, \`workflowList\` (find run ids), \`workflowStop\` (cancel). Scripts return JSON. \`parallel\`, \`pipeline\`, \`phase\`, \`log\`, \`args\`, and \`label\` follow Workflow. Steps use Codex, Copilot or \`claude -p\`. A backend without its CLI fails as \`unavailable\`.
 
 \`agent(prompt, options)\`: \`backend\` defaults to the run's backend; \`model\` id; \`effort\` (Copilot); \`tier\` (Codex); \`thread\` reuses an agent; \`skills\` paths prepend to the prompt; \`schema\` validates the answer. Start takes \`scriptPath\`, \`args\`, \`backend\`, \`resumeFrom\`.
 
@@ -155,7 +155,7 @@ export function daemonCapabilityDeclaration(env: Record<string, string | undefin
 			? [{ id: agentCapabilityId(backend.id), instructions: AGENT_BACKEND_INSTRUCTIONS[backend.id] }]
 			: [],
 	);
-	return capabilities.length > 0
+	return capabilities.length > 0 || isBinaryOnPath("claude", env)
 		? [...capabilities, { id: "workflow", instructions: WORKFLOW_INSTRUCTIONS }]
 		: capabilities;
 }

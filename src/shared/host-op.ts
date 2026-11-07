@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type AgentExecutionTarget, AgentExecutionTargetSchema } from "./agent-execution-target.js";
+import { AGENT_PROMPT_MAX_BYTES } from "./agent-record.js";
 import { WINDOWS_SPAWN } from "./host-spawn.js";
 import { DEVICE_MAX_RECORDS, DeviceCandidateSchema } from "./schemasDevices.js";
 
@@ -100,8 +101,34 @@ export type HostOp =
 	  }
 	| { kind: "listDirs"; path: string; spawn?: string }
 	| { kind: "readSkill"; target: AgentExecutionTarget; path: string }
+	| HostClaudeRunOp
+	| HostClaudeCancelOp
 	| { kind: "reloadPlugins"; target: TmuxTarget; dedupKey?: string }
 	| { kind: "killSession"; target: TmuxTarget; dedupKey?: string };
+
+export type HostJsonValue = null | boolean | number | string | HostJsonValue[] | { [key: string]: HostJsonValue };
+export type HostJsonObject = { [key: string]: HostJsonValue };
+
+export interface HostClaudeRunOp {
+	kind: "claudeRun";
+	target: AgentExecutionTarget;
+	runId: string;
+	turnId: string;
+	sessionId: string;
+	resume: boolean;
+	prompt: string;
+	appendSystemPrompt: string | null;
+	model?: string;
+	effort?: string;
+	jsonSchema?: HostJsonObject;
+}
+
+export interface HostClaudeCancelOp {
+	kind: "claudeCancel";
+	runId: string;
+	turnId: string;
+	target: AgentExecutionTarget;
+}
 
 export const HostKasaScanResultSchema = z.union([
 	z.object({ candidates: z.array(DeviceCandidateSchema).max(DEVICE_MAX_RECORDS) }).strict(),
@@ -143,6 +170,75 @@ export const HostReadSkillResultSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type HostReadSkillResult = z.infer<typeof HostReadSkillResultSchema>;
+
+const HostJsonValueSchema: z.ZodType<HostJsonValue> = z.lazy(() =>
+	z.union([
+		z.null(),
+		z.boolean(),
+		z.number().finite(),
+		z.string(),
+		z.array(HostJsonValueSchema),
+		z.record(z.string(), HostJsonValueSchema),
+	]),
+);
+
+/** Names a pidfile, so filename-safe. */
+const ClaudeTurnIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+
+/** The project instructions, read under the skill cap. */
+const APPEND_SYSTEM_PROMPT_MAX = 64 * 1024;
+
+export const HostClaudeRunOpSchema = z
+	.object({
+		kind: z.literal("claudeRun"),
+		target: AgentExecutionTargetSchema,
+		runId: z.string().min(1),
+		turnId: ClaudeTurnIdSchema,
+		sessionId: z.string().uuid(),
+		resume: z.boolean(),
+		prompt: z.string().max(AGENT_PROMPT_MAX_BYTES),
+		appendSystemPrompt: z.string().max(APPEND_SYSTEM_PROMPT_MAX).nullable(),
+		model: z.string().optional(),
+		effort: z.string().optional(),
+		jsonSchema: z.record(z.string(), HostJsonValueSchema).optional(),
+	})
+	.strict();
+
+export const HostClaudeCancelOpSchema = z
+	.object({
+		kind: z.literal("claudeCancel"),
+		runId: z.string().min(1),
+		turnId: ClaudeTurnIdSchema,
+		target: AgentExecutionTargetSchema,
+	})
+	.strict();
+
+export const HostClaudeRunReplySchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("accepted") }).strict(),
+	z.object({ kind: z.literal("refused"), code: z.enum(["binaryMissing", "badTarget", "busy"]) }).strict(),
+]);
+
+export const HostClaudeCancelResultSchema = z.object({ cancelled: z.boolean() }).strict();
+
+export const ClaudeTurnResultFrameSchema = z
+	.object({
+		type: z.literal("claude_turn_result"),
+		runId: z.string().min(1),
+		turnId: z.string().min(1),
+		sessionId: z.string().uuid(),
+		outcome: z.enum(["completed", "failed", "cancelled", "sessionMissing"]),
+		answer: HostJsonValueSchema.nullable(),
+		reason: z.string().nullable(),
+	})
+	.strict();
+
+export const ClaudeTurnAckFrameSchema = z
+	.object({ type: z.literal("claude_turn_ack"), runId: z.string().min(1), turnId: z.string().min(1) })
+	.strict();
+
+export type HostClaudeRunReply = z.infer<typeof HostClaudeRunReplySchema>;
+export type ClaudeTurnResultFrame = z.infer<typeof ClaudeTurnResultFrameSchema>;
+export type ClaudeTurnAckFrame = z.infer<typeof ClaudeTurnAckFrameSchema>;
 
 export interface TmuxPeek {
 	ansi: string;

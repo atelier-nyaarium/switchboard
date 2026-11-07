@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import { agentInboundFrameTypes } from "../shared/agent-backend.js";
+import { ClaudeTurnAckFrameSchema, ClaudeTurnResultFrameSchema } from "../shared/host-op.js";
 import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
 import { DerivedPresenceSchema } from "../shared/schemasPresence.js";
@@ -41,6 +42,7 @@ export function createWebSocketHandlers({
 	onDaemonCapabilities,
 	onCodexHostMessage,
 	onCopilotHostMessage,
+	onClaudeTurnResult,
 	onPresenceDerive,
 	sessionStore,
 	auth,
@@ -379,6 +381,24 @@ export function createWebSocketHandlers({
 				error: typeof msg.error === "string" ? msg.error : undefined,
 				errorKind: msg.errorKind === "absent" || msg.errorKind === "failure" ? msg.errorKind : undefined,
 			});
+		}
+
+		if (msg.type === "claude_turn_result" && ws.data.teamName === "host") {
+			const parsed = ClaudeTurnResultFrameSchema.safeParse(msg);
+			if (!parsed.success || !onClaudeTurnResult) return;
+			void Promise.resolve()
+				.then(() => onClaudeTurnResult(parsed.data, ws))
+				.then(() => {
+					if (ws.data.isStale || ws.readyState !== 1 || registry.get("host")?.get(ws.data.subId) !== ws)
+						return;
+					const ack = ClaudeTurnAckFrameSchema.parse({
+						type: "claude_turn_ack",
+						runId: parsed.data.runId,
+						turnId: parsed.data.turnId,
+					});
+					sendOn(ws, JSON.stringify(ack), "claude_turn_ack");
+				})
+				.catch(() => console.warn("[ws] Claude result was not acknowledged"));
 		}
 
 		// Any session, never just host: the plane serves the workspace the plugin itself holds.

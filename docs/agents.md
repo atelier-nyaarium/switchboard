@@ -3,6 +3,8 @@
 A session can hand a self-contained sub-task to a Codex or Copilot child. The daemon supervises one
 child per execution target; the gateway owns the durable record.
 
+`claude -p` is available as a workflow backend only. It is not a session agent.
+
 ## Codex delegation
 
 **A fence is `(daemonInstanceId, targetId, generation, lastEventId)`.** Reconciliation is the only

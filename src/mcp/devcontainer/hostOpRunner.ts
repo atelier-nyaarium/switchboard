@@ -1,5 +1,8 @@
 import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
 import {
+	type HostClaudeCancelOp,
+	type HostClaudeRunOp,
+	type HostClaudeRunReply,
 	type HostKasaScanResult,
 	type HostListDirsResult,
 	type HostOp,
@@ -39,6 +42,8 @@ export interface TmuxOps {
 	kasaScan: () => Promise<HostKasaScanResult>;
 	wifiNetwork: () => Promise<HostWifiNetworkResult>;
 	typeIntoPane: (target: TmuxTarget, text: string) => Promise<TypeIntoPaneResult>;
+	claudeRun?: (op: HostClaudeRunOp) => HostClaudeRunReply;
+	claudeCancel?: (op: HostClaudeCancelOp) => Promise<{ cancelled: boolean }>;
 }
 
 export type PeekPriority = "interactive" | "derive";
@@ -141,6 +146,14 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 			);
 		if (op.kind === "listDirs") return ops.listDirs(op.path, op.spawn);
 		if (op.kind === "readSkill") return ops.readSkill(op.target, op.path);
+		if (op.kind === "claudeRun") {
+			if (!ops.claudeRun) throw new Error("claudeRun unavailable");
+			return ops.claudeRun(op);
+		}
+		if (op.kind === "claudeCancel") {
+			if (!ops.claudeCancel) throw new Error("claudeCancel unavailable");
+			return ops.claudeCancel(op);
+		}
 		if (op.kind === "createSession")
 			return runDeduped(
 				op.dedupKey,

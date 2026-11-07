@@ -4,7 +4,14 @@ import { AGENT_PROMPT_MAX_BYTES, AGENT_TURN_LOST_REASON } from "../../shared/age
 import type { Ambient } from "../../shared/ambient.js";
 import { type CodexPersistedAgent, codexAgentIdForOperation } from "../../shared/codex-agent.js";
 import { type CopilotPersistedAgent, copilotAgentIdForOperation } from "../../shared/copilot-agent.js";
-import { type HostOpResult, HostReadSkillResultSchema } from "../../shared/host-op.js";
+import {
+	type ClaudeTurnResultFrame,
+	ClaudeTurnResultFrameSchema,
+	HostClaudeRunReplySchema,
+	type HostOp,
+	type HostOpResult,
+	HostReadSkillResultSchema,
+} from "../../shared/host-op.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
 import type { CodexAgentCommands, CodexDispatchResult } from "../codexAgentCommands.js";
 import type { CodexRelay } from "../codexRelay.js";
@@ -61,7 +68,7 @@ export interface WorkflowAgentDispatchDeps {
 	ambient: Pick<Ambient, "now" | "newId">;
 	runner: WorkflowRunner;
 	readLiveness: HostLivenessReader;
-	relayToHost: (op: { kind: "readSkill"; target: AgentExecutionTarget; path: string }) => Promise<HostOpResult>;
+	relayToHost: (op: HostOp) => Promise<HostOpResult>;
 	codex: CodexAgentCommands;
 	copilot: CopilotAgentCommands;
 	codexRelay: CodexRelay;
@@ -69,7 +76,11 @@ export interface WorkflowAgentDispatchDeps {
 }
 
 function taskKey(call: WorkflowIssuedCall): string {
-	return `${call.runId}:${call.issueOrdinal}`;
+	return taskIssueKey(call.runId, call.issueOrdinal);
+}
+
+function taskIssueKey(runId: string, issueOrdinal: number): string {
+	return `${runId}:${issueOrdinal}`;
 }
 
 function byteLength(text: string): number {
@@ -161,6 +172,7 @@ function normalizeCopilot(
 
 export interface WorkflowAgentDispatch {
 	port: WorkflowDispatchPort;
+	claudeTurnResult(frame: ClaudeTurnResultFrame): Promise<void>;
 	retireRun(run: { runId: string; team: string }): boolean;
 	inspectThread(input: { team: string; agentId: string }): { state: string; runId?: string } | null;
 	retagThread(input: { team: string; agentId: string; fromRunId: string; toRunId: string }): boolean;
@@ -168,6 +180,14 @@ export interface WorkflowAgentDispatch {
 
 export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): WorkflowAgentDispatch {
 	const pending = new Map<string, PendingCall>();
+	const claudeWaiters = new Map<string, Set<{ resolve: () => void; reject: (error: Error) => void }>>();
+	const claudeFrames = new Map<string, ClaudeTurnResultFrame>();
+	const processingClaudeTurns = new Set<string>();
+	/** Terminal runs that may still have a claude turn running. */
+	const cancelOwed = new Set<string>();
+	/** Turn key to the daemon instance that answered its cancel. */
+	const cancelAnswered = new Map<string, string>();
+	const cancelInFlight = new Set<string>();
 	const stopSent = new WeakMap<object, Set<string>>();
 	const idleListeners = new Map<string, () => void>();
 	let stopped = false;
@@ -413,6 +433,118 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		return composed;
 	}
 
+	function appendSkillText(runId: string, path: string, text: string): boolean {
+		const sha256 = crypto.createHash("sha256").update(text, "utf8").digest("hex");
+		const rows = deps.runner.rows(runId);
+		const alreadyStored = rows.some(
+			(row) => row.kind === "skill_text" && row.sha256 === sha256 && row.text !== undefined,
+		);
+		return deps.runner.append(runId, {
+			kind: "skill_text",
+			path,
+			sha256,
+			...(alreadyStored ? {} : { text }),
+		});
+	}
+
+	function claudeWaiterKey(call: WorkflowIssuedCall): string {
+		return taskIssueKey(call.runId, call.issueOrdinal);
+	}
+
+	function claudeTurnKey(runId: string, turnId: string): string {
+		return `${runId}:${turnId}`;
+	}
+
+	function issueSettled(runId: string, issueOrdinal: number): boolean {
+		return deps.runner.rows(runId).some((row) => row.kind === "settle" && row.issueOrdinal === issueOrdinal);
+	}
+
+	function latestThreadMap(task: PendingCall): Extract<WorkflowJournalRow, { kind: "thread_map" }> | undefined {
+		const thread = task.issued.options.thread;
+		if (!thread) return undefined;
+		return deps.runner
+			.rows(task.issued.runId)
+			.filter(
+				(row): row is Extract<WorkflowJournalRow, { kind: "thread_map" }> =>
+					row.kind === "thread_map" && row.thread === thread,
+			)
+			.at(-1);
+	}
+
+	function claudeThreadMap(
+		task: PendingCall,
+		agentId: string,
+		target: AgentExecutionTarget,
+	): Extract<WorkflowJournalRow, { kind: "thread_map" }> | undefined {
+		const thread = task.issued.options.thread;
+		if (!thread) return undefined;
+		return {
+			kind: "thread_map",
+			thread,
+			backend: "claude",
+			agentId,
+			target: JSON.stringify(target),
+			lastIssueOrdinal: task.issued.issueOrdinal,
+		};
+	}
+
+	async function projectInstructions(
+		task: PendingCall,
+		target: AgentExecutionTarget,
+		replayed: boolean,
+	): Promise<{ text: string | null } | null> {
+		const stored = skillRows(task.issued.runId);
+		if (stored.has("AGENTS.md")) return { text: stored.get("AGENTS.md")! };
+		if (stored.has("CLAUDE.md")) return { text: stored.get("CLAUDE.md")! };
+		if (replayed) {
+			return { text: null };
+		}
+
+		for (const path of ["AGENTS.md", "CLAUDE.md"]) {
+			let result: HostOpResult;
+			try {
+				result = await deps.relayToHost({ kind: "readSkill", target, path });
+			} catch (error) {
+				task.waitFor = /timeout|timed out|not taken|did not take/i.test(familyTextError(error))
+					? "tick"
+					: "catalog";
+				return null;
+			}
+			if (stopped || task.done) return null;
+			if (!result.ok) {
+				task.waitFor =
+					result.errorKind === "timeout" || /did not take|not taken/i.test(result.error ?? "")
+						? "tick"
+						: "catalog";
+				return null;
+			}
+			const checked = HostReadSkillResultSchema.safeParse(result.result);
+			if (!checked.success) {
+				settle(task, { outcome: "failed", answer: null, reason: `project instructions: invalid host reply` });
+				return null;
+			}
+			if (checked.data.kind === "refused") {
+				if (checked.data.code === "missing") continue;
+				settle(task, {
+					outcome: "rejected",
+					answer: null,
+					reason: `project instructions ${path}: ${checked.data.code}`,
+				});
+				return null;
+			}
+			if (!appendSkillText(task.issued.runId, path, checked.data.text)) {
+				settle(task, {
+					outcome: "failed",
+					answer: null,
+					reason: `project instructions ${path} could not be journaled`,
+				});
+				return null;
+			}
+			return { text: checked.data.text };
+		}
+		return { text: null };
+	}
+
 	function sendCommand(
 		task: PendingCall,
 		owner: SessionRecord,
@@ -484,7 +616,7 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 
 	function makeTurn(
 		task: PendingCall,
-		operationId: string,
+		operationId: string | null,
 		agentId: string,
 		registerInstanceId: string,
 		target: AgentExecutionTarget,
@@ -507,12 +639,340 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		};
 	}
 
-	async function attempt(task: PendingCall): Promise<void> {
-		if (stopped || task.done || task.running) return;
-		if (task.issued.backend === "claude") {
-			settle(task, { outcome: "unavailable", answer: null, reason: "claude backend is not served" });
+	function claudeResume(task: PendingCall, turn: Extract<WorkflowJournalRow, { kind: "turn" }>): boolean {
+		const earlier = deps.runner
+			.rows(task.issued.runId)
+			.filter(
+				(row): row is Extract<WorkflowJournalRow, { kind: "turn" }> =>
+					row.kind === "turn" &&
+					row.backend === "claude" &&
+					row.issueOrdinal === task.issued.issueOrdinal &&
+					row.turnOrdinal < turn.turnOrdinal,
+			);
+		if (earlier.some((row) => row.agentId === turn.agentId)) return true;
+		return turn.turnOrdinal === 1 && task.issued.threadAgent !== undefined;
+	}
+
+	function settleClaude(
+		task: PendingCall,
+		target: AgentExecutionTarget,
+		agentId: string,
+		outcome: WorkflowDispatchOutcome,
+	): void {
+		const mapping = claudeThreadMap(task, agentId, target);
+		settle(task, { ...outcome, ...(mapping ? { threadMap: mapping } : {}) });
+	}
+
+	async function postClaudeRun(
+		task: PendingCall,
+		turn: Extract<WorkflowJournalRow, { kind: "turn" }>,
+		resume: boolean,
+		appendSystemPrompt: string | null,
+	): Promise<void> {
+		const target = parseTarget(turn.target);
+		if (!target || !turn.agentId) {
+			settle(task, { outcome: "failed", answer: null, reason: "journaled Claude turn is invalid" });
 			return;
 		}
+		const live = deps.readLiveness();
+		if (!live.socket || !live.daemonInstanceId) {
+			task.waitFor = "catalog";
+			return;
+		}
+		if (turn.registerInstanceId !== live.daemonInstanceId) {
+			task.waitFor = "catalog";
+			return;
+		}
+		if (target.kind === "devcontainer" && !live.containerInCatalog(target)) {
+			task.waitFor = "catalog";
+			return;
+		}
+		let result: HostOpResult;
+		try {
+			result = await deps.relayToHost({
+				kind: "claudeRun",
+				target,
+				runId: task.issued.runId,
+				turnId: turn.turnId,
+				sessionId: turn.agentId,
+				resume,
+				prompt: turn.prompt,
+				appendSystemPrompt,
+				...(task.issued.options.model === undefined ? {} : { model: task.issued.options.model }),
+				...(task.issued.options.effort === undefined ? {} : { effort: task.issued.options.effort }),
+				...(task.issued.options.schema === undefined ? {} : { jsonSchema: task.issued.options.schema }),
+			});
+		} catch (error) {
+			task.waitFor = /timeout|timed out|not taken|did not take/i.test(familyTextError(error))
+				? "tick"
+				: "catalog";
+			return;
+		}
+		if (stopped || task.done) return;
+		if (!result.ok) {
+			task.waitFor =
+				result.errorKind === "timeout" || /did not take|not taken/i.test(result.error ?? "")
+					? "tick"
+					: "catalog";
+			return;
+		}
+		const checked = HostClaudeRunReplySchema.safeParse(result.result);
+		if (!checked.success) {
+			settleClaude(task, target, turn.agentId, {
+				outcome: "failed",
+				answer: null,
+				reason: "claude run returned an invalid reply",
+			});
+			return;
+		}
+		if (checked.data.kind === "refused") {
+			if (checked.data.code === "busy") {
+				task.waitFor = "tick";
+				return;
+			}
+			const outcome: WorkflowDispatchOutcome =
+				checked.data.code === "binaryMissing"
+					? { outcome: "unavailable", answer: null, reason: "claude is not installed on the host" }
+					: { outcome: "failed", answer: null, reason: "claude target is invalid" };
+			settleClaude(task, target, turn.agentId, outcome);
+			return;
+		}
+		task.waitFor = "agent";
+	}
+
+	async function attemptClaude(task: PendingCall, owner: SessionRecord): Promise<void> {
+		const live = deps.readLiveness();
+		if (!live.socket || !live.daemonInstanceId) {
+			task.waitFor = "catalog";
+			return;
+		}
+		const previous = latestTurn(task);
+		const mapping = latestThreadMap(task) ?? task.issued.threadAgent;
+		const switched = Boolean(
+			previous &&
+				mapping &&
+				mapping.lastIssueOrdinal === task.issued.issueOrdinal &&
+				mapping.agentId !== previous.agentId,
+		);
+		const correctionTurn = task.issued.correction !== undefined;
+		if (previous && !correctionTurn && !switched) {
+			if (previous.registerInstanceId !== live.daemonInstanceId) {
+				settle(task, {
+					outcome: "interrupted",
+					answer: null,
+					reason: "runner lost: the host daemon restarted",
+				});
+				return;
+			}
+			if (task.waitFor !== "tick" && task.waitFor !== "catalog") {
+				task.waitFor = "agent";
+				return;
+			}
+			const target = parseTarget(previous.target);
+			if (!target || !previous.agentId) {
+				settle(task, { outcome: "failed", answer: null, reason: "journaled Claude turn is invalid" });
+				return;
+			}
+			const project = await projectInstructions(task, target, true);
+			if (!project || task.done) return;
+			await postClaudeRun(task, previous, claudeResume(task, previous), project.text);
+			return;
+		}
+
+		let target: AgentExecutionTarget | undefined = previous
+			? parseTarget(previous.target)
+			: mapping
+				? parseTarget(mapping.target)
+				: undefined;
+		if (!target) target = deps.codex.resolveTarget(owner) ?? undefined;
+		if (!target) {
+			settle(task, { outcome: "rejected", answer: null, reason: "session has no agent execution target" });
+			return;
+		}
+		if (target.kind === "devcontainer" && !live.containerInCatalog(target)) {
+			task.waitFor = "catalog";
+			return;
+		}
+		const project = await projectInstructions(task, target, Boolean(previous || mapping));
+		if (!project || task.done) return;
+		const sessionId = switched ? mapping!.agentId : (previous?.agentId ?? mapping?.agentId ?? deps.ambient.newId());
+		const resume = switched ? false : correctionTurn || mapping !== undefined;
+		const fresh = !resume;
+		const prompt =
+			previous && !switched && correctionTurn
+				? await composePrompt(task, target, false)
+				: previous && !switched && !correctionTurn
+					? previous.prompt
+					: await composePrompt(task, target, fresh);
+		if (prompt === null || task.done) return;
+		if (typeof prompt !== "string") return;
+		const currentLive = deps.readLiveness();
+		if (!currentLive.socket || !currentLive.daemonInstanceId) {
+			task.waitFor = "catalog";
+			return;
+		}
+		if (target.kind === "devcontainer" && !currentLive.containerInCatalog(target)) {
+			task.waitFor = "catalog";
+			return;
+		}
+		const turn = makeTurn(task, null, sessionId, currentLive.daemonInstanceId, target, prompt);
+		if (!deps.runner.append(task.issued.runId, turn)) {
+			settle(task, { outcome: "failed", answer: null, reason: "workflow turn could not be journaled" });
+			return;
+		}
+		task.prompt = prompt;
+		await postClaudeRun(task, turn, resume, project.text);
+	}
+
+	async function processClaudeResult(
+		task: PendingCall,
+		turn: Extract<WorkflowJournalRow, { kind: "turn" }>,
+		frame: ClaudeTurnResultFrame,
+	): Promise<void> {
+		const turnKey = claudeTurnKey(frame.runId, frame.turnId);
+		if (processingClaudeTurns.has(turnKey) || task.done || stopped) return;
+		const current = latestTurn(task);
+		if (current?.turnId !== turn.turnId || turn.agentId !== frame.sessionId) return;
+		processingClaudeTurns.add(turnKey);
+		const target = parseTarget(turn.target);
+		if (!target || !turn.agentId) {
+			settle(task, { outcome: "failed", answer: null, reason: "journaled Claude turn is invalid" });
+			processingClaudeTurns.delete(turnKey);
+			return;
+		}
+		try {
+			if (frame.outcome === "sessionMissing") {
+				const agentIds = new Set(
+					deps.runner
+						.rows(task.issued.runId)
+						.filter(
+							(row): row is Extract<WorkflowJournalRow, { kind: "turn" }> =>
+								row.kind === "turn" &&
+								row.backend === "claude" &&
+								row.issueOrdinal === task.issued.issueOrdinal,
+						)
+						.map((row) => row.agentId)
+						.filter((agentId): agentId is string => agentId !== null),
+				);
+				if (task.issued.options.thread && agentIds.size === 1) {
+					const agentId = deps.ambient.newId();
+					const mapping = claudeThreadMap(task, agentId, target);
+					if (!mapping || !deps.runner.append(task.issued.runId, mapping)) {
+						settle(task, {
+							outcome: "failed",
+							answer: null,
+							reason: "Claude thread switch could not be journaled",
+						});
+						return;
+					}
+					task.waitFor = null;
+					fireAndForget("workflow Claude thread switch", attempt(task));
+					return;
+				}
+				settleClaude(task, target, turn.agentId, {
+					outcome: "failed",
+					answer: null,
+					reason: frame.reason ?? "No conversation found",
+				});
+				return;
+			}
+			if (frame.outcome === "completed") {
+				const answer = typeof frame.answer === "string" ? responseValue(frame.answer) : frame.answer;
+				settleClaude(task, target, turn.agentId, { outcome: "completed", answer, reason: null });
+				return;
+			}
+			if (frame.outcome === "cancelled") {
+				settleClaude(task, target, turn.agentId, {
+					outcome: "interrupted",
+					answer: null,
+					reason: "cancelled",
+				});
+				return;
+			}
+			settleClaude(task, target, turn.agentId, {
+				outcome: "failed",
+				answer: null,
+				reason: frame.reason ?? "claude step failed",
+			});
+		} finally {
+			processingClaudeTurns.delete(turnKey);
+		}
+	}
+
+	function resolveClaudeWaiters(call: WorkflowIssuedCall): void {
+		const key = claudeWaiterKey(call);
+		for (const waiter of claudeWaiters.get(key) ?? []) waiter.resolve();
+		claudeWaiters.delete(key);
+		for (const [turnKey, frame] of claudeFrames) {
+			const turn = deps.runner
+				.rows(frame.runId)
+				.find((row) => row.kind === "turn" && row.turnId === frame.turnId);
+			if (turn?.kind === "turn" && frame.runId === call.runId && turn.issueOrdinal === call.issueOrdinal) {
+				claudeFrames.delete(turnKey);
+			}
+		}
+	}
+
+	/** A terminal run's results are acked: nothing reads them. */
+	function releaseClaudeRun(runId: string): void {
+		const prefix = `${runId}:`;
+		for (const [key, waiters] of claudeWaiters) {
+			if (!key.startsWith(prefix)) continue;
+			for (const waiter of waiters) waiter.resolve();
+			claudeWaiters.delete(key);
+		}
+		for (const [key, frame] of claudeFrames) if (frame.runId === runId) claudeFrames.delete(key);
+	}
+
+	function rejectClaudeWaiters(error: Error): void {
+		for (const waiters of claudeWaiters.values()) for (const waiter of waiters) waiter.reject(error);
+		claudeWaiters.clear();
+		claudeFrames.clear();
+	}
+
+	function applyQueuedClaudeResult(task: PendingCall): void {
+		const turn = latestTurn(task);
+		if (turn?.backend !== "claude") return;
+		const key = claudeTurnKey(task.issued.runId, turn.turnId);
+		const frame = claudeFrames.get(key);
+		if (frame) fireAndForget("workflow Claude result", processClaudeResult(task, turn, frame));
+	}
+
+	function claudeTurnResult(frame: ClaudeTurnResultFrame): Promise<void> {
+		const parsed = ClaudeTurnResultFrameSchema.safeParse(frame);
+		if (!parsed.success) return Promise.reject(new Error("invalid Claude turn result"));
+		const turn = deps.runner
+			.rows(frame.runId)
+			.find(
+				(row): row is Extract<WorkflowJournalRow, { kind: "turn" }> =>
+					row.kind === "turn" && row.backend === "claude" && row.turnId === frame.turnId,
+			);
+		// Acked and dropped: nothing will ever read it, and refusing makes the daemon hold it.
+		if (!turn || turn.agentId !== frame.sessionId) {
+			console.warn(`[workflow] dropped a claude result for an unknown turn of ${frame.runId}`);
+			return Promise.resolve();
+		}
+		if (issueSettled(frame.runId, turn.issueOrdinal)) return Promise.resolve();
+		if (deps.runner.get(frame.runId)?.status !== "running") return Promise.resolve();
+		const key = taskIssueKey(frame.runId, turn.issueOrdinal);
+		let resolve!: () => void;
+		let reject!: (error: Error) => void;
+		const completion = new Promise<void>((yes, no) => {
+			resolve = yes;
+			reject = no;
+		});
+		const waiters = claudeWaiters.get(key) ?? new Set();
+		waiters.add({ resolve, reject });
+		claudeWaiters.set(key, waiters);
+		const turnKey = claudeTurnKey(frame.runId, frame.turnId);
+		if (!claudeFrames.has(turnKey)) claudeFrames.set(turnKey, frame);
+		const task = pending.get(key);
+		if (task) fireAndForget("workflow Claude result", processClaudeResult(task, turn, frame));
+		return completion;
+	}
+
+	async function attempt(task: PendingCall): Promise<void> {
+		if (stopped || task.done || task.running) return;
 		if (registering) {
 			task.waitFor = "catalog";
 			return;
@@ -528,6 +988,11 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 			const live = deps.readLiveness();
 			if (!live.socket || !live.daemonInstanceId) {
 				task.waitFor = "catalog";
+				return;
+			}
+			if (task.issued.backend === "claude") {
+				applyQueuedClaudeResult(task);
+				if (!task.done) await attemptClaude(task, owner);
 				return;
 			}
 			const previous = latestTurn(task);
@@ -690,7 +1155,7 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 			}
 		} catch (error) {
 			const owner = ownerOf(task.issued.team);
-			if (owner && task.lastAgentId && task.lastOperationId) {
+			if (task.issued.backend !== "claude" && owner && task.lastAgentId && task.lastOperationId) {
 				try {
 					abandon(owner, task.issued.backend, task.lastAgentId, task.lastOperationId);
 				} catch {}
@@ -704,7 +1169,10 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 
 	async function poll(task: PendingCall): Promise<void> {
 		if (stopped || registering || task.done || task.running) return;
-		if (task.issued.backend === "claude") return;
+		if (task.issued.backend === "claude") {
+			if (task.waitFor !== null) fireAndForget("workflow Claude retry", attempt(task));
+			return;
+		}
 		const owner = ownerOf(task.issued.team);
 		const turn = latestTurn(task);
 		if (!owner || !turn?.agentId || !turn.operationId) return;
@@ -813,10 +1281,68 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		return false;
 	}
 
+	/** The latest claude turn of each issue that may still run: no settle, or an interrupted one. */
+	function cancellableClaudeTurns(runId: string): Array<Extract<WorkflowJournalRow, { kind: "turn" }>> {
+		const rows = deps.runner.rows(runId);
+		const latest = new Map<number, Extract<WorkflowJournalRow, { kind: "turn" }>>();
+		const settled = new Map<number, string>();
+		for (const row of rows) {
+			if (row.kind === "settle") settled.set(row.issueOrdinal, row.outcome);
+			if (row.kind !== "turn" || row.backend !== "claude") continue;
+			const current = latest.get(row.issueOrdinal);
+			if (!current || row.turnOrdinal > current.turnOrdinal) latest.set(row.issueOrdinal, row);
+		}
+		return [...latest.values()].filter((turn) => {
+			const outcome = settled.get(turn.issueOrdinal);
+			return outcome === undefined || outcome === "interrupted";
+		});
+	}
+
+	/**
+	 * Read from the journal, so a lost accept reply, a lost cancel or a Gateway restart is still
+	 * covered. Each turn is asked once per daemon instance, until that instance answers.
+	 */
+	function cancelTerminalClaudeTurns(runId: string): void {
+		const live = deps.readLiveness();
+		const instance = live.daemonInstanceId;
+		let owed = false;
+		for (const turn of cancellableClaudeTurns(runId)) {
+			const key = claudeTurnKey(runId, turn.turnId);
+			if (instance && cancelAnswered.get(key) === instance) continue;
+			const target = parseTarget(turn.target);
+			if (!target) continue;
+			owed = true;
+			if (!live.socket || !instance || cancelInFlight.has(key)) continue;
+			cancelInFlight.add(key);
+			const op = { kind: "claudeCancel" as const, runId, turnId: turn.turnId, target };
+			void Promise.resolve()
+				.then(() => deps.relayToHost(op))
+				.then((result) => {
+					if (result.ok) cancelAnswered.set(key, instance);
+				})
+				.catch(() => {})
+				.finally(() => cancelInFlight.delete(key));
+		}
+		if (owed) cancelOwed.add(runId);
+		else cancelOwed.delete(runId);
+	}
+
+	function retryOwedCancels(): void {
+		const held = new Set(deps.runner.runs().map((record) => record.runId));
+		for (const key of cancelAnswered.keys()) {
+			if (!held.has(key.slice(0, key.indexOf(":")))) cancelAnswered.delete(key);
+		}
+		for (const runId of [...cancelOwed]) {
+			if (deps.runner.get(runId)?.status === "running") cancelOwed.delete(runId);
+			else cancelTerminalClaudeTurns(runId);
+		}
+	}
+
 	function reconcileTerminalRuns(): void {
 		if (stopped) return;
 		for (const record of deps.runner.runs()) {
 			if (record.status === "running") continue;
+			cancelTerminalClaudeTurns(record.runId);
 			const owner = ownerOf(record.team);
 			if (!owner) continue;
 			for (const agent of listRunAgents(owner, record.runId)) ensureTerminalAgent(owner, record, agent);
@@ -852,6 +1378,8 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 			detach(task);
 			pending.delete(taskKey(task.issued));
 		}
+		releaseClaudeRun(record.runId);
+		cancelTerminalClaudeTurns(record.runId);
 		const owner = ownerOf(record.team);
 		if (!owner) return;
 		for (const agent of listRunAgents(owner, record.runId)) ensureTerminalAgent(owner, record, agent);
@@ -885,11 +1413,15 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 				waitFor: null,
 			};
 			pending.set(taskKey(call), task);
+			if (call.backend === "claude") applyQueuedClaudeResult(task);
 			fireAndForget("workflow dispatch", attempt(task));
 		},
 		settled(call) {
+			if (call.backend === "claude") {
+				resolveClaudeWaiters(call);
+				return;
+			}
 			if (call.options.thread) return;
-			if (call.backend === "claude") return;
 			const backend = call.backend;
 			const rows = deps.runner.rows(call.runId);
 			const turn = rows
@@ -918,6 +1450,17 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		},
 		hostRegistered() {
 			registering = false;
+			const liveInstanceId = deps.readLiveness().daemonInstanceId;
+			for (const task of pending.values()) {
+				if (task.done || task.issued.backend !== "claude") continue;
+				const turn = latestTurn(task);
+				if (!turn || turn.registerInstanceId === liveInstanceId) continue;
+				settle(task, {
+					outcome: "interrupted",
+					answer: null,
+					reason: "runner lost: the host daemon restarted",
+				});
+			}
 			retryPending("register");
 		},
 		catalogChanged() {
@@ -925,9 +1468,11 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		},
 		tick() {
 			retryPending("tick");
+			retryOwedCancels();
 		},
 		stop() {
 			stopped = true;
+			rejectClaudeWaiters(new Error("workflow dispatch stopped"));
 			for (const task of pending.values()) detach(task);
 			pending.clear();
 			for (const unsubscribe of idleListeners.values()) unsubscribe();
@@ -937,6 +1482,7 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 
 	return {
 		port,
+		claudeTurnResult,
 		retireRun,
 		inspectThread({ team, agentId }) {
 			const owner = ownerOf(team);

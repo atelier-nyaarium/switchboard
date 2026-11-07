@@ -95,6 +95,7 @@ export function scrubChildEnv(
 /** `docker exec -e` pairs. A container child inherits the container's environment, so only the
  * agent's own settings are worth forwarding. Scrubbed first, keeping the deny list authoritative. */
 export function containerEnvArgs(source: Record<string, string | undefined>, envPrefix: string): string[] {
+	if (envPrefix.length === 0) return [];
 	return Object.entries(scrubChildEnv(source, envPrefix))
 		.filter(([key]) => key.startsWith(envPrefix))
 		.flatMap(([key, value]) => ["-e", `${key}=${value}`]);
@@ -120,6 +121,10 @@ const STDERR_CLASSES: Array<[RegExp, string]> = [
 	[/unauthor|not logged in|auth/i, "authFailed"],
 ];
 
+export function classifyAgentStderr(stderrTail: string): string | undefined {
+	return STDERR_CLASSES.find(([pattern]) => pattern.test(stderrTail))?.[1];
+}
+
 function adoptProcess(proc: ReturnType<typeof spawn>): AgentChild {
 	let stderrTail = "";
 	proc.stderr?.on("data", (chunk: Buffer) => {
@@ -139,8 +144,7 @@ function adoptProcess(proc: ReturnType<typeof spawn>): AgentChild {
 		},
 		onExit: (listener) => {
 			const fire = (info: { code: number | null; signal: string | null }) => {
-				const matched = STDERR_CLASSES.find(([pattern]) => pattern.test(stderrTail));
-				listener({ ...info, reason: matched?.[1] });
+				listener({ ...info, reason: classifyAgentStderr(stderrTail) });
 			};
 			proc.once("exit", (code, signal) => fire({ code, signal }));
 			proc.once("error", () => fire({ code: null, signal: null }));

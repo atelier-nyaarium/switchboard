@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { Ambient } from "../shared/ambient.js";
 import type { Capability } from "../shared/capabilities.js";
+import type { ClaudeTurnResultFrame } from "../shared/host-op.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
 import type { DerivedPresence } from "../shared/schemasPresence.js";
 import type { SessionStore } from "../shared/session-store.js";
@@ -43,6 +44,7 @@ export interface WebSocketDeps {
 	onDaemonCapabilities?: (capabilities: Capability[]) => void;
 	onCodexHostMessage?: (msg: Record<string, unknown>) => void;
 	onCopilotHostMessage?: (msg: Record<string, unknown>) => void;
+	onClaudeTurnResult?: (frame: ClaudeTurnResultFrame, socket: ServerWebSocket<WsData>) => Promise<void>;
 	sessionStore?: SessionStore;
 	auth?: SessionAuthority;
 	presenceWriter?: {

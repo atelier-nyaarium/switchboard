@@ -5,13 +5,17 @@ import path from "node:path";
 import WebSocket from "ws";
 import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, COPILOT_BACKEND } from "../../shared/agent-backend.js";
 import { isBinaryOnPath } from "../../shared/agent-binary.js";
+import { AgentExecutionTargetSchema } from "../../shared/agent-execution-target.js";
 import type { LimitNotice } from "../../shared/agent-screen.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
 import { CodexEventAckSchema } from "../../shared/codex-agent.js";
 import { CopilotEventAckSchema } from "../../shared/copilot-agent.js";
 import {
+	ClaudeTurnAckFrameSchema,
 	classifyPeekError,
+	HostClaudeCancelOpSchema,
+	HostClaudeRunOpSchema,
 	type HostOp,
 	HostReadSkillOpSchema,
 	isReservedHostSession,
@@ -25,6 +29,7 @@ import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
 import { parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
+import { createClaudeRunner } from "./claudeRunner.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
 import { ExecutionTargetManager, targetLogger } from "./codexTargets.js";
 import { type CompactionFollow, createCompactionFollower } from "./copilotCompaction.js";
@@ -152,6 +157,7 @@ function safeSend(payload: Record<string, unknown>): void {
 
 /** Reap every supervised App Server. */
 export function stopSupervisedChildren(): void {
+	claudeRunner.stop();
 	for (const { service, targets } of AGENT_DAEMON_BINDINGS) {
 		service.shutdown();
 		targets.shutdown();
@@ -226,6 +232,7 @@ function connect(): void {
 			safeSend(service.hello());
 			service.replay();
 		}
+		claudeRunner.replay();
 
 		const projects = scanDevcontainerProjects();
 		// `hostSpawns` names the DETECTED spawn points only; `host` is on every machine and is not
@@ -283,6 +290,10 @@ function connect(): void {
 				const ack = parseAck.safeParse(msg);
 				if (ack.success) service.acknowledge(ack.data);
 			}
+		}
+		if (msg.type === "claude_turn_ack") {
+			const ack = ClaudeTurnAckFrameSchema.safeParse(msg);
+			if (ack.success) claudeRunner.acknowledge(ack.data);
 		}
 
 		if (msg.type === "presence_watch" && Array.isArray(msg.watch)) {
@@ -539,6 +550,8 @@ const sightOf =
 	(screen) =>
 		seePrompt(promptOccurrences, paneKey(target), screen);
 
+const claudeRunner = createClaudeRunner({ send: (frame) => safeSend({ ...frame }) });
+
 // The runner owns single-flight and the cadence floor.
 const hostOpRunner = createHostOpRunner({
 	kasaScan: createKasaScanner(),
@@ -588,6 +601,8 @@ const hostOpRunner = createHostOpRunner({
 	listDirs: async (p, spawn) =>
 		spawn === WINDOWS_SPAWN ? listWindowsDirs(p, windowsAvailability().userProfile) : listHostDirs(p),
 	readSkill: async (target, skillPath) => readWorkflowSkill(target, skillPath),
+	claudeRun: (op) => claudeRunner.start(op),
+	claudeCancel: (op) => claudeRunner.cancel(op),
 });
 
 ////////////////////////////////
@@ -641,6 +656,34 @@ const compactionFollower = createCompactionFollower({
 
 async function handleHostOp(reqId: string, op: HostOp): Promise<void> {
 	try {
+		if (op.kind === "claudeRun") {
+			const checked = HostClaudeRunOpSchema.safeParse(op);
+			if (!checked.success) {
+				const target = AgentExecutionTargetSchema.safeParse((op as unknown as { target?: unknown }).target);
+				if (!target.success) {
+					safeSend({
+						type: "host_op_reply",
+						reqId,
+						ok: true,
+						result: { kind: "refused", code: "badTarget" },
+					});
+					return;
+				}
+				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid claudeRun operation" });
+				return;
+			}
+			safeSend({ type: "host_op_reply", reqId, ok: true, result: await hostOpRunner.run(checked.data) });
+			return;
+		}
+		if (op.kind === "claudeCancel") {
+			const checked = HostClaudeCancelOpSchema.safeParse(op);
+			if (!checked.success) {
+				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid claudeCancel operation" });
+				return;
+			}
+			safeSend({ type: "host_op_reply", reqId, ok: true, result: await hostOpRunner.run(checked.data) });
+			return;
+		}
 		if (op.kind === "readSkill") {
 			const checked = HostReadSkillOpSchema.safeParse(op);
 			if (!checked.success) {

@@ -1,4 +1,5 @@
 import type { Ambient } from "../../shared/ambient.js";
+import type { ClaudeTurnResultFrame } from "../../shared/host-op.js";
 import {
 	createWorkflowEngine,
 	type WorkflowDispatchPort,
@@ -18,6 +19,7 @@ export interface WorkflowsStageDeps {
 	buildDispatch?: (runner: WorkflowRunner) => {
 		port: WorkflowDispatchPort;
 		retireRun: WorkflowAgentRetirement;
+		claudeTurnResult: (frame: ClaudeTurnResultFrame) => Promise<void>;
 		inspectThread: NonNullable<WorkflowThreadAdoptionPort["inspect"]>;
 		retagThread: NonNullable<WorkflowThreadAdoptionPort["retag"]>;
 	};
@@ -35,6 +37,7 @@ export interface WorkflowsStage {
 	hostRegistering: () => void;
 	hostRegistered: () => void;
 	catalogChanged: () => void;
+	claudeTurnResult: (frame: ClaudeTurnResultFrame) => Promise<void>;
 }
 
 export function composeWorkflows(deps: WorkflowsStageDeps): WorkflowsStage {
@@ -72,5 +75,7 @@ export function composeWorkflows(deps: WorkflowsStageDeps): WorkflowsStage {
 		hostRegistering: () => engine.hostRegistering(),
 		hostRegistered: () => engine.hostRegistered(),
 		catalogChanged: () => engine.catalogChanged(),
+		claudeTurnResult: (frame) =>
+			built ? built.claudeTurnResult(frame) : Promise.reject(new Error("workflow dispatch unavailable")),
 	};
 }

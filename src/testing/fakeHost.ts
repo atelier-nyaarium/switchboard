@@ -19,7 +19,17 @@ import {
 	type CopilotDaemonReceipt,
 	CopilotDaemonReceiptSchema,
 } from "../shared/copilotAgentRelay.js";
-import type { HostOp } from "../shared/host-op.js";
+import {
+	type ClaudeTurnAckFrame,
+	ClaudeTurnAckFrameSchema,
+	type ClaudeTurnResultFrame,
+	ClaudeTurnResultFrameSchema,
+	type HostClaudeCancelOp,
+	HostClaudeCancelOpSchema,
+	type HostClaudeRunOp,
+	HostClaudeRunOpSchema,
+	type HostOp,
+} from "../shared/host-op.js";
 import { createFakeSocket, type Frame } from "./fakeSocket.js";
 
 export interface FakeHostHandlers {
@@ -30,10 +40,20 @@ export interface FakeHostHandlers {
 	/** Absent means accept and complete. */
 	onCodexCommand?: CodexResponder;
 	onCopilotCommand?: CopilotResponder;
+	onClaudeRun?: ClaudeResponder;
+	onClaudeAck?: (frame: ClaudeTurnAckFrame) => void;
 }
 
 export type CodexResponder = (command: CodexDaemonCommand, daemon: FakeCodexDaemon) => Array<Frame> | undefined;
 export type CopilotResponder = (command: CopilotDaemonCommand, daemon: FakeCopilotDaemon) => Array<Frame> | undefined;
+export type ClaudeResponder = (op: HostClaudeRunOp) => FakeClaudeResult | undefined;
+
+export interface FakeClaudeResult {
+	outcome?: ClaudeTurnResultFrame["outcome"];
+	answer?: ClaudeTurnResultFrame["answer"];
+	reason?: string | null;
+	delayMs?: number;
+}
 
 export type FakeTurnState = "inProgress" | "completed" | "failed" | "interrupted";
 
@@ -80,6 +100,10 @@ export interface FakeHost {
 	/** Every Codex command, schema-checked. */
 	codexCommands: CodexDaemonCommand[];
 	copilotCommands: CopilotDaemonCommand[];
+	claudeRuns: HostClaudeRunOp[];
+	claudeCancels: HostClaudeCancelOp[];
+	claudeResults: ClaudeTurnResultFrame[];
+	claudeAcks: ClaudeTurnAckFrame[];
 	handlers: FakeHostHandlers;
 	daemon: FakeCodexDaemon;
 	copilotDaemon: FakeCopilotDaemon;
@@ -141,15 +165,28 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 	const wakes: Frame[] = [];
 	const codexCommands: CodexDaemonCommand[] = [];
 	const copilotCommands: CopilotDaemonCommand[] = [];
+	const claudeRuns: HostClaudeRunOp[] = [];
+	const claudeCancels: HostClaudeCancelOp[] = [];
+	const claudeResults: ClaudeTurnResultFrame[] = [];
+	const claudeAcks: ClaudeTurnAckFrame[] = [];
+	const activeClaudeTurns = new Map<string, ReturnType<typeof setTimeout>>();
 	const handlers: FakeHostHandlers = {
 		onCreateSession: options.onCreateSession,
 		onWake: options.onWake,
 		onCodexCommand: options.onCodexCommand,
 		onCopilotCommand: options.onCopilotCommand,
+		onClaudeRun: options.onClaudeRun,
+		onClaudeAck: options.onClaudeAck,
 	};
 	const daemon = options.daemon ?? createFakeCodexDaemon();
 	const copilotDaemon = createFakeCopilotDaemon(daemon.daemonInstanceId);
 	const send = (frame: Frame): void => graph.wsHandlers.message(socket.ws, JSON.stringify(frame));
+	const claudeTurnKey = (runId: string, turnId: string): string => JSON.stringify([runId, turnId]);
+	const sendClaudeResult = (frame: ClaudeTurnResultFrame): void => {
+		const checked = ClaudeTurnResultFrameSchema.parse(frame);
+		claudeResults.push(checked);
+		if (socket.ws.readyState === 1) send(checked);
+	};
 	const sendCodex = (frame: CodexDaemonEvent | CodexDaemonReceipt): void => {
 		const checked =
 			frame.type === "codex_event" ? CodexDaemonEventSchema.parse(frame) : CodexDaemonReceiptSchema.parse(frame);
@@ -199,7 +236,50 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		if (frame.type === "host_op") {
 			const op = frame.op as HostOp;
 			ops.push(op);
+			if (op.kind === "claudeRun") {
+				const run = HostClaudeRunOpSchema.parse(op);
+				claudeRuns.push(run);
+				const scripted = handlers.onClaudeRun?.(run) ?? { answer: "fake claude answer" };
+				const outcome = scripted.outcome ?? "completed";
+				const result = ClaudeTurnResultFrameSchema.parse({
+					type: "claude_turn_result",
+					runId: run.runId,
+					turnId: run.turnId,
+					sessionId: run.sessionId,
+					outcome,
+					answer: scripted.answer ?? null,
+					reason: scripted.reason ?? (outcome === "completed" ? null : `fake ${outcome}`),
+				});
+				send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: { kind: "accepted" } });
+				const turnKey = claudeTurnKey(run.runId, run.turnId);
+				const timer = setTimeout(() => {
+					activeClaudeTurns.delete(turnKey);
+					sendClaudeResult(result);
+				}, scripted.delayMs ?? 0);
+				activeClaudeTurns.set(turnKey, timer);
+				return;
+			}
+			if (op.kind === "claudeCancel") {
+				const cancel = HostClaudeCancelOpSchema.parse(op);
+				claudeCancels.push(cancel);
+				const turnKey = claudeTurnKey(cancel.runId, cancel.turnId);
+				const timer = activeClaudeTurns.get(turnKey);
+				if (timer) clearTimeout(timer);
+				activeClaudeTurns.delete(turnKey);
+				send({
+					type: "host_op_reply",
+					reqId: frame.reqId,
+					ok: true,
+					result: { cancelled: timer !== undefined },
+				});
+				return;
+			}
 			send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: answer(op) });
+		}
+		if (frame.type === "claude_turn_ack") {
+			const ack = ClaudeTurnAckFrameSchema.parse(frame);
+			claudeAcks.push(ack);
+			handlers.onClaudeAck?.(ack);
 		}
 		if (frame.type === "wake") {
 			wakes.push(frame);
@@ -255,6 +335,10 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		wakes,
 		codexCommands,
 		copilotCommands,
+		claudeRuns,
+		claudeCancels,
+		claudeResults,
+		claudeAcks,
 		handlers,
 		daemon,
 		copilotDaemon,
@@ -268,6 +352,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				...(working === null ? {} : { working, needsLogin: false, limitBlocked: false }),
 			}),
 		close: () => {
+			for (const timer of activeClaudeTurns.values()) clearTimeout(timer);
+			activeClaudeTurns.clear();
 			socket.ws.close();
 			graph.wsHandlers.close(socket.ws);
 		},

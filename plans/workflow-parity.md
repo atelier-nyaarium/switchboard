@@ -318,6 +318,12 @@ Recommended because it halves the tool definitions every session carries, and gi
   - A `sessionMissing` result (a rebuilt container, "No conversation found") degrades the thread: a fresh session uuid with the thread's journaled skills, the switch journaled as a thread-map row, at most once per call.
   - At most 8 claude turns run per daemon; a ninth answers `busy` and the call waits for the tick.
   - The project instructions are read through `readSkill` as `AGENTS.md`, else `CLAUDE.md`, at the target's base, journaled as `skill_text`, and appended on every turn.
+  - The Gateway acks a result only after its settle row lands; duplicate settled results and results for terminal runs are acked without another settle.
+  - The Gateway stamps a new turn after awaited project-instruction reads, using the live register id.
+  - A terminal run's cancels are read from the journal (the latest Claude turn of each issue with no settle or an interrupted one), retried every tick until the live daemon answers, and asked again of a new daemon instance. Gateway close cancels nothing.
+  - A container run starts under a `setsid` wrapper that writes its process group to a pidfile inside the container; a cancel signals that group there, since killing the `docker exec` client leaves it running. A host run writes a pidfile too, for a restarted daemon. A signal goes only to a process whose environment carries `SWITCHBOARD_CLAUDE_TURN` for that turn. The daemon answers an error when a container run could not be signaled, so the Gateway asks again.
+  - Turn ids use a bounded filename-safe form; cancel carries the execution target.
+  - The isolation test uses stream-json to inspect the init event; production keeps json output. It makes a model call on the owner's login, so it runs only with `SWITCHBOARD_CLAUDE_LIVE=1`; it passed live once (`AGENTS.md` canary, no skills or MCP servers, no hook).
 
 ## Follow-up after Phase 2 - Copilot compaction status (Q15) ✅
 

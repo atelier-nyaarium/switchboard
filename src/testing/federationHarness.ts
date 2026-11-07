@@ -243,12 +243,16 @@ async function attachDomain(
 	// The daemon survives gateway restarts.
 	let daemon = createFakeCodexDaemon();
 	let codexResponder = options.host?.onCodexCommand;
+	let claudeResponder = options.host?.onClaudeRun;
+	let claudeAckHandler = options.host?.onClaudeAck;
 	const attachHost = (graph: GatewayGraph, hostOptions: Pick<FakeHostOptions, "deferCatalog"> = {}): FakeHost =>
 		attachFakeHost(graph, {
 			token: set.tokens.host,
 			projects: [{ team: "fixture-app", projectPath: path.join(base.root, "fixture-app") }],
 			...options.host,
 			onCodexCommand: codexResponder,
+			onClaudeRun: claudeResponder,
+			onClaudeAck: claudeAckHandler,
 			daemon,
 			...hostOptions,
 		});
@@ -278,6 +282,8 @@ async function attachDomain(
 		target: (team) => [set.domain.id, set.gateway.id, team].join("."),
 		restartGateway: async () => {
 			codexResponder = host.handlers.onCodexCommand;
+			claudeResponder = host.handlers.onClaudeRun;
+			claudeAckHandler = host.handlers.onClaudeAck;
 			host.close();
 			await currentGateway.close();
 			currentGateway = compose();
@@ -286,6 +292,8 @@ async function attachDomain(
 		},
 		restartHost: (restart = {}) => {
 			codexResponder = host.handlers.onCodexCommand;
+			claudeResponder = host.handlers.onClaudeRun;
+			claudeAckHandler = host.handlers.onClaudeAck;
 			host.close();
 			if (restart.newDaemon) daemon = createFakeCodexDaemon();
 			host = attachHost(currentGateway, { deferCatalog: restart.deferCatalog ?? false });

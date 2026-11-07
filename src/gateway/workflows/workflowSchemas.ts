@@ -102,7 +102,32 @@ export const WorkflowTurnRowSchema = z
 	})
 	.strict()
 	.superRefine((row, context) => {
-		if (row.backend === "claude") return;
+		if (row.backend === "claude") {
+			if (row.operationId !== null) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["operationId"],
+					message: "claude turn has an operation id",
+				});
+			}
+			for (const field of ["registerInstanceId", "agentId", "target"] as const) {
+				if (row[field] === null) {
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: [field],
+						message: "claude turn field is missing",
+					});
+				}
+			}
+			if (row.agentId !== null && !z.string().uuid().safeParse(row.agentId).success) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["agentId"],
+					message: "claude turn agent id is not a session uuid",
+				});
+			}
+			return;
+		}
 		for (const field of ["operationId", "registerInstanceId", "agentId", "target"] as const) {
 			if (row[field] === null) {
 				context.addIssue({
@@ -146,7 +171,16 @@ export const WorkflowThreadMapRowSchema = z
 		target: z.string().min(1),
 		lastIssueOrdinal: z.number().int().positive(),
 	})
-	.strict();
+	.strict()
+	.superRefine((row, context) => {
+		if (row.backend === "claude" && !z.string().uuid().safeParse(row.agentId).success) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["agentId"],
+				message: "claude thread agent id is not a session uuid",
+			});
+		}
+	});
 
 export const WorkflowSkillTextRowSchema = z
 	.object({

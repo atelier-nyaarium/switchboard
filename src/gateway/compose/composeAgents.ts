@@ -12,6 +12,8 @@ import { type CopilotAgentCommands, createCopilotAgentCommands } from "../copilo
 import { CopilotAgentService } from "../copilotAgentService.js";
 import { CopilotRelay } from "../copilotRelay.js";
 import { CopilotRoute } from "../copilotRoute.js";
+import { createWorkflowAgentDispatch, type WorkflowAgentDispatch } from "../workflows/agentDispatch.js";
+import type { WorkflowRunner } from "../workflows/runner.js";
 import { reached, sendOn } from "../wsSend.js";
 import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
@@ -21,7 +23,7 @@ export interface AgentsStageDeps {
 		SessionsStage,
 		"sessionAuthority" | "sessionStore" | "offlineCatalog" | "codexCatalogWriter" | "copilotCatalogWriter"
 	>;
-	host: Pick<HostStage, "readLiveness">;
+	host: Pick<HostStage, "readLiveness" | "relayToHost">;
 	ambient: Ambient;
 }
 
@@ -35,6 +37,7 @@ export interface AgentsStage {
 	/** Every agent of both families with its turns, for the awareness watch. */
 	agentRoster: () => RosterAgent[];
 	workflowProgress: (runId: string) => AgentProgressCounts;
+	createWorkflowDispatch: (runner: WorkflowRunner) => WorkflowAgentDispatch;
 }
 
 function commentaryOf(activities: readonly { kind: string; text?: string }[]): string[] {
@@ -154,6 +157,18 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		agentRoutes,
 		agentRoster,
 		workflowProgress,
+		createWorkflowDispatch: (runner) =>
+			createWorkflowAgentDispatch({
+				sessionStore: sessions.sessionStore,
+				ambient,
+				runner,
+				readLiveness: host.readLiveness,
+				relayToHost: host.relayToHost,
+				codex: codexCommands,
+				copilot: copilotCommands,
+				codexRelay,
+				copilotRelay,
+			}),
 		reconcileStaleAgents,
 	};
 }

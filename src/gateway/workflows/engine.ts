@@ -227,7 +227,6 @@ function createRunState(
 	if (mode === "restart" && resumeSource) {
 		for (const row of resumeSource.rows) {
 			if (row.kind === "issue" && row.options.thread) {
-				if (row.resolvedBackend === "claude") continue;
 				if (!state.threads.has(row.options.thread)) {
 					state.threads.set(row.options.thread, {
 						...threadOptionsOf(row.resolvedBackend, row.options),
@@ -307,6 +306,23 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		reason: string | null,
 	) => {
 		if (run.dead) return;
+		for (const call of run.calls.values()) {
+			if (call.settled || call.issued.backend !== "claude") continue;
+			const outcome: WorkflowDispatchOutcome = {
+				outcome: "interrupted",
+				answer: null,
+				reason: status === "cancelled" ? "cancelled" : "workflow ended",
+			};
+			if (!appendSettle(run, call, outcome)) continue;
+			call.settled = true;
+			call.dispatched = false;
+			run.dispatchCount = Math.max(0, run.dispatchCount - 1);
+			if (call.issued.options.thread) {
+				const thread = run.threads.get(call.issued.options.thread);
+				if (thread) thread.active = false;
+			}
+			dispatch.settled?.(call.issued, outcome);
+		}
 		const changed = runner.transition(run.record.runId, "running", status, {
 			result,
 			failureReason: reason,
@@ -364,8 +380,19 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		if (!appendRow(run, row)) return false;
 		run.settleOrdinal = settleOrdinal;
 		// FIXME: named threads durable a month, per session until forgotten; a crash here loses the mapping.
-		if (outcome.threadMap && !appendRow(run, outcome.threadMap)) return false;
-		return true;
+		const map = outcome.threadMap;
+		if (!map) return true;
+		// A thread switch journaled its row already.
+		const last = runner
+			.rows(run.record.runId)
+			.findLast((entry) => entry.kind === "thread_map" && entry.thread === map.thread);
+		if (
+			last?.kind === "thread_map" &&
+			last.agentId === map.agentId &&
+			last.lastIssueOrdinal === map.lastIssueOrdinal
+		)
+			return true;
+		return appendRow(run, map);
 	};
 
 	const releaseCall = (run: RunState, call: CallState, outcome: WorkflowDispatchOutcome): void => {

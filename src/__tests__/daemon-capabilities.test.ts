@@ -14,6 +14,7 @@ import {
 	daemonCapabilityDeclaration,
 	UNREPORTED_CAPABILITIES,
 	unionCapabilities,
+	WORKFLOW_INSTRUCTIONS,
 } from "../shared/capabilities.js";
 import type { DurableStore } from "../shared/durable-store.js";
 import { CapabilityBundleSchema, WsRegisterSchema } from "../shared/schemas.js";
@@ -211,6 +212,15 @@ describe("what the daemon announces", () => {
 			CODEX_AGENT_CAPABILITY_ID,
 			"workflow",
 		]);
+	});
+
+	it("declares workflow for Claude alone", () => {
+		const capabilities = daemonCapabilityDeclaration(envWithExecutables("claude"));
+
+		expect(capabilities.map((c) => c.id)).toEqual(["workflow"]);
+		expect(capabilities[0]?.instructions).toContain("`claude -p`");
+		expect(capabilities[0]?.instructions).toContain("`unavailable`");
+		expect(WORKFLOW_INSTRUCTIONS.length).toBeLessThan(1024);
 	});
 });
 

@@ -1,6 +1,7 @@
 // The session sockets and the held-delivery handover that rides them.
 
 import type { Ambient } from "../../shared/ambient.js";
+import type { ClaudeTurnResultFrame } from "../../shared/host-op.js";
 import { ChannelDeliveryCoordinator, type ChannelDeliveryObserver } from "../channelDelivery.js";
 import { createWebSocketHandlers } from "../websocket.js";
 import { createWorkspacePlane, type WorkspacePlane } from "../workspacePlane.js";
@@ -31,7 +32,7 @@ export interface WebSocketsStageDeps {
 	>;
 	host: Pick<HostStage, "wakeCoordinator" | "hostOpCoordinator" | "pushPresenceWatch" | "readLiveness">;
 	agents: Pick<AgentsStage, "codexRelay" | "copilotRelay">;
-	workflows: Pick<WorkflowsStage, "hostRegistering" | "hostRegistered" | "catalogChanged">;
+	workflows: Pick<WorkflowsStage, "hostRegistering" | "hostRegistered" | "catalogChanged" | "claudeTurnResult">;
 	federation: Pick<FederationStage, "channelDeliveryAck">;
 	/** Composes after routes. */
 	retireStaging?: (blobIds: string[]) => void;
@@ -149,6 +150,11 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		onDaemonCapabilities: (capabilities) => stores.daemonCapabilityStore.declare(capabilities),
 		onCodexHostMessage: (msg) => queueHostFrame("codex", msg),
 		onCopilotHostMessage: (msg) => queueHostFrame("copilot", msg),
+		onClaudeTurnResult: (frame: ClaudeTurnResultFrame, socket) =>
+			hostFamilyPass.then(() => {
+				if (host.readLiveness().socket !== socket) return;
+				return workflows.claudeTurnResult(frame);
+			}),
 		onPresenceDerive: (team, derived) => {
 			if (!derived) sessions.presence.clearWorkingFor(team);
 			else sessions.presence.setWorking(team, derived);
