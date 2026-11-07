@@ -25,7 +25,7 @@ agent(prompt, {
 })
 \`\`\`
 
-The session reads \`scriptPath\` from its working directory and sends the script text. Full reference: \`switchboard_capabilities\`.
+Provide exactly one of \`script\` or \`scriptPath\`; paths are read from the session's working directory. Full reference: \`switchboard_capabilities\`.
 `.trim();
 
 export const WORKFLOW_COLLECT_DESCRIPTION = `Collect by runId; waits up to 240 seconds.`;
@@ -34,7 +34,8 @@ export const WORKFLOW_STOP_DESCRIPTION = `Cancel by runId.`;
 
 const StartInputSchema = z
 	.object({
-		scriptPath: z.string().min(1),
+		script: z.string().optional(),
+		scriptPath: z.string().min(1).optional(),
 		args: z.record(z.string(), z.unknown()).optional(),
 		backend: z.enum(["codex", "copilot", "claude"]).optional(),
 		resumeFrom: z.string().min(1).nullable().optional(),
@@ -70,20 +71,24 @@ export function registerWorkflowTools(mcpServer: McpServer): void {
 		"workflowStart",
 		{ title: "Start Workflow", description: WORKFLOW_START_DESCRIPTION, inputSchema: startInputSchema },
 		async ({
+			script: inlineScript,
 			scriptPath,
 			args = {},
 			backend = "codex",
 			resumeFrom = null,
 		}: {
-			scriptPath: string;
+			script?: string;
+			scriptPath?: string;
 			args?: Record<string, unknown>;
 			backend?: "codex" | "copilot" | "claude";
 			resumeFrom?: string | null;
 		}) => {
+			if ((inlineScript === undefined) === (scriptPath === undefined)) {
+				return answer("Provide exactly one of script or scriptPath.", true);
+			}
 			let script: string;
 			try {
-				const filename = path.resolve(process.cwd(), scriptPath);
-				script = fs.readFileSync(filename, "utf8");
+				script = inlineScript ?? fs.readFileSync(path.resolve(process.cwd(), scriptPath ?? ""), "utf8");
 			} catch (error) {
 				return answer(`Could not read workflow script: ${(error as Error).message}`, true);
 			}

@@ -37,6 +37,7 @@ export interface FederationHarnessOptions {
 	seedContentKey?: boolean;
 	assistantWatchers?: readonly Watcher[];
 	kasaPort?: number;
+	workflowProgressIntervalMsForTests?: number;
 }
 
 export interface GatewayComposeOptions {
@@ -45,6 +46,7 @@ export interface GatewayComposeOptions {
 	arming?: boolean;
 	assistantWatchers?: readonly Watcher[];
 	kasaPort?: number;
+	workflowProgressIntervalMsForTests?: number;
 }
 
 export interface RouterOnlyHarness {
@@ -137,6 +139,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 			seedContentKey: options.seedContentKey,
 			assistantWatchers: options.assistantWatchers,
 			kasaPort: options.kasaPort,
+			workflowProgressIntervalMsForTests: options.workflowProgressIntervalMsForTests,
 		});
 	} catch (error) {
 		await base.close();
@@ -224,6 +227,7 @@ async function attachDomain(
 		seedContentKey?: boolean;
 		assistantWatchers?: readonly Watcher[];
 		kasaPort?: number;
+		workflowProgressIntervalMsForTests?: number;
 	},
 ): Promise<DomainPeer> {
 	set = admitSecondConsole(set);
@@ -234,6 +238,7 @@ async function attachDomain(
 			seedContentKey: options.seedContentKey,
 			assistantWatchers: options.assistantWatchers,
 			kasaPort: options.kasaPort,
+			workflowProgressIntervalMsForTests: options.workflowProgressIntervalMsForTests,
 		});
 	// The daemon survives gateway restarts.
 	let daemon = createFakeCodexDaemon();
@@ -431,6 +436,9 @@ export async function startRouterOnly(
 				...(gatewayOptions.kasaPort === undefined
 					? {}
 					: { kasaTransport: createKasaTransport(gatewayOptions.kasaPort) }),
+				...(gatewayOptions.workflowProgressIntervalMsForTests === undefined
+					? {}
+					: { workflowProgressIntervalMsForTests: gatewayOptions.workflowProgressIntervalMsForTests }),
 			});
 			let closing: Promise<void> | undefined;
 			const close = () => {

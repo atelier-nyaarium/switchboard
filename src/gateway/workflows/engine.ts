@@ -47,6 +47,7 @@ const JOB_SLICE_LIMIT = 8192;
 const INTERRUPT_TICK_LIMIT = 512;
 const LIVE_SLICE_MS = 200;
 const MAX_CORRECTIONS = 2;
+const VALIDATION_LOAD_RETRY_MS = 1_000;
 
 const require = createRequire(import.meta.url);
 const wasmBytes = fs.readFileSync(require.resolve("@jitl/quickjs-wasmfile-release-sync/wasm"));
@@ -161,17 +162,29 @@ export interface WorkflowEngineDeps {
 	ambient: Pick<Ambient, "now" | "newId">;
 	dispatch: WorkflowDispatchPort;
 	threadAdoption?: WorkflowThreadAdoptionPort;
+	scriptValidator?: WorkflowScriptValidator;
 	onChanged?: (team: string) => void;
 }
+
+export interface WorkflowScriptValidator {
+	load(): Promise<void>;
+	ready(): boolean;
+	validate(script: WorkflowScript): void;
+	stop(): void;
+}
+
+export type WorkflowQuickJSModule = Awaited<ReturnType<typeof newQuickJSWASMModuleFromVariant>>;
 
 export type WorkflowEngineStartResult =
 	| WorkflowStartResult
 	| { kind: "invalid_script"; error: WorkflowScriptError }
-	| { kind: "invalid_resume"; reason: string };
+	| { kind: "invalid_resume"; reason: string }
+	| { kind: "not_ready"; retryable: true };
 
 export interface WorkflowEngine {
 	start(): boolean;
 	startRun(input: unknown): WorkflowEngineStartResult;
+	whenReady(): Promise<void>;
 	cancel(runId: string): boolean;
 	replay(runId: string): boolean;
 	tick(): void;
@@ -304,10 +317,87 @@ function extractError(value: unknown): string {
 	}
 }
 
+function workflowWrapper(script: WorkflowScript): string {
+	return `(async () => {\n${script.body}\n})()`;
+}
+
+function quickJsMessage(context: QuickJSContext, error: QuickJSHandle): string {
+	const value = context.dump(error);
+	if (value && typeof value === "object" && typeof value.message === "string") return value.message;
+	return extractError(value);
+}
+
+function validateWorkflowScript(module: WorkflowQuickJSModule, script: WorkflowScript): void {
+	let runtime: QuickJSRuntime | undefined;
+	let context: QuickJSContext | undefined;
+	let result: ReturnType<QuickJSContext["evalCode"]> | undefined;
+	try {
+		runtime = module.newRuntime({
+			memoryLimitBytes: MEMORY_LIMIT_BYTES,
+			maxStackSizeBytes: STACK_LIMIT_BYTES,
+		});
+		runtime.setMemoryLimit(MEMORY_LIMIT_BYTES);
+		runtime.setMaxStackSize(STACK_LIMIT_BYTES);
+		context = runtime.newContext();
+		result = context.evalCode(workflowWrapper(script), undefined, { compileOnly: true });
+		if (result.error !== undefined) {
+			const message = quickJsMessage(context, result.error);
+			throw new WorkflowScriptError("syntax", message);
+		}
+		result.value.dispose();
+		result = undefined;
+	} finally {
+		try {
+			if (result?.error !== undefined) result.error.dispose();
+			else result?.value.dispose();
+		} catch {}
+		try {
+			context?.dispose();
+		} catch {}
+		try {
+			runtime?.dispose();
+		} catch {}
+	}
+}
+
+export function createQuickJSScriptValidator(
+	moduleLoader: () => Promise<WorkflowQuickJSModule> = () => newQuickJSWASMModuleFromVariant(quickJsVariant),
+): WorkflowScriptValidator {
+	let module: WorkflowQuickJSModule | undefined;
+	let loading: Promise<void> | undefined;
+	let stopped = false;
+	return {
+		load() {
+			if (module) return Promise.resolve();
+			if (loading) return loading;
+			const current = moduleLoader().then((loaded) => {
+				if (!stopped) module = loaded;
+			});
+			let tracked: Promise<void>;
+			tracked = current.catch((error) => {
+				if (loading === tracked) loading = undefined;
+				throw error;
+			});
+			loading = tracked;
+			return tracked;
+		},
+		ready: () => module !== undefined,
+		validate(script) {
+			if (!module) throw new Error("workflow validator is not ready");
+			validateWorkflowScript(module, script);
+		},
+		stop() {
+			stopped = true;
+			module = undefined;
+		},
+	};
+}
+
 function createRunState(
 	record: WorkflowRunRecord,
 	script: WorkflowScript,
 	mode: RunState["mode"],
+	module: Awaited<ReturnType<typeof newQuickJSWASMModuleFromVariant>>,
 	resumeSource?: ResumeSource,
 ): RunState {
 	const state: RunState = {
@@ -316,6 +406,7 @@ function createRunState(
 		mode,
 		...(resumeSource ? { resumeSource } : {}),
 		moduleReady: Promise.resolve(),
+		module,
 		deferreds: new Set(),
 		calls: new Map(),
 		threads: new Map(),
@@ -342,9 +433,6 @@ function createRunState(
 		dead: false,
 		failed: false,
 	};
-	state.moduleReady = newQuickJSWASMModuleFromVariant(quickJsVariant).then((module) => {
-		state.module = module;
-	});
 	if (mode === "restart" && resumeSource) {
 		for (const row of resumeSource.rows) {
 			if (row.kind === "issue" && row.options.thread) {
@@ -395,9 +483,36 @@ function rowsForResume(source: ResumeSource, issueOrdinal: number): WorkflowJour
 
 export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 	const { runner, ambient, dispatch, threadAdoption } = deps;
+	const scriptValidator = deps.scriptValidator ?? createQuickJSScriptValidator();
 	let started = false;
 	let stopped = false;
+	let validationReady: Promise<void> = Promise.resolve();
+	let validationLoading = false;
+	let validationAttemptedAt = Number.NEGATIVE_INFINITY;
 	const active = new Map<string, RunState>();
+	const preparing = new Set<string>();
+
+	const loadValidationModule = (): Promise<void> => {
+		if (stopped || scriptValidator.ready() || validationLoading) return validationReady;
+		const now = ambient.now();
+		if (now - validationAttemptedAt < VALIDATION_LOAD_RETRY_MS) return validationReady;
+		validationAttemptedAt = now;
+		validationLoading = true;
+		let load: Promise<void>;
+		try {
+			load = scriptValidator.load();
+		} catch (error) {
+			load = Promise.reject(error);
+		}
+		validationReady = Promise.resolve(load)
+			.catch((error) => {
+				console.error(`[workflow] validation module load failed: ${extractError(error)}`);
+			})
+			.finally(() => {
+				validationLoading = false;
+			});
+		return validationReady;
+	};
 
 	const terminalize = (
 		run: RunState,
@@ -521,6 +636,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		};
 		if (!appendRow(run, row)) return false;
 		run.settleOrdinal = settleOrdinal;
+		// FIXME: named threads durable a month, per session until forgotten; a crash here loses the mapping.
 		if (outcome.threadMap && !appendRow(run, outcome.threadMap)) return false;
 		return true;
 	};
@@ -860,11 +976,25 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		return "pending";
 	};
 
-	const copyResumeTurns = (run: RunState, issueOrdinal: number): void => {
-		if (!run.resumeSource) return;
-		for (const row of rowsForResume(run.resumeSource, issueOrdinal)) appendRow(run, row);
+	const appendResumeCopy = (
+		run: RunState,
+		row: WorkflowJournalRow,
+		kind: "settle" | "turn" | "thread map" | "skill text",
+	): boolean => {
+		if (appendRow(run, row)) return true;
+		terminalize(run, "failed", null, `workflow resume ${kind} copy failed`);
+		return false;
+	};
+
+	const copyResumeTurns = (run: RunState, issueOrdinal: number): boolean => {
+		if (!run.resumeSource) return true;
+		for (const row of rowsForResume(run.resumeSource, issueOrdinal)) {
+			if (!appendResumeCopy(run, row, "turn")) return false;
+		}
 		for (const row of run.resumeSource.rows) {
-			if (row.kind === "thread_map" && row.lastIssueOrdinal === issueOrdinal) appendRow(run, row);
+			if (row.kind === "thread_map" && row.lastIssueOrdinal === issueOrdinal) {
+				if (!appendResumeCopy(run, row, "thread map")) return false;
+			}
 		}
 		const sourceIssue = issueRows(run.resumeSource.rows).get(issueOrdinal);
 		const skillPaths = new Set(sourceIssue?.options.skills ?? []);
@@ -873,8 +1003,11 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			if (row.kind === "skill_text" && skillPaths.has(row.path)) skillHashes.add(row.sha256);
 		}
 		for (const row of run.resumeSource.rows) {
-			if (row.kind === "skill_text" && skillHashes.has(row.sha256)) appendRow(run, row);
+			if (row.kind === "skill_text" && skillHashes.has(row.sha256)) {
+				if (!appendResumeCopy(run, row, "skill text")) return false;
+			}
 		}
+		return true;
 	};
 
 	const adoptResumeThreads = (run: RunState): void => {
@@ -897,7 +1030,6 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 				continue;
 			const thread = run.threads.get(row.thread);
 			if (thread) thread.agent = row;
-			appendRow(run, row);
 		}
 	};
 
@@ -959,8 +1091,8 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 				return false;
 			}
 			if (run.mode === "resume") {
-				appendRow(run, row);
-				copyResumeTurns(run, row.issueOrdinal);
+				if (!copyResumeTurns(run, row.issueOrdinal)) return false;
+				if (!appendResumeCopy(run, row, "settle")) return false;
 			}
 			run.resumeSettleIndex += 1;
 			call.settled = true;
@@ -1121,7 +1253,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			prelude.value.dispose();
 			attachJsonGlobal(run, "args", run.record.args);
 			attachJsonGlobal(run, "meta", run.script.meta);
-			const wrapper = `(async () => {\n${run.script.body}\n})()`;
+			const wrapper = workflowWrapper(run.script);
 			run.interrupted = false;
 			run.interruptTicks = 0;
 			run.sliceStartedAt = ambient.now();
@@ -1162,21 +1294,30 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		}
 	};
 
-	const beginRun = (record: WorkflowRunRecord, mode: RunState["mode"], resumeSource?: ResumeSource): boolean => {
-		if (stopped || active.has(record.runId)) return false;
-		let script: WorkflowScript;
+	const beginRun = async (
+		record: WorkflowRunRecord,
+		mode: RunState["mode"],
+		resumeSource?: ResumeSource,
+		knownScript?: WorkflowScript,
+	): Promise<boolean> => {
+		if (stopped || active.has(record.runId) || preparing.has(record.runId)) return false;
+		preparing.add(record.runId);
 		try {
-			script = extractWorkflowScript(record.script);
+			const script = knownScript ?? extractWorkflowScript(record.script);
+			const module = await newQuickJSWASMModuleFromVariant(quickJsVariant);
+			if (stopped || runner.get(record.runId)?.status !== "running") return false;
+			const state = createRunState(record, script, mode, module, resumeSource);
+			active.set(record.runId, state);
+			void prepare(state);
+			return true;
 		} catch (error) {
 			if (runner.transition(record.runId, "running", "failed", { failureReason: extractError(error) })) {
 				deps.onChanged?.(record.team);
 			}
 			return false;
+		} finally {
+			preparing.delete(record.runId);
 		}
-		const state = createRunState(record, script, mode, resumeSource);
-		active.set(record.runId, state);
-		void prepare(state);
-		return true;
 	};
 
 	const rowsFor = (runId: string): WorkflowJournalRow[] => runner.rows(runId);
@@ -1186,9 +1327,14 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			if (started || stopped) return false;
 			if (!runner.start()) return false;
 			started = true;
-			for (const record of runner.running()) beginRun(record, "restart", { record, rows: rowsFor(record.runId) });
+			loadValidationModule();
+			for (const record of runner.running())
+				void beginRun(record, "restart", { record, rows: rowsFor(record.runId) });
 			for (const record of runner.running()) deps.onChanged?.(record.team);
 			return true;
+		},
+		whenReady() {
+			return validationReady;
 		},
 		startRun(input) {
 			if (stopped) return { kind: "refused", reason: "stopped" };
@@ -1196,6 +1342,12 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			if (!parsed.success) return { kind: "refused", reason: "storage" };
 			const existing = runner.existingStart(parsed.data.operationId);
 			if (existing) return { kind: "existing", run: existing };
+			const capacity = runner.checkStart(parsed.data.team);
+			if (capacity.kind === "refused") return capacity;
+			if (!scriptValidator.ready()) {
+				loadValidationModule();
+				return { kind: "not_ready", retryable: true };
+			}
 			if (utf8Bytes(parsed.data.script) > SCRIPT_MAX_BYTES)
 				return {
 					kind: "invalid_script",
@@ -1222,10 +1374,21 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 				}
 				resumeSource = { record: source, rows: rowsFor(source.runId) };
 			}
+			try {
+				scriptValidator.validate(script);
+			} catch (error) {
+				return {
+					kind: "invalid_script",
+					error:
+						error instanceof WorkflowScriptError
+							? error
+							: new WorkflowScriptError("syntax", extractError(error)),
+				};
+			}
 			const result = runner.startRun({ ...parsed.data, phases: script.phases });
 			if (result.kind === "started") {
 				deps.onChanged?.(result.run.team);
-				beginRun(result.run, resumeSource ? "resume" : "live", resumeSource);
+				void beginRun(result.run, resumeSource ? "resume" : "live", resumeSource, script);
 			}
 			return result;
 		},
@@ -1250,9 +1413,9 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		replay(runId) {
 			if (stopped || !started) return false;
 			const record = runner.get(runId);
-			return record?.status === "running"
-				? beginRun(record, "restart", { record, rows: rowsFor(record.runId) })
-				: false;
+			if (record?.status !== "running") return false;
+			void beginRun(record, "restart", { record, rows: rowsFor(record.runId) });
+			return true;
 		},
 		tick() {
 			if (stopped) return;
@@ -1260,7 +1423,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			for (const record of runner.running()) {
 				const run = active.get(record.runId);
 				if (run) enter(run, () => drive(run, run.mode !== "restart"));
-				else beginRun(record, "restart", { record, rows: rowsFor(record.runId) });
+				else void beginRun(record, "restart", { record, rows: rowsFor(record.runId) });
 			}
 		},
 		hostRegistering() {
@@ -1306,6 +1469,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		stop() {
 			if (stopped) return;
 			stopped = true;
+			scriptValidator.stop();
 			dispatch.stop?.();
 			for (const run of active.values()) disposeRun(run);
 			active.clear();

@@ -73,7 +73,7 @@ export function createWorkflowRoutes(deps: {
 		await new Promise<void>((resolve) => deps.ambient.setTimer(resolve, ms));
 	}
 
-	async function workflowStart(req: Request, body: Record<string, unknown>): Promise<Response> {
+	function workflowStart(req: Request, body: Record<string, unknown>): Response {
 		const caller = owner(req);
 		if (!caller) return jsonResponse({ error: "a confirmed session token is required" }, 403);
 		if (caller.record.spawn === "windows") {
@@ -93,6 +93,9 @@ export function createWorkflowRoutes(deps: {
 			defaultBackend: parsed.data.backend,
 			phases: [],
 		});
+		if (result.kind === "not_ready") {
+			return jsonResponse({ error: "workflow engine is starting", retryable: result.retryable }, 503);
+		}
 		if (result.kind === "started" || result.kind === "existing") {
 			return jsonResponse({
 				runId: result.run.runId,

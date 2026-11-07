@@ -206,7 +206,16 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	sessions.presence.setWorkflowRunningReader(
 		(team) => workflows?.runner.running().some((run) => run.team === team) ?? false,
 	);
-	const awareness = composeAwareness({ sessions, host, agents, workflows, ambient: bootstrap.ambient });
+	const awareness = composeAwareness({
+		sessions,
+		host,
+		agents,
+		workflows,
+		ambient: bootstrap.ambient,
+		...(deps.workflowProgressIntervalMsForTests === undefined
+			? {}
+			: { workflowProgressIntervalMs: deps.workflowProgressIntervalMsForTests }),
+	});
 
 	federation = composeFederation({
 		dataDir: bootstrap.dataDir,

@@ -55,7 +55,9 @@ export function createWorkflowWatch(deps: {
 	progressCounts: (runId: string) => AgentProgressCounts;
 	observe: (observations: readonly AwarenessObservation<WorkflowNoticeState>[]) => void;
 	now: () => number;
+	progressEveryMs?: number;
 }): WorkflowWatch {
+	const progressEveryMs = deps.progressEveryMs ?? PROGRESS_MS;
 	const nextProgress = new Map<string, { at: number; counts: AgentProgressCounts }>();
 
 	function snapshot(runId: string, counts = emptyAgentProgressCounts()): WorkflowNoticeState | null {
@@ -112,13 +114,13 @@ export function createWorkflowWatch(deps: {
 				}
 				const progress = nextProgress.get(run.runId);
 				if (!progress) {
-					nextProgress.set(run.runId, { at: now + PROGRESS_MS, counts: emptyAgentProgressCounts() });
+					nextProgress.set(run.runId, { at: now + progressEveryMs, counts: emptyAgentProgressCounts() });
 					continue;
 				}
 				if (progress.at > now) continue;
 				const currentCounts = deps.progressCounts(run.runId);
 				const counts = deltaAgentProgressCounts(currentCounts, progress.counts);
-				nextProgress.set(run.runId, { at: now + PROGRESS_MS, counts: currentCounts });
+				nextProgress.set(run.runId, { at: now + progressEveryMs, counts: currentCounts });
 				const post = snapshot(run.runId, counts);
 				if (post) observations.push({ sessionKey: run.team, identity: run.runId, pre: undefined, post });
 			}

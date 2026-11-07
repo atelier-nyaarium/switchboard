@@ -31,8 +31,13 @@ export type WorkflowStartResult =
 	| { kind: "existing"; run: WorkflowRunRecord }
 	| { kind: "refused"; reason: "stopped" | "not_admitting" | "run_cap" | "storage" };
 
+export type WorkflowStartCheck =
+	| { kind: "ready" }
+	| { kind: "refused"; reason: "stopped" | "not_admitting" | "run_cap" };
+
 export interface WorkflowRunner {
 	start(): boolean;
+	checkStart(team: string): WorkflowStartCheck;
 	startRun(input: unknown): WorkflowStartResult;
 	existingStart(operationId: string): WorkflowRunRecord | null;
 	transition(
@@ -55,6 +60,13 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 	const { store, ambient } = deps;
 	let admitting = false;
 	let stopped = false;
+	const checkStart = (team: string): WorkflowStartCheck => {
+		if (stopped) return { kind: "refused", reason: "stopped" };
+		if (!admitting) return { kind: "refused", reason: "not_admitting" };
+		const runningCount = store.running().filter((record) => record.team === team).length;
+		if (runningCount >= RUN_CAP_PER_SESSION) return { kind: "refused", reason: "run_cap" };
+		return { kind: "ready" };
+	};
 
 	return {
 		start() {
@@ -62,15 +74,15 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 			admitting = true;
 			return true;
 		},
+		checkStart,
 		startRun(input) {
 			if (stopped) return { kind: "refused", reason: "stopped" };
 			const parsed = WorkflowStartInputSchema.safeParse(input);
 			if (!parsed.success) return { kind: "refused", reason: "storage" };
 			const existing = store.byStartOperationId(parsed.data.operationId);
 			if (existing) return { kind: "existing", run: existing };
-			if (!admitting) return { kind: "refused", reason: "not_admitting" };
-			const runningCount = store.running().filter((record) => record.team === parsed.data.team).length;
-			if (runningCount >= RUN_CAP_PER_SESSION) return { kind: "refused", reason: "run_cap" };
+			const check = checkStart(parsed.data.team);
+			if (check.kind === "refused") return check;
 			const record: WorkflowRunRecord = {
 				runId: ambient.newId(),
 				team: parsed.data.team,

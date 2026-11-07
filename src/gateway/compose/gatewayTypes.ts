@@ -45,6 +45,7 @@ export interface GatewayDeps {
 	assistantWatchers?: readonly Watcher[];
 	/** Replaces the Kasa transport. */
 	kasaTransport?: KasaTransport;
+	workflowProgressIntervalMsForTests?: number;
 }
 
 export interface PeerAddress {

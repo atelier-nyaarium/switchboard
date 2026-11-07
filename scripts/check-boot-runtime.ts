@@ -25,6 +25,7 @@ async function checkWorkflowSandbox(dataDir: string): Promise<void> {
 	const runner = createWorkflowRunner({ store, ambient });
 	const engine = createWorkflowEngine({ runner, ambient, dispatch: { dispatch: () => {} } });
 	engine.start();
+	await engine.whenReady();
 	const start = (operationId: string, body: string) => {
 		const result = engine.startRun({
 			team: "boot-workflow",

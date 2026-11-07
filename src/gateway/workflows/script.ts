@@ -9,7 +9,7 @@ export interface WorkflowScript {
 
 export class WorkflowScriptError extends Error {
 	constructor(
-		readonly code: "meta_missing" | "meta_not_first" | "meta_not_literal" | "meta_invalid" | "module_syntax",
+		readonly code: "meta_missing" | "meta_not_first" | "meta_not_literal" | "meta_invalid" | "syntax",
 		message: string,
 	) {
 		super(message);
@@ -46,114 +46,53 @@ function skipTemplate(source: string, start: number): number {
 			continue;
 		}
 		if (character === "`") return index + 1;
-		if (character === "$" && source[index + 1] === "{") {
-			index = skipCodeBlock(source, index + 2);
-			continue;
-		}
 		index += 1;
 	}
 	return source.length;
 }
 
-function templateExpressions(source: string, start: number): Array<[number, number]> {
-	const ranges: Array<[number, number]> = [];
-	let index = start + 1;
-	while (index < source.length) {
-		const character = source[index];
-		if (character === "\\") {
-			index += 2;
-			continue;
-		}
-		if (character === "`") return ranges;
-		if (character === "$" && source[index + 1] === "{") {
-			const expressionStart = index + 2;
-			const expressionEnd = skipCodeBlock(source, expressionStart);
-			ranges.push([expressionStart, Math.max(expressionStart, expressionEnd - 1)]);
-			index = expressionEnd;
-			continue;
-		}
-		index += 1;
-	}
-	return ranges;
-}
-
-function skipCodeBlock(source: string, start: number): number {
-	let depth = 1;
+function skipTrivia(source: string, start: number): number {
 	let index = start;
-	while (index < source.length && depth > 0) {
-		const character = source[index];
-		if (character === "'" || character === '"') {
-			index = skipString(source, index, character);
-			continue;
-		}
-		if (character === "`") {
-			index = skipTemplate(source, index);
-			continue;
-		}
-		if (character === "/" && source[index + 1] === "/") {
-			index = source.indexOf("\n", index + 2);
-			if (index < 0) return source.length;
-			continue;
-		}
-		if (character === "/" && source[index + 1] === "*") {
-			const end = source.indexOf("*/", index + 2);
-			index = end < 0 ? source.length : end + 2;
-			continue;
-		}
-		if (character === "{") depth += 1;
-		if (character === "}") depth -= 1;
-		index += 1;
-	}
-	return index;
-}
-
-function scanTokens(source: string, from = 0): Token[] {
-	const tokens: Token[] = [];
-	let index = from;
 	while (index < source.length) {
-		const character = source[index]!;
-		if (/\s/u.test(character)) {
+		if (/\s/u.test(source[index]!)) {
 			index += 1;
 			continue;
 		}
-		if (character === "/" && source[index + 1] === "/") {
+		if (source.startsWith("//", index)) {
 			const end = source.indexOf("\n", index + 2);
 			index = end < 0 ? source.length : end + 1;
 			continue;
 		}
-		if (character === "/" && source[index + 1] === "*") {
+		if (source.startsWith("/*", index)) {
 			const end = source.indexOf("*/", index + 2);
 			index = end < 0 ? source.length : end + 2;
 			continue;
 		}
-		if (character === "'" || character === '"') {
-			const end = skipString(source, index, character);
-			tokens.push({ value: "<string>", start: index, end });
-			index = end;
-			continue;
-		}
-		if (character === "`") {
-			const start = index;
-			const end = skipTemplate(source, index);
-			tokens.push({ value: "<template>", start: index, end });
-			for (const [expressionStart, expressionEnd] of templateExpressions(source, start)) {
-				const offset = expressionStart;
-				const expression = scanTokens(source.slice(expressionStart, expressionEnd));
-				tokens.push(
-					...expression.map((token) => ({ ...token, start: token.start + offset, end: token.end + offset })),
-				);
-			}
-			index = end;
-			continue;
-		}
-		if (/[A-Za-z_$]/u.test(character)) {
-			const start = index++;
-			while (index < source.length && /[\w$]/u.test(source[index]!)) index += 1;
-			tokens.push({ value: source.slice(start, index), start, end: index });
-			continue;
-		}
-		tokens.push({ value: character, start: index, end: index + 1 });
-		index += 1;
+		break;
+	}
+	return index;
+}
+
+function nextHeaderToken(source: string, from: number): Token | null {
+	const start = skipTrivia(source, from);
+	if (start >= source.length) return null;
+	const first = source[start]!;
+	if (/[A-Za-z_$]/u.test(first)) {
+		let end = start + 1;
+		while (end < source.length && /[\w$]/u.test(source[end]!)) end += 1;
+		return { value: source.slice(start, end), start, end };
+	}
+	return { value: first, start, end: start + 1 };
+}
+
+function readHeader(source: string): Token[] {
+	const tokens: Token[] = [];
+	let index = 0;
+	for (let count = 0; count < 4; count += 1) {
+		const token = nextHeaderToken(source, index);
+		if (!token) break;
+		tokens.push(token);
+		index = token.end;
 	}
 	return tokens;
 }
@@ -182,7 +121,7 @@ function firstStatementEnd(source: string, start: number): number {
 			continue;
 		}
 		if (character === "{" || character === "[" || character === "(") depth += 1;
-		if (character === "}" || character === "]" || character === ")") depth -= 1;
+		if ((character === "}" || character === "]" || character === ")") && depth > 0) depth -= 1;
 		if (character === ";" && depth === 0) return index;
 		index += 1;
 	}
@@ -345,7 +284,7 @@ class JsonLiteralParser {
 }
 
 export function extractWorkflowScript(source: string): WorkflowScript {
-	const tokens = scanTokens(source);
+	const tokens = readHeader(source);
 	if (tokens.length < 4 || tokens[0]?.value !== "export") {
 		throw new WorkflowScriptError("meta_not_first", "meta must be the first statement");
 	}
@@ -371,9 +310,6 @@ export function extractWorkflowScript(source: string): WorkflowScript {
 		throw new WorkflowScriptError("meta_invalid", "meta must be a JSON object");
 	}
 	const body = source.slice(end + 1);
-	if (scanTokens(body).some((token) => token.value === "import" || token.value === "export")) {
-		throw new WorkflowScriptError("module_syntax", "imports and additional exports are refused");
-	}
 	const metaRecord = meta as Record<string, JsonValue>;
 	const rawPhases = metaRecord.phases;
 	const phases: string[] = [];

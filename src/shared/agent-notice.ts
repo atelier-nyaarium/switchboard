@@ -3,6 +3,7 @@
 import type { AgentBackendId } from "./agent-backend.js";
 import { type AgentProgressCounts, formatAgentProgressCounts } from "./agent-counter.js";
 import type { Ambient } from "./ambient.js";
+import { neutralizeMarkup, oneLine } from "./system-reminder.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -61,8 +62,11 @@ export function mintNoAckSessionId(ambient: Pick<Ambient, "randomBytes">): strin
 	return `${NO_ACK_SESSION_PREFIX}${ambient.randomBytes(8).toString("hex")}`;
 }
 
+/** One line, markup escaped. */
+const escaped = (text: string): string => neutralizeMarkup(oneLine(text));
+
 function clipped(note: string): string {
-	const line = note.replace(/\s+/g, " ").trim();
+	const line = escaped(note);
 	return line.length <= NOTE_CHARS ? line : `${line.slice(0, NOTE_CHARS - 3)}...`;
 }
 
@@ -71,27 +75,29 @@ export function progressCheckupLine(counts: AgentProgressCounts, latest: string)
 }
 
 export function agentNoticeLine(notice: AgentNotice): string {
-	const agent = `${LABEL[notice.family]} agent \`${notice.agentId}\``;
+	const agent = `${LABEL[notice.family]} agent \`${escaped(notice.agentId)}\``;
 	if (notice.kind === "done") {
-		return `${agent} finished its turn: ${notice.outcome}. Call \`${AGENT_AWAIT_TOOL[notice.family]}\` with its agentId for the result.`;
+		return `${agent} finished its turn: ${escaped(notice.outcome)}. Call \`${AGENT_AWAIT_TOOL[notice.family]}\` with its agentId for the result.`;
 	}
 	const check = progressCheckupLine(notice.counts, notice.notes.at(-1) ?? "");
 	return `${check}\n${agent} is still working (${notice.minutes} min). No action needed.`;
 }
 
 export function workflowNoticeLine(state: WorkflowNoticeText): string {
+	const runId = escaped(state.runId);
 	if (state.status !== "running") {
-		return `Workflow ${state.runId} ${state.status}. Call workflowCollect with runId ${state.runId}.`;
+		return `Workflow ${runId} ${escaped(state.status)}. Call workflowCollect with runId ${runId}.`;
 	}
-	const latest = state.logs.at(-1)?.replace(/\s+/g, " ").trim() || "No new log line";
+	const logs = state.logs.map(escaped);
+	const latest = state.logs.at(-1) || "No new log line";
 	const lines = [
 		progressCheckupLine(state.counts, latest),
-		`Workflow ${state.runId} is running. Phase: ${state.phase ?? "not started"}. Steps settled: ${state.stepsSettled}; running: ${state.stepsRunning}.`,
+		`Workflow ${runId} is running. Phase: ${state.phase ? escaped(state.phase) : "not started"}. Steps settled: ${state.stepsSettled}; running: ${state.stepsRunning}.`,
 	];
 	if (state.failed > 0 && state.newestFailure) {
-		lines.push(`Failed steps: ${state.failed}; newest ${state.newestFailure}.`);
+		lines.push(`Failed steps: ${state.failed}; newest ${escaped(state.newestFailure)}.`);
 	}
-	if (state.logs.length > 0) lines.push(`Recent log: ${state.logs.join(" | ")}`);
+	if (logs.length > 0) lines.push(`Recent script log: ${logs.join(" | ")}`);
 	return lines.join("\n");
 }
 

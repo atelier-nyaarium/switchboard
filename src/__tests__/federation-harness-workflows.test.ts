@@ -66,7 +66,11 @@ describe("workflow steps through the federation harness", () => {
 		testerRound = 0;
 		session = undefined!;
 		team = "";
-		h = await startFederationHarness({ drive: "manual", host: { onCodexCommand: withAnswer } });
+		h = await startFederationHarness({
+			drive: "manual",
+			host: { onCodexCommand: withAnswer },
+			workflowProgressIntervalMsForTests: 1_000,
+		});
 		h.host.handlers.onCreateSession = (op) => {
 			team = composeSessionName(op.target.name, op.target.sessionName);
 			session = attachFakeSession(h.gateway, {
@@ -403,11 +407,14 @@ describe("workflow steps through the federation harness", () => {
 			`export const meta = {}; await parallel([() => agent("one"), () => agent("two"), () => agent("three")]); return true;`,
 		);
 		await waitFor(() => (held.length === 3 ? held : undefined), "three working steps");
-		await h.ambient.advance(11 * 60_000);
-		await waitFor(
-			() => session.inbound.find((frame) => JSON.stringify(frame.awareness ?? {}).includes("Workflow")),
-			"workflow progress notice",
-		);
+		const progressNotice = () =>
+			session.inbound.find(
+				(frame) =>
+					JSON.stringify(frame.awareness ?? {}).includes(run.runId) &&
+					JSON.stringify(frame.awareness ?? {}).includes("no_act"),
+			);
+		for (let attempt = 0; attempt < 5 && !progressNotice(); attempt += 1) await h.ambient.advance(1_000);
+		await waitFor(() => progressNotice(), "workflow progress notice");
 		const progress = session.inbound.filter((frame) => JSON.stringify(frame.awareness ?? {}).includes(run.runId));
 		expect(progress).toHaveLength(1);
 		expect(JSON.stringify(progress[0]?.awareness ?? {})).toContain("no_act");
@@ -417,16 +424,14 @@ describe("workflow steps through the federation harness", () => {
 			h.host.sendCodex({ ...terminal, eventId });
 		}
 		await waitForStatus(run.runId, "succeeded");
-		await h.ambient.advance(61_000);
-		await waitFor(
-			() =>
-				session.inbound.find(
-					(frame) =>
-						JSON.stringify(frame.awareness ?? {}).includes(run.runId) &&
-						JSON.stringify(frame.awareness ?? {}).includes("act_now"),
-				),
-			"workflow settle notice",
-		);
+		const settleNotice = () =>
+			session.inbound.find(
+				(frame) =>
+					JSON.stringify(frame.awareness ?? {}).includes(run.runId) &&
+					JSON.stringify(frame.awareness ?? {}).includes("act_now"),
+			);
+		for (let attempt = 0; attempt < 65 && !settleNotice(); attempt += 1) await h.ambient.advance(1_000);
+		await waitFor(() => settleNotice(), "workflow settle notice");
 		const chain = session.inbound.filter((frame) => JSON.stringify(frame.awareness ?? {}).includes(run.runId));
 		expect(chain).toHaveLength(2);
 		expect(JSON.stringify(chain[1]?.awareness ?? {})).toContain("workflowCollect");

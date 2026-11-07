@@ -239,7 +239,7 @@ export function createRoutes(deps: RoutesDeps) {
 				sessionStore: deps.sessionStore ?? { teamOf: () => "" },
 			})
 		: {
-				workflowStart: async () =>
+				workflowStart: () =>
 					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
 				workflowCollect: async () =>
 					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),

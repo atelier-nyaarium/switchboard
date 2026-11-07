@@ -225,6 +225,12 @@ Recommended because it halves the tool definitions every session carries, and gi
 
 ## Phase 2 - Engine with Codex and Copilot steps, and the indicator
 
+### Bug Classes
+
+- **Mechanism:** the script scanner in `script.ts`. **Defect class:** a hand lexer guessing whether `/` starts a regex or a division, so valid JavaScript is scanned as holding an `import` or `export` and refused.
+  - Lap 2 audit: regex bodies, escaped classes and template interpolation misread.
+  - Lap 2 re-audit: `/` after a control statement's `)` or a block's `}` misread. Second patch in one mechanism. Resolved by removing the body scan: the scanner cuts only the meta statement (JSON, so no regex), and a QuickJS `compileOnly` compile of the exact wrapper refuses `import`, `export` and any other syntax error at start.
+
 - **Run store:**
   - A `workflows/` directory, added to `DATA_DIR_ENTRIES` and scanned at boot. Each run is a small record snapshot (written then renamed) plus an append-only journal.
   - The journal append is a shared primitive beside `durable-store.ts`: one fsynced line per row, a row counting only once its trailing newline is written, a failed append truncating back to its starting offset. `checked-commit-residue` widens its pattern to append and file-descriptor writes under `src/gateway`, with that primitive the only allowed caller.
@@ -280,7 +286,7 @@ Recommended because it halves the tool definitions every session carries, and gi
 - **Sandbox:**
   - `quickjs-emscripten-core` with the `@jitl/quickjs-wasmfile-release-sync` variant, exact-pinned under the 7-day rule. The WASM compiles once and each run gets its own module through `newVariant`, so one run's abort or memory growth touches no other; confirm that against the installed package when pinning.
   - Host functions are `agent`, `log` and `phase` only. `agent` validates options and compiles the schema synchronously, journals the call and returns a deferred promise. `parallel` and `pipeline` are an in-VM prelude with Workflow's semantics, a thrown thunk becoming `null`.
-  - Script shape: `export const meta = <literal>` must be the first statement, cut out by a small scanner that tracks strings, comments, template literals and bracket depth (a typed error otherwise), and evaluated alone with no host functions. Every other `import` or `export` is refused. The rest runs as an async IIFE, with `args` a frozen JSON global.
+  - Script shape: `export const meta = <literal>` must be the first statement, cut out by a small scanner that tracks strings, comments, template literals and bracket depth (a typed error otherwise), and evaluated alone with no host functions. Every other `import` or `export` is refused at start by a QuickJS `compileOnly` compile of the exact wrapper the body runs in, never by scanning the body. The rest runs as an async IIFE, with `args` a frozen JSON global.
   - Budgets: the interrupt handler sets a flag outside the VM; the engine drains with a bounded `maxJobs`, checks the flag and memory use after each batch, and fails the run when either trips, whatever the script did with the error. A short wall guard reading `ambient.now` applies to live slices only; replay applies instructions, memory and stack, since each replayed slice already passed live. Fixed `setMemoryLimit` and `setMaxStackSize`.
   - Terminal and close paths dispose every outstanding deferred, then the context, then the runtime, inside a catch.
   - The prelude lives in its own file with an `ambient-residue` allowlist entry naming why.

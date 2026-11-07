@@ -25,6 +25,7 @@ export interface AwarenessStageDeps {
 	agents: Pick<AgentsStage, "agentRoster" | "workflowProgress">;
 	workflows: Pick<WorkflowsStage, "runner" | "engine">;
 	ambient: Pick<Ambient, "now" | "randomBytes" | "setInterval">;
+	workflowProgressIntervalMs?: number;
 }
 
 /** Ticks of the bank's one-second timer between agent catalog reads. */
@@ -38,7 +39,14 @@ export interface AwarenessStage {
 	awarenessTimer: IntervalHandle;
 }
 
-export function composeAwareness({ sessions, host, agents, workflows, ambient }: AwarenessStageDeps): AwarenessStage {
+export function composeAwareness({
+	sessions,
+	host,
+	agents,
+	workflows,
+	ambient,
+	workflowProgressIntervalMs,
+}: AwarenessStageDeps): AwarenessStage {
 	const awareness = createAwarenessBank({
 		ambient,
 		liveness: (sessionKey) => {
@@ -64,6 +72,7 @@ export function composeAwareness({ sessions, host, agents, workflows, ambient }:
 		progressCounts: agents.workflowProgress,
 		observe: workflowObserve,
 		now: () => ambient.now(),
+		...(workflowProgressIntervalMs === undefined ? {} : { progressEveryMs: workflowProgressIntervalMs }),
 	});
 	const agentWatch = createAgentWatch({
 		roster: agents.agentRoster,
