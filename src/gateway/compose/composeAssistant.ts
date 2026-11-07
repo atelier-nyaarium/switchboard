@@ -60,7 +60,7 @@ import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
 import type { WatcherActions } from "../assistant/watcherAction.js";
 import { createWatcherEnabledStore } from "../assistant/watcherEnabled.js";
-import { createWatcherStateStore, FRESH_STATE, unexpectedNow } from "../assistant/watcherState.js";
+import { createWatcherStateStore, FRESH_STATE, goneAdded, unexpectedNow } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
 import { createHoldFollow } from "../phone/holdFollow.js";
 import { presentedByRequest } from "../sessionAuthority.js";
@@ -310,6 +310,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			lanes ? lanes.write(watcherId, deadlineMs, work) : Promise.reject(new Error(NOT_HERE)),
 		recount: (watcherId) => lanes?.recount(watcherId),
 		record: postRecord,
+		hideNotFound: (watcherId, ids) => {
+			const held = watcherState.get(watcherId);
+			if (ids.length > 0 && !watcherState.put(watcherId, goneAdded(held, ids, ambient.now()))) {
+				console.warn(`[assistant] ${watcherId}: not-found threads not saved, so they stay listed`);
+			}
+		},
 	});
 	/** Serializes owner operations. */
 	const ownerOps = createFifo();

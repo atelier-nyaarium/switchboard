@@ -16,6 +16,7 @@ import type { PollAnswer, Watcher, WatcherEvent } from "../gateway/assistant/wat
 import {
 	createWatcherStateStore,
 	FRESH_STATE,
+	goneAdded,
 	MAX_UNEXPECTED,
 	unexpectedAfter,
 	type WatcherStateStore,
@@ -342,6 +343,32 @@ describe("a watcher's source lane", () => {
 		expect(pushes.pushed.map((push) => push.ids)).toEqual([["e"]]);
 		expect(source.cursors).toEqual([null, "c1", "c2", "c3"]);
 		expect(state.get("github").unread).toBe(2);
+	});
+
+	it("hides a not-found thread from counts and wakes until it updates, and forgets it once a whole read stops listing it", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const state = stateIn(stateDir());
+		state.put("github", goneAdded(FRESH_STATE, ["x", "y"], 500));
+		const pushes = wakes();
+		const lane = lanes(ambient, state, source.watcher, pushes.wake);
+		const poll = async (cursor: string, events: WatcherEvent[], capped = false) => {
+			source.answer({ kind: "events", events, cursor, capped, nextPollMs: 60_000 });
+			await ambient.advance(0);
+			await ambient.advance(60_000);
+		};
+
+		lane.start();
+		await ambient.advance(0);
+		await poll("c1", [thread("x", 400), thread("y", 450), thread("a", 300)]);
+		const primed = state.get("github").unread;
+		await poll("c2", [thread("x", 400), thread("y", 450), thread("b", 600)], true);
+		await poll("c3", [thread("x", 700), thread("b", 600)]);
+		await stopped(lane, ambient);
+
+		expect(primed).toBe(1);
+		expect(pushes.pushed.map((push) => push.ids)).toEqual([["b"], ["x"]]);
+		expect(state.get("github")).toMatchObject({ unread: 2, gone: [{ id: "x", at: 500 }] });
 	});
 
 	it("reports a value outside its declared set from the priming poll on, once each, and never a missing or blank one", async () => {

@@ -7,7 +7,7 @@ import type { InboxItem, InboxList, InboxScope } from "../../shared/schemasAssis
 import { type AssistantWatcherRules, decideEvent } from "../../shared/schemasAssistantRules.js";
 import { ASSISTANT_WAITS } from "./waits.js";
 import type { ListPage, ListQuery, Watcher } from "./watcher.js";
-import type { WatcherStateStore } from "./watcherState.js";
+import { isGone, type WatcherStateStore } from "./watcherState.js";
 
 /** Past it, the rest of a page is cut. */
 const MAX_LIST_BYTES = 64_000;
@@ -78,7 +78,8 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 		return deps
 			.livePage(watcher.id, query, ASSISTANT_WAITS.list, (read) => {
 				const decided = deps.rulesFor(watcher.id);
-				const shown: InboxItem[] = read.events.slice(at.skip).map((event) => {
+				const listed = read.events.filter((event) => !isGone(state.get(watcher.id), event));
+				const shown: InboxItem[] = listed.slice(at.skip).map((event) => {
 					const { title: _title, ...fields } = event.fields;
 					return {
 						id: event.id,

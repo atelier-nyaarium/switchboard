@@ -57,6 +57,7 @@ Answers per id what GitHub confirmed, and whether your summary was recorded.
 - \`not_attempted\`: safe to send again. Once your summary is recorded, send the rest without it.
 - \`rate_limited\`: GitHub refused; the note names the wait.
 - \`uncertain\`: GitHub gave no clear answer; the note names why. May already be done; send it again, and a done thread answers \`not_found\`.
+- \`not_found\`: no such thread (done, or its subject deleted); it leaves \`${INBOX}\` here.
 
 Send at most ${GITHUB_DONE_IDS_MAX} ids per call; each id takes three GitHub requests inside one deadline.
 		`.trim(),

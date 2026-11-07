@@ -27,6 +27,7 @@ import { ACTION_FRONT_ROUTES, type ActionRunResult } from "../shared/schemasActi
 import { ASSISTANT_ACTIONS } from "../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
+import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { SessionStore } from "../shared/session-store.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -162,7 +163,14 @@ async function placed(listed: string[] = []) {
 		const headers: Record<string, string> = caller ? { "x-caller": caller } : {};
 		return (await route(new Request("http://gateway/", { headers }), body)).json();
 	};
-	return { assistant, call, delivered, asked: source.asked, ambient };
+	const inbox = assistant.routes.get(ASSISTANT_COMMANDS.inbox.path);
+	if (!inbox) throw new Error("no inbox route");
+	const inboxIds = async (scope: "new" | "all") => {
+		const headers = { "x-caller": "assistant" };
+		const answer = await (await inbox(new Request("http://gateway/", { headers }), { scope })).json();
+		return answer.lists.flatMap((list: { items: { id: string }[] }) => list.items.map((item) => item.id));
+	};
+	return { assistant, call, inboxIds, delivered, asked: source.asked, ambient };
 }
 
 describe("an assistant action", () => {
@@ -257,6 +265,7 @@ describe("an assistant action", () => {
 			write: lanes.write,
 			recount: lanes.recount,
 			record: () => true,
+			hideNotFound: () => {},
 		});
 		let free = () => {};
 		// An earlier write holds the lane until freed.
@@ -300,6 +309,26 @@ describe("an assistant action", () => {
 		// A wake of a seen thread would back off.
 		expect(after).toMatchObject({ unread: 1 });
 		expect(after?.backoff).toBeUndefined();
+	});
+
+	it("drops a thread GitHub still lists but answers not found for from the count and from inbox all", async () => {
+		const { assistant, call, inboxIds, ambient } = await placed(["404", "8"]);
+		const watcher = () => assistant.console.state().watchers[0];
+		const counted = async (unread: number) => {
+			for (let turn = 0; turn < 50 && watcher()?.unread !== unread; turn += 1) await ambient.advance(0);
+			return watcher()?.unread;
+		};
+
+		await assistant.console.setWatcherEnabled("github", true);
+		const before = await counted(2);
+		const result = await call({ id: "watcher/github_done", callId: "call-0009", params: { ids: ["404"] } });
+		const after = await counted(1);
+		const all = await inboxIds("all");
+		await assistant.stop();
+
+		expect(result).toMatchObject({ answer: { threads: [{ threadId: "404", outcome: "not_found" }] } });
+		expect([before, after]).toEqual([2, 1]);
+		expect(all).toEqual(["8"]);
 	});
 
 	it("joins a repeated call id, so a retry sends nothing twice, and clears quietly without a summary", async () => {

@@ -7,6 +7,8 @@ import type { RuleAction } from "../../shared/schemasAssistantRules.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type PollAnswer, PollAnswerSchema, WATCHER_ID_RE, type Watcher, type WatcherEvent } from "./watcher.js";
 import {
+	goneListed,
+	isGone,
 	shownChanged,
 	unexpectedAfter,
 	unexpectedNow,
@@ -284,10 +286,12 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		}
 		// Record all event values before freshness filtering.
 		const unexpected = unexpectedAfter(held.unexpected, answer.events, watcher.fieldSpecs);
-		const read = { unread: answer.events.length, capped: answer.capped, lastSuccessAt: now, unexpected };
+		const pruned = goneListed(health, answer.events, answer.capped);
+		const shown = answer.events.filter((event) => !isGone(pruned, event));
+		const read = { unread: shown.length, capped: answer.capped, lastSuccessAt: now, unexpected };
 		const newest = answer.events.reduce((max, event) => Math.max(max, event.at), held.newest);
 		// First poll primes without waking.
-		const fresh = held.primed ? answer.events.filter((event) => event.at > held.newest) : [];
+		const fresh = held.primed ? shown.filter((event) => event.at > held.newest) : [];
 		const wakes = fresh.filter((event) => deps.sort(watcher.id, event) === "wake").sort(oldestFirst);
 		const failed = await pushAll(watcher, wakes, signal);
 		if (!live()) return;
@@ -298,7 +302,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			const until = ambient.now() + retry;
 			console.warn(`[assistant] ${watcher.id} wake not delivered; polling again in ${retry / 1000}s: ${failed}`);
 			const kept = {
-				...health,
+				...pruned,
 				...read,
 				backoff: { until, reason: `wake not delivered: ${failed}` },
 				nextPollAt: until,
@@ -308,7 +312,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			return;
 		}
 		const next = now + answer.nextPollMs;
-		const { wakeRetryMs: _retry, ...rest } = health;
+		const { wakeRetryMs: _retry, ...rest } = pruned;
 		const advanced = { ...rest, ...read, cursor: answer.cursor, newest, primed: true, nextPollAt: next };
 		if (settle(watcher, advanced, next) && whole) recounts.delete(watcher.id);
 	};

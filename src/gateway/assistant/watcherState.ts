@@ -1,4 +1,4 @@
-// What a watcher keeps between polls; no threads.
+// What a watcher keeps between polls, and the threads it hides.
 
 import { z } from "zod";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
@@ -8,6 +8,8 @@ import {
 	trimRuleValue,
 } from "../../shared/schemasAssistantRules.js";
 import type { WatcherEvent } from "./watcher.js";
+
+export const MAX_GONE = 256;
 
 const WatcherStateSchema = z.strictObject({
 	/** Sent as `If-Modified-Since`. */
@@ -34,6 +36,11 @@ const WatcherStateSchema = z.strictObject({
 			values: z.array(z.strictObject({ field: z.string(), value: z.string() })),
 			capped: z.boolean(),
 		})
+		.optional(),
+	/** Listed, but answered `not_found`; hidden until updated past `at`. */
+	gone: z
+		.array(z.strictObject({ id: z.string(), at: z.number() }))
+		.max(MAX_GONE)
 		.optional(),
 });
 
@@ -93,6 +100,25 @@ export function unexpectedAfter(
 /** Pruned against active specs. */
 export const unexpectedNow = (state: WatcherState, specs: readonly AssistantFieldSpec[]) =>
 	unexpectedAfter(state.unexpected, [], specs);
+
+export const isGone = (state: WatcherState, event: Pick<WatcherEvent, "id" | "at">): boolean =>
+	state.gone?.some((entry) => entry.id === event.id && event.at <= entry.at) ?? false;
+
+/** Newest kept at the cap. */
+export function goneAdded(state: WatcherState, ids: readonly string[], at: number): WatcherState {
+	if (ids.length === 0) return state;
+	const kept = (state.gone ?? []).filter((entry) => !ids.includes(entry.id));
+	const gone = [...kept, ...ids.map((id) => ({ id, at }))].slice(-MAX_GONE);
+	return { ...state, gone };
+}
+
+/** A whole read drops what the source stopped listing. */
+export function goneListed(state: WatcherState, events: readonly WatcherEvent[], capped: boolean): WatcherState {
+	if (capped || state.gone === undefined) return state;
+	const { gone: held, ...rest } = state;
+	const gone = held.filter((entry) => events.some((event) => event.id === entry.id));
+	return gone.length === 0 ? rest : { ...rest, gone };
+}
 
 /** Drawn counts and health; poll ages excluded. */
 const shownOf = (state: WatcherState) =>

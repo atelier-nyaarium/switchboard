@@ -25,6 +25,8 @@ export interface ActionDispatchDeps {
 	write: SourceLanes["write"];
 	recount: SourceLanes["recount"];
 	record: (callId: string, record: ActionRecord) => boolean;
+	/** Held in the lane, so no poll overwrites it. */
+	hideNotFound: (watcherId: string, ids: string[]) => void;
 }
 
 /** Retries join by call id. */
@@ -48,9 +50,15 @@ export function createActionDispatch(
 		const params = parsed.data as ParamsOf<K>;
 		let answer: z.infer<typeof declaration.answer>;
 		try {
-			const ran = await deps.write(declaration.watcherId, ASSISTANT_WAITS.action, (signal) =>
-				action.run(params, { signal, ambient: deps.ambient }),
-			);
+			const ran = await deps.write(declaration.watcherId, ASSISTANT_WAITS.action, async (signal) => {
+				const value = await action.run(params, { signal, ambient: deps.ambient });
+				const gone = value.threads.filter((thread) => thread.outcome === "not_found");
+				deps.hideNotFound(
+					declaration.watcherId,
+					gone.map((thread) => thread.threadId),
+				);
+				return value;
+			});
 			if (ran.kind === "not_started") {
 				const why = ran.end === "stopping" ? "the assistant is stopping" : "the watcher stayed busy";
 				return { kind: "refused", reason: `${why}; nothing was sent` };

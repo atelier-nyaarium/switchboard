@@ -291,7 +291,7 @@ actions; `run_action` runs a listed id.
 - **The action tools are fixed:** `ASSISTANT_SWITCHBOARD_TOOLS` names `list_actions` and `run_action`
   for actions and `device` for devices. A new key, or a new device op, needs a registry entry and
   handler, with no allowlist change.
-- **`watcher/github_done` params (`{ ids, summary? }`):** up to 50 unique digit-string thread ids,
+- **`watcher/github_done` params (`{ ids, summary? }`):** up to 25 unique digit-string thread ids,
   and an optional summary of up to 300 characters. Per id it reads the thread for its title and link,
   marks it done (`DELETE`, 204), then read (`PATCH`, 205, which a done thread also takes). Unread is
   the inbox, since GitHub keeps listing a done thread under `all=true`, and done comes first so a
@@ -301,6 +301,11 @@ actions; `run_action` runs a listed id.
   `not_attempted`. A rate limit stops the batch, and the ids after it answer `not_attempted`; so does
   a refused token. A done thread whose mark-read failed answers `done` with a note that it stays in
   `inbox` until sent again. A repeated `DELETE` answers 204 again.
+- **`not_found` leaves the inbox here:** GitHub keeps listing a thread whose subject was deleted, a
+  release recreated under the same tag for one, while every thread endpoint answers 404. The
+  dispatcher records each `not_found` id with the time, inside the watcher's lane so no poll
+  overwrites it. Polls, counts, wakes and both listings skip it until GitHub updates it past that
+  time. A whole poll that no longer lists it drops the record; at most 256 are held, newest kept.
 - **The record:** an action that reached the source is recorded in the assistant's conversation
   (Delivery). One where every id answered `not_attempted` posts nothing.
 
@@ -308,9 +313,9 @@ Devices are not actions: the `device` tool's ops are the device op table, answer
 
 ## Events
 
-The source is the only copy. The Gateway stores nothing about a GitHub thread: per watcher it keeps
-its poll validator, the newest update time seen, the agent's fetch mark, GitHub's unread count and
-health. An assistant stage polls only while the assistant lives on this Gateway and federation is
+The source is the only copy. The Gateway stores nothing about a GitHub thread but the ids it hides:
+per watcher it keeps its poll validator, the newest update time seen, the agent's fetch mark,
+GitHub's unread count, health, and the `not_found` ids above. An assistant stage polls only while the assistant lives on this Gateway and federation is
 active, and stops before the shutdown flush.
 
 ### Watchers
