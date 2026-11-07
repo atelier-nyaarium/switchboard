@@ -378,7 +378,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			outcome: outcome.outcome,
 			answer: outcome.answer,
 			reason: outcome.reason,
-			// FIXME: named threads durable a month, per session until forgotten.
+			// FIXME(bd_406726c59283b1534a0636caef21cff3): named threads durable a month, per session until forgotten.
 			...(outcome.threadMap ? { threadMap: outcome.threadMap } : {}),
 		};
 		if (!appendRow(run, row)) return false;
