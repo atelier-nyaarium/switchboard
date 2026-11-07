@@ -7,7 +7,7 @@ import { workflowNoticeLine } from "../../shared/agent-notice.js";
 import type { AwarenessObservation, AwarenessSubscriber } from "../../shared/awareness-types.js";
 import type { WorkflowEngine } from "./engine.js";
 import type { WorkflowRunner } from "./runner.js";
-import type { WorkflowJournalRow } from "./workflowSchemas.js";
+import type { WorkflowIssueRow, WorkflowJournalRow } from "./workflowSchemas.js";
 
 const PROGRESS_MS = 10 * 60_000;
 
@@ -64,9 +64,14 @@ export function createWorkflowWatch(deps: {
 		const record = deps.runner.runs().find((candidate) => candidate.runId === runId);
 		if (!record) return null;
 		const rows = deps.runner.rows(runId);
-		const issues = rows.filter((row) => row.kind === "issue");
+		const issues = rows.filter((row): row is WorkflowIssueRow => row.kind === "issue");
 		const settles = rows.filter((row) => row.kind === "settle");
 		const settledIssues = new Set(settles.map((row) => row.issueOrdinal));
+		const running = issues.filter((row) => !settledIssues.has(row.issueOrdinal));
+		// Running phases take precedence.
+		const phases = [
+			...new Set(running.flatMap((row) => (row.options.phase === undefined ? [] : [row.options.phase]))),
+		];
 		const failures = settles
 			.filter((row) => row.outcome !== "completed")
 			.sort((left, right) => right.settleOrdinal - left.settleOrdinal);
@@ -74,9 +79,9 @@ export function createWorkflowWatch(deps: {
 		return {
 			runId,
 			status: record.status,
-			phase: deps.engine.phase(runId),
+			phase: phases.length > 0 ? phases.join(", ") : deps.engine.phase(runId),
 			stepsSettled: settles.length,
-			stepsRunning: issues.filter((row) => !settledIssues.has(row.issueOrdinal)).length,
+			stepsRunning: running.length,
 			failed: failures.length,
 			newestFailure: newestFailure
 				? `${labelOf(newestFailure.issueOrdinal, rows)}: ${newestFailure.outcome}: ${newestFailure.reason ?? "no reason"}`

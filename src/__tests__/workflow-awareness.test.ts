@@ -38,7 +38,7 @@ const rows: WorkflowJournalRow[] = [
 		callHash: "b".repeat(64),
 		prompt: "two",
 		resolvedBackend: "copilot",
-		options: { label: "builder" },
+		options: { label: "builder", phase: "Verify" },
 	},
 ];
 
@@ -121,7 +121,7 @@ describe("workflow awareness", () => {
 			"Since last check: 5 model turns, 6 tool calls (3 shell, 2 edits, 1 read), 3 files changed. Latest: latest script note",
 		);
 		expect(observed.at(-1)).toContain("Failed steps: 1; newest designer: invalid: invalid JSON.");
-		expect(observed.at(-1)).toContain("Steps settled: 1; running: 1");
+		expect(observed.at(-1)).toContain("Phase: Verify. Steps settled: 1; running: 1");
 
 		now += 10 * 60_000;
 		currentCounts = counts(6, 8, 4, 2, 1, 1, 3);

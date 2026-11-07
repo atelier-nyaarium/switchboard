@@ -1,30 +1,28 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import { createRequire } from "node:module";
-import syncVariant from "@jitl/quickjs-wasmfile-release-sync";
 import Ajv from "ajv";
-import {
-	newQuickJSWASMModuleFromVariant,
-	newVariant,
-	type QuickJSContext,
-	type QuickJSDeferredPromise,
-	type QuickJSHandle,
-	type QuickJSRuntime,
-} from "quickjs-emscripten-core";
-import { z } from "zod";
 import { AGENT_PROMPT_MAX_BYTES } from "../../shared/agent-record.js";
 import type { Ambient } from "../../shared/ambient.js";
-import { CodexMessageAgentInputSchema, CodexStartAgentInputSchema } from "../../shared/codexAgentState.js";
-import { CopilotMessageAgentInputSchema, CopilotStartAgentInputSchema } from "../../shared/copilotAgentState.js";
 import type { WorkflowAgentOutcome } from "../../shared/workflow-agent-outcome.js";
-import { WORKFLOW_PRELUDE } from "./prelude.js";
+import {
+	callFingerprint,
+	joinThread,
+	parseCallOptions,
+	type ThreadOptions,
+	threadOptionsOf,
+	type WorkflowBackend,
+} from "./callOptions.js";
 import type { WorkflowRunner, WorkflowStartResult } from "./runner.js";
 import { extractWorkflowScript, type WorkflowScript, WorkflowScriptError } from "./script.js";
+import {
+	createQuickJSScriptValidator,
+	createWorkflowVm,
+	type WorkflowScriptValidator,
+	type WorkflowVm,
+	type WorkflowVmHost,
+} from "./vm.js";
 import {
 	type JsonValue,
 	JsonValueSchema,
 	type WorkflowCallOptions,
-	WorkflowCallOptionsSchema,
 	type WorkflowIssueRow,
 	type WorkflowJournalRow,
 	type WorkflowRunRecord,
@@ -39,72 +37,10 @@ const LOG_LINE_MAX_BYTES = 1024;
 const LOG_MAX_LINES = 200;
 const ISSUE_LIMIT = 200;
 const DISPATCH_LIMIT = 8;
-const MEMORY_LIMIT_BYTES = 32 * 1024 * 1024;
-const MEMORY_CHECK_LIMIT_BYTES = 24 * 1024 * 1024;
-const STACK_LIMIT_BYTES = 1024 * 1024;
-const JOB_BATCH_LIMIT = 256;
-const JOB_SLICE_LIMIT = 8192;
-const INTERRUPT_TICK_LIMIT = 512;
-const LIVE_SLICE_MS = 200;
 const MAX_CORRECTIONS = 2;
 const VALIDATION_LOAD_RETRY_MS = 1_000;
 
-const require = createRequire(import.meta.url);
-const wasmBytes = fs.readFileSync(require.resolve("@jitl/quickjs-wasmfile-release-sync/wasm"));
-const wasmBinary = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength);
-const compiledWasm = WebAssembly.compile(wasmBinary);
-const quickJsVariant = newVariant(syncVariant, { wasmModule: compiledWasm, wasmBinary });
 const ajv = new Ajv({ strict: false, allErrors: true });
-
-const commonOptionShape = {
-	backend: WorkflowCallOptionsSchema.shape.backend,
-	skills: WorkflowCallOptionsSchema.shape.skills,
-	thread: WorkflowCallOptionsSchema.shape.thread,
-	label: WorkflowCallOptionsSchema.shape.label,
-	phase: WorkflowCallOptionsSchema.shape.phase,
-};
-
-const CodexCallOptionsSchema = z
-	.object({
-		...commonOptionShape,
-		model: CodexStartAgentInputSchema.shape.model,
-		tier: CodexStartAgentInputSchema.shape.serviceTier,
-		schema: CodexStartAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
-
-const CopilotCallOptionsSchema = z
-	.object({
-		...commonOptionShape,
-		model: CopilotStartAgentInputSchema.shape.model,
-		effort: CopilotStartAgentInputSchema.shape.reasoningEffort,
-		schema: CopilotStartAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
-
-const ClaudeCallOptionsSchema = z
-	.object({
-		...commonOptionShape,
-		model: z.string().optional(),
-		effort: WorkflowCallOptionsSchema.shape.effort,
-		schema: CodexStartAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
-
-const CodexMessageOptionsSchema = z
-	.object({
-		prompt: CodexMessageAgentInputSchema.shape.prompt,
-		serviceTier: CodexMessageAgentInputSchema.shape.serviceTier,
-		outputSchema: CodexMessageAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
-
-const CopilotMessageOptionsSchema = z
-	.object({
-		prompt: CopilotMessageAgentInputSchema.shape.prompt,
-		outputSchema: CopilotMessageAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
 
 export interface WorkflowCorrectionRequest {
 	attempt: 1 | 2;
@@ -118,7 +54,7 @@ export interface WorkflowIssuedCall {
 	issueOrdinal: number;
 	callHash: string;
 	prompt: string;
-	backend: NonNullable<WorkflowCallOptions["backend"]>;
+	backend: WorkflowBackend;
 	options: WorkflowCallOptions;
 	threadMode: "start" | "message";
 	threadAgent?: Extract<WorkflowJournalRow, { kind: "thread_map" }>;
@@ -166,15 +102,6 @@ export interface WorkflowEngineDeps {
 	onChanged?: (team: string) => void;
 }
 
-export interface WorkflowScriptValidator {
-	load(): Promise<void>;
-	ready(): boolean;
-	validate(script: WorkflowScript): void;
-	stop(): void;
-}
-
-export type WorkflowQuickJSModule = Awaited<ReturnType<typeof newQuickJSWASMModuleFromVariant>>;
-
 export type WorkflowEngineStartResult =
 	| WorkflowStartResult
 	| { kind: "invalid_script"; error: WorkflowScriptError }
@@ -201,7 +128,6 @@ export interface WorkflowEngine {
 interface CallState {
 	issued: WorkflowIssuedCall;
 	issueRow: WorkflowIssueRow;
-	deferred: QuickJSDeferredPromise | null;
 	validator?: ReturnType<typeof ajv.compile>;
 	queued: boolean;
 	dispatched: boolean;
@@ -210,12 +136,7 @@ interface CallState {
 	settleAttempt: number;
 }
 
-interface ThreadState {
-	backend: NonNullable<WorkflowCallOptions["backend"]>;
-	model?: string;
-	effort?: WorkflowCallOptions["effort"];
-	tier?: WorkflowCallOptions["tier"];
-	skills: string[];
+interface ThreadState extends ThreadOptions {
 	active: boolean;
 	agent: Extract<WorkflowJournalRow, { kind: "thread_map" }> | null;
 }
@@ -230,12 +151,7 @@ interface RunState {
 	script: WorkflowScript;
 	mode: "live" | "restart" | "resume";
 	resumeSource?: ResumeSource;
-	moduleReady: Promise<void>;
-	module?: Awaited<ReturnType<typeof newQuickJSWASMModuleFromVariant>>;
-	runtime?: QuickJSRuntime;
-	context?: QuickJSContext;
-	resultPromise?: QuickJSHandle;
-	deferreds: Set<QuickJSDeferredPromise>;
+	vm: WorkflowVm;
 	calls: Map<number, CallState>;
 	threads: Map<string, ThreadState>;
 	waiting: CallState[];
@@ -252,55 +168,12 @@ interface RunState {
 	resumeDone: boolean;
 	resumeMismatchAt: number | null;
 	releasedIssueOrdinals: Set<number>;
-	interrupted: boolean;
-	memoryExceeded: boolean;
-	interruptTicks: number;
-	sliceStartedAt: number;
-	sliceLive: boolean;
-	userCodeActive: boolean;
 	dead: boolean;
 	failed: boolean;
 }
 
 function utf8Bytes(value: string): number {
 	return new TextEncoder().encode(value).byteLength;
-}
-
-function canonical(value: JsonValue): string {
-	if (Array.isArray(value)) return `[${value.map((entry) => canonical(entry)).join(",")}]`;
-	if (value && typeof value === "object") {
-		return `{${Object.keys(value)
-			.sort()
-			.map((key) => `${JSON.stringify(key)}:${canonical(value[key]!)}`)
-			.join(",")}}`;
-	}
-	return JSON.stringify(value);
-}
-
-function sha256(value: string): string {
-	return crypto.createHash("sha256").update(value, "utf8").digest("hex");
-}
-
-function stableSkills(value: string[] | undefined): string[] {
-	return [...(value ?? [])];
-}
-
-function callFingerprint(
-	prompt: string,
-	backend: NonNullable<WorkflowCallOptions["backend"]>,
-	options: WorkflowCallOptions,
-): string {
-	const fields: Record<string, JsonValue> = {
-		prompt,
-		backend,
-		model: options.model ?? null,
-		effort: options.effort ?? null,
-		tier: options.tier ?? null,
-		schema: options.schema ?? null,
-		skills: stableSkills(options.skills),
-		thread: options.thread ?? null,
-	};
-	return sha256(canonical(fields));
 }
 
 function byteSize(value: JsonValue): number {
@@ -317,87 +190,11 @@ function extractError(value: unknown): string {
 	}
 }
 
-function workflowWrapper(script: WorkflowScript): string {
-	return `(async () => {\n${script.body}\n})()`;
-}
-
-function quickJsMessage(context: QuickJSContext, error: QuickJSHandle): string {
-	const value = context.dump(error);
-	if (value && typeof value === "object" && typeof value.message === "string") return value.message;
-	return extractError(value);
-}
-
-function validateWorkflowScript(module: WorkflowQuickJSModule, script: WorkflowScript): void {
-	let runtime: QuickJSRuntime | undefined;
-	let context: QuickJSContext | undefined;
-	let result: ReturnType<QuickJSContext["evalCode"]> | undefined;
-	try {
-		runtime = module.newRuntime({
-			memoryLimitBytes: MEMORY_LIMIT_BYTES,
-			maxStackSizeBytes: STACK_LIMIT_BYTES,
-		});
-		runtime.setMemoryLimit(MEMORY_LIMIT_BYTES);
-		runtime.setMaxStackSize(STACK_LIMIT_BYTES);
-		context = runtime.newContext();
-		result = context.evalCode(workflowWrapper(script), undefined, { compileOnly: true });
-		if (result.error !== undefined) {
-			const message = quickJsMessage(context, result.error);
-			throw new WorkflowScriptError("syntax", message);
-		}
-		result.value.dispose();
-		result = undefined;
-	} finally {
-		try {
-			if (result?.error !== undefined) result.error.dispose();
-			else result?.value.dispose();
-		} catch {}
-		try {
-			context?.dispose();
-		} catch {}
-		try {
-			runtime?.dispose();
-		} catch {}
-	}
-}
-
-export function createQuickJSScriptValidator(
-	moduleLoader: () => Promise<WorkflowQuickJSModule> = () => newQuickJSWASMModuleFromVariant(quickJsVariant),
-): WorkflowScriptValidator {
-	let module: WorkflowQuickJSModule | undefined;
-	let loading: Promise<void> | undefined;
-	let stopped = false;
-	return {
-		load() {
-			if (module) return Promise.resolve();
-			if (loading) return loading;
-			const current = moduleLoader().then((loaded) => {
-				if (!stopped) module = loaded;
-			});
-			let tracked: Promise<void>;
-			tracked = current.catch((error) => {
-				if (loading === tracked) loading = undefined;
-				throw error;
-			});
-			loading = tracked;
-			return tracked;
-		},
-		ready: () => module !== undefined,
-		validate(script) {
-			if (!module) throw new Error("workflow validator is not ready");
-			validateWorkflowScript(module, script);
-		},
-		stop() {
-			stopped = true;
-			module = undefined;
-		},
-	};
-}
-
 function createRunState(
 	record: WorkflowRunRecord,
 	script: WorkflowScript,
 	mode: RunState["mode"],
-	module: Awaited<ReturnType<typeof newQuickJSWASMModuleFromVariant>>,
+	vm: WorkflowVm,
 	resumeSource?: ResumeSource,
 ): RunState {
 	const state: RunState = {
@@ -405,9 +202,7 @@ function createRunState(
 		script,
 		mode,
 		...(resumeSource ? { resumeSource } : {}),
-		moduleReady: Promise.resolve(),
-		module,
-		deferreds: new Set(),
+		vm,
 		calls: new Map(),
 		threads: new Map(),
 		waiting: [],
@@ -424,27 +219,16 @@ function createRunState(
 		resumeDone: mode !== "resume",
 		resumeMismatchAt: null,
 		releasedIssueOrdinals: new Set(),
-		interrupted: false,
-		memoryExceeded: false,
-		interruptTicks: 0,
-		sliceStartedAt: 0,
-		sliceLive: mode !== "restart",
-		userCodeActive: false,
 		dead: false,
 		failed: false,
 	};
 	if (mode === "restart" && resumeSource) {
 		for (const row of resumeSource.rows) {
 			if (row.kind === "issue" && row.options.thread) {
-				const backend = row.resolvedBackend;
-				if (backend === "claude") continue;
+				if (row.resolvedBackend === "claude") continue;
 				if (!state.threads.has(row.options.thread)) {
 					state.threads.set(row.options.thread, {
-						backend,
-						...(row.options.model !== undefined ? { model: row.options.model } : {}),
-						...(row.options.effort !== undefined ? { effort: row.options.effort } : {}),
-						...(row.options.tier !== undefined ? { tier: row.options.tier } : {}),
-						skills: stableSkills(row.options.skills),
+						...threadOptionsOf(row.resolvedBackend, row.options),
 						active: false,
 						agent: null,
 					});
@@ -536,23 +320,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 	const disposeRun = (run: RunState): void => {
 		if (run.dead) return;
 		run.dead = true;
-		for (const deferred of run.deferreds) {
-			try {
-				deferred.dispose();
-			} catch {}
-		}
-		run.deferreds.clear();
-		try {
-			run.resultPromise?.dispose();
-		} catch {}
-		try {
-			run.context?.dispose();
-		} catch {}
-		try {
-			run.runtime?.dispose();
-		} catch {}
-		run.context = undefined;
-		run.runtime = undefined;
+		run.vm.dispose();
 		active.delete(run.record.runId);
 	};
 
@@ -567,49 +335,6 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			}
 		} finally {
 			run.entryRunning = false;
-		}
-	};
-
-	const readMemory = (run: RunState): number => {
-		const runtime = run.runtime;
-		const context = run.context;
-		if (!runtime || !context) return 0;
-		let handle: QuickJSHandle | undefined;
-		try {
-			handle = runtime.computeMemoryUsage();
-			const usage = context.dump(handle) as { memory_used_size?: unknown };
-			return typeof usage?.memory_used_size === "number" ? usage.memory_used_size : 0;
-		} catch {
-			return MEMORY_CHECK_LIMIT_BYTES + 1;
-		} finally {
-			try {
-				handle?.dispose();
-			} catch {}
-		}
-	};
-
-	const settlePromise = (run: RunState, call: CallState, answer: JsonValue): void => {
-		const deferred = call.deferred;
-		if (!deferred?.alive) return;
-		let result: QuickJSHandle | undefined;
-		try {
-			const literal = JSON.stringify(JSON.stringify(answer));
-			const evaluated = run.context?.evalCode(`JSON.parse(${literal})`);
-			if (!evaluated || evaluated.error !== undefined) {
-				if (evaluated?.error !== undefined) evaluated.error.dispose();
-				return;
-			}
-			result = evaluated.value;
-			deferred.resolve(result);
-		} finally {
-			try {
-				result?.dispose();
-			} catch {}
-			try {
-				deferred.dispose();
-			} catch {}
-			run.deferreds.delete(deferred);
-			call.deferred = null;
 		}
 	};
 
@@ -713,7 +438,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		}
 		dispatch.settled?.(call.issued, outcome);
 		run.releasedIssueOrdinals.add(call.issued.issueOrdinal);
-		settlePromise(run, call, callAnswer(outcome));
+		run.vm.settle(call.issued.issueOrdinal, callAnswer(outcome));
 		drive(run, true);
 	};
 
@@ -759,65 +484,40 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		}
 	};
 
-	const hostIssue = (run: RunState, promptHandle: QuickJSHandle, optionsHandle?: QuickJSHandle): QuickJSHandle => {
-		const context = run.context;
-		if (!context) throw new Error("workflow VM is not ready");
+	const declaredPhase = (run: RunState, title: string): string => {
+		if (!run.script.phases.includes(title)) throw new Error(`unknown workflow phase: ${title}`);
+		return title;
+	};
+
+	const hostOf = (run: RunState): WorkflowVmHost => ({
+		issue: (prompt, optionValue) => issueCall(run, prompt, optionValue),
+		log: (text) => {
+			if (run.logs.length >= LOG_MAX_LINES) return;
+			run.logs.push(new TextDecoder().decode(new TextEncoder().encode(text).slice(0, LOG_LINE_MAX_BYTES)));
+		},
+		phase: (title) => {
+			run.phase = declaredPhase(run, title);
+		},
+	});
+
+	const issueCall = (run: RunState, prompt: string, optionValue: unknown): number => {
+		if (run.dead) throw new Error("workflow ended");
 		run.issuedCount += 1;
 		if (run.issuedCount > ISSUE_LIMIT) throw new Error("agent call cap exceeded");
-		if (context.typeof(promptHandle) !== "string") throw new Error("agent prompt must be a string");
-		const prompt = context.getString(promptHandle);
 		if (utf8Bytes(prompt) > AGENT_PROMPT_MAX_BYTES) throw new Error("agent prompt exceeds the limit");
-		const optionValue = optionsHandle ? context.dump(optionsHandle) : {};
-		const parsedOptions = WorkflowCallOptionsSchema.parse(optionValue ?? {});
-		const backend = parsedOptions.backend ?? run.record.defaultBackend;
-		const familySchema =
-			backend === "codex"
-				? CodexCallOptionsSchema
-				: backend === "copilot"
-					? CopilotCallOptionsSchema
-					: ClaudeCallOptionsSchema;
-		const familyParsed = familySchema.safeParse(parsedOptions);
-		if (!familyParsed.success) throw new Error(familyParsed.error.issues[0]?.message ?? "invalid backend options");
-		const options = familyParsed.data as WorkflowCallOptions;
+		const { backend, options } = parseCallOptions(optionValue, run.record.defaultBackend);
+		// Explicit phases override current.
+		if (options.phase !== undefined) declaredPhase(run, options.phase);
+		else if (run.phase !== null) options.phase = run.phase;
 		const threadKey = options.thread;
 		let threadMode: "start" | "message" = "start";
 		if (threadKey) {
 			const held = run.threads.get(threadKey);
 			if (held) {
 				threadMode = "message";
-				if (held.backend !== backend) throw new Error(`thread ${threadKey} backend changed`);
-				if (options.model !== undefined && options.model !== held.model)
-					throw new Error(`thread ${threadKey} model changed`);
-				if (options.effort !== undefined && options.effort !== held.effort)
-					throw new Error(`thread ${threadKey} effort changed`);
-				if (
-					options.skills !== undefined &&
-					stableSkills(options.skills).join("\n") !== held.skills.join("\n")
-				) {
-					throw new Error(`thread ${threadKey} skills changed`);
-				}
-				options.skills ??= [...held.skills];
-				options.model ??= held.model;
-				options.effort ??= held.effort;
-				if (backend === "codex") {
-					CodexMessageOptionsSchema.parse({
-						prompt,
-						serviceTier: options.tier,
-						outputSchema: options.schema,
-					});
-				} else if (backend === "copilot") {
-					CopilotMessageOptionsSchema.parse({ prompt, outputSchema: options.schema });
-				}
+				joinThread(threadKey, held, backend, prompt, options);
 			} else {
-				run.threads.set(threadKey, {
-					backend,
-					...(options.model !== undefined ? { model: options.model } : {}),
-					...(options.effort !== undefined ? { effort: options.effort } : {}),
-					...(options.tier !== undefined ? { tier: options.tier } : {}),
-					skills: stableSkills(options.skills),
-					active: false,
-					agent: null,
-				});
+				run.threads.set(threadKey, { ...threadOptionsOf(backend, options), active: false, agent: null });
 			}
 		}
 		let validator: ReturnType<typeof ajv.compile> | undefined;
@@ -864,7 +564,6 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		const call: CallState = {
 			issued,
 			issueRow,
-			deferred: null,
 			...(validator ? { validator } : {}),
 			queued: true,
 			dispatched: false,
@@ -872,94 +571,15 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			corrections: 0,
 			settleAttempt: 0,
 		};
-		const deferred = context.newPromise();
-		call.deferred = deferred;
-		run.deferreds.add(deferred);
 		run.calls.set(issueOrdinal, call);
 		run.waiting.push(call);
-		return deferred.handle;
-	};
-
-	const installGlobals = (run: RunState): void => {
-		const context = run.context;
-		if (!context) throw new Error("workflow VM is not ready");
-		const setFunction = (name: string, fn: (...args: QuickJSHandle[]) => QuickJSHandle | undefined): void => {
-			const handle = context.newFunction(name, (...args) => fn(...args));
-			context.setProp(context.global, name, handle);
-			handle.dispose();
-		};
-		setFunction("agent", (prompt, options) => hostIssue(run, prompt!, options));
-		setFunction("log", (value) => {
-			if (run.logs.length >= LOG_MAX_LINES) return context.undefined;
-			let rendered = "";
-			try {
-				const dumped = context.dump(value!);
-				rendered = typeof dumped === "string" ? dumped : JSON.stringify(dumped);
-			} catch {
-				rendered = "[unserializable]";
-			}
-			run.logs.push(new TextDecoder().decode(new TextEncoder().encode(rendered).slice(0, LOG_LINE_MAX_BYTES)));
-			return context.undefined;
-		});
-		setFunction("phase", (name) => {
-			if (context.typeof(name!) !== "string") throw new Error("phase needs a title");
-			const title = context.getString(name!);
-			if (!run.script.phases.includes(title)) throw new Error(`unknown workflow phase: ${title}`);
-			run.phase = title;
-			return context.undefined;
-		});
-	};
-
-	const checkMemory = (run: RunState): void => {
-		if (readMemory(run) > MEMORY_CHECK_LIMIT_BYTES) throw new Error("workflow memory budget exceeded");
-	};
-
-	const drainJobs = (run: RunState, live: boolean): void => {
-		const runtime = run.runtime;
-		if (!runtime) return;
-		run.interrupted = false;
-		run.interruptTicks = 0;
-		run.sliceStartedAt = ambient.now();
-		run.sliceLive = live;
-		let jobs = 0;
-		run.userCodeActive = true;
-		try {
-			while (runtime.hasPendingJob() && jobs < JOB_SLICE_LIMIT) {
-				const result = runtime.executePendingJobs(JOB_BATCH_LIMIT);
-				if (result.error !== undefined) {
-					const reason = extractError(run.context?.dump(result.error));
-					result.dispose();
-					if (run.interrupted)
-						throw new Error(
-							run.memoryExceeded
-								? "workflow memory budget exceeded"
-								: "workflow instruction budget exceeded",
-						);
-					throw new Error(reason);
-				}
-				const executed = result.value;
-				jobs += executed;
-				result.dispose();
-				if (run.interrupted)
-					throw new Error(
-						run.memoryExceeded ? "workflow memory budget exceeded" : "workflow instruction budget exceeded",
-					);
-				checkMemory(run);
-				if (executed === 0) break;
-				if (jobs >= JOB_SLICE_LIMIT && runtime.hasPendingJob()) throw new Error("workflow job budget exceeded");
-			}
-		} finally {
-			run.userCodeActive = false;
-		}
+		return issueOrdinal;
 	};
 
 	const scriptState = (run: RunState): "pending" | "fulfilled" | "rejected" => {
-		if (!run.context || !run.resultPromise) return "pending";
-		const state = run.context.getPromiseState(run.resultPromise);
-		if (state.type === "fulfilled") {
-			const value = run.context.dump(state.value);
-			state.value.dispose();
-			const parsed = JsonValueSchema.safeParse(value);
+		const result = run.vm.result();
+		if (result.type === "fulfilled") {
+			const parsed = JsonValueSchema.safeParse(result.value);
 			if (!parsed.success || byteSize(parsed.data) > RESULT_MAX_BYTES) {
 				terminalize(run, "failed", null, "workflow result is not JSON or exceeds the limit");
 				return "rejected";
@@ -967,10 +587,8 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			terminalize(run, "succeeded", parsed.data, null);
 			return "fulfilled";
 		}
-		if (state.type === "rejected") {
-			const reason = extractError(run.context.dump(state.error));
-			state.error.dispose();
-			terminalize(run, "failed", null, reason);
+		if (result.type === "rejected") {
+			terminalize(run, "failed", null, result.reason);
 			return "rejected";
 		}
 		return "pending";
@@ -1080,8 +698,8 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 					run.resumeSettleIndex += 1;
 					call.settled = true;
 					run.settleOrdinal = Math.max(run.settleOrdinal, row.settleOrdinal);
-					settlePromise(run, call, callAnswer(settleOutcome(row)));
-					drainJobs(run, live);
+					run.vm.settle(call.issued.issueOrdinal, callAnswer(settleOutcome(row)));
+					run.vm.drain(live);
 					flushIssues(run);
 					continue;
 				}
@@ -1098,8 +716,8 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			call.settled = true;
 			run.settleOrdinal = Math.max(run.settleOrdinal, row.settleOrdinal);
 			run.releasedIssueOrdinals.add(row.issueOrdinal);
-			settlePromise(run, call, callAnswer(settleOutcome(row)));
-			drainJobs(run, live);
+			run.vm.settle(call.issued.issueOrdinal, callAnswer(settleOutcome(row)));
+			run.vm.drain(live);
 			flushIssues(run);
 		}
 		if (run.mode === "resume") {
@@ -1123,7 +741,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 	function drive(run: RunState, live: boolean): void {
 		if (run.dead || stopped || runner.get(run.record.runId)?.status !== "running") return;
 		try {
-			drainJobs(run, live);
+			run.vm.drain(live);
 			flushIssues(run);
 			if (run.dead) return;
 			tryReplay(run, live);
@@ -1146,151 +764,17 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			}
 			driveDispatch(run);
 		} catch (error) {
-			terminalize(
-				run,
-				"failed",
-				null,
-				run.memoryExceeded
-					? "workflow memory budget exceeded"
-					: run.interrupted
-						? "workflow instruction budget exceeded"
-						: extractError(error),
-			);
+			terminalize(run, "failed", null, extractError(error));
 		}
 	}
 
-	const attachJsonGlobal = (run: RunState, name: string, value: JsonValue): void => {
-		const context = run.context;
-		if (!context) throw new Error("workflow VM is not ready");
-		const literal = JSON.stringify(JSON.stringify(value));
-		const result = context.evalCode(
-			`globalThis.${name} = (() => { const freeze = value => { if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const key of Object.keys(value)) freeze(value[key]); } return value; }; return freeze(JSON.parse(${literal})); })();`,
-		);
-		if (result.error !== undefined) {
-			const message = extractError(context.dump(result.error));
-			result.error.dispose();
-			throw new Error(message);
-		}
-		result.value.dispose();
-	};
-
-	const prepare = async (run: RunState): Promise<void> => {
+	const prepare = (run: RunState): void => {
 		try {
-			await run.moduleReady;
 			if (stopped || run.dead || runner.get(run.record.runId)?.status !== "running") return;
-			const module = run.module;
-			if (!module) throw new Error("QuickJS module is unavailable");
-			run.runtime = module.newRuntime({
-				memoryLimitBytes: MEMORY_LIMIT_BYTES,
-				maxStackSizeBytes: STACK_LIMIT_BYTES,
-				interruptHandler: () => {
-					if (!run.userCodeActive) return false;
-					run.interruptTicks += 1;
-					if (run.interruptTicks % 2 === 0) {
-						let usage = 0;
-						let handle: QuickJSHandle | undefined;
-						try {
-							handle = run.runtime?.computeMemoryUsage();
-							usage =
-								handle && run.context
-									? ((run.context.dump(handle) as { memory_used_size?: number }).memory_used_size ??
-										0)
-									: 0;
-						} catch {
-							usage = MEMORY_CHECK_LIMIT_BYTES + 1;
-						} finally {
-							try {
-								handle?.dispose();
-							} catch {}
-						}
-						if (usage > MEMORY_CHECK_LIMIT_BYTES) {
-							run.memoryExceeded = true;
-							run.interrupted = true;
-							return true;
-						}
-					}
-					if (run.interruptTicks > INTERRUPT_TICK_LIMIT) {
-						run.interrupted = true;
-						return true;
-					}
-					if (run.sliceLive && ambient.now() - run.sliceStartedAt > LIVE_SLICE_MS) {
-						run.interrupted = true;
-						return true;
-					}
-					return false;
-				},
-			});
-			run.runtime.setMemoryLimit(MEMORY_LIMIT_BYTES);
-			run.runtime.setMaxStackSize(STACK_LIMIT_BYTES);
-			const metaContext = run.runtime.newContext();
-			try {
-				const metaSource = JSON.stringify(run.script.metaLiteral);
-				const metaResult = metaContext.evalCode(`const meta = JSON.parse(${metaSource}); meta`);
-				if (metaResult.error !== undefined) {
-					const reason = extractError(metaContext.dump(metaResult.error));
-					metaResult.error.dispose();
-					throw new Error(reason);
-				}
-				const parsedMeta = JsonValueSchema.parse(metaContext.dump(metaResult.value));
-				metaResult.value.dispose();
-				if (canonical(parsedMeta) !== canonical(run.script.meta))
-					throw new Error("meta did not evaluate as JSON");
-			} finally {
-				metaContext.dispose();
-			}
-			run.context = run.runtime.newContext();
-			installGlobals(run);
-			run.interrupted = false;
-			run.interruptTicks = 0;
-			run.sliceStartedAt = ambient.now();
-			run.sliceLive = run.mode !== "restart";
-			const prelude = run.context.evalCode(WORKFLOW_PRELUDE);
-			if (prelude.error !== undefined) {
-				const reason = extractError(run.context.dump(prelude.error));
-				prelude.error.dispose();
-				throw new Error(reason);
-			}
-			prelude.value.dispose();
-			attachJsonGlobal(run, "args", run.record.args);
-			attachJsonGlobal(run, "meta", run.script.meta);
-			const wrapper = workflowWrapper(run.script);
-			run.interrupted = false;
-			run.interruptTicks = 0;
-			run.sliceStartedAt = ambient.now();
-			run.sliceLive = run.mode !== "restart";
-			run.userCodeActive = true;
-			let result: ReturnType<QuickJSContext["evalCode"]>;
-			try {
-				result = run.context.evalCode(wrapper);
-			} finally {
-				run.userCodeActive = false;
-			}
-			if (run.interrupted) {
-				if (result.error !== undefined) result.error.dispose();
-				else result.value.dispose();
-				throw new Error(
-					run.memoryExceeded ? "workflow memory budget exceeded" : "workflow instruction budget exceeded",
-				);
-			}
-			if (result.error !== undefined) {
-				const reason = extractError(run.context.dump(result.error));
-				result.error.dispose();
-				throw new Error(reason);
-			}
-			run.resultPromise = result.value;
-			checkMemory(run);
+			run.vm.boot(run.script, run.record.args, hostOf(run), run.mode !== "restart");
 			enter(run, () => drive(run, run.mode !== "restart"));
 		} catch (error) {
-			terminalize(
-				run,
-				"failed",
-				null,
-				run.memoryExceeded
-					? "workflow memory budget exceeded"
-					: run.interrupted
-						? "workflow instruction budget exceeded"
-						: extractError(error),
-			);
+			terminalize(run, "failed", null, extractError(error));
 		}
 	};
 
@@ -1302,15 +786,20 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 	): Promise<boolean> => {
 		if (stopped || active.has(record.runId) || preparing.has(record.runId)) return false;
 		preparing.add(record.runId);
+		let vm: WorkflowVm | undefined;
 		try {
 			const script = knownScript ?? extractWorkflowScript(record.script);
-			const module = await newQuickJSWASMModuleFromVariant(quickJsVariant);
-			if (stopped || runner.get(record.runId)?.status !== "running") return false;
-			const state = createRunState(record, script, mode, module, resumeSource);
+			vm = await createWorkflowVm({ ambient });
+			if (stopped || runner.get(record.runId)?.status !== "running") {
+				vm.dispose();
+				return false;
+			}
+			const state = createRunState(record, script, mode, vm, resumeSource);
 			active.set(record.runId, state);
-			void prepare(state);
+			prepare(state);
 			return true;
 		} catch (error) {
+			vm?.dispose();
 			if (runner.transition(record.runId, "running", "failed", { failureReason: extractError(error) })) {
 				deps.onChanged?.(record.team);
 			}

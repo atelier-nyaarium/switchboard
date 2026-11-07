@@ -3,16 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	createQuickJSScriptValidator,
 	createWorkflowEngine,
 	type WorkflowDispatchOutcome,
 	type WorkflowIssuedCall,
-	type WorkflowQuickJSModule,
-	type WorkflowScriptValidator,
 } from "../gateway/workflows/engine.js";
 import { createWorkflowRunner } from "../gateway/workflows/runner.js";
 import { extractWorkflowScript, WorkflowScriptError } from "../gateway/workflows/script.js";
 import { createWorkflowRunStore } from "../gateway/workflows/store.js";
+import {
+	createQuickJSScriptValidator,
+	type WorkflowQuickJSModule,
+	type WorkflowScriptValidator,
+} from "../gateway/workflows/vm.js";
 import type { JsonValue, WorkflowRunRecord, WorkflowStartInput } from "../gateway/workflows/workflowSchemas.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -296,6 +298,42 @@ describe("workflow script engine", () => {
 		expect(runner.get(run.runId)?.result).toEqual({ ok: true, rounds: 1, version: 5 });
 		expect(pending.map(({ call }) => call.backend)).toEqual(["codex", "codex", "codex"]);
 		expect(runner.rows(run.runId).filter((row) => row.kind === "settle")).toHaveLength(3);
+		engine.stop();
+		runner.stop();
+	});
+
+	it("puts a step in its own phase, else the current one, and refuses an undeclared phase", async () => {
+		const calls: PendingCall[] = [];
+		const { engine, runner } = await setup((call, settle) => calls.push({ call, settle }));
+		const script = `export const meta = {phases: ["Build", "Verify"]};
+const first = agent("one");
+phase("Build");
+const second = agent("two");
+const third = agent("three", {phase: "Verify"});
+return await parallel([() => first, () => second, () => third]);`;
+		const run = started(engine.startRun(input("phases", script)));
+		await waitFor(() => calls.length === 3);
+		expect(calls.map(({ call }) => call.options.phase)).toEqual([undefined, "Build", "Verify"]);
+		expect(engine.phase(run.runId)).toBe("Build");
+		for (const { settle } of calls) settle({ outcome: "completed", answer: "ok", reason: null });
+		await waitFor(() => runner.get(run.runId)?.status !== "running");
+		expect(runner.get(run.runId)?.status).toBe("succeeded");
+		const journaled = runner.rows(run.runId).flatMap((row) => (row.kind === "issue" ? [row.options.phase] : []));
+		expect(journaled).toEqual([undefined, "Build", "Verify"]);
+
+		const bad = started(
+			engine.startRun(
+				input(
+					"bad-phase",
+					'export const meta = {phases: ["Build"]}; return await agent("x", {phase: "Nope"});',
+				),
+			),
+		);
+		await waitFor(() => runner.get(bad.runId)?.status !== "running");
+		expect(runner.get(bad.runId)).toMatchObject({
+			status: "failed",
+			failureReason: "unknown workflow phase: Nope",
+		});
 		engine.stop();
 		runner.stop();
 	});

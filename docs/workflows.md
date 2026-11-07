@@ -21,7 +21,8 @@ reuse the invocation id. A Windows session has no agent execution target and can
 `agent(prompt, options)` runs a Codex or Copilot step. Options are `backend`, `model`, `effort`
 (Copilot), `tier` (Codex), `thread`, `skills`, `schema`, `label` and `phase`. `thread` reuses an
 agent and queues calls for that thread. `parallel`, `pipeline`, `phase`, `log`, `args` and `label`
-follow Workflow semantics. Scripts return JSON. A failed step answers `null`; `workflowCollect`
+follow Workflow semantics. A call's `phase` selects a declared phase; otherwise it uses the current
+phase. Checkups list phases with running steps. Scripts return JSON. A failed step answers `null`; `workflowCollect`
 shows each step's outcome and reason from the journal.
 
 Schemas use a strict subset: every property is required, set `additionalProperties: false`, and use
