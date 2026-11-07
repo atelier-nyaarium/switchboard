@@ -121,6 +121,19 @@ describe("github_done", () => {
 		]);
 	});
 
+	it("clears nothing with a classic token that lacks the notifications scope, since GitHub's 204 would change nothing", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const { run, asked } = github(ambient, [
+			{ status: 200, body: thread("7"), headers: { "x-oauth-scopes": "repo, workflow" } },
+		]);
+
+		const answer = await run(["7", "8"]);
+
+		expect(answer.threads.map((thread) => thread.outcome)).toEqual(["not_attempted", "not_attempted"]);
+		expect(answer.note).toMatch(/notifications scope/);
+		expect(asked).toEqual(["GET /notifications/threads/7"]);
+	});
+
 	it("stops at a rate limit naming the wait, and sends nothing more until it is out", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { run, asked } = github(ambient, [

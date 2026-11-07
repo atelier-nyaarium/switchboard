@@ -55,13 +55,31 @@ const NOT_A_TOKEN = "the secret is not a GitHub token";
 /** Secondary limit fallback. */
 const SECONDARY_WAIT_MS = 5 * 60_000;
 const SCOPE = "the token needs the notifications scope";
+/** Without it, a done answers 204 and changes nothing. */
+const MISSING_SCOPE: GithubRefusal = {
+	kind: "stopped",
+	reason: "the GitHub token lacks the notifications scope; tick it on the classic token's GitHub settings page",
+};
+const SSO_REFUSED: GithubRefusal = {
+	kind: "stopped",
+	reason: "an organization's SSO has not authorized the GitHub token; use Configure SSO on the token's GitHub settings page",
+};
+
+/** Classic tokens list their scopes; others send none. */
+function lacksNotifications(response: Response): boolean {
+	const scopes = response.headers.get("x-oauth-scopes");
+	if (scopes === null) return false;
+	return !scopes.split(",").some((scope) => scope.trim() === "notifications");
+}
 
 export const githubWait = (ms: number) => Math.min(GITHUB_MAX_WAIT_MS, Math.max(GITHUB_FLOOR_MS, Math.ceil(ms)));
 
 /** Auth stops; rate limits back off. */
 async function refusalOf(response: Response, now: number): Promise<GithubRefusal | null> {
 	if (response.status === 401) return { kind: "stopped", reason: "GitHub refused the token" };
+	if (lacksNotifications(response)) return MISSING_SCOPE;
 	if (response.status !== 403 && response.status !== 429) return null;
+	if (response.headers.get("x-github-sso")?.startsWith("required")) return SSO_REFUSED;
 	const retryAfter = Number(response.headers.get("retry-after"));
 	if (Number.isFinite(retryAfter) && retryAfter > 0) {
 		return { kind: "backoff", retryMs: githubWait(retryAfter * 1000), reason: "GitHub rate limit" };

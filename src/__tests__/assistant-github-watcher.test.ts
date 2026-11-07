@@ -327,6 +327,20 @@ describe("the GitHub notifications watcher", () => {
 		expect(hidden.kind).toBe("stopped");
 	});
 
+	it("stops on a classic token without the notifications scope, and on an organization's SSO refusal", async () => {
+		const page = { status: 200, body: [thread("1", "2026-10-18T10:00:00Z")] };
+		const unscoped = await github([{ ...page, headers: { "x-oauth-scopes": "repo, workflow" } }]).poll(null);
+		const scoped = await github([{ ...page, headers: { "x-oauth-scopes": "repo, notifications" } }]).poll(null);
+		const unlisted = await github([page]).poll(null);
+		const sso = await github([
+			{ status: 403, headers: { "x-github-sso": "required; url=https://github.com/enterprises/x/sso" } },
+		]).poll("c");
+
+		expect(unscoped).toMatchObject({ kind: "stopped", reason: expect.stringMatching(/notifications scope/) });
+		expect([scoped.kind, unlisted.kind]).toEqual(["events", "events"]);
+		expect(sso).toMatchObject({ kind: "stopped", reason: expect.stringMatching(/SSO/) });
+	});
+
 	it("holds later requests for only what is left of GitHub's limit, asking it nothing meanwhile", async () => {
 		const throttled = github([{ status: 429, headers: { "retry-after": "90" } }]);
 		await throttled.poll("c");

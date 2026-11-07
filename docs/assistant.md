@@ -378,7 +378,11 @@ A watcher is plain Gateway code, never a model.
   `repository` and `title`, text. `GITHUB_FIELD_SPECS` holds them.
 - Reads a classic token from its granted vault entry. The notification endpoints take no
   fine-grained token. Without a grant, on a 401, on a 404 (GitHub hides what a token may not see),
-  or on a 403 that is not a rate limit, the watcher stops with that reason. `createGithubWatcher` in
+  or on a 403 that is not a rate limit, the watcher stops with that reason.
+- **A scope check on every answer:** a classic token names its scopes in `X-OAuth-Scopes`. One
+  without `notifications` stops the watcher and its actions, since GitHub lists and reads threads
+  under `repo` alone and answers a done with 204 that changes nothing. A 403 carrying
+  `X-GitHub-SSO: required` stops it as an organization SSO refusal. `createGithubWatcher` in
   `src/gateway/assistant/githubWatcher.ts`, over the shared client.
 
 ### Rules
