@@ -46,12 +46,47 @@ Tools: \`agentStart\`, \`agentMessage\`, \`agentCollect\`, \`agentStop\`, and \`
 \`schema\` constrains a new turn's final answer; validate the returned text yourself.
 
 Agents have full access. State allowed writes, network access, and completion criteria in every prompt.
+
+GPT-family agents are **very literal** and pursue a goal through unexpected or suspect actions. Set guardrails in the prompt you delegate.
+But, choose your terms **very literally**, because if you say "Never" in the beginning, GPT might not listen to you even if you say "It's OK now".
+- "Don't XXX." - Means you will never lift the restriction. Trashing the thread is the only way around.
+- "Don't XXX, unless I say otherwise later" - Means you may lift the restriction depending on feel.
+
+You are the triage gate for what an agent says and does. A confident tone is not evidence; verify their work and claims against the code.
+
+## Driving Agents From a Workflow
+
+To keep your context free of clutter, it's recommended to use Workflows.
+
+Code editing or fan-outs run on an agent: Audits, assessments, adversarial second reads.
+
+Research is the exception, web research especially. It stays on Opus.
+
+Choose model depending on task:
+- Haiku relays verbatim to the agent. Or Sonnet if you want to remove a whole report phase.
+- Sonnet collates, Opus decides.
+
+Single Iterative Phase Style:
+- Iterative fix until pass (Sonnet working with agents) and report
+
+Fan Out ► Join Style
+- Research (Opuses) ► Rank Sort (Opus or Sonnet)
+- Audits (Haikus verbatim agents) ► Synthesize (Opus)
+- Assessments (Haikus verbatim agents) ► Synthesize (Opus)
+
+## Recovery
+
+Agents belong to the whole Claude Code session. A terminal result means finished. \`agent_dead\` means the agent cannot run. \`agent_unreachable\` means its process may still be running, so do not duplicate the work. If a Workflow caller dies, \`agentList\` returns a summary; pass \`agentId\` for one agent's full history.
 `.trim();
 
 export const CODEX_AGENT_INSTRUCTIONS = `
 ## Codex
 
-\`model\` must be offered by the App Server. If both \`model\` and \`tier\` are omitted, Codex uses \`gpt-6-luna\` at \`priority\`.
+\`model\`, spelled exactly:
+- \`gpt-6-luna\` - Default. Exploration, audits, implementation.
+- \`gpt-6.1-sol\` - Hardest reasoning and coding. Ask permission first.
+
+If both \`model\` and \`tier\` are omitted, Codex uses \`gpt-6-luna\` at \`priority\`.
 
 \`tier\` accepts \`priority\` or \`standard\`. \`priority\` runs faster and uses more. A Codex \`agentMessage\` tier applies to the next new turn.
 `.trim();
