@@ -115,6 +115,17 @@ describe("workflow script engine", () => {
 		expect(() => extractWorkflowScript("const before = 1; export const meta = {};")).toThrow(/first statement/);
 	});
 
+	it("ends a meta object without a semicolon at its newline, as Workflow scripts write it", () => {
+		const bare = extractWorkflowScript(
+			"export const meta = {\n  name: 'x',\n  phases: [{ title: 'A' }],\n}\nlog('go');\nreturn 1;",
+		);
+		expect(bare.meta.name).toBe("x");
+		expect(bare.phases).toEqual(["A"]);
+		expect(bare.body.trim()).toBe("log('go');\nreturn 1;");
+		expect(extractWorkflowScript("export const meta = { name: 'y' } // note\nreturn 2;").meta.name).toBe("y");
+		expect(extractWorkflowScript("export const meta = { name: 'z' };\nreturn 3;").body.trim()).toBe("return 3;");
+	});
+
 	it("checks capacity and dedupe before compiling", async () => {
 		let compiles = 0;
 		const scriptValidator: WorkflowScriptValidator = {

@@ -121,7 +121,14 @@ function firstStatementEnd(source: string, start: number): number {
 			continue;
 		}
 		if (character === "{" || character === "[" || character === "(") depth += 1;
-		if ((character === "}" || character === "]" || character === ")") && depth > 0) depth -= 1;
+		if ((character === "}" || character === "]" || character === ")") && depth > 0) {
+			depth -= 1;
+			// ASI: a closed literal ends at a newline.
+			if (depth === 0 && /^[ \t]*(?:\/\/[^\n]*)?\n/u.test(source.slice(index + 1))) {
+				const after = skipTrivia(source, index + 1);
+				if (source[after] !== ";" && !/^[.,[(?:+\-*/%&|^=<>!]/u.test(source[after] ?? "")) return index + 1;
+			}
+		}
 		if (character === ";" && depth === 0) return index;
 		index += 1;
 	}
@@ -286,7 +293,7 @@ class JsonLiteralParser {
 export function extractWorkflowScript(source: string): WorkflowScript {
 	const tokens = readHeader(source);
 	if (tokens.length < 4 || tokens[0]?.value !== "export") {
-		throw new WorkflowScriptError("meta_not_first", "meta must be the first statement");
+		throw new WorkflowScriptError("meta_not_first", "the first statement must be `export const meta = {...}`");
 	}
 	if (
 		tokens[0]?.value !== "export" ||
@@ -294,10 +301,10 @@ export function extractWorkflowScript(source: string): WorkflowScript {
 		tokens[2]?.value !== "meta" ||
 		tokens[3]?.value !== "="
 	) {
-		throw new WorkflowScriptError("meta_missing", "first statement must declare meta");
+		throw new WorkflowScriptError("meta_missing", "the first statement must be `export const meta = {...}`");
 	}
 	const end = firstStatementEnd(source, tokens[0]!.start);
-	if (end < 0) throw new WorkflowScriptError("meta_not_literal", "meta declaration needs a semicolon");
+	if (end < 0) throw new WorkflowScriptError("meta_not_literal", "meta declaration does not end");
 	const equals = tokens[3]!.end;
 	let meta: unknown;
 	const rawLiteral = source.slice(equals, end).trim();
@@ -309,7 +316,7 @@ export function extractWorkflowScript(source: string): WorkflowScript {
 	if (!JsonValueSchema.safeParse(meta).success || meta === null || Array.isArray(meta) || typeof meta !== "object") {
 		throw new WorkflowScriptError("meta_invalid", "meta must be a JSON object");
 	}
-	const body = source.slice(end + 1);
+	const body = source.slice(source[end] === ";" ? end + 1 : end);
 	const metaRecord = meta as Record<string, JsonValue>;
 	const rawPhases = metaRecord.phases;
 	const phases: string[] = [];

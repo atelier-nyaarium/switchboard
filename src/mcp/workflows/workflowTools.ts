@@ -10,7 +10,7 @@ export const WORKFLOW_START_DESCRIPTION = `
 
 This is Switchboard's own Workflow. It runs steps on other providers' CLIs (Codex, Copilot, and \`claude -p\`). Use it over built-in Workflow when a step needs GPT or another model family.
 
-\`parallel\`, \`pipeline\`, \`phase\`, \`log\`, \`args\`, and \`label\` work as in Workflow.
+The script starts with \`export const meta = {...}\`, a pure literal, as in Workflow. \`parallel\`, \`pipeline\`, \`phase\`, \`log\`, \`args\`, and \`label\` work as in Workflow.
 
 \`agent()\` options that differ:
 \`\`\`js

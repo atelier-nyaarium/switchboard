@@ -17,7 +17,7 @@ The MCP tool takes exactly one of `script` and `scriptPath`, reading the path fr
 working directory. Retries reuse the invocation id. A Windows session has no agent execution target
 and cannot start a run.
 
-A script starts with `export const meta = <JSON literal>`. Static imports and exports in the body
+A script starts with `export const meta = <JSON literal>`, ended by `;` or a newline. Static imports and exports in the body
 fail compilation. Dynamic imports have no module loader and fail when called. The Gateway compiles
 the script with QuickJS before storing the run, so a syntax error is refused at start with its
 message. A start answers retryable `not_ready` while QuickJS loads.
