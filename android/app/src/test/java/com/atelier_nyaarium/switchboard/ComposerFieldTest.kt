@@ -65,6 +65,8 @@ class ComposerFieldTest {
 		assertEquals(null, cometFor(null, workflow = false))
 		assertEquals(Comet.TURN, cometFor(SessionWord.WORKING, workflow = false))
 		assertEquals(Comet.TEAMMATES, cometFor(SessionWord.WORKING, workflow = false, teammates = true))
+		assertEquals(Comet.TEAMMATES, cometFor(SessionWord.LIVE, workflow = false, teammates = true))
+		assertEquals(null, cometFor(SessionWord.AVAILABLE, workflow = false, teammates = true))
 		assertEquals(Comet.WORKFLOW, cometFor(SessionWord.WORKING, workflow = true, teammates = true))
 		val state = ChatState(
 			teams = listOf(

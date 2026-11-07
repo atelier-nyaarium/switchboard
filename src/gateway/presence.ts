@@ -29,6 +29,7 @@ export class PresenceFacade {
 	private planeRegistry: PlaneRegistry | undefined;
 	private onDirty?: () => void;
 	private workflowRunning: (team: string) => boolean = () => false;
+	private agentsRunning: () => ReadonlySet<string> = () => new Set();
 
 	private readonly wakeInFlight = new Set<string>();
 	private readonly createInFlight = new Set<string>();
@@ -53,6 +54,12 @@ export class PresenceFacade {
 
 	setWorkflowRunningReader(read: (team: string) => boolean): void {
 		this.workflowRunning = read;
+		this.markDirty();
+	}
+
+	/** Agents with running turns. */
+	setAgentsRunningReader(read: () => ReadonlySet<string>): void {
+		this.agentsRunning = read;
 		this.markDirty();
 	}
 
@@ -223,6 +230,7 @@ export class PresenceFacade {
 		// No Domain, no presence.
 		if (!domainId) return rows;
 		const commonFields = { gatewayId: this.localGatewayId, domainId };
+		const agentTeams = this.agentsRunning();
 
 		for (const record of this.sessionStore.list()) {
 			const name = this.sessionStore.teamOf(record);
@@ -248,6 +256,7 @@ export class PresenceFacade {
 				...(isAssistantRecord(record) ? { role: ASSISTANT_ROLE } : {}),
 				...derived,
 				...(this.workflowRunning(name) ? { workflow: true } : {}),
+				...(agentTeams.has(name) ? { teammates: true } : {}),
 				queue_depth: 0,
 			});
 		}

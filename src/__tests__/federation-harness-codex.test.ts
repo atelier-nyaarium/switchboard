@@ -185,6 +185,8 @@ describe("Codex delegation through the gateway and the daemon", () => {
 						agent.agentState === "working" && agent.turns?.some((turn) => turn.state === "inProgress"),
 				);
 			}, "an accepted turn in progress");
+			const teams = (await (await alice.get("/teams")).json()) as Array<{ team: string; teammates?: boolean }>;
+			expect(teams.find((row) => row.team === alice.team)?.teammates).toBe(true);
 			const stopped = await codex(alice, { kind: "stop", operationId: operationId(), agentId: working.agentId });
 			expect(stopped.agentId, JSON.stringify(stopped)).toBe(working.agentId);
 			expect(await starting).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });

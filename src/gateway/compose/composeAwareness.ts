@@ -20,7 +20,7 @@ import type { SessionsStage } from "./composeSessions.js";
 import type { WorkflowsStage } from "./composeWorkflows.js";
 
 export interface AwarenessStageDeps {
-	sessions: Pick<SessionsStage, "registry" | "sessionStore">;
+	sessions: Pick<SessionsStage, "registry" | "sessionStore" | "presence">;
 	host: Pick<HostStage, "wakeService">;
 	agents: Pick<AgentsStage, "agentRoster" | "workflowProgress">;
 	workflows: Pick<WorkflowsStage, "runner" | "engine">;
@@ -79,11 +79,27 @@ export function composeAwareness({
 		observe: awareness.register(agentAwarenessSubscriber),
 		now: () => ambient.now(),
 	});
+	const agentTeams = (): Set<string> =>
+		new Set(
+			agents
+				.agentRoster()
+				.filter((agent) => agent.turns.some((turn) => turn.state === "inProgress"))
+				.map((agent) => agent.ownerKey),
+		);
+	let runningTeams = agentTeams();
+	sessions.presence.setAgentsRunningReader(agentTeams);
 	let ticks = 0;
 	workflowWatch.tick();
 	const awarenessTimer = ambient.setInterval(() => {
 		try {
-			if (ticks++ % AGENT_WATCH_TICKS === 0) agentWatch.tick();
+			if (ticks++ % AGENT_WATCH_TICKS === 0) {
+				agentWatch.tick();
+				const next = agentTeams();
+				if (next.size !== runningTeams.size || [...next].some((team) => !runningTeams.has(team))) {
+					runningTeams = next;
+					sessions.presence.markDirty();
+				}
+			}
 			workflowWatch.tick();
 			awareness.tick();
 		} catch (err) {

@@ -40,11 +40,14 @@ internal enum class Comet(val count: Int, val lapMs: Int, val tail: Float, val p
 }
 
 /** None unless busy. */
-internal fun cometFor(word: SessionWord?, workflow: Boolean, teammates: Boolean = false): Comet? = when {
-	workflow && word != null && word != SessionWord.ENDED && word != SessionWord.AVAILABLE -> Comet.WORKFLOW
-	word?.busy != true -> null
-	teammates -> Comet.TEAMMATES
-	else -> Comet.TURN
+internal fun cometFor(word: SessionWord?, workflow: Boolean, teammates: Boolean = false): Comet? {
+	val live = word != null && word != SessionWord.ENDED && word != SessionWord.AVAILABLE
+	return when {
+		workflow && live -> Comet.WORKFLOW
+		teammates && live -> Comet.TEAMMATES
+		word?.busy != true -> null
+		else -> Comet.TURN
+	}
 }
 
 internal fun cometOf(state: ChatState, team: String, now: Long): Comet? {
