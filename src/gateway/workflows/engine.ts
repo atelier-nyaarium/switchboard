@@ -1,3 +1,5 @@
+// The run state machine: issue, dispatch, release, replay and resume over one journal.
+
 import Ajv from "ajv";
 import { AGENT_PROMPT_MAX_BYTES } from "../../shared/agent-record.js";
 import type { Ambient } from "../../shared/ambient.js";

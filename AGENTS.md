@@ -165,6 +165,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/workflows/` / `src/gateway/compose/composeWorkflows.ts` / `src/gateway/workflows/routes.ts` / `src/mcp/workflows/workflowTools.ts` - the durable sandboxed workflow engine and journal, dispatch bridge, owner-scoped routes, MCP tools, progress and settle notices; `docs/workflows.md` holds the tool and script contract
   - **The VM owns every QuickJS handle:** `vm.ts` holds the module, runtime, context, deferreds and budgets; `engine.ts` hands it a script, args and host callbacks and reads back a result or a `WorkflowVmError` naming its budget. The compile check and a run share one bounded runtime. A dispose asked for inside a host call lands once the guest unwinds.
   - **Call options:** `callOptions.ts` validates backend options, joins thread settings and fingerprints replay calls. Replay fingerprints omit `label` and `phase`.
+  - **A script's syntax is QuickJS's call, never a scanner's:** `script.ts` cuts only the `export const meta` statement; the validator in `vm.ts` compiles the exact wrapper with `compileOnly` inside the synchronous start section, on one module loaded at engine start, so no lexer guesses whether a `/` starts a regex.
 - `src/gateway/routines/memory.ts` - what a routine remembers between runs, keyed by its incarnation
   - **The incarnation, not the id:** minted once and carried across edits, so memory survives a
     rename and dies with the routine. An id reused after a delete gets a new one, which is what stops

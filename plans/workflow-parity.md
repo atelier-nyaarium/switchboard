@@ -223,7 +223,7 @@ Recommended because it halves the tool definitions every session carries, and gi
     - A start, a message and a stop dispatched under a dead daemon are abandoned at register, never on a timer.
     - A start, a message and a stop whose frame or refusal is lost to a same-daemon reconnect are sent again once and taken once.
 
-## Phase 2 - Engine with Codex and Copilot steps, and the indicator
+## Phase 2 - Engine with Codex and Copilot steps, and the indicator ✅
 
 ### Bug Classes
 
@@ -351,3 +351,8 @@ A: Read the events file; recorded under "Follow-up after Phase 2".
 
 - **The fake daemon drifted from the real one:** `src/testing/fakeHost.ts` registered without a `daemonInstanceId` and sent its catalog before hello, unlike `src/mcp/devcontainer/hostDaemon.ts`. Every harness test passed against an order production never uses, so a frame-order bug was invisible to the gates. Nothing pins the fake's frame order to the daemon's; a shared frame-sequence fixture both read would.
 - **Two near-identical family stacks:** Codex and Copilot each carry their own reducers, applier, service, relay adapter and route (`src/gateway/codex*` and `copilot*`). Phase 1 moved the recovery decisions into `agent-recovery.ts`, but start, message and stop sequencing is still written twice; Phase 2's seam extraction is the place to finish it.
+- **The family split reached the workflow dispatcher:** `src/gateway/workflows/agentDispatch.ts` repeats the Codex and Copilot branches for observe, start, message, stop, retire and retag. Phase 3 adds a third family; one typed adapter per backend with the wait, settle and retire logic outside is the shape, decided then.
+- **The fake clock cannot jump:** `src/testing/fakeAmbient.ts` in manual drive rearms an interval against the real time its last firing observed, so one long `advance()` can skip a one-second tick. The workflow notice harness test had to step second by second, and a timer-sensitive test passing under a jump proves little.
+- **No single place to shorten a stage's timing for the harness:** compressing the ten-minute workflow checkup needed a `workflowProgressIntervalMsForTests` threaded through `gatewayTypes.ts`, `composeGateway.ts`, `composeAwareness.ts`, `workflowAwareness.ts` and `federationHarness.ts`. A stage-level timing record the harness overrides once would replace that.
+- **The engine ends a run from inside a host call:** `engine.ts:createWorkflowEngine:issueCall` calls `terminalize` on a restart mismatch while the script is still executing; `vm.ts` now defers the dispose until the guest unwinds, but the cleaner shape is a refusal the drive loop turns into the terminal transition.
+- **The plugin bundle sits at its headroom line:** `src/__tests__/build.test.ts` allows 95% of `MAX_PLUGIN_BUNDLE_BYTES`, and the bundle is within a few hundred bytes of it, so any plugin-side wording change trips the test. The line needs a decision: raise the ceiling, or cut something the plugin bundles.

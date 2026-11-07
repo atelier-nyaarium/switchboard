@@ -8,13 +8,19 @@ calls. Only JSON crosses the sandbox boundary.
 
 | Tool | Use |
 |---|---|
-| `workflowStart` | Start a run with script text, args, a default backend and optional `resumeFrom`. |
+| `workflowStart` | Start a run from `script` text or a `scriptPath`, with args, a default backend and optional `resumeFrom`. |
 | `workflowCollect` | Wait for a run and read its result, failure reason and step outcomes. |
 | `workflowList` | Find this session's runs after reconnect or restart. |
 | `workflowStop` | Cancel a running run. |
 
-The MCP tool reads `scriptPath` from the session's working directory and sends the text. Retries
-reuse the invocation id. A Windows session has no agent execution target and cannot start a run.
+The MCP tool takes exactly one of `script` and `scriptPath`, reading the path from the session's
+working directory. Retries reuse the invocation id. A Windows session has no agent execution target
+and cannot start a run.
+
+A script starts with `export const meta = <JSON literal>`; nothing else may `import` or `export`.
+The Gateway compiles the script with QuickJS before storing the run, so a syntax error is refused
+at start with its message. A start answers `not_ready` (retryable) for the first second or so after
+the Gateway boots, while the compiler loads.
 
 ## Script API
 
@@ -22,8 +28,9 @@ reuse the invocation id. A Windows session has no agent execution target and can
 (Copilot), `tier` (Codex), `thread`, `skills`, `schema`, `label` and `phase`. `thread` reuses an
 agent and queues calls for that thread. `parallel`, `pipeline`, `phase`, `log`, `args` and `label`
 follow Workflow semantics. A call's `phase` selects a declared phase; otherwise it uses the current
-phase. Checkups list phases with running steps. Scripts return JSON. A failed step answers `null`; `workflowCollect`
-shows each step's outcome and reason from the journal.
+phase. Checkups list the phases of running steps. Scripts return JSON. A failed step answers
+`null`; `workflowCollect` shows each step's outcome and reason from the journal. A script that
+throws fails the run with the error's message.
 
 Schemas use a strict subset: every property is required, set `additionalProperties: false`, and use
 a type list such as `["string", "null"]` for nullable values. An answer gets two schema correction
@@ -31,7 +38,8 @@ turns before an `invalid` outcome.
 
 Outcomes are `completed`, `invalid`, `failed`, `interrupted`, `lost`, `declined`, `rejected` and
 `unavailable`. Reasons are stored only on settle rows. Every ten minutes a running run sends one
-progress notice with interval activity counts, the latest script log, phase and step totals. A settle
+progress notice with interval activity counts, the latest script log, phase and step totals. Script
+text in a notice is collapsed to one line and escaped, so a log cannot forge a notice line. A settle
 notice names `workflowCollect`.
 
 ## Limits and recovery
