@@ -25,6 +25,7 @@ import {
 	type JsonValue,
 	JsonValueSchema,
 	PROJECT_INSTRUCTION_FILES,
+	threadMapsOf,
 	type WorkflowCallOptions,
 	type WorkflowIssueRow,
 	type WorkflowJournalRow,
@@ -236,11 +237,11 @@ function createRunState(
 					});
 				}
 			}
-			if (row.kind === "thread_map") {
-				const thread = state.threads.get(row.thread);
-				if (thread) thread.agent = row;
-			}
 			if (row.kind === "settle") state.settleOrdinal = Math.max(state.settleOrdinal, row.settleOrdinal);
+		}
+		for (const map of threadMapsOf(resumeSource.rows)) {
+			const thread = state.threads.get(map.thread);
+			if (thread) thread.agent = map;
 		}
 	}
 	return state;
@@ -314,7 +315,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 				answer: null,
 				reason: status === "cancelled" ? "cancelled" : "workflow ended",
 			};
-			if (appendSettle(run, call, outcome) === "none") continue;
+			if (!appendSettle(run, call, outcome)) continue;
 			call.settled = true;
 			call.dispatched = false;
 			run.dispatchCount = Math.max(0, run.dispatchCount - 1);
@@ -368,12 +369,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		}
 	};
 
-	/** Which rows landed. */
-	const appendSettle = (
-		run: RunState,
-		call: CallState,
-		outcome: WorkflowDispatchOutcome,
-	): "none" | "settle" | "both" => {
+	const appendSettle = (run: RunState, call: CallState, outcome: WorkflowDispatchOutcome): boolean => {
 		const settleOrdinal = run.settleOrdinal + 1;
 		const row: WorkflowSettleRow = {
 			kind: "settle",
@@ -382,23 +378,12 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			outcome: outcome.outcome,
 			answer: outcome.answer,
 			reason: outcome.reason,
+			// FIXME: named threads durable a month, per session until forgotten.
+			...(outcome.threadMap ? { threadMap: outcome.threadMap } : {}),
 		};
-		if (!appendRow(run, row)) return "none";
+		if (!appendRow(run, row)) return false;
 		run.settleOrdinal = settleOrdinal;
-		// FIXME: named threads durable a month, per session until forgotten; a crash here loses the mapping.
-		const map = outcome.threadMap;
-		if (!map) return "both";
-		// Map row may preexist.
-		const last = runner
-			.rows(run.record.runId)
-			.findLast((entry) => entry.kind === "thread_map" && entry.thread === map.thread);
-		if (
-			last?.kind === "thread_map" &&
-			last.agentId === map.agentId &&
-			last.lastIssueOrdinal === map.lastIssueOrdinal
-		)
-			return "both";
-		return appendRow(run, map) ? "both" : "settle";
+		return true;
 	};
 
 	const releaseCall = (run: RunState, call: CallState, outcome: WorkflowDispatchOutcome): void => {
@@ -457,16 +442,13 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 					? { outcome: "failed", answer: null, reason: "answer exceeds the limit" }
 					: { ...outcome, answer: null, reason: `${outcome.reason}; answer exceeds the limit` };
 		}
-		const landed = appendSettle(run, call, outcome);
-		if (landed !== "none") {
-			call.settled = true;
-			call.dispatched = false;
-			run.dispatchCount = Math.max(0, run.dispatchCount - 1);
-		}
-		if (landed !== "both") {
+		if (!appendSettle(run, call, outcome)) {
 			terminalize(run, "failed", null, "workflow journal settle failed");
 			return;
 		}
+		call.settled = true;
+		call.dispatched = false;
+		run.dispatchCount = Math.max(0, run.dispatchCount - 1);
 		if (call.issued.options.thread) {
 			const thread = run.threads.get(call.issued.options.thread);
 			if (thread) {
@@ -674,7 +656,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		if (run.mode !== "resume" || !run.resumeSource || !threadAdoption) return;
 		const source = run.resumeSource;
 		const latest = new Map<string, Extract<WorkflowJournalRow, { kind: "thread_map" }>>();
-		for (const row of source.rows) if (row.kind === "thread_map") latest.set(row.thread, row);
+		for (const map of threadMapsOf(source.rows)) latest.set(map.thread, map);
 		for (const row of latest.values()) {
 			if (!run.releasedIssueOrdinals.has(row.lastIssueOrdinal)) continue;
 			const held = threadAdoption.inspect({ team: run.record.team, agentId: row.agentId });

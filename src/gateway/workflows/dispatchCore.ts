@@ -2,7 +2,7 @@ import type { AgentExecutionTarget } from "../../shared/agent-execution-target.j
 
 import type { WorkflowDispatchOutcome, WorkflowIssuedCall } from "./engine.js";
 import type { WorkflowRunner } from "./runner.js";
-import type { WorkflowJournalRow } from "./workflowSchemas.js";
+import { threadMapsOf, type WorkflowJournalRow } from "./workflowSchemas.js";
 
 export interface PendingCall {
 	issued: WorkflowIssuedCall;
@@ -62,13 +62,27 @@ export function latestThreadMap(
 ): Extract<WorkflowJournalRow, { kind: "thread_map" }> | undefined {
 	const thread = task.issued.options.thread;
 	if (!thread) return undefined;
-	return runner
-		.rows(task.issued.runId)
-		.filter(
-			(row): row is Extract<WorkflowJournalRow, { kind: "thread_map" }> =>
-				row.kind === "thread_map" && row.thread === thread,
-		)
+	return threadMapsOf(runner.rows(task.issued.runId))
+		.filter((map) => map.thread === thread)
 		.at(-1);
+}
+
+/** The mapping a thread call settles with. */
+export function threadMapRow(
+	task: PendingCall,
+	agentId: string,
+	target: AgentExecutionTarget,
+): Extract<WorkflowJournalRow, { kind: "thread_map" }> | undefined {
+	const thread = task.issued.options.thread;
+	if (!thread) return undefined;
+	return {
+		kind: "thread_map",
+		thread,
+		backend: task.issued.backend,
+		agentId,
+		target: JSON.stringify(target),
+		lastIssueOrdinal: task.issued.issueOrdinal,
+	};
 }
 
 export function issueSettled(runId: string, issueOrdinal: number, runner: WorkflowRunner): boolean {

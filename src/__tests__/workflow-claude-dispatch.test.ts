@@ -7,7 +7,7 @@ import { createWebSocketHandlers } from "../gateway/websocket.js";
 import { createWorkflowAgentDispatch } from "../gateway/workflows/agentDispatch.js";
 import type { WorkflowDispatchOutcome, WorkflowIssuedCall } from "../gateway/workflows/engine.js";
 import type { WorkflowRunner } from "../gateway/workflows/runner.js";
-import type { WorkflowJournalRow, WorkflowRunRecord } from "../gateway/workflows/workflowSchemas.js";
+import { threadMapsOf, type WorkflowJournalRow, type WorkflowRunRecord } from "../gateway/workflows/workflowSchemas.js";
 import type { TeamRegistry } from "../gateway/wsTypes.js";
 import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import type { Ambient } from "../shared/ambient.js";
@@ -169,16 +169,9 @@ function setup(
 				outcome: outcome.outcome,
 				answer: outcome.answer,
 				reason: outcome.reason,
+				...(outcome.threadMap ? { threadMap: outcome.threadMap } : {}),
 			});
 			eventOrder.push("settle row");
-			if (
-				outcome.threadMap &&
-				!rows.some(
-					(row) => row.kind === "thread_map" && JSON.stringify(row) === JSON.stringify(outcome.threadMap),
-				)
-			) {
-				rows.push(outcome.threadMap);
-			}
 			dispatch.port.settled?.(call, outcome);
 			eventOrder.push("settled callback");
 		});
@@ -314,8 +307,8 @@ describe("Claude workflow dispatch", () => {
 		state.dispatchCall(first);
 		await waitFor(() => state.calls.some((op) => op.kind === "claudeRun"));
 		await state.dispatch.claudeTurnResult(resultFor(latestTurn(state.rows, 1)));
-		const mapping = state.rows.find((row) => row.kind === "thread_map");
-		if (mapping?.kind !== "thread_map") throw new Error("thread mapping missing");
+		const mapping = threadMapsOf(state.rows)[0];
+		if (!mapping) throw new Error("thread mapping missing");
 		const second = callOf(2, { thread: "implementer" });
 		state.dispatchCall(second);
 		await waitFor(() => state.calls.filter((op) => op.kind === "claudeRun").length === 2);
@@ -509,5 +502,29 @@ describe("Claude workflow dispatch", () => {
 			resultFor(latestTurn(missing.rows, 1), "failed", null, "binaryMissing"),
 		);
 		expect(missing.outcomes[0]?.outcome).toBe("unavailable");
+
+		const rejected = setup({ agentsFile: { kind: "read", text: "Instructions" } });
+		rejected.dispatchCall(callOf(1));
+		await waitFor(() => rejected.calls.some((op) => op.kind === "claudeRun"));
+		await rejected.dispatch.claudeTurnResult(
+			resultFor(latestTurn(rejected.rows, 1), "failed", null, "unknown model claude-x"),
+		);
+		expect(rejected.outcomes[0]?.outcome).toBe("rejected");
+
+		const declined = setup({ agentsFile: { kind: "read", text: "Instructions" } });
+		declined.dispatchCall(callOf(1));
+		await waitFor(() => declined.calls.some((op) => op.kind === "claudeRun"));
+		await declined.dispatch.claudeTurnResult(
+			resultFor(latestTurn(declined.rows, 1), "completed", "I cannot help with that."),
+		);
+		expect(declined.outcomes[0]?.outcome).toBe("declined");
+
+		const structured = setup({ agentsFile: { kind: "read", text: "Instructions" } });
+		structured.dispatchCall(callOf(1, { schema: { type: "string" } }));
+		await waitFor(() => structured.calls.some((op) => op.kind === "claudeRun"));
+		await structured.dispatch.claudeTurnResult(
+			resultFor(latestTurn(structured.rows, 1), "completed", "I cannot help is a refusal phrase."),
+		);
+		expect(structured.outcomes[0]?.outcome).toBe("completed");
 	});
 });

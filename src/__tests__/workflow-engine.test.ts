@@ -647,8 +647,10 @@ return await parallel([() => first, () => second, () => third]);`;
 		runner.stop();
 	});
 
-	it("settles Claude once on map failure", async () => {
-		const { engine, runner } = await setup((call, settle) =>
+	it("journals a thread mapping inside its settle row and hands it to the next thread call", async () => {
+		const calls: WorkflowIssuedCall[] = [];
+		const { engine, runner } = await setup((call, settle) => {
+			calls.push(call);
 			settle({
 				outcome: "completed",
 				answer: "done",
@@ -657,25 +659,26 @@ return await parallel([() => first, () => second, () => third]);`;
 					kind: "thread_map",
 					thread: "t",
 					backend: "claude",
-					agentId: "session-1",
+					agentId: "d9428888-122b-4d55-9f9e-4db1a347e901",
 					target: "host",
 					lastIssueOrdinal: call.issueOrdinal,
 				},
-			}),
-		);
-		const append = runner.append.bind(runner);
-		vi.spyOn(runner, "append").mockImplementation((runId, row) => row.kind !== "thread_map" && append(runId, row));
+			});
+		});
 		const run = started(
 			engine.startRun(
 				input(
-					"map-lost",
-					`export const meta = {};\nreturn await agent("plain", { backend: "claude", thread: "t" });`,
+					"map-in-settle",
+					`export const meta = {};\nawait agent("one", { backend: "claude", thread: "t" });\nreturn await agent("two", { backend: "claude", thread: "t" });`,
 				),
 			),
 		);
 		await waitFor(() => runner.get(run.runId)?.status !== "running");
-		expect(runner.get(run.runId)?.status).toBe("failed");
-		expect(runner.rows(run.runId).filter((row) => row.kind === "settle")).toHaveLength(1);
+		expect(runner.get(run.runId)?.status).toBe("succeeded");
+		const rows = runner.rows(run.runId);
+		expect(rows.filter((row) => row.kind === "thread_map")).toHaveLength(0);
+		expect(rows.filter((row) => row.kind === "settle" && row.threadMap)).toHaveLength(2);
+		expect(calls[1]?.threadAgent?.agentId).toBe("d9428888-122b-4d55-9f9e-4db1a347e901");
 		engine.stop();
 		runner.stop();
 	});

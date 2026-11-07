@@ -6,6 +6,7 @@ import path from "node:path";
 import { isBinaryOnPath } from "../../shared/agent-binary.js";
 import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
 import { AgentExecutionTargetSchema } from "../../shared/agent-execution-target.js";
+import { writeFileAtomic } from "../../shared/atomic-write.js";
 import {
 	ClaudeTurnAckFrameSchema,
 	type ClaudeTurnResultFrame,
@@ -345,7 +346,7 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 		if (pid === undefined) return false;
 		try {
 			fs.mkdirSync(pidDir, { recursive: true, mode: 0o700 });
-			fs.writeFileSync(hostPidfile(turnId), String(pid), { mode: 0o600 });
+			writeFileAtomic(hostPidfile(turnId), String(pid), { mode: 0o600 });
 			return true;
 		} catch {
 			return false;

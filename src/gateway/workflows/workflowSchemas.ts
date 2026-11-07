@@ -142,29 +142,6 @@ export const WorkflowTurnRowSchema = z
 		}
 	});
 
-export const WorkflowSettleRowSchema = z
-	.object({
-		kind: z.literal("settle"),
-		settleOrdinal: z.number().int().positive(),
-		issueOrdinal: z.number().int().positive(),
-		outcome: z.enum(WORKFLOW_AGENT_OUTCOMES),
-		answer: JsonValueSchema.nullable(),
-		reason: z.string().min(1).nullable(),
-	})
-	.strict()
-	.superRefine((row, context) => {
-		if (row.outcome === "completed" && row.reason !== null) {
-			context.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: ["reason"],
-				message: "completed settle has a reason",
-			});
-		}
-		if (row.outcome !== "completed" && row.reason === null) {
-			context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "settle reason is missing" });
-		}
-	});
-
 export const WorkflowThreadMapRowSchema = z
 	.object({
 		kind: z.literal("thread_map"),
@@ -185,6 +162,30 @@ export const WorkflowThreadMapRowSchema = z
 		}
 	});
 
+export const WorkflowSettleRowSchema = z
+	.object({
+		kind: z.literal("settle"),
+		settleOrdinal: z.number().int().positive(),
+		issueOrdinal: z.number().int().positive(),
+		outcome: z.enum(WORKFLOW_AGENT_OUTCOMES),
+		answer: JsonValueSchema.nullable(),
+		reason: z.string().min(1).nullable(),
+		threadMap: WorkflowThreadMapRowSchema.optional(),
+	})
+	.strict()
+	.superRefine((row, context) => {
+		if (row.outcome === "completed" && row.reason !== null) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["reason"],
+				message: "completed settle has a reason",
+			});
+		}
+		if (row.outcome !== "completed" && row.reason === null) {
+			context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "settle reason is missing" });
+		}
+	});
+
 export const WorkflowSkillTextRowSchema = z
 	.object({
 		kind: z.literal("skill_text"),
@@ -201,6 +202,13 @@ export const WorkflowJournalRowSchema = z.union([
 	WorkflowThreadMapRowSchema,
 	WorkflowSkillTextRowSchema,
 ]);
+
+/** Thread mappings in journal order, standalone or on a settle. */
+export function threadMapsOf(rows: readonly WorkflowJournalRow[]): Array<z.infer<typeof WorkflowThreadMapRowSchema>> {
+	return rows.flatMap((row) =>
+		row.kind === "thread_map" ? [row] : row.kind === "settle" && row.threadMap ? [row.threadMap] : [],
+	);
+}
 
 export const WorkflowStartInputSchema = z
 	.object({

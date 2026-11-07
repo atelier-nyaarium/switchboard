@@ -10,7 +10,7 @@ import type { SessionRecord } from "../../shared/session-store.js";
 import type { CodexAgentCommands } from "../codexAgentCommands.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
-import { responseValue } from "./agentViews.js";
+import { answerOutcome, failureOutcome } from "./agentViews.js";
 import type { PendingCall } from "./dispatchCore.js";
 import {
 	type HostFailure,
@@ -21,6 +21,7 @@ import {
 	makeTurn,
 	parseTarget,
 	taskIssueKey,
+	threadMapRow,
 	thrownHostFailure,
 } from "./dispatchCore.js";
 import type { WorkflowDispatchOutcome, WorkflowIssuedCall } from "./engine.js";
@@ -65,22 +66,6 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 	function claudeTurnKey(runId: string, turnId: string): string {
 		return `${runId}:${turnId}`;
 	}
-	function claudeThreadMap(
-		task: PendingCall,
-		agentId: string,
-		target: AgentExecutionTarget,
-	): Extract<WorkflowJournalRow, { kind: "thread_map" }> | undefined {
-		const thread = task.issued.options.thread;
-		if (!thread) return undefined;
-		return {
-			kind: "thread_map",
-			thread,
-			backend: "claude",
-			agentId,
-			target: JSON.stringify(target),
-			lastIssueOrdinal: task.issued.issueOrdinal,
-		};
-	}
 	function claudeResume(task: PendingCall, turn: Extract<WorkflowJournalRow, { kind: "turn" }>): boolean {
 		const earlier = deps.runner
 			.rows(task.issued.runId)
@@ -100,7 +85,7 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 		agentId: string,
 		outcome: WorkflowDispatchOutcome,
 	): void {
-		const mapping = claudeThreadMap(task, agentId, target);
+		const mapping = threadMapRow(task, agentId, target);
 		settle(task, { ...outcome, ...(mapping ? { threadMap: mapping } : {}) });
 	}
 	function applyFailure(task: PendingCall, failure: HostFailure): void {
@@ -295,7 +280,7 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 				);
 				if (task.issued.options.thread && agentIds.size === 1) {
 					const agentId = deps.ambient.newId();
-					const mapping = claudeThreadMap(task, agentId, target);
+					const mapping = threadMapRow(task, agentId, target);
 					if (!mapping || !deps.runner.append(task.issued.runId, mapping)) {
 						settle(task, {
 							outcome: "failed",
@@ -316,8 +301,12 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 				return;
 			}
 			if (frame.outcome === "completed") {
-				const answer = typeof frame.answer === "string" ? responseValue(frame.answer) : frame.answer;
-				settleClaude(task, target, turn.agentId, { outcome: "completed", answer, reason: null });
+				settleClaude(
+					task,
+					target,
+					turn.agentId,
+					answerOutcome(frame.answer, task.issued.options.schema !== undefined),
+				);
 				return;
 			}
 			if (frame.outcome === "cancelled") {
@@ -334,7 +323,7 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 				turn.agentId,
 				frame.reason === "binaryMissing"
 					? { outcome: "unavailable", answer: null, reason: "claude is not installed where the step runs" }
-					: { outcome: "failed", answer: null, reason: frame.reason ?? "claude step failed" },
+					: failureOutcome(frame.reason ?? "claude step failed"),
 			);
 		} finally {
 			processingClaudeTurns.delete(turnKey);

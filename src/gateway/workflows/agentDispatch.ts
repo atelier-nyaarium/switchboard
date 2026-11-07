@@ -11,9 +11,17 @@ import type { CopilotRelay } from "../copilotRelay.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
 import { createAgentFamilies } from "./agentFamilies.js";
-import { type AgentOperation, type AgentView, DECLINE_TEXT, refusalOutcome, responseValue } from "./agentViews.js";
+import { type AgentOperation, type AgentView, answerOutcome, failureOutcome, refusalOutcome } from "./agentViews.js";
 import { createClaudeSteps } from "./claudeSteps.js";
-import { familyTextError, latestTurn, makeTurn, type PendingCall, parseTarget, taskKey } from "./dispatchCore.js";
+import {
+	familyTextError,
+	latestTurn,
+	makeTurn,
+	type PendingCall,
+	parseTarget,
+	taskKey,
+	threadMapRow,
+} from "./dispatchCore.js";
 import { createWorkflowPrompt } from "./dispatchPrompt.js";
 import type { WorkflowDispatchOutcome, WorkflowDispatchPort } from "./engine.js";
 import type { WorkflowRunner } from "./runner.js";
@@ -55,22 +63,6 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		task.settle(outcome);
 	}
 
-	function threadMap(
-		task: PendingCall,
-		agent: AgentView,
-	): Extract<WorkflowJournalRow, { kind: "thread_map" }> | undefined {
-		const key = task.issued.options.thread;
-		if (!key) return undefined;
-		return {
-			kind: "thread_map",
-			thread: key,
-			backend: task.issued.backend,
-			agentId: agent.agentId,
-			target: JSON.stringify(agent.target),
-			lastIssueOrdinal: task.issued.issueOrdinal,
-		};
-	}
-
 	function finishFromTurn(task: PendingCall, agent: AgentView, operation: AgentOperation): boolean {
 		if (operation.state === "requested") return false;
 		if (operation.state === "indeterminate") {
@@ -85,22 +77,10 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		if (!turnId) return false;
 		const turn = agent.turns.find((candidate) => candidate.id === turnId);
 		if (!turn || turn.state === "inProgress") return false;
-		const mapping = threadMap(task, agent);
+		const mapping = threadMapRow(task, agent.agentId, agent.target);
 		if (turn.state === "completed") {
-			const answer = turn.finalResponse ?? "";
-			if (DECLINE_TEXT.test(answer)) {
-				settle(task, {
-					outcome: "declined",
-					answer: null,
-					reason: answer,
-					...(mapping ? { threadMap: mapping } : {}),
-				});
-				return true;
-			}
 			settle(task, {
-				outcome: "completed",
-				answer: responseValue(answer),
-				reason: null,
+				...answerOutcome(turn.finalResponse ?? "", task.issued.options.schema !== undefined),
 				...(mapping ? { threadMap: mapping } : {}),
 			});
 			return true;
@@ -115,9 +95,10 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 			});
 			return true;
 		}
-		const reason = turn.error ?? "agent turn failed";
-		const outcome = refusalOutcome(reason);
-		settle(task, { outcome, answer: null, reason, ...(mapping ? { threadMap: mapping } : {}) });
+		settle(task, {
+			...failureOutcome(turn.error ?? "agent turn failed"),
+			...(mapping ? { threadMap: mapping } : {}),
+		});
 		return true;
 	}
 
