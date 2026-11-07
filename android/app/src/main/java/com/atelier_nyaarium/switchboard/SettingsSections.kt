@@ -432,6 +432,8 @@ internal fun SecuritySettings(state: ChatState, repo: ChatRepository, onToggleBi
 		"Require fingerprint or device PIN on app open. Falls back to unlocked if nothing is enrolled.",
 		style = MaterialTheme.typography.bodySmall,
 	)
+	// Without the app lock, the vault is already reachable.
+	if (!state.biometricLock) return
 	HorizontalDivider()
 	Text("Vault approvals", style = MaterialTheme.typography.titleMedium)
 	var vaultUnlock by remember { mutableStateOf(repo.approvalGate.policy()) }
@@ -452,7 +454,7 @@ internal fun SecuritySettings(state: ChatState, repo: ChatRepository, onToggleBi
 		}
 	}
 	Text(
-		"Fingerprint or device PIN before a secret is approved or revealed. Notification buttons approve only while this is off.",
+		"Fingerprint or device PIN before a secret is approved or revealed.",
 		style = MaterialTheme.typography.bodySmall,
 	)
 }

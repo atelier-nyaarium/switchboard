@@ -63,6 +63,7 @@ class ChatRepository(
 		policy = { store.vaultUnlock },
 		persist = { store.vaultUnlock = it },
 		authenticate = { activity -> requireOwnerPresent(true, activity) },
+		lockOn = { store.biometricLock },
 	)
 
 	internal val planeFetches = java.util.concurrent.ConcurrentHashMap<String, PlaneFetch>()

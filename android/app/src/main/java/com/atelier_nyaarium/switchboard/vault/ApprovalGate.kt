@@ -7,6 +7,8 @@ internal class ApprovalGate(
 	private val policy: () -> String,
 	private val persist: (String) -> Unit,
 	private val authenticate: suspend (FragmentActivity?) -> Boolean,
+	/** The app lock; off means the vault is already reachable. */
+	private val lockOn: () -> Boolean,
 	private val now: () -> Long = System::currentTimeMillis,
 ) {
 	/** Null until a prompt passes. */
@@ -14,8 +16,9 @@ internal class ApprovalGate(
 
 	fun policy(): String = policy.invoke()
 
-	/** Off passes; every prompts; window prompts once per 30 minutes. */
+	/** Off, or no app lock, passes; every prompts; window prompts once per 30 minutes. */
 	suspend fun require(activity: FragmentActivity?): Boolean {
+		if (!lockOn()) return true
 		val prompt = when (policy()) {
 			VAULT_UNLOCK_EVERY -> true
 			VAULT_UNLOCK_WINDOW -> unlockedAt?.let { now() - it > VAULT_UNLOCK_WINDOW_MS } ?: true

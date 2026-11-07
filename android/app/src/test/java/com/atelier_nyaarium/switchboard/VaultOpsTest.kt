@@ -85,6 +85,6 @@ class VaultOpsTest {
 		override val writer = VaultRouterWriter { _, _ -> buildJsonObject {} }
 		override fun sealing(): VaultSealing? = null
 		override val client: ConsoleClient? = null
-		override val gate = ApprovalGate({ "off" }, {}, { false })
+		override val gate = ApprovalGate({ "off" }, {}, { false }, { true })
 	}
 }

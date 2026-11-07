@@ -11,11 +11,13 @@ class ApprovalGateTest {
 	private var clock = 1_000_000L
 	private var prompts = 0
 	private var answer = true
+	private var lockOn = true
 
 	private fun gate() = ApprovalGate(
 		policy = { policy },
 		persist = { policy = it },
 		authenticate = { prompts++; answer },
+		lockOn = { lockOn },
 		now = { clock },
 	)
 
@@ -42,6 +44,20 @@ class ApprovalGateTest {
 		answer = false
 		assertFalse(gate.require(null))
 		assertEquals(4, prompts)
+	}
+
+	@Test
+	fun noAppLockPassesWithoutAPromptWhateverThePolicyAndTheLockBringsItBack() = runBlocking {
+		policy = VAULT_UNLOCK_EVERY
+		lockOn = false
+		val gate = gate()
+		assertTrue(gate.require(null))
+		assertEquals(0, prompts)
+
+		lockOn = true
+		answer = false
+		assertFalse(gate.require(null))
+		assertEquals(1, prompts)
 	}
 
 	@Test
