@@ -61,8 +61,7 @@ describe("agent awareness", () => {
 			{ kind: "done", family: "codex", agentId: "codex-running", outcome: "completed" },
 			{ kind: "done", family: "copilot", agentId: "copilot-running", outcome: "unavailable" },
 		]);
-		expect(lines.join("\n")).toContain("codexCollectAgent");
-		expect(lines.join("\n")).toContain("copilotCollectAgent");
+		expect(lines.join("\n")).toContain("agentCollect");
 	});
 
 	it("tells a turn that settled while the watch was down, but not one settled before", () => {

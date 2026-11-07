@@ -66,7 +66,7 @@ describe("the assistant's tool scope", () => {
 	it("lists only the assistant's tools, even after a removed one is updated", async () => {
 		const noop = async () => ({ content: [] });
 		const client = await connected((server) => {
-			for (const name of ["channel_reply", "vault_run", "codexStartAgent", "switchboard_capabilities"]) {
+			for (const name of ["channel_reply", "vault_run", "agentStart", "switchboard_capabilities"]) {
 				server.registerTool(name, { description: name, inputSchema: {} }, noop);
 			}
 			server

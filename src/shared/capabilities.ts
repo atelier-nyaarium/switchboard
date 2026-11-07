@@ -31,52 +31,29 @@ Schema dialect: every property required; \`additionalProperties: false\`; nullab
 Outcomes: completed, invalid, failed, interrupted, lost, declined, rejected, unavailable. Checkups every 10 minutes; settle notices name \`workflowCollect\`. Caps: 4 runs per session, 8 concurrent dispatches, 200 calls per run. Runs and journals survive Gateway restarts.
 `.trim();
 
-// Served by capabilityGuidance, never the length-capped instructions.
+// Served by capabilityGuidance.
+export const AGENT_TOOLS_INSTRUCTIONS = `
+# Agents
+
+Delegate a self-contained task with \`agentStart\`.
+
+Tools: \`agentStart\`, \`agentMessage\`, \`agentCollect\`, \`agentStop\`, and \`agentList\`.
+
+\`agentStart.backend\` selects an enabled backend and defaults to the first enabled one. \`agentMessage\`, \`agentCollect\`, and \`agentStop\` infer it from \`agentId\`. \`agentList\` accepts optional \`backend\` and \`agentId\`; \`detail\` and \`limit\` apply to Codex.
+
+\`agentStart\` accepts \`model\`, \`cwd\`, and \`schema\`, plus Copilot-only \`effort\` or Codex-only \`tier\`. \`agentMessage\` accepts \`schema\` and Codex-only \`tier\`.
+
+\`schema\` constrains a new turn's final answer; validate the returned text yourself.
+
+Agents have full access. State allowed writes, network access, and completion criteria in every prompt.
+`.trim();
+
 export const CODEX_AGENT_INSTRUCTIONS = `
-# Codex Agent
+## Codex
 
-Codex Agents are enabled. A Codex agent is a second-model-family thread this session owns, for handing off a self-contained sub-task.
+\`model\` must be offered by the App Server. If both \`model\` and \`tier\` are omitted, Codex uses \`gpt-6-luna\` at \`priority\`.
 
-Start with \`codexStartAgent\`.
-
-GPT-family agents are **very literal** and pursue a goal through unexpected or suspect actions. Set guardrails in the prompt you delegate.
-But, choose your terms **very literally**, because if you say "Never" in the beginning, GPT might not listen to you even if you say "It's OK now".
-- "Don't XXX." - Means you will never lift the restriction. Trashing the thread is the only way around.
-- "Don't XXX, unless I say otherwise later" - Means you may lift the restriction depending on feel.
-
-You are the triage gate for what Codex says and does. A confident tone is not evidence; verify their work and claims against the code.
-
-A Codex agent runs with full access, as this session does: any directory, the network, and any command. Bound it in the prompt.
-
-## Codex Models
-
-\`model\` on \`codexStartAgent\`, spelled exactly:
-- \`gpt-6-luna\` - Default. Exploration, audits, implementation.
-- \`gpt-6.1-sol\` - Hardest reasoning and coding. Ask permission first.
-
-## Driving a Codex Agent Workflow
-
-To keep your context free of clutter, it's recommended to use Workflows.
-
-Code editing or fan-outs run on Codex: Audits, assessments, adversarial second reads.
-
-Research is the exception, web research especially. It stays on Opus.
-
-Choose model depending on task:
-- Haiku relays verbatim to Codex. Or Sonnet if you want to remove a whole report phase.
-- Sonnet collates, Opus decides.
-
-Single Iterative Phase Style:
-- Iterative fix until pass (Sonnet working with Codexes) and report
-
-Fan Out ► Join Style
-- Research (Opuses) ► Rank Sort (Opus or Sonnet)
-- Audits (Haikus verbatim Codexes) ► Synthesize (Opus)
-- Assessments (Haikus verbatim Codexes) ► Synthesize (Opus)
-
-## Recovery
-
-Codex agents belong to the whole Claude Code session. A terminal result means finished. \`agent_dead\` means the agent cannot run. \`agent_unreachable\` means its App Server may still be running, so do not duplicate the work. If a Workflow caller dies, \`codexListAgents\` returns a bounded summary; pass \`agentId\` to inspect one agent's full history.
+\`tier\` accepts \`priority\` or \`standard\`. \`priority\` runs faster and uses more. A Codex \`agentMessage\` tier applies to the next new turn.
 `.trim();
 
 export const VAULT_INSTRUCTIONS = `
@@ -96,47 +73,23 @@ stdout and stderr come back with the value's bytes replaced by \`[vault]\`. Neve
 `.trim();
 
 export const COPILOT_AGENT_INSTRUCTIONS = `
-# Copilot Agent
+## Copilot
 
-Copilot Agents are enabled. A Copilot agent is a second-model-family thread this session owns, for handing off a self-contained sub-task.
-
-Start with \`copilotStartAgent\`.
-
-GPT-family agents are **very literal** and pursue a goal through unexpected or suspect actions. Set guardrails in the prompt you delegate.
-But, choose your terms **very literally**, because if you say "Never" in the beginning, GPT might not listen to you even if you say "It's OK now".
-- "Don't XXX." - Means you will never lift the restriction. Trashing the thread is the only way around.
-- "Don't XXX, unless I say otherwise later" - Means you may lift the restriction depending on feel.
-
-You are the triage gate for what Copilot says and does. A confident tone is not evidence; verify their work and claims against the code.
-
-## Driving a Copilot Agent Workflow
-
-To keep your context free of clutter, it's recommended to use Workflows.
-
-Code editing or fan-outs run on Copilot: Audits, assessments, adversarial second reads.
-
-Research is the exception, web research especially. It stays on Opus.
-
-Choose model depending on task:
-- Haiku relays verbatim to Copilot. Or Sonnet if you want to remove a whole report phase.
-- Sonnet collates, Opus decides.
-
-Single Iterative Phase Style:
-- Iterative fix until pass (Sonnet working with Copilots) and report
-
-Fan Out ► Join Style
-- Research (Opuses) ► Rank Sort (Opus or Sonnet)
-- Audits (Haikus verbatim Copilots) ► Synthesize (Opus)
-- Assessments (Haikus verbatim Copilots) ► Synthesize (Opus)
-
-## Recovery
-
-Copilot agents belong to the whole Claude Code session. If a Workflow caller dies, \`copilotListAgents\` returns every thread with its full history, so recover or re-run the collection.
+\`effort\` must be offered by the selected model.
 `.trim();
 
-// Guidance is capability payload, not a backend fact, so it lives here beside the other capability
-// prose rather than on the descriptor.
-const AGENT_BACKEND_INSTRUCTIONS: Record<AgentBackendId, string> = {
+/** A locally served agent backend: a session-made entry with no declared text. */
+export function localAgentCapability(id: AgentBackendId): Capability {
+	return { id: agentCapabilityId(id) };
+}
+
+export function isLocalAgentCapability(capability: Capability): boolean {
+	return (
+		capability.instructions === undefined && AGENT_BACKENDS.some((b) => agentCapabilityId(b.id) === capability.id)
+	);
+}
+
+export const AGENT_BACKEND_INSTRUCTIONS: Record<AgentBackendId, string> = {
 	codex: CODEX_AGENT_INSTRUCTIONS,
 	copilot: COPILOT_AGENT_INSTRUCTIONS,
 };

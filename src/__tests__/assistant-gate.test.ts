@@ -105,7 +105,7 @@ describe("the assistant gate", () => {
 		[`${SB}crosstalk_send`, { to: "a.b.c.d", body: "[k](ref:///etc/x)" }],
 		[`${SB}channel_reply`, { full: 7 }],
 		[`${SB}vault_run`, { command: "ls" }],
-		[`${SB}codexStartAgent`, { prompt: "go" }],
+		[`${SB}agentStart`, { prompt: "go" }],
 		["mcp__plugin_lexicon_lexicon__refactor_replace", {}],
 		["Frobnicate", {}],
 	] as const)("refuses %s %j", (tool, input) => {

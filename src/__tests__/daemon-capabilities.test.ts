@@ -151,11 +151,26 @@ describe("folding the bundle into one answer", () => {
 });
 
 describe("what switchboard_capabilities reports", () => {
-	it("serves each capability's full guidance under its own heading", () => {
+	it("serves agent backends under one agents heading and other capabilities under their own", () => {
 		const text = renderCapabilities([CODEX, { id: "designer", instructions: "Dock a card." }], null);
 
-		expect(text).toContain(`## ${CODEX_AGENT_CAPABILITY_ID}`);
+		expect(text).toContain("## agents");
 		expect(text).toContain("## designer");
+	});
+
+	it("does not report a locally served backend as withdrawn by the Gateway", () => {
+		expect(describeDrift([{ id: CODEX_AGENT_CAPABILITY_ID }], [])).toBeNull();
+		expect(describeDrift([CODEX], [])).toContain("no longer enabled");
+	});
+
+	it("renders the plugin's own backend notes, not a declaration's older text", () => {
+		const text = renderCapabilities(
+			[{ id: CODEX_AGENT_CAPABILITY_ID, instructions: "Start with `codexStartAgent`." }],
+			null,
+		);
+		expect(text).toContain("agentStart");
+		expect(text).not.toContain("codexStartAgent");
+		expect(text).toContain("gpt-6-luna");
 	});
 
 	it("says so plainly when the session has nothing", () => {
@@ -164,12 +179,12 @@ describe("what switchboard_capabilities reports", () => {
 
 	it("stays quiet when the fresh read agrees", () => {
 		expect(describeDrift([CODEX], [CODEX])).toBeNull();
-		expect(renderCapabilities([CODEX], [CODEX])).toContain(`## ${CODEX_AGENT_CAPABILITY_ID}`);
+		expect(renderCapabilities([CODEX], [CODEX])).toContain("## agents");
 	});
 
 	it("separates having checked from having been unable to check", () => {
 		expect(describeDrift([CODEX], null)).toBeNull();
-		expect(renderCapabilities([CODEX], null)).toContain(`## ${CODEX_AGENT_CAPABILITY_ID}`);
+		expect(renderCapabilities([CODEX], null)).toContain("## agents");
 		expect(renderCapabilities([], null)).not.toContain("##");
 	});
 
@@ -188,7 +203,7 @@ describe("what switchboard_capabilities reports", () => {
 	it("keeps reporting the startup answer even while warning about drift", () => {
 		const text = renderCapabilities([CODEX], []);
 
-		expect(text).toContain(`## ${CODEX_AGENT_CAPABILITY_ID}`);
+		expect(text).toContain("## agents");
 	});
 });
 
@@ -229,7 +244,7 @@ describe("a declared capability's whole journey to a session", () => {
 		const served = serve(envWithExecutables("codex"), [{ id: "designer", instructions: "Dock a card." }]);
 
 		expect(capabilityInstructions(served.capabilities)).toContain("`codex-agent`, `designer`");
-		expect(renderCapabilities(served.capabilities, null)).toContain("codexStartAgent");
+		expect(renderCapabilities(served.capabilities, null)).toContain("agentStart");
 		expect(renderCapabilities(served.capabilities, null)).toContain("## designer");
 	});
 });

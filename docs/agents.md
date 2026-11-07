@@ -5,6 +5,13 @@ child per execution target; the gateway owns the durable record.
 
 `claude -p` is available as a workflow backend only. It is not a session agent.
 
+`src/mcp/agents/agentTools.ts` registers `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, and
+`agentList` for both backends. `agentStart` takes `prompt` and optional `backend`, `model`, `effort`
+(Copilot), `tier` (Codex), `schema`, and `cwd`. `agentMessage` takes `agentId` and `prompt`, with
+optional `schema` and Codex-only `tier`. `agentCollect` and `agentStop` take `agentId`; `agentList`
+accepts optional `backend` and `agentId`, plus Codex-only `detail` and `limit`. Capability guidance uses
+one `agents` section; the `codex-agent` and `copilot-agent` ids are unchanged.
+
 ## Workflow backends
 
 Workflow Codex calls use the Codex App Server family; Copilot calls use its headless CLI family
@@ -133,11 +140,11 @@ and is never silently substituted.
 acknowledged, because this gateway could not build its record.
 
 **A start or message answers once the daemon takes the turn**, with `observation: "accepted"`, on both
-families and in local mode. Only `codexCollectAgent` and `copilotCollectAgent` wait for a turn.
+families and in local mode. Only `agentCollect` waits for a turn.
 
 **The session hears about its turns as awareness.** `createAgentWatch` in `src/gateway/agentAwareness.ts`
 reads every agent of both families every 5 seconds. A turn that settles gets one `act_now` notice
-naming its await tool. A running turn gets a `no_act` notice every 10 minutes with its newest notes;
+naming `agentCollect`. A running turn gets a `no_act` notice every 10 minutes with its newest notes;
 its subscriber's `push` makes the bank push it rather than wait for a message, so an idle session
 reads it and ends its turn. A turn settled before the watch began is history and is not announced, so
 a restart announces only what settled since, the downtime included. Each turn is its own awareness
@@ -180,7 +187,7 @@ the opt-in.
 
 A Codex thread starts with `danger-full-access` and `approvalPolicy: "never"`, so it can write
 anywhere, reach the network, and run anything the delegating session could. The prompt is the only
-boundary, as it is for the session itself. A start's or a new turn's `outputSchema` rides as
+boundary, as it is for the session itself. A start's or a new turn's `schema` option rides as
 `turn/start.outputSchema`, which constrains the final message; a steer keeps the running turn's. The
 caller validates the `finalResponse` text, on both families: the schema is not persisted on the
 operation, so a turn re-dispatched after a Gateway restart runs without it.
@@ -197,8 +204,8 @@ assistant message is a note, a tool start is a note with its command, an error t
 it, an aborted idle interrupts it, and the last assistant message is the answer. A follow-up into a
 running turn is a steer (`session.send` in `immediate` mode, answered `steered`); the message names
 the turn it means (`expectedTurnId`), and one that has settled since opens a new turn instead. A
-start's `reasoningEffort` is refused when the catalog the daemon read at open does not list it for the
-model. A start's or a new turn's `outputSchema` rides as the send's `responseFormat` with `strict`
+start's `effort` is refused when the catalog the daemon read at open does not list it for the
+model. A start's or a new turn's `schema` option rides as the send's `responseFormat` with `strict`
 on; the provider holds the answer to it, and the caller validates the `finalResponse` text.
 
 **Enabling it:** `copilot` on `PATH` announces the capability. Login uses the CLI and `/login`; no

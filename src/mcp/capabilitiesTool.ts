@@ -1,8 +1,18 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { type Capability, unionCapabilities, VAULT_INSTRUCTIONS } from "../shared/capabilities.js";
+import { AGENT_BACKENDS, agentCapabilityId } from "../shared/agent-backend.js";
+import {
+	AGENT_BACKEND_INSTRUCTIONS,
+	AGENT_TOOLS_INSTRUCTIONS,
+	type Capability,
+	isLocalAgentCapability,
+	unionCapabilities,
+	VAULT_INSTRUCTIONS,
+} from "../shared/capabilities.js";
 import { ASSISTANT_CAPABILITIES, ASSISTANT_INSTRUCTIONS } from "./assistant/instructions.js";
 import { readCapabilities } from "./capabilities.js";
+
+const AGENT_CAPABILITY_IDS = new Set(AGENT_BACKENDS.map((backend) => agentCapabilityId(backend.id)));
 
 /** Tool guidance, appended after the capability's own text. */
 const TOOL_GUIDANCE: Record<string, string> = { vault: VAULT_INSTRUCTIONS };
@@ -35,7 +45,8 @@ They already arrive with the handshake answer and after each compaction.
 /** Ids only: instruction text is served from the startup snapshot either way. */
 export function describeDrift(startup: Capability[], current: Capability[] | null): string | null {
 	if (!current) return null;
-	const before = new Set(startup.map((c) => c.id));
+	// A local backend is not the Gateway's to withdraw.
+	const before = new Set(startup.filter((c) => !isLocalAgentCapability(c)).map((c) => c.id));
 	const after = new Set(current.map((c) => c.id));
 	const added = [...after].filter((id) => !before.has(id)).sort();
 	const removed = [...before].filter((id) => !after.has(id)).sort();
@@ -62,7 +73,22 @@ export function renderCapabilities(startup: Capability[], current: Capability[] 
 	const lines = [`Switchboard capabilities enabled at session start: ${startup.map((c) => c.id).join(", ")}`];
 	if (note) lines.push("", note);
 	lines.push("");
+	const agents = startup.filter((capability) => AGENT_CAPABILITY_IDS.has(capability.id));
+	if (agents.length > 0) {
+		lines.push(
+			`## agents`,
+			"",
+			`Backends enabled: ${agents.map((c) => c.id.replace(/-agent$/, "")).join(", ")}.`,
+			"",
+			AGENT_TOOLS_INSTRUCTIONS,
+			"",
+			...AGENT_BACKENDS.filter((backend) => agents.some((c) => c.id === agentCapabilityId(backend.id))).flatMap(
+				(backend) => [AGENT_BACKEND_INSTRUCTIONS[backend.id], ""],
+			),
+		);
+	}
 	for (const capability of startup) {
+		if (AGENT_CAPABILITY_IDS.has(capability.id)) continue;
 		const own = TOOL_GUIDANCE[capability.id];
 		lines.push(
 			`## ${capability.id}`,

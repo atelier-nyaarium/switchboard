@@ -9,7 +9,7 @@ import type { AgentDispatch } from "./agentDispatch.js";
 
 export type AgentRequestKind = "start" | "message" | "await" | "stop" | "list";
 
-type ToolText = { content: Array<{ type: "text"; text: string }> };
+type ToolText = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -29,7 +29,10 @@ export function postAgentRequest(
 		(result) => ({ content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] }),
 		(error: unknown) => {
 			const message = error instanceof Error ? error.message : String(error);
-			return { content: [{ type: "text" as const, text: `${backend.displayName} request failed: ${message}` }] };
+			return {
+				content: [{ type: "text" as const, text: `${backend.displayName} request failed: ${message}` }],
+				isError: true,
+			};
 		},
 	);
 }

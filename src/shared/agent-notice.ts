@@ -44,10 +44,7 @@ const NO_ACK_SESSION_PREFIX = "na-";
 
 const NOTE_CHARS = 300;
 
-export const AGENT_AWAIT_TOOL: Record<AgentBackendId, string> = {
-	codex: "codexCollectAgent",
-	copilot: "copilotCollectAgent",
-};
+const AGENT_COLLECT_TOOL = "agentCollect";
 
 const LABEL: Record<AgentBackendId, string> = { codex: "Codex", copilot: "Copilot" };
 
@@ -77,7 +74,7 @@ export function progressCheckupLine(counts: AgentProgressCounts, latest: string)
 export function agentNoticeLine(notice: AgentNotice): string {
 	const agent = `${LABEL[notice.family]} agent \`${escaped(notice.agentId)}\``;
 	if (notice.kind === "done") {
-		return `${agent} finished its turn: ${escaped(notice.outcome)}. Call \`${AGENT_AWAIT_TOOL[notice.family]}\` with its agentId for the result.`;
+		return `${agent} finished its turn: ${escaped(notice.outcome)}. Call \`${AGENT_COLLECT_TOOL}\` with its agentId for the result.`;
 	}
 	const check = progressCheckupLine(notice.counts, notice.notes.at(-1) ?? "");
 	return `${check}\n${agent} is still working (${notice.minutes} min). No action needed.`;

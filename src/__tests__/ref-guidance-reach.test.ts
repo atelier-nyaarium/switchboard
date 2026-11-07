@@ -56,12 +56,12 @@ describe("every tool whose body is scanned for refs", () => {
 		// session an empty description if a call site forgot to pass through.
 		const index = fs.readFileSync(path.join(MCP, "index.ts"), "utf8");
 
-		expect(index).toContain("registerBridgeTools(mcpServer, capabilities)");
+		expect(index).toContain("registerBridgeTools(mcpServer, guided)");
 		expect(index).toContain("registerHumanTools(mcpServer, capabilities)");
 		// The last hop of the chain. Passed an empty list, the tool answers that nothing is enabled
 		// while the descriptions still point an agent at it.
-		expect(index).toContain("registerCapabilitiesTool(mcpServer, capabilities, { assistant: isAssistant })");
-		expect(index).toContain("capabilityInstructions(capabilities)");
+		expect(index).toContain("registerCapabilitiesTool(mcpServer, guided, { assistant: isAssistant })");
+		expect(index).toContain("capabilityInstructions(guided)");
 	});
 });
 

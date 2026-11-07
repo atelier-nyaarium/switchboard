@@ -2,6 +2,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Capability } from "../shared/capabilities.js";
+import { registerAgentTools } from "./agents/agentTools.js";
 import { registerActionFront } from "./assistant/actionFront.js";
 import { registerDeviceTool } from "./assistant/deviceTool.js";
 import { registerInboxTool } from "./assistant/inboxTool.js";
@@ -14,8 +15,6 @@ import { GATED_CAPABILITY_IDS } from "./capabilities.js";
 import { registerCapabilitiesTool } from "./capabilitiesTool.js";
 import { registerChannelReply, registerChannelReplyStructured } from "./channel/channelReply.js";
 import { registerHumanTools } from "./channel/humanTools.js";
-import { registerCodexTools } from "./codex/codexTools.js";
-import { registerCopilotTools } from "./copilot/copilotTools.js";
 import { registerDesignerTools } from "./designer/designerTools.js";
 import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
@@ -33,7 +32,7 @@ export const EVERY_TOOL_REGISTRAR = [
 	"registerCompactSession",
 	"registerHumanTools",
 	"registerDesignerTools",
-	"registerAgentBackend",
+	"registerAgentTools",
 	"registerBoardTools",
 	"registerVaultTools",
 	"registerRoutineTools",
@@ -59,9 +58,7 @@ export function registerEveryTool(server: McpServer): void {
 	registerCompactSession(server);
 	registerHumanTools(server, capabilities);
 	registerDesignerTools(server);
-	// `registerAgentBackend` picks one of these per backend.
-	registerCodexTools(server, dispatch);
-	registerCopilotTools(server, dispatch);
+	registerAgentTools(server, { codex: dispatch, copilot: dispatch });
 	registerBoardTools(server);
 	registerVaultTools(server);
 	registerRoutineTools(server);

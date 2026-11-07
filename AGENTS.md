@@ -6,7 +6,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 - `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` - six entry points
 - `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` / `capabilityHook.ts` - the plugin's SessionStart `compact` hooks: the baseline, and the capability guidance
-- `src/mcp/capabilitiesTool.ts` `capabilityGuidance` - the one rendering of a session's capability guidance: the handshake answer (`channelReply.ts`), the `compact` hook and `switchboard_capabilities`
+- `src/mcp/capabilitiesTool.ts` `capabilityGuidance` - the one rendering of a session's capability guidance: the handshake answer (`channelReply.ts`), the `compact` hook and `switchboard_capabilities`; the `agents` section combines the unchanged `codex-agent` and `copilot-agent` ids
   - **A fresh session cannot skip it:** the plugin auto-answers a handshake only once the role is known, so a new process's agent answers its first one itself, and that answer carries the guidance. A Copilot session, confirmed at registration without one, reads it in its MCP server instructions. The hook renders the set the session started with, which the MCP process records per `PROJECT_NAME` (`saveStartupCapabilities`). Only a cut or unreadable guidance names the tool.
 - `src/mcp/devcontainer/hostResolve.ts` `assistantPermissionArgs` - the assistant's launch: Claude Code's permission engine in `dontAsk` with a closed `--tools` list and inline settings, the boundary its hook layers over
 - `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on the attachments and refs of `channel_reply` and `notify_human`
@@ -760,7 +760,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/local/localOperationLedger.ts` - operation identity claim and release
 - `src/mcp/agentDispatch.ts` - agent tool serving seam
 - `src/mcp/agentRequest.ts` - both families' request kinds, operation ids, and posted answer
-- `src/mcp/codex/codexTools.ts` - five Codex tools and per-invocation replay ids
+- `src/mcp/agents/agentTools.ts` - one shared `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, and `agentList` tool set for both backends, with backend-specific options
+- `src/mcp/codex/codexTools.ts` - Codex request bodies and per-invocation replay ids
 - `src/mcp/capabilities.ts` / `capabilitiesTool.ts` - capability gating and guidance
 - `src/federation-server/` - live self-hosted federation Router
 - `src/federation-server/routerServer.ts` - public `handle(Request)` over `preflight` and `dispatch`; sole `serve()` adapter and sole owner of the node HTTP types; residue-tested

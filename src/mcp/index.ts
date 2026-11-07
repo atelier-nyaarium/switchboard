@@ -13,12 +13,14 @@ import {
 } from "../shared/agent-backend.js";
 import { isAgentBackendInstalled } from "../shared/agent-binary.js";
 import { ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { localAgentCapability } from "../shared/capabilities.js";
 import { isInsideContainer } from "../shared/env.js";
 import { pluginRoot } from "../shared/plugin-root.js";
 import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
 import type { AgentDispatch } from "./agentDispatch.js";
+import { type AgentDispatches, registerAgentTools } from "./agents/agentTools.js";
 import { registerActionFront } from "./assistant/actionFront.js";
 import { registerDeviceTool } from "./assistant/deviceTool.js";
 import { registerInboxTool } from "./assistant/inboxTool.js";
@@ -31,12 +33,12 @@ import type { Capability } from "./capabilities.js";
 import { capabilityInstructions, fetchCapabilities, hasCapability, saveStartupCapabilities } from "./capabilities.js";
 import { registerCapabilitiesTool, renderCapabilities } from "./capabilitiesTool.js";
 import { registerHumanTools } from "./channel/humanTools.js";
-import { gatewayDispatch as codexGatewayDispatch, registerCodexTools } from "./codex/codexTools.js";
+import { gatewayDispatch as codexGatewayDispatch } from "./codex/codexTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
 import { registerProjectTools } from "./connector/projectTools.js";
 import { registerStubTool } from "./connector/utils.js";
-import { gatewayDispatch as copilotGatewayDispatch, registerCopilotTools } from "./copilot/copilotTools.js";
+import { gatewayDispatch as copilotGatewayDispatch } from "./copilot/copilotTools.js";
 import { registerDesignerTools } from "./designer/designerTools.js";
 import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
@@ -61,37 +63,44 @@ import { setWorkspacePlane } from "./workspace/plane.js";
 // instant, since a warm client has no such race.
 const INITIAL_ROUTER_CONNECT_GRACE_MS = 200;
 
-// A backend added without a registrar fails the build.
-const AGENT_TOOL_REGISTRARS: Record<AgentBackendId, (mcpServer: McpServer, dispatch: AgentDispatch) => void> = {
-	codex: registerCodexTools,
-	copilot: registerCopilotTools,
-};
-
 const AGENT_GATEWAY_DISPATCH: Record<AgentBackendId, AgentDispatch> = {
 	codex: codexGatewayDispatch,
 	copilot: copilotGatewayDispatch,
 };
 
-/** The daemon's declaration wins: it carries coordination this process cannot offer. Otherwise a
- * locally installed CLI is enough, which is what lets a Gatewayless session delegate.
- *
- * The gateway branch ALSO needs this session's binding token: the capability is a machine-wide fact,
- * the route additionally demands a per-session one, and a hand-launched session satisfies the first
- * while failing the second - registering five tools that could never succeed (issue #252). */
-function registerAgentBackend(mcpServer: McpServer, backend: AgentBackendDescriptor, capabilities: Capability[]): void {
-	const register = AGENT_TOOL_REGISTRARS[backend.id];
+function agentDispatchFor(backend: AgentBackendDescriptor, capabilities: Capability[]): AgentDispatch | undefined {
 	const bound = !!process.env.SWITCHBOARD_SESSION_TOKEN;
-	if (bound && hasCapability(capabilities, agentCapabilityId(backend.id))) {
-		register(mcpServer, AGENT_GATEWAY_DISPATCH[backend.id]);
-		return;
-	}
-	if (!isAgentBackendInstalled(backend)) return;
+	if (bound && hasCapability(capabilities, agentCapabilityId(backend.id))) return AGENT_GATEWAY_DISPATCH[backend.id];
+	if (!isAgentBackendInstalled(backend)) return undefined;
 
 	const local = createLocalAgentBackend(backend);
-	// Reaped with this session: a local agent has no daemon to outlive it.
+	// Reaped on close.
 	localBackends.push(local);
 	console.error(`[${backend.id}] no daemon declared it, serving locally from the installed CLI`);
-	register(mcpServer, (body) => local.handle(body));
+	return (body) => local.handle(body);
+}
+
+/** Agent ids follow the dispatches; a fetched one with no dispatch is dropped. */
+function withServedAgents(capabilities: Capability[], agents: AgentDispatches): Capability[] {
+	const agentIds = new Set(AGENT_BACKENDS.map((backend) => agentCapabilityId(backend.id)));
+	const kept = capabilities.filter(
+		(capability) =>
+			!agentIds.has(capability.id) ||
+			AGENT_BACKENDS.some((b) => agentCapabilityId(b.id) === capability.id && agents[b.id] !== undefined),
+	);
+	const local = AGENT_BACKENDS.filter(
+		(backend) => agents[backend.id] !== undefined && !hasCapability(kept, agentCapabilityId(backend.id)),
+	).map((backend) => localAgentCapability(backend.id));
+	return [...kept, ...local];
+}
+
+function agentDispatches(capabilities: Capability[]): AgentDispatches {
+	const dispatches: AgentDispatches = {};
+	for (const backend of AGENT_BACKENDS) {
+		const dispatch = agentDispatchFor(backend, capabilities);
+		if (dispatch) dispatches[backend.id] = dispatch;
+	}
+	return dispatches;
 }
 
 const localBackends: LocalAgentBackend[] = [];
@@ -159,7 +168,9 @@ export async function startMcp(): Promise<void> {
 	// guidance names a tool it lacks and no reply snapshots a ref.
 	const isAssistant = process.env.PROJECT_NAME === ASSISTANT_TEAM;
 	const capabilities: Capability[] = isAssistant ? [] : await fetchCapabilities(process.env.BRIDGE_ROUTER_URL);
-	if (!isAssistant) saveStartupCapabilities(process.env.PROJECT_NAME, capabilities);
+	const agents = isAssistant ? {} : agentDispatches(capabilities);
+	const guided = withServedAgents(capabilities, agents);
+	if (!isAssistant) saveStartupCapabilities(process.env.PROJECT_NAME, guided);
 
 	const mcpServer = new McpServer(
 		{ name: "switchboard", version: packageJson.version },
@@ -168,19 +179,19 @@ export async function startMcp(): Promise<void> {
 					capabilities: { experimental: { "claude/channel": {} } },
 					instructions: isAssistant
 						? `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${ASSISTANT_INSTRUCTIONS}`
-						: `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}${capabilityInstructions(capabilities)}`,
+						: `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}${capabilityInstructions(guided)}`,
 				}
 			: agentType === "copilot"
 				? // No handshake answer carries the guidance, so it rides here whole.
-					{ instructions: `${CHANNEL_INSTRUCTIONS}\n\n${renderCapabilities(capabilities, capabilities)}` }
+					{ instructions: `${CHANNEL_INSTRUCTIONS}\n\n${renderCapabilities(guided, guided)}` }
 				: undefined,
 	);
 	// Before any tool registers.
 	guardTools(mcpServer);
 	if (isAssistant) scopeTools(mcpServer, new Set(ASSISTANT_SWITCHBOARD_TOOLS));
 
-	registerBridgeTools(mcpServer, capabilities);
-	registerCapabilitiesTool(mcpServer, capabilities, { assistant: isAssistant });
+	registerBridgeTools(mcpServer, guided);
+	registerCapabilitiesTool(mcpServer, guided, { assistant: isAssistant });
 	// Each types Claude slash commands into the pane.
 	if (agentType !== "copilot") {
 		registerReloadPlugins(mcpServer);
@@ -190,8 +201,7 @@ export async function startMcp(): Promise<void> {
 	registerHumanTools(mcpServer, capabilities);
 	// Adopted on the next start, matching the console's own restart-to-adopt.
 	if (hasCapability(capabilities, "designer")) registerDesignerTools(mcpServer);
-	// Reaches a child process, so the gate is whether one can be reached: a daemon, or the CLI here.
-	if (!isAssistant) for (const backend of AGENT_BACKENDS) registerAgentBackend(mcpServer, backend, capabilities);
+	if (!isAssistant) registerAgentTools(mcpServer, agents);
 	if (
 		!isAssistant &&
 		process.env.SWITCHBOARD_SESSION_TOKEN &&
