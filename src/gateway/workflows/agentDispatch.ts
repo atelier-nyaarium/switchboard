@@ -21,7 +21,12 @@ import { fireAndForget } from "../fireAndForget.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
 import type { WorkflowDispatchOutcome, WorkflowDispatchPort, WorkflowIssuedCall } from "./engine.js";
 import type { WorkflowRunner } from "./runner.js";
-import { type JsonValue, JsonValueSchema, type WorkflowJournalRow } from "./workflowSchemas.js";
+import {
+	type JsonValue,
+	JsonValueSchema,
+	PROJECT_INSTRUCTION_FILES,
+	type WorkflowJournalRow,
+} from "./workflowSchemas.js";
 
 const SKILL_MARKER_START = "--- BEGIN WORKFLOW SKILL: ";
 const SKILL_MARKER_END = "--- END WORKFLOW SKILL: ";
@@ -494,13 +499,15 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		replayed: boolean,
 	): Promise<{ text: string | null } | null> {
 		const stored = skillRows(task.issued.runId);
-		if (stored.has("AGENTS.md")) return { text: stored.get("AGENTS.md")! };
-		if (stored.has("CLAUDE.md")) return { text: stored.get("CLAUDE.md")! };
+		for (const file of PROJECT_INSTRUCTION_FILES) {
+			const text = stored.get(file);
+			if (text !== undefined) return { text };
+		}
 		if (replayed) {
 			return { text: null };
 		}
 
-		for (const path of ["AGENTS.md", "CLAUDE.md"]) {
+		for (const path of PROJECT_INSTRUCTION_FILES) {
 			let result: HostOpResult;
 			try {
 				result = await deps.relayToHost({ kind: "readSkill", target, path });

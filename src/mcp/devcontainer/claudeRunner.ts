@@ -24,6 +24,7 @@ const MAX_RUNNING = 8;
 const MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 const STDERR_TAIL_CHARS = 2_000;
 const CANCEL_KILL_MS = 5_000;
+const ORPHAN_KILL_ATTEMPTS = 6;
 
 /** Tags a run's environment with its turn. */
 const TURN_ENV = "SWITCHBOARD_CLAUDE_TURN";
@@ -138,6 +139,8 @@ interface RunningTurn {
 	stdoutOverflow: boolean;
 	stderrTail: string;
 	cancelled: boolean;
+	/** Stopped by the runner itself; reported as a failure. */
+	stoppedBecause?: string;
 	settled: boolean;
 	killTimer?: ReturnType<typeof setTimeout>;
 }
@@ -227,6 +230,7 @@ function resultFrame(
 	stderr: string,
 	stdoutOverflow: boolean,
 	cancelled: boolean,
+	stoppedBecause?: string,
 ): ClaudeTurnResultFrame {
 	const frame = (
 		outcome: ClaudeTurnResultFrame["outcome"],
@@ -242,6 +246,7 @@ function resultFrame(
 			answer,
 			reason,
 		});
+	if (stoppedBecause !== undefined) return frame("failed", null, stoppedBecause);
 	if (cancelled) return frame("cancelled", null, "cancelled");
 	const parsed = jsonObjects(stdout).at(-1);
 	const result = parsed?.type === "result" ? parsed : undefined;
@@ -311,13 +316,14 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 
 	const hostPidfile = (turnId: string) => path.join(pidDir, `${turnId}.pid`);
 
-	function writeHostPidfile(turnId: string, pid: number | undefined): void {
-		if (pid === undefined) return;
+	function writeHostPidfile(turnId: string, pid: number | undefined): boolean {
+		if (pid === undefined) return false;
 		try {
 			fs.mkdirSync(pidDir, { recursive: true, mode: 0o700 });
 			fs.writeFileSync(hostPidfile(turnId), String(pid), { mode: 0o600 });
+			return true;
 		} catch {
-			// Only an orphan cancel reads it.
+			return false;
 		}
 	}
 
@@ -392,6 +398,7 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 			turn.stderrTail,
 			turn.stdoutOverflow,
 			turn.cancelled,
+			turn.stoppedBecause,
 		);
 		outbox.set(key, frame);
 		deps.send(frame);
@@ -408,10 +415,24 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 		return containerKill(target, turnId, value === "SIGTERM" ? "TERM" : "KILL");
 	}
 
+	/** Asks again while the run lives and the kill went unanswered. */
 	function armKill(key: string, turn: RunningTurn): void {
 		if (turn.killTimer) return;
 		turn.killTimer = startTimer(() => {
-			if (active.get(key) === turn && !turn.settled) void signal(turn, "SIGKILL");
+			turn.killTimer = undefined;
+			if (active.get(key) !== turn || turn.settled) return;
+			void signal(turn, "SIGKILL").then((answer) => {
+				if (answer === "failed" && active.get(key) === turn && !turn.settled) armKill(key, turn);
+			});
+		}, CANCEL_KILL_MS);
+	}
+
+	/** An orphan has no close event, so a failed kill is asked a bounded number of times. */
+	function orphanEscalate(target: AgentExecutionTarget, turnId: string, attemptsLeft: number): void {
+		startTimer(() => {
+			void orphanKill(target, turnId, "KILL").then((answer) => {
+				if (answer === "failed" && attemptsLeft > 1) orphanEscalate(target, turnId, attemptsLeft - 1);
+			});
 		}, CANCEL_KILL_MS);
 	}
 
@@ -430,9 +451,7 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 		}
 		const answer = await orphanKill(input.target, input.turnId, "TERM");
 		if (answer === "failed") throw new Error("the container did not answer the cancel");
-		if (answer === "signaled") {
-			startTimer(() => void orphanKill(input.target, input.turnId, "KILL"), CANCEL_KILL_MS);
-		}
+		if (answer === "signaled") orphanEscalate(input.target, input.turnId, ORPHAN_KILL_ATTEMPTS);
 		return { cancelled: answer === "signaled" };
 	}
 
@@ -476,7 +495,11 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 				settled: false,
 			};
 			active.set(key, turn);
-			if (input.target.kind === "host") writeHostPidfile(input.turnId, child.pid);
+			// Without a pidfile a restarted daemon could never stop it.
+			if (input.target.kind === "host" && !writeHostPidfile(input.turnId, child.pid)) {
+				turn.stoppedBecause = "claude run could not be recorded for cancel, so it was stopped";
+				signalGroup(child, "SIGKILL");
+			}
 			child.stdin?.on("error", () => {});
 			child.stdout?.on("error", () => {});
 			child.stderr?.on("error", () => {});

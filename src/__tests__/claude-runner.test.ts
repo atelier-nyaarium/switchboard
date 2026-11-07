@@ -422,6 +422,43 @@ describe("Claude runner lifecycle", () => {
 		expect(await gone).toEqual({ cancelled: false });
 	});
 
+	it("stops and fails a host turn whose pidfile cannot be written, since no restart could cancel it", async () => {
+		const signals: NodeJS.Signals[] = [];
+		const blocked = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "claude-pids-")), "not-a-dir");
+		pidDirs.push(path.dirname(blocked));
+		fs.writeFileSync(blocked, "");
+		const h = harness({ pidDir: blocked, signalGroup: (_child, signal) => signals.push(signal) });
+
+		expect(h.runner.start(input())).toEqual({ kind: "accepted" });
+		expect(signals).toEqual(["SIGKILL"]);
+		h.children[0]?.emit("close", null, "SIGKILL");
+		expect(h.sent[0]).toMatchObject({ outcome: "failed", reason: expect.stringMatching(/could not be recorded/) });
+	});
+
+	it("asks the container again when a KILL goes unanswered", async () => {
+		const clock = manualTimers();
+		const h = harness(clock);
+		h.runner.start(input({ target: CONTAINER_TARGET }));
+		const closeLatest = async (code: number) => {
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			h.children.at(-1)?.emit("close", code);
+		};
+		const cancelled = h.runner.cancel(cancelOf({ target: CONTAINER_TARGET }));
+		await closeLatest(0);
+		await cancelled;
+
+		clock.timers.shift()?.();
+		await closeLatest(125);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		clock.timers.shift()?.();
+		await closeLatest(0);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+
+		const kills = h.launches.filter((launch) => launch.args.at(-1) === "KILL");
+		expect(kills).toHaveLength(2);
+		expect(clock.timers).toHaveLength(0);
+	});
+
 	it("kills active turns when the daemon stops", () => {
 		const signals: NodeJS.Signals[] = [];
 		const h = harness({ signalGroup: (_child, signal) => signals.push(signal) });

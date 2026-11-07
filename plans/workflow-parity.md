@@ -323,6 +323,8 @@ Recommended because it halves the tool definitions every session carries, and gi
   - A terminal run's cancels are read from the journal (the latest Claude turn of each issue with no settle or an interrupted one), retried every tick until the live daemon answers, and asked again of a new daemon instance. Gateway close cancels nothing.
   - A container run starts under a `setsid` wrapper that writes its process group to a pidfile inside the container; a cancel signals that group there, since killing the `docker exec` client leaves it running. A host run writes a pidfile too, for a restarted daemon. A signal goes only to a process whose environment carries `SWITCHBOARD_CLAUDE_TURN` for that turn. The daemon answers an error when a container run could not be signaled, so the Gateway asks again.
   - Turn ids use a bounded filename-safe form; cancel carries the execution target.
+  - A host run whose pidfile cannot be written is stopped at once and fails its step, so every accepted host run can be cancelled after a daemon restart. A KILL that goes unanswered is asked again: while an active run lives, and a bounded number of times for an orphan.
+  - `resumeFrom` copies a claude call's journaled `AGENTS.md` or `CLAUDE.md` row with its skills, so an adopted thread resumes with the same instructions appended.
   - The isolation test uses stream-json to inspect the init event; production keeps json output. It makes a model call on the owner's login, so it runs only with `SWITCHBOARD_CLAUDE_LIVE=1`; it passed live once (`AGENTS.md` canary, no skills or MCP servers, no hook).
 
 ## Follow-up after Phase 2 - Copilot compaction status (Q15) ✅

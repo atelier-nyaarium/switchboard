@@ -24,6 +24,7 @@ import {
 import {
 	type JsonValue,
 	JsonValueSchema,
+	PROJECT_INSTRUCTION_FILES,
 	type WorkflowCallOptions,
 	type WorkflowIssueRow,
 	type WorkflowJournalRow,
@@ -644,7 +645,11 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			}
 		}
 		const sourceIssue = issueRows(run.resumeSource.rows).get(issueOrdinal);
-		const skillPaths = new Set(sourceIssue?.options.skills ?? []);
+		// A claude call's project instructions ride the same rows.
+		const skillPaths = new Set<string>([
+			...(sourceIssue?.options.skills ?? []),
+			...(sourceIssue?.resolvedBackend === "claude" ? PROJECT_INSTRUCTION_FILES : []),
+		]);
 		const skillHashes = new Set<string>();
 		for (const row of run.resumeSource.rows) {
 			if (row.kind === "skill_text" && skillPaths.has(row.path)) skillHashes.add(row.sha256);

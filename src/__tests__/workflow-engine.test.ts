@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -557,6 +558,45 @@ return await parallel([() => first, () => second, () => third]);`;
 			runner.stop();
 		},
 	);
+
+	it("copies a claude call's project instructions into a resumed run", async () => {
+		let runnerRef: ReturnType<typeof createWorkflowRunner> | undefined;
+		const { engine, runner } = await setup((call, settle) => {
+			runnerRef?.append(call.runId, {
+				kind: "skill_text",
+				path: "AGENTS.md",
+				sha256: createHash("sha256").update("Project rules", "utf8").digest("hex"),
+				text: "Project rules",
+			});
+			runnerRef?.append(call.runId, {
+				kind: "turn",
+				issueOrdinal: call.issueOrdinal,
+				turnOrdinal: 1,
+				turnId: `turn-${call.issueOrdinal}`,
+				backend: "claude",
+				prompt: call.prompt,
+				operationId: null,
+				registerInstanceId: "register-1",
+				agentId: "d9428888-122b-4d55-9f9e-4db1a347e901",
+				target: "host",
+			});
+			settle({ outcome: "completed", answer: "kept", reason: null });
+		});
+		runnerRef = runner;
+		const script = `export const meta = {};\nreturn await agent("step", {backend: "claude"});`;
+		const source = started(engine.startRun(input("claude-source", script)));
+		await waitFor(() => runner.get(source.runId)?.status !== "running");
+
+		const resumed = started(engine.startRun(input("claude-resume", script, { resumeFrom: source.runId })));
+		await waitFor(() => runner.get(resumed.runId)?.status !== "running");
+
+		expect(runner.get(resumed.runId)?.result).toBe("kept");
+		expect(runner.rows(resumed.runId)).toContainEqual(
+			expect.objectContaining({ kind: "skill_text", path: "AGENTS.md", text: "Project rules" }),
+		);
+		engine.stop();
+		runner.stop();
+	});
 
 	it("fails a pending script without an unsettled agent call", async () => {
 		const { engine, runner } = await setup();
