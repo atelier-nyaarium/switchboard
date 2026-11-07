@@ -303,7 +303,7 @@ Recommended because it halves the tool definitions every session carries, and gi
   - Tests: a 3-step run gives exactly one notice; a forced replay of a `parallel` script reattaches every answer to its own call; a daemon restart mid-step retries a start and a thread message once each under the new instance, never twice under the same one; the VM's global names match a fixed list; a stalled script fails; a torn journal tail restores to its last full row.
   - The `AGENTS.md` map lines and `docs/workflows.md` land here.
 
-## Phase 3 - claude -p steps
+## Phase 3 - claude -p steps ✅
 
 ### Bug Classes
 
@@ -383,3 +383,7 @@ A: Read the events file; recorded under "Follow-up after Phase 2".
 - **The fake clock cannot jump:** `src/testing/fakeAmbient.ts` in manual drive rearms an interval against the real time its last firing observed, so one long `advance()` can skip a one-second tick. The workflow notice harness test had to step second by second, and a timer-sensitive test passing under a jump proves little.
 - **No single place to shorten a stage's timing for the harness:** compressing the ten-minute workflow checkup needed a `workflowProgressIntervalMsForTests` threaded through `gatewayTypes.ts`, `composeGateway.ts`, `composeAwareness.ts`, `workflowAwareness.ts` and `federationHarness.ts`. A stage-level timing record the harness overrides once would replace that.
 - **The engine ends a run from inside a host call:** `engine.ts:createWorkflowEngine:issueCall` calls `terminalize` on a restart mismatch while the script is still executing; `vm.ts` now defers the dispose until the guest unwinds, but the cleaner shape is a refusal the drive loop turns into the terminal transition.
+- **Test fakes model the easy lifetime, so the cancel class passed its own tests:** the runner test's fake child never closed on `kill()`, while `docker exec` does, and the fake host answered every cancel `cancelled: true` at once. Both hid a failed KILL that was never retried, so round 5 shipped green. Fakes that stand in for a process should copy its exit and close behavior; one shared fake child for the runner tests would hold that rule in one place.
+- **Dispatch tests re-implement the engine's journal write:** `src/__tests__/workflow-claude-dispatch.test.ts` `setup` writes settle and thread-map rows itself, so moving the mapping into the settle row broke a test that never touched the engine. A tiny journal writer shared by the engine and the fixture, or the journal view on the board, removes the second copy.
+- **The cancel contract had no single definition:** what "the run is gone" means was spread over the kill script's exit codes, `containerKill`'s mapping, `hostOrphanKill` and `stepDebt`, and each round moved one of them. It is now written once under Bug Classes, but the code still spreads it across four places; a typed kill answer owned by the ledger is the shape if it moves again.
+- **Cleanup agents delete what they do not recognize:** a comment pass removed the owner-requested FIXME on `engine.ts:createWorkflowEngine:appendSettle` as noise. A FIXME tracked on the board should name its board entry, so a sweep can tell it from pollution.
