@@ -30,6 +30,8 @@ export interface MessageDelivery extends HeldRow {
 	awareness?: RidingAwareness;
 	/** Materialization bucket key. */
 	messageId?: string;
+	/** The owner approved this send on a card. */
+	ownerApproved?: true;
 }
 
 /** A watcher event. */
@@ -243,5 +245,10 @@ function isDelivery(row: unknown): row is PendingDelivery {
 		const keyed = d.keys === undefined || (Array.isArray(d.keys) && d.keys.every((key) => typeof key === "string"));
 		return keyed && d.channelJobId === undefined && d.from === undefined;
 	}
-	return d.event === undefined && typeof d.channelJobId === "string" && typeof d.from === "string";
+	return (
+		d.event === undefined &&
+		typeof d.channelJobId === "string" &&
+		typeof d.from === "string" &&
+		(d.ownerApproved === undefined || d.ownerApproved === true)
+	);
 }

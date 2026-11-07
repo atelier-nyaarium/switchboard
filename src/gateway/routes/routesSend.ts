@@ -438,6 +438,7 @@ export function createSendRoutes({
 					...(hasFiles ? { files, messageId } : {}),
 					...(riding ? { awareness: riding } : {}),
 					...(disposition ? { disposition } : {}),
+					...(record?.guard === "approved" ? { ownerApproved: true as const } : {}),
 					enqueuedAt: ambient.now(),
 					origin,
 				});

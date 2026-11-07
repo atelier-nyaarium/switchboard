@@ -70,6 +70,8 @@ export interface ChannelPushPayload {
 	// Rendered as a reminder block. A standalone push carries it with an empty body.
 	awareness?: RidingAwareness;
 	disposition?: ReplyDisposition;
+	/** The owner approved this message on their phone before it was sent. */
+	owner_approved?: boolean;
 	/** A watcher event: data only, with no sender, conversation or reply owed. */
 	event?: boolean;
 	/** Receiver acks stored id; untracked pushes omit it. */

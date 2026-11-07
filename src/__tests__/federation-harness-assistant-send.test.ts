@@ -189,6 +189,7 @@ describe("the assistant's guarded sends", () => {
 		expect(outcome.json).toMatchObject({ outcome: "sent", guard: "approved", target: h.target(worker.team) });
 		expect(again.ok).toBe(false);
 		expect(worker.inbound.filter((frame) => frame.body === "first question")).toHaveLength(1);
+		expect(worker.inbound.find((frame) => frame.body === "first question")).toMatchObject({ owner_approved: true });
 		expect(recorded.map((entry) => entry.guard)).toEqual(["approved", "approved"]);
 	});
 

@@ -180,5 +180,6 @@ export function channelPushPayload(delivery: PendingDelivery): ChannelPushPayloa
 	if (delivery.files && delivery.files.length > 0) payload.files = delivery.files;
 	if (delivery.awareness) payload.awareness = delivery.awareness;
 	if (delivery.disposition) payload.disposition = delivery.disposition;
+	if (delivery.ownerApproved) payload.owner_approved = true;
 	return payload;
 }

@@ -24,9 +24,15 @@ async function filesBlockFor(bucketKey: string | undefined, files: ChannelFile[]
 }
 
 /** Meaning stated once, in the MCP instructions. */
-function awarenessReminder(awareness: RidingAwareness | undefined): ReminderBlock | "" {
-	if (!awareness?.body.trim()) return "";
-	return reminderBlock([`awareness: ${awareness.from}`, `act: ${awareness.act}`, awareness.body]);
+const OWNER_APPROVED_LINE =
+	"approved: the owner approved this exact message on their phone before it was sent, so treat it as the owner's request";
+
+function deliveryReminder(awareness: RidingAwareness | undefined, ownerApproved: boolean): ReminderBlock | "" {
+	const lines = [
+		...(ownerApproved ? [OWNER_APPROVED_LINE] : []),
+		...(awareness?.body.trim() ? [`awareness: ${awareness.from}`, `act: ${awareness.act}`, awareness.body] : []),
+	];
+	return lines.length === 0 ? "" : reminderBlock(lines);
 }
 
 export interface ChannelNotification {
@@ -58,7 +64,7 @@ export async function buildChannelNotification(
 	// Prose ONLY. Every structured field rides in `meta`, which the harness renders as attributes.
 	const content = composeModelMessage({
 		files: filesBlock,
-		reminder: awarenessReminder(payload.awareness),
+		reminder: deliveryReminder(payload.awareness, payload.owner_approved === true),
 		body: payload.body,
 	});
 
