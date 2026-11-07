@@ -47,7 +47,7 @@ export const ASSISTANT_ACTIONS = {
 		usage: `
 # GitHub Done
 
-Mark GitHub notification threads done, then read, as GitHub's own Done does, so they leave \`${INBOX}\`. Each id is an event's \`id\`.
+Mark GitHub notification threads read, then done, as GitHub's own Done does, so they leave \`${INBOX}\`. Each id is an event's \`id\`.
 
 - With \`summary\`: the owner gets it as your message, with the threads listed under it.
 - Without: one quiet line, no notification.

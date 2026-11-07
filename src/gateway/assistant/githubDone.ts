@@ -83,14 +83,34 @@ export class GithubDone extends WatcherAction<"github_done"> {
 
 		const late = stoppedBy(ctx);
 		if (late) return { thread: { ...known, outcome: "not_attempted" }, stop: late };
+		// Read after done brings it back.
+		const marked = await bounded(ctx, ASSISTANT_WAITS.request, (signal) =>
+			this.client.request(token, path, { method: "PATCH" }, signal),
+		).catch((error: Error) => ({ failed: error.message }));
+		if ("failed" in marked) {
+			return {
+				thread: { ...known, outcome: "not_attempted" },
+				note: `marking ${threadId} read: no answer from GitHub (${marked.failed}); send it again`,
+			};
+		}
+		if (isRefusal(marked)) return refused(known, marked);
+		if (marked.status === 404) return { thread: { ...known, outcome: "not_found" } };
+		// 304: already read.
+		if (!marked.ok && marked.status !== 304) {
+			return {
+				thread: { ...known, outcome: "not_attempted" },
+				note: `marking ${threadId} read: GitHub answered ${marked.status}; send it again`,
+			};
+		}
 		const cleared = await bounded(ctx, ASSISTANT_WAITS.request, (signal) =>
 			this.client.request(token, path, { method: "DELETE" }, signal),
 		).catch((error: Error) => ({ failed: error.message }));
+		const notDone = `${threadId} is read but not done, so it left inbox`;
 		// Lost replies stay uncertain.
 		if ("failed" in cleared) {
 			return {
 				thread: { ...known, outcome: "uncertain" },
-				note: `clearing ${threadId}: no answer from GitHub (${cleared.failed}); send it again`,
+				note: `${notDone}: no answer from GitHub (${cleared.failed}); send it again`,
 			};
 		}
 		if (isRefusal(cleared)) return refused(known, cleared);
@@ -98,23 +118,9 @@ export class GithubDone extends WatcherAction<"github_done"> {
 		if (!cleared.ok) {
 			return {
 				thread: { ...known, outcome: "uncertain" },
-				note: `clearing ${threadId}: GitHub answered ${cleared.status}; send it again`,
+				note: `${notDone}: GitHub answered ${cleared.status}; send it again`,
 			};
 		}
-		// Mark done before read.
-		const marked = await bounded(ctx, ASSISTANT_WAITS.request, (signal) =>
-			this.client.request(token, path, { method: "PATCH" }, signal),
-		).catch((error: Error) => ({ failed: error.message }));
-		const done = { ...known, outcome: "done" as const };
-		// 304: already read.
-		const nowRead = !("failed" in marked) && !isRefusal(marked) && (marked.ok || marked.status === 304);
-		if (nowRead) return { thread: done };
-		const unread = `${threadId} is done but still unread, so it stays in inbox; send it again`;
-		if (isRefusal(marked)) {
-			const why = marked.kind === "backoff" ? holdText(marked.retryMs) : marked.reason;
-			return { thread: done, stop: `${unread}; ${why}` };
-		}
-		const why = "failed" in marked ? marked.failed : `GitHub answered ${marked.status}`;
-		return { thread: done, note: `${unread}: ${why}` };
+		return { thread: { ...known, outcome: "done" } };
 	}
 }

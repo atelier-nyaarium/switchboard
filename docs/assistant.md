@@ -293,14 +293,14 @@ actions; `run_action` runs a listed id.
   handler, with no allowlist change.
 - **`watcher/github_done` params (`{ ids, summary? }`):** up to 25 unique digit-string thread ids,
   and an optional summary of up to 300 characters. Per id it reads the thread for its title and link,
-  marks it done (`DELETE`, 204), then read (`PATCH`, 205, which a done thread also takes). Unread is
-  the inbox, since GitHub keeps listing a done thread under `all=true`, and done comes first so a
-  thread leaves the inbox only once GitHub confirmed it done; `not_attempted` then always means
-  nothing changed.
+  marks it read (`PATCH`, 205, or 304 when already read), then done (`DELETE`, 204). Read comes
+  first because a read after done puts the thread back in GitHub's own inbox as read. Unread is the
+  watcher's inbox, since GitHub keeps listing a done thread under `all=true`.
   Each id answers one shared outcome: `done`, `not_found`, `rate_limited`, `uncertain` or
   `not_attempted`. A rate limit stops the batch, and the ids after it answer `not_attempted`; so does
-  a refused token. A done thread whose mark-read failed answers `done` with a note that it stays in
-  `inbox` until sent again. A repeated `DELETE` answers 204 again.
+  a refused token. A thread whose done step failed answers `uncertain` with a note that it is read
+  but not done, so it left `inbox`; sending it again is safe, since a repeated `PATCH` or `DELETE`
+  answers success again.
 - **`not_found` leaves the inbox here:** GitHub keeps listing a thread whose subject was deleted, a
   release recreated under the same tag for one, while every thread endpoint answers 404. The
   dispatcher records each `not_found` id with the time, inside the watcher's lane so no poll

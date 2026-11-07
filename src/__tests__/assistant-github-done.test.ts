@@ -87,17 +87,17 @@ function gate() {
 }
 
 describe("github_done", () => {
-	it("reads each thread for GitHub's own title and link, marks it done, then read, and says when it stays unread", async () => {
+	it("reads each thread for GitHub's own title and link, marks it read, then done, and goes on past one it cannot read", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { run, asked } = github(ambient, [
 			{ status: 200, body: thread("7") },
+			{ status: 205 },
 			{ status: 204 },
-			{ status: 304 },
 			{ status: 404 },
 			{ status: 200, body: thread("6") },
+			{ status: 304 },
 			{ status: 204 },
 			{ status: 500 },
-			{ status: 502 },
 		]);
 
 		const answer = await run(["7", "8", "6", "9"]);
@@ -108,15 +108,15 @@ describe("github_done", () => {
 			{ threadId: "6", title: "Thread 6", url: "https://github.com/atelier/app/pull/6", outcome: "done" },
 			{ threadId: "9", outcome: "not_attempted" },
 		]);
-		expect(answer.note).toMatch(/6 is done but still unread/);
+		expect(answer.note).toMatch(/reading 9: GitHub answered 500/);
 		expect(asked).toEqual([
 			"GET /notifications/threads/7",
-			"DELETE /notifications/threads/7",
 			"PATCH /notifications/threads/7",
+			"DELETE /notifications/threads/7",
 			"GET /notifications/threads/8",
 			"GET /notifications/threads/6",
-			"DELETE /notifications/threads/6",
 			"PATCH /notifications/threads/6",
+			"DELETE /notifications/threads/6",
 			"GET /notifications/threads/9",
 		]);
 	});
@@ -170,29 +170,28 @@ describe("github_done", () => {
 		expect(asked).toEqual(["GET /notifications/threads/1", "GET /notifications"]);
 	});
 
-	it("keeps a thread done when the limit holds back marking it read, and says it stays unread", async () => {
+	it("marks nothing read or done when the limit holds back the read, naming the wait", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-		const cleared = gate();
+		const read = gate();
 		const { run, asked, limitElsewhere } = github(ambient, [
-			{ status: 200, body: thread("1") },
-			{ status: 204, after: cleared.opened },
+			{ status: 200, body: thread("1"), after: read.opened },
 			{ status: 429, headers: { "retry-after": "60" } },
 		]);
 
 		const ran = run(["1", "2"]);
 		await ambient.advance(0);
 		await limitElsewhere();
-		cleared.open();
+		read.open();
 		const answer = await ran;
 
-		expect(answer.threads.map((item) => item.outcome)).toEqual(["done", "not_attempted"]);
-		expect(answer.note).toMatch(/1 is done but still unread.*wait 60s/);
-		expect(asked).not.toContain("PATCH /notifications/threads/1");
+		expect(answer.threads.map((item) => item.outcome)).toEqual(["not_attempted", "not_attempted"]);
+		expect(answer.note).toMatch(/wait 60s/);
+		expect(asked.filter((line) => /PATCH|DELETE/.test(line))).toEqual([]);
 	});
 
-	it("answers a delete unanswered at the deadline as uncertain, marks nothing read, and starts nothing after it", async () => {
+	it("answers a delete unanswered at the deadline as uncertain, and starts nothing after it", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-		const { run, asked } = github(ambient, [{ status: 200, body: thread("1") }, "hang"]);
+		const { run, asked } = github(ambient, [{ status: 200, body: thread("1") }, { status: 205 }, "hang"]);
 
 		const ran = run(["1", "2"], 1_000);
 		await ambient.advance(0);
@@ -201,13 +200,18 @@ describe("github_done", () => {
 
 		expect(answer.threads.map((item) => item.outcome)).toEqual(["uncertain", "not_attempted"]);
 		expect(answer.note).toMatch(/out of time/);
-		expect(asked).toEqual(["GET /notifications/threads/1", "DELETE /notifications/threads/1"]);
+		expect(asked).toEqual([
+			"GET /notifications/threads/1",
+			"PATCH /notifications/threads/1",
+			"DELETE /notifications/threads/1",
+		]);
 	});
 
 	it("says why a delete GitHub answered with an error is uncertain, and goes on to the next id", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { run } = github(ambient, [
 			{ status: 200, body: thread("1") },
+			{ status: 205 },
 			{ status: 502, body: null },
 			{ status: 404, body: null },
 		]);
@@ -215,7 +219,7 @@ describe("github_done", () => {
 		const answer = await run(["1", "2"], 10_000);
 
 		expect(answer.threads.map((item) => item.outcome)).toEqual(["uncertain", "not_found"]);
-		expect(answer.note).toMatch(/clearing 1: GitHub answered 502; send it again/);
+		expect(answer.note).toMatch(/1 is read but not done.*GitHub answered 502; send it again/);
 	});
 
 	it("attempts nothing without a usable token", async () => {

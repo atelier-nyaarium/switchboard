@@ -196,8 +196,8 @@ describe("an assistant action", () => {
 		});
 		expect(asked).toEqual([
 			"GET /notifications/threads/7",
-			"DELETE /notifications/threads/7",
 			"PATCH /notifications/threads/7",
+			"DELETE /notifications/threads/7",
 			"GET /notifications/threads/404",
 		]);
 		expect(delivered).toHaveLength(1);
