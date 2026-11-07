@@ -55,6 +55,10 @@ class HysteresisTracker {
 		return undefined;
 	}
 
+	confirmedValue(): DerivedState | undefined {
+		return this.confirmed;
+	}
+
 	/** Clear to unknown, so reconnection re-derives from scratch. */
 	clear(): void {
 		this.pending = undefined;
@@ -103,6 +107,8 @@ export class PresenceScheduler {
 	private readonly consecutiveFailures = new Map<string, number>();
 	private readonly observedFrames = new Map<string, HostPeekResult>();
 	private readonly ticking = new Set<symbol>();
+	/** Facts no pane shows, merged into every report. */
+	private readonly overlays = new Map<string, Partial<DerivedState>>();
 
 	constructor(opts: {
 		peek: NoResizePeek;
@@ -151,12 +157,28 @@ export class PresenceScheduler {
 		return Promise.all(initialTicks).then(() => undefined);
 	}
 
+	/** A change re-reports the confirmed value under it. */
+	setOverlay(team: string, overlay: Partial<DerivedState> | undefined): void {
+		const before = JSON.stringify(this.overlays.get(team) ?? null);
+		if (overlay === undefined) this.overlays.delete(team);
+		else this.overlays.set(team, overlay);
+		if (before === JSON.stringify(overlay ?? null)) return;
+		const confirmed = this.trackers.get(team)?.confirmedValue();
+		if (confirmed) this.report(team, this.withOverlay(team, confirmed));
+	}
+
+	private withOverlay(team: string, value: DerivedState): DerivedState {
+		const overlay = this.overlays.get(team);
+		return overlay ? { ...value, ...overlay } : value;
+	}
+
 	/** Also called directly when a session's lifecycle ends. */
 	stopWatching(team: string): void {
 		const timer = this.timers.get(team);
 		if (timer) clearInterval(timer);
 		this.timers.delete(team);
 		this.watches.delete(team);
+		this.overlays.delete(team);
 		this.watchTokens.delete(team);
 		this.observedFrames.delete(team);
 		this.consecutiveFailures.delete(team);
@@ -209,7 +231,7 @@ export class PresenceScheduler {
 			if (peek.kind === "tmux" && surveyShowing(peek.ansi)) this.onSurvey(entry.target);
 			const confirmed = tracker.observe(derived);
 			if (!confirmed) return;
-			this.report(team, confirmed);
+			this.report(team, this.withOverlay(team, confirmed));
 			if (confirmed.prompt?.autoDeny) this.onAutoDeny(entry.target, confirmed.prompt.id);
 		} catch {
 			if (!this.isCurrentWatch(team, token)) return;

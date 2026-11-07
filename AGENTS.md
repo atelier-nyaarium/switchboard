@@ -130,6 +130,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - presence, read anchors, host RPC correlation
 - `src/shared/schemasPresence.ts` `DerivedPresenceSchema` - what the daemon derives from a pane, the `presence_derive` frame
   - **One schema, every road:** the daemon's state, the frame, the Gateway's parse, `TeamInfo`'s derived fields (`projectDerived`) and the one equality (`sameDerived`) all read it. A new field is a schema line, its derivation, and on the phone a `Presence` property that `reported` must fill to compile.
+  - **A Copilot compaction is read from Copilot's own events file, never the pane:** `copilotCompaction.ts` follows `~/.copilot/session-state/<id>/events.jsonl` for each watch entry carrying a `copilotSessionId` (the Gateway puts the record's on `presence_watch`), and `PresenceScheduler.setOverlay` merges `compacting` into every report, so the phone needs nothing new. The pane's spinner line scrolls off in seconds while the compaction runs for a minute.
 - `src/gateway/router/boardClient.ts` - Router-held task board client
 - `src/gateway/router/vaultClient.ts` - vault sealing/opening, delta-held Router list, approval-gated values, and the gateway write
 - `src/gateway/vault/decisions.ts` / `requests.ts` / `vaultRoutes.ts` - grants and `displayShape`; request rows that settle once, admit a joining caller, and cap open requests per target; loopback routes, each resolving the one principal, a session by its token

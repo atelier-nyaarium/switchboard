@@ -27,6 +27,7 @@ import { parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
 import { ExecutionTargetManager, targetLogger } from "./codexTargets.js";
+import { type CompactionFollow, createCompactionFollower } from "./copilotCompaction.js";
 import { CopilotDaemonService } from "./copilotDaemonService.js";
 import { copilotLauncher } from "./copilotTargets.js";
 import { ensureContainerUpAsync, resolveProject } from "./helpers.js";
@@ -160,6 +161,7 @@ export function stopSupervisedChildren(): void {
 /** Stops the reconnect timer as well as the children, so shutdown leaves nothing scheduled. */
 export function stopHostDaemon(): void {
 	reconnector.cancel();
+	compactionFollower.stop();
 	stopSupervisedChildren();
 	if (askpassReceipt) removeAskpassWrapper(os.homedir(), askpassReceipt);
 }
@@ -285,12 +287,18 @@ function connect(): void {
 
 		if (msg.type === "presence_watch" && Array.isArray(msg.watch)) {
 			const entries: WatchEntry[] = [];
+			const follows: CompactionFollow[] = [];
 			for (const raw of msg.watch) {
 				if (typeof raw?.team !== "string" || typeof raw?.cadenceMs !== "number") continue;
 				const target = resolveWatchTarget(raw.team);
-				if (target) entries.push({ team: raw.team, target, cadenceMs: raw.cadenceMs });
+				if (!target) continue;
+				entries.push({ team: raw.team, target, cadenceMs: raw.cadenceMs });
+				if (typeof raw.copilotSessionId === "string" && COPILOT_SESSION_RE.test(raw.copilotSessionId)) {
+					follows.push({ team: raw.team, copilotSessionId: raw.copilotSessionId });
+				}
 			}
 			void presenceScheduler.setWatches(entries);
+			compactionFollower.setFollows(follows);
 		}
 
 		if (msg.type === "channel_push") {
@@ -585,6 +593,8 @@ const hostOpRunner = createHostOpRunner({
 ////////////////////////////////
 //  Presence derivation (board tile working/needsLogin/limitBlocked)
 
+const COPILOT_SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // resize=false and priority="derive": never disturb an actively-viewed terminal.
 const presenceScheduler = new PresenceScheduler({
 	peek: (target) => hostOpRunner.peek(target, { resize: false, priority: "derive" }),
@@ -621,6 +631,12 @@ const presenceScheduler = new PresenceScheduler({
 			console.error("[presence] auto-deny stop failed:", e),
 		);
 	},
+});
+
+// Copilot's own file says when it compacts; the pane cannot.
+const compactionFollower = createCompactionFollower({
+	home: os.homedir(),
+	onChange: (team, compacting) => presenceScheduler.setOverlay(team, compacting ? { compacting: true } : undefined),
 });
 
 async function handleHostOp(reqId: string, op: HostOp): Promise<void> {

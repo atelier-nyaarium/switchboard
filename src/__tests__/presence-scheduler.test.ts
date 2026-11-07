@@ -408,6 +408,30 @@ describe("PresenceScheduler permission prompts", () => {
 	};
 	const screen = (name: string) => vectors.find((v) => v.name === name)?.screen ?? "";
 
+	it("merges an overlay into every report and re-reports the confirmed value when it changes", async () => {
+		const { scheduler, reports } = makeScheduler([
+			tmuxFrame(IDLE, "h1"),
+			tmuxFrame(WORKING, "h2"),
+			tmuxFrame(WORKING, "h3"),
+			tmuxFrame(IDLE, "h4"),
+			tmuxFrame(IDLE, "h5"),
+		]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		scheduler.setOverlay("proj.main", { compacting: true });
+		await scheduler.tick("proj.main");
+		await scheduler.tick("proj.main");
+		scheduler.setOverlay("proj.main", { compacting: true });
+		scheduler.setOverlay("proj.main", undefined);
+		await scheduler.tick("proj.main");
+		await scheduler.tick("proj.main");
+
+		expect(reports).toEqual([
+			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false, compacting: true } },
+			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false } },
+			{ team: "proj.main", value: { working: false, needsLogin: false, limitBlocked: false } },
+		]);
+	});
+
 	it("reports a confirmed prompt and asks once to stop its countdown", async () => {
 		const frames = [
 			tmuxFrame(IDLE, "h1"),

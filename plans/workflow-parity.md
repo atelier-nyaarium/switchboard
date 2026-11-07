@@ -312,11 +312,17 @@ Recommended because it halves the tool definitions every session carries, and gi
 - **Sessions:** the first turn pre-mints its id with `--session-id` from a journaled uuid; later turns `--resume` it from the same cwd. The runner reads `structured_output`, then `result`. `is_error`, a non-zero exit or "No conversation found" fails the turn. A rebuilt container loses the transcript, so its thread degrades to a fresh agent.
 - **Restarts and cancel:** the turn is journaled `dispatched` before the send. The daemon holds each result in an outbox replayed on Gateway reconnect; a daemon restart fails the turn with a typed `runnerLost`, at most once. Cancel signals the process group (TERM, then KILL), or wraps the container command in `timeout`, since a `docker exec` child outlives its client.
 - **Availability:** `claude`'s presence counts toward the `workflow` declaration, appended after the `AGENT_BACKENDS` flatMap in `daemonCapabilityDeclaration`. An absent `claude` is a dispatch-time step failure.
+- **Decided at implementation:**
+  - The turn's result is a daemon frame (`claude_turn_result`, acked by `claude_turn_ack`), not the `claudeRun` host-op reply, which answers only `accepted`, `busy`, `binaryMissing` or `badTarget`. A turn outlives the host-op wait.
+  - A claude turn row carries `operationId: null` and a required `registerInstanceId`, `agentId` (the claude session uuid) and `target`. On a register naming a new daemon instance, every claude turn still open under the old one settles `interrupted` with reason "runner lost: the host daemon restarted", once.
+  - A `sessionMissing` result (a rebuilt container, "No conversation found") degrades the thread: a fresh session uuid with the thread's journaled skills, the switch journaled as a thread-map row, at most once per call.
+  - At most 8 claude turns run per daemon; a ninth answers `busy` and the call waits for the tick.
+  - The project instructions are read through `readSkill` as `AGENTS.md`, else `CLAUDE.md`, at the target's base, journaled as `skill_text`, and appended on every turn.
 
-## Follow-up after Phase 2 - Copilot compaction status (Q15)
+## Follow-up after Phase 2 - Copilot compaction status (Q15) ✅
 
 - **Source:** Copilot writes `session.compaction_start` and `session.compaction_complete` to `~/.copilot/session-state/<copilot-session-id>/events.jsonl`. The pane cannot show a whole compaction: Copilot prints `● Compacting conversation history...` as a transcript line that scrolls off in about 15 s while the background compaction runs over a minute (seen on Testing: 90 frames, our `isCompacting` matched none).
-- **Session id:** the plugin's sessionStart hook records the Copilot session id Copilot hands every hook, against the Switchboard session.
+- **Session id:** the Gateway already mints a Copilot session's id (`copilotSessionId` on the session record, passed as `--session-id` at launch), so `presence_watch` entries carry it and no hook is needed.
 - **Daemon:** follows that events file for each Copilot session and sets `DerivedPresenceSchema.compacting` from start to complete, through the same derived-presence road the pane reader feeds, so the phone's existing compacting dock shows it with no phone change.
 - **Tests:** a start event sets compacting and a complete clears it; a session with no recorded id falls back to the pane reader.
 

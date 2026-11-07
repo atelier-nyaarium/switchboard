@@ -92,7 +92,11 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 			.snapshot()
 			.filter((row) => row.status === "online" || row.status === "verifying")
 			.map((row) => row.team);
-		const watch = liveTeams.map((team) => ({ team, cadenceMs: PRESENCE_PEEK_MS }));
+		const watch = liveTeams.map((team) => {
+			const record = sessions.sessionStore.getByTeam(team);
+			const copilotSessionId = record?.harness === "copilot" ? record.copilotSessionId : undefined;
+			return { team, cadenceMs: PRESENCE_PEEK_MS, ...(copilotSessionId ? { copilotSessionId } : {}) };
+		});
 		const serialized = JSON.stringify(watch);
 		if (!force && serialized === lastPushedWatch) return;
 		// Retry dropped watches.
