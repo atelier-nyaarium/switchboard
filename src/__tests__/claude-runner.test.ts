@@ -6,12 +6,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkflowThreadMapRowSchema, WorkflowTurnRowSchema } from "../gateway/workflows/workflowSchemas.js";
-import {
-	argvFor,
-	type ClaudeRunnerDeps,
-	containerKillArgv,
-	createClaudeRunner,
-} from "../mcp/devcontainer/claudeRunner.js";
+import { argvFor, type ClaudeRunnerDeps, createClaudeRunner } from "../mcp/devcontainer/claudeRunner.js";
 import {
 	ClaudeTurnAckFrameSchema,
 	ClaudeTurnResultFrameSchema,
@@ -44,14 +39,27 @@ function cancelOf(
 
 /** Fake timers that run when the test says. */
 function manualTimers() {
-	const timers: Array<() => void> = [];
+	const pending = new Map<number, { run: () => void; ms: number }>();
+	let nextId = 1;
+	const take = (ms: number) => {
+		const entry = [...pending].find(([, timer]) => timer.ms === ms);
+		if (!entry) return;
+		pending.delete(entry[0]);
+		entry[1].run();
+	};
 	return {
-		timers,
-		setTimer: ((handler: () => void) => {
-			timers.push(handler);
-			return 1 as unknown as ReturnType<typeof setTimeout>;
+		/** Pending retry timers. */
+		get timers() {
+			return [...pending.values()].filter((timer) => timer.ms === 5_000);
+		},
+		fire: () => take(5_000),
+		fireHung: () => take(10_000),
+		setTimer: ((handler: () => void, ms: number) => {
+			const id = nextId++;
+			pending.set(id, { run: handler, ms });
+			return id as unknown as ReturnType<typeof setTimeout>;
 		}) as typeof setTimeout,
-		clearTimer: (() => {}) as typeof clearTimeout,
+		clearTimer: ((id: number) => pending.delete(id)) as unknown as typeof clearTimeout,
 	};
 }
 
@@ -72,14 +80,20 @@ function input(overrides: Partial<HostClaudeRunOp> = {}): HostClaudeRunOp {
 type TestChild = ChildProcess & { stdin: PassThrough; stdout: PassThrough; stderr: PassThrough };
 
 function child(): TestChild {
-	return Object.assign(new EventEmitter(), {
+	const emitter = new EventEmitter();
+	return Object.assign(emitter, {
 		stdin: new PassThrough(),
 		stdout: new PassThrough(),
 		stderr: new PassThrough(),
 		pid: 100,
-		kill: () => true,
+		kill: (signal?: NodeJS.Signals) => {
+			setImmediate(() => emitter.emit("close", null, signal ?? "SIGTERM"));
+			return true;
+		},
 	}) as unknown as TestChild;
 }
+
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 function harness(overrides: Partial<ClaudeRunnerDeps> = {}) {
 	const children: TestChild[] = [];
@@ -343,19 +357,21 @@ describe("Claude runner lifecycle", () => {
 		const pidfile = path.join(h.pidDir, "turn-1.pid");
 		expect(fs.readFileSync(pidfile, "utf8")).toBe("100");
 
-		expect(await h.runner.cancel(cancelOf())).toEqual({ cancelled: true });
+		expect(await h.runner.cancel(cancelOf())).toEqual({ cancelled: false });
 		expect(signals).toEqual(["SIGTERM"]);
-		clock.timers[0]?.();
+		expect(await h.runner.cancel(cancelOf())).toEqual({ cancelled: false });
+		clock.fire();
+		await settle();
 		expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
 		h.children[0]?.emit("close", null, "SIGKILL");
 		expect(h.sent[0]).toMatchObject({ outcome: "cancelled", answer: null });
 		expect(fs.existsSync(pidfile)).toBe(false);
+		expect(await h.runner.cancel(cancelOf())).toEqual({ cancelled: true });
 	});
 
 	it("cancels a host orphan through its pidfile only when the process carries that turn", async () => {
 		const killed: Array<[number, NodeJS.Signals]> = [];
 		const clock = manualTimers();
-		// A later turn of the same resumed session reusing the pid carries its own turn id.
 		let environ = ["PATH=/bin", "SWITCHBOARD_CLAUDE_TURN=turn-9"];
 		const h = harness({
 			environOf: () => environ,
@@ -365,61 +381,77 @@ describe("Claude runner lifecycle", () => {
 			},
 			...clock,
 		});
-		fs.writeFileSync(path.join(h.pidDir, "turn-9.pid"), "4242");
+		const pidfile = path.join(h.pidDir, "turn-9.pid");
+		fs.writeFileSync(pidfile, "4242");
 
-		expect(await h.runner.cancel(cancelOf({ turnId: "turn-9" }))).toEqual({ cancelled: true });
-		clock.timers[0]?.();
-		environ = ["PATH=/bin", "SWITCHBOARD_CLAUDE_TURN=turn-10"];
 		expect(await h.runner.cancel(cancelOf({ turnId: "turn-9" }))).toEqual({ cancelled: false });
-		expect(await h.runner.cancel(cancelOf({ turnId: "turn-missing" }))).toEqual({ cancelled: false });
+		clock.fire();
+		await settle();
+		expect(fs.existsSync(pidfile)).toBe(false);
+		expect(await h.runner.cancel(cancelOf({ turnId: "turn-9" }))).toEqual({ cancelled: true });
+
+		// Reused pid, new turn.
+		fs.writeFileSync(path.join(h.pidDir, "turn-5.pid"), "4242");
+		environ = ["PATH=/bin", "SWITCHBOARD_CLAUDE_TURN=turn-10"];
+		await h.runner.cancel(cancelOf({ turnId: "turn-5" }));
+		await h.runner.cancel(cancelOf({ turnId: "turn-missing" }));
+		await settle();
 
 		expect(killed).toEqual([
 			[4242, "SIGTERM"],
 			[4242, "SIGKILL"],
 		]);
+		expect(clock.timers).toHaveLength(0);
 	});
 
-	it("signals a container turn inside the container, where the client's death never reaches", async () => {
+	it("retries container cancellation", async () => {
 		const clock = manualTimers();
 		const h = harness(clock);
 		h.runner.start(input({ target: CONTAINER_TARGET }));
-		const run = h.children[0];
-		let clientKilled: NodeJS.Signals | undefined;
-		if (run)
-			run.kill = ((signal: NodeJS.Signals) => {
-				clientKilled = signal;
-				return true;
-			}) as TestChild["kill"];
-
-		// The kill exec's exit decides the answer, so the test closes each one.
-		const closeLatest = async (code: number) => {
-			await new Promise<void>((resolve) => setImmediate(resolve));
+		const answer = async (code: number) => {
+			await settle();
 			h.children.at(-1)?.emit("close", code);
+			await settle();
 		};
-		const notYet = h.runner.cancel(cancelOf({ target: CONTAINER_TARGET }));
-		await closeLatest(3);
-		await expect(notYet).rejects.toThrow();
-		const failed = h.runner.cancel(cancelOf({ target: CONTAINER_TARGET }));
-		await closeLatest(125);
-		await expect(failed).rejects.toThrow();
-		const signaled = h.runner.cancel(cancelOf({ target: CONTAINER_TARGET }));
-		await closeLatest(0);
-		expect(await signaled).toEqual({ cancelled: true });
-		clock.timers[0]?.();
-		expect(h.launches.slice(1).map((launch) => launch.args)).toEqual([
-			containerKillArgv(CONTAINER_TARGET, "turn-1", "TERM"),
-			containerKillArgv(CONTAINER_TARGET, "turn-1", "TERM"),
-			containerKillArgv(CONTAINER_TARGET, "turn-1", "TERM"),
-			containerKillArgv(CONTAINER_TARGET, "turn-1", "KILL"),
-		]);
-		expect(clientKilled).toBe("SIGKILL");
 
-		const orphan = h.runner.cancel(cancelOf({ target: CONTAINER_TARGET, turnId: "turn-7" }));
-		await closeLatest(0);
-		expect(await orphan).toEqual({ cancelled: true });
-		const gone = h.runner.cancel(cancelOf({ target: CONTAINER_TARGET, turnId: "turn-8" }));
-		await closeLatest(3);
-		expect(await gone).toEqual({ cancelled: false });
+		expect(await h.runner.cancel(cancelOf({ target: CONTAINER_TARGET }))).toEqual({ cancelled: false });
+		await answer(4);
+		clock.fire();
+		await answer(125);
+		clock.fire();
+		await answer(0);
+		clock.fire();
+		await answer(0);
+		await settle();
+		expect(h.launches.slice(1).map((launch) => launch.args.at(-1))).toEqual(["TERM", "TERM", "TERM", "KILL"]);
+		expect(h.sent[0]).toMatchObject({ outcome: "cancelled" });
+		expect(clock.timers).toHaveLength(0);
+		expect(await h.runner.cancel(cancelOf({ target: CONTAINER_TARGET }))).toEqual({ cancelled: true });
+
+		await h.runner.cancel(cancelOf({ target: CONTAINER_TARGET, turnId: "turn-8" }));
+		await answer(4);
+		while (clock.timers.length > 0) {
+			clock.fire();
+			await answer(4);
+		}
+		const late = h.launches.filter((launch) => launch.args.includes("/tmp/switchboard-claude-turn-8.pid"));
+		expect(late).toHaveLength(7);
+	});
+
+	it("bounds a hung container kill and retries it", async () => {
+		const clock = manualTimers();
+		const h = harness(clock);
+		await h.runner.cancel(cancelOf({ target: CONTAINER_TARGET, turnId: "turn-3" }));
+		clock.fireHung();
+		await settle();
+		clock.fire();
+		await settle();
+		h.children.at(-1)?.emit("close", 3);
+		await settle();
+		expect(h.launches).toHaveLength(2);
+		expect(await h.runner.cancel(cancelOf({ target: CONTAINER_TARGET, turnId: "turn-3" }))).toEqual({
+			cancelled: true,
+		});
 	});
 
 	it("stops and fails a host turn whose pidfile cannot be written, since no restart could cancel it", async () => {
@@ -444,24 +476,24 @@ describe("Claude runner lifecycle", () => {
 		expect(h.sent[0]).toMatchObject({ outcome: "failed", reason: expect.stringMatching(/could not be recorded/) });
 	});
 
-	it("asks the container again when a KILL goes unanswered", async () => {
+	it("retries failed container KILL", async () => {
 		const clock = manualTimers();
 		const h = harness(clock);
 		h.runner.start(input({ target: CONTAINER_TARGET }));
-		const closeLatest = async (code: number) => {
-			await new Promise<void>((resolve) => setImmediate(resolve));
+		const answer = async (code: number) => {
+			await settle();
 			h.children.at(-1)?.emit("close", code);
+			await settle();
 		};
-		const cancelled = h.runner.cancel(cancelOf({ target: CONTAINER_TARGET }));
-		await closeLatest(0);
-		await cancelled;
+		await h.runner.cancel(cancelOf({ target: CONTAINER_TARGET }));
+		await answer(0);
 
-		clock.timers.shift()?.();
-		await closeLatest(125);
-		await new Promise<void>((resolve) => setImmediate(resolve));
-		clock.timers.shift()?.();
-		await closeLatest(0);
-		await new Promise<void>((resolve) => setImmediate(resolve));
+		clock.fire();
+		await answer(125);
+		await settle();
+		expect(h.sent[0]).toMatchObject({ outcome: "cancelled" });
+		clock.fire();
+		await answer(0);
 
 		const kills = h.launches.filter((launch) => launch.args.at(-1) === "KILL");
 		expect(kills).toHaveLength(2);
@@ -475,7 +507,16 @@ describe("Claude runner lifecycle", () => {
 
 		h.runner.stop();
 
-		expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+		expect(signals).toEqual(["SIGKILL"]);
+	});
+
+	it("reports missing container CLI", async () => {
+		const h = harness();
+		h.runner.start(input({ target: CONTAINER_TARGET }));
+		const run = h.children[0];
+		if (!run) throw new Error("missing fake child");
+		await finish(run, "", "timeout: failed to run command 'claude': No such file or directory", 127);
+		expect(h.sent[0]).toMatchObject({ outcome: "failed", reason: "binaryMissing" });
 	});
 
 	it("refuses a host turn when Claude is missing", () => {

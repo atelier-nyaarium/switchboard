@@ -206,6 +206,17 @@ describe("workflow steps through the federation harness", () => {
 		);
 	});
 
+	it("cancels Claude on stop", async () => {
+		h.host.handlers.onClaudeRun = () => ({ answer: "late", delayMs: 10_000 });
+		const run = startRun(`export const meta = {}; return await agent("long turn");`, { defaultBackend: "claude" });
+		await waitFor(() => (h.host.claudeRuns.length === 1 ? true : undefined), "Claude turn accepted");
+		const stopped = await session.post("/workflow/stop", { runId: run.runId });
+		expect(stopped.status).toBe(200);
+		await waitForStatus(run.runId, "cancelled");
+		await waitFor(() => (h.host.claudeCancels.length > 0 ? true : undefined), "Claude cancel");
+		expect(h.host.claudeCancels[0]).toMatchObject({ runId: run.runId, turnId: h.host.claudeRuns[0]?.turnId });
+	});
+
 	it("serves authenticated owner-scoped workflow start, collect, list and stop routes", async () => {
 		const operationId = randomUUID();
 		const body = { operationId, script: `export const meta = {}; return {ok: true};` };

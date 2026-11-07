@@ -378,6 +378,7 @@ describe("Claude workflow dispatch", () => {
 			reason: "cancelled",
 		});
 		terminal.dispatch.port.settled?.(callOf(1), { outcome: "interrupted", answer: null, reason: "cancelled" });
+		terminal.record.status = "cancelled";
 		terminal.dispatch.port.terminal?.(terminal.record, "cancelled");
 		await waitFor(() => terminal.calls.some((op) => op.kind === "claudeCancel"));
 		expect(terminal.calls.find((op) => op.kind === "claudeCancel")).toMatchObject({ runId });
@@ -431,6 +432,26 @@ describe("Claude workflow dispatch", () => {
 		await waitFor(() => cancels().length === 3);
 	});
 
+	it("retries cancellation until acknowledged", async () => {
+		const state = setup({
+			agentsFile: { kind: "read", text: "Instructions" },
+			cancelReplies: [{ ok: true, result: { cancelled: false } }],
+		});
+		const cancels = () => state.calls.filter((op) => op.kind === "claudeCancel");
+		state.dispatchCall(callOf(1));
+		await waitFor(() => state.calls.some((op) => op.kind === "claudeRun"));
+		state.record.status = "cancelled";
+		state.dispatch.port.terminal?.(state.record, "cancelled");
+		await waitFor(() => cancels().length === 1);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		state.dispatch.port.tick?.();
+		await waitFor(() => cancels().length === 2);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		state.dispatch.port.tick?.();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(cancels()).toHaveLength(2);
+	});
+
 	it("acks a result for a terminal run or an unknown turn without touching the journal", async () => {
 		const state = setup({ agentsFile: { kind: "read", text: "Instructions" } });
 		state.dispatchCall(callOf(1));
@@ -458,6 +479,8 @@ describe("Claude workflow dispatch", () => {
 			outcome: "interrupted",
 			reason: "runner lost: the host daemon restarted",
 		});
+		await waitFor(() => changed.calls.some((op) => op.kind === "claudeCancel"));
+		expect(changed.record.status).toBe("running");
 
 		const same = setup({ agentsFile: { kind: "read", text: "Instructions" } });
 		same.dispatchCall(callOf(1));
@@ -467,5 +490,24 @@ describe("Claude workflow dispatch", () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(same.outcomes).toHaveLength(0);
 		expect(same.calls.filter((op) => op.kind === "claudeRun")).toHaveLength(1);
+		expect(same.calls.some((op) => op.kind === "claudeCancel")).toBe(false);
+	});
+
+	it("marks Claude refusals unavailable", async () => {
+		const refused = setup({
+			agentsFile: { kind: "read", text: "Instructions" },
+			runReplies: [{ ok: false, error: "claudeRun unavailable" }],
+		});
+		refused.dispatchCall(callOf(1));
+		await waitFor(() => refused.outcomes.length === 1);
+		expect(refused.outcomes[0]?.outcome).toBe("unavailable");
+
+		const missing = setup({ agentsFile: { kind: "read", text: "Instructions" } });
+		missing.dispatchCall(callOf(1));
+		await waitFor(() => missing.calls.some((op) => op.kind === "claudeRun"));
+		await missing.dispatch.claudeTurnResult(
+			resultFor(latestTurn(missing.rows, 1), "failed", null, "binaryMissing"),
+		);
+		expect(missing.outcomes[0]?.outcome).toBe("unavailable");
 	});
 });

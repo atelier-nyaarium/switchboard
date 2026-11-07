@@ -24,7 +24,7 @@ export const WORKFLOW_INSTRUCTIONS = `
 
 Tools: \`workflowStart\`, \`workflowCollect\`, \`workflowList\` (find run ids), \`workflowStop\` (cancel). Scripts return JSON. \`parallel\`, \`pipeline\`, \`phase\`, \`log\`, \`args\`, and \`label\` follow Workflow. Steps use Codex, Copilot or \`claude -p\`. A backend without its CLI fails as \`unavailable\`.
 
-\`agent(prompt, options)\`: \`backend\` defaults to the run's backend; \`model\` id; \`effort\` (Copilot); \`tier\` (Codex); \`thread\` reuses an agent; \`skills\` paths prepend to the prompt; \`schema\` validates the answer. Start takes \`scriptPath\`, \`args\`, \`backend\`, \`resumeFrom\`.
+\`agent(prompt, options)\`: \`backend\` defaults to the run's backend; \`model\` id; \`effort\` (Copilot and Claude); \`tier\` (Codex); \`thread\` reuses an agent; \`skills\` paths prepend to the prompt; \`schema\` validates the answer. Start takes \`scriptPath\`, \`args\`, \`backend\`, \`resumeFrom\`.
 
 Schema dialect: every property required; \`additionalProperties: false\`; nullable via \`["string", "null"]\`. Failed steps return null; collect shows outcome and reason.
 

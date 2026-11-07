@@ -167,10 +167,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The VM owns every QuickJS handle:** `vm.ts` holds the module, runtime, context, deferreds and budgets; `engine.ts` hands it a script, args and host callbacks and reads back a result or a `WorkflowVmError` naming its budget. The compile check and a run share one bounded runtime. A dispose asked for inside a host call lands once the guest unwinds.
   - **Call options:** `callOptions.ts` validates backend options, joins thread settings and fingerprints replay calls. Replay fingerprints omit `label` and `phase`.
   - **A script's syntax is QuickJS's call, never a scanner's:** `script.ts` cuts only the `export const meta` statement; the validator in `vm.ts` compiles the exact wrapper with `compileOnly` inside the synchronous start section, on one module loaded at engine start, so no lexer guesses whether a `/` starts a regex.
-  - **Claude result ack follows settle:** duplicate results are acked after the settle row exists.
-  - **Claude turns use the live register:** the daemon id is read after project instructions.
-  - **A finished run's Claude cancels come from the journal:** every latest Claude turn of a terminal run with no settle or an interrupted one is cancelled, retried on each tick until the live daemon answers, and asked again of a new daemon instance, so a lost accept reply or a lost cancel still ends the turn. A result for a terminal run or an unknown turn is acked and dropped. Gateway close cancels nothing.
-  - **A cancel reaches a Claude run through its pidfile, never the client alone:** a container run starts under a `setsid` wrapper whose pidfile names the run's process group; the cancel signals that group inside the container, since killing the `docker exec` client leaves it running. A host run writes a pidfile too, so a restarted daemon can still stop an orphan. A signal goes only to a process whose environment carries `SWITCHBOARD_CLAUDE_TURN` for that turn, so a reused pid is never hit.
+  - **Claude results settle before ack:** duplicate, terminal and unknown results are acked without another settle.
+  - **Claude turn rows use the reread daemon id:** the Gateway reads liveness after project instructions.
+- `src/gateway/workflows/agentDispatch.ts` - Codex and Copilot dispatch
+- `src/gateway/workflows/claudeSteps.ts` - Claude turns and cancellation
+- `src/gateway/workflows/dispatchPrompt.ts` - prompts and project instructions
+- `src/gateway/workflows/dispatchCore.ts` - journal helpers and host failures
+- `src/gateway/workflows/agentViews.ts` / `agentFamilies.ts` / `terminalAgents.ts` - agent views, families and terminal cleanup
+  - **Cancel acknowledgements follow KILL attempts or no match:** the runner retries failed container commands; the Gateway retries unacknowledged requests each tick. Pidfiles identify container turns and host orphans; host processes must match the turn tag. Gateway close sends no cancel.
 - `src/gateway/routines/memory.ts` - what a routine remembers between runs, keyed by its incarnation
   - **The incarnation, not the id:** minted once and carried across edits, so memory survives a
     rename and dies with the routine. An id reused after a delete gets a new one, which is what stops

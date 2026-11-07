@@ -314,7 +314,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 				answer: null,
 				reason: status === "cancelled" ? "cancelled" : "workflow ended",
 			};
-			if (!appendSettle(run, call, outcome)) continue;
+			if (appendSettle(run, call, outcome) === "none") continue;
 			call.settled = true;
 			call.dispatched = false;
 			run.dispatchCount = Math.max(0, run.dispatchCount - 1);
@@ -368,7 +368,12 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		}
 	};
 
-	const appendSettle = (run: RunState, call: CallState, outcome: WorkflowDispatchOutcome): boolean => {
+	/** Which rows landed. */
+	const appendSettle = (
+		run: RunState,
+		call: CallState,
+		outcome: WorkflowDispatchOutcome,
+	): "none" | "settle" | "both" => {
 		const settleOrdinal = run.settleOrdinal + 1;
 		const row: WorkflowSettleRow = {
 			kind: "settle",
@@ -378,12 +383,12 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			answer: outcome.answer,
 			reason: outcome.reason,
 		};
-		if (!appendRow(run, row)) return false;
+		if (!appendRow(run, row)) return "none";
 		run.settleOrdinal = settleOrdinal;
 		// FIXME: named threads durable a month, per session until forgotten; a crash here loses the mapping.
 		const map = outcome.threadMap;
-		if (!map) return true;
-		// A thread switch journaled its row already.
+		if (!map) return "both";
+		// Map row may preexist.
 		const last = runner
 			.rows(run.record.runId)
 			.findLast((entry) => entry.kind === "thread_map" && entry.thread === map.thread);
@@ -392,8 +397,8 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			last.agentId === map.agentId &&
 			last.lastIssueOrdinal === map.lastIssueOrdinal
 		)
-			return true;
-		return appendRow(run, map);
+			return "both";
+		return appendRow(run, map) ? "both" : "settle";
 	};
 
 	const releaseCall = (run: RunState, call: CallState, outcome: WorkflowDispatchOutcome): void => {
@@ -452,13 +457,16 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 					? { outcome: "failed", answer: null, reason: "answer exceeds the limit" }
 					: { ...outcome, answer: null, reason: `${outcome.reason}; answer exceeds the limit` };
 		}
-		if (!appendSettle(run, call, outcome)) {
+		const landed = appendSettle(run, call, outcome);
+		if (landed !== "none") {
+			call.settled = true;
+			call.dispatched = false;
+			run.dispatchCount = Math.max(0, run.dispatchCount - 1);
+		}
+		if (landed !== "both") {
 			terminalize(run, "failed", null, "workflow journal settle failed");
 			return;
 		}
-		call.settled = true;
-		call.dispatched = false;
-		run.dispatchCount = Math.max(0, run.dispatchCount - 1);
 		if (call.issued.options.thread) {
 			const thread = run.threads.get(call.issued.options.thread);
 			if (thread) {
@@ -645,7 +653,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			}
 		}
 		const sourceIssue = issueRows(run.resumeSource.rows).get(issueOrdinal);
-		// A claude call's project instructions ride the same rows.
+		// Journal project instructions.
 		const skillPaths = new Set<string>([
 			...(sourceIssue?.options.skills ?? []),
 			...(sourceIssue?.resolvedBackend === "claude" ? PROJECT_INSTRUCTION_FILES : []),

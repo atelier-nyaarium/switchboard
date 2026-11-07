@@ -24,18 +24,20 @@ const MAX_RUNNING = 8;
 const MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 const STDERR_TAIL_CHARS = 2_000;
 const CANCEL_KILL_MS = 5_000;
-const ORPHAN_KILL_ATTEMPTS = 6;
+/** Pidfile retry window. */
+const STARTUP_RETRIES = 6;
+const MAX_KILL_FAILURES = 60;
+const KILL_EXEC_MS = 10_000;
+const ENDED_KEEP = 1024;
+const NOT_FOUND_EXIT = 127;
 
-/** Tags a run's environment with its turn. */
 const TURN_ENV = "SWITCHBOARD_CLAUDE_TURN";
 
-/** The wrapper's exit when its pidfile could not be written; it stopped the run first. */
+/** Pidfile failure exit. */
 const UNRECORDED_EXIT = 97;
 
 const UNRECORDED_REASON = "claude run could not be recorded for cancel, so it was stopped";
 
-// In the container, so a cancel can reach claude after the docker exec client is gone. setsid gives
-// the run its own process group, whose id the pidfile holds.
 const CONTAINER_WRAPPER = `
 pidfile=$1
 export ${TURN_ENV}="$2"
@@ -43,8 +45,9 @@ shift 2
 exec 3<&0
 if command -v setsid >/dev/null 2>&1; then setsid "$@" <&3 & else "$@" <&3 & fi
 child=$!
-if ! printf %s "$child" >"$pidfile"; then
+if ! { printf %s "$child" >"$pidfile.tmp" && mv -f "$pidfile.tmp" "$pidfile"; }; then
 	kill -s KILL -- "-$child" 2>/dev/null || kill -KILL "-$child" 2>/dev/null || kill -s KILL "$child" 2>/dev/null
+	rm -f "$pidfile.tmp"
 	wait "$child" 2>/dev/null
 	exit ${UNRECORDED_EXIT}
 fi
@@ -54,12 +57,12 @@ rm -f "$pidfile"
 exit "$status"
 `;
 
-// Signals only a process whose environment names this turn, so a reused pid is never hit.
+// Guard against reused pids.
 const CONTAINER_KILL = `
-pid=$(cat "$1" 2>/dev/null) || exit 3
-case "$pid" in ''|*[!0-9]*) exit 3;; esac
+pid=$(cat "$1" 2>/dev/null) || exit 4
+case "$pid" in ''|*[!0-9]*) exit 4;; esac
 tr '\\000' '\\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF -- "${TURN_ENV}=$2" || exit 3
-kill -s "$3" -- "-$pid" 2>/dev/null || kill -"$3" "-$pid" 2>/dev/null || kill -s "$3" "$pid" 2>/dev/null || exit 3
+kill -s "$3" -- "-$pid" 2>/dev/null || kill -"$3" "-$pid" 2>/dev/null || kill -s "$3" "$pid" 2>/dev/null || exit 5
 `;
 
 const containerName = (project: string) => `${project}_devcontainer-dev-1`;
@@ -119,8 +122,7 @@ export function argvFor(input: HostClaudeRunOp, env: Record<string, string | und
 	};
 }
 
-/** `docker exec` that signals a container run's group by its pidfile. */
-export function containerKillArgv(
+function containerKillArgv(
 	target: Extract<AgentExecutionTarget, { kind: "devcontainer" }>,
 	turnId: string,
 	signal: "TERM" | "KILL",
@@ -138,7 +140,17 @@ export function containerKillArgv(
 	];
 }
 
-type KillAnswer = "signaled" | "absent" | "failed";
+/** Missing or invalid pidfile. */
+type KillAnswer = "signaled" | "absent" | "unrecorded" | "failed";
+
+interface KillDebt {
+	target: AgentExecutionTarget;
+	turnId: string;
+	phase: "TERM" | "KILL";
+	failures: number;
+	waits: number;
+	timer?: ReturnType<typeof setTimeout>;
+}
 
 interface RunningTurn {
 	input: HostClaudeRunOp;
@@ -148,15 +160,14 @@ interface RunningTurn {
 	stdoutOverflow: boolean;
 	stderrTail: string;
 	cancelled: boolean;
-	/** Stopped by the runner itself; reported as a failure. */
+	/** Runner-stopped failure. */
 	stoppedBecause?: string;
 	settled: boolean;
-	killTimer?: ReturnType<typeof setTimeout>;
 }
 
 export interface ClaudeRunner {
 	start(input: HostClaudeRunOp): HostClaudeRunReply;
-	/** Reaches a run this daemon no longer tracks through its pidfile. */
+	/** Active and orphan cancellation. */
 	cancel(input: HostClaudeCancelOp): Promise<{ cancelled: boolean }>;
 	replay(): void;
 	acknowledge(input: { runId: string; turnId: string }): void;
@@ -173,9 +184,9 @@ export interface ClaudeRunnerDeps {
 	signalGroup?: (child: ChildProcess, signal: NodeJS.Signals) => void;
 	setTimer?: typeof setTimeout;
 	clearTimer?: typeof clearTimeout;
-	/** Host pidfiles; survives a daemon crash. */
+	/** Restart-safe host pidfiles. */
 	pidDir?: string;
-	/** A host process's environment, one `KEY=value` per entry, or null. */
+	/** Process environment entries. */
 	environOf?: (pid: number) => string[] | null;
 	killGroup?: (pid: number, signal: NodeJS.Signals) => boolean;
 }
@@ -259,6 +270,7 @@ function resultFrame(
 	if (input.target.kind === "devcontainer" && code === UNRECORDED_EXIT)
 		return frame("failed", null, UNRECORDED_REASON);
 	if (cancelled) return frame("cancelled", null, "cancelled");
+	if (input.target.kind === "devcontainer" && code === NOT_FOUND_EXIT) return frame("failed", null, "binaryMissing");
 	const parsed = jsonObjects(stdout).at(-1);
 	const result = parsed?.type === "result" ? parsed : undefined;
 	const outputText = textOutput(result?.result);
@@ -324,6 +336,8 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 	const killGroup = deps.killGroup ?? hostKillGroup;
 	const active = new Map<string, RunningTurn>();
 	const outbox = new Map<string, ClaudeTurnResultFrame>();
+	const debts = new Map<string, KillDebt>();
+	const ended = new Set<string>();
 
 	const hostPidfile = (turnId: string) => path.join(pidDir, `${turnId}.pid`);
 
@@ -344,7 +358,6 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 		} catch {}
 	}
 
-	/** `absent`: no matching run, or no container to hold one. `failed`: nobody could tell. */
 	function containerKill(
 		target: Extract<AgentExecutionTarget, { kind: "devcontainer" }>,
 		turnId: string,
@@ -367,9 +380,18 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 				stderr = (stderr + Buffer.from(chunk).toString("utf8")).slice(-STDERR_TAIL_CHARS);
 			});
 			child.stderr?.on("error", () => {});
-			child.once("error", () => resolve("failed"));
+			const hung = startTimer(() => {
+				child.kill("SIGKILL");
+				resolve("failed");
+			}, KILL_EXEC_MS);
+			child.once("error", () => {
+				stopTimer(hung);
+				resolve("failed");
+			});
 			child.once("close", (code) => {
+				stopTimer(hung);
 				if (code === 0) resolve("signaled");
+				else if (code === 4) resolve("unrecorded");
 				else if (code === 3 || /no such container|is not running/i.test(stderr)) resolve("absent");
 				else resolve("failed");
 			});
@@ -385,18 +407,12 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 		}
 		if (!Number.isInteger(pid) || pid <= 1) return "absent";
 		if (!environOf(pid)?.includes(`${TURN_ENV}=${turnId}`)) return "absent";
-		return killGroup(pid, signal) ? "signaled" : "absent";
-	}
-
-	function orphanKill(target: AgentExecutionTarget, turnId: string, signal: "TERM" | "KILL"): Promise<KillAnswer> {
-		if (target.kind === "devcontainer") return containerKill(target, turnId, signal);
-		return Promise.resolve(hostOrphanKill(turnId, `SIG${signal}`));
+		return killGroup(pid, signal) ? "signaled" : "failed";
 	}
 
 	function sendResult(turn: RunningTurn, code: number | null, signal: NodeJS.Signals | null): void {
 		if (turn.settled) return;
 		turn.settled = true;
-		if (turn.killTimer) stopTimer(turn.killTimer);
 		const key = turnKey(turn.input.runId, turn.input.turnId);
 		active.delete(key);
 		if (turn.input.target.kind === "host") removeHostPidfile(turn.input.turnId);
@@ -415,55 +431,82 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 		deps.send(frame);
 	}
 
-	/** A container run is signaled inside, where the client's death never reaches. */
-	function signal(turn: RunningTurn, value: "SIGTERM" | "SIGKILL"): Promise<KillAnswer> {
-		const { target, turnId } = turn.input;
-		if (target.kind === "host") {
-			signalGroup(turn.child, value);
-			return Promise.resolve("signaled");
+	async function killOnce(key: string, debt: KillDebt): Promise<KillAnswer> {
+		const turn = active.get(key);
+		const live = turn && !turn.settled ? turn : undefined;
+		if (debt.target.kind === "host") {
+			if (!live) return hostOrphanKill(debt.turnId, `SIG${debt.phase}`);
+			signalGroup(live.child, `SIG${debt.phase}`);
+			return "signaled";
 		}
-		if (value === "SIGKILL") turn.child.kill(value);
-		return containerKill(target, turnId, value === "SIGTERM" ? "TERM" : "KILL");
+		if (debt.phase === "KILL") live?.child.kill("SIGKILL");
+		return containerKill(debt.target, debt.turnId, debt.phase);
 	}
 
-	/** Asks again while the run lives and the kill went unanswered. */
-	function armKill(key: string, turn: RunningTurn): void {
-		if (turn.killTimer) return;
-		turn.killTimer = startTimer(() => {
-			turn.killTimer = undefined;
-			if (active.get(key) !== turn || turn.settled) return;
-			void signal(turn, "SIGKILL").then((answer) => {
-				if (answer === "failed" && active.get(key) === turn && !turn.settled) armKill(key, turn);
-			});
+	function finishDebt(key: string, debt: KillDebt, confirmed: boolean): void {
+		if (debts.get(key) !== debt) return;
+		debts.delete(key);
+		if (!confirmed) return;
+		const turn = active.get(key);
+		if (turn && !turn.settled) turn.child.kill("SIGKILL");
+		if (debt.target.kind === "host" && !turn) removeHostPidfile(debt.turnId);
+		ended.add(key);
+		if (ended.size > ENDED_KEEP) ended.delete(ended.values().next().value as string);
+	}
+
+	function scheduleDebt(key: string, debt: KillDebt): void {
+		debt.timer = startTimer(() => {
+			debt.timer = undefined;
+			void stepDebt(key, debt);
 		}, CANCEL_KILL_MS);
 	}
 
-	/** An orphan has no close event, so a failed kill is asked a bounded number of times. */
-	function orphanEscalate(target: AgentExecutionTarget, turnId: string, attemptsLeft: number): void {
-		startTimer(() => {
-			void orphanKill(target, turnId, "KILL").then((answer) => {
-				if (answer === "failed" && attemptsLeft > 1) orphanEscalate(target, turnId, attemptsLeft - 1);
-			});
-		}, CANCEL_KILL_MS);
+	async function stepDebt(key: string, debt: KillDebt): Promise<void> {
+		if (debts.get(key) !== debt) return;
+		const answer = await killOnce(key, debt);
+		if (debts.get(key) !== debt) return;
+		if (answer === "failed") {
+			debt.failures += 1;
+			if (debt.failures >= MAX_KILL_FAILURES) {
+				console.warn(`[claude] gave up cancelling turn ${debt.turnId}`);
+				finishDebt(key, debt, false);
+			} else scheduleDebt(key, debt);
+			return;
+		}
+		if (answer === "unrecorded" && debt.phase === "TERM" && debt.waits < STARTUP_RETRIES) {
+			debt.waits += 1;
+			scheduleDebt(key, debt);
+			return;
+		}
+		if (answer === "signaled" && debt.phase === "TERM") {
+			debt.phase = "KILL";
+			scheduleDebt(key, debt);
+			return;
+		}
+		finishDebt(key, debt, true);
 	}
 
+	/** Starts cancellation. */
 	async function cancel(raw: HostClaudeCancelOp): Promise<{ cancelled: boolean }> {
 		const checked = HostClaudeCancelOpSchema.safeParse(raw);
 		if (!checked.success) return { cancelled: false };
 		const input = checked.data;
 		const key = turnKey(input.runId, input.turnId);
+		if (ended.has(key)) return { cancelled: true };
 		const turn = active.get(key);
-		if (turn) {
-			turn.cancelled = true;
-			// A run whose pidfile is not written yet answers absent too; the Gateway asks again.
-			if ((await signal(turn, "SIGTERM")) !== "signaled") throw new Error("the claude run was not signaled");
-			armKill(key, turn);
-			return { cancelled: true };
-		}
-		const answer = await orphanKill(input.target, input.turnId, "TERM");
-		if (answer === "failed") throw new Error("the container did not answer the cancel");
-		if (answer === "signaled") orphanEscalate(input.target, input.turnId, ORPHAN_KILL_ATTEMPTS);
-		return { cancelled: answer === "signaled" };
+		if (turn) turn.cancelled = true;
+		else if (outbox.has(key)) return { cancelled: true };
+		if (debts.has(key)) return { cancelled: false };
+		const debt: KillDebt = {
+			target: turn?.input.target ?? input.target,
+			turnId: input.turnId,
+			phase: "TERM",
+			failures: 0,
+			waits: 0,
+		};
+		debts.set(key, debt);
+		void stepDebt(key, debt);
+		return { cancelled: false };
 	}
 
 	return {
@@ -506,7 +549,7 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 				settled: false,
 			};
 			active.set(key, turn);
-			// Without a pidfile a restarted daemon could never stop it.
+			// Restart cleanup needs pidfiles.
 			if (input.target.kind === "host" && !writeHostPidfile(input.turnId, child.pid)) {
 				turn.stoppedBecause = UNRECORDED_REASON;
 				signalGroup(child, "SIGKILL");
@@ -537,7 +580,6 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 					turn.settled = true;
 					active.delete(key);
 					if (input.target.kind === "host") removeHostPidfile(input.turnId);
-					if (turn.killTimer) stopTimer(turn.killTimer);
 					const frame = ClaudeTurnResultFrameSchema.parse({
 						type: "claude_turn_result",
 						runId: input.runId,
@@ -564,11 +606,17 @@ export function createClaudeRunner(deps: ClaudeRunnerDeps): ClaudeRunner {
 			if (ack.success) outbox.delete(turnKey(ack.data.runId, ack.data.turnId));
 		},
 		stop() {
-			for (const turn of active.values()) {
+			for (const debt of debts.values()) if (debt.timer) stopTimer(debt.timer);
+			debts.clear();
+			for (const [key, turn] of active) {
 				turn.cancelled = true;
-				void signal(turn, "SIGTERM");
-				void signal(turn, "SIGKILL");
-				if (turn.killTimer) stopTimer(turn.killTimer);
+				void killOnce(key, {
+					target: turn.input.target,
+					turnId: turn.input.turnId,
+					phase: "KILL",
+					failures: 0,
+					waits: 0,
+				});
 			}
 		},
 		activeCount: () => active.size,

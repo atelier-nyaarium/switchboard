@@ -647,6 +647,39 @@ return await parallel([() => first, () => second, () => third]);`;
 		runner.stop();
 	});
 
+	it("settles Claude once on map failure", async () => {
+		const { engine, runner } = await setup((call, settle) =>
+			settle({
+				outcome: "completed",
+				answer: "done",
+				reason: null,
+				threadMap: {
+					kind: "thread_map",
+					thread: "t",
+					backend: "claude",
+					agentId: "session-1",
+					target: "host",
+					lastIssueOrdinal: call.issueOrdinal,
+				},
+			}),
+		);
+		const append = runner.append.bind(runner);
+		vi.spyOn(runner, "append").mockImplementation((runId, row) => row.kind !== "thread_map" && append(runId, row));
+		const run = started(
+			engine.startRun(
+				input(
+					"map-lost",
+					`export const meta = {};\nreturn await agent("plain", { backend: "claude", thread: "t" });`,
+				),
+			),
+		);
+		await waitFor(() => runner.get(run.runId)?.status !== "running");
+		expect(runner.get(run.runId)?.status).toBe("failed");
+		expect(runner.rows(run.runId).filter((row) => row.kind === "settle")).toHaveLength(1);
+		engine.stop();
+		runner.stop();
+	});
+
 	it("rejects unknown agent options at the call", async () => {
 		let dispatches = 0;
 		const { engine, runner } = await setup(() => {

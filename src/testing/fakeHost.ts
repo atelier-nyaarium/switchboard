@@ -270,7 +270,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 					type: "host_op_reply",
 					reqId: frame.reqId,
 					ok: true,
-					result: { cancelled: timer !== undefined },
+					result: { cancelled: true },
 				});
 				return;
 			}

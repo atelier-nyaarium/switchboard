@@ -19,7 +19,7 @@ export const JsonObjectSchema = z.record(z.string(), JsonValueSchema);
 
 export const WorkflowBackendSchema = z.enum(["codex", "copilot", "claude"]);
 
-/** A claude step's project instructions, journaled as skill text under these paths. */
+/** Claude instruction paths. */
 export const PROJECT_INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
 export const WorkflowRunStatusSchema = z.enum(["running", "succeeded", "failed", "cancelled"]);
 export const WorkflowTerminalStatusSchema = z.enum(["succeeded", "failed", "cancelled"]);

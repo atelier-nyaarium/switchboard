@@ -182,10 +182,10 @@ const HostJsonValueSchema: z.ZodType<HostJsonValue> = z.lazy(() =>
 	]),
 );
 
-/** Names a pidfile, so filename-safe. */
+/** Filename-safe turn id. */
 const ClaudeTurnIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
-/** The project instructions, read under the skill cap. */
+/** Capped project instructions. */
 const APPEND_SYSTEM_PROMPT_MAX = 64 * 1024;
 
 export const HostClaudeRunOpSchema = z

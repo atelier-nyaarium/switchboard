@@ -17,10 +17,10 @@ The MCP tool takes exactly one of `script` and `scriptPath`, reading the path fr
 working directory. Retries reuse the invocation id. A Windows session has no agent execution target
 and cannot start a run.
 
-A script starts with `export const meta = <JSON literal>`; nothing else may `import` or `export`.
-The Gateway compiles the script with QuickJS before storing the run, so a syntax error is refused
-at start with its message. A start answers `not_ready` (retryable) for the first second or so after
-the Gateway boots, while the compiler loads.
+A script starts with `export const meta = <JSON literal>`. Static imports and exports in the body
+fail compilation. Dynamic imports have no module loader and fail when called. The Gateway compiles
+the script with QuickJS before storing the run, so a syntax error is refused at start with its
+message. A start answers retryable `not_ready` while QuickJS loads.
 
 ## Script API
 
@@ -34,34 +34,37 @@ script that throws fails the run with the error's message.
 
 ### Claude steps
 
-Claude steps run `claude -p`. `--safe-mode` disables project `CLAUDE.md`, skills, installed plugins,
-hooks, MCP servers, custom commands and agents. `--disable-slash-commands` disables skills and
-commands. Authentication, model selection and built-in tools remain available.
+Claude steps run `claude -p` with `--safe-mode` and `--disable-slash-commands`. Switchboard appends
+project instructions with `--append-system-prompt`.
 
 Each turn appends project `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is missing. A missing pair
-adds no project instructions. The same journaled text is used on resumed turns. The first turn uses
-`--session-id`; later turns use `--resume`. A `sessionMissing` result switches a thread to one fresh
-session once. Another missing-session result fails the step.
+adds no project instructions. The same journaled text is used on resumed turns. New sessions use
+`--session-id`; later thread and correction turns use `--resume`. A `sessionMissing` result switches
+a thread to one fresh session once. Another missing-session result fails the step.
 
 The daemon runs at most eight Claude turns at once. Further calls wait for a tick after `busy`. A
 daemon restart interrupts open turns with reason `runner lost: the host daemon restarted`.
 
-Ending a run cancels its open Claude turns: TERM to the turn's whole process group, then KILL after
-five seconds. A container turn is signaled inside the container through its pidfile. Gateway close
-cancels nothing.
+Ending a run cancels its open Claude turns. A daemon restart also cancels interrupted turns while the
+run continues. The runner sends TERM, then tries KILL five seconds later. It acknowledges after a
+KILL attempt or when no process matches. The Gateway retries unacknowledged cancels each tick.
+Container turns use pidfiles; host orphans must match the turn tag. Gateway close cancels nothing.
 
-`src/__tests__/claude-isolation.test.ts` checks the isolation against the real CLI. It makes a model
-call on your login, so it runs only with `SWITCHBOARD_CLAUDE_LIVE=1`.
+A missing CLI settles `unavailable`. An invalid target settles `failed`. `busy` waits for a tick.
+
+The real-CLI isolation test sends a model request. It runs only with `SWITCHBOARD_CLAUDE_LIVE=1`. It
+checks appended `AGENTS.md`, empty skills and MCP server lists, and no project hook.
 
 Schemas use a strict subset: every property is required, set `additionalProperties: false`, and use
 a type list such as `["string", "null"]` for nullable values. An answer gets two schema correction
 turns before an `invalid` outcome.
 
 Outcomes are `completed`, `invalid`, `failed`, `interrupted`, `lost`, `declined`, `rejected` and
-`unavailable`. Reasons are stored only on settle rows. Every ten minutes a running run sends one
-progress notice with interval activity counts, the latest script log, phase and step totals. Script
-text in a notice is collapsed to one line and escaped, so a log cannot forge a notice line. A settle
-notice names `workflowCollect`.
+`unavailable`. Step outcome reasons are stored on settle rows. Every ten minutes a running run sends
+one progress notice with interval activity counts, recent script logs, phase and step totals. It
+counts non-completed steps and names the newest outcome and reason. Script text in a notice is
+collapsed to one line and escaped, so a log cannot forge a notice line. A settle notice names
+`workflowCollect`.
 
 ## Limits and recovery
 

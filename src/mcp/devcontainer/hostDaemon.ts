@@ -155,7 +155,7 @@ function safeSend(payload: Record<string, unknown>): void {
 	}
 }
 
-/** Reap every supervised App Server. */
+/** Stop supervised agent processes. */
 export function stopSupervisedChildren(): void {
 	claudeRunner.stop();
 	for (const { service, targets } of AGENT_DAEMON_BINDINGS) {
