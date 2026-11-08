@@ -128,7 +128,7 @@ One rule for every long job: start or collect answers at once; a settle notice i
 - Tests to move: `workflow-runner.test.ts`, `federation-harness-workflows.test.ts` (expects a collected run to stay listed), `workflow-claude-dispatch.test.ts` and `workflow-engine.test.ts` (project instructions journaled and copied on resume), `agent-awareness.test.ts`, `federation-harness-codex.test.ts`, `copilot-route.test.ts`, `tool-description-budget.test.ts`.
 - New: delivered notice is not collection; collect before the next watch tick sends nothing; two quick turns collected together; a retried collect replays; restart keeps both bits; an old settled record sends no notice; a 138 KB `AGENTS.md` gets the prefix.
 
-## Phase 2 - Vault
+## Phase 2 - Vault ✅
 
 - `vault_run` answers at once with a `jobId`. The plugin's job does the waiting in the background: it long-polls `/vault/collect` for the owner's answer, starts the child on approval, and finishes capture before the job counts as settled. Approval, denial and expiry all settle the job.
 - A Gateway restart retracts open vault requests (the `vault-open-requests` ledger), so the background poll then reads the request as expired and the job settles refused, with its notice. The poll rides out the restart's connection errors rather than settling on them.
