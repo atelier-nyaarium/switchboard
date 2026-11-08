@@ -106,6 +106,7 @@ fun SessionsScreen(
 	onHostHelp: () -> Unit,
 	onOpen: (String) -> Unit,
 	onRename: (String, String) -> Unit,
+	onMarkRead: (String) -> Unit,
 	onForget: (String) -> Unit,
 	onSpawn: (String, String, String?, String?) -> Unit,
 	onListDirs: suspend (String, String, String) -> DirListing = { _, _, _ -> DirListing(emptyList()) },
@@ -131,6 +132,10 @@ fun SessionsScreen(
 			onRename = {
 				actionTeam = null
 				renameTeam = team
+			},
+			onMarkRead = {
+				actionTeam = null
+				onMarkRead(team.name)
 			},
 			onForget = {
 				actionTeam = null

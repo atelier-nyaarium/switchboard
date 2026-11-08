@@ -7,7 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-internal fun Target.isCloseTabTarget(): Boolean = this is Address
+internal fun Target.isCloseSessionTarget(): Boolean = this is Address
 
 ////////////////////////////////
 //  Threads, tabs and labels
@@ -128,7 +128,7 @@ fun ChatRepository.readUpTo(team: String, rowId: Long, at: Long) {
 	if (changed) repoScope.launch(Dispatchers.IO) { presence.reportLocalReadAdvances() }
 }
 
-/** Close a tab and its addressable session, keeping the resume record. */
+/** Close a tab; its session keeps running. */
 fun ChatRepository.closeTab(team: String) {
 	// Canonicalize before touching openTabs/closedTeams (matching openThread's own key), so a
 	// non-canonical spelling of an already-open team can't silently miss the removal and mute
@@ -140,8 +140,14 @@ fun ChatRepository.closeTab(team: String) {
 	// Stop speaking a thread the user just closed, but KEEP its cache: a close is reopenable and
 	// the audio was already paid for. Only `forget` deletes.
 	repoScope.launch { playback.dropQueuedFor(key) }
+}
+
+/** Close a tab and its addressable session, keeping the resume record. */
+fun ChatRepository.closeSession(team: String) {
+	fromCanonical(team) ?: return
+	closeTab(team)
 	val t = runIsolated { parseQualifiedTarget(team) }.getOrNull()
-	if (t?.isCloseTabTarget() == true) {
+	if (t?.isCloseSessionTarget() == true) {
 		drain.scope?.launch(Dispatchers.IO) {
 			runCatchingCancellable { client().closeSession(team) }
 				.onSuccess { drain.scope?.launch(Dispatchers.IO) { presence.refreshAfterAction() } }

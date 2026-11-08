@@ -574,6 +574,7 @@ fun SessionActionsDialog(
 	label: String,
 	canRename: Boolean,
 	onRename: () -> Unit,
+	onMarkRead: () -> Unit,
 	onForget: () -> Unit,
 	onDismiss: () -> Unit,
 ) {
@@ -582,6 +583,7 @@ fun SessionActionsDialog(
 		title = { Text(label, fontFamily = FontFamily.Monospace) },
 		text = {
 			Column {
+				TextButton(onClick = hapticClick(onMarkRead), modifier = Modifier.fillMaxWidth()) { Text("Mark all read") }
 				if (canRename) {
 					TextButton(onClick = hapticClick(onRename), modifier = Modifier.fillMaxWidth()) { Text("Rename") }
 				} else {

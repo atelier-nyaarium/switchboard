@@ -686,13 +686,13 @@ fun App(
 				onRevealed = { revealAt = null },
 				unreadBoundary = repo::unreadBoundary,
 				onGateway = { t -> arriveAt(t, Arrival.TAB, null) },
-				onCloseTab = { t ->
+				onCloseTab = { t, endSession ->
 						// Leave closing tab before renderer removal.
 					if (t == openTeam) {
 						val next = state.openTabs.firstOrNull { it != t }
 						nav = if (next == null) nav.leave() else nav.arrive(next, Arrival.CLOSED_TAB, factsFor(next))
 					}
-					repo.closeTab(t)
+					if (endSession) repo.closeSession(t) else repo.closeTab(t)
 				},
 				onSessions = { nav = nav.up(backFacts) },
 				onSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) },
@@ -886,6 +886,7 @@ fun App(
 						onHostHelp = { openOverlay(Overlay.HostHelp) },
 						onOpen = { team -> arriveAt(team, Arrival.OUTSIDE, null) },
 						onRename = { team, name -> repo.command { rename(team, name) } },
+						onMarkRead = { team -> repo.markRead(team) },
 						onForget = { team -> forgetSession.forget(team) },
 						// Spawn stays on board; next poll reveals session.
 						onSpawn = { target, label, workdir, harness ->

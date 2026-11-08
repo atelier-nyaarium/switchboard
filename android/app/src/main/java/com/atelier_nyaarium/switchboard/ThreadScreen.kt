@@ -128,7 +128,7 @@ internal fun ThreadScreen(
 	// caller whose own team resolves after an async round-trip can never credit the wrong thread.
 	unreadBoundary: (String) -> Pair<Long?, List<Long>>,
 	onGateway: (String) -> Unit,
-	onCloseTab: (String) -> Unit,
+	onCloseTab: (team: String, endSession: Boolean) -> Unit,
 	onSessions: () -> Unit,
 	onSettings: () -> Unit = {},
 	/** Inbox strip, by watcher id. */
@@ -387,7 +387,14 @@ internal fun ThreadScreen(
 							text = { Text("Close tab") },
 							onClick = hapticClick {
 								showMenu = false
-								onCloseTab(team)
+								onCloseTab(team, false)
+							},
+						)
+						DropdownMenuItem(
+							text = { Text("Close session") },
+							onClick = hapticClick {
+								showMenu = false
+								onCloseTab(team, true)
 							},
 						)
 						DropdownMenuItem(

@@ -55,7 +55,7 @@ class DefectRegressionTest {
 	@Test
 	fun qualifiedRemoteAddressIsAnEligibleCloseTarget() {
 		val target = com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget("domain-b.gateway-a.spawn.session")
-		assertTrue(target.isCloseTabTarget())
+		assertTrue(target.isCloseSessionTarget())
 	}
 
 	@Test
