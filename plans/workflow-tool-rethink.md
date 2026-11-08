@@ -88,7 +88,7 @@ One rule for every long job: start or collect answers at once; a settle notice i
 
 **Deploy:** each phase is Gateway first, then plugin release. No phase changes the host daemon. The new Gateway accepts the old empty list request.
 
-## Phase 1 - Workflows, agents, and the plugin's own notices
+## Phase 1 - Workflows, agents, and the plugin's own notices ✅
 
 ### Workflow runs
 
@@ -143,3 +143,9 @@ One rule for every long job: start or collect answers at once; a settle notice i
 - The baseline renders through one shared function for the Claude hook and the Copilot push.
 - Copilot's MCP instructions gain `BASELINE_RULE`, which only the Claude branch carries now.
 - Test: a Copilot compaction end delivers one baseline; a Claude session's does not.
+
+## Painpoints
+
+- **Codex and Copilot routes repeat collect and list:** `CodexRoute.collect` and `CopilotRoute.collect` each carry their own `turnView` and `agentTrouble`; a third backend copies both. Tracked on the board under the two-stacks item.
+- **Per-turn fields cost four schema variants per family:** the stored turn schemas are strict discriminated unions on `state`, so a per-turn mark would touch every variant twice. Marks live on the agent (`turnMarks`) instead.
+- **Audit reads went through the container's journal files:** until this ships, the running Gateway's `workflowList` overflows and its `claude` steps refuse this repo's `AGENTS.md`, so every audit result was pulled from the run's `journal.jsonl` under the Gateway's data directory.
