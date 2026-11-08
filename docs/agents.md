@@ -163,7 +163,8 @@ identity, so two quick completions stay two notices. A `recovering` agent may re
 `unavailable` ends one early. Local mode raises the same notices from the MCP process through
 `emitLocalAwareness`, and both render through `src/shared/agent-notice.ts`. A Claude session gets a
 channel event; a Copilot session gets the block typed into its pane through the serialized typed
-delivery.
+delivery, which rechecks a done notice when its turn comes and drops it once the agent's turns were
+collected.
 
 **A waiting call holds for less than the client survives**, bounded by `CODEX_WAIT_BUDGET_MS`. Node's
 fetch abandons a silent connection at 300s and `routerPost` re-posts, so a longer hold never delivers
