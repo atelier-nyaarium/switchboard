@@ -5,6 +5,8 @@ import {
 	isCompacting,
 	isLoggedOut,
 	limitNotice,
+	type PaneBackend,
+	restartPending,
 } from "../../shared/agent-screen.js";
 import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
 import { type DerivedPresence, sameDerived } from "../../shared/schemasPresence.js";
@@ -21,6 +23,8 @@ export interface WatchEntry {
 	team: string;
 	target: TmuxTarget;
 	cadenceMs: number;
+	/** Claude when absent. */
+	backend?: PaneBackend;
 }
 
 /** Peeks without the resize side effect. Injected to stay testable. */
@@ -98,6 +102,8 @@ export class PresenceScheduler {
 	private readonly onAutoDeny: (target: TmuxTarget, promptId: string) => void;
 	private readonly onLimitDialog: (target: TmuxTarget) => void;
 	private readonly onSurvey: (target: TmuxTarget) => void;
+	private readonly onRestartPending: (team: string, pending: boolean) => void;
+	private readonly restartShown = new Map<string, boolean>();
 	private readonly occurrences: PromptOccurrences;
 	private readonly now: () => number;
 	private readonly watches = new Map<string, WatchEntry>();
@@ -120,6 +126,8 @@ export class PresenceScheduler {
 		onLimitDialog?: (target: TmuxTarget) => void;
 		/** A frame shows Copilot's feedback box. */
 		onSurvey?: (target: TmuxTarget) => void;
+		/** Whether the pane waits on a restart to apply an update, told on each change. */
+		onRestartPending?: (team: string, pending: boolean) => void;
 		/** Shared with the answer, so both name a prompt alike. */
 		occurrences?: PromptOccurrences;
 		now?: () => number;
@@ -129,6 +137,7 @@ export class PresenceScheduler {
 		this.onAutoDeny = opts.onAutoDeny ?? (() => {});
 		this.onLimitDialog = opts.onLimitDialog ?? (() => {});
 		this.onSurvey = opts.onSurvey ?? (() => {});
+		this.onRestartPending = opts.onRestartPending ?? (() => {});
 		this.occurrences = opts.occurrences ?? new PromptOccurrences();
 		this.now = opts.now ?? (() => Date.now());
 	}
@@ -182,6 +191,7 @@ export class PresenceScheduler {
 		this.watchTokens.delete(team);
 		this.observedFrames.delete(team);
 		this.consecutiveFailures.delete(team);
+		this.restartShown.delete(team);
 		const tracker = this.trackers.get(team);
 		if (tracker) {
 			tracker.clear();
@@ -194,6 +204,8 @@ export class PresenceScheduler {
 	clearAll(): void {
 		for (const team of this.trackers.keys()) this.report(team, undefined);
 		for (const tracker of this.trackers.values()) tracker.clear();
+		// Re-told after a reconnect.
+		this.restartShown.clear();
 	}
 
 	private rescheduleTimer(entry: WatchEntry): Promise<void> {
@@ -229,6 +241,13 @@ export class PresenceScheduler {
 			if (!derived) return; // Logs derive no state.
 			if (peek.kind === "tmux" && limitContinueDigit(peek.ansi)) this.onLimitDialog(entry.target);
 			if (peek.kind === "tmux" && surveyShowing(peek.ansi)) this.onSurvey(entry.target);
+			if (peek.kind === "tmux") {
+				const pending = restartPending(entry.backend ?? "claude", peek.ansi);
+				if (this.restartShown.get(team) !== pending) {
+					this.restartShown.set(team, pending);
+					this.onRestartPending(team, pending);
+				}
+			}
 			const confirmed = tracker.observe(derived);
 			if (!confirmed) return;
 			this.report(team, this.withOverlay(team, confirmed));

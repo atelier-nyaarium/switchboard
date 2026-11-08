@@ -69,6 +69,9 @@ const WORKFLOW_WAIT_RE = new RegExp(`^${SPINNER}${SPACE}+Waiting for \\d+ [^\\n]
 const COMPACTING_RE = new RegExp(`^${SPINNER}${SPACE}+Compacting conversation`, "mu");
 // Tip and meter rows sit below it.
 const COMPACTING_LOOKBACK = 8;
+
+/** Claude's status-line notice once its auto-update installed. */
+const UPDATE_INSTALLED_RE = /Update installed/u;
 // Teammate row: dot, name, then more. Bare "● main" excluded.
 const TEAMMATE_ROW_RE = new RegExp(`^${SPACE}*[●◯]${SPACE}+[^ \\t\\u00a0]+${SPACE}+[^ \\t\\u00a0]`, "u");
 const TEAMMATE_IDLE_RE = new RegExp(`${SPACE}idle${SPACE}*$`, "u");
@@ -266,6 +269,20 @@ export function hasWorkflow(screen: string): boolean {
 /** The conversation is compacting. Twin: AgentScreen.isCompacting. */
 export function isCompacting(screen: string): boolean {
 	return paneHas(screen, COMPACTING_RE, "status", COMPACTING_LOOKBACK);
+}
+
+/** The session backends a pane can belong to. */
+export type PaneBackend = "claude" | "copilot";
+
+/** Per backend, whether its pane asks for a restart to apply an update; null until its line is known. */
+const RESTART_SIGNALS: Record<PaneBackend, ((screen: string) => boolean) | null> = {
+	claude: (screen) => paneHas(screen, UPDATE_INSTALLED_RE, "status"),
+	copilot: null,
+};
+
+/** The pane says an update is installed and waits on a restart. */
+export function restartPending(backend: PaneBackend, screen: string): boolean {
+	return RESTART_SIGNALS[backend]?.(screen) ?? false;
 }
 
 /**

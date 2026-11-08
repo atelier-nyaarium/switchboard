@@ -1,6 +1,8 @@
 // The whole gateway graph, one stage at a time.
 
+import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { hostSpawnPoint } from "../shared/host-spawn.js";
+import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
 import { composeAssistant } from "./compose/composeAssistant.js";
@@ -308,6 +310,19 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		},
 	});
 	const baseline = composeBaseline({ context, stores, sessions, routines, workflows, assistant });
+	const assistantRestart = createAssistantRestart({
+		relayToHost: host.relayToHost,
+		busy: () =>
+			routines.openRuns(ASSISTANT_TEAM).length > 0 ||
+			agents
+				.agentRoster()
+				.some(
+					(agent) =>
+						agent.ownerKey === ASSISTANT_TEAM && agent.turns.some((turn) => turn.state === "inProgress"),
+				),
+		ambient: bootstrap.ambient,
+	});
+	websockets.onRestartPending((team, pending) => assistantRestart.seen(team, pending));
 	websockets.onCopilotCompacted((team) => {
 		baseline
 			.baselineFor(team)
@@ -398,6 +413,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				await capture(() => bootstrap.ambient.clearInterval(persistence.persistTimer));
 				await capture(() => bootstrap.ambient.clearInterval(host.presenceWatchTimer));
 				await capture(() => bootstrap.ambient.clearInterval(awareness.awarenessTimer));
+				await capture(() => assistantRestart.stop());
 				await capture(() => bootstrap.ambient.clearInterval(websockets.wsHandlers.heartbeatInterval));
 				await capture(() => routes?.stop());
 				await capture(() => stores.jobs.stopCleanup());

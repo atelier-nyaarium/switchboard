@@ -45,6 +45,7 @@ export interface WebSocketsStage {
 	wsHandlers: ReturnType<typeof createWebSocketHandlers>;
 	workspacePlane: WorkspacePlane;
 	onCopilotCompacted: (listener: (team: string) => void) => void;
+	onRestartPending: (listener: (team: string, pending: boolean) => void) => void;
 }
 
 export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
@@ -52,6 +53,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 	const compacting = new Set<string>();
 	const isCopilot = (team: string) => sessions.sessionStore.getByTeam(team)?.harness === "copilot";
 	let compacted: ((team: string) => void) | undefined;
+	let restartPending: ((team: string, pending: boolean) => void) | undefined;
 	let hostRegisterPass: Promise<void> = Promise.resolve();
 	let hostFamilyPass: Promise<void> = Promise.resolve();
 	let hostRegisterSocket: object | undefined;
@@ -171,6 +173,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			else compacting.delete(team);
 			if (wasCompacting && !derived.compacting && isCopilot(team)) compacted?.(team);
 		},
+		onRestartPending: (team, pending) => restartPending?.(team, pending),
 		sessionStore: sessions.sessionStore,
 		auth: sessions.sessionAuthority,
 		presenceWriter: {
@@ -187,6 +190,9 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		workspacePlane,
 		onCopilotCompacted: (listener) => {
 			compacted = listener;
+		},
+		onRestartPending: (listener) => {
+			restartPending = listener;
 		},
 	};
 }

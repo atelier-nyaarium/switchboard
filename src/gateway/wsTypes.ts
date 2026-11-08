@@ -40,6 +40,8 @@ export interface WebSocketDeps {
 	onDeliveryAck?: (team: string, deliveryId: string) => void;
 	onCatalogChange?: (daemonInstanceId: string | undefined) => void;
 	onPresenceDerive?: (team: string, derived: DerivedPresence | undefined) => void;
+	/** A session's pane waits on a restart to apply an installed update. */
+	onRestartPending?: (team: string, pending: boolean) => void;
 	onVirtualPeerEvicted?: (conversationId: string) => void;
 	onDaemonCapabilities?: (capabilities: Capability[]) => void;
 	onCodexHostMessage?: (msg: Record<string, unknown>) => void;

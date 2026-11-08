@@ -44,6 +44,7 @@ export function createWebSocketHandlers({
 	onCopilotHostMessage,
 	onClaudeTurnResult,
 	onPresenceDerive,
+	onRestartPending,
 	sessionStore,
 	auth,
 	presenceWriter,
@@ -446,6 +447,15 @@ export function createWebSocketHandlers({
 				}
 				onCatalogChange?.(ws.data.daemonInstanceId);
 			}
+		}
+
+		if (
+			msg.type === "restart_pending" &&
+			ws.data.teamName === "host" &&
+			typeof msg.team === "string" &&
+			typeof msg.pending === "boolean"
+		) {
+			onRestartPending?.(msg.team, msg.pending);
 		}
 
 		if (msg.type === "presence_derive" && ws.data.teamName === "host" && typeof msg.team === "string") {

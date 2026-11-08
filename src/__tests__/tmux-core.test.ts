@@ -78,7 +78,7 @@ import {
 	sendText,
 	typeIntoPane,
 } from "../mcp/devcontainer/tmuxCore.js";
-import { isCompacting } from "../shared/agent-screen.js";
+import { isCompacting, restartPending } from "../shared/agent-screen.js";
 import type { TmuxTarget } from "../shared/host-op.js";
 import { DEFAULT_SESSION } from "../shared/session-id.js";
 
@@ -586,6 +586,15 @@ describe("tmuxCore isAgentWorking", () => {
 		expect(isCompacting(pane)).toBe(true);
 		expect(isCompacting(pane.replace("Compacting", "Composing"))).toBe(false);
 		expect(isCompacting(pane.replace(tip, `${tip}\n\n\n\n`))).toBe(false);
+	});
+
+	it("reads Claude's update-installed status line as a pending restart, and nothing for Copilot yet", () => {
+		const rule = "─".repeat(40);
+		const pane = `  new task? /clear to… · ✔ Update installed · /res…\n${rule}\n❯ \n${rule}\n  ⏵⏵ don't ask on`;
+		expect(restartPending("claude", pane)).toBe(true);
+		expect(restartPending("copilot", pane)).toBe(false);
+		// Typed in the composer, it is not the status line.
+		expect(restartPending("claude", `${rule}\n❯ Update installed\n${rule}`)).toBe(false);
 	});
 
 	it("reads a teammate below the toolbar as working until its row says idle", () => {

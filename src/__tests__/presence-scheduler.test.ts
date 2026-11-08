@@ -95,6 +95,35 @@ function makeScheduler(peekSequence: HostPeekResult[]) {
 	return { scheduler, reports, peek };
 }
 
+describe("PresenceScheduler restart signal", () => {
+	it("tells a pending restart once per change, per the session's backend", async () => {
+		const UPDATED = `  ✔ Update installed · /restart\n${RULE}\n❯ \n${RULE}\n  ⏵⏵ bypass permissions on`;
+		const frames = [tmuxFrame(IDLE, "a"), tmuxFrame(UPDATED, "b"), tmuxFrame(UPDATED, "c"), tmuxFrame(IDLE, "d")];
+		const told: Array<[string, boolean]> = [];
+		let i = 0;
+		const scheduler = new PresenceScheduler({
+			peek: async () => frames[Math.min(i++, frames.length - 1)]!,
+			report: () => undefined,
+			onRestartPending: (team, pending) => told.push([team, pending]),
+		});
+		await scheduler.setWatches([
+			{ team: "claude.main", target: T, cadenceMs: 60_000 },
+			{ team: "copilot.main", target: { ...T, sessionName: "other" }, cadenceMs: 60_000, backend: "copilot" },
+		]);
+		for (let tick = 0; tick < 3; tick += 1) await scheduler.tick("claude.main");
+		await scheduler.tick("copilot.main");
+		scheduler.stopWatching("claude.main");
+		scheduler.stopWatching("copilot.main");
+
+		expect(told.filter(([team]) => team === "claude.main")).toEqual([
+			["claude.main", false],
+			["claude.main", true],
+			["claude.main", false],
+		]);
+		expect(told.filter(([team, pending]) => team === "copilot.main" && pending)).toEqual([]);
+	});
+});
+
 describe("PresenceScheduler hysteresis", () => {
 	it("does not report on the first frame observing a new value - only on the second confirming peek", async () => {
 		const { scheduler, reports } = makeScheduler([tmuxFrame(IDLE, "h1")]);

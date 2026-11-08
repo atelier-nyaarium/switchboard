@@ -88,6 +88,13 @@ Router's record names. That Gateway feeds it events. The session decides what to
   - A session the assistant wrote to still answers through `/respond`.
 - **Its own tools:** the plugin registers them only in the assistant session. The Gateway serves
   their routes only to that session's token.
+- **An installed update brings it down:** the daemon's presence peeks read each pane through
+  `restartPending` in `src/shared/agent-screen.ts`, one reader per backend (Claude's
+  `Update installed` status line; Copilot's not yet known), and send a `restart_pending` frame on
+  each change. `createAssistantRestart` in `src/gateway/assistant/assistantRestart.ts` waits
+  `RESTART_GRACE_MS`, then types `/exit` through typed delivery, which refuses a working pane or a
+  filled composer, and holds off while a routine run or an agent turn is open. The next message,
+  event or check-in wakes it on the new build.
 
 ## Notes
 

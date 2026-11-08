@@ -303,10 +303,15 @@ function connect(): void {
 				if (typeof raw?.team !== "string" || typeof raw?.cadenceMs !== "number") continue;
 				const target = resolveWatchTarget(raw.team);
 				if (!target) continue;
-				entries.push({ team: raw.team, target, cadenceMs: raw.cadenceMs });
-				if (typeof raw.copilotSessionId === "string" && COPILOT_SESSION_RE.test(raw.copilotSessionId)) {
-					follows.push({ team: raw.team, copilotSessionId: raw.copilotSessionId });
-				}
+				const copilot =
+					typeof raw.copilotSessionId === "string" && COPILOT_SESSION_RE.test(raw.copilotSessionId);
+				entries.push({
+					team: raw.team,
+					target,
+					cadenceMs: raw.cadenceMs,
+					backend: copilot ? "copilot" : "claude",
+				});
+				if (copilot) follows.push({ team: raw.team, copilotSessionId: raw.copilotSessionId });
 			}
 			void presenceScheduler.setWatches(entries);
 			compactionFollower.setFollows(follows);
@@ -623,6 +628,7 @@ const presenceScheduler = new PresenceScheduler({
 			safeSend({ type: "presence_derive", team });
 		}
 	},
+	onRestartPending: (team, pending) => safeSend({ type: "restart_pending", team, pending }),
 	onLimitDialog: (target) => {
 		const key = paneKey(target);
 		const now = Date.now();
