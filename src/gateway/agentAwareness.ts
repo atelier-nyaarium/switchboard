@@ -28,6 +28,8 @@ export interface RosterAgent {
 	turns: readonly {
 		id: string;
 		state: string;
+		collected: boolean;
+		notified: boolean;
 		updatedAt: number;
 		notes: readonly string[];
 		progress?: AgentProgressCounts;
@@ -41,18 +43,33 @@ export interface AgentWatch {
 ////////////////////////////////
 //  Functions & Helpers
 
-/** Progress pushes on its own deadline, though it asks nothing. */
-export const agentAwarenessSubscriber: AwarenessSubscriber<AgentNotice> = {
-	source: AGENT_NOTICE_SOURCE,
-	act: (_sessionKey, _pre, post) => (post ? agentNoticeAct(post) : "no_act"),
-	push: (_sessionKey, _pre, post) => post?.kind === "progress",
-	render: (_sessionKey, changes) =>
-		changes.flatMap((change) => (change.post ? [agentNoticeLine(change.post)] : [])).join("\n\n"),
-};
+/** Pushes progress; marks completions. */
+export function createAgentAwarenessSubscriber(
+	markNotified: (sessionKey: string, family: AgentBackendId, agentId: string, turnId: string) => void,
+): AwarenessSubscriber<AgentNotice> {
+	return {
+		source: AGENT_NOTICE_SOURCE,
+		act: (_sessionKey, _pre, post) => (post ? agentNoticeAct(post) : "no_act"),
+		push: (_sessionKey, _pre, post) => post?.kind === "progress",
+		render: (_sessionKey, changes) =>
+			changes.flatMap((change) => (change.post ? [agentNoticeLine(change.post)] : [])).join("\n\n"),
+		delivered: (sessionKey, change) => {
+			if (change.post?.kind !== "done") return;
+			markNotified(sessionKey, change.post.family, change.post.agentId, turnOfIdentity(change.identity));
+		},
+	};
+}
+
+export function agentTurnIdentity(family: AgentBackendId, agentId: string, turnId: string): string {
+	return `${family}:${agentId}:${turnId}`;
+}
+
+function turnOfIdentity(identity: string): string {
+	return identity.split(":").slice(2).join(":");
+}
 
 /**
- * Tells each settled turn once, and each running turn every `everyMs`. A turn settled before the
- * watch began is history, so a restart announces only what settled since, the downtime included.
+ * Reports turn changes.
  */
 export function createAgentWatch(deps: {
 	roster: () => readonly RosterAgent[];
@@ -61,9 +78,7 @@ export function createAgentWatch(deps: {
 	everyMs?: number;
 }): AgentWatch {
 	const everyMs = deps.everyMs ?? AGENT_PROGRESS_EVERY_MS;
-	const told = new Set<string>();
 	const running = new Map<string, { since: number; lastNotice: number; lastCounts: AgentProgressCounts }>();
-	const began = deps.now();
 
 	return {
 		tick() {
@@ -75,15 +90,13 @@ export function createAgentWatch(deps: {
 				const lost = agent.agentState === "unavailable";
 				for (const turn of agent.turns) {
 					// Per turn, so two quick completions stay two notices.
-					const identity = `${agent.family}:${agent.agentId}:${turn.id}`;
+					const identity = agentTurnIdentity(agent.family, agent.agentId, turn.id);
 					const key = `${agent.ownerKey}\n${identity}`;
 					present.add(key);
 					const settled = turn.state !== "inProgress";
 					if (settled || lost) {
-						if (told.has(key)) continue;
-						told.add(key);
 						running.delete(key);
-						if (settled && turn.updatedAt < began) continue;
+						if (turn.notified || turn.collected) continue;
 						const outcome = settled ? turn.state : agent.agentState;
 						const post: AgentNotice = {
 							kind: "done",
@@ -115,7 +128,6 @@ export function createAgentWatch(deps: {
 					observations.push({ sessionKey: agent.ownerKey, identity, pre: undefined, post });
 				}
 			}
-			for (const key of told) if (!present.has(key)) told.delete(key);
 			for (const key of running.keys()) if (!present.has(key)) running.delete(key);
 			if (observations.length > 0) deps.observe(observations);
 		},

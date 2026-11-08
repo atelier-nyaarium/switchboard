@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { type AgentCatalog, AgentCatalogPersistence } from "../gateway/agentCatalogPersistence.js";
 import { AgentTransitionError } from "../gateway/agentRouteEnvelope.js";
+import { withTurnMarks } from "../shared/agent-turn-marks.js";
 import type { SessionRecord } from "../shared/session-store.js";
 
 interface TestAgent {
 	agentId: string;
-	agentState?: string;
+	agentState: string;
 	operations: Array<{ operationId: string; fingerprint: string; state: string }>;
-	turns: Array<{ state: string }>;
+	turns: Array<{ id: string; state: string }>;
+	turnMarks?: { collected: string[]; notified: string[] };
 }
 
 function agent(agentId: string, state = "requested"): TestAgent {
-	return { agentId, operations: [{ operationId: `op-${agentId}`, fingerprint: "f", state }], turns: [] };
+	return {
+		agentId,
+		agentState: "idle",
+		operations: [{ operationId: `op-${agentId}`, fingerprint: "f", state }],
+		turns: [],
+	};
 }
 
 type Write = "lands" | "conflicts" | "orphaned" | "throws";
@@ -108,7 +115,9 @@ describe("agent catalog persistence", () => {
 		expect(idle.persistence.retire(idle.owner, "idle")).toMatchObject({ retired: true });
 		expect(idle.persistence.find(idle.owner, "idle")).toBeUndefined();
 
-		const working = setup("lands", [{ ...agent("working", "accepted"), turns: [{ state: "inProgress" }] }]);
+		const working = setup("lands", [
+			{ ...agent("working", "accepted"), turns: [{ id: "t1", state: "inProgress" }] },
+		]);
 		expect(working.persistence.retire(working.owner, "working")).toEqual({ retired: false, reason: "active_turn" });
 		expect(working.persistence.find(working.owner, "working")).toBeDefined();
 
@@ -117,5 +126,41 @@ describe("agent catalog persistence", () => {
 			retired: false,
 			reason: "requested_operation",
 		});
+	});
+
+	it("collects every ended turn once, replays a repeated collect, and refuses a write it cannot land", () => {
+		const turns = [
+			{ id: "t1", state: "completed" },
+			{ id: "t2", state: "failed" },
+			{ id: "t3", state: "inProgress" },
+		];
+		const parse = (candidate: unknown) => candidate as TestAgent;
+		const held = setup("lands", [{ ...agent("a", "accepted"), turns }]);
+		expect(held.persistence.collect(held.owner, "a", "op-1", parse)?.turnIds).toEqual(["t1", "t2"]);
+		expect(held.persistence.collect(held.owner, "a", "op-1", parse)?.turnIds).toEqual(["t1", "t2"]);
+		expect(held.persistence.collect(held.owner, "a", "op-2", parse)?.turnIds).toEqual([]);
+		expect(held.persistence.collect(held.owner, "a", "op-1", parse)?.turnIds).toEqual(["t1", "t2"]);
+		expect(held.persistence.find(held.owner, "a")?.turnMarks).toMatchObject({
+			collected: ["t1", "t2"],
+			notified: ["t1", "t2"],
+		});
+		expect(held.persistence.collect(held.owner, "missing", "op-3", parse)).toBeUndefined();
+
+		const stuck = setup("conflicts", [{ ...agent("a", "accepted"), turns }]);
+		expect(() => stuck.persistence.collect(stuck.owner, "a", "op-1", parse)).toThrow(AgentTransitionError);
+		expect(stuck.persistence.markNotified(stuck.owner, "a", "t1", parse)).toBe(false);
+	});
+
+	it("restores an agent stored before marks with its ended turns collected and told, and keeps stored marks", () => {
+		const legacy = {
+			agentState: "idle",
+			turns: [
+				{ id: "t1", state: "completed" },
+				{ id: "t2", state: "inProgress" },
+			],
+		};
+		expect(withTurnMarks(legacy)).toMatchObject({ turnMarks: { collected: ["t1"], notified: ["t1"] } });
+		const marked = { ...legacy, turnMarks: { collected: [], notified: ["t1"] } };
+		expect(withTurnMarks(marked)).toBe(marked);
 	});
 });

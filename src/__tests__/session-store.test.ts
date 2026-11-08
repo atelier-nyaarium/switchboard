@@ -574,7 +574,9 @@ describe("SessionStore Copilot catalogs", () => {
 		const restoredOwner = restored.getByTeam(store.teamOf(owner));
 
 		expect(result).toMatchObject({ committed: true, catalog: { revision: 1, agents: [agent] } });
-		expect(restored.listCopilotAgents(restoredOwner!)).toEqual([agent]);
+		expect(restored.listCopilotAgents(restoredOwner!)).toEqual([
+			{ ...agent, turnMarks: { collected: [], notified: [] } },
+		]);
 	});
 
 	it("keeps a catalog unconfirmed when its snapshot landed without directory confirmation", () => {
@@ -611,7 +613,11 @@ describe("SessionStore Copilot catalogs", () => {
 		});
 
 		const owner = store.getByTeam("host.owner");
-		expect(store.copilotCatalog(owner!)).toEqual({ version: 1, revision: 7, agents: [healthy] });
+		expect(store.copilotCatalog(owner!)).toEqual({
+			version: 1,
+			revision: 7,
+			agents: [{ ...healthy, turnMarks: { collected: [], notified: [] } }],
+		});
 	});
 });
 

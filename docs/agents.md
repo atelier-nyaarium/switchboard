@@ -9,7 +9,7 @@ child per execution target; the gateway owns the durable record.
 `agentList` for both backends. `agentStart` takes `prompt` and optional `backend`, `model`, `effort`
 (Copilot), `tier` (Codex), `schema`, and `cwd`. `agentMessage` takes `agentId` and `prompt`, with
 optional `schema` and Codex-only `tier`. `agentCollect` and `agentStop` take `agentId`; `agentList`
-accepts optional `backend` and `agentId`, plus Codex-only `detail` and `limit`. Capability guidance uses
+accepts optional `backend`, `agentId` and `limit`. Capability guidance uses
 one `agents` section; the `codex-agent` and `copilot-agent` ids are unchanged.
 
 ## Workflow backends
@@ -140,18 +140,30 @@ and is never silently substituted.
 acknowledged, because this gateway could not build its record.
 
 **A start or message answers once the daemon takes the turn**, with `observation: "accepted"`, on both
-families and in local mode. Only `agentCollect` waits for a turn.
+families and in local mode. Nothing waits for a turn.
+
+**A collect answers at once.** It returns `{ agentId, agentState, running, turns }`: every ended turn
+not yet collected, oldest first, and the running turn's id. A turn a dead agent held reads `lost`. The
+collect is a catalog write (`AgentCatalogPersistence.collect`) marking those turns collected and told
+in `turnMarks` on the agent (`src/shared/agent-turn-marks.ts`), and it keeps the last eight
+non-empty collects' operation ids and turn ids as receipts, so a resent collect replays the same turns. A workflow's agent is refused, as message
+and stop refuse it. An agent stored before marks restores with its ended turns collected and told.
+
+**`agentList` shows busy and uncollected agents only**, as compact rows (`src/shared/agent-collect.ts`),
+newest first. Naming an `agentId` lists that agent whatever its turns.
 
 **The session hears about its turns as awareness.** `createAgentWatch` in `src/gateway/agentAwareness.ts`
-reads every agent of both families every 5 seconds. A turn that settles gets one `act_now` notice
-naming `agentCollect`. A running turn gets a `no_act` notice every 10 minutes with its newest notes;
+reads every agent of both families every 5 seconds. A turn that ends gets an `act_now` notice naming
+`agentCollect` until its stored `notified` mark is set, which delivery and a collect both do; a collect
+also withdraws the turn's notice from the bank. A running turn gets a `no_act` notice every 10 minutes with its newest notes;
 its subscriber's `push` makes the bank push it rather than wait for a message, so an idle session
-reads it and ends its turn. A turn settled before the watch began is history and is not announced, so
-a restart announces only what settled since, the downtime included. Each turn is its own awareness
+reads it and ends its turn.  The marks are stored, so a restart neither repeats a told turn nor drops an
+untold one. Each turn is its own awareness
 identity, so two quick completions stay two notices. A `recovering` agent may resume its turn, so only
 `unavailable` ends one early. Local mode raises the same notices from the MCP process through
-`emitLocalAwareness`, and both render through `src/shared/agent-notice.ts`. Only a Claude session
-receives them.
+`emitLocalAwareness`, and both render through `src/shared/agent-notice.ts`. A Claude session gets a
+channel event; a Copilot session gets the block typed into its pane through the serialized typed
+delivery.
 
 **A waiting call holds for less than the client survives**, bounded by `CODEX_WAIT_BUDGET_MS`. Node's
 fetch abandons a silent connection at 300s and `routerPost` re-posts, so a longer hold never delivers
@@ -169,9 +181,9 @@ the opt-in.
   `shared/agent-binary.ts` probes `PATH`.
 - **`AgentDispatch` hides the serving mode.** Local dispatch calls `LocalAgentBackend.handle` with
   the same body; local validation and result parsing reuse the gateway schemas.
-- **The list is projected per backend.** `projectCopilotListAgent` in `copilot-agent.ts` is the sole
-  owner of Copilot's strict field set. `CopilotListAgentSource` makes the wrong record a compile
-  error.
+- **The list and the collect share the Gateway's shapes.** `agentListAnswer`, `agentListRow` and
+  `collectAnswer` in `src/shared/agent-collect.ts` serve both families and local mode; local marks
+  live for the process.
 - **Child errors are normalized where stored.** `errorText` covers every `fail()` site and
   `applyTerminal`.
 - **A closed local child must be evicted.** `LocalBackendSession.onClosed` is identity-guarded so a

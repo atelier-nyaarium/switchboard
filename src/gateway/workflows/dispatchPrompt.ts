@@ -96,58 +96,30 @@ export function createWorkflowPrompt(
 			...(alreadyStored ? {} : { text }),
 		});
 	}
-	async function projectInstructions(
-		task: PendingCall,
-		target: AgentExecutionTarget,
-		replayed: boolean,
-	): Promise<{ text: string | null } | null> {
-		const stored = skillRows(task.issued.runId, deps.runner);
-		for (const file of PROJECT_INSTRUCTION_FILES) {
-			const text = stored.get(file);
-			if (text !== undefined) return { text };
-		}
-		if (replayed) {
-			return { text: null };
-		}
-
+	/** Project guidance for fresh sessions. */
+	async function projectLead(task: PendingCall, target: AgentExecutionTarget): Promise<string | null | undefined> {
 		for (const path of PROJECT_INSTRUCTION_FILES) {
 			let result: HostOpResult;
 			try {
 				result = await deps.relayToHost({ kind: "readSkill", target, path });
 			} catch (error) {
 				applyFailure(task, thrownHostFailure(error));
-				return null;
+				return undefined;
 			}
-			if (isStopped() || task.done) return null;
+			if (isStopped() || task.done) return undefined;
 			if (!result.ok) {
 				applyFailure(task, hostFailure(`project instructions ${path}`, result.error, result.errorKind));
-				return null;
+				return undefined;
 			}
 			const checked = HostReadSkillResultSchema.safeParse(result.result);
 			if (!checked.success) {
-				settle(task, { outcome: "failed", answer: null, reason: `project instructions: invalid host reply` });
-				return null;
+				settle(task, { outcome: "failed", answer: null, reason: "project instructions: invalid host reply" });
+				return undefined;
 			}
-			if (checked.data.kind === "refused") {
-				if (checked.data.code === "missing") continue;
-				settle(task, {
-					outcome: "rejected",
-					answer: null,
-					reason: `project instructions ${path}: ${checked.data.code}`,
-				});
-				return null;
-			}
-			if (!appendSkillText(task.issued.runId, path, checked.data.text)) {
-				settle(task, {
-					outcome: "failed",
-					answer: null,
-					reason: `project instructions ${path} could not be journaled`,
-				});
-				return null;
-			}
-			return { text: checked.data.text };
+			// Too large to read here, still readable by Claude.
+			if (checked.data.kind === "read" || checked.data.code === "too_large") return `Read ${path} first.`;
 		}
-		return { text: null };
+		return null;
 	}
-	return { composePrompt, appendSkillText, projectInstructions };
+	return { composePrompt, appendSkillText, projectLead };
 }

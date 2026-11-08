@@ -9,8 +9,8 @@ calls. Only JSON crosses the sandbox boundary.
 | Tool | Use |
 |---|---|
 | `workflowStart` | Start a run from `script` text or a `scriptPath`, with args, a default backend and optional `resumeFrom`. |
-| `workflowCollect` | Wait for a run and read its result, failure reason and step outcomes. |
-| `workflowList` | Find this session's runs after reconnect or restart. |
+| `workflowCollect` | Read a run at once: its result, failure reason and step outcomes; step answers when it has no result. |
+| `workflowList` | Running and uncollected runs: id, meta name, status, times, step counts. |
 | `workflowStop` | Cancel a running run. |
 
 The MCP tool takes exactly one of `script` and `scriptPath`, reading the path from the session's
@@ -27,8 +27,8 @@ message. A start answers retryable `not_ready` while QuickJS loads.
 `agent(prompt, options)` runs a Codex, Copilot or Claude step. Options are `backend`, `model`,
 `effort` (Copilot and Claude), `tier` (Codex), `thread`, `skills`, `schema`, `label` and `phase`.
 `thread` reuses an agent and queues calls for that thread. `parallel`, `pipeline`, `phase`, `log`,
-`args` and `label` follow Workflow semantics. A call's `phase` selects a declared phase; otherwise
-it uses the current phase. Checkups list the phases of running steps. Scripts return JSON. A failed
+`args` and `label` follow Workflow semantics. A call's `phase` names its group, declared in `meta.phases` or not;
+otherwise it uses the current phase. Checkups list the phases of running steps. Scripts return JSON. A failed
 step answers `null`; `workflowCollect` shows each step's outcome and reason from the journal. A
 script that throws fails the run with the error's message.
 
@@ -75,7 +75,7 @@ their durable storage.
 | `turn` | One dispatch attempt, including its target and backend identifiers. |
 | `settle` | The step outcome, answer and reason; may include `threadMap`. |
 | `thread_map` | The latest agent or Claude session for a named thread. |
-| `skill_text` | Project instructions or skill text needed for replay. |
+| `skill_text` | Skill text needed for replay. Older runs may hold project-instruction rows, which nothing reads. |
 
 A settled call carries its thread mapping on the `settle` row. A standalone `thread_map` row is
 written only when a Claude `sessionMissing` result switches a thread to a fresh session mid-step.
@@ -86,7 +86,7 @@ replay and `resumeFrom` recover the same thread.
 and run cleanup.
 `createClaudeSteps` in `src/gateway/workflows/claudeSteps.ts` owns Claude turns, result acknowledgements
 and journal-derived cancellation retries. `createWorkflowPrompt` in
-`src/gateway/workflows/dispatchPrompt.ts` reads skills and project instructions.
+`src/gateway/workflows/dispatchPrompt.ts` reads skills and finds the project instruction file.
 `src/gateway/workflows/dispatchCore.ts` exports turn, thread and host-failure helpers.
 `answerOutcome` and `failureOutcome` in `src/gateway/workflows/agentViews.ts` own shared outcome mapping.
 `createAgentFamilies` in `src/gateway/workflows/agentFamilies.ts` owns normalized Codex and Copilot
@@ -101,11 +101,9 @@ their owning sessions.
 
 ### Claude steps
 
-Claude steps run `claude -p` with `--safe-mode` and `--disable-slash-commands`. Switchboard appends
-project instructions with `--append-system-prompt`.
-
-Each turn appends project `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is missing. A missing pair
-adds no project instructions. The same journaled text is used on resumed turns. New sessions use
+Claude steps run `claude -p` with `--safe-mode` and `--disable-slash-commands`, which loads no project
+instructions. A fresh session's prompt opens with `Read AGENTS.md first.`, or the same for `CLAUDE.md`
+when `AGENTS.md` is missing; a missing pair adds nothing. New sessions use
 `--session-id`; later thread and correction turns use `--resume`. A `sessionMissing` result switches
 a thread to one fresh session once. Another missing-session result fails the step.
 
@@ -125,7 +123,7 @@ and unknown results are acknowledged without another settle.
 A missing CLI settles `unavailable`. An invalid target settles `failed`. `busy` waits for a tick.
 
 The real-CLI isolation test sends a model request. It runs only with `SWITCHBOARD_CLAUDE_LIVE=1`. It
-checks appended `AGENTS.md`, empty skills and MCP server lists, and no project hook.
+checks the read-first line reaches `AGENTS.md`, empty skills and MCP server lists, and no project hook.
 
 Schemas use a strict subset: every property is required, set `additionalProperties: false`, and use
 a type list such as `["string", "null"]` for nullable values. An answer gets two schema correction
@@ -145,5 +143,21 @@ concurrent dispatches. Scripts are capped at 256 KiB, args at 64 KiB, results at
 memory at 32 MiB. A live slice has a 200 ms wall guard; VM jobs are also bounded.
 
 `resumeFrom` replays the unchanged call prefix from a terminal run in the same session and stops at
-the first changed call. On Gateway restart, running runs replay from their journal. Use
-`workflowList` to find a run and `workflowCollect` to get its result after recovery.
+the first changed call. On Gateway restart, running runs replay from their journal.
+
+## Collect and list
+
+`workflowCollect` never waits. A running run answers its step outcomes; the settle notice is the
+wake. A settled run answers its `result`; a run with none (failed, cancelled, or a script returning
+nothing) answers each settled step's answer instead, within a 256 KiB budget across steps. A step
+with no settle row shows `pending`.
+
+Two durable bits on the run record: `collected`, set only by a collect returning a settled run, and
+`notified`, set by notice delivery, by a collect and by `forgetSession`. A collect also withdraws the
+run's banked notice (`AwarenessBank.withdraw`). A record from before `collected` restores with a
+settled run collected and told. `workflowList` lists running and uncollected runs only; collect by id
+works until the seven-day sweep.
+
+`claude` steps carry no project-instruction text. A fresh Claude session's prompt opens with `Read
+AGENTS.md first.` when the target has one, else the same for `CLAUDE.md`; presence is any host read
+answer but `missing`. The line is part of the journaled turn prompt; a resumed thread gets none.

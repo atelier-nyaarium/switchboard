@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentOutputSchemaSchema, agentFingerprintVerdict, agentTurnHistoryIssues } from "./agent-record.js";
+import { AgentTurnMarksSchema } from "./agent-turn-marks.js";
 import { CopilotStoredActivitiesSchema } from "./copilotAgentActivities.js";
 import {
 	CopilotAgentIdSchema,
@@ -111,6 +112,7 @@ export const CopilotPersistedAgentSchema = z
 		operations: z.array(CopilotStoredOperationSchema),
 		turns: z.array(CopilotStoredTurnSchema),
 		fence: CopilotReconciliationFenceSchema.optional(),
+		turnMarks: AgentTurnMarksSchema.optional(),
 		createdAt: z.number().int().nonnegative(),
 		updatedAt: z.number().int().nonnegative(),
 	})

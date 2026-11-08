@@ -101,6 +101,18 @@ async function flush(): Promise<void> {
 	for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();
 }
 
+async function collectUntilSettled(context: ReturnType<typeof setup>, agentId: string) {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		const response = await context.route.handle(post(context.token), { kind: "await", agentId });
+		const body = (await response.json()) as { turns?: unknown[]; error?: { code?: string } };
+		if (!Array.isArray(body.turns)) throw new Error(`collect for ${agentId} did not return turns`);
+		if (body.turns.length > 0) return body;
+		if (body.error) throw new Error(`collect for ${agentId} failed: ${body.error.code ?? "unknown error"}`);
+		await flush();
+	}
+	throw new Error(`Copilot turn did not settle for ${agentId} after 20 collects`);
+}
+
 function commandFor(context: ReturnType<typeof setup>, operationId: string): Record<string, unknown> {
 	const command = context.sent.find(
 		(message) => message.type === "copilot_command" && message.operationId === operationId,
@@ -163,7 +175,7 @@ async function terminal(
 }
 
 describe("Copilot gateway route", () => {
-	it("returns acceptance first and the terminal result through await", async () => {
+	it("returns acceptance first and collects the terminal result", async () => {
 		const context = setup();
 		const agentId = copilotAgentIdForOperation(START_OPERATION_ID);
 		const request = context.route.handle(post(context.token), {
@@ -173,6 +185,10 @@ describe("Copilot gateway route", () => {
 		});
 		await flush();
 		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		const runningCollect = await (
+			await context.route.handle(post(context.token), { kind: "await", agentId })
+		).json();
+		expect(runningCollect).toMatchObject({ agentId, agentState: "working", running: "turn-1", turns: [] });
 		context.relay.handleHostMessage({
 			type: "copilot_event",
 			kind: "activity",
@@ -192,10 +208,9 @@ describe("Copilot gateway route", () => {
 
 		const response = await request;
 		const acceptedBody = await response.json();
-		const terminalResponse = await context.route.handle(post(context.token), { kind: "await", agentId });
-		const body = await terminalResponse.json();
+		const body = await collectUntilSettled(context, agentId);
 		expect(response.status).toBe(200);
-		expect(() => CopilotAgentResultSchema.parse(body)).not.toThrow();
+		expect(body).toMatchObject({ agentId, agentState: "idle", running: null, turns: expect.any(Array) });
 		expect(acceptedBody).toMatchObject({
 			agentState: "working",
 			observation: "accepted",
@@ -204,12 +219,17 @@ describe("Copilot gateway route", () => {
 		});
 		expect(body).toMatchObject({
 			agentId,
-			observation: "terminal",
-			turn: { id: "turn-1", state: "completed" },
-			activities: [{ kind: "commentary", text: "Checking" }],
-			finalResponse: "Done.",
+			turns: [
+				{
+					id: "turn-1",
+					state: "completed",
+					activities: [{ kind: "commentary", text: "Checking" }],
+					finalResponse: "Done.",
+				},
+			],
 		});
-		expect(body.activities[0]).not.toHaveProperty("itemId");
+		expect(body.turns?.[0]).toMatchObject({ activities: [{ kind: "commentary", text: "Checking" }] });
+		expect(body.turns?.[0]).not.toHaveProperty("activities.0.itemId");
 	});
 
 	it("settles a turn when a restarted target cannot resume its session", async () => {
@@ -265,11 +285,11 @@ describe("Copilot gateway route", () => {
 		context.relay.handleHostMessage(receipts[0]!);
 		await flush();
 
-		const collected = await context.route.handle(post(context.token), { kind: "await", agentId });
-		expect(await collected.json()).toMatchObject({
+		const collected = await collectUntilSettled(context, agentId);
+		expect(collected).toMatchObject({
 			agentState: "idle",
-			observation: "terminal",
-			turn: { id: "turn-1", state: "interrupted", reason: "turn lost: its agent process ended" },
+			running: null,
+			turns: [{ id: "turn-1", state: "interrupted", reason: "turn lost: its agent process ended" }],
 		});
 	});
 
@@ -359,10 +379,10 @@ describe("Copilot gateway route", () => {
 		});
 
 		await terminal(context, agentId, "turn-1", 2);
-		const settled = await (await context.route.handle(post(context.token), { kind: "await", agentId })).json();
-		expect(settled).toMatchObject({ observation: "terminal", turn: { id: "turn-1", state: "completed" } });
-		const listed = await (await context.route.handle(post(context.token), { kind: "list" })).json();
-		expect(listed.agents[0].turns).toHaveLength(1);
+		const settled = await collectUntilSettled(context, agentId);
+		expect(settled.turns).toMatchObject([{ id: "turn-1", state: "completed" }]);
+		const listed = await (await context.route.handle(post(context.token), { kind: "list", agentId })).json();
+		expect(listed.agents[0]).toMatchObject({ running: false, uncollected: 0, turnCount: 1 });
 	});
 
 	it("answers a disconnected start without waiting out the budget", async () => {
@@ -464,8 +484,11 @@ describe("Copilot gateway route", () => {
 			turn: { id: "turn-2", state: "inProgress" },
 			delivery: "followup",
 		});
-		const awaited = await context.route.handle(post(context.token), { kind: "await", agentId });
-		expect(await awaited.json()).toMatchObject({ turn: { id: "turn-2", state: "completed" } });
+		const awaited = await collectUntilSettled(context, agentId);
+		expect(awaited.turns).toMatchObject([
+			{ id: "turn-1", state: "completed", finalResponse: "Done." },
+			{ id: "turn-2", state: "completed", finalResponse: "Continued." },
+		]);
 		expect(context.sent.filter((frame) => frame.kind === "reconcile")).toEqual([]);
 
 		context.relay.handleHostMessage({

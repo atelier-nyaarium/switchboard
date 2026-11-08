@@ -1,7 +1,8 @@
 // The Codex and Copilot catalogs, their host relays, and their HTTP routes.
 
-import { agentHttpPath } from "../../shared/agent-backend.js";
+import { type AgentBackendId, agentHttpPath } from "../../shared/agent-backend.js";
 import { type AgentProgressCounts, addAgentProgressCounts } from "../../shared/agent-counter.js";
+import { marksOf } from "../../shared/agent-turn-marks.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { RosterAgent } from "../agentAwareness.js";
 import { type CodexAgentCommands, createCodexAgentCommands } from "../codexAgentCommands.js";
@@ -27,6 +28,13 @@ export interface AgentsStageDeps {
 	ambient: Ambient;
 }
 
+export type TurnsCollected = (
+	ownerKey: string,
+	family: AgentBackendId,
+	agentId: string,
+	turnIds: readonly string[],
+) => void;
+
 export interface AgentsStage {
 	codexRelay: CodexRelay;
 	copilotRelay: CopilotRelay;
@@ -37,6 +45,10 @@ export interface AgentsStage {
 	/** Every agent of both families with its turns, for the awareness watch. */
 	agentRoster: () => RosterAgent[];
 	workflowProgress: (runId: string) => AgentProgressCounts;
+	/** False if marking fails. */
+	markTurnNotified: (ownerKey: string, family: AgentBackendId, agentId: string, turnId: string) => boolean;
+	/** Registers collection listeners. */
+	onTurnsCollected: (listener: TurnsCollected) => void;
 	createWorkflowDispatch: (runner: WorkflowRunner) => WorkflowAgentDispatch;
 }
 
@@ -92,17 +104,20 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		readLiveness: host.readLiveness,
 		ambient,
 	});
+	let collectedListener: TurnsCollected | undefined;
 	const codexRoute = new CodexRoute({
 		service: codexAgentService,
 		relay: codexRelay,
 		commands: codexCommands,
 		ambient,
+		onCollected: (ownerKey, agentId, turnIds) => collectedListener?.(ownerKey, "codex", agentId, turnIds),
 	});
 	const copilotRoute = new CopilotRoute({
 		service: copilotAgentService,
 		relay: copilotRelay,
 		commands: copilotCommands,
 		ambient,
+		onCollected: (ownerKey, agentId, turnIds) => collectedListener?.(ownerKey, "copilot", agentId, turnIds),
 	});
 
 	const agentRoutes = new Map<string, (req: Request, body: unknown) => Promise<Response>>([
@@ -128,6 +143,8 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 						turns: agent.turns.map((turn) => ({
 							id: turn.id,
 							state: turn.state,
+							collected: marksOf(agent).collected.includes(turn.id),
+							notified: marksOf(agent).notified.includes(turn.id),
 							updatedAt: turn.updatedAt,
 							notes: commentaryOf(turn.activities),
 							progress:
@@ -157,6 +174,16 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		agentRoutes,
 		agentRoster,
 		workflowProgress,
+		markTurnNotified: (ownerKey, family, agentId, turnId) => {
+			const owner = sessions.sessionStore.getByTeam(ownerKey);
+			if (!owner) return false;
+			return family === "codex"
+				? codexAgentService.markTurnNotified(owner, agentId, turnId)
+				: copilotAgentService.markTurnNotified(owner, agentId, turnId);
+		},
+		onTurnsCollected: (listener) => {
+			collectedListener = listener;
+		},
 		createWorkflowDispatch: (runner) =>
 			createWorkflowAgentDispatch({
 				sessionStore: sessions.sessionStore,

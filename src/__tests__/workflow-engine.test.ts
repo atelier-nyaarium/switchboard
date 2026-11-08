@@ -314,7 +314,7 @@ describe("workflow script engine", () => {
 		runner.stop();
 	});
 
-	it("puts a step in its own phase, else the current one, and refuses an undeclared phase", async () => {
+	it("puts a step in its own phase, else the current one, declared or not", async () => {
 		const calls: PendingCall[] = [];
 		const { engine, runner } = await setup((call, settle) => calls.push({ call, settle }));
 		const script = `export const meta = {phases: ["Build", "Verify"]};
@@ -333,19 +333,18 @@ return await parallel([() => first, () => second, () => third]);`;
 		const journaled = runner.rows(run.runId).flatMap((row) => (row.kind === "issue" ? [row.options.phase] : []));
 		expect(journaled).toEqual([undefined, "Build", "Verify"]);
 
-		const bad = started(
+		calls.length = 0;
+		const loose = started(
 			engine.startRun(
 				input(
-					"bad-phase",
-					'export const meta = {phases: ["Build"]}; return await agent("x", {phase: "Nope"});',
+					"loose-phase",
+					'export const meta = {}; phase("Scan"); return await agent("x", {phase: "Nope"});',
 				),
 			),
 		);
-		await waitFor(() => runner.get(bad.runId)?.status !== "running");
-		expect(runner.get(bad.runId)).toMatchObject({
-			status: "failed",
-			failureReason: "unknown workflow phase: Nope",
-		});
+		await waitFor(() => calls.length === 1);
+		expect(calls[0]?.call.options.phase).toBe("Nope");
+		expect(engine.phase(loose.runId)).toBe("Scan");
 		engine.stop();
 		runner.stop();
 	});
@@ -570,7 +569,7 @@ return await parallel([() => first, () => second, () => third]);`;
 		},
 	);
 
-	it("copies a claude call's project instructions into a resumed run", async () => {
+	it("leaves a legacy project-instruction row out of a resumed run", async () => {
 		let runnerRef: ReturnType<typeof createWorkflowRunner> | undefined;
 		const { engine, runner } = await setup((call, settle) => {
 			runnerRef?.append(call.runId, {
@@ -602,9 +601,7 @@ return await parallel([() => first, () => second, () => third]);`;
 		await waitFor(() => runner.get(resumed.runId)?.status !== "running");
 
 		expect(runner.get(resumed.runId)?.result).toBe("kept");
-		expect(runner.rows(resumed.runId)).toContainEqual(
-			expect.objectContaining({ kind: "skill_text", path: "AGENTS.md", text: "Project rules" }),
-		);
+		expect(runner.rows(resumed.runId).some((row) => row.kind === "skill_text")).toBe(false);
 		engine.stop();
 		runner.stop();
 	});

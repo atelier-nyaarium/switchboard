@@ -1,4 +1,5 @@
 import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
+import { AGENT_PROMPT_MAX_BYTES } from "../../shared/agent-record.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { ClaudeTurnResultFrame, HostOp, HostOpResult } from "../../shared/host-op.js";
 import {
@@ -13,6 +14,7 @@ import type { HostLivenessReader } from "../hostLiveness.js";
 import { answerOutcome, failureOutcome } from "./agentViews.js";
 import type { PendingCall } from "./dispatchCore.js";
 import {
+	byteLength,
 	type HostFailure,
 	hostFailure,
 	issueSettled,
@@ -43,16 +45,12 @@ interface ClaudeStepsContext {
 	settle: (task: PendingCall, outcome: WorkflowDispatchOutcome) => void;
 	attempt: (task: PendingCall) => Promise<void>;
 	composePrompt: (task: PendingCall, target: AgentExecutionTarget, fresh: boolean) => Promise<string | null>;
-	projectInstructions: (
-		task: PendingCall,
-		target: AgentExecutionTarget,
-		replayed: boolean,
-	) => Promise<{ text: string | null } | null>;
+	projectLead: (task: PendingCall, target: AgentExecutionTarget) => Promise<string | null | undefined>;
 }
 
 /** Owns Claude turn lifecycle. */
 export function createClaudeSteps(ctx: ClaudeStepsContext) {
-	const { deps, pending, isStopped, settle, attempt, composePrompt, projectInstructions } = ctx;
+	const { deps, pending, isStopped, settle, attempt, composePrompt, projectLead } = ctx;
 	const claudeWaiters = new Map<string, Set<{ resolve: () => void; reject: (error: Error) => void }>>();
 	const claudeFrames = new Map<string, ClaudeTurnResultFrame>();
 	const processingClaudeTurns = new Set<string>();
@@ -93,11 +91,23 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 		if ("waitFor" in failure) task.waitFor = failure.waitFor;
 		else settle(task, failure.outcome);
 	}
+	/** Adds project guidance to fresh sessions. */
+	async function leadPrompt(task: PendingCall, target: AgentExecutionTarget, fresh: boolean): Promise<string | null> {
+		const lead = fresh ? await projectLead(task, target) : null;
+		if (lead === undefined || task.done) return null;
+		const composed = await composePrompt(task, target, fresh);
+		if (composed === null || lead === null) return composed;
+		const prompt = `${lead}\n\n${composed}`;
+		if (byteLength(prompt) > AGENT_PROMPT_MAX_BYTES) {
+			settle(task, { outcome: "failed", answer: null, reason: "prompt plus skills exceeds the limit" });
+			return null;
+		}
+		return prompt;
+	}
 	async function postClaudeRun(
 		task: PendingCall,
 		turn: Extract<WorkflowJournalRow, { kind: "turn" }>,
 		resume: boolean,
-		appendSystemPrompt: string | null,
 	): Promise<void> {
 		const target = parseTarget(turn.target);
 		if (!target || !turn.agentId) {
@@ -127,7 +137,7 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 				sessionId: turn.agentId,
 				resume,
 				prompt: turn.prompt,
-				appendSystemPrompt,
+				appendSystemPrompt: null,
 				...(task.issued.options.model === undefined ? {} : { model: task.issued.options.model }),
 				...(task.issued.options.effort === undefined ? {} : { effort: task.issued.options.effort }),
 				...(task.issued.options.schema === undefined ? {} : { jsonSchema: task.issued.options.schema }),
@@ -197,9 +207,7 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 				settle(task, { outcome: "failed", answer: null, reason: "journaled Claude turn is invalid" });
 				return;
 			}
-			const project = await projectInstructions(task, target, true);
-			if (!project || task.done) return;
-			await postClaudeRun(task, previous, claudeResume(task, previous), project.text);
+			await postClaudeRun(task, previous, claudeResume(task, previous));
 			return;
 		}
 
@@ -217,8 +225,6 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 			task.waitFor = "catalog";
 			return;
 		}
-		const project = await projectInstructions(task, target, Boolean(previous || mapping));
-		if (!project || task.done) return;
 		const sessionId = switched ? mapping!.agentId : (previous?.agentId ?? mapping?.agentId ?? deps.ambient.newId());
 		const resume = switched ? false : correctionTurn || mapping !== undefined;
 		const fresh = !resume;
@@ -227,9 +233,8 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 				? await composePrompt(task, target, false)
 				: previous && !switched && !correctionTurn
 					? previous.prompt
-					: await composePrompt(task, target, fresh);
+					: await leadPrompt(task, target, fresh);
 		if (prompt === null || task.done) return;
-		if (typeof prompt !== "string") return;
 		const currentLive = deps.readLiveness();
 		if (!currentLive.socket || !currentLive.daemonInstanceId) {
 			task.waitFor = "catalog";
@@ -247,7 +252,7 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 			return;
 		}
 		task.prompt = prompt;
-		await postClaudeRun(task, turn, resume, project.text);
+		await postClaudeRun(task, turn, resume);
 	}
 	async function processClaudeResult(
 		task: PendingCall,

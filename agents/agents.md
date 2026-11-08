@@ -28,15 +28,16 @@ Spend what that saves on the collecting step.
   relearns the problem.
 - **Re-task, don't restart.** A thin or unsupported answer is a reason to push back on that same
   thread, naming what was missing. Ask the agent to retract any claim it cannot support.
-- **A collect waits about four minutes.** A longer turn is not lost: it keeps running, and a later
-  `agentCollect` picks it up.
-- **Threads outlive their caller.** Use `agentList` with `agentId` to inspect a thread. If something
-  dies, collect the existing work instead of repeating it.
+- **A collect never waits.** It hands back every ended turn not yet collected and names the running
+  one. Wait for the completion notice, then collect.
+- **Threads outlive their caller.** Keep the ids you will message again: an idle agent with every turn collected leaves
+  `agentList`, though `agentList` with `agentId` still finds it. If something dies, collect the
+  existing work instead of repeating it.
 
 `agentStart` takes `prompt`; optional fields are `backend`, `model`, `effort` (Copilot), `tier` (Codex),
 `schema`, and `cwd`. `agentMessage` takes `agentId` and `prompt`, with optional `schema` and Codex-only
-`tier`. `agentCollect` and `agentStop` take `agentId`. `agentList` accepts optional `backend` and
-`agentId`; `detail` and `limit` apply to Codex.
+`tier`. `agentCollect` and `agentStop` take `agentId`. `agentList` accepts optional `backend`,
+`agentId` and `limit`.
 
 ## Guardrails are yours to write
 

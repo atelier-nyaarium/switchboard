@@ -22,7 +22,7 @@ import {
 	codexOperationIdentity,
 } from "../shared/codex-agent.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
-import type { AgentCatalogRetirement } from "./agentCatalogPersistence.js";
+import type { AgentCatalogRetirement, AgentCollection } from "./agentCatalogPersistence.js";
 import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
 import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
 import { AgentTransitionError, validateTimestamp } from "./agentRouteEnvelope.js";
@@ -92,6 +92,22 @@ export class CodexAgentService {
 		return this.persistence.retire(owner, agentId);
 	}
 
+	collect(
+		owner: SessionRecord,
+		agentId: string,
+		operationId: string | undefined,
+	): AgentCollection<CodexPersistedAgent> | undefined {
+		return this.persistence.collect(owner, agentId, operationId, (candidate) =>
+			CodexPersistedAgentSchema.parse(candidate),
+		);
+	}
+
+	markTurnNotified(owner: SessionRecord, agentId: string, turnId: string): boolean {
+		return this.persistence.markNotified(owner, agentId, turnId, (candidate) =>
+			CodexPersistedAgentSchema.parse(candidate),
+		);
+	}
+
 	retagRunId(owner: SessionRecord, agentId: string, fromRunId: string, toRunId: string, at: number): boolean {
 		const current = this.persistence.find(owner, agentId);
 		if (
@@ -149,6 +165,7 @@ export class CodexAgentService {
 			...(input.runId === undefined ? {} : { runId: input.runId }),
 			agentState: "creating",
 			requestedTarget: target,
+			turnMarks: { collected: [], notified: [] },
 			...(input.serviceTier === undefined ? {} : { serviceTier: input.serviceTier }),
 			exchanges: [
 				{

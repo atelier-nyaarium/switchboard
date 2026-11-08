@@ -1,9 +1,10 @@
 // The awareness bank that rides changes out on the next channel push.
 
+import { AGENT_NOTICE_SOURCE } from "../../shared/agent-notice.js";
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import type { AwarenessObservation } from "../../shared/awareness-types.js";
 import type { BoardEntry } from "../../shared/console-protocol.js";
-import { agentAwarenessSubscriber, createAgentWatch } from "../agentAwareness.js";
+import { agentTurnIdentity, createAgentAwarenessSubscriber, createAgentWatch } from "../agentAwareness.js";
 import { type AwarenessBank, createAwarenessBank } from "../awarenessBank.js";
 import { boardAwarenessSubscriber } from "../boardAwareness.js";
 import {
@@ -22,7 +23,7 @@ import type { WorkflowsStage } from "./composeWorkflows.js";
 export interface AwarenessStageDeps {
 	sessions: Pick<SessionsStage, "registry" | "sessionStore" | "presence">;
 	host: Pick<HostStage, "wakeService">;
-	agents: Pick<AgentsStage, "agentRoster" | "workflowProgress">;
+	agents: Pick<AgentsStage, "agentRoster" | "workflowProgress" | "markTurnNotified" | "onTurnsCollected">;
 	workflows: Pick<WorkflowsStage, "runner" | "engine">;
 	ambient: Pick<Ambient, "now" | "randomBytes" | "setInterval">;
 	workflowProgressIntervalMs?: number;
@@ -76,8 +77,17 @@ export function composeAwareness({
 	});
 	const agentWatch = createAgentWatch({
 		roster: agents.agentRoster,
-		observe: awareness.register(agentAwarenessSubscriber),
+		observe: awareness.register(
+			createAgentAwarenessSubscriber((sessionKey, family, agentId, turnId) => {
+				agents.markTurnNotified(sessionKey, family, agentId, turnId);
+			}),
+		),
 		now: () => ambient.now(),
+	});
+	agents.onTurnsCollected((ownerKey, family, agentId, turnIds) => {
+		for (const turnId of turnIds) {
+			awareness.withdraw(ownerKey, AGENT_NOTICE_SOURCE, agentTurnIdentity(family, agentId, turnId));
+		}
 	});
 	const agentTeams = (): Set<string> =>
 		new Set(

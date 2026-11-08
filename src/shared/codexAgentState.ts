@@ -323,6 +323,7 @@ export const CodexStopAgentInputSchema = z.object({ agentId: CodexAgentIdSchema 
 export const CodexListAgentsInputSchema = z
 	.object({
 		agentId: CodexAgentIdSchema.optional(),
+		// Legacy field; ignored.
 		detail: z.enum(["summary", "full"]).optional(),
 		limit: z.number().int().positive().max(50).optional(),
 	})
@@ -331,7 +332,10 @@ export const CodexListAgentsInputSchema = z
 export const CodexGatewayRequestSchema = z.discriminatedUnion("kind", [
 	CodexStartAgentInputSchema.extend({ kind: z.literal("start"), operationId: OperationIdSchema }).strict(),
 	CodexMessageAgentInputSchema.extend({ kind: z.literal("message"), operationId: OperationIdSchema }).strict(),
-	CodexCollectAgentInputSchema.extend({ kind: z.literal("await") }).strict(),
+	CodexCollectAgentInputSchema.extend({
+		kind: z.literal("await"),
+		operationId: OperationIdSchema.optional(),
+	}).strict(),
 	CodexStopAgentInputSchema.extend({ kind: z.literal("stop"), operationId: OperationIdSchema }).strict(),
 	CodexListAgentsInputSchema.extend({ kind: z.literal("list") }).strict(),
 ]);

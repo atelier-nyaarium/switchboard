@@ -475,7 +475,7 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		settle,
 		attempt,
 		composePrompt,
-		projectInstructions: promptSteps.projectInstructions,
+		projectLead: promptSteps.projectLead,
 	});
 
 	const port: WorkflowDispatchPort = {

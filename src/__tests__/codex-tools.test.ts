@@ -6,11 +6,11 @@ import { codexRequestBody } from "../mcp/codex/codexTools.js";
 import { CodexRequestErrorSchema, sanitizeCodexErrorText } from "../shared/codex-agent.js";
 
 describe("Codex request identities", () => {
-	it("mints distinct ids for mutations and none for reads", () => {
+	it("mints distinct ids for every call but a list", () => {
 		const first = codexRequestBody("start", { prompt: "Audit" });
 		const second = codexRequestBody("start", { prompt: "Audit" });
 		expect(first.operationId).not.toBe(second.operationId);
-		expect(codexRequestBody("await", { agentId: "codex_0123456789abcdef0123456789abcdef" })).not.toHaveProperty(
+		expect(codexRequestBody("await", { agentId: "codex_0123456789abcdef0123456789abcdef" })).toHaveProperty(
 			"operationId",
 		);
 		expect(codexRequestBody("list")).not.toHaveProperty("operationId");

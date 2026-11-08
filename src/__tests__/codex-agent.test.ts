@@ -3,6 +3,7 @@ import { decideAcceptance } from "../gateway/codexAgentReducers.js";
 import { CodexAgentService } from "../gateway/codexAgentService.js";
 import { createSessionAuthority } from "../gateway/sessionAuthority.js";
 import { resolveLiveIncarnation, type TeamRegistry } from "../gateway/wsTypes.js";
+import { agentListAnswer, agentListRow } from "../shared/agent-collect.js";
 import { processAmbient } from "../shared/ambient.js";
 import {
 	CODEX_ACTIVITY_MAX_BYTES,
@@ -25,13 +26,10 @@ import {
 	CodexDaemonReceiptSchema,
 	CodexErrorTextSchema,
 	CodexGatewayRequestSchema,
-	CodexListAgentsResultSchema,
 	type CodexPersistedAgent,
 	CodexPersistedAgentSchema,
 	CodexStartAgentInputSchema,
 	codexOperationFingerprint,
-	projectCodexListAgent,
-	projectCodexListResult,
 	restoreCodexAgentCatalog,
 	sanitizeCodexErrorText,
 } from "../shared/codex-agent.js";
@@ -246,17 +244,17 @@ describe("Codex agent contracts", () => {
 		).toBe(true);
 	});
 
-	it("projects persisted state into bounded public list output", () => {
-		const first = requestedAgent();
+	it("lists busy and uncollected agents, newest first, within the limit", () => {
+		const starting = requestedAgent();
 		const second = requestedAgent("codex_abcdef0123456789abcdef0123456789", "223e4567-e89b-42d3-a456-426614174000");
-		const result = projectCodexListResult([first, second], undefined, { detail: "full", limit: 1 });
-		expect(result).toMatchObject({
-			detail: "full",
+		const done = { ...second, agentId: "codex_00000000000000000000000000000001", agentState: "idle" as const };
+		const row = (agent: typeof starting) => agentListRow(agent, "codex", {});
+		expect(agentListAnswer([starting, second, done], { limit: 1 }, row)).toMatchObject({
 			omitted: 1,
-			agents: [{ agentId: "codex_abcdef0123456789abcdef0123456789" }],
+			agents: [{ agentId: second.agentId, running: true, uncollected: 0 }],
 		});
-		expect(projectCodexListAgent(first)).not.toHaveProperty("operations");
-		expect(CodexListAgentsResultSchema.safeParse(result).success).toBe(true);
+		expect(agentListAnswer([done], {}, row).agents).toEqual([]);
+		expect(agentListAnswer([done], { agentId: done.agentId }, row).agents).toHaveLength(1);
 	});
 
 	it("restores valid catalog entries and drops malformed or ambiguous entries", () => {
@@ -274,7 +272,11 @@ describe("Codex agent contracts", () => {
 				{ ...duplicate, operations: [{ ...duplicate.operations[0]!, operationId: OPERATION_ID }] },
 			],
 		});
-		expect(restored).toEqual({ version: 1, revision: 7, agents: [valid] });
+		expect(restored).toEqual({
+			version: 1,
+			revision: 7,
+			agents: [{ ...valid, turnMarks: { collected: [], notified: [] } }],
+		});
 		expect(restoreCodexAgentCatalog({ version: 1, revision: Number.MAX_VALUE, agents: [valid] })).toBeUndefined();
 		expect(CodexAgentCatalogSchema.safeParse({ version: 1, revision: 0, agents: [valid] }).success).toBe(true);
 	});

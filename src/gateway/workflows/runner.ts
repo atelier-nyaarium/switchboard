@@ -47,6 +47,8 @@ export interface WorkflowRunner {
 		outcome?: { result?: JsonValue; failureReason?: string | null; notified?: boolean },
 	): boolean;
 	markNotified(runId: string): boolean;
+	/** Marks a settled run collected. */
+	markCollected(runId: string): boolean;
 	append(runId: string, row: WorkflowJournalRow): boolean;
 	get(runId: string): WorkflowRunRecord | null;
 	runs(): WorkflowRunRecord[];
@@ -96,6 +98,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 				result: null,
 				failureReason: null,
 				notified: false,
+				collected: false,
 				createdAt: ambient.now(),
 				settledAt: null,
 			};
@@ -135,6 +138,17 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 			if (!current || current.status === "running" || current.notified) return false;
 			try {
 				store.write({ ...current, notified: true });
+				return true;
+			} catch {
+				return false;
+			}
+		},
+		markCollected(runId) {
+			if (stopped) return false;
+			const current = store.get(runId);
+			if (!current || current.status === "running" || current.collected) return false;
+			try {
+				store.write({ ...current, collected: true, notified: true });
 				return true;
 			} catch {
 				return false;

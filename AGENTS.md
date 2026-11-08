@@ -761,6 +761,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/agentDispatch.ts` - agent tool serving seam
 - `src/mcp/agentRequest.ts` - both families' request kinds, operation ids, and posted answer
 - `src/mcp/agents/agentTools.ts` - one shared `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, and `agentList` tool set for both backends, with backend-specific options
+- `src/shared/agent-turn-marks.ts` / `agent-collect.ts` - which of an agent's turns were collected and told, kept on the agent; the list row and collect answer both families and local mode share
 - `src/mcp/codex/codexTools.ts` - Codex request bodies and per-invocation replay ids
 - `src/mcp/capabilities.ts` / `capabilitiesTool.ts` - capability gating and guidance
 - `src/federation-server/` - live self-hosted federation Router

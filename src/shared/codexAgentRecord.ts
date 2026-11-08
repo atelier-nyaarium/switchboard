@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { AgentOutputSchemaSchema, agentFingerprintVerdict, agentTurnHistoryIssues } from "./agent-record.js";
+import { AgentTurnMarksSchema } from "./agent-turn-marks.js";
 import { CodexStoredActivitiesSchema } from "./codexAgentActivities.js";
 import {
 	CodexAgentIdSchema,
@@ -311,6 +312,7 @@ export const CodexPersistedAgentSchema = z
 		turns: z.array(CodexStoredTurnSchema),
 		operations: z.array(CodexStoredOperationSchema),
 		fence: CodexReconciliationFenceSchema.optional(),
+		turnMarks: AgentTurnMarksSchema.optional(),
 		createdAt: z.number().int().nonnegative(),
 		updatedAt: z.number().int().nonnegative(),
 	})

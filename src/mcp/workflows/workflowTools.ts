@@ -28,8 +28,21 @@ agent(prompt, {
 Provide exactly one of \`script\` or \`scriptPath\`; paths are read from the session's working directory. Full reference: \`switchboard_capabilities\`.
 `.trim();
 
-export const WORKFLOW_COLLECT_DESCRIPTION = `Collect by runId; waits up to 240 seconds.`;
-export const WORKFLOW_LIST_DESCRIPTION = `List this session's workflows.`;
+export const WORKFLOW_COLLECT_DESCRIPTION = `
+# Collect Workflow
+
+Answers at once; a running run settles later with a notice naming this tool.
+
+- Running: step outcomes.
+- Settled: the script's \`result\`, or each step's answer when there is none.
+
+A collected run leaves \`workflowList\`. Collect by \`runId\` again for a week.
+`.trim();
+export const WORKFLOW_LIST_DESCRIPTION = `
+# List Workflows
+
+Running and uncollected runs, newest first: id, meta name, status, times, step counts. No results.
+`.trim();
 export const WORKFLOW_STOP_DESCRIPTION = `Cancel by runId.`;
 
 const StartInputSchema = z
@@ -42,14 +55,19 @@ const StartInputSchema = z
 	})
 	.strict();
 const RunInputSchema = z.object({ runId: z.string().min(1) }).strict();
-const EmptyInputSchema = z.object({}).strict();
+const ListInputSchema = z
+	.object({
+		limit: z.number().int().positive().max(50).optional().describe(`Maximum runs to return. Default 20.`),
+		status: z.enum(["running", "succeeded", "failed", "cancelled"]).optional(),
+	})
+	.strict();
 
 // biome-ignore lint/suspicious/noExplicitAny: MCP SDK schema compatibility
 const startInputSchema: any = StartInputSchema;
 // biome-ignore lint/suspicious/noExplicitAny: MCP SDK schema compatibility
 const runInputSchema: any = RunInputSchema;
 // biome-ignore lint/suspicious/noExplicitAny: MCP SDK schema compatibility
-const emptyInputSchema: any = EmptyInputSchema;
+const listInputSchema: any = ListInputSchema;
 
 type ToolAnswer = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
@@ -109,8 +127,8 @@ export function registerWorkflowTools(mcpServer: McpServer): void {
 	);
 	mcpServer.registerTool(
 		"workflowList",
-		{ title: "List Workflows", description: WORKFLOW_LIST_DESCRIPTION, inputSchema: emptyInputSchema },
-		async () => post("/workflow/list", {}),
+		{ title: "List Workflows", description: WORKFLOW_LIST_DESCRIPTION, inputSchema: listInputSchema },
+		async (args: { limit?: number; status?: string }) => post("/workflow/list", args),
 	);
 	mcpServer.registerTool(
 		"workflowStop",

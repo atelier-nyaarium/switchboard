@@ -22,13 +22,13 @@ export const COPILOT_AGENT_CAPABILITY_ID = agentCapabilityId("copilot");
 export const WORKFLOW_INSTRUCTIONS = `
 # Workflow
 
-Tools: \`workflowStart\`, \`workflowCollect\`, \`workflowList\` (find run ids), \`workflowStop\` (cancel). Scripts start with \`export const meta = {...}\` and return JSON. \`parallel\`, \`pipeline\`, \`phase\`, \`log\`, \`args\`, and \`label\` follow Workflow. Steps use Codex, Copilot or \`claude -p\`. A backend without its CLI fails as \`unavailable\`.
+Tools: \`workflowStart\`, \`workflowCollect\` (never waits), \`workflowList\` (uncollected runs), \`workflowStop\`. Scripts start with \`export const meta = {...}\` and return JSON. Script helpers follow Workflow. Steps use Codex, Copilot or \`claude -p\`; one without its CLI is \`unavailable\`.
 
-\`agent(prompt, options)\`: \`backend\` defaults to the run's backend; \`model\` id; \`effort\` (Copilot and Claude); \`tier\` (Codex); \`thread\` reuses an agent; \`skills\` paths prepend to the prompt; \`schema\` validates the answer. Start takes \`scriptPath\`, \`args\`, \`backend\`, \`resumeFrom\`.
+\`agent(prompt, options)\`: \`backend\` defaults to the run's; \`model\` id; \`effort\` (Copilot, Claude); \`tier\` (Codex); \`thread\` reuses an agent; \`skills\` paths prepend to the prompt; \`schema\` validates the answer. Start takes \`scriptPath\`, \`args\`, \`backend\`, \`resumeFrom\`.
 
-Schema dialect: every property required; \`additionalProperties: false\`; nullable via \`["string", "null"]\`. Failed steps return null; collect shows outcome and reason.
+Schema dialect: every property required; \`additionalProperties: false\`; nullable via \`["string", "null"]\`. Failed steps return null. Collect shows each step's outcome, and its answer when the run has no result.
 
-Outcomes: completed, invalid, failed, interrupted, lost, declined, rejected, unavailable. Checkups every 10 minutes. Caps: 4 runs per session, 8 concurrent dispatches, 200 calls per run. Runs and journals survive Gateway restarts.
+Outcomes: completed, invalid, failed, interrupted, lost, declined, rejected, unavailable. Checkups every 10 minutes. Caps: 4 runs per session, 8 concurrent dispatches, 200 calls per run. Runs survive Gateway restarts.
 `.trim();
 
 // Served by capabilityGuidance.
@@ -39,7 +39,7 @@ Delegate a self-contained task with \`agentStart\`.
 
 Tools: \`agentStart\`, \`agentMessage\`, \`agentCollect\`, \`agentStop\`, and \`agentList\`.
 
-\`agentStart.backend\` selects an enabled backend and defaults to the first enabled one. \`agentMessage\`, \`agentCollect\`, and \`agentStop\` infer it from \`agentId\`. \`agentList\` accepts optional \`backend\` and \`agentId\`; \`detail\` and \`limit\` apply to Codex.
+\`agentStart.backend\` selects an enabled backend and defaults to the first enabled one. \`agentMessage\`, \`agentCollect\`, and \`agentStop\` infer it from \`agentId\`. \`agentCollect\` answers at once with every ended turn not yet collected; a notice wakes you when a running one ends. \`agentList\` shows busy and uncollected agents and accepts optional \`backend\`, \`agentId\` and \`limit\`.
 
 \`agentStart\` accepts \`model\`, \`cwd\`, and \`schema\`, plus Copilot-only \`effort\` or Codex-only \`tier\`. \`agentMessage\` accepts \`schema\` and Codex-only \`tier\`.
 
@@ -74,7 +74,7 @@ Fan Out ► Join Style
 
 ## Recovery
 
-Agents belong to the whole Claude Code session. A terminal result means finished. \`agent_dead\` means the agent cannot run. \`agent_unreachable\` means its process may still be running, so do not duplicate the work. If a Workflow caller dies, \`agentList\` returns a summary; pass \`agentId\` for one agent's full history.
+Agents belong to the whole Claude Code session. A terminal result means finished. \`agent_dead\` means the agent cannot run. \`agent_unreachable\` means its process may still be running, so do not duplicate the work. Keep the ids of agents you will message again: an idle agent with every turn collected leaves \`agentList\`, though \`agentId\` still finds it. A workflow step's agent is read through \`workflowCollect\`.
 `.trim();
 
 export const CODEX_AGENT_INSTRUCTIONS = `

@@ -25,7 +25,7 @@ function parseJsonLines(value: string): Record<string, unknown>[] {
 const LIVE = process.env.SWITCHBOARD_CLAUDE_LIVE === "1" && isBinaryOnPath("claude");
 
 describe.skipIf(!LIVE)("Claude workflow isolation", () => {
-	it("uses appended AGENTS.md without project hooks, plugins or MCP servers", async () => {
+	it("reads AGENTS.md when told to, without project hooks, plugins or MCP servers", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "switchboard-claude-isolation-"));
 		const project = path.join(root, "project");
 		const marker = path.join(root, "hook-ran");
@@ -84,8 +84,8 @@ describe.skipIf(!LIVE)("Claude workflow isolation", () => {
 				turnId: "isolation-turn",
 				sessionId: randomUUID(),
 				resume: false,
-				prompt: "Reply with the canary word from your instructions and nothing else.",
-				appendSystemPrompt: fs.readFileSync(path.join(project, "AGENTS.md"), "utf8"),
+				prompt: "Read AGENTS.md first.\n\nReply with the canary word from your instructions and nothing else.",
+				appendSystemPrompt: null,
 				jsonSchema: {
 					type: "object",
 					properties: { canary: { type: "string" } },

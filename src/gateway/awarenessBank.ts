@@ -22,6 +22,8 @@ export interface AwarenessBank {
 	/** Null while another carrier holds the session's bank. */
 	prepareFor(sessionKey: string): AwarenessLease | null;
 	dropFor(sessionKey: string): void;
+	/** Cannot retract prepared carriers. */
+	withdraw(sessionKey: string, source: string, identity: string): void;
 	tick(now?: number): void;
 	stop(): void;
 }
@@ -119,6 +121,16 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 		sessions.delete(sessionKey);
 	}
 
+	function rearm(sessionKey: string, bank: SessionBank): void {
+		const due = [...bank.entries.values()].some((entry) =>
+			[...entry.changes.values()].some((change) => isDue(sessionKey, entry, change)),
+		);
+		if (!due) {
+			bank.heldSince = undefined;
+			bank.dueAt = undefined;
+		}
+	}
+
 	/** Removes what a carrier held. A change observed since keeps its delta from what was delivered. */
 	function settle(sessionKey: string, bank: SessionBank, carried: Map<Entry, Map<string, Change<unknown>>>): void {
 		bank.leased = false;
@@ -135,13 +147,7 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 			sessions.delete(sessionKey);
 			return;
 		}
-		const due = [...bank.entries.values()].some((entry) =>
-			[...entry.changes.values()].some((change) => isDue(sessionKey, entry, change)),
-		);
-		if (!due) {
-			bank.heldSince = undefined;
-			bank.dueAt = undefined;
-		}
+		rearm(sessionKey, bank);
 	}
 
 	function prepareFor(sessionKey: string): AwarenessLease | null {
@@ -248,6 +254,15 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 		prepareFor,
 		dropFor(sessionKey) {
 			sessions.delete(sessionKey);
+		},
+		withdraw(sessionKey, source, identity) {
+			const bank = sessions.get(sessionKey);
+			const entry = bank?.entries.get(source);
+			if (!bank || !entry?.changes.delete(identity)) return;
+			if (entry.changes.size === 0) bank.entries.delete(source);
+			if (bank.leased) return;
+			if (bank.entries.size === 0) sessions.delete(sessionKey);
+			else rearm(sessionKey, bank);
 		},
 		tick(now = clock()) {
 			for (const [sessionKey, bank] of [...sessions]) {

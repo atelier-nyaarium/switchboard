@@ -14,10 +14,9 @@ type ToolText = { content: Array<{ type: "text"; text: string }>; isError?: bool
 ////////////////////////////////
 //  Functions & Helpers
 
-/** One id per tool call, never chosen by Claude. */
+/** Mints replayable operation IDs. */
 export function requestHead(kind: AgentRequestKind): { kind: AgentRequestKind; operationId?: string } {
-	const mutating = kind === "start" || kind === "message" || kind === "stop";
-	return { kind, ...(mutating ? { operationId: crypto.randomUUID() } : {}) };
+	return { kind, ...(kind === "list" ? {} : { operationId: crypto.randomUUID() }) };
 }
 
 export function postAgentRequest(

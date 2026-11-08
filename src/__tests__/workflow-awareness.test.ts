@@ -18,6 +18,7 @@ const record: WorkflowRunRecord = {
 	result: null,
 	failureReason: null,
 	notified: false,
+	collected: false,
 	createdAt: 0,
 	settledAt: null,
 };

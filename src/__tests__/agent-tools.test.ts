@@ -57,20 +57,23 @@ describe("one agent tool set", () => {
 		expect(toolNames(one).sort()).toEqual(["agentCollect", "agentList", "agentMessage", "agentStart", "agentStop"]);
 	});
 
-	it("lists one Copilot agent by id, refuses a conflicting backend, and marks a failed request", async () => {
+	it("asks for one agent by id, refuses a conflicting backend, and marks a failed request", async () => {
+		const asked: Array<Record<string, unknown>> = [];
 		const server = new McpServer({ name: "both", version: "0.0.0" });
 		registerAgentTools(server, {
 			codex: async () => {
 				throw new Error("offline");
 			},
-			copilot: async () => ({
-				agents: [{ agentId: COPILOT_ID }, { agentId: "copilot_ffffffffffffffffffffffffffffffff" }],
-			}),
+			copilot: async (body) => {
+				asked.push(body);
+				return { agents: [{ agentId: COPILOT_ID }] };
+			},
 		});
 		const list = tools(server).agentList!.handler;
 
-		const one = await list({ agentId: COPILOT_ID });
+		const one = await list({ agentId: COPILOT_ID, limit: 3 });
 		expect(JSON.parse(one.content[0]!.text)).toEqual({ agents: [{ agentId: COPILOT_ID }] });
+		expect(asked[0]).toEqual({ kind: "list", agentId: COPILOT_ID, limit: 3 });
 		expect((await list({ agentId: COPILOT_ID, backend: "codex" })).isError).toBe(true);
 		expect((await list({})).isError).toBe(true);
 		expect((await tools(server).agentCollect!.handler({ agentId: CODEX_ID })).isError).toBe(true);

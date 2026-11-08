@@ -25,12 +25,12 @@ describe("Copilot tool contracts", () => {
 		for (const body of bodies) expect(CopilotGatewayRequestSchema.safeParse(body).success).toBe(true);
 	});
 
-	it("mints operation ids only for mutations", () => {
+	it("mints operation ids for every call but a list", () => {
 		const first = copilotRequestBody("start", { prompt: "Review" });
 		const second = copilotRequestBody("start", { prompt: "Review" });
 
 		expect(first.operationId).not.toBe(second.operationId);
-		expect(copilotRequestBody("await", { agentId: AGENT_ID })).not.toHaveProperty("operationId");
+		expect(copilotRequestBody("await", { agentId: AGENT_ID })).toHaveProperty("operationId");
 		expect(copilotRequestBody("list")).not.toHaveProperty("operationId");
 	});
 

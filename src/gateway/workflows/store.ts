@@ -34,6 +34,13 @@ function parseRows(rawRows: unknown[]): WorkflowJournalRow[] {
 	return rows;
 }
 
+/** Legacy settled runs restore as collected. */
+function withMarks(raw: unknown): unknown {
+	if (typeof raw !== "object" || raw === null || "collected" in raw) return raw;
+	const settled = (raw as { status?: unknown }).status !== "running";
+	return { ...raw, collected: settled, ...(settled ? { notified: true } : {}) };
+}
+
 export interface WorkflowRunStore {
 	all(): WorkflowRunRecord[];
 	running(): WorkflowRunRecord[];
@@ -85,7 +92,7 @@ export function createWorkflowRunStore(dataDir: string, ambient: Pick<Ambient, "
 		const recordPath = path.join(directory, "record.json");
 		const recordStat = fs.lstatSync(recordPath);
 		if (!recordStat.isFile()) throw new Error("workflow record is not a file");
-		const record = WorkflowRunRecordSchema.parse(JSON.parse(fs.readFileSync(recordPath, "utf8")));
+		const record = WorkflowRunRecordSchema.parse(withMarks(JSON.parse(fs.readFileSync(recordPath, "utf8"))));
 		if (record.runId !== entry) throw new Error("workflow record id does not match its directory");
 		const journalPath = path.join(directory, JOURNAL_FILE);
 		if (!fs.lstatSync(journalPath).isFile()) throw new Error("workflow journal is not a file");

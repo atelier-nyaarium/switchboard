@@ -99,6 +99,7 @@ function setup(
 		result: null,
 		failureReason: null,
 		notified: false,
+		collected: false,
 		createdAt: 1,
 		settledAt: null,
 	};
@@ -202,8 +203,8 @@ function latestTurn(rows: WorkflowJournalRow[], issueOrdinal: number): Extract<W
 }
 
 describe("Claude workflow dispatch", () => {
-	it("journals a fresh turn before sending its session and project instructions", async () => {
-		const state = setup({ agentsFile: { kind: "read", text: "Project instructions" } });
+	it("journals a fresh turn that opens with the read-first line and no instruction text", async () => {
+		const state = setup({ agentsFile: { kind: "refused", code: "too_large" } });
 		state.dispatchCall(callOf(1));
 		await waitFor(() => state.calls.some((op) => op.kind === "claudeRun"));
 		const operation = state.calls.find((op) => op.kind === "claudeRun");
@@ -212,15 +213,13 @@ describe("Claude workflow dispatch", () => {
 		expect(state.snapshots[0]?.some((row) => row.kind === "turn")).toBe(true);
 		expect(operation.sessionId).toBe(turn.agentId);
 		expect(operation.resume).toBe(false);
-		expect(operation.appendSystemPrompt).toBe("Project instructions");
-		expect(state.rows.find((row) => row.kind === "skill_text" && row.path === "AGENTS.md")).toMatchObject({
-			kind: "skill_text",
-			path: "AGENTS.md",
-			text: "Project instructions",
-		});
+		expect(operation.appendSystemPrompt).toBeNull();
+		expect(operation.prompt.startsWith("Read AGENTS.md first.\n\n")).toBe(true);
+		expect(turn.prompt).toBe(operation.prompt);
+		expect(state.rows.some((row) => row.kind === "skill_text")).toBe(false);
 	});
 
-	it("reads CLAUDE.md only when AGENTS.md is missing", async () => {
+	it("names CLAUDE.md only when AGENTS.md is missing", async () => {
 		const state = setup({
 			agentsFile: { kind: "refused", code: "missing" },
 			claudeFile: { kind: "read", text: "Claude instructions" },
@@ -231,15 +230,18 @@ describe("Claude workflow dispatch", () => {
 			state.calls.filter((op) => op.kind === "readSkill").map((op) => op.kind === "readSkill" && op.path),
 		).toEqual(["AGENTS.md", "CLAUDE.md"]);
 		const operation = state.calls.find((op) => op.kind === "claudeRun");
-		expect(operation).toMatchObject({ appendSystemPrompt: "Claude instructions" });
+		if (operation?.kind !== "claudeRun") throw new Error("Claude run missing");
+		expect(operation.prompt.startsWith("Read CLAUDE.md first.")).toBe(true);
 	});
 
-	it("omits the system prompt when both instruction files are missing", async () => {
+	it("adds no read-first line when both instruction files are missing", async () => {
 		const state = setup();
 		state.dispatchCall(callOf(1));
 		await waitFor(() => state.calls.some((op) => op.kind === "claudeRun"));
 		expect(state.calls.filter((op) => op.kind === "readSkill")).toHaveLength(2);
-		expect(state.calls.find((op) => op.kind === "claudeRun")).toMatchObject({ appendSystemPrompt: null });
+		const operation = state.calls.find((op) => op.kind === "claudeRun");
+		if (operation?.kind !== "claudeRun") throw new Error("Claude run missing");
+		expect(operation.prompt.startsWith("Read ")).toBe(false);
 	});
 
 	it("stamps a fresh turn with the live register after instruction reads", async () => {

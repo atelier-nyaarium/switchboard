@@ -6,6 +6,7 @@
 import os from "node:os";
 import path from "node:path";
 import { type AgentBackendDescriptor, agentEnvPrefix } from "../../shared/agent-backend.js";
+import { agentListAnswer, agentListRow } from "../../shared/agent-collect.js";
 import {
 	AGENT_HOST_TARGET_ID,
 	type AgentResolvedTarget,
@@ -15,13 +16,8 @@ import { AGENT_NOTICE_SOURCE, agentNoticeAct, agentNoticeLine } from "../../shar
 import { resolveWorkdir, workdirOrFallback } from "../../shared/agent-workdir.js";
 import {
 	CODEX_ACTIVITY_MAX_ITEMS,
-	CODEX_LIST_DEFAULT_LIMIT,
-	CODEX_LIST_FULL_DEFAULT_LIMIT,
-	CODEX_LIST_FULL_MAX_LIMIT,
-	CODEX_LIST_MAX_LIMIT,
 	CodexAgentResultSchema,
 	CodexGatewayRequestSchema,
-	CodexListAgentsResultSchema,
 	CodexRequestErrorSchema,
 	type CodexServiceTier,
 	CodexServiceTierSchema,
@@ -30,16 +26,14 @@ import {
 	COPILOT_ACTIVITY_MAX_ITEMS,
 	CopilotAgentResultSchema,
 	CopilotGatewayRequestSchema,
-	type CopilotListAgentSource,
 	CopilotRequestErrorSchema,
-	projectCopilotListResult,
 } from "../../shared/copilot-agent.js";
 import { emitLocalAwareness } from "../bridge/helpers.js";
 import { ExecutionTargetManager, realLauncher, targetLogger } from "../devcontainer/codexTargets.js";
 import { copilotLauncher } from "../devcontainer/copilotTargets.js";
 import { CodexLocalSession } from "./codexLocalSession.js";
 import { CopilotLocalSession } from "./copilotLocalSession.js";
-import { LocalAgentRuntime, type LocalBackendSpec, type LocalListAgent } from "./localAgentRuntime.js";
+import { LocalAgentRuntime, type LocalBackendSpec } from "./localAgentRuntime.js";
 import type { LocalBackendSession } from "./localAgentSession.js";
 
 ////////////////////////////////
@@ -81,26 +75,6 @@ function unavailable(errorClass: string, backend: AgentBackendDescriptor): Error
 }
 
 /**
- * The one rename between the runtime's history and Copilot's published one.
- *
- * Declared as a typed function on purpose: the projector names the fields it needs, so a schema or
- * runtime change lands here as a compile error instead of as a parse throw at the caller.
- */
-export function toCopilotListSource(agent: LocalListAgent): CopilotListAgentSource {
-	return {
-		agentId: agent.agentId,
-		agentState: agent.agentState,
-		...(agent.activeTurnId ? { activeTurnId: agent.activeTurnId } : {}),
-		turns: agent.turns.map((turn) => ({ id: turn.id, state: turn.state })),
-		operations: agent.exchanges.map((exchange) => ({
-			kind: exchange.kind,
-			state: exchange.status,
-			prompt: exchange.prompt,
-		})),
-	};
-}
-
-/**
  * The target manager is reused, so a local child gets the same env scrub, backoff and cooldown.
  *
  * Only the host target exists: a devcontainer target crosses a boundary this process lacks.
@@ -117,7 +91,6 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 
 	const spec: LocalBackendSpec = {
 		backendId: backend.id,
-		waitBudgetMs: backend.waitBudgetMs,
 		defaultCwd: () => process.cwd(),
 		followupDelivery: isCodex ? "started" : "followup",
 		maxActivities: isCodex ? CODEX_ACTIVITY_MAX_ITEMS : COPILOT_ACTIVITY_MAX_ITEMS,
@@ -153,39 +126,10 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 	const requestErrorSchema = isCodex ? CodexRequestErrorSchema : CopilotRequestErrorSchema;
 	const resultSchema = isCodex ? CodexAgentResultSchema : CopilotAgentResultSchema;
 
-	/**
-	 * The runtime speaks ONE history shape and the two backends publish two, so the answer has to be
-	 * built per backend rather than handed over raw. Codex's public row IS the runtime's row, which is
-	 * why passing it straight through worked there and hid that Copilot's never matched.
-	 */
-	const listAgents = (request: { agentId?: string; detail?: "summary" | "full"; limit?: number }): unknown => {
-		if (!isCodex) return projectCopilotListResult(runtime.list().map(toCopilotListSource));
-		const all = runtime.list();
-		const selected = request.agentId === undefined ? all : all.filter((agent) => agent.agentId === request.agentId);
-		const detail = request.agentId === undefined ? (request.detail ?? "summary") : "full";
-		const defaultLimit = detail === "full" ? CODEX_LIST_FULL_DEFAULT_LIMIT : CODEX_LIST_DEFAULT_LIMIT;
-		const maxLimit = detail === "full" ? CODEX_LIST_FULL_MAX_LIMIT : CODEX_LIST_MAX_LIMIT;
-		const limit = Math.min(request.limit ?? defaultLimit, maxLimit);
-		const bounded = selected.slice(-limit).reverse();
-		const omitted = selected.length - bounded.length;
-		return CodexListAgentsResultSchema.parse({
-			detail,
-			agents:
-				detail === "full"
-					? bounded
-					: bounded.map((agent) => ({
-							agentId: agent.agentId,
-							...(agent.model === undefined ? {} : { model: agent.model }),
-							cwd: process.cwd(),
-							agentState: agent.agentState,
-							turnCount: agent.turns.length,
-							lastActiveAt: agent.updatedAt,
-							latestPromptFirstLine: agent.exchanges.at(-1)?.prompt.split("\n", 1)[0]?.slice(0, 256),
-						})),
-			omitted,
-			...(omitted === 0 ? {} : { notice: `Older agents omitted: ${omitted}.` }),
-		});
-	};
+	const listAgents = (request: { agentId?: string; limit?: number }): unknown =>
+		agentListAnswer(runtime.list(), request, (agent) =>
+			agentListRow(agent, backend.id, { model: agent.model, latestPrompt: agent.exchanges.at(-1)?.prompt }),
+		);
 
 	/** The result envelope cannot carry this: it only permits an error when the AGENT is unwell. */
 	const refuse = (message: string): unknown =>
@@ -198,10 +142,7 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 			if (!parsed.success) return refuse(parsed.error.issues[0]?.message ?? `invalid request`);
 
 			const request = parsed.data;
-			if (request.kind === "list")
-				return listAgents(
-					request as unknown as { agentId?: string; detail?: "summary" | "full"; limit?: number },
-				);
+			if (request.kind === "list") return listAgents(request);
 			const answer = await runtime.handle({
 				kind: request.kind,
 				// Forwarded rather than dropped. It was validated by the schema above and then discarded
@@ -221,7 +162,8 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 					? { outputSchema: request.outputSchema }
 					: {}),
 			});
-			return "refused" in answer ? refuse(answer.refused) : resultSchema.parse(answer);
+			if ("refused" in answer) return refuse(answer.refused);
+			return "running" in answer ? answer : resultSchema.parse(answer);
 		},
 		shutdown() {
 			runtime.shutdown();

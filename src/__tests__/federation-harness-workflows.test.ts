@@ -152,6 +152,34 @@ describe("workflow steps through the federation harness", () => {
 		expect(h.gateway.faults.workflowRecord(run.runId)?.notified).toBe(true);
 	});
 
+	it("withholds the settle notice of a run collected first", async () => {
+		h.host.handlers.onClaudeRun = () => ({ answer: "one" });
+		const run = startRun(`export const meta = {}; return await agent("first");`, { defaultBackend: "claude" });
+		await waitForStatus(run.runId, "succeeded");
+		for (let attempt = 0; attempt < 3; attempt += 1) await h.ambient.advance(1_000);
+		expect(await (await session.post("/workflow/collect", { runId: run.runId })).json()).toMatchObject({
+			result: "one",
+		});
+		for (let attempt = 0; attempt < 65; attempt += 1) await h.ambient.advance(1_000);
+		expect(
+			session.inbound.some((frame) => JSON.stringify(frame.awareness ?? {}).includes(`${run.runId} succeeded`)),
+		).toBe(false);
+		expect(h.gateway.faults.workflowRecord(run.runId)).toMatchObject({ collected: true, notified: true });
+	});
+
+	it("hands back step answers for a run that ended without a result", async () => {
+		h.host.handlers.onClaudeRun = () => ({ answer: "one" });
+		const run = startRun(`export const meta = {}; await agent("first", {label: "a"}); throw new Error("boom");`, {
+			defaultBackend: "claude",
+		});
+		await waitForStatus(run.runId, "failed");
+		expect(await (await session.post("/workflow/collect", { runId: run.runId })).json()).toMatchObject({
+			status: "failed",
+			result: null,
+			steps: [{ label: "a", outcome: "completed", answer: "one" }],
+		});
+	});
+
 	it("resumes a Claude thread session on its second step", async () => {
 		const run = startRun(
 			`export const meta = {}; await agent("first", {thread: "implementer"}); await agent("second", {thread: "implementer"}); return true;`,
@@ -228,11 +256,24 @@ describe("workflow steps through the federation harness", () => {
 		expect(repeated.status).toBe(200);
 		expect(await repeated.json()).toMatchObject({ runId: first.runId, existing: true });
 		await waitForStatus(first.runId, "succeeded");
+		expect(await (await session.post("/workflow/list", {})).json()).toEqual({
+			runs: [
+				{
+					runId: first.runId,
+					name: null,
+					status: "succeeded",
+					createdAt: expect.any(Number),
+					settledAt: expect.any(Number),
+					steps: {},
+				},
+			],
+		});
 		const collected = await session.post("/workflow/collect", { runId: first.runId });
 		expect(collected.status).toBe(200);
 		expect(await collected.json()).toMatchObject({ status: "succeeded", result: { ok: true }, steps: [] });
-		expect(await (await session.post("/workflow/list", {})).json()).toMatchObject({
-			runs: [expect.objectContaining({ runId: first.runId, status: "succeeded" })],
+		expect(await (await session.post("/workflow/list", {})).json()).toEqual({ runs: [] });
+		expect(await (await session.post("/workflow/collect", { runId: first.runId })).json()).toMatchObject({
+			result: { ok: true },
 		});
 
 		const foreign = h.gateway.faults.workflowStart({

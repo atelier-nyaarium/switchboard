@@ -189,13 +189,9 @@ export function setChannelServer(server: Server): void {
 	channelServer = server;
 }
 
-/**
- * A notice this process raises itself, shaped as the Gateway's awareness push. False with no channel
- * to carry it: only a Claude session has one.
- */
+/** Pushes local awareness notices. */
 export async function emitLocalAwareness(awareness: RidingAwareness): Promise<boolean> {
-	if (!channelServer || AGENT_TYPE !== "claude") return false;
-	await emitChannelNotification(channelServer, {
+	const push: ChannelPushPayload = {
 		type: "channel_push",
 		from: awareness.from,
 		body: "",
@@ -203,7 +199,13 @@ export async function emitLocalAwareness(awareness: RidingAwareness): Promise<bo
 		session_id: mintNoAckSessionId(processAmbient()),
 		no_ack: true,
 		act: awareness.act,
-	});
+	};
+	if (AGENT_TYPE === "copilot") {
+		await serializeTypedDelivery(() => emitTypedChannelTag(push, crypto.randomUUID()));
+		return true;
+	}
+	if (!channelServer || AGENT_TYPE !== "claude") return false;
+	await emitChannelNotification(channelServer, push);
 	return true;
 }
 

@@ -24,7 +24,6 @@ import {
 import {
 	type JsonValue,
 	JsonValueSchema,
-	PROJECT_INSTRUCTION_FILES,
 	threadMapsOf,
 	type WorkflowCallOptions,
 	type WorkflowIssueRow,
@@ -504,11 +503,6 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		}
 	};
 
-	const declaredPhase = (run: RunState, title: string): string => {
-		if (!run.script.phases.includes(title)) throw new Error(`unknown workflow phase: ${title}`);
-		return title;
-	};
-
 	const hostOf = (run: RunState): WorkflowVmHost => ({
 		issue: (prompt, optionValue) => issueCall(run, prompt, optionValue),
 		log: (text) => {
@@ -516,7 +510,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 			run.logs.push(new TextDecoder().decode(new TextEncoder().encode(text).slice(0, LOG_LINE_MAX_BYTES)));
 		},
 		phase: (title) => {
-			run.phase = declaredPhase(run, title);
+			run.phase = title;
 		},
 	});
 
@@ -526,9 +520,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		if (run.issuedCount > ISSUE_LIMIT) throw new Error("agent call cap exceeded");
 		if (utf8Bytes(prompt) > AGENT_PROMPT_MAX_BYTES) throw new Error("agent prompt exceeds the limit");
 		const { backend, options } = parseCallOptions(optionValue, run.record.defaultBackend);
-		// Explicit phases override current.
-		if (options.phase !== undefined) declaredPhase(run, options.phase);
-		else if (run.phase !== null) options.phase = run.phase;
+		if (options.phase === undefined && run.phase !== null) options.phase = run.phase;
 		const threadKey = options.thread;
 		let threadMode: "start" | "message" = "start";
 		if (threadKey) {
@@ -636,10 +628,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		}
 		const sourceIssue = issueRows(run.resumeSource.rows).get(issueOrdinal);
 		// Journal project instructions.
-		const skillPaths = new Set<string>([
-			...(sourceIssue?.options.skills ?? []),
-			...(sourceIssue?.resolvedBackend === "claude" ? PROJECT_INSTRUCTION_FILES : []),
-		]);
+		const skillPaths = new Set<string>(sourceIssue?.options.skills ?? []);
 		const skillHashes = new Set<string>();
 		for (const row of run.resumeSource.rows) {
 			if (row.kind === "skill_text" && skillPaths.has(row.path)) skillHashes.add(row.sha256);

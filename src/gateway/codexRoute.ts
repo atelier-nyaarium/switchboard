@@ -1,3 +1,4 @@
+import { agentListAnswer, agentListRow, collectAnswer } from "../shared/agent-collect.js";
 import { publishedActivities } from "../shared/agent-record.js";
 import type { Clock } from "../shared/ambient.js";
 import {
@@ -6,12 +7,10 @@ import {
 	CodexAgentResultSchema,
 	type CodexErrorCode,
 	CodexGatewayRequestSchema,
-	type CodexListAgentsResult,
 	type CodexPersistedAgent,
 	CodexRequestErrorSchema,
 	type CodexStoredTurn,
 	codexAgentIdForOperation,
-	projectCodexListResult,
 	sanitizeCodexErrorText,
 } from "../shared/codex-agent.js";
 import type { SessionRecord } from "../shared/session-store.js";
@@ -26,8 +25,9 @@ export interface CodexRouteDeps {
 	relay: CodexRelay;
 	commands: CodexAgentCommands;
 	ambient: Clock;
-	/** Wait budget covers acceptance and turn settlement together. */
+	/** Dispatch wait budget. */
 	waitBudgetMs?: number;
+	onCollected?: (ownerKey: string, agentId: string, turnIds: readonly string[]) => void;
 }
 
 const DEFAULT_WAIT_BUDGET_MS = CODEX_WAIT_BUDGET_MS;
@@ -110,6 +110,28 @@ function describeAgent(
 	});
 }
 
+/** Dead-agent turns become lost. */
+function turnView(agent: CodexPersistedAgent, turn: CodexStoredTurn) {
+	const exchange = agent.exchanges.findLast((candidate) => candidate.turnId === turn.id);
+	return {
+		id: turn.id,
+		state: turn.state === "inProgress" ? "lost" : turn.state,
+		...(turn.state === "interrupted" ? { reason: turn.reason } : {}),
+		...(exchange?.delivery === undefined ? {} : { delivery: exchange.delivery }),
+		activities: publishedActivities(turn.activities),
+		...(turn.state === "completed" ? { finalResponse: turn.finalResponse } : {}),
+		...(turn.state === "failed" ? { error: turn.error } : {}),
+	};
+}
+
+function agentTrouble(agent: CodexPersistedAgent) {
+	if (agent.agentState === "unavailable")
+		return { code: "agent_dead", retryable: false, message: "codex agent is dead" } as const;
+	if (agent.agentState === "recovering")
+		return { code: "agent_unreachable", retryable: true, message: "codex agent is alive but unreachable" } as const;
+	return undefined;
+}
+
 export class CodexRoute {
 	constructor(private readonly deps: CodexRouteDeps) {}
 
@@ -139,7 +161,7 @@ export class CodexRoute {
 				case "message":
 					return json(await this.message(owner, request));
 				case "await":
-					return json(await this.awaitAgent(req, owner, request.agentId));
+					return json(this.collect(req, owner, request.agentId, request.operationId));
 				case "stop":
 					return json(await this.stop(owner, request));
 				case "list":
@@ -217,29 +239,31 @@ export class CodexRoute {
 		return describeAgent(agent, agent.activeTurnId);
 	}
 
-	private async awaitAgent(req: Request, owner: SessionRecord, agentId: string): Promise<CodexAgentResult> {
+	private collect(req: Request, owner: SessionRecord, agentId: string, operationId: string | undefined): unknown {
 		const owned = this.deps.service.resolveOwnedAgent(req, agentId);
-		if (!owned) return unavailable(agentId, AGENT_NOT_FOUND, "codex agent was not found");
-		const waitedTurnId = owned.agent.activeTurnId;
-		// Reconcile only stale agents; querying the active turn would mark it recovering.
-		if (!waitedTurnId) this.deps.relay.reconcileStale(owner);
-		if (!waitedTurnId) return describeAgent(owned.agent, lastSettledTurnId(owned.agent));
-		await this.waitForTurn(owner, agentId, waitedTurnId, this.deadline());
-		return describeAgent(this.current(owner, agentId) ?? owned.agent, waitedTurnId);
+		if (!owned || owned.agent.runId) return unavailable(agentId, AGENT_NOT_FOUND, "codex agent was not found");
+		if (!owned.agent.activeTurnId) this.deps.relay.reconcileStale(owner);
+		const collected = this.deps.service.collect(owner, agentId, operationId);
+		if (!collected) return unavailable(agentId, AGENT_NOT_FOUND, "codex agent was not found");
+		this.deps.onCollected?.(this.ownerKey(owner), agentId, collected.turnIds);
+		const { agent } = collected;
+		return {
+			...collectAnswer(agent, collected.turnIds, (turn) => turnView(agent, turn)),
+			...(agentTrouble(agent) ? { error: agentTrouble(agent) } : {}),
+		};
 	}
 
 	private list(
 		owner: SessionRecord,
 		request: Extract<ReturnType<typeof CodexGatewayRequestSchema.parse>, { kind: "list" }>,
-	): CodexListAgentsResult {
+	): unknown {
 		this.deps.relay.reconcileStale(owner);
-		const agents = this.deps.service.listOwnedAgents(owner);
-		const selected =
-			request.agentId === undefined ? agents : agents.filter((agent) => agent.agentId === request.agentId);
-		return projectCodexListResult(selected, undefined, {
-			detail: request.agentId === undefined ? request.detail : "full",
-			limit: request.limit,
-		});
+		return agentListAnswer(this.deps.service.listOwnedAgents(owner), request, (agent) =>
+			agentListRow(agent, "codex", {
+				model: agent.exchanges.find((exchange) => exchange.kind === "start")?.model,
+				latestPrompt: agent.exchanges.at(-1)?.prompt,
+			}),
+		);
 	}
 
 	/** Waits for the daemon to take the turn, not for the turn; a completion notice follows it. */
@@ -306,19 +330,6 @@ export class CodexRoute {
 		return settled?.turnId ? { turnId: settled.turnId } : undefined;
 	}
 
-	private async waitForTurn(owner: SessionRecord, agentId: string, turnId: string, deadline: number): Promise<void> {
-		await this.deps.relay.waitFor(
-			this.ownerKey(owner),
-			agentId,
-			() => {
-				const agent = this.current(owner, agentId);
-				if (!agent || agent.agentState === "unavailable" || agent.agentState === "recovering") return true;
-				return turnOf(agent, turnId)?.state !== "inProgress";
-			},
-			deadline,
-		);
-	}
-
 	private current(owner: SessionRecord, agentId: string): CodexPersistedAgent | undefined {
 		return this.deps.commands.observe(owner, agentId).agent;
 	}
@@ -334,8 +345,4 @@ export class CodexRoute {
 	private now(): number {
 		return this.deps.ambient.now();
 	}
-}
-
-function lastSettledTurnId(agent: CodexPersistedAgent): string | undefined {
-	return agent.turns.findLast((turn) => turn.state !== "inProgress")?.id;
 }

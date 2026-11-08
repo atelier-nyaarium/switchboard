@@ -1,12 +1,15 @@
 import crypto from "node:crypto";
+import { collectAnswer } from "../../shared/agent-collect.js";
 import { emptyAgentProgressCounts } from "../../shared/agent-counter.js";
 import { AGENT_PROGRESS_EVERY_MS } from "../../shared/agent-notice.js";
 import { AGENT_ERROR_MAX_BYTES, agentIdForOperation, sanitizeAgentErrorText } from "../../shared/agent-record.js";
+import { type AgentTurnMarks, collectTurns } from "../../shared/agent-turn-marks.js";
 import type { CodexServiceTier } from "../../shared/codex-agent.js";
 import type {
 	LocalAgentAnswer,
 	LocalAgentState,
 	LocalBackendSpec,
+	LocalCollectAnswer,
 	LocalErrorCode,
 	LocalListAgent,
 	LocalRefusal,
@@ -51,6 +54,7 @@ interface LocalAgentRecord {
 	serviceTier?: CodexServiceTier;
 	model?: string;
 	turns: LocalTurnRecord[];
+	turnMarks: AgentTurnMarks;
 	exchanges: LocalExchangeRecord[];
 	settled?: Promise<LocalTerminal>;
 	progress?: ReturnType<typeof setInterval>;
@@ -81,6 +85,7 @@ export class LocalAgentHandlers {
 				...(turn.state === "failed" ? { error: turn.error ?? `turn failed` } : {}),
 				updatedAt: turn.updatedAt,
 			})),
+			turnMarks: agent.turnMarks,
 			createdAt: agent.createdAt,
 			updatedAt: agent.updatedAt,
 		}));
@@ -127,6 +132,7 @@ export class LocalAgentHandlers {
 			...(request.serviceTier === undefined ? {} : { serviceTier: request.serviceTier }),
 			...(request.model === undefined ? {} : { model: request.model }),
 			turns: [],
+			turnMarks: { collected: [], notified: [] },
 			exchanges: [],
 		};
 		this.agents.set(agentId, agent);
@@ -177,12 +183,26 @@ export class LocalAgentHandlers {
 		return answer;
 	}
 
-	async awaitTurn(request: LocalRequest): Promise<LocalAgentAnswer> {
+	/** Returns uncollected ended turns. */
+	collect(request: LocalRequest): LocalAgentAnswer | LocalCollectAnswer {
 		const agent = this.agents.get(request.agentId ?? "");
 		if (!agent) return this.notFound(request.agentId ?? "");
-		const active = this.activeTurn(agent);
-		if (!active) return this.settledAnswer(agent);
-		return this.waitFor(agent, active.id);
+		const view = {
+			agentId: agent.agentId,
+			agentState: this.stateOf(agent),
+			turns: agent.turns,
+			turnMarks: agent.turnMarks,
+			updatedAt: agent.updatedAt,
+		};
+		const taken = collectTurns(view, request.operationId);
+		if (taken.marks) agent.turnMarks = taken.marks;
+		return collectAnswer(view, taken.turnIds, (turn) => ({
+			id: turn.id,
+			state: turn.state,
+			activities: this.activitiesOf(turn),
+			...(turn.state === "completed" ? { finalResponse: turn.finalResponse ?? "" } : {}),
+			...(turn.state === "failed" ? { error: turn.error ?? `turn failed` } : {}),
+		}));
 	}
 
 	async stop(request: LocalRequest): Promise<LocalAgentAnswer> {
@@ -303,36 +323,6 @@ export class LocalAgentHandlers {
 		agent.progress.unref?.();
 	}
 
-	private async waitFor(agent: LocalAgentRecord, turnId: string, delivery?: string): Promise<LocalAgentAnswer> {
-		const settled = agent.settled;
-		if (settled) {
-			let timer: ReturnType<typeof setTimeout> | undefined;
-			const budget = new Promise<"timeout">((resolve) => {
-				timer = setTimeout(() => resolve("timeout"), this.host.spec.waitBudgetMs);
-			});
-			try {
-				const outcome = await Promise.race([settled, budget]);
-				if (outcome !== "timeout") this.applyTerminal(agent, turnId, outcome);
-			} finally {
-				if (timer) clearTimeout(timer);
-			}
-		}
-
-		const turn = agent.turns.find((candidate) => candidate.id === turnId);
-		if (!turn) return this.notFound(agent.agentId);
-		if (turn.state === "inProgress") {
-			return {
-				agentId: agent.agentId,
-				agentState: "working",
-				observation: "waitTimedOut",
-				turn: { id: turn.id, state: "inProgress" },
-				...(delivery ? { delivery } : {}),
-				activities: this.activitiesOf(turn),
-			};
-		}
-		return this.terminalAnswer(agent, turn, delivery);
-	}
-
 	private applyTerminal(agent: LocalAgentRecord, turnId: string, terminal: LocalTerminal): void {
 		// Apply the terminal once because listener and waiter paths race.
 		const turn = agent.turns.find((candidate) => candidate.id === turnId);
@@ -382,12 +372,6 @@ export class LocalAgentHandlers {
 			};
 		}
 		return base;
-	}
-
-	private settledAnswer(agent: LocalAgentRecord): LocalAgentAnswer {
-		const last = agent.turns[agent.turns.length - 1];
-		if (!last || last.state === "inProgress") return this.idleAnswer(agent);
-		return this.terminalAnswer(agent, last);
 	}
 
 	private idleAnswer(agent: LocalAgentRecord): LocalAgentAnswer {

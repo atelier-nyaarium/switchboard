@@ -20,7 +20,7 @@ import {
 	copilotOperationIdentity,
 } from "../shared/copilot-agent.js";
 import type { SessionRecord } from "../shared/session-store.js";
-import type { AgentCatalogRetirement } from "./agentCatalogPersistence.js";
+import type { AgentCatalogRetirement, AgentCollection } from "./agentCatalogPersistence.js";
 import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
 import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
 import { AgentTransitionError, validateTimestamp } from "./agentRouteEnvelope.js";
@@ -77,6 +77,22 @@ export class CopilotAgentService {
 		return this.persistence.retire(owner, agentId);
 	}
 
+	collect(
+		owner: SessionRecord,
+		agentId: string,
+		operationId: string | undefined,
+	): AgentCollection<CopilotPersistedAgent> | undefined {
+		return this.persistence.collect(owner, agentId, operationId, (candidate) =>
+			CopilotPersistedAgentSchema.parse(candidate),
+		);
+	}
+
+	markTurnNotified(owner: SessionRecord, agentId: string, turnId: string): boolean {
+		return this.persistence.markNotified(owner, agentId, turnId, (candidate) =>
+			CopilotPersistedAgentSchema.parse(candidate),
+		);
+	}
+
 	retagRunId(owner: SessionRecord, agentId: string, fromRunId: string, toRunId: string, at: number): boolean {
 		const current = this.persistence.find(owner, agentId);
 		if (
@@ -125,6 +141,7 @@ export class CopilotAgentService {
 			...(input.runId === undefined ? {} : { runId: input.runId }),
 			agentState: "creating",
 			requestedTarget: target,
+			turnMarks: { collected: [], notified: [] },
 			operations: [
 				{
 					operationId,

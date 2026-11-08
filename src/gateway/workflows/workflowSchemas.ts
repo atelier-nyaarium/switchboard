@@ -38,6 +38,7 @@ export const WorkflowRunRecordSchema = z
 		result: JsonValueSchema,
 		failureReason: z.string().nullable(),
 		notified: z.boolean(),
+		collected: z.boolean(),
 		createdAt: z.number().finite().nonnegative(),
 		settledAt: z.number().finite().nonnegative().nullable(),
 	})
@@ -45,6 +46,9 @@ export const WorkflowRunRecordSchema = z
 	.superRefine((record, context) => {
 		if (record.status === "running" && record.settledAt !== null) {
 			context.addIssue({ code: z.ZodIssueCode.custom, path: ["settledAt"], message: "running run is settled" });
+		}
+		if (record.status === "running" && record.collected) {
+			context.addIssue({ code: z.ZodIssueCode.custom, path: ["collected"], message: "running run is collected" });
 		}
 		if (record.status === "running" && (record.result !== null || record.failureReason !== null)) {
 			context.addIssue({ code: z.ZodIssueCode.custom, path: ["status"], message: "running run has a result" });

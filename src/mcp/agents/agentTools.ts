@@ -52,7 +52,9 @@ Returns when the agent accepts the message. Call \`agentCollect\` after its comp
 const COLLECT_DESCRIPTION = `
 # Collect Agent
 
-Return an agent's turn outcome. Call after a completion notice. Waits for a running turn; with none running, returns the latest settled state.
+Answers at once with every ended turn not yet collected, oldest first, and the running turn's id. A running turn ends later with a notice naming this tool.
+
+A collected turn is not handed back again.
 `.trim();
 
 const STOP_DESCRIPTION = `
@@ -64,13 +66,13 @@ Interrupt the current turn. Returns once the request is durable; the outcome arr
 const LIST_DESCRIPTION = `
 # List Agents
 
-List agents managed by this session.
+Agents starting, running, or holding an uncollected turn, newest first. No answers.
 
 - \`backend\` limits the list to one family.
-- \`agentId\` returns that one agent.
-- \`detail\` and \`limit\` apply to Codex.
+- \`agentId\` returns that one agent, collected or not.
+- \`limit\` caps each family's rows.
 
-Use \`agentId\` with \`agentMessage\` to continue existing work.
+Keep the ids of agents you will message again.
 `.trim();
 
 function refused(text: string): ToolText {
@@ -189,7 +191,6 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 		.object({
 			backend: BackendSchema.optional(),
 			agentId: AgentIdSchema.optional(),
-			detail: CodexListAgentsInputSchema.shape.detail,
 			limit: CodexListAgentsInputSchema.shape.limit,
 		})
 		.strict();
@@ -224,25 +225,17 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 	mcpServer.registerTool(
 		"agentList",
 		{ title: `List Agents`, description: LIST_DESCRIPTION, inputSchema: listSchema },
-		async (args: { backend?: AgentBackendId; agentId?: string; detail?: "summary" | "full"; limit?: number }) => {
-			const listBody = (backend: AgentBackendId) =>
-				backend === "codex"
-					? codexRequestBody("list", { agentId: args.agentId, detail: args.detail, limit: args.limit })
-					: copilotRequestBody("list");
+		async (args: { backend?: AgentBackendId; agentId?: string; limit?: number }) => {
+			const listBody = (backend: AgentBackendId) => {
+				const query = { agentId: args.agentId, limit: args.limit };
+				return backend === "codex" ? codexRequestBody("list", query) : copilotRequestBody("list", query);
+			};
 			if (args.agentId !== undefined) {
 				const backend = backendOf(args.agentId);
 				if (args.backend !== undefined && args.backend !== backend) {
 					return refused(`${args.agentId} is not a ${descriptor(args.backend).displayName} agent`);
 				}
-				if (backend === "codex") return send(backend, listBody(backend));
-				const dispatch = dispatches.copilot;
-				if (!dispatch) return refused("Copilot agents are not enabled");
-				const agentId = args.agentId;
-				const one: AgentDispatch = async (body) => {
-					const listed = (await dispatch(body)) as { agents?: Array<{ agentId?: string }> };
-					return { agents: (listed.agents ?? []).filter((agent) => agent.agentId === agentId) };
-				};
-				return postAgentRequest(descriptor(backend), one, listBody(backend));
+				return send(backend, listBody(backend));
 			}
 			const families = args.backend ? [args.backend] : enabled;
 			const answers = await Promise.all(families.map((backend) => send(backend, listBody(backend))));

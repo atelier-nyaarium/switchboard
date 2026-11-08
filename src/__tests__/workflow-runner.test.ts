@@ -138,7 +138,29 @@ describe("workflow run persistence", () => {
 		}
 		const terminal = runner.runs()[0]!;
 		expect(runner.markNotified(terminal.runId)).toBe(true);
-		expect(createWorkflowRunStore(dataDir, ambient).get(terminal.runId)?.notified).toBe(true);
+		expect(createWorkflowRunStore(dataDir, ambient).get(terminal.runId)).toMatchObject({
+			notified: true,
+			collected: false,
+		});
+		expect(runner.markCollected(terminal.runId)).toBe(true);
+		expect(runner.markCollected(terminal.runId)).toBe(false);
+		expect(createWorkflowRunStore(dataDir, ambient).get(terminal.runId)?.collected).toBe(true);
+	});
+
+	it("restores a record from before the collected mark", () => {
+		const { dataDir, ambient, runner } = setup();
+		const settled = started(runner.startRun(input("legacy-settled")));
+		runner.transition(settled.runId, "running", "succeeded", { result: 1 });
+		const running = started(runner.startRun(input("legacy-running")));
+		runner.stop();
+		for (const runId of [settled.runId, running.runId]) {
+			const file = path.join(dataDir, "workflows", runId, "record.json");
+			const { collected: _collected, ...legacy } = JSON.parse(fs.readFileSync(file, "utf8"));
+			fs.writeFileSync(file, JSON.stringify({ ...legacy, notified: false }));
+		}
+		const store = createWorkflowRunStore(dataDir, ambient);
+		expect(store.get(settled.runId)).toMatchObject({ collected: true, notified: true });
+		expect(store.get(running.runId)).toMatchObject({ collected: false, notified: false });
 	});
 
 	it("sweeps settled runs at seven days", () => {

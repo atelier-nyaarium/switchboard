@@ -1,3 +1,4 @@
+import { agentListAnswer, agentListRow, collectAnswer } from "../shared/agent-collect.js";
 import { publishedActivities } from "../shared/agent-record.js";
 import type { Clock } from "../shared/ambient.js";
 import {
@@ -10,7 +11,6 @@ import {
 	CopilotRequestErrorSchema,
 	type CopilotStoredTurn,
 	copilotAgentIdForOperation,
-	projectCopilotListResult,
 	sanitizeCopilotErrorText,
 } from "../shared/copilot-agent.js";
 import type { SessionRecord } from "../shared/session-store.js";
@@ -26,6 +26,7 @@ export interface CopilotRouteDeps {
 	commands: CopilotAgentCommands;
 	ambient: Clock;
 	waitBudgetMs?: number;
+	onCollected?: (ownerKey: string, agentId: string, turnIds: readonly string[]) => void;
 }
 
 function unavailable(agentId: string, code: CopilotErrorCode, message: string): CopilotAgentResult {
@@ -102,6 +103,26 @@ function describeAgent(
 	return CopilotAgentResultSchema.parse(result);
 }
 
+/** Dead-agent turns become lost. */
+function turnView(turn: CopilotStoredTurn) {
+	return {
+		id: turn.id,
+		state: turn.state === "inProgress" ? "lost" : turn.state,
+		...(turn.state === "interrupted" ? { reason: turn.reason } : {}),
+		activities: publishedActivities(turn.activities),
+		...(turn.state === "completed" ? { finalResponse: turn.finalResponse } : {}),
+		...(turn.state === "failed" ? { error: turn.error } : {}),
+	};
+}
+
+function agentTrouble(agent: CopilotPersistedAgent) {
+	if (agent.agentState === "unavailable")
+		return { code: "daemon_unavailable", retryable: true, message: "Copilot agent is unavailable" } as const;
+	if (agent.agentState === "recovering")
+		return { code: "indeterminate", retryable: true, message: "Copilot state could not be confirmed" } as const;
+	return undefined;
+}
+
 export class CopilotRoute {
 	constructor(private readonly deps: CopilotRouteDeps) {}
 
@@ -134,11 +155,11 @@ export class CopilotRoute {
 				case "message":
 					return json(await this.message(owner, parsed.data));
 				case "await":
-					return json(await this.awaitAgent(req, owner, parsed.data.agentId));
+					return json(this.collect(req, owner, parsed.data.agentId, parsed.data.operationId));
 				case "stop":
 					return json(await this.stop(owner, parsed.data));
 				case "list":
-					return json(this.list(owner));
+					return json(this.list(owner, parsed.data));
 			}
 		} catch (error) {
 			if (error instanceof AgentTransitionError) {
@@ -217,40 +238,29 @@ export class CopilotRoute {
 		});
 	}
 
-	private async awaitAgent(req: Request, owner: SessionRecord, agentId: string): Promise<CopilotAgentResult> {
+	private collect(req: Request, owner: SessionRecord, agentId: string, operationId: string | undefined): unknown {
 		const owned = this.deps.service.resolveOwnedAgent(req, agentId);
-		if (!owned) return unavailable(agentId, "not_found", "Copilot agent was not found");
-		const turnId = owned.agent.activeTurnId;
-		if (!turnId) {
-			this.deps.relay.reconcileStale(owner);
-			return describeAgent(owned.agent, { includeLastSettled: true });
-		}
-		await this.deps.relay.waitFor(
-			this.deps.service.ownerKeyOf(owner),
-			agentId,
-			() => {
-				const current = this.current(owner, agentId);
-				return current?.agentState !== "working" || current?.activeTurnId === undefined;
-			},
-			this.deadline(),
-		);
-		const current = this.current(owner, agentId);
-		return current
-			? describeAgent(current, {
-					turnId,
-					observation:
-						current.agentState === "working"
-							? "waitTimedOut"
-							: current.agentState === "recovering"
-								? "indeterminate"
-								: "terminal",
-				})
-			: unavailable(agentId, "not_found", "Copilot agent was not found");
+		if (!owned || owned.agent.runId) return unavailable(agentId, "not_found", "Copilot agent was not found");
+		if (!owned.agent.activeTurnId) this.deps.relay.reconcileStale(owner);
+		const collected = this.deps.service.collect(owner, agentId, operationId);
+		if (!collected) return unavailable(agentId, "not_found", "Copilot agent was not found");
+		this.deps.onCollected?.(this.deps.service.ownerKeyOf(owner), agentId, collected.turnIds);
+		const { agent } = collected;
+		const trouble = agentTrouble(agent);
+		return {
+			...collectAnswer(agent, collected.turnIds, turnView),
+			...(trouble ? { error: trouble } : {}),
+		};
 	}
 
-	private list(owner: SessionRecord) {
+	private list(owner: SessionRecord, request: { agentId?: string; limit?: number }) {
 		this.deps.relay.reconcileStale(owner);
-		return projectCopilotListResult(this.deps.service.listOwnedAgents(owner));
+		return agentListAnswer(this.deps.service.listOwnedAgents(owner), request, (agent) =>
+			agentListRow(agent, "copilot", {
+				model: agent.operations.find((operation) => operation.kind === "start")?.model,
+				latestPrompt: agent.operations.findLast((operation) => operation.prompt !== undefined)?.prompt,
+			}),
+		);
 	}
 
 	private async settle(

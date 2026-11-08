@@ -81,7 +81,7 @@ export interface RoutesDeps {
 	boardReplays?: DurableOpStore<BoardReply>;
 	// State that must survive a rebuild.
 	carryOver?: RoutesCarryOver;
-	awareness?: Pick<AwarenessBank, "prepareFor">;
+	awareness?: Pick<AwarenessBank, "prepareFor" | "withdraw">;
 	workflows?: { engine: WorkflowEngine; runner: WorkflowRunner };
 	// Holds a channel message a session could not take.
 	deliveries: ChannelDeliveryCoordinator;
@@ -233,15 +233,15 @@ export function createRoutes(deps: RoutesDeps) {
 	const workflowRoutes = deps.workflows
 		? createWorkflowRoutes({
 				auth,
-				ambient,
 				runner: deps.workflows.runner,
 				engine: deps.workflows.engine,
 				sessionStore: deps.sessionStore ?? { teamOf: () => "" },
+				withdraw: (team, runId) => deps.awareness?.withdraw(team, "workflow", runId),
 			})
 		: {
 				workflowStart: () =>
 					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
-				workflowCollect: async () =>
+				workflowCollect: () =>
 					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
 				workflowList: () =>
 					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),

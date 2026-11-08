@@ -9,10 +9,20 @@ import { type FederationHarness, startFederationHarness } from "../testing/feder
 interface AgentAnswer {
 	agentId: string;
 	agentState: string;
-	observation: string;
+	observation?: string;
+	running?: string | null;
+	turns?: Array<{
+		id: string;
+		state: string;
+		reason?: string;
+		delivery?: string;
+		activities: Array<{ text?: string }>;
+		finalResponse?: string;
+		error?: string;
+	}>;
 	turn?: { id: string; state: string };
 	finalResponse?: string;
-	activities: Array<{ text?: string }>;
+	activities?: Array<{ text?: string }>;
 	error?: { code: string };
 }
 
@@ -46,6 +56,15 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		const response = await caller.post("/codex", body);
 		return (await response.json()) as AgentAnswer;
 	};
+	const collectUntilTurn = (caller: FakeSession, agentId: string): Promise<AgentAnswer> =>
+		h.waitFor(
+			async () => {
+				const answer = await codex(caller, { kind: "await", agentId });
+				return answer.turns?.length ? answer : undefined;
+			},
+			`an ended turn for ${agentId}`,
+			10_000,
+		);
 	let alice: FakeSession;
 	let carol: FakeSession;
 
@@ -59,7 +78,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		if (h) await h.close();
 	});
 
-	it("accepts a host start, then reads the completed turn through await", async () => {
+	it("accepts a host start, then collects the completed turn", async () => {
 		const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "count to three" });
 		expect(started).toMatchObject({
 			agentState: "working",
@@ -67,14 +86,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			turn: { state: "inProgress" },
 			delivery: "started",
 		});
-		const completed = await codex(alice, { kind: "await", agentId: started.agentId });
-		expect(completed).toMatchObject({
-			agentState: "idle",
-			observation: "terminal",
-			turn: { state: "completed" },
-			finalResponse: "done: count to three",
-		});
-		expect(completed.activities.map((activity) => activity.text)).toContain("working");
+		const completed = await collectUntilTurn(alice, started.agentId);
+		expect(completed.turns).toMatchObject([{ state: "completed", finalResponse: "done: count to three" }]);
+		expect(completed.turns?.[0]?.activities.map((activity) => activity.text)).toContain("working");
 		const command = h.host.codexCommands.find((candidate) => candidate.kind === "start");
 		expect(command).toMatchObject({ target: { kind: "host" }, prompt: "count to three", agentId: started.agentId });
 	});
@@ -93,8 +107,11 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			turn: { state: "inProgress" },
 			delivery: "started",
 		});
-		const answered = await codex(alice, { kind: "await", agentId: started.agentId });
-		expect(answered).toMatchObject({ turn: { state: "completed" }, finalResponse: "done: second" });
+		const answered = await collectUntilTurn(alice, started.agentId);
+		expect(answered.turns).toMatchObject([
+			{ state: "completed", finalResponse: "done: first" },
+			{ state: "completed", finalResponse: "done: second" },
+		]);
 		const thread = h.host.codexCommands.find((c) => c.kind === "message" && c.agentId === started.agentId);
 		expect(thread).toMatchObject({ threadId: `thread-${started.agentId}` });
 
@@ -109,7 +126,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			turn: { state: "completed" },
 			finalResponse: "done: second",
 		});
-		expect(again.turn?.id).toBe(answered.turn?.id);
+		expect(again.turn?.id).toBe(answered.turns?.at(-1)?.id);
 		expect(h.host.codexCommands.filter((c) => c.kind === "message" && c.operationId === followUp)).toHaveLength(1);
 	});
 
@@ -135,7 +152,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		expect(response.status).toBe(401);
 	});
 
-	it("interrupts a running turn and reads its terminal result through await", async () => {
+	it("interrupts a running turn and collects its terminal result", async () => {
 		const running: CodexResponder = (command, daemon) => {
 			if (command.kind === "start") return stockCodexResponder(command, daemon)?.slice(0, 2);
 			if (command.kind === "interrupt") {
@@ -178,23 +195,21 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "long task" });
 			const working = await h.waitFor(async () => {
 				const listed = (await (await alice.post("/codex", { kind: "list", detail: "full" })).json()) as {
-					agents: Array<{ agentId: string; agentState: string; turns?: Array<{ state: string }> }>;
+					agents: Array<{ agentId: string; agentState: string; running: boolean }>;
 				};
-				return listed.agents.find(
-					(agent) =>
-						agent.agentState === "working" && agent.turns?.some((turn) => turn.state === "inProgress"),
-				);
+				return listed.agents.find((agent) => agent.agentState === "working" && agent.running);
 			}, "an accepted turn in progress");
 			const teams = (await (await alice.get("/teams")).json()) as Array<{ team: string; teammates?: boolean }>;
 			expect(teams.find((row) => row.team === alice.team)?.teammates).toBe(true);
+			const inProgress = await codex(alice, { kind: "await", agentId: working.agentId });
+			expect(inProgress).toMatchObject({ running: expect.any(String), turns: [] });
 			const stopped = await codex(alice, { kind: "stop", operationId: operationId(), agentId: working.agentId });
 			expect(stopped.agentId, JSON.stringify(stopped)).toBe(working.agentId);
-			expect(await starting).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
-			expect(await codex(alice, { kind: "await", agentId: working.agentId })).toMatchObject({
-				agentState: "idle",
-				observation: "terminal",
-				turn: { state: "interrupted" },
-			});
+			const started = await starting;
+			expect(started).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+			expect(inProgress.running).toBe(started.turn?.id);
+			const interrupted = await collectUntilTurn(alice, working.agentId);
+			expect(interrupted.turns).toMatchObject([{ state: "interrupted" }]);
 			expect(h.host.codexCommands.find((c) => c.kind === "interrupt")).toMatchObject({
 				agentId: working.agentId,
 			});
@@ -214,19 +229,19 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "replay me" });
 			for (const frame of replayed) h.host.sendCodex(frame);
 			const listed = (await (await alice.post("/codex", { kind: "list", detail: "full" })).json()) as {
-				agents: Array<{ agentId: string; turns?: unknown[] }>;
+				agents: Array<{ agentId: string; uncollected: number; turnCount: number }>;
 			};
 			const agent = listed.agents.find((candidate) => candidate.agentId === started.agentId);
-			expect(agent?.turns ?? []).toHaveLength(1);
-			expect(await codex(alice, { kind: "await", agentId: started.agentId })).toMatchObject({
-				turn: { id: started.turn?.id, state: "completed" },
+			expect(agent).toMatchObject({ uncollected: 1, turnCount: 1 });
+			expect(await collectUntilTurn(alice, started.agentId)).toMatchObject({
+				turns: [{ id: started.turn?.id, state: "completed" }],
 			});
 		} finally {
 			h.host.handlers.onCodexCommand = undefined;
 		}
 	});
 
-	it("survives a gateway restart and awaits a new message", async () => {
+	it("survives a gateway restart and collects a new message", async () => {
 		const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "before restart" });
 		await h.restartGateway();
 		const reattached = attachFakeSession(h.gateway, {
@@ -252,13 +267,11 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			prompt: "after restart",
 		});
 		expect(accepted).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
-		expect(await codex(reattached, { kind: "await", agentId: started.agentId })).toMatchObject({
-			turn: { state: "completed" },
-			finalResponse: "done: after restart",
-		});
+		const collected = await collectUntilTurn(reattached, started.agentId);
+		expect(collected.turns?.at(-1)).toMatchObject({ state: "completed", finalResponse: "done: after restart" });
 	});
 
-	it("after a daemon restart, awaits the agent's first message on the new daemon", async () => {
+	it("after a daemon restart, collects the agent's first message on the new daemon", async () => {
 		const caller = alice;
 		const started = await codex(caller, {
 			kind: "start",
@@ -273,8 +286,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			prompt: "who are you now?",
 		});
 		expect(first).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
-		expect(await codex(caller, { kind: "await", agentId: started.agentId })).toMatchObject({
-			turn: { state: "completed" },
+		const collected = await collectUntilTurn(caller, started.agentId);
+		expect(collected.turns?.at(-1)).toMatchObject({
+			state: "completed",
 			finalResponse: "done: who are you now?",
 		});
 	});
@@ -320,15 +334,10 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			});
 			expect(started).toMatchObject({ agentState: "working", turn: { state: "inProgress" } });
 			h.restartHost({ newDaemon: true });
-			const collected = await h.waitFor(async () => {
-				const answer = await codex(alice, { kind: "await", agentId: started.agentId });
-				return answer.turn?.state === "interrupted" ? answer : undefined;
-			}, "the lost turn collector");
-			expect(collected).toMatchObject({
-				agentState: "idle",
-				observation: "terminal",
-				turn: { state: "interrupted", reason: "turn lost: its agent process ended" },
-			});
+			const collected = await collectUntilTurn(alice, started.agentId);
+			expect(collected.turns).toMatchObject([
+				{ state: "interrupted", reason: "turn lost: its agent process ended" },
+			]);
 		} finally {
 			h.host.handlers.onCodexCommand = undefined;
 		}
@@ -373,11 +382,8 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			});
 			expect(stopped).toMatchObject({ observation: "interruptRequested" });
 			h.restartHost({ newDaemon: true });
-			const lost = await h.waitFor(async () => {
-				const answer = await codex(caller, { kind: "await", agentId: started.agentId });
-				return answer.agentState === "idle" && answer.turn?.state === "interrupted" ? answer : undefined;
-			}, "the interrupted stopped turn");
-			expect(lost).toMatchObject({ agentState: "idle", turn: { state: "interrupted" } });
+			const lost = await collectUntilTurn(caller, started.agentId);
+			expect(lost.turns).toMatchObject([{ state: "interrupted" }]);
 			const messageId = operationId();
 			const next = await codex(caller, {
 				kind: "message",
@@ -386,8 +392,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 				prompt: "continue after restart",
 			});
 			expect(next).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
-			expect(await codex(caller, { kind: "await", agentId: started.agentId })).toMatchObject({
-				turn: { state: "completed" },
+			const collected = await collectUntilTurn(caller, started.agentId);
+			expect(collected.turns?.at(-1)).toMatchObject({
+				state: "completed",
 				finalResponse: "done: continue after restart",
 			});
 		} finally {

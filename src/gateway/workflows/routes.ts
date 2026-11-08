@@ -1,15 +1,15 @@
 import { z } from "zod";
-import { AGENT_WAIT_BUDGET_MS } from "../../shared/agent-backend.js";
-import type { Ambient } from "../../shared/ambient.js";
 import { jsonResponse } from "../routeSchemas.js";
 import type { SessionAuthority } from "../sessionAuthority.js";
 import type { WorkflowEngine } from "./engine.js";
 import type { WorkflowRunner } from "./runner.js";
+import { extractWorkflowScript } from "./script.js";
 import {
 	JsonObjectSchema,
 	WorkflowBackendSchema,
 	type WorkflowJournalRow,
 	type WorkflowRunRecord,
+	WorkflowRunStatusSchema,
 } from "./workflowSchemas.js";
 
 const StartSchema = z
@@ -22,42 +22,96 @@ const StartSchema = z
 	})
 	.strict();
 const RunSchema = z.object({ runId: z.string().min(1) }).strict();
-const EmptySchema = z.object({}).strict();
+const LIST_DEFAULT = 20;
+const LIST_MAX = 50;
+const ListSchema = z
+	.object({
+		limit: z.number().int().positive().max(LIST_MAX).optional(),
+		status: WorkflowRunStatusSchema.optional(),
+	})
+	.strict();
+/** Caps partial answers. */
+const PARTIAL_ANSWER_BUDGET_BYTES = 256 * 1024;
+const NAME_MAX = 200;
 
-function stepRows(rows: readonly WorkflowJournalRow[]) {
-	const issues = rows.filter((row) => row.kind === "issue");
-	const settles = new Map(rows.filter((row) => row.kind === "settle").map((row) => [row.issueOrdinal, row]));
-	return issues
-		.map((issue) => {
-			if (issue.kind !== "issue") return null;
-			const settle = settles.get(issue.issueOrdinal);
-			return {
-				label: issue.options.label ?? String(issue.issueOrdinal),
-				backend: issue.resolvedBackend,
-				outcome: settle?.kind === "settle" ? settle.outcome : null,
-				reason: settle?.kind === "settle" ? settle.reason : null,
-			};
-		})
-		.filter((step) => step !== null);
+type Settle = Extract<WorkflowJournalRow, { kind: "settle" }>;
+
+function settlesOf(rows: readonly WorkflowJournalRow[]): Map<number, Settle> {
+	return new Map(rows.filter((row): row is Settle => row.kind === "settle").map((row) => [row.issueOrdinal, row]));
 }
 
-function runAnswer(record: WorkflowRunRecord, rows: readonly WorkflowJournalRow[], phase: string | null) {
+function issuesOf(rows: readonly WorkflowJournalRow[]) {
+	return rows.filter((row) => row.kind === "issue");
+}
+
+function stepRows(rows: readonly WorkflowJournalRow[], withAnswers: boolean) {
+	const settles = settlesOf(rows);
+	let budget = PARTIAL_ANSWER_BUDGET_BYTES;
+	return issuesOf(rows).map((issue) => {
+		const settle = settles.get(issue.issueOrdinal);
+		const step = {
+			label: issue.options.label ?? String(issue.issueOrdinal),
+			backend: issue.resolvedBackend,
+			outcome: settle ? settle.outcome : "pending",
+			reason: settle ? settle.reason : null,
+		};
+		if (!withAnswers || !settle || settle.answer === null) return step;
+		const bytes = Buffer.byteLength(JSON.stringify(settle.answer), "utf8");
+		if (bytes > budget) {
+			budget = 0;
+			return { ...step, answerOmitted: "over the partial answer budget" };
+		}
+		budget -= bytes;
+		return { ...step, answer: settle.answer };
+	});
+}
+
+function collectAnswer(record: WorkflowRunRecord, rows: readonly WorkflowJournalRow[], phase: string | null) {
+	// A succeeded script may return null on purpose.
+	const partial = record.status === "failed" || record.status === "cancelled";
 	return {
 		runId: record.runId,
 		status: record.status,
 		result: record.result,
 		failureReason: record.failureReason,
 		phase,
-		steps: stepRows(rows),
+		steps: stepRows(rows, partial),
+	};
+}
+
+function nameOf(script: string): string | null {
+	try {
+		const name = extractWorkflowScript(script).meta.name;
+		return typeof name === "string" ? name.slice(0, NAME_MAX) : null;
+	} catch {
+		return null;
+	}
+}
+
+function listRow(record: WorkflowRunRecord, rows: readonly WorkflowJournalRow[]) {
+	const settles = settlesOf(rows);
+	const steps: Record<string, number> = {};
+	for (const issue of issuesOf(rows)) {
+		const outcome = settles.get(issue.issueOrdinal)?.outcome ?? "pending";
+		steps[outcome] = (steps[outcome] ?? 0) + 1;
+	}
+	return {
+		runId: record.runId,
+		name: nameOf(record.script),
+		status: record.status,
+		createdAt: record.createdAt,
+		settledAt: record.settledAt,
+		steps,
 	};
 }
 
 export function createWorkflowRoutes(deps: {
 	auth?: SessionAuthority;
-	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
 	runner: WorkflowRunner;
 	engine: WorkflowEngine;
 	sessionStore: { teamOf(record: import("../../shared/session-store.js").SessionRecord): string };
+	/** Withdraws collected-run notices. */
+	withdraw?: (team: string, runId: string) => void;
 }) {
 	function owner(req: Request) {
 		const record = deps.auth?.resolveConfirmedManagedSession(req);
@@ -67,10 +121,6 @@ export function createWorkflowRoutes(deps: {
 	function ownedRun(team: string, runId: string): WorkflowRunRecord | null {
 		const record = deps.runner.get(runId);
 		return record?.team === team ? record : null;
-	}
-
-	async function pause(ms: number): Promise<void> {
-		await new Promise<void>((resolve) => deps.ambient.setTimer(resolve, ms));
 	}
 
 	function workflowStart(req: Request, body: Record<string, unknown>): Response {
@@ -116,36 +166,35 @@ export function createWorkflowRoutes(deps: {
 		);
 	}
 
-	async function workflowCollect(req: Request, body: Record<string, unknown>): Promise<Response> {
+	function workflowCollect(req: Request, body: Record<string, unknown>): Response {
 		const caller = owner(req);
 		if (!caller) return jsonResponse({ error: "a confirmed session token is required" }, 403);
 		const parsed = RunSchema.safeParse(body);
 		if (!parsed.success) return jsonResponse({ error: "Invalid workflow run id" }, 400);
-		let record = ownedRun(caller.team, parsed.data.runId);
+		const record = ownedRun(caller.team, parsed.data.runId);
 		if (!record) return jsonResponse({ error: "No workflow run for this session" }, 404);
-		let remaining = AGENT_WAIT_BUDGET_MS;
-		while (record.status === "running" && remaining > 0) {
-			const wait = Math.min(500, remaining);
-			await pause(wait);
-			remaining -= wait;
-			record = ownedRun(caller.team, parsed.data.runId);
-			if (!record) return jsonResponse({ error: "workflow engine stopped" }, 503);
+		if (record.status !== "running" && !record.collected) {
+			if (!deps.runner.markCollected(record.runId)) {
+				return jsonResponse({ error: "the collected mark could not be saved; collect again" }, 503);
+			}
+			deps.withdraw?.(record.team, record.runId);
 		}
-		return jsonResponse(runAnswer(record, deps.runner.rows(record.runId), deps.engine.phase(record.runId)));
+		return jsonResponse(collectAnswer(record, deps.runner.rows(record.runId), deps.engine.phase(record.runId)));
 	}
 
 	function workflowList(req: Request, body: Record<string, unknown>): Response {
 		const caller = owner(req);
 		if (!caller) return jsonResponse({ error: "a confirmed session token is required" }, 403);
-		if (!EmptySchema.safeParse(body).success) return jsonResponse({ error: "Invalid workflow list request" }, 400);
+		const parsed = ListSchema.safeParse(body);
+		if (!parsed.success) return jsonResponse({ error: "Invalid workflow list request" }, 400);
+		const { limit = LIST_DEFAULT, status } = parsed.data;
 		const runs = deps.runner
 			.runs()
-			.filter((run) => run.team === caller.team)
-			.slice(-50)
+			.filter((run) => run.team === caller.team && (run.status === "running" || !run.collected))
+			.filter((run) => status === undefined || run.status === status)
+			.slice(-limit)
 			.reverse();
-		return jsonResponse({
-			runs: runs.map((run) => runAnswer(run, deps.runner.rows(run.runId), deps.engine.phase(run.runId))),
-		});
+		return jsonResponse({ runs: runs.map((run) => listRow(run, deps.runner.rows(run.runId))) });
 	}
 
 	function workflowStop(req: Request, body: Record<string, unknown>): Response {

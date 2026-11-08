@@ -181,6 +181,15 @@ async function settle() {
 	await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
+async function collectUntilTurn(context: ReturnType<typeof setup>, agentId: string) {
+	for (let attempt = 0; attempt < 100; attempt++) {
+		const body = await (await context.route.handle(context.request(), { kind: "await", agentId })).json();
+		if (Array.isArray(body.turns) && body.turns.length > 0) return body;
+		await settle();
+	}
+	throw new Error(`await did not collect an ended turn for ${agentId}`);
+}
+
 function event(context: ReturnType<typeof setup>, eventId: number, extra: Record<string, unknown>) {
 	return CodexDaemonEventSchema.parse({
 		type: "codex_event",
@@ -201,7 +210,7 @@ afterEach(() => {
 });
 
 describe("Codex relay behavior", () => {
-	it("accepts a start and returns its terminal result through await", async () => {
+	it("accepts a start and collects its terminal result", async () => {
 		const context = setup();
 		const pending = context.route.handle(context.request(), {
 			kind: "start",
@@ -210,12 +219,23 @@ describe("Codex relay behavior", () => {
 		});
 		await Promise.resolve();
 		accepted(context);
+		await settle();
+		const running = await (
+			await context.route.handle(context.request(), {
+				kind: "await",
+				agentId: codexAgentIdForOperation(operations.start),
+			})
+		).json();
+		expect(running).toMatchObject({
+			agentId: codexAgentIdForOperation(operations.start),
+			agentState: "working",
+			running: "turn-1",
+			turns: [],
+		});
 		context.feed(event(context, 1, { kind: "activity", itemId: "item-1", text: "reading" }));
 		context.feed(event(context, 2, { kind: "terminal", state: "completed", finalResponse: "done" }));
 		const started = CodexAgentResultSchema.parse(await (await pending).json());
-		const body = CodexAgentResultSchema.parse(
-			await (await context.route.handle(context.request(), { kind: "await", agentId: started.agentId })).json(),
-		);
+		const body = await collectUntilTurn(context, started.agentId);
 
 		expect(started).toMatchObject({
 			agentState: "working",
@@ -223,7 +243,24 @@ describe("Codex relay behavior", () => {
 			turn: { state: "inProgress" },
 			delivery: "started",
 		});
-		expect(body).toMatchObject({ agentState: "idle", observation: "terminal", finalResponse: "done" });
+		expect(body).toMatchObject({
+			agentId: started.agentId,
+			agentState: "idle",
+			running: null,
+			turns: [
+				{
+					id: "turn-1",
+					state: "completed",
+					delivery: "started",
+					activities: [{ kind: "commentary", text: "reading" }],
+					finalResponse: "done",
+				},
+			],
+		});
+		const empty = await (
+			await context.route.handle(context.request(), { kind: "await", agentId: started.agentId })
+		).json();
+		expect(empty).toMatchObject({ agentId: started.agentId, running: null, turns: [] });
 		expect(context.agent()?.turns[0]).toMatchObject({ state: "completed", activities: [{ itemId: "item-1" }] });
 		expect(context.commands().find((frame) => frame.kind === "start")).toMatchObject({
 			ownerKey: context.store.teamOf(context.owner),
@@ -353,6 +390,7 @@ describe("Codex relay behavior", () => {
 			context.feed(event(context, 1, { kind: "terminal", state: "completed", finalResponse: "done" }));
 			await settle();
 			const agentId = codexAgentIdForOperation(operations.start);
+			await collectUntilTurn(context, agentId);
 			if (daemonInstanceId !== "daemon-1") context.registerHost(daemonInstanceId);
 			const pending = context.route.handle(context.request(), {
 				kind: "message",
@@ -387,9 +425,7 @@ describe("Codex relay behavior", () => {
 			);
 
 			const acceptedAnswer = CodexAgentResultSchema.parse(await (await pending).json());
-			const terminalAnswer = CodexAgentResultSchema.parse(
-				await (await context.route.handle(context.request(), { kind: "await", agentId })).json(),
-			);
+			const terminalAnswer = await collectUntilTurn(context, agentId);
 			expect(acceptedAnswer).toMatchObject({
 				agentState: "working",
 				observation: "accepted",
@@ -397,9 +433,10 @@ describe("Codex relay behavior", () => {
 				delivery: "started",
 			});
 			expect(terminalAnswer).toMatchObject({
+				agentId,
 				agentState: "idle",
-				observation: "terminal",
-				finalResponse: "again",
+				running: null,
+				turns: [{ id: "turn-2", state: "completed", finalResponse: "again" }],
 			});
 		},
 	);
@@ -599,7 +636,7 @@ describe("Codex relay behavior", () => {
 				agentId: codexAgentIdForOperation(operations.start),
 			})
 		).json();
-		expect(awaited).toMatchObject({ agentState: "unavailable" });
+		expect(awaited).toMatchObject({ agentState: "unavailable", error: { code: "agent_dead" } });
 
 		const context = setup({ waitBudgetMs: 10 });
 		const first = { kind: "start", operationId: operations.start, prompt: "Audit" } as const;

@@ -1,5 +1,6 @@
 import type { AgentBackendId } from "../../shared/agent-backend.js";
 import type { AgentNotice } from "../../shared/agent-notice.js";
+import type { AgentTurnMarks } from "../../shared/agent-turn-marks.js";
 import type { CodexServiceTier } from "../../shared/codex-agent.js";
 import type { LocalExchangeRecord } from "./localAgentHandlers.js";
 import { LocalAgentHandlers } from "./localAgentHandlers.js";
@@ -36,6 +37,13 @@ export interface LocalAgentAnswer {
 	error?: LocalError;
 }
 
+export interface LocalCollectAnswer {
+	agentId: string;
+	agentState: string;
+	running: string | null;
+	turns: unknown[];
+}
+
 export interface LocalRequest {
 	kind: "start" | "message" | "await" | "stop" | "list";
 	operationId?: string;
@@ -52,7 +60,6 @@ export interface LocalBackendSpec {
 	backendId: AgentBackendId;
 	openSession(): Promise<LocalBackendSession>;
 	defaultCwd(): string;
-	waitBudgetMs: number;
 	busyMessage?: string;
 	followupDelivery: string;
 	maxActivities: number;
@@ -79,6 +86,7 @@ export interface LocalListAgent {
 		error?: string;
 		updatedAt: number;
 	}>;
+	turnMarks: AgentTurnMarks;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -113,7 +121,7 @@ export class LocalAgentRuntime {
 		return this.child.reapIfIdle();
 	}
 
-	async handle(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal> {
+	async handle(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal | LocalCollectAnswer> {
 		// Hold the lease across the whole request, including child calls.
 		this.inFlight += 1;
 		try {
@@ -129,14 +137,14 @@ export class LocalAgentRuntime {
 		}
 	}
 
-	private async dispatch(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal> {
+	private async dispatch(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal | LocalCollectAnswer> {
 		switch (request.kind) {
 			case "start":
 				return await this.handlers.start(request);
 			case "message":
 				return await this.handlers.message(request);
 			case "await":
-				return await this.handlers.awaitTurn(request);
+				return this.handlers.collect(request);
 			case "stop":
 				return await this.handlers.stop(request);
 			default:
@@ -144,8 +152,9 @@ export class LocalAgentRuntime {
 		}
 	}
 
-	private unstarted(answer: LocalAgentAnswer | LocalRefusal): boolean {
-		return "refused" in answer ? false : answer.observation === "unavailable" && answer.error?.retryable === true;
+	private unstarted(answer: LocalAgentAnswer | LocalRefusal | LocalCollectAnswer): boolean {
+		if ("refused" in answer || "running" in answer) return false;
+		return answer.observation === "unavailable" && answer.error?.retryable === true;
 	}
 
 	list(): LocalListAgent[] {

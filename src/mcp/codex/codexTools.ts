@@ -27,7 +27,6 @@ export function codexRequestBody(
 		cwd?: string;
 		serviceTier?: CodexServiceTier;
 		outputSchema?: Record<string, unknown>;
-		detail?: "summary" | "full";
 		limit?: number;
 	} = {},
 ): Record<string, unknown> {
@@ -36,7 +35,6 @@ export function codexRequestBody(
 	return {
 		...requestHead(kind),
 		...(args.agentId === undefined ? {} : { agentId: args.agentId }),
-		...(kind === "list" && args.detail === undefined ? {} : kind === "list" ? { detail: args.detail } : {}),
 		...(kind === "list" && args.limit === undefined ? {} : kind === "list" ? { limit: args.limit } : {}),
 		...(args.prompt === undefined ? {} : { prompt: args.prompt }),
 		...(kind === "start" && chosen.model !== undefined ? { model: chosen.model } : {}),

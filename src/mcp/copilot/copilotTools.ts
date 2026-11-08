@@ -10,6 +10,7 @@ export interface CopilotToolArgs {
 	cwd?: string;
 	reasoningEffort?: string;
 	outputSchema?: Record<string, unknown>;
+	limit?: number;
 }
 
 /** Absent is OMITTED, since the gateway's schemas are strict. */
@@ -18,6 +19,7 @@ export function copilotRequestBody(kind: AgentRequestKind, args: CopilotToolArgs
 	return {
 		...requestHead(kind),
 		...(args.agentId === undefined ? {} : { agentId: args.agentId }),
+		...(kind === "list" && args.limit !== undefined ? { limit: args.limit } : {}),
 		...(args.prompt === undefined ? {} : { prompt: args.prompt }),
 		...(kind === "start" && args.model !== undefined ? { model: args.model } : {}),
 		...(kind === "start" && args.cwd !== undefined ? { cwd: args.cwd } : {}),
