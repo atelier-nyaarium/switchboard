@@ -63,6 +63,37 @@ describe("awareness bank", () => {
 		expect(Buffer.from(body, "utf8").toString("utf8")).toBe(body);
 	});
 
+	it("bursts what does not fit into following pushes, each change told once and none cut", () => {
+		const pushes: ChannelPushPayload[] = [];
+		const told: string[] = [];
+		const bank = createAwarenessBank({
+			liveness: () => "live",
+			deliver: (_s, payload) => {
+				pushes.push(payload);
+				return true;
+			},
+			ambient: processAmbient(),
+		});
+		const observe = bank.register<string>({
+			source: "fake",
+			act: () => "act_now",
+			render: (_s, changes) => changes.map((c) => `${c.identity} ${"x".repeat(200)}`).join("\n"),
+			delivered: (_s, change) => told.push(change.identity),
+		});
+		const identities = Array.from({ length: 200 }, (_, index) => `n${index}`);
+		observe(identities.map((identity) => ({ sessionKey: "s", identity, pre: undefined, post: "done" })));
+
+		bank.tick(Date.now() + 120_000);
+
+		expect(pushes.length).toBeGreaterThan(1);
+		for (const push of pushes) {
+			expect(push.awareness?.body.length).toBeLessThanOrEqual(MAX_AWARENESS_BODY_CHARS);
+			expect(push.awareness?.body).not.toContain("More changed");
+		}
+		expect(told).toEqual(identities);
+		expect(bank.prepareFor("s")).toBeNull();
+	});
+
 	it("drops a gone session's bank that only rides a later message, after the hold", () => {
 		let now = 0;
 		const bank = createAwarenessBank({

@@ -11,6 +11,8 @@ export type SessionLiveness = "live" | "waking" | "gone";
 /** What one carrier holds, settled once. */
 export interface AwarenessLease {
 	readonly awareness: RidingAwareness;
+	/** Changes were left for the next push. */
+	readonly overflowed: boolean;
 	/** The carrier was accepted; changes observed since stay banked. */
 	commit(): void;
 	/** The carrier was refused; everything stays banked. */
@@ -98,21 +100,51 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 		return `${body.slice(0, cut)}\n\n${TRUNCATED_NOTE}`;
 	}
 
-	/** Renders current net changes. */
-	function content(sessionKey: string, bank: SessionBank): RidingAwareness | null {
+	type Carried = Map<Entry, Map<string, Change<unknown>>>;
+
+	/**
+	 * Renders as many banked changes as fit one body, whole; the rest wait for the next push.
+	 * A single change too large alone is cut.
+	 */
+	function content(
+		sessionKey: string,
+		bank: SessionBank,
+	): { awareness: RidingAwareness; carried: Carried; overflowed: boolean } | null {
 		const rendered: { from: string; body: string; act: ActAxis }[] = [];
+		const carried: Carried = new Map();
+		let size = 0;
+		let overflowed = false;
 		for (const entry of bank.entries.values()) {
-			const changes = [...entry.changes.values()];
-			const body = entry.subscriber.render(sessionKey, changes);
+			if (overflowed) break;
+			const taken = new Map<string, Change<unknown>>();
+			let body = "";
+			for (const [identity, change] of entry.changes) {
+				const trial = new Map(taken).set(identity, change);
+				const trialBody = entry.subscriber.render(sessionKey, [...trial.values()]);
+				const joined = size + (rendered.length > 0 && trialBody ? 2 : 0) + trialBody.length;
+				if (joined > MAX_AWARENESS_BODY_CHARS && (rendered.length > 0 || body)) {
+					overflowed = true;
+					break;
+				}
+				taken.set(identity, change);
+				body = trialBody;
+			}
+			if (taken.size === 0) continue;
+			carried.set(entry, taken);
 			if (!body) continue;
-			const urgent = changes.some((change) => isUrgent(sessionKey, entry, change));
+			const urgent = [...taken.values()].some((change) => isUrgent(sessionKey, entry, change));
+			size += (rendered.length > 0 ? 2 : 0) + body.length;
 			rendered.push({ from: entry.subscriber.source, body, act: urgent ? "act_now" : "no_act" });
 		}
 		if (rendered.length === 0) return null;
 		return {
-			from: rendered.map((item) => item.from).join(", "),
-			body: bounded(rendered.map((item) => item.body).join("\n\n")),
-			act: rendered.some((item) => item.act === "act_now") ? "act_now" : "no_act",
+			awareness: {
+				from: rendered.map((item) => item.from).join(", "),
+				body: bounded(rendered.map((item) => item.body).join("\n\n")),
+				act: rendered.some((item) => item.act === "act_now") ? "act_now" : "no_act",
+			},
+			carried,
+			overflowed,
 		};
 	}
 
@@ -132,7 +164,7 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 	}
 
 	/** Removes what a carrier held. A change observed since keeps its delta from what was delivered. */
-	function settle(sessionKey: string, bank: SessionBank, carried: Map<Entry, Map<string, Change<unknown>>>): void {
+	function settle(sessionKey: string, bank: SessionBank, carried: Carried, overflowed: boolean): void {
 		bank.leased = false;
 		if (sessions.get(sessionKey) !== bank) return;
 		for (const [entry, changes] of carried) {
@@ -148,21 +180,27 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 			return;
 		}
 		rearm(sessionKey, bank);
+		// What did not fit follows at once.
+		if (overflowed) {
+			bank.heldSince ??= clock();
+			bank.dueAt = clock();
+		}
 	}
 
 	function prepareFor(sessionKey: string): AwarenessLease | null {
 		const bank = sessions.get(sessionKey);
 		if (!bank || bank.leased) return null;
-		const awareness = content(sessionKey, bank);
-		if (!awareness) {
+		const filled = content(sessionKey, bank);
+		if (!filled) {
 			sessions.delete(sessionKey);
 			return null;
 		}
-		const carried = new Map([...bank.entries.values()].map((entry) => [entry, new Map(entry.changes)]));
+		const { awareness, carried, overflowed } = filled;
 		bank.leased = true;
 		let settled = false;
 		return {
 			awareness,
+			overflowed,
 			commit() {
 				if (settled) return;
 				settled = true;
@@ -175,7 +213,7 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 						} catch {}
 					}
 				}
-				settle(sessionKey, bank, carried);
+				settle(sessionKey, bank, carried, overflowed);
 			},
 			release() {
 				if (settled) return;
@@ -214,6 +252,8 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 		if (sent) {
 			lease.commit();
 			console.error(`[awareness] pushed content to ${sessionKey}`);
+			// The rest of a burst goes now, not on the next tick.
+			if (lease.overflowed && sessions.get(sessionKey) === bank) deadline(sessionKey, bank, now);
 			return;
 		}
 		lease.release();

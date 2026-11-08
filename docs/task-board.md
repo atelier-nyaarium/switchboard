@@ -99,7 +99,7 @@ set land in one journal line, and a write naming anything else is refused `attac
 - Both holders of a changed entry receive awareness, classified from pre/post visibility. A self-echo
   is skipped.
 - Rank-only reorders announce nothing.
-- Awareness bodies are bounded by the bank (`MAX_AWARENESS_BODY_CHARS`), whatever each subscriber renders.
+- Awareness bodies are bounded by the bank (`MAX_AWARENESS_BODY_CHARS`). A push carries the banked changes that fit whole; the rest follow in further pushes at once, and only carried changes are marked delivered. A single change too large alone is cut.
   Liveness distinguishes waking from gone and uses `WAKE_TIMEOUT_MS`.
 - The phone drains board edits before sending the next wire message.
 - **Files the owner changed from the phone ride too:** each span save or file mutation the console answers
