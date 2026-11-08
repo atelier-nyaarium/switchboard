@@ -104,8 +104,17 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 		inbound,
 		ready: () => confirmed,
 		registered: () => registerAnswer,
+		// Owner tiers; undefined omits.
 		reply: (sessionId, response, extra = {}) =>
-			post("/respond", { session_id: sessionId, response, conversationId: options.conversationId, ...extra }),
+			post("/respond", {
+				session_id: sessionId,
+				response,
+				title: "Reply",
+				summary: "A reply.",
+				fullSpoken: response,
+				conversationId: options.conversationId,
+				...extra,
+			}),
 		post,
 		get,
 		close: () => {

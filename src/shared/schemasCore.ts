@@ -45,10 +45,17 @@ export const GuidedNoticeTiers = {
 	fullSpoken: NoticeFullSpoken.describe(`${NoticeFullSpoken.description}${REAL_NEWLINES_GUIDANCE}`),
 };
 
+const OWNER_ONLY = ` Owner replies only. Omit when replying to another session.`;
+
+const forOwner = (tier: z.ZodString) => tier.optional().describe(`${tier.description}${OWNER_ONLY}`);
+
 export const ChannelReplySchema = z
 	.object({
 		session_id: z.string().describe(`The session_id for this request. Required to route the reply correctly.`),
-		...GuidedNoticeTiers,
+		title: forOwner(GuidedNoticeTiers.title),
+		summary: forOwner(GuidedNoticeTiers.summary),
+		full: GuidedNoticeTiers.full,
+		fullSpoken: forOwner(GuidedNoticeTiers.fullSpoken),
 		attachments: z
 			.array(z.string())
 			.optional()

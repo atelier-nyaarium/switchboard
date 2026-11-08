@@ -22,6 +22,15 @@ export function dstDomainOf(contract: JobContract): string | null {
 	return contract.kind === "local" ? null : contract.dstDomainId;
 }
 
+export function askedByOwner(contract: JobContract): boolean {
+	return contract.kind !== "inbound" && contract.reply.kind === "owner";
+}
+
+/** An inbound asker is unknown here. */
+export function askedBySession(contract: JobContract): boolean {
+	return contract.kind !== "inbound" && contract.reply.kind === "conversation";
+}
+
 function sameReply(a: LocalReply, b: LocalReply): boolean {
 	if (a.kind === "owner") return b.kind === "owner" && a.ownerId === b.ownerId;
 	return b.kind === "conversation" && a.conversationId === b.conversationId;
@@ -277,6 +286,10 @@ export class PendingJobStore<T> {
 
 	askerOf(id: string): string | undefined {
 		return this.entries.get(id)?.from;
+	}
+
+	contractOf(id: string): JobContract | undefined {
+		return this.entries.get(id)?.contract;
 	}
 
 	settle(id: string, result: T): SettleMeta | false {

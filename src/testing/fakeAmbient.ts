@@ -24,8 +24,10 @@ const ADVANCE_STEP_LIMIT = 20_000;
 const yieldToLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 export function fakeAmbient(options: FakeAmbientOptions = {}): FakeAmbient {
-	const base = options.now ?? Date.now;
 	const manual = options.drive === "manual";
+	// Frozen between advances.
+	const startedAt = Date.now();
+	const base = options.now ?? (manual ? () => startedAt : Date.now);
 	const seed = options.seed ?? crypto.randomBytes(32);
 	let offset = 0;
 	let draws = 0;

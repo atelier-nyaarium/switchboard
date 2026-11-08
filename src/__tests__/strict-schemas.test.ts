@@ -35,10 +35,13 @@ describe("ChannelReplySchema", () => {
 		expect(r.success).toBe(false);
 	});
 
-	it("requires every tier (a reply missing any of the four is rejected)", () => {
-		for (const tier of ["title", "summary", "full", "fullSpoken"] as const) {
-			const { [tier]: _dropped, ...rest } = VALID_REPLY;
-			expect(ChannelReplySchema.safeParse(rest).success).toBe(false);
+	it("needs the body; the spoken tiers are optional but never blank", () => {
+		const { title: _title, summary: _summary, fullSpoken: _spoken, ...bodyOnly } = VALID_REPLY;
+		expect(ChannelReplySchema.safeParse(bodyOnly).success).toBe(true);
+		const { full: _full, ...noBody } = VALID_REPLY;
+		expect(ChannelReplySchema.safeParse(noBody).success).toBe(false);
+		for (const tier of ["title", "summary", "fullSpoken"] as const) {
+			expect(ChannelReplySchema.safeParse({ ...VALID_REPLY, [tier]: "" }).success).toBe(false);
 		}
 	});
 

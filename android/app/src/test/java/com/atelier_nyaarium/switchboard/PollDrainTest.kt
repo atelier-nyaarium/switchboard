@@ -59,14 +59,19 @@ class PollDrainTest {
 			appended += team to message
 			return true
 		}
-		override fun autoPlayTier(): SttsPlayer.Tier? = null
-		override fun isSttsReady() = false
+		var autoTier: SttsPlayer.Tier? = null
+		var sttsReady = false
+		val played = mutableListOf<Long>()
+		override fun autoPlayTier(): SttsPlayer.Tier? = autoTier
+		override fun isSttsReady() = sttsReady
 		val inbound = mutableListOf<Pair<String, List<Message>>>()
 		override fun onInbound(team: String, messages: List<Message>) {
 			inbound += team to messages
 		}
 		override fun preloadMessage(team: String, at: Long) = Unit
-		override suspend fun enqueueForPlay(team: String, at: Long, tier: SttsPlayer.Tier) = Unit
+		override suspend fun enqueueForPlay(team: String, at: Long, tier: SttsPlayer.Tier) {
+			played += at
+		}
 		override fun commitMailbox(cursor: SyncCursor) = Unit
 		override fun decodeAttachments(files: List<ChannelFile>?) = emptyList<MessageFile>()
 		override fun fetchPendingAttachments() = Unit
@@ -117,6 +122,39 @@ class PollDrainTest {
 		drain.processEntries(listOf(peer, notice), cursor = 2L, epoch = 1L, dropped = 0L)
 		assertEquals(listOf(session.canonical, "dom.gw.host.def"), host.appended.map { it.first })
 		assertEquals(true, host.appended.first().second.isPeer)
+	}
+
+	@Test
+	fun autoPlaySpeaksAnAgentRowAndNeverTwoSessionsTalking() = runBlocking {
+		val session = Address.of("dom", "gw", "host", "abc")
+		val host = FakeHost(emptyMap()).apply {
+			autoTier = SttsPlayer.Tier.FULL
+			sttsReady = true
+			state.value = ChatState(openTabs = listOf(session.canonical))
+		}
+		val drain = PollDrain(host, IdlePresencePort)
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
+		val row = { seq: Long, kind: String ->
+			MailboxEntry(
+				seq = seq,
+				at = seq,
+				kind = kind,
+				session_id = storeKey(SessionKey.Conv("owner", session)),
+				from = "dom.gw.other.x",
+				to = session.canonical,
+				body = "hello",
+			)
+		}
+
+		try {
+			drain.start(scope)
+			drain.processEntries(listOf(row(1L, "peer"), row(2L, "reply"), row(3L, "peer")), cursor = 3L, epoch = 1L, dropped = 0L)
+			assertEquals(listOf(2L), host.played)
+			assertEquals(listOf(1L, 2L, 3L), host.inbound.single().second.map { it.seq })
+		} finally {
+			drain.stopAndJoin()
+			scope.cancel()
+		}
 	}
 
 	@Test

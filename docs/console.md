@@ -71,6 +71,16 @@ row, and mirrors a thread as `peer` rows only when the asker is a session, which
 names. The phone threads a drained row by its store key: a conv row under its own address, a
 notice row under its sender. Nothing on either side compares an address to the phone's own.
 
+**Auto-play skips peer rows.** A reply to the owner carries title, summary and fullSpoken, and
+`routesRespond` refuses one missing a tier before it settles, so the reply can be sent again. A
+reply to a session on this Gateway carries none: the route drops them from the store and the
+mirrors, and `channel_reply` makes them optional at the tool. A peer row never carries tiers, and
+`PollDrain` does not auto-play it, so the body is not spoken in their place; a tap on a peer row
+still plays it.
+- **A remote asker is judged at its own Gateway:** an inbound job cannot say whether the asker was
+  the owner, so the answering Gateway relays the tiers it was sent and the source Gateway, whose
+  job names its asker, keeps or drops them. It cannot refuse a missing tier for the owner.
+
 ### No Gateway is the phone's own
 
 The phone holds no home Gateway and no default for one. Every console call names its Gateway, a

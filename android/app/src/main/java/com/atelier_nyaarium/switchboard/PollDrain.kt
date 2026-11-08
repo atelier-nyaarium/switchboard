@@ -330,7 +330,6 @@ internal class PollDrain(
 			if (appended && !message.isQuiet()) burst.getOrPut(team) { mutableListOf() }.add(message)
 		}
 		val burstJobs = mutableListOf<Job>()
-		val autoPlayedPeerPairs = mutableSetOf<String>()
 		for ((team, messages) in burst) {
 			val lastAgent = messages.lastOrNull { !it.fromMe }
 			val scope = pollScope
@@ -338,8 +337,8 @@ internal class PollDrain(
 			val followed = team in followedTeams(host.state.value)
 			val eligible = scope != null && lastAgent != null && host.isSttsReady() && followed && speaksForHold(true) &&
 				(host.autoGenerate || autoTier != null)
-			val queueable = if (!eligible) emptyList() else messages.filter { !it.fromMe }
-				.filterNot { isDuplicatePeerAutoPlay(it, autoPlayedPeerPairs) }
+			// Skip peers during auto-play.
+			val queueable = if (!eligible) emptyList() else messages.filter { !it.fromMe && !it.isPeer }
 			if (eligible && queueable.isNotEmpty()) {
 				val warm = queueable.first()
 				burstJobs += scope!!.launch(Dispatchers.IO) {

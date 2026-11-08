@@ -119,7 +119,9 @@ export function registerChannelReply(
 
 Reply to an incoming channel message. Conversations are streams, so call this repeatedly on the same \`session_id\` when needed.
 
-\`session_id\`, \`title\`, \`summary\`, \`full\`, and \`fullSpoken\` are required.
+\`session_id\` and \`full\` are required.
+
+Replying to the owner, \`title\`, \`summary\`, and \`fullSpoken\` are required too. Replying to another session, omit them.
 
 Send responses verbatim unless the requester asked for a summary.${guidance}
 `.trim(),

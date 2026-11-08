@@ -36,24 +36,6 @@ internal fun threadsAfterForget(threads: Map<String, List<Message>>, key: String
 }
 
 /**
- * Whether a peer-mirrored message is the SECOND copy of one already claimed this poll pass. One
- * exchange reaches the burst loop twice, once per participant's thread, and would be spoken twice
- * over when both threads are followed.
- *
- * Keyed on CONTENT, not on `at`: the two copies do not share a timestamp, while body and files are
- * shared by both. Keying on `(from, to)` alone would collapse distinct exchanges between the same
- * pair, which matters now that a pass can queue more than one message.
- *
- * Residue: two IDENTICAL messages between the same pair in one burst collide and one is dropped.
- * Closing that needs a shared exchange id on the wire.
- */
-internal fun isDuplicatePeerAutoPlay(message: Message?, seen: MutableSet<String>): Boolean {
-	val peer = message?.takeIf { it.isPeer } ?: return false
-	val files = peer.files.joinToString(",") { "${it.name}:${it.size}" }
-	return !seen.add("${peer.from}|${peer.to}|${peer.text.hashCode()}|${peer.text.length}|$files")
-}
-
-/**
  * Drops any team whose forget-tombstone has not yet passed `now`, masking a teams() snapshot that
  * was dispatched before a forget reached the server and resolves after the local removal.
  *

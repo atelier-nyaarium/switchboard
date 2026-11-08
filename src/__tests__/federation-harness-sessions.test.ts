@@ -248,6 +248,44 @@ describe("sessions, bindings, and console operations", () => {
 		expect(entries.map((entry) => entry.body)).not.toContain("not mine");
 	});
 
+	it("puts nothing spoken on the phone for a session answering a session, sent tiers or not", async () => {
+		// Launched by the daemon, so each holds a bind token and its replies mirror onto both threads.
+		const launched = async (displayLabel: string): Promise<FakeSession> => {
+			h.host.handlers.onCreateSession = (op) =>
+				session(composeSessionName(op.target.name, op.target.sessionName), { sessionToken: op.sessionToken });
+			const before = sessions.length;
+			await h.phone.value({ kind: "create_session", target: h.target("host"), displayLabel });
+			const made = await h.waitFor(() => sessions[before], `the launch of ${displayLabel}`);
+			await made.ready();
+			return made;
+		};
+		const asker = await launched("Crosstalk asker");
+		const answerer = await launched("Crosstalk answerer");
+		const peerRows = async (body: string) =>
+			h.phone.entries(await h.phone.inboxRead()).filter((entry) => entry.kind === "peer" && entry.body === body);
+
+		for (const [ask, answer, spoken] of [
+			["ping", "pong", { title: undefined, summary: undefined, fullSpoken: undefined }],
+			["ping again", "pong again", {}],
+		] as const) {
+			const sent = await asker.post("/send", {
+				from: asker.team,
+				fromConversationId: asker.conversationId,
+				to: answerer.team,
+				body: ask,
+			});
+			expect(sent.status).toBe(200);
+			const push = await h.waitFor(() => answerer.inbound.find((frame) => frame.body === ask), "push");
+			expect((await answerer.reply(String(push.session_id), answer, spoken)).status).toBe(200);
+			const rows = await h.waitFor(async () => {
+				const found = await peerRows(answer);
+				return found.length > 0 ? found : undefined;
+			}, `the mirrored "${answer}"`);
+			for (const row of rows)
+				expect([row.title, row.summary, row.fullSpoken]).toEqual([undefined, undefined, undefined]);
+		}
+	});
+
 	it("never mints a host session from a send, and refuses a wake on a spawn point", async () => {
 		const live = session("fixture-app.sender");
 		await live.ready();

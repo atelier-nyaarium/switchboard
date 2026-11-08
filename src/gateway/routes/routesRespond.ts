@@ -1,7 +1,7 @@
 import { isNoAckSessionId } from "../../shared/agent-notice.js";
 import type { Ambient } from "../../shared/ambient.js";
-import { pickTiers } from "../../shared/notice.js";
-import type { PendingJobStore } from "../../shared/pending-job-store.js";
+import { pickTiers, SPOKEN_TIER_FIELDS } from "../../shared/notice.js";
+import { askedByOwner, askedBySession, type PendingJobStore } from "../../shared/pending-job-store.js";
 import { type Address, parseStoreKey } from "../../shared/session-id.js";
 import type { GatewayConfig, ResponsePayload, ResponsePushPayload } from "../../shared/types.js";
 import {
@@ -23,7 +23,7 @@ export interface RespondRoutesDeps {
 	ambient: Pick<Ambient, "newId">;
 	localDomain: string;
 	conversationRegistry: ConversationRegistry;
-	store: Pick<PendingJobStore<ResponsePayload>, "settle" | "targetOf" | "has" | "poll">;
+	store: Pick<PendingJobStore<ResponsePayload>, "settle" | "targetOf" | "contractOf" | "has" | "poll">;
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
@@ -132,12 +132,17 @@ export function createRespondRoutes({
 			}
 		}
 
+		// Spoken tiers are owner-only.
+		const asker = store.contractOf(respondSessionId);
+		const toOwner = asker !== undefined && askedByOwner(asker);
+		const toSession = asker !== undefined && askedBySession(asker);
+
 		// If JSON reply provided but no explicit response string, pretty-stringify for text consumers.
 		const response: ResponsePayload = {
 			session_id: respondSessionId,
 			status: rest.status as ResponsePayload["status"] | undefined,
 			response: rest.response,
-			...pickTiers(rest),
+			...(toSession ? {} : pickTiers(rest)),
 			question: rest.question,
 			reason: rest.reason,
 			estimated_minutes: rest.estimated_minutes,
@@ -158,6 +163,19 @@ export function createRespondRoutes({
 		if (jobTarget && !opts.consoleSender && !opts.trustedInbound) {
 			const refused = refuseForeignReply(req, jobTarget);
 			if (refused) return refused;
+		}
+
+		// Refuse before settle.
+		if (toOwner && !opts.consoleSender && !opts.trustedInbound && response.response && !replyAsJson) {
+			const missing = SPOKEN_TIER_FIELDS.filter((field) => !response[field]);
+			if (missing.length > 0) {
+				return jsonResponse(
+					{
+						error: `A reply to the owner needs ${missing.join(", ")}. Send title, summary, full and fullSpoken.`,
+					},
+					400,
+				);
+			}
 		}
 
 		// The session_id is the opaque store key the agent echoes verbatim.
@@ -214,7 +232,6 @@ export function createRespondRoutes({
 					body: response.response,
 					files,
 					status: response.status,
-					...pickTiers(response),
 				});
 			}
 			return jsonResponse({ recorded: true, federated: true, relaying: true });
@@ -289,7 +306,6 @@ export function createRespondRoutes({
 				body: response.response,
 				files,
 				status: response.status,
-				...pickTiers(response),
 			};
 			if (isRemoteAnchor) {
 				mirrorPeer(askerAddr, deliverResult.to, askerAddr.canonical, mirrorPayload);
