@@ -112,7 +112,7 @@ export interface FakeHost {
 	sendCopilot(frame: CopilotDaemonEvent | CopilotDaemonReceipt): void;
 	announceCatalog(): void;
 	/** What the daemon derives from that session's pane; null is nobody having said. */
-	reportWorking(team: string, working: boolean | null): void;
+	reportWorking(team: string, working: boolean | null, compacting?: boolean): void;
 	close(): void;
 }
 
@@ -345,11 +345,12 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		sendCodex,
 		sendCopilot,
 		announceCatalog,
-		reportWorking: (team, working) =>
+		reportWorking: (team, working, compacting) =>
 			send({
 				type: "presence_derive",
 				team,
 				...(working === null ? {} : { working, needsLogin: false, limitBlocked: false }),
+				...(compacting === undefined ? {} : { compacting }),
 			}),
 		close: () => {
 			for (const timer of activeClaudeTurns.values()) clearTimeout(timer);

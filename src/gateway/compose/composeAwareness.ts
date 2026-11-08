@@ -2,8 +2,9 @@
 
 import { AGENT_NOTICE_SOURCE } from "../../shared/agent-notice.js";
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
-import type { AwarenessObservation } from "../../shared/awareness-types.js";
+import type { AwarenessObservation, AwarenessSubscriber } from "../../shared/awareness-types.js";
 import type { BoardEntry } from "../../shared/console-protocol.js";
+import { baselineLines, type SessionBaseline } from "../../shared/session-baseline.js";
 import { agentTurnIdentity, createAgentAwarenessSubscriber, createAgentWatch } from "../agentAwareness.js";
 import { type AwarenessBank, createAwarenessBank } from "../awarenessBank.js";
 import { boardAwarenessSubscriber } from "../boardAwareness.js";
@@ -37,8 +38,17 @@ export interface AwarenessStage {
 	boardObserve: (observations: readonly AwarenessObservation<BoardEntry>[]) => void;
 	workspaceObserve: (observations: readonly AwarenessObservation<WorkspaceChange>[]) => void;
 	workflowWatch: WorkflowWatch;
+	baselineObserve: (team: string, baseline: SessionBaseline) => void;
 	awarenessTimer: IntervalHandle;
 }
+
+const baselineAwarenessSubscriber: AwarenessSubscriber<SessionBaseline> = {
+	source: "baseline",
+	pushAfterMs: 0,
+	act: () => "no_act",
+	push: () => true,
+	render: (_team, changes) => changes.flatMap((change) => (change.post ? baselineLines(change.post) : [])).join("\n"),
+};
 
 export function composeAwareness({
 	sessions,
@@ -63,6 +73,7 @@ export function composeAwareness({
 		},
 	});
 	const boardObserve = awareness.register(boardAwarenessSubscriber);
+	const observeBaseline = awareness.register(baselineAwarenessSubscriber);
 	const workspaceObserve = awareness.register(workspaceAwarenessSubscriber);
 	const workflowObserve = awareness.register(
 		createWorkflowAwarenessSubscriber((runId) => workflows.runner.markNotified(runId)),
@@ -117,5 +128,13 @@ export function composeAwareness({
 		}
 	}, 1_000);
 
-	return { awareness, boardObserve, workspaceObserve, workflowWatch, awarenessTimer };
+	return {
+		awareness,
+		boardObserve,
+		workspaceObserve,
+		workflowWatch,
+		baselineObserve: (team, baseline) =>
+			observeBaseline([{ sessionKey: team, identity: "compaction", pre: undefined, post: baseline }]),
+		awarenessTimer,
+	};
 }

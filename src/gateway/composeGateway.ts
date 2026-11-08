@@ -308,6 +308,14 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		},
 	});
 	const baseline = composeBaseline({ context, stores, sessions, routines, workflows, assistant });
+	websockets.onCopilotCompacted((team) => {
+		baseline
+			.baselineFor(team)
+			.then((held) => {
+				if (sessions.sessionStore.getByTeam(team)?.harness === "copilot") awareness.baselineObserve(team, held);
+			})
+			.catch((error) => console.error(`[baseline] Copilot push failed for ${team}:`, error));
+	});
 	const policies = composePolicies({
 		dataDir: bootstrap.dataDir,
 		onPolicyMoved: (policyId) => vault?.policyMoved(policyId),

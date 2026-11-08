@@ -1,7 +1,7 @@
 // Session baseline after compaction.
 
 import { z } from "zod";
-import { oneLine } from "./system-reminder.js";
+import { neutralizeMarkup, oneLine, reminderBlock } from "./system-reminder.js";
 
 ////////////////////////////////
 //  Constants
@@ -88,4 +88,53 @@ export function holdLine(hold: BaselineHold): string {
 	if (hold.kind === "held") return `phone hold: held by ${oneLine(hold.label)}, ${hold.remainingMs}ms remaining`;
 	if (hold.kind === "lapsed") return `phone hold: lapsed ${hold.lapsedMs}ms ago, last held by ${oneLine(hold.label)}`;
 	return "phone hold: none";
+}
+
+const WRAPPER_CHARS = reminderBlock(["-"]).length - 1;
+
+function linesOf(baseline: SessionBaseline): string[] {
+	return [
+		...baseline.conversations.map(({ sessionId, peer }) =>
+			peer.kind === "owner"
+				? `conversation: ${sessionId} owner`
+				: `conversation: ${sessionId} ${oneLine(peer.name)}`,
+		),
+		...baseline.routines.map(({ occurrenceId, routine }) => `routine: ${occurrenceId} ${oneLine(routine)}`),
+		...(baseline.runningRuns ?? []).map(
+			({ runId, phase, stepsRunning }) =>
+				`workflow: ${runId} running, phase ${oneLine(phase ?? "not started")}, ${stepsRunning} step(s) running`,
+		),
+		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
+		...(baseline.assistant?.hold === undefined ? [] : [holdLine(baseline.assistant.hold)]),
+		...(baseline.assistant?.watchers ?? []).map(
+			({ label, unread, capped, checked, stopped, waiting }) =>
+				`watcher: ${oneLine(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +
+				(stopped === undefined ? "" : `, stopped: ${oneLine(stopped)}`) +
+				(waiting === undefined ? "" : `, waiting: ${oneLine(waiting)}`),
+		),
+		...(baseline.board === null
+			? ["board: unavailable"]
+			: baseline.board.map(
+					({ id, title, state, parent }) =>
+						`board: ${id} ${state}${parent === undefined ? "" : ` parent ${parent}`} ${oneLine(title)}`,
+				)),
+	];
+}
+
+export function baselineLines(baseline: SessionBaseline): string[] {
+	const lines = linesOf(baseline).map(neutralizeMarkup);
+	if (lines.length === 0) return [];
+	const kept = ["baseline: compaction"];
+	let size = WRAPPER_CHARS + kept[0].length;
+	for (const [index, line] of lines.entries()) {
+		const left = lines.length - index;
+		const note = `truncated: ${left} more`;
+		if (size + line.length + note.length + 2 > MAX_BASELINE_CHARS) {
+			kept.push(note);
+			break;
+		}
+		kept.push(line);
+		size += line.length + 1;
+	}
+	return kept;
 }

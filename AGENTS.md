@@ -85,7 +85,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A page reads its op's result from `AssistantOps`, never from its own coroutine:** `runWork` and `work` hold each page's busy flag and line, `ruleDrafts` and `ruleLanded` hold a rule op's, and a draft's `opening` is what an op settles, so Back loses no result and a late answer never lands on a newer draft.
 - `src/shared/schemasAssistantRecord.ts` / `android/.../AssistantRecordRules.kt` - the outcome enum and per-thread shape an action's answer and its record row share; the phone's reading of a record row: `recordOf`, `isQuietRecord`, `threadRows` (a run of quiet records as one row), the view the thread page draws, and the codec
   - **A quiet record carries nothing an older phone would show:** `ConsolePushEntrySchema`'s refine ties `notify` to a summary in `body`, so an older phone shows a response and drops a quiet row. The new phone keeps a quiet record out of the burst, alerts, autoplay, `countsUnread` and the session card's reads.
-- `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, and its wire shape
+- `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, the push a Copilot compaction's end raises, and its wire shape and lines
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
 - `src/gateway/` - Docker-side HTTP and WS router
 - `src/gateway/composeGateway.ts` - the compose stages in order, fault port, cycles, and `close`; `index.ts` is the Bun adapter

@@ -128,6 +128,33 @@ describe("sessions, bindings, and console operations", () => {
 
 		const claude = await ensureBound();
 		expect((await claude.post("/session/type", { text: "x" })).status).toBe(403);
+
+		const baselines = (held: FakeSession) =>
+			held.frames.filter(
+				(frame) =>
+					frame.type === "channel_push" &&
+					JSON.stringify(frame.awareness ?? {}).includes("baseline: compaction"),
+			);
+		for (const held of [reloaded, claude]) {
+			const created = await held.post("/task-board", {
+				from: held.team,
+				action: "create",
+				operationId: `baseline-${held.team}`,
+				assignTo: "self",
+				title: "Held through compaction",
+			});
+			expect(created.status).toBe(200);
+		}
+		for (const team of [reloaded.team, claude.team]) {
+			h.host.reportWorking(team, true, true);
+			// A daemon's clear mid-compaction is not its end.
+			h.host.reportWorking(team, null);
+			h.host.reportWorking(team, true, true);
+			h.host.reportWorking(team, false, false);
+		}
+		await h.waitFor(() => baselines(reloaded)[0], "the Copilot baseline");
+		expect(baselines(reloaded)).toHaveLength(1);
+		expect(baselines(claude)).toHaveLength(0);
 	});
 
 	it("refuses a host socket without the daemon token, and the real daemon keeps answering", async () => {

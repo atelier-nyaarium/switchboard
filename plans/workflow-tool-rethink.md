@@ -138,7 +138,7 @@ One rule for every long job: start or collect answers at once; a settle notice i
 - The loopback routes keep their waits and long-route classification: askpass (`/vault/askpass`, `/vault/collect`), `/vault/capture`, `/assistant/send`, `/assistant/run`. No `gateway-long-waits.ts` change.
 - `vault-tools.test.ts` covers a job settling with no caller waiting, capture included; `vault-askpass.test.ts` stays green unchanged. Vault guidance and `docs/vault.md`.
 
-## Phase 3 - Copilot baseline after compaction
+## Phase 3 - Copilot baseline after compaction ✅
 
 - The Gateway already receives `compacting` in each derived presence report (`DerivedPresenceSchema`, merged by the daemon's `copilotCompaction.ts` overlay). On a Copilot session's `compacting` true to false, the Gateway builds its baseline (`composeBaseline`) and pushes it as an awareness row through the delivery queue, which the plugin types into the pane with the busy retry. No daemon change.
 - The baseline renders through one shared function for the Claude hook and the Copilot push.

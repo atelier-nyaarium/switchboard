@@ -1,13 +1,12 @@
 // Compact session baseline hook.
 
 import {
-	holdLine,
-	MAX_BASELINE_CHARS,
+	baselineLines,
 	SESSION_BASELINE_PATH,
 	type SessionBaseline,
 	SessionBaselineSchema,
 } from "../../shared/session-baseline.js";
-import { oneLine as flat, neutralizeMarkup, reminderBlock } from "../../shared/system-reminder.js";
+import { reminderBlock } from "../../shared/system-reminder.js";
 import { askGateway, type HookEnv } from "../hookGateway.js";
 
 export type { HookEnv } from "../hookGateway.js";
@@ -17,60 +16,13 @@ export type { HookEnv } from "../hookGateway.js";
 
 const FETCH_TIMEOUT_MS = 8_000;
 
-/** The tags around the lines. */
-const WRAPPER_CHARS = reminderBlock(["-"]).length - 1;
-
 ////////////////////////////////
 //  Functions & Helpers
 
-/** Board last: `taskBoardList` recovers what a cut drops. */
-function linesOf(baseline: SessionBaseline): string[] {
-	return [
-		...baseline.conversations.map(({ sessionId, peer }) =>
-			peer.kind === "owner"
-				? `conversation: ${sessionId} owner`
-				: `conversation: ${sessionId} ${flat(peer.name)}`,
-		),
-		...baseline.routines.map(({ occurrenceId, routine }) => `routine: ${occurrenceId} ${flat(routine)}`),
-		...(baseline.runningRuns ?? []).map(
-			({ runId, phase, stepsRunning }) =>
-				`workflow: ${runId} running, phase ${flat(phase ?? "not started")}, ${stepsRunning} step(s) running`,
-		),
-		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
-		...(baseline.assistant?.hold === undefined ? [] : [holdLine(baseline.assistant.hold)]),
-		...(baseline.assistant?.watchers ?? []).map(
-			({ label, unread, capped, checked, stopped, waiting }) =>
-				`watcher: ${flat(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +
-				(stopped === undefined ? "" : `, stopped: ${flat(stopped)}`) +
-				(waiting === undefined ? "" : `, waiting: ${flat(waiting)}`),
-		),
-		...(baseline.board === null
-			? ["board: unavailable"]
-			: baseline.board.map(
-					({ id, title, state, parent }) =>
-						`board: ${id} ${state}${parent === undefined ? "" : ` parent ${parent}`} ${flat(title)}`,
-				)),
-	];
-}
-
 /** Empty when the session holds nothing. */
 export function renderBaseline(baseline: SessionBaseline): string {
-	// Measured as sent: escaped, then wrapped.
-	const lines = linesOf(baseline).map(neutralizeMarkup);
-	if (lines.length === 0) return "";
-	const kept = ["baseline: compaction"];
-	let size = WRAPPER_CHARS + kept[0].length;
-	for (const [index, line] of lines.entries()) {
-		const left = lines.length - index;
-		const note = `truncated: ${left} more`;
-		if (size + line.length + note.length + 2 > MAX_BASELINE_CHARS) {
-			kept.push(note);
-			break;
-		}
-		kept.push(line);
-		size += line.length + 1;
-	}
-	return reminderBlock(kept);
+	const lines = baselineLines(baseline);
+	return lines.length === 0 ? "" : reminderBlock(lines);
 }
 
 /** The hook's stdout, or null to print nothing. Never throws. */

@@ -44,10 +44,14 @@ export interface WebSocketsStage {
 	channelDeliveries: ChannelDeliveryCoordinator;
 	wsHandlers: ReturnType<typeof createWebSocketHandlers>;
 	workspacePlane: WorkspacePlane;
+	onCopilotCompacted: (listener: (team: string) => void) => void;
 }
 
 export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 	const { sessions, stores, host, agents, federation, ambient, workflows } = deps;
+	const compacting = new Set<string>();
+	const isCopilot = (team: string) => sessions.sessionStore.getByTeam(team)?.harness === "copilot";
+	let compacted: ((team: string) => void) | undefined;
 	let hostRegisterPass: Promise<void> = Promise.resolve();
 	let hostFamilyPass: Promise<void> = Promise.resolve();
 	let hostRegisterSocket: object | undefined;
@@ -156,8 +160,16 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 				return workflows.claudeTurnResult(frame);
 			}),
 		onPresenceDerive: (team, derived) => {
-			if (!derived) sessions.presence.clearWorkingFor(team);
-			else sessions.presence.setWorking(team, derived);
+			// A clear is unknown, not a compaction's end.
+			if (!derived) {
+				sessions.presence.clearWorkingFor(team);
+				return;
+			}
+			sessions.presence.setWorking(team, derived);
+			const wasCompacting = compacting.has(team);
+			if (derived.compacting) compacting.add(team);
+			else compacting.delete(team);
+			if (wasCompacting && !derived.compacting && isCopilot(team)) compacted?.(team);
 		},
 		sessionStore: sessions.sessionStore,
 		auth: sessions.sessionAuthority,
@@ -169,5 +181,12 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		busyOf: (team) => sessions.presence.busyOf(team),
 	});
 
-	return { channelDeliveries, wsHandlers, workspacePlane };
+	return {
+		channelDeliveries,
+		wsHandlers,
+		workspacePlane,
+		onCopilotCompacted: (listener) => {
+			compacted = listener;
+		},
+	};
 }

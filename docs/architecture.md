@@ -69,8 +69,8 @@ keeps it across reconnects.
   acknowledged only after the tag is typed and submitted.
 - A Copilot session gets the channel rules and the full capability guidance as MCP server
   instructions, no 10-minute agent progress notices, and no `compact_session`, `set_effort_level` or
-  `reload_plugins`, which type Claude slash commands. Its compaction hooks are no-ops, so a compacted
-  Copilot session gets no baseline back.
+  `reload_plugins`, which type Claude slash commands. Its compaction hooks are no-ops; its baseline
+  comes from the Gateway instead (below).
 - **Every plugin hook carries `bash` and `powershell` no-ops for Copilot:** Copilot runs a
   Claude-format hook's `command` as a shell line and drops `args`, and a `preToolUse` hook that errors
   denies the tool, so the `sh` gate denied every tool in every Copilot session. Claude reads `command`
@@ -113,6 +113,11 @@ neutralizer for model-bound text.
   first, open routine runs, agents with a turn running, the assistant's watcher lines (for
   `host.assistant` alone), and its unfinished board entries. Board lines go last and are cut first, measured after escaping, under Claude Code's 10,000-character hook cap.
   Anything short of a valid answer prints nothing.
+- **A Copilot session gets the same lines pushed:** the daemon's `copilotCompaction.ts` overlay sets
+  `compacting` on the session's derived presence. When it falls, `composeWebSockets` tells
+  `composeGateway`, which reads the session's baseline through `createBaselineReader` and banks it
+  as a `baseline` awareness change that pushes at once and is typed into the pane. Both roads render
+  through `baselineLines` in `src/shared/session-baseline.ts`; an empty baseline sends nothing.
 - **So does the capability guidance:** a second `compact` hook, `main-session-hook capabilities`,
   prints what `switchboard_capabilities` renders, cut at a section under the same cap. A fresh
   Claude session reads it first in its handshake answer; a Copilot session reads it in its MCP

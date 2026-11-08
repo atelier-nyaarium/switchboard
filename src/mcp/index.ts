@@ -183,7 +183,9 @@ export async function startMcp(): Promise<void> {
 				}
 			: agentType === "copilot"
 				? // No handshake answer carries the guidance, so it rides here whole.
-					{ instructions: `${CHANNEL_INSTRUCTIONS}\n\n${renderCapabilities(guided, guided)}` }
+					{
+						instructions: `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${renderCapabilities(guided, guided)}`,
+					}
 				: undefined,
 	);
 	// Before any tool registers.

@@ -53,10 +53,8 @@ function heldBy(team: string, entries: readonly BoardEntry[]): NonNullable<Sessi
 		}));
 }
 
-export function createBaselineRoutes(deps: BaselineRoutesDeps): Map<string, Handler> {
-	const baseline: Handler = async (req) => {
-		const team = deps.resolveCaller(req);
-		if (!team) return json({ error: "this token names no session" }, 401);
+export function createBaselineReader(deps: Omit<BaselineRoutesDeps, "resolveCaller">) {
+	return async (team: string): Promise<SessionBaseline> => {
 		const entries = await deps.board();
 		const runningRuns = deps.runningRuns?.(team) ?? [];
 		const answer: SessionBaseline = {
@@ -70,8 +68,16 @@ export function createBaselineRoutes(deps: BaselineRoutesDeps): Map<string, Hand
 		};
 		const assistant = deps.assistant(team);
 		if (assistant) answer.assistant = assistant;
-		return json(answer, 200);
+		return answer;
 	};
+}
 
+export function createBaselineRoutes(deps: BaselineRoutesDeps): Map<string, Handler> {
+	const read = createBaselineReader(deps);
+	const baseline: Handler = async (req) => {
+		const team = deps.resolveCaller(req);
+		if (!team) return json({ error: "this token names no session" }, 401);
+		return json(await read(team), 200);
+	};
 	return new Map<string, Handler>([[SESSION_BASELINE_PATH, baseline]]);
 }
