@@ -9,6 +9,7 @@ import {
 	vaultAadKind,
 } from "../shared/content-envelope.js";
 import {
+	VAULT_ROUTE_WAIT_CAP_MS,
 	VaultListResultSchema,
 	type VaultRequest,
 	VaultRequestSchema,
@@ -505,28 +506,48 @@ describe("federation harness: vault requests", () => {
 			if (!response.ok) throw new Error(text);
 			return JSON.parse(text);
 		};
-		const tools = createVaultTools({ post, run: runWithValue, now: Date.now });
+		let notificationCount = 0;
+		const notificationWaiters: Array<() => void> = [];
+		const waitForNotification = () =>
+			new Promise<void>((resolve) => {
+				notificationWaiters.push(resolve);
+			});
+		const tools = createVaultTools({
+			post,
+			run: runWithValue,
+			now: Date.now,
+			notify: (_awareness, _stillWanted) => {
+				notificationCount += 1;
+				notificationWaiters.shift()?.();
+			},
+		});
 		const seen = (await requestRows()).length;
-		const pending = await tools.run({ command: 'printf "<%s>" "$VAULT_VALUE"', entryId, waitMs: 200 });
+		const pendingNotice = waitForNotification();
+		const pending = await tools.run({ command: 'printf "<%s>" "$VAULT_VALUE"', entryId });
 		expect(pending).toMatchObject({ outcome: "pending", jobId: expect.any(String) });
 		const request = await nextRequest(seen);
-		// A repeated run joins the request still open instead of asking the owner twice.
-		expect(await tools.run({ command: 'printf "<%s>" "$VAULT_VALUE"', entryId, waitMs: 200 })).toMatchObject({
-			outcome: "pending",
-			jobId: pending.jobId,
-		});
+		// A repeated run joins the open request's job, so one approval runs the command once.
+		const joined = await tools.run({ command: 'printf "<%s>" "$VAULT_VALUE"', entryId });
+		expect(joined).toMatchObject({ outcome: "pending", jobId: pending.jobId });
 		expect((await requestRows()).length).toBe(seen + 1);
 		expect(request).toMatchObject({ kind: "entry", entryId, operation: 'printf "<%s>" "$VAULT_VALUE"' });
 		await h.phone.value({ kind: "vault_answer", requestId: request.requestId, decision: "once" });
-		const ran = await tools.collect({ jobId: String(pending.jobId), waitMs: 5_000 });
+		await pendingNotice;
+		const ran = await tools.collect({ jobId: String(pending.jobId) });
 		expect(ran).toMatchObject({ outcome: "ran", exitCode: 0, stdout: "<[vault]>" });
 		expect(JSON.stringify(ran)).not.toContain("hunter2");
+		expect(notificationCount).toBe(1);
 
-		const captured = await tools.run({
+		const captureNotice = waitForNotification();
+		const captureJob = await tools.run({
 			command: "printf 'minted-by-agent\\n'",
 			capture: { publicTitle: "Agent minted" },
 		});
+		expect(captureJob).toMatchObject({ outcome: "running", jobId: expect.any(String) });
+		await captureNotice;
+		const captured = await tools.collect({ jobId: String(captureJob.jobId) });
 		expect(captured).toMatchObject({ outcome: "ran", captured: expect.any(String) });
+		expect(notificationCount).toBe(2);
 		const listed = await post("/vault/search", { query: "agent minted" });
 		expect(listed).toEqual({ entries: [{ id: captured.captured, publicTitle: "Agent minted", hasValue: true }] });
 	});
@@ -571,5 +592,149 @@ describe("federation harness: vault requests", () => {
 			value: h.phone.seal("late", vaultAadKind(VAULT_TYPED_KIND, second.requestId)),
 		});
 		expect(late.result).toMatchObject({ ok: false });
+	});
+});
+
+describe("vault tool jobs", () => {
+	it("notifies once when a job settles without a collect waiter", async () => {
+		let notificationCount = 0;
+		let stillWanted: (() => boolean) | undefined;
+		let resolveNotification!: () => void;
+		const notified = new Promise<void>((resolve) => {
+			resolveNotification = resolve;
+		});
+		const tools = createVaultTools({
+			post: async (path) => {
+				if (path === "/vault/capture") return { id: "new-entry" };
+				throw new Error(`unexpected post: ${path}`);
+			},
+			run: runWithValue,
+			now: Date.now,
+			notify: (_awareness, wanted) => {
+				notificationCount += 1;
+				stillWanted = wanted;
+				resolveNotification();
+			},
+		});
+		const running = await tools.run({
+			command: "printf 'generated\\n'",
+			capture: { publicTitle: "Generated value" },
+		});
+		expect(running).toMatchObject({ outcome: "running", jobId: expect.any(String) });
+		await notified;
+		expect(notificationCount).toBe(1);
+		expect(stillWanted?.()).toBe(true);
+		expect(await tools.collect({ jobId: String(running.jobId) })).toMatchObject({
+			outcome: "ran",
+			captured: "new-entry",
+		});
+		expect(notificationCount).toBe(1);
+		expect(stillWanted?.()).toBe(false);
+		expect(await tools.collect({ jobId: String(running.jobId) })).toEqual({
+			outcome: "refused",
+			reason: "no such job",
+		});
+	});
+
+	it("retries a connection error while polling for the owner's answer", async () => {
+		let collectCount = 0;
+		let notificationCount = 0;
+		let resolveNotification!: () => void;
+		const notified = new Promise<void>((resolve) => {
+			resolveNotification = resolve;
+		});
+		const polls: Array<Record<string, unknown>> = [];
+		const tools = createVaultTools({
+			post: async (path, body) => {
+				if (path === "/vault/use") return { outcome: "pending", requestId: "gateway-request", deadlineAt: 123 };
+				if (path === "/vault/collect") {
+					polls.push(body);
+					collectCount += 1;
+					if (collectCount === 1) throw new Error("connection lost");
+					return { outcome: "approved", decision: "once", value: "secret" };
+				}
+				throw new Error(`unexpected post: ${path}`);
+			},
+			run: runWithValue,
+			now: Date.now,
+			retryMs: 0,
+			notify: () => {
+				notificationCount += 1;
+				resolveNotification();
+			},
+		});
+		const pending = await tools.run({ command: "printf '%s' \"$VAULT_VALUE\"", entryId: "entry" });
+		expect(pending).toMatchObject({ outcome: "pending", jobId: expect.any(String), deadlineAt: 123 });
+		expect(pending.jobId).not.toBe("gateway-request");
+		await notified;
+		expect(collectCount).toBe(2);
+		expect(polls).toEqual([
+			{ requestId: "gateway-request", waitMs: VAULT_ROUTE_WAIT_CAP_MS },
+			{ requestId: "gateway-request", waitMs: VAULT_ROUTE_WAIT_CAP_MS },
+		]);
+		expect(notificationCount).toBe(1);
+		expect(await tools.collect({ jobId: String(pending.jobId) })).toMatchObject({
+			outcome: "ran",
+			exitCode: 0,
+			stdout: "[vault]",
+		});
+	});
+
+	it("waits for capture to answer before settling the job", async () => {
+		let resolveCapture!: (answer: unknown) => void;
+		let markCaptureStarted!: () => void;
+		let notificationCount = 0;
+		let resolveNotification!: () => void;
+		const captureStarted = new Promise<void>((resolve) => {
+			markCaptureStarted = resolve;
+		});
+		const captureAnswer = new Promise<unknown>((resolve) => {
+			resolveCapture = resolve;
+		});
+		const notified = new Promise<void>((resolve) => {
+			resolveNotification = resolve;
+		});
+		const posts: Array<{ path: string; body: Record<string, unknown> }> = [];
+		const tools = createVaultTools({
+			post: async (path, body) => {
+				posts.push({ path, body });
+				if (path === "/vault/use") return { outcome: "approved", decision: "once", value: "secret" };
+				if (path === "/vault/capture") {
+					markCaptureStarted();
+					return captureAnswer;
+				}
+				throw new Error(`unexpected post: ${path}`);
+			},
+			run: runWithValue,
+			now: Date.now,
+			notify: () => {
+				notificationCount += 1;
+				resolveNotification();
+			},
+		});
+		const running = await tools.run({
+			command: "printf 'generated\\n'",
+			entryId: "entry",
+			capture: { publicTitle: "Generated value" },
+		});
+		expect(running).toMatchObject({ outcome: "running", jobId: expect.any(String) });
+		await captureStarted;
+		expect(notificationCount).toBe(0);
+		expect(await tools.collect({ jobId: String(running.jobId) })).toEqual({
+			outcome: "running",
+			jobId: running.jobId,
+		});
+		expect(posts.find((entry) => entry.path === "/vault/capture")?.body).toEqual({
+			publicTitle: "Generated value",
+			value: "generated\n",
+		});
+		resolveCapture({ id: "captured-entry" });
+		await notified;
+		expect(notificationCount).toBe(1);
+		expect(await tools.collect({ jobId: String(running.jobId) })).toMatchObject({
+			outcome: "ran",
+			exitCode: 0,
+			captured: "captured-entry",
+		});
 	});
 });

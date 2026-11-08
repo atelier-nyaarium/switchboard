@@ -132,6 +132,7 @@ One rule for every long job: start or collect answers at once; a settle notice i
 
 - `vault_run` answers at once with a `jobId`. The plugin's job does the waiting in the background: it long-polls `/vault/collect` for the owner's answer, starts the child on approval, and finishes capture before the job counts as settled. Approval, denial and expiry all settle the job.
 - A Gateway restart retracts open vault requests (the `vault-open-requests` ledger), so the background poll then reads the request as expired and the job settles refused, with its notice. The poll rides out the restart's connection errors rather than settling on them.
+- A repeated run while the request is open joins its job, so one approval starts one child. A launch that throws, or a run approved during shutdown, settles refused. Withdraw refuses once the child exited.
 - `vault_collect` answers at once from the job map. The MCP `waitMs` inputs go. Results live for the plugin process, as today.
 - On settle the plugin raises a notice naming `vault_collect` through `emitLocalAwareness`, so Copilot gets it too; collecting first withholds it.
 - The loopback routes keep their waits and long-route classification: askpass (`/vault/askpass`, `/vault/collect`), `/vault/capture`, `/assistant/send`, `/assistant/run`. No `gateway-long-waits.ts` change.

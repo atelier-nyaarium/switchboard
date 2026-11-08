@@ -10,27 +10,40 @@ import {
 	type VaultRunResult,
 	WITHHELD,
 } from "../mcp/vault/vaultRun.js";
-import { createVaultTools, type VaultPost } from "../mcp/vault/vaultTools.js";
+import { createVaultTools, type VaultPost, type VaultToolAnswer } from "../mcp/vault/vaultTools.js";
+import { VAULT_ROUTE_WAIT_CAP_MS } from "../shared/schemasVault.js";
 
 const SECRET = "s3cr3t-value";
 
 /** Answers each path from a queue, and records what was posted. */
 function fakeGateway(answers: Record<string, unknown[]>) {
 	const posted: Array<{ path: string; body: Record<string, unknown> }> = [];
+	const postWaiters: Array<{ path: string; count: number; resolve: () => void }> = [];
 	const post: VaultPost = async (path, body) => {
 		posted.push({ path, body });
+		for (const waiter of [...postWaiters]) {
+			if (waiter.path === path && posted.filter((item) => item.path === path).length >= waiter.count) {
+				postWaiters.splice(postWaiters.indexOf(waiter), 1);
+				waiter.resolve();
+			}
+		}
 		const queue = answers[path] ?? [];
 		if (queue.length === 0) throw new Error(`no answer queued for ${path}`);
 		const next = queue.shift();
 		if (next instanceof Error) throw next;
 		return next;
 	};
-	return { post, posted };
+	const waitForPost = (path: string, count = 1) =>
+		posted.filter((item) => item.path === path).length >= count
+			? Promise.resolve()
+			: new Promise<void>((resolve) => postWaiters.push({ path, count, resolve }));
+	return { post, posted, waitForPost };
 }
 
 /** A child the test ends by hand. */
 function fakeRun() {
 	const handles: Array<{ resolve: (result: VaultRunResult) => void; killed: boolean }> = [];
+	const startWaiters: Array<{ index: number; resolve: (slot: (typeof handles)[number]) => void }> = [];
 	const run: typeof runWithValue = () => {
 		const slot: { resolve: (result: VaultRunResult) => void; killed: boolean } = {
 			resolve: () => undefined,
@@ -40,6 +53,12 @@ function fakeRun() {
 			slot.resolve = resolve;
 		});
 		handles.push(slot);
+		for (const waiter of [...startWaiters]) {
+			if (handles.length > waiter.index) {
+				startWaiters.splice(startWaiters.indexOf(waiter), 1);
+				waiter.resolve(handles[waiter.index]);
+			}
+		}
 		const handle: VaultRunHandle = {
 			done,
 			kill: () => {
@@ -49,13 +68,62 @@ function fakeRun() {
 		};
 		return handle;
 	};
-	return { run, handles };
+	const waitForStart = (index = 0) =>
+		handles[index]
+			? Promise.resolve(handles[index])
+			: new Promise<(typeof handles)[number]>((resolve) => startWaiters.push({ index, resolve }));
+	return { run, handles, waitForStart };
 }
 
-const tools = (answers: Record<string, unknown[]>, run: typeof runWithValue = runWithValue) => {
+const tools = (
+	answers: Record<string, unknown[]>,
+	run: typeof runWithValue = runWithValue,
+	options: { retryMs?: number } = {},
+) => {
 	const gateway = fakeGateway(answers);
-	return { ...gateway, tools: createVaultTools({ post: gateway.post, run, now: () => Date.now() }) };
+	const notifications: Array<{ awareness: unknown; stillWanted: () => boolean }> = [];
+	const notificationQueue: Array<{ awareness: unknown; stillWanted: () => boolean }> = [];
+	const notificationWaiters: Array<(notice: (typeof notifications)[number]) => void> = [];
+	const notify = (awareness: unknown, stillWanted: () => boolean) => {
+		const notice = { awareness, stillWanted };
+		notifications.push(notice);
+		const waiter = notificationWaiters.shift();
+		if (waiter) waiter(notice);
+		else notificationQueue.push(notice);
+	};
+	const nextNotice = () => {
+		const notice = notificationQueue.shift();
+		return notice
+			? Promise.resolve(notice)
+			: new Promise<(typeof notifications)[number]>((resolve) => notificationWaiters.push(resolve));
+	};
+	return {
+		...gateway,
+		notifications,
+		nextNotice,
+		tools: createVaultTools({ post: gateway.post, run, now: () => Date.now(), notify, ...options }),
+	};
 };
+
+async function collectAfterNotice(t: ReturnType<typeof tools>, started: VaultToolAnswer): Promise<VaultToolAnswer> {
+	await t.nextNotice();
+	return t.tools.collect({ jobId: String(started.jobId) });
+}
+
+type VaultRunArgs = Parameters<ReturnType<typeof createVaultTools>["run"]>[0];
+
+async function runAndCollect(t: ReturnType<typeof tools>, args: VaultRunArgs): Promise<VaultToolAnswer> {
+	const started = await t.tools.run(args);
+	return typeof started.jobId === "string" ? collectAfterNotice(t, started) : started;
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((settle) => {
+		resolve = settle;
+	});
+	return { promise, resolve };
+}
 const approved = { outcome: "approved", decision: "once", value: SECRET };
 const pending = (requestId: string) => ({ outcome: "pending", requestId, deadlineAt: 9_000 });
 const httpError = (status: number, body: unknown) => new Error(`HTTP ${status}: ${JSON.stringify(body)}`);
@@ -168,48 +236,61 @@ describe("the child run", () => {
 describe("the vault tools", () => {
 	it("runs at once under a covering grant, and never returns the value", async () => {
 		const t = tools({ "/vault/use": [approved] });
-		const ran = await t.tools.run({ command: 'echo "$VAULT_VALUE"', entryId: "deploy" });
+		const started = await t.tools.run({ command: 'echo "$VAULT_VALUE"', entryId: "deploy" });
+		expect(started).toMatchObject({ outcome: "running", jobId: expect.any(String) });
+		const ran = await collectAfterNotice(t, started);
 		expect(ran).toMatchObject({ outcome: "ran", exitCode: 0, stdout: "[vault]\n" });
 		expect(JSON.stringify(ran)).not.toContain(SECRET);
 		expect(t.posted[0]).toEqual({
 			path: "/vault/use",
-			body: { entryId: "deploy", operation: 'echo "$VAULT_VALUE"', waitMs: 230_000 },
+			body: { entryId: "deploy", operation: 'echo "$VAULT_VALUE"', waitMs: 0 },
 		});
 	});
 
-	it("a pending answer becomes a job that collect continues, keyed by the request", async () => {
-		const t = tools({
-			"/vault/use": [pending("req-1")],
-			"/vault/collect": [pending("req-1"), approved],
-		});
-		expect(await t.tools.run({ command: 'printf %s "$VAULT_VALUE"', entryId: "deploy", waitMs: 10 })).toEqual({
+	it("a pending answer gets a local job id while background collection reaches running", async () => {
+		const fake = fakeRun();
+		const t = tools(
+			{
+				"/vault/use": [pending("req-1")],
+				"/vault/collect": [pending("req-1"), approved],
+			},
+			fake.run,
+		);
+		const started = await t.tools.run({ command: 'printf %s "$VAULT_VALUE"', entryId: "deploy" });
+		expect(started).toMatchObject({
 			outcome: "pending",
-			jobId: "req-1",
+			jobId: expect.stringMatching(/^[0-9a-f-]{36}$/),
 			deadlineAt: 9_000,
 		});
-		expect(await t.tools.collect({ jobId: "req-1", waitMs: 0 })).toMatchObject({
-			outcome: "pending",
-			jobId: "req-1",
+		expect(started.jobId).not.toBe("req-1");
+		await fake.waitForStart();
+		expect(await t.tools.collect({ jobId: String(started.jobId) })).toEqual({
+			outcome: "running",
+			jobId: started.jobId,
 		});
-		expect(t.posted.at(-1)).toEqual({ path: "/vault/collect", body: { requestId: "req-1", waitMs: 0 } });
-		// The budget is an upper bound, not a wait: the child returns at once. Ten milliseconds is
-		// enough here and not on a loaded machine, where the honest answer becomes "running".
-		expect(await t.tools.collect({ jobId: "req-1", waitMs: 5_000 })).toMatchObject({
-			outcome: "ran",
-			stdout: "[vault]",
-		});
-		expect(await t.tools.collect({ jobId: "req-1" })).toMatchObject({ outcome: "refused" });
+		expect(t.posted.filter((item) => item.path === "/vault/collect")).toEqual([
+			{ path: "/vault/collect", body: { requestId: "req-1", waitMs: VAULT_ROUTE_WAIT_CAP_MS } },
+			{ path: "/vault/collect", body: { requestId: "req-1", waitMs: VAULT_ROUTE_WAIT_CAP_MS } },
+		]);
+		fake.handles[0].resolve(exited("[vault]"));
+		expect(await collectAfterNotice(t, started)).toMatchObject({ outcome: "ran", stdout: "[vault]" });
+		expect(await t.tools.collect({ jobId: String(started.jobId) })).toMatchObject({ outcome: "refused" });
 	});
 
 	it("a refusal ends the job, whether it arrives as an answer or as the route's error", async () => {
-		const t = tools({
-			"/vault/use": [
-				httpError(403, { outcome: "refused", reason: "the owner did not authorize" }),
-				httpError(503, { error: "vault unavailable: not enrolled" }),
-				pending("req-2"),
-			],
-			"/vault/collect": [httpError(403, { outcome: "refused", reason: "the owner did not authorize" })],
-		});
+		const t = tools(
+			{
+				"/vault/use": [
+					httpError(403, { outcome: "refused", reason: "the owner did not authorize" }),
+					httpError(503, { error: "vault unavailable: not enrolled" }),
+					{ unexpected: true },
+					pending("req-2"),
+				],
+				"/vault/collect": [httpError(403, { outcome: "refused", reason: "the owner did not authorize" })],
+			},
+			runWithValue,
+			{ retryMs: 1 },
+		);
 		expect(await t.tools.run({ command: "true", entryId: "deploy" })).toEqual({
 			outcome: "refused",
 			reason: "the owner did not authorize",
@@ -217,9 +298,17 @@ describe("the vault tools", () => {
 		const unavailable = await t.tools.run({ command: "true", entryId: "deploy" });
 		expect(unavailable).toMatchObject({ outcome: "refused" });
 		expect(String(unavailable.reason)).not.toContain("{");
-		await t.tools.run({ command: "true", entryId: "deploy", waitMs: 10 });
-		expect(await t.tools.collect({ jobId: "req-2" })).toMatchObject({ outcome: "refused" });
-		expect(await t.tools.withdraw({ jobId: "req-2" })).toMatchObject({ withdrawn: false });
+		expect(await t.tools.run({ command: "true", entryId: "deploy" })).toEqual({
+			outcome: "refused",
+			reason: "the gateway answered in an unrecognized shape",
+		});
+		const started = await t.tools.run({ command: "true", entryId: "deploy" });
+		expect(started).toMatchObject({ outcome: "pending" });
+		expect(await collectAfterNotice(t, started)).toEqual({
+			outcome: "refused",
+			reason: "the owner did not authorize",
+		});
+		expect(await t.tools.withdraw({ jobId: String(started.jobId) })).toMatchObject({ withdrawn: false });
 	});
 
 	it("withdraw gives a pending request back, keeps the job when the gateway could not be asked, and stops a child", async () => {
@@ -230,61 +319,124 @@ describe("the vault tools", () => {
 				"/vault/withdraw": [new Error("fetch failed"), { withdrawn: true }],
 			},
 			fake.run,
+			{ retryMs: 1 },
 		);
-		await t.tools.run({ command: "true", entryId: "deploy", waitMs: 10 });
-		expect(await t.tools.withdraw({ jobId: "req-3" })).toMatchObject({
+		const pendingJob = await t.tools.run({ command: "true", entryId: "deploy" });
+		expect(pendingJob).toMatchObject({ outcome: "pending" });
+		expect(await t.tools.withdraw({ jobId: String(pendingJob.jobId) })).toMatchObject({
 			withdrawn: false,
 			reason: expect.any(String),
 		});
-		expect(await t.tools.withdraw({ jobId: "req-3" })).toEqual({ withdrawn: true });
+		expect(await t.tools.withdraw({ jobId: String(pendingJob.jobId) })).toEqual({ withdrawn: true });
 		expect(t.posted.filter((p) => p.path === "/vault/withdraw")).toHaveLength(2);
 
-		const running = await t.tools.run({ command: "sleep 30", entryId: "deploy", waitMs: 10 });
+		const running = await t.tools.run({ command: "sleep 30", entryId: "deploy" });
 		expect(running).toMatchObject({ outcome: "running", jobId: expect.any(String) });
 		expect(await t.tools.withdraw({ jobId: String(running.jobId) })).toEqual({ withdrawn: true });
 		expect(fake.handles[0].killed).toBe(true);
 	});
 
-	it("a command that outlives the wait stays collectable, and one that ended is answered at once", async () => {
+	it("a running command stays collectable and its settled answer is consumed once", async () => {
 		const fake = fakeRun();
 		const t = tools({ "/vault/use": [approved] }, fake.run);
-		const running = await t.tools.run({ command: "long", entryId: "deploy", waitMs: 10 });
-		expect(running).toMatchObject({ outcome: "running" });
+		const running = await t.tools.run({ command: "long", entryId: "deploy" });
+		expect(running).toMatchObject({ outcome: "running", jobId: expect.any(String) });
+		expect(await t.tools.collect({ jobId: String(running.jobId) })).toEqual(running);
 		fake.handles[0].resolve(exited("done"));
-		expect(await t.tools.collect({ jobId: String(running.jobId), waitMs: 0 })).toMatchObject({
+		expect(await collectAfterNotice(t, running)).toMatchObject({
 			outcome: "ran",
 			stdout: "done",
 		});
 		expect(await t.tools.collect({ jobId: String(running.jobId) })).toMatchObject({ outcome: "refused" });
 	});
 
-	it("a job keeps its id from pending through running, so the agent collects with the id it holds", async () => {
+	it("a job keeps its local id from pending through running", async () => {
 		const fake = fakeRun();
 		const t = tools({ "/vault/use": [pending("req-9")], "/vault/collect": [approved] }, fake.run);
-		expect(await t.tools.run({ command: "long", entryId: "deploy", waitMs: 10 })).toMatchObject({ jobId: "req-9" });
-		expect(await t.tools.collect({ jobId: "req-9", waitMs: 10 })).toEqual({ outcome: "running", jobId: "req-9" });
+		const started = await t.tools.run({ command: "long", entryId: "deploy" });
+		expect(started).toMatchObject({ outcome: "pending", jobId: expect.any(String) });
+		expect(started.jobId).not.toBe("req-9");
+		await fake.waitForStart();
+		expect(await t.tools.collect({ jobId: String(started.jobId) })).toEqual({
+			outcome: "running",
+			jobId: started.jobId,
+		});
 		fake.handles[0].resolve(exited("late"));
-		expect(await t.tools.collect({ jobId: "req-9", waitMs: 0 })).toMatchObject({ outcome: "ran", stdout: "late" });
+		expect(await collectAfterNotice(t, started)).toMatchObject({ outcome: "ran", stdout: "late" });
 	});
 
-	it("two collects on one job share the answer, so an approval runs the command once", async () => {
+	it("collect reads immediately and approval starts the command once", async () => {
 		const fake = fakeRun();
-		const t = tools({ "/vault/use": [pending("req-10")], "/vault/collect": [approved] }, fake.run);
-		await t.tools.run({ command: "long", entryId: "deploy", waitMs: 10 });
+		const approval = deferred<unknown>();
+		const t = tools({ "/vault/use": [pending("req-10")], "/vault/collect": [approval.promise] }, fake.run);
+		const started = await t.tools.run({ command: "long", entryId: "deploy" });
 		const [first, second] = await Promise.all([
-			t.tools.collect({ jobId: "req-10", waitMs: 10 }),
-			t.tools.collect({ jobId: "req-10", waitMs: 10 }),
+			t.tools.collect({ jobId: String(started.jobId) }),
+			t.tools.collect({ jobId: String(started.jobId) }),
 		]);
-		expect(first).toEqual(second);
+		expect(first).toEqual({ outcome: "pending", jobId: started.jobId, deadlineAt: 9_000 });
+		expect(second).toEqual(first);
+		approval.resolve(approved);
+		await fake.waitForStart();
 		expect(fake.handles).toHaveLength(1);
 		expect(t.posted.filter((p) => p.path === "/vault/collect")).toHaveLength(1);
+		fake.handles[0].resolve(exited("once"));
+		expect(await collectAfterNotice(t, started)).toMatchObject({ outcome: "ran", stdout: "once" });
+		expect(await t.tools.collect({ jobId: String(started.jobId) })).toMatchObject({ outcome: "refused" });
 	});
 
-	it("a real child that outlives the wait is stopped by withdraw", async () => {
+	it("a real child is stopped by withdraw", async () => {
 		const t = tools({ "/vault/use": [approved] });
-		const running = await t.tools.run({ command: "sleep 30", entryId: "deploy", waitMs: 50 });
+		const running = await t.tools.run({ command: "sleep 30", entryId: "deploy" });
 		expect(running).toMatchObject({ outcome: "running" });
 		expect(await t.tools.withdraw({ jobId: String(running.jobId) })).toEqual({ withdrawn: true });
+	});
+
+	it("retries a connection error during background polling", async () => {
+		const fake = fakeRun();
+		const t = tools(
+			{ "/vault/use": [pending("req-retry")], "/vault/collect": [new Error("fetch failed"), approved] },
+			fake.run,
+			{ retryMs: 1 },
+		);
+		const started = await t.tools.run({ command: "retry", entryId: "deploy" });
+		await fake.waitForStart();
+		expect(t.posted.filter((item) => item.path === "/vault/collect")).toHaveLength(2);
+		expect(t.notifications).toHaveLength(0);
+		fake.handles[0].resolve(exited("retried"));
+		expect(await collectAfterNotice(t, started)).toMatchObject({ outcome: "ran", stdout: "retried" });
+	});
+
+	it("notifies once when settled without an active collect, then collects once", async () => {
+		const fake = fakeRun();
+		const t = tools({ "/vault/use": [approved] }, fake.run);
+		const started = await t.tools.run({ command: "notify", entryId: "deploy" });
+		fake.handles[0].resolve(exited("complete"));
+		const notice = await t.nextNotice();
+		expect(notice.stillWanted()).toBe(true);
+		expect(t.notifications).toHaveLength(1);
+		expect(await t.tools.collect({ jobId: String(started.jobId) })).toMatchObject({ outcome: "ran" });
+		expect(notice.stillWanted()).toBe(false);
+		expect(t.notifications).toHaveLength(1);
+		expect(await t.tools.collect({ jobId: String(started.jobId) })).toEqual({
+			outcome: "refused",
+			reason: "no such job",
+		});
+	});
+
+	it("settles refused when the command cannot start, and refuses a withdraw once the child exited", async () => {
+		const broken = tools({ "/vault/use": [approved] }, () => {
+			throw new Error("no tmpfs");
+		});
+		const failed = await broken.tools.run({ command: "deploy", entryId: "deploy", shape: "file" });
+		expect(await collectAfterNotice(broken, failed)).toMatchObject({ outcome: "refused" });
+
+		const fake = fakeRun();
+		const t = tools({ "/vault/use": [approved], "/vault/capture": [new Promise(() => undefined)] }, fake.run);
+		const started = await t.tools.run({ command: "mint", entryId: "deploy", capture: { publicTitle: "x" } });
+		fake.handles[0].resolve(exited("minted"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(await t.tools.withdraw({ jobId: String(started.jobId) })).toMatchObject({ withdrawn: false });
 	});
 
 	it("capture stores the raw stdout as a new entry and answers its id in place of the output", async () => {
@@ -296,7 +448,7 @@ describe("the vault tools", () => {
 			],
 			"/vault/use": [approved],
 		});
-		const captured = await t.tools.run({
+		const captured = await runAndCollect(t, {
 			command: "printf 'generated\\n'",
 			capture: { publicTitle: "DB password" },
 		});
@@ -308,7 +460,7 @@ describe("the vault tools", () => {
 		});
 
 		// A value derived from the injected one is stored raw, never scrubbed.
-		const derived = await t.tools.run({
+		const derived = await runAndCollect(t, {
 			command: 'printf "%s-derived" "$VAULT_VALUE"',
 			entryId: "deploy",
 			capture: { publicTitle: "Derived" },
@@ -320,23 +472,23 @@ describe("the vault tools", () => {
 		});
 		expect(JSON.stringify(derived)).not.toContain(SECRET);
 
-		expect(await t.tools.run({ command: "printf '\\n'", capture: { publicTitle: "empty" } })).toMatchObject({
+		expect(await runAndCollect(t, { command: "printf '\\n'", capture: { publicTitle: "empty" } })).toMatchObject({
 			captured: null,
 		});
 		// A cut stdout would store a piece of a secret as the whole of it.
-		const cut = await t.tools.run({
+		const cut = await runAndCollect(t, {
 			command: "head -c 1100000 /dev/zero | tr '\\0' x",
 			capture: { publicTitle: "cut" },
 		});
 		expect(cut).toMatchObject({ truncated: true, captured: null });
 		// A noisy stderr is not a reason to drop a complete stdout.
-		const noisy = await t.tools.run({
+		const noisy = await runAndCollect(t, {
 			command: "printf 'kept\\n'; head -c 100000 /dev/zero | tr '\\0' x >&2",
 			capture: { publicTitle: "noisy" },
 		});
 		expect(noisy).toMatchObject({ truncated: true, captured: expect.any(String) });
 		expect(
-			await t.tools.run({ command: "head -c 9000 /dev/zero | tr '\\0' x", capture: { publicTitle: "big" } }),
+			await runAndCollect(t, { command: "head -c 9000 /dev/zero | tr '\\0' x", capture: { publicTitle: "big" } }),
 		).toMatchObject({
 			captured: null,
 		});
@@ -344,14 +496,28 @@ describe("the vault tools", () => {
 		expect(await t.tools.run({ command: "true" })).toMatchObject({ outcome: "refused" });
 	});
 
+	it("does not settle a capture job until the capture route answers", async () => {
+		const fake = fakeRun();
+		const capture = deferred<unknown>();
+		const t = tools({ "/vault/capture": [capture.promise] }, fake.run);
+		const started = await t.tools.run({ command: "printf 'captured\\n'", capture: { publicTitle: "Captured" } });
+		fake.handles[0].resolve(exited("captured\n"));
+		await t.waitForPost("/vault/capture");
+		expect(await t.tools.collect({ jobId: String(started.jobId) })).toEqual(started);
+		expect(t.notifications).toHaveLength(0);
+		capture.resolve({ id: "capture-id" });
+		expect(await collectAfterNotice(t, started)).toMatchObject({ outcome: "ran", captured: "capture-id" });
+	});
+
 	it("shutdown withdraws every pending request and stops every child", async () => {
 		const fake = fakeRun();
 		const t = tools(
 			{ "/vault/use": [pending("req-4"), approved], "/vault/withdraw": [{ withdrawn: true }] },
 			fake.run,
+			{ retryMs: 1 },
 		);
-		await t.tools.run({ command: "true", entryId: "deploy", waitMs: 10 });
-		const running = await t.tools.run({ command: "long", entryId: "deploy", waitMs: 10 });
+		await t.tools.run({ command: "true", entryId: "deploy" });
+		const running = await t.tools.run({ command: "long", entryId: "deploy" });
 		await t.tools.shutdown();
 		expect(t.posted.at(-1)).toEqual({ path: "/vault/withdraw", body: { requestId: "req-4" } });
 		expect(fake.handles[0].killed).toBe(true);

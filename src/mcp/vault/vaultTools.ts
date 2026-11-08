@@ -7,27 +7,17 @@ import {
 	VAULT_ROUTE_WAIT_CAP_MS,
 	VaultValueAnswerSchema,
 } from "../../shared/schemasVault.js";
-import { createSingleFlight } from "../../shared/single-flight.js";
-import { routerPost } from "../bridge/helpers.js";
+import type { RidingAwareness } from "../../shared/types.js";
+import { emitLocalAwareness, routerPost } from "../bridge/helpers.js";
 import { DEFAULT_ENV_NAME, FILE_ENV_NAME, runWithValue, type VaultRunHandle, type VaultRunResult } from "./vaultRun.js";
 
 ////////////////////////////////
 //  Schemas
 
-const WAIT_SECONDS = Math.floor(VAULT_ROUTE_WAIT_CAP_MS / 1000);
-
 const CaptureSchema = z.object({
 	publicTitle: z.string().min(1).max(256).describe(`The new entry's title, public.`),
 	publicDescription: z.string().max(2048).optional().describe(`Public description.`),
 });
-
-const WaitSchema = z
-	.number()
-	.int()
-	.min(0)
-	.max(VAULT_ROUTE_WAIT_CAP_MS)
-	.optional()
-	.describe(`How long to wait, up to ${WAIT_SECONDS} seconds, before answering \`pending\` or \`running\`.`);
 
 const SearchInputSchema = {
 	query: z.string().max(256).optional().describe(`Substring of the public title or description. Omit for all.`),
@@ -70,12 +60,10 @@ Store stdout as a new entry the owner can edit; stdout is then never returned. \
 With no \`entryId\` the command runs at once: the road for generating a secret.
 `.trim(),
 	),
-	waitMs: WaitSchema,
 };
 
 const CollectInputSchema = {
-	jobId: z.string().min(1).max(128).describe(`From a \`pending\` or \`running\` answer.`),
-	waitMs: WaitSchema,
+	jobId: z.string().min(1).max(128).describe(`From \`vault_run\`.`),
 };
 
 const WithdrawInputSchema = {
@@ -91,6 +79,10 @@ export interface VaultToolDeps {
 	post: VaultPost;
 	run: typeof runWithValue;
 	now: () => number;
+	/** Wakes the session. */
+	notify: (awareness: RidingAwareness, stillWanted: () => boolean) => void;
+	/** Delay between retries. */
+	retryMs?: number;
 }
 
 interface RunSpec {
@@ -103,7 +95,8 @@ interface RunSpec {
 
 type Job =
 	| { kind: "awaiting"; spec: RunSpec; requestId: string; deadlineAt: number }
-	| { kind: "running"; spec: RunSpec; handle: VaultRunHandle; startedAt: number };
+	| { kind: "running"; spec: RunSpec; handle: VaultRunHandle; exited: boolean }
+	| { kind: "settled"; answer: VaultToolAnswer };
 
 export type VaultToolAnswer = Record<string, unknown>;
 
@@ -127,11 +120,7 @@ The owner reads the command. Name the real program and target: \`ssh deploy@prod
 
 For a sudo password, skip this tool: run commands individually as \`sudo -A <command>\`, without a wrapper (like \`-c\` or a script).
 
-Answers:
-- \`ran\`: exit code or signal, stdout and stderr with the value replaced by \`[vault]\`.
-- \`pending\`: the owner has not answered. \`vault_collect\` waits again; \`vault_withdraw\` gives up.
-- \`running\`: the command outlived the wait. \`vault_collect\` waits for it.
-- \`refused\`: declined, expired, or not allowed. A \`note\` is the owner steering you: do what it says.
+Answers at once with a \`jobId\` and \`pending\` (the owner has not answered) or \`running\`. A notice naming \`vault_collect\` follows when the job settles. A pre-job refusal returns \`refused\` with its reason and any owner note.
 
 A repeated \`vault_run\` with the same entry and command joins the request still open.
 `.trim();
@@ -139,7 +128,9 @@ A repeated \`vault_run\` with the same entry and command joins the request still
 const COLLECT_DESCRIPTION = `
 # Vault Collect
 
-Continue a \`pending\` or \`running\` job from \`vault_run\`. Answers as \`vault_run\` does.
+Returns \`pending\` or \`running\` at once. A settled job answers once, then is gone:
+- \`ran\`: exit code or signal, stdout and stderr with the value replaced by \`[vault]\`.
+- \`refused\`: declined, expired, or not allowed. Follow any owner note.
 `.trim();
 
 const WITHDRAW_DESCRIPTION = `
@@ -148,8 +139,7 @@ const WITHDRAW_DESCRIPTION = `
 Give up a job: a pending request is withdrawn from the owner's phone, a running command is stopped. \`withdrawn: false\` with a reason means the request may still be live; retry, or let it expire.
 `.trim();
 
-const budget = (waitMs: number | undefined): number =>
-	Math.min(waitMs ?? VAULT_ROUTE_WAIT_CAP_MS, VAULT_ROUTE_WAIT_CAP_MS);
+const RETRY_MS = 2_000;
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -198,59 +188,100 @@ async function finish(spec: RunSpec, result: VaultRunResult, deps: VaultToolDeps
 	}
 }
 
+/** 4xx responses are final. */
+function answered(error: unknown): boolean {
+	return /^HTTP 4\d\d:/.test(errorText(error));
+}
+
 export function createVaultTools(deps: VaultToolDeps) {
 	const jobs = new Map<string, Job>();
-	const collecting = createSingleFlight<string, VaultToolAnswer>();
+	const retryMs = deps.retryMs ?? RETRY_MS;
+	let closed = false;
 
-	/** Waits for the child until the deadline; a longer run stays collectable. */
-	async function settle(
-		jobId: string,
-		spec: RunSpec,
-		handle: VaultRunHandle,
-		deadlineAt: number,
-	): Promise<VaultToolAnswer> {
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const expiry = new Promise<null>((resolve) => {
-			timer = setTimeout(() => resolve(null), Math.max(0, deadlineAt - deps.now()));
-		});
-		const result = await Promise.race([handle.done, expiry]).finally(() => clearTimeout(timer));
-		if (result === null) {
-			jobs.set(jobId, { kind: "running", spec, handle, startedAt: deps.now() });
-			return { outcome: "running", jobId };
-		}
-		jobs.delete(jobId);
-		return finish(spec, result, deps);
+	function settleJob(jobId: string, answer: VaultToolAnswer): void {
+		if (closed || !jobs.has(jobId)) return;
+		jobs.set(jobId, { kind: "settled", answer });
+		deps.notify(
+			{
+				from: "vault",
+				body: `Vault job ${jobId} ${String(answer.outcome)}. Call vault_collect with jobId ${jobId}.`,
+				act: "act_now",
+			},
+			() => jobs.get(jobId)?.kind === "settled",
+		);
 	}
 
-	/** An approved answer starts the child; the rest are returned as they are. */
-	async function proceed(
-		jobId: string,
-		spec: RunSpec,
-		answer: unknown,
-		deadlineAt: number,
-	): Promise<VaultToolAnswer> {
+	/** A launch that throws settles the job refused. */
+	function start(jobId: string, spec: RunSpec, launch: () => VaultRunHandle): void {
+		let handle: VaultRunHandle;
+		try {
+			handle = launch();
+		} catch (error) {
+			jobs.set(jobId, { kind: "awaiting", spec, requestId: "", deadlineAt: deps.now() });
+			settleJob(jobId, { outcome: "refused", reason: `the command could not start: ${errorText(error)}` });
+			return;
+		}
+		const job: Job = { kind: "running", spec, handle, exited: false };
+		jobs.set(jobId, job);
+		void handle.done
+			.then((result) => {
+				job.exited = true;
+				return jobs.get(jobId) === job ? finish(spec, result, deps) : null;
+			})
+			.then((answer) => {
+				if (answer && jobs.get(jobId) === job) settleJob(jobId, answer);
+			});
+	}
+
+	function apply(jobId: string, spec: RunSpec, answer: unknown): "waiting" | "done" {
 		const parsed = VaultValueAnswerSchema.safeParse(answer);
 		if (!parsed.success) {
-			jobs.delete(jobId);
-			return { outcome: "refused", reason: "the gateway answered in an unrecognized shape" };
+			settleJob(jobId, { outcome: "refused", reason: "the gateway answered in an unrecognized shape" });
+			return "done";
 		}
+		if (parsed.data.outcome === "pending") return "waiting";
 		if (parsed.data.outcome === "refused") {
-			jobs.delete(jobId);
-			return {
+			settleJob(jobId, {
 				outcome: "refused",
 				reason: parsed.data.reason,
 				...(parsed.data.note ? { note: parsed.data.note } : {}),
-			};
+			});
+			return "done";
 		}
-		if (parsed.data.outcome === "pending") {
-			const requestId = parsed.data.requestId;
-			jobs.set(requestId, { kind: "awaiting", spec, requestId, deadlineAt: parsed.data.deadlineAt });
-			return { outcome: "pending", jobId: requestId, deadlineAt: parsed.data.deadlineAt };
+		const approved = parsed.data;
+		start(jobId, spec, () => deps.run({ ...spec, value: approved.value }));
+		return "done";
+	}
+
+	async function awaitOwner(jobId: string, spec: RunSpec, requestId: string): Promise<void> {
+		while (!closed && jobs.get(jobId)?.kind === "awaiting") {
+			let answer: unknown;
+			try {
+				answer = await deps.post("/vault/collect", { requestId, waitMs: VAULT_ROUTE_WAIT_CAP_MS });
+			} catch (error) {
+				if (jobs.get(jobId)?.kind !== "awaiting") return;
+				if (answered(error)) {
+					settleJob(jobId, refusalOf(error, "collect"));
+					return;
+				}
+				await new Promise((resolve) => setTimeout(resolve, retryMs));
+				continue;
+			}
+			if (jobs.get(jobId)?.kind !== "awaiting") return;
+			if (apply(jobId, spec, answer) === "done") return;
 		}
-		jobs.delete(jobId);
-		const handle = deps.run({ ...spec, value: parsed.data.value });
-		// The job keeps the id the caller already holds; only a fresh run mints one.
-		return settle(jobId || crypto.randomUUID(), spec, handle, deadlineAt);
+	}
+
+	/** One local job per Gateway request, so one approval starts one child. */
+	function jobOfRequest(requestId: string): string | undefined {
+		for (const [jobId, job] of jobs) if (job.kind === "awaiting" && job.requestId === requestId) return jobId;
+		return undefined;
+	}
+
+	function pendingAnswer(jobId: string): VaultToolAnswer {
+		const job = jobs.get(jobId);
+		if (job?.kind === "awaiting") return { outcome: "pending", jobId, deadlineAt: job.deadlineAt };
+		return { outcome: "running", jobId };
 	}
 
 	return {
@@ -272,7 +303,6 @@ export function createVaultTools(deps: VaultToolDeps) {
 			shape?: "env" | "stdin" | "file";
 			envName?: string;
 			capture?: z.infer<typeof CaptureSchema>;
-			waitMs?: number;
 		}): Promise<VaultToolAnswer> {
 			const spec: RunSpec = {
 				command: args.command,
@@ -281,44 +311,65 @@ export function createVaultTools(deps: VaultToolDeps) {
 				...(args.envName === undefined ? {} : { envName: args.envName }),
 				...(args.capture === undefined ? {} : { capture: args.capture }),
 			};
-			const waitMs = budget(args.waitMs);
-			const deadlineAt = deps.now() + waitMs;
+			const jobId = crypto.randomUUID();
 			if (!args.entryId) {
 				if (!spec.capture) return { outcome: "refused", reason: "name an entryId, or capture" };
-				return settle(crypto.randomUUID(), spec, deps.run(spec), deadlineAt);
+				start(jobId, spec, () => deps.run(spec));
+				return pendingAnswer(jobId);
 			}
 			let answer: unknown;
 			try {
-				answer = await deps.post("/vault/use", { entryId: args.entryId, operation: args.command, waitMs });
+				answer = await deps.post("/vault/use", { entryId: args.entryId, operation: args.command, waitMs: 0 });
 			} catch (error) {
 				return refusalOf(error, "use");
 			}
-			return proceed("", spec, answer, deadlineAt);
+			const parsed = VaultValueAnswerSchema.safeParse(answer);
+			if (!parsed.success) return { outcome: "refused", reason: "the gateway answered in an unrecognized shape" };
+			if (closed) {
+				if (parsed.data.outcome === "pending") {
+					await deps.post("/vault/withdraw", { requestId: parsed.data.requestId }).catch(() => undefined);
+				}
+				return { outcome: "refused", reason: "the session is shutting down" };
+			}
+			if (parsed.data.outcome === "refused") {
+				return {
+					outcome: "refused",
+					reason: parsed.data.reason,
+					...(parsed.data.note ? { note: parsed.data.note } : {}),
+				};
+			}
+			if (parsed.data.outcome === "pending") {
+				const { requestId, deadlineAt } = parsed.data;
+				const joined = jobOfRequest(requestId);
+				if (joined) return pendingAnswer(joined);
+				jobs.set(jobId, { kind: "awaiting", spec, requestId, deadlineAt });
+				void awaitOwner(jobId, spec, requestId).catch((error) =>
+					settleJob(jobId, { outcome: "refused", reason: `collect: ${errorText(error)}` }),
+				);
+			} else {
+				const approved = parsed.data;
+				start(jobId, spec, () => deps.run({ ...spec, value: approved.value }));
+			}
+			return pendingAnswer(jobId);
 		},
 
-		/** Same-job calls share answers. */
-		collect(args: { jobId: string; waitMs?: number }): Promise<VaultToolAnswer> {
-			return collecting.run(args.jobId, async () => {
-				const job = jobs.get(args.jobId);
-				if (!job) return { outcome: "refused", reason: "no such job" };
-				const waitMs = budget(args.waitMs);
-				const deadlineAt = deps.now() + waitMs;
-				if (job.kind === "running") return settle(args.jobId, job.spec, job.handle, deadlineAt);
-				let answer: unknown;
-				try {
-					answer = await deps.post("/vault/collect", { requestId: job.requestId, waitMs });
-				} catch (error) {
-					jobs.delete(args.jobId);
-					return refusalOf(error, "collect");
-				}
-				return proceed(args.jobId, job.spec, answer, deadlineAt);
-			});
+		async collect(args: { jobId: string }): Promise<VaultToolAnswer> {
+			const job = jobs.get(args.jobId);
+			if (!job) return { outcome: "refused", reason: "no such job" };
+			if (job.kind !== "settled") return pendingAnswer(args.jobId);
+			jobs.delete(args.jobId);
+			return job.answer;
 		},
 
 		async withdraw(args: { jobId: string }): Promise<VaultToolAnswer> {
 			const job = jobs.get(args.jobId);
 			if (!job) return { withdrawn: false, reason: "no such job" };
+			if (job.kind === "settled") {
+				jobs.delete(args.jobId);
+				return { withdrawn: false, reason: "the job had already settled" };
+			}
 			if (job.kind === "running") {
+				if (job.exited) return { withdrawn: false, reason: "the command already exited" };
 				jobs.delete(args.jobId);
 				job.handle.kill();
 				await job.handle.done;
@@ -331,14 +382,14 @@ export function createVaultTools(deps: VaultToolDeps) {
 				// The request may still be live; the job stays for another try.
 				return { withdrawn: false, reason: refusalOf(error, "withdraw").reason };
 			}
+			if (!answer.withdrawn) return { withdrawn: false, reason: "the request had already settled" };
 			jobs.delete(args.jobId);
-			return answer.withdrawn
-				? { withdrawn: true }
-				: { withdrawn: false, reason: "the request had already settled" };
+			return { withdrawn: true };
 		},
 
 		/** Children are stopped before anything is awaited. */
 		async shutdown(): Promise<void> {
+			closed = true;
 			const held = [...jobs.values()];
 			jobs.clear();
 			const stopped = held
@@ -359,7 +410,6 @@ function text(answer: VaultToolAnswer): { content: Array<{ type: "text"; text: s
 	return { content: [{ type: "text" as const, text: JSON.stringify(answer, null, 2) }] };
 }
 
-/** Long polls are never re-posted: a lost answer must not open a second request. */
 const postOnce: VaultPost = (path, body) => routerPost(path, body, { retries: 0 });
 
 ////////////////////////////////
@@ -367,7 +417,16 @@ const postOnce: VaultPost = (path, body) => routerPost(path, body, { retries: 0 
 
 export function registerVaultTools(
 	mcpServer: McpServer,
-	deps: VaultToolDeps = { post: postOnce, run: runWithValue, now: () => Date.now() },
+	deps: VaultToolDeps = {
+		post: postOnce,
+		run: runWithValue,
+		now: () => Date.now(),
+		notify: (awareness, stillWanted) => {
+			void emitLocalAwareness(awareness, stillWanted).catch((error) =>
+				console.error("[vault] notice failed:", error),
+			);
+		},
+	},
 ): ReturnType<typeof createVaultTools> {
 	const tools = createVaultTools(deps);
 	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
@@ -392,7 +451,7 @@ export function registerVaultTools(
 	mcpServer.registerTool(
 		"vault_collect",
 		{ title: `Vault Collect`, description: COLLECT_DESCRIPTION, inputSchema: collectSchema },
-		async (args: { jobId: string; waitMs?: number }) => text(await tools.collect(args)),
+		async (args: { jobId: string }) => text(await tools.collect(args)),
 	);
 	mcpServer.registerTool(
 		"vault_withdraw",

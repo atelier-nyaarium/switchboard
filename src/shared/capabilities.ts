@@ -96,7 +96,7 @@ The owner's secrets, approved per use from the phone. No tool ever answers a val
 
 - \`vault_search\` lists entries by public title and description with their ids.
 - \`vault_run\` runs a shell command with one entry's value injected: as \`$VAULT_VALUE\` (or the env name you choose), on stdin followed by a newline, or as a 0600 file at \`$VAULT_FILE\` on tmpfs when there is one. Naming an entry asks the owner to approve the command, so name the real one; a vague command earns a denial.
-- A run that outlives the wait (230 seconds per call) answers \`pending\` (the owner has not answered) or \`running\` (the command has not exited). \`vault_collect\` with the \`jobId\` continues it; \`vault_withdraw\` gives the request up.
+- \`vault_run\` answers at once with a \`jobId\`, \`pending\` (the owner has not answered) or \`running\`. A notice names \`vault_collect\` when it settles; collect then. \`vault_withdraw\` gives the request up.
 - A \`refused\` answer with a \`note\` is the owner steering you. Do what the note says instead of asking again.
 - \`capture\` on a run stores the command's stdout as a new entry the owner can edit on the phone. Use it to generate a secret that must never enter the transcript.
 - \`sudo -A\` forwards the password request through Switchboard to the owner; plain \`sudo\` refuses with no terminal and never asks.

@@ -220,19 +220,22 @@ session holds a binding token. `vaultRun.ts` is the child run.
   sit inside `[vault]` would survive the scrub, so that stream is withheld whole. The cut and the
   cap are separate facts: a capture whose stdout was cut stores nothing, since a piece of a secret
   is not the secret, while a noisy stderr costs it nothing.
-- **The wait is capped at `VAULT_ROUTE_WAIT_CAP_MS` per call:** an unanswered request answers
-  `pending` and a command still running answers `running`, both with a `jobId`. `vault_collect`
-  continues either; `vault_withdraw` withdraws the request or stops the command, and says so when
-  the gateway could not confirm. A job keeps one id from `pending` through `running`. Two collects
-  on one job share an answer rather than starting the command twice. Long polls are posted once,
-  never retried; a repeated run joins the request still open. The process holds the child's output
-  until collected. Shutdown stops every child before it waits on anything, and the entry point
-  bounds the whole of it to three seconds.
+- **`vault_run` and `vault_collect` never wait:** a run posts `/vault/use` with no wait and answers
+  a local `jobId` with `pending` or `running`; a refusal before any job answers `refused`. The job
+  waits in the background: it long-polls `/vault/collect` for the owner's answer, re-polling a
+  `pending` one and retrying a dropped connection, starts the child on approval, and settles when
+  the child exits and any capture is stored. A Gateway restart retracts the request, so the next
+  poll settles it refused. A settled job raises a notice naming `vault_collect` through
+  `emitLocalAwareness`, dropped for Copilot if the job was collected first. `vault_collect` answers a
+  settled job once, then forgets it. `vault_withdraw` withdraws the request or stops the command,
+  and says so when the gateway could not confirm. `/vault/use` is posted once; a background
+  poll retries only a dropped connection. A repeated run while the request is open joins its job. Shutdown stops every child before it waits on anything, and the
+  entry point bounds the whole of it to three seconds.
 - `capture` stores the command's raw stdout as a new entry through `/vault/capture` and answers
   its id; stdout is never returned. With no `entryId` the command runs at once with nothing
   injected.
 - A refusal from the route, the owner, or the request's own deadline all answer `refused` with the
-  reason. A wait that runs out is `pending` or `running`, never a refusal.
+  reason.
 - **No tool answers a value.** Every shape is still readable by another process of the same uid,
   through `/proc/<pid>/environ` or the file itself. That boundary is the plan's, not this code's.
 
