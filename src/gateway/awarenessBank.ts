@@ -41,8 +41,12 @@ type Entry = {
 	changes: Map<string, Change<unknown>>;
 };
 
+/** The parts of one notice too large for a push, sent first in order. */
+type Part = { from: string; body: string; act: ActAxis };
+
 type SessionBank = {
 	entries: Map<string, Entry>;
+	parts: Part[];
 	firstSeen: number;
 	heldSince?: number;
 	dueAt?: number;
@@ -58,7 +62,11 @@ export const MAX_HOLD_MS = 600_000;
 /** Of one rendered notice, whatever the subscribers render. */
 export const MAX_AWARENESS_BODY_CHARS = 16_000;
 
-const TRUNCATED_NOTE = "(More changed than fits here.)";
+/** Ends a notice sent in parts. */
+const LARGE_NOTICE_NOTE = "This notice was too large for one message and came in parts. Tell the user about it.";
+
+/** Room a part keeps for its marker. */
+const PART_NOTE_ROOM = 40 + LARGE_NOTICE_NOTE.length;
 
 /** Between pushes that failed. */
 const RETRY_MS = 1_000;
@@ -68,13 +76,13 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 	const clock = () => deps.ambient.now();
 
 	function changeCount(bank: SessionBank): number {
-		return [...bank.entries.values()].reduce((count, entry) => count + entry.changes.size, 0);
+		return [...bank.entries.values()].reduce((count, entry) => count + entry.changes.size, bank.parts.length);
 	}
 
 	function bankFor(sessionKey: string): SessionBank {
 		let bank = sessions.get(sessionKey);
 		if (!bank) {
-			bank = { entries: new Map(), firstSeen: clock(), leased: false };
+			bank = { entries: new Map(), parts: [], firstSeen: clock(), leased: false };
 			sessions.set(sessionKey, bank);
 		}
 		return bank;
@@ -91,29 +99,52 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 		);
 	}
 
-	function bounded(body: string): string {
-		if (body.length <= MAX_AWARENESS_BODY_CHARS) return body;
-		const room = MAX_AWARENESS_BODY_CHARS - TRUNCATED_NOTE.length - 2;
+	/** Where to cut `body` within `room`: a line break, else never inside a surrogate pair. */
+	function cutAt(body: string, room: number): number {
 		const line = body.lastIndexOf("\n", room);
-		// Never between the halves of a surrogate pair.
-		const cut = line > 0 ? line : /[\uD800-\uDBFF]/.test(body[room - 1] ?? "") ? room - 1 : room;
-		return `${body.slice(0, cut)}\n\n${TRUNCATED_NOTE}`;
+		if (line > 0) return line;
+		return /[\uD800-\uDBFF]/.test(body[room - 1] ?? "") ? room - 1 : room;
+	}
+
+	/** Splits a body too large for one push; each part names its place. */
+	function split(from: string, body: string, act: ActAxis, firstRoom: number): Part[] {
+		const pieces: string[] = [];
+		let rest = body;
+		let room = firstRoom;
+		while (rest.length > room) {
+			const cut = cutAt(rest, room);
+			pieces.push(rest.slice(0, cut));
+			rest = rest.slice(cut).replace(/^\n/, "");
+			room = MAX_AWARENESS_BODY_CHARS - PART_NOTE_ROOM;
+		}
+		pieces.push(rest);
+		return pieces.map((piece, index) => ({
+			from,
+			act,
+			body:
+				index + 1 < pieces.length
+					? `${piece}\n\n(part ${index + 1} of ${pieces.length}, continued)`
+					: `${piece}\n\n(part ${index + 1} of ${pieces.length}) ${LARGE_NOTICE_NOTE}`,
+		}));
 	}
 
 	type Carried = Map<Entry, Map<string, Change<unknown>>>;
 
 	/**
-	 * Renders as many banked changes as fit one body, whole; the rest wait for the next push.
-	 * A single change too large alone is cut.
+	 * Fills one push: a held part first, then banked changes whole while they fit; the rest wait for
+	 * the next push. A change too large alone is split into parts, the first riding this push.
 	 */
 	function content(
 		sessionKey: string,
 		bank: SessionBank,
-	): { awareness: RidingAwareness; carried: Carried; overflowed: boolean } | null {
-		const rendered: { from: string; body: string; act: ActAxis }[] = [];
+	): { awareness: RidingAwareness; carried: Carried; parts: Part[]; overflowed: boolean } | null {
+		const rendered: Part[] = [];
 		const carried: Carried = new Map();
-		let size = 0;
-		let overflowed = false;
+		const room = () => MAX_AWARENESS_BODY_CHARS - rendered.reduce((n, item) => n + item.body.length + 2, 0);
+		let parts: Part[] = [];
+		const held = bank.parts[0];
+		if (held) rendered.push(held);
+		let overflowed = bank.parts.length > 1;
 		for (const entry of bank.entries.values()) {
 			if (overflowed) break;
 			const taken = new Map<string, Change<unknown>>();
@@ -121,31 +152,57 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 			for (const [identity, change] of entry.changes) {
 				const trial = new Map(taken).set(identity, change);
 				const trialBody = entry.subscriber.render(sessionKey, [...trial.values()]);
-				const joined = size + (rendered.length > 0 && trialBody ? 2 : 0) + trialBody.length;
-				if (joined > MAX_AWARENESS_BODY_CHARS && (rendered.length > 0 || body)) {
-					overflowed = true;
-					break;
+				if (trialBody.length + (rendered.length > 0 ? 2 : 0) <= room()) {
+					taken.set(identity, change);
+					body = trialBody;
+					continue;
 				}
+				overflowed = true;
+				const alone = entry.subscriber.render(sessionKey, [change]);
+				if (alone.length <= MAX_AWARENESS_BODY_CHARS - PART_NOTE_ROOM) break;
+				// Too large for any push: its first part rides this one.
+				if (body) rendered.push(partOf(sessionKey, entry, taken, body));
+				const urgent = isUrgent(sessionKey, entry, change) ? "act_now" : "no_act";
+				const firstRoom = room() - PART_NOTE_ROOM - (rendered.length > 0 ? 2 : 0);
+				const pieces = split(
+					entry.subscriber.source,
+					alone,
+					urgent,
+					firstRoom > 0 ? firstRoom : MAX_AWARENESS_BODY_CHARS - PART_NOTE_ROOM,
+				);
+				if (firstRoom > 0) rendered.push(pieces.shift()!);
+				parts = pieces;
 				taken.set(identity, change);
-				body = trialBody;
+				carried.set(entry, taken);
+				break;
+			}
+			if (overflowed) {
+				if (taken.size > 0 && !carried.has(entry)) {
+					carried.set(entry, taken);
+					if (body) rendered.push(partOf(sessionKey, entry, taken, body));
+				}
+				break;
 			}
 			if (taken.size === 0) continue;
 			carried.set(entry, taken);
-			if (!body) continue;
-			const urgent = [...taken.values()].some((change) => isUrgent(sessionKey, entry, change));
-			size += (rendered.length > 0 ? 2 : 0) + body.length;
-			rendered.push({ from: entry.subscriber.source, body, act: urgent ? "act_now" : "no_act" });
+			if (body) rendered.push(partOf(sessionKey, entry, taken, body));
 		}
 		if (rendered.length === 0) return null;
 		return {
 			awareness: {
-				from: rendered.map((item) => item.from).join(", "),
-				body: bounded(rendered.map((item) => item.body).join("\n\n")),
+				from: [...new Set(rendered.map((item) => item.from))].join(", "),
+				body: rendered.map((item) => item.body).join("\n\n"),
 				act: rendered.some((item) => item.act === "act_now") ? "act_now" : "no_act",
 			},
 			carried,
-			overflowed,
+			parts,
+			overflowed: overflowed || parts.length > 0,
 		};
+	}
+
+	function partOf(sessionKey: string, entry: Entry, taken: Map<string, Change<unknown>>, body: string): Part {
+		const urgent = [...taken.values()].some((change) => isUrgent(sessionKey, entry, change));
+		return { from: entry.subscriber.source, body, act: urgent ? "act_now" : "no_act" };
 	}
 
 	function drop(sessionKey: string, bank: SessionBank, why: string): void {
@@ -164,9 +221,18 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 	}
 
 	/** Removes what a carrier held. A change observed since keeps its delta from what was delivered. */
-	function settle(sessionKey: string, bank: SessionBank, carried: Carried, overflowed: boolean): void {
+	function settle(
+		sessionKey: string,
+		bank: SessionBank,
+		carried: Carried,
+		sentPart: boolean,
+		parts: Part[],
+		overflowed: boolean,
+	): void {
 		bank.leased = false;
 		if (sessions.get(sessionKey) !== bank) return;
+		if (sentPart) bank.parts.shift();
+		bank.parts.push(...parts);
 		for (const [entry, changes] of carried) {
 			for (const [identity, sent] of changes) {
 				const current = entry.changes.get(identity);
@@ -175,7 +241,7 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 			}
 			if (entry.changes.size === 0) bank.entries.delete(entry.subscriber.source);
 		}
-		if (bank.entries.size === 0) {
+		if (bank.entries.size === 0 && bank.parts.length === 0) {
 			sessions.delete(sessionKey);
 			return;
 		}
@@ -195,7 +261,8 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 			sessions.delete(sessionKey);
 			return null;
 		}
-		const { awareness, carried, overflowed } = filled;
+		const { awareness, carried, parts, overflowed } = filled;
+		const sentPart = bank.parts.length > 0;
 		bank.leased = true;
 		let settled = false;
 		return {
@@ -213,7 +280,7 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 						} catch {}
 					}
 				}
-				settle(sessionKey, bank, carried, overflowed);
+				settle(sessionKey, bank, carried, sentPart, parts, overflowed);
 			},
 			release() {
 				if (settled) return;
@@ -301,7 +368,7 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 			if (!bank || !entry?.changes.delete(identity)) return;
 			if (entry.changes.size === 0) bank.entries.delete(source);
 			if (bank.leased) return;
-			if (bank.entries.size === 0) sessions.delete(sessionKey);
+			if (bank.entries.size === 0 && bank.parts.length === 0) sessions.delete(sessionKey);
 			else rearm(sessionKey, bank);
 		},
 		tick(now = clock()) {

@@ -94,6 +94,42 @@ describe("awareness bank", () => {
 		expect(bank.prepareFor("s")).toBeNull();
 	});
 
+	it("splits one notice too large for a push into marked parts, the first riding with the rest", () => {
+		const pushes: ChannelPushPayload[] = [];
+		const told: string[] = [];
+		const bank = createAwarenessBank({
+			liveness: () => "live",
+			deliver: (_s, payload) => {
+				pushes.push(payload);
+				return true;
+			},
+			ambient: processAmbient(),
+		});
+		const huge = "line of a very large notice\n".repeat(1_500);
+		const observe = bank.register<string>({
+			source: "fake",
+			act: () => "act_now",
+			render: (_s, changes) =>
+				changes.map((c) => (c.identity === "big" ? huge : `${c.identity} small`)).join("\n"),
+			delivered: (_s, change) => told.push(change.identity),
+		});
+		observe(["a", "big", "b"].map((identity) => ({ sessionKey: "s", identity, pre: undefined, post: "done" })));
+
+		bank.tick(Date.now() + 120_000);
+
+		const bodies = pushes.map((push) => push.awareness?.body ?? "");
+		expect(bodies.length).toBeGreaterThan(2);
+		for (const body of bodies) expect(body.length).toBeLessThanOrEqual(MAX_AWARENESS_BODY_CHARS);
+		expect(bodies[0]).toMatch(/^a small/);
+		expect(bodies[0]).toMatch(/\(part 1 of \d+, continued\)$/);
+		const finalPart = bodies.findIndex((body) => /\(part (\d+) of \1\)/.test(body));
+		expect(bodies[finalPart]).toContain("Tell the user");
+		expect(bodies.slice(finalPart).join("\n")).toContain("b small");
+		expect(bodies.join("\n").split("line of a very large notice").length - 1).toBe(1_500);
+		expect(told).toEqual(["a", "big", "b"]);
+		expect(bank.prepareFor("s")).toBeNull();
+	});
+
 	it("drops a gone session's bank that only rides a later message, after the hold", () => {
 		let now = 0;
 		const bank = createAwarenessBank({
