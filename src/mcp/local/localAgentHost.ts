@@ -13,6 +13,7 @@ import {
 	AgentResolvedTargetSchema,
 } from "../../shared/agent-execution-target.js";
 import { AGENT_NOTICE_SOURCE, agentNoticeAct, agentNoticeLine } from "../../shared/agent-notice.js";
+import { uncollectedTurns } from "../../shared/agent-turn-marks.js";
 import { resolveWorkdir, workdirOrFallback } from "../../shared/agent-workdir.js";
 import {
 	CODEX_ACTIVITY_MAX_ITEMS,
@@ -103,7 +104,11 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 		replaysOperations: false,
 		notify: (notice) => {
 			const awareness = { from: AGENT_NOTICE_SOURCE, body: agentNoticeLine(notice), act: agentNoticeAct(notice) };
-			void emitLocalAwareness(awareness).catch((error) =>
+			// A collected turn needs no wake.
+			const stillWanted = () =>
+				notice.kind !== "done" ||
+				runtime.list().some((agent) => agent.agentId === notice.agentId && uncollectedTurns(agent) > 0);
+			void emitLocalAwareness(awareness, stillWanted).catch((error) =>
 				console.error(`[${backend.id}-local] notice failed:`, error),
 			);
 		},

@@ -190,7 +190,10 @@ export function setChannelServer(server: Server): void {
 }
 
 /** Pushes local awareness notices. */
-export async function emitLocalAwareness(awareness: RidingAwareness): Promise<boolean> {
+export async function emitLocalAwareness(
+	awareness: RidingAwareness,
+	stillWanted: () => boolean = () => true,
+): Promise<boolean> {
 	const push: ChannelPushPayload = {
 		type: "channel_push",
 		from: awareness.from,
@@ -201,8 +204,12 @@ export async function emitLocalAwareness(awareness: RidingAwareness): Promise<bo
 		act: awareness.act,
 	};
 	if (AGENT_TYPE === "copilot") {
-		await serializeTypedDelivery(() => emitTypedChannelTag(push, crypto.randomUUID()));
-		return true;
+		// Rechecked once the queue reaches it.
+		return serializeTypedDelivery(async () => {
+			if (!stillWanted()) return false;
+			await emitTypedChannelTag(push, crypto.randomUUID());
+			return true;
+		});
 	}
 	if (!channelServer || AGENT_TYPE !== "claude") return false;
 	await emitChannelNotification(channelServer, push);

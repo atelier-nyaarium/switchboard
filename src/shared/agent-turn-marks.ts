@@ -15,7 +15,8 @@ export const AgentTurnMarksSchema = z
 			.max(RECEIPTS_KEPT)
 			.optional(),
 	})
-	.strict();
+	.strict()
+	.refine((marks) => marks.collected.every((id) => marks.notified.includes(id)), "a collected turn is told");
 
 export type AgentTurnMarks = z.infer<typeof AgentTurnMarksSchema>;
 

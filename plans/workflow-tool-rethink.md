@@ -120,7 +120,7 @@ One rule for every long job: start or collect answers at once; a settle notice i
 
 ### Plugin notices reach Copilot
 
-- `emitLocalAwareness` types the awareness block into a Copilot pane through the serialized typed delivery and its busy retry, instead of returning false. Local agent notices need it now; Phase 2's vault notice rides it.
+- `emitLocalAwareness` types the awareness block into a Copilot pane through the serialized typed delivery and its busy retry, instead of returning false. Local agent notices need it now; Phase 2's vault notice rides it. A queued local done notice is rechecked when the queue reaches it, and dropped once its turns were collected. The schemas refuse a collected mark without its notified mark.
 
 ### Docs and gates
 

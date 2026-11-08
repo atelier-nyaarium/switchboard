@@ -10,7 +10,7 @@ calls. Only JSON crosses the sandbox boundary.
 |---|---|
 | `workflowStart` | Start a run from `script` text or a `scriptPath`, with args, a default backend and optional `resumeFrom`. |
 | `workflowCollect` | Read a run at once: its result, failure reason and step outcomes; step answers when it has no result. |
-| `workflowList` | Running and uncollected runs: id, meta name, status, times, step counts. |
+| `workflowList` | Running and uncollected runs: id, meta name, status, times, step counts. Optional `limit` and `status`. |
 | `workflowStop` | Cancel a running run. |
 
 The MCP tool takes exactly one of `script` and `scriptPath`, reading the path from the session's

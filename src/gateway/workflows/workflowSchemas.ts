@@ -47,6 +47,13 @@ export const WorkflowRunRecordSchema = z
 		if (record.status === "running" && record.settledAt !== null) {
 			context.addIssue({ code: z.ZodIssueCode.custom, path: ["settledAt"], message: "running run is settled" });
 		}
+		if (record.collected && !record.notified) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["notified"],
+				message: "collected run is not notified",
+			});
+		}
 		if (record.status === "running" && record.collected) {
 			context.addIssue({ code: z.ZodIssueCode.custom, path: ["collected"], message: "running run is collected" });
 		}
