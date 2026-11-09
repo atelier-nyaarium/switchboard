@@ -97,7 +97,7 @@ describe("two linked Domains", () => {
 		expect(again.result).toMatchObject({ kind: "refusal" });
 	});
 
-	it("delivers a send to a shared friend session and lands its reply in the sender's mailbox", async () => {
+	it("delivers a send to a shared friend session, says a phone reads the reply, and lands it with its tiers", async () => {
 		const shared = session(bob, "fixture-app.shared");
 		await shared.ready();
 		await share(bob, shared.team, h.set.domain.id);
@@ -108,12 +108,16 @@ describe("two linked Domains", () => {
 			() => shared.inbound.find((frame) => frame.body === "hello bob"),
 			"cross-Domain push",
 		);
-		expect((await shared.reply(String(push.session_id), "hi alice")).status).toBe(200);
+		expect(push.reader).toBe("phone");
+		const tiers = { title: "Hi", summary: "Hi Alice.", fullSpoken: "Hi Alice." };
+		const id = String(push.session_id);
+		expect((await shared.reply(id, "hi alice", { tiered: true, title: "Hi" })).status).toBe(400);
+		expect((await shared.reply(id, "hi alice", { tiered: true, ...tiers })).status).toBe(200);
 		const reply = await h.waitFor(
 			async () => (await replies(h)).find((entry) => entry.body === "hi alice"),
 			"reply",
 		);
-		expect(reply.kind).toBe("reply");
+		expect(reply).toMatchObject({ kind: "reply", ...tiers });
 	});
 
 	it("projects the shared session onto the friend's presence plane, and unsharing removes it", async () => {
@@ -255,7 +259,9 @@ describe("two linked Domains", () => {
 			expect((await asker.post("/send", body)).status).toBe(200);
 			await h.waitFor(() => answerer.inbound.find((frame) => frame.body === "once across"), "delivery");
 			await new Promise((resolve) => setTimeout(resolve, 300));
-			expect(answerer.inbound.filter((frame) => frame.body === "once across")).toHaveLength(1);
+			const landed = answerer.inbound.filter((frame) => frame.body === "once across");
+			expect(landed).toHaveLength(1);
+			expect(landed[0].reader).toBe("session");
 		});
 
 		it("refuses a reply forged by a linked third Domain into a job bound to another", async () => {

@@ -1,6 +1,13 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { composeModelMessage, type ReminderBlock, reminderBlock } from "../../shared/system-reminder.js";
-import type { ChannelFile, ChannelPushPayload, ResponsePushPayload, RidingAwareness } from "../../shared/types.js";
+import {
+	type ChannelFile,
+	type ChannelPushPayload,
+	REPLY_READERS,
+	type ReplyReader,
+	type ResponsePushPayload,
+	type RidingAwareness,
+} from "../../shared/types.js";
 import { dropReferenceArtifacts, materializeFiles, renderFilesBlock } from "./channelFiles.js";
 
 ////////////////////////////////
@@ -34,6 +41,16 @@ function deliveryReminder(awareness: RidingAwareness | undefined, ownerApproved:
 	];
 	return lines.length === 0 ? "" : reminderBlock(lines);
 }
+
+const REPLY_OWED = `They are waiting on a reply. Reply with the channel_reply tool using this session_id.`;
+const REPLY_ROAD = `Plain text output does not reach the sender.`;
+
+/** Names the reply's fields by its reader, never by who sent: a relayed sender is not this owner. */
+const REPLY_INSTRUCTIONS: Record<ReplyReader | "unknown", string> = {
+	phone: `${REPLY_OWED} It is read on a phone, so send title, summary, full and fullSpoken. ${REPLY_ROAD}`,
+	session: `${REPLY_OWED} Another session reads it, so send full and leave out title, summary and fullSpoken. ${REPLY_ROAD}`,
+	unknown: `${REPLY_OWED} ${REPLY_ROAD}`,
+};
 
 export interface ChannelNotification {
 	content: string;
@@ -82,7 +99,7 @@ export async function buildChannelNotification(
 						? "Thread closed, no reply expected. Do not acknowledge; silence is correct here. Reply only if this breaks something on your side."
 						: payload.replyJsonSchema
 							? `Reply with the channel_reply_structured tool using this session_id and a responseData matching reply_schema.`
-							: `They are waiting on a reply. Reply with the channel_reply tool using this session_id. Plain text output does not reach the sender.`;
+							: REPLY_INSTRUCTIONS[REPLY_READERS.find((known) => known === payload.reader) ?? "unknown"];
 
 	return {
 		content,

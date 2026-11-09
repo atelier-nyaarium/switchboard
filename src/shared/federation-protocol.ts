@@ -6,6 +6,7 @@ import { NOTICE_TITLE_MAX, NoticeTierWireFields } from "./notice.js";
 import { RECORD_SUMMARY_MAX, RECORD_THREADS_MAX, RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { SEND_GUARDS } from "./schemasAssistantSend.js";
 import { isSlug } from "./session-id.js";
+import { REPLY_READERS } from "./types.js";
 import { SIGNING_TAGS } from "./wire-vocabulary.js";
 
 export { FEDERATION_PROTOCOL_VERSION } from "./router-protocol.js";
@@ -101,6 +102,10 @@ function recordIssue(entry: {
 	return body && entry.body && entry.body.length <= RECORD_SUMMARY_MAX ? null : "a response carries its summary";
 }
 
+// FIXME 2026-11-23: required, once every Gateway names it.
+/** Who reads the reply. An unknown word reads as absent. */
+export const RelayedReaderSchema = z.enum(REPLY_READERS).optional().catch(undefined);
+
 // Federated payloads remain sealed.
 export const FederatedOpSchema = z.discriminatedUnion("kind", [
 	z.object({
@@ -112,6 +117,7 @@ export const FederatedOpSchema = z.discriminatedUnion("kind", [
 		displayLabel: z.string().min(1).max(64).optional(),
 		disposition: z.enum(["asking", "informing", "closing"]).optional(),
 		returnRoute: ReturnRouteSchema,
+		reader: RelayedReaderSchema,
 	}),
 	z.object({ kind: z.literal("wake"), team: z.string().min(1).max(MAX_ADDRESS_LEN) }),
 	z.object({

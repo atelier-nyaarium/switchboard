@@ -35,6 +35,7 @@ export function buildChannelReplyPayload(args: ChannelReplyArgs): Record<string,
 		session_id: args.session_id,
 		// Spread, never hand-listed: a new spoken tier must not need an edit here to survive the hop.
 		...pickTiers(args),
+		tiered: true,
 		response: args.full,
 		conversationId: bridgeConversationId(),
 	};
@@ -119,9 +120,7 @@ export function registerChannelReply(
 
 Reply to an incoming channel message. Conversations are streams, so call this repeatedly on the same \`session_id\` when needed.
 
-\`session_id\` and \`full\` are required.
-
-Replying to the owner, \`title\`, \`summary\`, and \`fullSpoken\` are required too. Replying to another session, omit them.
+\`session_id\`, \`title\`, \`summary\`, \`full\`, and \`fullSpoken\` are required. When the tag's \`instructions\` say another session reads the reply, send \`session_id\` and \`full\` only.
 
 Send responses verbatim unless the requester asked for a summary.${guidance}
 `.trim(),

@@ -1,6 +1,7 @@
 import type { Ambient, IntervalHandle, TimerHandle } from "./ambient.js";
 import type { ReturnRoute } from "./federation-protocol.js";
 import { type Address, parseStoreKey } from "./session-id.js";
+import { REPLY_READERS, type ReplyReader } from "./types.js";
 
 export type JobState = "waiting" | "timed_out" | "stored";
 
@@ -12,23 +13,21 @@ function jobAddress(id: string): Address | null {
 
 export type LocalReply = { kind: "owner"; ownerId: string } | { kind: "conversation"; conversationId: string };
 
-/** Reply contract is immutable. */
+/** A job's origin never changes. */
 export type JobContract =
 	| { kind: "local"; reply: LocalReply }
 	| { kind: "outbound"; reply: LocalReply; dstDomainId: string | null }
-	| { kind: "inbound"; route: ReturnRoute; dstDomainId: string | null };
+	// FIXME 2026-11-23: `reader` required, once every Gateway names it.
+	| { kind: "inbound"; route: ReturnRoute; dstDomainId: string | null; reader?: ReplyReader };
 
 export function dstDomainOf(contract: JobContract): string | null {
 	return contract.kind === "local" ? null : contract.dstDomainId;
 }
 
-export function askedByOwner(contract: JobContract): boolean {
-	return contract.kind !== "inbound" && contract.reply.kind === "owner";
-}
-
-/** An inbound asker is unknown here. */
-export function askedBySession(contract: JobContract): boolean {
-	return contract.kind !== "inbound" && contract.reply.kind === "conversation";
+/** Undefined: an older Gateway relayed the ask. */
+export function readerOf(contract: JobContract): ReplyReader | undefined {
+	if (contract.kind === "inbound") return contract.reader;
+	return contract.reply.kind === "owner" ? "phone" : "session";
 }
 
 function sameReply(a: LocalReply, b: LocalReply): boolean {
@@ -141,6 +140,7 @@ function readContract(raw: unknown): JobContract | null {
 			kind: "inbound",
 			route: { srcGateway: r.srcGateway, srcConversationId: r.srcConversationId, srcSession: r.srcSession },
 			dstDomainId: domain,
+			...(REPLY_READERS.some((known) => known === c.reader) ? { reader: c.reader as ReplyReader } : {}),
 		};
 	}
 	if (c.kind !== "local" && c.kind !== "outbound") return null;
@@ -201,7 +201,7 @@ export class PendingJobStore<T> {
 		return this.entries.has(id);
 	}
 
-	/** An equal contract refreshes; a different one is refused, never merged. */
+	/** The same origin refreshes, and learns its reader; another origin is refused. */
 	reserve(
 		id: string,
 		from: string,
@@ -216,6 +216,7 @@ export class PendingJobStore<T> {
 		if (existing) {
 			if (!sameContract(existing.contract, contract))
 				return { kind: "conflict", reason: `"${id}" is already anchored to a different origin` };
+			if (contract.kind === "inbound" && contract.reader) existing.contract = contract;
 			existing.from = from;
 			existing.to = to;
 			existing.persistent = persistent || existing.persistent;

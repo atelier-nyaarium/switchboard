@@ -11,8 +11,7 @@ import { appendRefArtifacts, withNotices } from "../references/attachRefs.js";
 ////////////////////////////////
 //  Schemas
 
-// Every tier required, and strict so a retired field is rejected rather than stripped. Shares
-// channel_reply's own GuidedNoticeTiers, so both describes are identical by construction.
+// Every tier required, and strict so a retired field is rejected rather than stripped.
 export const NotifyHumanSchema = z
 	.object({
 		...GuidedNoticeTiers,

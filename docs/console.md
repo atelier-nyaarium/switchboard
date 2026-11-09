@@ -71,15 +71,23 @@ row, and mirrors a thread as `peer` rows only when the asker is a session, which
 names. The phone threads a drained row by its store key: a conv row under its own address, a
 notice row under its sender. Nothing on either side compares an address to the phone's own.
 
-**Auto-play skips peer rows.** A reply to the owner carries title, summary and fullSpoken, and
-`routesRespond` refuses one missing a tier before it settles, so the reply can be sent again. A
-reply to a session on this Gateway carries none: the route drops them from the store and the
-mirrors, and `channel_reply` makes them optional at the tool. A peer row never carries tiers, and
-`PollDrain` does not auto-play it, so the body is not spoken in their place; a tap on a peer row
-still plays it.
-- **A remote asker is judged at its own Gateway:** an inbound job cannot say whether the asker was
-  the owner, so the answering Gateway relays the tiers it was sent and the source Gateway, whose
-  job names its asker, keeps or drops them. It cannot refuse a missing tier for the owner.
+**Spoken tiers follow who reads the reply:** title, summary and fullSpoken are for a phone.
+`readerOf` reads the job's contract as `phone` or `session`, and everything below reads that answer.
+- **The message says it:** `send` stamps the reader on the delivery row, the push carries it, and
+  the tag's instruction names the fields: all four for a phone, `full` only for a session. The
+  wording names the reader and never the owner, since a relayed sender is not this owner. The tool
+  text asks for all four unless the tag says another session reads the reply.
+- **It crosses Gateways:** the relayed `send` carries the reader, and the answering Gateway keeps it
+  on the inbound job. A retried send teaches a stored job its reader; the reader is no part of a
+  job's origin, so it never refuses one.
+- **An older Gateway names none:** the job's reader is unknown. Its push keeps the plain wording and
+  its reply's tiers ride back for the asking Gateway, whose own job knows, to keep or drop.
+- **The route keeps or drops:** `routesRespond` drops the tiers for a session reader before the
+  store, the push and the relay. For a phone it refuses a missing tier, but only on a reply marked
+  `tiered`, which `channel_reply` alone sets, and before the job settles, so the reply can be sent
+  again. A card's caption from `designer_push_card` lands as sent.
+- **A peer row carries none:** `mirrorPeer` names the fields it copies. `PollDrain` does not
+  auto-play a peer row, so its body is not spoken in their place; a tap on one still plays it.
 
 ### No Gateway is the phone's own
 

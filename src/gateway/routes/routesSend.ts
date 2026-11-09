@@ -3,7 +3,13 @@ import { ASSISTANT_TEAM, isAssistantRecord } from "../../shared/assistant-sessio
 import type { FederatedOp } from "../../shared/federation-protocol.js";
 import { HOST_SPAWN } from "../../shared/host-spawn.js";
 import type { DeliveryOrigin, EventMember } from "../../shared/pending-delivery-store.js";
-import type { JobContract, LocalReply, PendingJobStore, Reservation } from "../../shared/pending-job-store.js";
+import {
+	type JobContract,
+	type LocalReply,
+	type PendingJobStore,
+	type Reservation,
+	readerOf,
+} from "../../shared/pending-job-store.js";
 import { BLOB_HOLD_MAX_MS } from "../../shared/router-protocol.js";
 import type { AssistantSendIntent, SendGuard } from "../../shared/schemasAssistantSend.js";
 import {
@@ -216,6 +222,11 @@ export function createSendRoutes({
 		const srcSession = storeKey({ kind: "conv", conversationId: fromConversationId, address: targetAddr });
 		const senderAddr = fromAddress ? null : localAddress(from);
 		const senderCanonical = fromAddress ?? senderAddr!.canonical;
+		const contract: JobContract = {
+			kind: "outbound",
+			reply: reply(fromConversationId),
+			dstDomainId: resolvedDomain ?? null,
+		};
 		const op: FederatedOp = {
 			kind: "send",
 			from: senderCanonical,
@@ -225,15 +236,10 @@ export function createSendRoutes({
 			...(displayLabel ? { displayLabel } : {}),
 			...(disposition ? { disposition } : {}),
 			returnRoute: { srcGateway: localGatewayId, srcConversationId: fromConversationId, srcSession },
+			reader: readerOf(contract),
 		};
 		// Anchor first, or a fast reply outruns it.
-		const reserved = store.reserve(
-			srcSession,
-			from,
-			qualifiedTo,
-			{ kind: "outbound", reply: reply(fromConversationId), dstDomainId: resolvedDomain ?? null },
-			{ persistent: true },
-		);
+		const reserved = store.reserve(srcSession, from, qualifiedTo, contract, { persistent: true });
 		if (reserved.kind === "conflict") return jsonResponse({ error: reserved.reason }, 409);
 		let relay: { ok: boolean; error?: string };
 		try {
@@ -312,6 +318,7 @@ export function createSendRoutes({
 		const inboundSessionId = trustedInbound ? parsed.data.sessionId : undefined;
 		const returnRoute = trustedInbound ? parsed.data.returnRoute : undefined;
 		const dstDomainId = trustedInbound ? parsed.data.dstDomainId : undefined;
+		const relayedReader = trustedInbound ? parsed.data.reader : undefined;
 		const localReply = (conversationId: string): LocalReply =>
 			ingress.kind === "owner"
 				? { kind: "owner", ownerId: ingress.ownerId }
@@ -406,7 +413,12 @@ export function createSendRoutes({
 						return jsonResponse({ error: `a federated send must carry a return route` }, 400);
 					}
 					channelJobId = inboundSessionId;
-					contract = { kind: "inbound", route: returnRoute, dstDomainId: dstDomainId ?? null };
+					contract = {
+						kind: "inbound",
+						route: returnRoute,
+						dstDomainId: dstDomainId ?? null,
+						...(relayedReader ? { reader: relayedReader } : {}),
+					};
 				} else if (fromConversationId) {
 					channelJobId = storeKey({
 						kind: "conv",
@@ -439,6 +451,7 @@ export function createSendRoutes({
 					...(riding ? { awareness: riding } : {}),
 					...(disposition ? { disposition } : {}),
 					...(record?.guard === "approved" ? { ownerApproved: true as const } : {}),
+					...(readerOf(contract) ? { reader: readerOf(contract) } : {}),
 					enqueuedAt: ambient.now(),
 					origin,
 				});

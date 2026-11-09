@@ -7,7 +7,7 @@ import { DurableOutbox } from "../shared/durable-outbox.js";
 import { DurableStore } from "../shared/durable-store.js";
 import { type ConsolePushEntry, ConsolePushEntrySchema } from "../shared/federation-protocol.js";
 import { fenced, MIGRATING } from "../shared/migration-fence.js";
-import { type NoticeTierWire, pickTiers } from "../shared/notice.js";
+import { pickTiers } from "../shared/notice.js";
 import { formatInboxAddress, OpResultEnvelopeSchema, RowStampSchema, signRowEnvelope } from "../shared/schemasInbox.js";
 import { type Address, storeKey } from "../shared/session-id.js";
 import type { ChannelFile } from "../shared/types.js";
@@ -364,22 +364,23 @@ export function createConsolePushOps({
 		threadAddr: Address,
 		from: string,
 		to: string,
-		payload: NoticeTierWire & {
-			body?: string;
-			files?: ChannelFile[];
-			status?: string;
-		},
+		payload: Pick<ConsolePushEntry, "body" | "files" | "status" | "guard">,
 		dedupeKey: string = newId(),
 	): void {
 		const owner = ownerId?.();
 		if (!owner) return;
 		try {
+			// Named, never spread: a peer row carries no spoken tiers.
+			const { body, files, status, guard } = payload;
 			const entry: ConsolePushEntry = {
 				kind: "peer",
 				session_id: storeKey({ kind: "conv", conversationId: owner, address: threadAddr }),
 				from,
 				to,
-				...payload,
+				body,
+				files,
+				status,
+				guard,
 			};
 			deliverToOwner({ entry, dedupeKey, label: "mirror" });
 		} catch (err) {

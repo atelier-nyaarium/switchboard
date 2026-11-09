@@ -544,7 +544,7 @@ class SttsPlayer(private val root: File, private val markerGapMs: Long = MARKER_
 		/** The text a tier speaks. Agent replies and notices carry author-written spoken tiers
 		 * (fullSpoken is the spoken copy of the body), so each tier is a plain null-coalesce -
 		 * a tier field is null or non-blank by the Message model's invariant (`tierOrNull` at
-		 * its construction boundaries). Only a TIERLESS row (a peer-mirrored ask, a user row)
+		 * its construction boundaries). Only a TIERLESS row (a peer row, a user row)
 		 * falls to its raw body, through the minimal strip below - such rows can be full
 		 * markdown briefs, so fences and link targets must not be read aloud verbatim. */
 		fun ttsText(m: Message, tier: Tier): String = when (tier) {

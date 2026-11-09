@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { NoticeFull, NoticeFullSpoken, NoticeSummary, NoticeTitle } from "./notice.js";
+import {
+	NoticeFull,
+	NoticeFullSpoken,
+	NoticeSummary,
+	type NoticeTierWire,
+	NoticeTitle,
+	SPOKEN_TIER_FIELDS,
+} from "./notice.js";
 
 ////////////////////////////////
 //  Shared enum schemas
@@ -34,10 +41,7 @@ export const DomainStatusSchema = z.enum(["unrooted", "pending", "rooted"]).meta
  * deliberate: the description must show the two-character sequence. */
 export const REAL_NEWLINES_GUIDANCE = ` Use REAL newlines for line breaks, not \\n. Wrap intentional escapes in backticks or code spans.`;
 
-/** The four notice tiers as the reply tools expose them: the leaf's canonical texts VERBATIM
- * with the newline guidance appended. Both tools (channel_reply here, notify_human in
- * mcp/channel/humanTools.ts) spread this SAME object, so their tier describes are identical
- * by construction, not by audit. */
+/** The four notice tiers as the reply tools expose them: canonical texts verbatim plus the newline guidance. */
 export const GuidedNoticeTiers = {
 	title: NoticeTitle.describe(`${NoticeTitle.description}${REAL_NEWLINES_GUIDANCE}`),
 	summary: NoticeSummary.describe(`${NoticeSummary.description}${REAL_NEWLINES_GUIDANCE}`),
@@ -45,17 +49,23 @@ export const GuidedNoticeTiers = {
 	fullSpoken: NoticeFullSpoken.describe(`${NoticeFullSpoken.description}${REAL_NEWLINES_GUIDANCE}`),
 };
 
-const OWNER_ONLY = ` Owner replies only. Omit when replying to another session.`;
+const FULL_ONLY = ` Omit when the tag's \`instructions\` say another session reads the reply.`;
 
-const forOwner = (tier: z.ZodString) => tier.optional().describe(`${tier.description}${OWNER_ONLY}`);
+/** A session reads `full` alone, so the spoken trio is optional here. */
+const ReplyTiers = {
+	...GuidedNoticeTiers,
+	...(Object.fromEntries(
+		SPOKEN_TIER_FIELDS.map((field) => [
+			field,
+			GuidedNoticeTiers[field].optional().describe(`${GuidedNoticeTiers[field].description}${FULL_ONLY}`),
+		]),
+	) as Record<keyof NoticeTierWire, z.ZodOptional<z.ZodString>>),
+};
 
 export const ChannelReplySchema = z
 	.object({
 		session_id: z.string().describe(`The session_id for this request. Required to route the reply correctly.`),
-		title: forOwner(GuidedNoticeTiers.title),
-		summary: forOwner(GuidedNoticeTiers.summary),
-		full: GuidedNoticeTiers.full,
-		fullSpoken: forOwner(GuidedNoticeTiers.fullSpoken),
+		...ReplyTiers,
 		attachments: z
 			.array(z.string())
 			.optional()

@@ -10,7 +10,7 @@ import { processAmbient } from "../shared/ambient.js";
 import { DurableStore, openDurable } from "../shared/durable-store.js";
 import { invalidate, MIGRATING, readGatewayMigrationWindow, useMigrationEpochFile } from "../shared/migration-fence.js";
 import { PendingDeliveryStore } from "../shared/pending-delivery-store.js";
-import { type JobContract, PendingJobStore } from "../shared/pending-job-store.js";
+import { type JobContract, PendingJobStore, readerOf } from "../shared/pending-job-store.js";
 import { PlaneRegistry } from "../shared/plane-registry.js";
 import { Address, storeKey } from "../shared/session-id.js";
 
@@ -50,6 +50,32 @@ describe("delivery-state durability", () => {
 		expect(b.restore(snap).restored).toBe(1);
 		expect(b.poll(id)).toBe("hello");
 		expect(b.has(transient)).toBe(false);
+	});
+
+	it("keeps a relayed job's reader across a restore, learns one an older Gateway left out, and never forgets it", () => {
+		const relayed = (id: string, reader?: "phone" | "session"): JobContract => ({
+			kind: "inbound",
+			route: { srcGateway: "hosta", srcConversationId: id.split(".")[1], srcSession: id },
+			dstDomainId: null,
+			...(reader ? { reader } : {}),
+		});
+		const named = jobId("c1", "team");
+		const unnamed = jobId("c2", "team");
+		const a = new PendingJobStore<string>(600_000, processAmbient());
+		anchor(a, named, relayed(named, "phone"), true);
+		anchor(a, unnamed, relayed(unnamed), true);
+
+		const b = new PendingJobStore<string>(600_000, processAmbient());
+		expect(b.restore(JSON.parse(JSON.stringify(a.snapshot()))).restored).toBe(2);
+		const reader = (id: string) => {
+			const contract = b.contractOf(id);
+			return contract && readerOf(contract);
+		};
+		expect([reader(named), reader(unnamed)]).toEqual(["phone", undefined]);
+
+		anchor(b, unnamed, relayed(unnamed, "phone"), true);
+		anchor(b, named, relayed(named), true);
+		expect([reader(named), reader(unnamed)]).toEqual(["phone", "phone"]);
 	});
 
 	it("a restore never clobbers a live entry that beat the load", () => {

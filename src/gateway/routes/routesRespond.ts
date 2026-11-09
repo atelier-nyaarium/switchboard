@@ -1,7 +1,7 @@
 import { isNoAckSessionId } from "../../shared/agent-notice.js";
 import type { Ambient } from "../../shared/ambient.js";
 import { pickTiers, SPOKEN_TIER_FIELDS } from "../../shared/notice.js";
-import { askedByOwner, askedBySession, type PendingJobStore } from "../../shared/pending-job-store.js";
+import { type PendingJobStore, readerOf } from "../../shared/pending-job-store.js";
 import { type Address, parseStoreKey } from "../../shared/session-id.js";
 import type { GatewayConfig, ResponsePayload, ResponsePushPayload } from "../../shared/types.js";
 import {
@@ -87,7 +87,7 @@ export function createRespondRoutes({
 			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
 
-		const { session_id: respondSessionId, replyAsJson, files, opId: producerOpId, ...rest } = parsed.data;
+		const { session_id: respondSessionId, replyAsJson, files, opId: producerOpId, tiered, ...rest } = parsed.data;
 
 		// Raw-bytes backstop before anything is stored or pushed.
 		if (files && files.length > 0) {
@@ -132,17 +132,16 @@ export function createRespondRoutes({
 			}
 		}
 
-		// Spoken tiers are owner-only.
-		const asker = store.contractOf(respondSessionId);
-		const toOwner = asker !== undefined && askedByOwner(asker);
-		const toSession = asker !== undefined && askedBySession(asker);
+		// Spoken tiers are for a phone. An unknown reader's ride on, for its own Gateway to judge.
+		const job = store.contractOf(respondSessionId);
+		const reader = job && readerOf(job);
 
 		// If JSON reply provided but no explicit response string, pretty-stringify for text consumers.
 		const response: ResponsePayload = {
 			session_id: respondSessionId,
 			status: rest.status as ResponsePayload["status"] | undefined,
 			response: rest.response,
-			...(toSession ? {} : pickTiers(rest)),
+			...(reader === "session" ? {} : pickTiers(rest)),
 			question: rest.question,
 			reason: rest.reason,
 			estimated_minutes: rest.estimated_minutes,
@@ -166,12 +165,12 @@ export function createRespondRoutes({
 		}
 
 		// Refuse before settle.
-		if (toOwner && !opts.consoleSender && !opts.trustedInbound && response.response && !replyAsJson) {
+		if (reader === "phone" && tiered) {
 			const missing = SPOKEN_TIER_FIELDS.filter((field) => !response[field]);
 			if (missing.length > 0) {
 				return jsonResponse(
 					{
-						error: `A reply to the owner needs ${missing.join(", ")}. Send title, summary, full and fullSpoken.`,
+						error: `This reply is read on a phone and needs ${missing.join(", ")}. Send title, summary, full and fullSpoken.`,
 					},
 					400,
 				);

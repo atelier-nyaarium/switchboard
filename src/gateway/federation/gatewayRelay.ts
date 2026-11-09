@@ -111,6 +111,7 @@ export function createGatewayRelayHandler({
 					...(srcDomainId !== null ? { dstDomainId: srcDomainId } : {}),
 					...(op.displayLabel ? { displayLabel: op.displayLabel } : {}),
 					...(op.disposition ? { disposition: op.disposition } : {}),
+					...(op.reader ? { reader: op.reader } : {}),
 				});
 				const json = (await res.json()) as { session_id?: string; status?: string; error?: string };
 				if (!res.ok) throw new Error(json.error ?? `send from Gateway ${srcGateway} failed`);

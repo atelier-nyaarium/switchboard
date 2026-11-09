@@ -634,7 +634,7 @@ describe("OwnerRowOutbox", () => {
 		expect(stored.map((row) => row.entry.body)).toEqual(["two"]);
 	});
 
-	it("persists mirrored peer entries", () => {
+	it("persists mirrored peer entries, with no spoken tier whatever it is handed", () => {
 		const dir = root();
 		const producer = generateIdentity();
 		const push = createConsolePushOps({
@@ -658,13 +658,14 @@ describe("OwnerRowOutbox", () => {
 			Address.of("domain", "gateway", "spawn", "session"),
 			"from",
 			"to",
-			{ body: "peer" },
+			{ body: "peer", title: "T", summary: "S", fullSpoken: "F" } as never,
 			"peer-row",
 		);
 		const stored = JSON.parse(fs.readFileSync(path.join(dir, "owner-row-outbox.json"), "utf8")) as Array<{
-			entry: { kind: string };
+			entry: Record<string, unknown>;
 		}>;
-		expect(stored[0]?.entry.kind).toBe("peer");
+		expect(stored[0]?.entry).toMatchObject({ kind: "peer", body: "peer" });
+		for (const tier of ["title", "summary", "fullSpoken"]) expect(stored[0]?.entry).not.toHaveProperty(tier);
 	});
 
 	it("produces the pinned mailbox value", () => {

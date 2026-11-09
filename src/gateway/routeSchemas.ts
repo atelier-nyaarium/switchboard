@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
 import type { BoardEntry } from "../shared/console-protocol.js";
-import { ReturnRouteSchema } from "../shared/federation-protocol.js";
+import { RelayedReaderSchema, ReturnRouteSchema } from "../shared/federation-protocol.js";
 import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "../shared/host-op.js";
 import { NoticeFull, NoticeFullSpoken, NoticeSummary, NoticeTierWireFields, NoticeTitle } from "../shared/notice.js";
 import { MAX_BLOB_BYTES } from "../shared/router-protocol.js";
@@ -40,6 +40,8 @@ export const SendRequestSchema = z.object({
 	sessionId: z.string().optional(),
 	returnRoute: ReturnRouteSchema.optional(),
 	dstDomainId: z.string().optional(),
+	/** The relaying Gateway's word. */
+	reader: RelayedReaderSchema,
 	/** Names the queue row, only the owner may choose it, and never for other content: a session shows an id once. */
 	deliveryId: z.string().min(1).max(128).optional(),
 });
@@ -51,6 +53,8 @@ export const RespondBodySchema = z.object({
 	response: z.string().optional(),
 	conversationId: z.string().regex(CONVERSATION_ID_RE).max(MAX_CONVERSATION_ID_LEN).optional(),
 	...NoticeTierWireFields,
+	/** Set by channel_reply: a phone reader must get every tier. */
+	tiered: z.literal(true).optional(),
 	replyAsJson: z.record(z.string(), z.unknown()).optional(),
 	question: z.string().optional(),
 	reason: z.string().optional(),

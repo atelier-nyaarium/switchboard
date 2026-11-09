@@ -47,6 +47,10 @@ export function isReplyDisposition(value: unknown): value is ReplyDisposition {
 	return REPLY_DISPOSITIONS.some((known) => known === value);
 }
 
+/** Who reads a reply. Only a phone's carries spoken tiers. */
+export const REPLY_READERS = ["phone", "session"] as const;
+export type ReplyReader = (typeof REPLY_READERS)[number];
+
 ////////////////////////////////
 //  Reply payloads. Fields are optional because a channel reply (channel_reply) is a
 //  stream message that may carry only a partial update (status, a chunk, or the final).
@@ -72,6 +76,8 @@ export interface ChannelPushPayload {
 	disposition?: ReplyDisposition;
 	/** The owner approved this message on their phone before it was sent. */
 	owner_approved?: boolean;
+	/** Absent when the Gateway does not know. */
+	reader?: ReplyReader;
 	/** A watcher event: data only, with no sender, conversation or reply owed. */
 	event?: boolean;
 	/** Receiver acks stored id; untracked pushes omit it. */

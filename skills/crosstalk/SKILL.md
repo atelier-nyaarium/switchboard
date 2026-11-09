@@ -159,8 +159,8 @@ The full guidance arrives with the handshake answer and after each compaction, t
 
 Requests arrive as `<channel source="plugin:switchboard:switchboard">` tags in your session with
 attributes like `session_id` and `from`. Do the work, then reply with **`switchboard:channel_reply()`**
-(session_id + full, plus optional attachments) using that `session_id`. Add title, summary and fullSpoken
-only when the sender is the owner; a reply to another session omits them. When
+(session_id + title + summary + full + fullSpoken, plus optional attachments) using that `session_id`.
+When the tag's `instructions` say another session reads the reply, send `full` only. When
 the inbound tag also carries a `reply_schema` attribute (e.g. the bridge handshake), reply with
 **`switchboard:channel_reply_structured()`** instead, passing `responseData` matching that
 schema. A `disposition` attribute of `informing` or `closing` means the sender wants nothing back;

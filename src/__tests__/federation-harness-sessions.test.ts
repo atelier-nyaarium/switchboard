@@ -248,6 +248,25 @@ describe("sessions, bindings, and console operations", () => {
 		expect(entries.map((entry) => entry.body)).not.toContain("not mine");
 	});
 
+	it("tells a session a phone reads its reply, holds its channel_reply to every tier, and lets a card's caption land", async () => {
+		const asked = await ensureBound();
+		await h.phone.deliver(asked.team, { kind: "send", to: asked.team, body: "status?" });
+		const push = await h.waitFor(() => asked.inbound.find((frame) => frame.body === "status?"), "push");
+		expect(push.reader).toBe("phone");
+
+		const id = String(push.session_id);
+		const tiers = { title: "Green", summary: "All green.", fullSpoken: "All green." };
+		expect((await asked.reply(id, "all green", { tiered: true, title: "Green" })).status).toBe(400);
+		expect((await asked.reply(id, "caption", {})).status).toBe(200);
+		expect((await asked.reply(id, "all green", { tiered: true, ...tiers })).status).toBe(200);
+		const rows = await h.waitFor(async () => {
+			const found = h.phone.entries(await h.phone.inboxRead()).filter((entry) => entry.kind === "reply");
+			return found.some((entry) => entry.body === "all green") ? found : undefined;
+		}, "the owner's replies");
+		expect(rows.find((entry) => entry.body === "all green")).toMatchObject(tiers);
+		expect(rows.find((entry) => entry.body === "caption")?.title).toBeUndefined();
+	});
+
 	it("puts nothing spoken on the phone for a session answering a session, sent tiers or not", async () => {
 		// Launched by the daemon, so each holds a bind token and its replies mirror onto both threads.
 		const launched = async (displayLabel: string): Promise<FakeSession> => {
@@ -265,8 +284,8 @@ describe("sessions, bindings, and console operations", () => {
 			h.phone.entries(await h.phone.inboxRead()).filter((entry) => entry.kind === "peer" && entry.body === body);
 
 		for (const [ask, answer, spoken] of [
-			["ping", "pong", { title: undefined, summary: undefined, fullSpoken: undefined }],
-			["ping again", "pong again", {}],
+			["ping", "pong", {}],
+			["ping again", "pong again", { tiered: true, title: "T", summary: "S", fullSpoken: "F" }],
 		] as const) {
 			const sent = await asker.post("/send", {
 				from: asker.team,
@@ -276,6 +295,7 @@ describe("sessions, bindings, and console operations", () => {
 			});
 			expect(sent.status).toBe(200);
 			const push = await h.waitFor(() => answerer.inbound.find((frame) => frame.body === ask), "push");
+			expect(push.reader).toBe("session");
 			expect((await answerer.reply(String(push.session_id), answer, spoken)).status).toBe(200);
 			const rows = await h.waitFor(async () => {
 				const found = await peerRows(answer);

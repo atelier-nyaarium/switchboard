@@ -192,6 +192,24 @@ describe("what a session's model reads", () => {
 		expect([...plain.content.matchAll(BLOCK)]).toHaveLength(0);
 	});
 
+	it("names the reply's fields by who reads it, never claims the owner, and only when a reply is owed", async () => {
+		const said = async (extra: Partial<ChannelPushPayload>) =>
+			String((await emitted({ from: "peer", body: "hi", ...extra })).meta.instructions);
+
+		const phone = await said({ reader: "phone" });
+		const session = await said({ reader: "session" });
+		expect(phone).toContain("fullSpoken");
+		expect(phone).not.toContain("leave out");
+		expect(session).toContain("leave out");
+		for (const unnamed of [{}, { reader: "someone" as never }]) {
+			const plain = await said(unnamed);
+			expect(plain).toContain("channel_reply");
+			expect(plain).not.toContain("fullSpoken");
+		}
+		for (const any of [phone, session]) expect(any).not.toContain("owner");
+		expect(await said({ reader: "phone", disposition: "informing" })).not.toContain("channel_reply");
+	});
+
 	it("renders a standalone push as the block alone", async () => {
 		const { content, meta } = await emitted({
 			from: "task-board",

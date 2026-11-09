@@ -107,69 +107,58 @@ describe("respond outcomes", () => {
 });
 
 describe("spoken tiers on a reply", () => {
-	it("refuses an owner reply missing any one tier before it settles, so a corrected one still lands", async () => {
-		const settles: unknown[] = [];
-		const routes = respondWith({ contract: ownerJob, ownerAppendTakes: true, settles });
-		for (const missing of SPOKEN_FIELDS) {
-			const { [missing]: _omitted, ...rest } = SPOKEN;
-			expect(routes.respond(REQ, { session_id: "s1", response: "hi", ...rest }).status).toBe(400);
+	const relayedJob = (reader?: "phone" | "session"): SettleMeta["contract"] => ({
+		kind: "inbound",
+		route: { srcGateway: "peer", srcConversationId: "c1", srcSession: "s1" },
+		dstDomainId: null,
+		...(reader ? { reader } : {}),
+	});
+	const tierless = (row: unknown) => SPOKEN_FIELDS.every((field) => !Object.hasOwn(row as object, field));
+
+	it("holds a channel_reply read on a phone to every tier before it settles, and lets an unmarked reply land as sent", async () => {
+		for (const contract of [ownerJob, relayedJob("phone")]) {
+			const settles: unknown[] = [];
+			const routes = respondWith({ contract, ownerAppendTakes: true, settles });
+			for (const missing of SPOKEN_FIELDS) {
+				const { [missing]: _omitted, ...rest } = SPOKEN;
+				const refused = routes.respond(REQ, { session_id: "s1", response: "hi", tiered: true, ...rest });
+				expect(refused.status).toBe(400);
+			}
+			expect(settles).toHaveLength(0);
+			expect(routes.respond(REQ, { session_id: "s1", response: "a card's caption" }).status).toBe(200);
+			expect(routes.respond(REQ, { session_id: "s1", response: "hi", tiered: true, ...SPOKEN }).status).toBe(200);
+			expect(settles).toHaveLength(2);
 		}
-		expect(settles).toHaveLength(0);
-		expect(await answer(routes)).toMatchObject({ recorded: true, notified: true });
-		expect(settles).toHaveLength(1);
 	});
 
-	it("judges a relayed reply by its own job: the owner's keeps tiers and is never refused, a session's drops them", async () => {
-		const owned: unknown[] = [];
-		const ownerSide = respondWith({ contract: ownerJob, ownerAppendTakes: true, owned });
-		const push = (routes: ReturnType<typeof createRespondRoutes>, body: Record<string, unknown>) =>
-			routes.respond(REQ, { session_id: "s1", response: "hi", ...body }, { trustedInbound: true });
-		expect(push(ownerSide, SPOKEN).status).toBe(200);
-		expect(push(ownerSide, {}).status).toBe(200);
-		expect(owned).toMatchObject([SPOKEN, {}]);
-		expect(owned[1]).not.toHaveProperty("title");
-
-		const settles: unknown[] = [];
-		const sessionSide = respondWith({ contract: sessionJob, conversationLive: true, settles });
-		expect(push(sessionSide, SPOKEN).status).toBe(200);
-		for (const field of SPOKEN_FIELDS) expect(settles[0]).not.toHaveProperty(field);
-	});
-
-	it("hands the owner every tier it was sent", async () => {
+	it("keeps the tiers for a phone and drops them for a session, and passes on those of a reader an older Gateway did not name", async () => {
 		const owned: unknown[] = [];
 		await answer(respondWith({ contract: ownerJob, ownerAppendTakes: true, owned }));
 		expect(owned).toMatchObject([SPOKEN]);
-	});
 
-	it("takes a session reply with no tiers, and drops any it carries from the store and both mirrors", async () => {
 		const settles: unknown[] = [];
 		const mirrored: unknown[] = [];
-		const routes = respondWith({ contract: sessionJob, conversationLive: true, local: true, settles, mirrored });
-		expect(await answer(routes, {})).toMatchObject({ recorded: true, delivered: true });
-		expect(await answer(routes, SPOKEN)).toMatchObject({ recorded: true, delivered: true });
-		expect(mirrored).toHaveLength(4);
+		const local = respondWith({ contract: sessionJob, conversationLive: true, local: true, settles, mirrored });
+		expect(await answer(local, { tiered: true } as never)).toMatchObject({ recorded: true, delivered: true });
+		expect(await answer(local)).toMatchObject({ recorded: true, delivered: true });
 		expect(settles).toHaveLength(2);
-		for (const row of [...mirrored, ...settles]) {
-			for (const field of SPOKEN_FIELDS) expect(row).not.toHaveProperty(field);
-		}
-	});
+		expect(mirrored).toHaveLength(4);
+		expect([...settles, ...mirrored].every(tierless)).toBe(true);
 
-	it("relays a remote asker's reply with its tiers for the source Gateway to judge, and mirrors none", async () => {
-		const relayed: unknown[] = [];
-		const mirrored: unknown[] = [];
-		const routes = respondWith({
-			contract: {
-				kind: "inbound",
-				route: { srcGateway: "peer", srcConversationId: "c1", srcSession: "s1" },
-				dstDomainId: null,
-			},
-			local: true,
-			relayed,
-			mirrored,
-		});
-		await answer(routes);
-		expect(relayed).toMatchObject([SPOKEN]);
-		expect(mirrored).toHaveLength(1);
-		for (const field of SPOKEN_FIELDS) expect(mirrored[0]).not.toHaveProperty(field);
+		for (const [reader, kept] of [
+			["session", false],
+			["phone", true],
+			[undefined, true],
+		] as const) {
+			const relayed: unknown[] = [];
+			const mirror: unknown[] = [];
+			const routes = respondWith({ contract: relayedJob(reader), local: true, relayed, mirrored: mirror });
+			expect(routes.respond(REQ, { session_id: "s1", response: "hi", tiered: true, ...SPOKEN }).status).toBe(200);
+			expect(relayed).toHaveLength(1);
+			expect(tierless(relayed[0])).toBe(!kept);
+			expect(mirror.every(tierless)).toBe(true);
+		}
+		const unnamed = respondWith({ contract: relayedJob() });
+		expect(unnamed.respond(REQ, { session_id: "s1", response: "hi", tiered: true }).status).toBe(200);
 	});
 });

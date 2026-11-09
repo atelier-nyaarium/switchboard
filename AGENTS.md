@@ -117,6 +117,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/routes/routesStatus.ts` / `routesCapabilities.ts` / `routesPresence.ts` - health, pending and teams; the capability fold; discovery
 - `src/gateway/routes/routesSession.ts` - `/session/type`, authenticated against the caller's Copilot host-session record
 - `src/gateway/routes/routesSend.ts` / `routesRespond.ts` / `routesBoard.ts` - the send and `deliverEvent`, the senderless watcher event, sharing `reach`; the reply and its poll; the task board
+  - **Who reads a reply is read off the job:** `readerOf` in `pending-job-store.ts` answers `phone` or `session`, or nothing for a job an older Gateway relayed. The send stamps it on the delivery and the relayed op, the tag names the reply's fields from it, and the reply route drops spoken tiers for a session. `docs/console.md` holds the rule.
 - `src/gateway/routes/routesHumanNotify.ts` / `routesBlob.ts` - console push, and the local-then-Router blob read
 - `src/gateway/boot.ts` - `GatewayBootstrap.resolve`, the boot phase decision, the federation slice types, and `RouterHandlers` split into frames and presence
 - `src/gateway/router/registerAuth.ts` / `valueResult.ts` - the `gateway_register` frame and the `value_result` settlement, pure
@@ -913,7 +914,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `tests/fixtures/identity/set.json` - the one fixed identity set every harness and fixture generator reads; `scripts/gen-identity-set.ts` mints it
 - `tests/fixtures/wire/ts/` / `wire/kotlin/` - minted wire fixtures, each runtime's real composers under the set; `scripts/gen-wire-fixtures.ts` and `WireFixtureGenerator.kt` write them, `check:fixtures` and `kotlin-gate.sh` diff them
 - `src/testing/` - the federation harness, `fixtureWorld.ts`, real Router and gateway graph in-process, friend Domains linked through the real handshake, fake host and session sockets with the fake Codex daemon, the TS phone driver, the console socket; `docs/testing.md`
-- `src/testing/fakeAmbient.ts` - the harness ambient: a clock offset on the harness `now`, entropy seeded per instance so two peers never collide, and timers on either drive. "real" (the default) rides the process timers so every scenario makes progress unchanged; "manual" holds them until `advance(ms)` reaches each deadline, yielding to the event loop between firings
+- `src/testing/fakeAmbient.ts` - the harness ambient: a clock offset on the harness `now`, entropy seeded per instance so two peers never collide, and timers on either drive. "real" (the default) rides the process timers so every scenario makes progress unchanged; "manual" holds them until `advance(ms)` reaches each deadline, yielding to the event loop between firings, and, given no `now`, its clock moves only by `advance`, so a deadline one millisecond away stays one millisecond away under load
 - `scripts/check-boot-runtime.ts` - the real entry points under Bun, one console op through a fake host
 - `skills/crosstalk/SKILL.md` - agent-facing tool reference
 

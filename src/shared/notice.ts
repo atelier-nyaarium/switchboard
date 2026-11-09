@@ -1,4 +1,4 @@
-// SYNC-HASH: 0a9eb987710eccd8d1b3e4d5d458fba6
+// SYNC-HASH: a6ae623e877dc05422959597cb853b1a
 // SYNCED MODULE - source of truth: switchboard/src/shared/notice.ts
 // Copied verbatim into: nyaaskills/src/shared/notice.ts
 // MUST re-copy on change: cp src/shared/notice.ts ../nyaaskills/src/shared/notice.ts
@@ -76,15 +76,8 @@ export type Notice = z.infer<typeof NoticeSchema>;
 ////////////////////////////////
 //  Wire projection
 //
-//  The tool boundary above is strict and required; every hop BELOW it (reply wire,
-//  mailbox entry, federation relay, peer mirror) carries the spoken tiers as the
-//  SAME lenient optional trio. Declaring the trio once and spreading it means a hop
-//  cannot silently strip one tier while its siblings survive (non-strict zod drops
-//  undeclared keys), and composing through one projection means a compose site
-//  cannot drop a tier by omission. A consumer may override a spread field to
-//  tighten it (e.g. a length cap), never to rename it. The body tier is deliberately
-//  NOT part of the trio: it renames per surface (full -> response -> body), so each
-//  surface owns its own body field.
+//  Spoken tiers on the wire: optional at every hop. Spread, never re-declared, or a hop
+//  drops one silently. `full` is not here: each surface names its own body field.
 
 export const NoticeTierWireFields = {
 	title: z.string().optional(),

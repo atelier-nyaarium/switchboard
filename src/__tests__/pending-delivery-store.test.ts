@@ -127,8 +127,13 @@ describe("PendingDeliveryStore", () => {
 		const d = fakeDurable();
 		const first = new PendingDeliveryStore(d.store, processAmbient());
 		const riding = { from: "task-board", body: "an entry changed", act: "no_act" as const };
-		first.enqueue({ ...delivery("d1"), awareness: riding, messageId: "bucket-1" });
+		first.enqueue({ ...delivery("d1"), awareness: riding, messageId: "bucket-1", reader: "phone" });
 		const restored = new PendingDeliveryStore(d.store, processAmbient()).listForTeam("proj.alpha")[0];
-		expect(restored).toMatchObject({ channelJobId: "job-proj.alpha", awareness: riding, messageId: "bucket-1" });
+		expect(restored).toMatchObject({
+			channelJobId: "job-proj.alpha",
+			awareness: riding,
+			messageId: "bucket-1",
+			reader: "phone",
+		});
 	});
 });

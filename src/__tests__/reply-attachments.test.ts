@@ -47,6 +47,7 @@ describe("reply payloads and attachments", () => {
 			session_id: "s",
 			response: "body",
 			conversationId: "conv-1",
+			tiered: true,
 		});
 		expect(
 			buildStructuredReplyPayload(

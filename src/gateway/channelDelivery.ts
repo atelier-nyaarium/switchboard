@@ -5,7 +5,7 @@ import {
 	type PendingDeliveryStore,
 	SEEN,
 } from "../shared/pending-delivery-store.js";
-import type { ChannelPushPayload } from "../shared/types.js";
+import { type ChannelPushPayload, REPLY_READERS } from "../shared/types.js";
 import { reached, sendOn } from "./wsSend.js";
 import { getAllActiveWs, type TeamRegistry } from "./wsTypes.js";
 
@@ -181,5 +181,8 @@ export function channelPushPayload(delivery: PendingDelivery): ChannelPushPayloa
 	if (delivery.awareness) payload.awareness = delivery.awareness;
 	if (delivery.disposition) payload.disposition = delivery.disposition;
 	if (delivery.ownerApproved) payload.owner_approved = true;
+	// A restored row is unchecked.
+	const reader = REPLY_READERS.find((known) => known === delivery.reader);
+	if (reader) payload.reader = reader;
 	return payload;
 }

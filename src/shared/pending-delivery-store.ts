@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import type { Clock } from "./ambient.js";
 import { DurableOutbox } from "./durable-outbox.js";
 import { fenced, MIGRATING } from "./migration-fence.js";
-import { type ChannelFile, MAX_PENDING_DELIVERIES, type ReplyDisposition, type RidingAwareness } from "./types.js";
+import {
+	type ChannelFile,
+	MAX_PENDING_DELIVERIES,
+	type ReplyDisposition,
+	type ReplyReader,
+	type RidingAwareness,
+} from "./types.js";
 
 /** Delivery acceptance source. `routine`: the owner's, sent on a schedule. */
 export const DELIVERY_ORIGINS = ["owner", "routine", "session", "gateway", "event"] as const;
@@ -32,6 +38,8 @@ export interface MessageDelivery extends HeldRow {
 	messageId?: string;
 	/** The owner approved this send on a card. */
 	ownerApproved?: true;
+	/** Absent when unknown. */
+	reader?: ReplyReader;
 }
 
 /** A watcher event. */
