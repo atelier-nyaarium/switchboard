@@ -20,7 +20,7 @@ describe("WakeService", () => {
 		const sessionStore = new SessionStore({ ambient: processAmbient() });
 		const registry: TeamRegistry = new Map();
 		const wakeCoordinator = new WakeCoordinator(processAmbient());
-		const sent: { team: string; projectPath?: string }[] = [];
+		const sent: { team: string; projectPath?: string; fresh?: boolean }[] = [];
 		const hostWs = {
 			readyState: 1,
 			send: (s: string) => void sent.push(JSON.parse(s)),
@@ -140,6 +140,29 @@ describe("WakeService", () => {
 		const result = await wake;
 		expect(result.ok).toBe(false);
 		expect(s.forgotten).toEqual([launched]);
+	});
+
+	it("marks a wake fresh until its session first confirms, minted by that wake or not", async () => {
+		const s = setup();
+		const minting = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
+		const launched = s.sent[0].team;
+		s.wakeCoordinator.notify(launched);
+		await minting;
+
+		const wakeAgain = async () => {
+			const wake = s.service.tryWakeTeam(launched);
+			s.wakeCoordinator.notify(launched);
+			await wake;
+		};
+		await wakeAgain();
+		s.sessionStore.confirm(launched);
+		await wakeAgain();
+
+		expect(s.sent.map((frame) => [frame.team, frame.fresh])).toEqual([
+			[launched, true],
+			[launched, true],
+			[launched, undefined],
+		]);
 	});
 
 	it("gives a second create the first one's launch instead of starting another", async () => {

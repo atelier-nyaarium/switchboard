@@ -35,6 +35,7 @@ export interface TmuxOps {
 		resumeSessionId?: string,
 		sessionToken?: string,
 		harness?: SessionHarness,
+		fresh?: true,
 	) => Promise<unknown>;
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
@@ -158,7 +159,15 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		if (op.kind === "createSession")
 			return runDeduped(
 				op.dedupKey,
-				() => ops.createSession(op.target, op.workdirHint, op.resumeSessionId, op.sessionToken, op.harness),
+				() =>
+					ops.createSession(
+						op.target,
+						op.workdirHint,
+						op.resumeSessionId,
+						op.sessionToken,
+						op.harness,
+						op.fresh,
+					),
 				{ created: true },
 			);
 		if (op.kind === "reloadPlugins")

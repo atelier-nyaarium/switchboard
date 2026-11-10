@@ -360,6 +360,8 @@ interface WakeMessage {
 	/** Absent means Claude. */
 	harness?: SessionHarness;
 	resumeSessionId?: string;
+	/** Its session has never confirmed. */
+	fresh?: true;
 	// Host only: ~/projects/<hint>.
 	workdirHint?: string;
 	// Proves which record.
@@ -369,7 +371,7 @@ interface WakeMessage {
 // Never blocks the reply.
 function greetFreshLaunch(
 	target: TmuxTarget,
-	opts: { created: boolean; resumeSessionId?: string; ready: boolean },
+	opts: { created: boolean; resumeSessionId?: string; fresh?: boolean; ready: boolean },
 ): void {
 	if (!shouldGreetLaunch(opts)) return;
 	console.error(`[host-wake] greeting freshly created session ${target.sessionName}`);
@@ -489,7 +491,12 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			}
 			if (!res) throw new Error("session readiness unavailable");
 			// Original ensureSession, not relaunch.
-			greetFreshLaunch(target, { created, resumeSessionId: msg.resumeSessionId, ready: res.ready });
+			greetFreshLaunch(target, {
+				created,
+				resumeSessionId: msg.resumeSessionId,
+				fresh: msg.fresh,
+				ready: res.ready,
+			});
 			const live = res.ready || isAgentWorking(res.screen);
 			if (res.limit) {
 				console.error(
@@ -545,7 +552,12 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			lastScreen = res.screen;
 			launchAlive = res.alive;
 			limit = res.limit;
-			greetFreshLaunch(target, { created, resumeSessionId: msg.resumeSessionId, ready: res.ready });
+			greetFreshLaunch(target, {
+				created,
+				resumeSessionId: msg.resumeSessionId,
+				fresh: msg.fresh,
+				ready: res.ready,
+			});
 			if (limit)
 				console.error(
 					`[host-wake] ${msg.team} hit a usage limit: ${limit.headline ?? "no headline on screen"}`,
@@ -601,7 +613,7 @@ const hostOpRunner = createHostOpRunner({
 	sendKey,
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
-	createSession: async (target, workdirHint, resumeSessionId, sessionToken, harness) => {
+	createSession: async (target, workdirHint, resumeSessionId, sessionToken, harness, fresh) => {
 		let workdir: string | undefined;
 		if (target.kind === "host") {
 			const resolved = resolveSpawnWorkdir(target.name, workdirHint);
@@ -622,7 +634,7 @@ const hostOpRunner = createHostOpRunner({
 		);
 		if (created) {
 			const ready = await awaitReady(target);
-			greetFreshLaunch(target, { created, resumeSessionId, ready: ready.ready });
+			greetFreshLaunch(target, { created, resumeSessionId, fresh, ready: ready.ready });
 			return { created, ready: ready.ready, alive: ready.alive };
 		}
 		return { created };

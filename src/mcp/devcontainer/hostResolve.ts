@@ -282,8 +282,15 @@ export function buildLaunchCommand(
 export const FIRST_LAUNCH_GREETING = `welcome, see your switchboard capabilities`;
 
 // Wake reports created too.
-export function shouldGreetLaunch(opts: { created: boolean; resumeSessionId?: string; ready: boolean }): boolean {
-	return opts.created && opts.ready && !opts.resumeSessionId;
+export function shouldGreetLaunch(opts: {
+	created: boolean;
+	ready: boolean;
+	resumeSessionId?: string;
+	/** Its session has never confirmed. */
+	fresh?: boolean;
+}): boolean {
+	// A minted id resumes nothing yet.
+	return opts.created && opts.ready && (opts.fresh === true || !opts.resumeSessionId);
 }
 
 ////////////////////////////////

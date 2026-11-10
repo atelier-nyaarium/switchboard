@@ -360,4 +360,13 @@ describe("shouldGreetLaunch", () => {
 	it("skips a pane with no composer", () => {
 		expect(shouldGreetLaunch({ created: true, ready: false })).toBe(false);
 	});
+
+	it("greets a fresh launch that already holds its id, once created and ready", () => {
+		const held = { created: true, ready: true, resumeSessionId: "12345678-1234-1234-1234-123456789abc" };
+
+		expect(shouldGreetLaunch({ ...held, fresh: true })).toBe(true);
+		expect(shouldGreetLaunch(held)).toBe(false);
+		expect(shouldGreetLaunch({ ...held, fresh: true, ready: false })).toBe(false);
+		expect(shouldGreetLaunch({ ...held, fresh: true, created: false })).toBe(false);
+	});
 });

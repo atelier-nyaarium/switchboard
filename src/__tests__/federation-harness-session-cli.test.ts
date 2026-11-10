@@ -32,6 +32,8 @@ describe("a session's CLI, as the Gateway tells it", () => {
 		return payload?.rows ?? [];
 	};
 
+	const sessionNameOf = (held: FakeSession): string => held.team.split(".")[1] ?? "";
+
 	beforeAll(async () => {
 		h = await startFederationHarness();
 		h.host.handlers.onCreateSession = (op) => {
@@ -121,5 +123,54 @@ describe("a session's CLI, as the Gateway tells it", () => {
 		await h.waitFor(() => newer.inbound.find((frame) => frame.body === "to the newer plugin"), "its delivery");
 		expect((await newer.post("/session/type", { text: "<channel>typed</channel>" })).status).toBe(200);
 		expect(h.gateway.faults.sessionRecord(copilot.team)).toMatchObject({ harness: "copilot" });
+	});
+
+	it("reloads plugins on a Claude session, and refuses a Copilot one before the daemon hears of it", async () => {
+		const refused = await h.phone.value({ kind: "reload_plugins", target: h.target(copilot.team) });
+		const relayed = await h.phone.value({ kind: "reload_plugins", target: h.target(claude.team) });
+
+		expect(refused.result).toMatchObject({ kind: "refusal" });
+		expect(relayed.result).toMatchObject({ initiated: true });
+		expect(h.host.ops.flatMap((op) => (op.kind === "reloadPlugins" ? [op.target.sessionName] : []))).toEqual([
+			sessionNameOf(claude),
+		]);
+	});
+
+	it("marks a create fresh until its session first confirms, whichever CLI it runs", async () => {
+		const attach = h.host.handlers.onCreateSession;
+		const launches = (sessionName: string) =>
+			h.host.ops.flatMap((op) =>
+				op.kind === "createSession" && op.target.sessionName === sessionName ? [op.fresh] : [],
+			);
+
+		try {
+			for (const harness of ["claude", "copilot"] as const) {
+				const sessionName = `late-${harness}`;
+				const create = () =>
+					h.phone.value({ kind: "create_session", target: h.target("host"), sessionName, harness });
+
+				h.host.handlers.failCreateSession = () => "the pane never came up";
+				expect((await create()).result).toMatchObject({ kind: "refusal" });
+				h.host.handlers.failCreateSession = undefined;
+
+				const before = sessions.length;
+				expect((await create()).result).toMatchObject({ created: true });
+				const retried = await h.waitFor(() => sessions[before], "the retried launch");
+				await (harness === "claude" ? retried.ready() : retried.registered());
+
+				// A create still held joins its launch.
+				h.host.handlers.onCreateSession = undefined;
+				await h.waitFor(async () => {
+					await create();
+					return launches(sessionName).length === 3;
+				}, "a launch after the confirm");
+				h.host.handlers.onCreateSession = attach;
+
+				expect(launches(sessionName), harness).toEqual([true, true, undefined]);
+			}
+		} finally {
+			h.host.handlers.failCreateSession = undefined;
+			h.host.handlers.onCreateSession = attach;
+		}
 	});
 });

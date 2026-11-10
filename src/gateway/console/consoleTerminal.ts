@@ -10,6 +10,7 @@ import {
 	type TmuxTarget,
 } from "../../shared/host-op.js";
 import type { SessionPrompt } from "../../shared/schemasPresence.js";
+import { HARNESS } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
@@ -87,6 +88,11 @@ export function createTerminalHandlers({ targets, relayToHost, sessionStore, pro
 		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
 		const target = targets.tmuxTarget(op.target);
 		assertDaemonDrivable(target);
+		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
+		// The reload drives Claude's plugin UI.
+		if (record && !HARNESS[record.harness].claudeSlashTools) {
+			throw new Error(`${HARNESS[record.harness].label} sessions have no plugin reload`);
+		}
 		const dedupKey = `${conversationId}:${opId}`;
 		const r = await relayToHost({ kind: "reloadPlugins", target, dedupKey });
 		if (!r.ok) throw new Error(r.error ?? "reload failed");

@@ -138,6 +138,7 @@ export function createSessionLifecycleHandlers({
 						workdirHint,
 						harness: adopted?.record.harness ?? harness,
 						resumeSessionId: adopted ? resumeIdOf(adopted.record) : undefined,
+						...(adopted && adopted.record.confirmedAt === undefined ? { fresh: true as const } : {}),
 						sessionToken: adopted ? sessionStore?.ensureBindToken(adopted.record) : undefined,
 						dedupKey,
 					});

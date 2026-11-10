@@ -45,6 +45,8 @@ export interface FakeSpawnLists {
 export interface FakeHostHandlers {
 	/** The scenario registers the launched session. */
 	onCreateSession?: (op: Extract<HostOp, { kind: "createSession" }>) => void;
+	/** An answer fails that launch. */
+	failCreateSession?: (op: Extract<HostOp, { kind: "createSession" }>) => string | undefined;
 	/** The scenario registers the woken team. */
 	onWake?: (frame: Frame) => void;
 	/** Absent means accept and complete. */
@@ -184,6 +186,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 	const activeClaudeTurns = new Map<string, ReturnType<typeof setTimeout>>();
 	const handlers: FakeHostHandlers = {
 		onCreateSession: options.onCreateSession,
+		failCreateSession: options.failCreateSession,
 		onWake: options.onWake,
 		onCodexCommand: options.onCodexCommand,
 		onCopilotCommand: options.onCopilotCommand,
@@ -284,6 +287,11 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 					ok: true,
 					result: { cancelled: true },
 				});
+				return;
+			}
+			const failure = op.kind === "createSession" ? handlers.failCreateSession?.(op) : undefined;
+			if (failure) {
+				send({ type: "host_op_reply", reqId: frame.reqId, ok: false, error: failure });
 				return;
 			}
 			send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: answer(op) });

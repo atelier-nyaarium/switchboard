@@ -136,6 +136,7 @@ export class WakeService {
 				...(projectPath ? { projectPath } : {}),
 				...(record ? { harness: record.harness } : {}),
 				...(resumeSessionId ? { resumeSessionId } : {}),
+				...(record && record.confirmedAt === undefined ? { fresh: true } : {}),
 				...(workdirHint ? { workdirHint } : {}),
 				...(record ? { sessionToken: this.deps.sessionStore.ensureBindToken(record) } : {}),
 			}),

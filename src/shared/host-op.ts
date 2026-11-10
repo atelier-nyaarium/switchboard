@@ -98,6 +98,8 @@ export type HostOp =
 			/** Absent means Claude. */
 			harness?: SessionHarness;
 			resumeSessionId?: string;
+			/** Its session has never confirmed. */
+			fresh?: true;
 			sessionToken?: string;
 			dedupKey?: string;
 	  }
