@@ -82,11 +82,11 @@ describe("where a session CLI may launch", () => {
 	const refused = (harness: SessionHarness, assistant: boolean) =>
 		places.filter((place) => launchRefusal(harness, { place, assistant }) !== null);
 
-	it("keeps Copilot out of containers, OpenCode on the host's own shell, and Claude anywhere", () => {
+	it("keeps OpenCode off the Windows shell, and Claude and Copilot anywhere", () => {
 		expect(SESSION_HARNESSES.map((harness) => [harness, refused(harness, false)])).toEqual([
 			["claude", []],
-			["opencode", ["windows", "container"]],
-			["copilot", ["container"]],
+			["opencode", ["windows"]],
+			["copilot", []],
 		]);
 	});
 

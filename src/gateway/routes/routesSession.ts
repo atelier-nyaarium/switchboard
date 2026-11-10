@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { HostOp, HostOpResult, TypeIntoPaneResult } from "../../shared/host-op.js";
+import type { HostOp, HostOpResult, TmuxTarget, TypeIntoPaneResult } from "../../shared/host-op.js";
 import { isHostSpawn } from "../../shared/host-spawn.js";
 import { typesDelivery } from "../../shared/session-harness.js";
 import { jsonResponse } from "../routeSchemas.js";
@@ -31,12 +31,16 @@ export function createSessionRoutes({ auth, relayToHost }: SessionRoutesDeps) {
 
 		const record = auth?.resolveConfirmedManagedSession(req);
 		if (!record) return jsonResponse({ error: "a confirmed session token is required" }, 403);
-		if (!record.harness || !typesDelivery(record.harness) || !isHostSpawn(record.spawn)) {
+		if (!record.harness || !typesDelivery(record.harness)) {
 			return jsonResponse({ error: "typed delivery is not available to this session" }, 403);
 		}
 		if (!relayToHost) return jsonResponse({ error: "host daemon unavailable" }, 503);
 
-		const target = { kind: "host" as const, name: record.spawn, sessionName: record.id };
+		const target: TmuxTarget = {
+			kind: isHostSpawn(record.spawn) ? "host" : "devcontainer",
+			name: record.spawn,
+			sessionName: record.id,
+		};
 		const { key } = parsed.data;
 		const relayed = await relayToHost({
 			kind: "typeIntoPane",

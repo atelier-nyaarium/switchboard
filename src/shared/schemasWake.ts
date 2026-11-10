@@ -25,6 +25,8 @@ export const WakeStageFrameSchema = z.object({
 	stage: z.enum(WAKE_STAGES),
 	/** With `cli_found`. */
 	harness: z.enum(SESSION_HARNESSES).optional(),
+	/** Session id it launched under. */
+	sessionId: z.string().max(128).optional(),
 });
 
 export const WakeResultFrameSchema = z.object({

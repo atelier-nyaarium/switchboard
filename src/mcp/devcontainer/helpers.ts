@@ -11,7 +11,6 @@ import type { ContainerUpOptions } from "./containers.js";
 
 export interface ContainerUpResult {
 	wasAlreadyRunning: boolean;
-	pluginsProvisioned: boolean;
 }
 
 ////////////////////////////////
@@ -89,82 +88,6 @@ function isContainerReady(projectPath: string, env: CliEnv): boolean {
 	}
 }
 
-const PLUGINS = [
-	{ name: "switchboard", marketplace: "atelier-nyaarium" },
-	{ name: "nyaaskills", marketplace: "atelier-nyaarium" },
-];
-
-const MARKETPLACE_SOURCE = "atelier-nyaarium/claude-marketplace";
-
-// The CLI writes everything else.
-const AUTOUPDATE_PATCH = JSON.stringify({
-	extraKnownMarketplaces: {
-		"atelier-nyaarium": { autoUpdate: true },
-	},
-});
-
-const MCP_SERVERS = JSON.stringify({
-	mcpServers: {
-		nyaascripts: {
-			type: "stdio",
-			command: "/home/vscode/scripts/nyaascripts",
-			args: [],
-			env: {},
-		},
-	},
-});
-
-function hasPluginSettings(projectPath: string, env: CliEnv): boolean {
-	try {
-		const result = execSync(
-			`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" bash -c "jq -e '.plugins[\\"switchboard@atelier-nyaarium\\"]' /home/vscode/.claude/plugins/installed_plugins.json 2>/dev/null"`,
-			{ encoding: "utf-8", timeout: 10_000, stdio: "pipe", env },
-		);
-		return result.trim().length > 0 && result.trim() !== "null";
-	} catch {
-		return false;
-	}
-}
-
-function provisionPluginSettings(projectPath: string, env: CliEnv): void {
-	const bin = devcontainerBin();
-	const settingsPath = "/home/vscode/.claude/settings.json";
-	const claudeJson = "/home/vscode/.claude.json";
-
-	// Idempotent: adds the marketplace if missing, then installs each plugin.
-	const installSteps = [
-		`claude plugin marketplace add ${MARKETPLACE_SOURCE} 2>/dev/null || true`,
-		...PLUGINS.map((p) => `claude plugin install ${p.name}@${p.marketplace}`),
-	].join(" && ");
-
-	execSync(`"${bin}" exec --workspace-folder "${projectPath}" bash -lc "${installSteps.replace(/"/g, '\\"')}"`, {
-		encoding: "utf-8",
-		timeout: 120_000,
-		env,
-	});
-
-	// jq-merge autoUpdate into the entry the CLI wrote, and nyaascripts into ~/.claude.json.
-	const autoUpdateJq = `'(if . == null then {} else . end) * ${AUTOUPDATE_PATCH.replace(/'/g, "'\\''")}'`;
-	const settingsCmd = [
-		`(cat ${settingsPath} 2>/dev/null || echo '{}') | jq ${autoUpdateJq} > /tmp/claude-settings.json`,
-		`mv /tmp/claude-settings.json ${settingsPath}`,
-	].join(" && ");
-
-	const mcpJqScript = `'(if . == null then {} else . end) * ${MCP_SERVERS.replace(/'/g, "'\\''")}'`;
-	const mcpCmd = [
-		`(cat ${claudeJson} 2>/dev/null || echo '{}') | jq ${mcpJqScript} > /tmp/claude-json.tmp`,
-		`mv /tmp/claude-json.tmp ${claudeJson}`,
-	].join(" && ");
-
-	const cmd = `${settingsCmd} && ${mcpCmd}`;
-	execSync(`"${bin}" exec --workspace-folder "${projectPath}" bash -c "${cmd.replace(/"/g, '\\"')}"`, {
-		encoding: "utf-8",
-		timeout: 10_000,
-		env,
-	});
-	console.log(`[devcontainer] provisioned plugins for '${projectPath}'`);
-}
-
 // The CLI's JSON answer is the last stdout line; earlier output is progress.
 const STDOUT_TAIL_CHARS = 65_536;
 
@@ -235,7 +158,7 @@ export async function ensureContainerUpAsync(
 	const env: CliEnv = { ...process.env, ...DEVCONTAINER_ENV, TMPDIR: opts.tmpdir };
 	if (isContainerReady(projectPath, env)) {
 		joinGatewayNetwork(projectPath);
-		return { wasAlreadyRunning: true, pluginsProvisioned: false };
+		return { wasAlreadyRunning: true };
 	}
 	// Failed exec never recreates a running container.
 	if (await opts.running()) {
@@ -243,7 +166,7 @@ export async function ensureContainerUpAsync(
 			throw new Error(`devcontainer exec failed twice on running container for '${projectPath}'`);
 		}
 		joinGatewayNetwork(projectPath);
-		return { wasAlreadyRunning: true, pluginsProvisioned: false };
+		return { wasAlreadyRunning: true };
 	}
 
 	opts.onStarting();
@@ -272,17 +195,5 @@ export async function ensureContainerUpAsync(
 	);
 	signal.throwIfAborted();
 	if (lifecycle.code !== 0) console.error(`[devcontainer] run-user-commands failed for '${projectPath}' (non-fatal)`);
-
-	let pluginsProvisioned = false;
-	if (!hasPluginSettings(projectPath, env)) {
-		try {
-			provisionPluginSettings(projectPath, env);
-			pluginsProvisioned = true;
-		} catch (e) {
-			const message = (e as Error).message;
-			console.error(`[devcontainer] plugin provisioning failed: ${message}`);
-			appendBuildTranscript(project, `[plugins] ${message}\n`);
-		}
-	}
-	return { wasAlreadyRunning: false, pluginsProvisioned };
+	return { wasAlreadyRunning: false };
 }

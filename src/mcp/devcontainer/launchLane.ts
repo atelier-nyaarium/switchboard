@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { TmuxTarget } from "../../shared/host-op.js";
 import { type LaunchFailure, launchFailureText } from "../../shared/launch-notice.js";
-import type { SessionHarness } from "../../shared/session-harness.js";
+import { HARNESS, readHarness, type SessionHarness } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import { ContainerStartFailed, ContainerStopped } from "./containers.js";
 import {
@@ -54,6 +54,7 @@ export interface LaunchLaneDeps {
 	): Promise<{ pluginsProvisioned: boolean; value: T }>;
 	send(frame: Record<string, unknown>): void;
 	now(): number;
+	uuid(): string;
 	log(line: string): void;
 }
 
@@ -164,6 +165,13 @@ function refusal(failure: LaunchFailure, team: string, typed: boolean, text = la
 function launchError(res: LaunchOutcome): string | undefined {
 	if (res.limit) return `session limit hit${res.limit.detail ? ` (${res.limit.detail})` : ""}`;
 	return res.error;
+}
+
+/** Mints an id for an unpicked CLI. */
+function mintedId(req: LaunchRequest, harness: SessionHarness, uuid: () => string): string | undefined {
+	const policy = HARNESS[harness].sessionId;
+	if (readHarness(req.harness).read !== "unpicked" || req.resumeSessionId || !policy.minted) return undefined;
+	return policy.mint(uuid);
 }
 
 function createAnswer(result: Settled, team: string): CreateAnswer {
@@ -338,19 +346,22 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 
 	/** The launch itself, as the unit's first door asks it. */
 	async function body(unit: LaunchUnit, req: LaunchRequest, generation: number): Promise<Settled> {
+		let resumeSessionId = req.resumeSessionId;
 		const pick = (installed: readonly SessionHarness[]): SessionHarness => {
 			const resolved = resolveLaunchHarness(req.harness, unit.target, installed);
 			if ("refused" in resolved) {
 				if (!resolved.cli) throw new Failed(errorFailure(resolved.refused), resolved.refused, false);
 				throw new Failed({ kind: "cli", refusal: resolved.cli }, resolved.refused, true);
 			}
-			sendStage(unit, "cli_found", { harness: resolved.harness });
+			const minted = mintedId(req, resolved.harness, deps.uuid);
+			if (minted) resumeSessionId = minted;
+			sendStage(unit, "cli_found", { harness: resolved.harness, ...(minted ? { sessionId: minted } : {}) });
 			if (abandoned(unit)) throw new Failed(GAVE_UP, launchFailureText(GAVE_UP, unit.team), false);
 			return resolved.harness;
 		};
 		const facts = (harness: SessionHarness): LaunchFacts => ({
 			harness,
-			resumeSessionId: req.resumeSessionId,
+			resumeSessionId,
 			fresh: req.fresh,
 			sessionToken: req.sessionToken,
 			workdir: req.workdir,

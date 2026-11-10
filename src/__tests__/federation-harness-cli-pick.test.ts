@@ -10,7 +10,7 @@ import {
 import type { ContainerState } from "../shared/schemasPresence.js";
 import { type Routine, routineSessionName } from "../shared/schemasRoutine.js";
 import type { Runbook, RunbookFireTarget } from "../shared/schemasRunbook.js";
-import { UNPICKED_WORD } from "../shared/session-harness.js";
+import { type SessionHarness, UNPICKED_WORD } from "../shared/session-harness.js";
 import type { GatewaySpawnPoints, TeamInfo } from "../shared/types.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
@@ -65,16 +65,10 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 
 	it.each<[string, string, Record<string, unknown>, SendRefusal]>([
 		[
-			"none named, and none it may run installed",
-			"ghost-unnamed",
-			{ displayLabel: "New" },
-			{ kind: "cli", refusal: { cause: "none_installed" } },
-		],
-		[
-			"one named, and none it may run installed",
+			"one named that the running container lacks",
 			"ghost-named",
 			{ displayLabel: "New", cli: "claude" },
-			{ kind: "cli", refusal: { cause: "none_installed" } },
+			{ kind: "cli", refusal: { cause: "not_installed", available: ["opencode"], named: "claude" } },
 		],
 		["no label for a session that does not exist", "ghost-unlabelled", {}, { kind: "no_label" }],
 	])("refuses a create at once, typed, launching nothing: %s", async (_label, name, extra, refused) => {
@@ -89,27 +83,22 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 		expect(h.host.wakes).toHaveLength(wakes);
 	});
 
-	it("leaves a running container's empty CLI list to the launch", async () => {
-		containers([{ project: PROJECT, state: "running", clis: [] }]);
+	it.each<[string, SessionHarness[], string]>([
+		["leaves an empty list to the launch", [], UNPICKED_WORD],
+		["runs OpenCode when it is the only one", ["opencode"], "opencode"],
+		["runs Copilot when it is the only one", ["copilot"], "copilot"],
+	])("launches an unnamed create in a running container: %s", async (_label, clis, harness) => {
+		containers([{ project: PROJECT, state: "running", clis }]);
+		const name = `only-${clis.join("-") || "none"}`;
 
-		const answer = await send(`${PROJECT}.empty`, { displayLabel: "Empty" });
+		const answer = await send(`${PROJECT}.${name}`, { displayLabel: name });
 		const wake = await h.waitFor(
 			() => h.host.wakes.find((frame) => answer.json.target === h.target(String(frame.team))),
 			"the wake",
 		);
 
 		expect(answer.json).toMatchObject({ status: "starting" });
-		expect(wake.harness).toBe(UNPICKED_WORD);
-	});
-
-	it("refuses a CLI the place never runs, whatever it has installed", async () => {
-		containers([{ project: PROJECT, state: "running", clis: ["claude"] }]);
-		const wakes = h.host.wakes.length;
-
-		const answer = await send(`${PROJECT}.ghost-placed`, { displayLabel: "New", cli: "copilot" });
-
-		expect(answer.json).toMatchObject({ refused: { kind: "cli", refusal: { cause: "refused" } } });
-		expect(h.host.wakes).toHaveLength(wakes);
+		expect(wake.harness).toBe(harness);
 	});
 
 	/** The CLI the daemon is told to watch a session's pane for. */
@@ -154,6 +143,40 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 		expect(answer.json).toMatchObject({ status: "starting" });
 		expect(wake.harness).toBe("unpicked");
 		expect(await watchedCli(team)).toBe("claude");
+	});
+
+	it("takes Copilot and its session id from a container's launch, and types into its pane there", async () => {
+		const { wake, team } = await pendingCreate("copilot");
+		const sessionId = "0b6c5e1a-2f4d-4c8e-9a1b-3d5e7f9a1c2e";
+		h.host.sendFrame({
+			type: "wake_stage",
+			team,
+			launchId: wake.launchId,
+			stage: "cli_found",
+			harness: "copilot",
+			sessionId,
+		});
+		h.host.sendFrame({ type: "wake_result", team, launchId: wake.launchId, success: true });
+		const woken = attachFakeSession(h.gateway, {
+			team,
+			conversationId: "conv-copilot",
+			sessionToken: wake.sessionToken as string,
+			harness: "copilot",
+		});
+		attached.push(woken);
+		await h.waitFor(() => woken.inbound.find((frame) => frame.body === "hello"), "the queued message");
+		const ops = h.host.ops.length;
+		const typed = await woken.post("/session/type", { text: "<channel>typed</channel>" });
+
+		expect(wake.harness).toBe(UNPICKED_WORD);
+		expect(h.gateway.faults.sessionRecord(team)).toMatchObject({ harness: "copilot", mintedSessionId: sessionId });
+		expect(typed.status).toBe(200);
+		expect(h.host.ops.slice(ops)).toEqual([
+			expect.objectContaining({
+				kind: "typeIntoPane",
+				target: { kind: "devcontainer", name: PROJECT, sessionName: team.slice(PROJECT.length + 1) },
+			}),
+		]);
 	});
 
 	it("takes a new session's CLI from its plugin when the daemon's word never came", async () => {
@@ -371,7 +394,7 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 				"refused-container",
 				() => containers([{ project: PROJECT, state: "running", clis: ["opencode"] }]),
 				{ spawn: PROJECT, cli: "claude" },
-				{ cause: "none_installed" },
+				{ cause: "not_installed", available: ["opencode"], named: "claude" },
 			],
 		])("stops a routine run for review without launching, on %s", async (label, id, arrange, target, refusal) => {
 			arrange();

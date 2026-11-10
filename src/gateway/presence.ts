@@ -4,6 +4,7 @@ import type { PlanePersistedState, PlaneRegistry } from "../shared/plane-registr
 import type { PresenceRow } from "../shared/presence-identity.js";
 import { presenceIdentityOf } from "../shared/presence-identity.js";
 import { type DerivedPresence, projectDerived, type SessionPrompt, sameDerived } from "../shared/schemasPresence.js";
+import type { SessionHarness } from "../shared/session-harness.js";
 import { isComposite, isSlug, parseSessionName } from "../shared/session-id.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
 import { ASSISTANT_ROLE } from "../shared/wire-vocabulary.js";
@@ -120,8 +121,8 @@ export class PresenceFacade {
 		return r;
 	}
 
-	resolvePick(team: string, harness: Parameters<SessionStore["resolvePick"]>[1]): SessionRecord | null {
-		const r = this.sessionStore.resolvePick(team, harness);
+	resolvePick(team: string, harness: SessionHarness, sessionId?: string): SessionRecord | null {
+		const r = this.sessionStore.resolvePick(team, harness, sessionId);
 		if (r) this.markDirty();
 		return r;
 	}

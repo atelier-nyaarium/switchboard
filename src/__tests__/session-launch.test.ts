@@ -342,15 +342,15 @@ describe("a launch read through its launcher", () => {
 describe("a launch's CLI", () => {
 	it("refuses before the start a CLI its place never runs, or one it cannot read", () => {
 		const offHost = [
-			CONTAINER,
 			{ kind: "host" as const, name: "windows", sessionName: "oc" },
 			{ kind: "host" as const, name: "host", sessionName: "assistant" },
 		];
 
-		expect([placementRefusal("opencode", TARGET), placementRefusal(UNPICKED_WORD, CONTAINER)]).toEqual([
-			undefined,
-			undefined,
-		]);
+		expect([
+			placementRefusal("opencode", TARGET),
+			placementRefusal("opencode", CONTAINER),
+			placementRefusal(UNPICKED_WORD, CONTAINER),
+		]).toEqual([undefined, undefined, undefined]);
 		for (const target of offHost) expect(placementRefusal("opencode", target), target.name).toBeTruthy();
 		expect(placementRefusal("no-such-cli", TARGET)).toBeTruthy();
 	});
@@ -366,6 +366,7 @@ describe("a launch's CLI", () => {
 			cli: { cause: "needs_pick", available: [...both] },
 		});
 		expect(resolveLaunchHarness("opencode", TARGET, ["claude"])).toHaveProperty("refused");
-		expect(resolveLaunchHarness("opencode", CONTAINER, both)).toHaveProperty("refused");
+		expect(resolveLaunchHarness("opencode", CONTAINER, both)).toEqual({ harness: "opencode" });
+		expect(resolveLaunchHarness("opencode", { ...TARGET, name: "windows" }, both)).toHaveProperty("refused");
 	});
 });

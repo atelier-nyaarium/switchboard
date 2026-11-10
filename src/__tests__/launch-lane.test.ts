@@ -23,6 +23,7 @@ function rig(options: { installed?: SessionHarness[]; holdInstalled?: Promise<vo
 	const events: string[] = [];
 	let clock = 0;
 	let generation = 0;
+	let minted = 0;
 	const name = (target: TmuxTarget) => `${target.name}.${target.sessionName}`;
 	const lane = createLaunchLane({
 		launch: (target, facts) =>
@@ -57,6 +58,10 @@ function rig(options: { installed?: SessionHarness[]; holdInstalled?: Promise<vo
 		},
 		send: (frame) => sent.push(frame),
 		now: () => clock,
+		uuid: () => {
+			minted += 1;
+			return `00000000-0000-4000-8000-00000000000${minted}`;
+		},
 		log: () => undefined,
 	});
 	const results = (team: string) => sent.filter((frame) => frame.type === "wake_result" && frame.team === team);
@@ -438,5 +443,43 @@ describe("a create's intent on a wake", () => {
 		expect(r.events).toEqual(["launch host.a create", "launch host.a create"]);
 		expect(r.launches.map((launch) => launch.facts.sessionToken)).toEqual(["t", "readopted"]);
 		expect(idsOf(r.sent, "wake_result")).toEqual(["launch-1", "launch-2"]);
+	});
+});
+
+describe("a CLI resolved at launch", () => {
+	it("mints its own id for an unpicked request, launches with it, and reports it with cli_found", async () => {
+		const r = rig({ installed: ["copilot"] });
+
+		r.lane.wake("app.a", { ...wake(APP_A, { launchId: "launch-1" }), harness: "unpicked" }, "create");
+		await flush();
+
+		const id = "00000000-0000-4000-8000-000000000001";
+		expect(r.launches[0]?.facts).toMatchObject({ harness: "copilot", resumeSessionId: id });
+		expect(r.sent.find((frame) => frame.stage === "cli_found")).toMatchObject({
+			harness: "copilot",
+			sessionId: id,
+		});
+	});
+
+	it.each<[string, { harness: string; resumeSessionId?: string }]>([
+		["names its CLI", { harness: "copilot" }],
+		["carries an id", { harness: "unpicked", resumeSessionId: "11111111-2222-4333-8444-555555555555" }],
+	])("mints nothing for a request that %s", async (_label, extra) => {
+		const r = rig({ installed: ["copilot"] });
+
+		r.lane.wake("host.a", { ...wake(HOST_A), ...extra });
+		await flush();
+
+		expect(r.launches[0]?.facts.resumeSessionId).toBe(extra.resumeSessionId);
+		expect(r.sent.find((frame) => frame.stage === "cli_found")).not.toHaveProperty("sessionId");
+	});
+
+	it("mints nothing for a CLI whose ids are not its own", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", { ...wake(HOST_A), harness: "unpicked" });
+		await flush();
+
+		expect(r.launches[0]?.facts).toMatchObject({ harness: "claude", resumeSessionId: undefined });
 	});
 });

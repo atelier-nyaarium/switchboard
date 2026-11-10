@@ -407,7 +407,7 @@ export function createWebSocketHandlers({
 				wakeCoordinator.stage(frame.data.team, frame.data.stage, frame.data.launchId);
 				// Before it registers, since registration reads the CLI off the record.
 				if (frame.data.stage === "cli_found" && frame.data.harness) {
-					onPickResolved?.(frame.data.team, frame.data.harness);
+					onPickResolved?.(frame.data.team, frame.data.harness, frame.data.sessionId);
 				}
 			}
 		}

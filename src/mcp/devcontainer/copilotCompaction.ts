@@ -2,11 +2,14 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import type { TmuxTarget } from "../../shared/host-op.js";
 
 const POLL_MS = 2_000;
 /** Seeds the state at attach. */
 const TAIL_BYTES = 64 * 1024;
 const READ_CHUNK_BYTES = 256 * 1024;
+/** Per poll; the rest is read on the next. */
+const POLL_READ_BYTES = 192 * 1024;
 /** A longer line carries nothing we read. */
 const CARRY_MAX_BYTES = 1024 * 1024;
 
@@ -18,19 +21,31 @@ const COMPACTION_LINE = /^\{"type":"session\.compaction_(start|complete)"/;
 export interface CompactionFollow {
 	team: string;
 	copilotSessionId: string;
+	/** Where the session runs. */
+	place: Pick<TmuxTarget, "kind" | "name">;
+}
+
+/** One session's events file, where it lives. */
+export interface EventsFile {
+	/** Null while absent or unreadable. */
+	size(): Promise<number | null>;
+	/** The bytes in [start, end). */
+	read(start: number, end: number): Promise<string>;
 }
 
 export interface CompactionFollower {
-	/** Replaces the followed set; a dropped team stops and reports nothing. */
-	setFollows(entries: CompactionFollow[]): void;
+	/** Replaces the followed set; a dropped team stops. */
+	setFollows(entries: CompactionFollow[]): Promise<void>;
 	/** One read of every followed file. Also the test entry. */
-	poll(): void;
+	poll(): Promise<void>;
 	stop(): void;
 }
 
 interface FollowState {
-	copilotSessionId: string;
-	file: string;
+	follow: CompactionFollow;
+	file: EventsFile;
+	/** Seeded from the tail. */
+	attached: boolean;
 	offset: number;
 	carry: string;
 	compacting: boolean;
@@ -53,64 +68,84 @@ export function compactionAfter(text: string, current: boolean): boolean {
 	return state;
 }
 
-function readRange(file: string, start: number, end: number): string {
-	const fd = fs.openSync(file, "r");
-	try {
-		const parts: Buffer[] = [];
-		let at = start;
-		while (at < end) {
-			const length = Math.min(READ_CHUNK_BYTES, end - at);
-			const buffer = Buffer.alloc(length);
-			const read = fs.readSync(fd, buffer, 0, length, at);
-			if (read <= 0) break;
-			parts.push(buffer.subarray(0, read));
-			at += read;
-		}
-		return Buffer.concat(parts).toString("utf8");
-	} finally {
-		fs.closeSync(fd);
-	}
+/** A file on this machine. */
+export function localEventsFile(file: string): EventsFile {
+	return {
+		size: async () => {
+			try {
+				return fs.statSync(file).size;
+			} catch {
+				return null;
+			}
+		},
+		read: async (start, end) => {
+			const fd = fs.openSync(file, "r");
+			try {
+				const parts: Buffer[] = [];
+				let at = start;
+				while (at < end) {
+					const length = Math.min(READ_CHUNK_BYTES, end - at);
+					const buffer = Buffer.alloc(length);
+					const read = fs.readSync(fd, buffer, 0, length, at);
+					if (read <= 0) break;
+					parts.push(buffer.subarray(0, read));
+					at += read;
+				}
+				return Buffer.concat(parts).toString("utf8");
+			} finally {
+				fs.closeSync(fd);
+			}
+		},
+	};
 }
 
-function sizeOf(file: string): number | null {
-	try {
-		return fs.statSync(file).size;
-	} catch {
-		return null;
-	}
+/** A file read through a command run where it lives. */
+export function execEventsFile(exec: (argv: string[]) => Promise<string>, file: string): EventsFile {
+	return {
+		size: async () => {
+			const said = await exec(["stat", "-c", "%s", file]).then(
+				(out) => out.trim(),
+				() => "",
+			);
+			return /^\d+$/.test(said) ? Number(said) : null;
+		},
+		read: (start, end) =>
+			exec(["sh", "-c", 'tail -c +"$1" "$2" | head -c "$3"', "sh", String(start + 1), file, String(end - start)]),
+	};
 }
 
 export function createCompactionFollower(opts: {
-	home: string;
+	/** The file's port for the place a follow runs in. */
+	file: (follow: CompactionFollow) => EventsFile;
 	onChange: (team: string, compacting: boolean) => void;
 	pollMs?: number;
 }): CompactionFollower {
 	const follows = new Map<string, FollowState>();
 	let timer: ReturnType<typeof setInterval> | undefined;
+	let polling: Promise<void> | undefined;
 
 	const report = (team: string, state: FollowState, compacting: boolean): void => {
-		if (state.compacting === compacting) return;
+		if (state.compacting === compacting || follows.get(team) !== state) return;
 		state.compacting = compacting;
 		opts.onChange(team, compacting);
 	};
 
 	/** Seeds from the tail, then follows appended bytes. */
-	const attach = (team: string, copilotSessionId: string): void => {
-		const file = compactionEventsPath(opts.home, copilotSessionId);
-		const state: FollowState = { copilotSessionId, file, offset: 0, carry: "", compacting: false };
-		follows.set(team, state);
-		const size = sizeOf(file);
-		if (size === null) return;
-		const start = Math.max(0, size - TAIL_BYTES);
-		const tail = readRange(file, start, size);
-		// A cut first line is noise.
-		const whole = start > 0 ? tail.slice(tail.indexOf("\n") + 1) : tail;
-		state.offset = size;
-		report(team, state, compactionAfter(whole, false));
+	const attach = async (state: FollowState): Promise<void> => {
+		const size = await state.file.size();
+		if (size !== null) {
+			const start = Math.max(0, size - TAIL_BYTES);
+			const tail = await state.file.read(start, size);
+			// A cut first line is noise.
+			const whole = start > 0 ? tail.slice(tail.indexOf("\n") + 1) : tail;
+			state.offset = size;
+			report(state.follow.team, state, compactionAfter(whole, false));
+		}
+		state.attached = true;
 	};
 
-	const pollOne = (team: string, state: FollowState): void => {
-		const size = sizeOf(state.file);
+	const pollOne = async (team: string, state: FollowState): Promise<void> => {
+		const size = await state.file.size();
 		if (size === null) {
 			state.offset = 0;
 			state.carry = "";
@@ -124,8 +159,9 @@ export function createCompactionFollower(opts: {
 			report(team, state, false);
 		}
 		if (size === state.offset) return;
-		const text = state.carry + readRange(state.file, state.offset, size);
-		state.offset = size;
+		const end = Math.min(size, state.offset + POLL_READ_BYTES);
+		const text = state.carry + (await state.file.read(state.offset, end));
+		state.offset = end;
 		const cut = text.lastIndexOf("\n");
 		const complete = cut < 0 ? "" : text.slice(0, cut + 1);
 		state.carry = cut < 0 ? text : text.slice(cut + 1);
@@ -133,33 +169,61 @@ export function createCompactionFollower(opts: {
 		report(team, state, compactionAfter(complete, state.compacting));
 	};
 
-	const poll = (): void => {
-		for (const [team, state] of follows) {
+	const pollAll = async (): Promise<void> => {
+		for (const [team, state] of [...follows]) {
+			if (!state.attached) continue;
 			try {
-				pollOne(team, state);
+				await pollOne(team, state);
 			} catch {
 				// Unreadable now; the next poll reads again.
 			}
 		}
 	};
 
+	// One poll at a time.
+	const poll = (): Promise<void> => {
+		polling ??= pollAll().finally(() => {
+			polling = undefined;
+		});
+		return polling;
+	};
+
 	return {
-		setFollows(entries) {
-			const next = new Map(entries.map((entry) => [entry.team, entry.copilotSessionId]));
+		async setFollows(entries) {
+			const next = new Map(entries.map((entry) => [entry.team, entry]));
 			for (const [team, state] of follows) {
-				if (next.get(team) !== state.copilotSessionId) follows.delete(team);
+				if (next.get(team)?.copilotSessionId !== state.follow.copilotSessionId) follows.delete(team);
 			}
-			for (const [team, copilotSessionId] of next) {
-				if (!follows.has(team)) attach(team, copilotSessionId);
+			const attaching: Promise<void>[] = [];
+			for (const [team, follow] of next) {
+				if (follows.has(team)) continue;
+				const state: FollowState = {
+					follow,
+					file: opts.file(follow),
+					attached: false,
+					offset: 0,
+					carry: "",
+					compacting: false,
+				};
+				follows.set(team, state);
+				attaching.push(
+					attach(state).catch(() => {
+						// Unreadable now; polls read from the start.
+						state.attached = true;
+					}),
+				);
 			}
 			if (follows.size > 0 && timer === undefined) {
-				timer = setInterval(poll, opts.pollMs ?? POLL_MS);
+				timer = setInterval(() => {
+					poll().catch(() => undefined);
+				}, opts.pollMs ?? POLL_MS);
 				timer.unref?.();
 			}
 			if (follows.size === 0 && timer !== undefined) {
 				clearInterval(timer);
 				timer = undefined;
 			}
+			await Promise.all(attaching);
 		},
 		poll,
 		stop() {

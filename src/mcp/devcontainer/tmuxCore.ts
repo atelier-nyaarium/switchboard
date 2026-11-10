@@ -104,11 +104,23 @@ function execArgv(target: TmuxTarget, argv: string[]): string[] {
 }
 
 /** A bash script where the target's panes run, with the launch's own setup. */
-export function runInPlace(target: Pick<TmuxTarget, "kind" | "name">, script: string): Promise<string> {
-	const argv = ["bash", "-c", `source ~/.bashrc >/dev/null 2>&1; ${script}`];
-	if (target.kind === "host") return run(argv);
+export function runInPlace(
+	target: Pick<TmuxTarget, "kind" | "name">,
+	script: string,
+	timeoutMs = EXEC_TIMEOUT_MS,
+): Promise<string> {
+	return execInPlace(target, ["bash", "-c", `source ~/.bashrc >/dev/null 2>&1; ${script}`], timeoutMs);
+}
+
+/** One command where the target's panes run; throws on a non-zero exit. */
+export function execInPlace(
+	target: Pick<TmuxTarget, "kind" | "name">,
+	argv: string[],
+	timeoutMs = EXEC_TIMEOUT_MS,
+): Promise<string> {
+	if (target.kind === "host") return run(argv, timeoutMs);
 	assertTmuxName(target.name);
-	return run(["docker", "exec", "-u", "vscode", containerFor(target.name), ...argv]);
+	return run(["docker", "exec", "-u", "vscode", containerFor(target.name), ...argv], timeoutMs);
 }
 
 /** Spawn argv (no shell) and resolve stdout. */

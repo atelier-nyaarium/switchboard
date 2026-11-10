@@ -37,11 +37,19 @@ import {
 } from "../../shared/session-harness.js";
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
+import { appendBuildTranscript } from "./buildTranscript.js";
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
 import { ExecutionTargetManager, targetLogger } from "./codexTargets.js";
-import { DevContainers } from "./containers.js";
-import { type CompactionFollow, createCompactionFollower } from "./copilotCompaction.js";
+import { CONTAINER_HOME, containerLaunchSite, placeRuntime } from "./containerSite.js";
+import { containerFor, DevContainers, docker } from "./containers.js";
+import {
+	type CompactionFollow,
+	compactionEventsPath,
+	createCompactionFollower,
+	execEventsFile,
+	localEventsFile,
+} from "./copilotCompaction.js";
 import { CopilotDaemonService } from "./copilotDaemonService.js";
 import { copilotLauncher } from "./copilotTargets.js";
 import { ensureContainerUpAsync, resolveProject } from "./helpers.js";
@@ -58,6 +66,7 @@ import {
 import { createKasaScanner } from "./kasaScan.js";
 import { createLaunchLane, WakeFailure } from "./launchLane.js";
 import { PromptOccurrences, seePrompt } from "./permissionPrompt.js";
+import { provisionPlugins } from "./pluginProvisioning.js";
 import { PresenceScheduler, readWatch, type WatchEntry } from "./presenceScheduler.js";
 import { answerPrompt, continueAfterLimit, dismissSurvey, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
@@ -65,6 +74,7 @@ import { createSessionLaunch, type LaunchSite, launchAt } from "./sessionLaunch.
 import {
 	awaitReady,
 	ensureSession,
+	execInPlace,
 	hasSession,
 	isAgentReady,
 	isAgentWorking,
@@ -386,11 +396,13 @@ function connect(): void {
 				if (!road) continue;
 				entries.push({ team: watch.team, target, cadenceMs: watch.cadenceMs, harness: watch.harness });
 				if (FOLLOWS_EVENTS_FILE[road.compaction] && watch.sessionId) {
-					follows.push({ team: watch.team, copilotSessionId: watch.sessionId });
+					follows.push({ team: watch.team, copilotSessionId: watch.sessionId, place: target });
 				}
 			}
 			void presenceScheduler.setWatches(entries);
-			compactionFollower.setFollows(follows);
+			compactionFollower
+				.setFollows(follows)
+				.catch((err) => console.error("[presence] compaction follow failed:", err));
 		}
 
 		if (msg.type === "channel_push") {
@@ -463,11 +475,40 @@ function hostLaunchSite(): LaunchSite | null {
 	};
 }
 
+/** The checkout's version. */
+function launchVersion(): string | null {
+	try {
+		const version = JSON.parse(fs.readFileSync(path.join(LAUNCH_ROOT, "package.json"), "utf8")).version;
+		return typeof version === "string" ? version : null;
+	} catch {
+		return null;
+	}
+}
+
+const LAUNCH_VERSION = launchVersion();
+
 const LAUNCH_SITES: Record<LaunchPlace, LaunchSite | null> = {
 	host: hostLaunchSite(),
 	windows: null,
-	container: null,
+	container: LAUNCH_VERSION ? containerLaunchSite(LAUNCH_VERSION, (target, argv) => execInPlace(target, argv)) : null,
 };
+
+/** Copies the runtime into the container. */
+async function placeContainerRuntime(project: string): Promise<void> {
+	if (!LAUNCH_VERSION) return;
+	const where = { kind: "devcontainer" as const, name: project };
+	const placed = await placeRuntime({
+		exec: (argv) => execInPlace(where, argv, RUNTIME_COPY_MS),
+		docker: (args) => docker(args, RUNTIME_COPY_MS),
+		container: containerFor(project),
+		source: LAUNCH_ROOT,
+		version: LAUNCH_VERSION,
+	});
+	if (placed === "copied") console.error(`[devcontainer] ${project}: runtime ${LAUNCH_VERSION} copied in`);
+}
+
+const RUNTIME_COPY_MS = 60_000;
+const PROVISION_MS = 300_000;
 
 /** What a place's own shell runs, in offer order. Throws when it cannot be asked. */
 async function installedAt(
@@ -486,7 +527,25 @@ async function installedAt(
 
 const devContainers = new DevContainers({
 	up: ensureContainerUpAsync,
-	look: (project) => installedAt({ kind: "devcontainer", name: project }, { place: "container", assistant: false }),
+	look: async (project) => {
+		await placeContainerRuntime(project).catch((err) =>
+			console.error(`[devcontainer] ${project}: runtime not placed: ${err instanceof Error ? err.message : err}`),
+		);
+		return installedAt({ kind: "devcontainer", name: project }, { place: "container", assistant: false });
+	},
+	provision: (project, installed) =>
+		provisionPlugins(
+			installed,
+			(script) =>
+				runInPlace({ kind: "devcontainer", name: project }, script, PROVISION_MS).then(
+					() => true,
+					() => false,
+				),
+			(line) => {
+				console.error(`[devcontainer] ${project}: ${line}`);
+				appendBuildTranscript(project, `[plugins] ${line}\n`);
+			},
+		),
 	catalog: scanDevcontainerProjects,
 	onChange: (containers) => safeSend({ type: "containers", containers }),
 });
@@ -530,6 +589,7 @@ const launchLane = createLaunchLane({
 		devContainers.ensureUp(project, projectPath, generation, then, undo),
 	send: safeSend,
 	now: () => Date.now(),
+	uuid: () => crypto.randomUUID(),
 	log: (line) => console.error(`[host-wake] ${line}`),
 });
 
@@ -711,7 +771,13 @@ const presenceScheduler = new PresenceScheduler({
 const FOLLOWS_EVENTS_FILE: Record<PaneRoad["compaction"], boolean> = { screen: false, "copilot-events": true };
 
 const compactionFollower = createCompactionFollower({
-	home: os.homedir(),
+	file: ({ copilotSessionId, place }) =>
+		place.kind === "host"
+			? localEventsFile(compactionEventsPath(os.homedir(), copilotSessionId))
+			: execEventsFile(
+					(argv) => execInPlace(place, argv),
+					compactionEventsPath(CONTAINER_HOME, copilotSessionId),
+				),
 	onChange: (team, compacting) => presenceScheduler.setOverlay(team, compacting ? { compacting: true } : undefined),
 });
 

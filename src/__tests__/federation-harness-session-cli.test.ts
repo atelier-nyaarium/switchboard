@@ -35,7 +35,7 @@ describe("a session's CLI, as the Gateway tells it", () => {
 	const sessionNameOf = (held: FakeSession): string => held.team.split(".")[1] ?? "";
 
 	beforeAll(async () => {
-		h = await startFederationHarness();
+		h = await startFederationHarness({ host: { hostSpawns: ["windows"] } });
 		h.host.handlers.onCreateSession = (op) => {
 			sessions.push(
 				attachFakeSession(h.gateway, {
@@ -88,18 +88,24 @@ describe("a session's CLI, as the Gateway tells it", () => {
 		expect(named).toEqual(["claude", "copilot"]);
 	});
 
-	it("refuses a Copilot session on a devcontainer spawn point, and keeps no record of it", async () => {
+	it("launches Copilot in a devcontainer, and refuses OpenCode on the Windows shell where Claude launches", async () => {
+		const create = (spawn: string, sessionName: string, harness: SessionHarness) =>
+			h.phone.value({ kind: "create_session", target: h.target(spawn), sessionName, harness });
+		const wakeOf = (team: string) => h.waitFor(() => h.host.wakes.find((frame) => frame.team === team), team);
+
+		const container = await create("fixture-app", "cop", "copilot");
+		const containerWake = await wakeOf("fixture-app.cop");
+		const windows = await create("windows", "win", "claude");
+		const windowsWake = await wakeOf("windows.win");
 		const wakes = h.host.wakes.length;
+		const refused = await create("windows", "code", "opencode");
 
-		const { result } = await h.phone.value({
-			kind: "create_session",
-			target: h.target("fixture-app"),
-			sessionName: "cop",
-			harness: "copilot",
-		});
-
-		expect(result).toMatchObject({ kind: "refusal" });
-		expect(h.gateway.faults.sessionRecord("fixture-app.cop")).toBeUndefined();
+		expect(container.result).toMatchObject({ created: true, status: "pending" });
+		expect(containerWake).toMatchObject({ door: "create", harness: "copilot" });
+		expect(windows.result).toMatchObject({ created: true });
+		expect(windowsWake).toMatchObject({ door: "create", harness: "claude" });
+		expect(refused.result).toMatchObject({ kind: "refusal" });
+		expect(h.gateway.faults.sessionRecord("windows.code")).toBeUndefined();
 		expect(h.host.wakes).toHaveLength(wakes);
 	});
 

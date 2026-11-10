@@ -49,7 +49,8 @@ export interface WebSocketDeps {
 	/** Container state moved between catalogs. */
 	onSpawnPointsChange?: () => void;
 	/** The daemon named a pending create's CLI. */
-	onPickResolved?: (team: string, harness: SessionHarness) => void;
+	/** Session id, when daemon-minted. */
+	onPickResolved?: (team: string, harness: SessionHarness, sessionId?: string) => void;
 	onPresenceDerive?: (team: string, derived: DerivedPresence | undefined) => void;
 	/** A session's pane waits on a restart to apply an installed update. */
 	onRestartPending?: (team: string, pending: boolean) => void;

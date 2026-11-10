@@ -361,13 +361,13 @@ export class SessionStore {
 		return existing ? { record: existing, created: false } : null;
 	}
 
-	/** Names a pending create's CLI, once. */
-	resolvePick(team: string, harness: SessionHarness): SessionRecord | null {
+	/** Names a pending create's CLI, once; keeps the daemon's session id. */
+	resolvePick(team: string, harness: SessionHarness, launchedAs?: string): SessionRecord | null {
 		const record = this.records.get(team);
 		if (!record || record.harness) return record?.harness === harness ? record : null;
 		const policy = HARNESS[harness].sessionId;
 		record.harness = harness;
-		if (policy.minted) record.mintedSessionId = policy.mint(this.uuidGen);
+		if (policy.minted) record.mintedSessionId = mintedIdOf(harness, launchedAs) ?? policy.mint(this.uuidGen);
 		return record;
 	}
 

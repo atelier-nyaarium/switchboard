@@ -47,11 +47,11 @@ describe("board awareness classification", () => {
 	});
 
 	it.each([
-		{ pre: { sessionId: session }, post: { trashedAt: 1 }, act: "act_now" },
-		{ pre: { sessionId: session }, post: { sessionId: "other" }, act: "act_now" },
-		{ pre: { sessionId: session }, post: { sessionId: session, title: "edit" }, act: "no_act" },
-		{ pre: {}, post: { sessionId: session }, act: "no_act" },
-	])("assigns the subscriber recipient axis for a net change", ({ pre, post, act }) => {
-		expect(boardAwarenessSubscriber.act(session, entry("a", pre), entry("a", post))).toBe(act);
+		{ pre: { sessionId: session }, post: { trashedAt: 1 } },
+		{ pre: { sessionId: session }, post: { sessionId: "other" } },
+		{ pre: { sessionId: session }, post: { sessionId: session, title: "edit" } },
+		{ pre: {}, post: { sessionId: session } },
+	])("never presses the holder over an owner edit", ({ pre, post }) => {
+		expect(boardAwarenessSubscriber.act(session, entry("a", pre), entry("a", post))).toBe("no_act");
 	});
 });

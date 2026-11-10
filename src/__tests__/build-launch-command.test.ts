@@ -45,8 +45,12 @@ describe("a Copilot launch", () => {
 		expect(buildLaunchCommand(host, { harness: "claude", resumeSessionId: loose })).toContain(`--resume ${loose}`);
 	});
 
-	it("refuses a container or the assistant", () => {
-		expect(() => buildLaunchCommand(dc, { harness: "copilot" })).toThrow();
+	it("runs in a container under its own id, and refuses the assistant", () => {
+		const id = "11111111-2222-4333-8444-555555555555";
+
+		expect(buildLaunchCommand(dc, { harness: "copilot", resumeSessionId: id })).toContain(
+			`cd /workspace/recipe-app; copilot --allow-all --no-ask-user --session-id ${id}; exec bash`,
+		);
 		expect(() =>
 			buildLaunchCommand({ kind: "host", name: "host", sessionName: "assistant" }, { harness: "copilot" }),
 		).toThrow();
@@ -103,12 +107,31 @@ describe("an OpenCode launch", () => {
 		expect(quiet).toEqual(greeted.slice(0, -1));
 	});
 
-	it("refuses without a launcher or a minted id, in a container, and on the Windows shell", () => {
+	it("runs a container's launcher from the runtime copied into it, in the project's folder", () => {
+		const root = "/home/vscode/.cache/switchboard/runtime/8.14.55";
+		const cmd = buildLaunchCommand(dc, {
+			harness: "opencode",
+			resumeSessionId: id,
+			launcher: {
+				runtime: "/home/vscode/.bun/bin/bun",
+				root,
+				statusFile: "/home/vscode/.cache/switchboard/launch/recipe-app.scratch.json",
+				greet: false,
+			},
+		});
+
+		expect(cmd).toContain(
+			`cd /workspace/recipe-app; "/home/vscode/.bun/bin/bun" --config="${root}/launch/bunfig.toml" --no-env-file --no-install "${root}/dist/main-opencode-launch.js" --session ${id}`,
+		);
+		expect(cmd).toContain("AGENT_TYPE=opencode");
+	});
+
+	it("refuses without a launcher or a minted id, and on the Windows shell", () => {
 		const root = "/home/me/sb";
 		const refusals = [
 			() => buildLaunchCommand(host, { harness: "opencode", resumeSessionId: id }),
 			() => buildLaunchCommand(host, { harness: "opencode", launcher: launcher(root) }),
-			() => buildLaunchCommand(dc, { harness: "opencode", resumeSessionId: id, launcher: launcher(root) }),
+			() => buildLaunchCommand(dc, { harness: "opencode", resumeSessionId: id }),
 			() =>
 				buildLaunchCommand(
 					{ kind: "host", name: "windows", sessionName: "oc" },

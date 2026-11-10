@@ -89,8 +89,8 @@ set land in one journal line, and a write naming anything else is refused `attac
 - The bank keeps the first pre-state and last post-state per identity, then diffs at flush.
   Intermediate edits, moves, and undo sequences collapse into one net fact.
 - Reply disposition and gateway `no_ack` are separate axes; `no_ack` wins. `act_now` starts its hold
-  at the first observation and is not extended. Board `gone` is `act_now`; other board changes are
-  `no_act`.
+  at the first observation and is not extended. Every owner board change is `no_act`, a trash or a
+  removal included, so it rides the session's next message rather than waking it.
 - The route commits only once the delivery queue accepts the message or a socket takes it.
 - `no_ack`, `act`, and `awareness` are plain `ChannelPushPayload` fields. Notification metadata must
   be strings with snake_case keys.

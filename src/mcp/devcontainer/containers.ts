@@ -37,9 +37,11 @@ export interface ContainerUpOptions {
 }
 
 export interface DevContainersDeps {
-	up: (projectPath: string, opts: ContainerUpOptions) => Promise<{ pluginsProvisioned: boolean }>;
+	up: (projectPath: string, opts: ContainerUpOptions) => Promise<unknown>;
 	/** The CLIs installed inside. */
 	look: (project: string) => Promise<SessionHarness[]>;
+	/** Each found CLI's plugins; whether any install ran. Never throws. */
+	provision: (project: string, installed: readonly SessionHarness[]) => Promise<boolean>;
 	catalog: () => CatalogEntry[];
 	onChange: (containers: ContainerState[]) => void;
 }
@@ -210,7 +212,8 @@ function reasonOf(err: unknown): string {
 	return firstLine(err instanceof Error ? err.message : String(err)) || "unknown failure";
 }
 
-function docker(args: string[], timeoutMs = DOCKER_TIMEOUT_MS): Promise<string> {
+/** `docker` on this machine; rejects with its last stderr line. */
+export function docker(args: string[], timeoutMs = DOCKER_TIMEOUT_MS): Promise<string> {
 	return new Promise((resolve, reject) => {
 		execFile(
 			"docker",
@@ -335,6 +338,8 @@ export class DevContainers {
 	/** The container id last looked inside. */
 	private readonly looked = new Map<string, string>();
 	private readonly lookSeq = new Map<string, number>();
+	/** The container id last provisioned. */
+	private readonly provisioned = new Map<string, string>();
 	/** Retry looks after an empty answer. */
 	private readonly relooks = new Map<string, { id: string; timers: ReturnType<typeof setTimeout>[] }>();
 	private events: ChildProcess | null = null;
@@ -464,9 +469,8 @@ export class DevContainers {
 		this.controllers.set(project, controller);
 		this.emit();
 		try {
-			let pluginsProvisioned: boolean;
 			try {
-				({ pluginsProvisioned } = await this.deps.up(projectPath, {
+				await this.deps.up(projectPath, {
 					signal: controller.signal,
 					tmpdir: projectTmpdir(project),
 					running: async () => {
@@ -483,7 +487,7 @@ export class DevContainers {
 						this.starting.add(project);
 						this.emit();
 					},
-				}));
+				});
 			} catch (err) {
 				// A Stop's kill reads as stopped.
 				fenced();
@@ -498,11 +502,21 @@ export class DevContainers {
 			fenced();
 			const installed = await this.look(project);
 			fenced();
+			const pluginsProvisioned = await this.provisionOnce(project, installed);
+			fenced();
 			return { pluginsProvisioned, installed };
 		} finally {
 			this.controllers.delete(project);
 			this.emit();
 		}
+	}
+
+	/** Once per container incarnation, after a look. */
+	private async provisionOnce(project: string, installed: readonly SessionHarness[]): Promise<boolean> {
+		const id = known.get(project)?.id;
+		if (!id || this.provisioned.get(project) === id) return false;
+		this.provisioned.set(project, id);
+		return this.deps.provision(project, installed);
 	}
 
 	/** Always probes; the newest answer is kept. */

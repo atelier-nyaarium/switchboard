@@ -48,7 +48,7 @@ enum class SessionHarness(
 	OPENCODE(
 		wire = "opencode",
 		label = "OpenCode",
-		containers = false,
+		containers = true,
 		slashPalette = listOf(
 			SlashMacro("/models", autoSend = true),
 			SlashMacro("/variants", autoSend = true),
@@ -67,7 +67,7 @@ enum class SessionHarness(
 	COPILOT(
 		wire = "copilot",
 		label = "Copilot",
-		containers = false,
+		containers = true,
 		slashPalette = listOf(
 			SlashMacro("/btw", autoSend = false),
 			SlashMacro("/model", autoSend = true),

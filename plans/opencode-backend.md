@@ -613,6 +613,46 @@ Running or stopped is not shown: an agent's send starts the container either way
 
 **Eliminated:** the refusal for a stopped container, and the separate notice for a CLI found missing after a start.
 
+## Phase 2d - OpenCode as an agent backend
+
+OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and never made a phase; the owner placed it after 2c, before acceptance ("cool."). Owner, 2026-11-10: "let's add agentStart support as a slice after you get the session support. that way you can use OpenCode session to implement an OpenCode agent."
+
+- **Order:** fold Codex and Copilot into one family adapter first, built here, since it touches both live backends. Then an OpenCode session, reached by `crosstalk_send`, builds the OpenCode adapter on it, and every answer it sends back is reviewed before it lands.
+- **The cycle:** its phase list was fixed at start, so after 2c it restarts on this phase and Phase 3.
+
+### Settled with the owner
+
+- **Q1, one family adapter first?** A: fold Codex and Copilot into one family adapter (options, dispatch, event fold, recovery, cancel per backend), then OpenCode is one adapter on it. Owner, 2026-11-10: "A."
+- **Q2, where an agent runs?** A: one headless `opencode serve` per execution target, supervised by the daemon as Codex's App Server is; each agent is an OpenCode session on it, a turn is a prompt, collect reads the turn's messages. Local mode runs its own the same way. Owner: "A".
+- **Q3, the agent's model?** Optional; omitted on OpenCode it is `opencode-go/deepseek-v4-pro`. A new tool lists the models each backend offers, newest version per family. Owner: "We need a new tool to list models a backend has. Claude and Codex will be down to a few. Copilot will list whatever the enterprise enabled. We should attempt to dedup the model listing by version numbers by only offering the newest. Usually same price for better performance. And if model is omited on OpenCode, default to the deep seek model, since OpenCode offers it at a good discount. the costlier one, not the flash one." On the dedup: "I meant dedup as in opus 5.4 superceded by opus 5.5. Pro and Flash are 2 different models. like a haiku vs opus."
+- **Q4, the listing tool's shape?** A: one `agentModels` tool, optional `backend`, each backend's models read live from that backend (OpenCode's provider list, Copilot's headless client, Codex's App Server, Claude's few), newest per family, the default marked. A family is the id with its version numbers removed. The static model lines in the agent guidance go. Owner: "A it is".
+- **Q5, what an agent may do unasked?** A: allow all; the agent's session is created with an allow-everything rule set, as Copilot agents run in allow-all and Codex unsandboxed. Owner: "A".
+- **Q7a, the listing tool's name:** `agentListModels`, keeping agent plus a verb. Owner: "A. now the description next".
+- **Q7b, its description,** the owner's wording:
+    ```
+    # List Agent Models
+
+    List the newest models in all enabled model families.
+    - `backend` lists for just that backend
+    ```
+- **Q7c, `agentStart` field `model`,** the owner's wording: "Model ID as listed by `agentListModels`. Omit to use the backend's default."
+- **Q7d, `agentStart` description sentence,** the owner's wording: "Set `model` and `cwd` to start with. Use `agentListModels` to lists the models."
+- **Q7e, guidance, the OpenCode section,** the owner's wording:
+    ```
+    ## OpenCode
+
+    `model` uses the format: `provider/model`
+    ```
+- **Q7f, guidance, the Codex section** (the Luna default shipped with Phase 2b), the owner's wording, and a behavior change: a Luna-family model defaults to `priority` whenever `tier` is omitted ("B. I want Luna fast by default. should be a tiny fix."):
+    ```
+    ## Codex
+
+    `tier` accepts: `priority` or `standard`
+    - When Luna family is selected, tier will be defaulted to `priority`.
+    - On `agentMessage`, tier applies to the next new turn.
+    ```
+- **Q6, how a session gets the backend?** A: its own capability, `opencode-agent`, on by default where OpenCode is installed, listed in the backends line, switchable like `codex-agent` and `copilot-agent`. Owner: "A".
+
 ## Phase 3 - Acceptance and docs
 
 - Live on Sakura from the phone: create an OpenCode session, talk to it, watch it in the terminal view, approve a `.env` read from the card, compact it, close and wake it, and crosstalk with a Claude session in both directions.
@@ -647,38 +687,10 @@ Running or stopped is not shown: an agent's send starts the container either way
 
 ## Owner asks, open
 
+- **Try Copilot and OpenCode in the evie-bot container once 2c lands.** The base image installs OpenCode 2.2.5 (`docker-workspace` `6eddb07`). Owner: "sweet. then you can try it on Evie bot later." and "also try open code there too." OpenCode goes into the running container by hand (no rebuild). First with no login, to see that the phone's login-required chip shows. Owner: "actually don't yet. see if the detect for login required chip shows" and "for both copilot and oc". The pane check reads Claude's wording, so Copilot's logged-out screen may need its own. Only after that, the host's auth file copied in, mode 600, never printed. Owner: "copy it in this time".
+
 - **Tell the owner when the app can create an OpenCode session.** Asked from the phone on 2026-11-10: "let me know when session start or startAgent is ready for use in this android app. I think a good exercise would be to make a session and you cross talk it to do adversarial from now on." ✅ Told on 8.14.54. Adversarial reads go to the session the owner names.
-- **An OpenCode backend for `agentStart` and workflow steps,** a slice after Phase 2a. Owner, 2026-11-10: "let's add agentStart support as a slice after you get the session support. that way you can use OpenCode session to implement an OpenCode agent." Its tool text is settled with the owner first, and the build is handed to an OpenCode session by `crosstalk_send`. It is not a cycle phase yet; add it as `## Phase 2a2 - OpenCode as an agent backend` once planned.
-  - **Q1, one family adapter first?** A: fold Codex and Copilot into one family adapter (options, dispatch, event fold, recovery, cancel per backend), then OpenCode is one adapter on it. Owner, 2026-11-10: "A."
-  - **Q2, where an agent runs?** A: one headless `opencode serve` per execution target, supervised by the daemon as Codex's App Server is; each agent is an OpenCode session on it, a turn is a prompt, collect reads the turn's messages. Local mode runs its own the same way. Owner: "A".
-  - **Q3, the agent's model?** Optional; omitted on OpenCode it is `opencode-go/deepseek-v4-pro`. A new tool lists the models each backend offers, newest version per family. Owner: "We need a new tool to list models a backend has. Claude and Codex will be down to a few. Copilot will list whatever the enterprise enabled. We should attempt to dedup the model listing by version numbers by only offering the newest. Usually same price for better performance. And if model is omited on OpenCode, default to the deep seek model, since OpenCode offers it at a good discount. the costlier one, not the flash one." On the dedup: "I meant dedup as in opus 5.4 superceded by opus 5.5. Pro and Flash are 2 different models. like a haiku vs opus."
-  - **Q4, the listing tool's shape?** A: one `agentModels` tool, optional `backend`, each backend's models read live from that backend (OpenCode's provider list, Copilot's headless client, Codex's App Server, Claude's few), newest per family, the default marked. A family is the id with its version numbers removed. The static model lines in the agent guidance go. Owner: "A it is".
-  - **Q5, what an agent may do unasked?** A: allow all; the agent's session is created with an allow-everything rule set, as Copilot agents run in allow-all and Codex unsandboxed. Owner: "A".
-  - **Q7a, the listing tool's name:** `agentListModels`, keeping agent plus a verb. Owner: "A. now the description next".
-  - **Q7b, its description,** the owner's wording:
-    ```
-    # List Agent Models
-
-    List the newest models in all enabled model families.
-    - `backend` lists for just that backend
-    ```
-  - **Q7c, `agentStart` field `model`,** the owner's wording: "Model ID as listed by `agentListModels`. Omit to use the backend's default."
-  - **Q7d, `agentStart` description sentence,** the owner's wording: "Set `model` and `cwd` to start with. Use `agentListModels` to lists the models."
-  - **Q7e, guidance, the OpenCode section,** the owner's wording:
-    ```
-    ## OpenCode
-
-    `model` uses the format: `provider/model`
-    ```
-  - **Q7f, guidance, the Codex section,** the owner's wording, and a behavior change: a Luna-family model defaults to `priority` whenever `tier` is omitted ("B. I want Luna fast by default. should be a tiny fix."):
-    ```
-    ## Codex
-
-    `tier` accepts: `priority` or `standard`
-    - When Luna family is selected, tier will be defaulted to `priority`.
-    - On `agentMessage`, tier applies to the next new turn.
-    ```
-  - **Q6, how a session gets the backend?** A: its own capability, `opencode-agent`, on by default where OpenCode is installed, listed in the backends line, switchable like `codex-agent` and `copilot-agent`. Owner: "A".
+- **OpenCode as an agent backend:** now `## Phase 2d`.
 
 ## Later
 

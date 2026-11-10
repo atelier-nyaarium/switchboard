@@ -32,6 +32,7 @@ describe("which CLI a launch runs", () => {
 describe("a create's CLI where its place's are known", () => {
 	const host = { place: "host" as const, assistant: false };
 	const container = { place: "container" as const, assistant: false };
+	const windows = { place: "windows" as const, assistant: false };
 
 	it("takes the named or the only CLI, and leaves it to the place when the place has not said", () => {
 		expect(pickAt(host, "opencode", ["claude", "opencode"])).toEqual({ harness: "opencode" });
@@ -48,8 +49,8 @@ describe("a create's CLI where its place's are known", () => {
 			refused: { cause: "not_installed", available: ["claude"], named: "copilot" },
 		});
 		expect(pickAt(container, undefined, [])).toEqual({ refused: { cause: "none_installed" } });
-		expect(pickAt(container, "copilot", undefined)).toMatchObject({ refused: { cause: "refused" } });
-		expect(pickAt(container, undefined, ["claude", "opencode"])).toEqual({ harness: "claude" });
+		expect(pickAt(windows, "opencode", undefined)).toMatchObject({ refused: { cause: "refused" } });
+		expect(pickAt(windows, undefined, ["claude", "opencode"])).toEqual({ harness: "claude" });
 	});
 });
 

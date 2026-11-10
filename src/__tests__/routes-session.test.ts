@@ -66,10 +66,13 @@ describe("POST /session/type", () => {
 		expect(route.relayToHost).not.toHaveBeenCalled();
 	});
 
-	it("relays a Copilot caller to the pane named by its record", async () => {
+	it.each([
+		["host", "host"],
+		["fixture-app", "devcontainer"],
+	] as const)("relays a Copilot caller on %s to the pane named by its record", async (spawn, kind) => {
 		const route = routes({
 			id: "copilot-one",
-			spawn: "host",
+			spawn,
 			harness: "copilot",
 			sessionLabel: "Copilot",
 			lastSeen: 1,
@@ -81,7 +84,7 @@ describe("POST /session/type", () => {
 		expect(await response.json()).toEqual({ typed: true });
 		expect(route.relayToHost).toHaveBeenCalledWith({
 			kind: "typeIntoPane",
-			target: { kind: "host", name: "host", sessionName: "copilot-one" },
+			target: { kind, name: spawn, sessionName: "copilot-one" },
 			text: body.text,
 		});
 	});

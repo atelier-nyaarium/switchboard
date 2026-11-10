@@ -762,6 +762,23 @@ describe("a session record's harness", () => {
 		expect(store.getByTeam("fixture-app.p1")?.harness).toBe("copilot");
 	});
 
+	it("keeps the id the daemon launched under, and mints its own for one that does not fit", () => {
+		const launched = "11111111-2222-4333-8444-555555555555";
+		const store = new SessionStore({
+			ambient: processAmbient(),
+			idGen: scriptedIds("p1", "p2"),
+			uuidGen: () => uuid,
+		});
+		store.mint({ spawn: "fixture-app", sessionLabel: "first" });
+		store.mint({ spawn: "fixture-app", sessionLabel: "second" });
+
+		const kept = store.resolvePick("fixture-app.p1", "copilot", launched);
+		const minted = store.resolvePick("fixture-app.p2", "copilot", "not-an-id");
+
+		expect(kept?.mintedSessionId).toBe(launched);
+		expect(minted?.mintedSessionId).toBe(uuid);
+	});
+
 	it("keeps a pending create pending across a restart", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("p1") });
 		store.mint({ spawn: "fixture-app", sessionLabel: "first" });

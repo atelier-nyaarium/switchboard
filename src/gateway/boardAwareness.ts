@@ -75,11 +75,9 @@ function render(sessionKey: string, changes: readonly Change<BoardEntry>[]): str
 	return lines.join("\n");
 }
 
-/** Only disappearance arms an unsolicited push. */
+/** Owner edits never press. */
 export const boardAwarenessSubscriber: AwarenessSubscriber<BoardEntry> = {
 	source: "task-board",
-	act(sessionKey, pre, post) {
-		return classifyBoardChange(sessionKey, pre, post)?.kind === "gone" ? "act_now" : "no_act";
-	},
+	act: () => "no_act",
 	render,
 };

@@ -52,6 +52,14 @@ export interface ApiRoad {
 	readonly server: "opencode";
 }
 
+/** Bash run in the container. */
+export interface PluginProvisioning {
+	/** Exits 0 once every plugin is in place. */
+	readonly installed: string;
+	/** Idempotent; `installed` judges it. */
+	readonly install: string;
+}
+
 /** One rule of a CLI's own permission engine. */
 export interface PermissionRule {
 	readonly action: string;
@@ -96,6 +104,8 @@ export interface HarnessRow {
 	readonly goals: boolean;
 	/** Laid over the CLI's own policy at create. */
 	readonly permissions: readonly PermissionRule[];
+	/** Null needs none. */
+	readonly plugins: PluginProvisioning | null;
 }
 
 ////////////////////////////////
@@ -115,7 +125,43 @@ const CLAUDE_SLASH: readonly SlashMacro[] = [
 	{ cmd: "/reload-plugins", autoSend: true },
 ];
 
-const PLUGINS = "switchboard nyaaskills lexicon";
+/** Every CLI's Switchboard plugins, from one marketplace. */
+export const PLUGIN_SET = {
+	marketplace: "atelier-nyaarium",
+	source: "atelier-nyaarium/claude-marketplace",
+	plugins: ["switchboard", "nyaaskills", "lexicon"],
+} as const;
+
+const PLUGINS = PLUGIN_SET.plugins.join(" ");
+const AT = `@${PLUGIN_SET.marketplace}`;
+
+/** Merged into the settings file the CLI wrote. */
+const jqMerge = (file: string, patch: object) =>
+	`(cat ${file} 2>/dev/null || echo '{}') | jq '(if . == null then {} else . end) * ${JSON.stringify(patch)}' > ${file}.tmp && mv ${file}.tmp ${file}`;
+
+const CLAUDE_PLUGINS: PluginProvisioning = {
+	installed: `for p in ${PLUGINS}; do jq -e ".plugins[\\"$p${AT}\\"]" ~/.claude/plugins/installed_plugins.json >/dev/null 2>&1 || exit 1; done`,
+	install: [
+		`claude plugin marketplace add ${PLUGIN_SET.source} 2>/dev/null`,
+		`for p in ${PLUGINS}; do claude plugin install $p${AT}; done`,
+		jqMerge("~/.claude/settings.json", {
+			extraKnownMarketplaces: { [PLUGIN_SET.marketplace]: { autoUpdate: true } },
+		}),
+		jqMerge("~/.claude.json", {
+			mcpServers: {
+				nyaascripts: { type: "stdio", command: "/home/vscode/scripts/nyaascripts", args: [], env: {} },
+			},
+		}),
+	].join("; "),
+};
+
+const COPILOT_PLUGINS: PluginProvisioning = {
+	installed: `for p in ${PLUGINS}; do copilot plugin list 2>/dev/null | grep -qF "$p${AT}" || exit 1; done`,
+	install: [
+		`copilot plugin marketplace add ${PLUGIN_SET.source} 2>/dev/null`,
+		`for p in ${PLUGINS}; do copilot plugin install $p${AT}; done`,
+	].join("; "),
+};
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -146,18 +192,18 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 			{ label: "Install Claude", cmd: "curl -fsSL https://claude.ai/install.sh | bash" },
 			{
 				label: "Claude Tools",
-				cmd: `claude plugin marketplace add atelier-nyaarium/claude-marketplace || claude plugin marketplace update atelier-nyaarium; for p in ${PLUGINS}; do claude plugin install $p@atelier-nyaarium && claude plugin update -y $p@atelier-nyaarium; done`,
+				cmd: `claude plugin marketplace add ${PLUGIN_SET.source} || claude plugin marketplace update ${PLUGIN_SET.marketplace}; for p in ${PLUGINS}; do claude plugin install $p${AT} && claude plugin update -y $p${AT}; done`,
 			},
 		],
 		refusedKeys: [],
 		goals: true,
 		permissions: [],
+		plugins: CLAUDE_PLUGINS,
 	},
 	opencode: {
 		label: "OpenCode",
 		binary: { posix: "opencode", windows: null, homeDir: ".opencode/bin" },
-		// Host only.
-		containers: false,
+		containers: true,
 		assistant: false,
 		// The id names the session before it exists.
 		sessionId: {
@@ -191,12 +237,14 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		refusedKeys: ["C-c"],
 		goals: false,
 		permissions: [],
+		// Launcher runs the daemon's `dist/`.
+		plugins: null,
 	},
 	copilot: {
 		label: "Copilot",
 		// VS Code's shim resolves `copilot.exe`.
 		binary: { posix: "copilot", windows: "copilot.exe" },
-		containers: false,
+		containers: true,
 		assistant: false,
 		// The id names the session before it exists.
 		sessionId: { minted: true, shape: UUID, mint: (uuid) => uuid() },
@@ -212,12 +260,13 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 			{ label: "Install Copilot", cmd: "curl -fsSL https://gh.io/copilot-install | bash" },
 			{
 				label: "Copilot Tools",
-				cmd: `copilot plugin marketplace add atelier-nyaarium/claude-marketplace; copilot plugin marketplace update; for p in ${PLUGINS}; do copilot plugin install $p@atelier-nyaarium; copilot plugin update $p@atelier-nyaarium; done`,
+				cmd: `copilot plugin marketplace add ${PLUGIN_SET.source}; copilot plugin marketplace update; for p in ${PLUGINS}; do copilot plugin install $p${AT}; copilot plugin update $p${AT}; done`,
 			},
 		],
 		refusedKeys: [],
 		goals: true,
 		permissions: [],
+		plugins: COPILOT_PLUGINS,
 	},
 };
 
