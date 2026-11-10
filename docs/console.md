@@ -338,9 +338,9 @@ no TTL.
   the owner's row never does. Each rung carries its own row time; ordering uses `lastActivity`.
 - **Card board branch** (`cardBranchOf`): retain the root and a window around the current entry;
   collapse contiguous finished runs. A prefix of finished titles can hide the active entry.
-- **Unfinished gateway enrollment** (`PendingEnroll.kt`): admission is persisted before POST and
-  before delivery. Resume only with the saved bundle and the arming it was sealed against; a 404
-  requires re-arm and re-scan.
+- **Unfinished gateway setup** (`PendingEnroll.kt`, `PendingEnrollOps.kt`): the sealed frame is kept
+  before the hand-in. The drain pass hands it in again when the Router does not hold it, and retires
+  the record once the Gateway registers or leaves the keyring. `docs/federation.md` holds the flow.
 - **Terminal copy** (`TerminalCopy.kt`, `TerminalAnsi.kt`): trim only trailing cells with neither
   background nor reverse. Painted trailing cells are content. Join only a single whitespace-free URL
   with a scheme.

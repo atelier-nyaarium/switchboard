@@ -23,7 +23,7 @@ class ClassifyConnErrorTest {
 		}
 		val (_, kind) = classifyConnError(wrapped)
 		assertEquals(ConnKind.TERMINAL, kind)
-		val (_, direct) = classifyConnError(CertificateException("enroll cert fingerprint mismatch"))
+		val (_, direct) = classifyConnError(CertificateException("pinned certificate fingerprint mismatch"))
 		assertEquals(ConnKind.TERMINAL, direct)
 	}
 }

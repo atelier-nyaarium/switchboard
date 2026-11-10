@@ -55,21 +55,33 @@ async function tryClipboardCopy(text: string): Promise<boolean> {
 /** What the screen does instead of offering a way past itself. Supplied only by gateway enrollment;
  * the admin Console flow has nothing to wait for and keeps its continue action. */
 export interface EnrollSettle {
-	/** True once the phone's sealed bundle has landed. Polled while the screen is open. */
+	/** True once the bundle is installed. Polled while any of these screens is open. */
 	installed: () => Promise<boolean>;
 	/** The status line under the options, rewritten in place on every poll. */
 	status: () => string;
-	/** True once the gateway's enrollment window has closed, which offers an arm-again in place. */
-	expired: () => boolean;
 	/** The fingerprint the phone must be showing. Printed beside the artifact, because a phone that
 	 * says "confirm this matches the Gateway terminal" over a terminal showing no such value is
 	 * asking for a comparison that cannot be made. */
 	sas: string;
-	/** Set when the gateway opened no LAN listener, so a paste is the only route in. */
-	lanNote?: string;
 }
 
-export type ArtifactAction = "continue" | "back" | "settled" | "rearm" | "paste";
+export type ArtifactAction = "continue" | "back" | "settled";
+
+type Picked = { kind: "key"; key: string } | { kind: "settled" };
+
+/** One choice, read a key at a time while `settle` polls. */
+async function pick(prompt: string, settle: EnrollSettle | undefined): Promise<Picked> {
+	if (!settle) return { kind: "key", key: ask(prompt).toLowerCase() };
+	console.log("");
+	const got = await readKeyWhile({
+		poll: settle.installed,
+		// Rewritten in place rather than appended, or a long wait scrolls the QR away.
+		tick: () => process.stdout.write(`\r\x1b[2K  ${settle.status()}`),
+		intervalMs: 1000,
+	});
+	process.stdout.write("\n");
+	return got.kind === "settled" ? got : { kind: "key", key: got.key.toLowerCase() };
+}
 
 /**
  * The settling half of the artifact screen: the payload is already on screen, and this waits for the
@@ -89,30 +101,12 @@ async function waitOnArtifact(
 		console.log(`\n  ${heading}`);
 		console.log(`\n  Your phone must show this exact code:  ${settle.sas}`);
 		console.log("  If it shows anything else, do not approve it on the phone.");
-		if (settle.lanNote) console.log(`\n  ${settle.lanNote}`);
 		console.log(`\n    1) ${saveLabel}`);
-		console.log("    p) Paste the bundle here");
-		// Offered at all times, not only past the deadline. The options are printed once and only the
-		// status line is rewritten after that, so a listing gated on expiry would still say "1, p, b"
-		// under a status line telling the admin to press r. Re-arming early is useful anyway.
-		console.log("    r) Arm again, with a fresh code");
 		console.log("    b) Back");
-		console.log("");
-		const got = await readKeyWhile({
-			poll: settle.installed,
-			// Rewritten in place rather than appended, or a ten-minute wait scrolls the QR away.
-			tick: () => process.stdout.write(`\r\x1b[2K  ${settle.status()}`),
-			intervalMs: 1000,
-		});
-		process.stdout.write("\n");
+		const got = await pick("", settle);
 		if (got.kind === "settled") return "settled";
-		const key = got.key.toLowerCase();
-		if (key === "b") return "back";
-		// Handed back to the caller rather than read here: a paste needs a whole line, and the raw
-		// mode this screen runs in is torn down only once readKeyWhile has returned.
-		if (key === "p") return "paste";
-		if (key === "r") return "rearm";
-		if (key === "1") {
+		if (got.key === "b") return "back";
+		if (got.key === "1") {
 			try {
 				note(`Saved: ${await save()}`);
 			} catch (e) {
@@ -123,7 +117,7 @@ async function waitOnArtifact(
 	}
 }
 
-/** Render + display the gateway's admit payload, then offer to continue, save it to a file, or back
+/** Render + display a payload, then offer to continue, save it to a file, or back
  * out. `render` prints the artifact on screen; `save` writes it to a temp file (tracked for cleanup)
  * and returns the path. With `settle`, the continue action is replaced by a wait on the phone. */
 async function presentArtifact(
@@ -192,7 +186,9 @@ export async function presentEnrollment(
 		console.log("  1) Show as QR Code");
 		console.log("  2) Show as JSON Copy-pasta");
 		console.log("  b) Back");
-		const choice = ask(">").toLowerCase();
+		const got = await pick(">", opts.settle);
+		if (got.kind === "settled") return "settled";
+		const choice = got.key;
 
 		if (choice === "b") return "back";
 		if (choice === "1") {
@@ -245,7 +241,8 @@ export async function presentEnrollment(
 				opts.settle,
 			);
 			if (action !== "back") return action;
-		} else {
+		} else if (!opts.settle) {
+			// A stray key on a polled screen just redraws.
 			err("Enter 1, 2, or b.");
 		}
 	}

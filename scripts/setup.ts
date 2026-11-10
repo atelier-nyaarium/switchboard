@@ -74,9 +74,11 @@ async function topMenu(): Promise<void> {
 		// code" there, never a blob.
 		console.log("\nGateway:");
 		console.log(
-			status.gatewayEnrolled
-				? "  1) Gateway Setup        - Re-enroll this machine and show its Add Gateway code\n"
-				: "  1) Gateway Setup        - Enroll this machine and show its Add Gateway code\n",
+			status.gatewayPending
+				? "  1) Resume Gateway Setup - Return to this machine's Add Gateway code\n"
+				: status.gatewayEnrolled
+					? "  1) Gateway Setup        - Re-enroll this machine and show its Add Gateway code\n"
+					: "  1) Gateway Setup        - Enroll this machine and show its Add Gateway code\n",
 		);
 		console.log("Federation Router:");
 		console.log(

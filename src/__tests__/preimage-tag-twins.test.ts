@@ -32,6 +32,7 @@ describe("shared preimage tags", () => {
 			COPILOT_AGENT_V1: "Copilot delegation is gateway-only",
 			ADMISSION_V1: "Admission vectors predate the shared corpus",
 			DEVICE_JOIN_V1: "Device join vectors predate the shared corpus",
+			GATEWAY_BOOTSTRAP_ASK_V1: "The ask is Gateway to Router",
 			INBOXROW_V1: "Inbox rows have no cross-runtime corpus",
 			KEYENVELOPE_V1: "Key envelope preimages are binary; the content-envelope corpus pins them base64",
 			REGISTER_V1: "Gateway registration is gateway-only",

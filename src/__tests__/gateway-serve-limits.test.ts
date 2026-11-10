@@ -48,7 +48,7 @@ const ROUTE_WAIT_MS = new Map<string, number>([
 ]);
 
 const SHORT_POST_PATHS = [
-	"/enroll",
+	"/enroll/arm",
 	"/federation/retire",
 	"/respond",
 	"/poll",
@@ -73,8 +73,11 @@ function quotedPaths(source: string): string[] {
 	return [...source.matchAll(/["'](\/[A-Za-z0-9/_-]+)["']/g)].map((match) => match[1]);
 }
 
-function postHttpPaths(source: string): string[] {
-	const paths = [...source.matchAll(/method === "POST" && url\.pathname === "(\/[^"]+)"/g)].map((match) => match[1]);
+/** A path written as a literal, or as a constant `named` declares. */
+function postHttpPaths(source: string, named: string): string[] {
+	const paths = [...source.matchAll(/method === "POST" && url\.pathname === (?:"(\/[^"]+)"|([A-Z_]+))/g)].map(
+		(match) => match[1] ?? named.match(new RegExp(`export const ${match[2]} = "(/[^"]+)"`))?.[1] ?? match[2],
+	);
 	const blobRoutes = source.match(/const BLOB_ROUTE_SCHEMAS = \{([\s\S]*?)\} as const;/)?.[1] ?? "";
 	paths.push(...quotedPaths(blobRoutes));
 	return paths;
@@ -119,6 +122,7 @@ describe("gateway long waits", () => {
 		const sendPaths = fs.readFileSync("src/shared/schemasAssistantSend.ts", "utf8");
 		const commandPaths = fs.readFileSync("src/shared/session-commands.ts", "utf8");
 		const baselinePaths = fs.readFileSync("src/shared/session-baseline.ts", "utf8");
+		const enrollPaths = fs.readFileSync("src/shared/schemasEnrollSetup.ts", "utf8");
 
 		expect(mapKeys(vaultRoutes)).toEqual([
 			'"/vault/search"',
@@ -151,7 +155,7 @@ describe("gateway long waits", () => {
 			...quotedPaths(baselinePaths),
 			...AGENT_BACKENDS.map(({ id }) => agentHttpPath(id)),
 		];
-		const postPaths = new Set([...postHttpPaths(httpRouter), ...loopbackPaths]);
+		const postPaths = new Set([...postHttpPaths(httpRouter, enrollPaths), ...loopbackPaths]);
 		const classifiedPaths = new Set([...ROUTE_WAIT_MS.keys(), ...SHORT_POST_PATHS]);
 
 		expect([...postPaths].sort()).toEqual([...classifiedPaths].sort());

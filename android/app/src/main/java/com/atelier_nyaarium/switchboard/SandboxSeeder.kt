@@ -71,6 +71,7 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 	) {
 		if (!isSandbox) return
 		seedSandboxIdentity(repo.identity, teams.firstOrNull()?.domainId)
+		seedPendingGateway()
 		this.dirs = dirs
 		repo._state.update { s ->
 			s.copy(
@@ -89,6 +90,21 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 				owner = teams.firstOrNull()?.domainId?.let { OwnerFacts(it, null, false) },
 			)
 		}
+	}
+
+	/** One admitted Gateway whose setup never collected its bundle. */
+	private fun seedPendingGateway() {
+		runIsolated {
+			val admitted = repo.federation.members().find { it.gatewayId == SANDBOX_NEVER_REGISTERED }?.signPub
+				?: com.atelier_nyaarium.switchboard.crypto.Crypto.generateIdentity().also { gateway ->
+					repo.identity.mergeAdmission(
+						repo.federation.admitGateway(SANDBOX_NEVER_REGISTERED, gateway.sign.pub, gateway.box.pub, System.currentTimeMillis()),
+					)
+				}.sign.pub
+			repo.gatewayEnroll.setups.note(
+				PendingEnroll(SANDBOX_NEVER_REGISTERED, bundle = "{}", pickupId = bootstrapPickupId("sandbox"), gatewaySignPub = admitted),
+			)
+		}.onFailure { DebugLog.log("Sandbox", "pending Gateway seed failed: ${it.message}") }
 	}
 
 	override fun seedSandboxVault(drafts: List<com.atelier_nyaarium.switchboard.vault.VaultDraft>) {

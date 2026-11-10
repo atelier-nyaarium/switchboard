@@ -4,6 +4,7 @@ import {
 	ConsoleApprovalOpSchema,
 	type ConsoleApprovalResult,
 } from "../shared/federation-lifecycle.js";
+import { PublicLimiter } from "./publicLimiter.js";
 
 export interface PublicApprovalParams {
 	port: number;
@@ -16,23 +17,13 @@ export interface PublicApprovalParams {
 }
 
 const DEFAULT_MAX_BODY_BYTES = 8 * 1024;
-const DEFAULT_MAX_GLOBAL_PER_WINDOW = 600;
-const DEFAULT_MAX_PER_ID_PER_WINDOW = 60;
-const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 
 const _MAX_PUBLIC_BODY_BYTES = 65_536;
 
 export class PublicApproval {
 	private readonly onApproval: (op: ConsoleApprovalOp) => ConsoleApprovalResult | Promise<ConsoleApprovalResult>;
 	private readonly maxBodyBytes: number;
-	private readonly maxGlobalPerWindow: number;
-	private readonly maxPerIdPerWindow: number;
-	private readonly rateLimitWindowMs: number;
-	private readonly now: () => number;
-
-	private windowStartedAt = 0;
-	private globalCount = 0;
-	private readonly perId = new Map<string, number>();
+	private readonly limiter: PublicLimiter;
 
 	public constructor({
 		port,
@@ -45,10 +36,7 @@ export class PublicApproval {
 	}: PublicApprovalParams) {
 		this.onApproval = onApproval;
 		this.maxBodyBytes = maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-		this.maxGlobalPerWindow = maxGlobalPerWindow ?? DEFAULT_MAX_GLOBAL_PER_WINDOW;
-		this.maxPerIdPerWindow = maxPerIdPerWindow ?? DEFAULT_MAX_PER_ID_PER_WINDOW;
-		this.rateLimitWindowMs = rateLimitWindowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS;
-		this.now = () => ambient.now();
+		this.limiter = new PublicLimiter(ambient, { maxGlobalPerWindow, maxPerIdPerWindow, rateLimitWindowMs });
 		this.handleRequest = this.handleRequest.bind(this);
 	}
 
@@ -60,7 +48,7 @@ export class PublicApproval {
 
 	public async handleRequest(req: Request): Promise<Response> {
 		if (req.method !== "POST") return notFound();
-		if (this.globalRateLimited()) return tooManyRequests();
+		if (this.limiter.globalLimited()) return tooManyRequests();
 
 		const contentLength = Number(req.headers.get("content-length") ?? 0);
 		if (contentLength > this.maxBodyBytes) return payloadTooLarge();
@@ -85,31 +73,10 @@ export class PublicApproval {
 		const op = parsed.data;
 		if (op.step !== "join" && op.step !== "fetch") return notFound();
 
-		if (this.perIdRateLimited(op.approvalId)) return tooManyRequests();
+		if (this.limiter.idLimited(op.approvalId)) return tooManyRequests();
 
 		const result = await this.onApproval(op);
 		return json(result, 200);
-	}
-
-	private rollWindow(): void {
-		const now = this.now();
-		if (now - this.windowStartedAt >= this.rateLimitWindowMs) {
-			this.windowStartedAt = now;
-			this.globalCount = 0;
-			this.perId.clear();
-		}
-	}
-
-	private globalRateLimited(): boolean {
-		this.rollWindow();
-		this.globalCount += 1;
-		return this.globalCount > this.maxGlobalPerWindow;
-	}
-
-	private perIdRateLimited(approvalId: string): boolean {
-		const next = (this.perId.get(approvalId) ?? 0) + 1;
-		this.perId.set(approvalId, next);
-		return next > this.maxPerIdPerWindow;
 	}
 }
 

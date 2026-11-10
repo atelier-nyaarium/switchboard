@@ -385,12 +385,14 @@ internal class PollDrain(
 							host.refreshRoutines()
 							lastVisibleRoutineRefreshAt = now
 						}
+						host.tickEnrollments()
 						withTimeoutOrNull(ChatRepository.POLL_INTERVAL_MS) { kick.receive() }
 						continue@pollLoop
 					}
 					if (!host.isVisible && host.link() == ConsoleLink.POLL) {
 						drainOwnerInbox()
 						host.refreshRoutines()
+						host.tickEnrollments()
 						// Coordinator owns alarm scheduling.
 						park(host.plan(false, false).wait, kick, ChatRepository.BACKGROUND_TICK_MS)
 						continue@pollLoop
@@ -422,7 +424,10 @@ internal class PollDrain(
 					}
 					DebugLog.flushToIngest()
 				}
-				if (!host.isVisible) host.refreshRoutines()
+				if (!host.isVisible) {
+					host.refreshRoutines()
+					host.tickEnrollments()
+				}
 				val plan = host.plan(host.isVisible, failed)
 				park(plan.wait, kick, ChatRepository.POLL_INTERVAL_MS.takeIf { failed || heldEmpty })
 			}

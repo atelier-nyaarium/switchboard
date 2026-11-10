@@ -19,10 +19,10 @@ const host = generateIdentity();
 
 describe("enrollment", () => {
 	it("parses each enrollment payload type and rejects an unknown one", () => {
-		expect(
-			EnrollmentPayloadSchema.safeParse({ type: "admit-gateway", gatewayId: "laptop", signPub: "a", boxPub: "b" })
-				.success,
-		).toBe(true);
+		const scanned = { gatewayId: "laptop", signPub: "a", boxPub: "b", code: "code" };
+		expect(EnrollmentPayloadSchema.safeParse({ type: "enroll-gateway", ...scanned }).success).toBe(true);
+		// The name an older Gateway shows.
+		expect(EnrollmentPayloadSchema.safeParse({ type: "admit-gateway", ...scanned }).success).toBe(false);
 		expect(
 			EnrollmentPayloadSchema.safeParse({
 				type: "enroll-owner",
@@ -38,20 +38,22 @@ describe("enrollment", () => {
 
 	it("derives the SAS from the confirmed signing key", () => {
 		const payload = {
-			type: "admit-gateway" as const,
+			type: "enroll-gateway" as const,
 			gatewayId: "laptop",
 			signPub: host.sign.pub,
 			boxPub: host.box.pub,
+			code: "code",
 		};
 		expect(payloadSas(payload)).toBe(fingerprint(host.sign.pub));
 	});
 
 	it("admits a scanned Gateway into the allowlist", () => {
 		const payload = {
-			type: "admit-gateway" as const,
+			type: "enroll-gateway" as const,
 			gatewayId: "laptop",
 			signPub: host.sign.pub,
 			boxPub: host.box.pub,
+			code: "code",
 		};
 		const signed = admissionFromScan(payload, owner.sign.priv, owner.sign.pub, 1000, "bg==");
 		expect(verifyAdmission(signed, owner.sign.pub)).toBe(true);

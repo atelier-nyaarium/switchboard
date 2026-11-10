@@ -1,6 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import type { BlobStore } from "../shared/blob-store.js";
+import {
+	ENROLL_ARM_PATH,
+	ENROLL_STATUS_PATH,
+	type EnrollArmAnswer,
+	EnrollArmRequestSchema,
+	type EnrollStatus,
+} from "../shared/schemasEnrollSetup.js";
 import { answerBlobOp, BlobGetOpSchema, BlobPutOpSchema, BlobStatOpSchema, BlobTooLarge } from "./blobOps.js";
+import { routerBootstrapOverride } from "./router/transport.js";
 import type { createRoutes } from "./routes.js";
 import { presentedByRequest, type SessionAuthority } from "./sessionAuthority.js";
 
@@ -34,10 +42,8 @@ export type HttpRoutes = Pick<
 >;
 
 export interface HttpRouterDeps {
-	handleEnrollPost: (body: Record<string, unknown>) => Response;
-	enrollNonce?: string;
-	/** Reads the current arming state, which a completed enrollment clears. */
-	admitPayload: () => unknown;
+	enrollArm: (routerUrl: string) => Promise<EnrollArmAnswer>;
+	enrollStatus: () => EnrollStatus;
 	blobStore: BlobStore;
 	sessionAuthority: Pick<SessionAuthority, "mayUseLocalPlane">;
 	loopbackRoutes: Map<string, (req: Request, body: unknown) => Promise<Response>>;
@@ -52,10 +58,22 @@ export interface HttpRouterDeps {
 
 export const NOT_ENROLLED = "this Gateway is not enrolled in a Domain; run ./setup.sh";
 
+/** `https://host:port` and nothing more, or null. */
+function routerOrigin(host: string, port: number | undefined): string | null {
+	const url = routerBootstrapOverride(host, port?.toString());
+	if (url === null) return null;
+	try {
+		const { protocol, pathname, search, hash, username, password } = new URL(url);
+		const bare = pathname === "/" && !search && !hash && !username && !password;
+		return bare && protocol === "https:" ? url : null;
+	} catch {
+		return null;
+	}
+}
+
 export function createHttpRouter({
-	handleEnrollPost,
-	enrollNonce,
-	admitPayload,
+	enrollArm,
+	enrollStatus,
 	blobStore,
 	sessionAuthority,
 	loopbackRoutes,
@@ -68,29 +86,31 @@ export function createHttpRouter({
 	const closingResponse = () => Response.json({ error: "Gateway is closing" }, { status: 503 });
 	const refusalWhileClosing = () => (isClosing?.() ? closingResponse() : null);
 
-	async function serveRetire(req: Request): Promise<Response> {
+	/** Every container on the Gateway's network reaches this port; only the host holds the token. */
+	function fromHost(req: Request): boolean {
 		const presented = Buffer.from(req.headers.get("authorization") ?? "");
 		const expected = Buffer.from(hostWsToken ? `Bearer ${hostWsToken}` : "");
-		if (!hostWsToken || presented.length !== expected.length || !timingSafeEqual(presented, expected))
-			return Response.json({ outcome: "refused", error: "unauthorized" }, { status: 403 });
+		return !!hostWsToken && presented.length === expected.length && timingSafeEqual(presented, expected);
+	}
+
+	async function serveRetire(req: Request): Promise<Response> {
+		if (!fromHost(req)) return Response.json({ outcome: "refused", error: "unauthorized" }, { status: 403 });
 		return Response.json(await (retire?.() ?? Promise.resolve({ outcome: "unreachable" })));
 	}
-	function serveAdmitPayload(req: Request): Response {
-		// Admit payloads require the armed enrollment nonce.
-		const presented = Buffer.from(req.headers.get("x-enroll-nonce") ?? "");
-		const expected = Buffer.from(enrollNonce ?? "");
-		const authed = !!enrollNonce && presented.length === expected.length && timingSafeEqual(presented, expected);
-		const payload = admitPayload();
-		if (!payload || !authed) {
-			return new Response(JSON.stringify({ ok: false, error: "not in enrollment mode" }), {
-				status: 404,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-		return new Response(JSON.stringify(payload), {
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-		});
+
+	async function serveEnrollArm(req: Request, body: Record<string, unknown>): Promise<Response> {
+		const refuse = (error: "unauthorized" | "invalid", status: number): Response =>
+			Response.json({ ok: false, error } satisfies EnrollArmAnswer, { status });
+		if (!fromHost(req)) return refuse("unauthorized", 403);
+		const parsed = EnrollArmRequestSchema.safeParse(body);
+		const routerUrl = parsed.success ? routerOrigin(parsed.data.host, parsed.data.port) : null;
+		if (!routerUrl) return refuse("invalid", 400);
+		return Response.json(await enrollArm(routerUrl));
+	}
+
+	function serveEnrollStatus(req: Request): Response {
+		if (!fromHost(req)) return Response.json({ error: "unauthorized" }, { status: 403 });
+		return Response.json(enrollStatus());
 	}
 
 	async function serveBlobOp(
@@ -140,12 +160,8 @@ export function createHttpRouter({
 		const closingAfterBody = refusalWhileClosing();
 		if (closingAfterBody) return closingAfterBody;
 
-		if (method === "POST" && url.pathname === "/enroll") {
-			return handleEnrollPost(body);
-		}
-		if (method === "GET" && url.pathname === "/admit-payload") {
-			return serveAdmitPayload(req);
-		}
+		if (method === "POST" && url.pathname === ENROLL_ARM_PATH) return serveEnrollArm(req, body);
+		if (method === "GET" && url.pathname === ENROLL_STATUS_PATH) return serveEnrollStatus(req);
 		if (method === "POST" && url.pathname === "/federation/retire") return serveRetire(req);
 		const r = routes();
 		if (!r) {

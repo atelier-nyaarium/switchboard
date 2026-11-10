@@ -32,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -178,13 +179,14 @@ fun OwnerBackupCard(repo: ChatRepository) {
 	}
 }
 
-/** Gateways: the computers admitted to your Domain. Per-gateway online + session count is derived from the
- * live `teams`; the kebab manages that gateway's sharing or revokes it. Consoles live under Your devices. */
+/** Gateways: the computers admitted to your Domain. Each card reads the roster and that Gateway's
+ * unfinished setup; the kebab manages its sharing or revokes it. Consoles live under Your devices. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GatewaysScreen(
 	repo: ChatRepository,
 	teams: List<Team>,
+	registry: GatewayRegistry,
 	onBack: () -> Unit,
 	onAddGateway: () -> Unit,
 	onManageSharing: (String) -> Unit,
@@ -192,12 +194,10 @@ fun GatewaysScreen(
 	val scope = rememberCoroutineScope()
 	val context = LocalContext.current
 	val activity = context.fragmentActivity()
-	// Re-read after a revoke, a resume, or a cleared record so the list reflects the change.
+	// Re-read after a revoke so the list reflects the change.
 	var refresh by remember { mutableStateOf(0) }
-	var busyId by remember { mutableStateOf<String?>(null) }
-	var resumeNote by remember { mutableStateOf<Pair<String, String>?>(null) }
 	val gateways = remember(refresh) { repo.ownerFacts.admittedMembers().filter { it.kind == "gateway" } }
-	val pending = remember(refresh) { repo.gatewayEnroll.pendingEnrolls() }
+	val pending by repo.gatewayEnroll.setups.pending.collectAsState()
 	Scaffold(topBar = { TopAppBar(title = { Text("Gateways") }) }) { pad ->
 		Column(
 			Modifier.padding(pad).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState()),
@@ -209,64 +209,17 @@ fun GatewaysScreen(
 			}
 			for (g in gateways) {
 				val gid = g.gatewayId ?: continue
-				val count = teams.count { it.gatewayId == gid }
-				val online = teams.any { it.gatewayId == gid && it.isLive }
-				val state = gatewayCardState(count, online, pending[gid])
-				// A session proves this Gateway installed its bundle, so a record that outlived the
-				// enrollment is stale. Dropped on sight rather than left to contradict the card.
-				if (state !is GatewayCardState.Unfinished && pending.containsKey(gid)) {
-					LaunchedEffect(gid) {
-						repo.gatewayEnroll.clearPending(gid)
-						refresh++
-					}
-				}
+				val state = gatewayCardState(teams.count { it.gatewayId == gid }, registry, gid, pending[gid])
 				Card(Modifier.fillMaxWidth()) {
 					Row(Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 						Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
 							Text(gid, style = MaterialTheme.typography.titleMedium)
-							when (state) {
-								is GatewayCardState.Unfinished -> {
-									Text(
-										if (busyId == gid) "Finishing setup..." else "Setup unfinished · tap to resume",
-										style = MaterialTheme.typography.bodySmall,
-										color = MaterialTheme.colorScheme.error,
-									)
-									state.lastError?.let {
-										Text(it, style = MaterialTheme.typography.bodySmall)
-									}
-								}
-								is GatewayCardState.Live -> Text(
-									"online · ${state.sessions} session${if (state.sessions == 1) "" else "s"}",
-									style = MaterialTheme.typography.bodySmall,
-								)
-								GatewayCardState.Offline -> Text(
-									"offline · $count session${if (count == 1) "" else "s"}",
-									style = MaterialTheme.typography.bodySmall,
-								)
-							}
+							Text(gatewayCardLine(state), style = MaterialTheme.typography.bodySmall)
 							Text(
 								Crypto.fingerprint(g.signPub),
 								fontFamily = FontFamily.Monospace,
 								style = MaterialTheme.typography.bodySmall,
 							)
-							if (state is GatewayCardState.Unfinished) {
-								Button(
-									enabled = busyId == null,
-									onClick = hapticClick {
-										busyId = gid
-										scope.launch {
-											val r = repo.gatewayEnroll.resumeEnroll(gid)
-											busyId = null
-											resumeNote = gid to r.message
-											r.pasteBundle?.let { copyToClipboard(context, "gateway bundle", it) }
-											refresh++
-										}
-									},
-								) { Text(if (pending[gid]?.deliverable == true) "Resume setup" else "Copy bundle again") }
-							}
-							resumeNote?.takeIf { it.first == gid }?.let {
-								Text(it.second, style = MaterialTheme.typography.bodySmall)
-							}
 						}
 						var menuOpen by remember(g.signPub) { mutableStateOf(false) }
 						Box {
@@ -288,9 +241,6 @@ fun GatewaysScreen(
 										scope.launch {
 											if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) return@launch
 											repo.ownerFacts.revokeMember(g.signPub)
-											// Giving up on a Gateway retires its unfinished setup too, or the
-											// card comes back offering to resume something just revoked.
-											repo.gatewayEnroll.clearPending(gid)
 											refresh++
 										}
 									},
@@ -306,32 +256,29 @@ fun GatewaysScreen(
 	}
 }
 
-/** Add Gateway: scan the Gateway's admit-gateway QR (or paste the same payload as JSON text),
- * confirm the SAS against the Gateway terminal, then owner-sign + submit the admission. Bundle
- * delivery to a remote Gateway (LAN/paste) follows; a host-configured Gateway (e.g. the local one)
- * gets its admission through the Router's domain sync alone. */
+/** Add Gateway: scan the Gateway's enrollment code (or paste the same payload as JSON text),
+ * confirm the SAS against the Gateway terminal, then owner-sign the admission and hand the sealed
+ * bundle to the Router, where that Gateway's setup collects it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddGatewayScreen(repo: ChatRepository, onBack: () -> Unit, onDone: () -> Unit) {
 	val scope = rememberCoroutineScope()
 	val activity = hostActivity()
-	val context = LocalContext.current
 	var scanning by remember { mutableStateOf(false) }
 	var scanned by remember { mutableStateOf<ScannedGateway?>(null) }
 	var pasteText by remember { mutableStateOf("") }
 	var status by remember { mutableStateOf("") }
 	var busy by remember { mutableStateOf(false) }
-	var pasteBundle by remember { mutableStateOf<String?>(null) }
 
-	// The QR and the JSON-paste method feed the SAME parser: the admit payload the Gateway prints
-	// as a QR is the same JSON it offers as copy-pasta, so a scan and a paste land on the identical
-	// confirm + admit + deliver path. Null means the text was not an admit-gateway payload.
+	// A scan and a paste read the same payload through the same parser.
 	fun adopt(payload: String, source: String) {
-		// Clear a prior failed attempt's error first, so a good payload's confirm screen never shows
-		// the last "not a Gateway code" message next to the valid SAS.
+		// A good payload's confirm screen never shows the last attempt's error.
 		status = ""
-		val parsed = repo.gatewayEnroll.parseAdmitGateway(payload)
-		if (parsed == null) status = "That $source is not a Gateway enrollment code." else scanned = parsed
+		when (val scan = gatewayScanOf(payload)) {
+			is GatewayScan.Code -> scanned = scan.gateway
+			GatewayScan.Outdated -> status = GATEWAY_OUTDATED_LINE
+			GatewayScan.NotACode -> status = "That $source is not a Gateway enrollment code."
+		}
 	}
 
 	if (scanning) {
@@ -361,6 +308,7 @@ fun AddGatewayScreen(repo: ChatRepository, onBack: () -> Unit, onDone: () -> Uni
 					label = { Text("Paste enrollment JSON") },
 					modifier = Modifier.fillMaxWidth(),
 					minLines = 3,
+					maxLines = 6,
 				)
 				Button(
 					onClick = hapticClick { adopt(pasteText.trim(), "code") },
@@ -373,43 +321,32 @@ fun AddGatewayScreen(repo: ChatRepository, onBack: () -> Unit, onDone: () -> Uni
 				Text("Confirm this matches the Gateway terminal:", style = MaterialTheme.typography.bodyMedium)
 				Text(s.sas, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleLarge)
 				if (status.isNotEmpty()) Text(status)
-				val paste = pasteBundle
-				if (paste != null) {
-					// LAN delivery was not possible: hand the admin the sealed bundle to paste.
+				Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+					OutlinedButton(onClick = hapticClick(onBack), enabled = !busy) { Text("Cancel") }
 					Button(
-						onClick = hapticClick { copyToClipboard(context, "gateway bundle", paste) },
-						modifier = Modifier.fillMaxWidth(),
-					) { Text("Copy bundle") }
-					OutlinedButton(onClick = hapticClick(onDone), modifier = Modifier.fillMaxWidth()) { Text("Done") }
-				} else {
-					Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-						OutlinedButton(onClick = hapticClick(onBack), enabled = !busy) { Text("Cancel") }
-						Button(
-							enabled = !busy,
-							onClick = hapticClick {
-								busy = true
-								status = "Enrolling..."
-								scope.launch {
-									try {
-										if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) {
-											busy = false
-											status = ""
-											return@launch
-										}
-										val result = repo.gatewayEnroll.enrollGateway(s)
+						enabled = !busy,
+						onClick = hapticClick {
+							busy = true
+							status = "Enrolling..."
+							scope.launch {
+								try {
+									if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) {
 										busy = false
-										status = result.message
-										pasteBundle = result.pasteBundle
-										if (result.admitted && result.pasteBundle == null) onDone()
-									} catch (e: Exception) {
-										e.rethrowIfCancellation()
-										busy = false
-										status = e.message ?: "Gateway approval failed"
+										status = ""
+										return@launch
 									}
+									val result = repo.gatewayEnroll.enrollGateway(s)
+									busy = false
+									status = result.message
+									if (result.done) onDone()
+								} catch (e: Exception) {
+									e.rethrowIfCancellation()
+									busy = false
+									status = e.message ?: "Gateway approval failed"
 								}
-							},
-						) { Text("Approve") }
-					}
+							}
+						},
+					) { Text("Approve") }
 				}
 			}
 		}

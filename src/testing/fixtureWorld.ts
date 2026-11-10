@@ -112,7 +112,7 @@ export class FixtureWorld {
 		seedGateway(federationDir, this.set, transport);
 		return GatewayBootstrap.resolve(
 			{ federationDir },
-			{ enrollNonce: null, allowFixtureIdentity: true },
+			{ pending: false, allowFixtureIdentity: true },
 			{ ambient, identity: () => this.set.gateway.identity, contentKeys },
 		);
 	}

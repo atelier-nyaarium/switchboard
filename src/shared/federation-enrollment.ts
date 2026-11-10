@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type Admission, type SignedAdmission, signAdmission } from "./admission.js";
 import { fingerprint } from "./crypto.js";
+import { type EnrollGatewayPayload, EnrollGatewayPayloadSchema } from "./schemasEnrollSetup.js";
 
 ////////////////////////////////
 //  Enrollment payloads (the unified QR) + the SAS confirm
@@ -13,7 +14,7 @@ import { fingerprint } from "./crypto.js";
 //
 //  - enroll-owner: Router admin command -> owner console. Roots the owner device at
 //    the Domain; the owner confirms the Router's signing fingerprint from the terminal.
-//  - admit-gateway: a gateway -> owner console. The owner confirms the Gateway
+//  - enroll-gateway: a gateway -> owner console. The owner confirms the Gateway
 //    fingerprint on the gateway console, then signs an admission for it.
 //  - authorize-console: owner console -> a second owner device.
 
@@ -38,26 +39,7 @@ export const EnrollmentPayloadSchema = z
 			nonce: z.string().min(1),
 			bundle: ServiceBundleSchema.optional(),
 		}),
-		z.object({
-			type: z.literal("admit-gateway"),
-			gatewayId: z.string().min(1),
-			signPub: z.string().min(1),
-			boxPub: z.string().min(1),
-			// Where the Console delivers the sealed bootstrap bundle. Present when the Gateway opened a
-			// LAN listener; absent when the admin chose manual paste. certFp pins that listener's
-			// ephemeral self-signed TLS leaf (SHA-256 of the DER, hex): the Console delivers over pinned
-			// HTTPS when it is present, and falls back to paste when it is absent, so no cleartext POST.
-			lan: z
-				.object({
-					host: z.string().min(1),
-					port: z.number().int().positive(),
-					certFp: z.string().min(1).optional(),
-				})
-				.optional(),
-			// One-time nonce gating that listener; the Console echoes it inside the sealed
-			// bundle so a stale or cross-window delivery is rejected.
-			nonce: z.string().min(1).optional(),
-		}),
+		EnrollGatewayPayloadSchema,
 		z.object({
 			type: z.literal("authorize-console"),
 			domainId: z.string().min(1),
@@ -76,7 +58,7 @@ export const EnrollmentPayloadSchema = z
 
 export type EnrollmentPayload = z.infer<typeof EnrollmentPayloadSchema>;
 export type EnrollOwnerPayload = Extract<EnrollmentPayload, { type: "enroll-owner" }>;
-export type AdmitGatewayPayload = Extract<EnrollmentPayload, { type: "admit-gateway" }>;
+export type { EnrollGatewayPayload } from "./schemasEnrollSetup.js";
 export type AuthorizeConsolePayload = Extract<EnrollmentPayload, { type: "authorize-console" }>;
 
 ////////////////////////////////
@@ -88,24 +70,24 @@ export function payloadSas(payload: EnrollmentPayload): string {
 	switch (payload.type) {
 		case "enroll-owner":
 			return fingerprint(payload.routerSignPub);
-		case "admit-gateway":
+		case "enroll-gateway":
 		case "authorize-console":
 			return fingerprint(payload.signPub);
 	}
 }
 
-/** Build the owner-signed admission for a scanned admit-gateway / authorize-console
+/** Build the owner-signed admission for a scanned enroll-gateway / authorize-console
  * payload, AFTER the human has confirmed the SAS. `nowMs` + `nonce` are passed in
  * (the caller owns time + randomness). */
 export function admissionFromScan(
-	payload: AdmitGatewayPayload | AuthorizeConsolePayload,
+	payload: EnrollGatewayPayload | AuthorizeConsolePayload,
 	ownerSignPrivB64: string,
 	ownerSignPubB64: string,
 	nowMs: number,
 	nonceB64: string,
 ): SignedAdmission {
 	const admission: Admission =
-		payload.type === "admit-gateway"
+		payload.type === "enroll-gateway"
 			? {
 					kind: "gateway",
 					signPub: payload.signPub,

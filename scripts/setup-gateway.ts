@@ -1,300 +1,291 @@
-// This machine's gateway enrollment: arm it for enrollment and wait for the phone's bundle. Driven
-// by setup.ts's top dial menu (option 1); the purge side of the gateway lifecycle is setup-purge.ts.
+// Gateway Setup: arms this machine's gateway through its loopback, then waits on the phone.
 
-import { randomBytes } from "node:crypto";
 import os from "node:os";
 import { $ } from "bun";
+import { ENROLL_PENDING_FILE, type EnrollPending, enrollPendingOf } from "../src/gateway/federation/enrollPending.js";
 import { routerTransportOf } from "../src/gateway/router/transport.js";
 import { fingerprint } from "../src/shared/crypto.js";
 import { GATEWAY_NETWORK } from "../src/shared/gateway-network.js";
+import {
+	ENROLL_ARM_PATH,
+	ENROLL_STATUS_PATH,
+	type EnrollArmAnswer,
+	EnrollArmAnswerSchema,
+	type EnrollStatus,
+	EnrollStatusSchema,
+} from "../src/shared/schemasEnrollSetup.js";
 import { requireDocker } from "./lib/docker-probe.js";
 import {
 	ask,
 	confirm,
 	dc,
-	detectLanHost,
 	dirExists,
 	ensureHostWsToken,
 	ensureNetwork,
 	envGet,
 	envSet,
 	err,
-	jparse,
 	note,
 	secureFile,
 } from "./lib/host.js";
 import { FEDERATION_NETWORK, ROUTER_PORT } from "./lib/routerStart.js";
 import { routerRunning } from "./lib/routerState.js";
-import {
-	ADMIT_PAYLOAD_URL,
-	ENROLL_URL,
-	FED_DIR_HOST,
-	GW_JSON_FILE,
-	GW_QR_GIF,
-	HEALTH_URL,
-	TRANSPORT_FILE_HOST,
-} from "./setup-constants.js";
+import { FED_DIR_HOST, GATEWAY_URL, GW_JSON_FILE, GW_QR_GIF, HEALTH_URL } from "./setup-constants.js";
 import { cleanupTemps, presentEnrollment } from "./setup-enrollment-ui.js";
+
+////////////////////////////////
+//  Interfaces & Types
+
+interface RouterAddress {
+	host: string;
+	port: number;
+}
 
 ////////////////////////////////
 //  Gateway helpers
 
-/** The gateway's own enrollment window, mirrored here only to count it down. The gateway owns the
- * real timer (src/gateway/index.ts, enterArming); this is a display of it, so a drift makes the
- * countdown wrong rather than the window. */
-const ENROLL_WINDOW_MS = 600_000;
-
 export function gatewayHostname(): string {
 	return os.hostname().trim();
+}
+
+const label = (address: RouterAddress): string => `${address.host}:${address.port}`;
+
+/** `host:port` of a Router URL, as the operator typed it. */
+function withoutScheme(routerUrl: string): string {
+	return routerUrl.replace(/^[a-z]+:\/\//, "");
+}
+
+function addressOf(routerUrl: string): RouterAddress {
+	const url = new URL(routerUrl);
+	return { host: url.hostname, port: Number(url.port) || 443 };
+}
+
+async function gatewayHealthy(): Promise<boolean> {
+	try {
+		return (await fetch(HEALTH_URL, { signal: AbortSignal.timeout(3000) })).ok;
+	} catch {
+		return false;
+	}
 }
 
 /** Poll the gateway's /health until ready (30 x 2s = 60s). */
 async function waitHealth(): Promise<boolean> {
 	console.log("Waiting for gateway");
 	for (let i = 0; i < 30; i++) {
-		try {
-			if ((await fetch(HEALTH_URL)).ok) return true;
-		} catch {
-			// Gateway not accepting connections yet - retry below.
-		}
+		if (await gatewayHealthy()) return true;
 		await Bun.sleep(2000);
 	}
 	return false;
 }
 
+/** The loopback port answers every container on the gateway's network; the token says host. */
+async function hostAuth(): Promise<Record<string, string>> {
+	return { Authorization: `Bearer ${await envGet("HOST_WS_TOKEN")}` };
+}
+
 ////////////////////////////////
 //  Gateway operations (throw on failure; the menu catches per-op, the top level exits)
 
-/** Delete transport.json and staging. */
-async function clearTransport(): Promise<void> {
+/** Delete what an enrollment left: the transport, staging, and an unfinished setup's record. */
+async function clearEnrollment(): Promise<void> {
 	if (!dirExists(FED_DIR_HOST)) return;
 	const mount = `${process.cwd()}/volumes/gateway-data:/w`;
-	await $`docker run --rm -u 0 -v ${mount} busybox rm -rf /w/federation/transport.json /w/federation/staging`
-		.quiet()
-		.nothrow();
+	const targets = ["transport.json", "staging", ENROLL_PENDING_FILE].map((name) => `/w/federation/${name}`);
+	await $`docker run --rm -u 0 -v ${mount} busybox rm -rf ${targets}`.quiet().nothrow();
 }
 
-/**
- * Where THIS machine first knocks on the Router. Asked once, before arming.
- *
- * The bundle the phone seals also names an address, but the phone knows the Router by its PUBLIC
- * host, and a machine on the same LAN as the Router would then have to hairpin out and back to make
- * its very first connection - with nothing learned yet to fall back to. So the operator names a door
- * that works from where this machine actually stands.
- *
- * It is only the first knock, never the trust: the fingerprint and bearer arrive sealed in the
- * bundle, so a wrong address fails to connect and cannot redirect anything. After the first register
- * the Router's own advertised addresses lead the ring and this falls to last.
- *
- * On the Router's own machine the answer is the compose alias, which is why that is the default there.
- */
-async function askRouterBootstrap(): Promise<void> {
+/** Where this machine first dials the Router. The bundle names the public host, which a machine on
+ * the Router's own LAN may be unable to hairpin to. */
+async function askRouterAddress(previous?: RouterAddress): Promise<RouterAddress> {
 	const localRouter = await routerRunning();
-	const currentHost = (await envGet("FEDERATION_ROUTER_HOST")) || (localRouter ? "federation-router" : "");
-	const currentPort = Number(await envGet("FEDERATION_ROUTER_PORT")) || ROUTER_PORT;
-	if (!process.stdin.isTTY) return;
-	const host = ask(`Federation router host [${currentHost || "none"}]:`) || currentHost;
+	const currentHost =
+		previous?.host || (await envGet("FEDERATION_ROUTER_HOST")) || (localRouter ? "federation-router" : "");
+	const currentPort = previous?.port || Number(await envGet("FEDERATION_ROUTER_PORT")) || ROUTER_PORT;
+	let host = currentHost;
+	let port = currentPort;
+	if (process.stdin.isTTY) {
+		host = ask(`Federation router host [${currentHost || "none"}]:`) || currentHost;
+		const portAnswer = ask(`Federation router port [${currentPort}]:`);
+		port = portAnswer === "" ? currentPort : Number(portAnswer);
+		if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`not a port: ${portAnswer}`);
+	}
 	if (!host) throw new Error("a Federation Router host is required to enroll this gateway");
-	const portAnswer = ask(`Federation router port [${currentPort}]:`);
-	const port = portAnswer === "" ? currentPort : Number(portAnswer);
-	if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`not a port: ${portAnswer}`);
 	await envSet("FEDERATION_ROUTER_HOST", host);
 	await envSet("FEDERATION_ROUTER_PORT", String(port));
 	secureFile(".env");
+	return { host, port };
 }
 
-/** Bring the gateway up with a fresh one-time enrollment nonce and its LAN address, so it opens the
- * /enroll listener and writes its admit payload. Each call arms a new nonce, so a slow scan never
- * hits the gateway's ~10 min one-shot window. */
-async function armGateway(): Promise<{ nonce: string; deadline: number }> {
-	const nonce = randomBytes(16).toString("hex");
-	const host = await detectLanHost();
-	console.log(`Starting gateway, enrollment on ${host}:20000`);
+/** Bring the gateway up. A re-enrollment first stops it and clears what the last one installed. */
+async function startGateway(reenroll: boolean): Promise<void> {
+	console.log("Starting gateway");
 	// Compose declares these external and will not create them, so a missing one refuses the start.
 	await ensureNetwork(FEDERATION_NETWORK);
 	await ensureNetwork(GATEWAY_NETWORK);
-	// Before `up`, so the container starts holding it: without this the host slot is fail-closed and
-	// the daemon can never attach, leaving a correctly-enrolled gateway with nothing to show.
+	// The arm route and the host slot refuse without it.
 	await ensureHostWsToken();
-	await dc("down", "--remove-orphans").quiet().nothrow();
-	await clearTransport();
-	const up = await dc("up", "--build", "-d")
-		.env({ ...process.env, ENROLL_NONCE: nonce, ENROLL_LAN_HOST: host })
-		.nothrow();
-	// Carry compose's own last words. "is docker running?" was the whole message once, and it is a
-	// guess that reads as authoritative - on the machine that hit the missing network, docker was
-	// running perfectly and the message sent the operator to check the one thing that was fine.
+	if (reenroll) {
+		await dc("down", "--remove-orphans").quiet().nothrow();
+		await clearEnrollment();
+	}
+	const up = await dc("up", "--build", "-d").nothrow();
+	// Compose's own last lines say why.
 	if (up.exitCode !== 0) {
 		const detail = up.stderr.toString().trim().split("\n").slice(-3).join("\n");
 		throw new Error(`could not start the gateway${detail ? `:\n${detail}` : ""}`);
 	}
-	// The gateway starts its own window when the container reaches its arming code, which is after
-	// this returns, and setup only learns of it later still. Stamped HERE so the countdown runs EARLY
-	// rather than late: time shown that has already gone is the one direction that is not safe to be
-	// wrong in, and health-wait plus payload-fetch can otherwise eat 75s of it unaccounted.
-	const deadline = Date.now() + ENROLL_WINDOW_MS;
 	if (!(await waitHealth())) {
 		throw new Error("gateway not ready in 60s - run: docker logs switchboard");
 	}
-	return { nonce, deadline };
 }
 
-/** How much of the enrollment window is left, as the line the settling screen rewrites in place. */
-function windowStatus(deadline: number): string {
-	const left = deadline - Date.now();
-	if (left <= 0) return "Enrollment window expired - press r to arm again.";
-	const secs = Math.floor(left / 1000);
-	return `Waiting for your phone... ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} left`;
+/** Ask the gateway to arm. It checks the Router's reach from its own network and mints the code. */
+async function arm(address: RouterAddress): Promise<EnrollArmAnswer> {
+	const response = await fetch(`${GATEWAY_URL}${ENROLL_ARM_PATH}`, {
+		method: "POST",
+		headers: { ...(await hostAuth()), "Content-Type": "application/json" },
+		body: JSON.stringify(address),
+		signal: AbortSignal.timeout(30_000),
+	});
+	const parsed = EnrollArmAnswerSchema.safeParse(await response.json().catch(() => null));
+	if (!parsed.success) throw new Error(`the gateway answered ${response.status} to the arm - is it up to date?`);
+	return parsed.data;
 }
 
-/** The fingerprint the phone shows on its own confirm screen, from the same signing key the admit
- * payload carries. Both sides run the same function over the same bytes, so a mismatch is a
- * different gateway rather than a formatting difference. Without this the phone asks the admin to
- * "confirm this matches the Gateway terminal" over a terminal that displayed no such value. */
-function sasOf(payload: string): string {
-	const signPub = jparse<{ signPub?: string }>(payload)?.signPub;
-	return signPub ? fingerprint(signPub) : "(this payload carried no signing key)";
-}
-
-/** A gateway that minted no enrollment cert offers no `lan` block, so the phone has no target to
- * deliver to and only a paste can reach it. Said on the screen rather than left in `docker logs`,
- * where the admin would wait out the whole window for a delivery that cannot arrive. */
-function lanNoteOf(payload: string): string | undefined {
-	if (jparse<{ lan?: unknown }>(payload)?.lan) return undefined;
-	return "This gateway opened no LAN listener, so your phone cannot deliver to it. Use Paste below.";
-}
-
-/** Fetch the admit payload the gateway holds in memory while arming, gated by the enroll nonce we
- * armed it with so the nonce + box key are not served unauthenticated on the LAN port. */
-async function readAdmitPayload(nonce: string): Promise<string> {
-	for (let i = 0; i < 15; i++) {
-		try {
-			const res = await fetch(ADMIT_PAYLOAD_URL, { headers: { "x-enroll-nonce": nonce } });
-			if (res.ok) {
-				const text = (await res.text()).trim();
-				if (text) return text;
-			}
-		} catch {
-			// Gateway not up yet, or a dropped read - retry below.
-		}
-		await Bun.sleep(1000);
-	}
-	throw new Error(`no enrollment payload from ${ADMIT_PAYLOAD_URL} - run: docker logs switchboard`);
-}
-
-/** POST a pasted sealed bundle to the gateway's /enroll listener (the same intake the phone's LAN
- * POST hits). Returns whether the gateway accepted and installed it. */
-async function postPastedBundle(bundle: string): Promise<boolean> {
+/** The gateway's reading of the wait, or null when it did not answer. Each read is what makes it ask. */
+async function readStatus(): Promise<EnrollStatus | null> {
 	try {
-		const res = await fetch(ENROLL_URL, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: bundle,
+		const response = await fetch(`${GATEWAY_URL}${ENROLL_STATUS_PATH}`, {
+			headers: await hostAuth(),
+			signal: AbortSignal.timeout(5000),
 		});
-		if (res.ok) return true;
-		const detail = await res.text().catch(() => "");
-		err(`bundle rejected (HTTP ${res.status}) ${detail}`.trim());
-		return false;
-	} catch (e) {
-		err(`gateway unreachable: ${e instanceof Error ? e.message : String(e)}`);
-		return false;
+		const parsed = EnrollStatusSchema.safeParse(await response.json());
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
+function armRefusal(error: Exclude<EnrollArmAnswer, { ok: true }>["error"]): string {
+	switch (error) {
+		case "already_enrolled":
+			return "the gateway is already enrolled";
+		case "closing":
+			return "the gateway is shutting down - try again";
+		case "unauthorized":
+			return "the gateway refused the host token - run ./start-gateway.sh so it holds the one in .env";
+		default:
+			return "the gateway refused that Router address";
+	}
+}
+
+/** The line under the options while the screen waits. */
+export function waitLine(seen: EnrollStatus | null): string {
+	if (!seen) return "Cannot reach this machine's gateway, retrying";
+	switch (seen.state) {
+		case "unreachable":
+			return `Cannot reach the Router at ${withoutScheme(seen.router)} (${seen.reason}), retrying`;
+		case "refused":
+			return `A bundle arrived and was refused (${seen.reason}). Waiting for your phone...`;
+		case "none":
+			return "This setup is no longer armed. Press b, then run Gateway Setup again.";
+		default:
+			return "Waiting for your phone...";
 	}
 }
 
 /** True once transport.json holds what the gateway itself accepts, by the loader's own reading. */
 export async function transportInstalled(): Promise<boolean> {
-	const text = await readTransportText();
+	const text = await readFederationFile("transport.json");
 	return text !== null && routerTransportOf(text) !== null;
 }
 
-/** transport.json's text, or null when absent. The gateway writes it and its folder as root, so the
- * host cannot open it directly once the container has; read through a container then, the way the
- * Router state is read. A direct read that fails for any other reason is a real absence. */
-async function readTransportText(): Promise<string | null> {
+/** A setup that armed and has not finished, read with the gateway up or down. */
+export async function pendingSetup(): Promise<EnrollPending | null> {
+	const text = await readFederationFile(ENROLL_PENDING_FILE);
+	return text === null ? null : enrollPendingOf(text);
+}
+
+/** A federation file's text, or null when absent. Root-owned once the container ran, so a refused
+ * read goes through a container. */
+async function readFederationFile(name: string): Promise<string | null> {
 	// Not `exists()`: it answers false for a file inside an unreadable folder.
 	try {
-		return await Bun.file(TRANSPORT_FILE_HOST).text();
+		return await Bun.file(`${FED_DIR_HOST}/${name}`).text();
 	} catch (e) {
 		if ((e as NodeJS.ErrnoException).code !== "EACCES") return null;
 	}
 	const mount = `${process.cwd()}/volumes/gateway-data:/w:ro`;
-	const read = await $`docker run --rm -v ${mount} busybox cat /w/federation/transport.json`.quiet().nothrow();
+	const read = await $`docker run --rm -v ${mount} busybox cat ${`/w/federation/${name}`}`.quiet().nothrow();
 	return read.exitCode === 0 ? read.stdout.toString() : null;
 }
 
-/** Enroll THIS machine as a gateway, the same flow whether it is the first or the Nth. Names the
- * gateway, arms it for enrollment, then shows its admit payload beside the code the phone must
- * match, ON the same screen that waits for the phone's bundle. Any saved artifact is wiped on
- * success, on back-out, and on ^C. */
+/** Arms this machine's gateway, or returns to a setup it already armed, and waits on the phone
+ * beside the code to match. */
 export async function setupGateway(): Promise<void> {
-	// A downstream Gateway starts with no Domain knowledge. The Console that scans this QR already
-	// owns the network and delivers the sealed enrollment bundle after the scan.
-
-	// Before anything is asked. Every step below ends in `docker compose up`, so a stopped daemon
-	// otherwise fails at the LAST one, after the operator has typed a Router address for nothing.
+	// Before any prompt.
 	await requireDocker();
 
-	// The gateway is named by this machine's hostname; a pre-set GATEWAY_ID overrides it for
-	// duplicate hostnames, so there is no name prompt.
+	// A pre-set GATEWAY_ID overrides the hostname.
 	const id = (await envGet("GATEWAY_ID")) || gatewayHostname();
 	await envSet("GATEWAY_ID", id);
 	secureFile(".env");
 
-	// An already-enrolled gateway has a delivered transport; re-enrolling disconnects it until a new
-	// bundle arrives, so confirm before re-arming.
-	if (await transportInstalled()) {
-		if (!confirm(`Gateway "${id}" already enrolled. Re-enroll?`)) return;
+	const enrolled = await transportInstalled();
+	const pending = enrolled ? null : await pendingSetup();
+	let address: RouterAddress;
+	if (pending) {
+		// The same code, with no address asked and no restart.
+		address = addressOf(pending.routerUrl);
+		if (!(await gatewayHealthy())) await startGateway(false);
+	} else {
+		// Re-enrolling disconnects an enrolled gateway until a new bundle arrives.
+		if (enrolled && !confirm(`Gateway "${id}" already enrolled. Re-enroll?`)) return;
+		address = await askRouterAddress();
+		await startGateway(enrolled);
 	}
 
-	await askRouterBootstrap();
-	let armed = await armGateway();
-	let payload = await readAdmitPayload(armed.nonce);
-
-	try {
-		for (;;) {
-			// One screen: the payload, the code the phone must match, and the wait. There is no
-			// advance action between them any more, which is what used to let an admin walk past the
-			// comparison without making it and then have no way back to it.
-			const action = await presentEnrollment(payload, {
-				title: `Gateway "${id}" - send to your phone:`,
-				qrScanHint: "Scan this QR in your phone's Add Gateway screen.",
-				jsonScanHint: "Paste the enrollment JSON into your phone's Add Gateway screen.",
-				qrGifPath: GW_QR_GIF,
-				jsonFilePath: GW_JSON_FILE,
-				qrSaveLabel: "Save Enrollment QR Instead",
-				jsonSaveLabel: "Save Enrollment JSON Instead",
-				settle: {
-					installed: transportInstalled,
-					status: () => windowStatus(armed.deadline),
-					expired: () => Date.now() >= armed.deadline,
-					sas: sasOf(payload),
-					lanNote: lanNoteOf(payload),
-				},
-			});
-			if (action === "back") return;
-			// A fresh nonce and a fresh window, without making the admin leave and re-enter setup.
-			if (action === "rearm") {
-				armed = await armGateway();
-				payload = await readAdmitPayload(armed.nonce);
-				continue;
-			}
-			if (action === "paste") {
-				const bundle = ask("Paste the bundle:");
-				if (!bundle || !(await postPastedBundle(bundle))) {
-					err("The gateway did not accept that bundle.");
-					continue;
-				}
-			} else if (action !== "settled") {
-				continue;
-			}
-			console.log();
-			note(`Gateway "${id}" enrolled; connecting to the Router.`);
-			// An enrolled gateway with no daemon registers fine and then shows NOTHING on the phone:
-			// the daemon is what owns the devcontainer catalog and the host spawn point, so without it
-			// this machine has no sessions to list and reads as a failed enrollment.
-			note("Next: run ./start-host-daemon.sh here, or this machine stays empty on your phone.");
-			return;
+	let armed: Extract<EnrollArmAnswer, { ok: true }>;
+	for (;;) {
+		const answer = await arm(address);
+		if (answer.ok) {
+			armed = answer;
+			break;
 		}
+		if (answer.error !== "router_unreachable") throw new Error(armRefusal(answer.error));
+		const reason = answer.reason ?? "no answer";
+		err(`Cannot reach the Router at ${label(address)} (${reason}).${pending ? "" : " Nothing was armed."}`);
+		if (!process.stdin.isTTY) throw new Error("the Router could not be reached");
+		address = await askRouterAddress(address);
+	}
+	note(`Router reached at ${label(address)}`);
+
+	const watch: { seen: EnrollStatus | null } = { seen: { state: "waiting" } };
+	try {
+		const action = await presentEnrollment(JSON.stringify(armed.payload), {
+			title: `Gateway "${id}" - send to your phone:`,
+			qrScanHint: "Scan this QR in your phone's Add Gateway screen.",
+			jsonScanHint: "Paste the enrollment JSON into your phone's Add Gateway screen.",
+			qrGifPath: GW_QR_GIF,
+			jsonFilePath: GW_JSON_FILE,
+			qrSaveLabel: "Save Enrollment QR Instead",
+			jsonSaveLabel: "Save Enrollment JSON Instead",
+			settle: {
+				installed: async () => {
+					watch.seen = await readStatus();
+					return watch.seen?.state === "installed";
+				},
+				status: () => waitLine(watch.seen),
+				// Both sides run the same function over the same key.
+				sas: fingerprint(armed.payload.signPub),
+			},
+		});
+		if (action !== "settled") return;
+		const domain = watch.seen?.state === "installed" ? watch.seen.domain : null;
+		console.log();
+		note(`Gateway "${id}" enrolled${domain ? ` into ${domain}` : ""}; connecting to the Router.`);
+		// Without the daemon the phone lists nothing here.
+		note("Next: run ./start-host-daemon.sh here, or this machine stays empty on your phone.");
 	} finally {
 		cleanupTemps();
 	}

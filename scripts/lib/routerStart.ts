@@ -118,12 +118,16 @@ export async function startRouter(
 	if (up.exitCode !== 0) {
 		throw new Error(`docker compose up failed - the Router was never started\n${up.stderr.toString().trim()}`);
 	}
+	const health = await awaitRouterHealth(env.lan);
+	await writeRouterFingerprint(health.certFingerprint);
+	return { ...health, wasRunning };
+}
+
+/** The Router's health once it answers. A container that just started is not yet listening. */
+export async function awaitRouterHealth(lan: string): Promise<NonNullable<Awaited<ReturnType<typeof routerHealth>>>> {
 	for (let i = 0; i < HEALTH_TRIES; i++) {
-		const health = await routerHealth(env.lan);
-		if (health) {
-			await writeRouterFingerprint(health.certFingerprint);
-			return { ...health, wasRunning };
-		}
+		const health = await routerHealth(lan);
+		if (health) return health;
 		await Bun.sleep(HEALTH_INTERVAL_MS);
 	}
 	throw new Error("the Router did not become healthy within 60s - run: docker logs switchboard-federation");

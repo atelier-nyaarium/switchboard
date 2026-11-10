@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { pinnedDial, realWebSocket } from "../src/gateway/router/pinnedSocket.js";
+import { createRouterExchange, RouterExchangeError } from "../src/gateway/router/routerExchange.js";
+import { processAmbient } from "../src/shared/ambient.js";
 import { BUN_FLOOR } from "../src/shared/bun-floor.js";
 
 ////////////////////////////////
@@ -61,9 +63,19 @@ async function main(): Promise<void> {
 	const served = mint("served");
 	const other = mint("other");
 	const sawAuth: string[] = [];
+	const sawPosts: string[] = [];
 
 	const wss = new WebSocketServer({ noServer: true });
-	const server = https.createServer({ cert: served.certPem, key: served.keyPem }, (_q, r) => r.end("ok"));
+	const server = https.createServer({ cert: served.certPem, key: served.keyPem }, (request, response) => {
+		const chunks: Buffer[] = [];
+		request.on("data", (chunk: Buffer) => chunks.push(chunk));
+		request.on("end", () => {
+			sawPosts.push(Buffer.concat(chunks).toString("utf8"));
+			// Two writes, so the answer is chunked.
+			response.write('{"echo":');
+			response.end(`${JSON.stringify(sawPosts.at(-1))}}`);
+		});
+	});
 	server.on("upgrade", (request, socket, head) => {
 		sawAuth.push(String(request.headers.authorization ?? ""));
 		wss.handleUpgrade(request, socket, head, () => {});
@@ -92,6 +104,19 @@ async function main(): Promise<void> {
 
 	const good = await dial(served.fp);
 	const bad = await dial(other.fp);
+
+	const exchange = createRouterExchange(processAmbient());
+	const post = (pin: string | undefined, body: unknown) =>
+		exchange({ url: `https://127.0.0.1:${port}`, method: "POST", path: "/ask", body, pin, deadlineMs: 8000 }).then(
+			(answer) => ({ answer, failure: null }),
+			(error: unknown) => ({
+				answer: null,
+				failure: error instanceof RouterExchangeError ? error.failure : "threw",
+			}),
+		);
+	const firstContact = await post(undefined, { ask: "unpinned" });
+	const pinned = await post(served.fp, { ask: "pinned" });
+	const wrongPin = await post(other.fp, { ask: "secret" });
 	wss.close();
 	await new Promise<void>((resolve) => server.close(() => resolve()));
 
@@ -108,6 +133,18 @@ async function main(): Promise<void> {
 	if (sawAuth.length !== 1) {
 		failures.push(`the bearer reached the listener ${sawAuth.length} times, expected only the matching dial`);
 	}
+	if (firstContact.answer?.certFp !== served.fp) {
+		failures.push(`an unpinned exchange read "${firstContact.answer?.certFp}" as the certificate`);
+	}
+	if (pinned.answer?.status !== 200 || pinned.answer.body !== '{"echo":"{\\"ask\\":\\"pinned\\"}"}') {
+		failures.push(`a pinned exchange answered ${pinned.answer?.status} ${pinned.answer?.body} (${pinned.failure})`);
+	}
+	if (wrongPin.failure !== "pin_mismatch") {
+		failures.push(`an exchange pinned to another certificate ended "${wrongPin.failure ?? "answered"}"`);
+	}
+	if (sawPosts.some((body) => body.includes("secret"))) {
+		failures.push("an exchange wrote its request to a certificate it was not pinned to");
+	}
 
 	if (failures.length) {
 		console.error(`[pinning] FAILED on ${runtime}`);
@@ -120,7 +157,7 @@ async function main(): Promise<void> {
 	// This verdict is what BUN_FLOOR is grounded on: a runtime that passes here may hold the floor, one
 	// that fails here may not, whatever its changelog says.
 	console.log(
-		`[pinning] ok on ${runtime} (floor bun ${BUN_FLOOR}): match connects, mismatch refused before the bearer is sent`,
+		`[pinning] ok on ${runtime} (floor bun ${BUN_FLOOR}): match connects, mismatch refused before the bearer or a request is sent`,
 	);
 }
 

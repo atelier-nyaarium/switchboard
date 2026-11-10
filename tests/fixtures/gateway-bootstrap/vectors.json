@@ -1,0 +1,21 @@
+{
+	"_comment": "What the phone and the Gateway both name a held bootstrap frame by: lowercase hex SHA-256 of the UTF-8 bytes of GATEWAY_BOOTSTRAP_PICKUP_V1, a newline, then the one-time code. `payload.text` is an enrollment code as a Gateway shows it, and `payload.pickupId` is what its code hashes to. Read by gateway-bootstrap-service.test.ts and GatewayBootstrapPickupTest.kt.",
+	"cases": [
+		{
+			"code": "0123456789abcdef0123456789abcdef",
+			"pickupId": "a100e87705c2212f9e649d8adbf48912e209ecb74c137e8e8edc412e05a306e7"
+		},
+		{
+			"code": "ffffffffffffffffffffffffffffffff",
+			"pickupId": "a725c06838909dcdbcd44cf2f5cf74b6a6b6a56797126baa509d0ceef9627b94"
+		},
+		{
+			"code": "a code with spaces",
+			"pickupId": "f4c96079146a9982665a03a4346e08f99e323a29a54e49ce778eeb1466e0d95a"
+		}
+	],
+	"payload": {
+		"text": "{\"type\":\"enroll-gateway\",\"gatewayId\":\"laptop\",\"signPub\":\"c2lnbmluZy1rZXktMzItYnl0ZXMtZm9yLXZlY3RvcnM=\",\"boxPub\":\"Ym94LWtleS0zMi1ieXRlcy1mb3ItdGhlLXZlY3RvcnM=\",\"code\":\"0123456789abcdef0123456789abcdef\"}",
+		"pickupId": "a100e87705c2212f9e649d8adbf48912e209ecb74c137e8e8edc412e05a306e7"
+	}
+}

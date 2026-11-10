@@ -18,7 +18,6 @@ import type { FederationContext } from "./federationContext.js";
 export interface ListenerStageDeps {
 	dataDir: string;
 	localGatewayId: string;
-	enrollNonce?: string;
 	hostWsToken?: string;
 	ambient: Pick<Ambient, "now" | "randomBytes">;
 	isClosing: () => boolean;
@@ -26,7 +25,7 @@ export interface ListenerStageDeps {
 	stores: Pick<StoresStage, "blobStore">;
 	sessions: Pick<SessionsStage, "sessionAuthority">;
 	agents: Pick<AgentsStage, "agentRoutes">;
-	enrollment: Pick<EnrollmentStage, "handleEnrollPost">;
+	enrollment: Pick<EnrollmentStage, "arm" | "status">;
 	routes: Pick<RoutesStage, "current">;
 	/** Required: an omitted stage leaves a routine's own session with no door, and typechecks. */
 	routines: Pick<RoutineStage, "routes">;
@@ -89,9 +88,8 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 		});
 
 	const router = createHttpRouter({
-		handleEnrollPost: deps.enrollment.handleEnrollPost,
-		enrollNonce: deps.enrollNonce,
-		admitPayload: () => context.arming()?.admitPayload,
+		enrollArm: deps.enrollment.arm,
+		enrollStatus: deps.enrollment.status,
 		blobStore: stores.blobStore,
 		sessionAuthority: sessions.sessionAuthority,
 		loopbackRoutes: new Map([

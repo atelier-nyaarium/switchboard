@@ -14,7 +14,6 @@ Entry points, addressing, sessions, and the state planes the console reads.
 | 20000 | Gateway HTTP and WS, loopback only |
 | 20001 | Federation Router TLS |
 | 20002 | MCP connector WS |
-| 20003 | Enrollment TLS, one-time nonce |
 
 **Bootstrap values:** `GatewayBootstrap.resolve(paths, env, io)` decides the gateway's boot
 (`active`, `arming`, or `standalone`) and carries the identity, Domain id, transport, allowlist,
@@ -138,7 +137,7 @@ the local forms. The console names its Domain and Gateway on every target, `doma
 or `domain.gateway.spawn.session`, and `parseQualifiedTarget` refuses anything else. Equal Gateways
 make a bare name ambiguous, so the phone never sends one and `consoleTargets` never resolves one.
 Neither grammar has a placeholder Domain: a Gateway without a Domain builds no routes, and its
-listener answers only `/health` and enrollment until one is active.
+listener answers only `/health`, the setup routes and `/federation/retire` until one is active.
 
 A bare project is a spawn point by catalog membership, not by dot detection. `my.app` may still be a
 project. Sending to a spawn point without a session fails.

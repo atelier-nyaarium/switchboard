@@ -15,7 +15,6 @@ import {
 } from "../federation/crossDomainHandshake.js";
 import { CrossDomainPeers } from "../federation/crossDomainPeers.js";
 import { CrossDomainShareState, handleShareDelta } from "../federation/crossDomainShareState.js";
-import { logAdmitGatewayQr } from "../federation/enrollQr.js";
 import type { createGatewayRelayHandler } from "../federation/gatewayRelay.js";
 import { ReplayGuard } from "../federation/replayGuard.js";
 import { createSealer } from "../federation/sealer.js";
@@ -57,7 +56,7 @@ export interface FederationStageDeps {
 	federationDir: string;
 	localGatewayId: string;
 	/** Null dials the transport's Router. */
-	routerBootstrapUrl: string | null;
+	routerBootstrapUrl: () => string | null;
 	ambient: Ambient;
 	context: FederationContext;
 	stores: Pick<StoresStage, "restored" | "blobStore" | "jobs" | "inboxClaims">;
@@ -211,10 +210,10 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 		});
 		console.log(`[federation] ${allowlist.ownerSignPub ? "enrolled" : "not yet enrolled (no Domain owner)"}`);
 		if (!allowlist.selfAdmission(federationIdentity.sign.pub))
-			logAdmitGatewayQr(federationIdentity, localGatewayId);
+			console.log("[federation] this Gateway holds no admission; run setup.sh (Gateway Setup)");
 
 		const connection = routerWsConnection(gatewayBootstrap.transport);
-		const bootstrap = deps.routerBootstrapUrl ?? connection.url;
+		const bootstrap = deps.routerBootstrapUrl() ?? connection.url;
 		console.log(`[router] direct transport -> ${bootstrap}`);
 
 		const routerClient = startRouterClient({

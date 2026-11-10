@@ -24,9 +24,6 @@ function configFromEnv(): GatewayConfig {
 		gatewayId: resolveLocalGatewayId(),
 		maxBlobStoreBytes: parseInt(process.env.MAX_BLOB_STORE_BYTES || String(MAX_BLOB_BYTES * 16), 10),
 		wakeTimeoutMs: parseInt(process.env.WAKE_TIMEOUT_MS || String(DEFAULT_WAKE_TIMEOUT_MS), 10),
-		enrollTlsPort: parseInt(process.env.ENROLL_TLS_PORT || "20003", 10),
-		enrollLanHost: process.env.ENROLL_LAN_HOST || "0.0.0.0",
-		enrollNonce: process.env.ENROLL_NONCE,
 		hostWsToken: process.env.HOST_WS_TOKEN,
 		routerBootstrapUrl: routerBootstrapOverride(
 			process.env.FEDERATION_ROUTER_HOST,
@@ -97,8 +94,6 @@ export async function startGateway(): Promise<void> {
 		config: configFromEnv(),
 		ambient,
 		allowFixtureIdentity: process.env.ALLOW_FIXTURE_IDENTITY === "1",
-		openEnrollTls: ({ port: tlsPort, certPem, keyPem, fetch }) =>
-			Bun.serve({ port: tlsPort, tls: { cert: certPem, key: keyPem }, fetch }),
 	});
 	installSignalHandlers(graph);
 

@@ -5,6 +5,7 @@ import type { SessionRecord } from "../../shared/session-store.js";
 import type { Watcher } from "../assistant/watcher.js";
 import type { KasaTransport } from "../devices/kasa/transport.js";
 import type { RouterToolCallResult } from "../router/routerClient.js";
+import type { RouterExchanger } from "../router/routerExchange.js";
 import type { createWebSocketHandlers } from "../websocket.js";
 import type { WorkflowEngineStartResult } from "../workflows/engine.js";
 import type { WorkflowJournalRow, WorkflowRunRecord } from "../workflows/workflowSchemas.js";
@@ -16,28 +17,15 @@ export interface GatewayConfig {
 	gatewayId: string;
 	maxBlobStoreBytes: number;
 	wakeTimeoutMs: number;
-	enrollTlsPort: number;
-	enrollLanHost: string;
-	enrollNonce?: string;
 	hostWsToken?: string;
 	routerBootstrapUrl: string | null;
 }
 
-export interface EnrollTlsListener {
-	stop(force?: boolean): void;
-}
-
-export type OpenEnrollTls = (opts: {
-	port: number;
-	certPem: string;
-	keyPem: string;
-	fetch: (req: Request) => Promise<Response>;
-}) => EnrollTlsListener;
-
 export interface GatewayDeps {
 	config: GatewayConfig;
 	ambient: Ambient;
-	openEnrollTls?: OpenEnrollTls;
+	/** Replaces the enrollment's road to the Router. */
+	routerExchange?: RouterExchanger;
 	allowFixtureIdentity?: boolean;
 	/** The watchers' network door. */
 	fetch?: (url: string, init: RequestInit) => Promise<Response>;

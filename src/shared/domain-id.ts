@@ -28,8 +28,8 @@ export function sanitizeDomainId(raw: string): string {
 
 /**
  * The local Gateway's Domain id, or null when it has not been enrolled yet: the installed allowlist
- * record, then the `domain-id` file, then the `FEDERATION_DOMAIN_ID` env. Null boots standalone and
- * opens the enrollment listener; a Domain is required only to reach the Router.
+ * record, then the `domain-id` file, then the `FEDERATION_DOMAIN_ID` env. Null boots standalone; a
+ * Domain is required only to reach the Router.
  *
  * The FILE is not dead weight and must not be dropped for having no writer. An install enrolled
  * before the id moved into the allowlist record carries it here and nowhere else, and no migration

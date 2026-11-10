@@ -26,7 +26,6 @@ const OUTBOUND = /\.(?:newCall|newWebSocket)\(/;
 const ALLOWLIST: Record<string, string> = {
 	"ConsoleHttp.kt": "a helper the callers drive; each one decides for itself",
 	"ConsoleSocketClient.kt": "reached only through ConsoleSocketDriver.connect, which asks",
-	"GatewayEnrollment.kt": "enrollment only, and the sandbox boots past onboarding",
 	"SttsClient.kt": "a speech provider rather than the Router, and the sandbox has no client",
 	"AppUpdater.kt": "the release download, not the Router",
 };

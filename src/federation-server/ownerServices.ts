@@ -15,6 +15,7 @@ import { createBlobService } from "./blobs/blobService.js";
 import type { ReferenceHeldStore } from "./blobs/referenceHeldStore.js";
 import { createBoardService } from "./board/boardService.js";
 import type { ConsoleSockets } from "./console/consoleSockets.js";
+import { createGatewayBootstrapService } from "./enroll/gatewayBootstrapService.js";
 import type { GatewayBridge } from "./gatewayBridge.js";
 import type { InboxService } from "./inbox/inboxService.js";
 import type { OwnerOpIntake } from "./inbox/ownerOpIntake.js";
@@ -258,6 +259,10 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 
 	const cursors = createCursorService({ registry, migrationEpoch: () => readRouterMigrationWindow().epoch ?? 0 });
 	const blobs = createBlobService({ held: referenceHeld, now: () => registry.now() });
+	const gatewayBootstrap = createGatewayBootstrapService({
+		ambient: { now: () => registry.now() },
+		getDomain: deps.getDomain,
+	});
 	for (const service of [
 		share,
 		presence,
@@ -271,6 +276,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		blobs,
 		assistantHome,
 		phoneHold,
+		gatewayBootstrap,
 	])
 		service.register(hooks);
 	// A catalogued kind nothing serves refuses at runtime, so construction refuses first.
@@ -297,6 +303,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		vault,
 		assistantHome,
 		phoneHold,
+		gatewayBootstrap,
 		planeVersions(domainId: string, _signerSignPub: string): Record<string, PlaneLineage> {
 			const projection = presence.ownerProjection(domainId, projectionDeps);
 			const epoch = presence.lineageEpoch(domainId);

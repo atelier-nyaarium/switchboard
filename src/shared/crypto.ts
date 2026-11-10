@@ -91,14 +91,19 @@ export function seal(plaintext: Buffer, recipientBoxPubB64: string, senderSignPr
 	};
 }
 
+/** Whether that sender signed the envelope, read without the recipient's key. */
+export function sealSignedBy(env: SealedEnvelope, senderSignPubB64: string): boolean {
+	const signed = Buffer.concat([decodeB64(env.ephemeralPub), decodeB64(env.nonce), decodeB64(env.ciphertext)]);
+	decodeB64(env.signature);
+	return verify(signed, env.signature, senderSignPubB64);
+}
+
 export function unseal(env: SealedEnvelope, recipientBoxPrivB64: string, senderSignPubB64: string): Buffer {
 	// Verify sender before decrypting.
 	const ephemeralPubRaw = decodeB64(env.ephemeralPub);
 	const nonce = decodeB64(env.nonce);
 	const sealed = decodeB64(env.ciphertext);
-	decodeB64(env.signature);
-	const signed = Buffer.concat([ephemeralPubRaw, nonce, sealed]);
-	if (!verify(signed, env.signature, senderSignPubB64)) throw new Error("seal: bad signature");
+	if (!sealSignedBy(env, senderSignPubB64)) throw new Error("seal: bad signature");
 	if (sealed.length < 16) throw new Error("seal: ciphertext too short");
 	const ct = sealed.subarray(0, -16);
 	const tag = sealed.subarray(-16);

@@ -33,17 +33,11 @@ import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSoc
 import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflows.js";
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
+import { createRouterExchange } from "./router/routerExchange.js";
 import { routineOwns } from "./routines/reservation.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
-export type {
-	EnrollTlsListener,
-	GatewayConfig,
-	GatewayDeps,
-	GatewayFaultPort,
-	GatewayGraph,
-	OpenEnrollTls,
-} from "./compose/gatewayTypes.js";
+export type { GatewayConfig, GatewayDeps, GatewayFaultPort, GatewayGraph } from "./compose/gatewayTypes.js";
 
 /** The whole gateway graph. */
 export function composeGateway(deps: GatewayDeps): GatewayGraph {
@@ -56,6 +50,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	// Stages the earlier ones reach forward into. Every read is a call, never a captured value.
 	let federation: FederationStage | undefined;
 	let websockets: WebSocketsStage | undefined;
+	/** The Router this process was armed with. */
+	let armedRouterUrl: string | null = null;
 	let routes: RoutesStage | undefined;
 	let routerPresence: RouterPresenceStage | undefined;
 	let routerFrames: RouterFramesStage | undefined;
@@ -99,7 +95,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			presenceHandlers = routerPresence.build(slice);
 			frames = routerFrames.build(slice, presenceHandlers);
 			slice.handlers = { frames };
-			// Here rather than beside the active boot, so enrolling into an arming one arms this too.
+			// On every activation, an install's included.
 			routines?.start();
 			workflows?.start();
 			assistant.start();
@@ -213,7 +209,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		dataDir: bootstrap.dataDir,
 		federationDir: bootstrap.federationDir,
 		localGatewayId: bootstrap.localGatewayId,
-		routerBootstrapUrl: config.routerBootstrapUrl,
+		routerBootstrapUrl: () => armedRouterUrl ?? config.routerBootstrapUrl,
 		ambient: bootstrap.ambient,
 		context,
 		stores,
@@ -233,14 +229,15 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	const enrollment = composeEnrollment({
 		federationDir: bootstrap.federationDir,
 		localGatewayId: bootstrap.localGatewayId,
-		enrollTlsPort: config.enrollTlsPort,
-		enrollLanHost: config.enrollLanHost,
-		openEnrollTls: deps.openEnrollTls,
 		ambient: bootstrap.ambient,
 		identity: bootstrap.identity,
 		contentKeyStore: bootstrap.contentKeyStore,
 		resolveBoot: bootstrap.resolveBoot,
 		context,
+		exchange: deps.routerExchange ?? createRouterExchange(bootstrap.ambient),
+		onInstalled: (routerUrl) => {
+			armedRouterUrl = routerUrl;
+		},
 		isClosing,
 	});
 
@@ -362,13 +359,12 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		workflows,
 	});
 
-	if (bootstrap.gatewayBoot.kind === "arming") enrollment.enterArming(bootstrap.gatewayBoot.nonce);
+	if (bootstrap.gatewayBoot.kind === "arming") enrollment.resume();
 	if (bootstrap.gatewayBoot.kind === "active") context.activate(bootstrap.gatewayBoot.boot);
 
 	const listener = composeListener({
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
-		enrollNonce: config.enrollNonce,
 		hostWsToken: config.hostWsToken,
 		ambient: bootstrap.ambient,
 		isClosing,

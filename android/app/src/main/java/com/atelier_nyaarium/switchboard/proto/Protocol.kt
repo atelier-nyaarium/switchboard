@@ -33,6 +33,7 @@ object Protocol {
 		const val ROUTER_PATH_HEALTH: String = "/health"
 		const val ROUTER_PATH_INGEST: String = "/ingest"
 		const val ROUTER_PATH_DEVICE_APPROVAL: String = "/device-approval"
+		const val ROUTER_PATH_GATEWAY_BOOTSTRAP: String = "/gateway-bootstrap"
 		const val ROUTER_PATH_GATEWAY: String = "/gateway"
 		const val ROUTER_PATH_ROOT: String = "/"
 		const val CONSOLE_TOKEN_HEADER: String = "x-console-bridge-token"
@@ -76,6 +77,8 @@ object Protocol {
 		const val OWNER_OP_ASSISTANT_HOME_PUT: String = "assistant_home_put"
 		const val OWNER_OP_HOLD_CLAIM: String = "hold_claim"
 		const val OWNER_OP_PHONE_HOLD_READ: String = "phone_hold_read"
+		const val OWNER_OP_GATEWAY_BOOTSTRAP_PUT: String = "gateway_bootstrap_put"
+		const val OWNER_OP_GATEWAY_BOOTSTRAP_STATUS: String = "gateway_bootstrap_status"
 		const val SIGNING_TAG_ADMISSION: String = "ADMISSION_V1"
 		const val SIGNING_TAG_REVOCATION: String = "REVOCATION_V1"
 		const val SIGNING_TAG_SELF_REVOCATION: String = "SELF_REVOCATION_V1"
@@ -104,6 +107,8 @@ object Protocol {
 		const val SIGNING_TAG_ENROLL_SAS: String = "ENROLL_SAS_V1"
 		const val SIGNING_TAG_CODEX_AGENT: String = "CODEX_AGENT_V1"
 		const val SIGNING_TAG_COPILOT_AGENT: String = "COPILOT_AGENT_V1"
+		const val SIGNING_TAG_GATEWAY_BOOTSTRAP_PICKUP: String = "GATEWAY_BOOTSTRAP_PICKUP_V1"
+		const val SIGNING_TAG_GATEWAY_BOOTSTRAP_ASK: String = "GATEWAY_BOOTSTRAP_ASK_V1"
 		const val OP_OUTCOME_ACCEPTED: String = "accepted"
 		const val BOARD_OUTCOME_APPLIED: String = "applied"
 		const val CONSOLE_REASON_CURSOR_STALE: String = "cursor_stale"
@@ -2331,6 +2336,33 @@ data class GatewayBootstrapFrame(
 	val v: Long,
 	val signerSignPub: String,
 	val sealed: SealedEnvelope,
+)
+
+@Serializable
+data class GatewayBootstrapPutValue(
+	@EncodeDefault
+	val kind: String = "gateway_bootstrap_put",
+	val pickupId: String,
+	val gatewaySignPub: String,
+	val frame: GatewayBootstrapFrame,
+)
+
+@Serializable
+data class GatewayBootstrapPutResult(
+	val held: Boolean,
+	val refusal: String? = null,
+)
+
+@Serializable
+data class GatewayBootstrapStatusValue(
+	@EncodeDefault
+	val kind: String = "gateway_bootstrap_status",
+	val pickupId: String,
+)
+
+@Serializable
+data class GatewayBootstrapStatusResult(
+	val held: Boolean,
 )
 
 @Serializable

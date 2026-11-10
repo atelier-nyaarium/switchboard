@@ -47,8 +47,6 @@ function gatewayFixture(): { root: string; ambient: ReturnType<typeof fakeAmbien
 			gatewayId: set.gateway.id,
 			maxBlobStoreBytes: 1_000_000,
 			wakeTimeoutMs: 10_000,
-			enrollTlsPort: 0,
-			enrollLanHost: "127.0.0.1",
 			hostWsToken: set.tokens.host,
 			routerBootstrapUrl: null,
 		},

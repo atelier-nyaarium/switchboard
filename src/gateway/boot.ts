@@ -10,7 +10,6 @@ import { ContentKeyStore } from "./federation/contentKeyStore.js";
 import type { CrossDomainHandshakeCoordinator } from "./federation/crossDomainHandshake.js";
 import type { CrossDomainPeers } from "./federation/crossDomainPeers.js";
 import type { CrossDomainShareState } from "./federation/crossDomainShareState.js";
-import type { AdmitGatewayPayload } from "./federation/enrollQr.js";
 import { loadOrCreateIdentity } from "./federation/identity.js";
 import type { Sealer } from "./federation/sealer.js";
 import type { createBlobUploader } from "./router/blobUploader.js";
@@ -51,16 +50,7 @@ export interface FederationSlice {
 	handlers: RouterHandlers | null;
 }
 
-export interface ArmingSlice {
-	/** Enrollment state owns install and payload together. */
-	install: (frame: unknown) => string;
-	admitPayload: AdmitGatewayPayload;
-}
-
-export type BootState =
-	| { phase: "standalone" }
-	| { phase: "arming"; arming: ArmingSlice }
-	| { phase: "federationActive"; federation: FederationSlice };
+export type BootState = { phase: "standalone" } | { phase: "federationActive"; federation: FederationSlice };
 
 export type BootPhaseDecision = "activate" | "arm" | "standalone";
 
@@ -76,7 +66,7 @@ export class GatewayBootstrap {
 
 	static resolve(
 		paths: { federationDir: string },
-		env: { enrollNonce: string | null; allowFixtureIdentity: boolean; domainIdEnv?: string },
+		env: { pending: boolean; allowFixtureIdentity: boolean; domainIdEnv?: string },
 		io: { ambient: Ambient; identity?: () => Identity; contentKeys?: ContentKeyStore },
 	): GatewayBoot {
 		const allowlist = new Allowlist(paths.federationDir, io.ambient);
@@ -85,9 +75,9 @@ export class GatewayBootstrap {
 		const decision = decideBootPhase({
 			hasTransport: transport !== null,
 			hasDomainId: domainId !== null,
-			hasEnrollNonce: env.enrollNonce !== null,
+			hasPending: env.pending,
 		});
-		if (decision === "arm") return { kind: "arming", nonce: env.enrollNonce as string };
+		if (decision === "arm") return { kind: "arming" };
 		if (decision === "standalone") {
 			const missing: Array<"transport" | "domainId"> = [];
 			if (!transport) missing.push("transport");
@@ -114,7 +104,7 @@ export class GatewayBootstrap {
 
 export type GatewayBoot =
 	| { kind: "active"; boot: GatewayBootstrap }
-	| { kind: "arming"; nonce: string }
+	| { kind: "arming" }
 	| { kind: "standalone"; missing: Array<"transport" | "domainId"> };
 
 function readDomainIdFile(federationDir: string): string | null {
@@ -134,18 +124,14 @@ function resolveDomainId(federationDir: string, allowlist: Allowlist, domainIdEn
 export function decideBootPhase(input: {
 	hasTransport: boolean;
 	hasDomainId: boolean;
-	hasEnrollNonce: boolean;
+	hasPending: boolean;
 }): BootPhaseDecision {
 	// Arming requires no transport to prevent identity forks.
 	if (input.hasTransport && input.hasDomainId) return "activate";
-	if (input.hasEnrollNonce && !input.hasTransport) return "arm";
+	if (input.hasPending && !input.hasTransport) return "arm";
 	return "standalone";
 }
 
 export function federationOf(state: BootState): FederationSlice | null {
 	return state.phase === "federationActive" ? state.federation : null;
-}
-
-export function armingOf(state: BootState): ArmingSlice | null {
-	return state.phase === "arming" ? state.arming : null;
 }

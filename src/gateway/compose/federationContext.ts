@@ -1,7 +1,7 @@
 // The gateway's one federation reader.
 
 import type { GatewayBootstrap } from "../boot.js";
-import { type ArmingSlice, armingOf, type BootState, type FederationSlice, federationOf } from "../boot.js";
+import { type BootState, type FederationSlice, federationOf } from "../boot.js";
 import type { Allowlist } from "../federation/allowlist.js";
 import type { ContentKeyStore } from "../federation/contentKeyStore.js";
 import type { RouterTransport } from "../router/transport.js";
@@ -36,10 +36,6 @@ export class FederationContext {
 
 	slice(): FederationSlice | null {
 		return federationOf(this.state);
-	}
-
-	arming(): ArmingSlice | null {
-		return armingOf(this.state);
 	}
 
 	domainId(): string | null {
@@ -84,10 +80,6 @@ export class FederationContext {
 				?.crossDomainPeers.all()
 				.some((peer) => peer.friendDomainId === domainId) ?? false
 		);
-	}
-
-	arm(arming: ArmingSlice): void {
-		this.state = { phase: "arming", arming };
 	}
 
 	/** Drops the boot and the slice; the Domain id falls back to what disk holds now. */

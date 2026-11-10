@@ -1,30 +1,21 @@
 import { z } from "zod";
 import { DomainSnapshotSchema, SignedAdmissionSchema } from "./admission.js";
+import { b64Field } from "./crypto.js";
 import { SealedEnvelopeSchema } from "./schemasConsoleOp.js";
 import { KeyEnvelopeSchema } from "./schemasContentKey.js";
 import { GatewayTransportSchema } from "./schemasGatewayTransport.js";
 
 ////////////////////////////////
-//  Gateway bootstrap bundle (Console -> creds-less Gateway, LAN/paste delivered)
-//
-//  The owner Console mints this for a Gateway it just admitted and seals it to the
-//  Gateway's box key (so plain-HTTP LAN delivery or a pasted blob stays confidential
-//  and tamper-evident). It never crosses the Router: the Console carries it to the Gateway
-//  directly. `transport` is the same endpoint-and-pin shape the Console uses, so one
-//  credential mechanism serves both member kinds. `admission` is this
-//  Gateway's own owner-signed admission; `domain` mirrors the keyring so the Gateway
-//  can verify peers from its first boot.
+//  Gateway bootstrap bundle: sealed to the Gateway, so the Router carrying it reads nothing
 
 export const GatewayBootstrapBundleSchema = z
 	.object({
-		// Echoes the one-time nonce from the admit-gateway QR; the Gateway installs the
-		// bundle only if it matches the listener it opened, so a bundle cannot be
-		// replayed into a later enrollment window.
+		// The Gateway's one-time code.
 		nonce: z.string().min(1),
 		transport: GatewayTransportSchema,
 		admission: SignedAdmissionSchema,
 		domain: DomainSnapshotSchema,
-		// the network this gateway joins; the gateway records it so it resolves the same Domain on its next boot
+		// Recorded so the next boot resolves the same Domain.
 		domainId: z.string().min(1).max(64).optional(),
 		contentKeys: z.array(KeyEnvelopeSchema).optional(),
 	})
@@ -33,12 +24,7 @@ export const GatewayBootstrapBundleSchema = z
 export type GatewayBootstrapBundle = z.infer<typeof GatewayBootstrapBundleSchema>;
 
 ////////////////////////////////
-//  Gateway bootstrap delivery frame (the sealed wrapper on the wire)
-//
-//  What the Console POSTs to the Gateway's LAN listener (or hands over as paste). The
-//  Gateway verifies the seal against `signerSignPub`, opens it with its box key, then
-//  pins the owner key from the enclosed snapshot. Trust-on-first-use gated by the SAS
-//  the human confirmed, the one-time nonce, and LAN proximity.
+//  The sealed frame on the wire
 
 export const GatewayBootstrapFrameSchema = z
 	.object({
@@ -47,3 +33,55 @@ export const GatewayBootstrapFrameSchema = z
 		sealed: SealedEnvelopeSchema,
 	})
 	.meta({ id: "GatewayBootstrapFrame" });
+
+export type GatewayBootstrapFrame = z.infer<typeof GatewayBootstrapFrameSchema>;
+
+////////////////////////////////
+//  Carried by the Router
+
+/** Names a held frame. Hashed from the code, which the Router never sees. */
+const PickupIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+/** A 32-byte key is 44 characters. */
+const GatewayKeySchema = b64Field().max(64);
+
+export const GatewayBootstrapPutValueSchema = z
+	.object({
+		kind: z.literal("gateway_bootstrap_put"),
+		pickupId: PickupIdSchema,
+		gatewaySignPub: GatewayKeySchema,
+		frame: GatewayBootstrapFrameSchema,
+	})
+	.meta({ id: "GatewayBootstrapPutValue" });
+
+export const GATEWAY_BOOTSTRAP_REFUSALS = ["bad_frame", "not_admitted", "too_large", "too_many", "taken"] as const;
+
+export type GatewayBootstrapRefusal = (typeof GATEWAY_BOOTSTRAP_REFUSALS)[number];
+
+export const GatewayBootstrapPutResultSchema = z
+	.object({ held: z.boolean(), refusal: z.enum(GATEWAY_BOOTSTRAP_REFUSALS).optional() })
+	.meta({ id: "GatewayBootstrapPutResult" });
+
+export type GatewayBootstrapPutResult = z.infer<typeof GatewayBootstrapPutResultSchema>;
+
+export const GatewayBootstrapStatusValueSchema = z
+	.object({ kind: z.literal("gateway_bootstrap_status"), pickupId: PickupIdSchema })
+	.meta({ id: "GatewayBootstrapStatusValue" });
+
+export const GatewayBootstrapStatusResultSchema = z
+	.object({ held: z.boolean() })
+	.meta({ id: "GatewayBootstrapStatusResult" });
+
+/** An armed Gateway's ask, before it is a member. */
+export const GatewayBootstrapAskSchema = z.object({
+	pickupId: PickupIdSchema,
+	gatewaySignPub: GatewayKeySchema,
+	signature: b64Field().max(128),
+});
+
+export type GatewayBootstrapAsk = z.infer<typeof GatewayBootstrapAskSchema>;
+
+/** Absent for an unknown id, another key and a bad signature alike. */
+export const GatewayBootstrapAskResultSchema = z.object({ frame: GatewayBootstrapFrameSchema.optional() });
+
+export type GatewayBootstrapAskResult = z.infer<typeof GatewayBootstrapAskResultSchema>;

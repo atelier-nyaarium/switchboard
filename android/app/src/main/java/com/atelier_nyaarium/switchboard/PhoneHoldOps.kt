@@ -35,21 +35,15 @@ internal interface PhoneHoldRouter {
 }
 
 internal class OwnerOpHoldRouter(private val signAndPost: suspend (JsonObject) -> JsonElement?) : PhoneHoldRouter {
-	override suspend fun claim(): HoldClaimResult? = decode(
+	override suspend fun claim(): HoldClaimResult? = ownerOpResult(
 		signAndPost(buildJsonObject { put("kind", Protocol.Wire.OWNER_OP_HOLD_CLAIM) }),
 		HoldClaimResult.serializer(),
 	)
 
-	suspend fun read(): PhoneHoldPlane? = decode(
+	suspend fun read(): PhoneHoldPlane? = ownerOpResult(
 		signAndPost(buildJsonObject { put("kind", Protocol.Wire.OWNER_OP_PHONE_HOLD_READ) }),
 		PhoneHoldPlane.serializer(),
 	)
-
-	private fun <T> decode(value: JsonElement?, serializer: kotlinx.serialization.KSerializer<T>): T? {
-		value ?: return null
-		val nested = (value as? JsonObject)?.get("result") ?: value
-		return runIsolated { wireJson.decodeFromJsonElement(serializer, nested) }.getOrNull()
-	}
 }
 
 internal class PhoneHoldOps(

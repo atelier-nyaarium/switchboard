@@ -11,6 +11,7 @@ import { pendingAdminDomain, readAdminDomain } from "./bootstrap-domain.js";
 import { requireDocker } from "./lib/docker-probe.js";
 import { ask, dcFederation, envGet, envSet, note, secureFile } from "./lib/host.js";
 import {
+	awaitRouterHealth,
 	ensureRouterEnv,
 	ROUTER_PORT,
 	readPublicReach,
@@ -101,9 +102,8 @@ async function readFed(): Promise<string> {
 async function routerReach(): Promise<{ routerUrl: string; routerCertFp: string }> {
 	const bind = await envGet("FEDERATION_BIND");
 	if (!bind) throw new Error("no LAN bind in .env - run ./start-federation.sh");
-	const health = await routerHealth(bind);
-	if (!health)
-		throw new Error(`the Router at ${bind}:${ROUTER_PORT} did not answer /health - run ./start-federation.sh`);
+	// Staging a Domain restarts the Router just before this.
+	const health = await awaitRouterHealth(bind);
 	const { publicHost, publicPort } = await readPublicReach();
 	if (!publicHost)
 		note("No public address: the setup code names the LAN address, so a phone must be on this network to scan it.");

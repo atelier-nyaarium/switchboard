@@ -42,12 +42,18 @@ class PollDrainTest {
 		val applied = mutableListOf<String>()
 		val reads = mutableListOf<JsonObject>()
 		var dispatched = 0
-		override fun link() = ConsoleLink.POLL
+		var linkNow = ConsoleLink.POLL
+		override fun link() = linkNow
 		@Volatile var routineRefreshes = 0
 		override suspend fun refreshRoutines() {
 			routineRefreshes += 1
 		}
-		override fun plan(visible: Boolean, failed: Boolean): ConsoleTransportPlan = error("unused")
+		@Volatile var enrollTicks = 0
+		override suspend fun tickEnrollments() {
+			enrollTicks += 1
+		}
+		var planned: ConsoleTransportPlan? = null
+		override fun plan(visible: Boolean, failed: Boolean): ConsoleTransportPlan = planned ?: error("unused")
 		override fun fromCanonical(value: String) = value
 		val forgotten = mutableSetOf<String>()
 		override fun isForgotten(team: String) = team in forgotten
@@ -80,7 +86,8 @@ class PollDrainTest {
 			drainGate.withDrainMutex { applied += "$name@${lineage.epoch}/${lineage.version}" }
 			return true
 		}
-		override suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long): TickOutcome = error("unused")
+		var polled: TickOutcome? = null
+		override suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long): TickOutcome = polled ?: error("unused")
 
 		/** Router serves newer planes. */
 		override suspend fun readPlanes(held: JsonObject): List<PlaneRead> {
@@ -320,6 +327,29 @@ class PollDrainTest {
 		} finally {
 			drain.stopAndJoin()
 			scope.cancel()
+		}
+	}
+
+	@Test
+	fun everyPathOfTheLoopTicksUnfinishedSetups() = runBlocking {
+		for ((visible, link) in listOf(true to ConsoleLink.SOCKET, false to ConsoleLink.SOCKET, false to ConsoleLink.POLL)) {
+			val host = FakeHost(emptyMap()).apply {
+				isVisible = visible
+				linkNow = link
+				planned = ConsoleTransportPlan(PollWait.Delay(5L))
+				polled = TickOutcome(0, 0, false, emptyMap())
+			}
+			val drain = PollDrain(host, IdlePresencePort)
+			val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
+			try {
+				drain.start(scope)
+				withTimeout(2_000L) {
+					while (host.enrollTicks < 1) delay(1L)
+				}
+			} finally {
+				drain.stopAndJoin()
+				scope.cancel()
+			}
 		}
 	}
 }

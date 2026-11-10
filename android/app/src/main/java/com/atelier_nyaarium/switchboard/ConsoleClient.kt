@@ -34,6 +34,13 @@ internal data class OwnerOpAnswer(
 	val outcome: String? = null,
 )
 
+/** An owner op's result, whether the answer wraps it or is it. Null when it does not decode. */
+internal fun <T> ownerOpResult(answer: JsonElement?, serializer: kotlinx.serialization.KSerializer<T>): T? {
+	answer ?: return null
+	val nested = (answer as? JsonObject)?.get("result") ?: answer
+	return runIsolated { wireJson.decodeFromJsonElement(serializer, nested) }.getOrNull()
+}
+
 internal class ConsoleClientCollaborators(
 	val signOwnerOp: (JsonObject, String) -> OwnerOp?,
 	val saveProvisioning: (String) -> Unit,

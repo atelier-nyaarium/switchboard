@@ -94,11 +94,10 @@ class ContentKeyring(private val recipientBoxPrivB64: String = "", private val s
 		recipientBoxPub: String,
 		senderSignPub: String,
 		senderSignPriv: String,
-		maxEpochs: Int? = null,
 		entropy: ((Int) -> ByteArray)? = null,
 	): List<KeyEnvelope> =
 		check(load !is ContentKeysLoad.Corrupt) { "content key slot is corrupt" }.let {
-			keys.keys.sorted().takeLast(maxEpochs ?: Int.MAX_VALUE).map { epoch ->
+			keys.keys.sorted().map { epoch ->
 				Crypto.wrapContentKey(keys.getValue(epoch), epoch, recipientBoxPub, senderSignPub, senderSignPriv, entropy)
 			}
 		}

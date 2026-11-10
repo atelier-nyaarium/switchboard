@@ -104,14 +104,26 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composeAgents.ts` - Codex and Copilot services, relays, and HTTP routes
 - `src/gateway/compose/composeAwareness.ts` - awareness bank and watches; five-second agent sampling dirties presence when the owner set changes
 - `src/gateway/compose/composeFederation.ts` - `buildSlice`, the Router client, and the share mirror's registration read and delta apply
-- `src/gateway/compose/composeEnrollment.ts` - the enrollment window, its TLS door, and the install
+- `src/gateway/compose/composeEnrollment.ts` / `src/gateway/federation/enrollPending.ts` / `src/gateway/router/routerExchange.ts` / `src/shared/schemasEnrollSetup.ts` - a setup that has not finished: the arm, the asks and the install; its record on disk; the pinned HTTPS exchange it asks through; the two loopback routes' wire. `docs/federation.md` holds the flow
+  - **A status read is the only thing that asks:** `status()` makes one ask when three seconds have
+    passed, and no timer does, so a Gateway with no setup screen open is silent.
+  - **The pin is the certificate seen at this arm:** read again on every arm and resume, required of
+    every ask, and required of the bundle's own transport. `routerExchange` reads the peer
+    certificate before it writes, leaning on no HTTP client's pinning; `check:pinning` runs it under Bun.
+  - **Arming is refused while a transport is installed:** `arm` answers `already_enrolled`, so a
+    re-enroll is setup's one stop, clear and start, and a boot that finds a transport retires a
+    leftover record.
+  - **The Gateway that just enrolled dials the address it was armed with:** `onInstalled` hands it to
+    the federation stage, since the container is not restarted between the prompt and the install.
 - `src/gateway/compose/composeWebSockets.ts` - session sockets and held-delivery handover
 - `src/gateway/compose/composeRoutes.ts` - the route surface, built once a Domain is active and rebuilt when federation activates; passes the host relay to session typing
 - `src/gateway/compose/composeRouterFrames.ts` - Router frame dispatch and the console dispatcher
 - `src/gateway/compose/composeRouterPresence.ts` - the Router presence dirty hook, unlink and untrust teardown
 - `src/gateway/compose/composeListener.ts` - the HTTP entry point
 - `src/gateway/compose/composeFaults.ts` - the fault port's construction
-- `src/gateway/httpRouter.ts` - HTTP dispatch, including `/session/type`, enrollment, and blob routes; before a Domain it answers health and enrollment alone
+- `src/gateway/httpRouter.ts` - HTTP dispatch, including `/session/type`, the setup routes, and blob routes; before a Domain it answers health, the setup routes and `/federation/retire` alone
+  - **`/enroll/arm`, `/enroll/status` and `/federation/retire` take the host's token:** every
+    devcontainer on the Gateway's network reaches this port, and only the host holds `HOST_WS_TOKEN`.
 - `src/gateway/routes.ts` - `RoutesDeps`, `RoutesCarryOver`, and the composer that wires session typing with the other route modules
 - `src/gateway/routes/addressing.ts` / `callerGuards.ts` / `relay.ts` - local address minting, the refusal gates, cross-Gateway relay
 - `src/gateway/routes/routesStatus.ts` / `routesCapabilities.ts` / `routesPresence.ts` - health, pending and teams; the capability fold; discovery
@@ -266,6 +278,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     failed write grants nothing, and remove in memory first, so a failed write never leaves a revoked
     peer live. A key grant whose write failed is released for redelivery.
 - `src/gateway/federation/bootstrapInstall.ts` - staged bootstrap install and re-enrollment merge
+  - **One signer check for a first and a repeat enrollment:** the frame's signer and every key
+    envelope's signer must be admitted consoles under the merged live and bundle view.
 - `src/gateway/codexAgentService.ts` / `codexRelay.ts` / `codexRoute.ts` - Codex catalog orchestration, relay folding, authenticated route
 - `src/gateway/codexAgentReducers.ts` - Codex pure decision functions: acceptance verdicts, activity and terminal folds
 - `src/gateway/codexAgentApply.ts` - Codex daemon event and receipt folding, with its fence checks
@@ -607,6 +621,16 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../ConnectCoordinator.kt` - the connect sequence over the identity door and the Router reach; `ChatRepository.connect()` delegates to it
 - `android/.../RouterReach.kt` / `ConsoleRouterTransport.kt` / `ConsoleSocketMode` - Router addresses, the OwnerOp post with reach failover and pinning, socket mode
 - `android/.../OwnerFacts.kt` / `GatewayEnrollment.kt` / `EnrollCeremonyOps.kt` / `DeviceApprovalOps.kt` / `DomainAdminOps.kt` / `TrustOps.kt` - federation delegates
+- `android/.../PendingEnroll.kt` / `PendingEnrollOps.kt` - a Gateway's unfinished setup on the phone: the record, `gatewayScanOf`, `bootstrapPickupId`, `gatewayCardState`, `pendingStep`; the record store and the pass the drain calls on its visible and background paths
+  - **The phone keeps the frame and the Router only holds it:** the pass reads
+    `gateway_bootstrap_status` on a backoff from 5 to 60 seconds and hands in again when the Router
+    does not hold the frame.
+  - **A record retires on a registration that follows the admission:** `registeredSince` wants the
+    roster's entry connected under another incarnation than the one held at admission, so a stale
+    roster retires nothing. The card reads the same rule, so a Gateway with no sessions reads online.
+  - **`pendingStep` also retires a Gateway the keyring stops admitting,** so a revoke from any
+    screen or device needs no second write. `ownerOpResult` in `ConsoleClient.kt` reads an owner
+    op's answer for this client and the hold's.
   - **A pairing is a Gateway's, and `TrustOps` holds the one in flight:** the wizard names the
     Gateway at listen or request; every poll, confirm, retry and cancel reads the held `Pairing`,
     nonce included. No pairing call defaults its Gateway.
@@ -847,7 +871,15 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     resolves by row position.
 - `src/federation-server/gatewayBridge.ts` / `gatewayTransport.ts` - connection registry and frame dispatch; four trust callbacks required
 - `src/federation-server/bridge/registrationHandler.ts` / `relayRouter.ts` / `inboxFrames.ts` / `frameDispatch.ts` - gateway registration; cross-gateway relay and cross-Domain handshake; incarnation-gated inbox, blob, and value frames; the gateway-frame catalog, one descriptor per frame the bridge dispatches, built-in or service, with its mutation class, its incarnation policy, and its handler; the migration fence holds every class but `read`, as the owner-op intake does
-- `src/federation-server/consoleSurface.ts` / `publicApproval.ts` - token-gated operations and token-exempt nonce routes
+- `src/federation-server/consoleSurface.ts` / `publicApproval.ts` / `publicLimiter.ts` - token-gated operations, device approval's token-exempt routes, and the limiter class every token-exempt route holds
+- `src/federation-server/enroll/gatewayBootstrapService.ts` / `src/shared/gateway-bootstrap.ts` / `schemasGatewayBootstrap.ts` - sealed bootstrap frames a phone left for a Gateway to collect: the two owner ops and the public ask; the pickup id and the ask's signing bytes; the wire
+  - **The Router never sees the code:** a frame is named by `bootstrapPickupId`, a hash of it,
+    pinned for both runtimes by `tests/fixtures/gateway-bootstrap/vectors.json`.
+  - **An ask answers the frame or nothing:** an unknown id, another key and a bad signature read
+    alike. A hand-in is taken only from an admitted console of the Domain that admits that Gateway
+    key, within a size cap and a per-Domain count. The ask checks that admission again, so a Gateway
+    revoked since the hand-in collects nothing.
+  - **Held in memory:** a frame leaves when that Gateway registers, at 30 minutes, and on a restart.
 - `src/federation-server/routerTls.ts` - persistent self-signed certificate; rotation re-provisions clients
 - `src/federation-server/*Coordinator.ts` - in-memory flow windows; restart loses and re-arms them
 - `src/shared/agent-binary.ts` - uncached backend CLI presence check
@@ -941,14 +973,13 @@ registration and its client stops with the floor in the log.
 | 20000 | Gateway HTTP and WS, loopback only |
 | 20001 | Federation Router TLS |
 | 20002 | MCP connector WS |
-| 20003 | Enrollment TLS, one-time nonce |
 
 How each subsystem works lives in `docs/`:
 
 | File | Covers |
 |---|---|
 | `docs/architecture.md` | Addressing, host spawn points, sessions and wake, identity binding, state planes |
-| `docs/federation.md` | Router, reach failover, TLS pinning, trust |
+| `docs/federation.md` | Router, reach failover, Gateway enrollment, TLS pinning, trust |
 | `docs/console.md` | Console OwnerOp client, terminal view, armed goals, capability union, Android app |
 | `docs/agents.md` | Codex and Copilot delegation, local agent mode |
 | `docs/task-board.md` | Board, attachments, awareness |
@@ -1287,7 +1318,7 @@ The gateway-to-Router WS is admission-only. No bearer fallback.
 
 Run `./setup.sh` first. Admin Provision starts the Router, writes `.env`, and emits a direct transport blob containing the Router URL, `/health` fingerprint, and app token. An unreadable Router state must abort provisioning. An empty read can stage a new Domain over an existing rooted one.
 
-Gateway Setup displays the admit payload and waits on the same screen for the phone's sealed bundle. `prompt()` blocks polling, so `readKeyWhile` uses raw mode and restores cooked mode on every exit. The screen prints the SAS from the admit payload. The countdown starts when `armGateway` returns, before health and payload waits. No LAN block means paste is the only enrollment route.
+Gateway Setup starts the Gateway, arms it over loopback with the Router's address, and waits on one screen while the Gateway collects the phone's sealed bundle from the Router. Every read on that screen goes through `readKeyWhile`, whose poll is the status read that makes the Gateway ask; `prompt()` would stop it. `readKeyWhile` uses raw mode and restores cooked mode on every exit. The screen prints the fingerprint of the payload's signing key, which the phone shows too. A setup that armed and did not finish reads `1) Resume Gateway Setup` in the menu, found from `enroll-pending.json` with the Gateway up or down, and a resume asks no address, never restarts a running Gateway and keeps its code.
 
 Purge Gateway removes only gateway state and gateway-owned `.env` keys. Purge Federation removes this owner's Domain slice first, then performs the gateway purge and removes the Domain id and setup code. The Domain id may come from `.env` or the Router's admin-Domain mark.
 

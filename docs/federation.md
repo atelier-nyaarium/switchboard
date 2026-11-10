@@ -6,11 +6,12 @@ The self-hosted Router, how a Gateway reaches it, and the trust model.
 
 ## Self-hosted Router
 
-`src/federation-server/` is the Router. Three surfaces share one TLS port: bearer-gated gateway WS,
-signed OwnerOps for the phone, and token-exempt device approval for fresh devices.
+`src/federation-server/` is the Router. Four surfaces share one TLS port: bearer-gated gateway WS,
+signed OwnerOps for the phone, token-exempt device approval for fresh devices, and the token-exempt
+bootstrap ask a Gateway makes before it holds a transport.
 
 The Router certificate is minted once. Rotation requires re-provisioning every enrolled Gateway and
-phone. It is distinct from the ephemeral certificate used by the 20003 enrollment listener.
+phone.
 
 **Reach: one Router, several addresses:** Home routers may not hairpin LAN-to-public connections. The
 Router advertises `{publicHost, publicPort?, lanAddresses}` through the app-token-gated `reach` op.
@@ -21,7 +22,9 @@ over per reconnect, advancing only when a socket never opened.
 
 - Gateway registration cannot call `reach`: it has a WS bearer, not the console app token. It
   receives optional reach data in `gateway_register`.
-- `FEDERATION_ROUTER_HOST` overrides the sealed bundle address for Gateway setup.
+- `FEDERATION_ROUTER_HOST` is the address Gateway Setup asked for. A Gateway dials it first, ahead of
+  the address the sealed bundle names. The Gateway that just enrolled dials the address it was armed
+  with, whatever its environment held at start.
 - LAN uses the Router port. Public uses `publicPort`; absent means the Router port.
 - A private candidate uses `LAN_CONNECT_TIMEOUT_MS`.
 - The typed address remains last. There is no last-successful-address field.
@@ -31,6 +34,46 @@ over per reconnect, advancing only when a socket never opened.
 - Failover follows thrown `IOException`, not HTTP status. It re-posts the same signed op, so the
   Router answers a repeated nonce with the first answer, in flight or settled, within the skew window.
 - Debug ingest uses the transport's current base after reach changes.
+
+## Gateway enrollment
+
+The phone hands a sealed bundle to the Router and the Gateway collects it. No inbound connection to
+the Gateway is made.
+
+- **Arm:** Gateway Setup posts the Router's address to its own Gateway, `POST /enroll/arm` behind
+  `HOST_WS_TOKEN`. The Gateway reads the Router's `/health` from its own network, keeps the
+  certificate fingerprint it saw, mints a one-time code and writes `enroll-pending.json`. A second arm
+  keeps the code and reads the fingerprint again. Arming is refused while a transport is installed.
+- **Payload:** type `enroll-gateway` with the Gateway id, its signing and box keys, and the code. The
+  phone shows the signing key's fingerprint and the terminal shows the same one.
+- **Hand in:** after Approve the phone admits the Gateway, seals the bundle to its box key with its
+  own Domain id and posts `gateway_bootstrap_put`. The frame is named by `bootstrapPickupId`, a hash of the code, so the
+  Router never sees the code.
+- **What the Router takes:** a frame whose envelope signature verifies under the op's signer, for a
+  Gateway key the signer's Domain admits and has not revoked, within a size cap and a per-Domain
+  count. Another Domain is refused a held id. Frames are held in memory for 30 minutes and leave when
+  that Gateway registers.
+- **Revoked before it collected:** an ask checks the admission again, so a Gateway revoked since the
+  hand-in is answered nothing and its frame is dropped.
+- **Ask:** the Gateway posts `POST /gateway-bootstrap` with the pickup id, its signing key and a
+  signature under `GATEWAY_BOOTSTRAP_ASK_V1`. The answer is the frame or nothing, the same for an
+  unknown id, another key and a bad signature. The route takes device approval's body cap and its own
+  `PublicLimiter` with the same limits.
+  The ask carries no timestamp: a replay yields only a frame sealed to that Gateway.
+- **Pinned exchange:** `gateway/router/routerExchange.ts` reads the peer certificate before it writes
+  the request and refuses a fingerprint other than the armed one. `check:pinning` runs it under Bun.
+- **Status drives the asks:** `GET /enroll/status` makes one ask when three seconds have passed since
+  the last, and answers `none`, `waiting`, `unreachable`, `refused` or `installed`. No timer asks, so a
+  Gateway with no setup screen open is silent.
+- **Install:** `openBootstrapBundle` compares the code in constant time, the bundle must name the
+  armed certificate and a Domain id, and `stageBootstrap` requires the frame's signer and every key
+  envelope's signer to be admitted consoles under the merged live and bundle view. The record is
+  retired, and a boot that finds a transport retires a leftover one.
+- **The phone keeps the frame:** a pending record holds it with the pickup id. The drain pass reads
+  `gateway_bootstrap_status` on a backoff from 5 to 60 seconds and hands the frame in again when the
+  Router does not hold it. The record is retired when the roster shows that Gateway connected under
+  another incarnation than the one held at admission, or when the keyring stops admitting it.
+- **An older Gateway's code:** its type is `admit-gateway`, and the app says the machine needs updating.
 
 ## Pinning the Router
 
@@ -61,8 +104,8 @@ Gateway, so revocation still applies while the Router is unreachable.
   Node, Bun, and Android.
 - Registration requires keys, an owner-signed admission, and fresh possession proof. No bearer
   fallback.
-- A Gateway without a Domain starts standalone for `/health` and `/enroll`; the Gateway federation bridge activates only
-  when both transport and Domain resolve.
+- A Gateway without a Domain starts standalone for `/health`, `/enroll/arm`, `/enroll/status` and
+  `/federation/retire`; the Gateway federation bridge activates only when both transport and Domain resolve.
 - Enrollment roots the first owner key through a single atomic CAS write. The owner root private key
   never leaves the phone.
 - `ReplayGuard` runs after signature verification.
@@ -82,7 +125,7 @@ Gateway, so revocation still applies while the Router is unreachable.
 - Add Device delivers current key envelopes in `ConsoleTransport.contentKeys`. Gateway bootstrap delivers them in `GatewayBootstrapBundle.contentKeys`.
 - Bootstrap writes admission, transport, Domain id, and keys under `federation/staging/`, writes an `INSTALLED` marker, then copies the artifacts atomically with transport last. Recovery retries a complete marked staging directory, rolls back incomplete or corrupt staging, and keeps staging on other activation errors.
 - Gateway re-enrollment validates the merged live and bundle view, requires a newer admission, merges the allowlist, and merges keys without dropping held epochs.
-- First enrollment uses trust on first use for the Domain root.
+- First enrollment uses trust on first use for the Domain root. The frame's signer is checked the same way on a first and a repeat enrollment.
 - Deploy the Router before the app. Unsupported join signatures cause refusal.
 - Blob bytes seal per chunk on the existing 1 MiB boundary, each frame being a nonce, the ciphertext and its tag. The blob id stays the plaintext digest, so the Router verifies the CIPHERTEXT digest it was told and only a reader holding the key can verify the plaintext. Chunk index and the final flag ride in the AAD, so a Router cannot reorder, truncate, or splice chunks. `src/shared/sealed-blob.ts` and `crypto/SealedBlob.kt` are twins over a shared fixture corpus.
 - Board text binds its entry id into the AAD the same way. See `docs/task-board.md`.

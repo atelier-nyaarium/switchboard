@@ -18,7 +18,7 @@ const DIRECT_WRITE_EXCEPTIONS = new Map([
 	["gateway/router/transport.ts", { writes: 1, reason: "best-effort reach cache" }],
 	["gateway/compose/composeBootstrap.ts", { writes: 1, reason: "schema-version sentinel" }],
 	["gateway/federation/bootstrapInstall.ts", { writes: 3, reason: "staged install artifacts" }],
-	["gateway/federation/enrollTls.ts", { writes: 1, reason: "temporary OpenSSL extension input" }],
+	["gateway/federation/enrollPending.ts", { writes: 1, reason: "the unfinished setup's record" }],
 ]);
 const directWrite = /\b(?:(?:fs\.)?(?:writeFileSync|appendFileSync|writeSync|ftruncateSync)|writeFileAtomic)\s*\(/g;
 const installedCheck = /instanceof\s+DurableStoreInstalledError/;

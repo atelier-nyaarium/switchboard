@@ -11,6 +11,7 @@
 		"content-hash",
 		"device-join",
 		"enroll-sas",
+		"gateway-bootstrap",
 		"kasa-codec",
 		"limit-notice",
 		"owner-id",

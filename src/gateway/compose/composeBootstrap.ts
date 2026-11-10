@@ -10,6 +10,7 @@ import { useMigrationEpochFile } from "../../shared/migration-fence.js";
 import { type GatewayBoot, GatewayBootstrap } from "../boot.js";
 import { recoverStaging } from "../federation/bootstrapInstall.js";
 import { ContentKeyStore } from "../federation/contentKeyStore.js";
+import { readEnrollPending, retireEnrollPending } from "../federation/enrollPending.js";
 import { loadOrCreateIdentity } from "../federation/identity.js";
 import { dueSchemaSteps, type SchemaStep, schemaVersionOf } from "../schemaWipe.js";
 import type { GatewayDeps } from "./gatewayTypes.js";
@@ -27,8 +28,8 @@ export interface BootstrapStage {
 	initialDomainId: string | null;
 	/** The Domain id on disk right now, after any install. */
 	domainIdOnDisk: () => string | null;
-	/** Re-reads the federation directory after an enrollment install. */
-	resolveBoot: (enrollNonce: string | null) => GatewayBoot;
+	/** Re-reads the federation directory, as after an install. */
+	resolveBoot: () => GatewayBoot;
 }
 
 export function composeBootstrap(deps: GatewayDeps): BootstrapStage {
@@ -49,18 +50,21 @@ export function composeBootstrap(deps: GatewayDeps): BootstrapStage {
 	const identity = () => (cachedIdentity ??= loadOrCreateIdentity(federationDir, ambient.newId));
 	const contentKeyStore = new ContentKeyStore(federationDir, () => identity().box.priv, ambient);
 
-	const resolveBoot = (enrollNonce: string | null): GatewayBoot =>
+	const resolveBoot = (): GatewayBoot =>
 		GatewayBootstrap.resolve(
 			{ federationDir },
 			{
-				enrollNonce,
+				pending: readEnrollPending(federationDir) !== null,
 				allowFixtureIdentity: deps.allowFixtureIdentity ?? false,
 				domainIdEnv: process.env.FEDERATION_DOMAIN_ID,
 			},
 			{ ambient, identity, contentKeys: contentKeyStore },
 		);
 
-	const gatewayBoot = resolveBoot(config.enrollNonce ?? null);
+	const gatewayBoot = resolveBoot();
+	const missingTransport = gatewayBoot.kind === "standalone" && gatewayBoot.missing.includes("transport");
+	// A transport outlives its setup's record.
+	if (gatewayBoot.kind !== "arming" && !missingTransport) retireEnrollPending(federationDir);
 	const initialDomainId =
 		gatewayBoot.kind === "active" ? gatewayBoot.boot.domainId : resolveLocalDomainId(federationDir);
 	console.log(`[gateway] Domain id: ${initialDomainId ?? "(none - not yet enrolled)"}`);

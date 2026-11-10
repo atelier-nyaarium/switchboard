@@ -11,7 +11,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
- * Locks EnrollPinning.checkPinnedLeaf: accept ONLY the exact pinned leaf, reject any other
+ * Locks checkPinnedLeaf: accept ONLY the exact pinned leaf, reject any other
  * fingerprint or an empty chain, and match (case-insensitively) the lowercase-hex SHA-256 the gateway
  * computes. The cert below is a throwaway self-signed EC leaf (openssl, SAN=IP:192.168.1.5).
  */

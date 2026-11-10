@@ -2,8 +2,11 @@ import { ROUTER_PATHS } from "../shared/wire-vocabulary.js";
 
 /** Body cap per path; zero means the body is never read. */
 export function bodyCapFor(pathname: string): number {
-	if (pathname === ROUTER_PATHS.deviceApproval || pathname.startsWith(`${ROUTER_PATHS.deviceApproval}/`))
-		return 8 * 1024;
+	const tokenExempt =
+		pathname === ROUTER_PATHS.deviceApproval ||
+		pathname.startsWith(`${ROUTER_PATHS.deviceApproval}/`) ||
+		pathname === ROUTER_PATHS.gatewayBootstrap;
+	if (tokenExempt) return 8 * 1024;
 	if (pathname === ROUTER_PATHS.ingest) return 512 * 1024;
 	if (pathname === ROUTER_PATHS.console) return 67_108_864;
 	return 0;

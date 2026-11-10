@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Allowlist, AllowlistCorruptError } from "../gateway/federation/allowlist.js";
-import { activateStaged, recoverStaging, stageBootstrap } from "../gateway/federation/bootstrapInstall.js";
+import { activateStaged, recoverStaging, stageBootstrap as stageFrom } from "../gateway/federation/bootstrapInstall.js";
 import { ContentKeyStore } from "../gateway/federation/contentKeyStore.js";
 import { signAdmission, signRevocation } from "../shared/admission.js";
 import { processAmbient } from "../shared/ambient.js";
@@ -11,12 +11,42 @@ import { wrapContentKey } from "../shared/content-envelope.js";
 import { generateIdentity } from "../shared/crypto.js";
 import type { GatewayBootstrapBundle } from "../shared/schemas.js";
 
+type Identity = ReturnType<typeof generateIdentity>;
+
+const owners = new Map<string, Identity>();
+const frameSigner = generateIdentity();
+
+/** Stages a frame signed by a console the bundle's owner admits, unless `signer` names another. */
+function stageBootstrap(
+	dir: string,
+	delivered: GatewayBootstrapBundle,
+	gateway: Identity,
+	store: ContentKeyStore,
+	ambient: ReturnType<typeof processAmbient>,
+	signer?: string,
+): void {
+	if (signer) {
+		stageFrom(dir, delivered, gateway, store, ambient, signer);
+		return;
+	}
+	const owner = owners.get(delivered.domain.ownerSignPub);
+	if (!owner) throw new Error("the test's owner was not made by bundle()");
+	const admitted = signAdmission(
+		{ kind: "console", signPub: frameSigner.sign.pub, boxPub: frameSigner.box.pub, issuedAt: 1, nonce: "frame" },
+		owner.sign.priv,
+		owner.sign.pub,
+	);
+	const domain = { ...delivered.domain, admissions: [...delivered.domain.admissions, admitted] };
+	stageFrom(dir, { ...delivered, domain }, gateway, store, ambient, frameSigner.sign.pub);
+}
+
 function bundle(): {
 	bundle: GatewayBootstrapBundle;
-	owner: ReturnType<typeof generateIdentity>;
-	gateway: ReturnType<typeof generateIdentity>;
+	owner: Identity;
+	gateway: Identity;
 } {
 	const owner = generateIdentity();
+	owners.set(owner.sign.pub, owner);
 	const gateway = generateIdentity();
 	return {
 		owner,
@@ -162,7 +192,7 @@ describe("staged bootstrap install", () => {
 		expect(fs.existsSync(path.join(dir, "staging"))).toBe(false);
 	});
 
-	it("enrolls a pre-change bundle with only the gateway admission", () => {
+	it("refuses a first enrollment whose frame signer the bundle does not admit", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-stage-"));
 		const { bundle: base, owner, gateway } = bundle();
 		const admission = signAdmission(
@@ -177,19 +207,19 @@ describe("staged bootstrap install", () => {
 			owner.sign.priv,
 			owner.sign.pub,
 		);
-		const preChange = { ...base, admission, domain: { ...base.domain, admissions: [admission] } };
+		const unlisted = { ...base, admission, domain: { ...base.domain, admissions: [admission] } };
 
-		stageBootstrap(
-			dir,
-			preChange,
-			gateway,
-			new ContentKeyStore(dir, gateway.box.priv, processAmbient()),
-			processAmbient(),
-			"unlisted-old-console",
-		);
-		recoverStaging(dir, processAmbient());
-
-		expect(new Allowlist(dir, processAmbient()).selfAdmission(gateway.sign.pub)?.admission.gatewayId).toBe("g");
+		expect(() =>
+			stageBootstrap(
+				dir,
+				unlisted,
+				gateway,
+				new ContentKeyStore(dir, gateway.box.priv, processAmbient()),
+				processAmbient(),
+				"unlisted-console",
+			),
+		).toThrow("not an admitted console");
+		expect(fs.existsSync(path.join(dir, "staging"))).toBe(false);
 	});
 
 	it("refuses a bundle rooted at another owner before staging", () => {
@@ -213,8 +243,7 @@ describe("staged bootstrap install", () => {
 
 	it("rejects a gateway-signed content key without staging", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-stage-"));
-		const owner = generateIdentity();
-		const gateway = generateIdentity();
+		const { bundle: base, owner, gateway } = bundle();
 		rootLive(dir, owner, gateway);
 		const gatewayAdmission = signAdmission(
 			{
@@ -229,7 +258,7 @@ describe("staged bootstrap install", () => {
 			owner.sign.pub,
 		);
 		const invalid = {
-			...bundle().bundle,
+			...base,
 			domain: { ownerSignPub: owner.sign.pub, admissions: [gatewayAdmission], revocations: [] },
 			contentKeys: [wrapContentKey(Buffer.alloc(32, 3), 1, gateway.box.pub, gateway.sign.pub, gateway.sign.priv)],
 		};

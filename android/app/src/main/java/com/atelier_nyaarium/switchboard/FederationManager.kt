@@ -252,7 +252,8 @@ class FederationManager(private val store: AppStateStore) {
 		recipientBoxPub: String,
 		domainId: String?,
 		contentKeys: ContentKeyring,
-		maxContentEpochs: Int? = null,
+		/** What the Gateway's setup says it joined. */
+		domainName: String? = null,
 	): GatewayBootstrapFrame {
 		val console = consoleIdentity()
 		val keyring = keyring()
@@ -269,15 +270,10 @@ class FederationManager(private val store: AppStateStore) {
 				ownerSignPub = ring.ownerSignPub,
 				admissions = listOf(admission, consoleAdmission),
 				revocations = emptyList(),
-				displayName = ring.displayName,
+				displayName = domainName ?: ring.displayName,
 			),
 			domainId = domainId,
-			contentKeys = contentKeys.wrapAllFor(
-				recipientBoxPub,
-				console.sign.pub,
-				console.sign.priv,
-				maxContentEpochs,
-			),
+			contentKeys = contentKeys.wrapAllFor(recipientBoxPub, console.sign.pub, console.sign.priv),
 		)
 		val plain = json.encodeToString(GatewayBootstrapBundle.serializer(), bundle).toByteArray(Charsets.UTF_8)
 		val sealed = Crypto.seal(plain, recipientBoxPub, console.sign.priv)

@@ -9,7 +9,7 @@ import { dockerBlockerTitle } from "./lib/docker-probe.js";
 import { detectLanHosts, envGet, jparse } from "./lib/host.js";
 import { ROUTER_PORT, readPublicReach, routerHealth, shortFp } from "./lib/routerStart.js";
 import { readRouterFed, routerRunning } from "./lib/routerState.js";
-import { gatewayHostname, transportInstalled } from "./setup-gateway.js";
+import { gatewayHostname, pendingSetup, transportInstalled } from "./setup-gateway.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -39,6 +39,8 @@ export interface SetupStatus {
 	domain: "none" | "pending" | "rooted";
 	gatewayId: string;
 	gatewayEnrolled: boolean;
+	/** A Gateway Setup that armed and still waits on the phone. */
+	gatewayPending: boolean;
 	/** Registrations the Router holds for the admin Domain; null when it could not be asked. */
 	gateways: RegisteredGateway[] | null;
 }
@@ -71,6 +73,7 @@ export async function readSetupStatus(): Promise<SetupStatus> {
 		domainId,
 		gatewayId,
 		gatewayEnrolled,
+		pending,
 		remoteHost,
 		remotePort,
 		dockerBlocker,
@@ -84,6 +87,7 @@ export async function readSetupStatus(): Promise<SetupStatus> {
 		// matches the `sakura` the Router holds and this machine reads as never registered.
 		envGet("GATEWAY_ID").then((id) => sanitizeGatewayId(id || gatewayHostname())),
 		transportInstalled(),
+		pendingSetup(),
 		envGet("FEDERATION_ROUTER_HOST"),
 		envGet("FEDERATION_ROUTER_PORT"),
 		dockerBlockerTitle(),
@@ -123,6 +127,7 @@ export async function readSetupStatus(): Promise<SetupStatus> {
 		domain,
 		gatewayId,
 		gatewayEnrolled,
+		gatewayPending: !gatewayEnrolled && pending !== null,
 		gateways,
 	};
 }
@@ -153,7 +158,16 @@ export function printSetupStatus(s: SetupStatus): void {
 		row("Domain", s.domain);
 	}
 	const registered = s.gateways?.some((g) => g.gatewayId === s.gatewayId) ?? false;
-	row("Gateway", s.gatewayEnrolled ? (registered ? "enrolled" : "enrolled, not registered") : "not enrolled");
+	row(
+		"Gateway",
+		s.gatewayEnrolled
+			? registered
+				? "enrolled"
+				: "enrolled, not registered"
+			: s.gatewayPending
+				? "waiting for your phone"
+				: "not enrolled",
+	);
 	if (s.routerRunning) {
 		console.log("\nGateways:");
 		if (!s.gateways)

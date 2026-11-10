@@ -80,6 +80,7 @@ fun OverlayHost(
 			GatewaysScreen(
 				repo = repo,
 				teams = state.teams,
+				registry = state.gateways,
 				onBack = close,
 				onAddGateway = { open(Overlay.AddGateway) },
 				onManageSharing = { gid -> open(Overlay.Sharing(gid)) },

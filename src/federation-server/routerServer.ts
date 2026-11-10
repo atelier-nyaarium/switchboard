@@ -24,6 +24,7 @@ import {
 	verifyTrustPendingRequest,
 } from "../shared/federation-proofs.js";
 import { FEDERATION_PROTOCOL_VERSION } from "../shared/router-protocol.js";
+import { GatewayBootstrapAskSchema } from "../shared/schemasGatewayBootstrap.js";
 import { BEARER_PREFIX, ROUTER_PATHS } from "../shared/wire-vocabulary.js";
 import type { WriteOutcome } from "../shared/write-result.js";
 import { type ConsoleSockets, createConsoleSockets } from "./console/consoleSockets.js";
@@ -39,6 +40,7 @@ import { decideServe } from "./migration/serveGate.js";
 import { OwnerQuarantined } from "./owner/ownerStateStore.js";
 import { createOwnerServices } from "./ownerServices.js";
 import { PublicApproval } from "./publicApproval.js";
+import { PublicLimiter } from "./publicLimiter.js";
 import { buildRoster, type RosterDomain } from "./roster.js";
 import { type BodyRead, bodyCapFor, readFetchRequest, settleRequest } from "./routerBody.js";
 import { RouterDomainBootstrap } from "./routerDomainBootstrap.js";
@@ -66,6 +68,7 @@ export class RouterServer {
 	private readonly bridge: GatewayBridge;
 	private readonly console: ConsoleSurface;
 	private readonly approval: PublicApproval;
+	private readonly bootstrapLimiter: PublicLimiter;
 	private readonly deviceApproval: DeviceApprovalCoordinator;
 	private readonly enrollHandshake: EnrollHandshakeCoordinator;
 	private readonly trustRendezvous: TrustRendezvousCoordinator;
@@ -91,6 +94,7 @@ export class RouterServer {
 			quotaBytes: Number(process.env.ROUTER_DOMAIN_QUOTA_BYTES ?? 2 * 1024 * 1024 * 1024),
 		});
 		this.wsServer.on("error", () => {});
+		this.bootstrapLimiter = new PublicLimiter(ambient);
 		this.deviceApproval = new DeviceApprovalCoordinator(ambient);
 		this.enrollHandshake = new EnrollHandshakeCoordinator(ambient);
 		this.trustRendezvous = new TrustRendezvousCoordinator(ambient);
@@ -434,10 +438,23 @@ export class RouterServer {
 		) {
 			return this.approval.handleRequest(webRequest);
 		}
+		if (url.pathname === ROUTER_PATHS.gatewayBootstrap) return this.handleBootstrapAsk(webRequest);
 		if (([ROUTER_PATHS.console, ROUTER_PATHS.ingest] as string[]).includes(url.pathname)) {
 			return this.console.handleRequest(webRequest);
 		}
 		return Promise.resolve(new Response("Not Found", { status: 404 }));
+	}
+
+	/** An armed Gateway's ask. Every miss answers the same empty object. */
+	private async handleBootstrapAsk(request: Request): Promise<Response> {
+		if (request.method !== "POST") return new Response("Not Found", { status: 404 });
+		if (this.bootstrapLimiter.globalLimited()) return new Response("Too Many Requests", { status: 429 });
+		const ask = GatewayBootstrapAskSchema.safeParse(await request.json().catch(() => null));
+		if (!ask.success) return Response.json({});
+		if (this.bootstrapLimiter.idLimited(ask.data.pickupId)) {
+			return new Response("Too Many Requests", { status: 429 });
+		}
+		return Response.json(this.ownerServices.gatewayBootstrap.ask(ask.data));
 	}
 
 	private async writeResponse(response: ServerResponse, result: Response): Promise<void> {

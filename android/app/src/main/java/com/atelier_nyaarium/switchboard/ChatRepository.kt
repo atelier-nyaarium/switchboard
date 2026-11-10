@@ -277,7 +277,7 @@ class ChatRepository(
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
 			this, board, vault, assistantSends, assistantActs, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, workspaceHost, composedRequests, windowOps,
-			symbolViews, windowRequests, rawFileOps, fileOps, deviceOps,
+			symbolViews, windowRequests, rawFileOps, fileOps, deviceOps, gatewayEnroll.setups,
 		)
 
 	override suspend fun clearInMemory() {

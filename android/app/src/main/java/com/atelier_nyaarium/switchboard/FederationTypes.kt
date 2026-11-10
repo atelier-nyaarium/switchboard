@@ -7,24 +7,18 @@ import com.atelier_nyaarium.switchboard.proto.KeyEnvelope
 ////////////////////////////////
 //  Interfaces & Types
 
-/** A scanned admit-gateway QR: the Gateway identity the owner is about to admit, plus the optional
- * LAN target and one-time nonce for delivering the sealed bootstrap bundle. */
+/** A scanned enroll-gateway code: the Gateway identity the owner is about to admit. */
 data class ScannedGateway(
 	val gatewayId: String,
 	val signPub: String,
 	val boxPub: String,
 	val sas: String,
-	val lanHost: String? = null,
-	val lanPort: Int? = null,
-	val nonce: String? = null,
-	/** SHA-256 of the gateway's ephemeral enroll TLS leaf. Present means deliver over pinned HTTPS;
-	 * absent means paste only, never cleartext. */
-	val certFp: String? = null,
+	/** One-time and secret: the bundle carries it back, and the Router sees only its hash. */
+	val code: String,
 )
 
-/** The outcome of enrolling a Gateway, with the sealed bundle to hand-carry when LAN delivery was
- * not possible. */
-data class EnrollDelivery(val admitted: Boolean, val message: String, val pasteBundle: String?)
+/** Whether the Gateway's bundle is sealed and kept; `message` says why not. */
+data class EnrollDelivery(val done: Boolean, val message: String)
 
 /** A held device's armed "Add a device" window: the rendezvous token, its one-time nonce, and the
  * authorize-console QR text (public material only) the new device scans. */

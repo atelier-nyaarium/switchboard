@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -27,7 +28,7 @@ export function stageBootstrap(
 	gatewayIdentity: Identity,
 	contentKeyStore: ContentKeyStore,
 	ambient: Clock,
-	outerSignerSignPub?: string,
+	frameSignerSignPub: string,
 ): void {
 	const liveAllowlist = new Allowlist(federationDir, ambient);
 	const liveSnapshot = liveAllowlist.getSnapshot();
@@ -65,21 +66,18 @@ export function stageBootstrap(
 							candidate.revocation.nonce === revocation.revocation.nonce,
 					) === index,
 			);
-		if (liveSnapshot) {
-			const liveSelf = liveAllowlist.selfAdmission(gatewayIdentity.sign.pub);
-			if (liveSelf && bundle.admission.admission.issuedAt <= liveSelf.admission.issuedAt) {
-				throw new Error("bootstrap admission is not newer than the live admission");
-			}
-			if (
-				outerSignerSignPub &&
-				!resolveAdmittedConsole(admissions, revocations, bundle.domain.ownerSignPub, outerSignerSignPub)
-			)
-				throw new Error("bootstrap frame signer is not an admitted console");
+		const liveSelf = liveAllowlist.selfAdmission(gatewayIdentity.sign.pub);
+		if (liveSelf && bundle.admission.admission.issuedAt <= liveSelf.admission.issuedAt) {
+			throw new Error("bootstrap admission is not newer than the live admission");
 		}
-		const keyResult = contentKeyStore.classify(
-			bundle.contentKeys ?? [],
-			liveSnapshot ? { ownerSignPub: bundle.domain.ownerSignPub, admissions, revocations } : null,
-		);
+		// Fresh and repeat enrollments alike.
+		if (!resolveAdmittedConsole(admissions, revocations, bundle.domain.ownerSignPub, frameSignerSignPub))
+			throw new Error("bootstrap frame signer is not an admitted console");
+		const keyResult = contentKeyStore.classify(bundle.contentKeys ?? [], {
+			ownerSignPub: bundle.domain.ownerSignPub,
+			admissions,
+			revocations,
+		});
 		if (keyResult.kind === "refused") {
 			const where = keyResult.epoch === undefined ? "" : ` for epoch ${keyResult.epoch}`;
 			throw new Error(`bootstrap content key envelope was refused: ${keyResult.reason}${where}`);
@@ -207,8 +205,12 @@ export function openBootstrapBundle(
 	if (!parsedBundle.success) throw new Error("bootstrap bundle is invalid");
 	const bundle = parsedBundle.data;
 
-	// The nonce binds the bundle to this enrollment window.
-	if (bundle.nonce !== expectedNonce) throw new Error("bootstrap: nonce does not match this enrollment window");
+	// The code binds the bundle to this arming.
+	const presented = Buffer.from(bundle.nonce);
+	const expected = Buffer.from(expectedNonce);
+	if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+		throw new Error("bootstrap: the bundle carries another setup's code");
+	}
 
 	const owner = bundle.domain.ownerSignPub;
 	const admission: SignedAdmission = bundle.admission;

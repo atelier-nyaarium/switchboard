@@ -24,6 +24,12 @@ import {
 	KeyRequestOpSchema,
 } from "../shared/schemasContentKey.js";
 import {
+	GatewayBootstrapPutResultSchema,
+	GatewayBootstrapPutValueSchema,
+	GatewayBootstrapStatusResultSchema,
+	GatewayBootstrapStatusValueSchema,
+} from "../shared/schemasGatewayBootstrap.js";
+import {
 	GatewayValueOpSchema,
 	OpKeySchema,
 	OpResultEnvelopeSchema,
@@ -233,6 +239,18 @@ export const OWNER_OP_CATALOG = [
 	},
 	{ kind: "hold_claim", value: HoldClaimValueSchema, mutation: "value", answer: HoldClaimResultSchema },
 	{ kind: "phone_hold_read", value: PhoneHoldReadValueSchema, mutation: "read", answer: PhoneHoldPlaneSchema },
+	{
+		kind: "gateway_bootstrap_put",
+		value: GatewayBootstrapPutValueSchema,
+		mutation: "value",
+		answer: GatewayBootstrapPutResultSchema,
+	},
+	{
+		kind: "gateway_bootstrap_status",
+		value: GatewayBootstrapStatusValueSchema,
+		mutation: "read",
+		answer: GatewayBootstrapStatusResultSchema,
+	},
 ] as const satisfies readonly OwnerOpCatalogEntry[];
 
 type Catalog = (typeof OWNER_OP_CATALOG)[number];

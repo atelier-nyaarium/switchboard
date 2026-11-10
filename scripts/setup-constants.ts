@@ -7,9 +7,8 @@ import path from "node:path";
 ////////////////////////////////
 //  Constants
 
-export const HEALTH_URL = "http://localhost:20000/health";
-export const ENROLL_URL = "http://localhost:20000/enroll";
-export const ADMIT_PAYLOAD_URL = "http://localhost:20000/admit-payload";
+export const GATEWAY_URL = "http://localhost:20000";
+export const HEALTH_URL = `${GATEWAY_URL}/health`;
 // The gateway's federation dir on the host (bind-mounted to /app/data/federation in the container).
 export const FED_DIR_HOST = "volumes/gateway-data/federation";
 export const TRANSPORT_FILE_HOST = `${FED_DIR_HOST}/transport.json`; // enrollment writes this once a bundle installs

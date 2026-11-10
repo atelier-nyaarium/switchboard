@@ -14,9 +14,6 @@ hand-edited, so there is no `.env.example`. The compose files and the tuning ove
 | `FEDERATION_DOMAIN_ID` | Domain id. Not fail-closed; the installed allowlist record's id takes precedence |
 | `DATA_DIR` | Durable state, default `/app/data`. Separate from the log volume, so clearing logs cannot wipe federation identity |
 | `FEDERATION_DIR` | Keypair, allowlist, `transport.json`, `content-keys.json`, transient `staging/`. Default inside `DATA_DIR` |
-| `ENROLL_TLS_PORT` | Enrollment TLS port, default 20003. Set in `docker-compose.yml`, not `.env` |
-| `ENROLL_NONCE` | The one-time enrollment nonce, passed through by compose. Empty when no invite is armed |
-| `ENROLL_LAN_HOST` | Host advertised on the enrollment payload's LAN leg, default `0.0.0.0` |
 | `MAX_BLOB_STORE_BYTES` | Blob sweep ceiling, default sixteen times the single-blob maximum. Tuning override |
 | `WAKE_TIMEOUT_MS` | How long a wake may take before it is given up on, default 600000. Tuning override |
 | `ALLOW_FIXTURE_IDENTITY` | `1` lets the gateway start on the committed test identity (`src/shared/fixture-identity.ts`). Only `check:boot` sets it |

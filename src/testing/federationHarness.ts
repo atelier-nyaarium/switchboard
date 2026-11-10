@@ -41,9 +41,9 @@ export interface FederationHarnessOptions {
 }
 
 export interface GatewayComposeOptions {
-	enrollNonce?: string;
 	seedContentKey?: boolean;
-	arming?: boolean;
+	/** Boots with no credentials installed. */
+	unenrolled?: boolean;
 	assistantWatchers?: readonly Watcher[];
 	kasaPort?: number;
 	workflowProgressIntervalMsForTests?: number;
@@ -412,7 +412,7 @@ export async function startRouterOnly(
 		): GatewayGraph => {
 			const federationDir = path.join(dir, "federation");
 			const gatewayAmbient = ambientFor(dir);
-			if (!gatewayOptions.arming) {
+			if (!gatewayOptions.unenrolled) {
 				FixtureWorld.from(gatewaySet).gatewayBootstrap(
 					federationDir,
 					{ routerUrl: `https://127.0.0.1:${port}`, routerCertFp: tls.certFp },
@@ -429,11 +429,8 @@ export async function startRouterOnly(
 					gatewayId: gatewaySet.gateway.id,
 					maxBlobStoreBytes: MAX_BLOB_BYTES * 16,
 					wakeTimeoutMs: options.wakeTimeoutMs ?? 10_000,
-					enrollTlsPort: 0,
-					enrollLanHost: "127.0.0.1",
 					hostWsToken: gatewaySet.tokens.host,
 					routerBootstrapUrl: null,
-					...(gatewayOptions.enrollNonce ? { enrollNonce: gatewayOptions.enrollNonce } : {}),
 				},
 				ambient: gatewayAmbient,
 				allowFixtureIdentity: true,

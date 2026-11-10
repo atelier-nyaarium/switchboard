@@ -3,6 +3,7 @@ export const ROUTER_PATHS = {
 	health: "/health",
 	ingest: "/ingest",
 	deviceApproval: "/device-approval",
+	gatewayBootstrap: "/gateway-bootstrap",
 	gateway: "/gateway",
 	root: "/",
 } as const;
@@ -48,6 +49,8 @@ export const SIGNING_TAGS = {
 	enrollSas: "ENROLL_SAS_V1",
 	codexAgent: "CODEX_AGENT_V1",
 	copilotAgent: "COPILOT_AGENT_V1",
+	gatewayBootstrapPickup: "GATEWAY_BOOTSTRAP_PICKUP_V1",
+	gatewayBootstrapAsk: "GATEWAY_BOOTSTRAP_ASK_V1",
 } as const;
 
 export const CONTENT_NONCE_BYTES = 12;
