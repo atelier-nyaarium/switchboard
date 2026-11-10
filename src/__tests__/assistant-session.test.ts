@@ -277,7 +277,7 @@ describe("the assistant's session", () => {
 			sealed: sealedHome("relative/notes"),
 		});
 		const squatted = new SessionStore({ ambient: processAmbient() });
-		squatted.adoptById(ASSISTANT_SESSION_NAME, { spawn: "host", sessionLabel: "mine" });
+		squatted.adoptById(ASSISTANT_SESSION_NAME, { spawn: "host", sessionLabel: "mine", harness: "claude" });
 		const held = stage({ store: squatted });
 		await held.followHome();
 
@@ -550,6 +550,7 @@ describe("the assistant's session", () => {
 			spawn: "host",
 			sessionLabel: "Assistant",
 			workdirPath: NOTES,
+			harness: "claude",
 			mintedFrom: ASSISTANT_RESERVE_KEY,
 		});
 		const watcher = counting({ repeat: true });

@@ -94,8 +94,15 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 			.map((row) => row.team);
 		const watch = liveTeams.map((team) => {
 			const record = sessions.sessionStore.getByTeam(team);
-			const copilotSessionId = record?.harness === "copilot" ? record.copilotSessionId : undefined;
-			return { team, cadenceMs: PRESENCE_PEEK_MS, ...(copilotSessionId ? { copilotSessionId } : {}) };
+			const sessionId = record?.harnessSessionId;
+			return {
+				team,
+				cadenceMs: PRESENCE_PEEK_MS,
+				...(record ? { harness: record.harness } : {}),
+				...(sessionId ? { harnessSessionId: sessionId } : {}),
+				// FIXME 2026-11-23: drop, once every daemon reads `harnessSessionId`.
+				...(sessionId && record?.harness === "copilot" ? { copilotSessionId: sessionId } : {}),
+			};
 		});
 		const serialized = JSON.stringify(watch);
 		if (!force && serialized === lastPushedWatch) return;

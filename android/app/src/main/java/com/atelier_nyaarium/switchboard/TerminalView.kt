@@ -36,6 +36,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
+import com.atelier_nyaarium.switchboard.proto.ShellMacro
+import com.atelier_nyaarium.switchboard.proto.SlashMacro
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -101,6 +103,7 @@ fun TerminalView(
 	onRelaunch: suspend () -> Unit,
 	onPeek: suspend (sinceHash: String?) -> Result<ConsolePeekResult>,
 	onSend: suspend (text: String?, key: String?, submit: Boolean) -> Unit,
+	slashMacros: List<SlashMacro>,
 	// The install macros this pane's spawn point offers.
 	shellMacros: List<ShellMacro>,
 	modifier: Modifier = Modifier,
@@ -317,7 +320,7 @@ fun TerminalView(
 						Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
 						horizontalArrangement = Arrangement.spacedBy(6.dp),
 					) {
-						PALETTE_SLASH.forEach { macro ->
+						slashMacros.forEach { macro ->
 							AssistChip(
 								onClick = hapticClick {
 									if (macro.autoSend) fire(macro.cmd, null) else input = "${macro.cmd} "

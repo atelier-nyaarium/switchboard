@@ -628,6 +628,7 @@ data class TeamInfo(
 	val mode: String? = null,
 	val kind: String,
 	val sessionLabel: String? = null,
+	val harness: String? = null,
 	val role: String? = null,
 	val description: String? = null,
 	val version: String? = null,
@@ -4092,8 +4093,15 @@ data class GatewaySpawnPoints(
 	val domainId: String,
 	val gatewayId: String,
 	val hostSpawns: List<String>,
+	val harnessSpawns: HarnessSpawns? = null,
 	val claudeSpawns: List<String>? = null,
 	val copilotSpawns: List<String>? = null,
+)
+
+@Serializable
+data class HarnessSpawns(
+	val claude: List<String>? = null,
+	val copilot: List<String>? = null,
 )
 
 @Serializable

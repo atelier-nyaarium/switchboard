@@ -4,10 +4,13 @@ import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
+import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
+import com.atelier_nyaarium.switchboard.proto.spawnsOf
 
 /** `NeverLoaded` differs from empty. */
 enum class RegistryProvenance { NeverLoaded, Cached, Current }
@@ -15,8 +18,13 @@ enum class RegistryProvenance { NeverLoaded, Cached, Current }
 /** What the roster says about one Gateway. */
 enum class GatewayStanding { Unknown, NeverSeen, Offline, Online }
 
-/** The agent CLIs one spawn point's shell has. */
-data class SpawnAgents(val claude: Boolean, val copilot: Boolean)
+/** The session CLIs one spawn point's shell has. */
+data class SpawnAgents(val installed: Set<SessionHarness>) {
+	companion object {
+		/** A devcontainer is not probed. */
+		val CONTAINER = SpawnAgents(SessionHarness.entries.filter { it.containers }.toSet())
+	}
+}
 
 data class GatewayEntry(
 	val id: String,
@@ -25,10 +33,8 @@ data class GatewayEntry(
 	val lastRegisteredAt: Long,
 	/** Null until the Gateway projects its spawn points. */
 	val hostSpawns: List<String>? = null,
-	/** Spawn points whose shell has Claude Code, `host` included. Null from an older Gateway. */
-	val claudeSpawns: List<String>? = null,
-	/** Spawn points whose shell has Copilot CLI, `host` included. Empty from an older Gateway. */
-	val copilotSpawns: List<String> = emptyList(),
+	/** Spawn points per CLI. Null with no row. */
+	val harnessSpawns: Map<SessionHarness, List<String>>? = null,
 	val routines: List<RoutineState>? = null,
 	val runbooks: List<Runbook>? = null,
 	val policies: List<AuthorizationPolicy>? = null,
@@ -67,22 +73,20 @@ data class GatewayRegistry(
 
 	fun hostSpawns(gatewayId: String): List<String>? = entry(gatewayId)?.hostSpawns
 
-	/** [agentsOn] for a session's own spawn point; an address that does not parse reads as Claude only. */
+	/** [agentsOn] for a session's spawn point. An unparsed address reads as a container. */
 	fun agentsOnSession(address: String): SpawnAgents {
 		val parsed = runIsolated { parseQualifiedTarget(address) }.getOrNull() as? Address
-			?: return SpawnAgents(claude = true, copilot = false)
+			?: return SpawnAgents.CONTAINER
 		return agentsOn(parsed.gateway, parsed.spawn)
 	}
 
-	/** Which agent CLIs a spawn point can run. An older Gateway names no Claude list: Claude everywhere. */
+	/** Which session CLIs a spawn point can run. */
 	fun agentsOn(gatewayId: String, spawn: String): SpawnAgents {
-		// A devcontainer runs Claude; only a host spawn point is probed.
-		if (spawn !in HOST_SPAWN_IDS) return SpawnAgents(claude = true, copilot = false)
-		val held = entry(gatewayId)
-		return SpawnAgents(
-			claude = held?.claudeSpawns?.contains(spawn) ?: true,
-			copilot = held?.copilotSpawns?.contains(spawn) == true,
-		)
+		// Only a host spawn point is probed.
+		if (spawn !in HOST_SPAWN_IDS) return SpawnAgents.CONTAINER
+		// No row reads as an older Gateway.
+		val held = entry(gatewayId)?.harnessSpawns ?: legacySpawns(claude = null, copilot = null)
+		return SpawnAgents(SessionHarness.entries.filter { held[it]?.contains(spawn) == true }.toSet())
 	}
 
 	/** Roster live, Router-held. */
@@ -142,9 +146,7 @@ data class GatewayRegistry(
 		provenance: RegistryProvenance,
 		storedRunbooks: (String) -> List<Runbook>?,
 	): GatewayRegistry {
-		val spawns = projection.spawnPoints.associate { it.gatewayId to it.hostSpawns }
-		val claude = projection.spawnPoints.associate { it.gatewayId to it.claudeSpawns }
-		val copilot = projection.spawnPoints.associate { it.gatewayId to it.copilotSpawns.orEmpty() }
+		val points = projection.spawnPoints.associateBy { it.gatewayId }
 		val kept = gateways.associateBy { it.id }
 		return GatewayRegistry(
 			provenance = provenance,
@@ -160,9 +162,8 @@ data class GatewayRegistry(
 						connected = row.connected,
 						incarnation = row.incarnation,
 						lastRegisteredAt = row.lastRegisteredAt,
-						hostSpawns = spawns[row.gatewayId],
-						claudeSpawns = claude[row.gatewayId],
-						copilotSpawns = copilot[row.gatewayId].orEmpty(),
+						hostSpawns = points[row.gatewayId]?.hostSpawns,
+						harnessSpawns = points[row.gatewayId]?.let(::harnessSpawnsOf),
 						routines = prior?.routines,
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),
 						policies = prior?.policies,
@@ -178,3 +179,17 @@ data class GatewayRegistry(
 	fun withEntry(gatewayId: String, change: (GatewayEntry) -> GatewayEntry): GatewayRegistry =
 		if (!has(gatewayId)) this else copy(gateways = gateways.map { if (it.id == gatewayId) change(it) else it })
 }
+
+/** Per CLI, the spawn points a Gateway's row names. */
+internal fun harnessSpawnsOf(row: GatewaySpawnPoints): Map<SessionHarness, List<String>> {
+	val sent = row.harnessSpawns ?: return legacySpawns(row.claudeSpawns, row.copilotSpawns)
+	return SessionHarness.entries.associateWith { sent.spawnsOf(it).orEmpty() }
+}
+
+// FIXME 2026-11-23: drop, with both old lists.
+/** An older Gateway's lists. With no Claude list it ran Claude on every host spawn point. */
+private fun legacySpawns(claude: List<String>?, copilot: List<String>?): Map<SessionHarness, List<String>> =
+	mapOf(
+		SessionHarness.CLAUDE to (claude ?: HOST_SPAWN_IDS.toList()),
+		SessionHarness.COPILOT to copilot.orEmpty(),
+	)

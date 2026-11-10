@@ -14,6 +14,14 @@ class SandboxSeederTest {
 	}
 
 	@Test
+	fun theSeededGatewaysRunDifferentAgents() {
+		val roster = listOf("sandbox", "parsing", "idle-box")
+		val registry = sandboxRegistry(roster, now = 5)
+
+		assertEquals(roster.size, roster.map { registry.agentsOn(it, "host") }.toSet().size)
+	}
+
+	@Test
 	fun theAssistantsThreadIsSeededWithoutATab() {
 		val assistant = Team("local.sandbox.host.assistant", Presence.ended(), role = ASSISTANT_ROLE)
 		val demo = Team("local.sandbox.host.demo", Presence.ended())

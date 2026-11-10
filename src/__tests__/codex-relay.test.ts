@@ -94,7 +94,7 @@ function setup(
 			return true;
 		},
 	});
-	const owner = store.mint({ spawn: options.project ?? "recipe-app", sessionLabel: "Work" });
+	const owner = store.mint({ spawn: options.project ?? "recipe-app", sessionLabel: "Work", harness: "claude" });
 	const token = store.ensureBindToken(owner);
 	store.activateBinding(owner);
 	store.confirm(store.teamOf(owner));
@@ -643,7 +643,7 @@ describe("Codex relay behavior", () => {
 		const firstBody = await (await context.route.handle(context.request(), first)).json();
 		const replayBody = await (await context.route.handle(context.request(), first)).json();
 		expect(replayBody).toEqual(firstBody);
-		const other = context.store.mint({ spawn: "recipe-app", sessionLabel: "Other" });
+		const other = context.store.mint({ spawn: "recipe-app", sessionLabel: "Other", harness: "claude" });
 		const otherToken = context.store.ensureBindToken(other);
 		context.store.activateBinding(other);
 		context.store.confirm(context.store.teamOf(other));

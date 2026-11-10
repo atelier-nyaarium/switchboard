@@ -36,6 +36,7 @@ import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.RefFileMeta
 import com.atelier_nyaarium.switchboard.proto.RefKeyMeta
 import com.atelier_nyaarium.switchboard.proto.RefSpanMeta
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.TeamInfo
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -68,12 +69,14 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			presence = sandboxPresence(),
 			kind = "loose",
 			sessionLabel = "Sandbox",
+			harness = SessionHarness.CLAUDE.wire,
 		),
 		Team(
 			name = SESSION_2,
 			presence = sandboxPresence(),
 			kind = "loose",
 			sessionLabel = "Second",
+			harness = SessionHarness.COPILOT.wire,
 		),
 		Team(
 			name = ASSISTANT,

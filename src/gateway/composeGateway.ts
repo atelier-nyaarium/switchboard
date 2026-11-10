@@ -2,6 +2,7 @@
 
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { hostSpawnPoint } from "../shared/host-spawn.js";
+import { pushesBaseline } from "../shared/session-harness.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
@@ -324,9 +325,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		baseline
 			.baselineFor(team)
 			.then((held) => {
-				if (sessions.sessionStore.getByTeam(team)?.harness === "copilot") awareness.baselineObserve(team, held);
+				const record = sessions.sessionStore.getByTeam(team);
+				if (record && pushesBaseline(record.harness)) awareness.baselineObserve(team, held);
 			})
-			.catch((error) => console.error(`[baseline] Copilot push failed for ${team}:`, error));
+			.catch((error) => console.error(`[baseline] push after compaction failed for ${team}:`, error));
 	});
 	const policies = composePolicies({
 		dataDir: bootstrap.dataDir,

@@ -9,7 +9,8 @@ import {
 	SWITCHBOARD_TOOL_PREFIX,
 } from "../../shared/assistant-session.js";
 import { type HostListDirsResult, isReservedHostSession, isTmuxName, type TmuxTarget } from "../../shared/host-op.js";
-import { ASKPASS_EXPORTS, buildHostLaunch, isHostSpawn, type SessionHarness } from "../../shared/host-spawn.js";
+import { ASKPASS_EXPORTS, agentTypeExport, buildHostLaunch, isHostSpawn } from "../../shared/host-spawn.js";
+import { HARNESS, type SessionHarness } from "../../shared/session-harness.js";
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { CHANNEL_FILES_DIR } from "../channel/channelFiles.js";
 
@@ -208,6 +209,21 @@ export function assistantPermissionArgs(workdir: string | undefined, home: strin
 	return `--permission-mode dontAsk --tools ${ASSISTANT_BUILTIN_TOOLS.join(",")} --settings "${json}"`;
 }
 
+interface LaunchArgsContext {
+	/** Validated; absent starts fresh. */
+	resumeSessionId?: string;
+	/** Claude's permission flags. */
+	permissions: () => string;
+}
+
+/** Quoted: brackets would glob in `bash -c`. */
+const LAUNCH_ARGS: Record<SessionHarness, (ctx: LaunchArgsContext) => string> = {
+	claude: (ctx) =>
+		`--model "opus[1m]" --effort xhigh ${ctx.permissions()} ${CHANNEL_FLAG}${ctx.resumeSessionId ? ` --resume ${ctx.resumeSessionId}` : ""}`,
+	// Its id names the session before it exists, so one flag starts and resumes.
+	copilot: (ctx) => `--allow-all --no-ask-user${ctx.resumeSessionId ? ` --session-id ${ctx.resumeSessionId}` : ""}`,
+};
+
 // One `bash -c`: the PROJECT_NAME override must run in the same shell as claude, after ~/.bashrc.
 // A host target dispatches on its spawn NAME through the registry, which is what lets a machine
 // offer more than one shell; `kind` stays the tmux LOCATION (bare tmux here, `docker exec` there)
@@ -216,34 +232,32 @@ export function assistantPermissionArgs(workdir: string | undefined, home: strin
 export function buildLaunchCommand(
 	target: TmuxTarget,
 	opts: {
+		harness: SessionHarness;
 		resumeSessionId?: string;
 		workdir?: string;
 		sessionToken?: string;
 		pathPrefix?: string;
-		harness?: SessionHarness;
-	} = {},
+	},
 ): string {
 	const composite = composeSessionName(target.name, target.sessionName);
 	const resumable = opts.resumeSessionId !== undefined && /^[0-9a-fA-F-]{8,}$/.test(opts.resumeSessionId);
-	const resume = resumable ? ` --resume ${opts.resumeSessionId}` : "";
 	// Refused, not dropped: a session that cannot claim its name is harder to diagnose.
 	if (opts.sessionToken && !/^[0-9a-f]{16,}$/.test(opts.sessionToken)) {
 		throw new Error(`refusing to launch: session token is not the expected hex form`);
 	}
 	const exportToken = opts.sessionToken ? `export SWITCHBOARD_SESSION_TOKEN=${opts.sessionToken}; ` : "";
-	// Everything after argv[0]. The binary itself belongs to the spawn point: a Windows session runs
-	// `claude.exe`, since bare `claude` does not resolve from PowerShell. Quoted: the brackets would
-	// otherwise glob in the nested `bash -c`.
-	const permissions =
-		composite === ASSISTANT_TEAM ? assistantPermissionArgs(opts.workdir) : "--dangerously-skip-permissions";
-	const copilot = opts.harness === "copilot";
-	if (copilot && (target.kind !== "host" || composite === ASSISTANT_TEAM)) {
-		throw new Error("refusing to launch: Copilot runs only on a host spawn point, and never as the assistant");
+	const row = HARNESS[opts.harness];
+	if (target.kind !== "host" && !row.containers) {
+		throw new Error(`refusing to launch: ${row.label} runs only on a host spawn point`);
 	}
-	// Copilot's id names the session whether or not it exists yet, so one flag starts and resumes it.
-	const agentArgs = copilot
-		? `--allow-all --no-ask-user${resumable ? ` --session-id ${opts.resumeSessionId}` : ""}`
-		: `--model "opus[1m]" --effort xhigh ${permissions} ${CHANNEL_FLAG}${resume}`;
+	if (composite === ASSISTANT_TEAM && !row.assistant) {
+		throw new Error(`refusing to launch: ${row.label} never runs as the assistant`);
+	}
+	const agentArgs = LAUNCH_ARGS[opts.harness]({
+		...(resumable ? { resumeSessionId: opts.resumeSessionId } : {}),
+		permissions: () =>
+			composite === ASSISTANT_TEAM ? assistantPermissionArgs(opts.workdir) : "--dangerously-skip-permissions",
+	});
 	if (target.kind === "host") {
 		// Either quote would break out of the nesting, so a workdir bearing one is dropped.
 		const safeWorkdir = opts.workdir && !opts.workdir.includes("'") && !opts.workdir.includes('"');
@@ -251,15 +265,15 @@ export function buildLaunchCommand(
 		const safePathPrefix = opts.pathPrefix && /^\/[A-Za-z0-9_./-]+$/.test(opts.pathPrefix);
 		return buildHostLaunch(target.name, {
 			composite,
-			...(copilot ? { harness: opts.harness } : {}),
+			harness: opts.harness,
 			agentArgs,
 			exportToken,
 			workdir: safeWorkdir ? opts.workdir : undefined,
 			pathPrefix: safePathPrefix ? opts.pathPrefix : undefined,
 		});
 	}
-	// `exec bash` keeps the pane peekable after claude exits or never starts, as the host launch does.
-	return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${composite}; ${exportToken}${ASKPASS_EXPORTS}cd /workspace/${target.name}; claude ${agentArgs}; exec bash'`;
+	// Keeps the pane peekable after exit.
+	return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${composite}; ${agentTypeExport(opts.harness)}${exportToken}${ASKPASS_EXPORTS}cd /workspace/${target.name}; ${row.binary.posix} ${agentArgs}; exec bash'`;
 }
 
 ////////////////////////////////

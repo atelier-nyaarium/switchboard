@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleListDirsResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +26,8 @@ class SessionOpsTest {
 		override val spawnRetryWindowMs = 40_000L
 		override val forgetTombstoneMs = 50_000L
 		override val forgetRetryMs = 60_000L
-		val created = mutableListOf<String>()
+		val created = mutableListOf<Pair<String, String>>()
+		val closed = mutableListOf<String>()
 		val remembered = mutableListOf<String>()
 		val wakes = mutableListOf<String>()
 		val forgotten = mutableListOf<Triple<String, String?, String>>()
@@ -46,12 +48,12 @@ class SessionOpsTest {
 			displayLabel: String?,
 			workdir: String?,
 			opId: String,
-			harness: String?,
-		) = ConsoleCreateSessionResult(created = true, id = sessionName ?: "minted").also { created += target }
+			harness: String,
+		) = ConsoleCreateSessionResult(created = true, id = sessionName ?: "minted").also { created += target to harness }
 		override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) = Unit
 		override suspend fun listDirs(path: String, hostTarget: String, spawn: String) = ConsoleListDirsResult(emptyList())
 		override suspend fun wake(target: String, opId: String) { wakes += target }
-		override suspend fun closeSession(team: String) = Unit
+		override suspend fun closeSession(team: String) { closed += team }
 		override suspend fun forget(team: String, boardDisposition: String?, opId: String): String? {
 			forgotten += Triple(team, boardDisposition, opId)
 			if (forgetFails) error("offline")
@@ -83,15 +85,41 @@ class SessionOpsTest {
 	private fun journalDir() = Files.createTempDirectory("forget-journal").toFile()
 
 	@Test
-	fun spawnRecordsProjectAndSettlesPendingState() = runBlocking {
+	fun spawnNamesItsCliRecordsProjectAndSettlesPendingState() = runBlocking {
 		val host = FakeHost()
 		val presence = RecordingPresencePort()
-		SessionOps(host, presence, MutationJournal(journalDir())).spawnSession("dom.gw.project", "label", "/work")
+		SessionOps(host, presence, MutationJournal(journalDir()))
+			.spawnSession("dom.gw.project", "label", "/work", SessionHarness.CLAUDE)
 
 		assertEquals(listOf("dom.gw.project"), host.remembered)
-		assertEquals(listOf("dom.gw.project"), host.created)
+		assertEquals(listOf("dom.gw.project" to SessionHarness.CLAUDE.wire), host.created)
 		assertEquals(emptySet<Pair<String, String>>(), host.state.value.pendingSpawns)
 		assertEquals(1, presence.refreshes)
+	}
+
+	private fun relaunched(harness: String?): FakeHost = runBlocking {
+		val host = FakeHost()
+		val team = "dom.gw.host.session"
+		host.state.value = ChatState(gateways = testRegistry("gw"), teams = listOf(testTeam(team, harness = harness)))
+		SessionOps(host, RecordingPresencePort(), MutationJournal(journalDir())).relaunchSession(team)
+		host
+	}
+
+	@Test
+	fun relaunchNamesTheRowsCli() {
+		val host = relaunched(SessionHarness.COPILOT.wire)
+
+		assertEquals(listOf("dom.gw.host.session"), host.closed)
+		assertEquals(listOf("dom.gw.host" to SessionHarness.COPILOT.wire), host.created)
+	}
+
+	@Test
+	fun relaunchSendsBackAWordThisAppDoesNotKnowAndClaudesForARowWithNone() {
+		val unknown = relaunched("not-a-cli")
+
+		assertEquals(listOf("dom.gw.host.session"), unknown.closed)
+		assertEquals(listOf("dom.gw.host" to "not-a-cli"), unknown.created)
+		assertEquals(listOf("dom.gw.host" to SessionHarness.CLAUDE.wire), relaunched(null).created)
 	}
 
 	@Test

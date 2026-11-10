@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { HostOp, HostOpResult, TypeIntoPaneResult } from "../../shared/host-op.js";
 import { isHostSpawn } from "../../shared/host-spawn.js";
+import { HARNESS } from "../../shared/session-harness.js";
 import { jsonResponse } from "../routeSchemas.js";
 import type { SessionAuthority } from "../sessionAuthority.js";
 
@@ -30,8 +31,8 @@ export function createSessionRoutes({ auth, relayToHost }: SessionRoutesDeps) {
 
 		const record = auth?.resolveConfirmedManagedSession(req);
 		if (!record) return jsonResponse({ error: "a confirmed session token is required" }, 403);
-		if (record.harness !== "copilot" || !isHostSpawn(record.spawn)) {
-			return jsonResponse({ error: "typed delivery is only available to Copilot host sessions" }, 403);
+		if (HARNESS[record.harness].delivery !== "typed" || !isHostSpawn(record.spawn)) {
+			return jsonResponse({ error: "typed delivery is not available to this session" }, 403);
 		}
 		if (!relayToHost) return jsonResponse({ error: "host daemon unavailable" }, 503);
 

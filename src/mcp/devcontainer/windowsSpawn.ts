@@ -9,6 +9,7 @@
 import { execFileSync } from "node:child_process";
 import { type HostListDirsResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { isUncPath, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
+import { HARNESS, SESSION_HARNESSES, type SessionHarness } from "../../shared/session-harness.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -18,8 +19,8 @@ export interface WindowsSpawnAvailability {
 	/** `$env:USERPROFILE`, the Windows-side default working directory. A Windows session must never
 	 * fall back to the WSL home, which translates to a UNC path. */
 	userProfile?: string;
-	/** `copilot.exe` resolves too, so a Copilot session can run there. */
-	copilot?: boolean;
+	/** The CLIs that resolve there. */
+	harnesses?: SessionHarness[];
 	/** Why it is unavailable, for the log. Never surfaced to a caller as a target. */
 	reason?: string;
 }
@@ -56,20 +57,24 @@ function run(file: string, args: string[]): string | null {
  * than the work. `-NoProfile` so a user's profile cannot change the answer.
  */
 export function probeWindowsSpawn(): WindowsSpawnAvailability {
+	const finds = SESSION_HARNESSES.map(
+		(harness) =>
+			`$c = Get-Command ${HARNESS[harness].binary.windows} -ErrorAction SilentlyContinue; if ($c) { Write-Output "${harness}=$($c.Source)" }`,
+	);
 	const out = run("powershell.exe", [
 		"-NoLogo",
 		"-NoProfile",
 		"-Command",
-		'$c = Get-Command claude.exe -ErrorAction SilentlyContinue; if ($c) { Write-Output "claude=$($c.Source)" }; $p = Get-Command copilot.exe -ErrorAction SilentlyContinue; if ($p) { Write-Output "copilot=$($p.Source)" }; Write-Output "profile=$env:USERPROFILE"',
+		`${finds.join("; ")}; Write-Output "profile=$env:USERPROFILE"`,
 	]);
 	if (out == null) return { available: false, reason: `powershell.exe did not run` };
-	const claude = /^claude=(.+)$/m.exec(out)?.[1]?.trim();
-	if (!claude) return { available: false, reason: `claude.exe is not on the Windows PATH` };
+	const harnesses = SESSION_HARNESSES.filter((harness) => new RegExp(`^${harness}=.+$`, "m").test(out));
+	if (!harnesses.includes("claude")) return { available: false, reason: `claude.exe is not on the Windows PATH` };
 	const userProfile = /^profile=(.+)$/m.exec(out)?.[1]?.trim();
 	if (!userProfile || isUncPath(userProfile)) {
 		return { available: false, reason: `unusable Windows home ${userProfile ?? "(none)"}` };
 	}
-	return { available: true, userProfile, copilot: /^copilot=.+$/m.test(out) };
+	return { available: true, userProfile, harnesses };
 }
 
 /**

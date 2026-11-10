@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 
 /** Every dialog here holds a half-finished intent: a typed goal, a picked time, a draft edit. A tap
  * beside the dialog is usually a mis-hit, so it must not discard one. Back still dismisses. */
@@ -229,8 +230,8 @@ fun CreateSessionDialog(
 	rememberedProject: String?,
 	// Which agent CLIs a project's spawn point can run.
 	agentsOf: (String) -> SpawnAgents,
-	// (target, label, workdir, harness); a null harness is Claude.
-	onSpawn: (String, String, String?, String?) -> Unit,
+	// (target, label, workdir, harness)
+	onSpawn: (String, String, String?, SessionHarness) -> Unit,
 	onDismiss: () -> Unit,
 ) {
 	val offered = spawnableProjects(projects, agentsOf)
@@ -324,7 +325,7 @@ fun CreateSessionDialog(
 					val target = selectedTarget ?: return@hapticClick
 					val running = harness ?: return@hapticClick
 					val workdir = dirText.takeIf { project in HOST_SPAWN_IDS && it.isNotEmpty() }
-					onSpawn(target, trimmed, workdir, running.wire)
+					onSpawn(target, trimmed, workdir, running)
 				},
 			) { Text("Spawn") }
 		},
@@ -340,15 +341,9 @@ fun CreateSessionDialog(
 // server-side rejection once submitted.
 internal const val SESSION_LABEL_MAX_CHARS = 64
 
-/** The agent CLI a new session runs; `wire` is what `create_session` carries, null for Claude. */
-internal enum class SessionHarness(val label: String, val wire: String?) {
-	CLAUDE("Claude", null),
-	COPILOT("Copilot", "copilot"),
-}
-
 /** The agents a spawn point runs, in the order they are offered. */
 internal fun harnessesOf(agents: SpawnAgents): List<SessionHarness> =
-	SessionHarness.entries.filter { if (it == SessionHarness.COPILOT) agents.copilot else agents.claude }
+	SessionHarness.entries.filter { it in agents.installed }
 
 /** The projects whose spawn point runs any agent. */
 internal fun spawnableProjects(projects: List<String>, agentsOf: (String) -> SpawnAgents): List<String> =

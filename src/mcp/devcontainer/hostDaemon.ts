@@ -27,6 +27,13 @@ import { HOST_SPAWN, isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.
 import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
+import {
+	HARNESS,
+	type HarnessRow,
+	SESSION_HARNESSES,
+	type SessionHarness,
+	wireHarness,
+} from "../../shared/session-harness.js";
 import { parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { createClaudeRunner } from "./claudeRunner.js";
@@ -51,7 +58,7 @@ import {
 } from "./hostResolve.js";
 import { createKasaScanner } from "./kasaScan.js";
 import { PromptOccurrences, seePrompt } from "./permissionPrompt.js";
-import { PresenceScheduler, type WatchEntry } from "./presenceScheduler.js";
+import { PresenceScheduler, readWatch, type WatchEntry } from "./presenceScheduler.js";
 import { answerPrompt, continueAfterLimit, dismissSurvey, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
 import {
@@ -240,17 +247,27 @@ function connect(): void {
 		// anything consumes it: daemon first, gateway next, console last, each safe on its own.
 		const windows = windowsAvailability();
 		const hostSpawns = detectedHostSpawns(windows);
-		// Which agent CLIs each spawn point can run; the phone's create pick and install macros read it.
-		// A Windows spawn point exists only where `claude.exe` resolves.
-		const claudeSpawns = [
-			...(isBinaryOnPath("claude") ? [HOST_SPAWN] : []),
-			...(windows.available ? [WINDOWS_SPAWN] : []),
-		];
-		const copilotSpawns = [
-			...(isBinaryOnPath("copilot") ? [HOST_SPAWN] : []),
-			...(windows.available && windows.copilot ? [WINDOWS_SPAWN] : []),
-		];
-		ws!.send(JSON.stringify({ type: "catalog", projects, hostSpawns, claudeSpawns, copilotSpawns }));
+		// The phone's create pick and install macros read it.
+		const harnessSpawns = Object.fromEntries(
+			SESSION_HARNESSES.map((harness) => [
+				harness,
+				[
+					...(isBinaryOnPath(HARNESS[harness].binary.posix) ? [HOST_SPAWN] : []),
+					...(windows.available && windows.harnesses?.includes(harness) ? [WINDOWS_SPAWN] : []),
+				],
+			]),
+		) as Record<SessionHarness, string[]>;
+		ws!.send(
+			JSON.stringify({
+				type: "catalog",
+				projects,
+				hostSpawns,
+				harnessSpawns,
+				// FIXME 2026-11-23: drop both, once every Gateway reads `harnessSpawns`.
+				claudeSpawns: harnessSpawns.claude,
+				copilotSpawns: harnessSpawns.copilot,
+			}),
+		);
 		console.error(
 			`[host-wake] sent catalog with ${projects.length} projects` +
 				(hostSpawns.length ? ` and host spawn points: ${hostSpawns.join(", ")}` : ""),
@@ -300,18 +317,16 @@ function connect(): void {
 			const entries: WatchEntry[] = [];
 			const follows: CompactionFollow[] = [];
 			for (const raw of msg.watch) {
-				if (typeof raw?.team !== "string" || typeof raw?.cadenceMs !== "number") continue;
-				const target = resolveWatchTarget(raw.team);
-				if (!target) continue;
-				const copilot =
-					typeof raw.copilotSessionId === "string" && COPILOT_SESSION_RE.test(raw.copilotSessionId);
-				entries.push({
-					team: raw.team,
-					target,
-					cadenceMs: raw.cadenceMs,
-					backend: copilot ? "copilot" : "claude",
-				});
-				if (copilot) follows.push({ team: raw.team, copilotSessionId: raw.copilotSessionId });
+				const watch = readWatch(raw);
+				const target = watch && resolveWatchTarget(watch.team);
+				if (!watch || !target) continue;
+				const row = HARNESS[watch.harness];
+				// Only a pane is peeked.
+				if (row.state !== "pane") continue;
+				entries.push({ team: watch.team, target, cadenceMs: watch.cadenceMs, backend: watch.harness });
+				if (FOLLOWS_EVENTS_FILE[row.compaction] && watch.sessionId) {
+					follows.push({ team: watch.team, copilotSessionId: watch.sessionId });
+				}
 			}
 			void presenceScheduler.setWatches(entries);
 			compactionFollower.setFollows(follows);
@@ -341,8 +356,9 @@ interface WakeMessage {
 	type: "wake";
 	team: string;
 	projectPath?: string;
-	// Host only. Absent is Claude.
-	harness?: "copilot";
+	// FIXME 2026-11-23: required, once every Gateway names it.
+	/** Absent means Claude. */
+	harness?: SessionHarness;
 	resumeSessionId?: string;
 	// Host only: ~/projects/<hint>.
 	workdirHint?: string;
@@ -373,6 +389,22 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 	if (!isTmuxName(project) || !isTmuxName(session)) {
 		console.error(`[host-wake] refusing wake of "${msg.team}": invalid project/session name`);
 		safeSend({ type: "wake_result", team: msg.team, success: false, error: "invalid session name" });
+		return;
+	}
+	let harness: SessionHarness;
+	try {
+		harness = wireHarness(msg.harness);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.error(`[host-wake] refusing wake of "${msg.team}": ${message}`);
+		safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
+		return;
+	}
+	// Before any container starts.
+	if (!isHostSpawn(project) && !HARNESS[harness].containers) {
+		const message = `${HARNESS[harness].label} runs only on a host spawn point`;
+		console.error(`[host-wake] refusing wake of "${msg.team}": ${message}`);
+		safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
 		return;
 	}
 	// The daemon shares this tmux server. Registry-wide rather than the bare literal, so every host
@@ -418,7 +450,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 				workdir: resolved.workdir,
 				sessionToken: msg.sessionToken,
 				pathPrefix: LAUNCH_PATH_PREFIX,
-				...(msg.harness === "copilot" ? { harness: "copilot" as const } : {}),
+				harness,
 			});
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -496,6 +528,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		const { created } = await ensureSession(
 			target,
 			buildLaunchCommand(target, {
+				harness,
 				resumeSessionId: msg.resumeSessionId,
 				sessionToken: msg.sessionToken,
 				pathPrefix: LAUNCH_PATH_PREFIX,
@@ -584,7 +617,7 @@ const hostOpRunner = createHostOpRunner({
 				resumeSessionId,
 				sessionToken,
 				pathPrefix: LAUNCH_PATH_PREFIX,
-				harness,
+				harness: wireHarness(harness),
 			}),
 		);
 		if (created) {
@@ -612,8 +645,6 @@ const hostOpRunner = createHostOpRunner({
 
 ////////////////////////////////
 //  Presence derivation (board tile working/needsLogin/limitBlocked)
-
-const COPILOT_SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // resize=false and priority="derive": never disturb an actively-viewed terminal.
 const presenceScheduler = new PresenceScheduler({
@@ -655,6 +686,9 @@ const presenceScheduler = new PresenceScheduler({
 });
 
 // Copilot's own file says when it compacts; the pane cannot.
+/** Whether the daemon tails the CLI's own events file. */
+const FOLLOWS_EVENTS_FILE: Record<HarnessRow["compaction"], boolean> = { hook: false, "copilot-events": true };
+
 const compactionFollower = createCompactionFollower({
 	home: os.homedir(),
 	onChange: (team, compacting) => presenceScheduler.setOverlay(team, compacting ? { compacting: true } : undefined),

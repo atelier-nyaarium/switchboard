@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { processAmbient } from "../shared/ambient.js";
 import { CopilotPersistedAgentSchema, copilotOperationFingerprint } from "../shared/copilot-agent.js";
 import { sanitizeLabel, sanitizeWorkdirPath } from "../shared/session-sanitize.js";
-import { type CopilotCatalogWriter, SessionStore } from "../shared/session-store.js";
+import { type CopilotCatalogWriter, resumeIdOf, SessionStore } from "../shared/session-store.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 function scriptedIds(...ids: string[]) {
@@ -118,7 +118,7 @@ describe("SessionStore migration", () => {
 		const labels = [store.getByTeam("host.aaa111")?.sessionLabel, store.getByTeam("host.bbb222")?.sessionLabel];
 		expect(new Set(labels).size).toBe(2);
 		store.forget("host.aaa111");
-		expect(store.mint({ spawn: "host", sessionLabel: "dup" }).sessionLabel).not.toBe(
+		expect(store.mint({ spawn: "host", harness: "claude", sessionLabel: "dup" }).sessionLabel).not.toBe(
 			store.getByTeam("host.bbb222")?.sessionLabel,
 		);
 	});
@@ -127,7 +127,7 @@ describe("SessionStore migration", () => {
 describe("SessionStore composite keying", () => {
 	it("bindBySegment rebinds the resume id onto the same record without duplicating", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.adoptById("abc123", { spawn: "host", claudeSessionId: "t-1" });
+		store.adoptById("abc123", { spawn: "host", harness: "claude", claudeSessionId: "t-1" });
 		expect(store.getByTeam("host.abc123")).toMatchObject({ id: "abc123", spawn: "host", claudeSessionId: "t-1" });
 		store.bindBySegment("host.abc123", { claudeSessionId: "t-2" });
 		expect(store.size).toBe(1);
@@ -136,8 +136,8 @@ describe("SessionStore composite keying", () => {
 
 	it("two spawns sharing a segment stay separate, each resumable by its own transcript", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.adoptById("claude", { spawn: "host", claudeSessionId: "host-tx" });
-		store.adoptById("claude", { spawn: "recipe-app", claudeSessionId: "app-tx" });
+		store.adoptById("claude", { spawn: "host", harness: "claude", claudeSessionId: "host-tx" });
+		store.adoptById("claude", { spawn: "recipe-app", harness: "claude", claudeSessionId: "app-tx" });
 		expect(store.size).toBe(2);
 		expect(store.getByTeam("host.claude")?.claudeSessionId).toBe("host-tx");
 		expect(store.getByTeam("recipe-app.claude")?.claudeSessionId).toBe("app-tx");
@@ -154,34 +154,34 @@ describe("SessionStore mint / adopt", () => {
 			clash: (id) => id === "reserved",
 			idGen: scriptedIds("taken", "reserved", "fresh1"),
 		});
-		store.adoptById("taken", { spawn: "host" });
-		const rec = store.mint({ spawn: "host", sessionLabel: "My Session" });
+		store.adoptById("taken", { spawn: "host", harness: "claude" });
+		const rec = store.mint({ spawn: "host", harness: "claude", sessionLabel: "My Session" });
 		expect(rec.id).toBe("fresh1");
 		expect(rec.sessionLabel).toBe("My Session");
 	});
 
 	it("adopts a caller-supplied free id and refuses a taken or non-slug or reserved one", () => {
 		const store = new SessionStore({ ambient: processAmbient(), clash: (id) => id === "host-daemon" });
-		expect(store.adoptById("mywork", { spawn: "host" })?.id).toBe("mywork");
-		expect(store.adoptById("mywork", { spawn: "host" })).toBeNull();
-		expect(store.adoptById("host-daemon", { spawn: "host" })).toBeNull();
-		expect(store.adoptById("Bad Name", { spawn: "host" })).toBeNull();
-		expect(store.adoptById("mywork", { spawn: "recipe-app" })?.id).toBe("mywork");
+		expect(store.adoptById("mywork", { spawn: "host", harness: "claude" })?.id).toBe("mywork");
+		expect(store.adoptById("mywork", { spawn: "host", harness: "claude" })).toBeNull();
+		expect(store.adoptById("host-daemon", { spawn: "host", harness: "claude" })).toBeNull();
+		expect(store.adoptById("Bad Name", { spawn: "host", harness: "claude" })).toBeNull();
+		expect(store.adoptById("mywork", { spawn: "recipe-app", harness: "claude" })?.id).toBe("mywork");
 	});
 
 	it("adoptOrReattach creates fresh, reattaches an existing record, and refuses a reserved id", () => {
 		const store = new SessionStore({ ambient: processAmbient(), clash: (id) => id === "host-daemon" });
-		const first = store.adoptOrReattach("work", { spawn: "host", sessionLabel: "Work" });
+		const first = store.adoptOrReattach("work", { spawn: "host", harness: "claude", sessionLabel: "Work" });
 		expect(first).toMatchObject({ created: true, record: { id: "work", sessionLabel: "Work" } });
-		const again = store.adoptOrReattach("work", { spawn: "host", sessionLabel: "ignored" });
+		const again = store.adoptOrReattach("work", { spawn: "host", harness: "claude", sessionLabel: "ignored" });
 		expect(again).toMatchObject({ created: false, record: { id: "work", sessionLabel: "Work" } });
 		expect(store.size).toBe(1);
-		expect(store.adoptOrReattach("host-daemon", { spawn: "host" })).toBeNull();
+		expect(store.adoptOrReattach("host-daemon", { spawn: "host", harness: "claude" })).toBeNull();
 	});
 
 	it("findByMintedFrom finds a gateway-minted record by its own provenance, scoped to a spawn", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("minted1") });
-		const rec = store.mint({ spawn: "host", sessionLabel: "Work", mintedFrom: "conv:op1" });
+		const rec = store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work", mintedFrom: "conv:op1" });
 		expect(store.findByMintedFrom("conv:op1", "host")).toBe(rec);
 		expect(store.findByMintedFrom("conv:op1", "other-spawn")).toBeUndefined();
 		expect(store.findByMintedFrom("conv:unrelated", "host")).toBeUndefined();
@@ -189,14 +189,14 @@ describe("SessionStore mint / adopt", () => {
 
 	it("findByMintedFrom refuses to trust an ambiguous match rather than pick either record", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("dup-a", "dup-b") });
-		store.mint({ spawn: "host", sessionLabel: "A", mintedFrom: "conv:op1" });
-		store.mint({ spawn: "host", sessionLabel: "B", mintedFrom: "conv:op1" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "A", mintedFrom: "conv:op1" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "B", mintedFrom: "conv:op1" });
 		expect(store.findByMintedFrom("conv:op1", "host")).toBeUndefined();
 	});
 
 	it("findByMintedFrom still resolves a record after it has been renamed", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("minted1") });
-		const rec = store.mint({ spawn: "host", sessionLabel: "Work", mintedFrom: "conv:op1" });
+		const rec = store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work", mintedFrom: "conv:op1" });
 		store.rename("host.minted1", "Renamed");
 		expect(store.findByMintedFrom("conv:op1", "host")).toBe(rec);
 		expect(rec.sessionLabel).toBe("Renamed");
@@ -204,13 +204,28 @@ describe("SessionStore mint / adopt", () => {
 
 	it("mintOrReattach mints fresh on a first call, then reattaches the SAME record for a retry sharing the same provenance", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("minted1", "minted2") });
-		const first = store.mintOrReattach({ spawn: "host", sessionLabel: "Work", mintedFrom: "conv:op1" });
+		const first = store.mintOrReattach({
+			spawn: "host",
+			harness: "claude",
+			sessionLabel: "Work",
+			mintedFrom: "conv:op1",
+		});
 		expect(first).toMatchObject({ created: true, record: { id: "minted1", sessionLabel: "Work" } });
 		// Matching provenance preserves the label.
-		const retry = store.mintOrReattach({ spawn: "host", sessionLabel: "ignored", mintedFrom: "conv:op1" });
+		const retry = store.mintOrReattach({
+			spawn: "host",
+			harness: "claude",
+			sessionLabel: "ignored",
+			mintedFrom: "conv:op1",
+		});
 		expect(retry).toMatchObject({ created: false, record: { id: "minted1", sessionLabel: "Work" } });
 		expect(store.size).toBe(1);
-		const other = store.mintOrReattach({ spawn: "host", sessionLabel: "Other", mintedFrom: "conv:op2" });
+		const other = store.mintOrReattach({
+			spawn: "host",
+			harness: "claude",
+			sessionLabel: "Other",
+			mintedFrom: "conv:op2",
+		});
 		// Different provenance separates records under one spawn.
 		expect(other).toMatchObject({ created: true, record: { id: "minted2", sessionLabel: "Other" } });
 		expect(store.size).toBe(2);
@@ -220,7 +235,7 @@ describe("SessionStore mint / adopt", () => {
 describe("SessionStore confirm-time binding", () => {
 	it("bindResume finds the record holding the transcript, wherever it re-incarnates", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.mint({ spawn: "host", sessionLabel: "phone session", claudeSessionId: "t-99" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "phone session", claudeSessionId: "t-99" });
 		const live = { team: "host.5f5f5f", subId: "s2" };
 		const rec = store.bindResume("t-99", { live });
 		expect(rec?.sessionLabel).toBe("phone session");
@@ -230,8 +245,8 @@ describe("SessionStore confirm-time binding", () => {
 
 	it("clearLive drops only the exact (team, subId) incarnation, not a sibling sharing the team", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.adoptById("aaa111", { spawn: "host" });
-		store.adoptById("bbb222", { spawn: "host" });
+		store.adoptById("aaa111", { spawn: "host", harness: "claude" });
+		store.adoptById("bbb222", { spawn: "host", harness: "claude" });
 		store.bindBySegment("host.aaa111", { live: { team: "host.zzz", subId: "s1" } });
 		store.bindBySegment("host.bbb222", { live: { team: "host.zzz", subId: "s2" } });
 		store.clearLive("host.zzz", "s1");
@@ -242,7 +257,7 @@ describe("SessionStore confirm-time binding", () => {
 	it("confirm stamps the handshake time on a known team and is a no-op on an unknown one", () => {
 		let clock = 500;
 		const store = new SessionStore({ ambient: fakeAmbient({ now: () => clock }), idGen: scriptedIds("known1") });
-		store.mint({ spawn: "host" });
+		store.mint({ spawn: "host", harness: "claude" });
 		clock = 900;
 		expect(store.confirm("host.known1")).toMatchObject({ confirmedAt: 900, lastSeen: 900 });
 		expect(store.confirm("host.nosuch")).toBeUndefined();
@@ -254,9 +269,10 @@ describe("SessionStore establishOnConfirm binding order", () => {
 
 	it("tier 1: binds an existing record its segment names, without duplicating", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.adoptById("mywork", { spawn: "host", sessionLabel: "My Work" });
+		store.adoptById("mywork", { spawn: "host", harness: "claude", sessionLabel: "My Work" });
 		const rec = store.establishOnConfirm("host.mywork", {
 			claudeSessionId: "tx-9",
+			harness: "claude",
 			live: { team: "host.mywork", subId: "s1" },
 		});
 		expect(store.size).toBe(1);
@@ -270,9 +286,10 @@ describe("SessionStore establishOnConfirm binding order", () => {
 
 	it("tier 2: binds the record holding a matching transcript id, under a fresh segment", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.adoptById("orig", { spawn: "host", claudeSessionId: "tx-7" });
+		store.adoptById("orig", { spawn: "host", harness: "claude", claudeSessionId: "tx-7" });
 		const rec = store.establishOnConfirm("host.fresh1", {
 			claudeSessionId: "tx-7",
+			harness: "claude",
 			live: { team: "host.fresh1", subId: "s2" },
 		});
 		expect(store.size).toBe(1);
@@ -282,7 +299,12 @@ describe("SessionStore establishOnConfirm binding order", () => {
 
 	it("tier 3: adopts a free segment and labels it by the reported cwd", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		const rec = store.establishOnConfirm("host.abc123", { claudeSessionId: "tx-1", label: "switchboard", live });
+		const rec = store.establishOnConfirm("host.abc123", {
+			claudeSessionId: "tx-1",
+			harness: "claude",
+			label: "switchboard",
+			live,
+		});
 		expect(rec).toMatchObject({ id: "abc123", sessionLabel: "switchboard", claudeSessionId: "tx-1" });
 	});
 
@@ -292,15 +314,31 @@ describe("SessionStore establishOnConfirm binding order", () => {
 			clash: (id) => id === "evie-bot",
 			idGen: scriptedIds("minted1"),
 		});
-		const rec = store.establishOnConfirm("host.evie-bot", { label: "evie-bot", live });
+		const rec = store.establishOnConfirm("host.evie-bot", { harness: "claude", label: "evie-bot", live });
 		expect(store.getByTeam("host.evie-bot")).toBeUndefined();
 		expect(rec).toMatchObject({ id: "minted1", sessionLabel: "evie-bot" });
+	});
+
+	it("creates no record for a CLI that answers no handshake, or for none it knows", () => {
+		const store = new SessionStore({ ambient: processAmbient() });
+
+		expect(store.establishOnConfirm("host.abc123", { harness: "copilot", live })).toBeUndefined();
+		expect(store.establishOnConfirm("host.abc123", { harness: null, live })).toBeUndefined();
+		expect(store.size).toBe(0);
+		expect(store.establishOnConfirm("host.abc123", { harness: "claude", live })).toMatchObject({
+			id: "abc123",
+			harness: "claude",
+		});
 	});
 
 	it("a bare spawn-point team establishes no record", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
 		expect(
-			store.establishOnConfirm("someproj", { claudeSessionId: "tx-1", live: { team: "someproj", subId: "s1" } }),
+			store.establishOnConfirm("someproj", {
+				claudeSessionId: "tx-1",
+				harness: "claude",
+				live: { team: "someproj", subId: "s1" },
+			}),
 		).toBeUndefined();
 		expect(store.size).toBe(0);
 	});
@@ -309,23 +347,29 @@ describe("SessionStore establishOnConfirm binding order", () => {
 describe("SessionStore labels and paths", () => {
 	it("dedups labels per spawn with a -# suffix; other spawns may reuse the label", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("id1", "id2", "id3") });
-		expect(store.mint({ spawn: "host", sessionLabel: "switchboard" }).sessionLabel).toBe("switchboard");
-		expect(store.mint({ spawn: "host", sessionLabel: "switchboard" }).sessionLabel).toBe("switchboard-2");
-		expect(store.mint({ spawn: "recipe-app", sessionLabel: "switchboard" }).sessionLabel).toBe("switchboard");
+		expect(store.mint({ spawn: "host", harness: "claude", sessionLabel: "switchboard" }).sessionLabel).toBe(
+			"switchboard",
+		);
+		expect(store.mint({ spawn: "host", harness: "claude", sessionLabel: "switchboard" }).sessionLabel).toBe(
+			"switchboard-2",
+		);
+		expect(store.mint({ spawn: "recipe-app", harness: "claude", sessionLabel: "switchboard" }).sessionLabel).toBe(
+			"switchboard",
+		);
 	});
 
 	it("frees a label on forget so it can be reused without a suffix", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("id1", "id2") });
-		store.mint({ spawn: "host", sessionLabel: "alpha" });
-		expect(store.mint({ spawn: "host", sessionLabel: "alpha" }).sessionLabel).toBe("alpha-2");
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "alpha" });
+		expect(store.mint({ spawn: "host", harness: "claude", sessionLabel: "alpha" }).sessionLabel).toBe("alpha-2");
 		store.forget("host.id1");
-		expect(store.mint({ spawn: "host", sessionLabel: "alpha" }).sessionLabel).toBe("alpha");
+		expect(store.mint({ spawn: "host", harness: "claude", sessionLabel: "alpha" }).sessionLabel).toBe("alpha");
 	});
 
 	it("rename applies sanitization + dedup and reports the label actually applied", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("id1", "id2") });
-		store.mint({ spawn: "host", sessionLabel: "alpha" });
-		store.mint({ spawn: "host", sessionLabel: "beta" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "alpha" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "beta" });
 		expect(store.rename("host.id2", "alpha")).toBe("alpha-2");
 		expect(store.rename("host.id2", "../escape")).toBeNull();
 		expect(store.getByTeam("host.id2")?.sessionLabel).toBe("alpha-2");
@@ -364,20 +408,20 @@ describe("SessionStore labels and paths", () => {
 
 	it("mint falls back to safe defaults when the supplied label and hint are unsafe", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("safe01") });
-		const rec = store.mint({ spawn: "host", sessionLabel: "../evil", workdirHint: "a/b" });
+		const rec = store.mint({ spawn: "host", harness: "claude", sessionLabel: "../evil", workdirHint: "a/b" });
 		expect(rec.sessionLabel).toBe("safe01");
 		expect(rec.workdirHint).toBeUndefined();
 	});
 
 	it("hostWorkdirHint pins the workdir to the original label across a rename, else falls back to the label", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("id1", "id2") });
-		const rec = store.mint({ spawn: "host", sessionLabel: "app", workdirHint: "app" });
+		const rec = store.mint({ spawn: "host", harness: "claude", sessionLabel: "app", workdirHint: "app" });
 		// Rename changes only the label.
 		store.rename("host.id1", "renamed");
 		expect(rec.sessionLabel).toBe("renamed");
 		// Original workdir stays pinned.
 		expect(store.hostWorkdirHint(rec)).toBe("app");
-		const bare = store.mint({ spawn: "host", sessionLabel: "solo" });
+		const bare = store.mint({ spawn: "host", harness: "claude", sessionLabel: "solo" });
 		expect(bare.workdirHint).toBeUndefined();
 		// No hint uses the current label.
 		expect(store.hostWorkdirHint(bare)).toBe("solo");
@@ -385,7 +429,13 @@ describe("SessionStore labels and paths", () => {
 
 	it("a picked workdirPath wins hostWorkdirHint over the label hint and survives a restore", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("id1") });
-		const rec = store.mint({ spawn: "host", sessionLabel: "app", workdirHint: "app", workdirPath: "~/deep/dir" });
+		const rec = store.mint({
+			spawn: "host",
+			harness: "claude",
+			sessionLabel: "app",
+			workdirHint: "app",
+			workdirPath: "~/deep/dir",
+		});
 		expect(store.hostWorkdirHint(rec)).toBe("~/deep/dir");
 
 		const next = new SessionStore({ ambient: processAmbient() });
@@ -442,8 +492,8 @@ describe("SessionStore TTL", () => {
 			ambient: fakeAmbient({ now: () => clock }),
 			idGen: scriptedIds("live01", "stale1"),
 		});
-		store.mint({ spawn: "host", sessionLabel: "live" });
-		store.mint({ spawn: "host", sessionLabel: "stale" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "live" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "stale" });
 
 		clock = 100;
 		store.touchLive("host.live01");
@@ -456,7 +506,7 @@ describe("SessionStore TTL", () => {
 	it("sweep returns nothing when nothing was old enough to remove", () => {
 		let clock = 0;
 		const store = new SessionStore({ ambient: fakeAmbient({ now: () => clock }), idGen: scriptedIds("fresh1") });
-		store.mint({ spawn: "host", sessionLabel: "fresh" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "fresh" });
 		clock = 10;
 		expect(store.sweep(1_000)).toEqual([]);
 		expect(store.getByTeam("host.fresh1")).toBeDefined();
@@ -469,7 +519,7 @@ describe("SessionStore TTL", () => {
 			idGen: scriptedIds("oldest", "middle", "newest", "livest"),
 		});
 		for (const label of ["oldest", "middle", "newest", "livest"]) {
-			store.mint({ spawn: "host", sessionLabel: label });
+			store.mint({ spawn: "host", harness: "claude", sessionLabel: label });
 			clock += 10;
 		}
 		store.touchLive("host.livest");
@@ -483,7 +533,7 @@ describe("SessionStore TTL", () => {
 
 	it("leaves the cap alone when the store is within it", () => {
 		const store = new SessionStore({ ambient: fakeAmbient({ now: () => 0 }), idGen: scriptedIds("only01") });
-		store.mint({ spawn: "host", sessionLabel: "only" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "only" });
 		expect(store.sweep(1_000, { cap: { maxEntries: 8, isLive: () => false } })).toEqual([]);
 		expect(store.getByTeam("host.only01")).toBeDefined();
 	});
@@ -493,8 +543,8 @@ describe("SessionStore TTL", () => {
 			ambient: fakeAmbient({ now: () => 0 }),
 			idGen: scriptedIds("live001", "live002"),
 		});
-		store.mint({ spawn: "host", sessionLabel: "one" });
-		store.mint({ spawn: "host", sessionLabel: "two" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "one" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "two" });
 		expect(store.sweep(1_000, { cap: { maxEntries: 1, isLive: () => true } })).toEqual([]);
 		expect(store.list()).toHaveLength(2);
 	});
@@ -505,7 +555,8 @@ describe("SessionStore TTL", () => {
 			ambient: fakeAmbient({ now: () => clock }),
 			idGen: scriptedIds("kept01", "stale1", "other1"),
 		});
-		for (const label of ["kept", "stale", "other"]) store.mint({ spawn: "host", sessionLabel: label });
+		for (const label of ["kept", "stale", "other"])
+			store.mint({ spawn: "host", harness: "claude", sessionLabel: label });
 		clock = 100;
 		store.touchLive("host.other1");
 
@@ -520,7 +571,7 @@ describe("SessionStore TTL", () => {
 
 	it("forget removes the record and returns whether it existed", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("gone12") });
-		store.mint({ spawn: "host" });
+		store.mint({ spawn: "host", harness: "claude" });
 		expect(store.forget("host.gone12")).toBe(true);
 		expect(store.forget("host.gone12")).toBe(false);
 		expect(store.getByTeam("host.gone12")).toBeUndefined();
@@ -530,7 +581,7 @@ describe("SessionStore TTL", () => {
 describe("SessionStore session binding", () => {
 	it("creates a token only when a launched session needs one", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		const record = store.mint({ spawn: "recipe-app" });
+		const record = store.mint({ spawn: "recipe-app", harness: "claude" });
 
 		expect(record.bindToken).toBeUndefined();
 		const first = store.ensureBindToken(record);
@@ -541,9 +592,9 @@ describe("SessionStore session binding", () => {
 
 	it("restores the binding for its owner and leaves tokenless records tokenless", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		const record = store.mint({ spawn: "recipe-app" });
+		const record = store.mint({ spawn: "recipe-app", harness: "claude" });
 		const token = store.ensureBindToken(record);
-		store.mint({ spawn: "recipe-app" });
+		store.mint({ spawn: "recipe-app", harness: "claude" });
 
 		const restored = new SessionStore({ ambient: processAmbient() });
 		restored.restore(JSON.parse(JSON.stringify(store.snapshot())));
@@ -565,7 +616,7 @@ describe("SessionStore Copilot catalogs", () => {
 				},
 			},
 		});
-		const owner = store.mint({ spawn: "host", sessionLabel: "Work" });
+		const owner = store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work" });
 		const agent = requestedCopilotAgent();
 
 		const result = writer.commit(owner, 0, [agent]);
@@ -590,7 +641,7 @@ describe("SessionStore Copilot catalogs", () => {
 				},
 			},
 		});
-		const owner = store.mint({ spawn: "host", sessionLabel: "Work" });
+		const owner = store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work" });
 		const agent = requestedCopilotAgent();
 
 		expect(writer.commit(owner, 0, [agent])).toEqual({ committed: false, reason: "unconfirmed" });
@@ -621,26 +672,90 @@ describe("SessionStore Copilot catalogs", () => {
 	});
 });
 
-describe("a Copilot session's record", () => {
+describe("a session record's harness", () => {
 	const uuid = "0f8b2a4c-1d3e-4f5a-9b6c-7d8e9f0a1b2c";
 
-	it("mints its own session id at create and keeps it across a restart", () => {
+	it("mints a Copilot session's id at create and keeps it across a restart", () => {
 		const store = new SessionStore({ ambient: processAmbient(), uuidGen: () => uuid });
 		const record = store.mint({ spawn: "host", sessionLabel: "cop", harness: "copilot" });
+		const plain = store.mint({ spawn: "host", harness: "claude", sessionLabel: "plain", claudeSessionId: "tx-1" });
 		const restored = new SessionStore({ ambient: processAmbient() });
 
 		restored.restore(store.snapshot());
 
-		expect(record).toMatchObject({ harness: "copilot", copilotSessionId: uuid });
-		expect(restored.getByTeam(store.teamOf(record))).toMatchObject({ harness: "copilot", copilotSessionId: uuid });
-		expect(store.mint({ spawn: "host", sessionLabel: "plain" }).harness).toBeUndefined();
+		expect(record).toMatchObject({ harness: "copilot", harnessSessionId: uuid });
+		expect(restored.getByTeam(store.teamOf(record))).toMatchObject({ harness: "copilot", harnessSessionId: uuid });
+		expect(plain.harnessSessionId).toBeUndefined();
+		expect([resumeIdOf(record), resumeIdOf(plain)]).toEqual([uuid, "tx-1"]);
 	});
 
-	it("drops a stored Copilot harness whose session id is not a UUID", () => {
+	it("snapshots a Copilot session's id under both field names, and neither for Claude", () => {
+		const store = new SessionStore({
+			ambient: processAmbient(),
+			idGen: scriptedIds("cop", "plain"),
+			uuidGen: () => uuid,
+		});
+		store.mint({ spawn: "host", harness: "copilot" });
+		store.mint({ spawn: "host", harness: "claude" });
+
+		const snap = store.snapshot();
+
+		expect(snap["host.cop"]).toMatchObject({ harnessSessionId: uuid, copilotSessionId: uuid });
+		expect([snap["host.plain"]?.harnessSessionId, snap["host.plain"]?.copilotSessionId]).toEqual([
+			undefined,
+			undefined,
+		]);
+	});
+
+	it("restores an id stored under the older field name", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
 
-		store.restore({ "host.cop": { id: "cop", harness: "copilot", copilotSessionId: "nope", lastSeen: 1 } });
+		store.restore({ "host.cop": { id: "cop", harness: "copilot", copilotSessionId: uuid, lastSeen: 1 } });
 
-		expect(store.getByTeam("host.cop")?.harness).toBeUndefined();
+		expect(store.getByTeam("host.cop")).toMatchObject({ harness: "copilot", harnessSessionId: uuid });
+	});
+
+	it("restores a record stored with no harness as Claude, holding no minted id", () => {
+		const store = new SessionStore({ ambient: processAmbient() });
+
+		store.restore(RESUME_FILE);
+		const record = store.getByTeam("host.switchboard");
+
+		expect(record?.harness).toBe("claude");
+		expect(record?.harnessSessionId).toBeUndefined();
+	});
+
+	it("holds a stored record naming a CLI this build does not know: unread, its name taken, written back untouched", () => {
+		const stored = {
+			id: "newer",
+			harness: "no-such-cli",
+			later: { field: [1, "two"] },
+			sessionLabel: "../kept",
+			lastSeen: 1,
+		};
+		const store = new SessionStore({ ambient: processAmbient() });
+
+		store.restore({ ...RESUME_FILE, "host.newer": stored });
+
+		expect(store.getByTeam("host.newer")).toBeUndefined();
+		expect(store.adoptById("newer", { spawn: "host", harness: "claude" })).toBeNull();
+		expect(JSON.stringify(store.snapshot()["host.newer"])).toBe(JSON.stringify(stored));
+	});
+
+	it("keeps a stored Copilot record whose session id is missing or not a UUID, under a fresh one", () => {
+		const store = new SessionStore({ ambient: processAmbient() });
+
+		store.restore({
+			"host.bad": { id: "bad", harness: "copilot", copilotSessionId: "nope", lastSeen: 1 },
+			"host.none": { id: "none", harness: "copilot", lastSeen: 1 },
+		});
+
+		for (const team of ["host.bad", "host.none"]) {
+			const record = store.getByTeam(team);
+			expect(record?.harness, team).toBe("copilot");
+			expect(record?.harnessSessionId, team).toMatch(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+			);
+		}
 	});
 });

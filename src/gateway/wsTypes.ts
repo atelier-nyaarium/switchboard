@@ -65,6 +65,8 @@ export interface WsData {
 	mode: ConnectionMode;
 	version?: string;
 	claudeSessionId?: string;
+	/** The register's word, unchecked. */
+	harness?: string;
 	cwdName?: string;
 	/** The agent process running the plugin, as the register named it. */
 	agentPid?: number;

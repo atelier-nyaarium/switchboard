@@ -2,6 +2,7 @@
 
 import type { Ambient } from "../../shared/ambient.js";
 import type { ClaudeTurnResultFrame } from "../../shared/host-op.js";
+import { pushesBaseline } from "../../shared/session-harness.js";
 import { ChannelDeliveryCoordinator, type ChannelDeliveryObserver } from "../channelDelivery.js";
 import { createWebSocketHandlers } from "../websocket.js";
 import { createWorkspacePlane, type WorkspacePlane } from "../workspacePlane.js";
@@ -51,7 +52,11 @@ export interface WebSocketsStage {
 export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 	const { sessions, stores, host, agents, federation, ambient, workflows } = deps;
 	const compacting = new Set<string>();
-	const isCopilot = (team: string) => sessions.sessionStore.getByTeam(team)?.harness === "copilot";
+	/** No hook hands such a CLI its baseline. */
+	const compactsByEvents = (team: string) => {
+		const record = sessions.sessionStore.getByTeam(team);
+		return !!record && pushesBaseline(record.harness);
+	};
 	let compacted: ((team: string) => void) | undefined;
 	let restartPending: ((team: string, pending: boolean) => void) | undefined;
 	let hostRegisterPass: Promise<void> = Promise.resolve();
@@ -171,7 +176,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			const wasCompacting = compacting.has(team);
 			if (derived.compacting) compacting.add(team);
 			else compacting.delete(team);
-			if (wasCompacting && !derived.compacting && isCopilot(team)) compacted?.(team);
+			if (wasCompacting && !derived.compacting && compactsByEvents(team)) compacted?.(team);
 		},
 		onRestartPending: (team, pending) => restartPending?.(team, pending),
 		sessionStore: sessions.sessionStore,

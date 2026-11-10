@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import kotlinx.coroutines.flow.update
 
 /** No Gateway, no Router, no network. */
@@ -24,10 +25,15 @@ internal fun sandboxRegistry(roster: List<String>, now: Long): GatewayRegistry =
 			answered = roster.size.toLong(),
 			unreachable = listOf(SANDBOX_NEVER_REGISTERED),
 		),
-		gateways = (roster.map { GatewayEntry(it, connected = true, incarnation = 1, lastRegisteredAt = now) } +
-			GatewayEntry(SANDBOX_NEVER_REGISTERED, connected = false, incarnation = 0, lastRegisteredAt = 0))
+		gateways = (roster.mapIndexed { index, id ->
+			GatewayEntry(id, connected = true, incarnation = 1, lastRegisteredAt = now, harnessSpawns = sandboxHarnessSpawns(index))
+		} + GatewayEntry(SANDBOX_NEVER_REGISTERED, connected = false, incarnation = 0, lastRegisteredAt = 0))
 			.sortedBy { it.id },
 	)
+
+/** Gateway `index` lacks the first `index` CLIs, so each answers differently. */
+private fun sandboxHarnessSpawns(index: Int): Map<SessionHarness, List<String>> =
+	SessionHarness.entries.associateWith { if (it.ordinal >= index) listOf("host") else emptyList() }
 
 private val SANDBOX_PROVISIONING =
 	"""{"transport":"direct","routerUrl":"https://router.sandbox.invalid:20001",""" +

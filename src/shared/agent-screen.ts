@@ -1,3 +1,5 @@
+import type { SessionHarness } from "./session-harness.js";
+
 ////////////////////////////////
 //  Interfaces & Types
 
@@ -271,18 +273,15 @@ export function isCompacting(screen: string): boolean {
 	return paneHas(screen, COMPACTING_RE, "status", COMPACTING_LOOKBACK);
 }
 
-/** The session backends a pane can belong to. */
-export type PaneBackend = "claude" | "copilot";
-
-/** Per backend, whether its pane asks for a restart to apply an update; null until its line is known. */
-const RESTART_SIGNALS: Record<PaneBackend, ((screen: string) => boolean) | null> = {
+/** Per CLI, whether its pane asks for a restart to apply an update; null until its line is known. */
+const RESTART_SIGNALS: Record<SessionHarness, ((screen: string) => boolean) | null> = {
 	claude: (screen) => paneHas(screen, UPDATE_INSTALLED_RE, "status"),
 	copilot: null,
 };
 
 /** The pane says an update is installed and waits on a restart. */
-export function restartPending(backend: PaneBackend, screen: string): boolean {
-	return RESTART_SIGNALS[backend]?.(screen) ?? false;
+export function restartPending(harness: SessionHarness, screen: string): boolean {
+	return RESTART_SIGNALS[harness]?.(screen) ?? false;
 }
 
 /**

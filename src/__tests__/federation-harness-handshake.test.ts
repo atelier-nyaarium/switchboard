@@ -65,7 +65,7 @@ describe("gateway session handshake lifecycle", () => {
 		return attached;
 	};
 
-	const rawSession = (team: string, subId: string, isMainOrLead?: boolean): FakeSocket => {
+	const rawSession = (team: string, subId: string, isMainOrLead?: boolean, harness?: string): FakeSocket => {
 		const socket = createFakeSocket();
 		sockets.push(socket);
 		h.gateway.wsHandlers.open(socket.ws);
@@ -79,6 +79,7 @@ describe("gateway session handshake lifecycle", () => {
 				conversationId: `conv-raw-${team}-${subId}`.replace(/\W/g, "-"),
 				version: "harness",
 				...(isMainOrLead === undefined ? {} : { isMainOrLead }),
+				...(harness === undefined ? {} : { harness }),
 			}),
 		);
 		return socket;
@@ -115,6 +116,20 @@ describe("gateway session handshake lifecycle", () => {
 
 		const resumed = rawSession(team, "resumed", true);
 		expect(resumed.sent.filter((frame) => frame.type === "channel_push")).toHaveLength(0);
+	});
+
+	it("confirms a session naming a known CLI, and refuses one naming a CLI this build does not know", () => {
+		const known = rawSession("fixture-app.named", "s1", undefined, "claude");
+		const unknown = rawSession("fixture-app.newer", "s1", undefined, "no-such-cli");
+		for (const socket of [known, unknown]) {
+			const push = socket.sent.find((frame) => frame.type === "channel_push");
+			h.gateway.wsHandlers.resolveHandshake(String(push?.session_id), { isMainOrLead: true });
+		}
+
+		expect(h.gateway.faults.sessionRecord("fixture-app.named")).toMatchObject({ harness: "claude" });
+		expect(known.ws.readyState).toBe(1);
+		expect(h.gateway.faults.sessionRecord("fixture-app.newer")).toBeUndefined();
+		expect(unknown.ws.readyState).not.toBe(1);
 	});
 
 	it("keeps a newer registration after an older socket closes late", async () => {

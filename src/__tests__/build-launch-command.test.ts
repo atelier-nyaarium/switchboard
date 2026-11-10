@@ -48,7 +48,7 @@ describe("a Copilot launch", () => {
 
 describe("buildLaunchCommand", () => {
 	it("overrides PROJECT_NAME to the composite, cds to the workspace, and runs claude with a bash fallback", () => {
-		const cmd = buildLaunchCommand(dc);
+		const cmd = buildLaunchCommand(dc, { harness: "claude" });
 		expect(cmd).toContain("export PROJECT_NAME=recipe-app.scratch");
 		expect(cmd).toContain("cd /workspace/recipe-app; claude ");
 		// A missing claude leaves a peekable pane rather than a dead tmux server.
@@ -56,6 +56,17 @@ describe("buildLaunchCommand", () => {
 		expect(cmd).not.toContain("--resume");
 		// The override runs after sourcing bashrc so it wins over the image ENV.
 		expect(cmd.indexOf("source ~/.bashrc")).toBeLessThan(cmd.indexOf("export PROJECT_NAME"));
+	});
+
+	it("names Claude to the plugin on a host and a devcontainer launch", () => {
+		const host = { kind: "host" as const, name: "host", sessionName: "foo" };
+
+		expect(buildLaunchCommand(host, { harness: "claude" })).toContain(
+			"export PROJECT_NAME=host.foo; export AGENT_TYPE=claude; ",
+		);
+		expect(buildLaunchCommand(dc, { harness: "claude" })).toContain(
+			"export PROJECT_NAME=recipe-app.scratch; export AGENT_TYPE=claude; ",
+		);
 	});
 
 	describe("the assistant's launch", () => {
@@ -70,7 +81,7 @@ describe("buildLaunchCommand", () => {
 			fs.mkdirSync(bin);
 			fs.writeFileSync(path.join(base, ".bashrc"), "");
 			fs.writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${argv}"\n`, { mode: 0o755 });
-			const cmd = buildLaunchCommand(assistant, { workdir: notes, pathPrefix: bin });
+			const cmd = buildLaunchCommand(assistant, { harness: "claude", workdir: notes, pathPrefix: bin });
 
 			execFileSync("bash", ["-c", cmd], {
 				env: { HOME: base, PATH: process.env.PATH },
@@ -89,9 +100,9 @@ describe("buildLaunchCommand", () => {
 		});
 
 		it("keeps every other session on the open profile", () => {
-			expect(buildLaunchCommand({ kind: "host", name: "host", sessionName: "foo" })).toContain(
-				"--dangerously-skip-permissions",
-			);
+			expect(
+				buildLaunchCommand({ kind: "host", name: "host", sessionName: "foo" }, { harness: "claude" }),
+			).toContain("--dangerously-skip-permissions");
 		});
 
 		it("refuses rather than launch the assistant in home, a missing folder, a linked one, or one it cannot quote", () => {
@@ -100,14 +111,14 @@ describe("buildLaunchCommand", () => {
 			const notes = path.join(base, "notes");
 			fs.mkdirSync(keys);
 			fs.symlinkSync(keys, notes);
-			const linked = () => buildLaunchCommand(assistant, { workdir: notes });
+			const launch = (workdir?: string) => () => buildLaunchCommand(assistant, { harness: "claude", workdir });
 
-			expect(linked).toThrow();
-			expect(() => buildLaunchCommand(assistant, { workdir: keys })).not.toThrow();
-			expect(() => buildLaunchCommand(assistant, { workdir: os.homedir() })).toThrow();
-			expect(() => buildLaunchCommand(assistant, { workdir: path.join(os.tmpdir(), "no-such-notes") })).toThrow();
-			expect(() => buildLaunchCommand(assistant, { workdir: "/home/$USER/notes" })).toThrow();
-			expect(() => buildLaunchCommand(assistant)).toThrow();
+			expect(launch(notes)).toThrow();
+			expect(launch(keys)).not.toThrow();
+			expect(launch(os.homedir())).toThrow();
+			expect(launch(path.join(os.tmpdir(), "no-such-notes"))).toThrow();
+			expect(launch("/home/$USER/notes")).toThrow();
+			expect(launch()).toThrow();
 			fs.rmSync(base, { recursive: true, force: true });
 		});
 
@@ -124,24 +135,27 @@ describe("buildLaunchCommand", () => {
 			expect(fs.statSync(made).isDirectory()).toBe(true);
 			expect(fs.statSync(path.join(outside, "a", "b")).isDirectory()).toBe(true);
 			expect(fs.readdirSync(home)).toEqual(["notes"]);
-			expect(() => buildLaunchCommand(assistant, { workdir: made })).not.toThrow();
+			expect(() => buildLaunchCommand(assistant, { harness: "claude", workdir: made })).not.toThrow();
 			fs.rmSync(home, { recursive: true, force: true });
 			fs.rmSync(outside, { recursive: true, force: true });
 		});
 	});
 
 	it("appends --resume for a uuid-shaped session id", () => {
-		const cmd = buildLaunchCommand(dc, { resumeSessionId: "12345678-1234-1234-1234-123456789abc" });
+		const cmd = buildLaunchCommand(dc, {
+			harness: "claude",
+			resumeSessionId: "12345678-1234-1234-1234-123456789abc",
+		});
 		expect(cmd).toContain("--resume 12345678-1234-1234-1234-123456789abc");
 	});
 
 	it("ignores a malformed resume id (no --resume injected)", () => {
-		const cmd = buildLaunchCommand(dc, { resumeSessionId: "x'; rm -rf /" });
+		const cmd = buildLaunchCommand(dc, { harness: "claude", resumeSessionId: "x'; rm -rf /" });
 		expect(cmd).not.toContain("--resume");
 	});
 
 	it("keeps a host session's pane alive with exec bash and does not cd into a workspace", () => {
-		const cmd = buildLaunchCommand({ kind: "host", name: "host", sessionName: "foo" });
+		const cmd = buildLaunchCommand({ kind: "host", name: "host", sessionName: "foo" }, { harness: "claude" });
 		expect(cmd).toContain("export PROJECT_NAME=host.foo");
 		expect(cmd).toContain("; exec bash");
 		expect(cmd).not.toContain("cd /workspace");
@@ -151,7 +165,11 @@ describe("buildLaunchCommand", () => {
 	it("cds a host session to its resolved workdir and resumes by id", () => {
 		const cmd = buildLaunchCommand(
 			{ kind: "host", name: "host", sessionName: "nyaadot" },
-			{ workdir: "/home/nyaarium/projects/nyaadot", resumeSessionId: "12345678-1234-1234-1234-123456789abc" },
+			{
+				harness: "claude",
+				workdir: "/home/nyaarium/projects/nyaadot",
+				resumeSessionId: "12345678-1234-1234-1234-123456789abc",
+			},
 		);
 		expect(cmd).toContain('cd "/home/nyaarium/projects/nyaadot"');
 		expect(cmd).toContain("--resume 12345678-1234-1234-1234-123456789abc");
@@ -162,7 +180,7 @@ describe("buildLaunchCommand", () => {
 	it("drops the cd when the workdir holds a single quote that would break the outer bash -c", () => {
 		const cmd = buildLaunchCommand(
 			{ kind: "host", name: "host", sessionName: "foo" },
-			{ workdir: "/home/it's/projects/foo" },
+			{ harness: "claude", workdir: "/home/it's/projects/foo" },
 		);
 		expect(cmd).not.toContain('cd "');
 		expect(cmd).not.toContain("it's");
@@ -171,7 +189,7 @@ describe("buildLaunchCommand", () => {
 	it("drops the cd when the workdir holds a double quote that would break the cd's own quoting", () => {
 		const cmd = buildLaunchCommand(
 			{ kind: "host", name: "host", sessionName: "foo" },
-			{ workdir: '/home/projects/a"; rm -rf ~ #' },
+			{ harness: "claude", workdir: '/home/projects/a"; rm -rf ~ #' },
 		);
 		expect(cmd).not.toContain('cd "');
 		expect(cmd).not.toContain("rm -rf");
@@ -180,7 +198,7 @@ describe("buildLaunchCommand", () => {
 	it("puts the daemon's bin dir ahead of PATH after bashrc and before the identity exports", () => {
 		const cmd = buildLaunchCommand(
 			{ kind: "host", name: "host", sessionName: "foo" },
-			{ pathPrefix: "/home/me/.bun/bin", sessionToken: "0123456789abcdef" },
+			{ harness: "claude", pathPrefix: "/home/me/.bun/bin", sessionToken: "0123456789abcdef" },
 		);
 		expect(cmd).toContain('export PATH="/home/me/.bun/bin:$PATH"; ');
 		expect(cmd.indexOf("source ~/.bashrc")).toBeLessThan(cmd.indexOf("export PATH="));
@@ -189,7 +207,10 @@ describe("buildLaunchCommand", () => {
 
 	it("exports the askpass helper into a host and a devcontainer session, after the token and before claude", () => {
 		const host = { kind: "host" as const, name: "host", sessionName: "foo" };
-		for (const cmd of [buildLaunchCommand(host, { sessionToken: "0123456789abcdef" }), buildLaunchCommand(dc)]) {
+		for (const cmd of [
+			buildLaunchCommand(host, { harness: "claude", sessionToken: "0123456789abcdef" }),
+			buildLaunchCommand(dc, { harness: "claude" }),
+		]) {
 			for (const name of ["SUDO_ASKPASS", "SSH_ASKPASS", "GIT_ASKPASS"]) {
 				expect(cmd).toContain(`export ${name}="$HOME/.local/bin/vault-askpass"; `);
 			}
@@ -199,17 +220,18 @@ describe("buildLaunchCommand", () => {
 		// PowerShell runs no bash wrapper.
 		const windows = buildLaunchCommand(
 			{ kind: "host", name: "windows", sessionName: "foo" },
-			{ workdir: "C:\\Users\\me\\projects" },
+			{ harness: "claude", workdir: "C:\\Users\\me\\projects" },
 		);
 		expect(windows).not.toContain("ASKPASS");
 	});
 
 	it("drops a PATH prefix that is not a plain absolute path, and never applies one to a devcontainer", () => {
 		const host = { kind: "host" as const, name: "host", sessionName: "foo" };
-		expect(buildLaunchCommand(host, { pathPrefix: "/home/it's/bin" })).not.toContain("export PATH=");
-		expect(buildLaunchCommand(host, { pathPrefix: "/x; rm -rf ~" })).not.toContain("export PATH=");
-		expect(buildLaunchCommand(host, { pathPrefix: "relative/bin" })).not.toContain("export PATH=");
-		expect(buildLaunchCommand(dc, { pathPrefix: "/home/me/.bun/bin" })).not.toContain("export PATH=");
+		const harness = "claude";
+		expect(buildLaunchCommand(host, { harness, pathPrefix: "/home/it's/bin" })).not.toContain("export PATH=");
+		expect(buildLaunchCommand(host, { harness, pathPrefix: "/x; rm -rf ~" })).not.toContain("export PATH=");
+		expect(buildLaunchCommand(host, { harness, pathPrefix: "relative/bin" })).not.toContain("export PATH=");
+		expect(buildLaunchCommand(dc, { harness, pathPrefix: "/home/me/.bun/bin" })).not.toContain("export PATH=");
 	});
 });
 

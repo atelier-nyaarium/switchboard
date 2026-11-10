@@ -18,7 +18,13 @@ import { createFakeSocket } from "../testing/fakeSocket.js";
 
 const runId = "run-1";
 const target: AgentExecutionTarget = { kind: "host", workdirHint: "/workspace/project" };
-const owner = { id: "session-1", sessionLabel: "Session", spawn: "host", lastSeen: 1 } as SessionRecord;
+const owner: SessionRecord = {
+	id: "session-1",
+	sessionLabel: "Session",
+	spawn: "host",
+	harness: "claude",
+	lastSeen: 1,
+};
 
 function waitFor(check: () => boolean): Promise<void> {
 	return new Promise((resolve, reject) => {

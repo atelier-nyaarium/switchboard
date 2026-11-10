@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
-import { SESSION_HARNESSES } from "./host-spawn.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
@@ -13,6 +12,7 @@ import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
 import { VaultDecisionSchema } from "./schemasVault.js";
 import { FileMutationSchema, SymbolFacetSchema } from "./schemasWorkspace.js";
+import { SESSION_HARNESSES } from "./session-harness.js";
 import { MAX_RAW_EDIT_BYTES } from "./workspace-op.js";
 
 export { SealedEnvelopeSchema } from "./crypto.js";
@@ -67,7 +67,8 @@ export const ConsoleOpSchema = z
 			sessionName: z.string().min(1).max(64).optional(),
 			displayLabel: z.string().min(1).max(64).optional(),
 			workdir: z.string().min(1).max(512).optional(),
-			/** Absent is Claude. Copilot runs only on a host spawn point. */
+			// FIXME 2026-11-23: required, once every phone names it.
+			/** Absent means Claude. */
 			harness: z.enum(SESSION_HARNESSES).optional(),
 		}),
 		z.object({

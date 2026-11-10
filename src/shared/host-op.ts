@@ -3,6 +3,7 @@ import { type AgentExecutionTarget, AgentExecutionTargetSchema } from "./agent-e
 import { AGENT_PROMPT_MAX_BYTES } from "./agent-record.js";
 import { WINDOWS_SPAWN } from "./host-spawn.js";
 import { DEVICE_MAX_RECORDS, DeviceCandidateSchema } from "./schemasDevices.js";
+import type { SessionHarness } from "./session-harness.js";
 
 export interface TmuxTarget {
 	kind: "host" | "devcontainer";
@@ -93,8 +94,9 @@ export type HostOp =
 			kind: "createSession";
 			target: TmuxTarget;
 			workdirHint?: string;
-			/** Absent is Claude. A Copilot session's `resumeSessionId` is its minted UUID. */
-			harness?: "copilot";
+			// FIXME 2026-11-23: required, once every Gateway names it.
+			/** Absent means Claude. */
+			harness?: SessionHarness;
 			resumeSessionId?: string;
 			sessionToken?: string;
 			dedupKey?: string;

@@ -131,7 +131,7 @@ export class PresenceFacade {
 
 	establishOnConfirm(
 		team: string,
-		args: { claudeSessionId?: string; label?: string; live: { team: string; subId: string }; handover?: boolean },
+		args: Parameters<SessionStore["establishOnConfirm"]>[1],
 	): SessionRecord | undefined {
 		const r = this.sessionStore.establishOnConfirm(team, args);
 		this.markDirty();
@@ -253,6 +253,7 @@ export class PresenceFacade {
 				...(live ? { mode: live.data.mode, version: live.data.version } : { lastActive: record.lastSeen }),
 				kind: "loose",
 				sessionLabel: record.sessionLabel,
+				harness: record.harness,
 				...(isAssistantRecord(record) ? { role: ASSISTANT_ROLE } : {}),
 				...derived,
 				...(this.workflowRunning(name) ? { workflow: true } : {}),

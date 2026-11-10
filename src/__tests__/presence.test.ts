@@ -52,7 +52,7 @@ describe("PresenceFacade snapshot status derivation", () => {
 			"proj.main": { readyState: 1, data: { mode: "channel", handshakeConfirmed: true, version: "1.2.3" } },
 		});
 		const { facade } = makeFacade({ registry });
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		const row = facade.snapshot().find((r) => r.team === "proj.main");
 		expect(row?.status).toBe("online");
 		expect(row?.version).toBe("1.2.3");
@@ -63,14 +63,14 @@ describe("PresenceFacade snapshot status derivation", () => {
 			"proj.main": { readyState: 1, data: { mode: "channel", handshakeConfirmed: false } },
 		});
 		const { facade } = makeFacade({ registry });
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		const row = facade.snapshot().find((r) => r.team === "proj.main");
 		expect(row?.status).toBe("verifying");
 	});
 
 	it("no live incarnation but a wake in flight reads verifying, not available", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		facade.wakeStart("proj.main");
 		const row = facade.snapshot().find((r) => r.team === "proj.main");
 		expect(row?.status).toBe("verifying");
@@ -78,14 +78,14 @@ describe("PresenceFacade snapshot status derivation", () => {
 
 	it("no live incarnation and no wake in flight reads available", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		const row = facade.snapshot().find((r) => r.team === "proj.main");
 		expect(row?.status).toBe("available");
 	});
 
 	it("a wake-failure end transitions verifying back to available (the lap-2 wake-in-flight fix)", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		facade.wakeStart("proj.main");
 		expect(facade.snapshot().find((r) => r.team === "proj.main")?.status).toBe("verifying");
 		facade.wakeEnd("proj.main");
@@ -96,7 +96,7 @@ describe("PresenceFacade snapshot status derivation", () => {
 describe("PresenceFacade working/needsLogin", () => {
 	it("setWorking surfaces on the row; absence means the field is omitted, not false", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		let row = facade.snapshot().find((r) => r.team === "proj.main");
 		expect(row?.working).toBeUndefined();
 
@@ -107,7 +107,7 @@ describe("PresenceFacade working/needsLogin", () => {
 
 	it("projects a held prompt as its id, and serves the prompt itself only by promptOf", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		const prompt = { id: "p1", title: "Bash command", body: ["rm -f out/x"] };
 		facade.setWorking("proj.main", derived({ prompt }));
 		const row = facade.snapshot().find((r) => r.team === "proj.main");
@@ -121,7 +121,7 @@ describe("PresenceFacade working/needsLogin", () => {
 
 	it("projects a running workflow and working teammates, and drops each when it ends", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		const row = () => facade.snapshot().find((r) => r.team === "proj.main");
 		facade.setWorking("proj.main", derived({ working: true, workflow: true }));
 		const withWorkflow = { workflow: row()?.workflow, teammates: row()?.teammates };
@@ -139,8 +139,8 @@ describe("PresenceFacade working/needsLogin", () => {
 
 	it("clearWorkingFor clears only that session, not others", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("a", { spawn: "proj" });
-		facade.adoptById("b", { spawn: "proj" });
+		facade.adoptById("a", { spawn: "proj", harness: "claude" });
+		facade.adoptById("b", { spawn: "proj", harness: "claude" });
 		facade.setWorking("proj.a", derived({ working: true }));
 		facade.setWorking("proj.b", derived({ working: true }));
 		facade.clearWorkingFor("proj.a");
@@ -151,8 +151,8 @@ describe("PresenceFacade working/needsLogin", () => {
 
 	it("clearAllWorking clears every session (daemon-disconnect semantics)", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("a", { spawn: "proj" });
-		facade.adoptById("b", { spawn: "proj" });
+		facade.adoptById("a", { spawn: "proj", harness: "claude" });
+		facade.adoptById("b", { spawn: "proj", harness: "claude" });
 		facade.setWorking("proj.a", derived({ working: true }));
 		facade.setWorking("proj.b", derived({ needsLogin: true }));
 		facade.clearAllWorking();
@@ -163,7 +163,7 @@ describe("PresenceFacade working/needsLogin", () => {
 
 	it("clearLive clears working/needsLogin in the same write as the live-pointer drop (sleep semantics)", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		facade.confirm("proj.main", { team: "proj.main", subId: "sub-1" });
 		facade.setWorking("proj.main", derived({ working: true }));
 		facade.clearLive("proj.main", "sub-1");
@@ -183,7 +183,7 @@ describe("PresenceFacade offline catalog", () => {
 	it("a catalog project's bare row coexists with its nested session rows (SpawnPointHeader + chats)", () => {
 		const offlineCatalog = new Map([["proj", "/path/to/proj"]]);
 		const { facade } = makeFacade({ offlineCatalog });
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		const rows = facade.snapshot();
 		expect(rows.find((r) => r.team === "proj")?.kind).toBe("devcontainer"); // the spawn-point header
 		expect(rows.find((r) => r.team === "proj.main")?.kind).toBe("loose"); // the nested session
@@ -194,7 +194,7 @@ describe("PresenceFacade offline catalog", () => {
 		const registry = makeRegistry({ proj: { readyState: 1, data: { mode: "channel", handshakeConfirmed: true } } });
 		const offlineCatalog = new Map([["proj", "/path/to/proj"]]);
 		const { facade } = makeFacade({ registry, offlineCatalog });
-		facade.adoptById("proj", { spawn: "proj" }); // pathological: a non-composite name never surfaces as a row anyway
+		facade.adoptById("proj", { spawn: "proj", harness: "claude" }); // pathological: a non-composite name never surfaces as a row anyway
 		const rows = facade.snapshot().filter((r) => r.team === "proj");
 		expect(rows).toHaveLength(1);
 	});
@@ -203,8 +203,8 @@ describe("PresenceFacade offline catalog", () => {
 describe("PresenceFacade rows are sorted by team", () => {
 	it("returns rows in stable team order regardless of creation order", () => {
 		const { facade } = makeFacade();
-		facade.adoptById("zebra", { spawn: "proj" });
-		facade.adoptById("alpha", { spawn: "proj" });
+		facade.adoptById("zebra", { spawn: "proj", harness: "claude" });
+		facade.adoptById("alpha", { spawn: "proj", harness: "claude" });
 		const teams = facade.snapshot().map((r) => r.team);
 		expect(teams).toEqual([...teams].sort());
 	});
@@ -220,13 +220,13 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 			last = cur;
 		};
 
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		expectBumped();
-		facade.mint({ spawn: "proj" });
+		facade.mint({ spawn: "proj", harness: "claude" });
 		expectBumped();
 		facade.rename("proj.main", "renamed");
 		expectBumped();
-		facade.adoptById("other", { spawn: "proj" }); // exists first, so its wake-in-flight flip is visible
+		facade.adoptById("other", { spawn: "proj", harness: "claude" }); // exists first, so its wake-in-flight flip is visible
 		expectBumped();
 		facade.wakeStart("proj.other");
 		expectBumped();
@@ -244,7 +244,7 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 		expectBumped();
 		facade.clearAllWorking();
 		expectBumped();
-		facade.establishOnConfirm("proj.fresh", { live: { team: "proj.fresh", subId: "s1" } });
+		facade.establishOnConfirm("proj.fresh", { harness: "claude", live: { team: "proj.fresh", subId: "s1" } });
 		expectBumped();
 		facade.forget("proj.main");
 		expectBumped();
@@ -253,12 +253,12 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 	it("adoptOrReattach bumps on a genuine create but not on a reattach of the same id", () => {
 		const { facade, planeRegistry } = makeFacade();
 		const before = planeRegistry.version("presence")!.counter;
-		const created = facade.adoptOrReattach("dup", { spawn: "proj" });
+		const created = facade.adoptOrReattach("dup", { spawn: "proj", harness: "claude" });
 		expect(created?.created).toBe(true);
 		const afterCreate = planeRegistry.version("presence")!.counter;
 		expect(afterCreate).toBeGreaterThan(before);
 
-		const reattached = facade.adoptOrReattach("dup", { spawn: "proj" });
+		const reattached = facade.adoptOrReattach("dup", { spawn: "proj", harness: "claude" });
 		expect(reattached?.created).toBe(false);
 		expect(planeRegistry.version("presence")!.counter).toBe(afterCreate); // no bump on reattach
 	});
@@ -266,12 +266,12 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 	it("mintOrReattach bumps on a genuine mint but not on a reattach by mintedFrom", () => {
 		const { facade, planeRegistry } = makeFacade();
 		const before = planeRegistry.version("presence")!.counter;
-		const minted = facade.mintOrReattach({ spawn: "proj", mintedFrom: "retry-key-1" });
+		const minted = facade.mintOrReattach({ spawn: "proj", harness: "claude", mintedFrom: "retry-key-1" });
 		expect(minted.created).toBe(true);
 		const afterMint = planeRegistry.version("presence")!.counter;
 		expect(afterMint).toBeGreaterThan(before);
 
-		const reattached = facade.mintOrReattach({ spawn: "proj", mintedFrom: "retry-key-1" });
+		const reattached = facade.mintOrReattach({ spawn: "proj", harness: "claude", mintedFrom: "retry-key-1" });
 		expect(reattached.created).toBe(false);
 		expect(planeRegistry.version("presence")!.counter).toBe(afterMint); // no bump on reattach
 	});
@@ -281,7 +281,7 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 			"proj.alias": { readyState: 1, data: { mode: "channel", handshakeConfirmed: true } },
 		});
 		const { facade, planeRegistry } = makeFacade({ registry });
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		facade.confirm("proj.main", { team: "proj.alias", subId: "sub-1" });
 		expect(facade.snapshot().find((r) => r.team === "proj.main")?.status).toBe("online");
 
@@ -294,7 +294,7 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 
 	it("clearLive is a genuine no-op (no bump) when no matching live pointer was ever set", () => {
 		const { facade, planeRegistry } = makeFacade();
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		const before = planeRegistry.version("presence")!.counter;
 		facade.clearLive("proj.main", "sub-1"); // nothing was ever live under this (team, subId)
 		expect(planeRegistry.version("presence")!.counter).toBe(before);
@@ -323,7 +323,7 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 			"proj.alias": { readyState: 1, data: { mode: "channel", handshakeConfirmed: true } },
 		});
 		const { facade, planeRegistry } = makeFacade({ registry });
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 		const before = planeRegistry.version("presence")!.counter;
 		facade.confirm("proj.main", { team: "proj.alias", subId: "sub-1" });
 		expect(planeRegistry.version("presence")!.counter).toBeGreaterThan(before);
@@ -335,7 +335,7 @@ describe("PresenceFacade ambient field exclusion", () => {
 	it("lastActive alone changing does not bump the plane (identity excludes it)", () => {
 		const nowFn = { value: 1000 };
 		const { facade, planeRegistry } = makeFacade({ now: () => nowFn.value });
-		facade.adoptById("main", { spawn: "proj" }); // settles the plane against the post-creation state
+		facade.adoptById("main", { spawn: "proj", harness: "claude" }); // settles the plane against the post-creation state
 		const before = planeRegistry.version("presence")!.counter;
 
 		nowFn.value = 999_999; // record.lastSeen is frozen at creation time regardless (no mutator ran)
@@ -354,14 +354,14 @@ describe("PresenceFacade without a Domain", () => {
 			offlineCatalog: new Map([["catalog", "/tmp/catalog"]]),
 			domainId: null,
 		});
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 
 		expect(facade.snapshot()).toEqual([]);
 	});
 
 	it("stamps every row with the Domain once it has one", () => {
 		const { facade } = makeFacade({ offlineCatalog: new Map([["catalog", "/tmp/catalog"]]) });
-		facade.adoptById("main", { spawn: "proj" });
+		facade.adoptById("main", { spawn: "proj", harness: "claude" });
 
 		for (const row of facade.snapshot()) expect(row).toMatchObject({ gatewayId: "gw-1", domainId: "dom-1" });
 		expect(facade.snapshot().length).toBeGreaterThan(0);

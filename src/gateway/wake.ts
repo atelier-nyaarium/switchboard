@@ -1,4 +1,5 @@
 import type { Ambient, TimerHandle } from "../shared/ambient.js";
+import type { SessionHarness } from "../shared/session-harness.js";
 import { sanitizeLabel } from "../shared/session-sanitize.js";
 
 export const DEFAULT_WAKE_TIMEOUT_MS = 600_000;
@@ -15,6 +16,7 @@ export interface WakeResult {
 /** What a wake may create a missing session from. */
 export interface WakeCreate {
 	displayLabel?: string;
+	harness: SessionHarness;
 	mintedFrom?: string;
 	/** The send guard cleared it; a host spawn point mints nothing without. */
 	cleared?: true;

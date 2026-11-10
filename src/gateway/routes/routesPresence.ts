@@ -1,6 +1,6 @@
 import { ordinaryRows } from "../../shared/assistant-session.js";
 import type { DiscoverCoverage } from "../../shared/console-protocol.js";
-import type { HostSpawnState } from "../../shared/host-spawn.js";
+import { type HostSpawnState, spawnPointFields } from "../../shared/host-spawn.js";
 import { OwnerPresenceProjectionSchema } from "../../shared/schemasRouterPresence.js";
 import type { GatewayConfig, GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import { jsonResponse } from "../routeSchemas.js";
@@ -31,9 +31,7 @@ export function createPresenceRoutes({
 			{
 				domainId: localDomainId,
 				gatewayId: localGatewayId,
-				hostSpawns: [...hostSpawnPoints.ids],
-				claudeSpawns: [...(hostSpawnPoints.claude ?? [])],
-				copilotSpawns: [...(hostSpawnPoints.copilot ?? [])],
+				...spawnPointFields(hostSpawnPoints),
 			},
 		];
 	}

@@ -11,6 +11,7 @@ import {
 	type CopilotPersistedAgent,
 	restoreCopilotAgentCatalog,
 } from "./copilot-agent.js";
+import { HARNESS, isSessionHarness, type SessionHarness } from "./session-harness.js";
 import { composeSessionName, isComposite, isSlug, parseSessionName } from "./session-id.js";
 import { LABEL_MAX, sanitizeLabel, sanitizeWorkdirPath } from "./session-sanitize.js";
 import { bindingTokensEqual, randomBindToken, randomId, randomSessionUuid } from "./session-tokens.js";
@@ -29,10 +30,10 @@ export interface SessionRecord {
 	workdirHint?: string;
 	workdirPath?: string;
 	claudeSessionId?: string;
-	/** Absent is Claude. Fixed at create. */
-	harness?: "copilot";
-	/** Minted at create; Copilot starts and resumes the session under it. */
-	copilotSessionId?: string;
+	/** Fixed at create. */
+	harness: SessionHarness;
+	/** Minted for a CLI that takes its id. */
+	harnessSessionId?: string;
 	mintedFrom?: string;
 	bindToken?: string;
 	bindActiveAt?: number;
@@ -41,7 +42,14 @@ export interface SessionRecord {
 	lastSeen: number;
 }
 
+/** The id a launch resumes under. */
+export function resumeIdOf(record: SessionRecord): string | undefined {
+	return HARNESS[record.harness].mintsSessionId ? record.harnessSessionId : record.claudeSessionId;
+}
+
 export type PersistedSessionRecord = Omit<SessionRecord, "liveTeam"> & {
+	// FIXME 2026-11-23: drop. Twin of `harnessSessionId`.
+	copilotSessionId?: string;
 	codexCatalog?: CodexAgentCatalog;
 	copilotCatalog?: CopilotAgentCatalog;
 };
@@ -102,7 +110,7 @@ interface CreateOpts {
 	workdirHint?: string;
 	workdirPath?: string;
 	claudeSessionId?: string;
-	harness?: "copilot";
+	harness: SessionHarness;
 	mintedFrom?: string;
 }
 
@@ -184,6 +192,8 @@ class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 
 export class SessionStore {
 	private readonly records = new Map<string, SessionRecord>();
+	/** Stored entries this build cannot read, written back untouched. */
+	private readonly unread = new Map<string, unknown>();
 	private readonly codexCatalogStore = new AgentCatalogStore<CodexAgentCatalog, CodexPersistedAgent>(
 		(candidate) => CodexAgentCatalogSchema.parse(candidate),
 		(owner) => this.records.get(this.teamOf(owner)) === owner,
@@ -290,17 +300,22 @@ export class SessionStore {
 		return this.copilotCatalogStore.get(owner)?.agents ?? [];
 	}
 
+	/** A name held by a record, read or not. */
+	private taken(team: string): boolean {
+		return this.records.has(team) || this.unread.has(team);
+	}
+
 	mint(opts: CreateOpts): SessionRecord {
 		for (let i = 0; i < 64; i++) {
 			const id = this.idGen();
-			if (!this.records.has(composeSessionName(opts.spawn, id)) && !this.clash(id)) return this.create(id, opts);
+			if (!this.taken(composeSessionName(opts.spawn, id)) && !this.clash(id)) return this.create(id, opts);
 		}
 		throw new Error("session id space exhausted");
 	}
 
 	adoptById(id: string, opts: CreateOpts): SessionRecord | null {
 		if (!isSlug(id) || this.clash(id)) return null;
-		if (this.records.has(composeSessionName(opts.spawn, id))) return null;
+		if (this.taken(composeSessionName(opts.spawn, id))) return null;
 		return this.create(id, opts);
 	}
 
@@ -359,10 +374,18 @@ export class SessionStore {
 		team: string,
 		{
 			claudeSessionId,
+			harness,
 			label,
 			live,
 			handover = false,
-		}: { claudeSessionId?: string; label?: string; live: LiveRef; handover?: boolean },
+		}: {
+			claudeSessionId?: string;
+			/** For a record this creates. Null creates none. */
+			harness: SessionHarness | null;
+			label?: string;
+			live: LiveRef;
+			handover?: boolean;
+		},
 	): SessionRecord | undefined {
 		if (!isComposite(team)) return undefined;
 		let record = this.bindBySegment(team, { claudeSessionId });
@@ -371,7 +394,7 @@ export class SessionStore {
 			if (record && handover) {
 				const previousTeam = this.teamOf(record);
 				const { project: spawn, session: id } = parseSessionName(team);
-				if (this.records.has(team)) return undefined;
+				if (this.taken(team)) return undefined;
 				this.records.delete(previousTeam);
 				record.spawn = spawn;
 				record.id = id;
@@ -379,10 +402,17 @@ export class SessionStore {
 			}
 		}
 		if (!record) {
+			// A CLI with no handshake never confirms unbound.
+			if (!harness || !HARNESS[harness].handshake) return undefined;
 			const { project: spawn, session: id } = parseSessionName(team);
 			record =
-				this.adoptById(id, { spawn, sessionLabel: label, workdirHint: label ?? id, claudeSessionId }) ??
-				this.mint({ spawn, sessionLabel: label, workdirHint: label, claudeSessionId });
+				this.adoptById(id, {
+					spawn,
+					sessionLabel: label,
+					workdirHint: label ?? id,
+					claudeSessionId,
+					harness,
+				}) ?? this.mint({ spawn, sessionLabel: label, workdirHint: label, claudeSessionId, harness });
 		}
 		return this.confirm(this.teamOf(record), live);
 	}
@@ -447,7 +477,7 @@ export class SessionStore {
 	}
 
 	snapshot(): Record<string, PersistedSessionRecord> {
-		const out: Record<string, PersistedSessionRecord> = {};
+		const out = Object.fromEntries(this.unread) as Record<string, PersistedSessionRecord>;
 		for (const record of this.records.values()) {
 			const {
 				codexCatalog: _escaped,
@@ -462,6 +492,10 @@ export class SessionStore {
 			const copilotCatalog = this.copilotCatalogStore.get(record);
 			out[this.teamOf(record)] = {
 				...rest,
+				// FIXME 2026-11-23: drop. Rollback twin.
+				...(rest.harness === "copilot" && rest.harnessSessionId
+					? { copilotSessionId: rest.harnessSessionId }
+					: {}),
 				...(codexCatalog ? { codexCatalog } : {}),
 				...(copilotCatalog ? { copilotCatalog } : {}),
 			};
@@ -473,12 +507,28 @@ export class SessionStore {
 		if (!raw || typeof raw !== "object") return;
 		for (const [team, value] of Object.entries(raw as Record<string, unknown>)) {
 			if (!value || typeof value !== "object") continue;
-			if (!isComposite(team) || this.records.has(team)) continue;
+			if (!isComposite(team) || this.taken(team)) continue;
 			const { project: spawn, session: segment } = parseSessionName(team);
 			if (!isSlug(spawn) || !isSlug(segment)) continue;
-			const v = value as Partial<PersistedSessionRecord> & { claudeSessionId?: string; lastSeen?: number };
+			const v = value as Partial<PersistedSessionRecord> & {
+				claudeSessionId?: string;
+				lastSeen?: number;
+				copilotSessionId?: unknown;
+			};
 			if (typeof v.id !== "string") continue;
 			const lastSeen = typeof v.lastSeen === "number" ? v.lastSeen : this.now();
+			// A newer build's CLI. Held for it.
+			if (v.harness !== undefined && !isSessionHarness(v.harness)) {
+				console.log(`[session] ${team} held unread: unknown CLI`);
+				this.unread.set(team, value);
+				continue;
+			}
+			// Absent means Claude.
+			const harness = v.harness ?? "claude";
+			// FIXME 2026-11-23: drop the `copilotSessionId` read.
+			const storedId = v.harnessSessionId ?? v.copilotSessionId;
+			const storedValid = typeof storedId === "string" && UUID.test(storedId);
+			const heldId = !HARNESS[harness].mintsSessionId ? undefined : storedValid ? storedId : this.uuidGen();
 			const record: SessionRecord = {
 				id: segment,
 				sessionLabel: this.dedupLabel(spawn, sanitizeLabel(v.sessionLabel) ?? segment),
@@ -486,9 +536,8 @@ export class SessionStore {
 				workdirHint: sanitizeLabel(v.workdirHint) ?? undefined,
 				workdirPath: sanitizeWorkdirPath(v.workdirPath) ?? undefined,
 				claudeSessionId: typeof v.claudeSessionId === "string" ? v.claudeSessionId : undefined,
-				...(v.harness === "copilot" && typeof v.copilotSessionId === "string" && UUID.test(v.copilotSessionId)
-					? { harness: "copilot" as const, copilotSessionId: v.copilotSessionId }
-					: {}),
+				harness,
+				...(heldId ? { harnessSessionId: heldId } : {}),
 				mintedFrom: typeof v.mintedFrom === "string" ? v.mintedFrom : undefined,
 				// Restored records never mint a token for an unbound session.
 				bindToken: typeof v.bindToken === "string" ? v.bindToken : undefined,
@@ -528,7 +577,8 @@ export class SessionStore {
 			workdirHint: sanitizeLabel(opts.workdirHint) ?? undefined,
 			workdirPath: sanitizeWorkdirPath(opts.workdirPath) ?? undefined,
 			claudeSessionId: opts.claudeSessionId,
-			...(opts.harness === "copilot" ? { harness: "copilot" as const, copilotSessionId: this.uuidGen() } : {}),
+			harness: opts.harness,
+			...(HARNESS[opts.harness].mintsSessionId ? { harnessSessionId: this.uuidGen() } : {}),
 			mintedFrom: opts.mintedFrom,
 			lastSeen: this.now(),
 		};

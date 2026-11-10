@@ -46,7 +46,7 @@ describe("what the subject-less byte plane requires", () => {
 
 	it("refuses a caller presenting nothing once any session is bound", () => {
 		const { auth, sessionStore } = setup();
-		const record = sessionStore.mint({ spawn: "recipe-app" });
+		const record = sessionStore.mint({ spawn: "recipe-app", harness: "claude" });
 		sessionStore.ensureBindToken(record);
 		sessionStore.activateBinding(record);
 
@@ -55,10 +55,10 @@ describe("what the subject-less byte plane requires", () => {
 
 	it("admits a caller holding any bound session's token, since a transfer names bytes, not a session", () => {
 		const { auth, sessionStore } = setup();
-		const mine = sessionStore.mint({ spawn: "recipe-app" });
+		const mine = sessionStore.mint({ spawn: "recipe-app", harness: "claude" });
 		const token = sessionStore.ensureBindToken(mine);
 		sessionStore.activateBinding(mine);
-		const other = sessionStore.mint({ spawn: "other-app" });
+		const other = sessionStore.mint({ spawn: "other-app", harness: "claude" });
 		sessionStore.ensureBindToken(other);
 		sessionStore.activateBinding(other);
 
@@ -69,7 +69,7 @@ describe("what the subject-less byte plane requires", () => {
 	it("ignores a binding that was only minted, so a reattached session is not locked out", () => {
 		// Minted but undelivered tokens cannot lock out the named session.
 		const { auth, sessionStore } = setup();
-		const record = sessionStore.mint({ spawn: "recipe-app" });
+		const record = sessionStore.mint({ spawn: "recipe-app", harness: "claude" });
 		sessionStore.ensureBindToken(record);
 
 		expect(auth.mayUseLocalPlane(NOTHING_PRESENTED)).toBe(true);
@@ -85,7 +85,7 @@ describe("what a name requires", () => {
 
 	it("requires nothing while a binding is only minted, since the session was never handed it", () => {
 		const { auth, sessionStore } = setup();
-		const record = sessionStore.mint({ spawn: "recipe-app" });
+		const record = sessionStore.mint({ spawn: "recipe-app", harness: "claude" });
 		sessionStore.ensureBindToken(record);
 
 		expect(auth.satisfies(auth.toClaim(sessionStore.teamOf(record)), NOTHING_PRESENTED)).toBe(true);
@@ -93,7 +93,7 @@ describe("what a name requires", () => {
 
 	it("requires the binding once its session has presented it", () => {
 		const { auth, sessionStore } = setup();
-		const record = sessionStore.mint({ spawn: "recipe-app" });
+		const record = sessionStore.mint({ spawn: "recipe-app", harness: "claude" });
 		const token = sessionStore.ensureBindToken(record);
 		sessionStore.activateBinding(record);
 		const team = sessionStore.teamOf(record);
@@ -130,7 +130,7 @@ describe("what a socket requires", () => {
 describe("acting for whoever serves a name", () => {
 	it("defers to the live session, so an alias serving a bound record answers unproven", () => {
 		const { auth, sessionStore, registry } = setup();
-		const record = sessionStore.mint({ spawn: "recipe-app" });
+		const record = sessionStore.mint({ spawn: "recipe-app", harness: "claude" });
 		sessionStore.ensureBindToken(record);
 		sessionStore.activateBinding(record);
 		const team = sessionStore.teamOf(record);
@@ -141,7 +141,7 @@ describe("acting for whoever serves a name", () => {
 
 	it("falls back to the record while the session is asleep, its easiest moment to forge into", () => {
 		const { auth, sessionStore } = setup();
-		const record = sessionStore.mint({ spawn: "recipe-app" });
+		const record = sessionStore.mint({ spawn: "recipe-app", harness: "claude" });
 		const token = sessionStore.ensureBindToken(record);
 		sessionStore.activateBinding(record);
 		const team = sessionStore.teamOf(record);
@@ -200,7 +200,7 @@ describe("identity between principals", () => {
 describe("confirmed managed callers", () => {
 	it("resolves the exact confirmed record from its active request binding", () => {
 		const { auth, sessionStore } = setup();
-		const record = sessionStore.mint({ spawn: "recipe-app" });
+		const record = sessionStore.mint({ spawn: "recipe-app", harness: "claude" });
 		const token = sessionStore.ensureBindToken(record);
 		sessionStore.activateBinding(record);
 		sessionStore.confirm(sessionStore.teamOf(record));
@@ -210,9 +210,9 @@ describe("confirmed managed callers", () => {
 
 	it("refuses missing, foreign, inactive, and unconfirmed bindings", () => {
 		const { auth, sessionStore } = setup();
-		const inactive = sessionStore.mint({ spawn: "inactive-app" });
+		const inactive = sessionStore.mint({ spawn: "inactive-app", harness: "claude" });
 		const inactiveToken = sessionStore.ensureBindToken(inactive);
-		const unconfirmed = sessionStore.mint({ spawn: "unconfirmed-app" });
+		const unconfirmed = sessionStore.mint({ spawn: "unconfirmed-app", harness: "claude" });
 		const unconfirmedToken = sessionStore.ensureBindToken(unconfirmed);
 		sessionStore.activateBinding(unconfirmed);
 

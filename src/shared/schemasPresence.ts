@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CrossDomainPresenceSessionSchema } from "./federation-protocol.js";
 import { ConnectionModeSchema, TeamKindSchema } from "./schemasCore.js";
+import { SESSION_HARNESSES, type SessionHarness } from "./session-harness.js";
 import { ASSISTANT_ROLE } from "./wire-vocabulary.js";
 
 ////////////////////////////////
@@ -10,6 +11,18 @@ import { ASSISTANT_ROLE } from "./wire-vocabulary.js";
 //  the wire word verbatim; `kind` separates wakeable devcontainer projects from
 //  ad-hoc loose sessions.
 
+const SpawnListSchema = z.array(z.string().min(1).max(64)).max(9).optional();
+
+/** Per CLI, spawn points with it. A property each, so readers skip unknown CLIs. */
+export const HarnessSpawnsSchema = z
+	.object(
+		Object.fromEntries(SESSION_HARNESSES.map((harness) => [harness, SpawnListSchema])) as Record<
+			SessionHarness,
+			typeof SpawnListSchema
+		>,
+	)
+	.meta({ id: "HarnessSpawns" });
+
 /** Discovery metadata, never a presence row: a row would make a machine's shell shareable. */
 export const GatewaySpawnPointsSchema = z
 	.object({
@@ -17,10 +30,11 @@ export const GatewaySpawnPointsSchema = z
 		gatewayId: z.string().min(1),
 		// Host is implicit.
 		hostSpawns: z.array(z.string().min(1).max(64)).max(8),
-		/** Spawn points whose shell has Claude Code, `host` included. Absent from an older Gateway. */
-		claudeSpawns: z.array(z.string().min(1).max(64)).max(9).optional(),
-		/** Spawn points whose shell has Copilot CLI, `host` included. Absent from an older Gateway. */
-		copilotSpawns: z.array(z.string().min(1).max(64)).max(9).optional(),
+		// FIXME 2026-11-23: required, once every Gateway sends it.
+		harnessSpawns: HarnessSpawnsSchema.optional(),
+		// FIXME 2026-11-23: drop both, once every reader takes `harnessSpawns`.
+		claudeSpawns: SpawnListSchema,
+		copilotSpawns: SpawnListSchema,
 	})
 	.meta({ id: "GatewaySpawnPoints" });
 
@@ -92,6 +106,8 @@ export const TeamInfoSchema = z
 		kind: TeamKindSchema,
 		// Board session label.
 		sessionLabel: z.string().optional(),
+		/** The session's CLI. A string, so readers skip unknown ones. */
+		harness: z.string().min(1).max(32).optional(),
 		// Gateway-stamped. The assistant's session lives in its own tab, never the Sessions list.
 		role: z.enum([ASSISTANT_ROLE]).optional(),
 		// Inbound compatibility field.

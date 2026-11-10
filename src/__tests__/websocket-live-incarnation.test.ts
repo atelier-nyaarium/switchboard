@@ -13,7 +13,7 @@ describe("resolveLiveIncarnation", () => {
 	): TeamRegistry => new Map(entries.map(([team, sockets]) => [team, new Map(sockets)]));
 	const aliased = (canonical: string, spawn: string, id: string, alias: string): SessionStore => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.adoptById(id, { spawn });
+		store.adoptById(id, { spawn, harness: "claude" });
 		store.confirm(canonical, { team: alias, subId: "s1" });
 		return store;
 	};

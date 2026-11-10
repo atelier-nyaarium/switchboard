@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.board.BoardLiveLine
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceSession
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
 import com.atelier_nyaarium.switchboard.proto.isComposite
@@ -108,7 +109,7 @@ fun SessionsScreen(
 	onRename: (String, String) -> Unit,
 	onMarkRead: (String) -> Unit,
 	onForget: (String) -> Unit,
-	onSpawn: (String, String, String?, String?) -> Unit,
+	onSpawn: (String, String, String?, SessionHarness) -> Unit,
 	onListDirs: suspend (String, String, String) -> DirListing = { _, _, _ -> DirListing(emptyList()) },
 	onVerifyEnroll: (() -> Unit)? = null,
 	onRouterEndpoint: (() -> Unit)? = null,

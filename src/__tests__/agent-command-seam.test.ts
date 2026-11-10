@@ -42,7 +42,7 @@ function setup() {
 		localDomainId: () => "alice",
 		localGatewayId: "sakura",
 	});
-	const owner = sessionStore.mint({ spawn: "recipe-app", sessionLabel: "Work" });
+	const owner = sessionStore.mint({ spawn: "recipe-app", sessionLabel: "Work", harness: "claude" });
 	const token = sessionStore.ensureBindToken(owner);
 	sessionStore.activateBinding(owner);
 	sessionStore.confirm(sessionStore.teamOf(owner));

@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import java.util.UUID
@@ -47,7 +48,7 @@ internal class SessionOps(
 		host.rememberProject(target)
 	}
 
-	suspend fun spawnSession(target: String, label: String, workdir: String? = null, harness: String? = null) = coroutineScope {
+	suspend fun spawnSession(target: String, label: String, workdir: String?, harness: SessionHarness) = coroutineScope {
 		val key = target to label
 		val before = host.state.getAndUpdate { s ->
 			if (key in s.pendingSpawns) s else s.copy(pendingSpawns = s.pendingSpawns + key)
@@ -60,7 +61,7 @@ internal class SessionOps(
 		recentSpawnOpIds[key] = opId to now
 		try {
 			runCatchingCancellable {
-				withContext(Dispatchers.IO) { host.createSession(target, displayLabel = label, workdir = workdir, opId = opId, harness = harness) }
+				withContext(Dispatchers.IO) { host.createSession(target, displayLabel = label, workdir = workdir, opId = opId, harness = harness.wire) }
 			}
 				.onSuccess { result ->
 					recentSpawnOpIds.remove(key)
@@ -167,6 +168,8 @@ internal class SessionOps(
 		withContext(Dispatchers.IO) {
 			val t = runIsolated { parseQualifiedTarget(team) }.getOrNull()
 			if (t !is Address) error("not an addressable session")
+			// Read before the close drops the row.
+			val harness = rowHarnessWord(host.state.value.teams.firstOrNull { it.name == team }?.harness)
 			val opId = UUID.randomUUID().toString()
 			// Keep one receipt across close and create while the roster reports asleep.
 			noteReceipt(team, ActionReceipt(opId, System.currentTimeMillis()))
@@ -178,6 +181,7 @@ internal class SessionOps(
 					target = SpawnPoint.of(t.domain, t.gateway, t.spawn).canonical,
 					sessionName = t.session,
 					opId = UUID.randomUUID().toString(),
+					harness = harness,
 				)
 			} catch (e: Throwable) {
 				e.rethrowIfCancellation()

@@ -391,7 +391,9 @@ const sessionReporter = createSessionRegistryReporter({
 	},
 });
 sessionReporter.attach();
-const sessionId = sessionStore.teamOf(sessionStore.mint({ spawn: "fixture-app", sessionLabel: "Fixture" }));
+const sessionId = sessionStore.teamOf(
+	sessionStore.mint({ spawn: "fixture-app", sessionLabel: "Fixture", harness: "claude" }),
+);
 const sessionFrame = (index: number): Record<string, unknown> => {
 	const frame = sessionFrames[index];
 	if (!frame) throw new Error(`session frame ${index} never sent`);

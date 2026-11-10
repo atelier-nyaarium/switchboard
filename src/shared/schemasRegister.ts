@@ -27,6 +27,9 @@ export const WsRegisterSchema = z.object({
 	conversationId: z.string().regex(CONVERSATION_ID_RE).max(MAX_CONVERSATION_ID_LEN).optional(),
 	version: z.string().optional(),
 	claudeSessionId: z.string().optional(),
+	// FIXME 2026-11-23: required, once every plugin names it.
+	/** The session's CLI word, unchecked. */
+	harness: z.string().min(1).max(32).optional(),
 	cwdName: z.string().max(256).optional(),
 	token: z.string().optional(),
 	sessionToken: z.string().max(256).optional(),

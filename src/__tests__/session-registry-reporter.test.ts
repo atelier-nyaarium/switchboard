@@ -18,7 +18,7 @@ describe("session registry reporter", () => {
 			ambient: fakeAmbient({ drive: "manual" }),
 		});
 		reporter.attach();
-		store.mint({ spawn: "host", sessionLabel: "Work" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work" });
 		await flush();
 
 		expect(sent).toHaveLength(1);
@@ -37,7 +37,7 @@ describe("session registry reporter", () => {
 			ambient: fakeAmbient({ drive: "manual" }),
 		});
 		reporter.attach();
-		store.mint({ spawn: "host" });
+		store.mint({ spawn: "host", harness: "claude" });
 		now = 200;
 		store.sweep(50);
 		await flush();
@@ -57,7 +57,7 @@ describe("session registry reporter", () => {
 			ambient: fakeAmbient({ drive: "manual" }),
 		});
 		reporter.attach();
-		const record = store.mint({ spawn: "host" });
+		const record = store.mint({ spawn: "host", harness: "claude" });
 		await flush();
 		incarnation = null;
 		store.forget(store.teamOf(record));
@@ -84,7 +84,7 @@ describe("session registry reporter", () => {
 		});
 		reporter.attach();
 		incarnation = null;
-		const record = store.mint({ spawn: "host" });
+		const record = store.mint({ spawn: "host", harness: "claude" });
 		store.forget(store.teamOf(record));
 		incarnation = 4;
 		reporter.reconcile();
@@ -111,9 +111,9 @@ describe("session registry reporter", () => {
 		});
 		reporter.attach();
 		incarnation = null;
-		const record = store.mint({ spawn: "host" });
+		const record = store.mint({ spawn: "host", harness: "claude" });
 		store.forget(store.teamOf(record));
-		store.mint({ spawn: "host" });
+		store.mint({ spawn: "host", harness: "claude" });
 		incarnation = 4;
 		reporter.reconcile();
 		await flush();
@@ -132,7 +132,7 @@ describe("session registry reporter", () => {
 			localGatewayId: "gateway",
 			ambient: fakeAmbient({ drive: "manual" }),
 		});
-		const record = store.mint({ spawn: "host" });
+		const record = store.mint({ spawn: "host", harness: "claude" });
 		reporter.reconcile();
 		store.forget(store.teamOf(record));
 		reporter.reconcile();
@@ -153,7 +153,7 @@ describe("session registry reporter", () => {
 			ambient: fakeAmbient({ drive: "manual" }),
 		});
 		reporter.attach();
-		store.mint({ spawn: "host" });
+		store.mint({ spawn: "host", harness: "claude" });
 		await flush();
 		expect(sent).toHaveLength(0);
 		incarnation = 4;
@@ -180,7 +180,7 @@ describe("session registry reporter", () => {
 			ambient,
 		});
 		reporter.attach();
-		store.mint({ spawn: "host" });
+		store.mint({ spawn: "host", harness: "claude" });
 		await flush();
 		fenced = false;
 		await ambient.advance(SESSION_REGISTRY_RETRY_MS);
@@ -205,7 +205,7 @@ describe("session registry reporter", () => {
 			ambient,
 		});
 		reporter.attach();
-		const record = store.mint({ spawn: "host" });
+		const record = store.mint({ spawn: "host", harness: "claude" });
 		await flush();
 		store.forget(store.teamOf(record));
 		await flush();

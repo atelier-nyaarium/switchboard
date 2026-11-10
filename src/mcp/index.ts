@@ -16,6 +16,7 @@ import { ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../shared/assistant
 import { localAgentCapability } from "../shared/capabilities.js";
 import { isInsideContainer } from "../shared/env.js";
 import { pluginRoot } from "../shared/plugin-root.js";
+import { type HarnessRow, harnessRow } from "../shared/session-harness.js";
 import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
@@ -162,7 +163,8 @@ export async function startMcp(): Promise<void> {
 	if (inContainer) layDownAskpass(process.env.BRIDGE_ROUTER_URL);
 
 	const agentType = process.env.AGENT_TYPE || detectAgentType();
-	const isChannel = agentType === "claude";
+	/** Null for a CLI that is no session harness. */
+	const harness = harnessRow(agentType);
 
 	// Before the server exists: it decides which tools register. The assistant takes none, so no
 	// guidance names a tool it lacks and no reply snapshots a ref.
@@ -172,21 +174,26 @@ export async function startMcp(): Promise<void> {
 	const guided = withServedAgents(capabilities, agents);
 	if (!isAssistant) saveStartupCapabilities(process.env.PROJECT_NAME, guided);
 
+	/** Whether the server declares Claude's channel. */
+	const CHANNEL_CAPABILITY: Record<HarnessRow["delivery"], boolean> = { channel: true, typed: false };
+	const instructions: Record<HarnessRow["guidance"], () => string> = {
+		handshake: () =>
+			isAssistant
+				? `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${ASSISTANT_INSTRUCTIONS}`
+				: `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}${capabilityInstructions(guided)}`,
+		// No handshake answer carries the guidance, so it rides here whole.
+		instructions: () => `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${renderCapabilities(guided, guided)}`,
+	};
 	const mcpServer = new McpServer(
 		{ name: "switchboard", version: packageJson.version },
-		isChannel
+		harness
 			? {
-					capabilities: { experimental: { "claude/channel": {} } },
-					instructions: isAssistant
-						? `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${ASSISTANT_INSTRUCTIONS}`
-						: `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}${capabilityInstructions(guided)}`,
+					...(CHANNEL_CAPABILITY[harness.delivery]
+						? { capabilities: { experimental: { "claude/channel": {} } } }
+						: {}),
+					instructions: instructions[harness.guidance](),
 				}
-			: agentType === "copilot"
-				? // No handshake answer carries the guidance, so it rides here whole.
-					{
-						instructions: `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${renderCapabilities(guided, guided)}`,
-					}
-				: undefined,
+			: undefined,
 	);
 	// Before any tool registers.
 	guardTools(mcpServer);
@@ -195,7 +202,7 @@ export async function startMcp(): Promise<void> {
 	registerBridgeTools(mcpServer, guided);
 	registerCapabilitiesTool(mcpServer, guided, { assistant: isAssistant });
 	// Each types Claude slash commands into the pane.
-	if (agentType !== "copilot") {
+	if (harness?.claudeSlashTools ?? true) {
 		registerReloadPlugins(mcpServer);
 		registerSetEffortLevel(mcpServer);
 		registerCompactSession(mcpServer);
@@ -208,7 +215,7 @@ export async function startMcp(): Promise<void> {
 		!isAssistant &&
 		process.env.SWITCHBOARD_SESSION_TOKEN &&
 		hasCapability(capabilities, "workflow") &&
-		(agentType === "claude" || agentType === "copilot")
+		harness?.workflowTools === true
 	) {
 		registerWorkflowTools(mcpServer);
 	}

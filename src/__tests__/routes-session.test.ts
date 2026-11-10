@@ -30,7 +30,7 @@ describe("POST /session/type", () => {
 			harness: "copilot",
 			sessionLabel: "Copilot",
 			lastSeen: 1,
-		} as SessionRecord);
+		});
 
 		const response = await route.typeSession(request({ text: "hello" }, "wrong-token"), { text: "hello" });
 		expect(response.status).toBe(403);
@@ -38,7 +38,13 @@ describe("POST /session/type", () => {
 	});
 
 	it("refuses an authenticated Claude caller", async () => {
-		const route = routes({ id: "claude-one", spawn: "host", sessionLabel: "Claude", lastSeen: 1 } as SessionRecord);
+		const route = routes({
+			id: "claude-one",
+			spawn: "host",
+			harness: "claude",
+			sessionLabel: "Claude",
+			lastSeen: 1,
+		});
 
 		const response = await route.typeSession(request({ text: "hello" }), { text: "hello" });
 		expect(response.status).toBe(403);
@@ -52,7 +58,7 @@ describe("POST /session/type", () => {
 			harness: "copilot",
 			sessionLabel: "Copilot",
 			lastSeen: 1,
-		} as SessionRecord);
+		});
 
 		const body = { text: "hello", target: { kind: "host", name: "other", sessionName: "session" } };
 		const response = await route.typeSession(request(body), body);
@@ -67,7 +73,7 @@ describe("POST /session/type", () => {
 			harness: "copilot",
 			sessionLabel: "Copilot",
 			lastSeen: 1,
-		} as SessionRecord);
+		});
 		const body = { text: '<channel source="switchboard">hello</channel>' };
 
 		const response = await route.typeSession(request(body), body);

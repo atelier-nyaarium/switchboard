@@ -31,7 +31,7 @@ const REQUESTED_TARGET = {
 	hostProjectPath: "/trusted/recipe-app",
 };
 
-const OWNER: SessionRecord = { id: "work", sessionLabel: "Work", spawn: "recipe-app", lastSeen: 0 };
+const OWNER: SessionRecord = { id: "work", sessionLabel: "Work", spawn: "recipe-app", harness: "claude", lastSeen: 0 };
 
 type ApplicationFactory = (
 	owner: SessionRecord,

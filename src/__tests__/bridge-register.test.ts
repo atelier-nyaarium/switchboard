@@ -35,6 +35,14 @@ describe("buildRegisterMsg", () => {
 		expect(buildRegisterMsg("sub1").claudeSessionId).toBeUndefined();
 	});
 
+	it("names its CLI when that is a session CLI, and none for another agent", () => {
+		initBridge({ ...BASE, agentType: "copilot" });
+		expect(buildRegisterMsg("sub1").harness).toBe("copilot");
+
+		initBridge({ ...BASE, agentType: "cursor" });
+		expect(buildRegisterMsg("sub1").harness).toBeUndefined();
+	});
+
 	it("carries the cwd basename as the default session label", () => {
 		initBridge(BASE);
 		expect(buildRegisterMsg("sub1").cwdName).toBe(basename(process.cwd()));

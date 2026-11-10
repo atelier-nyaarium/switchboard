@@ -23,6 +23,7 @@ internal fun testTeam(
 	teammates: Boolean? = null,
 	kind: String = "loose",
 	sessionLabel: String? = null,
+	harness: String? = null,
 ): Team = Team(
 	name = name,
 	presence = Presence.reported(
@@ -47,4 +48,5 @@ internal fun testTeam(
 	),
 	kind = kind,
 	sessionLabel = sessionLabel,
+	harness = harness,
 )

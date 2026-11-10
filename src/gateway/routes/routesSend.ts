@@ -386,7 +386,7 @@ export function createSendRoutes({
 			inboundSessionId ?? (fromConversationId ? `${fromConversationId}:${resolved.name}` : undefined);
 		// The guard cleared it, by card or by the owner's setting.
 		const cleared = record ? { cleared: true as const } : {};
-		const arrived = await reach(resolved, { displayLabel, mintedFrom, ...cleared });
+		const arrived = await reach(resolved, { displayLabel, harness: "claude", mintedFrom, ...cleared });
 		if (!arrived.ok) return jsonResponse({ error: arrived.error }, 404);
 		const { localName, target, qualifiedTo, targetWs } = arrived;
 

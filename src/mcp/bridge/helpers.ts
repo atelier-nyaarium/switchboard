@@ -8,6 +8,7 @@ import { processAmbient } from "../../shared/ambient.js";
 import { isGatewayLongWaitRoute, resendsAfterFailure } from "../../shared/gateway-long-waits.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
+import { type HarnessRow, harnessRow, isSessionHarness } from "../../shared/session-harness.js";
 import {
 	type ChannelPushPayload,
 	type ConnectionMode,
@@ -71,6 +72,8 @@ async function readResponseBody(res: Response, maxBytes: number): Promise<string
 let ROUTER_URL = "";
 let PROJECT_NAME = "";
 let AGENT_TYPE = "";
+/** Null for a CLI that is no session harness. */
+let harness: HarnessRow | null = null;
 
 const CONVERSATION_ID: string = crypto.randomUUID();
 
@@ -132,19 +135,45 @@ async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPay
 	}
 }
 
+/** How a pushed row enters the session. */
+interface Transport {
+	/** Each waits for the one before. */
+	queued: boolean;
+	ready(): boolean;
+	push(push: ChannelPushPayload): Promise<void>;
+	response(push: ResponsePushPayload): Promise<void>;
+}
+
+const TRANSPORTS: Record<HarnessRow["delivery"], Transport> = {
+	channel: {
+		queued: false,
+		ready: () => channelServer !== null,
+		push: (push) =>
+			channelServer
+				? emitChannelNotification(channelServer, push)
+				: Promise.reject(new Error("no channel server")),
+		response: (push) =>
+			channelServer
+				? emitResponseNotification(channelServer, push)
+				: Promise.reject(new Error("no channel server")),
+	},
+	typed: {
+		queued: true,
+		ready: () => true,
+		push: (push) =>
+			emitTypedChannelTag(push, typeof push.delivery_id === "string" ? push.delivery_id : crypto.randomUUID()),
+		response: (push) => emitTypedChannelTag(push, crypto.randomUUID()),
+	},
+};
+
+/** Null for a CLI that takes no push. */
+function transport(): Transport | null {
+	return harness ? TRANSPORTS[harness.delivery] : null;
+}
+
 /** Dedupe ids across reconnects. */
 const deliverChannelPush = createChannelPushDelivery({
-	emit: (push) => {
-		if (AGENT_TYPE === "copilot") {
-			return emitTypedChannelTag(
-				push,
-				typeof push.delivery_id === "string" ? push.delivery_id : crypto.randomUUID(),
-			);
-		}
-		return channelServer
-			? emitChannelNotification(channelServer, push)
-			: Promise.reject(new Error("no channel server"));
-	},
+	emit: (push) => transport()?.push(push) ?? Promise.reject(new Error("no channel server")),
 	ack: (deliveryId) => routerWs?.send(JSON.stringify({ type: "channel_delivery_ack", delivery_id: deliveryId })),
 	maxRemembered: MAX_PENDING_DELIVERIES,
 });
@@ -183,6 +212,7 @@ export function initBridge(config: BridgeConfig): void {
 	ROUTER_URL = config.routerUrl;
 	PROJECT_NAME = config.projectName;
 	AGENT_TYPE = config.agentType;
+	harness = harnessRow(config.agentType);
 }
 
 export function setChannelServer(server: Server): void {
@@ -203,17 +233,18 @@ export async function emitLocalAwareness(
 		no_ack: true,
 		act: awareness.act,
 	};
-	if (AGENT_TYPE === "copilot") {
-		// Rechecked once the queue reaches it.
-		return serializeTypedDelivery(async () => {
-			if (!stillWanted()) return false;
-			await emitTypedChannelTag(push, crypto.randomUUID());
-			return true;
-		});
+	const via = transport();
+	if (!via?.ready()) return false;
+	if (!via.queued) {
+		await via.push(push);
+		return true;
 	}
-	if (!channelServer || AGENT_TYPE !== "claude") return false;
-	await emitChannelNotification(channelServer, push);
-	return true;
+	// Rechecked once the queue reaches it.
+	return serializeTypedDelivery(async () => {
+		if (!stillWanted()) return false;
+		await via.push(push);
+		return true;
+	});
 }
 
 /** Unknown ids are no-ops. */
@@ -372,6 +403,7 @@ export function buildRegisterMsg(
 	if (process.env.CLAUDE_CODE_SESSION_ID) {
 		registerMsg.claudeSessionId = process.env.CLAUDE_CODE_SESSION_ID;
 	}
+	if (isSessionHarness(AGENT_TYPE)) registerMsg.harness = AGENT_TYPE;
 	const cwdName = basename(process.cwd());
 	if (cwdName) registerMsg.cwdName = cwdName;
 	registerMsg.agentPid = process.ppid;
@@ -388,7 +420,6 @@ export function connectToRouter(): void {
 	opLedgerProtocol = 0;
 	routerWs = new WebSocket(wsUrl);
 
-	const canReceivePush = AGENT_TYPE === "claude" || AGENT_TYPE === "copilot";
 	const mode: ConnectionMode = "channel";
 
 	routerWs.on("open", () => {
@@ -417,7 +448,7 @@ export function connectToRouter(): void {
 			const hsSessionId = msg.session_id as string;
 			handshakeRole.noteReceived(hsSessionId);
 			const role = handshakeRole.get();
-			if (role !== null && AGENT_TYPE !== "copilot") {
+			if (role !== null && harness?.handshake !== false) {
 				const refusal = opLedgerRefusal();
 				if (refusal) {
 					console.error(`[bridge] handshake reply withheld: ${refusal}`);
@@ -456,21 +487,19 @@ export function connectToRouter(): void {
 			return;
 		}
 
-		if (msg.type === "channel_push" && canReceivePush && (channelServer || AGENT_TYPE === "copilot")) {
+		const via = transport();
+		if (msg.type === "channel_push" && via?.ready()) {
 			const delivery = () => deliverChannelPush(msg as unknown as ChannelPushPayload);
-			const queued = AGENT_TYPE === "copilot" ? serializeTypedDelivery(delivery) : delivery();
+			const queued = via.queued ? serializeTypedDelivery(delivery) : delivery();
 			queued.catch((err: Error) => {
 				// Retain failed deliveries.
 				console.error(`[channel] notification error: ${err.message}`);
 			});
 		}
 
-		if (msg.type === "response_push" && canReceivePush && (channelServer || AGENT_TYPE === "copilot")) {
-			const emit = () =>
-				AGENT_TYPE === "copilot"
-					? emitTypedChannelTag(msg as unknown as ResponsePushPayload, crypto.randomUUID())
-					: emitResponseNotification(channelServer!, msg as unknown as ResponsePushPayload);
-			const queued = AGENT_TYPE === "copilot" ? serializeTypedDelivery(emit) : emit();
+		if (msg.type === "response_push" && via?.ready()) {
+			const emit = () => via.response(msg as unknown as ResponsePushPayload);
+			const queued = via.queued ? serializeTypedDelivery(emit) : emit();
 			queued.catch((err: Error) => {
 				console.error(`[channel] response notification error: ${err.message}`);
 			});

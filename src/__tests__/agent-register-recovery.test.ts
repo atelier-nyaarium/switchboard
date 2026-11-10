@@ -67,7 +67,7 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		localDomainId: () => "alice",
 		localGatewayId: "sakura",
 	});
-	const owner = store.mint({ spawn: "recipe-app", sessionLabel: "Work" });
+	const owner = store.mint({ spawn: "recipe-app", sessionLabel: "Work", harness: "claude" });
 	store.ensureBindToken(owner);
 	store.activateBinding(owner);
 	store.confirm(store.teamOf(owner));

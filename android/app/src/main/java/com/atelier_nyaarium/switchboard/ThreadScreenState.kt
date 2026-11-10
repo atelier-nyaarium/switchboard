@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import android.net.Uri
+import com.atelier_nyaarium.switchboard.proto.ShellMacro
+import com.atelier_nyaarium.switchboard.proto.SlashMacro
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -61,8 +63,9 @@ data class TerminalState(
 	val limitBlocked: Boolean,
 	val limitDetail: String?,
 	val compacting: Boolean,
+	val slashMacros: List<SlashMacro>,
 	/** The install macros the session's spawn point offers. */
-	val shellMacros: List<ShellMacro> = PALETTE_SHELL_CLAUDE,
+	val shellMacros: List<ShellMacro>,
 	val refreshMs: Long,
 	val onWake: () -> Unit,
 	/** Force-relaunch claude in a still-existing pane (SessionOps.relaunchSession). */

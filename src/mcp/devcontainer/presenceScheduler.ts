@@ -5,11 +5,11 @@ import {
 	isCompacting,
 	isLoggedOut,
 	limitNotice,
-	type PaneBackend,
 	restartPending,
 } from "../../shared/agent-screen.js";
 import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
 import { type DerivedPresence, sameDerived } from "../../shared/schemasPresence.js";
+import { HARNESS, isSessionHarness, type PaneAutoAnswer, type SessionHarness } from "../../shared/session-harness.js";
 import { PromptOccurrences, type SeenPrompt, seePrompt } from "./permissionPrompt.js";
 import { limitContinueDigit, type PromptSight, surveyShowing } from "./promptAnswer.js";
 
@@ -23,8 +23,27 @@ export interface WatchEntry {
 	team: string;
 	target: TmuxTarget;
 	cadenceMs: number;
-	/** Claude when absent. */
-	backend?: PaneBackend;
+	backend: SessionHarness;
+}
+
+const HARNESS_SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Null when this build cannot watch it. */
+export function readWatch(
+	raw: unknown,
+): { team: string; cadenceMs: number; harness: SessionHarness; sessionId?: string } | null {
+	const entry = (raw ?? {}) as Record<string, unknown>;
+	if (typeof entry.team !== "string" || typeof entry.cadenceMs !== "number") return null;
+	// FIXME 2026-11-23: drop `copilotSessionId`, an older Gateway's only word for the CLI.
+	const held = entry.harnessSessionId ?? entry.copilotSessionId;
+	const sessionId = typeof held === "string" && HARNESS_SESSION_RE.test(held) ? held : undefined;
+	let harness: SessionHarness;
+	// FIXME 2026-11-23: refuse an absent one, once every Gateway names it.
+	if (entry.harness == null) harness = entry.copilotSessionId != null && sessionId ? "copilot" : "claude";
+	else if (isSessionHarness(entry.harness)) harness = entry.harness;
+	// Unknown CLI.
+	else return null;
+	return { team: entry.team, cadenceMs: entry.cadenceMs, harness, ...(sessionId ? { sessionId } : {}) };
 }
 
 /** Peeks without the resize side effect. Injected to stay testable. */
@@ -113,6 +132,16 @@ export class PresenceScheduler {
 	private readonly consecutiveFailures = new Map<string, number>();
 	private readonly observedFrames = new Map<string, HostPeekResult>();
 	private readonly ticking = new Set<symbol>();
+	private readonly dialogs: Record<
+		PaneAutoAnswer,
+		{ shows: (screen: string) => boolean; answer: (target: TmuxTarget) => void }
+	> = {
+		limit: {
+			shows: (screen) => limitContinueDigit(screen) !== null,
+			answer: (target) => this.onLimitDialog(target),
+		},
+		survey: { shows: surveyShowing, answer: (target) => this.onSurvey(target) },
+	};
 	/** Facts no pane shows, merged into every report. */
 	private readonly overlays = new Map<string, Partial<DerivedState>>();
 
@@ -239,10 +268,13 @@ export class PresenceScheduler {
 				seePrompt(this.occurrences, paneKey(entry.target), screen),
 			);
 			if (!derived) return; // Logs derive no state.
-			if (peek.kind === "tmux" && limitContinueDigit(peek.ansi)) this.onLimitDialog(entry.target);
-			if (peek.kind === "tmux" && surveyShowing(peek.ansi)) this.onSurvey(entry.target);
 			if (peek.kind === "tmux") {
-				const pending = restartPending(entry.backend ?? "claude", peek.ansi);
+				for (const kind of HARNESS[entry.backend].autoAnswers) {
+					if (this.dialogs[kind].shows(peek.ansi)) this.dialogs[kind].answer(entry.target);
+				}
+			}
+			if (peek.kind === "tmux") {
+				const pending = restartPending(entry.backend, peek.ansi);
 				if (this.restartShown.get(team) !== pending) {
 					this.restartShown.set(team, pending);
 					this.onRestartPending(team, pending);

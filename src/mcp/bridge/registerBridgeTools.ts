@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
+import { HARNESS, SESSION_HARNESSES } from "../../shared/session-harness.js";
 import type { Capability } from "../capabilities.js";
 import { handshakeGuidance, registerChannelReply, registerChannelReplyStructured } from "../channel/channelReply.js";
 import { registerBridgeDiscover } from "./bridgeDiscover.js";
@@ -11,10 +12,10 @@ import { initBridge, setChannelServer } from "./helpers.js";
 ////////////////////////////////
 //  Functions & Helpers
 
+/** Session CLIs first, then the others, in probe order. */
 const AGENT_CLI_NAMES: Record<string, string> = {
-	claude: "claude",
+	...Object.fromEntries(SESSION_HARNESSES.map((harness) => [harness, HARNESS[harness].binary.posix])),
 	cursor: "cursor-agent",
-	copilot: "copilot",
 	codex: "codex",
 };
 

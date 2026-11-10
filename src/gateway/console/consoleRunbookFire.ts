@@ -50,6 +50,7 @@ export function createRunbookFireHandler({
 				target: into.target,
 				displayLabel: into.displayLabel ?? runbook.name,
 				workdir: into.workdir,
+				harness: "claude",
 			},
 			ctx.conversationId,
 			ctx.opId,

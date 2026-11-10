@@ -4,6 +4,7 @@ import { ClaudeTurnAckFrameSchema, ClaudeTurnResultFrameSchema } from "../shared
 import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
 import { DerivedPresenceSchema } from "../shared/schemasPresence.js";
+import { HARNESS, knownHarness, SESSION_HARNESSES } from "../shared/session-harness.js";
 import { isComposite } from "../shared/session-id.js";
 import type { ConnectionMode } from "../shared/types.js";
 import { WORKSPACE_OP_REPLY_FRAME, type WorkspaceOpResult } from "../shared/workspace-op.js";
@@ -280,6 +281,7 @@ export function createWebSocketHandlers({
 			ws.data.mode = mode;
 			ws.data.version = reg.data.version;
 			ws.data.claudeSessionId = reg.data.claudeSessionId;
+			ws.data.harness = reg.data.harness;
 			ws.data.cwdName = reg.data.cwdName;
 			ws.data.agentPid = reg.data.agentPid;
 			ws.data.daemonInstanceId = reg.data.daemonInstanceId;
@@ -317,11 +319,10 @@ export function createWebSocketHandlers({
 			if (mode === "channel" && team !== "host") {
 				const confirmedBy = handshakeGate.confirmedBy(team);
 				const sameConfirmer = !!auth && !!confirmedBy && auth.sameAs(confirmedBy, auth.toAnswerFor(ws));
-				// A Copilot pane has no channel to answer a handshake through; its launch token stands in.
-				const copilot = isBound && boundRecord?.harness === "copilot";
-				// One socket types for a Copilot pane. A plugin reloaded under the same agent replaces the
-				// old one, which Copilot may leave running; a nested agent inheriting the token is refused.
-				const held = copilot
+				// A CLI with no channel to answer a handshake through; its launch token stands in.
+				const tokenStands = isBound && !!boundRecord && !HARNESS[boundRecord.harness].handshake;
+				// One typing socket per pane; a reload replaces it, a nested agent is refused.
+				const held = tokenStands
 					? [...subs.values()].filter(
 							(other) => other !== ws && other.readyState === 1 && other.data.handshakeConfirmed,
 						)
@@ -344,14 +345,14 @@ export function createWebSocketHandlers({
 					}
 					if (!reload) return;
 				}
-				if (copilot || (reg.data.isMainOrLead === true && sameConfirmer)) {
+				if (tokenStands || (reg.data.isMainOrLead === true && sameConfirmer)) {
 					if (establishRecord(ws, { team, subId }) === "refused") {
 						evictSocket(ws);
 						return;
 					}
 					confirmHandshake(ws);
 					console.log(
-						`[ws] ${team}/${subId} ${copilot ? "is a Copilot session" : "reconnected as remembered lead"} - handshake skipped`,
+						`[ws] ${team}/${subId} ${tokenStands ? `is a ${HARNESS[boundRecord.harness].label} session` : "reconnected as remembered lead"} - handshake skipped`,
 					);
 				} else {
 					mintHandshake(ws, team, subId);
@@ -438,11 +439,22 @@ export function createWebSocketHandlers({
 						Array.isArray(list)
 							? list.filter((s): s is string => typeof s === "string" && s.length > 0)
 							: [];
-					// Absent from an older daemon, which spawns Claude everywhere it spawns at all.
-					hostSpawnPoints.claude = Array.isArray(msg.claudeSpawns)
-						? named(msg.claudeSpawns)
-						: ["host", ...hostSpawnPoints.ids];
-					hostSpawnPoints.copilot = named(msg.copilotSpawns);
+					const sent = msg.harnessSpawns;
+					if (sent && typeof sent === "object") {
+						const map = sent as Record<string, unknown>;
+						hostSpawnPoints.harnessSpawns = Object.fromEntries(
+							SESSION_HARNESSES.map((harness) => [harness, named(map[harness])]),
+						);
+					} else {
+						// FIXME 2026-11-23: drop, once every daemon sends `harnessSpawns`.
+						// Claude everywhere.
+						hostSpawnPoints.harnessSpawns = {
+							claude: Array.isArray(msg.claudeSpawns)
+								? named(msg.claudeSpawns)
+								: ["host", ...hostSpawnPoints.ids],
+							copilot: named(msg.copilotSpawns),
+						};
+					}
 					console.log(`[ws] host spawn points: ${hostSpawnPoints.ids.join(", ") || "(none beyond host)"}`);
 				}
 				onCatalogChange?.(ws.data.daemonInstanceId);
@@ -500,8 +512,7 @@ export function createWebSocketHandlers({
 					if (hostSpawnPoints) {
 						hostSpawnPoints.known = false;
 						hostSpawnPoints.ids = [];
-						hostSpawnPoints.claude = [];
-						hostSpawnPoints.copilot = [];
+						hostSpawnPoints.harnessSpawns = {};
 					}
 					hostOpCoordinator?.failAll("host daemon disconnected");
 					wakeCoordinator.failAll();
@@ -569,6 +580,7 @@ export function createWebSocketHandlers({
 		}
 		const record = liveWriter?.establishOnConfirm(pending.team, {
 			claudeSessionId,
+			harness: knownHarness(ws.data.harness),
 			label: ws.data.cwdName,
 			live: { team: pending.team, subId: pending.subId },
 			handover,

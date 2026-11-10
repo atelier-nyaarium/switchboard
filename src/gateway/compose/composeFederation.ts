@@ -3,6 +3,7 @@
 import { DomainSnapshotSchema } from "../../shared/admission.js";
 import type { Ambient } from "../../shared/ambient.js";
 import { DurableStore, restoreDurable } from "../../shared/durable-store.js";
+import { spawnPointFields } from "../../shared/host-spawn.js";
 import { stableHash } from "../../shared/plane-registry.js";
 import { ShareMirrorSnapshotSchema } from "../../shared/schemasShare.js";
 import { WIRE_NONCE_BYTES } from "../../shared/wire-vocabulary.js";
@@ -288,9 +289,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			spawnPoints: () => ({
 				gatewayId: localGatewayId,
 				domainId,
-				hostSpawns: sessions.hostSpawnPoints.known ? sessions.hostSpawnPoints.ids : [],
-				claudeSpawns: sessions.hostSpawnPoints.known ? (sessions.hostSpawnPoints.claude ?? []) : [],
-				copilotSpawns: sessions.hostSpawnPoints.known ? (sessions.hostSpawnPoints.copilot ?? []) : [],
+				...spawnPointFields(sessions.hostSpawnPoints),
 			}),
 			send: (action, params) => routerClient.callInboxTool(action, params),
 			incarnation: () => routerClient.incarnation(),

@@ -565,6 +565,7 @@ export function createConsoleDispatcher({
 				kind: "create_session",
 				target: SpawnPoint.of(localDomainId, localGatewayId, routine.target.spawn).canonical,
 				sessionName: routineSessionName(routine.id),
+				harness: "claude",
 				...(routine.target.workdir ? { workdir: routine.target.workdir } : {}),
 			},
 			reserveConversation(routine),

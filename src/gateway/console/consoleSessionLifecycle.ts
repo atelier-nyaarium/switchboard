@@ -3,9 +3,10 @@ import type { BoardDisposition } from "../../shared/board-authority.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { type HostOp, type HostOpResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { isHostSpawn } from "../../shared/host-spawn.js";
+import { HARNESS, wireHarness } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
-import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
+import { resumeIdOf, type SessionRecord, type SessionStore } from "../../shared/session-store.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { WakeResult } from "../wake.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
@@ -73,8 +74,10 @@ export function createSessionLifecycleHandlers({
 			throw new Error("create_session needs a sessionName or a displayLabel");
 		}
 		const spawn = targets.localSpawn(op.target);
-		const harness = op.harness === "copilot" ? ("copilot" as const) : undefined;
-		if (harness && !isHostSpawn(spawn)) throw new Error("Copilot sessions run only on a host spawn point");
+		const harness = wireHarness(op.harness);
+		if (!HARNESS[harness].containers && !isHostSpawn(spawn)) {
+			throw new Error(`${HARNESS[harness].label} sessions run only on a host spawn point`);
+		}
 		if (op.workdir != null && !isSpawnWorkdirPath(spawn, op.workdir)) {
 			throw new Error("invalid workdir: must be an absolute, ~-rooted, or Windows drive path");
 		}
@@ -133,9 +136,8 @@ export function createSessionLifecycleHandlers({
 						kind: "createSession",
 						target,
 						workdirHint,
-						...(adopted?.record.harness === "copilot"
-							? { harness: "copilot" as const, resumeSessionId: adopted.record.copilotSessionId }
-							: { resumeSessionId: adopted?.record.claudeSessionId }),
+						harness: adopted?.record.harness ?? harness,
+						resumeSessionId: adopted ? resumeIdOf(adopted.record) : undefined,
 						sessionToken: adopted ? sessionStore?.ensureBindToken(adopted.record) : undefined,
 						dedupKey,
 					});
@@ -190,7 +192,12 @@ export function createSessionLifecycleHandlers({
 		const { name, spawn, session } = targets.requireLocalComposite(op.target, "wake");
 		const adopted =
 			sessionStore && !sessionStore.getByTeam(name)
-				? sessionStore.adoptById(session, { spawn, sessionLabel: session, workdirHint: session })
+				? sessionStore.adoptById(session, {
+						spawn,
+						sessionLabel: session,
+						workdirHint: session,
+						harness: "claude",
+					})
 				: null;
 		const mayForget = () => {
 			if (!adopted || !sessionStore) return false;

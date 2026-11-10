@@ -11,6 +11,7 @@ import { createWorkflowRunner } from "../src/gateway/workflows/runner.js";
 import { createWorkflowRunStore } from "../src/gateway/workflows/store.js";
 import { ASSISTANT_ONLY_TOOLS, ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../src/shared/assistant-session.js";
 import { SESSION_COMMANDS } from "../src/shared/session-commands.js";
+import { HARNESS, type SessionHarness } from "../src/shared/session-harness.js";
 import { loadIdentitySet, seedGateway, seedRouter } from "../src/testing/identitySet.js";
 import { createPhoneDriver } from "../src/testing/phoneDriver.js";
 
@@ -115,12 +116,17 @@ function exitCode(child: Child, name: string): Promise<number> {
 }
 
 const TOOL = SESSION_COMMANDS.sessionRoutine.tool;
+/** Types a Claude slash command. */
+const CLAUDE_SLASH_TOOL = "compact_session";
 /** Every command in the catalogue, so a new one is proven registered without editing this. */
 const SESSION_TOOLS = Object.values(SESSION_COMMANDS).map((command) => command.tool);
 
 interface McpRun {
 	tools: string[];
 	answer: { kind: string };
+	/** The server declared Claude's channel. */
+	channel: boolean;
+	instructions: string;
 }
 
 /**
@@ -132,12 +138,13 @@ async function mcpSession(
 	projectName: string,
 	token: string | undefined,
 	until?: string,
+	agentType: SessionHarness = "claude",
 ): Promise<McpRun> {
 	const { child, output } = start(`mcp:${token ? "bound" : "unbound"}`, ["src/main-mcp.ts"], {
 		...process.env,
 		PROJECT_NAME: projectName,
 		BRIDGE_ROUTER_URL: gatewayUrl,
-		AGENT_TYPE: "claude",
+		AGENT_TYPE: agentType,
 		ALLOW_FIXTURE_IDENTITY: "1",
 		...(token ? { SWITCHBOARD_SESSION_TOKEN: token } : { SWITCHBOARD_SESSION_TOKEN: undefined }),
 	});
@@ -183,16 +190,20 @@ async function mcpSession(
 	};
 
 	try {
-		await call("initialize", {
+		const hello = (await call("initialize", {
 			protocolVersion: "2024-11-05",
 			capabilities: {},
 			clientInfo: { name: "boot-check", version: "0" },
-		});
+		})) as { capabilities?: { experimental?: Record<string, unknown> }; instructions?: string };
+		const served = {
+			channel: hello.capabilities?.experimental?.["claude/channel"] !== undefined,
+			instructions: hello.instructions ?? "",
+		};
 		send({ jsonrpc: "2.0", method: "notifications/initialized" });
 
 		const listed = (await call("tools/list")) as { tools?: Array<{ name: string }> };
 		const tools = (listed.tools ?? []).map((tool) => tool.name);
-		if (!tools.includes(TOOL)) return { tools, answer: { kind: "not_registered" } };
+		if (!tools.includes(TOOL)) return { tools, answer: { kind: "not_registered" }, ...served };
 
 		const ask = async (): Promise<string> => {
 			const called = (await call("tools/call", {
@@ -210,13 +221,13 @@ async function mcpSession(
 
 		// A binding is confirmed by the handshake, which lands after the socket opens, so the first
 		// ask can honestly precede it.
-		if (!until) return { tools, answer: { kind: await ask() } };
+		if (!until) return { tools, answer: { kind: await ask() }, ...served };
 		const kind = await waitFor(
 			async () => ((await ask()) === until ? until : undefined),
 			`a ${until} answer (mcp said: ${output.slice(-6).join(" | ")})`,
 			15_000,
 		);
-		return { tools, answer: { kind } };
+		return { tools, answer: { kind }, ...served };
 	} finally {
 		child.kill("SIGKILL");
 	}
@@ -458,6 +469,20 @@ async function main(): Promise<void> {
 			if (none.tools.includes(tool) || bound.tools.includes(tool)) {
 				throw new Error(`${tool} registered outside the assistant`);
 			}
+		}
+
+		// What each CLI's row turns on.
+		const copilot = await mcpSession(gatewayUrl, "host.boot-mcp", undefined, undefined, "copilot");
+		for (const [name, run] of [
+			["claude", none],
+			["copilot", copilot],
+		] as const) {
+			const row = HARNESS[name];
+			if (run.channel !== (row.delivery === "channel")) throw new Error(`${name}: channel capability mismatch`);
+			if (run.tools.includes(CLAUDE_SLASH_TOOL) !== row.claudeSlashTools) {
+				throw new Error(`${name}: ${CLAUDE_SLASH_TOOL} registration mismatch`);
+			}
+			if (!run.instructions) throw new Error(`${name}: no server instructions`);
 		}
 
 		// Registration only: routine tools need a token. The harness proves the assistant's own binding.

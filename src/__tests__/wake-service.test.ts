@@ -104,7 +104,7 @@ describe("WakeService", () => {
 
 	it("a displayLabel mints an opaque id and the caller learns the real address", async () => {
 		const s = setup();
-		const wake = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time" });
+		const wake = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
 		expect(s.sent).toHaveLength(1);
 		const launched = s.sent[0].team;
 		// The typed segment is never adopted; the launch targets the minted opaque id.
@@ -118,9 +118,10 @@ describe("WakeService", () => {
 
 	it("mints a host session only for a cleared send, and never the typed name", async () => {
 		const s = setup();
-		const uncleared = await s.service.tryWakeTeam("host.github-ops", { displayLabel: "GitHub Ops" });
+		const create = { displayLabel: "GitHub Ops", harness: "claude" as const };
+		const uncleared = await s.service.tryWakeTeam("host.github-ops", create);
 		const before = s.sent.length;
-		const wake = s.service.tryWakeTeam("host.github-ops", { displayLabel: "GitHub Ops", cleared: true });
+		const wake = s.service.tryWakeTeam("host.github-ops", { ...create, cleared: true });
 		const launched = s.sent[0]?.team ?? "";
 		s.wakeCoordinator.notify(launched);
 
@@ -133,7 +134,7 @@ describe("WakeService", () => {
 
 	it("rolls back the provisional record when the minted launch never comes online", async () => {
 		const s = setup();
-		const wake = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time" });
+		const wake = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
 		const launched = s.sent[0].team;
 		// Nobody notifies; the 60ms coordinator hold elapses.
 		const result = await wake;

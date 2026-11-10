@@ -17,20 +17,17 @@
 //
 // `windows` is PowerShell over WSL interop, and its daemon-side half lives in `windowsSpawn.ts`.
 
+import { HARNESS, type SessionHarness } from "./session-harness.js";
+
 ////////////////////////////////
 //  Interfaces & Types
-
-/** The agent CLI a session runs, fixed for its life. Absent on a record means Claude. */
-export const SESSION_HARNESSES = ["claude", "copilot"] as const;
-export type SessionHarness = (typeof SESSION_HARNESSES)[number];
 
 /** Everything a launch command is built from. Each field is already validated by the caller: the
  * token is hex or absent, and the workdir carries no quote that could break out of the nesting. */
 export interface HostLaunchContext {
 	/** `PROJECT_NAME`, the `spawn.session` composite the launched MCP registers under. */
 	composite: string;
-	/** Absent is Claude. The binary per spawn point follows from it. */
-	harness?: SessionHarness;
+	harness: SessionHarness;
 	/** The agent invocation WITHOUT its binary name: flags, `--resume`, everything after argv[0].
 	 * Split out because the binary differs per spawn point - measured on a WSL box, bare `claude`
 	 * and `claude.cmd` do not resolve from Windows PowerShell and only `claude.exe` does. */
@@ -58,10 +55,8 @@ export interface HostLaunchContext {
 export interface HostSpawnState {
 	known: boolean;
 	ids: string[];
-	/** Spawn points whose shell has Claude Code, `host` included. */
-	claude?: string[];
-	/** Spawn points whose shell has Copilot CLI, `host` included. */
-	copilot?: string[];
+	/** Per CLI, the spawn points whose shell has it, `host` included. */
+	harnessSpawns?: Partial<Record<SessionHarness, string[]>>;
 }
 
 export interface HostSpawnPoint {
@@ -118,9 +113,9 @@ export const ASKPASS_EXPORTS = ["SUDO_ASKPASS", "SSH_ASKPASS", "GIT_ASKPASS"]
 	.map((name) => `export ${name}="$HOME/${VAULT_ASKPASS_HOME_PATH}"; `)
 	.join("");
 
-/** A session that is not Claude names itself, since the plugin cannot tell from its parent process. */
-function agentTypeExport(harness: SessionHarness | undefined): string {
-	return harness === "copilot" ? "export AGENT_TYPE=copilot; " : "";
+/** The plugin cannot tell its CLI from its parent process. */
+export function agentTypeExport(harness: SessionHarness): string {
+	return `export AGENT_TYPE=${harness}; `;
 }
 
 const HOST: HostSpawnPoint = {
@@ -133,7 +128,7 @@ const HOST: HostSpawnPoint = {
 		const cd = ctx.workdir ? `cd "${ctx.workdir}"; ` : "";
 		// ~/.bashrc returns early for a non-interactive shell, so it adds nothing to PATH here.
 		const path = ctx.pathPrefix ? `export PATH="${ctx.pathPrefix}:$PATH"; ` : "";
-		const binary = ctx.harness === "copilot" ? "copilot" : "claude";
+		const binary = HARNESS[ctx.harness].binary.posix;
 		return `bash -c 'source ~/.bashrc; ${path}export PROJECT_NAME=${ctx.composite}; ${agentTypeExport(ctx.harness)}${ctx.exportToken}${ASKPASS_EXPORTS}${cd}${binary} ${ctx.agentArgs}; exec bash'`;
 	},
 };
@@ -166,13 +161,12 @@ const WINDOWS: HostSpawnPoint = {
 		if (!ctx.workdir) {
 			throw new Error("refusing to launch: a windows session needs a resolved Windows working directory");
 		}
-		// `copilot.exe` resolves through VS Code's Copilot shim on a Windows host.
-		const binary = ctx.harness === "copilot" ? "copilot.exe" : "claude.exe";
+		const binary = HARNESS[ctx.harness].binary.windows;
 		const script = `Set-Location -LiteralPath '${ctx.workdir}'\n${binary} ${ctx.agentArgs}\n`;
 		const names = [
 			"PROJECT_NAME/w",
 			...(ctx.exportToken ? ["SWITCHBOARD_SESSION_TOKEN/w"] : []),
-			...(ctx.harness === "copilot" ? ["AGENT_TYPE/w"] : []),
+			"AGENT_TYPE/w",
 		].join(":");
 		const crossed = `export WSLENV="\${WSLENV:+$WSLENV:}${names}"; `;
 		return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${ctx.composite}; ${agentTypeExport(ctx.harness)}${ctx.exportToken}${crossed}exec ${WINDOWS_SHELL} -NoLogo -NoExit -EncodedCommand ${encodePowerShellCommand(script)}'`;
@@ -201,6 +195,18 @@ export function isHostSpawnSession(team: string): boolean {
 
 export function hostSpawnPoint(id: string): HostSpawnPoint | undefined {
 	return REGISTRY.find((p) => p.id === id);
+}
+
+/** Presence and discovery share these. */
+export function spawnPointFields(state: HostSpawnState) {
+	const harnessSpawns = state.known ? (state.harnessSpawns ?? {}) : {};
+	return {
+		hostSpawns: state.known ? [...state.ids] : [],
+		harnessSpawns,
+		// FIXME 2026-11-23: drop both, once every reader takes `harnessSpawns`.
+		claudeSpawns: [...(harnessSpawns.claude ?? [])],
+		copilotSpawns: [...(harnessSpawns.copilot ?? [])],
+	};
 }
 
 /** Every host spawn id, so a catalog scan can refuse a directory that would shadow one. */

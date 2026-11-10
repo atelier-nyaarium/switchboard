@@ -98,7 +98,7 @@ function ownedService() {
 }
 
 function owner(sessionStore: SessionStore, spawn: string) {
-	const record = sessionStore.mint({ spawn, sessionLabel: "Work" });
+	const record = sessionStore.mint({ spawn, sessionLabel: "Work", harness: "claude" });
 	sessionStore.ensureBindToken(record);
 	sessionStore.activateBinding(record);
 	sessionStore.confirm(sessionStore.teamOf(record));
@@ -329,7 +329,12 @@ describe("Codex agent contracts", () => {
 		expect(service.resolveExecutionTarget(record)).toBeNull();
 		offlineCatalog.set("recipe-app", "/trusted/recipe-app");
 		expect(service.resolveExecutionTarget(record)).toEqual(TARGET);
-		const host = sessionStore.mint({ spawn: "host", workdirHint: "Original", workdirPath: "/projects/chosen" });
+		const host = sessionStore.mint({
+			spawn: "host",
+			workdirHint: "Original",
+			workdirPath: "/projects/chosen",
+			harness: "claude",
+		});
 		expect(service.resolveExecutionTarget(host)).toEqual({ kind: "host", workdirHint: "/projects/chosen" });
 	});
 

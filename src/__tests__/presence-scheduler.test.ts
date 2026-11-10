@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { deriveFromPeek, PresenceScheduler } from "../mcp/devcontainer/presenceScheduler.js";
+import { deriveFromPeek, PresenceScheduler, readWatch } from "../mcp/devcontainer/presenceScheduler.js";
 import type { HostPeekResult, TmuxTarget } from "../shared/host-op.js";
 
 const T: TmuxTarget = { kind: "devcontainer", name: "recipe-app", sessionName: "main" };
@@ -77,6 +77,34 @@ describe("deriveFromPeek", () => {
 	});
 });
 
+describe("readWatch", () => {
+	const id = "0f8b2a4c-1d3e-4f5a-9b6c-7d8e9f0a1b2c";
+	const entry = { team: "host.cop", cadenceMs: 5_000 };
+
+	it("reads the CLI a Gateway names, and an older Gateway's from its session id", () => {
+		expect(readWatch({ ...entry, harness: "copilot", harnessSessionId: id })).toEqual({
+			...entry,
+			harness: "copilot",
+			sessionId: id,
+		});
+		expect(readWatch({ ...entry, copilotSessionId: id })).toEqual({ ...entry, harness: "copilot", sessionId: id });
+		expect(readWatch(entry)).toEqual({ ...entry, harness: "claude" });
+	});
+
+	it("drops a malformed session id and keeps the entry", () => {
+		expect(readWatch({ ...entry, harness: "copilot", harnessSessionId: "nope" })).toEqual({
+			...entry,
+			harness: "copilot",
+		});
+	});
+
+	it("answers null for a CLI this build does not know, or an entry missing its team or cadence", () => {
+		expect(readWatch({ ...entry, harness: "no-such-cli" })).toBeNull();
+		expect(readWatch({ cadenceMs: 5_000 })).toBeNull();
+		expect(readWatch({ team: "host.cop" })).toBeNull();
+	});
+});
+
 function makeScheduler(peekSequence: HostPeekResult[]) {
 	let i = 0;
 	const reports: Array<{
@@ -107,7 +135,7 @@ describe("PresenceScheduler restart signal", () => {
 			onRestartPending: (team, pending) => told.push([team, pending]),
 		});
 		await scheduler.setWatches([
-			{ team: "claude.main", target: T, cadenceMs: 60_000 },
+			{ team: "claude.main", target: T, cadenceMs: 60_000, backend: "claude" },
 			{ team: "copilot.main", target: { ...T, sessionName: "other" }, cadenceMs: 60_000, backend: "copilot" },
 		]);
 		for (let tick = 0; tick < 3; tick += 1) await scheduler.tick("claude.main");
@@ -127,7 +155,7 @@ describe("PresenceScheduler restart signal", () => {
 describe("PresenceScheduler hysteresis", () => {
 	it("does not report on the first frame observing a new value - only on the second confirming peek", async () => {
 		const { scheduler, reports } = makeScheduler([tmuxFrame(IDLE, "h1")]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		expect(reports).toEqual([]); // idle is the initial "no confirmed value yet" baseline, not a flip
 	});
 
@@ -137,7 +165,7 @@ describe("PresenceScheduler hysteresis", () => {
 			tmuxFrame(WORKING, "h2"), // one frame of "working" - pending, not confirmed
 			tmuxFrame(IDLE, "h3"), // reverts before confirmation - the blip never lands
 		]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main");
 		await scheduler.tick("proj.main");
 		expect(reports).toEqual([]); // never confirmed working; still never confirmed idle-as-a-flip either
@@ -151,7 +179,7 @@ describe("PresenceScheduler hysteresis", () => {
 			tmuxFrame(IDLE, "h4"),
 			tmuxFrame(IDLE, "h5"), // confirms the revert back to idle
 		]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main"); // h2: pending working
 		await scheduler.tick("proj.main"); // h3: confirmed working
 		await scheduler.tick("proj.main"); // h4: pending idle
@@ -172,7 +200,7 @@ describe("PresenceScheduler hysteresis", () => {
 			working,
 			tmuxFrame(WORKING, "h4"),
 		]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main");
 		reports.length = 0;
 		await scheduler.tick("proj.main");
@@ -198,7 +226,7 @@ describe("PresenceScheduler hysteresis", () => {
 		};
 		const reports: Array<{ team: string; value: unknown }> = [];
 		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main");
 		reports.length = 0;
 
@@ -226,10 +254,10 @@ describe("PresenceScheduler hysteresis", () => {
 		};
 		const reports: Array<{ team: string; value: unknown }> = [];
 		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 
 		const active = scheduler.tick("proj.main");
-		await scheduler.setWatches([{ team: "proj.main", target: { ...T }, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: { ...T }, cadenceMs: 60_000, backend: "claude" }]);
 		nextCapture.resolve(tmuxFrame(WORKING, "h2"));
 		await active;
 		await scheduler.tick("proj.main");
@@ -252,7 +280,7 @@ describe("PresenceScheduler hysteresis", () => {
 			tmuxFrame(IDLE, "h3"), // the turn ends: pending idle
 			tmuxFrame(IDLE, "h3"), // pane now static - same hash, and it must still confirm
 		]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main");
 		await scheduler.tick("proj.main");
 		await scheduler.tick("proj.main");
@@ -270,7 +298,7 @@ describe("PresenceScheduler hysteresis", () => {
 			logsFrame("h3"), // pre-pane fallback frame mid-stream - ignored entirely
 			tmuxFrame(WORKING, "h4"), // still confirms working (the pending window survived the logs frame)
 		]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main");
 		await scheduler.tick("proj.main");
 		await scheduler.tick("proj.main");
@@ -283,7 +311,7 @@ describe("PresenceScheduler hysteresis", () => {
 describe("PresenceScheduler watch lifecycle", () => {
 	it("dropping a team from setWatches stops peeking it and reports it as unknown (undefined)", async () => {
 		const { scheduler, reports, peek } = makeScheduler([tmuxFrame(WORKING, "h1"), tmuxFrame(WORKING, "h2")]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main");
 		await scheduler.tick("proj.main");
 		reports.length = 0;
@@ -309,7 +337,7 @@ describe("PresenceScheduler watch lifecycle", () => {
 		};
 		const reports: Array<{ team: string; value: unknown }> = [];
 		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		const active = scheduler.tick("proj.main");
 		scheduler.stopWatching("proj.main");
 		reports.length = 0;
@@ -318,7 +346,7 @@ describe("PresenceScheduler watch lifecycle", () => {
 		await active;
 		expect(reports).toEqual([]);
 
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main");
 		expect(reports).toEqual([
 			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false } },
@@ -336,9 +364,11 @@ describe("PresenceScheduler watch lifecycle", () => {
 		};
 		const reports: Array<{ team: string; value: unknown }> = [];
 		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		const active = scheduler.tick("proj.main");
-		await scheduler.setWatches([{ team: "proj.main", target: { ...T, sessionName: "other" }, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([
+			{ team: "proj.main", target: { ...T, sessionName: "other" }, cadenceMs: 60_000, backend: "claude" },
+		]);
 
 		late.resolve(tmuxFrame(WORKING, "h2"));
 		await active;
@@ -365,12 +395,12 @@ describe("PresenceScheduler watch lifecycle", () => {
 		};
 		const reports: Array<{ team: string; value: unknown }> = [];
 		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		const active = scheduler.tick("proj.main");
 
 		scheduler.stopWatching("proj.main");
 		reports.length = 0;
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		expect(calls).toBe(3);
 		expect(reports).toEqual([]);
 
@@ -391,7 +421,7 @@ describe("PresenceScheduler watch lifecycle", () => {
 			throw new Error("still offline");
 		});
 		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		expect(reports).toEqual([]); // 1 failure: no report yet
 		await scheduler.tick("proj.main");
 		expect(reports).toEqual([]); // 2 failures: still no report
@@ -403,8 +433,8 @@ describe("PresenceScheduler watch lifecycle", () => {
 		const { scheduler, reports, peek } = makeScheduler([
 			tmuxFrame(WORKING, "h1"), // pending working
 		]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 5_000 }]); // cadence ramp
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 5_000, backend: "claude" }]); // cadence ramp
 
 		// Only the FIRST setWatches peeks: a ramp on an already-watched team just retimes the loop. An
 		// extra peek here would land inside hostOpRunner's cadence floor and hand back the capture the
@@ -415,7 +445,7 @@ describe("PresenceScheduler watch lifecycle", () => {
 
 	it("clearAll (daemon disconnect) reports every watched team as unknown without dropping the watch list", async () => {
 		const { scheduler, reports, peek } = makeScheduler([tmuxFrame(WORKING, "h1"), tmuxFrame(WORKING, "h2")]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		await scheduler.tick("proj.main");
 		reports.length = 0;
 		peek.mockClear();
@@ -430,13 +460,44 @@ describe("PresenceScheduler watch lifecycle", () => {
 	});
 });
 
-describe("PresenceScheduler permission prompts", () => {
-	const fixtures = path.join(import.meta.dirname, "..", "..", "tests", "fixtures", "permission-prompt", "panes.json");
-	const { vectors } = JSON.parse(fs.readFileSync(fixtures, "utf8")) as {
-		vectors: { name: string; screen: string }[];
-	};
-	const screen = (name: string) => vectors.find((v) => v.name === name)?.screen ?? "";
+const fixtures = path.join(import.meta.dirname, "..", "..", "tests", "fixtures", "permission-prompt", "panes.json");
+const { vectors } = JSON.parse(fs.readFileSync(fixtures, "utf8")) as {
+	vectors: { name: string; screen: string }[];
+};
+const screen = (name: string) => vectors.find((v) => v.name === name)?.screen ?? "";
 
+describe("PresenceScheduler pane dialogs", () => {
+	const SURVEY = `│ How did Copilot Fusion work?\n│  · ctrl+x → d dismiss\n${RULE}\n❯ \n${RULE}`;
+
+	it("answers a dialog only on the CLI that shows it", async () => {
+		const panes = {
+			"claude-limit": screen("limit-dialog"),
+			"claude-survey": SURVEY,
+			"copilot-limit": screen("limit-dialog"),
+			"copilot-survey": SURVEY,
+		};
+		const answered: string[] = [];
+		const scheduler = new PresenceScheduler({
+			peek: async (target) => tmuxFrame(panes[target.sessionName as keyof typeof panes], target.sessionName),
+			report: () => undefined,
+			onLimitDialog: (target) => answered.push(`limit on ${target.sessionName}`),
+			onSurvey: (target) => answered.push(`survey on ${target.sessionName}`),
+		});
+
+		await scheduler.setWatches(
+			Object.keys(panes).map((sessionName) => ({
+				team: `host.${sessionName}`,
+				target: { ...T, sessionName },
+				cadenceMs: 60_000,
+				backend: sessionName.startsWith("claude") ? "claude" : "copilot",
+			})),
+		);
+
+		expect(answered.sort()).toEqual(["limit on claude-limit", "survey on copilot-survey"]);
+	});
+});
+
+describe("PresenceScheduler permission prompts", () => {
 	it("merges an overlay into every report and re-reports the confirmed value when it changes", async () => {
 		const { scheduler, reports } = makeScheduler([
 			tmuxFrame(IDLE, "h1"),
@@ -445,7 +506,7 @@ describe("PresenceScheduler permission prompts", () => {
 			tmuxFrame(IDLE, "h4"),
 			tmuxFrame(IDLE, "h5"),
 		]);
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		scheduler.setOverlay("proj.main", { compacting: true });
 		await scheduler.tick("proj.main");
 		await scheduler.tick("proj.main");
@@ -477,7 +538,7 @@ describe("PresenceScheduler permission prompts", () => {
 			report: (_team, value) => reports.push(value?.prompt?.id),
 			onAutoDeny: (target, promptId) => stops.push({ target, promptId }),
 		});
-		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000, backend: "claude" }]);
 		for (let n = 0; n < 4; n++) await scheduler.tick("proj.main");
 
 		const id = reports[0];

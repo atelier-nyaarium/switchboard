@@ -16,6 +16,7 @@ import {
 	type TypeIntoPaneResult,
 } from "../../shared/host-op.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
+import type { SessionHarness } from "../../shared/session-harness.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
 
 export interface TmuxOps {
@@ -33,7 +34,7 @@ export interface TmuxOps {
 		workdirHint?: string,
 		resumeSessionId?: string,
 		sessionToken?: string,
-		harness?: "copilot",
+		harness?: SessionHarness,
 	) => Promise<unknown>;
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;

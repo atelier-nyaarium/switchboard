@@ -5,7 +5,7 @@ import type { SessionRecord } from "../shared/session-store.js";
 const teamOf = (record: SessionRecord) => `${record.spawn}.${record.id}`;
 
 function record(over: Partial<SessionRecord> = {}): SessionRecord {
-	return { id: "abc123", spawn: "host", lastSeen: 0, ...over } as SessionRecord;
+	return { id: "abc123", sessionLabel: "abc123", spawn: "host", harness: "claude", lastSeen: 0, ...over };
 }
 
 describe("whose terminal a record names", () => {

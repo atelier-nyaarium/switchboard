@@ -2,7 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { type HostOpResult, isReservedHostSession } from "../shared/host-op.js";
 import { isHostSpawn } from "../shared/host-spawn.js";
 import { isComposite, parseSessionName } from "../shared/session-id.js";
-import type { SessionStore } from "../shared/session-store.js";
+import { resumeIdOf, type SessionStore } from "../shared/session-store.js";
 import { createSingleFlight } from "../shared/single-flight.js";
 import type { PresenceFacade } from "./presence.js";
 import { decideWakeCreate, type WakeCoordinator, type WakeCreate, type WakeResult } from "./wake.js";
@@ -65,7 +65,7 @@ export class WakeService {
 		});
 	}
 
-	private async doWakeTeam(team: string, createOpts: WakeCreate = {}): Promise<WakeResult> {
+	private async doWakeTeam(team: string, createOpts?: WakeCreate): Promise<WakeResult> {
 		const { project, session } = parseSessionName(team);
 		if (this.deps.isAvailableProject(project) && (!isComposite(team) || !this.deps.offlineCatalog.has(project))) {
 			console.log(`[wake] ${team} is a spawn-point project, not a session; not waking`);
@@ -81,23 +81,26 @@ export class WakeService {
 			console.log(`[wake] ${team} is a reserved host session; not waking`);
 			return { ok: false };
 		}
-		let pendingMintLabel: string | undefined;
+		let pendingMint: { sessionLabel: string; create: WakeCreate } | undefined;
 		if (isComposite(team)) {
 			const decision = decideWakeCreate(
 				team,
 				this.deps.sessionStore.getByTeam(team) != null,
-				createOpts.displayLabel,
+				createOpts?.displayLabel,
 			);
 			if (decision.kind === "refuse") {
 				console.log(`[wake] ${team} has no record and no displayLabel; refusing to adopt the typed name`);
 				return { ok: false, error: decision.error };
 			}
-			if (decision.kind === "mint" && isHostSpawn(project) && !createOpts.cleared) {
+			if (decision.kind === "mint" && isHostSpawn(project) && !createOpts?.cleared) {
 				// Only create_session, or a cleared assistant send, mints a host session.
 				console.log(`[wake] refusing to mint host session "${team}" - create_session owns that door`);
 				return { ok: false, error: `no session named "${team}"; create it from the console first` };
 			}
-			if (decision.kind === "mint") pendingMintLabel = decision.sessionLabel;
+			// A label arrives only with create options.
+			if (decision.kind === "mint" && createOpts) {
+				pendingMint = { sessionLabel: decision.sessionLabel, create: createOpts };
+			}
 		}
 
 		const hostWs = this.deps.liveHostSocket();
@@ -109,12 +112,13 @@ export class WakeService {
 
 		let provisionalCreated = false;
 		let wakeTeam = team;
-		if (pendingMintLabel !== undefined) {
+		if (pendingMint) {
 			const minted = this.deps.presence.mintOrReattach({
 				spawn: project,
-				sessionLabel: pendingMintLabel,
-				workdirHint: pendingMintLabel,
-				mintedFrom: createOpts.mintedFrom,
+				sessionLabel: pendingMint.sessionLabel,
+				workdirHint: pendingMint.sessionLabel,
+				harness: pendingMint.create.harness,
+				mintedFrom: pendingMint.create.mintedFrom,
 			});
 			provisionalCreated = minted.created;
 			wakeTeam = this.deps.sessionStore.teamOf(minted.record);
@@ -122,8 +126,7 @@ export class WakeService {
 
 		const projectPath = this.deps.offlineCatalog.get(project) ?? this.deps.knownTeamPaths.get(project);
 		const record = this.deps.sessionStore.getByTeam(wakeTeam);
-		const copilot = record?.harness === "copilot";
-		const resumeSessionId = copilot ? record?.copilotSessionId : record?.claudeSessionId;
+		const resumeSessionId = record ? resumeIdOf(record) : undefined;
 		const workdirHint = record ? this.deps.sessionStore.hostWorkdirHint(record) : undefined;
 		const requested = sendOn(
 			hostWs,
@@ -131,7 +134,7 @@ export class WakeService {
 				type: "wake",
 				team: wakeTeam,
 				...(projectPath ? { projectPath } : {}),
-				...(copilot ? { harness: "copilot" } : {}),
+				...(record ? { harness: record.harness } : {}),
 				...(resumeSessionId ? { resumeSessionId } : {}),
 				...(workdirHint ? { workdirHint } : {}),
 				...(record ? { sessionToken: this.deps.sessionStore.ensureBindToken(record) } : {}),

@@ -88,6 +88,7 @@ import {
 	GatewayBootstrapStatusValueSchema,
 	GatewayTransportSchema,
 	GatewayValueOpSchema,
+	HarnessSpawnsSchema,
 	InboxRowSchema,
 	KeyEnvelopeSchema,
 	KeyGrantOpSchema,
@@ -347,6 +348,7 @@ import {
 	TreeAnswerSchema,
 	TreeEntrySchema,
 } from "../src/shared/schemasWorkspace.js";
+import { HARNESS, SESSION_HARNESSES } from "../src/shared/session-harness.js";
 import {
 	ADDRESS_SEP,
 	CONV_TAG,
@@ -393,6 +395,9 @@ const PHONE_CAPABILITY_REGISTRY_OUT_PATH =
 const INTEGRATION_REGISTRY_OUT_PATH =
 	process.env.KOTLIN_INTEGRATION_REGISTRY_OUT ??
 	join(import.meta.dir, "../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/IntegrationRegistry.kt");
+const HARNESS_REGISTRY_OUT_PATH =
+	process.env.KOTLIN_HARNESS_REGISTRY_OUT ??
+	join(import.meta.dir, "../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/HarnessRegistry.kt");
 
 const ROOTS: z.ZodType[] = [
 	RowRecipientSchema,
@@ -1286,6 +1291,77 @@ ${INDENT})
 `;
 }
 
+function emitHarnessRegistry(): string {
+	const spawnsId = idOf(HarnessSpawnsSchema);
+	const spawnsProps = (defs.get(spawnsId)?.properties ?? {}) as Record<string, Json>;
+	const named = SESSION_HARNESSES.map((harness) => {
+		const entry = kotlinConstName(harness);
+		if (!isKotlinIdentifier(harness) || !isKotlinIdentifier(entry)) {
+			throw new Error(`${harness}: harness word is not a Kotlin identifier`);
+		}
+		if (!spawnsProps[harness]) throw new Error(`${harness}: ${spawnsId} has no list for it`);
+		return { harness, entry, row: HARNESS[harness] };
+	});
+	const entries = named
+		.map(({ harness, entry, row }) =>
+			[
+				`${INDENT}${entry}(`,
+				`${INDENT}${INDENT}wire = ${kotlinString(harness)},`,
+				`${INDENT}${INDENT}label = ${kotlinString(row.label)},`,
+				`${INDENT}${INDENT}containers = ${row.containers},`,
+				`${INDENT}${INDENT}slashPalette = listOf(`,
+				...row.slashPalette.map(
+					(macro) =>
+						`${INDENT}${INDENT}${INDENT}SlashMacro(${kotlinString(macro.cmd)}, autoSend = ${macro.autoSend}),`,
+				),
+				`${INDENT}${INDENT}),`,
+				`${INDENT}${INDENT}shellMacros = listOf(`,
+				...row.shellMacros.map(
+					(macro) =>
+						`${INDENT}${INDENT}${INDENT}ShellMacro(${kotlinString(macro.label)}, ${kotlinString(macro.cmd)}),`,
+				),
+				`${INDENT}${INDENT}),`,
+				`${INDENT}),`,
+			].join("\n"),
+		)
+		.join("\n");
+	const lists = named
+		.map(({ harness, entry }) => `${INDENT}${INDENT}SessionHarness.${entry} -> ${harness}`)
+		.join("\n");
+	return `${GENERATED_HEADER}
+
+package com.atelier_nyaarium.switchboard.proto
+
+/** \`autoSend\` false stages it for more typing. */
+data class SlashMacro(val cmd: String, val autoSend: Boolean)
+
+/** Typed into a bare shell. */
+data class ShellMacro(val label: String, val cmd: String)
+
+/** A session CLI, in offer order. */
+enum class SessionHarness(
+${INDENT}val wire: String,
+${INDENT}val label: String,
+${INDENT}val containers: Boolean,
+${INDENT}val slashPalette: List<SlashMacro>,
+${INDENT}val shellMacros: List<ShellMacro>,
+) {
+${entries}
+${INDENT};
+
+${INDENT}companion object {
+${INDENT}${INDENT}fun ofWire(wire: String?): SessionHarness? = entries.find { it.wire == wire }
+${INDENT}}
+}
+
+/** One CLI's spawn points. */
+fun ${spawnsId}.spawnsOf(harness: SessionHarness): List<String>? =
+${INDENT}when (harness) {
+${lists}
+${INDENT}}
+`;
+}
+
 const blocks: string[] = [];
 const declared = new Set<string>();
 for (const name of order) {
@@ -1409,6 +1485,7 @@ ${INDENT}const val BOARD_ATTACHMENTS_MAX: Int = ${BOARD_ATTACHMENTS_MAX}
 const output = `${[header, ...blocks].join("\n\n")}\n`;
 const phoneCapabilityRegistryOutput = emitPhoneCapabilityRegistry();
 const integrationRegistryOutput = emitIntegrationRegistry();
+const harnessRegistryOutput = emitHarnessRegistry();
 
 mkdirSync(dirname(OUT_PATH), { recursive: true });
 writeFileSync(OUT_PATH, output);
@@ -1416,6 +1493,9 @@ mkdirSync(dirname(PHONE_CAPABILITY_REGISTRY_OUT_PATH), { recursive: true });
 writeFileSync(PHONE_CAPABILITY_REGISTRY_OUT_PATH, phoneCapabilityRegistryOutput);
 mkdirSync(dirname(INTEGRATION_REGISTRY_OUT_PATH), { recursive: true });
 writeFileSync(INTEGRATION_REGISTRY_OUT_PATH, integrationRegistryOutput);
+mkdirSync(dirname(HARNESS_REGISTRY_OUT_PATH), { recursive: true });
+writeFileSync(HARNESS_REGISTRY_OUT_PATH, harnessRegistryOutput);
 console.log(`Wrote ${OUT_PATH} (${blocks.length} types + constants).`);
 console.log(`Wrote ${PHONE_CAPABILITY_REGISTRY_OUT_PATH} (phone capability registry).`);
 console.log(`Wrote ${INTEGRATION_REGISTRY_OUT_PATH} (integration registry).`);
+console.log(`Wrote ${HARNESS_REGISTRY_OUT_PATH} (harness registry).`);

@@ -466,6 +466,7 @@ internal fun ThreadScreen(
 					onRelaunch = terminal.onRelaunch,
 					onPeek = terminal.onPeek,
 					onSend = terminal.onSend,
+					slashMacros = terminal.slashMacros,
 					shellMacros = terminal.shellMacros,
 					modifier = Modifier.weight(1f).fillMaxWidth(),
 				)

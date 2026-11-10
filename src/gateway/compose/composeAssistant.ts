@@ -916,6 +916,7 @@ function place(workdir: string, sessions: AssistantStageDeps["sessions"]): () =>
 		sessionLabel: "Assistant",
 		workdirHint: "Assistant",
 		workdirPath: workdir,
+		harness: "claude",
 		mintedFrom: ASSISTANT_RESERVE_KEY,
 	});
 	if (!minted) throw new Error(`cannot claim ${ASSISTANT_TEAM}: the name is reserved or a project`);

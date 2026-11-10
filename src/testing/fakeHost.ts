@@ -30,7 +30,17 @@ import {
 	HostClaudeRunOpSchema,
 	type HostOp,
 } from "../shared/host-op.js";
+import { HOST_SPAWN } from "../shared/host-spawn.js";
+import type { SessionHarness } from "../shared/session-harness.js";
 import { createFakeSocket, type Frame } from "./fakeSocket.js";
+
+/** The catalog frame's per-CLI fields. */
+export interface FakeSpawnLists {
+	harnessSpawns?: Partial<Record<SessionHarness, string[]>>;
+	/** An older daemon's names. */
+	claudeSpawns?: string[];
+	copilotSpawns?: string[];
+}
 
 export interface FakeHostHandlers {
 	/** The scenario registers the launched session. */
@@ -84,6 +94,8 @@ export interface FakeHostOptions extends FakeHostHandlers {
 	/** Projects the catalog frame announces. */
 	projects?: Array<{ team: string; projectPath: string }>;
 	hostSpawns?: string[];
+	/** Absent sends Claude everywhere, under both names. */
+	spawnLists?: FakeSpawnLists;
 	screen?: string;
 	entries?: string[];
 	/** A reconnecting daemon brings its own. */
@@ -326,7 +338,14 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			daemonInstanceId: copilotDaemon.daemonInstanceId,
 			targets: [...copilotDaemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
 		});
-		send({ type: "catalog", projects: options.projects ?? [], hostSpawns: options.hostSpawns ?? [] });
+		const hostSpawns = options.hostSpawns ?? [];
+		const harnessSpawns: Record<SessionHarness, string[]> = { claude: [HOST_SPAWN, ...hostSpawns], copilot: [] };
+		const lists: FakeSpawnLists = options.spawnLists ?? {
+			harnessSpawns,
+			claudeSpawns: harnessSpawns.claude,
+			copilotSpawns: harnessSpawns.copilot,
+		};
+		send({ type: "catalog", projects: options.projects ?? [], hostSpawns, ...lists });
 	};
 	if (!options.deferCatalog) announceCatalog();
 	return {
