@@ -6,6 +6,7 @@ import { inboxBodyAadKind } from "../shared/content-envelope.js";
 import { DurableOutbox } from "../shared/durable-outbox.js";
 import { DurableStore } from "../shared/durable-store.js";
 import { type ConsolePushEntry, ConsolePushEntrySchema } from "../shared/federation-protocol.js";
+import { type LaunchFailure, ownerLaunchLine } from "../shared/launch-notice.js";
 import { fenced, MIGRATING } from "../shared/migration-fence.js";
 import { pickTiers } from "../shared/notice.js";
 import { formatInboxAddress, OpResultEnvelopeSchema, RowStampSchema, signRowEnvelope } from "../shared/schemasInbox.js";
@@ -428,6 +429,24 @@ export function createConsolePushOps({
 		return jsonResponse({ delivered: true });
 	}
 
+	/** Launch end line; failure alerts. */
+	function tellOwnerLaunch(
+		team: string,
+		outcome: { up: true } | { failure: LaunchFailure },
+		identity: string,
+	): boolean {
+		const sender = localAddress(team);
+		const line = ownerLaunchLine(outcome);
+		const entry: ConsolePushEntry = {
+			kind: "notice",
+			session_id: storeKey({ kind: "notice", sender }),
+			from: sender.canonical,
+			body: line,
+			...("failure" in outcome ? pickTiers({ title: line }) : {}),
+		};
+		return deliverToOwner({ entry, dedupeKey: identity, label: "launch" }) === true;
+	}
+
 	function pluginAction(req: Request, body: Record<string, unknown>): Response {
 		const parsed = PluginActionRequestSchema.safeParse(body);
 		if (!parsed.success) {
@@ -467,5 +486,15 @@ export function createConsolePushOps({
 		return jsonResponse({ delivered: true });
 	}
 
-	return { mirrorPeer, humanNotify, pluginAction, deliverToOwner, drainOutbox, namesBlob, retireStaging, stop };
+	return {
+		mirrorPeer,
+		humanNotify,
+		pluginAction,
+		deliverToOwner,
+		tellOwnerLaunch,
+		drainOutbox,
+		namesBlob,
+		retireStaging,
+		stop,
+	};
 }

@@ -1,25 +1,44 @@
+import type { ServerWebSocket } from "bun";
 import { describe, expect, it } from "vitest";
 import { createSessionLifecycleHandlers } from "../gateway/console/consoleSessionLifecycle.js";
 import { createConsoleTargets } from "../gateway/console/consoleTargets.js";
+import { CreateSessionAmbiguousError } from "../gateway/console/consoleTypes.js";
+import { WakeCoordinator } from "../gateway/wake.js";
+import { WakeService } from "../gateway/wakeService.js";
+import type { TeamRegistry, WsData } from "../gateway/wsTypes.js";
 import { processAmbient } from "../shared/ambient.js";
-import type { HostOp, HostOpResult } from "../shared/host-op.js";
 import { SessionStore } from "../shared/session-store.js";
 
-/** A launch that stays in flight until the test lets it finish. */
-function heldLaunch() {
-	let finish: (result: HostOpResult) => void = () => undefined;
-	const promise = new Promise<HostOpResult>((resolve) => {
-		finish = resolve;
+/** Creates over a real wake service. */
+function rig(hostUp = true) {
+	const sessionStore = new SessionStore({ ambient: processAmbient() });
+	const wakeCoordinator = new WakeCoordinator(processAmbient());
+	const frames: Array<{ type: string; team: string; launchId?: string; door?: string }> = [];
+	const watched: string[] = [];
+	const hostWs = {
+		readyState: 1,
+		send: (text: string) => void frames.push(JSON.parse(text)),
+		data: { launchIds: true },
+	};
+	let launches = 0;
+	const service = new WakeService({
+		registry: new Map() as TeamRegistry,
+		sessionStore,
+		presence: {
+			wakeStart: () => {},
+			wakeEnd: () => {},
+			mintOrReattach: (opts) => sessionStore.mintOrReattach(opts),
+			forget: (team) => sessionStore.forget(team),
+		},
+		wakeCoordinator,
+		isAvailableProject: () => false,
+		knownTeamPaths: new Map(),
+		offlineCatalog: new Map(),
+		liveHostSocket: () => (hostUp ? (hostWs as unknown as ServerWebSocket<WsData>) : undefined),
+		wakeTimeoutMs: 10_000,
+		newLaunchId: () => `launch-${String(++launches).padStart(4, "0")}`,
 	});
-	return { promise, finish };
-}
-
-function handlers(
-	relayToHost: (op: HostOp) => Promise<HostOpResult>,
-	over: Partial<Parameters<typeof createSessionLifecycleHandlers>[0]> = {},
-) {
-	const inflight = new Map<string, Promise<HostOpResult>>();
-	return createSessionLifecycleHandlers({
+	const lifecycle = createSessionLifecycleHandlers({
 		targets: createConsoleTargets({
 			localDomainId: "d1",
 			localGatewayId: "gw",
@@ -27,54 +46,53 @@ function handlers(
 		}),
 		createSessionBoundMs: 10_000,
 		ambient: processAmbient(),
-		...over,
-		relayToHost,
-		joinCreate: (team, start) => {
-			const existing = inflight.get(team);
-			if (existing) return { launch: existing, release: null };
-			const launch = start();
-			inflight.set(team, launch);
-			return { launch, release: () => void inflight.delete(team) };
-		},
+		beginLaunch: (team, opts) => service.beginWake(team, undefined, opts),
+		watchOwnerLaunch: (team, launchId) => watched.push(`${team} ${launchId}`),
+		sessionStore,
 	});
+	return { sessionStore, wakeCoordinator, frames, watched, lifecycle };
 }
 
-describe("two creates for one session", () => {
-	it("reaches the host once, and answers both callers", async () => {
-		const held = heldLaunch();
-		const sent: HostOp[] = [];
-		const lifecycle = handlers((op) => {
-			sent.push(op);
-			return held.promise;
-		});
-		const op = { kind: "create_session", target: "d1.gw.host", sessionName: "twin" } as const;
+const createOp = { kind: "create_session", target: "d1.gw.host", sessionName: "twin", harness: "claude" } as const;
 
-		const first = lifecycle.createSession(op, "conv-a", "op-1");
-		const second = lifecycle.createSession(op, "conv-b", "op-2");
-		await Promise.resolve();
-		held.finish({ ok: true });
+describe("a console create", () => {
+	it("answers pending at dispatch, and joins a second create of the session to the one launch", async () => {
+		const r = rig();
 
-		const [a, b] = await Promise.all([first, second]);
-		expect(sent.filter((each) => each.kind === "createSession")).toHaveLength(1);
-		expect(a).toMatchObject({ created: true });
-		expect(b).toMatchObject({ created: true });
+		const answers = await Promise.all([
+			r.lifecycle.createSession(createOp, "conv-a", "op-1"),
+			r.lifecycle.createSession(createOp, "conv-b", "op-2"),
+		]);
+
+		expect(answers).toEqual([
+			expect.objectContaining({ created: true, id: "twin", status: "pending" }),
+			expect.objectContaining({ created: true, id: "twin", status: "pending" }),
+		]);
+		expect(r.frames).toEqual([expect.objectContaining({ type: "wake", team: "host.twin", door: "create" })]);
+		expect(r.watched).toEqual([`host.twin ${r.frames[0].launchId}`, `host.twin ${r.frames[0].launchId}`]);
 	});
-});
 
-describe("a create left for its launch to pick a CLI", () => {
-	it("forgets the blank session it made when the launch fails after the create answered pending", async () => {
-		const held = heldLaunch();
-		const sessionStore = new SessionStore({ ambient: processAmbient() });
-		const lifecycle = handlers(() => held.promise, { createSessionBoundMs: 1, sessionStore });
+	it("forgets the blank session it left for the launch when that launch fails after answering", async () => {
+		const r = rig();
 		const op = { kind: "create_session", target: "d1.gw.host", sessionName: "late" } as const;
 
-		const answered = await lifecycle.createSession(op, "conv-a", "op-1", { unpicked: true });
-		const whilePending = sessionStore.getByTeam("host.late");
-		held.finish({ ok: false, error: "no CLI", failure: { kind: "cli", refusal: { cause: "none_installed" } } });
+		const answered = await r.lifecycle.createSession(op, "conv-a", "op-1", { unpicked: true });
+		const whilePending = r.sessionStore.getByTeam("host.late");
+		const failure = { kind: "cli", refusal: { cause: "none_installed" } } as const;
+		r.wakeCoordinator.fail("host.late", { failure }, r.frames[0].launchId);
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
 		expect(answered).toMatchObject({ status: "pending" });
 		expect(whilePending).toBeDefined();
-		expect(sessionStore.getByTeam("host.late")).toBeUndefined();
+		expect(r.sessionStore.getByTeam("host.late")).toBeUndefined();
+	});
+
+	it("refuses as ambiguous a create it could not dispatch, with no host to reach", async () => {
+		const r = rig(false);
+
+		await expect(r.lifecycle.createSession(createOp, "conv-a", "op-1")).rejects.toBeInstanceOf(
+			CreateSessionAmbiguousError,
+		);
+		expect(r.frames).toEqual([]);
 	});
 });

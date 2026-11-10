@@ -92,6 +92,8 @@ export const ConsoleRunbookFireResultSchema = z
 		/** Where it landed, present whenever a session was reached or created. */
 		sessionId: z.string().optional(),
 		reason: z.string().optional(),
+		/** New session still starting; body sent once up. */
+		status: z.enum(["starting"]).optional(),
 	})
 	.meta({ id: "ConsoleRunbookFireResult" });
 

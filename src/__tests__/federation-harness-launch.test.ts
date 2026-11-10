@@ -297,6 +297,29 @@ describe("a session's send to a session that is not up", () => {
 		expect(messages(late, "lost in the timeout")).toEqual([]);
 	});
 
+	it("closes a created session whose wait ran out while its launch is still counting down", async () => {
+		const team = composeSessionName("host", "closing");
+		const startedAt = h.ambient.now();
+		const { result } = await h.phone.value({
+			kind: "create_session",
+			target: h.target("host"),
+			sessionName: "closing",
+		});
+		await h.waitFor(() => tokens.has(team) || undefined, "the launch");
+		// Harness wait; the launch's next look follows.
+		await step(startedAt + 10_000 - h.ambient.now());
+		const ops = h.host.ops.length;
+		await h.phone.deliver(team, { kind: "close_session", target: h.target(team) }, "op-close-launching");
+		const kill = await h.waitFor(() => h.host.ops.slice(ops).find((op) => op.kind === "killSession"), "the kill");
+		const toldOwner = h.phone
+			.entries(await h.phone.inboxRead())
+			.filter((entry) => entry.kind === "notice" && entry.from === h.target(team));
+
+		expect(result).toMatchObject({ created: true, status: "pending" });
+		expect(kill).toBeDefined();
+		expect(toldOwner).toEqual([]);
+	});
+
 	it("still makes the phone's send wait for the session, and answers once it is up", async () => {
 		const sleeper = await asleep("phoned");
 		const opId = "op-launch-phone";

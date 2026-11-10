@@ -16,6 +16,8 @@ internal interface SessionHost {
 	val sandboxDirs: Map<String, List<String>>?
 	var terminalRefreshMs: Long
 	val spawnRetryWindowMs: Long
+	/** Create claim hold cap. */
+	val spawnHoldCapMs: Long
 	val forgetTombstoneMs: Long
 	val forgetRetryMs: Long
 
@@ -57,6 +59,7 @@ internal class ChatRepositorySessionHost(private val repo: ChatRepository) : Ses
 		get() = repo.store.terminalRefreshMs
 		set(value) { repo.store.terminalRefreshMs = value }
 	override val spawnRetryWindowMs get() = ChatRepository.SPAWN_RETRY_WINDOW_MS
+	override val spawnHoldCapMs get() = ChatRepository.SPAWN_HOLD_CAP_MS
 	override val forgetTombstoneMs get() = ChatRepository.FORGET_TOMBSTONE_MS
 	override val forgetRetryMs get() = ChatRepository.FORGET_RETRY_MS
 

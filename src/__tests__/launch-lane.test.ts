@@ -399,3 +399,44 @@ describe("a launch lane's ids", () => {
 		expect(r.results("host.a").every((frame) => frame.success)).toBe(true);
 	});
 });
+
+describe("a create's intent on a wake", () => {
+	it("launches with the create door and answers a found pane by frame as success", async () => {
+		const r = rig();
+
+		r.lane.wake("app.a", wake(APP_A, { launchId: "launch-1" }), "create");
+		await flush();
+		await r.launches[0]?.answer(FOUND);
+
+		expect(r.events).toEqual(["launch app.a create"]);
+		expect(r.stages()).toEqual(["building", "container_up", "cli_found"]);
+		expect(r.results("app.a")).toMatchObject([{ launchId: "launch-1", success: true }]);
+	});
+
+	it("joins a running wake of the same facts, and each id is answered", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1" }));
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-2" }), "create");
+		await flush();
+		await r.launches[0]?.answer(MADE);
+
+		expect(r.events).toEqual(["launch host.a wake"]);
+		expect(idsOf(r.sent, "wake_result")).toEqual(["launch-1", "launch-2"]);
+	});
+
+	it("queues behind a running create of other facts, and runs its own create after", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1" }), "create");
+		r.lane.wake("host.a", { ...wake(HOST_A, { launchId: "launch-2" }), sessionToken: "readopted" }, "create");
+		await flush();
+		expect(r.events).toEqual(["launch host.a create"]);
+
+		await r.launches[0]?.answer(MADE);
+		await r.launches[1]?.answer(FOUND);
+		expect(r.events).toEqual(["launch host.a create", "launch host.a create"]);
+		expect(r.launches.map((launch) => launch.facts.sessionToken)).toEqual(["t", "readopted"]);
+		expect(idsOf(r.sent, "wake_result")).toEqual(["launch-1", "launch-2"]);
+	});
+});

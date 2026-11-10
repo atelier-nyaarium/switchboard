@@ -1,5 +1,6 @@
 import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
 import {
+	type DaemonHostOp,
 	type HostClaudeCancelOp,
 	type HostClaudeRunOp,
 	type HostClaudeRunReply,
@@ -9,6 +10,7 @@ import {
 	type HostPeekResult,
 	type HostReadSkillResult,
 	type HostWifiNetworkResult,
+	type LegacyCreateSessionOp,
 	type PromptDecision,
 	type PromptOutcome,
 	paneKey,
@@ -28,7 +30,8 @@ export interface TmuxOps {
 		decision: PromptDecision,
 		reason?: string,
 	) => Promise<PromptOutcome>;
-	createSession: (op: Extract<HostOp, { kind: "createSession" }>) => Promise<unknown>;
+	// FIXME 2026-11-24: drop, once every Gateway creates by wake.
+	createSession: (op: LegacyCreateSessionOp) => Promise<unknown>;
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
 	/** Queued, never awaited to its end. */
@@ -129,7 +132,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		}
 	}
 
-	async function run(op: HostOp): Promise<unknown> {
+	async function run(op: DaemonHostOp): Promise<unknown> {
 		if (op.kind === "peek") return runPeek(op.target);
 		if (op.kind === "kasaScan") return ops.kasaScan();
 		if (op.kind === "wifiNetwork") return ops.wifiNetwork();

@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { nudgeFor } from "../gateway/routines/execution.js";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { GRACE_MS } from "../gateway/routines/runner.js";
-import type { Routine, RoutineState } from "../shared/schemasRoutine.js";
+import { type LaunchFailure, ownerLaunchPhrase } from "../shared/launch-notice.js";
+import { type Routine, type RoutineState, routineSessionName } from "../shared/schemasRoutine.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
@@ -360,5 +361,45 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		await passTo(slot + 120_000);
 		await looked;
 		await h.waitFor(async () => nudges(slot) === 1 || undefined, "the nudge in the new session");
+	});
+
+	it("holds a run whose launch failed until it is told, so a walk in between launches nothing", async () => {
+		await h.phone.value({
+			kind: "runbook_put",
+			runbook: { id: "halted", name: "Halted", body: "Stop here.", parameters: [], revision: 1 },
+		});
+		const halted: Routine = { ...routine, id: "halted", runbookId: "halted", approvedRevision: 1, values: {} };
+		await h.phone.value({ kind: "routine_put", routine: halted });
+		const stopped: LaunchFailure = { kind: "stopped" };
+		h.host.handlers.failCreateSession = (create) =>
+			create.target.sessionName === routineSessionName(halted.id)
+				? { error: "stopped", failure: stopped }
+				: undefined;
+		const launches = () => h.host.wakes.filter((frame) => frame.team === `host.${routineSessionName(halted.id)}`);
+		const row = async () => (await rows()).find((held) => held.routine.id === halted.id);
+
+		try {
+			await h.phone.value({ kind: "routine_run", routineId: halted.id });
+			const [wake] = await h.waitFor(() => (launches().length > 0 ? launches() : undefined), "the launch");
+			await h.waitFor(
+				() =>
+					h.host.frames.find(
+						(frame) => frame.type === "wake_result_ack" && frame.launchId === wake?.launchId,
+					),
+				"the failure heard",
+			);
+			await h.gateway.faults.sweepRoutines();
+			const between = await row();
+			await passTo(clock + 1_000);
+			const review = await h.waitFor(async () => (await row())?.reviewReason, "the review");
+
+			expect(launches()).toHaveLength(1);
+			expect(between).toMatchObject({ waiting: "session_starting" });
+			expect(between?.reviewReason).toBeUndefined();
+			expect(review).toBe(ownerLaunchPhrase(stopped));
+		} finally {
+			h.host.handlers.failCreateSession = undefined;
+			await h.phone.value({ kind: "routine_delete", routineId: halted.id });
+		}
 	});
 });

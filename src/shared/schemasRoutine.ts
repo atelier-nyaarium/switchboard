@@ -140,6 +140,8 @@ export const RoutineStateSchema = z
 		reviewAt: z.number().int().nonnegative().optional(),
 		/** Why, as it stands now. */
 		reviewReason: z.string().optional(),
+		/** A run waiting now, by its miss reason. */
+		waiting: z.string().optional(),
 		attention: RoutineAttentionSchema.optional(),
 	})
 	.meta({ id: "RoutineState" });

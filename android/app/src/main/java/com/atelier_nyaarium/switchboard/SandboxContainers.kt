@@ -20,6 +20,12 @@ private const val CONTAINER_ROUND_TRIP_MS = 600L
 /** How long a sandbox start builds before it runs. */
 private const val CONTAINER_BUILD_MS = 3_000L
 
+/** Long enough to re-press Create while waking. */
+private const val SESSION_START_MS = 20_000L
+
+/** Launch outcome line. */
+private const val SANDBOX_STARTED_LINE = "Session started."
+
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -68,29 +74,41 @@ internal class SandboxContainerGateway(
 		move(spawnPointOf(target)) { it.copy(run = ContainerRun.STOPPED, failure = null) }
 	}
 
+	/** Answers at once, then settles. */
 	suspend fun create(target: String, sessionName: String?, displayLabel: String?, harness: String): ConsoleCreateSessionResult {
 		delay(CONTAINER_ROUND_TRIP_MS)
 		val point = spawnPointOf(target)
 		val id = sessionName ?: "s${System.currentTimeMillis().toString(36).takeLast(5)}"
 		val address = Address.of(point.domain, point.gateway, point.spawn, id).canonical
-		val team = Team(
+		fun row(status: String, working: Boolean?) = Team(
 			name = address,
 			presence = Presence.reported(
 				TeamInfo(
 					team = address,
 					gatewayId = point.gateway,
 					domainId = point.domain,
-					status = Presence.ONLINE,
+					status = status,
 					kind = "loose",
 					queue_depth = 0,
+					working = working,
 				),
 				Authority.LIVE,
 			),
 			sessionLabel = displayLabel,
 			harness = readHarness(harness),
 		)
-		state.update { s -> s.copy(teams = s.teams.filterNot { it.name == address } + team) }
-		return ConsoleCreateSessionResult(created = true, id = id, sessionLabel = displayLabel)
+		state.update { s -> s.copy(teams = s.teams.filterNot { it.name == address } + row(Presence.AVAILABLE, working = true)) }
+		later {
+			delay(SESSION_START_MS)
+			val started =Message(false, SANDBOX_STARTED_LINE, System.currentTimeMillis(), quiet = true)
+			state.update { s ->
+				s.copy(
+					teams = s.teams.filterNot { it.name == address } + row(Presence.ONLINE, working = null),
+					threads = s.threads + (address to s.threads[address].orEmpty() + started),
+				)
+			}
+		}
+		return ConsoleCreateSessionResult(created = true, id = id, sessionLabel = displayLabel, status = "pending")
 	}
 
 	private fun spawnPointOf(target: String): SpawnPoint =

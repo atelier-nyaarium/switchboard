@@ -91,21 +91,6 @@ export type HostOp =
 			reason?: string;
 			dedupKey?: string;
 	  }
-	| {
-			kind: "createSession";
-			target: TmuxTarget;
-			workdirHint?: string;
-			// FIXME 2026-11-23: required, once every Gateway names it.
-			/** Absent means Claude, else the place's only CLI. */
-			harness?: SessionHarness | typeof UNPICKED_WORD;
-			resumeSessionId?: string;
-			/** Its session has never confirmed. */
-			fresh?: true;
-			sessionToken?: string;
-			dedupKey?: string;
-			/** Names the launch on every frame about it. */
-			launchId?: string;
-	  }
 	| { kind: "listDirs"; path: string; spawn?: string }
 	| { kind: "readSkill"; target: AgentExecutionTarget; path: string }
 	| HostClaudeRunOp
@@ -115,6 +100,23 @@ export type HostOp =
 	// Answered once queued; the outcome rides the container state.
 	| { kind: "containerStart"; project: string; dedupKey?: string }
 	| { kind: "containerStop"; project: string; dedupKey?: string };
+
+// FIXME 2026-11-24: remove, once every Gateway creates through the wake.
+export interface LegacyCreateSessionOp {
+	kind: "createSession";
+	target: TmuxTarget;
+	workdirHint?: string;
+	/** Absent means Claude, else the place's only CLI. */
+	harness?: SessionHarness | typeof UNPICKED_WORD;
+	resumeSessionId?: string;
+	fresh?: true;
+	sessionToken?: string;
+	dedupKey?: string;
+	launchId?: string;
+}
+
+/** What an older Gateway may still send. */
+export type DaemonHostOp = HostOp | LegacyCreateSessionOp;
 
 export type HostJsonValue = null | boolean | number | string | HostJsonValue[] | { [key: string]: HostJsonValue };
 export type HostJsonObject = { [key: string]: HostJsonValue };

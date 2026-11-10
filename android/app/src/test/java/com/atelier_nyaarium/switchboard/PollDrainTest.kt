@@ -191,6 +191,38 @@ class PollDrainTest {
 	}
 
 	@Test
+	fun aLaunchsStartedLineLandsQuietlyAndItsFailureAlerts() = runBlocking {
+		val host = FakeHost(emptyMap())
+		val drain = PollDrain(host, IdlePresencePort)
+		val session = Address.of("dom", "gw", "app", "new")
+		val outcome = { seq: Long, body: String, title: String? ->
+			MailboxEntry(
+				seq = seq,
+				at = seq,
+				kind = "notice",
+				session_id = storeKey(SessionKey.Notice(session)),
+				from = session.canonical,
+				body = body,
+				title = title,
+			)
+		}
+
+		drain.processEntries(listOf(outcome(1L, "Session started.", null)), cursor = 1L, epoch = 1L, dropped = 0L)
+		val startedAlerts = host.inbound.toList()
+		drain.processEntries(
+			listOf(outcome(2L, "Devcontainer failed to start.", "Devcontainer failed to start")),
+			cursor = 2L,
+			epoch = 1L,
+			dropped = 0L,
+		)
+
+		assertEquals(listOf(1L, 2L), host.appended.map { it.second.seq })
+		assertEquals(true, host.appended.first().second.isQuiet())
+		assertEquals(emptyList<Pair<String, List<Message>>>(), startedAlerts)
+		assertEquals(listOf(listOf(2L)), host.inbound.map { (_, messages) -> messages.map { it.seq } })
+	}
+
+	@Test
 	fun aForgottenSessionsRowsLandNothing() = runBlocking {
 		val host = FakeHost(emptyMap())
 		val drain = PollDrain(host, IdlePresencePort)

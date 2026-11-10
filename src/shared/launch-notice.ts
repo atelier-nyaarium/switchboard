@@ -1,7 +1,8 @@
 // What a sender is told once the session its message waits on comes up or does not.
 
 import { z } from "zod";
-import { CliRefusalSchema, cliRefusalText } from "./cli-resolve.js";
+import { type CliRefusal, CliRefusalSchema, cliRefusalText } from "./cli-resolve.js";
+import { HARNESS } from "./session-harness.js";
 import { neutralizeMarkup, oneLine } from "./system-reminder.js";
 
 ////////////////////////////////
@@ -103,6 +104,44 @@ Ask the user before sending again.
 export function sendRefusalText(refusal: SendRefusal, address: string): string {
 	if (refusal.kind === "cli") return cliRefusalText(refusal.refusal, escaped(address));
 	return `\`${escaped(address)}\` does not exist. Set \`displayLabel\` to create it.`;
+}
+
+/** The owner's words for a launch that failed, as a phrase after "Stopped at <time>: ". */
+export function ownerLaunchPhrase(failure: LaunchFailure): string {
+	switch (failure.kind) {
+		case "container":
+			return "devcontainer failed to start";
+		case "stopped":
+			return "devcontainer was stopped while it started";
+		case "timeout":
+			return "session did not come up within 10 minutes";
+		case "error":
+			return `session encountered an error while starting: ${oneLine(failure.reason)}`;
+		case "cli":
+			return ownerCliPhrase(failure.refusal);
+	}
+}
+
+function ownerCliPhrase(refusal: CliRefusal): string {
+	switch (refusal.cause) {
+		case "not_installed":
+			return refusal.named
+				? `${HARNESS[refusal.named].label} was not installed`
+				: "Selected CLI was not installed";
+		case "needs_pick":
+			return "Multiple CLI are installed. Select one in the run config";
+		case "none_installed":
+			return "No CLI is installed";
+		case "refused":
+			return oneLine(refusal.reason).replace(/\.$/, "");
+	}
+}
+
+/** Thread line when a launch ends. */
+export function ownerLaunchLine(outcome: { up: true } | { failure: LaunchFailure }): string {
+	if ("up" in outcome) return "Session started.";
+	const phrase = ownerLaunchPhrase(outcome.failure);
+	return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
 }
 
 /** A send's answer while its session starts. */

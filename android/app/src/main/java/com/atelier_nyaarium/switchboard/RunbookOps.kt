@@ -47,6 +47,27 @@ internal interface RunbookHost {
 	val library: RunbookManager
 }
 
+/** How a fire landed. */
+internal sealed interface FireOutcome {
+	data object Delivered : FireOutcome
+
+	/** Queued until session starts. */
+	data object Starting : FireOutcome
+
+	/** Null: no answer or reason. */
+	data class NotFired(val reason: String?) : FireOutcome
+}
+
+private const val FIRE_STARTING = "starting"
+
+internal const val FIRES_ONCE_STARTED = "Runs once the session starts."
+
+internal fun fireOutcome(answer: ConsoleRunbookFireResult?): FireOutcome = when {
+	answer?.fired != true -> FireOutcome.NotFired(answer?.reason)
+	answer.status == FIRE_STARTING -> FireOutcome.Starting
+	else -> FireOutcome.Delivered
+}
+
 internal sealed interface PushDecision {
 	data object Ready : PushDecision
 	data object Put : PushDecision

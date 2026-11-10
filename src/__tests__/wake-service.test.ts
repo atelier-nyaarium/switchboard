@@ -33,14 +33,13 @@ describe("WakeService", () => {
 		const hostWs = {
 			readyState: 1,
 			send: (s: string) => void sent.push(JSON.parse(s)),
+			data: { launchIds: true },
 		} as unknown as ServerWebSocket<WsData>;
 		const presenceCalls: string[] = [];
 		const forgotten: string[] = [];
 		const presence: WakeServiceDeps["presence"] = {
 			wakeStart: (t) => void presenceCalls.push(`wakeStart:${t}`),
 			wakeEnd: (t) => void presenceCalls.push(`wakeEnd:${t}`),
-			createStart: (t) => void presenceCalls.push(`createStart:${t}`),
-			createEnd: (t) => void presenceCalls.push(`createEnd:${t}`),
 			mintOrReattach: (opts) => sessionStore.mintOrReattach(opts),
 			forget: (t) => {
 				forgotten.push(t);
@@ -60,7 +59,13 @@ describe("WakeService", () => {
 			newLaunchId: () => `launch-${String(++launches).padStart(4, "0")}`,
 			...over,
 		});
-		return { service, sessionStore, registry, wakeCoordinator, sent, presenceCalls, forgotten };
+		/** Daemon answers, session registers. */
+		const up = (team: string) => {
+			const launchId = sent.findLast((frame) => frame.type === "wake" && frame.team === team)?.launchId;
+			wakeCoordinator.ackReceived(team, 60_000, launchId);
+			wakeCoordinator.notify(team);
+		};
+		return { service, sessionStore, registry, wakeCoordinator, sent, presenceCalls, forgotten, up };
 	}
 
 	it("concurrent wakes for one team join a single launch", async () => {
@@ -70,7 +75,7 @@ describe("WakeService", () => {
 		expect(s.service.isWakeInFlight("proj")).toBe(true);
 		expect(s.sent).toHaveLength(1);
 
-		s.wakeCoordinator.notify("proj");
+		s.up("proj");
 		await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }]);
 		expect(s.service.isWakeInFlight("proj")).toBe(false);
 		// One presence announcement per genuine wake, never one per joiner.
@@ -117,7 +122,7 @@ describe("WakeService", () => {
 		expect(launched).not.toBe("proj.story");
 		expect(launched.startsWith("proj.")).toBe(true);
 
-		s.wakeCoordinator.notify(launched);
+		s.up(launched);
 		await expect(wake).resolves.toEqual({ ok: true, resolvedTeam: launched });
 		expect(s.forgotten).toHaveLength(0);
 	});
@@ -129,7 +134,7 @@ describe("WakeService", () => {
 		const before = s.sent.length;
 		const wake = s.service.tryWakeTeam("host.github-ops", { ...create, cleared: true });
 		const launched = s.sent[0]?.team ?? "";
-		s.wakeCoordinator.notify(launched);
+		s.up(launched);
 
 		expect(uncleared).toMatchObject({ ok: false });
 		expect(before).toBe(0);
@@ -143,7 +148,7 @@ describe("WakeService", () => {
 		const create = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
 		const launched = s.sent[0].team;
 		const byName = s.service.tryWakeTeam(launched);
-		s.wakeCoordinator.notify(launched);
+		s.up(launched);
 
 		await expect(Promise.all([create, byName])).resolves.toEqual([
 			{ ok: true, resolvedTeam: launched },
@@ -159,7 +164,7 @@ describe("WakeService", () => {
 		s.wakeCoordinator.failAll();
 		const dropped = await create;
 		const again = s.service.tryWakeTeam(launched);
-		s.wakeCoordinator.notify(launched);
+		s.up(launched);
 
 		expect(dropped).toMatchObject({ ok: false, errorKind: "disconnected" });
 		expect(s.forgotten).toEqual([]);
@@ -176,12 +181,13 @@ describe("WakeService", () => {
 				return true;
 			},
 			retain: () => true,
+			abandon: (launchId) => events.push(["abandon", launchId]),
 		});
 		s.service.onSettled((team, result, launchId) => events.push(["settled", team, result.ok, launchId]));
 
 		const create = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
 		const [frame] = s.sent;
-		s.wakeCoordinator.notify(frame.team);
+		s.up(frame.team);
 		await create;
 
 		expect(frame.launchId).toEqual(expect.any(String));
@@ -193,9 +199,36 @@ describe("WakeService", () => {
 		expect(s.forgotten).toEqual([]);
 	});
 
+	it("abandons a recorded launch whose wake never reached the host, and settles nothing", async () => {
+		const dropping = {
+			readyState: 1,
+			send: () => 0,
+			data: { launchIds: true },
+		} as unknown as ServerWebSocket<WsData>;
+		const s = setup({ liveHostSocket: () => dropping });
+		const events: unknown[] = [];
+		s.service.useLedger({
+			open: (team, launchId) => {
+				events.push(["open", team, launchId]);
+				return true;
+			},
+			retain: () => true,
+			abandon: (launchId) => events.push(["abandon", launchId]),
+		});
+		s.service.onSettled((team) => events.push(["settled", team]));
+
+		const answer = await s.service.tryWakeTeam("proj");
+
+		expect(answer).toMatchObject({ ok: false, errorKind: "disconnected" });
+		expect(events).toEqual([
+			["open", "proj", expect.any(String)],
+			["abandon", (events[0] as unknown[])[2]],
+		]);
+	});
+
 	it("sends no wake when its launch cannot be recorded, and forgets only the record its create minted", async () => {
 		const s = setup();
-		s.service.useLedger({ open: () => false, retain: () => true });
+		s.service.useLedger({ open: () => false, retain: () => true, abandon: () => {} });
 
 		const woken = await s.service.tryWakeTeam("proj");
 		const created = await s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
@@ -222,13 +255,14 @@ describe("WakeService", () => {
 				retained.push(launchId);
 				return true;
 			},
+			abandon: () => {},
 		});
 
 		const create = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
 		const [frame] = s.sent;
 		const joined = s.service.tryWakeTeam(frame.team, undefined, { retain: true });
 		const owned = s.service.tryWakeTeam("proj", undefined, { retain: true });
-		for (const team of [frame.team, "proj"]) s.wakeCoordinator.notify(team);
+		for (const team of [frame.team, "proj"]) s.up(team);
 		await Promise.all([create, joined, owned]);
 
 		expect(opened).toEqual([false, true]);
@@ -240,12 +274,12 @@ describe("WakeService", () => {
 		const s = setup();
 		const minting = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
 		const launched = s.sent[0].team;
-		s.wakeCoordinator.notify(launched);
+		s.up(launched);
 		await minting;
 
 		const wakeAgain = async () => {
 			const wake = s.service.tryWakeTeam(launched);
-			s.wakeCoordinator.notify(launched);
+			s.up(launched);
 			await wake;
 		};
 		await wakeAgain();
@@ -264,55 +298,36 @@ describe("WakeService", () => {
 		const teams = [s.sessionStore.teamOf(s.sessionStore.mint({ spawn: "host", harness: "copilot" })), "proj"];
 
 		const wakes = teams.map((team) => s.service.tryWakeTeam(team));
-		for (const team of teams) s.wakeCoordinator.notify(team);
+		for (const team of teams) s.up(team);
 		await Promise.all(wakes);
 
 		expect(s.sent.map((frame) => frame.harness)).toEqual(["copilot", UNPICKED_WORD]);
 	});
 
-	it.each([
-		["sends none once the create brought it up", true, 0],
-		["wakes it once the create answered without bringing it up", false, 1],
-	])("holds a wake behind a host create of the same session: %s", async (_label, cameUp, wakesAfter) => {
+	it("joins a create and a wake of one session to one launch, its frame naming the create", async () => {
 		const s = setup();
 		const team = s.sessionStore.teamOf(s.sessionStore.mint({ spawn: "host", harness: "claude" }));
-		let answer: (result: { ok: boolean }) => void = () => {};
-		const created = s.service.joinCreate(team, () => new Promise((resolve) => (answer = resolve)));
 
-		const wake = s.service.tryWakeTeam(team);
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		const whileCreating = s.sent.length;
-		if (cameUp) s.registry.set(team, new Map([["s1", fakeWs()]]));
-		answer({ ok: true });
-		await created.launch;
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		if (!cameUp) s.wakeCoordinator.notify(team);
+		const created = s.service.tryWakeTeam(team, undefined, { retain: true, door: "create" });
+		const woken = s.service.tryWakeTeam(team);
+		s.up(team);
 
-		await expect(wake).resolves.toEqual({ ok: true });
-		expect(whileCreating).toBe(0);
-		expect(s.sent.filter((frame) => frame.type === "wake")).toHaveLength(wakesAfter);
+		await expect(Promise.all([created, woken])).resolves.toEqual([{ ok: true }, { ok: true }]);
+		expect(s.sent).toEqual([expect.objectContaining({ type: "wake", team, door: "create" })]);
 	});
 
-	it("gives a second create the first one's launch instead of starting another", async () => {
+	it("holds a launch in flight past the session registering, until the daemon answers it", async () => {
 		const s = setup();
-		let launches = 0;
-		const start = () => {
-			launches += 1;
-			return Promise.resolve({ ok: true });
-		};
+		const wake = s.service.tryWakeTeam("proj");
+		const [frame] = s.sent;
 
-		const first = s.service.joinCreate("proj.new", start);
-		const second = s.service.joinCreate("proj.new", start);
+		s.wakeCoordinator.notify("proj");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const registered = s.service.isWakeInFlight("proj");
+		s.wakeCoordinator.ackReceived("proj", 60_000, frame.launchId);
 
-		expect(launches).toBe(1);
-		// Only the caller that launched can end it.
-		expect(second.release).toBeNull();
-		await expect(Promise.all([first.launch, second.launch])).resolves.toEqual([{ ok: true }, { ok: true }]);
-		expect(s.service.isWakeInFlight("proj.new")).toBe(true);
-
-		first.release?.();
-		expect(s.service.isWakeInFlight("proj.new")).toBe(false);
-		// Joining twice must not double the presence it reports.
-		expect(s.presenceCalls).toEqual(["createStart:proj.new", "createEnd:proj.new"]);
+		await expect(wake).resolves.toEqual({ ok: true });
+		expect(registered).toBe(true);
+		expect(s.service.isWakeInFlight("proj")).toBe(false);
 	});
 });

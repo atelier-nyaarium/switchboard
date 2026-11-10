@@ -3,7 +3,7 @@ import type { BoardDisposition } from "../../shared/board-authority.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { type HostOp, type HostOpResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { launchPlaceOf } from "../../shared/host-spawn.js";
-import { launchFailureText } from "../../shared/launch-notice.js";
+import { type LaunchFailure, launchFailureText } from "../../shared/launch-notice.js";
 import {
 	foldHarness,
 	launchRefusal,
@@ -11,13 +11,12 @@ import {
 	readHarness,
 	type SessionHarness,
 	UNNAMED_HARNESS,
-	UNPICKED_WORD,
 } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
-import { resumeIdOf, type SessionRecord, type SessionStore } from "../../shared/session-store.js";
-import { fireAndForget } from "../fireAndForget.js";
+import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
 import type { WakeResult } from "../wake.js";
+import type { LaunchOpts, WakeFlight } from "../wakeService.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
 import { CreateSessionAmbiguousError, CreateSessionFailedError } from "./consoleTypes.js";
 
@@ -33,28 +32,18 @@ export interface SessionLifecycleDeps {
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	/** `retain`: a joined launch is never given up. */
 	tryWakeTeam?: (team: string, opts?: { retain?: true }) => Promise<WakeResult>;
+	/** Answers at dispatch; a create's one road. */
+	beginLaunch?: (team: string, opts: LaunchOpts) => WakeFlight;
+	/** Reports the launch's end. */
+	watchOwnerLaunch?: (team: string, launchId: string) => void;
 	isWakeInFlight?: (team: string) => boolean;
-	joinCreate?: (
-		team: string,
-		start: () => Promise<HostOpResult>,
-	) => { launch: Promise<HostOpResult>; release: (() => void) | null };
-	awaitRegister?: (team: string) => Promise<WakeResult>;
 	dropSessionResume?: (team: string, boardDisposition: BoardDisposition) => void;
 	/** Close and forget end session grants. */
 	onSessionEnded?: (team: string) => void;
 	forgetRefusal?: (team: string) => string | null;
 	sessionStore?: Pick<
 		SessionStore,
-		| "getByTeam"
-		| "teamOf"
-		| "adoptById"
-		| "adoptOrReattach"
-		| "mintOrReattach"
-		| "paneHolder"
-		| "hostWorkdirHint"
-		| "forget"
-		| "rename"
-		| "ensureBindToken"
+		"getByTeam" | "teamOf" | "adoptById" | "adoptOrReattach" | "mintOrReattach" | "paneHolder" | "forget" | "rename"
 	>;
 }
 
@@ -64,9 +53,9 @@ export function createSessionLifecycleHandlers({
 	ambient,
 	relayToHost,
 	tryWakeTeam,
+	beginLaunch,
+	watchOwnerLaunch,
 	isWakeInFlight,
-	joinCreate,
-	awaitRegister,
 	dropSessionResume,
 	onSessionEnded,
 	forgetRefusal,
@@ -76,10 +65,10 @@ export function createSessionLifecycleHandlers({
 		op: Extract<ConsoleOp, { kind: "create_session" }>,
 		conversationId: string,
 		opId: string,
-		/** Place's CLIs not known yet. */
-		internal?: { unpicked: true },
+		/** `unpicked`: CLIs not known yet. `watch`: takes the launch instead of the owner. */
+		internal?: { unpicked?: true; watch?: (launchId: string) => void },
 	) {
-		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
+		if (!beginLaunch) throw new Error("this Gateway cannot launch a session");
 		if (!op.sessionName && !op.displayLabel) {
 			throw new Error("create_session needs a sessionName or a displayLabel");
 		}
@@ -135,92 +124,47 @@ export function createSessionLifecycleHandlers({
 		}
 		// The record outlives a failed launch.
 		const target = targets.tmuxTarget(op.target, sessionId);
-		const workdirHint =
-			sessionStore && adopted ? sessionStore.hostWorkdirHint(adopted.record) : (op.workdir ?? label);
-
 		const launchTeam = composeSessionName(target.name, target.sessionName);
-		const viaWake = target.kind === "devcontainer" && tryWakeTeam;
-		const startLaunch = (): Promise<HostOpResult> =>
-			viaWake
-				? viaWake(launchTeam, { retain: true }).then(
-						(r): HostOpResult =>
-							r.ok
-								? { ok: true }
-								: {
-										ok: false,
-										error: `failed to wake "${sessionId}"`,
-										errorKind: r.errorKind,
-										...(r.failure ? { failure: r.failure } : {}),
-									},
-					)
-				: relayToHost({
-						kind: "createSession",
-						target,
-						workdirHint,
-						harness: adopted?.record.harness ?? harness ?? UNPICKED_WORD,
-						resumeSessionId: adopted ? resumeIdOf(adopted.record) : undefined,
-						...(adopted && adopted.record.confirmedAt === undefined ? { fresh: true as const } : {}),
-						sessionToken: adopted ? sessionStore?.ensureBindToken(adopted.record) : undefined,
-						dedupKey,
-						launchId: ambient.newId(),
-					});
-
-		const shared = joinCreate?.(launchTeam, startLaunch);
-		const launch = shared?.launch ?? startLaunch();
-		const release = shared?.release;
-		// Presence outlives the launch, since a created session is not usable until it registers.
-		if (release) {
-			fireAndForget(
-				`create release for ${launchTeam}`,
-				(async () => {
-					// A launch that failed has nothing to register, and waiting would hold the team.
-					const settled = await launch.catch(() => null);
-					if (settled?.ok && !viaWake && awaitRegister) {
-						await awaitRegister(launchTeam).catch(() => undefined);
-					}
-					release();
-				})(),
-			);
-		}
-
+		const id = adopted?.record.id ?? sessionId;
+		const answer = { created: true, id, sessionLabel: adopted?.record.sessionLabel, labelSanitized };
 		// No blank record survives an unpicked create.
 		const forgetBlank = (): void => {
 			if (!internal?.unpicked || !adopted?.created) return;
 			const current = sessionStore?.getByTeam(launchTeam);
 			if (current && current.confirmedAt === undefined && !current.harness) sessionStore?.forget(launchTeam);
 		};
-		const winner = await withinMs(ambient, launch, createSessionBoundMs);
-
-		if (winner === null) {
-			launch.then((late) => late.failure && forgetBlank()).catch(() => undefined);
-			return {
-				created: true,
-				id: adopted?.record.id ?? sessionId,
-				sessionLabel: adopted?.record.sessionLabel,
-				labelSanitized,
-				status: "pending" as const,
-			};
-		}
-
-		if (!winner.ok) {
-			if (winner.errorKind === "timeout" || winner.errorKind === "disconnected") {
-				throw new CreateSessionAmbiguousError(winner.error ?? "create session had no definitive answer");
+		// A held record's pane is repaired, not left.
+		const flight = beginLaunch(
+			launchTeam,
+			adopted?.created === false ? { retain: true } : { retain: true, door: "create" },
+		);
+		flight.outcome.then((late) => late.failure && forgetBlank()).catch(() => undefined);
+		const start = await flight.started;
+		if (start.kind === "launching") {
+			// Joined a mint under that typed name.
+			if (start.team !== launchTeam) {
+				throw new CreateSessionAmbiguousError(`another launch holds "${sessionId}"; try again shortly`);
 			}
-			if (winner.failure) {
-				forgetBlank();
-				throw new CreateSessionFailedError(
-					launchFailureText(winner.failure, sessionId, { created: true, foreign: false }),
-					winner.failure,
-				);
-			}
-			throw new Error(winner.error ?? "create session failed");
+			if (internal?.watch) internal.watch(start.launchId);
+			else watchOwnerLaunch?.(launchTeam, start.launchId);
+			return { ...answer, status: "pending" as const };
 		}
-		return {
-			created: true,
-			id: adopted?.record.id ?? sessionId,
-			sessionLabel: adopted?.record.sessionLabel,
-			labelSanitized,
-		};
+		const settled = start.result;
+		if (settled.ok) return answer;
+		if (settled.errorKind === "timeout" || settled.errorKind === "disconnected") {
+			throw new CreateSessionAmbiguousError(settled.error ?? "create session had no definitive answer");
+		}
+		const failure: LaunchFailure | undefined =
+			settled.failure ??
+			(settled.refusal?.kind === "cli" ? { kind: "cli", refusal: settled.refusal.refusal } : undefined);
+		if (failure) {
+			forgetBlank();
+			throw new CreateSessionFailedError(
+				launchFailureText(failure, sessionId, { created: true, foreign: false }),
+				failure,
+			);
+		}
+		throw new Error(settled.error ?? "create session failed");
 	}
 
 	async function wake(op: Extract<ConsoleOp, { kind: "wake" }>) {
@@ -238,6 +182,8 @@ export function createSessionLifecycleHandlers({
 						harness: op.harness ?? UNNAMED_HARNESS,
 					})
 				: null;
+		// A timeout or a dropped link may still come up.
+		const definite = (r: WakeResult) => !r.ok && r.errorKind !== "timeout" && r.errorKind !== "disconnected";
 		const mayForget = () => {
 			if (!adopted || !sessionStore) return false;
 			const current = sessionStore.getByTeam(name);
@@ -248,15 +194,13 @@ export function createSessionLifecycleHandlers({
 		if (winner === null) {
 			void wakeCall
 				.then((r) => {
-					if (!r.ok && mayForget()) sessionStore?.forget(name);
+					if (definite(r) && mayForget()) sessionStore?.forget(name);
 				})
-				.catch(() => {
-					if (mayForget()) sessionStore?.forget(name);
-				});
+				.catch(() => undefined);
 			return { ok: true, status: "pending" as const };
 		}
 		if (!winner.ok) {
-			if (mayForget()) sessionStore?.forget(name);
+			if (definite(winner) && mayForget()) sessionStore?.forget(name);
 			const reason =
 				winner.error ??
 				(winner.errorKind === "disconnected"

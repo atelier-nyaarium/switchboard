@@ -319,7 +319,7 @@ internal class PollDrain(
 				title = entry.title.tierOrNull(), summary = entry.summary.tierOrNull(), fullSpoken = entry.fullSpoken.tierOrNull(),
 				epoch = epoch, seq = entry.seq, from = attribution.from, to = attribution.to, isPeer = attribution.isPeer,
 				arrivedVisible = arrivedWhileVisible(host.isVisible, entry.at, foregroundSince), record = record,
-			).let { it.copy(quiet = quietInConversation(isAssistant(host.state.value, team), it)) }
+			).let { it.copy(quiet = quietInConversation(isAssistant(host.state.value, team), it) || quietNotice(entry.kind, it)) }
 			val appended = host.appendInbound(team, message) {
 				inboundSubscribers.forEach { subscriber ->
 					runIsolated { subscriber.onMessage(team, message) }

@@ -56,10 +56,7 @@ describe("a session's CLI, as the Gateway tells it", () => {
 	});
 
 	it("tells the daemon each watched session's CLI, and a Copilot session's id under both names", async () => {
-		const launchedUnder = h.host.ops.find(
-			(op) => op.kind === "createSession" && copilot.team.endsWith(`.${op.target.sessionName}`),
-		);
-		const id = launchedUnder?.kind === "createSession" ? launchedUnder.resumeSessionId : undefined;
+		const id = h.host.creates.find((create) => create.team === copilot.team)?.resumeSessionId;
 
 		const watched = await h.waitFor(() => {
 			const entries = (h.host.frames.filter((frame) => frame.type === "presence_watch").at(-1)?.watch ??
@@ -136,41 +133,57 @@ describe("a session's CLI, as the Gateway tells it", () => {
 		]);
 	});
 
-	it("marks a create fresh until its session first confirms, whichever CLI it runs", async () => {
-		const attach = h.host.handlers.onCreateSession;
-		const launches = (sessionName: string) =>
-			h.host.ops.flatMap((op) =>
-				op.kind === "createSession" && op.target.sessionName === sessionName ? [op.fresh] : [],
-			);
-
+	it("marks a launch fresh until its session first confirms, and opens Create's door only for a new record", async () => {
 		try {
 			for (const harness of ["claude", "copilot"] as const) {
 				const sessionName = `late-${harness}`;
 				const create = () =>
 					h.phone.value({ kind: "create_session", target: h.target("host"), sessionName, harness });
+				let team = "";
+				const launches = () =>
+					h.host.wakes.filter((frame) => frame.team === team).map((frame) => [frame.door, frame.fresh]);
 
 				h.host.handlers.failCreateSession = () => "the pane never came up";
-				expect((await create()).result).toMatchObject({ kind: "refusal" });
+				expect((await create()).result).toMatchObject({ created: true, status: "pending" });
+				team = (
+					await h.waitFor(
+						() => h.host.creates.find((made) => made.target.sessionName === sessionName),
+						"the failed launch",
+					)
+				).team;
 				h.host.handlers.failCreateSession = undefined;
 
 				const before = sessions.length;
+				h.host.handlers.onWake = (frame) => {
+					if (frame.team !== team) return;
+					sessions.push(
+						attachFakeSession(h.gateway, {
+							team,
+							conversationId: `conv-cli-${sessions.length}`,
+							sessionToken: frame.sessionToken as string,
+							agentPid: 100,
+						}),
+					);
+				};
 				expect((await create()).result).toMatchObject({ created: true });
 				const retried = await h.waitFor(() => sessions[before], "the retried launch");
 				await (harness === "claude" ? retried.ready() : retried.registered());
 
-				// A create still held joins its launch.
-				h.host.handlers.onCreateSession = undefined;
-				await h.waitFor(async () => {
-					await create();
-					return launches(sessionName).length === 3;
-				}, "a launch after the confirm");
-				h.host.handlers.onCreateSession = attach;
+				// Live needs no launch.
+				retried.close();
+				h.host.handlers.onWake = undefined;
+				await create();
+				await h.waitFor(() => launches().length === 3 || undefined, "a launch after the confirm");
 
-				expect(launches(sessionName), harness).toEqual([true, true, undefined]);
+				expect(launches(), harness).toEqual([
+					["create", true],
+					[undefined, true],
+					[undefined, undefined],
+				]);
 			}
 		} finally {
 			h.host.handlers.failCreateSession = undefined;
-			h.host.handlers.onCreateSession = attach;
+			h.host.handlers.onWake = undefined;
 		}
 	});
 });

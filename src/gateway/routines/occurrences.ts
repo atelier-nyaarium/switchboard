@@ -2,9 +2,11 @@
 
 import { z } from "zod";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { LaunchFailureSchema } from "../../shared/launch-notice.js";
 import {
 	canTransition,
 	MISS_REASONS,
+	type MissReason,
 	OCCURRENCE_STATES,
 	type OccurrenceState,
 	REVIEW_CAUSES,
@@ -23,6 +25,8 @@ export const OccurrenceSchema = z.object({
 	reason: z.enum(MISS_REASONS).optional(),
 	/** Absent on rows older than causes. */
 	reviewCause: z.enum(REVIEW_CAUSES).optional(),
+	/** With `launch_failed`. */
+	launchFailure: LaunchFailureSchema.optional(),
 	/** The runbook revision this occurrence was prepared against. */
 	preparedRevision: z.number().int().positive().optional(),
 	/**
@@ -149,6 +153,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 				Occurrence,
 				| "reason"
 				| "reviewCause"
+				| "launchFailure"
 				| "preparedRevision"
 				| "snapshot"
 				| "team"
@@ -221,6 +226,13 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return commit(rows.map((row) => (row === held ? { ...row, memoryBounced: true } : row)));
 	};
 
+	/** A waiting run's current cause. */
+	const noteWaiting = (routineId: string, scheduledAt: number, reason: MissReason): boolean => {
+		const held = at(routineId, scheduledAt);
+		if (held?.state !== "waiting_idle" || held.reason === reason) return false;
+		return commit(rows.map((row) => (row === held ? { ...row, reason } : row)));
+	};
+
 	/** The first read is the one recorded; asking again says nothing new. */
 	const noteRead = (routineId: string, scheduledAt: number, at: number): boolean => {
 		const held = rows.find((row) => row.routineId === routineId && row.scheduledAt === scheduledAt);
@@ -282,6 +294,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		noteMemoryApplied,
 		noteMemoryBounced,
 		noteRead,
+		noteWaiting,
 		clearReview,
 		clear,
 		sweep,

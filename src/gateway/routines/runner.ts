@@ -3,6 +3,7 @@
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
+import type { LaunchFailure } from "../../shared/launch-notice.js";
 import type { MissReason } from "../../shared/routine-occurrence.js";
 import { nextOccurrence } from "../../shared/routine-recurrence.js";
 import { forgetAfterMs, type Routine } from "../../shared/schemasRoutine.js";
@@ -28,7 +29,9 @@ export type PrepareResult =
 	/** Something else holds the session this routine reserves, so only the owner can settle it. */
 	| { ok: false; reason: "session_taken" }
 	| { ok: false; reason: "assistant_unplaced" }
-	| { ok: false; reason: "cli_refused" }
+	| { ok: false; reason: "launch_failed"; failure: LaunchFailure }
+	/** Its session is starting; nothing relaunches it. */
+	| { ok: false; reason: "launching" }
 	/** Nothing is wrong with the routine; the session could not be reached. */
 	| { ok: false; reason: "unreachable" };
 
@@ -111,6 +114,10 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 
 		/** Names the deadline's cause. */
 		const wait = (row: Occurrence, reason: MissReason) => {
+			if (row.state === "waiting_idle") {
+				occurrences.noteWaiting(row.routineId, row.scheduledAt, reason);
+				return;
+			}
 			if (row.state !== "due") return;
 			occurrences.transition(
 				row.routineId,
@@ -134,12 +141,19 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 					wait(held, "host_unreachable");
 					return;
 				}
+				if (prepared.reason === "launching") {
+					wait(held, "session_starting");
+					return;
+				}
 				occurrences.transition(
 					held.routineId,
 					held.scheduledAt,
 					{ state: held.state, version: held.version },
 					"needs_review",
-					{ reviewCause: prepared.reason },
+					{
+						reviewCause: prepared.reason,
+						...(prepared.reason === "launch_failed" ? { launchFailure: prepared.failure } : {}),
+					},
 				);
 				return;
 			}
@@ -339,6 +353,33 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		/** Console and test entry. */
 		reconcile(): Promise<void> {
 			return walks.run(sweepDue);
+		},
+
+		/** A waiting run's launch ended; true once taken. A version CAS fences a walk. */
+		launchEnded(
+			routineId: string,
+			scheduledAt: number,
+			outcome: { up: true } | { failure: LaunchFailure },
+			team: string,
+		): boolean {
+			if (!admitting) return false;
+			const held = occurrences.at(routineId, scheduledAt);
+			if (!held || (held.state !== "due" && held.state !== "waiting_idle")) return true;
+			// A retargeted run ignores its old team's launch.
+			const routine = routines.get(routineId);
+			if (!routine || routineTeam(routine) !== team) return true;
+			if ("up" in outcome) {
+				fireAndForget("routine launch up", walks.run(sweepDue));
+				return true;
+			}
+			const moved = occurrences.transition(
+				routineId,
+				scheduledAt,
+				{ state: held.state, version: held.version },
+				"needs_review",
+				{ reviewCause: "launch_failed", launchFailure: outcome.failure },
+			);
+			return moved !== null;
 		},
 
 		/** Its own occurrence: re-entering a rule's would break at-most-once. */

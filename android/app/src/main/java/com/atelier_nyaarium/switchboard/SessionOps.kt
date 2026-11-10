@@ -11,9 +11,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 internal class SessionOps(
@@ -44,7 +46,7 @@ internal class SessionOps(
 	}
 
 	// Retries reuse the opId within the retry window.
-	private val recentSpawnOpIds = mutableMapOf<Pair<String, String>, Pair<String, Long>>()
+	private val recentSpawnOpIds = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, Pair<String, Long>>()
 
 	private fun rememberProject(target: String) {
 		host.rememberProject(target)
@@ -61,12 +63,12 @@ internal class SessionOps(
 		recentSpawnOpIds.entries.removeAll { now - it.value.second >= host.spawnRetryWindowMs }
 		val opId = recentSpawnOpIds[key]?.first ?: UUID.randomUUID().toString()
 		recentSpawnOpIds[key] = opId to now
+		var held = false
 		try {
 			runCatchingCancellable {
 				withContext(Dispatchers.IO) { host.createSession(target, displayLabel = label, workdir = workdir, opId = opId, harness = harness.wire) }
 			}
 				.onSuccess { result ->
-					recentSpawnOpIds.remove(key)
 					host.state.update {
 						it.copy(
 							transientMessages = if (result.labelSanitized == true) {
@@ -75,15 +77,40 @@ internal class SessionOps(
 						)
 					}
 					refreshAfterAction()
+					// Re-press joins until settled.
+					val address = createdAddress(target, result.id)
+					if (address == null) {
+						forgetOpId(key, opId)
+					} else {
+						held = true
+						holdUntilSettled(key, opId, address)
+					}
 				}
 				.onFailure { e ->
 					val reason = e.message ?: "Failed to create \"$label\""
 					host.state.update { it.copy(transientMessages = it.transientMessages + reason) }
 				}
 		} finally {
-			// Clear the pending claim after create settles, including cancellation.
-			host.state.update { it.copy(pendingSpawns = it.pendingSpawns - key) }
+			// Op id stays for retry.
+			if (!held) host.state.update { it.copy(pendingSpawns = it.pendingSpawns - key) }
 		}
+	}
+
+	/** Frees claim once live, on outcome, or at cap. */
+	private fun holdUntilSettled(key: Pair<String, String>, opId: String, address: String) {
+		host.launchInBackground {
+			try {
+				withTimeoutOrNull(host.spawnHoldCapMs) { host.state.first { spawnSettled(it, address) } }
+			} finally {
+				forgetOpId(key, opId)
+				host.state.update { it.copy(pendingSpawns = it.pendingSpawns - key) }
+			}
+		}
+	}
+
+	/** Spares a newer same-key id. */
+	private fun forgetOpId(key: Pair<String, String>, opId: String) {
+		recentSpawnOpIds[key]?.takeIf { it.first == opId }?.let { recentSpawnOpIds.remove(key, it) }
 	}
 
 	fun consumeTransientMessage(): String? {
@@ -335,6 +362,17 @@ internal class SessionOps(
 		const val FORGET_HELD = Long.MAX_VALUE
 	}
 }
+
+/** New session's address. */
+internal fun createdAddress(target: String, id: String): String? =
+	runIsolated {
+		val point = parseQualifiedTarget(target) as SpawnPoint
+		Address.of(point.domain, point.gateway, point.spawn, id).canonical
+	}.getOrNull()
+
+/** Session answers, or an outcome line landed. Verifying and waking rows still hold. */
+internal fun spawnSettled(state: ChatState, address: String): Boolean =
+	state.teams.any { it.name == address && it.presence.isOnline } || state.threads[address].orEmpty().isNotEmpty()
 
 /** The CLI word a wake or relaunch sends the row's own Gateway. */
 internal fun launchHarness(word: HarnessWord): String =

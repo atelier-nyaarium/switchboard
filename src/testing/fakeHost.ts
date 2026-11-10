@@ -30,7 +30,7 @@ import {
 	HostClaudeRunOpSchema,
 	type HostOp,
 } from "../shared/host-op.js";
-import { HOST_SPAWN } from "../shared/host-spawn.js";
+import { HOST_SPAWN, isHostSpawn } from "../shared/host-spawn.js";
 import type { LaunchFailure } from "../shared/launch-notice.js";
 import type { SessionHarness } from "../shared/session-harness.js";
 import { createFakeSocket, type Frame } from "./fakeSocket.js";
@@ -43,13 +43,23 @@ export interface FakeSpawnLists {
 	copilotSpawns?: string[];
 }
 
+/** A create's wake frame. */
+export interface FakeCreate {
+	team: string;
+	target: { kind: "host" | "devcontainer"; name: string; sessionName: string };
+	launchId?: string;
+	harness?: string;
+	sessionToken?: string;
+	workdirHint?: string;
+	resumeSessionId?: string;
+	fresh?: true;
+}
+
 export interface FakeHostHandlers {
 	/** The scenario registers the launched session. */
-	onCreateSession?: (op: Extract<HostOp, { kind: "createSession" }>) => void;
+	onCreateSession?: (create: FakeCreate) => void;
 	/** An answer fails that launch. */
-	failCreateSession?: (
-		op: Extract<HostOp, { kind: "createSession" }>,
-	) => string | { error: string; failure: LaunchFailure } | undefined;
+	failCreateSession?: (create: FakeCreate) => string | { error: string; failure: LaunchFailure } | undefined;
 	/** The scenario registers the woken team. */
 	onWake?: (frame: Frame) => void;
 	/** How the daemon answers a wake; absent says it launched. */
@@ -116,8 +126,10 @@ export interface FakeHost {
 	frames: Frame[];
 	/** Every relayed HostOp, in order. */
 	ops: HostOp[];
-	/** Every wake frame, in order. */
+	/** Every wake frame. */
 	wakes: Frame[];
+	/** Every create's wake. */
+	creates: FakeCreate[];
 	/** Every Codex command, schema-checked. */
 	codexCommands: CodexDaemonCommand[];
 	copilotCommands: CopilotDaemonCommand[];
@@ -142,6 +154,23 @@ export interface FakeHost {
 }
 
 const HOST_HOME = "/home/fixture";
+
+function createOf(frame: Frame): FakeCreate {
+	const team = String(frame.team);
+	const dot = team.indexOf(".");
+	const name = team.slice(0, dot);
+	const text = (key: string) => (typeof frame[key] === "string" ? { [key]: frame[key] as string } : {});
+	return {
+		team,
+		target: { kind: isHostSpawn(name) ? "host" : "devcontainer", name, sessionName: team.slice(dot + 1) },
+		...text("launchId"),
+		...text("harness"),
+		...text("sessionToken"),
+		...text("workdirHint"),
+		...text("resumeSessionId"),
+		...(frame.fresh === true ? { fresh: true as const } : {}),
+	};
+}
 
 export function createFakeCodexDaemon(daemonInstanceId = `fake-daemon-${randomBytes(4).toString("hex")}`) {
 	const eventIds = new Map<string, number>();
@@ -189,6 +218,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 	socket.onPing(() => graph.wsHandlers.pong(socket.ws));
 	const ops: HostOp[] = [];
 	const wakes: Frame[] = [];
+	const creates: FakeCreate[] = [];
 	const codexCommands: CodexDaemonCommand[] = [];
 	const copilotCommands: CopilotDaemonCommand[] = [];
 	const claudeRuns: HostClaudeRunOp[] = [];
@@ -245,10 +275,6 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				return { kind: "refused", code: "missing" };
 			case "kasaScan":
 				return { candidates: [] };
-			case "createSession":
-				// The shell comes up after the answer.
-				setTimeout(() => handlers.onCreateSession?.(op), 0);
-				return { created: true, ready: true, alive: true };
 			case "sendText":
 			case "sendKey":
 				return { sent: true };
@@ -307,12 +333,6 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				});
 				return;
 			}
-			const failure = op.kind === "createSession" ? handlers.failCreateSession?.(op) : undefined;
-			if (failure) {
-				const typed = typeof failure === "string" ? { error: failure } : failure;
-				send({ type: "host_op_reply", reqId: frame.reqId, ok: false, ...typed });
-				return;
-			}
 			send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: answer(op) });
 		}
 		if (frame.type === "claude_turn_ack") {
@@ -323,12 +343,23 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		if (frame.type === "wake") {
 			wakes.push(frame);
 			handlers.onWake?.(frame);
-			const answer = handlers.answerWake?.(frame) ?? "launched";
 			const named = namesLaunches && frame.launchId ? { launchId: frame.launchId } : {};
-			if (typeof answer === "object")
-				send({ type: "wake_result", team: frame.team, ...named, success: false, ...answer });
-			else if (answer !== "silent")
-				send({ type: "wake_result", team: frame.team, ...named, success: answer === "launched" });
+			const create = frame.door === "create" ? createOf(frame) : undefined;
+			if (create) creates.push(create);
+			const refused = create ? handlers.failCreateSession?.(create) : undefined;
+			const answer = refused ? "refused" : (handlers.answerWake?.(frame) ?? "launched");
+			// Answers cross a socket.
+			setTimeout(() => {
+				if (typeof refused === "string")
+					send({ type: "wake_result", team: frame.team, ...named, success: false, error: refused });
+				else if (refused) send({ type: "wake_result", team: frame.team, ...named, success: false, ...refused });
+				else if (typeof answer === "object")
+					send({ type: "wake_result", team: frame.team, ...named, success: false, ...answer });
+				else if (answer !== "silent")
+					send({ type: "wake_result", team: frame.team, ...named, success: answer === "launched" });
+				// The shell comes up after the answer.
+				if (create && answer === "launched") setTimeout(() => handlers.onCreateSession?.(create), 0);
+			}, 0);
 		}
 		if (frame.type === "codex_command") {
 			const command = CodexDaemonCommandSchema.parse(frame);
@@ -394,6 +425,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		frames: socket.sent,
 		ops,
 		wakes,
+		creates,
 		codexCommands,
 		copilotCommands,
 		claudeRuns,

@@ -1,6 +1,6 @@
 import { withinMs } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
-import { cliRefusalText, pickAt } from "../../shared/cli-resolve.js";
+import { type CliRefusal, pickAt } from "../../shared/cli-resolve.js";
 import {
 	type ConsoleOp,
 	type ConsoleOpResult,
@@ -17,6 +17,7 @@ import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js
 import { type CliPick, type SessionHarness, UNPICKED_WORD } from "../../shared/session-harness.js";
 import { SpawnPoint } from "../../shared/session-id.js";
 import type { WorkspaceOp } from "../../shared/workspace-op.js";
+import type { RoutineRun } from "../launchRecords.js";
 import {
 	RESERVE_OP,
 	type ReserveResult,
@@ -53,9 +54,13 @@ export function createConsoleDispatcher({
 	domain,
 	relayToHost,
 	tryWakeTeam,
+	beginLaunch,
+	watchOwnerLaunch,
+	watchRoutineLaunch,
+	awaitsLaunch,
+	isLive,
+	launching,
 	isWakeInFlight,
-	joinCreate,
-	awaitRegister,
 	crossDomain,
 	unlinkDomain,
 	untrustOwner,
@@ -79,10 +84,10 @@ export function createConsoleDispatcher({
 	function definitePick(
 		spawn: string,
 		pick: CliPick | undefined,
-	): { harness?: SessionHarness } | { refused: string } {
+	): { harness?: SessionHarness } | { refusal: CliRefusal } {
 		const named = pick && pick !== UNPICKED_WORD ? pick : undefined;
 		const chosen = pickAt({ place: launchPlaceOf(spawn), assistant: false }, named, installedAt?.(spawn));
-		if ("refused" in chosen) return { refused: cliRefusalText(chosen.refused, spawn) };
+		if ("refused" in chosen) return { refusal: chosen.refused };
 		return chosen.harness ? { harness: chosen.harness } : {};
 	}
 
@@ -109,9 +114,9 @@ export function createConsoleDispatcher({
 		ambient,
 		relayToHost,
 		tryWakeTeam,
+		beginLaunch,
+		watchOwnerLaunch,
 		isWakeInFlight,
-		joinCreate,
-		awaitRegister,
 		dropSessionResume,
 		onSessionEnded,
 		forgetRefusal,
@@ -127,10 +132,12 @@ export function createConsoleDispatcher({
 		targets,
 		getRunbook: (runbookId) => runbooks?.get(runbookId) ?? null,
 		createSession: (op, conv, opId, internal) => sessionLifecycle.createSession(op, conv, opId, internal),
-		awaitRegister,
 		pick: definitePick,
 		deliver: async (to, body, ctx) => {
-			const res = await routes.sendFromOwner({ from: ctx.device, to, body, channelOnly: true });
+			const res = await routes.sendFromOwner(
+				{ from: ctx.device, to, body, channelOnly: true },
+				{ launching: true },
+			);
 			const json = (await res.json().catch(() => ({}))) as SendRouteJson;
 			if (!res.ok) return { ok: false, error: json.error };
 			appendIfLive(
@@ -139,7 +146,7 @@ export function createConsoleDispatcher({
 				{ kind: "sent", session_id: json.session_id ?? "", opId: ctx.opId, body },
 				`sent:${ctx.conversationId}:${ctx.opId}`,
 			);
-			return { ok: true };
+			return { ok: true, starting: json.status === "starting" };
 		},
 	});
 	const ownerByConversation = new Map<string, string>();
@@ -174,6 +181,7 @@ export function createConsoleDispatcher({
 		switch (op.kind) {
 			case "send": {
 				const expectedSession = routes.ownerSessionKey(op.to, op.domainId);
+				// Waits on a launch, so a failure reads on the message.
 				const sendPromise = routes.sendFromOwner({
 					from: device,
 					to: op.to,
@@ -581,7 +589,7 @@ export function createConsoleDispatcher({
 	}
 
 	/** A routine's session, named from the routine; recreated if gone. */
-	async function reserveRoutineSession(routine: Routine): Promise<ReserveResult> {
+	async function reserveRoutineSession(routine: Routine, run: RoutineRun): Promise<ReserveResult> {
 		const team = routineTeam(routine);
 		const held = sessionStore?.getByTeam(team);
 		// Never adopt another's session or pane.
@@ -594,12 +602,20 @@ export function createConsoleDispatcher({
 				released: true,
 			});
 		}
+		if (isLive?.(team)) return { kind: "ok", team };
+		// Told on the next tick; never relaunched meanwhile.
+		if (awaitsLaunch?.(run)) return { kind: "launching" };
+		let watched = false;
+		const watch = (launchId?: string): void => {
+			watched = watchRoutineLaunch?.(team, run, launchId) ?? false;
+		};
+		if (launching?.(team)) {
+			watch();
+			return watched ? { kind: "launching" } : { kind: "pending" };
+		}
 		// A held session keeps its CLI.
 		const pick = held ? { harness: held.harness } : definitePick(routine.target.spawn, routine.target.cli);
-		if ("refused" in pick) {
-			console.warn(`[routine] ${routine.id} cannot reserve its session: ${pick.refused}`);
-			return { kind: "cli_refused" };
-		}
+		if ("refusal" in pick) return { kind: "launch_failed", failure: { kind: "cli", refusal: pick.refusal } };
 		const made = await sessionLifecycle
 			.createSession(
 				{
@@ -611,18 +627,15 @@ export function createConsoleDispatcher({
 				},
 				reserveConversation(routine),
 				RESERVE_OP,
-				pick.harness ? undefined : { unpicked: true },
+				pick.harness ? { watch } : { unpicked: true, watch },
 			)
 			.catch((error: unknown) => {
-				if (error instanceof CreateSessionFailedError && error.failure.kind === "cli") return null;
+				if (error instanceof CreateSessionFailedError) return error.failure;
 				throw error;
 			});
-		if (!made) {
-			console.warn(`[routine] ${routine.id} cannot reserve its session: its CLI is not installed`);
-			return { kind: "cli_refused" };
-		}
-		// Still launching is not yet reachable.
-		return made.status === "pending" ? { kind: "pending" } : { kind: "ok", team };
+		if ("kind" in made) return { kind: "launch_failed", failure: made };
+		if (!("status" in made)) return { kind: "ok", team };
+		return watched ? { kind: "launching" } : { kind: "pending" };
 	}
 
 	/** Ends the pane and record; refused while it wakes. */

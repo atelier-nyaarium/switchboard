@@ -9,7 +9,9 @@ describe("which CLI a launch runs", () => {
 
 	it("runs a named CLI only where it is installed, and says when nothing is", () => {
 		expect(resolve("copilot", ["claude", "copilot"])).toEqual({ harness: "copilot" });
-		expect(resolve("copilot", ["claude"])).toEqual({ refused: { cause: "not_installed", available: ["claude"] } });
+		expect(resolve("copilot", ["claude"])).toEqual({
+			refused: { cause: "not_installed", available: ["claude"], named: "copilot" },
+		});
 		expect(resolve("copilot", [])).toEqual({ refused: { cause: "none_installed" } });
 	});
 
@@ -43,7 +45,7 @@ describe("a create's CLI where its place's are known", () => {
 			refused: { cause: "needs_pick", available: ["claude", "opencode"] },
 		});
 		expect(pickAt(host, "copilot", ["claude"])).toEqual({
-			refused: { cause: "not_installed", available: ["claude"] },
+			refused: { cause: "not_installed", available: ["claude"], named: "copilot" },
 		});
 		expect(pickAt(container, undefined, [])).toEqual({ refused: { cause: "none_installed" } });
 		expect(pickAt(container, "copilot", undefined)).toMatchObject({ refused: { cause: "refused" } });

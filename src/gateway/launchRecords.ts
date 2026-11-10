@@ -1,4 +1,4 @@
-// Launches a session's send waits on: each one's stage, and who to tell how it ended.
+// Launch stages and requesters.
 
 import { z } from "zod";
 import type { AwarenessObservation, AwarenessSubscriber } from "../shared/awareness-types.js";
@@ -26,6 +26,8 @@ const DeliverySchema = z.object({
 
 const RelaySchema = z.object({ srcGateway: z.string(), srcSession: z.string(), dstDomainId: z.string().nullable() });
 
+const RoutineRunSchema = z.object({ routineId: z.string(), scheduledAt: z.number() });
+
 const RecordSchema = z.object({
 	team: z.string(),
 	/** Absent on a launch no send joined. */
@@ -47,6 +49,10 @@ const RecordSchema = z.object({
 			sessionKey: z.string(),
 			/** A relayed send's way back, told on its reply road rather than the bank. */
 			relay: RelaySchema.optional(),
+			/** Told by a thread line. */
+			owner: z.literal(true).optional(),
+			/** A routine run waiting on it. */
+			routine: RoutineRunSchema.optional(),
 			deliveries: z.array(DeliverySchema),
 			told: z.boolean(),
 			foreign: z.boolean(),
@@ -57,6 +63,7 @@ const RecordSchema = z.object({
 export type LaunchDelivery = z.infer<typeof DeliverySchema>;
 export type LaunchRelay = z.infer<typeof RelaySchema>;
 export type LaunchRecord = z.infer<typeof RecordSchema>;
+export type RoutineRun = z.infer<typeof RoutineRunSchema>;
 
 export interface LaunchJoin {
 	team: string;
@@ -65,7 +72,10 @@ export interface LaunchJoin {
 	created: boolean;
 	sessionKey: string;
 	relay?: LaunchRelay;
-	delivery: LaunchDelivery;
+	owner?: true;
+	routine?: RoutineRun;
+	/** Absent when only the outcome is owed. */
+	delivery?: LaunchDelivery;
 	foreign: boolean;
 }
 
@@ -92,6 +102,10 @@ export interface LaunchRecordsDeps {
 	observe(observations: readonly AwarenessObservation<LaunchNotice>[]): void;
 	/** Tells a relayed send's Gateway; true once it took it. */
 	relay(relay: LaunchRelay, notice: LaunchNotice): Promise<boolean>;
+	/** Thread line; true once stored. */
+	tellOwner(team: string, outcome: LaunchOutcome, identity: string): boolean;
+	/** True once the run took it. */
+	tellRoutine(run: RoutineRun, outcome: LaunchOutcome, team: string): boolean;
 }
 
 export type LaunchOutcome = { up: true } | { failure: LaunchFailure };
@@ -108,6 +122,12 @@ export interface LaunchRecords {
 	markTold(identity: string, sessionKey: string): void;
 	/** The bank gave a notice up undelivered. */
 	dropped(identity: string, sessionKey: string): void;
+	/** A launch of the team still unsettled. */
+	launching(team: string): boolean;
+	/** A run still owed its launch's end. */
+	awaits(run: RoutineRun): boolean;
+	/** Never dispatched; nothing to settle. */
+	abandon(launchId: string): void;
 }
 
 ////////////////////////////////
@@ -115,6 +135,9 @@ export interface LaunchRecords {
 
 /** A settled launch whose senders never took their notice. */
 const SETTLED_HOLD_MS = 30 * 60_000;
+
+/** The owner's requester on any launch. */
+export const OWNER_LAUNCH_KEY = "owner";
 
 /** Between asks of a sender that is away. */
 export const AWAY_RETRY_MS = 30_000;
@@ -148,9 +171,8 @@ function noticeOf(record: LaunchRecord, foreign: boolean): LaunchNotice | undefi
 export function launchOutcome(result: WakeResult): LaunchOutcome | undefined {
 	if (result.ok) return { up: true };
 	if (result.failure) return { failure: result.failure };
-	// A dropped host link proves nothing.
-	if (result.errorKind === "disconnected") return undefined;
-	if (result.errorKind === "timeout") return { failure: { kind: "timeout" } };
+	// A dropped link or a waiter's timeout proves nothing; the countdown decides.
+	if (result.errorKind === "disconnected" || result.errorKind === "timeout") return undefined;
 	return { failure: { kind: "error", reason: result.error ?? PLAIN_LAUNCH_REASON } };
 }
 
@@ -235,7 +257,9 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 	const requesterOf = (input: LaunchJoin): LaunchRecord["requesters"][number] => ({
 		sessionKey: input.sessionKey,
 		...(input.relay ? { relay: input.relay } : {}),
-		deliveries: [input.delivery],
+		...(input.owner ? { owner: true as const } : {}),
+		...(input.routine ? { routine: input.routine } : {}),
+		deliveries: input.delivery ? [input.delivery] : [],
 		told: false,
 		foreign: input.foreign,
 	});
@@ -272,6 +296,26 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 
 		join(input) {
 			const active = launchingFor(input.team, input.launchId);
+			// Settled before its join; still answers.
+			const ended =
+				active || !input.launchId
+					? undefined
+					: records.find((r) => r.launchId === input.launchId && r.team === input.team);
+			if (ended) {
+				const held = ended.requesters.find((requester) => requester.sessionKey === input.sessionKey);
+				const requesters = held
+					? ended.requesters.map((requester) =>
+							requester === held && input.delivery
+								? { ...held, deliveries: [...held.deliveries, input.delivery] }
+								: requester,
+						)
+					: [...ended.requesters, requesterOf(input)];
+				if (!commit(replace(ended, { ...ended, requesters }))) return false;
+				if (ended.stage.kind === "failed" && input.delivery) deps.withdraw(input.delivery);
+				return true;
+			}
+			// A watch alone never invents a launch.
+			if (!active && !input.launchId && !input.delivery) return false;
 			if (!active) {
 				const fresh: LaunchRecord = {
 					team: input.team,
@@ -287,7 +331,9 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 			const held = active.requesters.find((requester) => requester.sessionKey === input.sessionKey);
 			const requesters = held
 				? active.requesters.map((requester) =>
-						requester === held ? { ...held, deliveries: [...held.deliveries, input.delivery] } : requester,
+						requester === held && input.delivery
+							? { ...held, deliveries: [...held.deliveries, input.delivery] }
+							: requester,
 					)
 				: [...active.requesters, requesterOf(input)];
 			// Holds team until a send names the address.
@@ -300,7 +346,9 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 			if (!outcome) return;
 			const active = launchingFor(team, launchId);
 			if (!active) return;
-			settleRecord(active, "up" in outcome ? { kind: "up" } : { kind: "failed", failure: outcome.failure });
+			// A registered session is up, whatever followed.
+			if ("up" in outcome || deps.isLive(team)) settleRecord(active, { kind: "up" });
+			else settleRecord(active, { kind: "failed", failure: outcome.failure });
 		},
 
 		tick() {
@@ -340,6 +388,17 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 					const post = noticeOf(record, requester.foreign);
 					if (!post) continue;
 					const flight = `${identity}\n${requester.sessionKey}`;
+					const outcome: LaunchOutcome =
+						record.stage.kind === "failed" ? { failure: record.stage.failure } : { up: true };
+					if (requester.owner) {
+						if (deps.tellOwner(record.team, outcome, identity)) markTold(identity, requester.sessionKey);
+						continue;
+					}
+					if (requester.routine) {
+						if (deps.tellRoutine(requester.routine, outcome, record.team))
+							markTold(identity, requester.sessionKey);
+						continue;
+					}
 					if (!requester.relay) {
 						const until = away.get(flight);
 						if (until !== undefined && until > now) continue;
@@ -369,6 +428,29 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 				requester.sessionKey === sessionKey ? { ...requester, told: true } : requester,
 			);
 			commit(replace(record, { ...record, requesters }));
+		},
+
+		launching(team) {
+			return records.some((record) => record.team === team && record.stage.kind === "launching");
+		},
+
+		awaits(run) {
+			return records.some((record) =>
+				record.requesters.some(
+					(requester) =>
+						!requester.told &&
+						requester.routine?.routineId === run.routineId &&
+						requester.routine.scheduledAt === run.scheduledAt,
+				),
+			);
+		},
+
+		abandon(launchId) {
+			const kept = records.filter(
+				(record) =>
+					record.launchId !== launchId || record.stage.kind !== "launching" || record.requesters.length > 0,
+			);
+			if (kept.length !== records.length) commit(kept);
 		},
 
 		dropped(identity, sessionKey) {

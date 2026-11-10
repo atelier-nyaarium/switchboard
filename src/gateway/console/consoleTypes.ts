@@ -49,7 +49,9 @@ import type { SessionStore } from "../../shared/session-store.js";
 import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import type { WorkspaceOp, WorkspaceOpResult } from "../../shared/workspace-op.js";
 import type { DeliverToOwner } from "../consolePushOps.js";
+import type { RoutineRun } from "../launchRecords.js";
 import type { WakeResult } from "../wake.js";
+import type { LaunchOpts, WakeFlight } from "../wakeService.js";
 import type { WorkspaceChange } from "../workspaceAwareness.js";
 import type { ConversationRegistry, TeamRegistry } from "../wsTypes.js";
 import type { DurableOpStore } from "./durableOpStore.js";
@@ -57,7 +59,10 @@ import type { DurableOpStore } from "./durableOpStore.js";
 export interface ConsoleRoutes {
 	// Owner-only console door.
 	/** `scheduled`: a routine's, which never reads as the owner present. */
-	sendFromOwner: (body: Record<string, unknown>, options?: { scheduled?: true }) => Promise<Response>;
+	sendFromOwner: (
+		body: Record<string, unknown>,
+		options?: { scheduled?: true; launching?: true },
+	) => Promise<Response>;
 	// The key that send will anchor on, for an answer owed before it resolves.
 	ownerSessionKey: (to: string, targetDomain?: string) => string;
 	respond: (
@@ -118,16 +123,20 @@ export interface ConsoleHandlerDeps {
 	domain?: () => { version: string; snapshot: DomainSnapshot } | null;
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	promptOf?: (team: string) => SessionPrompt | undefined;
-	// Devcontainer creation wakes before host relay.
 	tryWakeTeam?: (team: string, opts?: { retain?: true }) => Promise<WakeResult>;
+	/** A create's one road. */
+	beginLaunch?: (team: string, opts: LaunchOpts) => WakeFlight;
+	/** Reports the launch's end. */
+	watchOwnerLaunch?: (team: string, launchId: string) => void;
+	/** Joins a routine run to the launch; false when unrecorded. */
+	watchRoutineLaunch?: (team: string, run: RoutineRun, launchId?: string) => boolean;
+	/** A run still owed its launch's end. */
+	awaitsLaunch?: (run: RoutineRun) => boolean;
+	isLive?: (team: string) => boolean;
+	/** A flight or an unsettled launch record. */
+	launching?: (team: string) => boolean;
 	// Closing a team during wake must refuse.
 	isWakeInFlight?: (team: string) => boolean;
-	// Host creation remains verifying until MCP registration.
-	joinCreate?: (
-		team: string,
-		start: () => Promise<HostOpResult>,
-	) => { launch: Promise<HostOpResult>; release: (() => void) | null };
-	awaitRegister?: (team: string) => Promise<WakeResult>;
 	crossDomain?: CrossDomainConsoleHandlers;
 	unlinkDomain?: (domainId: string) => CrossDomainUnlinkResult;
 	untrustOwner?: (ownerSignPub: string) => CrossDomainUnlinkResult;

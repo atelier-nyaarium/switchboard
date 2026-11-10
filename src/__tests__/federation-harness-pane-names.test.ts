@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { takenReason } from "../gateway/routines/reservation.js";
+import type { HostOp } from "../shared/host-op.js";
 import { type Routine, routineSessionName } from "../shared/schemasRoutine.js";
+import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
 describe("a host session's name, one pane on every host spawn point", () => {
@@ -72,12 +74,19 @@ describe("a host session's name, one pane on every host spawn point", () => {
 		);
 	};
 	const opsOn = (id: string) =>
-		h.host.ops.flatMap((op) =>
-			(op.kind === "createSession" || op.kind === "killSession") &&
-			op.target.sessionName === routineSessionName(id)
-				? [`${op.kind} ${op.target.name}`]
-				: [],
-		);
+		h.host.frames.flatMap((frame) => {
+			const [spawn, session] = String(frame.team ?? "").split(".");
+			if (frame.type === "wake" && frame.door === "create" && session === routineSessionName(id))
+				return [`create ${spawn}`];
+			const op = frame.op as HostOp | undefined;
+			if (
+				frame.type === "host_op" &&
+				op?.kind === "killSession" &&
+				op.target.sessionName === routineSessionName(id)
+			)
+				return [`kill ${op.target.name}`];
+			return [];
+		});
 
 	it("refuses to save a routine whose name another host spawn point holds", async () => {
 		const routine = routineOf("saved");
@@ -114,9 +123,21 @@ describe("a host session's name, one pane on every host spawn point", () => {
 
 	it("retires a routine's own session when the routine moves to another host spawn point", async () => {
 		const routine = routineOf("mover", { spawn: "windows", cli: "claude" });
+		let own: FakeSession | undefined;
+		h.host.handlers.onCreateSession = (create) => {
+			own ??= attachFakeSession(h.gateway, {
+				team: create.team,
+				conversationId: "conv-mover",
+				sessionToken: create.sessionToken,
+			});
+		};
 		const first = await h.phone.value({ kind: "routine_put", routine });
 		await h.phone.value({ kind: "routine_run", routineId: routine.id });
-		await h.waitFor(() => opsOn(routine.id)[0], "the first reserve");
+		await h.waitFor(() => own, "the first reserve's session");
+		await own?.ready();
+		h.host.handlers.onCreateSession = undefined;
+		// Launch over, pane gone.
+		own?.close();
 
 		const moved = await h.phone.value({
 			kind: "routine_put",
@@ -127,7 +148,7 @@ describe("a host session's name, one pane on every host spawn point", () => {
 		await h.waitFor(() => opsOn(routine.id)[2], "the reserve after the move");
 
 		expect(moved.result).toMatchObject({ stored: true });
-		expect(opsOn(routine.id)).toEqual(["createSession windows", "killSession windows", "createSession host"]);
+		expect(opsOn(routine.id)).toEqual(["create windows", "kill windows", "create host"]);
 		expect((await listed(routine.id))?.reviewReason).toBeUndefined();
 	});
 });

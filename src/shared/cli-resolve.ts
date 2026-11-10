@@ -19,7 +19,12 @@ const Available = z.array(z.enum(SESSION_HARNESSES)).max(SESSION_HARNESSES.lengt
 
 export const CliRefusalSchema = z.discriminatedUnion("cause", [
 	z.object({ cause: z.literal("needs_pick"), available: Available }),
-	z.object({ cause: z.literal("not_installed"), available: Available }),
+	z.object({
+		cause: z.literal("not_installed"),
+		available: Available,
+		/** The CLI asked for. */
+		named: z.enum(SESSION_HARNESSES).optional(),
+	}),
 	z.object({ cause: z.literal("none_installed") }),
 	/** Placement or an unknown word. */
 	z.object({ cause: z.literal("refused"), reason: z.string().max(512) }),
@@ -43,7 +48,7 @@ export function resolveCli(word: HarnessWord, available: readonly SessionHarness
 			if (available.includes(harness)) return { harness };
 			return {
 				refused: available.length
-					? { cause: "not_installed", available: [...available] }
+					? { cause: "not_installed", available: [...available], named: harness }
 					: { cause: "none_installed" },
 			};
 		},

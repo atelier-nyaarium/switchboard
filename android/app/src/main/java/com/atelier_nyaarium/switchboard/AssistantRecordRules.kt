@@ -54,6 +54,11 @@ internal fun threadRows(messages: List<Message>, print: (Message) -> Int = { 0 }
 /** Quiet assistant sends and replies. */
 internal fun quietInConversation(assistant: Boolean, message: Message): Boolean = assistant && message.isPeer
 
+/** Titleless notice never alerts. */
+internal fun quietNotice(kind: String, message: Message): Boolean = kind == NOTICE_ROW_KIND && message.title == null
+
+private const val NOTICE_ROW_KIND = "notice"
+
 /** The same state when nothing changes. */
 internal fun ChatState.withAssistantPeersQuiet(): ChatState {
 	var next = this

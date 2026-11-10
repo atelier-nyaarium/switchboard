@@ -21,9 +21,11 @@ import { createConsoleDispatcher } from "../console/consoleHandler.js";
 import { createCrossDomainHandshakePump } from "../federation/crossDomainHandshake.js";
 import { createGatewayRelayHandler, createGatewayRelayPump } from "../federation/gatewayRelay.js";
 import { fireAndForget } from "../fireAndForget.js";
+import { OWNER_LAUNCH_KEY, type RoutineRun } from "../launchRecords.js";
 import { createRegistrationRead } from "../router/registrationRead.js";
 import { composeValueResult } from "../router/valueResult.js";
 import { createRoutineExecution } from "../routines/execution.js";
+import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { AssistantStage } from "./composeAssistant.js";
 import type { AwarenessStage } from "./composeAwareness.js";
 import type { DeviceStage } from "./composeDevices.js";
@@ -44,7 +46,10 @@ export interface RouterFramesStageDeps {
 	ambient: Ambient;
 	context: FederationContext;
 	stores: Pick<StoresStage, "jobs" | "durableOpStore">;
-	sessions: Pick<SessionsStage, "registry" | "conversationRegistry" | "isTrustedCatalogProject" | "presence">;
+	sessions: Pick<
+		SessionsStage,
+		"registry" | "conversationRegistry" | "isTrustedCatalogProject" | "presence" | "sessionStore"
+	>;
 	host: Pick<HostStage, "relayToHost" | "wakeService" | "wakeCoordinator" | "installedAt">;
 	routes: () => GatewayRoutes;
 	vault: Pick<VaultStage, "console" | "sessionEnded">;
@@ -54,7 +59,7 @@ export interface RouterFramesStageDeps {
 	devices: Pick<DeviceStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
 	sessionControl: Pick<import("../sessionControlPlane.js").SessionControlPlane, "ask">;
-	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
+	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve" | "launches">;
 	assistant: Pick<
 		AssistantStage,
 		| "forgetRefusal"
@@ -99,6 +104,22 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			sessions.presence.forget(team);
 			deps.awareness.awareness.dropFor(team);
 		};
+		const launches = deps.awareness.launches;
+		const isLive = (team: string): boolean =>
+			Boolean(resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team));
+		// A host blip ends the flight, not the launch.
+		const launchingNow = (team: string): boolean =>
+			host.wakeService.isWakeInFlight(team) || launches.launching(team);
+		const watchRoutineLaunch = (team: string, run: RoutineRun, launchId?: string): boolean =>
+			launches.join({
+				team,
+				address: `${localDomainId}.${localGatewayId}.${team}`,
+				...(launchId ? { launchId } : {}),
+				created: false,
+				sessionKey: `routine:${run.routineId}:${run.scheduledAt}`,
+				routine: run,
+				foreign: false,
+			});
 		const onSessionEnded = (team: string): void => {
 			deps.vault.sessionEnded(team);
 			deps.routines.sessionEnded(team);
@@ -134,8 +155,23 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			relayToHost: host.relayToHost,
 			tryWakeTeam: (team, opts) => host.wakeService.tryWakeTeam(team, undefined, opts),
 			isWakeInFlight: (team) => host.wakeService.isWakeInFlight(team),
-			joinCreate: (team, start) => host.wakeService.joinCreate(team, start),
-			awaitRegister: (team) => host.wakeCoordinator.waitFor(team, deps.wakeTimeoutMs),
+			launching: launchingNow,
+			isLive,
+			watchRoutineLaunch,
+			awaitsLaunch: (run) => launches.awaits(run),
+			beginLaunch: (team, opts) => host.wakeService.beginWake(team, undefined, opts),
+			watchOwnerLaunch: (team, launchId) => {
+				const joined = deps.awareness.launches.join({
+					team,
+					address: `${localDomainId}.${localGatewayId}.${team}`,
+					launchId,
+					created: false,
+					sessionKey: OWNER_LAUNCH_KEY,
+					owner: true,
+					foreign: false,
+				});
+				if (!joined) console.warn(`[console] the owner's watch on "${team}" could not be recorded`);
+			},
 			crossDomain: {
 				listen: () => slice.coordinator.listen(),
 				request: (args) => slice.coordinator.request(args),
@@ -260,12 +296,23 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			createRoutineExecution({
 				getRunbook: (runbookId) => deps.runbooks.console.get(runbookId),
 				busyOf: (team) => sessions.presence.busyOf(team),
-				reserveSession: (routine) => consoleHandler.reserveRoutineSession(routine),
-				reserveAssistant: async () => {
+				reserveSession: (routine, run) => consoleHandler.reserveRoutineSession(routine, run),
+				reserveAssistant: async (run) => {
 					if (!deps.assistant.placed()) return { kind: "unplaced" };
-					// Wake before dispatch; failure keeps the occurrence pending.
-					const woken = await host.wakeService.tryWakeTeam(ASSISTANT_TEAM);
-					if (!woken.ok) return { kind: "pending" };
+					if (isLive(ASSISTANT_TEAM)) return { kind: "ok", team: ASSISTANT_TEAM };
+					if (launches.awaits(run)) return { kind: "launching" };
+					// The launch's end reaches the run; never relaunched meanwhile.
+					if (launchingNow(ASSISTANT_TEAM))
+						return watchRoutineLaunch(ASSISTANT_TEAM, run) ? { kind: "launching" } : { kind: "pending" };
+					const start = await host.wakeService.beginWake(ASSISTANT_TEAM).started;
+					if (start.kind === "launching")
+						return watchRoutineLaunch(ASSISTANT_TEAM, run, start.launchId)
+							? { kind: "launching" }
+							: { kind: "pending" };
+					if (!start.result.ok)
+						return start.result.failure
+							? { kind: "launch_failed", failure: start.result.failure }
+							: { kind: "pending" };
 					// Home may move during wake.
 					return deps.assistant.placed() ? { kind: "ok", team: ASSISTANT_TEAM } : { kind: "unplaced" };
 				},

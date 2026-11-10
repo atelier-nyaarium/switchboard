@@ -1,8 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { CLI_REFUSED_REASON } from "../gateway/routines/reservation.js";
-import { type CliRefusal, cliRefusalText } from "../shared/cli-resolve.js";
-import type { HostOp } from "../shared/host-op.js";
-import { type LaunchFailure, launchFailureText, type SendRefusal, sendRefusalText } from "../shared/launch-notice.js";
+import type { CliRefusal } from "../shared/cli-resolve.js";
+import {
+	type LaunchFailure,
+	ownerLaunchLine,
+	ownerLaunchPhrase,
+	type SendRefusal,
+	sendRefusalText,
+} from "../shared/launch-notice.js";
 import type { ContainerState } from "../shared/schemasPresence.js";
 import { type Routine, routineSessionName } from "../shared/schemasRoutine.js";
 import type { Runbook, RunbookFireTarget } from "../shared/schemasRunbook.js";
@@ -219,11 +223,21 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 		]);
 	});
 
-	it("words a create the daemon found no single CLI for as a create, listing what the spawn point has", async () => {
+	/** A session's owner notice. */
+	const ownerNotice = (team: () => string | undefined) =>
+		h.waitFor(async () => {
+			const from = team();
+			if (!from) return undefined;
+			return h.phone
+				.entries(await h.phone.inboxRead())
+				.find((entry) => entry.kind === "notice" && entry.from === h.target(from));
+		}, "the owner's launch notice");
+
+	it("answers a create at dispatch, and tells the owner by a titled notice when the daemon finds no CLI", async () => {
 		const refusal: CliRefusal = { cause: "needs_pick", available: ["claude", "opencode"] };
-		let minted = "";
-		h.host.handlers.failCreateSession = (op) => {
-			minted = op.target.sessionName;
+		let team: string | undefined;
+		h.host.handlers.failCreateSession = (create) => {
+			team = create.team;
 			return { error: "pick one", failure: { kind: "cli", refusal } };
 		};
 
@@ -233,8 +247,10 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 			displayLabel: "Picky",
 			harness: "claude",
 		});
+		const notice = await ownerNotice(() => team);
 
-		expect(created.result).toEqual({ kind: "refusal", reason: cliRefusalText(refusal, minted) });
+		expect(created.result).toMatchObject({ created: true, status: "pending" });
+		expect(notice).toMatchObject({ kind: "notice", title: expect.any(String) });
 	});
 
 	describe("a fire's and a routine's new session", () => {
@@ -250,17 +266,19 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 		});
 
 		it("does not fire when its CLI does not fit, and says why", async () => {
-			const creates = h.host.ops.filter((op) => op.kind === "createSession").length;
+			const creates = h.host.creates.length;
 
 			const several = await fire({ kind: "new", target: h.target("host") });
 			const missing = await fire({ kind: "new", target: h.target("host"), cli: "copilot" });
 
 			expect(several).toEqual({
 				fired: false,
-				reason: cliRefusalText({ cause: "needs_pick", available: ["claude", "opencode"] }, "host"),
+				reason: ownerLaunchLine({
+					failure: { kind: "cli", refusal: { cause: "needs_pick", available: ["claude", "opencode"] } },
+				}),
 			});
 			expect(missing).toMatchObject({ fired: false, reason: expect.any(String) });
-			expect(h.host.ops.filter((op) => op.kind === "createSession")).toHaveLength(creates);
+			expect(h.host.creates).toHaveLength(creates);
 		});
 
 		it("fires into a container that has not said what it runs, leaving the pick to the launch", async () => {
@@ -280,34 +298,18 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 			expect(wake.harness).toBe(UNPICKED_WORD);
 		});
 
-		it("answers a fire whose new session's launch failed with that failure, not a wait to retry", async () => {
-			const failure: LaunchFailure = { kind: "error", reason: "the pane died" };
-			const before = h.host.ops.length;
-			let settled = false;
+		it("answers a fire into a new session at launch, and tells the owner by a titled notice when it fails", async () => {
+			let team: string | undefined;
+			h.host.handlers.failCreateSession = (create) => {
+				team = create.team;
+				return { error: "the pane died", failure: { kind: "error", reason: "the pane died" } };
+			};
 
-			const firing = fire({ kind: "new", target: h.target("host"), cli: "claude" }).finally(() => {
-				settled = true;
-			});
-			const op = await h.waitFor(
-				() =>
-					h.host.ops
-						.slice(before)
-						.find(
-							(held): held is Extract<HostOp, { kind: "createSession" }> => held.kind === "createSession",
-						),
-				"the create",
-			);
-			const team = `host.${op.target.sessionName}`;
-			while (!settled) {
-				h.host.sendFrame({ type: "wake_result", team, launchId: op.launchId, success: false, failure });
-				await new Promise((resolve) => setTimeout(resolve, 20));
-			}
+			const fired = await fire({ kind: "new", target: h.target("host"), cli: "claude" });
+			const notice = await ownerNotice(() => team);
 
-			expect(await firing).toEqual({
-				fired: false,
-				sessionId: op.target.sessionName,
-				reason: launchFailureText(failure, op.target.sessionName, { created: true, foreign: false }),
-			});
+			expect(fired).toMatchObject({ fired: true, status: "starting" });
+			expect(notice).toMatchObject({ kind: "notice", title: expect.any(String) });
 		});
 
 		const putRoutine = async (id: string, target: Routine["target"], baseRevision?: number) => {
@@ -337,12 +339,10 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 			await h.phone.value({ kind: "routine_run", routineId: id });
 			return `${target.spawn}.${routineSessionName(id)}`;
 		};
-		const createsOf = (id: string) =>
-			h.host.ops.filter(
-				(op) => op.kind === "createSession" && op.target.sessionName === routineSessionName(id),
-			) as Array<Extract<HostOp, { kind: "createSession" }>>;
 		const reviewOf = (id: string) =>
 			h.waitFor(async () => {
+				// Walks read launch ends.
+				await h.gateway.faults.sweepRoutines();
 				const { result } = await h.phone.value({ kind: "routine_list" });
 				const held = (result as { routines: Array<{ routine: Routine; reviewReason?: string }> }).routines.find(
 					(row) => row.routine.id === id,
@@ -350,53 +350,68 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 				return held?.reviewReason;
 			}, `the review of ${id}`);
 
-		it.each<[string, string, () => void, Routine["target"]]>([
-			["a CLI the host does not run", "refused-host", () => {}, { spawn: "host", cli: "copilot" }],
-			["two CLIs on the host and none picked", "refused-unpicked", () => {}, { spawn: "host", cli: "unpicked" }],
+		const hostClis = ["claude", "opencode"] as const;
+		it.each<[string, string, () => void, Routine["target"], CliRefusal]>([
+			[
+				"a CLI the host does not run",
+				"refused-host",
+				() => {},
+				{ spawn: "host", cli: "copilot" },
+				{ cause: "not_installed", available: [...hostClis], named: "copilot" },
+			],
+			[
+				"two CLIs on the host and none picked",
+				"refused-unpicked",
+				() => {},
+				{ spawn: "host", cli: "unpicked" },
+				{ cause: "needs_pick", available: [...hostClis] },
+			],
 			[
 				"a CLI a running container lacks",
 				"refused-container",
 				() => containers([{ project: PROJECT, state: "running", clis: ["opencode"] }]),
 				{ spawn: PROJECT, cli: "claude" },
+				{ cause: "none_installed" },
 			],
-		])("stops a routine run for review without launching, on %s", async (label, id, arrange, target) => {
+		])("stops a routine run for review without launching, on %s", async (label, id, arrange, target, refusal) => {
 			arrange();
 			const wakes = h.host.wakes.length;
-			const creates = h.host.ops.filter((op) => op.kind === "createSession").length;
 
 			await runRoutine(id, target);
 
-			expect(await reviewOf(id), label).toBe(CLI_REFUSED_REASON);
+			expect(await reviewOf(id), label).toBe(ownerLaunchPhrase({ kind: "cli", refusal }));
 			expect(h.host.wakes).toHaveLength(wakes);
-			expect(h.host.ops.filter((op) => op.kind === "createSession")).toHaveLength(creates);
 		});
 
 		it("keeps the CLI of a routine's own session when the routine is left unpicked, on a host with two", async () => {
 			const id = "kept";
 			const revision = await putRoutine(id, { spawn: "host", cli: "claude" });
-			h.host.handlers.onCreateSession = (op) => {
-				if (
-					op.target.sessionName !== routineSessionName(id) ||
-					attached.some((held) => held.team === `host.${op.target.sessionName}`)
-				)
-					return;
-				attached.push(
-					attachFakeSession(h.gateway, {
-						team: `host.${op.target.sessionName}`,
-						conversationId: "conv-kept",
-						sessionToken: op.sessionToken,
-					}),
-				);
+			let own: FakeSession | undefined;
+			h.host.handlers.onCreateSession = (create) => {
+				if (create.target.sessionName !== routineSessionName(id) || own) return;
+				own = attachFakeSession(h.gateway, {
+					team: create.team,
+					conversationId: "conv-kept",
+					sessionToken: create.sessionToken,
+				});
+				attached.push(own);
 			};
 			await h.phone.value({ kind: "routine_run", routineId: id });
-			await h.waitFor(() => createsOf(id)[0], "the first reserve");
+			await h.waitFor(() => own, "the first reserve's session");
+			await own?.ready();
+			// Offline, so it relaunches.
+			own?.close();
 
 			await putRoutine(id, { spawn: "host", cli: "unpicked" }, revision);
 			await h.phone.value({ kind: "routine_run", routineId: id });
-			await h.waitFor(() => createsOf(id)[1], "the second reserve");
+			const launches = () => h.host.wakes.filter((frame) => frame.team === own?.team);
+			await h.waitFor(() => launches()[1], "the second reserve");
 			const { result } = await h.phone.value({ kind: "routine_list" });
 
-			expect(createsOf(id).map((op) => op.harness)).toEqual(["claude", "claude"]);
+			expect(launches().map((frame) => [frame.door, frame.harness])).toEqual([
+				["create", "claude"],
+				[undefined, "claude"],
+			]);
 			expect(
 				(result as { routines: Array<{ routine: Routine; reviewReason?: string }> }).routines.find(
 					(row) => row.routine.id === id,
@@ -424,7 +439,7 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 			const review = await reviewOf("daemon-container");
 			const resent = await send(team);
 
-			expect(review).toBe(CLI_REFUSED_REASON);
+			expect(review).toBe(ownerLaunchPhrase(noCli));
 			expect(resent).toMatchObject({ status: 404, json: { refused: { kind: "no_label" } } });
 		});
 
@@ -433,7 +448,7 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 
 			await runRoutine("daemon-host", { spawn: "host", cli: "claude" });
 
-			expect(await reviewOf("daemon-host")).toBe(CLI_REFUSED_REASON);
+			expect(await reviewOf("daemon-host")).toBe(ownerLaunchPhrase(noCli));
 		});
 	});
 });

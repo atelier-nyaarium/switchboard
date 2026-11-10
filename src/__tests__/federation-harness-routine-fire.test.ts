@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { nudgeFor } from "../gateway/routines/execution.js";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
-import type { Routine } from "../shared/schemasRoutine.js";
+import { type LaunchFailure, ownerLaunchPhrase } from "../shared/launch-notice.js";
+import { type Routine, routineSessionName } from "../shared/schemasRoutine.js";
 import { composeSessionName } from "../shared/session-id.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
@@ -79,10 +80,10 @@ describe("federation harness: a routine firing on its own", () => {
 
 		clock = SLOT + 60_000;
 		await h.gateway.faults.sweepRoutines();
+		// Its own session, not one borrowed.
+		await (await h.waitFor(() => reserved, "the routine's own session")).ready();
 
 		const nudge = nudgeFor(routine, occurrenceAt(SLOT));
-		// Its own session, not one borrowed.
-		expect(reserved).toBeDefined();
 		await h.waitFor(
 			async () => reserved?.inbound.find((frame) => frame.body === nudge),
 			"the routine's nudge in its own session",
@@ -144,6 +145,7 @@ describe("federation harness: a routine firing on its own", () => {
 
 		clock = slot + 60_000;
 		await h.gateway.faults.sweepRoutines();
+		await (await h.waitFor(() => reserved, "the routine's own session")).ready();
 
 		const nudge = nudgeFor(drifts, occurrenceAt(slot, drifts.id));
 		await h.waitFor(
@@ -152,5 +154,42 @@ describe("federation harness: a routine firing on its own", () => {
 		);
 		const answer = await reserved?.post("/routine/session", { occurrenceId: String(slot) });
 		expect(await answer?.json()).toMatchObject({ text: "Do a different thing." });
+	});
+
+	it("stops a run for review when its launch fails, and launches no second time on later walks", async () => {
+		const slot = SLOT + 28 * 24 * 60 * 60 * 1000;
+		clock = slot - 60 * 60 * 1000;
+		const halted: Routine = { ...routine, id: "halted" };
+		await h.phone.value({ kind: "routine_put", routine: halted });
+		const stopped: LaunchFailure = { kind: "stopped" };
+		h.host.handlers.onCreateSession = undefined;
+		h.host.handlers.failCreateSession = (create) =>
+			create.target.sessionName === routineSessionName(halted.id)
+				? { error: "stopped", failure: stopped }
+				: undefined;
+
+		try {
+			clock = slot + 60_000;
+			await h.gateway.faults.sweepRoutines();
+			const review = await h.waitFor(async () => {
+				const { result } = await h.phone.value({ kind: "routine_list" });
+				return (result as { routines: Array<{ routine: Routine; reviewReason?: string }> }).routines.find(
+					(row) => row.routine.id === halted.id,
+				)?.reviewReason;
+			}, "the review");
+			for (let walk = 1; walk <= 3; walk += 1) {
+				clock = slot + (walk + 1) * 60_000;
+				await h.gateway.faults.sweepRoutines();
+			}
+
+			expect(review).toBe(ownerLaunchPhrase(stopped));
+			expect(
+				h.host.wakes.filter(
+					(frame) => frame.team === composeSessionName("host", routineSessionName(halted.id)),
+				),
+			).toHaveLength(1);
+		} finally {
+			h.host.handlers.failCreateSession = undefined;
+		}
 	});
 });

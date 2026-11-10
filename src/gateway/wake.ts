@@ -6,6 +6,7 @@ import { sanitizeLabel } from "../shared/session-sanitize.js";
 
 export const DEFAULT_WAKE_TIMEOUT_MS = 600_000;
 export const POST_WAKE_SETTLE_MS = 3_000;
+const ANSWERED_KEPT = 256;
 
 // Timeout and disconnect are ambiguous host outcomes.
 export interface WakeResult {
@@ -79,6 +80,9 @@ export class WakeCoordinator {
 	/** Stages are unproven before this. */
 	private knownSince: number;
 	private failureListeners: FailureListener[] = [];
+	/** Answered launches and their waiters. */
+	private answered = new Set<string>();
+	private answerWaiters = new Map<string, () => void>();
 
 	constructor(
 		private readonly ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">,
@@ -133,8 +137,37 @@ export class WakeCoordinator {
 		this.settle(team, { ok: success });
 	}
 
+	/** Resolves on answer or after `ms`. */
+	daemonDone(launchId: string, ms: number): Promise<void> {
+		if (this.answered.delete(launchId)) return Promise.resolve();
+		return new Promise((resolve) => {
+			const timer = this.ambient.setTimer(() => {
+				this.answerWaiters.delete(launchId);
+				resolve();
+			}, ms);
+			this.answerWaiters.set(launchId, () => {
+				this.ambient.clearTimer(timer);
+				resolve();
+			});
+		});
+	}
+
+	private markAnswered(launchId: string | undefined): void {
+		if (!launchId) return;
+		const waiter = this.answerWaiters.get(launchId);
+		if (waiter) {
+			this.answerWaiters.delete(launchId);
+			waiter();
+			return;
+		}
+		this.answered.add(launchId);
+		// Bounded: unwaited marks linger.
+		if (this.answered.size > ANSWERED_KEPT) this.answered.delete(this.answered.values().next().value as string);
+	}
+
 	/** The daemon's word that it will not come up. */
 	fail(team: string, detail: Pick<WakeResult, "failure" | "error">, launchId?: string): void {
+		this.markAnswered(launchId);
 		this.settle(team, { ok: false, ...detail }, launchId);
 		for (const listener of this.failureListeners) listener(team, detail, launchId);
 	}
@@ -210,6 +243,7 @@ export class WakeCoordinator {
 
 	// Registration deadlines never extend the original wake timeout.
 	ackReceived(team: string, registerWindowMs: number, launchId?: string): void {
+		this.markAnswered(launchId);
 		const entries = this.waiters.get(team);
 		if (!entries) return;
 		const now = this.ambient.now();

@@ -232,10 +232,6 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 		expectBumped();
 		facade.wakeEnd("proj.other");
 		expectBumped();
-		facade.createStart("proj.other");
-		expectBumped();
-		facade.createEnd("proj.other");
-		expectBumped();
 		facade.setWorking("proj.main", derived({ working: true }));
 		expectBumped();
 		facade.clearWorkingFor("proj.main");
@@ -300,11 +296,10 @@ describe("PresenceFacade class-kill lock: every mutator bumps the plane", () => 
 		expect(planeRegistry.version("presence")!.counter).toBe(before);
 	});
 
-	it("an idempotent wakeEnd/createEnd on a team not in flight does NOT spuriously bump", () => {
+	it("an idempotent wakeEnd on a team not in flight does NOT spuriously bump", () => {
 		const { facade, planeRegistry } = makeFacade();
 		const before = planeRegistry.version("presence")!.counter;
 		facade.wakeEnd("never-started");
-		facade.createEnd("never-started");
 		expect(planeRegistry.version("presence")!.counter).toBe(before);
 	});
 

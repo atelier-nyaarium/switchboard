@@ -35,6 +35,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.FIRES_ONCE_STARTED
+import com.atelier_nyaarium.switchboard.FireOutcome
+import com.atelier_nyaarium.switchboard.fireOutcome
 import com.atelier_nyaarium.switchboard.CliToggles
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.SpawnHarnesses
@@ -155,13 +158,17 @@ fun RunbookFireSheet(
 					}
 				}
 				sheet.refusal?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+				if (sheet.starting) Text(FIRES_ONCE_STARTED, style = MaterialTheme.typography.bodyMedium)
 			}
 
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-				TextButton(onClick = hapticClick(onDismiss), modifier = Modifier.weight(1f)) { Text("Cancel") }
+				TextButton(onClick = hapticClick(onDismiss), modifier = Modifier.weight(1f)) {
+					Text(if (sheet.starting) "Close" else "Cancel")
+				}
 				val ready = (sheet.preview as? PreviewState.Ready)?.takeIf { it.revision == runbook.revision }
 				Button(
-					enabled = ready != null && !sheet.firing && sheet.canFire(availableAt(state, gatewayId, sheet.target)),
+					enabled = ready != null && !sheet.firing && !sheet.starting &&
+						sheet.canFire(availableAt(state, gatewayId, sheet.target)),
 					onClick = hapticClick {
 						val pinned = ready ?: return@hapticClick
 						sheet.firing = true
@@ -174,10 +181,10 @@ fun RunbookFireSheet(
 							}
 							val answer = repo.runbookOps.fire(runbookId, values, into, pinned.revision, gatewayId)
 							sheet.firing = false
-							if (answer?.fired == true) {
-								onDismiss()
-							} else {
-								sheet.refusal = answer?.reason
+							when (val outcome = fireOutcome(answer)) {
+								FireOutcome.Delivered -> onDismiss()
+								FireOutcome.Starting -> sheet.starting = true
+								is FireOutcome.NotFired -> sheet.refusal = outcome.reason
 									?: standingRefusal(
 										repo.runbookOps.refusalFor(gatewayId, runbookId),
 										runbook.revision,
@@ -279,6 +286,9 @@ internal class FireSheetState(runbook: Runbook, private val into: String? = null
 		cliTapped = true
 	}
 	var firing by mutableStateOf(false)
+
+	/** Fired into starting session. */
+	var starting by mutableStateOf(false)
 
 	fun adopt(runbook: Runbook) {
 		if (runbook.revision == revision) return

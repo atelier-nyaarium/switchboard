@@ -21,6 +21,7 @@ import com.atelier_nyaarium.switchboard.routines.ruleMoved
 import com.atelier_nyaarium.switchboard.routines.runbookChipLabel
 import com.atelier_nyaarium.switchboard.routines.runbookMenu
 import com.atelier_nyaarium.switchboard.routines.scheduleLine
+import com.atelier_nyaarium.switchboard.routines.waitingLine
 import com.atelier_nyaarium.switchboard.vault.VaultEntryView
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -95,8 +96,15 @@ class RoutineTextTest {
 		val at = java.time.Instant.parse("2026-09-14T09:00:00Z").toEpochMilli()
 		val miss = { reason: String -> RoutineMiss("triage:$at", at, reason, true) }
 		assertTrue(missLine(miss("session_busy"), utc).endsWith("its session stayed busy."))
+		assertTrue(missLine(miss("session_starting"), utc).endsWith("session never finished starting."))
 		assertTrue(missLine(miss("host_unreachable"), utc).endsWith("its machine could not be reached."))
 		assertTrue(missLine(miss("gateway_down"), utc).endsWith("this Gateway was not running."))
+	}
+
+	@Test
+	fun onlyARunWaitingOnAStartingSessionSaysSo() {
+		assertEquals("Session is starting.", waitingLine("session_starting"))
+		listOf("session_busy", "host_unreachable", null).forEach { assertNull(waitingLine(it)) }
 	}
 
 	@Test

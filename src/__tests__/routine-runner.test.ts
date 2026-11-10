@@ -139,6 +139,67 @@ describe("the routine runner", () => {
 		expect(w.delivered).toEqual([]);
 	});
 
+	it("says why a run waits as the cause moves from a busy session to its launch, and misses by the last", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-stage-"));
+		roots.push(root);
+		let now = MONDAY_0900_LA - 60_000;
+		let busy = true;
+		const stage = composeRoutines({
+			dataDir: root,
+			ambient: {
+				now: () => now,
+				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
+				clearTimer: () => undefined,
+				newId: () => "inc-1",
+			},
+			resolveCaller: () => null,
+			sessionOwned: () => true,
+			attempt: () => ({
+				sessionIdle: () => !busy,
+				hasSession: () => false,
+				forgetSession: () => {},
+				prepare: async () => ({ ok: false, reason: "launching" }),
+				deliver: async () => undefined,
+			}),
+		});
+		stage.console.put(routine());
+		now = MONDAY_0900_LA;
+		stage.start();
+		const waiting = () => stage.console.list().routines[0]?.waiting;
+
+		await stage.reconcile();
+		const whileBusy = waiting();
+		busy = false;
+		now += 60_000;
+		await stage.reconcile();
+		const whileStarting = waiting();
+		now = MONDAY_0900_LA + GRACE_MS + 1;
+		await stage.reconcile();
+
+		expect([whileBusy, whileStarting]).toEqual(["session_busy", "session_starting"]);
+		expect(stage.console.list().routines[0]?.missed).toMatchObject({ reason: "session_starting" });
+		expect(waiting()).toBeUndefined();
+		await stage.stop();
+	});
+
+	it("ignores the end of a launch for the team a run was retargeted off, and stops for review on its own", async () => {
+		const w = world({ prepare: async () => ({ ok: false, reason: "launching" }) });
+		w.routines.put(routine());
+		await w.runner.reconcile();
+		const state = () => w.occurrences.at("triage", MONDAY_0900_LA)?.state;
+		const beforeMove = state();
+		w.routines.put(routine({ target: { spawn: "fixture-app" }, revision: 2 }), { base: 1 });
+		const stopped = { failure: { kind: "stopped" } } as const;
+
+		const oldTeam = w.runner.launchEnded("triage", MONDAY_0900_LA, stopped, "host.routine-triage");
+		const afterOld = state();
+		const newTeam = w.runner.launchEnded("triage", MONDAY_0900_LA, stopped, "fixture-app.routine-triage");
+
+		expect(beforeMove).toBe("waiting_idle");
+		expect([oldTeam, afterOld]).toEqual([true, "waiting_idle"]);
+		expect([newTeam, state()]).toEqual([true, "needs_review"]);
+	});
+
 	it("runs a check-in while the assistant is mid-task, and still waits on its unreachable host", async () => {
 		const checkIn = routine({ target: { kind: "assistant", spawn: "host" } });
 		const busy = world({ sessionIdle: () => false, prepare: async () => ({ ...ready, team: ASSISTANT_TEAM }) });

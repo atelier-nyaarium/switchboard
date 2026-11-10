@@ -130,6 +130,8 @@ describe("federation harness", () => {
 	});
 
 	it("wakes a sleeping devcontainer session for a phone send", async () => {
+		// onWake attaches creates too.
+		h.host.handlers.onCreateSession = undefined;
 		h.host.handlers.onWake = (frame) => session(String(frame.team), frame.sessionToken as string | undefined);
 		const created = await h.phone.value({
 			kind: "create_session",

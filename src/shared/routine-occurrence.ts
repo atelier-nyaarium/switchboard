@@ -37,11 +37,17 @@ export function isTerminal(state: OccurrenceState): boolean {
 }
 
 /** Why an occurrence never ran. A deadline is shared by all of these; a story is not. */
-export const MISS_REASONS = ["gateway_down", "session_busy", "host_unreachable", "disabled"] as const;
+export const MISS_REASONS = [
+	"gateway_down",
+	"session_busy",
+	"host_unreachable",
+	"disabled",
+	"session_starting",
+] as const;
 
 export type MissReason = (typeof MISS_REASONS)[number];
 
 /** Why an occurrence waits on the owner. A runbook edit resolves only the first. */
-export const REVIEW_CAUSES = ["unrenderable", "session_taken", "assistant_unplaced", "cli_refused"] as const;
+export const REVIEW_CAUSES = ["unrenderable", "session_taken", "assistant_unplaced", "launch_failed"] as const;
 
 export type ReviewCause = (typeof REVIEW_CAUSES)[number];

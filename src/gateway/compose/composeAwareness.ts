@@ -41,6 +41,8 @@ export interface AwarenessStageDeps {
 	deliveries: () => Pick<ChannelDeliveryCoordinator, "withdraw">;
 	/** Read late, as routes are. */
 	relayLaunch: LaunchRecordsDeps["relay"];
+	tellOwner: LaunchRecordsDeps["tellOwner"];
+	tellRoutine: LaunchRecordsDeps["tellRoutine"];
 	wakeTimeoutMs: number;
 	agents: Pick<AgentsStage, "agentRoster" | "workflowProgress" | "markTurnNotified" | "onTurnsCollected">;
 	workflows: Pick<WorkflowsStage, "runner" | "engine">;
@@ -78,6 +80,8 @@ export function composeAwareness({
 	stores,
 	deliveries,
 	relayLaunch,
+	tellOwner,
+	tellRoutine,
 	wakeTimeoutMs,
 	agents,
 	workflows,
@@ -148,6 +152,8 @@ export function composeAwareness({
 		},
 		observe: observeLaunches,
 		relay: relayLaunch,
+		tellOwner,
+		tellRoutine,
 	});
 	const launchRecords = launches;
 	host.wakeService.useLedger(launchRecords);

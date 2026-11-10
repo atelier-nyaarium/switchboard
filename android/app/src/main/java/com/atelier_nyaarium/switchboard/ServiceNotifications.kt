@@ -145,13 +145,9 @@ internal class ServiceNotifications(private val context: Context) {
 		}
 	}
 
-	/** The gateway's word for it, since the phone classifies nothing. */
-	private fun routineMissText(reason: String): String = when (reason) {
-		"session_busy" -> "Its session stayed busy"
-		"host_unreachable" -> "Its machine could not be reached"
-		"disabled" -> "It was turned off"
-		else -> "This Gateway was not running"
-	}
+	/** Capitalized routine story. */
+	private fun routineMissText(reason: String): String =
+		com.atelier_nyaarium.switchboard.routines.missStory(reason).replaceFirstChar { it.uppercaseChar() }
 
 	private fun contentIntent(team: String?): PendingIntent {
 		val intent = Intent(context, MainActivity::class.java)

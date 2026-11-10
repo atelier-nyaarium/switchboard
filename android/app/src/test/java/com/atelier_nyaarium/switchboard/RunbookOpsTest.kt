@@ -114,6 +114,14 @@ class RunbookOpsTest {
 	}
 
 	@Test
+	fun aFireIntoASessionStillStartingIsNeitherDeliveredNorRefused() {
+		assertEquals(FireOutcome.Delivered, fireOutcome(ConsoleRunbookFireResult(fired = true, sessionId = "s1")))
+		assertEquals(FireOutcome.Starting, fireOutcome(ConsoleRunbookFireResult(fired = true, sessionId = "s1", status = "starting")))
+		assertEquals(FireOutcome.NotFired("busy"), fireOutcome(ConsoleRunbookFireResult(fired = false, reason = "busy")))
+		assertEquals(FireOutcome.NotFired(null), fireOutcome(null))
+	}
+
+	@Test
 	fun savingWithNoGatewayKeepsTheCopyAndSaysItIsLocal() {
 		val (ops, state) = opsOver(listOf(book("b", name = "Zebra"), book("a", name = "Apple")))
 

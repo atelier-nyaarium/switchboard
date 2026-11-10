@@ -6,6 +6,8 @@ import {
 	type LaunchJoin,
 	type LaunchRecordsDeps,
 	type LaunchRelay,
+	launchOutcome,
+	OWNER_LAUNCH_KEY,
 } from "../gateway/launchRecords.js";
 import type { AwarenessObservation } from "../shared/awareness-types.js";
 import type { LaunchNotice } from "../shared/launch-notice.js";
@@ -22,9 +24,15 @@ function rig(stored: unknown = null) {
 	const forgotten: string[] = [];
 	const observed: AwarenessObservation<LaunchNotice>[] = [];
 	const relayed: Array<{ relay: LaunchRelay; notice: LaunchNotice }> = [];
+	/** Owner lines; stored or not. */
+	const owner = { told: [] as unknown[], stores: true };
+	/** Routine runs told; taken or not. */
+	const routines = { told: [] as unknown[], takes: true };
+	const live = new Set<string>();
 	/** Senders with a session record. */
 	const known = new Set<string>();
 	const writes = { fail: false };
+	const withdrawn: string[] = [];
 	/** Launch countdown, else team's; null while building. */
 	const countdownOf = (team: string, launchId: string | undefined): number | null => {
 		const key = launchId !== undefined && countdown.has(launchId) ? launchId : team;
@@ -41,10 +49,10 @@ function rig(stored: unknown = null) {
 		now: () => clock.now,
 		timeoutMs: TIMEOUT,
 		countdownFrom: countdownOf,
-		isLive: () => false,
+		isLive: (team) => live.has(team),
 		senderKnown: (sessionKey) => known.has(sessionKey),
 		inFlight: () => false,
-		withdraw: () => {},
+		withdraw: (delivery) => withdrawn.push(delivery.deliveryId),
 		forgetCreated: (team) => forgotten.push(team),
 		hostLink: () => link.current,
 		cancel: (team, launchId) => {
@@ -58,6 +66,14 @@ function rig(stored: unknown = null) {
 		relay: async (relay, notice) => {
 			relayed.push({ relay, notice });
 			return false;
+		},
+		tellOwner: (team, outcome) => {
+			owner.told.push([team, outcome]);
+			return owner.stores;
+		},
+		tellRoutine: (run, outcome, team) => {
+			routines.told.push([run, outcome, team]);
+			return routines.takes;
 		},
 	};
 	const records = createLaunchRecords(deps);
@@ -77,7 +93,24 @@ function rig(stored: unknown = null) {
 		records.tick();
 		return [...observed];
 	};
-	return { clock, countdown, link, cancel, forgotten, relayed, known, writes, records, join, tick, disk: () => disk };
+	return {
+		clock,
+		countdown,
+		link,
+		cancel,
+		forgotten,
+		relayed,
+		known,
+		owner,
+		routines,
+		live,
+		writes,
+		withdrawn,
+		records,
+		join,
+		tick,
+		disk: () => disk,
+	};
 }
 
 const failed = (observations: AwarenessObservation<LaunchNotice>[]) =>
@@ -101,6 +134,21 @@ describe("a launch a send waits on", () => {
 			expect.objectContaining({
 				sessionKey: "sender",
 				post: expect.objectContaining({ failure: { kind: "timeout" } }),
+			}),
+		]);
+	});
+
+	it("answers a send that joins after its launch failed with that failure, and withdraws its row", () => {
+		const r = rig();
+		r.records.open(TEAM, "L1", false, false);
+		r.records.settle(TEAM, { failure: { kind: "stopped" } }, "L1");
+		r.join({ launchId: "L1" });
+
+		expect(r.withdrawn).toEqual(["d-0"]);
+		expect(failed(r.tick())).toEqual([
+			expect.objectContaining({
+				sessionKey: "sender",
+				post: expect.objectContaining({ failure: { kind: "stopped" } }),
 			}),
 		]);
 	});
@@ -286,6 +334,78 @@ describe("a launch a send waits on", () => {
 			expect.objectContaining({ foreign: true, failure: { kind: "error", reason: expect.any(String) } }),
 		]);
 		expect(JSON.stringify(r.relayed)).not.toContain("secret daemon text");
+	});
+
+	it("tells the owner and a waiting routine run directly, each until it takes the word, never through the bank", () => {
+		const r = rig();
+		const run = { routineId: "triage", scheduledAt: 5 };
+		const failure = { kind: "error", reason: "no pane" } as const;
+		r.records.open(TEAM, "launch-a", true, true);
+		r.join({ launchId: "launch-a", sessionKey: OWNER_LAUNCH_KEY, owner: true, delivery: undefined });
+		r.join({ launchId: "launch-a", sessionKey: "routine:triage:5", routine: run, delivery: undefined });
+		r.records.settle(TEAM, { failure }, "launch-a");
+		const launching = r.records.launching(TEAM);
+
+		r.owner.stores = false;
+		r.routines.takes = false;
+		const untaken = r.tick();
+		const awaitedUntold = r.records.awaits(run);
+		r.owner.stores = true;
+		r.routines.takes = true;
+		const taken = r.tick();
+		r.tick();
+
+		expect(launching).toBe(false);
+		expect([untaken, taken]).toEqual([[], []]);
+		expect([awaitedUntold, r.records.awaits(run)]).toEqual([true, false]);
+		expect(r.owner.told).toEqual([
+			[TEAM, { failure }],
+			[TEAM, { failure }],
+		]);
+		expect(r.routines.told).toEqual([
+			[run, { failure }, TEAM],
+			[run, { failure }, TEAM],
+		]);
+	});
+
+	it("refuses a watch alone with no launch holding its team, and drops a launch abandoned before anyone joined", () => {
+		const r = rig();
+		const watch = {
+			sessionKey: "routine:triage:5",
+			routine: { routineId: "triage", scheduledAt: 5 },
+			delivery: undefined,
+		};
+
+		const alone = r.join(watch);
+		r.records.open(TEAM, "launch-a", true, false);
+		r.records.abandon("launch-a");
+		const afterAbandon = r.records.launching(TEAM);
+		r.records.open(TEAM, "launch-b", true, false);
+		const held = r.join({ ...watch, launchId: "launch-b" });
+		r.records.abandon("launch-b");
+
+		expect([alone, afterAbandon]).toEqual([false, false]);
+		expect([held, r.records.launching(TEAM)]).toEqual([true, true]);
+	});
+
+	it("leaves a waiter's timeout to the tick, which reads a live team up, and reads a failure up while live", () => {
+		const timedOut = rig();
+		timedOut.records.open(TEAM, "launch-a", false, false);
+		timedOut.join({ launchId: "launch-a" });
+		timedOut.records.settle(TEAM, launchOutcome({ ok: false, errorKind: "timeout" }), "launch-a");
+		const stillLaunching = timedOut.records.launching(TEAM);
+		timedOut.live.add(TEAM);
+		const cameUp = timedOut.tick();
+
+		const late = rig();
+		late.records.open(TEAM, "launch-b", false, false);
+		late.join({ launchId: "launch-b" });
+		late.live.add(TEAM);
+		late.records.settle(TEAM, { failure: { kind: "error", reason: "after registering" } }, "launch-b");
+
+		expect(stillLaunching).toBe(true);
+		expect(cameUp.map((notice) => notice.post?.kind)).toEqual(["up"]);
+		expect(late.tick().map((notice) => notice.post?.kind)).toEqual(["up"]);
 	});
 
 	it("asks a reconnecting sender the bank gave up on again after a while, and stops telling a forgotten one", () => {

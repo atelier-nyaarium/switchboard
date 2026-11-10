@@ -28,8 +28,16 @@ describe("federation harness: a create the launch fails", () => {
 			target: h.target("halo"),
 			sessionName: "explorer",
 		});
-		expect(result).toMatchObject({ kind: "refusal" });
+		expect(result).toMatchObject({ created: true, status: "pending" });
 		expect(h.host.wakes.map((frame) => frame.team)).toContain(team);
+		const told = await h.waitFor(
+			async () =>
+				h.phone
+					.entries(await h.phone.inboxRead())
+					.find((entry) => entry.kind === "notice" && entry.from === h.target(team)),
+			"the owner told the launch failed",
+		);
+		expect(told).toMatchObject({ title: expect.any(String) });
 
 		const record = h.gateway.faults.sessionRecord(team);
 		expect(record?.sessionLabel).toBe("explorer");
@@ -44,7 +52,7 @@ describe("federation harness: a create the launch fails", () => {
 			target: h.target("halo"),
 			sessionName: "explorer",
 		});
-		expect(again.result).toMatchObject({ kind: "refusal" });
+		expect(again.result).toMatchObject({ created: true, status: "pending" });
 		expect(h.gateway.faults.sessionRecord(team)).toBe(record);
 	});
 });

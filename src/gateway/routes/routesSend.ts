@@ -32,7 +32,7 @@ import type { ChannelFile, GatewayConfig, ResponsePayload } from "../../shared/t
 import type { AwarenessBank, AwarenessLease } from "../awarenessBank.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
 import { fireAndForget } from "../fireAndForget.js";
-import type { LaunchRecords } from "../launchRecords.js";
+import { type LaunchRecords, OWNER_LAUNCH_KEY } from "../launchRecords.js";
 import { holdIdFor } from "../router/blobUploader.js";
 import { fileBytes, getTeamMode, jsonResponse, MAX_RESPONSE_FILE_BYTES, SendRequestSchema } from "../routeSchemas.js";
 import { presentedByRequest, type SessionAuthority } from "../sessionAuthority.js";
@@ -51,7 +51,8 @@ export interface SendRecord {
 
 /** Guard-only assistant ingress. */
 type Ingress =
-	| { kind: "owner"; ownerId: string; scheduled?: true }
+	/** `launching`: queued under a launch. */
+	| { kind: "owner"; ownerId: string; scheduled?: true; launching?: true }
 	| { kind: "session"; req: Request }
 	| { kind: "gateway" }
 	| { kind: "assistant"; conversationId: string; record: SendRecord };
@@ -476,6 +477,7 @@ export function createSendRoutes({
 		const readsNotices =
 			ingress.kind === "session" ||
 			ingress.kind === "assistant" ||
+			(ingress.kind === "owner" && ingress.launching === true) ||
 			(ingress.kind === "gateway" && relayedReader === "session");
 		const foreign = dstDomainId != null;
 		const arrived = readsNotices
@@ -584,7 +586,9 @@ export function createSendRoutes({
 									},
 									foreign: dstDomainId != null,
 								}
-							: { sessionKey: from, foreign: false }),
+							: ingress.kind === "owner"
+								? { sessionKey: OWNER_LAUNCH_KEY, owner: true as const, foreign: false }
+								: { sessionKey: from, foreign: false }),
 					});
 					if (!joined) {
 						deliveries.withdraw(deliveryId);
@@ -673,7 +677,10 @@ export function createSendRoutes({
 		return local ? storeKey({ kind: "conv", conversationId: owner, address: local.address }) : "";
 	}
 
-	async function sendFromOwner(body: Record<string, unknown>, options: { scheduled?: true } = {}): Promise<Response> {
+	async function sendFromOwner(
+		body: Record<string, unknown>,
+		options: { scheduled?: true; launching?: true } = {},
+	): Promise<Response> {
 		const owner = ownerId?.();
 		if (!owner) return jsonResponse({ error: "this Gateway has no owner to send as" }, 409);
 		return send({ kind: "owner", ownerId: owner, ...options }, body);

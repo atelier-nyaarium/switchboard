@@ -1,5 +1,6 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { openDurable } from "../../shared/durable-store.js";
+import { ownerLaunchPhrase } from "../../shared/launch-notice.js";
 import {
 	occurrenceIdOf,
 	ROUTINE_REPORT_GRACE_MS,
@@ -13,11 +14,12 @@ import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
 import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { fireAndForget } from "../fireAndForget.js";
+import type { LaunchOutcome, RoutineRun } from "../launchRecords.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
 import { createRoutineMemoryStore } from "../routines/memory.js";
 import { createOccurrenceStore, type Occurrence, pastLife } from "../routines/occurrences.js";
 import { renderRoutine } from "../routines/render.js";
-import { CLI_REFUSED_REASON, routineTeam, takenReason, targetRules, UNPLACED_REASON } from "../routines/reservation.js";
+import { routineTeam, takenReason, targetRules, UNPLACED_REASON } from "../routines/reservation.js";
 import { createRoutineRoutes, type Handler as RoutineRouteHandler } from "../routines/routineRoutes.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
 import type { FileOutcome } from "../routines/sessionRoutine.js";
@@ -59,6 +61,8 @@ export interface RoutineStage {
 	reserves: (sessionTarget: string) => boolean;
 	/** May unblock a stopped routine. */
 	runbookMoved: (runbookId: string) => void;
+	/** True once the run took it. */
+	launchSettled: (run: RoutineRun, outcome: LaunchOutcome, team: string) => boolean;
 	secretUnanswered: (sessionTarget: string, entryId: string) => void;
 	/** Ends any work open in it. */
 	sessionEnded: (sessionTarget: string) => void;
@@ -144,6 +148,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			const ran = newestOf("dispatched");
 			const review = newestOf("needs_review");
 			const reviewReason = review ? reviewText(routine, review) : null;
+			const waiting = newestOf("waiting_idle")?.reason;
 			const nextAt = runner.nextAt(routine, now);
 			const missed = panelFor(rows, now);
 			const wanted = attentionFor(attention.forRoutine(routine.id));
@@ -156,6 +161,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				...(missed ? { missed } : {}),
 				...(review ? { reviewAt: review.scheduledAt } : {}),
 				...(reviewReason ? { reviewReason } : {}),
+				...(waiting ? { waiting } : {}),
 				...(wanted ? { attention: wanted } : {}),
 			};
 		});
@@ -172,7 +178,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	const reviewText = (routine: Routine, row: Occurrence): string | null => {
 		if (row.reviewCause === "session_taken") return takenReason(routine, deps.paneHolder?.(routineTeam(routine)));
 		if (row.reviewCause === "assistant_unplaced") return UNPLACED_REASON;
-		if (row.reviewCause === "cli_refused") return CLI_REFUSED_REASON;
+		if (row.reviewCause === "launch_failed") return row.launchFailure ? ownerLaunchPhrase(row.launchFailure) : null;
 		return blockedBy(routine);
 	};
 
@@ -350,6 +356,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				return [{ occurrenceId: occurrenceIdOf(held.routineId, held.scheduledAt), routine: routine.name }];
 			}),
 		runbookMoved,
+		launchSettled: (run, outcome, team) => runner.launchEnded(run.routineId, run.scheduledAt, outcome, team),
 		sessionEnded: (sessionTarget) => {
 			// Every window; one left open keeps authority.
 			for (const held of runner.workingOccurrences(sessionTarget)) {

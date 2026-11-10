@@ -201,6 +201,9 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		deliveries: requireDeliveries,
 		relayLaunch: async (relay, notice) => (await routes?.current()?.pushLaunch(relay, notice)) ?? false,
+		tellOwner: (team, outcome, identity) => routes?.current()?.tellOwnerLaunch(team, outcome, identity) ?? false,
+		// Composed below; read at tick.
+		tellRoutine: (run, outcome, team) => routines.launchSettled(run, outcome, team),
 		wakeTimeoutMs: config.wakeTimeoutMs,
 		agents,
 		workflows,

@@ -3026,6 +3026,7 @@ data class ConsoleRunbookFireResult(
 	val fired: Boolean,
 	val sessionId: String? = null,
 	val reason: String? = null,
+	val status: String? = null,
 )
 
 @Serializable
@@ -3074,6 +3075,7 @@ data class RoutineState(
 	val missed: RoutineMiss? = null,
 	val reviewAt: Long? = null,
 	val reviewReason: String? = null,
+	val waiting: String? = null,
 	val attention: RoutineAttention? = null,
 )
 

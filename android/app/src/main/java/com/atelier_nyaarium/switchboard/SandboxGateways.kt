@@ -163,7 +163,11 @@ internal class SandboxRunbookGateway : RunbookGateway {
 		values: Map<String, String>,
 		into: RunbookFireTarget,
 		previewedRevision: Long?,
-	) = ConsoleRunbookFireResult(fired = true)
+	) = when (into) {
+		// New session still starting.
+		is RunbookFireTarget.New -> ConsoleRunbookFireResult(fired = true, sessionId = "fired", status = "starting")
+		is RunbookFireTarget.Session -> ConsoleRunbookFireResult(fired = true)
+	}
 }
 
 /** Differ per Gateway; a mutation stays. */
@@ -275,6 +279,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 					routine = routine("triage", "Morning triage", cli = SessionHarness.OPENCODE.wire),
 					nextAt = nextSlot(),
 					lastRanAt = day(-86_400_000L),
+					waiting = "session_starting",
 				),
 				RoutineState(
 					routine = routine("sweep", "Weekly sweep"),

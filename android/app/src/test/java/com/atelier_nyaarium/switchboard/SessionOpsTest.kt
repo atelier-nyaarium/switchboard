@@ -10,6 +10,7 @@ import com.atelier_nyaarium.switchboard.proto.readHarness
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
@@ -27,9 +28,12 @@ class SessionOpsTest {
 		override val sandboxDirs: Map<String, List<String>>? = null
 		override var terminalRefreshMs = 1_000L
 		override val spawnRetryWindowMs = 40_000L
+		override var spawnHoldCapMs = 60_000L
 		override val forgetTombstoneMs = 50_000L
 		override val forgetRetryMs = 60_000L
 		val created = mutableListOf<Pair<String, String>>()
+		val createOps = mutableListOf<String>()
+		var createFails = false
 		val closed = mutableListOf<String>()
 		val remembered = mutableListOf<String>()
 		val wakes = mutableListOf<Pair<String, String>>()
@@ -52,7 +56,12 @@ class SessionOpsTest {
 			workdir: String?,
 			opId: String,
 			harness: String,
-		) = ConsoleCreateSessionResult(created = true, id = sessionName ?: "minted").also { created += target to harness }
+		): ConsoleCreateSessionResult {
+			createOps += opId
+			if (createFails) error("offline")
+			created += target to harness
+			return ConsoleCreateSessionResult(created = true, id = sessionName ?: "minted", status = "pending")
+		}
 		override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) = Unit
 		override suspend fun listDirs(path: String, hostTarget: String, spawn: String) = ConsoleListDirsResult(emptyList())
 		override suspend fun wake(target: String, opId: String, harness: String) { wakes += target to harness }
@@ -88,16 +97,53 @@ class SessionOpsTest {
 	private fun journalDir() = Files.createTempDirectory("forget-journal").toFile()
 
 	@Test
-	fun spawnNamesItsCliRecordsProjectAndSettlesPendingState() = runBlocking {
+	fun anAnsweredCreateHoldsItsClaimUntilTheSessionAnswers() = runBlocking {
 		val host = FakeHost()
 		val presence = RecordingPresencePort()
-		SessionOps(host, presence, MutationJournal(journalDir()))
-			.spawnSession("dom.gw.project", "label", "/work", SessionHarness.CLAUDE)
+		val ops = SessionOps(host, presence, MutationJournal(journalDir()))
+		val key = "dom.gw.project" to "label"
 
+		ops.spawnSession("dom.gw.project", "label", "/work", SessionHarness.CLAUDE)
 		assertEquals(listOf("dom.gw.project"), host.remembered)
 		assertEquals(listOf("dom.gw.project" to SessionHarness.CLAUDE.wire), host.created)
-		assertEquals(emptySet<Pair<String, String>>(), host.state.value.pendingSpawns)
 		assertEquals(1, presence.refreshes)
+		// Answered while still starting: a re-press joins rather than launching again.
+		assertEquals(setOf(key), host.state.value.pendingSpawns)
+		ops.spawnSession("dom.gw.project", "label", "/work", SessionHarness.CLAUDE)
+		assertEquals(1, host.createOps.size)
+
+		// A row still starting holds the claim.
+		for (status in listOf(Presence.AVAILABLE, Presence.VERIFYING)) {
+			host.state.update { it.copy(teams = listOf(testTeam("dom.gw.project.minted", status = status))) }
+			ops.spawnSession("dom.gw.project", "label", "/work", SessionHarness.CLAUDE)
+			assertEquals(1, host.createOps.size)
+		}
+
+		host.state.update { it.copy(teams = listOf(testTeam("dom.gw.project.minted"))) }
+		assertEquals(emptySet<Pair<String, String>>(), host.state.value.pendingSpawns)
+		ops.spawnSession("dom.gw.project", "label", "/work", SessionHarness.CLAUDE)
+		assertEquals(2, host.createOps.toSet().size)
+	}
+
+	@Test
+	fun aFailedCreateFreesItsClaimAndAnOutcomeLineOrTheCapFreesAHeldOne() = runBlocking {
+		val host = FakeHost().apply { createFails = true }
+		val ops = SessionOps(host, RecordingPresencePort(), MutationJournal(journalDir()))
+
+		ops.spawnSession("dom.gw.project", "label", null, SessionHarness.CLAUDE)
+		assertEquals(emptySet<Pair<String, String>>(), host.state.value.pendingSpawns)
+		// A retry keeps the op id, so a create that did land is joined.
+		host.createFails = false
+		ops.spawnSession("dom.gw.project", "label", null, SessionHarness.CLAUDE)
+		assertEquals(1, host.createOps.toSet().size)
+
+		host.state.update { it.copy(threads = mapOf("dom.gw.project.minted" to listOf(Message(false, "Devcontainer failed to start.", 1L)))) }
+		assertEquals(emptySet<Pair<String, String>>(), host.state.value.pendingSpawns)
+
+		host.spawnHoldCapMs = 20L
+		ops.spawnSession("dom.gw.other", "label", null, SessionHarness.CLAUDE)
+		kotlinx.coroutines.delay(200L)
+		assertEquals(emptySet<Pair<String, String>>(), host.state.value.pendingSpawns)
 	}
 
 	private fun relaunched(harness: String?): FakeHost = runBlocking {

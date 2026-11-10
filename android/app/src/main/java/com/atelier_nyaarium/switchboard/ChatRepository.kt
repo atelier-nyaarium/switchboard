@@ -612,5 +612,8 @@ class ChatRepository(
 		internal const val SCHEDULED_SEND_MAX_HORIZON_MS = 30L * 24 * 60 * 60_000L
 
 		internal const val SPAWN_RETRY_WINDOW_MS = 40_000L
+
+		/** One launch per build. */
+		internal const val SPAWN_HOLD_CAP_MS = 30L * 60_000L
 	}
 }

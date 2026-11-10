@@ -190,6 +190,19 @@ describe("a launch read through its pane", () => {
 		expect(relaunched).toMatchObject({ ready: true });
 	});
 
+	it("relaunches a woken container pane whose CLI is gone, and leaves one whose CLI is alive", async () => {
+		const gone = rig({ pane: true, process: ["gone"] });
+		const alive = rig({ pane: true, peeks: ["mid-turn"] });
+
+		const relaunched = await gone.launch(CONTAINER, claude("wake"));
+		const left = await alive.launch(CONTAINER, claude("wake"));
+
+		expect([gone.calls.kills, gone.calls.ensured.length, gone.calls.waits]).toEqual([1, 2, 1]);
+		expect(relaunched).toMatchObject({ created: false, ready: true, alive: true });
+		expect([alive.calls.kills, alive.calls.waits]).toEqual([0, 0]);
+		expect(left).toMatchObject({ created: false, live: true, screen: "mid-turn" });
+	});
+
 	it("reads the screen of a woken container pane, and nothing of a pane a create finds", async () => {
 		const peeked = rig({ pane: true, peeks: ["mid-turn"] });
 		const left = rig({ pane: true });

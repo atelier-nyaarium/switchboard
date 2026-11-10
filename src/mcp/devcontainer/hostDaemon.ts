@@ -14,9 +14,9 @@ import { CopilotEventAckSchema } from "../../shared/copilot-agent.js";
 import {
 	ClaudeTurnAckFrameSchema,
 	classifyPeekError,
+	type DaemonHostOp,
 	HostClaudeCancelOpSchema,
 	HostClaudeRunOpSchema,
-	type HostOp,
 	HostReadSkillOpSchema,
 	isReservedHostSession,
 	isTmuxName,
@@ -357,7 +357,7 @@ function connect(): void {
 		}
 
 		if (msg.type === "host_op" && typeof msg.reqId === "string") {
-			void handleHostOp(msg.reqId as string, msg.op as HostOp).catch((e) =>
+			void handleHostOp(msg.reqId as string, msg.op as DaemonHostOp).catch((e) =>
 				console.error("[host-op] dispatch error:", e),
 			);
 		}
@@ -428,6 +428,8 @@ interface WakeMessage {
 	sessionToken?: string;
 	/** Absent from an older Gateway. */
 	launchId?: string;
+	/** Create intent; absent is wake. */
+	door?: unknown;
 }
 
 // Independent of the tmux server's PATH.
@@ -545,6 +547,12 @@ function handleWake(msg: WakeMessage): void {
 		refuse("invalid session name");
 		return;
 	}
+	// Never guessed as a wake.
+	if (msg.door !== undefined && msg.door !== "create" && msg.door !== "wake") {
+		refuse(`unknown launch door "${String(msg.door).slice(0, 32)}": this build is older than its sender`);
+		return;
+	}
+	const door = msg.door ?? "wake";
 	const request = {
 		harness: msg.harness,
 		resumeSessionId: msg.resumeSessionId,
@@ -554,7 +562,7 @@ function handleWake(msg: WakeMessage): void {
 	};
 	if (!isHostSpawn(project)) {
 		const target: TmuxTarget = { kind: "devcontainer", name: project, sessionName: session };
-		launchLane.wake(msg.team, { ...request, target, projectPath: msg.projectPath });
+		launchLane.wake(msg.team, { ...request, target, projectPath: msg.projectPath }, door);
 		return;
 	}
 	if (isReservedHostSession(session)) {
@@ -581,7 +589,7 @@ function handleWake(msg: WakeMessage): void {
 		return;
 	}
 	const target: TmuxTarget = { kind: "host", name: project, sessionName: session };
-	launchLane.wake(msg.team, { ...request, target, workdir: resolved.workdir });
+	launchLane.wake(msg.team, { ...request, target, workdir: resolved.workdir }, door);
 }
 
 ////////////////////////////////
@@ -611,6 +619,7 @@ const hostOpRunner = createHostOpRunner({
 	sendKey,
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
+	// FIXME 2026-11-24: drop, once every Gateway creates by wake.
 	createSession: async ({ target, workdirHint, resumeSessionId, sessionToken, harness, fresh, launchId }) => {
 		let workdir: string | undefined;
 		if (target.kind === "host") {
@@ -706,7 +715,7 @@ const compactionFollower = createCompactionFollower({
 	onChange: (team, compacting) => presenceScheduler.setOverlay(team, compacting ? { compacting: true } : undefined),
 });
 
-async function handleHostOp(reqId: string, op: HostOp): Promise<void> {
+async function handleHostOp(reqId: string, op: DaemonHostOp): Promise<void> {
 	try {
 		if (op.kind === "claudeRun") {
 			const checked = HostClaudeRunOpSchema.safeParse(op);

@@ -438,7 +438,11 @@ async function main(): Promise<void> {
 				const frame = JSON.parse(raw.toString()) as {
 					type: string;
 					reqId?: string;
-					op?: { kind?: string; path?: string; sessionToken?: string };
+					op?: { kind?: string; path?: string };
+					team?: string;
+					launchId?: string;
+					door?: string;
+					sessionToken?: string;
 				};
 				if (frame.type === "register_ok") {
 					socket.send(JSON.stringify({ type: "catalog", projects: [], hostSpawns: [] }));
@@ -454,14 +458,14 @@ async function main(): Promise<void> {
 						}),
 					);
 				}
-				if (frame.type === "host_op" && frame.op?.kind === "createSession") {
-					sessionToken = frame.op.sessionToken;
+				if (frame.type === "wake" && frame.door === "create") {
+					sessionToken = frame.sessionToken;
 					socket.send(
 						JSON.stringify({
-							type: "host_op_reply",
-							reqId: frame.reqId,
-							ok: true,
-							result: { created: true, ready: true, alive: true },
+							type: "wake_result",
+							team: frame.team,
+							launchId: frame.launchId,
+							success: true,
 						}),
 					);
 				}

@@ -194,13 +194,15 @@ const viaPane: Road = async (deps, target, facts) => {
 		return paneOutcome(created, seen);
 	}
 	if (facts.door === "create") return { created, ready: false, alive: true, live: true, screen: "" };
-	// A container pane is read, not repaired.
-	if (target.kind !== "host") {
+	// A stale composer outlives the CLI, so ask the OS first.
+	const gone = (await deps.paneAgentState(target)) === "gone";
+	// A container pane is read, and repaired only once its CLI is gone.
+	if (target.kind !== "host" && !gone) {
 		const screen = await deps.peekScreen(target).catch(() => "");
 		return { created, ready: false, alive: true, live: true, screen };
 	}
-	// A stale composer outlives the CLI, so ask the OS first. A limit dialog is alive.
-	const seen = (await deps.paneAgentState(target)) === "gone" ? undefined : await deps.awaitReady(target);
+	// A limit dialog is alive.
+	const seen = gone ? undefined : await deps.awaitReady(target);
 	let step = deps.reattachStep(seen);
 	let kept = seen;
 	if (step === "recheck") {

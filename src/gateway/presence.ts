@@ -32,7 +32,6 @@ export class PresenceFacade {
 	private agentsRunning: () => ReadonlySet<string> = () => new Set();
 
 	private readonly wakeInFlight = new Set<string>();
-	private readonly createInFlight = new Set<string>();
 	private readonly working = new Map<string, DerivedPresence>();
 
 	constructor(deps: PresenceFacadeDeps) {
@@ -187,22 +186,13 @@ export class PresenceFacade {
 		if (this.wakeInFlight.delete(team)) this.markDirty();
 	}
 
-	createStart(team: string): void {
-		this.createInFlight.add(team);
-		this.markDirty();
-	}
-
-	createEnd(team: string): void {
-		if (this.createInFlight.delete(team)) this.markDirty();
-	}
-
 	/** Undefined is nobody having said, not a no. */
 	workingOf(team: string): boolean | undefined {
 		return this.working.get(team)?.working;
 	}
 
 	isWakeInFlight(team: string): boolean {
-		return this.wakeInFlight.has(team) || this.createInFlight.has(team);
+		return this.wakeInFlight.has(team);
 	}
 
 	setWorking(team: string, state: DerivedPresence): void {

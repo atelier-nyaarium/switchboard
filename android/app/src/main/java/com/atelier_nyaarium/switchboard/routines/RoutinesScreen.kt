@@ -164,6 +164,7 @@ private fun RoutineRow(
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
+			waitingLine(row.waiting)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 			// Held state, and why it did not move.
 			toggleRefusal?.let { Panel(it) }
 			lastRunLine(row, zone)?.let {

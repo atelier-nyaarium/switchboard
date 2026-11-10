@@ -50,16 +50,20 @@ internal fun lastRunLine(row: RoutineState, zone: java.time.ZoneId): String? {
 	return if (row.lastReadAt == null) "Ran $at. Its session never read it." else "Ran $at, and it was read."
 }
 
-/** What a miss says. The reason is the gateway's word for it; the phone does not classify. */
-internal fun missLine(miss: RoutineMiss, zone: java.time.ZoneId): String {
-	val story = when (miss.reason) {
-		"session_busy" -> "its session stayed busy"
-		"host_unreachable" -> "its machine could not be reached"
-		"disabled" -> "it was turned off"
-		else -> "this Gateway was not running"
-	}
-	return "Did not run at ${absoluteTimeText(miss.scheduledAt, zone)}: $story."
+/** Miss cause, gateway's word. */
+internal fun missStory(reason: String): String = when (reason) {
+	"session_busy" -> "its session stayed busy"
+	"session_starting" -> "session never finished starting"
+	"host_unreachable" -> "its machine could not be reached"
+	"disabled" -> "it was turned off"
+	else -> "this Gateway was not running"
 }
+
+/** Waiting run; only starting told. */
+internal fun waitingLine(reason: String?): String? = if (reason == "session_starting") "Session is starting." else null
+
+internal fun missLine(miss: RoutineMiss, zone: java.time.ZoneId): String =
+	"Did not run at ${absoluteTimeText(miss.scheduledAt, zone)}: ${missStory(miss.reason)}."
 
 internal fun reviewLine(reviewAt: Long, reason: String?, zone: java.time.ZoneId): String =
 	"Stopped at ${absoluteTimeText(reviewAt, zone)}: ${reason ?: "its runbook could not run"}."

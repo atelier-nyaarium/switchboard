@@ -1,8 +1,10 @@
 // Kind varies; session ownership follows provenance, not names.
 
 import { ASSISTANT_SPAWN, ASSISTANT_TEAM, isAssistantRecord } from "../../shared/assistant-session.js";
+import type { LaunchFailure } from "../../shared/launch-notice.js";
 import { type Routine, type RoutineTargetKind, routineSessionName, targetKind } from "../../shared/schemasRoutine.js";
 import type { SessionRecord } from "../../shared/session-store.js";
+import type { RoutineRun } from "../launchRecords.js";
 
 const RESERVE_OP = "reserve";
 
@@ -24,8 +26,9 @@ export type ReserveResult =
 	| { kind: "pending" }
 	| { kind: "taken" }
 	| { kind: "unplaced" }
-	/** Its pick is not installed, or it named none where there are several. */
-	| { kind: "cli_refused" };
+	/** Its session is starting; nothing relaunches it. */
+	| { kind: "launching" }
+	| { kind: "launch_failed"; failure: LaunchFailure };
 
 /** Gateway-owned facts validate routine targets. */
 export interface TargetFacts {
@@ -36,9 +39,10 @@ export interface TargetFacts {
 	assistantPlaced?: () => boolean;
 }
 
+/** `run`: told how its launch ended. */
 export interface TargetReserve {
-	reserveSession: (routine: Routine) => Promise<ReserveResult>;
-	reserveAssistant: () => Promise<ReserveResult>;
+	reserveSession: (routine: Routine, run: RoutineRun) => Promise<ReserveResult>;
+	reserveAssistant: (run: RoutineRun) => Promise<ReserveResult>;
 }
 
 /** All target-specific behavior routes through these rules. */
@@ -53,7 +57,7 @@ export interface TargetRules {
 	holdsSecrets: boolean;
 	owns: (held: SessionRecord | undefined, routine: Routine) => boolean;
 	refusal: (routine: Routine, facts: TargetFacts) => string | null;
-	reserve: (routine: Routine, roads: TargetReserve) => Promise<ReserveResult>;
+	reserve: (routine: Routine, roads: TargetReserve, run: RoutineRun) => Promise<ReserveResult>;
 }
 
 const SPAWN_RULES: TargetRules = {
@@ -69,7 +73,7 @@ const SPAWN_RULES: TargetRules = {
 		}
 		return facts.sessionTaken?.(routine) ? takenReason(routine, facts.paneHolder?.(routine)) : null;
 	},
-	reserve: (routine, roads) => roads.reserveSession(routine),
+	reserve: (routine, roads, run) => roads.reserveSession(routine, run),
 };
 
 const ASSISTANT_RULES: TargetRules = {
@@ -84,12 +88,10 @@ const ASSISTANT_RULES: TargetRules = {
 		if (routine.target.workdir !== undefined) return "a check-in runs in the assistant's own folder";
 		return facts.assistantPlaced && !facts.assistantPlaced() ? UNPLACED_REASON : null;
 	},
-	reserve: (_routine, roads) => roads.reserveAssistant(),
+	reserve: (_routine, roads, run) => roads.reserveAssistant(run),
 };
 
 export const UNPLACED_REASON = "the assistant isn't set up on this Gateway";
-
-export const CLI_REFUSED_REASON = "its CLI is not installed on that spawn point, or it needs one picked";
 
 export function targetRules(routine: Routine): TargetRules {
 	return targetKind(routine.target) === "assistant" ? ASSISTANT_RULES : SPAWN_RULES;

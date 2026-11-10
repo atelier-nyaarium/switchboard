@@ -42,18 +42,20 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 
 		forgetSession: deps.forgetSession,
 
-		async prepare(routine: Routine, _occurrence: Occurrence): Promise<PrepareResult> {
+		async prepare(routine: Routine, occurrence: Occurrence): Promise<PrepareResult> {
 			const rendered = renderRoutine(deps.getRunbook(routine.runbookId), routine);
 			if (!rendered.ok) return { ok: false, reason: "unrenderable" };
 
 			// A dead host must not end the sweep.
 			const reserved = await targetRules(routine)
-				.reserve(routine, deps)
+				.reserve(routine, deps, { routineId: occurrence.routineId, scheduledAt: occurrence.scheduledAt })
 				.catch((): ReserveResult => ({ kind: "pending" }));
 			if (reserved.kind === "taken") return { ok: false, reason: "session_taken" };
 			if (reserved.kind === "unplaced") return { ok: false, reason: "assistant_unplaced" };
-			if (reserved.kind === "cli_refused") return { ok: false, reason: "cli_refused" };
 			if (reserved.kind === "pending") return { ok: false, reason: "unreachable" };
+			if (reserved.kind === "launching") return { ok: false, reason: "launching" };
+			if (reserved.kind === "launch_failed")
+				return { ok: false, reason: "launch_failed", failure: reserved.failure };
 			return { ok: true, revision: rendered.revision, snapshot: rendered.text, team: reserved.team };
 		},
 

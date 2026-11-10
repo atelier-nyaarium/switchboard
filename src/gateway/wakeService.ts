@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { cliRefusalText, pickAt } from "../shared/cli-resolve.js";
-import { type HostOpResult, isReservedHostSession } from "../shared/host-op.js";
+import { isReservedHostSession } from "../shared/host-op.js";
 import { isHostSpawn, launchPlaceOf } from "../shared/host-spawn.js";
 import { type SessionHarness, UNPICKED_WORD } from "../shared/session-harness.js";
 import { isComposite, parseSessionName } from "../shared/session-id.js";
@@ -9,12 +9,12 @@ import { resumeIdOf, type SessionStore } from "../shared/session-store.js";
 import type { PresenceFacade } from "./presence.js";
 import { decideWakeCreate, type WakeCoordinator, type WakeCreate, type WakeResult } from "./wake.js";
 import { reached, sendOn } from "./wsSend.js";
-import { resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
+import { REGISTER_WINDOW_MS, resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
 
 export interface WakeServiceDeps {
 	registry: TeamRegistry;
 	sessionStore: SessionStore;
-	presence: Pick<PresenceFacade, "wakeStart" | "wakeEnd" | "createStart" | "createEnd" | "mintOrReattach" | "forget">;
+	presence: Pick<PresenceFacade, "wakeStart" | "wakeEnd" | "mintOrReattach" | "forget">;
 	wakeCoordinator: WakeCoordinator;
 	isAvailableProject: (name: string) => boolean;
 	knownTeamPaths: Map<string, string>;
@@ -32,6 +32,8 @@ export interface LaunchLedger {
 	open(team: string, launchId: string, created: boolean, retained: boolean): boolean;
 	/** The owner asked for it: never given up or forgotten. */
 	retain(launchId: string): boolean;
+	/** Never dispatched; nothing to settle. */
+	abandon(launchId: string): void;
 }
 
 /** The team at launch, then the outcome. */
@@ -44,6 +46,12 @@ export type WakeStart =
 	| { kind: "launching"; team: string; created: boolean; launchId: string }
 	| { kind: "settled"; result: WakeResult };
 
+/** `retain`: owner asked. `door`: create leaves found panes. */
+export interface LaunchOpts {
+	retain?: true;
+	door?: "create";
+}
+
 /** A flight's dispatched launch and owner claim. */
 interface FlightClaim {
 	launchId?: string;
@@ -55,36 +63,13 @@ export class WakeService {
 	private flights = new Map<string, WakeFlight>();
 	private claims = new WeakMap<WakeFlight, FlightClaim>();
 	private ledger: LaunchLedger | null = null;
-	/** Minted names a flight launches under. */
-	private launching = new Set<string>();
-	private inflightCreates = new Map<string, Promise<HostOpResult>>();
 	private settledListeners: Array<(team: string, result: WakeResult, launchId?: string) => void> = [];
 
 	constructor(private deps: WakeServiceDeps) {}
 
+	/** Held until registered and answered; Close and Forget wait. */
 	isWakeInFlight(team: string): boolean {
-		return this.flights.has(team) || this.launching.has(team) || this.inflightCreates.has(team);
-	}
-
-	/** The first caller launches and is handed the release; the rest join it and get none. */
-	joinCreate(
-		team: string,
-		start: () => Promise<HostOpResult>,
-	): { launch: Promise<HostOpResult>; release: (() => void) | null } {
-		const existing = this.inflightCreates.get(team);
-		if (existing) {
-			console.log(`[create] ${team} create already in flight; joining it`);
-			return { launch: existing, release: null };
-		}
-		const launch = start();
-		this.inflightCreates.set(team, launch);
-		this.deps.presence.createStart(team);
-		return {
-			launch,
-			release: () => {
-				if (this.inflightCreates.delete(team)) this.deps.presence.createEnd(team);
-			},
-		};
+		return this.flights.has(team);
 	}
 
 	/** Every launch's end, whoever started it. */
@@ -97,12 +82,12 @@ export class WakeService {
 		this.ledger = ledger;
 	}
 
-	tryWakeTeam(team: string, createOpts?: WakeCreate, opts?: { retain?: true }): Promise<WakeResult> {
+	tryWakeTeam(team: string, createOpts?: WakeCreate, opts?: LaunchOpts): Promise<WakeResult> {
 		return this.beginWake(team, createOpts, opts).outcome;
 	}
 
 	/** Joins the team's launch, or starts one. */
-	beginWake(team: string, createOpts?: WakeCreate, opts?: { retain?: true }): WakeFlight {
+	beginWake(team: string, createOpts?: WakeCreate, opts?: LaunchOpts): WakeFlight {
 		const held = this.flights.get(team);
 		if (held) {
 			console.log(`[wake] ${team} wake already in flight; joining it`);
@@ -120,14 +105,20 @@ export class WakeService {
 		const outcome = (async () => {
 			this.deps.presence.wakeStart(team);
 			try {
-				const result = await this.doWakeTeam(team, createOpts, claim, (wakeTeam, created, launchId) => {
-					if (wakeTeam !== team) {
-						minted = wakeTeam;
-						this.deps.presence.wakeStart(wakeTeam);
-						if (flight) this.flights.set(wakeTeam, flight);
-					}
-					announce({ kind: "launching", team: wakeTeam, created, launchId });
-				});
+				const result = await this.doWakeTeam(
+					team,
+					createOpts,
+					claim,
+					opts?.door,
+					(wakeTeam, created, launchId) => {
+						if (wakeTeam !== team) {
+							minted = wakeTeam;
+							this.deps.presence.wakeStart(wakeTeam);
+							if (flight) this.flights.set(wakeTeam, flight);
+						}
+						announce({ kind: "launching", team: wakeTeam, created, launchId });
+					},
+				);
 				announce({ kind: "settled", result });
 				return result;
 			} catch (error) {
@@ -173,6 +164,7 @@ export class WakeService {
 		team: string,
 		createOpts: WakeCreate | undefined,
 		claim: FlightClaim,
+		door: "create" | undefined,
 		onStarted: (wakeTeam: string, created: boolean, launchId: string) => void,
 	): Promise<WakeResult> {
 		const { project, session } = parseSessionName(team);
@@ -244,17 +236,6 @@ export class WakeService {
 			}
 		}
 
-		// One launch per pane: a create's goes first.
-		const creating = this.inflightCreates.get(wakeTeam);
-		if (creating) {
-			await creating.catch(() => undefined);
-			if (resolveLiveIncarnation(this.deps.registry, this.deps.sessionStore, wakeTeam)) {
-				return wakeTeam !== team ? { ok: true, resolvedTeam: wakeTeam } : { ok: true };
-			}
-		}
-		const liveHost = creating ? this.deps.liveHostSocket() : hostWs;
-		if (!liveHost) return { ok: false, errorKind: "disconnected" };
-
 		const launchId = this.deps.newLaunchId();
 		if (this.ledger && !this.ledger.open(wakeTeam, launchId, provisionalCreated, claim.retained)) {
 			// Nothing launched; release record.
@@ -268,11 +249,12 @@ export class WakeService {
 		const resumeSessionId = record ? resumeIdOf(record) : undefined;
 		const workdirHint = record ? this.deps.sessionStore.hostWorkdirHint(record) : undefined;
 		const requested = sendOn(
-			liveHost,
+			hostWs,
 			JSON.stringify({
 				type: "wake",
 				team: wakeTeam,
 				launchId,
+				...(door ? { door } : {}),
 				...(projectPath ? { projectPath } : {}),
 				// A team with no record runs its place's only CLI.
 				harness: record?.harness ?? UNPICKED_WORD,
@@ -284,7 +266,10 @@ export class WakeService {
 			`wake ${wakeTeam}`,
 		);
 		// Dropped wakes never answer.
-		if (!reached(requested)) return { ok: false, errorKind: "disconnected" };
+		if (!reached(requested)) {
+			this.ledger?.abandon(launchId);
+			return { ok: false, errorKind: "disconnected" };
+		}
 		onStarted(wakeTeam, provisionalCreated, launchId);
 
 		console.log(
@@ -293,10 +278,11 @@ export class WakeService {
 			}`,
 		);
 
-		this.launching.add(wakeTeam);
-		const result = await this.deps.wakeCoordinator
-			.waitFor(wakeTeam, this.deps.wakeTimeoutMs, launchId)
-			.finally(() => this.launching.delete(wakeTeam));
+		const result = await this.deps.wakeCoordinator.waitFor(wakeTeam, this.deps.wakeTimeoutMs, launchId);
+		// Daemon may still launch after registration.
+		// An untagged daemon's answer names no launch.
+		if (result.ok && hostWs.data.launchIds)
+			await this.deps.wakeCoordinator.daemonDone(launchId, REGISTER_WINDOW_MS);
 		console.log(`[wake] ${wakeTeam} ${result.ok ? "is now online" : "failed to come online"}`);
 		// The ledger settles it.
 		for (const listener of this.settledListeners) listener(wakeTeam, result, launchId);

@@ -519,8 +519,14 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		});
 	}
 
-	const wakeTaker = (team: string, launchId: string | undefined, fresh: boolean): Taker => ({
-		door: "wake",
+	/** Answers by frames. */
+	const wakeTaker = (
+		team: string,
+		launchId: string | undefined,
+		fresh: boolean,
+		door: LaunchDoor = "wake",
+	): Taker => ({
+		door,
 		team,
 		...tag(launchId),
 		fresh,
@@ -529,9 +535,9 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 	});
 
 	return {
-		/** A wake answers by frames. */
-		wake(team: string, req: LaunchRequest): void {
-			admit(wakeTaker(team, req.launchId, req.fresh === true), req);
+		/** Wake frame; door marks create. */
+		wake(team: string, req: LaunchRequest, door: LaunchDoor = "wake"): void {
+			admit(wakeTaker(team, req.launchId, req.fresh === true, door), req);
 		},
 
 		/** A wake this machine refuses before the lane. */

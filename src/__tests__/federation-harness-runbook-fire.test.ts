@@ -180,12 +180,50 @@ describe("federation harness: firing a runbook", () => {
 		await h.waitFor(async () => attached.inbound.find((frame) => frame.body === body), "the rendered runbook");
 	});
 
-	it("does not fire when the session it created never starts listening", async () => {
+	it("answers a fire into an asleep session at once, and lands it once the session registers", async () => {
+		const launched = launchesInto(true);
+		await h.phone.value({ kind: "create_session", target: h.target("host"), sessionName: "dozing" });
+		const first = await h.waitFor(async () => launched[0], "the first launch");
+		await first.ready();
+		first.close();
+		const woken: Array<{ team: string; token: string }> = [];
+		h.host.handlers.onWake = (frame) => {
+			if (frame.team === first.team) woken.push({ team: first.team, token: frame.sessionToken as string });
+		};
+
+		try {
+			const answer = await fire({ level: "minor", repo: "dozing" }, { kind: "session", target: first.team });
+			const wake = await h.waitFor(async () => woken[0], "the wake");
+			const back = attachFakeSession(h.gateway, {
+				team: wake.team,
+				conversationId: "conv-launch-dozing-back",
+				sessionToken: wake.token,
+			});
+			sessions.push(back);
+			const body = "Cut a minor release of dozing. Never hand-edit a version.";
+			await h.waitFor(async () => back.inbound.find((frame) => frame.body === body), "the rendered runbook");
+
+			expect(answer).toMatchObject({ fired: true, status: "starting" });
+		} finally {
+			h.host.handlers.onWake = undefined;
+		}
+	});
+
+	it("answers a fire into a new session at launch, and tells the owner when it never starts listening", async () => {
 		launchesInto(false);
 		const answer = await fire({ level: "patch", repo: "quiet" }, { kind: "new", target: h.target("host") });
-		expect(answer.fired).toBe(false);
-		expect(answer.sessionId).toBeTruthy();
-		expect(h.gateway.faults.sessionRecord(composeSessionName("host", answer.sessionId as string))).toBeTruthy();
+		const team = composeSessionName("host", answer.sessionId as string);
+		const told = await h.waitFor(
+			async () =>
+				h.phone
+					.entries(await h.phone.inboxRead())
+					.find((entry) => entry.kind === "notice" && entry.from === h.target(team)),
+			"the owner told the launch failed",
+		);
+
+		expect(answer).toMatchObject({ fired: true, status: "starting" });
+		expect(h.gateway.faults.sessionRecord(team)).toBeTruthy();
+		expect(told).toMatchObject({ title: expect.any(String) });
 	});
 
 	it("previews exactly what a fire would send, and sends nothing", async () => {
