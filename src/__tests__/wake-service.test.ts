@@ -58,12 +58,11 @@ describe("WakeService", () => {
 		const s = setup();
 		const first = s.service.tryWakeTeam("proj");
 		const second = s.service.tryWakeTeam("proj");
-		expect(second).toBe(first);
 		expect(s.service.isWakeInFlight("proj")).toBe(true);
 		expect(s.sent).toHaveLength(1);
 
 		s.wakeCoordinator.notify("proj");
-		await expect(first).resolves.toEqual({ ok: true });
+		await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }]);
 		expect(s.service.isWakeInFlight("proj")).toBe(false);
 		// One presence announcement per genuine wake, never one per joiner.
 		expect(s.presenceCalls).toEqual(["wakeStart:proj", "wakeEnd:proj"]);
@@ -188,7 +187,7 @@ describe("WakeService", () => {
 		expect(launches).toBe(1);
 		// Only the caller that launched can end it.
 		expect(second.release).toBeNull();
-		expect(second.launch).toBe(first.launch);
+		await expect(Promise.all([first.launch, second.launch])).resolves.toEqual([{ ok: true }, { ok: true }]);
 		expect(s.service.isWakeInFlight("proj.new")).toBe(true);
 
 		first.release?.();

@@ -50,6 +50,8 @@ export class RouterHttpError extends Error {
 	constructor(
 		readonly status: number,
 		body: string,
+		/** The answer parsed, when it was JSON. */
+		readonly json?: unknown,
 	) {
 		super(`HTTP ${status}: ${body.slice(0, MAX_ROUTER_ERROR_BODY)}`);
 	}
@@ -132,11 +134,7 @@ function serializeQueuedDelivery<T>(work: () => Promise<T>): Promise<T> {
 const typingRetries = (err: unknown): boolean =>
 	!(err instanceof RouterHttpError) || err.status === 503 || err.status === 504;
 
-/**
- * Types `payload` once its pane is idle. `key` makes a retry after a lost answer replay rather
- * than type twice. A pane busy for a long turn is waited out; a daemon down past the deadline
- * gives up, leaving the row held for the next connection.
- */
+/** Types once idle; `key` makes a retry replay. A daemon down past the deadline leaves the row held. */
 async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPayload, key: string): Promise<void> {
 	const text = await renderChannelTag(payload);
 	let retries = 0;
@@ -360,7 +358,7 @@ async function routerRequest(
 			} catch {
 				throw new RouterHttpError(res.status, body);
 			}
-			if (!res.ok) throw new RouterHttpError(res.status, routerErrorText(json) ?? body);
+			if (!res.ok) throw new RouterHttpError(res.status, routerErrorText(json) ?? body, json);
 			return json;
 		} catch (err) {
 			lastErr = err instanceof Error ? err : new Error(String(err));

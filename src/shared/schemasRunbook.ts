@@ -4,8 +4,7 @@ import { z } from "zod";
 import { parseBody, placeholdersOf } from "./runbook-grammar.js";
 import { CLI_PICKS } from "./session-harness.js";
 
-// Size is the owner's own to spend: these ops reach one gateway, authenticated as its owner, and
-// the console path's 64 MiB body cap is the only ceiling.
+// No size bounds; the console path's 64 MiB body cap is the only ceiling.
 
 /** Two billion edits, inside a JVM Long and a JS safe integer. */
 export const REVISION_CEILING = 2_147_483_647;

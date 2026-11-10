@@ -11,34 +11,21 @@ import {
 ////////////////////////////////
 //  Shared enum schemas
 //
-//  The single truth for the wire enums; types.ts derives from these via z.infer.
-//  These closed enums validate what our side composes. Fields a console decodes
-//  stay open strings.
+//  Closed enums validate what our side composes; console-decoded fields stay open strings.
 
 export const ConnectionModeSchema = z.enum(["channel"]).meta({ id: "ConnectionMode" });
 export const TeamKindSchema = z.enum(["devcontainer", "loose", "console"]).meta({ id: "TeamKind" });
 export const ResponseStatusSchema = z
 	.enum(["completed", "clarification", "deferred", "needs_human", "error", "timeout", "running", "starting"])
 	.meta({ id: "ResponseStatus" });
-// Whether a console's Domain is rooted yet. `unrooted` is a fresh, never-provisioned admin
-// Domain; `pending` is an admin-staged tenant not yet first-rooted; `rooted` provisions the
-// console. The gateway register reply only carries `rooted`/`unrooted` (a pending Domain has no
-// gateway to register against); `pending` reaches the app via the blob's `pendingTenant`.
+// `pending` reaches the app via the blob's `pendingTenant`, never a register reply.
 export const DomainStatusSchema = z.enum(["unrooted", "pending", "rooted"]).meta({ id: "DomainStatus" });
 
 ////////////////////////////////
 //  Channel Reply Schemas
-//
-//  Channel-mode conversations are streams: the conversation stays open for the
-//  life of the process and the agent can reply any number of times. There is no
-//  status because there is no end. Two closed-shape tools, not one polymorphic
-//  body: channel_reply is the ~99% prose path; channel_reply_structured is only
-//  for a request that carries a reply_schema (e.g. the bridge handshake).
+//  A conversation stays open, so there is no status.
 
-/** Appended to every prose-field describe whose content the console renders (channel_reply,
- * notify_human) - the cheap always-visible half of the escaped-newline guard; the pre-send lint
- * (`literalEscapeHazard` in mcp/bridge/replyTool.ts) is the enforcing half. The `\\n` spelling is
- * deliberate: the description must show the two-character sequence. */
+/** The escaped-newline guard's always-visible half; the `\\n` spelling shows two characters. */
 export const REAL_NEWLINES_GUIDANCE = ` Use REAL newlines for line breaks, not \\n. Wrap intentional escapes in backticks or code spans.`;
 
 /** The four notice tiers as the reply tools expose them: canonical texts verbatim plus the newline guidance. */

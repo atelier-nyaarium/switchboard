@@ -36,7 +36,7 @@ internal fun slashMacros(word: HarnessWord): List<SlashMacro> =
 	when (word) {
 		is HarnessWord.Named -> word.harness.slashPalette
 		is HarnessWord.Unnamed -> word.assumed.slashPalette
-		is HarnessWord.Unknown -> emptyList()
+		HarnessWord.Unpicked, is HarnessWord.Unknown -> emptyList()
 	}
 
 /** Each installed CLI's macros; every CLI's where none is, so one can be. */

@@ -1,5 +1,6 @@
 import { agentHttpPath } from "../../shared/agent-backend.js";
 import { CODEX_DEFAULT_MODEL, CODEX_PRIORITY_SERVICE_TIER, type CodexServiceTier } from "../../shared/codex-agent.js";
+import { sameFamily } from "../../shared/model-family.js";
 import type { AgentDispatch } from "../agentDispatch.js";
 import { type AgentRequestKind, requestHead } from "../agentRequest.js";
 import { routerPost } from "../bridge/helpers.js";
@@ -7,14 +8,14 @@ import { routerPost } from "../bridge/helpers.js";
 ////////////////////////////////
 //  Functions & Helpers
 
-/** A start naming neither gets the efficient model at priority. Naming either is deliberate, so a
- * heavier model does not also buy the tier it charges extra for. */
+/** The efficient family runs at priority unless a tier is named; a heavier model never buys it unasked. */
 export function codexStartDefaults(args: { model?: string; serviceTier?: CodexServiceTier }): {
 	model?: string;
 	serviceTier?: CodexServiceTier;
 } {
-	if (args.model !== undefined || args.serviceTier !== undefined) return args;
-	return { model: CODEX_DEFAULT_MODEL, serviceTier: CODEX_PRIORITY_SERVICE_TIER };
+	if (args.serviceTier !== undefined) return args;
+	const model = args.model ?? CODEX_DEFAULT_MODEL;
+	return sameFamily(model, CODEX_DEFAULT_MODEL) ? { model, serviceTier: CODEX_PRIORITY_SERVICE_TIER } : args;
 }
 
 /** Absent is OMITTED, since the gateway's schemas are strict. */

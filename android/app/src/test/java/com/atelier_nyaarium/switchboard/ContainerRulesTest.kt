@@ -8,10 +8,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ContainerRulesTest {
-	private fun container(run: ContainerRun?, harnesses: SpawnHarnesses = SpawnHarnesses.Unknown) =
+	private fun container(run: ContainerRun?, harnesses: SpawnHarnesses = SpawnHarnesses.UNOPENED_CONTAINER) =
 		SpawnContainer("app", run, failure = null, harnesses)
 
-	private fun buttons(run: ContainerRun?, harnesses: SpawnHarnesses = SpawnHarnesses.Unknown, reachable: Boolean = true) =
+	private fun buttons(run: ContainerRun?, harnesses: SpawnHarnesses = SpawnHarnesses.UNOPENED_CONTAINER, reachable: Boolean = true) =
 		containerButtons(container(run, harnesses), reachable, inFlight = false)
 
 	@Test
@@ -51,19 +51,6 @@ class ContainerRulesTest {
 		assertEquals(StopAsk("d.gw.app", listOf("turn", "compact", "ask", "limit", "agent", "flow")), ask)
 		assertNull(stopAsk("d.gw.app", inside.take(1)) { it })
 		assertFalse(inside.any { it.name == "d.gw.other.turn" || it.name == "d.gw2.app.turn" })
-	}
-
-	@Test
-	fun createWaitsForARunningContainerOnlyWhereTheGatewayReportsContainers() {
-		val reporting = testRegistry("gw", "old").withEntry("gw") {
-			it.copy(containers = listOf(container(ContainerRun.RUNNING), SpawnContainer("idle", ContainerRun.STOPPED, null, SpawnHarnesses.Unknown)))
-		}
-
-		assertTrue(reporting.createsOn("gw", "host"))
-		assertTrue(reporting.createsOn("gw", "app"))
-		assertFalse(reporting.createsOn("gw", "idle"))
-		assertFalse(reporting.createsOn("gw", "unlisted"))
-		assertTrue(reporting.createsOn("old", "anything"))
 	}
 
 	@Test

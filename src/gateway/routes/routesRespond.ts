@@ -34,13 +34,9 @@ export interface RespondRoutesDeps {
 		replyAsJson?: Record<string, unknown>,
 		responderToken?: Presented,
 	) => boolean;
-	// The pending hs-* id owed by a (team, subId), if any.
 	findPendingHandshake?: (team: string, subId: string) => string | undefined;
-	// Re-sends a still-pending handshake.
 	repushHandshake?: (team: string, subId: string) => HandshakeRepushOutcome;
-	// Whether a local session is still shared to a friend Domain.
 	isSharedToForReply?: ((sessionTarget: string, domainId: string) => boolean) | null;
-	// This Domain's owner id, a hash of the owner's signing key.
 	ownerId?: (() => string | null) | null;
 	tryLocalAddress: (name: string) => Address | null;
 	relayWithRetry: (
@@ -55,9 +51,8 @@ export interface RespondRoutesDeps {
 	refuseForeignReply: (req: Request, target: string) => Response | null;
 	refuseForeignPoll: (req: Request, sessionId: string) => Response | null;
 	provedLocalSession: (req: Request) => boolean;
-	/** Local reply push. */
 	onReplyPushed: (team: string) => void;
-	/** Holds a launch outcome for the session that sent. */
+	/** Banks a launch outcome for the sender. */
 	bankLaunch?: (sessionKey: string, notice: LaunchNotice) => void;
 }
 
@@ -87,7 +82,6 @@ export function createRespondRoutes({
 	function respond(
 		req: Request,
 		body: Record<string, unknown>,
-		// Unlike send(), respond() never needs to tell "trusted federated relay" apart from a plain caller.
 		opts: { consoleSender?: boolean; trustedInbound?: boolean; onFederatedSettled?: (ok: boolean) => void } = {},
 	): Response {
 		const parsed = RespondBodySchema.safeParse(body);
@@ -108,26 +102,26 @@ export function createRespondRoutes({
 			}
 		}
 
-		// Check if this is a handshake response (handshakes never carry files). The caller's own.
+		// Handshakes carry no files.
 		const responderToken = presentedByRequest(req);
 		if (resolveHandshake?.(respondSessionId, replyAsJson ?? undefined, responderToken)) {
 			return jsonResponse({ delivered: true, handshake: true });
 		}
 
-		// A stray reply on a no-ack session is treated as delivered, not an error.
+		// A stray no-ack reply counts as delivered.
 		if (isNoAckSessionId(respondSessionId) && !store.has(respondSessionId)) {
 			return jsonResponse({ delivered: true, noAck: true });
 		}
 
-		// This reply doesn't resolve a handshake, but a still-pending caller handshake bounces it.
+		// A pending caller handshake bounces it.
 		if (rest.conversationId) {
 			const callerWs = conversationRegistry.get(rest.conversationId);
 			if (callerWs && callerWs.readyState === 1 && !callerWs.data.virtual && !callerWs.data.handshakeConfirmed) {
 				const team = callerWs.data.teamName;
 				const pendingHsId = team && findPendingHandshake?.(team, callerWs.data.subId);
-				// Omits the pending hs-* id from the error; unlike conversationId, it isn't safe to expose.
+				// The hs-* id is never exposed.
 				if (team && pendingHsId) {
-					// Re-push the handshake before bouncing: the caller may have lost the original.
+					// The caller may have lost the original.
 					const outcome = repushHandshake?.(team, callerWs.data.subId);
 					const error =
 						outcome === "capped"
@@ -140,11 +134,10 @@ export function createRespondRoutes({
 			}
 		}
 
-		// Spoken tiers are for a phone. An unknown reader's ride on, for its own Gateway to judge.
+		// Spoken tiers are phone-only; an unknown reader keeps them.
 		const job = store.contractOf(respondSessionId);
 		const reader = job && readerOf(job);
 
-		// If JSON reply provided but no explicit response string, pretty-stringify for text consumers.
 		const response: ResponsePayload = {
 			session_id: respondSessionId,
 			status: rest.status as ResponsePayload["status"] | undefined,
@@ -156,7 +149,7 @@ export function createRespondRoutes({
 			what_to_decide: rest.what_to_decide,
 			message: rest.message,
 		};
-		// The STORE keeps names, never a way to get the bytes. `/poll` reads this copy and authorizes.
+		// The store keeps names, never bytes.
 		if (files && files.length > 0) response.files = stripFileRefs(files);
 		if (replyAsJson) {
 			response.replyAsJson = replyAsJson;
@@ -165,7 +158,7 @@ export function createRespondRoutes({
 			}
 		}
 
-		// The session id fixes who may reply; a mismatched caller is refused.
+		// The session id fixes who may reply.
 		const jobTarget = store.targetOf(respondSessionId);
 		if (jobTarget && !opts.consoleSender && !opts.trustedInbound) {
 			const refused = refuseForeignReply(req, jobTarget);
@@ -185,7 +178,6 @@ export function createRespondRoutes({
 			}
 		}
 
-		// The session_id is the opaque store key the agent echoes verbatim.
 		const deliverResult = store.settle(respondSessionId, response);
 		if (!deliverResult) {
 			console.log(
@@ -200,7 +192,7 @@ export function createRespondRoutes({
 
 		if (contract.kind === "inbound") {
 			const rr = contract.route;
-			// Share may have been revoked since the original send; re-check it here.
+			// Share may be revoked since the send.
 			if (contract.dstDomainId) {
 				const pinned = parseStoreKey(rr.srcSession);
 				const sessionTarget = pinned?.kind === "conv" ? pinned.address.canonical : undefined;
@@ -232,7 +224,7 @@ export function createRespondRoutes({
 				void relayOutcome.then((r) => opts.onFederatedSettled?.(r.ok));
 			}
 			console.log(`[respond] ${respondSessionId} handed to Gateway ${rr.srcGateway} for relay`);
-			// Mirror the LOCAL responder's own thread; never for the console itself.
+			// Local responders only.
 			const localAddr = opts.consoleSender ? null : tryLocalAddress(deliverResult.to);
 			if (localAddr && provedLocalSession(req)) {
 				mirrorPeer(localAddr, localAddr.canonical, deliverResult.from, {
@@ -244,14 +236,14 @@ export function createRespondRoutes({
 			return jsonResponse({ recorded: true, federated: true, relaying: true });
 		}
 
-		// Push response back to the sender, preferring its own conversation over a name broadcast.
+		// Prefer the sender's own conversation.
 		const push: ResponsePushPayload = {
 			type: "response_push",
 			session_id: respondSessionId,
 			response: response.response,
 		};
 		if (response.status) push.status = response.status;
-		// The push carries the full bytes; the store kept metadata only. message_id identifies the files.
+		// The push carries the bytes; message_id names them.
 		if (files && files.length > 0) {
 			push.files = files;
 			push.message_id = ambient.newId();
@@ -336,7 +328,7 @@ export function createRespondRoutes({
 
 		const { session_id } = parsed.data;
 
-		// Before the read, since a persistent entry is not consumed and would keep paying out.
+		// Before the read; persistent entries are not consumed.
 		const refused = refuseForeignPoll(req, session_id);
 		if (refused) return refused;
 
@@ -357,7 +349,7 @@ export function createRespondRoutes({
 		return jsonResponse(result);
 	}
 
-	/** A relayed send's launch outcome, told back on its reply road. True once nothing more is owed. */
+	/** True once nothing more is owed. */
 	async function pushLaunch(relay: LaunchRelay, notice: LaunchNotice): Promise<boolean> {
 		if (relay.dstDomainId) {
 			const pinned = parseStoreKey(relay.srcSession);
@@ -374,12 +366,12 @@ export function createRespondRoutes({
 		return outcome.ok;
 	}
 
-	/** A launch outcome from the Gateway a send went to, banked for its sender; never a reply. */
+	/** Banked for the sender; never a reply. */
 	function acceptLaunchNotice(sessionId: string, notice: LaunchNotice): void {
 		const asker = store.askerOf(sessionId);
 		if (!asker) return;
 		bankLaunch?.(asker, notice);
-		// Nothing reached the session, so no reply will come.
+		// No reply will come.
 		if (notice.kind === "failed") store.remove(sessionId);
 	}
 

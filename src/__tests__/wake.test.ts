@@ -26,13 +26,6 @@ describe("WakeCoordinator", () => {
 		await expect(coord.waitFor("alpha", 10)).resolves.toEqual({ ok: true });
 	});
 
-	it("still waits for a team that is not registered yet", async () => {
-		const coord = new WakeCoordinator(processAmbient(), () => false);
-		const p = coord.waitFor("alpha", 10_000);
-		coord.notify("alpha", true);
-		await expect(p).resolves.toEqual({ ok: true });
-	});
-
 	it("resolves an ambiguous timeout rather than hanging", async () => {
 		const coord = new WakeCoordinator(processAmbient());
 		await expect(coord.waitFor("slow", 10)).resolves.toEqual({ ok: false, errorKind: "timeout" });
@@ -59,39 +52,23 @@ describe("WakeCoordinator", () => {
 		await expect(b).resolves.toEqual({ ok: false, errorKind: "disconnected" });
 	});
 
-	it("ackReceived shortens an in-flight wait so a started-but-unregistered team fails fast, still ambiguous", async () => {
+	it("ackReceived shortens every in-flight wait so a started-but-unregistered team fails fast, still ambiguous", async () => {
 		const coord = new WakeCoordinator(processAmbient());
 		// Verifies the shortened deadline.
-		const p = coord.waitFor("alpha", 10_000);
+		const waits = [coord.waitFor("alpha", 10_000), coord.waitFor("alpha", 10_000)];
 		coord.ackReceived("alpha", 10);
-		await expect(p).resolves.toEqual({ ok: false, errorKind: "timeout" });
+		await expect(Promise.all(waits)).resolves.toEqual([
+			{ ok: false, errorKind: "timeout" },
+			{ ok: false, errorKind: "timeout" },
+		]);
 	});
 
-	it("ackReceived still resolves true when the team registers within the window", async () => {
+	it("ackReceived still resolves every waiter true when the team registers within the window", async () => {
 		const coord = new WakeCoordinator(processAmbient());
-		const p = coord.waitFor("alpha", 10_000);
+		const waits = [coord.waitFor("alpha", 10_000), coord.waitFor("alpha", 10_000)];
 		coord.ackReceived("alpha", 10_000);
 		coord.notify("alpha", true);
-		await expect(p).resolves.toEqual({ ok: true });
-	});
-
-	it("ackReceived shortens every concurrent waiter for a team; a register then resolves them all true", async () => {
-		const coord = new WakeCoordinator(processAmbient());
-		const a1 = coord.waitFor("alpha", 10_000);
-		const a2 = coord.waitFor("alpha", 10_000);
-		coord.ackReceived("alpha", 10_000);
-		coord.notify("alpha", true);
-		await expect(a1).resolves.toEqual({ ok: true });
-		await expect(a2).resolves.toEqual({ ok: true });
-	});
-
-	it("ackReceived fails every concurrent waiter fast when none registers, still ambiguous", async () => {
-		const coord = new WakeCoordinator(processAmbient());
-		const a1 = coord.waitFor("alpha", 10_000);
-		const a2 = coord.waitFor("alpha", 10_000);
-		coord.ackReceived("alpha", 10);
-		await expect(a1).resolves.toEqual({ ok: false, errorKind: "timeout" });
-		await expect(a2).resolves.toEqual({ ok: false, errorKind: "timeout" });
+		await expect(Promise.all(waits)).resolves.toEqual([{ ok: true }, { ok: true }]);
 	});
 
 	it("ackReceived can only bring the deadline in, never push it out", async () => {

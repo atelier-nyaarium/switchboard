@@ -1,4 +1,4 @@
-// What a routine does when its moment comes. The runner owns when; none of that is decided here.
+// What a routine does when due; the runner owns when.
 
 import { occurrenceIdOf, type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
@@ -10,10 +10,10 @@ import type { PrepareResult, RoutineAttempt } from "./runner.js";
 
 export interface RoutineExecutionDeps extends TargetReserve {
 	getRunbook: (runbookId: string) => Runbook | null;
-	/** Working, at its limit or holding a prompt, when known. */
+	/** Undefined when unknown. */
 	busyOf: (team: string) => boolean | undefined;
 	hasSession: (team: string) => boolean;
-	/** Match owner teardown. */
+	/** Same as an owner's forget. */
 	forgetSession: (team: string) => void;
 	holdLine?: () => string;
 	/** Refusal reason, or null. */
@@ -34,8 +34,7 @@ export function nudgeFor(routine: Routine, occurrence: Occurrence, holdLine?: st
 export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttempt {
 	return {
 		sessionIdle(team: string): boolean {
-			// Unknown counts as idle: a session nobody has heard from is not one that is busy, and
-			// the deadline is what stops this waiting forever.
+			// Unknown counts as idle; the deadline bounds waiting.
 			return deps.busyOf(team) !== true;
 		},
 
@@ -47,7 +46,7 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 			const rendered = renderRoutine(deps.getRunbook(routine.runbookId), routine);
 			if (!rendered.ok) return { ok: false, reason: "unrenderable" };
 
-			// One routine's dead machine must not end the sweep.
+			// A dead host must not end the sweep.
 			const reserved = await targetRules(routine)
 				.reserve(routine, deps)
 				.catch((): ReserveResult => ({ kind: "pending" }));

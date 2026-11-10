@@ -57,6 +57,20 @@ describe("routine store", () => {
 		).toEqual(["morning"]);
 	});
 
+	it("keeps a held CLI pick through a put that names none, and clears it on `unpicked`", () => {
+		const store = open(fresh());
+		const pickOf = () => store.list()[0]?.target.cli;
+
+		store.put(routine("morning", { target: { spawn: "host", cli: "opencode" } }));
+		const kept = store.put(routine("morning", { name: "Renamed" }), { base: 1 });
+		const keptPick = pickOf();
+		store.put(routine("morning", { name: "Renamed", target: { spawn: "host", cli: "unpicked" } }), { base: 2 });
+
+		expect(kept).toMatchObject({ stored: true });
+		expect(keptPick).toBe("opencode");
+		expect(pickOf()).toBeUndefined();
+	});
+
 	it("names the revision itself, and takes a put only from the one it holds", () => {
 		const store = open(fresh());
 		expect(store.put(routine("morning", { revision: 44 }))).toMatchObject({ stored: true, revision: 1 });

@@ -50,6 +50,7 @@ import com.atelier_nyaarium.switchboard.proto.RoutineMiss
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
@@ -231,7 +232,13 @@ internal class SandboxPolicyGateway : PolicyGateway {
 }
 
 internal class SandboxRoutineGateway : RoutineGateway {
-	private fun routine(id: String, name: String, enabled: Boolean = true, zone: String = "America/Los_Angeles") = Routine(
+	private fun routine(
+		id: String,
+		name: String,
+		enabled: Boolean = true,
+		zone: String = "America/Los_Angeles",
+		cli: String? = null,
+	) = Routine(
 		id = id,
 		name = name,
 		weekdays = listOf(1L, 3L),
@@ -242,7 +249,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 		runbookId = "release",
 		approvedRevision = 3L,
 		values = JsonObject(emptyMap()),
-		target = RoutineTarget(spawn = "host"),
+		target = RoutineTarget(spawn = "host", cli = cli),
 		linkedEntries = emptyList(),
 		forgetAfterDays = Protocol.Wire.ROUTINE_FORGET_DAYS_DEFAULT.toLong(),
 		enabled = enabled,
@@ -253,11 +260,11 @@ internal class SandboxRoutineGateway : RoutineGateway {
 	/** One of each panel, so no line in the tab is unreachable. */
 	override suspend fun list(gatewayId: String) = when (gatewayId) {
 		EMPTY_GATEWAY -> ConsoleRoutineListResult(routines = emptyList())
-		// Another zone, same id as another Gateway's.
+		// Another zone, same id as another Gateway's, and a pick this host no longer runs.
 		SECOND_GATEWAY -> ConsoleRoutineListResult(
 			routines = listOf(
 				RoutineState(
-					routine = routine("triage", "Parser sweep", zone = "Europe/London"),
+					routine = routine("triage", "Parser sweep", zone = "Europe/London", cli = SessionHarness.CLAUDE.wire),
 					nextAt = nextSlot(),
 				),
 			),
@@ -265,7 +272,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 		else -> ConsoleRoutineListResult(
 			routines = listOf(
 				RoutineState(
-					routine = routine("triage", "Morning triage"),
+					routine = routine("triage", "Morning triage", cli = SessionHarness.OPENCODE.wire),
 					nextAt = nextSlot(),
 					lastRanAt = day(-86_400_000L),
 				),

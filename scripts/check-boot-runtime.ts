@@ -198,10 +198,7 @@ interface McpRun {
 	instructions: string;
 }
 
-/**
- * One `main-mcp` over stdio, asked what it registers and then asked to use it. A residue test cannot
- * see a tool that is never registered, and a nudge naming one that is not there reads as working.
- */
+/** One `main-mcp` over stdio, asked what it registers, then to use it. */
 async function mcpSession(
 	gatewayUrl: string,
 	projectName: string,
@@ -236,7 +233,7 @@ async function mcpSession(
 				params?: { meta?: { session_id?: string; reply_schema?: string } };
 			};
 			if (typeof frame.id === "number" && frame.result) answers.set(frame.id, frame.result);
-			// A session is bound only once it answers the gateway's handshake, as a real client does.
+			// Bound only once the handshake is answered.
 			const handshake = frame.params?.meta;
 			if (frame.method === "notifications/claude/channel" && handshake?.reply_schema && handshake.session_id) {
 				send({
@@ -280,7 +277,6 @@ async function mcpSession(
 				arguments: { occurrenceId: "1" },
 			})) as { content?: Array<{ text?: string }> };
 			const text = called.content?.[0]?.text ?? "";
-			// The tool renders each outcome as its own sentence, which is what a session reads.
 			if (text.startsWith("No routine runs")) return "no_routine";
 			if (text.startsWith("This session is not bound")) return "unauthenticated";
 			if (text.startsWith("This session holds no run")) return "unknown_occurrence";
@@ -288,8 +284,7 @@ async function mcpSession(
 			return "unexpected";
 		};
 
-		// A binding is confirmed by the handshake, which lands after the socket opens, so the first
-		// ask can honestly precede it.
+		// The handshake lands after the socket opens, so the first ask can precede it.
 		if (!until) return { tools, answer: { kind: await ask() }, ...served };
 		const kind = await waitFor(
 			async () => ((await ask()) === until ? until : undefined),

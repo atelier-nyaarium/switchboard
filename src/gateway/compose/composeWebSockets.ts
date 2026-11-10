@@ -159,6 +159,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			}
 		},
 		onSpawnPointsChange: () => sessions.presence.markDirty(),
+		onPickResolved: (team, harness) => sessions.presence.resolvePick(team, harness),
 		onCatalogChange: (daemonInstanceId) => {
 			sessions.presence.markDirty();
 			const socket = hostRegisterSocket;

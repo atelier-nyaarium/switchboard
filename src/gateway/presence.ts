@@ -117,6 +117,12 @@ export class PresenceFacade {
 		return r;
 	}
 
+	resolvePick(team: string, harness: Parameters<SessionStore["resolvePick"]>[1]): SessionRecord | null {
+		const r = this.sessionStore.resolvePick(team, harness);
+		if (r) this.markDirty();
+		return r;
+	}
+
 	mintOrReattach(opts: Parameters<SessionStore["mintOrReattach"]>[0]): ReturnType<SessionStore["mintOrReattach"]> {
 		const r = this.sessionStore.mintOrReattach(opts);
 		if (r.created) this.markDirty();

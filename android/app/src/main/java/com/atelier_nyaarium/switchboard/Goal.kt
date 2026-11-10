@@ -66,7 +66,7 @@ internal fun takesGoals(word: HarnessWord): Boolean =
 	when (word) {
 		is HarnessWord.Named -> word.harness.goals
 		is HarnessWord.Unnamed -> word.assumed.goals
-		is HarnessWord.Unknown -> false
+		HarnessWord.Unpicked, is HarnessWord.Unknown -> false
 	}
 
 /** Typed, so needs a drivable pane. */

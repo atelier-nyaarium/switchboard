@@ -328,6 +328,8 @@ Uncommitted while this is written.
 - **Container state on the wire:** `GatewaySpawnPoints.containers` (`ContainerState`: state, last failure, CLIs found, absent until looked inside), taken from the daemon's `catalog` and `containers` frames; console ops `container_start` and `container_stop` relay the matching host ops. The availability map stays `harnessSpawns` for host shells; containers carry theirs in `containers[].clis`.
 - **The pick:** `cli` on `crosstalk_send`, `/send`, the relayed send, the assistant's guard and its card intent. Refusals travel typed (`SendRefusal`) and the plugin renders `sendRefusalText` with no prefix. A record may lack `harness` while its create waits; `resolvePick` names it on `cli_found`. Routine targets and a fire's new-session target carry `cli` (`CLI_PICKS`); a routine whose pick does not fit settles `cli_refused`. `crosstalk_discover` prints CLIs from `spawnClis`.
 - **Protocol floor 6.**
+- **Not seen in the emulator:** the routine editor's and fire sheet's CLI pick; the AVD cold-booted to a PIN lock, so only their JVM tests cover them. The container headers, Start, Stop and Create were seen there.
+- **To check live:** a fresh session takes its greeting before its queued message. The drain now runs at registration with no settle, and the plugin can register before the greeting is typed; if the order inverts, hold the drain for a never-confirmed session until its handshake confirms.
 ## Phase 2c - Copilot in containers
 
 - **Typed delivery reaches a container pane:** `typeSession` refuses any spawn but the host's today, and its target is hard-coded to the host's. It builds the target from the session's spawn point. The daemon types into a container's pane as it already peeks and sends keys there.
@@ -350,11 +352,34 @@ A blank `cli` is never a probe; `crosstalk_discover` is. A `displayLabel` on a s
 - A launch notice carries a `session:` data line above its text, naming the address. Two of the owner's strings name none, and the bank renders only a notice's body and source.
 - A sender in another Domain gets the container failure without its second sentence.
 
-**Still to take past the owner, before the Containers slice builds them:**
+**Taken past the owner during the Containers slice:**
 
-- The crosstalk skill's line that a send "Blocks until they respond" (`skills/crosstalk/SKILL.md`).
-- `crosstalk_discover`'s description, which names `displayLabel` alone.
-- The assistant's instructions on creating a session (`src/mcp/assistant/instructions.ts`).
+- The crosstalk skill's `crosstalk_send` line, the owner's wording: "Send a message to another team. They will reply to you the same way." Owner: "Only Claude has channel push, so we should reword that."
+
+- `crosstalk_discover`'s description, restructured with the owner ("way too much in 1 sentence ... Try a new structure"); its last line is the owner's wording, with "refuse" for "refuses":
+  ```
+  # Crosstalk Discover
+
+  List reachable agent teams, excluding this session.
+
+  Each team is a spawn point, with:
+  - Its CLIs, where known.
+  - Its active sessions, at their full addresses.
+  - Its asleep sessions, with their last-seen time.
+
+  A spawn point is not a target. To create a session under it, `crosstalk_send` with:
+  - `displayLabel`
+  - `cli`, when it lists several
+  - Host spawn points refuse session auto-creation. Ask the user to make one first.
+  ```
+
+- The assistant's instructions, a bullet after Sending, the last line the owner's wording ("we reduce it since the results coming back are pretty obvious"):
+  ```
+  - **New sessions:**
+    - `crosstalk_send` with `displayLabel` creates one.
+    - Set `cli` when the spawn point lists several.
+    - A system reminder will tell you when it delivers, or whether the spawn point encountered an issue.
+  ```
 
 **Notice, a woken session's CLI is not installed (`act_now`):**
 
@@ -478,6 +503,8 @@ Running or stopped is not shown: an agent's send starts the container either way
 - **A CLI with no row gets Claude's slash tools:** `OTHER_AGENT` in `src/mcp/sessionCli.ts` sets `claudeSlashTools`, so `compact_session` and `set_effort_level` register for a CLI that cannot run them.
 - **21 dated shims fall due on 2026-11-23:** the optional `harness` fields, `unnamed`, `claudeSpawns` and `copilotSpawns`, and the `copilotSessionId` twin. Nothing but a grep for the date finds them.
 - **An OpenCode session's plugin runs from the checkout's `dist/`:** `LAUNCH` in `hostResolve.ts` points the MCP server at the daemon checkout, so a `--build-only` there changes what a live session runs on its next plugin restart, and every source commit first restores `dist/`. The marketplace copy the other CLIs run is not used.
+- **The daemon blocks on `execSync` inside a start:** `isContainerReady` (up to 15 s) and plugin provisioning (up to 120 s) in `helpers.ts` hold the daemon's event loop, and a Stop cannot interrupt either. Every other session's presence and every host op wait behind them.
+- **`hostDaemon.ts` is about 850 lines:** the wake, the catalog, the host ops and the container wiring share one module that runs on import. A split by concern is due.
 - **No gate runs the real OpenCode binary:** the fake server encodes one reading of 2.2.5, and each behavior it rests on (duplicate prompt ids, the compaction row's id, synthetic input with no turn) was confirmed by hand scripts against a real server. A pin move finds drift only in Phase 3's manual pass.
 
 ## Owner asks, open
@@ -504,6 +531,14 @@ Running or stopped is not shown: an agent's send starts the container either way
     ## OpenCode
 
     `model` uses the format: `provider/model`
+    ```
+  - **Q7f, guidance, the Codex section,** the owner's wording, and a behavior change: a Luna-family model defaults to `priority` whenever `tier` is omitted ("B. I want Luna fast by default. should be a tiny fix."):
+    ```
+    ## Codex
+
+    `tier` accepts: `priority` or `standard`
+    - When Luna family is selected, tier will be defaulted to `priority`.
+    - On `agentMessage`, tier applies to the next new turn.
     ```
   - **Q6, how a session gets the backend?** A: its own capability, `opencode-agent`, on by default where OpenCode is installed, listed in the backends line, switchable like `codex-agent` and `copilot-agent`. Owner: "A".
 

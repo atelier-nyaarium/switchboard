@@ -2,7 +2,11 @@ package com.atelier_nyaarium.switchboard.routines
 
 import com.atelier_nyaarium.switchboard.ASSISTANT_SPAWN
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.pickAfterTap
+import com.atelier_nyaarium.switchboard.pickOf
+import com.atelier_nyaarium.switchboard.shownPick
 import com.atelier_nyaarium.switchboard.placedGateway
+import com.atelier_nyaarium.switchboard.proto.CliPick
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
@@ -45,6 +49,10 @@ internal data class RoutineDraft(
 	val targetKind: String = ROUTINE_TARGET_SPAWN,
 	val spawn: String = "host",
 	val workdir: String = "",
+	/** Null keeps a held pick this build cannot read; a put sends none for it. */
+	val cli: CliPick? = CliPick.Unpicked,
+	/** That held pick's word, shown marked. */
+	val unreadCli: String? = null,
 	val linkedEntries: List<String> = emptyList(),
 	val enabled: Boolean = true,
 	/** Days a finished run's session is kept before the gateway forgets it. */
@@ -91,6 +99,8 @@ internal data class RoutineDraft(
 				kind = if (assistant) ROUTINE_TARGET_ASSISTANT else ROUTINE_TARGET_SPAWN,
 				spawn = spawn,
 				workdir = workdir.takeUnless { assistant }?.ifBlank { null },
+				// Never none for a pick the owner cleared: none keeps the held one.
+				cli = if (assistant) CliPick.Unpicked.wire else cli?.wire,
 			),
 			linkedEntries = if (assistant) emptyList() else linkedEntries,
 			enabled = enabled,
@@ -118,6 +128,12 @@ internal data class RoutineDraft(
 		targetKind = ROUTINE_TARGET_SPAWN,
 		spawn = spawn,
 	)
+
+	/** The toggle shown selected. */
+	val shownCli: String? get() = shownPick(cli, unreadCli)
+
+	/** Any tap retires an unread held pick. */
+	fun tapCli(tapped: String): RoutineDraft = copy(cli = pickAfterTap(cli, unreadCli, tapped), unreadCli = null)
 
 	/** The same rule read in another zone, for showing the owner their own time. */
 	fun shown(inZoneId: String, on: java.time.LocalDate = today()): RoutineDraft = read(inZoneId, on)
@@ -148,10 +164,11 @@ internal data class RoutineDraft(
 
 	companion object {
 		/** The gateway prefixes `routine-` to name the reserved session, so the id carries none. */
-		fun fresh(zone: java.time.ZoneId): RoutineDraft = RoutineDraft(
+		fun fresh(zone: java.time.ZoneId, cli: CliPick = CliPick.Unpicked): RoutineDraft = RoutineDraft(
 			id = java.util.UUID.randomUUID().toString().take(8),
 			startDate = java.time.LocalDate.now(zone).toString(),
 			zone = zone.id,
+			cli = cli,
 		)
 
 		fun of(routine: Routine): RoutineDraft = RoutineDraft(
@@ -173,6 +190,8 @@ internal data class RoutineDraft(
 			},
 			spawn = routine.target.spawn,
 			workdir = routine.target.workdir.orEmpty(),
+			cli = pickOf(routine.target.cli),
+			unreadCli = routine.target.cli.takeIf { pickOf(it) == null },
 			linkedEntries = routine.linkedEntries,
 			enabled = routine.enabled,
 			forgetAfterDays = routine.forgetAfterDays.toInt(),

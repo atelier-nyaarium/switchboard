@@ -23,10 +23,15 @@ enum class GatewayStanding { Unknown, NeverSeen, Offline, Online }
 
 /** The session CLIs one spawn point has. */
 sealed interface SpawnHarnesses {
-	/** Nobody has looked yet. */
-	data object Unknown : SpawnHarnesses
+	/** Nobody has looked yet; `runsHere` is what the place allows. */
+	data class Unknown(val runsHere: Set<SessionHarness>) : SpawnHarnesses
 
 	data class Known(val installed: Set<SessionHarness>) : SpawnHarnesses
+
+	companion object {
+		/** A container nobody has looked inside. */
+		val UNOPENED_CONTAINER = Unknown(SessionHarness.entries.filter { it.containers }.toSet())
+	}
 }
 
 /** A dev container's run state, as its Gateway reports it. */
@@ -103,13 +108,13 @@ data class GatewayRegistry(
 	/** [harnessesOn] for a session's spawn point. */
 	fun harnessesOnSession(address: String): SpawnHarnesses {
 		val parsed = runIsolated { parseQualifiedTarget(address) }.getOrNull() as? Address
-			?: return SpawnHarnesses.Unknown
+			?: return SpawnHarnesses.UNOPENED_CONTAINER
 		return harnessesOn(parsed.gateway, parsed.spawn)
 	}
 
 	/** Which session CLIs a spawn point can run. */
 	fun harnessesOn(gatewayId: String, spawn: String): SpawnHarnesses {
-		if (spawn !in HOST_SPAWN_IDS) return container(gatewayId, spawn)?.harnesses ?: SpawnHarnesses.Unknown
+		if (spawn !in HOST_SPAWN_IDS) return container(gatewayId, spawn)?.harnesses ?: SpawnHarnesses.UNOPENED_CONTAINER
 		// No row reads as an older Gateway.
 		val held = entry(gatewayId)?.harnessSpawns ?: legacySpawns(claude = null, copilot = null)
 		return SpawnHarnesses.Known(SessionHarness.entries.filter { held[it]?.contains(spawn) == true }.toSet())
@@ -119,13 +124,6 @@ data class GatewayRegistry(
 
 	fun container(gatewayId: String, project: String): SpawnContainer? =
 		containersOn(gatewayId).find { it.project == project }
-
-	/** Whether the phone's Create may spawn there now. A Gateway reporting no containers is not gated. */
-	fun createsOn(gatewayId: String, spawn: String): Boolean {
-		if (spawn in HOST_SPAWN_IDS) return true
-		val reported = entry(gatewayId)?.containers ?: return true
-		return reported.any { it.project == spawn && it.run == ContainerRun.RUNNING }
-	}
 
 	/** Roster live, Router-held. */
 	fun reachable(gatewayId: String): Boolean = current && connected(gatewayId) == true
@@ -233,7 +231,7 @@ internal fun spawnContainerOf(row: ContainerState): SpawnContainer =
 		failure = row.failure,
 		harnesses = row.clis?.let { words ->
 			SpawnHarnesses.Known(words.mapNotNullTo(HashSet()) { (readHarness(it) as? HarnessWord.Named)?.harness })
-		} ?: SpawnHarnesses.Unknown,
+		} ?: SpawnHarnesses.UNOPENED_CONTAINER,
 	)
 
 // FIXME 2026-11-23: drop, with both old lists.

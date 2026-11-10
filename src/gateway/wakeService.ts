@@ -21,11 +21,11 @@ export interface WakeServiceDeps {
 	offlineCatalog: Map<string, string>;
 	liveHostSocket: () => ServerWebSocket<WsData> | undefined;
 	wakeTimeoutMs: number;
-	/** What a spawn point runs; undefined until known. */
+	/** Undefined until known. */
 	installedAt?: (spawn: string) => readonly SessionHarness[] | undefined;
 }
 
-/** A wake's two answers: the team it launches, at once, and how it ended. */
+/** The team at launch, then the outcome. */
 export interface WakeFlight {
 	started: Promise<WakeStart>;
 	outcome: Promise<WakeResult>;
@@ -90,10 +90,16 @@ export class WakeService {
 		});
 		const outcome = (async () => {
 			this.deps.presence.wakeStart(team);
+			// A create launches under its minted name, which presence reads.
+			let minted: string | undefined;
 			try {
-				const result = await this.doWakeTeam(team, createOpts, (wakeTeam, created) =>
-					announce({ kind: "launching", team: wakeTeam, created }),
-				);
+				const result = await this.doWakeTeam(team, createOpts, (wakeTeam, created) => {
+					if (wakeTeam !== team) {
+						minted = wakeTeam;
+						this.deps.presence.wakeStart(wakeTeam);
+					}
+					announce({ kind: "launching", team: wakeTeam, created });
+				});
 				announce({ kind: "settled", result });
 				return result;
 			} catch (error) {
@@ -104,6 +110,7 @@ export class WakeService {
 				throw error;
 			} finally {
 				this.deps.presence.wakeEnd(team);
+				if (minted) this.deps.presence.wakeEnd(minted);
 				this.flights.delete(team);
 			}
 		})();
@@ -212,7 +219,6 @@ export class WakeService {
 		if (!reached(requested)) return { ok: false, errorKind: "disconnected" };
 		onStarted(wakeTeam, provisionalCreated);
 
-		// The id asked for, so a record that comes back repointed can be paired with the request.
 		console.log(
 			`[wake] requesting ${wakeTeam} startup${projectPath ? ` (${projectPath})` : " (convention)"}${
 				resumeSessionId ? `, resuming ${resumeSessionId}` : ", no transcript to resume"
@@ -224,14 +230,14 @@ export class WakeService {
 			.waitFor(wakeTeam, this.deps.wakeTimeoutMs)
 			.finally(() => this.launching.delete(wakeTeam));
 		if (result.errorKind === "timeout") {
-			// Given up, so no pane opens for a record about to be forgotten.
+			// No pane for a record about to go.
 			const live = this.deps.liveHostSocket();
 			if (live) sendOn(live, JSON.stringify({ type: "wake_cancel", team: wakeTeam }), `wake_cancel ${wakeTeam}`);
 		}
 		console.log(`[wake] ${wakeTeam} ${result.ok ? "is now online" : "failed to come online"}`);
 		for (const listener of this.settledListeners) listener(wakeTeam, result);
 		if (!result.ok && provisionalCreated) {
-			// Remove provisional records when the wake never comes online.
+			// Drops a provisional record.
 			const rec = this.deps.sessionStore.getByTeam(wakeTeam);
 			if (
 				rec &&

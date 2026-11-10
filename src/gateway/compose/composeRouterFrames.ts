@@ -91,8 +91,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		const localDomainId = context.activeDomainId();
 		const isLinkedDomain = (domainId: string) => context.isLinkedDomain(domainId);
 
-		// Named, because the routine stage forgets a finished run's session by the same steps an
-		// owner's forget takes. Written twice they would drift, and the copy nobody taps drifts first.
+		// Shared with the routine stage's forget.
 		const dropSessionResume = (team: string, disposition: BoardDisposition): void => {
 			deps.workflows.forgetSession(team);
 			const released = context.slice()?.boardClient.sessionEnded(team, disposition);
@@ -186,7 +185,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			endSession: () => consoleHandler.forgetAssistant(),
 		});
 
-		/** Bound to the Gateway and version it names, so a replayed record does not open. */
+		/** Bound to its Gateway and version; replays do not open. */
 		function openHome(record: AssistantHomeRecord) {
 			const ownerSignPub = slice.allowlist.ownerSignPub;
 			const domainId = context.domainId();
@@ -215,7 +214,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			return { kind: "ok" as const, sealed: parsed.data };
 		}
 
-		/** The whole record, at every registration; a missed push is recovered here. */
+		/** Whole record per registration; recovers missed pushes. */
 		const homeRead = createRegistrationRead({
 			label: "assistant home read",
 			ambient,
@@ -338,7 +337,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 					},
 				});
 				const settled = await slice.routerClient.callTool("value_result", valueResult);
-				// An unsettled answer is a Router that will time the console out; say so.
+				// Unsettled: the console will time out.
 				if ((settled as { result?: { settled?: boolean } })?.result?.settled === false)
 					console.warn(`[value-op] Router did not settle value_result for ${frame.data.opId}`);
 			})().catch((error) => {

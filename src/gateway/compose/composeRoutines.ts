@@ -29,66 +29,55 @@ const LEGACY_LIST_ZONE = "America/Los_Angeles";
 export interface RoutineStageDeps {
 	dataDir: string;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer" | "newId">;
-	/** Read late, since what executes is composed after this stage. */
+	/** Read late; composed after this stage. */
 	attempt?: () => RoutineAttempt | null;
 	getRunbook?: (runbookId: string) => Runbook | null;
 	knowsSpawn?: (spawn: string) => boolean;
 	assistantPlaced?: () => boolean;
-	/**
-	 * Whether that session is this routine's own, asked by provenance rather than by its name. The
-	 * one provenance question, asked when a routine is saved, when it reserves, and when its
-	 * authority is read.
-	 */
+	/** Ownership by provenance, never by name. */
 	sessionOwned?: (team: string, routine: Routine) => boolean;
-	/** Makes a routine's grants match the entries it links, and is the only road to one. */
+	/** The only road to a routine's grants. */
 	setRoutineGrants?: (routineId: string, entryIds: string[]) => void;
-	/**
-	 * The team a session's own token resolves to, which is who may read a snapshot. Required: an
-	 * omitted one leaves the door permanently answering unauthenticated, and typechecks.
-	 */
+	/** Required: omitted, the door answers unauthenticated. */
 	resolveCaller: (req: Request) => string | null;
 }
 
 export interface RoutineStage {
 	console: RoutineConsoleHandlers;
-	/** The loopback door a routine's own session reads its instructions through. */
 	routes: Map<string, RoutineRouteHandler>;
-	/** Armed from federation activation, so it cannot fire before the routes exist. */
+	/** Armed after routes exist. */
 	start: () => void;
 	stop: () => Promise<void>;
 	reconcile: () => Promise<void>;
 	bindExecution: (attempt: RoutineAttempt) => void;
-	/** The routine whose work is open in that session, which is what a standing grant reads. */
+	/** What a standing grant reads. */
 	workingRoutine: (sessionTarget: string) => string | null;
-	/** Every run open in that session. */
 	openRuns: (sessionTarget: string) => SessionBaseline["routines"];
-	/** Whether a stored routine reserves that session, which keeps it from being swept as idle. */
+	/** Keeps the session from the idle sweep. */
 	reserves: (sessionTarget: string) => boolean;
-	/** A runbook moved or went, so a routine it stopped may run again. */
+	/** May unblock a stopped routine. */
 	runbookMoved: (runbookId: string) => void;
-	/** A secret the owner never answered for, recorded against the occurrence that wanted it. */
 	secretUnanswered: (sessionTarget: string, entryId: string) => void;
-	/** That session is closed or forgotten, so any work open in it is over. */
+	/** Ends any work open in it. */
 	sessionEnded: (sessionTarget: string) => void;
 }
 
-/** Nothing to run against, so every occurrence waits rather than being declared missed. */
+/** Occurrences wait, never missed. */
 const IDLE_ATTEMPT: RoutineAttempt = {
 	sessionIdle: () => false,
-	// Nothing is known about any session here, so none is forgotten.
 	hasSession: () => false,
 	forgetSession: () => {},
 	prepare: async () => ({ ok: false, reason: "unreachable" }),
 	deliver: async () => undefined,
 };
 
-/** The newest occurrence that wanted something, folded into one line for the phone. */
+/** Newest wanting occurrence, folded. */
 function attentionFor(rows: Attention[]): RoutineAttention | undefined {
 	const newest = rows.reduce((held, row) => Math.max(held, row.scheduledAt), -1);
 	if (newest < 0) return undefined;
 	const wanted = rows.filter((row) => row.scheduledAt === newest);
 	return {
-		// The instant, as the miss panel names it. Run now and Dismiss read this as a number.
+		// Run now and Dismiss read it as a number.
 		occurrenceId: String(newest),
 		scheduledAt: newest,
 		entryIds: [...new Set(wanted.map((row) => row.entryId))].sort(),
@@ -109,7 +98,7 @@ function panelFor(rows: Occurrence[], now: number): RoutineMiss | undefined {
 
 export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	let bound: RoutineAttempt | null = null;
-	/** Nobody to ask answers true, which is what the store's own tests stand on. */
+	/** No asker means owned. */
 	const ownsIts = (team: string, routine: Routine): boolean => deps.sessionOwned?.(team, routine) ?? true;
 	const store = openDurable(deps.dataDir, "routines", (durable) =>
 		createRoutineStore({
@@ -129,7 +118,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	const attention = openDurable(deps.dataDir, "routine-attention", (durable) =>
 		createAttentionStore({ store: durable }),
 	);
-	// Its own file, so a poisoned memory starts memory fresh rather than taking the routines with it.
+	// Own file: poisoned memory spares routines.
 	const memory = openDurable(deps.dataDir, "routine-memory", (durable) =>
 		createRoutineMemoryStore({ store: durable }),
 	);
@@ -138,7 +127,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		occurrences,
 		ambient: deps.ambient,
 		attempt: () => bound ?? deps.attempt?.() ?? IDLE_ATTEMPT,
-		// Before the sweep, or a proposal is deleted rather than finished.
+		// Before the sweep deletes proposals.
 		recoverProposals: () => recoverProposals(),
 		sweepMemory: (live) => memory.sweepOrphans(live),
 	});
@@ -159,7 +148,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				routine,
 				...(nextAt === null ? {} : { nextAt }),
 				...(ran ? { lastRanAt: ran.scheduledAt } : {}),
-				// Whether the newest run was picked up at all, which liveness alone cannot say.
+				// Liveness alone cannot say it was read.
 				...(ran?.readAt === undefined ? {} : { lastReadAt: ran.readAt }),
 				...(missed ? { missed } : {}),
 				...(review ? { reviewAt: review.scheduledAt } : {}),
@@ -169,14 +158,14 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		});
 	};
 
-	/** Why this routine cannot render now, or null. */
+	/** Render refusal, or null. */
 	const blockedBy = (routine: Routine): string | null => {
 		if (!deps.getRunbook) return null;
 		const rendered = renderRoutine(deps.getRunbook(routine.runbookId), routine);
 		return rendered.ok ? null : rendered.reason;
 	};
 
-	/** A render stop reads the runbook as it is now. */
+	/** Render stops read the runbook now. */
 	const reviewText = (routine: Routine, row: Occurrence): string | null => {
 		if (row.reviewCause === "session_taken") return takenReason(routine);
 		if (row.reviewCause === "assistant_unplaced") return UNPLACED_REASON;
@@ -184,21 +173,13 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		return blockedBy(routine);
 	};
 
-	/**
-	 * A routine's authority is exactly what its stored record links, so a save, an enable, a disable
-	 * and a delete all settle it by rewriting from the record. Only the owner reaches these, and
-	 * nothing inside a session does.
-	 */
+	/** Authority is rewritten from the stored record. */
 	const settleGrants = (routineId: string): void => {
 		const held = store.get(routineId);
 		deps.setRoutineGrants?.(routineId, held?.enabled ? held.linkedEntries : []);
 	};
 
-	/**
-	 * The runner wakes for what the store said when it last armed. Every write moves that, so the
-	 * store publishes here: without it the reconcile tick is the only thing that ever fires a
-	 * routine, and one saved a moment before its slot waits out the tick instead of running.
-	 */
+	/** Rearms the runner; else a fresh save waits out the tick. */
 	function storeMoved(): void {
 		fireAndForget("routine rearm", runner.reconcile());
 	}
@@ -210,7 +191,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		}
 	};
 
-	/** A runbook edit can unblock a routine as a save can. */
+	/** A runbook edit can unblock a routine. */
 	const runbookMoved = (runbookId: string): void => {
 		const using = store.list().filter((routine) => routine.runbookId === runbookId);
 		if (using.length === 0) return;
@@ -221,7 +202,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 
 	const pastLifeOf = (row: Occurrence): boolean => pastLife(row, store.get(row.routineId)?.incarnation);
 
-	/** The memory a run reads and files into: the incarnation it was prepared under, never a later one. */
+	/** Keyed by the preparing incarnation, never a later one. */
 	const memoryKey = (row: Occurrence): string | null => (pastLifeOf(row) ? null : (row.incarnation ?? null));
 
 	const remembered = (row: Occurrence): { text: string; version: number } => {
@@ -229,15 +210,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		return incarnation ? memory.read(incarnation) : { text: "", version: 0 };
 	};
 
-	/**
-	 * Finishes a filing whose memory write never landed. Without this `memoryApplied` is a marker
-	 * nothing reads, and the sweep eventually deletes the only copy of a history a run wrote.
-	 *
-	 * Idempotent by construction. Memory already at the proposed text one past the base was this
-	 * proposal landing, so the row is marked and nothing is written twice. Memory still at the base
-	 * takes the write. Memory that moved past it belongs to a later run, and overwriting would erase
-	 * a newer history to recover an older one, so the row is marked and left alone.
-	 */
+	/** Idempotent; memory past the base is a later run's, never overwritten. */
 	const recoverProposals = (): void => {
 		for (const row of occurrences.all()) {
 			if (row.memoryProposed === undefined || row.memoryApplied === true) continue;
@@ -255,14 +228,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		}
 	};
 
-	/**
-	 * The whole filing, in the order a crash between the two writes has to survive.
-	 *
-	 * The occurrence goes first, carrying the report, the narrowed window and the proposed history.
-	 * A crash after it leaves a proposal to retry and has ALREADY closed the authority, which is the
-	 * direction that fails safe. The other order could advance history while losing the report and
-	 * leaving the vault window wide.
-	 */
+	/** Occurrence first: a crash then fails safe, authority already closed. */
 	const fileReport = (
 		routineId: string,
 		scheduledAt: number,
@@ -272,7 +238,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		const row = occurrences.at(routineId, scheduledAt);
 		const incarnation = row ? memoryKey(row) : null;
 		if (!incarnation) return { kind: "refused" };
-		// Asked before anything is written, so a conflict costs no report and no narrowing.
+		// Before any write.
 		if (!proposal.force) {
 			const current = memory.read(incarnation);
 			if (current.version !== proposal.base) {
@@ -289,7 +255,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		const wrote = proposal.force
 			? memory.overwrite(incarnation, proposal.text, now)
 			: memory.write(incarnation, proposal.text, proposal.base, now);
-		// A memory write that failed leaves memoryApplied false, which is the record recovery reads.
+		// A failed write leaves memoryApplied false for recovery.
 		if (wrote && (wrote as { ok?: boolean }).ok !== false) {
 			occurrences.noteMemoryApplied(routineId, scheduledAt);
 		}
@@ -299,7 +265,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	return {
 		routes: createRoutineRoutes({
 			resolveCaller: deps.resolveCaller,
-			// A past life's run is no longer the routine's to answer for.
+			// Past lives are excluded.
 			occurrences: () => occurrences.all().filter((row) => !pastLifeOf(row)),
 			routineName: (routineId) => store.get(routineId)?.name ?? null,
 			noteRead: (routineId, scheduledAt) => occurrences.noteRead(routineId, scheduledAt, deps.ambient.now()),
@@ -313,7 +279,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				const result = store.put(routine, { base });
 				if (result.stored) {
 					occurrences.clearReview(routine.id);
-					// The owner has just said what this routine may reach, so what it wanted is answered.
+					// The owner's save answers what it wanted.
 					attention.clear(routine.id);
 					settleGrants(routine.id);
 				}
@@ -325,9 +291,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				return { nextAt: runner.nextAt(routine, deps.ambient.now()) };
 			},
 			remove: (routineId) => {
-				// The routine goes first, so a half-done delete leaves rows nothing will walk. A
-				// refused delete leaves a live routine, and its history is not this call's to take.
-				// Read the incarnation before the record goes, since it is the memory's only key.
+				// Routine first; the incarnation is memory's only key, read before it goes.
 				const incarnation = store.get(routineId)?.incarnation;
 				const removed = store.remove(routineId);
 				if (!removed.deleted) return removed;
@@ -358,7 +322,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 					: { applied: false, reason: "that occurrence is not waiting to be dismissed" },
 		},
 		start: () => {
-			// A review can outlive its cause.
+			// Reviews outlive their cause.
 			settleRenderReviews(store.list());
 			runner.start();
 		},
@@ -372,8 +336,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		workingRoutine: (sessionTarget) => {
 			const held = runner.firstWorkingOccurrence(sessionTarget);
 			const routine = held && store.get(held.routineId);
-			// A session that merely took the name is not the routine's, so its authority does not
-			// follow the name into it.
+			// Authority never follows a name.
 			if (!routine || !targetRules(routine).holdsSecrets || !ownsIts(sessionTarget, routine)) return null;
 			return routine.id;
 		},
@@ -385,8 +348,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			}),
 		runbookMoved,
 		sessionEnded: (sessionTarget) => {
-			// Its session is gone, so its work is over. Every open window, not the first: one left
-			// open keeps the routine's authority alive.
+			// Every window; one left open keeps authority.
 			for (const held of runner.workingOccurrences(sessionTarget)) {
 				occurrences.noteWork(held.routineId, held.scheduledAt, "done");
 			}

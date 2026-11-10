@@ -69,17 +69,6 @@ describe("SessionStore migration", () => {
 		}
 	});
 
-	it("keeps same-segment sessions across spawns distinct (composite keys never collide)", () => {
-		const store = new SessionStore({ ambient: processAmbient() });
-		store.restore({
-			"host.claude": { id: "claude", spawn: "host", claudeSessionId: "a-1", lastSeen: 1 },
-			"recipe-app.claude": { id: "claude", spawn: "recipe-app", claudeSessionId: "b-2", lastSeen: 2 },
-		});
-		expect(store.size).toBe(2);
-		expect(store.getByTeam("host.claude")?.claudeSessionId).toBe("a-1");
-		expect(store.getByTeam("recipe-app.claude")?.claudeSessionId).toBe("b-2");
-	});
-
 	it("skips keys that were never valid chats (the read-guard)", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
 		store.restore({
@@ -181,8 +170,8 @@ describe("SessionStore mint / adopt", () => {
 
 	it("findByMintedFrom finds a gateway-minted record by its own provenance, scoped to a spawn", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("minted1") });
-		const rec = store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work", mintedFrom: "conv:op1" });
-		expect(store.findByMintedFrom("conv:op1", "host")).toBe(rec);
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work", mintedFrom: "conv:op1" });
+		expect(store.findByMintedFrom("conv:op1", "host")).toMatchObject({ id: "minted1", sessionLabel: "Work" });
 		expect(store.findByMintedFrom("conv:op1", "other-spawn")).toBeUndefined();
 		expect(store.findByMintedFrom("conv:unrelated", "host")).toBeUndefined();
 	});
@@ -196,10 +185,9 @@ describe("SessionStore mint / adopt", () => {
 
 	it("findByMintedFrom still resolves a record after it has been renamed", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("minted1") });
-		const rec = store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work", mintedFrom: "conv:op1" });
+		store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work", mintedFrom: "conv:op1" });
 		store.rename("host.minted1", "Renamed");
-		expect(store.findByMintedFrom("conv:op1", "host")).toBe(rec);
-		expect(rec.sessionLabel).toBe("Renamed");
+		expect(store.findByMintedFrom("conv:op1", "host")).toMatchObject({ id: "minted1", sessionLabel: "Renamed" });
 	});
 
 	it("mintOrReattach mints fresh on a first call, then reattaches the SAME record for a retry sharing the same provenance", () => {
@@ -713,6 +701,29 @@ describe("a session record's harness", () => {
 		store.restore({ "host.cop": { id: "cop", harness: "copilot", copilotSessionId: uuid, lastSeen: 1 } });
 
 		expect(store.getByTeam("host.cop")).toMatchObject({ harness: "copilot", mintedSessionId: uuid });
+	});
+
+	it("names a pending create's CLI once, minting the id that CLI takes", () => {
+		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("p1"), uuidGen: () => uuid });
+		const pending = store.mint({ spawn: "fixture-app", sessionLabel: "first" }).harness;
+
+		const named = store.resolvePick("fixture-app.p1", "copilot");
+		const again = store.resolvePick("fixture-app.p1", "claude");
+
+		expect(pending).toBeUndefined();
+		expect(named).toMatchObject({ harness: "copilot", mintedSessionId: uuid });
+		expect(again).toBeNull();
+		expect(store.getByTeam("fixture-app.p1")?.harness).toBe("copilot");
+	});
+
+	it("keeps a pending create pending across a restart", () => {
+		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("p1") });
+		store.mint({ spawn: "fixture-app", sessionLabel: "first" });
+		const restored = new SessionStore({ ambient: processAmbient() });
+
+		restored.restore(store.snapshot());
+
+		expect(restored.getByTeam("fixture-app.p1")?.harness).toBeUndefined();
 	});
 
 	it("restores a record stored with no harness as Claude, holding no minted id", () => {

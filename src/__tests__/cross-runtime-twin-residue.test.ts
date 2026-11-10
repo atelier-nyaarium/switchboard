@@ -34,6 +34,9 @@ const EXEMPTIONS: Record<string, Record<string, string>> = {
 		BLOB_FRAME_OVERHEAD_BYTES: "Pinned by sealed-blob vectors.",
 		BLOB_CIPHERTEXT_CHUNK_BYTES: "Derived from Protocol.",
 	},
+	"main/java/com/atelier_nyaarium/switchboard/proto/HarnessRegistry.kt": {
+		UNPICKED_WORD: "Generated from session-harness.ts.",
+	},
 	"main/java/com/atelier_nyaarium/switchboard/policies/PolicyDraft.kt": {
 		MAX_SELECTOR_LEN: "No Protocol constant.",
 	},

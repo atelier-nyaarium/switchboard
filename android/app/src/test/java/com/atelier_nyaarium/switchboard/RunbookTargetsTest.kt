@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
+import com.atelier_nyaarium.switchboard.runbooks.availableAt
 import com.atelier_nyaarium.switchboard.runbooks.sessionTargets
 import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
 import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
@@ -66,10 +68,23 @@ class RunbookTargetsTest {
 	fun aReportedContainerWithNoSessionsIsStillASpawnPoint() {
 		val reported = state.copy(
 			gateways = state.gateways.withEntry("sakura") { entry ->
-				entry.copy(containers = listOf("godot", "evie-bot").map { SpawnContainer(it, ContainerRun.STOPPED, null, SpawnHarnesses.Unknown) })
+				entry.copy(containers = listOf("godot", "evie-bot").map { SpawnContainer(it, ContainerRun.STOPPED, null, SpawnHarnesses.UNOPENED_CONTAINER) })
 			},
 		)
 		assertEquals(listOf("host", "evie-bot", "godot"), spawnChoices(reported, "sakura").map { it.spawn })
+	}
+
+	@Test
+	fun aNewSessionTargetOffersItsOwnSpawnPointsClis() {
+		val found = SpawnHarnesses.Known(setOf(SessionHarness.OPENCODE))
+		val reported = state.copy(
+			gateways = state.gateways.withEntry("mikan") {
+				it.copy(containers = listOf(SpawnContainer("nyaakube", ContainerRun.RUNNING, null, found)))
+			},
+		)
+
+		assertEquals(found, availableAt(reported, "mikan", "d1.mikan.nyaakube"))
+		assertEquals(SpawnHarnesses.Known(emptySet()), availableAt(reported, "mikan", "not a target"))
 	}
 
 	@Test

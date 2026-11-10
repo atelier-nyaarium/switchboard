@@ -279,25 +279,11 @@ fun CreateSessionDialog(
 				)
 				if (harnesses.isNotEmpty()) {
 					Spacer(Modifier.height(12.dp))
-					SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-						harnesses.forEachIndexed { index, option ->
-							SegmentedButton(
-								selected = harness == option,
-								onClick = hapticClick { pickedHarness = option },
-								shape = SegmentedButtonDefaults.itemShape(index = index, count = harnesses.size),
-								contentPadding = PaddingValues(horizontal = 4.dp),
-								// No check: three labels fit.
-								icon = {},
-							) {
-								// Shrinks only past fitting.
-								Text(
-									option.label,
-									maxLines = 1,
-									autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = LocalTextStyle.current.fontSize),
-								)
-							}
-						}
-					}
+					CliToggles(
+						choices = harnesses.map { CliChoice(it.wire, it.label) },
+						picked = harness?.wire,
+						onTap = { tapped -> harnesses.find { it.wire == tapped }?.let { pickedHarness = it } },
+					)
 				}
 				Spacer(Modifier.height(12.dp))
 				OutlinedTextField(
@@ -345,6 +331,41 @@ fun CreateSessionDialog(
 	)
 }
 
+/** The CLI pick New session, the routine editor and the fire sheet share. A choice not offered is marked. */
+@Composable
+internal fun CliToggles(choices: List<CliChoice>, picked: String?, onTap: (String) -> Unit) {
+	if (choices.isEmpty()) return
+	Column {
+		SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+			choices.forEachIndexed { index, option ->
+				SegmentedButton(
+					selected = picked == option.wire,
+					onClick = hapticClick { onTap(option.wire) },
+					shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
+					contentPadding = PaddingValues(horizontal = 4.dp),
+					// No check: three labels fit.
+					icon = {},
+				) {
+					// Shrinks only past fitting.
+					Text(
+						option.label,
+						maxLines = 1,
+						color = if (option.offered) androidx.compose.ui.graphics.Color.Unspecified else MaterialTheme.colorScheme.error,
+						autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = LocalTextStyle.current.fontSize),
+					)
+				}
+			}
+		}
+		choices.firstOrNull { !it.offered }?.let {
+			Text(
+				"${it.label} not offered now",
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+	}
+}
+
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -353,10 +374,10 @@ fun CreateSessionDialog(
 // server-side rejection once submitted.
 internal const val SESSION_LABEL_MAX_CHARS = 64
 
-/** The CLIs a spawn point runs, in the order they are offered. Unknown offers every one. */
+/** The CLIs a spawn point runs, in the order they are offered. Unknown offers what its place allows. */
 internal fun harnessesOf(held: SpawnHarnesses): List<SessionHarness> =
 	when (held) {
-		SpawnHarnesses.Unknown -> SessionHarness.entries
+		is SpawnHarnesses.Unknown -> SessionHarness.entries.filter { it in held.runsHere }
 		is SpawnHarnesses.Known -> SessionHarness.entries.filter { it in held.installed }
 	}
 

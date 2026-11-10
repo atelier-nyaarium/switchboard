@@ -49,36 +49,25 @@ const READY_POLL_MS = 1_000;
 // A dead launch never captures.
 const DEAD_LAUNCH_PROBES = 8;
 
-// Answered by choosing the first option: "1" while the menu is numbered, Enter once it is not.
+// Answered with the first option.
 const STARTUP_PROMPT_RE =
 	/I am using this for local development|Is this a project you created|trust this folder|Try the new fullscreen renderer|Do you trust the files in this folder/;
-// Copilot's boxed trust dialog: a border precedes the numbered rows, and "1. Yes" is its first option.
+// Copilot's boxed trust dialog.
 const COPILOT_TRUST_RE = /Do you trust the files in this folder/u;
-// Numbered options, the older shape, where a digit selects and confirms.
+// A digit selects and confirms.
 const NUMBERED_MENU_RE = /^[ \t\u00a0]*[❯>][ \t\u00a0]*\d+\./mu;
-// The highlighted row of an unnumbered menu: an indented cursor glyph and the option text.
+// Highlighted row of an unnumbered menu.
 const MENU_CURSOR_ROW_RE = /^[ \t\u00a0]+[❯>][ \t\u00a0]+\S/u;
-// The trust dialog's affirmative row. Newer builds rest the cursor on "No, exit", so Enter alone would
-// end the session; the cursor is walked onto this row first.
+// Cursor may rest on "No, exit"; walk onto this row first.
 const TRUST_YES_RE = /Yes, I trust this folder/u;
 
-// Answered with "2": full session, not summary. An unattended wake must not drop context.
+// Answered "2": keep full context.
 const RESUME_PROMPT_RE = /Resuming the full session will consume/;
 
 ////////////////////////////////
 //  Functions & Helpers
 
-/** The target for this process's own tmux session.
- *
- * `kind` is "host" for a self-target whatever this process is: it means "the tmux server I can
- * reach directly", and a plugin running INSIDE a devcontainer reaches its own tmux with bare `tmux`
- * exactly as one on the host does. The `docker exec` form is for the daemon reaching in from
- * outside, which is never this call.
- *
- * `name` is derived rather than hardcoded. It was `"host"` while the sibling field came from
- * PROJECT_NAME, which was inert (the host argv branch never reads `name`) and wrong for every
- * devcontainer session. A lie that is load-bearing nowhere today is still the one a later reader
- * builds on. */
+/** `kind` host means bare `tmux`, even inside a devcontainer. */
 export function selfSessionTarget(): TmuxTarget {
 	const { project, session } = parseSessionName(process.env.PROJECT_NAME ?? "");
 	return { kind: "host", name: project, sessionName: session };
@@ -107,8 +96,7 @@ function tmuxStdinArgv(target: TmuxTarget, sub: string[]): string[] {
 	return ["docker", "exec", "-i", "-u", "vscode", containerFor(target.name), "tmux", ...sub];
 }
 
-/** Any other command, in the same place that target's tmux lives. Sibling of tmuxArgv, because a
- * probe about a pane's processes is only true in the namespace the pane actually runs in. */
+/** Any command, in the namespace the pane runs in. */
 function execArgv(target: TmuxTarget, argv: string[]): string[] {
 	if (target.kind === "host") return argv;
 	assertTmuxName(target.name);
@@ -182,8 +170,7 @@ function run(
 const sends = createKeyedFifo<string>();
 const targetKey = paneKey;
 
-/** Capture the visible pane with ANSI colors. Derive-only callers pass `resize: false` so they do
- * not fight the terminal view's geometry. */
+/** Capture the visible pane with ANSI colors; `resize: false` leaves the view's geometry. */
 export async function peekPane(target: TmuxTarget, resize = true): Promise<TmuxPeek> {
 	const pane = paneTarget(target);
 	if (resize) {
@@ -200,9 +187,7 @@ export async function peekPane(target: TmuxTarget, resize = true): Promise<TmuxP
 			]),
 		).catch(() => {});
 	}
-	// -J rejoins wrapped rows, so a long URL copies as one string. Its price is that every row comes
-	// back padded to the pane edge, so the padding is dropped before anything sees the frame - the
-	// hash covers what SHIPS, or a 304 would be answered against bytes the console never received.
+	// -J pads rows; trim before hashing so the hash covers what ships.
 	const ansi = trimPaneRowPadding(await run(tmuxArgv(target, ["capture-pane", "-t", pane, "-e", "-J", "-p"])));
 	const hash = crypto.createHash("sha256").update(ansi).digest("hex").slice(0, 16);
 	return { ansi, hash };
@@ -253,8 +238,7 @@ function sendKeyRaw(target: TmuxTarget, key: string): Promise<string> {
 	return run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), key]));
 }
 
-/** Type a literal line into the pane. With `submit`, Enter follows as its OWN send-keys call: paste
- * detection reads an embedded CR as text, not as a submit. `--` keeps a leading dash literal. */
+/** Type a literal line; Enter is its own send-keys call, since an embedded CR reads as text. */
 export function sendText(target: TmuxTarget, text: string, submit = true): Promise<void> {
 	return sends.run(targetKey(target), async () => {
 		assertNotReservedHostSink(target);
@@ -377,29 +361,18 @@ export async function killSession(target: TmuxTarget): Promise<void> {
 }
 
 /**
- * Whether an AGENT is running in the pane, as opposed to whether the pane exists.
- *
- * Three-valued on purpose. A wrong "gone" kills a live session's work, so every way of failing to
- * find out - no ps, an unreadable tty, a container that will not exec - answers "unknown" and the
- * caller leaves the session alone. Only positive evidence is "gone".
- *
- * The evidence is the pane's tty, never `#{pane_current_command}`: tmux reports the tty's
- * foreground process group leader, and an agent launched inside the launcher's group reports as
- * `sh` while a bare interactive shell reports as `bash`. That difference is job-control
- * incidentals, not liveness, and it inverts the moment a launcher changes.
+ * Whether an agent runs in the pane. A wrong "gone" kills work, so only positive evidence is "gone".
+ * Evidence is the pane's tty, never `pane_current_command`.
  */
 export type PaneAgentState = "alive" | "gone" | "unknown";
 
-// What a pane holds when its agent died: the launcher and the shell that outlived it, and nothing
-// else. Deliberately a SHELL allowlist rather than an agent denylist - matching on "claude" would
-// answer "gone" for any install whose process is named differently, and that answer relaunches.
+// A shell allowlist, not an agent denylist: a differently named agent must not read as gone.
 const SHELL_COMMS = new Set(["sh", "bash", "zsh", "fish", "dash", "ash", "ps", "login", "su", "-bash", "-sh", "-zsh"]);
 
-/** The rule, apart from the probe that feeds it, so it can be tested without a tmux server. */
+/** Pure rule, testable without tmux. */
 export function classifyPaneProcesses(commLines: string[]): PaneAgentState {
 	const comms = commLines.map((line) => line.trim()).filter(Boolean);
-	// A pane always carries at least its own shell, so nothing at all means the probe failed to
-	// look rather than that the pane is empty.
+	// Empty means the probe failed.
 	if (comms.length === 0) return `unknown`;
 	return comms.every((comm) => SHELL_COMMS.has(comm)) ? "gone" : "alive";
 }
@@ -467,12 +440,7 @@ function pressKey(target: TmuxTarget, key: "Up" | "Down" | "Enter"): Promise<voi
 	});
 }
 
-/**
- * Choose the first option of a numbered menu with its digit; on an unnumbered one, confirm the
- * highlighted row with Enter, after walking the cursor onto the trust dialog's Yes row when that is
- * the menu. A trust dialog whose cursor or Yes row cannot be found is left alone: Enter there could
- * pick "No, exit", and an unanswered menu is still answerable from the terminal view.
- */
+/** An unfound trust cursor or Yes row is left alone: Enter could pick "No, exit". */
 async function answerStartupPrompt(target: TmuxTarget, clean: string): Promise<void> {
 	if (NUMBERED_MENU_RE.test(clean) || COPILOT_TRUST_RE.test(clean)) return pressDigit(target, "1");
 	const lines = clean.split("\n");

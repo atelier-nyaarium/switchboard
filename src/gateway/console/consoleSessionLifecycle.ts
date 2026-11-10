@@ -18,10 +18,7 @@ import type { WakeResult } from "../wake.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
 import { CreateSessionAmbiguousError } from "./consoleTypes.js";
 
-/**
- * Whether this Gateway launched the terminal behind a record. A session someone started themselves
- * runs under a name no target derives, so close refuses it and forget leaves it alone.
- */
+/** Whether this Gateway launched the record's terminal; hand-started ones run under another name. */
 export function ownTerminal(record: SessionRecord | undefined, teamOf: (record: SessionRecord) => string): boolean {
 	return !record?.liveTeam || record.liveTeam.team === teamOf(record);
 }
@@ -127,7 +124,7 @@ export function createSessionLifecycleHandlers({
 		if (sessionStore && !adopted) {
 			throw new Error(`cannot create session "${sessionId}": the name is reserved or a project`);
 		}
-		// The console is the authority: the record outlives a launch that fails, listed asleep until a forget.
+		// The record outlives a failed launch.
 		const target = targets.tmuxTarget(op.target, sessionId);
 		const workdirHint =
 			sessionStore && adopted ? sessionStore.hostWorkdirHint(adopted.record) : (op.workdir ?? label);
@@ -280,7 +277,7 @@ export function createSessionLifecycleHandlers({
 		const refusal = released ? null : forgetRefusal?.(name);
 		if (refusal) throw new Error(`cannot forget "${name}": ${refusal}`);
 		if (isWakeInFlight?.(name)) throw new Error(`"${name}" is waking; wait for it to finish before forgetting`);
-		// Close refuses a terminal it did not launch; forget drops the record and leaves it running.
+		// Forget leaves a foreign terminal running.
 		const record = sessionStore?.getByTeam(name);
 		let killed = false;
 		if (ownTerminal(record, (r) => sessionStore!.teamOf(r))) {
@@ -297,7 +294,7 @@ export function createSessionLifecycleHandlers({
 		const disposition: BoardDisposition = op.boardDisposition ?? "release";
 		dropSessionResume?.(name, disposition);
 		onSessionEnded?.(name);
-		// The record always goes; the kill is a courtesy that can honestly fail.
+		// The kill may fail; the record goes regardless.
 		return { killed, boardDisposition: disposition };
 	}
 

@@ -129,6 +129,8 @@ export interface FakeHost {
 	announceCatalog(): void;
 	/** What the daemon derives from that session's pane; null is nobody having said. */
 	reportWorking(team: string, working: boolean | null, compacting?: boolean): void;
+	/** Any other daemon frame. */
+	sendFrame(frame: Frame): void;
 	close(): void;
 }
 
@@ -248,6 +250,9 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				return { killed: true };
 			case "reloadPlugins":
 				return { initiated: true };
+			case "containerStart":
+			case "containerStop":
+				return { accepted: true };
 			case "answerPrompt":
 				return { outcome: "answered" };
 		}
@@ -382,6 +387,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		sendCodex,
 		sendCopilot,
 		announceCatalog,
+		sendFrame: send,
 		reportWorking: (team, working, compacting) =>
 			send({
 				type: "presence_derive",

@@ -18,21 +18,13 @@ export function forgetAfterMs(routine: { forgetAfterDays: number }): number {
 /** The id has to leave a valid session segment, since the reserved session is named from it. */
 export const MAX_ROUTINE_ID_LEN = MAX_SLUG_LEN - ROUTINE_SESSION_PREFIX.length;
 
-/**
- * Where a routine's reserved session lives. The one place that name is made.
- *
- * An id that already carries the prefix keeps it rather than earning a second one: the prefix
- * names the session, so applying it twice names nothing. Stored ids from earlier builds carry it.
- */
+/** An id already carrying the prefix keeps it. */
 export function routineSessionName(routineId: string): string {
 	if (routineId.startsWith(ROUTINE_SESSION_PREFIX)) return routineId;
 	return `${ROUTINE_SESSION_PREFIX}${routineId}`;
 }
 
-/**
- * Where the reserved session is made. A policy rather than a session id, because the id would bake
- * in a session that can be closed, and the occurrence resolves this immediately before firing.
- */
+/** A policy, not a session id, since a session can close; resolved just before firing. */
 export const ROUTINE_TARGET_KINDS = ["spawn", "assistant"] as const;
 
 export type RoutineTargetKind = (typeof ROUTINE_TARGET_KINDS)[number];
@@ -96,27 +88,16 @@ export const RoutineSchema = z
 		/** Complete at save, so nothing is asked at fire time. */
 		values: z.record(z.string(), z.string()),
 		target: RoutineTargetSchema,
-		/**
-		 * Vault entries the owner pre-authorized at save. Each is unrestricted while an occurrence is
-		 * live: the grant names the entry and claims nothing about what is run with it.
-		 */
+		/** Entries pre-authorized at save, unrestricted while an occurrence is live. */
 		linkedEntries: z.array(z.string().min(1).max(64)).max(16),
 		enabled: z.boolean(),
 		/** Bumped by the gateway on every save, so a stale editor cannot land on a moved record. */
 		revision: z.number().int().positive(),
-		/**
-		 * When this gateway first took the routine, set by it and carried across edits. Recovery
-		 * cannot reach past it, so a routine saved today is never handed a miss for last month.
-		 */
+		/** When the gateway first took it; recovery cannot reach past. */
 		since: z.number().int().nonnegative(),
 		/** Days a finished run's reserved session is kept before the gateway forgets it. */
 		forgetAfterDays: z.number().int().min(ROUTINE_FORGET_DAYS_MIN).max(ROUTINE_FORGET_DAYS_MAX),
-		/**
-		 * Minted by the gateway when it first stores this routine and carried across every edit, so
-		 * what the routine remembers survives a rename and dies with the routine. An id reused after
-		 * a delete gets a new one, which is what stops a fresh routine inheriting a dead one's memory.
-		 * Not the created time: two routines stored in one millisecond would share that.
-		 */
+		/** Minted at first store, kept across edits; a reused id gets a new one. */
 		incarnation: z.string().min(1).max(64).optional(),
 	})
 	.meta({ id: "Routine" });
@@ -136,10 +117,7 @@ export const RoutineMissSchema = z
 	})
 	.meta({ id: "RoutineMiss" });
 
-/**
- * Secrets an occurrence asked for and never got. It says which run wanted them, so the owner can
- * approve that one or link the entry so later runs stop asking.
- */
+/** Secrets an occurrence asked for and never got. */
 export const RoutineAttentionSchema = z
 	.object({
 		occurrenceId: z.string().min(1),
@@ -177,19 +155,15 @@ export const ConsoleRoutineListResultSchema = z
 export const ConsoleRoutinePutResultSchema = z
 	.object({
 		stored: z.boolean(),
-		/** What the gateway holds after the write, so a refused put says what to reopen. */
+		/** What the gateway holds after the write. */
 		revision: z.number().int().nonnegative(),
-		/** The stored record, so the phone adopts the revision the gateway minted. */
+		/** The stored record. */
 		routine: RoutineSchema.optional(),
 		reason: z.string().optional(),
 	})
 	.meta({ id: "ConsoleRoutinePutResult" });
 
-/**
- * Null when the rule names nothing further, which a refused rule also does. Required rather than
- * optional: an all-optional answer matches anything, and the union that carries it could then no
- * longer refuse a shape nothing produces.
- */
+/** Null when nothing further; required, since an all-optional answer matches anything. */
 export const ConsoleRoutineNextResultSchema = z
 	.object({ nextAt: z.number().int().nonnegative().nullable(), reason: z.string().optional() })
 	.meta({ id: "ConsoleRoutineNextResult" });
@@ -206,10 +180,7 @@ export const ConsoleRoutineOccurrenceResultSchema = z
 	})
 	.meta({ id: "ConsoleRoutineOccurrenceResult" });
 
-/**
- * A fresh run names the occurrence it opened, since the gateway chose the instant. The id is the
- * instant as a string, as every other occurrence id on this wire is.
- */
+/** Names the occurrence it opened. */
 export const ConsoleRoutineRunResultSchema = z
 	.object({
 		ran: z.boolean(),
@@ -218,11 +189,7 @@ export const ConsoleRoutineRunResultSchema = z
 	})
 	.meta({ id: "ConsoleRoutineRunResult" });
 
-/**
- * What a routine's own session asks back for, and what it is answered. Session wire, not phone wire,
- * so it carries no `.meta` id and generates no Kotlin.
- */
-/** The shape, so the tool's input and the route's parse are the same declaration. */
+/** Session wire, not phone wire: no `.meta` id, no Kotlin. */
 export const SessionRoutineRequestShape = {
 	occurrenceId: z.string().min(1).max(MAX_OCCURRENCE_ID_LEN).describe(`Occurrence id from the nudge.`),
 };
@@ -248,23 +215,15 @@ export const SessionRoutineAnswerSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type SessionRoutineRequest = z.infer<typeof SessionRoutineRequestSchema>;
-/** Derived, not written twice: the gateway's answer and this schema are one declaration. */
 export type SessionRoutineAnswer = z.infer<typeof SessionRoutineAnswerSchema>;
 
-/**
- * What a filed report leaves of the work window. Long enough that a session which spoke too soon can
- * still finish, short enough that a finished run stops holding its routine's secrets all day.
- */
+/** What a filed report leaves of the work window. */
 export const ROUTINE_REPORT_GRACE_MS = 30 * 60 * 1000;
 
 /** Bounded so a runaway session cannot write the occurrence file to the disk's end. */
 export const MAX_ROUTINE_REPORT_CHARS = 16_384;
 
-/**
- * What a routine may remember, in UTF-8 BYTES rather than characters, since the bound is on the file
- * and one character is up to four of them. Oversized is refused and never trimmed: silently cutting
- * what a session chose to carry forward loses facts nobody can see went missing.
- */
+/** UTF-8 bytes, not characters. Oversized is refused, never trimmed. */
 export const MAX_ROUTINE_MEMORY_BYTES = 32_768;
 
 export const SessionReportRequestShape = {
@@ -275,9 +234,7 @@ export const SessionReportRequestShape = {
 		.max(MAX_ROUTINE_REPORT_CHARS)
 		.describe(`What the run did and what it left, in the run's own words.`),
 	history: z
-		// A coarse pre-bound, not THE bound: zod counts characters and the limit is bytes. One
-		// character is at least one byte, so anything this refuses is over either way. The byte
-		// check at the door is what answers `history_too_large`.
+		// Coarse pre-bound; the byte check answers `history_too_large`.
 		.string()
 		.max(MAX_ROUTINE_MEMORY_BYTES)
 		.describe(`The history you were handed, amended with what this run learned. Carried to the next run.`),
@@ -304,10 +261,7 @@ export const SessionReportAnswerSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("unauthenticated") }),
 	/** The run is over, by its window or its session ending. Nothing left to narrow. */
 	z.object({ kind: z.literal("not_working") }),
-	/**
-	 * Another run wrote history since this one read it. Carries what is held now so the session can
-	 * consolidate and file again. Bounces exactly once: the next filing is taken as it stands.
-	 */
+	/** Bounces once: the next filing is taken as it stands. */
 	z.object({
 		kind: z.literal("history_conflict"),
 		history: z.string(),
@@ -330,10 +284,7 @@ export type ConsoleRoutineDeleteResult = z.infer<typeof ConsoleRoutineDeleteResu
 export type ConsoleRoutineOccurrenceResult = z.infer<typeof ConsoleRoutineOccurrenceResultSchema>;
 export type ConsoleRoutineRunResult = z.infer<typeof ConsoleRoutineRunResultSchema>;
 
-/**
- * Why a routine cannot be stored, or null. Bounds nothing by size; a record is refused for what it
- * means, as a runbook is.
- */
+/** Why a routine cannot be stored, or null. */
 export function routineRefusal(routine: Routine): string | null {
 	if (routine.weekdays.length === 0) return "a routine with no weekday would never fire";
 	if (new Set(routine.weekdays).size !== routine.weekdays.length) return "a weekday is named twice";

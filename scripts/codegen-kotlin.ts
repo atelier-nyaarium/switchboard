@@ -53,6 +53,7 @@ import {
 	BOARD_AUTO_DOWNLOAD_MAX_BYTES,
 	ChannelFileSchema,
 	ConsoleCloseSessionResultSchema,
+	ConsoleContainerResultSchema,
 	ConsoleCreateSessionResultSchema,
 	ConsoleForgetResultSchema,
 	ConsoleListDirsResultSchema,
@@ -60,7 +61,6 @@ import {
 	ConsolePeekResultSchema,
 	ConsolePollResultSchema,
 	ConsoleReloadPluginsResultSchema,
-	ConsoleContainerResultSchema,
 	ConsoleRenameSessionResultSchema,
 	ConsoleReportReadResultSchema,
 	ConsoleRespondResultSchema,
@@ -349,7 +349,7 @@ import {
 	TreeAnswerSchema,
 	TreeEntrySchema,
 } from "../src/shared/schemasWorkspace.js";
-import { HARNESS, SESSION_HARNESSES, UNNAMED_HARNESS } from "../src/shared/session-harness.js";
+import { HARNESS, SESSION_HARNESSES, UNNAMED_HARNESS, UNPICKED_WORD } from "../src/shared/session-harness.js";
 import {
 	ADDRESS_SEP,
 	CONV_TAG,
@@ -1357,12 +1357,15 @@ ${INDENT}val goals: Boolean,
 ${entries}
 }
 
-/** One reading of a CLI word. Each reader states all three. */
+/** One reading of a CLI word. Each reader states every case. */
 sealed interface HarnessWord {
 ${INDENT}data class Named(val harness: SessionHarness) : HarnessWord
 
 ${INDENT}// FIXME 2026-11-23: delete \`Unnamed\`, once every sender names its CLI.
 ${INDENT}data class Unnamed(val assumed: SessionHarness) : HarnessWord
+
+${INDENT}/** A create that named none; its place resolves it. */
+${INDENT}data object Unpicked : HarnessWord
 
 ${INDENT}/** A newer sender's CLI, as sent. */
 ${INDENT}data class Unknown(val word: String) : HarnessWord
@@ -1371,9 +1374,26 @@ ${INDENT}data class Unknown(val word: String) : HarnessWord
 /** What a sender naming no CLI ran. */
 val UNNAMED_HARNESS: SessionHarness = SessionHarness.${kotlinConstName(UNNAMED_HARNESS)}
 
+/** On the wire, a create that named no CLI. */
+const val UNPICKED_WORD: String = ${kotlinString(UNPICKED_WORD)}
+
+/** A stored pick: a CLI, or none, which takes the spawn point's only one. */
+sealed interface CliPick {
+${INDENT}val wire: String
+
+${INDENT}data class Picked(val harness: SessionHarness) : CliPick {
+${INDENT}${INDENT}override val wire: String get() = harness.wire
+${INDENT}}
+
+${INDENT}data object Unpicked : CliPick {
+${INDENT}${INDENT}override val wire: String = UNPICKED_WORD
+${INDENT}}
+}
+
 /** The one reading of a CLI word off the wire. */
 fun readHarness(wire: String?): HarnessWord {
 ${INDENT}if (wire == null) return HarnessWord.Unnamed(UNNAMED_HARNESS)
+${INDENT}if (wire == UNPICKED_WORD) return HarnessWord.Unpicked
 ${INDENT}val harness = SessionHarness.entries.find { it.wire == wire } ?: return HarnessWord.Unknown(wire)
 ${INDENT}return HarnessWord.Named(harness)
 }

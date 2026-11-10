@@ -35,8 +35,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.CliToggles
 import com.atelier_nyaarium.switchboard.PickMenu
+import com.atelier_nyaarium.switchboard.SpawnHarnesses
+import com.atelier_nyaarium.switchboard.cliChoices
+import com.atelier_nyaarium.switchboard.freshPick
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.pickAfterTap
+import com.atelier_nyaarium.switchboard.proto.CliPick
+import com.atelier_nyaarium.switchboard.shownPick
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.standingRefusal
@@ -128,8 +135,16 @@ fun RunbookFireSheet(
 						choices = choices,
 						picked = choices.find { it.address == sheet.target },
 						labelOf = { it.label },
-						onPick = { sheet.pick(it.address) },
+						onPick = { sheet.pick(it.address, availableAt(state, gatewayId, it.address)) },
 					)
+					if (sheet.freshSession && sheet.target.isNotBlank()) {
+						val shown = shownPick(sheet.cli, unread = null)
+						CliToggles(
+							choices = cliChoices(availableAt(state, gatewayId, sheet.target), shown),
+							picked = shown,
+							onTap = { sheet.cli = pickAfterTap(sheet.cli, unread = null, it) },
+						)
+					}
 				}
 
 				PreviewPane(sheet.preview) {
@@ -152,7 +167,7 @@ fun RunbookFireSheet(
 						sheet.refusal = null
 						scope.launch {
 							val into = if (sheet.freshSession) {
-								RunbookFireTarget.New(target = sheet.target, displayLabel = runbook.name)
+								RunbookFireTarget.New(target = sheet.target, displayLabel = runbook.name, cli = (sheet.cli ?: CliPick.Unpicked).wire)
 							} else {
 								RunbookFireTarget.Session(target = sheet.target)
 							}
@@ -243,8 +258,13 @@ internal class FireSheetState(runbook: Runbook, private val into: String? = null
 		target = if (fresh) "" else into.orEmpty()
 	}
 
-	fun pick(address: String) {
+	/** The new session's CLI; null until a first spawn point is picked. */
+	var cli by mutableStateOf<CliPick?>(null)
+
+	/** A first spawn point takes New session's default; a later one keeps the pick, marked if not offered. */
+	fun pick(address: String, available: SpawnHarnesses) {
 		target = address
+		if (freshSession && cli == null) cli = freshPick(available)
 	}
 	var firing by mutableStateOf(false)
 

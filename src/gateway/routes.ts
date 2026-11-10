@@ -38,34 +38,26 @@ export interface RoutesDeps {
 	tryWakeTeam: (team: string, createOpts?: WakeCreate) => Promise<WakeResult>;
 	beginWake?: (team: string, createOpts?: WakeCreate) => WakeFlight;
 	launches?: Pick<LaunchRecords, "join">;
-	// Resolves a live incarnation.
 	sessionStore?: import("../shared/session-store.js").SessionStore;
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	capabilityStore?: Pick<import("./console/capabilityStore.js").CapabilityStore, "snapshot">;
 	daemonCapabilityStore?: Pick<import("./daemonCapabilities.js").DaemonCapabilityStore, "snapshot">;
-	// Backs teams().
 	presence?: { snapshot(): TeamInfo[] };
 	// `known` separates no reply from an empty catalog.
 	hostSpawnPoints?: HostSpawnState;
 	config: GatewayConfig;
 	producerSignPriv?: string;
 	routerClient?: import("./router/routerClient.js").RouterClient | null;
-	/** The Router leaf fingerprint this Gateway pins; health reports it for the verify gate. */
+	/** Pinned leaf fingerprint, reported by health. */
 	routerCertFp?: string;
-	// E2E seal/open for cross-Gateway frames; absent when federation crypto is off.
 	sealer?: import("./federation/sealer.js").Sealer | null;
-	/** Gateway delivery staging. */
 	blobStore?: import("../shared/blob-store.js").BlobStore;
 	blobUploader?: ReturnType<typeof import("./router/blobUploader.js").createBlobUploader>;
 	contentKeyStore?: Pick<import("./federation/contentKeyStore.js").ContentKeyStore, "keyFor" | "seal">;
 	ownerSignPub?: (() => string | null) | null;
-	// The disjoint cross-Domain peer set. A cross-Domain send resolves its target's Domain.
 	crossDomainPeers?: import("./federation/crossDomainPeers.js").CrossDomainPeers | null;
-	// Whether a gateway id is a LOCAL (single-owner allowlist) peer.
 	resolvesLocalGateway?: ((gatewayId: string) => boolean) | null;
-	// Whether a local session is still shared to a friend Domain.
 	isSharedToForReply?: ((sessionTarget: string, domainId: string) => boolean) | null;
-	/** Local reply push. */
 	onReplyPushed: (team: string) => void;
 	bankLaunch?: (sessionKey: string, notice: LaunchNotice) => void;
 	resolveHandshake?: (
@@ -73,29 +65,23 @@ export interface RoutesDeps {
 		replyAsJson?: Record<string, unknown>,
 		responderToken?: Presented,
 	) => boolean;
-	// The pending hs-* id owed by a (team, subId), if any.
 	findPendingHandshake?: (team: string, subId: string) => string | undefined;
-	// Re-sends a still-pending handshake.
 	repushHandshake?: (team: string, subId: string) => HandshakeRepushOutcome;
-	// This Domain's owner id, a hash of the owner's signing key.
 	ownerId?: (() => string | null) | null;
-	// The sole resolver of what a caller must prove to act as X.
 	auth?: SessionAuthority;
-	// Router-held owner board. Unavailable before enrollment.
+	/** Unavailable before enrollment. */
 	boardClient?: ReturnType<typeof import("./router/boardClient.js").createBoardClient>;
-	// Restart-proof replay for the board's ABSOLUTE writes.
+	/** Restart-proof replay of absolute writes. */
 	boardReplays?: DurableOpStore<BoardReply>;
-	// State that must survive a rebuild.
 	carryOver?: RoutesCarryOver;
 	awareness?: Pick<AwarenessBank, "prepareFor" | "withdraw">;
 	workflows?: { engine: WorkflowEngine; runner: WorkflowRunner };
-	// Holds a channel message a session could not take.
 	deliveries: ChannelDeliveryCoordinator;
 }
 
-/** The state a rebuild must not restart from empty. Only entries whose loss changes behaviour. */
+/** State a rebuild must not lose. */
 export interface RoutesCarryOver {
-	/** Losing this turns a retried absolute write into a second write. */
+	/** Loss repeats a retried write. */
 	boardOperationReplies: Map<string, Record<string, unknown>>;
 }
 

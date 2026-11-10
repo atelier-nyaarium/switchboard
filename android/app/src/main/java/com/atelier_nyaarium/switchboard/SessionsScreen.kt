@@ -22,7 +22,6 @@ import com.atelier_nyaarium.switchboard.board.BoardLiveLine
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceSession
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
-import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
 import com.atelier_nyaarium.switchboard.proto.isComposite
 import com.atelier_nyaarium.switchboard.proto.parseSessionName
 import kotlinx.coroutines.delay
@@ -285,7 +284,8 @@ fun SessionsScreen(
 									createDialogFor = CreateDialogTarget.of(
 										key.domainId,
 										key.gatewayId,
-										spawnChoices(state, key.gatewayId).map { it.spawn }.filter { state.gateways.createsOn(key.gatewayId, it) },
+										// Containers create from their own header.
+										hostSpawnChoices(state.gateways.hostSpawns(key.gatewayId)),
 									)
 								},
 								standing = if (isPeer) null else state.gateways.standing(key.gatewayId),

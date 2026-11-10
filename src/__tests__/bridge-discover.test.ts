@@ -5,6 +5,7 @@ import {
 	groupDiscoverEntries,
 	relativeAge,
 } from "../mcp/bridge/bridgeDiscover.js";
+import type { SpawnClis } from "../shared/schemasConsoleResults.js";
 import type { TeamInfo } from "../shared/types.js";
 
 type DiscoverEntry = TeamInfo;
@@ -59,6 +60,26 @@ describe("formatDiscoverLines", () => {
 	it("renders a bare header for a session-less project with no nested lines", () => {
 		const lines = formatDiscoverLines([entry({ team: "coollib", kind: "devcontainer", status: "available" })]);
 		expect(lines).toEqual(["- alice.gw1.coollib"]);
+	});
+
+	it("names a spawn point's CLIs where known, for that Gateway's spawn point alone", () => {
+		const rows = [
+			entry({ team: "coolapp.dev", kind: "loose" }),
+			entry({ team: "coolapp.dev", kind: "loose", gatewayId: "gw2" }),
+			entry({ team: "bare.dev", kind: "loose" }),
+		];
+		const clis: SpawnClis[] = [
+			{ domainId: "alice", gatewayId: "gw1", spawn: "coolapp", clis: ["claude", "opencode"] },
+			{ domainId: "alice", gatewayId: "gw1", spawn: "bare", clis: [] },
+		];
+
+		const headers = formatDiscoverLines(rows, clis).filter((line) => line.startsWith("- "));
+
+		expect(headers).toEqual([
+			"- alice.gw1.coolapp (CLIs: claude, opencode)",
+			"- alice.gw2.coolapp",
+			"- alice.gw1.bare",
+		]);
 	});
 
 	it("nests an online session's full address under its project header", () => {

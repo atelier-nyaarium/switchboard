@@ -16,7 +16,7 @@ and can be reached through these tools.
 ### Tools
 
 - **`switchboard:crosstalk_discover()`** - List all teams on the bridge (online and available). Available teams can be woken on demand by sending them a request. Always check before sending.
-- **`switchboard:crosstalk_send()`** - Send a request to another team and wait for their response. Blocks until they respond.
+- **`switchboard:crosstalk_send()`** - Send a message to another team. They will reply to you the same way.
 - **`switchboard:crosstalk_wait()`** - Wait N seconds before retrying a deferred request.
 
 > **The human is not a crosstalk team.** `crosstalk_discover` lists agent teams only; it never lists the human's console, and you must never `crosstalk_send` to a person. Reach the human by replying on the request you received with `channel_reply`, or push a proactive notice to their console with `switchboard:notify_human()` (carries title/summary/full/fullSpoken).

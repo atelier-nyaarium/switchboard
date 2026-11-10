@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.proto.AssistantSendRequest
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
+import com.atelier_nyaarium.switchboard.proto.readHarness
 import com.atelier_nyaarium.switchboard.vault.Expiry
 import com.atelier_nyaarium.switchboard.vault.VaultTile
 import com.atelier_nyaarium.switchboard.vault.expiresIn
@@ -36,6 +38,8 @@ internal fun assistantSendCardText(request: AssistantSendRequest, now: Long): As
 		intent.friendDomain?.let { add("Friend Domain: $it") }
 		add("Disposition: ${intent.disposition ?: "asking"}")
 		add("Label: ${intent.displayLabel ?: "none"}")
+		// A newer CLI shows as sent.
+		intent.cli?.let { add("CLI: ${(readHarness(it) as? HarnessWord.Named)?.harness?.label ?: it}") }
 		add("Creates the session if absent: ${if (intent.createsSession) "yes" else "no"}")
 	}
 	return AssistantSendCardText(

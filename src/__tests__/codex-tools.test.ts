@@ -2,9 +2,10 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initBridge, routerErrorText, routerPost } from "../mcp/bridge/helpers.js";
-import { codexRequestBody } from "../mcp/codex/codexTools.js";
+import { codexRequestBody, codexStartDefaults } from "../mcp/codex/codexTools.js";
 import { pluginProfile } from "../mcp/sessionCli.js";
 import { CodexRequestErrorSchema, sanitizeCodexErrorText } from "../shared/codex-agent.js";
+import { modelFamily, sameFamily } from "../shared/model-family.js";
 
 describe("Codex request identities", () => {
 	it("mints distinct ids for every call but a list", () => {
@@ -26,6 +27,35 @@ describe("Codex request identities", () => {
 		expect(
 			codexRequestBody("message", { agentId: "codex_0123456789abcdef0123456789abcdef", prompt: "Continue" }),
 		).not.toHaveProperty("model");
+	});
+
+	it("gives priority to any Luna model that names no tier, and lets a named tier win", () => {
+		expect(codexStartDefaults({})).toEqual({ model: "gpt-6-luna", serviceTier: "priority" });
+		expect(codexStartDefaults({ model: "gpt-6.1-luna" })).toEqual({
+			model: "gpt-6.1-luna",
+			serviceTier: "priority",
+		});
+		expect(codexStartDefaults({ model: "gpt-6.1-luna", serviceTier: "standard" })).toEqual({
+			model: "gpt-6.1-luna",
+			serviceTier: "standard",
+		});
+		expect(codexStartDefaults({ model: "gpt-6.1-sol" })).toEqual({ model: "gpt-6.1-sol" });
+	});
+});
+
+describe("a model's family", () => {
+	it("joins versions of one line and keeps sizes and lines apart", () => {
+		const pairs: Array<[string, string, boolean]> = [
+			["claude-opus-5-4", "claude-opus-5-5", true],
+			["gpt-6-luna", "gpt-6.1-luna", true],
+			["gpt-6.1-sol", "gpt-6.1-luna", false],
+			["deepseek-v4-pro", "deepseek-v4.1-flash", false],
+			["glm-5.2", "glm-5.3", true],
+			["glm-5.3", "glm-5.3-flash", false],
+		];
+
+		expect(pairs.map(([a, b]) => sameFamily(a, b))).toEqual(pairs.map(([, , same]) => same));
+		expect(modelFamily("gpt-6-luna")).toBe(modelFamily("GPT-6.1-Luna"));
 	});
 });
 

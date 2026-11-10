@@ -29,7 +29,7 @@ class SandboxSeederTest {
 
 		assertTrue(containers.any { it.run == ContainerRun.RUNNING && (it.harnesses as? SpawnHarnesses.Known)?.installed?.size == 2 })
 		assertTrue(containers.any { it.run == ContainerRun.STOPPED })
-		assertTrue(containers.any { it.harnesses == SpawnHarnesses.Unknown })
+		assertTrue(containers.any { it.harnesses is SpawnHarnesses.Unknown })
 	}
 
 	@Test

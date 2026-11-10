@@ -110,9 +110,7 @@ let gatewayUrl = "ws://localhost:20000";
 let channelPushHandler: ChannelPushHandler | null = null;
 const reconnector = createReconnector(() => connect());
 
-/** Probed once per process. PowerShell startup is ~0.36s, which is fine at register and not fine on
- * every wake, and a machine does not gain or lose a Windows side while the daemon runs. A restart is
- * the invalidation, which is also what installing the CLI would prompt. */
+/** Probed once per process; PowerShell startup is slow. */
 let windowsSpawn: WindowsSpawnAvailability | null = null;
 function windowsAvailability(): WindowsSpawnAvailability {
 	if (!windowsSpawn) {
@@ -123,10 +121,7 @@ function windowsAvailability(): WindowsSpawnAvailability {
 	return windowsSpawn;
 }
 
-/** The ONE place a host spawn point's working directory is resolved, so the wake path and the
- * console's create_session cannot answer differently for the same hint. Returns an error rather than
- * a fallback for a spawn point that cannot use the host's own paths: silently substituting a
- * directory is how a session ends up working somewhere nobody asked for. */
+/** The one workdir resolver for wake and create; errors rather than falling back. */
 function resolveSpawnWorkdir(spawn: string, hint: string | undefined): { workdir: string } | { error: string } {
 	if (spawn !== WINDOWS_SPAWN) return { workdir: resolveHostWorkdir(hint) };
 	const probe = windowsAvailability();
@@ -231,9 +226,7 @@ export function startHostDaemon(dirs?: string[], onChannelPush?: ChannelPushHand
 
 async function sendCatalog(): Promise<void> {
 	const projects = scanDevcontainerProjects();
-	// `hostSpawns` names the DETECTED spawn points only; `host` is on every machine and is not
-	// announced. An older gateway ignores the field, which is the whole point of announcing before
-	// anything consumes it: daemon first, gateway next, console last, each safe on its own.
+	// `hostSpawns` names detected points only; `host` is implicit.
 	const windows = windowsAvailability();
 	const hostSpawns = detectedHostSpawns(windows);
 	const onHost = await installedAt({ kind: "host", name: HOST_SPAWN }, { place: "host", assistant: false }).catch(
@@ -531,6 +524,18 @@ async function wakeHarness(
 	return launch.harness;
 }
 
+/** A create's CLI. A container target starts its container first; a Stop meanwhile throws. */
+async function createLaunchHarness(target: TmuxTarget, word: unknown) {
+	if (target.kind === "host") return launchHarnessFor(word, target);
+	// Before any container starts.
+	const placement = placementRefusal(word, target);
+	if (placement) return { refused: placement };
+	const { value } = await devContainers.ensureUp(target.name, catalogProjectPath(target.name), async (installed) =>
+		resolveLaunchHarness(word, target, installed),
+	);
+	return value;
+}
+
 /** A wake result's reason. */
 function launchError(res: LaunchOutcome): { error?: string } {
 	if (res.limit) return { error: `session limit hit${res.limit.detail ? ` (${res.limit.detail})` : ""}` };
@@ -556,17 +561,14 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		safeSend({ type: "wake_result", team: msg.team, success: false, error: placement });
 		return;
 	}
-	// The daemon shares this tmux server. Registry-wide rather than the bare literal, so every host
-	// spawn point reaches this branch and none falls through to the devcontainer path below, which
-	// would look for a container named after a shell.
+	// Every host spawn point lands here, never the devcontainer path.
 	if (isHostSpawn(project)) {
 		if (isReservedHostSession(session)) {
 			console.error(`[host-wake] refusing wake of "${msg.team}": "${session}" is a reserved host session`);
 			safeSend({ type: "wake_result", team: msg.team, success: false, error: "reserved host session" });
 			return;
 		}
-		// Defence in depth behind the gateway's own rule: a host launch the gateway cannot name a
-		// record for carries no token, and nothing on this machine should start a shell for it.
+		// Defence in depth behind the gateway's rule.
 		if (!msg.sessionToken) {
 			console.error(`[host-wake] refusing wake of "${msg.team}": no session token`);
 			safeSend({ type: "wake_result", team: msg.team, success: false, error: "no session token" });
@@ -583,9 +585,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 				return;
 			}
 		}
-		// A spawn point whose shell does not share this filesystem needs its own resolution, and one
-		// that REFUSES rather than falling back: a Windows session handed a Linux path lands on a UNC
-		// cwd, which works well enough to look fine and then strands every subprocess it starts.
+		// Refuses rather than falling back: a Linux path becomes a UNC cwd on Windows.
 		const resolved = resolveSpawnWorkdir(project, msg.workdirHint);
 		if ("error" in resolved) {
 			console.error(`[host-wake] refusing wake of "${msg.team}": ${resolved.error}`);
@@ -707,14 +707,13 @@ const hostOpRunner = createHostOpRunner({
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
 	createSession: async (target, workdirHint, resumeSessionId, sessionToken, harness, fresh) => {
-		const launch = await launchHarnessFor(harness, target);
 		// The runner fails the op.
+		const launch = await createLaunchHarness(target, harness);
 		if ("refused" in launch) throw new Error(launch.refused);
 		let workdir: string | undefined;
 		if (target.kind === "host") {
 			const resolved = resolveSpawnWorkdir(target.name, workdirHint);
-			// Thrown rather than swallowed: the runner turns it into a failed op, and the console shows
-			// the reason. A silent fallback here would start the session in the wrong tree.
+			// Thrown, never a silent fallback.
 			if ("error" in resolved) throw new Error(resolved.error);
 			workdir = resolved.workdir;
 		}
@@ -740,8 +739,7 @@ const hostOpRunner = createHostOpRunner({
 	killSession,
 	containerStart: async (project) => devContainers.start(project, catalogProjectPath(project)),
 	containerStop: async (project) => devContainers.stop(project, catalogProjectPath(project)),
-	// A windows session browses WINDOWS, through PowerShell. Browsing /mnt from this side would offer
-	// Linux directories the launch then refuses, and would miss every network drive.
+	// A windows session browses through PowerShell.
 	listDirs: async (p, spawn) =>
 		spawn === WINDOWS_SPAWN ? listWindowsDirs(p, windowsAvailability().userProfile) : listHostDirs(p),
 	readSkill: async (target, skillPath) => readWorkflowSkill(target, skillPath),

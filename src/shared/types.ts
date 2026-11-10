@@ -11,24 +11,14 @@ import type {
 
 ////////////////////////////////
 //  Bridge Types
-//
-//  Wire shapes derive from the zod schemas in shared/schemas.ts (the single
-//  truth). Local-only types (payloads, config) stay hand-written here.
 
-/**
- * Channel attachment metadata carried over the bridge (console-origin files).
- *
- * A `blobId` names the bytes on the blob plane, which the host MCP plugin pulls down a chunk at a
- * time into /tmp/switchboard-channel-files/<msgId>/. Absence means the entry is metadata-only: the sender could
- * not stage the bytes, so the agent sees the file was there and nothing more.
- */
+/** A `blobId` names staged bytes; absent means metadata only. */
 export type ChannelFile = z.infer<typeof ChannelFileSchema>;
 
 export type ConnectionMode = z.infer<typeof ConnectionModeSchema>;
 export type ResponseStatus = z.infer<typeof ResponseStatusSchema>;
 
-/** What the recipient does with a notice. `no_act` rides the next message and asks nothing. `act_now`
- * is worth interrupting for, and the gateway pushes it on its own if no message comes in time. */
+/** `no_act` rides the next message; `act_now` is pushed alone if none comes in time. */
 export type ActAxis = "no_act" | "act_now";
 
 /** Banked notices, riding a message or pushed alone. `from` names the sources. */
@@ -38,8 +28,7 @@ export interface RidingAwareness {
 	act: ActAxis;
 }
 
-// The sender states whether it expects an answer, needs only a signal, or has closed the thread.
-// It is optional so older senders and human console messages still ask by default.
+// Optional; absent asks by default.
 export const REPLY_DISPOSITIONS = ["asking", "informing", "closing"] as const;
 export type ReplyDisposition = (typeof REPLY_DISPOSITIONS)[number];
 
@@ -52,8 +41,7 @@ export const REPLY_READERS = ["phone", "session"] as const;
 export type ReplyReader = (typeof REPLY_READERS)[number];
 
 ////////////////////////////////
-//  Reply payloads. Fields are optional because a channel reply (channel_reply) is a
-//  stream message that may carry only a partial update (status, a chunk, or the final).
+//  Reply payloads; a stream message may carry a partial update.
 
 export const MAX_PENDING_DELIVERIES = 2_000;
 
@@ -65,13 +53,11 @@ export interface ChannelPushPayload {
 	replyJsonSchema?: string;
 	message_id?: string;
 	files?: ChannelFile[];
-	// Awareness only: the push asks for no reply and its session_id routes nowhere. Nothing can
-	// ENFORCE no-reply, so this only changes the instructions the harness renders; the gateway still
-	// has to absorb a reply that comes anyway.
+	// Awareness only; the gateway still absorbs a reply that comes anyway.
 	no_ack?: boolean;
-	// The act axis of a standalone awareness push. Only ever set beside no_ack.
+	// Only ever set beside no_ack.
 	act?: ActAxis;
-	// Rendered as a reminder block. A standalone push carries it with an empty body.
+	// Rendered as a reminder block.
 	awareness?: RidingAwareness;
 	disposition?: ReplyDisposition;
 	/** The owner approved this message on their phone before it was sent. */
@@ -84,9 +70,6 @@ export interface ChannelPushPayload {
 	delivery_id?: string;
 }
 
-// Extends the spoken-tier trio (notice.ts NoticeTierWire): title (notification-bar line +
-// shortest spoken tier), summary (medium spoken tier), fullSpoken (what the FULL play tier
-// speaks in the body's place). Absent on a plain reply; response stays the full body.
 export interface ResponsePayload extends NoticeTierWire {
 	session_id: string;
 	status?: ResponseStatus;
@@ -122,8 +105,7 @@ export interface RegisterMessage {
 	conversationId: string;
 }
 
-/** Devcontainer-backed teams are wakeable projects; loose teams are ad-hoc
- * sessions (host windows, one-off peers) that end when their process does. */
+/** Devcontainer teams are wakeable; loose teams end with their process. */
 export type TeamKind = z.infer<typeof TeamKindSchema>;
 
 export type TeamInfo = z.infer<typeof TeamInfoSchema>;
@@ -138,17 +120,13 @@ export interface CatalogMessage {
 //  Config Types
 
 export interface GatewayConfig {
-	// This Gateway's id, qualifying every local session name on the wire (GATEWAY_ID
-	// env override, else the sanitized machine hostname).
 	localGatewayId: string;
-	// The installed allowlist record's Domain id, else the FEDERATION_DOMAIN_ID env.
 	localDomainId: string;
 }
 
 export interface WebSocketConfig {
 	HEARTBEAT_INTERVAL_MS: number;
 	MISSED_PINGS_LIMIT: number;
-	// When set, a register for the reserved "host" team must present a matching token.
-	// Unset (default) keeps the existing unauthenticated host registration.
+	// When set, the "host" team's register must present it.
 	hostWsToken?: string;
 }

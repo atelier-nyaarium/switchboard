@@ -59,12 +59,7 @@ export type NoResizePeek = (target: TmuxTarget) => Promise<HostPeekResult>;
 ////////////////////////////////
 //  Class
 
-/**
- * Per-team 2-peek hysteresis, so one flicker cannot become a confirmed flip.
- *
- * Agreement is on the derived VALUE, never on frame identity. An idle pane is byte-identical capture
- * after capture, so requiring two distinct frames made the flip back to not-working unreachable.
- */
+/** Per-team 2-peek hysteresis. Agreement is on the derived value, never frame identity. */
 class HysteresisTracker {
 	private pending: DerivedState | undefined;
 	private confirmed: DerivedState | undefined;
@@ -178,8 +173,7 @@ export class PresenceScheduler {
 		this.now = opts.now ?? (() => Date.now());
 	}
 
-	/** Replace the full watch set. A cadence change keeps its hysteresis history. Resolves once every
-	 * rescheduled entry's first tick has run, which tests await. */
+	/** Replaces the watch set; a cadence change keeps hysteresis. */
 	setWatches(entries: WatchEntry[]): Promise<void> {
 		const next = new Map(entries.map((e) => [e.team, e]));
 		for (const [team] of this.watches) {
@@ -252,8 +246,7 @@ export class PresenceScheduler {
 		const timer = setInterval(() => void this.tick(entry.team), entry.cadenceMs);
 		timer.unref?.();
 		this.timers.set(entry.team, timer);
-		// Only a new team peeks now. An extra peek would land inside the cadence floor and hand back
-		// the capture the last tick already consumed, counting one frame as two agreeing peeks.
+		// An extra peek would count one frame twice.
 		return fresh ? this.tick(entry.team) : Promise.resolve();
 	}
 

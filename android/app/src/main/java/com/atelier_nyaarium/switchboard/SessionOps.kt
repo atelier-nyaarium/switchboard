@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
+import com.atelier_nyaarium.switchboard.proto.UNPICKED_WORD
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -146,12 +147,13 @@ internal class SessionOps(
 
 	fun wakeSession(team: String) {
 		val target = wakeTargetOf(team) ?: return
+		val harness = launchHarness(harnessOf(host.state.value.teams.firstOrNull { it.name == team }))
 		val opId = UUID.randomUUID().toString()
 		noteReceipt(team, ActionReceipt(opId, System.currentTimeMillis()))
 		// Republish cached teams immediately so the receipt appears on this frame.
 		host.launchInBackground { presence.reapplyCachedTeams() }
 		host.launchInBackground {
-			runCatchingCancellable { host.wake(target, opId) }
+			runCatchingCancellable { host.wake(target, opId, harness) }
 				.onSuccess {
 					settleReceipt(team, opId, ActionReceipt.Outcome.ACCEPTED)
 					refreshAfterAction()
@@ -170,7 +172,7 @@ internal class SessionOps(
 			val t = runIsolated { parseQualifiedTarget(team) }.getOrNull()
 			if (t !is Address) error("not an addressable session")
 			// Read before the close drops the row.
-			val harness = relaunchHarness(harnessOf(host.state.value.teams.firstOrNull { it.name == team }))
+			val harness = launchHarness(harnessOf(host.state.value.teams.firstOrNull { it.name == team }))
 			val opId = UUID.randomUUID().toString()
 			// Keep one receipt across close and create while the roster reports asleep.
 			noteReceipt(team, ActionReceipt(opId, System.currentTimeMillis()))
@@ -334,11 +336,12 @@ internal class SessionOps(
 	}
 }
 
-/** The CLI word a relaunch sends the row's own Gateway. */
-internal fun relaunchHarness(word: HarnessWord): String =
+/** The CLI word a wake or relaunch sends the row's own Gateway. */
+internal fun launchHarness(word: HarnessWord): String =
 	when (word) {
 		is HarnessWord.Named -> word.harness.wire
 		is HarnessWord.Unnamed -> word.assumed.wire
+		HarnessWord.Unpicked -> UNPICKED_WORD
 		is HarnessWord.Unknown -> word.word
 	}
 
@@ -347,7 +350,7 @@ internal fun sendableKeys(keys: List<Pair<String, String>>, word: HarnessWord): 
 	val refused = when (word) {
 		is HarnessWord.Named -> word.harness.refusedKeys
 		is HarnessWord.Unnamed -> word.assumed.refusedKeys
-		is HarnessWord.Unknown -> emptyList()
+		HarnessWord.Unpicked, is HarnessWord.Unknown -> emptyList()
 	}
 	return keys.filter { (_, key) -> key !in refused }
 }

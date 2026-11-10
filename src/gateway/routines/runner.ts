@@ -90,21 +90,17 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			{ reason },
 		);
 
-	/**
-	 * Walks one occurrence as far as it can go now. Every caller enters here, so the timer, the tick
-	 * and a manual Run now cannot each be walking the same occurrence.
-	 */
+	/** The only door; no two callers walk one occurrence. */
 	async function advance(occurrence: Occurrence): Promise<void> {
 		const routine = routines.get(occurrence.routineId);
 		if (!routine) return;
 		const now = ambient.now();
 
-		// Disable stops the schedule, not the routine, so a run the owner pressed is not the schedule
-		// firing. Every other check still applies to it.
+		// Disable stops the schedule, not a pressed run.
 		const scheduled = occurrence.adhoc !== true;
 
 		if (now > occurrence.deadlineAt) {
-			// The cause it started waiting for; nothing probes a host this late.
+			// Keeps the cause it waited on.
 			miss(occurrence, occurrence.reason ?? "gateway_down");
 			return;
 		}
@@ -113,7 +109,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			return;
 		}
 
-		/** Waits, naming the cause the deadline will use. */
+		/** Names the deadline's cause. */
 		const wait = (row: Occurrence, reason: MissReason) => {
 			if (row.state !== "due") return;
 			occurrences.transition(
@@ -134,7 +130,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			const prepared = await attempt().prepare(routine, held);
 			if (!prepared.ok) {
 				if (prepared.reason === "unreachable") {
-					// Reachability can come back inside the window, so this waits rather than settling.
+					// Reachability may return in-window.
 					wait(held, "host_unreachable");
 					return;
 				}
@@ -152,8 +148,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				miss(held, "disabled");
 				return;
 			}
-			// An edit landed while this prepared, so the snapshot is of words the owner has replaced.
-			// Left where it is, for the next sweep to prepare against what they now mean.
+			// Edited mid-prepare; the next sweep re-prepares.
 			if (afterPrepare.revision !== routine.revision) return;
 			const moved = occurrences.transition(
 				held.routineId,
@@ -181,8 +176,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			miss(held, "gateway_down");
 			return;
 		}
-		// Written before the nudge is handed over, so a crash loses it rather than sending it twice.
-		// `work` opens here, which is what any grant this routine holds reads.
+		// Before delivery: a crash loses it, never repeats it. Opens `work`.
 		const dispatched = occurrences.transition(
 			held.routineId,
 			held.scheduledAt,
@@ -206,13 +200,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "started");
 	}
 
-	/**
-	 * Drops the session a routine reserved once every run in it is over and the owner's keep period
-	 * has passed. The session is reserved per routine and reused, so the next fire takes it again.
-	 *
-	 * Measured from the newest occurrence rather than from the report, since a run that never filed
-	 * one would otherwise keep its session forever, which is the case this exists for.
-	 */
+	/** Measured from the newest occurrence, since an unfiled run has no report. */
 	function forgetFinishedSessions(now: number): void {
 		for (const routine of routines.list()) {
 			if (!targetRules(routine).ownsSession) continue;
@@ -227,7 +215,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		}
 	}
 
-	/** Every open window in that session. More than one is ordinary: each press carries its own. */
+	/** Every open window; each press carries its own. */
 	function workingOccurrences(sessionTarget: string): Occurrence[] {
 		const now = ambient.now();
 		return occurrences.all().filter((occurrence) => {
@@ -237,23 +225,18 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		});
 	}
 
-	/** One representative, for readers about the routine rather than the run. Ending a session takes all. */
+	/** One representative; ending a session takes all. */
 	function firstWorkingOccurrence(sessionTarget: string): Occurrence | null {
 		return workingOccurrences(sessionTarget)[0] ?? null;
 	}
 
-	/**
-	 * A week away is one panel. Everything the rule named past its window collapses into the latest
-	 * of them, so the owner is told the routine did not run without being told once per occurrence.
-	 */
+	/** Collapses all missed slots into the latest. */
 	function recordSevereMiss(routine: Routine, now: number): void {
-		// Rule-named slots only. A run the owner pressed at 14:32 says nothing about whether this
-		// morning's scheduled slot ran, and counting it would move the floor past a miss untold.
+		// Rule-named slots only; a pressed run would move the floor past a miss.
 		const seen = occurrences.forRoutine(routine.id).filter((row) => row.adhoc !== true);
 		const newest = seen.reduce((held, row) => Math.max(held, row.scheduledAt), 0);
 		const closed = now - GRACE_MS;
-		// Never past the moment this gateway took the routine, or a routine saved today would be
-		// handed a miss for a slot that passed before it existed.
+		// Never before the routine existed.
 		let cursor = nextAt(routine, Math.max(newest, routine.since, now - KEEP_MS));
 		let latest: number | null = null;
 		while (cursor !== null && cursor < closed) {
@@ -269,12 +252,12 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		}
 	}
 
-	/** Materializes what is due, walks it, and rearms for whatever comes next. */
+	/** Opens due slots, walks them, rearms. */
 	async function sweepDue(): Promise<void> {
 		if (!admitting) return;
 		const now = ambient.now();
 
-		// Rearmed whatever happened, or nothing wakes.
+		// Always rearm.
 		try {
 			for (const occurrence of occurrences.all()) {
 				if (occurrence.state === "due" || occurrence.state === "waiting_idle") await advance(occurrence);
@@ -284,7 +267,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			for (const routine of routines.list()) {
 				if (!routine.enabled) continue;
 				recordSevereMiss(routine, now);
-				// Everything still inside its window, and never before the routine existed.
+				// In-window slots only.
 				let cursor = nextAt(routine, Math.max(now - GRACE_MS, routine.since));
 				while (cursor !== null && cursor <= now) {
 					const opened = occurrences.open(routine.id, cursor, cursor + GRACE_MS);
@@ -294,17 +277,17 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			}
 
 			forgetFinishedSessions(now);
-			// Before the sweep: a proposal it deletes is a history nothing can recover.
+			// Before the sweep deletes proposals.
 			recoverProposals?.();
 			occurrences.sweep(now - KEEP_MS);
-			// Deletion is root-first, so a failed clear leaves memory nothing can reach. This collects it.
+			// Collects memory a failed clear orphaned.
 			sweepMemory?.(new Set(routines.list().flatMap((r) => (r.incarnation ? [r.incarnation] : []))));
 		} finally {
 			rearm(now);
 		}
 	}
 
-	/** The earliest thing worth waking for after `from`, whether a deadline or a due instant. */
+	/** Earliest deadline or due instant after `from`. */
 	function earliest(from: number): number | null {
 		const instants: number[] = [];
 		for (const occurrence of occurrences.all()) {
@@ -317,12 +300,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		return instants.length === 0 ? null : Math.min(...instants);
 	}
 
-	/**
-	 * Wakes for whatever comes after `from`, the instant the caller's walk read the clock at. A
-	 * platform timer can run a hair before its instant, so a walk woken for a slot can find it still
-	 * ahead; read afresh here, the clock may have crossed it meanwhile, and the slot would be skipped
-	 * until the next tick.
-	 */
+	/** Takes the walk's clock; a fresh read could skip a slot. */
 	function rearm(from: number): void {
 		if (timer) ambient.clearTimer(timer);
 		timer = null;
@@ -358,59 +336,51 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			await walks.drain();
 		},
 
-		/** What the console's Run now and the tests reach. */
+		/** Console and test entry. */
 		reconcile(): Promise<void> {
 			return walks.run(sweepDue);
 		},
 
-		/**
-		 * A run the owner pressed, at the instant they pressed it. Its own occurrence rather than a
-		 * re-entry of one the rule named, which at-most-once forbids. Answers the instant it opened,
-		 * since the gateway chose it.
-		 */
+		/** Its own occurrence: re-entering a rule's would break at-most-once. */
 		async runFresh(routineId: string): Promise<number | null> {
 			let opened: number | null = null;
 			await walks.run(async () => {
-				// A shutdown has closed admission, and this would write after the flush.
+				// Closed admission would write after the flush.
 				if (!admitting) return;
 				if (!routines.get(routineId)) return;
 				const at = ambient.now();
 				const made = occurrences.open(routineId, at, at + GRACE_MS, true);
-				// Only a row this call opened. `open` answers whatever is already at that instant, and
-				// walking the rule's own row here would run it without the gates a scheduled run keeps.
+				// `open` may return the rule's row, which skips scheduled gates.
 				if (made?.adhoc !== true || made.state !== "due") return;
 				await advance(made);
-				// A pressed run can land waiting on a busy session, and its deadline is a new instant
-				// worth waking for.
+				// A waiting run's deadline is a new wake.
 				rearm(at);
-				// What became of it, not that a row was opened: preparation is awaited, and a deadline
-				// or a moved revision can settle it first.
+				// Preparation is awaited; a deadline can settle it first.
 				const settled = occurrences.at(routineId, at)?.state;
 				if (settled !== "missed" && settled !== "needs_review") opened = at;
 			});
 			return opened;
 		},
 
-		/** A missed occurrence the owner asked for again, carrying a fresh authorization. */
+		/** Reruns a missed slot with fresh authorization. */
 		async runNow(routineId: string, scheduledAt: number): Promise<boolean> {
 			let ran = false;
 			await walks.run(async () => {
-				// A shutdown has closed admission, and this would write after the flush.
+				// Closed admission would write after the flush.
 				if (!admitting) return;
 				const routine = routines.get(routineId);
 				const held = occurrences.at(routineId, scheduledAt);
 				if (!routine || !held || held.state !== "missed") return;
 				const prepared = await attempt().prepare(routine, held);
 				if (!prepared.ok) return;
-				// The owner edited it while this prepared, so their Run now was for other words.
+				// Edited mid-prepare.
 				if (routines.get(routineId)?.revision !== routine.revision) return;
 				const dispatched = occurrences.transition(
 					routineId,
 					scheduledAt,
 					{ state: held.state, version: held.version },
 					"dispatched",
-					// `work` opens here as it does on the ordinary road, or a run the owner asked for
-					// would reach none of the routine's own authority.
+					// `work` opens here too.
 					{
 						preparedRevision: prepared.revision,
 						snapshot: prepared.snapshot,

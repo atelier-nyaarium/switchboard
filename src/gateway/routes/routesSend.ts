@@ -62,7 +62,7 @@ export interface SendRoutesDeps {
 	conversationRegistry: ConversationRegistry;
 	store: Pick<PendingJobStore<ResponsePayload>, "reserve" | "commit" | "abort">;
 	tryWakeTeam: (team: string, createOpts?: WakeCreate) => Promise<WakeResult>;
-	/** A launch's started team, at once; a session's send queues behind it. */
+	/** Returns the started team at once. */
 	beginWake?: (team: string, createOpts?: WakeCreate) => WakeFlight;
 	launches?: Pick<LaunchRecords, "join">;
 	sessionStore?: import("../../shared/session-store.js").SessionStore;
@@ -144,7 +144,7 @@ export function createSendRoutes({
 		return afterWake(resolved, await tryWakeTeam(resolved.name, createOpts), true);
 	}
 
-	/** A session's send answers once the launch starts, and hears its end by notice. */
+	/** Answers at launch start; the end comes by notice. */
 	async function reachWithoutWaiting(resolved: LocalTarget, createOpts: WakeCreate): Promise<Reached> {
 		const live = resolveLiveIncarnation(registry, sessionStore, resolved.name);
 		if (live || !beginWake || !launches) return reach(resolved, createOpts);
@@ -195,11 +195,7 @@ export function createSendRoutes({
 		return { ok: true, localName, target, qualifiedTo, targetWs };
 	}
 
-	/**
-	 * A senderless event: no `from`, conversation or return route, so no reply is owed. `compose` runs
-	 * once the session is reached; null there sends nothing. Null when it is delivered, durably queued
-	 * or empty; otherwise why not.
-	 */
+	/** Senderless, no reply owed. Null compose sends nothing; returns null on success, else why not. */
 	async function deliverEvent(event: {
 		to: string;
 		compose: () => readonly EventMember[] | null;
@@ -364,7 +360,6 @@ export function createSendRoutes({
 			if (auth?.presentsOwnLaunchToken(ASSISTANT_TEAM, presentedByRequest(ingress.req))) {
 				return jsonResponse({ error: "the assistant sends through its own road" }, 403);
 			}
-			// Session callers prove identity.
 			const refused = refuseImpersonation(ingress.req, from, "session");
 			if (refused) return refused;
 			// Check includes unconfirmed sessions.
@@ -385,7 +380,7 @@ export function createSendRoutes({
 					? "routine"
 					: ingress.kind;
 		const trustedInbound = ingress.kind === "gateway";
-		// Federated fields are accepted only from the trusted relay.
+		// Federated fields come from the trusted relay only.
 		const inboundSessionId = trustedInbound ? parsed.data.sessionId : undefined;
 		const returnRoute = trustedInbound ? parsed.data.returnRoute : undefined;
 		const dstDomainId = trustedInbound ? parsed.data.dstDomainId : undefined;
@@ -396,7 +391,7 @@ export function createSendRoutes({
 				: { kind: "conversation", conversationId };
 
 		if (files && files.length > 0) {
-			// Enforce the file-size limit again at the trust boundary.
+			// Re-checked at the trust boundary.
 			const total = fileBytes(files);
 			if (total > MAX_RESPONSE_FILE_BYTES) {
 				return jsonResponse(
@@ -414,7 +409,6 @@ export function createSendRoutes({
 			);
 		}
 		if (parsedTarget && (parsedTarget.domain !== localDomain || parsedTarget.gateway !== localGatewayId)) {
-			// Foreign targets route through the federation Router.
 			const realDomain = parsedTarget.domain !== localDomain ? parsedTarget.domain : targetDomain;
 			return await sendCrossGateway({
 				targetGateway: parsedTarget.gateway,
@@ -448,18 +442,17 @@ export function createSendRoutes({
 				400,
 			);
 		}
-		// Only the owner opens a conversation with the assistant, and it reads as absent.
+		// The assistant reads as absent to all but the owner.
 		if (ingress.kind !== "owner" && isAssistantRecord(sessionStore?.getByTeam(requested))) {
 			return jsonResponse({ error: `no session named "${to}"` }, 404);
 		}
 
-		// Wake or create the target before delivery.
 		const mintedFrom =
 			inboundSessionId ?? (fromConversationId ? `${fromConversationId}:${resolved.name}` : undefined);
 		// The guard cleared it, by card or by the owner's setting.
 		const cleared = record ? { cleared: true as const } : {};
 		const createOpts: WakeCreate = { displayLabel, ...(cli ? { harness: cli } : {}), mintedFrom, ...cleared };
-		// A session reads its launch's end as a notice; every other sender waits on it.
+		// Sessions get a notice; others wait.
 		const readsNotices =
 			ingress.kind === "session" ||
 			ingress.kind === "assistant" ||
@@ -493,7 +486,6 @@ export function createSendRoutes({
 				let channelJobId: string;
 				let contract: JobContract;
 				if (inboundSessionId) {
-					// Federated replies need routes.
 					if (!returnRoute) {
 						return jsonResponse({ error: `a federated send must carry a return route` }, 400);
 					}
@@ -520,7 +512,7 @@ export function createSendRoutes({
 
 				const hasFiles = files !== undefined && files.length > 0;
 				const messageId = hasFiles ? ambient.newId() : undefined;
-				// Captured once so retries preserve the same row data, and settled by whether the message lands.
+				// Captured once; retries keep the row.
 				lease = awareness?.prepareFor(localName) ?? null;
 				const riding = lease?.awareness;
 
@@ -548,7 +540,6 @@ export function createSendRoutes({
 						503,
 					);
 				}
-				// Migration is a refusal.
 				if (outcome === "migrating") {
 					store.abort(anchor);
 					lease?.release();
@@ -595,7 +586,6 @@ export function createSendRoutes({
 				}
 
 				if (record) {
-					// Per-clearance record.
 					const fromAddr = localAddress(ASSISTANT_TEAM);
 					const sent = { body: msgBody, files, guard: record.guard };
 					mirrorPeer(fromAddr, fromAddr.canonical, target.address.canonical, sent, record.key);
@@ -640,11 +630,7 @@ export function createSendRoutes({
 		return jsonResponse({ error: "unsupported connection mode" }, 400);
 	}
 
-	/**
-	 * The key an owner send will anchor on, for a caller that must answer before the send resolves.
-	 * Reads the same owner and the same address rules the send does. A wake that resolves a
-	 * different team can still move it, so the send's own answer wins where both exist.
-	 */
+	/** Predicts the anchor key; a wake may move it, so the send's answer wins. */
 	function ownerSessionKey(to: string, targetDomain?: string): string {
 		const owner = ownerId?.();
 		if (!owner) return "";
@@ -678,7 +664,7 @@ export function createSendRoutes({
 		return send({ kind: "gateway" }, body);
 	}
 
-	/** Resolve target before delivery. */
+	/** Resolves before delivery. */
 	function bindTarget(to: string): BoundTarget {
 		let parsed: Address | SpawnPoint;
 		try {
@@ -712,7 +698,7 @@ export function createSendRoutes({
 		return { ok: true, target: local.address.canonical, exists: held !== undefined };
 	}
 
-	/** Deliver approved binding unchanged. */
+	/** Delivers the approved binding unchanged. */
 	async function sendFromAssistant(args: {
 		intent: AssistantSendIntent;
 		files: ChannelFile[];
@@ -727,7 +713,7 @@ export function createSendRoutes({
 				from: ASSISTANT_TEAM,
 				to: intent.target,
 				body: intent.body,
-				// Creation flag gates session creation.
+				// Creation flag gates these.
 				...(intent.displayLabel && intent.createsSession ? { displayLabel: intent.displayLabel } : {}),
 				...(intent.cli && intent.createsSession ? { cli: intent.cli } : {}),
 				...(intent.disposition ? { disposition: intent.disposition } : {}),

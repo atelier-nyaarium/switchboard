@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	createSessionLaunch,
+	LAUNCHER_READY_MS,
 	type LaunchDoor,
 	type LaunchFacts,
 	type LaunchSite,
@@ -277,18 +278,18 @@ describe("a launch read through its launcher", () => {
 
 		expect(outcome).toMatchObject({ created: true, ready: false });
 		expect(outcome.error).toBeTruthy();
-		expect(r.elapsed()).toBeLessThan(30_000);
+		expect(r.elapsed()).toBeLessThan(LAUNCHER_READY_MS);
 		if ("peeks" in options) expect(outcome.screen, label).toBe("opencode: command not found");
 	});
 
-	it("fails once the launcher never reports", async () => {
+	it("fails once the launcher never reports, and only at the deadline", async () => {
 		const r = rig();
 
 		const outcome = await r.launch(TARGET, opencode("wake"));
 
-		expect(outcome).toMatchObject({ created: true, ready: false });
+		expect(outcome).toMatchObject({ created: true, ready: false, screen: "" });
 		expect(outcome.error).toBeTruthy();
-		expect(r.elapsed()).toBeGreaterThanOrEqual(150_000);
+		expect(r.elapsed()).toBeGreaterThanOrEqual(LAUNCHER_READY_MS);
 	});
 
 	it("leaves a pane a create finds", async () => {

@@ -87,7 +87,7 @@ class ConsoleClientOwnerOpsTest {
 		client.renameSession("domain.gateway.spawn.session", "new", opId = "rename-op")
 		client.closeSession("domain.gateway.spawn.session", opId = "close-op")
 		client.forget("domain.gateway.spawn.session", boardDisposition = "keep", opId = "forget-op")
-		client.wake("domain.gateway.spawn.session", opId = "wake-op")
+		client.wake("domain.gateway.spawn.session", opId = "wake-op", harness = "opencode")
 		val ownerOps = sent.toList()
 		val opened = ownerOps.map { openConsoleOp(it) }
 
@@ -97,7 +97,7 @@ class ConsoleClientOwnerOpsTest {
 		assertEquals("new", (opened[1] as ConsoleOp.RenameSession).sessionLabel)
 		assertEquals("domain.gateway.spawn.session", (opened[2] as ConsoleOp.CloseSession).target)
 		assertEquals("keep", (opened[3] as ConsoleOp.Forget).boardDisposition)
-		assertEquals("domain.gateway.spawn.session", (opened[4] as ConsoleOp.Wake).target)
+		assertEquals(ConsoleOp.Wake("domain.gateway.spawn.session", harness = "opencode"), opened[4])
 		assertEquals("session:domain/gateway/spawn.session", ownerOps[0].op["address"]?.jsonPrimitive?.content)
 		assertEquals("session:domain/gateway/spawn.session", ownerOps[4].op["address"]?.jsonPrimitive?.content)
 	}

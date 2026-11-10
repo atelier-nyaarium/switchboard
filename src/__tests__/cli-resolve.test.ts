@@ -1,15 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { cliRefusalText, placeCandidates, resolveCli } from "../shared/cli-resolve.js";
+import { cliRefusalText, pickAt, resolveCli } from "../shared/cli-resolve.js";
+import { sendRefusalText } from "../shared/launch-notice.js";
 import { readHarness, UNPICKED_WORD } from "../shared/session-harness.js";
-
-describe("the CLIs a place may run", () => {
-	it("offers every CLI on the host's own shell, and Claude alone in a container or as the assistant", () => {
-		expect(placeCandidates({ place: "host", assistant: false })).toEqual(["claude", "opencode", "copilot"]);
-		expect(placeCandidates({ place: "windows", assistant: false })).toEqual(["claude", "copilot"]);
-		expect(placeCandidates({ place: "container", assistant: false })).toEqual(["claude"]);
-		expect(placeCandidates({ place: "host", assistant: true })).toEqual(["claude"]);
-	});
-});
 
 describe("which CLI a launch runs", () => {
 	const resolve = (word: unknown, available: Parameters<typeof resolveCli>[1]) =>
@@ -34,6 +26,30 @@ describe("which CLI a launch runs", () => {
 	});
 });
 
+describe("a create's CLI where its place's are known", () => {
+	const host = { place: "host" as const, assistant: false };
+	const container = { place: "container" as const, assistant: false };
+
+	it("takes the named or the only CLI, and leaves it to the place when the place has not said", () => {
+		expect(pickAt(host, "opencode", ["claude", "opencode"])).toEqual({ harness: "opencode" });
+		expect(pickAt(host, undefined, ["claude"])).toEqual({ harness: "claude" });
+		expect(pickAt(container, undefined, undefined)).toEqual({});
+		expect(pickAt(container, "claude", undefined)).toEqual({ harness: "claude" });
+	});
+
+	it("refuses several with none named, one not installed, none installed, and one the place never runs", () => {
+		expect(pickAt(host, undefined, ["claude", "opencode"])).toEqual({
+			refused: { cause: "needs_pick", available: ["claude", "opencode"] },
+		});
+		expect(pickAt(host, "copilot", ["claude"])).toEqual({
+			refused: { cause: "not_installed", available: ["claude"] },
+		});
+		expect(pickAt(container, undefined, [])).toEqual({ refused: { cause: "none_installed" } });
+		expect(pickAt(container, "copilot", undefined)).toMatchObject({ refused: { cause: "refused" } });
+		expect(pickAt(container, undefined, ["claude", "opencode"])).toEqual({ harness: "claude" });
+	});
+});
+
 describe("the owner's words for a refused CLI", () => {
 	it("names the spawn point and lists what it has, in the agent-facing wording", () => {
 		expect(cliRefusalText({ cause: "needs_pick", available: ["claude", "opencode"] }, "host.oc")).toBe(
@@ -51,5 +67,11 @@ describe("the owner's words for a refused CLI", () => {
 			"This spawn point has no CLI installed. Talk to the user.",
 		);
 		expect(cliRefusalText({ cause: "refused", reason: "older build" }, "host.oc")).toBe("older build");
+	});
+
+	it("words a send to a missing session with no label", () => {
+		expect(sendRefusalText({ kind: "no_label" }, "d.g.app.ghost")).toBe(
+			"`d.g.app.ghost` does not exist. Set `displayLabel` to create it.",
+		);
 	});
 });

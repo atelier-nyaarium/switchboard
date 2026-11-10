@@ -3,7 +3,6 @@ import type { DiscoverCoverage } from "../../shared/console-protocol.js";
 import { DiscoverAnswerSchema, type SpawnClis } from "../../shared/schemasConsoleResults.js";
 import { Address, isComposite, parseSessionName, SpawnPoint } from "../../shared/session-id.js";
 import type { TeamInfo } from "../../shared/types.js";
-import { createsUnder } from "./bridgeSend.js";
 import { bridgeProjectName, routerGet } from "./helpers.js";
 
 ////////////////////////////////
@@ -19,8 +18,7 @@ export interface DiscoverGroup {
 ////////////////////////////////
 //  Functions & Helpers
 
-/** Built via the value objects, never a hand-concat, so a bare team does not become an accidental
- * spawn-point. Falls back to the raw team: this is display, not a trust boundary. */
+/** Built via value objects so a bare team is not a spawn-point; display only. */
 function displayTarget(domainId: string, gatewayId: string, team: string): string {
 	try {
 		const { project, session } = parseSessionName(team);
@@ -52,9 +50,7 @@ export function relativeAge(lastActiveMs: number, nowMs: number = Date.now()): s
 	return `${Math.floor(h / 24)}d ago`;
 }
 
-/** Buckets by (domainId, gatewayId, project), so a spawn-point row and its session rows share one
- * header. Trusts the wire's `kind` rather than splitting on dots, since a project name may hold
- * one. */
+/** Buckets by Gateway and project; trusts the wire `kind`, since project names may hold dots. */
 export function groupDiscoverEntries(entries: TeamInfo[]): DiscoverGroup[] {
 	const groups = new Map<string, DiscoverGroup>();
 	for (const t of entries) {
@@ -105,15 +101,27 @@ function formatSessionLine(t: TeamInfo): string {
 	return `${name}: ${status}`;
 }
 
+/** The assistant creates on its own Gateway's host spawn point. */
+const hostRefusal = (guarded: boolean) =>
+	guarded
+		? `Another Gateway's host spawn point refuses session auto-creation. Ask the user to make one first.`
+		: `Host spawn points refuse session auto-creation. Ask the user to make one first.`;
+
 const description = (guarded: boolean) =>
 	`
 # Crosstalk Discover
 
 List reachable agent teams, excluding this session.
 
-Each team has a spawn-point address. A spawn point without a session is not a valid target. Use \`crosstalk_send\` with \`displayLabel\` to create one ${createsUnder(guarded)}
+Each team is a spawn point, with:
+- Its CLIs, where known.
+- Its active sessions, at their full addresses.
+- Its asleep sessions, with their last-seen time.
 
-Active sessions appear under each team at their full addresses. Asleep sessions show their last-seen time.
+A spawn point is not a target. To create a session under it, \`crosstalk_send\` with:
+- \`displayLabel\`
+- \`cli\`, when it lists several
+- ${hostRefusal(guarded)}
 `.trim();
 
 export function registerBridgeDiscover(mcpServer: McpServer, { guarded = false }: { guarded?: boolean } = {}): void {

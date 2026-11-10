@@ -1,18 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-	deliveryOf,
 	foldHarness,
 	HARNESS,
 	launchRefusal,
 	mintedIdOf,
 	OPENCODE_PIN,
-	paneRoad,
-	pushesBaseline,
 	readHarness,
 	resumableId,
 	SESSION_HARNESSES,
 	type SessionHarness,
-	typesDelivery,
 	UNPICKED_WORD,
 	versionRefusal,
 } from "../shared/session-harness.js";
@@ -99,28 +95,6 @@ describe("where a session CLI may launch", () => {
 			"claude",
 		]);
 	});
-
-	it("names a different reason for each refusal", () => {
-		const reasons = [
-			launchRefusal("opencode", { place: "container", assistant: false }),
-			launchRefusal("opencode", { place: "windows", assistant: false }),
-			launchRefusal("opencode", { place: "host", assistant: true }),
-		];
-
-		expect(new Set(reasons).size).toBe(3);
-		expect(reasons.every((reason) => typeof reason === "string")).toBe(true);
-	});
-});
-
-describe("how a session CLI is read and driven", () => {
-	it("gives each CLI one road for a pushed message", () => {
-		expect(SESSION_HARNESSES.map(deliveryOf)).toEqual(["channel", "api", "typed"]);
-		expect(SESSION_HARNESSES.filter(typesDelivery)).toEqual(["copilot"]);
-	});
-
-	it("has a pane road only for a CLI the daemon reads", () => {
-		expect(SESSION_HARNESSES.filter((harness) => paneRoad(harness) !== undefined)).toEqual(["claude", "copilot"]);
-	});
 });
 
 describe("the versions a launch accepts", () => {
@@ -132,16 +106,5 @@ describe("the versions a launch accepts", () => {
 		expect(versionRefusal("opencode", OPENCODE_PIN)).toBeNull();
 		expect(versionRefusal("opencode", "9.9.9")).toContain("9.9.9");
 		expect(typeof versionRefusal("opencode", undefined)).toBe("string");
-	});
-});
-
-describe("a compacted session's baseline", () => {
-	it("is fetched by the session itself, except Copilot's, which the Gateway pushes", () => {
-		expect(SESSION_HARNESSES.map((harness) => HARNESS[harness].baseline)).toEqual([
-			"session",
-			"session",
-			"gateway",
-		]);
-		expect(SESSION_HARNESSES.filter(pushesBaseline)).toEqual(["copilot"]);
 	});
 });

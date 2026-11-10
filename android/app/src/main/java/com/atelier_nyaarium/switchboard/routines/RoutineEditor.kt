@@ -27,7 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.CliToggles
 import com.atelier_nyaarium.switchboard.ClockPickerDialog
+import com.atelier_nyaarium.switchboard.cliChoices
+import com.atelier_nyaarium.switchboard.freshPick
 import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.RoutineSaved
 import com.atelier_nyaarium.switchboard.absoluteTimeText
@@ -64,7 +67,7 @@ fun RoutineEditor(
 		mutableStateOf(
 			repo.routineOps.draftFor(gatewayId, draftKey)?.shown(zone.id)
 				?: held?.let { RoutineDraft.of(it).shown(zone.id) }
-				?: RoutineDraft.fresh(zone),
+				?: RoutineDraft.fresh(zone).let { it.copy(cli = freshPick(state.gateways.harnessesOn(gatewayId, it.spawn))) },
 		)
 	}
 	LaunchedEffect(draft) { repo.routineOps.keepDraft(gatewayId, draftKey, draft) }
@@ -214,6 +217,13 @@ fun RoutineEditor(
 					"The assistant isn't set up on this Gateway.",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.error,
+				)
+			}
+			if (!assistantTarget) {
+				CliToggles(
+					choices = cliChoices(state.gateways.harnessesOn(gatewayId, draft.spawn), draft.shownCli),
+					picked = draft.shownCli,
+					onTap = { draft = draft.tapCli(it) },
 				)
 			}
 

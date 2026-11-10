@@ -131,26 +131,19 @@ export const TeamInfoSchema = z
 		role: z.enum([ASSISTANT_ROLE]).optional(),
 		// Inbound compatibility field.
 		description: z.string().optional(),
-		// The plugin version the agent's MCP process reported at register. Absent for
-		// consoles and offline-catalog entries (no plugin process behind them). The console
-		// shows it as a chip only when it differs from the app's own expected version.
+		// Plugin version reported at register.
 		version: z.string().optional(),
-		// Epoch ms a session was last seen (from the session-resume map). Stamped for
-		// sessions the gateway has a resume entry for, so the console can order the list and
-		// show recency ("active 5m ago"). Absent for sessions with no resume record.
+		// Epoch ms last seen; absent without a resume record.
 		lastActive: z.number().int().optional(),
 		queue_depth: z.number().int().nonnegative(),
 		// Absent means unknown, never false.
 		...ProjectedPresenceSchema.shape,
-		// Same-Domain federation freshness for a PEER-gateway-sourced row (this gateway's own local
-		// rows never carry it - absent, not a fourth "local" value). "unreachable" is the honest
-		// stale-mark Q4 requires; "quiet" is healthy idle, not stale.
+		// Peer-sourced rows only; "quiet" is healthy idle, not stale.
 		presenceFresh: z.enum(["fresh", "quiet", "unreachable"]).optional(),
 	})
 	.meta({ id: "TeamInfo" });
 
-/** One source gateway's presence-plane version, as carried on the wire: an array of these, never a
- * map, since codegen has no typed map. `gateway` is the source gateway's id. */
+/** An array, never a map: codegen has no typed map. */
 export const PresenceVersionSchema = z
 	.object({
 		gateway: z.string(),
@@ -159,10 +152,7 @@ export const PresenceVersionSchema = z
 	})
 	.meta({ id: "PresenceVersion" });
 
-/** A registry plane's version, for a plane with no multi-source concept (unlike presence's
- * per-source-gateway array - this Gateway's linked-peers roster is ALWAYS this Gateway's own
- * single view, never relayed from a peer). Same {epoch, counter} shape PlaneRegistry.version
- * returns internally, just named per-plane on the wire so a client presents the right one back. */
+/** A single-source plane's version. */
 export const LinkedPeersVersionSchema = z
 	.object({
 		epoch: z.number().int(),
@@ -170,25 +160,17 @@ export const LinkedPeersVersionSchema = z
 	})
 	.meta({ id: "LinkedPeersVersion" });
 
-// One peer row in a list_peers result: a linked friend Domain projected from the gateway's
-// cross-Domain peer set. A Domain may run more than one gateway, so the same domainId can repeat
-// once per gateway; the console groups by domainId. Named (.meta id) so the codegen emits it as a
-// Kotlin nested class instead of erroring on an inline array-of-object. Defined ahead of
-// ConsoleOpSchema/ConsolePollResultSchema (not just its own cross_domain_list_peers result) since
-// the poll response's linked-peers piggyback (below) references it too.
+// A linked friend Domain's peer row; domainId repeats once per gateway.
 export const CrossDomainPeerEntrySchema = z
 	.object({
 		domainId: z.string(),
 		gatewayId: z.string(),
-		// The friend OWNER's signing key (base64) - the owner-keyed identity the Users surface joins on
-		// (a roster row is keyed by owner, so this maps a linked Domain back to the person who owns it).
+		// The friend owner's signing key, base64.
 		ownerSignPub: z.string(),
 	})
 	.meta({ id: "CrossDomainPeerEntry" });
 
-/** Same scalar shape as LinkedPeersVersion - a read-anchors plane is PER OWNER (never a single
- * Gateway-wide plane; see readAnchors.ts's own doc on why), but each owner's own plane still has
- * no multi-source concept of its own, so one scalar version covers it. */
+/** One scalar per owner. */
 export const ReadAnchorsVersionSchema = z
 	.object({
 		epoch: z.number().int(),
@@ -196,8 +178,7 @@ export const ReadAnchorsVersionSchema = z
 	})
 	.meta({ id: "ReadAnchorsVersion" });
 
-/** The task-board plane's version, one scalar per owner - same shape and reasoning as
- * ReadAnchorsVersion above (per-owner plane, no multi-source concept). */
+/** One scalar per owner. */
 export const TaskBoardVersionSchema = z
 	.object({
 		epoch: z.number().int(),

@@ -7,14 +7,8 @@ import { SESSION_HARNESSES } from "../../shared/session-harness.js";
 import type { ChannelFile, ResponsePayload } from "../../shared/types.js";
 import { sendGuarded } from "../assistant/sendTools.js";
 import { dropReferenceArtifacts } from "../channel/channelFiles.js";
-import { bridgeConversationId, bridgeProjectName, opLedgerRefusal, routerPost } from "./helpers.js";
+import { bridgeConversationId, bridgeProjectName, opLedgerRefusal, RouterHttpError, routerPost } from "./helpers.js";
 import { literalEscapeHazard, literalEscapeReject, readReplyAttachments, toolError } from "./replyTool.js";
-
-/** Assistant reaches own host. */
-export const createsUnder = (guarded: boolean) =>
-	guarded
-		? `under it, this Gateway's host spawn point included. Another Gateway's host spawn point refuses this, and so does any spawn point in another Domain.`
-		: `under it. A host spawn point refuses this, and so does one in another Domain. The owner creates host sessions from the phone.`;
 
 const bridgeSendSchema = (guarded: boolean) =>
 	z
@@ -86,7 +80,15 @@ The receiving agent gets local files listed in a \`[FILES]\` block.
 export const BridgeSendSchema = bridgeSendSchema(false);
 type BridgeSendArgs = z.infer<typeof BridgeSendSchema>;
 
-type SendResult = ResponsePayload & { error?: string; available?: string[]; refused?: unknown };
+type SendResult = ResponsePayload & { error?: string; available?: string[] };
+
+/** A refused send, worded here; the Gateway answers it as an error. */
+function refusalText(answer: unknown, to: string | undefined): string | undefined {
+	const { refused, target } = (answer ?? {}) as { refused?: unknown; target?: unknown };
+	const parsed = SendRefusalSchema.safeParse(refused);
+	if (!parsed.success) return undefined;
+	return sendRefusalText(parsed.data, typeof target === "string" ? target : (to ?? ""));
+}
 
 const description = `
 # Crosstalk Send
@@ -226,9 +228,6 @@ export function registerBridgeSend(mcpServer: McpServer, { guarded = false }: { 
 					...(files.length > 0 ? { files } : {}),
 				})) as SendResult;
 
-				const refused = SendRefusalSchema.safeParse(result.refused);
-				if (result.error && refused.success)
-					return toolError(sendRefusalText(refused.data, result.target ?? to));
 				if (result.error) {
 					return {
 						content: [
@@ -243,6 +242,8 @@ export function registerBridgeSend(mcpServer: McpServer, { guarded = false }: { 
 
 				return formatResult(result, to);
 			} catch (err) {
+				const refused = err instanceof RouterHttpError ? refusalText(err.json, to) : undefined;
+				if (refused) return toolError(refused);
 				const message = err instanceof Error ? err.message : String(err);
 				return {
 					content: [{ type: "text" as const, text: `Failed to send: ${message}` }],

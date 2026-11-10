@@ -38,9 +38,9 @@ internal fun sandboxContainers(index: Int): List<SpawnContainer> = when (index) 
 			failure = "devcontainer up exited 1: port 5432 is taken",
 			SpawnHarnesses.Known(setOf(SessionHarness.CLAUDE)),
 		),
-		SpawnContainer("nyaakube", ContainerRun.RUNNING, failure = null, SpawnHarnesses.Unknown),
+		SpawnContainer("nyaakube", ContainerRun.RUNNING, failure = null, SpawnHarnesses.UNOPENED_CONTAINER),
 	)
-	1 -> listOf(SpawnContainer("recipe-app", ContainerRun.STOPPED, failure = null, SpawnHarnesses.Unknown))
+	1 -> listOf(SpawnContainer("recipe-app", ContainerRun.STOPPED, failure = null, SpawnHarnesses.UNOPENED_CONTAINER))
 	else -> emptyList()
 }
 

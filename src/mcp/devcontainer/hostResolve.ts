@@ -47,10 +47,7 @@ export function scanDevcontainerProjects(): Array<{ team: string; projectPath: s
 		}
 		for (const entry of entries) {
 			const full = path.join(resolved, entry);
-			// A directory named after a host spawn point would make `windows.<session>` mean two
-			// different things - a PowerShell shell and a devcontainer - and `isHostSpawn` would win
-			// at every resolver while catalog membership disagreed. Refused at the scan so the
-			// ambiguity never enters the catalog at all.
+			// A host spawn name would be ambiguous in the catalog.
 			if (isHostSpawn(entry)) continue;
 			try {
 				if (!fs.statSync(full).isDirectory()) continue;
@@ -91,11 +88,7 @@ export function hostWorkdirContext(dirs: string[] = projectDirs, home: string = 
 	return { roots: dirs, home };
 }
 
-/** The daemon's binding of the shared rule. It contributes the one thing that legitimately differs
- * per machine - which roots a bare label is looked up under - and nothing else: the grammar and the
- * fallback belong to `agent-workdir.ts`, so the daemonless path cannot read the same string
- * differently. Still answers a bare directory, since reporting a refusal instead is a change to a
- * contract `codexTools` documents to callers and ships separately. */
+/** Only the roots differ per machine; grammar lives in `agent-workdir.ts`. */
 export function resolveHostWorkdir(
 	hint: string | undefined,
 	dirs: string[] = projectDirs,
@@ -107,11 +100,7 @@ export function resolveHostWorkdir(
 // A wire bound, not a UX cap.
 const MAX_DIR_ENTRIES = 5000;
 
-/** Immediate subdirectories, sorted case-insensitively. Empty rather than erroring: this feeds an
- * autocomplete, which has no use for the reason.
- *
- * A blank path is this machine's home, and the answer says so: the caller asked for the default
- * directory without knowing its spelling, so the names alone would not tell it where they sit. */
+/** Sorted subdirectories; empty on error. A blank path is home, and the answer names it. */
 export function listHostDirs(rawPath: string, home: string = HOME): HostListDirsResult {
 	const blank = rawPath.length === 0;
 	const resolved = blank ? home : expandWorkdirPath(rawPath, home);
@@ -170,21 +159,14 @@ function holdsHome(dir: string, home: string): boolean {
 	return fromHome === "" || !fromHome.startsWith("..");
 }
 
-/**
- * Creates the assistant's folder, parents included, when it is missing. Placing names a folder on
- * a disk the Gateway cannot see, so the launch is where it comes into being. Only a plain path
- * that leaves home out is made; anything else is left to the ordinary resolution and its refusals.
- */
+/** Creates the assistant's folder when missing; only plain paths outside home. */
 export function ensureAssistantWorkdir(hint: string | undefined, home: string = HOME): void {
 	const shape = classifyWorkdir(hint, "sessionWorkdirHint", home);
 	if (shape.kind !== "path" || !PLAIN_ABSOLUTE.test(shape.value) || holdsHome(shape.value, home)) return;
 	fs.mkdirSync(shape.value, { recursive: true });
 }
 
-/**
- * The assistant runs on Claude Code's own permission engine: anything not allowed is denied
- * without asking, and its check and open are one step. Every other session keeps the open profile.
- */
+/** Anything not allowed is denied without asking. */
 export function assistantPermissionArgs(workdir: string | undefined, home: string = HOME): string {
 	if (!workdir || !PLAIN_ABSOLUTE.test(workdir)) {
 		throw new Error("refusing to launch the assistant: its workdir is not a plain absolute path");
@@ -288,11 +270,8 @@ const LAUNCH: Record<SessionHarness, (ctx: LaunchArgsContext) => LaunchSpec> = {
 	}),
 };
 
-// One `bash -c`: the PROJECT_NAME override must run in the same shell as claude, after ~/.bashrc.
-// A host target dispatches on its spawn NAME through the registry, which is what lets a machine
-// offer more than one shell; `kind` stays the tmux LOCATION (bare tmux here, `docker exec` there)
-// and says nothing about which interpreter runs. A second field naming the shell would have to agree
-// with the name forever, so there isn't one.
+// One `bash -c`: PROJECT_NAME must be set in claude's shell, after ~/.bashrc.
+// A host target dispatches on spawn name; `kind` is only the tmux location.
 export function buildLaunchCommand(
 	target: TmuxTarget,
 	opts: {
@@ -324,9 +303,8 @@ export function buildLaunchCommand(
 			composite === ASSISTANT_TEAM ? assistantPermissionArgs(opts.workdir) : "--dangerously-skip-permissions",
 	});
 	if (target.kind === "host") {
-		// Either quote would break out of the nesting, so a workdir bearing one is dropped.
+		// A quote would break the nesting.
 		const safeWorkdir = opts.workdir && !opts.workdir.includes("'") && !opts.workdir.includes('"');
-		// Dropped unless it is a plain absolute path, for the same reason.
 		const safePathPrefix = opts.pathPrefix && /^\/[A-Za-z0-9_./-]+$/.test(opts.pathPrefix);
 		return buildHostLaunch(target.name, {
 			composite,
@@ -364,8 +342,7 @@ export function shouldGreetLaunch(opts: {
 export function resolveWatchTarget(team: string): TmuxTarget | undefined {
 	const { project, session } = parseSessionName(team);
 	if (!isTmuxName(project) || !isTmuxName(session)) return undefined;
-	// Registry-wide, so the daemon's reserved session is refused under EVERY host spawn point
-	// (`windows.host-daemon` as much as `host.host-daemon`) rather than only the one named here.
+	// Reserved session is refused under every host spawn point.
 	if (isHostSpawn(project)) {
 		if (isReservedHostSession(session)) return undefined;
 		return { kind: "host", name: project, sessionName: session };

@@ -3,23 +3,9 @@
 //   bun run build patch|minor|major       # bump, build, commit
 //   bun run build --build-only            # bundle at the current version; no bump, no commit
 //
-// dist/ is committed because the plugin's MCP server runs it directly, so the bundle is part of the
-// plugin artifact. That only holds while the committed bundle matches
-// the committed version, which is why bumping and building are one command rather than two: a dist/
-// built at a version the manifests do not claim looks correct and is not.
-//
-// The MCP entrypoint, the askpass helper and the compact hook are bundled; the host daemon and the
-// plugin point the askpass wrapper at the helper in dist/, and hooks/hooks.json runs the hook. The gateway and the host daemon run under bun by
-// construction and need no bundle.
-//
-// package.json is the source of truth. It is the one file that gets BUMPED; every other target is
-// SET to whatever it now says, so the targets can never drift apart or be bumped by different
-// amounts. Set package.json by hand first if you want a version this arithmetic would not produce.
-//
-// Two sites DERIVE the version at build time rather than storing a copy: the APK's `versionName`
-// reads package.json, and the MCP server declares `packageJson.version`. Those are verified here
-// instead of written, so a refactor that hard-codes either one fails this script rather than
-// silently shipping a stale version to the marketplace or the board's version chip.
+// dist/ is committed and must match the committed version, so bump and build are one command.
+// package.json is bumped; every other target is set to it.
+// The APK versionName and the MCP server derive the version; this script verifies they still do.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -49,9 +35,7 @@ export const ENTRYPOINTS = [
 ];
 const DIST_DIR = "dist";
 
-/** A site that recomputes the version from package.json at build time, named by a string that must
- * still appear in it. The point is not to parse the file, it is to fail the moment somebody
- * replaces the derivation with a literal - which reads as correct right up until the next bump. */
+/** Fails once a derivation is replaced by a literal. */
 const DERIVED_SITES = [
 	{
 		file: path.join("android", "app", "build.gradle.kts"),
@@ -74,14 +58,7 @@ export function nextVersion(current: string, kind: BumpKind): string {
 	return `${major}.${minor}.${patch + 1}`;
 }
 
-/**
- * Rewrite a file's `"version"` field in place, leaving every other byte alone.
- *
- * Textual rather than parse-and-restringify: these files are hand-formatted (tabs, key order that
- * reads top-down), and reformatting all of them on every bump would bury the one line that actually
- * changed. Exactly one occurrence is required - a file with two version fields is one this cannot
- * edit unambiguously, and picking the first would be wrong in a way nobody notices until a release.
- */
+/** Textual, to keep hand formatting; exactly one field is required. */
 export function setVersion(text: string, version: string): string {
 	const found = text.match(VERSION_FIELD_RE) ?? [];
 	if (found.length !== 1) {
@@ -96,7 +73,7 @@ export function readVersion(text: string): string {
 	return found[0].split('"')[3];
 }
 
-/** Every file this script writes: package.json first (it is the one being bumped), then the copies. */
+/** Every file written; package.json first. */
 export function versionTargets(root: string): string[] {
 	const pluginsDir = path.join(root, PLUGIN_MANIFEST_DIR);
 	if (!existsSync(pluginsDir)) {
@@ -130,17 +107,7 @@ function isDistPath(file: string): boolean {
 	return file.split("/").includes(DIST_DIR);
 }
 
-/**
- * Tracked-but-uncommitted work in the tree, by porcelain v2 record type: `1` ordinary change, `2`
- * rename or copy, `u` unmerged. Untracked (`?`), ignored (`!`), and generated `dist` files are not
- * counted because the build removes and recreates them.
- *
- * This gates the bump so the rollback on a failed build can be a plain `git checkout --`: the only
- * changes to those files are the ones this script just made.
- *
- * Paths are cut by field offset rather than by splitting the whole line, because a path may contain
- * spaces. A rename record trails `<path>\t<origPath>`; the new path is the half that matters here.
- */
+/** Tracked uncommitted files, so a failed build rolls back with a plain checkout. Cut by field offset, since paths hold spaces. */
 export function dirtyTrackedFiles(porcelainV2: string): string[] {
 	const dirty: string[] = [];
 	for (const line of porcelainV2.split("\n")) {
@@ -238,8 +205,7 @@ function main(argv: string[]): void {
 
 	assertLexiconInputs(ROOT);
 
-	// Before writing anything: a broken derivation means the bump would be incomplete, and half a
-	// bump is worse than none (the marketplace updates, the running server reports the old version).
+	// Before writing anything; half a bump is worse than none.
 	checkDerivedSites(ROOT);
 
 	// A tool a GPT host refuses fails every message a Copilot session sends.
@@ -250,8 +216,7 @@ function main(argv: string[]): void {
 		process.exit(1);
 	}
 
-	// A clean tree is what makes the rollback below safe. --build-only writes no tracked file, so it
-	// has nothing to roll back and no reason to care.
+	// A clean tree makes the rollback safe.
 	if (!buildOnly) {
 		const dirty = dirtyTrackedFiles(git(["status", "--porcelain=v2", "--branch"], ROOT));
 		if (dirty.length > 0) {
@@ -277,7 +242,7 @@ function main(argv: string[]): void {
 	}
 	for (const site of DERIVED_SITES) console.log(`derives ${site.what} from package.json: ${site.file}`);
 
-	// Stale output from a previous run must not survive into the commit.
+	// No stale output in the commit.
 	rmSync(path.join(ROOT, DIST_DIR), { recursive: true, force: true });
 
 	try {
@@ -287,7 +252,7 @@ function main(argv: string[]): void {
 			{ cwd: ROOT, stdio: "inherit" },
 		);
 	} catch {
-		// bun already printed the compiler error; a stack trace from this script would only bury it.
+		// bun already printed the error.
 		if (!buildOnly) {
 			git(["checkout", "--", ...targets], ROOT);
 			console.error(`\nbuild failed; reverted ${targets.length} version file(s) to ${current}`);

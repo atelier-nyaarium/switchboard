@@ -89,7 +89,7 @@ type Road = (deps: SessionLaunchDeps, target: TmuxTarget, facts: LaunchFacts) =>
 //  Constants
 
 /** Past the launcher's own bounds. */
-const LAUNCHER_READY_MS = 150_000;
+export const LAUNCHER_READY_MS = 150_000;
 const LAUNCHER_POLL_MS = 250;
 /** With no status, past a slow shell startup. */
 const NO_STATUS_PROBE_MS = 20_000;
@@ -199,8 +199,7 @@ const viaPane: Road = async (deps, target, facts) => {
 		const screen = await deps.peekScreen(target).catch(() => "");
 		return { created, ready: false, alive: true, live: true, screen };
 	}
-	// `exec bash` outlives the CLI, and its last frame still shows a composer, so the OS is asked
-	// first. A limit dialog is alive: relaunching would discard it and hit the same limit.
+	// A stale composer outlives the CLI, so ask the OS first. A limit dialog is alive.
 	const seen = (await deps.paneAgentState(target)) === "gone" ? undefined : await deps.awaitReady(target);
 	let step = deps.reattachStep(seen);
 	let kept = seen;
@@ -298,11 +297,7 @@ function waitedOutcome(created: boolean, waited: Waited): LaunchOutcome {
 	}
 }
 
-/**
- * A launcher still running keeps its pane, so a wake while its plugin reconnects loses no turn. It
- * restarts a dead plugin itself, and reports `failed` once its server or UI is gone. Undefined means
- * relaunch.
- */
+/** A live launcher keeps its pane. Undefined means relaunch. */
 async function keptLauncher(
 	deps: SessionLaunchDeps,
 	site: LaunchSite,

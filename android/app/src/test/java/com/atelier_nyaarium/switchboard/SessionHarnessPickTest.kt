@@ -108,12 +108,12 @@ class SessionHarnessPickTest {
 	}
 
 	@Test
-	fun `an unreported container is unknown and offers every CLI, and an older Gateway reads as Claude on every host spawn point`() {
+	fun `an unreported container offers what containers run, and an older Gateway reads as Claude on every host spawn point`() {
 		val registry = GatewayRegistry()
 
-		assertEquals(SpawnHarnesses.Unknown, registry.harnessesOn("mikan", "recipe-app"))
-		assertEquals(SpawnHarnesses.Unknown, registry.harnessesOnSession("d.mikan.recipe-app.s1"))
-		assertEquals(listOf(SessionHarness.CLAUDE, SessionHarness.OPENCODE, SessionHarness.COPILOT), harnessesOf(SpawnHarnesses.Unknown))
+		assertEquals(SpawnHarnesses.UNOPENED_CONTAINER, registry.harnessesOn("mikan", "recipe-app"))
+		assertEquals(SpawnHarnesses.UNOPENED_CONTAINER, registry.harnessesOnSession("d.mikan.recipe-app.s1"))
+		assertEquals(SessionHarness.entries.filter { it.containers }, harnessesOf(SpawnHarnesses.UNOPENED_CONTAINER))
 		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("mikan", "host"))
 	}
 
@@ -132,9 +132,9 @@ class SessionHarnessPickTest {
 
 		assertEquals(running(SessionHarness.CLAUDE, SessionHarness.OPENCODE), registry.harnessesOn("mikan", "found"))
 		assertEquals(running(), registry.harnessesOn("mikan", "bare"))
-		assertEquals(SpawnHarnesses.Unknown, registry.harnessesOn("mikan", "unopened"))
+		assertEquals(SpawnHarnesses.UNOPENED_CONTAINER, registry.harnessesOn("mikan", "unopened"))
 		assertEquals(
-			SpawnContainer("unopened", ContainerRun.STOPPED, "exit 1", SpawnHarnesses.Unknown),
+			SpawnContainer("unopened", ContainerRun.STOPPED, "exit 1", SpawnHarnesses.UNOPENED_CONTAINER),
 			registry.container("mikan", "unopened"),
 		)
 		assertEquals(emptyList<String>(), spawnableProjects(listOf("bare"), { registry.harnessesOn("mikan", it) }))

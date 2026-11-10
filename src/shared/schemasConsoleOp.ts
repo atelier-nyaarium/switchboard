@@ -121,8 +121,7 @@ export const ConsoleOpSchema = z
 			path: z.string().max(512),
 			spawn: z.string().min(1).max(64).optional(),
 		}),
-		// One kind each as every other feature does, so Kotlin gets real classes rather than an opaque
-		// payload. `target` names a session, never a spawn point.
+		// `target` names a session, never a spawn point.
 		z.object({
 			kind: z.literal("workspace_tree"),
 			target: z.string().min(1).max(128),
@@ -230,10 +229,7 @@ export const ConsoleOpSchema = z
 		z.object({
 			kind: z.literal("runbook_put"),
 			runbook: RunbookSchema,
-			/**
-			 * The revision the editor was opened at, absent on a first save. The gateway stores at its
-			 * own successor, so the runbook's own revision field is not read here.
-			 */
+			/** The revision the editor opened at; absent on a first save. */
 			baseRevision: z.number().int().positive().optional(),
 			/** Owner-authorized. Replaces whatever revision is held. */
 			overwrite: z.boolean().optional(),
@@ -257,13 +253,10 @@ export const ConsoleOpSchema = z
 		z.object({
 			kind: z.literal("routine_put"),
 			routine: RoutineSchema,
-			/**
-			 * The revision the editor was opened at, absent on a first save. The gateway stores at its
-			 * own successor, so the phone never names the revision it wants.
-			 */
+			/** The revision the editor opened at; absent on a first save. */
 			baseRevision: z.number().int().positive().optional(),
 		}),
-		/** What a candidate would next run at, so the phone names an instant without holding a rule. */
+		/** When a candidate would next run. */
 		z.object({ kind: z.literal("routine_next"), routine: RoutineSchema }),
 		z.object({ kind: z.literal("routine_delete"), routineId: z.string().min(1).max(64) }),
 		z.object({
@@ -278,11 +271,7 @@ export const ConsoleOpSchema = z
 			routineId: z.string().min(1).max(64),
 			occurrenceId: z.string().min(1).max(128),
 		}),
-		/**
-		 * A fresh run, named by the routine alone. It carries no instant because the gateway owns
-		 * `now`, and it is not `routine_run_now`, which re-runs a slot the rule named and the owner is
-		 * looking at.
-		 */
+		/** A fresh run at the gateway's now, unlike `routine_run_now`. */
 		z.object({ kind: z.literal("routine_run"), routineId: z.string().min(1).max(64) }),
 		z.object({
 			kind: z.literal("routine_dismiss"),

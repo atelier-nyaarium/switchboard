@@ -5,7 +5,7 @@ import type { ClaudeTurnResultFrame } from "../shared/host-op.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
 import type { DerivedPresence } from "../shared/schemasPresence.js";
 import type { SessionControlResult } from "../shared/session-control.js";
-import type { HarnessWord } from "../shared/session-harness.js";
+import type { HarnessWord, SessionHarness } from "../shared/session-harness.js";
 import type { SessionStore } from "../shared/session-store.js";
 import type { ConnectionMode, WebSocketConfig } from "../shared/types.js";
 import type { WorkspaceOpResult } from "../shared/workspace-op.js";
@@ -48,6 +48,8 @@ export interface WebSocketDeps {
 	onCatalogChange?: (daemonInstanceId: string | undefined) => void;
 	/** Container state moved between catalogs. */
 	onSpawnPointsChange?: () => void;
+	/** The daemon named a pending create's CLI. */
+	onPickResolved?: (team: string, harness: SessionHarness) => void;
 	onPresenceDerive?: (team: string, derived: DerivedPresence | undefined) => void;
 	/** A session's pane waits on a restart to apply an installed update. */
 	onRestartPending?: (team: string, pending: boolean) => void;

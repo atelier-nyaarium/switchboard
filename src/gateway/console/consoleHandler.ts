@@ -74,7 +74,7 @@ export function createConsoleDispatcher({
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
 
-	/** A create that needs its CLI now: the one named, or the spawn point's only one. */
+	/** The named CLI, or the spawn point's only one. */
 	function definitePick(spawn: string, pick: CliPick | undefined): { harness: SessionHarness } | { refused: string } {
 		const named = pick && pick !== UNPICKED_WORD ? pick : undefined;
 		const chosen = pickAt({ place: launchPlaceOf(spawn), assistant: false }, named, installedAt?.(spawn));
@@ -577,21 +577,16 @@ export function createConsoleDispatcher({
 		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub, null);
 	}
 
-	/**
-	 * A routine's own session, named from the routine so no stale id is stored. The host reattaches a
-	 * live session and launches a gone one, so this recreates it too.
-	 */
+	/** A routine's session, named from the routine; recreated if gone. */
 	async function reserveRoutineSession(routine: Routine): Promise<ReserveResult> {
 		const team = routineTeam(routine);
-		// Adopting a session somebody else made would run the routine, and later its grant, inside
-		// one the owner opened for something else.
+		// Never adopt a session someone else made.
 		if (!routineOwns(sessionStore?.getByTeam(team), routine)) return { kind: "taken" };
 		const pick = definitePick(routine.target.spawn, routine.target.cli);
 		if ("refused" in pick) {
 			console.warn(`[routine] ${routine.id} cannot reserve its session: ${pick.refused}`);
 			return { kind: "cli_refused" };
 		}
-		// The routine is this Gateway's, so its spawn is qualified here.
 		const made = await sessionLifecycle.createSession(
 			{
 				kind: "create_session",

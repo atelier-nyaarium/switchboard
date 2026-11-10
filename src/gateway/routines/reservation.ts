@@ -6,7 +6,7 @@ import type { SessionRecord } from "../../shared/session-store.js";
 
 const RESERVE_OP = "reserve";
 
-/** The conversation a reserve is made under, which is the routine and nothing else. */
+/** The routine's reserve conversation. */
 export function reserveConversation(routine: Routine): string {
 	return `routine:${routine.id}`;
 }
@@ -43,16 +43,12 @@ export interface TargetReserve {
 export interface TargetRules {
 	kind: RoutineTargetKind;
 	team: (routine: Routine) => string;
-	/** A busy session holds the run. The assistant is mid-task by nature, so a check-in does not wait. */
+	/** A check-in never waits; the assistant is always mid-task. */
 	waitsForIdle: boolean;
-	/**
-	 * The routine owns its session: reserves it from the sweeps, and forgets it after the keep
-	 * period. The assistant's session is the assistant's.
-	 */
+	/** Reserved from the sweeps; forgotten after the keep period. */
 	ownsSession: boolean;
-	/** Its linked entries become a working run's grants. A check-in shares a session, so none. */
+	/** Linked entries become grants; a check-in has none. */
 	holdsSecrets: boolean;
-	/** Ownership follows session provenance. */
 	owns: (held: SessionRecord | undefined, routine: Routine) => boolean;
 	refusal: (routine: Routine, facts: TargetFacts) => string | null;
 	reserve: (routine: Routine, roads: TargetReserve) => Promise<ReserveResult>;

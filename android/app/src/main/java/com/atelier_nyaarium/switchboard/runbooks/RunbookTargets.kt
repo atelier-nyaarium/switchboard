@@ -2,10 +2,12 @@ package com.atelier_nyaarium.switchboard.runbooks
 
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.HOST_SPAWN_IDS
+import com.atelier_nyaarium.switchboard.SpawnHarnesses
 import com.atelier_nyaarium.switchboard.hostSpawnChoices
 import com.atelier_nyaarium.switchboard.hostSpawnLabel
 import com.atelier_nyaarium.switchboard.localSessions
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import com.atelier_nyaarium.switchboard.runIsolated
 
 /** `address` is what the fire sends, always qualified; `label` is what the sheet shows. */
@@ -41,6 +43,13 @@ internal fun spawnTargets(state: ChatState, gatewayId: String): List<FireTarget>
 				?.let { FireTarget(it, choice.label) }
 		}
 		.distinctBy { it.address }
+}
+
+/** The CLIs a new-session target's spawn point runs; none for what names no spawn point. */
+internal fun availableAt(state: ChatState, gatewayId: String, address: String): SpawnHarnesses {
+	val point = runIsolated { parseQualifiedTarget(address) }.getOrNull() as? SpawnPoint
+		?: return SpawnHarnesses.Known(emptySet())
+	return state.gateways.harnessesOn(gatewayId, point.spawn)
 }
 
 internal fun sessionTargets(state: ChatState, gatewayId: String): List<FireTarget> =

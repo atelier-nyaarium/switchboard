@@ -73,12 +73,7 @@ const SCRUBBED_EXACT = new Set([
 ]);
 const SCRUBBED_PATTERN = /token|secret|password|credential|api[_-]?key/i;
 
-/**
- * A deny list, so a variable a backend needs is never stripped by surprise.
- *
- * Only the LAUNCHING backend's prefix is exempt: exempting every prefix handed one backend's
- * credentials to the other's child. An absent prefix exempts nothing.
- */
+/** Deny list. Only the launching backend's prefix is exempt, so credentials never cross. */
 export function scrubChildEnv(
 	source: Record<string, string | undefined>,
 	exemptPrefix?: string,
@@ -93,8 +88,7 @@ export function scrubChildEnv(
 	return out;
 }
 
-/** `docker exec -e` pairs. A container child inherits the container's environment, so only the
- * agent's own settings are worth forwarding. Scrubbed first, keeping the deny list authoritative. */
+/** `docker exec -e` pairs for the agent's own settings, scrubbed first. */
 export function containerEnvArgs(source: Record<string, string | undefined>, envPrefix: string): string[] {
 	if (envPrefix.length === 0) return [];
 	return Object.entries(scrubChildEnv(source, envPrefix))
@@ -153,12 +147,7 @@ function adoptProcess(proc: ReturnType<typeof spawn>): AgentChild {
 	};
 }
 
-/**
- * `docker exec -i`, not `devcontainer exec`, which buffers to completion.
- *
- * Neither branch takes a caller's working directory: a thread carries its own, and a per-session
- * path here would split one target across several children.
- */
+/** `docker exec -i`; `devcontainer exec` buffers. No workdir, or a target splits into children. */
 export const realLauncher: ExecutionTargetLauncher = {
 	launch(target, env) {
 		switch (target.kind) {

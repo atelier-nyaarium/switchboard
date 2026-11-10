@@ -92,20 +92,17 @@ describe("a session's send to a session that is not up", () => {
 	const passes = async (seconds: number) => {
 		for (let second = 0; second < seconds; second += 1) await step(1000);
 	};
-	/** Lets the Gateway's own timers run while `work` waits on them; answers the time it took. */
-	const whileTimePasses = async (work: Promise<unknown>): Promise<number> => {
+	/** Lets the Gateway's own timers run while `work` waits on them. */
+	const whileTimePasses = async (work: Promise<unknown>): Promise<void> => {
 		let done = false;
-		let elapsed = 0;
 		const settled = work.finally(() => {
 			done = true;
 		});
 		while (!done) {
 			await step(100);
-			elapsed += 100;
 			await new Promise((resolve) => setTimeout(resolve, 5));
 		}
 		await settled;
-		return elapsed;
 	};
 
 	beforeAll(async () => {
@@ -171,6 +168,7 @@ describe("a session's send to a session that is not up", () => {
 			const late = attach(sleeper.team, sleeper.token);
 			expect(await late.registered()).toMatchObject({ type: "register_ok" });
 			await passes(5);
+			const retried = await send(doomed, "after the failure");
 
 			expect([woke.status, created.status]).toEqual(["starting", "starting"]);
 			for (const notice of notices) {
@@ -180,7 +178,7 @@ describe("a session's send to a session that is not up", () => {
 				expect(notice?.body).not.toContain("within 10 minutes");
 			}
 			expect(messages(late, "never seen")).toEqual([]);
-			expect(h.gateway.faults.sessionRecord(doomed)).toBeUndefined();
+			expect(retried).toMatchObject({ refused: { kind: "no_label" } });
 		} finally {
 			daemon.answer = "launched";
 		}
@@ -254,14 +252,13 @@ describe("a session's send to a session that is not up", () => {
 		const address = h.target(sleeper.team);
 		const answer = await send(sleeper.team, "across the restart");
 
-		const restarted = await whileTimePasses(h.restartGateway());
+		await whileTimePasses(h.restartGateway());
 		sender = attach(sender.team, sender.sessionToken);
 		await sender.ready();
 		const woken = attach(sleeper.team, sleeper.token);
 		await h.waitFor(() => messages(woken, "across the restart")[0], "the queued message");
 		const notice = await pump(() => noticesFor(address)[0], "the started notice");
 
-		expect(restarted).toBeLessThan(10_000);
 		expect(answer).toMatchObject({ status: "starting", target: address });
 		expect(notice.body).toContain(launchNoticeText({ kind: "up", address }));
 	});

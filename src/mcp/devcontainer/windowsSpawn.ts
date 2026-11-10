@@ -1,10 +1,5 @@
-// The daemon's half of the `windows` spawn point: whether this machine can offer one, and how a
-// path reaches PowerShell.
-//
-// Daemon-side rather than in `host-spawn.ts` because only the machine running the daemon can probe
-// itself, and because both halves shell out. The registry stays a pure leaf the gateway can read.
-//
-// Every rule here is measured on a WSL box, not reasoned.
+// The daemon's `windows` spawn point: availability probe and PowerShell paths.
+// Measured on a WSL box.
 
 import { execFileSync } from "node:child_process";
 import { placeCandidates } from "../../shared/cli-resolve.js";
@@ -17,12 +12,11 @@ import { HARNESS, type SessionHarness } from "../../shared/session-harness.js";
 
 export interface WindowsSpawnAvailability {
 	available: boolean;
-	/** `$env:USERPROFILE`, the Windows-side default working directory. A Windows session must never
-	 * fall back to the WSL home, which translates to a UNC path. */
+	/** `$env:USERPROFILE`; never fall back to the WSL home (a UNC path). */
 	userProfile?: string;
 	/** The CLIs that resolve there. */
 	harnesses?: SessionHarness[];
-	/** Why it is unavailable, for the log. Never surfaced to a caller as a target. */
+	/** For the log only. */
 	reason?: string;
 }
 
@@ -44,18 +38,9 @@ function run(file: string, args: string[]): string | null {
 }
 
 /**
- * Whether this machine can offer a `windows` spawn point.
- *
- * Probes for a CLI, not just the shell. Finding `powershell.exe` proves an interpreter exists
- * and says nothing about whether an agent can run in it; offering the target without that produces a
- * guaranteed failed wake AFTER tmux state already exists, which is the worst moment to find out.
- *
- * Each by its full Windows name, deliberately: bare `claude` and `claude.cmd` do not resolve from
- * Windows PowerShell, so a probe for the bare name reports the feature impossible on a machine where
- * it works.
- *
- * One PowerShell invocation for both facts, since its startup is what costs (~0.36s measured) rather
- * than the work. `-NoProfile` so a user's profile cannot change the answer.
+ * Probes for an agent CLI, not just the shell, so a wake never fails after tmux state exists.
+ * Full Windows names: bare `claude` does not resolve from PowerShell.
+ * One invocation, since startup dominates; `-NoProfile` keeps the answer stable.
  */
 export function probeWindowsSpawn(): WindowsSpawnAvailability {
 	const candidates = placeCandidates({ place: "windows", assistant: false });
@@ -79,34 +64,14 @@ export function probeWindowsSpawn(): WindowsSpawnAvailability {
 	return { available: true, userProfile, harnesses };
 }
 
-/**
- * A Windows working directory for a `windows` session, or null with a reason.
- *
- * REFUSES rather than translating a Linux path, and that is the whole point. `wslpath -w` happily
- * turns `~` into `\\wsl.localhost\Ubuntu\home\user`, which PowerShell accepts as a provider path, so
- * a naive translation looks like it worked. But Windows PowerShell cannot hand a UNC cwd to a legacy
- * console app: a subprocess silently gets C:\Windows instead, and cmd.exe refuses UNC outright. It
- * works in a probe and dies confusingly weeks later.
- *
- * So a hint that lands on a UNC is a category error for a Windows session and is reported, naming
- * the shape that works. No hint at all takes the Windows home, never the WSL one.
- */
+/** Refuses a UNC result: PowerShell cannot hand a UNC cwd to legacy console apps. */
 export function resolveWindowsWorkdir(
 	hint: string | undefined,
 	userProfile: string,
 ): { workdir: string } | { error: string } {
-	// A hint is not necessarily a PATH. `SessionStore.hostWorkdirHint` falls back to the session
-	// LABEL, so a session created without picking a directory arrives here carrying its own name.
-	// That is deliberate for the host spawn point, where `resolveHostWorkdir` looks a bare label up
-	// against the project roots. A label means nothing to Windows, and handing one to `wslpath -w`
-	// either fails or translates something nobody asked for, so it falls back the same as no hint at
-	// all. Without this the documented "blank picker means the Windows home" is unreachable, because
-	// blank never actually arrives.
+	// A hint may be a session label, which means nothing to Windows.
 	if (!hint || !isPathShaped(hint)) return { workdir: userProfile };
-	// Either shape is accepted, because both reach here legitimately. The directory browser walks
-	// Windows and yields `C:/...`, while a caller may still name a `/mnt/c/...` path. Feeding an
-	// already-Windows path back through `wslpath -w` is not reliably a no-op, so a drive-letter path
-	// is recognised and passed through instead.
+	// A drive-letter path skips `wslpath -w`, which is not a reliable no-op.
 	const translated = WINDOWS_DRIVE_PATH.test(hint) ? hint : run("wslpath", ["-w", hint])?.trim();
 	if (!translated) return { error: `"${hint}" could not be translated to a Windows path` };
 	if (isUncPath(translated)) {
@@ -114,8 +79,7 @@ export function resolveWindowsWorkdir(
 			error: `"${hint}" is on the Linux side of this machine (${translated}). A windows session needs a Windows directory, such as /mnt/c/Users/you/project.`,
 		};
 	}
-	// Same guard the bash builder applies: either quote would break out of the nesting, and here it
-	// would break out of the PowerShell single-quoted Set-Location argument.
+	// A quote would break the Set-Location argument.
 	if (translated.includes("'") || translated.includes('"')) {
 		return { error: `"${hint}" translates to a path containing a quote, which cannot be launched` };
 	}
@@ -132,40 +96,20 @@ const MAX_DIR_ENTRIES = 5000;
 
 const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/]/;
 
-/** Whether a workdir hint names a PATH rather than a label. Mirrors `resolveHostWorkdir`'s own
- * label-versus-path test, which is shape-based for the same reason: a label carries no separator. */
+/** A path, not a label. */
 function isPathShaped(hint: string): boolean {
 	return WINDOWS_DRIVE_PATH.test(hint) || hint.startsWith("/") || hint === "~" || hint.startsWith("~/");
 }
 
-/**
- * The Windows home, spelled with forward slashes like every other path on this wire.
- *
- * A blank listing is the one request that cannot name its own directory: the picker asks for this
- * spawn point's default without knowing where that is, and only Windows can say. Answering the
- * resolved path along with the names is what lets a tap build an absolute path rather than a
- * relative one no launch accepts.
- */
+/** The Windows home with forward slashes. */
 export function windowsHome(userProfile: string): string {
 	return userProfile.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
 /**
- * Immediate subdirectories of a WINDOWS directory, listed by Windows itself.
- *
- * Browsing `/mnt/c` from the Linux side was the cheap alternative and is wrong: the picker would
- * happily offer `/home/you/...`, which the launch then refuses, so it presents choices that cannot
- * work. It also cannot see a network drive, since only auto-mounted fixed drives appear under /mnt.
- * Listing through PowerShell costs one interpreter start (~0.36s) and removes both.
- *
- * `-Force` includes hidden and system directories, which is what a file picker should show on a
- * platform where plenty of real working directories are hidden. `-ErrorAction SilentlyContinue`
- * because an unreadable subdirectory is a normal condition, not a reason to fail the listing.
- *
- * A blank path asks for the machine's own home, which is the one directory this side cannot spell.
- *
- * Empty rather than throwing, matching listHostDirs: this feeds a type-ahead, which has no use for
- * the reason.
+ * Subdirectories of a Windows directory, listed by PowerShell so network drives show and Linux
+ * paths do not. `-Force` shows hidden ones; unreadable ones are skipped. Blank is the Windows home.
+ * Empty on failure.
  */
 export function listWindowsDirs(rawPath: string, userProfile?: string): HostListDirsResult {
 	if (rawPath.length === 0) {

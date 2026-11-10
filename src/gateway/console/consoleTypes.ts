@@ -149,7 +149,7 @@ export interface ConsoleHandlerDeps {
 
 export type DeviceConsole = <Op extends DeviceConsoleOp>(op: Op) => Promise<DeviceConsoleResult<Op["kind"]>>;
 
-/** A refusal throws with its reason, but a rule op answers its refusal with the held rules. One op at a time. */
+/** A rule op answers a refusal with the held rules; others throw. */
 export interface AssistantConsoleHandlers {
 	state: () => ConsoleAssistantStateResult;
 	setWatcherGrants: (watcherId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
@@ -236,7 +236,6 @@ export interface CrossDomainConsoleHandlers {
 }
 
 export function friendlyPeekError(error?: string, kind?: HostOpResult["errorKind"]): string {
-	// Absent sessions are transient, but preserve the host cause.
 	const raw = error ?? "peek failed";
 	if (kind === "absent") return `No session running - it may be starting or has stopped: ${raw}`;
 	return raw;

@@ -32,7 +32,7 @@ class SessionOpsTest {
 		val created = mutableListOf<Pair<String, String>>()
 		val closed = mutableListOf<String>()
 		val remembered = mutableListOf<String>()
-		val wakes = mutableListOf<String>()
+		val wakes = mutableListOf<Pair<String, String>>()
 		val forgotten = mutableListOf<Triple<String, String?, String>>()
 		var forgetFails = false
 		var forgetSettled: String? = null
@@ -55,7 +55,7 @@ class SessionOpsTest {
 		) = ConsoleCreateSessionResult(created = true, id = sessionName ?: "minted").also { created += target to harness }
 		override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) = Unit
 		override suspend fun listDirs(path: String, hostTarget: String, spawn: String) = ConsoleListDirsResult(emptyList())
-		override suspend fun wake(target: String, opId: String) { wakes += target }
+		override suspend fun wake(target: String, opId: String, harness: String) { wakes += target to harness }
 		override suspend fun closeSession(team: String) { closed += team }
 		override suspend fun forget(team: String, boardDisposition: String?, opId: String): String? {
 			forgotten += Triple(team, boardDisposition, opId)
@@ -141,14 +141,20 @@ class SessionOpsTest {
 	}
 
 	@Test
-	fun wakePublishesReceiptAndClearRemovesIt() {
+	fun wakeNamesTheRowsCliPublishesReceiptAndClearRemovesIt() {
 		val host = FakeHost()
+		host.state.value = host.state.value.copy(teams = listOf(testTeam("dom.gw.host.session", harness = SessionHarness.OPENCODE.wire)))
 		val presence = RecordingPresencePort()
 		val ops = SessionOps(host, presence, MutationJournal(journalDir()))
 		ops.wakeSession("dom.gw.host.session")
+		// No row names the assumed CLI.
+		ops.wakeSession("dom.gw.host.other")
 
-		assertEquals(listOf("dom.gw.host.session"), host.wakes)
-		assertEquals(1, presence.reapplies)
+		assertEquals(
+			listOf("dom.gw.host.session" to SessionHarness.OPENCODE.wire, "dom.gw.host.other" to UNNAMED_HARNESS.wire),
+			host.wakes,
+		)
+		assertEquals(2, presence.reapplies)
 		val now = System.currentTimeMillis()
 		assertEquals(ActionReceipt.Outcome.ACCEPTED, ops.receiptFor("dom.gw.host.session", now)?.outcome)
 		ops.clearReceipt("dom.gw.host.session")

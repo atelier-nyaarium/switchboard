@@ -11,7 +11,14 @@ import {
 	type CopilotPersistedAgent,
 	restoreCopilotAgentCatalog,
 } from "./copilot-agent.js";
-import { foldHarness, HARNESS, mintedIdOf, readHarness, type SessionHarness } from "./session-harness.js";
+import {
+	foldHarness,
+	HARNESS,
+	mintedIdOf,
+	readHarness,
+	type SessionHarness,
+	UNPICKED_WORD,
+} from "./session-harness.js";
 import { composeSessionName, isComposite, isSlug, parseSessionName } from "./session-id.js";
 import { LABEL_MAX, sanitizeLabel, sanitizeWorkdirPath } from "./session-sanitize.js";
 import { bindingTokensEqual, randomBindToken, randomId, randomSessionUuid } from "./session-tokens.js";
@@ -46,7 +53,9 @@ export function resumeIdOf(record: SessionRecord): string | undefined {
 	return HARNESS[record.harness].sessionId.minted ? record.mintedSessionId : record.claudeSessionId;
 }
 
-export type PersistedSessionRecord = Omit<SessionRecord, "liveTeam"> & {
+export type PersistedSessionRecord = Omit<SessionRecord, "liveTeam" | "harness"> & {
+	/** `unpicked` while a create waits on its place. */
+	harness?: SessionHarness | typeof UNPICKED_WORD;
 	// FIXME 2026-11-23: drop. Twin of `mintedSessionId`.
 	copilotSessionId?: string;
 	codexCatalog?: CodexAgentCatalog;
@@ -508,6 +517,8 @@ export class SessionStore {
 			const copilotCatalog = this.copilotCatalogStore.get(record);
 			out[this.teamOf(record)] = {
 				...rest,
+				// Absent reads back as unnamed, which is Claude.
+				...(rest.harness ? {} : { harness: UNPICKED_WORD }),
 				// FIXME 2026-11-23: drop. Rollback twin.
 				...(rest.harness === "copilot" && rest.mintedSessionId
 					? { copilotSessionId: rest.mintedSessionId }
@@ -577,8 +588,7 @@ export class SessionStore {
 
 	private bind(record: SessionRecord, extra: { claudeSessionId?: string; live?: LiveRef }): SessionRecord {
 		if (extra.claudeSessionId) {
-			// `--resume` mints a fresh id, so the record is repointed and the previous transcript is
-			// left with nothing naming it. Said out loud: it is the only trace of the fork.
+			// `--resume` mints a fresh id; the log is the only trace of the fork.
 			const previous = record.claudeSessionId;
 			if (previous && previous !== extra.claudeSessionId) {
 				console.log(`[session] ${this.teamOf(record)} transcript ${previous} -> ${extra.claudeSessionId}`);

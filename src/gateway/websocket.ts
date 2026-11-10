@@ -50,6 +50,7 @@ export function createWebSocketHandlers({
 	onVirtualPeerEvicted,
 	onCatalogChange,
 	onSpawnPointsChange,
+	onPickResolved,
 	onDaemonCapabilities,
 	onCodexHostMessage,
 	onCopilotHostMessage,
@@ -64,10 +65,9 @@ export function createWebSocketHandlers({
 	busyOf,
 }: WebSocketDeps) {
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
-	// Use the session store as presence fallback.
 	const liveWriter = presenceWriter ?? sessionStore;
 
-	/** Its plugin reports state; no pane reader runs. */
+	/** No pane reader runs. */
 	function reportsOwnState(team: string | null | undefined): boolean {
 		const record = team ? sessionStore?.getByTeam(team) : undefined;
 		return !!record?.harness && readsOwnState(record.harness);
@@ -127,14 +127,12 @@ export function createWebSocketHandlers({
 		if (decision.kind !== "send") return decision.kind;
 		const ws = registry.get(team)?.get(subId);
 		if (ws?.readyState !== 1) return "socket-gone";
-		// Spend attempts on delivery.
 		if (!reached(sendOn(ws, decision.push, `handshake re-push to ${team}/${subId}`))) return "socket-gone";
 		decision.commit();
 		console.log(`[ws] handshake re-pushed to ${team}/${subId} [${decision.hsId}] (attempt ${decision.attempt})`);
 		return "pushed";
 	}
 
-	// Eviction matches clean-close ownership cleanup.
 	function evictSocket(victim: ServerWebSocket<WsData>): void {
 		victim.data.isStale = true;
 		const vTeam = victim.data.teamName;
@@ -158,10 +156,7 @@ export function createWebSocketHandlers({
 		ws.data.daemonInstanceId = undefined;
 	}
 
-	/**
-	 * The flag and its announcement together. Presence derives online from this field, and the
-	 * registration announcement fires before it, so a bare assignment publishes "verifying".
-	 */
+	/** Flag and announcement together; a bare assignment publishes "verifying". */
 	function confirmHandshake(ws: ServerWebSocket<WsData>): void {
 		ws.data.handshakeConfirmed = true;
 		announcePresenceDirty?.();
@@ -399,7 +394,7 @@ export function createWebSocketHandlers({
 				wakeCoordinator.stage(frame.data.team, frame.data.stage);
 				// Before it registers, since registration reads the CLI off the record.
 				if (frame.data.stage === "cli_found" && frame.data.harness) {
-					sessionStore?.resolvePick(frame.data.team, frame.data.harness);
+					onPickResolved?.(frame.data.team, frame.data.harness);
 				}
 			}
 		}

@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.ConsoleContainerResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleForgetResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleListDirsResult
@@ -30,8 +31,9 @@ suspend fun ConsoleClient.respond(
 	Protocol.Wire.ConsoleOpKind.RESPOND,
 )
 
-suspend fun ConsoleClient.wake(target: String, opId: String = ambient.newOpId()) {
-	requireDelivery(sendDeliveryOp(sessionAddressOf(target), ConsoleOp.Wake(target), opId), Protocol.Wire.ConsoleOpKind.WAKE)
+/** `harness` serves a Gateway holding no record of the session. */
+suspend fun ConsoleClient.wake(target: String, opId: String = ambient.newOpId(), harness: String? = null) {
+	requireDelivery(sendDeliveryOp(sessionAddressOf(target), ConsoleOp.Wake(target, harness), opId), Protocol.Wire.ConsoleOpKind.WAKE)
 }
 
 suspend fun ConsoleClient.reloadPlugins(gatewayId: String, opId: String = ambient.newOpId()): com.atelier_nyaarium.switchboard.proto.ConsoleReloadPluginsResult =
@@ -81,11 +83,11 @@ suspend fun ConsoleClient.createSession(
 
 /** `target` is the container's spawn point. */
 suspend fun ConsoleClient.containerStart(target: String, opId: String = ambient.newOpId()) {
-	valueResult<JsonObject>(sendValueOp(transport.gatewayOf(target), ConsoleOp.ContainerStart(target), opId), Protocol.Wire.ConsoleOpKind.CONTAINER_START)
+	valueResult<ConsoleContainerResult>(sendValueOp(transport.gatewayOf(target), ConsoleOp.ContainerStart(target), opId), Protocol.Wire.ConsoleOpKind.CONTAINER_START)
 }
 
 suspend fun ConsoleClient.containerStop(target: String, opId: String = ambient.newOpId()) {
-	valueResult<JsonObject>(sendValueOp(transport.gatewayOf(target), ConsoleOp.ContainerStop(target), opId), Protocol.Wire.ConsoleOpKind.CONTAINER_STOP)
+	valueResult<ConsoleContainerResult>(sendValueOp(transport.gatewayOf(target), ConsoleOp.ContainerStop(target), opId), Protocol.Wire.ConsoleOpKind.CONTAINER_STOP)
 }
 
 // Resolve paths on the host target.

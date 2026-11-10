@@ -10,44 +10,40 @@ import { renderRoutine } from "./render.js";
 import { type TargetFacts, targetRules } from "./reservation.js";
 
 export interface RoutineStoreDeps extends TargetFacts {
-	/** Opened through `openDurable`, so a poisoned file starts this store fresh. */
+	/** Opened through `openDurable`. */
 	store: DurableStore;
 	/** The record cannot check itself against a runbook it cannot see. */
 	getRunbook?: (runbookId: string) => Runbook | null;
 	now: () => number;
-	/** Mints a routine's incarnation. Opaque, so nothing reads it as a time or an order. */
+	/** Opaque; never a time or an order. */
 	newIncarnation: () => string;
-	/**
-	 * Called after every write that took. Required, and published from the one place that writes, so
-	 * a reader holding something derived from this store cannot be left stale by a writer that forgot
-	 * to say so.
-	 */
+	/** Required; fires after every landed write. */
 	onChanged: () => void;
 }
 
 export interface RoutinePutResult {
 	stored: boolean;
 	revision: number;
-	/** What is now stored, so the caller adopts the revision rather than guessing it. */
+	/** What is now stored. */
 	routine?: Routine;
 	reason?: string;
 }
 
 export interface RoutinePutOptions {
-	/** The revision the caller was editing. Absent means it believed there was nothing stored. */
+	/** Absent means nothing was stored. */
 	base?: number;
 }
 
 const RoutinesSchema = z.array(RoutineSchema);
 
-/** A frozen copy, so neither a reader nor the caller that pushed it can edit what the store holds. */
-/** An older phone sends no pick, which keeps the held one; `unpicked` clears it. */
+/** No pick keeps the held one; `unpicked` clears it. */
 function keptPick(incoming: Routine["target"], held: Routine["target"] | undefined): Routine["target"] {
 	const { cli, ...rest } = incoming;
 	if (cli === undefined) return held?.cli ? { ...rest, cli: held.cli } : rest;
 	return cli === UNPICKED_WORD ? rest : incoming;
 }
 
+/** Frozen copy. */
 function frozen(routine: Routine): Routine {
 	return Object.freeze({
 		...routine,
@@ -57,24 +53,13 @@ function frozen(routine: Routine): Routine {
 	});
 }
 
-/**
- * Two records the owner would call the same. Everything but what the gateway owns is compared, so a
- * field the OWNER can edit is compared without anything here being edited. A hand-listed comparison
- * would silently take an edit that only moved the field nobody added to the list.
- *
- * The exclusions are the other half of that rule, and a new gateway-owned field has to join them.
- * One left out reads as owner content, so the gateway minting it would look like an edit and every
- * save would land a revision the owner did not ask for.
- */
+/** Compares all but gateway-owned fields; a new owned field must join the exclusions. */
 function sameContent(a: Routine, b: Routine): boolean {
 	const owned = ({ revision: _revision, since: _since, incarnation: _incarnation, ...rest }: Routine) => rest;
 	return canonicalJson(owned(a)) === canonicalJson(owned(b));
 }
 
-/**
- * What the record cannot refuse for itself, because both need what only the gateway holds. Values
- * are complete at save so nothing is asked at fire time, and a target is one this Gateway can run.
- */
+/** Refusals needing what only the gateway holds. */
 function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null {
 	const target = targetRules(routine).refusal(routine, deps);
 	if (target) return target;
@@ -86,8 +71,7 @@ function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null
 export function createRoutineStore(deps: RoutineStoreDeps) {
 	const { store } = deps;
 	let routines: Routine[] = RoutinesSchema.parse(store.load() ?? []).map(frozen);
-	// A run binds to the incarnation it was prepared under, so a routine stored before incarnations
-	// gets one before anything runs. Nothing is armed yet, so nothing is told.
+	// Legacy routines get an incarnation before anything runs.
 	if (routines.some((routine) => routine.incarnation === undefined)) {
 		const minted = routines.map((routine) =>
 			routine.incarnation === undefined ? frozen({ ...routine, incarnation: deps.newIncarnation() }) : routine,
@@ -102,7 +86,7 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		);
 	}
 
-	/** A write the phone is told landed is on disk first. */
+	/** Disk first. */
 	const commit = (next: Routine[]): boolean =>
 		commitChecked(
 			store,
@@ -123,18 +107,18 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 	const put = (incoming: Routine, options: RoutinePutOptions = {}): RoutinePutResult => {
 		const current = held(incoming.id);
 		const held0 = current?.revision ?? 0;
-		// An older phone sends no kind, which would downgrade a check-in.
+		// A kindless put would downgrade a check-in.
 		if (current && isCheckIn(current) && incoming.target.kind === undefined) {
 			return { stored: false, revision: held0, reason: "this routine is a check-in; update the app to edit it" };
 		}
 		const candidate = frozen({ ...incoming, target: keptPick(incoming.target, current?.target) });
-		// Turning one off needs nothing it would run with.
+		// Disabling needs no run context.
 		const disablesOnly =
 			current !== undefined && !candidate.enabled && sameContent(candidate, { ...current, enabled: false });
 		const refusal = routineRefusal(incoming) ?? (disablesOnly ? null : contextRefusal(incoming, deps));
 		if (refusal) return { stored: false, revision: held0, reason: refusal };
 		if (current) {
-			// A repeat of what is stored is a lost answer, whichever stage it was lost at.
+			// A repeat is a lost answer.
 			const echoesFirst = options.base === undefined && current.revision === 1;
 			const echoesEdit = options.base === current.revision || options.base === current.revision - 1;
 			if ((echoesFirst || echoesEdit) && sameContent(candidate, current)) {
@@ -154,9 +138,7 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		if (held0 >= REVISION_CEILING) {
 			return { stored: false, revision: held0, reason: "this routine has no revision left to write" };
 		}
-		// The gateway owns all three, so an editor cannot move any by sending one. The incarnation is
-		// minted once and carried, which is what lets memory survive an edit and die with the routine.
-		// Another target kind starts fresh: spawn history may hold what a check-in must not see.
+		// Gateway-owned. Another target kind restarts the incarnation: history must not cross.
 		const sameKind = current !== undefined && targetKind(current.target) === targetKind(candidate.target);
 		const routine = frozen({
 			...candidate,
@@ -171,7 +153,7 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		return { stored: true, revision: routine.revision, routine };
 	};
 
-	/** A whole-record write at the revision the phone read, so a stale toggle is refused like a put. */
+	/** Stale toggles are refused like a put. */
 	const setEnabled = (id: string, enabled: boolean, base: number): RoutinePutResult => {
 		const current = held(id);
 		if (!current) return { stored: false, revision: 0, reason: "no routine with that id is stored" };

@@ -90,12 +90,15 @@ enum class SessionHarness(
 	),
 }
 
-/** One reading of a CLI word. Each reader states all three. */
+/** One reading of a CLI word. Each reader states every case. */
 sealed interface HarnessWord {
 	data class Named(val harness: SessionHarness) : HarnessWord
 
 	// FIXME 2026-11-23: delete `Unnamed`, once every sender names its CLI.
 	data class Unnamed(val assumed: SessionHarness) : HarnessWord
+
+	/** A create that named none; its place resolves it. */
+	data object Unpicked : HarnessWord
 
 	/** A newer sender's CLI, as sent. */
 	data class Unknown(val word: String) : HarnessWord
@@ -104,9 +107,26 @@ sealed interface HarnessWord {
 /** What a sender naming no CLI ran. */
 val UNNAMED_HARNESS: SessionHarness = SessionHarness.CLAUDE
 
+/** On the wire, a create that named no CLI. */
+const val UNPICKED_WORD: String = "unpicked"
+
+/** A stored pick: a CLI, or none, which takes the spawn point's only one. */
+sealed interface CliPick {
+	val wire: String
+
+	data class Picked(val harness: SessionHarness) : CliPick {
+		override val wire: String get() = harness.wire
+	}
+
+	data object Unpicked : CliPick {
+		override val wire: String = UNPICKED_WORD
+	}
+}
+
 /** The one reading of a CLI word off the wire. */
 fun readHarness(wire: String?): HarnessWord {
 	if (wire == null) return HarnessWord.Unnamed(UNNAMED_HARNESS)
+	if (wire == UNPICKED_WORD) return HarnessWord.Unpicked
 	val harness = SessionHarness.entries.find { it.wire == wire } ?: return HarnessWord.Unknown(wire)
 	return HarnessWord.Named(harness)
 }

@@ -42,9 +42,8 @@ export const SendRequestSchema = z.object({
 	sessionId: z.string().optional(),
 	returnRoute: ReturnRouteSchema.optional(),
 	dstDomainId: z.string().optional(),
-	/** The relaying Gateway's word. */
 	reader: RelayedReaderSchema,
-	/** Names the queue row, only the owner may choose it, and never for other content: a session shows an id once. */
+	/** Owner-chosen queue row id; a session shows an id once. */
 	deliveryId: z.string().min(1).max(128).optional(),
 });
 

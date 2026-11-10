@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
+import com.atelier_nyaarium.switchboard.proto.UNPICKED_WORD
 import com.atelier_nyaarium.switchboard.routines.ROUTINE_TARGET_ASSISTANT
 import com.atelier_nyaarium.switchboard.routines.ROUTINE_TARGET_SPAWN
 import com.atelier_nyaarium.switchboard.routines.RoutineDraft
@@ -39,6 +40,22 @@ class RoutineDraftTest {
 		revision = 1L,
 		since = 0L,
 	)
+
+	@Test
+	fun aClearedPickGoesAsUnpickedAndOnlyAnUnreadableHeldOneGoesAsNone() {
+		val picked = RoutineDraft.of(routine(RoutineTarget(spawn = "host", cli = "copilot")))
+		val newer = RoutineDraft.of(routine(RoutineTarget(spawn = "host", cli = "newer-cli")))
+
+		assertEquals("copilot", picked.toRoutine()?.target?.cli)
+		assertEquals(UNPICKED_WORD, picked.tapCli("copilot").toRoutine()?.target?.cli)
+		assertEquals(UNPICKED_WORD, RoutineDraft.of(routine(RoutineTarget(spawn = "host"))).toRoutine()?.target?.cli)
+		// None keeps the held word on the Gateway.
+		assertNull(newer.toRoutine()?.target?.cli)
+		assertEquals("newer-cli", newer.shownCli)
+		assertEquals(UNPICKED_WORD, newer.tapCli("newer-cli").toRoutine()?.target?.cli)
+		// A check-in runs no CLI of its own.
+		assertEquals(UNPICKED_WORD, picked.selectAssistant("assistant").toRoutine()?.target?.cli)
+	}
 
 	@Test
 	fun aSavedRoutineKeepsItsZoneAndANewOneTakesThePhones() {
