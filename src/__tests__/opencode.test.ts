@@ -42,9 +42,9 @@ describe("a session's state, followed live", () => {
 	});
 
 	it("never reads a repeated prompt's empty execution as a turn, and keeps a held limit through it", () => {
-		const limited = reports([started, step, failed("provider.free-limit", "resets 5pm")]).at(-1);
+		const limited = reports([started, step, failed("provider.rate-limit", "resets 5pm")]).at(-1);
 
-		const repeat = reports([started, step, failed("provider.free-limit", "resets 5pm"), started, succeeded]);
+		const repeat = reports([started, step, failed("provider.rate-limit", "resets 5pm"), started, succeeded]);
 
 		expect(limited).toEqual({ ...idle, limitBlocked: true, limitDetail: "resets 5pm" });
 		expect(repeat.slice(3)).toEqual([limited, limited]);
@@ -116,17 +116,20 @@ describe("a session's state, rebuilt from three reads", () => {
 	const resting = (rows: Array<{ id: string; type: string }>) =>
 		derivedFromView(viewFromSnapshot({ running: false, permissions: [], rows }));
 
-	it("carries a failed turn's sign-in error only while nothing runs", () => {
-		const rows = turn({ type: "provider.auth", message: "" });
+	it.each(["provider.auth", "provider.free-limit"])(
+		"carries a failed turn's %s as a sign-in, only while nothing runs",
+		(type) => {
+			const rows = turn({ type, message: "Free usage limit reached" });
 
-		const running = derivedFromView(viewFromSnapshot({ running: true, permissions: [], rows }));
+			const running = derivedFromView(viewFromSnapshot({ running: true, permissions: [], rows }));
 
-		expect(resting(rows)).toEqual({ ...idle, needsLogin: true });
-		expect(running).toEqual({ ...idle, working: true });
-	});
+			expect(resting(rows)).toEqual({ ...idle, needsLogin: true });
+			expect(running).toEqual({ ...idle, working: true });
+		},
+	);
 
 	it("keeps a held limit past an empty execution's idle row, a repeated prompt's or a compaction's", () => {
-		const limited = turn({ type: "provider.free-limit", message: "resets 5pm" });
+		const limited = turn({ type: "provider.rate-limit", message: "resets 5pm" });
 		const repeat = [{ id: "msg_i2", type: "idle" }, ...limited];
 		const compacted = [{ id: "msg_i3", type: "idle" }, { id: "msg_c1", type: "compaction" }, ...limited];
 		const recovered = [{ id: "msg_i4", type: "idle" }, { id: "msg_a3", type: "assistant" }, ...limited];

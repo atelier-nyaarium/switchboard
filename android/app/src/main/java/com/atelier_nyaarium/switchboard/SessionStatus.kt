@@ -29,7 +29,8 @@ internal fun presenceColor(word: SessionWord): Color = when (word) {
 	SessionWord.LIVE -> STATUS_GREEN
 	SessionWord.WORKING, SessionWord.WAKING, SessionWord.VERIFYING -> STATUS_AMBER
 	SessionWord.AVAILABLE -> Color(0xFF0969DA)
-	SessionWord.NEEDS_APPROVAL, SessionWord.CHECK_TERMINAL, SessionWord.LIMIT_HIT -> Color(0xFFDA3633)
+	SessionWord.NEEDS_APPROVAL, SessionWord.LIMIT_HIT, SessionWord.LOGIN, SessionWord.CHECK_TERMINAL ->
+		Color(0xFFDA3633)
 	SessionWord.ENDED -> MaterialTheme.colorScheme.outline
 }
 

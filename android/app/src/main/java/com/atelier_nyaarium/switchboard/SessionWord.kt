@@ -4,6 +4,7 @@ package com.atelier_nyaarium.switchboard
 enum class SessionWord(val text: String) {
 	NEEDS_APPROVAL("needs approval"),
 	LIMIT_HIT("limit hit"),
+	LOGIN("login"),
 	CHECK_TERMINAL("check terminal"),
 	WORKING("working..."),
 	LIVE("live"),
@@ -17,7 +18,8 @@ enum class SessionWord(val text: String) {
 	val busy: Boolean get() = this == WORKING || this == VERIFYING
 
 	/** Waits on the owner. A red chip. */
-	val blocked: Boolean get() = this == NEEDS_APPROVAL || this == LIMIT_HIT || this == CHECK_TERMINAL
+	val blocked: Boolean get() =
+		this == NEEDS_APPROVAL || this == LIMIT_HIT || this == LOGIN || this == CHECK_TERMINAL
 }
 
 /** [working] and [needsLogin] as `ChatState` folds them. */
@@ -26,7 +28,7 @@ internal fun sessionWord(presence: Presence, working: Boolean, needsLogin: Boole
 		presence.isOnline -> when {
 			presence.promptId != null -> SessionWord.NEEDS_APPROVAL
 			presence.limitBlocked == true -> SessionWord.LIMIT_HIT
-			needsLogin -> SessionWord.CHECK_TERMINAL
+			needsLogin -> SessionWord.LOGIN
 			working -> SessionWord.WORKING
 			else -> SessionWord.LIVE
 		}

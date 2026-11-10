@@ -32,8 +32,9 @@ export const OPENCODE_EVENT_TYPES = [
 	"permission.replied",
 ] as const;
 
-const LIMIT_ERRORS: ReadonlySet<string> = new Set(["provider.free-limit", "provider.rate-limit", "provider.quota"]);
-const LOGIN_ERRORS: ReadonlySet<string> = new Set(["provider.auth"]);
+const LIMIT_ERRORS: ReadonlySet<string> = new Set(["provider.rate-limit", "provider.quota"]);
+// The free tier spent: connect a provider.
+const LOGIN_ERRORS: ReadonlySet<string> = new Set(["provider.auth", "provider.free-limit"]);
 
 ////////////////////////////////
 //  Interfaces & Types

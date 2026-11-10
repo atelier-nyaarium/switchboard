@@ -378,7 +378,7 @@ describe("an OpenCode session's state across a dropped stream", () => {
 		const p = await plug();
 		await p.session.deliver(push("work", { delivery_id: "d9" }));
 		await vi.waitFor(() => expect(last(p)?.working).toBe(true));
-		p.server.finishTurn(SES, { type: "provider.free-limit", message: "resets 5pm" });
+		p.server.finishTurn(SES, { type: "provider.rate-limit", message: "resets 5pm" });
 		await vi.waitFor(() => expect(last(p)?.limitBlocked).toBe(true));
 		const limitedAt = p.reports.length - 1;
 

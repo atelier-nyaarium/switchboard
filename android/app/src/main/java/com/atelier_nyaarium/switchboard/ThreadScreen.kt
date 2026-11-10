@@ -491,7 +491,12 @@ internal fun ThreadScreen(
 							SessionWord.LIVE, SessionWord.WORKING -> "No messages yet. $label is live."
 							SessionWord.VERIFYING -> "No messages yet. $label is connecting."
 							SessionWord.ENDED -> "This session has ended."
-							SessionWord.NEEDS_APPROVAL, SessionWord.LIMIT_HIT, SessionWord.CHECK_TERMINAL, null ->
+							SessionWord.NEEDS_APPROVAL,
+							SessionWord.LIMIT_HIT,
+							SessionWord.LOGIN,
+							SessionWord.CHECK_TERMINAL,
+							null,
+							->
 								"No messages yet."
 						},
 						style = MaterialTheme.typography.bodyMedium,

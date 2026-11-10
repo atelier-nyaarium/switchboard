@@ -19,7 +19,9 @@ class SessionWordTest {
 		assertEquals(SessionWord.NEEDS_APPROVAL, approval)
 		assertTrue(approval.blocked)
 		assertEquals(SessionWord.LIMIT_HIT, word(row(Presence.ONLINE, limitBlocked = true), working = true, needsLogin = true))
-		assertEquals(SessionWord.CHECK_TERMINAL, word(row(Presence.ONLINE), working = true, needsLogin = true))
+		val login = word(row(Presence.ONLINE), working = true, needsLogin = true)
+		assertEquals(SessionWord.LOGIN, login)
+		assertTrue(login.blocked)
 		assertEquals(SessionWord.WORKING, word(row(Presence.ONLINE), working = true))
 		assertEquals(SessionWord.LIVE, word(row(Presence.ONLINE)))
 	}
