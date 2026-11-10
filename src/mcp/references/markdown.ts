@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pluginRoot } from "../../shared/plugin-root.js";
+import { pluginRoot, VENDORED_PARSER_PATH } from "../../shared/plugin-root.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -32,17 +32,7 @@ interface MarkdownParser {
  * Both sides must agree on what is a link, and the only way to guarantee that is the same bytes. A
  * hand-written backtick pairer silently swallowed every ref between two unrelated ones.
  */
-const VENDORED_PARSER = path.join(
-	pluginRoot(),
-	"android",
-	"app",
-	"src",
-	"main",
-	"assets",
-	"thread",
-	"vendor",
-	"markdown-it.min.js",
-);
+const VENDORED_PARSER = path.join(pluginRoot(), VENDORED_PARSER_PATH);
 
 /** Identical to `thread.js`. `linkify: false` is load-bearing: only a written `[label](url)` is a
  * link, so a bare `ref://` in prose attaches nothing. */

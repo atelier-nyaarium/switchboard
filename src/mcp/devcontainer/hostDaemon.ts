@@ -41,7 +41,7 @@ import { appendBuildTranscript } from "./buildTranscript.js";
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
 import { ExecutionTargetManager, targetLogger } from "./codexTargets.js";
-import { CONTAINER_HOME, containerLaunchSite, placeRuntime } from "./containerSite.js";
+import { CONTAINER_HOME, containerLaunchSite, createRuntimePlacer } from "./containerSite.js";
 import { containerFor, DevContainers, docker } from "./containers.js";
 import {
 	type CompactionFollow,
@@ -494,12 +494,12 @@ const LAUNCH_SITES: Record<LaunchPlace, LaunchSite | null> = {
 };
 
 /** Copies the runtime into the container. */
-async function placeContainerRuntime(project: string): Promise<void> {
+async function placeContainerRuntime(project: string, signal?: AbortSignal): Promise<void> {
 	if (!LAUNCH_VERSION) return;
 	const where = { kind: "devcontainer" as const, name: project };
 	const placed = await placeRuntime({
-		exec: (argv) => execInPlace(where, argv, RUNTIME_COPY_MS),
-		docker: (args) => docker(args, RUNTIME_COPY_MS),
+		exec: (argv) => execInPlace(where, argv, RUNTIME_COPY_MS, signal),
+		docker: (args) => docker(args, RUNTIME_COPY_MS, signal),
 		container: containerFor(project),
 		source: LAUNCH_ROOT,
 		version: LAUNCH_VERSION,
@@ -507,8 +507,21 @@ async function placeContainerRuntime(project: string): Promise<void> {
 	if (placed === "copied") console.error(`[devcontainer] ${project}: runtime ${LAUNCH_VERSION} copied in`);
 }
 
+const placeRuntime = createRuntimePlacer();
+
 const RUNTIME_COPY_MS = 60_000;
-const PROVISION_MS = 300_000;
+// Bounded inside the container too, so a killed client leaves no install running.
+const PROVISION_INSIDE_S = 300;
+const PROVISION_MS = (PROVISION_INSIDE_S + 10) * 1000;
+
+/** One provisioning script in a container, with the launch's shell setup. */
+function provisionScript(project: string, script: string, signal: AbortSignal): Promise<boolean> {
+	const argv = ["timeout", String(PROVISION_INSIDE_S), "bash", "-c", `source ~/.bashrc >/dev/null 2>&1; ${script}`];
+	return execInPlace({ kind: "devcontainer", name: project }, argv, PROVISION_MS, signal).then(
+		() => true,
+		() => false,
+	);
+}
 
 /** What a place's own shell runs, in offer order. Throws when it cannot be asked. */
 async function installedAt(
@@ -527,20 +540,16 @@ async function installedAt(
 
 const devContainers = new DevContainers({
 	up: ensureContainerUpAsync,
-	look: async (project) => {
-		await placeContainerRuntime(project).catch((err) =>
+	look: async (project, signal) => {
+		await placeContainerRuntime(project, signal).catch((err) =>
 			console.error(`[devcontainer] ${project}: runtime not placed: ${err instanceof Error ? err.message : err}`),
 		);
 		return installedAt({ kind: "devcontainer", name: project }, { place: "container", assistant: false });
 	},
-	provision: (project, installed) =>
+	provision: (project, installed, signal) =>
 		provisionPlugins(
 			installed,
-			(script) =>
-				runInPlace({ kind: "devcontainer", name: project }, script, PROVISION_MS).then(
-					() => true,
-					() => false,
-				),
+			(script) => provisionScript(project, script, signal),
 			(line) => {
 				console.error(`[devcontainer] ${project}: ${line}`);
 				appendBuildTranscript(project, `[plugins] ${line}\n`);

@@ -447,11 +447,12 @@ describe("a create's intent on a wake", () => {
 });
 
 describe("a CLI resolved at launch", () => {
-	it("mints its own id for an unpicked request, launches with it, and reports it with cli_found", async () => {
+	it("mints its own id for an unpicked request, launches with it, and reports it with cli_found and the result", async () => {
 		const r = rig({ installed: ["copilot"] });
 
 		r.lane.wake("app.a", { ...wake(APP_A, { launchId: "launch-1" }), harness: "unpicked" }, "create");
 		await flush();
+		await r.launches[0]?.answer(MADE);
 
 		const id = "00000000-0000-4000-8000-000000000001";
 		expect(r.launches[0]?.facts).toMatchObject({ harness: "copilot", resumeSessionId: id });
@@ -459,6 +460,19 @@ describe("a CLI resolved at launch", () => {
 			harness: "copilot",
 			sessionId: id,
 		});
+		expect(r.results("app.a")).toMatchObject([
+			{ launchId: "launch-1", success: true, harness: "copilot", sessionId: id },
+		]);
+	});
+
+	it("repeats the resolved CLI on a failed result, so a lost cli_found costs the record nothing", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1" }));
+		await flush();
+		await r.launches[0]?.answer({ ...MADE, alive: false, live: false, ready: false, error: "no composer" });
+
+		expect(r.results("host.a")).toMatchObject([{ launchId: "launch-1", success: false, harness: "claude" }]);
 	});
 
 	it.each<[string, { harness: string; resumeSessionId?: string }]>([

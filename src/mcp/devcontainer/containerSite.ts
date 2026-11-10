@@ -2,7 +2,9 @@
 
 import path from "node:path";
 import type { TmuxTarget } from "../../shared/host-op.js";
+import { PLUGIN_ROOT_PARTS } from "../../shared/plugin-root.js";
 import { composeSessionName } from "../../shared/session-id.js";
+import { createSingleFlight } from "../../shared/single-flight.js";
 import type { LaunchSite } from "./sessionLaunch.js";
 
 ////////////////////////////////
@@ -29,8 +31,6 @@ export const CONTAINER_HOME = "/home/vscode";
 const CONTAINER_BUN = `${CONTAINER_HOME}/.bun/bin/bun`;
 const CACHE = `${CONTAINER_HOME}/.cache/switchboard`;
 const STATUS_DIR = `${CACHE}/launch`;
-// `package.json` last: it marks a whole copy.
-const RUNTIME_PARTS = ["dist", "launch", "package.json"];
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -64,10 +64,17 @@ export async function placeRuntime(copy: RuntimeCopy): Promise<"present" | "copi
 		() => false,
 	);
 	if (present) return "present";
-	// A copy cut short starts over.
-	await copy.exec(["sh", "-c", 'rm -rf "$1" && mkdir -p "$1"', "sh", root]);
-	for (const part of RUNTIME_PARTS) {
+	// A copy cut short starts over; a nested part needs its folder first.
+	const folders = PLUGIN_ROOT_PARTS.map((part) => path.posix.join(root, path.posix.dirname(part)));
+	await copy.exec(["sh", "-c", 'rm -rf "$1" && shift && mkdir -p "$@"', "sh", root, ...new Set(folders)]);
+	for (const part of PLUGIN_ROOT_PARTS) {
 		await copy.docker(["cp", "-a", path.join(copy.source, part), `${copy.container}:${root}/${part}`]);
 	}
 	return "copied";
+}
+
+/** `placeRuntime`, one at a time per container and version: a second `docker cp` into one folder nests it. */
+export function createRuntimePlacer(): (copy: RuntimeCopy) => Promise<"present" | "copied"> {
+	const flights = createSingleFlight<string, "present" | "copied">();
+	return (copy) => flights.run(`${copy.container}:${copy.version}`, () => placeRuntime(copy));
 }

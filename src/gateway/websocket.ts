@@ -162,6 +162,24 @@ export function createWebSocketHandlers({
 	}
 
 	/** Flag and announcement together; a bare assignment publishes "verifying". */
+	/** A tokened CLI that registered before its pick landed. */
+	function standLateToken(team: string): void {
+		const record = sessionStore?.getByTeam(team);
+		const row = record?.harness ? HARNESS[record.harness] : undefined;
+		if (!row || row.handshake) return;
+		const live = [...(registry.get(team)?.values() ?? [])].filter((other) => other.readyState === 1);
+		if (live.some((other) => other.data.handshakeConfirmed)) return;
+		const waiting = live.filter((other) => other.data.boundToken !== undefined);
+		if (waiting.length !== 1) return;
+		const [ws] = waiting as [ServerWebSocket<WsData>];
+		if (establishRecord(ws, { team, subId: ws.data.subId }) === "refused") {
+			evictSocket(ws);
+			return;
+		}
+		confirmHandshake(ws);
+		console.log(`[ws] ${team}/${ws.data.subId} is a ${row.label} session - handshake skipped late`);
+	}
+
 	function confirmHandshake(ws: ServerWebSocket<WsData>): void {
 		ws.data.handshakeConfirmed = true;
 		announcePresenceDirty?.();
@@ -387,7 +405,12 @@ export function createWebSocketHandlers({
 			const launchId = frame.data?.launchId;
 			// A daemon that names launches never answers untagged.
 			if (frame.success && (launchId || !ws.data.launchIds)) {
-				const { team, success, error } = frame.data;
+				const { team, success, error, harness } = frame.data;
+				// Once only; the record keeps a pick it already holds.
+				if (harness) {
+					onPickResolved?.(team, harness, frame.data.sessionId);
+					standLateToken(team);
+				}
 				if (success) wakeCoordinator.ackReceived(team, REGISTER_WINDOW_MS, launchId);
 				else
 					wakeCoordinator.fail(
@@ -408,6 +431,7 @@ export function createWebSocketHandlers({
 				// Before it registers, since registration reads the CLI off the record.
 				if (frame.data.stage === "cli_found" && frame.data.harness) {
 					onPickResolved?.(frame.data.team, frame.data.harness, frame.data.sessionId);
+					standLateToken(frame.data.team);
 				}
 			}
 		}

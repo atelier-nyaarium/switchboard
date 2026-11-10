@@ -20,6 +20,8 @@ export interface FakeSessionOptions {
 	projectPath?: string;
 	/** False answers the lead handshake as a worker. */
 	lead?: boolean;
+	/** False leaves a handshake unanswered. */
+	answersHandshake?: boolean;
 }
 
 export interface FakeSession {
@@ -72,6 +74,7 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 		if (frame.type === "register_ok" || frame.type === "register_reject") answerRegister(frame);
 		if (frame.type !== "channel_push") return;
 		if (frame.replyJsonSchema) {
+			if (options.answersHandshake === false) return;
 			void post("/respond", {
 				session_id: frame.session_id,
 				replyAsJson: { isMainOrLead: options.lead !== false },

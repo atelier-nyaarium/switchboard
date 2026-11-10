@@ -147,11 +147,12 @@ const CLAUDE_PLUGINS: PluginProvisioning = {
 		jqMerge("~/.claude/settings.json", {
 			extraKnownMarketplaces: { [PLUGIN_SET.marketplace]: { autoUpdate: true } },
 		}),
-		jqMerge("~/.claude.json", {
+		// Rewritten only when missing.
+		`jq -e '.mcpServers.nyaascripts' ~/.claude.json >/dev/null 2>&1 || { ${jqMerge("~/.claude.json", {
 			mcpServers: {
 				nyaascripts: { type: "stdio", command: "/home/vscode/scripts/nyaascripts", args: [], env: {} },
 			},
-		}),
+		})}; }`,
 	].join("; "),
 };
 

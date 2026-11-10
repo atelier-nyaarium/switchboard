@@ -27,11 +27,22 @@ class SessionWordTest {
 	}
 
 	@Test
-	fun `a verifying session reads verifying and pulses, whatever else is folded in`() {
-		val verifying = word(row(Presence.VERIFYING), working = true, needsLogin = true)
+	fun `a verifying session reads verifying and pulses while working`() {
+		val verifying = word(row(Presence.VERIFYING), working = true)
 
 		assertEquals(SessionWord.VERIFYING, verifying)
 		assertTrue(verifying.busy)
+	}
+
+	@Test
+	fun `a session needing login reads login until it ends`() {
+		val verifying = row(Presence.VERIFYING)
+		val waking = row(Presence.AVAILABLE).withReceipt(ActionReceipt(opId = "op", at = now - 1_000))
+
+		assertEquals(SessionWord.LOGIN, word(verifying, working = true, needsLogin = true))
+		assertEquals(SessionWord.LOGIN, word(waking, needsLogin = true))
+		assertEquals(SessionWord.ENDED, word(Presence.ended(), working = true, needsLogin = true))
+		assertTrue(stuckAtLogin(testTeam("dom.gw.app.main", status = Presence.VERIFYING, needsLogin = true).presence))
 	}
 
 	@Test

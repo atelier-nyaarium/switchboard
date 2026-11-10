@@ -97,7 +97,8 @@ describe("agent-screen: the rule boundary has one owner per language", () => {
 			["Kotlin", code(KT_MODULE)],
 		] as const) {
 			expect(src, `${name} keeps the unanchored toolbar rule`).toMatch(/Not logged in\|Run \/login/);
-			expect(src, `${name} anchors the status rule`).toMatch(/\^\$?\{?SPACE\}?\*\(\?:Not logged in/);
+			expect(src, `${name} anchors the status rule`).toMatch(/\^\(\?:\$\{?SPACE\}?\*\(\?:Not logged in/);
+			expect(src, `${name} holds Copilot's at column 0`).toMatch(/\|Please use \/login to sign in\)/);
 		}
 	});
 

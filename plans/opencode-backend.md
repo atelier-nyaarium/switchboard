@@ -158,6 +158,8 @@ The Containers slice deploys the daemon before the Gateway: a Gateway sends `unp
 
 The launch road (slice 3) deploys the daemon, then the phone, then the Gateway. A daemon older than the create door repairs a pane a create meant to leave, and one without launch ids would hold every flight a minute; an older phone alerts on the quiet `Session started.` line and its re-press mints a second session. `start-all.sh` starts the Gateway before the daemon, so run `./start-host-daemon.sh` first.
 
+**Every deploy updates the other Gateways too:** `mikan` (`ssh mikan`) and `matrix-edward` (`ssh matrix-edward.local`), each `git pull --ff-only`, `./start-host-daemon.sh`, then `./start-gateway.sh`, and their logs checked for `registered as Gateway`. Floor 6 stopped both until they were updated by hand. Owner: "As you go, ensure you didn't break em. SSH and update them".
+
 The Containers slice raises `FEDERATION_PROTOCOL_FLOOR` with its release: an older Gateway strips `cli` from a relayed send and launches Claude unasked. Its new wire is `cli` on `/send` and on the relayed send, the launch outcome on `response_push`, the daemon's wake progress frame, container state, the availability map on the discover answer, and the routine and fire picks.
 
 ## Phase 1 - The harness table
@@ -689,7 +691,12 @@ OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and 
 - **The console takes its launch readers as loose optional deps:** `beginLaunch`, `watchOwnerLaunch`, `watchRoutineLaunch`, `awaitsLaunch`, `isLive`, `launching` and `isWakeInFlight` on `ConsoleHandlerDeps`, wired one by one in `composeRouterFrames`. One launch facade would keep the fence rules in one place; the assistant reserve repeats the routine reserve's order by hand.
 - **`composeGateway` binds later stages by closure over a `const` declared below:** `tellRoutine` and `onRunbookMoved` name `routines` before it exists, safe only because nothing calls them during composition.
 - **A stale CLI in a container fails as a 10-minute timeout:** `docker-workspace`'s `post-create` never refreshes binaries on an existing home volume, and Copilot's row declares no minimum version, so an old Copilot launches, rejects `--session-id`, and the session never registers. A version floor on the row would refuse it with a reason; a refresh in `post-create` would remove the cause.
-- **A host Copilot's Switchboard plugin is stale:** Copilot never updates its own plugin copies; the owner's host session ran 8.14.41 against an 8.14.57 Gateway.
+- **A host Copilot's Switchboard plugin is stale:** Copilot never updates its own plugin copies; the owner's host session ran 8.14.41 against an 8.14.57 Gateway. A container's are installed once and never updated either, since its `installed` check passes for any version.
+- **The container runtime is keyed by a version read once at boot, and old roots stay:** a `--build-only` or a pull under the same version leaves stale `dist/`, and each release leaves about 3 MB per container home. It is also copied into every container, OpenCode or not.
+- **The container's bun, home and uid are assumed:** `/home/vscode/.bun/bin/bun`, and `docker cp -a` keeps the host uid, which matches `vscode` on this machine only by chance. A bun elsewhere leaves OpenCode unoffered with nothing logged.
+- **An id minted for a launch that only read a live pane:** the lane mints at pick, before the pane road decides to read rather than launch, so `cli_found` can name an id nothing runs.
+- **OpenCode's spent-free-tier text no longer reaches the phone:** it reads as login, and `needsLogin` carries no detail, so "switch models" is lost.
+- **OpenCode's other turn failures show nothing:** `provider.connect`, `timeout`, `transport`, `invalid-request` and the rest leave the card live. "check terminal" is the owner's word for whatever else, and has no producer yet. Owner, on reading them as "check terminal": "good idea. but I might hold on the check terminal idea. we got a lot on our plates still".
 - **A Gateway rollback below `64786716` loses routine history:** the occurrence store parses its rows as one array, so a stored `session_starting` or `launch_failed` an older build does not know quarantines the whole file, and slots inside the grace run again. `assistant_unplaced` opened the same gap. Parsing per row and holding an unreadable row unread, as `SessionStore` does, would close it.
 - **Run missed on an asleep session starts it and answers that it cannot run:** `runNow` gives up on `launching`, since a missed row has no waiting state. Pressing again once the session is up runs it.
 - **A send commits its awareness before its launch can withdraw it:** `lease.commit()` marks an agent's turn told once the row is queued, so a failed launch that withdraws the row loses the notice it carried. Agent sends and fires share it.
@@ -703,6 +710,8 @@ OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and 
 - **No gate runs the real OpenCode binary:** the fake server encodes one reading of 2.2.5, and each behavior it rests on (duplicate prompt ids, the compaction row's id, synthetic input with no turn) was confirmed by hand scripts against a real server. A pin move finds drift only in Phase 3's manual pass.
 
 ## Owner asks, open
+
+- **Mechanical implementation goes to the Test OC session** (`host.76340a`, OpenCode, working in this checkout) by `crosstalk_send`, when it is mechanical enough to relay. Each relay names disjoint files from any teammate's, and its result is reviewed before it lands. Owner, 2026-11-10: "ok from now on, use Text OC session to do implementation, when mechanical enough to relay."
 
 - **Try Copilot and OpenCode in the evie-bot container once 2c lands.** The base image installs OpenCode 2.2.5 (`docker-workspace` `6eddb07`). Owner: "sweet. then you can try it on Evie bot later." and "also try open code there too." OpenCode goes into the running container by hand (no rebuild). First with no login, to see that the phone's login-required chip shows. Owner: "actually don't yet. see if the detect for login required chip shows" and "for both copilot and oc". The pane check reads Claude's wording, so Copilot's logged-out screen may need its own. Only after that, the host's auth file copied in, mode 600, never printed. Owner: "copy it in this time".
 

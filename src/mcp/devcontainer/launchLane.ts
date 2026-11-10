@@ -103,6 +103,8 @@ interface LaunchUnit {
 	/** A kill took the pane. */
 	preempted: boolean;
 	stage?: { stage: string; extra: Record<string, unknown> };
+	/** Its CLI once resolved, and the id it minted; a result repeats `cli_found`. */
+	resolved?: { harness: SessionHarness; sessionId?: string };
 	run(): Promise<void>;
 }
 
@@ -276,7 +278,8 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 
 	/** A wake's frame; `unit` is absent for a refusal at the door. */
 	function replyWake(taker: Taker, result: Settled, unit?: LaunchUnit): void {
-		const id = tag(taker.launchId);
+		// A lost `cli_found` must not leave the record without its CLI and id.
+		const id = { ...tag(taker.launchId), ...unit?.resolved };
 		if (!result.ok) {
 			deps.log(`failed to wake ${taker.team}: ${result.text}`);
 			sendResult(taker.launchId, failedWakeFrame(taker.team, result.failure, id));
@@ -287,7 +290,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		if (res.created && taker.fresh) {
 			madePanes.set(madeKey(taker.team, taker.launchId), {
 				team: taker.team,
-				...id,
+				...tag(taker.launchId),
 				target,
 				at: deps.now(),
 			});
@@ -355,7 +358,8 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 			}
 			const minted = mintedId(req, resolved.harness, deps.uuid);
 			if (minted) resumeSessionId = minted;
-			sendStage(unit, "cli_found", { harness: resolved.harness, ...(minted ? { sessionId: minted } : {}) });
+			unit.resolved = { harness: resolved.harness, ...(minted ? { sessionId: minted } : {}) };
+			sendStage(unit, "cli_found", unit.resolved);
 			if (abandoned(unit)) throw new Failed(GAVE_UP, launchFailureText(GAVE_UP, unit.team), false);
 			return resolved.harness;
 		};

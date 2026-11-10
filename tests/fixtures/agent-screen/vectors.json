@@ -162,6 +162,14 @@
 			"expectReady": true,
 			"expectWorking": false,
 			"expectLoggedOut": true
+		},
+		{
+			"name": "copilot-quoted-login",
+			"platform": "linux",
+			"shape": "Derived from copilot-logged-out: the status row replaced by the same phrase quoted, indented, as transcript text. A signed-in session that prints the phrase is not logged out.",
+			"screen": " \u001b[1m\u001b[97m\u001b[44m[Current]\u001b[0m  Sessions   Issues   Pull requests  →\n\n\u001b[34m  ╭─╮╭─╮\n  ╰─╯╰─╯\u001b[39m  Copilot v1.0.109 uses AI.\n\u001b[35m  █ \u001b[96m▘▝\u001b[35m █\u001b[39m  Check for mistakes.\n\u001b[35m   ▔▔▔▔ \n\n\u001b[39m \u001b[31m✗\u001b[39m \u001b[1mYou must be logged in to send messages. Please \n\u001b[0m   \u001b[1mrun /login \n\n\u001b[0m \u001b[31m✗\u001b[39m \u001b[1mYou must be logged in to send messages. Please \n\u001b[0m   \u001b[1mrun /login \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n   Please use /login to sign in to use Copilot, it said.\n\u001b[0m /workspace/evie-bot [⎇ main%]\n\u001b[2m─────────────────────────────────────────────────────\n\u001b[0m❯ \n\u001b[2m─────────────────────────────────────────────────────\n\u001b[0m Interactive · Allow All · \u001b[1m/\u001b[0m commands               \n",
+			"expectReady": true,
+			"expectWorking": false
 		}
 	]
 }

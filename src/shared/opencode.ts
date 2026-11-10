@@ -32,7 +32,14 @@ export const OPENCODE_EVENT_TYPES = [
 	"permission.replied",
 ] as const;
 
-const LIMIT_ERRORS: ReadonlySet<string> = new Set(["provider.rate-limit", "provider.quota"]);
+const LIMIT_ERRORS: ReadonlySet<string> = new Set([
+	"provider.rate-limit",
+	"provider.quota",
+	"provider.go-limit",
+	"provider.budget-limit",
+	"provider.model-budget-limit",
+	"provider.chatgpt-limit",
+]);
 // The free tier spent: connect a provider.
 const LOGIN_ERRORS: ReadonlySet<string> = new Set(["provider.auth", "provider.free-limit"]);
 

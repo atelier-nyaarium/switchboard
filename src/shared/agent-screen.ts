@@ -93,7 +93,11 @@ const STATUS_LOOKBACK = 5;
 const LOGGED_OUT_TOOLBAR_RE = /Not logged in|Run \/login/;
 // Anchored: above the composer it is a row of its own, and that slice holds the transcript tail,
 // where prose about logging in would otherwise match. SPACE, never `\s`: the JVM excludes U+00A0.
-const LOGGED_OUT_STATUS_RE = new RegExp(`^${SPACE}*(?:Not logged in|Run /login|Please use /login to sign in)\\b`, "mu");
+// Copilot's sits at column 0, where its transcript never does.
+const LOGGED_OUT_STATUS_RE = new RegExp(
+	`^(?:${SPACE}*(?:Not logged in|Run /login)|Please use /login to sign in)\\b`,
+	"mu",
+);
 
 // A rule RUN, not a rule LINE, and the reason this module has a primitive at all.
 //

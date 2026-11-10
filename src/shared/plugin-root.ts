@@ -21,6 +21,12 @@ export function pluginRoot(): string {
 	return packageRoot(path.dirname(fileURLToPath(import.meta.url)));
 }
 
+/** The console's markdown parser under the plugin root; the plugin reads it to agree on links. */
+export const VENDORED_PARSER_PATH = "android/app/src/main/assets/thread/vendor/markdown-it.min.js";
+
+/** What a process run from a copied plugin root reads beside it. `package.json` last: it marks a whole copy. */
+export const PLUGIN_ROOT_PARTS = ["dist", "launch", VENDORED_PARSER_PATH, "package.json"] as const;
+
 /** Nearest package.json upward, else `fromDir`. */
 export function packageRoot(fromDir: string): string {
 	let dir = fromDir;

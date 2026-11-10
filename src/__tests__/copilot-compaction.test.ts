@@ -99,19 +99,52 @@ describe("the Copilot compaction follower", () => {
 });
 
 describe("a container's events file", () => {
-	/** `stat` and `tail | head` over one held file, as a container's shell answers them. */
-	function container(held: { text?: string }) {
+	/** The size and `tail | head` scripts over one held file, as a container's shell answers them. */
+	function container(held: { text?: string; down?: boolean }) {
 		const asked: string[][] = [];
 		const exec = async (argv: string[]): Promise<string> => {
 			asked.push(argv);
-			if (held.text === undefined) throw new Error("No such file or directory");
+			if (held.down) throw new Error("tmux command timed out");
+			const sizing = argv[2]?.includes("stat");
+			if (held.text === undefined) return sizing ? "absent\n" : "";
 			const bytes = Buffer.from(held.text);
-			if (argv[0] === "stat") return `${bytes.length}\n`;
+			if (sizing) return `${bytes.length}\n`;
 			const [from, , length] = argv.slice(-3).map(Number);
 			return bytes.subarray((from as number) - 1, (from as number) - 1 + (length as number)).toString("utf8");
 		};
 		return { exec, asked };
 	}
+
+	function followIn(held: { text?: string; down?: boolean }) {
+		const changes: Array<[string, boolean]> = [];
+		const { exec } = container(held);
+		const instance = createCompactionFollower({
+			file: () => execEventsFile(exec, compactionEventsPath("/home/vscode", SESSION)),
+			pollMs: 60_000,
+			onChange: (team, compacting) => changes.push([team, compacting]),
+		});
+		const place = { kind: "devcontainer", name: "app" } as const;
+		return { instance, changes, follow: [{ team: "app.abc", copilotSessionId: SESSION, place }] };
+	}
+
+	it("holds the state and the offset through a failed exec mid-compaction, then reads on from there", async () => {
+		const held = { text: `${NOISE}${START}`, down: false };
+		const { instance, changes, follow } = followIn(held);
+		await instance.setFollows(follow);
+
+		held.down = true;
+		await instance.poll();
+		expect(changes).toEqual([["app.abc", true]]);
+		held.down = false;
+		held.text += COMPLETE;
+		await instance.poll();
+
+		expect(changes).toEqual([
+			["app.abc", true],
+			["app.abc", false],
+		]);
+		instance.stop();
+	});
 
 	it("reads its size and an appended byte range through the container, by the container's path", async () => {
 		const held = { text: `${NOISE}${START}` };
@@ -125,21 +158,15 @@ describe("a container's events file", () => {
 		).toBe(true);
 	});
 
-	it("reads a file it cannot reach as absent, so a poll skips rather than throws", async () => {
-		const changes: Array<[string, boolean]> = [];
-		const { exec } = container({});
-		const instance = createCompactionFollower({
-			file: () => execEventsFile(exec, "/home/vscode/missing"),
-			pollMs: 60_000,
-			onChange: (team, compacting) => changes.push([team, compacting]),
-		});
-
-		await instance.setFollows([
-			{ team: "app.abc", copilotSessionId: SESSION, place: { kind: "devcontainer", name: "app" } },
-		]);
+	it("reads a missing file as absent, and seeds from its tail once it is back", async () => {
+		const held: { text?: string } = {};
+		const { instance, changes, follow } = followIn(held);
+		await instance.setFollows(follow);
+		await instance.poll();
+		held.text = `${NOISE.repeat(3)}${START}`;
 		await instance.poll();
 
-		expect(changes).toEqual([]);
+		expect(changes).toEqual([["app.abc", true]]);
 		instance.stop();
 	});
 });

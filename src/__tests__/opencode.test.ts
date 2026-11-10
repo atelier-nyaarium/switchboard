@@ -128,6 +128,20 @@ describe("a session's state, rebuilt from three reads", () => {
 		},
 	);
 
+	it.each([
+		"provider.quota",
+		"provider.go-limit",
+		"provider.budget-limit",
+		"provider.model-budget-limit",
+		"provider.chatgpt-limit",
+	])("reads a failed turn's %s as a limit", (type) => {
+		expect(resting(turn({ type, message: "resets 5pm" }))).toEqual({
+			...idle,
+			limitBlocked: true,
+			limitDetail: "resets 5pm",
+		});
+	});
+
 	it("keeps a held limit past an empty execution's idle row, a repeated prompt's or a compaction's", () => {
 		const limited = turn({ type: "provider.rate-limit", message: "resets 5pm" });
 		const repeat = [{ id: "msg_i2", type: "idle" }, ...limited];

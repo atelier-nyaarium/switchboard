@@ -6,6 +6,7 @@ import { isTmuxName } from "../../shared/host-op.js";
 import { createFifo, createKeyedFifo } from "../../shared/keyed-fifo.js";
 import type { ContainerState } from "../../shared/schemasPresence.js";
 import type { SessionHarness } from "../../shared/session-harness.js";
+import { createProvisionLedger } from "./pluginProvisioning.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -39,9 +40,13 @@ export interface ContainerUpOptions {
 export interface DevContainersDeps {
 	up: (projectPath: string, opts: ContainerUpOptions) => Promise<unknown>;
 	/** The CLIs installed inside. */
-	look: (project: string) => Promise<SessionHarness[]>;
-	/** Each found CLI's plugins; whether any install ran. Never throws. */
-	provision: (project: string, installed: readonly SessionHarness[]) => Promise<boolean>;
+	look: (project: string, signal?: AbortSignal) => Promise<SessionHarness[]>;
+	/** Each given CLI's plugins: whether an install landed, and which CLIs are set up. Never throws. */
+	provision: (
+		project: string,
+		installed: readonly SessionHarness[],
+		signal: AbortSignal,
+	) => Promise<{ landed: boolean; ready: readonly SessionHarness[] }>;
 	catalog: () => CatalogEntry[];
 	onChange: (containers: ContainerState[]) => void;
 }
@@ -213,12 +218,12 @@ function reasonOf(err: unknown): string {
 }
 
 /** `docker` on this machine; rejects with its last stderr line. */
-export function docker(args: string[], timeoutMs = DOCKER_TIMEOUT_MS): Promise<string> {
+export function docker(args: string[], timeoutMs = DOCKER_TIMEOUT_MS, signal?: AbortSignal): Promise<string> {
 	return new Promise((resolve, reject) => {
 		execFile(
 			"docker",
 			args,
-			{ encoding: "utf-8", timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
+			{ encoding: "utf-8", timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, ...(signal ? { signal } : {}) },
 			(error, stdout, stderr) => {
 				// Compose writes progress first.
 				const said = stderr.trim().split("\n").at(-1)?.slice(0, FAILURE_CHARS);
@@ -339,7 +344,7 @@ export class DevContainers {
 	private readonly looked = new Map<string, string>();
 	private readonly lookSeq = new Map<string, number>();
 	/** The container id last provisioned. */
-	private readonly provisioned = new Map<string, string>();
+	private readonly provisioned = createProvisionLedger();
 	/** Retry looks after an empty answer. */
 	private readonly relooks = new Map<string, { id: string; timers: ReturnType<typeof setTimeout>[] }>();
 	private events: ChildProcess | null = null;
@@ -500,9 +505,9 @@ export class DevContainers {
 			fenced();
 			await this.refresh().catch((err) => console.error(`[containers] read failed: ${reasonOf(err)}`));
 			fenced();
-			const installed = await this.look(project);
+			const installed = await this.look(project, controller.signal);
 			fenced();
-			const pluginsProvisioned = await this.provisionOnce(project, installed);
+			const pluginsProvisioned = await this.provisionPending(project, installed, controller.signal);
 			fenced();
 			return { pluginsProvisioned, installed };
 		} finally {
@@ -511,20 +516,27 @@ export class DevContainers {
 		}
 	}
 
-	/** Once per container incarnation, after a look. */
-	private async provisionOnce(project: string, installed: readonly SessionHarness[]): Promise<boolean> {
+	/** Each found CLI not yet set up in this container incarnation; a success is kept, a failure retried. */
+	private async provisionPending(
+		project: string,
+		installed: readonly SessionHarness[],
+		signal: AbortSignal,
+	): Promise<boolean> {
 		const id = known.get(project)?.id;
-		if (!id || this.provisioned.get(project) === id) return false;
-		this.provisioned.set(project, id);
-		return this.deps.provision(project, installed);
+		if (!id) return false;
+		const pending = this.provisioned.pending(project, id, installed);
+		if (pending.length === 0) return false;
+		const { landed, ready } = await this.deps.provision(project, pending, signal);
+		this.provisioned.settled(project, id, ready);
+		return landed;
 	}
 
 	/** Always probes; the newest answer is kept. */
-	private async look(project: string): Promise<SessionHarness[]> {
+	private async look(project: string, signal?: AbortSignal): Promise<SessionHarness[]> {
 		const seq = (this.lookSeq.get(project) ?? 0) + 1;
 		this.lookSeq.set(project, seq);
 		const id = known.get(project)?.id;
-		const found = await this.deps.look(project);
+		const found = await this.deps.look(project, signal);
 		if (this.lookSeq.get(project) === seq) {
 			this.clis.set(project, found);
 			if (id) this.looked.set(project, id);

@@ -46,6 +46,8 @@ interface FollowState {
 	file: EventsFile;
 	/** Seeded from the tail. */
 	attached: boolean;
+	/** Absent or cut since; the next read seeds from the tail. */
+	reset: boolean;
 	offset: number;
 	carry: string;
 	compacting: boolean;
@@ -99,15 +101,16 @@ export function localEventsFile(file: string): EventsFile {
 	};
 }
 
-/** A file read through a command run where it lives. */
+/** A file read through a command run where it lives. A failed command throws; only a missing file is absent. */
 export function execEventsFile(exec: (argv: string[]) => Promise<string>, file: string): EventsFile {
 	return {
 		size: async () => {
-			const said = await exec(["stat", "-c", "%s", file]).then(
-				(out) => out.trim(),
-				() => "",
-			);
-			return /^\d+$/.test(said) ? Number(said) : null;
+			const said = (
+				await exec(["sh", "-c", 'if [ -e "$1" ]; then stat -c %s "$1"; else echo absent; fi', "sh", file])
+			).trim();
+			if (said === "absent") return null;
+			if (!/^\d+$/.test(said)) throw new Error(`unreadable size for ${file}`);
+			return Number(said);
 		},
 		read: (start, end) =>
 			exec(["sh", "-c", 'tail -c +"$1" "$2" | head -c "$3"', "sh", String(start + 1), file, String(end - start)]),
@@ -130,33 +133,37 @@ export function createCompactionFollower(opts: {
 		opts.onChange(team, compacting);
 	};
 
-	/** Seeds from the tail, then follows appended bytes. */
+	/** The state as the file's tail says, from where appended bytes follow. */
+	const seed = async (state: FollowState, size: number): Promise<void> => {
+		const start = Math.max(0, size - TAIL_BYTES);
+		const tail = await state.file.read(start, size);
+		// A cut first line is noise.
+		const whole = start > 0 ? tail.slice(tail.indexOf("\n") + 1) : tail;
+		state.offset = size;
+		state.carry = "";
+		state.reset = false;
+		report(state.follow.team, state, compactionAfter(whole, false));
+	};
+
 	const attach = async (state: FollowState): Promise<void> => {
 		const size = await state.file.size();
-		if (size !== null) {
-			const start = Math.max(0, size - TAIL_BYTES);
-			const tail = await state.file.read(start, size);
-			// A cut first line is noise.
-			const whole = start > 0 ? tail.slice(tail.indexOf("\n") + 1) : tail;
-			state.offset = size;
-			report(state.follow.team, state, compactionAfter(whole, false));
-		}
+		if (size === null) state.reset = true;
+		else await seed(state, size);
 		state.attached = true;
 	};
 
+	// A read that throws changes nothing, so the offset holds.
 	const pollOne = async (team: string, state: FollowState): Promise<void> => {
 		const size = await state.file.size();
 		if (size === null) {
-			state.offset = 0;
-			state.carry = "";
+			state.reset = true;
 			report(team, state, false);
 			return;
 		}
-		if (size < state.offset) {
-			// Rotated or truncated.
-			state.offset = 0;
-			state.carry = "";
-			report(team, state, false);
+		// Back, rotated or truncated.
+		if (state.reset || size < state.offset) {
+			await seed(state, size);
+			return;
 		}
 		if (size === state.offset) return;
 		const end = Math.min(size, state.offset + POLL_READ_BYTES);
@@ -201,6 +208,7 @@ export function createCompactionFollower(opts: {
 					follow,
 					file: opts.file(follow),
 					attached: false,
+					reset: false,
 					offset: 0,
 					carry: "",
 					compacting: false,
@@ -208,7 +216,8 @@ export function createCompactionFollower(opts: {
 				follows.set(team, state);
 				attaching.push(
 					attach(state).catch(() => {
-						// Unreadable now; polls read from the start.
+						// Unreadable now; the next poll seeds from the tail.
+						state.reset = true;
 						state.attached = true;
 					}),
 				);

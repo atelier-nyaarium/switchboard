@@ -1,4 +1,6 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Capture every spawned argv and simulate a clean (or failing) child, so we can assert
@@ -202,6 +204,22 @@ describe("tmuxCore typeIntoPane", () => {
 		expect(load?.slice(1)).toEqual(["load-buffer", "-b", expect.any(String), "-"]);
 		expect(paste?.slice(1)).toEqual(["paste-buffer", "-p", "-d", "-b", load?.[3], "-t", "=copilot.0"]);
 		expect(calls.at(-1)).toEqual(["tmux", "send-keys", "-t", "=copilot.0", "Enter"]);
+	});
+
+	it("answers busy at once for a signed-out CLI whose empty composer reads ready, and types nothing", async () => {
+		const vectors = JSON.parse(
+			fs.readFileSync(path.join(import.meta.dirname, "../../tests/fixtures/agent-screen/vectors.json"), "utf8"),
+		) as { vectors: Array<{ name: string; screen: string }> };
+		const loggedOut = vectors.vectors.find((vector) => vector.name === "copilot-logged-out")?.screen ?? "";
+		stdoutData = loggedOut;
+
+		expect(await typeIntoPane(target, "hello", { timeoutMs: 100, pollMs: 1 })).toEqual({
+			typed: false,
+			reason: "busy",
+		});
+		expect(loggedOut).not.toBe("");
+		expect(calls.filter((call) => call.includes("capture-pane"))).toHaveLength(1);
+		expect(calls.some((call) => call.includes("load-buffer") || call.includes("send-keys"))).toBe(false);
 	});
 
 	it("returns busy at its deadline without typing", async () => {

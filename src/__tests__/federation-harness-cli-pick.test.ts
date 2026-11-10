@@ -179,6 +179,54 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 		]);
 	});
 
+	it.each<[SessionHarness, string | undefined, TeamInfo["status"]]>([
+		["copilot", "5f0a9c3e-7b2d-4e1f-8a6c-2d4b6e8f0a1c", "online"],
+		["claude", undefined, "verifying"],
+	])(
+		"takes a late %s pick from the launch's result, confirming a plugin only when its CLI has no handshake",
+		async (harness, sessionId, settled) => {
+			const { wake, team } = await pendingCreate(`late-${harness}`);
+			const rowOf = async () => {
+				const { planes } = await h.phone.planesRead({});
+				const payload = planes.find((plane) => plane.name === "presence")?.payload as
+					| { rows?: TeamInfo[] }
+					| undefined;
+				return payload?.rows?.find((held) => held.team === team);
+			};
+			const woken = attachFakeSession(h.gateway, {
+				team,
+				conversationId: `conv-late-${harness}`,
+				sessionToken: wake.sessionToken as string,
+				harness,
+				answersHandshake: false,
+			});
+			attached.push(woken);
+			await woken.registered();
+			const before = await h.waitFor(async () => (await rowOf())?.status, "the unpicked row");
+			h.host.sendFrame({
+				type: "wake_result",
+				team,
+				launchId: wake.launchId,
+				success: true,
+				harness,
+				...(sessionId ? { sessionId } : {}),
+			});
+			// Pick and confirm together.
+			const after = await h.waitFor(async () => {
+				const row = await rowOf();
+				return row?.harness === harness ? row : undefined;
+			}, "the row naming its CLI");
+
+			expect(before).toBe("verifying");
+			expect(after.status).toBe(settled);
+			expect(h.gateway.faults.sessionRecord(team)).toMatchObject({
+				harness,
+				...(sessionId ? { mintedSessionId: sessionId } : {}),
+			});
+			expect(woken.frames.some((frame) => frame.type === "channel_push" && frame.replyJsonSchema)).toBe(true);
+		},
+	);
+
 	it("takes a new session's CLI from its plugin when the daemon's word never came", async () => {
 		const { wake, team } = await pendingCreate("lost");
 		const woken = attachFakeSession(h.gateway, {

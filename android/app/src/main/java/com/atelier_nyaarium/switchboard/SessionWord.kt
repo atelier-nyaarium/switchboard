@@ -23,12 +23,11 @@ enum class SessionWord(val text: String) {
 }
 
 /** [working] and [needsLogin] as `ChatState` folds them. */
-internal fun sessionWord(presence: Presence, working: Boolean, needsLogin: Boolean, now: Long): SessionWord =
-	when {
+internal fun sessionWord(presence: Presence, working: Boolean, needsLogin: Boolean, now: Long): SessionWord {
+	val word = when {
 		presence.isOnline -> when {
 			presence.promptId != null -> SessionWord.NEEDS_APPROVAL
 			presence.limitBlocked == true -> SessionWord.LIMIT_HIT
-			needsLogin -> SessionWord.LOGIN
 			working -> SessionWord.WORKING
 			else -> SessionWord.LIVE
 		}
@@ -39,6 +38,9 @@ internal fun sessionWord(presence: Presence, working: Boolean, needsLogin: Boole
 		presence.isAvailable -> SessionWord.AVAILABLE
 		else -> SessionWord.ENDED
 	}
+	// A logged-out CLI never finishes verifying.
+	return if (needsLogin && !word.blocked && word != SessionWord.ENDED) SessionWord.LOGIN else word
+}
 
 internal fun ChatState.sessionWord(team: String, presence: Presence, now: Long): SessionWord =
 	sessionWord(presence, working(team), needsLogin(team), now)

@@ -37,6 +37,9 @@ export const WakeResultFrameSchema = z.object({
 	error: z.string().optional(),
 	/** Parsed alone; an unknown kind drops the reason only. */
 	failure: z.unknown().optional(),
+	/** As on `cli_found`, which a dropped link can lose. */
+	harness: z.enum(SESSION_HARNESSES).optional(),
+	sessionId: z.string().max(128).optional(),
 });
 
 /** Gateway to daemon: the launch was given up. */

@@ -4,6 +4,7 @@ import {
 	isAgentComposerEmpty,
 	isAgentReady,
 	isAgentWorking,
+	isLoggedOut,
 	type LimitNotice,
 	limitNotice,
 	stripAnsi,
@@ -112,24 +113,29 @@ export function runInPlace(
 	return execInPlace(target, ["bash", "-c", `source ~/.bashrc >/dev/null 2>&1; ${script}`], timeoutMs);
 }
 
-/** One command where the target's panes run; throws on a non-zero exit. */
+/** One command where the target's panes run; throws on a non-zero exit or an abort. */
 export function execInPlace(
 	target: Pick<TmuxTarget, "kind" | "name">,
 	argv: string[],
 	timeoutMs = EXEC_TIMEOUT_MS,
+	signal?: AbortSignal,
 ): Promise<string> {
-	if (target.kind === "host") return run(argv, timeoutMs);
+	if (target.kind === "host") return run(argv, timeoutMs, { signal });
 	assertTmuxName(target.name);
-	return run(["docker", "exec", "-u", "vscode", containerFor(target.name), ...argv], timeoutMs);
+	return run(["docker", "exec", "-u", "vscode", containerFor(target.name), ...argv], timeoutMs, { signal });
 }
 
 /** Spawn argv (no shell) and resolve stdout. */
 function run(
 	argv: string[],
 	timeoutMs = EXEC_TIMEOUT_MS,
-	opts: { input?: string; mergeStderr?: boolean } = {},
+	opts: { input?: string; mergeStderr?: boolean; signal?: AbortSignal } = {},
 ): Promise<string> {
 	return new Promise((resolve, reject) => {
+		if (opts.signal?.aborted) {
+			reject(new Error("command aborted"));
+			return;
+		}
 		const child = spawn(argv[0], argv.slice(1), {
 			stdio: [opts.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 		});
@@ -142,6 +148,12 @@ function run(
 			child.kill("SIGKILL");
 			reject(new Error(`tmux command timed out`));
 		}, timeoutMs);
+		const abort = () => {
+			child.kill("SIGKILL");
+			reject(new Error("command aborted"));
+		};
+		opts.signal?.addEventListener("abort", abort, { once: true });
+		child.on("close", () => opts.signal?.removeEventListener("abort", abort));
 		child.stdout?.on("data", (d: Buffer) => {
 			// Still drain past the cap.
 			if (bytes < MAX_CAPTURE_BYTES) {
@@ -292,6 +304,8 @@ export function typeIntoPane(
 		if (!typeable.trim()) return { typed: true };
 		while (Date.now() < deadline) {
 			const screen = (await peekPane(target, false)).ansi;
+			// A signed-out CLI shows a composer it never reads.
+			if (isLoggedOut(screen)) return { typed: false, reason: "busy" };
 			if (
 				Date.now() < deadline &&
 				isAgentReady(screen) &&

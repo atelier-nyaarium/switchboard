@@ -90,7 +90,7 @@ object AgentScreen {
 	)
 	private val loggedOutToolbarRe = Regex("Not logged in|Run /login")
 	private val loggedOutStatusRe =
-		Regex("^$SPACE*(?:Not logged in|Run /login|Please use /login to sign in)\\b", RegexOption.MULTILINE)
+		Regex("^(?:$SPACE*(?:Not logged in|Run /login)|Please use /login to sign in)\\b", RegexOption.MULTILINE)
 
 	private const val LIMIT_MENU_HINT = "wait for limit to reset"
 	private const val MIDDLE_DOT = '·'

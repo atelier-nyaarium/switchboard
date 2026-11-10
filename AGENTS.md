@@ -1167,6 +1167,12 @@ Gateway and Router run nothing an install would add: the base carries the `opens
 its certificate with. `bun-floor.test.ts` holds the pin at or above `BUN_FLOOR`, and CI runs the
 same Bun.
 
+### OpenCode pin
+
+On any work in this repo, compare `OPENCODE_PIN` with the newest OpenCode release at least 7 days old.
+- Compatible: bump `OPENCODE_PIN`, reinstall it on the host, bump `docker-workspace`'s `OPENCODE_VERSION`, run the gates, and say so in the report.
+- Needs work: ask the owner whether to handle it first, naming what breaks.
+
 ### Synced leaves
 
 | Source | Copy |
