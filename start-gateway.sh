@@ -47,7 +47,8 @@ if [ -n "${SSL_CERT_FILE:-}" ]; then
 		exit 1
 	fi
 	echo "Building with the CA bundle at $SSL_CERT_FILE"
-	COMPOSE+=(-f docker-compose.yml -f docker-compose.ssl.yml)
+	# Bake refuses a secret file outside the build context.
+	COMPOSE=(env BUILDX_BAKE_ENTITLEMENTS_FS=0 docker compose -f docker-compose.yml -f docker-compose.ssl.yml)
 fi
 
 "${COMPOSE[@]}" down --remove-orphans 2>/dev/null || true

@@ -92,8 +92,12 @@ export function dirExists(dirPath: string): boolean {
 
 /** docker compose in the current project. */
 export function dc(...args: string[]) {
-	const files = process.env.SSL_CERT_FILE ? ["-f", "docker-compose.yml", "-f", "docker-compose.ssl.yml"] : [];
-	return $`docker compose ${files} ${args}`;
+	if (!process.env.SSL_CERT_FILE) return $`docker compose ${args}`;
+	// Bake refuses a secret file outside the build context.
+	return $`docker compose -f docker-compose.yml -f docker-compose.ssl.yml ${args}`.env({
+		...process.env,
+		BUILDX_BAKE_ENTITLEMENTS_FS: "0",
+	});
 }
 
 /** The federation Router is its own compose project, so it needs the file and project name that
