@@ -89,7 +89,8 @@ object AgentScreen {
 		"^$SPACE*\\u26A0$SPACE*(Usage limit reached)$SPACE*\\u00B7$SPACE*([^ \\t\\u00a0].*?)$SPACE*$",
 	)
 	private val loggedOutToolbarRe = Regex("Not logged in|Run /login")
-	private val loggedOutStatusRe = Regex("^$SPACE*(?:Not logged in|Run /login)\\b", RegexOption.MULTILINE)
+	private val loggedOutStatusRe =
+		Regex("^$SPACE*(?:Not logged in|Run /login|Please use /login to sign in)\\b", RegexOption.MULTILINE)
 
 	private const val LIMIT_MENU_HINT = "wait for limit to reset"
 	private const val MIDDLE_DOT = '·'

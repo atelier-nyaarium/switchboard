@@ -7,6 +7,7 @@ import {
 	isAgentReady,
 	isAgentWorking,
 	isCompacting,
+	isLoggedOut,
 } from "../shared/agent-screen.js";
 
 /**
@@ -42,6 +43,7 @@ interface Vector {
 	expectWorking: boolean;
 	expectWorkflow?: boolean;
 	expectCompacting?: boolean;
+	expectLoggedOut?: boolean;
 }
 
 const vectorsPath = path.join(import.meta.dirname, "..", "..", "tests", "fixtures", "agent-screen", "vectors.json");
@@ -63,6 +65,7 @@ describe("agent-screen: real captured panes, both platforms", () => {
 		expect(isAgentWorking(v.screen), `${v.name}: isAgentWorking`).toBe(v.expectWorking);
 		expect(hasWorkflow(v.screen), `${v.name}: hasWorkflow`).toBe(v.expectWorkflow ?? false);
 		expect(isCompacting(v.screen), `${v.name}: isCompacting`).toBe(v.expectCompacting ?? false);
+		expect(isLoggedOut(v.screen), `${v.name}: isLoggedOut`).toBe(v.expectLoggedOut ?? false);
 	});
 
 	it("finds empty composers in Claude and Copilot captures", () => {

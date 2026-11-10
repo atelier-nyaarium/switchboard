@@ -93,7 +93,7 @@ const STATUS_LOOKBACK = 5;
 const LOGGED_OUT_TOOLBAR_RE = /Not logged in|Run \/login/;
 // Anchored: above the composer it is a row of its own, and that slice holds the transcript tail,
 // where prose about logging in would otherwise match. SPACE, never `\s`: the JVM excludes U+00A0.
-const LOGGED_OUT_STATUS_RE = new RegExp(`^${SPACE}*(?:Not logged in|Run /login)\\b`, "mu");
+const LOGGED_OUT_STATUS_RE = new RegExp(`^${SPACE}*(?:Not logged in|Run /login|Please use /login to sign in)\\b`, "mu");
 
 // A rule RUN, not a rule LINE, and the reason this module has a primitive at all.
 //
@@ -323,8 +323,8 @@ function paneHas(screen: string, marker: RegExp, where: PaneRegion, lookback = S
 	return marker.test(paneRegion(screen, where, lookback).join("\n"));
 }
 
-/** Whether the captured pane shows claude logged out: it prints "Not logged in" / "Run /login" in its
- * own chrome. Independent of ready/working - a logged-out session still renders the composer, so a
+/** Whether the captured pane shows its CLI logged out: Claude prints "Not logged in" / "Run /login",
+ * Copilot "Please use /login to sign in", in its own chrome. Independent of ready/working - a logged-out session still renders the composer, so a
  * caller must check this separately. Detectable at any peek (the notice persists), including a token
  * that expires mid-session. The Kotlin twin lives in AgentScreen.kt. */
 export function isLoggedOut(screen: string): boolean {

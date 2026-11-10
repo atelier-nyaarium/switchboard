@@ -47,6 +47,7 @@ class AgentScreenVectorsTest {
 			val expectWorking = v["expectWorking"]!!.jsonPrimitive.boolean
 			val expectWorkflow = v["expectWorkflow"]?.jsonPrimitive?.boolean ?: false
 			val expectCompacting = v["expectCompacting"]?.jsonPrimitive?.boolean ?: false
+			val expectLoggedOut = v["expectLoggedOut"]?.jsonPrimitive?.boolean ?: false
 			when (v["platform"]!!.jsonPrimitive.content) {
 				"linux" -> linux++
 				"windows" -> windows++
@@ -58,6 +59,7 @@ class AgentScreenVectorsTest {
 			assertEquals("$name: isWorking", expectWorking, AgentScreen.isWorking(screen))
 			assertEquals("$name: hasWorkflow", expectWorkflow, AgentScreen.hasWorkflow(screen))
 			assertEquals("$name: isCompacting", expectCompacting, AgentScreen.isCompacting(screen))
+			assertEquals("$name: isLoggedOut", expectLoggedOut, AgentScreen.isLoggedOut(screen))
 		}
 		assertTrue("corpus should carry Linux frames", linux > 0)
 		assertTrue("corpus should carry Windows frames", windows > 0)
