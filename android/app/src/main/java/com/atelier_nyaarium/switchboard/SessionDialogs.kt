@@ -205,7 +205,7 @@ fun GoalDialog(submitting: Boolean, onConfirm: (String) -> Unit, onDismiss: () -
 	)
 }
 
-/** Name and spawn a new session, picking the project from a dropdown defaulted to "host". The label
+/** Name and spawn a new session: the project first, then the agent its spawn point runs. The label
  * is free-form since the gateway mints the session id; the Spawn button enables once it is non-blank.
  * `pendingSpawns` is the full (project, label) set already mid-create (see ChatState.pendingSpawns);
  * the dialog filters to its own `selectedProject`'s labels so the duplicate-submit guard always
@@ -233,11 +233,13 @@ fun CreateSessionDialog(
 	onSpawn: (String, String, String?, String?) -> Unit,
 	onDismiss: () -> Unit,
 ) {
-	var harness by remember { mutableStateOf(SessionHarness.CLAUDE) }
-	val offered = harnessProjects(projects, agentsOf, harness)
+	val offered = spawnableProjects(projects, agentsOf)
 	// Null until picked. `host` is not a neutral default - it is one real target among several, so
 	// preselecting it lets a mis-tap spawn on the wrong machine's shell in silence.
-	var selectedProject by remember { mutableStateOf(initialProject(rememberedProject, projects)) }
+	var selectedProject by remember { mutableStateOf(initialProject(rememberedProject, offered)) }
+	var pickedHarness by remember { mutableStateOf(SessionHarness.CLAUDE) }
+	val harnesses = selectedProject?.let { harnessesOf(agentsOf(it)) }.orEmpty()
+	val harness = harnessAfterPick(pickedHarness, harnesses)
 	// A free-form label: the gateway mints the session id, so the label is not slug-constrained.
 	var name by remember { mutableStateOf("") }
 	var dir by remember { mutableStateOf(TextFieldValue("")) }
@@ -257,22 +259,6 @@ fun CreateSessionDialog(
 			Column {
 				// `selectedProject` keeps the wire word, which is an address segment keying session
 				// records, resume state and board work; the label is shown and never stored.
-				if (offersHarnessPick(projects, agentsOf)) {
-					SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-						SessionHarness.entries.forEachIndexed { index, option ->
-							SegmentedButton(
-								selected = harness == option,
-								onClick = hapticClick {
-									harness = option
-									// A project the other agent cannot run is not a pick.
-									if (selectedProject !in harnessProjects(projects, agentsOf, option)) selectedProject = null
-								},
-								shape = SegmentedButtonDefaults.itemShape(index = index, count = SessionHarness.entries.size),
-							) { Text(option.label) }
-						}
-					}
-					Spacer(Modifier.height(12.dp))
-				}
 				PickMenu(
 					label = "Project",
 					choices = offered,
@@ -287,6 +273,19 @@ fun CreateSessionDialog(
 						selectedProject = picked
 					},
 				)
+				// The agents the picked spawn point runs.
+				if (harnesses.isNotEmpty()) {
+					Spacer(Modifier.height(12.dp))
+					SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+						harnesses.forEachIndexed { index, option ->
+							SegmentedButton(
+								selected = harness == option,
+								onClick = hapticClick { pickedHarness = option },
+								shape = SegmentedButtonDefaults.itemShape(index = index, count = harnesses.size),
+							) { Text(option.label) }
+						}
+					}
+				}
 				Spacer(Modifier.height(12.dp))
 				OutlinedTextField(
 					value = name,
@@ -319,12 +318,13 @@ fun CreateSessionDialog(
 		confirmButton = {
 			TextButton(
 				// A project is now part of the answer, not a default, so Spawn waits for one.
-				enabled = selectedTarget != null && trimmed.isNotEmpty() && !isPending && dirOk,
+				enabled = selectedTarget != null && harness != null && trimmed.isNotEmpty() && !isPending && dirOk,
 				onClick = hapticClick {
 					val project = selectedProject ?: return@hapticClick
 					val target = selectedTarget ?: return@hapticClick
+					val running = harness ?: return@hapticClick
 					val workdir = dirText.takeIf { project in HOST_SPAWN_IDS && it.isNotEmpty() }
-					onSpawn(target, trimmed, workdir, harness.wire)
+					onSpawn(target, trimmed, workdir, running.wire)
 				},
 			) { Text("Spawn") }
 		},
@@ -346,13 +346,17 @@ internal enum class SessionHarness(val label: String, val wire: String?) {
 	COPILOT("Copilot", "copilot"),
 }
 
-/** The pick shows only when this Gateway has a project for each agent. */
-internal fun offersHarnessPick(projects: List<String>, agentsOf: (String) -> SpawnAgents): Boolean =
-	projects.any { agentsOf(it).claude } && projects.any { agentsOf(it).copilot }
+/** The agents a spawn point runs, in the order they are offered. */
+internal fun harnessesOf(agents: SpawnAgents): List<SessionHarness> =
+	SessionHarness.entries.filter { if (it == SessionHarness.COPILOT) agents.copilot else agents.claude }
 
-/** The projects whose spawn point has the picked agent installed. */
-internal fun harnessProjects(projects: List<String>, agentsOf: (String) -> SpawnAgents, harness: SessionHarness): List<String> =
-	projects.filter { if (harness == SessionHarness.COPILOT) agentsOf(it).copilot else agentsOf(it).claude }
+/** The projects whose spawn point runs any agent. */
+internal fun spawnableProjects(projects: List<String>, agentsOf: (String) -> SpawnAgents): List<String> =
+	projects.filter { harnessesOf(agentsOf(it)).isNotEmpty() }
+
+/** The agent a picked project runs: the held pick when it runs there, else its first. Null with none. */
+internal fun harnessAfterPick(held: SessionHarness, offered: List<SessionHarness>): SessionHarness? =
+	if (held in offered) held else offered.firstOrNull()
 
 internal const val WORKDIR_MAX_CHARS = 512
 

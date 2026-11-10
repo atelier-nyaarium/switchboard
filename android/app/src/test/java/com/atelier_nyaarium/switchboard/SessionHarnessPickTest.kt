@@ -1,9 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** The create dialog's Claude or Copilot pick, and the install macros each spawn point offers. */
@@ -15,18 +13,22 @@ class SessionHarnessPickTest {
 	}
 
 	@Test
-	fun `the pick shows only when the Gateway has a project for each agent`() {
-		assertTrue(offersHarnessPick(projects, agents(setOf("host", "recipe-app"), setOf("host"))))
-		assertFalse(offersHarnessPick(projects, agents(setOf("host", "recipe-app"), emptySet())))
-		assertFalse(offersHarnessPick(listOf("host"), agents(emptySet(), setOf("host"))))
+	fun `a project is offered when its spawn point runs any agent`() {
+		val held = agents(setOf("recipe-app"), setOf("windows"))
+
+		assertEquals(listOf("windows", "recipe-app"), spawnableProjects(projects, held))
 	}
 
 	@Test
-	fun `each pick offers the projects whose spawn point has that agent`() {
-		val held = agents(setOf("host", "recipe-app"), setOf("host", "windows"))
+	fun `a picked project offers the agents its spawn point runs, and keeps the held one when it can`() {
+		val both = harnessesOf(SpawnAgents(claude = true, copilot = true))
+		val copilotOnly = harnessesOf(SpawnAgents(claude = false, copilot = true))
 
-		assertEquals(listOf("host", "recipe-app"), harnessProjects(projects, held, SessionHarness.CLAUDE))
-		assertEquals(listOf("host", "windows"), harnessProjects(projects, held, SessionHarness.COPILOT))
+		assertEquals(listOf(SessionHarness.CLAUDE, SessionHarness.COPILOT), both)
+		assertEquals(listOf(SessionHarness.COPILOT), copilotOnly)
+		assertEquals(SessionHarness.COPILOT, harnessAfterPick(SessionHarness.COPILOT, both))
+		assertEquals(SessionHarness.COPILOT, harnessAfterPick(SessionHarness.CLAUDE, copilotOnly))
+		assertNull(harnessAfterPick(SessionHarness.CLAUDE, emptyList()))
 	}
 
 	@Test
