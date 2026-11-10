@@ -205,13 +205,17 @@ single-flight, cadence and concurrency limits, and mutating-op deduplication.
   started stays peekable with the error on screen.
 - A wake with no capturable pane is reported as failed, so `/send` fails instead of waiting forever.
 - The **Wake** button sends the `wake` delivery op to the session's own address. The gateway resolves
-  it to the local `spawn.session`, bounds the launch like `create_session`, and answers `pending` past
-  the bound. A session the gateway holds no record for is re-created under its own id, as
-  `create_session` does with a typed `sessionName`; a wake that adopted the record and never comes
-  up forgets it again.
-- **Create** keeps its record whatever the launch does. The console is the authority: a launch that
-  fails answers its error, the row lists as asleep, and only a forget removes it. A retry with the
-  same op reattaches to the record instead of minting a second one.
+  it to the local `spawn.session`, bounds the wait, and answers `pending` past the bound. A session
+  the gateway holds no record for is re-created under its own id, as `create_session` does with a
+  typed `sessionName`; a wake that adopted the record forgets it again only on a definite failure.
+- **Create** answers at dispatch with the new session's id and `status: "pending"`; the outcome lands
+  as a `notice` row from the session (`Session started.`, quiet, or the owner's failure line, which
+  alerts). The phone holds the Create's claim and op id until the session reads online or a line
+  lands in its thread, so a re-press joins the same launch. The record stays whatever the launch
+  does; only a forget removes it.
+- **A fire into a session that is starting** answers `fired` with `status: "starting"`; its body is
+  queued under the launch and goes once the session registers. A phone send to an asleep session
+  still waits on the launch, so a failure reads on the message.
 - **Create offers the CLIs the spawn point runs** (`harnessesOf`), in the table's order. A session's
   keys (`sendableKeys`) and Goal (`takesGoals`) follow its CLI's row in `HarnessRegistry.kt`.
   `docs/architecture.md` holds the table.

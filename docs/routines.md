@@ -22,6 +22,15 @@ still inside its window then runs. `approvedRevision` is only what the editor la
 Preparation renders before it reaches a session, and the run keeps that render. A runbook edit
 landing while the session is reserved reaches the next run, not this one.
 
+**A run waits on its own launch and never starts a second.** A reserve that finds its session asleep
+launches it, or joins the launch already running, as a requester on the launch records
+(`routine:<id>:<scheduledAt>`, `docs/architecture.md`, One launch road). The occurrence waits with
+`session_starting`, which the list shows as `waiting` and a miss names. The launch's end reaches the
+run through `runner.launchEnded`: up walks it again, and a failure settles `needs_review` with
+`launch_failed`, the typed failure kept on the occurrence and `reviewReason` in the owner's words
+(`ownerLaunchPhrase`). A refusal before dispatch, such as a CLI the spawn point lacks, stops it the
+same way at once. A run whose routine moved to another team ignores its old team's launch.
+
 Every calendar field is read in the routine's own recorded zone. The Gateway holds no zone: a new
 routine records the zone of the phone that wrote it, and a saved one keeps the zone it has.
 

@@ -134,12 +134,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/boot.ts` - `GatewayBootstrap.resolve`, the boot phase decision, the federation slice types, and `RouterHandlers` split into frames and presence
 - `src/gateway/router/registerAuth.ts` / `valueResult.ts` - the `gateway_register` frame and the `value_result` settlement, pure
 - `src/gateway/wake.ts` - container/session wake decisions
-- `src/gateway/wakeService.ts` - one launch per team, whichever door it came through
-  - **A joiner gets the launch, not a second one:** `joinCreate` hands the first caller a release
-    closure and every later one `null`, so a create cannot be wired to join without being able to
-    end, and presence starts and ends once however many callers arrive. A launch that failed is not
-    waited on for registration, which would otherwise hold the team for the whole wake timeout and
-    refuse close and forget for that long.
+- `src/gateway/wakeService.ts` / `launchRecords.ts` - one launch per team, whichever door it came through; the durable launch records, the one give-up authority, and who each launch tells. `docs/architecture.md` (One launch road) holds the rules
+  - **A create is a wake with the create door:** `beginWake` is the only road, the create door goes only for a record just made, and the Gateway never emits `createSession` (`HostOp`); the daemon reads it as `LegacyCreateSessionOp` until its dated removal.
+  - **A waiter settles nothing:** a timeout or a dropped link leaves the record to its tick (live, then the countdown), and a live team wins over a late failure.
+  - **A routine run is a requester, never a reader of time:** it joins its launch and is told (`tellRoutine`, `runner.launchEnded`); `awaits(run)` holds it until told, so no walk relaunches a build.
 - `src/gateway/sessionAuthority.ts` - sole owner of credential-field access; residue-tested
 - `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - session presence including running-agent `teammates`, read anchors, host RPC correlation
 - `src/shared/schemasPresence.ts` `DerivedPresenceSchema` - what the daemon derives from a pane, the `presence_derive` frame

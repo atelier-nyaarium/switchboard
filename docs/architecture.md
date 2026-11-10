@@ -287,6 +287,29 @@ and the session never registers.
 **`host-daemon`** is reserved and must never be dispatched or registered as a session. Residue tests
 enforce this at the sinks.
 
+### One launch road
+
+Every launch, whether a wake, a Create, a send, a fire or a routine's reserve, starts in
+`WakeService.beginWake`, which joins the team's flight or starts one. A flight mints a launch id,
+opens it in the launch records (`launchRecords.ts`, `launches.json`) before the `wake` frame leaves,
+and holds until the session registers and the daemon answers (`WakeCoordinator.daemonDone`).
+
+- **The launch records are the one give-up authority.** A record settles up when the team is live,
+  failed on the daemon's typed failure, or `timeout` when its countdown runs out. A waiter's own
+  timeout or a dropped host link settles nothing. A registered session wins over a late failure.
+- **Who is told, and how:** a session sender by the awareness bank, a relayed send on its reply
+  road, the owner by a line in the session's thread (`tellOwnerLaunch`, quiet when it came up), and a
+  routine run through `tellRoutine`, which stops it for review or walks it again.
+- **A create is a wake with the create door** (`door: "create"`), sent only for a record just made, so
+  the daemon leaves a pane it finds. A held record's Create, like any wake, repairs a pane whose CLI
+  reads gone. The Gateway never sends the `createSession` host op; the daemon reads it from an
+  older Gateway until its dated removal.
+- **Fences:** Close and Forget refuse while a flight runs. A routine's reserve also waits on an
+  unsettled record and on a run still owed its outcome (`LaunchRecords.awaits`), so nothing
+  relaunches a build.
+- **The daemon's side is one lane per physical pane** (`launchLane.ts`): both doors enter it, a
+  request joins a running launch only with the same facts, and tagged results replay until acked.
+
 ## Session identity binding
 
 A bind token is delivered only through the daemon launch command and presented at registration and on
