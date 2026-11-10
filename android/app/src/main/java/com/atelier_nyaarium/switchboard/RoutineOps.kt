@@ -86,7 +86,7 @@ internal class RoutineOps(
 		attempt {
 			val read = reads.read(gatewayId) { attempt { client.list(gatewayId) } }
 			val held = (read as? GatewayRead.Fresh)?.value ?: return@attempt
-			show(gatewayId, held.routines, held.zone)
+			show(gatewayId, held.routines)
 			host.onRoutinesChanged()
 		}
 	}
@@ -189,9 +189,9 @@ internal class RoutineOps(
 	}
 
 	/** Gateway answer, replaced whole. */
-	private fun show(gatewayId: String, routines: List<RoutineState>, zone: String) {
+	private fun show(gatewayId: String, routines: List<RoutineState>) {
 		state.update { held ->
-			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(routines = routines, routineZone = zone) })
+			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(routines = routines) })
 		}
 	}
 

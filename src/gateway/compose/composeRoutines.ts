@@ -23,6 +23,9 @@ import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js"
 import type { FileOutcome } from "../routines/sessionRoutine.js";
 import { createRoutineStore } from "../routines/store.js";
 
+// FIXME 2026-11-23: remove. Older apps convert into it.
+const LEGACY_LIST_ZONE = "America/Los_Angeles";
+
 export interface RoutineStageDeps {
 	dataDir: string;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer" | "newId">;
@@ -78,14 +81,6 @@ const IDLE_ATTEMPT: RoutineAttempt = {
 	prepare: async () => ({ ok: false, reason: "unreachable" }),
 	deliver: async () => undefined,
 };
-
-/**
- * The zone this gateway reads a schedule in. Its own, from the container, so the canonical zone is
- * a real one that observes daylight saving rather than a line in a Dockerfile.
- */
-function gatewayZone(): string {
-	return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-}
 
 /** The newest occurrence that wanted something, folded into one line for the phone. */
 function attentionFor(rows: Attention[]): RoutineAttention | undefined {
@@ -312,7 +307,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				fileReport(routineId, scheduledAt, report, proposal),
 		}),
 		console: {
-			list: () => ({ routines: state(), zone: gatewayZone() }),
+			list: () => ({ routines: state(), zone: LEGACY_LIST_ZONE }),
 			put: (routine, base) => {
 				const result = store.put(routine, { base });
 				if (result.stored) {

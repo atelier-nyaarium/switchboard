@@ -417,9 +417,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     write for an answer and refuses a Gateway the roster does not name, so a read that lands after
     a revocation draws nothing. The stored runbook library is never pruned; a lapsed entry is not a
     reason to lose what the owner wrote.
-  - **A zone belongs to its gateway, and an instant belongs to the owner:** each group carries the
-    zone its gateway keeps schedules in, which is what the editor converts a typed time into. The
-    rows show instants, so they read in the owner's own zone.
+  - **A zone belongs to the rule, and an instant belongs to the owner:** a saved routine keeps the
+    zone it was written in and a new one takes the phone's (`keptZoneOf`), which is what the editor
+    converts a typed time into. The Gateway holds none. The rows show instants, so they read in the
+    owner's own zone.
   - **The per-gateway reads are `GatewayRegistry` methods, not screen expressions:** `runbookOn`,
     `routineOn`, `policyOn`, `reachable` and `soonestRoutineAt` are what stops a screen reaching
     past its own group, so they sit where a JVM test can call them.
@@ -1108,6 +1109,12 @@ bun scripts/check-module-residue.ts
 ```
 
 Bun leaves unsanctioned nested `node_modules` copies that can shadow the lockfile version.
+
+**The image installs no OS package.** The `Dockerfile` is `oven/bun` pinned by digest,
+`bun install --production` and `src/`. A firewall that filters plain HTTP stops `apt`, and the
+Gateway and Router run nothing an install would add: the base carries the `openssl` the Router mints
+its certificate with. `bun-floor.test.ts` holds the pin at or above `BUN_FLOOR`, and CI runs the
+same Bun.
 
 ### Synced leaves
 

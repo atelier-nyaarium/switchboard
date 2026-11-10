@@ -8,6 +8,7 @@ import com.atelier_nyaarium.switchboard.routines.ROUTINE_TARGET_ASSISTANT
 import com.atelier_nyaarium.switchboard.routines.ROUTINE_TARGET_SPAWN
 import com.atelier_nyaarium.switchboard.routines.RoutineDraft
 import com.atelier_nyaarium.switchboard.routines.assistantSpawnOn
+import com.atelier_nyaarium.switchboard.routines.keptZoneOf
 import com.atelier_nyaarium.switchboard.routines.routineTargetLine
 import com.atelier_nyaarium.switchboard.routines.routineTargetMenu
 import com.atelier_nyaarium.switchboard.routines.assistantAbsent
@@ -38,6 +39,23 @@ class RoutineDraftTest {
 		revision = 1L,
 		since = 0L,
 	)
+
+	@Test
+	fun aSavedRoutineKeepsItsZoneAndANewOneTakesThePhones() {
+		val tokyo = java.time.ZoneId.of("Asia/Tokyo")
+		val held = routine(RoutineTarget(spawn = "host"))
+		val monday = java.time.LocalDate.parse("2026-09-07")
+
+		// Edited abroad, sent as stored.
+		val shown = RoutineDraft.of(held).shown(tokyo.id, monday)
+		assertEquals("18:00", shown.time)
+		val sent = shown.asKept(keptZoneOf(held, tokyo), monday).toRoutine()
+		assertEquals("UTC", sent?.zone)
+		assertEquals("09:00", sent?.time)
+
+		val fresh = RoutineDraft.fresh(tokyo)
+		assertEquals(tokyo.id, fresh.asKept(keptZoneOf(null, tokyo), monday).zone)
+	}
 
 	@Test
 	fun aLegacyTargetRoundTripsAndIsSentAsSpawn() {

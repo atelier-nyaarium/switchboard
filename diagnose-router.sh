@@ -81,7 +81,8 @@ if [ -n "$URL" ]; then
 	# From INSIDE the gateway container: that is the thing which actually dials, and a routerUrl is
 	# often a docker-network alias that the host cannot resolve at all. Probing from the host would
 	# report a healthy Router as unreachable purely because the name means nothing out here.
-	OUT=$(docker exec "$CONTAINER" sh -c "curl -sk --max-time 8 '${URL}/health'" 2>/dev/null)
+	PROBE='const r = await fetch(process.env.PROBE_URL + "/health", { tls: { rejectUnauthorized: false }, signal: AbortSignal.timeout(8000) }); console.log(await r.text());'
+	OUT=$(docker exec -e PROBE_URL="$URL" "$CONTAINER" bun -e "$PROBE" 2>/dev/null)
 	[ -z "$OUT" ] && OUT=$(curl -sk --max-time 8 "${URL}/health" 2>/dev/null)
 	if [ -n "$OUT" ]; then
 		echo "$OUT"

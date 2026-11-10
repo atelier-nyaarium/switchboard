@@ -237,7 +237,7 @@ class RoutineTextTest {
 	}
 
 	@Test
-	fun theOwnerEditsTheirOwnTimeAndTheGatewayKeepsIts() {
+	fun theOwnerEditsTheirOwnTimeAndTheRuleKeepsItsZone() {
 		// Monday 09:00 in Los Angeles is the small hours of Tuesday in Tokyo. Which hour depends on
 		// daylight saving, so the weekday moving is what this pins rather than the clock face.
 		val la = routine(weekdays = listOf(1L), time = "09:00", zone = "America/Los_Angeles")

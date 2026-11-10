@@ -40,7 +40,6 @@ class RoutineOpsTest {
 	/** Answers per gateway, and holds a list until the test releases it. */
 	private class FakeGateway : RoutineGateway {
 		val shelves = mutableMapOf<String, List<RoutineState>>()
-		val zones = mutableMapOf<String, String>()
 		val held = mutableMapOf<String, CompletableDeferred<Unit>>()
 		val asked = mutableListOf<String>()
 		val ranOn = mutableListOf<String>()
@@ -50,10 +49,7 @@ class RoutineOpsTest {
 			asked += gatewayId
 			held[gatewayId]?.await()
 			if (gatewayId in unreachable) throw IllegalStateException("unreachable")
-			return ConsoleRoutineListResult(
-				routines = shelves[gatewayId].orEmpty(),
-				zone = zones[gatewayId] ?: "UTC",
-			)
+			return ConsoleRoutineListResult(routines = shelves[gatewayId].orEmpty())
 		}
 
 		override suspend fun put(gatewayId: String, routine: Routine, baseRevision: Long?) =
@@ -101,17 +97,12 @@ class RoutineOpsTest {
 		val fake = FakeGateway()
 		fake.shelves["sakura"] = listOf(RoutineState(routine("triage")))
 		fake.shelves["mikan"] = listOf(RoutineState(routine("triage", name = "Elsewhere")))
-		fake.zones["sakura"] = "America/Los_Angeles"
-		fake.zones["mikan"] = "Europe/London"
 		val state = admitting("sakura", "mikan")
 		val ops = RoutineOps(state, Host(fake))
 
 		runBlocking { ops.refreshAll() }
 
 		assertEquals(listOf("mikan", "sakura"), state.value.drawn())
-		// Each gateway's own zone, since a schedule read against another's is a wrong time on screen.
-		assertEquals("America/Los_Angeles", state.value.on("sakura")?.routineZone)
-		assertEquals("Europe/London", state.value.on("mikan")?.routineZone)
 		assertEquals("Elsewhere", state.value.on("mikan")?.routines?.single()?.routine?.name)
 	}
 

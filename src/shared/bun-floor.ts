@@ -7,8 +7,8 @@
  * Below it, bun's substitute for the `ws` package ignores `createConnection`, so the Router
  * certificate pin in `gateway/router/pinnedSocket.ts` is never handed the socket and every dial
  * reports `pending`: nothing was checked, and the gateway is talking to whatever answered. The
- * Dockerized gateway was held above this by the base image (`oven/bun:1`, pulled fresh); a native
- * gateway runs whatever bun the host has, which is why the check lives in the process now.
+ * Dockerized gateway is held at this by the Dockerfile's pinned base image; a native gateway runs
+ * whatever bun the host has, which is why the check lives in the process too.
  *
  * OBSERVED, not a bun contract: this is the version the outage was fixed against and the one
  * `scripts/check-pinning-runtime.ts` proves on every CI run. Raise it only against that script's

@@ -198,10 +198,10 @@ class PresenceOpsTest {
 		assertEquals(RegistryProvenance.Current, broken.state.value.gateways.provenance)
 		assertEquals(host.slot, broken.slot)
 
-		host.state.update { it.copy(gateways = it.gateways.withEntry("mikan") { e -> e.copy(routineZone = "Europe/London") }) }
+		host.state.update { it.copy(gateways = it.gateways.withEntry("mikan") { e -> e.copy(routines = emptyList()) }) }
 		ops.applyOwnerProjection(projection(2, roster = withMikan))
 		assertEquals(RegistryProvenance.Current, host.state.value.gateways.provenance)
-		assertEquals("Europe/London", host.state.value.gateways.entry("mikan")?.routineZone)
+		assertEquals(emptyList<Any>(), host.state.value.gateways.entry("mikan")?.routines)
 		ops.applyOwnerProjection(projection(3))
 		assertEquals(listOf("local"), host.state.value.gateways.ids())
 	}

@@ -22,9 +22,8 @@ still inside its window then runs. `approvedRevision` is only what the editor la
 Preparation renders before it reaches a session, and the run keeps that render. A runbook edit
 landing while the session is reserved reaches the next run, not this one.
 
-Every calendar field is read in the routine's own recorded zone. Without recording it the canonical
-zone would be a line in the Dockerfile, and editing that line would reinterpret every stored routine
-at once.
+Every calendar field is read in the routine's own recorded zone. The Gateway holds no zone: a new
+routine records the zone of the phone that wrote it, and a saved one keeps the zone it has.
 
 `routineRefusal` answers why a record cannot be stored. It bounds nothing by size; a record is
 refused for what it means, as a runbook is. A schedule that could never come around is refused by
@@ -90,7 +89,7 @@ A pressed Run opens a fresh occurrence at the instant it was pressed, so it carr
 gateway owns `now`, and answers the occurrence id it opened.
 
 The list answer carries each routine with its next instant and any occurrence the owner has not dealt
-with, plus the zone that Gateway keeps them in. The phone recomputes none of it.
+with. The phone recomputes none of it.
 
 ## The view
 
@@ -100,9 +99,10 @@ heading appears only when there is more than one, and groups sort by Gateway id.
 conversation it draws the routines on that session's spawn point, since a routine targets a spawn
 point rather than a session, and leaves check-ins out. A check-in's row names "Assistant".
 
-Each group carries the zone its Gateway keeps schedules in, which is what the editor converts a typed
-wall-clock time into on save. The rows do not use it: a next run, a last run and a miss are all
-instants, so they read in the owner's own zone, and the rule's line names the zone it is kept in.
+The editor shows a rule in the owner's zone and saves it in the rule's own, which `keptZoneOf` picks:
+a saved routine keeps its zone and a new one takes the phone's. The rows convert nothing: a next run,
+a last run and a miss are all instants, so they read in the owner's own zone, and the rule's line
+names the zone it is kept in.
 Notification ids, editor drafts and list keys all carry the Gateway, because two Gateways may hold
 the same routine id and neither may cancel or overwrite the other.
 

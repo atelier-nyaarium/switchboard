@@ -122,8 +122,8 @@ internal data class RoutineDraft(
 	/** The same rule read in another zone, for showing the owner their own time. */
 	fun shown(inZoneId: String, on: java.time.LocalDate = today()): RoutineDraft = read(inZoneId, on)
 
-	/** The same rule as the gateway keeps it, which is what a save sends. */
-	fun asKept(gatewayZone: String, on: java.time.LocalDate = today()): RoutineDraft = read(gatewayZone, on)
+	/** The rule in its kept zone. */
+	fun asKept(keptIn: String, on: java.time.LocalDate = today()): RoutineDraft = read(keptIn, on)
 
 	/** Another runbook's answers do not carry over; the picked one's defaults stand in. */
 	fun pickRunbook(book: Runbook): RoutineDraft {
@@ -221,12 +221,15 @@ internal fun routineTargetMenu(
 	}
 }
 
+/** A saved routine keeps its zone; a new one takes the phone's. */
+internal fun keptZoneOf(held: Routine?, own: java.time.ZoneId): String = held?.zone ?: own.id
+
 /**
  * Whether saving this draft moves the wall-clock rule, which is the one change the owner has to be
  * asked about: occurrences already made keep the instants they were made with.
  *
- * Both sides are read as the gateway keeps them. Comparing the owner's clock face against the
- * gateway's would call every save abroad a move, including one that changed nothing.
+ * Both sides are read in the held zone. Comparing the owner's clock face against the kept one would
+ * call every save abroad a move, including one that changed nothing.
  */
 internal fun ruleMoved(held: Routine?, draft: RoutineDraft, on: java.time.LocalDate = today()): Boolean {
 	if (held == null) return false
@@ -247,9 +250,6 @@ internal fun today(): java.time.LocalDate = java.time.LocalDate.now(java.time.Zo
 /**
  * The same instant read in another zone: the weekday and the time together, because converting the
  * time alone lands a Monday evening in Tokyo on a Monday morning in Los Angeles rather than Sunday.
- *
- * There is no zone picker. The owner edits in their own zone and the gateway's is canonical, so this
- * is the one road between them.
  *
  * One shift for the whole rule, not one per day. A wall clock has no per-day answer, and converting
  * each day on its own lets a daylight-saving week fold two of them onto one and lose an occurrence.

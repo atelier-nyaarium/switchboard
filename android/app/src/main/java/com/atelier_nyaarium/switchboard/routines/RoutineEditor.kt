@@ -53,18 +53,16 @@ fun RoutineEditor(
 	routineId: String?,
 	onClose: () -> Unit,
 ) {
-	// Routine and runbook share a Gateway.
-	val group = remember(gatewayId, state.gateways) { state.gateways.entry(gatewayId) }
 	val held: Routine? = remember(gatewayId, routineId, state.gateways) {
 		routineId?.let { state.gateways.routineOn(gatewayId, it)?.routine }
 	}
 	val zone = remember { java.time.ZoneId.systemDefault() }
-	val gatewayZone = group?.routineZone.orEmpty().ifBlank { zone.id }
+	val keptIn = keptZoneOf(held, zone)
 	// Shown in the owner's zone.
 	val draftKey = routineId ?: "new"
-	var draft by remember(gatewayId, routineId, gatewayZone) {
+	var draft by remember(gatewayId, routineId, keptIn) {
 		mutableStateOf(
-			repo.routineOps.draftFor(gatewayId, draftKey)
+			repo.routineOps.draftFor(gatewayId, draftKey)?.shown(zone.id)
 				?: held?.let { RoutineDraft.of(it).shown(zone.id) }
 				?: RoutineDraft.fresh(zone),
 		)
@@ -110,8 +108,7 @@ fun RoutineEditor(
 	}
 
 	val commit: () -> Unit = {
-		// Converted here and nowhere else: what the gateway stores is its own zone's wall clock.
-		val candidate = draft.asKept(gatewayZone).toRoutine()
+		val candidate = draft.asKept(keptIn).toRoutine()
 		if (candidate != null) {
 			saving = true
 			refused = null
@@ -187,11 +184,9 @@ fun RoutineEditor(
 					modifier = Modifier.fillMaxWidth(),
 				)
 			}
-			// No zone picker: the gateway's zone is canonical, so the owner reads their own and the
-			// save converts. Saying so beats a field that looks like a choice and is not one.
-			if (zone.id != gatewayZone) {
+			if (zone.id != keptIn) {
 				Text(
-					"Shown in your time. Kept as $gatewayZone.",
+					"Shown in your time. Kept as $keptIn.",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -299,7 +294,7 @@ fun RoutineEditor(
 	}
 
 	if (confirming) {
-		val kept = remember(draft, gatewayZone) { draft.asKept(gatewayZone).toRoutine() }
+		val kept = remember(draft, keptIn) { draft.asKept(keptIn).toRoutine() }
 		// The instant comes from the gateway: recurrence has one implementation and it is not here.
 		// Saving waits for it, since a confirmation that cannot name the run is not one.
 		var asked by remember(kept) { mutableStateOf(false) }

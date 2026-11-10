@@ -41,7 +41,6 @@ docker network inspect switchboard-federation >/dev/null 2>&1 || docker network 
 docker network inspect switchboard >/dev/null 2>&1 || docker network create switchboard >/dev/null
 
 docker compose down --remove-orphans 2>/dev/null || true
-docker compose build --pull || echo "WARNING: could not pull a fresh base image, building on the cached one" >&2
 if ! docker compose up --build -d; then
 	echo "ERROR: docker compose up failed - the gateway was never started" >&2
 	exit 1

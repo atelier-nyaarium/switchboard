@@ -252,10 +252,9 @@ internal class SandboxRoutineGateway : RoutineGateway {
 
 	/** One of each panel, so no line in the tab is unreachable. */
 	override suspend fun list(gatewayId: String) = when (gatewayId) {
-		EMPTY_GATEWAY -> ConsoleRoutineListResult(zone = "America/Los_Angeles", routines = emptyList())
-		// Its own zone, and the same id as another Gateway's routine.
+		EMPTY_GATEWAY -> ConsoleRoutineListResult(routines = emptyList())
+		// Another zone, same id as another Gateway's.
 		SECOND_GATEWAY -> ConsoleRoutineListResult(
-			zone = "Europe/London",
 			routines = listOf(
 				RoutineState(
 					routine = routine("triage", "Parser sweep", zone = "Europe/London"),
@@ -264,7 +263,6 @@ internal class SandboxRoutineGateway : RoutineGateway {
 			),
 		)
 		else -> ConsoleRoutineListResult(
-			zone = "America/Los_Angeles",
 			routines = listOf(
 				RoutineState(
 					routine = routine("triage", "Morning triage"),

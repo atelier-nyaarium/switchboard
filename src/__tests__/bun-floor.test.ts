@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { BUN_FLOOR, bunFloorVerdict, compareVersions } from "../shared/bun-floor.js";
 
@@ -41,6 +43,13 @@ describe("bun floor", () => {
 		const verdict = bunFloorVerdict(undefined);
 		expect(verdict.ok).toBe(true);
 		expect(verdict.runtime).toMatch(/^node v/);
+	});
+
+	it("ships an image at or above the floor", () => {
+		const dockerfile = fs.readFileSync(path.join(import.meta.dirname, "..", "..", "Dockerfile"), "utf8");
+		const pinned = /^FROM oven\/bun:(\d+\.\d+\.\d+)@sha256:/m.exec(dockerfile)?.[1];
+		expect(pinned).toBeDefined();
+		expect(compareVersions(pinned as string, BUN_FLOOR)).toBeGreaterThanOrEqual(0);
 	});
 
 	it("refuses a runtime that reports an unparseable version", () => {

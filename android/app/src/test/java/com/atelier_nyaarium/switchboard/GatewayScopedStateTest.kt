@@ -41,7 +41,6 @@ class GatewayScopedStateTest {
 			it.copy(
 				runbooks = listOf(book("shared", "Here")),
 				routines = listOf(RoutineState(routine("triage", "Here"), nextAt = 900L)),
-				routineZone = "America/Los_Angeles",
 				policies = listOf(policy("apt", "Here")),
 			)
 		}
@@ -49,7 +48,6 @@ class GatewayScopedStateTest {
 			it.copy(
 				runbooks = listOf(book("shared", "There"), book("only-there", "Only there")),
 				routines = listOf(RoutineState(routine("triage", "There"), nextAt = 300L)),
-				routineZone = "Europe/London",
 				policies = listOf(policy("apt", "There")),
 			)
 		}

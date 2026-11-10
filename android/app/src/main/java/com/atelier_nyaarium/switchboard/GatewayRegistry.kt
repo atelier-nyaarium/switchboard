@@ -30,8 +30,6 @@ data class GatewayEntry(
 	/** Spawn points whose shell has Copilot CLI, `host` included. Empty from an older Gateway. */
 	val copilotSpawns: List<String> = emptyList(),
 	val routines: List<RoutineState>? = null,
-	/** Schedule zone from answer. */
-	val routineZone: String = "",
 	val runbooks: List<Runbook>? = null,
 	val policies: List<AuthorizationPolicy>? = null,
 	val peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>? = null,
@@ -166,7 +164,6 @@ data class GatewayRegistry(
 						claudeSpawns = claude[row.gatewayId],
 						copilotSpawns = copilot[row.gatewayId].orEmpty(),
 						routines = prior?.routines,
-						routineZone = prior?.routineZone.orEmpty(),
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),
 						policies = prior?.policies,
 						peers = prior?.peers,

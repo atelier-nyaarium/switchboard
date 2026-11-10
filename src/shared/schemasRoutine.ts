@@ -85,11 +85,7 @@ export const RoutineSchema = z
 		startDate: z.string(),
 		/** As HH:MM. */
 		time: z.string(),
-		/**
-		 * The zone every calendar field above is read in, recorded at save. Without it the canonical
-		 * zone would be a line in the Dockerfile, and editing that line would reinterpret every
-		 * stored routine at once.
-		 */
+		/** Zone the calendar fields read in. */
 		zone: z.string().min(1),
 		runbookId: z.string().min(1),
 		/** Last revision shown by the editor. */
@@ -170,11 +166,8 @@ export const RoutineStateSchema = z
 export const ConsoleRoutineListResultSchema = z
 	.object({
 		routines: z.array(RoutineStateSchema),
-		/**
-		 * The zone this gateway reads a schedule in, so an editor showing the owner their own time
-		 * has something to convert into. There is no zone picker: the gateway's zone is canonical.
-		 */
-		zone: z.string().min(1),
+		// FIXME 2026-11-23: remove. Older apps require it.
+		zone: z.string().min(1).optional(),
 	})
 	.meta({ id: "ConsoleRoutineListResult" });
 

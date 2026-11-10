@@ -25,6 +25,9 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          # The Dockerfile's pin.
+          bun-version: "1.4.0"
 
       - name: Check Python provider
         run: python3 --version

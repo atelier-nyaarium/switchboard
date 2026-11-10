@@ -3024,7 +3024,7 @@ data class RoutineState(
 @Serializable
 data class ConsoleRoutineListResult(
 	val routines: List<RoutineState>,
-	val zone: String,
+	val zone: String? = null,
 )
 
 @Serializable
