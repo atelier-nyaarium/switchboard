@@ -583,8 +583,8 @@ export function createConsoleDispatcher({
 	async function reserveRoutineSession(routine: Routine): Promise<ReserveResult> {
 		const team = routineTeam(routine);
 		const held = sessionStore?.getByTeam(team);
-		// Never adopt a session someone else made.
-		if (!routineOwns(held, routine)) return { kind: "taken" };
+		// Never adopt another's session or pane.
+		if (!routineOwns(held, routine) || sessionStore?.paneHeldElsewhere(team)) return { kind: "taken" };
 		// A held session keeps its CLI.
 		const pick = held ? { harness: held.harness } : definitePick(routine.target.spawn, routine.target.cli);
 		if ("refused" in pick) {

@@ -321,7 +321,7 @@ The strings an agent reads are under **Agent-facing prose**, below Phase 2c.
 
 ### Built
 
-Uncommitted while this is written.
+Commits `62b9aa88`, `720f44a9` and `e5ef5274`.
 
 - **Launch sites:** `LaunchSite` per `LaunchPlace` in `sessionLaunch.ts` (the container row stays null; Phase 2c places a `dist/` there). Liveness is `paneHolds`, the status pid on the pane's tty. The launcher leaves `exited` with the UI's code; `clearStatus` before a launch is the only delete. `LaunchDoor` (`wake`, `create`) replaced `ExistingPane`. `LAUNCHERS` in `launcher-spec.ts` feeds `build.ts`, `LAUNCH` and the probe. `check:boot` runs the launcher against a fake `opencode` (`scripts/lib/fakeOpencodeBin.ts`).
 - **One probe, one resolver:** `cliProbeScript` and `parseCliProbe` run through `runInPlace`; `placeCandidates` filters by `launchRefusal`; Windows dropped the `claude.exe` gate. `HarnessWord` gained `unpicked` (wire word `unpicked`); `resolveCli` and `pickAt` in `cli-resolve.ts`, with the owner's wording in `cliRefusalText`. A recordless wake sends `unpicked`, which replaced `BARE_PROJECT_HARNESS`. The console `wake` op carries the row's CLI for a session with no record; an older phone's falls back to Claude until 2026-11-24.
@@ -342,12 +342,46 @@ Uncommitted while this is written.
 - **Round 1, alignment audit:** only the in-process timeout cancelled, so a host drop, a Gateway restart or a timeout in the register window left a pane up for a forgotten record. Now the record cancels a failed create once per host link, and the daemon closes a pane its finished wake made.
 - **Round 2, re-audit:** the in-process timeout still cancelled every wake, so the new late-cancel memory killed a woken session's live pane. Now only a create is cancelled, and only a never-confirmed pane is remembered. Still open: a cancel carries no launch identity, so a held give-up can hit a newer launch at the same address.
 
+**One session launched by two roads.** Mechanisms: the `createSession` host op and the `wake` frame, tracked apart on the Gateway (`inflightCreates`, `flights`, `launching`) and on the daemon (`inflightWakes` holds no create).
+- **Rounds before this phase:** `a103133a` marked a create in flight; `5de25e50` built `WakeService` beside it; `e8f617f1` added `joinCreate`.
+- **Round 4, red team:** a host create and a wake for the same session ran two launches on one pane. Now a wake waits behind a create of the same team.
+- **To resolve in the architecture step:** one launch road, every create a wake flight, one lane per session on the daemon.
+
 **A launch failure turned into text at each road.** Mechanisms: the daemon's `error` field, `afterWake`, `createSession`, the fire's register wait, and the notice.
 - **Round 1, alignment audit:** readers showed the bare kind (`cli`, `container`). Now the daemon's `error` is `launchFailureText`.
 - **Round 2, re-audit:** that text carried the project path to another Domain through `afterWake`, a create read with the woken-session wording, and a fire dropped the failure. Now the Gateway renders the typed failure at each road through `launchFailureText` with `created` and `foreign`, and `failureFor` is the one cross-Domain rule.
 - **Round 3, red team:** a received notice trusted the sending Domain's own `foreign`, `created` and address, and a refused reason went into the reminder unescaped, so a friend could write reminder lines. **Design change:** the receiver rebuilds a foreign notice from the job's own target (`foreignNotice`), `failureFor` reduces a foreign CLI failure to its cause, every refusal reason is one line, and every failed `wake_result` is typed.
 
 - **To check live:** a fresh session takes its greeting before its queued message. The drain now runs at registration with no settle, and the plugin can register before the greeting is typed; if the order inverts, hold the drain for a never-confirmed session until its handshake confirms.
+
+### Architecture: one launch road
+
+Approved by the owner. A panel weighed four shapes (every create a wake flight; a daemon lane only; one launch ledger with ids; a create answered at acceptance) and picked a sequence. Sol disagreed with its order (identity must come before the Gateway cutover) and then agreed with this one, with changes folded in.
+
+**Slice 1, a daemon launch lane (no Gateway or wire change):** ✅ Built. `launchLane.ts` (`createLaunchLane`, every effect a port) holds a queue per physical pane (`physicalPane`); a request joins only the tail of its pane's queue for the same team and a compatible door; `DevContainers.ensureUp` takes the generation read at admission; `killSession` queues on the lane. `launch-lane.test.ts` holds the daemon's first launch tests, and `launch-lane-residue.test.ts` fences the launch and tmux create primitives to the lane's construction in hostDaemon. The store's `paneTaken` and `paneHeldElsewhere` carry the physical name rule, read by the routine reserve and save.
+- `launchLane.ts`, importable and unit-tested, owns `inflightWakes`, `cancelledWakes`, `wakeStages` and `madePanes`.
+- Keyed by physical pane: a container's (project, session), and one host key per session name for every host-kind spawn point, since they share one tmux server.
+- The store refuses a second logical owner of one host pane (`host.foo` beside `windows.foo`). Close and forget's kill go through the lane.
+- **On a name collision, a random name re-rolls and a chosen one resumes only its own record or refuses** (owner, 2026-11-10): a send's, a Create's and a fire's mint re-rolls; a routine's fixed name, a Wake of an unrecorded row and a registering plugin's name resume their own record, else refuse. `host-daemon` and `assistant` are reserved on every host spawn point but the assistant's own.
+- Both doors enter it and keep their reply contracts. It coalesces only compatible requests: a create's leave-the-pane does not satisfy a wake's repair, so that wake queues.
+- The project generation is captured at admission; a Stop invalidates queued launches and awaits their cleanup.
+- The launch function and tmux create primitives are reachable only through the lane (an import residue test).
+- `createInContainer`'s start, placement check and Stop undo move into the lane before it goes.
+
+**Slice 2, launch identity:**
+- The Gateway opens a launch durably, with a collision-resistant id, before it dispatches. The id rides `wake`, `createSession`, `wake_stage`, `wake_result` and `wake_cancel`, and the lane keys by it.
+- A frame for another id touches nothing; a newer launch queues behind a running one on its pane.
+- A launch carries a retention claim: a send-minted provisional launch may be given up and forgotten; an owner create that joins it takes the claim, persisted before it answers, and then neither give-up cancels or forgets.
+- The daemon declares the capability; against a peer without it, an untagged cancel or result is refused rather than guessed. Tests send old frames late, after a replacement launch began.
+- Terminal results are kept until the Gateway acks them by id and replayed on connect, beside stages. Replaying one keyed by team alone could settle a newer launch, so it waits for the id.
+
+**Slice 3, one road on the Gateway:**
+- A create, a routine reserve and a fire open a `WakeService` flight, carrying a create intent. The flight holds until registration and the daemon's result both land; Close and Forget are fenced on it.
+- Deleted: `inflightCreates`, `joinCreate`, `launching`, the presence create sets, the wait behind a create.
+- `HostOp` splits into what a Gateway may emit and an inbound legacy set; `createSession` only in the latter, with a dated shim.
+- Before it lands: routine and assistant reserves are bounded and launch-aware (launching apart from a terminal failure, a review cause for `stopped` and `container`); a fire answers at acceptance or keeps a retry identity; the phone keeps a create's pending identity. `check:boot` and the harness attach on the wake.
+
+**After:** the launch outcome as data, worded once per reader (an agent here, an agent in another Domain, the owner's phone), before the 2b release build.
 
 ## Phase 2c - Copilot in containers
 

@@ -1,0 +1,256 @@
+import { describe, expect, it } from "vitest";
+import { ContainerStopped } from "../mcp/devcontainer/containers.js";
+import { createLaunchLane, LATE_CANCEL_MS, WakeFailure } from "../mcp/devcontainer/launchLane.js";
+import type { LaunchFacts, LaunchOutcome } from "../mcp/devcontainer/sessionLaunch.js";
+import type { TmuxTarget } from "../shared/host-op.js";
+import type { SessionHarness } from "../shared/session-harness.js";
+
+const HOST_A: TmuxTarget = { kind: "host", name: "host", sessionName: "a" };
+const WINDOWS_A: TmuxTarget = { kind: "host", name: "windows", sessionName: "a" };
+const APP_A: TmuxTarget = { kind: "devcontainer", name: "app", sessionName: "a" };
+const MADE: LaunchOutcome = { created: true, ready: true, alive: true, live: true, screen: "" };
+const FOUND: LaunchOutcome = { ...MADE, created: false };
+
+interface Launch {
+	target: TmuxTarget;
+	facts: LaunchFacts;
+	answer(outcome: LaunchOutcome): Promise<void>;
+}
+
+function rig(options: { installed?: SessionHarness[] } = {}) {
+	const sent: Record<string, unknown>[] = [];
+	const launches: Launch[] = [];
+	const events: string[] = [];
+	let clock = 0;
+	let generation = 0;
+	const name = (target: TmuxTarget) => `${target.name}.${target.sessionName}`;
+	const lane = createLaunchLane({
+		launch: (target, facts) =>
+			new Promise<LaunchOutcome>((resolve) => {
+				events.push(`launch ${name(target)} ${facts.door}`);
+				launches.push({
+					target,
+					facts,
+					answer: async (outcome) => {
+						resolve(outcome);
+						await flush();
+					},
+				});
+			}),
+		kill: async (target) => {
+			events.push(`kill ${name(target)}`);
+		},
+		installed: async () => options.installed ?? ["claude"],
+		project: (project) => ({ path: `/home/me/projects/${project}` }),
+		generation: () => generation,
+		ensureUp: async (_project, _path, admitted, then, undo) => {
+			if (admitted !== generation) throw new ContainerStopped();
+			const value = await then(options.installed ?? ["claude"]);
+			if (admitted !== generation) {
+				await undo(value);
+				throw new ContainerStopped();
+			}
+			return { pluginsProvisioned: false, value };
+		},
+		send: (frame) => sent.push(frame),
+		now: () => clock,
+		log: () => undefined,
+	});
+	const results = (team: string) => sent.filter((frame) => frame.type === "wake_result" && frame.team === team);
+	const stages = () => sent.filter((frame) => frame.type === "wake_stage").map((frame) => frame.stage);
+	return {
+		lane,
+		sent,
+		launches,
+		events,
+		results,
+		stages,
+		advance: (ms: number) => {
+			clock += ms;
+		},
+		/** A Stop as the daemon makes one. */
+		stop: (project: string) => {
+			generation += 1;
+			lane.stop(project);
+		},
+		bumpGeneration: () => {
+			generation += 1;
+		},
+	};
+}
+
+async function flush(): Promise<void> {
+	for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+const wake = (target: TmuxTarget, extra: { fresh?: true } = {}) => ({
+	target,
+	harness: "claude",
+	sessionToken: "t",
+	...extra,
+});
+
+describe("a launch lane", () => {
+	it("runs one launch for a repeated wake and a create behind it, and answers each door", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A));
+		r.lane.wake("host.a", wake(HOST_A));
+		const created = r.lane.create(wake(HOST_A));
+		await flush();
+		await r.launches[0]?.answer(MADE);
+
+		expect(r.events).toEqual(["launch host.a wake"]);
+		expect(await created).toEqual({ created: true, ready: true, alive: true });
+		expect(r.results("host.a")).toMatchObject([{ success: true }]);
+	});
+
+	it("queues a wake behind a create, since a create leaves a dead pane alone, then runs it as a wake", async () => {
+		const r = rig();
+
+		const created = r.lane.create(wake(HOST_A));
+		await flush();
+		r.lane.wake("host.a", wake(HOST_A));
+		await flush();
+		expect(r.events).toEqual(["launch host.a create"]);
+
+		await r.launches[0]?.answer(FOUND);
+		expect(await created).toEqual({ created: false });
+		expect(r.events).toEqual(["launch host.a create", "launch host.a wake"]);
+	});
+
+	it("serializes host and windows names on one tmux server, and runs a container's pane apart", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A));
+		r.lane.wake("windows.a", wake(WINDOWS_A));
+		r.lane.wake("app.a", wake(APP_A));
+		await flush();
+		expect([...r.events].sort()).toEqual(["launch app.a wake", "launch host.a wake"]);
+
+		await r.launches.find((launch) => launch.target === HOST_A)?.answer(FOUND);
+		expect(r.events.at(-1)).toBe("launch windows.a wake");
+	});
+
+	it("drops a cancelled queued wake and leaves the running wake on its pane alone", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A));
+		r.lane.wake("windows.a", wake(WINDOWS_A));
+		await flush();
+		r.lane.cancel("windows.a");
+		await flush();
+		await r.launches[0]?.answer(FOUND);
+
+		expect(r.results("windows.a")).toMatchObject([{ success: false, failure: { kind: "error" } }]);
+		expect(r.results("host.a")).toMatchObject([{ success: true }]);
+		expect(r.events).toEqual(["launch host.a wake"]);
+	});
+
+	it("closes the pane a cancelled running wake made, unless a create took its outcome", async () => {
+		const alone = rig();
+		const shared = rig();
+
+		alone.lane.wake("host.a", wake(HOST_A));
+		shared.lane.wake("host.a", wake(HOST_A));
+		const created = shared.lane.create(wake(HOST_A));
+		await flush();
+		alone.lane.cancel("host.a");
+		shared.lane.cancel("host.a");
+		await alone.launches[0]?.answer(MADE);
+		await shared.launches[0]?.answer(MADE);
+
+		expect(alone.events).toEqual(["launch host.a wake", "kill host.a"]);
+		expect(alone.results("host.a")).toMatchObject([{ success: false }]);
+		expect(shared.events).toEqual(["launch host.a wake"]);
+		expect(await created).toMatchObject({ created: true });
+	});
+
+	it("replays a running wake's last stage on connect, and nothing once it settles", async () => {
+		const r = rig();
+
+		r.lane.wake("app.a", wake(APP_A));
+		await flush();
+		expect(r.stages()).toEqual(["building", "container_up", "cli_found"]);
+		r.lane.replayStages();
+		expect(r.stages()).toEqual(["building", "container_up", "cli_found", "cli_found"]);
+
+		await r.launches[0]?.answer(MADE);
+		r.lane.replayStages();
+		expect(r.stages()).toHaveLength(4);
+	});
+
+	it.each([
+		["a never-confirmed wake inside its window", { fresh: true as const }, 60_000, true],
+		["a never-confirmed wake past its window", { fresh: true as const }, LATE_CANCEL_MS, false],
+		["a confirmed session's wake", {}, 60_000, false],
+	])("closes the pane on a late cancel only for %s", async (_label, extra, after, closes) => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, extra));
+		await flush();
+		await r.launches[0]?.answer(MADE);
+		r.advance(after);
+		r.lane.cancel("host.a");
+		await flush();
+
+		expect(r.events.includes("kill host.a")).toBe(closes);
+	});
+
+	it("fails launches queued before a Stop as stopped, and undoes the running one at its fence", async () => {
+		const r = rig();
+
+		const created = r.lane.create(wake(APP_A)).catch((err: unknown) => err);
+		await flush();
+		r.lane.wake("app.a", wake(APP_A));
+		r.stop("app");
+		await flush();
+		expect(r.results("app.a")).toMatchObject([{ success: false, failure: { kind: "stopped" } }]);
+
+		await r.launches[0]?.answer(MADE);
+		expect(await created).toMatchObject({ failure: { kind: "stopped" } });
+		expect(r.events).toEqual(["launch app.a create", "kill app.a"]);
+	});
+
+	it("fences a launch by the generation it was admitted under, not when it reaches its container", async () => {
+		const r = rig();
+
+		r.lane.create(wake(APP_A)).catch(() => undefined);
+		await flush();
+		r.lane.wake("app.a", wake(APP_A));
+		r.bumpGeneration();
+		await r.launches[0]?.answer(FOUND);
+
+		expect(r.results("app.a")).toMatchObject([{ success: false, failure: { kind: "stopped" } }]);
+		expect(r.launches).toHaveLength(1);
+	});
+
+	it("holds a kill behind a running launch, and runs a wake that came after it last", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A));
+		await flush();
+		const killed = r.lane.kill(HOST_A);
+		r.lane.wake("host.a", wake(HOST_A));
+		await flush();
+		expect(r.events).toEqual(["launch host.a wake"]);
+
+		await r.launches[0]?.answer(FOUND);
+		await killed;
+		expect(r.events).toEqual(["launch host.a wake", "kill host.a", "launch host.a wake"]);
+	});
+
+	it("answers a missing CLI by frame to a wake and by typed failure to a create", async () => {
+		const r = rig({ installed: [] });
+
+		r.lane.wake("host.a", wake(HOST_A));
+		const created = r.lane.create(wake({ ...HOST_A, sessionName: "b" })).catch((err: unknown) => err);
+		await flush();
+
+		expect(r.results("host.a")).toMatchObject([{ success: false, failure: { kind: "cli" } }]);
+		const refused = await created;
+		expect(refused).toBeInstanceOf(WakeFailure);
+		expect(refused).toMatchObject({ failure: { kind: "cli" } });
+		expect(r.launches).toHaveLength(0);
+	});
+});

@@ -917,6 +917,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The row owns a session id's shape and mint** (`sessionId`), and `launchRefusal` is the one rule for where a CLI may launch.
   - **`road` says who reads and drives a CLI:** the daemon through its pane, or the plugin through the CLI's own server. Pane-only facts sit under the pane road, so code that reads one narrows through `paneRoad` first.
 - `src/mcp/devcontainer/sessionLaunch.ts` - the one launch road, for a wake and a create: the pane road's reattach and repair, the launcher road's status wait, the greeting
+- `src/mcp/devcontainer/launchLane.ts` - the daemon's launch lane: one queue per physical pane, both doors through it, Stop and kill ordered on it
+  - **A host name is one pane on every host spawn point:** they share one tmux server, so the lane keys `host:<session>` and the store refuses a second owner (`SessionStore.paneTaken`). A random mint re-rolls; a chosen name resumes its own record or is refused.
+  - **Only the lane launches:** `launch-lane-residue.test.ts` holds `createSessionLaunch` and the tmux create primitives to the lane's construction.
   - **Readiness is a table by road:** a screen read, or the launcher's status file.
   - **A wake keeps a live launcher:** no registration there is a plugin reconnecting, and the launcher restarts a dead plugin itself.
   - **A launch status is only as live as its pid:** the launcher writes `starting`, `ready` or `failed` with its pid, writes `failed` the moment its server or UI goes, and removes only a status it still owns. A dead pid or `failed` relaunches.

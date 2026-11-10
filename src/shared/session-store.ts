@@ -1,4 +1,5 @@
 import type { Clock } from "./ambient.js";
+import { ASSISTANT_SESSION_NAME, ASSISTANT_TEAM } from "./assistant-session.js";
 import {
 	type CodexAgentCatalog,
 	CodexAgentCatalogSchema,
@@ -11,6 +12,7 @@ import {
 	type CopilotPersistedAgent,
 	restoreCopilotAgentCatalog,
 } from "./copilot-agent.js";
+import { hostSpawnIds, isHostSpawn } from "./host-spawn.js";
 import {
 	foldHarness,
 	HARNESS,
@@ -314,17 +316,33 @@ export class SessionStore {
 		return this.records.has(team) || this.unread.has(team);
 	}
 
+	/** Host spawn points share one tmux server. */
+	private paneTaken(spawn: string, id: string): boolean {
+		if (!isHostSpawn(spawn)) return this.taken(composeSessionName(spawn, id));
+		if (id === ASSISTANT_SESSION_NAME && composeSessionName(spawn, id) !== ASSISTANT_TEAM) return true;
+		return hostSpawnIds().some((held) => this.taken(composeSessionName(held, id)));
+	}
+
+	/** Pane held by another record, or reserved. */
+	paneHeldElsewhere(team: string): boolean {
+		if (!isComposite(team) || this.taken(team)) return false;
+		const { project: spawn, session: id } = parseSessionName(team);
+		return this.paneTaken(spawn, id);
+	}
+
+	/** A collision re-rolls. */
 	mint(opts: CreateOpts): SessionRecord {
 		for (let i = 0; i < 64; i++) {
 			const id = this.idGen();
-			if (!this.taken(composeSessionName(opts.spawn, id)) && !this.clash(id)) return this.create(id, opts);
+			if (!this.paneTaken(opts.spawn, id) && !this.clash(id)) return this.create(id, opts);
 		}
 		throw new Error("session id space exhausted");
 	}
 
+	/** A chosen name never re-rolls. */
 	adoptById(id: string, opts: CreateOpts): SessionRecord | null {
 		if (!isSlug(id) || this.clash(id)) return null;
-		if (this.taken(composeSessionName(opts.spawn, id))) return null;
+		if (this.paneTaken(opts.spawn, id)) return null;
 		return this.create(id, opts);
 	}
 

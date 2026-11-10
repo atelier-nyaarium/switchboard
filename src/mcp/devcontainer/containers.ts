@@ -426,14 +426,14 @@ export class DevContainers {
 			.catch((err) => console.error(`[containers] ${project} stop: ${reasonOf(err)}`));
 	}
 
-	/** Start, inspect, `then`, one lane. Stop undoes. */
+	/** Start, inspect, `then`. A Stop past `generation` fails it. */
 	ensureUp<T>(
 		project: string,
 		projectPath: string,
+		generation: number,
 		then: (installed: SessionHarness[]) => Promise<T>,
 		undo?: (value: T) => Promise<unknown>,
 	): Promise<{ pluginsProvisioned: boolean; value: T }> {
-		const generation = this.generation(project);
 		return this.lanes.run(project, async () => {
 			const { pluginsProvisioned, installed } = await this.bring(project, projectPath, generation);
 			const value = await then(installed);
@@ -445,7 +445,8 @@ export class DevContainers {
 		});
 	}
 
-	private generation(project: string): number {
+	/** Taken at admission; a Stop fences it. */
+	generation(project: string): number {
 		return this.generations.get(project) ?? 0;
 	}
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { processAmbient } from "../shared/ambient.js";
 import { CopilotPersistedAgentSchema, copilotOperationFingerprint } from "../shared/copilot-agent.js";
+import { isReservedHostSession } from "../shared/host-op.js";
 import { sanitizeLabel, sanitizeWorkdirPath } from "../shared/session-sanitize.js";
 import { type CopilotCatalogWriter, resumeIdOf, SessionStore } from "../shared/session-store.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -166,6 +167,37 @@ describe("SessionStore mint / adopt", () => {
 		expect(again).toMatchObject({ created: false, record: { id: "work", sessionLabel: "Work" } });
 		expect(store.size).toBe(1);
 		expect(store.adoptOrReattach("host-daemon", { spawn: "host", harness: "claude" })).toBeNull();
+	});
+
+	it("holds a host name as one pane across every host spawn point, read or not", () => {
+		const store = new SessionStore({ ambient: processAmbient() });
+		store.restore({ "host.newer": { id: "newer", harness: "no-such-cli", lastSeen: 1 } });
+		store.adoptById("foo", { spawn: "host", harness: "claude" });
+
+		expect(store.adoptById("foo", { spawn: "windows", harness: "claude" })).toBeNull();
+		expect(store.adoptById("newer", { spawn: "windows", harness: "claude" })).toBeNull();
+		expect(store.adoptOrReattach("foo", { spawn: "host", harness: "claude" })).toMatchObject({
+			created: false,
+			record: { id: "foo", spawn: "host" },
+		});
+		expect(store.adoptOrReattach("foo", { spawn: "windows", harness: "claude" })).toBeNull();
+		expect(store.adoptById("foo", { spawn: "recipe-app", harness: "claude" })?.id).toBe("foo");
+	});
+
+	it("re-rolls a minted host id held on another host spawn point", () => {
+		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("taken", "fresh1") });
+		store.adoptById("taken", { spawn: "windows", harness: "claude" });
+
+		expect(store.mint({ spawn: "host", harness: "claude" }).id).toBe("fresh1");
+	});
+
+	it("gives the assistant's name to the assistant alone, and never the daemon's pane", () => {
+		const store = new SessionStore({ ambient: processAmbient(), clash: isReservedHostSession });
+
+		expect(store.adoptById("assistant", { spawn: "windows", harness: "claude" })).toBeNull();
+		expect(store.adoptById("assistant", { spawn: "host", harness: "claude" })?.id).toBe("assistant");
+		expect(store.adoptById("host-daemon", { spawn: "windows", harness: "claude" })).toBeNull();
+		expect(store.adoptById("assistant", { spawn: "recipe-app", harness: "claude" })?.id).toBe("assistant");
 	});
 
 	it("findByMintedFrom finds a gateway-minted record by its own provenance, scoped to a spawn", () => {

@@ -24,12 +24,10 @@ import {
 	type TmuxTarget,
 } from "../../shared/host-op.js";
 import { HOST_SPAWN, isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
-import { type LaunchFailure, launchFailureText } from "../../shared/launch-notice.js";
 import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
 import {
-	HARNESS,
 	type LaunchPlace,
 	type PaneRoad,
 	paneRoad,
@@ -41,7 +39,7 @@ import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
 import { ExecutionTargetManager, targetLogger } from "./codexTargets.js";
-import { ContainerStartFailed, ContainerStopped, DevContainers } from "./containers.js";
+import { DevContainers } from "./containers.js";
 import { type CompactionFollow, createCompactionFollower } from "./copilotCompaction.js";
 import { CopilotDaemonService } from "./copilotDaemonService.js";
 import { copilotLauncher } from "./copilotTargets.js";
@@ -57,18 +55,12 @@ import {
 	setProjectDirs,
 } from "./hostResolve.js";
 import { createKasaScanner } from "./kasaScan.js";
+import { createLaunchLane, errorFailure, failedWakeFrame, WakeFailure } from "./launchLane.js";
 import { PromptOccurrences, seePrompt } from "./permissionPrompt.js";
 import { PresenceScheduler, readWatch, type WatchEntry } from "./presenceScheduler.js";
 import { answerPrompt, continueAfterLimit, dismissSurvey, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
-import {
-	createSessionLaunch,
-	type LaunchOutcome,
-	type LaunchSite,
-	launchAt,
-	placementRefusal,
-	resolveLaunchHarness,
-} from "./sessionLaunch.js";
+import { createSessionLaunch, type LaunchSite, launchAt } from "./sessionLaunch.js";
 import {
 	awaitReady,
 	ensureSession,
@@ -156,8 +148,6 @@ const AGENT_DAEMON_BINDINGS = [
 	{ descriptor: CODEX_BACKEND, targets: codexTargets, service: codexDaemon, parseAck: CodexEventAckSchema },
 	{ descriptor: COPILOT_BACKEND, targets: copilotTargets, service: copilotDaemon, parseAck: CopilotEventAckSchema },
 ] as const;
-// A second wake kills a starting session.
-const inflightWakes = new Map<string, Promise<void>>();
 
 // A send mid-close throws.
 function safeSend(payload: Record<string, unknown>): void {
@@ -322,9 +312,7 @@ function connect(): void {
 		// Gateway forgets stages on reconnect.
 		sendCatalog()
 			.catch((err) => console.error("[host-daemon] catalog failed:", err))
-			.finally(() => {
-				for (const [team, frame] of wakeStages) if (inflightWakes.has(team)) safeSend(frame);
-			});
+			.finally(() => launchLane.replayStages());
 
 		// observe() fires on transitions, so a stale confirmation re-confirms forever.
 		presenceScheduler.clearAll();
@@ -338,29 +326,16 @@ function connect(): void {
 			return;
 		}
 
-		if (msg.type === "wake") {
-			const wakeMsg = msg as unknown as WakeMessage;
-			if (!inflightWakes.has(wakeMsg.team)) {
-				madePanes.delete(wakeMsg.team);
-				const run = handleWake(wakeMsg)
-					.catch((e) => console.error("[host-wake] dispatch error:", e))
-					.finally(() => {
-						inflightWakes.delete(wakeMsg.team);
-						cancelledWakes.delete(wakeMsg.team);
-						wakeStages.delete(wakeMsg.team);
-					});
-				inflightWakes.set(wakeMsg.team, run);
+		if (msg.type === "wake" && typeof msg.team === "string") {
+			try {
+				handleWake(msg as unknown as WakeMessage);
+			} catch (err) {
+				console.error("[host-wake] dispatch error:", err);
+				refuseWake(msg.team, err instanceof Error ? err.message : String(err));
 			}
 		}
 
-		if (msg.type === "wake_cancel" && typeof msg.team === "string") {
-			if (inflightWakes.has(msg.team)) {
-				console.error(`[host-wake] the Gateway gave up on ${msg.team}`);
-				cancelledWakes.add(msg.team);
-			} else {
-				cancelFinishedWake(msg.team);
-			}
-		}
+		if (msg.type === "wake_cancel" && typeof msg.team === "string") launchLane.cancel(msg.team);
 
 		if (msg.type === "host_op" && typeof msg.reqId === "string") {
 			void handleHostOp(msg.reqId as string, msg.op as HostOp).catch((e) =>
@@ -499,304 +474,94 @@ function catalogProjectPath(project: string): string {
 	return resolveProject(findProjectPath(project));
 }
 
-/** Missing project or config is a container failure. */
-function launchProjectPath(spawn: string, projectPath: string, team: string): string {
-	try {
-		return resolveProject(projectPath);
-	} catch (err) {
-		console.error(`[host-wake] ${team}: ${err instanceof Error ? err.message : err}`);
-		throw new WakeFailure({ kind: "container", spawn, projectPath }, team);
-	}
-}
-
-async function launchHarnessFor(word: unknown, target: TmuxTarget) {
-	return resolveLaunchHarness(word, target, await installedAt(target, launchAt(target)));
-}
-
-const launchSession = createSessionLaunch({
-	hasSession,
-	ensureSession,
-	killSession,
-	awaitReady,
-	paneAgentState,
-	reattachStep,
-	peekScreen: async (target) => (await peekPane(target)).ansi,
-	sendText,
-	pathPrefix: LAUNCH_PATH_PREFIX,
-	sites: LAUNCH_SITES,
-	paneHolds,
-	sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+// Launch road and tmux primitives.
+const launchLane = createLaunchLane({
+	launch: createSessionLaunch({
+		hasSession,
+		ensureSession,
+		killSession,
+		awaitReady,
+		paneAgentState,
+		reattachStep,
+		peekScreen: async (target) => (await peekPane(target)).ansi,
+		sendText,
+		pathPrefix: LAUNCH_PATH_PREFIX,
+		sites: LAUNCH_SITES,
+		paneHolds,
+		sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+		now: () => Date.now(),
+		log: (line) => console.error(`[host-wake] ${line}`),
+	}),
+	kill: killSession,
+	installed: (target) => installedAt(target, launchAt(target)),
+	project: (name, hint) => {
+		const projectPath = hint || findProjectPath(name);
+		try {
+			return { path: resolveProject(projectPath) };
+		} catch (err) {
+			return { path: projectPath, refused: err instanceof Error ? err.message : String(err) };
+		}
+	},
+	generation: (project) => devContainers.generation(project),
+	ensureUp: (project, projectPath, generation, then, undo) =>
+		devContainers.ensureUp(project, projectPath, generation, then, undo),
+	send: safeSend,
 	now: () => Date.now(),
 	log: (line) => console.error(`[host-wake] ${line}`),
 });
 
-/** A wake that will not come up, as the Gateway reads it. */
-class WakeFailure extends Error {
-	constructor(
-		readonly failure: LaunchFailure,
-		team: string,
-		message = launchFailureText(failure, team),
-	) {
-		super(message);
-	}
+function refuseWake(team: string, reason: string): void {
+	console.error(`[host-wake] refusing wake of "${team}": ${reason}`);
+	safeSend(failedWakeFrame(team, errorFailure(reason)));
 }
 
-/** A launch the Gateway gave up on. */
-const cancelledWakes = new Set<string>();
-
-/** Last stage frame per wake. */
-const wakeStages = new Map<string, Record<string, unknown>>();
-
-function sendWakeStage(team: string, stage: string, extra: Record<string, unknown> = {}): void {
-	const frame = { type: "wake_stage", team, stage, ...extra };
-	wakeStages.set(team, frame);
-	safeSend(frame);
-}
-
-const GAVE_UP: LaunchFailure = { kind: "error", reason: "the Gateway gave up on this launch" };
-
-// Gateway record outlives `container_up` by 10 minutes.
-const LATE_CANCEL_MS = 15 * 60_000;
-
-/** Panes of finished, unconfirmed wakes. */
-const madePanes = new Map<string, { target: TmuxTarget; at: number }>();
-
-function rememberPane(team: string, target: TmuxTarget, res: LaunchOutcome, fresh: boolean): void {
-	const now = Date.now();
-	for (const [held, { at }] of madePanes) if (now - at >= LATE_CANCEL_MS) madePanes.delete(held);
-	if (res.created && fresh) madePanes.set(team, { target, at: now });
-}
-
-/** Stop fails unregistered launches. */
-function failStoppedLaunches(project: string): void {
-	const now = Date.now();
-	for (const [team, made] of madePanes) {
-		if (made.target.kind !== "devcontainer" || made.target.name !== project) continue;
-		madePanes.delete(team);
-		if (now - made.at < LATE_CANCEL_MS) sendWakeFailure(team, { kind: "stopped" });
-	}
-}
-
-/** A late cancel kills the pane its wake made. */
-function cancelFinishedWake(team: string): void {
-	const made = madePanes.get(team);
-	madePanes.delete(team);
-	if (!made || Date.now() - made.at >= LATE_CANCEL_MS) return;
-	console.error(`[host-wake] the Gateway gave up on ${team} after it started; closing its pane`);
-	killSession(made.target).catch((err) =>
-		console.error(`[host-wake] could not close ${team}: ${err instanceof Error ? err.message : err}`),
-	);
-}
-
-/** Close panes of abandoned wakes. */
-async function dropIfCancelled(team: string, target: TmuxTarget, res: LaunchOutcome): Promise<void> {
-	if (!cancelledWakes.has(team) || !res.created) return;
-	await killSession(target).catch(() => {});
-	throw new WakeFailure(GAVE_UP, team);
-}
-
-const errorFailure = (reason: string): LaunchFailure => ({ kind: "error", reason: reason.slice(0, 2048) });
-
-/** Failed wakes are typed for the Gateway. */
-function sendWakeFailure(team: string, failure: LaunchFailure, extra: Record<string, unknown> = {}): void {
-	safeSend({ type: "wake_result", team, success: false, error: launchFailureText(failure, team), failure, ...extra });
-}
-
-function sendLaunchResult(team: string, success: boolean, res: LaunchOutcome, extra: Record<string, unknown> = {}) {
-	const { error } = launchError(res);
-	if (!success) {
-		sendWakeFailure(team, errorFailure(error ?? "the session did not come up"), { screen: res.screen, ...extra });
-		return;
-	}
-	safeSend({ type: "wake_result", team, success, screen: res.screen, ...(error ? { error } : {}), ...extra });
-}
-
-function failWake(team: string, err: unknown): void {
-	const message = err instanceof Error ? err.message : String(err);
-	console.error(`[host-wake] failed to wake ${team}: ${message}`);
-	sendWakeFailure(team, err instanceof WakeFailure ? err.failure : errorFailure(message));
-}
-
-async function wakeHarness(
-	team: string,
-	word: unknown,
-	target: TmuxTarget,
-	installed?: readonly SessionHarness[],
-): Promise<SessionHarness> {
-	const launch = installed ? resolveLaunchHarness(word, target, installed) : await launchHarnessFor(word, target);
-	if ("refused" in launch) {
-		throw new WakeFailure(
-			launch.cli ? { kind: "cli", refusal: launch.cli } : { kind: "error", reason: launch.refused },
-			team,
-		);
-	}
-	sendWakeStage(team, "cli_found", { harness: launch.harness });
-	if (cancelledWakes.has(team)) throw new WakeFailure(GAVE_UP, team);
-	return launch.harness;
-}
-
-async function undoLaunch(target: TmuxTarget, res: LaunchOutcome): Promise<void> {
-	if (res.created) await killSession(target);
-}
-
-/** Start the container if stopped, then launch. */
-async function createInContainer(
-	target: TmuxTarget,
-	word: unknown,
-	launch: (installed: readonly SessionHarness[]) => Promise<LaunchOutcome>,
-): Promise<LaunchOutcome> {
-	// Before any container starts.
-	const placement = placementRefusal(word, target);
-	if (placement) throw new Error(placement);
-	if (!isTmuxName(target.name) || isHostSpawn(target.name)) throw new Error(`unknown project "${target.name}"`);
-	const team = composeSessionName(target.name, target.sessionName);
-	const projectPath = launchProjectPath(target.name, findProjectPath(target.name), team);
-	try {
-		const { value } = await devContainers.ensureUp(target.name, projectPath, launch, (res) =>
-			undoLaunch(target, res),
-		);
-		return value;
-	} catch (err) {
-		if (err instanceof ContainerStopped) throw new WakeFailure({ kind: "stopped" }, team);
-		if (!(err instanceof ContainerStartFailed)) throw err;
-		console.error(`[host-op] ${target.name} container did not start: ${err.message}`);
-		throw new WakeFailure({ kind: "container", spawn: target.name, projectPath }, team);
-	}
-}
-
-/** A wake result's reason. */
-function launchError(res: LaunchOutcome): { error?: string } {
-	if (res.limit) return { error: `session limit hit${res.limit.detail ? ` (${res.limit.detail})` : ""}` };
-	return res.error ? { error: res.error } : {};
-}
-
-async function handleWake(msg: WakeMessage): Promise<void> {
+/** Local checks, then the lane. */
+function handleWake(msg: WakeMessage): void {
 	// Both segments reach tmux and shell commands.
 	const { project, session } = parseSessionName(msg.team);
 	if (!isTmuxName(project) || !isTmuxName(session)) {
-		console.error(`[host-wake] refusing wake of "${msg.team}": invalid project/session name`);
-		sendWakeFailure(msg.team, errorFailure("invalid session name"));
+		refuseWake(msg.team, "invalid session name");
 		return;
 	}
-	// Before any container starts.
-	const placement = placementRefusal(msg.harness, {
-		kind: isHostSpawn(project) ? "host" : "devcontainer",
-		name: project,
-		sessionName: session,
-	});
-	if (placement) {
-		console.error(`[host-wake] refusing wake of "${msg.team}": ${placement}`);
-		sendWakeFailure(msg.team, errorFailure(placement));
+	const request = {
+		harness: msg.harness,
+		resumeSessionId: msg.resumeSessionId,
+		fresh: msg.fresh,
+		sessionToken: msg.sessionToken,
+	};
+	if (!isHostSpawn(project)) {
+		const target: TmuxTarget = { kind: "devcontainer", name: project, sessionName: session };
+		launchLane.wake(msg.team, { ...request, target, projectPath: msg.projectPath });
 		return;
 	}
-	// Every host spawn point lands here, never the devcontainer path.
-	if (isHostSpawn(project)) {
-		if (isReservedHostSession(session)) {
-			console.error(`[host-wake] refusing wake of "${msg.team}": "${session}" is a reserved host session`);
-			sendWakeFailure(msg.team, errorFailure("reserved host session"));
-			return;
-		}
-		// Defence in depth behind the gateway's rule.
-		if (!msg.sessionToken) {
-			console.error(`[host-wake] refusing wake of "${msg.team}": no session token`);
-			sendWakeFailure(msg.team, errorFailure("no session token"));
-			return;
-		}
-		const target: TmuxTarget = { kind: "host", name: project, sessionName: session };
-		if (msg.team === ASSISTANT_TEAM) {
-			try {
-				ensureAssistantWorkdir(msg.workdirHint);
-			} catch (err) {
-				const message = `could not create the assistant's folder: ${err instanceof Error ? err.message : String(err)}`;
-				console.error(`[host-wake] refusing wake of "${msg.team}": ${message}`);
-				sendWakeFailure(msg.team, errorFailure(message));
-				return;
-			}
-		}
-		// Refuses rather than falling back: a Linux path becomes a UNC cwd on Windows.
-		const resolved = resolveSpawnWorkdir(project, msg.workdirHint);
-		if ("error" in resolved) {
-			console.error(`[host-wake] refusing wake of "${msg.team}": ${resolved.error}`);
-			sendWakeFailure(msg.team, errorFailure(resolved.error));
-			return;
-		}
+	if (isReservedHostSession(session)) {
+		refuseWake(msg.team, "reserved host session");
+		return;
+	}
+	// Defence in depth behind the gateway's rule.
+	if (!msg.sessionToken) {
+		refuseWake(msg.team, "no session token");
+		return;
+	}
+	if (msg.team === ASSISTANT_TEAM) {
 		try {
-			const harness = await wakeHarness(msg.team, msg.harness, target);
-			console.error(`[host-wake] starting ${HARNESS[harness].label} session ${msg.team}`);
-			const res = await launchSession(target, {
-				harness,
-				resumeSessionId: msg.resumeSessionId,
-				fresh: msg.fresh,
-				sessionToken: msg.sessionToken,
-				workdir: resolved.workdir,
-				door: "wake",
-			});
-			await dropIfCancelled(msg.team, target, res);
-			rememberPane(msg.team, target, res, msg.fresh === true);
-			if (res.limit) {
-				console.error(
-					`[host-wake] ${msg.team} hit a usage limit: ${res.limit.headline ?? "no headline on screen"}`,
-				);
-			} else {
-				console.error(`[host-wake] ${msg.team} ${res.live ? "is up" : "did not come up"}`);
-			}
-			sendLaunchResult(msg.team, res.live, res);
+			ensureAssistantWorkdir(msg.workdirHint);
 		} catch (err) {
-			failWake(msg.team, err);
+			refuseWake(
+				msg.team,
+				`could not create the assistant's folder: ${err instanceof Error ? err.message : err}`,
+			);
+			return;
 		}
+	}
+	// No fallback: a Linux path becomes a UNC cwd on Windows.
+	const resolved = resolveSpawnWorkdir(project, msg.workdirHint);
+	if ("error" in resolved) {
+		refuseWake(msg.team, resolved.error);
 		return;
 	}
-
-	const projectPath = msg.projectPath || findProjectPath(project);
-
-	try {
-		const resolved = launchProjectPath(project, projectPath, msg.team);
-		const projectName = path.basename(resolved);
-		console.error(`[host-wake] starting ${msg.team} at ${resolved}`);
-
-		const target: TmuxTarget = { kind: "devcontainer", name: projectName, sessionName: session };
-		// The Gateway's countdown waits out the build.
-		sendWakeStage(msg.team, "building");
-		const { pluginsProvisioned, value: res } = await devContainers
-			.ensureUp(
-				projectName,
-				resolved,
-				async (installed) => {
-					sendWakeStage(msg.team, "container_up");
-					const harness = await wakeHarness(msg.team, msg.harness, target, installed);
-					console.error(`[host-wake] ${msg.team} container is up, starting ${HARNESS[harness].label}`);
-					return launchSession(target, {
-						harness,
-						resumeSessionId: msg.resumeSessionId,
-						fresh: msg.fresh,
-						sessionToken: msg.sessionToken,
-						door: "wake",
-					});
-				},
-				(res) => undoLaunch(target, res),
-			)
-			.catch((err: unknown) => {
-				if (err instanceof ContainerStopped) throw new WakeFailure({ kind: "stopped" }, msg.team);
-				if (!(err instanceof ContainerStartFailed)) throw err;
-				console.error(`[host-wake] ${msg.team} container did not start: ${err.message}`);
-				throw new WakeFailure({ kind: "container", spawn: project, projectPath: resolved }, msg.team);
-			});
-		await dropIfCancelled(msg.team, target, res);
-		rememberPane(msg.team, target, res, msg.fresh === true);
-		console.error(`[host-wake] ${msg.team} session ${res.created ? "started" : "already running"}`);
-		if (res.limit) {
-			console.error(
-				`[host-wake] ${msg.team} hit a usage limit: ${res.limit.headline ?? "no headline on screen"}`,
-			);
-		} else if (res.created) {
-			console.error(`[host-wake] ${msg.team} ${res.ready ? "is ready" : "did not come up"}`);
-		}
-
-		// Zero captures means a dead launch.
-		sendLaunchResult(msg.team, res.alive, res, { pluginsProvisioned });
-	} catch (err) {
-		failWake(msg.team, err);
-	}
+	const target: TmuxTarget = { kind: "host", name: project, sessionName: session };
+	launchLane.wake(msg.team, { ...request, target, workdir: resolved.workdir });
 }
 
 ////////////////////////////////
@@ -833,32 +598,10 @@ const hostOpRunner = createHostOpRunner({
 			// Thrown, never a silent fallback.
 			if ("error" in resolved) throw new Error(resolved.error);
 			workdir = resolved.workdir;
+		} else if (!isTmuxName(target.name) || isHostSpawn(target.name)) {
+			throw new Error(`unknown project "${target.name}"`);
 		}
-		const team = composeSessionName(target.name, target.sessionName);
-		// A create supersedes a finished wake.
-		madePanes.delete(team);
-		const launch = async (installed?: readonly SessionHarness[]) => {
-			const resolved = installed
-				? resolveLaunchHarness(harness, target, installed)
-				: await launchHarnessFor(harness, target);
-			if ("refused" in resolved) {
-				if (!resolved.cli) throw new Error(resolved.refused);
-				throw new WakeFailure({ kind: "cli", refusal: resolved.cli }, team, resolved.refused);
-			}
-			safeSend({ type: "wake_stage", team, stage: "cli_found", harness: resolved.harness });
-			return launchSession(target, {
-				harness: resolved.harness,
-				resumeSessionId,
-				fresh,
-				sessionToken,
-				workdir,
-				door: "create",
-			});
-		};
-		const res = target.kind === "host" ? await launch() : await createInContainer(target, harness, launch);
-		if (res.error) throw new Error(res.error);
-		if (!res.created) return { created: false };
-		return { created: true, ready: res.ready, alive: res.alive };
+		return launchLane.create({ target, harness, resumeSessionId, sessionToken, fresh, workdir });
 	},
 	reloadPlugins: async (target) => {
 		const pane = await peekPane(target);
@@ -866,11 +609,12 @@ const hostOpRunner = createHostOpRunner({
 		spawnReloadPlugins(target);
 		return { initiated: true };
 	},
-	killSession,
+	// Close and Forget wait behind a launch on the pane.
+	killSession: (target) => launchLane.kill(target),
 	containerStart: async (project) => devContainers.start(project, catalogProjectPath(project)),
 	containerStop: async (project) => {
 		const projectPath = catalogProjectPath(project);
-		failStoppedLaunches(project);
+		launchLane.stop(project);
 		devContainers.stop(project, projectPath);
 	},
 	// A windows session browses through PowerShell.

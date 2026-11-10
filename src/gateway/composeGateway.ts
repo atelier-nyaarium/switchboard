@@ -304,7 +304,9 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return sessions.hostSpawnPoints.ids.includes(spawn) || sessions.offlineCatalog.has(spawn);
 		},
 		assistantPlaced: () => assistant.placed(),
-		sessionOwned: (team, routine) => routineOwns(sessions.sessionStore.getByTeam(team), routine),
+		sessionOwned: (team, routine) =>
+			!sessions.sessionStore.paneHeldElsewhere(team) &&
+			routineOwns(sessions.sessionStore.getByTeam(team), routine),
 		setRoutineGrants: (routineId, entryIds) => vault?.setRoutineGrants(routineId, entryIds),
 		resolveCaller: (req) => {
 			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
