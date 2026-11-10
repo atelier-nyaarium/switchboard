@@ -212,6 +212,9 @@ single-flight, cadence and concurrency limits, and mutating-op deduplication.
 - **Create** keeps its record whatever the launch does. The console is the authority: a launch that
   fails answers its error, the row lists as asleep, and only a forget removes it. A retry with the
   same op reattaches to the record instead of minting a second one.
+- **Create offers the CLIs the spawn point runs** (`harnessesOf`), in the table's order. A session's
+  keys (`sendableKeys`) and Goal (`takesGoals`) follow its CLI's row in `HarnessRegistry.kt`.
+  `docs/architecture.md` holds the table.
 - **Forget** journals the op under its opId in the phone's `MutationJournal` before the local drop,
   holds the row's tombstone until the Gateway confirms, then replays every unconfirmed forget at
   service start and after a failed send. The Gateway no-ops an absent session, so a replay is safe.

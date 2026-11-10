@@ -196,6 +196,8 @@ Phase 2 is three slices in order, each its own lap: OpenCode on the host, contai
 
 ## Phase 2a - OpenCode on the host
 
+✅ Built, released as 8.14.55 and deployed. `### Built` lists what Phase 2b takes over.
+
 - **From Phase 1's architecture pass, built here with the roads that shape them:** one presence sink both ingresses call, which also fires the baseline push; the row's `compaction` split into how a compaction is seen and who fetches the baseline; one launch road that both daemon doors build from, holding the launcher and the version check; the wake's readiness dispatched on the row's `road`; the row split by control road, pane or API. The Gateway's send door still names Claude until Phase 2b's `cli` pick.
 - ✅ **Spike, run on the host against 2.2.5:** results under `### Spike`. The container items wait for Phase 2b.
   - An API prompt shows live in the UI, and one sent mid-turn steers.
@@ -252,7 +254,7 @@ Run on the host against the installed 2.2.5 (released 2026-10-30), with two priv
 
 ### Built
 
-Committed as `32ea5dd5`, released as 8.14.54 (`b2781fed`) and deployed to the Router, the Gateway, the daemon and the owner's phone. CI green.
+Committed as `32ea5dd5`, released as 8.14.54 (`b2781fed`) and deployed to the Router, the Gateway, the daemon and the owner's phone. The architecture step's changes are `a8fb60d9`, released as 8.14.55 to the Gateway and the daemon. CI green.
 
 - **Table:** `opencode` row, `road` as a pane or API union, `baseline`, `versions`, `refusedKeys`, `goals`, a nullable Windows binary, `launchRefusal` by place. `OPENCODE_PIN` is 2.2.5.
 - **Launcher:** `src/opencode-launch/launcher.ts` behind ports, entry `src/main-opencode-launch.ts`, a fourth bundle in `scripts/build.ts`. Run for real: ready in 3 seconds, clean after the UI exits and after a pane kill.
@@ -263,7 +265,7 @@ Committed as `32ea5dd5`, released as 8.14.54 (`b2781fed`) and deployed to the Ro
 - **Phone:** OpenCode in the New session pick (fits at three CLIs, checked in the emulator), no Ctrl+C and no Goal for its sessions, a seeded sandbox session. A session with no presence row reads as unnamed in every phone rule.
 - **Architecture step, after the release:** the plugin posts its own baseline per compaction id, and a presence report is erased only by its own live socket (see `### Bug Classes`).
 - **Not built, by decision:** no API compact or interrupt, since nothing in Switchboard calls one (Controls bullet).
-- **Left for Phase 2b:** `containers` is false on the row; the launcher's root and status file inside a container.
+- **Left for Phase 2b:** `containers` is false on the row; the launcher's root and status file inside a container; `check:boot`'s OpenCode pass, which runs the launcher spec against a fake `opencode`.
 - **Deferred, on the board or Phase 3:** the Gateway's send door names no CLI and its wake does not join a create in flight (both moot until Phase 2b's `cli` pick); setup installing the pin (Phase 3).
 
 ### Bug Classes
@@ -463,10 +465,12 @@ Running or stopped is not shown: an agent's send starts the container either way
 - **`detectAgentType` answers the first CLI on the path:** a hand-started session with no `AGENT_TYPE` reads as Claude on any machine that has Claude installed, whatever CLI it runs in.
 - **A CLI with no row gets Claude's slash tools:** `OTHER_AGENT` in `src/mcp/sessionCli.ts` sets `claudeSlashTools`, so `compact_session` and `set_effort_level` register for a CLI that cannot run them.
 - **21 dated shims fall due on 2026-11-23:** the optional `harness` fields, `unnamed`, `claudeSpawns` and `copilotSpawns`, and the `copilotSessionId` twin. Nothing but a grep for the date finds them.
+- **An OpenCode session's plugin runs from the checkout's `dist/`:** `LAUNCH` in `hostResolve.ts` points the MCP server at the daemon checkout, so a `--build-only` there changes what a live session runs on its next plugin restart, and every source commit first restores `dist/`. The marketplace copy the other CLIs run is not used.
+- **No gate runs the real OpenCode binary:** the fake server encodes one reading of 2.2.5, and each behavior it rests on (duplicate prompt ids, the compaction row's id, synthetic input with no turn) was confirmed by hand scripts against a real server. A pin move finds drift only in Phase 3's manual pass.
 
 ## Owner asks, open
 
-- **Tell the owner when the app can create an OpenCode session.** Asked from the phone on 2026-11-10: "let me know when session start or startAgent is ready for use in this android app. I think a good exercise would be to make a session and you cross talk it to do adversarial from now on." Needs Phase 2a built and deployed to the Gateway, the daemon, the plugin and the app.
+- **Tell the owner when the app can create an OpenCode session.** Asked from the phone on 2026-11-10: "let me know when session start or startAgent is ready for use in this android app. I think a good exercise would be to make a session and you cross talk it to do adversarial from now on." ✅ Told on 8.14.54. Adversarial reads go to the session the owner names.
 - **An OpenCode backend for `agentStart` and workflow steps,** a slice after Phase 2a. Owner, 2026-11-10: "let's add agentStart support as a slice after you get the session support. that way you can use OpenCode session to implement an OpenCode agent." Not yet questioned or planned. Its tool text is settled with the owner first, and the build is handed to an OpenCode session by `crosstalk_send`. It is not a cycle phase yet; add it as `## Phase 2a2 - OpenCode as an agent backend` once planned.
 
 ## Later

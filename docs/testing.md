@@ -82,6 +82,11 @@ or refused turn. It keeps one `FakeCodexDaemon` per machine across gateway resta
 every Codex frame it sends against the daemon schemas. A fake session can answer the lead
 handshake as a worker, present a binding token, or name a project path.
 
+`createFakeOpencodeServer` (`src/testing/fakeOpencodeServer.ts`) is OpenCode's local server as a
+`fetch` function: sessions, prompts that drop a repeated id, pending permissions, a replayable log,
+and `cutStreams` to drop the event stream. The plugin's real client and session run against it. It
+cannot see CLI drift, auth, the MCP child's environment or the terminal UI.
+
 `addDomain` roots a second Domain in the Router under a minted identity set and composes its own
 gateway, host, and phone; `link(receiver, requester)` runs the real listening-token handshake
 through the Router and submits both owner-signed link edges. The phone driver's `console()` posts
@@ -100,6 +105,7 @@ bookkeeping:
 | `federation-harness-domains.test.ts` | Two and three Domains: the handshake, shares and the Router record, cross-Domain send and reply, opaque refusal, unshare, unlink, colliding gateway ids, forged replies, a repeated send opId |
 | `federation-harness-xdomain.test.ts` | The share gate, a share refused for a session the Gateway never reported, the Gateway's copy learning a share and its withdrawal by revision and reading the whole set after a restart, a cross-Domain wake, return-route authentication, a relay retried across a Router restart, unlink of in-flight work, share auto-forget |
 | `federation-harness-router.test.ts` | Router-only: tenant provision, first root, rename and its refusals, removal, deletion, replay across a restart, device approval, the trust rendezvous |
+| `federation-harness-opencode.test.ts` | An OpenCode session through its plugin: launch under a minted id, state, delivery, a permission answer, its own baseline, the session ingress and its refusals |
 | `federation-harness-codex.test.ts` | Codex through the gateway and the daemon: start, message, list, stop, replayed frames, gateway and daemon restarts |
 | `federation-harness-workflows.test.ts` | Workflow scripts through both agent backends, thread reuse, schema correction, retry, cancellation, skill refusal and notice ownership |
 | `assistant-phone-harness.test.ts` | Phone capabilities through two phone drivers: no holder, a status row stamped to the holder and the other phone's answer refused, a malformed answer refused at once, a registered act run, a call id replayed without a second row, a read anchor handed across the plane, a lapsed hold named |
