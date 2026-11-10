@@ -27,9 +27,11 @@ class SandboxSeederTest {
 	fun theSeededContainersCoverEachStateAndAvailability() {
 		val containers = sandboxRegistry(listOf("sandbox", "parsing", "idle-box"), now = 5).let { r -> r.ids().flatMap(r::containersOn) }
 
-		assertTrue(containers.any { it.run == ContainerRun.RUNNING && (it.harnesses as? SpawnHarnesses.Known)?.installed?.size == 2 })
+		assertTrue(containers.any { it.run == ContainerRun.RUNNING && it.harnesses is SpawnHarnesses.Known })
 		assertTrue(containers.any { it.run == ContainerRun.STOPPED })
 		assertTrue(containers.any { it.harnesses is SpawnHarnesses.Unknown })
+		// Only runnable CLIs.
+		assertTrue(containers.flatMap { harnessesOf(it.harnesses) }.all { it.containers })
 	}
 
 	@Test

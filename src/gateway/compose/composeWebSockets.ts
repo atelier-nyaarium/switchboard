@@ -120,6 +120,8 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		sessionControl,
 		onTeamConnect: (team, ws) => {
 			if (team === "host") {
+				// Live daemon re-announces its stages.
+				host.wakeCoordinator.failAll();
 				hostRegisterSocket = ws;
 				hostFamilyReady = false;
 				const frames: HostFamilyFrame[] = [];

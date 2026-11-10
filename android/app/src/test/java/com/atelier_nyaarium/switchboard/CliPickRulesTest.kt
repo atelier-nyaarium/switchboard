@@ -45,12 +45,26 @@ class CliPickRulesTest {
 	}
 
 	@Test
-	fun aTapPicksAndATapOnTheShownOneClearsIt() {
-		assertEquals(CliPick.Picked(opencode), pickAfterTap(CliPick.Unpicked, null, "opencode"))
-		assertEquals(CliPick.Picked(copilot), pickAfterTap(CliPick.Picked(opencode), null, "copilot"))
-		assertEquals(CliPick.Unpicked, pickAfterTap(CliPick.Picked(opencode), null, "opencode"))
-		assertEquals(CliPick.Unpicked, pickAfterTap(null, "newer-cli", "newer-cli"))
-		assertEquals(CliPick.Picked(claude), pickAfterTap(null, "newer-cli", "claude"))
+	fun aTapPicksAndClearsOnlyWhereTheClisAreUnknown() {
+		val unopened = SpawnHarnesses.UNOPENED_CONTAINER
+		val several = known(opencode, copilot)
+
+		assertEquals(CliPick.Picked(opencode), pickAfterTap(CliPick.Unpicked, null, "opencode", several))
+		assertEquals(CliPick.Picked(copilot), pickAfterTap(CliPick.Picked(opencode), null, "copilot", several))
+		// Known CLIs keep the shown pick.
+		assertEquals(CliPick.Picked(opencode), pickAfterTap(CliPick.Picked(opencode), null, "opencode", several))
+		assertEquals(CliPick.Unpicked, pickAfterTap(CliPick.Picked(claude), null, "claude", unopened))
+		assertEquals(CliPick.Unpicked, pickAfterTap(null, "newer-cli", "newer-cli", unopened))
+		assertNull(pickAfterTap(null, "newer-cli", "newer-cli", several))
+		assertEquals(CliPick.Picked(claude), pickAfterTap(null, "newer-cli", "claude", several))
+	}
+
+	@Test
+	fun noPickIsRefusedOnlyWhereSeveralClisAreKnown() {
+		assertEquals(PICK_A_CLI, cliRefusal(CliPick.Unpicked, known(opencode, copilot)))
+		assertNull(cliRefusal(CliPick.Unpicked, known(copilot)))
+		assertNull(cliRefusal(CliPick.Unpicked, SpawnHarnesses.UNOPENED_CONTAINER))
+		assertNull(cliRefusal(CliPick.Picked(copilot), known(opencode, copilot)))
 	}
 
 	@Test

@@ -3,7 +3,9 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.Routine
+import com.atelier_nyaarium.switchboard.proto.CliPick
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.UNPICKED_WORD
 import com.atelier_nyaarium.switchboard.routines.ROUTINE_TARGET_ASSISTANT
 import com.atelier_nyaarium.switchboard.routines.ROUTINE_TARGET_SPAWN
@@ -42,17 +44,48 @@ class RoutineDraftTest {
 	)
 
 	@Test
-	fun aClearedPickGoesAsUnpickedAndOnlyAnUnreadableHeldOneGoesAsNone() {
-		val picked = RoutineDraft.of(routine(RoutineTarget(spawn = "host", cli = "copilot")))
-		val newer = RoutineDraft.of(routine(RoutineTarget(spawn = "host", cli = "newer-cli")))
+	fun aDefaultPickFollowsTheSpawnPointAndAStoredOrTappedOneStays() {
+		val everyCli = SpawnHarnesses.Known(SessionHarness.entries.toSet())
+		val copilotOnly = SpawnHarnesses.Known(setOf(SessionHarness.COPILOT))
+		val fresh = RoutineDraft.fresh(java.time.ZoneId.of("UTC")).withDefaultPick(everyCli)
+		val stored = RoutineDraft.of(routine(RoutineTarget(spawn = "host", cli = "claude")))
+		// No stored pick takes the default.
+		val older = RoutineDraft.of(routine(RoutineTarget(spawn = "host"))).withDefaultPick(everyCli)
 
-		assertEquals("copilot", picked.toRoutine()?.target?.cli)
-		assertEquals(UNPICKED_WORD, picked.tapCli("copilot").toRoutine()?.target?.cli)
-		assertEquals(UNPICKED_WORD, RoutineDraft.of(routine(RoutineTarget(spawn = "host"))).toRoutine()?.target?.cli)
+		assertEquals(CliPick.Picked(SessionHarness.CLAUDE), fresh.cli)
+		assertEquals(CliPick.Picked(SessionHarness.COPILOT), fresh.selectSpawn("windows", copilotOnly).cli)
+		assertEquals(CliPick.Picked(SessionHarness.CLAUDE), stored.withDefaultPick(copilotOnly).selectSpawn("windows", copilotOnly).cli)
+		assertEquals(CliPick.Picked(SessionHarness.CLAUDE), older.cli)
+		assertEquals(CliPick.Picked(SessionHarness.COPILOT), older.selectSpawn("windows", copilotOnly).cli)
+		val tapped = fresh.tapCli("opencode", everyCli)
+		assertEquals(CliPick.Picked(SessionHarness.OPENCODE), tapped.selectSpawn("windows", copilotOnly).cli)
+	}
+
+	@Test
+	fun noPickSavesOnlyWhereTheCliIsUnknownOrSingle() {
+		val unpicked = RoutineDraft.of(routine(RoutineTarget(spawn = "host", cli = UNPICKED_WORD)))
+		val twoKnown = SpawnHarnesses.Known(setOf(SessionHarness.CLAUDE, SessionHarness.COPILOT))
+
+		assertEquals(PICK_A_CLI, unpicked.refusal(twoKnown))
+		assertNull(unpicked.toRoutine(twoKnown))
+		assertNull(unpicked.refusal(SpawnHarnesses.Known(setOf(SessionHarness.CLAUDE))))
+		assertNull(unpicked.refusal(SpawnHarnesses.UNOPENED_CONTAINER))
+		// Check-in needs no pick.
+		assertNull(unpicked.selectAssistant("assistant").refusal(twoKnown))
+	}
+
+	@Test
+	fun aClearedPickGoesAsUnpickedAndOnlyAnUnreadableHeldOneGoesAsNone() {
+		val unopened = SpawnHarnesses.UNOPENED_CONTAINER
+		val picked = RoutineDraft.of(routine(RoutineTarget(spawn = "app", cli = "claude")))
+		val newer = RoutineDraft.of(routine(RoutineTarget(spawn = "app", cli = "newer-cli")))
+
+		assertEquals("claude", picked.toRoutine(unopened)?.target?.cli)
+		assertEquals(UNPICKED_WORD, picked.tapCli("claude", unopened).toRoutine(unopened)?.target?.cli)
 		// None keeps the held word on the Gateway.
-		assertNull(newer.toRoutine()?.target?.cli)
+		assertNull(newer.toRoutine(unopened)?.target?.cli)
 		assertEquals("newer-cli", newer.shownCli)
-		assertEquals(UNPICKED_WORD, newer.tapCli("newer-cli").toRoutine()?.target?.cli)
+		assertEquals(UNPICKED_WORD, newer.tapCli("newer-cli", unopened).toRoutine(unopened)?.target?.cli)
 		// A check-in runs no CLI of its own.
 		assertEquals(UNPICKED_WORD, picked.selectAssistant("assistant").toRoutine()?.target?.cli)
 	}

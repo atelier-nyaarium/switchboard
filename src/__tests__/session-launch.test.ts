@@ -292,10 +292,17 @@ describe("a launch read through its launcher", () => {
 		expect(r.elapsed()).toBeGreaterThanOrEqual(LAUNCHER_READY_MS);
 	});
 
-	it("leaves a pane a create finds", async () => {
-		const r = rig({ pane: true, status: statusOf("exited", OLD) });
+	it.each([
+		["is ready", { status: statusOf("ready", OLD) }],
+		["exited", { status: statusOf("exited", OLD) }],
+		["is not on the pane's tty", { status: statusOf("ready", OLD), offPane: [OLD] }],
+	])("leaves a pane a create finds whose launcher %s, with no error", async (_label, options) => {
+		const r = rig({ pane: true, ...options });
 
-		expect(await r.launch(TARGET, opencode("create"))).toMatchObject({ created: false, live: true });
+		const outcome = await r.launch(TARGET, opencode("create"));
+
+		expect(outcome).toMatchObject({ created: false });
+		expect(outcome.error).toBeUndefined();
 		expect([r.calls.kills, r.calls.ensured.length]).toEqual([0, 0]);
 	});
 

@@ -57,18 +57,18 @@ describe("routine store", () => {
 		).toEqual(["morning"]);
 	});
 
-	it("keeps a held CLI pick through a put that names none, and clears it on `unpicked`", () => {
+	it("keeps a held CLI pick through a put that names none, keeps `unpicked` as asked, and runs Claude where none was ever named", () => {
 		const store = open(fresh());
-		const pickOf = () => store.list()[0]?.target.cli;
+		const pickOf = (id: string) => store.get(id)?.target.cli;
 
 		store.put(routine("morning", { target: { spawn: "host", cli: "opencode" } }));
 		const kept = store.put(routine("morning", { name: "Renamed" }), { base: 1 });
-		const keptPick = pickOf();
+		const keptPick = pickOf("morning");
 		store.put(routine("morning", { name: "Renamed", target: { spawn: "host", cli: "unpicked" } }), { base: 2 });
+		store.put(routine("evening"));
 
 		expect(kept).toMatchObject({ stored: true });
-		expect(keptPick).toBe("opencode");
-		expect(pickOf()).toBeUndefined();
+		expect([keptPick, pickOf("morning"), pickOf("evening")]).toEqual(["opencode", "unpicked", "claude"]);
 	});
 
 	it("names the revision itself, and takes a put only from the one it holds", () => {
@@ -172,12 +172,19 @@ describe("routine store", () => {
 		expect(reopen().get("legacy")?.incarnation).toBe("inc-1");
 	});
 
-	it("restores rows written before a target had a kind, and reads them as spawn routines", () => {
+	it("restores rows written before a target had a kind or a CLI as spawn routines that run Claude", () => {
 		const dataDir = fresh();
-		open(dataDir).put(routine("legacy", { target: { spawn: "host", workdir: "/tmp" } }));
-		const reopened = open(dataDir).get("legacy");
-		expect(reopened?.target).toEqual({ spawn: "host", workdir: "/tmp" });
-		expect(reopened && targetKind(reopened.target)).toBe("spawn");
+		const checkIn = routine("standup", { target: { kind: "assistant", spawn: "host" } });
+		openDurable(dataDir, "routines", (durable) =>
+			durable.saveChecked([routine("legacy", { target: { spawn: "host", workdir: "/tmp" } }), checkIn]),
+		);
+
+		const reopened = open(dataDir);
+		const legacy = reopened.get("legacy");
+
+		expect(legacy?.target).toEqual({ spawn: "host", workdir: "/tmp", cli: "claude" });
+		expect(legacy && targetKind(legacy.target)).toBe("spawn");
+		expect(reopened.get("standup")?.target).toEqual(checkIn.target);
 	});
 
 	it("takes a check-in only where the assistant lives, with no secrets, and never back from a phone that predates it", () => {

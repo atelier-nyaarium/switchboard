@@ -52,7 +52,9 @@ function installedAt(state: HostSpawnState, spawn: string): readonly SessionHarn
 	if (!state.known) return undefined;
 	if (hostSpawnPoint(spawn))
 		return SESSION_HARNESSES.filter((harness) => state.harnessSpawns?.[harness]?.includes(spawn));
-	return state.containers?.find((container) => container.project === spawn)?.clis;
+	const container = state.containers?.find((held) => held.project === spawn);
+	// Checked again at launch: not running, or none seen yet.
+	return container?.state === "running" && container.clis?.length ? container.clis : undefined;
 }
 
 export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps): HostStage {

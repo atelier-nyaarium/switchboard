@@ -39,9 +39,10 @@ import com.atelier_nyaarium.switchboard.CliToggles
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.SpawnHarnesses
 import com.atelier_nyaarium.switchboard.cliChoices
-import com.atelier_nyaarium.switchboard.freshPick
+import com.atelier_nyaarium.switchboard.cliRefusal
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.pickAfterTap
+import com.atelier_nyaarium.switchboard.pickOnSpawnChange
 import com.atelier_nyaarium.switchboard.proto.CliPick
 import com.atelier_nyaarium.switchboard.shownPick
 import com.atelier_nyaarium.switchboard.proto.Runbook
@@ -142,7 +143,7 @@ fun RunbookFireSheet(
 						CliToggles(
 							choices = cliChoices(availableAt(state, gatewayId, sheet.target), shown),
 							picked = shown,
-							onTap = { sheet.cli = pickAfterTap(sheet.cli, unread = null, it) },
+							onTap = { sheet.tapCli(it, availableAt(state, gatewayId, sheet.target)) },
 						)
 					}
 				}
@@ -160,7 +161,7 @@ fun RunbookFireSheet(
 				TextButton(onClick = hapticClick(onDismiss), modifier = Modifier.weight(1f)) { Text("Cancel") }
 				val ready = (sheet.preview as? PreviewState.Ready)?.takeIf { it.revision == runbook.revision }
 				Button(
-					enabled = ready != null && !sheet.firing && sheet.target.isNotBlank(),
+					enabled = ready != null && !sheet.firing && sheet.canFire(availableAt(state, gatewayId, sheet.target)),
 					onClick = hapticClick {
 						val pinned = ready ?: return@hapticClick
 						sheet.firing = true
@@ -258,13 +259,24 @@ internal class FireSheetState(runbook: Runbook, private val into: String? = null
 		target = if (fresh) "" else into.orEmpty()
 	}
 
-	/** The new session's CLI; null until a first spawn point is picked. */
+	/** Null until a spawn point is picked. */
 	var cli by mutableStateOf<CliPick?>(null)
+		private set
+	private var cliTapped = false
 
-	/** A first spawn point takes New session's default; a later one keeps the pick, marked if not offered. */
+	/** Tapped pick stays. */
 	fun pick(address: String, available: SpawnHarnesses) {
 		target = address
-		if (freshSession && cli == null) cli = freshPick(available)
+		if (freshSession) cli = pickOnSpawnChange(cli, cliTapped, available)
+	}
+
+	/** Needs a target, and a pick among several CLIs. */
+	fun canFire(available: SpawnHarnesses): Boolean =
+		target.isNotBlank() && (!freshSession || cliRefusal(cli, available) == null)
+
+	fun tapCli(tapped: String, available: SpawnHarnesses) {
+		cli = pickAfterTap(cli, unread = null, tapped, available)
+		cliTapped = true
 	}
 	var firing by mutableStateOf(false)
 

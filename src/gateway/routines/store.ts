@@ -5,7 +5,7 @@ import { canonicalJson } from "../../shared/canonical-json.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { isCheckIn, type Routine, RoutineSchema, routineRefusal, targetKind } from "../../shared/schemasRoutine.js";
 import { REVISION_CEILING, type Runbook } from "../../shared/schemasRunbook.js";
-import { UNPICKED_WORD } from "../../shared/session-harness.js";
+import type { SessionHarness } from "../../shared/session-harness.js";
 import { renderRoutine } from "./render.js";
 import { type TargetFacts, targetRules } from "./reservation.js";
 
@@ -36,11 +36,17 @@ export interface RoutinePutOptions {
 
 const RoutinesSchema = z.array(RoutineSchema);
 
-/** No pick keeps the held one; `unpicked` clears it. */
+/** What a routine ran before it could name its CLI. */
+const LEGACY_PICK: SessionHarness = "claude";
+
+/** A spawn routine with no pick ran Claude. */
+const legacyPick = (target: Routine["target"]): boolean => target.cli === undefined && targetKind(target) === "spawn";
+
+/** No pick keeps the held one; `unpicked` kept as asked. */
 function keptPick(incoming: Routine["target"], held: Routine["target"] | undefined): Routine["target"] {
-	const { cli, ...rest } = incoming;
-	if (cli === undefined) return held?.cli ? { ...rest, cli: held.cli } : rest;
-	return cli === UNPICKED_WORD ? rest : incoming;
+	if (incoming.cli !== undefined) return incoming;
+	if (held?.cli) return { ...incoming, cli: held.cli };
+	return legacyPick(incoming) ? { ...incoming, cli: LEGACY_PICK } : incoming;
 }
 
 /** Frozen copy. */
@@ -71,6 +77,21 @@ function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null
 export function createRoutineStore(deps: RoutineStoreDeps) {
 	const { store } = deps;
 	let routines: Routine[] = RoutinesSchema.parse(store.load() ?? []).map(frozen);
+	if (routines.some((routine) => legacyPick(routine.target))) {
+		const picked = routines.map((routine) =>
+			legacyPick(routine.target)
+				? frozen({ ...routine, target: { ...routine.target, cli: LEGACY_PICK } })
+				: routine,
+		);
+		commitChecked(
+			store,
+			picked,
+			(landed) => {
+				routines = landed;
+			},
+			{ label: "routine" },
+		);
+	}
 	// Legacy routines get an incarnation before anything runs.
 	if (routines.some((routine) => routine.incarnation === undefined)) {
 		const minted = routines.map((routine) =>

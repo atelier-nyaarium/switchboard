@@ -3,12 +3,15 @@ import type { BoardDisposition } from "../../shared/board-authority.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { type HostOp, type HostOpResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { launchPlaceOf } from "../../shared/host-spawn.js";
+import { launchFailureText } from "../../shared/launch-notice.js";
 import {
 	foldHarness,
 	launchRefusal,
 	olderThanSender,
 	readHarness,
+	type SessionHarness,
 	UNNAMED_HARNESS,
+	UNPICKED_WORD,
 } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
@@ -16,7 +19,7 @@ import { resumeIdOf, type SessionRecord, type SessionStore } from "../../shared/
 import { fireAndForget } from "../fireAndForget.js";
 import type { WakeResult } from "../wake.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
-import { CreateSessionAmbiguousError } from "./consoleTypes.js";
+import { CreateSessionAmbiguousError, CreateSessionFailedError } from "./consoleTypes.js";
 
 /** Whether this Gateway launched the record's terminal; hand-started ones run under another name. */
 export function ownTerminal(record: SessionRecord | undefined, teamOf: (record: SessionRecord) => string): boolean {
@@ -71,23 +74,27 @@ export function createSessionLifecycleHandlers({
 		op: Extract<ConsoleOp, { kind: "create_session" }>,
 		conversationId: string,
 		opId: string,
+		/** Place's CLIs not known yet. */
+		internal?: { unpicked: true },
 	) {
 		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
 		if (!op.sessionName && !op.displayLabel) {
 			throw new Error("create_session needs a sessionName or a displayLabel");
 		}
 		const spawn = targets.localSpawn(op.target);
-		const harness = foldHarness(readHarness(op.harness), {
-			named: (named) => named,
-			unnamed: (assumed) => assumed,
-			unpicked: () => {
-				throw new Error("a console create names its CLI");
-			},
-			unknown: (word) => {
-				throw new Error(olderThanSender(word));
-			},
-		});
-		const refusal = launchRefusal(harness, { place: launchPlaceOf(spawn), assistant: false });
+		const harness: SessionHarness | undefined = internal?.unpicked
+			? undefined
+			: foldHarness(readHarness(op.harness), {
+					named: (named) => named,
+					unnamed: (assumed) => assumed,
+					unpicked: () => {
+						throw new Error("a console create names its CLI");
+					},
+					unknown: (word) => {
+						throw new Error(olderThanSender(word));
+					},
+				});
+		const refusal = harness && launchRefusal(harness, { place: launchPlaceOf(spawn), assistant: false });
 		if (refusal) throw new Error(refusal);
 		if (op.workdir != null && !isSpawnWorkdirPath(spawn, op.workdir)) {
 			throw new Error("invalid workdir: must be an absolute, ~-rooted, or Windows drive path");
@@ -141,13 +148,14 @@ export function createSessionLifecycleHandlers({
 										ok: false,
 										error: `failed to wake "${sessionId}"`,
 										errorKind: r.errorKind,
+										...(r.failure ? { failure: r.failure } : {}),
 									},
 					)
 				: relayToHost({
 						kind: "createSession",
 						target,
 						workdirHint,
-						harness: adopted?.record.harness ?? harness,
+						harness: adopted?.record.harness ?? harness ?? UNPICKED_WORD,
 						resumeSessionId: adopted ? resumeIdOf(adopted.record) : undefined,
 						...(adopted && adopted.record.confirmedAt === undefined ? { fresh: true as const } : {}),
 						sessionToken: adopted ? sessionStore?.ensureBindToken(adopted.record) : undefined,
@@ -172,10 +180,16 @@ export function createSessionLifecycleHandlers({
 			);
 		}
 
+		// No blank record survives an unpicked create.
+		const forgetBlank = (): void => {
+			if (!internal?.unpicked || !adopted?.created) return;
+			const current = sessionStore?.getByTeam(launchTeam);
+			if (current && current.confirmedAt === undefined && !current.harness) sessionStore?.forget(launchTeam);
+		};
 		const winner = await withinMs(ambient, launch, createSessionBoundMs);
 
 		if (winner === null) {
-			launch.catch(() => undefined);
+			launch.then((late) => late.failure && forgetBlank()).catch(() => undefined);
 			return {
 				created: true,
 				id: adopted?.record.id ?? sessionId,
@@ -188,6 +202,13 @@ export function createSessionLifecycleHandlers({
 		if (!winner.ok) {
 			if (winner.errorKind === "timeout" || winner.errorKind === "disconnected") {
 				throw new CreateSessionAmbiguousError(winner.error ?? "create session had no definitive answer");
+			}
+			if (winner.failure) {
+				forgetBlank();
+				throw new CreateSessionFailedError(
+					launchFailureText(winner.failure, sessionId, { created: true, foreign: false }),
+					winner.failure,
+				);
 			}
 			throw new Error(winner.error ?? "create session failed");
 		}

@@ -237,6 +237,14 @@ export async function ensureContainerUpAsync(
 		joinGatewayNetwork(projectPath);
 		return { wasAlreadyRunning: true, pluginsProvisioned: false };
 	}
+	// Failed exec never recreates a running container.
+	if (await opts.running()) {
+		if (!isContainerReady(projectPath, env)) {
+			throw new Error(`devcontainer exec failed twice on running container for '${projectPath}'`);
+		}
+		joinGatewayNetwork(projectPath);
+		return { wasAlreadyRunning: true, pluginsProvisioned: false };
+	}
 
 	opts.onStarting();
 	const project = path.basename(projectPath);

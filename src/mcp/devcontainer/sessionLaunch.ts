@@ -318,6 +318,7 @@ const viaLauncher: Road = async (deps, target, facts) => {
 		throw new Error(`refusing to launch: no ${HARNESS[facts.harness].label} launcher where this session runs`);
 	const command = commandOf(deps, target, facts);
 	if (await deps.hasSession(target)) {
+		// Left alone; a wake's `keptLauncher` repairs it.
 		if (facts.door === "create") return { created: false, ready: false, alive: true, live: true, screen: "" };
 		const kept = await keptLauncher(deps, site, target);
 		if (kept) return kept;

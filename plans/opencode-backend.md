@@ -154,6 +154,8 @@ No question is open. The spike may still move what Phase 2 builds.
 
 Readers before emitters, for both phases: the Router takes the new presence-row and spawn-point fields first, then the Gateway and the daemon, then the plugin, and the phone offers OpenCode last. The Gateway writes `claudeSpawns` and `copilotSpawns` beside the map until their dated removal, and a new phone prefers the map.
 
+The Containers slice deploys the daemon before the Gateway: a Gateway sends `unpicked` for a recordless wake and a create with no known CLIs, which an older daemon refuses as an unknown CLI.
+
 The Containers slice raises `FEDERATION_PROTOCOL_FLOOR` with its release: an older Gateway strips `cli` from a relayed send and launches Claude unasked. Its new wire is `cli` on `/send` and on the relayed send, the launch outcome on `response_push`, the daemon's wake progress frame, container state, the availability map on the discover answer, and the routine and fire picks.
 
 ## Phase 1 - The harness table
@@ -328,8 +330,25 @@ Uncommitted while this is written.
 - **Container state on the wire:** `GatewaySpawnPoints.containers` (`ContainerState`: state, last failure, CLIs found, absent until looked inside), taken from the daemon's `catalog` and `containers` frames; console ops `container_start` and `container_stop` relay the matching host ops. The availability map stays `harnessSpawns` for host shells; containers carry theirs in `containers[].clis`.
 - **The pick:** `cli` on `crosstalk_send`, `/send`, the relayed send, the assistant's guard and its card intent. Refusals travel typed (`SendRefusal`) and the plugin renders `sendRefusalText` with no prefix. A record may lack `harness` while its create waits; `resolvePick` names it on `cli_found`. Routine targets and a fire's new-session target carry `cli` (`CLI_PICKS`); a routine whose pick does not fit settles `cli_refused`. `crosstalk_discover` prints CLIs from `spawnClis`.
 - **Protocol floor 6.**
-- **Not seen in the emulator:** the routine editor's and fire sheet's CLI pick; the AVD cold-booted to a PIN lock, so only their JVM tests cover them. The container headers, Start, Stop and Create were seen there.
+- **A give-up reaches the daemon:** `WakeCoordinator` holds each launch's stage, so a waiter that joins a build has no deadline and one after `container_up` gets the time left; the launch record's countdown reads it (`countdownFrom`), and the daemon announces its in-flight stages again on every connect. A dropped host link forgets nothing. A failed create sends `wake_cancel` once per host link until one reaches, and the daemon closes a pane its finished wake made when a cancel lands in the register window. A send to a minted address joins its launch.
+- **The launch runs in the project's lane:** a Stop meanwhile closes the pane the launch made and fails it `stopped`. A missing project or `devcontainer.json` fails it `container`. A look that finds no CLI on a running container looks again at 30 s and 2 min; a failed host probe keeps the last answer and retries.
+- **A stopped container's CLIs are unknown to a pick:** routines and fires create unpicked there, and the daemon resolves and reports `cli_found`; a typed `cli` failure on the create's reply settles the routine `cli_refused`. A create that finds a pane leaves it, dead launcher or not; the next wake repairs it.
+- **Red team:** a friend's launch notice is rebuilt where it is received. Routines saved without a pick run Claude, which they always ran: a put with none stores `claude`, a restore writes it onto stored ones, and `unpicked` is stored as asked. A running container whose probe fails is never torn down, and a daemon exit kills its builds. A wake waits behind a host create of the same pane; a resend to a live minted session wakes nothing. A blank record takes its CLI from its plugin's register frame. A failed launch keeps a reply job an earlier message holds. An empty CLI list on a running container reads as unknown. The phone refuses an unpicked save or fire where several CLIs are known, and keeps Start and Stop busy until the state moves.
+- **Another Domain gets no path:** `noticeOf` drops `projectPath` and replaces an `error` reason before a notice leaves. A notice the bank drops for a gone sender marks it told.
+- **Seen in the emulator:** the container headers, Start, Stop and Create; the Gateway header's Create offering host alone; an unopened container offering Claude alone; the routine editor's and fire sheet's pick, a default following the spawn point and a held or tapped one staying marked.
+### Bug Classes
+
+**Two authorities give up on one launch, and a cancel names only a team.** Mechanisms: `WakeService`'s in-process timeout, the launch record's tick, and the daemon's `wake_cancel` handler with `cancelledWakes` and `madePanes`.
+- **Round 1, alignment audit:** only the in-process timeout cancelled, so a host drop, a Gateway restart or a timeout in the register window left a pane up for a forgotten record. Now the record cancels a failed create once per host link, and the daemon closes a pane its finished wake made.
+- **Round 2, re-audit:** the in-process timeout still cancelled every wake, so the new late-cancel memory killed a woken session's live pane. Now only a create is cancelled, and only a never-confirmed pane is remembered. Still open: a cancel carries no launch identity, so a held give-up can hit a newer launch at the same address.
+
+**A launch failure turned into text at each road.** Mechanisms: the daemon's `error` field, `afterWake`, `createSession`, the fire's register wait, and the notice.
+- **Round 1, alignment audit:** readers showed the bare kind (`cli`, `container`). Now the daemon's `error` is `launchFailureText`.
+- **Round 2, re-audit:** that text carried the project path to another Domain through `afterWake`, a create read with the woken-session wording, and a fire dropped the failure. Now the Gateway renders the typed failure at each road through `launchFailureText` with `created` and `foreign`, and `failureFor` is the one cross-Domain rule.
+- **Round 3, red team:** a received notice trusted the sending Domain's own `foreign`, `created` and address, and a refused reason went into the reminder unescaped, so a friend could write reminder lines. **Design change:** the receiver rebuilds a foreign notice from the job's own target (`foreignNotice`), `failureFor` reduces a foreign CLI failure to its cause, every refusal reason is one line, and every failed `wake_result` is typed.
+
 - **To check live:** a fresh session takes its greeting before its queued message. The drain now runs at registration with no settle, and the plugin can register before the greeting is typed; if the order inverts, hold the drain for a never-confirmed session until its handshake confirms.
+
 ## Phase 2c - Copilot in containers
 
 - **Typed delivery reaches a container pane:** `typeSession` refuses any spawn but the host's today, and its target is hard-coded to the host's. It builds the target from the session's spawn point. The daemon types into a container's pane as it already peeks and sends keys there.
@@ -337,6 +356,9 @@ Uncommitted while this is written.
 - **The compaction file is read inside the container:** `createCompactionFollower` reads the host's home.
 - **The two refusals go:** the Gateway's and the daemon's, which hold Copilot to the host.
 - **No Claude assumed:** a container with Copilot alone starts, is asked what it has, and offers Copilot alone on the phone, in `crosstalk_discover` and in the `cli` list. A Windows spawn point is offered where any CLI resolves, not only `claude.exe`.
+- **A CLI resolved at launch has its id minted before it launches:** a create that waits on `cli_found` launches Copilot without `--session-id` and OpenCode not at all, since `resolvePick` mints the id after the wake left. The daemon mints and reports the id with `cli_found`, or the launch waits for the Gateway's answer to it. Copilot-only containers hit this on every create.
+- **The row declares how its runtime reaches a place, with the plugin set spelled once:** `PLUGINS` lives in both `session-harness.ts` and `helpers.ts`, and a provisioned container gets no lexicon while the phone's install macro adds it. The per-CLI installers above read the row's field.
+- **OpenCode in a container:** the container `LaunchSite` gets its `dist/` and bun, and OpenCode's row turns `containers` on.
 
 ## Agent-facing prose
 
@@ -471,6 +493,25 @@ Devcontainer for `<spawn>` failed to start. Investigate `<project path>/.devcont
 `<address>` did not come up within 10 minutes. Send again to retry.
 ```
 
+**Notice, failed another way (`act_now`):** the reason is daemon text; another Domain gets `the launch failed`.
+
+```
+`<address>` did not come up: <reason>. Send again to retry.
+```
+
+**Notice, the owner stopped its devcontainer (`act_now`):**
+
+```
+`<address>` did not start: the user stopped its devcontainer.
+Ask the user before sending again.
+```
+
+**Refusal, a CLI that place never runs,** the owner's wording, and the same for a Windows shell:
+
+```
+Devcontainer does not have OpenCode. Choose another CLI.
+```
+
 **Refusal, a nonexistent session and no `displayLabel`,** today's, reworded to match:
 
 ```
@@ -505,6 +546,13 @@ Running or stopped is not shown: an agent's send starts the container either way
 - **An OpenCode session's plugin runs from the checkout's `dist/`:** `LAUNCH` in `hostResolve.ts` points the MCP server at the daemon checkout, so a `--build-only` there changes what a live session runs on its next plugin restart, and every source commit first restores `dist/`. The marketplace copy the other CLIs run is not used.
 - **The daemon blocks on `execSync` inside a start:** `isContainerReady` (up to 15 s) and plugin provisioning (up to 120 s) in `helpers.ts` hold the daemon's event loop, and a Stop cannot interrupt either. Every other session's presence and every host op wait behind them.
 - **`hostDaemon.ts` is about 850 lines:** the wake, the catalog, the host ops and the container wiring share one module that runs on import. A split by concern is due.
+- **A routine retries a launch that failed for a reason a retry cannot fix:** a `stopped` or `container` failure on a routine's reserve reads as `pending`, so each reconcile restarts the container the owner stopped, or rebuilds a broken `.devcontainer/` about once a minute until the grace runs out. A review cause per failure would settle it; the phone has no words for one yet.
+- **A wake that ends while the host link is down reads as a timeout:** `wake_result` goes through `safeSend` and is lost, so the sender is told "did not come up within 10 minutes" instead of the typed reason. An outbox replayed on connect, as `claudeRunner` keeps, would carry it.
+- **A fire into a stopped container outlasts the phone's answer wait:** the sheet reports a failure at 35 s, the Gateway delivers later, and a retry mints a second session.
+- **Relayed launch notices are told on banking, not delivery:** a sending Gateway's restart loses one, it has no away retry, and a lost relay ack sends a second copy.
+- **The assistant's card is held before its pick is checked,** so a `needs_pick` costs the owner a second card.
+- **Owner screens show agent wording:** a fire's refusal and a create's toast read "Talk to the user" and "Send again to retry".
+- **A host probe that never answered reads as no CLI:** `hostClis ?? []` is a known empty list to `installedAt`, so a host whose first probe failed refuses picks until the 30 s retry answers.
 - **No gate runs the real OpenCode binary:** the fake server encodes one reading of 2.2.5, and each behavior it rests on (duplicate prompt ids, the compaction row's id, synthetic input with no turn) was confirmed by hand scripts against a real server. A pin move finds drift only in Phase 3's manual pass.
 
 ## Owner asks, open

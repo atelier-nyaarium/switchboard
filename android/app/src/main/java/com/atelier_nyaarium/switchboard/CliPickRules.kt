@@ -38,13 +38,23 @@ internal fun shownPick(pick: CliPick?, unread: String?): String? =
 		null -> unread
 	}
 
-/** A tap picks; a tap on the shown one clears it. */
-internal fun pickAfterTap(pick: CliPick?, unread: String?, tapped: String): CliPick {
-	val harness = (readHarness(tapped) as? HarnessWord.Named)?.harness
-	if (harness == null || tapped == shownPick(pick, unread)) return CliPick.Unpicked
+/** Tapping the shown pick clears it only if CLIs unknown. */
+internal fun pickAfterTap(pick: CliPick?, unread: String?, tapped: String, available: SpawnHarnesses): CliPick? {
+	if (tapped == shownPick(pick, unread)) return if (available is SpawnHarnesses.Unknown) CliPick.Unpicked else pick
+	val harness = (readHarness(tapped) as? HarnessWord.Named)?.harness ?: return pick
 	return CliPick.Picked(harness)
 }
+
+/** Gateway refuses no pick among several CLIs. */
+internal fun cliRefusal(pick: CliPick?, available: SpawnHarnesses): String? =
+	if (pick == CliPick.Unpicked && available is SpawnHarnesses.Known && available.installed.size > 1) PICK_A_CLI else null
+
+internal const val PICK_A_CLI = "Pick a CLI"
 
 /** New session's default: Claude where offered, else the first. */
 internal fun freshPick(available: SpawnHarnesses): CliPick =
 	harnessAfterPick(SessionHarness.CLAUDE, harnessesOf(available))?.let { CliPick.Picked(it) } ?: CliPick.Unpicked
+
+/** Chosen pick stays. */
+internal fun pickOnSpawnChange(pick: CliPick?, chosen: Boolean, available: SpawnHarnesses): CliPick? =
+	if (chosen) pick else freshPick(available)

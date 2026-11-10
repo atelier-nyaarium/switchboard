@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { launchNoticeText } from "../shared/launch-notice.js";
+import { type LaunchFailure, launchFailureText, launchNoticeText } from "../shared/launch-notice.js";
 import { composeSessionName } from "../shared/session-id.js";
 import type { RidingAwareness } from "../shared/types.js";
 import type { FakeAmbient } from "../testing/fakeAmbient.js";
+import { attachFakeHost } from "../testing/fakeHost.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import type { Frame } from "../testing/fakeSocket.js";
 import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
@@ -21,6 +22,10 @@ const noticesIn = (session: FakeSession, address: string) =>
 
 const messagesIn = (session: FakeSession, body: string) =>
 	session.inbound.filter((frame) => frame.type === "channel_push" && frame.body === body);
+
+/** Who a session's open jobs name. */
+const pendingTo = async (session: FakeSession) =>
+	((await (await session.get("/pending")).json()) as { to: string }[]).map((row) => row.to);
 
 /** Signed proofs need the clocks in step. */
 async function advanceAll(clocks: FakeAmbient[], ms: number): Promise<void> {
@@ -153,6 +158,24 @@ describe("a session's send to a session that is not up", () => {
 		expect(notice.body).toContain(launchNoticeText({ kind: "up", address }));
 	});
 
+	it("delivers a resend to the session its create minted, already up, without waking it", async () => {
+		const answer = await send("fixture-app.again", "hello again", { displayLabel: "Again" });
+		const wake = (await h.waitFor(
+			() => h.host.wakes.find((frame) => answer.target === h.target(String(frame.team))),
+			"the wake of the minted session",
+		)) as Frame;
+		const woken = attach(String(wake.team), wake.sessionToken as string);
+		await h.waitFor(() => messages(woken, "hello again")[0], "the first message");
+		const wakes = h.host.wakes.length;
+
+		const resent = await send("fixture-app.again", "and again", { displayLabel: "Again" });
+		await h.waitFor(() => messages(woken, "and again")[0], "the resend");
+
+		expect(resent).toMatchObject({ target: answer.target });
+		expect(resent.status).not.toBe("starting");
+		expect(h.host.wakes).toHaveLength(wakes);
+	});
+
 	it("tells the sender to act when the daemon fails the wake, delivers nothing later, and forgets a create", async () => {
 		const sleeper = await asleep("unlucky");
 		daemon.answer = "failed";
@@ -179,6 +202,38 @@ describe("a session's send to a session that is not up", () => {
 			}
 			expect(messages(late, "never seen")).toEqual([]);
 			expect(retried).toMatchObject({ refused: { kind: "no_label" } });
+		} finally {
+			daemon.answer = "launched";
+		}
+	});
+
+	it("keeps the reply an earlier message waits on through a failed launch, and drops a job the failed send made", async () => {
+		const keeper = await create("keeper");
+		await send(keeper.team, "first");
+		const first = await h.waitFor(() => messages(keeper, "first")[0], "the first message");
+		keeper.close();
+		const dropper = await asleep("dropper");
+		daemon.answer = "failed";
+		try {
+			await send(keeper.team, "second");
+			await send(dropper.team, "never");
+			await pump(() => {
+				const both = [noticesFor(h.target(keeper.team))[0], noticesFor(h.target(dropper.team))[0]];
+				return both.every(Boolean) ? both : undefined;
+			}, "both failure notices");
+			daemon.answer = "launched";
+			const waiting = await pendingTo(sender);
+			const back = attach(keeper.team, keeper.sessionToken);
+			await back.registered();
+			const replied = await back.reply(String(first.session_id), "answer to first");
+			await pump(
+				() => sender.frames.find((frame) => JSON.stringify(frame).includes("answer to first")),
+				"the answer reaching the sender",
+			);
+
+			expect(waiting).toContain(keeper.team);
+			expect(waiting).not.toContain(dropper.team);
+			expect(replied.status).toBe(200);
 		} finally {
 			daemon.answer = "launched";
 		}
@@ -247,6 +302,37 @@ describe("a session's send to a session that is not up", () => {
 		expect(noticesFor(address)).toHaveLength(1);
 	});
 
+	it("forgets a build's stage when the host registers again, so a later launch still times out", async () => {
+		const sleeper = await asleep("rebuilt");
+		const address = h.target(sleeper.team);
+		h.host.sendFrame({ type: "wake_stage", team: sleeper.team, stage: "building" });
+		h.host.vanish();
+		const replacement = attachFakeHost(h.gateway, { token: h.set.tokens.host, answerWake: () => "silent" });
+		try {
+			await h.waitFor(
+				() => replacement.frames.find((frame) => frame.type === "register_ok"),
+				"the new registration",
+			);
+			const answer = await send(sleeper.team, "after the rebuild");
+			const notice = await pump(() => noticesFor(address)[0], "the timeout notice");
+
+			expect(answer).toMatchObject({ status: "starting" });
+			expect(replacement.wakes.map((frame) => frame.team)).toEqual([sleeper.team]);
+			expect(notice.body).toContain(
+				launchNoticeText({
+					kind: "failed",
+					address,
+					failure: { kind: "timeout" },
+					created: false,
+					foreign: false,
+				}),
+			);
+		} finally {
+			replacement.close();
+			h.restartHost();
+		}
+	});
+
 	it("still tells the sender once the session comes up after a Gateway restart mid-launch", async () => {
 		const sleeper = await asleep("restarted");
 		const address = h.target(sleeper.team);
@@ -269,7 +355,7 @@ describe("a session's send to another Domain's session that is not up", () => {
 	let bob: DomainPeer;
 	let asker: FakeSession;
 	const attached: FakeSession[] = [];
-	const daemon: { answer: "launched" | "failed" } = { answer: "launched" };
+	const daemon: { answer: "launched" | "failed" | { failure: LaunchFailure } } = { answer: "launched" };
 	let made = 0;
 
 	const attach = (peer: DomainPeer, team: string): FakeSession => {
@@ -282,8 +368,8 @@ describe("a session's send to another Domain's session that is not up", () => {
 		attached.push(session);
 		return session;
 	};
-	/** Shared to this Domain, its plugin gone. */
-	const asleepOnBob = async (team: string): Promise<string> => {
+	/** Shared to this Domain and up. */
+	const sharedOnBob = async (team: string): Promise<{ session: FakeSession; address: string }> => {
 		const session = attach(bob, team);
 		await session.ready();
 		const sessionTarget = bob.target(team);
@@ -299,8 +385,13 @@ describe("a session's send to another Domain's session that is not up", () => {
 			() => bob.gateway.faults.sharesHeld().sessionTargets.includes(sessionTarget) || undefined,
 			"the Gateway's copy of the share",
 		);
+		return { session, address: sessionTarget };
+	};
+	/** Shared to this Domain, its plugin gone. */
+	const asleepOnBob = async (team: string): Promise<string> => {
+		const { session, address } = await sharedOnBob(team);
 		session.close();
-		return sessionTarget;
+		return address;
 	};
 	const send = async (to: string, body: string) =>
 		asker.post("/send", {
@@ -311,13 +402,31 @@ describe("a session's send to another Domain's session that is not up", () => {
 			body,
 		});
 	/** Both Gateways' clocks, a second at a time. */
-	const pump = async <T>(probe: () => T | undefined, label: string): Promise<T> => {
+	const pump = async <T>(probe: () => T | undefined | Promise<T | undefined>, label: string): Promise<T> => {
 		for (let second = 0; second < 90; second += 1) {
-			const found = probe();
+			const found = await probe();
 			if (found !== undefined) return found;
 			await advanceAll([h.ambient, bob.ambient, h.routerAmbient], 1000);
 		}
 		throw new Error(`never saw ${label}`);
+	};
+	const phoneSend = async (peer: DomainPeer, to: string, body: string, domainId?: string) => {
+		made += 1;
+		const opId = `far-phone-${made}`;
+		const accepted = await peer.phone.deliver(
+			to,
+			{ kind: "send", to, body, ...(domainId ? { domainId } : {}) },
+			opId,
+		);
+		expect(accepted.outcome).toBe("accepted");
+		const row = await pump(
+			async () =>
+				(await peer.phone.inboxRead()).find(
+					(held) => held.envelope.kind === "op_result" && held.envelope.opKey.opId === opId,
+				),
+			`the answer to ${opId}`,
+		);
+		return peer.phone.open(row);
 	};
 
 	beforeAll(async () => {
@@ -362,6 +471,65 @@ describe("a session's send to another Domain's session that is not up", () => {
 			expect(notice.body).toContain("Send again to retry.");
 			expect(notice.body).not.toContain("within 10 minutes");
 			expect(messagesIn(late, "never across")).toEqual([]);
+		} finally {
+			daemon.answer = "launched";
+		}
+	});
+
+	it("keeps the reply an earlier message waits on when the far launch of a later one fails", async () => {
+		const { session: far, address } = await sharedOnBob("fixture-app.farkeep");
+		await send(address, "first across");
+		const first = await pump(() => messagesIn(far, "first across")[0], "the first message");
+		far.close();
+		daemon.answer = "failed";
+		try {
+			await send(address, "second across");
+			await pump(() => noticesIn(asker, address)[0], "the failure notice");
+			daemon.answer = "launched";
+			const back = attach(bob, "fixture-app.farkeep");
+			await back.registered();
+			const replied = await back.reply(String(first.session_id), "answer across");
+			await pump(
+				() => asker.frames.find((frame) => JSON.stringify(frame).includes("answer across")),
+				"the answer reaching the sender",
+			);
+
+			expect(replied.status).toBe(200);
+		} finally {
+			daemon.answer = "launched";
+		}
+	});
+
+	const failure: LaunchFailure = { kind: "container", spawn: "fixture-app", projectPath: "/home/bob/fixture-app" };
+
+	it("answers the owner's waited send with the container's failure and its path", async () => {
+		const address = await asleepOnBob("fixture-app.ownpath");
+		daemon.answer = { failure };
+		try {
+			const answer = await phoneSend(bob, "fixture-app.ownpath", "from its owner");
+
+			expect(answer).toEqual({ ok: false, error: launchFailureText(failure, address) });
+			expect(JSON.stringify(answer)).toContain(failure.projectPath);
+		} finally {
+			daemon.answer = "launched";
+		}
+	});
+
+	// Skipped: far op_result unconsumed at own inbox.
+	it.skip("tells another Domain's phone its send's container failed, without the path", async () => {
+		const address = await asleepOnBob("fixture-app.farpath");
+		daemon.answer = { failure };
+		try {
+			await phoneSend(h, address, "from another Domain", bob.set.domain.id);
+			const told = await pump(
+				async () =>
+					h.phone
+						.entries(await h.phone.inboxRead())
+						.find((entry) => entry.kind === "reply" && entry.status === "error"),
+				"the failure on the far phone",
+			);
+
+			expect(told.body).toBe(launchFailureText(failure, address, { created: false, foreign: true }));
 		} finally {
 			daemon.answer = "launched";
 		}

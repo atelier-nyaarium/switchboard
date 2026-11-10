@@ -291,7 +291,7 @@ internal fun ContainerHeader(
 			}
 			if (buttons.create) {
 				Spacer(Modifier.width(6.dp))
-				Button(onClick = hapticClick(onCreate), contentPadding = compact, modifier = Modifier.height(32.dp)) {
+				Button(onClick = hapticClick(onCreate), enabled = !buttons.busy, contentPadding = compact, modifier = Modifier.height(32.dp)) {
 					Text("Create")
 				}
 			}

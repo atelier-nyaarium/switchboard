@@ -456,9 +456,10 @@ describe("awareness bank", () => {
 		expect(sent).toHaveLength(1);
 	});
 
-	it("drops a banked notice for a session that is gone, and does not deliver it if the session returns", () => {
+	it("drops a banked notice for a session that is gone, tells its subscriber, and does not deliver it if the session returns", () => {
 		let live = false;
 		const sent: ChannelPushPayload[] = [];
+		const dropped: unknown[] = [];
 		const bank = createAwarenessBank({
 			liveness: () => (live ? "live" : "gone"),
 			ambient: fakeAmbient({ now: () => 0 }),
@@ -467,10 +468,16 @@ describe("awareness bank", () => {
 				return true;
 			},
 		});
-		const observe = bank.register<string>({ source: "fake", act: () => "act_now", render: () => "body" });
+		const observe = bank.register<string>({
+			source: "fake",
+			act: () => "act_now",
+			render: () => "body",
+			dropped: (sessionKey, change) => dropped.push([sessionKey, change]),
+		});
 		observe([{ sessionKey: "s", identity: "x", pre: "gone", post: "here" }]);
 		bank.tick(61_000);
 		expect(sent).toHaveLength(0);
+		expect(dropped).toEqual([["s", { identity: "x", pre: "gone", post: "here" }]]);
 		// A later incarnation is a different session and must not inherit a notice meant for the old one.
 		live = true;
 		bank.tick(62_000);

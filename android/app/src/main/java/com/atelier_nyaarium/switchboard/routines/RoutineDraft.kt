@@ -2,8 +2,12 @@ package com.atelier_nyaarium.switchboard.routines
 
 import com.atelier_nyaarium.switchboard.ASSISTANT_SPAWN
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.PICK_A_CLI
+import com.atelier_nyaarium.switchboard.SpawnHarnesses
+import com.atelier_nyaarium.switchboard.cliRefusal
 import com.atelier_nyaarium.switchboard.pickAfterTap
 import com.atelier_nyaarium.switchboard.pickOf
+import com.atelier_nyaarium.switchboard.pickOnSpawnChange
 import com.atelier_nyaarium.switchboard.shownPick
 import com.atelier_nyaarium.switchboard.placedGateway
 import com.atelier_nyaarium.switchboard.proto.CliPick
@@ -53,6 +57,8 @@ internal data class RoutineDraft(
 	val cli: CliPick? = CliPick.Unpicked,
 	/** That held pick's word, shown marked. */
 	val unreadCli: String? = null,
+	/** Pick chosen by the owner. */
+	val cliChosen: Boolean = false,
 	val linkedEntries: List<String> = emptyList(),
 	val enabled: Boolean = true,
 	/** Days a finished run's session is kept before the gateway forgets it. */
@@ -63,8 +69,9 @@ internal data class RoutineDraft(
 	/**
 	 * Every rule the gateway's schema would refuse, checked here too. Without it a schema refusal
 	 * comes back as a thrown parse and the screen blames the network for the owner's own typo.
+	 * `here` is the spawn point's CLIs; null skips the CLI rule.
 	 */
-	fun refusal(): String? = when {
+	fun refusal(here: SpawnHarnesses? = null): String? = when {
 		!ID_RE.matches(id) || id.length > MAX_ID_LEN -> "The id must be lowercase letters, digits and dashes"
 		name.isBlank() -> "Give it a name"
 		weekdays.isEmpty() -> "Pick at least one day"
@@ -78,11 +85,12 @@ internal data class RoutineDraft(
 		approvedRevision <= 0L -> "Pick a runbook"
 		!isAssistantTarget && forgetAfterDays !in FORGET_MIN..FORGET_MAX ->
 			"Keep the session $FORGET_MIN to $FORGET_MAX days"
+		!isAssistantTarget && here != null && cliRefusal(cli, here) != null -> PICK_A_CLI
 		else -> null
 	}
 
-	fun toRoutine(): Routine? {
-		if (refusal() != null) return null
+	fun toRoutine(here: SpawnHarnesses? = null): Routine? {
+		if (refusal(here) != null) return null
 		val assistant = isAssistantTarget
 		return Routine(
 			id = id,
@@ -124,16 +132,24 @@ internal data class RoutineDraft(
 		linkedEntries = emptyList(),
 	)
 
-	fun selectSpawn(spawn: String): RoutineDraft = copy(
+	fun selectSpawn(spawn: String, available: SpawnHarnesses): RoutineDraft = copy(
 		targetKind = ROUTINE_TARGET_SPAWN,
 		spawn = spawn,
+		cli = pickOnSpawnChange(cli, cliChosen, available),
 	)
 
 	/** The toggle shown selected. */
 	val shownCli: String? get() = shownPick(cli, unreadCli)
 
 	/** Any tap retires an unread held pick. */
-	fun tapCli(tapped: String): RoutineDraft = copy(cli = pickAfterTap(cli, unreadCli, tapped), unreadCli = null)
+	fun tapCli(tapped: String, here: SpawnHarnesses): RoutineDraft {
+		val picked = pickAfterTap(cli, unreadCli, tapped, here)
+		return copy(cli = picked, unreadCli = unreadCli.takeIf { picked == null }, cliChosen = true)
+	}
+
+	/** Unchosen pick takes the spawn default. */
+	fun withDefaultPick(here: SpawnHarnesses): RoutineDraft =
+		copy(cli = pickOnSpawnChange(cli, cliChosen, here))
 
 	/** The same rule read in another zone, for showing the owner their own time. */
 	fun shown(inZoneId: String, on: java.time.LocalDate = today()): RoutineDraft = read(inZoneId, on)
@@ -164,11 +180,10 @@ internal data class RoutineDraft(
 
 	companion object {
 		/** The gateway prefixes `routine-` to name the reserved session, so the id carries none. */
-		fun fresh(zone: java.time.ZoneId, cli: CliPick = CliPick.Unpicked): RoutineDraft = RoutineDraft(
+		fun fresh(zone: java.time.ZoneId): RoutineDraft = RoutineDraft(
 			id = java.util.UUID.randomUUID().toString().take(8),
 			startDate = java.time.LocalDate.now(zone).toString(),
 			zone = zone.id,
-			cli = cli,
 		)
 
 		fun of(routine: Routine): RoutineDraft = RoutineDraft(
@@ -192,6 +207,8 @@ internal data class RoutineDraft(
 			workdir = routine.target.workdir.orEmpty(),
 			cli = pickOf(routine.target.cli),
 			unreadCli = routine.target.cli.takeIf { pickOf(it) == null },
+			// No stored pick takes the default.
+			cliChosen = pickOf(routine.target.cli) != CliPick.Unpicked,
 			linkedEntries = routine.linkedEntries,
 			enabled = routine.enabled,
 			forgetAfterDays = routine.forgetAfterDays.toInt(),

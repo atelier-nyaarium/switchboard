@@ -16,6 +16,8 @@ export const LaunchFailureSchema = z.discriminatedUnion("kind", [
 	/** A create's pick, or a woken session's CLI gone. */
 	z.object({ kind: z.literal("cli"), refusal: CliRefusalSchema }),
 	z.object({ kind: z.literal("timeout") }),
+	/** The owner stopped its container meanwhile. */
+	z.object({ kind: z.literal("stopped") }),
 	z.object({ kind: z.literal("error"), reason: z.string().max(2048) }),
 ]);
 
@@ -51,10 +53,27 @@ export type SendRefusal = z.infer<typeof SendRefusalSchema>;
 
 export const LAUNCH_NOTICE_SOURCE = "launches";
 
+export const PLAIN_LAUNCH_REASON = "the launch failed";
+
 ////////////////////////////////
 //  Functions & Helpers
 
 const escaped = (text: string): string => neutralizeMarkup(oneLine(text));
+
+/** Another Domain gets no path and no daemon text. */
+export function failureFor(failure: LaunchFailure, foreign: boolean): LaunchFailure {
+	if (!foreign) return failure;
+	if (failure.kind === "container") return { kind: "container", spawn: failure.spawn };
+	if (failure.kind === "error") return { kind: "error", reason: PLAIN_LAUNCH_REASON };
+	if (failure.kind === "cli") return { kind: "cli", refusal: { cause: "none_installed" } };
+	return failure;
+}
+
+/** Foreign notice rebuilt; only the job's address is trusted. */
+export function foreignNotice(notice: LaunchNotice, address: string): LaunchNotice {
+	if (notice.kind === "up") return { kind: "up", address };
+	return { kind: "failed", address, failure: failureFor(notice.failure, true), created: false, foreign: true };
+}
 
 function failureText(notice: Extract<LaunchNotice, { kind: "failed" }>): string {
 	const address = escaped(notice.address);
@@ -71,6 +90,11 @@ function failureText(notice: Extract<LaunchNotice, { kind: "failed" }>): string 
 				: `\`${address}\`'s CLI is not installed. Talk to the user.`;
 		case "timeout":
 			return `\`${address}\` did not come up within 10 minutes. Send again to retry.`;
+		case "stopped":
+			return `
+\`${address}\` did not start: the user stopped its devcontainer.
+Ask the user before sending again.
+			`.trim();
 		case "error":
 			return `\`${address}\` did not come up: ${escaped(failure.reason)}. Send again to retry.`;
 	}
@@ -84,6 +108,15 @@ export function sendRefusalText(refusal: SendRefusal, address: string): string {
 /** A send's answer while its session starts. */
 export function startingText(address: string): string {
 	return `Starting \`${escaped(address)}\`. Message will auto-send afterwards. You will be notified by a system reminder when it completes or fails.`;
+}
+
+/** A launch's failure for a reader that waited on it. */
+export function launchFailureText(
+	failure: LaunchFailure,
+	address: string,
+	at: { created: boolean; foreign: boolean } = { created: false, foreign: false },
+): string {
+	return failureText({ kind: "failed", address, failure: failureFor(failure, at.foreign), ...at });
 }
 
 /** The `session:` line names the address, since some texts do not. */

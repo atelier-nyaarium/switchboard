@@ -2,7 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { agentInboundFrameTypes } from "../shared/agent-backend.js";
 import { ClaudeTurnAckFrameSchema, ClaudeTurnResultFrameSchema } from "../shared/host-op.js";
 import { isHostSpawnSession } from "../shared/host-spawn.js";
-import { LaunchFailureSchema } from "../shared/launch-notice.js";
+import { type LaunchFailure, LaunchFailureSchema } from "../shared/launch-notice.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
 import { ContainerListSchema, DerivedPresenceSchema, HarnessSpawnsSchema } from "../shared/schemasPresence.js";
 import { WakeStageFrameSchema } from "../shared/schemasWake.js";
@@ -31,6 +31,11 @@ import {
 
 const CODEX_INBOUND_FRAMES = agentInboundFrameTypes("codex");
 const COPILOT_INBOUND_FRAMES = agentInboundFrameTypes("copilot");
+
+function launchFailureOf(raw: unknown): { failure?: LaunchFailure } {
+	const parsed = LaunchFailureSchema.safeParse(raw);
+	return parsed.success ? { failure: parsed.data } : {};
+}
 
 export function createWebSocketHandlers({
 	registry,
@@ -378,9 +383,8 @@ export function createWebSocketHandlers({
 
 		if (msg.type === "wake_result" && ws.data.teamName === "host" && typeof msg.team === "string") {
 			if (msg.success === false) {
-				const failure = LaunchFailureSchema.safeParse(msg.failure);
 				wakeCoordinator.fail(msg.team, {
-					...(failure.success ? { failure: failure.data } : {}),
+					...launchFailureOf(msg.failure),
 					...(typeof msg.error === "string" ? { error: msg.error.slice(0, 2048) } : {}),
 				});
 			} else {
@@ -409,6 +413,7 @@ export function createWebSocketHandlers({
 				result: msg.result,
 				error: typeof msg.error === "string" ? msg.error : undefined,
 				errorKind: msg.errorKind === "absent" || msg.errorKind === "failure" ? msg.errorKind : undefined,
+				...launchFailureOf(msg.failure),
 			});
 		}
 
@@ -662,6 +667,11 @@ export function createWebSocketHandlers({
 			console.log(
 				`[ws] session record ${sessionStore.teamOf(record)} confirmed (label "${record.sessionLabel}")`,
 			);
+			// Lost cli_found: plugin names its CLI.
+			const word = ws.data.harness;
+			if (!record.harness && word?.read === "named" && !HARNESS[word.harness].sessionId.minted) {
+				onPickResolved?.(pending.team, word.harness);
+			}
 		}
 		return record ? "confirmed" : "refused";
 	}

@@ -281,10 +281,11 @@ export type LaunchPlace = "host" | "windows" | "container";
 
 export function launchRefusal(harness: SessionHarness, at: { place: LaunchPlace; assistant: boolean }): string | null {
 	const row = HARNESS[harness];
-	if (at.place === "container" && !row.containers) return `${row.label} runs only on a host spawn point`;
+	if (at.place === "container" && !row.containers)
+		return `Devcontainer does not have ${row.label}. Choose another CLI.`;
 	// A launcher never crosses to PowerShell.
 	if (at.place === "windows" && (row.binary.windows === null || row.road.kind === "api")) {
-		return `${row.label} does not run on a Windows shell`;
+		return `Windows shell does not have ${row.label}. Choose another CLI.`;
 	}
 	if (at.assistant && !row.assistant) return `${row.label} never runs as the assistant`;
 	return null;

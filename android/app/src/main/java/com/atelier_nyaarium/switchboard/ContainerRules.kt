@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.isComposite
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import com.atelier_nyaarium.switchboard.proto.parseSessionName
 
 ////////////////////////////////
@@ -11,7 +13,7 @@ internal data class ContainerButtons(
 	val start: Boolean,
 	val stop: Boolean,
 	val create: Boolean,
-	/** A Start or Stop awaits its answer. */
+	/** Start or Stop pending. */
 	val busy: Boolean,
 	val building: Boolean,
 )
@@ -33,6 +35,11 @@ internal fun containerButtons(container: SpawnContainer, reachable: Boolean, inF
 		busy = inFlight,
 		building = run == ContainerRun.STARTING,
 	)
+}
+
+internal fun containerAt(state: ChatState, target: String): SpawnContainer? {
+	val point = runIsolated { parseQualifiedTarget(target) }.getOrNull() as? SpawnPoint ?: return null
+	return state.gateways.container(point.gateway, point.spawn)
 }
 
 /** One Gateway's sessions inside a container project. */

@@ -91,7 +91,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			presence = sandboxPresence(working = true),
 			kind = "loose",
 			sessionLabel = "Mixer",
-			harness = HarnessWord.Named(SessionHarness.OPENCODE),
+			harness = HarnessWord.Named(SessionHarness.CLAUDE),
 		),
 		Team(
 			name = ASSISTANT,

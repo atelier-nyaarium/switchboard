@@ -208,6 +208,9 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 	function drop(sessionKey: string, bank: SessionBank, why: string): void {
 		console.error(`[awareness] dropped ${changeCount(bank)} change(s) for ${sessionKey}: ${why}`);
 		sessions.delete(sessionKey);
+		for (const entry of bank.entries.values()) {
+			for (const change of entry.changes.values()) entry.subscriber.dropped?.(sessionKey, change);
+		}
 	}
 
 	function rearm(sessionKey: string, bank: SessionBank): void {

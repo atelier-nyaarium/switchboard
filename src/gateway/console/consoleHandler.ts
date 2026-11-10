@@ -31,7 +31,7 @@ import { createRunbookFireHandler } from "./consoleRunbookFire.js";
 import { createSessionLifecycleHandlers } from "./consoleSessionLifecycle.js";
 import { createConsoleTargets } from "./consoleTargets.js";
 import { createTerminalHandlers } from "./consoleTerminal.js";
-import { type ConsoleHandlerDeps, FAKE_REQ, type SendRouteJson } from "./consoleTypes.js";
+import { type ConsoleHandlerDeps, CreateSessionFailedError, FAKE_REQ, type SendRouteJson } from "./consoleTypes.js";
 
 export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
 
@@ -74,13 +74,15 @@ export function createConsoleDispatcher({
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
 
-	/** The named CLI, or the spawn point's only one. */
-	function definitePick(spawn: string, pick: CliPick | undefined): { harness: SessionHarness } | { refused: string } {
+	/** Named CLI, else the only one. */
+	function definitePick(
+		spawn: string,
+		pick: CliPick | undefined,
+	): { harness?: SessionHarness } | { refused: string } {
 		const named = pick && pick !== UNPICKED_WORD ? pick : undefined;
 		const chosen = pickAt({ place: launchPlaceOf(spawn), assistant: false }, named, installedAt?.(spawn));
 		if ("refused" in chosen) return { refused: cliRefusalText(chosen.refused, spawn) };
-		if (!chosen.harness) return { refused: `"${spawn}" has not reported its CLIs yet; pick one` };
-		return { harness: chosen.harness };
+		return chosen.harness ? { harness: chosen.harness } : {};
 	}
 
 	/** A session, never a spawn point: the plane serves the workspace a plugin itself holds. */
@@ -123,7 +125,7 @@ export function createConsoleDispatcher({
 	const runbookFire = createRunbookFireHandler({
 		targets,
 		getRunbook: (runbookId) => runbooks?.get(runbookId) ?? null,
-		createSession: (op, conv, opId) => sessionLifecycle.createSession(op, conv, opId),
+		createSession: (op, conv, opId, internal) => sessionLifecycle.createSession(op, conv, opId, internal),
 		awaitRegister,
 		pick: definitePick,
 		deliver: async (to, body, ctx) => {
@@ -580,24 +582,36 @@ export function createConsoleDispatcher({
 	/** A routine's session, named from the routine; recreated if gone. */
 	async function reserveRoutineSession(routine: Routine): Promise<ReserveResult> {
 		const team = routineTeam(routine);
+		const held = sessionStore?.getByTeam(team);
 		// Never adopt a session someone else made.
-		if (!routineOwns(sessionStore?.getByTeam(team), routine)) return { kind: "taken" };
-		const pick = definitePick(routine.target.spawn, routine.target.cli);
+		if (!routineOwns(held, routine)) return { kind: "taken" };
+		// A held session keeps its CLI.
+		const pick = held ? { harness: held.harness } : definitePick(routine.target.spawn, routine.target.cli);
 		if ("refused" in pick) {
 			console.warn(`[routine] ${routine.id} cannot reserve its session: ${pick.refused}`);
 			return { kind: "cli_refused" };
 		}
-		const made = await sessionLifecycle.createSession(
-			{
-				kind: "create_session",
-				target: SpawnPoint.of(localDomainId, localGatewayId, routine.target.spawn).canonical,
-				sessionName: routineSessionName(routine.id),
-				harness: pick.harness,
-				...(routine.target.workdir ? { workdir: routine.target.workdir } : {}),
-			},
-			reserveConversation(routine),
-			RESERVE_OP,
-		);
+		const made = await sessionLifecycle
+			.createSession(
+				{
+					kind: "create_session",
+					target: SpawnPoint.of(localDomainId, localGatewayId, routine.target.spawn).canonical,
+					sessionName: routineSessionName(routine.id),
+					...(pick.harness ? { harness: pick.harness } : {}),
+					...(routine.target.workdir ? { workdir: routine.target.workdir } : {}),
+				},
+				reserveConversation(routine),
+				RESERVE_OP,
+				pick.harness ? undefined : { unpicked: true },
+			)
+			.catch((error: unknown) => {
+				if (error instanceof CreateSessionFailedError && error.failure.kind === "cli") return null;
+				throw error;
+			});
+		if (!made) {
+			console.warn(`[routine] ${routine.id} cannot reserve its session: its CLI is not installed`);
+			return { kind: "cli_refused" };
+		}
 		// Still launching is not yet reachable.
 		return made.status === "pending" ? { kind: "pending" } : { kind: "ok", team };
 	}

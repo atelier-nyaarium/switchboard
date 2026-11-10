@@ -88,15 +88,17 @@ export class WakeService {
 		const started = new Promise<WakeStart>((resolve) => {
 			announce = resolve;
 		});
+		let flight: WakeFlight | undefined;
+		// Create launches under its minted name.
+		let minted: string | undefined;
 		const outcome = (async () => {
 			this.deps.presence.wakeStart(team);
-			// A create launches under its minted name, which presence reads.
-			let minted: string | undefined;
 			try {
 				const result = await this.doWakeTeam(team, createOpts, (wakeTeam, created) => {
 					if (wakeTeam !== team) {
 						minted = wakeTeam;
 						this.deps.presence.wakeStart(wakeTeam);
+						if (flight) this.flights.set(wakeTeam, flight);
 					}
 					announce({ kind: "launching", team: wakeTeam, created });
 				});
@@ -111,11 +113,14 @@ export class WakeService {
 			} finally {
 				this.deps.presence.wakeEnd(team);
 				if (minted) this.deps.presence.wakeEnd(minted);
-				this.flights.delete(team);
+				for (const name of [team, minted]) {
+					if (name && this.flights.get(name) === flight) this.flights.delete(name);
+				}
 			}
 		})();
-		const flight = { started, outcome };
+		flight = { started, outcome };
 		this.flights.set(team, flight);
+		if (minted) this.flights.set(minted, flight);
 		return flight;
 	}
 
@@ -194,14 +199,29 @@ export class WakeService {
 			});
 			provisionalCreated = minted.created;
 			wakeTeam = this.deps.sessionStore.teamOf(minted.record);
+			// A resend reattached to a session already up.
+			if (resolveLiveIncarnation(this.deps.registry, this.deps.sessionStore, wakeTeam)) {
+				return { ok: true, resolvedTeam: wakeTeam };
+			}
 		}
+
+		// One launch per pane: a create's goes first.
+		const creating = this.inflightCreates.get(wakeTeam);
+		if (creating) {
+			await creating.catch(() => undefined);
+			if (resolveLiveIncarnation(this.deps.registry, this.deps.sessionStore, wakeTeam)) {
+				return wakeTeam !== team ? { ok: true, resolvedTeam: wakeTeam } : { ok: true };
+			}
+		}
+		const liveHost = creating ? this.deps.liveHostSocket() : hostWs;
+		if (!liveHost) return { ok: false, errorKind: "disconnected" };
 
 		const projectPath = this.deps.offlineCatalog.get(project) ?? this.deps.knownTeamPaths.get(project);
 		const record = this.deps.sessionStore.getByTeam(wakeTeam);
 		const resumeSessionId = record ? resumeIdOf(record) : undefined;
 		const workdirHint = record ? this.deps.sessionStore.hostWorkdirHint(record) : undefined;
 		const requested = sendOn(
-			hostWs,
+			liveHost,
 			JSON.stringify({
 				type: "wake",
 				team: wakeTeam,
@@ -229,15 +249,15 @@ export class WakeService {
 		const result = await this.deps.wakeCoordinator
 			.waitFor(wakeTeam, this.deps.wakeTimeoutMs)
 			.finally(() => this.launching.delete(wakeTeam));
-		if (result.errorKind === "timeout") {
-			// No pane for a record about to go.
+		// Only a create's record goes.
+		if (result.errorKind === "timeout" && provisionalCreated) {
 			const live = this.deps.liveHostSocket();
 			if (live) sendOn(live, JSON.stringify({ type: "wake_cancel", team: wakeTeam }), `wake_cancel ${wakeTeam}`);
 		}
 		console.log(`[wake] ${wakeTeam} ${result.ok ? "is now online" : "failed to come online"}`);
 		for (const listener of this.settledListeners) listener(wakeTeam, result);
-		if (!result.ok && provisionalCreated) {
-			// Drops a provisional record.
+		// Launch record decides, not the host link.
+		if (!result.ok && provisionalCreated && result.errorKind !== "disconnected") {
 			const rec = this.deps.sessionStore.getByTeam(wakeTeam);
 			if (
 				rec &&

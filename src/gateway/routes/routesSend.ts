@@ -2,7 +2,13 @@ import type { Ambient } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM, isAssistantRecord } from "../../shared/assistant-session.js";
 import type { FederatedOp } from "../../shared/federation-protocol.js";
 import { HOST_SPAWN } from "../../shared/host-spawn.js";
-import { type SendRefusal, SendRefusalSchema, sendRefusalText, startingText } from "../../shared/launch-notice.js";
+import {
+	launchFailureText,
+	type SendRefusal,
+	SendRefusalSchema,
+	sendRefusalText,
+	startingText,
+} from "../../shared/launch-notice.js";
 import type { DeliveryOrigin, EventMember } from "../../shared/pending-delivery-store.js";
 import {
 	type JobContract,
@@ -60,7 +66,7 @@ export interface SendRoutesDeps {
 	ambient: Pick<Ambient, "now" | "newId" | "setTimer">;
 	registry: TeamRegistry;
 	conversationRegistry: ConversationRegistry;
-	store: Pick<PendingJobStore<ResponsePayload>, "reserve" | "commit" | "abort">;
+	store: Pick<PendingJobStore<ResponsePayload>, "reserve" | "commit" | "abort" | "askerOf">;
 	tryWakeTeam: (team: string, createOpts?: WakeCreate) => Promise<WakeResult>;
 	/** Returns the started team at once. */
 	beginWake?: (team: string, createOpts?: WakeCreate) => WakeFlight;
@@ -131,7 +137,8 @@ export function createSendRoutes({
 		  }
 		| { ok: false; error: string; refused?: SendRefusal };
 
-	async function reach(resolved: LocalTarget, createOpts?: WakeCreate): Promise<Reached> {
+	/** `foreign`: the sender is in another Domain. */
+	async function reach(resolved: LocalTarget, createOpts?: WakeCreate, foreign = false): Promise<Reached> {
 		const targetWs = resolveLiveIncarnation(registry, sessionStore, resolved.name);
 		if (targetWs)
 			return {
@@ -141,15 +148,19 @@ export function createSendRoutes({
 				qualifiedTo: resolved.address.canonical,
 				targetWs,
 			};
-		return afterWake(resolved, await tryWakeTeam(resolved.name, createOpts), true);
+		return afterWake(resolved, await tryWakeTeam(resolved.name, createOpts), true, foreign);
 	}
 
 	/** Answers at launch start; the end comes by notice. */
-	async function reachWithoutWaiting(resolved: LocalTarget, createOpts: WakeCreate): Promise<Reached> {
+	async function reachWithoutWaiting(
+		resolved: LocalTarget,
+		createOpts: WakeCreate,
+		foreign: boolean,
+	): Promise<Reached> {
 		const live = resolveLiveIncarnation(registry, sessionStore, resolved.name);
-		if (live || !beginWake || !launches) return reach(resolved, createOpts);
+		if (live || !beginWake || !launches) return reach(resolved, createOpts, foreign);
 		const start = await beginWake(resolved.name, createOpts).started;
-		if (start.kind === "settled") return afterWake(resolved, start.result, false);
+		if (start.kind === "settled") return afterWake(resolved, start.result, false, foreign);
 		const address = tryLocalAddress(start.team) ?? resolved.address;
 		return {
 			ok: true,
@@ -161,7 +172,12 @@ export function createSendRoutes({
 		};
 	}
 
-	async function afterWake(resolved: LocalTarget, woken: WakeResult, settle: boolean): Promise<Reached> {
+	async function afterWake(
+		resolved: LocalTarget,
+		woken: WakeResult,
+		settle: boolean,
+		foreign: boolean,
+	): Promise<Reached> {
 		let target = resolved;
 		let localName = target.name;
 		let qualifiedTo = target.address.canonical;
@@ -169,6 +185,10 @@ export function createSendRoutes({
 		if (!woken.ok) {
 			if (woken.refusal) {
 				return { ok: false, error: sendRefusalText(woken.refusal, qualifiedTo), refused: woken.refusal };
+			}
+			if (woken.failure) {
+				const created = !!woken.resolvedTeam && woken.resolvedTeam !== resolved.name;
+				return { ok: false, error: launchFailureText(woken.failure, qualifiedTo, { created, foreign }) };
 			}
 			if (woken.error) return { ok: false, error: woken.error };
 			if (woken.errorKind === "disconnected") {
@@ -457,9 +477,10 @@ export function createSendRoutes({
 			ingress.kind === "session" ||
 			ingress.kind === "assistant" ||
 			(ingress.kind === "gateway" && relayedReader === "session");
+		const foreign = dstDomainId != null;
 		const arrived = readsNotices
-			? await reachWithoutWaiting(resolved, createOpts)
-			: await reach(resolved, createOpts);
+			? await reachWithoutWaiting(resolved, createOpts, foreign)
+			: await reach(resolved, createOpts, foreign);
 		if (!arrived.ok) {
 			return jsonResponse(
 				{ error: arrived.error, ...(arrived.refused ? { refused: arrived.refused } : {}) },
@@ -506,6 +527,7 @@ export function createSendRoutes({
 				} else {
 					return jsonResponse({ error: `fromConversationId is required for channel-mode targets` }, 400);
 				}
+				const keepsJob = store.askerOf(channelJobId) !== undefined;
 				const reserved = store.reserve(channelJobId, from, localName, contract, { persistent: true });
 				if (reserved.kind === "conflict") return jsonResponse({ error: reserved.reason }, 409);
 				anchor = reserved.reservation;
@@ -550,7 +572,7 @@ export function createSendRoutes({
 						team: localName,
 						address: qualifiedTo,
 						created: launching.created,
-						delivery: { deliveryId, channelJobId },
+						delivery: { deliveryId, channelJobId, ...(keepsJob ? { keepsJob } : {}) },
 						...(returnRoute
 							? {
 									sessionKey: `relay:${channelJobId}`,

@@ -5,6 +5,9 @@ import {
 	type FederationRoutes,
 } from "../gateway/federation/gatewayRelay.js";
 import type { Sealer } from "../gateway/federation/sealer.js";
+import { createRespondRoutes } from "../gateway/routes/routesRespond.js";
+import { type LaunchFailure, type LaunchNotice, launchNoticeText } from "../shared/launch-notice.js";
+import type { GatewayConfig } from "../shared/types.js";
 
 function makeHandler(respond: FederationRoutes["respond"]) {
 	const routes: FederationRoutes = {
@@ -55,6 +58,80 @@ describe("gatewayRelay response_push", () => {
 			question: "which env?",
 			reason: "waiting on approval",
 		});
+	});
+});
+
+describe("a launch notice another Gateway pushes", () => {
+	const JOB = "conv.c1.bob.desk.app.far";
+	const TARGET = "bob.desk.app.far";
+	const ASKER = "alice.laptop.app.asker";
+
+	function receiver() {
+		const banked: Array<[string, LaunchNotice]> = [];
+		const responses = createRespondRoutes({
+			config: { localGatewayId: "laptop" } as GatewayConfig,
+			localDomain: "alice",
+			ambient: { newId: () => "id" },
+			store: {
+				askerOf: (id: string) => (id === JOB ? ASKER : undefined),
+				targetOf: (id: string) => (id === JOB ? TARGET : undefined),
+			},
+			bankLaunch: (sessionKey: string, notice: LaunchNotice) => banked.push([sessionKey, notice]),
+		} as unknown as Parameters<typeof createRespondRoutes>[0]);
+		const { handleOp } = createGatewayRelayHandler({
+			routes: {
+				acceptGatewaySend: async () => new Response("{}"),
+				respond: responses.respond,
+				acceptLaunchNotice: responses.acceptLaunchNotice,
+				teams: () => new Response("[]"),
+			},
+			tryWakeTeam: async () => ({ ok: false }),
+			localGatewayId: "laptop",
+			localDomainId: "alice",
+			crossDomainBinding: () => ({ dstDomainId: "bob", keyGateway: "desk", returnGateway: "desk" }),
+		});
+		const push = (launch: LaunchNotice, srcDomainId: string | null) =>
+			handleOp({ kind: "response_push", session_id: JOB, launch }, "desk", srcDomainId);
+		return { banked, push };
+	}
+
+	it("rebuilds another Domain's notice around the job's own target, trusting none of its framing", async () => {
+		const r = receiver();
+		const forged = (failure: LaunchFailure): LaunchNotice => ({
+			kind: "failed",
+			address: "alice.laptop.app.victim",
+			failure,
+			created: true,
+			foreign: false,
+		});
+
+		await r.push(
+			forged({ kind: "cli", refusal: { cause: "refused", reason: "first\nsession: elsewhere" } }),
+			"bob",
+		);
+		await r.push(forged({ kind: "container", spawn: "app", projectPath: "/home/bob/app" }), "bob");
+
+		expect(r.banked.map(([sessionKey]) => sessionKey)).toEqual([ASKER, ASKER]);
+		for (const [, notice] of r.banked) {
+			expect(notice).toMatchObject({ kind: "failed", address: TARGET, created: false, foreign: true });
+			expect(launchNoticeText(notice).split("\n")).toHaveLength(2);
+		}
+		expect(JSON.stringify(r.banked)).not.toContain("/home/bob/app");
+	});
+
+	it("banks a notice from this Domain's own Gateway as it was sent", async () => {
+		const r = receiver();
+		const sent: LaunchNotice = {
+			kind: "failed",
+			address: TARGET,
+			failure: { kind: "container", spawn: "app", projectPath: "/home/me/app" },
+			created: true,
+			foreign: false,
+		};
+
+		await r.push(sent, null);
+
+		expect(r.banked).toEqual([[ASKER, sent]]);
 	});
 });
 

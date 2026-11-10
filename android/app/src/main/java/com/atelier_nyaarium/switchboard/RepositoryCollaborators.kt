@@ -207,6 +207,8 @@ internal class ChatRepositoryContainerHost(private val repo: ChatRepository) : C
 	override val gateway: ContainerGateway? get() =
 		if (isSandbox) repo.sandboxContainers else repo.clientOrNull()?.let(::ConsoleContainerGateway)
 
+	override val settleCapMs = CONTAINER_SETTLE_CAP_MS
+
 	override fun launchInBackground(block: suspend () -> Unit) {
 		repo.repoScope.launch(kotlinx.coroutines.Dispatchers.IO) { block() }
 	}

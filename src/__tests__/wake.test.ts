@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { decideWakeCreate, WakeCoordinator } from "../gateway/wake.js";
 import { processAmbient } from "../shared/ambient.js";
+import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 describe("WakeCoordinator", () => {
 	it("resolves a waiter true when its team is notified online", async () => {
@@ -90,6 +91,107 @@ describe("WakeCoordinator", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe("a launch's stages", () => {
+	const WINDOW = 1_000;
+
+	function rig() {
+		const ambient = fakeAmbient({ drive: "manual" });
+		const coord = new WakeCoordinator(ambient);
+		const watch = (wait: Promise<unknown>) => {
+			const state: { settled: unknown } = { settled: undefined };
+			void wait.then((result) => {
+				state.settled = result;
+			});
+			return state;
+		};
+		return { ambient, coord, watch };
+	}
+	const timedOut = { ok: false, errorKind: "timeout" };
+
+	it("holds a waiter through a build, then gives it the whole window from the container coming up", async () => {
+		const { ambient, coord, watch } = rig();
+		coord.stage("alpha", "building");
+		const wait = watch(coord.waitFor("alpha", WINDOW));
+
+		await ambient.advance(10 * WINDOW);
+		const duringBuild = wait.settled;
+		coord.stage("alpha", "container_up");
+		await ambient.advance(WINDOW - 1);
+		const justBefore = wait.settled;
+		await ambient.advance(1);
+
+		expect([duringBuild, justBefore]).toEqual([undefined, undefined]);
+		expect(wait.settled).toEqual(timedOut);
+	});
+
+	it("gives a waiter arriving after the container came up only the time left", async () => {
+		const { ambient, coord, watch } = rig();
+		coord.stage("alpha", "container_up");
+		await ambient.advance(600);
+		const wait = watch(coord.waitFor("alpha", WINDOW));
+
+		await ambient.advance(399);
+		const justBefore = wait.settled;
+		await ambient.advance(1);
+
+		expect(justBefore).toBeUndefined();
+		expect(wait.settled).toEqual(timedOut);
+	});
+
+	it("gives the whole window when the container came up longer ago than that", async () => {
+		const { ambient, coord, watch } = rig();
+		coord.stage("alpha", "container_up");
+		await ambient.advance(WINDOW + 500);
+		const wait = watch(coord.waitFor("alpha", WINDOW));
+
+		await ambient.advance(WINDOW - 1);
+		const justBefore = wait.settled;
+		await ambient.advance(1);
+
+		expect(justBefore).toBeUndefined();
+		expect(wait.settled).toEqual(timedOut);
+	});
+
+	it("forgets every stage when the host link drops, so a build no longer holds a waiter", async () => {
+		const { ambient, coord, watch } = rig();
+		coord.stage("alpha", "building");
+		coord.failAll();
+		const wait = watch(coord.waitFor("alpha", WINDOW));
+
+		await ambient.advance(WINDOW);
+
+		expect(wait.settled).toEqual(timedOut);
+		expect(coord.countdownFrom("alpha")).toBe(ambient.now() - WINDOW);
+	});
+
+	it("answers when a launch's countdown runs from: never while building, else the container's coming up", async () => {
+		const { ambient, coord } = rig();
+		const startedAt = ambient.now();
+		await ambient.advance(100);
+		const unstaged = coord.countdownFrom("alpha");
+		coord.stage("alpha", "building");
+		const building = coord.countdownFrom("alpha");
+		await ambient.advance(100);
+		coord.stage("alpha", "container_up");
+
+		expect([unstaged, building, coord.countdownFrom("alpha")]).toEqual([startedAt, null, startedAt + 200]);
+	});
+
+	it("tells every failure listener of a daemon failure, waited on or not", () => {
+		const { coord } = rig();
+		const heard: unknown[] = [];
+		coord.onFailure((team, detail) => heard.push([team, detail]));
+
+		coord.fail("alpha", { failure: { kind: "timeout" } });
+		coord.fail("beta", { error: "pane died" });
+
+		expect(heard).toEqual([
+			["alpha", { failure: { kind: "timeout" } }],
+			["beta", { error: "pane died" }],
+		]);
 	});
 });
 

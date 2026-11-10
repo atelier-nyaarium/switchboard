@@ -35,7 +35,7 @@ import type { WorkflowsStage } from "./composeWorkflows.js";
 export interface AwarenessStageDeps {
 	dataDir: string;
 	sessions: Pick<SessionsStage, "registry" | "sessionStore" | "presence">;
-	host: Pick<HostStage, "wakeService">;
+	host: Pick<HostStage, "wakeService" | "wakeCoordinator" | "liveHostSocket">;
 	stores: Pick<StoresStage, "jobs">;
 	/** Read late; composed after this stage. */
 	deliveries: () => Pick<ChannelDeliveryCoordinator, "withdraw">;
@@ -123,28 +123,40 @@ export function composeAwareness({
 	});
 	const isLive = (team: string) => Boolean(resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team));
 	let launches: LaunchRecords | null = null;
-	const observeLaunches = awareness.register(
-		createLaunchSubscriber((identity, key) => launches?.markTold(identity, key)),
-	);
+	const observeLaunches = awareness.register(createLaunchSubscriber(() => launches));
 	launches = createLaunchRecords({
 		durable: new DurableStore(dataDir, "launches"),
 		now: () => ambient.now(),
 		timeoutMs: wakeTimeoutMs,
+		countdownFrom: (team) => host.wakeCoordinator.countdownFrom(team),
 		isLive,
+		senderKnown: (key) => Boolean(sessions.sessionStore.getByTeam(key)),
 		inFlight: (team) => host.wakeService.isWakeInFlight(team),
-		withdraw: ({ deliveryId, channelJobId }) => {
+		withdraw: ({ deliveryId, channelJobId, keepsJob }) => {
 			deliveries().withdraw(deliveryId);
-			stores.jobs.remove(channelJobId);
+			if (!keepsJob) stores.jobs.remove(channelJobId);
 		},
 		forgetCreated: (team) => {
 			const record = sessions.sessionStore.getByTeam(team);
 			if (record && record.confirmedAt === undefined && !isLive(team)) sessions.presence.forget(team);
+		},
+		hostLink: () => host.liveHostSocket(),
+		cancel: (team) => {
+			const socket = host.liveHostSocket();
+			return (
+				!!socket &&
+				reached(sendOn(socket, JSON.stringify({ type: "wake_cancel", team }), `wake_cancel ${team}`))
+			);
 		},
 		observe: observeLaunches,
 		relay: relayLaunch,
 	});
 	const launchRecords = launches;
 	host.wakeService.onSettled((team, result) => launchRecords.settle(team, launchOutcome(result)));
+	// Failure no waiter heard.
+	host.wakeCoordinator.onFailure((team, detail) =>
+		launchRecords.settle(team, launchOutcome({ ok: false, ...detail })),
+	);
 	agents.onTurnsCollected((ownerKey, family, agentId, turnIds) => {
 		for (const turnId of turnIds) {
 			awareness.withdraw(ownerKey, AGENT_NOTICE_SOURCE, agentTurnIdentity(family, agentId, turnId));

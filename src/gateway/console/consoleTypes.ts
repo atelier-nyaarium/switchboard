@@ -12,6 +12,7 @@ import type {
 } from "../../shared/console-protocol.js";
 import type { SignedXDomainLink } from "../../shared/federation-protocol.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
+import type { LaunchFailure } from "../../shared/launch-notice.js";
 import type { ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import type {
 	AssistantRule,
@@ -243,5 +244,15 @@ export function friendlyPeekError(error?: string, kind?: HostOpResult["errorKind
 
 // Ambiguous host failures must not roll back a possibly running launch.
 export class CreateSessionAmbiguousError extends Error {}
+
+/** A launch the daemon said will not come up. */
+export class CreateSessionFailedError extends Error {
+	constructor(
+		message: string,
+		readonly failure: LaunchFailure,
+	) {
+		super(message);
+	}
+}
 
 export const FAKE_REQ = new Request("http://gateway/console");

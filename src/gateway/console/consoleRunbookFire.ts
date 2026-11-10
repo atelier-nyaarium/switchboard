@@ -1,4 +1,5 @@
 import type { ConsoleOp } from "../../shared/console-protocol.js";
+import { launchFailureText } from "../../shared/launch-notice.js";
 import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Runbook, runbookRefusal } from "../../shared/schemasRunbook.js";
 import type { CliPick, SessionHarness } from "../../shared/session-harness.js";
@@ -27,11 +28,12 @@ export interface RunbookFireDeps {
 		op: Extract<ConsoleOp, { kind: "create_session" }>,
 		conversationId: string,
 		opId: string,
+		internal?: { unpicked: true },
 	) => Promise<{ id: string; status?: "pending" }>;
 	awaitRegister?: (team: string) => Promise<WakeResult>;
 	deliver: (to: string, body: string, ctx: RunbookFireContext) => Promise<{ ok: boolean; error?: string }>;
 	/** The CLI a new session runs, or why none. */
-	pick: (spawn: string, pick: CliPick | undefined) => { harness: SessionHarness } | { refused: string };
+	pick: (spawn: string, pick: CliPick | undefined) => { harness?: SessionHarness } | { refused: string };
 }
 
 export function createRunbookFireHandler({
@@ -56,10 +58,11 @@ export function createRunbookFireHandler({
 				target: into.target,
 				displayLabel: into.displayLabel ?? runbook.name,
 				workdir: into.workdir,
-				harness: chosen.harness,
+				...(chosen.harness ? { harness: chosen.harness } : {}),
 			},
 			ctx.conversationId,
 			ctx.opId,
+			chosen.harness ? undefined : { unpicked: true },
 		);
 		const tmux = targets.tmuxTarget(into.target, created.id);
 		const team = composeSessionName(tmux.name, tmux.sessionName);
@@ -71,6 +74,10 @@ export function createRunbookFireHandler({
 			};
 		}
 		const registered = await awaitRegister(team);
+		if (!registered.ok && registered.failure) {
+			const reason = launchFailureText(registered.failure, created.id, { created: true, foreign: false });
+			return { fired: false, sessionId: created.id, reason };
+		}
 		if (!registered.ok) {
 			console.warn(`[runbook] ${team} started but never registered (${registered.errorKind ?? "timeout"})`);
 			return {

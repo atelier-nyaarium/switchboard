@@ -18,6 +18,8 @@ export interface AwarenessSubscriber<S> {
 	readonly source: string;
 	/** Called when a carrier containing this change is accepted. */
 	delivered?(sessionKey: string, change: Change<S>): void;
+	/** Called when the bank gives this change up undelivered. */
+	dropped?(sessionKey: string, change: Change<S>): void;
 	/** Delay before a self-pushed no-act change is delivered. */
 	pushAfterMs?: number;
 	/** Decides whether a change arms a deadline and stamps its push. */

@@ -21,7 +21,7 @@ describe("WakeService", () => {
 		const sessionStore = new SessionStore({ ambient: processAmbient() });
 		const registry: TeamRegistry = new Map();
 		const wakeCoordinator = new WakeCoordinator(processAmbient());
-		const sent: { team: string; projectPath?: string; fresh?: boolean; harness?: string }[] = [];
+		const sent: { type: string; team: string; projectPath?: string; fresh?: boolean; harness?: string }[] = [];
 		const hostWs = {
 			readyState: 1,
 			send: (s: string) => void sent.push(JSON.parse(s)),
@@ -129,6 +129,48 @@ describe("WakeService", () => {
 		await expect(wake).resolves.toEqual({ ok: true, resolvedTeam: launched });
 	});
 
+	it("joins a wake of a create's minted name to that create's launch", async () => {
+		const s = setup();
+		const create = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
+		const launched = s.sent[0].team;
+		const byName = s.service.tryWakeTeam(launched);
+		s.wakeCoordinator.notify(launched);
+
+		await expect(Promise.all([create, byName])).resolves.toEqual([
+			{ ok: true, resolvedTeam: launched },
+			{ ok: true, resolvedTeam: launched },
+		]);
+		expect(s.sent).toHaveLength(1);
+	});
+
+	it("keeps a create's record when the host link drops mid-launch, so a later wake reattaches", async () => {
+		const s = setup();
+		const create = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
+		const launched = s.sent[0].team;
+		s.wakeCoordinator.failAll();
+		const dropped = await create;
+		const again = s.service.tryWakeTeam(launched);
+		s.wakeCoordinator.notify(launched);
+
+		expect(dropped).toMatchObject({ ok: false, errorKind: "disconnected" });
+		expect(s.forgotten).toEqual([]);
+		await expect(again).resolves.toEqual({ ok: true });
+		expect(s.sent.map((frame) => frame.team)).toEqual([launched, launched]);
+	});
+
+	it("cancels the pane of a create that timed out, and leaves a woken session's pane alone", async () => {
+		const s = setup();
+		const existing = s.sessionStore.teamOf(s.sessionStore.mint({ spawn: "proj", harness: "claude" }));
+		s.sessionStore.confirm(existing);
+
+		await s.service.tryWakeTeam(existing);
+		const created = await s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
+
+		expect(s.sent.filter((frame) => frame.type === "wake_cancel").map((frame) => frame.team)).toEqual([
+			created.resolvedTeam,
+		]);
+	});
+
 	it("rolls back the provisional record when the minted launch never comes online", async () => {
 		const s = setup();
 		const wake = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
@@ -171,6 +213,29 @@ describe("WakeService", () => {
 		await Promise.all(wakes);
 
 		expect(s.sent.map((frame) => frame.harness)).toEqual(["copilot", UNPICKED_WORD]);
+	});
+
+	it.each([
+		["sends none once the create brought it up", true, 0],
+		["wakes it once the create answered without bringing it up", false, 1],
+	])("holds a wake behind a host create of the same session: %s", async (_label, cameUp, wakesAfter) => {
+		const s = setup();
+		const team = s.sessionStore.teamOf(s.sessionStore.mint({ spawn: "host", harness: "claude" }));
+		let answer: (result: { ok: boolean }) => void = () => {};
+		const created = s.service.joinCreate(team, () => new Promise((resolve) => (answer = resolve)));
+
+		const wake = s.service.tryWakeTeam(team);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const whileCreating = s.sent.length;
+		if (cameUp) s.registry.set(team, new Map([["s1", fakeWs()]]));
+		answer({ ok: true });
+		await created.launch;
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		if (!cameUp) s.wakeCoordinator.notify(team);
+
+		await expect(wake).resolves.toEqual({ ok: true });
+		expect(whileCreating).toBe(0);
+		expect(s.sent.filter((frame) => frame.type === "wake")).toHaveLength(wakesAfter);
 	});
 
 	it("gives a second create the first one's launch instead of starting another", async () => {

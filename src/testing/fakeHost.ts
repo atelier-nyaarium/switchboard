@@ -31,6 +31,7 @@ import {
 	type HostOp,
 } from "../shared/host-op.js";
 import { HOST_SPAWN } from "../shared/host-spawn.js";
+import type { LaunchFailure } from "../shared/launch-notice.js";
 import type { SessionHarness } from "../shared/session-harness.js";
 import { createFakeSocket, type Frame } from "./fakeSocket.js";
 
@@ -46,11 +47,13 @@ export interface FakeHostHandlers {
 	/** The scenario registers the launched session. */
 	onCreateSession?: (op: Extract<HostOp, { kind: "createSession" }>) => void;
 	/** An answer fails that launch. */
-	failCreateSession?: (op: Extract<HostOp, { kind: "createSession" }>) => string | undefined;
+	failCreateSession?: (
+		op: Extract<HostOp, { kind: "createSession" }>,
+	) => string | { error: string; failure: LaunchFailure } | undefined;
 	/** The scenario registers the woken team. */
 	onWake?: (frame: Frame) => void;
 	/** How the daemon answers a wake; absent says it launched. */
-	answerWake?: (frame: Frame) => "launched" | "failed" | "silent";
+	answerWake?: (frame: Frame) => "launched" | "failed" | "silent" | { failure: LaunchFailure };
 	/** Absent means accept and complete. */
 	onCodexCommand?: CodexResponder;
 	onCopilotCommand?: CopilotResponder;
@@ -132,6 +135,8 @@ export interface FakeHost {
 	/** Any other daemon frame. */
 	sendFrame(frame: Frame): void;
 	close(): void;
+	/** The link dies before the Gateway hears it close. */
+	vanish(): void;
 }
 
 const HOST_HOME = "/home/fixture";
@@ -301,7 +306,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			}
 			const failure = op.kind === "createSession" ? handlers.failCreateSession?.(op) : undefined;
 			if (failure) {
-				send({ type: "host_op_reply", reqId: frame.reqId, ok: false, error: failure });
+				const typed = typeof failure === "string" ? { error: failure } : failure;
+				send({ type: "host_op_reply", reqId: frame.reqId, ok: false, ...typed });
 				return;
 			}
 			send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: answer(op) });
@@ -315,7 +321,9 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			wakes.push(frame);
 			handlers.onWake?.(frame);
 			const answer = handlers.answerWake?.(frame) ?? "launched";
-			if (answer !== "silent") send({ type: "wake_result", team: frame.team, success: answer === "launched" });
+			if (typeof answer === "object") send({ type: "wake_result", team: frame.team, success: false, ...answer });
+			else if (answer !== "silent")
+				send({ type: "wake_result", team: frame.team, success: answer === "launched" });
 		}
 		if (frame.type === "codex_command") {
 			const command = CodexDaemonCommandSchema.parse(frame);
@@ -401,6 +409,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			socket.ws.close();
 			graph.wsHandlers.close(socket.ws);
 		},
+		vanish: () => socket.ws.close(),
 	};
 }
 

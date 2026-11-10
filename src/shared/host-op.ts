@@ -2,8 +2,9 @@ import { z } from "zod";
 import { type AgentExecutionTarget, AgentExecutionTargetSchema } from "./agent-execution-target.js";
 import { AGENT_PROMPT_MAX_BYTES } from "./agent-record.js";
 import { WINDOWS_SPAWN } from "./host-spawn.js";
+import type { LaunchFailure } from "./launch-notice.js";
 import { DEVICE_MAX_RECORDS, DeviceCandidateSchema } from "./schemasDevices.js";
-import type { SessionHarness } from "./session-harness.js";
+import type { SessionHarness, UNPICKED_WORD } from "./session-harness.js";
 
 export interface TmuxTarget {
 	kind: "host" | "devcontainer";
@@ -95,8 +96,8 @@ export type HostOp =
 			target: TmuxTarget;
 			workdirHint?: string;
 			// FIXME 2026-11-23: required, once every Gateway names it.
-			/** Absent means Claude. */
-			harness?: SessionHarness;
+			/** Absent means Claude, else the place's only CLI. */
+			harness?: SessionHarness | typeof UNPICKED_WORD;
 			resumeSessionId?: string;
 			/** Its session has never confirmed. */
 			fresh?: true;
@@ -273,6 +274,8 @@ export interface HostOpResult {
 	result?: unknown;
 	error?: string;
 	errorKind?: PeekErrorKind | "timeout" | "disconnected";
+	/** Why a launch did not come up. */
+	failure?: LaunchFailure;
 }
 
 const PEEK_ABSENT_PATTERNS = [

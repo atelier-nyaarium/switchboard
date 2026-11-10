@@ -7,9 +7,10 @@ describe("which CLI a launch runs", () => {
 	const resolve = (word: unknown, available: Parameters<typeof resolveCli>[1]) =>
 		resolveCli(readHarness(word), available);
 
-	it("runs a named CLI only where it is installed", () => {
+	it("runs a named CLI only where it is installed, and says when nothing is", () => {
 		expect(resolve("copilot", ["claude", "copilot"])).toEqual({ harness: "copilot" });
 		expect(resolve("copilot", ["claude"])).toEqual({ refused: { cause: "not_installed", available: ["claude"] } });
+		expect(resolve("copilot", [])).toEqual({ refused: { cause: "none_installed" } });
 	});
 
 	it("runs the one installed CLI when none was picked, and asks or refuses otherwise", () => {
@@ -66,7 +67,7 @@ describe("the owner's words for a refused CLI", () => {
 		expect(cliRefusalText({ cause: "none_installed" }, "host.oc")).toBe(
 			"This spawn point has no CLI installed. Talk to the user.",
 		);
-		expect(cliRefusalText({ cause: "refused", reason: "older build" }, "host.oc")).toBe("older build");
+		expect(cliRefusalText({ cause: "refused", reason: "older\n  build" }, "host.oc")).toBe("older build");
 	});
 
 	it("words a send to a missing session with no label", () => {

@@ -4,18 +4,25 @@ import { z } from "zod";
 import type { AwarenessObservation, AwarenessSubscriber } from "../shared/awareness-types.js";
 import { commitChecked, type DurableStore } from "../shared/durable-store.js";
 import {
+	failureFor,
 	LAUNCH_NOTICE_SOURCE,
 	type LaunchFailure,
 	LaunchFailureSchema,
 	type LaunchNotice,
 	launchNoticeText,
+	PLAIN_LAUNCH_REASON,
 } from "../shared/launch-notice.js";
 import type { WakeResult } from "./wake.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
-const DeliverySchema = z.object({ deliveryId: z.string(), channelJobId: z.string() });
+const DeliverySchema = z.object({
+	deliveryId: z.string(),
+	channelJobId: z.string(),
+	/** The job held an earlier message's reply. */
+	keepsJob: z.literal(true).optional(),
+});
 
 const RelaySchema = z.object({ srcGateway: z.string(), srcSession: z.string(), dstDomainId: z.string().nullable() });
 
@@ -61,13 +68,21 @@ export interface LaunchRecordsDeps {
 	now(): number;
 	/** How long a launch may take before it reads as never up. */
 	timeoutMs: number;
+	/** Countdown start; null while building. */
+	countdownFrom(team: string): number | null;
 	isLive(team: string): boolean;
+	/** Sender has a record, maybe reconnecting. */
+	senderKnown(sessionKey: string): boolean;
 	/** A launch this process still waits on; its own timeout decides. */
 	inFlight(team: string): boolean;
 	/** Retires a row and its reply job. */
 	withdraw(delivery: LaunchDelivery): void;
 	/** A create's record, still unconfirmed. */
 	forgetCreated(team: string): void;
+	/** The host link, compared by identity. */
+	hostLink(): object | undefined;
+	/** True once the daemon is told to open no pane. */
+	cancel(team: string): boolean;
 	observe(observations: readonly AwarenessObservation<LaunchNotice>[]): void;
 	/** Tells a relayed send's Gateway; true once it took it. */
 	relay(relay: LaunchRelay, notice: LaunchNotice): Promise<boolean>;
@@ -81,6 +96,8 @@ export interface LaunchRecords {
 	settle(team: string, outcome: LaunchOutcome | undefined): void;
 	tick(): void;
 	markTold(identity: string, sessionKey: string): void;
+	/** The bank gave a notice up undelivered. */
+	dropped(identity: string, sessionKey: string): void;
 }
 
 ////////////////////////////////
@@ -88,6 +105,9 @@ export interface LaunchRecords {
 
 /** A settled launch whose senders never took their notice. */
 const SETTLED_HOLD_MS = 30 * 60_000;
+
+/** Between asks of a sender that is away. */
+export const AWAY_RETRY_MS = 30_000;
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -100,7 +120,7 @@ function noticeOf(record: LaunchRecord, foreign: boolean): LaunchNotice | undefi
 		return {
 			kind: "failed",
 			address: record.address,
-			failure: record.stage.failure,
+			failure: failureFor(record.stage.failure, foreign),
 			created: record.created,
 			foreign,
 		};
@@ -115,10 +135,12 @@ export function launchOutcome(result: WakeResult): LaunchOutcome | undefined {
 	// A dropped host link proves nothing.
 	if (result.errorKind === "disconnected") return undefined;
 	if (result.errorKind === "timeout") return { failure: { kind: "timeout" } };
-	return { failure: { kind: "error", reason: result.error ?? "the launch failed" } };
+	return { failure: { kind: "error", reason: result.error ?? PLAIN_LAUNCH_REASON } };
 }
 
-export function createLaunchSubscriber(markTold: LaunchRecords["markTold"]): AwarenessSubscriber<LaunchNotice> {
+export function createLaunchSubscriber(
+	records: () => Pick<LaunchRecords, "markTold" | "dropped"> | null,
+): AwarenessSubscriber<LaunchNotice> {
 	return {
 		source: LAUNCH_NOTICE_SOURCE,
 		pushAfterMs: 0,
@@ -126,18 +148,28 @@ export function createLaunchSubscriber(markTold: LaunchRecords["markTold"]): Awa
 		push: (_sessionKey, _pre, post) => post?.kind === "up",
 		render: (_sessionKey, changes) =>
 			changes.flatMap((change) => (change.post ? [launchNoticeText(change.post)] : [])).join("\n\n"),
-		delivered: (sessionKey, change) => markTold(change.identity, sessionKey),
+		delivered: (sessionKey, change) => records()?.markTold(change.identity, sessionKey),
+		dropped: (sessionKey, change) => records()?.dropped(change.identity, sessionKey),
 	};
 }
 
 export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 	let records: LaunchRecord[] = restore(deps.durable.load());
 	const relaying = new Set<string>();
+	/** Away senders by flight, until next ask. */
+	const away = new Map<string, number>();
+	/** Host link each cancel reached. */
+	const cancelledOn = new Map<string, object>();
 	let markTold: LaunchRecords["markTold"] = () => {};
 
 	function restore(raw: unknown): LaunchRecord[] {
 		const parsed = z.array(RecordSchema).safeParse(raw);
 		return parsed.success ? parsed.data : [];
+	}
+
+	function expired(record: LaunchRecord, now: number): boolean {
+		const from = deps.countdownFrom(record.team);
+		return from !== null && now - Math.max(record.startedAt, from) >= deps.timeoutMs;
 	}
 
 	const commit = (next: LaunchRecord[]): boolean =>
@@ -155,11 +187,24 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 
 	function settleRecord(record: LaunchRecord, stage: LaunchRecord["stage"]): void {
 		if (record.stage.kind !== "launching") return;
-		if (!commit(replace(record, { ...record, stage, settledAt: deps.now() }))) return;
+		const settled: LaunchRecord = { ...record, stage, settledAt: deps.now() };
+		if (!commit(replace(record, settled))) return;
 		if (stage.kind !== "failed") return;
+		cancelGivenUp(settled);
 		// Nothing reached the session.
 		for (const requester of record.requesters) for (const delivery of requester.deliveries) deps.withdraw(delivery);
 		if (record.created) deps.forgetCreated(record.team);
+	}
+
+	const givenUp = (record: LaunchRecord): boolean => record.created && record.stage.kind === "failed";
+
+	/** Once per host link. */
+	function cancelGivenUp(record: LaunchRecord): void {
+		if (!givenUp(record)) return;
+		const link = deps.hostLink();
+		const identity = identityOf(record);
+		if (!link || cancelledOn.get(identity) === link) return;
+		if (deps.cancel(record.team)) cancelledOn.set(identity, link);
 	}
 
 	const requesterOf = (input: LaunchJoin): LaunchRecord["requesters"][number] => ({
@@ -206,17 +251,27 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 				if (record.stage.kind !== "launching") continue;
 				// Read each tick, so a restart mid-launch still settles.
 				if (deps.isLive(record.team)) settleRecord(record, { kind: "up" });
-				else if (!deps.inFlight(record.team) && now - record.startedAt >= deps.timeoutMs) {
+				else if (!deps.inFlight(record.team) && expired(record, now)) {
 					settleRecord(record, { kind: "failed", failure: { kind: "timeout" } });
 				}
 			}
+			for (const record of records) cancelGivenUp(record);
 			const kept = records.filter(
 				(record) =>
 					record.stage.kind === "launching" ||
-					(record.requesters.some((requester) => !requester.told) &&
+					((record.requesters.some((requester) => !requester.told) ||
+						(givenUp(record) && !cancelledOn.has(identityOf(record)))) &&
 						now - (record.settledAt ?? now) < SETTLED_HOLD_MS),
 			);
-			if (kept.length !== records.length) commit(kept);
+			if (kept.length !== records.length) {
+				for (const record of records) {
+					if (kept.includes(record)) continue;
+					cancelledOn.delete(identityOf(record));
+					for (const requester of record.requesters)
+						away.delete(`${identityOf(record)}\n${requester.sessionKey}`);
+				}
+				commit(kept);
+			}
 			const observations: AwarenessObservation<LaunchNotice>[] = [];
 			for (const record of records) {
 				const identity = identityOf(record);
@@ -224,11 +279,14 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 					if (requester.told) continue;
 					const post = noticeOf(record, requester.foreign);
 					if (!post) continue;
+					const flight = `${identity}\n${requester.sessionKey}`;
 					if (!requester.relay) {
+						const until = away.get(flight);
+						if (until !== undefined && until > now) continue;
+						away.delete(flight);
 						observations.push({ sessionKey: requester.sessionKey, identity, pre: undefined, post });
 						continue;
 					}
-					const flight = `${identity}\n${requester.sessionKey}`;
 					if (relaying.has(flight)) continue;
 					relaying.add(flight);
 					const key = requester.sessionKey;
@@ -251,6 +309,12 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 				requester.sessionKey === sessionKey ? { ...requester, told: true } : requester,
 			);
 			commit(replace(record, { ...record, requesters }));
+		},
+
+		dropped(identity, sessionKey) {
+			// Forgotten sender skipped; reconnecting one asked again.
+			if (!deps.senderKnown(sessionKey)) api.markTold(identity, sessionKey);
+			else away.set(`${identity}\n${sessionKey}`, deps.now() + AWAY_RETRY_MS);
 		},
 	};
 	markTold = api.markTold;

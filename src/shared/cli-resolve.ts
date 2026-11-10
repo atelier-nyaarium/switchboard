@@ -10,6 +10,7 @@ import {
 	SESSION_HARNESSES,
 	type SessionHarness,
 } from "./session-harness.js";
+import { neutralizeMarkup, oneLine } from "./system-reminder.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -38,10 +39,14 @@ export function placeCandidates(at: { place: LaunchPlace; assistant: boolean }):
 
 export function resolveCli(word: HarnessWord, available: readonly SessionHarness[]): CliResolution {
 	return foldHarness<CliResolution>(word, {
-		named: (harness) =>
-			available.includes(harness)
-				? { harness }
-				: { refused: { cause: "not_installed", available: [...available] } },
+		named: (harness) => {
+			if (available.includes(harness)) return { harness };
+			return {
+				refused: available.length
+					? { cause: "not_installed", available: [...available] }
+					: { cause: "none_installed" },
+			};
+		},
 		// FIXME 2026-11-23: goes with `unnamed`.
 		unnamed: (assumed) => ({ harness: assumed }),
 		unpicked: () => {
@@ -94,6 +99,6 @@ ${cliListText(refusal.available)}
 		case "none_installed":
 			return `This spawn point has no CLI installed. Talk to the user.`;
 		case "refused":
-			return refusal.reason;
+			return neutralizeMarkup(oneLine(refusal.reason));
 	}
 }

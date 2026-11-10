@@ -30,7 +30,7 @@ internal fun sandboxContainers(index: Int): List<SpawnContainer> = when (index) 
 			"recipe-app",
 			ContainerRun.RUNNING,
 			failure = null,
-			SpawnHarnesses.Known(setOf(SessionHarness.CLAUDE, SessionHarness.OPENCODE)),
+			SpawnHarnesses.Known(setOf(SessionHarness.CLAUDE)),
 		),
 		SpawnContainer(
 			"godot-game",

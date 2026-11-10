@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeFilesOf, parseJsonc, pickDevContainers } from "../mcp/devcontainer/containers.js";
+import { composeFilesOf, composeProjectOf, parseJsonc, pickDevContainers } from "../mcp/devcontainer/containers.js";
 
 const CATALOG = [
 	{ team: "alpha", projectPath: "/home/u/projects/alpha" },
@@ -36,6 +36,23 @@ describe("devcontainer.json compose files", () => {
 			"/p/.devcontainer/c.yml",
 		]);
 		expect(composeFilesOf("/p/.devcontainer", parseJsonc(`{"image": "x"}`))).toEqual([]);
+	});
+});
+
+describe("finding a compose project by its files", () => {
+	const FILES = ["/p/.devcontainer/compose.yml", "/p/extra.yml"];
+	const built = "/p/.devcontainer/compose.yml,/p/extra.yml,/tmp/devcontainercli/build-1.yml";
+
+	it("answers the one project built from every file, sidecars included", () => {
+		const rows = [`p_devcontainer\t${built}`, `p_devcontainer\t${built}`, "other\t/p/extra.yml"].join("\n");
+		expect(composeProjectOf(rows, FILES)).toBe("p_devcontainer");
+	});
+
+	it("answers nothing when two projects match, none does, or no file is named", () => {
+		const two = [`p_devcontainer\t${built}`, `devcontainer\t${FILES.join(",")}`].join("\n");
+		expect(composeProjectOf(two, FILES)).toBeUndefined();
+		expect(composeProjectOf("other\t/p/extra.yml", FILES)).toBeUndefined();
+		expect(composeProjectOf(`p_devcontainer\t${built}`, [])).toBeUndefined();
 	});
 });
 

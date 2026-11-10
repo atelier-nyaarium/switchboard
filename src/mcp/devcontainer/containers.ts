@@ -29,6 +29,8 @@ export interface ContainerUpOptions {
 	signal: AbortSignal;
 	/** Per project: the CLI names temp files by the millisecond. */
 	tmpdir: string;
+	/** Docker's running state, read fresh. */
+	running: () => Promise<boolean>;
 	teardown: () => Promise<void>;
 	/** Called once a build begins. */
 	onStarting: () => void;
@@ -57,6 +59,8 @@ export class ContainerStartFailed extends Error {}
 
 const FOLDER_LABEL = "devcontainer.local_folder";
 const COMPOSE_LABEL = "com.docker.compose.project";
+const WORKING_DIR_LABEL = "com.docker.compose.project.working_dir";
+const CONFIG_FILES_LABEL = "com.docker.compose.project.config_files";
 const EVENTS = ["create", "start", "die", "destroy", "rename"];
 const EVENTS_RESTART_MS = 5_000;
 const EVENTS_RESTART_MAX_MS = 300_000;
@@ -66,7 +70,12 @@ const REFRESH_DEBOUNCE_MS = 250;
 const DOCKER_TIMEOUT_MS = 30_000;
 const DOWN_TIMEOUT_MS = 300_000;
 const FAILURE_CHARS = 200;
+// Router stores failures unsealed.
+const START_FAILED = "devcontainer up failed";
+const STOP_FAILED = "compose down failed";
 const MAX_CONTAINERS = 128;
+// Lifecycle commands may still be installing.
+const RELOOK_MS = [30_000, 120_000];
 
 ////////////////////////////////
 //  Resolver
@@ -77,11 +86,6 @@ const known = new Map<string, DevContainer>();
 /** A project's container name; the legacy name when unknown. */
 export function containerFor(project: string): string {
 	return known.get(project)?.name ?? `${project}_devcontainer-dev-1`;
-}
-
-/** A project's compose project; the legacy name when unknown. */
-export function composeProjectFor(project: string): string {
-	return known.get(project)?.compose ?? `${project}_devcontainer`;
 }
 
 /** For a process with no tracker: asks docker by label. */
@@ -147,6 +151,18 @@ export function composeFilesOf(configDir: string, config: unknown): string[] {
 	return files.map((file) => path.resolve(configDir, file));
 }
 
+/** The one project built from all files. */
+export function composeProjectOf(rows: string, files: readonly string[]): string | undefined {
+	if (files.length === 0) return undefined;
+	const projects = new Set<string>();
+	for (const line of rows.split("\n")) {
+		const [project = "", configs = ""] = line.split("\t");
+		const held = new Set(configs.split(",").map((file) => file.trim()));
+		if (project.trim() && files.every((file) => held.has(file))) projects.add(project.trim());
+	}
+	return projects.size === 1 ? [...projects][0] : undefined;
+}
+
 interface InspectRow {
 	Id?: unknown;
 	Name?: unknown;
@@ -210,6 +226,16 @@ function docker(args: string[], timeoutMs = DOCKER_TIMEOUT_MS): Promise<string> 
 	});
 }
 
+/** A non-empty JSON array, or nothing. */
+function parsedRows(text: string | undefined): unknown[] | undefined {
+	try {
+		const rows: unknown = JSON.parse(text ?? "");
+		return Array.isArray(rows) && rows.length > 0 ? rows : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function composeFiles(projectPath: string): string[] {
 	const dir = path.join(projectPath, ".devcontainer");
 	try {
@@ -220,6 +246,41 @@ function composeFiles(projectPath: string): string[] {
 	}
 }
 
+/** Compose project of a folder's container. */
+async function composeLabelAt(projectPath: string): Promise<string | undefined> {
+	const labels = await docker([
+		"ps",
+		"-a",
+		"--filter",
+		`label=${FOLDER_LABEL}=${projectPath}`,
+		"--format",
+		`{{.Label "${COMPOSE_LABEL}"}}`,
+	]).catch(() => "");
+	return labels
+		.split("\n")
+		.map((label) => label.trim())
+		.find(Boolean);
+}
+
+/** By compose's own labels, which sidecars carry too. */
+async function composeProjectAt(projectPath: string, files: readonly string[]): Promise<string | undefined> {
+	if (files.length === 0) return undefined;
+	const dirs = new Set([path.join(projectPath, ".devcontainer"), path.dirname(files[0] as string)]);
+	const rows: string[] = [];
+	for (const dir of dirs) {
+		const listed = await docker([
+			"ps",
+			"-a",
+			"--filter",
+			`label=${WORKING_DIR_LABEL}=${dir}`,
+			"--format",
+			`{{.Label "${COMPOSE_LABEL}"}}\t{{.Label "${CONFIG_FILES_LABEL}"}}`,
+		]).catch(() => "");
+		rows.push(listed);
+	}
+	return composeProjectOf(rows.join("\n"), files);
+}
+
 /** Compose down on the whole project, then its stale networks. Never volumes. */
 async function teardownProject(project: string, projectPath: string): Promise<void> {
 	const held = known.get(project);
@@ -228,7 +289,12 @@ async function teardownProject(project: string, projectPath: string): Promise<vo
 		await docker(["rm", "-f", held.id], DOWN_TIMEOUT_MS);
 		return;
 	}
-	const compose = composeProjectFor(project);
+	const compose =
+		held?.compose ?? (await composeLabelAt(projectPath)) ?? (await composeProjectAt(projectPath, files));
+	if (!compose) {
+		console.error(`[containers] ${project}: no compose project found, nothing torn down`);
+		return;
+	}
 	try {
 		await docker(
 			["compose", "-p", compose, ...files.flatMap((file) => ["-f", file]), "down", "--remove-orphans"],
@@ -269,6 +335,8 @@ export class DevContainers {
 	/** The container id last looked inside. */
 	private readonly looked = new Map<string, string>();
 	private readonly lookSeq = new Map<string, number>();
+	/** Retry looks after an empty answer. */
+	private readonly relooks = new Map<string, { id: string; timers: ReturnType<typeof setTimeout>[] }>();
 	private events: ChildProcess | null = null;
 	private restartTimer: ReturnType<typeof setTimeout> | null = null;
 	private restartDelay = EVENTS_RESTART_MS;
@@ -303,14 +371,17 @@ export class DevContainers {
 		this.follow();
 	}
 
+	/** Also kills running builds; their group outlives us. */
 	close(): void {
 		this.closed = true;
+		for (const controller of this.controllers.values()) controller.abort();
 		if (this.restartTimer) clearTimeout(this.restartTimer);
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
 		this.restartTimer = null;
 		this.debounceTimer = null;
 		this.events?.kill();
 		this.events = null;
+		for (const project of [...this.relooks.keys()]) this.dropRelooks(project);
 	}
 
 	/** Reads docker, then reports. Joins a read not yet begun. */
@@ -346,7 +417,8 @@ export class DevContainers {
 				try {
 					await teardownProject(project, projectPath);
 				} catch (err) {
-					this.failures.set(project, reasonOf(err));
+					console.error(`[containers] ${project} stop failed: ${reasonOf(err)}`);
+					this.failures.set(project, STOP_FAILED);
 				}
 				await this.refresh().catch((err) => console.error(`[containers] read failed: ${reasonOf(err)}`));
 				this.emit();
@@ -354,17 +426,21 @@ export class DevContainers {
 			.catch((err) => console.error(`[containers] ${project} stop: ${reasonOf(err)}`));
 	}
 
-	/** Starts if needed, looks inside, then runs `then`, all in the project's lane. */
+	/** Start, inspect, `then`, one lane. Stop undoes. */
 	ensureUp<T>(
 		project: string,
 		projectPath: string,
 		then: (installed: SessionHarness[]) => Promise<T>,
+		undo?: (value: T) => Promise<unknown>,
 	): Promise<{ pluginsProvisioned: boolean; value: T }> {
 		const generation = this.generation(project);
 		return this.lanes.run(project, async () => {
 			const { pluginsProvisioned, installed } = await this.bring(project, projectPath, generation);
 			const value = await then(installed);
-			if (this.generation(project) !== generation) throw new ContainerStopped();
+			if (this.generation(project) !== generation) {
+				await undo?.(value).catch((err) => console.error(`[containers] ${project} undo: ${reasonOf(err)}`));
+				throw new ContainerStopped();
+			}
 			return { pluginsProvisioned, value };
 		});
 	}
@@ -392,6 +468,12 @@ export class DevContainers {
 				({ pluginsProvisioned } = await this.deps.up(projectPath, {
 					signal: controller.signal,
 					tmpdir: projectTmpdir(project),
+					running: async () => {
+						await this.refresh().catch((err) =>
+							console.error(`[containers] read failed: ${reasonOf(err)}`),
+						);
+						return known.get(project)?.running === true;
+					},
 					teardown: () =>
 						teardownProject(project, projectPath).catch((err) =>
 							console.error(`[containers] ${project} teardown: ${reasonOf(err)}`),
@@ -405,7 +487,7 @@ export class DevContainers {
 				// A Stop's kill reads as stopped.
 				fenced();
 				const reason = reasonOf(err);
-				this.failures.set(project, reason);
+				this.failures.set(project, START_FAILED);
 				throw new ContainerStartFailed(reason);
 			} finally {
 				this.starting.delete(project);
@@ -432,8 +514,34 @@ export class DevContainers {
 			this.clis.set(project, found);
 			if (id) this.looked.set(project, id);
 			this.emit();
+			if (found.length === 0 && id && known.get(project)?.running) this.relookLater(project, id);
 		}
 		return found;
+	}
+
+	private relookLater(project: string, id: string): void {
+		if (this.relooks.get(project)?.id === id) return;
+		this.dropRelooks(project);
+		const timers = RELOOK_MS.map((ms) => {
+			const timer = setTimeout(() => this.relook(project, id), ms);
+			timer.unref?.();
+			return timer;
+		});
+		this.relooks.set(project, { id, timers });
+	}
+
+	private relook(project: string, id: string): void {
+		const held = known.get(project);
+		const found = this.clis.get(project)?.length;
+		if (!held?.running || held.id !== id || found || this.controllers.has(project)) return;
+		this.look(project).catch((err) =>
+			console.error(`[containers] could not look inside ${project}: ${reasonOf(err)}`),
+		);
+	}
+
+	private dropRelooks(project: string): void {
+		for (const timer of this.relooks.get(project)?.timers ?? []) clearTimeout(timer);
+		this.relooks.delete(project);
 	}
 
 	private lookFor(project: string, id: string): void {
@@ -449,11 +557,18 @@ export class DevContainers {
 		const ids = (await docker(["ps", "-aq", "--no-trunc", "--filter", `label=${FOLDER_LABEL}`]))
 			.split("\n")
 			.filter(Boolean);
-		// One gone since `ps` fails the call; the rest still print.
-		const raw = ids.length
-			? await docker(["inspect", ...ids]).catch((err: { stdout?: string }) => err.stdout || "[]")
-			: "[]";
-		const view = pickDevContainers(JSON.parse(raw), catalog);
+		let inspected: unknown[] = [];
+		if (ids.length) {
+			try {
+				inspected = JSON.parse(await docker(["inspect", ...ids]));
+			} catch (err) {
+				// A vanished id fails the call.
+				const partial = parsedRows((err as { stdout?: string }).stdout);
+				if (!partial) throw err;
+				inspected = partial;
+			}
+		}
+		const view = pickDevContainers(inspected, catalog);
 		const previous = new Map(known);
 		known.clear();
 		for (const [team, container] of view) {
@@ -461,6 +576,10 @@ export class DevContainers {
 			const fresh = !previous.get(team)?.running || this.looked.get(team) !== container.id;
 			// Its own start looks once up.
 			if (container.running && fresh && !this.controllers.has(team)) this.lookFor(team, container.id);
+		}
+		for (const [team, { id }] of this.relooks) {
+			const container = known.get(team);
+			if (!container?.running || container.id !== id) this.dropRelooks(team);
 		}
 		this.emit();
 	}

@@ -12,7 +12,7 @@ import type { Sealer } from "./sealer.js";
 export interface FederationRoutes {
 	acceptGatewaySend: (body: Record<string, unknown>) => Promise<Response>;
 	respond: (req: Request, body: Record<string, unknown>, opts?: { trustedInbound?: boolean }) => Response;
-	acceptLaunchNotice: (sessionId: string, notice: LaunchNotice) => void;
+	acceptLaunchNotice: (sessionId: string, notice: LaunchNotice, opts: { foreign: boolean }) => void;
 	teams: () => Response;
 }
 
@@ -158,7 +158,7 @@ export function createGatewayRelayHandler({
 					}
 				}
 				if (op.launch) {
-					routes.acceptLaunchNotice(op.session_id, op.launch);
+					routes.acceptLaunchNotice(op.session_id, op.launch, { foreign: srcDomainId !== null });
 					return { ok: true };
 				}
 				const res = routes.respond(

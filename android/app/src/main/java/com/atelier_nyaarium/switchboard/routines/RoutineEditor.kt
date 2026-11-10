@@ -30,7 +30,6 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.CliToggles
 import com.atelier_nyaarium.switchboard.ClockPickerDialog
 import com.atelier_nyaarium.switchboard.cliChoices
-import com.atelier_nyaarium.switchboard.freshPick
 import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.RoutineSaved
 import com.atelier_nyaarium.switchboard.absoluteTimeText
@@ -65,11 +64,14 @@ fun RoutineEditor(
 	val draftKey = routineId ?: "new"
 	var draft by remember(gatewayId, routineId, keptIn) {
 		mutableStateOf(
-			repo.routineOps.draftFor(gatewayId, draftKey)?.shown(zone.id)
-				?: held?.let { RoutineDraft.of(it).shown(zone.id) }
-				?: RoutineDraft.fresh(zone).let { it.copy(cli = freshPick(state.gateways.harnessesOn(gatewayId, it.spawn))) },
+			(
+				repo.routineOps.draftFor(gatewayId, draftKey)?.shown(zone.id)
+					?: held?.let { RoutineDraft.of(it).shown(zone.id) }
+					?: RoutineDraft.fresh(zone)
+			).let { it.withDefaultPick(state.gateways.harnessesOn(gatewayId, it.spawn)) },
 		)
 	}
+	val here = state.gateways.harnessesOn(gatewayId, draft.spawn)
 	LaunchedEffect(draft) { repo.routineOps.keepDraft(gatewayId, draftKey, draft) }
 	val close = {
 		repo.routineOps.dropDraft(gatewayId, draftKey)
@@ -111,7 +113,7 @@ fun RoutineEditor(
 	}
 
 	val commit: () -> Unit = {
-		val candidate = draft.asKept(keptIn).toRoutine()
+		val candidate = draft.asKept(keptIn).toRoutine(here)
 		if (candidate != null) {
 			saving = true
 			refused = null
@@ -129,7 +131,7 @@ fun RoutineEditor(
 	EditorScaffold(
 		title = if (held == null) "New routine" else "Edit routine",
 		saving = saving,
-		canSave = draft.refusal() == null,
+		canSave = draft.refusal(here) == null,
 		onCancel = close,
 		onSave = { if (ruleMoved(held, draft)) confirming = true else commit() },
 	) {
@@ -207,7 +209,7 @@ fun RoutineEditor(
 					draft = if (it.kind == ROUTINE_TARGET_ASSISTANT) {
 						draft.selectAssistant(it.spawn)
 					} else {
-						draft.selectSpawn(it.spawn)
+						draft.selectSpawn(it.spawn, state.gateways.harnessesOn(gatewayId, it.spawn))
 					}
 				},
 				trailingOf = ::targetTag,
@@ -221,9 +223,9 @@ fun RoutineEditor(
 			}
 			if (!assistantTarget) {
 				CliToggles(
-					choices = cliChoices(state.gateways.harnessesOn(gatewayId, draft.spawn), draft.shownCli),
+					choices = cliChoices(here, draft.shownCli),
 					picked = draft.shownCli,
-					onTap = { draft = draft.tapCli(it) },
+					onTap = { draft = draft.tapCli(it, here) },
 				)
 			}
 
@@ -304,7 +306,7 @@ fun RoutineEditor(
 	}
 
 	if (confirming) {
-		val kept = remember(draft, keptIn) { draft.asKept(keptIn).toRoutine() }
+		val kept = remember(draft, keptIn, here) { draft.asKept(keptIn).toRoutine(here) }
 		// The instant comes from the gateway: recurrence has one implementation and it is not here.
 		// Saving waits for it, since a confirmation that cannot name the run is not one.
 		var asked by remember(kept) { mutableStateOf(false) }

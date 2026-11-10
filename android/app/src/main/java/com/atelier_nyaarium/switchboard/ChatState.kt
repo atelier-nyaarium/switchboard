@@ -64,7 +64,7 @@ data class ChatState(
 	val goals: Map<String, PendingGoal> = emptyMap(),
 	/** Prevents duplicate identical spawn submissions while unsettled. */
 	val pendingSpawns: Set<Pair<String, String>> = emptySet(),
-	/** Container spawn points whose Start or Stop awaits its answer. */
+	/** Containers awaiting Start or Stop. */
 	val containerOpsInFlight: Set<String> = emptySet(),
 	/** Wake notices expire on read and are not persisted. */
 	val wakingTeams: Map<String, Long> = emptyMap(),

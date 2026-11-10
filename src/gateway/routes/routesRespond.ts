@@ -1,6 +1,6 @@
 import { isNoAckSessionId } from "../../shared/agent-notice.js";
 import type { Ambient } from "../../shared/ambient.js";
-import type { LaunchNotice } from "../../shared/launch-notice.js";
+import { foreignNotice, type LaunchNotice } from "../../shared/launch-notice.js";
 import { pickTiers, SPOKEN_TIER_FIELDS } from "../../shared/notice.js";
 import { type PendingJobStore, readerOf } from "../../shared/pending-job-store.js";
 import { type Address, parseStoreKey } from "../../shared/session-id.js";
@@ -367,12 +367,13 @@ export function createRespondRoutes({
 	}
 
 	/** Banked for the sender; never a reply. */
-	function acceptLaunchNotice(sessionId: string, notice: LaunchNotice): void {
+	function acceptLaunchNotice(sessionId: string, received: LaunchNotice, opts: { foreign: boolean }): void {
 		const asker = store.askerOf(sessionId);
-		if (!asker) return;
+		const target = store.targetOf(sessionId);
+		if (!asker || !target) return;
+		const notice = opts.foreign ? foreignNotice(received, target) : received;
+		// Job may hold an earlier reply.
 		bankLaunch?.(asker, notice);
-		// No reply will come.
-		if (notice.kind === "failed") store.remove(sessionId);
 	}
 
 	return { respond, poll, pushLaunch, acceptLaunchNotice };
