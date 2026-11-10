@@ -3,7 +3,7 @@ import type { BoardDisposition } from "../../shared/board-authority.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { type HostOp, type HostOpResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { launchPlaceOf } from "../../shared/host-spawn.js";
-import { type LaunchFailure, launchFailureText } from "../../shared/launch-notice.js";
+import { type LaunchFailure, ownerLaunchLine } from "../../shared/launch-notice.js";
 import {
 	foldHarness,
 	launchRefusal,
@@ -159,10 +159,7 @@ export function createSessionLifecycleHandlers({
 			(settled.refusal?.kind === "cli" ? { kind: "cli", refusal: settled.refusal.refusal } : undefined);
 		if (failure) {
 			forgetBlank();
-			throw new CreateSessionFailedError(
-				launchFailureText(failure, sessionId, { created: true, foreign: false }),
-				failure,
-			);
+			throw new CreateSessionFailedError(ownerLaunchLine({ failure }), failure);
 		}
 		throw new Error(settled.error ?? "create session failed");
 	}
@@ -201,6 +198,7 @@ export function createSessionLifecycleHandlers({
 		}
 		if (!winner.ok) {
 			if (definite(winner) && mayForget()) sessionStore?.forget(name);
+			if (winner.failure) throw new Error(ownerLaunchLine({ failure: winner.failure }));
 			const reason =
 				winner.error ??
 				(winner.errorKind === "disconnected"

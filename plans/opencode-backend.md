@@ -427,6 +427,8 @@ No CLI is installed
 
 **Owner wording, the fire sheet once a fire is queued under a starting session:** the line `Runs once the session starts.`, Fire disabled, Cancel reads `Close`. "sounds good"
 
+**Architecture pass after slice 3:** no fan-out; every bug class above is resolved by a design change. The outcome travels typed (`LaunchFailure`) and each reader renders it once: an agent by `launchFailureText` and `launchNoticeText`, another Domain through `failureFor`, the owner by `ownerLaunchPhrase` and `ownerLaunchLine`. The two owner roads still reading agent words, a create refused before dispatch and a phone Wake's failure, take the owner's line. The daemon's `error` text stays beside the typed failure for an older Gateway.
+
 **After:** the launch outcome as data, worded once per reader (an agent here, an agent in another Domain, the owner's phone), before the 2b release build.
 
 ## Phase 2c - Copilot in containers
