@@ -289,6 +289,8 @@ Committed as `32ea5dd5`, released as 8.14.54 (`b2781fed`) and deployed to the Ro
 
 ## Phase 2b - Containers
 
+✅ Built, released as 8.14.56 and deployed (daemon, phone, Router, Gateway, in that order). Acceptance against a real container is Phase 3's. `### Built` and the launch road's slices list what Phase 2c takes over.
+
 The strings an agent reads are under **Agent-facing prose**, below Phase 2c.
 
 **First, from Phase 2a's architecture step:** two structural changes, so that containers fill tables rather than rewrite the launch road.
