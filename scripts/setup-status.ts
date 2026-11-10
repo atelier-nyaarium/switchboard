@@ -9,6 +9,7 @@ import { dockerBlockerTitle } from "./lib/docker-probe.js";
 import { detectLanHosts, envGet, jparse } from "./lib/host.js";
 import { ROUTER_PORT, readPublicReach, routerHealth, shortFp } from "./lib/routerStart.js";
 import { readRouterFed, routerRunning } from "./lib/routerState.js";
+import { HEALTH_URL } from "./setup-constants.js";
 import { gatewayHostname, pendingSetup, transportInstalled } from "./setup-gateway.js";
 
 ////////////////////////////////
@@ -41,6 +42,8 @@ export interface SetupStatus {
 	gatewayEnrolled: boolean;
 	/** A Gateway Setup that armed and still waits on the phone. */
 	gatewayPending: boolean;
+	/** This machine's Gateway on its own Router link; null when it does not answer. */
+	gatewayRegistered: boolean | null;
 	/** Registrations the Router holds for the admin Domain; null when it could not be asked. */
 	gateways: RegisteredGateway[] | null;
 }
@@ -64,6 +67,18 @@ export async function fetchRegisteredGateways(lan: string): Promise<RegisteredGa
 	return parsed?.gateways ?? null;
 }
 
+/** Asked of the Gateway itself: a machine with no Router of its own has nothing else to ask. */
+async function gatewayRegistered(): Promise<boolean | null> {
+	try {
+		const health = (await (await fetch(HEALTH_URL, { signal: AbortSignal.timeout(3000) })).json()) as {
+			router_registered?: unknown;
+		};
+		return health.router_registered === true;
+	} catch {
+		return null;
+	}
+}
+
 export async function readSetupStatus(): Promise<SetupStatus> {
 	const [
 		lanHosts,
@@ -74,6 +89,7 @@ export async function readSetupStatus(): Promise<SetupStatus> {
 		gatewayId,
 		gatewayEnrolled,
 		pending,
+		registered,
 		remoteHost,
 		remotePort,
 		dockerBlocker,
@@ -88,6 +104,7 @@ export async function readSetupStatus(): Promise<SetupStatus> {
 		envGet("GATEWAY_ID").then((id) => sanitizeGatewayId(id || gatewayHostname())),
 		transportInstalled(),
 		pendingSetup(),
+		gatewayRegistered(),
 		envGet("FEDERATION_ROUTER_HOST"),
 		envGet("FEDERATION_ROUTER_PORT"),
 		dockerBlockerTitle(),
@@ -102,13 +119,13 @@ export async function readSetupStatus(): Promise<SetupStatus> {
 	let domain: SetupStatus["domain"] = "none";
 	if (running) {
 		const probeHost = lanBound || lanHosts[0];
-		const [health, fed, registered] = await Promise.all([
+		const [health, fed, listed] = await Promise.all([
 			routerHealth(probeHost),
 			readRouterFed(),
 			fetchRegisteredGateways(probeHost),
 		]);
 		certFingerprint = health?.certFingerprint ?? null;
-		gateways = registered;
+		gateways = listed;
 		if (fed && domainId) {
 			const admin = readAdminDomain(fed, domainId);
 			domain = admin.rooted ? "rooted" : admin.displayName ? "pending" : "none";
@@ -128,6 +145,7 @@ export async function readSetupStatus(): Promise<SetupStatus> {
 		gatewayId,
 		gatewayEnrolled,
 		gatewayPending: !gatewayEnrolled && pending !== null,
+		gatewayRegistered: registered,
 		gateways,
 	};
 }
@@ -157,17 +175,13 @@ export function printSetupStatus(s: SetupStatus): void {
 		row("Fingerprint", s.certFingerprint ? shortFp(s.certFingerprint) : "--");
 		row("Domain", s.domain);
 	}
-	const registered = s.gateways?.some((g) => g.gatewayId === s.gatewayId) ?? false;
-	row(
-		"Gateway",
-		s.gatewayEnrolled
-			? registered
+	const link =
+		s.gatewayRegistered === null
+			? "enrolled, not running"
+			: s.gatewayRegistered
 				? "enrolled"
-				: "enrolled, not registered"
-			: s.gatewayPending
-				? "waiting for your phone"
-				: "not enrolled",
-	);
+				: "enrolled, connecting";
+	row("Gateway", s.gatewayEnrolled ? link : s.gatewayPending ? "waiting for your phone" : "not enrolled");
 	if (s.routerRunning) {
 		console.log("\nGateways:");
 		if (!s.gateways)

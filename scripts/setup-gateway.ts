@@ -285,7 +285,7 @@ export async function setupGateway(): Promise<void> {
 		console.log();
 		note(`Gateway "${id}" enrolled${domain ? ` into ${domain}` : ""}; connecting to the Router.`);
 		// Without the daemon the phone lists nothing here.
-		note("Next: run ./start-host-daemon.sh here, or this machine stays empty on your phone.");
+		note("Next: run ./start-host-daemon.sh here.");
 	} finally {
 		cleanupTemps();
 	}
