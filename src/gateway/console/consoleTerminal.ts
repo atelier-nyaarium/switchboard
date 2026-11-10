@@ -32,7 +32,7 @@ export function createTerminalHandlers({
 	promptOf,
 	sessionControlAsk,
 }: TerminalOpsDeps) {
-	function assertDaemonDrivable(target: TmuxTarget): void {
+	function assertSwitchboardLaunched(target: TmuxTarget): void {
 		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
 		if (record?.liveTeam && record.liveTeam.team !== sessionStore!.teamOf(record)) {
 			throw new Error(`terminal view unavailable for a user-launched session; end it from your terminal`);
@@ -42,7 +42,7 @@ export function createTerminalHandlers({
 	async function peek(op: Extract<ConsoleOp, { kind: "peek" }>) {
 		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
 		const target = targets.tmuxTarget(op.target);
-		assertDaemonDrivable(target);
+		assertSwitchboardLaunched(target);
 		const r = await relayToHost({ kind: "peek", target });
 		if (!r.ok) throw new Error(friendlyPeekError(r.error, r.errorKind));
 		const peekResult = r.result as HostPeekResult;
@@ -58,7 +58,7 @@ export function createTerminalHandlers({
 			throw new Error("tmux_send requires exactly one of text or key");
 		}
 		const target = targets.tmuxTarget(op.target);
-		assertDaemonDrivable(target);
+		assertSwitchboardLaunched(target);
 		const dedupKey = `${conversationId}:${opId}`;
 		let hostOp: HostOp;
 		if (op.key != null) {
@@ -99,7 +99,7 @@ export function createTerminalHandlers({
 	) {
 		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
 		const target = targets.tmuxTarget(op.target);
-		assertDaemonDrivable(target);
+		assertSwitchboardLaunched(target);
 		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
 		// The reload drives Claude's plugin UI.
 		if (record && !HARNESS[record.harness].claudeSlashTools) {
@@ -157,7 +157,7 @@ export function createTerminalHandlers({
 
 	async function answerPrompt(op: PromptAnswer, conversationId: string, opId: string) {
 		const target = targets.tmuxTarget(op.target);
-		assertDaemonDrivable(target);
+		assertSwitchboardLaunched(target);
 		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
 		// A session with no record is a pane.
 		const road = record ? HARNESS[record.harness].road.kind : "pane";

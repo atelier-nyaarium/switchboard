@@ -251,8 +251,13 @@ when the launcher exits. The daemon learns neither; it polls the launcher's stat
 **The plugin follows the server's event stream** (`mcp/opencode/`). The stream is volatile and a local
 server keeps no replayable log, so every connection rebuilds from three reads before it reports: the
 active sessions, the pending permissions, and the newest message rows. A turn reads as working from
-its first step, since a repeated prompt id opens an execution with none. A compaction that began and
-ended during a gap still reports, so its baseline is pushed.
+its first step, since a repeated prompt id opens an execution with none.
+
+**The plugin posts its own baseline.** For each finished compaction the follower names, after every
+read and on each live end, the session fetches the baseline from the Gateway, as Claude's compact hook
+does, and posts it as synthetic input under an id derived from the compaction's. OpenCode drops a
+repeated id, so reconnects, retries and a restarted plugin land it once, and a failed compaction gets
+none. The Gateway pushes a baseline only for a row whose `baseline` is `gateway`.
 
 **A message is a prompt** whose id is a hash of the delivery id, so a retry lands once. A notice that
 asks nothing is posted as synthetic input, which adds context without starting a turn.

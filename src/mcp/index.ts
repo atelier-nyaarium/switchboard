@@ -16,6 +16,7 @@ import { ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../shared/assistant
 import { localAgentCapability } from "../shared/capabilities.js";
 import { isInsideContainer } from "../shared/env.js";
 import { pluginRoot } from "../shared/plugin-root.js";
+import { SESSION_BASELINE_PATH, SessionBaselineSchema } from "../shared/session-baseline.js";
 import type { ApiRoad } from "../shared/session-harness.js";
 import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
@@ -27,6 +28,7 @@ import { registerDeviceTool } from "./assistant/deviceTool.js";
 import { registerInboxTool } from "./assistant/inboxTool.js";
 import { ASSISTANT_INSTRUCTIONS, scopeTools } from "./assistant/instructions.js";
 import { registerAssistantSendTools } from "./assistant/sendTools.js";
+import { renderBaseline } from "./baseline/baselineHook.js";
 import { registerBoardTools } from "./board/boardTools.js";
 import { closeRouter, connectToRouter, reportSessionPresence, setApiSession } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
@@ -45,6 +47,7 @@ import { registerDesignerTools } from "./designer/designerTools.js";
 import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
 import { registerSetEffortLevel } from "./devcontainer/setEffortLevel.js";
+import { askGateway } from "./hookGateway.js";
 import { bringUpLine, readResumeArg } from "./launchFacts.js";
 import type { LocalAgentBackend } from "./local/localAgentHost.js";
 import { createLocalAgentBackend } from "./local/localAgentHost.js";
@@ -112,6 +115,7 @@ const localBackends: LocalAgentBackend[] = [];
 /** Held so shutdown withdraws every pending request and stops every child. */
 let vaultTools: ReturnType<typeof registerVaultTools> | undefined;
 const VAULT_SHUTDOWN_MS = 3_000;
+const BASELINE_FETCH_MS = 8_000;
 
 /** Each API server's session, from what its launcher left. */
 const API_SESSIONS: Record<ApiRoad["server"], () => ApiSession | undefined> = {
@@ -132,6 +136,12 @@ const API_SESSIONS: Record<ApiRoad["server"], () => ApiSession | undefined> = {
 			fetch,
 			render: renderChannelTag,
 			report: reportSessionPresence,
+			baseline: async () => {
+				const parsed = SessionBaselineSchema.safeParse(
+					await askGateway(process.env, SESSION_BASELINE_PATH, BASELINE_FETCH_MS),
+				);
+				return parsed.success ? renderBaseline(parsed.data) : undefined;
+			},
 			newId: () => crypto.randomUUID(),
 			sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 			log: (line) => console.error(line),

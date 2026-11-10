@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { renderBaseline } from "../mcp/baseline/baselineHook.js";
 import { renderChannelTag } from "../mcp/channel/channelNotify.js";
+import { askGateway } from "../mcp/hookGateway.js";
 import { type ApiSession, createOpencodeSession } from "../mcp/opencode/session.js";
 import { opencodeAuth } from "../shared/opencode.js";
+import { SESSION_BASELINE_PATH, SessionBaselineSchema } from "../shared/session-baseline.js";
 import {
 	parseSessionControlOp,
 	SESSION_CONTROL_FRAME,
@@ -58,11 +61,20 @@ describe("an OpenCode session, driven by its plugin over its own server", () => 
 
 	/** The plugin's frame glue. */
 	const drive = (session: FakeSession, minted: string): ApiSession => {
+		const env = { SWITCHBOARD_SESSION_TOKEN: session.sessionToken, BRIDGE_ROUTER_URL: "http://gateway.test" };
+		const toGateway = ((input: string | URL | Request, init?: RequestInit) =>
+			h.gateway.router(new Request(input, init))) as typeof fetch;
 		const plugin = createOpencodeSession({
 			file: { url: server.url, password: server.password, sessionId: minted, directory: "/p" },
 			fetch: server.fetch,
 			render: renderChannelTag,
 			report: (derived) => session.send({ type: SESSION_PRESENCE_FRAME, ...derived }),
+			baseline: async () => {
+				const parsed = SessionBaselineSchema.safeParse(
+					await askGateway(env, SESSION_BASELINE_PATH, 5000, toGateway),
+				);
+				return parsed.success ? renderBaseline(parsed.data) : undefined;
+			},
 			newId: () => crypto.randomUUID(),
 			sleep: () => new Promise((resolve) => setTimeout(resolve, 0)),
 			log: () => undefined,
@@ -96,6 +108,24 @@ describe("an OpenCode session, driven by its plugin over its own server", () => 
 			const row = await rowOf(team);
 			return row && probe(row) ? row : undefined;
 		}, label);
+
+	/** Baselines the Gateway pushed it. */
+	const gatewayBaselines = (session: FakeSession) =>
+		session.frames.filter(
+			(frame) =>
+				frame.type === "channel_push" && JSON.stringify(frame.awareness ?? {}).includes("baseline: compaction"),
+		);
+	/** Gives its baseline something to say. */
+	const holdEntry = async (session: FakeSession) => {
+		const held = await session.post("/task-board", {
+			from: session.team,
+			action: "create",
+			operationId: `held-${session.team}`,
+			assignTo: "self",
+			title: `Held by ${session.team}`,
+		});
+		expect(held.status).toBe(200);
+	};
 
 	/** The server's own running list. */
 	const activeOf = async (fake: FakeOpencodeServer): Promise<unknown> => {
@@ -176,16 +206,9 @@ describe("an OpenCode session, driven by its plugin over its own server", () => 
 		expect(h.host.ops.some((op) => op.kind === "answerPrompt")).toBe(false);
 	});
 
-	it("hands it a baseline once its compaction ends, as context with no turn", async () => {
+	it("posts its own baseline once its compaction ends, as context with no turn, and the Gateway pushes none", async () => {
 		const minted = launched.get(oc.team)?.minted ?? "";
-		const held = await oc.post("/task-board", {
-			from: oc.team,
-			action: "create",
-			operationId: "opencode-baseline",
-			assignTo: "self",
-			title: "Held through compaction",
-		});
-		expect(held.status).toBe(200);
+		await holdEntry(oc);
 		server.finishTurn(minted);
 		await settles(oc.team, (row) => row.working === false, "the turn ended");
 
@@ -199,10 +222,12 @@ describe("an OpenCode session, driven by its plugin over its own server", () => 
 		);
 		const active = await activeOf(server);
 		await settles(oc.team, (row) => row.compacting === undefined && row.working === false, "the session settled");
+		await new Promise((resolve) => setTimeout(resolve, 50));
 
-		expect(baseline.text).toContain("Held through compaction");
+		expect(baseline.text).toContain(`Held by ${oc.team}`);
 		expect(active).not.toHaveProperty(minted);
 		expect(server.messages(minted).filter((row) => row.type === "synthetic")).toHaveLength(1);
+		expect(gatewayBaselines(oc)).toEqual([]);
 	});
 
 	describe("the Gateway's ingress for a plugin-read session", () => {
@@ -253,38 +278,6 @@ describe("an OpenCode session, driven by its plugin over its own server", () => 
 			expect(await raw.registered()).toMatchObject({ type: "register_ok" });
 		});
 
-		const baselinesOf = (session: FakeSession) =>
-			session.frames.filter(
-				(frame) =>
-					frame.type === "channel_push" &&
-					JSON.stringify(frame.awareness ?? {}).includes("baseline: compaction"),
-			);
-		/** Gives its baseline something to say. */
-		const holdEntry = async (session: FakeSession) => {
-			const held = await session.post("/task-board", {
-				from: session.team,
-				action: "create",
-				operationId: `held-${session.team}`,
-				assignTo: "self",
-				title: `Held by ${session.team}`,
-			});
-			expect(held.status).toBe(200);
-		};
-
-		it("reads a clear mid-compaction as unknown, so only a compaction seen end to end owes a baseline", async () => {
-			await holdEntry(raw);
-
-			report(raw, { ...busy, compacting: true });
-			report(raw, {});
-			report(raw, busy);
-			report(raw, { ...busy, compacting: true });
-			report(raw, busy);
-
-			await h.waitFor(() => baselinesOf(raw)[0], "the baseline");
-			await new Promise((resolve) => setTimeout(resolve, 50));
-			expect(baselinesOf(raw)).toHaveLength(1);
-		});
-
 		it("keeps a Copilot compaction across a bare daemon clear, so its end still owes a baseline", async () => {
 			const copilot = await create("copilot", "cop");
 			await holdEntry(copilot);
@@ -293,9 +286,41 @@ describe("an OpenCode session, driven by its plugin over its own server", () => 
 			h.host.reportWorking(copilot.team, null);
 			h.host.reportWorking(copilot.team, false, false);
 
-			await h.waitFor(() => baselinesOf(copilot)[0], "the Copilot baseline");
+			await h.waitFor(() => gatewayBaselines(copilot)[0], "the Copilot baseline");
 			await new Promise((resolve) => setTimeout(resolve, 50));
-			expect(baselinesOf(copilot)).toHaveLength(1);
+			expect(gatewayBaselines(copilot)).toHaveLength(1);
+		});
+
+		it("keeps the live plugin's report and prompt when a nested socket of its session is refused and closes", async () => {
+			report(raw, { ...busy, prompt: { id: "per_5", title: "Read", body: [] } });
+			await settles(raw.team, (row) => row.promptId === "per_5", "the report");
+			const nested = attachFakeSession(h.gateway, {
+				team: raw.team,
+				conversationId: "conv-nested",
+				sessionToken: raw.sessionToken,
+				agentPid: 200,
+				harness: "opencode",
+				subId: "nested",
+			});
+			await h.waitFor(() => nested.frames.find((frame) => frame.type === "handshake_reject"), "the refusal");
+
+			nested.close();
+			h.host.reportWorking(claude.team, false);
+			await settles(claude.team, (row) => row.working === false, "a later report");
+
+			expect(await rowOf(raw.team)).toMatchObject({ status: "online", working: true, promptId: "per_5" });
+			expect(raw.frames.some((frame) => frame.type === "handshake_reject")).toBe(false);
+		});
+
+		it("takes no pane reading from the daemon for a session whose plugin reports its state", async () => {
+			report(raw, { ...busy, prompt: { id: "per_6", title: "Read", body: [] } });
+			await settles(raw.team, (row) => row.promptId === "per_6", "the report");
+
+			h.host.reportWorking(raw.team, false);
+			h.host.reportWorking(claude.team, true);
+			await settles(claude.team, (row) => row.working === true, "a later report");
+
+			expect(await rowOf(raw.team)).toMatchObject({ working: true, promptId: "per_6" });
 		});
 
 		it("sends a prompt answer to the plugin keyed by the console's op, and a Claude one to the daemon", async () => {

@@ -920,12 +920,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Readiness is a table by road:** a screen read, or the launcher's status file.
   - **A wake keeps a live launcher:** no registration there is a plugin reconnecting, and the launcher restarts a dead plugin itself.
   - **A launch status is only as live as its pid:** the launcher writes `starting`, `ready` or `failed` with its pid, writes `failed` the moment its server or UI goes, and removes only a status it still owns. A dead pid or `failed` relaunches.
-  - **`existing` says what a launch does with a pane already there:** a host wake repairs it, a devcontainer wake reads its screen, a create touches nothing.
+  - **`existing` says what a launch does with a pane already there:** a host wake repairs it, a devcontainer wake reads a pane's screen, a create touches nothing. A launcher-run pane is read only on repair.
 - `src/shared/opencode.ts` / `src/opencode-launch/launcher.ts` / `src/main-opencode-launch.ts` / `src/mcp/opencode/client.ts` / `follower.ts` / `session.ts` - OpenCode as a session CLI: the pure rules over its events and snapshot, the launcher behind its ports and its entry point, and the plugin's client, state follower and session. `docs/architecture.md` holds the roads
   - **The launcher mints the password and the server picks the port,** so the daemon holds neither and no secret is on a command line. The plugin reads both from the launcher's file.
   - **Working is read from a step, never an execution:** a repeated prompt id opens an execution with no step, and reading that as a turn would tell the owner one finished.
   - **Every stream connection rebuilds before it reports:** the stream is volatile and nothing replays, so the follower buffers events from `server.connected` until its three reads land, then replays them through the live path.
-  - **A compaction's baseline edge is owed once:** the follower keeps the ids already given one, and a reconnect re-reports an edge the Gateway could not hear.
+  - **The plugin posts its own baseline, once per compaction id:** the follower names each finished compaction, and the session posts the baseline as synthetic input under an id derived from it, which OpenCode itself lands once. No edge memory exists in any process, and a failed compaction gets none.
+  - **A presence report is erased only by the socket that wrote it:** a refused or nested socket of the same session closing leaves it, and the daemon may not write a session whose own plugin reports.
 - `src/shared/session-control.ts` / `src/gateway/sessionControlPlane.ts` - the frames between the Gateway and a session's own plugin: its presence report and the control op a prompt answer rides; the Gateway's end, on the coordinator the workspace plane uses (`PlaneCoordinator`)
 - `src/shared/crypto.ts` / `admission.ts` / `router-protocol.ts` / `federation-lifecycle.ts` - federation trust wire vocabulary
 - `src/shared/notice.ts` - shared notice tiers
@@ -1285,7 +1286,7 @@ The MCP and harness diagnostics are in
 
 | Component | Updates when |
 |-----------|--------------|
-| MCP plugin | marketplace pull or session restart under autoUpdate |
+| MCP plugin | marketplace pull or session restart under autoUpdate; an OpenCode session's runs from the daemon checkout's `dist/` |
 | Gateway | manual restart |
 | Host daemon | `./start-host-daemon.sh` |
 | Console | app update |

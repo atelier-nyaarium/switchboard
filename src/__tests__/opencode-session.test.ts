@@ -8,13 +8,24 @@ import { createFakeOpencodeServer, type FakeOpencodeServer } from "../testing/fa
 const SES = "ses_sbmain";
 const ENV_READ = { id: "per_1", sessionID: SES, action: "read", resources: ["/p/.env"] };
 
+const BASELINE = "<baseline>one board entry</baseline>";
+
 interface Plug {
 	server: FakeOpencodeServer;
 	session: ApiSession;
 	reports: Array<DerivedPresence | undefined>;
+	/** Baseline fetches so far. */
+	baselineCalls: () => number;
 	/** Holds reconnects until `release`. */
 	hold(): void;
 	release(): void;
+}
+
+interface PlugOptions {
+	/** Another plugin process's server. */
+	server?: FakeOpencodeServer;
+	/** Fetch answers in order. */
+	baselines?: Array<string | undefined>;
 }
 
 const live: ApiSession[] = [];
@@ -23,10 +34,12 @@ afterEach(() => {
 });
 
 /** Started, first read landed. */
-async function plug(): Promise<Plug> {
-	const server = createFakeOpencodeServer();
-	server.addSession(SES, "/p");
+async function plug(options: PlugOptions = {}): Promise<Plug> {
+	const server = options.server ?? createFakeOpencodeServer();
+	if (!options.server) server.addSession(SES, "/p");
 	const reports: Plug["reports"] = [];
+	const answers = [...(options.baselines ?? [])];
+	let baselineCalls = 0;
 	let held = false;
 	const waiting: Array<() => void> = [];
 	let ids = 0;
@@ -35,6 +48,10 @@ async function plug(): Promise<Plug> {
 		fetch: server.fetch,
 		render: async (payload) => `<channel>${"body" in payload ? payload.body : payload.response}</channel>`,
 		report: (derived) => reports.push(derived),
+		baseline: async () => {
+			baselineCalls += 1;
+			return answers.length > 0 ? answers.shift() : BASELINE;
+		},
 		newId: () => `fresh-${++ids}`,
 		sleep: async () => {
 			if (held) await new Promise<void>((resolve) => waiting.push(resolve));
@@ -49,6 +66,7 @@ async function plug(): Promise<Plug> {
 		server,
 		session,
 		reports,
+		baselineCalls: () => baselineCalls,
 		hold: () => {
 			held = true;
 		},
@@ -68,7 +86,24 @@ const push = (body: string, extra: Partial<ChannelPushPayload> = {}): ChannelPus
 });
 
 const last = (p: Plug) => p.reports.at(-1);
-const compactingEdges = (p: Plug) => p.reports.filter((derived) => derived?.compacting).length;
+const baselines = (p: Plug) =>
+	p.server.messages(SES).filter((row) => row.type === "synthetic" && row.text === BASELINE).length;
+
+/** Acts during a cut. */
+async function inCut(p: Plug, act: () => void | Promise<void>): Promise<void> {
+	p.hold();
+	p.server.cutStreams();
+	await act();
+	p.release();
+	await vi.waitFor(() => expect(p.server.streams()).toBe(1));
+}
+
+/** Idle, then one more cut and resync. */
+async function settled(p: Plug): Promise<void> {
+	await vi.waitFor(() => expect(last(p)?.working).toBe(false));
+	await inCut(p, () => undefined);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+}
 
 /** The server's own running list. */
 async function activeOf(server: FakeOpencodeServer): Promise<unknown> {
@@ -182,167 +217,162 @@ describe("an OpenCode session's state across a dropped stream", () => {
 		expect(p.server.streams()).toBe(1);
 	});
 
-	it("reports a compaction that began and ended during a cut as one start and one end", async () => {
-		const p = await plug();
-
+	/** Ends during held reads. */
+	async function endDuringRead(p: Plug, computed: "arrival" | "release"): Promise<void> {
 		p.hold();
 		p.server.cutStreams();
 		p.server.startCompaction(SES);
-		p.server.finishCompaction(SES);
+		const reads = ["/api/session/active", "/api/permission/request", `/api/session/${SES}/message`].map((route) =>
+			p.server.stallNext(route, computed),
+		);
+		const mark = p.server.requests.length;
 		p.release();
-		await vi.waitFor(() => expect(compactingEdges(p)).toBe(1));
-		p.server.cutStreams();
-		await vi.waitFor(() => expect(p.server.streams()).toBe(1));
-		await new Promise((resolve) => setTimeout(resolve, 20));
-
-		const edge = p.reports.findIndex((derived) => derived?.compacting);
-		expect(p.reports[edge + 1]?.compacting).toBeUndefined();
-		expect(compactingEdges(p)).toBe(1);
-	});
-
-	it("reports a second compaction inside a cut apart from one that ended live before it", async () => {
-		const p = await plug();
-		p.server.startCompaction(SES);
+		await vi.waitFor(() =>
+			expect(p.server.requests.slice(mark).some((req) => req.route.startsWith("/api/session/active"))).toBe(true),
+		);
 		p.server.finishCompaction(SES);
-		await vi.waitFor(() => expect(compactingEdges(p)).toBe(1));
-		await vi.waitFor(() => expect(last(p)?.compacting).toBeUndefined());
-
-		p.hold();
-		p.server.cutStreams();
-		p.server.startCompaction(SES);
-		p.server.finishCompaction(SES);
-		p.release();
-		await vi.waitFor(() => expect(compactingEdges(p)).toBe(2));
-		p.server.cutStreams();
-		await vi.waitFor(() => expect(p.server.streams()).toBe(1));
-		await new Promise((resolve) => setTimeout(resolve, 20));
-
-		expect(last(p)?.compacting).toBeUndefined();
-		expect(compactingEdges(p)).toBe(2);
-	});
-
-	/** Start in a cut, end live. */
-	async function compactionAcrossCut(p: Plug, steer: boolean): Promise<number> {
-		p.hold();
-		p.server.cutStreams();
-		p.server.startCompaction(SES);
-		if (steer) await p.session.deliver(push("steer mid-compaction", { delivery_id: "d7" }));
-		p.release();
-		await vi.waitFor(() => expect(last(p)?.working).toBe(true));
-		const before = compactingEdges(p);
-		p.server.finishCompaction(SES);
-		await vi.waitFor(() => expect(last(p)?.working).toBe(false));
-		p.server.cutStreams();
-		await vi.waitFor(() => expect(p.server.streams()).toBe(1));
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		return before;
+		for (const read of reads) read.release();
 	}
 
-	it.each([
-		["", false],
-		[", a prompt listed above it,", true],
-	])(
-		"reports one start and end for a compaction whose start fell in a cut%s and whose end arrived live",
-		async (_label, steer) => {
-			const p = await plug();
-
-			const before = await compactionAcrossCut(p, steer);
-
-			expect(before).toBe(1);
-			expect(compactingEdges(p)).toBe(1);
-		},
-	);
-
-	it("reports one start and end for a compaction that finished mid-turn in a cut and whose turn ended live", async () => {
-		const p = await plug();
-		p.hold();
-		p.server.cutStreams();
-		p.server.startCompaction(SES);
-		p.server.finishCompaction(SES, { midTurn: true });
-		p.release();
-		await vi.waitFor(() => expect(last(p)?.compacting).toBe(true));
-
-		p.server.finishTurn(SES);
-		await vi.waitFor(() => expect(last(p)?.working).toBe(false));
-		p.server.cutStreams();
-		await vi.waitFor(() => expect(p.server.streams()).toBe(1));
-		await new Promise((resolve) => setTimeout(resolve, 20));
-
-		expect(last(p)?.compacting).toBeUndefined();
-		expect(compactingEdges(p)).toBe(1);
-	});
-
-	it("reports one start and end for a compaction whose start event never arrived", async () => {
-		const p = await plug();
-
-		p.server.emit("session.compaction.ended", { sessionID: SES, reason: "auto", inputID: "msg_lost" });
-		await vi.waitFor(() => expect(compactingEdges(p)).toBe(1));
-		p.server.cutStreams();
-		await vi.waitFor(() => expect(p.server.streams()).toBe(1));
-		await new Promise((resolve) => setTimeout(resolve, 20));
-
-		expect(last(p)?.compacting).toBeUndefined();
-		expect(compactingEdges(p)).toBe(1);
-	});
-
-	it.each([
-		["live", false],
-		["inside a cut", true],
-	])("adds no edge at the next resync for a compaction that failed %s", async (_label, inCut) => {
-		const p = await plug();
-		const broke = { type: "compaction.failed", message: "context too long" };
+	const broke = { error: { type: "compaction.failed", message: "context too long" } };
+	const compactLive = (p: Plug) => {
 		p.server.startCompaction(SES);
 		p.server.finishCompaction(SES);
-		await vi.waitFor(() => expect(compactingEdges(p)).toBe(1));
-		await vi.waitFor(() => expect(last(p)?.compacting).toBeUndefined());
+	};
 
-		if (inCut) p.hold();
-		p.server.cutStreams();
-		if (!inCut) await vi.waitFor(() => expect(p.server.streams()).toBe(1));
-		p.server.startCompaction(SES);
-		p.server.finishCompaction(SES, { error: broke });
-		if (inCut) p.release();
-		if (!inCut) await vi.waitFor(() => expect(last(p)?.working).toBe(false));
-		p.server.cutStreams();
-		await vi.waitFor(() => expect(p.server.streams()).toBe(1));
-		await new Promise((resolve) => setTimeout(resolve, 20));
+	it.each<[string, (p: Plug) => Promise<void>, number]>([
+		["one that ended live", async (p) => compactLive(p), 1],
+		["one that began and ended in a cut", (p) => inCut(p, () => compactLive(p)), 1],
+		[
+			"one that began in a cut and ended live",
+			async (p) => {
+				await inCut(p, () => {
+					p.server.startCompaction(SES);
+				});
+				await vi.waitFor(() => expect(last(p)?.compacting).toBe(true));
+				p.server.finishCompaction(SES);
+			},
+			1,
+		],
+		[
+			"one that began in a cut under a newer prompt and ended live",
+			async (p) => {
+				await inCut(p, async () => {
+					p.server.startCompaction(SES);
+					await p.session.deliver(push("steer", { delivery_id: "d7" }));
+				});
+				await vi.waitFor(() => expect(last(p)?.compacting).toBe(true));
+				p.server.finishCompaction(SES);
+			},
+			1,
+		],
+		[
+			"one that finished mid-turn in a cut, its turn ending live",
+			async (p) => {
+				await inCut(p, () => {
+					p.server.startCompaction(SES);
+					p.server.finishCompaction(SES, { midTurn: true });
+				});
+				await vi.waitFor(() => expect(last(p)?.compacting).toBe(true));
+				p.server.finishTurn(SES);
+			},
+			1,
+		],
+		[
+			"one read as running whose failed event was lost, its turn ending live",
+			async (p) => {
+				await inCut(p, () => {
+					p.server.startCompaction(SES);
+				});
+				await vi.waitFor(() => expect(last(p)?.compacting).toBe(true));
+				p.server.finishCompaction(SES, { ...broke, quiet: true });
+			},
+			0,
+		],
+		[
+			"one whose start event was lost",
+			async (p) => {
+				p.server.startCompaction(SES, { quiet: true });
+				p.server.finishCompaction(SES);
+			},
+			1,
+		],
+		["one whose end arrived during a read that saw it running", (p) => endDuringRead(p, "arrival"), 1],
+		["one whose end arrived during a read that saw it finished", (p) => endDuringRead(p, "release"), 1],
+		[
+			"a second one in a cut after one that ended live",
+			async (p) => {
+				compactLive(p);
+				await vi.waitFor(() => expect(baselines(p)).toBe(1));
+				await inCut(p, () => compactLive(p));
+			},
+			2,
+		],
+		[
+			"one that failed live, after one that finished",
+			async (p) => {
+				compactLive(p);
+				await vi.waitFor(() => expect(baselines(p)).toBe(1));
+				p.server.startCompaction(SES);
+				p.server.finishCompaction(SES, broke);
+			},
+			1,
+		],
+		[
+			"one that failed in a cut",
+			(p) =>
+				inCut(p, () => {
+					p.server.startCompaction(SES);
+					p.server.finishCompaction(SES, broke);
+				}),
+			0,
+		],
+	])("posts one baseline per finished compaction: %s", async (_label, script, expected) => {
+		const p = await plug();
 
-		expect(compactingEdges(p)).toBe(inCut ? 1 : 2);
-		expect(last(p)?.compacting).toBeUndefined();
+		await script(p);
+		await vi.waitFor(() => expect(baselines(p)).toBe(expected));
+		await settled(p);
+
+		expect(baselines(p)).toBe(expected);
+		expect(await activeOf(p.server)).toEqual({});
 	});
 
-	it.each([
-		["running", "arrival"],
-		["finished", "release"],
-	] as const)(
-		"reports one edge for a compaction whose end arrived during a read that saw it %s",
-		async (_label, computed) => {
-			const p = await plug();
-			p.hold();
-			p.server.cutStreams();
-			p.server.startCompaction(SES);
-			const reads = ["/api/session/active", "/api/permission/request", `/api/session/${SES}/message`].map(
-				(route) => p.server.stallNext(route, computed),
-			);
-			const mark = p.server.requests.length;
-			p.release();
-			await vi.waitFor(() =>
-				expect(p.server.requests.slice(mark).some((req) => req.route.startsWith("/api/session/active"))).toBe(
-					true,
-				),
-			);
+	it("lands a baseline once across a socket reconnect and a fresh plugin process on the same server", async () => {
+		const p = await plug();
+		compactLive(p);
+		await vi.waitFor(() => expect(baselines(p)).toBe(1));
+		await settled(p);
+		const posts = () => p.server.requests.filter((req) => req.route.endsWith("/synthetic")).length;
 
-			p.server.finishCompaction(SES);
-			for (const read of reads) read.release();
-			await vi.waitFor(() => expect(last(p)?.working).toBe(false));
-			p.server.cutStreams();
-			await vi.waitFor(() => expect(p.server.streams()).toBe(1));
-			await new Promise((resolve) => setTimeout(resolve, 20));
+		p.session.registered();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const afterRegistering = posts();
+		p.session.stop();
+		const fresh = await plug({ server: p.server });
+		await vi.waitFor(() => expect(posts()).toBe(2));
+		await settled(fresh);
 
-			expect(compactingEdges(p)).toBe(1);
-			expect(last(p)?.compacting).toBeUndefined();
-		},
-	);
+		expect(afterRegistering).toBe(1);
+		expect(posts()).toBe(2);
+		expect(baselines(p)).toBe(1);
+	});
+
+	it.each<[string, (p: Plug) => void | Promise<void>]>([
+		["its next resync", (p) => inCut(p, () => undefined)],
+		["its socket registering again", (p) => p.session.registered()],
+	])("retries a baseline it could not fetch on %s", async (_label, retry) => {
+		const p = await plug({ baselines: [undefined] });
+		compactLive(p);
+		await vi.waitFor(() => expect(p.baselineCalls()).toBe(1));
+		await vi.waitFor(() => expect(last(p)?.working).toBe(false));
+		const before = baselines(p);
+
+		await retry(p);
+		await vi.waitFor(() => expect(baselines(p)).toBe(1));
+
+		expect(before).toBe(0);
+	});
 
 	it("keeps a held limit through a repeated prompt's empty execution and a resync", async () => {
 		const p = await plug();

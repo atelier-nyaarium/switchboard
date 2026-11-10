@@ -101,27 +101,17 @@ export function setApiSession(session: ApiSession | null): void {
 	apiSession = session;
 }
 
-/** What the Gateway last took, and whether a compaction ran while it could not hear. */
-let presenceSent: DerivedPresence | undefined;
-let compactedUnheard = false;
-
 /** A plugin-read session's state, for the Gateway. A bare frame clears. */
 export function reportSessionPresence(derived: DerivedPresence | undefined): void {
-	if (routerWs?.readyState !== WebSocket.OPEN) {
-		if (derived?.compacting) compactedUnheard = true;
-		return;
-	}
+	if (routerWs?.readyState !== WebSocket.OPEN) return;
 	routerWs.send(JSON.stringify({ type: SESSION_PRESENCE_FRAME, ...derived }));
-	presenceSent = derived;
 }
 
-/** A closed socket clears the Gateway's report and compaction. */
+/** A closed socket cleared the Gateway's report. */
 function resendPresence(): void {
 	const held = apiSession?.current();
-	const owed = compactedUnheard && !held?.compacting;
-	compactedUnheard = false;
-	if (owed && held) reportSessionPresence({ ...held, compacting: true });
 	if (held) reportSessionPresence(held);
+	apiSession?.registered();
 }
 
 const TYPED_RETRY_MS = 1000;
@@ -598,9 +588,6 @@ export function connectToRouter(): void {
 	routerWs.on("close", () => {
 		console.error(`[bridge] disconnected`);
 		opLedgerProtocol = 0;
-		// Its end goes unheard.
-		if (presenceSent?.compacting) compactedUnheard = true;
-		presenceSent = undefined;
 		if (!suppressReconnect) {
 			reconnector.schedule();
 		}

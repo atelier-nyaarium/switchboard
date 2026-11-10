@@ -183,8 +183,6 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		onPresenceDerive: (team, derived) => {
 			// A clear is unknown, not a compaction's end.
 			if (!derived) {
-				// Its plugin re-reports a compaction it saw end.
-				if (reportsOwnState(team)) compacting.delete(team);
 				sessions.presence.clearWorkingFor(team);
 				return;
 			}

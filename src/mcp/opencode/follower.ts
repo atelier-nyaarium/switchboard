@@ -5,6 +5,7 @@ import {
 	compactionsOf,
 	derivedFromView,
 	EMPTY_VIEW,
+	newestCompactionRow,
 	type OpencodeEvent,
 	type OpencodePermission,
 	type OpencodeView,
@@ -20,6 +21,8 @@ export interface FollowerDeps {
 	client: Pick<OpencodeClient, "sessionId" | "snapshot" | "events">;
 	/** Undefined clears what was reported. */
 	report(derived: DerivedPresence | undefined): void;
+	/** A finished compaction's message id; told more than once. */
+	compacted(id: string): void;
 	sleep(ms: number): Promise<void>;
 	log(line: string): void;
 }
@@ -38,8 +41,6 @@ export interface OpencodeFollower {
 
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 15_000;
-/** Compactions already given their baseline edge. */
-const ACCOUNTED_MAX = 32;
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -49,17 +50,6 @@ export function createOpencodeFollower(deps: FollowerDeps): OpencodeFollower {
 	let reported: DerivedPresence | undefined;
 	let connection: AbortController | undefined;
 	let stopped = true;
-	// Every compaction's edge is owed once, whichever road saw it end.
-	const accounted: string[] = [];
-	let primed = false;
-	/** One ended live under an unknown id: the next read accounts its newest. */
-	let unnamedEnd = false;
-
-	const account = (id: string | undefined): void => {
-		if (id === undefined || accounted.includes(id)) return;
-		accounted.push(id);
-		if (accounted.length > ACCOUNTED_MAX) accounted.shift();
-	};
 
 	const publish = (): void => {
 		const derived = derivedFromView(view);
@@ -68,50 +58,46 @@ export function createOpencodeFollower(deps: FollowerDeps): OpencodeFollower {
 		deps.report(derived);
 	};
 
-	/** Owes a compaction's edge whose start was never reported. */
-	const pulseCompaction = (): void => {
-		const settled = derivedFromView({ ...view, compacting: false });
-		deps.report({ ...settled, compacting: true });
-		deps.report(settled);
-		reported = settled;
-	};
+	/** Names a finished compaction from a fresh read: the one given, if it did not fail, or the newest. */
+	async function confirmFinished(id: string | undefined, signal: AbortSignal): Promise<void> {
+		try {
+			const { rows } = await deps.client.snapshot(signal);
+			if (signal.aborted) return;
+			const found = id
+				? rows.find((row) => row.id === id && row.type === "compaction" && !row.error)?.id
+				: newestCompactionRow(rows);
+			if (found) deps.compacted(found);
+		} catch {
+			// The next read names it.
+		}
+	}
 
-	/** `replay` is an event buffered during a read, which the read may already hold. */
-	function apply(event: OpencodeEvent, replay: boolean): void {
+	function apply(event: OpencodeEvent, signal: AbortSignal): void {
 		const own = event.data.sessionID === deps.client.sessionId;
-		const started = own && event.type === "session.compaction.started" ? event.data.inputID : undefined;
-		if (replay && typeof started === "string" && accounted.includes(started)) return;
-		const ended = own && event.type === "session.compaction.ended";
 		const was = view;
 		view = applyOpencodeEvent(view, event, deps.client.sessionId);
-		if (was.compacting && !view.compacting) {
-			if (was.compactionId) account(was.compactionId);
-			else unnamedEnd = true;
+		if (view !== was) publish();
+		if (own && event.type === "session.compaction.ended") {
+			if (was.compactionId) deps.compacted(was.compactionId);
+			else void confirmFinished(undefined, signal);
+			return;
 		}
-		if (ended && !was.compacting) {
-			// The read already counted it.
-			if (replay) return;
-			unnamedEnd = true;
-			// Its start fell in a gap, so no edge was reported.
-			pulseCompaction();
+		// An execution ended one whose own end fell in a gap; the read tells a failed one apart.
+		if (was.compacting && !view.compacting && event.type !== "session.compaction.failed") {
+			void confirmFinished(was.compactionId, signal);
 		}
-		if (view !== was || ended) publish();
 	}
 
 	async function resync(buffered: OpencodeEvent[], live: { on: boolean }, signal: AbortSignal): Promise<void> {
 		const snapshot = await deps.client.snapshot(signal);
 		// A newer connection owns the view.
 		if (signal.aborted) return;
-		const { newestDone } = compactionsOf(snapshot);
-		const missed = primed && !unnamedEnd && newestDone !== undefined && !accounted.includes(newestDone);
-		account(newestDone);
-		primed = true;
-		unnamedEnd = false;
 		view = viewFromSnapshot(snapshot);
-		if (missed) pulseCompaction();
 		publish();
+		const { newestDone } = compactionsOf(snapshot);
+		if (newestDone) deps.compacted(newestDone);
 		live.on = true;
-		for (const event of buffered.splice(0)) apply(event, true);
+		for (const event of buffered.splice(0)) apply(event, signal);
 	}
 
 	async function followOnce(controller: AbortController): Promise<void> {
@@ -133,7 +119,7 @@ export function createOpencodeFollower(deps: FollowerDeps): OpencodeFollower {
 				buffered.push(event);
 				return;
 			}
-			apply(event, false);
+			apply(event, controller.signal);
 		}, controller.signal);
 		await syncing;
 	}

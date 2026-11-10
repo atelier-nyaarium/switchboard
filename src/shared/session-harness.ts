@@ -76,8 +76,8 @@ export interface HarnessRow {
 	readonly handshake: boolean;
 	/** How its state is read and its messages enter. */
 	readonly road: PaneRoad | ApiRoad;
-	/** Who hands a compacted session its baseline. */
-	readonly baseline: "hook" | "push";
+	/** Who fetches a compacted session's baseline: the session itself, or the Gateway on its edge. */
+	readonly baseline: "session" | "gateway";
 	/** Exact versions a launch accepts. Absent accepts any. */
 	readonly versions?: readonly string[];
 	/** Claude's slash commands and plugin UI. */
@@ -135,7 +135,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		sessionId: { minted: false, shape: /^[0-9a-fA-F-]{8,}$/ },
 		handshake: true,
 		road: { kind: "pane", delivery: "channel", compaction: "screen", autoAnswers: ["limit"] },
-		baseline: "hook",
+		baseline: "session",
 		claudeSlashTools: true,
 		workflowTools: true,
 		guidance: "handshake",
@@ -165,7 +165,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		},
 		handshake: false,
 		road: { kind: "api", server: "opencode" },
-		baseline: "push",
+		baseline: "session",
 		versions: [OPENCODE_PIN],
 		claudeSlashTools: false,
 		workflowTools: true,
@@ -200,7 +200,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		sessionId: { minted: true, shape: UUID, mint: (uuid) => uuid() },
 		handshake: false,
 		road: { kind: "pane", delivery: "typed", compaction: "copilot-events", autoAnswers: ["survey"] },
-		baseline: "push",
+		baseline: "gateway",
 		claudeSlashTools: false,
 		workflowTools: true,
 		guidance: "instructions",
@@ -264,7 +264,10 @@ export type LaunchPlace = "host" | "windows" | "container";
 export function launchRefusal(harness: SessionHarness, at: { place: LaunchPlace; assistant: boolean }): string | null {
 	const row = HARNESS[harness];
 	if (at.place === "container" && !row.containers) return `${row.label} runs only on a host spawn point`;
-	if (at.place === "windows" && row.binary.windows === null) return `${row.label} does not run on a Windows shell`;
+	// A launcher never crosses to PowerShell.
+	if (at.place === "windows" && (row.binary.windows === null || row.road.kind === "api")) {
+		return `${row.label} does not run on a Windows shell`;
+	}
 	if (at.assistant && !row.assistant) return `${row.label} never runs as the assistant`;
 	return null;
 }
@@ -277,7 +280,7 @@ export function paneRoad(harness: SessionHarness): PaneRoad | undefined {
 
 /** A hook hands a CLI its own baseline; otherwise the Gateway pushes it. */
 export function pushesBaseline(harness: SessionHarness): boolean {
-	return HARNESS[harness].baseline === "push";
+	return HARNESS[harness].baseline === "gateway";
 }
 
 export type SessionDelivery = PaneRoad["delivery"] | "api";

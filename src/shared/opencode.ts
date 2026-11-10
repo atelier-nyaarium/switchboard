@@ -193,6 +193,11 @@ function settle(view: OpencodeView): OpencodeView {
 	return { ...rest, executing: false, working: false, compacting: false };
 }
 
+/** The newest compaction that did not fail, running or not. */
+export function newestCompactionRow(rows: readonly OpencodeMessageRow[]): string | undefined {
+	return rows.find((row) => row.type === "compaction" && !row.error)?.id;
+}
+
 /** Rows the model's work writes; an input row above a compaction does not end it. */
 const OUTPUT_ROWS: ReadonlySet<string> = new Set(["assistant", "idle", "system", "compaction"]);
 

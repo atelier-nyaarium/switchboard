@@ -554,7 +554,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 
 		const { pluginsProvisioned } = await ensureContainerUpAsync(resolved);
 
-		console.error(`[host-wake] ${msg.team} container is up, starting Claude`);
+		console.error(`[host-wake] ${msg.team} container is up, starting ${HARNESS[harness].label}`);
 
 		const target: TmuxTarget = { kind: "devcontainer", name: projectName, sessionName: session };
 		const res = await launchSession(target, {

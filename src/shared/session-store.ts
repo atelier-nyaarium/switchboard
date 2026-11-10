@@ -442,10 +442,16 @@ export class SessionStore {
 		return this.records.get(team)?.liveTeam;
 	}
 
-	clearLive(team: string, subId: string): void {
+	/** Whether that socket was a record's live one. */
+	clearLive(team: string, subId: string): boolean {
+		let cleared = false;
 		for (const record of this.records.values()) {
-			if (record.liveTeam?.team === team && record.liveTeam.subId === subId) record.liveTeam = undefined;
+			if (record.liveTeam?.team === team && record.liveTeam.subId === subId) {
+				record.liveTeam = undefined;
+				cleared = true;
+			}
 		}
+		return cleared;
 	}
 
 	// Sweep before snapshot so expired records never persist.

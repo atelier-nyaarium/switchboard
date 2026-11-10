@@ -263,7 +263,7 @@ const LAUNCH: Record<SessionHarness, (ctx: LaunchArgsContext) => LaunchSpec> = {
 		return {
 			program: [
 				plainPath(launcher.runtime, "the launcher's runtime"),
-				// A project's own bun settings and env never apply.
+				// A project's bun settings and env never apply; bundled, so no tsconfig.
 				`--config="${root}/launch/bunfig.toml"`,
 				"--no-env-file",
 				"--no-install",

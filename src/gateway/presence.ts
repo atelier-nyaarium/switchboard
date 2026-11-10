@@ -160,10 +160,12 @@ export class PresenceFacade {
 		this.working.delete(team);
 	}
 
-	clearLive(team: string, subId: string): void {
-		this.sessionStore.clearLive(team, subId);
-		this.working.delete(team);
+	/** A refused or nested socket closing leaves the live one's state. */
+	clearLive(team: string, subId: string): boolean {
+		const cleared = this.sessionStore.clearLive(team, subId);
+		if (cleared) this.working.delete(team);
 		this.markDirty();
+		return cleared;
 	}
 
 	wakeStart(team: string): void {

@@ -64,9 +64,10 @@ export interface FakeOpencodeServer {
 	finishTurn(sessionId: string, error?: FakeOpencodeError): void;
 	ask(permission: FakeOpencodePermission): void;
 	/** Answers its row's id. */
-	startCompaction(sessionId: string): string;
-	/** `midTurn` keeps its execution running. */
-	finishCompaction(sessionId: string, how?: { error?: FakeOpencodeError; midTurn?: boolean }): void;
+	/** `quiet` loses its start events. */
+	startCompaction(sessionId: string, how?: { quiet?: boolean }): string;
+	/** `midTurn` keeps its execution running; `quiet` loses its end event. */
+	finishCompaction(sessionId: string, how?: { error?: FakeOpencodeError; midTurn?: boolean; quiet?: boolean }): void;
 	/** `booting` lists no server yet. */
 	setMcp(status: "booting" | "connected" | "failed", error?: string): void;
 	/** The next requests answer this status and change nothing. */
@@ -222,6 +223,7 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 			return takePrompt(session, sessionId, body);
 		}
 		if (method === "POST" && scoped[2] === "/synthetic") {
+			// A repeat lands once.
 			const held = session.rows.find((row) => row.id === body.id);
 			if (held) return json({ data: held });
 			const row: FakeOpencodeMessage = {
@@ -318,26 +320,27 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 			permissions.push(permission);
 			emit("permission.asked", { ...permission });
 		},
-		startCompaction: (sessionId) => {
+		startCompaction: (sessionId, how = {}) => {
 			const session = need(sessionId);
 			const id = mint("msg");
 			session.running = true;
 			// Its row exists from the start.
 			session.rows.push({ id, type: "compaction" });
+			if (how.quiet) return id;
 			emit("session.execution.started", { sessionID: sessionId });
 			emit("session.compaction.started", { sessionID: sessionId, reason: "manual", inputID: id });
 			return id;
 		},
 		finishCompaction: (sessionId, how = {}) => {
-			const { error, midTurn } = how;
+			const { error, midTurn, quiet } = how;
 			const session = need(sessionId);
 			const row = session.rows.findLast((held) => held.type === "compaction" && held.status === undefined);
 			if (!row) throw new Error(`no compaction runs in ${sessionId}`);
 			row.status = error ? "failed" : "completed";
 			if (error) row.error = error;
 			const told = { sessionID: sessionId, reason: "manual", inputID: row.id };
-			if (error) emit("session.compaction.failed", { ...told, error });
-			else emit("session.compaction.ended", told);
+			if (!quiet && error) emit("session.compaction.failed", { ...told, error });
+			if (!quiet && !error) emit("session.compaction.ended", told);
 			if (midTurn) return;
 			session.running = false;
 			session.rows.push({ id: mint("msg"), type: "idle", outcome: "succeeded" });

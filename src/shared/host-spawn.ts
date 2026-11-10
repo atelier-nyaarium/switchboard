@@ -168,7 +168,7 @@ const WINDOWS: HostSpawnPoint = {
 			throw new Error("refusing to launch: a windows session needs a resolved Windows working directory");
 		}
 		const binary = HARNESS[ctx.harness].binary.windows;
-		// A launcher never crosses to PowerShell.
+		// Unreachable past launchRefusal.
 		if (binary === null || ctx.program) {
 			throw new Error(`refusing to launch: ${HARNESS[ctx.harness].label} does not run on a Windows shell`);
 		}

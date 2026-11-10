@@ -500,7 +500,13 @@ export function createWebSocketHandlers({
 			onRestartPending?.(msg.team, msg.pending);
 		}
 
-		if (msg.type === "presence_derive" && ws.data.teamName === "host" && typeof msg.team === "string") {
+		// The daemon never writes a state a session's own plugin reports.
+		if (
+			msg.type === "presence_derive" &&
+			ws.data.teamName === "host" &&
+			typeof msg.team === "string" &&
+			!reportsOwnState(msg.team)
+		) {
 			// A bare frame clears.
 			if (msg.working === undefined) onPresenceDerive?.(msg.team, undefined);
 			else {

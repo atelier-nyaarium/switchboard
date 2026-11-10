@@ -42,7 +42,7 @@ const idle: DerivedPresence = { working: false, needsLogin: false, limitBlocked:
 const busy: DerivedPresence = { ...idle, working: true };
 
 /** A fresh plugin process. */
-async function plugin(held: { state: DerivedPresence }) {
+async function plugin(held: { state: DerivedPresence; registrations: number }) {
 	vi.resetModules();
 	const bridge = await import("../mcp/bridge/helpers.js");
 	bridge.initBridge({
@@ -50,7 +50,12 @@ async function plugin(held: { state: DerivedPresence }) {
 		projectName: "host.oc",
 		profile: pluginProfile("opencode"),
 	});
-	bridge.setApiSession({ current: () => held.state } as unknown as ApiSession);
+	bridge.setApiSession({
+		current: () => held.state,
+		registered: () => {
+			held.registrations += 1;
+		},
+	} as unknown as ApiSession);
 	return bridge;
 }
 
@@ -83,51 +88,19 @@ afterEach(() => {
 });
 
 describe("a plugin-read session's state across its Gateway socket", () => {
-	it.each([
-		["ends", true],
-		["begins and ends", false],
-	])(
-		"hands the Gateway one edge after a reconnect for a compaction that %s while the socket was down",
-		async (_label, startedBefore) => {
-			const held = { state: busy };
-			live = await plugin(held);
-			const first = connected(live);
-			live.reportSessionPresence(startedBefore ? { ...busy, compacting: true } : busy);
-
-			drop(first);
-			if (!startedBefore) live.reportSessionPresence({ ...busy, compacting: true });
-			held.state = idle;
-			live.reportSessionPresence(idle);
-			const second = connected(live);
-
-			expect(presence(second)).toEqual([{ ...idle, compacting: true }, idle]);
-		},
-	);
-
-	it("owes nothing from a fresh plugin process", async () => {
-		const before = await plugin({ state: busy });
-		const first = connected(before);
-		before.reportSessionPresence({ ...busy, compacting: true });
-		drop(first);
-		before.closeRouter();
-
-		live = await plugin({ state: idle });
-		const second = connected(live);
-
-		expect(presence(second)).toEqual([idle]);
-	});
-
-	it("resends only the held state when nothing compacted while it was down", async () => {
-		const held = { state: busy };
+	it("resends the held state once on a reconnect, and tells its session it registered again", async () => {
+		const held = { state: busy, registrations: 0 };
 		live = await plugin(held);
 		const first = connected(live);
-		live.reportSessionPresence(busy);
+		live.reportSessionPresence({ ...busy, compacting: true });
 
 		drop(first);
 		held.state = idle;
 		live.reportSessionPresence(idle);
 		const second = connected(live);
 
+		expect(presence(first)).toEqual([busy, { ...busy, compacting: true }]);
 		expect(presence(second)).toEqual([idle]);
+		expect(held.registrations).toBe(2);
 	});
 });

@@ -37,7 +37,7 @@ export interface LaunchFacts {
 
 /**
  * What a launch does with a pane already there: `repair` relaunches one whose CLI is gone, `peek`
- * reads its screen, `leave` touches nothing.
+ * reads a pane's screen, `leave` touches nothing. A launcher-run pane is read only on `repair`.
  */
 export type ExistingPane = "repair" | "peek" | "leave";
 
@@ -83,7 +83,7 @@ type Road = (deps: SessionLaunchDeps, target: TmuxTarget, facts: LaunchFacts) =>
 /** Past the launcher's own bounds. */
 const LAUNCHER_READY_MS = 150_000;
 const LAUNCHER_POLL_MS = 250;
-/** With no status yet, past a slow shell startup. */
+/** With no status, past a slow shell startup. */
 const NO_STATUS_PROBE_MS = 20_000;
 const LAUNCHER_PROBE_MS = 2000;
 
@@ -238,7 +238,7 @@ async function awaitLauncher(deps: SessionLaunchDeps, target: TmuxTarget, status
 		if (status || deps.now() < nextProbe) continue;
 		nextProbe = deps.now() + LAUNCHER_PROBE_MS;
 		if (!(await deps.hasSession(target))) return exited();
-		// No launcher ever wrote. Twice, since a shell between commands reads as gone.
+		// No status: never written, or removed on exit. Twice, since a shell between commands reads as gone.
 		const gone = (await deps.paneAgentState(target)) === "gone";
 		if (gone && goneOnce) return exited();
 		goneOnce = gone;

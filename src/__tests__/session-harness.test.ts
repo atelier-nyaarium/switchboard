@@ -132,7 +132,12 @@ describe("the versions a launch accepts", () => {
 });
 
 describe("a compacted session's baseline", () => {
-	it("is pushed by the Gateway where no hook hands it over", () => {
-		expect(SESSION_HARNESSES.map(pushesBaseline)).toEqual([false, true, true]);
+	it("is fetched by the session itself, except Copilot's, which the Gateway pushes", () => {
+		expect(SESSION_HARNESSES.map((harness) => HARNESS[harness].baseline)).toEqual([
+			"session",
+			"session",
+			"gateway",
+		]);
+		expect(SESSION_HARNESSES.filter(pushesBaseline)).toEqual(["copilot"]);
 	});
 });

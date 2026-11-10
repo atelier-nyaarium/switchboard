@@ -16,6 +16,8 @@ export interface OpencodeSessionDeps {
 	/** The tag a pushed row is typed as. */
 	render(payload: ChannelPushPayload | ResponsePushPayload): Promise<string>;
 	report(derived: DerivedPresence | undefined): void;
+	/** The rendered baseline, empty when there is none, or undefined when unreachable. */
+	baseline(): Promise<string | undefined>;
 	newId(): string;
 	sleep(ms: number): Promise<void>;
 	log(line: string): void;
@@ -30,6 +32,8 @@ export interface ApiSession {
 	deliver(push: ChannelPushPayload): Promise<void>;
 	respond(push: ResponsePushPayload): Promise<void>;
 	control(op: SessionControlOp): Promise<SessionControlResult>;
+	/** Its Gateway socket registered again. */
+	registered(): void;
 }
 
 ////////////////////////////////
@@ -38,6 +42,7 @@ export interface ApiSession {
 const DELIVER_TRIES = 5;
 const DELIVER_RETRY_MS = 1000;
 const NOTICE_LABEL = "Switchboard notice";
+const BASELINE_LABEL = "Switchboard baseline";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -47,9 +52,36 @@ const retries = (error: unknown): boolean => !(error instanceof OpencodeHttpErro
 
 export function createOpencodeSession(deps: OpencodeSessionDeps): ApiSession {
 	const client = createOpencodeClient(deps.file, deps.fetch);
+	// One baseline per compaction id, which OpenCode itself lands once.
+	let landed: string | undefined;
+	let pending: string | undefined;
+	let landing = Promise.resolve();
+	const landBaseline = (): void => {
+		landing = landing.then(async () => {
+			const id = pending;
+			if (!id || id === landed) return;
+			const text = await deps.baseline().catch(() => undefined);
+			// Unreachable: the next read or registration retries.
+			if (text === undefined) return;
+			if (text) {
+				await post(() => client.synthetic(promptIdOf(`baseline:${id}`), text, BASELINE_LABEL)).catch((error) =>
+					deps.log(
+						`[opencode] baseline not posted: ${error instanceof Error ? error.message : String(error)}`,
+					),
+				);
+			}
+			landed = id;
+			if (pending === id) pending = undefined;
+		});
+	};
 	const follower = createOpencodeFollower({
 		client,
 		report: deps.report,
+		compacted: (id) => {
+			if (id === landed) return;
+			pending = id;
+			landBaseline();
+		},
 		sleep: deps.sleep,
 		log: (line) => deps.log(`[opencode] ${line}`),
 	});
@@ -67,6 +99,9 @@ export function createOpencodeSession(deps: OpencodeSessionDeps): ApiSession {
 	}
 
 	return {
+		registered: () => {
+			if (pending) landBaseline();
+		},
 		start: () => follower.start(),
 		stop: () => follower.stop(),
 		current: () => follower.current(),
