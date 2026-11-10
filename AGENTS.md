@@ -11,7 +11,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/hostResolve.ts` `assistantPermissionArgs` - the assistant's launch: Claude Code's permission engine in `dontAsk` with a closed `--tools` list and inline settings, the boundary its hook layers over
 - `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on the attachments and refs of `channel_reply` and `notify_human`
   - **Every allowed write needs a held phone hold** (`src/shared/assistant-hold.ts`): claimed from the summon panel or Assistant tab within the last 10 minutes, the claim stamped on the Router's clock and its age judged on the Gateway's; an unreadable hold refuses. `src/mcp/hookGateway.ts` is the one road a hook asks the Gateway by.
-- `src/gateway/assistant/assistantRestart.ts` - typing `/exit` into an idle assistant whose pane waits on a restart to apply an installed update; the pane reader per backend is `restartPending` in `src/shared/agent-screen.ts`
+- `src/gateway/assistant/assistantRestart.ts` - typing `/exit` into an idle assistant whose pane waits on a restart to apply an installed update; the pane reader per CLI is `restartPending` in `src/shared/agent-screen.ts`
 - `src/mcp/assistant/instructions.ts` - the assistant's standing rules in its MCP instructions, and `scopeTools`, which lists only its own Switchboard tools
 - `src/shared/assistant-session.ts` / `src/gateway/compose/composeAssistant.ts` - the assistant's one session: placed and let go as the Router's home record says, owned by provenance, reserved from both sweeps, never plainly forgotten; the `assistant_*` console handlers. `docs/assistant.md` holds the design
 - `src/shared/schemasAssistantHome.ts` / `src/federation-server/assistant/assistantHomeService.ts` / `src/gateway/assistant/homeFollow.ts` / `homeMark.ts` - where the assistant lives: the record's wire, the Router's choice and report rows, the Gateway's follow, and its durable mark
@@ -86,7 +86,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A page reads its op's result from `AssistantOps`, never from its own coroutine:** `runWork` and `work` hold each page's busy flag and line, `ruleDrafts` and `ruleLanded` hold a rule op's, and a draft's `opening` is what an op settles, so Back loses no result and a late answer never lands on a newer draft.
 - `src/shared/schemasAssistantRecord.ts` / `android/.../AssistantRecordRules.kt` - the outcome enum and per-thread shape an action's answer and its record row share; the phone's reading of a record row: `recordOf`, `isQuietRecord`, `threadRows` (a run of quiet records as one row), the view the thread page draws, and the codec
   - **A quiet record carries nothing an older phone would show:** `ConsolePushEntrySchema`'s refine ties `notify` to a summary in `body`, so an older phone shows a response and drops a quiet row. The new phone keeps a quiet record out of the burst, alerts, autoplay, `countsUnread` and the session card's reads.
-- `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, the push a Copilot compaction's end raises, and its wire shape and lines
+- `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, the push a compaction's end raises for a CLI no hook hands its baseline, and its wire shape and lines
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
 - `src/gateway/` - Docker-side HTTP and WS router
 - `src/gateway/composeGateway.ts` - the compose stages in order, fault port, cycles, and `close`; `index.ts` is the Bun adapter
@@ -127,7 +127,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/routes.ts` - `RoutesDeps`, `RoutesCarryOver`, and the composer that wires session typing with the other route modules
 - `src/gateway/routes/addressing.ts` / `callerGuards.ts` / `relay.ts` - local address minting, the refusal gates, cross-Gateway relay
 - `src/gateway/routes/routesStatus.ts` / `routesCapabilities.ts` / `routesPresence.ts` - health, pending and teams; the capability fold; discovery
-- `src/gateway/routes/routesSession.ts` - `/session/type`, authenticated against the caller's Copilot host-session record
+- `src/gateway/routes/routesSession.ts` - `/session/type`, authenticated against the caller's own host-session record, for a CLI whose delivery is typed
 - `src/gateway/routes/routesSend.ts` / `routesRespond.ts` / `routesBoard.ts` - the send and `deliverEvent`, the senderless watcher event, sharing `reach`; the reply and its poll; the task board
   - **Who reads a reply is read off the job:** `readerOf` in `pending-job-store.ts` answers `phone` or `session`, or nothing for a job an older Gateway relayed. The send stamps it on the delivery and the relayed op, the tag names the reply's fields from it, and the reply route drops spoken tiers for a session. `docs/console.md` holds the rule.
 - `src/gateway/routes/routesHumanNotify.ts` / `routesBlob.ts` - console push, and the local-then-Router blob read
@@ -144,7 +144,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - session presence including running-agent `teammates`, read anchors, host RPC correlation
 - `src/shared/schemasPresence.ts` `DerivedPresenceSchema` - what the daemon derives from a pane, the `presence_derive` frame
   - **One schema, every road:** the daemon's state, the frame, the Gateway's parse, `TeamInfo`'s derived fields (`projectDerived`) and the one equality (`sameDerived`) all read it. A new field is a schema line, its derivation, and on the phone a `Presence` property that `reported` must fill to compile.
-  - **A Copilot compaction is read from Copilot's own events file, never the pane:** `copilotCompaction.ts` follows `~/.copilot/session-state/<id>/events.jsonl` for each watch entry carrying a `copilotSessionId` (the Gateway puts the record's on `presence_watch`), and `PresenceScheduler.setOverlay` merges `compacting` into every report, so the phone needs nothing new. The pane's spinner line scrolls off in seconds while the compaction runs for a minute.
+  - **A Copilot compaction is read from Copilot's own events file, never the pane:** `copilotCompaction.ts` follows `~/.copilot/session-state/<id>/events.jsonl` for each watch entry of a CLI whose row says `copilot-events`, under the record's `mintedSessionId`, which the Gateway puts on `presence_watch`, and `PresenceScheduler.setOverlay` merges `compacting` into every report, so the phone needs nothing new. The pane's spinner line scrolls off in seconds while the compaction runs for a minute.
 - `src/gateway/router/boardClient.ts` - Router-held task board client
 - `src/gateway/router/vaultClient.ts` - vault sealing/opening, delta-held Router list, approval-gated values, and the gateway write
 - `src/gateway/vault/decisions.ts` / `requests.ts` / `vaultRoutes.ts` - grants and `displayShape`; request rows that settle once, admit a joining caller, and cap open requests per target; loopback routes, each resolving the one principal, a session by its token
@@ -663,7 +663,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
   - **A pushed row reaches the session once per delivery id:** `channelPushDelivery.ts` acks a repeat
     it already emitted, across reconnects. A restart forgets, so delivery stays at least once.
-  - **Copilot uses typed channel tags:** `channelNotify.ts` builds shared content and metadata; `helpers.ts` serializes typed pushes, retries busy panes, and acks after typing.
+  - **A CLI whose delivery is typed gets channel tags typed into its pane:** `channelNotify.ts` builds shared content and metadata; `helpers.ts` holds one transport per delivery kind, and the typed one serializes pushes, retries busy panes, and acks after typing.
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
 - `src/shared/workspace-op.ts` - the workspace plane's wire vocabulary, beside `host-op.ts` and for the same reason: Gateway to an MCP-side process, never to Kotlin
@@ -910,6 +910,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     `check:boot` runs the real `main-mcp` and proves the tool is there, and that `host.assistant`
     lists every tool its scope names.
 - `src/shared/host-spawn.ts` - sole host-shell spawn-segment and command owner
+- `src/shared/session-harness.ts` / `android/.../proto/HarnessRegistry.kt` / `src/mcp/sessionCli.ts` - the table of session CLIs (`HARNESS`, one row each), its generated Kotlin twin, and the plugin's one resolution of its own CLI. `docs/architecture.md` holds the rules
+  - **Nothing decides by a CLI's name:** a difference is a row field, and behavior that lives in one process is a table keyed by that field's value (`LAUNCH_ARGS`, `TRANSPORTS`, `RESTART_SIGNALS`), so a new CLI or a new value stops the build until each is handled.
+  - **A CLI word off a wire or a file is read through `readHarness`:** named, unnamed or unknown, and `foldHarness` makes each reader state all three. Unnamed is an older sender, read as `UNNAMED_HARNESS` until its dated removal. Unknown is a newer build's CLI and is never treated as Claude.
+  - **A stored record naming an unknown CLI is held unread** by `SessionStore.restore` and written back untouched, so a Gateway rolled back over a newer build erases nothing.
+  - **The row owns a session id's shape and mint** (`sessionId`), and `launchRefusal` is the one rule for where a CLI may launch.
 - `src/shared/crypto.ts` / `admission.ts` / `router-protocol.ts` / `federation-lifecycle.ts` - federation trust wire vocabulary
 - `src/shared/notice.ts` - shared notice tiers
 - `src/shared/wire-vocabulary.ts` - sole TS declaration of Router paths, the console header, signing tags, the bridge's refusals, nonce lengths; generated into `Protocol.Wire` beside the owner-op kinds the registry catalogues; residue-fenced on both runtimes

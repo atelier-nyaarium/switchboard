@@ -67,8 +67,8 @@ keeps it across reconnects.
   gives up after 15 minutes, leaving a channel row held for the next connection. A channel row is
   acknowledged only after the tag is typed and submitted.
 - A Copilot session gets the channel rules and the full capability guidance as MCP server
-  instructions, no 10-minute agent progress notices, and no `compact_session`, `set_effort_level` or
-  `reload_plugins`, which type Claude slash commands. Its compaction hooks are no-ops; its baseline
+  instructions, and no `compact_session`, `set_effort_level` or `reload_plugins`, which type Claude
+  slash commands. The console's plugin reload refuses such a session too. Its compaction hooks are no-ops; its baseline
   comes from the Gateway instead (below).
 - **Every plugin hook carries `bash` and `powershell` no-ops for Copilot:** Copilot runs a
   Claude-format hook's `command` as a shell line and drops `args`, and a `preToolUse` hook that errors
@@ -161,7 +161,7 @@ gateway's. Taking the Router's copy of its own would hide a live session behind 
 write. Spawn points ride only the presence baseline, so `presenceReporter` forces a new one when
 they change.
 
-**Windows launch facts**: use `claude.exe`, append to `WSLENV`, encode `-EncodedCommand` as UTF-16LE
+**Windows launch facts**: use the CLI's `.exe` name (`binary.windows` in its row), append to `WSLENV`, encode `-EncodedCommand` as UTF-16LE
 base64, and always use `Set-Location`. `pwsh.exe` is not assumed available.
 
 Windows workdir paths use forward slashes. UNC paths are rejected. Browsing uses native
@@ -171,6 +171,39 @@ Windows workdir paths use forward slashes. UNC paths are rejected. Browsing uses
 passed to `wslpath`.
 
 The daemon also serves `kasaScan`, a host op with a closed contract: no caller input, a discovery broadcast on every non-loopback IPv4 interface, typed candidates back. `wifiNetwork` is closed the same way and answers the WiFi the host is on, or `none`. `docs/devices.md` holds both.
+
+## Session CLIs
+
+`src/shared/session-harness.ts` holds one row per session CLI (`HARNESS`), and every place that
+differs by CLI reads it. Behavior that belongs to one process sits beside that process, in a table
+keyed by a row field's value: `LAUNCH_ARGS` in `hostResolve.ts`, `TRANSPORTS` in the plugin's
+`helpers.ts`, `RESTART_SIGNALS` in `agent-screen.ts`. A new CLI, or a new value of a field, stops the
+build until each is handled. The phone reads the same rows through the generated
+`proto/HarnessRegistry.kt`.
+
+**A session's CLI is fixed at create and named everywhere.** Every record carries `harness`, and every
+door that creates one names it. It rides the register frame, the wake, the `presence_watch` entry and
+the presence row.
+
+**A CLI word off a wire or a file is read one way.** `readHarness` answers named, unnamed or unknown,
+and `foldHarness` makes each reader say what it does with each. Unnamed is an older sender and reads
+as Claude until its dated removal. Unknown is a newer build's CLI: a launch is refused, a stored record
+is held unread and written back untouched, and the phone passes the word back uninterpreted.
+
+**The row owns a session id's shape.** A CLI keeps its own id, or starts and resumes under one the
+Gateway mints (`sessionId`, `mintedSessionId` on the record). The shape also guards the launch command
+line.
+
+**`launchRefusal` is the one placement rule,** read by the Gateway's create, the daemon's wake before any
+container starts, and `buildLaunchCommand`.
+
+**The plugin resolves its CLI once** (`mcp/sessionCli.ts`) into a profile with every answer filled, a
+CLI with no row included.
+
+**Which CLIs a spawn point runs** travels as one `harnessSpawns` map from the daemon's catalog to the
+phone, where the create dialog offers them.
+
+**A session is greeted on each launch until it first confirms.**
 
 ## Sessions and wake
 

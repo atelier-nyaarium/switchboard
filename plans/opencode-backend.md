@@ -158,6 +158,8 @@ The Containers slice raises `FEDERATION_PROTOCOL_FLOOR` with its release: an old
 
 ## Phase 1 - The harness table
 
+✅ Built in four commits. `### Built` lists what Phase 2a and Phase 2c take over.
+
 Two commits, each gated by lint, the tests and the Kotlin gate. The first is the table and changes no behavior. The second holds two fixes and is labeled a behavior change.
 
 - One closed record per harness, keyed by `SESSION_HARNESSES`, holding every seam the code map and the audit found: binary and launch arguments (`buildLaunchCommand`, `HOST.build`, `WINDOWS.build`, `agentTypeExport`, the Windows `copilot.exe` and `WSLENV` lookups), how it gets its id and resumes, delivery and registration as functions in the row (`deliverChannelPush`, `emitLocalAwareness`, `canReceivePush`), handshake or none with who owns the socket (the `agentPid` replacement check), state source (`deriveFromPeek` and its readers, `permissionPrompt`, the phone's pane reader in `agent-screen.ts` and its Kotlin twin), startup prompts (`COPILOT_TRUST_RE`), auto-answers (`limitContinueDigit`, `surveyShowing`), compaction road (`createCompactionFollower`, the compact hook), `RESTART_SIGNALS`, the slash-command tools, typed delivery (`typeSession`), which MCP tool groups it registers (the workflow tools go to Claude and Copilot by name today), how a wake tells it is ready (`paneAgentState`, `awaitReady`, `isAgentReady`), capability text, and where it may run.
@@ -385,6 +387,14 @@ Running or stopped is not shown: an agent's send starts the container either way
 - A devcontainer from the phone: start it, see the toggle offer only what is installed inside, create a session, stop the container with a session live, and wake that session again. Start one outside Switchboard and see its header follow. From a session: create one in a stopped container by `cli` and be told it is up, then name a CLI it lacks and be told the list. Break a project's `.devcontainer/` and be told to investigate it. Create one on another Gateway and be told there too. Run a routine into a new session with its pick, and fire a runbook into one with its pick.
 - A container with Copilot alone: its header offers Copilot alone, a session is created, talked to, compacted and woken.
 - Docs: `docs/architecture.md` (the harness table, the OpenCode roads), `docs/console.md` (the create pick), `docs/environment.md`, the setup step that installs the pin, AGENTS.md map lines. The stale line the map found, that Copilot gets no progress notices, goes.
+
+## Painpoints
+
+- **The host daemon runs on import:** `src/mcp/devcontainer/hostDaemon.ts` opens its socket and timers at module top level, so no test calls `handleWake`. Phase 1's container refusal and `launchHarness` there were checked by reading. Phase 2b adds container orchestration to the same function.
+- **Copilot's phone palette is Claude's:** both rows of `HARNESS` hold `CLAUDE_SLASH` as `slashPalette`, so the phone offers a Copilot session slash commands it does not have.
+- **`detectAgentType` answers the first CLI on the path:** a hand-started session with no `AGENT_TYPE` reads as Claude on any machine that has Claude installed, whatever CLI it runs in.
+- **A CLI with no row gets Claude's slash tools:** `OTHER_AGENT` in `src/mcp/sessionCli.ts` sets `claudeSlashTools`, so `compact_session` and `set_effort_level` register for a CLI that cannot run them.
+- **21 dated shims fall due on 2026-11-23:** the optional `harness` fields, `unnamed`, `claudeSpawns` and `copilotSpawns`, and the `copilotSessionId` twin. Nothing but a grep for the date finds them.
 
 ## Later
 
