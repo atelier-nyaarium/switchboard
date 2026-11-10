@@ -42,11 +42,11 @@ describe("a host session's name, one pane on every host spawn point", () => {
 			"the wake's answer",
 		);
 
-		expect(h.phone.open(row)).toMatchObject({ ok: false, error: expect.any(String) });
+		expect(h.phone.open(row)).toMatchObject({ ok: false, error: expect.stringContaining('"host.shared-wake"') });
 		expect(h.host.wakes).toHaveLength(wakes);
 	});
 
-	const routineOf = (id: string): Routine => ({
+	const routineOf = (id: string, target: Routine["target"] = { spawn: "host", cli: "claude" }): Routine => ({
 		id,
 		name: id,
 		weekdays: [1],
@@ -57,7 +57,7 @@ describe("a host session's name, one pane on every host spawn point", () => {
 		runbookId: "book",
 		approvedRevision: 1,
 		values: {},
-		target: { spawn: "host", cli: "claude" },
+		target,
 		linkedEntries: [],
 		forgetAfterDays: 7,
 		enabled: true,
@@ -65,32 +65,69 @@ describe("a host session's name, one pane on every host spawn point", () => {
 		since: 0,
 	});
 
+	const listed = async (id: string) => {
+		const { result } = await h.phone.value({ kind: "routine_list" });
+		return (result as { routines: Array<{ routine: Routine; reviewReason?: string }> }).routines.find(
+			(row) => row.routine.id === id,
+		);
+	};
+	const opsOn = (id: string) =>
+		h.host.ops.flatMap((op) =>
+			(op.kind === "createSession" || op.kind === "killSession") &&
+			op.target.sessionName === routineSessionName(id)
+				? [`${op.kind} ${op.target.name}`]
+				: [],
+		);
+
 	it("refuses to save a routine whose name another host spawn point holds", async () => {
 		const routine = routineOf("saved");
 		await create("windows", routineSessionName(routine.id));
 
 		const { result } = await h.phone.value({ kind: "routine_put", routine });
 
-		expect(result).toMatchObject({ stored: false, reason: takenReason(routine) });
+		expect(result).toMatchObject({ stored: false });
+		expect(await listed(routine.id)).toBeUndefined();
+	});
+
+	it("names the holder when it refuses to save a routine whose pane another host spawn point holds", async () => {
+		const routine = routineOf("named-holder");
+		await create("windows", routineSessionName(routine.id));
+
+		const { result } = await h.phone.value({ kind: "routine_put", routine });
+
+		expect(result).toMatchObject({ stored: false, reason: takenReason(routine, "windows.routine-named-holder") });
 	});
 
 	it("stops a routine for review when its name is taken on another host spawn point after it was saved", async () => {
 		const routine = routineOf("elsewhere");
 		const saved = await h.phone.value({ kind: "routine_put", routine });
 		await create("windows", routineSessionName(routine.id));
-		const creates = h.host.ops.filter((op) => op.kind === "createSession").length;
+		const before = opsOn(routine.id);
 
 		await h.phone.value({ kind: "routine_run", routineId: routine.id });
-		const review = await h.waitFor(async () => {
-			const { result } = await h.phone.value({ kind: "routine_list" });
-			const held = (result as { routines: Array<{ routine: Routine; reviewReason?: string }> }).routines.find(
-				(row) => row.routine.id === routine.id,
-			);
-			return held?.reviewReason;
-		}, "the review");
+		const review = await h.waitFor(async () => (await listed(routine.id))?.reviewReason, "the review");
 
 		expect(saved.result).toMatchObject({ stored: true });
-		expect(review).toBe(takenReason(routine));
-		expect(h.host.ops.filter((op) => op.kind === "createSession")).toHaveLength(creates);
+		expect(review).toBe(takenReason(routine, "windows.routine-elsewhere"));
+		expect(opsOn(routine.id)).toEqual(before);
+	});
+
+	it("retires a routine's own session when the routine moves to another host spawn point", async () => {
+		const routine = routineOf("mover", { spawn: "windows", cli: "claude" });
+		const first = await h.phone.value({ kind: "routine_put", routine });
+		await h.phone.value({ kind: "routine_run", routineId: routine.id });
+		await h.waitFor(() => opsOn(routine.id)[0], "the first reserve");
+
+		const moved = await h.phone.value({
+			kind: "routine_put",
+			routine: { ...routine, target: { spawn: "host", cli: "claude" }, revision: 2 },
+			baseRevision: (first.result as { revision: number }).revision,
+		});
+		await h.phone.value({ kind: "routine_run", routineId: routine.id });
+		await h.waitFor(() => opsOn(routine.id)[2], "the reserve after the move");
+
+		expect(moved.result).toMatchObject({ stored: true });
+		expect(opsOn(routine.id)).toEqual(["createSession windows", "killSession windows", "createSession host"]);
+		expect((await listed(routine.id))?.reviewReason).toBeUndefined();
 	});
 });

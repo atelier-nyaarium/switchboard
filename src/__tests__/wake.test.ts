@@ -180,18 +180,61 @@ describe("a launch's stages", () => {
 		expect([unstaged, building, coord.countdownFrom("alpha")]).toEqual([startedAt, null, startedAt + 200]);
 	});
 
-	it("leaves a newer launch's waiter alone when an older launch's stage or result arrives late", async () => {
+	it("leaves a newer launch's waiter alone when an older launch's result or container arrives late", async () => {
 		const { ambient, coord, watch } = rig();
 		const wait = watch(coord.waitFor("alpha", WINDOW, "launch-new"));
 
-		coord.stage("alpha", "building", "launch-old");
 		coord.fail("alpha", { error: "the old pane died" }, "launch-old");
-		await ambient.advance(WINDOW - 1);
+		await ambient.advance(WINDOW / 2);
+		coord.stage("alpha", "container_up", "launch-old");
+		await ambient.advance(WINDOW / 2 - 1);
 		const justBefore = wait.settled;
 		await ambient.advance(1);
 
 		expect(justBefore).toBeUndefined();
 		expect(wait.settled).toEqual(timedOut);
+	});
+
+	it("holds every waiter of a team while any of its launches builds the pane, and re-arms them when the build ends", async () => {
+		const { ambient, coord, watch } = rig();
+		const wait = watch(coord.waitFor("alpha", WINDOW, "launch-new"));
+
+		coord.stage("alpha", "building", "launch-old");
+		await ambient.advance(10 * WINDOW);
+		const duringBuild = [wait.settled, coord.countdownFrom("alpha", "launch-new")];
+		coord.stage("alpha", "container_up", "launch-old");
+		await ambient.advance(WINDOW - 1);
+		const justBefore = wait.settled;
+		await ambient.advance(1);
+
+		expect(duringBuild).toEqual([undefined, null]);
+		expect(justBefore).toBeUndefined();
+		expect(wait.settled).toEqual(timedOut);
+	});
+
+	it("re-arms the team's held waiters when the building launch fails", async () => {
+		const { ambient, coord, watch } = rig();
+		const wait = watch(coord.waitFor("alpha", WINDOW, "launch-new"));
+
+		coord.stage("alpha", "building", "launch-old");
+		coord.fail("alpha", { error: "the build failed" }, "launch-old");
+		await ambient.advance(WINDOW);
+
+		expect(wait.settled).toEqual(timedOut);
+	});
+
+	it("keeps each launch's own container time, and settling one leaves the other's", async () => {
+		const { ambient, coord } = rig();
+		const start = ambient.now();
+
+		coord.stage("alpha", "container_up", "launch-a");
+		await ambient.advance(100);
+		coord.stage("alpha", "container_up", "launch-b");
+		const both = [coord.countdownFrom("alpha", "launch-a"), coord.countdownFrom("alpha", "launch-b")];
+		coord.fail("alpha", { error: "the first pane died" }, "launch-a");
+
+		expect(both).toEqual([start, start + 100]);
+		expect(coord.countdownFrom("alpha", "launch-b")).toBe(start + 100);
 	});
 
 	it("settles a launch by its own id, and any of its team's launches by a frame that names none", async () => {

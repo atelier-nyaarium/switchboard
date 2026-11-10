@@ -5,7 +5,12 @@ WORKDIR /app
 COPY package.json bun.lock ./
 # Install runs the postinstall, which links nothing without lexicon/ in the image.
 COPY scripts/link-lexicon.mjs scripts/
-RUN bun install --frozen-lockfile --production
+# CA bundle as a secret, never in a layer.
+RUN --mount=type=secret,id=ssl_cert \
+	if [ -s /run/secrets/ssl_cert ]; then \
+		export SSL_CERT_FILE=/run/secrets/ssl_cert NODE_EXTRA_CA_CERTS=/run/secrets/ssl_cert; \
+	fi; \
+	bun install --frozen-lockfile --production
 COPY src/ src/
 COPY tsconfig.json ./
 

@@ -92,7 +92,8 @@ export function dirExists(dirPath: string): boolean {
 
 /** docker compose in the current project. */
 export function dc(...args: string[]) {
-	return $`docker compose ${args}`;
+	const files = process.env.SSL_CERT_FILE ? ["-f", "docker-compose.yml", "-f", "docker-compose.ssl.yml"] : [];
+	return $`docker compose ${files} ${args}`;
 }
 
 /** The federation Router is its own compose project, so it needs the file and project name that

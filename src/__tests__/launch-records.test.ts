@@ -24,16 +24,23 @@ function rig(stored: unknown = null) {
 	const relayed: Array<{ relay: LaunchRelay; notice: LaunchNotice }> = [];
 	/** Senders with a session record. */
 	const known = new Set<string>();
+	const writes = { fail: false };
+	/** Launch countdown, else team's; null while building. */
+	const countdownOf = (team: string, launchId: string | undefined): number | null => {
+		const key = launchId !== undefined && countdown.has(launchId) ? launchId : team;
+		return countdown.has(key) ? (countdown.get(key) ?? null) : 0;
+	};
 	const deps: LaunchRecordsDeps = {
 		durable: {
 			saveChecked: (state) => {
+				if (writes.fail) throw new Error("disk full");
 				disk = state;
 			},
 			load: () => disk,
 		},
 		now: () => clock.now,
 		timeoutMs: TIMEOUT,
-		countdownFrom: (team) => (countdown.has(team) ? (countdown.get(team) ?? null) : 0),
+		countdownFrom: countdownOf,
 		isLive: () => false,
 		senderKnown: (sessionKey) => known.has(sessionKey),
 		inFlight: () => false,
@@ -70,7 +77,7 @@ function rig(stored: unknown = null) {
 		records.tick();
 		return [...observed];
 	};
-	return { clock, countdown, link, cancel, forgotten, relayed, known, records, join, tick };
+	return { clock, countdown, link, cancel, forgotten, relayed, known, writes, records, join, tick, disk: () => disk };
 }
 
 const failed = (observations: AwarenessObservation<LaunchNotice>[]) =>
@@ -139,6 +146,66 @@ describe("a launch a send waits on", () => {
 
 		expect(r.cancel.named).toEqual([["app.created", "launch-created"]]);
 		expect(r.forgotten).toEqual(["app.created"]);
+	});
+
+	it("counts each launch riding one pane from its own container", () => {
+		const r = rig();
+		r.records.open(TEAM, "launch-a", false, false);
+		r.join({ launchId: "launch-a", sessionKey: "first" });
+		r.records.open(TEAM, "launch-b", false, false);
+		r.join({ launchId: "launch-b", sessionKey: "second" });
+		r.countdown.set("launch-a", r.clock.now);
+		r.countdown.set("launch-b", r.clock.now + 500);
+
+		r.clock.now += TIMEOUT;
+		const atFirst = failed(r.tick()).map((notice) => notice.sessionKey);
+		r.clock.now += 500;
+
+		expect(atFirst).toEqual(["first"]);
+		expect(failed(r.tick()).map((notice) => notice.sessionKey)).toEqual(["first", "second"]);
+	});
+
+	it("covers every launch of the session with the owner's claim, an older unclaimed create included", () => {
+		const r = rig();
+		r.records.open(TEAM, "launch-older", true, false);
+		r.records.open(TEAM, "launch-claimed", true, true);
+		r.records.open("app.other", "launch-other", true, false);
+		r.records.open("app.other", "launch-retained", true, false);
+		r.records.retain("launch-retained");
+
+		r.clock.now += TIMEOUT;
+		r.tick();
+
+		expect(r.cancel.named).toEqual([]);
+		expect(r.forgotten).toEqual([]);
+	});
+
+	it("names an opened launch by its team until a send names its address", () => {
+		const r = rig();
+		r.records.open(TEAM, "launch-a", false, false);
+		const opened = (r.disk() as Array<{ address?: string }>)[0];
+		r.join({ launchId: "launch-a", address: "d.g.app.abc123" });
+		r.records.settle(TEAM, { up: true }, "launch-a");
+
+		expect(opened.address).toBe(TEAM);
+		expect(r.tick().map((notice) => notice.post)).toEqual([{ kind: "up", address: "d.g.app.abc123" }]);
+	});
+
+	it("keeps a pruned launch's cancel when the prune cannot be written, so the cancel is not sent again", () => {
+		const r = rig();
+		r.join({ created: true });
+		r.records.settle(TEAM, { failure: { kind: "error", reason: "no pane" } });
+		const [notice] = r.tick();
+		r.records.markTold(notice.identity, notice.sessionKey);
+		const sent = r.cancel.attempts.length;
+
+		r.writes.fail = true;
+		r.tick();
+		r.tick();
+		r.tick();
+
+		expect(sent).toBe(1);
+		expect(r.cancel.attempts).toHaveLength(sent);
 	});
 
 	it("leaves a newer launch alone when an older launch's result arrives late", () => {

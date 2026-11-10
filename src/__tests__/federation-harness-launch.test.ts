@@ -176,7 +176,7 @@ describe("a session's send to a session that is not up", () => {
 			// Builds hold both until the wake joins.
 			const stage = (stage: string) => {
 				for (const frame of [claimed, unclaimed])
-					h.host.sendFrame({ type: "wake_stage", team: frame.team, stage });
+					h.host.sendFrame({ type: "wake_stage", team: frame.team, launchId: frame.launchId, stage });
 			};
 			stage("building");
 			const target = h.target(String(claimed.team));
@@ -345,7 +345,7 @@ describe("a session's send to a session that is not up", () => {
 	it("forgets a build's stage when the host registers again, so a later launch still times out", async () => {
 		const sleeper = await asleep("rebuilt");
 		const address = h.target(sleeper.team);
-		h.host.sendFrame({ type: "wake_stage", team: sleeper.team, stage: "building" });
+		h.host.sendFrame({ type: "wake_stage", team: sleeper.team, launchId: "launch-before", stage: "building" });
 		h.host.vanish();
 		const replacement = attachFakeHost(h.gateway, { token: h.set.tokens.host, answerWake: () => "silent" });
 		try {
@@ -576,12 +576,13 @@ describe("a session's send to another Domain's session that is not up", () => {
 	});
 });
 
-describe("a daemon that names its launches", () => {
+/** Harness with a silent-launch daemon. */
+function wakeResultsRig(launchIds: boolean) {
 	let h: FederationHarness;
 	let asker: FakeSession;
 
 	beforeAll(async () => {
-		h = await startFederationHarness({ host: { launchIds: true, answerWake: () => "silent" } });
+		h = await startFederationHarness({ host: { launchIds, answerWake: () => "silent" } });
 		asker = attachFakeSession(h.gateway, { team: "fixture-app.asker", conversationId: "conv-named-asker" });
 		await asker.ready();
 	}, 30_000);
@@ -590,43 +591,66 @@ describe("a daemon that names its launches", () => {
 		if (h) await h.close();
 	});
 
-	it("acts on a result only when it names its launch, and acks each one that does", async () => {
+	const launch = async (name: string) => {
 		const answer = (await (
 			await asker.post("/send", {
 				from: asker.team,
 				fromConversationId: asker.conversationId,
-				to: "fixture-app.named",
+				to: `fixture-app.${name}`,
 				body: "hello",
-				displayLabel: "Named",
+				displayLabel: name,
 			})
 		).json()) as { target: string };
-		const wake = await h.waitFor(
+		return h.waitFor(
 			() => h.host.wakes.find((frame) => answer.target === h.target(String(frame.team))),
 			"the wake",
 		);
-		const result = (reason: string, named: object) =>
-			h.host.sendFrame({
-				type: "wake_result",
-				team: wake.team,
-				...named,
-				success: false,
-				failure: { kind: "error", reason },
-			});
+	};
+	const fail = (team: unknown, named: object) =>
+		h.host.sendFrame({
+			type: "wake_result",
+			team,
+			...named,
+			success: false,
+			failure: { kind: "error", reason: "x" },
+		});
+	const answered = () =>
+		h.host.frames.filter((frame) => frame.type === "wake_result_ack" || frame.type === "wake_cancel");
+	const until = (type: string, label: string) =>
+		h.waitFor(() => answered().find((frame) => frame.type === type), label);
 
-		// Failed create gives up at once.
-		const answered = () =>
-			h.host.frames.filter((frame) => frame.type === "wake_result_ack" || frame.type === "wake_cancel");
+	return { launch, fail, answered, until };
+}
 
-		result("from the untagged frame", {});
+describe("the wake results of a daemon that names its launches", () => {
+	const r = wakeResultsRig(true);
+
+	it("acts on a result only when it names its launch, and acks it once applied", async () => {
+		const wake = await r.launch("named");
+
+		r.fail(wake.team, {});
 		await new Promise((resolve) => setTimeout(resolve, 50));
-		const afterUntagged = answered();
-		result("from the tagged frame", { launchId: wake.launchId });
-		await h.waitFor(() => answered().find((frame) => frame.type === "wake_cancel"), "the give-up");
+		const afterUntagged = r.answered();
+		r.fail(wake.team, { launchId: wake.launchId });
+		await r.until("wake_result_ack", "the ack");
 
 		expect(afterUntagged).toEqual([]);
-		expect(answered()).toEqual([
-			{ type: "wake_result_ack", launchId: wake.launchId },
+		expect(r.answered()).toEqual([
 			{ type: "wake_cancel", team: wake.team, launchId: wake.launchId },
+			{ type: "wake_result_ack", launchId: wake.launchId },
 		]);
+	});
+});
+
+describe("the wake results of an older daemon that names none", () => {
+	const r = wakeResultsRig(false);
+
+	it("acts on its untagged result, and acks nothing", async () => {
+		const wake = await r.launch("unnamed");
+
+		r.fail(wake.team, {});
+		await r.until("wake_cancel", "the give-up");
+
+		expect(r.answered()).toEqual([{ type: "wake_cancel", team: wake.team, launchId: wake.launchId }]);
 	});
 });

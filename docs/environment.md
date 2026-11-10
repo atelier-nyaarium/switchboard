@@ -17,6 +17,7 @@ hand-edited, so there is no `.env.example`. The compose files and the tuning ove
 | `MAX_BLOB_STORE_BYTES` | Blob sweep ceiling, default sixteen times the single-blob maximum. Tuning override |
 | `WAKE_TIMEOUT_MS` | How long a wake may take before it is given up on, default 600000. Tuning override |
 | `ALLOW_FIXTURE_IDENTITY` | `1` lets the gateway start on the committed test identity (`src/shared/fixture-identity.ts`). Only `check:boot` sets it |
+| `SSL_CERT_FILE` | Host side, read by `start-gateway.sh`: a CA bundle the image build trusts, for a network that re-signs TLS. Passed as a build secret (`docker-compose.ssl.yml`), so it is never in a layer |
 
 ## Federation Router (Docker, its own compose project)
 

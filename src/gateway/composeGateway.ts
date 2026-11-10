@@ -34,7 +34,7 @@ import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflow
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
 import { createRouterExchange } from "./router/routerExchange.js";
-import { routineOwns } from "./routines/reservation.js";
+import { routineOwns, routineOwnsPane } from "./routines/reservation.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
 export type { GatewayConfig, GatewayDeps, GatewayFaultPort, GatewayGraph } from "./compose/gatewayTypes.js";
@@ -305,8 +305,9 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		},
 		assistantPlaced: () => assistant.placed(),
 		sessionOwned: (team, routine) =>
-			!sessions.sessionStore.paneHeldElsewhere(team) &&
+			routineOwnsPane(sessions.sessionStore.paneHolder(team), routine) &&
 			routineOwns(sessions.sessionStore.getByTeam(team), routine),
+		paneHolder: (team) => sessions.sessionStore.paneHolder(team)?.team,
 		setRoutineGrants: (routineId, entryIds) => vault?.setRoutineGrants(routineId, entryIds),
 		resolveCaller: (req) => {
 			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);

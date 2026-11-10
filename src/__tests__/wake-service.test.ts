@@ -193,14 +193,20 @@ describe("WakeService", () => {
 		expect(s.forgotten).toEqual([]);
 	});
 
-	it("sends no wake when its launch cannot be recorded", async () => {
+	it("sends no wake when its launch cannot be recorded, and forgets only the record its create minted", async () => {
 		const s = setup();
 		s.service.useLedger({ open: () => false, retain: () => true });
 
-		const result = await s.service.tryWakeTeam("proj");
+		const woken = await s.service.tryWakeTeam("proj");
+		const created = await s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
 
-		expect(result).toMatchObject({ ok: false, error: expect.any(String) });
+		expect([woken, created]).toEqual([
+			{ ok: false, error: expect.any(String) },
+			expect.objectContaining({ ok: false, error: expect.any(String) }),
+		]);
 		expect(s.sent).toEqual([]);
+		expect(s.forgotten).toEqual(s.sessionStore.list().map((record) => s.sessionStore.teamOf(record)));
+		expect(s.forgotten).toHaveLength(1);
 	});
 
 	it("claims a launch for the owner, whether its wake starts it or joins it", async () => {

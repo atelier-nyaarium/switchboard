@@ -138,7 +138,7 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 
 	it("leaves the pick to a container that has not said, and takes the daemon's word before the session registers", async () => {
 		const { answer, wake, team } = await pendingCreate("pending");
-		h.host.sendFrame({ type: "wake_stage", team, stage: "cli_found", harness: "claude" });
+		h.host.sendFrame({ type: "wake_stage", team, launchId: wake.launchId, stage: "cli_found", harness: "claude" });
 		const woken = attachFakeSession(h.gateway, {
 			team,
 			conversationId: "conv-pending",
@@ -167,7 +167,7 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 	});
 
 	it("tells the phone a create is launching, and the CLI the daemon found, before it registers", async () => {
-		const { team } = await pendingCreate("unnamed");
+		const { wake, team } = await pendingCreate("unnamed");
 		const rowOf = async () => {
 			const { planes } = await h.phone.planesRead({});
 			const payload = planes.find((plane) => plane.name === "presence")?.payload as
@@ -176,7 +176,7 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 			return payload?.rows?.find((held) => held.team === team);
 		};
 		const launching = await h.waitFor(rowOf, "the launching row");
-		h.host.sendFrame({ type: "wake_stage", team, stage: "cli_found", harness: "claude" });
+		h.host.sendFrame({ type: "wake_stage", team, launchId: wake.launchId, stage: "cli_found", harness: "claude" });
 		const named = await h.waitFor(async () => {
 			const row = await rowOf();
 			return row?.harness ? row : undefined;
@@ -299,7 +299,7 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 			);
 			const team = `host.${op.target.sessionName}`;
 			while (!settled) {
-				h.host.sendFrame({ type: "wake_result", team, success: false, failure });
+				h.host.sendFrame({ type: "wake_result", team, launchId: op.launchId, success: false, failure });
 				await new Promise((resolve) => setTimeout(resolve, 20));
 			}
 

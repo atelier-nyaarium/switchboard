@@ -40,8 +40,18 @@ docker network inspect switchboard-federation >/dev/null 2>&1 || docker network 
 # GATEWAY_NETWORK in src/shared/gateway-network.ts.
 docker network inspect switchboard >/dev/null 2>&1 || docker network create switchboard >/dev/null
 
-docker compose down --remove-orphans 2>/dev/null || true
-if ! docker compose up --build -d; then
+COMPOSE=(docker compose)
+if [ -n "${SSL_CERT_FILE:-}" ]; then
+	if [ ! -r "$SSL_CERT_FILE" ]; then
+		echo "ERROR: SSL_CERT_FILE is set but $SSL_CERT_FILE is not readable" >&2
+		exit 1
+	fi
+	echo "Building with the CA bundle at $SSL_CERT_FILE"
+	COMPOSE+=(-f docker-compose.yml -f docker-compose.ssl.yml)
+fi
+
+"${COMPOSE[@]}" down --remove-orphans 2>/dev/null || true
+if ! "${COMPOSE[@]}" up --build -d; then
 	echo "ERROR: docker compose up failed - the gateway was never started" >&2
 	exit 1
 fi

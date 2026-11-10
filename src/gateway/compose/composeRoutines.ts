@@ -36,6 +36,8 @@ export interface RoutineStageDeps {
 	assistantPlaced?: () => boolean;
 	/** Ownership by provenance, never by name. */
 	sessionOwned?: (team: string, routine: Routine) => boolean;
+	/** Session holding the pane elsewhere. */
+	paneHolder?: (team: string) => string | undefined;
 	/** The only road to a routine's grants. */
 	setRoutineGrants?: (routineId: string, entryIds: string[]) => void;
 	/** Required: omitted, the door answers unauthenticated. */
@@ -107,6 +109,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			knowsSpawn: deps.knowsSpawn,
 			assistantPlaced: deps.assistantPlaced,
 			sessionTaken: (routine) => ownsIts(routineTeam(routine), routine) === false,
+			paneHolder: (routine) => deps.paneHolder?.(routineTeam(routine)),
 			now: () => deps.ambient.now(),
 			newIncarnation: () => deps.ambient.newId(),
 			onChanged: () => storeMoved(),
@@ -167,7 +170,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 
 	/** Render stops read the runbook now. */
 	const reviewText = (routine: Routine, row: Occurrence): string | null => {
-		if (row.reviewCause === "session_taken") return takenReason(routine);
+		if (row.reviewCause === "session_taken") return takenReason(routine, deps.paneHolder?.(routineTeam(routine)));
 		if (row.reviewCause === "assistant_unplaced") return UNPLACED_REASON;
 		if (row.reviewCause === "cli_refused") return CLI_REFUSED_REASON;
 		return blockedBy(routine);

@@ -1,0 +1,10 @@
+# Used only while SSL_CERT_FILE is set.
+services:
+  gateway:
+    build:
+      context: .
+      secrets:
+        - ssl_cert
+secrets:
+  ssl_cert:
+    file: ${SSL_CERT_FILE}

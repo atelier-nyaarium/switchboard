@@ -257,6 +257,8 @@ export class WakeService {
 
 		const launchId = this.deps.newLaunchId();
 		if (this.ledger && !this.ledger.open(wakeTeam, launchId, provisionalCreated, claim.retained)) {
+			// Nothing launched; release record.
+			if (provisionalCreated) this.deps.presence.forget(wakeTeam);
 			return { ok: false, error: `the launch of "${wakeTeam}" could not be recorded` };
 		}
 		claim.launchId = launchId;

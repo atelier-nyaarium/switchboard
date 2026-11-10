@@ -50,6 +50,7 @@ export interface SessionLifecycleDeps {
 		| "adoptById"
 		| "adoptOrReattach"
 		| "mintOrReattach"
+		| "paneHolder"
 		| "hostWorkdirHint"
 		| "forget"
 		| "rename"
@@ -225,6 +226,8 @@ export function createSessionLifecycleHandlers({
 	async function wake(op: Extract<ConsoleOp, { kind: "wake" }>) {
 		if (!tryWakeTeam) throw new Error("wake is unavailable");
 		const { name, spawn, session } = targets.requireLocalComposite(op.target, "wake");
+		const holder = sessionStore?.paneHolder(name);
+		if (holder) throw new Error(`"${name}" shares its pane with "${holder.team}"; wake that one instead`);
 		const adopted =
 			sessionStore && !sessionStore.getByTeam(name)
 				? sessionStore.adoptById(session, {

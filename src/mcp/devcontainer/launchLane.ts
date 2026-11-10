@@ -94,9 +94,13 @@ interface LaunchUnit {
 	/** Containers only. */
 	project?: string;
 	projectPath?: string;
+	/** Facts the launch runs. */
+	req: LaunchRequest;
 	takers: Taker[];
 	started: boolean;
 	settled: boolean;
+	/** A kill took the pane. */
+	preempted: boolean;
 	stage?: { stage: string; extra: Record<string, unknown> };
 	run(): Promise<void>;
 }
@@ -168,6 +172,16 @@ function createAnswer(result: Settled, team: string): CreateAnswer {
 	if (res.error) throw new Error(res.error);
 	if (!res.created) return { created: false };
 	return { created: true, ready: res.ready, alive: res.alive };
+}
+
+/** Joinable only with identical facts. */
+function sameFacts(held: LaunchRequest, req: LaunchRequest): boolean {
+	return (
+		held.sessionToken === req.sessionToken &&
+		held.resumeSessionId === req.resumeSessionId &&
+		(held.fresh === true) === (req.fresh === true) &&
+		held.harness === req.harness
+	);
 }
 
 /** Untagged create answers only `cli_found`. */
@@ -356,7 +370,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 				return deps.launch(unit.target, facts(pick(installed)));
 			},
 			async (res) => {
-				if (res.created) await deps.kill(unit.target);
+				if (res.created && !unit.preempted) await deps.kill(unit.target);
 			},
 		);
 		return { ok: true, res: value, pluginsProvisioned };
@@ -370,10 +384,10 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		return undefined;
 	}
 
-	function joinable(pane: string, taker: Taker): LaunchUnit | undefined {
+	function joinable(pane: string, taker: Taker, req: LaunchRequest): LaunchUnit | undefined {
 		const tail = lanes.get(pane)?.at(-1);
 		if (tail?.kind !== "launch" || tail.settled || tail.team !== taker.team) return undefined;
-		if (tail.takers.some((held) => held.cancelled)) return undefined;
+		if (tail.takers.some((held) => held.cancelled) || !sameFacts(tail.req, req)) return undefined;
 		return tail.door === taker.door || (taker.door === "create" && tail.door === "wake") ? tail : undefined;
 	}
 
@@ -424,7 +438,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		}
 		forgetMade((made) => made.team === taker.team);
 		const pane = physicalPane(target);
-		const tail = joinable(pane, taker);
+		const tail = joinable(pane, taker, req);
 		if (tail) {
 			// An older Gateway's repeated wake is the same request.
 			const repeat = !taker.launchId && !taker.reply && tail.takers.some((held) => !held.launchId && !held.reply);
@@ -439,14 +453,16 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 			team: taker.team,
 			target,
 			...(target.kind === "host" ? {} : { project: target.name, projectPath }),
+			req,
 			takers: [taker],
 			started: false,
 			settled: false,
+			preempted: false,
 			async run() {
 				let result: Settled;
 				try {
 					result = await body(unit, req, generation);
-					if (result.ok && result.res.created && abandoned(unit)) {
+					if (result.ok && result.res.created && abandoned(unit) && !unit.preempted) {
 						await deps.kill(unit.target).catch(() => {});
 						result = refusal(GAVE_UP, unit.team, false);
 					}
@@ -459,8 +475,30 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		enqueue(pane, unit);
 	}
 
-	/** Behind whatever runs on the pane. */
+	function giveUp(unit: LaunchUnit, taker: Taker): void {
+		taker.cancelled = true;
+		answer(taker, refusal(GAVE_UP, taker.team, false), unit);
+	}
+
+	/** Ahead of launches, which are given up. */
 	function kill(target: TmuxTarget): Promise<void> {
+		const pane = physicalPane(target);
+		let preempts = false;
+		for (const unit of lanes.get(pane) ?? []) {
+			if (unit.kind !== "launch" || unit.settled) continue;
+			for (const taker of unit.takers) if (!taker.answered) giveUp(unit, taker);
+			if (unit.started) {
+				unit.preempted = true;
+				preempts = true;
+			} else {
+				unit.settled = true;
+			}
+		}
+		if (preempts) {
+			deps.log(`closing ${pane} ahead of its launch`);
+			forgetMade((made) => physicalPane(made.target) === pane);
+			return deps.kill(target);
+		}
 		return new Promise<void>((resolve, reject) => {
 			const unit: KillUnit = {
 				kind: "kill",
@@ -531,8 +569,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 					if (!launchId && taker.reply) continue;
 					hit = true;
 					deps.log(`the Gateway gave up on ${team}${launchId ? ` (${launchId})` : ""}`);
-					taker.cancelled = true;
-					answer(taker, refusal(GAVE_UP, team, false), unit);
+					giveUp(unit, taker);
 				}
 				// Nobody waits on it.
 				if (!unit.started && abandoned(unit)) unit.settled = true;

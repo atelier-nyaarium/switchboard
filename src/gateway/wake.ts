@@ -61,7 +61,10 @@ interface WakeWaiter {
 	launchId?: string;
 }
 
-type HeldStage = ({ stage: "building" } | { stage: "container_up"; at: number }) & { launchId?: string };
+type HeldStage = { stage: "building" } | { stage: "container_up"; at: number };
+
+/** Untagged launches share one key. */
+const keyOf = (launchId: string | undefined): string => launchId ?? "";
 
 type FailureListener = (team: string, detail: Pick<WakeResult, "failure" | "error">, launchId?: string) => void;
 
@@ -71,8 +74,8 @@ const sameLaunch = (held: string | undefined, frame: string | undefined): boolea
 
 export class WakeCoordinator {
 	private waiters = new Map<string, WakeWaiter[]>();
-	/** Each launch's last stage. */
-	private stages = new Map<string, HeldStage>();
+	/** Last stage per team, launch. */
+	private stages = new Map<string, Map<string, HeldStage>>();
 	/** Stages are unproven before this. */
 	private knownSince: number;
 	private failureListeners: FailureListener[] = [];
@@ -88,14 +91,10 @@ export class WakeCoordinator {
 	waitFor(team: string, timeoutMs: number, launchId?: string): Promise<WakeResult> {
 		if (this.isRegistered(team)) return Promise.resolve({ ok: true });
 		const now = this.ambient.now();
-		const held = this.heldFor(team, launchId);
-		const building = held?.stage === "building";
+		const building = this.building(team);
+		const upAt = this.upAt(team, launchId);
 		let ms = timeoutMs;
-		if (held?.stage === "container_up") {
-			const left = held.at + timeoutMs - now;
-			if (left > 0) ms = left;
-			else this.stages.delete(team);
-		}
+		if (!building && upAt !== undefined && upAt + timeoutMs - now > 0) ms = upAt + timeoutMs - now;
 		return new Promise((resolve) => {
 			const entry: WakeWaiter = {
 				resolve,
@@ -110,16 +109,24 @@ export class WakeCoordinator {
 		});
 	}
 
-	/** When a launch's countdown runs from; null while it builds. */
+	/** Countdown origin; null while building. */
 	countdownFrom(team: string, launchId?: string): number | null {
-		const held = this.heldFor(team, launchId);
-		if (held?.stage === "building") return null;
-		return Math.max(this.knownSince, held?.stage === "container_up" ? held.at : 0);
+		if (this.building(team)) return null;
+		return Math.max(this.knownSince, this.upAt(team, launchId) ?? 0);
 	}
 
-	private heldFor(team: string, launchId: string | undefined): HeldStage | undefined {
+	/** Any launch's build holds the pane. */
+	private building(team: string): boolean {
+		return [...(this.stages.get(team)?.values() ?? [])].some((held) => held.stage === "building");
+	}
+
+	/** Own container_up, else team's latest. */
+	private upAt(team: string, launchId: string | undefined): number | undefined {
 		const held = this.stages.get(team);
-		return held && sameLaunch(held.launchId, launchId) ? held : undefined;
+		const own = held?.get(keyOf(launchId));
+		if (own?.stage === "container_up") return own.at;
+		const ups = [...(held?.values() ?? [])].flatMap((stage) => (stage.stage === "container_up" ? [stage.at] : []));
+		return ups.length > 0 ? Math.max(...ups) : undefined;
 	}
 
 	notify(team: string, success = true): void {
@@ -141,27 +148,44 @@ export class WakeCoordinator {
 	stage(team: string, stage: WakeStage, launchId?: string): void {
 		if (stage === "cli_found") return;
 		const now = this.ambient.now();
-		const tag = launchId ? { launchId } : {};
-		this.stages.set(team, stage === "building" ? { stage, ...tag } : { stage, at: now, ...tag });
+		const held = this.stages.get(team) ?? new Map<string, HeldStage>();
+		held.set(keyOf(launchId), stage === "building" ? { stage } : { stage, at: now });
+		this.stages.set(team, held);
+		const stillBuilding = this.building(team);
 		for (const entry of this.waiters.get(team) ?? []) {
-			if (!sameLaunch(entry.launchId, launchId)) continue;
-			this.clear(entry);
+			// Build end re-arms waiters.
 			if (stage === "building") {
+				this.clear(entry);
 				entry.deadlineAt = Number.POSITIVE_INFINITY;
 				continue;
 			}
+			const onHold = entry.deadlineAt === Number.POSITIVE_INFINITY;
+			if (stillBuilding || (!onHold && !sameLaunch(entry.launchId, launchId))) continue;
+			this.clear(entry);
 			entry.deadlineAt = now + entry.timeoutMs;
 			entry.timer = this.arm(team, entry, entry.timeoutMs);
 		}
 	}
 
 	private settle(team: string, result: WakeResult, launchId?: string): void {
-		if (this.heldFor(team, launchId)) this.stages.delete(team);
+		const held = this.stages.get(team);
+		if (launchId === undefined) this.stages.delete(team);
+		else {
+			held?.delete(launchId);
+			if (held?.size === 0) this.stages.delete(team);
+		}
 		const entries = this.waiters.get(team);
 		if (!entries) return;
 		const kept: WakeWaiter[] = [];
+		const now = this.ambient.now();
+		const building = this.building(team);
 		for (const entry of entries) {
 			if (!sameLaunch(entry.launchId, launchId)) {
+				// Holding build ended.
+				if (!building && entry.deadlineAt === Number.POSITIVE_INFINITY) {
+					entry.deadlineAt = now + entry.timeoutMs;
+					entry.timer = this.arm(team, entry, entry.timeoutMs);
+				}
 				kept.push(entry);
 				continue;
 			}

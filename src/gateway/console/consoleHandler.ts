@@ -22,6 +22,7 @@ import {
 	type ReserveResult,
 	reserveConversation,
 	routineOwns,
+	routineOwnsPane,
 	routineTeam,
 } from "../routines/reservation.js";
 import { workspaceAnswerNoting } from "../workspaceAwareness.js";
@@ -584,7 +585,15 @@ export function createConsoleDispatcher({
 		const team = routineTeam(routine);
 		const held = sessionStore?.getByTeam(team);
 		// Never adopt another's session or pane.
-		if (!routineOwns(held, routine) || sessionStore?.paneHeldElsewhere(team)) return { kind: "taken" };
+		const holder = sessionStore?.paneHolder(team);
+		if (!routineOwns(held, routine) || !routineOwnsPane(holder, routine)) return { kind: "taken" };
+		// Own session left on another spawn point.
+		if (holder) {
+			const target = `${localDomainId}.${localGatewayId}.${holder.team}`;
+			await sessionLifecycle.forget({ kind: "forget", target }, reserveConversation(routine), RESERVE_OP, {
+				released: true,
+			});
+		}
 		// A held session keeps its CLI.
 		const pick = held ? { harness: held.harness } : definitePick(routine.target.spawn, routine.target.cli);
 		if ("refused" in pick) {

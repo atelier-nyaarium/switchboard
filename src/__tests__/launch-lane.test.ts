@@ -17,7 +17,7 @@ interface Launch {
 	answer(outcome: LaunchOutcome): Promise<void>;
 }
 
-function rig(options: { installed?: SessionHarness[] } = {}) {
+function rig(options: { installed?: SessionHarness[]; holdInstalled?: Promise<void> } = {}) {
 	const sent: Record<string, unknown>[] = [];
 	const launches: Launch[] = [];
 	const events: string[] = [];
@@ -40,7 +40,10 @@ function rig(options: { installed?: SessionHarness[] } = {}) {
 		kill: async (target) => {
 			events.push(`kill ${name(target)}`);
 		},
-		installed: async () => options.installed ?? ["claude"],
+		installed: async () => {
+			await options.holdInstalled;
+			return options.installed ?? ["claude"];
+		},
 		project: (project) => ({ path: `/home/me/projects/${project}` }),
 		generation: () => generation,
 		ensureUp: async (_project, _path, admitted, then, undo) => {
@@ -229,19 +232,50 @@ describe("a launch lane", () => {
 		expect(r.launches).toHaveLength(1);
 	});
 
-	it("holds a kill behind a running launch, and runs a wake that came after it last", async () => {
+	it("kills ahead of a running launch, gives up everything on the pane, and runs a later wake after", async () => {
 		const r = rig();
 
 		r.lane.wake("host.a", wake(HOST_A));
+		const joined = r.lane.create(wake(HOST_A)).catch((err: unknown) => err);
 		await flush();
-		const killed = r.lane.kill(HOST_A);
+		r.lane.wake("windows.a", wake(WINDOWS_A));
+		await r.lane.kill(HOST_A);
+		r.lane.wake("host.a", wake(HOST_A));
+		expect(r.events).toEqual(["launch host.a wake", "kill host.a"]);
+
+		await r.launches[0]?.answer(MADE);
+		await r.launches[1]?.answer(FOUND);
+		expect(r.events).toEqual(["launch host.a wake", "kill host.a", "launch host.a wake"]);
+		expect(r.results("host.a")).toMatchObject([{ success: false }, { success: true }]);
+		expect(r.results("windows.a")).toMatchObject([{ success: false }]);
+		expect(await joined).toBeInstanceOf(Error);
+	});
+
+	it("never launches a unit a kill took before it reached its launch", async () => {
+		let release!: () => void;
+		const r = rig({ holdInstalled: new Promise<void>((resolve) => (release = resolve)) });
+
 		r.lane.wake("host.a", wake(HOST_A));
 		await flush();
-		expect(r.events).toEqual(["launch host.a wake"]);
+		await r.lane.kill(HOST_A);
+		release();
+		await flush();
 
+		expect(r.events).toEqual(["kill host.a"]);
+		expect(r.results("host.a")).toMatchObject([{ success: false }]);
+	});
+
+	it("joins only a launch run with the same facts, and queues one with another record's token", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A));
+		r.lane.wake("host.a", { ...wake(HOST_A), sessionToken: "readopted" });
+		await flush();
 		await r.launches[0]?.answer(FOUND);
-		await killed;
-		expect(r.events).toEqual(["launch host.a wake", "kill host.a", "launch host.a wake"]);
+		await r.launches[1]?.answer(FOUND);
+
+		expect(r.launches.map((launch) => launch.facts.sessionToken)).toEqual(["t", "readopted"]);
+		expect(r.results("host.a")).toMatchObject([{ success: true }, { success: true }]);
 	});
 
 	it("answers a missing CLI by frame to a wake and by typed failure to a create", async () => {

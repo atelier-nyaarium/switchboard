@@ -342,6 +342,7 @@ Commits `62b9aa88`, `720f44a9` and `e5ef5274`.
 - **Round 1, alignment audit:** only the in-process timeout cancelled, so a host drop, a Gateway restart or a timeout in the register window left a pane up for a forgotten record. Now the record cancels a failed create once per host link, and the daemon closes a pane its finished wake made.
 - **Round 2, re-audit:** the in-process timeout still cancelled every wake, so the new late-cancel memory killed a woken session's live pane. Now only a create is cancelled, and only a never-confirmed pane is remembered.
 - **Resolved in the architecture step (slice 2):** every launch carries a Gateway-minted id on every frame, opened durably before dispatch; the launch records are the one give-up authority, and a cancel names its launch.
+- **Red team of slices 1 and 2:** the held stage was one slot per team, so a second launch took the first's build hold; the owner's claim covered one launch, not the session; a kill queued behind a launch the Gateway no longer tracked; a newer request joined a unit launched with an older token. Now stages are held per launch and any build holds the pane's waiters, the claim marks every running launch of the session, a kill preempts the pane, and a join needs the same token, resume id, fresh mark and CLI.
 
 **One session launched by two roads.** Mechanisms: the `createSession` host op and the `wake` frame, tracked apart on the Gateway (`inflightCreates`, `flights`, `launching`) and on the daemon (`inflightWakes` holds no create).
 - **Rounds before this phase:** `a103133a` marked a create in flight; `5de25e50` built `WakeService` beside it; `e8f617f1` added `joinCreate`.
@@ -382,6 +383,26 @@ Approved by the owner. A panel weighed four shapes (every create a wake flight; 
 - `HostOp` splits into what a Gateway may emit and an inbound legacy set; `createSession` only in the latter, with a dated shim.
 - A phone Wake held through a long build answered `lost` in the harness, the Router redelivering a delivery op still in flight; the phone's Wake and Create answers belong here.
 - Before it lands: routine and assistant reserves are bounded and launch-aware (launching apart from a terminal failure, a review cause for `stopped` and `container`); a fire answers at acceptance or keeps a retry identity; the phone keeps a create's pending identity. `check:boot` and the harness attach on the wake.
+
+**Owner, 2026-11-10, how the owner's launches answer:** a phone Create and a fire into a new session answer at once with the new session's name; the row shows starting, and the outcome (up, or why not) lands as a line in that session's thread. A re-press joins the same launch. "A it is."
+
+**Owner, 2026-11-10, a routine's run while its session starts:** the run waits on its own launch, shown as starting, and nothing relaunches; up delivers it, a failure stops it for review with the cause; the assistant's reserve gets the same bound. "routine should tap into the existing system of recognizing what the Devcontainer is doing... If it's building, that's a good state and it should not kill it to restart when a Unity container takes 10 minutes to build."
+
+**Owner wording, a launch's failure on the phone** (the routine row's "Stopped at <time>: ___." and its notification body, capitalized there), the owner's edit of the drafts:
+
+```
+devcontainer failed to start
+devcontainer was stopped while it started
+session did not come up within 10 minutes
+session encountered an error while starting: <reason>
+<CLI> was not installed
+Multiple CLI are installed. Select one in the run config
+No CLI is installed
+```
+
+`<CLI>` is the CLI the run asked for, carried on the failure; `Selected CLI was not installed` only where an older daemon names none.
+
+**Owner wording, the line in a new session's thread** once the owner's Create or fire finishes starting it: the same phrases, capitalized, as their own line, plus `Session started.`
 
 **After:** the launch outcome as data, worded once per reader (an agent here, an agent in another Domain, the owner's phone), before the 2b release build.
 
@@ -588,6 +609,7 @@ Running or stopped is not shown: an agent's send starts the container either way
 - **Relayed launch notices are told on banking, not delivery:** a sending Gateway's restart loses one, it has no away retry, and a lost relay ack sends a second copy.
 - **The assistant's card is held before its pick is checked,** so a `needs_pick` costs the owner a second card.
 - **Owner screens show agent wording:** a fire's refusal and a create's toast read "Talk to the user" and "Send again to retry".
+- **A daemon replays tagged results to an older Gateway:** a Gateway rolled back before launch ids never acks and applies a replayed result by team, so for up to 30 minutes a stale result can settle a newer launch of that team. Replaying only to a Gateway that has acked on the link would close it.
 - **A host probe that never answered reads as no CLI:** `hostClis ?? []` is a known empty list to `installedAt`, so a host whose first probe failed refuses picks until the 30 s retry answers.
 - **No gate runs the real OpenCode binary:** the fake server encodes one reading of 2.2.5, and each behavior it rests on (duplicate prompt ids, the compaction row's id, synthetic input with no turn) was confirmed by hand scripts against a real server. A pin move finds drift only in Phase 3's manual pass.
 

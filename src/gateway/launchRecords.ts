@@ -212,6 +212,14 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 		if (record.created && !record.retained) deps.forgetCreated(record.team);
 	}
 
+	/** Owner claim keeps running launches. */
+	const retainTeam = (held: LaunchRecord[], team: string): LaunchRecord[] =>
+		held.map((record) =>
+			record.team === team && record.stage.kind === "launching" && !record.retained
+				? { ...record, retained: true as const }
+				: record,
+		);
+
 	const givenUp = (record: LaunchRecord): boolean =>
 		record.created && !record.retained && record.stage.kind === "failed";
 
@@ -244,20 +252,22 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 		open(team, launchId, created, retained) {
 			const fresh: LaunchRecord = {
 				team,
+				// Older restore requires it.
+				address: team,
 				launchId,
 				created,
-				...(retained ? { retained: true as const } : {}),
 				startedAt: deps.now(),
 				stage: { kind: "launching" },
 				requesters: [],
 			};
-			return commit([...records, fresh]);
+			const opened = [...records, fresh];
+			return commit(retained ? retainTeam(opened, team) : opened);
 		},
 
 		retain(launchId) {
 			const record = records.find((held) => held.launchId === launchId);
-			if (!record || record.retained) return true;
-			return commit(replace(record, { ...record, retained: true }));
+			if (!record) return true;
+			return commit(retainTeam(records, record.team));
 		},
 
 		join(input) {
@@ -280,7 +290,8 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 						requester === held ? { ...held, deliveries: [...held.deliveries, input.delivery] } : requester,
 					)
 				: [...active.requesters, requesterOf(input)];
-			const address = active.address ?? input.address;
+			// Holds team until a send names the address.
+			const address = active.address && active.address !== active.team ? active.address : input.address;
 			const created = active.created || input.created;
 			return commit(replace(active, { ...active, address, created, requesters }));
 		},
@@ -311,13 +322,15 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 						now - (record.settledAt ?? now) < SETTLED_HOLD_MS),
 			);
 			if (kept.length !== records.length) {
-				for (const record of records) {
-					if (kept.includes(record)) continue;
-					cancelledOn.delete(identityOf(record));
-					for (const requester of record.requesters)
-						away.delete(`${identityOf(record)}\n${requester.sessionKey}`);
+				const pruned = records.filter((record) => !kept.includes(record));
+				// Memory follows disk, or cancels resend.
+				if (commit(kept)) {
+					for (const record of pruned) {
+						cancelledOn.delete(identityOf(record));
+						for (const requester of record.requesters)
+							away.delete(`${identityOf(record)}\n${requester.sessionKey}`);
+					}
 				}
-				commit(kept);
 			}
 			const observations: AwarenessObservation<LaunchNotice>[] = [];
 			for (const record of records) {

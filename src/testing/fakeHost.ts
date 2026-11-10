@@ -108,8 +108,8 @@ export interface FakeHostOptions extends FakeHostHandlers {
 	/** A reconnecting daemon brings its own. */
 	daemon?: FakeCodexDaemon;
 	deferCatalog?: boolean;
-	/** Names launches, tags wake results. */
-	launchIds?: true;
+	/** False simulates an older daemon. Default true. */
+	launchIds?: boolean;
 }
 
 export interface FakeHost {
@@ -184,6 +184,7 @@ export function createFakeCopilotDaemon(daemonInstanceId: string) {
 }
 
 export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): FakeHost {
+	const namesLaunches = options.launchIds ?? true;
 	const socket = createFakeSocket();
 	socket.onPing(() => graph.wsHandlers.pong(socket.ws));
 	const ops: HostOp[] = [];
@@ -323,7 +324,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			wakes.push(frame);
 			handlers.onWake?.(frame);
 			const answer = handlers.answerWake?.(frame) ?? "launched";
-			const named = options.launchIds && frame.launchId ? { launchId: frame.launchId } : {};
+			const named = namesLaunches && frame.launchId ? { launchId: frame.launchId } : {};
 			if (typeof answer === "object")
 				send({ type: "wake_result", team: frame.team, ...named, success: false, ...answer });
 			else if (answer !== "silent")
@@ -385,7 +386,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			projects: options.projects ?? [],
 			hostSpawns,
 			...lists,
-			...(options.launchIds ? { launchIds: true } : {}),
+			...(namesLaunches ? { launchIds: true } : {}),
 		});
 	};
 	if (!options.deferCatalog) announceCatalog();

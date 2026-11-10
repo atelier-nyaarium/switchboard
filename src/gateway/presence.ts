@@ -80,8 +80,8 @@ export class PresenceFacade {
 		return this.sessionStore.teamOf(record);
 	}
 
-	paneHeldElsewhere(team: string): boolean {
-		return this.sessionStore.paneHeldElsewhere(team);
+	paneHolder(team: string): ReturnType<SessionStore["paneHolder"]> {
+		return this.sessionStore.paneHolder(team);
 	}
 
 	resolveLive(team: string): { team: string; subId: string } | undefined {

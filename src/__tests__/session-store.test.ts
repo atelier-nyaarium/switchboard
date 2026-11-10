@@ -184,6 +184,20 @@ describe("SessionStore mint / adopt", () => {
 		expect(store.adoptById("foo", { spawn: "recipe-app", harness: "claude" })?.id).toBe("foo");
 	});
 
+	it("holds the second of two stored records sharing a host pane unread, written back untouched", () => {
+		const second = { id: "foo", spawn: "windows", harness: "claude", lastSeen: 2 };
+		const store = new SessionStore({ ambient: processAmbient() });
+
+		store.restore({
+			"host.foo": { id: "foo", spawn: "host", harness: "claude", lastSeen: 1 },
+			"windows.foo": second,
+		});
+
+		expect(store.list().map((record) => store.teamOf(record))).toEqual(["host.foo"]);
+		expect(store.getByTeam("windows.foo")).toBeUndefined();
+		expect(store.snapshot()["windows.foo"]).toEqual(second);
+	});
+
 	it("re-rolls a minted host id held on another host spawn point", () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: scriptedIds("taken", "fresh1") });
 		store.adoptById("taken", { spawn: "windows", harness: "claude" });

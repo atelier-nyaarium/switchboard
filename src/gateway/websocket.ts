@@ -385,8 +385,6 @@ export function createWebSocketHandlers({
 		if (msg.type === "wake_result" && ws.data.teamName === "host") {
 			const frame = WakeResultFrameSchema.safeParse(msg);
 			const launchId = frame.data?.launchId;
-			if (launchId)
-				sendOn(ws, JSON.stringify({ type: "wake_result_ack", launchId }), `wake_result_ack ${launchId}`);
 			// A daemon that names launches never answers untagged.
 			if (frame.success && (launchId || !ws.data.launchIds)) {
 				const { team, success, error } = frame.data;
@@ -398,6 +396,9 @@ export function createWebSocketHandlers({
 						launchId,
 					);
 			}
+			// Applied first; daemon drops nothing unheard.
+			if (launchId)
+				sendOn(ws, JSON.stringify({ type: "wake_result_ack", launchId }), `wake_result_ack ${launchId}`);
 		}
 
 		if (msg.type === "wake_stage" && ws.data.teamName === "host") {

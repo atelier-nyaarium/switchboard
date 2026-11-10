@@ -31,6 +31,8 @@ export type ReserveResult =
 export interface TargetFacts {
 	knowsSpawn?: (spawn: string) => boolean;
 	sessionTaken?: (routine: Routine) => boolean;
+	/** Session holding the pane elsewhere. */
+	paneHolder?: (routine: Routine) => string | undefined;
 	assistantPlaced?: () => boolean;
 }
 
@@ -65,7 +67,7 @@ const SPAWN_RULES: TargetRules = {
 		if (facts.knowsSpawn && !facts.knowsSpawn(routine.target.spawn)) {
 			return `this Gateway has no spawn point called ${routine.target.spawn}`;
 		}
-		return facts.sessionTaken?.(routine) ? takenReason(routine) : null;
+		return facts.sessionTaken?.(routine) ? takenReason(routine, facts.paneHolder?.(routine)) : null;
 	},
 	reserve: (routine, roads) => roads.reserveSession(routine),
 };
@@ -97,10 +99,16 @@ export function routineTeam(routine: Routine): string {
 	return targetRules(routine).team(routine);
 }
 
-export function takenReason(routine: Routine): string {
-	return `a session called ${routineTeam(routine)} is already open and is not this routine's`;
+/** `holder`: session sharing the pane elsewhere. */
+export function takenReason(routine: Routine, holder?: string): string {
+	return `a session called ${holder ?? routineTeam(routine)} is already open and is not this routine's`;
 }
 
 export function routineOwns(held: SessionRecord | undefined, routine: Routine): boolean {
 	return targetRules(routine).owns(held, routine);
+}
+
+/** Own session left elsewhere is retired, not a block. */
+export function routineOwnsPane(holder: { mintedFrom?: string } | undefined, routine: Routine): boolean {
+	return holder === undefined || holder.mintedFrom === reserveKey(routine);
 }

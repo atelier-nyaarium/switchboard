@@ -104,7 +104,7 @@ export interface ConsoleHandlerDeps {
 	sessionStore?: Pick<
 		SessionStore,
 		| "getByTeam"
-		| "paneHeldElsewhere"
+		| "paneHolder"
 		| "teamOf"
 		| "adoptById"
 		| "adoptOrReattach"

@@ -323,11 +323,19 @@ export class SessionStore {
 		return hostSpawnIds().some((held) => this.taken(composeSessionName(held, id)));
 	}
 
-	/** Pane held by another record, or reserved. */
-	paneHeldElsewhere(team: string): boolean {
-		if (!isComposite(team) || this.taken(team)) return false;
+	/** Record holding the pane elsewhere, or reserved name's. */
+	paneHolder(team: string): { team: string; mintedFrom?: string } | undefined {
+		if (!isComposite(team) || this.taken(team)) return undefined;
 		const { project: spawn, session: id } = parseSessionName(team);
-		return this.paneTaken(spawn, id);
+		if (!isHostSpawn(spawn)) return undefined;
+		if (id === ASSISTANT_SESSION_NAME && team !== ASSISTANT_TEAM) return { team: ASSISTANT_TEAM };
+		for (const held of hostSpawnIds()) {
+			const other = composeSessionName(held, id);
+			if (other === team || !this.taken(other)) continue;
+			const mintedFrom = this.records.get(other)?.mintedFrom;
+			return { team: other, ...(mintedFrom ? { mintedFrom } : {}) };
+		}
+		return undefined;
 	}
 
 	/** A collision re-rolls. */
@@ -571,6 +579,12 @@ export class SessionStore {
 			});
 			if (harness === null) {
 				console.log(`[session] ${team} held unread: unknown CLI`);
+				this.unread.set(team, value);
+				continue;
+			}
+			// Kept on disk, never woken.
+			if (this.paneTaken(spawn, segment)) {
+				console.log(`[session] ${team} held unread: another host spawn point holds its pane`);
 				this.unread.set(team, value);
 				continue;
 			}
