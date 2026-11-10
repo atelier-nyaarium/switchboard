@@ -45,19 +45,19 @@ export interface WebSocketsStage {
 	channelDeliveries: ChannelDeliveryCoordinator;
 	wsHandlers: ReturnType<typeof createWebSocketHandlers>;
 	workspacePlane: WorkspacePlane;
-	onCopilotCompacted: (listener: (team: string) => void) => void;
+	/** A compaction ended for a CLI no hook hands its baseline. */
+	onBaselineDue: (listener: (team: string) => void) => void;
 	onRestartPending: (listener: (team: string, pending: boolean) => void) => void;
 }
 
 export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 	const { sessions, stores, host, agents, federation, ambient, workflows } = deps;
 	const compacting = new Set<string>();
-	/** No hook hands such a CLI its baseline. */
-	const compactsByEvents = (team: string) => {
+	const baselinePushed = (team: string) => {
 		const record = sessions.sessionStore.getByTeam(team);
 		return !!record && pushesBaseline(record.harness);
 	};
-	let compacted: ((team: string) => void) | undefined;
+	let baselineDue: ((team: string) => void) | undefined;
 	let restartPending: ((team: string, pending: boolean) => void) | undefined;
 	let hostRegisterPass: Promise<void> = Promise.resolve();
 	let hostFamilyPass: Promise<void> = Promise.resolve();
@@ -176,7 +176,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			const wasCompacting = compacting.has(team);
 			if (derived.compacting) compacting.add(team);
 			else compacting.delete(team);
-			if (wasCompacting && !derived.compacting && compactsByEvents(team)) compacted?.(team);
+			if (wasCompacting && !derived.compacting && baselinePushed(team)) baselineDue?.(team);
 		},
 		onRestartPending: (team, pending) => restartPending?.(team, pending),
 		sessionStore: sessions.sessionStore,
@@ -193,8 +193,8 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		channelDeliveries,
 		wsHandlers,
 		workspacePlane,
-		onCopilotCompacted: (listener) => {
-			compacted = listener;
+		onBaselineDue: (listener) => {
+			baselineDue = listener;
 		},
 		onRestartPending: (listener) => {
 			restartPending = listener;

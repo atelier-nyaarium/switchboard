@@ -206,7 +206,7 @@ fun GoalDialog(submitting: Boolean, onConfirm: (String) -> Unit, onDismiss: () -
 	)
 }
 
-/** Name and spawn a new session: the project first, then the agent its spawn point runs. The label
+/** Name and spawn a new session: the project first, then the CLI its spawn point runs. The label
  * is free-form since the gateway mints the session id; the Spawn button enables once it is non-blank.
  * `pendingSpawns` is the full (project, label) set already mid-create (see ChatState.pendingSpawns);
  * the dialog filters to its own `selectedProject`'s labels so the duplicate-submit guard always
@@ -228,18 +228,17 @@ fun CreateSessionDialog(
 	onListDirs: suspend (String, String) -> DirListing,
 	// The project this Gateway was last spawned on, if it still offers it. Only a suggestion.
 	rememberedProject: String?,
-	// Which agent CLIs a project's spawn point can run.
-	agentsOf: (String) -> SpawnAgents,
+	harnessesOn: (String) -> SpawnHarnesses,
 	// (target, label, workdir, harness)
 	onSpawn: (String, String, String?, SessionHarness) -> Unit,
 	onDismiss: () -> Unit,
 ) {
-	val offered = spawnableProjects(projects, agentsOf)
+	val offered = spawnableProjects(projects, harnessesOn)
 	// Null until picked. `host` is not a neutral default - it is one real target among several, so
 	// preselecting it lets a mis-tap spawn on the wrong machine's shell in silence.
 	var selectedProject by remember { mutableStateOf(initialProject(rememberedProject, offered)) }
 	var pickedHarness by remember { mutableStateOf(SessionHarness.CLAUDE) }
-	val harnesses = selectedProject?.let { harnessesOf(agentsOf(it)) }.orEmpty()
+	val harnesses = selectedProject?.let { harnessesOf(harnessesOn(it)) }.orEmpty()
 	val harness = harnessAfterPick(pickedHarness, harnesses)
 	// A free-form label: the gateway mints the session id, so the label is not slug-constrained.
 	var name by remember { mutableStateOf("") }
@@ -274,7 +273,6 @@ fun CreateSessionDialog(
 						selectedProject = picked
 					},
 				)
-				// The agents the picked spawn point runs.
 				if (harnesses.isNotEmpty()) {
 					Spacer(Modifier.height(12.dp))
 					SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -341,15 +339,15 @@ fun CreateSessionDialog(
 // server-side rejection once submitted.
 internal const val SESSION_LABEL_MAX_CHARS = 64
 
-/** The agents a spawn point runs, in the order they are offered. */
-internal fun harnessesOf(agents: SpawnAgents): List<SessionHarness> =
-	SessionHarness.entries.filter { it in agents.installed }
+/** The CLIs a spawn point runs, in the order they are offered. */
+internal fun harnessesOf(held: SpawnHarnesses): List<SessionHarness> =
+	SessionHarness.entries.filter { it in held.installed }
 
-/** The projects whose spawn point runs any agent. */
-internal fun spawnableProjects(projects: List<String>, agentsOf: (String) -> SpawnAgents): List<String> =
-	projects.filter { harnessesOf(agentsOf(it)).isNotEmpty() }
+/** The projects whose spawn point runs any CLI. */
+internal fun spawnableProjects(projects: List<String>, harnessesOn: (String) -> SpawnHarnesses): List<String> =
+	projects.filter { harnessesOf(harnessesOn(it)).isNotEmpty() }
 
-/** The agent a picked project runs: the held pick when it runs there, else its first. Null with none. */
+/** The CLI a picked project runs: the held pick when it runs there, else its first. Null with none. */
 internal fun harnessAfterPick(held: SessionHarness, offered: List<SessionHarness>): SessionHarness? =
 	if (held in offered) held else offered.firstOrNull()
 

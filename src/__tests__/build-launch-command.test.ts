@@ -38,6 +38,13 @@ describe("a Copilot launch", () => {
 		expect(cmd).toContain("AGENT_TYPE/w");
 	});
 
+	it("resumes only under an id of its own shape, where Claude takes a looser one", () => {
+		const loose = "12345678";
+
+		expect(buildLaunchCommand(host, { harness: "copilot", resumeSessionId: loose })).not.toContain("--session-id");
+		expect(buildLaunchCommand(host, { harness: "claude", resumeSessionId: loose })).toContain(`--resume ${loose}`);
+	});
+
 	it("refuses a container or the assistant", () => {
 		expect(() => buildLaunchCommand(dc, { harness: "copilot" })).toThrow(/host spawn point/);
 		expect(() =>

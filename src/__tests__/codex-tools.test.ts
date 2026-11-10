@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initBridge, routerErrorText, routerPost } from "../mcp/bridge/helpers.js";
 import { codexRequestBody } from "../mcp/codex/codexTools.js";
+import { pluginProfile } from "../mcp/sessionCli.js";
 import { CodexRequestErrorSchema, sanitizeCodexErrorText } from "../shared/codex-agent.js";
 
 describe("Codex request identities", () => {
@@ -39,7 +40,11 @@ describe("routerPost", () => {
 		});
 		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 		const { port } = server.address() as AddressInfo;
-		initBridge({ routerUrl: `http://127.0.0.1:${port}`, projectName: "recipe-app.work", agentType: "claude" });
+		initBridge({
+			routerUrl: `http://127.0.0.1:${port}`,
+			projectName: "recipe-app.work",
+			profile: pluginProfile("claude"),
+		});
 	});
 
 	afterAll(() => server.close());

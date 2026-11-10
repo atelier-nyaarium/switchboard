@@ -2,12 +2,13 @@ import { basename } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import packageJson from "../../package.json";
 import { buildRegisterMsg, initBridge } from "../mcp/bridge/helpers.js";
+import { pluginProfile } from "../mcp/sessionCli.js";
 
 // The register message always carries the resume id and cwd label; the gateway decides durability at
 // handshake-confirm, not from what the register reports. These shape tests guard that a registering
 // session always hands the gateway enough to resume and label it once it confirms.
 
-const BASE = { routerUrl: "http://localhost:20000", projectName: "host.abc123", agentType: "claude" };
+const BASE = { routerUrl: "http://localhost:20000", projectName: "host.abc123", profile: pluginProfile("claude") };
 
 afterEach(() => {
 	delete process.env.CLAUDE_CODE_SESSION_ID;
@@ -36,10 +37,10 @@ describe("buildRegisterMsg", () => {
 	});
 
 	it("names its CLI when that is a session CLI, and none for another agent", () => {
-		initBridge({ ...BASE, agentType: "copilot" });
+		initBridge({ ...BASE, profile: pluginProfile("copilot") });
 		expect(buildRegisterMsg("sub1").harness).toBe("copilot");
 
-		initBridge({ ...BASE, agentType: "cursor" });
+		initBridge({ ...BASE, profile: pluginProfile("cursor") });
 		expect(buildRegisterMsg("sub1").harness).toBeUndefined();
 	});
 

@@ -33,6 +33,7 @@ import com.atelier_nyaarium.switchboard.proto.BoardSession
 import com.atelier_nyaarium.switchboard.proto.BoardStateAttachment
 import com.atelier_nyaarium.switchboard.proto.BoardStoredEntry
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.RefFileMeta
 import com.atelier_nyaarium.switchboard.proto.RefKeyMeta
 import com.atelier_nyaarium.switchboard.proto.RefSpanMeta
@@ -69,14 +70,14 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			presence = sandboxPresence(),
 			kind = "loose",
 			sessionLabel = "Sandbox",
-			harness = SessionHarness.CLAUDE.wire,
+			harness = HarnessWord.Named(SessionHarness.CLAUDE),
 		),
 		Team(
 			name = SESSION_2,
 			presence = sandboxPresence(),
 			kind = "loose",
 			sessionLabel = "Second",
-			harness = SessionHarness.COPILOT.wire,
+			harness = HarnessWord.Named(SessionHarness.COPILOT),
 		),
 		Team(
 			name = ASSISTANT,

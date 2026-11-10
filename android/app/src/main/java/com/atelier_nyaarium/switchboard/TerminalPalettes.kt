@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import androidx.compose.ui.graphics.Color
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.ShellMacro
 import com.atelier_nyaarium.switchboard.proto.SlashMacro
@@ -30,12 +31,17 @@ internal val CTRL_MENU_KEYS = listOf(
 	"Ctrl + C" to "C-c",
 )
 
-/** A session's own CLI's commands. None for a CLI this app does not know. */
-internal fun slashMacros(wire: String?): List<SlashMacro> = rowHarness(wire)?.slashPalette.orEmpty()
+/** A session's own CLI's commands. None with no row. */
+internal fun slashMacros(word: HarnessWord?): List<SlashMacro> =
+	when (word) {
+		is HarnessWord.Named -> word.harness.slashPalette
+		is HarnessWord.Unnamed -> word.assumed.slashPalette
+		is HarnessWord.Unknown, null -> emptyList()
+	}
 
 /** Each installed CLI's macros; every CLI's where none is, so one can be. */
-internal fun shellMacros(agents: SpawnAgents): List<ShellMacro> =
-	harnessesOf(agents).ifEmpty { SessionHarness.entries }.flatMap { it.shellMacros }
+internal fun shellMacros(held: SpawnHarnesses): List<ShellMacro> =
+	harnessesOf(held).ifEmpty { SessionHarness.entries }.flatMap { it.shellMacros }
 
 // Macro chip label color: orange fires Enter immediately, blue only stages text.
 internal val MACRO_AUTO_SEND_COLOR = Color(0xFFFF9800)

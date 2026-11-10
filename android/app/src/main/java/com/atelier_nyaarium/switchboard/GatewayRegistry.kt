@@ -19,10 +19,10 @@ enum class RegistryProvenance { NeverLoaded, Cached, Current }
 enum class GatewayStanding { Unknown, NeverSeen, Offline, Online }
 
 /** The session CLIs one spawn point's shell has. */
-data class SpawnAgents(val installed: Set<SessionHarness>) {
+data class SpawnHarnesses(val installed: Set<SessionHarness>) {
 	companion object {
-		/** A devcontainer is not probed. */
-		val CONTAINER = SpawnAgents(SessionHarness.entries.filter { it.containers }.toSet())
+		/** Every CLI a container may run. A devcontainer is not probed. */
+		val RUNS_IN_CONTAINERS = SpawnHarnesses(SessionHarness.entries.filter { it.containers }.toSet())
 	}
 }
 
@@ -73,20 +73,20 @@ data class GatewayRegistry(
 
 	fun hostSpawns(gatewayId: String): List<String>? = entry(gatewayId)?.hostSpawns
 
-	/** [agentsOn] for a session's spawn point. An unparsed address reads as a container. */
-	fun agentsOnSession(address: String): SpawnAgents {
+	/** [harnessesOn] for a session's spawn point. An unparsed address reads as a container. */
+	fun harnessesOnSession(address: String): SpawnHarnesses {
 		val parsed = runIsolated { parseQualifiedTarget(address) }.getOrNull() as? Address
-			?: return SpawnAgents.CONTAINER
-		return agentsOn(parsed.gateway, parsed.spawn)
+			?: return SpawnHarnesses.RUNS_IN_CONTAINERS
+		return harnessesOn(parsed.gateway, parsed.spawn)
 	}
 
 	/** Which session CLIs a spawn point can run. */
-	fun agentsOn(gatewayId: String, spawn: String): SpawnAgents {
+	fun harnessesOn(gatewayId: String, spawn: String): SpawnHarnesses {
 		// Only a host spawn point is probed.
-		if (spawn !in HOST_SPAWN_IDS) return SpawnAgents.CONTAINER
+		if (spawn !in HOST_SPAWN_IDS) return SpawnHarnesses.RUNS_IN_CONTAINERS
 		// No row reads as an older Gateway.
 		val held = entry(gatewayId)?.harnessSpawns ?: legacySpawns(claude = null, copilot = null)
-		return SpawnAgents(SessionHarness.entries.filter { held[it]?.contains(spawn) == true }.toSet())
+		return SpawnHarnesses(SessionHarness.entries.filter { held[it]?.contains(spawn) == true }.toSet())
 	}
 
 	/** Roster live, Router-held. */

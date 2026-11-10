@@ -161,7 +161,7 @@ The Containers slice raises `FEDERATION_PROTOCOL_FLOOR` with its release: an old
 Two commits, each gated by lint, the tests and the Kotlin gate. The first is the table and changes no behavior. The second holds two fixes and is labeled a behavior change.
 
 - One closed record per harness, keyed by `SESSION_HARNESSES`, holding every seam the code map and the audit found: binary and launch arguments (`buildLaunchCommand`, `HOST.build`, `WINDOWS.build`, `agentTypeExport`, the Windows `copilot.exe` and `WSLENV` lookups), how it gets its id and resumes, delivery and registration as functions in the row (`deliverChannelPush`, `emitLocalAwareness`, `canReceivePush`), handshake or none with who owns the socket (the `agentPid` replacement check), state source (`deriveFromPeek` and its readers, `permissionPrompt`, the phone's pane reader in `agent-screen.ts` and its Kotlin twin), startup prompts (`COPILOT_TRUST_RE`), auto-answers (`limitContinueDigit`, `surveyShowing`), compaction road (`createCompactionFollower`, the compact hook), `RESTART_SIGNALS`, the slash-command tools, typed delivery (`typeSession`), which MCP tool groups it registers (the workflow tools go to Claude and Copilot by name today), how a wake tells it is ready (`paneAgentState`, `awaitReady`, `isAgentReady`), capability text, and where it may run.
-- `SessionRecord.harness` and its copies in `HostOp`, `WakeMessage` and `CreateOpts` take `SessionHarness`, never a literal. `copilotSessionId` becomes one harness session id; a stored record with the old field restores into it. Claude's transcript id stays its own field.
+- `SessionRecord.harness` and its copies in `HostOp`, `WakeMessage` and `CreateOpts` take `SessionHarness`, never a literal. `copilotSessionId` becomes `mintedSessionId`, held only for a CLI whose row mints one; the row owns the id's shape and its mint. A stored record with the old field restores into it. Claude's transcript id stays its own field.
 - Every mint names its harness: `CreateOpts.harness` is required and `WakeCreate` carries one. The send road, the relayed send, the assistant's send, the runbook fire and a routine's reserve (`reserveRoutineSession`) pass Claude by name where they pass nothing today, so a mint door without a pick does not compile.
 - The harness travels on the wire where today a field's presence implies it: the register frame, `presence_watch` and the presence row, each optional for the deploy gap with its date.
 - Availability becomes one map of harness to spawn points, replacing the parallel `claudeSpawns` and `copilotSpawns` fields from the daemon's catalog through `GatewaySpawnPointsSchema` to the phone's `SpawnAgents`. Old fields stay readable for the gap.
@@ -178,12 +178,23 @@ Two commits, each gated by lint, the tests and the Kotlin gate. The first is the
 - **Round 1, test agent:** `wireHarness` read an unknown word as Claude. Now it throws.
 - **Round 2, alignment audit:** `restore`, the register frame and `rowHarness` still read an unknown word as Claude. `restore` skipped the record, the register refused, the phone refused a relaunch.
 - **Round 3, red team:** the skip erased the record from disk on a rollback, and the relaunch refusal blocked a relaunch the Gateway would have done right. `restore` now holds the entry unread and writes it back; the relaunch sends the row's word uninterpreted.
-- **For the architecture step:** one three-way reading per runtime, with each reader stating what it does with each case, in place of a function per reader.
+- **Resolved in the architecture step:** `readHarness` answers a closed `HarnessWord` (named, unnamed, unknown) and `foldHarness` makes each reader state all three, in TypeScript and in generated Kotlin. "Unnamed means Claude" lives once, in `UNNAMED_HARNESS`, under its date.
+
+### Built
+
+- **The table:** `src/shared/session-harness.ts`, one `HarnessRow` per CLI. Per-process behavior sits in tables keyed by a row field's value (`LAUNCH_ARGS`, `TRANSPORTS`, `RESTART_SIGNALS`, the instructions and the scheduler's dialogs), so a new value stops the build.
+- **One placement rule:** `launchRefusal`, read by the Gateway's create, the daemon's wake before any container starts, and `buildLaunchCommand`.
+- **The plugin resolves its CLI once** into a profile with no optional answer, a CLI with no row included.
+- **A stored record of a CLI this build does not know** is held unread and written back untouched.
+- **The greeting** keys on a session that has never confirmed, not on a missing resume id.
+- **Left for Phase 2a:** the wake's readiness reads and the pane regexes; one presence sink for both ingresses; the row's `compaction` split into how it is seen and who hands the baseline; one launch plan for both Gateway doors and both daemon doors; the row split by control road.
+- **Left for Phase 2c:** a Windows spawn point is still offered only where `claude.exe` resolves.
 
 Phase 2 is three slices in order, each its own lap: OpenCode on the host, containers, then Copilot in containers.
 
 ## Phase 2a - OpenCode on the host
 
+- **From Phase 1's architecture pass, built here with the roads that shape them:** one presence sink both ingresses call, which also fires the baseline push; the row's `compaction` split into how a compaction is seen and who hands the baseline; one launch plan that both Gateway doors and both daemon doors build from, holding the wrapper and the version check; the wake's readiness dispatched on the row's `state`; the row split by control road, pane or API.
 - **Spike first, on the real machine:** pick and install the pin, run a server and a terminal UI against it in tmux, and confirm what the source said. Record what differs before building on it.
   - An API prompt shows live in the UI, and one sent mid-turn steers.
   - The event names for working, idle, permission and compaction, and what a failed compaction emits.
@@ -239,7 +250,7 @@ The strings an agent reads are under **Agent-facing prose**, below Phase 2c.
 - **Each container gets the plugin of each CLI found in it:** each CLI has its own installed check and its own installer, `copilot plugin` for Copilot. Today's check reads Claude's plugin list alone and the install runs `claude plugin`, so a container with Claude set up skips everything else and one without Claude fails. OpenCode needs none.
 - **The compaction file is read inside the container:** `createCompactionFollower` reads the host's home.
 - **The two refusals go:** the Gateway's and the daemon's, which hold Copilot to the host.
-- **No Claude assumed:** a container with Copilot alone starts, is asked what it has, and offers Copilot alone on the phone, in `crosstalk_discover` and in the `cli` list.
+- **No Claude assumed:** a container with Copilot alone starts, is asked what it has, and offers Copilot alone on the phone, in `crosstalk_discover` and in the `cli` list. A Windows spawn point is offered where any CLI resolves, not only `claude.exe`.
 
 ## Agent-facing prose
 

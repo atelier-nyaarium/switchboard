@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { type HostOpResult, isReservedHostSession } from "../shared/host-op.js";
 import { isHostSpawn } from "../shared/host-spawn.js";
+import type { SessionHarness } from "../shared/session-harness.js";
 import { isComposite, parseSessionName } from "../shared/session-id.js";
 import { resumeIdOf, type SessionStore } from "../shared/session-store.js";
 import { createSingleFlight } from "../shared/single-flight.js";
@@ -8,6 +9,9 @@ import type { PresenceFacade } from "./presence.js";
 import { decideWakeCreate, type WakeCoordinator, type WakeCreate, type WakeResult } from "./wake.js";
 import { reached, sendOn } from "./wsSend.js";
 import { resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
+
+/** A team with no record is a bare project, which runs Claude. */
+const BARE_PROJECT_HARNESS: SessionHarness = "claude";
 
 export interface WakeServiceDeps {
 	registry: TeamRegistry;
@@ -134,7 +138,7 @@ export class WakeService {
 				type: "wake",
 				team: wakeTeam,
 				...(projectPath ? { projectPath } : {}),
-				...(record ? { harness: record.harness } : {}),
+				harness: record?.harness ?? BARE_PROJECT_HARNESS,
 				...(resumeSessionId ? { resumeSessionId } : {}),
 				...(record && record.confirmedAt === undefined ? { fresh: true } : {}),
 				...(workdirHint ? { workdirHint } : {}),

@@ -61,11 +61,27 @@ enum class SessionHarness(
 			ShellMacro("Copilot Tools", "copilot plugin marketplace add atelier-nyaarium/claude-marketplace; copilot plugin marketplace update; for p in switchboard nyaaskills lexicon; do copilot plugin install \$p@atelier-nyaarium; copilot plugin update \$p@atelier-nyaarium; done"),
 		),
 	),
-	;
+}
 
-	companion object {
-		fun ofWire(wire: String?): SessionHarness? = entries.find { it.wire == wire }
-	}
+/** One reading of a CLI word. Each reader states all three. */
+sealed interface HarnessWord {
+	data class Named(val harness: SessionHarness) : HarnessWord
+
+	// FIXME 2026-11-23: delete `Unnamed`, once every sender names its CLI.
+	data class Unnamed(val assumed: SessionHarness) : HarnessWord
+
+	/** A newer sender's CLI, as sent. */
+	data class Unknown(val word: String) : HarnessWord
+}
+
+/** What a sender naming no CLI ran. */
+val UNNAMED_HARNESS: SessionHarness = SessionHarness.CLAUDE
+
+/** The one reading of a CLI word off the wire. */
+fun readHarness(wire: String?): HarnessWord {
+	if (wire == null) return HarnessWord.Unnamed(UNNAMED_HARNESS)
+	val harness = SessionHarness.entries.find { it.wire == wire } ?: return HarnessWord.Unknown(wire)
+	return HarnessWord.Named(harness)
 }
 
 /** One CLI's spawn points. */

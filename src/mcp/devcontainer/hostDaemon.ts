@@ -28,13 +28,17 @@ import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
 import {
+	foldHarness,
 	HARNESS,
 	type HarnessRow,
+	launchRefusal,
+	olderThanSender,
+	readHarness,
+	resumableId,
 	SESSION_HARNESSES,
 	type SessionHarness,
-	wireHarness,
 } from "../../shared/session-harness.js";
-import { parseSessionName } from "../../shared/session-id.js";
+import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
@@ -323,7 +327,7 @@ function connect(): void {
 				const row = HARNESS[watch.harness];
 				// Only a pane is peeked.
 				if (row.state !== "pane") continue;
-				entries.push({ team: watch.team, target, cadenceMs: watch.cadenceMs, backend: watch.harness });
+				entries.push({ team: watch.team, target, cadenceMs: watch.cadenceMs, harness: watch.harness });
 				if (FOLLOWS_EVENTS_FILE[row.compaction] && watch.sessionId) {
 					follows.push({ team: watch.team, copilotSessionId: watch.sessionId });
 				}
@@ -356,9 +360,8 @@ interface WakeMessage {
 	type: "wake";
 	team: string;
 	projectPath?: string;
-	// FIXME 2026-11-23: required, once every Gateway names it.
-	/** Absent means Claude. */
-	harness?: SessionHarness;
+	/** A CLI word, unchecked. */
+	harness?: unknown;
 	resumeSessionId?: string;
 	/** Its session has never confirmed. */
 	fresh?: true;
@@ -366,6 +369,22 @@ interface WakeMessage {
 	workdirHint?: string;
 	// Proves which record.
 	sessionToken?: string;
+}
+
+/** A launch's CLI, or why this daemon will not run it there. */
+function launchHarness(
+	word: unknown,
+	at: { host: boolean; assistant: boolean },
+): { harness: SessionHarness } | { refused: string } {
+	const placed = (harness: SessionHarness) => {
+		const refusal = launchRefusal(harness, at);
+		return refusal ? { refused: `refusing to launch: ${refusal}` } : { harness };
+	};
+	return foldHarness(readHarness(word), {
+		named: placed,
+		unnamed: placed,
+		unknown: (unknown) => ({ refused: olderThanSender(unknown) }),
+	});
 }
 
 // Never blocks the reply.
@@ -393,22 +412,16 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		safeSend({ type: "wake_result", team: msg.team, success: false, error: "invalid session name" });
 		return;
 	}
-	let harness: SessionHarness;
-	try {
-		harness = wireHarness(msg.harness);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		console.error(`[host-wake] refusing wake of "${msg.team}": ${message}`);
-		safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
-		return;
-	}
 	// Before any container starts.
-	if (!isHostSpawn(project) && !HARNESS[harness].containers) {
-		const message = `${HARNESS[harness].label} runs only on a host spawn point`;
-		console.error(`[host-wake] refusing wake of "${msg.team}": ${message}`);
-		safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
+	const launch = launchHarness(msg.harness, { host: isHostSpawn(project), assistant: msg.team === ASSISTANT_TEAM });
+	if ("refused" in launch) {
+		console.error(`[host-wake] refusing wake of "${msg.team}": ${launch.refused}`);
+		safeSend({ type: "wake_result", team: msg.team, success: false, error: launch.refused });
 		return;
 	}
+	const { harness } = launch;
+	// What the launch will resume under.
+	const resumeSessionId = resumableId(harness, msg.resumeSessionId);
 	// The daemon shares this tmux server. Registry-wide rather than the bare literal, so every host
 	// spawn point reaches this branch and none falls through to the devcontainer path below, which
 	// would look for a container named after a shell.
@@ -448,7 +461,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		let launch: string;
 		try {
 			launch = buildLaunchCommand(target, {
-				resumeSessionId: msg.resumeSessionId,
+				resumeSessionId,
 				workdir: resolved.workdir,
 				sessionToken: msg.sessionToken,
 				pathPrefix: LAUNCH_PATH_PREFIX,
@@ -493,7 +506,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			// Original ensureSession, not relaunch.
 			greetFreshLaunch(target, {
 				created,
-				resumeSessionId: msg.resumeSessionId,
+				resumeSessionId,
 				fresh: msg.fresh,
 				ready: res.ready,
 			});
@@ -536,7 +549,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			target,
 			buildLaunchCommand(target, {
 				harness,
-				resumeSessionId: msg.resumeSessionId,
+				resumeSessionId,
 				sessionToken: msg.sessionToken,
 				pathPrefix: LAUNCH_PATH_PREFIX,
 			}),
@@ -554,7 +567,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			limit = res.limit;
 			greetFreshLaunch(target, {
 				created,
-				resumeSessionId: msg.resumeSessionId,
+				resumeSessionId,
 				fresh: msg.fresh,
 				ready: res.ready,
 			});
@@ -614,6 +627,12 @@ const hostOpRunner = createHostOpRunner({
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
 	createSession: async (target, workdirHint, resumeSessionId, sessionToken, harness, fresh) => {
+		const launch = launchHarness(harness, {
+			host: target.kind === "host",
+			assistant: composeSessionName(target.name, target.sessionName) === ASSISTANT_TEAM,
+		});
+		// The runner fails the op.
+		if ("refused" in launch) throw new Error(launch.refused);
 		let workdir: string | undefined;
 		if (target.kind === "host") {
 			const resolved = resolveSpawnWorkdir(target.name, workdirHint);
@@ -622,19 +641,20 @@ const hostOpRunner = createHostOpRunner({
 			if ("error" in resolved) throw new Error(resolved.error);
 			workdir = resolved.workdir;
 		}
+		const resumeId = resumableId(launch.harness, resumeSessionId);
 		const { created } = await ensureSession(
 			target,
 			buildLaunchCommand(target, {
 				workdir,
-				resumeSessionId,
+				resumeSessionId: resumeId,
 				sessionToken,
 				pathPrefix: LAUNCH_PATH_PREFIX,
-				harness: wireHarness(harness),
+				harness: launch.harness,
 			}),
 		);
 		if (created) {
 			const ready = await awaitReady(target);
-			greetFreshLaunch(target, { created, resumeSessionId, fresh, ready: ready.ready });
+			greetFreshLaunch(target, { created, resumeSessionId: resumeId, fresh, ready: ready.ready });
 			return { created, ready: ready.ready, alive: ready.alive };
 		}
 		return { created };

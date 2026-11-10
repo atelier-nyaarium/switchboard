@@ -193,7 +193,7 @@ fun SessionsScreen(
 			targetOf = opened::targetFor,
 				onListDirs = { path, spawn -> onListDirs(path, opened.targetFor(spawn), spawn) },
 			rememberedProject = state.lastProjectByGateway[opened.gatewayId],
-			agentsOf = { project -> state.gateways.agentsOn(opened.gatewayId, project) },
+			harnessesOn = { project -> state.gateways.harnessesOn(opened.gatewayId, project) },
 			onSpawn = { target, session, workdir, harness ->
 				onSpawn(target, session, workdir, harness)
 				createDialogFor = null

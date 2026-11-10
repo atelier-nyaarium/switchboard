@@ -10,7 +10,7 @@ import {
 } from "../../shared/assistant-session.js";
 import { type HostListDirsResult, isReservedHostSession, isTmuxName, type TmuxTarget } from "../../shared/host-op.js";
 import { ASKPASS_EXPORTS, agentTypeExport, buildHostLaunch, isHostSpawn } from "../../shared/host-spawn.js";
-import { HARNESS, type SessionHarness } from "../../shared/session-harness.js";
+import { HARNESS, launchRefusal, resumableId, type SessionHarness } from "../../shared/session-harness.js";
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { CHANNEL_FILES_DIR } from "../channel/channelFiles.js";
 
@@ -240,21 +240,20 @@ export function buildLaunchCommand(
 	},
 ): string {
 	const composite = composeSessionName(target.name, target.sessionName);
-	const resumable = opts.resumeSessionId !== undefined && /^[0-9a-fA-F-]{8,}$/.test(opts.resumeSessionId);
+	const row = HARNESS[opts.harness];
+	const resumeSessionId = resumableId(opts.harness, opts.resumeSessionId);
 	// Refused, not dropped: a session that cannot claim its name is harder to diagnose.
 	if (opts.sessionToken && !/^[0-9a-f]{16,}$/.test(opts.sessionToken)) {
 		throw new Error(`refusing to launch: session token is not the expected hex form`);
 	}
 	const exportToken = opts.sessionToken ? `export SWITCHBOARD_SESSION_TOKEN=${opts.sessionToken}; ` : "";
-	const row = HARNESS[opts.harness];
-	if (target.kind !== "host" && !row.containers) {
-		throw new Error(`refusing to launch: ${row.label} runs only on a host spawn point`);
-	}
-	if (composite === ASSISTANT_TEAM && !row.assistant) {
-		throw new Error(`refusing to launch: ${row.label} never runs as the assistant`);
-	}
+	const refusal = launchRefusal(opts.harness, {
+		host: target.kind === "host",
+		assistant: composite === ASSISTANT_TEAM,
+	});
+	if (refusal) throw new Error(`refusing to launch: ${refusal}`);
 	const agentArgs = LAUNCH_ARGS[opts.harness]({
-		...(resumable ? { resumeSessionId: opts.resumeSessionId } : {}),
+		...(resumeSessionId ? { resumeSessionId } : {}),
 		permissions: () =>
 			composite === ASSISTANT_TEAM ? assistantPermissionArgs(opts.workdir) : "--dangerously-skip-permissions",
 	});

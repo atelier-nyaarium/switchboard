@@ -4,6 +4,7 @@ import type { Capability } from "../shared/capabilities.js";
 import type { ClaudeTurnResultFrame } from "../shared/host-op.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
 import type { DerivedPresence } from "../shared/schemasPresence.js";
+import type { HarnessWord } from "../shared/session-harness.js";
 import type { SessionStore } from "../shared/session-store.js";
 import type { ConnectionMode, WebSocketConfig } from "../shared/types.js";
 import type { WorkspaceOpResult } from "../shared/workspace-op.js";
@@ -65,8 +66,8 @@ export interface WsData {
 	mode: ConnectionMode;
 	version?: string;
 	claudeSessionId?: string;
-	/** The register's word, unchecked. */
-	harness?: string;
+	/** The register's CLI word. */
+	harness?: HarnessWord;
 	cwdName?: string;
 	/** The agent process running the plugin, as the register named it. */
 	agentPid?: number;

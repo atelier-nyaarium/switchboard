@@ -8,7 +8,6 @@ import { processAmbient } from "../../shared/ambient.js";
 import { isGatewayLongWaitRoute, resendsAfterFailure } from "../../shared/gateway-long-waits.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
-import { type HarnessRow, harnessRow, isSessionHarness } from "../../shared/session-harness.js";
 import {
 	type ChannelPushPayload,
 	type ConnectionMode,
@@ -18,13 +17,14 @@ import {
 } from "../../shared/types.js";
 import { WORKSPACE_OP_FRAME } from "../../shared/workspace-op.js";
 import { emitChannelNotification, emitResponseNotification, renderChannelTag } from "../channel/channelNotify.js";
+import { OTHER_AGENT, type PluginProfile } from "../sessionCli.js";
 import { answerOnPlane, parseWorkspaceOpRequest, refusedOnPlane } from "../workspace/plane.js";
 import { createChannelPushDelivery } from "./channelPushDelivery.js";
 
 export interface BridgeConfig {
 	routerUrl: string;
 	projectName: string;
-	agentType: string;
+	profile: PluginProfile;
 }
 
 interface RouterPostOptions {
@@ -71,9 +71,7 @@ async function readResponseBody(res: Response, maxBytes: number): Promise<string
 
 let ROUTER_URL = "";
 let PROJECT_NAME = "";
-let AGENT_TYPE = "";
-/** Null for a CLI that is no session harness. */
-let harness: HarnessRow | null = null;
+let cli: PluginProfile = OTHER_AGENT;
 
 const CONVERSATION_ID: string = crypto.randomUUID();
 
@@ -83,9 +81,9 @@ const reconnector = createReconnector(() => connectToRouter());
 
 let channelServer: Server | null = null;
 
-const COPILOT_TYPE_RETRY_MS = 1000;
-const COPILOT_TYPE_BACKOFF_MAX_MS = 30_000;
-const COPILOT_TYPE_GIVE_UP_MS = 15 * 60_000;
+const TYPED_RETRY_MS = 1000;
+const TYPED_BACKOFF_MAX_MS = 30_000;
+const TYPED_GIVE_UP_MS = 15 * 60_000;
 let typedDeliveryTail = Promise.resolve();
 
 function serializeTypedDelivery<T>(work: () => Promise<T>): Promise<T> {
@@ -117,8 +115,8 @@ async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPay
 			result = (await routerPost("/session/type", { text, key }, { retries: 0 })) as typeof result;
 		} catch (err) {
 			failingSince ??= Date.now();
-			if (!typingRetries(err) || Date.now() - failingSince > COPILOT_TYPE_GIVE_UP_MS) throw err;
-			const wait = Math.min(COPILOT_TYPE_RETRY_MS * 2 ** ++failures, COPILOT_TYPE_BACKOFF_MAX_MS);
+			if (!typingRetries(err) || Date.now() - failingSince > TYPED_GIVE_UP_MS) throw err;
+			const wait = Math.min(TYPED_RETRY_MS * 2 ** ++failures, TYPED_BACKOFF_MAX_MS);
 			console.error(`[channel] typed delivery failed (${(err as Error).message}), retry in ${wait}ms`);
 			await new Promise((resolve) => setTimeout(resolve, wait));
 			continue;
@@ -130,8 +128,8 @@ async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPay
 			throw new Error("typed delivery was refused");
 		}
 		retries++;
-		console.error(`[channel] Copilot pane busy, retry ${retries} in ${COPILOT_TYPE_RETRY_MS}ms`);
-		await new Promise((resolve) => setTimeout(resolve, COPILOT_TYPE_RETRY_MS));
+		console.error(`[channel] pane busy, retry ${retries} in ${TYPED_RETRY_MS}ms`);
+		await new Promise((resolve) => setTimeout(resolve, TYPED_RETRY_MS));
 	}
 }
 
@@ -144,7 +142,7 @@ interface Transport {
 	response(push: ResponsePushPayload): Promise<void>;
 }
 
-const TRANSPORTS: Record<HarnessRow["delivery"], Transport> = {
+const TRANSPORTS: Record<PluginProfile["delivery"], Transport> = {
 	channel: {
 		queued: false,
 		ready: () => channelServer !== null,
@@ -164,16 +162,21 @@ const TRANSPORTS: Record<HarnessRow["delivery"], Transport> = {
 			emitTypedChannelTag(push, typeof push.delivery_id === "string" ? push.delivery_id : crypto.randomUUID()),
 		response: (push) => emitTypedChannelTag(push, crypto.randomUUID()),
 	},
+	none: {
+		queued: false,
+		ready: () => false,
+		push: () => Promise.reject(new Error("no channel server")),
+		response: () => Promise.reject(new Error("no channel server")),
+	},
 };
 
-/** Null for a CLI that takes no push. */
-function transport(): Transport | null {
-	return harness ? TRANSPORTS[harness.delivery] : null;
+function transport(): Transport {
+	return TRANSPORTS[cli.delivery];
 }
 
 /** Dedupe ids across reconnects. */
 const deliverChannelPush = createChannelPushDelivery({
-	emit: (push) => transport()?.push(push) ?? Promise.reject(new Error("no channel server")),
+	emit: (push) => transport().push(push),
 	ack: (deliveryId) => routerWs?.send(JSON.stringify({ type: "channel_delivery_ack", delivery_id: deliveryId })),
 	maxRemembered: MAX_PENDING_DELIVERIES,
 });
@@ -211,8 +214,7 @@ const handshakeRole = createHandshakeRoleCache();
 export function initBridge(config: BridgeConfig): void {
 	ROUTER_URL = config.routerUrl;
 	PROJECT_NAME = config.projectName;
-	AGENT_TYPE = config.agentType;
-	harness = harnessRow(config.agentType);
+	cli = config.profile;
 }
 
 export function setChannelServer(server: Server): void {
@@ -234,7 +236,7 @@ export async function emitLocalAwareness(
 		act: awareness.act,
 	};
 	const via = transport();
-	if (!via?.ready()) return false;
+	if (!via.ready()) return false;
 	if (!via.queued) {
 		await via.push(push);
 		return true;
@@ -403,7 +405,7 @@ export function buildRegisterMsg(
 	if (process.env.CLAUDE_CODE_SESSION_ID) {
 		registerMsg.claudeSessionId = process.env.CLAUDE_CODE_SESSION_ID;
 	}
-	if (isSessionHarness(AGENT_TYPE)) registerMsg.harness = AGENT_TYPE;
+	if (cli.harness !== null) registerMsg.harness = cli.harness;
 	const cwdName = basename(process.cwd());
 	if (cwdName) registerMsg.cwdName = cwdName;
 	registerMsg.agentPid = process.ppid;
@@ -448,7 +450,7 @@ export function connectToRouter(): void {
 			const hsSessionId = msg.session_id as string;
 			handshakeRole.noteReceived(hsSessionId);
 			const role = handshakeRole.get();
-			if (role !== null && harness?.handshake !== false) {
+			if (role !== null && cli.answersHandshake) {
 				const refusal = opLedgerRefusal();
 				if (refusal) {
 					console.error(`[bridge] handshake reply withheld: ${refusal}`);
@@ -488,7 +490,7 @@ export function connectToRouter(): void {
 		}
 
 		const via = transport();
-		if (msg.type === "channel_push" && via?.ready()) {
+		if (msg.type === "channel_push" && via.ready()) {
 			const delivery = () => deliverChannelPush(msg as unknown as ChannelPushPayload);
 			const queued = via.queued ? serializeTypedDelivery(delivery) : delivery();
 			queued.catch((err: Error) => {
@@ -497,7 +499,7 @@ export function connectToRouter(): void {
 			});
 		}
 
-		if (msg.type === "response_push" && via?.ready()) {
+		if (msg.type === "response_push" && via.ready()) {
 			const emit = () => via.response(msg as unknown as ResponsePushPayload);
 			const queued = via.queued ? serializeTypedDelivery(emit) : emit();
 			queued.catch((err: Error) => {

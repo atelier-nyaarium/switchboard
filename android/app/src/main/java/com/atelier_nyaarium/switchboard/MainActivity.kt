@@ -765,7 +765,7 @@ fun App(
 					limitDetail = session?.presence?.limitDetail,
 					compacting = session?.presence?.compacting == true,
 					slashMacros = slashMacros(session?.harness),
-					shellMacros = shellMacros(state.gateways.agentsOnSession(openTeam!!)),
+					shellMacros = shellMacros(state.gateways.harnessesOnSession(openTeam!!)),
 					onWake = { repo.sessions.wakeSession(openTeam!!) },
 					onRelaunch = { repo.sessions.relaunchSession(openTeam!!) },
 					refreshMs = repo.sessions.terminalRefreshMs,

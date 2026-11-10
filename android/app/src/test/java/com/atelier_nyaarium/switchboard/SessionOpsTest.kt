@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleListDirsResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
+import com.atelier_nyaarium.switchboard.proto.UNNAMED_HARNESS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -114,12 +115,12 @@ class SessionOpsTest {
 	}
 
 	@Test
-	fun relaunchSendsBackAWordThisAppDoesNotKnowAndClaudesForARowWithNone() {
+	fun relaunchSendsBackAWordThisAppDoesNotKnowAndTheAssumedCliForARowWithNone() {
 		val unknown = relaunched("not-a-cli")
 
 		assertEquals(listOf("dom.gw.host.session"), unknown.closed)
 		assertEquals(listOf("dom.gw.host" to "not-a-cli"), unknown.created)
-		assertEquals(listOf("dom.gw.host" to SessionHarness.CLAUDE.wire), relaunched(null).created)
+		assertEquals(listOf("dom.gw.host" to UNNAMED_HARNESS.wire), relaunched(null).created)
 	}
 
 	@Test

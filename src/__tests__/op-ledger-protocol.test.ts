@@ -6,6 +6,7 @@ import {
 	initBridge,
 	opLedgerRefusal,
 } from "../mcp/bridge/helpers.js";
+import { pluginProfile } from "../mcp/sessionCli.js";
 import { OP_LEDGER_PROTOCOL } from "../shared/schemas.js";
 
 const fakeSockets = vi.hoisted(() => ({ instances: [] as Array<{ emit: (event: string, value?: unknown) => void }> }));
@@ -33,7 +34,7 @@ vi.mock("ws", () => {
 	};
 });
 
-const BASE = { routerUrl: "http://localhost:20000", projectName: "host.abc123", agentType: "claude" };
+const BASE = { routerUrl: "http://localhost:20000", projectName: "host.abc123", profile: pluginProfile("claude") };
 
 afterEach(() => {
 	closeRouter();
@@ -41,8 +42,8 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-function connect(): (typeof fakeSockets.instances)[number] {
-	initBridge(BASE);
+function connect(profile = BASE.profile): (typeof fakeSockets.instances)[number] {
+	initBridge({ ...BASE, profile });
 	connectToRouter();
 	const socket = fakeSockets.instances.at(-1)!;
 	socket.emit("open");
@@ -99,5 +100,45 @@ describe("op-ledger protocol handshake", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe("the plugin's CLI on the bridge", () => {
+	const handshake = (id: string) =>
+		JSON.stringify({ type: "channel_push", from: "gateway", session_id: id, delivery_id: id, replyJsonSchema: {} });
+
+	function registered(agentType: string): (typeof fakeSockets.instances)[number] {
+		const socket = connect(pluginProfile(agentType));
+		socket.emit("message", JSON.stringify({ type: "register_ok", opLedgerProtocol: OP_LEDGER_PROTOCOL }));
+		return socket;
+	}
+
+	it("answers a repeat handshake itself or hands it to the CLI, and pushes nothing to a CLI with no transport", async () => {
+		const posted: Array<[path: string, id: string]> = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			// A reply names its session, a typed row its delivery.
+			const body = JSON.parse(String(init?.body)) as { session_id?: string; key?: string };
+			posted.push([new URL(String(input)).pathname, body.session_id ?? body.key ?? ""]);
+			return Response.json({ typed: true });
+		});
+		registered("claude").emit("message", handshake("hs-role"));
+		confirmHandshakeRole("hs-role", true);
+		posted.length = 0;
+
+		registered("claude").emit("message", handshake("hs-claude"));
+		const other = registered("cursor");
+		other.emit("message", handshake("hs-other"));
+		other.emit(
+			"message",
+			JSON.stringify({ type: "channel_push", from: "recipe-app.work", body: "hi", delivery_id: "plain" }),
+		);
+		registered("copilot").emit("message", handshake("hs-copilot"));
+
+		await vi.waitFor(() => expect(posted).toHaveLength(3));
+		expect(posted).toEqual([
+			["/respond", "hs-claude"],
+			["/respond", "hs-other"],
+			["/session/type", "hs-copilot"],
+		]);
 	});
 });

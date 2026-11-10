@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.TeamInfo
+import com.atelier_nyaarium.switchboard.proto.readHarness
 
 /**
  * A Team for tests, so the presence shape has ONE construction site across the suite rather than a
@@ -48,5 +49,5 @@ internal fun testTeam(
 	),
 	kind = kind,
 	sessionLabel = sessionLabel,
-	harness = harness,
+	harness = readHarness(harness),
 )

@@ -7,6 +7,7 @@ import { VAULT_REFRESH_MAX_CALLS } from "../gateway/router/vaultClient.js";
 import { GATEWAY_IDLE_TIMEOUT_S } from "../gateway/serveLimits.js";
 import { DEFAULT_WAKE_TIMEOUT_MS, POST_WAKE_SETTLE_MS } from "../gateway/wake.js";
 import { initBridge, routerPost } from "../mcp/bridge/helpers.js";
+import { OTHER_AGENT } from "../mcp/sessionCli.js";
 import { AGENT_BACKENDS, agentHttpPath } from "../shared/agent-backend.js";
 import {
 	CONSOLE_ANSWER_WAIT_MS,
@@ -187,7 +188,7 @@ describe("long-wait HTTP clients", () => {
 	it("lifts the fetch timeout and resends a reset only to a replayed route", async () => {
 		const calls: Array<{ init: RequestInit; timeout?: boolean | number }> = [];
 		const reset = Object.assign(new Error("reset"), { code: "ECONNRESET" });
-		initBridge({ routerUrl: "http://gateway", projectName: "test", agentType: "test" });
+		initBridge({ routerUrl: "http://gateway", projectName: "test", profile: OTHER_AGENT });
 		vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
 			calls.push({ init: init ?? {}, timeout: (init as RequestInit & { timeout?: boolean | number })?.timeout });
 			throw reset;
@@ -208,7 +209,7 @@ describe("long-wait HTTP clients", () => {
 	it("retries a refusal for long waits and keeps retries for short routes", async () => {
 		const calls: Array<{ url: string; timeout?: boolean | number }> = [];
 		let attempts = 0;
-		initBridge({ routerUrl: "http://gateway", projectName: "test", agentType: "test" });
+		initBridge({ routerUrl: "http://gateway", projectName: "test", profile: OTHER_AGENT });
 		vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
 			calls.push({
 				url: String(input),

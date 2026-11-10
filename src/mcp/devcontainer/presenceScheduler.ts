@@ -9,7 +9,14 @@ import {
 } from "../../shared/agent-screen.js";
 import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
 import { type DerivedPresence, sameDerived } from "../../shared/schemasPresence.js";
-import { HARNESS, isSessionHarness, type PaneAutoAnswer, type SessionHarness } from "../../shared/session-harness.js";
+import {
+	foldHarness,
+	HARNESS,
+	mintedIdOf,
+	type PaneAutoAnswer,
+	readHarness,
+	type SessionHarness,
+} from "../../shared/session-harness.js";
 import { PromptOccurrences, type SeenPrompt, seePrompt } from "./permissionPrompt.js";
 import { limitContinueDigit, type PromptSight, surveyShowing } from "./promptAnswer.js";
 
@@ -23,10 +30,8 @@ export interface WatchEntry {
 	team: string;
 	target: TmuxTarget;
 	cadenceMs: number;
-	backend: SessionHarness;
+	harness: SessionHarness;
 }
-
-const HARNESS_SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Null when this build cannot watch it. */
 export function readWatch(
@@ -34,15 +39,15 @@ export function readWatch(
 ): { team: string; cadenceMs: number; harness: SessionHarness; sessionId?: string } | null {
 	const entry = (raw ?? {}) as Record<string, unknown>;
 	if (typeof entry.team !== "string" || typeof entry.cadenceMs !== "number") return null;
-	// FIXME 2026-11-23: drop `copilotSessionId`, an older Gateway's only word for the CLI.
-	const held = entry.harnessSessionId ?? entry.copilotSessionId;
-	const sessionId = typeof held === "string" && HARNESS_SESSION_RE.test(held) ? held : undefined;
-	let harness: SessionHarness;
-	// FIXME 2026-11-23: refuse an absent one, once every Gateway names it.
-	if (entry.harness == null) harness = entry.copilotSessionId != null && sessionId ? "copilot" : "claude";
-	else if (isSessionHarness(entry.harness)) harness = entry.harness;
-	// Unknown CLI.
-	else return null;
+	const harness = foldHarness(readHarness(entry.harness), {
+		named: (named) => named,
+		// An older Gateway named Copilot only by its session id.
+		unnamed: (assumed) => (mintedIdOf("copilot", entry.copilotSessionId) ? "copilot" : assumed),
+		unknown: () => null,
+	});
+	if (!harness) return null;
+	// FIXME 2026-11-23: drop the `copilotSessionId` read.
+	const sessionId = mintedIdOf(harness, entry.mintedSessionId ?? entry.copilotSessionId);
 	return { team: entry.team, cadenceMs: entry.cadenceMs, harness, ...(sessionId ? { sessionId } : {}) };
 }
 
@@ -269,12 +274,12 @@ export class PresenceScheduler {
 			);
 			if (!derived) return; // Logs derive no state.
 			if (peek.kind === "tmux") {
-				for (const kind of HARNESS[entry.backend].autoAnswers) {
+				for (const kind of HARNESS[entry.harness].autoAnswers) {
 					if (this.dialogs[kind].shows(peek.ansi)) this.dialogs[kind].answer(entry.target);
 				}
 			}
 			if (peek.kind === "tmux") {
-				const pending = restartPending(entry.backend, peek.ansi);
+				const pending = restartPending(entry.harness, peek.ansi);
 				if (this.restartShown.get(team) !== pending) {
 					this.restartShown.set(team, pending);
 					this.onRestartPending(team, pending);

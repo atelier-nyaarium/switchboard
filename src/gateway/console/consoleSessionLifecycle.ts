@@ -3,7 +3,7 @@ import type { BoardDisposition } from "../../shared/board-authority.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { type HostOp, type HostOpResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { isHostSpawn } from "../../shared/host-spawn.js";
-import { HARNESS, wireHarness } from "../../shared/session-harness.js";
+import { foldHarness, launchRefusal, olderThanSender, readHarness } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
 import { resumeIdOf, type SessionRecord, type SessionStore } from "../../shared/session-store.js";
@@ -74,10 +74,15 @@ export function createSessionLifecycleHandlers({
 			throw new Error("create_session needs a sessionName or a displayLabel");
 		}
 		const spawn = targets.localSpawn(op.target);
-		const harness = wireHarness(op.harness);
-		if (!HARNESS[harness].containers && !isHostSpawn(spawn)) {
-			throw new Error(`${HARNESS[harness].label} sessions run only on a host spawn point`);
-		}
+		const harness = foldHarness(readHarness(op.harness), {
+			named: (named) => named,
+			unnamed: (assumed) => assumed,
+			unknown: (word) => {
+				throw new Error(olderThanSender(word));
+			},
+		});
+		const refusal = launchRefusal(harness, { host: isHostSpawn(spawn), assistant: false });
+		if (refusal) throw new Error(refusal);
 		if (op.workdir != null && !isSpawnWorkdirPath(spawn, op.workdir)) {
 			throw new Error("invalid workdir: must be an absolute, ~-rooted, or Windows drive path");
 		}

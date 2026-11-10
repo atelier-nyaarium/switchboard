@@ -3,8 +3,8 @@ import { agentInboundFrameTypes } from "../shared/agent-backend.js";
 import { ClaudeTurnAckFrameSchema, ClaudeTurnResultFrameSchema } from "../shared/host-op.js";
 import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
-import { DerivedPresenceSchema } from "../shared/schemasPresence.js";
-import { HARNESS, knownHarness, SESSION_HARNESSES } from "../shared/session-harness.js";
+import { DerivedPresenceSchema, HarnessSpawnsSchema } from "../shared/schemasPresence.js";
+import { foldHarness, HARNESS, readHarness, SESSION_HARNESSES } from "../shared/session-harness.js";
 import { isComposite } from "../shared/session-id.js";
 import type { ConnectionMode } from "../shared/types.js";
 import { WORKSPACE_OP_REPLY_FRAME, type WorkspaceOpResult } from "../shared/workspace-op.js";
@@ -281,7 +281,7 @@ export function createWebSocketHandlers({
 			ws.data.mode = mode;
 			ws.data.version = reg.data.version;
 			ws.data.claudeSessionId = reg.data.claudeSessionId;
-			ws.data.harness = reg.data.harness;
+			ws.data.harness = readHarness(reg.data.harness);
 			ws.data.cwdName = reg.data.cwdName;
 			ws.data.agentPid = reg.data.agentPid;
 			ws.data.daemonInstanceId = reg.data.daemonInstanceId;
@@ -439,11 +439,10 @@ export function createWebSocketHandlers({
 						Array.isArray(list)
 							? list.filter((s): s is string => typeof s === "string" && s.length > 0)
 							: [];
-					const sent = msg.harnessSpawns;
-					if (sent && typeof sent === "object") {
-						const map = sent as Record<string, unknown>;
+					const sent = HarnessSpawnsSchema.safeParse(msg.harnessSpawns);
+					if (msg.harnessSpawns !== undefined && sent.success) {
 						hostSpawnPoints.harnessSpawns = Object.fromEntries(
-							SESSION_HARNESSES.map((harness) => [harness, named(map[harness])]),
+							SESSION_HARNESSES.map((harness) => [harness, sent.data[harness] ?? []]),
 						);
 					} else {
 						// FIXME 2026-11-23: drop, once every daemon sends `harnessSpawns`.
@@ -580,7 +579,12 @@ export function createWebSocketHandlers({
 		}
 		const record = liveWriter?.establishOnConfirm(pending.team, {
 			claudeSessionId,
-			harness: knownHarness(ws.data.harness),
+			harness: foldHarness(ws.data.harness ?? readHarness(undefined), {
+				named: (named) => named,
+				unnamed: (assumed) => assumed,
+				// A newer plugin's CLI creates none.
+				unknown: () => null,
+			}),
 			label: ws.data.cwdName,
 			live: { team: pending.team, subId: pending.subId },
 			handover,

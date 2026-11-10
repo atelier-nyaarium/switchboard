@@ -2,7 +2,6 @@
 
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { hostSpawnPoint } from "../shared/host-spawn.js";
-import { pushesBaseline } from "../shared/session-harness.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
@@ -321,13 +320,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		ambient: bootstrap.ambient,
 	});
 	websockets.onRestartPending((team, pending) => assistantRestart.seen(team, pending));
-	websockets.onCopilotCompacted((team) => {
+	websockets.onBaselineDue((team) => {
 		baseline
 			.baselineFor(team)
-			.then((held) => {
-				const record = sessions.sessionStore.getByTeam(team);
-				if (record && pushesBaseline(record.harness)) awareness.baselineObserve(team, held);
-			})
+			.then((held) => awareness.baselineObserve(team, held))
 			.catch((error) => console.error(`[baseline] push after compaction failed for ${team}:`, error));
 	});
 	const policies = composePolicies({

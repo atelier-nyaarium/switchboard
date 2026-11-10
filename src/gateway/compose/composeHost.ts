@@ -92,17 +92,21 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 			.snapshot()
 			.filter((row) => row.status === "online" || row.status === "verifying")
 			.map((row) => row.team);
-		const watch = liveTeams.map((team) => {
+		// A live row always has a record.
+		const watch = liveTeams.flatMap((team) => {
 			const record = sessions.sessionStore.getByTeam(team);
-			const sessionId = record?.harnessSessionId;
-			return {
-				team,
-				cadenceMs: PRESENCE_PEEK_MS,
-				...(record ? { harness: record.harness } : {}),
-				...(sessionId ? { harnessSessionId: sessionId } : {}),
-				// FIXME 2026-11-23: drop, once every daemon reads `harnessSessionId`.
-				...(sessionId && record?.harness === "copilot" ? { copilotSessionId: sessionId } : {}),
-			};
+			if (!record) return [];
+			const sessionId = record.mintedSessionId;
+			return [
+				{
+					team,
+					cadenceMs: PRESENCE_PEEK_MS,
+					harness: record.harness,
+					...(sessionId ? { mintedSessionId: sessionId } : {}),
+					// FIXME 2026-11-23: drop, once every daemon reads `mintedSessionId`.
+					...(sessionId && record.harness === "copilot" ? { copilotSessionId: sessionId } : {}),
+				},
+			];
 		});
 		const serialized = JSON.stringify(watch);
 		if (!force && serialized === lastPushedWatch) return;

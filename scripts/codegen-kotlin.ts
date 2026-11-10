@@ -348,7 +348,7 @@ import {
 	TreeAnswerSchema,
 	TreeEntrySchema,
 } from "../src/shared/schemasWorkspace.js";
-import { HARNESS, SESSION_HARNESSES } from "../src/shared/session-harness.js";
+import { HARNESS, SESSION_HARNESSES, UNNAMED_HARNESS } from "../src/shared/session-harness.js";
 import {
 	ADDRESS_SEP,
 	CONV_TAG,
@@ -1347,11 +1347,27 @@ ${INDENT}val slashPalette: List<SlashMacro>,
 ${INDENT}val shellMacros: List<ShellMacro>,
 ) {
 ${entries}
-${INDENT};
+}
 
-${INDENT}companion object {
-${INDENT}${INDENT}fun ofWire(wire: String?): SessionHarness? = entries.find { it.wire == wire }
-${INDENT}}
+/** One reading of a CLI word. Each reader states all three. */
+sealed interface HarnessWord {
+${INDENT}data class Named(val harness: SessionHarness) : HarnessWord
+
+${INDENT}// FIXME 2026-11-23: delete \`Unnamed\`, once every sender names its CLI.
+${INDENT}data class Unnamed(val assumed: SessionHarness) : HarnessWord
+
+${INDENT}/** A newer sender's CLI, as sent. */
+${INDENT}data class Unknown(val word: String) : HarnessWord
+}
+
+/** What a sender naming no CLI ran. */
+val UNNAMED_HARNESS: SessionHarness = SessionHarness.${kotlinConstName(UNNAMED_HARNESS)}
+
+/** The one reading of a CLI word off the wire. */
+fun readHarness(wire: String?): HarnessWord {
+${INDENT}if (wire == null) return HarnessWord.Unnamed(UNNAMED_HARNESS)
+${INDENT}val harness = SessionHarness.entries.find { it.wire == wire } ?: return HarnessWord.Unknown(wire)
+${INDENT}return HarnessWord.Named(harness)
 }
 
 /** One CLI's spawn points. */

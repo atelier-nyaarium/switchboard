@@ -16,7 +16,6 @@ import { ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../shared/assistant
 import { localAgentCapability } from "../shared/capabilities.js";
 import { isInsideContainer } from "../shared/env.js";
 import { pluginRoot } from "../shared/plugin-root.js";
-import { type HarnessRow, harnessRow } from "../shared/session-harness.js";
 import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
@@ -50,6 +49,7 @@ import { createLocalAgentBackend } from "./local/localAgentHost.js";
 import { closeReferenceSession, referenceSession, setReferencesEnabled } from "./references/attachRefs.js";
 import { adoptHostRoots, expectHostRoots, workspaceRoot } from "./references/refWorkspace.js";
 import { registerRoutineTools } from "./routines/routineTools.js";
+import { type PluginProfile, resolvePluginCli } from "./sessionCli.js";
 import { resolveSessionNaming } from "./team-name.js";
 import { guardTools } from "./toolGuard.js";
 import { registerVaultTools } from "./vault/vaultTools.js";
@@ -162,9 +162,7 @@ export async function startMcp(): Promise<void> {
 	// A container has no daemon.
 	if (inContainer) layDownAskpass(process.env.BRIDGE_ROUTER_URL);
 
-	const agentType = process.env.AGENT_TYPE || detectAgentType();
-	/** Null for a CLI that is no session harness. */
-	const harness = harnessRow(agentType);
+	const { profile } = resolvePluginCli(process.env, detectAgentType);
 
 	// Before the server exists: it decides which tools register. The assistant takes none, so no
 	// guidance names a tool it lacks and no reply snapshots a ref.
@@ -174,35 +172,30 @@ export async function startMcp(): Promise<void> {
 	const guided = withServedAgents(capabilities, agents);
 	if (!isAssistant) saveStartupCapabilities(process.env.PROJECT_NAME, guided);
 
-	/** Whether the server declares Claude's channel. */
-	const CHANNEL_CAPABILITY: Record<HarnessRow["delivery"], boolean> = { channel: true, typed: false };
-	const instructions: Record<HarnessRow["guidance"], () => string> = {
+	const instructions: Record<PluginProfile["instructions"], () => string | undefined> = {
 		handshake: () =>
 			isAssistant
 				? `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${ASSISTANT_INSTRUCTIONS}`
 				: `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}${capabilityInstructions(guided)}`,
 		// No handshake answer carries the guidance, so it rides here whole.
-		instructions: () => `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${renderCapabilities(guided, guided)}`,
+		whole: () => `${CHANNEL_INSTRUCTIONS}\n\n${BASELINE_RULE}\n\n${renderCapabilities(guided, guided)}`,
+		none: () => undefined,
 	};
 	const mcpServer = new McpServer(
 		{ name: "switchboard", version: packageJson.version },
-		harness
-			? {
-					...(CHANNEL_CAPABILITY[harness.delivery]
-						? { capabilities: { experimental: { "claude/channel": {} } } }
-						: {}),
-					instructions: instructions[harness.guidance](),
-				}
-			: undefined,
+		{
+			...(profile.channelCapability ? { capabilities: { experimental: { "claude/channel": {} } } } : {}),
+			instructions: instructions[profile.instructions](),
+		},
 	);
 	// Before any tool registers.
 	guardTools(mcpServer);
 	if (isAssistant) scopeTools(mcpServer, new Set(ASSISTANT_SWITCHBOARD_TOOLS));
 
-	registerBridgeTools(mcpServer, guided);
+	registerBridgeTools(mcpServer, profile, guided);
 	registerCapabilitiesTool(mcpServer, guided, { assistant: isAssistant });
 	// Each types Claude slash commands into the pane.
-	if (harness?.claudeSlashTools ?? true) {
+	if (profile.claudeSlashTools) {
 		registerReloadPlugins(mcpServer);
 		registerSetEffortLevel(mcpServer);
 		registerCompactSession(mcpServer);
@@ -215,7 +208,7 @@ export async function startMcp(): Promise<void> {
 		!isAssistant &&
 		process.env.SWITCHBOARD_SESSION_TOKEN &&
 		hasCapability(capabilities, "workflow") &&
-		harness?.workflowTools === true
+		profile.workflowTools
 	) {
 		registerWorkflowTools(mcpServer);
 	}

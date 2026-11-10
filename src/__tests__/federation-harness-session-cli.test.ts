@@ -75,7 +75,7 @@ describe("a session's CLI, as the Gateway tells it", () => {
 				team: copilot.team,
 				cadenceMs: expect.any(Number),
 				harness: "copilot",
-				harnessSessionId: id,
+				mintedSessionId: id,
 				copilotSessionId: id,
 			},
 		]);

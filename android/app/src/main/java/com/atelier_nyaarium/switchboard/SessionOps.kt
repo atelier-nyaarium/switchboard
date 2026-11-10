@@ -1,9 +1,11 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
+import com.atelier_nyaarium.switchboard.proto.readHarness
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
@@ -168,8 +170,9 @@ internal class SessionOps(
 		withContext(Dispatchers.IO) {
 			val t = runIsolated { parseQualifiedTarget(team) }.getOrNull()
 			if (t !is Address) error("not an addressable session")
-			// Read before the close drops the row.
-			val harness = rowHarnessWord(host.state.value.teams.firstOrNull { it.name == team }?.harness)
+			// Read before the close drops the row. No row names none.
+			val row = host.state.value.teams.firstOrNull { it.name == team }
+			val harness = relaunchHarness(row?.harness ?: readHarness(null))
 			val opId = UUID.randomUUID().toString()
 			// Keep one receipt across close and create while the roster reports asleep.
 			noteReceipt(team, ActionReceipt(opId, System.currentTimeMillis()))
@@ -332,6 +335,14 @@ internal class SessionOps(
 		const val FORGET_HELD = Long.MAX_VALUE
 	}
 }
+
+/** The CLI word a relaunch sends the row's own Gateway. */
+internal fun relaunchHarness(word: HarnessWord): String =
+	when (word) {
+		is HarnessWord.Named -> word.harness.wire
+		is HarnessWord.Unnamed -> word.assumed.wire
+		is HarnessWord.Unknown -> word.word
+	}
 
 /** Drops the assistant's row. */
 internal fun ordinarySessions(candidates: List<Team>): List<Team> = candidates.filter { it.role != ASSISTANT_ROLE }

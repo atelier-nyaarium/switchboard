@@ -20,7 +20,7 @@ describe("WakeService", () => {
 		const sessionStore = new SessionStore({ ambient: processAmbient() });
 		const registry: TeamRegistry = new Map();
 		const wakeCoordinator = new WakeCoordinator(processAmbient());
-		const sent: { team: string; projectPath?: string; fresh?: boolean }[] = [];
+		const sent: { team: string; projectPath?: string; fresh?: boolean; harness?: string }[] = [];
 		const hostWs = {
 			readyState: 1,
 			send: (s: string) => void sent.push(JSON.parse(s)),
@@ -163,6 +163,17 @@ describe("WakeService", () => {
 			[launched, true],
 			[launched, undefined],
 		]);
+	});
+
+	it("names the CLI on every wake: the record's, or Claude for a bare project", async () => {
+		const s = setup();
+		const teams = [s.sessionStore.teamOf(s.sessionStore.mint({ spawn: "host", harness: "copilot" })), "proj"];
+
+		const wakes = teams.map((team) => s.service.tryWakeTeam(team));
+		for (const team of teams) s.wakeCoordinator.notify(team);
+		await Promise.all(wakes);
+
+		expect(s.sent.map((frame) => frame.harness)).toEqual(["copilot", "claude"]);
 	});
 
 	it("gives a second create the first one's launch instead of starting another", async () => {

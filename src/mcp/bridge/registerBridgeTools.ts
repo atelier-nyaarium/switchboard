@@ -4,6 +4,7 @@ import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { HARNESS, SESSION_HARNESSES } from "../../shared/session-harness.js";
 import type { Capability } from "../capabilities.js";
 import { handshakeGuidance, registerChannelReply, registerChannelReplyStructured } from "../channel/channelReply.js";
+import type { PluginProfile } from "../sessionCli.js";
 import { registerBridgeDiscover } from "./bridgeDiscover.js";
 import { registerBridgeSend } from "./bridgeSend.js";
 import { registerBridgeWait } from "./bridgeWait.js";
@@ -47,7 +48,11 @@ const DISABLED_TOOLS: Array<{ name: string; title: string; description: string }
 	},
 ];
 
-export function registerBridgeTools(mcpServer: McpServer, capabilities: Capability[] = []): void {
+export function registerBridgeTools(
+	mcpServer: McpServer,
+	profile: PluginProfile,
+	capabilities: Capability[] = [],
+): void {
 	const projectName = process.env.PROJECT_NAME;
 
 	if (!projectName) {
@@ -71,12 +76,10 @@ export function registerBridgeTools(mcpServer: McpServer, capabilities: Capabili
 		return;
 	}
 
-	const agentType = process.env.AGENT_TYPE || detectAgentType();
-
 	initBridge({
 		routerUrl: process.env.BRIDGE_ROUTER_URL || "http://switchboard:20000",
 		projectName,
-		agentType,
+		profile,
 	});
 
 	// Shared outgoing tools (all agents)

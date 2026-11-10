@@ -683,9 +683,9 @@ describe("a session record's harness", () => {
 
 		restored.restore(store.snapshot());
 
-		expect(record).toMatchObject({ harness: "copilot", harnessSessionId: uuid });
-		expect(restored.getByTeam(store.teamOf(record))).toMatchObject({ harness: "copilot", harnessSessionId: uuid });
-		expect(plain.harnessSessionId).toBeUndefined();
+		expect(record).toMatchObject({ harness: "copilot", mintedSessionId: uuid });
+		expect(restored.getByTeam(store.teamOf(record))).toMatchObject({ harness: "copilot", mintedSessionId: uuid });
+		expect(plain.mintedSessionId).toBeUndefined();
 		expect([resumeIdOf(record), resumeIdOf(plain)]).toEqual([uuid, "tx-1"]);
 	});
 
@@ -700,8 +700,8 @@ describe("a session record's harness", () => {
 
 		const snap = store.snapshot();
 
-		expect(snap["host.cop"]).toMatchObject({ harnessSessionId: uuid, copilotSessionId: uuid });
-		expect([snap["host.plain"]?.harnessSessionId, snap["host.plain"]?.copilotSessionId]).toEqual([
+		expect(snap["host.cop"]).toMatchObject({ mintedSessionId: uuid, copilotSessionId: uuid });
+		expect([snap["host.plain"]?.mintedSessionId, snap["host.plain"]?.copilotSessionId]).toEqual([
 			undefined,
 			undefined,
 		]);
@@ -712,7 +712,7 @@ describe("a session record's harness", () => {
 
 		store.restore({ "host.cop": { id: "cop", harness: "copilot", copilotSessionId: uuid, lastSeen: 1 } });
 
-		expect(store.getByTeam("host.cop")).toMatchObject({ harness: "copilot", harnessSessionId: uuid });
+		expect(store.getByTeam("host.cop")).toMatchObject({ harness: "copilot", mintedSessionId: uuid });
 	});
 
 	it("restores a record stored with no harness as Claude, holding no minted id", () => {
@@ -722,7 +722,7 @@ describe("a session record's harness", () => {
 		const record = store.getByTeam("host.switchboard");
 
 		expect(record?.harness).toBe("claude");
-		expect(record?.harnessSessionId).toBeUndefined();
+		expect(record?.mintedSessionId).toBeUndefined();
 	});
 
 	it("holds a stored record naming a CLI this build does not know: unread, its name taken, written back untouched", () => {
@@ -753,7 +753,7 @@ describe("a session record's harness", () => {
 		for (const team of ["host.bad", "host.none"]) {
 			const record = store.getByTeam(team);
 			expect(record?.harness, team).toBe("copilot");
-			expect(record?.harnessSessionId, team).toMatch(
+			expect(record?.mintedSessionId, team).toMatch(
 				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
 			);
 		}

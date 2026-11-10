@@ -1,12 +1,13 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
-import com.atelier_nyaarium.switchboard.proto.SessionHarness
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.TeamInfo
 import com.atelier_nyaarium.switchboard.proto.composeSessionName
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import com.atelier_nyaarium.switchboard.proto.parseSessionName
+import com.atelier_nyaarium.switchboard.proto.readHarness
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -28,8 +29,8 @@ data class Team(
 	val presenceFresh: String? = null,
 	/** Gateway-stamped; "assistant" lives in its own tab. */
 	val role: String? = null,
-	/** The row's CLI word; read through [rowHarness]. */
-	val harness: String? = null,
+	/** The row's CLI word, read once. A local row names none. */
+	val harness: HarnessWord = readHarness(null),
 ) {
 	/** Short local field shown in the UI: `spawn` or `spawn.session` from the canonical address. */
 	val shortName: String get() = localFieldOf(name)
@@ -119,17 +120,6 @@ internal fun teamInfoToTeam(it: TeamInfo): Team {
 		sessionLabel = it.sessionLabel,
 		presenceFresh = it.presenceFresh,
 		role = it.role,
-		harness = it.harness,
+		harness = readHarness(it.harness),
 	)
 }
-
-// FIXME 2026-11-23: drop, once every row names its CLI.
-/** An older Gateway's row names none; it ran Claude. */
-private val UNNAMED_ROW_HARNESS = SessionHarness.CLAUDE
-
-/** A session row's CLI. Null for a word this app does not know, a newer Gateway's. */
-internal fun rowHarness(wire: String?): SessionHarness? =
-	if (wire == null) UNNAMED_ROW_HARNESS else SessionHarness.ofWire(wire)
-
-/** The word a row's own Gateway is sent back, uninterpreted. */
-internal fun rowHarnessWord(wire: String?): String = wire ?: UNNAMED_ROW_HARNESS.wire

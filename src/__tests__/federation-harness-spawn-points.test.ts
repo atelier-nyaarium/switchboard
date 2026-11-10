@@ -40,6 +40,16 @@ describe("the spawn points a Gateway reports to the phone", () => {
 		expect(row.harnessSpawns).toEqual({ claude: ["host"], copilot: ["host", "windows"] });
 	}, 30_000);
 
+	it("falls back to the two lists when the `harnessSpawns` map is malformed", async () => {
+		const row = await reported({
+			harnessSpawns: { claude: "host" } as never,
+			claudeSpawns: ["host"],
+			copilotSpawns: ["host", "windows"],
+		});
+
+		expect(row.harnessSpawns).toEqual({ claude: ["host"], copilot: ["host", "windows"] });
+	}, 30_000);
+
 	it("reads the oldest daemon, which sent no list, as Claude everywhere and Copilot nowhere", async () => {
 		const row = await reported({});
 

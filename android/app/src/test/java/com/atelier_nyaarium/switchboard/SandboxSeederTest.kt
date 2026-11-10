@@ -14,11 +14,11 @@ class SandboxSeederTest {
 	}
 
 	@Test
-	fun theSeededGatewaysRunDifferentAgents() {
+	fun theSeededGatewaysRunDifferentClis() {
 		val roster = listOf("sandbox", "parsing", "idle-box")
 		val registry = sandboxRegistry(roster, now = 5)
 
-		assertEquals(roster.size, roster.map { registry.agentsOn(it, "host") }.toSet().size)
+		assertEquals(roster.size, roster.map { registry.harnessesOn(it, "host") }.toSet().size)
 	}
 
 	@Test

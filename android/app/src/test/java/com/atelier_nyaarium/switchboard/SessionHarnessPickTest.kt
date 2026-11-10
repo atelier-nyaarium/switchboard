@@ -3,11 +3,14 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.proto.HarnessSpawns
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.PresencePlane
 import com.atelier_nyaarium.switchboard.proto.RosterEntry
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
+import com.atelier_nyaarium.switchboard.proto.UNNAMED_HARNESS
+import com.atelier_nyaarium.switchboard.proto.readHarness
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -17,7 +20,7 @@ import org.junit.Test
 class SessionHarnessPickTest {
 	private val projects = listOf("host", "windows", "recipe-app")
 
-	private fun agents(vararg installed: SessionHarness) = SpawnAgents(installed.toSet())
+	private fun running(vararg installed: SessionHarness) = SpawnHarnesses(installed.toSet())
 
 	private fun landed(vararg rows: GatewaySpawnPoints): GatewayRegistry =
 		GatewayRegistry().landed(
@@ -48,12 +51,12 @@ class SessionHarnessPickTest {
 	)
 
 	@Test
-	fun `a project is offered when its spawn point runs any agent`() {
-		val held: (String) -> SpawnAgents = { project ->
+	fun `a project is offered when its spawn point runs any CLI`() {
+		val held: (String) -> SpawnHarnesses = { project ->
 			when (project) {
-				"recipe-app" -> agents(SessionHarness.CLAUDE)
-				"windows" -> agents(SessionHarness.COPILOT)
-				else -> agents()
+				"recipe-app" -> running(SessionHarness.CLAUDE)
+				"windows" -> running(SessionHarness.COPILOT)
+				else -> running()
 			}
 		}
 
@@ -61,9 +64,9 @@ class SessionHarnessPickTest {
 	}
 
 	@Test
-	fun `a picked project offers the agents its spawn point runs, and keeps the held one when it can`() {
-		val both = harnessesOf(agents(SessionHarness.COPILOT, SessionHarness.CLAUDE))
-		val copilotOnly = harnessesOf(agents(SessionHarness.COPILOT))
+	fun `a picked project offers the CLIs its spawn point runs, and keeps the held one when it can`() {
+		val both = harnessesOf(running(SessionHarness.COPILOT, SessionHarness.CLAUDE))
+		val copilotOnly = harnessesOf(running(SessionHarness.COPILOT))
 
 		assertEquals(listOf(SessionHarness.CLAUDE, SessionHarness.COPILOT), both)
 		assertEquals(listOf(SessionHarness.COPILOT), copilotOnly)
@@ -73,38 +76,43 @@ class SessionHarnessPickTest {
 	}
 
 	@Test
-	fun `each install pair shows where its agent is, and every pair where none is`() {
+	fun `each install pair shows where its CLI is, and every pair where none is`() {
 		val claude = SessionHarness.CLAUDE.shellMacros
 		val copilot = SessionHarness.COPILOT.shellMacros
 
-		assertEquals(claude, shellMacros(agents(SessionHarness.CLAUDE)))
-		assertEquals(copilot, shellMacros(agents(SessionHarness.COPILOT)))
-		assertEquals(claude + copilot, shellMacros(agents(SessionHarness.CLAUDE, SessionHarness.COPILOT)))
-		assertEquals(SessionHarness.entries.flatMap { it.shellMacros }, shellMacros(agents()))
+		assertEquals(claude, shellMacros(running(SessionHarness.CLAUDE)))
+		assertEquals(copilot, shellMacros(running(SessionHarness.COPILOT)))
+		assertEquals(claude + copilot, shellMacros(running(SessionHarness.CLAUDE, SessionHarness.COPILOT)))
+		assertEquals(SessionHarness.entries.flatMap { it.shellMacros }, shellMacros(running()))
 	}
 
 	@Test
-	fun `a session row with no CLI word reads as Claude, and an unknown word as no CLI with no palette`() {
-		assertEquals(SessionHarness.COPILOT, rowHarness(SessionHarness.COPILOT.wire))
-		assertEquals(SessionHarness.CLAUDE, rowHarness(null))
-		assertNull(rowHarness("not-a-cli"))
+	fun `a CLI word reads as named, unnamed or unknown, and only an unknown one has no palette`() {
+		val named = readHarness(SessionHarness.COPILOT.wire)
+		val unnamed = readHarness(null)
+		val unknown = readHarness("not-a-cli")
 
-		assertEquals(SessionHarness.COPILOT.slashPalette, slashMacros(SessionHarness.COPILOT.wire))
-		assertEquals(SessionHarness.CLAUDE.slashPalette, slashMacros(null))
-		assertTrue(slashMacros("not-a-cli").isEmpty())
+		assertEquals(HarnessWord.Named(SessionHarness.COPILOT), named)
+		assertEquals(HarnessWord.Unnamed(UNNAMED_HARNESS), unnamed)
+		assertEquals(HarnessWord.Unknown("not-a-cli"), unknown)
+
+		assertEquals(SessionHarness.COPILOT.slashPalette, slashMacros(named))
+		assertEquals(UNNAMED_HARNESS.slashPalette, slashMacros(unnamed))
+		assertTrue(slashMacros(unknown).isEmpty())
+		assertTrue(slashMacros(null).isEmpty())
 	}
 
 	@Test
 	fun `a devcontainer runs Claude, and an older Gateway reads as Claude on every host spawn point`() {
 		val registry = GatewayRegistry()
 
-		assertEquals(agents(SessionHarness.CLAUDE), registry.agentsOn("mikan", "recipe-app"))
-		assertEquals(agents(SessionHarness.CLAUDE), registry.agentsOn("mikan", "host"))
-		assertEquals(agents(SessionHarness.CLAUDE), registry.agentsOnSession("d.mikan.recipe-app"))
+		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("mikan", "recipe-app"))
+		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("mikan", "host"))
+		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOnSession("d.mikan.recipe-app"))
 	}
 
 	@Test
-	fun `a spawn point's agents come from the per-CLI map, and from the two old lists without one`() {
+	fun `a spawn point's CLIs come from the per-CLI map, and from the two old lists without one`() {
 		val registry = landed(
 			row(
 				"mapped",
@@ -117,13 +125,13 @@ class SessionHarnessPickTest {
 			row("oldest", copilotSpawns = listOf("host")),
 		)
 
-		assertEquals(agents(SessionHarness.COPILOT), registry.agentsOn("mapped", "host"))
-		assertEquals(agents(SessionHarness.CLAUDE, SessionHarness.COPILOT), registry.agentsOn("mapped", "windows"))
-		assertEquals(agents(), registry.agentsOn("unprobed", "host"))
-		assertEquals(agents(SessionHarness.COPILOT), registry.agentsOn("listed", "host"))
-		assertEquals(agents(SessionHarness.CLAUDE), registry.agentsOn("listed", "windows"))
-		assertEquals(agents(SessionHarness.CLAUDE, SessionHarness.COPILOT), registry.agentsOn("oldest", "host"))
-		assertEquals(agents(SessionHarness.CLAUDE), registry.agentsOn("oldest", "windows"))
-		assertEquals(agents(SessionHarness.COPILOT), registry.agentsOnSession("d.mapped.host.demo"))
+		assertEquals(running(SessionHarness.COPILOT), registry.harnessesOn("mapped", "host"))
+		assertEquals(running(SessionHarness.CLAUDE, SessionHarness.COPILOT), registry.harnessesOn("mapped", "windows"))
+		assertEquals(running(), registry.harnessesOn("unprobed", "host"))
+		assertEquals(running(SessionHarness.COPILOT), registry.harnessesOn("listed", "host"))
+		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("listed", "windows"))
+		assertEquals(running(SessionHarness.CLAUDE, SessionHarness.COPILOT), registry.harnessesOn("oldest", "host"))
+		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("oldest", "windows"))
+		assertEquals(running(SessionHarness.COPILOT), registry.harnessesOnSession("d.mapped.host.demo"))
 	}
 }
