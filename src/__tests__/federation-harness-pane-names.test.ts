@@ -31,13 +31,18 @@ describe("a host session's name, one pane on every host spawn point", () => {
 		await create("host", "shared-wake");
 		const wakes = h.host.wakes.length;
 
-		const { result } = await h.phone.value({
-			kind: "wake",
-			target: h.target("windows.shared-wake"),
-			harness: "claude",
-		});
+		const opId = "op-wake-shared";
+		const target = h.target("windows.shared-wake");
+		await h.phone.deliver("windows.shared-wake", { kind: "wake", target, harness: "claude" }, opId);
+		const row = await h.waitFor(
+			async () =>
+				(await h.phone.inboxRead()).find(
+					(held) => held.envelope.kind === "op_result" && held.envelope.opKey.opId === opId,
+				),
+			"the wake's answer",
+		);
 
-		expect(result).toMatchObject({ kind: "refusal" });
+		expect(h.phone.open(row)).toMatchObject({ ok: false, error: expect.any(String) });
 		expect(h.host.wakes).toHaveLength(wakes);
 	});
 

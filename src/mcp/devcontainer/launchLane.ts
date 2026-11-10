@@ -27,6 +27,8 @@ export interface LaunchRequest {
 	workdir?: string;
 	/** Containers: where a wake says the project is. */
 	projectPath?: string;
+	/** The Gateway's id; absent from an older Gateway. */
+	launchId?: string;
 }
 
 export interface CreateAnswer {
@@ -71,22 +73,31 @@ type Refusal = { ok: false; failure: LaunchFailure; text: string; typed: boolean
 
 type Settled = { ok: true; res: LaunchOutcome; pluginsProvisioned?: boolean } | Refusal;
 
+/** One request a unit answers. */
+interface Taker {
+	door: LaunchDoor;
+	team: string;
+	launchId?: string;
+	fresh: boolean;
+	cancelled: boolean;
+	answered: boolean;
+	/** A create's host op; a wake answers by frame. */
+	reply?: (result: Settled) => void;
+}
+
 interface LaunchUnit {
 	kind: "launch";
+	/** The first request's door decides the repair. */
 	door: LaunchDoor;
 	team: string;
 	target: TmuxTarget;
 	/** Containers only. */
 	project?: string;
 	projectPath?: string;
+	takers: Taker[];
 	started: boolean;
 	settled: boolean;
-	/** The Gateway gave up on its wake. */
-	cancelled: boolean;
-	/** A create took its outcome, so a cancel leaves the pane. */
-	joinedCreate: boolean;
-	done: Promise<Settled>;
-	settle(result: Settled): void;
+	stage?: { stage: string; extra: Record<string, unknown> };
 	run(): Promise<void>;
 }
 
@@ -118,6 +129,9 @@ export const GAVE_UP: LaunchFailure = { kind: "error", reason: "the Gateway gave
 // A Gateway record outlives `container_up` by 10 minutes.
 export const LATE_CANCEL_MS = 15 * 60_000;
 
+/** An unacknowledged result is replayed this long. */
+export const RESULT_KEEP_MS = 30 * 60_000;
+
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -127,6 +141,8 @@ export function physicalPane(target: TmuxTarget): string {
 }
 
 export const errorFailure = (reason: string): LaunchFailure => ({ kind: "error", reason: reason.slice(0, 2048) });
+
+const tag = (launchId: string | undefined) => (launchId ? { launchId } : {});
 
 /** Every failed wake is typed, so the Gateway renders it. */
 export function failedWakeFrame(
@@ -154,16 +170,44 @@ function createAnswer(result: Settled, team: string): CreateAnswer {
 	return { created: true, ready: res.ready, alive: res.alive };
 }
 
-/** One queue per physical pane. A request joins the tail when that answers it. */
+/** Untagged create answers only `cli_found`. */
+function wantsStage(taker: Taker, stage: string): boolean {
+	return taker.door === "wake" || taker.launchId !== undefined || stage === "cli_found";
+}
+
+/** One queue per physical pane; each request answers under its own launch id. */
 export function createLaunchLane(deps: LaunchLaneDeps) {
 	const lanes = new Map<string, Unit[]>();
-	/** Each running wake's last stage frame, by team. */
-	const stages = new Map<string, { unit: LaunchUnit; frame: Record<string, unknown> }>();
-	/** Finished never-confirmed wakes whose launch made the pane. */
-	const madePanes = new Map<string, { target: TmuxTarget; pane: string; at: number }>();
+	/** Unconfirmed wakes that made the pane. */
+	const madePanes = new Map<string, { team: string; launchId?: string; target: TmuxTarget; at: number }>();
+	/** Tagged results until the Gateway acknowledges them. */
+	const outbox = new Map<string, { frame: Record<string, unknown>; at: number }>();
+	/** Answered ids; a late wake starts nothing. */
+	const answered = new Map<string, number>();
+
+	const madeKey = (team: string, launchId: string | undefined) => launchId ?? `team:${team}`;
+
+	function sendResult(launchId: string | undefined, frame: Record<string, unknown>): void {
+		if (launchId) {
+			pruneOutbox();
+			outbox.set(launchId, { frame, at: deps.now() });
+			answered.set(launchId, deps.now());
+		}
+		deps.send(frame);
+	}
+
+	function pruneOutbox(): void {
+		const now = deps.now();
+		for (const [launchId, kept] of outbox) if (now - kept.at >= RESULT_KEEP_MS) outbox.delete(launchId);
+		for (const [launchId, at] of answered) if (now - at >= RESULT_KEEP_MS) answered.delete(launchId);
+	}
+
+	function forgetMade(match: (made: { team: string; target: TmuxTarget }) => boolean): void {
+		for (const [key, made] of madePanes) if (match(made)) madePanes.delete(key);
+	}
 
 	function enqueue(pane: string, unit: Unit): void {
-		for (const [team, made] of madePanes) if (made.pane === pane) madePanes.delete(team);
+		forgetMade((made) => physicalPane(made.target) === pane);
 		const units = lanes.get(pane);
 		if (units) {
 			units.push(unit);
@@ -186,27 +230,84 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		lanes.delete(pane);
 	}
 
-	function liveWakes(team: string): LaunchUnit[] {
-		const found: LaunchUnit[] = [];
+	function* liveUnits(): Generator<LaunchUnit> {
 		for (const units of lanes.values()) {
-			for (const unit of units) {
-				if (unit.kind === "launch" && unit.door === "wake" && unit.team === team && !unit.settled)
-					found.push(unit);
-			}
+			for (const unit of units) if (unit.kind === "launch" && !unit.settled) yield unit;
 		}
-		return found;
 	}
 
-	function joinable(pane: string, door: LaunchDoor, team: string): LaunchUnit | undefined {
-		const tail = lanes.get(pane)?.at(-1);
-		if (tail?.kind !== "launch" || tail.settled || tail.cancelled || tail.team !== team) return undefined;
-		return tail.door === door || (door === "create" && tail.door === "wake") ? tail : undefined;
+	const abandoned = (unit: LaunchUnit) => unit.takers.every((taker) => taker.cancelled);
+
+	function stageFrame(taker: Taker, stage: NonNullable<LaunchUnit["stage"]>): Record<string, unknown> {
+		return { type: "wake_stage", team: taker.team, ...tag(taker.launchId), stage: stage.stage, ...stage.extra };
+	}
+
+	function tellStage(unit: LaunchUnit, taker: Taker): void {
+		if (!unit.stage || taker.answered || taker.cancelled || !wantsStage(taker, unit.stage.stage)) return;
+		deps.send(stageFrame(taker, unit.stage));
 	}
 
 	function sendStage(unit: LaunchUnit, stage: string, extra: Record<string, unknown> = {}): void {
-		const frame = { type: "wake_stage", team: unit.team, stage, ...extra };
-		stages.set(unit.team, { unit, frame });
-		deps.send(frame);
+		unit.stage = { stage, extra };
+		for (const taker of unit.takers) tellStage(unit, taker);
+	}
+
+	/** A wake's frame; `unit` is absent for a refusal at the door. */
+	function replyWake(taker: Taker, result: Settled, unit?: LaunchUnit): void {
+		const id = tag(taker.launchId);
+		if (!result.ok) {
+			deps.log(`failed to wake ${taker.team}: ${result.text}`);
+			sendResult(taker.launchId, failedWakeFrame(taker.team, result.failure, id));
+			return;
+		}
+		const { res } = result;
+		const target = unit?.target as TmuxTarget;
+		if (res.created && taker.fresh) {
+			madePanes.set(madeKey(taker.team, taker.launchId), {
+				team: taker.team,
+				...id,
+				target,
+				at: deps.now(),
+			});
+		}
+		// Zero captures means a dead container launch.
+		const success = target.kind === "host" ? res.live : res.alive;
+		const extra = {
+			...id,
+			screen: res.screen,
+			...(result.pluginsProvisioned === undefined ? {} : { pluginsProvisioned: result.pluginsProvisioned }),
+		};
+		const error = launchError(res);
+		deps.log(`${taker.team} ${success ? "is up" : `did not come up${error ? `: ${error}` : ""}`}`);
+		if (!success) {
+			sendResult(
+				taker.launchId,
+				failedWakeFrame(taker.team, errorFailure(error ?? "the session did not come up"), extra),
+			);
+			return;
+		}
+		sendResult(taker.launchId, {
+			type: "wake_result",
+			team: taker.team,
+			success,
+			...(error ? { error } : {}),
+			...extra,
+		});
+	}
+
+	function answer(taker: Taker, result: Settled, unit?: LaunchUnit): void {
+		if (taker.answered) return;
+		taker.answered = true;
+		const final = taker.cancelled ? refusal(GAVE_UP, taker.team, false) : result;
+		if (taker.reply) taker.reply(final);
+		else replyWake(taker, final, unit);
+	}
+
+	function settle(unit: LaunchUnit, result: Settled): void {
+		if (unit.settled) return;
+		unit.settled = true;
+		unit.stage = undefined;
+		for (const taker of unit.takers) answer(taker, result, unit);
 	}
 
 	function settledOf(unit: LaunchUnit, err: unknown): Settled {
@@ -221,23 +322,17 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		return refusal(errorFailure(message), unit.team, false, message);
 	}
 
-	/** The launch itself, as the unit's door asks it. */
+	/** The launch itself, as the unit's first door asks it. */
 	async function body(unit: LaunchUnit, req: LaunchRequest, generation: number): Promise<Settled> {
-		const wake = unit.door === "wake";
 		const pick = (installed: readonly SessionHarness[]): SessionHarness => {
 			const resolved = resolveLaunchHarness(req.harness, unit.target, installed);
 			if ("refused" in resolved) {
 				if (!resolved.cli) throw new Failed(errorFailure(resolved.refused), resolved.refused, false);
 				throw new Failed({ kind: "cli", refusal: resolved.cli }, resolved.refused, true);
 			}
-			const harness = resolved.harness;
-			// Only a wake's stage is replayed.
-			if (wake) sendStage(unit, "cli_found", { harness });
-			else deps.send({ type: "wake_stage", team: unit.team, stage: "cli_found", harness });
-			if (unit.cancelled && !unit.joinedCreate) {
-				throw new Failed(GAVE_UP, launchFailureText(GAVE_UP, unit.team), false);
-			}
-			return harness;
+			sendStage(unit, "cli_found", { harness: resolved.harness });
+			if (abandoned(unit)) throw new Failed(GAVE_UP, launchFailureText(GAVE_UP, unit.team), false);
+			return resolved.harness;
 		};
 		const facts = (harness: SessionHarness): LaunchFacts => ({
 			harness,
@@ -251,13 +346,13 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 			const harness = pick(await deps.installed(unit.target));
 			return { ok: true, res: await deps.launch(unit.target, facts(harness)) };
 		}
-		if (wake) sendStage(unit, "building");
+		sendStage(unit, "building");
 		const { pluginsProvisioned, value } = await deps.ensureUp(
 			unit.project as string,
 			unit.projectPath as string,
 			generation,
 			async (installed) => {
-				if (wake) sendStage(unit, "container_up");
+				sendStage(unit, "container_up");
 				return deps.launch(unit.target, facts(pick(installed)));
 			},
 			async (res) => {
@@ -267,101 +362,101 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		return { ok: true, res: value, pluginsProvisioned };
 	}
 
-	function replyWake(unit: LaunchUnit, result: Settled, fresh: boolean): void {
-		if (stages.get(unit.team)?.unit === unit) stages.delete(unit.team);
-		if (unit.cancelled) {
-			deps.send(failedWakeFrame(unit.team, GAVE_UP));
-			return;
+	function liveTaker(launchId: string): { unit: LaunchUnit; taker: Taker } | undefined {
+		for (const unit of liveUnits()) {
+			const taker = unit.takers.find((each) => each.launchId === launchId && !each.answered);
+			if (taker) return { unit, taker };
 		}
-		if (!result.ok) {
-			deps.log(`failed to wake ${unit.team}: ${result.text}`);
-			deps.send(failedWakeFrame(unit.team, result.failure));
-			return;
-		}
-		const { res } = result;
-		if (res.created && fresh) {
-			madePanes.set(unit.team, { target: unit.target, pane: physicalPane(unit.target), at: deps.now() });
-		}
-		// Zero captures means a dead container launch.
-		const success = unit.target.kind === "host" ? res.live : res.alive;
-		const extra = result.pluginsProvisioned === undefined ? {} : { pluginsProvisioned: result.pluginsProvisioned };
-		const error = launchError(res);
-		deps.log(`${unit.team} ${success ? "is up" : `did not come up${error ? `: ${error}` : ""}`}`);
-		if (!success) {
-			const failure = errorFailure(error ?? "the session did not come up");
-			deps.send(failedWakeFrame(unit.team, failure, { screen: res.screen, ...extra }));
-			return;
-		}
-		deps.send({
-			type: "wake_result",
-			team: unit.team,
-			success,
-			screen: res.screen,
-			...(error ? { error } : {}),
-			...extra,
-		});
+		return undefined;
 	}
 
-	/** Admits a launch, or answers why it will not run. */
-	function admit(door: LaunchDoor, team: string, req: LaunchRequest): LaunchUnit | Refusal {
+	function joinable(pane: string, taker: Taker): LaunchUnit | undefined {
+		const tail = lanes.get(pane)?.at(-1);
+		if (tail?.kind !== "launch" || tail.settled || tail.team !== taker.team) return undefined;
+		if (tail.takers.some((held) => held.cancelled)) return undefined;
+		return tail.door === taker.door || (taker.door === "create" && tail.door === "wake") ? tail : undefined;
+	}
+
+	function join(unit: LaunchUnit, taker: Taker): void {
+		unit.takers.push(taker);
+		tellStage(unit, taker);
+	}
+
+	/** Joins, queues, or refuses a request. */
+	function admit(taker: Taker, req: LaunchRequest): void {
+		if (taker.launchId) {
+			const held = liveTaker(taker.launchId);
+			// A repeated frame; a repeated create still wants its own answer.
+			if (held) {
+				if (taker.reply) join(held.unit, taker);
+				return;
+			}
+			const kept = outbox.get(taker.launchId);
+			if (kept && !taker.reply) {
+				deps.send(kept.frame);
+				return;
+			}
+			if (answered.has(taker.launchId) && !taker.reply) {
+				deps.log(`dropping a wake for ${taker.launchId}, already answered`);
+				return;
+			}
+		}
 		// Before any container starts.
 		const placement = placementRefusal(req.harness, req.target);
-		if (placement) return refusal(errorFailure(placement), team, false, placement);
+		if (placement) {
+			answer(taker, refusal(errorFailure(placement), taker.team, false, placement));
+			return;
+		}
 		let target = req.target;
 		let projectPath: string | undefined;
 		if (target.kind !== "host") {
 			const found = deps.project(target.name, req.projectPath);
 			if (found.refused !== undefined) {
-				deps.log(`${team}: ${found.refused}`);
-				return refusal({ kind: "container", spawn: target.name, projectPath: found.path }, team, true);
+				deps.log(`${taker.team}: ${found.refused}`);
+				answer(
+					taker,
+					refusal({ kind: "container", spawn: target.name, projectPath: found.path }, taker.team, true),
+				);
+				return;
 			}
 			projectPath = found.path;
 			target = { ...target, name: path.basename(found.path) };
 		}
+		forgetMade((made) => made.team === taker.team);
 		const pane = physicalPane(target);
-		const joined = joinable(pane, door, team);
-		if (joined) {
-			if (door === "create" && joined.door === "wake") joined.joinedCreate = true;
-			return joined;
+		const tail = joinable(pane, taker);
+		if (tail) {
+			// An older Gateway's repeated wake is the same request.
+			const repeat = !taker.launchId && !taker.reply && tail.takers.some((held) => !held.launchId && !held.reply);
+			if (!repeat) join(tail, taker);
+			return;
 		}
-		// A Stop fences earlier queued launches.
+		// Taken now, so a Stop fences what queued before it.
 		const generation = target.kind === "host" ? 0 : deps.generation(target.name);
-		let resolveDone!: (result: Settled) => void;
 		const unit: LaunchUnit = {
 			kind: "launch",
-			door,
-			team,
+			door: taker.door,
+			team: taker.team,
 			target,
 			...(target.kind === "host" ? {} : { project: target.name, projectPath }),
+			takers: [taker],
 			started: false,
 			settled: false,
-			cancelled: false,
-			joinedCreate: false,
-			done: new Promise<Settled>((resolve) => {
-				resolveDone = resolve;
-			}),
-			settle(result) {
-				if (unit.settled) return;
-				unit.settled = true;
-				resolveDone(result);
-			},
 			async run() {
 				let result: Settled;
 				try {
 					result = await body(unit, req, generation);
-					if (result.ok && unit.cancelled && result.res.created && !unit.joinedCreate) {
+					if (result.ok && result.res.created && abandoned(unit)) {
 						await deps.kill(unit.target).catch(() => {});
-						result = refusal(GAVE_UP, team, false);
+						result = refusal(GAVE_UP, unit.team, false);
 					}
 				} catch (err) {
 					result = settledOf(unit, err);
 				}
-				unit.settle(result);
+				settle(unit, result);
 			},
 		};
-		if (door === "wake") unit.done.then((result) => replyWake(unit, result, req.fresh === true));
 		enqueue(pane, unit);
-		return unit;
 	}
 
 	/** Behind whatever runs on the pane. */
@@ -386,37 +481,70 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		});
 	}
 
+	const wakeTaker = (team: string, launchId: string | undefined, fresh: boolean): Taker => ({
+		door: "wake",
+		team,
+		...tag(launchId),
+		fresh,
+		cancelled: false,
+		answered: false,
+	});
+
 	return {
 		/** A wake answers by frames. */
 		wake(team: string, req: LaunchRequest): void {
-			madePanes.delete(team);
-			const admitted = admit("wake", team, req);
-			if ("kind" in admitted) return;
-			deps.log(`refusing wake of "${team}": ${admitted.text}`);
-			deps.send(failedWakeFrame(team, admitted.failure));
+			admit(wakeTaker(team, req.launchId, req.fresh === true), req);
+		},
+
+		/** A wake this machine refuses before the lane. */
+		refuse(team: string, launchId: string | undefined, reason: string): void {
+			answer(wakeTaker(team, launchId, false), refusal(errorFailure(reason), team, false, reason));
 		},
 
 		/** A create answers its host op. */
 		async create(req: LaunchRequest): Promise<CreateAnswer> {
 			const team = composeSessionName(req.target.name, req.target.sessionName);
-			madePanes.delete(team);
-			const admitted = admit("create", team, req);
-			return createAnswer("kind" in admitted ? await admitted.done : admitted, team);
+			const result = await new Promise<Settled>((reply) => {
+				admit(
+					{
+						door: "create",
+						team,
+						...tag(req.launchId),
+						fresh: false,
+						cancelled: false,
+						answered: false,
+						reply,
+					},
+					req,
+				);
+			});
+			return createAnswer(result, team);
 		},
 
-		/** The Gateway gave up on this team's wakes. */
-		cancel(team: string): void {
-			const units = liveWakes(team);
-			for (const unit of units) {
-				deps.log(`the Gateway gave up on ${team}`);
-				unit.cancelled = true;
-				// Never started, and nobody else waits on it.
-				if (!unit.started && !unit.joinedCreate) unit.settle(refusal(GAVE_UP, team, false));
+		/** The Gateway gave up: the request with this id, or a team's untagged ones. */
+		cancel(team: string, launchId?: string): void {
+			let hit = false;
+			for (const unit of liveUnits()) {
+				for (const taker of unit.takers) {
+					if (taker.team !== team || taker.launchId !== launchId || taker.answered) continue;
+					// An older Gateway cancels wakes alone.
+					if (!launchId && taker.reply) continue;
+					hit = true;
+					deps.log(`the Gateway gave up on ${team}${launchId ? ` (${launchId})` : ""}`);
+					taker.cancelled = true;
+					answer(taker, refusal(GAVE_UP, team, false), unit);
+				}
+				// Nobody waits on it.
+				if (!unit.started && abandoned(unit)) unit.settled = true;
 			}
-			if (units.length > 0) return;
-			const made = madePanes.get(team);
-			madePanes.delete(team);
+			if (hit) return;
+			const key = madeKey(team, launchId);
+			const made = madePanes.get(key);
+			madePanes.delete(key);
 			if (!made || deps.now() - made.at >= LATE_CANCEL_MS) return;
+			const pane = physicalPane(made.target);
+			// Another request launched on this pane holds it.
+			if ([...madePanes.values()].some((other) => physicalPane(other.target) === pane)) return;
 			deps.log(`the Gateway gave up on ${team} after it started; closing its pane`);
 			kill(made.target).catch((err) =>
 				deps.log(`could not close ${team}: ${err instanceof Error ? err.message : err}`),
@@ -425,25 +553,35 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 
 		kill,
 
-		/** Fails queued and unregistered launches; a running one fails at its fence. */
+		/** Fails the project's queued and unregistered launches. */
 		stop(project: string): void {
-			for (const units of lanes.values()) {
-				for (const unit of units) {
-					if (unit.kind !== "launch" || unit.started || unit.project !== project) continue;
-					unit.settle(refusal({ kind: "stopped" }, unit.team, true));
-				}
+			for (const unit of liveUnits()) {
+				if (!unit.started && unit.project === project)
+					settle(unit, refusal({ kind: "stopped" }, unit.team, true));
 			}
 			const now = deps.now();
-			for (const [team, made] of madePanes) {
+			for (const [key, made] of madePanes) {
 				if (made.target.kind === "host" || made.target.name !== project) continue;
-				madePanes.delete(team);
-				if (now - made.at < LATE_CANCEL_MS) deps.send(failedWakeFrame(team, { kind: "stopped" }));
+				madePanes.delete(key);
+				if (now - made.at >= LATE_CANCEL_MS) continue;
+				const failure: LaunchFailure = { kind: "stopped" };
+				sendResult(made.launchId, failedWakeFrame(made.team, failure, tag(made.launchId)));
 			}
 		},
 
 		/** The Gateway forgets stages with the link. */
 		replayStages(): void {
-			for (const { frame } of stages.values()) deps.send(frame);
+			for (const unit of liveUnits()) for (const taker of unit.takers) tellStage(unit, taker);
+		},
+
+		/** Every tagged result not yet acknowledged. */
+		replayResults(): void {
+			pruneOutbox();
+			for (const { frame } of outbox.values()) deps.send(frame);
+		},
+
+		ack(launchId: string): void {
+			outbox.delete(launchId);
 		},
 	};
 }

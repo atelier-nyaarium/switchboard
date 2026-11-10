@@ -21,7 +21,15 @@ describe("WakeService", () => {
 		const sessionStore = new SessionStore({ ambient: processAmbient() });
 		const registry: TeamRegistry = new Map();
 		const wakeCoordinator = new WakeCoordinator(processAmbient());
-		const sent: { type: string; team: string; projectPath?: string; fresh?: boolean; harness?: string }[] = [];
+		const sent: {
+			type: string;
+			team: string;
+			launchId?: string;
+			projectPath?: string;
+			fresh?: boolean;
+			harness?: string;
+		}[] = [];
+		let launches = 0;
 		const hostWs = {
 			readyState: 1,
 			send: (s: string) => void sent.push(JSON.parse(s)),
@@ -49,6 +57,7 @@ describe("WakeService", () => {
 			offlineCatalog: new Map(),
 			liveHostSocket: () => hostWs,
 			wakeTimeoutMs: 60,
+			newLaunchId: () => `launch-${String(++launches).padStart(4, "0")}`,
 			...over,
 		});
 		return { service, sessionStore, registry, wakeCoordinator, sent, presenceCalls, forgotten };
@@ -158,27 +167,67 @@ describe("WakeService", () => {
 		expect(s.sent.map((frame) => frame.team)).toEqual([launched, launched]);
 	});
 
-	it("cancels the pane of a create that timed out, and leaves a woken session's pane alone", async () => {
+	it("records each launch before its wake goes out, and names it on the frame and to every settle listener", async () => {
 		const s = setup();
-		const existing = s.sessionStore.teamOf(s.sessionStore.mint({ spawn: "proj", harness: "claude" }));
-		s.sessionStore.confirm(existing);
+		const events: unknown[] = [];
+		s.service.useLedger({
+			open: (team, launchId, created, retained) => {
+				events.push(["open", team, launchId, created, retained, s.sent.length]);
+				return true;
+			},
+			retain: () => true,
+		});
+		s.service.onSettled((team, result, launchId) => events.push(["settled", team, result.ok, launchId]));
 
-		await s.service.tryWakeTeam(existing);
-		const created = await s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
+		const create = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
+		const [frame] = s.sent;
+		s.wakeCoordinator.notify(frame.team);
+		await create;
 
-		expect(s.sent.filter((frame) => frame.type === "wake_cancel").map((frame) => frame.team)).toEqual([
-			created.resolvedTeam,
+		expect(frame.launchId).toEqual(expect.any(String));
+		expect(events).toEqual([
+			["open", frame.team, frame.launchId, true, false, 0],
+			["settled", frame.team, true, frame.launchId],
 		]);
+		// Ledger alone gives up.
+		expect(s.forgotten).toEqual([]);
 	});
 
-	it("rolls back the provisional record when the minted launch never comes online", async () => {
+	it("sends no wake when its launch cannot be recorded", async () => {
 		const s = setup();
-		const wake = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
-		const launched = s.sent[0].team;
-		// Nobody notifies; the 60ms coordinator hold elapses.
-		const result = await wake;
-		expect(result.ok).toBe(false);
-		expect(s.forgotten).toEqual([launched]);
+		s.service.useLedger({ open: () => false, retain: () => true });
+
+		const result = await s.service.tryWakeTeam("proj");
+
+		expect(result).toMatchObject({ ok: false, error: expect.any(String) });
+		expect(s.sent).toEqual([]);
+	});
+
+	it("claims a launch for the owner, whether its wake starts it or joins it", async () => {
+		const s = setup();
+		const opened: boolean[] = [];
+		const retained: string[] = [];
+		s.service.useLedger({
+			open: (_team, _launchId, _created, held) => {
+				opened.push(held);
+				return true;
+			},
+			retain: (launchId) => {
+				retained.push(launchId);
+				return true;
+			},
+		});
+
+		const create = s.service.tryWakeTeam("proj.story", { displayLabel: "Story Time", harness: "claude" });
+		const [frame] = s.sent;
+		const joined = s.service.tryWakeTeam(frame.team, undefined, { retain: true });
+		const owned = s.service.tryWakeTeam("proj", undefined, { retain: true });
+		for (const team of [frame.team, "proj"]) s.wakeCoordinator.notify(team);
+		await Promise.all([create, joined, owned]);
+
+		expect(opened).toEqual([false, true]);
+		expect(retained).toEqual([frame.launchId]);
+		expect(s.sent.filter((sent) => sent.type === "wake")).toHaveLength(2);
 	});
 
 	it("marks a wake fresh until its session first confirms, minted by that wake or not", async () => {

@@ -133,7 +133,7 @@ export function createSendRoutes({
 				qualifiedTo: string;
 				targetWs: ReturnType<typeof resolveLiveIncarnation>;
 				/** Queued behind a launch still running. */
-				launching?: { created: boolean };
+				launching?: { created: boolean; launchId: string };
 		  }
 		| { ok: false; error: string; refused?: SendRefusal };
 
@@ -168,7 +168,7 @@ export function createSendRoutes({
 			target: { name: start.team, address },
 			qualifiedTo: address.canonical,
 			targetWs: undefined,
-			launching: { created: start.created },
+			launching: { created: start.created, launchId: start.launchId },
 		};
 	}
 
@@ -571,6 +571,7 @@ export function createSendRoutes({
 					const joined = launches?.join({
 						team: localName,
 						address: qualifiedTo,
+						launchId: launching.launchId,
 						created: launching.created,
 						delivery: { deliveryId, channelJobId, ...(keepsJob ? { keepsJob } : {}) },
 						...(returnRoute

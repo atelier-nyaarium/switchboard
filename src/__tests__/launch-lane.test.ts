@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ContainerStopped } from "../mcp/devcontainer/containers.js";
-import { createLaunchLane, LATE_CANCEL_MS, WakeFailure } from "../mcp/devcontainer/launchLane.js";
+import { createLaunchLane, LATE_CANCEL_MS, RESULT_KEEP_MS, WakeFailure } from "../mcp/devcontainer/launchLane.js";
 import type { LaunchFacts, LaunchOutcome } from "../mcp/devcontainer/sessionLaunch.js";
 import type { TmuxTarget } from "../shared/host-op.js";
 import type { SessionHarness } from "../shared/session-harness.js";
@@ -83,12 +83,16 @@ async function flush(): Promise<void> {
 	for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
-const wake = (target: TmuxTarget, extra: { fresh?: true } = {}) => ({
+const wake = (target: TmuxTarget, extra: { fresh?: true; launchId?: string } = {}) => ({
 	target,
 	harness: "claude",
 	sessionToken: "t",
 	...extra,
 });
+
+/** The launch ids each kind of frame named, in order. */
+const idsOf = (frames: Record<string, unknown>[], type: string) =>
+	frames.filter((frame) => frame.type === type).map((frame) => frame.launchId);
 
 describe("a launch lane", () => {
 	it("runs one launch for a repeated wake and a create behind it, and answers each door", async () => {
@@ -252,5 +256,112 @@ describe("a launch lane", () => {
 		expect(refused).toBeInstanceOf(WakeFailure);
 		expect(refused).toMatchObject({ failure: { kind: "cli" } });
 		expect(r.launches).toHaveLength(0);
+	});
+});
+
+describe("a launch lane's ids", () => {
+	it("answers each id a joined launch took, and tells each its stages", async () => {
+		const r = rig();
+
+		r.lane.wake("app.a", wake(APP_A, { launchId: "launch-1" }));
+		r.lane.wake("app.a", wake(APP_A, { launchId: "launch-2" }));
+		await flush();
+		await r.launches[0]?.answer(MADE);
+
+		expect(r.launches).toHaveLength(1);
+		expect(idsOf(r.sent, "wake_result")).toEqual(["launch-1", "launch-2"]);
+		const cliFound = r.sent.filter((frame) => frame.type === "wake_stage" && frame.stage === "cli_found");
+		expect(cliFound.map((frame) => frame.launchId)).toEqual(["launch-1", "launch-2"]);
+	});
+
+	it("cancels only the id it names, and the launch carries on for a create that joined it", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1" }));
+		const created = r.lane.create(wake(HOST_A, { launchId: "launch-2" }));
+		await flush();
+		r.lane.cancel("host.a", "launch-1");
+		await r.launches[0]?.answer(MADE);
+
+		expect(r.results("host.a")).toMatchObject([{ launchId: "launch-1", success: false }]);
+		expect(await created).toMatchObject({ created: true });
+		expect(r.events).toEqual(["launch host.a wake"]);
+	});
+
+	it("leaves a tagged launch alone on a cancel that names no id", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1", fresh: true }));
+		await flush();
+		r.lane.cancel("host.a");
+		await r.launches[0]?.answer(MADE);
+		r.lane.cancel("host.a");
+		await flush();
+
+		expect(r.results("host.a")).toMatchObject([{ launchId: "launch-1", success: true }]);
+		expect(r.events).toEqual(["launch host.a wake"]);
+	});
+
+	it("replays a tagged result on every connect until acknowledged, and an untagged one never", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1" }));
+		r.lane.wake("windows.b", wake({ ...WINDOWS_A, sessionName: "b" }));
+		await flush();
+		for (const launch of [...r.launches]) await launch.answer(FOUND);
+		r.lane.replayResults();
+		r.lane.replayResults();
+		r.lane.ack("launch-1");
+		r.lane.replayResults();
+
+		expect(idsOf(r.sent, "wake_result")).toEqual(["launch-1", undefined, "launch-1", "launch-1"]);
+	});
+
+	it("drops an unacknowledged result once its keep runs out", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1" }));
+		await flush();
+		await r.launches[0]?.answer(FOUND);
+		r.advance(RESULT_KEEP_MS);
+		r.lane.replayResults();
+
+		expect(idsOf(r.sent, "wake_result")).toEqual(["launch-1"]);
+	});
+
+	it("queues a new id behind a launch whose id was cancelled, and answers each under its own", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1" }));
+		await flush();
+		r.lane.cancel("host.a", "launch-1");
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-2" }));
+		await r.launches[0]?.answer(MADE);
+		await r.launches[1]?.answer(FOUND);
+
+		expect(r.events).toEqual(["launch host.a wake", "kill host.a", "launch host.a wake"]);
+		expect(r.results("host.a")).toMatchObject([
+			{ launchId: "launch-1", success: false },
+			{ launchId: "launch-2", success: true },
+		]);
+	});
+
+	it("lets no late frame for an earlier launch touch the one that replaced it", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1", fresh: true }));
+		await flush();
+		await r.launches[0]?.answer(MADE);
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-2", fresh: true }));
+		await flush();
+		r.lane.cancel("host.a", "launch-1");
+		r.lane.ack("launch-1");
+		r.lane.wake("host.a", wake(HOST_A, { launchId: "launch-1" }));
+		await r.launches[1]?.answer(MADE);
+		r.lane.replayResults();
+
+		expect(r.events).toEqual(["launch host.a wake", "launch host.a wake"]);
+		expect(idsOf(r.sent, "wake_result")).toEqual(["launch-1", "launch-2", "launch-2"]);
+		expect(r.results("host.a").every((frame) => frame.success)).toBe(true);
 	});
 });

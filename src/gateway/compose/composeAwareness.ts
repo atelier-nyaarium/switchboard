@@ -128,7 +128,7 @@ export function composeAwareness({
 		durable: new DurableStore(dataDir, "launches"),
 		now: () => ambient.now(),
 		timeoutMs: wakeTimeoutMs,
-		countdownFrom: (team) => host.wakeCoordinator.countdownFrom(team),
+		countdownFrom: (team, launchId) => host.wakeCoordinator.countdownFrom(team, launchId),
 		isLive,
 		senderKnown: (key) => Boolean(sessions.sessionStore.getByTeam(key)),
 		inFlight: (team) => host.wakeService.isWakeInFlight(team),
@@ -141,21 +141,20 @@ export function composeAwareness({
 			if (record && record.confirmedAt === undefined && !isLive(team)) sessions.presence.forget(team);
 		},
 		hostLink: () => host.liveHostSocket(),
-		cancel: (team) => {
+		cancel: (team, launchId) => {
 			const socket = host.liveHostSocket();
-			return (
-				!!socket &&
-				reached(sendOn(socket, JSON.stringify({ type: "wake_cancel", team }), `wake_cancel ${team}`))
-			);
+			const frame = JSON.stringify({ type: "wake_cancel", team, ...(launchId ? { launchId } : {}) });
+			return !!socket && reached(sendOn(socket, frame, `wake_cancel ${team}`));
 		},
 		observe: observeLaunches,
 		relay: relayLaunch,
 	});
 	const launchRecords = launches;
-	host.wakeService.onSettled((team, result) => launchRecords.settle(team, launchOutcome(result)));
+	host.wakeService.useLedger(launchRecords);
+	host.wakeService.onSettled((team, result, launchId) => launchRecords.settle(team, launchOutcome(result), launchId));
 	// Failure no waiter heard.
-	host.wakeCoordinator.onFailure((team, detail) =>
-		launchRecords.settle(team, launchOutcome({ ok: false, ...detail })),
+	host.wakeCoordinator.onFailure((team, detail, launchId) =>
+		launchRecords.settle(team, launchOutcome({ ok: false, ...detail }), launchId),
 	);
 	agents.onTurnsCollected((ownerKey, family, agentId, turnIds) => {
 		for (const turnId of turnIds) {

@@ -90,6 +90,7 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 		liveHostSocket,
 		wakeTimeoutMs,
 		installedAt: (spawn) => installedAt(sessions.hostSpawnPoints, spawn),
+		newLaunchId: () => ambient.newId(),
 	});
 
 	async function relayToHost(op: HostOp): Promise<HostOpResult> {

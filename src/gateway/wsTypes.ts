@@ -83,6 +83,8 @@ export interface WsData {
 	agentPid?: number;
 	daemonInstanceId?: string;
 	catalogProjects?: ReadonlySet<string>;
+	/** Daemon names launches; untagged results refused. */
+	launchIds?: boolean;
 	boundToken?: string;
 	missedPings: number;
 	isStale: boolean;

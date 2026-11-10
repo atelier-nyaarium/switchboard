@@ -29,9 +29,10 @@ export function ownTerminal(record: SessionRecord | undefined, teamOf: (record: 
 export interface SessionLifecycleDeps {
 	targets: ConsoleTargets;
 	createSessionBoundMs: number;
-	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
+	ambient: Pick<Ambient, "setTimer" | "clearTimer" | "newId">;
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
-	tryWakeTeam?: (team: string) => Promise<WakeResult>;
+	/** `retain`: a joined launch is never given up. */
+	tryWakeTeam?: (team: string, opts?: { retain?: true }) => Promise<WakeResult>;
 	isWakeInFlight?: (team: string) => boolean;
 	joinCreate?: (
 		team: string,
@@ -140,7 +141,7 @@ export function createSessionLifecycleHandlers({
 		const viaWake = target.kind === "devcontainer" && tryWakeTeam;
 		const startLaunch = (): Promise<HostOpResult> =>
 			viaWake
-				? viaWake(launchTeam).then(
+				? viaWake(launchTeam, { retain: true }).then(
 						(r): HostOpResult =>
 							r.ok
 								? { ok: true }
@@ -160,6 +161,7 @@ export function createSessionLifecycleHandlers({
 						...(adopted && adopted.record.confirmedAt === undefined ? { fresh: true as const } : {}),
 						sessionToken: adopted ? sessionStore?.ensureBindToken(adopted.record) : undefined,
 						dedupKey,
+						launchId: ambient.newId(),
 					});
 
 		const shared = joinCreate?.(launchTeam, startLaunch);
@@ -238,7 +240,7 @@ export function createSessionLifecycleHandlers({
 			const current = sessionStore.getByTeam(name);
 			return current === adopted && current.confirmedAt === undefined;
 		};
-		const wakeCall = tryWakeTeam(name);
+		const wakeCall = tryWakeTeam(name, { retain: true });
 		const winner = await withinMs(ambient, wakeCall, createSessionBoundMs);
 		if (winner === null) {
 			void wakeCall

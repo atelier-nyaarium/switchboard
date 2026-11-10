@@ -132,7 +132,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				return snapshot ? { version: slice.allowlist.version() ?? "", snapshot } : null;
 			},
 			relayToHost: host.relayToHost,
-			tryWakeTeam: (team) => host.wakeService.tryWakeTeam(team),
+			tryWakeTeam: (team, opts) => host.wakeService.tryWakeTeam(team, undefined, opts),
 			isWakeInFlight: (team) => host.wakeService.isWakeInFlight(team),
 			joinCreate: (team, start) => host.wakeService.joinCreate(team, start),
 			awaitRegister: (team) => host.wakeCoordinator.waitFor(team, deps.wakeTimeoutMs),

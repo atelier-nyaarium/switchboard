@@ -5,7 +5,7 @@ import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { type LaunchFailure, LaunchFailureSchema } from "../shared/launch-notice.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
 import { ContainerListSchema, DerivedPresenceSchema, HarnessSpawnsSchema } from "../shared/schemasPresence.js";
-import { WakeStageFrameSchema } from "../shared/schemasWake.js";
+import { WakeResultFrameSchema, WakeStageFrameSchema } from "../shared/schemasWake.js";
 import {
 	parseSessionControlResult,
 	SESSION_CONTROL_REPLY_FRAME,
@@ -302,6 +302,7 @@ export function createWebSocketHandlers({
 			ws.data.agentPid = reg.data.agentPid;
 			ws.data.daemonInstanceId = reg.data.daemonInstanceId;
 			ws.data.catalogProjects = undefined;
+			ws.data.launchIds = undefined;
 			subs.set(subId, ws);
 			announcePresenceDirty?.();
 
@@ -381,21 +382,28 @@ export function createWebSocketHandlers({
 			onTeamConnect?.(team, ws);
 		}
 
-		if (msg.type === "wake_result" && ws.data.teamName === "host" && typeof msg.team === "string") {
-			if (msg.success === false) {
-				wakeCoordinator.fail(msg.team, {
-					...launchFailureOf(msg.failure),
-					...(typeof msg.error === "string" ? { error: msg.error.slice(0, 2048) } : {}),
-				});
-			} else {
-				wakeCoordinator.ackReceived(msg.team, REGISTER_WINDOW_MS);
+		if (msg.type === "wake_result" && ws.data.teamName === "host") {
+			const frame = WakeResultFrameSchema.safeParse(msg);
+			const launchId = frame.data?.launchId;
+			if (launchId)
+				sendOn(ws, JSON.stringify({ type: "wake_result_ack", launchId }), `wake_result_ack ${launchId}`);
+			// A daemon that names launches never answers untagged.
+			if (frame.success && (launchId || !ws.data.launchIds)) {
+				const { team, success, error } = frame.data;
+				if (success) wakeCoordinator.ackReceived(team, REGISTER_WINDOW_MS, launchId);
+				else
+					wakeCoordinator.fail(
+						team,
+						{ ...launchFailureOf(frame.data.failure), ...(error ? { error: error.slice(0, 2048) } : {}) },
+						launchId,
+					);
 			}
 		}
 
 		if (msg.type === "wake_stage" && ws.data.teamName === "host") {
 			const frame = WakeStageFrameSchema.safeParse(msg);
-			if (frame.success) {
-				wakeCoordinator.stage(frame.data.team, frame.data.stage);
+			if (frame.success && (frame.data.launchId || !ws.data.launchIds)) {
+				wakeCoordinator.stage(frame.data.team, frame.data.stage, frame.data.launchId);
 				// Before it registers, since registration reads the CLI off the record.
 				if (frame.data.stage === "cli_found" && frame.data.harness) {
 					onPickResolved?.(frame.data.team, frame.data.harness);
@@ -480,6 +488,7 @@ export function createWebSocketHandlers({
 					}
 				}
 				ws.data.catalogProjects = catalogProjects;
+				ws.data.launchIds = msg.launchIds === true;
 				console.log(`[ws] catalog received: ${offlineCatalog.size} projects`);
 				const spawns = msg.hostSpawns;
 				if (Array.isArray(spawns) && hostSpawnPoints) {

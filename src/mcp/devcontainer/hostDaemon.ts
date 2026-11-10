@@ -27,6 +27,7 @@ import { HOST_SPAWN, isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.
 import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
+import { LaunchIdSchema, WakeCancelFrameSchema, WakeResultAckFrameSchema } from "../../shared/schemasWake.js";
 import {
 	type LaunchPlace,
 	type PaneRoad,
@@ -55,7 +56,7 @@ import {
 	setProjectDirs,
 } from "./hostResolve.js";
 import { createKasaScanner } from "./kasaScan.js";
-import { createLaunchLane, errorFailure, failedWakeFrame, WakeFailure } from "./launchLane.js";
+import { createLaunchLane, WakeFailure } from "./launchLane.js";
 import { PromptOccurrences, seePrompt } from "./permissionPrompt.js";
 import { PresenceScheduler, readWatch, type WatchEntry } from "./presenceScheduler.js";
 import { answerPrompt, continueAfterLimit, dismissSurvey, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
@@ -274,6 +275,8 @@ async function sendCatalog(opts: { probed?: boolean } = {}): Promise<void> {
 		hostSpawns,
 		harnessSpawns,
 		containers: devContainers.list(),
+		// Every stage and result names its launch.
+		launchIds: true,
 		// FIXME 2026-11-23: drop both, once every Gateway reads `harnessSpawns`.
 		claudeSpawns: harnessSpawns.claude,
 		copilotSpawns: harnessSpawns.copilot,
@@ -309,10 +312,13 @@ function connect(): void {
 		}
 		claudeRunner.replay();
 
-		// Gateway forgets stages on reconnect.
+		// Results replay until acked.
 		sendCatalog()
 			.catch((err) => console.error("[host-daemon] catalog failed:", err))
-			.finally(() => launchLane.replayStages());
+			.finally(() => {
+				launchLane.replayStages();
+				launchLane.replayResults();
+			});
 
 		// observe() fires on transitions, so a stale confirmation re-confirms forever.
 		presenceScheduler.clearAll();
@@ -327,15 +333,28 @@ function connect(): void {
 		}
 
 		if (msg.type === "wake" && typeof msg.team === "string") {
-			try {
-				handleWake(msg as unknown as WakeMessage);
-			} catch (err) {
-				console.error("[host-wake] dispatch error:", err);
-				refuseWake(msg.team, err instanceof Error ? err.message : String(err));
+			const launchId = LaunchIdSchema.optional().safeParse(msg.launchId);
+			if (!launchId.success) {
+				console.error(`[host-wake] dropping wake of "${msg.team}": malformed launch id`);
+			} else {
+				try {
+					handleWake({ ...(msg as unknown as WakeMessage), launchId: launchId.data });
+				} catch (err) {
+					console.error("[host-wake] dispatch error:", err);
+					refuseWake(msg.team, launchId.data, err instanceof Error ? err.message : String(err));
+				}
 			}
 		}
 
-		if (msg.type === "wake_cancel" && typeof msg.team === "string") launchLane.cancel(msg.team);
+		if (msg.type === "wake_cancel") {
+			const cancel = WakeCancelFrameSchema.safeParse(msg);
+			if (cancel.success) launchLane.cancel(cancel.data.team, cancel.data.launchId);
+		}
+
+		if (msg.type === "wake_result_ack") {
+			const ack = WakeResultAckFrameSchema.safeParse(msg);
+			if (ack.success) launchLane.ack(ack.data.launchId);
+		}
 
 		if (msg.type === "host_op" && typeof msg.reqId === "string") {
 			void handleHostOp(msg.reqId as string, msg.op as HostOp).catch((e) =>
@@ -407,6 +426,8 @@ interface WakeMessage {
 	workdirHint?: string;
 	// Proves which record.
 	sessionToken?: string;
+	/** Absent from an older Gateway. */
+	launchId?: string;
 }
 
 // Independent of the tmux server's PATH.
@@ -510,17 +531,18 @@ const launchLane = createLaunchLane({
 	log: (line) => console.error(`[host-wake] ${line}`),
 });
 
-function refuseWake(team: string, reason: string): void {
+function refuseWake(team: string, launchId: string | undefined, reason: string): void {
 	console.error(`[host-wake] refusing wake of "${team}": ${reason}`);
-	safeSend(failedWakeFrame(team, errorFailure(reason)));
+	launchLane.refuse(team, launchId, reason);
 }
 
 /** Local checks, then the lane. */
 function handleWake(msg: WakeMessage): void {
+	const refuse = (reason: string) => refuseWake(msg.team, msg.launchId, reason);
 	// Both segments reach tmux and shell commands.
 	const { project, session } = parseSessionName(msg.team);
 	if (!isTmuxName(project) || !isTmuxName(session)) {
-		refuseWake(msg.team, "invalid session name");
+		refuse("invalid session name");
 		return;
 	}
 	const request = {
@@ -528,6 +550,7 @@ function handleWake(msg: WakeMessage): void {
 		resumeSessionId: msg.resumeSessionId,
 		fresh: msg.fresh,
 		sessionToken: msg.sessionToken,
+		launchId: msg.launchId,
 	};
 	if (!isHostSpawn(project)) {
 		const target: TmuxTarget = { kind: "devcontainer", name: project, sessionName: session };
@@ -535,29 +558,26 @@ function handleWake(msg: WakeMessage): void {
 		return;
 	}
 	if (isReservedHostSession(session)) {
-		refuseWake(msg.team, "reserved host session");
+		refuse("reserved host session");
 		return;
 	}
 	// Defence in depth behind the gateway's rule.
 	if (!msg.sessionToken) {
-		refuseWake(msg.team, "no session token");
+		refuse("no session token");
 		return;
 	}
 	if (msg.team === ASSISTANT_TEAM) {
 		try {
 			ensureAssistantWorkdir(msg.workdirHint);
 		} catch (err) {
-			refuseWake(
-				msg.team,
-				`could not create the assistant's folder: ${err instanceof Error ? err.message : err}`,
-			);
+			refuse(`could not create the assistant's folder: ${err instanceof Error ? err.message : err}`);
 			return;
 		}
 	}
 	// No fallback: a Linux path becomes a UNC cwd on Windows.
 	const resolved = resolveSpawnWorkdir(project, msg.workdirHint);
 	if ("error" in resolved) {
-		refuseWake(msg.team, resolved.error);
+		refuse(resolved.error);
 		return;
 	}
 	const target: TmuxTarget = { kind: "host", name: project, sessionName: session };
@@ -591,7 +611,7 @@ const hostOpRunner = createHostOpRunner({
 	sendKey,
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
-	createSession: async (target, workdirHint, resumeSessionId, sessionToken, harness, fresh) => {
+	createSession: async ({ target, workdirHint, resumeSessionId, sessionToken, harness, fresh, launchId }) => {
 		let workdir: string | undefined;
 		if (target.kind === "host") {
 			const resolved = resolveSpawnWorkdir(target.name, workdirHint);
@@ -601,7 +621,17 @@ const hostOpRunner = createHostOpRunner({
 		} else if (!isTmuxName(target.name) || isHostSpawn(target.name)) {
 			throw new Error(`unknown project "${target.name}"`);
 		}
-		return launchLane.create({ target, harness, resumeSessionId, sessionToken, fresh, workdir });
+		const tagged = LaunchIdSchema.optional().safeParse(launchId);
+		if (!tagged.success) throw new Error("malformed launch id");
+		return launchLane.create({
+			target,
+			harness,
+			resumeSessionId,
+			sessionToken,
+			fresh,
+			workdir,
+			launchId: tagged.data,
+		});
 	},
 	reloadPlugins: async (target) => {
 		const pane = await peekPane(target);

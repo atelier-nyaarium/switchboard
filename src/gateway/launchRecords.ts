@@ -28,8 +28,13 @@ const RelaySchema = z.object({ srcGateway: z.string(), srcSession: z.string(), d
 
 const RecordSchema = z.object({
 	team: z.string(),
-	address: z.string(),
+	/** Absent on a launch no send joined. */
+	address: z.string().optional(),
+	// FIXME 2026-11-24: required, once no record predates it.
+	launchId: z.string().optional(),
 	created: z.boolean(),
+	/** The owner asked for it: never given up or forgotten. */
+	retained: z.literal(true).optional(),
 	startedAt: z.number(),
 	settledAt: z.number().optional(),
 	stage: z.discriminatedUnion("kind", [
@@ -56,6 +61,7 @@ export type LaunchRecord = z.infer<typeof RecordSchema>;
 export interface LaunchJoin {
 	team: string;
 	address: string;
+	launchId?: string;
 	created: boolean;
 	sessionKey: string;
 	relay?: LaunchRelay;
@@ -69,7 +75,7 @@ export interface LaunchRecordsDeps {
 	/** How long a launch may take before it reads as never up. */
 	timeoutMs: number;
 	/** Countdown start; null while building. */
-	countdownFrom(team: string): number | null;
+	countdownFrom(team: string, launchId?: string): number | null;
 	isLive(team: string): boolean;
 	/** Sender has a record, maybe reconnecting. */
 	senderKnown(sessionKey: string): boolean;
@@ -82,7 +88,7 @@ export interface LaunchRecordsDeps {
 	/** The host link, compared by identity. */
 	hostLink(): object | undefined;
 	/** True once the daemon is told to open no pane. */
-	cancel(team: string): boolean;
+	cancel(team: string, launchId?: string): boolean;
 	observe(observations: readonly AwarenessObservation<LaunchNotice>[]): void;
 	/** Tells a relayed send's Gateway; true once it took it. */
 	relay(relay: LaunchRelay, notice: LaunchNotice): Promise<boolean>;
@@ -91,9 +97,13 @@ export interface LaunchRecordsDeps {
 export type LaunchOutcome = { up: true } | { failure: LaunchFailure };
 
 export interface LaunchRecords {
+	/** Before dispatch; false when it could not be written. */
+	open(team: string, launchId: string, created: boolean, retained: boolean): boolean;
 	/** False when it could not be written; nothing changed. */
 	join(input: LaunchJoin): boolean;
-	settle(team: string, outcome: LaunchOutcome | undefined): void;
+	/** False when it could not be written. */
+	retain(launchId: string): boolean;
+	settle(team: string, outcome: LaunchOutcome | undefined, launchId?: string): void;
 	tick(): void;
 	markTold(identity: string, sessionKey: string): void;
 	/** The bank gave a notice up undelivered. */
@@ -112,14 +122,20 @@ export const AWAY_RETRY_MS = 30_000;
 ////////////////////////////////
 //  Functions & Helpers
 
-const identityOf = (record: LaunchRecord): string => `launch:${record.team}:${record.startedAt}`;
+const identityOf = (record: LaunchRecord): string =>
+	`launch:${record.launchId ?? `${record.team}:${record.startedAt}`}`;
+
+/** Untagged side matches its team. */
+const holds = (record: LaunchRecord, team: string, launchId: string | undefined): boolean =>
+	record.team === team && (launchId === undefined || record.launchId === undefined || record.launchId === launchId);
 
 function noticeOf(record: LaunchRecord, foreign: boolean): LaunchNotice | undefined {
-	if (record.stage.kind === "up") return { kind: "up", address: record.address };
+	const address = record.address ?? record.team;
+	if (record.stage.kind === "up") return { kind: "up", address };
 	if (record.stage.kind === "failed") {
 		return {
 			kind: "failed",
-			address: record.address,
+			address,
 			failure: failureFor(record.stage.failure, foreign),
 			created: record.created,
 			foreign,
@@ -168,7 +184,7 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 	}
 
 	function expired(record: LaunchRecord, now: number): boolean {
-		const from = deps.countdownFrom(record.team);
+		const from = deps.countdownFrom(record.team, record.launchId);
 		return from !== null && now - Math.max(record.startedAt, from) >= deps.timeoutMs;
 	}
 
@@ -193,10 +209,11 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 		cancelGivenUp(settled);
 		// Nothing reached the session.
 		for (const requester of record.requesters) for (const delivery of requester.deliveries) deps.withdraw(delivery);
-		if (record.created) deps.forgetCreated(record.team);
+		if (record.created && !record.retained) deps.forgetCreated(record.team);
 	}
 
-	const givenUp = (record: LaunchRecord): boolean => record.created && record.stage.kind === "failed";
+	const givenUp = (record: LaunchRecord): boolean =>
+		record.created && !record.retained && record.stage.kind === "failed";
 
 	/** Once per host link. */
 	function cancelGivenUp(record: LaunchRecord): void {
@@ -204,7 +221,7 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 		const link = deps.hostLink();
 		const identity = identityOf(record);
 		if (!link || cancelledOn.get(identity) === link) return;
-		if (deps.cancel(record.team)) cancelledOn.set(identity, link);
+		if (deps.cancel(record.team, record.launchId)) cancelledOn.set(identity, link);
 	}
 
 	const requesterOf = (input: LaunchJoin): LaunchRecord["requesters"][number] => ({
@@ -215,13 +232,41 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 		foreign: input.foreign,
 	});
 
+	/** Own launch first, then untagged. */
+	const launchingFor = (team: string, launchId: string | undefined): LaunchRecord | undefined => {
+		const launching = records.filter(
+			(record) => record.stage.kind === "launching" && holds(record, team, launchId),
+		);
+		return launching.find((record) => record.launchId === launchId) ?? launching[0];
+	};
+
 	const api: LaunchRecords = {
+		open(team, launchId, created, retained) {
+			const fresh: LaunchRecord = {
+				team,
+				launchId,
+				created,
+				...(retained ? { retained: true as const } : {}),
+				startedAt: deps.now(),
+				stage: { kind: "launching" },
+				requesters: [],
+			};
+			return commit([...records, fresh]);
+		},
+
+		retain(launchId) {
+			const record = records.find((held) => held.launchId === launchId);
+			if (!record || record.retained) return true;
+			return commit(replace(record, { ...record, retained: true }));
+		},
+
 		join(input) {
-			const active = records.find((record) => record.team === input.team && record.stage.kind === "launching");
+			const active = launchingFor(input.team, input.launchId);
 			if (!active) {
 				const fresh: LaunchRecord = {
 					team: input.team,
 					address: input.address,
+					...(input.launchId ? { launchId: input.launchId } : {}),
 					created: input.created,
 					startedAt: deps.now(),
 					stage: { kind: "launching" },
@@ -235,12 +280,14 @@ export function createLaunchRecords(deps: LaunchRecordsDeps): LaunchRecords {
 						requester === held ? { ...held, deliveries: [...held.deliveries, input.delivery] } : requester,
 					)
 				: [...active.requesters, requesterOf(input)];
-			return commit(replace(active, { ...active, created: active.created || input.created, requesters }));
+			const address = active.address ?? input.address;
+			const created = active.created || input.created;
+			return commit(replace(active, { ...active, address, created, requesters }));
 		},
 
-		settle(team, outcome) {
+		settle(team, outcome, launchId) {
 			if (!outcome) return;
-			const active = records.find((record) => record.team === team && record.stage.kind === "launching");
+			const active = launchingFor(team, launchId);
 			if (!active) return;
 			settleRecord(active, "up" in outcome ? { kind: "up" } : { kind: "failed", failure: outcome.failure });
 		},

@@ -57,9 +57,17 @@ interface WakeWaiter {
 	timer: TimerHandle | null;
 	deadlineAt: number;
 	timeoutMs: number;
+	/** Absent waits on any launch of its team. */
+	launchId?: string;
 }
 
-type HeldStage = { stage: "building" } | { stage: "container_up"; at: number };
+type HeldStage = ({ stage: "building" } | { stage: "container_up"; at: number }) & { launchId?: string };
+
+type FailureListener = (team: string, detail: Pick<WakeResult, "failure" | "error">, launchId?: string) => void;
+
+/** An untagged side matches any launch of its team. */
+const sameLaunch = (held: string | undefined, frame: string | undefined): boolean =>
+	held === undefined || frame === undefined || held === frame;
 
 export class WakeCoordinator {
 	private waiters = new Map<string, WakeWaiter[]>();
@@ -67,7 +75,7 @@ export class WakeCoordinator {
 	private stages = new Map<string, HeldStage>();
 	/** Stages are unproven before this. */
 	private knownSince: number;
-	private failureListeners: Array<(team: string, detail: Pick<WakeResult, "failure" | "error">) => void> = [];
+	private failureListeners: FailureListener[] = [];
 
 	constructor(
 		private readonly ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">,
@@ -77,10 +85,10 @@ export class WakeCoordinator {
 		this.knownSince = ambient.now();
 	}
 
-	waitFor(team: string, timeoutMs: number): Promise<WakeResult> {
+	waitFor(team: string, timeoutMs: number, launchId?: string): Promise<WakeResult> {
 		if (this.isRegistered(team)) return Promise.resolve({ ok: true });
 		const now = this.ambient.now();
-		const held = this.stages.get(team);
+		const held = this.heldFor(team, launchId);
 		const building = held?.stage === "building";
 		let ms = timeoutMs;
 		if (held?.stage === "container_up") {
@@ -94,6 +102,7 @@ export class WakeCoordinator {
 				timer: null,
 				deadlineAt: building ? Number.POSITIVE_INFINITY : now + ms,
 				timeoutMs,
+				...(launchId ? { launchId } : {}),
 			};
 			if (!building) entry.timer = this.arm(team, entry, ms);
 			if (!this.waiters.has(team)) this.waiters.set(team, []);
@@ -102,10 +111,15 @@ export class WakeCoordinator {
 	}
 
 	/** When a launch's countdown runs from; null while it builds. */
-	countdownFrom(team: string): number | null {
-		const held = this.stages.get(team);
+	countdownFrom(team: string, launchId?: string): number | null {
+		const held = this.heldFor(team, launchId);
 		if (held?.stage === "building") return null;
-		return Math.max(this.knownSince, held?.at ?? 0);
+		return Math.max(this.knownSince, held?.stage === "container_up" ? held.at : 0);
+	}
+
+	private heldFor(team: string, launchId: string | undefined): HeldStage | undefined {
+		const held = this.stages.get(team);
+		return held && sameLaunch(held.launchId, launchId) ? held : undefined;
 	}
 
 	notify(team: string, success = true): void {
@@ -113,22 +127,24 @@ export class WakeCoordinator {
 	}
 
 	/** The daemon's word that it will not come up. */
-	fail(team: string, detail: Pick<WakeResult, "failure" | "error">): void {
-		this.settle(team, { ok: false, ...detail });
-		for (const listener of this.failureListeners) listener(team, detail);
+	fail(team: string, detail: Pick<WakeResult, "failure" | "error">, launchId?: string): void {
+		this.settle(team, { ok: false, ...detail }, launchId);
+		for (const listener of this.failureListeners) listener(team, detail, launchId);
 	}
 
 	/** Every daemon failure, waited on or not. */
-	onFailure(listener: (team: string, detail: Pick<WakeResult, "failure" | "error">) => void): void {
+	onFailure(listener: FailureListener): void {
 		this.failureListeners.push(listener);
 	}
 
 	/** A build holds the countdown; it runs whole from the container coming up. */
-	stage(team: string, stage: WakeStage): void {
+	stage(team: string, stage: WakeStage, launchId?: string): void {
 		if (stage === "cli_found") return;
 		const now = this.ambient.now();
-		this.stages.set(team, stage === "building" ? { stage } : { stage, at: now });
+		const tag = launchId ? { launchId } : {};
+		this.stages.set(team, stage === "building" ? { stage, ...tag } : { stage, at: now, ...tag });
 		for (const entry of this.waiters.get(team) ?? []) {
+			if (!sameLaunch(entry.launchId, launchId)) continue;
 			this.clear(entry);
 			if (stage === "building") {
 				entry.deadlineAt = Number.POSITIVE_INFINITY;
@@ -139,15 +155,21 @@ export class WakeCoordinator {
 		}
 	}
 
-	private settle(team: string, result: WakeResult): void {
-		this.stages.delete(team);
+	private settle(team: string, result: WakeResult, launchId?: string): void {
+		if (this.heldFor(team, launchId)) this.stages.delete(team);
 		const entries = this.waiters.get(team);
 		if (!entries) return;
+		const kept: WakeWaiter[] = [];
 		for (const entry of entries) {
+			if (!sameLaunch(entry.launchId, launchId)) {
+				kept.push(entry);
+				continue;
+			}
 			this.clear(entry);
 			entry.resolve(result);
 		}
-		this.waiters.delete(team);
+		if (kept.length > 0) this.waiters.set(team, kept);
+		else this.waiters.delete(team);
 	}
 
 	private clear(entry: WakeWaiter): void {
@@ -163,11 +185,12 @@ export class WakeCoordinator {
 	}
 
 	// Registration deadlines never extend the original wake timeout.
-	ackReceived(team: string, registerWindowMs: number): void {
+	ackReceived(team: string, registerWindowMs: number, launchId?: string): void {
 		const entries = this.waiters.get(team);
 		if (!entries) return;
 		const now = this.ambient.now();
 		for (const entry of entries) {
+			if (!sameLaunch(entry.launchId, launchId)) continue;
 			this.clear(entry);
 			entry.timer = this.arm(team, entry, Math.max(0, Math.min(registerWindowMs, entry.deadlineAt - now)));
 		}

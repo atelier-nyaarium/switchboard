@@ -108,6 +108,8 @@ export interface FakeHostOptions extends FakeHostHandlers {
 	/** A reconnecting daemon brings its own. */
 	daemon?: FakeCodexDaemon;
 	deferCatalog?: boolean;
+	/** Names launches, tags wake results. */
+	launchIds?: true;
 }
 
 export interface FakeHost {
@@ -321,9 +323,11 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			wakes.push(frame);
 			handlers.onWake?.(frame);
 			const answer = handlers.answerWake?.(frame) ?? "launched";
-			if (typeof answer === "object") send({ type: "wake_result", team: frame.team, success: false, ...answer });
+			const named = options.launchIds && frame.launchId ? { launchId: frame.launchId } : {};
+			if (typeof answer === "object")
+				send({ type: "wake_result", team: frame.team, ...named, success: false, ...answer });
 			else if (answer !== "silent")
-				send({ type: "wake_result", team: frame.team, success: answer === "launched" });
+				send({ type: "wake_result", team: frame.team, ...named, success: answer === "launched" });
 		}
 		if (frame.type === "codex_command") {
 			const command = CodexDaemonCommandSchema.parse(frame);
@@ -376,7 +380,13 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			claudeSpawns: harnessSpawns.claude,
 			copilotSpawns: harnessSpawns.copilot,
 		};
-		send({ type: "catalog", projects: options.projects ?? [], hostSpawns, ...lists });
+		send({
+			type: "catalog",
+			projects: options.projects ?? [],
+			hostSpawns,
+			...lists,
+			...(options.launchIds ? { launchIds: true } : {}),
+		});
 	};
 	if (!options.deferCatalog) announceCatalog();
 	return {

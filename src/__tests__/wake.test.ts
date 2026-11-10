@@ -180,6 +180,32 @@ describe("a launch's stages", () => {
 		expect([unstaged, building, coord.countdownFrom("alpha")]).toEqual([startedAt, null, startedAt + 200]);
 	});
 
+	it("leaves a newer launch's waiter alone when an older launch's stage or result arrives late", async () => {
+		const { ambient, coord, watch } = rig();
+		const wait = watch(coord.waitFor("alpha", WINDOW, "launch-new"));
+
+		coord.stage("alpha", "building", "launch-old");
+		coord.fail("alpha", { error: "the old pane died" }, "launch-old");
+		await ambient.advance(WINDOW - 1);
+		const justBefore = wait.settled;
+		await ambient.advance(1);
+
+		expect(justBefore).toBeUndefined();
+		expect(wait.settled).toEqual(timedOut);
+	});
+
+	it("settles a launch by its own id, and any of its team's launches by a frame that names none", async () => {
+		const { coord } = rig();
+		const named = coord.waitFor("alpha", WINDOW, "launch-a");
+		const untagged = coord.waitFor("beta", WINDOW, "launch-b");
+
+		coord.fail("alpha", { error: "named" }, "launch-a");
+		coord.notify("beta");
+
+		await expect(named).resolves.toEqual({ ok: false, error: "named" });
+		await expect(untagged).resolves.toEqual({ ok: true });
+	});
+
 	it("tells every failure listener of a daemon failure, waited on or not", () => {
 		const { coord } = rig();
 		const heard: unknown[] = [];

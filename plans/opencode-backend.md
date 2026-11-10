@@ -340,7 +340,8 @@ Commits `62b9aa88`, `720f44a9` and `e5ef5274`.
 
 **Two authorities give up on one launch, and a cancel names only a team.** Mechanisms: `WakeService`'s in-process timeout, the launch record's tick, and the daemon's `wake_cancel` handler with `cancelledWakes` and `madePanes`.
 - **Round 1, alignment audit:** only the in-process timeout cancelled, so a host drop, a Gateway restart or a timeout in the register window left a pane up for a forgotten record. Now the record cancels a failed create once per host link, and the daemon closes a pane its finished wake made.
-- **Round 2, re-audit:** the in-process timeout still cancelled every wake, so the new late-cancel memory killed a woken session's live pane. Now only a create is cancelled, and only a never-confirmed pane is remembered. Still open: a cancel carries no launch identity, so a held give-up can hit a newer launch at the same address.
+- **Round 2, re-audit:** the in-process timeout still cancelled every wake, so the new late-cancel memory killed a woken session's live pane. Now only a create is cancelled, and only a never-confirmed pane is remembered.
+- **Resolved in the architecture step (slice 2):** every launch carries a Gateway-minted id on every frame, opened durably before dispatch; the launch records are the one give-up authority, and a cancel names its launch.
 
 **One session launched by two roads.** Mechanisms: the `createSession` host op and the `wake` frame, tracked apart on the Gateway (`inflightCreates`, `flights`, `launching`) and on the daemon (`inflightWakes` holds no create).
 - **Rounds before this phase:** `a103133a` marked a create in flight; `5de25e50` built `WakeService` beside it; `e8f617f1` added `joinCreate`.
@@ -368,7 +369,7 @@ Approved by the owner. A panel weighed four shapes (every create a wake flight; 
 - The launch function and tmux create primitives are reachable only through the lane (an import residue test).
 - `createInContainer`'s start, placement check and Stop undo move into the lane before it goes.
 
-**Slice 2, launch identity:**
+**Slice 2, launch identity:** ✅ Built. `WakeService` mints the id (`newLaunchId`) and opens it in the launch records (`LaunchLedger.open`) before the frame goes; the records are the one give-up, cancel and forget, and the flight does none of them. `beginWake(..., { retain: true })` is the owner's claim, taken by the phone's Wake and a create riding a wake. `WakeCoordinator` matches waiters and stages by id, an untagged side matching its team. The daemon's lane answers per taker, cancels by id, and keeps tagged results in an outbox replayed on connect until `wake_result_ack`; its catalog declares `launchIds`, after which the Gateway refuses an untagged result or stage.
 - The Gateway opens a launch durably, with a collision-resistant id, before it dispatches. The id rides `wake`, `createSession`, `wake_stage`, `wake_result` and `wake_cancel`, and the lane keys by it.
 - A frame for another id touches nothing; a newer launch queues behind a running one on its pane.
 - A launch carries a retention claim: a send-minted provisional launch may be given up and forgotten; an owner create that joins it takes the claim, persisted before it answers, and then neither give-up cancels or forgets.
@@ -379,6 +380,7 @@ Approved by the owner. A panel weighed four shapes (every create a wake flight; 
 - A create, a routine reserve and a fire open a `WakeService` flight, carrying a create intent. The flight holds until registration and the daemon's result both land; Close and Forget are fenced on it.
 - Deleted: `inflightCreates`, `joinCreate`, `launching`, the presence create sets, the wait behind a create.
 - `HostOp` splits into what a Gateway may emit and an inbound legacy set; `createSession` only in the latter, with a dated shim.
+- A phone Wake held through a long build answered `lost` in the harness, the Router redelivering a delivery op still in flight; the phone's Wake and Create answers belong here.
 - Before it lands: routine and assistant reserves are bounded and launch-aware (launching apart from a terminal failure, a review cause for `stopped` and `container`); a fire answers at acceptance or keeps a retry identity; the phone keeps a create's pending identity. `check:boot` and the harness attach on the wake.
 
 **After:** the launch outcome as data, worded once per reader (an agent here, an agent in another Domain, the owner's phone), before the 2b release build.

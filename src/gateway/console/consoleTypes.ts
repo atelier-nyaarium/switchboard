@@ -119,7 +119,7 @@ export interface ConsoleHandlerDeps {
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	promptOf?: (team: string) => SessionPrompt | undefined;
 	// Devcontainer creation wakes before host relay.
-	tryWakeTeam?: (team: string) => Promise<WakeResult>;
+	tryWakeTeam?: (team: string, opts?: { retain?: true }) => Promise<WakeResult>;
 	// Closing a team during wake must refuse.
 	isWakeInFlight?: (team: string) => boolean;
 	// Host creation remains verifying until MCP registration.

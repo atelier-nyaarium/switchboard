@@ -23,6 +23,15 @@ export interface WakeServiceDeps {
 	wakeTimeoutMs: number;
 	/** Undefined until known. */
 	installedAt?: (spawn: string) => readonly SessionHarness[] | undefined;
+	newLaunchId: () => string;
+}
+
+/** Where a launch is held durably; the one give-up authority. */
+export interface LaunchLedger {
+	/** False when it could not be written; nothing is dispatched. */
+	open(team: string, launchId: string, created: boolean, retained: boolean): boolean;
+	/** The owner asked for it: never given up or forgotten. */
+	retain(launchId: string): boolean;
 }
 
 /** The team at launch, then the outcome. */
@@ -31,15 +40,25 @@ export interface WakeFlight {
 	outcome: Promise<WakeResult>;
 }
 
-export type WakeStart = { kind: "launching"; team: string; created: boolean } | { kind: "settled"; result: WakeResult };
+export type WakeStart =
+	| { kind: "launching"; team: string; created: boolean; launchId: string }
+	| { kind: "settled"; result: WakeResult };
+
+/** A flight's dispatched launch and owner claim. */
+interface FlightClaim {
+	launchId?: string;
+	retained: boolean;
+}
 
 export class WakeService {
 	// One launch per team.
 	private flights = new Map<string, WakeFlight>();
+	private claims = new WeakMap<WakeFlight, FlightClaim>();
+	private ledger: LaunchLedger | null = null;
 	/** Minted names a flight launches under. */
 	private launching = new Set<string>();
 	private inflightCreates = new Map<string, Promise<HostOpResult>>();
-	private settledListeners: Array<(team: string, result: WakeResult) => void> = [];
+	private settledListeners: Array<(team: string, result: WakeResult, launchId?: string) => void> = [];
 
 	constructor(private deps: WakeServiceDeps) {}
 
@@ -69,19 +88,25 @@ export class WakeService {
 	}
 
 	/** Every launch's end, whoever started it. */
-	onSettled(listener: (team: string, result: WakeResult) => void): void {
+	onSettled(listener: (team: string, result: WakeResult, launchId?: string) => void): void {
 		this.settledListeners.push(listener);
 	}
 
-	tryWakeTeam(team: string, createOpts?: WakeCreate): Promise<WakeResult> {
-		return this.beginWake(team, createOpts).outcome;
+	/** Bound after the ledger is built. */
+	useLedger(ledger: LaunchLedger): void {
+		this.ledger = ledger;
 	}
 
-	/** Joins a launch in flight for the team, or starts one. */
-	beginWake(team: string, createOpts?: WakeCreate): WakeFlight {
+	tryWakeTeam(team: string, createOpts?: WakeCreate, opts?: { retain?: true }): Promise<WakeResult> {
+		return this.beginWake(team, createOpts, opts).outcome;
+	}
+
+	/** Joins the team's launch, or starts one. */
+	beginWake(team: string, createOpts?: WakeCreate, opts?: { retain?: true }): WakeFlight {
 		const held = this.flights.get(team);
 		if (held) {
 			console.log(`[wake] ${team} wake already in flight; joining it`);
+			if (opts?.retain) this.retain(held);
 			return held;
 		}
 		let announce: (start: WakeStart) => void = () => {};
@@ -89,18 +114,19 @@ export class WakeService {
 			announce = resolve;
 		});
 		let flight: WakeFlight | undefined;
+		const claim: FlightClaim = { retained: opts?.retain === true };
 		// Create launches under its minted name.
 		let minted: string | undefined;
 		const outcome = (async () => {
 			this.deps.presence.wakeStart(team);
 			try {
-				const result = await this.doWakeTeam(team, createOpts, (wakeTeam, created) => {
+				const result = await this.doWakeTeam(team, createOpts, claim, (wakeTeam, created, launchId) => {
 					if (wakeTeam !== team) {
 						minted = wakeTeam;
 						this.deps.presence.wakeStart(wakeTeam);
 						if (flight) this.flights.set(wakeTeam, flight);
 					}
-					announce({ kind: "launching", team: wakeTeam, created });
+					announce({ kind: "launching", team: wakeTeam, created, launchId });
 				});
 				announce({ kind: "settled", result });
 				return result;
@@ -119,9 +145,21 @@ export class WakeService {
 			}
 		})();
 		flight = { started, outcome };
+		this.claims.set(flight, claim);
 		this.flights.set(team, flight);
 		if (minted) this.flights.set(minted, flight);
 		return flight;
+	}
+
+	/** Durable before it counts. */
+	private retain(flight: WakeFlight): void {
+		const claim = this.claims.get(flight);
+		if (!claim || claim.retained) return;
+		if (claim.launchId && this.ledger && !this.ledger.retain(claim.launchId)) {
+			console.warn(`[wake] could not record the owner's claim on launch ${claim.launchId}`);
+			return;
+		}
+		claim.retained = true;
 	}
 
 	/** A create's CLI where its place's are known; absent waits on the place. */
@@ -134,7 +172,8 @@ export class WakeService {
 	private async doWakeTeam(
 		team: string,
 		createOpts: WakeCreate | undefined,
-		onStarted: (wakeTeam: string, created: boolean) => void,
+		claim: FlightClaim,
+		onStarted: (wakeTeam: string, created: boolean, launchId: string) => void,
 	): Promise<WakeResult> {
 		const { project, session } = parseSessionName(team);
 		if (this.deps.isAvailableProject(project) && (!isComposite(team) || !this.deps.offlineCatalog.has(project))) {
@@ -216,6 +255,12 @@ export class WakeService {
 		const liveHost = creating ? this.deps.liveHostSocket() : hostWs;
 		if (!liveHost) return { ok: false, errorKind: "disconnected" };
 
+		const launchId = this.deps.newLaunchId();
+		if (this.ledger && !this.ledger.open(wakeTeam, launchId, provisionalCreated, claim.retained)) {
+			return { ok: false, error: `the launch of "${wakeTeam}" could not be recorded` };
+		}
+		claim.launchId = launchId;
+
 		const projectPath = this.deps.offlineCatalog.get(project) ?? this.deps.knownTeamPaths.get(project);
 		const record = this.deps.sessionStore.getByTeam(wakeTeam);
 		const resumeSessionId = record ? resumeIdOf(record) : undefined;
@@ -225,6 +270,7 @@ export class WakeService {
 			JSON.stringify({
 				type: "wake",
 				team: wakeTeam,
+				launchId,
 				...(projectPath ? { projectPath } : {}),
 				// A team with no record runs its place's only CLI.
 				harness: record?.harness ?? UNPICKED_WORD,
@@ -237,7 +283,7 @@ export class WakeService {
 		);
 		// Dropped wakes never answer.
 		if (!reached(requested)) return { ok: false, errorKind: "disconnected" };
-		onStarted(wakeTeam, provisionalCreated);
+		onStarted(wakeTeam, provisionalCreated, launchId);
 
 		console.log(
 			`[wake] requesting ${wakeTeam} startup${projectPath ? ` (${projectPath})` : " (convention)"}${
@@ -247,26 +293,11 @@ export class WakeService {
 
 		this.launching.add(wakeTeam);
 		const result = await this.deps.wakeCoordinator
-			.waitFor(wakeTeam, this.deps.wakeTimeoutMs)
+			.waitFor(wakeTeam, this.deps.wakeTimeoutMs, launchId)
 			.finally(() => this.launching.delete(wakeTeam));
-		// Only a create's record goes.
-		if (result.errorKind === "timeout" && provisionalCreated) {
-			const live = this.deps.liveHostSocket();
-			if (live) sendOn(live, JSON.stringify({ type: "wake_cancel", team: wakeTeam }), `wake_cancel ${wakeTeam}`);
-		}
 		console.log(`[wake] ${wakeTeam} ${result.ok ? "is now online" : "failed to come online"}`);
-		for (const listener of this.settledListeners) listener(wakeTeam, result);
-		// Launch record decides, not the host link.
-		if (!result.ok && provisionalCreated && result.errorKind !== "disconnected") {
-			const rec = this.deps.sessionStore.getByTeam(wakeTeam);
-			if (
-				rec &&
-				rec.confirmedAt === undefined &&
-				!resolveLiveIncarnation(this.deps.registry, this.deps.sessionStore, wakeTeam)
-			) {
-				this.deps.presence.forget(wakeTeam);
-			}
-		}
+		// The ledger settles it.
+		for (const listener of this.settledListeners) listener(wakeTeam, result, launchId);
 		return wakeTeam !== team ? { ...result, resolvedTeam: wakeTeam } : result;
 	}
 }

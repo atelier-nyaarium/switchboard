@@ -37,7 +37,7 @@ describe("a session's send to a session that is not up", () => {
 	let sender: FakeSession;
 	const tokens = new Map<string, string | undefined>();
 	const attached: FakeSession[] = [];
-	const daemon: { answer: "launched" | "failed" } = { answer: "launched" };
+	const daemon: { answer: "launched" | "failed" | "silent" } = { answer: "launched" };
 	let made = 0;
 
 	const attach = (team: string, token: string | undefined): FakeSession => {
@@ -70,16 +70,17 @@ describe("a session's send to a session that is not up", () => {
 		return { team: session.team, token: session.sessionToken };
 	};
 
-	const send = async (to: string, body: string, extra: Record<string, unknown> = {}) =>
+	const sendFrom = async (from: FakeSession, to: string, body: string, extra: Record<string, unknown> = {}) =>
 		(await (
-			await sender.post("/send", {
-				from: sender.team,
-				fromConversationId: sender.conversationId,
+			await from.post("/send", {
+				from: from.team,
+				fromConversationId: from.conversationId,
 				to,
 				body,
 				...extra,
 			})
 		).json()) as Record<string, unknown>;
+	const send = (to: string, body: string, extra: Record<string, unknown> = {}) => sendFrom(sender, to, body, extra);
 
 	const noticesFor = (address: string) => noticesIn(sender, address);
 	const messages = messagesIn;
@@ -156,6 +157,45 @@ describe("a session's send to a session that is not up", () => {
 
 		expect(answer).toMatchObject({ status: "starting", target: address });
 		expect(notice.body).toContain(launchNoticeText({ kind: "up", address }));
+	});
+
+	it("keeps a send's new session the phone woke when its launch times out, and gives up one nobody claimed", async () => {
+		// Own sender isolates timeouts.
+		const claimant = await create("claimant");
+		daemon.answer = "silent";
+		try {
+			const minted = async (name: string) => {
+				const answer = await sendFrom(claimant, `fixture-app.${name}`, `hello ${name}`, { displayLabel: name });
+				return (await h.waitFor(
+					() => h.host.wakes.find((frame) => answer.target === h.target(String(frame.team))),
+					`the wake of ${name}`,
+				)) as Frame;
+			};
+			const claimed = await minted("claimed");
+			const unclaimed = await minted("unclaimed");
+			// Builds hold both until the wake joins.
+			const stage = (stage: string) => {
+				for (const frame of [claimed, unclaimed])
+					h.host.sendFrame({ type: "wake_stage", team: frame.team, stage });
+			};
+			stage("building");
+			const target = h.target(String(claimed.team));
+			await h.phone.deliver(String(claimed.team), { kind: "wake", target, harness: "claude" });
+			await passes(5);
+			stage("container_up");
+			await passes(15);
+			const cancels = h.host.frames.filter((frame) => frame.type === "wake_cancel");
+			const claimedWakes = h.host.wakes.filter((frame) => frame.team === claimed.team);
+			daemon.answer = "launched";
+			const resent = await sendFrom(claimant, String(claimed.team), "after the timeout");
+
+			// Wake joined, one launch.
+			expect(claimedWakes).toHaveLength(1);
+			expect(cancels).toEqual([expect.objectContaining({ team: unclaimed.team, launchId: unclaimed.launchId })]);
+			expect(resent).toMatchObject({ status: "starting" });
+		} finally {
+			daemon.answer = "launched";
+		}
 	});
 
 	it("delivers a resend to the session its create minted, already up, without waking it", async () => {
@@ -533,5 +573,60 @@ describe("a session's send to another Domain's session that is not up", () => {
 		} finally {
 			daemon.answer = "launched";
 		}
+	});
+});
+
+describe("a daemon that names its launches", () => {
+	let h: FederationHarness;
+	let asker: FakeSession;
+
+	beforeAll(async () => {
+		h = await startFederationHarness({ host: { launchIds: true, answerWake: () => "silent" } });
+		asker = attachFakeSession(h.gateway, { team: "fixture-app.asker", conversationId: "conv-named-asker" });
+		await asker.ready();
+	}, 30_000);
+	afterAll(async () => {
+		asker?.close();
+		if (h) await h.close();
+	});
+
+	it("acts on a result only when it names its launch, and acks each one that does", async () => {
+		const answer = (await (
+			await asker.post("/send", {
+				from: asker.team,
+				fromConversationId: asker.conversationId,
+				to: "fixture-app.named",
+				body: "hello",
+				displayLabel: "Named",
+			})
+		).json()) as { target: string };
+		const wake = await h.waitFor(
+			() => h.host.wakes.find((frame) => answer.target === h.target(String(frame.team))),
+			"the wake",
+		);
+		const result = (reason: string, named: object) =>
+			h.host.sendFrame({
+				type: "wake_result",
+				team: wake.team,
+				...named,
+				success: false,
+				failure: { kind: "error", reason },
+			});
+
+		// Failed create gives up at once.
+		const answered = () =>
+			h.host.frames.filter((frame) => frame.type === "wake_result_ack" || frame.type === "wake_cancel");
+
+		result("from the untagged frame", {});
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		const afterUntagged = answered();
+		result("from the tagged frame", { launchId: wake.launchId });
+		await h.waitFor(() => answered().find((frame) => frame.type === "wake_cancel"), "the give-up");
+
+		expect(afterUntagged).toEqual([]);
+		expect(answered()).toEqual([
+			{ type: "wake_result_ack", launchId: wake.launchId },
+			{ type: "wake_cancel", team: wake.team, launchId: wake.launchId },
+		]);
 	});
 });

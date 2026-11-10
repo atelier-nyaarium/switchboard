@@ -103,6 +103,8 @@ export type HostOp =
 			fresh?: true;
 			sessionToken?: string;
 			dedupKey?: string;
+			/** Names the launch on every frame about it. */
+			launchId?: string;
 	  }
 	| { kind: "listDirs"; path: string; spawn?: string }
 	| { kind: "readSkill"; target: AgentExecutionTarget; path: string }

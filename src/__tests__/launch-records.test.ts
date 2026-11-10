@@ -13,12 +13,13 @@ import type { LaunchNotice } from "../shared/launch-notice.js";
 const TIMEOUT = 1_000;
 const TEAM = "app.abc123";
 
-function rig() {
+function rig(stored: unknown = null) {
 	const clock = { now: 10_000 };
-	let disk: unknown = null;
+	let disk: unknown = stored;
 	const countdown = new Map<string, number | null>();
 	const link: { current: object | undefined } = { current: {} };
-	const cancel = { reaches: true, attempts: [] as object[], reached: [] as object[] };
+	const cancel = { reaches: true, attempts: [] as object[], reached: [] as object[], named: [] as unknown[] };
+	const forgotten: string[] = [];
 	const observed: AwarenessObservation<LaunchNotice>[] = [];
 	const relayed: Array<{ relay: LaunchRelay; notice: LaunchNotice }> = [];
 	/** Senders with a session record. */
@@ -37,11 +38,12 @@ function rig() {
 		senderKnown: (sessionKey) => known.has(sessionKey),
 		inFlight: () => false,
 		withdraw: () => {},
-		forgetCreated: () => {},
+		forgetCreated: (team) => forgotten.push(team),
 		hostLink: () => link.current,
-		cancel: () => {
+		cancel: (team, launchId) => {
 			const at = link.current as object;
 			cancel.attempts.push(at);
+			cancel.named.push([team, launchId]);
 			if (cancel.reaches) cancel.reached.push(at);
 			return cancel.reaches;
 		},
@@ -68,7 +70,7 @@ function rig() {
 		records.tick();
 		return [...observed];
 	};
-	return { clock, countdown, link, cancel, relayed, known, records, join, tick };
+	return { clock, countdown, link, cancel, forgotten, relayed, known, records, join, tick };
 }
 
 const failed = (observations: AwarenessObservation<LaunchNotice>[]) =>
@@ -122,6 +124,57 @@ describe("a launch a send waits on", () => {
 		r.tick();
 
 		expect(r.cancel.reached).toEqual([first, r.link.current]);
+	});
+
+	it("gives up only a create no owner claimed: its pane cancelled by launch, its record forgotten", () => {
+		const r = rig();
+		r.records.open("app.created", "launch-created", true, false);
+		r.records.open("app.woken", "launch-woken", false, false);
+		r.records.open("app.claimed", "launch-claimed", true, false);
+		r.records.open("app.owned", "launch-owned", true, true);
+		r.records.retain("launch-claimed");
+
+		r.clock.now += TIMEOUT;
+		r.tick();
+
+		expect(r.cancel.named).toEqual([["app.created", "launch-created"]]);
+		expect(r.forgotten).toEqual(["app.created"]);
+	});
+
+	it("leaves a newer launch alone when an older launch's result arrives late", () => {
+		const r = rig();
+		r.records.open(TEAM, "launch-new", false, false);
+		r.join({ launchId: "launch-new" });
+
+		r.records.settle(TEAM, { failure: { kind: "error", reason: "the old pane" } }, "launch-old");
+		const afterOld = r.tick();
+		r.records.settle(TEAM, { up: true }, "launch-new");
+
+		expect(afterOld).toEqual([]);
+		expect(r.tick().map((notice) => notice.post?.kind)).toEqual(["up"]);
+	});
+
+	it("settles a launch stored before launches had ids, by any result for its team", () => {
+		const legacy = {
+			team: TEAM,
+			address: `d.g.${TEAM}`,
+			created: false,
+			startedAt: 10_000,
+			stage: { kind: "launching" },
+			requesters: [
+				{
+					sessionKey: "sender",
+					deliveries: [{ deliveryId: "d", channelJobId: "job" }],
+					told: false,
+					foreign: false,
+				},
+			],
+		};
+		const r = rig([legacy]);
+
+		r.records.settle(TEAM, { failure: { kind: "error", reason: "no pane" } }, "launch-any");
+
+		expect(failed(r.tick()).map((notice) => notice.sessionKey)).toEqual(["sender"]);
 	});
 
 	it("holds a failed create until a cancel reaches the daemon, even once every sender was told", () => {

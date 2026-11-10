@@ -28,14 +28,7 @@ export interface TmuxOps {
 		decision: PromptDecision,
 		reason?: string,
 	) => Promise<PromptOutcome>;
-	createSession: (
-		target: TmuxTarget,
-		workdirHint?: string,
-		resumeSessionId?: string,
-		sessionToken?: string,
-		harness?: unknown,
-		fresh?: true,
-	) => Promise<unknown>;
+	createSession: (op: Extract<HostOp, { kind: "createSession" }>) => Promise<unknown>;
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
 	/** Queued, never awaited to its end. */
@@ -158,20 +151,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 			if (!ops.claudeCancel) throw new Error("claudeCancel unavailable");
 			return ops.claudeCancel(op);
 		}
-		if (op.kind === "createSession")
-			return runDeduped(
-				op.dedupKey,
-				() =>
-					ops.createSession(
-						op.target,
-						op.workdirHint,
-						op.resumeSessionId,
-						op.sessionToken,
-						op.harness,
-						op.fresh,
-					),
-				{ created: true },
-			);
+		if (op.kind === "createSession") return runDeduped(op.dedupKey, () => ops.createSession(op), { created: true });
 		if (op.kind === "reloadPlugins")
 			return runDeduped(op.dedupKey, () => ops.reloadPlugins(op.target), { initiated: true });
 		if (op.kind === "killSession")
