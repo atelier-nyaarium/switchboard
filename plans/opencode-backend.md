@@ -444,6 +444,21 @@ No CLI is installed
 - **The row declares how its runtime reaches a place, with the plugin set spelled once:** `PLUGINS` lives in both `session-harness.ts` and `helpers.ts`, and a provisioned container gets no lexicon while the phone's install macro adds it. The per-CLI installers above read the row's field.
 - **OpenCode in a container:** the container `LaunchSite` gets its `dist/` and bun, and OpenCode's row turns `containers` on.
 
+### Built
+
+Commits `b0d48f8f`, `65a08548` and `9daae096`; released as 8.14.57 and deployed.
+
+- **Typed delivery:** `/session/type` targets the record's own place, a host shell or a devcontainer pane.
+- **Plugins per CLI:** `PLUGIN_SET` is spelled once in `session-harness.ts`, lexicon included; each row's `plugins` holds its in-container check and install. `provisionPlugins` (`pluginProvisioning.ts`) runs after the look, at most once per container id, for each CLI found.
+- **Compaction:** the follower reads Copilot's events file through a per-place port; a container's goes through `docker exec`.
+- **OpenCode's container site:** `containerSite.ts`; the checkout's `dist/`, `launch/` and `package.json` copied in by version before each look, run by the container's bun, reaching the Gateway as `switchboard`.
+- **The session id is minted where the CLI is resolved:** the lane mints for an unpicked create and reports it on `cli_found`; `resolvePick` keeps a reported id that fits the row.
+- **Both rows `containers: true`.**
+- **Login:** Copilot's status row ("Please use /login to sign in") reads as logged out on the daemon and the phone; OpenCode's spent free tier (`provider.free-limit`) reads as a sign-in. The phone shows a red **login** chip; **limit hit** is quota and rate limits; **check terminal** has no producer yet. Owner: "I want a new 'login' chip to show if it's specifically login needed. 'check terminal' can be for whatever else."
+- **Owner board edits are `no_act`.** Owner: "make it a no_act so it's not pressing to act on right away."
+- **Seen live:** evie-bot ran Copilot and OpenCode with no sign-in, both reading **login**; on the host, a Copilot and an OpenCode session the owner created answered a round trip.
+- **Found live:** a container's home volume keeps the CLI binaries of its first creation, since `post-create` copies the image's home with `--ignore-existing`; evie-bot held Copilot 1.0.10, which has no `--session-id`.
+
 ## Agent-facing prose
 
 For Phase 2b. Taken past the owner string by string. A string he did not reword stands as drafted.
@@ -673,6 +688,8 @@ OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and 
 - **Every caller reads a `WakeResult` its own way:** `ok`, `failure`, `refusal`, `errorKind` and `error` ride one shape, and `launchOutcome`, `createSession`, the console `wake` (`definite`), the send's `reach` and both reserves each decide what a timeout or a dropped link means. Two red-team rounds patched one reader at a time. A typed verdict from `WakeService` (up, failed with a cause, refused, unknown) would leave nothing to interpret.
 - **The console takes its launch readers as loose optional deps:** `beginLaunch`, `watchOwnerLaunch`, `watchRoutineLaunch`, `awaitsLaunch`, `isLive`, `launching` and `isWakeInFlight` on `ConsoleHandlerDeps`, wired one by one in `composeRouterFrames`. One launch facade would keep the fence rules in one place; the assistant reserve repeats the routine reserve's order by hand.
 - **`composeGateway` binds later stages by closure over a `const` declared below:** `tellRoutine` and `onRunbookMoved` name `routines` before it exists, safe only because nothing calls them during composition.
+- **A stale CLI in a container fails as a 10-minute timeout:** `docker-workspace`'s `post-create` never refreshes binaries on an existing home volume, and Copilot's row declares no minimum version, so an old Copilot launches, rejects `--session-id`, and the session never registers. A version floor on the row would refuse it with a reason; a refresh in `post-create` would remove the cause.
+- **A host Copilot's Switchboard plugin is stale:** Copilot never updates its own plugin copies; the owner's host session ran 8.14.41 against an 8.14.57 Gateway.
 - **A Gateway rollback below `64786716` loses routine history:** the occurrence store parses its rows as one array, so a stored `session_starting` or `launch_failed` an older build does not know quarantines the whole file, and slots inside the grace run again. `assistant_unplaced` opened the same gap. Parsing per row and holding an unreadable row unread, as `SessionStore` does, would close it.
 - **Run missed on an asleep session starts it and answers that it cannot run:** `runNow` gives up on `launching`, since a missed row has no waiting state. Pressing again once the session is up runs it.
 - **A send commits its awareness before its launch can withdraw it:** `lease.commit()` marks an agent's turn told once the row is queued, so a failed launch that withdraws the row loses the notice it carried. Agent sends and fires share it.
