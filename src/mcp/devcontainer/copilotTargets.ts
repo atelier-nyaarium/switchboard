@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { agentEnvPrefix } from "../../shared/agent-backend.js";
 import { parseAgentTargetId } from "../../shared/agent-execution-target.js";
 import { type AgentChild, containerEnvArgs, type ExecutionTargetLauncher } from "./codexTargets.js";
+import { containerFor } from "./containers.js";
 
 export const copilotLauncher: ExecutionTargetLauncher = {
 	launch(target, env) {
@@ -19,7 +20,7 @@ export const copilotLauncher: ExecutionTargetLauncher = {
 					"-w",
 					`/workspace/${parsed.project}`,
 					...containerEnvArgs(env, agentEnvPrefix("copilot")),
-					`${parsed.project}_devcontainer-dev-1`,
+					containerFor(parsed.project),
 					"copilot",
 					"--headless",
 					"--stdio",

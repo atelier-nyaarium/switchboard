@@ -84,18 +84,25 @@ internal data class CreateDialogTarget(
 	val domainId: String,
 	val gatewayId: String,
 	val projects: List<String>,
+	/** Opened from that project's own header. */
+	val picked: String? = null,
 ) {
 	fun targetFor(project: String): String = SpawnPoint.of(domainId, gatewayId, project).canonical
 
 	companion object {
-		fun of(domainId: String, gatewayId: String, candidates: List<String>): CreateDialogTarget =
+		fun of(domainId: String, gatewayId: String, candidates: List<String>, picked: String? = null): CreateDialogTarget =
 			CreateDialogTarget(
 				domainId,
 				gatewayId,
 				candidates.filter { runIsolated { SpawnPoint.of(domainId, gatewayId, it) }.isSuccess },
+				picked,
 			)
 	}
 }
+
+/** Header order after `host`: projects with a spawn point row, then reported containers, then the rest. */
+internal fun containerProjects(spawnRows: List<String>, reported: List<String>, orphans: Set<String>): List<String> =
+	(spawnRows + reported.sorted() + orphans.sorted()).distinct()
 
 
 @Composable
@@ -110,6 +117,8 @@ fun SessionsScreen(
 	onMarkRead: (String) -> Unit,
 	onForget: (String) -> Unit,
 	onSpawn: (String, String, String?, SessionHarness) -> Unit,
+	onStartContainer: (String) -> Unit = {},
+	onStopContainer: (String) -> Unit = {},
 	onListDirs: suspend (String, String, String) -> DirListing = { _, _, _ -> DirListing(emptyList()) },
 	onVerifyEnroll: (() -> Unit)? = null,
 	onRouterEndpoint: (() -> Unit)? = null,
@@ -124,7 +133,21 @@ fun SessionsScreen(
 	var createDialogFor by remember { mutableStateOf<CreateDialogTarget?>(null) }
 	var renameTeam by remember { mutableStateOf<Team?>(null) }
 	var forgetTeam by remember { mutableStateOf<Team?>(null) }
+	var stopAsking by remember { mutableStateOf<StopAsk?>(null) }
 	val collapsedGateways = rememberSaveable { mutableStateOf(setOf<String>()) }
+
+	stopAsking?.let { ask ->
+		ConfirmDialog(
+			title = "Stop anyway?",
+			body = (listOf("These sessions are still active:") + ask.names).joinToString("\n"),
+			confirmText = "Stop",
+			onConfirm = {
+				onStopContainer(ask.target)
+				stopAsking = null
+			},
+			onDismiss = { stopAsking = null },
+		)
+	}
 
 	actionTeam?.let { team ->
 		SessionActionsDialog(
@@ -192,7 +215,7 @@ fun SessionsScreen(
 			pendingSpawns = state.pendingSpawns,
 			targetOf = opened::targetFor,
 				onListDirs = { path, spawn -> onListDirs(path, opened.targetFor(spawn), spawn) },
-			rememberedProject = state.lastProjectByGateway[opened.gatewayId],
+			rememberedProject = opened.picked ?: state.lastProjectByGateway[opened.gatewayId],
 			harnessesOn = { project -> state.gateways.harnessesOn(opened.gatewayId, project) },
 			onSpawn = { target, session, workdir, harness ->
 				onSpawn(target, session, workdir, harness)
@@ -262,7 +285,7 @@ fun SessionsScreen(
 									createDialogFor = CreateDialogTarget.of(
 										key.domainId,
 										key.gatewayId,
-										spawnChoices(state, key.gatewayId).map { it.spawn },
+										spawnChoices(state, key.gatewayId).map { it.spawn }.filter { state.gateways.createsOn(key.gatewayId, it) },
 									)
 								},
 								standing = if (isPeer) null else state.gateways.standing(key.gatewayId),
@@ -276,9 +299,9 @@ fun SessionsScreen(
 							val byProject = composites.groupBy { parseSessionName(localName(it)).project }
 							val spawnKeys = spawnPoints.map { localName(it) }.toSet()
 
-							fun renderProject(projectKey: String, header: @Composable () -> Unit) {
+							fun renderProject(projectKey: String, always: Boolean = false, header: @Composable () -> Unit) {
 								val sessions = byProject[projectKey].orEmpty().sortedWith(order)
-								if (sessions.isEmpty()) return
+								if (sessions.isEmpty() && !always) return
 								// Spawn names are unique only within a Gateway.
 								item(key = "spawn:$composite/$projectKey") { header() }
 								items(sessions, key = { "team:${it.name}" }) { team ->
@@ -301,20 +324,34 @@ fun SessionsScreen(
 									SpawnPointHeader(project = "host", online = byProject["host"].orEmpty().any { it.isLive })
 								}
 							}
-							for (sp in spawnPoints) {
-								val proj = localName(sp)
+							val reported = if (isPeer) emptyList() else state.gateways.containersOn(key.gatewayId)
+							val orphanProjects = byProject.keys - spawnKeys - reported.map { it.project }.toSet() -
+								(if (showCreate) setOf("host") else emptySet())
+							val headed = containerProjects(spawnPoints.map(::localName), reported.map { it.project }, orphanProjects)
+							for (proj in headed) {
 								if (showCreate && proj == "host") continue
-								renderProject(proj) {
-									SpawnPointHeader(
-										project = proj,
-										online = byProject[proj].orEmpty().any { it.isLive },
-									)
+								val container = reported.find { it.project == proj }
+								if (container == null) {
+									renderProject(proj) {
+										SpawnPointHeader(project = proj, online = proj in spawnKeys && byProject[proj].orEmpty().any { it.isLive })
+									}
+									continue
 								}
-							}
-							val orphanProjects = byProject.keys - spawnKeys - (if (showCreate) setOf("host") else emptySet())
-							for (proj in orphanProjects.sorted()) {
-								renderProject(proj) {
-									SpawnPointHeader(project = proj, online = false)
+								val target = SpawnPoint.of(key.domainId, key.gatewayId, proj).canonical
+								renderProject(proj, always = true) {
+									ContainerHeader(
+										project = proj,
+										failure = container.failure,
+										buttons = containerButtons(container, reachable = showCreate, inFlight = target in state.containerOpsInFlight),
+										onStart = { onStartContainer(target) },
+										onStop = {
+											val ask = stopAsk(target, sessionsIn(group, key.gatewayId, proj)) { state.label(it) }
+											if (ask == null) onStopContainer(target) else stopAsking = ask
+										},
+										onCreate = {
+											createDialogFor = CreateDialogTarget.of(key.domainId, key.gatewayId, listOf(proj), picked = proj)
+										},
+									)
 								}
 							}
 							items(flatLoose, key = { "team:${it.name}" }) { team ->

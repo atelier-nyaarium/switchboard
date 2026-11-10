@@ -1,7 +1,7 @@
 // One OpenCode server and its terminal UI.
 
 import path from "node:path";
-import { type LaunchStatus, readLaunchStatus } from "../shared/launch-status.js";
+import type { LaunchStatus } from "../shared/launch-status.js";
 import {
 	locationQuery,
 	OPENCODE_GREETING_ID,
@@ -171,11 +171,6 @@ export async function runLauncher(args: LaunchArgs, ports: LauncherPorts): Promi
 			ports.log(`could not write the launch status: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	};
-	/** A relaunch may already own the file. */
-	const removeOwnStatus = (): void => {
-		const held = readLaunchStatus(ports.readFile(args.statusFile));
-		if (held?.pid === pid) ports.remove(args.statusFile);
-	};
 	const fail = (error: string): number => {
 		ports.log(`Switchboard could not start OpenCode: ${error}`);
 		writeStatus({ state: "failed", pid, error: error.slice(0, 2048) });
@@ -304,10 +299,9 @@ export async function runLauncher(args: LaunchArgs, ports: LauncherPorts): Promi
 	} finally {
 		watching.on = false;
 		// No wake keeps a launcher that is leaving.
-		writeStatus({ state: "failed", pid, error: "the terminal UI exited" });
+		writeStatus({ state: "exited", pid, code });
 		await cleanup();
 		await supervised;
-		removeOwnStatus();
 	}
 	return code;
 }

@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.ContainerState
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.proto.HarnessSpawns
@@ -20,7 +21,7 @@ import org.junit.Test
 class SessionHarnessPickTest {
 	private val projects = listOf("host", "windows", "recipe-app")
 
-	private fun running(vararg installed: SessionHarness) = SpawnHarnesses(installed.toSet())
+	private fun running(vararg installed: SessionHarness) = SpawnHarnesses.Known(installed.toSet())
 
 	private fun landed(vararg rows: GatewaySpawnPoints): GatewayRegistry =
 		GatewayRegistry().landed(
@@ -41,6 +42,7 @@ class SessionHarnessPickTest {
 		harnessSpawns: HarnessSpawns? = null,
 		claudeSpawns: List<String>? = null,
 		copilotSpawns: List<String>? = null,
+		containers: List<ContainerState>? = null,
 	) = GatewaySpawnPoints(
 		gatewayId = gatewayId,
 		domainId = "d",
@@ -48,6 +50,7 @@ class SessionHarnessPickTest {
 		harnessSpawns = harnessSpawns,
 		claudeSpawns = claudeSpawns,
 		copilotSpawns = copilotSpawns,
+		containers = containers,
 	)
 
 	@Test
@@ -105,12 +108,36 @@ class SessionHarnessPickTest {
 	}
 
 	@Test
-	fun `a devcontainer runs Claude, and an older Gateway reads as Claude on every host spawn point`() {
+	fun `an unreported container is unknown and offers every CLI, and an older Gateway reads as Claude on every host spawn point`() {
 		val registry = GatewayRegistry()
 
-		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("mikan", "recipe-app"))
+		assertEquals(SpawnHarnesses.Unknown, registry.harnessesOn("mikan", "recipe-app"))
+		assertEquals(SpawnHarnesses.Unknown, registry.harnessesOnSession("d.mikan.recipe-app.s1"))
+		assertEquals(listOf(SessionHarness.CLAUDE, SessionHarness.OPENCODE, SessionHarness.COPILOT), harnessesOf(SpawnHarnesses.Unknown))
 		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("mikan", "host"))
-		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOnSession("d.mikan.recipe-app"))
+	}
+
+	@Test
+	fun `a container's CLIs are what was found inside, none apart from not looked`() {
+		val registry = landed(
+			row(
+				"mikan",
+				containers = listOf(
+					ContainerState("found", "running", clis = listOf("opencode", "claude", "newer-cli")),
+					ContainerState("bare", "running", clis = emptyList()),
+					ContainerState("unopened", "stopped", failure = "exit 1"),
+				),
+			),
+		)
+
+		assertEquals(running(SessionHarness.CLAUDE, SessionHarness.OPENCODE), registry.harnessesOn("mikan", "found"))
+		assertEquals(running(), registry.harnessesOn("mikan", "bare"))
+		assertEquals(SpawnHarnesses.Unknown, registry.harnessesOn("mikan", "unopened"))
+		assertEquals(
+			SpawnContainer("unopened", ContainerRun.STOPPED, "exit 1", SpawnHarnesses.Unknown),
+			registry.container("mikan", "unopened"),
+		)
+		assertEquals(emptyList<String>(), spawnableProjects(listOf("bare"), { registry.harnessesOn("mikan", it) }))
 	}
 
 	@Test

@@ -31,6 +31,8 @@ export type HarnessWord =
 	| { readonly read: "named"; readonly harness: SessionHarness }
 	// FIXME 2026-11-23: delete `unnamed`, once every sender names its CLI.
 	| { readonly read: "unnamed"; readonly assumed: SessionHarness }
+	/** The place's only CLI, once it reports. */
+	| { readonly read: "unpicked" }
 	| { readonly read: "unknown"; readonly word: string };
 
 /** Read and driven through its pane, by the daemon. */
@@ -226,23 +228,39 @@ export function isSessionHarness(value: unknown): value is SessionHarness {
 	return typeof value === "string" && (SESSION_HARNESSES as readonly string[]).includes(value);
 }
 
+/** On the wire, a create that named no CLI. */
+export const UNPICKED_WORD = "unpicked";
+
+/** A stored pick: a CLI, or `unpicked` to clear one. */
+export const CLI_PICKS = [...SESSION_HARNESSES, UNPICKED_WORD] as const;
+
+export type CliPick = (typeof CLI_PICKS)[number];
+
 /** The one reading of a CLI word off a wire or a file. */
 export function readHarness(value: unknown): HarnessWord {
 	if (value === undefined || value === null) return { read: "unnamed", assumed: UNNAMED_HARNESS };
+	if (value === UNPICKED_WORD) return { read: "unpicked" };
 	if (isSessionHarness(value)) return { read: "named", harness: value };
 	return { read: "unknown", word: String(value) };
 }
 
-/** Each reader states all three cases. */
+/** Each reader states every case. */
 export function foldHarness<T>(
 	word: HarnessWord,
-	on: { named(harness: SessionHarness): T; unnamed(assumed: SessionHarness): T; unknown(word: string): T },
+	on: {
+		named(harness: SessionHarness): T;
+		unnamed(assumed: SessionHarness): T;
+		unpicked(): T;
+		unknown(word: string): T;
+	},
 ): T {
 	switch (word.read) {
 		case "named":
 			return on.named(word.harness);
 		case "unnamed":
 			return on.unnamed(word.assumed);
+		case "unpicked":
+			return on.unpicked();
 		case "unknown":
 			return on.unknown(word.word);
 	}

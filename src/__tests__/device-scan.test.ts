@@ -48,6 +48,7 @@ describe("Gateway device scan", () => {
 			sessionStore: {} as HostStageDeps["sessions"]["sessionStore"],
 			presence: {} as HostStageDeps["sessions"]["presence"],
 			isAvailableProject: () => false,
+			hostSpawnPoints: { known: false, ids: [] },
 			knownTeamPaths,
 			offlineCatalog,
 		} as HostStageDeps["sessions"];
@@ -75,6 +76,8 @@ describe("Gateway device scan", () => {
 			kasaScan: async () => ({ candidates: [candidate] }),
 			wifiNetwork: async () => ({ ssid: "Home" }),
 			typeIntoPane: async () => ({ typed: true }),
+			containerStart: async () => {},
+			containerStop: async () => {},
 		};
 		const runner = createHostOpRunner(ops);
 		let receivedOp: unknown;

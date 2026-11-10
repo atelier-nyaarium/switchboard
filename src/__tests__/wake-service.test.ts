@@ -4,6 +4,7 @@ import { WakeCoordinator } from "../gateway/wake.js";
 import { WakeService, type WakeServiceDeps } from "../gateway/wakeService.js";
 import type { TeamRegistry, WsData } from "../gateway/wsTypes.js";
 import { processAmbient } from "../shared/ambient.js";
+import { UNPICKED_WORD } from "../shared/session-harness.js";
 import { SessionStore } from "../shared/session-store.js";
 
 /** The wake orchestration's own contract: join semantics, the fast refusals, mint and rollback. */
@@ -91,10 +92,7 @@ describe("WakeService", () => {
 		const s = setup({ liveHostSocket: () => undefined });
 		const result = await s.service.tryWakeTeam("proj.story");
 		// The more actionable refusal wins over "disconnected": the send was doomed either way.
-		expect(result).toEqual({
-			ok: false,
-			error: `"proj.story" does not exist yet; retry with a displayLabel to create it`,
-		});
+		expect(result).toEqual({ ok: false, error: expect.any(String), refusal: { kind: "no_label" } });
 	});
 
 	it("a disconnected host answers disconnected instead of holding the timeout", async () => {
@@ -165,7 +163,7 @@ describe("WakeService", () => {
 		]);
 	});
 
-	it("names the CLI on every wake: the record's, or Claude for a bare project", async () => {
+	it("names the CLI on every wake: the record's, or none picked for a bare project", async () => {
 		const s = setup();
 		const teams = [s.sessionStore.teamOf(s.sessionStore.mint({ spawn: "host", harness: "copilot" })), "proj"];
 
@@ -173,7 +171,7 @@ describe("WakeService", () => {
 		for (const team of teams) s.wakeCoordinator.notify(team);
 		await Promise.all(wakes);
 
-		expect(s.sent.map((frame) => frame.harness)).toEqual(["copilot", "claude"]);
+		expect(s.sent.map((frame) => frame.harness)).toEqual(["copilot", UNPICKED_WORD]);
 	});
 
 	it("gives a second create the first one's launch instead of starting another", async () => {

@@ -34,6 +34,7 @@ internal fun sandboxRegistry(roster: List<String>, now: Long): GatewayRegistry =
 				lastRegisteredAt = now,
 				hostSpawns = spawns.values.flatten().distinct(),
 				harnessSpawns = spawns,
+				containers = sandboxContainers(index),
 			)
 		} + GatewayEntry(SANDBOX_NEVER_REGISTERED, connected = false, incarnation = 0, lastRegisteredAt = 0))
 			.sortedBy { it.id },

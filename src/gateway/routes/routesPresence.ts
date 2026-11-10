@@ -1,6 +1,6 @@
 import { ordinaryRows } from "../../shared/assistant-session.js";
 import type { DiscoverCoverage } from "../../shared/console-protocol.js";
-import { type HostSpawnState, spawnPointFields } from "../../shared/host-spawn.js";
+import { type HostSpawnState, spawnClisOf, spawnPointFields } from "../../shared/host-spawn.js";
 import { OwnerPresenceProjectionSchema } from "../../shared/schemasRouterPresence.js";
 import type { GatewayConfig, GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import { jsonResponse } from "../routeSchemas.js";
@@ -73,8 +73,13 @@ export function createPresenceRoutes({
 		const full = await discoverFull();
 		if (url?.searchParams.get("coverage") === "1") {
 			// `spawnPoints` is deliberately not served on this route.
-			const { spawnPoints: _spawnPoints, ...served } = full;
-			return jsonResponse({ ...served, localGatewayId, localDomainId: localDomain });
+			const { spawnPoints, ...served } = full;
+			return jsonResponse({
+				...served,
+				spawnClis: spawnClisOf(spawnPoints),
+				localGatewayId,
+				localDomainId: localDomain,
+			});
 		}
 		return jsonResponse(full.teams);
 	}

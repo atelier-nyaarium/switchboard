@@ -195,6 +195,23 @@ internal class ChatRepositoryPolicyHost(private val repo: ChatRepository) : Poli
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsolePolicyGateway)
 }
 
+internal class ConsoleContainerGateway(private val client: ConsoleClient) : ContainerGateway {
+	override suspend fun start(target: String, opId: String) = client.containerStart(target, opId)
+
+	override suspend fun stop(target: String, opId: String) = client.containerStop(target, opId)
+}
+
+internal class ChatRepositoryContainerHost(private val repo: ChatRepository) : ContainerHost {
+	override val state get() = repo._state
+
+	override val gateway: ContainerGateway? get() =
+		if (isSandbox) repo.sandboxContainers else repo.clientOrNull()?.let(::ConsoleContainerGateway)
+
+	override fun launchInBackground(block: suspend () -> Unit) {
+		repo.repoScope.launch(kotlinx.coroutines.Dispatchers.IO) { block() }
+	}
+}
+
 internal class ChatRepositoryDeviceHost(
 	private val repo: ChatRepository,
 	override val generation: WorkspaceGeneration,

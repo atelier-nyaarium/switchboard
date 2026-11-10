@@ -24,6 +24,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { LAUNCHERS } from "../src/shared/launcher-spec.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -44,7 +45,7 @@ export const ENTRYPOINTS = [
 	path.join("src", "main-mcp.ts"),
 	path.join("src", "main-vault-askpass.ts"),
 	path.join("src", "main-session-hook.ts"),
-	path.join("src", "main-opencode-launch.ts"),
+	...Object.values(LAUNCHERS).map((launcher) => path.join(...launcher.entry.split("/"))),
 ];
 const DIST_DIR = "dist";
 

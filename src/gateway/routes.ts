@@ -2,11 +2,13 @@ import type { Ambient } from "../shared/ambient.js";
 import type { BoardReply } from "../shared/board-structure.js";
 import type { HostOp, HostOpResult } from "../shared/host-op.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
+import type { LaunchNotice } from "../shared/launch-notice.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { GatewayConfig, ResponsePayload, TeamInfo } from "../shared/types.js";
 import type { AwarenessBank } from "./awarenessBank.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import type { DurableOpStore } from "./console/durableOpStore.js";
+import type { LaunchRecords } from "./launchRecords.js";
 import { createAddressing } from "./routes/addressing.js";
 import { createCallerGuards } from "./routes/callerGuards.js";
 import { createRelay } from "./routes/relay.js";
@@ -21,6 +23,7 @@ import { createSessionRoutes } from "./routes/routesSession.js";
 import { createStatusRoutes } from "./routes/routesStatus.js";
 import type { Presented, SessionAuthority } from "./sessionAuthority.js";
 import type { WakeCreate, WakeResult } from "./wake.js";
+import type { WakeFlight } from "./wakeService.js";
 import type { WorkflowEngine } from "./workflows/engine.js";
 import { createWorkflowRoutes } from "./workflows/routes.js";
 import type { WorkflowRunner } from "./workflows/runner.js";
@@ -33,6 +36,8 @@ export interface RoutesDeps {
 	conversationRegistry: ConversationRegistry;
 	store: PendingJobStore<ResponsePayload>;
 	tryWakeTeam: (team: string, createOpts?: WakeCreate) => Promise<WakeResult>;
+	beginWake?: (team: string, createOpts?: WakeCreate) => WakeFlight;
+	launches?: Pick<LaunchRecords, "join">;
 	// Resolves a live incarnation.
 	sessionStore?: import("../shared/session-store.js").SessionStore;
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
@@ -62,6 +67,7 @@ export interface RoutesDeps {
 	isSharedToForReply?: ((sessionTarget: string, domainId: string) => boolean) | null;
 	/** Local reply push. */
 	onReplyPushed: (team: string) => void;
+	bankLaunch?: (sessionKey: string, notice: LaunchNotice) => void;
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
@@ -186,6 +192,8 @@ export function createRoutes(deps: RoutesDeps) {
 		conversationRegistry: deps.conversationRegistry,
 		store,
 		tryWakeTeam: deps.tryWakeTeam,
+		beginWake: deps.beginWake,
+		launches: deps.launches,
 		sessionStore: deps.sessionStore,
 		routerClient: deps.routerClient,
 		auth,
@@ -202,7 +210,7 @@ export function createRoutes(deps: RoutesDeps) {
 		refuseImpersonation,
 		provedLocalSession,
 	});
-	const { respond, poll } = createRespondRoutes({
+	const { respond, poll, pushLaunch, acceptLaunchNotice } = createRespondRoutes({
 		config,
 		ambient,
 		localDomain,
@@ -221,6 +229,7 @@ export function createRoutes(deps: RoutesDeps) {
 		refuseForeignPoll,
 		provedLocalSession,
 		onReplyPushed: deps.onReplyPushed,
+		bankLaunch: deps.bankLaunch,
 	});
 	const { taskBoard } = createBoardRoutes({
 		auth,
@@ -264,6 +273,8 @@ export function createRoutes(deps: RoutesDeps) {
 		sendFromAssistant,
 		respond,
 		poll,
+		pushLaunch,
+		acceptLaunchNotice,
 		typeSession,
 		...workflowRoutes,
 		readBlob,

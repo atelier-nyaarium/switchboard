@@ -10,6 +10,7 @@ function makeHandler(respond: FederationRoutes["respond"]) {
 	const routes: FederationRoutes = {
 		acceptGatewaySend: async () => new Response(JSON.stringify({ session_id: "s", status: "running" })),
 		respond,
+		acceptLaunchNotice: () => {},
 		teams: () => new Response(JSON.stringify([])),
 	};
 	return createGatewayRelayHandler({

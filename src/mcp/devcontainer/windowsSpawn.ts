@@ -7,9 +7,10 @@
 // Every rule here is measured on a WSL box, not reasoned.
 
 import { execFileSync } from "node:child_process";
+import { placeCandidates } from "../../shared/cli-resolve.js";
 import { type HostListDirsResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { isUncPath, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
-import { HARNESS, SESSION_HARNESSES, type SessionHarness } from "../../shared/session-harness.js";
+import { HARNESS, type SessionHarness } from "../../shared/session-harness.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -45,11 +46,11 @@ function run(file: string, args: string[]): string | null {
 /**
  * Whether this machine can offer a `windows` spawn point.
  *
- * Probes for the AGENT, not just the shell. Finding `powershell.exe` proves an interpreter exists
+ * Probes for a CLI, not just the shell. Finding `powershell.exe` proves an interpreter exists
  * and says nothing about whether an agent can run in it; offering the target without that produces a
  * guaranteed failed wake AFTER tmux state already exists, which is the worst moment to find out.
  *
- * `claude.exe` by full name, deliberately: bare `claude` and `claude.cmd` do not resolve from
+ * Each by its full Windows name, deliberately: bare `claude` and `claude.cmd` do not resolve from
  * Windows PowerShell, so a probe for the bare name reports the feature impossible on a machine where
  * it works.
  *
@@ -57,15 +58,11 @@ function run(file: string, args: string[]): string | null {
  * than the work. `-NoProfile` so a user's profile cannot change the answer.
  */
 export function probeWindowsSpawn(): WindowsSpawnAvailability {
-	// A null binary never launches there.
-	const finds = SESSION_HARNESSES.flatMap((harness) => {
-		const binary = HARNESS[harness].binary.windows;
-		return binary === null
-			? []
-			: [
-					`$c = Get-Command ${binary} -ErrorAction SilentlyContinue; if ($c) { Write-Output "${harness}=$($c.Source)" }`,
-				];
-	});
+	const candidates = placeCandidates({ place: "windows", assistant: false });
+	const finds = candidates.map(
+		(harness) =>
+			`$c = Get-Command ${HARNESS[harness].binary.windows} -ErrorAction SilentlyContinue; if ($c) { Write-Output "${harness}=$($c.Source)" }`,
+	);
 	const out = run("powershell.exe", [
 		"-NoLogo",
 		"-NoProfile",
@@ -73,8 +70,8 @@ export function probeWindowsSpawn(): WindowsSpawnAvailability {
 		`${finds.join("; ")}; Write-Output "profile=$env:USERPROFILE"`,
 	]);
 	if (out == null) return { available: false, reason: `powershell.exe did not run` };
-	const harnesses = SESSION_HARNESSES.filter((harness) => new RegExp(`^${harness}=.+$`, "m").test(out));
-	if (!harnesses.includes("claude")) return { available: false, reason: `claude.exe is not on the Windows PATH` };
+	const harnesses = candidates.filter((harness) => new RegExp(`^${harness}=.+$`, "m").test(out));
+	if (harnesses.length === 0) return { available: false, reason: `no session CLI is on the Windows PATH` };
 	const userProfile = /^profile=(.+)$/m.exec(out)?.[1]?.trim();
 	if (!userProfile || isUncPath(userProfile)) {
 		return { available: false, reason: `unusable Windows home ${userProfile ?? "(none)"}` };

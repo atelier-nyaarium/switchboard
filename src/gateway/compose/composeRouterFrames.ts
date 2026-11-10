@@ -45,7 +45,7 @@ export interface RouterFramesStageDeps {
 	context: FederationContext;
 	stores: Pick<StoresStage, "jobs" | "durableOpStore">;
 	sessions: Pick<SessionsStage, "registry" | "conversationRegistry" | "isTrustedCatalogProject" | "presence">;
-	host: Pick<HostStage, "relayToHost" | "wakeService" | "wakeCoordinator">;
+	host: Pick<HostStage, "relayToHost" | "wakeService" | "wakeCoordinator" | "installedAt">;
 	routes: () => GatewayRoutes;
 	vault: Pick<VaultStage, "console" | "sessionEnded">;
 	runbooks: Pick<RunbookStage, "console">;
@@ -117,6 +117,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		};
 
 		const consoleHandler = createConsoleDispatcher({
+			installedAt: host.installedAt,
 			registry: sessions.registry,
 			conversationRegistry: sessions.conversationRegistry,
 			routes,

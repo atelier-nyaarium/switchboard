@@ -62,7 +62,7 @@ import kotlinx.serialization.json.Json
  * eventually, and that is fine for a sandbox.
  */
 class SandboxFixtures(private val filesDir: File, private val assets: AssetManager) {
-	/** Three sessions: surfaces, tab row, own palette. Names fully qualified. */
+	/** Four sessions: surfaces, tab row, own palette, one in a container. Names fully qualified. */
 	fun teams(): List<Team> = listOf(
 		Team(
 			name = SESSION,
@@ -85,6 +85,14 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			sessionLabel = "OpenCode",
 			harness = HarnessWord.Named(SessionHarness.OPENCODE),
 		),
+		// Working, so Stop on its container asks first.
+		Team(
+			name = CONTAINER_SESSION,
+			presence = sandboxPresence(working = true),
+			kind = "loose",
+			sessionLabel = "Mixer",
+			harness = HarnessWord.Named(SessionHarness.OPENCODE),
+		),
 		Team(
 			name = ASSISTANT,
 			presence = sandboxPresence(),
@@ -95,7 +103,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 
 	/** LIVE, because a seeded session stands in for one the route Gateway just pushed. Anything less
 	 * authoritative makes the surfaces that gate on evidence, like the terminal's peek, sit idle. */
-	private fun sandboxPresence(): Presence =
+	private fun sandboxPresence(working: Boolean? = null): Presence =
 		Presence.reported(
 			TeamInfo(
 				team = SESSION,
@@ -105,6 +113,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 				mode = "channel",
 				kind = "loose",
 				queue_depth = 0,
+				working = working,
 			),
 			Authority.LIVE,
 		)
@@ -485,6 +494,9 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 
 		/** A CLI that refuses a key and takes no goal. */
 		const val SESSION_3 = "local.sandbox.host.opencode"
+
+		/** Inside the seeded running container. */
+		const val CONTAINER_SESSION = "local.sandbox.recipe-app.mixer"
 
 		/** The sandbox assistant's home. */
 		const val ASSISTANT = "local.sandbox.host.assistant"

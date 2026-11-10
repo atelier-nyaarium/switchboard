@@ -897,6 +897,8 @@ fun App(
 						onSpawn = { target, label, workdir, harness ->
 							repo.command { sessions.spawnSession(target, label, workdir, harness) }
 						},
+						onStartContainer = { target -> repo.containers.start(target) },
+						onStopContainer = { target -> repo.containers.stop(target) },
 						onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
 						// Offer pending enrollment verification.
 						onVerifyEnroll = (if (state.provisioned) repo.ceremony.pendingEnrolleeCeremony() else null)

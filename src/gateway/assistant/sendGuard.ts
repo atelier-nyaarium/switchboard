@@ -4,6 +4,7 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { SendRefusalSchema } from "../../shared/launch-notice.js";
 import type { MIGRATING } from "../../shared/migration-fence.js";
 import type { DeliveryOrigin, PendingDelivery } from "../../shared/pending-delivery-store.js";
 import {
@@ -144,6 +145,7 @@ export interface SendInput {
 	to: string;
 	body: string;
 	displayLabel?: string;
+	cli?: AssistantSendIntent["cli"];
 	disposition?: AssistantSendIntent["disposition"];
 	files?: ChannelFile[];
 	waitMs?: number;
@@ -168,6 +170,7 @@ const intentKey = (intent: AssistantSendIntent): string =>
 		intent.body,
 		intent.disposition ?? null,
 		intent.displayLabel ?? null,
+		intent.cli ?? null,
 		intent.createsSession,
 		intent.files.map((file) => [file.digest, file.filename, file.mime, file.size]),
 	]);
@@ -231,6 +234,7 @@ export function createSendGuard(deps: SendGuardDeps) {
 			body: input.body,
 			...(input.disposition ? { disposition: input.disposition } : {}),
 			...(input.displayLabel ? { displayLabel: input.displayLabel } : {}),
+			...(input.cli && input.displayLabel !== undefined && target.exists !== true ? { cli: input.cli } : {}),
 			createsSession: input.displayLabel !== undefined && target.exists !== true,
 			files: files.map((file) => ({
 				digest: file.blobId as string,
@@ -274,12 +278,22 @@ export function createSendGuard(deps: SendGuardDeps) {
 			const response = await deps.routes().sendFromAssistant({ intent, files, conversationId, record });
 			const body = (await response.json().catch(() => ({}))) as {
 				session_id?: string;
+				status?: string;
 				target?: string;
 				error?: string;
+				refused?: unknown;
 			};
 			// Relay failures may follow delivery.
 			if (response.status === 502) {
 				return failed(`it may have arrived; check before sending again (${body.error ?? "relay failed"})`);
+			}
+			const refused = SendRefusalSchema.safeParse(body.refused);
+			if (!response.ok && refused.success) {
+				return {
+					outcome: "failed",
+					reason: body.error ?? "refused",
+					refused: { refusal: refused.data, target: body.target ?? intent.target },
+				};
 			}
 			if (!response.ok) return failed(body.error ?? `the send failed (${response.status})`);
 			return {
@@ -287,6 +301,7 @@ export function createSendGuard(deps: SendGuardDeps) {
 				sessionId: body.session_id ?? "",
 				target: body.target ?? intent.target,
 				guard: record.guard,
+				...(body.status === "starting" ? { starting: true as const } : {}),
 			};
 		} catch (error) {
 			return failed(error instanceof Error ? error.message : String(error));

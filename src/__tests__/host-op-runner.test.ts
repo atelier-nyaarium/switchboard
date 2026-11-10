@@ -22,6 +22,8 @@ function makeOps(): { ops: TmuxOps } {
 		kasaScan: vi.fn(async () => ({ candidates: [] })),
 		wifiNetwork: vi.fn(async () => ({ reason: "none" as const })),
 		typeIntoPane: vi.fn(async () => ({ typed: true as const })),
+		containerStart: vi.fn(async () => {}),
+		containerStop: vi.fn(async () => {}),
 	};
 	return { ops };
 }
@@ -230,6 +232,8 @@ describe("createHostOpRunner", () => {
 			kasaScan: async () => ({ candidates: [] }),
 			wifiNetwork: async () => ({ reason: "none" as const }),
 			typeIntoPane: async () => ({ typed: true }),
+			containerStart: async () => {},
+			containerStop: async () => {},
 		};
 		const runner = createHostOpRunner(ops, { minPeekIntervalMs: 0 });
 
@@ -265,6 +269,8 @@ describe("createHostOpRunner", () => {
 			kasaScan: async () => ({ candidates: [] }),
 			wifiNetwork: async () => ({ reason: "none" as const }),
 			typeIntoPane: async () => ({ typed: true }),
+			containerStart: async () => {},
+			containerStop: async () => {},
 		};
 		const runner = createHostOpRunner(ops, { minPeekIntervalMs: 0 });
 		await expect(runner.run({ kind: "peek", target: T })).rejects.toThrow();
@@ -313,6 +319,8 @@ describe("createHostOpRunner peek priority lanes", () => {
 			kasaScan: async () => ({ candidates: [] }),
 			wifiNetwork: async () => ({ reason: "none" as const }),
 			typeIntoPane: async () => ({ typed: true }),
+			containerStart: async () => {},
+			containerStop: async () => {},
 		};
 		return { ops, resolveTarget: (name) => resolvers.get(name)?.(), admissionOrder };
 	}

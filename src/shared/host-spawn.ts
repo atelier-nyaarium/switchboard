@@ -17,7 +17,10 @@
 //
 // `windows` is PowerShell over WSL interop, and its daemon-side half lives in `windowsSpawn.ts`.
 
-import { HARNESS, type LaunchPlace, type SessionHarness } from "./session-harness.js";
+import type { SpawnClis } from "./schemasConsoleResults.js";
+import type { ContainerState } from "./schemasPresence.js";
+import { HARNESS, type LaunchPlace, SESSION_HARNESSES, type SessionHarness } from "./session-harness.js";
+import type { GatewaySpawnPoints } from "./types.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -59,6 +62,7 @@ export interface HostSpawnState {
 	ids: string[];
 	/** Per CLI, the spawn points whose shell has it, `host` included. */
 	harnessSpawns?: Partial<Record<SessionHarness, string[]>>;
+	containers?: ContainerState[];
 }
 
 export interface HostSpawnPoint {
@@ -221,7 +225,33 @@ export function spawnPointFields(state: HostSpawnState) {
 		// FIXME 2026-11-23: drop both, once every reader takes `harnessSpawns`.
 		claudeSpawns: [...(harnessSpawns.claude ?? [])],
 		copilotSpawns: [...(harnessSpawns.copilot ?? [])],
+		...(state.known && state.containers ? { containers: state.containers.map((held) => ({ ...held })) } : {}),
 	};
+}
+
+/** Each spawn point's CLIs where known: host shells from `harnessSpawns`, containers once looked inside. */
+export function spawnClisOf(points: readonly GatewaySpawnPoints[]): SpawnClis[] {
+	return points.flatMap((point) => {
+		const hosts = [HOST_SPAWN, ...point.hostSpawns].map((spawn) => ({
+			domainId: point.domainId,
+			gatewayId: point.gatewayId,
+			spawn,
+			clis: SESSION_HARNESSES.filter((harness) => point.harnessSpawns?.[harness]?.includes(spawn)),
+		}));
+		const containers = (point.containers ?? []).flatMap((container) =>
+			container.clis
+				? [
+						{
+							domainId: point.domainId,
+							gatewayId: point.gatewayId,
+							spawn: container.project,
+							clis: container.clis,
+						},
+					]
+				: [],
+		);
+		return [...hosts, ...containers];
+	});
 }
 
 /** Every host spawn id, so a catalog scan can refuse a directory that would shadow one. */

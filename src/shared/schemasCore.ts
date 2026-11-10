@@ -18,7 +18,7 @@ import {
 export const ConnectionModeSchema = z.enum(["channel"]).meta({ id: "ConnectionMode" });
 export const TeamKindSchema = z.enum(["devcontainer", "loose", "console"]).meta({ id: "TeamKind" });
 export const ResponseStatusSchema = z
-	.enum(["completed", "clarification", "deferred", "needs_human", "error", "timeout", "running"])
+	.enum(["completed", "clarification", "deferred", "needs_human", "error", "timeout", "running", "starting"])
 	.meta({ id: "ResponseStatus" });
 // Whether a console's Domain is rooted yet. `unrooted` is a fresh, never-provisioned admin
 // Domain; `pending` is an admin-staged tenant not yet first-rooted; `rooted` provisions the

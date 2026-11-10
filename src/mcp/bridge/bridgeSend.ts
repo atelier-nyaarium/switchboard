@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { SendRefusalSchema, sendRefusalText, startingText } from "../../shared/launch-notice.js";
 import { REAL_NEWLINES_GUIDANCE } from "../../shared/schemas.js";
+import { SESSION_HARNESSES } from "../../shared/session-harness.js";
 import type { ChannelFile, ResponsePayload } from "../../shared/types.js";
 import { sendGuarded } from "../assistant/sendTools.js";
 import { dropReferenceArtifacts } from "../channel/channelFiles.js";
@@ -22,15 +24,9 @@ const bridgeSendSchema = (guarded: boolean) =>
 				.optional()
 				.describe(
 					`
-Target session. Copy the full address from \`crosstalk_discover\`: \`domain.gateway.spawn.session\`.
-
-Never shorten it. A shortened address resolves locally instead of to the intended target.
-
-- An online session receives it directly.
-- An asleep session is woken on send.
-- A spawn point without a session is not a valid target. Set \`displayLabel\` to create one ${createsUnder(guarded)}
-
-A created session may take a different name. Use the resolved address from the response afterwards.
+Session to send to.
+- An offline session will auto-start and then be messaged.
+- A nonexistent session (identified by \`to\`) will be created first.
 `.trim(),
 				),
 			body: z.string().optional().describe(`Markdown request details and relevant context.`),
@@ -41,10 +37,17 @@ A created session may take a different name. Use the resolved address from the r
 				.optional()
 				.describe(
 					`
-Human-readable label for a new session, e.g. \`Bug Investigation\`. Never a slug, \`id\`, or generated string.
-
-Required for a target that does not yet exist. Ignored when it already exists.
+Sets this new session's label. Required when creating a new session.
 `.trim() + REAL_NEWLINES_GUIDANCE,
+				),
+			cli: z
+				.enum(SESSION_HARNESSES)
+				.optional()
+				.describe(
+					`
+Sets this new session's CLI: \`claude\`, \`opencode\` or \`copilot\`.
+Leave blank to use the spawn point's only CLI. If it has several, nothing is created and you get their names. Ask the user if unsure which to pick.
+`.trim(),
 				),
 			disposition: z
 				.enum(["asking", "informing", "closing"])
@@ -83,7 +86,7 @@ The receiving agent gets local files listed in a \`[FILES]\` block.
 export const BridgeSendSchema = bridgeSendSchema(false);
 type BridgeSendArgs = z.infer<typeof BridgeSendSchema>;
 
-type SendResult = ResponsePayload & { error?: string; available?: string[] };
+type SendResult = ResponsePayload & { error?: string; available?: string[]; refused?: unknown };
 
 const description = `
 # Crosstalk Send
@@ -115,7 +118,10 @@ async function formatResult(
 	result: SendResult,
 	to?: string,
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-	const target = to || "team";
+	if (result.status === "starting" && result.target) {
+		return { content: [{ type: "text" as const, text: startingText(result.target) }] };
+	}
+	const target = result.target || to || "team";
 	const parts = [`Response from ${target}:`];
 	if (result.status) parts.push(`Status: ${result.status}`);
 
@@ -167,7 +173,7 @@ export function registerBridgeSend(mcpServer: McpServer, { guarded = false }: { 
 			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
 			inputSchema: bridgeSendSchema(guarded) as any,
 		},
-		async ({ to, body, session_id, displayLabel, disposition, attachments }: BridgeSendArgs) => {
+		async ({ to, body, session_id, displayLabel, cli, disposition, attachments }: BridgeSendArgs) => {
 			try {
 				// Attachments exclude poll mode, or a files-only send would discard them.
 				if (session_id && !body && !attachments?.length) {
@@ -205,7 +211,7 @@ export function registerBridgeSend(mcpServer: McpServer, { guarded = false }: { 
 				const refusal = opLedgerRefusal();
 				if (refusal) return toolError(`Cannot send: ${refusal}`);
 
-				if (guarded) return await sendGuarded({ to, body, displayLabel, disposition, files });
+				if (guarded) return await sendGuarded({ to, body, displayLabel, cli, disposition, files });
 
 				// Minted here rather than inside routerPost, so its retries share one id.
 				const result = (await routerPost("/send", {
@@ -215,10 +221,14 @@ export function registerBridgeSend(mcpServer: McpServer, { guarded = false }: { 
 					to,
 					body,
 					...(displayLabel ? { displayLabel } : {}),
+					...(cli ? { cli } : {}),
 					...(disposition ? { disposition } : {}),
 					...(files.length > 0 ? { files } : {}),
 				})) as SendResult;
 
+				const refused = SendRefusalSchema.safeParse(result.refused);
+				if (result.error && refused.success)
+					return toolError(sendRefusalText(refused.data, result.target ?? to));
 				if (result.error) {
 					return {
 						content: [

@@ -1,17 +1,20 @@
 import { withinMs } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
+import { cliRefusalText, pickAt } from "../../shared/cli-resolve.js";
 import {
 	type ConsoleOp,
 	type ConsoleOpResult,
 	CREATE_SESSION_BOUND_MS,
 	SEND_BOUND_MS,
 } from "../../shared/console-protocol.js";
+import { launchPlaceOf } from "../../shared/host-spawn.js";
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { isDeviceConsoleOp } from "../../shared/schemasDevices.js";
 import { type HolderKey, HolderKeySchema } from "../../shared/schemasPhoneHold.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
+import { type CliPick, type SessionHarness, UNPICKED_WORD } from "../../shared/session-harness.js";
 import { SpawnPoint } from "../../shared/session-id.js";
 import type { WorkspaceOp } from "../../shared/workspace-op.js";
 import {
@@ -22,6 +25,7 @@ import {
 	routineTeam,
 } from "../routines/reservation.js";
 import { workspaceAnswerNoting } from "../workspaceAwareness.js";
+import { createContainerHandlers } from "./consoleContainers.js";
 import { createCrossDomainHandlers } from "./consoleCrossDomain.js";
 import { createRunbookFireHandler } from "./consoleRunbookFire.js";
 import { createSessionLifecycleHandlers } from "./consoleSessionLifecycle.js";
@@ -66,8 +70,18 @@ export function createConsoleDispatcher({
 	onSessionEnded,
 	forgetRefusal,
 	assistant,
+	installedAt,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
+
+	/** A create that needs its CLI now: the one named, or the spawn point's only one. */
+	function definitePick(spawn: string, pick: CliPick | undefined): { harness: SessionHarness } | { refused: string } {
+		const named = pick && pick !== UNPICKED_WORD ? pick : undefined;
+		const chosen = pickAt({ place: launchPlaceOf(spawn), assistant: false }, named, installedAt?.(spawn));
+		if ("refused" in chosen) return { refused: cliRefusalText(chosen.refused, spawn) };
+		if (!chosen.harness) return { refused: `"${spawn}" has not reported its CLIs yet; pick one` };
+		return { harness: chosen.harness };
+	}
 
 	/** A session, never a spawn point: the plane serves the workspace a plugin itself holds. */
 	async function workspaceOf(target: string, op: WorkspaceOp, verb = "read the workspace of") {
@@ -85,6 +99,7 @@ export function createConsoleDispatcher({
 		promptOf,
 		sessionControlAsk,
 	});
+	const containers = createContainerHandlers({ targets, relayToHost });
 	const sessionLifecycle = createSessionLifecycleHandlers({
 		targets,
 		createSessionBoundMs,
@@ -110,6 +125,7 @@ export function createConsoleDispatcher({
 		getRunbook: (runbookId) => runbooks?.get(runbookId) ?? null,
 		createSession: (op, conv, opId) => sessionLifecycle.createSession(op, conv, opId),
 		awaitRegister,
+		pick: definitePick,
 		deliver: async (to, body, ctx) => {
 			const res = await routes.sendFromOwner({ from: ctx.device, to, body, channelOnly: true });
 			const json = (await res.json().catch(() => ({}))) as SendRouteJson;
@@ -329,6 +345,10 @@ export function createConsoleDispatcher({
 
 			case "wake":
 				return sessionLifecycle.wake(op);
+
+			case "container_start":
+			case "container_stop":
+				return containers.relay(op, conversationId, opId);
 
 			case "cross_domain_listen":
 				return crossDomainOps.listen(op);
@@ -566,13 +586,18 @@ export function createConsoleDispatcher({
 		// Adopting a session somebody else made would run the routine, and later its grant, inside
 		// one the owner opened for something else.
 		if (!routineOwns(sessionStore?.getByTeam(team), routine)) return { kind: "taken" };
+		const pick = definitePick(routine.target.spawn, routine.target.cli);
+		if ("refused" in pick) {
+			console.warn(`[routine] ${routine.id} cannot reserve its session: ${pick.refused}`);
+			return { kind: "cli_refused" };
+		}
 		// The routine is this Gateway's, so its spawn is qualified here.
 		const made = await sessionLifecycle.createSession(
 			{
 				kind: "create_session",
 				target: SpawnPoint.of(localDomainId, localGatewayId, routine.target.spawn).canonical,
 				sessionName: routineSessionName(routine.id),
-				harness: "claude",
+				harness: pick.harness,
 				...(routine.target.workdir ? { workdir: routine.target.workdir } : {}),
 			},
 			reserveConversation(routine),

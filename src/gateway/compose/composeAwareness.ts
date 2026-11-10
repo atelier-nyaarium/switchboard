@@ -4,10 +4,20 @@ import { AGENT_NOTICE_SOURCE } from "../../shared/agent-notice.js";
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import type { AwarenessObservation, AwarenessSubscriber } from "../../shared/awareness-types.js";
 import type { BoardEntry } from "../../shared/console-protocol.js";
+import { DurableStore } from "../../shared/durable-store.js";
+import type { LaunchNotice } from "../../shared/launch-notice.js";
 import { baselineLines, type SessionBaseline } from "../../shared/session-baseline.js";
 import { agentTurnIdentity, createAgentAwarenessSubscriber, createAgentWatch } from "../agentAwareness.js";
 import { type AwarenessBank, createAwarenessBank } from "../awarenessBank.js";
 import { boardAwarenessSubscriber } from "../boardAwareness.js";
+import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
+import {
+	createLaunchRecords,
+	createLaunchSubscriber,
+	type LaunchRecords,
+	type LaunchRecordsDeps,
+	launchOutcome,
+} from "../launchRecords.js";
 import {
 	createWorkflowAwarenessSubscriber,
 	createWorkflowWatch,
@@ -19,11 +29,19 @@ import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { AgentsStage } from "./composeAgents.js";
 import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
+import type { StoresStage } from "./composeStores.js";
 import type { WorkflowsStage } from "./composeWorkflows.js";
 
 export interface AwarenessStageDeps {
+	dataDir: string;
 	sessions: Pick<SessionsStage, "registry" | "sessionStore" | "presence">;
 	host: Pick<HostStage, "wakeService">;
+	stores: Pick<StoresStage, "jobs">;
+	/** Read late; composed after this stage. */
+	deliveries: () => Pick<ChannelDeliveryCoordinator, "withdraw">;
+	/** Read late, as routes are. */
+	relayLaunch: LaunchRecordsDeps["relay"];
+	wakeTimeoutMs: number;
 	agents: Pick<AgentsStage, "agentRoster" | "workflowProgress" | "markTurnNotified" | "onTurnsCollected">;
 	workflows: Pick<WorkflowsStage, "runner" | "engine">;
 	ambient: Pick<Ambient, "now" | "randomBytes" | "setInterval">;
@@ -39,6 +57,9 @@ export interface AwarenessStage {
 	workspaceObserve: (observations: readonly AwarenessObservation<WorkspaceChange>[]) => void;
 	workflowWatch: WorkflowWatch;
 	baselineObserve: (team: string, baseline: SessionBaseline) => void;
+	launches: LaunchRecords;
+	/** A relayed send's launch outcome, for the session that sent. */
+	bankLaunch: (sessionKey: string, notice: LaunchNotice) => void;
 	awarenessTimer: IntervalHandle;
 }
 
@@ -51,8 +72,13 @@ const baselineAwarenessSubscriber: AwarenessSubscriber<SessionBaseline> = {
 };
 
 export function composeAwareness({
+	dataDir,
 	sessions,
 	host,
+	stores,
+	deliveries,
+	relayLaunch,
+	wakeTimeoutMs,
 	agents,
 	workflows,
 	ambient,
@@ -95,6 +121,30 @@ export function composeAwareness({
 		),
 		now: () => ambient.now(),
 	});
+	const isLive = (team: string) => Boolean(resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team));
+	let launches: LaunchRecords | null = null;
+	const observeLaunches = awareness.register(
+		createLaunchSubscriber((identity, key) => launches?.markTold(identity, key)),
+	);
+	launches = createLaunchRecords({
+		durable: new DurableStore(dataDir, "launches"),
+		now: () => ambient.now(),
+		timeoutMs: wakeTimeoutMs,
+		isLive,
+		inFlight: (team) => host.wakeService.isWakeInFlight(team),
+		withdraw: ({ deliveryId, channelJobId }) => {
+			deliveries().withdraw(deliveryId);
+			stores.jobs.remove(channelJobId);
+		},
+		forgetCreated: (team) => {
+			const record = sessions.sessionStore.getByTeam(team);
+			if (record && record.confirmedAt === undefined && !isLive(team)) sessions.presence.forget(team);
+		},
+		observe: observeLaunches,
+		relay: relayLaunch,
+	});
+	const launchRecords = launches;
+	host.wakeService.onSettled((team, result) => launchRecords.settle(team, launchOutcome(result)));
 	agents.onTurnsCollected((ownerKey, family, agentId, turnIds) => {
 		for (const turnId of turnIds) {
 			awareness.withdraw(ownerKey, AGENT_NOTICE_SOURCE, agentTurnIdentity(family, agentId, turnId));
@@ -122,6 +172,7 @@ export function composeAwareness({
 				}
 			}
 			workflowWatch.tick();
+			launchRecords.tick();
 			awareness.tick();
 		} catch (err) {
 			console.error("[awareness] tick failed:", err);
@@ -135,6 +186,11 @@ export function composeAwareness({
 		workflowWatch,
 		baselineObserve: (team, baseline) =>
 			observeBaseline([{ sessionKey: team, identity: "compaction", pre: undefined, post: baseline }]),
+		launches: launchRecords,
+		bankLaunch: (sessionKey, notice) =>
+			observeLaunches([
+				{ sessionKey, identity: `relayed:${notice.address}:${notice.kind}`, pre: undefined, post: notice },
+			]),
 		awarenessTimer,
 	};
 }

@@ -38,6 +38,9 @@ export interface TmuxOps {
 	) => Promise<unknown>;
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
+	/** Queued, never awaited to its end. */
+	containerStart: (project: string) => Promise<void>;
+	containerStop: (project: string) => Promise<void>;
 	listDirs: (path: string, spawn?: string) => Promise<HostListDirsResult>;
 	readSkill: (target: AgentExecutionTarget, path: string) => Promise<HostReadSkillResult>;
 	kasaScan: () => Promise<HostKasaScanResult>;
@@ -173,6 +176,10 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 			return runDeduped(op.dedupKey, () => ops.reloadPlugins(op.target), { initiated: true });
 		if (op.kind === "killSession")
 			return runDeduped(op.dedupKey, () => ops.killSession(op.target), { killed: true });
+		if (op.kind === "containerStart")
+			return runDeduped(op.dedupKey, () => ops.containerStart(op.project), { accepted: true });
+		if (op.kind === "containerStop")
+			return runDeduped(op.dedupKey, () => ops.containerStop(op.project), { accepted: true });
 		const unhandled: never = op;
 		throw new Error(`unknown host op ${JSON.stringify(unhandled)}`);
 	}

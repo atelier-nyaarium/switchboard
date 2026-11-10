@@ -2,6 +2,7 @@ import type { Ambient } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM, isAssistantRecord } from "../../shared/assistant-session.js";
 import type { FederatedOp } from "../../shared/federation-protocol.js";
 import { HOST_SPAWN } from "../../shared/host-spawn.js";
+import { type SendRefusal, SendRefusalSchema, sendRefusalText, startingText } from "../../shared/launch-notice.js";
 import type { DeliveryOrigin, EventMember } from "../../shared/pending-delivery-store.js";
 import {
 	type JobContract,
@@ -12,6 +13,7 @@ import {
 } from "../../shared/pending-job-store.js";
 import { BLOB_HOLD_MAX_MS } from "../../shared/router-protocol.js";
 import type { AssistantSendIntent, SendGuard } from "../../shared/schemasAssistantSend.js";
+import type { SessionHarness } from "../../shared/session-harness.js";
 import {
 	Address,
 	composeSessionName,
@@ -24,10 +26,12 @@ import type { ChannelFile, GatewayConfig, ResponsePayload } from "../../shared/t
 import type { AwarenessBank, AwarenessLease } from "../awarenessBank.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
 import { fireAndForget } from "../fireAndForget.js";
+import type { LaunchRecords } from "../launchRecords.js";
 import { holdIdFor } from "../router/blobUploader.js";
 import { fileBytes, getTeamMode, jsonResponse, MAX_RESPONSE_FILE_BYTES, SendRequestSchema } from "../routeSchemas.js";
 import { presentedByRequest, type SessionAuthority } from "../sessionAuthority.js";
 import { POST_WAKE_SETTLE_MS, type WakeCreate, type WakeResult } from "../wake.js";
+import type { WakeFlight } from "../wakeService.js";
 import { type ConversationRegistry, resolveLiveIncarnation, type TeamRegistry } from "../wsTypes.js";
 import type { CallerScope } from "./callerGuards.js";
 
@@ -58,6 +62,9 @@ export interface SendRoutesDeps {
 	conversationRegistry: ConversationRegistry;
 	store: Pick<PendingJobStore<ResponsePayload>, "reserve" | "commit" | "abort">;
 	tryWakeTeam: (team: string, createOpts?: WakeCreate) => Promise<WakeResult>;
+	/** A launch's started team, at once; a session's send queues behind it. */
+	beginWake?: (team: string, createOpts?: WakeCreate) => WakeFlight;
+	launches?: Pick<LaunchRecords, "join">;
 	sessionStore?: import("../../shared/session-store.js").SessionStore;
 	routerClient?: Pick<import("../router/routerClient.js").RouterClient, "isConnected"> | null;
 	auth?: SessionAuthority;
@@ -90,6 +97,8 @@ export function createSendRoutes({
 	conversationRegistry,
 	store,
 	tryWakeTeam,
+	beginWake,
+	launches,
 	sessionStore,
 	routerClient,
 	auth,
@@ -117,17 +126,50 @@ export function createSendRoutes({
 				target: LocalTarget;
 				qualifiedTo: string;
 				targetWs: ReturnType<typeof resolveLiveIncarnation>;
+				/** Queued behind a launch still running. */
+				launching?: { created: boolean };
 		  }
-		| { ok: false; error: string };
+		| { ok: false; error: string; refused?: SendRefusal };
 
 	async function reach(resolved: LocalTarget, createOpts?: WakeCreate): Promise<Reached> {
+		const targetWs = resolveLiveIncarnation(registry, sessionStore, resolved.name);
+		if (targetWs)
+			return {
+				ok: true,
+				localName: resolved.name,
+				target: resolved,
+				qualifiedTo: resolved.address.canonical,
+				targetWs,
+			};
+		return afterWake(resolved, await tryWakeTeam(resolved.name, createOpts), true);
+	}
+
+	/** A session's send answers once the launch starts, and hears its end by notice. */
+	async function reachWithoutWaiting(resolved: LocalTarget, createOpts: WakeCreate): Promise<Reached> {
+		const live = resolveLiveIncarnation(registry, sessionStore, resolved.name);
+		if (live || !beginWake || !launches) return reach(resolved, createOpts);
+		const start = await beginWake(resolved.name, createOpts).started;
+		if (start.kind === "settled") return afterWake(resolved, start.result, false);
+		const address = tryLocalAddress(start.team) ?? resolved.address;
+		return {
+			ok: true,
+			localName: start.team,
+			target: { name: start.team, address },
+			qualifiedTo: address.canonical,
+			targetWs: undefined,
+			launching: { created: start.created },
+		};
+	}
+
+	async function afterWake(resolved: LocalTarget, woken: WakeResult, settle: boolean): Promise<Reached> {
 		let target = resolved;
 		let localName = target.name;
 		let qualifiedTo = target.address.canonical;
 		let targetWs = resolveLiveIncarnation(registry, sessionStore, localName);
-		if (targetWs) return { ok: true, localName, target, qualifiedTo, targetWs };
-		const woken = await tryWakeTeam(localName, createOpts);
 		if (!woken.ok) {
+			if (woken.refusal) {
+				return { ok: false, error: sendRefusalText(woken.refusal, qualifiedTo), refused: woken.refusal };
+			}
 			if (woken.error) return { ok: false, error: woken.error };
 			if (woken.errorKind === "disconnected") {
 				return {
@@ -148,7 +190,7 @@ export function createSendRoutes({
 				qualifiedTo = address.canonical;
 			}
 		}
-		await new Promise((r) => ambient.setTimer(() => r(undefined), POST_WAKE_SETTLE_MS));
+		if (settle) await new Promise((r) => ambient.setTimer(() => r(undefined), POST_WAKE_SETTLE_MS));
 		targetWs = resolveLiveIncarnation(registry, sessionStore, localName);
 		return { ok: true, localName, target, qualifiedTo, targetWs };
 	}
@@ -190,6 +232,7 @@ export function createSendRoutes({
 		body?: string;
 		files?: ChannelFile[];
 		displayLabel?: string;
+		cli?: SessionHarness;
 		disposition?: "asking" | "informing" | "closing";
 		opId?: string;
 		record?: SendRecord;
@@ -205,6 +248,7 @@ export function createSendRoutes({
 			body,
 			files,
 			displayLabel,
+			cli,
 			disposition,
 			opId,
 			record,
@@ -234,6 +278,7 @@ export function createSendRoutes({
 			body: body ?? "",
 			...(files && files.length > 0 ? { files } : {}),
 			...(displayLabel ? { displayLabel } : {}),
+			...(cli ? { cli } : {}),
 			...(disposition ? { disposition } : {}),
 			returnRoute: { srcGateway: localGatewayId, srcConversationId: fromConversationId, srcSession },
 			reader: readerOf(contract),
@@ -241,7 +286,7 @@ export function createSendRoutes({
 		// Anchor first, or a fast reply outruns it.
 		const reserved = store.reserve(srcSession, from, qualifiedTo, contract, { persistent: true });
 		if (reserved.kind === "conflict") return jsonResponse({ error: reserved.reason }, 409);
-		let relay: { ok: boolean; error?: string };
+		let relay: { ok: boolean; result?: unknown; error?: string };
 		try {
 			// The relay strips blob ids for a cross-Domain target.
 			relay = await relayToGateway(targetGateway, op, targetDomain, opId);
@@ -253,10 +298,35 @@ export function createSendRoutes({
 			store.abort(reserved.reservation);
 			return jsonResponse({ error: relay.error ?? `cross-Gateway send to "${qualifiedTo}" failed` }, 502);
 		}
+		const remote = (relay.result ?? {}) as {
+			status?: unknown;
+			target?: unknown;
+			error?: unknown;
+			refused?: unknown;
+		};
+		const refused = remote.status === "refused" ? SendRefusalSchema.safeParse(remote.refused) : undefined;
+		if (refused) {
+			store.abort(reserved.reservation);
+			const where = typeof remote.target === "string" ? remote.target : qualifiedTo;
+			if (refused.success)
+				return jsonResponse({ error: sendRefusalText(refused.data, where), refused: refused.data }, 404);
+			return jsonResponse(
+				{ error: typeof remote.error === "string" ? remote.error : "the send was refused" },
+				404,
+			);
+		}
 		store.commit(reserved.reservation);
 		if (senderAddr) {
 			const guarded = record ? { guard: record.guard } : {};
 			mirrorPeer(senderAddr, senderCanonical, targetAddr.canonical, { body, files, ...guarded }, record?.key);
+		}
+		if (remote.status === "starting" && typeof remote.target === "string") {
+			return jsonResponse({
+				session_id: srcSession,
+				status: "starting",
+				target: remote.target,
+				message: startingText(remote.target),
+			});
 		}
 		return jsonResponse({
 			session_id: srcSession,
@@ -279,6 +349,7 @@ export function createSendRoutes({
 			files,
 			channelOnly,
 			displayLabel,
+			cli,
 			disposition,
 			opId: producerOpId,
 		} = parsed.data;
@@ -356,6 +427,7 @@ export function createSendRoutes({
 				body: msgBody,
 				files,
 				displayLabel,
+				cli,
 				disposition,
 				opId: producerOpId,
 				record,
@@ -386,9 +458,22 @@ export function createSendRoutes({
 			inboundSessionId ?? (fromConversationId ? `${fromConversationId}:${resolved.name}` : undefined);
 		// The guard cleared it, by card or by the owner's setting.
 		const cleared = record ? { cleared: true as const } : {};
-		const arrived = await reach(resolved, { displayLabel, harness: "claude", mintedFrom, ...cleared });
-		if (!arrived.ok) return jsonResponse({ error: arrived.error }, 404);
-		const { localName, target, qualifiedTo, targetWs } = arrived;
+		const createOpts: WakeCreate = { displayLabel, ...(cli ? { harness: cli } : {}), mintedFrom, ...cleared };
+		// A session reads its launch's end as a notice; every other sender waits on it.
+		const readsNotices =
+			ingress.kind === "session" ||
+			ingress.kind === "assistant" ||
+			(ingress.kind === "gateway" && relayedReader === "session");
+		const arrived = readsNotices
+			? await reachWithoutWaiting(resolved, createOpts)
+			: await reach(resolved, createOpts);
+		if (!arrived.ok) {
+			return jsonResponse(
+				{ error: arrived.error, ...(arrived.refused ? { refused: arrived.refused } : {}) },
+				404,
+			);
+		}
+		const { localName, target, qualifiedTo, targetWs, launching } = arrived;
 
 		const subs = targetWs ? registry.get(targetWs.data.teamName ?? localName) : undefined;
 
@@ -469,6 +554,34 @@ export function createSendRoutes({
 					lease?.release();
 					return jsonResponse({ error: `this Gateway is migrating; nothing was accepted` }, 503);
 				}
+				if (launching) {
+					const joined = launches?.join({
+						team: localName,
+						address: qualifiedTo,
+						created: launching.created,
+						delivery: { deliveryId, channelJobId },
+						...(returnRoute
+							? {
+									sessionKey: `relay:${channelJobId}`,
+									relay: {
+										srcGateway: returnRoute.srcGateway,
+										srcSession: returnRoute.srcSession,
+										dstDomainId: dstDomainId ?? null,
+									},
+									foreign: dstDomainId != null,
+								}
+							: { sessionKey: from, foreign: false }),
+					});
+					if (!joined) {
+						deliveries.withdraw(deliveryId);
+						store.abort(anchor);
+						lease?.release();
+						return jsonResponse(
+							{ error: `the launch of "${qualifiedTo}" could not be recorded; nothing was accepted` },
+							503,
+						);
+					}
+				}
 				lease?.commit();
 				console.log(`[send] channel_push ${outcome} for ${qualifiedTo} [${channelJobId}] from ${from}`);
 				// Renews the delivery hold.
@@ -487,7 +600,7 @@ export function createSendRoutes({
 					const sent = { body: msgBody, files, guard: record.guard };
 					mirrorPeer(fromAddr, fromAddr.canonical, target.address.canonical, sent, record.key);
 					mirrorPeer(target.address, fromAddr.canonical, target.address.canonical, sent, `${record.key}:to`);
-				} else if (targetWs && !targetWs.data.virtual) {
+				} else if (launching || (targetWs && !targetWs.data.virtual)) {
 					const toAddr = target.address;
 					if (inboundSessionId) {
 						mirrorPeer(toAddr, from, toAddr.canonical, { body: msgBody, files });
@@ -501,6 +614,14 @@ export function createSendRoutes({
 				}
 
 				store.commit(anchor);
+				if (launching) {
+					return jsonResponse({
+						session_id: channelJobId,
+						status: "starting",
+						target: qualifiedTo,
+						message: startingText(qualifiedTo),
+					});
+				}
 				return jsonResponse({
 					session_id: channelJobId,
 					status: "running",
@@ -608,6 +729,7 @@ export function createSendRoutes({
 				body: intent.body,
 				// Creation flag gates session creation.
 				...(intent.displayLabel && intent.createsSession ? { displayLabel: intent.displayLabel } : {}),
+				...(intent.cli && intent.createsSession ? { cli: intent.cli } : {}),
 				...(intent.disposition ? { disposition: intent.disposition } : {}),
 				...(args.files.length > 0 ? { files: args.files } : {}),
 			},

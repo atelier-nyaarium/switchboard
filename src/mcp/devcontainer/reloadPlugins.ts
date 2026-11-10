@@ -7,6 +7,8 @@ import { z } from "zod";
 import { isInsideContainer } from "../../shared/env.js";
 import { assertTmuxName, type TmuxTarget } from "../../shared/host-op.js";
 import { DEFAULT_SESSION } from "../../shared/session-id.js";
+import { containerAt, containerFor } from "./containers.js";
+import { findProjectPath } from "./hostResolve.js";
 import { selfSessionTarget } from "./tmuxCore.js";
 
 ////////////////////////////////
@@ -21,7 +23,7 @@ const ReloadPluginsSchema = z
 				`
 Host-only target \`team\`, e.g. \`evie-bot\`.
 
-Resolves to \`{team}_devcontainer-dev-1\`. Omit for the host session.
+Resolves to that project's dev container. Omit for the host session.
 `.trim(),
 			),
 	})
@@ -124,7 +126,7 @@ export function spawnReloadPlugins(target: TmuxTarget): string {
 		tmuxPrefix = "tmux";
 	} else {
 		assertTmuxName(target.name);
-		tmuxPrefix = `docker exec -u vscode "${target.name}_devcontainer-dev-1" tmux`;
+		tmuxPrefix = `docker exec -u vscode "${containerFor(target.name)}" tmux`;
 	}
 	return writeAndSpawn(buildScript(tmuxPrefix, target.sessionName));
 }
@@ -172,7 +174,7 @@ export function registerReloadPlugins(mcpServer: McpServer): void {
 				} else if (args.team) {
 					// Shell-interpolated into the docker exec prefix.
 					assertTmuxName(args.team);
-					const container = `${args.team}_devcontainer-dev-1`;
+					const container = containerAt(args.team, findProjectPath(args.team));
 					tmuxPrefix = `docker exec -u vscode "${container}" tmux`;
 					targetLabel = `container: ${container}`;
 					sessionName = DEFAULT_SESSION;

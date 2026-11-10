@@ -104,6 +104,17 @@ export const ConsoleOpSchema = z
 		z.object({
 			kind: z.literal("wake"),
 			target: z.string().min(1).max(128),
+			/** The row's CLI, for a session the Gateway holds no record for. */
+			harness: z.enum(SESSION_HARNESSES).optional(),
+		}),
+		// `target` names a container's spawn point.
+		z.object({
+			kind: z.literal("container_start"),
+			target: z.string().min(1).max(128),
+		}),
+		z.object({
+			kind: z.literal("container_stop"),
+			target: z.string().min(1).max(128),
 		}),
 		z.object({
 			kind: z.literal("list_dirs"),
@@ -394,6 +405,8 @@ export const VALUE_OP_KINDS = new Set([
 	"workspace_file_history",
 	"workspace_paint_text",
 	"create_session",
+	"container_start",
+	"container_stop",
 	"reload_plugins",
 	"session_prompt",
 	"session_prompt_answer",

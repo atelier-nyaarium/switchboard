@@ -3,7 +3,9 @@
 import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "./host-op.js";
+import { SendRefusalSchema } from "./launch-notice.js";
 import { VAULT_ROUTE_WAIT_CAP_MS } from "./schemasVault.js";
+import { SESSION_HARNESSES } from "./session-harness.js";
 
 const MAX_TARGET_LEN = 320;
 const requestId = z.string().min(1).max(128);
@@ -39,6 +41,8 @@ export const AssistantSendIntentSchema = z
 		body: z.string(),
 		disposition: z.enum(SEND_DISPOSITIONS).optional(),
 		displayLabel: z.string().min(1).max(64).optional(),
+		/** A created session's CLI; absent takes the place's only one. */
+		cli: z.enum(SESSION_HARNESSES).optional(),
 		/** The label makes an absent target. */
 		createsSession: z.boolean(),
 		files: z.array(AssistantSendFileSchema).max(10),
@@ -73,6 +77,7 @@ export const AssistantSendBodySchema = z.object({
 	to: z.string().min(1).max(MAX_TARGET_LEN),
 	body: z.string().min(1),
 	displayLabel: z.string().min(1).max(64).optional(),
+	cli: z.enum(SESSION_HARNESSES).optional(),
 	disposition: z.enum(SEND_DISPOSITIONS).optional(),
 	files: ChannelFilesSchema.optional(),
 	fromConversationId: z.string().regex(CONVERSATION_ID_RE).max(MAX_CONVERSATION_ID_LEN),
@@ -88,6 +93,8 @@ export const AssistantSendAnswerSchema = z.discriminatedUnion("outcome", [
 		sessionId: z.string(),
 		target: z.string(),
 		guard: z.enum(SEND_GUARDS),
+		/** Queued behind its session's launch. */
+		starting: z.literal(true).optional(),
 	}),
 	z.object({
 		outcome: z.literal("pending"),
@@ -98,7 +105,12 @@ export const AssistantSendAnswerSchema = z.discriminatedUnion("outcome", [
 	z.object({ outcome: z.literal("denied"), note: z.string().optional() }),
 	z.object({ outcome: z.literal("expired") }),
 	z.object({ outcome: z.literal("withdrawn") }),
-	z.object({ outcome: z.literal("failed"), reason: z.string() }),
+	z.object({
+		outcome: z.literal("failed"),
+		reason: z.string(),
+		/** Worded by the tool, at this address. */
+		refused: z.object({ refusal: SendRefusalSchema, target: z.string() }).optional(),
+	}),
 ]);
 
 export type AssistantSendAnswer = z.infer<typeof AssistantSendAnswerSchema>;

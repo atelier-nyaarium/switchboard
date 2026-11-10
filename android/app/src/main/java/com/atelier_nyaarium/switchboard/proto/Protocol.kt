@@ -23,8 +23,8 @@ object Protocol {
 	const val CONSOLE_PROTOCOL_VERSION: Int = 3
 	const val CONSOLE_ANSWER_WAIT_MS: Long = 35000L
 	const val CREATE_SESSION_BOUND_MS: Long = 25000L
-	const val FEDERATION_PROTOCOL_FLOOR: Int = 5
-	const val FEDERATION_PROTOCOL_VERSION: Int = 5
+	const val FEDERATION_PROTOCOL_FLOOR: Int = 6
+	const val FEDERATION_PROTOCOL_VERSION: Int = 6
 	const val MAX_HISTORY_COMMITS: Int = 200
 	const val DEVICE_MAX_RULES: Int = 32
 
@@ -143,6 +143,8 @@ object Protocol {
 			const val CLOSE_SESSION: String = "close_session"
 			const val RENAME_SESSION: String = "rename_session"
 			const val WAKE: String = "wake"
+			const val CONTAINER_START: String = "container_start"
+			const val CONTAINER_STOP: String = "container_stop"
 			const val LIST_DIRS: String = "list_dirs"
 			const val WORKSPACE_TREE: String = "workspace_tree"
 			const val WORKSPACE_FILE: String = "workspace_file"
@@ -778,6 +780,19 @@ sealed class ConsoleOp {
 	@SerialName("wake")
 	data class Wake(
 		val target: String,
+		val harness: String? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("container_start")
+	data class ContainerStart(
+		val target: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("container_stop")
+	data class ContainerStop(
+		val target: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -1356,6 +1371,11 @@ data class ConsoleCreateSessionResult(
 @Serializable
 data class ConsoleReloadPluginsResult(
 	val initiated: Boolean,
+)
+
+@Serializable
+data class ConsoleContainerResult(
+	val accepted: Boolean,
 )
 
 @Serializable
@@ -2069,6 +2089,7 @@ data class AssistantSendIntent(
 	val body: String,
 	val disposition: String? = null,
 	val displayLabel: String? = null,
+	val cli: String? = null,
 	val createsSession: Boolean,
 	val files: List<AssistantSendFile>,
 )
@@ -2965,6 +2986,7 @@ sealed class RunbookFireTarget {
 		val target: String,
 		val displayLabel: String? = null,
 		val workdir: String? = null,
+		val cli: String? = null,
 	) : RunbookFireTarget()
 
 	@Serializable
@@ -3011,6 +3033,7 @@ data class RoutineTarget(
 	val kind: String? = null,
 	val spawn: String,
 	val workdir: String? = null,
+	val cli: String? = null,
 )
 
 @Serializable
@@ -4096,6 +4119,7 @@ data class GatewaySpawnPoints(
 	val harnessSpawns: HarnessSpawns? = null,
 	val claudeSpawns: List<String>? = null,
 	val copilotSpawns: List<String>? = null,
+	val containers: List<ContainerState>? = null,
 )
 
 @Serializable
@@ -4103,6 +4127,14 @@ data class HarnessSpawns(
 	val claude: List<String>? = null,
 	val opencode: List<String>? = null,
 	val copilot: List<String>? = null,
+)
+
+@Serializable
+data class ContainerState(
+	val project: String,
+	val state: String,
+	val failure: String? = null,
+	val clis: List<String>? = null,
 )
 
 @Serializable

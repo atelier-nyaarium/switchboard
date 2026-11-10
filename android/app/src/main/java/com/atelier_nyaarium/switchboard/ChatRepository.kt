@@ -268,6 +268,10 @@ class ChatRepository(
 	internal val presenceHost: PresenceHost = ChatRepositoryPresenceHost(this)
 	internal val presence = PresenceOps(presenceHost)
 	internal val sessions = SessionOps(ChatRepositorySessionHost(this), ports, mutationJournal)
+	internal val sandboxContainers by lazy {
+		SandboxContainerGateway(_state) { block -> repoScope.launch(kotlinx.coroutines.Dispatchers.IO) { block() } }
+	}
+	internal val containers = ContainerOps(ChatRepositoryContainerHost(this))
 	internal val renameOps = RenameOps(ChatRepositoryRenameHost(this))
 	// Staged invite secrets remain memory-only.
 	internal val enrollInvites = java.util.concurrent.ConcurrentHashMap<String, EnrollInvite>()

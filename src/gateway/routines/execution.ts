@@ -53,6 +53,7 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 				.catch((): ReserveResult => ({ kind: "pending" }));
 			if (reserved.kind === "taken") return { ok: false, reason: "session_taken" };
 			if (reserved.kind === "unplaced") return { ok: false, reason: "assistant_unplaced" };
+			if (reserved.kind === "cli_refused") return { ok: false, reason: "cli_refused" };
 			if (reserved.kind === "pending") return { ok: false, reason: "unreachable" };
 			return { ok: true, revision: rendered.revision, snapshot: rendered.text, team: reserved.team };
 		},

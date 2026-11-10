@@ -1,17 +1,15 @@
 import type { ServerWebSocket } from "bun";
+import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { cliRefusalText, pickAt } from "../shared/cli-resolve.js";
 import { type HostOpResult, isReservedHostSession } from "../shared/host-op.js";
-import { isHostSpawn } from "../shared/host-spawn.js";
-import type { SessionHarness } from "../shared/session-harness.js";
+import { isHostSpawn, launchPlaceOf } from "../shared/host-spawn.js";
+import { type SessionHarness, UNPICKED_WORD } from "../shared/session-harness.js";
 import { isComposite, parseSessionName } from "../shared/session-id.js";
 import { resumeIdOf, type SessionStore } from "../shared/session-store.js";
-import { createSingleFlight } from "../shared/single-flight.js";
 import type { PresenceFacade } from "./presence.js";
 import { decideWakeCreate, type WakeCoordinator, type WakeCreate, type WakeResult } from "./wake.js";
 import { reached, sendOn } from "./wsSend.js";
 import { resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
-
-/** A team with no record is a bare project, which runs Claude. */
-const BARE_PROJECT_HARNESS: SessionHarness = "claude";
 
 export interface WakeServiceDeps {
 	registry: TeamRegistry;
@@ -23,17 +21,30 @@ export interface WakeServiceDeps {
 	offlineCatalog: Map<string, string>;
 	liveHostSocket: () => ServerWebSocket<WsData> | undefined;
 	wakeTimeoutMs: number;
+	/** What a spawn point runs; undefined until known. */
+	installedAt?: (spawn: string) => readonly SessionHarness[] | undefined;
 }
+
+/** A wake's two answers: the team it launches, at once, and how it ended. */
+export interface WakeFlight {
+	started: Promise<WakeStart>;
+	outcome: Promise<WakeResult>;
+}
+
+export type WakeStart = { kind: "launching"; team: string; created: boolean } | { kind: "settled"; result: WakeResult };
 
 export class WakeService {
 	// One launch per team.
-	private inflightWakes = createSingleFlight<string, WakeResult>();
+	private flights = new Map<string, WakeFlight>();
+	/** Minted names a flight launches under. */
+	private launching = new Set<string>();
 	private inflightCreates = new Map<string, Promise<HostOpResult>>();
+	private settledListeners: Array<(team: string, result: WakeResult) => void> = [];
 
 	constructor(private deps: WakeServiceDeps) {}
 
 	isWakeInFlight(team: string): boolean {
-		return this.inflightWakes.has(team) || this.inflightCreates.has(team);
+		return this.flights.has(team) || this.launching.has(team) || this.inflightCreates.has(team);
 	}
 
 	/** The first caller launches and is handed the release; the rest join it and get none. */
@@ -57,19 +68,62 @@ export class WakeService {
 		};
 	}
 
-	tryWakeTeam(team: string, createOpts?: WakeCreate): Promise<WakeResult> {
-		if (this.inflightWakes.has(team)) console.log(`[wake] ${team} wake already in flight; joining it`);
-		return this.inflightWakes.run(team, async () => {
-			this.deps.presence.wakeStart(team);
-			try {
-				return await this.doWakeTeam(team, createOpts);
-			} finally {
-				this.deps.presence.wakeEnd(team);
-			}
-		});
+	/** Every launch's end, whoever started it. */
+	onSettled(listener: (team: string, result: WakeResult) => void): void {
+		this.settledListeners.push(listener);
 	}
 
-	private async doWakeTeam(team: string, createOpts?: WakeCreate): Promise<WakeResult> {
+	tryWakeTeam(team: string, createOpts?: WakeCreate): Promise<WakeResult> {
+		return this.beginWake(team, createOpts).outcome;
+	}
+
+	/** Joins a launch in flight for the team, or starts one. */
+	beginWake(team: string, createOpts?: WakeCreate): WakeFlight {
+		const held = this.flights.get(team);
+		if (held) {
+			console.log(`[wake] ${team} wake already in flight; joining it`);
+			return held;
+		}
+		let announce: (start: WakeStart) => void = () => {};
+		const started = new Promise<WakeStart>((resolve) => {
+			announce = resolve;
+		});
+		const outcome = (async () => {
+			this.deps.presence.wakeStart(team);
+			try {
+				const result = await this.doWakeTeam(team, createOpts, (wakeTeam, created) =>
+					announce({ kind: "launching", team: wakeTeam, created }),
+				);
+				announce({ kind: "settled", result });
+				return result;
+			} catch (error) {
+				announce({
+					kind: "settled",
+					result: { ok: false, error: error instanceof Error ? error.message : String(error) },
+				});
+				throw error;
+			} finally {
+				this.deps.presence.wakeEnd(team);
+				this.flights.delete(team);
+			}
+		})();
+		const flight = { started, outcome };
+		this.flights.set(team, flight);
+		return flight;
+	}
+
+	/** A create's CLI where its place's are known; absent waits on the place. */
+	private pickFor(team: string, named: SessionHarness | undefined) {
+		const { project } = parseSessionName(team);
+		const at = { place: launchPlaceOf(project), assistant: team === ASSISTANT_TEAM };
+		return pickAt(at, named, this.deps.installedAt?.(project));
+	}
+
+	private async doWakeTeam(
+		team: string,
+		createOpts: WakeCreate | undefined,
+		onStarted: (wakeTeam: string, created: boolean) => void,
+	): Promise<WakeResult> {
 		const { project, session } = parseSessionName(team);
 		if (this.deps.isAvailableProject(project) && (!isComposite(team) || !this.deps.offlineCatalog.has(project))) {
 			console.log(`[wake] ${team} is a spawn-point project, not a session; not waking`);
@@ -94,7 +148,7 @@ export class WakeService {
 			);
 			if (decision.kind === "refuse") {
 				console.log(`[wake] ${team} has no record and no displayLabel; refusing to adopt the typed name`);
-				return { ok: false, error: decision.error };
+				return { ok: false, error: decision.error, refusal: decision.refusal };
 			}
 			if (decision.kind === "mint" && isHostSpawn(project) && !createOpts?.cleared) {
 				// Only create_session, or a cleared assistant send, mints a host session.
@@ -103,7 +157,14 @@ export class WakeService {
 			}
 			// A label arrives only with create options.
 			if (decision.kind === "mint" && createOpts) {
-				pendingMint = { sessionLabel: decision.sessionLabel, create: createOpts };
+				const pick = this.pickFor(team, createOpts.harness);
+				if ("refused" in pick)
+					return {
+						ok: false,
+						error: cliRefusalText(pick.refused, team),
+						refusal: { kind: "cli", refusal: pick.refused },
+					};
+				pendingMint = { sessionLabel: decision.sessionLabel, create: { ...createOpts, harness: pick.harness } };
 			}
 		}
 
@@ -138,7 +199,8 @@ export class WakeService {
 				type: "wake",
 				team: wakeTeam,
 				...(projectPath ? { projectPath } : {}),
-				harness: record?.harness ?? BARE_PROJECT_HARNESS,
+				// A team with no record runs its place's only CLI.
+				harness: record?.harness ?? UNPICKED_WORD,
 				...(resumeSessionId ? { resumeSessionId } : {}),
 				...(record && record.confirmedAt === undefined ? { fresh: true } : {}),
 				...(workdirHint ? { workdirHint } : {}),
@@ -148,6 +210,7 @@ export class WakeService {
 		);
 		// Dropped wakes never answer.
 		if (!reached(requested)) return { ok: false, errorKind: "disconnected" };
+		onStarted(wakeTeam, provisionalCreated);
 
 		// The id asked for, so a record that comes back repointed can be paired with the request.
 		console.log(
@@ -156,8 +219,17 @@ export class WakeService {
 			}`,
 		);
 
-		const result = await this.deps.wakeCoordinator.waitFor(wakeTeam, this.deps.wakeTimeoutMs);
+		this.launching.add(wakeTeam);
+		const result = await this.deps.wakeCoordinator
+			.waitFor(wakeTeam, this.deps.wakeTimeoutMs)
+			.finally(() => this.launching.delete(wakeTeam));
+		if (result.errorKind === "timeout") {
+			// Given up, so no pane opens for a record about to be forgotten.
+			const live = this.deps.liveHostSocket();
+			if (live) sendOn(live, JSON.stringify({ type: "wake_cancel", team: wakeTeam }), `wake_cancel ${wakeTeam}`);
+		}
 		console.log(`[wake] ${wakeTeam} ${result.ok ? "is now online" : "failed to come online"}`);
+		for (const listener of this.settledListeners) listener(wakeTeam, result);
 		if (!result.ok && provisionalCreated) {
 			// Remove provisional records when the wake never comes online.
 			const rec = this.deps.sessionStore.getByTeam(wakeTeam);

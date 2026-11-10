@@ -1,6 +1,7 @@
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Runbook, runbookRefusal } from "../../shared/schemasRunbook.js";
+import type { CliPick, SessionHarness } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import type { WakeResult } from "../wake.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
@@ -29,6 +30,8 @@ export interface RunbookFireDeps {
 	) => Promise<{ id: string; status?: "pending" }>;
 	awaitRegister?: (team: string) => Promise<WakeResult>;
 	deliver: (to: string, body: string, ctx: RunbookFireContext) => Promise<{ ok: boolean; error?: string }>;
+	/** The CLI a new session runs, or why none. */
+	pick: (spawn: string, pick: CliPick | undefined) => { harness: SessionHarness } | { refused: string };
 }
 
 export function createRunbookFireHandler({
@@ -37,6 +40,7 @@ export function createRunbookFireHandler({
 	createSession,
 	awaitRegister,
 	deliver,
+	pick,
 }: RunbookFireDeps) {
 	/** Launch and send share no ordering, so registration comes before the body goes out. */
 	async function intoNewSession(
@@ -44,13 +48,15 @@ export function createRunbookFireHandler({
 		runbook: Pick<Runbook, "name">,
 		ctx: RunbookFireContext,
 	): Promise<{ team: string; sessionId: string } | RunbookFireResult> {
+		const chosen = pick(targets.localSpawn(into.target), into.cli);
+		if ("refused" in chosen) return { fired: false, reason: chosen.refused };
 		const created = await createSession(
 			{
 				kind: "create_session",
 				target: into.target,
 				displayLabel: into.displayLabel ?? runbook.name,
 				workdir: into.workdir,
-				harness: "claude",
+				harness: chosen.harness,
 			},
 			ctx.conversationId,
 			ctx.opId,

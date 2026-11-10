@@ -195,8 +195,13 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		(team) => workflows?.runner.running().some((run) => run.team === team) ?? false,
 	);
 	const awareness = composeAwareness({
+		dataDir: bootstrap.dataDir,
 		sessions,
 		host,
+		stores,
+		deliveries: requireDeliveries,
+		relayLaunch: async (relay, notice) => (await routes?.current()?.pushLaunch(relay, notice)) ?? false,
+		wakeTimeoutMs: config.wakeTimeoutMs,
 		agents,
 		workflows,
 		ambient: bootstrap.ambient,

@@ -57,12 +57,12 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 	const compacting = new Set<string>();
 	const baselinePushed = (team: string) => {
 		const record = sessions.sessionStore.getByTeam(team);
-		return !!record && pushesBaseline(record.harness);
+		return !!record?.harness && pushesBaseline(record.harness);
 	};
 	/** Its plugin reports its state, not the daemon. */
 	const reportsOwnState = (team: string): boolean => {
 		const record = sessions.sessionStore.getByTeam(team);
-		return !!record && readsOwnState(record.harness);
+		return !!record?.harness && readsOwnState(record.harness);
 	};
 	let baselineDue: ((team: string) => void) | undefined;
 	let restartPending: ((team: string, pending: boolean) => void) | undefined;
@@ -158,6 +158,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 				sessions.presence.markDirty();
 			}
 		},
+		onSpawnPointsChange: () => sessions.presence.markDirty(),
 		onCatalogChange: (daemonInstanceId) => {
 			sessions.presence.markDirty();
 			const socket = hostRegisterSocket;

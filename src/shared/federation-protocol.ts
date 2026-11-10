@@ -2,9 +2,11 @@ import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SealedEnvelopeSchema, sign, verify } from "./crypto.js";
 import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "./host-op.js";
+import { LaunchNoticeSchema } from "./launch-notice.js";
 import { NOTICE_TITLE_MAX, NoticeTierWireFields } from "./notice.js";
 import { RECORD_SUMMARY_MAX, RECORD_THREADS_MAX, RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { SEND_GUARDS } from "./schemasAssistantSend.js";
+import { SESSION_HARNESSES } from "./session-harness.js";
 import { isSlug } from "./session-id.js";
 import { REPLY_READERS } from "./types.js";
 import { SIGNING_TAGS } from "./wire-vocabulary.js";
@@ -115,6 +117,7 @@ export const FederatedOpSchema = z.discriminatedUnion("kind", [
 		body: z.string(),
 		files: ChannelFilesSchema.optional(),
 		displayLabel: z.string().min(1).max(64).optional(),
+		cli: z.enum(SESSION_HARNESSES).optional(),
 		disposition: z.enum(["asking", "informing", "closing"]).optional(),
 		returnRoute: ReturnRouteSchema,
 		reader: RelayedReaderSchema,
@@ -130,6 +133,8 @@ export const FederatedOpSchema = z.discriminatedUnion("kind", [
 		question: z.string().optional(),
 		reason: z.string().optional(),
 		files: ChannelFilesSchema.optional(),
+		/** How the session a relayed send waits on came up; banked, never a reply. */
+		launch: LaunchNoticeSchema.optional(),
 	}),
 ]);
 

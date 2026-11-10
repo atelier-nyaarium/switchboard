@@ -3,7 +3,13 @@ import type { BoardDisposition } from "../../shared/board-authority.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { type HostOp, type HostOpResult, isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { launchPlaceOf } from "../../shared/host-spawn.js";
-import { foldHarness, launchRefusal, olderThanSender, readHarness } from "../../shared/session-harness.js";
+import {
+	foldHarness,
+	launchRefusal,
+	olderThanSender,
+	readHarness,
+	UNNAMED_HARNESS,
+} from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
 import { resumeIdOf, type SessionRecord, type SessionStore } from "../../shared/session-store.js";
@@ -77,6 +83,9 @@ export function createSessionLifecycleHandlers({
 		const harness = foldHarness(readHarness(op.harness), {
 			named: (named) => named,
 			unnamed: (assumed) => assumed,
+			unpicked: () => {
+				throw new Error("a console create names its CLI");
+			},
 			unknown: (word) => {
 				throw new Error(olderThanSender(word));
 			},
@@ -202,7 +211,8 @@ export function createSessionLifecycleHandlers({
 						spawn,
 						sessionLabel: session,
 						workdirHint: session,
-						harness: "claude",
+						// FIXME 2026-11-24: drop the fallback, once every phone names the row's CLI.
+						harness: op.harness ?? UNNAMED_HARNESS,
 					})
 				: null;
 		const mayForget = () => {

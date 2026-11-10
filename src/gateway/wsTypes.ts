@@ -46,6 +46,8 @@ export interface WebSocketDeps {
 	onTeamDisconnect?: (team: string) => void;
 	onDeliveryAck?: (team: string, deliveryId: string) => void;
 	onCatalogChange?: (daemonInstanceId: string | undefined) => void;
+	/** Container state moved between catalogs. */
+	onSpawnPointsChange?: () => void;
 	onPresenceDerive?: (team: string, derived: DerivedPresence | undefined) => void;
 	/** A session's pane waits on a restart to apply an installed update. */
 	onRestartPending?: (team: string, pending: boolean) => void;

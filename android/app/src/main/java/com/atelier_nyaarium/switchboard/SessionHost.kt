@@ -80,7 +80,11 @@ internal class ChatRepositorySessionHost(private val repo: ChatRepository) : Ses
 		workdir: String?,
 		opId: String,
 		harness: String,
-	) = repo.client().createSession(target, sessionName, displayLabel, workdir, opId, harness)
+	) = if (isSandbox) {
+		repo.sandboxContainers.create(target, sessionName, displayLabel, harness)
+	} else {
+		repo.client().createSession(target, sessionName, displayLabel, workdir, opId, harness)
+	}
 	override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) =
 		repo.client().tmuxSend(team, text, key, submit)
 	override suspend fun listDirs(path: String, hostTarget: String, spawn: String) =

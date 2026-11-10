@@ -79,6 +79,15 @@ suspend fun ConsoleClient.createSession(
 ): ConsoleCreateSessionResult =
 	valueResult(sendValueOp(transport.gatewayOf(target), ConsoleOp.CreateSession(target = target, sessionName = sessionName, displayLabel = displayLabel, workdir = workdir, harness = harness), opId), Protocol.Wire.ConsoleOpKind.CREATE_SESSION)
 
+/** `target` is the container's spawn point. */
+suspend fun ConsoleClient.containerStart(target: String, opId: String = ambient.newOpId()) {
+	valueResult<JsonObject>(sendValueOp(transport.gatewayOf(target), ConsoleOp.ContainerStart(target), opId), Protocol.Wire.ConsoleOpKind.CONTAINER_START)
+}
+
+suspend fun ConsoleClient.containerStop(target: String, opId: String = ambient.newOpId()) {
+	valueResult<JsonObject>(sendValueOp(transport.gatewayOf(target), ConsoleOp.ContainerStop(target), opId), Protocol.Wire.ConsoleOpKind.CONTAINER_STOP)
+}
+
 // Resolve paths on the host target.
 suspend fun ConsoleClient.listDirs(path: String, hostTarget: String, spawn: String): ConsoleListDirsResult =
 	valueResult(sendValueOp(transport.gatewayOf(hostTarget), ConsoleOp.ListDirs(path = path, spawn = spawn)), Protocol.Wire.ConsoleOpKind.LIST_DIRS)

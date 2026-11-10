@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { GATEWAY_NETWORK } from "../../shared/gateway-network.js";
 import { appendBuildTranscript, beginBuildTranscript } from "./buildTranscript.js";
+import type { ContainerUpOptions } from "./containers.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -57,27 +58,7 @@ export function resolveProject(projectPath: string): string {
 
 // Container lifecycle
 
-function teardownContainer(projectPath: string): void {
-	const projectName = path.basename(projectPath);
-	const composeName = `${projectName}_devcontainer`;
-	try {
-		execSync(`docker compose -p "${composeName}" down --remove-orphans`, {
-			encoding: "utf-8",
-			stdio: "pipe",
-		});
-	} catch {
-		// Non-fatal. Compose project may not exist yet.
-	}
-	try {
-		execSync(`docker network ls --filter "name=${composeName}" -q | xargs -r docker network rm`, {
-			encoding: "utf-8",
-			shell: "/bin/bash",
-			stdio: "pipe",
-		});
-	} catch {
-		// non-fatal
-	}
-}
+type CliEnv = NodeJS.ProcessEnv;
 
 function parseDevcontainerOutput(output: string, projectPath: string): void {
 	const lines = output.trim().split("\n");
@@ -95,11 +76,12 @@ function parseDevcontainerOutput(output: string, projectPath: string): void {
 	}
 }
 
-function isContainerReady(projectPath: string): boolean {
+function isContainerReady(projectPath: string, env: CliEnv): boolean {
 	try {
 		execSync(`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" echo ok`, {
 			timeout: 15_000,
 			stdio: "pipe",
+			env,
 		});
 		return true;
 	} catch {
@@ -132,11 +114,11 @@ const MCP_SERVERS = JSON.stringify({
 	},
 });
 
-function hasPluginSettings(projectPath: string): boolean {
+function hasPluginSettings(projectPath: string, env: CliEnv): boolean {
 	try {
 		const result = execSync(
 			`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" bash -c "jq -e '.plugins[\\"switchboard@atelier-nyaarium\\"]' /home/vscode/.claude/plugins/installed_plugins.json 2>/dev/null"`,
-			{ encoding: "utf-8", timeout: 10_000, stdio: "pipe" },
+			{ encoding: "utf-8", timeout: 10_000, stdio: "pipe", env },
 		);
 		return result.trim().length > 0 && result.trim() !== "null";
 	} catch {
@@ -144,7 +126,7 @@ function hasPluginSettings(projectPath: string): boolean {
 	}
 }
 
-function provisionPluginSettings(projectPath: string): void {
+function provisionPluginSettings(projectPath: string, env: CliEnv): void {
 	const bin = devcontainerBin();
 	const settingsPath = "/home/vscode/.claude/settings.json";
 	const claudeJson = "/home/vscode/.claude.json";
@@ -158,6 +140,7 @@ function provisionPluginSettings(projectPath: string): void {
 	execSync(`"${bin}" exec --workspace-folder "${projectPath}" bash -lc "${installSteps.replace(/"/g, '\\"')}"`, {
 		encoding: "utf-8",
 		timeout: 120_000,
+		env,
 	});
 
 	// jq-merge autoUpdate into the entry the CLI wrote, and nyaascripts into ~/.claude.json.
@@ -177,6 +160,7 @@ function provisionPluginSettings(projectPath: string): void {
 	execSync(`"${bin}" exec --workspace-folder "${projectPath}" bash -c "${cmd.replace(/"/g, '\\"')}"`, {
 		encoding: "utf-8",
 		timeout: 10_000,
+		env,
 	});
 	console.log(`[devcontainer] provisioned plugins for '${projectPath}'`);
 }
@@ -187,14 +171,26 @@ const STDOUT_TAIL_CHARS = 65_536;
 /** Buildx bake refuses the CLI's out-of-context Dockerfile. */
 const DEVCONTAINER_ENV = { BUILDX_BAKE_ENTITLEMENTS_FS: "0" } as const;
 
-/** One CLI run, both streams into the project's transcript as they arrive. */
-function runDevcontainer(project: string, args: string[]): Promise<{ code: number | null; stdout: string }> {
+/** One CLI run, both streams into the project's transcript as they arrive. An abort kills its group. */
+function runDevcontainer(
+	project: string,
+	args: string[],
+	env: CliEnv,
+	signal: AbortSignal,
+): Promise<{ code: number | null; stdout: string }> {
 	appendBuildTranscript(project, `$ devcontainer ${args.join(" ")}\n`);
 	return new Promise((resolve) => {
-		const child = spawn(devcontainerBin(), args, {
-			stdio: ["ignore", "pipe", "pipe"],
-			env: { ...process.env, ...DEVCONTAINER_ENV },
-		});
+		// Own group, so a kill reaches its docker children.
+		const child = spawn(devcontainerBin(), args, { stdio: ["ignore", "pipe", "pipe"], env, detached: true });
+		const kill = () => {
+			try {
+				if (child.pid) process.kill(-child.pid, "SIGTERM");
+			} catch {
+				child.kill("SIGTERM");
+			}
+		};
+		signal.addEventListener("abort", kill, { once: true });
+		child.on("close", () => signal.removeEventListener("abort", kill));
 		let stdout = "";
 		child.stdout.on("data", (chunk: Buffer) => {
 			const text = chunk.toString("utf8");
@@ -230,29 +226,49 @@ export function joinGatewayNetwork(projectPath: string, docker: DockerRun = runD
 	console.error(`[devcontainer] joined ${GATEWAY_NETWORK}: ${path.basename(projectPath)}`);
 }
 
-export async function ensureContainerUpAsync(projectPath: string): Promise<ContainerUpResult> {
-	if (isContainerReady(projectPath)) {
+/** Only through DevContainers. */
+export async function ensureContainerUpAsync(
+	projectPath: string,
+	opts: ContainerUpOptions,
+): Promise<ContainerUpResult> {
+	const { signal } = opts;
+	const env: CliEnv = { ...process.env, ...DEVCONTAINER_ENV, TMPDIR: opts.tmpdir };
+	if (isContainerReady(projectPath, env)) {
 		joinGatewayNetwork(projectPath);
 		return { wasAlreadyRunning: true, pluginsProvisioned: false };
 	}
 
+	opts.onStarting();
 	const project = path.basename(projectPath);
 	beginBuildTranscript(project);
-	teardownContainer(projectPath);
+	await opts.teardown();
+	signal.throwIfAborted();
 
-	const up = await runDevcontainer(project, ["up", "--workspace-folder", projectPath, "--remove-existing-container"]);
+	const up = await runDevcontainer(
+		project,
+		["up", "--workspace-folder", projectPath, "--remove-existing-container"],
+		env,
+		signal,
+	);
+	signal.throwIfAborted();
 	if (up.code !== 0) throw new Error(`devcontainer up failed for '${projectPath}' (exit ${up.code ?? "signal"})`);
 	parseDevcontainerOutput(up.stdout, projectPath);
 	// Before lifecycle commands, which may reach the Gateway.
 	joinGatewayNetwork(projectPath);
 
-	const lifecycle = await runDevcontainer(project, ["run-user-commands", "--workspace-folder", projectPath]);
+	const lifecycle = await runDevcontainer(
+		project,
+		["run-user-commands", "--workspace-folder", projectPath],
+		env,
+		signal,
+	);
+	signal.throwIfAborted();
 	if (lifecycle.code !== 0) console.error(`[devcontainer] run-user-commands failed for '${projectPath}' (non-fatal)`);
 
 	let pluginsProvisioned = false;
-	if (!hasPluginSettings(projectPath)) {
+	if (!hasPluginSettings(projectPath, env)) {
 		try {
-			provisionPluginSettings(projectPath);
+			provisionPluginSettings(projectPath, env);
 			pluginsProvisioned = true;
 		} catch (e) {
 			const message = (e as Error).message;

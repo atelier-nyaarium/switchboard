@@ -23,7 +23,9 @@ export type ReserveResult =
 	/** Launching holds the occurrence until next tick. */
 	| { kind: "pending" }
 	| { kind: "taken" }
-	| { kind: "unplaced" };
+	| { kind: "unplaced" }
+	/** Its pick is not installed, or it named none where there are several. */
+	| { kind: "cli_refused" };
 
 /** Gateway-owned facts validate routine targets. */
 export interface TargetFacts {
@@ -88,6 +90,8 @@ const ASSISTANT_RULES: TargetRules = {
 };
 
 export const UNPLACED_REASON = "the assistant isn't set up on this Gateway";
+
+export const CLI_REFUSED_REASON = "its CLI is not installed on that spawn point, or it needs one picked";
 
 export function targetRules(routine: Routine): TargetRules {
 	return targetKind(routine.target) === "assistant" ? ASSISTANT_RULES : SPAWN_RULES;

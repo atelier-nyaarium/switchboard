@@ -198,6 +198,11 @@ export class PendingDeliveryStore {
 		}
 	}
 
+	/** Retires a row that was never emitted. */
+	withdraw(deliveryId: string): boolean | typeof MIGRATING {
+		return this.outbox.retire(deliveryId);
+	}
+
 	failTeam(team: string): PendingDelivery[] | typeof MIGRATING {
 		return this.outbox.retireWhere((delivery) => delivery.team === team);
 	}

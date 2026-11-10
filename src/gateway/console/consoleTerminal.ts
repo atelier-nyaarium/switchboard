@@ -64,9 +64,8 @@ export function createTerminalHandlers({
 		if (op.key != null) {
 			if (!ALLOWED_KEYS.has(op.key)) throw new Error(`disallowed key "${op.key}"`);
 			const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
-			if (record && HARNESS[record.harness].refusedKeys.includes(op.key)) {
-				throw new Error(`${HARNESS[record.harness].label} exits on that key`);
-			}
+			const row = record?.harness ? HARNESS[record.harness] : undefined;
+			if (row?.refusedKeys.includes(op.key)) throw new Error(`${row.label} exits on that key`);
 			hostOp = { kind: "sendKey", target, key: op.key, dedupKey };
 		} else {
 			hostOp = { kind: "sendText", target, text: op.text ?? "", submit: op.submit ?? true, dedupKey };
@@ -102,7 +101,8 @@ export function createTerminalHandlers({
 		assertSwitchboardLaunched(target);
 		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
 		// The reload drives Claude's plugin UI.
-		if (record && !HARNESS[record.harness].claudeSlashTools) {
+		if (record && !record.harness) throw new Error("the session is still starting");
+		if (record?.harness && !HARNESS[record.harness].claudeSlashTools) {
 			throw new Error(`${HARNESS[record.harness].label} sessions have no plugin reload`);
 		}
 		const dedupKey = `${conversationId}:${opId}`;
@@ -159,8 +159,8 @@ export function createTerminalHandlers({
 		const target = targets.tmuxTarget(op.target);
 		assertSwitchboardLaunched(target);
 		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
-		// A session with no record is a pane.
-		const road = record ? HARNESS[record.harness].road.kind : "pane";
+		// A session with no record, or none named yet, is a pane.
+		const road = record?.harness ? HARNESS[record.harness].road.kind : "pane";
 		return PROMPT_ANSWERERS[road](target, op, `${conversationId}:${opId}`);
 	}
 

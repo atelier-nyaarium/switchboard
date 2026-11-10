@@ -43,6 +43,7 @@ import {
 	ConsoleVaultRevokeResultSchema,
 } from "./schemasVault.js";
 import { WorkspaceOpAnswerSchema } from "./schemasWorkspace.js";
+import { SESSION_HARNESSES } from "./session-harness.js";
 
 ////////////////////////////////
 //  Op result schemas (gateway -> console)
@@ -88,12 +89,25 @@ export const DiscoverCoverageSchema = z
 	.meta({ id: "DiscoverCoverage" });
 
 /** `/discover?coverage=1` response. */
+export const SpawnClisSchema = z
+	.object({
+		domainId: z.string().min(1),
+		gatewayId: z.string().min(1),
+		spawn: z.string().min(1).max(64),
+		clis: z.array(z.enum(SESSION_HARNESSES)).max(SESSION_HARNESSES.length),
+	})
+	.meta({ id: "SpawnClis" });
+
+export type SpawnClis = z.infer<typeof SpawnClisSchema>;
+
 export const DiscoverAnswerSchema = z
 	.object({
 		teams: z.array(TeamInfoSchema),
 		coverage: DiscoverCoverageSchema,
 		localGatewayId: z.string().min(1),
 		localDomainId: z.string().min(1),
+		/** Spawn points whose CLIs are known. */
+		spawnClis: z.array(SpawnClisSchema).max(512).optional(),
 	})
 	.meta({ id: "DiscoverAnswer" });
 
@@ -212,6 +226,11 @@ export const ConsoleCreateSessionResultSchema = z
 		status: z.enum(["pending"]).optional(),
 	})
 	.meta({ id: "ConsoleCreateSessionResult" });
+
+/** Queued; how it went rides the container state. */
+export const ConsoleContainerResultSchema = z
+	.object({ accepted: z.boolean() })
+	.meta({ id: "ConsoleContainerResult" });
 
 export const ConsoleReloadPluginsResultSchema = z
 	.object({
@@ -432,6 +451,7 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleTmuxSendResultSchema,
 	ConsoleCreateSessionResultSchema,
 	ConsoleReloadPluginsResultSchema,
+	ConsoleContainerResultSchema,
 	ConsoleSessionPromptResultSchema,
 	ConsoleSessionPromptAnswerResultSchema,
 	ConsoleForgetResultSchema,

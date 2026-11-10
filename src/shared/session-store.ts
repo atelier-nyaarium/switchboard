@@ -28,8 +28,8 @@ export interface SessionRecord {
 	workdirHint?: string;
 	workdirPath?: string;
 	claudeSessionId?: string;
-	/** Fixed at create. */
-	harness: SessionHarness;
+	/** Fixed at create; absent only while a create waits on its place to name it. */
+	harness?: SessionHarness;
 	/** Minted for a CLI that takes its id. */
 	mintedSessionId?: string;
 	mintedFrom?: string;
@@ -42,6 +42,7 @@ export interface SessionRecord {
 
 /** The id a launch resumes under. */
 export function resumeIdOf(record: SessionRecord): string | undefined {
+	if (!record.harness) return undefined;
 	return HARNESS[record.harness].sessionId.minted ? record.mintedSessionId : record.claudeSessionId;
 }
 
@@ -108,7 +109,8 @@ interface CreateOpts {
 	workdirHint?: string;
 	workdirPath?: string;
 	claudeSessionId?: string;
-	harness: SessionHarness;
+	/** Absent waits on the place. */
+	harness?: SessionHarness;
 	mintedFrom?: string;
 }
 
@@ -324,6 +326,16 @@ export class SessionStore {
 		return existing ? { record: existing, created: false } : null;
 	}
 
+	/** Names a pending create's CLI, once. */
+	resolvePick(team: string, harness: SessionHarness): SessionRecord | null {
+		const record = this.records.get(team);
+		if (!record || record.harness) return record?.harness === harness ? record : null;
+		const policy = HARNESS[harness].sessionId;
+		record.harness = harness;
+		if (policy.minted) record.mintedSessionId = policy.mint(this.uuidGen);
+		return record;
+	}
+
 	mintOrReattach(opts: CreateOpts): { record: SessionRecord; created: boolean } {
 		const existing = opts.mintedFrom ? this.findByMintedFrom(opts.mintedFrom, opts.spawn) : undefined;
 		if (existing) return { record: existing, created: false };
@@ -524,18 +536,20 @@ export class SessionStore {
 			const harness = foldHarness(readHarness(v.harness), {
 				named: (named) => named,
 				unnamed: (assumed) => assumed,
+				unpicked: () => undefined,
 				// A newer build's CLI.
 				unknown: () => null,
 			});
-			if (!harness) {
+			if (harness === null) {
 				console.log(`[session] ${team} held unread: unknown CLI`);
 				this.unread.set(team, value);
 				continue;
 			}
-			const policy = HARNESS[harness].sessionId;
+			const policy = harness ? HARNESS[harness].sessionId : undefined;
 			// FIXME 2026-11-23: drop the `copilotSessionId` read.
 			const stored = v.mintedSessionId ?? v.copilotSessionId;
-			const heldId = policy.minted ? (mintedIdOf(harness, stored) ?? policy.mint(this.uuidGen)) : undefined;
+			const heldId =
+				harness && policy?.minted ? (mintedIdOf(harness, stored) ?? policy.mint(this.uuidGen)) : undefined;
 			const record: SessionRecord = {
 				id: segment,
 				sessionLabel: this.dedupLabel(spawn, sanitizeLabel(v.sessionLabel) ?? segment),
@@ -543,7 +557,7 @@ export class SessionStore {
 				workdirHint: sanitizeLabel(v.workdirHint) ?? undefined,
 				workdirPath: sanitizeWorkdirPath(v.workdirPath) ?? undefined,
 				claudeSessionId: typeof v.claudeSessionId === "string" ? v.claudeSessionId : undefined,
-				harness,
+				...(harness ? { harness } : {}),
 				...(heldId ? { mintedSessionId: heldId } : {}),
 				mintedFrom: typeof v.mintedFrom === "string" ? v.mintedFrom : undefined,
 				// Restored records never mint a token for an unbound session.
@@ -577,7 +591,7 @@ export class SessionStore {
 	}
 
 	private create(id: string, opts: CreateOpts): SessionRecord {
-		const policy = HARNESS[opts.harness].sessionId;
+		const policy = opts.harness ? HARNESS[opts.harness].sessionId : undefined;
 		const record: SessionRecord = {
 			id,
 			sessionLabel: this.dedupLabel(opts.spawn, sanitizeLabel(opts.sessionLabel) ?? id),
@@ -585,8 +599,8 @@ export class SessionStore {
 			workdirHint: sanitizeLabel(opts.workdirHint) ?? undefined,
 			workdirPath: sanitizeWorkdirPath(opts.workdirPath) ?? undefined,
 			claudeSessionId: opts.claudeSessionId,
-			harness: opts.harness,
-			...(policy.minted ? { mintedSessionId: policy.mint(this.uuidGen) } : {}),
+			...(opts.harness ? { harness: opts.harness } : {}),
+			...(policy?.minted ? { mintedSessionId: policy.mint(this.uuidGen) } : {}),
 			mintedFrom: opts.mintedFrom,
 			lastSeen: this.now(),
 		};

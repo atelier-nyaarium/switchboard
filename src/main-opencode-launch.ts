@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { type LauncherPorts, parseLaunchArgs, runLauncher, type ServerHandle } from "./opencode-launch/launcher.js";
 import { writeFileAtomic } from "./shared/atomic-write.js";
-import { readLaunchStatus } from "./shared/launch-status.js";
+import { launchGoing, readLaunchStatus } from "./shared/launch-status.js";
 import { moduleDir, packageRoot } from "./shared/plugin-root.js";
 import { installRejectionGuard } from "./shared/process-guards.js";
 import { FIRST_LAUNCH_GREETING } from "./shared/session-harness.js";
@@ -31,18 +31,27 @@ if (!args) {
 
 installRejectionGuard("opencode-launch");
 
+const SIGNALED = 129;
+
 const privateDirs: string[] = [];
-const removeLeftovers = (): void => {
+const leave = (): void => {
 	for (const dir of privateDirs) fs.rmSync(dir, { recursive: true, force: true });
 	// A relaunch may already own it.
 	const held = readLaunchStatus(readText(args.statusFile));
-	if (held?.pid === process.pid) fs.rmSync(args.statusFile, { force: true });
+	if (held?.pid !== process.pid || !launchGoing(held)) return;
+	try {
+		writeFileAtomic(args.statusFile, JSON.stringify({ state: "exited", pid: process.pid, code: SIGNALED }), {
+			mode: 0o600,
+		});
+	} catch {
+		// Its pane is gone with it.
+	}
 };
 // The server ends with this process's pipe.
 for (const signal of ["SIGHUP", "SIGTERM", "SIGINT"] as const) {
 	process.on(signal, () => {
-		removeLeftovers();
-		process.exit(129);
+		leave();
+		process.exit(SIGNALED);
 	});
 }
 

@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { parseBody, placeholdersOf } from "./runbook-grammar.js";
+import { CLI_PICKS } from "./session-harness.js";
 
 // Size is the owner's own to spend: these ops reach one gateway, authenticated as its owner, and
 // the console path's 64 MiB body cap is the only ceiling.
@@ -67,6 +68,8 @@ export const RunbookFireTargetSchema = z
 			/** Defaults to the runbook's name. */
 			displayLabel: z.string().min(1).optional(),
 			workdir: z.string().min(1).optional(),
+			/** Absent or `unpicked` takes the spawn point's only CLI. */
+			cli: z.enum(CLI_PICKS).optional(),
 		}),
 		z.object({ kind: z.literal("session"), target: z.string().min(1).max(128) }),
 	])

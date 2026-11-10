@@ -353,9 +353,12 @@ fun CreateSessionDialog(
 // server-side rejection once submitted.
 internal const val SESSION_LABEL_MAX_CHARS = 64
 
-/** The CLIs a spawn point runs, in the order they are offered. */
+/** The CLIs a spawn point runs, in the order they are offered. Unknown offers every one. */
 internal fun harnessesOf(held: SpawnHarnesses): List<SessionHarness> =
-	SessionHarness.entries.filter { it in held.installed }
+	when (held) {
+		SpawnHarnesses.Unknown -> SessionHarness.entries
+		is SpawnHarnesses.Known -> SessionHarness.entries.filter { it in held.installed }
+	}
 
 /** The projects whose spawn point runs any CLI. */
 internal fun spawnableProjects(projects: List<String>, harnessesOn: (String) -> SpawnHarnesses): List<String> =

@@ -3,9 +3,11 @@ package com.atelier_nyaarium.switchboard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -15,8 +17,10 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -233,8 +237,7 @@ internal fun LinkedFriendSessionRow(session: CrossDomainPresenceSession) {
 	}
 }
 
-/** A devcontainer project's spawn-point row: a purely informational display. Creating a session
- * happens via the Gateway row's Create button. The project itself is never a chat (clean break). */
+/** A project its Gateway reports no container state for: display only. Never a chat. */
 @Composable
 internal fun SpawnPointHeader(project: String, online: Boolean) {
 	Row(
@@ -248,6 +251,60 @@ internal fun SpawnPointHeader(project: String, online: Boolean) {
 			style = MaterialTheme.typography.labelSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
+	}
+}
+
+/** An advertised dev container: its buttons from [containerButtons], and its last failure. */
+@Composable
+internal fun ContainerHeader(
+	project: String,
+	failure: String?,
+	buttons: ContainerButtons,
+	onStart: () -> Unit,
+	onStop: () -> Unit,
+	onCreate: () -> Unit,
+) {
+	val compact = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
+	Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp)) {
+		Row(verticalAlignment = Alignment.CenterVertically) {
+			Text(
+				project,
+				style = MaterialTheme.typography.titleSmall,
+				fontFamily = FontFamily.Monospace,
+				maxLines = 1,
+				overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+				modifier = Modifier.weight(1f),
+			)
+			if (buttons.building) {
+				CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+				Spacer(Modifier.width(8.dp))
+			}
+			if (buttons.start) {
+				OutlinedButton(onClick = hapticClick(onStart), enabled = !buttons.busy, contentPadding = compact, modifier = Modifier.height(32.dp)) {
+					Text("Start")
+				}
+			}
+			if (buttons.stop) {
+				OutlinedButton(onClick = hapticClick(onStop), enabled = !buttons.busy, contentPadding = compact, modifier = Modifier.height(32.dp)) {
+					Text("Stop")
+				}
+			}
+			if (buttons.create) {
+				Spacer(Modifier.width(6.dp))
+				Button(onClick = hapticClick(onCreate), contentPadding = compact, modifier = Modifier.height(32.dp)) {
+					Text("Create")
+				}
+			}
+		}
+		failure?.let {
+			Text(
+				it,
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.error,
+				maxLines = 2,
+				overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+			)
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "../shared/host-op.j
 import { NoticeFull, NoticeFullSpoken, NoticeSummary, NoticeTierWireFields, NoticeTitle } from "../shared/notice.js";
 import { MAX_BLOB_BYTES } from "../shared/router-protocol.js";
 import { BOARD_BODY_MAX, ChannelFilesSchema } from "../shared/schemas.js";
+import { SESSION_HARNESSES } from "../shared/session-harness.js";
 import { isSlug } from "../shared/session-id.js";
 import type { ChannelFile, ConnectionMode } from "../shared/types.js";
 import type { WsData } from "./wsTypes.js";
@@ -32,6 +33,7 @@ export const SendRequestSchema = z.object({
 	targetDomainId: z.string().optional(),
 	body: z.string().optional(),
 	displayLabel: z.string().min(1).max(64).optional(),
+	cli: z.enum(SESSION_HARNESSES).optional(),
 	disposition: z.enum(["asking", "informing", "closing"]).optional(),
 	session_id: z.string().optional(),
 	debug: z.boolean().optional(),

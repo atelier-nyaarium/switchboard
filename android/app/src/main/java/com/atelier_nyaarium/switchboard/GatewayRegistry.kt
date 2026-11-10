@@ -3,13 +3,16 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.proto.ContainerState
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
+import com.atelier_nyaarium.switchboard.proto.readHarness
 import com.atelier_nyaarium.switchboard.proto.spawnsOf
 
 /** `NeverLoaded` differs from empty. */
@@ -18,13 +21,35 @@ enum class RegistryProvenance { NeverLoaded, Cached, Current }
 /** What the roster says about one Gateway. */
 enum class GatewayStanding { Unknown, NeverSeen, Offline, Online }
 
-/** The session CLIs one spawn point's shell has. */
-data class SpawnHarnesses(val installed: Set<SessionHarness>) {
+/** The session CLIs one spawn point has. */
+sealed interface SpawnHarnesses {
+	/** Nobody has looked yet. */
+	data object Unknown : SpawnHarnesses
+
+	data class Known(val installed: Set<SessionHarness>) : SpawnHarnesses
+}
+
+/** A dev container's run state, as its Gateway reports it. */
+enum class ContainerRun(val wire: String) {
+	STOPPED("stopped"),
+	STARTING("starting"),
+	RUNNING("running"),
+	;
+
 	companion object {
-		/** Every CLI a container may run. A devcontainer is not probed. */
-		val RUNS_IN_CONTAINERS = SpawnHarnesses(SessionHarness.entries.filter { it.containers }.toSet())
+		/** Null for a newer Gateway's word. */
+		fun of(wire: String): ContainerRun? = entries.find { it.wire == wire }
 	}
 }
+
+/** One advertised dev container. */
+data class SpawnContainer(
+	val project: String,
+	val run: ContainerRun?,
+	/** The last Start or Stop that failed. */
+	val failure: String?,
+	val harnesses: SpawnHarnesses,
+)
 
 data class GatewayEntry(
 	val id: String,
@@ -35,6 +60,8 @@ data class GatewayEntry(
 	val hostSpawns: List<String>? = null,
 	/** Spawn points per CLI. Null with no row. */
 	val harnessSpawns: Map<SessionHarness, List<String>>? = null,
+	/** Null from a Gateway that reports none. */
+	val containers: List<SpawnContainer>? = null,
 	val routines: List<RoutineState>? = null,
 	val runbooks: List<Runbook>? = null,
 	val policies: List<AuthorizationPolicy>? = null,
@@ -73,20 +100,31 @@ data class GatewayRegistry(
 
 	fun hostSpawns(gatewayId: String): List<String>? = entry(gatewayId)?.hostSpawns
 
-	/** [harnessesOn] for a session's spawn point. An unparsed address reads as a container. */
+	/** [harnessesOn] for a session's spawn point. */
 	fun harnessesOnSession(address: String): SpawnHarnesses {
 		val parsed = runIsolated { parseQualifiedTarget(address) }.getOrNull() as? Address
-			?: return SpawnHarnesses.RUNS_IN_CONTAINERS
+			?: return SpawnHarnesses.Unknown
 		return harnessesOn(parsed.gateway, parsed.spawn)
 	}
 
 	/** Which session CLIs a spawn point can run. */
 	fun harnessesOn(gatewayId: String, spawn: String): SpawnHarnesses {
-		// Only a host spawn point is probed.
-		if (spawn !in HOST_SPAWN_IDS) return SpawnHarnesses.RUNS_IN_CONTAINERS
+		if (spawn !in HOST_SPAWN_IDS) return container(gatewayId, spawn)?.harnesses ?: SpawnHarnesses.Unknown
 		// No row reads as an older Gateway.
 		val held = entry(gatewayId)?.harnessSpawns ?: legacySpawns(claude = null, copilot = null)
-		return SpawnHarnesses(SessionHarness.entries.filter { held[it]?.contains(spawn) == true }.toSet())
+		return SpawnHarnesses.Known(SessionHarness.entries.filter { held[it]?.contains(spawn) == true }.toSet())
+	}
+
+	fun containersOn(gatewayId: String): List<SpawnContainer> = entry(gatewayId)?.containers.orEmpty()
+
+	fun container(gatewayId: String, project: String): SpawnContainer? =
+		containersOn(gatewayId).find { it.project == project }
+
+	/** Whether the phone's Create may spawn there now. A Gateway reporting no containers is not gated. */
+	fun createsOn(gatewayId: String, spawn: String): Boolean {
+		if (spawn in HOST_SPAWN_IDS) return true
+		val reported = entry(gatewayId)?.containers ?: return true
+		return reported.any { it.project == spawn && it.run == ContainerRun.RUNNING }
 	}
 
 	/** Roster live, Router-held. */
@@ -164,6 +202,7 @@ data class GatewayRegistry(
 						lastRegisteredAt = row.lastRegisteredAt,
 						hostSpawns = points[row.gatewayId]?.hostSpawns,
 						harnessSpawns = points[row.gatewayId]?.let(::harnessSpawnsOf),
+						containers = points[row.gatewayId]?.containers?.map(::spawnContainerOf),
 						routines = prior?.routines,
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),
 						policies = prior?.policies,
@@ -185,6 +224,17 @@ internal fun harnessSpawnsOf(row: GatewaySpawnPoints): Map<SessionHarness, List<
 	val sent = row.harnessSpawns ?: return legacySpawns(row.claudeSpawns, row.copilotSpawns)
 	return SessionHarness.entries.associateWith { sent.spawnsOf(it).orEmpty() }
 }
+
+/** A container row; a CLI word this build cannot launch is dropped. */
+internal fun spawnContainerOf(row: ContainerState): SpawnContainer =
+	SpawnContainer(
+		project = row.project,
+		run = ContainerRun.of(row.state),
+		failure = row.failure,
+		harnesses = row.clis?.let { words ->
+			SpawnHarnesses.Known(words.mapNotNullTo(HashSet()) { (readHarness(it) as? HarnessWord.Named)?.harness })
+		} ?: SpawnHarnesses.Unknown,
+	)
 
 // FIXME 2026-11-23: drop, with both old lists.
 /** An older Gateway's lists. With no Claude list it ran Claude on every host spawn point. */

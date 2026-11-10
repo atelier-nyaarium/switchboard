@@ -16,6 +16,7 @@ import {
 	isHostSpawn,
 	launchPlaceOf,
 } from "../../shared/host-spawn.js";
+import { LAUNCHERS } from "../../shared/launcher-spec.js";
 import { HARNESS, launchRefusal, resumableId, type SessionHarness } from "../../shared/session-harness.js";
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { CHANNEL_FILES_DIR } from "../channel/channelFiles.js";
@@ -241,12 +242,38 @@ interface LaunchSpec {
 	args: string;
 }
 
-export const OPENCODE_LAUNCH_BUNDLE = "main-opencode-launch.js";
-
 /** Double-quoted inside the launch's single quotes. */
 function plainPath(value: string, what: string): string {
 	if (!PLAIN_ABSOLUTE.test(value)) throw new Error(`refusing to launch: ${what} is not a plain absolute path`);
 	return `"${value}"`;
+}
+
+/** Its launcher starts its server, then its terminal UI. */
+function viaLauncher(harness: SessionHarness, ctx: LaunchArgsContext): LaunchSpec {
+	const row = HARNESS[harness];
+	if (row.road.kind !== "api") throw new Error(`refusing to launch: ${row.label} has no launcher`);
+	const { launcher, resumeSessionId } = ctx;
+	if (!launcher) throw new Error(`refusing to launch: no ${row.label} launcher on this machine`);
+	if (!resumeSessionId) throw new Error(`refusing to launch: a ${row.label} session needs its minted id`);
+	const spec = LAUNCHERS[row.road.server];
+	const root = plainPath(launcher.root, "the launcher's root").slice(1, -1);
+	return {
+		program: [
+			plainPath(launcher.runtime, "the launcher's runtime"),
+			// A project's bun settings and env never apply; bundled, so no tsconfig.
+			`--config="${root}/launch/bunfig.toml"`,
+			"--no-env-file",
+			"--no-install",
+			`"${root}/dist/${spec.bundle}"`,
+		].join(" "),
+		args: spec
+			.argv({
+				sessionId: resumeSessionId,
+				statusFile: plainPath(launcher.statusFile, "the status file"),
+				greet: launcher.greet,
+			})
+			.join(" "),
+	};
 }
 
 const LAUNCH: Record<SessionHarness, (ctx: LaunchArgsContext) => LaunchSpec> = {
@@ -254,24 +281,7 @@ const LAUNCH: Record<SessionHarness, (ctx: LaunchArgsContext) => LaunchSpec> = {
 	claude: (ctx) => ({
 		args: `--model "opus[1m]" --effort xhigh ${ctx.permissions()} ${CHANNEL_FLAG}${ctx.resumeSessionId ? ` --resume ${ctx.resumeSessionId}` : ""}`,
 	}),
-	// The launcher starts its server, then its terminal UI.
-	opencode: (ctx) => {
-		const { launcher, resumeSessionId } = ctx;
-		if (!launcher) throw new Error("refusing to launch: no OpenCode launcher on this machine");
-		if (!resumeSessionId) throw new Error("refusing to launch: an OpenCode session needs its minted id");
-		const root = plainPath(launcher.root, "the launcher's root").slice(1, -1);
-		return {
-			program: [
-				plainPath(launcher.runtime, "the launcher's runtime"),
-				// A project's bun settings and env never apply; bundled, so no tsconfig.
-				`--config="${root}/launch/bunfig.toml"`,
-				"--no-env-file",
-				"--no-install",
-				`"${root}/dist/${OPENCODE_LAUNCH_BUNDLE}"`,
-			].join(" "),
-			args: `--session ${resumeSessionId} --status ${plainPath(launcher.statusFile, "the status file")}${launcher.greet ? " --greet" : ""}`,
-		};
-	},
+	opencode: (ctx) => viaLauncher("opencode", ctx),
 	// Its id names the session before it exists, so one flag starts and resumes.
 	copilot: (ctx) => ({
 		args: `--allow-all --no-ask-user${ctx.resumeSessionId ? ` --session-id ${ctx.resumeSessionId}` : ""}`,

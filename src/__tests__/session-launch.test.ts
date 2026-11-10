@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createSessionLaunch, type LaunchFacts, resolveLaunchHarness } from "../mcp/devcontainer/sessionLaunch.js";
+import {
+	createSessionLaunch,
+	type LaunchDoor,
+	type LaunchFacts,
+	type LaunchSite,
+	placementRefusal,
+	resolveLaunchHarness,
+} from "../mcp/devcontainer/sessionLaunch.js";
 import { type PaneAgentState, type ReadyAnswer, reattachStep } from "../mcp/devcontainer/tmuxCore.js";
+import { cliRefusalText } from "../shared/cli-resolve.js";
 import type { TmuxTarget } from "../shared/host-op.js";
-import { FIRST_LAUNCH_GREETING } from "../shared/session-harness.js";
+import { FIRST_LAUNCH_GREETING, UNPICKED_WORD } from "../shared/session-harness.js";
 
 const RULE = "─".repeat(40);
 const READY = `● done\n${RULE}\n❯ \n${RULE}\n  ⏵⏵ bypass permissions on`;
@@ -10,21 +18,24 @@ const SHELL = "$ ";
 const LIMITED = "You've hit your weekly limit · resets 5pm";
 const SES = "ses_sb0f8b2a4c1d3e4f5a9b6c7d8e9f0a1b2c";
 const TARGET: TmuxTarget = { kind: "host", name: "host", sessionName: "oc" };
+const CONTAINER: TmuxTarget = { kind: "devcontainer", name: "app", sessionName: "main" };
 const STATUS = "/run/sb/host.oc.json";
 /** The launcher already running. */
 const OLD = 4242;
 /** The one a relaunch starts. */
 const NEW = 5151;
-const statusOf = (state: "starting" | "ready" | "failed", pid: number) =>
+const statusOf = (state: "starting" | "ready" | "failed" | "exited", pid: number) =>
 	JSON.stringify({
 		state,
 		pid,
 		...(state === "ready" ? { version: "2.2.5" } : {}),
 		...(state === "failed" ? { error: "the OpenCode server exited" } : {}),
+		...(state === "exited" ? { code: 0 } : {}),
 	});
 
 interface Ctl {
 	files: Map<string, string>;
+	/** Its pid leaves the pane. */
 	kill(pid: number): void;
 	dropPane(): void;
 }
@@ -38,7 +49,10 @@ interface RigOptions {
 	readies?: ReadyAnswer[];
 	peeks?: string[];
 	status?: string;
-	dead?: number[];
+	/** Pids not on the pane's tty. */
+	offPane?: number[];
+	/** Pids whose probe fails. */
+	unanswered?: number[];
 	/** Written after a create. */
 	launcherWrites?: { status: string; afterPolls: number };
 	/** Run at that poll. */
@@ -47,23 +61,36 @@ interface RigOptions {
 
 function rig(options: RigOptions = {}) {
 	const files = new Map<string, string>(options.status ? [[STATUS, options.status]] : []);
-	const calls = { ensured: [] as string[], kills: 0, waits: 0, peeks: 0, typed: [] as string[] };
-	const dead = new Set(options.dead);
+	const calls = { probes: 0, ensured: [] as string[], kills: 0, waits: 0, peeks: 0, typed: [] as string[] };
+	const offPane = new Set(options.offPane);
+	const unanswered = new Set(options.unanswered);
 	let pane = options.pane ?? false;
 	let clock = 0;
 	let polls = 0;
 	const script = [...(options.atPoll ?? [])];
 	const ctl: Ctl = {
 		files,
-		kill: (pid) => dead.add(pid),
+		kill: (pid) => offPane.add(pid),
 		dropPane: () => {
 			pane = false;
 		},
 	};
 	const next = <T>(list: T[] | undefined, fallback: T): T =>
 		list && list.length > 1 ? (list.shift() as T) : (list?.[0] ?? fallback);
+	const host: LaunchSite = {
+		runtime: "/home/me/.bun/bin/bun",
+		root: "/home/me/sb",
+		statusFile: () => STATUS,
+		readStatus: async () => files.get(STATUS),
+		clearStatus: async () => {
+			files.delete(STATUS);
+		},
+	};
 	const launch = createSessionLaunch({
-		hasSession: async () => pane,
+		hasSession: async () => {
+			calls.probes += 1;
+			return pane;
+		},
 		ensureSession: async (_target, command) => {
 			calls.ensured.push(command);
 			if (pane) return { created: false };
@@ -90,12 +117,8 @@ function rig(options: RigOptions = {}) {
 			calls.typed.push(text);
 		},
 		pathPrefix: "/home/me/.bun/bin",
-		launcher: { runtime: "/home/me/.bun/bin/bun", root: "/home/me/sb", statusDir: "/run/sb" },
-		readFile: (file) => files.get(file),
-		removeFile: (file) => {
-			files.delete(file);
-		},
-		isAlive: (pid) => !dead.has(pid),
+		sites: { host, windows: null, container: null },
+		paneHolds: async (_target, pid) => (unanswered.has(pid) ? undefined : !offPane.has(pid)),
 		sleep: async (ms) => {
 			clock += ms;
 			polls += 1;
@@ -107,15 +130,15 @@ function rig(options: RigOptions = {}) {
 	return { launch, calls, files, elapsed: () => clock };
 }
 
-const claude = (existing: LaunchFacts["existing"], extra: Partial<LaunchFacts> = {}): LaunchFacts => ({
+const claude = (door: LaunchDoor, extra: Partial<LaunchFacts> = {}): LaunchFacts => ({
 	harness: "claude",
-	existing,
+	door,
 	...extra,
 });
-const opencode = (existing: LaunchFacts["existing"], extra: Partial<LaunchFacts> = {}): LaunchFacts => ({
+const opencode = (door: LaunchDoor, extra: Partial<LaunchFacts> = {}): LaunchFacts => ({
 	harness: "opencode",
 	resumeSessionId: SES,
-	existing,
+	door,
 	...extra,
 });
 
@@ -123,19 +146,19 @@ describe("a launch read through its pane", () => {
 	it("creates a pane and greets it once it is ready", async () => {
 		const r = rig();
 
-		const outcome = await r.launch(TARGET, claude("repair"));
+		const outcome = await r.launch(TARGET, claude("wake"));
 
 		expect(outcome).toMatchObject({ created: true, ready: true, live: true });
 		expect(r.calls.ensured).toHaveLength(1);
 		expect(r.calls.typed).toEqual([FIRST_LAUNCH_GREETING]);
 	});
 
-	it("relaunches a pane whose CLI is gone, and keeps one at its composer", async () => {
+	it("relaunches a woken pane whose CLI is gone, and keeps one at its composer", async () => {
 		const gone = rig({ pane: true, process: ["gone"] });
 		const ready = rig({ pane: true });
 
-		const relaunched = await gone.launch(TARGET, claude("repair"));
-		const kept = await ready.launch(TARGET, claude("repair"));
+		const relaunched = await gone.launch(TARGET, claude("wake"));
+		const kept = await ready.launch(TARGET, claude("wake"));
 
 		expect([gone.calls.kills, ready.calls.kills]).toEqual([1, 0]);
 		expect(relaunched).toMatchObject({ created: false, ready: true });
@@ -147,7 +170,7 @@ describe("a launch read through its pane", () => {
 		const limit = { headline: LIMITED, detail: "resets 5pm" };
 		const r = rig({ pane: true, readies: [{ alive: true, ready: false, screen: LIMITED, limit }] });
 
-		const outcome = await r.launch(TARGET, claude("repair"));
+		const outcome = await r.launch(TARGET, claude("wake"));
 
 		expect(r.calls.kills).toBe(0);
 		expect(outcome).toMatchObject({ ready: false, limit });
@@ -158,34 +181,37 @@ describe("a launch read through its pane", () => {
 		const settled = rig({ pane: true, readies: [blank], peeks: [READY] });
 		const dead = rig({ pane: true, readies: [blank, { alive: true, ready: true, screen: READY }], peeks: [SHELL] });
 
-		const kept = await settled.launch(TARGET, claude("repair"));
-		const relaunched = await dead.launch(TARGET, claude("repair"));
+		const kept = await settled.launch(TARGET, claude("wake"));
+		const relaunched = await dead.launch(TARGET, claude("wake"));
 
 		expect([settled.calls.kills, dead.calls.kills]).toEqual([0, 1]);
 		expect(kept).toMatchObject({ ready: true, screen: READY });
 		expect(relaunched).toMatchObject({ ready: true });
 	});
 
-	it("reads the screen of a pane it peeks, and nothing of one it leaves", async () => {
+	it("reads the screen of a woken container pane, and nothing of a pane a create finds", async () => {
 		const peeked = rig({ pane: true, peeks: ["mid-turn"] });
 		const left = rig({ pane: true });
 
-		const peek = await peeked.launch(TARGET, claude("peek"));
-		const leave = await left.launch(TARGET, claude("leave"));
+		const peek = await peeked.launch(CONTAINER, claude("wake"));
+		const leave = await left.launch(TARGET, claude("create"));
 
 		expect(peek).toMatchObject({ created: false, live: true, screen: "mid-turn" });
 		expect(leave).toMatchObject({ created: false, live: true, screen: "" });
-		expect([peeked.calls.waits, left.calls.waits, left.calls.peeks]).toEqual([0, 0, 0]);
+		expect([peeked.calls.waits, peeked.calls.kills, left.calls.waits, left.calls.peeks]).toEqual([0, 0, 0, 0]);
 	});
 });
 
 describe("a launch read through its launcher", () => {
 	const relaunched = { launcherWrites: { status: statusOf("ready", NEW), afterPolls: 2 } };
 
-	it("keeps a live pane whose launcher is ready, and kills nothing", async () => {
-		const r = rig({ pane: true, status: statusOf("ready", OLD) });
+	it.each([
+		["is ready on the pane", {}],
+		["is ready, and the pane probe goes unanswered", { unanswered: [OLD] }],
+	])("keeps a woken pane whose launcher %s, and kills nothing", async (_label, options) => {
+		const r = rig({ pane: true, status: statusOf("ready", OLD), ...options });
 
-		const outcome = await r.launch(TARGET, opencode("repair"));
+		const outcome = await r.launch(TARGET, opencode("wake"));
 
 		expect(outcome).toMatchObject({ created: false, ready: true });
 		expect([r.calls.kills, r.calls.ensured.length]).toEqual([0, 0]);
@@ -194,11 +220,11 @@ describe("a launch read through its launcher", () => {
 	it.each([
 		["has not reported", undefined],
 		["is still starting", statusOf("starting", OLD)],
-	])("waits on a live pane whose launcher %s, without killing it", async (_label, status) => {
+	])("waits on a woken pane whose launcher %s, without killing it", async (_label, status) => {
 		const later: RigOptions["atPoll"] = [[3, ({ files }) => files.set(STATUS, statusOf("ready", OLD))]];
 		const r = rig({ pane: true, ...(status ? { status } : {}), atPoll: later });
 
-		const outcome = await r.launch(TARGET, opencode("repair"));
+		const outcome = await r.launch(TARGET, opencode("wake"));
 
 		expect(outcome).toMatchObject({ created: false, ready: true });
 		expect([r.calls.kills, r.calls.ensured.length]).toEqual([0, 0]);
@@ -206,18 +232,16 @@ describe("a launch read through its launcher", () => {
 
 	it.each([
 		["its launcher failed, its server or its UI gone", { status: statusOf("failed", OLD) }],
+		["its launcher's UI exited", { status: statusOf("exited", OLD) }],
+		["its ready launcher's pid is not on the pane's tty", { status: statusOf("ready", OLD), offPane: [OLD] }],
 		[
-			"its ready launcher was killed, whatever the pane probe reads",
-			{ status: statusOf("ready", OLD), dead: [OLD], process: ["unknown" as const] },
-		],
-		[
-			"its starting launcher dies during the wait",
+			"its starting launcher leaves the pane during the wait",
 			{ status: statusOf("starting", OLD), atPoll: [[2, ({ kill }) => kill(OLD)]] as RigOptions["atPoll"] },
 		],
-	])("relaunches a pane when %s", async (_label, options) => {
+	])("relaunches a woken pane when %s", async (_label, options) => {
 		const r = rig({ pane: true, ...options, ...relaunched });
 
-		const outcome = await r.launch(TARGET, opencode("repair"));
+		const outcome = await r.launch(TARGET, opencode("wake"));
 
 		expect(r.calls.kills).toBe(1);
 		expect(r.calls.ensured).toHaveLength(1);
@@ -228,7 +252,7 @@ describe("a launch read through its launcher", () => {
 		const failing: RigOptions["atPoll"] = [[2, ({ files }) => files.set(STATUS, statusOf("failed", OLD))]];
 		const r = rig({ pane: true, status: statusOf("starting", OLD), atPoll: failing });
 
-		const outcome = await r.launch(TARGET, opencode("repair"));
+		const outcome = await r.launch(TARGET, opencode("wake"));
 
 		expect(outcome).toMatchObject({ created: false, ready: false });
 		expect(outcome.error).toBeTruthy();
@@ -238,17 +262,18 @@ describe("a launch read through its launcher", () => {
 	it.each([
 		["its pane reads gone twice", { process: ["gone" as const], peeks: ["opencode: command not found"] }],
 		[
-			"its starting launcher dies",
+			"its starting launcher leaves the pane",
 			{
 				launcherWrites: { status: statusOf("starting", NEW), afterPolls: 1 },
 				atPoll: [[3, ({ kill }) => kill(NEW)]] as RigOptions["atPoll"],
 			},
 		],
+		["its UI exits first", { launcherWrites: { status: statusOf("exited", NEW), afterPolls: 1 } }],
 		["its tmux session is gone", { atPoll: [[2, ({ dropPane }) => dropPane()]] as RigOptions["atPoll"] }],
-	])("fails early when a new launcher exits without a word: %s", async (label, options) => {
+	])("fails early when a new launcher exits without starting: %s", async (label, options) => {
 		const r = rig(options);
 
-		const outcome = await r.launch(TARGET, opencode("repair"));
+		const outcome = await r.launch(TARGET, opencode("wake"));
 
 		expect(outcome).toMatchObject({ created: true, ready: false });
 		expect(outcome.error).toBeTruthy();
@@ -259,25 +284,32 @@ describe("a launch read through its launcher", () => {
 	it("fails once the launcher never reports", async () => {
 		const r = rig();
 
-		const outcome = await r.launch(TARGET, opencode("repair"));
+		const outcome = await r.launch(TARGET, opencode("wake"));
 
 		expect(outcome).toMatchObject({ created: true, ready: false });
 		expect(outcome.error).toBeTruthy();
 		expect(r.elapsed()).toBeGreaterThanOrEqual(150_000);
 	});
 
-	it("leaves a pane it was not asked to repair", async () => {
-		const r = rig({ pane: true, process: ["gone"] });
+	it("leaves a pane a create finds", async () => {
+		const r = rig({ pane: true, status: statusOf("exited", OLD) });
 
-		expect(await r.launch(TARGET, opencode("leave"))).toMatchObject({ created: false, live: true });
-		expect(r.calls.kills).toBe(0);
+		expect(await r.launch(TARGET, opencode("create"))).toMatchObject({ created: false, live: true });
+		expect([r.calls.kills, r.calls.ensured.length]).toEqual([0, 0]);
+	});
+
+	it("refuses a place with no launcher before touching tmux", async () => {
+		const r = rig();
+
+		await expect(r.launch(CONTAINER, opencode("wake"))).rejects.toThrow(/refusing to launch/);
+		expect([r.calls.probes, r.calls.ensured.length, r.calls.kills]).toEqual([0, 0, 0]);
 	});
 
 	it("asks the launcher to greet only a session that has never confirmed", async () => {
 		const flags = await Promise.all(
 			[true, false].map(async (fresh) => {
 				const r = rig({ launcherWrites: { status: statusOf("ready", NEW), afterPolls: 1 } });
-				await r.launch(TARGET, opencode("leave", { fresh }));
+				await r.launch(TARGET, opencode("create", { fresh }));
 				return r.calls.ensured[0]?.includes(" --greet");
 			}),
 		);
@@ -287,14 +319,32 @@ describe("a launch read through its launcher", () => {
 });
 
 describe("a launch's CLI", () => {
-	it("refuses OpenCode off the host's own shell, and as the assistant", () => {
-		expect(resolveLaunchHarness("opencode", TARGET)).toEqual({ harness: "opencode" });
-		for (const target of [
-			{ kind: "devcontainer" as const, name: "app", sessionName: "oc" },
+	it("refuses before the start a CLI its place never runs, or one it cannot read", () => {
+		const offHost = [
+			CONTAINER,
 			{ kind: "host" as const, name: "windows", sessionName: "oc" },
 			{ kind: "host" as const, name: "host", sessionName: "assistant" },
-		]) {
-			expect(resolveLaunchHarness("opencode", target), target.name).toHaveProperty("refused");
-		}
+		];
+
+		expect([placementRefusal("opencode", TARGET), placementRefusal(UNPICKED_WORD, CONTAINER)]).toEqual([
+			undefined,
+			undefined,
+		]);
+		for (const target of offHost) expect(placementRefusal("opencode", target), target.name).toBeTruthy();
+		expect(placementRefusal("no-such-cli", TARGET)).toBeTruthy();
+	});
+
+	it("runs what the place has installed: a named CLI only there, an unpicked one only when it is the one", () => {
+		const both = ["claude", "opencode"] as const;
+
+		expect(resolveLaunchHarness("opencode", TARGET, both)).toEqual({ harness: "opencode" });
+		expect(resolveLaunchHarness(UNPICKED_WORD, TARGET, ["claude"])).toEqual({ harness: "claude" });
+		expect(resolveLaunchHarness(undefined, TARGET, [])).toEqual({ harness: "claude" });
+		expect(resolveLaunchHarness(UNPICKED_WORD, TARGET, both)).toEqual({
+			refused: cliRefusalText({ cause: "needs_pick", available: [...both] }, "host.oc"),
+			cli: { cause: "needs_pick", available: [...both] },
+		});
+		expect(resolveLaunchHarness("opencode", TARGET, ["claude"])).toHaveProperty("refused");
+		expect(resolveLaunchHarness("opencode", CONTAINER, both)).toHaveProperty("refused");
 	});
 });

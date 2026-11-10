@@ -161,9 +161,9 @@ export const ValueResultParamsSchema = z.object({
 	incarnation: z.number().int().positive(),
 });
 
-/** Below 5 a Gateway mints board ranks as text. */
-export const FEDERATION_PROTOCOL_FLOOR = 5;
-export const FEDERATION_PROTOCOL_VERSION = 5;
+/** Below 6 a Gateway strips a relayed send's `cli` and launches Claude unasked. */
+export const FEDERATION_PROTOCOL_FLOOR = 6;
+export const FEDERATION_PROTOCOL_VERSION = 6;
 
 export const GatewayRegisterParamsSchema = z.object({
 	gatewayId: z.string().min(1).max(64),

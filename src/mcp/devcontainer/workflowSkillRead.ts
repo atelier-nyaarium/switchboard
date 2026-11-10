@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { type AgentExecutionTarget, AgentExecutionTargetSchema } from "../../shared/agent-execution-target.js";
 import type { HostReadSkillResult } from "../../shared/host-op.js";
+import { containerFor } from "./containers.js";
 
 const SKILL_MAX_BYTES = 64 * 1024;
 const CONTAINER_READ = `
@@ -78,7 +79,7 @@ export function readWorkflowSkill(target: AgentExecutionTarget, requested: strin
 		"vscode",
 		"-w",
 		`/workspace/${target.project}`,
-		`${target.project}_devcontainer-dev-1`,
+		containerFor(target.project),
 		"node",
 		"-e",
 		CONTAINER_READ,

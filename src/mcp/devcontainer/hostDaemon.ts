@@ -4,10 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
 import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, COPILOT_BACKEND } from "../../shared/agent-backend.js";
-import { isBinaryOnPath } from "../../shared/agent-binary.js";
 import { AgentExecutionTargetSchema } from "../../shared/agent-execution-target.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
+import { cliProbeScript, parseCliProbe } from "../../shared/cli-probe.js";
+import { placeCandidates } from "../../shared/cli-resolve.js";
 import { CodexEventAckSchema } from "../../shared/codex-agent.js";
 import { CopilotEventAckSchema } from "../../shared/copilot-agent.js";
 import {
@@ -23,22 +24,24 @@ import {
 	type TmuxTarget,
 } from "../../shared/host-op.js";
 import { HOST_SPAWN, isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
+import type { LaunchFailure } from "../../shared/launch-notice.js";
 import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
 import {
-	type ApiRoad,
 	HARNESS,
+	type LaunchPlace,
 	type PaneRoad,
 	paneRoad,
 	SESSION_HARNESSES,
 	type SessionHarness,
 } from "../../shared/session-harness.js";
-import { parseSessionName } from "../../shared/session-id.js";
+import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
 import { ExecutionTargetManager, targetLogger } from "./codexTargets.js";
+import { ContainerStartFailed, ContainerStopped, DevContainers } from "./containers.js";
 import { type CompactionFollow, createCompactionFollower } from "./copilotCompaction.js";
 import { CopilotDaemonService } from "./copilotDaemonService.js";
 import { copilotLauncher } from "./copilotTargets.js";
@@ -48,7 +51,6 @@ import {
 	ensureAssistantWorkdir,
 	findProjectPath,
 	listHostDirs,
-	OPENCODE_LAUNCH_BUNDLE,
 	resolveHostWorkdir,
 	resolveWatchTarget,
 	scanDevcontainerProjects,
@@ -62,8 +64,10 @@ import { spawnReloadPlugins } from "./reloadPlugins.js";
 import {
 	createSessionLaunch,
 	type LaunchOutcome,
+	type LaunchSite,
+	launchAt,
+	placementRefusal,
 	resolveLaunchHarness,
-	type SessionLaunchDeps,
 } from "./sessionLaunch.js";
 import {
 	awaitReady,
@@ -73,9 +77,11 @@ import {
 	isAgentWorking,
 	killSession,
 	paneAgentState,
+	paneHolds,
 	peekPane,
 	peekWithFallback,
 	reattachStep,
+	runInPlace,
 	sendKey,
 	sendText,
 	typeIntoPane,
@@ -180,6 +186,7 @@ export function stopSupervisedChildren(): void {
 export function stopHostDaemon(): void {
 	reconnector.cancel();
 	compactionFollower.stop();
+	devContainers.close();
 	stopSupervisedChildren();
 	if (askpassReceipt) removeAskpassWrapper(os.homedir(), askpassReceipt);
 }
@@ -218,7 +225,57 @@ export function startHostDaemon(dirs?: string[], onChannelPush?: ChannelPushHand
 		gatewayUrl = envUrl.replace(/^http/, "ws");
 	}
 	layDownAskpass();
+	devContainers.watch();
 	connect();
+}
+
+async function sendCatalog(): Promise<void> {
+	const projects = scanDevcontainerProjects();
+	// `hostSpawns` names the DETECTED spawn points only; `host` is on every machine and is not
+	// announced. An older gateway ignores the field, which is the whole point of announcing before
+	// anything consumes it: daemon first, gateway next, console last, each safe on its own.
+	const windows = windowsAvailability();
+	const hostSpawns = detectedHostSpawns(windows);
+	const onHost = await installedAt({ kind: "host", name: HOST_SPAWN }, { place: "host", assistant: false }).catch(
+		(err) => {
+			console.error(
+				`[host-daemon] could not ask the host shell what it runs: ${err instanceof Error ? err.message : err}`,
+			);
+			return [] as SessionHarness[];
+		},
+	);
+	const onWindows = windows.available
+		? await installedAt({ kind: "host", name: WINDOWS_SPAWN }, { place: "windows", assistant: false })
+		: [];
+	await devContainers
+		.refresh()
+		.catch((err) =>
+			console.error(`[host-daemon] could not read containers: ${err instanceof Error ? err.message : err}`),
+		);
+	// The phone's create pick and install macros read it.
+	const harnessSpawns = Object.fromEntries(
+		SESSION_HARNESSES.map((harness) => [
+			harness,
+			[
+				...(onHost.includes(harness) ? [HOST_SPAWN] : []),
+				...(onWindows.includes(harness) ? [WINDOWS_SPAWN] : []),
+			],
+		]),
+	) as Record<SessionHarness, string[]>;
+	safeSend({
+		type: "catalog",
+		projects,
+		hostSpawns,
+		harnessSpawns,
+		containers: devContainers.list(),
+		// FIXME 2026-11-23: drop both, once every Gateway reads `harnessSpawns`.
+		claudeSpawns: harnessSpawns.claude,
+		copilotSpawns: harnessSpawns.copilot,
+	});
+	console.error(
+		`[host-wake] sent catalog with ${projects.length} projects` +
+			(hostSpawns.length ? ` and host spawn points: ${hostSpawns.join(", ")}` : ""),
+	);
 }
 
 function connect(): void {
@@ -246,37 +303,7 @@ function connect(): void {
 		}
 		claudeRunner.replay();
 
-		const projects = scanDevcontainerProjects();
-		// `hostSpawns` names the DETECTED spawn points only; `host` is on every machine and is not
-		// announced. An older gateway ignores the field, which is the whole point of announcing before
-		// anything consumes it: daemon first, gateway next, console last, each safe on its own.
-		const windows = windowsAvailability();
-		const hostSpawns = detectedHostSpawns(windows);
-		// The phone's create pick and install macros read it.
-		const harnessSpawns = Object.fromEntries(
-			SESSION_HARNESSES.map((harness) => [
-				harness,
-				[
-					...(hostRuns(harness) ? [HOST_SPAWN] : []),
-					...(windows.available && windows.harnesses?.includes(harness) ? [WINDOWS_SPAWN] : []),
-				],
-			]),
-		) as Record<SessionHarness, string[]>;
-		ws!.send(
-			JSON.stringify({
-				type: "catalog",
-				projects,
-				hostSpawns,
-				harnessSpawns,
-				// FIXME 2026-11-23: drop both, once every Gateway reads `harnessSpawns`.
-				claudeSpawns: harnessSpawns.claude,
-				copilotSpawns: harnessSpawns.copilot,
-			}),
-		);
-		console.error(
-			`[host-wake] sent catalog with ${projects.length} projects` +
-				(hostSpawns.length ? ` and host spawn points: ${hostSpawns.join(", ")}` : ""),
-		);
+		void sendCatalog();
 
 		// observe() fires on transitions, so a stale confirmation re-confirms forever.
 		presenceScheduler.clearAll();
@@ -295,9 +322,17 @@ function connect(): void {
 			if (!inflightWakes.has(wakeMsg.team)) {
 				const run = handleWake(wakeMsg)
 					.catch((e) => console.error("[host-wake] dispatch error:", e))
-					.finally(() => inflightWakes.delete(wakeMsg.team));
+					.finally(() => {
+						inflightWakes.delete(wakeMsg.team);
+						cancelledWakes.delete(wakeMsg.team);
+					});
 				inflightWakes.set(wakeMsg.team, run);
 			}
+		}
+
+		if (msg.type === "wake_cancel" && typeof msg.team === "string" && inflightWakes.has(msg.team)) {
+			console.error(`[host-wake] the Gateway gave up on ${msg.team}`);
+			cancelledWakes.add(msg.team);
 		}
 
 		if (msg.type === "host_op" && typeof msg.reqId === "string") {
@@ -375,13 +410,10 @@ interface WakeMessage {
 // Independent of the tmux server's PATH.
 const LAUNCH_PATH_PREFIX = path.dirname(process.execPath);
 
-/** Each API server's launcher bundle. */
-const LAUNCHER_BUNDLES: Record<ApiRoad["server"], string> = { opencode: OPENCODE_LAUNCH_BUNDLE };
-
 const LAUNCH_ROOT = packageRoot(moduleDir(import.meta.url));
 
-/** Where launchers report, or null when it cannot be made. */
-function findSessionLauncher(): SessionLaunchDeps["launcher"] {
+/** This machine's own shell, or null when its status folder cannot be made. */
+function hostLaunchSite(): LaunchSite | null {
 	const statusDir = path.join(os.homedir(), ".cache", "switchboard", "launch");
 	try {
 		fs.mkdirSync(statusDir, { recursive: true, mode: 0o700 });
@@ -389,18 +421,60 @@ function findSessionLauncher(): SessionLaunchDeps["launcher"] {
 		console.error(`[host-daemon] no launcher status folder: ${err instanceof Error ? err.message : err}`);
 		return null;
 	}
-	return { runtime: process.execPath, root: LAUNCH_ROOT, statusDir };
+	const statusFile = (target: TmuxTarget) =>
+		path.join(statusDir, `${composeSessionName(target.name, target.sessionName)}.json`);
+	return {
+		runtime: process.execPath,
+		root: LAUNCH_ROOT,
+		statusFile,
+		readStatus: async (target) => {
+			try {
+				return fs.readFileSync(statusFile(target), "utf8");
+			} catch {
+				return undefined;
+			}
+		},
+		clearStatus: async (target) => fs.rmSync(statusFile(target), { force: true }),
+	};
 }
 
-const sessionLauncher = findSessionLauncher();
+const LAUNCH_SITES: Record<LaunchPlace, LaunchSite | null> = {
+	host: hostLaunchSite(),
+	windows: null,
+	container: null,
+};
 
-/** Whether this machine can launch an API server's CLI. */
-function launcherFor(server: ApiRoad["server"]): boolean {
-	if (!sessionLauncher) return false;
-	const bundle = path.join(LAUNCH_ROOT, "dist", LAUNCHER_BUNDLES[server]);
-	if (fs.existsSync(bundle)) return true;
-	console.error(`[host-daemon] no launcher bundle at ${bundle}`);
-	return false;
+/** What a place's own shell runs, in offer order. Throws when it cannot be asked. */
+async function installedAt(
+	where: Pick<TmuxTarget, "kind" | "name">,
+	at: { place: LaunchPlace; assistant: boolean },
+): Promise<SessionHarness[]> {
+	const candidates = placeCandidates(at);
+	if (at.place === "windows") {
+		const found = windowsAvailability().harnesses ?? [];
+		return candidates.filter((harness) => found.includes(harness));
+	}
+	const site = LAUNCH_SITES[at.place];
+	const script = cliProbeScript(candidates, site && { runtime: site.runtime, root: site.root });
+	return parseCliProbe(await runInPlace(where, script), candidates);
+}
+
+const devContainers = new DevContainers({
+	up: ensureContainerUpAsync,
+	look: (project) => installedAt({ kind: "devcontainer", name: project }, { place: "container", assistant: false }),
+	catalog: scanDevcontainerProjects,
+	onChange: (containers) => safeSend({ type: "containers", containers }),
+});
+
+/** A catalog project's path; throws for any other. */
+function catalogProjectPath(project: string): string {
+	if (!isTmuxName(project) || isHostSpawn(project)) throw new Error(`unknown project "${project}"`);
+	return resolveProject(findProjectPath(project));
+}
+
+/** A launch's CLI, read against its place. */
+async function launchHarnessFor(word: unknown, target: TmuxTarget) {
+	return resolveLaunchHarness(word, target, await installedAt(target, launchAt(target)));
 }
 
 const launchSession = createSessionLaunch({
@@ -413,48 +487,54 @@ const launchSession = createSessionLaunch({
 	peekScreen: async (target) => (await peekPane(target)).ansi,
 	sendText,
 	pathPrefix: LAUNCH_PATH_PREFIX,
-	launcher: sessionLauncher,
-	readFile: (file) => {
-		try {
-			return fs.readFileSync(file, "utf8");
-		} catch {
-			return undefined;
-		}
-	},
-	removeFile: (file) => fs.rmSync(file, { force: true }),
-	isAlive: (pid) => {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch (err) {
-			// Not ours to signal, yet running.
-			return (err as NodeJS.ErrnoException).code === "EPERM";
-		}
-	},
+	sites: LAUNCH_SITES,
+	paneHolds,
 	sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 	now: () => Date.now(),
 	log: (line) => console.error(`[host-wake] ${line}`),
 });
 
+/** A wake that will not come up, as the Gateway reads it. */
+class WakeFailure extends Error {
+	constructor(readonly failure: LaunchFailure) {
+		super(failure.kind === "error" ? failure.reason : failure.kind);
+	}
+}
+
+/** A launch the Gateway gave up on. */
+const cancelledWakes = new Set<string>();
+
+function failWake(team: string, err: unknown): void {
+	const message = err instanceof Error ? err.message : String(err);
+	console.error(`[host-wake] failed to wake ${team}: ${message}`);
+	const failure =
+		err instanceof WakeFailure ? err.failure : { kind: "error" as const, reason: message.slice(0, 2048) };
+	safeSend({ type: "wake_result", team, success: false, error: message, failure });
+}
+
+/** The CLI, told to the Gateway once found. */
+async function wakeHarness(
+	team: string,
+	word: unknown,
+	target: TmuxTarget,
+	installed?: readonly SessionHarness[],
+): Promise<SessionHarness> {
+	const launch = installed ? resolveLaunchHarness(word, target, installed) : await launchHarnessFor(word, target);
+	if ("refused" in launch) {
+		throw new WakeFailure(
+			launch.cli ? { kind: "cli", refusal: launch.cli } : { kind: "error", reason: launch.refused },
+		);
+	}
+	safeSend({ type: "wake_stage", team, stage: "cli_found", harness: launch.harness });
+	if (cancelledWakes.has(team))
+		throw new WakeFailure({ kind: "error", reason: "the Gateway gave up on this launch" });
+	return launch.harness;
+}
+
 /** A wake result's reason. */
 function launchError(res: LaunchOutcome): { error?: string } {
 	if (res.limit) return { error: `session limit hit${res.limit.detail ? ` (${res.limit.detail})` : ""}` };
 	return res.error ? { error: res.error } : {};
-}
-
-/** Whether this machine's host shell can run the CLI. */
-function hostRuns(harness: SessionHarness): boolean {
-	const row = HARNESS[harness];
-	// A launcher-run CLI needs its launcher too.
-	if (row.road.kind === "api" && !launcherFor(row.road.server)) return false;
-	if (isBinaryOnPath(row.binary.posix)) return true;
-	if (!row.binary.homeDir) return false;
-	try {
-		fs.accessSync(path.join(os.homedir(), row.binary.homeDir, row.binary.posix), fs.constants.X_OK);
-		return true;
-	} catch {
-		return false;
-	}
 }
 
 async function handleWake(msg: WakeMessage): Promise<void> {
@@ -466,17 +546,16 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		return;
 	}
 	// Before any container starts.
-	const launch = resolveLaunchHarness(msg.harness, {
+	const placement = placementRefusal(msg.harness, {
 		kind: isHostSpawn(project) ? "host" : "devcontainer",
 		name: project,
 		sessionName: session,
 	});
-	if ("refused" in launch) {
-		console.error(`[host-wake] refusing wake of "${msg.team}": ${launch.refused}`);
-		safeSend({ type: "wake_result", team: msg.team, success: false, error: launch.refused });
+	if (placement) {
+		console.error(`[host-wake] refusing wake of "${msg.team}": ${placement}`);
+		safeSend({ type: "wake_result", team: msg.team, success: false, error: placement });
 		return;
 	}
-	const { harness } = launch;
 	// The daemon shares this tmux server. Registry-wide rather than the bare literal, so every host
 	// spawn point reaches this branch and none falls through to the devcontainer path below, which
 	// would look for a container named after a shell.
@@ -513,15 +592,16 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			safeSend({ type: "wake_result", team: msg.team, success: false, error: resolved.error });
 			return;
 		}
-		console.error(`[host-wake] starting host session ${msg.team}`);
 		try {
+			const harness = await wakeHarness(msg.team, msg.harness, target);
+			console.error(`[host-wake] starting ${HARNESS[harness].label} session ${msg.team}`);
 			const res = await launchSession(target, {
 				harness,
 				resumeSessionId: msg.resumeSessionId,
 				fresh: msg.fresh,
 				sessionToken: msg.sessionToken,
 				workdir: resolved.workdir,
-				existing: "repair",
+				door: "wake",
 			});
 			if (res.limit) {
 				console.error(
@@ -538,9 +618,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 				...launchError(res),
 			});
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			console.error(`[host-wake] failed to wake ${msg.team}: ${message}`);
-			safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
+			failWake(msg.team, err);
 		}
 		return;
 	}
@@ -552,18 +630,32 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		const projectName = path.basename(resolved);
 		console.error(`[host-wake] starting ${msg.team} at ${resolved}`);
 
-		const { pluginsProvisioned } = await ensureContainerUpAsync(resolved);
-
-		console.error(`[host-wake] ${msg.team} container is up, starting ${HARNESS[harness].label}`);
-
 		const target: TmuxTarget = { kind: "devcontainer", name: projectName, sessionName: session };
+		// The Gateway's countdown waits out the build.
+		safeSend({ type: "wake_stage", team: msg.team, stage: "building" });
+		const { pluginsProvisioned, value: harness } = await devContainers
+			.ensureUp(projectName, resolved, (installed) => {
+				safeSend({ type: "wake_stage", team: msg.team, stage: "container_up" });
+				return wakeHarness(msg.team, msg.harness, target, installed);
+			})
+			.catch((err: unknown) => {
+				if (err instanceof ContainerStopped) throw new WakeFailure({ kind: "error", reason: err.message });
+				if (!(err instanceof ContainerStartFailed)) throw err;
+				console.error(`[host-wake] ${msg.team} container did not start: ${err.message}`);
+				throw new WakeFailure({ kind: "container", spawn: project, projectPath: resolved });
+			});
+		console.error(`[host-wake] ${msg.team} container is up, starting ${HARNESS[harness].label}`);
 		const res = await launchSession(target, {
 			harness,
 			resumeSessionId: msg.resumeSessionId,
 			fresh: msg.fresh,
 			sessionToken: msg.sessionToken,
-			existing: "peek",
+			door: "wake",
 		});
+		if (cancelledWakes.has(msg.team) && res.created) {
+			await killSession(target).catch(() => {});
+			throw new WakeFailure({ kind: "error", reason: "the Gateway gave up on this launch" });
+		}
 		console.error(`[host-wake] ${msg.team} session ${res.created ? "started" : "already running"}`);
 		if (res.limit) {
 			console.error(
@@ -583,9 +675,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			...launchError(res),
 		});
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		console.error(`[host-wake] failed to wake ${msg.team}: ${message}`);
-		safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
+		failWake(msg.team, err);
 	}
 }
 
@@ -617,7 +707,7 @@ const hostOpRunner = createHostOpRunner({
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
 	createSession: async (target, workdirHint, resumeSessionId, sessionToken, harness, fresh) => {
-		const launch = resolveLaunchHarness(harness, target);
+		const launch = await launchHarnessFor(harness, target);
 		// The runner fails the op.
 		if ("refused" in launch) throw new Error(launch.refused);
 		let workdir: string | undefined;
@@ -634,7 +724,7 @@ const hostOpRunner = createHostOpRunner({
 			fresh,
 			sessionToken,
 			workdir,
-			existing: "leave",
+			door: "create",
 		});
 		if (!res.created) return { created: false };
 		// The console shows the reason.
@@ -648,6 +738,8 @@ const hostOpRunner = createHostOpRunner({
 		return { initiated: true };
 	},
 	killSession,
+	containerStart: async (project) => devContainers.start(project, catalogProjectPath(project)),
+	containerStop: async (project) => devContainers.stop(project, catalogProjectPath(project)),
 	// A windows session browses WINDOWS, through PowerShell. Browsing /mnt from this side would offer
 	// Linux directories the launch then refuses, and would miss every network drive.
 	listDirs: async (p, spawn) =>

@@ -5,6 +5,7 @@ import { canonicalJson } from "../../shared/canonical-json.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { isCheckIn, type Routine, RoutineSchema, routineRefusal, targetKind } from "../../shared/schemasRoutine.js";
 import { REVISION_CEILING, type Runbook } from "../../shared/schemasRunbook.js";
+import { UNPICKED_WORD } from "../../shared/session-harness.js";
 import { renderRoutine } from "./render.js";
 import { type TargetFacts, targetRules } from "./reservation.js";
 
@@ -40,6 +41,13 @@ export interface RoutinePutOptions {
 const RoutinesSchema = z.array(RoutineSchema);
 
 /** A frozen copy, so neither a reader nor the caller that pushed it can edit what the store holds. */
+/** An older phone sends no pick, which keeps the held one; `unpicked` clears it. */
+function keptPick(incoming: Routine["target"], held: Routine["target"] | undefined): Routine["target"] {
+	const { cli, ...rest } = incoming;
+	if (cli === undefined) return held?.cli ? { ...rest, cli: held.cli } : rest;
+	return cli === UNPICKED_WORD ? rest : incoming;
+}
+
 function frozen(routine: Routine): Routine {
 	return Object.freeze({
 		...routine,
@@ -119,7 +127,7 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		if (current && isCheckIn(current) && incoming.target.kind === undefined) {
 			return { stored: false, revision: held0, reason: "this routine is a check-in; update the app to edit it" };
 		}
-		const candidate = frozen(incoming);
+		const candidate = frozen({ ...incoming, target: keptPick(incoming.target, current?.target) });
 		// Turning one off needs nothing it would run with.
 		const disablesOnly =
 			current !== undefined && !candidate.enabled && sameContent(candidate, { ...current, enabled: false });

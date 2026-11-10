@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { agentEnvPrefix } from "../../shared/agent-backend.js";
 import { type AgentResolvedTarget, parseAgentTargetId } from "../../shared/agent-execution-target.js";
+import { containerFor } from "./containers.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -171,7 +172,7 @@ export const realLauncher: ExecutionTargetLauncher = {
 					"-w",
 					`/workspace/${project}`,
 					...containerEnvArgs(env, agentEnvPrefix("codex")),
-					`${project}_devcontainer-dev-1`,
+					containerFor(project),
 					"codex",
 					"app-server",
 				];

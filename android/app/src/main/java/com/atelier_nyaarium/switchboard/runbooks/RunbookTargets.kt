@@ -17,12 +17,11 @@ internal data class SpawnChoice(val spawn: String, val label: String, val offere
 private fun teamsOn(state: ChatState, gatewayId: String) =
 	localSessions(state.sessions(), state.domainId.orEmpty()).filter { it.gatewayId == gatewayId }
 
-/** Host spawns first, then this Gateway's devcontainers. */
+/** Host spawns first, then this Gateway's devcontainers, a reported one with no sessions included. */
 internal fun spawnChoices(state: ChatState, gatewayId: String): List<SpawnChoice> {
 	val hosts = hostSpawnChoices(state.gateways.hostSpawns(gatewayId))
-	val containers = teamsOn(state, gatewayId)
-		.filter { it.kind == "devcontainer" }
-		.map { it.shortName }
+	val containers = (teamsOn(state, gatewayId).filter { it.kind == "devcontainer" }.map { it.shortName } +
+		state.gateways.containersOn(gatewayId).map { it.project }.sorted())
 		.filterNot { it in HOST_SPAWN_IDS }
 	return (hosts.map { SpawnChoice(it, hostSpawnLabel(it, hosts)) } + containers.map { SpawnChoice(it, it) })
 		.distinctBy { it.spawn }

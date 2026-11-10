@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { instantOf, type LocalDate, nextOccurrence, parseLocalDate, parseLocalTime } from "./routine-recurrence.js";
+import { CLI_PICKS } from "./session-harness.js";
 import { MAX_SLUG_LEN, SLUG_RE } from "./session-id.js";
 import { ROUTINE_FORGET_DAYS_MAX, ROUTINE_FORGET_DAYS_MIN } from "./wire-vocabulary.js";
 
@@ -43,6 +44,8 @@ export const RoutineTargetSchema = z
 		/** A spawn point here. A check-in keeps the assistant's, so an older phone decodes it. */
 		spawn: z.string().min(1).max(128),
 		workdir: z.string().min(1).optional(),
+		/** Absent keeps the held pick; `unpicked` clears it. */
+		cli: z.enum(CLI_PICKS).optional(),
 	})
 	.meta({ id: "RoutineTarget" });
 

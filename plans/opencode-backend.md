@@ -316,6 +316,18 @@ The strings an agent reads are under **Agent-facing prose**, below Phase 2c.
 - **The deadline does not run during a build:** the daemon tracks its own `devcontainer up`. While one is going the launch is healthy and its countdown stands still, however long the build takes. The countdown runs only once the container is up, and the timeout notice names that window. A build that never ends is ended by Stop, which fails the launch. The daemon reports each wake's stage in a new frame: build going, container up, CLI found, failed with a typed reason. `WakeCoordinator` arms its countdown at container up; today the deadline is fixed when the wait starts, `ackReceived` can only shorten it, and the Gateway throws `wake_result`'s error text away. The CLI found is written onto the pending record before the session registers, since registration reads the harness off the record. Owner: "those godot ones can take a while. Daemon should be keeping track of whats happening. If hte docker build is going, it should consider it healthy: countdown does not move."
 - **A pending create may lack a CLI.** Phase 1's rule that every mint names one holds for Phase 1 and ends there. Here the blank lasts only while the create is pending: the launch resolves it, or the record is forgotten. Owner: "As long as that stays in phase 1 and dies with it, it's fine."
 - **No unit tests for the daemon's container orchestration.** Start, stop, state and the look inside are developed against a separate lab, as the enrollment work was, and accepted live in Phase 3. Owner: "We just have to live with no tests for this. System orchastration is too dificult to pin on a unit test."
+
+### Built
+
+Uncommitted while this is written.
+
+- **Launch sites:** `LaunchSite` per `LaunchPlace` in `sessionLaunch.ts` (the container row stays null; Phase 2c places a `dist/` there). Liveness is `paneHolds`, the status pid on the pane's tty. The launcher leaves `exited` with the UI's code; `clearStatus` before a launch is the only delete. `LaunchDoor` (`wake`, `create`) replaced `ExistingPane`. `LAUNCHERS` in `launcher-spec.ts` feeds `build.ts`, `LAUNCH` and the probe. `check:boot` runs the launcher against a fake `opencode` (`scripts/lib/fakeOpencodeBin.ts`).
+- **One probe, one resolver:** `cliProbeScript` and `parseCliProbe` run through `runInPlace`; `placeCandidates` filters by `launchRefusal`; Windows dropped the `claude.exe` gate. `HarnessWord` gained `unpicked` (wire word `unpicked`); `resolveCli` and `pickAt` in `cli-resolve.ts`, with the owner's wording in `cliRefusalText`. A recordless wake sends `unpicked`, which replaced `BARE_PROJECT_HARNESS`. The console `wake` op carries the row's CLI for a session with no record; an older phone's falls back to Claude until 2026-11-24.
+- **No-wait send:** `WakeService.beginWake` answers the started team at once; `launchRecords.ts` holds each launch durably (`launches.json`) with its requesters and tells each one by the bank (`launches` source, the started notice pushed at once). A failure withdraws the queued rows (`ChannelDeliveryCoordinator.withdraw`), drops their reply jobs, and forgets a create. A relayed send from a session reader queues the same way; its outcome rides `response_push.launch` and the sending Gateway banks it. `ResponsePayload` gained `target` and the status `starting`.
+- **Wake stages:** `wake_stage` frames (`building`, `container_up`, `cli_found`) from the daemon; the countdown holds through a build and runs whole from `container_up`. `wake_result` carries a typed `failure` (`LaunchFailure`). A given-up wake sends `wake_cancel`.
+- **Container state on the wire:** `GatewaySpawnPoints.containers` (`ContainerState`: state, last failure, CLIs found, absent until looked inside), taken from the daemon's `catalog` and `containers` frames; console ops `container_start` and `container_stop` relay the matching host ops. The availability map stays `harnessSpawns` for host shells; containers carry theirs in `containers[].clis`.
+- **The pick:** `cli` on `crosstalk_send`, `/send`, the relayed send, the assistant's guard and its card intent. Refusals travel typed (`SendRefusal`) and the plugin renders `sendRefusalText` with no prefix. A record may lack `harness` while its create waits; `resolvePick` names it on `cli_found`. Routine targets and a fire's new-session target carry `cli` (`CLI_PICKS`); a routine whose pick does not fit settles `cli_refused`. `crosstalk_discover` prints CLIs from `spawnClis`.
+- **Protocol floor 6.**
 ## Phase 2c - Copilot in containers
 
 - **Typed delivery reaches a container pane:** `typeSession` refuses any spawn but the host's today, and its target is hard-coded to the host's. It builds the target from the session's spawn point. The daemon types into a container's pane as it already peeks and sends keys there.
@@ -471,7 +483,29 @@ Running or stopped is not shown: an agent's send starts the container either way
 ## Owner asks, open
 
 - **Tell the owner when the app can create an OpenCode session.** Asked from the phone on 2026-11-10: "let me know when session start or startAgent is ready for use in this android app. I think a good exercise would be to make a session and you cross talk it to do adversarial from now on." ✅ Told on 8.14.54. Adversarial reads go to the session the owner names.
-- **An OpenCode backend for `agentStart` and workflow steps,** a slice after Phase 2a. Owner, 2026-11-10: "let's add agentStart support as a slice after you get the session support. that way you can use OpenCode session to implement an OpenCode agent." Not yet questioned or planned. Its tool text is settled with the owner first, and the build is handed to an OpenCode session by `crosstalk_send`. It is not a cycle phase yet; add it as `## Phase 2a2 - OpenCode as an agent backend` once planned.
+- **An OpenCode backend for `agentStart` and workflow steps,** a slice after Phase 2a. Owner, 2026-11-10: "let's add agentStart support as a slice after you get the session support. that way you can use OpenCode session to implement an OpenCode agent." Its tool text is settled with the owner first, and the build is handed to an OpenCode session by `crosstalk_send`. It is not a cycle phase yet; add it as `## Phase 2a2 - OpenCode as an agent backend` once planned.
+  - **Q1, one family adapter first?** A: fold Codex and Copilot into one family adapter (options, dispatch, event fold, recovery, cancel per backend), then OpenCode is one adapter on it. Owner, 2026-11-10: "A."
+  - **Q2, where an agent runs?** A: one headless `opencode serve` per execution target, supervised by the daemon as Codex's App Server is; each agent is an OpenCode session on it, a turn is a prompt, collect reads the turn's messages. Local mode runs its own the same way. Owner: "A".
+  - **Q3, the agent's model?** Optional; omitted on OpenCode it is `opencode-go/deepseek-v4-pro`. A new tool lists the models each backend offers, newest version per family. Owner: "We need a new tool to list models a backend has. Claude and Codex will be down to a few. Copilot will list whatever the enterprise enabled. We should attempt to dedup the model listing by version numbers by only offering the newest. Usually same price for better performance. And if model is omited on OpenCode, default to the deep seek model, since OpenCode offers it at a good discount. the costlier one, not the flash one." On the dedup: "I meant dedup as in opus 5.4 superceded by opus 5.5. Pro and Flash are 2 different models. like a haiku vs opus."
+  - **Q4, the listing tool's shape?** A: one `agentModels` tool, optional `backend`, each backend's models read live from that backend (OpenCode's provider list, Copilot's headless client, Codex's App Server, Claude's few), newest per family, the default marked. A family is the id with its version numbers removed. The static model lines in the agent guidance go. Owner: "A it is".
+  - **Q5, what an agent may do unasked?** A: allow all; the agent's session is created with an allow-everything rule set, as Copilot agents run in allow-all and Codex unsandboxed. Owner: "A".
+  - **Q7a, the listing tool's name:** `agentListModels`, keeping agent plus a verb. Owner: "A. now the description next".
+  - **Q7b, its description,** the owner's wording:
+    ```
+    # List Agent Models
+
+    List the newest models in all enabled model families.
+    - `backend` lists for just that backend
+    ```
+  - **Q7c, `agentStart` field `model`,** the owner's wording: "Model ID as listed by `agentListModels`. Omit to use the backend's default."
+  - **Q7d, `agentStart` description sentence,** the owner's wording: "Set `model` and `cwd` to start with. Use `agentListModels` to lists the models."
+  - **Q7e, guidance, the OpenCode section,** the owner's wording:
+    ```
+    ## OpenCode
+
+    `model` uses the format: `provider/model`
+    ```
+  - **Q6, how a session gets the backend?** A: its own capability, `opencode-agent`, on by default where OpenCode is installed, listed in the backends line, switchable like `codex-agent` and `copilot-agent`. Owner: "A".
 
 ## Later
 

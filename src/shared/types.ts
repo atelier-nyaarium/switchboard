@@ -90,6 +90,8 @@ export interface ChannelPushPayload {
 export interface ResponsePayload extends NoticeTierWire {
 	session_id: string;
 	status?: ResponseStatus;
+	/** The address the message went to, a minted one included. */
+	target?: string;
 	response?: string;
 	replyAsJson?: Record<string, unknown>;
 	question?: string;

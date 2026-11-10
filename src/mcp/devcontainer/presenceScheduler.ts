@@ -43,6 +43,8 @@ export function readWatch(
 		named: (named) => named,
 		// An older Gateway named Copilot only by its session id.
 		unnamed: (assumed) => (mintedIdOf("copilot", entry.copilotSessionId) ? "copilot" : assumed),
+		// Not yet launched.
+		unpicked: () => null,
 		unknown: () => null,
 	});
 	if (!harness) return null;

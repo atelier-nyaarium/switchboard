@@ -23,6 +23,24 @@ export const HarnessSpawnsSchema = z
 	)
 	.meta({ id: "HarnessSpawns" });
 
+export const CONTAINER_STATES = ["stopped", "starting", "running"] as const;
+
+/** A dev container as docker reports it, and the CLIs found inside. */
+export const ContainerStateSchema = z
+	.object({
+		project: z.string().min(1).max(64),
+		state: z.enum(CONTAINER_STATES),
+		/** The last Start or Stop that failed, until the next one. */
+		failure: z.string().max(512).optional(),
+		/** Absent until looked inside; empty when none is installed. */
+		clis: z.array(z.enum(SESSION_HARNESSES)).max(SESSION_HARNESSES.length).optional(),
+	})
+	.meta({ id: "ContainerState" });
+
+export type ContainerState = z.infer<typeof ContainerStateSchema>;
+
+export const ContainerListSchema = z.array(ContainerStateSchema).max(128);
+
 /** Discovery metadata, never a presence row: a row would make a machine's shell shareable. */
 export const GatewaySpawnPointsSchema = z
 	.object({
@@ -35,6 +53,7 @@ export const GatewaySpawnPointsSchema = z
 		// FIXME 2026-11-23: drop both, once every reader takes `harnessSpawns`.
 		claudeSpawns: SpawnListSchema,
 		copilotSpawns: SpawnListSchema,
+		containers: ContainerListSchema.optional(),
 	})
 	.meta({ id: "GatewaySpawnPoints" });
 

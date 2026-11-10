@@ -19,6 +19,7 @@ import {
 	HostClaudeRunReplySchema,
 } from "../../shared/host-op.js";
 import { classifyAgentStderr, containerEnvArgs, scrubChildEnv } from "./codexTargets.js";
+import { containerFor } from "./containers.js";
 import { resolveHostWorkdir } from "./hostResolve.js";
 
 const MAX_RUNNING = 8;
@@ -66,7 +67,6 @@ tr '\\000' '\\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF -- "${TURN_ENV}=$
 kill -s "$3" -- "-$pid" 2>/dev/null || kill -"$3" "-$pid" 2>/dev/null || kill -s "$3" "$pid" 2>/dev/null || exit 5
 `;
 
-const containerName = (project: string) => `${project}_devcontainer-dev-1`;
 const containerPidfile = (turnId: string) => `/tmp/switchboard-claude-${turnId}.pid`;
 
 interface ClaudeCommand {
@@ -107,7 +107,7 @@ export function argvFor(input: HostClaudeRunOp, env: Record<string, string | und
 			"-w",
 			`/workspace/${target.project}`,
 			...containerEnvArgs(env, ""),
-			containerName(target.project),
+			containerFor(target.project),
 			"sh",
 			"-c",
 			CONTAINER_WRAPPER,
@@ -130,7 +130,7 @@ function containerKillArgv(
 ): string[] {
 	return [
 		"exec",
-		containerName(target.project),
+		containerFor(target.project),
 		"sh",
 		"-c",
 		CONTAINER_KILL,

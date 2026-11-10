@@ -3,6 +3,8 @@
 import type { ServerWebSocket } from "bun";
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
+import { type HostSpawnState, hostSpawnPoint } from "../../shared/host-spawn.js";
+import { SESSION_HARNESSES, type SessionHarness } from "../../shared/session-harness.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
 import { HostOpCoordinator } from "../hostOpCoordinator.js";
 import { WakeCoordinator } from "../wake.js";
@@ -19,7 +21,13 @@ const WATCH_PUSH_MS = 2_000;
 export interface HostStageDeps {
 	sessions: Pick<
 		SessionsStage,
-		"registry" | "sessionStore" | "presence" | "isAvailableProject" | "knownTeamPaths" | "offlineCatalog"
+		| "registry"
+		| "sessionStore"
+		| "presence"
+		| "isAvailableProject"
+		| "knownTeamPaths"
+		| "offlineCatalog"
+		| "hostSpawnPoints"
 	>;
 	wakeTimeoutMs: number;
 	ambient: Ambient;
@@ -35,6 +43,16 @@ export interface HostStage {
 	/** Re-sends the watch list; `force` re-sends an unchanged one. */
 	pushPresenceWatch: (force?: boolean) => void;
 	presenceWatchTimer: IntervalHandle;
+	/** What a spawn point runs; undefined until the daemon said. */
+	installedAt: (spawn: string) => readonly SessionHarness[] | undefined;
+}
+
+/** What a spawn point runs, as the daemon last said; undefined until it has. */
+function installedAt(state: HostSpawnState, spawn: string): readonly SessionHarness[] | undefined {
+	if (!state.known) return undefined;
+	if (hostSpawnPoint(spawn))
+		return SESSION_HARNESSES.filter((harness) => state.harnessSpawns?.[harness]?.includes(spawn));
+	return state.containers?.find((container) => container.project === spawn)?.clis;
 }
 
 export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps): HostStage {
@@ -69,6 +87,7 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 		offlineCatalog: sessions.offlineCatalog,
 		liveHostSocket,
 		wakeTimeoutMs,
+		installedAt: (spawn) => installedAt(sessions.hostSpawnPoints, spawn),
 	});
 
 	async function relayToHost(op: HostOp): Promise<HostOpResult> {
@@ -125,5 +144,6 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 		relayToHost,
 		pushPresenceWatch,
 		presenceWatchTimer,
+		installedAt: (spawn) => installedAt(sessions.hostSpawnPoints, spawn),
 	};
 }

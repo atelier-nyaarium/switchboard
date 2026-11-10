@@ -63,6 +63,16 @@ class RunbookTargetsTest {
 	}
 
 	@Test
+	fun aReportedContainerWithNoSessionsIsStillASpawnPoint() {
+		val reported = state.copy(
+			gateways = state.gateways.withEntry("sakura") { entry ->
+				entry.copy(containers = listOf("godot", "evie-bot").map { SpawnContainer(it, ContainerRun.STOPPED, null, SpawnHarnesses.Unknown) })
+			},
+		)
+		assertEquals(listOf("host", "evie-bot", "godot"), spawnChoices(reported, "sakura").map { it.spawn })
+	}
+
+	@Test
 	fun aDevcontainerNamedLikeAHostSpawnDoesNotDoubleIt() {
 		val collided = state.copy(teams = state.teams + team("d1.sakura.host", kind = "devcontainer"))
 		assertEquals(listOf("host", "evie-bot"), spawnChoices(collided, "sakura").map { it.spawn })

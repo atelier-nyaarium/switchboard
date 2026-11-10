@@ -108,7 +108,10 @@ export type HostOp =
 	| HostClaudeRunOp
 	| HostClaudeCancelOp
 	| { kind: "reloadPlugins"; target: TmuxTarget; dedupKey?: string }
-	| { kind: "killSession"; target: TmuxTarget; dedupKey?: string };
+	| { kind: "killSession"; target: TmuxTarget; dedupKey?: string }
+	// Answered once queued; the outcome rides the container state.
+	| { kind: "containerStart"; project: string; dedupKey?: string }
+	| { kind: "containerStop"; project: string; dedupKey?: string };
 
 export type HostJsonValue = null | boolean | number | string | HostJsonValue[] | { [key: string]: HostJsonValue };
 export type HostJsonObject = { [key: string]: HostJsonValue };

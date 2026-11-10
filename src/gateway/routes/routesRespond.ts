@@ -1,9 +1,11 @@
 import { isNoAckSessionId } from "../../shared/agent-notice.js";
 import type { Ambient } from "../../shared/ambient.js";
+import type { LaunchNotice } from "../../shared/launch-notice.js";
 import { pickTiers, SPOKEN_TIER_FIELDS } from "../../shared/notice.js";
 import { type PendingJobStore, readerOf } from "../../shared/pending-job-store.js";
 import { type Address, parseStoreKey } from "../../shared/session-id.js";
 import type { GatewayConfig, ResponsePayload, ResponsePushPayload } from "../../shared/types.js";
+import type { LaunchRelay } from "../launchRecords.js";
 import {
 	fileBytes,
 	jsonResponse,
@@ -23,7 +25,10 @@ export interface RespondRoutesDeps {
 	ambient: Pick<Ambient, "newId">;
 	localDomain: string;
 	conversationRegistry: ConversationRegistry;
-	store: Pick<PendingJobStore<ResponsePayload>, "settle" | "targetOf" | "contractOf" | "has" | "poll">;
+	store: Pick<
+		PendingJobStore<ResponsePayload>,
+		"settle" | "targetOf" | "contractOf" | "has" | "poll" | "askerOf" | "remove"
+	>;
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
@@ -52,6 +57,8 @@ export interface RespondRoutesDeps {
 	provedLocalSession: (req: Request) => boolean;
 	/** Local reply push. */
 	onReplyPushed: (team: string) => void;
+	/** Holds a launch outcome for the session that sent. */
+	bankLaunch?: (sessionKey: string, notice: LaunchNotice) => void;
 }
 
 export function createRespondRoutes({
@@ -73,6 +80,7 @@ export function createRespondRoutes({
 	provedLocalSession,
 	ambient,
 	onReplyPushed,
+	bankLaunch,
 }: RespondRoutesDeps) {
 	const { localGatewayId } = config;
 
@@ -349,5 +357,31 @@ export function createRespondRoutes({
 		return jsonResponse(result);
 	}
 
-	return { respond, poll };
+	/** A relayed send's launch outcome, told back on its reply road. True once nothing more is owed. */
+	async function pushLaunch(relay: LaunchRelay, notice: LaunchNotice): Promise<boolean> {
+		if (relay.dstDomainId) {
+			const pinned = parseStoreKey(relay.srcSession);
+			const sessionTarget = pinned?.kind === "conv" ? pinned.address.canonical : undefined;
+			// Unshared since.
+			if (!sessionTarget || !isSharedToForReply?.(sessionTarget, relay.dstDomainId)) return true;
+		}
+		const outcome = await relayWithRetry(
+			relay.srcGateway,
+			{ kind: "response_push", session_id: relay.srcSession, launch: notice },
+			`launch [${relay.srcSession}]`,
+			relay.dstDomainId ?? undefined,
+		);
+		return outcome.ok;
+	}
+
+	/** A launch outcome from the Gateway a send went to, banked for its sender; never a reply. */
+	function acceptLaunchNotice(sessionId: string, notice: LaunchNotice): void {
+		const asker = store.askerOf(sessionId);
+		if (!asker) return;
+		bankLaunch?.(asker, notice);
+		// Nothing reached the session, so no reply will come.
+		if (notice.kind === "failed") store.remove(sessionId);
+	}
+
+	return { respond, poll, pushLaunch, acceptLaunchNotice };
 }

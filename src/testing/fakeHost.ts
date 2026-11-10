@@ -49,6 +49,8 @@ export interface FakeHostHandlers {
 	failCreateSession?: (op: Extract<HostOp, { kind: "createSession" }>) => string | undefined;
 	/** The scenario registers the woken team. */
 	onWake?: (frame: Frame) => void;
+	/** How the daemon answers a wake; absent says it launched. */
+	answerWake?: (frame: Frame) => "launched" | "failed" | "silent";
 	/** Absent means accept and complete. */
 	onCodexCommand?: CodexResponder;
 	onCopilotCommand?: CopilotResponder;
@@ -188,6 +190,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		onCreateSession: options.onCreateSession,
 		failCreateSession: options.failCreateSession,
 		onWake: options.onWake,
+		answerWake: options.answerWake,
 		onCodexCommand: options.onCodexCommand,
 		onCopilotCommand: options.onCopilotCommand,
 		onClaudeRun: options.onClaudeRun,
@@ -306,7 +309,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		if (frame.type === "wake") {
 			wakes.push(frame);
 			handlers.onWake?.(frame);
-			send({ type: "wake_result", team: frame.team, success: true });
+			const answer = handlers.answerWake?.(frame) ?? "launched";
+			if (answer !== "silent") send({ type: "wake_result", team: frame.team, success: answer === "launched" });
 		}
 		if (frame.type === "codex_command") {
 			const command = CodexDaemonCommandSchema.parse(frame);

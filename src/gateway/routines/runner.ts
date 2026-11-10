@@ -28,6 +28,7 @@ export type PrepareResult =
 	/** Something else holds the session this routine reserves, so only the owner can settle it. */
 	| { ok: false; reason: "session_taken" }
 	| { ok: false; reason: "assistant_unplaced" }
+	| { ok: false; reason: "cli_refused" }
 	/** Nothing is wrong with the routine; the session could not be reached. */
 	| { ok: false; reason: "unreachable" };
 

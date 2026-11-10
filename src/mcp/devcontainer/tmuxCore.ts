@@ -23,6 +23,7 @@ import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import { trimPaneRowPadding } from "../../shared/pane-trim.js";
 import { parseSessionName } from "../../shared/session-id.js";
 import { buildTranscript } from "./buildTranscript.js";
+import { containerFor } from "./containers.js";
 
 // Re-exported so the daemon and tests keep this import path.
 export { isAgentReady, isAgentWorking, isLoggedOut, limitNotice } from "../../shared/agent-screen.js";
@@ -30,7 +31,6 @@ export { isAgentReady, isAgentWorking, isLoggedOut, limitNotice } from "../../sh
 ////////////////////////////////
 //  Constants
 
-const containerName = (team: string): string => `${team}_devcontainer-dev-1`;
 const EXEC_TIMEOUT_MS = 8_000;
 const TYPE_INTO_PANE_WAIT_MS = 200_000;
 const TYPE_INTO_PANE_POLL_MS = 1_000;
@@ -97,14 +97,14 @@ function paneTarget(target: TmuxTarget): string {
 function tmuxArgv(target: TmuxTarget, sub: string[]): string[] {
 	if (target.kind === "host") return ["tmux", ...sub];
 	assertTmuxName(target.name);
-	return ["docker", "exec", "-u", "vscode", containerName(target.name), "tmux", ...sub];
+	return ["docker", "exec", "-u", "vscode", containerFor(target.name), "tmux", ...sub];
 }
 
 /** Load one paste buffer. */
 function tmuxStdinArgv(target: TmuxTarget, sub: string[]): string[] {
 	if (target.kind === "host") return ["tmux", ...sub];
 	assertTmuxName(target.name);
-	return ["docker", "exec", "-i", "-u", "vscode", containerName(target.name), "tmux", ...sub];
+	return ["docker", "exec", "-i", "-u", "vscode", containerFor(target.name), "tmux", ...sub];
 }
 
 /** Any other command, in the same place that target's tmux lives. Sibling of tmuxArgv, because a
@@ -112,7 +112,15 @@ function tmuxStdinArgv(target: TmuxTarget, sub: string[]): string[] {
 function execArgv(target: TmuxTarget, argv: string[]): string[] {
 	if (target.kind === "host") return argv;
 	assertTmuxName(target.name);
-	return ["docker", "exec", "-u", "vscode", containerName(target.name), ...argv];
+	return ["docker", "exec", "-u", "vscode", containerFor(target.name), ...argv];
+}
+
+/** A bash script where the target's panes run, with the launch's own setup. */
+export function runInPlace(target: Pick<TmuxTarget, "kind" | "name">, script: string): Promise<string> {
+	const argv = ["bash", "-c", `source ~/.bashrc >/dev/null 2>&1; ${script}`];
+	if (target.kind === "host") return run(argv);
+	assertTmuxName(target.name);
+	return run(["docker", "exec", "-u", "vscode", containerFor(target.name), ...argv]);
 }
 
 /** Spawn argv (no shell) and resolve stdout. */
@@ -208,7 +216,7 @@ async function captureContainerLogs(target: TmuxTarget): Promise<{ text: string;
 	let logs = "";
 	try {
 		logs = await run(
-			["docker", "logs", "--tail", String(CONTAINER_LOGS_TAIL), containerName(target.name)],
+			["docker", "logs", "--tail", String(CONTAINER_LOGS_TAIL), containerFor(target.name)],
 			CONTAINER_LOGS_TIMEOUT_MS,
 			{ mergeStderr: true },
 		);
@@ -396,18 +404,33 @@ export function classifyPaneProcesses(commLines: string[]): PaneAgentState {
 	return comms.every((comm) => SHELL_COMMS.has(comm)) ? "gone" : "alive";
 }
 
-/** See [PaneAgentState]. Asks the OS what is on the pane's tty. */
-export async function paneAgentState(target: TmuxTarget): Promise<PaneAgentState> {
+/** One column of every process on the pane's tty, where the pane runs; undefined when unreadable. */
+async function paneTtyColumn(target: TmuxTarget, column: "comm" | "pid"): Promise<string[] | undefined> {
 	try {
 		const tty = (
 			await run(tmuxArgv(target, ["display-message", "-p", "-t", paneTarget(target), "#{pane_tty}"]))
 		).trim();
-		if (!tty.startsWith("/dev/")) return "unknown";
-		const listing = await run(execArgv(target, ["ps", "-t", tty, "-o", "comm="]));
-		return classifyPaneProcesses(listing.split("\n"));
+		if (!tty.startsWith("/dev/")) return undefined;
+		const listing = await run(execArgv(target, ["ps", "-t", tty, "-o", `${column}=`]));
+		return listing.split("\n");
 	} catch {
-		return "unknown";
+		return undefined;
 	}
+}
+
+/** See [PaneAgentState]. Asks the OS what is on the pane's tty. */
+export async function paneAgentState(target: TmuxTarget): Promise<PaneAgentState> {
+	const comms = await paneTtyColumn(target, "comm");
+	return comms ? classifyPaneProcesses(comms) : "unknown";
+}
+
+/** Whether the pid runs on the pane's tty, so a reused pid never reads as its launcher. */
+export async function paneHolds(target: TmuxTarget, pid: number): Promise<boolean | undefined> {
+	const pids = await paneTtyColumn(target, "pid");
+	if (!pids) return undefined;
+	const held = pids.map((line) => Number(line.trim())).filter((value) => value > 0);
+	// A pane always carries its shell.
+	return held.length === 0 ? undefined : held.includes(pid);
 }
 
 export type ReadyAnswer = Awaited<ReturnType<typeof awaitReady>>;

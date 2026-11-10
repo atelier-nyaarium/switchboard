@@ -2,8 +2,10 @@ import type { ServerWebSocket } from "bun";
 import { agentInboundFrameTypes } from "../shared/agent-backend.js";
 import { ClaudeTurnAckFrameSchema, ClaudeTurnResultFrameSchema } from "../shared/host-op.js";
 import { isHostSpawnSession } from "../shared/host-spawn.js";
+import { LaunchFailureSchema } from "../shared/launch-notice.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
-import { DerivedPresenceSchema, HarnessSpawnsSchema } from "../shared/schemasPresence.js";
+import { ContainerListSchema, DerivedPresenceSchema, HarnessSpawnsSchema } from "../shared/schemasPresence.js";
+import { WakeStageFrameSchema } from "../shared/schemasWake.js";
 import {
 	parseSessionControlResult,
 	SESSION_CONTROL_REPLY_FRAME,
@@ -47,6 +49,7 @@ export function createWebSocketHandlers({
 	onDeliveryAck,
 	onVirtualPeerEvicted,
 	onCatalogChange,
+	onSpawnPointsChange,
 	onDaemonCapabilities,
 	onCodexHostMessage,
 	onCopilotHostMessage,
@@ -67,7 +70,7 @@ export function createWebSocketHandlers({
 	/** Its plugin reports state; no pane reader runs. */
 	function reportsOwnState(team: string | null | undefined): boolean {
 		const record = team ? sessionStore?.getByTeam(team) : undefined;
-		return !!record && readsOwnState(record.harness);
+		return !!record?.harness && readsOwnState(record.harness);
 	}
 
 	function heartbeatTick() {
@@ -333,7 +336,8 @@ export function createWebSocketHandlers({
 				const confirmedBy = handshakeGate.confirmedBy(team);
 				const sameConfirmer = !!auth && !!confirmedBy && auth.sameAs(confirmedBy, auth.toAnswerFor(ws));
 				// A CLI with no channel to answer a handshake through; its launch token stands in.
-				const tokenStands = isBound && !!boundRecord && !HARNESS[boundRecord.harness].handshake;
+				const boundRow = boundRecord?.harness ? HARNESS[boundRecord.harness] : undefined;
+				const tokenStands = isBound && !!boundRow && !boundRow.handshake;
 				// One plugin socket per session; its reload replaces it, a nested agent is refused.
 				const held = tokenStands
 					? [...subs.values()].filter(
@@ -365,7 +369,7 @@ export function createWebSocketHandlers({
 					}
 					confirmHandshake(ws);
 					console.log(
-						`[ws] ${team}/${subId} ${tokenStands ? `is a ${HARNESS[boundRecord.harness].label} session` : "reconnected as remembered lead"} - handshake skipped`,
+						`[ws] ${team}/${subId} ${tokenStands ? `is a ${boundRow?.label} session` : "reconnected as remembered lead"} - handshake skipped`,
 					);
 				} else {
 					mintHandshake(ws, team, subId);
@@ -379,9 +383,24 @@ export function createWebSocketHandlers({
 
 		if (msg.type === "wake_result" && ws.data.teamName === "host" && typeof msg.team === "string") {
 			if (msg.success === false) {
-				wakeCoordinator.notify(msg.team, false);
+				const failure = LaunchFailureSchema.safeParse(msg.failure);
+				wakeCoordinator.fail(msg.team, {
+					...(failure.success ? { failure: failure.data } : {}),
+					...(typeof msg.error === "string" ? { error: msg.error.slice(0, 2048) } : {}),
+				});
 			} else {
 				wakeCoordinator.ackReceived(msg.team, REGISTER_WINDOW_MS);
+			}
+		}
+
+		if (msg.type === "wake_stage" && ws.data.teamName === "host") {
+			const frame = WakeStageFrameSchema.safeParse(msg);
+			if (frame.success) {
+				wakeCoordinator.stage(frame.data.team, frame.data.stage);
+				// Before it registers, since registration reads the CLI off the record.
+				if (frame.data.stage === "cli_found" && frame.data.harness) {
+					sessionStore?.resolvePick(frame.data.team, frame.data.harness);
+				}
 			}
 		}
 
@@ -486,9 +505,14 @@ export function createWebSocketHandlers({
 						};
 					}
 					console.log(`[ws] host spawn points: ${hostSpawnPoints.ids.join(", ") || "(none beyond host)"}`);
+					takeContainers(msg.containers);
 				}
 				onCatalogChange?.(ws.data.daemonInstanceId);
 			}
+		}
+
+		if (msg.type === "containers" && ws.data.teamName === "host" && hostSpawnPoints?.known) {
+			if (takeContainers(msg.containers)) onSpawnPointsChange?.();
 		}
 
 		if (
@@ -520,6 +544,14 @@ export function createWebSocketHandlers({
 		ws.data.missedPings = 0;
 	}
 
+	/** A daemon that sends none leaves none. */
+	function takeContainers(raw: unknown): boolean {
+		if (!hostSpawnPoints) return false;
+		const parsed = ContainerListSchema.safeParse(raw);
+		hostSpawnPoints.containers = parsed.success ? parsed.data : undefined;
+		return true;
+	}
+
 	function close(ws: ServerWebSocket<WsData>): void {
 		const teamName = ws.data.teamName;
 		const subId = ws.data.subId;
@@ -549,6 +581,7 @@ export function createWebSocketHandlers({
 						hostSpawnPoints.known = false;
 						hostSpawnPoints.ids = [];
 						hostSpawnPoints.harnessSpawns = {};
+						hostSpawnPoints.containers = undefined;
 					}
 					hostOpCoordinator?.failAll("host daemon disconnected");
 					wakeCoordinator.failAll();
@@ -621,6 +654,8 @@ export function createWebSocketHandlers({
 			harness: foldHarness(ws.data.harness ?? readHarness(undefined), {
 				named: (named) => named,
 				unnamed: (assumed) => assumed,
+				// A plugin knows its CLI.
+				unpicked: () => null,
 				// A newer plugin's CLI creates none.
 				unknown: () => null,
 			}),

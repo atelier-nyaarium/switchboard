@@ -144,6 +144,7 @@ describe("migration fence durability", () => {
 			routes: {
 				acceptGatewaySend: async () => new Response("{}"),
 				respond: () => new Response("{}"),
+				acceptLaunchNotice: () => {},
 				teams: () => new Response("[]"),
 			},
 			tryWakeTeam: async () => ({ ok: true }),

@@ -3,6 +3,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ASSISTANT_CROSSTALK_TOOLS } from "../../shared/assistant-session.js";
+import { sendRefusalText, startingText } from "../../shared/launch-notice.js";
 import {
 	ASSISTANT_SEND_ROUTES,
 	type AssistantSendAnswer,
@@ -10,6 +11,7 @@ import {
 	AssistantSendWithdrawAnswerSchema,
 	SEND_ROUTE_WAIT_CAP_MS,
 } from "../../shared/schemasAssistantSend.js";
+import type { SessionHarness } from "../../shared/session-harness.js";
 import { oneLine } from "../../shared/system-reminder.js";
 import type { ChannelFile } from "../../shared/types.js";
 import { bridgeConversationId, RouterHttpError, routerPost } from "../bridge/helpers.js";
@@ -25,6 +27,7 @@ const UNGUARDED = "This Gateway does not guard the assistant's sends, so nothing
 export function guardedAnswerText(answer: AssistantSendAnswer): ToolText {
 	switch (answer.outcome) {
 		case "sent": {
+			if (answer.starting) return text(startingText(answer.target));
 			const how = answer.guard === "approved" ? "approved by the owner" : "sent without asking";
 			return text(`Sent to ${answer.target}, ${how}.\n\n[session_id: ${answer.sessionId}]`);
 		}
@@ -49,6 +52,7 @@ Continue with \`${ASSISTANT_CROSSTALK_TOOLS.collect}\` and request_id "${answer.
 		case "withdrawn":
 			return toolError("Withdrawn. Nothing was sent.");
 		case "failed":
+			if (answer.refused) return toolError(sendRefusalText(answer.refused.refusal, answer.refused.target));
 			return toolError(`Not sent: ${oneLine(answer.reason)}`);
 	}
 }
@@ -74,6 +78,7 @@ export async function sendGuarded(args: {
 	to: string;
 	body: string;
 	displayLabel?: string;
+	cli?: SessionHarness;
 	disposition?: string;
 	files: ChannelFile[];
 }): Promise<ToolText> {
@@ -82,6 +87,7 @@ export async function sendGuarded(args: {
 		body: args.body,
 		fromConversationId: bridgeConversationId(),
 		...(args.displayLabel ? { displayLabel: args.displayLabel } : {}),
+		...(args.cli ? { cli: args.cli } : {}),
 		...(args.disposition ? { disposition: args.disposition } : {}),
 		...(args.files.length > 0 ? { files: args.files } : {}),
 		waitMs: SEND_ROUTE_WAIT_CAP_MS,

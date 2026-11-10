@@ -1,4 +1,5 @@
 import { type FederatedOp, FederatedOpSchema, GatewayRelayFrameSchema } from "../../shared/federation-protocol.js";
+import type { LaunchNotice } from "../../shared/launch-notice.js";
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { pickTiers } from "../../shared/notice.js";
 import type { CrossDomainBinding } from "../../shared/pending-job-store.js";
@@ -11,6 +12,7 @@ import type { Sealer } from "./sealer.js";
 export interface FederationRoutes {
 	acceptGatewaySend: (body: Record<string, unknown>) => Promise<Response>;
 	respond: (req: Request, body: Record<string, unknown>, opts?: { trustedInbound?: boolean }) => Response;
+	acceptLaunchNotice: (sessionId: string, notice: LaunchNotice) => void;
 	teams: () => Response;
 }
 
@@ -110,12 +112,32 @@ export function createGatewayRelayHandler({
 					returnRoute: op.returnRoute,
 					...(srcDomainId !== null ? { dstDomainId: srcDomainId } : {}),
 					...(op.displayLabel ? { displayLabel: op.displayLabel } : {}),
+					...(op.cli ? { cli: op.cli } : {}),
 					...(op.disposition ? { disposition: op.disposition } : {}),
 					...(op.reader ? { reader: op.reader } : {}),
 				});
-				const json = (await res.json()) as { session_id?: string; status?: string; error?: string };
+				const json = (await res.json()) as {
+					session_id?: string;
+					status?: string;
+					target?: string;
+					error?: string;
+					refused?: unknown;
+				};
+				// Answered, so the sender words it.
+				if (!res.ok && json.refused) {
+					return {
+						session_id: op.returnRoute.srcSession,
+						status: "refused",
+						error: json.error,
+						refused: json.refused,
+					};
+				}
 				if (!res.ok) throw new Error(json.error ?? `send from Gateway ${srcGateway} failed`);
-				return { session_id: json.session_id ?? op.returnRoute.srcSession, status: json.status ?? "running" };
+				return {
+					session_id: json.session_id ?? op.returnRoute.srcSession,
+					status: json.status ?? "running",
+					...(json.target ? { target: json.target } : {}),
+				};
 			}
 			case "wake": {
 				if (srcDomainId !== null) await gateCrossDomainTarget(op.team, srcDomainId);
@@ -134,6 +156,10 @@ export function createGatewayRelayHandler({
 					) {
 						throw new Error(`cross-Domain response_push to "${op.session_id}" denied`);
 					}
+				}
+				if (op.launch) {
+					routes.acceptLaunchNotice(op.session_id, op.launch);
+					return { ok: true };
 				}
 				const res = routes.respond(
 					FAKE_REQ,

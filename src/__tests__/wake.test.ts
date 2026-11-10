@@ -130,19 +130,14 @@ describe("decideWakeCreate", () => {
 		});
 	});
 
-	it("refuses with a specific, actionable error when no record exists and no displayLabel was supplied", () => {
-		expect(decideWakeCreate("proj.newsession", false, undefined)).toEqual({
-			kind: "refuse",
-			error: `"proj.newsession" does not exist yet; retry with a displayLabel to create it`,
-		});
+	const refused = { kind: "refuse", error: expect.any(String), refusal: { kind: "no_label" } };
+
+	it("refuses as having no label when no record exists and no displayLabel was supplied", () => {
+		expect(decideWakeCreate("proj.newsession", false, undefined)).toEqual(refused);
 	});
 
 	it("refuses a whitespace/invisible-only displayLabel the same as an absent one, rather than minting a garbage-labeled session", () => {
 		// Sanitization rejects invisible labels.
-		const refused = {
-			kind: "refuse",
-			error: `"proj.newsession" does not exist yet; retry with a displayLabel to create it`,
-		};
 		expect(decideWakeCreate("proj.newsession", false, "   ")).toEqual(refused);
 		expect(decideWakeCreate("proj.newsession", false, "\u200b")).toEqual(refused);
 		expect(decideWakeCreate("proj.newsession", false, ".")).toEqual(refused);

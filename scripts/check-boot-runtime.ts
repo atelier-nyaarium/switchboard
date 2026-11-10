@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import https from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,10 +10,19 @@ import { createWorkflowEngine } from "../src/gateway/workflows/engine.js";
 import { createWorkflowRunner } from "../src/gateway/workflows/runner.js";
 import { createWorkflowRunStore } from "../src/gateway/workflows/store.js";
 import { ASSISTANT_ONLY_TOOLS, ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../src/shared/assistant-session.js";
+import { readLaunchStatus } from "../src/shared/launch-status.js";
+import { LAUNCHERS } from "../src/shared/launcher-spec.js";
 import { SESSION_COMMANDS } from "../src/shared/session-commands.js";
-import { deliveryOf, HARNESS, SESSION_HARNESSES, type SessionHarness } from "../src/shared/session-harness.js";
+import {
+	deliveryOf,
+	HARNESS,
+	OPENCODE_PIN,
+	SESSION_HARNESSES,
+	type SessionHarness,
+} from "../src/shared/session-harness.js";
 import { loadIdentitySet, seedGateway, seedRouter } from "../src/testing/identitySet.js";
 import { createPhoneDriver } from "../src/testing/phoneDriver.js";
+import { FAKE_UI_EXIT, FAKE_UI_RELEASE_ENV, installFakeOpencode } from "./lib/fakeOpencodeBin.js";
 
 type Child = ReturnType<typeof spawn>;
 
@@ -113,6 +122,66 @@ function exitCode(child: Child, name: string): Promise<number> {
 			reject(new Error(`${name} did not exit within 10 seconds`));
 		}, 10_000).unref();
 	});
+}
+
+/** The real launcher under Bun, over a fake `opencode` in a temp HOME. */
+async function checkOpencodeLauncher(dir: string): Promise<void> {
+	const { binary, sessionId } = HARNESS.opencode;
+	const { homeDir, posix } = binary;
+	if (!homeDir) throw new Error("OpenCode names no install directory");
+	if (!sessionId.minted) throw new Error("OpenCode mints no session id");
+	const home = path.join(dir, "home");
+	const tmp = path.join(dir, "tmp");
+	mkdirSync(tmp, { recursive: true });
+	installFakeOpencode(path.join(home, homeDir));
+	const statusFile = path.join(dir, "status.json");
+	const release = path.join(dir, "release");
+	const spec = LAUNCHERS.opencode;
+	const argv = spec.argv({ sessionId: sessionId.mint(randomUUID), statusFile, greet: true });
+	// No real install shadows the fake.
+	const searched = (process.env.PATH ?? "")
+		.split(path.delimiter)
+		.filter((entry) => entry.length > 0 && !existsSync(path.join(entry, posix)));
+	const { child } = start("opencode-launch", [spec.entry, ...argv], {
+		...process.env,
+		HOME: home,
+		XDG_STATE_HOME: path.join(dir, "state"),
+		TMPDIR: tmp,
+		PATH: searched.join(path.delimiter),
+		[FAKE_UI_RELEASE_ENV]: release,
+	});
+	const status = () => {
+		try {
+			return readLaunchStatus(readFileSync(statusFile, "utf8"));
+		} catch {
+			return undefined;
+		}
+	};
+
+	const ready = await waitFor(
+		async () => {
+			const held = status();
+			if (held?.state === "ready") return held;
+			if (held?.state === "failed") throw new Error(`launch failed: ${held.error}`);
+			if (held?.state === "exited") throw new Error(`the UI exited ${held.code} before release`);
+			if (child.exitCode !== null || child.signalCode !== null) {
+				throw new Error(`launcher left before ready (${child.exitCode ?? child.signalCode})`);
+			}
+			return undefined;
+		},
+		"launch status ready",
+		20_000,
+	);
+	if (ready.pid !== child.pid) throw new Error(`ready names pid ${ready.pid}, not ${child.pid}`);
+	if (ready.version !== OPENCODE_PIN) throw new Error(`ready names version ${ready.version}`);
+
+	writeFileSync(release, "");
+	const code = await exitCode(child, "OpenCode launcher");
+	const left = status();
+	if (left?.state !== "exited" || left.pid !== child.pid || left.code !== FAKE_UI_EXIT) {
+		throw new Error(`status after exit: ${JSON.stringify(left)}`);
+	}
+	if (code !== FAKE_UI_EXIT) throw new Error(`launcher exited ${code}, not the UI's ${FAKE_UI_EXIT}`);
 }
 
 const TOOL = SESSION_COMMANDS.sessionRoutine.tool;
@@ -294,6 +363,7 @@ async function main(): Promise<void> {
 	};
 
 	await step("workflow sandbox", () => checkWorkflowSandbox(path.join(root, "workflows")));
+	await step("OpenCode launcher", () => checkOpencodeLauncher(path.join(root, "opencode")));
 	await step("seed Router", async () => {
 		await seedRouter(routerDir, set);
 	});

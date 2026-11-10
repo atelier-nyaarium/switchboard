@@ -43,6 +43,7 @@ import type {
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { VaultDecision, VaultGrant } from "../../shared/schemasVault.js";
 import type { SessionControlOp, SessionControlResult } from "../../shared/session-control.js";
+import type { SessionHarness } from "../../shared/session-harness.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import type { WorkspaceOp, WorkspaceOpResult } from "../../shared/workspace-op.js";
@@ -85,6 +86,8 @@ export interface SendRouteJson {
 }
 
 export interface ConsoleHandlerDeps {
+	/** What a spawn point runs; undefined until the daemon said. */
+	installedAt?: (spawn: string) => readonly SessionHarness[] | undefined;
 	registry: TeamRegistry;
 	conversationRegistry: ConversationRegistry;
 	routes: ConsoleRoutes;

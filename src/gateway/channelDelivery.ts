@@ -109,6 +109,14 @@ export class ChannelDeliveryCoordinator {
 		return retired;
 	}
 
+	/** Takes back a row that never reached its session. */
+	withdraw(deliveryId: string): boolean | "migrating" {
+		const held = this.deps.store.held(deliveryId);
+		const retired = this.deps.store.withdraw(deliveryId);
+		if (retired === true && held) this.deps.retireStaging?.(blobIdsOf([held]));
+		return retired;
+	}
+
 	/** Drops expired delivery staging. */
 	sweep(): number {
 		const expired = this.deps.store.sweep();

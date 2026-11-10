@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DiscoverCoverage } from "../../shared/console-protocol.js";
-import { DiscoverAnswerSchema } from "../../shared/schemasConsoleResults.js";
+import { DiscoverAnswerSchema, type SpawnClis } from "../../shared/schemasConsoleResults.js";
 import { Address, isComposite, parseSessionName, SpawnPoint } from "../../shared/session-id.js";
 import type { TeamInfo } from "../../shared/types.js";
 import { createsUnder } from "./bridgeSend.js";
@@ -79,12 +79,18 @@ export function coverageCaveat(coverage: DiscoverCoverage): string {
 	return `\n\nCaveat: asked ${coverage.asked} peer gateway(s), ${coverage.answered} answered. Unreachable: ${missing.join(", ")} - their sessions are missing above.`;
 }
 
-/** One header per bucket, its active sessions nested below. Exported for tests. */
-export function formatDiscoverLines(entries: TeamInfo[]): string[] {
-	return groupDiscoverEntries(entries).flatMap(({ domainId, gatewayId, project, sessions }) => [
-		`- ${displayHeader(domainId, gatewayId, project)}`,
-		...sessions.map((t) => `  - ${formatSessionLine(t)}`),
-	]);
+/** One header per bucket, its CLIs where known and its active sessions nested below. Exported for tests. */
+export function formatDiscoverLines(entries: TeamInfo[], spawnClis: readonly SpawnClis[] = []): string[] {
+	return groupDiscoverEntries(entries).flatMap(({ domainId, gatewayId, project, sessions }) => {
+		const known = spawnClis.find(
+			(held) => held.domainId === domainId && held.gatewayId === gatewayId && held.spawn === project,
+		);
+		const clis = known && known.clis.length > 0 ? ` (CLIs: ${known.clis.join(", ")})` : "";
+		return [
+			`- ${displayHeader(domainId, gatewayId, project)}${clis}`,
+			...sessions.map((t) => `  - ${formatSessionLine(t)}`),
+		];
+	});
 }
 
 function formatSessionLine(t: TeamInfo): string {
@@ -120,13 +126,13 @@ export function registerBridgeDiscover(mcpServer: McpServer, { guarded = false }
 		},
 		async () => {
 			try {
-				const { teams, coverage, localGatewayId } = DiscoverAnswerSchema.parse(
+				const { teams, coverage, localGatewayId, spawnClis } = DiscoverAnswerSchema.parse(
 					await routerGet("/discover?coverage=1"),
 				);
 				// Self by Gateway; host by name.
 				const isSelf = (t: TeamInfo) => t.team === bridgeProjectName() && t.gatewayId === localGatewayId;
 				const others = teams.filter((t) => !isSelf(t) && t.team !== "host" && t.kind !== "console");
-				const lines = formatDiscoverLines(others);
+				const lines = formatDiscoverLines(others, spawnClis);
 				const caveat = coverageCaveat(coverage);
 				if (lines.length === 0) {
 					return { content: [{ type: "text" as const, text: `No other sessions found.${caveat}` }] };

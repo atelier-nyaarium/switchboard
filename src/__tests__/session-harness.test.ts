@@ -13,16 +13,18 @@ import {
 	SESSION_HARNESSES,
 	type SessionHarness,
 	typesDelivery,
+	UNPICKED_WORD,
 	versionRefusal,
 } from "../shared/session-harness.js";
 
 describe("a session CLI named on the wire", () => {
-	it("reads an absent word as unnamed Claude, a known one as named, and any other as unknown", () => {
+	it("reads an absent word as unnamed Claude, a known one as named, `unpicked` as none chosen, and any other as unknown", () => {
 		expect([readHarness(undefined), readHarness(null)]).toEqual([
 			{ read: "unnamed", assumed: "claude" },
 			{ read: "unnamed", assumed: "claude" },
 		]);
 		expect(readHarness("copilot")).toEqual({ read: "named", harness: "copilot" });
+		expect(readHarness(UNPICKED_WORD)).toEqual({ read: "unpicked" });
 		expect(readHarness("no-such-cli")).toEqual({ read: "unknown", word: "no-such-cli" });
 	});
 
@@ -31,12 +33,14 @@ describe("a session CLI named on the wire", () => {
 			foldHarness(readHarness(value), {
 				named: (harness) => `named ${harness}`,
 				unnamed: (assumed) => `unnamed ${assumed}`,
+				unpicked: () => "unpicked",
 				unknown: (word) => `unknown ${word}`,
 			});
 
-		expect([told("copilot"), told(undefined), told("no-such-cli")]).toEqual([
+		expect([told("copilot"), told(undefined), told(UNPICKED_WORD), told("no-such-cli")]).toEqual([
 			"named copilot",
 			"unnamed claude",
+			"unpicked",
 			"unknown no-such-cli",
 		]);
 	});

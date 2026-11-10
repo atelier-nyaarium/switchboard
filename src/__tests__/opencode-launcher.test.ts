@@ -274,7 +274,7 @@ describe("an OpenCode launch", () => {
 		expect(atUi).toMatchObject({ state: "ready" });
 	});
 
-	it("says ready, then cleans up and answers the UI's code once the UI exits", async () => {
+	it("says ready, then cleans up and leaves the UI's exit code on disk once the UI exits", async () => {
 		const r = rig({ uiStays: true });
 		const running = launch(r);
 		await waitUntil(() => r.uiRuns.length === 1);
@@ -285,7 +285,8 @@ describe("an OpenCode launch", () => {
 		expect(await running).toBe(3);
 		expect(whileUp).toEqual({ status: { state: "ready", pid: PID, version: OPENCODE_PIN }, stops: 0 });
 		expect(r.stops()).toBe(1);
-		expect([...r.files.keys()]).toEqual([]);
+		expect([...r.files.keys()]).toEqual([STATUS]);
+		expect(r.statusOf()).toEqual({ state: "exited", pid: PID, code: 3 });
 	});
 
 	it("says failed once its server exits under a running UI", async () => {
@@ -305,7 +306,7 @@ describe("an OpenCode launch", () => {
 	it.each([
 		["exits", 0],
 		["throws", new Error("the terminal died")],
-	] as const)("says failed for its whole wind-down once the UI %s", async (_label, ending) => {
+	] as const)("says exited for its whole wind-down once the UI %s", async (_label, ending) => {
 		const r = rig({ uiStays: true });
 		let atStop: unknown;
 		r.onStop.hook = () => {
@@ -320,9 +321,9 @@ describe("an OpenCode launch", () => {
 			(error: unknown) => error,
 		);
 
+		const left = { state: "exited", pid: PID, code: ending === 0 ? 0 : 1 };
 		expect(ended).toBe(ending);
-		expect(atStop).toMatchObject({ state: "failed", pid: PID });
-		expect(r.statusOf()).toBeUndefined();
+		expect([atStop, r.statusOf()]).toEqual([left, left]);
 	});
 
 	it("leaves a status a newer launcher wrote during its wind-down", async () => {

@@ -17,7 +17,7 @@ import { type Attention, createAttentionStore } from "../routines/attention.js";
 import { createRoutineMemoryStore } from "../routines/memory.js";
 import { createOccurrenceStore, type Occurrence, pastLife } from "../routines/occurrences.js";
 import { renderRoutine } from "../routines/render.js";
-import { routineTeam, takenReason, targetRules, UNPLACED_REASON } from "../routines/reservation.js";
+import { CLI_REFUSED_REASON, routineTeam, takenReason, targetRules, UNPLACED_REASON } from "../routines/reservation.js";
 import { createRoutineRoutes, type Handler as RoutineRouteHandler } from "../routines/routineRoutes.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
 import type { FileOutcome } from "../routines/sessionRoutine.js";
@@ -180,6 +180,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	const reviewText = (routine: Routine, row: Occurrence): string | null => {
 		if (row.reviewCause === "session_taken") return takenReason(routine);
 		if (row.reviewCause === "assistant_unplaced") return UNPLACED_REASON;
+		if (row.reviewCause === "cli_refused") return CLI_REFUSED_REASON;
 		return blockedBy(routine);
 	};
 

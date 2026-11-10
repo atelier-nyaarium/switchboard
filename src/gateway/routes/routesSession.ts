@@ -31,7 +31,7 @@ export function createSessionRoutes({ auth, relayToHost }: SessionRoutesDeps) {
 
 		const record = auth?.resolveConfirmedManagedSession(req);
 		if (!record) return jsonResponse({ error: "a confirmed session token is required" }, 403);
-		if (!typesDelivery(record.harness) || !isHostSpawn(record.spawn)) {
+		if (!record.harness || !typesDelivery(record.harness) || !isHostSpawn(record.spawn)) {
 			return jsonResponse({ error: "typed delivery is not available to this session" }, 403);
 		}
 		if (!relayToHost) return jsonResponse({ error: "host daemon unavailable" }, 503);
