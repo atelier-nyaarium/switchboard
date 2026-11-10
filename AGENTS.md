@@ -4,7 +4,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 ## Layout
 
-- `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` - six entry points
+- `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` / `main-opencode-launch.ts` - seven entry points
 - `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` / `capabilityHook.ts` - the plugin's SessionStart `compact` hooks: the baseline, and the capability guidance
 - `src/mcp/capabilitiesTool.ts` `capabilityGuidance` - the one rendering of a session's capability guidance: the handshake answer (`channelReply.ts`), the `compact` hook and `switchboard_capabilities`; the `agents` section combines the unchanged `codex-agent` and `copilot-agent` ids
   - **A fresh session cannot skip it:** the plugin auto-answers a handshake only once the role is known, so a new process's agent answers its first one itself, and that answer carries the guidance. A Copilot session, confirmed at registration without one, reads it in its MCP server instructions. The hook renders the set the session started with, which the MCP process records per `PROJECT_NAME` (`saveStartupCapabilities`). Only a cut or unreadable guidance names the tool.
@@ -911,10 +911,22 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     lists every tool its scope names.
 - `src/shared/host-spawn.ts` - sole host-shell spawn-segment and command owner
 - `src/shared/session-harness.ts` / `android/.../proto/HarnessRegistry.kt` / `src/mcp/sessionCli.ts` - the table of session CLIs (`HARNESS`, one row each), its generated Kotlin twin, and the plugin's one resolution of its own CLI. `docs/architecture.md` holds the rules
-  - **Nothing decides by a CLI's name:** a difference is a row field, and behavior that lives in one process is a table keyed by that field's value (`LAUNCH_ARGS`, `TRANSPORTS`, `RESTART_SIGNALS`), so a new CLI or a new value stops the build until each is handled.
+  - **Nothing decides by a CLI's name:** a difference is a row field, and behavior that lives in one process is a table keyed by that field's value (`LAUNCH`, `ROADS`, `TRANSPORTS`, `RESTART_SIGNALS`, `PROMPT_ANSWERERS`), so a new CLI or a new value stops the build until each is handled.
   - **A CLI word off a wire or a file is read through `readHarness`:** named, unnamed or unknown, and `foldHarness` makes each reader state all three. Unnamed is an older sender, read as `UNNAMED_HARNESS` until its dated removal. Unknown is a newer build's CLI and is never treated as Claude.
   - **A stored record naming an unknown CLI is held unread** by `SessionStore.restore` and written back untouched, so a Gateway rolled back over a newer build erases nothing.
   - **The row owns a session id's shape and mint** (`sessionId`), and `launchRefusal` is the one rule for where a CLI may launch.
+  - **`road` says who reads and drives a CLI:** the daemon through its pane, or the plugin through the CLI's own server. Pane-only facts sit under the pane road, so code that reads one narrows through `paneRoad` first.
+- `src/mcp/devcontainer/sessionLaunch.ts` - the one launch road, for a wake and a create: the pane road's reattach and repair, the launcher road's status wait, the greeting
+  - **Readiness is a table by road:** a screen read, or the launcher's status file.
+  - **A wake keeps a live launcher:** no registration there is a plugin reconnecting, and the launcher restarts a dead plugin itself.
+  - **A launch status is only as live as its pid:** the launcher writes `starting`, `ready` or `failed` with its pid, writes `failed` the moment its server or UI goes, and removes only a status it still owns. A dead pid or `failed` relaunches.
+  - **`existing` says what a launch does with a pane already there:** a host wake repairs it, a devcontainer wake reads its screen, a create touches nothing.
+- `src/shared/opencode.ts` / `src/opencode-launch/launcher.ts` / `src/main-opencode-launch.ts` / `src/mcp/opencode/client.ts` / `follower.ts` / `session.ts` - OpenCode as a session CLI: the pure rules over its events and snapshot, the launcher behind its ports and its entry point, and the plugin's client, state follower and session. `docs/architecture.md` holds the roads
+  - **The launcher mints the password and the server picks the port,** so the daemon holds neither and no secret is on a command line. The plugin reads both from the launcher's file.
+  - **Working is read from a step, never an execution:** a repeated prompt id opens an execution with no step, and reading that as a turn would tell the owner one finished.
+  - **Every stream connection rebuilds before it reports:** the stream is volatile and nothing replays, so the follower buffers events from `server.connected` until its three reads land, then replays them through the live path.
+  - **A compaction's baseline edge is owed once:** the follower keeps the ids already given one, and a reconnect re-reports an edge the Gateway could not hear.
+- `src/shared/session-control.ts` / `src/gateway/sessionControlPlane.ts` - the frames between the Gateway and a session's own plugin: its presence report and the control op a prompt answer rides; the Gateway's end, on the coordinator the workspace plane uses (`PlaneCoordinator`)
 - `src/shared/crypto.ts` / `admission.ts` / `router-protocol.ts` / `federation-lifecycle.ts` - federation trust wire vocabulary
 - `src/shared/notice.ts` - shared notice tiers
 - `src/shared/wire-vocabulary.ts` - sole TS declaration of Router paths, the console header, signing tags, the bridge's refusals, nonce lengths; generated into `Protocol.Wire` beside the owner-op kinds the registry catalogues; residue-fenced on both runtimes
@@ -972,6 +984,7 @@ registration and its client stops with the floor in the log.
 **`main-federation.ts`** self-hosted federation relay.
 **`main-vault-askpass.ts`** askpass helper in a session, host or container; asks the phone through the gateway as that session, falls back to the tty.
 **`main-session-hook.ts`** compact hook, printing the session's baseline as hook context; with `capabilities`, its capability guidance; with `gate`, the assistant's PreToolUse gate.
+**`main-opencode-launch.ts`** an OpenCode session's launcher, in its pane: its own server, then its terminal UI.
 
 | Port | Service |
 |---|---|

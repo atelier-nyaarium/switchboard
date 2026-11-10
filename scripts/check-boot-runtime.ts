@@ -11,7 +11,7 @@ import { createWorkflowRunner } from "../src/gateway/workflows/runner.js";
 import { createWorkflowRunStore } from "../src/gateway/workflows/store.js";
 import { ASSISTANT_ONLY_TOOLS, ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../src/shared/assistant-session.js";
 import { SESSION_COMMANDS } from "../src/shared/session-commands.js";
-import { HARNESS, type SessionHarness } from "../src/shared/session-harness.js";
+import { deliveryOf, HARNESS, SESSION_HARNESSES, type SessionHarness } from "../src/shared/session-harness.js";
 import { loadIdentitySet, seedGateway, seedRouter } from "../src/testing/identitySet.js";
 import { createPhoneDriver } from "../src/testing/phoneDriver.js";
 
@@ -472,13 +472,12 @@ async function main(): Promise<void> {
 		}
 
 		// What each CLI's row turns on.
-		const copilot = await mcpSession(gatewayUrl, "host.boot-mcp", undefined, undefined, "copilot");
-		for (const [name, run] of [
-			["claude", none],
-			["copilot", copilot],
-		] as const) {
+		for (const name of SESSION_HARNESSES) {
+			const run =
+				name === "claude" ? none : await mcpSession(gatewayUrl, "host.boot-mcp", undefined, undefined, name);
 			const row = HARNESS[name];
-			if (run.channel !== (row.delivery === "channel")) throw new Error(`${name}: channel capability mismatch`);
+			if (run.channel !== (deliveryOf(name) === "channel"))
+				throw new Error(`${name}: channel capability mismatch`);
 			if (run.tools.includes(CLAUDE_SLASH_TOOL) !== row.claudeSlashTools) {
 				throw new Error(`${name}: ${CLAUDE_SLASH_TOOL} registration mismatch`);
 			}

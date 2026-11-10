@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { pluginProfile, resolvePluginCli } from "../mcp/sessionCli.js";
-import { HARNESS, SESSION_HARNESSES } from "../shared/session-harness.js";
+import { type PluginProfile, pluginProfile, resolvePluginCli } from "../mcp/sessionCli.js";
+import { SESSION_HARNESSES, type SessionHarness } from "../shared/session-harness.js";
 
 describe("resolving the plugin's CLI", () => {
 	it("takes the env word without asking the detector", () => {
@@ -22,18 +22,38 @@ describe("resolving the plugin's CLI", () => {
 });
 
 describe("a session CLI's profile", () => {
-	it.each(SESSION_HARNESSES)("%s answers what its row says", (harness) => {
-		const row = HARNESS[harness];
+	const PROFILES: Record<SessionHarness, Omit<PluginProfile, "harness">> = {
+		claude: {
+			answersHandshake: true,
+			delivery: "channel",
+			apiServer: null,
+			channelCapability: true,
+			instructions: "handshake",
+			claudeSlashTools: true,
+			workflowTools: true,
+		},
+		opencode: {
+			answersHandshake: false,
+			delivery: "api",
+			apiServer: "opencode",
+			channelCapability: false,
+			instructions: "whole",
+			claudeSlashTools: false,
+			workflowTools: true,
+		},
+		copilot: {
+			answersHandshake: false,
+			delivery: "typed",
+			apiServer: null,
+			channelCapability: false,
+			instructions: "whole",
+			claudeSlashTools: false,
+			workflowTools: true,
+		},
+	};
 
-		expect(pluginProfile(harness)).toEqual({
-			harness,
-			answersHandshake: row.handshake,
-			delivery: row.delivery,
-			channelCapability: row.delivery === "channel",
-			instructions: row.guidance === "handshake" ? "handshake" : "whole",
-			claudeSlashTools: row.claudeSlashTools,
-			workflowTools: row.workflowTools,
-		});
+	it.each(SESSION_HARNESSES)("%s gets its own road in and its own tools", (harness) => {
+		expect(pluginProfile(harness)).toEqual({ harness, ...PROFILES[harness] });
 	});
 });
 
@@ -45,6 +65,7 @@ describe("a CLI with no row", () => {
 				harness: null,
 				answersHandshake: true,
 				delivery: "none",
+				apiServer: null,
 				channelCapability: false,
 				instructions: "none",
 				claudeSlashTools: true,

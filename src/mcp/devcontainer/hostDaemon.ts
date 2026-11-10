@@ -6,7 +6,6 @@ import WebSocket from "ws";
 import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, COPILOT_BACKEND } from "../../shared/agent-backend.js";
 import { isBinaryOnPath } from "../../shared/agent-binary.js";
 import { AgentExecutionTargetSchema } from "../../shared/agent-execution-target.js";
-import type { LimitNotice } from "../../shared/agent-screen.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
 import { CodexEventAckSchema } from "../../shared/codex-agent.js";
@@ -28,17 +27,14 @@ import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
 import {
-	foldHarness,
+	type ApiRoad,
 	HARNESS,
-	type HarnessRow,
-	launchRefusal,
-	olderThanSender,
-	readHarness,
-	resumableId,
+	type PaneRoad,
+	paneRoad,
 	SESSION_HARNESSES,
 	type SessionHarness,
 } from "../../shared/session-harness.js";
-import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
+import { parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
@@ -49,16 +45,14 @@ import { copilotLauncher } from "./copilotTargets.js";
 import { ensureContainerUpAsync, resolveProject } from "./helpers.js";
 import { createHostOpRunner } from "./hostOpRunner.js";
 import {
-	buildLaunchCommand,
 	ensureAssistantWorkdir,
-	FIRST_LAUNCH_GREETING,
 	findProjectPath,
 	listHostDirs,
+	OPENCODE_LAUNCH_BUNDLE,
 	resolveHostWorkdir,
 	resolveWatchTarget,
 	scanDevcontainerProjects,
 	setProjectDirs,
-	shouldGreetLaunch,
 } from "./hostResolve.js";
 import { createKasaScanner } from "./kasaScan.js";
 import { PromptOccurrences, seePrompt } from "./permissionPrompt.js";
@@ -66,8 +60,15 @@ import { PresenceScheduler, readWatch, type WatchEntry } from "./presenceSchedul
 import { answerPrompt, continueAfterLimit, dismissSurvey, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
 import {
+	createSessionLaunch,
+	type LaunchOutcome,
+	resolveLaunchHarness,
+	type SessionLaunchDeps,
+} from "./sessionLaunch.js";
+import {
 	awaitReady,
 	ensureSession,
+	hasSession,
 	isAgentReady,
 	isAgentWorking,
 	killSession,
@@ -256,7 +257,7 @@ function connect(): void {
 			SESSION_HARNESSES.map((harness) => [
 				harness,
 				[
-					...(isBinaryOnPath(HARNESS[harness].binary.posix) ? [HOST_SPAWN] : []),
+					...(hostRuns(harness) ? [HOST_SPAWN] : []),
 					...(windows.available && windows.harnesses?.includes(harness) ? [WINDOWS_SPAWN] : []),
 				],
 			]),
@@ -324,11 +325,11 @@ function connect(): void {
 				const watch = readWatch(raw);
 				const target = watch && resolveWatchTarget(watch.team);
 				if (!watch || !target) continue;
-				const row = HARNESS[watch.harness];
 				// Only a pane is peeked.
-				if (row.state !== "pane") continue;
+				const road = paneRoad(watch.harness);
+				if (!road) continue;
 				entries.push({ team: watch.team, target, cadenceMs: watch.cadenceMs, harness: watch.harness });
-				if (FOLLOWS_EVENTS_FILE[row.compaction] && watch.sessionId) {
+				if (FOLLOWS_EVENTS_FILE[road.compaction] && watch.sessionId) {
 					follows.push({ team: watch.team, copilotSessionId: watch.sessionId });
 				}
 			}
@@ -371,38 +372,90 @@ interface WakeMessage {
 	sessionToken?: string;
 }
 
-/** A launch's CLI, or why this daemon will not run it there. */
-function launchHarness(
-	word: unknown,
-	at: { host: boolean; assistant: boolean },
-): { harness: SessionHarness } | { refused: string } {
-	const placed = (harness: SessionHarness) => {
-		const refusal = launchRefusal(harness, at);
-		return refusal ? { refused: `refusing to launch: ${refusal}` } : { harness };
-	};
-	return foldHarness(readHarness(word), {
-		named: placed,
-		unnamed: placed,
-		unknown: (unknown) => ({ refused: olderThanSender(unknown) }),
-	});
-}
-
-// Never blocks the reply.
-function greetFreshLaunch(
-	target: TmuxTarget,
-	opts: { created: boolean; resumeSessionId?: string; fresh?: boolean; ready: boolean },
-): void {
-	if (!shouldGreetLaunch(opts)) return;
-	console.error(`[host-wake] greeting freshly created session ${target.sessionName}`);
-	void sendText(target, FIRST_LAUNCH_GREETING).catch((err) => {
-		const message = err instanceof Error ? err.message : String(err);
-		console.error(`[host-wake] failed to greet ${target.sessionName}: ${message}`);
-	});
-}
-
-// The bun this daemon runs on, so a launched session finds the plugin's `bun` whatever the tmux
-// server's PATH inherited.
+// Independent of the tmux server's PATH.
 const LAUNCH_PATH_PREFIX = path.dirname(process.execPath);
+
+/** Each API server's launcher bundle. */
+const LAUNCHER_BUNDLES: Record<ApiRoad["server"], string> = { opencode: OPENCODE_LAUNCH_BUNDLE };
+
+const LAUNCH_ROOT = packageRoot(moduleDir(import.meta.url));
+
+/** Where launchers report, or null when it cannot be made. */
+function findSessionLauncher(): SessionLaunchDeps["launcher"] {
+	const statusDir = path.join(os.homedir(), ".cache", "switchboard", "launch");
+	try {
+		fs.mkdirSync(statusDir, { recursive: true, mode: 0o700 });
+	} catch (err) {
+		console.error(`[host-daemon] no launcher status folder: ${err instanceof Error ? err.message : err}`);
+		return null;
+	}
+	return { runtime: process.execPath, root: LAUNCH_ROOT, statusDir };
+}
+
+const sessionLauncher = findSessionLauncher();
+
+/** Whether this machine can launch an API server's CLI. */
+function launcherFor(server: ApiRoad["server"]): boolean {
+	if (!sessionLauncher) return false;
+	const bundle = path.join(LAUNCH_ROOT, "dist", LAUNCHER_BUNDLES[server]);
+	if (fs.existsSync(bundle)) return true;
+	console.error(`[host-daemon] no launcher bundle at ${bundle}`);
+	return false;
+}
+
+const launchSession = createSessionLaunch({
+	hasSession,
+	ensureSession,
+	killSession,
+	awaitReady,
+	paneAgentState,
+	reattachStep,
+	peekScreen: async (target) => (await peekPane(target)).ansi,
+	sendText,
+	pathPrefix: LAUNCH_PATH_PREFIX,
+	launcher: sessionLauncher,
+	readFile: (file) => {
+		try {
+			return fs.readFileSync(file, "utf8");
+		} catch {
+			return undefined;
+		}
+	},
+	removeFile: (file) => fs.rmSync(file, { force: true }),
+	isAlive: (pid) => {
+		try {
+			process.kill(pid, 0);
+			return true;
+		} catch (err) {
+			// Not ours to signal, yet running.
+			return (err as NodeJS.ErrnoException).code === "EPERM";
+		}
+	},
+	sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+	now: () => Date.now(),
+	log: (line) => console.error(`[host-wake] ${line}`),
+});
+
+/** A wake result's reason. */
+function launchError(res: LaunchOutcome): { error?: string } {
+	if (res.limit) return { error: `session limit hit${res.limit.detail ? ` (${res.limit.detail})` : ""}` };
+	return res.error ? { error: res.error } : {};
+}
+
+/** Whether this machine's host shell can run the CLI. */
+function hostRuns(harness: SessionHarness): boolean {
+	const row = HARNESS[harness];
+	// A launcher-run CLI needs its launcher too.
+	if (row.road.kind === "api" && !launcherFor(row.road.server)) return false;
+	if (isBinaryOnPath(row.binary.posix)) return true;
+	if (!row.binary.homeDir) return false;
+	try {
+		fs.accessSync(path.join(os.homedir(), row.binary.homeDir, row.binary.posix), fs.constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 async function handleWake(msg: WakeMessage): Promise<void> {
 	// Both segments reach tmux and shell commands.
@@ -413,15 +466,17 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		return;
 	}
 	// Before any container starts.
-	const launch = launchHarness(msg.harness, { host: isHostSpawn(project), assistant: msg.team === ASSISTANT_TEAM });
+	const launch = resolveLaunchHarness(msg.harness, {
+		kind: isHostSpawn(project) ? "host" : "devcontainer",
+		name: project,
+		sessionName: session,
+	});
 	if ("refused" in launch) {
 		console.error(`[host-wake] refusing wake of "${msg.team}": ${launch.refused}`);
 		safeSend({ type: "wake_result", team: msg.team, success: false, error: launch.refused });
 		return;
 	}
 	const { harness } = launch;
-	// What the launch will resume under.
-	const resumeSessionId = resumableId(harness, msg.resumeSessionId);
 	// The daemon shares this tmux server. Registry-wide rather than the bare literal, so every host
 	// spawn point reaches this branch and none falls through to the devcontainer path below, which
 	// would look for a container named after a shell.
@@ -458,72 +513,29 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			safeSend({ type: "wake_result", team: msg.team, success: false, error: resolved.error });
 			return;
 		}
-		let launch: string;
-		try {
-			launch = buildLaunchCommand(target, {
-				resumeSessionId,
-				workdir: resolved.workdir,
-				sessionToken: msg.sessionToken,
-				pathPrefix: LAUNCH_PATH_PREFIX,
-				harness,
-			});
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			console.error(`[host-wake] refusing wake of "${msg.team}": ${message}`);
-			safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
-			return;
-		}
 		console.error(`[host-wake] starting host session ${msg.team}`);
 		try {
-			const { created } = await ensureSession(target, launch);
-			let res = created ? await awaitReady(target) : undefined;
-			if (!created) {
-				// `exec bash` outlives claude, so a reattach can land on a dead shell. The SCREEN cannot
-				// see that: the frame the agent painted before it died still carries its own composer at
-				// column 0, so isAgentReady answers yes for a pane holding nothing but a prompt. So the OS
-				// is asked first, and a gone process relaunches without reading the screen. A limit dialog
-				// is alive, not dead: relaunching would discard it and hit the same limit again.
-				const seen = (await paneAgentState(target)) === "gone" ? undefined : await awaitReady(target);
-				let step = reattachStep(seen);
-				if (step === "recheck") {
-					const recheck = await peekPane(target)
-						.then((p) => p.ansi)
-						.catch(() => seen?.screen ?? "");
-					const ready = isAgentReady(recheck);
-					// A sub-second transition, after all.
-					if (ready || isAgentWorking(recheck)) res = { alive: true, ready, screen: recheck };
-					else step = "relaunch";
-				}
-				if (step === "relaunch") {
-					await killSession(target);
-					await ensureSession(target, launch);
-					res = await awaitReady(target);
-				} else {
-					res ??= seen;
-				}
-			}
-			if (!res) throw new Error("session readiness unavailable");
-			// Original ensureSession, not relaunch.
-			greetFreshLaunch(target, {
-				created,
-				resumeSessionId,
+			const res = await launchSession(target, {
+				harness,
+				resumeSessionId: msg.resumeSessionId,
 				fresh: msg.fresh,
-				ready: res.ready,
+				sessionToken: msg.sessionToken,
+				workdir: resolved.workdir,
+				existing: "repair",
 			});
-			const live = res.ready || isAgentWorking(res.screen);
 			if (res.limit) {
 				console.error(
 					`[host-wake] ${msg.team} hit a usage limit: ${res.limit.headline ?? "no headline on screen"}`,
 				);
 			} else {
-				console.error(`[host-wake] ${msg.team} ${live ? "Claude is up" : "did not reach the REPL"}`);
+				console.error(`[host-wake] ${msg.team} ${res.live ? "is up" : "did not come up"}`);
 			}
 			safeSend({
 				type: "wake_result",
 				team: msg.team,
-				success: live,
+				success: res.live,
 				screen: res.screen,
-				...(res.limit ? { error: `session limit hit${res.limit.detail ? ` (${res.limit.detail})` : ""}` } : {}),
+				...launchError(res),
 			});
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -545,52 +557,30 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		console.error(`[host-wake] ${msg.team} container is up, starting Claude`);
 
 		const target: TmuxTarget = { kind: "devcontainer", name: projectName, sessionName: session };
-		const { created } = await ensureSession(
-			target,
-			buildLaunchCommand(target, {
-				harness,
-				resumeSessionId,
-				sessionToken: msg.sessionToken,
-				pathPrefix: LAUNCH_PATH_PREFIX,
-			}),
-		);
-		console.error(`[host-wake] ${msg.team} session ${created ? "started" : "already running"}`);
-
-		// Zero captures means a dead launch.
-		let lastScreen = "";
-		let launchAlive = !created;
-		let limit: LimitNotice | undefined;
-		if (created) {
-			const res = await awaitReady(target);
-			lastScreen = res.screen;
-			launchAlive = res.alive;
-			limit = res.limit;
-			greetFreshLaunch(target, {
-				created,
-				resumeSessionId,
-				fresh: msg.fresh,
-				ready: res.ready,
-			});
-			if (limit)
-				console.error(
-					`[host-wake] ${msg.team} hit a usage limit: ${limit.headline ?? "no headline on screen"}`,
-				);
-			else console.error(`[host-wake] ${msg.team} ${res.ready ? "Claude is ready" : "did not reach the REPL"}`);
-		} else {
-			try {
-				lastScreen = (await peekPane(target)).ansi;
-			} catch {
-				// A reattach is alive regardless.
-			}
+		const res = await launchSession(target, {
+			harness,
+			resumeSessionId: msg.resumeSessionId,
+			fresh: msg.fresh,
+			sessionToken: msg.sessionToken,
+			existing: "peek",
+		});
+		console.error(`[host-wake] ${msg.team} session ${res.created ? "started" : "already running"}`);
+		if (res.limit) {
+			console.error(
+				`[host-wake] ${msg.team} hit a usage limit: ${res.limit.headline ?? "no headline on screen"}`,
+			);
+		} else if (res.created) {
+			console.error(`[host-wake] ${msg.team} ${res.ready ? "is ready" : "did not come up"}`);
 		}
 
+		// Zero captures means a dead launch.
 		safeSend({
 			type: "wake_result",
 			team: msg.team,
-			success: launchAlive,
+			success: res.alive,
 			pluginsProvisioned,
-			screen: lastScreen,
-			...(limit ? { error: `session limit hit${limit.detail ? ` (${limit.detail})` : ""}` } : {}),
+			screen: res.screen,
+			...launchError(res),
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -627,10 +617,7 @@ const hostOpRunner = createHostOpRunner({
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
 	createSession: async (target, workdirHint, resumeSessionId, sessionToken, harness, fresh) => {
-		const launch = launchHarness(harness, {
-			host: target.kind === "host",
-			assistant: composeSessionName(target.name, target.sessionName) === ASSISTANT_TEAM,
-		});
+		const launch = resolveLaunchHarness(harness, target);
 		// The runner fails the op.
 		if ("refused" in launch) throw new Error(launch.refused);
 		let workdir: string | undefined;
@@ -641,23 +628,18 @@ const hostOpRunner = createHostOpRunner({
 			if ("error" in resolved) throw new Error(resolved.error);
 			workdir = resolved.workdir;
 		}
-		const resumeId = resumableId(launch.harness, resumeSessionId);
-		const { created } = await ensureSession(
-			target,
-			buildLaunchCommand(target, {
-				workdir,
-				resumeSessionId: resumeId,
-				sessionToken,
-				pathPrefix: LAUNCH_PATH_PREFIX,
-				harness: launch.harness,
-			}),
-		);
-		if (created) {
-			const ready = await awaitReady(target);
-			greetFreshLaunch(target, { created, resumeSessionId: resumeId, fresh, ready: ready.ready });
-			return { created, ready: ready.ready, alive: ready.alive };
-		}
-		return { created };
+		const res = await launchSession(target, {
+			harness: launch.harness,
+			resumeSessionId,
+			fresh,
+			sessionToken,
+			workdir,
+			existing: "leave",
+		});
+		if (!res.created) return { created: false };
+		// The console shows the reason.
+		if (res.error) throw new Error(res.error);
+		return { created: true, ready: res.ready, alive: res.alive };
 	},
 	reloadPlugins: async (target) => {
 		const pane = await peekPane(target);
@@ -719,7 +701,7 @@ const presenceScheduler = new PresenceScheduler({
 
 // Copilot's own file says when it compacts; the pane cannot.
 /** Whether the daemon tails the CLI's own events file. */
-const FOLLOWS_EVENTS_FILE: Record<HarnessRow["compaction"], boolean> = { hook: false, "copilot-events": true };
+const FOLLOWS_EVENTS_FILE: Record<PaneRoad["compaction"], boolean> = { screen: false, "copilot-events": true };
 
 const compactionFollower = createCompactionFollower({
 	home: os.homedir(),

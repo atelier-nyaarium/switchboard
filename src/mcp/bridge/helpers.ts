@@ -6,8 +6,19 @@ import packageJson from "../../../package.json";
 import { mintNoAckSessionId } from "../../shared/agent-notice.js";
 import { processAmbient } from "../../shared/ambient.js";
 import { isGatewayLongWaitRoute, resendsAfterFailure } from "../../shared/gateway-long-waits.js";
+import { createOpDedupe } from "../../shared/op-dedupe.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
+import type { DerivedPresence } from "../../shared/schemasPresence.js";
+import {
+	parseSessionControlOp,
+	SESSION_CONTROL_DEDUPE_MS,
+	SESSION_CONTROL_FRAME,
+	SESSION_CONTROL_REPLY_FRAME,
+	SESSION_PRESENCE_FRAME,
+	type SessionControlReply,
+	type SessionControlResult,
+} from "../../shared/session-control.js";
 import {
 	type ChannelPushPayload,
 	type ConnectionMode,
@@ -17,6 +28,7 @@ import {
 } from "../../shared/types.js";
 import { WORKSPACE_OP_FRAME } from "../../shared/workspace-op.js";
 import { emitChannelNotification, emitResponseNotification, renderChannelTag } from "../channel/channelNotify.js";
+import type { ApiSession } from "../opencode/session.js";
 import { OTHER_AGENT, type PluginProfile } from "../sessionCli.js";
 import { answerOnPlane, parseWorkspaceOpRequest, refusedOnPlane } from "../workspace/plane.js";
 import { createChannelPushDelivery } from "./channelPushDelivery.js";
@@ -81,14 +93,45 @@ const reconnector = createReconnector(() => connectToRouter());
 
 let channelServer: Server | null = null;
 
+/** Set when driven over the CLI's own API. */
+let apiSession: ApiSession | null = null;
+const controlDedupe = createOpDedupe<SessionControlResult>({ now: Date.now, holdMs: SESSION_CONTROL_DEDUPE_MS });
+
+export function setApiSession(session: ApiSession | null): void {
+	apiSession = session;
+}
+
+/** What the Gateway last took, and whether a compaction ran while it could not hear. */
+let presenceSent: DerivedPresence | undefined;
+let compactedUnheard = false;
+
+/** A plugin-read session's state, for the Gateway. A bare frame clears. */
+export function reportSessionPresence(derived: DerivedPresence | undefined): void {
+	if (routerWs?.readyState !== WebSocket.OPEN) {
+		if (derived?.compacting) compactedUnheard = true;
+		return;
+	}
+	routerWs.send(JSON.stringify({ type: SESSION_PRESENCE_FRAME, ...derived }));
+	presenceSent = derived;
+}
+
+/** A closed socket clears the Gateway's report and compaction. */
+function resendPresence(): void {
+	const held = apiSession?.current();
+	const owed = compactedUnheard && !held?.compacting;
+	compactedUnheard = false;
+	if (owed && held) reportSessionPresence({ ...held, compacting: true });
+	if (held) reportSessionPresence(held);
+}
+
 const TYPED_RETRY_MS = 1000;
 const TYPED_BACKOFF_MAX_MS = 30_000;
 const TYPED_GIVE_UP_MS = 15 * 60_000;
-let typedDeliveryTail = Promise.resolve();
+let queuedDeliveryTail = Promise.resolve();
 
-function serializeTypedDelivery<T>(work: () => Promise<T>): Promise<T> {
-	const run = typedDeliveryTail.then(work);
-	typedDeliveryTail = run.then(
+function serializeQueuedDelivery<T>(work: () => Promise<T>): Promise<T> {
+	const run = queuedDeliveryTail.then(work);
+	queuedDeliveryTail = run.then(
 		() => undefined,
 		() => undefined,
 	);
@@ -161,6 +204,12 @@ const TRANSPORTS: Record<PluginProfile["delivery"], Transport> = {
 		push: (push) =>
 			emitTypedChannelTag(push, typeof push.delivery_id === "string" ? push.delivery_id : crypto.randomUUID()),
 		response: (push) => emitTypedChannelTag(push, crypto.randomUUID()),
+	},
+	api: {
+		queued: true,
+		ready: () => apiSession !== null,
+		push: (push) => apiSession?.deliver(push) ?? Promise.reject(new Error("no API session")),
+		response: (push) => apiSession?.respond(push) ?? Promise.reject(new Error("no API session")),
 	},
 	none: {
 		queued: false,
@@ -242,7 +291,7 @@ export async function emitLocalAwareness(
 		return true;
 	}
 	// Rechecked once the queue reaches it.
-	return serializeTypedDelivery(async () => {
+	return serializeQueuedDelivery(async () => {
 		if (!stillWanted()) return false;
 		await via.push(push);
 		return true;
@@ -471,6 +520,8 @@ export function connectToRouter(): void {
 
 		if (msg.type === "register_ok") {
 			opLedgerProtocol = typeof msg.opLedgerProtocol === "number" ? msg.opLedgerProtocol : 0;
+			// A new socket holds no report.
+			resendPresence();
 			return;
 		}
 
@@ -492,7 +543,7 @@ export function connectToRouter(): void {
 		const via = transport();
 		if (msg.type === "channel_push" && via.ready()) {
 			const delivery = () => deliverChannelPush(msg as unknown as ChannelPushPayload);
-			const queued = via.queued ? serializeTypedDelivery(delivery) : delivery();
+			const queued = via.queued ? serializeQueuedDelivery(delivery) : delivery();
 			queued.catch((err: Error) => {
 				// Retain failed deliveries.
 				console.error(`[channel] notification error: ${err.message}`);
@@ -501,10 +552,28 @@ export function connectToRouter(): void {
 
 		if (msg.type === "response_push" && via.ready()) {
 			const emit = () => via.response(msg as unknown as ResponsePushPayload);
-			const queued = via.queued ? serializeTypedDelivery(emit) : emit();
+			const queued = via.queued ? serializeQueuedDelivery(emit) : emit();
 			queued.catch((err: Error) => {
 				console.error(`[channel] response notification error: ${err.message}`);
 			});
+		}
+
+		if (msg.type === SESSION_CONTROL_FRAME && typeof msg.reqId === "string") {
+			const reqId = msg.reqId;
+			const reply = (result: SessionControlResult): void => {
+				const frame: SessionControlReply = { type: SESSION_CONTROL_REPLY_FRAME, reqId, result };
+				routerWs?.send(JSON.stringify(frame));
+			};
+			const op = parseSessionControlOp(msg.op);
+			const session = apiSession;
+			if (op === null || typeof msg.key !== "string" || session === null) {
+				reply({ ok: false, failure: "refused", detail: "this session's plugin cannot answer that" });
+				return;
+			}
+			controlDedupe
+				.once(msg.key, () => session.control(op))
+				.then(reply)
+				.catch((err: Error) => reply({ ok: false, failure: "failed", detail: err.message }));
 		}
 
 		// Answered off the agent's turn: this callback shares the process but not its thread of control.
@@ -529,6 +598,9 @@ export function connectToRouter(): void {
 	routerWs.on("close", () => {
 		console.error(`[bridge] disconnected`);
 		opLedgerProtocol = 0;
+		// Its end goes unheard.
+		if (presenceSent?.compacting) compactedUnheard = true;
+		presenceSent = undefined;
 		if (!suppressReconnect) {
 			reconnector.schedule();
 		}

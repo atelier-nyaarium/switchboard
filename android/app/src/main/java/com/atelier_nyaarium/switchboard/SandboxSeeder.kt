@@ -26,7 +26,15 @@ internal fun sandboxRegistry(roster: List<String>, now: Long): GatewayRegistry =
 			unreachable = listOf(SANDBOX_NEVER_REGISTERED),
 		),
 		gateways = (roster.mapIndexed { index, id ->
-			GatewayEntry(id, connected = true, incarnation = 1, lastRegisteredAt = now, harnessSpawns = sandboxHarnessSpawns(index))
+			val spawns = sandboxHarnessSpawns(index)
+			GatewayEntry(
+				id,
+				connected = true,
+				incarnation = 1,
+				lastRegisteredAt = now,
+				hostSpawns = spawns.values.flatten().distinct(),
+				harnessSpawns = spawns,
+			)
 		} + GatewayEntry(SANDBOX_NEVER_REGISTERED, connected = false, incarnation = 0, lastRegisteredAt = 0))
 			.sortedBy { it.id },
 	)

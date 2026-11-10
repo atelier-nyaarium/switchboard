@@ -53,6 +53,7 @@ export interface RouterFramesStageDeps {
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 	devices: Pick<DeviceStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
+	sessionControl: Pick<import("../sessionControlPlane.js").SessionControlPlane, "ask">;
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
 	assistant: Pick<
 		AssistantStage,
@@ -158,6 +159,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			policies: deps.policies.console,
 			devices: deps.devices.console,
 			workspaceAsk: deps.workspacePlane.ask,
+			sessionControlAsk: deps.sessionControl.ask,
 			workspaceChanged: (team, change) =>
 				deps.awareness.workspaceObserve([
 					{ sessionKey: team, identity: change.path, pre: undefined, post: change },

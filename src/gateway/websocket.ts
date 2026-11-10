@@ -4,7 +4,13 @@ import { ClaudeTurnAckFrameSchema, ClaudeTurnResultFrameSchema } from "../shared
 import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
 import { DerivedPresenceSchema, HarnessSpawnsSchema } from "../shared/schemasPresence.js";
-import { foldHarness, HARNESS, readHarness, SESSION_HARNESSES } from "../shared/session-harness.js";
+import {
+	parseSessionControlResult,
+	SESSION_CONTROL_REPLY_FRAME,
+	SESSION_PRESENCE_FRAME,
+	SessionPresenceReportSchema,
+} from "../shared/session-control.js";
+import { foldHarness, HARNESS, readHarness, readsOwnState, SESSION_HARNESSES } from "../shared/session-harness.js";
 import { isComposite } from "../shared/session-id.js";
 import type { ConnectionMode } from "../shared/types.js";
 import { WORKSPACE_OP_REPLY_FRAME, type WorkspaceOpResult } from "../shared/workspace-op.js";
@@ -33,6 +39,7 @@ export function createWebSocketHandlers({
 	wakeCoordinator,
 	hostOpCoordinator,
 	workspacePlane,
+	sessionControl,
 	config,
 	onTeamConnect,
 	onHandshakeConfirmed,
@@ -56,6 +63,12 @@ export function createWebSocketHandlers({
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
 	// Use the session store as presence fallback.
 	const liveWriter = presenceWriter ?? sessionStore;
+
+	/** Its plugin reports state; no pane reader runs. */
+	function reportsOwnState(team: string | null | undefined): boolean {
+		const record = team ? sessionStore?.getByTeam(team) : undefined;
+		return !!record && readsOwnState(record.harness);
+	}
 
 	function heartbeatTick() {
 		flushHandshakes();
@@ -321,7 +334,7 @@ export function createWebSocketHandlers({
 				const sameConfirmer = !!auth && !!confirmedBy && auth.sameAs(confirmedBy, auth.toAnswerFor(ws));
 				// A CLI with no channel to answer a handshake through; its launch token stands in.
 				const tokenStands = isBound && !!boundRecord && !HARNESS[boundRecord.harness].handshake;
-				// One typing socket per pane; a reload replaces it, a nested agent is refused.
+				// One plugin socket per session; its reload replaces it, a nested agent is refused.
 				const held = tokenStands
 					? [...subs.values()].filter(
 							(other) => other !== ws && other.readyState === 1 && other.data.handshakeConfirmed,
@@ -409,6 +422,24 @@ export function createWebSocketHandlers({
 			if (settled === false) console.log(`[workspace] reply ${msg.reqId} had no waiter`);
 		}
 
+		if (msg.type === SESSION_CONTROL_REPLY_FRAME && typeof msg.reqId === "string" && ws.data.teamName) {
+			const result = parseSessionControlResult(msg.result);
+			const settled = result !== null && sessionControl?.settle(ws, msg.reqId, result);
+			if (settled === false) console.log(`[session-control] reply ${msg.reqId} had no waiter`);
+		}
+
+		// The team is the socket's, never the frame's.
+		if (msg.type === SESSION_PRESENCE_FRAME && ws.data.handshakeConfirmed && reportsOwnState(ws.data.teamName)) {
+			const team = ws.data.teamName as string;
+			// A bare frame clears.
+			if (msg.working === undefined) onPresenceDerive?.(team, undefined);
+			else {
+				const report = SessionPresenceReportSchema.safeParse(msg);
+				if (report.success) onPresenceDerive?.(team, report.data);
+				else console.warn(`[ws] session_presence refused for ${team}`);
+			}
+		}
+
 		if (ws.data.teamName === "host" && typeof msg.type === "string" && CODEX_INBOUND_FRAMES.has(msg.type)) {
 			onCodexHostMessage?.(msg);
 		}
@@ -489,8 +520,8 @@ export function createWebSocketHandlers({
 
 		// Before the stale return: a REPLACED socket can never answer what it was carrying, so its waits
 		// must fail now rather than each spending the full timeout.
-		const stranded = workspacePlane?.dropped(ws) ?? 0;
-		if (stranded > 0) console.log(`[workspace] ${stranded} op(s) stranded by ${teamName}/${subId} closing`);
+		const stranded = (workspacePlane?.dropped(ws) ?? 0) + (sessionControl?.dropped(ws) ?? 0);
+		if (stranded > 0) console.log(`[plane] ${stranded} op(s) stranded by ${teamName}/${subId} closing`);
 
 		if (ws.data.isStale) {
 			console.log(`[ws] stale socket closed for ${teamName}/${subId} - ignoring`);
@@ -552,6 +583,8 @@ export function createWebSocketHandlers({
 		const hasRealSubs = [...subs.values()].some((s) => !s.data.virtual);
 		if (!hasRealSubs) {
 			if (subs.size === 0) registry.delete(teamName);
+			// Its plugin is the only reader.
+			if (reportsOwnState(teamName)) onPresenceDerive?.(teamName, undefined);
 			onTeamDisconnect?.(teamName);
 		}
 	}

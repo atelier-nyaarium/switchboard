@@ -1,6 +1,11 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
+import com.atelier_nyaarium.switchboard.proto.SessionHarness
+import com.atelier_nyaarium.switchboard.proto.UNNAMED_HARNESS
+import com.atelier_nyaarium.switchboard.proto.readHarness
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -90,5 +95,22 @@ class GoalTest {
 	fun aTerminalThatNeverTakesOneRetiresTheGoal() {
 		assertEquals(GoalStep.Wait, goalStep(armed(), now = GOAL_TIMEOUT_MS - 1, screen = dialogPane))
 		assertTrue(goalStep(armed(), now = GOAL_TIMEOUT_MS, screen = dialogPane) is GoalStep.Expire)
+	}
+
+	////////////////////////////////
+	//  Who is offered one
+
+	@Test
+	fun aGoalIsOfferedOnlyToACliWithTheCommandAndADrivablePane() {
+		val takes = HarnessWord.Named(SessionHarness.CLAUDE)
+		val lacks = HarnessWord.Named(SessionHarness.OPENCODE)
+
+		assertTrue(goalOffered(paneEligible = true, takes))
+		assertFalse(goalOffered(paneEligible = false, takes))
+		assertFalse(goalOffered(paneEligible = true, lacks))
+		// Unnamed reads assumed CLI.
+		assertEquals(UNNAMED_HARNESS.goals, goalOffered(paneEligible = true, readHarness(null)))
+		assertFalse(goalOffered(paneEligible = true, HarnessWord.Unnamed(SessionHarness.OPENCODE)))
+		assertFalse(goalOffered(paneEligible = true, readHarness("not-a-cli")))
 	}
 }

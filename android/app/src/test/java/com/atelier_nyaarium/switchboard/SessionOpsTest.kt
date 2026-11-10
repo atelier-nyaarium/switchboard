@@ -3,8 +3,10 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleListDirsResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.UNNAMED_HARNESS
+import com.atelier_nyaarium.switchboard.proto.readHarness
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -121,6 +123,21 @@ class SessionOpsTest {
 		assertEquals(listOf("dom.gw.host.session"), unknown.closed)
 		assertEquals(listOf("dom.gw.host" to "not-a-cli"), unknown.created)
 		assertEquals(listOf("dom.gw.host" to UNNAMED_HARNESS.wire), relaunched(null).created)
+	}
+
+	@Test
+	fun aCliNeverShowsAKeyItExitsOnAndAnUnknownCliHidesNone() {
+		val refusing = SessionHarness.OPENCODE
+		val shown = sendableKeys(CTRL_MENU_KEYS, HarnessWord.Named(refusing))
+
+		assertTrue(refusing.refusedKeys.isNotEmpty())
+		assertTrue(shown.none { (_, key) -> key in refusing.refusedKeys })
+		assertEquals(CTRL_MENU_KEYS.size - refusing.refusedKeys.size, shown.size)
+		assertEquals(PALETTE_KEYS, sendableKeys(PALETTE_KEYS, HarnessWord.Named(refusing)))
+		// Unnamed reads assumed CLI.
+		assertEquals(shown, sendableKeys(CTRL_MENU_KEYS, HarnessWord.Unnamed(refusing)))
+		assertEquals(CTRL_MENU_KEYS, sendableKeys(CTRL_MENU_KEYS, HarnessWord.Named(SessionHarness.CLAUDE)))
+		assertEquals(CTRL_MENU_KEYS, sendableKeys(CTRL_MENU_KEYS, readHarness("not-a-cli")))
 	}
 
 	@Test

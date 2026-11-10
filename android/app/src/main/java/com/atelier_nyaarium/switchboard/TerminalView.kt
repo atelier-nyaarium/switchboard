@@ -48,7 +48,7 @@ import kotlinx.coroutines.launch
  * Whether the terminal should stop peeking and read as asleep.
  *
  * A presence row says whether an AGENT registered. It never says whether the tmux PANE exists, and
- * those two differ for the whole time the owner has closed Claude to use the shell underneath. So an
+ * those two differ while the owner has the CLI closed for the shell underneath. So an
  * "available" row is not evidence that there is nothing to show, however authoritative it is: the
  * terminal probes while reachable and lets the pane itself answer. That probe is the difference
  * between coming back to a working terminal and coming back to "This session is asleep" over a shell
@@ -81,12 +81,12 @@ internal fun terminalReadsAsleep(
 /**
  * The console terminal view. It always peeks; the render follows the peek result:
  *  - a live tmux pane (ANSI, auto-refreshed while RESUMED) with the control-key + slash palette and a
- *    text input that injects via tmux_send; while the session is not online the slash-macro row (claude
- *    TUI commands, nothing to receive them) swaps to a Wake up button firing onRelaunch;
+ *    text input that injects via tmux_send; while the session is not online the slash-macro row swaps
+ *    to a Wake up button firing onRelaunch;
  *  - a read-only container-logs snapshot while the session's tmux pane does not exist yet (a booting
  *    devcontainer), with no input since there is nothing to type into;
  *  - a centered Wake button ONLY when a successful probe found no pane, or the Gateway cannot be reached. A
- *    status drop back to "available" (Claude closed, tmux itself untouched) keeps showing that pane,
+ *    status drop back to "available" (CLI closed, pane untouched) keeps showing that pane,
  *    with the Wake up button in the key row rather than over the terminal. See [terminalReadsAsleep].
  * onPeek carries the last hash so an idle frame round-trips only the hash, and returns a Result so a
  * never-loaded pane can show the backend's reason instead of staying blank. `wakePending` seeds the
@@ -98,14 +98,16 @@ fun TerminalView(
 	refreshMs: Long,
 	presence: Presence?,
 	onWake: () -> Unit,
-	// Force-relaunch claude in a pane that still exists (close_session + create_session composed -
-	// see SessionOps.relaunchSession for why a bare wake cannot). Throws on failure.
+	// Relaunches the CLI; throws.
 	onRelaunch: suspend () -> Unit,
 	onPeek: suspend (sinceHash: String?) -> Result<ConsolePeekResult>,
 	onSend: suspend (text: String?, key: String?, submit: Boolean) -> Unit,
 	slashMacros: List<SlashMacro>,
 	// The install macros this pane's spawn point offers.
 	shellMacros: List<ShellMacro>,
+	// Label to key.
+	paletteKeys: List<Pair<String, String>>,
+	ctrlKeys: List<Pair<String, String>>,
 	modifier: Modifier = Modifier,
 ) {
 	var ansi by remember(team) { mutableStateOf("") }
@@ -128,11 +130,7 @@ fun TerminalView(
 	// A long-press freezes the frame (this halts peeking) so its text can be selected and copied
 	// without the next frame wiping the selection; the Paused banner resumes.
 	var paused by remember(team) { mutableStateOf(false) }
-	// Latched true the first time THIS mount peeks a real tmux pane, and never reset - a capturable
-	// pane is direct, fresher evidence than any status word that there is something to look at.
-	// Closing Claude drops the gateway's confirmed incarnation back to "available" while leaving the
-	// pane alive, and that pane keeps showing. A fresh mount starts over and re-earns it with the one
-	// probe, which is what makes leaving the thread and coming back land on the terminal again.
+	// First pane frame; never reset.
 	var everSawTmuxFrame by remember(team) { mutableStateOf(false) }
 	// The Wake up button's in-flight latch (the close_session + create_session round trip), so a
 	// double-tap cannot fire a second chain whose close would kill the first chain's fresh session.
@@ -187,10 +185,7 @@ fun TerminalView(
 		}
 	}
 
-	// Drop the waking latch only once the gateway confirms "online" (MCP registered AND the lead
-	// handshake completed) - the same signal the board tile's spinner keys off. A freshly created tmux
-	// pane can be peeked well before the Claude CLI inside it has started, so a capturable pane alone
-	// is not sufficient; only the "online" signal is trusted.
+	// Only online clears waking. A pane precedes its CLI.
 	LaunchedEffect(team, presence) {
 		if (presence?.isOnline == true) wakeRequested = false
 	}
@@ -336,8 +331,7 @@ fun TerminalView(
 						}
 					}
 				} else {
-					// Claude is not running in this pane, so the slash macros have nothing to receive them.
-					// The bare shell underneath is real: the row types the install macros into it, or relaunches.
+					// No CLI; the shell takes macros.
 					val waking = relaunching || presence?.isVerifying == true || presence?.waking(System.currentTimeMillis()) == true
 					Row(
 						Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
@@ -367,29 +361,34 @@ fun TerminalView(
 					Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
 					horizontalArrangement = Arrangement.spacedBy(6.dp),
 				) {
-					AssistChip(
-						onClick = hapticClick { fire(null, "Escape") },
-						label = { Text("Esc", fontFamily = FontFamily.Monospace) },
-					)
-					var ctrlMenuExpanded by remember { mutableStateOf(false) }
-					Box {
+					// First key precedes the menu.
+					paletteKeys.take(1).forEach { (label, key) ->
 						AssistChip(
-							onClick = hapticClick { ctrlMenuExpanded = true },
-							label = { Icon(Icons.Filled.KeyboardControlKey, contentDescription = "Ctrl / Shift modifiers") },
+							onClick = hapticClick { fire(null, key) },
+							label = { Text(label, fontFamily = FontFamily.Monospace) },
 						)
-						DropdownMenu(expanded = ctrlMenuExpanded, onDismissRequest = { ctrlMenuExpanded = false }) {
-							CTRL_MENU_KEYS.forEach { (label, key) ->
-								DropdownMenuItem(
-									text = { Text(label, fontFamily = FontFamily.Monospace) },
-									onClick = {
-										ctrlMenuExpanded = false
-										fire(null, key)
-									},
-								)
+					}
+					var ctrlMenuExpanded by remember { mutableStateOf(false) }
+					if (ctrlKeys.isNotEmpty()) {
+						Box {
+							AssistChip(
+								onClick = hapticClick { ctrlMenuExpanded = true },
+								label = { Icon(Icons.Filled.KeyboardControlKey, contentDescription = "Ctrl / Shift modifiers") },
+							)
+							DropdownMenu(expanded = ctrlMenuExpanded, onDismissRequest = { ctrlMenuExpanded = false }) {
+								ctrlKeys.forEach { (label, key) ->
+									DropdownMenuItem(
+										text = { Text(label, fontFamily = FontFamily.Monospace) },
+										onClick = {
+											ctrlMenuExpanded = false
+											fire(null, key)
+										},
+									)
+								}
 							}
 						}
 					}
-					PALETTE_KEYS.drop(1).forEach { (label, key) ->
+					paletteKeys.drop(1).forEach { (label, key) ->
 						AssistChip(
 							onClick = hapticClick { fire(null, key) },
 							label = { Text(label, fontFamily = FontFamily.Monospace) },

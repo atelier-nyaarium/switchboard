@@ -16,6 +16,7 @@ import { ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../shared/assistant
 import { localAgentCapability } from "../shared/capabilities.js";
 import { isInsideContainer } from "../shared/env.js";
 import { pluginRoot } from "../shared/plugin-root.js";
+import type { ApiRoad } from "../shared/session-harness.js";
 import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
@@ -27,11 +28,12 @@ import { registerInboxTool } from "./assistant/inboxTool.js";
 import { ASSISTANT_INSTRUCTIONS, scopeTools } from "./assistant/instructions.js";
 import { registerAssistantSendTools } from "./assistant/sendTools.js";
 import { registerBoardTools } from "./board/boardTools.js";
-import { closeRouter, connectToRouter } from "./bridge/helpers.js";
+import { closeRouter, connectToRouter, reportSessionPresence, setApiSession } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import type { Capability } from "./capabilities.js";
 import { capabilityInstructions, fetchCapabilities, hasCapability, saveStartupCapabilities } from "./capabilities.js";
 import { registerCapabilitiesTool, renderCapabilities } from "./capabilitiesTool.js";
+import { renderChannelTag } from "./channel/channelNotify.js";
 import { registerHumanTools } from "./channel/humanTools.js";
 import { gatewayDispatch as codexGatewayDispatch } from "./codex/codexTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
@@ -46,6 +48,8 @@ import { registerSetEffortLevel } from "./devcontainer/setEffortLevel.js";
 import { bringUpLine, readResumeArg } from "./launchFacts.js";
 import type { LocalAgentBackend } from "./local/localAgentHost.js";
 import { createLocalAgentBackend } from "./local/localAgentHost.js";
+import { readServerFile } from "./opencode/client.js";
+import { type ApiSession, createOpencodeSession } from "./opencode/session.js";
 import { closeReferenceSession, referenceSession, setReferencesEnabled } from "./references/attachRefs.js";
 import { adoptHostRoots, expectHostRoots, workspaceRoot } from "./references/refWorkspace.js";
 import { registerRoutineTools } from "./routines/routineTools.js";
@@ -108,6 +112,32 @@ const localBackends: LocalAgentBackend[] = [];
 /** Held so shutdown withdraws every pending request and stops every child. */
 let vaultTools: ReturnType<typeof registerVaultTools> | undefined;
 const VAULT_SHUTDOWN_MS = 3_000;
+
+/** Each API server's session, from what its launcher left. */
+const API_SESSIONS: Record<ApiRoad["server"], () => ApiSession | undefined> = {
+	opencode: () => {
+		const file = readServerFile(process.env, (name) => {
+			try {
+				return fs.readFileSync(name, "utf8");
+			} catch {
+				return undefined;
+			}
+		});
+		if (!file) {
+			console.error(`[opencode] no server file, so this session takes no messages`);
+			return undefined;
+		}
+		return createOpencodeSession({
+			file,
+			fetch,
+			render: renderChannelTag,
+			report: reportSessionPresence,
+			newId: () => crypto.randomUUID(),
+			sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+			log: (line) => console.error(line),
+		});
+	},
+};
 
 const CHANNEL_INSTRUCTIONS = `
 Cross-team messages arrive as <channel source="..." ...> tags. Metadata arrives as tag attributes: session_id, from, and reply_schema when specified. The tag body is the message. Read the request and do the work.
@@ -238,6 +268,13 @@ export async function startMcp(): Promise<void> {
 			: null,
 	);
 
+	// A CLI driven over its own server.
+	const apiSession = profile.apiServer ? API_SESSIONS[profile.apiServer]() : undefined;
+	if (apiSession) {
+		setApiSession(apiSession);
+		apiSession.start();
+	}
+
 	// Container-only. The registered name is composite; the workspace/schema key on the project alone.
 	if (inContainer) {
 		const projectName = process.env.PROJECT_NAME ? parseSessionName(process.env.PROJECT_NAME).project : undefined;
@@ -293,6 +330,7 @@ Requirements:
 
 	process.stdin.on("end", () => {
 		console.error(`[mcp] stdin closed, shutting down`);
+		apiSession?.stop();
 		closeRouter();
 		stopListener();
 		// The daemon is shared and stays; only this process's socket goes.

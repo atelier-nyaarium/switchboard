@@ -144,8 +144,8 @@ No question is open. The spike may still move what Phase 2 builds.
 - **The Gateway's own Create stays for host sessions.**
 - **A message that arrives mid-turn steers,** OpenCode's default and the closest to how Claude takes a channel message. Nothing waits for idle.
 - **No handshake,** as Copilot: the session's token stands in, and the capability guidance rides in the MCP server instructions, which OpenCode passes to the model.
-- **The model and provider are OpenCode's own config.** Switchboard passes none. Signing in is `opencode auth login`, done once by the owner.
-- **The spike picks the pin:** the newest V2 release at least 7 days old that day, per the package rule, written where the launch check reads it. 2.2.6 is provisional; it was three days old when this was written.
+- **The model and provider are OpenCode's own.** Switchboard chooses none. A new session is created with the model the terminal UI last picked, read from OpenCode's state file, since a session created with none runs the server's default whatever the pane shows (spike). Signing in is `opencode auth login`, done once by the owner.
+- **The pin is 2.2.5,** the newest V2 release at least 7 days old on the day of the spike, written where the launch check reads it.
 - **Self-update is off** in the launch config, so there is no restart signal: OpenCode's entry in `RESTART_SIGNALS` is null, as Copilot's.
 - **Session tabs and the sidebar are off** in the launch config, and panes stay at 120 columns or fewer.
 - **Create dialog order:** Claude, OpenCode, Copilot.
@@ -197,7 +197,7 @@ Phase 2 is three slices in order, each its own lap: OpenCode on the host, contai
 ## Phase 2a - OpenCode on the host
 
 - **From Phase 1's architecture pass, built here with the roads that shape them:** one presence sink both ingresses call, which also fires the baseline push; the row's `compaction` split into how a compaction is seen and who hands the baseline; one launch plan that both Gateway doors and both daemon doors build from, holding the wrapper and the version check; the wake's readiness dispatched on the row's `state`; the row split by control road, pane or API.
-- **Spike first, on the real machine:** pick and install the pin, run a server and a terminal UI against it in tmux, and confirm what the source said. Record what differs before building on it.
+- ✅ **Spike, run on the host against 2.2.5:** results under `### Spike`. The container items wait for Phase 2b.
   - An API prompt shows live in the UI, and one sent mid-turn steers.
   - The event names for working, idle, permission and compaction, and what a failed compaction emits.
   - A session created under an id Switchboard chose, with the UI attached to it.
@@ -207,16 +207,78 @@ Phase 2 is three slices in order, each its own lap: OpenCode on the host, contai
   - The event stream cut and resumed.
   - Synthetic input reads as context.
   - Server readiness, shutdown and wake, on the host and in a container.
-- **Launch:** OpenCode's row. A wrapper starts `opencode serve` on a port and password the daemon mints, creates the session under an id Switchboard chose, then runs the terminal UI against that server in the pane, on the host or inside a container alike. The minted values reach the wrapper through a file only the owner can read, which it removes; they are never in the command line tmux is given. The launch config is passed by environment and never written into the project, in two variables. `OPENCODE_CONFIG_CONTENT`, which the server reads, carries the Switchboard MCP server with the session's identity and the server's port and password, code mode off, self-update off, and `experimental.location_idle_timeout` off, since the default unloads an idle location after 60 minutes and takes the MCP child with it. `OPENCODE_CLI_CONFIG_CONTENT`, which the terminal UI reads, turns tabs off. The version is checked before launch and a version outside the supported range refuses with its number.
+- **Launch:** OpenCode's row. A launcher, its own bundled entry point, runs in the pane. It mints a password, starts `opencode serve --stdio --port 0`, reads the server's URL from its first line, creates the session under an id Switchboard chose with the model the terminal UI last picked, asks for the location's MCP list until the Switchboard server reads `connected`, then runs the terminal UI against that server. The daemon mints neither port nor password and learns neither: port 0 has the server pick a free one, and the launcher writes a status file the daemon polls. In stdio mode the server ends when its stdin closes, and the launcher holds that pipe, so the server cannot outlive the pane. The URL and password reach the plugin through a file only the owner can read, named in the MCP server's environment and removed when the launcher exits; neither is in the command line tmux is given. The launch config is passed by environment and never written into the project, in two variables. `OPENCODE_CONFIG_CONTENT`, which the server reads, carries the Switchboard MCP server, code mode off, self-update off, and `experimental.location_idle_timeout` off, since the default unloads an idle location after 60 minutes and takes the MCP child with it. `OPENCODE_CLI_CONFIG_CONTENT`, which the terminal UI reads, turns tabs off. The launcher checks the version first and a version outside the supported range refuses with its number. A fresh session's greeting is the launcher's first prompt, under one fixed id, so a relaunch greets once.
 - **One server, one Switchboard session.** `/new` and the session list are left alone (Question 12).
 - **Online** is the plugin's Gateway socket registering, as for every harness, never the server coming up. The plugin process owns that socket, and a second registration under the same token replaces it.
-- **State:** the plugin follows the server's event stream and reports the same `DerivedPresenceSchema` the daemon's pane readers fill: working, needs login, limit hit, compacting, a waiting permission. A session ingress beside `presence_derive`, which answers the host alone today, takes the team from the socket and never from the frame, feeds the same presence reporter, and accepts only the fields the API yields; the Gateway still derives teammates and workflow state. On connect and on every reconnect the plugin reads the active sessions, replays the session log from its saved sequence and lists the pending permissions, since `permission.asked` is not in the log, and only then replaces what it reported. The report clears when the socket closes. No pane reader runs for this harness.
-- **Wake:** the row's readiness for OpenCode is the server answering and the plugin registered, never a screen read; both wake branches read Claude's pane today. An MCP child that died stays down in OpenCode, so the session reads offline, and a wake that finds the pane alive without a registration restarts the launch on the same OpenCode session id, on the host and in a container.
+- **State:** the plugin follows the server's event stream and reports the same `DerivedPresenceSchema` the daemon's pane readers fill: working, needs login, limit hit, compacting, a waiting permission. A session ingress beside `presence_derive`, which answers the host alone today, takes the team from the socket and never from the frame, feeds the same presence reporter, and accepts only the fields the API yields; the Gateway still derives teammates and workflow state. The event stream is volatile and a local server keeps no replayable log, so on connect and on every reconnect the plugin rebuilds from three reads and only then replaces what it reported: the active sessions for working, the session's pending permissions, and the newest message rows, where an `idle` row carries the last turn's error and a `compaction` row carries a compaction's end or failure. The report clears when the socket closes. No pane reader runs for this harness.
+- **Wake:** the row's readiness for OpenCode is the server answering and the plugin registered, never a screen read; both wake branches read Claude's pane today. OpenCode never restarts a dead MCP child, so the launcher does: it reads the MCP status every 5 seconds and reconnects a child that reads `failed`. A wake therefore keeps a pane whose launcher is alive, since a missing registration there is a plugin reconnecting, and killing the pane would lose a running turn. It waits on a launcher still starting, and relaunches on the same OpenCode session id only when the pane's process is gone or the launcher reported `failed`. The daemon's ready is the launcher's status file, written once the MCP server reads `connected`; the Gateway still waits for the registration.
 - **Delivery:** the plugin posts a pushed message as a prompt whose id it derives from the delivery id, in OpenCode's `msg_` form and the same on every retry, so a retry lands once; it acks under the delivery id after. The compaction baseline is posted as synthetic input with `resume` false, so it adds context without starting a turn, as Claude's hook does. Awareness travels as for every harness: an `act_now` notice is a pushed message, and the rest rides the next one.
-- **Approvals:** a `permission.asked` event becomes the session prompt the phone already draws. The phone's answer, which the daemon types into the pane today, goes by the harness row: for OpenCode a new op on the workspace plane reaches the plugin, which replies over the API, Approve as `once` and Deny as `reject` with the owner's note as its message. The op is keyed by the console's conversation and op id, as the daemon's road is, so a retried answer replays the first result where the plane would mint a fresh key. OpenCode's base policy stands, so only its read tool asks, on a `.env` file.
-- **Controls:** compact and interrupt go through the API. Ctrl+C and Ctrl+D exit the app on an empty composer, so the Gateway refuses both keys for this harness, and a named rule in `SessionOps` hides them on the phone.
+- **Approvals:** a `permission.asked` event becomes the session prompt the phone already draws. The phone's answer, which the daemon types into the pane today, goes by the harness row: for OpenCode an op on the session control plane (`session_control` frames) reaches the plugin, which replies over the API, Approve as `once` and Deny as `reject` with the owner's note as its message. A reply to a request no longer pending answers 404, which reads as already answered. The op is keyed by the console's conversation and op id, as the daemon's road is, so a retried answer replays the first result where the plane would mint a fresh key. OpenCode's base policy stands, so only its read tool asks, on a `.env` file.
+- **Controls:** the terminal view's keys and typed text reach the terminal UI in the pane, as for every CLI, so Esc and `/compact` are OpenCode's own. Nothing in Switchboard compacts or interrupts a session by itself, so no API road is built for either. Ctrl+C exits the app on an empty composer, so the Gateway refuses that key for this CLI and a named rule hides it on the phone; Ctrl+D is not a key the terminal view sends. The phone arms no `/goal` for a CLI without the command.
 - **Phone:** the create dialog picks the project first, then shows the CLIs that spawn point runs (`harnessesOf`), OpenCode among them where it is installed, in the order Claude, OpenCode, Copilot. The slash palette and shell macros come from its row.
 - **Tests:** a fake OpenCode server in the harness beside the fake host, as a request-to-response function: it holds sessions, drops a repeated prompt id, keeps pending permissions and a replayable log, and lets a test cut the event stream. It drives create, delivery, a permission round trip, a compaction and a dropped stream. It cannot see CLI drift, auth, the MCP child's environment or the terminal UI, which the spike and Phase 3 cover. `check:boot` gains an OpenCode `AGENT_TYPE` pass.
+
+### Spike
+
+Run on the host against the installed 2.2.5 (released 2026-10-30), with two private servers, a terminal UI in tmux and a logging MCP server. The pin is 2.2.5. Scripts and captures: `oc-spike/` in the session scratchpad.
+
+**Confirmed as the source read:**
+
+- **Server:** Basic auth, user `opencode`, password from `OPENCODE_PASSWORD`. Ready when stdout prints its URL and `GET /api/info` answers `{version, pid}`. `GET /openapi.json` serves the API document. `opencode --version` prints `opencode v2.2.5`.
+- **Ids:** `POST /api/session` takes any id starting `ses`, and the terminal UI opens it with `--session`. A prompt takes any id starting `msg_`. A repeat of an id returns the first message and enqueues nothing, even with other text. An id that sorts before earlier ones is accepted and lands in arrival order.
+- **Prompts:** show live in the pane. One sent mid-turn is delivered at the next step boundary. `GET /api/session/active` answers `{<id>: {type: "running"}}` during a turn.
+- **Events:** `session.execution.started`, then `succeeded`, `failed` or `interrupted`. `permission.asked {id, sessionID, action, resources}` and `permission.replied`. `session.compaction.started`, then `ended` or `failed`. `mcp.status.changed`. Every connection opens with `server.connected`, and `?types=` repeated filters the stream.
+- **Permissions:** a `.env` read asks. `once` closes the dialog and the read runs. `reject` with a message fails the tool with `permission.rejected` and the model reads the message. The session reads `running` while it waits.
+- **Synthetic input with `resume` false:** no turn starts, the pane shows one line with its description, and the model reads it with the next prompt.
+- **Compaction and interrupt over the API:** both work. A failed compaction emits `session.compaction.failed` with an `error.type`, and its execution still ends `succeeded`.
+- **MCP child:** spawned by the server, with the config's `environment`. Two servers on one project each run their own child with their own environment, and each tool call carries `_meta["ai.opencode/sessionID"]`. Two servers ran turns at once on the shared database.
+- **A dead MCP child stays down:** status `failed`, the tool is gone, nothing restarts it.
+- **Exit keys:** Ctrl+C clears a draft, and on an empty composer exits the app with code 0.
+
+**Differs, and what it moves:**
+
+- **No replayable log.** A local server stores no durable events; `events.persist` is set only in OpenCode's hosted build, and the log route answers its marker alone. Reconnect rebuilds from the three reads the State bullet names.
+- **The MCP child starts when the location boots, not at session create.** The terminal UI attaching boots it, and so does any location call. The wrapper makes that call and waits.
+- **A session created without a model runs the server's default,** a free model with a daily cap, whatever the terminal UI shows. The UI keeps its last pick in `~/.local/state/opencode/model.json`. The launch reads `recent[0]` and its variant and creates the session with it; with no readable file it sets none.
+- **`--stdio` ties the server to its stdin** and prints `{"url": ...}` on stdout. It also scrubs the password from the MCP child's environment, so the password reaches the plugin through the config's `environment`. Plain `serve` leaves the password in the child's and the shell tool's environment.
+- **A repeated prompt id still emits an empty `started` and `succeeded` pair.** State reporting must not treat it as a turn.
+- **A limit hit reads `provider.free-limit`** beside the `provider.rate-limit` the source names. The mapping takes both.
+- **A reply to a permission no longer pending answers 404 `PermissionNotFoundError`.** A retry reads that as already answered.
+- **Restarting the server alone on the same port works:** the terminal UI reconnects by itself and the MCP child starts again. `POST /api/experimental/mcp/{server}/connect` also restarts a dead child. The wake still relaunches the pane, one road.
+- **A failed turn puts its prompt back in the UI's composer** as a draft.
+- **The pane names an MCP tool `<server>_<tool>`.**
+
+**Not run:** a sign-in failure (`provider.auth`, from source), an automatic compaction, and everything in a container.
+
+### Built
+
+Uncommitted while this is written. Source passes lint, types, the existing suite and `check:boot`.
+
+- **Table:** `opencode` row, `road` as a pane or API union, `baseline`, `versions`, `refusedKeys`, `goals`, a nullable Windows binary, `launchRefusal` by place. `OPENCODE_PIN` is 2.2.5.
+- **Launcher:** `src/opencode-launch/launcher.ts` behind ports, entry `src/main-opencode-launch.ts`, a fourth bundle in `scripts/build.ts`. Run for real: ready in 3 seconds, clean after the UI exits and after a pane kill.
+- **Daemon:** `sessionLaunch.ts` is the one launch road for the wake's two branches and the create op; `LAUNCH` in `hostResolve.ts` builds the launcher command. OpenCode is offered where its binary is on PATH or under `~/.opencode/bin` and the launcher bundle exists.
+- **Plugin:** `src/mcp/opencode/` client, follower and session; the `api` transport, the presence frame and the control frame in `helpers.ts`. Run against the real server: delivery once per id, a quiet notice with no turn, deny with a note, stale on a repeat, compaction.
+- **Gateway:** `session_presence` ingress, `sessionControlPlane.ts`, the prompt answer by road, the refused key.
+- **Audit folded:** 8 findings confirmed by skeptics, in three classes, all fixed (see `### Bug Classes` below). Of 22 low notes, the real ones are fixed; the rest are deferred below.
+- **Phone:** OpenCode in the New session pick (fits at three CLIs, checked in the emulator), no Ctrl+C and no Goal for its sessions, a seeded sandbox session. A session with no presence row reads as unnamed in every phone rule.
+- **Then:** the tests, every gate (`bun run lint`, `bun run test`, `check:fixtures`, `check:boot`, `check:pinning`, `./scripts/kotlin-gate.sh`), commit, and deploy in the plan's order so the owner can create an OpenCode session from the app.
+- **Before the commit:** `dist/` holds a `--build-only` bundle; restore it, since the release build writes it.
+- **Not built, by decision:** no API compact or interrupt, since nothing in Switchboard calls one (Controls bullet).
+- **Left for Phase 2b:** `containers` is false on the row; the launcher's root and status file inside a container.
+- **Deferred, on the board or Phase 3:** a failed compaction still pushes a baseline (one boolean cannot tell ended from failed); the Gateway's send door names no CLI and its wake does not join a create in flight (both moot until Phase 2b's `cli` pick); setup installing the pin (Phase 3).
+
+### Bug Classes
+
+**Treating the daemon as the only reader of a session's state.** One mechanism: the Gateway's presence working map.
+- **Round 1, audit:** a host daemon disconnect cleared every team's state, including what an OpenCode plugin reported, and the plugin resends only on its own reconnect. Now `clearAllWorking` takes a keep rule and the daemon's loss spares an API session's report. A cleared report also leaves the compacting set, or a relaunch read as a compaction's end.
+
+**Reading "no registration" as "plugin dead".** One mechanism: the launcher road's repair in `sessionLaunch.ts`.
+- **Round 1, audit (four findings):** a wake killed a live OpenCode pane mid-turn while its plugin reconnected, and killed a create still launching. Now a live launcher is kept or awaited; the launcher restarts a dead plugin itself.
+- **Round 2, red team (three findings):** the keep trusted a status file that asserted `ready` with no liveness behind it, so a dead server under a live UI, a launcher winding down, or a SIGKILLed launcher read as ready on every wake. **Design change:** every status carries the launcher's pid and is live only while that pid runs; the launcher writes `starting` first and `failed` the moment its server or UI goes, and removes only a status it still owns.
+
+**Compaction and turn state from events plus a snapshot.** One mechanism: `opencode.ts` and the follower.
+- **Round 1, audit:** a snapshot read a finished compaction as running, nothing cleared `compacting` at the turn's end, a missed start lost its baseline, a live end blinded the next read to a missed one, a repeated prompt id's empty execution cleared a held limit, and a dropped connection's late read could overwrite its successor's view. Now an execution's end clears it, a compaction is tracked by its message id, only a step clears an error, and each connection fences its own read.
+- **Round 2, tests and red team (five findings):** one remembered id still misjudged a failed compaction, an end buffered during a read, and a prompt row above a running compaction; a snapshot read an empty execution's idle row as clearing a held error; an end while the plugin's socket was down lost its edge. **Design change:** the follower keeps the set of compactions already given their edge and replays buffered events through the live path idempotently; a running compaction is one with no output row above it; the snapshot's error comes from the idle row that ended a turn with a step; a reconnect re-reports an edge the Gateway could not hear.
 
 ## Phase 2b - Containers
 
@@ -395,6 +457,11 @@ Running or stopped is not shown: an agent's send starts the container either way
 - **`detectAgentType` answers the first CLI on the path:** a hand-started session with no `AGENT_TYPE` reads as Claude on any machine that has Claude installed, whatever CLI it runs in.
 - **A CLI with no row gets Claude's slash tools:** `OTHER_AGENT` in `src/mcp/sessionCli.ts` sets `claudeSlashTools`, so `compact_session` and `set_effort_level` register for a CLI that cannot run them.
 - **21 dated shims fall due on 2026-11-23:** the optional `harness` fields, `unnamed`, `claudeSpawns` and `copilotSpawns`, and the `copilotSessionId` twin. Nothing but a grep for the date finds them.
+
+## Owner asks, open
+
+- **Tell the owner when the app can create an OpenCode session.** Asked from the phone on 2026-11-10: "let me know when session start or startAgent is ready for use in this android app. I think a good exercise would be to make a session and you cross talk it to do adversarial from now on." Needs Phase 2a built and deployed to the Gateway, the daemon, the plugin and the app.
+- **An OpenCode backend for `agentStart` and workflow steps,** a slice after Phase 2a. Owner, 2026-11-10: "let's add agentStart support as a slice after you get the session support. that way you can use OpenCode session to implement an OpenCode agent." Not yet questioned or planned. Its tool text is settled with the owner first, and the build is handed to an OpenCode session by `crosstalk_send`. It is not a cycle phase yet; add it as `## Phase 2a2 - OpenCode as an agent backend` once planned.
 
 ## Later
 

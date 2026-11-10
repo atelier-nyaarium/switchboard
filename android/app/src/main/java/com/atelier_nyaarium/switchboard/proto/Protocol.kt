@@ -4101,6 +4101,7 @@ data class GatewaySpawnPoints(
 @Serializable
 data class HarnessSpawns(
 	val claude: List<String>? = null,
+	val opencode: List<String>? = null,
 	val copilot: List<String>? = null,
 )
 

@@ -42,6 +42,7 @@ import type {
 } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { VaultDecision, VaultGrant } from "../../shared/schemasVault.js";
+import type { SessionControlOp, SessionControlResult } from "../../shared/session-control.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import type { WorkspaceOp, WorkspaceOpResult } from "../../shared/workspace-op.js";
@@ -132,6 +133,8 @@ export interface ConsoleHandlerDeps {
 	policies?: PolicyConsoleHandlers;
 	/** Absent before the socket stage composes, which refuses every workspace op. */
 	workspaceAsk?: (team: string, op: WorkspaceOp) => Promise<WorkspaceOpResult>;
+	/** Asks a session's plugin. */
+	sessionControlAsk?: (team: string, op: SessionControlOp, key: string) => Promise<SessionControlResult>;
 	/** A landed phone write, told to the session it changed. */
 	workspaceChanged?: (team: string, change: WorkspaceChange) => void;
 	onSessionEnded?: (team: string) => void;

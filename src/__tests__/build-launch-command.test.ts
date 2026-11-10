@@ -53,6 +53,86 @@ describe("a Copilot launch", () => {
 	});
 });
 
+describe("an OpenCode launch", () => {
+	const id = "ses_sb0f8b2a4c1d3e4f5a9b6c7d8e9f0a1b2c";
+	const host = { kind: "host" as const, name: "host", sessionName: "oc" };
+	const launcher = (root: string, greet = false) => ({
+		runtime: path.join(root, "bun"),
+		root,
+		statusFile: path.join(root, "status.json"),
+		greet,
+	});
+
+	it("runs the launcher under the daemon's bun, naming its session, its status file, and the greeting", () => {
+		const base = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-launch-"));
+		const out = path.join(base, "out");
+		fs.writeFileSync(path.join(base, ".bashrc"), "");
+		fs.writeFileSync(path.join(base, "bun"), `#!/bin/sh\nprintf '%s\\n' "$AGENT_TYPE" "$@" > "${out}"\n`, {
+			mode: 0o755,
+		});
+		const run = (greet: boolean) => {
+			const cmd = buildLaunchCommand(host, {
+				harness: "opencode",
+				resumeSessionId: id,
+				launcher: launcher(base, greet),
+			});
+			execFileSync("bash", ["-c", cmd], {
+				env: { HOME: base, PATH: process.env.PATH },
+				stdio: ["ignore", "ignore", "ignore"],
+				timeout: 10_000,
+			});
+			return fs.readFileSync(out, "utf8").trim().split("\n");
+		};
+
+		const greeted = run(true);
+		const quiet = run(false);
+		fs.rmSync(base, { recursive: true, force: true });
+
+		expect(greeted).toEqual([
+			"opencode",
+			`--config=${base}/launch/bunfig.toml`,
+			"--no-env-file",
+			"--no-install",
+			`${base}/dist/main-opencode-launch.js`,
+			"--session",
+			id,
+			"--status",
+			path.join(base, "status.json"),
+			"--greet",
+		]);
+		expect(quiet).toEqual(greeted.slice(0, -1));
+	});
+
+	it("refuses without a launcher or a minted id, in a container, and on the Windows shell", () => {
+		const root = "/home/me/sb";
+		const refusals = [
+			() => buildLaunchCommand(host, { harness: "opencode", resumeSessionId: id }),
+			() => buildLaunchCommand(host, { harness: "opencode", launcher: launcher(root) }),
+			() => buildLaunchCommand(dc, { harness: "opencode", resumeSessionId: id, launcher: launcher(root) }),
+			() =>
+				buildLaunchCommand(
+					{ kind: "host", name: "windows", sessionName: "oc" },
+					{ harness: "opencode", resumeSessionId: id, launcher: launcher(root), workdir: "C:\\Users\\me" },
+				),
+		];
+
+		for (const refused of refusals) expect(refused).toThrow(/refusing to launch/);
+	});
+
+	it("refuses an id out of its shape and a launcher path the quoting cannot hold, rather than run either", () => {
+		expect(() =>
+			buildLaunchCommand(host, {
+				harness: "opencode",
+				resumeSessionId: `${id}; rm -rf ~`,
+				launcher: launcher("/home/me/sb"),
+			}),
+		).toThrow(/minted id/);
+		expect(() =>
+			buildLaunchCommand(host, { harness: "opencode", resumeSessionId: id, launcher: launcher("/home/it's/sb") }),
+		).toThrow(/plain absolute path/);
+	});
+});
+
 describe("buildLaunchCommand", () => {
 	it("overrides PROJECT_NAME to the composite, cds to the workspace, and runs claude with a bash fallback", () => {
 		const cmd = buildLaunchCommand(dc, { harness: "claude" });

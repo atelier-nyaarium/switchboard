@@ -556,6 +556,7 @@ fun App(
 		ShellScreen.CONVERSATION -> {
 			// Devcontainer names are fixed.
 			val session = state.sessions().firstOrNull { it.name == openTeam }
+			val sessionCli = harnessOf(session)
 			val kind = session?.kind
 			// Rename only known loose sessions.
 			val presence = session?.let { state.sessionWord(it.name, it.presence, System.currentTimeMillis()) }
@@ -738,6 +739,7 @@ fun App(
 					onCancel = { repo.scheduled.cancelScheduledSendForEdit(openTeam!!) },
 				),
 				goal = GoalState(
+					offered = goalOffered(ConversationView.TERMINAL in offered, sessionCli),
 					record = state.goals[openTeam!!],
 					onArm = { g, text, files -> repo.goals.armAndSend(openTeam!!, g, text, files) },
 					onCancel = { repo.goals.cancelGoal(openTeam!!) },
@@ -764,8 +766,10 @@ fun App(
 					limitBlocked = session?.presence?.limitBlocked == true,
 					limitDetail = session?.presence?.limitDetail,
 					compacting = session?.presence?.compacting == true,
-					slashMacros = slashMacros(session?.harness),
+					slashMacros = slashMacros(sessionCli),
 					shellMacros = shellMacros(state.gateways.harnessesOnSession(openTeam!!)),
+					paletteKeys = sendableKeys(PALETTE_KEYS, sessionCli),
+					ctrlKeys = sendableKeys(CTRL_MENU_KEYS, sessionCli),
 					onWake = { repo.sessions.wakeSession(openTeam!!) },
 					onRelaunch = { repo.sessions.relaunchSession(openTeam!!) },
 					refreshMs = repo.sessions.terminalRefreshMs,

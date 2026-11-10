@@ -38,6 +38,10 @@ export interface FakeSession {
 	reply(sessionId: string, response: string, extra?: Record<string, unknown>): Promise<Response>;
 	post(path: string, body: Record<string, unknown>): Promise<Response>;
 	get(path: string): Promise<Response>;
+	/** Sends a plugin frame. */
+	send(frame: Frame): void;
+	/** Every gateway frame. */
+	onFrame(handler: (frame: Frame) => void): void;
 	close(): void;
 }
 
@@ -111,6 +115,8 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 			post("/respond", { session_id: sessionId, response, conversationId: options.conversationId, ...extra }),
 		post,
 		get,
+		send: (frame) => graph.wsHandlers.message(socket.ws, JSON.stringify(frame)),
+		onFrame: (handler) => socket.onFrame(handler),
 		close: () => {
 			socket.ws.close();
 			graph.wsHandlers.close(socket.ws);

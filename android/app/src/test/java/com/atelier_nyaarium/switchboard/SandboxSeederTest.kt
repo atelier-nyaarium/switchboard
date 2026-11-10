@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SandboxSeederTest {
@@ -14,11 +15,12 @@ class SandboxSeederTest {
 	}
 
 	@Test
-	fun theSeededGatewaysRunDifferentClis() {
+	fun theSeededGatewaysRunDifferentClisAndOfferASpawn() {
 		val roster = listOf("sandbox", "parsing", "idle-box")
 		val registry = sandboxRegistry(roster, now = 5)
 
 		assertEquals(roster.size, roster.map { registry.harnessesOn(it, "host") }.toSet().size)
+		assertTrue(roster.all { registry.offersSpawn(it) })
 	}
 
 	@Test

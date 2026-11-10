@@ -44,6 +44,7 @@ export const ENTRYPOINTS = [
 	path.join("src", "main-mcp.ts"),
 	path.join("src", "main-vault-askpass.ts"),
 	path.join("src", "main-session-hook.ts"),
+	path.join("src", "main-opencode-launch.ts"),
 ];
 const DIST_DIR = "dist";
 

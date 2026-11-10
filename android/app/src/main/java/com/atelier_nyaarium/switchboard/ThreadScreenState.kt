@@ -41,6 +41,8 @@ data class ScheduledSendState(
 
 /** This team's armed goal: the record driving the dock, and its lifecycle. */
 data class GoalState(
+	/** Whether the CLI takes one. */
+	val offered: Boolean,
 	val record: PendingGoal?,
 	/** suspend + Boolean: arming SENDS, so the caller must await the outcome before clearing the
 	 * composer. Only the goal is typed into the pane; the rest is the message. */
@@ -66,9 +68,13 @@ data class TerminalState(
 	val slashMacros: List<SlashMacro>,
 	/** The install macros the session's spawn point offers. */
 	val shellMacros: List<ShellMacro>,
+	/** Label to key chips. */
+	val paletteKeys: List<Pair<String, String>>,
+	/** Ctrl menu entries. */
+	val ctrlKeys: List<Pair<String, String>>,
 	val refreshMs: Long,
 	val onWake: () -> Unit,
-	/** Force-relaunch claude in a still-existing pane (SessionOps.relaunchSession). */
+	/** Relaunches the CLI in place. */
 	val onRelaunch: suspend () -> Unit,
 	val onPeek: suspend (sinceHash: String?) -> Result<com.atelier_nyaarium.switchboard.proto.ConsolePeekResult>,
 	val onSend: suspend (text: String?, key: String?, submit: Boolean) -> Unit,

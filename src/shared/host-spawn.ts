@@ -17,7 +17,7 @@
 //
 // `windows` is PowerShell over WSL interop, and its daemon-side half lives in `windowsSpawn.ts`.
 
-import { HARNESS, type SessionHarness } from "./session-harness.js";
+import { HARNESS, type LaunchPlace, type SessionHarness } from "./session-harness.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -32,6 +32,8 @@ export interface HostLaunchContext {
 	 * Split out because the binary differs per spawn point - measured on a WSL box, bare `claude`
 	 * and `claude.cmd` do not resolve from Windows PowerShell and only `claude.exe` does. */
 	agentArgs: string;
+	/** Runs in place of the CLI's binary. Already shell-safe. */
+	program?: string;
 	/** `export SWITCHBOARD_SESSION_TOKEN=<hex>; ` or empty. Already shell-safe. */
 	exportToken: string;
 	/** Absolute, quote-free, already resolved. For a spawn point whose shell does not share the
@@ -69,6 +71,8 @@ export interface HostSpawnPoint {
 	 * translated before it can be handed over, and that the spawn point's own default is not the
 	 * host's home directory. */
 	readonly nativePaths: boolean;
+	/** What a CLI's launch rules know it as. */
+	readonly place: Exclude<LaunchPlace, "container">;
 	/** The command tmux runs for a new session. */
 	build(ctx: HostLaunchContext): string;
 }
@@ -122,13 +126,14 @@ const HOST: HostSpawnPoint = {
 	id: HOST_SPAWN,
 	alwaysAvailable: true,
 	nativePaths: true,
+	place: "host",
 	// One `bash -c`: the PROJECT_NAME override must run in the same shell as claude, after ~/.bashrc.
 	// `exec bash` rather than `exec claude` so the pane survives the agent exiting and stays peekable.
 	build(ctx) {
 		const cd = ctx.workdir ? `cd "${ctx.workdir}"; ` : "";
 		// ~/.bashrc returns early for a non-interactive shell, so it adds nothing to PATH here.
 		const path = ctx.pathPrefix ? `export PATH="${ctx.pathPrefix}:$PATH"; ` : "";
-		const binary = HARNESS[ctx.harness].binary.posix;
+		const binary = ctx.program ?? HARNESS[ctx.harness].binary.posix;
 		return `bash -c 'source ~/.bashrc; ${path}export PROJECT_NAME=${ctx.composite}; ${agentTypeExport(ctx.harness)}${ctx.exportToken}${ASKPASS_EXPORTS}${cd}${binary} ${ctx.agentArgs}; exec bash'`;
 	},
 };
@@ -157,11 +162,16 @@ const WINDOWS: HostSpawnPoint = {
 	id: WINDOWS_SPAWN,
 	alwaysAvailable: false,
 	nativePaths: false,
+	place: "windows",
 	build(ctx) {
 		if (!ctx.workdir) {
 			throw new Error("refusing to launch: a windows session needs a resolved Windows working directory");
 		}
 		const binary = HARNESS[ctx.harness].binary.windows;
+		// A launcher never crosses to PowerShell.
+		if (binary === null || ctx.program) {
+			throw new Error(`refusing to launch: ${HARNESS[ctx.harness].label} does not run on a Windows shell`);
+		}
 		const script = `Set-Location -LiteralPath '${ctx.workdir}'\n${binary} ${ctx.agentArgs}\n`;
 		const names = [
 			"PROJECT_NAME/w",
@@ -195,6 +205,11 @@ export function isHostSpawnSession(team: string): boolean {
 
 export function hostSpawnPoint(id: string): HostSpawnPoint | undefined {
 	return REGISTRY.find((p) => p.id === id);
+}
+
+/** A spawn segment that names no host shell is a container. */
+export function launchPlaceOf(spawn: string): LaunchPlace {
+	return hostSpawnPoint(spawn)?.place ?? "container";
 }
 
 /** Presence and discovery share these. */

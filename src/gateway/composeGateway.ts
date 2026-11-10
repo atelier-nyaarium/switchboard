@@ -352,6 +352,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		policies,
 		devices: requireDevices(),
 		workspacePlane: websockets.workspacePlane,
+		sessionControl: websockets.sessionControl,
 		awareness,
 		assistant,
 		workflows,
@@ -410,6 +411,9 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				await capture(() => assistantRestart.stop());
 				await capture(() => bootstrap.ambient.clearInterval(websockets.wsHandlers.heartbeatInterval));
 				await capture(() => routes?.stop());
+				// Waits on a session's plugin fail at once.
+				await capture(() => websockets?.workspacePlane.stop());
+				await capture(() => websockets?.sessionControl.stop());
 				await capture(() => stores.jobs.stopCleanup());
 				await capture(() => awareness.awareness.stop());
 				await capture(() => federation?.stop());

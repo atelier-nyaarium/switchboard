@@ -9,7 +9,13 @@ import {
 	SWITCHBOARD_TOOL_PREFIX,
 } from "../../shared/assistant-session.js";
 import { type HostListDirsResult, isReservedHostSession, isTmuxName, type TmuxTarget } from "../../shared/host-op.js";
-import { ASKPASS_EXPORTS, agentTypeExport, buildHostLaunch, isHostSpawn } from "../../shared/host-spawn.js";
+import {
+	ASKPASS_EXPORTS,
+	agentTypeExport,
+	buildHostLaunch,
+	isHostSpawn,
+	launchPlaceOf,
+} from "../../shared/host-spawn.js";
 import { HARNESS, launchRefusal, resumableId, type SessionHarness } from "../../shared/session-harness.js";
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { CHANNEL_FILES_DIR } from "../channel/channelFiles.js";
@@ -209,19 +215,67 @@ export function assistantPermissionArgs(workdir: string | undefined, home: strin
 	return `--permission-mode dontAsk --tools ${ASSISTANT_BUILTIN_TOOLS.join(",")} --settings "${json}"`;
 }
 
+/** Where a launcher-run CLI's launcher lives and reports. */
+export interface SessionLauncher {
+	/** The bun that runs it. */
+	runtime: string;
+	/** Holds `dist/` and `launch/`. */
+	root: string;
+	/** Where it writes how the launch went. */
+	statusFile: string;
+	/** Its first prompt is the greeting. */
+	greet: boolean;
+}
+
 interface LaunchArgsContext {
 	/** Validated; absent starts fresh. */
 	resumeSessionId?: string;
 	/** Claude's permission flags. */
 	permissions: () => string;
+	launcher?: SessionLauncher;
 }
 
-/** Quoted: brackets would glob in `bash -c`. */
-const LAUNCH_ARGS: Record<SessionHarness, (ctx: LaunchArgsContext) => string> = {
-	claude: (ctx) =>
-		`--model "opus[1m]" --effort xhigh ${ctx.permissions()} ${CHANNEL_FLAG}${ctx.resumeSessionId ? ` --resume ${ctx.resumeSessionId}` : ""}`,
+/** A launch's program and arguments. No program runs the row's binary. */
+interface LaunchSpec {
+	program?: string;
+	args: string;
+}
+
+export const OPENCODE_LAUNCH_BUNDLE = "main-opencode-launch.js";
+
+/** Double-quoted inside the launch's single quotes. */
+function plainPath(value: string, what: string): string {
+	if (!PLAIN_ABSOLUTE.test(value)) throw new Error(`refusing to launch: ${what} is not a plain absolute path`);
+	return `"${value}"`;
+}
+
+const LAUNCH: Record<SessionHarness, (ctx: LaunchArgsContext) => LaunchSpec> = {
+	// The model is quoted: brackets would glob in `bash -c`.
+	claude: (ctx) => ({
+		args: `--model "opus[1m]" --effort xhigh ${ctx.permissions()} ${CHANNEL_FLAG}${ctx.resumeSessionId ? ` --resume ${ctx.resumeSessionId}` : ""}`,
+	}),
+	// The launcher starts its server, then its terminal UI.
+	opencode: (ctx) => {
+		const { launcher, resumeSessionId } = ctx;
+		if (!launcher) throw new Error("refusing to launch: no OpenCode launcher on this machine");
+		if (!resumeSessionId) throw new Error("refusing to launch: an OpenCode session needs its minted id");
+		const root = plainPath(launcher.root, "the launcher's root").slice(1, -1);
+		return {
+			program: [
+				plainPath(launcher.runtime, "the launcher's runtime"),
+				// A project's own bun settings and env never apply.
+				`--config="${root}/launch/bunfig.toml"`,
+				"--no-env-file",
+				"--no-install",
+				`"${root}/dist/${OPENCODE_LAUNCH_BUNDLE}"`,
+			].join(" "),
+			args: `--session ${resumeSessionId} --status ${plainPath(launcher.statusFile, "the status file")}${launcher.greet ? " --greet" : ""}`,
+		};
+	},
 	// Its id names the session before it exists, so one flag starts and resumes.
-	copilot: (ctx) => `--allow-all --no-ask-user${ctx.resumeSessionId ? ` --session-id ${ctx.resumeSessionId}` : ""}`,
+	copilot: (ctx) => ({
+		args: `--allow-all --no-ask-user${ctx.resumeSessionId ? ` --session-id ${ctx.resumeSessionId}` : ""}`,
+	}),
 };
 
 // One `bash -c`: the PROJECT_NAME override must run in the same shell as claude, after ~/.bashrc.
@@ -237,6 +291,7 @@ export function buildLaunchCommand(
 		workdir?: string;
 		sessionToken?: string;
 		pathPrefix?: string;
+		launcher?: SessionLauncher;
 	},
 ): string {
 	const composite = composeSessionName(target.name, target.sessionName);
@@ -248,12 +303,13 @@ export function buildLaunchCommand(
 	}
 	const exportToken = opts.sessionToken ? `export SWITCHBOARD_SESSION_TOKEN=${opts.sessionToken}; ` : "";
 	const refusal = launchRefusal(opts.harness, {
-		host: target.kind === "host",
+		place: target.kind === "host" ? launchPlaceOf(target.name) : "container",
 		assistant: composite === ASSISTANT_TEAM,
 	});
 	if (refusal) throw new Error(`refusing to launch: ${refusal}`);
-	const agentArgs = LAUNCH_ARGS[opts.harness]({
+	const spec = LAUNCH[opts.harness]({
 		...(resumeSessionId ? { resumeSessionId } : {}),
+		...(opts.launcher ? { launcher: opts.launcher } : {}),
 		permissions: () =>
 			composite === ASSISTANT_TEAM ? assistantPermissionArgs(opts.workdir) : "--dangerously-skip-permissions",
 	});
@@ -265,20 +321,19 @@ export function buildLaunchCommand(
 		return buildHostLaunch(target.name, {
 			composite,
 			harness: opts.harness,
-			agentArgs,
+			agentArgs: spec.args,
+			...(spec.program ? { program: spec.program } : {}),
 			exportToken,
 			workdir: safeWorkdir ? opts.workdir : undefined,
 			pathPrefix: safePathPrefix ? opts.pathPrefix : undefined,
 		});
 	}
 	// Keeps the pane peekable after exit.
-	return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${composite}; ${agentTypeExport(opts.harness)}${exportToken}${ASKPASS_EXPORTS}cd /workspace/${target.name}; ${row.binary.posix} ${agentArgs}; exec bash'`;
+	return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${composite}; ${agentTypeExport(opts.harness)}${exportToken}${ASKPASS_EXPORTS}cd /workspace/${target.name}; ${spec.program ?? row.binary.posix} ${spec.args}; exec bash'`;
 }
 
 ////////////////////////////////
 //  First-launch greeting
-
-export const FIRST_LAUNCH_GREETING = `welcome, see your switchboard capabilities`;
 
 // Wake reports created too.
 export function shouldGreetLaunch(opts: {

@@ -48,6 +48,9 @@ data class Team(
 ////////////////////////////////
 //  Functions & Helpers
 
+/** A session's CLI word. No row reads as unnamed. */
+internal fun harnessOf(row: Team?): HarnessWord = row?.harness ?: readHarness(null)
+
 /** The local team field (`spawn` or `spawn.session`) of a canonical address string, for the UI's
  * short labels and the board's spawn-point nesting. A SpawnPoint (arity 3) yields its bare spawn; an
  * Address (arity 4) yields `spawn.session`. */

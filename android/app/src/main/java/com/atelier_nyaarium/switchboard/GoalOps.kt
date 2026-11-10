@@ -22,6 +22,10 @@ internal class GoalOps(
 	private val driving = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
 	suspend fun armAndSend(team: String, goal: String, text: String, files: List<MessageFile>): Boolean {
+		if (!takesGoals(harnessOf(state.value.sessions().firstOrNull { it.name == team }))) {
+			state.update { it.copy(error = "That session's CLI takes no goal.") }
+			return false
+		}
 		val clean = sanitizeGoalText(goal)
 		if (clean.isEmpty()) {
 		state.update { it.copy(error = "Type what the goal is before setting one.") }

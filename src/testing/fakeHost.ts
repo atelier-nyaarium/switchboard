@@ -245,6 +245,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				return { killed: true };
 			case "reloadPlugins":
 				return { initiated: true };
+			case "answerPrompt":
+				return { outcome: "answered" };
 		}
 	};
 	socket.onFrame((frame) => {
@@ -347,7 +349,11 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			targets: [...copilotDaemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
 		});
 		const hostSpawns = options.hostSpawns ?? [];
-		const harnessSpawns: Record<SessionHarness, string[]> = { claude: [HOST_SPAWN, ...hostSpawns], copilot: [] };
+		const harnessSpawns: Record<SessionHarness, string[]> = {
+			claude: [HOST_SPAWN, ...hostSpawns],
+			opencode: [],
+			copilot: [],
+		};
 		const lists: FakeSpawnLists = options.spawnLists ?? {
 			harnessSpawns,
 			claudeSpawns: harnessSpawns.claude,

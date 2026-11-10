@@ -10,7 +10,8 @@ import {
 	type TmuxTarget,
 } from "../../shared/host-op.js";
 import type { SessionPrompt } from "../../shared/schemasPresence.js";
-import { HARNESS } from "../../shared/session-harness.js";
+import type { SessionControlOp, SessionControlResult } from "../../shared/session-control.js";
+import { HARNESS, type HarnessRow } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
@@ -21,9 +22,16 @@ export interface TerminalOpsDeps {
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	sessionStore?: Pick<SessionStore, "getByTeam" | "teamOf">;
 	promptOf?: (team: string) => SessionPrompt | undefined;
+	sessionControlAsk?: (team: string, op: SessionControlOp, key: string) => Promise<SessionControlResult>;
 }
 
-export function createTerminalHandlers({ targets, relayToHost, sessionStore, promptOf }: TerminalOpsDeps) {
+export function createTerminalHandlers({
+	targets,
+	relayToHost,
+	sessionStore,
+	promptOf,
+	sessionControlAsk,
+}: TerminalOpsDeps) {
 	function assertDaemonDrivable(target: TmuxTarget): void {
 		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
 		if (record?.liveTeam && record.liveTeam.team !== sessionStore!.teamOf(record)) {
@@ -55,6 +63,10 @@ export function createTerminalHandlers({ targets, relayToHost, sessionStore, pro
 		let hostOp: HostOp;
 		if (op.key != null) {
 			if (!ALLOWED_KEYS.has(op.key)) throw new Error(`disallowed key "${op.key}"`);
+			const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
+			if (record && HARNESS[record.harness].refusedKeys.includes(op.key)) {
+				throw new Error(`${HARNESS[record.harness].label} exits on that key`);
+			}
 			hostOp = { kind: "sendKey", target, key: op.key, dedupKey };
 		} else {
 			hostOp = { kind: "sendText", target, text: op.text ?? "", submit: op.submit ?? true, dedupKey };
@@ -104,24 +116,52 @@ export function createTerminalHandlers({ targets, relayToHost, sessionStore, pro
 		return { prompt: promptOf?.(composeSessionName(target.name, target.sessionName)) ?? null };
 	}
 
-	async function answerPrompt(
-		op: Extract<ConsoleOp, { kind: "session_prompt_answer" }>,
-		conversationId: string,
-		opId: string,
-	) {
-		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
+	type PromptAnswer = Extract<ConsoleOp, { kind: "session_prompt_answer" }>;
+
+	/** Prompt answerer per CLI road. */
+	const PROMPT_ANSWERERS: Record<
+		HarnessRow["road"]["kind"],
+		(target: TmuxTarget, op: PromptAnswer, dedupKey: string) => Promise<{ outcome: PromptOutcome }>
+	> = {
+		// Daemon presses the pane.
+		pane: async (target, op, dedupKey) => {
+			if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
+			const r = await relayToHost({
+				kind: "answerPrompt",
+				target,
+				promptId: op.promptId,
+				decision: op.decision,
+				...(op.reason ? { reason: op.reason } : {}),
+				dedupKey,
+			});
+			if (!r.ok) throw new Error(r.error ?? "answer failed");
+			return r.result as { outcome: PromptOutcome };
+		},
+		// Plugin replies over the CLI API.
+		api: async (target, op, dedupKey) => {
+			if (!sessionControlAsk) throw new Error("this Gateway cannot reach the session's plugin");
+			const result = await sessionControlAsk(
+				composeSessionName(target.name, target.sessionName),
+				{
+					kind: "answerPrompt",
+					promptId: op.promptId,
+					decision: op.decision,
+					...(op.reason ? { reason: op.reason } : {}),
+				},
+				dedupKey,
+			);
+			if (!result.ok) throw new Error(`${result.failure}: ${result.detail}`);
+			return { outcome: result.outcome };
+		},
+	};
+
+	async function answerPrompt(op: PromptAnswer, conversationId: string, opId: string) {
 		const target = targets.tmuxTarget(op.target);
 		assertDaemonDrivable(target);
-		const r = await relayToHost({
-			kind: "answerPrompt",
-			target,
-			promptId: op.promptId,
-			decision: op.decision,
-			...(op.reason ? { reason: op.reason } : {}),
-			dedupKey: `${conversationId}:${opId}`,
-		});
-		if (!r.ok) throw new Error(r.error ?? "answer failed");
-		return r.result as { outcome: PromptOutcome };
+		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
+		// A session with no record is a pane.
+		const road = record ? HARNESS[record.harness].road.kind : "pane";
+		return PROMPT_ANSWERERS[road](target, op, `${conversationId}:${opId}`);
 	}
 
 	return { peek, tmuxSend, listDirs, reloadPlugins, sessionPrompt, answerPrompt };

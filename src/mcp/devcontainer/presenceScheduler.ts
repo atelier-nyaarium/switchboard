@@ -11,9 +11,9 @@ import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host
 import { type DerivedPresence, sameDerived } from "../../shared/schemasPresence.js";
 import {
 	foldHarness,
-	HARNESS,
 	mintedIdOf,
 	type PaneAutoAnswer,
+	paneRoad,
 	readHarness,
 	type SessionHarness,
 } from "../../shared/session-harness.js";
@@ -274,7 +274,7 @@ export class PresenceScheduler {
 			);
 			if (!derived) return; // Logs derive no state.
 			if (peek.kind === "tmux") {
-				for (const kind of HARNESS[entry.harness].autoAnswers) {
+				for (const kind of paneRoad(entry.harness)?.autoAnswers ?? []) {
 					if (this.dialogs[kind].shows(peek.ansi)) this.dialogs[kind].answer(entry.target);
 				}
 			}

@@ -276,6 +276,8 @@ export function isCompacting(screen: string): boolean {
 /** Per CLI, whether its pane asks for a restart to apply an update; null until its line is known. */
 const RESTART_SIGNALS: Record<SessionHarness, ((screen: string) => boolean) | null> = {
 	claude: (screen) => paneHas(screen, UPDATE_INSTALLED_RE, "status"),
+	// Its self-update is off.
+	opencode: null,
 	copilot: null,
 };
 

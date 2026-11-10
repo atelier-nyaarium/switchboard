@@ -65,13 +65,13 @@ class SessionHarnessPickTest {
 
 	@Test
 	fun `a picked project offers the CLIs its spawn point runs, and keeps the held one when it can`() {
-		val both = harnessesOf(running(SessionHarness.COPILOT, SessionHarness.CLAUDE))
-		val copilotOnly = harnessesOf(running(SessionHarness.COPILOT))
+		val all = harnessesOf(running(SessionHarness.COPILOT, SessionHarness.OPENCODE, SessionHarness.CLAUDE))
+		val withoutClaude = harnessesOf(running(SessionHarness.COPILOT, SessionHarness.OPENCODE))
 
-		assertEquals(listOf(SessionHarness.CLAUDE, SessionHarness.COPILOT), both)
-		assertEquals(listOf(SessionHarness.COPILOT), copilotOnly)
-		assertEquals(SessionHarness.COPILOT, harnessAfterPick(SessionHarness.COPILOT, both))
-		assertEquals(SessionHarness.COPILOT, harnessAfterPick(SessionHarness.CLAUDE, copilotOnly))
+		assertEquals(listOf(SessionHarness.CLAUDE, SessionHarness.OPENCODE, SessionHarness.COPILOT), all)
+		assertEquals(listOf(SessionHarness.OPENCODE, SessionHarness.COPILOT), withoutClaude)
+		assertEquals(SessionHarness.COPILOT, harnessAfterPick(SessionHarness.COPILOT, all))
+		assertEquals(SessionHarness.OPENCODE, harnessAfterPick(SessionHarness.CLAUDE, withoutClaude))
 		assertNull(harnessAfterPick(SessionHarness.CLAUDE, emptyList()))
 	}
 
@@ -99,7 +99,9 @@ class SessionHarnessPickTest {
 		assertEquals(SessionHarness.COPILOT.slashPalette, slashMacros(named))
 		assertEquals(UNNAMED_HARNESS.slashPalette, slashMacros(unnamed))
 		assertTrue(slashMacros(unknown).isEmpty())
-		assertTrue(slashMacros(null).isEmpty())
+		// No row reads as unnamed.
+		assertEquals(unnamed, harnessOf(null))
+		assertEquals(named, harnessOf(Team("d.gw.host.s", Presence.ended(), harness = named)))
 	}
 
 	@Test
@@ -116,7 +118,11 @@ class SessionHarnessPickTest {
 		val registry = landed(
 			row(
 				"mapped",
-				harnessSpawns = HarnessSpawns(claude = listOf("windows"), copilot = listOf("host", "windows")),
+				harnessSpawns = HarnessSpawns(
+					claude = listOf("windows"),
+					opencode = listOf("host"),
+					copilot = listOf("host", "windows"),
+				),
 				claudeSpawns = listOf("host"),
 				copilotSpawns = emptyList(),
 			),
@@ -125,13 +131,13 @@ class SessionHarnessPickTest {
 			row("oldest", copilotSpawns = listOf("host")),
 		)
 
-		assertEquals(running(SessionHarness.COPILOT), registry.harnessesOn("mapped", "host"))
+		assertEquals(running(SessionHarness.OPENCODE, SessionHarness.COPILOT), registry.harnessesOn("mapped", "host"))
 		assertEquals(running(SessionHarness.CLAUDE, SessionHarness.COPILOT), registry.harnessesOn("mapped", "windows"))
 		assertEquals(running(), registry.harnessesOn("unprobed", "host"))
 		assertEquals(running(SessionHarness.COPILOT), registry.harnessesOn("listed", "host"))
 		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("listed", "windows"))
 		assertEquals(running(SessionHarness.CLAUDE, SessionHarness.COPILOT), registry.harnessesOn("oldest", "host"))
 		assertEquals(running(SessionHarness.CLAUDE), registry.harnessesOn("oldest", "windows"))
-		assertEquals(running(SessionHarness.COPILOT), registry.harnessesOnSession("d.mapped.host.demo"))
+		assertEquals(running(SessionHarness.OPENCODE, SessionHarness.COPILOT), registry.harnessesOnSession("d.mapped.host.demo"))
 	}
 }

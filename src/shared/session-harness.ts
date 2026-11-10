@@ -3,7 +3,8 @@
 ////////////////////////////////
 //  Interfaces & Types
 
-export const SESSION_HARNESSES = ["claude", "copilot"] as const;
+/** In offer order. */
+export const SESSION_HARNESSES = ["claude", "opencode", "copilot"] as const;
 export type SessionHarness = (typeof SESSION_HARNESSES)[number];
 
 /** Pane dialogs the daemon answers itself. */
@@ -32,24 +33,53 @@ export type HarnessWord =
 	| { readonly read: "unnamed"; readonly assumed: SessionHarness }
 	| { readonly read: "unknown"; readonly word: string };
 
+/** Read and driven through its pane, by the daemon. */
+export interface PaneRoad {
+	readonly kind: "pane";
+	/** How a pushed message enters. */
+	readonly delivery: "channel" | "typed";
+	/** How a compaction is seen. */
+	readonly compaction: "screen" | "copilot-events";
+	readonly autoAnswers: readonly PaneAutoAnswer[];
+}
+
+/** Read and driven through its own local server, by the plugin. */
+export interface ApiRoad {
+	readonly kind: "api";
+	/** Which server's client and launcher. */
+	readonly server: "opencode";
+}
+
+/** One rule of a CLI's own permission engine. */
+export interface PermissionRule {
+	readonly action: string;
+	readonly resource: string;
+	readonly effect: "allow" | "deny" | "ask";
+}
+
 export interface HarnessRow {
 	/** The phone's name for it. */
 	readonly label: string;
-	/** argv[0] under bash and under PowerShell. */
-	readonly binary: { readonly posix: string; readonly windows: string };
+	readonly binary: {
+		/** argv[0] under bash. */
+		readonly posix: string;
+		/** argv[0] under PowerShell. Null never launches there. */
+		readonly windows: string | null;
+		/** Its installer's directory under home, searched after PATH. */
+		readonly homeDir?: string;
+	};
 	readonly containers: boolean;
 	readonly assistant: boolean;
 	/** `shape` guards the command line. */
 	readonly sessionId: SessionIdPolicy;
 	/** Answers the registration handshake. */
 	readonly handshake: boolean;
-	/** How a pushed message enters. */
-	readonly delivery: "channel" | "typed";
-	/** Where its state is read, and how a launch is known ready. */
-	readonly state: "pane";
-	/** How a compaction is seen. */
-	readonly compaction: "hook" | "copilot-events";
-	readonly autoAnswers: readonly PaneAutoAnswer[];
+	/** How its state is read and its messages enter. */
+	readonly road: PaneRoad | ApiRoad;
+	/** Who hands a compacted session its baseline. */
+	readonly baseline: "hook" | "push";
+	/** Exact versions a launch accepts. Absent accepts any. */
+	readonly versions?: readonly string[];
 	/** Claude's slash commands and plugin UI. */
 	readonly claudeSlashTools: boolean;
 	readonly workflowTools: boolean;
@@ -58,6 +88,12 @@ export interface HarnessRow {
 	readonly slashPalette: readonly SlashMacro[];
 	/** Typed into a bare shell. */
 	readonly shellMacros: readonly ShellMacro[];
+	/** Keys that end the app, never sent. */
+	readonly refusedKeys: readonly string[];
+	/** Takes a typed `/goal` line. */
+	readonly goals: boolean;
+	/** Laid over the CLI's own policy at create. */
+	readonly permissions: readonly PermissionRule[];
 }
 
 ////////////////////////////////
@@ -81,6 +117,12 @@ const PLUGINS = "switchboard nyaaskills lexicon";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** The one accepted OpenCode release. */
+export const OPENCODE_PIN = "2.2.5";
+
+/** A fresh session's first words. */
+export const FIRST_LAUNCH_GREETING = `welcome, see your switchboard capabilities`;
+
 /** What a sender that named no CLI ran. */
 export const UNNAMED_HARNESS: SessionHarness = "claude";
 
@@ -92,10 +134,8 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		assistant: true,
 		sessionId: { minted: false, shape: /^[0-9a-fA-F-]{8,}$/ },
 		handshake: true,
-		delivery: "channel",
-		state: "pane",
-		compaction: "hook",
-		autoAnswers: ["limit"],
+		road: { kind: "pane", delivery: "channel", compaction: "screen", autoAnswers: ["limit"] },
+		baseline: "hook",
 		claudeSlashTools: true,
 		workflowTools: true,
 		guidance: "handshake",
@@ -107,6 +147,48 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 				cmd: `claude plugin marketplace add atelier-nyaarium/claude-marketplace || claude plugin marketplace update atelier-nyaarium; for p in ${PLUGINS}; do claude plugin install $p@atelier-nyaarium && claude plugin update -y $p@atelier-nyaarium; done`,
 			},
 		],
+		refusedKeys: [],
+		goals: true,
+		permissions: [],
+	},
+	opencode: {
+		label: "OpenCode",
+		binary: { posix: "opencode", windows: null, homeDir: ".opencode/bin" },
+		// Host only.
+		containers: false,
+		assistant: false,
+		// The id names the session before it exists.
+		sessionId: {
+			minted: true,
+			shape: /^ses_sb[0-9a-f]{32}$/,
+			mint: (uuid) => `ses_sb${uuid().replace(/-/g, "")}`,
+		},
+		handshake: false,
+		road: { kind: "api", server: "opencode" },
+		baseline: "push",
+		versions: [OPENCODE_PIN],
+		claudeSlashTools: false,
+		workflowTools: true,
+		guidance: "instructions",
+		slashPalette: [
+			{ cmd: "/models", autoSend: true },
+			{ cmd: "/variants", autoSend: true },
+			{ cmd: "/usage", autoSend: true },
+			{ cmd: "/status", autoSend: true },
+			{ cmd: "/mcps", autoSend: true },
+			{ cmd: "/compact", autoSend: true },
+		],
+		shellMacros: [
+			{
+				label: "Install OpenCode",
+				cmd: `curl -fsSL https://opencode.ai/v2/install | bash -s -- --version ${OPENCODE_PIN}`,
+			},
+			{ label: "OpenCode Sign-in", cmd: "opencode auth login" },
+		],
+		// An empty composer exits on it.
+		refusedKeys: ["C-c"],
+		goals: false,
+		permissions: [],
 	},
 	copilot: {
 		label: "Copilot",
@@ -117,10 +199,8 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		// The id names the session before it exists.
 		sessionId: { minted: true, shape: UUID, mint: (uuid) => uuid() },
 		handshake: false,
-		delivery: "typed",
-		state: "pane",
-		compaction: "copilot-events",
-		autoAnswers: ["survey"],
+		road: { kind: "pane", delivery: "typed", compaction: "copilot-events", autoAnswers: ["survey"] },
+		baseline: "push",
 		claudeSlashTools: false,
 		workflowTools: true,
 		guidance: "instructions",
@@ -133,6 +213,9 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 				cmd: `copilot plugin marketplace add atelier-nyaarium/claude-marketplace; copilot plugin marketplace update; for p in ${PLUGINS}; do copilot plugin install $p@atelier-nyaarium; copilot plugin update $p@atelier-nyaarium; done`,
 			},
 		],
+		refusedKeys: [],
+		goals: true,
+		permissions: [],
 	},
 };
 
@@ -175,18 +258,51 @@ export function mintedIdOf(harness: SessionHarness, value: unknown): string | un
 	return policy.minted && typeof value === "string" && policy.shape.test(value) ? value : undefined;
 }
 
-export function launchRefusal(harness: SessionHarness, at: { host: boolean; assistant: boolean }): string | null {
+/** Which shell a launch lands in. */
+export type LaunchPlace = "host" | "windows" | "container";
+
+export function launchRefusal(harness: SessionHarness, at: { place: LaunchPlace; assistant: boolean }): string | null {
 	const row = HARNESS[harness];
-	if (!at.host && !row.containers) return `${row.label} runs only on a host spawn point`;
+	if (at.place === "container" && !row.containers) return `${row.label} runs only on a host spawn point`;
+	if (at.place === "windows" && row.binary.windows === null) return `${row.label} does not run on a Windows shell`;
 	if (at.assistant && !row.assistant) return `${row.label} never runs as the assistant`;
 	return null;
 }
 
-/** A hook hands a CLI its own baseline; otherwise the Gateway pushes it. */
-const BASELINE_PUSHED: Record<HarnessRow["compaction"], boolean> = { hook: false, "copilot-events": true };
+/** The pane road of a CLI the daemon reads, or undefined. */
+export function paneRoad(harness: SessionHarness): PaneRoad | undefined {
+	const { road } = HARNESS[harness];
+	return road.kind === "pane" ? road : undefined;
+}
 
+/** A hook hands a CLI its own baseline; otherwise the Gateway pushes it. */
 export function pushesBaseline(harness: SessionHarness): boolean {
-	return BASELINE_PUSHED[HARNESS[harness].compaction];
+	return HARNESS[harness].baseline === "push";
+}
+
+export type SessionDelivery = PaneRoad["delivery"] | "api";
+
+export function deliveryOf(harness: SessionHarness): SessionDelivery {
+	const { road } = HARNESS[harness];
+	return road.kind === "pane" ? road.delivery : "api";
+}
+
+/** Its plugin reports its state; no pane reader runs. */
+export function readsOwnState(harness: SessionHarness): boolean {
+	return HARNESS[harness].road.kind === "api";
+}
+
+export function typesDelivery(harness: SessionHarness): boolean {
+	return paneRoad(harness)?.delivery === "typed";
+}
+
+/** Why a launch refuses this version, or null. */
+export function versionRefusal(harness: SessionHarness, version: string | undefined): string | null {
+	const row = HARNESS[harness];
+	if (!row.versions) return null;
+	if (version === undefined) return `${row.label} did not report its version`;
+	if (row.versions.includes(version)) return null;
+	return `${row.label} ${version} is outside the supported range (${row.versions.join(", ")})`;
 }
 
 /** A resume id safe on that CLI's command line, or undefined. */

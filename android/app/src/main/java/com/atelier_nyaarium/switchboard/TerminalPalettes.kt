@@ -31,12 +31,12 @@ internal val CTRL_MENU_KEYS = listOf(
 	"Ctrl + C" to "C-c",
 )
 
-/** A session's own CLI's commands. None with no row. */
-internal fun slashMacros(word: HarnessWord?): List<SlashMacro> =
+/** The CLI's commands. */
+internal fun slashMacros(word: HarnessWord): List<SlashMacro> =
 	when (word) {
 		is HarnessWord.Named -> word.harness.slashPalette
 		is HarnessWord.Unnamed -> word.assumed.slashPalette
-		is HarnessWord.Unknown, null -> emptyList()
+		is HarnessWord.Unknown -> emptyList()
 	}
 
 /** Each installed CLI's macros; every CLI's where none is, so one can be. */

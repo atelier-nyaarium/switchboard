@@ -57,10 +57,15 @@ function run(file: string, args: string[]): string | null {
  * than the work. `-NoProfile` so a user's profile cannot change the answer.
  */
 export function probeWindowsSpawn(): WindowsSpawnAvailability {
-	const finds = SESSION_HARNESSES.map(
-		(harness) =>
-			`$c = Get-Command ${HARNESS[harness].binary.windows} -ErrorAction SilentlyContinue; if ($c) { Write-Output "${harness}=$($c.Source)" }`,
-	);
+	// A null binary never launches there.
+	const finds = SESSION_HARNESSES.flatMap((harness) => {
+		const binary = HARNESS[harness].binary.windows;
+		return binary === null
+			? []
+			: [
+					`$c = Get-Command ${binary} -ErrorAction SilentlyContinue; if ($c) { Write-Output "${harness}=$($c.Source)" }`,
+				];
+	});
 	const out = run("powershell.exe", [
 		"-NoLogo",
 		"-NoProfile",

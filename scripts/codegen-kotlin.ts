@@ -1321,6 +1321,8 @@ function emitHarnessRegistry(): string {
 						`${INDENT}${INDENT}${INDENT}ShellMacro(${kotlinString(macro.label)}, ${kotlinString(macro.cmd)}),`,
 				),
 				`${INDENT}${INDENT}),`,
+				`${INDENT}${INDENT}refusedKeys = listOf(${row.refusedKeys.map(kotlinString).join(", ")}),`,
+				`${INDENT}${INDENT}goals = ${row.goals},`,
 				`${INDENT}),`,
 			].join("\n"),
 		)
@@ -1345,6 +1347,10 @@ ${INDENT}val label: String,
 ${INDENT}val containers: Boolean,
 ${INDENT}val slashPalette: List<SlashMacro>,
 ${INDENT}val shellMacros: List<ShellMacro>,
+${INDENT}/** Keys that end the app, never sent. */
+${INDENT}val refusedKeys: List<String>,
+${INDENT}/** Takes a typed \`/goal\` line. */
+${INDENT}val goals: Boolean,
 ) {
 ${entries}
 }

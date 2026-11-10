@@ -5,7 +5,6 @@ import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
-import com.atelier_nyaarium.switchboard.proto.readHarness
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
@@ -170,9 +169,8 @@ internal class SessionOps(
 		withContext(Dispatchers.IO) {
 			val t = runIsolated { parseQualifiedTarget(team) }.getOrNull()
 			if (t !is Address) error("not an addressable session")
-			// Read before the close drops the row. No row names none.
-			val row = host.state.value.teams.firstOrNull { it.name == team }
-			val harness = relaunchHarness(row?.harness ?: readHarness(null))
+			// Read before the close drops the row.
+			val harness = relaunchHarness(harnessOf(host.state.value.teams.firstOrNull { it.name == team }))
 			val opId = UUID.randomUUID().toString()
 			// Keep one receipt across close and create while the roster reports asleep.
 			noteReceipt(team, ActionReceipt(opId, System.currentTimeMillis()))
@@ -343,6 +341,16 @@ internal fun relaunchHarness(word: HarnessWord): String =
 		is HarnessWord.Unnamed -> word.assumed.wire
 		is HarnessWord.Unknown -> word.word
 	}
+
+/** Label to key the CLI takes. */
+internal fun sendableKeys(keys: List<Pair<String, String>>, word: HarnessWord): List<Pair<String, String>> {
+	val refused = when (word) {
+		is HarnessWord.Named -> word.harness.refusedKeys
+		is HarnessWord.Unnamed -> word.assumed.refusedKeys
+		is HarnessWord.Unknown -> emptyList()
+	}
+	return keys.filter { (_, key) -> key !in refused }
+}
 
 /** Drops the assistant's row. */
 internal fun ordinarySessions(candidates: List<Team>): List<Team> = candidates.filter { it.role != ASSISTANT_ROLE }

@@ -2,8 +2,9 @@
 
 import type { Ambient } from "../../shared/ambient.js";
 import type { ClaudeTurnResultFrame } from "../../shared/host-op.js";
-import { pushesBaseline } from "../../shared/session-harness.js";
+import { pushesBaseline, readsOwnState } from "../../shared/session-harness.js";
 import { ChannelDeliveryCoordinator, type ChannelDeliveryObserver } from "../channelDelivery.js";
+import { createSessionControlPlane, type SessionControlPlane } from "../sessionControlPlane.js";
 import { createWebSocketHandlers } from "../websocket.js";
 import { createWorkspacePlane, type WorkspacePlane } from "../workspacePlane.js";
 import type { AgentsStage } from "./composeAgents.js";
@@ -45,6 +46,7 @@ export interface WebSocketsStage {
 	channelDeliveries: ChannelDeliveryCoordinator;
 	wsHandlers: ReturnType<typeof createWebSocketHandlers>;
 	workspacePlane: WorkspacePlane;
+	sessionControl: SessionControlPlane;
 	/** A compaction ended for a CLI no hook hands its baseline. */
 	onBaselineDue: (listener: (team: string) => void) => void;
 	onRestartPending: (listener: (team: string, pending: boolean) => void) => void;
@@ -56,6 +58,11 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 	const baselinePushed = (team: string) => {
 		const record = sessions.sessionStore.getByTeam(team);
 		return !!record && pushesBaseline(record.harness);
+	};
+	/** Its plugin reports its state, not the daemon. */
+	const reportsOwnState = (team: string): boolean => {
+		const record = sessions.sessionStore.getByTeam(team);
+		return !!record && readsOwnState(record.harness);
 	};
 	let baselineDue: ((team: string) => void) | undefined;
 	let restartPending: ((team: string, pending: boolean) => void) | undefined;
@@ -86,6 +93,11 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		sessionStore: sessions.sessionStore,
 		ambient,
 	});
+	const sessionControl = createSessionControlPlane({
+		registry: sessions.registry,
+		sessionStore: sessions.sessionStore,
+		ambient,
+	});
 	const channelDeliveries = new ChannelDeliveryCoordinator({
 		store: stores.pendingDeliveries,
 		registry: sessions.registry,
@@ -105,6 +117,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		wakeCoordinator: host.wakeCoordinator,
 		hostOpCoordinator: host.hostOpCoordinator,
 		workspacePlane,
+		sessionControl,
 		onTeamConnect: (team, ws) => {
 			if (team === "host") {
 				hostRegisterSocket = ws;
@@ -140,7 +153,8 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		},
 		onTeamDisconnect: (team) => {
 			if (team === "host") {
-				sessions.presence.clearAllWorking();
+				// A plugin's own report outlives the daemon.
+				sessions.presence.clearAllWorking(reportsOwnState);
 				sessions.presence.markDirty();
 			}
 		},
@@ -169,6 +183,8 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		onPresenceDerive: (team, derived) => {
 			// A clear is unknown, not a compaction's end.
 			if (!derived) {
+				// Its plugin re-reports a compaction it saw end.
+				if (reportsOwnState(team)) compacting.delete(team);
 				sessions.presence.clearWorkingFor(team);
 				return;
 			}
@@ -193,6 +209,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		channelDeliveries,
 		wsHandlers,
 		workspacePlane,
+		sessionControl,
 		onBaselineDue: (listener) => {
 			baselineDue = listener;
 		},

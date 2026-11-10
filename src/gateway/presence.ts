@@ -215,11 +215,15 @@ export class PresenceFacade {
 		if (this.working.delete(team)) this.markDirty();
 	}
 
-	clearAllWorking(): void {
-		// Daemon loss invalidates every derived working state.
-		if (this.working.size === 0) return;
-		this.working.clear();
-		this.markDirty();
+	/** `keep` spares a state the daemon did not derive. */
+	clearAllWorking(keep: (team: string) => boolean = () => false): void {
+		let cleared = false;
+		for (const team of [...this.working.keys()]) {
+			if (keep(team)) continue;
+			this.working.delete(team);
+			cleared = true;
+		}
+		if (cleared) this.markDirty();
 	}
 
 	snapshot(): PresenceRow[] {

@@ -4,6 +4,7 @@ import type { Capability } from "../shared/capabilities.js";
 import type { ClaudeTurnResultFrame } from "../shared/host-op.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
 import type { DerivedPresence } from "../shared/schemasPresence.js";
+import type { SessionControlResult } from "../shared/session-control.js";
 import type { HarnessWord } from "../shared/session-harness.js";
 import type { SessionStore } from "../shared/session-store.js";
 import type { ConnectionMode, WebSocketConfig } from "../shared/types.js";
@@ -32,6 +33,11 @@ export interface WebSocketDeps {
 	/** Structural, not the class, so the handler tests need no plane built. */
 	workspacePlane?: {
 		settle: (socket: ServerWebSocket<WsData>, reqId: string, result: WorkspaceOpResult) => boolean;
+		dropped: (socket: ServerWebSocket<WsData>) => number;
+	};
+	/** Structural, as the workspace plane is. */
+	sessionControl?: {
+		settle: (socket: ServerWebSocket<WsData>, reqId: string, result: SessionControlResult) => boolean;
 		dropped: (socket: ServerWebSocket<WsData>) => number;
 	};
 	config: WebSocketConfig;

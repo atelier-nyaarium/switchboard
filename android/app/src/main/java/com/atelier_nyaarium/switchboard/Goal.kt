@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
+
 ////////////////////////////////
 //  Interfaces & Types
 
@@ -58,6 +60,17 @@ internal fun composerIsEmpty(screen: String): Boolean {
 	val line = COMPOSER_RE.findAll(ANSI_RE.replace(screen, "")).lastOrNull() ?: return false
 	return line.groupValues[1].isBlank()
 }
+
+/** Whether the CLI takes a goal. */
+internal fun takesGoals(word: HarnessWord): Boolean =
+	when (word) {
+		is HarnessWord.Named -> word.harness.goals
+		is HarnessWord.Unnamed -> word.assumed.goals
+		is HarnessWord.Unknown -> false
+	}
+
+/** Typed, so needs a drivable pane. */
+internal fun goalOffered(paneEligible: Boolean, word: HarnessWord): Boolean = paneEligible && takesGoals(word)
 
 /**
  * The whole wait rule. `screen` is null when there was nothing to peek at, which means keep waiting.

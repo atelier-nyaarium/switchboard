@@ -176,8 +176,8 @@ The daemon also serves `kasaScan`, a host op with a closed contract: no caller i
 
 `src/shared/session-harness.ts` holds one row per session CLI (`HARNESS`), and every place that
 differs by CLI reads it. Behavior that belongs to one process sits beside that process, in a table
-keyed by a row field's value: `LAUNCH_ARGS` in `hostResolve.ts`, `TRANSPORTS` in the plugin's
-`helpers.ts`, `RESTART_SIGNALS` in `agent-screen.ts`. A new CLI, or a new value of a field, stops the
+keyed by a row field's value: `LAUNCH` in `hostResolve.ts`, `ROADS` in `sessionLaunch.ts`,
+`TRANSPORTS` in the plugin's `helpers.ts`, `RESTART_SIGNALS` in `agent-screen.ts`. A new CLI, or a new value of a field, stops the
 build until each is handled. The phone reads the same rows through the generated
 `proto/HarnessRegistry.kt`.
 
@@ -195,7 +195,24 @@ Gateway mints (`sessionId`, `mintedSessionId` on the record). The shape also gua
 line.
 
 **`launchRefusal` is the one placement rule,** read by the Gateway's create, the daemon's wake before any
-container starts, and `buildLaunchCommand`.
+container starts, and `buildLaunchCommand`. A place is the host shell, the Windows shell or a container.
+
+**A CLI is reached by one of two roads** (`road` on its row). On the pane road the daemon reads the
+screen for its state, answers its dialogs and presses a prompt's answer, and a message enters as a
+channel notification or typed text. On the API road the plugin does all of it against the CLI's own
+local server, and no pane reader runs. `paneRoad` narrows a row to the pane-only facts.
+
+**One launch road serves a wake and a create** (`mcp/devcontainer/sessionLaunch.ts`). Its readiness
+is a table by road: a screen read, or the launcher's status file.
+
+**A plugin-read session reports its own state.** Its `session_presence` frame carries the fields its
+API yields, the Gateway takes the team from the socket and never the frame, and both ingresses end in
+one sink, which also raises the baseline push when a compaction ends. The report clears when the
+session's last socket closes.
+
+**A prompt answer goes by the road.** The daemon presses it into a pane; for an API CLI the Gateway
+asks the plugin over the session control plane (`session_control` frames, `sessionControlPlane.ts`),
+keyed by the console's conversation and op id so a retry replays the first answer.
 
 **The plugin resolves its CLI once** (`mcp/sessionCli.ts`) into a profile with every answer filled, a
 CLI with no row included.
@@ -204,6 +221,44 @@ CLI with no row included.
 phone, where the create dialog offers them.
 
 **A session is greeted on each launch until it first confirms.**
+
+### OpenCode
+
+Pinned to one version (`OPENCODE_PIN`); a launch refuses any other with its number. Each session runs
+its own server, since OpenCode's shared service gives every MCP child the service's environment.
+
+**The launcher** (`main-opencode-launch.ts`, `opencode-launch/launcher.ts`) runs in the pane. It
+mints a password, starts `opencode serve --stdio --port 0`, and reads the URL the server announces. It
+creates the session under the id the Gateway minted, with the model the terminal UI last picked, since
+a session created with none runs the server's default whatever the pane shows. It asks for the
+location's MCP list until the Switchboard server reads `connected`, which is what starts the MCP
+child, then runs the terminal UI against that server. The server ends when the launcher's pipe closes,
+so none outlives its pane.
+
+**The launcher keeps the plugin alive.** OpenCode never restarts a dead MCP child, so the launcher
+reads its status every 5 seconds and reconnects one that reads `failed`. A wake therefore keeps a pane
+whose launcher runs, since no registration there is a plugin reconnecting.
+
+**A launch status is only as live as its pid.** The launcher writes `starting`, `ready` or `failed`
+with its own pid, and `failed` the moment its server or terminal UI goes, since the UI reconnects to a
+dead server forever. A wake relaunches on a dead pid or `failed`. The launcher removes only a status
+it still owns, so a relaunch's status survives the old launcher's exit.
+
+**Nothing secret is on a command line.** The URL and password reach the plugin through a file only the
+owner can read, named by `SWITCHBOARD_OPENCODE_SERVER` in the MCP server's environment and removed
+when the launcher exits. The daemon learns neither; it polls the launcher's status file.
+
+**The plugin follows the server's event stream** (`mcp/opencode/`). The stream is volatile and a local
+server keeps no replayable log, so every connection rebuilds from three reads before it reports: the
+active sessions, the pending permissions, and the newest message rows. A turn reads as working from
+its first step, since a repeated prompt id opens an execution with none. A compaction that began and
+ended during a gap still reports, so its baseline is pushed.
+
+**A message is a prompt** whose id is a hash of the delivery id, so a retry lands once. A notice that
+asks nothing is posted as synthetic input, which adds context without starting a turn.
+
+**Approve is `once` and Deny is `reject`** with the owner's note. A request no longer pending answers
+stale.
 
 ## Sessions and wake
 

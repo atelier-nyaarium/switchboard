@@ -62,8 +62,7 @@ import kotlinx.serialization.json.Json
  * eventually, and that is fine for a sandbox.
  */
 class SandboxFixtures(private val filesDir: File, private val assets: AssetManager) {
-	/** Two sessions: one carries every seeded surface, the second only exists so the tab row draws.
-	 * Both names are fully qualified. */
+	/** Three sessions: surfaces, tab row, own palette. Names fully qualified. */
 	fun teams(): List<Team> = listOf(
 		Team(
 			name = SESSION,
@@ -78,6 +77,13 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			kind = "loose",
 			sessionLabel = "Second",
 			harness = HarnessWord.Named(SessionHarness.COPILOT),
+		),
+		Team(
+			name = SESSION_3,
+			presence = sandboxPresence(),
+			kind = "loose",
+			sessionLabel = "OpenCode",
+			harness = HarnessWord.Named(SessionHarness.OPENCODE),
 		),
 		Team(
 			name = ASSISTANT,
@@ -476,6 +482,9 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 
 		/** A second session on a DIFFERENT gateway, since the thread's tab row is one tab per gateway. */
 		const val SESSION_2 = "local.parsing.host.other"
+
+		/** A CLI that refuses a key and takes no goal. */
+		const val SESSION_3 = "local.sandbox.host.opencode"
 
 		/** The sandbox assistant's home. */
 		const val ASSISTANT = "local.sandbox.host.assistant"

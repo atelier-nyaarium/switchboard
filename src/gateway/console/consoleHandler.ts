@@ -61,6 +61,7 @@ export function createConsoleDispatcher({
 	policies,
 	devices,
 	workspaceAsk,
+	sessionControlAsk,
 	workspaceChanged,
 	onSessionEnded,
 	forgetRefusal,
@@ -77,7 +78,13 @@ export function createConsoleDispatcher({
 		);
 	}
 
-	const terminalOps = createTerminalHandlers({ targets, relayToHost, sessionStore, promptOf });
+	const terminalOps = createTerminalHandlers({
+		targets,
+		relayToHost,
+		sessionStore,
+		promptOf,
+		sessionControlAsk,
+	});
 	const sessionLifecycle = createSessionLifecycleHandlers({
 		targets,
 		createSessionBoundMs,

@@ -16,6 +16,10 @@ enum class SessionHarness(
 	val containers: Boolean,
 	val slashPalette: List<SlashMacro>,
 	val shellMacros: List<ShellMacro>,
+	/** Keys that end the app, never sent. */
+	val refusedKeys: List<String>,
+	/** Takes a typed `/goal` line. */
+	val goals: Boolean,
 ) {
 	CLAUDE(
 		wire = "claude",
@@ -38,6 +42,27 @@ enum class SessionHarness(
 			ShellMacro("Install Claude", "curl -fsSL https://claude.ai/install.sh | bash"),
 			ShellMacro("Claude Tools", "claude plugin marketplace add atelier-nyaarium/claude-marketplace || claude plugin marketplace update atelier-nyaarium; for p in switchboard nyaaskills lexicon; do claude plugin install \$p@atelier-nyaarium && claude plugin update -y \$p@atelier-nyaarium; done"),
 		),
+		refusedKeys = listOf(),
+		goals = true,
+	),
+	OPENCODE(
+		wire = "opencode",
+		label = "OpenCode",
+		containers = false,
+		slashPalette = listOf(
+			SlashMacro("/models", autoSend = true),
+			SlashMacro("/variants", autoSend = true),
+			SlashMacro("/usage", autoSend = true),
+			SlashMacro("/status", autoSend = true),
+			SlashMacro("/mcps", autoSend = true),
+			SlashMacro("/compact", autoSend = true),
+		),
+		shellMacros = listOf(
+			ShellMacro("Install OpenCode", "curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.5"),
+			ShellMacro("OpenCode Sign-in", "opencode auth login"),
+		),
+		refusedKeys = listOf("C-c"),
+		goals = false,
 	),
 	COPILOT(
 		wire = "copilot",
@@ -60,6 +85,8 @@ enum class SessionHarness(
 			ShellMacro("Install Copilot", "curl -fsSL https://gh.io/copilot-install | bash"),
 			ShellMacro("Copilot Tools", "copilot plugin marketplace add atelier-nyaarium/claude-marketplace; copilot plugin marketplace update; for p in switchboard nyaaskills lexicon; do copilot plugin install \$p@atelier-nyaarium; copilot plugin update \$p@atelier-nyaarium; done"),
 		),
+		refusedKeys = listOf(),
+		goals = true,
 	),
 }
 
@@ -88,5 +115,6 @@ fun readHarness(wire: String?): HarnessWord {
 fun HarnessSpawns.spawnsOf(harness: SessionHarness): List<String>? =
 	when (harness) {
 		SessionHarness.CLAUDE -> claude
+		SessionHarness.OPENCODE -> opencode
 		SessionHarness.COPILOT -> copilot
 	}

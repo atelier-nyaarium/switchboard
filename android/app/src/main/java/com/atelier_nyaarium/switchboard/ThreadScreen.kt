@@ -468,6 +468,8 @@ internal fun ThreadScreen(
 					onSend = terminal.onSend,
 					slashMacros = terminal.slashMacros,
 					shellMacros = terminal.shellMacros,
+					paletteKeys = terminal.paletteKeys,
+					ctrlKeys = terminal.ctrlKeys,
 					modifier = Modifier.weight(1f).fillMaxWidth(),
 				)
 			} else {
@@ -667,8 +669,8 @@ internal fun ThreadScreen(
 								scheduleDialogGeneration++
 							},
 						)
-						// Absent, not disabled, without a drivable pane: the typing half could never happen.
-						if (terminal.eligible) {
+						// Absent, not disabled: the typing half could never happen.
+						if (goal.offered) {
 							DropdownMenuItem(
 								text = { Text("Goal") },
 								enabled = sendEnabled,

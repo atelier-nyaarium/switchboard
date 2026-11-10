@@ -1,4 +1,5 @@
-// Correlates a workspace op with its reply, the way `HostOpCoordinator` does for host ops.
+// Correlates a request sent to a session's plugin with its reply, the way `HostOpCoordinator` does
+// for host ops.
 //
 // What it adds is a GENERATION: a pending entry remembers the socket it was issued on, so a late
 // answer from a replaced socket cannot settle a request issued against its successor. Without it the
@@ -7,29 +8,33 @@
 import type { Ambient, TimerHandle } from "../shared/ambient.js";
 import type { WorkspaceOpResult } from "../shared/workspace-op.js";
 
-interface Waiter {
+interface Waiter<R> {
 	generation: number;
-	resolve: (result: WorkspaceOpResult) => void;
+	resolve: (result: R) => void;
 	timer: TimerHandle;
 }
 
-export class WorkspaceOpCoordinator {
-	private pending = new Map<string, Waiter>();
+/** One per plane; `failure` builds that plane's own lost-answer result. */
+export class PlaneCoordinator<R> {
+	private pending = new Map<string, Waiter<R>>();
 
-	constructor(private readonly ambient: Pick<Ambient, "setTimer" | "clearTimer">) {}
+	constructor(
+		private readonly ambient: Pick<Ambient, "setTimer" | "clearTimer">,
+		private readonly failure: (kind: "timeout" | "disconnected", detail: string) => R,
+	) {}
 
-	wait(reqId: string, generation: number, timeoutMs: number): Promise<WorkspaceOpResult> {
+	wait(reqId: string, generation: number, timeoutMs: number): Promise<R> {
 		return new Promise((resolve) => {
 			const timer = this.ambient.setTimer(() => {
 				this.pending.delete(reqId);
-				resolve({ ok: false, failure: "timeout", detail: "the session did not answer in time" });
+				resolve(this.failure("timeout", "the session did not answer in time"));
 			}, timeoutMs);
 			this.pending.set(reqId, { generation, resolve, timer });
 		});
 	}
 
 	/** A reply whose generation has been replaced is dropped, not settled. */
-	settle(reqId: string, generation: number, result: WorkspaceOpResult): boolean {
+	settle(reqId: string, generation: number, result: R): boolean {
 		const waiter = this.pending.get(reqId);
 		if (waiter === undefined || waiter.generation !== generation) return false;
 		this.ambient.clearTimer(waiter.timer);
@@ -45,7 +50,7 @@ export class WorkspaceOpCoordinator {
 			if (waiter.generation !== generation) continue;
 			this.ambient.clearTimer(waiter.timer);
 			this.pending.delete(reqId);
-			waiter.resolve({ ok: false, failure: "disconnected", detail });
+			waiter.resolve(this.failure("disconnected", detail));
 			failed += 1;
 		}
 		return failed;
@@ -54,12 +59,18 @@ export class WorkspaceOpCoordinator {
 	failAll(detail: string): void {
 		for (const [, waiter] of this.pending) {
 			this.ambient.clearTimer(waiter.timer);
-			waiter.resolve({ ok: false, failure: "disconnected", detail });
+			waiter.resolve(this.failure("disconnected", detail));
 		}
 		this.pending.clear();
 	}
 
 	get waiting(): number {
 		return this.pending.size;
+	}
+}
+
+export class WorkspaceOpCoordinator extends PlaneCoordinator<WorkspaceOpResult> {
+	constructor(ambient: Pick<Ambient, "setTimer" | "clearTimer">) {
+		super(ambient, (failure, detail) => ({ ok: false, failure, detail }));
 	}
 }
