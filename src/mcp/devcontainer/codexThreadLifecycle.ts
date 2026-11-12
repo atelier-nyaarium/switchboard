@@ -1,6 +1,3 @@
-// A thread's life after the App Server loads it: requests queue per thread, a terminal arriving
-// during `turn/start` is buffered until its turn id is known, and a settled turn parks the thread.
-
 import {
 	CodexAppServerThreadReadResultSchema,
 	CodexAppServerTurnStartResultSchema,
@@ -14,9 +11,9 @@ import { outcomeFromRead } from "./codexTurnOutcome.js";
 //  Interfaces & Types
 
 export type ThreadPhase =
-	/** Reached by name only, so not known to be loaded: its first activation resumes it. */
+	/** Reached by name; activation must resume it. */
 	| { phase: "unloaded" }
-	/** Loaded with no turn of ours: freshly started, or resumed and refused a turn. */
+	/** Loaded, with no owned turn. */
 	| { phase: "idle" }
 	| { phase: "active"; turnId: string; epoch: number }
 	| { phase: "parking"; epoch: number }
@@ -24,20 +21,18 @@ export type ThreadPhase =
 	| { phase: "disposed" }
 	| { phase: "poisoned"; reason: PoisonReason };
 
-/** Why a generation is not trusted again: a request whose fate is unknown, or a park that gave up. */
 export type PoisonReason = { kind: "failure"; failure: AppServerFailure } | { kind: "exhausted"; attempts: number };
 
 export interface LifecycleDeps {
 	request(method: string, params: unknown): Promise<unknown>;
 	/** The transport's own failure, or null for anything else. */
 	classify(error: unknown): AppServerFailure | null;
-	/** Published and retained BEFORE the thread is unloaded; once per turn. */
+	/** Publish and retain before unload, once per turn. */
 	onTerminal(threadId: string, turnId: string, terminal: TerminalOutcome): void;
-	/** The consumer retires the generation; nothing on it is activated again. */
+	/** Retire the generation; it cannot reactivate. */
 	onPoisoned(threadId: string, reason: PoisonReason): void;
 }
 
-/** What a read says about a thread as a whole, three-valued like `ReadOutcome`. */
 export type ThreadInspection =
 	| { known: "empty" }
 	| { known: "running"; turnId: string }
@@ -46,14 +41,14 @@ export type ThreadInspection =
 
 interface ThreadRecord {
 	state: ThreadPhase;
-	/** Advanced by every activation, so a retry scheduled for an earlier life of the thread drops itself. */
+	/** Invalidates retries from earlier activations. */
 	epoch: number;
-	/** A `turn/start` whose id is not known yet, and the terminals that beat its response. */
+	/** True while start has no turn ID. */
 	pendingStart: boolean;
 	buffered: Map<string, TerminalOutcome>;
-	/** Turns whose terminal already left through `onTerminal`; one entry per settled turn of this thread. */
+	/** Settled turn IDs already published. */
 	published: Set<string>;
-	/** Archive refusals since the last activation; exhausted, the generation is poisoned. */
+	/** Archive refusals before poisoning. */
 	parkAttempts: number;
 	retry?: ReturnType<typeof setTimeout>;
 }
@@ -61,16 +56,15 @@ interface ThreadRecord {
 ////////////////////////////////
 //  Constants
 
-/** Refusals in a row before a park gives up on the generation. */
+/** Consecutive refusals before poisoning. */
 const PARK_ATTEMPTS = 3;
 
-/** Between the two reads that must both prove zero turns before a thread is deleted. */
+/** Quiet interval between empty reads before deletion. */
 const DISPOSE_QUIET_MS = 250;
 
-/** Before a park is retried after a refusal that was neither a no-rollout nor an adoption. */
 const PARK_RETRY_MS = 1_000;
 
-/** Retirements remembered before the oldest is forgotten. */
+/** Retirements retained before oldest eviction. */
 const RETIRED_MEMORY = 256;
 
 ////////////////////////////////
@@ -80,7 +74,7 @@ export class ThreadLifecycle {
 	private readonly threads = new Map<string, ThreadRecord>();
 	/** One entry per retired thread, oldest retirement first. */
 	private readonly retired = new Map<string, ThreadRecord>();
-	/** Each quiet-interval timer with the continuation it holds, released on close rather than left hanging. */
+	/** Pending pauses released on close. */
 	private readonly pauses = new Map<ReturnType<typeof setTimeout>, () => void>();
 	/** Replacements get fresh queues. */
 	private readonly queues = createKeyedFifo<ThreadRecord>();
@@ -92,33 +86,26 @@ export class ThreadLifecycle {
 		return this.threads.get(threadId)?.state;
 	}
 
-	/** Every thread the server still holds loaded on our account; a parking one is loaded until the archive lands. */
+	/** Parking threads remain loaded until archive completes. */
 	loaded(): string[] {
 		return [...this.threads]
 			.filter(([, record]) => ["idle", "active", "parking"].includes(record.state.phase))
 			.map(([threadId]) => threadId);
 	}
 
-	/**
-	 * A thread the server just started for this client: loaded, with no turn yet.
-	 *
-	 * The reply is authoritative, so an id this client already knew is a new thread and its record is
-	 * replaced. The old record's retry is cancelled first, or it would park the new one.
-	 */
+	/** The reply is authoritative: a known id is a new thread. Its old retry is cancelled first. */
 	started(threadId: string): void {
 		const previous = this.threads.get(threadId);
 		if (previous) this.cancelRetry(previous);
-		// Not this thread's retirement.
 		this.retired.delete(threadId);
 		this.threads.set(threadId, { ...this.fresh(), state: { phase: "idle" } });
 	}
 
-	/** Ensure a record exists, including for a thread this client never started. */
 	track(threadId: string): void {
 		if (!this.threads.has(threadId)) this.threads.set(threadId, this.fresh());
 	}
 
-	/** Loads a parked thread, unarchiving first if the resume is refused; a loaded one is left as it is. */
+	/** Resume; unarchive on refusal. */
 	activate(threadId: string): Promise<void> {
 		this.track(threadId);
 		return this.run(threadId, async (record) => {
@@ -127,7 +114,7 @@ export class ThreadLifecycle {
 		});
 	}
 
-	/** Loads the thread first. `onStarted` runs before buffered terminals are published. */
+	/** Register the turn before publishing buffered terminals. */
 	startTurn(threadId: string, params: unknown, onStarted: (turnId: string) => void): Promise<string> {
 		this.track(threadId);
 		return this.run(threadId, async (record) => {
@@ -144,7 +131,7 @@ export class ThreadLifecycle {
 					(result) => CodexAppServerTurnStartResultSchema.parse(result).turn.id,
 				);
 			} catch (error) {
-				// The start failed, so no turn of ours owns them; they are still terminals nobody else will report.
+				// Drain terminals; no other observer will report them.
 				record.pendingStart = false;
 				await this.drain(threadId, record);
 				throw error;
@@ -156,14 +143,14 @@ export class ThreadLifecycle {
 			try {
 				onStarted(turnId);
 			} finally {
-				// A consumer that threw while registering does not strand the terminals it was to receive.
+				// Drain even if registration throws.
 				await this.drain(threadId, record);
 			}
 			return turnId;
 		});
 	}
 
-	/** Refused only for what this client knows is wrong: another turn active, or a thread that ended. */
+	/** Refuses only known ended or conflicting turns. */
 	steerTurn(threadId: string, turnId: string, params: unknown): Promise<unknown> {
 		return this.control(threadId, turnId, "turn/steer", params);
 	}
@@ -172,7 +159,7 @@ export class ThreadLifecycle {
 		return this.control(threadId, turnId, "turn/interrupt", params);
 	}
 
-	/** A read of the thread, in its queue like every other request, so it never crosses one in flight. */
+	/** Queue reads per thread. */
 	read(threadId: string, params: unknown): Promise<unknown> {
 		this.track(threadId);
 		return this.run(threadId, (record) => {
@@ -181,15 +168,12 @@ export class ThreadLifecycle {
 		});
 	}
 
-	/**
-	 * The one entry for a terminal, from whichever observer saw it. Published once whatever turn it
-	 * names; the thread parks only when that turn is its own, or when it had no turn of its own.
-	 */
+	/** Publish once; park only when no other turn owns it. */
 	settleTurn(threadId: string, turnId: string, terminal: TerminalOutcome): Promise<void> {
-		// A terminal is the one report of a turn, so a thread only heard of here is tracked, never dropped.
+		// Track threads with terminal reports.
 		this.track(threadId);
 		const record = this.threads.get(threadId) as ThreadRecord;
-		// Buffered outside the queue: the start holding it cannot release it until it has its id.
+		// Buffer outside the queue until start returns its ID.
 		if (record.pendingStart) {
 			record.buffered.set(turnId, terminal);
 			return Promise.resolve();
@@ -197,10 +181,7 @@ export class ThreadLifecycle {
 		return this.run(threadId, (current) => this.accept(threadId, current, turnId, terminal));
 	}
 
-	/**
-	 * Load the thread and take whatever it holds: a running turn becomes ours, a settled one leaves it
-	 * idle. Nothing is published and nothing is deleted; the caller settles what it learns.
-	 */
+	/** Caller settles; adoption neither publishes nor deletes. */
 	adopt(threadId: string): Promise<ThreadInspection> {
 		this.track(threadId);
 		return this.run(threadId, async (record) => {
@@ -210,10 +191,7 @@ export class ThreadLifecycle {
 		});
 	}
 
-	/**
-	 * Read the thread and take whatever it holds: a running turn becomes ours, a settled one is
-	 * settled, and two reads proving nothing delete it. An unknown read leaves it as it is.
-	 */
+	/** Two empty reads dispose; unknown preserves. */
 	adoptOrDispose(threadId: string): Promise<ThreadInspection> {
 		this.track(threadId);
 		return this.run(threadId, async (record) => {
@@ -231,7 +209,7 @@ export class ThreadLifecycle {
 		});
 	}
 
-	/** Cancels every timer; a paused operation continues at once into the closed transport, nothing retries. */
+	/** Release pauses; do not retry after close. */
 	close(): void {
 		this.closed = true;
 		for (const [timer, release] of this.pauses) {
@@ -254,14 +232,12 @@ export class ThreadLifecycle {
 		};
 	}
 
-	/** Serializes each thread record. */
 	private run<T>(threadId: string, operation: (record: ThreadRecord) => Promise<T>): Promise<T> {
 		const record = this.threads.get(threadId) ?? this.fresh();
 		this.threads.set(threadId, record);
 		return this.queues.run(record, () => operation(record));
 	}
 
-	/** Read after a request that may have moved the state, past the narrowing the compiler keeps across it. */
 	private phase(record: ThreadRecord): ThreadPhase["phase"] {
 		return record.state.phase;
 	}
@@ -282,14 +258,13 @@ export class ThreadLifecycle {
 		});
 	}
 
-	/** Leaves the thread loaded and `idle`: resuming what is parked or unloaded, dropping a parking retry. */
 	private async load(threadId: string, record: ThreadRecord): Promise<void> {
 		if (record.state.phase === "idle" || record.state.phase === "active") return;
 		this.cancelRetry(record);
 		if (record.state.phase !== "parking") await this.resume(threadId, record);
 		record.epoch += 1;
 		record.state = { phase: "idle" };
-		// Retirement spent on load. A resume that threw leaves it standing.
+		// Consume retirement only after resume succeeds.
 		if (this.retired.get(threadId) === record) this.retired.delete(threadId);
 	}
 
@@ -310,14 +285,13 @@ export class ThreadLifecycle {
 		}
 	}
 
-	/** Every terminal held while a start had no id yet; none of them owns the thread. */
+	/** Publish terminals buffered before start returned its ID. */
 	private async drain(threadId: string, record: ThreadRecord): Promise<void> {
 		const held = [...record.buffered];
 		record.buffered.clear();
 		for (const [id, terminal] of held) await this.accept(threadId, record, id, terminal);
 	}
 
-	/** Publish once, then park when the turn is the thread's own or the thread had none. */
 	private async accept(
 		threadId: string,
 		record: ThreadRecord,
@@ -328,7 +302,7 @@ export class ThreadLifecycle {
 			record.published.add(turnId);
 			this.deps.onTerminal(threadId, turnId, terminal);
 		}
-		// A terminal proves the thread was loaded, so one reached by name parks like an idle one.
+		// Terminals prove unloaded threads are loaded.
 		const own = record.state.phase === "active" && record.state.turnId === turnId;
 		if (!own && record.state.phase !== "idle" && record.state.phase !== "unloaded") return;
 		record.state = { phase: "parking", epoch: record.epoch };
@@ -344,13 +318,13 @@ export class ThreadLifecycle {
 			this.retire(threadId, record);
 			return;
 		} catch (error) {
-			// Poisoned by the request itself: the caller learns it the way it would from any request.
+			// Preserve errors after poisoning the generation.
 			const phase = this.phase(record);
 			if (phase === "poisoned") throw error;
 			if (phase !== "parking") return;
 			if (this.deps.classify(error)?.kind !== "refused") throw error;
 		}
-		// Refused: no rollout, or something the read below tells apart from it.
+		// Inspect refusals to distinguish no-rollout from other states.
 		const first = await this.inspect(threadId, record);
 		if (first.known === "running") {
 			record.epoch += 1;
@@ -367,7 +341,7 @@ export class ThreadLifecycle {
 					this.retire(threadId, record);
 					return;
 				} catch (error) {
-					// A refused delete is another way this park did not happen, and is budgeted like one.
+					// Count refused deletes as failed parks.
 					if (this.deps.classify(error)?.kind !== "refused") throw error;
 				}
 			}
@@ -380,7 +354,7 @@ export class ThreadLifecycle {
 		this.retryLater(threadId, record, epoch);
 	}
 
-	/** A desired state outside the queue's lock; an activation drops it. */
+	/** Scheduled park retry, invalidated by activation. */
 	private retryLater(threadId: string, record: ThreadRecord, epoch: number): void {
 		if (this.closed) return;
 		this.cancelRetry(record);
@@ -396,7 +370,7 @@ export class ThreadLifecycle {
 		record.retry = undefined;
 	}
 
-	/** One read: a running turn becomes ours; a settled read is authoritative that no turn runs. */
+	/** One read adopts running turns; settled reads end ownership. */
 	private async take(threadId: string, record: ThreadRecord): Promise<ThreadInspection> {
 		const first = await this.inspect(threadId, record);
 		if (first.known === "running") {
@@ -420,7 +394,7 @@ export class ThreadLifecycle {
 		return inspectRead(result, threadId);
 	}
 
-	/** A lifecycle request. A timeout or an unreadable reply poisons the thread's generation; a refusal throws. */
+	/** Timeout or unreadable replies poison; refusals throw. */
 	private async mutate<T>(
 		threadId: string,
 		record: ThreadRecord,
@@ -428,8 +402,7 @@ export class ThreadLifecycle {
 		params: unknown,
 		read: (result: unknown) => T,
 	): Promise<T> {
-		// A record the map no longer holds belongs to a thread the server replaced; its requests would
-		// reach the new one, so an operation already in flight stops here rather than at the wire.
+		// Stop here; the wire would reach the replacement thread.
 		if (this.threads.get(threadId) !== record) throw new Error(`thread ${threadId} was replaced`);
 		try {
 			return read(await this.deps.request(method, params));
@@ -446,22 +419,20 @@ export class ThreadLifecycle {
 		if (record.state.phase === "poisoned") return;
 		this.cancelRetry(record);
 		record.state = { phase: "poisoned", reason };
-		// Poisoned records never become evictable.
+		// Poisoned records are never evicted.
 		if (this.retired.get(threadId) === record) this.retired.delete(threadId);
 		this.deps.onPoisoned(threadId, reason);
 	}
 
-	/** Records a settling, forgetting the oldest settled record past the bound. */
 	private retire(threadId: string, record: ThreadRecord): void {
-		// Replaced records retire nothing.
 		if (this.threads.get(threadId) !== record) return;
-		// Moved, not appended.
+		// Refresh retirement order.
 		this.retired.delete(threadId);
 		this.retired.set(threadId, record);
 		if (this.retired.size <= RETIRED_MEMORY) return;
 		for (const [oldest, held] of [...this.retired]) {
 			if (this.retired.size <= RETIRED_MEMORY) return;
-			// Passed over, never consumed.
+			// Never evict queued threads.
 			if (this.queues.has(held)) continue;
 			const phase = held.state.phase;
 			if (phase !== "parked" && phase !== "disposed") continue;
@@ -485,7 +456,7 @@ export class ThreadLifecycle {
 ////////////////////////////////
 //  Functions & Helpers
 
-/** The thread as a whole: the running turn if any, else the last settled one, else nothing. */
+/** Prefer running, then last settled, then empty. */
 function inspectRead(result: unknown, threadId: string): ThreadInspection {
 	const parsed = CodexAppServerThreadReadResultSchema.safeParse(result);
 	if (!parsed.success || parsed.data.thread.id !== threadId) return { known: "unknown" };

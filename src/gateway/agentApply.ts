@@ -35,20 +35,19 @@ export interface AgentRefusal {
 }
 
 export interface AgentApplier {
-	/** `closing`: a reconciliation the record contradicts is taken at its word. */
+	/** During close, trust contradictory reports. */
 	applyReceipt: (receipt: AgentDaemonReceipt, at: number, closing?: boolean) => Application;
-	/** Held replay bypasses duplicates. */
+	/** Held replays bypass duplicate checks. */
 	applyEvent: (event: AgentDaemonEvent, at: number, held?: boolean) => Application;
-	/** Ends the open turn no reconciliation accounted for. Ignored when `report` says it is the one running. */
+	/** End the turn unless the report confirms it. */
 	closeHeld: (
 		ownerKey: string,
 		agentId: string,
 		report: AgentReconciliationReport | undefined,
 		at: number,
 	) => Application;
-	/** A requested operation whose receipt will never be placed. */
 	abandonOperation: (ownerKey: string, agentId: string, operationId: string, at: number) => Application;
-	/** One-shot transient refusal. */
+	/** Consumes each refusal once. */
 	takeRefusal: (operationId: string) => AgentRefusal | undefined;
 }
 
@@ -96,7 +95,7 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		return agent ? { owner, agent } : undefined;
 	}
 
-	/** A record that does not parse is `failed`, never acknowledged. */
+	/** Invalid records are never acknowledged. */
 	function commit(owner: SessionRecord, build: () => PersistedAgent, what: string): Application {
 		let next: PersistedAgent;
 		try {
@@ -188,7 +187,7 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		if (classifyEventFence(agent.fence, fence) === "foreign")
 			return { disposition: "reconcile" as const, owner, agent };
 		const timestamp = Math.max(at, agent.updatedAt);
-		// Interrupt waits for terminal.
+		// Only terminal events close turns.
 		return commit(
 			owner,
 			() =>
@@ -224,7 +223,7 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		if (decided.kind === "stale") return ignore("reconciliation from an older generation");
 		if (decided.kind === "askAgain" && !(closing && agent.activeTurnId))
 			return { disposition: "reconcile" as const, owner, agent };
-		// A hold being given up: the record's turn is lost and the daemon's is taken.
+		// Closing may lose a turn and adopt a reported one.
 		const recovery: AgentReconciliationDecision =
 			decided.kind === "askAgain" && agent.activeTurnId
 				? { kind: "lost", turnId: agent.activeTurnId, adoptTurnId: receipt.turnId }
@@ -253,7 +252,7 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 						: recovery.kind === "lost"
 							? recovery.adoptTurnId
 							: undefined;
-				// An applied terminal outranks a later report.
+				// Applied terminal state outranks reports.
 				const ended = base.turns.some((turn) => turn.id === reported && turn.state !== "inProgress");
 				const running = ended ? undefined : reported;
 				const adopted: AgentStoredTurn[] =
@@ -307,7 +306,7 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		if (agent.sessionId !== event.sessionId || agent.resolvedTarget?.targetId !== event.targetId)
 			return ignore("event names a different session");
 		const arriving = fenceOf(event);
-		// Never defer retired generations.
+		// Retired generations are never deferred.
 		if (retiredGeneration(agent.fence, arriving)) return ignore("event from a retired generation");
 		const standing = classifyEventFence(agent.fence, arriving);
 		// Held events were unapplied.

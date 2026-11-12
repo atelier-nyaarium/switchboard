@@ -61,17 +61,16 @@ export interface LocalRequest {
 export interface LocalBackendSpec {
 	backendId: AgentBackendId;
 	displayName: string;
-	/** The driver's reading of a refusal. */
+	/** Classifies driver refusal text. */
 	failureCode?: (error: string) => AgentDaemonFailureCode | undefined;
 	openSession(): Promise<AgentBackendSession>;
 	defaultCwd(): string;
 	busyMessage?: string;
 	maxActivities: number;
-	// Reap only backends whose threads survive child replacement.
+	// Reap only resumable threads.
 	threadsResumable: boolean;
-	// In-process operations refuse reuse instead of replaying answers.
+	// Local operations reject retries.
 	replaysOperations: false;
-	/** Tells the session of a turn's progress and its end, as the Gateway's awareness does. */
 	notify?: (notice: AgentNotice) => void;
 	progressEveryMs?: number;
 }
@@ -99,7 +98,7 @@ export class LocalAgentRuntime {
 	private readonly ledger: LocalOperationLedger;
 	private readonly child: LocalChildSession;
 	private readonly handlers: LocalAgentHandlers;
-	/** One message or stop per agent at a time, as the daemon runs them. */
+	/** Serialize messages and stops per agent. */
 	private readonly perAgent = createKeyedFifo<string>();
 	private readonly listing = createSingleFlight<null, string[] | undefined>();
 	private inFlight = 0;
@@ -130,10 +129,10 @@ export class LocalAgentRuntime {
 	}
 
 	async handle(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal | LocalCollectAnswer> {
-		// Hold the lease across the whole request, including child calls.
+		// Count the entire dispatch as in flight.
 		this.inFlight += 1;
 		try {
-			// Claim before dispatch so concurrent retries cannot both pass.
+			// Claim before dispatch to serialize retries.
 			const claim = this.ledger.claim(request);
 			if (claim) return claim;
 			const answer = await this.dispatch(request);
@@ -169,7 +168,7 @@ export class LocalAgentRuntime {
 		return this.handlers.list();
 	}
 
-	/** CLI models, if available. Listings in flight share one read. */
+	/** Share concurrent model listings. */
 	listModels(): Promise<string[] | undefined> {
 		return this.listing.run(null, async () => {
 			this.inFlight += 1;

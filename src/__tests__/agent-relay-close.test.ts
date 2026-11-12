@@ -18,7 +18,6 @@ const START = "123e4567-e89b-42d3-a456-426614174000";
 const FOLLOW_UP = "123e4567-e89b-42d3-a456-426614174001";
 const AGENT = agentIdForOperation(BACKEND.id, START);
 
-/** A relay over the real service and applier, on a clock the test moves. */
 function setup() {
 	const ambient = fakeAmbient({ drive: "manual" });
 	const writers = new Map<AgentBackendId, PersistedAgentCatalogWriter>();
@@ -95,18 +94,16 @@ function setup() {
 		},
 		changes: () => changes,
 		relay,
-		/** Whether a frame to the daemon gets out. */
 		setReaches: (next: boolean) => {
 			reaches = next;
 		},
 		tries: () => tries,
-		/** Whether a record write is confirmed on disk. */
 		setDisk: (next: boolean) => {
 			disk = next;
 		},
 		terminal: (eventId: number, turnId: string) =>
 			deliver(frame("event", eventId, { kind: "terminal", turnId, state: "completed", finalResponse: "done" })),
-		/** `evicted`: how many frames its outbox has dropped on the agent's stream. */
+		/** Dropped frame count. */
 		hello: (evicted?: number) =>
 			deliver({
 				type: `${BACKEND.id}_hello`,
@@ -114,7 +111,6 @@ function setup() {
 				targets: [{ targetId: RESOLVED.targetId, generation: 1 }],
 				...(evicted ? { evicted: [{ targetId: RESOLVED.targetId, generation: 1, count: evicted }] } : {}),
 			}),
-		/** A started agent, working on `turn-1`. */
 		async start() {
 			service.beginStart(owner, {
 				agentId: AGENT,
@@ -174,7 +170,6 @@ describe("a hold nothing places is closed at its limit", () => {
 		const context = setup();
 		await context.hello();
 		await context.start();
-		// The daemon runs a turn the record never opened.
 		await context.activity(1, "turn-2");
 		await context.reconciled(2, { turnId: "turn-2", turnState: "inProgress" });
 		expect(context.agent().activeTurnId).toBe("turn-1");
@@ -195,7 +190,6 @@ describe("a hold nothing places is closed at its limit", () => {
 		expect(agent).toMatchObject({ agentState: "working", activeTurnId: "turn-2" });
 		expect(agent.turns.find((turn) => turn.id === "turn-2")?.activities).toHaveLength(1);
 		expect(context.ackedThrough()).toBe(2);
-		// A change listener hears the turn end.
 		expect(context.changes()).toBeGreaterThan(before);
 	});
 
@@ -203,7 +197,6 @@ describe("a hold nothing places is closed at its limit", () => {
 		const context = setup();
 		await context.hello();
 		await context.start();
-		// Another generation's frame: nothing places it, and no answer comes.
 		await context.activity(0, "turn-1", 2);
 		expect(context.asks()).toHaveLength(1);
 		expect(context.ackedThrough(2)).toBeUndefined();
@@ -226,7 +219,7 @@ describe("a hold nothing places is closed at its limit", () => {
 			prompt: "more",
 			at: context.ambient.now(),
 		});
-		// A second turn accepted while the first still runs cannot be placed.
+		// A second accepted turn cannot replace the active one.
 		await context.accepted(1, FOLLOW_UP, "turn-2");
 		await context.reconciled(2, { turnId: "turn-1", turnState: "inProgress" });
 		expect(context.ackedThrough()).toBe(0);
@@ -244,7 +237,7 @@ describe("a hold nothing places is closed at its limit", () => {
 		const context = setup();
 		await context.hello();
 		await context.start();
-		// Its fence names the live daemon, so nothing else would ask.
+		// A live fence avoids an ask.
 		await context.hello();
 		expect(context.asks()).toHaveLength(0);
 
@@ -252,7 +245,7 @@ describe("a hold nothing places is closed at its limit", () => {
 		expect(context.asks()).toHaveLength(1);
 		await context.hello(3);
 		expect(context.asks()).toHaveLength(1);
-		// More were dropped, inside the ask guard.
+		// New drop reports trigger another ask.
 		await context.hello(4);
 		expect(context.asks()).toHaveLength(2);
 	});
@@ -282,7 +275,7 @@ describe("a hold nothing places is closed at its limit", () => {
 		await context.ambient.advance(HELD_FRAME_LIMIT_MS * 2);
 		expect(context.agent().agentState).toBe("working");
 
-		// Its return is a hello, and the wait starts there.
+		// A returning daemon starts a new hold.
 		context.setLive(DAEMON);
 		await context.hello();
 		await context.ambient.advance(HELD_FRAME_LIMIT_MS - RECONCILE_GUARD_MS);
@@ -311,7 +304,6 @@ describe("a hold nothing places is closed at its limit", () => {
 		await context.start();
 		await context.activity(0, "turn-1", 2);
 		await context.ambient.advance(RECONCILE_GUARD_MS + 60_000);
-		// The first turn ends and a follow-up opens another, a minute after the last ask.
 		await context.terminal(1, "turn-1");
 		context.service.beginMessage(context.owner, {
 			agentId: AGENT,
@@ -355,7 +347,7 @@ describe("a hold nothing places is closed at its limit", () => {
 		expect(context.agent().agentState).toBe("working");
 		expect(context.ackedThrough(2)).toBeUndefined();
 
-		// The ask gets out, and the next try closes.
+		// A successful ask permits closure.
 		context.setReaches(true);
 		await context.ambient.advance(RECONCILE_GUARD_MS * 2);
 		expect(context.agent().agentState).toBe("idle");
@@ -418,7 +410,6 @@ describe("a hold nothing places is closed at its limit", () => {
 		await context.start();
 		await context.activity(0, "turn-1", 2);
 
-		// Another daemon registered: it is live before it has said anything.
 		context.setLive("daemon-2");
 		await context.ambient.advance(HELD_FRAME_LIMIT_MS + RECONCILE_GUARD_MS);
 

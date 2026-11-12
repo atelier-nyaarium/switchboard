@@ -22,7 +22,7 @@ function terminal(status: "completed" | "failed" | "interrupted" = "completed", 
 function setup() {
 	const state = {
 		read: { known: "unknown" } as ReadOutcome,
-		/** A read that answers when the test says. */
+		/** Read timing controlled by the test. */
 		slowRead: undefined as Promise<ReadOutcome> | undefined,
 		reads: 0,
 		submitted: [] as Array<{ turnId: string; terminal: TerminalOutcome }>,

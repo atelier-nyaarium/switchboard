@@ -29,7 +29,7 @@ export interface TurnOptions {
 	model?: string;
 	serviceTier?: AgentServiceTier;
 	outputSchema?: Record<string, unknown>;
-	/** Names this prompt: a repeat under the same key lands once. */
+	/** Deduplicate prompts by key. */
 	key?: string;
 }
 
@@ -52,28 +52,28 @@ export interface AgentModel {
 export interface AgentBackendSession {
 	/** Thread directory stays fixed. */
 	openThread(options: ThreadOptions): Promise<string>;
-	/** Optional for ephemeral threads. */
+	/** Omit for ephemeral threads. */
 	resumeThread?(threadId: string, cwd: string): Promise<void>;
-	/** Answers once the prompt is on its way, within a bound; a later failure is the handle's terminal. */
+	/** Resolves on acceptance; later failure settles terminal. */
 	startTurn(threadId: string, prompt: string, turn?: TurnOptions): Promise<TurnHandle>;
 	/**
-	 * Omit to disable steering. `taken` says the turn is known to hold the prompt; anything else says
-	 * only that it was sent, so a turn that ended meanwhile is given the prompt again as a new turn.
+	 * Omit to disable steering. `taken`: the turn holds the prompt. Anything else: only sent, so a
+	 * turn that ended since is given it again as a new turn.
 	 */
 	steerTurn?(threadId: string, turnId: string, prompt: string, key?: string): Promise<SteerOutcome>;
 	interruptTurn(threadId: string, turnId: string): Promise<void>;
-	/** Optional without readable history. A settled read also ends the turn's handle. */
+	/** A settled read ends the handle. */
 	inspectTurn?(threadId: string, turnId: string): Promise<TurnInspection>;
-	/** The turn its thread runs now, as the caller's. */
+	/** The thread's running turn, as the caller's. */
 	adoptTurn?(threadId: string): Promise<TurnHandle | undefined>;
 	listModels?(): Promise<AgentModel[]>;
 	onActivity(listener: (turnId: string, text: string, itemId?: string) => void): void;
 	onCounter?(listener: (turnId: string, counter: TurnCounter) => void): void;
-	/** Absent progress disables silence checks. */
+	/** Omit to disable silence checks. */
 	onProgress?(listener: (turnId: string) => void): void;
-	/** Own work prevents reaping. */
+	/** True while work prevents reaping. */
 	busy?(): boolean;
-	/** Evict cache on closure. A listener set after the close is called at once. */
+	/** Closure evicts cache; late listeners fire immediately. */
 	onClosed(listener: () => void): void;
 	close(): void;
 }
@@ -86,9 +86,9 @@ export function settledNow(settled: Promise<TurnTerminal>): Promise<TurnTerminal
 export interface AgentDriver {
 	launcher: ExecutionTargetLauncher;
 	open(child: AgentChild): Promise<AgentBackendSession>;
-	/** Reload threads after reap. */
+	/** Reopen thread state after reap. */
 	threadsResumable: boolean;
-	/** Map recognizable refusal text. */
+	/** Classify driver refusal text. */
 	failureCode?(error: string): AgentDaemonFailureCode | undefined;
 	/** Its child is this build's own entry point, which a container must hold first. */
 	ownRuntime?: true;

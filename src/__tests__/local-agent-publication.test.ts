@@ -23,7 +23,7 @@ class ValueBackendAdapter implements AgentBackendSession {
 	private threads = 0;
 	closes = 0;
 	openThreadGate?: Promise<void>;
-	// Absent, like Copilot's session, when steering is unsupported.
+	// Copilot lacks turn steering.
 	steerTurn?: (threadId: string, turnId: string, prompt: string) => Promise<void>;
 	inspectTurn?: AgentBackendSession["inspectTurn"];
 	adoptTurn?: AgentBackendSession["adoptTurn"];
@@ -34,7 +34,7 @@ class ValueBackendAdapter implements AgentBackendSession {
 			openError?: Error;
 			startError?: Error;
 			steer?: boolean;
-			/** Speaks of a turn before naming it. */
+			/** Emits activity before the start returns. */
 			early?: string;
 			resume?: boolean;
 		} = {},
@@ -445,7 +445,7 @@ describe("local publication", () => {
 		await turnReady(h.backend);
 		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
 		await turnEnded(h.runtime, started.agentId);
-		// Its record outlives its child.
+		// Records outlive backend sessions.
 		h.backend.close();
 		const closes = h.backend.closes;
 

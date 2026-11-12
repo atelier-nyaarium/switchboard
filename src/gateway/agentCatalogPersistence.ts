@@ -20,7 +20,6 @@ export interface AgentCatalogAgent {
 	turnMarks?: AgentTurnMarks;
 }
 
-/** Collect result. */
 export interface AgentCollection<TAgent> {
 	agent: TAgent;
 	turnIds: string[];
@@ -41,14 +40,14 @@ export interface AgentCatalog<TAgent> {
 	agents: TAgent[];
 }
 
-/** Only `landed` guarantees disk. */
+/** Only landed writes are durable. */
 export type CatalogWrite<TAgent> =
 	| { kind: "landed"; catalog: AgentCatalog<TAgent> }
-	/** Record changed; disk write unconfirmed. */
+	/** Record changed; disk unconfirmed. */
 	| { kind: "unconfirmed"; catalog: AgentCatalog<TAgent> }
-	/** Revision moved; nothing changed. */
+	/** Revision changed; no write. */
 	| { kind: "conflict" }
-	/** Nothing changed: write threw. */
+	/** Write threw; record unchanged. */
 	| { kind: "failed"; cause: unknown }
 	| { kind: "owner_missing" };
 
@@ -62,7 +61,7 @@ export interface AgentTransitionResult<TAgent extends AgentCatalogAgent> {
 	owner: SessionRecord;
 	agent: TAgent;
 	operation: TAgent["operations"][number];
-	/** Only `committed` authorizes first dispatch. */
+	/** Only committed authorizes dispatch. */
 	disposition: "committed" | "replayed" | "indeterminate";
 	catalogRevision: number;
 }
@@ -75,7 +74,7 @@ export interface AgentCatalogPort<TAgent extends AgentCatalogAgent> {
 ////////////////////////////////
 //  Class
 
-/** One owner's agent catalog for one backend. `write` is its only catalog write. */
+/** One owner's catalog for one backend. `write` is its only write. */
 export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 	constructor(private readonly port: AgentCatalogPort<TAgent>) {}
 
@@ -83,7 +82,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		return this.port.read(owner) ?? { version: 1, revision: 0, agents: [] };
 	}
 
-	/** Exactly one match, or none. */
+	/** Duplicate ids return no match. */
 	find(owner: SessionRecord, agentId: string): TAgent | undefined {
 		const catalog = this.read(owner);
 		const index = this.matchOf(catalog, agentId);
@@ -105,10 +104,10 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		}
 	}
 
-	/** Whether `revision` is on disk; may try the write once. `gone`: the catalog no longer reaches it. */
+	/** May checkpoint; `gone` means the revision disappeared. */
 	confirmation(owner: SessionRecord, revision: number): CatalogConfirmation {
 		const current = this.port.read(owner)?.revision;
-		// A live owner's revision never moves back.
+		// A live revision never decreases.
 		if (current === undefined || current < revision) return "gone";
 		return this.durable(owner, current) ? "confirmed" : "pending";
 	}
@@ -176,7 +175,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 			const next = marks(current);
 			if (!next) return current;
 			const applied = this.apply(owner, parse({ ...current, turnMarks: next }));
-			// Held marks make retries no-ops.
+			// Held marks make retries idempotent.
 			if (applied.disposition === "applied" || applied.disposition === "unconfirmed") return applied.agent;
 			if (applied.disposition === "ignored") return undefined;
 		}
@@ -230,7 +229,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 			catalog.revision,
 			catalog.agents.filter((candidate) => candidate.agentId !== agentId),
 		);
-		// Unconfirmed drops count as retirement.
+		// Unconfirmed removals count as retired.
 		if (write.kind === "landed" || write.kind === "unconfirmed") {
 			return { retired: true, catalogRevision: write.catalog.revision };
 		}

@@ -7,15 +7,14 @@ import type { TerminalOutcome } from "./codexTurnOutcome.js";
 ////////////////////////////////
 //  Interfaces & Types
 
-/** Separate from the client class so a test can stand in without a child process. */
 export interface AppServerSession {
 	onEvent(listener: (message: { method: string; params?: unknown }) => void): void;
 	startThread(settings: { cwd: string; model?: string; serviceTier?: CodexServiceTier }): Promise<string>;
 	resumeThread(threadId: string): Promise<void>;
-	/** Loads the thread and owns a running turn; publishes and deletes nothing. */
+	/** Loads and owns running turns; publishes and deletes nothing. */
 	adoptThread(threadId: string): Promise<ThreadInspection>;
 	readThread(threadId: string): Promise<unknown>;
-	/** `onStarted` runs before any terminal buffered for the new turn is published. */
+	/** `onStarted` precedes buffered terminal publication. */
 	startTurn(
 		threadId: string,
 		text: string,
@@ -24,9 +23,9 @@ export interface AppServerSession {
 	): Promise<string>;
 	steerTurn(threadId: string, turnId: string, text: string): Promise<void>;
 	interruptTurn(threadId: string, turnId: string): Promise<void>;
-	/** The one place a terminal SETTLES, whichever observer produced it; the thread parks behind it. */
+	/** All observers settle here before parking. */
 	settleTurn(threadId: string, turnId: string, terminal: TerminalOutcome): Promise<void>;
-	/** What the owner believes about a thread, which is what says whether a child is reapable. */
+	/** State gates child reaping. */
 	stateOf(threadId: string): ThreadPhase | undefined;
 	models(): Promise<string[]>;
 	close(): void;

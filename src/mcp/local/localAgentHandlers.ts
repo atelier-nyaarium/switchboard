@@ -28,7 +28,7 @@ export interface LocalHandlerHost {
 	spec: LocalBackendSpec;
 	now(): number;
 	open(): Promise<AgentBackendSession>;
-	/** Ends a child past saving. */
+	/** Closes an unrecoverable child. */
 	drop(session: AgentBackendSession): void;
 	markUsed(at?: number): void;
 }
@@ -56,12 +56,12 @@ export interface LocalExchangeRecord {
 interface LocalAgentRecord {
 	agentId: string;
 	threadId: string;
-	/** Where its thread is resumed. */
+	/** Resume directory. */
 	cwd: string;
 	createdAt: number;
 	updatedAt: number;
 	activeTurnId?: string;
-	/** The turn a stop was sent for. */
+	/** Turn with an interrupt pending. */
 	interruptingTurnId?: string;
 	serviceTier?: AgentServiceTier;
 	model?: string;
@@ -80,7 +80,7 @@ function errorText(error: unknown): string {
 
 export class LocalAgentHandlers {
 	private readonly agents = new Map<string, LocalAgentRecord>();
-	/** One runner per child, made before its first turn, with its silent-turn sweep. */
+	/** One runner and silence sweep per session. */
 	private readonly runners = new WeakMap<
 		AgentBackendSession,
 		{ runner: TurnRunner<LocalAgentRecord>; sweep: ReturnType<typeof setInterval> }
@@ -109,7 +109,6 @@ export class LocalAgentHandlers {
 		}));
 	}
 
-	/** Whether a child holds a thread or runs a turn. */
 	uses(session: AgentBackendSession): boolean {
 		return this.runners.get(session)?.runner.empty() === false;
 	}
@@ -122,7 +121,7 @@ export class LocalAgentHandlers {
 	}
 
 	async start(request: LocalRequest): Promise<LocalAgentAnswer> {
-		// Preserve a caller-supplied operation identity for agent derivation.
+		// Reuse the operation ID for agent identity.
 		const operationId = request.operationId ?? crypto.randomUUID();
 		const agentId = agentIdForOperation(this.host.spec.backendId, operationId);
 		const prompt = request.prompt ?? "";
@@ -201,7 +200,7 @@ export class LocalAgentHandlers {
 					model: agent.model,
 					serviceTier,
 					outputSchema: request.outputSchema,
-					// One key for the steer and the turn it may fall back to: one prompt.
+					// Reuse one prompt key after steer fallback.
 					key: request.operationId ?? crypto.randomUUID(),
 				},
 				(accepted) => {
@@ -232,7 +231,7 @@ export class LocalAgentHandlers {
 		return this.acceptedAnswer(agent, outcome.turnId, this.startedDelivery("message"));
 	}
 
-	/** Returns uncollected ended turns. */
+	/** Collect uncollected turns. */
 	collect(request: LocalRequest): LocalAgentAnswer | LocalCollectAnswer {
 		const agent = this.agents.get(request.agentId ?? "");
 		if (!agent) return this.notFound(request.agentId ?? "");
@@ -289,7 +288,7 @@ export class LocalAgentHandlers {
 		};
 	}
 
-	/** A child that closed: the turns it still ran are lost. */
+	/** Child closure loses active turns. */
 	closed(session: AgentBackendSession): void {
 		const held = this.runners.get(session);
 		if (!held) return;
@@ -342,7 +341,7 @@ export class LocalAgentHandlers {
 		return agentResultDelivery(kind, "started") ?? "started";
 	}
 
-	/** Before held events flush. */
+	/** Record turn before buffered events flush. */
 	private openTurn(agent: LocalAgentRecord, turnId: string, prompt: string, kind: "start" | "message"): void {
 		const at = this.touch(agent);
 		const turn: LocalTurnRecord = { id: turnId, state: "inProgress", commentary: [], omitted: 0, updatedAt: at };
@@ -360,7 +359,7 @@ export class LocalAgentHandlers {
 		this.watchProgress(agent, turn);
 	}
 
-	/** The turn as taken, without waiting on it; a completion notice follows. */
+	/** Returns immediately; completion notice follows. */
 	private acceptedAnswer(agent: LocalAgentRecord, turnId: string, delivery: string): LocalAgentAnswer {
 		const turn = agent.turns.find((candidate) => candidate.id === turnId);
 		if (!turn) return this.notFound(agent.agentId);
@@ -399,7 +398,7 @@ export class LocalAgentHandlers {
 		if (turn?.state !== "inProgress") return;
 		turn.state = terminal.status;
 		if (terminal.status === "completed") turn.finalResponse = terminal.finalResponse ?? "";
-		// Normalize child errors before schema validation.
+		// Normalize errors before schema parsing.
 		if (terminal.status === "failed") turn.error = errorText(terminal.error || `turn failed`);
 		turn.updatedAt = this.host.now();
 		if (agent.interruptingTurnId === turnId) agent.interruptingTurnId = undefined;
@@ -419,7 +418,6 @@ export class LocalAgentHandlers {
 	}
 
 	private activitiesOf(turn: LocalTurnRecord): LocalAgentAnswer["activities"] {
-		// Keep the truncation marker with the full activity window.
 		const kept = turn.commentary.map((text) => ({ kind: "commentary" as const, text }));
 		if (turn.omitted === 0) return kept;
 		return [...kept, { kind: "truncated" as const, omitted: turn.omitted }];

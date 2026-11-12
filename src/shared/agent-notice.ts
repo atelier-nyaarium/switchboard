@@ -1,5 +1,3 @@
-// What a session is told about its delegated agents' turns, rendered once for the Gateway and local mode.
-
 import { type AgentBackendId, agentBackend } from "./agent-backend.js";
 import { type AgentProgressCounts, formatAgentProgressCounts } from "./agent-counter.js";
 import type { Ambient } from "./ambient.js";
@@ -36,10 +34,10 @@ export interface WorkflowNoticeText {
 
 export const AGENT_PROGRESS_EVERY_MS = 10 * 60_000;
 
-/** The awareness source both roads stamp. */
+/** Shared awareness source. */
 export const AGENT_NOTICE_SOURCE = "agents";
 
-/** A reply to this session id is absorbed rather than delivered. */
+/** Replies to no-ack sessions are absorbed. */
 const NO_ACK_SESSION_PREFIX = "na-";
 
 const NOTE_CHARS = 300;
@@ -57,7 +55,6 @@ export function mintNoAckSessionId(ambient: Pick<Ambient, "randomBytes">): strin
 	return `${NO_ACK_SESSION_PREFIX}${ambient.randomBytes(8).toString("hex")}`;
 }
 
-/** One line, markup escaped. */
 const escaped = (text: string): string => neutralizeMarkup(oneLine(text));
 
 function clipped(note: string): string {
@@ -96,7 +93,7 @@ export function workflowNoticeLine(state: WorkflowNoticeText): string {
 	return lines.join("\n");
 }
 
-/** A completion asks the session to fetch its result; progress asks nothing. */
+/** Only completions prompt result fetches. */
 export function agentNoticeAct(notice: AgentNotice): "act_now" | "no_act" {
 	return notice.kind === "done" ? "act_now" : "no_act";
 }

@@ -179,9 +179,9 @@ describe("TurnRunner", () => {
 			throw new Error("no such turn");
 		};
 
-		// Still running: the refusal is the answer.
+		// A live turn preserves the refusal.
 		await expect(context.message("turn-1")).rejects.toThrow("no such turn");
-		// The driver holds its end: the prompt opens a new turn.
+		// A settled turn permits a new prompt.
 		context.state.inspection = { known: "settled", terminal: DONE };
 		expect(await context.message("turn-1")).toEqual({ kind: "started", turnId: "turn-2" });
 		expect(context.log).toContain("owner turn-1 completed");
@@ -219,12 +219,12 @@ describe("TurnRunner", () => {
 		expect(context.state.interrupts).toEqual([]);
 
 		context.advance(1);
-		// Its session retired mid-read.
+		// The owning session retires mid-read.
 		await context.run.watch(() => false);
 		expect(context.state.interrupts).toEqual([]);
 		await watch();
 		expect(context.state.interrupts).toEqual(["turn-1"]);
-		// A sign of life starts the count over.
+		// Progress resets the silence timer.
 		context.advance(NO_PROGRESS_MS - 1);
 		context.state.onProgress("turn-1");
 		context.advance(NO_PROGRESS_MS - 1);

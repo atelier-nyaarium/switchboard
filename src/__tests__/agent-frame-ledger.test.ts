@@ -44,13 +44,13 @@ describe("AgentFrameLedger", () => {
 		const blocked = arrive(ledger, frame(3));
 		ledger.decide(blocked);
 
-		// An acknowledgement that was never sent, then one that was sent and lost.
+		// Replay unsent and lost acknowledgements.
 		expect(ledger.receive(frame(0), "again")).toEqual({ kind: "decided", ack });
 		ledger.acknowledged(ack!);
 		expect(ledger.receive(frame(0), "again")).toEqual({ kind: "decided", ack });
 		expect(ledger.receive(frame(1), "again")).toEqual({ kind: "held", ticket: waiting });
 		expect(ledger.receive(frame(2), "again")).toEqual({ kind: "queued" });
-		// Decided above a held frame: no acknowledgement can name it yet.
+		// Later decisions wait behind held frames.
 		expect(ledger.receive(frame(3), "again")).toEqual({ kind: "decided" });
 	});
 
@@ -61,7 +61,7 @@ describe("AgentFrameLedger", () => {
 		const ack = ledger.decide(first);
 		ledger.decide(arrive(ledger, frame(1)));
 
-		// Decided and not yet acknowledged, then acknowledged: placed by its operation each time.
+		// Receipts replay before and after acknowledgement.
 		const again = arrive(ledger, receipt);
 		expect(ledger.decide(again)).toMatchObject({ throughEventId: 1 });
 		ledger.acknowledged({ ...ack!, throughEventId: 1 });
@@ -81,7 +81,7 @@ describe("AgentFrameLedger", () => {
 		expect(chatter.state).toBe("decided");
 		expect(ledger.heldFor("a")).toEqual([outcome, later]);
 
-		// Outcomes alone stay past the cap.
+		// Outcomes are never evicted.
 		const more = arrive(ledger, frame(3));
 		expect(ledger.hold(more, "failed", 4).kept).toBe(true);
 		expect(ledger.heldFor("a")).toHaveLength(3);
@@ -116,7 +116,7 @@ describe("AgentFrameLedger", () => {
 		});
 		expect(ledger.decide(refusal)).toBeUndefined();
 		expect(ledger.holds("a")).toBe(false);
-		// A frame with no stream leaves no decided mark.
+		// Frames without streams cannot be marked decided.
 		expect(ledger.receive(frame(7, { frame: "receipt", stream: undefined }), "again").kind).toBe("new");
 	});
 

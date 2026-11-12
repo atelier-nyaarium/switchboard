@@ -1,5 +1,3 @@
-// Codex app-server agent session.
-
 import { CODEX_BACKEND } from "../../shared/agent-backend.js";
 import type { AgentChild } from "../devcontainer/agentTargets.js";
 import type { LifecycleHooks } from "../devcontainer/codexAppServer.js";
@@ -94,7 +92,6 @@ export class CodexBackendSession implements AgentBackendSession {
 		const openClient = options.openClient ?? defaultOpenClient;
 		const setTimer = options.setTimer ?? ((run, ms) => setTimeout(run, ms));
 		const clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle));
-		// Hooks capture the session.
 		let session: CodexBackendSession | undefined;
 		const early: Array<{ threadId: string; reason: PoisonReason }> = [];
 		const client = await openClient(child, CODEX_BACKEND.defaultModel, {

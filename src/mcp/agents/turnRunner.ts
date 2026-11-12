@@ -14,25 +14,24 @@ import {
 export interface RunningTurn<Owner> {
 	readonly threadId: string;
 	readonly turnId: string;
-	/** Who is told about it. A handover changes it. */
+	/** Current terminal recipient. */
 	owner: Owner;
 }
 
-/** What the runner tells its side: a daemon publishes each, local mode records each. */
 export interface TurnRunnerHost<Owner> {
 	now(): number;
 	terminal(turn: RunningTurn<Owner>, terminal: TurnTerminal): void;
 	activity(turn: RunningTurn<Owner>, text: string, itemId?: string): void;
 	counter(turn: RunningTurn<Owner>, counter: TurnCounter): void;
-	/** A turn silent through an inspection and an interrupt. Its driver session is past saving. */
+	/** Retire a silent driver session. */
 	giveUp(turn: RunningTurn<Owner>): void;
 	log(line: string): void;
 }
 
 export interface MessageOptions extends TurnOptions {
-	/** The turn its sender believes is running. No other is steered, and none when it names none. */
+	/** Steer only this turn. */
 	expectedTurnId: string | undefined;
-	/** Where a thread this session does not hold is resumed. */
+	/** CWD for resumed threads. */
 	cwd: string;
 }
 
@@ -40,14 +39,14 @@ export type MessageOutcome =
 	| { kind: "steered"; turnId: string }
 	| { kind: "started"; turnId: string }
 	| { kind: "busy" }
-	/** No thread to resume. */
+	/** Thread cannot be resumed. */
 	| { kind: "ended" };
 
 interface ActiveTurn<Owner> extends RunningTurn<Owner> {
 	settled: Promise<TurnTerminal>;
-	/** Last sign of life. */
+	/** Last progress time. */
 	at: number;
-	/** Interrupted once for silence. */
+	/** Silence interrupt sent. */
 	warned: boolean;
 }
 
@@ -58,7 +57,6 @@ const EARLY_TURNS_MAX = 32;
 const EARLY_EVENTS_MAX = 64;
 const THREAD_MEMORY = 256;
 const SEEN_TURNS_MAX = 1024;
-/** Bounds a silent reasoning hang. */
 export const NO_PROGRESS_MS = 600_000;
 const UNKNOWN: TurnInspection = { known: "unknown" };
 
@@ -67,11 +65,10 @@ const UNKNOWN: TurnInspection = { known: "unknown" };
 
 export class TurnRunner<Owner> {
 	private readonly threads = new Set<string>();
-	/** One turn per thread. */
 	private readonly active = new Map<string, ActiveTurn<Owner>>();
-	/** What a child said of a turn not yet announced. */
+	/** Events before announcement. */
 	private readonly early = new Map<string, Array<(turn: ActiveTurn<Owner>) => void>>();
-	/** Every turn announced here, so an adopted one is never another prompt's. */
+	/** Announced turns: an adopted one is never among them. */
 	private readonly seen = new Set<string>();
 
 	constructor(
@@ -93,7 +90,7 @@ export class TurnRunner<Owner> {
 		return this.threads.has(threadId);
 	}
 
-	/** Holds a thread, the least recently used idle ones forgotten past the bound. */
+	/** Bound remembered idle threads. */
 	remember(threadId: string): void {
 		this.threads.delete(threadId);
 		this.threads.add(threadId);
@@ -117,16 +114,15 @@ export class TurnRunner<Owner> {
 		return this.threads.size === 0 && this.active.size === 0;
 	}
 
-	/** Tells of no terminal. */
+	/** Clear without publishing terminals. */
 	clear(): void {
 		this.active.clear();
 		this.early.clear();
 	}
 
 	/**
-	 * A new turn, its thread held from here on. `accepted` runs once the turn is known and before
-	 * anything its child said of it is published. Throws when the driver refuses and no turn of this
-	 * prompt is found running.
+	 * A new turn, its thread held from here on. `accepted` runs before anything its child said early.
+	 * Throws when the driver refuses and no turn of this prompt is found running.
 	 */
 	async begin(
 		threadId: string,
@@ -149,15 +145,14 @@ export class TurnRunner<Owner> {
 		return handle.turnId;
 	}
 
-	/** A turn the driver already runs, taken as this owner's. */
+	/** Take ownership of a running turn. */
 	adopt(threadId: string, owner: Owner, handle: TurnHandle, accepted: (turnId: string) => void): void {
 		this.announce(threadId, owner, handle, accepted);
 	}
 
 	/**
-	 * A follow-up: into the running turn when the driver steers, else a new turn. A steer whose turn
-	 * ended under it opens a new turn with the prompt, under the same key. `accepted` as in `begin`.
-	 * Throws what the driver refused with.
+	 * Into the running turn when the driver steers, else a new turn. A steer whose turn ended under it
+	 * opens one under the same key. Throws what the driver refused with.
 	 */
 	async message(
 		threadId: string,
@@ -180,7 +175,7 @@ export class TurnRunner<Owner> {
 			}
 			if (!taken) await settledNow(active.settled);
 			if (steerError !== undefined && this.active.get(threadId) === active) {
-				// The driver may hold its terminal.
+				// Driver may retain terminal.
 				const seen = await this.inspect(threadId, active.turnId);
 				if (seen.known === "settled") this.settle(active, seen.terminal);
 			}
@@ -201,7 +196,7 @@ export class TurnRunner<Owner> {
 		return { kind: "started", turnId };
 	}
 
-	/** False when that turn is not the thread's running one. Throws what the driver refused with. */
+	/** False when that turn is not the thread's running one. */
 	async interrupt(threadId: string, turnId: string): Promise<boolean> {
 		const active = this.active.get(threadId);
 		if (!active || active.turnId !== turnId) return false;
@@ -213,7 +208,6 @@ export class TurnRunner<Owner> {
 		return (await this.client.inspectTurn?.(threadId, turnId).catch(() => UNKNOWN)) ?? UNKNOWN;
 	}
 
-	/** Ends a running turn that the driver settled out of band. */
 	settle(turn: RunningTurn<Owner>, terminal: TurnTerminal): void {
 		const active = this.active.get(turn.threadId);
 		if (active !== turn) return;
@@ -221,10 +215,7 @@ export class TurnRunner<Owner> {
 		this.host.terminal(active, terminal);
 	}
 
-	/**
-	 * One pass over turns silent for `NO_PROGRESS_MS`: a settled one is published, a running one is
-	 * interrupted once, and one still silent after that is given up. Only for a driver that reports life.
-	 */
+	/** Inspect silence, interrupt once, then give up. */
 	async watch(stillServing: () => boolean): Promise<void> {
 		if (!this.client.onProgress) return;
 		const cutoff = this.host.now() - NO_PROGRESS_MS;
@@ -274,7 +265,6 @@ export class TurnRunner<Owner> {
 		active.warned = false;
 	}
 
-	/** Publishes now, or once the turn is announced. */
 	private whenAnnounced(turnId: string, publish: (turn: ActiveTurn<Owner>) => void): void {
 		const active = this.byTurn(turnId);
 		if (active) {

@@ -1,10 +1,6 @@
-// The fence algebra every agent backend orders its daemon traffic with. One home,
-// because the verdicts derived from it decide whether the daemon may retire its only copy.
-
 ////////////////////////////////
 //  Interfaces & Types
 
-/** Which child spoke, and how far in: (supervisor instance, target, generation, high-water mark). */
 export interface AgentFence {
 	daemonInstanceId: string;
 	targetId: string;
@@ -15,8 +11,7 @@ export interface AgentFence {
 ////////////////////////////////
 //  Functions & Helpers
 
-/** The fence a fenced daemon message stands at. Its own event ID is the fence's high-water mark, so
- * a receipt and the events around it order against one another by construction. */
+/** Event IDs are fence high-water marks. */
 export function fenceOf(message: {
 	daemonInstanceId: string;
 	targetId: string;
@@ -41,8 +36,7 @@ export function sameFence(left: AgentFence | undefined, right: AgentFence | unde
 	);
 }
 
-/** The ACCEPTANCE-side rule: a record with no fence yet takes its first one from the acceptance,
- * so an unfenced current is an advance, never a hold. */
+/** Acceptances may install the first fence. */
 export function classifyAcceptanceFence(
 	current: AgentFence | undefined,
 	next: AgentFence,
@@ -58,7 +52,6 @@ export function classifyAcceptanceFence(
 	return next.lastEventId > current.lastEventId ? "advances" : "duplicate";
 }
 
-/** True when [next] may land on a record currently at [current] via an acceptance. */
 export function advancesFence(current: AgentFence | undefined, next: AgentFence): boolean {
 	return classifyAcceptanceFence(current, next) === "advances";
 }
@@ -88,8 +81,7 @@ export function fromReplacedDaemon(liveInstanceId: string | undefined, message: 
 	return liveInstanceId !== undefined && message.daemonInstanceId !== liveInstanceId;
 }
 
-/** The EVENT-side rule: an unfenced record cannot place an event at all (only reconciliation or an
- * acceptance installs a first fence), so `foreign` is the answer that holds it rather than noise. */
+/** Unfenced events are foreign and held. */
 export function classifyEventFence(
 	current: AgentFence | undefined,
 	next: AgentFence,

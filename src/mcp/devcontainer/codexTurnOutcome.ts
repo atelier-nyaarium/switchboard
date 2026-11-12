@@ -3,22 +3,19 @@ import { CodexAppServerThreadReadResultSchema, classifyCodexItemPhase } from "..
 ////////////////////////////////
 //  Interfaces & Types
 
-/** One terminal shape for both a witnessed turn and one rebuilt from `thread/read`. */
+/** Live and rebuilt terminal. */
 export type TerminalOutcome =
 	| { status: "completed"; finalResponse?: string; finalItemId?: string }
 	| { status: "failed"; error: string }
 	| { status: "interrupted"; reason?: string };
 
-/**
- * Three answers, not two. Collapsing `running` and `unknown` reports a live turn as a failed one:
- * "still going" and "could not tell me" need opposite handling.
- */
+/** A live turn and an unreadable result require opposite handling. */
 export type ReadOutcome = { known: "settled"; outcome: TerminalOutcome } | { known: "running" } | { known: "unknown" };
 
 ////////////////////////////////
 //  Functions & Helpers
 
-/** Rebuilt from what `thread/read` still holds. A turn whose items are gone reports no answer. */
+/** No items, no answer. */
 export function outcomeFromRead(result: unknown, threadId: string, turnId: string): ReadOutcome {
 	const parsed = CodexAppServerThreadReadResultSchema.safeParse(result);
 	if (!parsed.success || parsed.data.thread.id !== threadId) return { known: "unknown" };
@@ -26,13 +23,13 @@ export function outcomeFromRead(result: unknown, threadId: string, turnId: strin
 	if (!turn) return { known: "unknown" };
 	if (turn.status === "inProgress") return { known: "running" };
 	if (turn.status === "interrupted") return { known: "settled", outcome: { status: "interrupted" } };
-	// A read carries no error text, so a failure recovered this way says only that it failed.
+	// Reads omit failure details.
 	if (turn.status === "failed") return { known: "settled", outcome: { status: "failed", error: `turn failed` } };
 	const messages = turn.items.filter(
 		(item): item is { type: "agentMessage"; id: string; text: string; phase?: unknown } =>
 			item.type === "agentMessage",
 	);
-	// Commentary is never the answer.
+	// Commentary never answers.
 	const classified = messages.map((item) => ({ item, kind: classifyCodexItemPhase(item.phase) }));
 	const final =
 		classified.findLast((entry) => entry.kind === "answer")?.item ??

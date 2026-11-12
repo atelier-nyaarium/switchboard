@@ -23,7 +23,6 @@ export interface AgentDaemonDeps {
 	open(child: AgentChild): Promise<AgentBackendSession>;
 	resolveHostCwd(hint: string | undefined): string;
 	failureCode?(error: string): AgentDaemonFailureCode | undefined;
-	/** Target setup before launch. */
 	prepareTarget?(target: AgentResolvedTarget): Promise<void>;
 	/** Reaped threads may reopen. */
 	threadsResumable?: boolean;
@@ -32,7 +31,6 @@ export interface AgentDaemonDeps {
 	clearSweep?(handle: ReturnType<typeof setInterval>): void;
 }
 
-/** Whose agent a thread is. */
 interface Binding {
 	ownerKey: string;
 	agentId: string;

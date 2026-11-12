@@ -21,14 +21,14 @@ import {
 ////////////////////////////////
 //  Interfaces & Types
 
-/** Only applied and ignored retire daemon frames. */
+/** Only applied or ignored frames retire. */
 export type AgentApplication<TAgent> =
 	| { disposition: "applied"; owner: SessionRecord; agent: TAgent; catalogRevision: number }
-	/** Notify listeners; retain daemon copy until durable. */
+	/** Notify listeners; retain until durable. */
 	| { disposition: "unconfirmed"; owner: SessionRecord; agent: TAgent; catalogRevision: number }
 	| { disposition: "ignored"; reason: string }
 	| { disposition: "reconcile"; owner: SessionRecord; agent: TAgent }
-	// A reducer bug. Acknowledging would delete the daemon's only copy.
+	// Never acknowledge failed frames.
 	| { disposition: "failed"; reason: string };
 
 export interface AgentRelayFrame {
@@ -65,7 +65,7 @@ export interface AgentRelaySchema<T> {
 export interface AgentRelayDeps {
 	sessionStore: SessionStore;
 	liveDaemonInstanceId(): string | undefined;
-	/** Reconnect reconciliation retries unsent commands. */
+	/** Reconnect retries unsent commands. */
 	sendToHost(message: Record<string, unknown>): boolean;
 	ambient: Pick<Ambient, "now" | "newId" | "setTimer" | "clearTimer">;
 }
@@ -83,24 +83,21 @@ export interface AgentRelayPort<
 	commandSchema: { safeParse(value: unknown): { success: boolean } };
 	listAgents(owner: SessionRecord): readonly TAgent[];
 	fenceInstanceId(agent: TAgent): string | undefined;
-	/** Where the agent runs, once resolved. */
 	targetId(agent: TAgent): string | undefined;
 	applyEvent(event: TEvent, at: number, held?: boolean): AgentApplication<TAgent>;
-	/** `closing`: a hold is being given up, so a reconciliation the daemon contradicts is taken at its word. */
+	/** Closing trusts daemon reconciliation. */
 	applyReceipt(receipt: TReceipt, at: number, closing?: boolean): AgentApplication<TAgent>;
-	/** The turn the record holds open. */
 	openTurn(agent: TAgent): string | undefined;
-	/** Ends the open turn unless `report`, the daemon's last word, says it is the one running. */
+	/** End the turn unless report confirms it. */
 	closeHeld(
 		ownerKey: string,
 		agentId: string,
 		report: AgentReconciliationReport | undefined,
 		at: number,
 	): AgentApplication<TAgent>;
-	/** A requested operation whose receipt is given up. */
 	abandonOperation(ownerKey: string, agentId: string, operationId: string, at: number): AgentApplication<TAgent>;
 	reconciliationReport(receipt: TReceipt): AgentReconciliationReport | undefined;
-	/** Confirms through revision on disk; may retry once. */
+	/** May checkpoint while confirming. */
 	confirmation(owner: SessionRecord, revision: number): "confirmed" | "pending" | "gone";
 	abandonStaleOperations(
 		owner: SessionRecord,
@@ -109,21 +106,20 @@ export interface AgentRelayPort<
 		at: number,
 	): AgentApplication<TAgent>;
 	requestedOperations(ownerKey: string, agent: TAgent, daemonInstanceId: string): readonly TRequest[];
-	/** Undefined marks an unaskable agent. */
+	/** Undefined means unaskable. */
 	reconcileRequest(ownerKey: string, agent: TAgent): TRequest | undefined;
 	counterEvent(event: TEvent): { turnId: string; kind: AgentCounterKind; filesChanged?: number } | undefined;
 	modelTurn(receipt: TReceipt): string | undefined;
 }
 
-/** `awaiting`: the record changed and its write is unconfirmed. */
+/** Unconfirmed record write. */
 type HeldFrame<TEvent, TReceipt> = ({ frame: "event"; message: TEvent } | { frame: "receipt"; message: TReceipt }) & {
 	awaiting?: { owner: SessionRecord; revision: number };
 };
 
 type FencedFrame = AgentRelayFrame & { targetId: string; generation: number };
-/** A record write not yet confirmed on disk. */
 type Awaiting = { owner: SessionRecord; revision: number };
-/** A hold being given up, and the write its frames must outlast. */
+/** Held frames outlast the pending write. */
 type Closing = { pending?: Awaiting };
 type ProgressEntry = { runId?: string; counts: AgentProgressCounts };
 
@@ -134,9 +130,9 @@ const MAX_HELD_PER_AGENT = 128;
 const MAX_PROGRESS_TURNS = 4096;
 
 export const RECONCILE_GUARD_MS = 300_000;
-/** How long a frame nothing can place is held before its turn is given up. */
+/** How long a frame nothing can place is held. */
 export const HELD_FRAME_LIMIT_MS = 600_000;
-/** A frame awaiting its write is in the record, so it is not one of these. */
+/** Awaiting writes are already recorded. */
 const UNPLACED: readonly HoldReason[] = ["reconcile", "failed"];
 
 ////////////////////////////////
@@ -146,14 +142,13 @@ function agentKey(ownerKey: string, agentId: string): string {
 	return `${ownerKey} ${agentId}`;
 }
 
-/** Both outcomes are recorded. */
 export function inRecord<TAgent>(
 	application: AgentApplication<TAgent>,
 ): application is Extract<AgentApplication<TAgent>, { disposition: "applied" | "unconfirmed" }> {
 	return application.disposition === "applied" || application.disposition === "unconfirmed";
 }
 
-// Refusals carry no stream.
+// Refusals are unfenced.
 function isFenced(message: AgentRelayFrame): message is FencedFrame {
 	return "targetId" in message && "generation" in message;
 }
@@ -161,7 +156,6 @@ function isFenced(message: AgentRelayFrame): message is FencedFrame {
 ////////////////////////////////
 //  Class
 
-/** Shared relay; each backend supplies its wire and applier. */
 export class AgentRelayCore<
 	TEvent extends AgentRelayFrame,
 	TReceipt extends AgentRelayReceipt,
@@ -173,15 +167,13 @@ export class AgentRelayCore<
 	private readonly listeners = new Map<string, Set<() => void>>();
 	private readonly lastReconcileAskedAt = new Map<string, { daemonInstanceId: string; askedAt: number }>();
 	private readonly watches = new Map<string, ReturnType<Ambient["setTimer"]>>();
-	/** The daemon's last reconciliation of an agent, kept only while it holds unplaced frames. */
+	/** Last daemon report for a held agent. */
 	private readonly said = new Map<string, { receipt: TReceipt; at: number }>();
-	/** When the record's open turn last changed, for an agent that holds unplaced frames. */
+	/** Last open turn and change time. */
 	private readonly opened = new Map<string, { turnId: string | undefined; at: number }>();
 	private lastHelloAt = 0;
-	/** The daemon whose hello was last taken. */
 	private helloFrom: string | undefined;
 	private stopped = false;
-	/** The eviction count each stream last told. */
 	private readonly evictionsSeen = new Map<string, number>();
 	private readonly retrying = new Set<string>();
 	private readonly retryAgain = new Set<string>();
@@ -204,7 +196,7 @@ export class AgentRelayCore<
 		return counts;
 	}
 
-	/** Clears every watch. Nothing is asked about or given up afterwards. */
+	/** No ask and no close after it. */
 	stop(): void {
 		this.stopped = true;
 		for (const timer of this.watches.values()) this.deps.ambient.clearTimer(timer);
@@ -313,7 +305,7 @@ export class AgentRelayCore<
 		if (!hello) return;
 		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (liveDaemonInstanceId !== undefined && hello.daemonInstanceId !== liveDaemonInstanceId) return;
-		// Another daemon's word says nothing of this one's turns.
+		// Reports from prior daemons do not apply.
 		if (this.helloFrom !== hello.daemonInstanceId) this.said.clear();
 		this.helloFrom = hello.daemonInstanceId;
 		this.lastHelloAt = this.now();
@@ -329,7 +321,7 @@ export class AgentRelayCore<
 				pending.push(
 					this.serialize(ownerKey, agent.agentId, () => {
 						const targetId = this.port.targetId(agent) ?? "";
-						// Its terminal may be among what the daemon dropped, and nothing else would ask.
+						// A dropped terminal requires reconciliation.
 						const lost = agent.agentState === "working" && lossy.has(targetId);
 						if (
 							lost ||
@@ -343,7 +335,7 @@ export class AgentRelayCore<
 			}
 		}
 		await Promise.all(pending);
-		// One whose ask did not go out is told again by the next hello.
+		// Retry evictions after unsent asks.
 		for (const stream of evicted) {
 			if (!unasked.has(stream.targetId)) this.evictionsSeen.set(this.evictionKey(hello, stream), stream.count);
 		}
@@ -363,7 +355,7 @@ export class AgentRelayCore<
 		return event ? this.arrive({ frame: "event", message: event }) : Promise.resolve();
 	}
 
-	/** The ledger takes a frame before its agent's queue does. */
+	/** Register frames before reducer queuing. */
 	private arrive(frame: HeldFrame<TEvent, TReceipt>): Promise<void> {
 		const { ownerKey, agentId } = frame.message;
 		const arrival = this.frames.receive(this.identityOf(frame), frame);
@@ -372,7 +364,7 @@ export class AgentRelayCore<
 			this.sendAck(arrival.ack);
 			return Promise.resolve();
 		}
-		// A replay of a held frame decides nothing: it retries the held copy.
+		// Held replays retry the stored copy.
 		if (arrival.kind === "held") return this.serialize(ownerKey, agentId, () => this.retryHeld(ownerKey, agentId));
 		return this.serialize(ownerKey, agentId, () => this.reduce(arrival.ticket));
 	}
@@ -397,7 +389,7 @@ export class AgentRelayCore<
 		return undefined;
 	}
 
-	/** `closing`: a held frame's last try. Leaves no ticket open. */
+	/** Closing leaves no ticket open. */
 	private reduce(ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>, closing?: Closing): void {
 		const retry = ticket.state === "held";
 		const { ownerKey, agentId } = ticket.payload.message;
@@ -417,14 +409,13 @@ export class AgentRelayCore<
 		} catch (error) {
 			console.error(`[${this.port.backendId}-relay] settling a frame failed:`, error);
 		}
-		// An open ticket's replay is dropped as queued, so it would never be judged again.
+		// An open ticket's replay would be dropped as queued.
 		if (ticket.state === "open") {
 			this.frames.hold(ticket, "failed", this.now());
 			this.watch(ownerKey, agentId);
 		}
 	}
 
-	/** When the open turn of an agent that holds frames changes. */
 	private noteOpenTurn(key: string, application: AgentApplication<TAgent>): void {
 		const known = this.opened.get(key);
 		if (!known || !inRecord(application)) return;
@@ -433,11 +424,11 @@ export class AgentRelayCore<
 	}
 
 	private reduceReceipt(receipt: TReceipt): AgentApplication<TAgent> {
-		// Would install a dead fence.
+		// Replaced daemons cannot update the fence.
 		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.deps.liveDaemonInstanceId(), receipt))
 			return { disposition: "ignored", reason: "reconciliation from a replaced daemon" };
 		const application = this.port.applyReceipt(receipt, this.now());
-		// A duplicate or an older generation's is no word on the turn.
+		// Ignore duplicate or stale reconciliation reports.
 		if (application.disposition !== "ignored" && this.port.reconciliationReport(receipt))
 			this.said.set(agentKey(receipt.ownerKey, receipt.agentId), { receipt, at: this.now() });
 		if (inRecord(application)) {
@@ -456,7 +447,7 @@ export class AgentRelayCore<
 		const counter = this.port.counterEvent(event);
 		const countable =
 			inRecord(application) || (application.disposition === "ignored" && application.reason === "counter-only");
-		// Once per frame, however often it is retried.
+		// Count once per frame, despite retries.
 		if (counter && countable && !ticket.counted) {
 			this.countToolCall(
 				event.ownerKey,
@@ -528,12 +519,11 @@ export class AgentRelayCore<
 		const frame = ticket.payload;
 		const { message } = frame;
 		const key = agentKey(message.ownerKey, message.agentId);
-		// Retain frame until disk confirms.
+		// Retain frames until disk confirms.
 		const awaiting =
 			application.disposition === "unconfirmed" && ticket.identity.stream
 				? { owner: application.owner, revision: application.catalogRevision }
 				: undefined;
-		// Hold failures and askable reconciliations.
 		const why: HoldReason | undefined = awaiting
 			? "awaiting"
 			: application.disposition === "failed"
@@ -545,7 +535,7 @@ export class AgentRelayCore<
 		if (unplaced && closing) {
 			this.drop(ticket, closing.pending);
 		} else if (closing?.pending && !why && ticket.identity.stream && application.disposition !== "applied") {
-			// Decided against a record whose write is not on disk yet.
+			// Later frames wait for the pending write.
 			ticket.payload = { ...frame, awaiting: closing.pending };
 			this.frames.hold(ticket, "awaiting", this.now());
 		} else if (why) {
@@ -560,12 +550,12 @@ export class AgentRelayCore<
 					application.disposition === "reconcile"
 						? application.agent
 						: this.agentOf(message.ownerKey, message.agentId);
-				// Open since before the hold, as far as this relay knows.
+				// Snapshot the turn predating this hold.
 				if (!this.opened.has(key))
 					this.opened.set(key, { turnId: agent ? this.port.openTurn(agent) : undefined, at: 0 });
 				if (agent) this.requestReconciliation(message.ownerKey, agent);
 			} catch (error) {
-				// The watch asks again.
+				// Watch retries failed asks.
 				console.error(`[${this.port.backendId}-relay] asking about a held frame failed:`, error);
 			}
 			this.watch(message.ownerKey, message.agentId);
@@ -573,12 +563,12 @@ export class AgentRelayCore<
 		this.notifyChanged(message.ownerKey, message.agentId, application);
 		// A close tries each unplaced frame itself.
 		if (inRecord(application) && !closing) this.retryHeld(message.ownerKey, message.agentId);
-		// A write just landed: the disk takes writes again.
+		// A landed write confirms earlier writes.
 		if (application.disposition === "applied") this.retryAwaiting(key);
 		this.forgetIfClear(key);
 	}
 
-	/** Committed once sent. */
+	/** Commit acknowledgements only after sending. */
 	private sendAck(ack: FrameAck | undefined): void {
 		if (!ack) return;
 		let sent = false;
@@ -597,7 +587,7 @@ export class AgentRelayCore<
 		if (sent) this.frames.acknowledged(ack);
 	}
 
-	/** Unplaced retries stay unacknowledged. */
+	/** Retries stay unacknowledged until placed. */
 	private retryHeld(ownerKey: string, agentId: string, unsynced = new Set<SessionRecord>()): void {
 		const key = agentKey(ownerKey, agentId);
 		if (this.retrying.has(key)) {
@@ -609,7 +599,7 @@ export class AgentRelayCore<
 			do {
 				this.retryAgain.delete(key);
 				for (const ticket of this.frames.heldFor(key)) {
-					// Decided by an earlier retry of this pass.
+					// Skip tickets decided earlier this pass.
 					if (ticket.state !== "held") continue;
 					if (!ticket.payload.awaiting) {
 						this.reduce(ticket);
@@ -618,7 +608,7 @@ export class AgentRelayCore<
 					try {
 						this.confirmHeld(ticket, ticket.payload.awaiting, unsynced);
 					} catch (error) {
-						// Thrown before deciding: still held.
+						// Failed confirmation leaves frame held.
 						console.error(`[${this.port.backendId}-relay] confirming a held frame failed:`, error);
 					}
 				}
@@ -635,7 +625,7 @@ export class AgentRelayCore<
 		awaiting: { owner: SessionRecord; revision: number },
 		unsynced: Set<SessionRecord>,
 	): void {
-		// One write attempt per owner per pass: each is the whole snapshot.
+		// Checkpoint each owner's whole snapshot once per pass.
 		const confirmation = unsynced.has(awaiting.owner)
 			? "pending"
 			: this.port.confirmation(awaiting.owner, awaiting.revision);
@@ -643,11 +633,11 @@ export class AgentRelayCore<
 			unsynced.add(awaiting.owner);
 			return;
 		}
-		// `gone`: the record it protected no longer exists.
+		// A gone record cannot retain this frame.
 		this.sendAck(this.frames.decide(ticket));
 	}
 
-	/** A frame awaiting its write is confirmed by any later write, whoever made it. */
+	/** Any later write confirms an awaiting frame. */
 	private retryAwaiting(except?: string): void {
 		const unsynced = new Set<SessionRecord>();
 		for (const key of this.frames.heldAgents()) {
@@ -670,7 +660,7 @@ export class AgentRelayCore<
 		return agent.agentState === "working" && this.port.fenceInstanceId(agent) !== liveDaemonInstanceId;
 	}
 
-	/** One ask per agent per guard; a held frame's watch makes the next. `unguarded` asks inside it. True once sent. */
+	/** One ask per agent per guard, unless `unguarded`. True once sent. */
 	private requestReconciliation(ownerKey: string, agent: TAgent, unguarded = false): boolean {
 		if (this.stopped) return false;
 		const request = this.port.reconcileRequest(ownerKey, agent);
@@ -690,18 +680,16 @@ export class AgentRelayCore<
 
 	private closeAt(key: string): number | undefined {
 		const since = this.frames.heldSince(key, UNPLACED);
-		// A hello replays and asks again, so the wait starts over.
+		// A hello restarts the hold deadline.
 		return since === undefined ? undefined : Math.max(since, this.lastHelloAt) + HELD_FRAME_LIMIT_MS;
 	}
 
-	/** What is kept only for an agent that holds unplaced frames. */
 	private forgetIfClear(key: string): void {
 		if (this.closeAt(key) !== undefined) return;
 		this.said.delete(key);
 		this.opened.delete(key);
 	}
 
-	/** Arms the next ask or the close for an agent that holds unplaced frames. */
 	private watch(ownerKey: string, agentId: string, delayMs?: number): void {
 		const key = agentKey(ownerKey, agentId);
 		if (this.stopped || this.watches.has(key)) return;
@@ -721,7 +709,7 @@ export class AgentRelayCore<
 	}
 
 	private tend(ownerKey: string, agentId: string): void {
-		// Queued before the stop.
+		// Queued work can outlive stop.
 		if (this.stopped) return;
 		const key = agentKey(ownerKey, agentId);
 		const closeAt = this.closeAt(key);
@@ -736,21 +724,17 @@ export class AgentRelayCore<
 			return;
 		}
 		const now = this.now();
-		// A daemon whose hello has not come has had no chance to answer.
+		// Only close after the live daemon's hello.
 		const closed = now >= closeAt && live === this.helloFrom && this.close(ownerKey, agentId);
 		if (!closed) {
 			const agent = this.agentOf(ownerKey, agentId);
 			if (agent) this.requestReconciliation(ownerKey, agent);
 		}
-		// Timed from this try, sent or not. A close that gave nothing up is tried again.
+		// Each attempt resets the guard deadline.
 		this.watch(ownerKey, agentId, now < closeAt ? Math.min(RECONCILE_GUARD_MS, closeAt - now) : RECONCILE_GUARD_MS);
 	}
 
-	/**
-	 * Ends a hold nothing placed. The daemon's last reconciliation is taken at its word, the open turn
-	 * it does not vouch for is ended, and every frame is tried once more before it is given up.
-	 * False when nothing was given up: the daemon was not asked yet, or the record refused a step.
-	 */
+	/** Ends a hold nothing placed. False when nothing was given up. */
 	private close(ownerKey: string, agentId: string): boolean {
 		const key = agentKey(ownerKey, agentId);
 		const at = this.now();
@@ -758,13 +742,13 @@ export class AgentRelayCore<
 		const live = this.deps.liveDaemonInstanceId();
 		const openedAt = this.opened.get(key)?.at ?? 0;
 		const word = this.said.get(key);
-		// Its word counts only when it came after the open turn did.
+		// Only reports at or after the turn opened count.
 		const receipt =
 			word && word.at >= openedAt && !fromReplacedDaemon(live, word.receipt) ? word.receipt : undefined;
 		const asked = this.lastReconcileAskedAt.get(key);
 		const askedAt = asked && asked.daemonInstanceId === live ? asked.askedAt : undefined;
 		const agent = this.agentOf(ownerKey, agentId);
-		// A daemon that could be asked and was not, since the hold began, is given nothing up to.
+		// Do not close askable holds without a fresh ask.
 		if (agent && this.isAskable(ownerKey, agent) && (askedAt === undefined || askedAt < since)) return false;
 		console.error(
 			`[${this.port.backendId}-relay] closing the hold on ${agentId}: unplaced for ${Math.round((at - since) / 1000)}s`,
@@ -775,13 +759,13 @@ export class AgentRelayCore<
 			this.notifyChanged(ownerKey, agentId, application);
 			if (application.disposition === "unconfirmed")
 				closing.pending = { owner: application.owner, revision: application.catalogRevision };
-			// A write that landed carries every earlier one.
+			// A later landed write confirms earlier writes.
 			if (application.disposition === "applied") closing.pending = undefined;
 			return true;
 		};
-		// A record that refuses a step keeps its frames, and the close is tried again.
+		// A refused step keeps the hold open.
 		if (receipt && !taken(this.port.applyReceipt(receipt, at, true))) return false;
-		// A turn the daemon was never asked about since it opened is not ended.
+		// Only end turns asked about since opening.
 		const askedSince = askedAt !== undefined && askedAt >= Math.max(openedAt, since);
 		const report = receipt ? this.port.reconciliationReport(receipt) : undefined;
 		if (askedSince && !taken(this.port.closeHeld(ownerKey, agentId, report, at))) return false;
@@ -792,7 +776,7 @@ export class AgentRelayCore<
 		return true;
 	}
 
-	/** Gives up a frame nothing placed, its requested operation answered first. */
+	/** Abandon requested operations before dropping receipts. */
 	private drop(ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>, unwritten: Awaiting | undefined): void {
 		const frame = ticket.payload;
 		const { message } = frame;
@@ -810,7 +794,7 @@ export class AgentRelayCore<
 				pending = { owner: abandoned.owner, revision: abandoned.catalogRevision };
 			if (abandoned.disposition === "applied") pending = undefined;
 		}
-		// A frame with no stream blocks no acknowledgement, so it waits on nothing.
+		// Unfenced frames never block acknowledgements.
 		if (pending && ticket.identity.stream) {
 			ticket.payload = { ...frame, awaiting: pending };
 			this.frames.hold(ticket, "awaiting", this.now());
@@ -830,7 +814,7 @@ export class AgentRelayCore<
 	private notifyChanged(ownerKey: string, agentId: string, application: AgentApplication<TAgent>): void {
 		if (!inRecord(application)) return;
 		for (const listener of this.listeners.get(agentKey(ownerKey, agentId)) ?? []) {
-			// A listener's throw must not undo a decided frame.
+			// Listener failures cannot undo decisions.
 			try {
 				listener();
 			} catch (error) {
@@ -839,7 +823,6 @@ export class AgentRelayCore<
 		}
 	}
 
-	/** Serialize reducers per agent. */
 	private serialize(ownerKey: string, agentId: string, step: () => void): Promise<void> {
 		return this.reducers
 			.run(agentKey(ownerKey, agentId), step)

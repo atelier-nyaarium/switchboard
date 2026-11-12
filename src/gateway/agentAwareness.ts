@@ -1,5 +1,3 @@
-// Delegated agents' turns, told to the session that owns them: each completion, and progress while one runs.
-
 import type { AgentBackendId } from "../shared/agent-backend.js";
 import {
 	type AgentProgressCounts,
@@ -18,7 +16,6 @@ import type { AwarenessObservation, AwarenessSubscriber } from "../shared/awaren
 ////////////////////////////////
 //  Interfaces & Types
 
-/** One agent as the catalogs hold it, read fresh each tick. */
 export interface RosterAgent {
 	ownerKey: string;
 	backend: AgentBackendId;
@@ -43,7 +40,6 @@ export interface AgentWatch {
 ////////////////////////////////
 //  Functions & Helpers
 
-/** Pushes progress; marks completions. */
 export function createAgentAwarenessSubscriber(
 	markNotified: (sessionKey: string, backend: AgentBackendId, agentId: string, turnId: string) => void,
 ): AwarenessSubscriber<AgentNotice> {
@@ -68,9 +64,6 @@ function turnOfIdentity(identity: string): string {
 	return identity.split(":").slice(2).join(":");
 }
 
-/**
- * Reports turn changes.
- */
 export function createAgentWatch(deps: {
 	roster: () => readonly RosterAgent[];
 	observe: (observations: readonly AwarenessObservation<AgentNotice>[]) => void;
@@ -86,10 +79,10 @@ export function createAgentWatch(deps: {
 			const observations: AwarenessObservation<AgentNotice>[] = [];
 			const present = new Set<string>();
 			for (const agent of deps.roster()) {
-				// A recovering agent may resume its turn; only a dead one ends it.
+				// Recovery preserves in-progress turns.
 				const lost = agent.agentState === "unavailable";
 				for (const turn of agent.turns) {
-					// Per turn, so two quick completions stay two notices.
+					// Distinct turns get distinct notices.
 					const identity = agentTurnIdentity(agent.backend, agent.agentId, turn.id);
 					const key = `${agent.ownerKey}\n${identity}`;
 					present.add(key);

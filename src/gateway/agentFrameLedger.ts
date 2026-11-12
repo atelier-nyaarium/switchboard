@@ -1,5 +1,3 @@
-// A daemon frame's life at the Gateway: arrival, hold, decision and acknowledgement.
-
 ////////////////////////////////
 //  Interfaces & Types
 
@@ -9,13 +7,12 @@ export interface FrameIdentity {
 	agent: string;
 	daemonInstanceId: string;
 	eventId: number;
-	/** Absent for a frame with no stream, a refusal. */
+	/** Refusals have no stream. */
 	stream?: { targetId: string; generation: number };
-	/** Whether a full hold may drop it. */
 	droppable: boolean;
 }
 
-/** `awaiting`: in the record, its write unconfirmed. */
+/** Unconfirmed record write. */
 export type HoldReason = "reconcile" | "failed" | "awaiting";
 
 export interface FrameTicket<P> {
@@ -23,21 +20,17 @@ export interface FrameTicket<P> {
 	payload: P;
 	state: "open" | "held" | "decided";
 	why?: HoldReason;
-	/** First hold, kept across retries. */
+	/** First hold time survives retries. */
 	heldSince?: number;
-	/** Its counter was counted. */
 	counted: boolean;
-	/** It arrived at or below the acknowledged mark, so its acknowledgement is repeated. */
+	/** Repeat ack at or below mark. */
 	readonly acked: boolean;
 }
 
 export type FrameArrival<P> =
 	| { kind: "new"; ticket: FrameTicket<P> }
-	/** A replay of a held frame. */
 	| { kind: "held"; ticket: FrameTicket<P> }
-	/** A replay of a frame its reducer has not reached. */
 	| { kind: "queued" }
-	/** A replay of a decided frame. */
 	| { kind: "decided"; ack?: FrameAck };
 
 export interface FrameAck {
@@ -48,7 +41,7 @@ export interface FrameAck {
 }
 
 export interface HoldResult {
-	/** False when the cap dropped this frame itself. */
+	/** False if this ticket was dropped. */
 	kept: boolean;
 	acks: FrameAck[];
 }
@@ -57,7 +50,6 @@ interface Stream<P> {
 	daemonInstanceId: string;
 	targetId: string;
 	generation: number;
-	/** Arrived and undecided. */
 	open: Map<number, FrameTicket<P>>;
 	highestDecided: number;
 	committedThrough: number;
@@ -77,7 +69,7 @@ function unfencedKey(identity: FrameIdentity): string {
 ////////////////////////////////
 //  Class
 
-/** Knows a frame from its arrival, so no acknowledgement passes one still undecided. */
+/** Undecided frames block acknowledgements. */
 export class AgentFrameLedger<P> {
 	private readonly streams = new Map<string, Stream<P>>();
 	private readonly unfenced = new Map<string, FrameTicket<P>>();
@@ -89,9 +81,9 @@ export class AgentFrameLedger<P> {
 		const stream = identity.stream ? this.stream(identity.daemonInstanceId, identity.stream) : undefined;
 		const standing = stream ? stream.open.get(identity.eventId) : this.unfenced.get(unfencedKey(identity));
 		if (standing) return standing.state === "held" ? { kind: "held", ticket: standing } : { kind: "queued" };
-		// A lost acknowledgement is what replays one at or below the mark.
+		// Retries may need the lost acknowledgement.
 		const acked = stream !== undefined && identity.eventId <= stream.committedThrough;
-		// An event is ordered by its stream. A receipt is placed by its operation, whatever its id.
+		// Events order by stream; receipts by operation.
 		if (stream && identity.frame === "event" && identity.eventId <= stream.highestDecided) {
 			const ack = this.ackOf(stream, acked);
 			return { kind: "decided", ...(ack ? { ack } : {}) };
@@ -102,7 +94,7 @@ export class AgentFrameLedger<P> {
 		return { kind: "new", ticket };
 	}
 
-	/** The acknowledgement it frees, if any. Commit it with `acknowledged` once sent. */
+	/** Commit only after sending. */
 	decide(ticket: FrameTicket<P>): FrameAck | undefined {
 		if (ticket.state === "decided") return undefined;
 		if (ticket.state === "held") this.unlist(ticket);
@@ -138,7 +130,6 @@ export class AgentFrameLedger<P> {
 		return { kept: ticket.state === "held", acks };
 	}
 
-	/** By event id. */
 	heldFor(agent: string): Array<FrameTicket<P>> {
 		return [...(this.held.get(agent) ?? [])].sort((left, right) => left.identity.eventId - right.identity.eventId);
 	}
@@ -151,7 +142,7 @@ export class AgentFrameLedger<P> {
 		return [...this.held.keys()];
 	}
 
-	/** When the agent's oldest frame of these reasons was first held. */
+	/** Oldest matching hold time. */
 	heldSince(agent: string, reasons: readonly HoldReason[]): number | undefined {
 		let oldest: number | undefined;
 		for (const ticket of this.held.get(agent) ?? []) {
@@ -161,7 +152,7 @@ export class AgentFrameLedger<P> {
 		return oldest;
 	}
 
-	/** The daemon was sent it. */
+	/** Only sent acknowledgements advance the mark. */
 	acknowledged(ack: FrameAck): void {
 		const stream = this.streams.get(streamKey(ack.daemonInstanceId, ack));
 		if (stream) stream.committedThrough = Math.max(stream.committedThrough, ack.throughEventId);
@@ -192,7 +183,7 @@ export class AgentFrameLedger<P> {
 		return stream;
 	}
 
-	/** Through the highest decided id below the lowest open one. */
+	/** Only the decided prefix is acknowledged. */
 	private ackOf(stream: Stream<P>, again: boolean): FrameAck | undefined {
 		let lowestOpen = Number.POSITIVE_INFINITY;
 		for (const eventId of stream.open.keys()) lowestOpen = Math.min(lowestOpen, eventId);

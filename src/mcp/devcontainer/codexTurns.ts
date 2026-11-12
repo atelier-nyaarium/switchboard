@@ -57,9 +57,8 @@ interface Turn {
 ////////////////////////////////
 //  Constants
 
-/** A held turn's wait before its thread is read. */
 const HELD_TERMINAL_MS = 10_000;
-/** Reads that may say "running" before a hold ends anyway. */
+/** Consecutive running reads tolerated. */
 const HELD_CHECKS = 3;
 const ENDED_MEMORY = 256;
 
@@ -93,7 +92,6 @@ function counterKind(type: string): AgentCounterKind | undefined {
 ////////////////////////////////
 //  Class
 
-/** A Codex turn from its first frame to its end. Parking its thread is `ThreadLifecycle`. */
 export class CodexTurns {
 	private readonly turns = new Map<string, Turn>();
 	/** Oldest first. */
@@ -103,7 +101,7 @@ export class CodexTurns {
 
 	constructor(private readonly deps: CodexTurnsDeps) {}
 
-	/** The turn's end. One promise while it runs; resolved at once if it ended. */
+	/** Replays ended turns; otherwise resolves on settlement. */
 	register(threadId: string, turnId: string): Promise<TerminalOutcome> {
 		if (this.lost !== undefined) return Promise.resolve({ status: "failed", error: this.lost });
 		const ended = this.ended.get(turnId);
@@ -157,7 +155,6 @@ export class CodexTurns {
 		return observed;
 	}
 
-	/** A terminal the thread's owner published. */
 	published(threadId: string, turnId: string, terminal: TerminalOutcome): void {
 		if (this.lost !== undefined) return;
 		const turn = this.turns.get(turnId);

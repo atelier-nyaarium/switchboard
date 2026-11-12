@@ -13,7 +13,6 @@ interface TerminalAgentDeps {
 	stacks: AgentStacks;
 }
 
-/** Owns terminal cleanup. */
 export function createTerminalAgents(
 	deps: TerminalAgentDeps,
 	stackAgents: StackAgents,

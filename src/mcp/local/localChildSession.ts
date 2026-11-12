@@ -6,17 +6,16 @@ export interface LocalChildHost {
 	now(): number;
 	inFlight(): number;
 	hasActiveTurn(): boolean;
-	/** A child that closed, by reap, by drop or on its own. */
+	/** Session closure from any source. */
 	onClosed(session: AgentBackendSession): void;
 }
 
-/** Idle duration before local child reaping. */
 export const LOCAL_IDLE_REAP_MS = 10 * 60_000;
 
 export class LocalChildSession {
 	private session?: AgentBackendSession;
 	private opening?: Promise<AgentBackendSession>;
-	/** Child activity clock, independent of agent timestamps. */
+	/** Reaping uses its own activity clock. */
 	private lastUsedAt = 0;
 	private idleTimer?: ReturnType<typeof setInterval>;
 
@@ -36,7 +35,7 @@ export class LocalChildSession {
 	}
 
 	drop(session: AgentBackendSession): void {
-		// Clear locally even if close omits its callback.
+		// Clear locally if close omits callback.
 		if (this.session === session) {
 			this.session = undefined;
 			this.opening = undefined;
@@ -51,12 +50,12 @@ export class LocalChildSession {
 	open(): Promise<AgentBackendSession> {
 		if (this.session) return Promise.resolve(this.session);
 		this.startIdleReaper();
-		// Share one child to avoid duplicate readers and ID spaces.
+		// Share one child to preserve thread IDs.
 		this.opening ??= this.host.spec
 			.openSession()
 			.then((session) => {
 				this.session = session;
-				// Identity-guard late closes from evicting successors.
+				// Stale closes must not clear successors.
 				session.onClosed(() => {
 					if (this.session === session) this.session = undefined;
 					this.host.onClosed(session);

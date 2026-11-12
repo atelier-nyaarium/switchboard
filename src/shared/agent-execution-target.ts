@@ -1,7 +1,3 @@
-// Where a delegated agent thread runs, neutrally named: the requested target, the daemon-resolved
-// target, the owner key, and the SOLE owner of the targetId grammar (`host`, or
-// `container:<project-slug>`). Every backend reads these, so none can drift on where a thread may run.
-
 import { z } from "zod";
 import { isComposite, isSlug, parseSessionName } from "./session-id.js";
 
@@ -53,8 +49,7 @@ export const AgentOwnerKeySchema = z
 ////////////////////////////////
 //  Functions & Helpers
 
-/** The SOLE owner of the targetId grammar. Everything that builds or reads one goes through here,
- * so a launcher cannot invent its own reading of the field. */
+/** Sole owner of the targetId grammar. */
 export const AGENT_HOST_TARGET_ID = "host";
 const AGENT_CONTAINER_PREFIX = "container:";
 
