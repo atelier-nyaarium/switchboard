@@ -935,6 +935,38 @@ Left for B: a frame whose application `failed` has no ask and no deadline, the o
 - **A frame held for reconciliation is judged against a fence that moved while it waited** (`AgentRelayCore` deferred frames over `classifyEventFence` in the applier). Round one, the audit: a held receipt, patched with `laterFence` and binding the operation by its turn. Round two, Codex's move: a held event, patched with the `held` flag past the duplicate check. Round three, the red team: held frames had no ask pending once the guard swallowed one, patched with a one-shot re-ask. Round four, the architecture step: a held receipt waited on its own reconcile answer while the frame that placed it had already been applied, and the drain acknowledged before it replayed; patched with a retry after every applied frame. Four rounds in one mechanism. The fence orders by event id while a held frame's own id no longer says where it stands, and nothing owns how long a frame may wait. One owner for a held frame's order, deadline and replay gaps is on the board, `bd_6f6eeb94f93e76dcca7a126d098a6e35`, and is opportunity B above.
 - **The harness's fake daemon was a second implementation of the daemon's wire behavior:** it had no outbox, so a case's result depended on which microtask ran first, and its reconcile answers came from its own map. Ended by opportunity A: the harness runs the daemon's own runtime.
 
+### Architecture B: one owner for a held frame
+
+Designed 2026-11-12 from a full read of `AgentRelayCore`, `agentApply.ts`, `agent-recovery.ts` and `agent-fence.ts`. The deadline is the owner's answer A, 10 minutes.
+
+**What is scattered today, all in `AgentRelayCore`:** `deferred` (the held frames per agent), `streams` with `undecided` (the hold barriers and the acknowledgement mark), `lastReconcileAskedAt` and `reasks` (the ask guard and its one-shot retry), `retrying` and `retryAgain` (reentrancy), and `countedEvents` (a bounded set so a counter counts once).
+
+**What that shape still gets wrong:**
+
+- **A frame is known to the stream only once its reducer ran.** Frames queue per agent, so a later frame of another agent can be decided first and acknowledged past an earlier one still queued. If that earlier one is then held, the daemon has already dropped its copy.
+- **Only a `reconcile` disposition asks.** A `failed` application is held with no ask and no end.
+- **The retry of a swallowed ask is one shot.** A same-process mismatch (`askAgain`) holds its frames for good.
+- **A counter's once-only mark is forgotten after 4,096 others,** held or not.
+- **Nothing ends a hold,** and one held frame stops the cumulative acknowledgement of every agent on that target.
+- **The daemon's outbox evicts past 1,000 unacknowledged frames and tells nobody.** A turn whose terminal was evicted reads as working for good, since an agent whose fence names the live daemon is never asked about.
+
+**The ledger, `src/gateway/agentFrameLedger.ts`, pure and clocked by its caller:**
+
+- **`receive(frame)` at arrival, before the per-agent queue,** answers a ticket: `new`, `held` (a replay of a frame still held, which retries the held copy) or `decided` (a replay at or below the stream's decided mark, which is acknowledged again and not reduced). The stream knows the frame from that moment, so no acknowledgement passes it.
+- **`resolve(ticket, decided | held(why))`** after the reducer. A held ticket keeps the time it was first held and whether its counter was counted, for its whole life. The per-agent cap stays 128 and still drops only commentary.
+- **The acknowledgement mark is the ledger's:** through the highest decided id below the lowest open ticket. `countedEvents` goes, since a decided replay never reaches the reducer.
+- **Unfenced frames,** a rejection, get a ticket with no stream.
+
+**The relay's policy over it:**
+
+- **An ask repeats every `RECONCILE_GUARD_MS` while an agent holds a frame for `reconcile` or `failed`,** where it fired once.
+- **At 10 minutes the hold is closed** (`HELD_FRAME_LIMIT_MS`), counted from the later of the first hold and the live daemon's last hello, and only while a daemon is live. The applier's `closeHeld` ends the record's active turn as interrupted with `AGENT_TURN_LOST_REASON`, adopts the turn the daemon last reported running when the last answer was `askAgain`, and marks requested operations `indeterminate`. The held frames are retried once against that record and whatever still cannot be placed is decided and logged. An interrupt for the ended turn is sent to the daemon, best effort. The settled turn tells the session through the awareness it already has.
+- **A frame awaiting its write has no deadline:** it is in the record, and `gone` already lets it go.
+
+**The daemon's hello names what its outbox evicted,** per stream, and the Gateway asks about every working agent on such a target whatever its fence says.
+
+Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness test passing unchanged. B3 the repeated ask and the close, with virtual-clock cases. B4 the eviction marker. Each is audited before the next.
+
 ## Phase 3 - Acceptance and docs
 
 - Live on Sakura from the phone: create an OpenCode session, talk to it, watch it in the terminal view, approve a `.env` read from the card, compact it, close and wake it, and crosstalk with a Claude session in both directions.
