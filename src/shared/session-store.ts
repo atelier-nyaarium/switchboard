@@ -125,19 +125,37 @@ interface CreateOpts {
 	mintedFrom?: string;
 }
 
+/** A reader that writes to it throws. */
+function frozen<T>(value: T): T {
+	if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+	Object.freeze(value);
+	for (const child of Object.values(value)) frozen(child);
+	return value;
+}
+
 class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 	private readonly catalogs = new WeakMap<SessionRecord, Catalog>();
 	private readonly unconfirmed = new WeakMap<SessionRecord, number>();
+	/** One parse per held catalog, shared and frozen. */
+	private readonly views = new WeakMap<Catalog, Catalog>();
 
 	constructor(
 		private readonly parseCatalog: (candidate: unknown) => Catalog,
 		private readonly ownerAlive: (owner: SessionRecord) => boolean,
 	) {}
 
+	private view(held: Catalog): Catalog {
+		const seen = this.views.get(held);
+		if (seen) return seen;
+		const view = frozen(this.parseCatalog(held));
+		this.views.set(held, view);
+		return view;
+	}
+
 	get(owner: SessionRecord): Catalog | undefined {
 		if (!this.ownerAlive(owner)) return undefined;
 		const catalog = this.catalogs.get(owner);
-		return catalog ? this.parseCatalog(catalog) : undefined;
+		return catalog ? this.view(catalog) : undefined;
 	}
 
 	commit(
@@ -151,7 +169,8 @@ class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 		const currentRevision = previous?.revision ?? 0;
 		if (currentRevision !== expectedRevision) return { committed: false, reason: "revision_conflict" };
 		const previousUnconfirmedRevision = this.unconfirmed.get(owner);
-		const next = this.parseCatalog({ version: 1, revision: expectedRevision + 1, agents });
+		const next = frozen(this.parseCatalog({ version: 1, revision: expectedRevision + 1, agents }));
+		this.views.set(next, next);
 		this.catalogs.set(owner, next);
 		let confirmed: boolean | undefined;
 		try {
@@ -168,7 +187,7 @@ class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 			return { committed: false, reason: "unconfirmed" };
 		}
 		this.unconfirmed.delete(owner);
-		return { committed: true, catalog: this.parseCatalog(next) };
+		return { committed: true, catalog: next };
 	}
 
 	isDurable(owner: SessionRecord, revision: number): boolean {
@@ -192,7 +211,7 @@ class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 			return { confirmed: false, reason: "unconfirmed" };
 		}
 		this.unconfirmed.delete(owner);
-		return { confirmed: true, catalog: this.parseCatalog(catalog) };
+		return { confirmed: true, catalog: this.view(catalog) };
 	}
 
 	install(record: SessionRecord, catalog: Catalog): void {

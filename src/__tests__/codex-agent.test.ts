@@ -338,6 +338,33 @@ describe("Codex agent contracts", () => {
 		expect(service.resolveExecutionTarget(host)).toEqual({ kind: "host", workdirHint: "/projects/chosen" });
 	});
 
+	it("reads an unchanged catalog as one frozen view, and as a new one after a commit", () => {
+		const { service, sessionStore } = ownedService();
+		const record = owner(sessionStore, "recipe-app");
+		service.beginStart(record, {
+			agentId: AGENT_ID,
+			operationId: OPERATION_ID,
+			prompt: "Review",
+			target: TARGET,
+			at: 20,
+		});
+		const first = sessionStore.codexCatalog(record)!;
+		const again = sessionStore.codexCatalog(record)!;
+		service.beginStart(record, {
+			agentId: "codex_fedcba9876543210fedcba9876543210",
+			operationId: "123e4567-e89b-42d3-a456-426614174001",
+			prompt: "Second",
+			target: TARGET,
+			at: 22,
+		});
+		const after = sessionStore.codexCatalog(record)!;
+
+		expect(again).toBe(first);
+		expect(() => (first.agents as unknown[]).push({})).toThrow(TypeError);
+		expect(first.agents).toHaveLength(1);
+		expect(after.agents).toHaveLength(2);
+	});
+
 	it.each([
 		["advanced fence", fence(3), "accept"],
 		["foreign daemon", { ...fence(3), daemonInstanceId: "daemon-2" }, "unresolved"],

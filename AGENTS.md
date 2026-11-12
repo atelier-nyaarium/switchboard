@@ -948,6 +948,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     disk. Bytes and holds wait for `landed`; a record write a caller can
     repeat idempotently takes `appliedOrUncertain` and passes the word on in its answer.
 - `src/shared/session-store.ts` - authoritative gateway sessions keyed by `spawn.id`
+  - **An agent catalog is parsed once per held value and read as one frozen view:** the relay's register and hello passes look every agent up, so a read that parsed cost a whole catalog per agent and stalled a start for over a minute at a thousand agents. A reader that writes to a view throws.
 - `src/shared/session-sanitize.ts` / `session-tokens.ts` - normalization, session ids, and bind tokens
 - `src/shared/board-order.ts` - sibling order: a rank is a position among live siblings, and only the Router numbers; `BoardOrder.kt` is the twin
 - `src/shared/agent-screen.ts` / `pane-trim.ts` - pure tmux-pane reads with Kotlin twins and shared fixtures
