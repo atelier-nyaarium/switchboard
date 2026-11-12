@@ -11,6 +11,7 @@ import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
+import com.atelier_nyaarium.switchboard.proto.isSlug
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import com.atelier_nyaarium.switchboard.proto.readHarness
 import com.atelier_nyaarium.switchboard.proto.spawnsOf
@@ -200,7 +201,7 @@ data class GatewayRegistry(
 						lastRegisteredAt = row.lastRegisteredAt,
 						hostSpawns = points[row.gatewayId]?.hostSpawns,
 						harnessSpawns = points[row.gatewayId]?.let(::harnessSpawnsOf),
-						containers = points[row.gatewayId]?.containers?.map(::spawnContainerOf),
+						containers = points[row.gatewayId]?.containers?.let(::addressableContainers),
 						routines = prior?.routines,
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),
 						policies = prior?.policies,
@@ -222,6 +223,10 @@ internal fun harnessSpawnsOf(row: GatewaySpawnPoints): Map<SessionHarness, List<
 	val sent = row.harnessSpawns ?: return legacySpawns(row.claudeSpawns, row.copilotSpawns)
 	return SessionHarness.entries.associateWith { sent.spawnsOf(it).orEmpty() }
 }
+
+/** A container whose project is no address segment is dropped. */
+internal fun addressableContainers(rows: List<ContainerState>): List<SpawnContainer> =
+	rows.filter { isSlug(it.project) }.map(::spawnContainerOf)
 
 /** A container row; a CLI word this build cannot launch is dropped. */
 internal fun spawnContainerOf(row: ContainerState): SpawnContainer =

@@ -16,6 +16,14 @@
 			"session": "cooking",
 			"canonical": "local.sakura.host.cooking",
 			"spawnPointCanonical": "local.sakura.host"
+		},
+		{
+			"domain": "a95dd4e979aa3be5",
+			"gateway": "mikan",
+			"spawn": "client_portal",
+			"session": "a1b2c3",
+			"canonical": "a95dd4e979aa3be5.mikan.client_portal.a1b2c3",
+			"spawnPointCanonical": "a95dd4e979aa3be5.mikan.client_portal"
 		}
 	],
 	"parseTarget": [
@@ -48,8 +56,9 @@
 			"canonical": "other.gw.proj.sess"
 		}
 	],
-	"parseTargetReject": ["", "a.b.c.d.e", "Bad.gateway.spawn.session", "a..b.c"],
+	"parseTargetReject": ["", "a.b.c.d.e", "Bad.gateway.spawn.session", "a..b.c", "_lead", "d.gw._lead.session"],
 	"parseQualifiedTarget": [
+		{ "input": "other.gw.client_portal", "kind": "spawn", "canonical": "other.gw.client_portal" },
 		{ "input": "other.gw.proj", "kind": "spawn", "canonical": "other.gw.proj" },
 		{ "input": "other.gw.proj.sess", "kind": "address", "canonical": "other.gw.proj.sess" }
 	],

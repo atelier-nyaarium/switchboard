@@ -5,6 +5,7 @@ import { WINDOWS_SPAWN } from "./host-spawn.js";
 import type { LaunchFailure } from "./launch-notice.js";
 import { DEVICE_MAX_RECORDS, DeviceCandidateSchema } from "./schemasDevices.js";
 import type { SessionHarness, UNPICKED_WORD } from "./session-harness.js";
+import { MAX_SLUG_LEN, SLUG_RE } from "./session-id.js";
 
 export interface TmuxTarget {
 	kind: "host" | "devcontainer";
@@ -31,8 +32,9 @@ export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
 	"M-BSpace",
 ]);
 
-export const TMUX_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
-export const MAX_TMUX_NAME_LEN = 64;
+/** An address segment names a pane and a project. */
+export const TMUX_NAME_RE = SLUG_RE;
+export const MAX_TMUX_NAME_LEN = MAX_SLUG_LEN;
 export function isTmuxName(name: string): boolean {
 	return name.length <= MAX_TMUX_NAME_LEN && TMUX_NAME_RE.test(name);
 }
@@ -72,7 +74,7 @@ export function isSpawnWorkdirPath(spawn: string | undefined, path: string): boo
 	return isWorkdirPath(path);
 }
 
-export const CONVERSATION_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+export const CONVERSATION_ID_RE = SLUG_RE;
 export const MAX_CONVERSATION_ID_LEN = 128;
 
 export type HostOp =

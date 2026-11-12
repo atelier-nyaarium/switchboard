@@ -36,7 +36,16 @@ export function setProjectDirs(dirs: string[]): void {
 //  Catalog scanner
 
 export function scanDevcontainerProjects(): Array<{ team: string; projectPath: string }> {
+	return scanProjectFolders().projects;
+}
+
+/** A folder whose name is no address segment is `unaddressable`, and never a project. */
+export function scanProjectFolders(): {
+	projects: Array<{ team: string; projectPath: string }>;
+	unaddressable: string[];
+} {
 	const results: Array<{ team: string; projectPath: string }> = [];
+	const unaddressable: string[] = [];
 	for (const dir of projectDirs) {
 		const resolved = path.isAbsolute(dir) ? dir : path.join(HOME, dir);
 		let entries: string[];
@@ -51,15 +60,15 @@ export function scanDevcontainerProjects(): Array<{ team: string; projectPath: s
 			if (isHostSpawn(entry)) continue;
 			try {
 				if (!fs.statSync(full).isDirectory()) continue;
-				if (fs.existsSync(path.join(full, ".devcontainer", "devcontainer.json"))) {
-					results.push({ team: entry, projectPath: full });
-				}
+				if (!fs.existsSync(path.join(full, ".devcontainer", "devcontainer.json"))) continue;
+				if (isTmuxName(entry)) results.push({ team: entry, projectPath: full });
+				else unaddressable.push(entry);
 			} catch {
 				// skip inaccessible entries
 			}
 		}
 	}
-	return results;
+	return { projects: results, unaddressable };
 }
 
 ////////////////////////////////

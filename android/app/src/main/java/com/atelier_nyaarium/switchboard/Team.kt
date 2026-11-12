@@ -107,14 +107,17 @@ internal fun mergePresence(prior: List<Team>, fresh: List<Team>, keepPrior: (Tea
 /** Keep linked-domain rows. */
 internal fun keepPriorRow(row: Team, planeDomain: String): Boolean = row.domainId != planeDomain
 
-internal fun teamInfoToTeam(it: TeamInfo): Team {
+/** Null for a row whose name is no address. */
+internal fun teamInfoToTeam(it: TeamInfo): Team? {
 	// Matches gateway address minting.
 	val parsed = parseSessionName(it.team)
-	val canonicalName = if (it.kind == "devcontainer") {
-		SpawnPoint.of(it.domainId, it.gatewayId, parsed.project).canonical
-	} else {
-		Address.of(it.domainId, it.gatewayId, parsed.project, parsed.session).canonical
-	}
+	val canonicalName = runIsolated {
+		if (it.kind == "devcontainer") {
+			SpawnPoint.of(it.domainId, it.gatewayId, parsed.project).canonical
+		} else {
+			Address.of(it.domainId, it.gatewayId, parsed.project, parsed.session).canonical
+		}
+	}.getOrNull() ?: return null
 	return Team(
 		name = canonicalName,
 		// Caller reapplies channel freshness.

@@ -13,7 +13,7 @@ import {
 	SessionPresenceReportSchema,
 } from "../shared/session-control.js";
 import { foldHarness, HARNESS, readHarness, readsOwnState, SESSION_HARNESSES } from "../shared/session-harness.js";
-import { isComposite } from "../shared/session-id.js";
+import { isComposite, isSlug } from "../shared/session-id.js";
 import type { ConnectionMode } from "../shared/types.js";
 import { WORKSPACE_OP_REPLY_FRAME, type WorkspaceOpResult } from "../shared/workspace-op.js";
 import { HandshakeGate } from "./handshakeGate.js";
@@ -506,7 +506,8 @@ export function createWebSocketHandlers({
 				const catalogProjects = new Set<string>();
 				offlineCatalog.clear();
 				for (const p of projects) {
-					if (typeof p.team === "string" && typeof p.projectPath === "string") {
+					// An older daemon sends every folder name.
+					if (typeof p.team === "string" && typeof p.projectPath === "string" && isSlug(p.team)) {
 						offlineCatalog.set(p.team, p.projectPath);
 						knownTeamPaths.set(p.team, p.projectPath);
 						catalogProjects.add(p.team);

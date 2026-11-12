@@ -50,6 +50,28 @@ describe("the spawn points a Gateway reports to the phone", () => {
 		expect(row.harnessSpawns).toEqual({ claude: ["host"], copilot: ["host", "windows"] });
 	}, 30_000);
 
+	it("offers a project named with an underscore, and never one whose name is no address segment", async () => {
+		const harness = await startFederationHarness({
+			host: {
+				projects: [
+					{ team: "client_portal", projectPath: "/home/fixture/client_portal" },
+					{ team: "Client Portal", projectPath: "/home/fixture/Client Portal" },
+				],
+			},
+		});
+		h = harness;
+		const teams = await harness.waitFor(async () => {
+			const { planes } = await harness.phone.planesRead({});
+			const payload = planes.find((plane) => plane.name === "presence")?.payload as
+				| { rows?: Array<{ team: string }> }
+				| undefined;
+			const names = payload?.rows?.map((row) => row.team) ?? [];
+			return names.includes("client_portal") ? names : undefined;
+		}, "the catalog's project in the presence plane");
+
+		expect(teams).not.toContain("Client Portal");
+	}, 30_000);
+
 	it("reads the oldest daemon, which sent no list, as Claude everywhere and Copilot nowhere", async () => {
 		const row = await reported({});
 

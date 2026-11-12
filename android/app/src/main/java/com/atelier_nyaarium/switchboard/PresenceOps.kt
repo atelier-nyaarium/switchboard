@@ -158,7 +158,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		applyOwnerFacts(projection.owner, live)
 		val provenance = if (live) RegistryProvenance.Current else RegistryProvenance.Cached
 		host.state.update { it.copy(gateways = it.gateways.landed(projection, provenance, host::storedRunbooks)) }
-		applyPlanePresenceLocked(projection.rows.map(::teamInfoToTeam), projection.owner.domainId)
+		applyPlanePresenceLocked(projection.rows.mapNotNull(::teamInfoToTeam), projection.owner.domainId)
 		applyCrossDomainPresence(projection.linked)
 	}
 

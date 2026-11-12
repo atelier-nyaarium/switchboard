@@ -65,6 +65,28 @@ class PresenceMergeTest {
 		assertEquals(emptyMap<String, String>(), host.savedLabels)
 	}
 
+	@Test
+	fun aRowThatIsNoAddressIsDroppedAndTheRestLands() = runBlocking {
+		val host = FakeHost()
+		val ops = PresenceOps(host)
+		val unaddressable = row("Client Portal", "mikan").copy(kind = "devcontainer")
+		ops.applyOwnerProjection(projection(1, listOf(unaddressable, row("host.session", "sakura"))))
+
+		assertEquals(listOf("dom1.sakura.host.session"), host.state.value.teams.map { it.name })
+		assertEquals(1L, host.slot?.version)
+	}
+
+	@Test
+	fun aContainerWhoseProjectIsNoAddressSegmentIsNotHeld() {
+		val held = addressableContainers(
+			listOf(
+				com.atelier_nyaarium.switchboard.proto.ContainerState("Client Portal", "running"),
+				com.atelier_nyaarium.switchboard.proto.ContainerState("evie-bot", "running"),
+			),
+		)
+		assertEquals(listOf("evie-bot"), held.map { it.project })
+	}
+
 	private val domain = "dom1"
 
 	private fun prior(gateway: String, session: String, rowDomain: String = domain) =

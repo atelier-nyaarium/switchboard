@@ -61,6 +61,7 @@ import {
 	resolveHostWorkdir,
 	resolveWatchTarget,
 	scanDevcontainerProjects,
+	scanProjectFolders,
 	setProjectDirs,
 } from "./hostResolve.js";
 import { createKasaScanner } from "./kasaScan.js";
@@ -255,7 +256,7 @@ async function probeHost(): Promise<boolean> {
 }
 
 async function sendCatalog(opts: { probed?: boolean } = {}): Promise<void> {
-	const projects = scanDevcontainerProjects();
+	const { projects, unaddressable } = scanProjectFolders();
 	// `hostSpawns` names detected points only; `host` is implicit.
 	const windows = windowsAvailability();
 	const hostSpawns = detectedHostSpawns(windows);
@@ -295,6 +296,9 @@ async function sendCatalog(opts: { probed?: boolean } = {}): Promise<void> {
 		`[host-wake] sent catalog with ${projects.length} projects` +
 			(hostSpawns.length ? ` and host spawn points: ${hostSpawns.join(", ")}` : ""),
 	);
+	if (unaddressable.length > 0) {
+		console.error(`[host-wake] left out, rename to lowercase letters, digits, - or _: ${unaddressable.join(", ")}`);
+	}
 }
 
 function connect(): void {

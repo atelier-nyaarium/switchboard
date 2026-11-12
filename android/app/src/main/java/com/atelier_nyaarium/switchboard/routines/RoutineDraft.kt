@@ -22,7 +22,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** The slug a routine's id has to be, because its reserved session is named from it. */
-private val ID_RE = Regex("^[a-z0-9][a-z0-9-]*$")
+private val ID_RE = Regex(com.atelier_nyaarium.switchboard.proto.Protocol.SLUG_PATTERN)
 private const val MAX_ID_LEN = 56
 private val TIME_RE = Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")
 private val DATE_RE = Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")

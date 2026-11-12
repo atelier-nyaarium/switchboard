@@ -336,7 +336,7 @@ object Protocol {
 	const val DEFAULT_SESSION: String = "claude"
 
 	/** Address slug pattern. */
-	const val SLUG_PATTERN: String = "^[a-z0-9][a-z0-9-]*\$"
+	const val SLUG_PATTERN: String = "^[a-z0-9][a-z0-9_-]*\$"
 
 	const val MAX_SLUG_LEN: Int = 64
 
