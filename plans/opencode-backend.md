@@ -481,6 +481,16 @@ Ten Luna angles and an Opus join over `4fea952e..HEAD`. Fifteen findings ranked,
 - **Fixed:** the typed key's hold; the dropped follow's overlay; the container events read (one `dd`, so a failed read is a failed command, where `tail | head` answered empty); a launch whose CLI's plugins did not install now fails with that reason instead of launching a CLI that never registers; the provision ledger keys the probe by the container id read before it; a fresh launcher's `ready` is checked against its pid; the Starting dock stays off a pane already running a turn; a `clearStatus` test that could not fail; three long comments.
 - **Dropped, with the reason:** an overall deadline on plugin setup. Setup runs in the `building` stage, which has no countdown, each script is bounded, and a Stop aborts it.
 - **Parked:** see Painpoints, the four entries dated 2026-11-11.
+- **Re-audit of the fixes:** two more. With no container id to remember under, plugin setup was skipped and the launch went ahead; it now checks every found CLI. A send refused before the thread had it left its draft taken; the draft is handed back.
+- **Prose:** the phase's comments trimmed by an OpenCode session over two relays, 84 comments in 40 files, each diff checked to touch comment lines only.
+
+### Architecture pass, 2026-11-11
+
+No fan-out. The four bug classes above are each closed by a design change, and the red team's leftovers already name their shape.
+
+- **Next, one change:** launch-scoped facts keyed by launch. The CLI pick and the phone's Starting dock both read a launch by its team. Carry the launch id to the pick, and put the launch record's own state and stage on the presence row. Closes two Painpoints entries and names the stage in the dock. Queued on the board, outside this phase.
+- **After it:** an agent catalog commit that parses and writes one agent, since a catalog now lives until its session is forgotten; Forget purging what a session owns.
+- **No harness reaches `DevContainers.bring`:** its plugin setup branches are covered only through `provisionPlugins` and the ledger.
 
 ## Agent-facing prose
 
