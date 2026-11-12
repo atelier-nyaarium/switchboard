@@ -8,7 +8,7 @@ import {
 	agentIdForOperation,
 	sanitizeAgentErrorText,
 } from "../../shared/agent-record.js";
-import { agentResultDelivery, type AgentServiceTier as CodexServiceTier } from "../../shared/agent-state.js";
+import { type AgentServiceTier, agentResultDelivery } from "../../shared/agent-state.js";
 import { type AgentTurnMarks, collectTurns } from "../../shared/agent-turn-marks.js";
 import type { AgentBackendSession, TurnOptions, TurnTerminal } from "../agents/backendSession.js";
 import { type MessageOutcome, TurnRunner } from "../agents/turnRunner.js";
@@ -63,7 +63,7 @@ interface LocalAgentRecord {
 	activeTurnId?: string;
 	/** The turn a stop was sent for. */
 	interruptingTurnId?: string;
-	serviceTier?: CodexServiceTier;
+	serviceTier?: AgentServiceTier;
 	model?: string;
 	turns: LocalTurnRecord[];
 	turnMarks: AgentTurnMarks;

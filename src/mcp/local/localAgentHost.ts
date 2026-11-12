@@ -83,8 +83,7 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 		maxActivities: AGENT_ACTIVITY_MAX_ITEMS,
 		// Reaping loses nonresumable agents.
 		threadsResumable: driver.threadsResumable,
-		// Never, on either backend, and stated rather than absent. See the spec field: there is no
-		// transport that can retry unseen and no record that survives the process to replay from.
+		// Never, on any backend: no transport retries unseen and no record survives the process.
 		replaysOperations: false,
 		notify: (notice) => {
 			const awareness = { from: AGENT_NOTICE_SOURCE, body: agentNoticeLine(notice), act: agentNoticeAct(notice) };

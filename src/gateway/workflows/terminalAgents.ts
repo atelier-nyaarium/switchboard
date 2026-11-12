@@ -3,8 +3,8 @@ import type { Ambient } from "../../shared/ambient.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
 import type { AgentStacks } from "../agentStack.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
-import type { AgentFamilies } from "./agentFamilies.js";
 import type { AgentView } from "./agentViews.js";
+import type { StackAgents } from "./stackAgents.js";
 
 interface TerminalAgentDeps {
 	ambient: Pick<Ambient, "newId">;
@@ -16,10 +16,10 @@ interface TerminalAgentDeps {
 /** Owns terminal cleanup. */
 export function createTerminalAgents(
 	deps: TerminalAgentDeps,
-	families: AgentFamilies,
+	stackAgents: StackAgents,
 	ownerOf: (team: string) => SessionRecord | undefined,
 ) {
-	const { listRunAgents, listAgent, retire, abandon, familyOfAgent } = families;
+	const { listRunAgents, listAgent, retire, abandon, backendOfAgent } = stackAgents;
 	const stopSent = new WeakMap<object, Set<string>>();
 	const idleListeners = new Map<string, () => void>();
 
@@ -73,27 +73,27 @@ export function createTerminalAgents(
 		run: { runId: string; team: string },
 		agent: AgentView,
 	): boolean {
-		const family = familyOfAgent(owner, agent.agentId);
-		if (!family) return true;
+		const backend = backendOfAgent(owner, agent.agentId);
+		if (!backend) return true;
 		if (agent.state === "working" || agent.turns.some((turn) => turn.state === "inProgress")) {
-			stopAgent(owner, family, agent);
-			const current = listAgent(owner, family, agent.agentId);
+			stopAgent(owner, backend, agent);
+			const current = listAgent(owner, backend, agent.agentId);
 			if (current && (current.state === "idle" || current.state === "unavailable")) {
-				return retire(owner, family, agent.agentId);
+				return retire(owner, backend, agent.agentId);
 			}
-			watchIdle(owner, family, agent.agentId, (current) => {
+			watchIdle(owner, backend, agent.agentId, (current) => {
 				if (!current || current.state === "idle" || current.state === "unavailable") {
-					retire(owner, family, agent.agentId);
+					retire(owner, backend, agent.agentId);
 					return;
 				}
-				if (current.state === "working") stopAgent(owner, family, current);
+				if (current.state === "working") stopAgent(owner, backend, current);
 			});
 			return false;
 		}
-		if (agent.state === "idle" || agent.state === "unavailable") return retire(owner, family, agent.agentId);
-		watchIdle(owner, family, agent.agentId, (current) => {
+		if (agent.state === "idle" || agent.state === "unavailable") return retire(owner, backend, agent.agentId);
+		watchIdle(owner, backend, agent.agentId, (current) => {
 			if (!current || current.state === "idle" || current.state === "unavailable")
-				retire(owner, family, agent.agentId);
+				retire(owner, backend, agent.agentId);
 			else ensureTerminalAgent(owner, run, current);
 		});
 		return false;
@@ -104,12 +104,12 @@ export function createTerminalAgents(
 		if (!owner) return true;
 		let complete = true;
 		for (const agent of listRunAgents(owner, run.runId)) {
-			const family = familyOfAgent(owner, agent.agentId);
-			if (!family) continue;
+			const backend = backendOfAgent(owner, agent.agentId);
+			if (!backend) continue;
 			for (const operation of agent.operations) {
-				if (operation.state === "requested") abandon(owner, family, agent.agentId, operation.operationId);
+				if (operation.state === "requested") abandon(owner, backend, agent.agentId, operation.operationId);
 			}
-			const current = listAgent(owner, family, agent.agentId);
+			const current = listAgent(owner, backend, agent.agentId);
 			if (current && !ensureTerminalAgent(owner, run, current)) complete = false;
 		}
 		return complete;

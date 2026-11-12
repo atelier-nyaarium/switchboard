@@ -67,7 +67,7 @@ export interface AgentTransitionResult<TAgent extends AgentCatalogAgent> {
 	catalogRevision: number;
 }
 
-export interface AgentCatalogFamily<TAgent extends AgentCatalogAgent> {
+export interface AgentCatalogPort<TAgent extends AgentCatalogAgent> {
 	read(owner: SessionRecord): AgentCatalog<TAgent> | undefined;
 	writer: AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>;
 }
@@ -77,10 +77,10 @@ export interface AgentCatalogFamily<TAgent extends AgentCatalogAgent> {
 
 /** One owner's agent catalog for one backend. `write` is its only catalog write. */
 export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
-	constructor(private readonly family: AgentCatalogFamily<TAgent>) {}
+	constructor(private readonly port: AgentCatalogPort<TAgent>) {}
 
 	read(owner: SessionRecord): AgentCatalog<TAgent> {
-		return this.family.read(owner) ?? { version: 1, revision: 0, agents: [] };
+		return this.port.read(owner) ?? { version: 1, revision: 0, agents: [] };
 	}
 
 	/** Exactly one match, or none. */
@@ -97,9 +97,9 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 	}
 
 	durable(owner: SessionRecord, revision: number): boolean {
-		if (this.family.writer.isDurable(owner, revision)) return true;
+		if (this.port.writer.isDurable(owner, revision)) return true;
 		try {
-			return this.family.writer.checkpoint(owner, revision).confirmed;
+			return this.port.writer.checkpoint(owner, revision).confirmed;
 		} catch {
 			return false;
 		}
@@ -107,7 +107,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 
 	/** Whether `revision` is on disk; may try the write once. `gone`: the catalog no longer reaches it. */
 	confirmation(owner: SessionRecord, revision: number): CatalogConfirmation {
-		const current = this.family.read(owner)?.revision;
+		const current = this.port.read(owner)?.revision;
 		// A live owner's revision never moves back.
 		if (current === undefined || current < revision) return "gone";
 		return this.durable(owner, current) ? "confirmed" : "pending";
@@ -116,7 +116,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 	private write(owner: SessionRecord, expectedRevision: number, agents: readonly TAgent[]): CatalogWrite<TAgent> {
 		let result: ReturnType<AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>["commit"]>;
 		try {
-			result = this.family.writer.commit(owner, expectedRevision, agents);
+			result = this.port.writer.commit(owner, expectedRevision, agents);
 		} catch (cause) {
 			return { kind: "failed", cause };
 		}

@@ -54,8 +54,8 @@ interface ActiveTurn<Owner> extends RunningTurn<Owner> {
 ////////////////////////////////
 //  Constants
 
-const HELD_TURNS_MAX = 32;
-const HELD_EVENTS_MAX = 64;
+const EARLY_TURNS_MAX = 32;
+const EARLY_EVENTS_MAX = 64;
 const THREAD_MEMORY = 256;
 const SEEN_TURNS_MAX = 1024;
 /** Bounds a silent reasoning hang. */
@@ -70,7 +70,7 @@ export class TurnRunner<Owner> {
 	/** One turn per thread. */
 	private readonly active = new Map<string, ActiveTurn<Owner>>();
 	/** What a child said of a turn not yet announced. */
-	private readonly held = new Map<string, Array<(turn: ActiveTurn<Owner>) => void>>();
+	private readonly early = new Map<string, Array<(turn: ActiveTurn<Owner>) => void>>();
 	/** Every turn announced here, so an adopted one is never another prompt's. */
 	private readonly seen = new Set<string>();
 
@@ -120,7 +120,7 @@ export class TurnRunner<Owner> {
 	/** Tells of no terminal. */
 	clear(): void {
 		this.active.clear();
-		this.held.clear();
+		this.early.clear();
 	}
 
 	/**
@@ -262,8 +262,8 @@ export class TurnRunner<Owner> {
 		this.seen.add(handle.turnId);
 		if (this.seen.size > SEEN_TURNS_MAX) this.seen.delete(this.seen.values().next().value as string);
 		accepted(handle.turnId);
-		for (const publish of this.held.get(handle.turnId) ?? []) publish(active);
-		this.held.delete(handle.turnId);
+		for (const publish of this.early.get(handle.turnId) ?? []) publish(active);
+		this.early.delete(handle.turnId);
 		void handle.settled.then((terminal) => this.settle(active, terminal));
 	}
 
@@ -281,11 +281,11 @@ export class TurnRunner<Owner> {
 			publish(active);
 			return;
 		}
-		const held = this.held.get(turnId) ?? [];
-		if (held.length >= HELD_EVENTS_MAX) return;
-		held.push(publish);
-		this.held.set(turnId, held);
-		while (this.held.size > HELD_TURNS_MAX) this.held.delete(this.held.keys().next().value as string);
+		const said = this.early.get(turnId) ?? [];
+		if (said.length >= EARLY_EVENTS_MAX) return;
+		said.push(publish);
+		this.early.set(turnId, said);
+		while (this.early.size > EARLY_TURNS_MAX) this.early.delete(this.early.keys().next().value as string);
 	}
 
 	private byTurn(turnId: string): ActiveTurn<Owner> | undefined {

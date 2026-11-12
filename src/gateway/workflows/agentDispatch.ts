@@ -9,21 +9,21 @@ import type { SessionRecord, SessionStore } from "../../shared/session-store.js"
 import type { AgentStacks } from "../agentStack.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
-import { createAgentFamilies } from "./agentFamilies.js";
 import { type AgentOperation, type AgentView, answerOutcome, failureOutcome, refusalOutcome } from "./agentViews.js";
 import { createClaudeSteps } from "./claudeSteps.js";
 import {
-	familyTextError,
 	latestTurn,
 	makeTurn,
 	type PendingCall,
 	parseTarget,
 	taskKey,
 	threadMapRow,
+	thrownText,
 } from "./dispatchCore.js";
 import { createWorkflowPrompt } from "./dispatchPrompt.js";
 import type { WorkflowDispatchOutcome, WorkflowDispatchPort } from "./engine.js";
 import type { WorkflowRunner } from "./runner.js";
+import { createStackAgents } from "./stackAgents.js";
 import { createTerminalAgents } from "./terminalAgents.js";
 import type { WorkflowJournalRow } from "./workflowSchemas.js";
 export interface WorkflowAgentDispatchDeps {
@@ -351,7 +351,7 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 					abandon(owner, task.issued.backend, task.lastAgentId, task.lastOperationId);
 				} catch {}
 			}
-			settle(task, { outcome: "failed", answer: null, reason: familyTextError(error) });
+			settle(task, { outcome: "failed", answer: null, reason: thrownText(error) });
 		} finally {
 			task.running = false;
 			if (!task.done && pollAfterAttempt) fireAndForget("workflow agent poll", poll(task));
@@ -427,9 +427,9 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		for (const agent of listRunAgents(owner, record.runId)) ensureTerminalAgent(owner, record, agent);
 	}
 
-	const families = createAgentFamilies(deps);
-	const { snapshot, listRunAgents, listAgent, retire, abandon } = families;
-	const terminalAgents = createTerminalAgents(deps, families, ownerOf);
+	const stackAgents = createStackAgents(deps);
+	const { snapshot, listRunAgents, listAgent, retire, abandon } = stackAgents;
+	const terminalAgents = createTerminalAgents(deps, stackAgents, ownerOf);
 	const { ensureTerminalAgent, watchIdle } = terminalAgents;
 	const promptSteps = createWorkflowPrompt(deps, settle, () => stopped);
 	const { composePrompt } = promptSteps;
@@ -519,15 +519,15 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		inspectThread({ team, agentId }) {
 			const owner = ownerOf(team);
 			if (!owner) return null;
-			const family = families.familyOfAgent(owner, agentId);
-			const agent = family && listAgent(owner, family, agentId);
+			const backend = stackAgents.backendOfAgent(owner, agentId);
+			const agent = backend && listAgent(owner, backend, agentId);
 			return agent ? { state: agent.state, ...(agent.runId ? { runId: agent.runId } : {}) } : null;
 		},
 		retagThread({ team, agentId, fromRunId, toRunId }) {
 			const owner = ownerOf(team);
 			if (!owner) return false;
-			const family = families.familyOfAgent(owner, agentId);
-			const stack = family && deps.stacks.get(family);
+			const backend = stackAgents.backendOfAgent(owner, agentId);
+			const stack = backend && deps.stacks.get(backend);
 			return stack ? stack.retagRun(owner, agentId, fromRunId, toRunId, deps.ambient.now()) : false;
 		},
 	};

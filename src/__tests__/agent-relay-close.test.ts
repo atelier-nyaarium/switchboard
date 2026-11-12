@@ -384,7 +384,6 @@ describe("a hold nothing places is closed at its limit", () => {
 		await context.start();
 		await context.activity(1, "turn-2");
 		await context.reconciled(2, { turnId: "turn-2", turnState: "inProgress" });
-		// Another stream's frame, tried after the ones the close places.
 		await context.activity(5, "turn-1", 2);
 		context.setDisk(false);
 

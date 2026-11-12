@@ -251,7 +251,7 @@ describe("activity append", () => {
 		]);
 	});
 
-	it("takes its cap from the caller, so one shared bound moves both backends", () => {
+	it("takes its cap from the caller, so one shared bound moves every backend", () => {
 		expect(
 			appendAgentActivity(commentary(AGENT_ACTIVITY_MAX_ITEMS), "late", "x", AGENT_ACTIVITY_MAX_ITEMS),
 		).toEqual([

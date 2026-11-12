@@ -32,8 +32,7 @@ export function outcomeFromRead(result: unknown, threadId: string, turnId: strin
 		(item): item is { type: "agentMessage"; id: string; text: string; phase?: unknown } =>
 			item.type === "agentMessage",
 	);
-	// A witnessed turn's own classification, so a rebuilt turn agrees with it. Commentary is
-	// excluded: narration as a final response is a wrong answer, none is an empty one.
+	// Commentary is never the answer.
 	const classified = messages.map((item) => ({ item, kind: classifyCodexItemPhase(item.phase) }));
 	const final =
 		classified.findLast((entry) => entry.kind === "answer")?.item ??

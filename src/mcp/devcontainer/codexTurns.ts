@@ -15,9 +15,9 @@ import type { ReadOutcome, TerminalOutcome } from "./codexTurnOutcome.js";
 type Timer = ReturnType<typeof setTimeout>;
 
 export interface CodexTurnsDeps {
-	/** What `thread/read` says of a turn. Never rejects. */
+	/** Never rejects. */
 	read(threadId: string, turnId: string): Promise<ReadOutcome>;
-	/** Hands an ended turn's terminal on, for its thread to park behind. */
+	/** Its thread parks behind it. */
 	submit(threadId: string, turnId: string, terminal: TerminalOutcome): void;
 	setTimer(run: () => void, ms: number): Timer;
 	clearTimer(timer: Timer): void;
@@ -38,9 +38,9 @@ export interface EndedTurn {
 
 type Ending =
 	| { phase: "running" }
-	/** Completed with no answer yet, its deadline armed. `lapsed` counts deadlines already passed. */
+	/** Completed, awaiting its answer. `lapsed`: deadlines passed. */
 	| { phase: "holding"; lapsed: number; timer: Timer }
-	/** A deadline's read in flight. */
+	/** Deadline read in flight. */
 	| { phase: "checking"; lapsed: number };
 
 interface Turn {
@@ -57,11 +57,10 @@ interface Turn {
 ////////////////////////////////
 //  Constants
 
-/** How long a completed turn waits for its final item before its thread is read. */
-export const HELD_TERMINAL_MS = 10_000;
-/** Deadlines a read may answer "running" before the hold ends on what was witnessed. */
+/** A held turn's wait before its thread is read. */
+const HELD_TERMINAL_MS = 10_000;
+/** Reads that may say "running" before a hold ends anyway. */
 const HELD_CHECKS = 3;
-// A late frame or registration only arrives near its own turn.
 const ENDED_MEMORY = 256;
 
 ////////////////////////////////
@@ -94,21 +93,17 @@ function counterKind(type: string): AgentCounterKind | undefined {
 ////////////////////////////////
 //  Class
 
-/**
- * A Codex turn from its first frame to its end: what it produced, who waits on it, and the one
- * decision of how it ended. A frame, a read and a deadline all end a turn through `end`, so a turn
- * ends once whichever saw it first. Parking its thread is `ThreadLifecycle`.
- */
+/** A Codex turn from its first frame to its end. Parking its thread is `ThreadLifecycle`. */
 export class CodexTurns {
 	private readonly turns = new Map<string, Turn>();
 	/** Oldest first. */
 	private readonly ended = new Map<string, { threadId: string; terminal: TerminalOutcome }>();
-	/** Set once its child is gone. */
+	/** The child-exit error. */
 	private lost?: string;
 
 	constructor(private readonly deps: CodexTurnsDeps) {}
 
-	/** The turn's end, once. One promise per turn, already resolved for a turn that has ended. */
+	/** The turn's end. One promise while it runs; resolved at once if it ended. */
 	register(threadId: string, turnId: string): Promise<TerminalOutcome> {
 		if (this.lost !== undefined) return Promise.resolve({ status: "failed", error: this.lost });
 		const ended = this.ended.get(turnId);
@@ -130,7 +125,7 @@ export class CodexTurns {
 		return turn?.threadId === threadId && turn.handle !== undefined;
 	}
 
-	/** Folds one server frame, and names the turn it ended. Deltas are ignored. */
+	/** Names the turn this frame ended. */
 	accept(message: unknown): EndedTurn | null {
 		const item = CodexAppServerAgentMessageCompletedSchema.safeParse(message);
 		if (item.success) return this.onMessage(item.data.params);
@@ -144,10 +139,7 @@ export class CodexTurns {
 		return null;
 	}
 
-	/**
-	 * Reads the turn, ending it on a settled read. A completed read with no answer is running while
-	 * the turn's first deadline is still armed, since the answer may yet come.
-	 */
+	/** A settled read ends the turn. Answerless, it reads as running until the first deadline. */
 	async inspect(threadId: string, turnId: string): Promise<ReadOutcome> {
 		const observed = await this.deps.read(threadId, turnId);
 		if (observed.known !== "settled") return observed;
@@ -165,7 +157,7 @@ export class CodexTurns {
 		return observed;
 	}
 
-	/** A terminal its thread's owner published, which may be one that owner read for itself. */
+	/** A terminal the thread's owner published. */
 	published(threadId: string, turnId: string, terminal: TerminalOutcome): void {
 		if (this.lost !== undefined) return;
 		const turn = this.turns.get(turnId);
@@ -173,7 +165,7 @@ export class CodexTurns {
 		else if (!this.ended.has(turnId)) this.remember(turnId, threadId, terminal);
 	}
 
-	/** Its child is gone: every turn ends as failed, and no frame or registration opens another. */
+	/** Fails every turn, and opens none after. */
 	lose(error: string): void {
 		if (this.lost !== undefined) return;
 		this.lost = error;
@@ -184,7 +176,7 @@ export class CodexTurns {
 		this.turns.clear();
 	}
 
-	/** The turn a frame names, unless it has ended or is bound to another thread. */
+	/** Undefined once ended, or on another thread. */
 	private own(threadId: string, turnId: string): Turn | undefined {
 		if (this.lost !== undefined || this.ended.has(turnId)) return undefined;
 		let turn = this.turns.get(turnId);
@@ -208,7 +200,7 @@ export class CodexTurns {
 	}): EndedTurn | null {
 		const turn = this.own(params.threadId, params.turnId);
 		if (!turn) return null;
-		// Commentary never answers for the turn.
+		// Commentary is never the answer.
 		switch (classifyCodexItemPhase(params.item.phase)) {
 			case "answer":
 				turn.lastFinalAnswer = params.item.text;
@@ -266,7 +258,7 @@ export class CodexTurns {
 		turn.ending = { phase: "holding", lapsed, timer };
 	}
 
-	/** A deadline's read: it ends the turn, or arms the next deadline. Never leaves a hold unarmed. */
+	/** Ends the turn or arms the next deadline. */
 	private async check(turnId: string, turn: Turn): Promise<void> {
 		const observed = await this.deps.read(turn.threadId, turnId);
 		if (this.turns.get(turnId) !== turn || turn.ending.phase !== "checking") return;

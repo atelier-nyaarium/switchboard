@@ -15,11 +15,7 @@ export interface AppServerSession {
 	/** Loads the thread and owns a running turn; publishes and deletes nothing. */
 	adoptThread(threadId: string): Promise<ThreadInspection>;
 	readThread(threadId: string): Promise<unknown>;
-	/**
-	 * Start a turn, registering for it in `onStarted`, which runs before any terminal buffered for the
-	 * new turn is published. The type cannot make a double CALL it: a start whose callback never ran
-	 * is refused, and `app-server-double-residue.test.ts` holds the doubles.
-	 */
+	/** `onStarted` runs before any terminal buffered for the new turn is published. */
 	startTurn(
 		threadId: string,
 		text: string,

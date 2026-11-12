@@ -22,6 +22,8 @@ function terminal(status: "completed" | "failed" | "interrupted" = "completed", 
 function setup() {
 	const state = {
 		read: { known: "unknown" } as ReadOutcome,
+		/** A read that answers when the test says. */
+		slowRead: undefined as Promise<ReadOutcome> | undefined,
 		reads: 0,
 		submitted: [] as Array<{ turnId: string; terminal: TerminalOutcome }>,
 		commentary: [] as string[],
@@ -32,7 +34,7 @@ function setup() {
 	const turns = new CodexTurns({
 		read: async () => {
 			state.reads += 1;
-			return state.read;
+			return state.slowRead ?? state.read;
 		},
 		submit: (_threadId, id, ended) => state.submitted.push({ turnId: id, terminal: ended }),
 		setTimer: (run) => {
@@ -49,7 +51,6 @@ function setup() {
 	return {
 		turns,
 		state,
-		/** Runs the armed deadline and the read behind it. */
 		deadline: async () => {
 			const run = state.deadlines.shift();
 			if (!run) throw new Error("no deadline is armed");
@@ -100,8 +101,25 @@ describe("CodexTurns", () => {
 		expect(turns.accept(item("answer", "final_answer"))).toEqual({ turnId, status: "completed" });
 
 		expect(await ended).toMatchObject({ finalResponse: "answer" });
-		// Its deadline went with it.
 		expect(state.deadlines).toEqual([]);
+	});
+
+	it("ends a held turn on an answer that lands while its deadline read is out", async () => {
+		const { turns, state, deadline } = setup();
+		const ended = turns.register(threadId, turnId);
+		turns.accept(terminal());
+		let answerRead: (outcome: ReadOutcome) => void = () => {};
+		state.slowRead = new Promise<ReadOutcome>((resolve) => {
+			answerRead = resolve;
+		});
+		await deadline();
+
+		turns.accept(item("answer", "final_answer"));
+		answerRead({ known: "settled", outcome: { status: "failed", error: "a late read" } });
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+		expect(await ended).toEqual({ status: "completed", finalResponse: "answer" });
+		expect(state.submitted).toHaveLength(1);
 	});
 
 	it("reads the thread at a held turn's deadline, and ends on what the read holds", async () => {
@@ -160,7 +178,6 @@ describe("CodexTurns", () => {
 		state.read = answerless;
 		expect(await turns.inspect(threadId, turnId)).toEqual(answerless);
 		expect(await ended).toEqual({ status: "completed" });
-		// The armed deadline went with the turn.
 		expect(state.deadlines).toEqual([]);
 	});
 
@@ -176,9 +193,20 @@ describe("CodexTurns", () => {
 		state.read = { known: "settled", outcome: { status: "completed", finalResponse: "done" } };
 		expect(await turns.inspect(threadId, turnId)).toEqual(state.read);
 		expect(await ended).toEqual({ status: "completed", finalResponse: "done" });
-		// A frame for it after that ends nothing twice.
 		expect(turns.accept(terminal("failed", "late"))).toBeNull();
 		expect(state.submitted).toHaveLength(1);
+	});
+
+	it("remembers a turn nobody registered once an inspect or its thread's owner ends it", async () => {
+		const { turns, state } = setup();
+		state.read = { known: "settled", outcome: { status: "completed", finalResponse: "read" } };
+		await turns.inspect(threadId, turnId);
+		expect(state.submitted).toEqual([{ turnId, terminal: { status: "completed", finalResponse: "read" } }]);
+		expect(await turns.register(threadId, turnId)).toEqual({ status: "completed", finalResponse: "read" });
+		expect(turns.accept(terminal("failed", "late"))).toBeNull();
+
+		turns.published(threadId, "turn-2", { status: "interrupted" });
+		expect(await turns.register(threadId, "turn-2")).toEqual({ status: "interrupted" });
 	});
 
 	it("ends a failed turn with its cleaned error and an interrupted one with no answer", async () => {
@@ -220,7 +248,6 @@ describe("CodexTurns", () => {
 		expect(turns.registered(threadId, turnId)).toBe(true);
 		expect(turns.registered("thread-2", turnId)).toBe(false);
 
-		// The whole turn beat its own start reply.
 		turns.accept(item("early", "final_answer", "turn-2"));
 		turns.accept({
 			method: "turn/completed",

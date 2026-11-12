@@ -1,7 +1,6 @@
 // Where a delegated agent thread runs, neutrally named: the requested target, the daemon-resolved
 // target, the owner key, and the SOLE owner of the targetId grammar (`host`, or
-// `container:<project-slug>`). Backend-agnostic on purpose; the per-backend schema families alias
-// these rather than re-declaring them, so the two backends cannot drift on where a thread may run.
+// `container:<project-slug>`). Every backend reads these, so none can drift on where a thread may run.
 
 import { z } from "zod";
 import { isComposite, isSlug, parseSessionName } from "./session-id.js";

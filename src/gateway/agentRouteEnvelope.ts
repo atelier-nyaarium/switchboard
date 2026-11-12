@@ -1,4 +1,4 @@
-// The route envelope both agent families share. Result shaping stays per family.
+// The envelope every backend's agent route answers in.
 
 ////////////////////////////////
 //  Interfaces & Types

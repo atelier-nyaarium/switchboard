@@ -1054,6 +1054,29 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
 - **Not changed:** `adoptTurn` still answers nothing for a settled read. A Codex start whose fate is unknown poisons its generation, so a start that was merely refused opened no turn to adopt.
 - **Dropped:** the tracker's stored commentary and its truncation flag, which nothing read. The cap on what is passed on stays.
 
+**Audit of E, 2026-11-12.** Two Luna readers on `8d4a6f75`: the old session against the new owner sequence by sequence, and the written claims with the cases. No defect found.
+
+- **Written claims corrected:** a close tries each unplaced frame, not every held one; a hold is three deadlines and their reads, not thirty seconds; `end` resolves and remembers, and the hand-on is the deciding path's; one promise only while a turn runs.
+- **A comment named a residue test that no longer exists.** Gone, with seventeen comments shortened or cut.
+- **Cases added:** an answer that lands while a deadline read is out, and a turn nobody registered that an inspect or the thread's owner ends.
+
+### Architecture F: a naming pass
+
+**Built, 2026-11-12,** after B, C and E removed half the names it was written for.
+
+- **"Family" now means a model family only.** `AgentRelayFamily` is `AgentRelayPort`, `AgentCatalogFamily` is `AgentCatalogPort`, and the workflow engine's `agentFamilies.ts` is `stackAgents.ts` (`createStackAgents`, `backendOfAgent`).
+- **"Held" now means a frame the relay holds.** The runner's map of what a child said before its turn was announced is `early`.
+- **A reconciliation's fence verdict is `follows`,** so "adopt" is left to a turn.
+- **Codex names left generic code:** the service tier alias in local mode, a test alias, and `codex-tools.test.ts`, which is `agent-request.test.ts`.
+- **Comments that counted two backends** now say every backend, in `agent-fence.ts`, `agent-record.ts`, `agent-execution-target.ts`, `agentRouteEnvelope.ts` and local mode's host.
+- **`docs/agents.md` split its Codex section:** the stream, the ledger, the close and the recovery rules are under "The daemon stream", and "Codex delegation" keeps what is Codex's.
+- **Left as they are:**
+  - **`TargetSession` in the daemon service.** It wraps exactly one driver session with its runner, so "session" there is not a third meaning.
+  - **`threadId` in the driver contract.** Every driver calls it a thread.
+  - **`await` for a collect, `interrupt` for a stop, `serviceTier` for `tier`.** Each is a wire, a stored field or the tool's own word, and each crossing is one mapping.
+  - **`AgentNotice.family`** names a backend and crosses from the plugin to the Gateway.
+  - **"`backend` limits the list to one family"** in `agentList`'s description. Agent-facing, so it is the owner's to word.
+
 ## Phase 3 - Acceptance and docs
 
 - Live on Sakura from the phone: create an OpenCode session, talk to it, watch it in the terminal view, approve a `.env` read from the card, compact it, close and wake it, and crosstalk with a Claude session in both directions.

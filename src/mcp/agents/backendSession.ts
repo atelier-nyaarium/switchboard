@@ -62,9 +62,9 @@ export interface AgentBackendSession {
 	 */
 	steerTurn?(threadId: string, turnId: string, prompt: string, key?: string): Promise<SteerOutcome>;
 	interruptTurn(threadId: string, turnId: string): Promise<void>;
-	/** Optional without readable history. Settling a parked turn also settles its handle. */
+	/** Optional without readable history. A settled read also ends the turn's handle. */
 	inspectTurn?(threadId: string, turnId: string): Promise<TurnInspection>;
-	/** Adopts starts without replies. */
+	/** The turn its thread runs now, as the caller's. */
 	adoptTurn?(threadId: string): Promise<TurnHandle | undefined>;
 	listModels?(): Promise<AgentModel[]>;
 	onActivity(listener: (turnId: string, text: string, itemId?: string) => void): void;

@@ -20,7 +20,7 @@ requires it and its handler refuses a call without it, so no start lands on a ba
 the backend's default. The tool's start and a workflow step's start both take it; a named tier is
 kept.
 
-**`agentListModels` reads each backend's CLI where the session's agents run.** The route relays the
+**`agentListModels` asks each backend's driver where the session's agents run.** The route relays the
 `agentModels` host op, the daemon asks the driver's `listModels` on that target, and
 `offeredModels` in `src/shared/agent-models.ts` keeps the newest of each family and marks the
 backend's default, which stays listed even where a newer one superseded it. Codex and OpenCode ask
@@ -112,7 +112,7 @@ All three backends share `answerOutcome` and `failureOutcome` in
 answers are not classified as declines. The workflow journal, outcomes and recovery contract are in
 `docs/workflows.md`.
 
-## Codex delegation
+## The daemon stream
 
 **A fence is `(daemonInstanceId, targetId, generation, lastEventId)`.** Reconciliation is the only
 path that may install a non-advancing fence, with one exception in `decideAcceptance`: a `started`
@@ -121,7 +121,7 @@ child that took the command can name its operation, so that is a reaped target r
 restarted daemon serving it, and no turn was in flight to misplace. The fence alone cannot order
 two children; the operation id is what does.
 
-**A reconciliation adopts another stream, never a dead one.** `classifyReconciliationFence` refuses
+**A reconciliation follows another stream, never a dead one.** `classifyReconciliationFence` refuses
 an older generation of the stream an agent already follows, and the relay drops a reconciliation
 from a daemon instance a later hello replaced (`fromReplacedDaemon`).
 
@@ -149,8 +149,9 @@ turn did, and the open turn is ended only if the daemon was asked since it opene
 just started is kept. Nothing is given up while no daemon is live, before a new daemon's hello, or
 until an ask has gone out since the hold began. A
 write the record refuses leaves the frames held for another try, an unconfirmed one is awaited, and
-a frame awaiting its write has no limit. A frame placed during a close retries no other, so each
-held frame, on whichever stream, waits on the close's own unwritten step.
+a frame awaiting its write has no limit. A frame placed during a close retries no other: the close
+tries each unplaced frame itself, so one it decides, on whichever stream, waits on the close's own
+unwritten step.
 
 **The daemon says what its outbox dropped.** Past 1,000 unacknowledged frames on a stream it evicts
 the oldest and counts it, and every hello carries the counts. The Gateway asks about each working
@@ -160,7 +161,7 @@ agent on such a target, whose terminal may be among them.
 the agent unavailable, a prompt leaves it recovering, and a refused stop leaves it as it was. The
 refusal and abandonment paths take it, and throw one `AgentTransitionError`.
 
-**One relay core, a family per backend.** The fence rules live in `agent-fence.ts`, a frame's life in
+**One relay core, a port per backend.** The fence rules live in `agent-fence.ts`, a frame's life in
 `AgentFrameLedger`, and the relay mechanics in `AgentRelayCore`: what a hold asks and when it ends,
 and per-agent serialization. `AgentRelay` supplies a backend's wire schemas, applier, agent listing, and reconcile
 request. A held frame is one per stream and event id, and only commentary is dropped at the cap: an
@@ -190,57 +191,15 @@ stack's own appliers.
 **An acknowledgement retires the daemon's only copy.** `ignored` and `applied` permit it; only a
 withheld decision does not. Held frames are keyed by agent, although the stream is per target.
 
-**`thread/read` needs `includeTurns: true`.** Without it, a successful live-server response has an
-empty `turns` array.
-
-**`ThreadLifecycle` owns parked threads.** `codex app-server` starts every configured MCP server in
-`~/.codex/config.toml` as its own child on `thread/start`. A thread nobody unloads holds those
-servers for the app server's whole life. `thread/archive` unloads the thread and kills them;
-follow-up use unarchives and resumes it.
-
 **A retired generation publishes nothing new.** `publish` checks liveness, and retirement retracts
 nothing already retained in the outbox. `release` must name the generation, or a late exit tears down
 its successor.
-
-**`startTurn` hands the turn id to `onStarted` before draining.** A terminal can beat its own
-`turn/start` reply, and the thread's park must not run before the turn is known to be its own.
-`CodexBackendSession` registers the turn's handle inside that callback.
-
-**One owner ends a Codex turn.** `CodexTurns` holds each turn's output, the promise its handle waits
-on, and its hold deadline. A frame, a `thread/read`, a deadline and the terminal `ThreadLifecycle`
-publishes all end a turn through one function, which resolves the handle, remembers the terminal and
-hands it on for the thread to park behind. A handle registered after its turn ended is already
-resolved, from the last 256 ended turns. A child that exits ends every turn as failed.
-
-**A terminal hold names its release event and bound.** A completed turn with no answer waits for its
-final item. At ten seconds its thread is read: a settled read ends it, an unreadable one ends it with
-no answer, and one still reporting `inProgress` arms the next deadline. The third deadline ends it on
-what was witnessed, so a hold lasts thirty seconds at most. An inspect reads a held turn as running
-only until its first deadline; after that an answerless settled read ends it.
-
-**Progress is any frame from the turn's own thread.** Matching only a turn id, or counting only
-tracker-parsed frames, misattributes or interrupts live work. The driver reports it through
-`onProgress`. It logs a frame arriving more than 60 s after the last one and any interrupted
-terminal, so an interruption nobody asked for is attributable on the daemon pane.
-
-**A poisoned thread closes the driver.** A request that timed out or answered unreadably leaves the
-child's state unknown, so the driver closes, the service gives the generation up, and its running
-turns end as lost. The App Server has no per-thread kill.
-
-**Bookkeeping names the record, never only the id.** `mutate` checks identity before its request and
-never after it; an awaited reply can resume after that record was replaced. Retire, load, and poison
-refuse or drop by record identity. Retirements move the record to the back, and eviction leaves
-queued or non-parked records for a later pass.
-
-**A request failure is a `kind`, never a sentence.** The transport emits `refused`, `timeout`,
-`unreadable`, or `closed`. Callers must not branch on wording. Notifications dispatch in a microtask,
-preserving reply-before-notification wire order.
 
 **A refused request is not an unavailable agent.** Request failures use the request-error envelope
 and HTTP 400; genuine agent failure uses the unavailable result envelope.
 
 **Result availability is explicit.** A terminal result means finished. `agent_dead` means the agent
-cannot run. `agent_unreachable` means its App Server may still be running, so do not duplicate work.
+cannot run. `agent_unreachable` means its process may still be running, so do not duplicate work.
 
 **Reconnect adopts persisted threads.** The daemon reopens the execution target, resumes the stored
 thread, and adopts its running or settled turn before accepting a follow-up. Reconciliation emits its
@@ -250,14 +209,11 @@ receipt before an adopted terminal, preserving the fence. It reads and never del
 a retryable error. The first follow-up after a daemon restart is answered that way while the gateway
 reconciles the agent; the retry lands once the agent is idle again.
 
-**The model is a start parameter, not configuration.** It is checked against `model/list` at use time
-and is never silently substituted.
-
 **`ignored` and `failed` differ.** `ignored` may be acknowledged and retired; `failed` is never
 acknowledged, because this gateway could not build its record.
 
-**A start or message answers once the daemon takes the turn**, with `observation: "accepted"`, on both
-families and in local mode. Nothing waits for a turn.
+**A start or message answers once the daemon takes the turn**, with `observation: "accepted"`, on every
+backend and in local mode. Nothing waits for a turn.
 
 **A collect answers at once.** It returns `{ agentId, agentState, running, turns }`: every ended turn
 not yet collected, oldest first, and the running turn's id. A turn a dead agent held reads `lost`. The
@@ -286,6 +242,54 @@ collected.
 **A waiting call holds for less than the client survives**, bounded by `AGENT_WAIT_BUDGET_MS`. Node's
 fetch abandons a silent connection at 300s and `routerPost` re-posts, so a longer hold never delivers
 its answer. A turn outliving an await's budget keeps running, and the completion notice still arrives.
+
+## Codex delegation
+
+**`thread/read` needs `includeTurns: true`.** Without it, a successful live-server response has an
+empty `turns` array.
+
+**`ThreadLifecycle` owns parked threads.** `codex app-server` starts every configured MCP server in
+`~/.codex/config.toml` as its own child on `thread/start`. A thread nobody unloads holds those
+servers for the app server's whole life. `thread/archive` unloads the thread and kills them;
+follow-up use unarchives and resumes it.
+
+**`startTurn` hands the turn id to `onStarted` before draining.** A terminal can beat its own
+`turn/start` reply, and the thread's park must not run before the turn is known to be its own.
+`CodexBackendSession` registers the turn's handle inside that callback.
+
+**One owner ends a Codex turn.** `CodexTurns` holds each turn's output, the promise its handle waits
+on, and its hold deadline. A frame, a `thread/read`, a deadline and the terminal `ThreadLifecycle`
+publishes all end a turn it holds through one function, which resolves the handle and remembers the
+terminal. One the owner decided is then handed on for the thread to park behind. A handle registered
+after its turn ended is already resolved, from the last 256 ended turns. A child that exits fails
+every turn it holds.
+
+**A terminal hold names its release event and bound.** A completed turn with no answer waits for its
+final item. At ten seconds its thread is read: a settled read ends it, a read that cannot say ends
+it with no answer, and one still reporting `inProgress` arms the next deadline. The third deadline's
+read ends it whatever it says, so a hold is three deadlines and their reads at most. An inspect reads
+a held turn as running only until its first deadline; after that an answerless settled read ends it.
+
+**Progress is any frame from the turn's own thread.** Matching only a turn id, or counting only
+tracker-parsed frames, misattributes or interrupts live work. The driver reports it through
+`onProgress`. It logs a frame arriving more than 60 s after the last one and any interrupted
+terminal, so an interruption nobody asked for is attributable on the daemon pane.
+
+**A poisoned thread closes the driver.** A request that timed out or answered unreadably leaves the
+child's state unknown, so the driver closes, the service gives the generation up, and its running
+turns end as lost. The App Server has no per-thread kill.
+
+**Bookkeeping names the record, never only the id.** `mutate` checks identity before its request and
+never after it; an awaited reply can resume after that record was replaced. Retire, load, and poison
+refuse or drop by record identity. Retirements move the record to the back, and eviction leaves
+queued or non-parked records for a later pass.
+
+**A request failure is a `kind`, never a sentence.** The transport emits `refused`, `timeout`,
+`unreadable`, or `closed`. Callers must not branch on wording. Notifications dispatch in a microtask,
+preserving reply-before-notification wire order.
+
+**The model is a start parameter, not configuration.** It is checked against `model/list` at use time
+and is never silently substituted.
 
 **Enabling it:** the capability is announced when `codex` is on `PATH`. A session picks the tools up
 at its next start, never mid-session.

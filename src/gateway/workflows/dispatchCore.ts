@@ -31,7 +31,7 @@ export function byteLength(text: string): number {
 	return new TextEncoder().encode(text).byteLength;
 }
 
-export function familyTextError(value: unknown): string {
+export function thrownText(value: unknown): string {
 	return value instanceof Error ? value.message : String(value);
 }
 
@@ -128,7 +128,7 @@ export function hostFailure(what: string, error: string | undefined, errorKind?:
 }
 
 export function thrownHostFailure(error: unknown): HostFailure {
-	return { waitFor: /timeout|timed out|not taken|did not take/i.test(familyTextError(error)) ? "tick" : "catalog" };
+	return { waitFor: /timeout|timed out|not taken|did not take/i.test(thrownText(error)) ? "tick" : "catalog" };
 }
 
 export function skillRows(runId: string, runner: WorkflowRunner): Map<string, string> {

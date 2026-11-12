@@ -11,7 +11,7 @@ import {
 import type { AgentBackendId } from "../shared/agent-backend.js";
 import { agentListAnswer, agentListRow } from "../shared/agent-collect.js";
 import type { AgentNotice } from "../shared/agent-notice.js";
-import { AGENT_ACTIVITY_MAX_ITEMS as CODEX_ACTIVITY_MAX_ITEMS } from "../shared/agent-record.js";
+import { AGENT_ACTIVITY_MAX_ITEMS } from "../shared/agent-record.js";
 
 type PendingTurn = { settled: Promise<TurnTerminal>; resolve(value: TurnTerminal): void };
 
@@ -102,7 +102,7 @@ function setup(
 		failureCode: (error) => (/login/.test(error) ? "authentication_required" : undefined),
 		openSession: async () => backend,
 		defaultCwd: () => "/workspace/project",
-		maxActivities: CODEX_ACTIVITY_MAX_ITEMS,
+		maxActivities: AGENT_ACTIVITY_MAX_ITEMS,
 		threadsResumable: backendId === "codex",
 		replaysOperations: false,
 		notify: (notice) => notices.push(notice),
@@ -357,7 +357,7 @@ describe("local publication", () => {
 		const pending = h.runtime.handle({ kind: "start", prompt: "work" });
 		const started = answered(await pending);
 		await turnReady(h.backend);
-		for (let index = 0; index <= CODEX_ACTIVITY_MAX_ITEMS; index += 1)
+		for (let index = 0; index <= AGENT_ACTIVITY_MAX_ITEMS; index += 1)
 			h.backend.emitActivity("turn-1", `item-${index}`);
 		const answer = collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
 		expect(answer).toMatchObject({ agentId: started.agentId, agentState: "working", running: "turn-1", turns: [] });
@@ -365,7 +365,7 @@ describe("local publication", () => {
 		expect(activeTurn?.activities[0]).toEqual({ kind: "commentary", text: "item-1" });
 		expect(activeTurn?.activities.at(-2)).toEqual({
 			kind: "commentary",
-			text: `item-${CODEX_ACTIVITY_MAX_ITEMS}`,
+			text: `item-${AGENT_ACTIVITY_MAX_ITEMS}`,
 		});
 		expect(activeTurn?.activities.at(-1)).toEqual({ kind: "truncated", omitted: 1 });
 		h.backend.emitTerminal("turn-1", { status: "interrupted" });

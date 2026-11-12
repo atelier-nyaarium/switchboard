@@ -254,7 +254,6 @@ export class CodexBackendSession implements AgentBackendSession {
 		}
 	}
 
-	/** Its thread parks behind an ended turn. */
 	private park(threadId: string, turnId: string, terminal: TerminalOutcome): void {
 		void this.client.settleTurn(threadId, turnId, terminal).catch((error) => {
 			console.error(`[codex] parking behind ${turnId}: ${error instanceof Error ? error.message : ""}`);

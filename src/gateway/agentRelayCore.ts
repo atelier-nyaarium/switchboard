@@ -70,7 +70,7 @@ export interface AgentRelayDeps {
 	ambient: Pick<Ambient, "now" | "newId" | "setTimer" | "clearTimer">;
 }
 
-export interface AgentRelayFamily<
+export interface AgentRelayPort<
 	TEvent extends AgentRelayFrame,
 	TReceipt extends AgentRelayReceipt,
 	TRequest extends Record<string, unknown>,
@@ -189,7 +189,7 @@ export class AgentRelayCore<
 
 	constructor(
 		private readonly deps: AgentRelayDeps,
-		private readonly family: AgentRelayFamily<TEvent, TReceipt, TRequest, TAgent>,
+		private readonly port: AgentRelayPort<TEvent, TReceipt, TRequest, TAgent>,
 	) {}
 
 	progressCounts(ownerKey: string, agentId: string, turnId: string): AgentProgressCounts | undefined {
@@ -217,7 +217,7 @@ export class AgentRelayCore<
 
 	reconcileStale(owner: SessionRecord): void {
 		const ownerKey = this.deps.sessionStore.teamOf(owner);
-		for (const agent of this.family.listAgents(owner)) {
+		for (const agent of this.port.listAgents(owner)) {
 			if (this.needsReconciliation(ownerKey, agent)) this.requestReconciliation(ownerKey, agent);
 		}
 		this.retryAwaiting();
@@ -229,10 +229,10 @@ export class AgentRelayCore<
 		const pending: Promise<void>[] = [];
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
-			for (const agent of this.family.listAgents(owner)) {
+			for (const agent of this.port.listAgents(owner)) {
 				pending.push(
 					this.serialize(ownerKey, agent.agentId, () => {
-						const application = this.family.abandonStaleOperations(
+						const application = this.port.abandonStaleOperations(
 							owner,
 							agent,
 							daemonInstanceId,
@@ -251,15 +251,15 @@ export class AgentRelayCore<
 		const pending: Promise<void>[] = [];
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
-			for (const agent of this.family.listAgents(owner)) {
+			for (const agent of this.port.listAgents(owner)) {
 				pending.push(
 					this.serialize(ownerKey, agent.agentId, () => {
 						if (daemonInstanceId !== this.deps.liveDaemonInstanceId()) return;
-						const current = this.family
+						const current = this.port
 							.listAgents(owner)
 							.find((candidate) => candidate.agentId === agent.agentId);
 						if (!current) return;
-						for (const command of this.family.requestedOperations(ownerKey, current, daemonInstanceId)) {
+						for (const command of this.port.requestedOperations(ownerKey, current, daemonInstanceId)) {
 							this.send(this.deps.ambient.newId(), command);
 						}
 					}),
@@ -304,12 +304,12 @@ export class AgentRelayCore<
 
 	private send(requestId: string, command: TRequest): boolean {
 		const message = { type: this.frameType("command"), requestId, ...command };
-		if (!this.family.commandSchema.safeParse(message).success) return false;
+		if (!this.port.commandSchema.safeParse(message).success) return false;
 		return this.deps.sendToHost(message);
 	}
 
 	private async onHello(raw: Record<string, unknown>): Promise<void> {
-		const hello = this.parse(this.family.helloSchema, raw, "hello");
+		const hello = this.parse(this.port.helloSchema, raw, "hello");
 		if (!hello) return;
 		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (liveDaemonInstanceId !== undefined && hello.daemonInstanceId !== liveDaemonInstanceId) return;
@@ -325,10 +325,10 @@ export class AgentRelayCore<
 		const pending: Promise<void>[] = [];
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
-			for (const agent of this.family.listAgents(owner)) {
+			for (const agent of this.port.listAgents(owner)) {
 				pending.push(
 					this.serialize(ownerKey, agent.agentId, () => {
-						const targetId = this.family.targetId(agent) ?? "";
+						const targetId = this.port.targetId(agent) ?? "";
 						// Its terminal may be among what the daemon dropped, and nothing else would ask.
 						const lost = agent.agentState === "working" && lossy.has(targetId);
 						if (
@@ -354,12 +354,12 @@ export class AgentRelayCore<
 	}
 
 	private onReceipt(raw: Record<string, unknown>): Promise<void> {
-		const receipt = this.parse(this.family.receiptSchema, raw, "receipt");
+		const receipt = this.parse(this.port.receiptSchema, raw, "receipt");
 		return receipt ? this.arrive({ frame: "receipt", message: receipt }) : Promise.resolve();
 	}
 
 	private onEvent(raw: Record<string, unknown>): Promise<void> {
-		const event = this.parse(this.family.eventSchema, raw, "event");
+		const event = this.parse(this.port.eventSchema, raw, "event");
 		return event ? this.arrive({ frame: "event", message: event }) : Promise.resolve();
 	}
 
@@ -393,7 +393,7 @@ export class AgentRelayCore<
 		const parsed = schema.safeParse(raw);
 		if (parsed.success) return parsed.data;
 		const reason = parsed.error.issues[0]?.message ?? "invalid";
-		console.warn(`[${this.family.backendId}] dropped a malformed ${what}: ${reason}`);
+		console.warn(`[${this.port.backendId}] dropped a malformed ${what}: ${reason}`);
 		return undefined;
 	}
 
@@ -409,13 +409,13 @@ export class AgentRelayCore<
 					: this.reduceReceipt(ticket.payload.message);
 			this.noteOpenTurn(agentKey(ownerKey, agentId), application);
 		} catch (error) {
-			console.error(`[${this.family.backendId}-relay] reducing a frame failed:`, error);
+			console.error(`[${this.port.backendId}-relay] reducing a frame failed:`, error);
 			application = { disposition: "failed", reason: "its reducer threw" };
 		}
 		try {
 			this.settle(ticket, application, closing);
 		} catch (error) {
-			console.error(`[${this.family.backendId}-relay] settling a frame failed:`, error);
+			console.error(`[${this.port.backendId}-relay] settling a frame failed:`, error);
 		}
 		// An open ticket's replay is dropped as queued, so it would never be judged again.
 		if (ticket.state === "open") {
@@ -428,7 +428,7 @@ export class AgentRelayCore<
 	private noteOpenTurn(key: string, application: AgentApplication<TAgent>): void {
 		const known = this.opened.get(key);
 		if (!known || !inRecord(application)) return;
-		const turnId = this.family.openTurn(application.agent);
+		const turnId = this.port.openTurn(application.agent);
 		if (turnId !== known.turnId) this.opened.set(key, { turnId, at: this.now() });
 	}
 
@@ -436,12 +436,12 @@ export class AgentRelayCore<
 		// Would install a dead fence.
 		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.deps.liveDaemonInstanceId(), receipt))
 			return { disposition: "ignored", reason: "reconciliation from a replaced daemon" };
-		const application = this.family.applyReceipt(receipt, this.now());
+		const application = this.port.applyReceipt(receipt, this.now());
 		// A duplicate or an older generation's is no word on the turn.
-		if (application.disposition !== "ignored" && this.family.reconciliationReport(receipt))
+		if (application.disposition !== "ignored" && this.port.reconciliationReport(receipt))
 			this.said.set(agentKey(receipt.ownerKey, receipt.agentId), { receipt, at: this.now() });
 		if (inRecord(application)) {
-			const turnId = this.family.modelTurn(receipt);
+			const turnId = this.port.modelTurn(receipt);
 			if (turnId) this.countModelTurn(receipt.ownerKey, receipt.agentId, turnId, application.agent.runId);
 		}
 		return application;
@@ -452,8 +452,8 @@ export class AgentRelayCore<
 		event: TEvent,
 		held: boolean,
 	): AgentApplication<TAgent> {
-		const application = this.family.applyEvent(event, this.now(), held);
-		const counter = this.family.counterEvent(event);
+		const application = this.port.applyEvent(event, this.now(), held);
+		const counter = this.port.counterEvent(event);
 		const countable =
 			inRecord(application) || (application.disposition === "ignored" && application.reason === "counter-only");
 		// Once per frame, however often it is retried.
@@ -517,7 +517,7 @@ export class AgentRelayCore<
 
 	private runIdForAgent(ownerKey: string, agentId: string): string | undefined {
 		const owner = this.deps.sessionStore.getByTeam(ownerKey);
-		return owner ? this.family.listAgents(owner).find((agent) => agent.agentId === agentId)?.runId : undefined;
+		return owner ? this.port.listAgents(owner).find((agent) => agent.agentId === agentId)?.runId : undefined;
 	}
 
 	private settle(
@@ -562,16 +562,16 @@ export class AgentRelayCore<
 						: this.agentOf(message.ownerKey, message.agentId);
 				// Open since before the hold, as far as this relay knows.
 				if (!this.opened.has(key))
-					this.opened.set(key, { turnId: agent ? this.family.openTurn(agent) : undefined, at: 0 });
+					this.opened.set(key, { turnId: agent ? this.port.openTurn(agent) : undefined, at: 0 });
 				if (agent) this.requestReconciliation(message.ownerKey, agent);
 			} catch (error) {
 				// The watch asks again.
-				console.error(`[${this.family.backendId}-relay] asking about a held frame failed:`, error);
+				console.error(`[${this.port.backendId}-relay] asking about a held frame failed:`, error);
 			}
 			this.watch(message.ownerKey, message.agentId);
 		}
 		this.notifyChanged(message.ownerKey, message.agentId, application);
-		// A close visits every held frame itself, each against its own unwritten step.
+		// A close tries each unplaced frame itself.
 		if (inRecord(application) && !closing) this.retryHeld(message.ownerKey, message.agentId);
 		// A write just landed: the disk takes writes again.
 		if (application.disposition === "applied") this.retryAwaiting(key);
@@ -592,7 +592,7 @@ export class AgentRelayCore<
 				throughEventId: ack.throughEventId,
 			});
 		} catch (error) {
-			console.error(`[${this.family.backendId}-relay] sending an acknowledgement failed:`, error);
+			console.error(`[${this.port.backendId}-relay] sending an acknowledgement failed:`, error);
 		}
 		if (sent) this.frames.acknowledged(ack);
 	}
@@ -619,7 +619,7 @@ export class AgentRelayCore<
 						this.confirmHeld(ticket, ticket.payload.awaiting, unsynced);
 					} catch (error) {
 						// Thrown before deciding: still held.
-						console.error(`[${this.family.backendId}-relay] confirming a held frame failed:`, error);
+						console.error(`[${this.port.backendId}-relay] confirming a held frame failed:`, error);
 					}
 				}
 			} while (this.retryAgain.has(key));
@@ -638,7 +638,7 @@ export class AgentRelayCore<
 		// One write attempt per owner per pass: each is the whole snapshot.
 		const confirmation = unsynced.has(awaiting.owner)
 			? "pending"
-			: this.family.confirmation(awaiting.owner, awaiting.revision);
+			: this.port.confirmation(awaiting.owner, awaiting.revision);
 		if (confirmation === "pending") {
 			unsynced.add(awaiting.owner);
 			return;
@@ -660,20 +660,20 @@ export class AgentRelayCore<
 	}
 
 	private isAskable(ownerKey: string, agent: TAgent): boolean {
-		return this.family.reconcileRequest(ownerKey, agent) !== undefined;
+		return this.port.reconcileRequest(ownerKey, agent) !== undefined;
 	}
 
 	private needsReconciliation(ownerKey: string, agent: TAgent): boolean {
 		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (!liveDaemonInstanceId || !this.isAskable(ownerKey, agent)) return false;
 		if (agent.agentState === "recovering") return true;
-		return agent.agentState === "working" && this.family.fenceInstanceId(agent) !== liveDaemonInstanceId;
+		return agent.agentState === "working" && this.port.fenceInstanceId(agent) !== liveDaemonInstanceId;
 	}
 
 	/** One ask per agent per guard; a held frame's watch makes the next. `unguarded` asks inside it. True once sent. */
 	private requestReconciliation(ownerKey: string, agent: TAgent, unguarded = false): boolean {
 		if (this.stopped) return false;
-		const request = this.family.reconcileRequest(ownerKey, agent);
+		const request = this.port.reconcileRequest(ownerKey, agent);
 		if (!request) return false;
 		const key = agentKey(ownerKey, agent.agentId);
 		const now = this.now();
@@ -767,7 +767,7 @@ export class AgentRelayCore<
 		// A daemon that could be asked and was not, since the hold began, is given nothing up to.
 		if (agent && this.isAskable(ownerKey, agent) && (askedAt === undefined || askedAt < since)) return false;
 		console.error(
-			`[${this.family.backendId}-relay] closing the hold on ${agentId}: unplaced for ${Math.round((at - since) / 1000)}s`,
+			`[${this.port.backendId}-relay] closing the hold on ${agentId}: unplaced for ${Math.round((at - since) / 1000)}s`,
 		);
 		const closing: Closing = {};
 		const taken = (application: AgentApplication<TAgent>): boolean => {
@@ -780,11 +780,11 @@ export class AgentRelayCore<
 			return true;
 		};
 		// A record that refuses a step keeps its frames, and the close is tried again.
-		if (receipt && !taken(this.family.applyReceipt(receipt, at, true))) return false;
+		if (receipt && !taken(this.port.applyReceipt(receipt, at, true))) return false;
 		// A turn the daemon was never asked about since it opened is not ended.
 		const askedSince = askedAt !== undefined && askedAt >= Math.max(openedAt, since);
-		const report = receipt ? this.family.reconciliationReport(receipt) : undefined;
-		if (askedSince && !taken(this.family.closeHeld(ownerKey, agentId, report, at))) return false;
+		const report = receipt ? this.port.reconciliationReport(receipt) : undefined;
+		if (askedSince && !taken(this.port.closeHeld(ownerKey, agentId, report, at))) return false;
 		for (const ticket of this.frames.heldFor(key)) {
 			if (ticket.state === "held" && ticket.why !== "awaiting") this.reduce(ticket, closing);
 		}
@@ -798,7 +798,7 @@ export class AgentRelayCore<
 		const { message } = frame;
 		let pending = unwritten;
 		if (frame.frame === "receipt" && frame.message.operationId) {
-			const abandoned = this.family.abandonOperation(
+			const abandoned = this.port.abandonOperation(
 				message.ownerKey,
 				message.agentId,
 				frame.message.operationId,
@@ -817,14 +817,14 @@ export class AgentRelayCore<
 			return;
 		}
 		console.error(
-			`[${this.family.backendId}-relay] gave up a held ${frame.frame} ${message.kind} ${message.eventId} for ${message.agentId}`,
+			`[${this.port.backendId}-relay] gave up a held ${frame.frame} ${message.kind} ${message.eventId} for ${message.agentId}`,
 		);
 		this.sendAck(this.frames.decide(ticket));
 	}
 
 	private agentOf(ownerKey: string, agentId: string): TAgent | undefined {
 		const owner = this.deps.sessionStore.getByTeam(ownerKey);
-		return owner ? this.family.listAgents(owner).find((agent) => agent.agentId === agentId) : undefined;
+		return owner ? this.port.listAgents(owner).find((agent) => agent.agentId === agentId) : undefined;
 	}
 
 	private notifyChanged(ownerKey: string, agentId: string, application: AgentApplication<TAgent>): void {
@@ -834,7 +834,7 @@ export class AgentRelayCore<
 			try {
 				listener();
 			} catch (error) {
-				console.error(`[${this.family.backendId}-relay] an agent change listener failed:`, error);
+				console.error(`[${this.port.backendId}-relay] an agent change listener failed:`, error);
 			}
 		}
 	}
@@ -843,11 +843,11 @@ export class AgentRelayCore<
 	private serialize(ownerKey: string, agentId: string, step: () => void): Promise<void> {
 		return this.reducers
 			.run(agentKey(ownerKey, agentId), step)
-			.catch((error) => console.error(`[${this.family.backendId}-relay] reducer step failed:`, error));
+			.catch((error) => console.error(`[${this.port.backendId}-relay] reducer step failed:`, error));
 	}
 
 	private frameType(kind: AgentFrameKind): string {
-		return agentFrameType(this.family.backendId, kind);
+		return agentFrameType(this.port.backendId, kind);
 	}
 
 	private now(): number {

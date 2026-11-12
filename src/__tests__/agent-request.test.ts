@@ -9,7 +9,7 @@ import { agentErrorText } from "../shared/agent-identity.js";
 import { AgentRequestErrorSchema } from "../shared/agent-state.js";
 import { modelFamily, sameFamily, startDefaults } from "../shared/model-family.js";
 
-describe("Codex request identities", () => {
+describe("an agent request", () => {
 	it("mints distinct ids for every call but a list", () => {
 		const first = agentRequestBody(CODEX_BACKEND, "start", { prompt: "Audit" });
 		const second = agentRequestBody(CODEX_BACKEND, "start", { prompt: "Audit" });

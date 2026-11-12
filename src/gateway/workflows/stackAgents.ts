@@ -5,12 +5,12 @@ import type { AgentStacks } from "../agentStack.js";
 import type { AgentView } from "./agentViews.js";
 import { agentView } from "./agentViews.js";
 
-interface AgentFamilyDeps {
+interface StackAgentsDeps {
 	ambient: Pick<Ambient, "now">;
 	stacks: AgentStacks;
 }
 
-export interface AgentFamilies {
+export interface StackAgents {
 	snapshot(
 		owner: SessionRecord,
 		backend: AgentBackendId,
@@ -21,10 +21,10 @@ export interface AgentFamilies {
 	listAgent(owner: SessionRecord, backend: AgentBackendId, agentId: string): AgentView | undefined;
 	retire(owner: SessionRecord, backend: AgentBackendId, agentId: string): boolean;
 	abandon(owner: SessionRecord, backend: AgentBackendId, agentId: string, operationId: string): void;
-	familyOfAgent(owner: SessionRecord, agentId: string): AgentBackendId | undefined;
+	backendOfAgent(owner: SessionRecord, agentId: string): AgentBackendId | undefined;
 }
 
-export function createAgentFamilies(deps: AgentFamilyDeps): AgentFamilies {
+export function createStackAgents(deps: StackAgentsDeps): StackAgents {
 	const stacks = [...deps.stacks.values()];
 	return {
 		snapshot(owner, backend, agentId, operationId) {
@@ -53,7 +53,7 @@ export function createAgentFamilies(deps: AgentFamilyDeps): AgentFamilies {
 		abandon(owner, backend, agentId, operationId) {
 			deps.stacks.get(backend)?.abandon(owner, agentId, operationId, deps.ambient.now());
 		},
-		familyOfAgent(owner, agentId) {
+		backendOfAgent(owner, agentId) {
 			return stacks.find((stack) => stack.list(owner).some((agent) => agent.agentId === agentId))?.backend.id;
 		},
 	};

@@ -127,10 +127,7 @@ export class ThreadLifecycle {
 		});
 	}
 
-	/**
-	 * Start a turn, loading the thread first. `onStarted` is handed the id before any terminal
-	 * buffered for it is published.
-	 */
+	/** Loads the thread first. `onStarted` runs before buffered terminals are published. */
 	startTurn(threadId: string, params: unknown, onStarted: (turnId: string) => void): Promise<string> {
 		this.track(threadId);
 		return this.run(threadId, async (record) => {

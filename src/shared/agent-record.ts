@@ -1,7 +1,4 @@
-// Shared primitives and invariant bodies for the per-backend agent record families. Each backend
-// keeps its own zod objects and calls these from its own refines, so a rule omitted in a
-// transcription is a missing call the tests see, not silently absent behavior. Messages are the
-// Codex family's originals; both backends report them verbatim.
+// Primitives and invariant bodies of the agent record every backend stores.
 
 import crypto from "node:crypto";
 import { z } from "zod";
@@ -33,9 +30,7 @@ export interface AgentTurnHistoryView {
 	updatedAt: number;
 }
 
-/** The stored narration shape both backends declare. Structurally identical on purpose: their zod
- * objects stay their own (the byte caps and id grammars differ), but anything that REASONS about
- * activities reasons about this. */
+/** A turn's stored narration, on every backend. */
 export type AgentStoredActivity =
 	| { kind: "commentary"; itemId: string; text: string }
 	| { kind: "truncated"; omitted: number };
@@ -264,11 +259,7 @@ export function appendAgentActivity(
  * A turn's stored activities in the shape a CALLER sees: the same items with `itemId` dropped.
  *
  * That id is the daemon's dedup key and means nothing outside the gateway, so publishing it would
- * leak an internal handle into an answer. Both routes wrote this projection out by hand, identically,
- * which is the shape issue #271 already shipped once: a published projection drifting from its
- * sibling while every test kept passing.
- *
- * Takes the array rather than a turn, because the two backends' turn types differ in everything else.
+ * leak an internal handle into an answer.
  */
 export function publishedActivities(
 	stored: readonly AgentStoredActivity[] | undefined,
@@ -333,8 +324,7 @@ export function resolveAgentReplay<Agent extends AgentReplayHolder<AgentReplayOp
 	return { kind: "match", agent, operation, replayable: agentOperationReplayable(operation, ensureDurable) };
 }
 
-/** The turn-level invariants both record families share. Backend-specific rules (exchanges, fences,
- * sessions) stay in each family's own refine. */
+/** The turn-level invariants of a stored agent record. */
 export function agentTurnHistoryIssues(view: AgentTurnHistoryView): string[] {
 	const issues: string[] = [];
 	if (view.updatedAt < view.createdAt) issues.push("agent update cannot predate creation");

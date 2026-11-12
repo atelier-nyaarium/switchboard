@@ -92,8 +92,8 @@ and journal-derived cancellation retries. `createWorkflowPrompt` in
 `src/gateway/workflows/dispatchPrompt.ts` reads skills and finds the project instruction file.
 `src/gateway/workflows/dispatchCore.ts` exports turn, thread and host-failure helpers.
 `answerOutcome` and `failureOutcome` in `src/gateway/workflows/agentViews.ts` own shared outcome mapping.
-`createAgentFamilies` in `src/gateway/workflows/agentFamilies.ts` owns each agent backend's
-normalized operations; `createTerminalAgents` in `src/gateway/workflows/terminalAgents.ts` stops and retires
+`createStackAgents` in `src/gateway/workflows/stackAgents.ts` reads and retires agents on every
+backend's stack; `createTerminalAgents` in `src/gateway/workflows/terminalAgents.ts` stops and retires
 agents after a run.
 
 `src/mcp/devcontainer/claudeRunner.ts` runs the CLI in the host daemon.

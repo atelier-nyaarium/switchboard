@@ -1,4 +1,4 @@
-// The fence algebra both agent families (Codex, Copilot) order their daemon traffic with. One home,
+// The fence algebra every agent backend orders its daemon traffic with. One home,
 // because the verdicts derived from it decide whether the daemon may retire its only copy.
 
 ////////////////////////////////
@@ -77,10 +77,10 @@ export function retiredGeneration(current: AgentFence | undefined, next: AgentFe
 export function classifyReconciliationFence(
 	current: AgentFence | undefined,
 	next: AgentFence,
-): "adopts" | "duplicate" | "stale" {
-	if (!current) return "adopts";
+): "follows" | "duplicate" | "stale" {
+	if (!current) return "follows";
 	if (retiredGeneration(current, next)) return "stale";
-	return classifyAcceptanceFence(current, next) === "duplicate" ? "duplicate" : "adopts";
+	return classifyAcceptanceFence(current, next) === "duplicate" ? "duplicate" : "follows";
 }
 
 /** From a daemon a later hello replaced. None before the first hello. */
