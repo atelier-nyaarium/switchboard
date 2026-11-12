@@ -19,8 +19,6 @@ import org.junit.Test
 
 /** The CLI pick and macros. */
 class SessionHarnessPickTest {
-	private val projects = listOf("host", "windows", "recipe-app")
-
 	private fun running(vararg installed: SessionHarness) = SpawnHarnesses.Known(installed.toSet())
 
 	private fun landed(vararg rows: GatewaySpawnPoints): GatewayRegistry =
@@ -52,19 +50,6 @@ class SessionHarnessPickTest {
 		copilotSpawns = copilotSpawns,
 		containers = containers,
 	)
-
-	@Test
-	fun `a project is offered when its spawn point runs any CLI`() {
-		val held: (String) -> SpawnHarnesses = { project ->
-			when (project) {
-				"recipe-app" -> running(SessionHarness.CLAUDE)
-				"windows" -> running(SessionHarness.COPILOT)
-				else -> running()
-			}
-		}
-
-		assertEquals(listOf("windows", "recipe-app"), spawnableProjects(projects, held))
-	}
 
 	@Test
 	fun `a picked project offers the CLIs its spawn point runs, and keeps the held one when it can`() {
@@ -137,7 +122,7 @@ class SessionHarnessPickTest {
 			SpawnContainer("unopened", ContainerRun.STOPPED, "exit 1", SpawnHarnesses.UNOPENED_CONTAINER),
 			registry.container("mikan", "unopened"),
 		)
-		assertEquals(emptyList<String>(), spawnableProjects(listOf("bare"), { registry.harnessesOn("mikan", it) }))
+		assertEquals(SpawnReadiness.NO_CLI, spawnReadiness(registry.container("mikan", "bare"), registry.harnessesOn("mikan", "bare")))
 	}
 
 	@Test

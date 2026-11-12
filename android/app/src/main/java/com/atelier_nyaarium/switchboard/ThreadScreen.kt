@@ -521,7 +521,9 @@ internal fun ThreadScreen(
 			// Above the plugin slots deliberately: nothing sent to a limit-blocked session is read until
 			// the dialog clears, so this outranks anything else docked here.
 			val starting = startingDock(presence, composer.sendAwaitingWake, terminal.presence?.working == true)
-			sessionDock(terminal.limitBlocked, terminal.compacting, starting)?.let { SessionStatusDock(it, terminal.limitDetail) }
+			sessionDock(terminal.limitBlocked, terminal.compacting, starting)?.let {
+				SessionStatusDock(it, terminal.limitDetail, startingDockLine(presence, launch.container))
+			}
 			launch.error?.let { LaunchErrorDock(it, launch.onDismissError) }
 			// Plugin dock slots (e.g. the Designer dock) sit between the messages and the
 			// composer; each slot draws nothing when it has nothing to show for this thread. The

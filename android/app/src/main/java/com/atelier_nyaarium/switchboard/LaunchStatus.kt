@@ -14,6 +14,8 @@ data class LaunchError(val line: String, val at: Long)
 data class LaunchState(
 	val error: String?,
 	val onDismissError: () -> Unit,
+	/** Its container's run state; null for a host session. */
+	val container: ContainerRun?,
 )
 
 ////////////////////////////////
@@ -56,3 +58,6 @@ internal fun MutableStateFlow<ChatState>.dismissLaunchError(team: String) {
 /** Booting only. A pane mid-turn is reconnecting, which reads verifying too. */
 internal fun startingDock(word: SessionWord?, sendAwaitingWake: Boolean, paneWorking: Boolean): Boolean =
 	!sendAwaitingWake && !paneWorking && (word == SessionWord.VERIFYING || word == SessionWord.WAKING)
+
+internal fun startingDockLine(word: SessionWord?, container: ContainerRun?): String =
+	containerStartLine(word, container)?.let { "$it..." } ?: "Starting..."

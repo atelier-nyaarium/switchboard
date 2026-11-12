@@ -228,16 +228,19 @@ internal fun harnessSpawnsOf(row: GatewaySpawnPoints): Map<SessionHarness, List<
 internal fun addressableContainers(rows: List<ContainerState>): List<SpawnContainer> =
 	rows.filter { isSlug(it.project) }.map(::spawnContainerOf)
 
-/** A container row; a CLI word this build cannot launch is dropped. */
-internal fun spawnContainerOf(row: ContainerState): SpawnContainer =
-	SpawnContainer(
+/** A container row; a CLI word this build cannot launch is dropped. A row not running carries its last look's list, read as unopened. */
+internal fun spawnContainerOf(row: ContainerState): SpawnContainer {
+	val run = ContainerRun.of(row.state)
+	val looked = row.clis.takeIf { run == ContainerRun.RUNNING }
+	return SpawnContainer(
 		project = row.project,
-		run = ContainerRun.of(row.state),
+		run = run,
 		failure = row.failure,
-		harnesses = row.clis?.let { words ->
+		harnesses = looked?.let { words ->
 			SpawnHarnesses.Known(words.mapNotNullTo(HashSet()) { (readHarness(it) as? HarnessWord.Named)?.harness })
 		} ?: SpawnHarnesses.UNOPENED_CONTAINER,
 	)
+}
 
 // FIXME 2026-11-23: drop, with both old lists.
 /** An older Gateway's lists. With no Claude list it ran Claude on every host spawn point. */

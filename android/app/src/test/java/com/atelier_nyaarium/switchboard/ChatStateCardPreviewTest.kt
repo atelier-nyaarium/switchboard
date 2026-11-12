@@ -51,6 +51,21 @@ class ChatStateCardPreviewTest {
 	}
 
 	@Test
+	fun aLaunchStillWaitingHeadlinesOverTheLastReplyAndCarriesNoTime() {
+		val state = ChatState(threads = mapOf(TEAM to listOf(inbound("the reply", title = "The headline", at = 5))))
+
+		val waiting = sessionCardPreview(state, TEAM, boardLine = null, starting = "Starting container")
+		assertEquals("Starting container", waiting.headline)
+		assertNull(waiting.headlineAt)
+
+		// A failed launch outranks the wait.
+		val failed = state.copy(launchErrors = mapOf(TEAM to LaunchError("Devcontainer failed to start.", at = 9)))
+		val p = sessionCardPreview(failed, TEAM, boardLine = null, starting = "Starting container")
+		assertEquals("Devcontainer failed to start.", p.headline)
+		assertEquals(9L, p.headlineAt)
+	}
+
+	@Test
 	fun aPeerMirrorNeverHeadlinesButStillCountsAsSomethingHappening() {
 		// One agent talking to another is not the session's word to the owner, so it cannot take the
 		// headline. It is still the thread's newest row, so the snippet rung reports it.

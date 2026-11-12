@@ -39,7 +39,7 @@ import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.runbooks.PreviewPane
 import com.atelier_nyaarium.switchboard.runbooks.PreviewState
 import com.atelier_nyaarium.switchboard.runbooks.settledPreview
-import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
+import com.atelier_nyaarium.switchboard.spawnChoices
 import com.atelier_nyaarium.switchboard.runbooks.stale
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 import kotlinx.coroutines.launch

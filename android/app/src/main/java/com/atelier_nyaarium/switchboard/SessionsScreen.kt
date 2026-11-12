@@ -60,24 +60,6 @@ internal fun groupByGateway(
 	)
 }
 
-internal val HOST_SPAWN_IDS = setOf("host", "windows")
-
-internal fun initialProject(remembered: String?, projects: List<String>): String? =
-	remembered?.takeIf { it in projects }
-
-internal fun hostSpawnLabel(id: String, offered: List<String>): String = when {
-	id == "windows" -> "Windows"
-	id == "host" && offered.contains("windows") -> "WSL"
-	else -> id
-}
-
-/** Advertised spawns beyond `host`; nothing for a Gateway that projected none. */
-internal fun hostSpawnChoices(hostSpawns: List<String>?): List<String> {
-	if (hostSpawns == null) return emptyList()
-	val detected = hostSpawns.filter { it in HOST_SPAWN_IDS && it != "host" }.distinct().sorted()
-	return detected + "host"
-}
-
 /** Every offered project qualifies on this Gateway; one that cannot is not offered. */
 internal data class CreateDialogTarget(
 	val domainId: String,
@@ -210,11 +192,12 @@ fun SessionsScreen(
 	createDialogFor?.let { opened ->
 		CreateSessionDialog(
 			gateway = opened.gatewayId,
-			projects = opened.projects,
+			choices = spawnChoices(state, opened.gatewayId).filter { it.spawn in opened.projects },
 			pendingSpawns = state.pendingSpawns,
 			targetOf = opened::targetFor,
 				onListDirs = { path, spawn -> onListDirs(path, opened.targetFor(spawn), spawn) },
-			rememberedProject = opened.picked ?: state.lastProjectByGateway[opened.gatewayId],
+			rememberedProject = state.lastProjectByGateway[opened.gatewayId],
+			openedOn = opened.picked,
 			harnessesOn = { project -> state.gateways.harnessesOn(opened.gatewayId, project) },
 			onSpawn = { target, session, workdir, harness ->
 				onSpawn(target, session, workdir, harness)
@@ -284,8 +267,8 @@ fun SessionsScreen(
 									createDialogFor = CreateDialogTarget.of(
 										key.domainId,
 										key.gatewayId,
-										// Containers create from their own header.
-										hostSpawnChoices(state.gateways.hostSpawns(key.gatewayId)),
+										// Host shells, then every devcontainer, stopped or not.
+										spawnChoices(state, key.gatewayId).map { it.spawn },
 									)
 								},
 								standing = if (isPeer) null else state.gateways.standing(key.gatewayId),

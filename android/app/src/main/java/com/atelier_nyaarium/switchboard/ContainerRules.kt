@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.isComposite
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
@@ -24,21 +25,33 @@ internal data class StopAsk(val target: String, val names: List<String>)
 ////////////////////////////////
 //  Functions & Helpers
 
-/** Create only while running and some CLI can launch; nothing for an unreachable Gateway or a newer state word. */
+/** Nothing to press for an unreachable Gateway or a newer state word. */
 internal fun containerButtons(container: SpawnContainer, reachable: Boolean, inFlight: Boolean): ContainerButtons {
 	val run = container.run.takeIf { reachable }
 	return ContainerButtons(
 		start = run == ContainerRun.STOPPED,
 		// A start still building is ended by Stop.
 		stop = run == ContainerRun.STARTING || run == ContainerRun.RUNNING,
-		create = run == ContainerRun.RUNNING && harnessesOf(container.harnesses).isNotEmpty(),
+		create = reachable && spawnReadiness(container, container.harnesses).enabled,
 		busy = inFlight,
 		building = run == ContainerRun.STARTING,
 	)
 }
 
+/** What a session says while it waits on its container; null when it waits on none. */
+internal fun containerStartLine(word: SessionWord?, container: ContainerRun?): String? =
+	"Starting container".takeIf {
+		(word == SessionWord.WAKING || word == SessionWord.VERIFYING) &&
+			container != null && container != ContainerRun.RUNNING
+	}
+
+/** The container a spawn point is, or a session lives in; null for a host shell. */
 internal fun containerAt(state: ChatState, target: String): SpawnContainer? {
-	val point = runIsolated { parseQualifiedTarget(target) }.getOrNull() as? SpawnPoint ?: return null
+	val point = when (val parsed = runIsolated { parseQualifiedTarget(target) }.getOrNull()) {
+		is SpawnPoint -> parsed
+		is Address -> parsed.spawnPoint
+		null -> return null
+	}
 	return state.gateways.container(point.gateway, point.spawn)
 }
 

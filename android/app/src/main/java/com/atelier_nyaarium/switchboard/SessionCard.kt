@@ -171,7 +171,8 @@ fun SessionCard(
 			// The ladder, top down: the session's own last reply headline, then its unfinished board
 			// work, then the thread's newest row. sessionCardPreview owns which of those show and what
 			// each is stamped with; this only paints what it answered.
-			val preview = sessionCardPreview(state, team.name, boardLine, boardBranch)
+			val starting = containerStartLine(word, containerAt(state, team.name)?.run)
+			val preview = sessionCardPreview(state, team.name, boardLine, boardBranch, starting)
 			preview.headline?.let { headline ->
 				Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
 					Text(

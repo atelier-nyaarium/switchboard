@@ -140,6 +140,8 @@ fun RunbookFireSheet(
 						picked = choices.find { it.address == sheet.target },
 						labelOf = { it.label },
 						onPick = { sheet.pick(it.address, availableAt(state, gatewayId, it.address)) },
+						trailingOf = { it.readiness.note },
+						enabledOf = { it.readiness.enabled },
 					)
 					if (sheet.freshSession && sheet.target.isNotBlank()) {
 						val shown = shownPick(sheet.cli, unread = null)

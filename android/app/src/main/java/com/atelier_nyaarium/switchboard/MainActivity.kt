@@ -747,6 +747,7 @@ fun App(
 				launch = LaunchState(
 					error = state.launchErrors[openTeam!!]?.line,
 					onDismissError = { repo.dismissLaunchError(openTeam!!) },
+					container = containerAt(state, openTeam!!)?.run,
 				),
 				onRename = { name -> repo.command { rename(openTeam!!, name) } },
 				onForget = {

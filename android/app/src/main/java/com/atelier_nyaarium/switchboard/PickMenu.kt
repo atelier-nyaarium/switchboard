@@ -27,6 +27,7 @@ internal fun <T> PickMenu(
 	onPick: (T) -> Unit,
 	trailingOf: (T) -> String? = { null },
 	enabled: Boolean = true,
+	enabledOf: (T) -> Boolean = { true },
 ) {
 	var open by remember { mutableStateOf(false) }
 
@@ -48,6 +49,7 @@ internal fun <T> PickMenu(
 		ExposedDropdownMenu(expanded = open && enabled, onDismissRequest = { open = false }) {
 			for (choice in choices) {
 				DropdownMenuItem(
+					enabled = enabledOf(choice),
 					text = { Text(labelOf(choice)) },
 					trailingIcon = trailingOf(choice)?.let { note ->
 						{

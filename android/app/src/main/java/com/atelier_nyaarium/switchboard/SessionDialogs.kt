@@ -218,11 +218,11 @@ fun GoalDialog(submitting: Boolean, onConfirm: (String) -> Unit, onDismiss: () -
  * blank means the label-derived default workdir, and a devcontainer never sends one (fixed workdir). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateSessionDialog(
+internal fun CreateSessionDialog(
 	// The Gateway this was opened on, named in the title. Every Gateway offers Create and every one of
 	// them has a `host`, so the dialog is otherwise identical whichever machine it will spawn on.
 	gateway: String,
-	projects: List<String>,
+	choices: List<SpawnChoice>,
 	pendingSpawns: Set<Pair<String, String>>,
 	// A picked project's spawn target. The dialog never spells an address itself: the caller owns which
 	// Gateway this was opened on, and a project name alone would resolve to the polled one.
@@ -232,15 +232,16 @@ fun CreateSessionDialog(
 	onListDirs: suspend (String, String) -> DirListing,
 	// The project this Gateway was last spawned on, if it still offers it. Only a suggestion.
 	rememberedProject: String?,
+	// The project whose own header opened this, if one did.
+	openedOn: String?,
 	harnessesOn: (String) -> SpawnHarnesses,
 	// (target, label, workdir, harness)
 	onSpawn: (String, String, String?, SessionHarness) -> Unit,
 	onDismiss: () -> Unit,
 ) {
-	val offered = spawnableProjects(projects, harnessesOn)
 	// Null until picked. `host` is not a neutral default - it is one real target among several, so
 	// preselecting it lets a mis-tap spawn on the wrong machine's shell in silence.
-	var selectedProject by remember { mutableStateOf(initialProject(rememberedProject, offered)) }
+	var selectedProject by remember { mutableStateOf(initialChoice(openedOn, rememberedProject, choices)) }
 	var pickedHarness by remember { mutableStateOf(SessionHarness.CLAUDE) }
 	val harnesses = selectedProject?.let { harnessesOf(harnessesOn(it)) }.orEmpty()
 	val harness = harnessAfterPick(pickedHarness, harnesses)
@@ -265,17 +266,19 @@ fun CreateSessionDialog(
 				// records, resume state and board work; the label is shown and never stored.
 				PickMenu(
 					label = "Project",
-					choices = offered,
-					picked = selectedProject,
-					labelOf = { hostSpawnLabel(it, projects) },
+					choices = choices,
+					picked = choices.find { it.spawn == selectedProject },
+					labelOf = { it.label },
 					onPick = { picked ->
 						// The picked directory belongs to the filesystem it was browsed on, so changing
 						// spawn point retires it. Carrying it over lets a `~/project` ride onto a Windows
 						// session (whose validator accepts POSIX shapes, then refuses the UNC it
 						// translates to) and a `C:/...` ride onto the host, where it is not a path.
-						if (picked != selectedProject) dir = TextFieldValue("")
-						selectedProject = picked
+						if (picked.spawn != selectedProject) dir = TextFieldValue("")
+						selectedProject = picked.spawn
 					},
+					trailingOf = { it.readiness.note },
+					enabledOf = { it.readiness.enabled },
 				)
 				if (harnesses.isNotEmpty()) {
 					Spacer(Modifier.height(12.dp))
@@ -380,10 +383,6 @@ internal fun harnessesOf(held: SpawnHarnesses): List<SessionHarness> =
 		is SpawnHarnesses.Unknown -> SessionHarness.entries.filter { it in held.runsHere }
 		is SpawnHarnesses.Known -> SessionHarness.entries.filter { it in held.installed }
 	}
-
-/** The projects whose spawn point runs any CLI. */
-internal fun spawnableProjects(projects: List<String>, harnessesOn: (String) -> SpawnHarnesses): List<String> =
-	projects.filter { harnessesOf(harnessesOn(it)).isNotEmpty() }
 
 /** The CLI a picked project runs: the held pick when it runs there, else its first. Null with none. */
 internal fun harnessAfterPick(held: SessionHarness, offered: List<SessionHarness>): SessionHarness? =

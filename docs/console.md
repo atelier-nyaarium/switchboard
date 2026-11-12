@@ -222,6 +222,22 @@ single-flight, cadence and concurrency limits, and mutating-op deduplication.
 - **Create offers the CLIs the spawn point runs** (`harnessesOf`), in the table's order. A session's
   keys (`sendableKeys`) and Goal (`takesGoals`) follow its CLI's row in `HarnessRegistry.kt`.
   `docs/architecture.md` holds the table.
+- **Create lists every spawn point** (`spawnChoices` in `SpawnChoices.kt`): host shells, then every
+  devcontainer the Gateway reports. New session, a fire's "Start on" and the routine editor read
+  that one list.
+- **What a pick means is one rule, `spawnReadiness`:** ready, stopped, starting, no CLI, or a state
+  word this build cannot read. Its note sits beside the name in New session and "Start on", and a
+  container header's Create reads the same answer. A stopped container is marked and drawn like a
+  ready one, since a create of it starts it. One with no CLI, or an unread state, is listed and cannot be picked. The
+  routine editor shows no note, since its run is later.
+- **A remembered project preselects only when it is ready** (`initialChoice`); a container header's
+  own Create picks its project, stopped or not.
+- **Only a running container's CLI list is read** (`spawnContainerOf`). A row that is not running
+  carries the list of the last look inside, so it reads as unopened and offers every CLI a container
+  can run, as the Gateway's `installedAt` reads it.
+- **A session launching into a container that is not up says so** (`containerStartLine`): "Starting
+  container" as its card's headline and on the thread's starting dock, until the container runs or
+  the launch fails.
 - **Forget** journals the op under its opId in the phone's `MutationJournal` before the local drop,
   holds the row's tombstone until the Gateway confirms, then replays every unconfirmed forget at
   service start and after a failed send. The Gateway no-ops an absent session, so a replay is safe.

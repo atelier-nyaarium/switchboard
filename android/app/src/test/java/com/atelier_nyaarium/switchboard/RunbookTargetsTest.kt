@@ -3,8 +3,6 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.runbooks.availableAt
 import com.atelier_nyaarium.switchboard.runbooks.sessionTargets
-import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
-import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
 import com.atelier_nyaarium.switchboard.runbooks.spawnTargets
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -72,6 +70,36 @@ class RunbookTargetsTest {
 			},
 		)
 		assertEquals(listOf("host", "evie-bot", "godot"), spawnChoices(reported, "sakura").map { it.spawn })
+	}
+
+	@Test
+	fun everySpawnListMarksAContainerByItsStateAndNeverAHostShell() {
+		val reported = state.copy(
+			gateways = state.gateways.withEntry("sakura") { entry ->
+				entry.copy(
+					containers = listOf(
+						SpawnContainer("evie-bot", ContainerRun.RUNNING, null, SpawnHarnesses.Known(setOf(SessionHarness.CLAUDE))),
+						SpawnContainer("godot", ContainerRun.STOPPED, null, SpawnHarnesses.UNOPENED_CONTAINER),
+						SpawnContainer("bare", ContainerRun.RUNNING, null, SpawnHarnesses.Known(emptySet())),
+						SpawnContainer("newer", run = null, failure = null, SpawnHarnesses.UNOPENED_CONTAINER),
+						// A container named like a host shell is not that shell.
+						SpawnContainer("host", ContainerRun.STOPPED, null, SpawnHarnesses.UNOPENED_CONTAINER),
+					),
+				)
+			},
+		)
+		val marks = listOf(
+			"host" to SpawnReadiness.READY,
+			"evie-bot" to SpawnReadiness.READY,
+			"bare" to SpawnReadiness.NO_CLI,
+			"godot" to SpawnReadiness.STOPPED,
+			"newer" to SpawnReadiness.UNREAD,
+		)
+
+		assertEquals(marks, spawnChoices(reported, "sakura").map { it.spawn to it.readiness })
+		// A fire's "Start on" reads the same list.
+		assertEquals(marks.map { it.second }, spawnTargets(reported, "sakura").map { it.readiness })
+		assertEquals(listOf(SpawnReadiness.READY), sessionTargets(reported, "mikan").map { it.readiness }.distinct())
 	}
 
 	@Test

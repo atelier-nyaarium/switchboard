@@ -33,6 +33,8 @@ fun sessionCardPreview(
 	team: String,
 	boardLine: BoardLiveLine?,
 	boardBranch: CardBranch? = null,
+	/** What the session waits on before it can launch, if anything. */
+	starting: String? = null,
 ): SessionCardPreview {
 	val boardWork = boardLine?.takeIf { it.finished < it.total }
 	// Live board work displaces the relative time on every rung: the finished-over-total count answers
@@ -40,9 +42,9 @@ fun sessionCardPreview(
 	val timeAllowed = boardWork == null
 
 	val reply = state.lastReply(team)
-	// Failed launch first.
+	// Failed launch first, then a launch still waiting.
 	val failed = state.launchErrors[team]
-	val headline = failed?.line ?: oneLine(reply?.title)
+	val headline = failed?.line ?: starting ?: oneLine(reply?.title)
 	val lastRow = state.lastRow(team)
 
 	// The card reports what the SESSION is doing: the agent's own last word, then its board work. The
@@ -62,7 +64,8 @@ fun sessionCardPreview(
 		// Stamped with the REPLY's own time, not the thread's newest activity: beside a specific
 		// headline a thread-wide time reads as when that reply landed, and would say "1m" for an
 		// hour-old headline just because the owner had since sent something.
-		headlineAt = (failed?.at ?: reply?.at)?.takeIf { headline != null && timeAllowed },
+		// A wait has no time of its own.
+		headlineAt = (failed?.at ?: reply?.at.takeIf { starting == null })?.takeIf { headline != null && timeAllowed },
 		// Collapsed like the board strip's own single-line rows, which render this same title.
 		boardWork = boardWork?.let { it.copy(title = oneLine(it.title).orEmpty()) },
 		// Tied to boardWork rather than passed straight through: a session whose work is all finished

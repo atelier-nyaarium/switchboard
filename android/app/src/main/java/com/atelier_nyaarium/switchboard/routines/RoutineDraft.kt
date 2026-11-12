@@ -15,8 +15,8 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
-import com.atelier_nyaarium.switchboard.runbooks.SpawnChoice
-import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
+import com.atelier_nyaarium.switchboard.SpawnChoice
+import com.atelier_nyaarium.switchboard.spawnMenu
 import com.atelier_nyaarium.switchboard.runIsolated
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

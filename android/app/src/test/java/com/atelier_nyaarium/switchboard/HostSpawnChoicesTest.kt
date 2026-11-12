@@ -44,42 +44,6 @@ class HostSpawnChoicesTest {
 	}
 }
 
-/**
- * What the create dialog opens on.
- *
- * Nothing, unless a remembered project is still offered. `host` was the default once and is not a
- * neutral one: it is a real target among several, so preselecting it lets a mis-tap spawn on the
- * wrong machine's shell without the owner ever choosing.
- */
-class InitialProjectTest {
-	private val offered = listOf("windows", "host", "recipe-app")
-
-	@Test
-	fun `nothing remembered means nothing selected`() {
-		assertEquals(null, initialProject(null, offered))
-	}
-
-	@Test
-	fun `a remembered project that is still offered is preselected`() {
-		assertEquals("windows", initialProject("windows", offered))
-		assertEquals("recipe-app", initialProject("recipe-app", offered))
-	}
-
-	// The "when valid" half. A project since renamed or removed, or a Windows side no longer
-	// detected, must not preselect something that cannot be spawned.
-	@Test
-	fun `a remembered project the gateway no longer offers selects nothing`() {
-		assertEquals(null, initialProject("windows", listOf("host")))
-		assertEquals(null, initialProject("old-project", offered))
-	}
-
-	// A machine with nothing to offer cannot preselect anything, remembered or not.
-	@Test
-	fun `an empty project list selects nothing`() {
-		assertEquals(null, initialProject("host", emptyList()))
-	}
-}
-
 /** Which (gateway, project) a spawn target names. */
 class SpawnTargetKeyTest {
 	@Test

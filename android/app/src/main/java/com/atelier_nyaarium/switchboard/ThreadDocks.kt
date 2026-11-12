@@ -146,7 +146,7 @@ private val COMPACTING_BLUE = Color(0xFF0969DA)
 
 /** No dismiss; clears itself. */
 @Composable
-fun SessionStatusDock(dock: SessionDock, detail: String?) {
+fun SessionStatusDock(dock: SessionDock, detail: String?, startingLine: String) {
 	val limit = dock == SessionDock.LIMIT
 	val container = if (limit) MaterialTheme.colorScheme.errorContainer else COMPACTING_BLUE
 	val content = if (limit) MaterialTheme.colorScheme.onErrorContainer else Color.White
@@ -170,7 +170,7 @@ fun SessionStatusDock(dock: SessionDock, detail: String?) {
 					when (dock) {
 						SessionDock.LIMIT -> "Session Limit hit"
 						SessionDock.COMPACTING -> "Compacting..."
-						SessionDock.STARTING -> "Starting..."
+						SessionDock.STARTING -> startingLine
 					},
 					style = MaterialTheme.typography.bodyMedium,
 					color = content,

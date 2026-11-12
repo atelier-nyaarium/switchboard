@@ -78,6 +78,13 @@ class LaunchStatusTest {
 	}
 
 	@Test
+	fun theStartingDockNamesTheContainerItWaitsOn() {
+		assertEquals("Starting container...", startingDockLine(SessionWord.WAKING, ContainerRun.STARTING))
+		assertEquals("Starting...", startingDockLine(SessionWord.WAKING, ContainerRun.RUNNING))
+		assertEquals("Starting...", startingDockLine(SessionWord.VERIFYING, null))
+	}
+
+	@Test
 	fun aSessionReconnectingMidTurnIsNotStarting() {
 		assertFalse(startingDock(SessionWord.VERIFYING, sendAwaitingWake = false, paneWorking = true))
 	}

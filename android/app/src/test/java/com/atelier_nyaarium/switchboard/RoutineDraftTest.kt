@@ -16,7 +16,6 @@ import com.atelier_nyaarium.switchboard.routines.routineTargetLine
 import com.atelier_nyaarium.switchboard.routines.routineTargetMenu
 import com.atelier_nyaarium.switchboard.routines.assistantAbsent
 import com.atelier_nyaarium.switchboard.routines.targetTag
-import com.atelier_nyaarium.switchboard.runbooks.SpawnChoice
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
