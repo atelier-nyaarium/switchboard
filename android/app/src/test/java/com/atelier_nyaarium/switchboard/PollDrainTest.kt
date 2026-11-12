@@ -74,6 +74,10 @@ class PollDrainTest {
 		override fun onInbound(team: String, messages: List<Message>) {
 			inbound += team to messages
 		}
+		val launchAlerts = mutableListOf<Pair<String, String>>()
+		override fun onLaunchFailed(team: String, line: String) {
+			launchAlerts += team to line
+		}
 		override fun preloadMessage(team: String, at: Long) = Unit
 		override suspend fun enqueueForPlay(team: String, at: Long, tier: SttsPlayer.Tier) {
 			played += at
@@ -220,6 +224,30 @@ class PollDrainTest {
 		assertEquals(true, host.appended.first().second.isQuiet())
 		assertEquals(emptyList<Pair<String, List<Message>>>(), startedAlerts)
 		assertEquals(listOf(listOf(2L)), host.inbound.map { (_, messages) -> messages.map { it.seq } })
+	}
+
+	@Test
+	fun aFailedLaunchsRowIsHeldAndAlertsWithoutThreadingARow() = runBlocking {
+		val host = FakeHost(emptyMap())
+		val drain = PollDrain(host, IdlePresencePort)
+		val session = Address.of("dom", "gw", "app", "new")
+		val row = MailboxEntry(
+			seq = 1L,
+			at = 1L,
+			kind = "notice",
+			session_id = storeKey(SessionKey.Notice(session)),
+			from = session.canonical,
+			body = "Devcontainer failed to start.",
+			title = "Devcontainer failed to start",
+			launch = "failed",
+		)
+
+		drain.processEntries(listOf(row), cursor = 1L, epoch = 1L, dropped = 0L)
+
+		assertEquals(emptyList<Pair<String, Message>>(), host.appended)
+		assertEquals(emptyList<Pair<String, List<Message>>>(), host.inbound)
+		assertEquals(listOf(session.canonical to "Devcontainer failed to start."), host.launchAlerts)
+		assertEquals(LaunchError("Devcontainer failed to start.", 1L), host.state.value.launchErrors[session.canonical])
 	}
 
 	@Test

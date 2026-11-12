@@ -112,12 +112,13 @@ internal fun terminalEligible(state: ChatState, team: String): Boolean {
 }
 
 /** The floating status above the composer. */
-enum class SessionDock { LIMIT, COMPACTING }
+enum class SessionDock { LIMIT, COMPACTING, STARTING }
 
-/** A limit outranks compacting. */
-internal fun sessionDock(limitBlocked: Boolean, compacting: Boolean): SessionDock? = when {
+/** A limit outranks compacting, which outranks starting. */
+internal fun sessionDock(limitBlocked: Boolean, compacting: Boolean, starting: Boolean = false): SessionDock? = when {
 	limitBlocked -> SessionDock.LIMIT
 	compacting -> SessionDock.COMPACTING
+	starting -> SessionDock.STARTING
 	else -> null
 }
 

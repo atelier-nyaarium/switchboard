@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SealedEnvelopeSchema, sign, verify } from "./crypto.js";
 import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "./host-op.js";
-import { LaunchNoticeSchema } from "./launch-notice.js";
+import { LAUNCH_ROWS, LaunchNoticeSchema } from "./launch-notice.js";
 import { NOTICE_TITLE_MAX, NoticeTierWireFields } from "./notice.js";
 import { RECORD_SUMMARY_MAX, RECORD_THREADS_MAX, RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { SEND_GUARDS } from "./schemasAssistantSend.js";
@@ -71,12 +71,16 @@ export const ConsolePushEntrySchema = z
 		threads: z.array(RecordThreadSchema).min(1).max(RECORD_THREADS_MAX).optional(),
 		/** Peer send guard. */
 		guard: z.enum(SEND_GUARDS).optional(),
+		/** A launch's end. The phone docks it and threads nothing. */
+		launch: z.enum(LAUNCH_ROWS).optional(),
 	})
 	.superRefine((entry, ctx) => {
 		const issue = recordIssue(entry);
 		if (issue) ctx.addIssue({ code: "custom", message: issue });
 		if (entry.guard !== undefined && entry.kind !== "peer")
 			ctx.addIssue({ code: "custom", message: "only a peer row carries a guard" });
+		if (entry.launch !== undefined && entry.kind !== "notice")
+			ctx.addIssue({ code: "custom", message: "only a notice row carries a launch" });
 	});
 
 /** A quiet record shows nothing to older phones. */

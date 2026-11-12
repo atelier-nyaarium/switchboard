@@ -16,5 +16,6 @@ internal class SessionForget(
 		handlers.forEachCaught(onError = ::logPluginThrow) { it.onForget(context, team) }
 		SwitchboardService.cancelTeamNotification(context, team)
 		SwitchboardService.cancelScheduledSendFailedNotification(context, team)
+		SwitchboardService.cancelLaunchFailedNotification(context, team)
 	}
 }

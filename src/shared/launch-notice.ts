@@ -54,6 +54,10 @@ export type SendRefusal = z.infer<typeof SendRefusalSchema>;
 
 export const LAUNCH_NOTICE_SOURCE = "launches";
 
+/** What an owner row says of a launch's end. */
+export const LAUNCH_ROWS = ["failed"] as const;
+export const LAUNCH_ROW_FAILED = "failed" satisfies (typeof LAUNCH_ROWS)[number];
+
 export const PLAIN_LAUNCH_REASON = "the launch failed";
 
 ////////////////////////////////
@@ -137,10 +141,9 @@ function ownerCliPhrase(refusal: CliRefusal): string {
 	}
 }
 
-/** Thread line when a launch ends. */
-export function ownerLaunchLine(outcome: { up: true } | { failure: LaunchFailure }): string {
-	if ("up" in outcome) return "Session started.";
-	const phrase = ownerLaunchPhrase(outcome.failure);
+/** The owner's line for a launch that failed. */
+export function ownerLaunchLine(failure: LaunchFailure): string {
+	const phrase = ownerLaunchPhrase(failure);
 	return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
 }
 

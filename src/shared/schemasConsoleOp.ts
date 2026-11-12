@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
+import { LAUNCH_ROWS } from "./launch-notice.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
@@ -467,5 +468,7 @@ export const MailboxEntrySchema = z
 		threads: z.array(RecordThreadSchema).optional(),
 		/** Peer send guard. */
 		guard: z.enum(SEND_GUARDS).optional(),
+		/** A launch's end. The phone docks it and threads nothing. */
+		launch: z.enum(LAUNCH_ROWS).optional(),
 	})
 	.meta({ id: "MailboxEntry" });

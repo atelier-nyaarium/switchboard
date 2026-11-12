@@ -357,6 +357,19 @@ internal class ServiceNotifications(private val context: Context) {
 		NotificationManagerCompat.from(context).notify(scheduledSendFailedNotificationId(team), notification)
 	}
 
+	/** A failed launch threads no row, so the burst road never sees it. */
+	internal fun notifyLaunchFailed(repo: ChatRepository, team: String, line: String) {
+		val state = repo.state.value
+		if (!shouldNotifyBurst(repo.isVisible, canNotify(), state.closedTeams, team, state.phoneHold, repo.holdSelf())) return
+		val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+			.setSmallIcon(android.R.drawable.stat_notify_error)
+			.setContentTitle(state.label(team))
+			.setContentText(line)
+			.setAutoCancel(true)
+			.setContentIntent(contentIntent(team))
+		NotificationManagerCompat.from(context).notify(launchFailedNotificationId(team), builder.build())
+	}
+
 	/** Reconcile every team's bar notification against the live unread map, LEVEL-based (judged
 	 * fresh each emission against the actual shade contents, never against a remembered prior
 	 * emission - so a process restart's first emission converges cleanly and conflation/
@@ -668,6 +681,17 @@ internal class ServiceNotifications(private val context: Context) {
 			SESSION_PROMPT_ID_RANGE_START + (team.hashCode() and 0x7FFFFFFF) % SESSION_PROMPT_ID_RANGE_SIZE
 
 		// Own id range, like the others.
+		internal const val LAUNCH_FAILED_ID_RANGE_START = 9_000_000
+		internal const val LAUNCH_FAILED_ID_RANGE_SIZE = 1_000_000
+
+		internal fun launchFailedNotificationId(team: String): Int =
+			LAUNCH_FAILED_ID_RANGE_START + (team.hashCode() and 0x7FFFFFFF) % LAUNCH_FAILED_ID_RANGE_SIZE
+
+		fun cancelLaunchFailedNotification(context: Context, team: String) {
+			NotificationManagerCompat.from(context).cancel(launchFailedNotificationId(team))
+		}
+
+		// Own id range, like the others.
 		internal const val ROUTINE_ID_RANGE_START = 4_000_000
 		internal const val ROUTINE_ID_RANGE_SIZE = 1_000_000
 
@@ -676,6 +700,9 @@ internal class ServiceNotifications(private val context: Context) {
 			ROUTINE_ID_RANGE_START + ("$gatewayId/$routineId".hashCode() and 0x7FFFFFFF) % ROUTINE_ID_RANGE_SIZE
 
 		init {
+			require(LAUNCH_FAILED_ID_RANGE_START >= SESSION_PROMPT_ID_RANGE_START + SESSION_PROMPT_ID_RANGE_SIZE) {
+				"LAUNCH_FAILED_ID_RANGE must fall outside the session prompt id range"
+			}
 			require(SESSION_PROMPT_ID_RANGE_START >= ASSISTANT_ACT_ID_RANGE_START + ASSISTANT_ACT_ID_RANGE_SIZE) {
 				"SESSION_PROMPT_ID_RANGE must fall outside the assistant act id range"
 			}
@@ -739,7 +766,8 @@ internal class ServiceNotifications(private val context: Context) {
 				val assistant = id >= ASSISTANT_SEND_ID_RANGE_START && id < ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE
 				val assistantAct = id >= ASSISTANT_ACT_ID_RANGE_START && id < ASSISTANT_ACT_ID_RANGE_START + ASSISTANT_ACT_ID_RANGE_SIZE
 				val trace = id >= ASSISTANT_TRACE_ID_RANGE_START && id < ASSISTANT_TRACE_ID_RANGE_START + ASSISTANT_TRACE_ID_RANGE_SIZE
-				if (message || failed || vault || assistant || assistantAct || trace) nmc.cancel(id)
+				val launch = id >= LAUNCH_FAILED_ID_RANGE_START && id < LAUNCH_FAILED_ID_RANGE_START + LAUNCH_FAILED_ID_RANGE_SIZE
+				if (message || failed || vault || assistant || assistantAct || trace || launch) nmc.cancel(id)
 			}
 		}
 	}

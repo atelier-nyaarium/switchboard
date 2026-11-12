@@ -49,7 +49,7 @@ export function createRunbookFireHandler({ targets, getRunbook, createSession, d
 	): Promise<{ team: string; sessionId: string } | RunbookFireResult> {
 		const chosen = pick(targets.localSpawn(into.target), into.cli);
 		if ("refusal" in chosen) {
-			return { fired: false, reason: ownerLaunchLine({ failure: { kind: "cli", refusal: chosen.refusal } }) };
+			return { fired: false, reason: ownerLaunchLine({ kind: "cli", refusal: chosen.refusal }) };
 		}
 		const created = await createSession(
 			{

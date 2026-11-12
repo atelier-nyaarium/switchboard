@@ -141,6 +141,7 @@ internal fun ThreadScreen(
 	scheduled: ScheduledSendState,
 	goal: GoalState,
 	terminal: TerminalState,
+	launch: LaunchState,
 	onRename: (String) -> Unit,
 	onForget: () -> Unit,
 	// The board gate, same as the sessions list: unfinished tasks turn Forget into a decision the
@@ -519,7 +520,9 @@ internal fun ThreadScreen(
 			}
 			// Above the plugin slots deliberately: nothing sent to a limit-blocked session is read until
 			// the dialog clears, so this outranks anything else docked here.
-			sessionDock(terminal.limitBlocked, terminal.compacting)?.let { SessionStatusDock(it, terminal.limitDetail) }
+			sessionDock(terminal.limitBlocked, terminal.compacting, startingDock(presence, composer.sendAwaitingWake))
+				?.let { SessionStatusDock(it, terminal.limitDetail) }
+			launch.error?.let { LaunchErrorDock(it, launch.onDismissError) }
 			// Plugin dock slots (e.g. the Designer dock) sit between the messages and the
 			// composer; each slot draws nothing when it has nothing to show for this thread. The
 			// scope carries a composer-insert seam (e.g. the Designer's "Reference in chat"), team-bound

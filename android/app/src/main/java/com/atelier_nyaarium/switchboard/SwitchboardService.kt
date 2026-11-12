@@ -176,6 +176,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 			return
 		}
 		repo.onInbound = { team, messages -> notifications.notifyBurst(repo, team, messages) }
+		repo.onLaunchFailed = { team, line -> notifications.notifyLaunchFailed(repo, team, line) }
 		repo.scheduled.onScheduledSendFailed = { team, opId -> notifications.notifyScheduledSendFailed(repo, team, opId) }
 		repo.onRoutinesChanged = { notifications.reconcileRoutineNotifications(repo) }
 		repo.playback.chimeSource = { resolveChime() }
@@ -512,6 +513,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		destroyed = true
 		val repo = Repo.get(this)
 		repo.onInbound = null
+		repo.onLaunchFailed = null
 		repo.scheduled.onScheduledSendFailed = null
 		repo.playback.chimeSource = null
 		repo.playback.onTransportChanged = null
@@ -615,6 +617,10 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 
 		fun cancelScheduledSendFailedNotification(context: Context, team: String) {
 			ServiceNotifications.cancelScheduledSendFailedNotification(context, team)
+		}
+
+		fun cancelLaunchFailedNotification(context: Context, team: String) {
+			ServiceNotifications.cancelLaunchFailedNotification(context, team)
 		}
 
 		/** Start (or no-op if already running) once the app is provisioned. */

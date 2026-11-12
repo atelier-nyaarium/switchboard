@@ -16,6 +16,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -97,6 +100,7 @@ class ChatRepository(
 			labels = persistence.loadPersistedLabels(),
 			teamAbsenceStreaks = persistence.loadPersistedAbsenceStreaks(),
 			roles = persistence.loadPersistedRoles(),
+			launchErrors = persistence.loadPersistedLaunchErrors(),
 			assistantHome = persistence.loadPersistedAssistantHome(),
 			firstRooted = store.firstRooted,
 			lastProjectByGateway = store.lastProjectByGateway,
@@ -250,7 +254,13 @@ class ChatRepository(
 				if (_state.value.domainId != domainId) _state.update { it.copy(domainId = domainId) }
 			}
 		}
+		// The drain, a dismiss, the roster and a forget all change it; one writer follows the state.
+		repoScope.launch {
+			_state.map { it.launchErrors }.distinctUntilChanged().drop(1).collect { persistence.persistLaunchErrors() }
+		}
 	}
+
+	fun dismissLaunchError(team: String) = _state.dismissLaunchError(team)
 
 
 	internal fun applyDomainSync(snapshot: com.atelier_nyaarium.switchboard.proto.DomainSnapshot, version: String) =
@@ -468,6 +478,9 @@ class ChatRepository(
 	)
 
 	var onInbound: ((team: String, messages: List<Message>) -> Unit)? = null
+
+	/** Set by the service. A failed launch threads no row. */
+	var onLaunchFailed: ((team: String, line: String) -> Unit)? = null
 
 	/** Set by the service; absent when nothing is drawing a shade. */
 	var onRoutinesChanged: (() -> Unit)? = null

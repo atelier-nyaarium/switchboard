@@ -167,13 +167,40 @@ fun SessionStatusDock(dock: SessionDock, detail: String?) {
 			}
 			Column(Modifier.weight(1f)) {
 				Text(
-					if (limit) "Session Limit hit" else "Compacting...",
+					when (dock) {
+						SessionDock.LIMIT -> "Session Limit hit"
+						SessionDock.COMPACTING -> "Compacting..."
+						SessionDock.STARTING -> "Starting..."
+					},
 					style = MaterialTheme.typography.bodyMedium,
 					color = content,
 				)
 				if (limit && detail != null) {
 					Text(detail, style = MaterialTheme.typography.labelSmall, color = content)
 				}
+			}
+		}
+	}
+}
+
+/** A failed launch, until dismissed. */
+@Composable
+fun LaunchErrorDock(line: String, onDismiss: () -> Unit) {
+	val content = MaterialTheme.colorScheme.onErrorContainer
+	Surface(
+		modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+		color = MaterialTheme.colorScheme.errorContainer,
+		shape = MaterialTheme.shapes.medium,
+	) {
+		Row(
+			Modifier.fillMaxWidth().padding(start = 12.dp),
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(10.dp),
+		) {
+			Icon(Icons.Default.Warning, contentDescription = null, tint = content)
+			Text(line, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = content)
+			IconButton(onClick = hapticClick(onDismiss)) {
+				Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = content)
 			}
 		}
 	}

@@ -37,7 +37,7 @@ describe("federation harness: a create the launch fails", () => {
 					.find((entry) => entry.kind === "notice" && entry.from === h.target(team)),
 			"the owner told the launch failed",
 		);
-		expect(told).toMatchObject({ title: expect.any(String) });
+		expect(told).toMatchObject({ title: expect.any(String), launch: "failed" });
 
 		const record = h.gateway.faults.sessionRecord(team);
 		expect(record?.sessionLabel).toBe("explorer");

@@ -311,6 +311,11 @@ internal class PollDrain(
 				}
 				continue
 			}
+			val failed = launchErrorOf(entry)
+			if (failed != null) {
+				if (host.state.holdLaunchError(team, failed)) host.onLaunchFailed(team, failed.line)
+				continue
+			}
 			val record = recordOf(entry)
 			if (body.isEmpty() && files.isEmpty() && entry.status == null && record == null) continue
 			val attribution = resolveMessageAttribution(entry.kind, entry.from, entry.to, team, host::fromCanonical)

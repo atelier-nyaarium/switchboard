@@ -289,6 +289,10 @@ class AppStateStore internal constructor(
 
 	override fun loadRoles(): String? = prefs.getString(KEY_ROLES, null)
 
+	override fun saveLaunchErrors(json: String) = prefs.edit().putString(KEY_LAUNCH_ERRORS, json).apply()
+
+	override fun loadLaunchErrors(): String? = prefs.getString(KEY_LAUNCH_ERRORS, null)
+
 	override fun saveAssistantHome(json: String) = prefs.edit().putString(KEY_ASSISTANT_HOME, json).apply()
 
 	override fun loadAssistantHome(): String? = prefs.getString(KEY_ASSISTANT_HOME, null)
@@ -511,6 +515,7 @@ class AppStateStore internal constructor(
 		const val KEY_LABELS = "labels"
 		const val KEY_ABSENCE_STREAKS = "team_absence_streak"
 		const val KEY_ROLES = "team_roles"
+		const val KEY_LAUNCH_ERRORS = "launch_errors"
 		const val KEY_ASSISTANT_HOME = "assistant_home"
 		const val KEY_DRAFTS = "drafts"
 		const val KEY_SCHEDULED_SENDS = "scheduled_sends"
@@ -577,7 +582,7 @@ class AppStateStore internal constructor(
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS, KEY_ABSENCE_STREAKS,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_ASSISTANT_ACTS, KEY_PHONE_CAPABILITY_RUNS,
 			KEY_ASSISTANT_FEATURES,
-			KEY_RUNBOOKS, KEY_ROLES,
+			KEY_RUNBOOKS, KEY_ROLES, KEY_LAUNCH_ERRORS,
 			KEY_ASSISTANT_HOME,
 		)
 
@@ -593,7 +598,7 @@ class AppStateStore internal constructor(
 			KEY_CONVERSATION_ID,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_ASSISTANT_ACTS,
 			KEY_PHONE_CAPABILITY_RUNS, KEY_ASSISTANT_FEATURES,
-			KEY_RUNBOOKS, KEY_LAST_PROJECT, KEY_ROLES, KEY_ASSISTANT_HOME,
+			KEY_RUNBOOKS, KEY_LAST_PROJECT, KEY_ROLES, KEY_LAUNCH_ERRORS, KEY_ASSISTANT_HOME,
 		)
 	}
 }

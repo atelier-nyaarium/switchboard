@@ -75,6 +75,12 @@ class ChatPersistenceTest {
 
 		override fun loadRoles(): String? = slots["roles"]
 
+		override fun saveLaunchErrors(json: String) {
+			slots["launchErrors"] = json
+		}
+
+		override fun loadLaunchErrors(): String? = slots["launchErrors"]
+
 		override fun saveAssistantHome(json: String) {
 			slots["assistantHome"] = json
 		}
@@ -266,6 +272,13 @@ class ChatPersistenceTest {
 	fun absenceStreaksRoundTripAndDropNonAddressKeys() {
 		hold({ copy(teamAbsenceStreaks = mapOf(team to 4, "Pixel 10 Pro XL" to 9)) }) { persistAbsenceStreaks() }
 		assertEquals(mapOf(team to 4), codec.loadPersistedAbsenceStreaks())
+	}
+
+	@Test
+	fun launchErrorsRoundTripAndDropNonAddressKeys() {
+		val failed = LaunchError("Devcontainer failed to start.", 7L)
+		hold({ copy(launchErrors = mapOf(team to failed, "not-an-address" to failed)) }) { persistLaunchErrors() }
+		assertEquals(mapOf(team to failed), codec.loadPersistedLaunchErrors())
 	}
 
 	@Test

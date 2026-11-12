@@ -40,6 +40,8 @@ internal interface ChatPersistenceStore {
 	fun loadDrafts(): String?
 	fun saveRoles(json: String)
 	fun loadRoles(): String?
+	fun saveLaunchErrors(json: String)
+	fun loadLaunchErrors(): String?
 	fun saveAssistantHome(json: String)
 	fun loadAssistantHome(): String?
 }
@@ -353,6 +355,27 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 				for (rawKey in root.keys()) {
 					if (!isAddressKey(rawKey)) continue
 					root.optString(rawKey).takeIf { it.isNotEmpty() }?.let { put(rawKey, it) }
+				}
+			}
+		}.getOrDefault(emptyMap())
+	}
+
+	internal fun persistLaunchErrors() = written { s ->
+		val root = JSONObject()
+		for ((team, error) in s.launchErrors) root.put(team, JSONObject().put("line", error.line).put("at", error.at))
+		store.saveLaunchErrors(root.toString())
+	}
+
+	internal fun loadPersistedLaunchErrors(): Map<String, LaunchError> {
+		val json = store.loadLaunchErrors() ?: return emptyMap()
+		return runIsolated {
+			val root = JSONObject(json)
+			buildMap {
+				for (rawKey in root.keys()) {
+					if (!isAddressKey(rawKey)) continue
+					val held = root.optJSONObject(rawKey) ?: continue
+					val line = held.optString("line").takeIf { it.isNotEmpty() } ?: continue
+					put(rawKey, LaunchError(line, held.optLong("at")))
 				}
 			}
 		}.getOrDefault(emptyMap())

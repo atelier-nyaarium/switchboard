@@ -254,6 +254,7 @@ internal class SessionOps(
 				sessionWorking = s.sessionWorking - key,
 				sessionNeedsLogin = s.sessionNeedsLogin - key,
 				drafts = s.drafts - key,
+				launchErrors = s.launchErrors - key,
 			)
 		}
 		host.persistThreads()
@@ -370,9 +371,11 @@ internal fun createdAddress(target: String, id: String): String? =
 		Address.of(point.domain, point.gateway, point.spawn, id).canonical
 	}.getOrNull()
 
-/** Session answers, or an outcome line landed. Verifying and waking rows still hold. */
+/** Session answers, its launch failed, or a line landed. Verifying and waking rows still hold. */
 internal fun spawnSettled(state: ChatState, address: String): Boolean =
-	state.teams.any { it.name == address && it.presence.isOnline } || state.threads[address].orEmpty().isNotEmpty()
+	state.teams.any { it.name == address && it.presence.isOnline } ||
+		address in state.launchErrors ||
+		state.threads[address].orEmpty().isNotEmpty()
 
 /** The CLI word a wake or relaunch sends the row's own Gateway. */
 internal fun launchHarness(word: HarnessWord): String =

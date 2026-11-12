@@ -646,6 +646,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../SettingsSections.kt` / `SettingsSystem.kt` / `SettingsVoice.kt` - settings leaf screens
 - `android/.../SessionsHeaders.kt` / `SessionCard.kt` / `SessionCardPreview.kt` / `SessionsEmptyState.kt` - the Sessions view's headers, cards, rules, and empty-state machine
 - `android/.../SessionWord.kt` / `SessionForget.kt` - the one status word a conversation and a card show, and the one forget every surface calls
+- `android/.../LaunchStatus.kt` - a session's launch as the thread docks it: `startingDock`, and a failed launch held per session (`launchErrorOf`, `holdLaunchError`, `launchErrorsAfter`)
+  - **A launch threads no row:** one that comes up posts nothing, and a failed one's `notice` row (`launch: "failed"`) is held as a dismissible dock, the card's headline and its own notification. One collector in `ChatRepository` persists the map, whoever changed it.
+  - **A name off the wire is checked, never asserted:** `teamInfoToTeam` and `addressableContainers` drop a row that is no address, so one bad name cannot lose a roster update.
 - `android/.../vault/` - `VaultSealing.kt` / `VaultManager.kt` / `VaultRouterWriter.kt` / `VaultDraft.kt` / `ApprovalGate.kt` / `VaultScreen.kt` / `VaultEntryDialog.kt` / `VaultRequestSheet.kt` / `VaultPrompt.kt` / `PresenceActivity.kt` / `VaultRequestText.kt` / `VaultState.kt` - the sealing door, the held entry set with pending requests and the retry count, the owner-op writer, the draft-to-sealed rule, the one owner-presence gate, the view, the editor, the request card with its in-app sheet, the overlay that draws the same card, the see-through activity the overlay's presence prompt runs on, its pure text rules (title, requester, countdown, repeat line), and the held request shapes
   - **The overlay draws the sheet's card, never its own:** `VaultPrompt` hosts `VaultRequestCard` in a `ComposeView` it owns the lifecycle of, so the two surfaces cannot drift. Its entry approvals pass `ApprovalGate` through `PresenceActivity`, since a service has no activity to prompt on.
 - `android/.../crypto/ContentSealing.kt` - the one sealing door the board and the vault subclass; only the AAD builder differs
@@ -902,6 +905,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     change to what the reader was shown. Same function as a window descriptor's hash, different span;
     the two are never compared to each other.
 - `src/shared/session-id.ts` - sole address grammar owner
+  - **One segment rule, `SLUG_RE`:** lowercase letters and digits, then also `-` and `_`. A pane name and a conversation id read the same rule (`host-op.ts`). A project folder whose name is no segment is left out of the catalog, and the daemon logs it.
 - `src/shared/session-commands.ts` - what a session can be told to call: one entry per command, holding the tool name, the gateway path and both schemas; `ASSISTANT_COMMANDS` holds the assistant's commands
   - **A nudge names a command, never a tool:** the prose renders the catalogue's name, the gateway
     serves its path and the MCP registers it, so words cannot ask for something nothing answers.

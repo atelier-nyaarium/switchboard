@@ -208,9 +208,12 @@ single-flight, cadence and concurrency limits, and mutating-op deduplication.
   it to the local `spawn.session`, bounds the wait, and answers `pending` past the bound. A session
   the gateway holds no record for is re-created under its own id, as `create_session` does with a
   typed `sessionName`; a wake that adopted the record forgets it again only on a definite failure.
-- **Create** answers at dispatch with the new session's id and `status: "pending"`; the outcome lands
-  as a `notice` row from the session (`Session started.`, quiet, or the owner's failure line, which
-  alerts). The phone holds the Create's claim and op id until the session reads online or a line
+- **Create** answers at dispatch with the new session's id and `status: "pending"`. A launch that
+  comes up posts nothing; the roster says it, and the thread docks `Starting...` while the session
+  boots. A failed one lands as a `notice` row marked `launch: "failed"` carrying the owner's line.
+  The phone threads no row for it: `LaunchStatus.kt` holds it per session as a dismissible dock, on
+  the card's headline and in its own notification, until dismissed or the session is up. The phone
+  holds the Create's claim and op id until the session reads online, its launch fails or a line
   lands in its thread, so a re-press joins the same launch. The record stays whatever the launch
   does; only a forget removes it.
 - **A fire into a session that is starting** answers `fired` with `status: "starting"`; its body is

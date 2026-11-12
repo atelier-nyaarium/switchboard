@@ -744,6 +744,14 @@ fun App(
 					onArm = { g, text, files -> repo.goals.armAndSend(openTeam!!, g, text, files) },
 					onCancel = { repo.goals.cancelGoal(openTeam!!) },
 				),
+				launch = LaunchState(
+					error = state.launchErrors[openTeam!!]?.line,
+					onDismissError = {
+						val dismissed = openTeam!!
+						repo.dismissLaunchError(dismissed)
+						SwitchboardService.cancelLaunchFailedNotification(context, dismissed)
+					},
+				),
 				onRename = { name -> repo.command { rename(openTeam!!, name) } },
 				onForget = {
 					val forgotten = openTeam!!

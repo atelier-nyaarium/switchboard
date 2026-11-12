@@ -23,9 +23,6 @@ private const val CONTAINER_BUILD_MS = 3_000L
 /** Long enough to re-press Create while waking. */
 private const val SESSION_START_MS = 20_000L
 
-/** Launch outcome line. */
-private const val SANDBOX_STARTED_LINE = "Session started."
-
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -100,13 +97,7 @@ internal class SandboxContainerGateway(
 		state.update { s -> s.copy(teams = s.teams.filterNot { it.name == address } + row(Presence.AVAILABLE, working = true)) }
 		later {
 			delay(SESSION_START_MS)
-			val started =Message(false, SANDBOX_STARTED_LINE, System.currentTimeMillis(), quiet = true)
-			state.update { s ->
-				s.copy(
-					teams = s.teams.filterNot { it.name == address } + row(Presence.ONLINE, working = null),
-					threads = s.threads + (address to s.threads[address].orEmpty() + started),
-				)
-			}
+			state.update { s -> s.copy(teams = s.teams.filterNot { it.name == address } + row(Presence.ONLINE, working = null)) }
 		}
 		return ConsoleCreateSessionResult(created = true, id = id, sessionLabel = displayLabel, status = "pending")
 	}

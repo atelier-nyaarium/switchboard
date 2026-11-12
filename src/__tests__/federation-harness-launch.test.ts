@@ -320,6 +320,16 @@ describe("a session's send to a session that is not up", () => {
 		expect(toldOwner).toEqual([]);
 	});
 
+	it("posts the owner nothing for a created session that comes up", async () => {
+		const session = await create("quiet-up");
+		await passes(5);
+		const toldOwner = h.phone
+			.entries(await h.phone.inboxRead())
+			.filter((entry) => entry.kind === "notice" && entry.from === h.target(session.team));
+
+		expect(toldOwner).toEqual([]);
+	});
+
 	it("still makes the phone's send wait for the session, and answers once it is up", async () => {
 		const sleeper = await asleep("phoned");
 		const opId = "op-launch-phone";

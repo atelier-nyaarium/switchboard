@@ -68,6 +68,8 @@ data class ChatState(
 	val containerOpsInFlight: Set<String> = emptySet(),
 	/** Wake notices expire on read and are not persisted. */
 	val wakingTeams: Map<String, Long> = emptyMap(),
+	/** A failed launch per session, until dismissed or up. */
+	val launchErrors: Map<String, LaunchError> = emptyMap(),
 ) {
 	/** Friend Domain labels. */
 	fun friendLabels(): Map<String, String?> = crossDomainPeerSessions.mapValues { it.value.displayName }
@@ -80,7 +82,8 @@ data class ChatState(
 
 	fun sessions(): List<Team> {
 		val known = teams.mapTo(HashSet()) { it.name }
-		return teams + threads.keys.filter { it !in known }.map { Team(it, Presence.ended(), role = roles[it]) }
+		val unlisted = (threads.keys + launchErrors.keys).filter { it !in known }
+		return teams + unlisted.map { Team(it, Presence.ended(), role = roles[it]) }
 	}
 
 	/** Server labels clear local overrides; absence requires a streak. */
@@ -107,6 +110,7 @@ data class ChatState(
 			labels = nextLabels,
 			teamAbsenceStreaks = nextStreak,
 			roles = rolesAfter(roles, freshTeams),
+			launchErrors = launchErrorsAfter(launchErrors, freshTeams),
 		).withoutAssistantTabs()
 	}
 

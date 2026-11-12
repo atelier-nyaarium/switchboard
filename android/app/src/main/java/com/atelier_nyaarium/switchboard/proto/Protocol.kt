@@ -669,6 +669,7 @@ data class MailboxEntry(
 	val notify: Boolean? = null,
 	val threads: List<AssistantRecordThread>? = null,
 	val guard: String? = null,
+	val launch: String? = null,
 )
 
 @Serializable

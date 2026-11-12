@@ -345,7 +345,8 @@ describe("a create's CLI, picked where the Gateway knows what a spawn point runs
 			expect(several).toEqual({
 				fired: false,
 				reason: ownerLaunchLine({
-					failure: { kind: "cli", refusal: { cause: "needs_pick", available: ["claude", "opencode"] } },
+					kind: "cli",
+					refusal: { cause: "needs_pick", available: ["claude", "opencode"] },
 				}),
 			});
 			expect(missing).toMatchObject({ fired: false, reason: expect.any(String) });
