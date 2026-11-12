@@ -1005,7 +1005,8 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
   - **Repeated hellos postpone a close,** since each starts the wait over. A flapping link holds frames until it settles.
   - **Eviction counts are never pruned** on either side, and an eviction ask is not guarded. Both are bounded by how often an outbox overflows.
   - **A newer daemon's hello is refused by an older Gateway once it names an eviction.** The Gateway is restarted before the daemon on each machine.
-- **Cases added:** the last millisecond before the limit, a turn opened after the last ask, a send that does not get out, a close whose write is unconfirmed, a daemon whose hello has not come, and an eviction ask that did not get out.
+- **A close needs an ask made during the hold.** Found while writing the re-check's brief: an ask from before the hold satisfied "asked since the turn opened", so a daemon no ask reached was still given up on. A close now gives nothing up until an ask went out since the hold began, and a close that gave nothing up asks again. An agent that cannot be asked at all is closed without one.
+- **Cases added:** the last millisecond before the limit, a turn opened after the last ask, a send that does not get out, a close whose write is unconfirmed, a daemon whose hello has not come, an eviction ask that did not get out, and a daemon no ask reached.
 
 ### Architecture C: one turn runner over the driver
 

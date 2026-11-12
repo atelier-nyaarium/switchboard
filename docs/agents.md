@@ -146,7 +146,8 @@ again. What still cannot be placed is given up, a receipt's requested operation 
 
 **A close is careful about what it knows.** A reconciliation counts only if it came after the open
 turn did, and the open turn is ended only if the daemon was asked since it opened, so a turn that
-just started is kept. Nothing is given up while no daemon is live or before a new daemon's hello. A
+just started is kept. Nothing is given up while no daemon is live, before a new daemon's hello, or
+until an ask has gone out since the hold began. A
 write the record refuses leaves the frames held for another try, an unconfirmed one is awaited, and
 a frame awaiting its write has no limit.
 

@@ -337,8 +337,28 @@ describe("a hold nothing places is closed at its limit", () => {
 		const before = context.tries();
 
 		await context.ambient.advance(RECONCILE_GUARD_MS);
-
 		expect(context.tries() - before).toBe(1);
+
+		// Asked at the hold, so its limit still closes it.
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS);
+		expect(context.agent().agentState).toBe("idle");
+	});
+
+	it("gives nothing up to a daemon it could not ask since the hold began", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		context.setReaches(false);
+		await context.activity(0, "turn-1", 2);
+
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS + RECONCILE_GUARD_MS);
+		expect(context.agent().agentState).toBe("working");
+		expect(context.ackedThrough(2)).toBeUndefined();
+
+		// The ask gets out, and the next try closes.
+		context.setReaches(true);
+		await context.ambient.advance(RECONCILE_GUARD_MS * 2);
+		expect(context.agent().agentState).toBe("idle");
 	});
 
 	it("keeps the frames of a close whose write is not on disk yet", async () => {

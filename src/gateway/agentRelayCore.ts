@@ -732,36 +732,39 @@ export class AgentRelayCore<
 			return;
 		}
 		const now = this.now();
-		if (now < closeAt) {
+		// A daemon whose hello has not come has had no chance to answer.
+		const closed = now >= closeAt && live === this.helloFrom && this.close(ownerKey, agentId);
+		if (!closed) {
 			const agent = this.agentOf(ownerKey, agentId);
 			if (agent) this.requestReconciliation(ownerKey, agent);
-			// Timed from this try, sent or not.
-			this.watch(ownerKey, agentId, Math.min(RECONCILE_GUARD_MS, closeAt - now));
-			return;
 		}
-		// A daemon whose hello has not come has had no chance to answer.
-		if (live === this.helloFrom) this.close(ownerKey, agentId);
-		// A close the record refused is tried again.
-		this.watch(ownerKey, agentId, RECONCILE_GUARD_MS);
+		// Timed from this try, sent or not. A close that gave nothing up is tried again.
+		this.watch(ownerKey, agentId, now < closeAt ? Math.min(RECONCILE_GUARD_MS, closeAt - now) : RECONCILE_GUARD_MS);
 	}
 
 	/**
 	 * Ends a hold nothing placed. The daemon's last reconciliation is taken at its word, the open turn
 	 * it does not vouch for is ended, and every frame is tried once more before it is given up.
+	 * False when nothing was given up: the daemon was not asked yet, or the record refused a step.
 	 */
-	private close(ownerKey: string, agentId: string): void {
+	private close(ownerKey: string, agentId: string): boolean {
 		const key = agentKey(ownerKey, agentId);
 		const at = this.now();
 		const since = this.frames.heldSince(key, UNPLACED) ?? at;
-		console.error(
-			`[${this.family.backendId}-relay] closing the hold on ${agentId}: unplaced for ${Math.round((at - since) / 1000)}s`,
-		);
 		const live = this.deps.liveDaemonInstanceId();
 		const openedAt = this.opened.get(key)?.at ?? 0;
 		const word = this.said.get(key);
 		// Its word counts only when it came after the open turn did.
 		const receipt =
 			word && word.at >= openedAt && !fromReplacedDaemon(live, word.receipt) ? word.receipt : undefined;
+		const asked = this.lastReconcileAskedAt.get(key);
+		const askedAt = asked && asked.daemonInstanceId === live ? asked.askedAt : undefined;
+		const agent = this.agentOf(ownerKey, agentId);
+		// A daemon that could be asked and was not, since the hold began, is given nothing up to.
+		if (agent && this.isAskable(ownerKey, agent) && (askedAt === undefined || askedAt < since)) return false;
+		console.error(
+			`[${this.family.backendId}-relay] closing the hold on ${agentId}: unplaced for ${Math.round((at - since) / 1000)}s`,
+		);
 		const closing: Closing = {};
 		const taken = (application: AgentApplication<TAgent>): boolean => {
 			if (application.disposition === "failed" || application.disposition === "reconcile") return false;
@@ -773,16 +776,16 @@ export class AgentRelayCore<
 			return true;
 		};
 		// A record that refuses a step keeps its frames, and the close is tried again.
-		if (receipt && !taken(this.family.applyReceipt(receipt, at, true))) return;
-		const asked = this.lastReconcileAskedAt.get(key);
+		if (receipt && !taken(this.family.applyReceipt(receipt, at, true))) return false;
 		// A turn the daemon was never asked about since it opened is not ended.
-		const askedSince = asked !== undefined && asked.daemonInstanceId === live && asked.askedAt >= openedAt;
+		const askedSince = askedAt !== undefined && askedAt >= Math.max(openedAt, since);
 		const report = receipt ? this.family.reconciliationReport(receipt) : undefined;
-		if (askedSince && !taken(this.family.closeHeld(ownerKey, agentId, report, at))) return;
+		if (askedSince && !taken(this.family.closeHeld(ownerKey, agentId, report, at))) return false;
 		for (const ticket of this.frames.heldFor(key)) {
 			if (ticket.state === "held" && ticket.why !== "awaiting") this.reduce(ticket, closing);
 		}
 		this.forgetIfClear(key);
+		return true;
 	}
 
 	/** Gives up a frame nothing placed, its requested operation answered first. */
