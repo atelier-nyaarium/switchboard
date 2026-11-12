@@ -35,6 +35,12 @@ export interface AgentDaemonRuntime {
 ////////////////////////////////
 //  Functions & Helpers
 
+/**
+ * The daemon's agent side: a target manager and a service per backend.
+ *
+ * It lives as long as the process. A reconnect calls `connected` on the same runtime; a daemon
+ * restart builds another under a new id.
+ */
 export function createAgentDaemonRuntime(deps: AgentDaemonRuntimeDeps): AgentDaemonRuntime {
 	const bindings = AGENT_BACKENDS.map((descriptor) => {
 		const driver = deps.drivers[descriptor.id];

@@ -144,6 +144,7 @@ function createOf(frame: Frame): FakeCreate {
 	};
 }
 
+/** The daemon's real agent runtime over scripted backends. It outlives a socket. */
 export function createHarnessAgentDaemon(
 	agents: ScriptedAgents,
 	daemonInstanceId = `harness-daemon-${randomBytes(4).toString("hex")}`,

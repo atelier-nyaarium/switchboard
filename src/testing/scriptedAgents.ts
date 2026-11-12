@@ -280,6 +280,12 @@ class Session implements AgentBackendSession {
 	}
 }
 
+/**
+ * A driver per backend whose child is a pair of streams, so a harness runs the daemon's real
+ * runtime and the only double is the backend's own process.
+ *
+ * The backends outlive a daemon, as threads on disk do.
+ */
 export function scriptedAgents(): ScriptedAgents {
 	let offset = 0;
 	const backends = new Map(AGENT_BACKENDS.map(({ id }) => [id, new Backend(id)] as const));

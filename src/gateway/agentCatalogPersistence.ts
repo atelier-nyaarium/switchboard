@@ -75,7 +75,7 @@ export interface AgentCatalogFamily<TAgent extends AgentCatalogAgent> {
 ////////////////////////////////
 //  Class
 
-/** Both families' agent catalog. */
+/** One owner's agent catalog for one backend. `write` is its only catalog write. */
 export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 	constructor(private readonly family: AgentCatalogFamily<TAgent>) {}
 
