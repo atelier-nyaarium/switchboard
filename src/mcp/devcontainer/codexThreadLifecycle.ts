@@ -128,13 +128,8 @@ export class ThreadLifecycle {
 	}
 
 	/**
-	 * Start a turn, loading the thread first.
-	 *
-	 * `onStarted` is handed the id before any terminal buffered for it is published, which is the only
-	 * point at which a caller can register for a turn whose id it has just been given. Ordering that
-	 * by scheduling instead was tried: the caller resumes an unknowable number of microtasks after
-	 * this resolves, so a drain queued behind the start still beat it. Required, since a caller that
-	 * omits it silently gets that losing race back.
+	 * Start a turn, loading the thread first. `onStarted` is handed the id before any terminal
+	 * buffered for it is published.
 	 */
 	startTurn(threadId: string, params: unknown, onStarted: (turnId: string) => void): Promise<string> {
 		this.track(threadId);

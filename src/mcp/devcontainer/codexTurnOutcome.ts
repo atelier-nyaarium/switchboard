@@ -1,5 +1,4 @@
 import { CodexAppServerThreadReadResultSchema, classifyCodexItemPhase } from "../../shared/codex-app-server.js";
-import type { TurnOutcome } from "./codexTurnTracker.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -33,7 +32,7 @@ export function outcomeFromRead(result: unknown, threadId: string, turnId: strin
 		(item): item is { type: "agentMessage"; id: string; text: string; phase?: unknown } =>
 			item.type === "agentMessage",
 	);
-	// The tracker's own classification, so a rebuilt turn agrees with a witnessed one. Commentary is
+	// A witnessed turn's own classification, so a rebuilt turn agrees with it. Commentary is
 	// excluded: narration as a final response is a wrong answer, none is an empty one.
 	const classified = messages.map((item) => ({ item, kind: classifyCodexItemPhase(item.phase) }));
 	const final =
@@ -43,15 +42,4 @@ export function outcomeFromRead(result: unknown, threadId: string, turnId: strin
 		known: "settled",
 		outcome: { status: "completed", finalResponse: final?.text, finalItemId: final?.id },
 	};
-}
-
-export function terminalOf(outcome: TurnOutcome): TerminalOutcome {
-	switch (outcome.status) {
-		case "completed":
-			return { status: "completed", finalResponse: outcome.finalResponse };
-		case "failed":
-			return { status: "failed", error: outcome.error ?? `turn failed` };
-		default:
-			return { status: "interrupted" };
-	}
 }

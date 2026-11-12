@@ -1008,6 +1008,17 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
 - **A close needs an ask made during the hold.** Found while writing the re-check's brief: an ask from before the hold satisfied "asked since the turn opened", so a daemon no ask reached was still given up on. A close now gives nothing up until an ask went out since the hold began, and a close that gave nothing up asks again. An agent that cannot be asked at all is closed without one.
 - **Cases added:** the last millisecond before the limit, a turn opened after the last ask, a send that does not get out, a close whose write is unconfirmed, a daemon whose hello has not come, an eviction ask that did not get out, and a daemon no ask reached.
 
+**Re-check of the close, 2026-11-12.** Two Luna readers on `379c4e92`: the logic, and the timers with the cases.
+
+- **A frame placed during a close retried the others without the close,** so a frame on another stream was decided and acknowledged while the close's write was still unconfirmed, and a frame left unplaced armed a second close at once. A closing reduction now retries nothing; the close visits each held frame itself.
+- **A step queued before `stop` still asked or closed.** `tend` and the ask both stop.
+- **Judged not defects:**
+  - **A stale contradicting reconciliation used at a close** ends the same turn that no word at all ends, and the held receipt is decided as soon as a later frame passes it.
+  - **A `creating` agent on a lossy target** is recovered by the resend at register: the daemon's operation ledger answers a repeated start with its accepted receipt.
+  - **A failed ask for a stale agent is tried each persist tick.** It never reaches the wire, and a link that returns is asked at once.
+- **Left, on the board:** a live daemon that never speaks a backend, because it no longer offers it, is asked forever. Its agents stay working and their frames held. That is older than the ledger.
+- **Cases added:** two streams under an unconfirmed close, and a stopped relay.
+
 ### Architecture C: one turn runner over the driver
 
 **Built, 2026-11-12,** in three local commits after B: the runner and the daemon on it (`0165552b`), local mode on it (`70894c25`), and the listing and reap parity.
@@ -1029,6 +1040,19 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
 - **Written claims corrected:** only a driver that cannot resume answers that the agent ended with its process, a failed resume is its own error; the watch interrupts anything it cannot read as settled.
 - **Cases added:** an early counter, the directory a resume is given, a session retired while a silent turn was read, and the stranded listing child.
 - **Left:** a stop waits behind a message that is mid-steer, on both sides, up to 150 seconds on OpenCode. On the board.
+
+### Architecture E: one owner for a Codex turn's ending
+
+**Built, 2026-11-12.** `CodexTurnTracker` became `CodexTurns`, and `CodexBackendSession` lost its three per-turn maps.
+
+- **One state per turn:** its output, the promise its handle waits on, and an ending that is `running`, `holding` with an armed deadline, or `checking` with a read in flight. A frame, a read, a deadline and the terminal the thread's owner publishes all end a turn through one function.
+- **A hold cannot be left unarmed.** A deadline read that still said running used to drop the timer and leave the turn to the ten minute watch. It arms the next deadline, and the third ends the turn on what was witnessed.
+- **An inspect that settled a held turn left the hold behind,** to settle a second time on a late item. The inspect ends the turn itself.
+- **A handle registered after its turn ended is resolved at once,** from the last 256 ended turns. A terminal that beat an adopt's read used to leave a handle only the watch could end.
+- **The handle resolves when the turn ends,** not when the thread lifecycle publishes. The lifecycle still buffers a terminal that beats its start reply, since the park must wait for the turn to be known as the thread's own.
+- **A child's exit ends every turn in the owner,** and no frame or registration opens one after.
+- **Not changed:** `adoptTurn` still answers nothing for a settled read. A Codex start whose fate is unknown poisons its generation, so a start that was merely refused opened no turn to adopt.
+- **Dropped:** the tracker's stored commentary and its truncation flag, which nothing read. The cap on what is passed on stays.
 
 ## Phase 3 - Acceptance and docs
 

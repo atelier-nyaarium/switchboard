@@ -149,7 +149,8 @@ turn did, and the open turn is ended only if the daemon was asked since it opene
 just started is kept. Nothing is given up while no daemon is live, before a new daemon's hello, or
 until an ask has gone out since the hold began. A
 write the record refuses leaves the frames held for another try, an unconfirmed one is awaited, and
-a frame awaiting its write has no limit.
+a frame awaiting its write has no limit. A frame placed during a close retries no other, so each
+held frame, on whichever stream, waits on the close's own unwritten step.
 
 **The daemon says what its outbox dropped.** Past 1,000 unacknowledged frames on a stream it evicts
 the oldest and counts it, and every hello carries the counts. The Gateway asks about each working
@@ -202,12 +203,20 @@ nothing already retained in the outbox. `release` must name the generation, or a
 its successor.
 
 **`startTurn` hands the turn id to `onStarted` before draining.** A terminal can beat its own
-`turn/start` reply. Scheduling registration does not work. `CodexBackendSession` parks the turn's
-handle inside that callback.
+`turn/start` reply, and the thread's park must not run before the turn is known to be its own.
+`CodexBackendSession` registers the turn's handle inside that callback.
 
-**A terminal hold names its release event and bound.** The tracker holds a terminal that precedes its
-final item until that item arrives or the driver's ten second deadline releases it. A read still
-reporting `inProgress` leaves it held.
+**One owner ends a Codex turn.** `CodexTurns` holds each turn's output, the promise its handle waits
+on, and its hold deadline. A frame, a `thread/read`, a deadline and the terminal `ThreadLifecycle`
+publishes all end a turn through one function, which resolves the handle, remembers the terminal and
+hands it on for the thread to park behind. A handle registered after its turn ended is already
+resolved, from the last 256 ended turns. A child that exits ends every turn as failed.
+
+**A terminal hold names its release event and bound.** A completed turn with no answer waits for its
+final item. At ten seconds its thread is read: a settled read ends it, an unreadable one ends it with
+no answer, and one still reporting `inProgress` arms the next deadline. The third deadline ends it on
+what was witnessed, so a hold lasts thirty seconds at most. An inspect reads a held turn as running
+only until its first deadline; after that an answerless settled read ends it.
 
 **Progress is any frame from the turn's own thread.** Matching only a turn id, or counting only
 tracker-parsed frames, misattributes or interrupts live work. The driver reports it through
