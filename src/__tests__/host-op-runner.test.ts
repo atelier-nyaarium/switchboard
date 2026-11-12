@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHostOpRunner, type TmuxOps } from "../mcp/devcontainer/hostOpRunner.js";
-import type { TmuxTarget } from "../shared/host-op.js";
+import { type TmuxTarget, TYPED_GIVE_UP_MS } from "../shared/host-op.js";
 
 const T: TmuxTarget = { kind: "devcontainer", name: "recipe-app", sessionName: "claude" };
 
@@ -90,6 +90,19 @@ describe("createHostOpRunner", () => {
 		expect(await runner.run(op)).toEqual({ typed: true });
 		expect(await runner.run(op)).toEqual({ typed: true });
 		expect(h.ops.typeIntoPane).toHaveBeenCalledTimes(2);
+	});
+
+	it("holds a typed key for as long as its sender keeps retrying it", async () => {
+		const h = makeOps();
+		let at = 0;
+		const runner = createHostOpRunner(h.ops, { now: () => at });
+		const op = { kind: "typeIntoPane", target: T, text: "<channel>hi</channel>", dedupKey: "type:late" } as const;
+
+		await runner.run(op);
+		at = TYPED_GIVE_UP_MS;
+		await runner.run(op);
+
+		expect(h.ops.typeIntoPane).toHaveBeenCalledTimes(1);
 	});
 
 	it("threads submit:false to sendText so the text is typed without a trailing Enter", async () => {

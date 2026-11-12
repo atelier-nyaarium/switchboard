@@ -6,6 +6,7 @@ import packageJson from "../../../package.json";
 import { mintNoAckSessionId } from "../../shared/agent-notice.js";
 import { processAmbient } from "../../shared/ambient.js";
 import { isGatewayLongWaitRoute, resendsAfterFailure } from "../../shared/gateway-long-waits.js";
+import { TYPED_GIVE_UP_MS } from "../../shared/host-op.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
@@ -118,7 +119,6 @@ function resendPresence(): void {
 
 const TYPED_RETRY_MS = 1000;
 const TYPED_BACKOFF_MAX_MS = 30_000;
-const TYPED_GIVE_UP_MS = 15 * 60_000;
 let queuedDeliveryTail = Promise.resolve();
 
 function serializeQueuedDelivery<T>(work: () => Promise<T>): Promise<T> {

@@ -112,8 +112,16 @@ export function execEventsFile(exec: (argv: string[]) => Promise<string>, file: 
 			if (!/^\d+$/.test(said)) throw new Error(`unreadable size for ${file}`);
 			return Number(said);
 		},
+		// One process, so a failed read is a failed command.
 		read: (start, end) =>
-			exec(["sh", "-c", 'tail -c +"$1" "$2" | head -c "$3"', "sh", String(start + 1), file, String(end - start)]),
+			exec([
+				"dd",
+				`if=${file}`,
+				"iflag=skip_bytes,count_bytes",
+				`skip=${start}`,
+				`count=${end - start}`,
+				"status=none",
+			]),
 	};
 }
 
@@ -199,7 +207,10 @@ export function createCompactionFollower(opts: {
 		async setFollows(entries) {
 			const next = new Map(entries.map((entry) => [entry.team, entry]));
 			for (const [team, state] of follows) {
-				if (next.get(team)?.copilotSessionId !== state.follow.copilotSessionId) follows.delete(team);
+				if (next.get(team)?.copilotSessionId === state.follow.copilotSessionId) continue;
+				follows.delete(team);
+				// A dropped follow can no longer say it ended.
+				if (state.compacting) opts.onChange(team, false);
 			}
 			const attaching: Promise<void>[] = [];
 			for (const [team, follow] of next) {

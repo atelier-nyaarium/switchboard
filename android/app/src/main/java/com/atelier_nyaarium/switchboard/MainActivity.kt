@@ -708,7 +708,7 @@ fun App(
 				composer = ComposerState(
 					draft = state.drafts[openTeam!!] ?: Draft(),
 					sendAwaitingWake = state.awaitingWake(openTeam!!),
-					onSend = { text, files -> repo.command { send(openTeam!!, text, files) } },
+					onSend = { repo.sendDraft(openTeam!!) },
 					onTextChange = { repo.setDraftText(openTeam!!, it) },
 					onAddFiles = { uris -> repo.command { addDraftFiles(openTeam!!, uris) } },
 					onRemoveFile = { src -> repo.removeDraftFile(openTeam!!, src) },

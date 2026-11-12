@@ -441,12 +441,12 @@ export class DevContainers {
 		project: string,
 		projectPath: string,
 		generation: number,
-		then: (installed: SessionHarness[]) => Promise<T>,
+		then: (installed: SessionHarness[], unready: readonly SessionHarness[]) => Promise<T>,
 		undo?: (value: T) => Promise<unknown>,
 	): Promise<{ pluginsProvisioned: boolean; value: T }> {
 		return this.lanes.run(project, async () => {
-			const { pluginsProvisioned, installed } = await this.bring(project, projectPath, generation);
-			const value = await then(installed);
+			const { pluginsProvisioned, installed, unready } = await this.bring(project, projectPath, generation);
+			const value = await then(installed, unready);
 			if (this.generation(project) !== generation) {
 				await undo?.(value).catch((err) => console.error(`[containers] ${project} undo: ${reasonOf(err)}`));
 				throw new ContainerStopped();
@@ -464,7 +464,7 @@ export class DevContainers {
 		project: string,
 		projectPath: string,
 		generation: number,
-	): Promise<{ pluginsProvisioned: boolean; installed: SessionHarness[] }> {
+	): Promise<{ pluginsProvisioned: boolean; installed: SessionHarness[]; unready: SessionHarness[] }> {
 		const fenced = () => {
 			if (this.generation(project) !== generation) throw new ContainerStopped();
 		};
@@ -505,30 +505,36 @@ export class DevContainers {
 			fenced();
 			await this.refresh().catch((err) => console.error(`[containers] read failed: ${reasonOf(err)}`));
 			fenced();
+			// Read before the probe, so its answer is this container's.
+			const id = known.get(project)?.id;
 			const installed = await this.look(project, controller.signal);
 			fenced();
-			const pluginsProvisioned = await this.provisionPending(project, installed, controller.signal);
+			const { landed, unready } = await this.provisionPending(project, id, installed, controller.signal);
 			fenced();
-			return { pluginsProvisioned, installed };
+			return { pluginsProvisioned: landed, installed, unready };
 		} finally {
 			this.controllers.delete(project);
 			this.emit();
 		}
 	}
 
-	/** Each found CLI not yet set up in this container incarnation; a success is kept, a failure retried. */
+	/**
+	 * Each found CLI not yet set up in this container incarnation; a success is kept, a failure retried.
+	 * `unready` are the CLIs still without their plugins.
+	 */
 	private async provisionPending(
 		project: string,
+		id: string | undefined,
 		installed: readonly SessionHarness[],
 		signal: AbortSignal,
-	): Promise<boolean> {
-		const id = known.get(project)?.id;
-		if (!id) return false;
+	): Promise<{ landed: boolean; unready: SessionHarness[] }> {
+		// Replaced during the probe: the list is another container's.
+		if (!id || known.get(project)?.id !== id) return { landed: false, unready: [] };
 		const pending = this.provisioned.pending(project, id, installed);
-		if (pending.length === 0) return false;
+		if (pending.length === 0) return { landed: false, unready: [] };
 		const { landed, ready } = await this.deps.provision(project, pending, signal);
 		this.provisioned.settled(project, id, ready);
-		return landed;
+		return { landed, unready: this.provisioned.pending(project, id, installed) };
 	}
 
 	/** Always probes; the newest answer is kept. */

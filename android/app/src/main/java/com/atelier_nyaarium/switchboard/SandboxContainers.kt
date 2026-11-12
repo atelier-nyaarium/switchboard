@@ -98,7 +98,7 @@ internal class SandboxContainerGateway(
 			harness = readHarness(harness),
 		)
 		state.update { s -> s.copy(teams = s.teams.filterNot { it.name == address } + row(Presence.AVAILABLE, working = true)) }
-		// A Copilot create never comes up, so the failed launch's dock is reachable.
+		// Copilot never comes up.
 		val fails = (readHarness(harness) as? HarnessWord.Named)?.harness == SessionHarness.COPILOT
 		later {
 			delay(SESSION_START_MS)

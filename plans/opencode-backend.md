@@ -471,6 +471,16 @@ Commits `b0d48f8f`, `65a08548` and `9daae096`; released as 8.14.57 and deployed.
 
 - **A name rule written more than once.** Mechanism: the address segment's character set, hand-copied as `TMUX_NAME_RE`, `CONVERSATION_ID_RE`, `SHELL_SAFE_NAME_RE` and the phone's routine id pattern. Widening `SLUG_RE` left `SHELL_SAFE_NAME_RE` behind, so the catalog offered a project the console then refused; Luna's audit caught it before a live use. Resolved by design: every reader takes `SLUG_RE`, and the shell-safe copy is gone.
 - **A name off the wire asserted instead of checked.** Mechanism: `Address.of` and `SpawnPoint.of` throw, and `teamInfoToTeam` called them on a roster row inside the landing. One bad row lost the whole update. Resolved at the two intakes (`teamInfoToTeam`, `addressableContainers`); the audit found no other unguarded parse of a wire or disk string.
+- **A wait and the memory that covers it set apart.** Mechanism: the daemon held a typed delivery's key for 60 seconds while the plugin retried that key for 15 minutes, so a retry past the hold typed the message again. Resolved by design: both read `TYPED_GIVE_UP_MS`.
+- **State torn down without its off signal.** Mechanism: `setFollows` in `copilotCompaction.ts` deleted a follow that was compacting and told nobody, so the phone kept the overlay. Resolved: a dropped follow reports the end.
+
+### Red team, 2026-11-11
+
+Ten Luna angles and an Opus join over `4fea952e..HEAD`. Fifteen findings ranked, three dropped by the join.
+
+- **Fixed:** the typed key's hold; the dropped follow's overlay; the container events read (one `dd`, so a failed read is a failed command, where `tail | head` answered empty); a launch whose CLI's plugins did not install now fails with that reason instead of launching a CLI that never registers; the provision ledger keys the probe by the container id read before it; a fresh launcher's `ready` is checked against its pid; the Starting dock stays off a pane already running a turn; a `clearStatus` test that could not fail; three long comments.
+- **Dropped, with the reason:** an overall deadline on plugin setup. Setup runs in the `building` stage, which has no countdown, each script is bounded, and a Stop aborts it.
+- **Parked:** see Painpoints, the four entries dated 2026-11-11.
 
 ## Agent-facing prose
 
@@ -690,6 +700,10 @@ OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and 
 
 ## Painpoints
 
+- **A CLI pick is applied by team, not by launch (2026-11-11):** `wake_result` and `cli_found` in `websocket.ts` call `resolvePick` for the team, and the first pick wins. A replayed result of an earlier launch can land on a retry's record and name its CLI and session id.
+- **A late pick confirms nothing when two tokened sockets wait (2026-11-11):** `standLateToken` returns on more than one waiting socket and nothing asks again when one closes, so the survivor stays unconfirmed until evicted.
+- **OpenCode's login and limit chips last until the next turn (2026-11-11):** both come from the last settled turn's error, so a sign-in fixed outside a turn still reads as login.
+- **The Starting dock reads presence, not the launch record (2026-11-11):** a launch whose Gateway waiter ended while its record still runs shows no dock, and the dock cannot name a stage. The record's own state on the presence row closes both.
 - **The host daemon runs on import:** `src/mcp/devcontainer/hostDaemon.ts` opens its socket and timers at module top level, so no test calls `handleWake`. Phase 1's container refusal and `launchHarness` there were checked by reading. Phase 2b adds container orchestration to the same function.
 - **Copilot's phone palette is Claude's:** both rows of `HARNESS` hold `CLAUDE_SLASH` as `slashPalette`, so the phone offers a Copilot session slash commands it does not have.
 - **`detectAgentType` answers the first CLI on the path:** a hand-started session with no `AGENT_TYPE` reads as Claude on any machine that has Claude installed, whatever CLI it runs in.

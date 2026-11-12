@@ -23,8 +23,11 @@ describe("a container's launch site", () => {
 		expect(site.root).toBe("/home/vscode/.cache/switchboard/runtime/8.14.55");
 		expect(site.statusFile(APP_A)).toBe("/home/vscode/.cache/switchboard/launch/app.a.json");
 		expect(await site.readStatus(APP_A)).toBe(`{"state":"ready","pid":7}`);
+		const reads = asked.length;
 		await site.clearStatus(APP_A);
-		expect(asked.every((argv) => argv.includes(site.statusFile(APP_A)))).toBe(true);
+		const cleared = asked.slice(reads).flat();
+		expect(cleared.some((part) => part.includes("rm -f"))).toBe(true);
+		expect(cleared).toContain(site.statusFile(APP_A));
 	});
 
 	it("reads an unreadable status as none, and refuses a version that is not a plain path", async () => {

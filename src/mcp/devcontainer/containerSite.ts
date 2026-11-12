@@ -49,7 +49,7 @@ export function containerLaunchSite(version: string, exec: PlaceExec): LaunchSit
 		root: containerRuntimeRoot(version),
 		statusFile,
 		readStatus: (target) => exec(target, ["cat", statusFile(target)]).catch(() => undefined),
-		// Before every launch, so the launcher always has its folder.
+		// Makes the folder too.
 		clearStatus: async (target) => {
 			await exec(target, ["sh", "-c", 'mkdir -p "$1" && rm -f "$2"', "sh", STATUS_DIR, statusFile(target)]);
 		},

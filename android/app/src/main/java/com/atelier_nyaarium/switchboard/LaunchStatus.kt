@@ -53,6 +53,9 @@ internal fun MutableStateFlow<ChatState>.dismissLaunchError(team: String) {
 	update { if (team in it.launchErrors) it.copy(launchErrors = it.launchErrors - team) else it }
 }
 
-/** Booting, with no send's own waking notice over it. */
-internal fun startingDock(word: SessionWord?, sendAwaitingWake: Boolean): Boolean =
-	!sendAwaitingWake && (word == SessionWord.VERIFYING || word == SessionWord.WAKING)
+/**
+ * Booting, with no send's own waking notice over it. A pane already running a turn is a session
+ * reconnecting, which reads verifying too.
+ */
+internal fun startingDock(word: SessionWord?, sendAwaitingWake: Boolean, paneWorking: Boolean): Boolean =
+	!sendAwaitingWake && !paneWorking && (word == SessionWord.VERIFYING || word == SessionWord.WAKING)

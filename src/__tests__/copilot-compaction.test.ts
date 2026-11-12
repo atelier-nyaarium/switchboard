@@ -99,18 +99,19 @@ describe("the Copilot compaction follower", () => {
 });
 
 describe("a container's events file", () => {
-	/** The size and `tail | head` scripts over one held file, as a container's shell answers them. */
+	/** The size script and a `dd` range read over one held file, as a container answers them. */
 	function container(held: { text?: string; down?: boolean }) {
 		const asked: string[][] = [];
 		const exec = async (argv: string[]): Promise<string> => {
 			asked.push(argv);
 			if (held.down) throw new Error("tmux command timed out");
-			const sizing = argv[2]?.includes("stat");
-			if (held.text === undefined) return sizing ? "absent\n" : "";
-			const bytes = Buffer.from(held.text);
-			if (sizing) return `${bytes.length}\n`;
-			const [from, , length] = argv.slice(-3).map(Number);
-			return bytes.subarray((from as number) - 1, (from as number) - 1 + (length as number)).toString("utf8");
+			if (argv[0] !== "dd") return held.text === undefined ? "absent\n" : `${Buffer.byteLength(held.text)}\n`;
+			if (held.text === undefined) throw new Error("dd: failed to open");
+			const named = (name: string) =>
+				Number(argv.find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1));
+			return Buffer.from(held.text)
+				.subarray(named("skip"), named("skip") + named("count"))
+				.toString("utf8");
 		};
 		return { exec, asked };
 	}
@@ -153,9 +154,20 @@ describe("a container's events file", () => {
 
 		expect(await file.size()).toBe(Buffer.byteLength(held.text));
 		expect(await file.read(NOISE.length, held.text.length)).toBe(START);
-		expect(
-			asked.every((argv) => argv.includes(`/home/vscode/.copilot/session-state/${SESSION}/events.jsonl`)),
-		).toBe(true);
+		const path = `/home/vscode/.copilot/session-state/${SESSION}/events.jsonl`;
+		expect(asked.every((argv) => argv.some((part) => part.endsWith(path)))).toBe(true);
+	});
+
+	it("says compacting ended when a follow is dropped mid-compaction", async () => {
+		const { instance, changes, follow } = followIn({ text: `${NOISE}${START}` });
+		await instance.setFollows(follow);
+		await instance.setFollows([]);
+
+		expect(changes).toEqual([
+			["app.abc", true],
+			["app.abc", false],
+		]);
+		instance.stop();
 	});
 
 	it("reads a missing file as absent, and seeds from its tail once it is back", async () => {

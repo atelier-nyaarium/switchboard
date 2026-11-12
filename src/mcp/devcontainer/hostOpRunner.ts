@@ -15,6 +15,7 @@ import {
 	type PromptOutcome,
 	paneKey,
 	type TmuxTarget,
+	TYPED_GIVE_UP_MS,
 	type TypeIntoPaneResult,
 } from "../../shared/host-op.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
@@ -51,6 +52,8 @@ export type PeekPriority = "interactive" | "derive";
 const MIN_PEEK_INTERVAL_MS = 300;
 const MAX_CONCURRENT_PEEKS = 6;
 const SEND_DEDUP_TTL_MS = 60_000;
+/** Past the last retry of one key. */
+const TYPED_DEDUP_TTL_MS = TYPED_GIVE_UP_MS + 2 * 60_000;
 /** Thrown so a joined flight's busy answer is not held. */
 const PANE_BUSY = Symbol("pane busy");
 
@@ -62,6 +65,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 	const inflightPeeks = createSingleFlight<string, HostPeekResult>();
 	const lastCapture = new Map<string, { at: number; result: HostPeekResult }>();
 	const sendDedupe = createOpDedupe<unknown>({ now, holdMs: SEND_DEDUP_TTL_MS });
+	const typedDedupe = createOpDedupe<unknown>({ now, holdMs: TYPED_DEDUP_TTL_MS });
 
 	let activePeeks = 0;
 	const interactiveWaiters: Array<() => void> = [];
@@ -121,7 +125,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 	async function runTyping(op: Extract<HostOp, { kind: "typeIntoPane" }>): Promise<unknown> {
 		if (!op.dedupKey) return ops.typeIntoPane(op.target, op.text);
 		try {
-			return await sendDedupe.once(op.dedupKey, async () => {
+			return await typedDedupe.once(op.dedupKey, async () => {
 				const outcome = await ops.typeIntoPane(op.target, op.text);
 				if (!outcome.typed) throw PANE_BUSY;
 				return outcome;

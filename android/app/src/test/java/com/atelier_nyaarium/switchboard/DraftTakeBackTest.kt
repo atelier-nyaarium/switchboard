@@ -15,6 +15,16 @@ class DraftTakeBackTest {
 	private fun file(name: String, src: String) = MessageFile(name, "image/jpeg", src)
 
 	@Test
+	fun sendTakesADraftOnceSoASecondTapFindsNothing() {
+		val team = "dom.gw.host.work"
+		val state = kotlinx.coroutines.flow.MutableStateFlow(ChatState(drafts = mapOf(team to Draft(text = "hello"))))
+
+		assertEquals(Draft(text = "hello"), state.takeDraft(team))
+		assertEquals(null, state.takeDraft(team))
+		assertEquals(emptyMap<String, Draft>(), state.value.drafts)
+	}
+
+	@Test
 	fun textLandsOnABlankDraft() {
 		val merged = mergeTakenBackDraft(Draft(), "hello", emptyList())
 		assertEquals(Draft(text = "hello"), merged)

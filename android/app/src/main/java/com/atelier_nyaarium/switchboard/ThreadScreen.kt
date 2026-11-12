@@ -520,8 +520,8 @@ internal fun ThreadScreen(
 			}
 			// Above the plugin slots deliberately: nothing sent to a limit-blocked session is read until
 			// the dialog clears, so this outranks anything else docked here.
-			sessionDock(terminal.limitBlocked, terminal.compacting, startingDock(presence, composer.sendAwaitingWake))
-				?.let { SessionStatusDock(it, terminal.limitDetail) }
+			val starting = startingDock(presence, composer.sendAwaitingWake, terminal.presence?.working == true)
+			sessionDock(terminal.limitBlocked, terminal.compacting, starting)?.let { SessionStatusDock(it, terminal.limitDetail) }
 			launch.error?.let { LaunchErrorDock(it, launch.onDismissError) }
 			// Plugin dock slots (e.g. the Designer dock) sit between the messages and the
 			// composer; each slot draws nothing when it has nothing to show for this thread. The
@@ -643,8 +643,7 @@ internal fun ThreadScreen(
 								onLongClickLabel = "Schedule send",
 								onClick = {
 									sendHaptics.performHapticFeedback(HapticFeedbackType.LongPress)
-									composer.onSend(composer.draft.text, composer.draft.files)
-									composer.onClear()
+									composer.onSend()
 								},
 								onLongClick = {
 									sendStrongHaptic()
@@ -694,8 +693,7 @@ internal fun ThreadScreen(
 							enabled = sendEnabled,
 							onClick = hapticClick {
 								showSendMenu = false
-								composer.onSend(composer.draft.text, composer.draft.files)
-								composer.onClear()
+								composer.onSend()
 							},
 						)
 					}

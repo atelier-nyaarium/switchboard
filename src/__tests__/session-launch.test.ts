@@ -283,6 +283,10 @@ describe("a launch read through its launcher", () => {
 			},
 		],
 		["its UI exits first", { launcherWrites: { status: statusOf("exited", NEW), afterPolls: 1 } }],
+		[
+			"it wrote ready and left the pane",
+			{ launcherWrites: { status: statusOf("ready", NEW), afterPolls: 1 }, offPane: [NEW] },
+		],
 		["its tmux session is gone", { atPoll: [[2, ({ dropPane }) => dropPane()]] as RigOptions["atPoll"] }],
 	])("fails early when a new launcher exits without starting: %s", async (label, options) => {
 		const r = rig(options);

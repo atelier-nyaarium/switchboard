@@ -68,6 +68,9 @@ export function isSpawnWorkdirPath(spawn: string | undefined, path: string): boo
 	return isWorkdirPath(path);
 }
 
+/** How long a typed delivery is retried under one key, so how long the daemon must hold that key. */
+export const TYPED_GIVE_UP_MS = 15 * 60_000;
+
 export const CONVERSATION_ID_RE = SLUG_RE;
 export const MAX_CONVERSATION_ID_LEN = 128;
 

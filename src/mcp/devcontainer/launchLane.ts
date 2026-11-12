@@ -49,7 +49,8 @@ export interface LaunchLaneDeps {
 		project: string,
 		projectPath: string,
 		generation: number,
-		then: (installed: SessionHarness[]) => Promise<T>,
+		/** `unready` found CLIs still lack their plugins. */
+		then: (installed: SessionHarness[], unready?: readonly SessionHarness[]) => Promise<T>,
 		undo: (value: T) => Promise<unknown>,
 	): Promise<{ pluginsProvisioned: boolean; value: T }>;
 	send(frame: Record<string, unknown>): void;
@@ -380,9 +381,15 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 			unit.project as string,
 			unit.projectPath as string,
 			generation,
-			async (installed) => {
+			async (installed, unready = []) => {
 				sendStage(unit, "container_up");
-				return deps.launch(unit.target, facts(pick(installed)));
+				const harness = pick(installed);
+				// It could never register.
+				if (unready.includes(harness)) {
+					const reason = `${HARNESS[harness].label}'s plugins did not install`;
+					throw new Failed(errorFailure(reason), reason, false);
+				}
+				return deps.launch(unit.target, facts(harness));
 			},
 			async (res) => {
 				if (res.created && !unit.preempted) await deps.kill(unit.target);

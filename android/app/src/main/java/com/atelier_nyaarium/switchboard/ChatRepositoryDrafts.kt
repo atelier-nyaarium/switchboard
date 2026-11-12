@@ -3,6 +3,8 @@ package com.atelier_nyaarium.switchboard
 import android.net.Uri
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
@@ -115,4 +117,17 @@ fun ChatRepository.clearDraft(team: String) {
 	if (_state.value.drafts[team] == null) return
 	_state.update { s -> s.copy(drafts = s.drafts - team) }
 	persistence.persistDrafts()
+}
+
+/** Send's own step: the draft is taken once, so a second tap finds nothing to send. */
+fun ChatRepository.sendDraft(team: String) {
+	val taken = _state.takeDraft(team) ?: return
+	persistence.persistDrafts()
+	command { send(team, taken.text, taken.files) }
+}
+
+/** The occupied draft, removed in the same step. Its file copies stay for the send to read. */
+internal fun MutableStateFlow<ChatState>.takeDraft(team: String): Draft? {
+	val before = getAndUpdate { s -> if (s.drafts[team]?.isOccupied == true) s.copy(drafts = s.drafts - team) else s }
+	return before.drafts[team]?.takeIf { it.isOccupied }
 }

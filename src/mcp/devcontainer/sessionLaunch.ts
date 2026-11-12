@@ -265,7 +265,10 @@ async function awaitLauncher(deps: SessionLaunchDeps, site: LaunchSite, target: 
 	while (deps.now() < start + LAUNCHER_READY_MS) {
 		await deps.sleep(LAUNCHER_POLL_MS);
 		const status = readLaunchStatus(await site.readStatus(target));
-		if (status?.state === "ready") return { kind: "ready" };
+		// Killed after its last word.
+		if (status?.state === "ready") {
+			return (await deps.paneHolds(target, status.pid)) === false ? exited() : { kind: "ready" };
+		}
 		if (status?.state === "failed") return { kind: "failed", error: status.error };
 		if (status?.state === "exited") return exited();
 		if (status) {

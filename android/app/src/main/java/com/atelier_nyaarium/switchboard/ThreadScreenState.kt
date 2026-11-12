@@ -14,15 +14,15 @@ data class ComposerState(
 	val draft: Draft,
 	/** A send is waiting on this team's cold boot (ChatState.wakingTeams); draws the notice card. */
 	val sendAwaitingWake: Boolean,
-	/** The draft's own files, so each keeps its role. */
-	val onSend: (String, List<MessageFile>) -> Unit,
+	/** Takes the draft and sends it, once. */
+	val onSend: () -> Unit,
 	val onTextChange: (String) -> Unit,
 	val onAddFiles: (List<Uri>) -> Unit,
 	val onRemoveFile: (String) -> Unit,
 	val onOpenFile: (MessageFile) -> Unit,
 	/** The plugin dock's composer-insert seam (e.g. the Designer's "Reference in chat"). */
 	val onAppendText: (String) -> Unit,
-	/** Drops the draft and reclaims its now-unreferenced attachment copies after Send hands off. */
+	/** Drops the draft once a schedule or a goal took its content. */
 	val onClear: () -> Unit,
 )
 

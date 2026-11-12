@@ -17,7 +17,9 @@ interface Launch {
 	answer(outcome: LaunchOutcome): Promise<void>;
 }
 
-function rig(options: { installed?: SessionHarness[]; holdInstalled?: Promise<void> } = {}) {
+function rig(
+	options: { installed?: SessionHarness[]; unready?: SessionHarness[]; holdInstalled?: Promise<void> } = {},
+) {
 	const sent: Record<string, unknown>[] = [];
 	const launches: Launch[] = [];
 	const events: string[] = [];
@@ -49,7 +51,7 @@ function rig(options: { installed?: SessionHarness[]; holdInstalled?: Promise<vo
 		generation: () => generation,
 		ensureUp: async (_project, _path, admitted, then, undo) => {
 			if (admitted !== generation) throw new ContainerStopped();
-			const value = await then(options.installed ?? ["claude"]);
+			const value = await then(options.installed ?? ["claude"], options.unready);
 			if (admitted !== generation) {
 				await undo(value);
 				throw new ContainerStopped();
@@ -294,6 +296,16 @@ describe("a launch lane", () => {
 		const refused = await created;
 		expect(refused).toBeInstanceOf(WakeFailure);
 		expect(refused).toMatchObject({ failure: { kind: "cli" } });
+		expect(r.launches).toHaveLength(0);
+	});
+
+	it("fails a container launch whose CLI's plugins did not install, and launches nothing", async () => {
+		const r = rig({ installed: ["claude", "opencode"], unready: ["claude"] });
+
+		r.lane.wake("app.a", wake(APP_A));
+		await flush();
+
+		expect(r.results("app.a")).toMatchObject([{ success: false, failure: { kind: "error" } }]);
 		expect(r.launches).toHaveLength(0);
 	});
 });

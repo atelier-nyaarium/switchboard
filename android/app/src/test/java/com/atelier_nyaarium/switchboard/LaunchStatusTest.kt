@@ -70,10 +70,15 @@ class LaunchStatusTest {
 
 	@Test
 	fun theStartingDockShowsWhileBootingUnlessASendIsAlreadyWaking() {
-		assertTrue(startingDock(SessionWord.VERIFYING, sendAwaitingWake = false))
-		assertTrue(startingDock(SessionWord.WAKING, sendAwaitingWake = false))
-		assertFalse(startingDock(SessionWord.WAKING, sendAwaitingWake = true))
-		assertFalse(startingDock(SessionWord.LIVE, sendAwaitingWake = false))
-		assertFalse(startingDock(null, sendAwaitingWake = false))
+		assertTrue(startingDock(SessionWord.VERIFYING, sendAwaitingWake = false, paneWorking = false))
+		assertTrue(startingDock(SessionWord.WAKING, sendAwaitingWake = false, paneWorking = false))
+		assertFalse(startingDock(SessionWord.WAKING, sendAwaitingWake = true, paneWorking = false))
+		assertFalse(startingDock(SessionWord.LIVE, sendAwaitingWake = false, paneWorking = false))
+		assertFalse(startingDock(null, sendAwaitingWake = false, paneWorking = false))
+	}
+
+	@Test
+	fun aSessionReconnectingMidTurnIsNotStarting() {
+		assertFalse(startingDock(SessionWord.VERIFYING, sendAwaitingWake = false, paneWorking = true))
 	}
 }

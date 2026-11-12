@@ -5,7 +5,7 @@ import { HARNESS, type SessionHarness } from "../shared/session-harness.js";
 const CLAUDE = HARNESS.claude.plugins;
 const COPILOT = HARNESS.copilot.plugins;
 
-/** A container whose CLIs report set up or not; an install sets its CLI up while `takes`. */
+/** An install lands while `takes`. */
 function container(setUp: Partial<Record<SessionHarness, boolean>>, installs = { takes: true }) {
 	const ran: string[] = [];
 	const owner = (script: string) =>
