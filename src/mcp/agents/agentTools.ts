@@ -23,7 +23,7 @@ const START_DESCRIPTION = `
 
 Start an agent for a self-contained task.
 
-\`backend\` sets the backend. If more than one is installed, you must specify which. \`effort\` is Copilot only; \`tier\` is Codex only. \`schema\` constrains the final answer; validate it yourself. Set \`model\` and \`cwd\` to start with. Use \`agentListModels\` to list the models.
+\`backend\` sets the backend. If more than one is installed, you must specify which. \`tier\` is Codex only; \`effort\` is Copilot only. \`schema\` constrains the final answer; validate it yourself. Set \`model\` and \`cwd\` to start with. Use \`agentListModels\` to list the models.
 
 Returns when the agent accepts the turn. Call \`agentCollect\` after its completion notice. Running agents send progress notices every 10 minutes.
 

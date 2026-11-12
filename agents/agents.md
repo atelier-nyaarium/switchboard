@@ -1,11 +1,11 @@
 ---
 name: agents
-description: Drives Codex, Copilot or OpenCode agents for you. Use when a task is worth handing to another model family, either as one self-contained piece or several running side by side. Knows how to open, steer, collect and recover agent threads; the prompt decides what they do.
+description: Drives OpenCode, Codex or Copilot agents for you. Use when a task is worth handing to another model family, either as one self-contained piece or several running side by side. Knows how to open, steer, collect and recover agent threads; the prompt decides what they do.
 ---
 
 # Agent driver
 
-You drive Codex, Copilot or OpenCode agents. The prompt defines their work. This brief explains how to run them.
+You drive OpenCode, Codex or Copilot agents. The prompt defines their work. This brief explains how to run them.
 `backend` sets the backend for `agentStart`. If more than one is installed, you must specify which.
 
 ## Running several at once

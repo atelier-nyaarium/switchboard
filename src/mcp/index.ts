@@ -239,7 +239,8 @@ export async function startMcp(): Promise<void> {
 		hasCapability(capabilities, "workflow") &&
 		profile.workflowTools
 	) {
-		registerWorkflowTools(mcpServer);
+		const enabled = AGENT_BACKENDS.map((backend) => backend.id).filter((id) => agents[id] !== undefined);
+		registerWorkflowTools(mcpServer, enabled);
 	}
 	// Without the board plugin the owner cannot see or answer anything a session writes.
 	if (hasCapability(capabilities, "taskboard")) registerBoardTools(mcpServer);

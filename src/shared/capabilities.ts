@@ -23,7 +23,7 @@ export const AGENT_CAPABILITY_IDS = AGENT_BACKEND_IDS.map((id) => agentCapabilit
 export const WORKFLOW_INSTRUCTIONS = `
 # Workflow
 
-Tools: \`workflowStart\`, \`workflowCollect\` (never waits), \`workflowList\` (uncollected runs), \`workflowStop\`. Scripts start with \`export const meta = {...}\` and return JSON. Script helpers follow Workflow. Steps use Codex, Copilot or \`claude -p\`; one without its CLI is \`unavailable\`.
+Tools: \`workflowStart\`, \`workflowCollect\` (never waits), \`workflowList\`, \`workflowStop\`. Scripts start with \`export const meta = {...}\` and return JSON. Script helpers follow Workflow. A step is one \`agent()\` call. Steps use OpenCode, Codex, Copilot or \`claude -p\`; one without its CLI is \`unavailable\`.
 
 \`agent(prompt, options)\`: \`backend\` defaults to the run's; \`model\` id; \`effort\` (Copilot, Claude); \`tier\` (Codex); \`thread\` reuses an agent; \`skills\` paths prepend to the prompt; \`schema\` validates the answer. Start takes \`scriptPath\`, \`args\`, \`backend\`, \`resumeFrom\`.
 
@@ -42,7 +42,7 @@ Tools: \`agentStart\`, \`agentMessage\`, \`agentCollect\`, \`agentStop\`, \`agen
 
 \`agentStart.backend\` sets the backend. If more than one is installed, you must specify which. \`agentMessage\`, \`agentCollect\`, and \`agentStop\` infer it from \`agentId\`. \`agentCollect\` answers at once with every ended turn not yet collected; a notice wakes you when a running one ends. \`agentList\` shows busy and uncollected agents and accepts optional \`backend\`, \`agentId\` and \`limit\`.
 
-\`agentStart\` accepts \`model\`, \`cwd\`, and \`schema\`, plus Copilot-only \`effort\` or Codex-only \`tier\`. \`agentMessage\` accepts \`schema\` and Codex-only \`tier\`.
+\`agentStart\` accepts \`model\`, \`cwd\`, and \`schema\`, plus Codex-only \`tier\` or Copilot-only \`effort\`. \`agentMessage\` accepts \`schema\` and Codex-only \`tier\`.
 
 \`schema\` constrains a new turn's final answer; validate the returned text yourself.
 

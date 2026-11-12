@@ -63,7 +63,10 @@ export function registerEveryTool(server: McpServer): void {
 	registerBoardTools(server);
 	registerVaultTools(server);
 	registerRoutineTools(server);
-	registerWorkflowTools(server);
+	registerWorkflowTools(
+		server,
+		AGENT_BACKENDS.map((backend) => backend.id),
+	);
 	registerInboxTool(server);
 	registerActionFront(server);
 	registerDeviceTool(server);

@@ -14,7 +14,8 @@ calls. Only JSON crosses the sandbox boundary.
 | `workflowStop` | Cancel a running run. |
 
 The MCP tool takes exactly one of `script` and `scriptPath`, reading the path from the session's
-working directory. Retries reuse the invocation id. A Windows session has no agent execution target
+working directory. A start with no `backend` runs only where one backend is enabled, Claude counted;
+with several it is refused with their names, as `agentStart` is. Retries reuse the invocation id. A Windows session has no agent execution target
 and cannot start a run.
 
 A script starts with `export const meta = <JSON literal>`, ended by `;` or a newline. Static imports and exports in the body
@@ -24,8 +25,9 @@ message. A start answers retryable `not_ready` while QuickJS loads.
 
 ## Script API
 
-`agent(prompt, options)` runs a Codex, Copilot or Claude step. Options are `backend`, `model`,
-`effort` (Copilot and Claude), `tier` (Codex), `thread`, `skills`, `schema`, `label` and `phase`.
+A step is one `agent()` call. `agent(prompt, options)` runs it on OpenCode, Codex, Copilot or
+Claude. Options are `backend`, `model`, `tier` (Codex), `effort` (Copilot and Claude), `thread`,
+`skills`, `schema`, `label` and `phase`.
 `thread` reuses an agent and queues calls for that thread. `parallel`, `pipeline`, `phase`, `log`,
 `args` and `label` follow Workflow semantics. A call's `phase` names its group, declared in `meta.phases` or not;
 otherwise it uses the current phase. Checkups list the phases of running steps. Scripts return JSON. A failed

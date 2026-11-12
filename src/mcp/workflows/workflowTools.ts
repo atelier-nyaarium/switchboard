@@ -2,21 +2,21 @@ import fs from "node:fs";
 import path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { WORKFLOW_BACKEND_IDS } from "../../shared/agent-backend.js";
+import { type AgentBackendId, WORKFLOW_BACKEND_IDS } from "../../shared/agent-backend.js";
 import { requestHead } from "../agentRequest.js";
 import { routerPost } from "../bridge/helpers.js";
 
 export const WORKFLOW_START_DESCRIPTION = `
 # Start a Switchboard Workflow
 
-This is Switchboard's own Workflow. It runs steps on other providers' CLIs (Codex, Copilot, and \`claude -p\`). Use it over built-in Workflow when a step needs GPT or another model family.
+This is Switchboard's own Workflow. It runs steps on other providers' CLIs (OpenCode, Codex, Copilot, and \`claude -p\`). Use it over built-in Workflow when a step needs GPT or another model family.
 
 The script starts with \`export const meta = {...}\`, a pure literal, as in Workflow. \`parallel\`, \`pipeline\`, \`phase\`, \`log\`, \`args\`, and \`label\` work as in Workflow.
 
 \`agent()\` options that differ:
 \`\`\`js
 agent(prompt, {
-  backend,  // "codex" | "copilot" | "claude"; defaults to the run's
+  backend,  // "opencode" | "codex" | "copilot" | "claude"; defaults to the run's
   model,    // that backend's model id
   effort,   // Copilot and claude only
   tier,     // Codex only: "priority" or "standard"
@@ -46,15 +46,8 @@ Running and uncollected runs, newest first: id, meta name, status, times, step c
 `.trim();
 export const WORKFLOW_STOP_DESCRIPTION = `Cancel by runId.`;
 
-const StartInputSchema = z
-	.object({
-		script: z.string().optional(),
-		scriptPath: z.string().min(1).optional(),
-		args: z.record(z.string(), z.unknown()).optional(),
-		backend: z.enum(WORKFLOW_BACKEND_IDS).optional(),
-		resumeFrom: z.string().min(1).nullable().optional(),
-	})
-	.strict();
+type WorkflowBackendId = (typeof WORKFLOW_BACKEND_IDS)[number];
+
 const RunInputSchema = z.object({ runId: z.string().min(1) }).strict();
 const ListInputSchema = z
 	.object({
@@ -63,8 +56,6 @@ const ListInputSchema = z
 	})
 	.strict();
 
-// biome-ignore lint/suspicious/noExplicitAny: MCP SDK schema compatibility
-const startInputSchema: any = StartInputSchema;
 // biome-ignore lint/suspicious/noExplicitAny: MCP SDK schema compatibility
 const runInputSchema: any = RunInputSchema;
 // biome-ignore lint/suspicious/noExplicitAny: MCP SDK schema compatibility
@@ -85,7 +76,29 @@ async function post(pathname: string, payload: Record<string, unknown>): Promise
 	}
 }
 
-export function registerWorkflowTools(mcpServer: McpServer): void {
+/** `agentBackends`: the agent backends this session has enabled. A step also runs on Claude. */
+export function registerWorkflowTools(mcpServer: McpServer, agentBackends: readonly AgentBackendId[]): void {
+	const [first, ...rest] = WORKFLOW_BACKEND_IDS.filter(
+		(id): id is WorkflowBackendId => id === "claude" || agentBackends.includes(id),
+	);
+	if (first === undefined) return;
+	const enabled = [first, ...rest];
+	// Caller selects among backends.
+	const sole = rest.length === 0 ? first : undefined;
+	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK schema compatibility
+	const startInputSchema: any = z
+		.object({
+			script: z.string().optional(),
+			scriptPath: z.string().min(1).optional(),
+			args: z.record(z.string(), z.unknown()).optional(),
+			backend: z
+				.enum([first, ...rest])
+				.optional()
+				.describe(`Sets the run's backend. If more than one is installed, you must specify which.`),
+			resumeFrom: z.string().min(1).nullable().optional(),
+		})
+		.strict();
+
 	mcpServer.registerTool(
 		"workflowStart",
 		{ title: "Start Workflow", description: WORKFLOW_START_DESCRIPTION, inputSchema: startInputSchema },
@@ -93,15 +106,16 @@ export function registerWorkflowTools(mcpServer: McpServer): void {
 			script: inlineScript,
 			scriptPath,
 			args = {},
-			backend = "codex",
+			backend = sole,
 			resumeFrom = null,
 		}: {
 			script?: string;
 			scriptPath?: string;
 			args?: Record<string, unknown>;
-			backend?: (typeof WORKFLOW_BACKEND_IDS)[number];
+			backend?: WorkflowBackendId;
 			resumeFrom?: string | null;
 		}) => {
+			if (!backend) return answer(`Specify \`backend\`: ${enabled.join(", ")}`, true);
 			if ((inlineScript === undefined) === (scriptPath === undefined)) {
 				return answer("Provide exactly one of script or scriptPath.", true);
 			}

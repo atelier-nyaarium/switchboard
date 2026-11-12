@@ -74,17 +74,16 @@ export function renderCapabilities(startup: Capability[], current: Capability[] 
 	if (note) lines.push("", note);
 	lines.push("");
 	const agents = startup.filter((capability) => AGENT_CAPABILITY_IDS.has(capability.id));
-	if (agents.length > 0) {
+	const backends = AGENT_BACKENDS.filter((backend) => agents.some((c) => c.id === agentCapabilityId(backend.id)));
+	if (backends.length > 0) {
 		lines.push(
 			`## agents`,
 			"",
-			`Backends enabled: ${agents.map((c) => c.id.replace(/-agent$/, "")).join(", ")}.`,
+			`Backends enabled: ${backends.map((backend) => backend.id).join(", ")}.`,
 			"",
 			AGENT_TOOLS_INSTRUCTIONS,
 			"",
-			...AGENT_BACKENDS.filter((backend) => agents.some((c) => c.id === agentCapabilityId(backend.id))).flatMap(
-				(backend) => [AGENT_BACKEND_INSTRUCTIONS[backend.id], ""],
-			),
+			...backends.flatMap((backend) => [AGENT_BACKEND_INSTRUCTIONS[backend.id], ""]),
 		);
 	}
 	for (const capability of startup) {

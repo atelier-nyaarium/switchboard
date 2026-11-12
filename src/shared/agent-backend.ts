@@ -57,11 +57,15 @@ export const OPENCODE_BACKEND: AgentBackendDescriptor & { id: "opencode" } = {
 	options: { serviceTier: false, reasoningEffort: false },
 };
 
-/** Every id needs its own row, or this does not compile. */
+/**
+ * Every id needs its own row, or this does not compile.
+ *
+ * The row order is the order every list names the backends in.
+ */
 const BACKEND_ROWS: { readonly [Id in AgentBackendId]: AgentBackendDescriptor & { id: Id } } = {
+	opencode: OPENCODE_BACKEND,
 	codex: CODEX_BACKEND,
 	copilot: COPILOT_BACKEND,
-	opencode: OPENCODE_BACKEND,
 };
 
 export const AGENT_BACKEND_IDS = Object.keys(BACKEND_ROWS) as [AgentBackendId, ...AgentBackendId[]];

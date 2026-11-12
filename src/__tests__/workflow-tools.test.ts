@@ -14,6 +14,7 @@ vi.mock("../mcp/bridge/helpers.js", async (importOriginal) => {
 });
 
 import { registerWorkflowTools } from "../mcp/workflows/workflowTools.js";
+import type { AgentBackendId } from "../shared/agent-backend.js";
 
 const roots: string[] = [];
 
@@ -25,9 +26,9 @@ beforeEach(() => {
 	routerPostMock.mockReset().mockResolvedValue({ runId: "run-a" });
 });
 
-async function callStart(args: Record<string, unknown>) {
+async function callStart(args: Record<string, unknown>, agentBackends: readonly AgentBackendId[] = []) {
 	const server = new McpServer({ name: "workflows", version: "0.0.0" });
-	registerWorkflowTools(server);
+	registerWorkflowTools(server, agentBackends);
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
 	await server.connect(serverSide);
 	const client = new Client({ name: "workflow-test", version: "0.0.0" });
@@ -41,12 +42,25 @@ async function callStart(args: Record<string, unknown>) {
 describe("workflow MCP start", () => {
 	it("posts inline script text without reading a path", async () => {
 		const script = "export const meta = {}; return true;";
-		const result = await callStart({ script });
+		const result = await callStart({ script, backend: "codex" }, ["codex", "copilot"]);
 		expect(result.isError).not.toBe(true);
 		expect(routerPostMock).toHaveBeenCalledWith(
 			"/workflow/start",
 			expect.objectContaining({ script, args: {}, backend: "codex", resumeFrom: null }),
 		);
+	});
+
+	it("runs on the one backend there is, and asks which when there are several", async () => {
+		const script = "export const meta = {}; return true;";
+
+		const alone = await callStart({ script });
+		const several = await callStart({ script }, ["opencode", "codex"]);
+
+		expect(alone.isError).not.toBe(true);
+		expect(routerPostMock).toHaveBeenCalledTimes(1);
+		expect(routerPostMock).toHaveBeenCalledWith("/workflow/start", expect.objectContaining({ backend: "claude" }));
+		expect(several.isError).toBe(true);
+		expect(JSON.stringify(several.content)).toContain("Specify `backend`: opencode, codex, claude");
 	});
 
 	it("reads one path and refuses missing or competing script inputs", async () => {

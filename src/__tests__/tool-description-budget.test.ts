@@ -52,7 +52,7 @@ describe("every tool a session lists", () => {
 
 		expect(descriptions.every((description) => description.length <= TOOL_DESCRIPTION_LIMIT)).toBe(true);
 		expect(WORKFLOW_START_DESCRIPTION).toContain(
-			'backend,  // "codex" | "copilot" | "claude"; defaults to the run\'s',
+			'backend,  // "opencode" | "codex" | "copilot" | "claude"; defaults to the run\'s',
 		);
 		expect(WORKFLOW_START_DESCRIPTION).toContain(
 			"schema,   // JSON Schema; the answer is validated, null on failure",

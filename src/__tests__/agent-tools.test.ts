@@ -80,8 +80,8 @@ describe("one agent tool set", () => {
 		const all = await list({});
 		expect(all.isError).toBeUndefined();
 		expect(JSON.parse(all.content[0]!.text)).toEqual([
-			{ backend: "codex", models: [{ id: "gpt-6-luna", default: true }] },
 			{ backend: "opencode", error: "the host daemon is not connected" },
+			{ backend: "codex", models: [{ id: "gpt-6-luna", default: true }] },
 		]);
 		expect((await list({ backend: "opencode" })).isError).toBe(true);
 	});

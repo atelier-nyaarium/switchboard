@@ -74,8 +74,8 @@ describe("agent backend derivations", () => {
 		expect(COPILOT_BACKEND.waitBudgetMs).toBe(AGENT_WAIT_BUDGET_MS);
 	});
 
-	it("registers each backend exactly once", () => {
-		expect(AGENT_BACKENDS.map((backend) => backend.id)).toEqual(["codex", "copilot", "opencode"]);
+	it("registers each backend once, in the order every list names them", () => {
+		expect(AGENT_BACKENDS.map((backend) => backend.id)).toEqual(["opencode", "codex", "copilot"]);
 	});
 
 	it("derives OpenCode's names, and looks for its binary where its session CLI is installed", () => {

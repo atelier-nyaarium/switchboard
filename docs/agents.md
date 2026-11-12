@@ -1,6 +1,6 @@
 # Delegated agents
 
-A session can hand a self-contained sub-task to a Codex, Copilot or OpenCode child. The daemon
+A session can hand a self-contained sub-task to an OpenCode, Codex or Copilot child. The daemon
 supervises one child per execution target; the gateway owns the durable record.
 
 `claude -p` is available as a workflow backend only. It is not a session agent.
