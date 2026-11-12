@@ -463,7 +463,14 @@ Commits `b0d48f8f`, `65a08548` and `9daae096`; released as 8.14.57 and deployed.
 - **Login:** Copilot's status row ("Please use /login to sign in") reads as logged out on the daemon and the phone; OpenCode's spent free tier (`provider.free-limit`) reads as a sign-in. The phone shows a red **login** chip; **limit hit** is quota and rate limits; **check terminal** has no producer yet. Owner: "I want a new 'login' chip to show if it's specifically login needed. 'check terminal' can be for whatever else."
 - **Owner board edits are `no_act`.** Owner: "make it a no_act so it's not pressing to act on right away."
 - **Seen live:** evie-bot ran Copilot and OpenCode with no sign-in, both reading **login**; on the host, a Copilot and an OpenCode session the owner created answered a round trip.
+- **Found live, 2026-11-11:** ql's project folder `pge_external_client` threw in the phone's `teamInfoToTeam`, and the throw discarded every roster update from every Gateway, so a session created on Sakura read "ended" on the phone. The phone drops a row or container it cannot address; `_` joined the segment rule; the daemon and the Gateway leave a folder name that is no segment out of the catalog.
+- **Launch status, 2026-11-11:** a launch threads no row. `Starting...` docks while a session boots; a failed launch's row is marked and held on the phone as a dismissible dock, the card's headline and its own notification.
 - **Found live:** a container's home volume keeps the CLI binaries of its first creation, since `post-create` copies the image's home with `--ignore-existing`; evie-bot held Copilot 1.0.10, which has no `--session-id`.
+
+### Bug Classes
+
+- **A name rule written more than once.** Mechanism: the address segment's character set, hand-copied as `TMUX_NAME_RE`, `CONVERSATION_ID_RE`, `SHELL_SAFE_NAME_RE` and the phone's routine id pattern. Widening `SLUG_RE` left `SHELL_SAFE_NAME_RE` behind, so the catalog offered a project the console then refused; Luna's audit caught it before a live use. Resolved by design: every reader takes `SLUG_RE`, and the shell-safe copy is gone.
+- **A name off the wire asserted instead of checked.** Mechanism: `Address.of` and `SpawnPoint.of` throw, and `teamInfoToTeam` called them on a roster row inside the landing. One bad row lost the whole update. Resolved at the two intakes (`teamInfoToTeam`, `addressableContainers`); the audit found no other unguarded parse of a wire or disk string.
 
 ## Agent-facing prose
 
