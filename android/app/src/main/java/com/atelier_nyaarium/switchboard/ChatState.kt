@@ -68,7 +68,7 @@ data class ChatState(
 	val containerOpsInFlight: Set<String> = emptySet(),
 	/** Wake notices expire on read and are not persisted. */
 	val wakingTeams: Map<String, Long> = emptyMap(),
-	/** A failed launch per session, until dismissed or up. */
+	/** Failed launch per session, until dismissed or up. */
 	val launchErrors: Map<String, LaunchError> = emptyMap(),
 ) {
 	/** Friend Domain labels. */

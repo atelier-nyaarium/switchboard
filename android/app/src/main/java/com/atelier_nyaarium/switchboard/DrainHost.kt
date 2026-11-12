@@ -37,7 +37,7 @@ internal interface DrainHost {
 	fun autoPlayTier(): SttsPlayer.Tier?
 	fun isSttsReady(): Boolean
 	fun onInbound(team: String, messages: List<Message>)
-	/** On disk before the cursor moves; false for a session already up. */
+	/** Durable before the cursor; false if up. */
 	fun holdLaunchError(team: String, error: LaunchError): Boolean
 	/** A failed launch, newly held. */
 	fun onLaunchFailed(team: String, line: String)

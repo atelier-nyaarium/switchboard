@@ -38,7 +38,7 @@ internal fun sessionWord(presence: Presence, working: Boolean, needsLogin: Boole
 		presence.isAvailable -> SessionWord.AVAILABLE
 		else -> SessionWord.ENDED
 	}
-	// A logged-out CLI never finishes verifying.
+	// A logged-out CLI never verifies.
 	return if (needsLogin && !word.blocked && word != SessionWord.ENDED) SessionWord.LOGIN else word
 }
 

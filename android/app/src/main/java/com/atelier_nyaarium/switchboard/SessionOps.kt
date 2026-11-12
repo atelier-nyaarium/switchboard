@@ -371,7 +371,7 @@ internal fun createdAddress(target: String, id: String): String? =
 		Address.of(point.domain, point.gateway, point.spawn, id).canonical
 	}.getOrNull()
 
-/** Session answers, its launch failed, or a line landed. Verifying and waking rows still hold. */
+/** Answer, failure, or line settles; booting holds. */
 internal fun spawnSettled(state: ChatState, address: String): Boolean =
 	state.teams.any { it.name == address && it.presence.isOnline } ||
 		address in state.launchErrors ||

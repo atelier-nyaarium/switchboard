@@ -107,7 +107,7 @@ internal fun mergePresence(prior: List<Team>, fresh: List<Team>, keepPrior: (Tea
 /** Keep linked-domain rows. */
 internal fun keepPriorRow(row: Team, planeDomain: String): Boolean = row.domainId != planeDomain
 
-/** Null for a row whose name is no address. */
+/** Null when the name is no address. */
 internal fun teamInfoToTeam(it: TeamInfo): Team? {
 	// Matches gateway address minting.
 	val parsed = parseSessionName(it.team)

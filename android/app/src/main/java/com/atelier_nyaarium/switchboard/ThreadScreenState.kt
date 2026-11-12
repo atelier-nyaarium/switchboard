@@ -22,7 +22,7 @@ data class ComposerState(
 	val onOpenFile: (MessageFile) -> Unit,
 	/** The plugin dock's composer-insert seam (e.g. the Designer's "Reference in chat"). */
 	val onAppendText: (String) -> Unit,
-	/** Drops the draft once a schedule or a goal took its content. */
+	/** Drops a draft a schedule or goal took. */
 	val onClear: () -> Unit,
 )
 
@@ -114,7 +114,7 @@ internal fun terminalEligible(state: ChatState, team: String): Boolean {
 /** The floating status above the composer. */
 enum class SessionDock { LIMIT, COMPACTING, STARTING }
 
-/** A limit outranks compacting, which outranks starting. */
+/** Limit, then compacting, then starting. */
 internal fun sessionDock(limitBlocked: Boolean, compacting: Boolean, starting: Boolean = false): SessionDock? = when {
 	limitBlocked -> SessionDock.LIMIT
 	compacting -> SessionDock.COMPACTING

@@ -12,7 +12,7 @@ package com.atelier_nyaarium.switchboard.proto
 
 private val SLUG_REGEX = Regex(Protocol.SLUG_PATTERN)
 
-/** The one segment validator: lowercase alnum, then also `-` and `_`. */
+/** The one segment validator. */
 fun isSlug(s: String): Boolean = s.isNotEmpty() && s.length <= Protocol.MAX_SLUG_LEN && SLUG_REGEX.matches(s)
 
 fun assertSlug(s: String) {

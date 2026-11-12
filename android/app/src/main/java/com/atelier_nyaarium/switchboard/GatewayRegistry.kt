@@ -224,7 +224,7 @@ internal fun harnessSpawnsOf(row: GatewaySpawnPoints): Map<SessionHarness, List<
 	return SessionHarness.entries.associateWith { sent.spawnsOf(it).orEmpty() }
 }
 
-/** A container whose project is no address segment is dropped. */
+/** Drops a container with no address segment. */
 internal fun addressableContainers(rows: List<ContainerState>): List<SpawnContainer> =
 	rows.filter { isSlug(it.project) }.map(::spawnContainerOf)
 

@@ -41,7 +41,7 @@ describe("a container's launch site", () => {
 });
 
 describe("placing the runtime in a container", () => {
-	/** A container holding a whole copy once `package.json` lands. */
+	/** Whole once `package.json` lands. */
 	function container(present: boolean) {
 		const steps: string[] = [];
 		const held = { present };

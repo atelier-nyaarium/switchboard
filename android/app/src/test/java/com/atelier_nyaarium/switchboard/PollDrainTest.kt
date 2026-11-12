@@ -78,7 +78,7 @@ class PollDrainTest {
 		override fun onLaunchFailed(team: String, line: String) {
 			launchAlerts += team to line
 		}
-		/** What was durable when the cursor moved. */
+		/** Durable before the cursor moved. */
 		var heldAtCommit: Map<String, LaunchError>? = null
 		private val durable = mutableMapOf<String, LaunchError>()
 		override fun holdLaunchError(team: String, error: LaunchError): Boolean {

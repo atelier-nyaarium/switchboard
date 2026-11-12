@@ -119,17 +119,17 @@ fun ChatRepository.clearDraft(team: String) {
 	persistence.persistDrafts()
 }
 
-/** Send's own step: the draft is taken once, so a second tap finds nothing to send. */
+/** Send's step: the draft is taken once, so a second tap sends nothing. */
 fun ChatRepository.sendDraft(team: String) {
 	val taken = _state.takeDraft(team) ?: return
 	persistence.persistDrafts()
 	command {
-		// A send refused before the thread has it hands the draft back.
+		// A refused send hands the draft back.
 		if (send(team, taken.text, taken.files) == null) takeBackIntoDraft(team, taken.text, taken.files)
 	}
 }
 
-/** The occupied draft, removed in the same step. Its file copies stay for the send to read. */
+/** Takes the occupied draft; its files stay. */
 internal fun MutableStateFlow<ChatState>.takeDraft(team: String): Draft? {
 	val before = getAndUpdate { s -> if (s.drafts[team]?.isOccupied == true) s.copy(drafts = s.drafts - team) else s }
 	return before.drafts[team]?.takeIf { it.isOccupied }

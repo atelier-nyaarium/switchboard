@@ -254,7 +254,7 @@ class ChatRepository(
 				if (_state.value.domainId != domainId) _state.update { it.copy(domainId = domainId) }
 			}
 		}
-		// The drain writes its own, before its cursor.
+		// Drain persists before its cursor.
 		repoScope.launch {
 			_state.map { it.launchErrors }.distinctUntilChanged().drop(1).collect { persistence.persistLaunchErrors() }
 		}
@@ -479,7 +479,7 @@ class ChatRepository(
 
 	var onInbound: ((team: String, messages: List<Message>) -> Unit)? = null
 
-	/** Set by the service. A failed launch threads no row. */
+	/** Service's callback; no thread row. */
 	var onLaunchFailed: ((team: String, line: String) -> Unit)? = null
 
 	/** Set by the service; absent when nothing is drawing a shade. */

@@ -7,10 +7,10 @@ import kotlinx.coroutines.flow.update
 ////////////////////////////////
 //  Interfaces & Types
 
-/** A launch that failed, held until dismissed or the session is up. */
+/** A failed launch, until dismissed or up. */
 data class LaunchError(val line: String, val at: Long)
 
-/** This session's launch as the thread docks it. */
+/** A session's launch dock. */
 data class LaunchState(
 	val error: String?,
 	val onDismissError: () -> Unit,
@@ -25,21 +25,21 @@ private const val FAILED_ROW = "failed"
 ////////////////////////////////
 //  Functions & Helpers
 
-/** A failed launch's row is docked, never threaded. */
+/** A failed launch docks, never threads. */
 internal fun launchErrorOf(entry: MailboxEntry): LaunchError? {
 	if (entry.kind != NOTICE_ROW || entry.launch != FAILED_ROW) return null
 	val line = entry.body?.trim().orEmpty()
 	return if (line.isEmpty()) null else LaunchError(line, entry.at)
 }
 
-/** A session that is up has no failed launch. */
+/** Up clears a failed launch. */
 internal fun launchErrorsAfter(held: Map<String, LaunchError>, fresh: List<Team>): Map<String, LaunchError> {
 	if (held.isEmpty()) return held
 	val up = fresh.filter { it.presence.isOnline }.mapTo(HashSet()) { it.name }
 	return if (held.keys.none { it in up }) held else held - up
 }
 
-/** False for a session that is already up: its row says nothing. */
+/** False when already up. */
 internal fun MutableStateFlow<ChatState>.holdLaunchError(team: String, error: LaunchError): Boolean {
 	var held = false
 	update { state ->
@@ -53,9 +53,6 @@ internal fun MutableStateFlow<ChatState>.dismissLaunchError(team: String) {
 	update { if (team in it.launchErrors) it.copy(launchErrors = it.launchErrors - team) else it }
 }
 
-/**
- * Booting, with no send's own waking notice over it. A pane already running a turn is a session
- * reconnecting, which reads verifying too.
- */
+/** Booting only. A pane mid-turn is reconnecting, which reads verifying too. */
 internal fun startingDock(word: SessionWord?, sendAwaitingWake: Boolean, paneWorking: Boolean): Boolean =
 	!sendAwaitingWake && !paneWorking && (word == SessionWord.VERIFYING || word == SessionWord.WAKING)

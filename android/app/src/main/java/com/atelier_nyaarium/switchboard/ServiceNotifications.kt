@@ -357,7 +357,7 @@ internal class ServiceNotifications(private val context: Context) {
 		NotificationManagerCompat.from(context).notify(scheduledSendFailedNotificationId(team), notification)
 	}
 
-	/** A failed launch threads no row, so the burst road never sees it. */
+	/** No thread row; alert here. */
 	internal fun notifyLaunchFailed(repo: ChatRepository, team: String, line: String) {
 		val state = repo.state.value
 		if (!shouldNotifyBurst(repo.isVisible, canNotify(), state.closedTeams, team, state.phoneHold, repo.holdSelf())) return
@@ -370,7 +370,7 @@ internal class ServiceNotifications(private val context: Context) {
 		NotificationManagerCompat.from(context).notify(launchFailedNotificationId(team), builder.build())
 	}
 
-	/** A launch's alert stands only while its failure is held. */
+	/** An alert lasts while its failure holds. */
 	internal fun reconcileLaunchNotifications(held: Set<String>) {
 		val manager = context.getSystemService(NotificationManager::class.java) ?: return
 		val nmc = NotificationManagerCompat.from(context)
@@ -694,7 +694,7 @@ internal class ServiceNotifications(private val context: Context) {
 		internal fun launchFailedNotificationId(team: String): Int =
 			LAUNCH_FAILED_ID_RANGE_START + (team.hashCode() and 0x7FFFFFFF) % LAUNCH_FAILED_ID_RANGE_SIZE
 
-		/** Shown launch alerts whose session holds no failure now. */
+		/** Alerts for unheld failures. */
 		internal fun staleLaunchNotifications(showing: List<Int>, held: Set<String>): List<Int> {
 			val kept = held.mapTo(HashSet(), ::launchFailedNotificationId)
 			return showing.filter {

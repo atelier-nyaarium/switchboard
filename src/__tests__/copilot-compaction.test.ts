@@ -99,7 +99,7 @@ describe("the Copilot compaction follower", () => {
 });
 
 describe("a container's events file", () => {
-	/** The size script and a `dd` range read over one held file, as a container answers them. */
+	/** One held file's size and `dd` reads. */
 	function container(held: { text?: string; down?: boolean }) {
 		const asked: string[][] = [];
 		const exec = async (argv: string[]): Promise<string> => {

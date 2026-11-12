@@ -281,7 +281,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				showVaultPrompt(repo, repo.vault.pending.value.firstOrNull())
 			}
 		}
-		// A dismiss, a forget and a session coming up all clear it.
+		// Dismiss, forget, or up clears it.
 		scope.launch {
 			repo.state.map { it.launchErrors.keys }.distinctUntilChanged().collect(notifications::reconcileLaunchNotifications)
 		}
