@@ -710,6 +710,12 @@ OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and 
 
 ## Painpoints
 
+- **A daemon restart kills every delegated agent mid-turn, and nothing says so first (2026-11-11):** `start-host-daemon.sh` restarts with a workflow's Codex steps running, and they settle `lost`. A deploy and an audit cannot overlap, and only memory keeps them apart.
+- **The Gateway's log does not outlive a restart (2026-11-11):** `start-gateway.sh` recreates the container, so `docker logs` starts over, and `volumes/gateway/debug.log` holds no console ops. Who forgot two sessions an hour earlier could not be read anywhere.
+- **The release phone build logs no send (2026-11-11):** `DebugLog` reaches nothing in release, so a double send could be shown at the Router and the Gateway and never on the phone that made it.
+- **`setup.sh --verify` reads a busy start as down (2026-11-11):** it asks `/health` once. Right after a restart the Router or the Gateway can miss that one ask and pass a minute later.
+- **A second spelling of a rule hides from the search for it (2026-11-11):** `SHELL_SAFE_NAME_RE` held the segment's character set as `[a-z0-9.-]`, so a search for `a-z0-9-` passed it by when the rule widened. No residue test holds the set to `session-id.ts`.
+- **An agent catalog commit costs the whole catalog (2026-11-11):** `AgentCatalogStore.commit` parses every agent to change one, and `session-resume.json`, 20 MB on Sakura, is written whole. A catalog now lives until its session is forgotten.
 - **A CLI pick is applied by team, not by launch (2026-11-11):** `wake_result` and `cli_found` in `websocket.ts` call `resolvePick` for the team, and the first pick wins. A replayed result of an earlier launch can land on a retry's record and name its CLI and session id.
 - **A late pick confirms nothing when two tokened sockets wait (2026-11-11):** `standLateToken` returns on more than one waiting socket and nothing asks again when one closes, so the survivor stays unconfirmed until evicted.
 - **OpenCode's login and limit chips last until the next turn (2026-11-11):** both come from the last settled turn's error, so a sign-in fixed outside a turn still reads as login.
