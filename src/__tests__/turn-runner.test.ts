@@ -200,6 +200,17 @@ describe("TurnRunner", () => {
 		expect(context.state.resumed).toHaveLength(1);
 	});
 
+	it("answers how a turn it ended went, for a driver that cannot inspect", async () => {
+		const context = runner();
+		await context.begin();
+		expect(await context.run.inspect("thread-1", "turn-1")).toEqual({ known: "unknown" });
+
+		context.finish("turn-1");
+		await tick();
+
+		expect(await context.run.inspect("thread-1", "turn-1")).toEqual({ known: "settled", terminal: DONE });
+	});
+
 	it("interrupts only the turn that is running", async () => {
 		const context = runner();
 		await context.begin();

@@ -286,6 +286,17 @@ describe("the agent daemon service", () => {
 		expect(settled.sent[0]).toMatchObject({ turnId: "turn-9", turnState: "completed", resolvedTarget: TARGET });
 		expect(settled.sent[1]).toMatchObject({ sessionId: "thread-9", turnId: "turn-9", finalResponse: "Done." });
 
+		// A driver that cannot inspect: the turn's end is the runner's to tell.
+		const ended = setup();
+		await ended.start();
+		ended.session.end("turn-1", { status: "completed", finalResponse: "Done." });
+		await settle();
+		ended.sent.length = 0;
+		ended.command("reconcile", { target: TARGET, sessionId: "thread-1", turnId: "turn-1" });
+		await settle();
+		expect(ended.kinds()).toEqual(["reconciled", "terminal:completed"]);
+		expect(ended.sent[0]).toMatchObject({ turnId: "turn-1", turnState: "completed" });
+
 		const gone = setup((fake) => {
 			fake.resumable = false;
 		});

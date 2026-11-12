@@ -721,9 +721,10 @@ describe("Codex on the generic daemon wire", () => {
 		context.app.emit(item("thread-1", "turn-1", { id: "answer", text: "Done", phase: "final_answer" }));
 		context.app.emit(terminal("thread-1", "turn-1"));
 		await settle();
-		context.app.setRead(read("thread-1", [settledTurn("turn-1", "Done")]));
+		// An earlier turn the runner did not end, so its read goes to the child.
+		context.app.setRead(read("thread-1", [settledTurn("turn-0", "Old"), settledTurn("turn-1", "Done")]));
 		context.app.blockNextRead();
-		context.service.handleCommand(reconcile("thread-1", "turn-1"));
+		context.service.handleCommand(reconcile("thread-1", "turn-0"));
 		await settle();
 		await context.sweep(600_000);
 		expect(context.released).toEqual([]);

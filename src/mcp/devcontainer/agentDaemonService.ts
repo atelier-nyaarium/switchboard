@@ -322,7 +322,7 @@ export class AgentDaemonService {
 			}
 			if (session.client.resumeThread) runner.remember(threadId);
 		}
-		if (!command.turnId || !session.client.inspectTurn) return unknown();
+		if (!command.turnId) return unknown();
 		const seen = await runner.inspect(threadId, command.turnId);
 		if (seen.known === "running") {
 			const running = held ? await session.client.adoptTurn?.(threadId).catch(() => undefined) : undefined;

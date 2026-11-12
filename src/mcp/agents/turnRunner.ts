@@ -57,6 +57,7 @@ const EARLY_TURNS_MAX = 32;
 const EARLY_EVENTS_MAX = 64;
 const THREAD_MEMORY = 256;
 const SEEN_TURNS_MAX = 1024;
+const ENDED_MEMORY = 256;
 export const NO_PROGRESS_MS = 600_000;
 const UNKNOWN: TurnInspection = { known: "unknown" };
 
@@ -70,6 +71,8 @@ export class TurnRunner<Owner> {
 	private readonly early = new Map<string, Array<(turn: ActiveTurn<Owner>) => void>>();
 	/** Announced turns: an adopted one is never among them. */
 	private readonly seen = new Set<string>();
+	/** How its turns ended, for a reconcile the driver cannot answer. Oldest first. */
+	private readonly ended = new Map<string, TurnTerminal>();
 
 	constructor(
 		private readonly client: AgentBackendSession,
@@ -204,7 +207,10 @@ export class TurnRunner<Owner> {
 		return true;
 	}
 
+	/** A turn this runner ended is answered from memory. */
 	async inspect(threadId: string, turnId: string): Promise<TurnInspection> {
+		const terminal = this.ended.get(turnId);
+		if (terminal) return { known: "settled", terminal };
 		return (await this.client.inspectTurn?.(threadId, turnId).catch(() => UNKNOWN)) ?? UNKNOWN;
 	}
 
@@ -212,6 +218,8 @@ export class TurnRunner<Owner> {
 		const active = this.active.get(turn.threadId);
 		if (active !== turn) return;
 		this.active.delete(turn.threadId);
+		this.ended.set(turn.turnId, terminal);
+		if (this.ended.size > ENDED_MEMORY) this.ended.delete(this.ended.keys().next().value as string);
 		this.host.terminal(active, terminal);
 	}
 

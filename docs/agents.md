@@ -42,6 +42,11 @@ start, the steer with its fallback to a new turn, the resume of a thread the ses
 and the silent-turn watch. What only a record knows, a pending interrupt or a missing agent, stays
 with the record's owner.
 
+**The runner remembers how its turns ended.** It keeps the terminals of its last 256 turns, and a
+read of one of them is answered from that memory before the driver is asked. A reconcile about a
+turn whose terminal the daemon's outbox dropped is answered on every backend, Copilot included,
+whose driver cannot inspect a turn.
+
 **A silent turn is read, then interrupted, then given up with its child.** The daemon service and
 local mode each sweep every 30 seconds. A turn with no sign of life for ten minutes is read through the driver's
 `inspectTurn`; settled, its terminal is published; anything else, it is interrupted; silent for

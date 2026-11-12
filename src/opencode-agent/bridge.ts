@@ -503,9 +503,10 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 			// A turn that still runs is left running: a long step takes no prompt until it ends.
 			let ended: OpencodeTerminal | undefined;
 			try {
+				// Rows are read last, so an end the active read saw is in them.
+				const running = (await readActive()).has(thread.id);
 				const turns = turnsOf(await readRows(thread.id, waiter.turnId));
-				if (turnById(turns, waiter.turnId)?.idle || !(await readActive()).has(thread.id))
-					ended = endOf(turns, waiter.turnId);
+				if (turnById(turns, waiter.turnId)?.idle || !running) ended = endOf(turns, waiter.turnId);
 			} catch {
 				// Unread: the next stream connection settles it.
 			}
@@ -748,7 +749,15 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 				continue;
 			}
 			if (!thread.active) continue;
-			settle(thread, thread.active, endOf(turns, thread.active.turnId));
+			// Read again: the turn may have ended after the first read.
+			let latest: TurnRows[];
+			try {
+				latest = turnsOf(await readRows(thread.id, thread.active.turnId));
+			} catch {
+				continue;
+			}
+			if (signal.aborted) return;
+			if (thread.active) settle(thread, thread.active, endOf(latest, thread.active.turnId));
 		}
 		for (const event of buffered.splice(0)) apply(event);
 	};
