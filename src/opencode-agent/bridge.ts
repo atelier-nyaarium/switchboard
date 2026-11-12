@@ -261,6 +261,12 @@ function terminalOf(turn: TurnRows): OpencodeTerminal {
 	return { status: "completed", finalResponse, ...(finalItemId ? { finalItemId } : {}) };
 }
 
+/** How a turn the server no longer runs ended: by its idle row, or lost with none. */
+function endOf(turns: readonly TurnRows[], turnId: string): OpencodeTerminal {
+	const turn = turnById(turns, turnId);
+	return turn?.idle ? terminalOf(turn) : { status: "failed", error: "the OpenCode turn was lost" };
+}
+
 function turnById(turns: readonly TurnRows[], turnId: string): TurnRows | undefined {
 	return turns.find((turn) => turn.turnId === turnId);
 }
@@ -497,10 +503,9 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 			// A turn that still runs is left running: a long step takes no prompt until it ends.
 			let ended: OpencodeTerminal | undefined;
 			try {
-				const old = turnById(turnsOf(await readRows(thread.id, waiter.turnId)), waiter.turnId);
-				if (old?.idle) ended = terminalOf(old);
-				else if (!(await readActive()).has(thread.id))
-					ended = { status: "failed", error: "the OpenCode turn was lost" };
+				const turns = turnsOf(await readRows(thread.id, waiter.turnId));
+				if (turnById(turns, waiter.turnId)?.idle || !(await readActive()).has(thread.id))
+					ended = endOf(turns, waiter.turnId);
 			} catch {
 				// Unread: the next stream connection settles it.
 			}
@@ -553,14 +558,7 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 				waiter.resolve();
 				return;
 			}
-			if (thread.active?.turnId === waiter.turnId) {
-				const old = turnById(turns, waiter.turnId);
-				settle(
-					thread,
-					thread.active,
-					old?.idle ? terminalOf(old) : { status: "failed", error: "the OpenCode turn was lost" },
-				);
-			}
+			if (thread.active?.turnId === waiter.turnId) settle(thread, thread.active, endOf(turns, waiter.turnId));
 			if (!turn.idle && !thread.active) adoptTurn(thread, turn);
 			waiter.reject(new BridgeFailure("turn_ended", "the OpenCode turn ended before the prompt was taken"));
 			return;
@@ -741,14 +739,7 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 				const current = turns.at(-1);
 				if (current && !current.idle) {
 					if (thread.active?.turnId !== current.turnId) {
-						if (thread.active) {
-							const old = turnById(turns, thread.active.turnId);
-							settle(
-								thread,
-								thread.active,
-								old?.idle ? terminalOf(old) : { status: "failed", error: "the OpenCode turn was lost" },
-							);
-						}
+						if (thread.active) settle(thread, thread.active, endOf(turns, thread.active.turnId));
 						adoptTurn(thread, current);
 					} else {
 						emitToolCounters(thread, thread.active, current);
@@ -757,13 +748,7 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 				continue;
 			}
 			if (!thread.active) continue;
-			const held = thread.active;
-			const turn = turnById(turns, held.turnId);
-			settle(
-				thread,
-				held,
-				turn?.idle ? terminalOf(turn) : { status: "failed", error: "the OpenCode turn was lost" },
-			);
+			settle(thread, thread.active, endOf(turns, thread.active.turnId));
 		}
 		for (const event of buffered.splice(0)) apply(event);
 	};
