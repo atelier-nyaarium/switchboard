@@ -988,6 +988,19 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
 - **Comments:** nine reworded or cut, three that claimed more than the ledger knows.
 - **Left:** streams are never pruned, as before the ledger. The ask guard's timestamp is not cleared when a reconciliation resolves, so a new need inside the guard waits for the watch.
 
+### Architecture C: one turn runner over the driver
+
+**Built, 2026-11-12,** in three local commits after B: the runner and the daemon on it (`0165552b`), local mode on it (`70894c25`), and the listing and reap parity.
+
+- **`src/mcp/agents/turnRunner.ts`** runs one driver session's turns for whoever owns the session. It holds the adopt after a failed start, the steer with its fallback to a new turn under one key, the resume of a thread the session does not hold, the hold of what a child says before its turn is announced, thread memory, and the silent-turn watch. Its side supplies four callbacks: a turn's activity, counter and end, and a session past saving.
+- **`AgentDaemonService` lost about 150 lines.** `runStart`, `runMessage` and `runInterrupt` are each one call and its answer on the wire; `runReconcile` is built from the runner's primitives; the sweep calls `watch`. Every daemon, runtime and harness case passed unchanged.
+- **`LocalAgentHandlers` keeps only its records.** Its copies of the steer, the adopt and the dispatch are gone.
+- **What local mode gained by sharing:** activity a child reports before naming its turn is kept; a silent turn is watched; a thread on the child that replaces a reaped one is resumed first, or the agent says it ended with its process; a child that closes ends its running turns as lost; a message or a stop waits for the one before it on that agent; listings share one read, a busy child is not reaped, and a child opened only to list models on a driver that cannot resume is given up.
+- **Changed for the daemon:** an adopted turn the runner already told of is refused as another prompt's, which only local mode checked.
+- **Left with each record's owner:** the pending interrupt and not-found, in `AgentService` and `LocalAgentHandlers`. The failure code is the driver's, read by both.
+- **A test fake was wrong:** local mode's test backend opened every agent on `thread-1`, which the old per-agent bookkeeping hid. A driver opens a thread per agent, and one turn runs per thread.
+- **Not covered:** no case runs local mode's 30 second sweep; `turn-runner.test.ts` holds the watch's rule and the sweep is a timer around it.
+
 ## Phase 3 - Acceptance and docs
 
 - Live on Sakura from the phone: create an OpenCode session, talk to it, watch it in the terminal view, approve a `.env` read from the card, compact it, close and wake it, and crosstalk with a Claude session in both directions.

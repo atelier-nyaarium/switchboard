@@ -109,6 +109,10 @@ export class LocalAgentHandlers {
 		}));
 	}
 
+	hasAgents(): boolean {
+		return this.agents.size > 0;
+	}
+
 	hasActiveTurn(): boolean {
 		for (const agent of this.agents.values()) {
 			if (agent.activeTurnId) return true;

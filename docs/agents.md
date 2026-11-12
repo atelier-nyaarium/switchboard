@@ -35,8 +35,15 @@ a backend with no row or no driver does not compile. Every backend runs on the o
 `agentService`, `agentApply`, `agentReducers`, `agentCommands`, `agentRelay`, `agentRoute` on the
 Gateway, and `agentDaemonService` over a driver on the daemon. Local mode opens the same drivers.
 
-**A silent turn is read, then interrupted, then given up with its child.** `AgentDaemonService`
-sweeps every 30 seconds. A turn with no sign of life for ten minutes is read through the driver's
+**A driver session's turns have one runner** (`src/mcp/agents/turnRunner.ts`). The daemon service and
+local mode both hand it a start, a message and a stop, and it tells each of a turn's acceptance, its
+activity and its end, in that order. The rules of a turn live there alone: the adopt after a failed
+start, the steer with its fallback to a new turn, the resume of a thread the session does not hold,
+and the silent-turn watch. What only a record knows, a pending interrupt or a missing agent, stays
+with the record's owner.
+
+**A silent turn is read, then interrupted, then given up with its child.** The daemon service and
+local mode each sweep every 30 seconds. A turn with no sign of life for ten minutes is read through the driver's
 `inspectTurn`; settled, its terminal is published; still running, it is interrupted; silent for
 another ten minutes, its whole generation is given up, which ends every other turn on that child.
 Silence is judged only where a driver reports life (`onProgress`): Codex's and OpenCode's do, and
@@ -283,9 +290,12 @@ the opt-in.
   `applyTerminal`.
 - **A closed local child must be evicted.** `AgentBackendSession.onClosed` is identity-guarded so a
   late close cannot evict its successor, and a listener set after the close is called at once.
-- **The command rules are written here a second time.** `LocalAgentHandlers` repeats the daemon
-  service's steer, pending interrupt and failure code rules, so a rule changed in one is changed in
-  the other.
+- **A turn's rules are the daemon's.** `LocalAgentHandlers` keeps the agent records and answers each
+  request; the turns run through the same `TurnRunner`. The pending interrupt and the failure code
+  are the record's, written here and in the Gateway's `AgentService`.
+- **One message or stop per agent at a time,** queued at the runtime as the daemon core queues them.
+- **A child that closes ends its running turns as lost,** and a thread on its replacement is resumed
+  before its next turn, or the agent answers that it ended with its process.
 - **Idle reaping needs resumable threads.** `threadsResumable` on the driver row gates it. The hold spans the whole `handle()`
   request, not one child call; at every instant either that hold or `activeTurnId` guards the child.
   `applyTerminal` stamps the idle clock.

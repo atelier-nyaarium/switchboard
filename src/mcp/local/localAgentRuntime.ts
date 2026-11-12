@@ -3,6 +3,7 @@ import type { AgentNotice } from "../../shared/agent-notice.js";
 import type { AgentDaemonFailureCode, AgentServiceTier } from "../../shared/agent-state.js";
 import type { AgentTurnMarks } from "../../shared/agent-turn-marks.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
+import { createSingleFlight } from "../../shared/single-flight.js";
 import type { AgentBackendSession } from "../agents/backendSession.js";
 import type { LocalExchangeRecord } from "./localAgentHandlers.js";
 import { LocalAgentHandlers } from "./localAgentHandlers.js";
@@ -100,6 +101,7 @@ export class LocalAgentRuntime {
 	private readonly handlers: LocalAgentHandlers;
 	/** One message or stop per agent at a time, as the daemon runs them. */
 	private readonly perAgent = createKeyedFifo<string>();
+	private readonly listing = createSingleFlight<null, string[] | undefined>();
 	private inFlight = 0;
 
 	constructor(
@@ -167,16 +169,23 @@ export class LocalAgentRuntime {
 		return this.handlers.list();
 	}
 
-	/** CLI models, if available. */
-	async listModels(): Promise<string[] | undefined> {
-		this.inFlight += 1;
-		try {
-			const session = await this.child.open();
-			return (await session.listModels?.())?.map((model) => model.id);
-		} finally {
-			this.inFlight -= 1;
-			this.child.markUsed();
-		}
+	/** CLI models, if available. Listings in flight share one read. */
+	listModels(): Promise<string[] | undefined> {
+		return this.listing.run(null, async () => {
+			this.inFlight += 1;
+			const opens = !this.child.isOpen();
+			let session: AgentBackendSession | undefined;
+			try {
+				session = await this.child.open();
+				return (await session.listModels?.())?.map((model) => model.id);
+			} finally {
+				this.inFlight -= 1;
+				this.child.markUsed();
+				// Nothing reaps a child whose threads cannot be resumed.
+				const unused = opens && this.inFlight === 0 && !this.handlers.hasAgents();
+				if (session && unused && !this.spec.threadsResumable) this.child.drop(session);
+			}
+		});
 	}
 
 	shutdown(): void {

@@ -26,9 +26,13 @@ export class LocalChildSession {
 		if (!this.session || !this.host.spec.threadsResumable) return false;
 		if (this.host.inFlight() > 0) return false;
 		if (this.host.now() - this.lastUsedAt < LOCAL_IDLE_REAP_MS) return false;
-		if (this.host.hasActiveTurn()) return false;
+		if (this.host.hasActiveTurn() || this.session.busy?.()) return false;
 		this.drop(this.session);
 		return true;
+	}
+
+	isOpen(): boolean {
+		return this.session !== undefined || this.opening !== undefined;
 	}
 
 	/** Ends a child. The next open starts another. */

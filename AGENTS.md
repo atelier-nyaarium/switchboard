@@ -811,19 +811,24 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/agentDaemonRuntime.ts` - the daemon's agent runtime: a target manager and service per backend, connection hello and replay, command and acknowledgement routing, model listing
   - **The fake host and `hostDaemon.ts` build the same runtime:** a frame order or a recovery rule cannot differ between the shipping daemon and the tests. The fake host swaps only the drivers.
   - **A scripted session offers what its real session offers:** the service picks recovery branches by which driver methods exist, so `REAL_SESSION` in `scriptedAgents.ts` names each backend's set and `agent-daemon-runtime.test.ts` holds it to the real classes. Only OpenCode's keys a prompt, so only its scripted session drops a repeated start.
-- `src/mcp/devcontainer/agentDaemonService.ts` - the generic daemon service: a backend's commands run over its driver and answered on the daemon wire
-  - **The Gateway hears a turn before anything said about it:** what a child reports for a turn whose start has not answered is held (`whenAnnounced`) and published behind the `accepted` receipt.
+- `src/mcp/agents/turnRunner.ts` - one driver session's turns, run the same way by the daemon and by local mode: the start with its adopt, the message with its steer, the stop, the hold of what a child says early, thread memory, and the silent-turn watch
+  - **A rule of a turn is written once, here:** `AgentDaemonService` publishes what the runner tells it and `LocalAgentHandlers` records it. What a record alone knows stays with the record's owner: a pending interrupt and not-found are the Gateway's `AgentService` and `LocalAgentHandlers`.
+  - **Its side hears a turn before anything said about it:** `accepted` runs when the turn is known, and what a child reported for a turn not yet announced is held (`whenAnnounced`) and told after it. The daemon sends its `accepted` receipt there; local mode writes its turn record there.
+  - **A steer names the turn its sender believes is running** (`expectedTurnId`), and no other is steered. The daemon passes the command's; local mode passes its record's.
   - **A steer whose turn ended under it opens a new turn with the prompt,** so the message is never reported steered into a turn that is over. Whether it ended is asked of the turn's own promise (`settledNow`), never read after a count of promise hops, and both posts carry the operation's id as their `key`, so a driver that can tell lands one prompt. A refused steer also asks the driver's `inspectTurn`, since a driver may hold a finished turn's terminal: Codex waits up to ten seconds for a final item, and reads a turn it holds as running until the answer is in the read, so no empty answer is published.
+  - **A turn found running after a failed start is adopted once:** `begin` adopts what `adoptTurn` answers unless the runner already told of that turn, which is another prompt's.
+  - **A thread the session does not hold is resumed before its turn,** or the message answers that the agent ended with its process. The runner forgets the least recently used idle threads past 256, only where the driver can resume one.
+  - **A silent turn is read, then interrupted, then given up:** only for a driver that reports life (`onProgress`). After 600 seconds `watch` inspects the turn, tells of one that settled, interrupts one still running, and gives its session up when it stays silent. `live-turns-residue.test.ts` holds that state to this file.
+- `src/mcp/devcontainer/agentDaemonService.ts` - the generic daemon service: a backend's commands run through a session's `TurnRunner` and answered on the daemon wire, with the reconcile, the sweep and the model listing
   - **A driver that closes retires its session,** whether or not its child is still alive, and its running turns end as lost.
   - **A reconcile rebinds a running turn to the owner it names,** since a session handover renames the owner while the turn runs.
-  - **Local mode holds the same rules by hand:** `LocalAgentHandlers` repeats the steer, the adopt after a failed start, the pending interrupt and the failure code. A rule changed here is changed there. It has no silent-turn watchdog.
-  - **A silent turn is read, then interrupted, then given up:** only for a driver that reports life (`onProgress`). After 600 seconds the sweep inspects the turn, publishes one that settled, interrupts one still running, and gives its generation up when it stays silent. `live-turns-residue.test.ts` holds that state to this file.
   - **An idle child is reaped only when its threads can be resumed** (`threadsResumable`) and its driver is not `busy`. A child that cannot be reaped and was opened only to list models is given up when the listing ends, and listings of one target share one read.
-  - **A turn the daemon never started is adopted only on a thread it holds** (`adoptTurn`): after a start that failed, and at a reconcile. A reconcile about an earlier turn while a later one runs inspects the earlier and settles it.
+  - **A reconcile adopts a running turn only on a thread the session holds** (`adoptTurn`). One about an earlier turn while a later one runs inspects the earlier and settles it.
 - `src/mcp/local/` - daemonless agent backend
-- `src/mcp/local/localAgentRuntime.ts` - the lease, the operation claim, and the dispatch to a request kind
-- `src/mcp/local/localAgentHandlers.ts` - per-kind request handlers and turn bookkeeping
-- `src/mcp/local/localChildSession.ts` - the one child: open, idle reap, shutdown
+- `src/mcp/local/localAgentRuntime.ts` - the lease, the operation claim, one message or stop per agent at a time, the shared model listing, and the dispatch to a request kind
+- `src/mcp/local/localAgentHandlers.ts` - local mode's agent records over a `TurnRunner` per child: what a request answers, and what the runner tells it
+  - **A child that closes ends the turns it ran as lost,** by a reap, a drop or on its own, as the daemon's retirement does.
+- `src/mcp/local/localChildSession.ts` - the one child: open, idle reap, drop, shutdown
 - `src/mcp/local/localOperationLedger.ts` - operation identity claim and release
 - `src/mcp/agentDispatch.ts` - agent tool serving seam
 - `src/mcp/agentRequest.ts` - every backend's request body (`agentRequestBody`), its per-invocation replay ids, the Gateway dispatch, and the posted answer
