@@ -35,13 +35,11 @@ export interface AgentRefusal {
 }
 
 export interface AgentApplier {
-	applyReceipt: (receipt: AgentDaemonReceipt, at: number) => Application;
+	/** `closing`: a reconciliation the record contradicts is taken at its word. */
+	applyReceipt: (receipt: AgentDaemonReceipt, at: number, closing?: boolean) => Application;
 	/** Held replay bypasses duplicates. */
 	applyEvent: (event: AgentDaemonEvent, at: number, held?: boolean) => Application;
-	/**
-	 * Ends the open turn no reconciliation accounted for, and adopts the one the daemon last reported
-	 * running. Ignored when the daemon vouches for the open turn.
-	 */
+	/** Ends the open turn no reconciliation accounted for. Ignored when `report` says it is the one running. */
 	closeHeld: (
 		ownerKey: string,
 		agentId: string,
@@ -208,17 +206,30 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		);
 	}
 
-	function applyReconciled(owner: SessionRecord, agent: PersistedAgent, receipt: Receipt<"reconciled">, at: number) {
+	function applyReconciled(
+		owner: SessionRecord,
+		agent: PersistedAgent,
+		receipt: Receipt<"reconciled">,
+		at: number,
+		closing: boolean,
+	) {
 		if (
 			agent.sessionId !== receipt.sessionId ||
 			!agent.resolvedTarget ||
 			!sameResolvedTarget(agent.resolvedTarget, receipt.resolvedTarget)
 		)
 			return ignore("reconciliation names a different session");
-		const recovery = decideReconciliation(agent, receipt);
-		if (recovery.kind === "duplicate") return ignore("duplicate reconciliation");
-		if (recovery.kind === "stale") return ignore("reconciliation from an older generation");
-		if (recovery.kind === "askAgain") return { disposition: "reconcile" as const, owner, agent };
+		const decided = decideReconciliation(agent, receipt);
+		if (decided.kind === "duplicate") return ignore("duplicate reconciliation");
+		if (decided.kind === "stale") return ignore("reconciliation from an older generation");
+		if (decided.kind === "askAgain" && !(closing && agent.activeTurnId))
+			return { disposition: "reconcile" as const, owner, agent };
+		// A hold being given up: the record's turn is lost and the daemon's is taken.
+		const recovery: AgentReconciliationDecision =
+			decided.kind === "askAgain" && agent.activeTurnId
+				? { kind: "lost", turnId: agent.activeTurnId, adoptTurnId: receipt.turnId }
+				: decided;
+		const lostReason = decided.kind === "askAgain" ? AGENT_TURN_UNACCOUNTED_REASON : AGENT_TURN_LOST_REASON;
 		const fence = fenceOf(receipt);
 		const timestamp = Math.max(at, agent.updatedAt);
 		return commit(
@@ -230,7 +241,7 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 					base = withTerminal(
 						agent,
 						lost,
-						{ state: "interrupted", reason: AGENT_TURN_LOST_REASON },
+						{ state: "interrupted", reason: lostReason },
 						fallbackError,
 						timestamp,
 						fence,
@@ -279,14 +290,14 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		return uncertain(owner, agent, index, at);
 	}
 
-	function applyReceipt(receipt: AgentDaemonReceipt, at: number): Application {
+	function applyReceipt(receipt: AgentDaemonReceipt, at: number, closing = false): Application {
 		if (receipt.kind === "rejected") return applyRejected(receipt, at);
 		const located = locate(receipt.ownerKey, receipt.agentId);
 		if (!located) return ignore("agent not found");
 		const { owner, agent } = located;
 		if (receipt.kind === "accepted") return applyAccepted(owner, agent, receipt, at);
 		if (receipt.kind === "interruptResult") return applyInterrupt(owner, agent, receipt, at);
-		return applyReconciled(owner, agent, receipt, at);
+		return applyReconciled(owner, agent, receipt, at, closing);
 	}
 
 	function applyEvent(event: AgentDaemonEvent, at: number, held = false): Application {
@@ -343,29 +354,15 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		const timestamp = Math.max(at, agent.updatedAt);
 		return commit(
 			owner,
-			() => {
-				const base = withTerminal(
+			() =>
+				withTerminal(
 					agent,
 					active,
 					{ state: "interrupted", reason: AGENT_TURN_UNACCOUNTED_REASON },
 					fallbackError,
 					timestamp,
 					agent.fence,
-				);
-				// An applied terminal outranks a report.
-				const ended = base.turns.some((turn) => turn.id === reported && turn.state !== "inProgress");
-				const running = ended ? undefined : reported;
-				if (!running) return base;
-				const adopted: AgentStoredTurn[] = base.turns.some((turn) => turn.id === running)
-					? []
-					: [{ id: running, state: "inProgress", activities: [], updatedAt: timestamp }];
-				return PersistedAgentSchema.parse({
-					...base,
-					agentState: "working",
-					activeTurnId: running,
-					turns: [...base.turns, ...adopted],
-				});
-			},
+				),
 			"a closed hold",
 		);
 	}

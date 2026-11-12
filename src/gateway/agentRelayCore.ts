@@ -86,8 +86,11 @@ export interface AgentRelayFamily<
 	/** Where the agent runs, once resolved. */
 	targetId(agent: TAgent): string | undefined;
 	applyEvent(event: TEvent, at: number, held?: boolean): AgentApplication<TAgent>;
-	applyReceipt(receipt: TReceipt, at: number): AgentApplication<TAgent>;
-	/** Ends the open turn no reconciliation accounted for; `report` is the daemon's last word on it. */
+	/** `closing`: a hold is being given up, so a reconciliation the daemon contradicts is taken at its word. */
+	applyReceipt(receipt: TReceipt, at: number, closing?: boolean): AgentApplication<TAgent>;
+	/** The turn the record holds open. */
+	openTurn(agent: TAgent): string | undefined;
+	/** Ends the open turn unless `report`, the daemon's last word, says it is the one running. */
 	closeHeld(
 		ownerKey: string,
 		agentId: string,
@@ -96,7 +99,6 @@ export interface AgentRelayFamily<
 	): AgentApplication<TAgent>;
 	/** A requested operation whose receipt is given up. */
 	abandonOperation(ownerKey: string, agentId: string, operationId: string, at: number): AgentApplication<TAgent>;
-	/** What a reconciliation says of the agent's turn. */
 	reconciliationReport(receipt: TReceipt): AgentReconciliationReport | undefined;
 	/** Confirms through revision on disk; may retry once. */
 	confirmation(owner: SessionRecord, revision: number): "confirmed" | "pending" | "gone";
@@ -119,6 +121,10 @@ type HeldFrame<TEvent, TReceipt> = ({ frame: "event"; message: TEvent } | { fram
 };
 
 type FencedFrame = AgentRelayFrame & { targetId: string; generation: number };
+/** A record write not yet confirmed on disk. */
+type Awaiting = { owner: SessionRecord; revision: number };
+/** A hold being given up, and the write its frames must outlast. */
+type Closing = { pending?: Awaiting };
 type ProgressEntry = { runId?: string; counts: AgentProgressCounts };
 
 ////////////////////////////////
@@ -167,9 +173,14 @@ export class AgentRelayCore<
 	private readonly listeners = new Map<string, Set<() => void>>();
 	private readonly lastReconcileAskedAt = new Map<string, { daemonInstanceId: string; askedAt: number }>();
 	private readonly watches = new Map<string, ReturnType<Ambient["setTimer"]>>();
-	/** The daemon's last word on an agent, kept only while it holds unplaced frames. */
-	private readonly reports = new Map<string, AgentReconciliationReport>();
+	/** The daemon's last reconciliation of an agent, kept only while it holds unplaced frames. */
+	private readonly said = new Map<string, { receipt: TReceipt; at: number }>();
+	/** When the record's open turn last changed, for an agent that holds unplaced frames. */
+	private readonly opened = new Map<string, { turnId: string | undefined; at: number }>();
 	private lastHelloAt = 0;
+	/** The daemon whose hello was last taken. */
+	private helloFrom: string | undefined;
+	private stopped = false;
 	/** The eviction count each stream last told. */
 	private readonly evictionsSeen = new Map<string, number>();
 	private readonly retrying = new Set<string>();
@@ -191,6 +202,13 @@ export class AgentRelayCore<
 		for (const held of this.progress.values())
 			if (held.runId === runId) counts = addAgentProgressCounts(counts, held.counts);
 		return counts;
+	}
+
+	/** Clears every watch. Nothing is asked about or given up afterwards. */
+	stop(): void {
+		this.stopped = true;
+		for (const timer of this.watches.values()) this.deps.ambient.clearTimer(timer);
+		this.watches.clear();
 	}
 
 	dispatch(command: TRequest): boolean {
@@ -295,40 +313,44 @@ export class AgentRelayCore<
 		if (!hello) return;
 		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (liveDaemonInstanceId !== undefined && hello.daemonInstanceId !== liveDaemonInstanceId) return;
+		// Another daemon's word says nothing of this one's turns.
+		if (this.helloFrom !== hello.daemonInstanceId) this.said.clear();
+		this.helloFrom = hello.daemonInstanceId;
 		this.lastHelloAt = this.now();
-		const lossy = this.newlyEvicted(hello);
+		const evicted = (hello.evicted ?? []).filter(
+			(stream) => stream.count > (this.evictionsSeen.get(this.evictionKey(hello, stream)) ?? 0),
+		);
+		const lossy = new Set(evicted.map((stream) => stream.targetId));
+		const unasked = new Set<string>();
 		const pending: Promise<void>[] = [];
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
 			for (const agent of this.family.listAgents(owner)) {
 				pending.push(
 					this.serialize(ownerKey, agent.agentId, () => {
+						const targetId = this.family.targetId(agent) ?? "";
 						// Its terminal may be among what the daemon dropped, and nothing else would ask.
-						const lost = agent.agentState === "working" && lossy.has(this.family.targetId(agent) ?? "");
+						const lost = agent.agentState === "working" && lossy.has(targetId);
 						if (
 							lost ||
 							this.needsReconciliation(ownerKey, agent) ||
 							this.frames.holds(agentKey(ownerKey, agent.agentId))
 						) {
-							this.requestReconciliation(ownerKey, agent, lost);
+							if (!this.requestReconciliation(ownerKey, agent, lost) && lost) unasked.add(targetId);
 						}
 					}),
 				);
 			}
 		}
 		await Promise.all(pending);
+		// One whose ask did not go out is told again by the next hello.
+		for (const stream of evicted) {
+			if (!unasked.has(stream.targetId)) this.evictionsSeen.set(this.evictionKey(hello, stream), stream.count);
+		}
 	}
 
-	/** Targets whose outbox dropped frames since the last hello that said so. */
-	private newlyEvicted(hello: AgentRelayHello): Set<string> {
-		const lossy = new Set<string>();
-		for (const stream of hello.evicted ?? []) {
-			const key = `${hello.daemonInstanceId} ${stream.targetId} ${stream.generation}`;
-			if (stream.count <= (this.evictionsSeen.get(key) ?? 0)) continue;
-			this.evictionsSeen.set(key, stream.count);
-			lossy.add(stream.targetId);
-		}
-		return lossy;
+	private evictionKey(hello: AgentRelayHello, stream: { targetId: string; generation: number }): string {
+		return `${hello.daemonInstanceId} ${stream.targetId} ${stream.generation}`;
 	}
 
 	private onReceipt(raw: Record<string, unknown>): Promise<void> {
@@ -375,15 +397,17 @@ export class AgentRelayCore<
 		return undefined;
 	}
 
-	/** `closing`: a held frame's last try. Never throws, and never leaves its ticket open. */
-	private reduce(ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>, closing?: AgentApplication<TAgent>): void {
+	/** `closing`: a held frame's last try. Leaves no ticket open. */
+	private reduce(ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>, closing?: Closing): void {
 		const retry = ticket.state === "held";
+		const { ownerKey, agentId } = ticket.payload.message;
 		let application: AgentApplication<TAgent>;
 		try {
 			application =
 				ticket.payload.frame === "event"
 					? this.reduceEvent(ticket, ticket.payload.message, retry)
 					: this.reduceReceipt(ticket.payload.message);
+			this.noteOpenTurn(agentKey(ownerKey, agentId), application);
 		} catch (error) {
 			console.error(`[${this.family.backendId}-relay] reducing a frame failed:`, error);
 			application = { disposition: "failed", reason: "its reducer threw" };
@@ -396,8 +420,16 @@ export class AgentRelayCore<
 		// An open ticket's replay is dropped as queued, so it would never be judged again.
 		if (ticket.state === "open") {
 			this.frames.hold(ticket, "failed", this.now());
-			this.watch(ticket.payload.message.ownerKey, ticket.payload.message.agentId);
+			this.watch(ownerKey, agentId);
 		}
+	}
+
+	/** When the open turn of an agent that holds frames changes. */
+	private noteOpenTurn(key: string, application: AgentApplication<TAgent>): void {
+		const known = this.opened.get(key);
+		if (!known || !inRecord(application)) return;
+		const turnId = this.family.openTurn(application.agent);
+		if (turnId !== known.turnId) this.opened.set(key, { turnId, at: this.now() });
 	}
 
 	private reduceReceipt(receipt: TReceipt): AgentApplication<TAgent> {
@@ -406,8 +438,8 @@ export class AgentRelayCore<
 			return { disposition: "ignored", reason: "reconciliation from a replaced daemon" };
 		const application = this.family.applyReceipt(receipt, this.now());
 		// A duplicate or an older generation's is no word on the turn.
-		const report = application.disposition === "ignored" ? undefined : this.family.reconciliationReport(receipt);
-		if (report) this.reports.set(agentKey(receipt.ownerKey, receipt.agentId), report);
+		if (application.disposition !== "ignored" && this.family.reconciliationReport(receipt))
+			this.said.set(agentKey(receipt.ownerKey, receipt.agentId), { receipt, at: this.now() });
 		if (inRecord(application)) {
 			const turnId = this.family.modelTurn(receipt);
 			if (turnId) this.countModelTurn(receipt.ownerKey, receipt.agentId, turnId, application.agent.runId);
@@ -488,11 +520,10 @@ export class AgentRelayCore<
 		return owner ? this.family.listAgents(owner).find((agent) => agent.agentId === agentId)?.runId : undefined;
 	}
 
-	/** Holds or decides the frame, then does what follows from that. */
 	private settle(
 		ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>,
 		application: AgentApplication<TAgent>,
-		closing?: AgentApplication<TAgent>,
+		closing?: Closing,
 	): void {
 		const frame = ticket.payload;
 		const { message } = frame;
@@ -512,7 +543,11 @@ export class AgentRelayCore<
 					: undefined;
 		const unplaced = why === "reconcile" || why === "failed";
 		if (unplaced && closing) {
-			this.drop(ticket, closing);
+			this.drop(ticket, closing.pending);
+		} else if (closing?.pending && !why && ticket.identity.stream && application.disposition !== "applied") {
+			// Decided against a record whose write is not on disk yet.
+			ticket.payload = { ...frame, awaiting: closing.pending };
+			this.frames.hold(ticket, "awaiting", this.now());
 		} else if (why) {
 			if (awaiting) ticket.payload = { ...frame, awaiting };
 			for (const ack of this.frames.hold(ticket, why, this.now()).acks) this.sendAck(ack);
@@ -525,6 +560,9 @@ export class AgentRelayCore<
 					application.disposition === "reconcile"
 						? application.agent
 						: this.agentOf(message.ownerKey, message.agentId);
+				// Open since before the hold, as far as this relay knows.
+				if (!this.opened.has(key))
+					this.opened.set(key, { turnId: agent ? this.family.openTurn(agent) : undefined, at: 0 });
 				if (agent) this.requestReconciliation(message.ownerKey, agent);
 			} catch (error) {
 				// The watch asks again.
@@ -536,7 +574,7 @@ export class AgentRelayCore<
 		if (inRecord(application)) this.retryHeld(message.ownerKey, message.agentId);
 		// A write just landed: the disk takes writes again.
 		if (application.disposition === "applied") this.retryAwaiting(key);
-		if (this.closeAt(key) === undefined) this.reports.delete(key);
+		this.forgetIfClear(key);
 	}
 
 	/** Committed once sent. */
@@ -631,33 +669,40 @@ export class AgentRelayCore<
 		return agent.agentState === "working" && this.family.fenceInstanceId(agent) !== liveDaemonInstanceId;
 	}
 
-	/** One ask per agent per guard; a held frame's watch makes the next. `unguarded` asks inside it. */
-	private requestReconciliation(ownerKey: string, agent: TAgent, unguarded = false): void {
+	/** One ask per agent per guard; a held frame's watch makes the next. `unguarded` asks inside it. True once sent. */
+	private requestReconciliation(ownerKey: string, agent: TAgent, unguarded = false): boolean {
 		const request = this.family.reconcileRequest(ownerKey, agent);
-		if (!request) return;
+		if (!request) return false;
 		const key = agentKey(ownerKey, agent.agentId);
 		const now = this.now();
 		const daemonInstanceId = this.deps.liveDaemonInstanceId();
-		if (!daemonInstanceId) return;
+		if (!daemonInstanceId) return false;
 		const previousAsk = this.lastReconcileAskedAt.get(key);
 		const guarded =
 			previousAsk?.daemonInstanceId === daemonInstanceId && now - previousAsk.askedAt < RECONCILE_GUARD_MS;
-		if (guarded && !unguarded) return;
-		if (!this.send(this.deps.ambient.newId(), request)) return;
+		if (guarded && !unguarded) return false;
+		if (!this.send(this.deps.ambient.newId(), request)) return false;
 		this.lastReconcileAskedAt.set(key, { daemonInstanceId, askedAt: now });
+		return true;
 	}
 
-	/** When an agent's unplaced frames are given up; none held, no time. */
 	private closeAt(key: string): number | undefined {
 		const since = this.frames.heldSince(key, UNPLACED);
 		// A hello replays and asks again, so the wait starts over.
 		return since === undefined ? undefined : Math.max(since, this.lastHelloAt) + HELD_FRAME_LIMIT_MS;
 	}
 
+	/** What is kept only for an agent that holds unplaced frames. */
+	private forgetIfClear(key: string): void {
+		if (this.closeAt(key) !== undefined) return;
+		this.said.delete(key);
+		this.opened.delete(key);
+	}
+
 	/** Arms the next ask or the close for an agent that holds unplaced frames. */
 	private watch(ownerKey: string, agentId: string, delayMs?: number): void {
 		const key = agentKey(ownerKey, agentId);
-		if (this.watches.has(key)) return;
+		if (this.stopped || this.watches.has(key)) return;
 		const closeAt = this.closeAt(key);
 		if (closeAt === undefined) return;
 		const now = this.now();
@@ -677,48 +722,74 @@ export class AgentRelayCore<
 		const key = agentKey(ownerKey, agentId);
 		const closeAt = this.closeAt(key);
 		if (closeAt === undefined) {
-			this.reports.delete(key);
+			this.forgetIfClear(key);
 			return;
 		}
+		const live = this.deps.liveDaemonInstanceId();
 		// No daemon to ask, and none to give up on.
-		if (!this.deps.liveDaemonInstanceId()) {
+		if (!live) {
 			this.watch(ownerKey, agentId, RECONCILE_GUARD_MS);
 			return;
 		}
-		if (this.now() < closeAt) {
+		const now = this.now();
+		if (now < closeAt) {
 			const agent = this.agentOf(ownerKey, agentId);
 			if (agent) this.requestReconciliation(ownerKey, agent);
-			this.watch(ownerKey, agentId);
+			// Timed from this try, sent or not.
+			this.watch(ownerKey, agentId, Math.min(RECONCILE_GUARD_MS, closeAt - now));
 			return;
 		}
-		this.close(ownerKey, agentId);
+		// A daemon whose hello has not come has had no chance to answer.
+		if (live === this.helloFrom) this.close(ownerKey, agentId);
 		// A close the record refused is tried again.
 		this.watch(ownerKey, agentId, RECONCILE_GUARD_MS);
 	}
 
-	/** Ends a hold nothing placed: the record first, then every frame it still cannot take. */
+	/**
+	 * Ends a hold nothing placed. The daemon's last reconciliation is taken at its word, the open turn
+	 * it does not vouch for is ended, and every frame is tried once more before it is given up.
+	 */
 	private close(ownerKey: string, agentId: string): void {
 		const key = agentKey(ownerKey, agentId);
-		const since = this.frames.heldSince(key, UNPLACED) ?? this.now();
 		const at = this.now();
+		const since = this.frames.heldSince(key, UNPLACED) ?? at;
 		console.error(
 			`[${this.family.backendId}-relay] closing the hold on ${agentId}: unplaced for ${Math.round((at - since) / 1000)}s`,
 		);
-		const closing = this.family.closeHeld(ownerKey, agentId, this.reports.get(key), at);
-		// The record did not take it, so its frames stay.
-		if (closing.disposition === "failed" || closing.disposition === "reconcile") return;
-		this.notifyChanged(ownerKey, agentId, closing);
+		const live = this.deps.liveDaemonInstanceId();
+		const openedAt = this.opened.get(key)?.at ?? 0;
+		const word = this.said.get(key);
+		// Its word counts only when it came after the open turn did.
+		const receipt =
+			word && word.at >= openedAt && !fromReplacedDaemon(live, word.receipt) ? word.receipt : undefined;
+		const closing: Closing = {};
+		const taken = (application: AgentApplication<TAgent>): boolean => {
+			if (application.disposition === "failed" || application.disposition === "reconcile") return false;
+			this.notifyChanged(ownerKey, agentId, application);
+			if (application.disposition === "unconfirmed")
+				closing.pending = { owner: application.owner, revision: application.catalogRevision };
+			// A write that landed carries every earlier one.
+			if (application.disposition === "applied") closing.pending = undefined;
+			return true;
+		};
+		// A record that refuses a step keeps its frames, and the close is tried again.
+		if (receipt && !taken(this.family.applyReceipt(receipt, at, true))) return;
+		const asked = this.lastReconcileAskedAt.get(key);
+		// A turn the daemon was never asked about since it opened is not ended.
+		const askedSince = asked !== undefined && asked.daemonInstanceId === live && asked.askedAt >= openedAt;
+		const report = receipt ? this.family.reconciliationReport(receipt) : undefined;
+		if (askedSince && !taken(this.family.closeHeld(ownerKey, agentId, report, at))) return;
 		for (const ticket of this.frames.heldFor(key)) {
 			if (ticket.state === "held" && ticket.why !== "awaiting") this.reduce(ticket, closing);
 		}
-		if (this.closeAt(key) === undefined) this.reports.delete(key);
+		this.forgetIfClear(key);
 	}
 
-	/** Gives a frame up. Its operation is answered first, and an unconfirmed write is waited on. */
-	private drop(ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>, closing: AgentApplication<TAgent>): void {
+	/** Gives up a frame nothing placed, its requested operation answered first. */
+	private drop(ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>, unwritten: Awaiting | undefined): void {
 		const frame = ticket.payload;
 		const { message } = frame;
-		let pending = closing.disposition === "unconfirmed" ? closing : undefined;
+		let pending = unwritten;
 		if (frame.frame === "receipt" && frame.message.operationId) {
 			const abandoned = this.family.abandonOperation(
 				message.ownerKey,
@@ -728,10 +799,13 @@ export class AgentRelayCore<
 			);
 			if (abandoned.disposition === "failed" || abandoned.disposition === "reconcile") return;
 			this.notifyChanged(message.ownerKey, message.agentId, abandoned);
-			if (abandoned.disposition === "unconfirmed") pending = abandoned;
+			if (abandoned.disposition === "unconfirmed")
+				pending = { owner: abandoned.owner, revision: abandoned.catalogRevision };
+			if (abandoned.disposition === "applied") pending = undefined;
 		}
+		// A frame with no stream blocks no acknowledgement, so it waits on nothing.
 		if (pending && ticket.identity.stream) {
-			ticket.payload = { ...frame, awaiting: { owner: pending.owner, revision: pending.catalogRevision } };
+			ticket.payload = { ...frame, awaiting: pending };
 			this.frames.hold(ticket, "awaiting", this.now());
 			return;
 		}

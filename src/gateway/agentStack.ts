@@ -37,6 +37,7 @@ export interface AgentStackRelay {
 	onAgentChange(ownerKey: string, agentId: string, listener: () => void): () => void;
 	progressCounts(ownerKey: string, agentId: string, turnId: string): AgentProgressCounts | undefined;
 	progressForRun(runId: string): AgentProgressCounts;
+	stop(): void;
 }
 
 export interface AgentStack {

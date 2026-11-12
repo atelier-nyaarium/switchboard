@@ -22,9 +22,10 @@ const AGENT = agentIdForOperation(BACKEND.id, START);
 function setup() {
 	const ambient = fakeAmbient({ drive: "manual" });
 	const writers = new Map<AgentBackendId, PersistedAgentCatalogWriter>();
+	let disk = true;
 	const store = new SessionStore({
 		ambient,
-		agentCatalogPersistence: { persistChecked: () => true, receiveWriter: (id, writer) => writers.set(id, writer) },
+		agentCatalogPersistence: { persistChecked: () => disk, receiveWriter: (id, writer) => writers.set(id, writer) },
 	});
 	const registry: TeamRegistry = new Map();
 	const auth = createSessionAuthority({
@@ -48,6 +49,8 @@ function setup() {
 	const sent: Record<string, unknown>[] = [];
 	let live: string | undefined = DAEMON;
 	let changes = 0;
+	let reaches = true;
+	let tries = 0;
 	const relay = new AgentRelay({
 		backendId: BACKEND.id,
 		service,
@@ -55,6 +58,8 @@ function setup() {
 		liveDaemonInstanceId: () => live,
 		ambient,
 		sendToHost: (message) => {
+			tries += 1;
+			if (!reaches) return false;
 			sent.push(message);
 			return true;
 		},
@@ -89,6 +94,18 @@ function setup() {
 			live = next;
 		},
 		changes: () => changes,
+		relay,
+		/** Whether a frame to the daemon gets out. */
+		setReaches: (next: boolean) => {
+			reaches = next;
+		},
+		tries: () => tries,
+		/** Whether a record write is confirmed on disk. */
+		setDisk: (next: boolean) => {
+			disk = next;
+		},
+		terminal: (eventId: number, turnId: string) =>
+			deliver(frame("event", eventId, { kind: "terminal", turnId, state: "completed", finalResponse: "done" })),
 		/** `evicted`: how many frames its outbox has dropped on the agent's stream. */
 		hello: (evicted?: number) =>
 			deliver({
@@ -163,7 +180,6 @@ describe("a hold nothing places is closed at its limit", () => {
 		expect(context.agent().activeTurnId).toBe("turn-1");
 		expect(context.ackedThrough()).toBe(0);
 
-		// It is asked again at each guard while the frames wait.
 		const asked = context.asks().length;
 		await context.ambient.advance(RECONCILE_GUARD_MS);
 		expect(context.asks().length).toBe(asked + 1);
@@ -177,10 +193,9 @@ describe("a hold nothing places is closed at its limit", () => {
 			reason: AGENT_TURN_UNACCOUNTED_REASON,
 		});
 		expect(agent).toMatchObject({ agentState: "working", activeTurnId: "turn-2" });
-		// The held activity lands on the adopted turn, and nothing is left waiting.
 		expect(agent.turns.find((turn) => turn.id === "turn-2")?.activities).toHaveLength(1);
 		expect(context.ackedThrough()).toBe(2);
-		// The session's watchers hear the turn end.
+		// A change listener hears the turn end.
 		expect(context.changes()).toBeGreaterThan(before);
 	});
 
@@ -221,7 +236,6 @@ describe("a hold nothing places is closed at its limit", () => {
 		const agent = context.agent();
 		expect(agent.turns.find((turn) => turn.id === "turn-1")?.state).toBe("inProgress");
 		expect(agent.turns.some((turn) => turn.id === "turn-2")).toBe(false);
-		// Its operation is answered as uncertain, never left requested.
 		expect(agent.operations.find((operation) => operation.operationId === FOLLOW_UP)?.state).toBe("indeterminate");
 		expect(context.ackedThrough()).toBe(2);
 	});
@@ -275,5 +289,98 @@ describe("a hold nothing places is closed at its limit", () => {
 		expect(context.agent().agentState).toBe("working");
 		await context.ambient.advance(RECONCILE_GUARD_MS * 2);
 		expect(context.agent().agentState).toBe("idle");
+	});
+
+	it("holds on to the last millisecond, then lets go", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(0, "turn-1", 2);
+
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS - 1);
+		expect(context.agent().agentState).toBe("working");
+		expect(context.asks()).toHaveLength(2);
+
+		await context.ambient.advance(1);
+		expect(context.agent().agentState).toBe("idle");
+	});
+
+	it("keeps a turn that opened after the daemon was last asked", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(0, "turn-1", 2);
+		await context.ambient.advance(RECONCILE_GUARD_MS + 60_000);
+		// The first turn ends and a follow-up opens another, a minute after the last ask.
+		await context.terminal(1, "turn-1");
+		context.service.beginMessage(context.owner, {
+			agentId: AGENT,
+			operationId: FOLLOW_UP,
+			daemonInstanceId: DAEMON,
+			prompt: "more",
+			at: context.ambient.now(),
+		});
+		await context.accepted(2, FOLLOW_UP, "turn-2");
+
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS - RECONCILE_GUARD_MS - 60_000);
+
+		expect(context.agent()).toMatchObject({ agentState: "working", activeTurnId: "turn-2" });
+		expect(context.ackedThrough(2)).toBe(0);
+	});
+
+	it("tries an ask that did not get out once a guard, never in a loop", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(0, "turn-1", 2);
+		context.setReaches(false);
+		const before = context.tries();
+
+		await context.ambient.advance(RECONCILE_GUARD_MS);
+
+		expect(context.tries() - before).toBe(1);
+	});
+
+	it("keeps the frames of a close whose write is not on disk yet", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(0, "turn-1", 2);
+		context.setDisk(false);
+
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS);
+		expect(context.agent().agentState).toBe("idle");
+		expect(context.ackedThrough(2)).toBeUndefined();
+
+		context.setDisk(true);
+		context.relay.reconcileStale(context.owner);
+		await context.ambient.advance(0);
+		expect(context.ackedThrough(2)).toBe(0);
+	});
+
+	it("gives nothing up for a daemon whose hello has not come", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(0, "turn-1", 2);
+
+		// Another daemon registered: it is live before it has said anything.
+		context.setLive("daemon-2");
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS + RECONCILE_GUARD_MS);
+
+		expect(context.agent().agentState).toBe("working");
+	});
+
+	it("asks about a dropped frame's agents again when the first ask did not get out", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		context.setReaches(false);
+		await context.hello(3);
+		expect(context.asks()).toHaveLength(0);
+
+		context.setReaches(true);
+		await context.hello(3);
+		expect(context.asks()).toHaveLength(1);
 	});
 });

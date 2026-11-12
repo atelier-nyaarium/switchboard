@@ -129,20 +129,26 @@ from a daemon instance a later hello replaced (`fromReplacedDaemon`).
 its agent, and decided when a retry applies it or ignores it, or when it is commentary dropped at
 the cap. An event that can never be placed is ignored rather than held: one from an older generation
 of the stream the agent follows, or one naming a turn the record already ended. An event the daemon
-replays below the decided mark is acknowledged again and not judged, since its replay means the
-first acknowledgement was lost. A receipt is judged every time, since it is placed by its operation.
+replays below the decided mark is not judged, and its acknowledgement is repeated once nothing below
+it is open. A receipt is judged every time, since it is placed by its operation.
 
 **One ledger owns a frame's life** (`agentFrameLedger.ts`). It takes a frame at arrival, before the
 agent's queue, so no acknowledgement passes one that is here and undecided. A reducer that throws
-holds its frame as `failed`.
+holds its frame as `failed`, so only commentary dropped at the cap is acknowledged unapplied.
 
 **A hold ends.** While an agent holds a frame nothing can place, the daemon is asked again every
 `RECONCILE_GUARD_MS`. After `HELD_FRAME_LIMIT_MS`, ten minutes from the later of the first hold and
-the daemon's last hello, the hold is closed: the record's open turn ends as interrupted unless the
-daemon's last reconciliation vouches for it, the turn that reconciliation reported running is adopted,
-and each frame is tried once more. What still cannot be placed is given up, a receipt's requested
-operation going `indeterminate` first. Nothing is given up while no daemon is live, and a frame
-awaiting its write has no limit.
+the daemon's last hello, the hold is closed. The daemon's last reconciliation is applied at its word,
+which ends a turn it contradicts and adopts the one it reports running. The record's open turn then
+ends as interrupted unless that reconciliation says it is the one running, and each frame is tried
+again. What still cannot be placed is given up, a receipt's requested operation going
+`indeterminate` first.
+
+**A close is careful about what it knows.** A reconciliation counts only if it came after the open
+turn did, and the open turn is ended only if the daemon was asked since it opened, so a turn that
+just started is kept. Nothing is given up while no daemon is live or before a new daemon's hello. A
+write the record refuses leaves the frames held for another try, an unconfirmed one is awaited, and
+a frame awaiting its write has no limit.
 
 **The daemon says what its outbox dropped.** Past 1,000 unacknowledged frames on a stream it evicts
 the oldest and counts it, and every hello carries the counts. The Gateway asks about each working

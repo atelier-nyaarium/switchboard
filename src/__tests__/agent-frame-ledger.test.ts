@@ -19,7 +19,6 @@ describe("AgentFrameLedger", () => {
 		const first = arrive(ledger, frame(0, { agent: "slow" }));
 		const second = arrive(ledger, frame(1, { agent: "fast" }));
 
-		// The later ticket is decided first.
 		expect(ledger.decide(second)).toBeUndefined();
 		expect(ledger.decide(first)).toMatchObject({ throughEventId: 1 });
 	});

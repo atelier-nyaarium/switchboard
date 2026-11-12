@@ -410,6 +410,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				await capture(() => federation?.drainInboxPump());
 				await capture(() => routines.stop());
 				await capture(() => workflows?.stop());
+				await capture(() => agents.stopRelays());
 				await capture(() => assistant.stop());
 				await capture(() => stores.jobsDurable.saveChecked(stores.jobs.snapshot()));
 				await capture(() => stores.sessionResumeDurable.saveChecked(sessions.sessionResumeSnapshot(true)));

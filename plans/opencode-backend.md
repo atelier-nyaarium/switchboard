@@ -976,7 +976,7 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
   - **A frame given up at a close is tried once more first,** so one the adopted turn can now take is applied, and a receipt still unplaced answers its operation `indeterminate` before it goes. A close whose write is unconfirmed makes the frames await that write.
   - **The eviction marker is a count per stream in every hello,** so a lost hello loses nothing, and the field is absent when nothing was dropped, since an older Gateway's hello schema is strict.
 - **Checked by reading, with no gate:** frames reach the relay one at a time in arrival order (`queueHostFrame` chains them), and the daemon's `open` handler sends its hello and its replay before any live frame. An event told as decided by position relies on both.
-- **Not covered:** no harness case drives the close through the real daemon; the five cases in `agent-relay-close.test.ts` run the real service and applier on a clock the test moves.
+- **Not covered:** no harness case drives the close through the real daemon; the cases in `agent-relay-close.test.ts` run the real service and applier on a clock the test moves.
 - **A new line an agent reads:** an interrupted turn's reason, "turn lost: its daemon could not account for it" (`AGENT_TURN_UNACCOUNTED_REASON`). To settle with the owner.
 
 **Audit of B1 and B2, 2026-11-12.** Three Luna readers on `4fdc58de`: old against new by scenario, the ledger as a state machine, and comments with what still sits outside the ledger. The ledger read found no defect. Two kept, both in how the relay settles:
@@ -987,6 +987,25 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
 - **A counter's mark was set before it counted.** Counted first now, and a relay case counts a held counter across two retries and a replay.
 - **Comments:** nine reworded or cut, three that claimed more than the ledger knows.
 - **Left:** streams are never pruned, as before the ledger. The ask guard's timestamp is not cleared when a reconciliation resolves, so a new need inside the guard waits for the watch.
+
+**Red team of B3 and B4, 2026-11-12.** Three Luna readers on `3e792b8e`: the close against the applier, the timers, and the written claims against the code. The close was reworked on what they found.
+
+- **A close could act on a stale answer.** The last report was kept per agent and read at the close whatever had happened since, so a turn opened after it was ended as unaccounted, and a report from a replaced daemon could vouch. The relay now keeps the daemon's last reconciliation receipt with when it came and when the record's open turn last changed. The receipt counts only if it is newer than the turn and from the live daemon, and the open turn is ended only if the daemon was asked since it opened.
+- **An adopted turn kept the old fence,** so a reconciliation from a new generation that could not be written left its turn's events foreign for good. The close now applies that receipt through the reconciliation reducer itself, with `closing` turning a contradiction into "lost, and the daemon's turn adopted" under the receipt's fence. `closeHeld` only ends what is left unvouched.
+- **An idle record skipped a running report** and gave up the frame the report would have placed. Applying the receipt first adopts it.
+- **A frame decided during a close was acknowledged ahead of the close's own write.** Every frame decided against an unconfirmed close now awaits that write.
+- **A send that did not get out spun the watch at zero delay,** since only a sent ask moved the guard. The next try is timed from the try.
+- **A new daemon could be given up on before its hello,** on the old deadline. A close waits for the live daemon's hello; an ask does not.
+- **A hello's eviction count was marked seen before its asks went out.** Marked after, and only where they did.
+- **Relay timers outlived the Gateway's close.** `stop` clears them, called from the close.
+- **Written claims corrected:** a throwing reducer's frame can still go as commentary at the cap; a decided event's acknowledgement is repeated only once nothing below it is open; a frame may be tried more than once at a close.
+- **Left:**
+  - **A start whose accepted receipt is given up leaves a live session on the daemon** that the record no longer names. It takes a record that refuses every write for ten minutes.
+  - **A duplicate reconciliation is no word on the turn,** so a daemon that answers nothing new for ten minutes loses a turn it may still run. That is the owner's rule as stated.
+  - **Repeated hellos postpone a close,** since each starts the wait over. A flapping link holds frames until it settles.
+  - **Eviction counts are never pruned** on either side, and an eviction ask is not guarded. Both are bounded by how often an outbox overflows.
+  - **A newer daemon's hello is refused by an older Gateway once it names an eviction.** The Gateway is restarted before the daemon on each machine.
+- **Cases added:** the last millisecond before the limit, a turn opened after the last ask, a send that does not get out, a close whose write is unconfirmed, a daemon whose hello has not come, and an eviction ask that did not get out.
 
 ### Architecture C: one turn runner over the driver
 

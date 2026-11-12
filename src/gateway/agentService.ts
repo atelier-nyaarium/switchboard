@@ -259,8 +259,8 @@ export class AgentService {
 		return this.commit(owner, catalog, replaceAt(catalog.agents, index, next), next, operationId);
 	}
 
-	applyReceipt(receipt: AgentDaemonReceipt, at: number): Application {
-		return this.applier.applyReceipt(receipt, at);
+	applyReceipt(receipt: AgentDaemonReceipt, at: number, closing = false): Application {
+		return this.applier.applyReceipt(receipt, at, closing);
 	}
 
 	applyEvent(event: AgentDaemonEvent, at: number, held = false): Application {

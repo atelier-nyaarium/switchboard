@@ -34,6 +34,8 @@ export interface AgentsStage {
 	reconcileStaleAgents: () => void;
 	agentRoster: () => RosterAgent[];
 	workflowProgress: (runId: string) => AgentProgressCounts;
+	/** Ends every relay's watch over held frames. */
+	stopRelays: () => void;
 	/** False means marking failed. */
 	markTurnNotified: (ownerKey: string, family: AgentBackendId, agentId: string, turnId: string) => boolean;
 	onTurnsCollected: (listener: TurnsCollected) => void;
@@ -108,6 +110,9 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		stacks,
 		agentRoutes,
 		agentRoster,
+		stopRelays: () => {
+			for (const stack of built) stack.relay.stop();
+		},
 		workflowProgress: (runId) =>
 			built.reduce(
 				(counts, stack) => addAgentProgressCounts(counts, stack.relay.progressForRun(runId)),

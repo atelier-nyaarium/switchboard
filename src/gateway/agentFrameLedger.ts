@@ -130,7 +130,6 @@ export class AgentFrameLedger<P> {
 		ticket.heldSince ??= now;
 		const acks: FrameAck[] = [];
 		while (queue.length > this.maxHeldPerAgent) {
-			// Only a droppable frame is evicted.
 			const dropped = queue.find((candidate) => candidate.identity.droppable);
 			if (!dropped) break;
 			const ack = this.decide(dropped);
