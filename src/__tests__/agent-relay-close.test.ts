@@ -378,6 +378,41 @@ describe("a hold nothing places is closed at its limit", () => {
 		expect(context.ackedThrough(2)).toBe(0);
 	});
 
+	it("keeps another stream's frames too while a close's write is not on disk", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(1, "turn-2");
+		await context.reconciled(2, { turnId: "turn-2", turnState: "inProgress" });
+		// Another stream's frame, tried after the ones the close places.
+		await context.activity(5, "turn-1", 2);
+		context.setDisk(false);
+
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS);
+		expect(context.agent()).toMatchObject({ agentState: "working", activeTurnId: "turn-2" });
+		expect(context.ackedThrough(2)).toBeUndefined();
+
+		context.setDisk(true);
+		context.relay.reconcileStale(context.owner);
+		await context.ambient.advance(0);
+		expect(context.ackedThrough(2)).toBe(5);
+	});
+
+	it("asks about nothing and gives nothing up once it is stopped", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(0, "turn-1", 2);
+		const asked = context.asks().length;
+
+		context.relay.stop();
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS + RECONCILE_GUARD_MS);
+		context.relay.reconcileStale(context.owner);
+
+		expect(context.agent().agentState).toBe("working");
+		expect(context.asks()).toHaveLength(asked);
+	});
+
 	it("gives nothing up for a daemon whose hello has not come", async () => {
 		const context = setup();
 		await context.hello();

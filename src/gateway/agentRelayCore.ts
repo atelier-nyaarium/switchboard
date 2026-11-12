@@ -571,7 +571,8 @@ export class AgentRelayCore<
 			this.watch(message.ownerKey, message.agentId);
 		}
 		this.notifyChanged(message.ownerKey, message.agentId, application);
-		if (inRecord(application)) this.retryHeld(message.ownerKey, message.agentId);
+		// A close visits every held frame itself, each against its own unwritten step.
+		if (inRecord(application) && !closing) this.retryHeld(message.ownerKey, message.agentId);
 		// A write just landed: the disk takes writes again.
 		if (application.disposition === "applied") this.retryAwaiting(key);
 		this.forgetIfClear(key);
@@ -671,6 +672,7 @@ export class AgentRelayCore<
 
 	/** One ask per agent per guard; a held frame's watch makes the next. `unguarded` asks inside it. True once sent. */
 	private requestReconciliation(ownerKey: string, agent: TAgent, unguarded = false): boolean {
+		if (this.stopped) return false;
 		const request = this.family.reconcileRequest(ownerKey, agent);
 		if (!request) return false;
 		const key = agentKey(ownerKey, agent.agentId);
@@ -719,6 +721,8 @@ export class AgentRelayCore<
 	}
 
 	private tend(ownerKey: string, agentId: string): void {
+		// Queued before the stop.
+		if (this.stopped) return;
 		const key = agentKey(ownerKey, agentId);
 		const closeAt = this.closeAt(key);
 		if (closeAt === undefined) {
