@@ -9,6 +9,13 @@ import { fromReplacedDaemon } from "../shared/agent-fence.js";
 import type { Ambient } from "../shared/ambient.js";
 import { createKeyedFifo } from "../shared/keyed-fifo.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
+import {
+	AgentFrameLedger,
+	type FrameAck,
+	type FrameIdentity,
+	type FrameTicket,
+	type HoldReason,
+} from "./agentFrameLedger.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -87,15 +94,7 @@ export interface AgentRelayFamily<
 	modelTurn(receipt: TReceipt): string | undefined;
 }
 
-interface StreamProgress {
-	committedThrough: number;
-	/** Retains later decisions while holds block acknowledgement. */
-	highestDecided: number;
-	/** Held event IDs per agent. */
-	undecided: Map<number, string>;
-}
-
-/** Record changed; disk pending. */
+/** `awaiting`: the record changed and its write is unconfirmed. */
 type HeldFrame<TEvent, TReceipt> = ({ frame: "event"; message: TEvent } | { frame: "receipt"; message: TReceipt }) & {
 	awaiting?: { owner: SessionRecord; revision: number };
 };
@@ -106,8 +105,7 @@ type ProgressEntry = { runId?: string; counts: AgentProgressCounts };
 ////////////////////////////////
 //  Constants
 
-const MAX_DEFERRED_PER_AGENT = 128;
-const MAX_COUNTED_EVENTS = 4096;
+const MAX_HELD_PER_AGENT = 128;
 const MAX_PROGRESS_TURNS = 4096;
 
 export const RECONCILE_GUARD_MS = 300_000;
@@ -115,26 +113,8 @@ export const RECONCILE_GUARD_MS = 300_000;
 ////////////////////////////////
 //  Functions & Helpers
 
-function streamKey(message: { daemonInstanceId: string; targetId: string; generation: number }): string {
-	return `${message.daemonInstanceId} ${message.targetId} ${message.generation}`;
-}
-
-/** An unfenced frame names its daemon alone. */
-function heldStream(message: AgentRelayFrame & { targetId?: string; generation?: number }): string {
-	return `${message.daemonInstanceId} ${message.targetId ?? ""} ${message.generation ?? ""}`;
-}
-
 function agentKey(ownerKey: string, agentId: string): string {
 	return `${ownerKey} ${agentId}`;
-}
-
-/** Match replay stream identity. */
-function sameFrame(left: HeldFrame<AgentRelayFrame, AgentRelayFrame>, right: typeof left): boolean {
-	return (
-		left.frame === right.frame &&
-		left.message.eventId === right.message.eventId &&
-		heldStream(left.message) === heldStream(right.message)
-	);
 }
 
 /** Both outcomes are recorded. */
@@ -160,15 +140,13 @@ export class AgentRelayCore<
 	TAgent extends AgentRelayAgent,
 > {
 	private readonly reducers = createKeyedFifo<string>();
-	private readonly streams = new Map<string, StreamProgress>();
+	private readonly frames = new AgentFrameLedger<HeldFrame<TEvent, TReceipt>>(MAX_HELD_PER_AGENT);
 	private readonly listeners = new Map<string, Set<() => void>>();
 	private readonly lastReconcileAskedAt = new Map<string, { daemonInstanceId: string; askedAt: number }>();
-	private readonly deferred = new Map<string, Array<HeldFrame<TEvent, TReceipt>>>();
 	private readonly reasks = new Map<string, ReturnType<Ambient["setTimer"]>>();
 	private readonly retrying = new Set<string>();
 	private readonly retryAgain = new Set<string>();
 	private readonly progress = new Map<string, ProgressEntry>();
-	private readonly countedEvents = new Set<string>();
 
 	constructor(
 		private readonly deps: AgentRelayDeps,
@@ -297,7 +275,7 @@ export class AgentRelayCore<
 					this.serialize(ownerKey, agent.agentId, () => {
 						if (
 							this.needsReconciliation(ownerKey, agent) ||
-							this.deferred.has(agentKey(ownerKey, agent.agentId))
+							this.frames.holds(agentKey(ownerKey, agent.agentId))
 						) {
 							this.requestReconciliation(ownerKey, agent);
 						}
@@ -310,29 +288,38 @@ export class AgentRelayCore<
 
 	private onReceipt(raw: Record<string, unknown>): Promise<void> {
 		const receipt = this.parse(this.family.receiptSchema, raw, "receipt");
-		if (!receipt) return Promise.resolve();
-		return this.serialize(receipt.ownerKey, receipt.agentId, () => {
-			if (this.retriesHeldCopy({ frame: "receipt", message: receipt })) return;
-			this.reduceReceipt(receipt);
-		});
+		return receipt ? this.arrive({ frame: "receipt", message: receipt }) : Promise.resolve();
 	}
 
 	private onEvent(raw: Record<string, unknown>): Promise<void> {
 		const event = this.parse(this.family.eventSchema, raw, "event");
-		if (!event) return Promise.resolve();
-		return this.serialize(event.ownerKey, event.agentId, () => {
-			if (this.retriesHeldCopy({ frame: "event", message: event })) return;
-			this.reduceEvent(event);
-		});
+		return event ? this.arrive({ frame: "event", message: event }) : Promise.resolve();
 	}
 
-	/** Retry the held copy. */
-	private retriesHeldCopy(arrived: HeldFrame<TEvent, TReceipt>): boolean {
-		const { ownerKey, agentId } = arrived.message;
-		const queue = this.deferred.get(agentKey(ownerKey, agentId));
-		if (!queue?.some((existing) => sameFrame(existing, arrived))) return false;
-		this.retryHeld(ownerKey, agentId);
-		return true;
+	/** The ledger takes a frame before its agent's queue does. */
+	private arrive(frame: HeldFrame<TEvent, TReceipt>): Promise<void> {
+		const { ownerKey, agentId } = frame.message;
+		const arrival = this.frames.receive(this.identityOf(frame), frame);
+		if (arrival.kind === "queued") return Promise.resolve();
+		if (arrival.kind === "decided") {
+			this.sendAck(arrival.ack);
+			return Promise.resolve();
+		}
+		// A replay of a held frame decides nothing: it retries the held copy.
+		if (arrival.kind === "held") return this.serialize(ownerKey, agentId, () => this.retryHeld(ownerKey, agentId));
+		return this.serialize(ownerKey, agentId, () => this.reduce(arrival.ticket));
+	}
+
+	private identityOf(frame: HeldFrame<TEvent, TReceipt>): FrameIdentity {
+		const { message } = frame;
+		return {
+			frame: frame.frame,
+			agent: agentKey(message.ownerKey, message.agentId),
+			daemonInstanceId: message.daemonInstanceId,
+			eventId: message.eventId,
+			...(isFenced(message) ? { stream: { targetId: message.targetId, generation: message.generation } } : {}),
+			droppable: message.kind === "activity",
+		};
 	}
 
 	private parse<T>(schema: AgentRelaySchema<T>, raw: unknown, what: string): T | undefined {
@@ -343,26 +330,45 @@ export class AgentRelayCore<
 		return undefined;
 	}
 
-	private reduceReceipt(receipt: TReceipt): void {
+	/** `retry`: a held frame, which was never applied. */
+	private reduce(ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>, retry = false): void {
+		let application: AgentApplication<TAgent>;
+		try {
+			application =
+				ticket.payload.frame === "event"
+					? this.reduceEvent(ticket, ticket.payload.message, retry)
+					: this.reduceReceipt(ticket.payload.message);
+		} catch (error) {
+			console.error(`[${this.family.backendId}-relay] reducing a frame failed:`, error);
+			application = { disposition: "failed", reason: "its reducer threw" };
+		}
+		this.settle(ticket, application);
+	}
+
+	private reduceReceipt(receipt: TReceipt): AgentApplication<TAgent> {
 		// Would install a dead fence.
-		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.deps.liveDaemonInstanceId(), receipt)) return;
+		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.deps.liveDaemonInstanceId(), receipt))
+			return { disposition: "ignored", reason: "reconciliation from a replaced daemon" };
 		const application = this.family.applyReceipt(receipt, this.now());
 		if (inRecord(application)) {
 			const turnId = this.family.modelTurn(receipt);
 			if (turnId) this.countModelTurn(receipt.ownerKey, receipt.agentId, turnId, application.agent.runId);
 		}
-		this.settle({ frame: "receipt", message: receipt }, application);
+		return application;
 	}
 
-	private reduceEvent(event: TEvent, held = false): void {
+	private reduceEvent(
+		ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>,
+		event: TEvent,
+		held: boolean,
+	): AgentApplication<TAgent> {
 		const application = this.family.applyEvent(event, this.now(), held);
 		const counter = this.family.counterEvent(event);
-		if (
-			counter &&
-			(inRecord(application) ||
-				(application.disposition === "ignored" && application.reason === "counter-only")) &&
-			this.rememberCountedEvent(event)
-		) {
+		const countable =
+			inRecord(application) || (application.disposition === "ignored" && application.reason === "counter-only");
+		// Once for the frame's whole life.
+		if (counter && countable && !ticket.counted) {
+			ticket.counted = true;
 			this.countToolCall(
 				event.ownerKey,
 				event.agentId,
@@ -372,20 +378,7 @@ export class AgentRelayCore<
 				counter.filesChanged,
 			);
 		}
-		this.settle({ frame: "event", message: event }, application);
-	}
-
-	private rememberCountedEvent(event: TEvent): boolean {
-		if (!isFenced(event)) return false;
-		const key = `${streamKey(event)} ${event.eventId}`;
-		if (this.countedEvents.has(key)) return false;
-		this.countedEvents.add(key);
-		while (this.countedEvents.size > MAX_COUNTED_EVENTS) {
-			const oldest = this.countedEvents.values().next().value;
-			if (oldest === undefined) break;
-			this.countedEvents.delete(oldest);
-		}
-		return true;
+		return application;
 	}
 
 	private countModelTurn(ownerKey: string, agentId: string, turnId: string, runId?: string): void {
@@ -437,84 +430,55 @@ export class AgentRelayCore<
 		return owner ? this.family.listAgents(owner).find((agent) => agent.agentId === agentId)?.runId : undefined;
 	}
 
-	private settle(held: HeldFrame<TEvent, TReceipt>, application: AgentApplication<TAgent>): void {
-		const { message } = held;
+	/** Holds or decides the frame before anything that could throw. */
+	private settle(ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>, application: AgentApplication<TAgent>): void {
+		const frame = ticket.payload;
+		const { message } = frame;
 		// Retain frame until disk confirms.
 		const awaiting =
 			application.disposition === "unconfirmed" && isFenced(message)
 				? { owner: application.owner, revision: application.catalogRevision }
 				: undefined;
 		// Hold failures and askable reconciliations.
-		const repairable =
-			awaiting !== undefined ||
-			application.disposition === "failed" ||
-			(application.disposition === "reconcile" && this.isAskable(message.ownerKey, application.agent));
-		const kept = repairable && this.defer(awaiting ? { ...held, awaiting } : held);
-		if (repairable && application.disposition === "reconcile") {
+		const why: HoldReason | undefined = awaiting
+			? "awaiting"
+			: application.disposition === "failed"
+				? "failed"
+				: application.disposition === "reconcile" && this.isAskable(message.ownerKey, application.agent)
+					? "reconcile"
+					: undefined;
+		if (why) {
+			if (awaiting) ticket.payload = { ...frame, awaiting };
+			for (const ack of this.frames.hold(ticket, why, this.now()).acks) this.sendAck(ack);
+		} else {
+			this.sendAck(this.frames.decide(ticket));
+		}
+		if (why === "reconcile" && application.disposition === "reconcile") {
 			this.requestReconciliation(message.ownerKey, application.agent);
 		}
-		if (isFenced(message)) this.advance(message, kept ? "hold" : "decided");
 		this.notifyChanged(message.ownerKey, message.agentId, application);
 		if (inRecord(application)) this.retryHeld(message.ownerKey, message.agentId);
 		// A write just landed: the disk takes writes again.
 		if (application.disposition === "applied") this.retryAwaiting(agentKey(message.ownerKey, message.agentId));
 	}
 
-	private advance(message: FencedFrame, outcome: "hold" | "decided"): void {
-		const key = streamKey(message);
-		const progress = this.streams.get(key) ?? {
-			committedThrough: -1,
-			highestDecided: -1,
-			undecided: new Map<number, string>(),
-		};
-		this.streams.set(key, progress);
-		if (outcome === "hold") {
-			progress.undecided.set(message.eventId, agentKey(message.ownerKey, message.agentId));
-			return;
+	/** Committed once sent. */
+	private sendAck(ack: FrameAck | undefined): void {
+		if (!ack) return;
+		let sent = false;
+		try {
+			// Keep acknowledgement frames schema-exact.
+			sent = this.deps.sendToHost({
+				type: this.frameType("ack"),
+				daemonInstanceId: ack.daemonInstanceId,
+				targetId: ack.targetId,
+				generation: ack.generation,
+				throughEventId: ack.throughEventId,
+			});
+		} catch (error) {
+			console.error(`[${this.family.backendId}-relay] sending an acknowledgement failed:`, error);
 		}
-		progress.undecided.delete(message.eventId);
-		progress.highestDecided = Math.max(progress.highestDecided, message.eventId);
-		// Replay repeats lost acknowledgements.
-		this.acknowledge(message, progress, message.eventId <= progress.committedThrough);
-	}
-
-	private acknowledge(
-		message: { daemonInstanceId: string; targetId: string; generation: number },
-		progress: StreamProgress,
-		again = false,
-	): void {
-		const lowestUndecided = progress.undecided.size === 0 ? Infinity : Math.min(...progress.undecided.keys());
-		const through = Math.min(progress.highestDecided, lowestUndecided - 1);
-		if (through < progress.committedThrough || (through === progress.committedThrough && !again)) return;
-		// Keep acknowledgement frames schema-exact.
-		const sent = this.deps.sendToHost({
-			type: this.frameType("ack"),
-			daemonInstanceId: message.daemonInstanceId,
-			targetId: message.targetId,
-			generation: message.generation,
-			throughEventId: through,
-		});
-		// Commit after send.
-		if (sent) progress.committedThrough = through;
-	}
-
-	/** False means frame dropped. */
-	private defer(held: HeldFrame<TEvent, TReceipt>): boolean {
-		const key = agentKey(held.message.ownerKey, held.message.agentId);
-		const queue = this.deferred.get(key) ?? [];
-		if (queue.some((existing) => sameFrame(existing, held))) return true;
-		queue.push(held);
-		this.deferred.set(key, queue);
-		let kept = true;
-		while (queue.length > MAX_DEFERRED_PER_AGENT) {
-			// Only commentary is dropped: anything else is an outcome.
-			const index = queue.findIndex((candidate) => candidate.message.kind === "activity");
-			if (index < 0) break;
-			const [dropped] = queue.splice(index, 1);
-			if (dropped === held) kept = false;
-			else if (dropped && isFenced(dropped.message)) this.advance(dropped.message, "decided");
-		}
-		return kept;
+		if (sent) this.frames.acknowledged(ack);
 	}
 
 	/** Unplaced retries stay unacknowledged. */
@@ -528,18 +492,18 @@ export class AgentRelayCore<
 		try {
 			do {
 				this.retryAgain.delete(key);
-				const queue = this.deferred.get(key);
-				if (!queue?.length) return;
-				this.deferred.delete(key);
-				for (const held of [...queue].sort((left, right) => left.message.eventId - right.message.eventId)) {
+				for (const ticket of this.frames.heldFor(key)) {
+					// Decided by an earlier retry of this pass.
+					if (ticket.state !== "held") continue;
+					if (!ticket.payload.awaiting) {
+						this.reduce(ticket, true);
+						continue;
+					}
 					try {
-						if (held.awaiting) this.confirmHeld(held, held.awaiting, unsynced);
-						else if (held.frame === "event") this.reduceEvent(held.message, true);
-						else this.reduceReceipt(held.message);
+						this.confirmHeld(ticket, ticket.payload.awaiting, unsynced);
 					} catch (error) {
 						// Thrown before deciding: still held.
-						this.defer(held);
-						console.error(`[${this.family.backendId}-relay] retrying a held frame failed:`, error);
+						console.error(`[${this.family.backendId}-relay] confirming a held frame failed:`, error);
 					}
 				}
 			} while (this.retryAgain.has(key));
@@ -551,7 +515,7 @@ export class AgentRelayCore<
 
 	/** Confirmed frames skip reduction. */
 	private confirmHeld(
-		held: HeldFrame<TEvent, TReceipt>,
+		ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>,
 		awaiting: { owner: SessionRecord; revision: number },
 		unsynced: Set<SessionRecord>,
 	): void {
@@ -561,20 +525,20 @@ export class AgentRelayCore<
 			: this.family.confirmation(awaiting.owner, awaiting.revision);
 		if (confirmation === "pending") {
 			unsynced.add(awaiting.owner);
-			this.defer(held);
 			return;
 		}
 		// `gone`: the record it protected no longer exists.
-		if (isFenced(held.message)) this.advance(held.message, "decided");
+		this.sendAck(this.frames.decide(ticket));
 	}
 
 	/** A frame awaiting its write is confirmed by any later write, whoever made it. */
 	private retryAwaiting(except?: string): void {
 		const unsynced = new Set<SessionRecord>();
-		for (const [key, queue] of this.deferred) {
-			const waiting = key === except ? undefined : queue.find((held) => held.awaiting);
+		for (const key of this.frames.heldAgents()) {
+			if (key === except) continue;
+			const waiting = this.frames.heldFor(key).find((ticket) => ticket.payload.awaiting);
 			if (!waiting) continue;
-			const { ownerKey, agentId } = waiting.message;
+			const { ownerKey, agentId } = waiting.payload.message;
 			void this.serialize(ownerKey, agentId, () => this.retryHeld(ownerKey, agentId, unsynced));
 		}
 	}
@@ -610,12 +574,12 @@ export class AgentRelayCore<
 	/** Retry after reconciliation guard. */
 	private askAgain(ownerKey: string, agentId: string, delayMs: number): void {
 		const key = agentKey(ownerKey, agentId);
-		if (this.reasks.has(key) || !this.deferred.has(key)) return;
+		if (this.reasks.has(key) || !this.frames.holds(key)) return;
 		const timer = this.deps.ambient.setTimer(
 			() => {
 				this.reasks.delete(key);
 				void this.serialize(ownerKey, agentId, () => {
-					if (!this.deferred.has(key)) return;
+					if (!this.frames.holds(key)) return;
 					const owner = this.deps.sessionStore.getByTeam(ownerKey);
 					const agent = owner && this.family.listAgents(owner).find((held) => held.agentId === agentId);
 					if (agent) this.requestReconciliation(ownerKey, agent);

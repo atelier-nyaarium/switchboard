@@ -343,6 +343,41 @@ describe("Copilot relay acknowledgement", () => {
 		await settleRelay();
 
 		expect(messagesOf(context, "copilot_ack").map((ack) => ack.throughEventId)).toEqual([7, 7]);
+		// Its replay is not judged a second time.
+		expect(context.eventCalls).toHaveLength(1);
+	});
+
+	it("acknowledges a decided frame on its replay when the first acknowledgement could not be sent", async () => {
+		const context = setup({ attached: false });
+		context.relay.handleHostMessage(eventFrame(7));
+		await settleRelay();
+
+		context.setAttached(true);
+		context.relay.handleHostMessage(eventFrame(7));
+		await settleRelay();
+
+		expect(messagesOf(context, "copilot_ack").map((ack) => ack.throughEventId)).toEqual([7]);
+		expect(context.eventCalls).toHaveLength(1);
+	});
+
+	it("holds a frame whose first judging throws, where it used to be acknowledged unapplied", async () => {
+		let broken = true;
+		const context = setup({
+			onEvent: (owner, agent) => {
+				if (broken) throw new Error("reducer bug");
+				return applied(owner, agent);
+			},
+		});
+		context.relay.handleHostMessage(eventFrame(4));
+		context.relay.handleHostMessage(reconciledReceipt(5));
+		await settleRelay();
+		expect(messagesOf(context, "copilot_ack").some((ack) => (ack.throughEventId as number) >= 4)).toBe(false);
+
+		broken = false;
+		context.relay.handleHostMessage(reconciledReceipt(6));
+		await settleRelay();
+
+		expect(messagesOf(context, "copilot_ack").at(-1)?.throughEventId).toBe(6);
 	});
 
 	it("places a held frame once when a change listener throws", async () => {
