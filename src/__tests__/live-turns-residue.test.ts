@@ -8,16 +8,17 @@ import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-const DEVCONTAINER = path.join(REPO_ROOT, "src", "mcp", "devcontainer");
+/** Where a driver's turns are run: the daemon, the drivers, and local mode. */
+const SWEPT = ["devcontainer", "agents", "local"].map((folder) => path.join(REPO_ROOT, "src", "mcp", folder));
 
 /** The one module that may hold how long a turn has been silent. */
-const OWNER = path.join(DEVCONTAINER, "agentDaemonService.ts");
+const OWNER = path.join(REPO_ROOT, "src", "mcp", "agents", "turnRunner.ts");
 
 /**
  * A turn's watchdog state, by the term only its owner has reason to write.
  *
  * Worth what a token check is worth: a second clock under another name walks past it.
- * `agent-daemon-service.test.ts` holds the behavior.
+ * `turn-runner.test.ts` holds the behavior.
  */
 const LIVENESS = /\bwarned\b/;
 
@@ -35,10 +36,12 @@ function strip(source: string): string {
 }
 
 function swept(): Array<{ file: string; source: string }> {
-	return fs
-		.readdirSync(DEVCONTAINER, { withFileTypes: true })
-		.filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
-		.map((entry) => path.join(DEVCONTAINER, entry.name))
+	return SWEPT.flatMap((folder) =>
+		fs
+			.readdirSync(folder, { withFileTypes: true })
+			.filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+			.map((entry) => path.join(folder, entry.name)),
+	)
 		.filter((file) => file !== OWNER)
 		.map((file) => ({ file, source: strip(fs.readFileSync(file, "utf8")) }));
 }
@@ -53,7 +56,7 @@ function offenders(sources: Array<{ file: string; source: string }>): string[] {
 describe("how long a turn has been silent lives with the turn", () => {
 	const sources = swept();
 
-	it("sweeps the devcontainer modules, and the owner carries what it forbids elsewhere", () => {
+	it("sweeps every module that runs a driver's turns, and the owner carries what it forbids elsewhere", () => {
 		expect(sources.length).toBeGreaterThan(5);
 		expect(strip(fs.readFileSync(OWNER, "utf8"))).toMatch(LIVENESS);
 	});
