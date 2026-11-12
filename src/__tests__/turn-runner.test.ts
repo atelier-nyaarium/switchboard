@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
 	AgentBackendSession,
 	SteerOutcome,
+	TurnCounter,
 	TurnHandle,
 	TurnInspection,
 	TurnTerminal,
@@ -10,7 +11,6 @@ import { NO_PROGRESS_MS, TurnRunner } from "../mcp/agents/turnRunner.js";
 
 const DONE: TurnTerminal = { status: "completed", finalResponse: "done" };
 
-/** A driver whose turns the test starts, settles and speaks for. */
 function driver(
 	offers: { steer?: boolean; resume?: boolean; inspect?: boolean; adopt?: boolean; life?: boolean } = {},
 ) {
@@ -23,8 +23,9 @@ function driver(
 		adoptable: undefined as TurnHandle | undefined,
 		starts: [] as Array<{ threadId: string; prompt: string; key?: string }>,
 		interrupts: [] as string[],
-		resumed: [] as string[],
+		resumed: [] as Array<{ threadId: string; cwd: string }>,
 		onActivity: (_turnId: string, _text: string, _itemId?: string) => {},
+		onCounter: (_turnId: string, _counter: TurnCounter) => {},
 		onProgress: (_turnId: string) => {},
 	};
 	const handle = (turnId: string): TurnHandle => ({
@@ -46,6 +47,9 @@ function driver(
 		onActivity: (listener) => {
 			state.onActivity = listener;
 		},
+		onCounter: (listener) => {
+			state.onCounter = listener;
+		},
 		onClosed: () => {},
 		close: () => {},
 		...(offers.steer === false
@@ -53,8 +57,8 @@ function driver(
 			: { steerTurn: (_thread, turnId, prompt, key) => state.steer(turnId, prompt, key) }),
 		...(offers.resume
 			? {
-					resumeThread: async (threadId: string) => {
-						state.resumed.push(threadId);
+					resumeThread: async (threadId: string, cwd: string) => {
+						state.resumed.push({ threadId, cwd });
 					},
 				}
 			: {}),
@@ -106,9 +110,8 @@ async function tick(): Promise<void> {
 describe("TurnRunner", () => {
 	it("tells of a turn before anything its child said of it, then of its end once", async () => {
 		const context = runner();
-		await context.run.openThread("owner", { cwd: "/work" });
-		// The child speaks of the turn it is about to name.
 		context.state.onActivity("turn-1", "early");
+		context.state.onCounter("turn-1", { kind: "shell" });
 
 		await context.begin();
 		context.state.onActivity("turn-1", "later");
@@ -119,6 +122,7 @@ describe("TurnRunner", () => {
 		expect(context.log).toEqual([
 			"accepted turn-1",
 			"owner turn-1 says early",
+			"owner turn-1 ran shell",
 			"owner turn-1 says later",
 			"owner turn-1 completed",
 		]);
@@ -127,7 +131,6 @@ describe("TurnRunner", () => {
 
 	it("adopts the turn a failed start left running, never one it already told of", async () => {
 		const context = runner({ adopt: true });
-		await context.run.openThread("owner", { cwd: "/work" });
 		context.state.startError = new Error("the reply was lost");
 		context.state.adoptable = context.handle("turn-9");
 
@@ -135,7 +138,6 @@ describe("TurnRunner", () => {
 		context.finish("turn-9");
 		await tick();
 
-		// The same turn offered again is another prompt's.
 		await expect(context.begin()).rejects.toThrow("the reply was lost");
 		context.state.adoptable = undefined;
 		await expect(context.begin()).rejects.toThrow("the reply was lost");
@@ -143,7 +145,6 @@ describe("TurnRunner", () => {
 
 	it("steers the turn its sender names, and no other", async () => {
 		const context = runner();
-		await context.run.openThread("owner", { cwd: "/work" });
 		await context.begin();
 
 		expect(await context.message("turn-1")).toEqual({ kind: "steered", turnId: "turn-1" });
@@ -154,7 +155,6 @@ describe("TurnRunner", () => {
 
 	it("refuses a message into a running turn when the driver cannot steer", async () => {
 		const context = runner({ steer: false });
-		await context.run.openThread("owner", { cwd: "/work" });
 		await context.begin();
 
 		expect(await context.message("turn-1")).toEqual({ kind: "busy" });
@@ -162,7 +162,6 @@ describe("TurnRunner", () => {
 
 	it("opens a new turn under the same key when the turn ended under the steer", async () => {
 		const context = runner();
-		await context.run.openThread("owner", { cwd: "/work" });
 		await context.begin();
 		context.state.steer = async () => {
 			context.finish("turn-1");
@@ -175,7 +174,6 @@ describe("TurnRunner", () => {
 
 	it("reads a refused steer's turn from the driver before blaming the steer", async () => {
 		const context = runner({ inspect: true });
-		await context.run.openThread("owner", { cwd: "/work" });
 		await context.begin();
 		context.state.steer = async () => {
 			throw new Error("no such turn");
@@ -195,17 +193,15 @@ describe("TurnRunner", () => {
 
 		const context = runner({ resume: true });
 		expect(await context.message(undefined)).toEqual({ kind: "started", turnId: "turn-1" });
-		expect(context.state.resumed).toEqual(["thread-1"]);
+		expect(context.state.resumed).toEqual([{ threadId: "thread-1", cwd: "/work" }]);
 		context.finish("turn-1");
 		await tick();
-		// Held from then on.
 		await context.message(undefined);
-		expect(context.state.resumed).toEqual(["thread-1"]);
+		expect(context.state.resumed).toHaveLength(1);
 	});
 
 	it("interrupts only the turn that is running", async () => {
 		const context = runner();
-		await context.run.openThread("owner", { cwd: "/work" });
 		await context.begin();
 
 		expect(await context.run.interrupt("thread-1", "turn-0")).toBe(false);
@@ -215,7 +211,6 @@ describe("TurnRunner", () => {
 
 	it("reads a silent turn, interrupts it once, then gives it up", async () => {
 		const context = runner({ life: true, inspect: true });
-		await context.run.openThread("owner", { cwd: "/work" });
 		await context.begin();
 		const watch = () => context.run.watch(() => true);
 
@@ -224,6 +219,9 @@ describe("TurnRunner", () => {
 		expect(context.state.interrupts).toEqual([]);
 
 		context.advance(1);
+		// Its session retired mid-read.
+		await context.run.watch(() => false);
+		expect(context.state.interrupts).toEqual([]);
 		await watch();
 		expect(context.state.interrupts).toEqual(["turn-1"]);
 		// A sign of life starts the count over.
@@ -243,7 +241,6 @@ describe("TurnRunner", () => {
 
 	it("publishes a silent turn the driver already ended, and watches nothing for a driver that reports no life", async () => {
 		const context = runner({ life: true, inspect: true });
-		await context.run.openThread("owner", { cwd: "/work" });
 		await context.begin();
 		context.state.inspection = { known: "settled", terminal: DONE };
 		context.advance(NO_PROGRESS_MS);
@@ -252,7 +249,6 @@ describe("TurnRunner", () => {
 		expect(context.state.interrupts).toEqual([]);
 
 		const quiet = runner({ inspect: true });
-		await quiet.run.openThread("owner", { cwd: "/work" });
 		await quiet.begin();
 		quiet.advance(NO_PROGRESS_MS * 3);
 		await quiet.run.watch(() => true);
@@ -261,7 +257,6 @@ describe("TurnRunner", () => {
 
 	it("tells a turn's new owner after a handover", async () => {
 		const context = runner();
-		await context.run.openThread("owner", { cwd: "/work" });
 		await context.begin();
 
 		context.run.activeTurn("thread-1")!.owner = "heir";

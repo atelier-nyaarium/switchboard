@@ -1,9 +1,6 @@
-// One driver session's turns: the rules a start, a message, a stop and a silent turn follow.
-
 import {
 	type AgentBackendSession,
 	settledNow,
-	type ThreadOptions,
 	type TurnCounter,
 	type TurnHandle,
 	type TurnInspection,
@@ -40,13 +37,10 @@ export interface MessageOptions extends TurnOptions {
 }
 
 export type MessageOutcome =
-	/** The running turn holds the prompt. */
 	| { kind: "steered"; turnId: string }
-	/** The prompt opened a turn. */
 	| { kind: "started"; turnId: string }
-	/** A turn runs and cannot take it. */
 	| { kind: "busy" }
-	/** Its thread ended with its process. */
+	/** No thread to resume. */
 	| { kind: "ended" };
 
 interface ActiveTurn<Owner> extends RunningTurn<Owner> {
@@ -72,7 +66,7 @@ const UNKNOWN: TurnInspection = { known: "unknown" };
 //  Class
 
 export class TurnRunner<Owner> {
-	private readonly threads = new Map<string, Owner>();
+	private readonly threads = new Set<string>();
 	/** One turn per thread. */
 	private readonly active = new Map<string, ActiveTurn<Owner>>();
 	/** What a child said of a turn not yet announced. */
@@ -95,23 +89,17 @@ export class TurnRunner<Owner> {
 		client.onProgress?.((turnId) => this.alive(turnId));
 	}
 
-	async openThread(owner: Owner, options: ThreadOptions): Promise<string> {
-		const threadId = await this.client.openThread(options);
-		this.remember(threadId, owner);
-		return threadId;
-	}
-
 	holds(threadId: string): boolean {
 		return this.threads.has(threadId);
 	}
 
-	/** Holds a thread for its owner, the least recently used idle ones forgotten past the bound. */
-	remember(threadId: string, owner: Owner): void {
+	/** Holds a thread, the least recently used idle ones forgotten past the bound. */
+	remember(threadId: string): void {
 		this.threads.delete(threadId);
-		this.threads.set(threadId, owner);
+		this.threads.add(threadId);
 		// One that cannot be resumed is never forgotten.
 		if (!this.client.resumeThread) return;
-		for (const oldest of [...this.threads.keys()]) {
+		for (const oldest of [...this.threads]) {
 			if (this.threads.size <= THREAD_MEMORY) return;
 			if (oldest !== threadId && !this.active.has(oldest)) this.threads.delete(oldest);
 		}
@@ -125,20 +113,20 @@ export class TurnRunner<Owner> {
 		return [...this.active.values()];
 	}
 
-	/** Holds no thread and runs no turn. */
 	empty(): boolean {
 		return this.threads.size === 0 && this.active.size === 0;
 	}
 
-	/** Forgets every turn without a word, for a session that is being retired. */
+	/** Tells of no terminal. */
 	clear(): void {
 		this.active.clear();
 		this.held.clear();
 	}
 
 	/**
-	 * A new turn. `accepted` runs once the turn is known and before anything its child said of it is
-	 * published. Throws when the driver refuses and no turn of this prompt is found running.
+	 * A new turn, its thread held from here on. `accepted` runs once the turn is known and before
+	 * anything its child said of it is published. Throws when the driver refuses and no turn of this
+	 * prompt is found running.
 	 */
 	async begin(
 		threadId: string,
@@ -147,6 +135,7 @@ export class TurnRunner<Owner> {
 		options: TurnOptions,
 		accepted: (turnId: string) => void,
 	): Promise<string> {
+		this.remember(threadId);
 		let handle: TurnHandle;
 		try {
 			handle = await this.client.startTurn(threadId, prompt, options);
@@ -206,7 +195,6 @@ export class TurnRunner<Owner> {
 			if (!this.client.resumeThread) return { kind: "ended" };
 			await this.client.resumeThread(threadId, cwd);
 		}
-		this.remember(threadId, owner);
 		const turnId = await this.begin(threadId, owner, prompt, turn, (started) =>
 			accepted({ kind: "started", turnId: started }),
 		);
@@ -221,7 +209,6 @@ export class TurnRunner<Owner> {
 		return true;
 	}
 
-	/** What the driver says of a turn; unknown when it cannot say. */
 	async inspect(threadId: string, turnId: string): Promise<TurnInspection> {
 		return (await this.client.inspectTurn?.(threadId, turnId).catch(() => UNKNOWN)) ?? UNKNOWN;
 	}

@@ -109,8 +109,9 @@ export class LocalAgentHandlers {
 		}));
 	}
 
-	hasAgents(): boolean {
-		return this.agents.size > 0;
+	/** Whether a child holds a thread or runs a turn. */
+	uses(session: AgentBackendSession): boolean {
+		return this.runners.get(session)?.runner.empty() === false;
 	}
 
 	hasActiveTurn(): boolean {
@@ -161,7 +162,6 @@ export class LocalAgentHandlers {
 			exchanges: [],
 		};
 		this.agents.set(agentId, agent);
-		runner.remember(threadId, agent);
 		const settings: TurnOptions = { outputSchema: request.outputSchema, key: operationId };
 		let turnId: string;
 		try {
@@ -301,7 +301,6 @@ export class LocalAgentHandlers {
 			this.applyTerminal(turn.owner, turn.turnId, { status: "interrupted", reason: AGENT_TURN_LOST_REASON });
 	}
 
-	/** The child's runner, which takes its activity from then on. */
 	private runnerOf(session: AgentBackendSession): TurnRunner<LocalAgentRecord> {
 		const known = this.runners.get(session);
 		if (known) return known.runner;
@@ -343,7 +342,7 @@ export class LocalAgentHandlers {
 		return agentResultDelivery(kind, "started") ?? "started";
 	}
 
-	/** Records a turn the moment it is known, ahead of anything its child said of it. */
+	/** Before held events flush. */
 	private openTurn(agent: LocalAgentRecord, turnId: string, prompt: string, kind: "start" | "message"): void {
 		const at = this.touch(agent);
 		const turn: LocalTurnRecord = { id: turnId, state: "inProgress", commentary: [], omitted: 0, updatedAt: at };

@@ -182,8 +182,8 @@ export class LocalAgentRuntime {
 				this.inFlight -= 1;
 				this.child.markUsed();
 				// Nothing reaps a child whose threads cannot be resumed.
-				const unused = opens && this.inFlight === 0 && !this.handlers.hasAgents();
-				if (session && unused && !this.spec.threadsResumable) this.child.drop(session);
+				const unused = opens && this.inFlight === 0 && !this.spec.threadsResumable;
+				if (session && unused && !this.handlers.uses(session)) this.child.drop(session);
 			}
 		});
 	}

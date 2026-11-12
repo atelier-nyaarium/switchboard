@@ -206,7 +206,7 @@ export class AgentDaemonService {
 		const session = await this.session(target);
 		if (!session) return this.reject(command, this.unavailable(target));
 		const owner: Binding = { ownerKey: command.ownerKey, agentId: command.agentId };
-		const threadId = await session.runner.openThread(owner, {
+		const threadId = await session.client.openThread({
 			cwd: target.cwd,
 			model: command.model ?? this.deps.backend.defaultModel,
 			serviceTier: command.serviceTier,
@@ -293,7 +293,7 @@ export class AgentDaemonService {
 		if (active) {
 			// Handover changes owner.
 			active.owner = owner;
-			runner.remember(threadId, owner);
+			runner.remember(threadId);
 			const asked = command.turnId !== undefined && command.turnId !== active.turnId ? command.turnId : undefined;
 			const earlier = asked ? await runner.inspect(threadId, asked) : undefined;
 			if (asked && earlier?.known === "settled") {
@@ -322,7 +322,7 @@ export class AgentDaemonService {
 			} catch {
 				return unknown();
 			}
-			if (session.client.resumeThread) runner.remember(threadId, owner);
+			if (session.client.resumeThread) runner.remember(threadId);
 		}
 		if (!command.turnId || !session.client.inspectTurn) return unknown();
 		const seen = await runner.inspect(threadId, command.turnId);

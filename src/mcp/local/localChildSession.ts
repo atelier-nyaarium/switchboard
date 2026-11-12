@@ -35,7 +35,6 @@ export class LocalChildSession {
 		return this.session !== undefined || this.opening !== undefined;
 	}
 
-	/** Ends a child. The next open starts another. */
 	drop(session: AgentBackendSession): void {
 		// Clear locally even if close omits its callback.
 		if (this.session === session) {

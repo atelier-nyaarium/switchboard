@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/** Where a driver's turns are run: the daemon, the drivers, and local mode. */
+/** Driver turn modules. */
 const SWEPT = ["devcontainer", "agents", "local"].map((folder) => path.join(REPO_ROOT, "src", "mcp", folder));
 
 /** The one module that may hold how long a turn has been silent. */

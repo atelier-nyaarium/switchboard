@@ -1021,6 +1021,15 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
 - **A test fake was wrong:** local mode's test backend opened every agent on `thread-1`, which the old per-agent bookkeeping hid. A driver opens a thread per agent, and one turn runs per thread.
 - **Not covered:** no case runs local mode's 30 second sweep; `turn-runner.test.ts` holds the watch's rule and the sweep is a timer around it.
 
+**Audit of C, 2026-11-12.** Three Luna readers on the three commits: the daemon against its old self, local mode, and the written claims against the code.
+
+- **A model listing could strand an unused child.** Local mode asked whether any agent record existed, and a record outlives its child, so a listing after a Copilot child had closed kept the replacement it opened, which nothing reaps. It now asks that child's runner, as the daemon does.
+- **Holding a new thread was written twice,** by the daemon through the runner and by local mode beside it. `begin` holds a turn's thread, and the runner's own open is gone. The thread map kept an owner nothing read; it is a set.
+- **The daemon's idle clock changed, on purpose:** it starts at a turn's end and at what the runner publishes. A signal for a turn that has ended, or one not yet announced, no longer moves it. A child with a turn running is never reaped and a busy driver says so itself.
+- **Written claims corrected:** only a driver that cannot resume answers that the agent ended with its process, a failed resume is its own error; the watch interrupts anything it cannot read as settled.
+- **Cases added:** an early counter, the directory a resume is given, a session retired while a silent turn was read, and the stranded listing child.
+- **Left:** a stop waits behind a message that is mid-steer, on both sides, up to 150 seconds on OpenCode. On the board.
+
 ## Phase 3 - Acceptance and docs
 
 - Live on Sakura from the phone: create an OpenCode session, talk to it, watch it in the terminal view, approve a `.env` read from the card, compact it, close and wake it, and crosstalk with a Claude session in both directions.

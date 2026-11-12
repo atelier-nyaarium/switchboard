@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBackendSession, TurnHandle, TurnTerminal } from "../mcp/agents/backendSession.js";
+import type { AgentBackendSession, AgentModel, TurnHandle, TurnTerminal } from "../mcp/agents/backendSession.js";
 import {
 	LOCAL_IDLE_REAP_MS,
 	type LocalAgentAnswer,
@@ -21,6 +21,7 @@ class ValueBackendAdapter implements AgentBackendSession {
 	private closed?: () => void;
 	private sequence = 0;
 	private threads = 0;
+	closes = 0;
 	openThreadGate?: Promise<void>;
 	// Absent, like Copilot's session, when steering is unsupported.
 	steerTurn?: (threadId: string, turnId: string, prompt: string) => Promise<void>;
@@ -47,7 +48,6 @@ class ValueBackendAdapter implements AgentBackendSession {
 	async openThread(): Promise<string> {
 		if (this.openThreadGate) await this.openThreadGate;
 		if (this.options.openError) throw this.options.openError;
-		// A thread per agent, as every driver opens.
 		return `thread-${++this.threads}`;
 	}
 	async startTurn(): Promise<TurnHandle> {
@@ -70,7 +70,11 @@ class ValueBackendAdapter implements AgentBackendSession {
 		this.closed = listener;
 	}
 	close(): void {
+		this.closes += 1;
 		this.closed?.();
+	}
+	async listModels(): Promise<AgentModel[]> {
+		return [{ id: "model-1" }];
 	}
 	emitActivity(turnId: string, text: string): void {
 		this.activity?.(turnId, text);
@@ -433,6 +437,21 @@ describe("local publication", () => {
 			{ agentState: "idle", running: null, turns: [{ id: "turn-1", state: "completed" }] },
 			{ agentState: "idle", running: null, turns: [{ id: "turn-2", state: "completed" }] },
 		]);
+	});
+
+	it("ends a child that a model listing opened and no agent uses", async () => {
+		const h = setup("copilot");
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "work" }));
+		await turnReady(h.backend);
+		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
+		await turnEnded(h.runtime, started.agentId);
+		// Its record outlives its child.
+		h.backend.close();
+		const closes = h.backend.closes;
+
+		expect(await h.runtime.listModels()).toEqual(["model-1"]);
+
+		expect(h.backend.closes).toBe(closes + 1);
 	});
 
 	it("keeps what a child said of a turn before the turn was named", async () => {

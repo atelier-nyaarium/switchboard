@@ -44,7 +44,7 @@ with the record's owner.
 
 **A silent turn is read, then interrupted, then given up with its child.** The daemon service and
 local mode each sweep every 30 seconds. A turn with no sign of life for ten minutes is read through the driver's
-`inspectTurn`; settled, its terminal is published; still running, it is interrupted; silent for
+`inspectTurn`; settled, its terminal is published; anything else, it is interrupted; silent for
 another ten minutes, its whole generation is given up, which ends every other turn on that child.
 Silence is judged only where a driver reports life (`onProgress`): Codex's and OpenCode's do, and
 Copilot's turns are never judged. A tool that says nothing for ten minutes reads as a hang.
@@ -302,7 +302,9 @@ the opt-in.
   are the record's, written here and in the Gateway's `AgentService`.
 - **One message or stop per agent at a time,** queued at the runtime as the daemon core queues them.
 - **A child that closes ends its running turns as lost,** and a thread on its replacement is resumed
-  before its next turn, or the agent answers that it ended with its process.
+  before its next turn. A driver that cannot resume one answers that the agent ended with its process.
+- **A model listing ends the child it opened when no agent uses it,** read off that child's runner,
+  never off the agent records, which outlive a child.
 - **Idle reaping needs resumable threads.** `threadsResumable` on the driver row gates it. The hold spans the whole `handle()`
   request, not one child call; at every instant either that hold or `activeTurnId` guards the child.
   `applyTerminal` stamps the idle clock.
