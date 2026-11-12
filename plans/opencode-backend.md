@@ -942,6 +942,26 @@ Left for B: a frame whose application `failed` has no ask and no deadline, the o
 - A container with Copilot alone: its header offers Copilot alone, a session is created, talked to, compacted and woken.
 - Docs: `docs/architecture.md` (the harness table, the OpenCode roads), `docs/console.md` (the create pick), `docs/environment.md`, the setup step that installs the pin, AGENTS.md map lines. The stale line the map found, that Copilot gets no progress notices, goes. ✅ Each was already written with its slice, and the stale line is gone. The setup step is new: "3) Install OpenCode <pin>" in the setup menu (`scripts/setup-opencode.ts`), showing what this machine has against the pin and running `OPENCODE_INSTALL_CMD`, the phone macro's command.
 
+## Side fix - Create and Forget for stopped containers
+
+The owner's decisions are under `## Owner asks, open`. Mapped on 2026-11-12 by an Opus read of the code; the four Luna readers ahead of it failed on Codex's usage limit. Its claims were checked before building.
+
+**What exists:** the daemon reports every devcontainer, running or stopped. The Gateway starts a stopped container on any create, the phone's included, and answers `pending`. A failed owner create posts the `launch: "failed"` notice row the phone docks. The phone has two Create buttons: the Gateway header's, which offers host shells only (`SessionsScreen` `onCreate`: "Containers create from their own header"), and a container header's, shown only while it runs (`containerButtons`).
+
+**Missing, all on the phone:** Create is not offered for a stopped container, and a stopped container keeps the CLI list from the last look inside (`spawnContainerOf` reads `clis` whatever the run state).
+
+Slices:
+
+1. ✅ **The owner's line for a CLI missing in a container** reads "Devcontainer does not have OpenCode. Choose another CLI." `ownerLaunchLine` takes the launch's place; `lacksCliText` is the one spelling it shares with `launchRefusal`. The routine rows keep "was not installed". Commit `2323cad2`.
+2. **A stopped container's CLIs read as unknown:** `spawnContainerOf` answers `UNOPENED_CONTAINER` unless the container is running with `clis` present, as the Gateway's `installedAt` does. The routine editor and the fire sheet then offer all three for a stopped container too.
+3. **Create lists every devcontainer and starts a stopped one:** the Gateway header's Create offers `spawnChoices` (host shells, then containers); `containerButtons.create` holds while stopped or starting; the dialog marks a stopped project and dims it; a remembered project preselects only when it is running; the sandbox's create moves a stopped container through starting to running. The session reads "starting container" while its container starts.
+4. **The Forget purge,** Gateway and daemon: what a session owns per CLI, a host op to remove it, and the one-time sweep. Its own design pass and questions.
+5. **Forget asks first when the container is stopped,** the prompt as settled, shipped with slice 4.
+
+**Asked on 2026-11-12, defaults proposed:** a running container with no CLI is listed disabled with "no CLI" beside it; a stopped project is never the remembered preselection; the dock's line for a failed start stays "Devcontainer failed to start." with docker's reason on the container's header.
+
+**Traps:** `rememberedProject` can preselect a stopped container, one mis-tap from a build. `ownerCliPhrase` writes the routine rows too, so the new line is the owner line's alone. The sandbox's create ignored container state. A Forget's start failure posts no launch notice, so slice 5 reads the change in `SpawnContainer.failure` against the one from before the start. The phone's Create claim lapses at `SPAWN_HOLD_CAP_MS`, 30 minutes.
+
 ## Painpoints
 
 - **A workflow call with an option the engine does not know vanishes (2026-11-11):** `agent()` throws on one such as `cwd`, and `parallel()` turns the throw into `null`, so the run shows no step and no reason. On the board, `bd_7fe5d9a585cd9656aa67bc1dd21b979a`.
