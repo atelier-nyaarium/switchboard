@@ -95,9 +95,14 @@ two children; the operation id is what does.
 
 **A reconciliation adopts another stream, never a dead one.** `classifyReconciliationFence` refuses
 an older generation of the stream an agent already follows, and the relay drops a reconciliation
-from a daemon instance a later hello replaced (`fromReplacedDaemon`). A reconciliation guard clears
-only on the answer carrying its own request id, so a replayed answer to an earlier request cannot
-strand held frames.
+from a daemon instance a later hello replaced (`fromReplacedDaemon`).
+
+**A held frame stays unacknowledged until it is decided.** It is retried after each frame applied to
+its agent, and decided when a retry applies it or ignores it, or when it is commentary dropped at
+the cap. An event that can never be placed is ignored rather than held: one from an older generation
+of the stream the agent follows, or one naming a turn the record already ended. A frame the daemon
+replays below the acknowledged mark is acknowledged again, since its replay means the first
+acknowledgement was lost.
 
 **An uncertain delivery has one rule, `uncertainDeliveryState`.** A refused or unconfirmed start leaves
 the agent unavailable, a prompt leaves it recovering, and a refused stop leaves it as it was. The

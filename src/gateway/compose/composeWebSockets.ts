@@ -78,9 +78,13 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		if (host.readLiveness().socket !== frame.socket) return;
 		await agents.stacks.get(frame.backend)?.relay.handleHostMessage(frame.message);
 	};
-	const queueHostFrame = (backend: HostFamilyFrame["backend"], message: Record<string, unknown>): void => {
-		const socket = hostRegisterSocket;
-		if (!socket) return;
+	const queueHostFrame = (
+		backend: HostFamilyFrame["backend"],
+		message: Record<string, unknown>,
+		socket: object,
+	): void => {
+		// A replaced socket's frame is not the host's.
+		if (socket !== hostRegisterSocket) return;
 		const frame = { socket, backend, message };
 		if (!hostFamilyReady) {
 			pendingHostFrames.push(frame);
@@ -172,7 +176,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			});
 		},
 		onDaemonCapabilities: (capabilities) => stores.daemonCapabilityStore.declare(capabilities),
-		onAgentHostMessage: (backend, msg) => queueHostFrame(backend, msg),
+		onAgentHostMessage: (backend, msg, socket) => queueHostFrame(backend, msg, socket),
 		onClaudeTurnResult: (frame: ClaudeTurnResultFrame, socket) =>
 			hostFamilyPass.then(() => {
 				if (host.readLiveness().socket !== socket) return;

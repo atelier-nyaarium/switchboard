@@ -496,7 +496,7 @@ export function createWebSocketHandlers({
 
 		if (ws.data.teamName === "host" && typeof msg.type === "string") {
 			const backend = AGENT_FRAME_BACKEND.get(msg.type);
-			if (backend) onAgentHostMessage?.(backend, msg);
+			if (backend) onAgentHostMessage?.(backend, msg, ws);
 		}
 
 		if (msg.type === "catalog" && ws.data.teamName === "host") {

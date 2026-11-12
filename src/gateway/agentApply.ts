@@ -1,6 +1,6 @@
 import type { AgentBackendDescriptor } from "../shared/agent-backend.js";
 import { sameResolvedTarget } from "../shared/agent-execution-target.js";
-import { classifyEventFence, fenceOf } from "../shared/agent-fence.js";
+import { classifyEventFence, fenceOf, retiredGeneration } from "../shared/agent-fence.js";
 import { type AgentStoredTurn, type PersistedAgent, PersistedAgentSchema } from "../shared/agent-persisted.js";
 import { AGENT_TURN_LOST_REASON, replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
 import { type AgentReconciliationDecision, decideAgentReconciliation } from "../shared/agent-recovery.js";
@@ -275,14 +275,16 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		if (agent.sessionId !== event.sessionId || agent.resolvedTarget?.targetId !== event.targetId)
 			return ignore("event names a different session");
 		const arriving = fenceOf(event);
+		// Never defer retired generations.
+		if (retiredGeneration(agent.fence, arriving)) return ignore("event from a retired generation");
 		const standing = classifyEventFence(agent.fence, arriving);
 		// Held events were unapplied.
 		if (standing === "duplicate" && !held) return ignore("duplicate event");
+		const turnIndex = agent.turns.findIndex((turn) => turn.id === event.turnId);
+		if (turnIndex >= 0 && agent.turns[turnIndex]!.state !== "inProgress") return ignore("turn already settled");
 		if (standing === "foreign") return { disposition: "reconcile", owner, agent };
 		const fence = laterFence(agent.fence, arriving);
-		const turnIndex = agent.turns.findIndex((turn) => turn.id === event.turnId);
 		if (turnIndex < 0) return { disposition: "reconcile", owner, agent };
-		if (agent.turns[turnIndex]!.state !== "inProgress") return ignore("turn already settled");
 		if (agent.activeTurnId !== event.turnId) return { disposition: "reconcile", owner, agent };
 		if (event.kind === "counter") return ignore("counter-only");
 		const timestamp = Math.max(at, agent.updatedAt);

@@ -17,7 +17,7 @@ import { signXDomainLink } from "../shared/federation-protocol.js";
 import { signXDomainLinkEdge } from "../shared/federation-xdomain-links.js";
 import { MAX_BLOB_BYTES } from "../shared/router-protocol.js";
 import { type FakeAmbient, fakeAmbient } from "./fakeAmbient.js";
-import { attachFakeHost, createFakeDaemon, type FakeHost, type FakeHostOptions } from "./fakeHost.js";
+import { attachFakeHost, createHarnessAgentDaemon, type FakeHost, type FakeHostOptions } from "./fakeHost.js";
 import { FixtureWorld } from "./fixtureWorld.js";
 import {
 	admitSecondConsole,
@@ -28,6 +28,7 @@ import {
 	seedRouter,
 } from "./identitySet.js";
 import { createPhoneDriver, type PhoneDriver } from "./phoneDriver.js";
+import { type ScriptedAgents, scriptedAgents } from "./scriptedAgents.js";
 
 export interface FederationHarnessOptions {
 	now?: () => number;
@@ -73,6 +74,8 @@ export interface DomainPeer {
 	ambient: FakeAmbient;
 	gateway: GatewayGraph;
 	host: FakeHost;
+	/** Backends outlive daemon restarts. */
+	agents: ScriptedAgents;
 	phone: PhoneDriver;
 	phone2: PhoneDriver;
 	/** The console target for a local team field (`spawn` or `spawn.session`) on this Gateway. */
@@ -160,6 +163,9 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 		get host() {
 			return own.host;
 		},
+		get agents() {
+			return own.agents;
+		},
 		phone: own.phone,
 		phone2: own.phone2,
 		target: own.target,
@@ -240,9 +246,10 @@ async function attachDomain(
 			kasaPort: options.kasaPort,
 			workflowProgressIntervalMsForTests: options.workflowProgressIntervalMsForTests,
 		});
+	// Threads survive daemon restarts.
+	const agents = scriptedAgents();
 	// The daemon survives gateway restarts.
-	let daemon = createFakeDaemon();
-	let agentResponder = options.host?.onAgentCommand;
+	let agentDaemon = createHarnessAgentDaemon(agents);
 	let claudeResponder = options.host?.onClaudeRun;
 	let claudeAckHandler = options.host?.onClaudeAck;
 	const attachHost = (graph: GatewayGraph, hostOptions: Pick<FakeHostOptions, "deferCatalog"> = {}): FakeHost =>
@@ -250,10 +257,9 @@ async function attachDomain(
 			token: set.tokens.host,
 			projects: [{ team: "fixture-app", projectPath: path.join(base.root, "fixture-app") }],
 			...options.host,
-			onAgentCommand: agentResponder,
 			onClaudeRun: claudeResponder,
 			onClaudeAck: claudeAckHandler,
-			daemon,
+			agentDaemon,
 			...hostOptions,
 		});
 	let gateway: GatewayGraph | undefined;
@@ -277,11 +283,11 @@ async function attachDomain(
 		get host() {
 			return host;
 		},
+		agents,
 		phone: base.phoneFor(set),
 		phone2: base.phoneFor(set, 2),
 		target: (team) => [set.domain.id, set.gateway.id, team].join("."),
 		restartGateway: async () => {
-			agentResponder = host.handlers.onAgentCommand;
 			claudeResponder = host.handlers.onClaudeRun;
 			claudeAckHandler = host.handlers.onClaudeAck;
 			host.close();
@@ -291,15 +297,18 @@ async function attachDomain(
 			host = attachHost(currentGateway);
 		},
 		restartHost: (restart = {}) => {
-			agentResponder = host.handlers.onAgentCommand;
 			claudeResponder = host.handlers.onClaudeRun;
 			claudeAckHandler = host.handlers.onClaudeAck;
 			host.close();
-			if (restart.newDaemon) daemon = createFakeDaemon();
+			if (restart.newDaemon) {
+				agentDaemon.shutdown();
+				agentDaemon = createHarnessAgentDaemon(agents);
+			}
 			host = attachHost(currentGateway, { deferCatalog: restart.deferCatalog ?? false });
 		},
 		close: async () => {
 			host.close();
+			agentDaemon.shutdown();
 			await currentGateway.close();
 		},
 	};

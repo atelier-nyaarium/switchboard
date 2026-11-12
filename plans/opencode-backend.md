@@ -843,13 +843,65 @@ Read and left:
 - **A cumulative acknowledgement cannot pass an unreduced frame:** the socket stage applies a backend's frames one at a time.
 - **Dropped as wrong or accepted:** an older daemon or plugin beside a newer Gateway for the minutes between restarts, error text reaching the owner's own session, and the catalog's cost, which matches HEAD.
 
+### Architecture audit, 2026-11-12
+
+Six Luna readers, one per Bug Class below plus the Codex driver and the names, and an Opus join that checked each claim against `e87b5715`. Six opportunities, in this order:
+
+| | Name | Ends |
+|---|---|---|
+| A | The daemon's real agent runtime in the harness | The fake daemon as a second implementation |
+| D | A typed catalog commit outcome | The uncertain catalog write |
+| B | One owner for a held frame | A held frame judged against a fence that moved |
+| C | One turn runner over the driver | The same command rules in local mode and the daemon |
+| E | One owner for a Codex turn's hold | Not a listed class; the hold rule was patched twice |
+| F | A naming pass | Nothing alone; last, since B and C delete half the names |
+
+**A is built:**
+
+- **`agentDaemonRuntime.ts`:** the daemon's agent side as one value, a target manager and a service per backend with the hello, the replay, the routing and the model listing. `hostDaemon.ts` builds it and constructs no service.
+- **`scriptedAgents.ts`:** a driver per backend whose child is a pair of streams. A scenario holds a turn, feeds it activity and settles it; it can no longer write a receipt, an event id, a generation or a reconcile answer.
+- **The fake daemon is deleted:** `FakeAgentDaemon`, `createFakeDaemon`, `stockAgentResponder`, `sendAgent` and `onAgentCommand`. The Codex and workflow harness suites run the real target manager, daemon service and outbox, and a child that exits reaches generation 2 in a harness case. Breaking `AgentDaemonCore.replay` fails three of them; before, nothing would have.
+
+**What the real daemon found on its first run:** a daemon restarted with a turn's terminal in flight, and a message sent straight after. The new daemon's turn was accepted while the record still held the old turn, so its receipt was held; the old terminal then arrived and was applied, and nothing retried the held receipt until the five minute guard lifted. The follow-up's answer sat for five minutes. The fake never showed it, since its reconcile answers came from its own map.
+
+**Changed in `AgentRelayCore`:**
+
+- **A held frame is retried after every frame applied to its agent** (`retryHeld`), where it used to wait for the answer to its own reconcile ask. The map that matched that answer is gone.
+- **The drain no longer acknowledges before it replays.** It cleared the hold and acknowledged first, so a frame held again had already been dropped by the daemon.
+- **A replay of a held frame decides nothing** (`retriesHeldCopy`): judged on its own it could read as a duplicate and be acknowledged. A counter can no longer be counted by both the replay and the held copy.
+
+**Red team on A, 2026-11-12.** Six Luna readers and an Opus join: the relay's held frames, the applier under repeated retries, the extraction's parity, whether the harness can lie, what the test migration lost, and residue. Seven findings kept, each checked against the code. Changed:
+
+- **A frame from a retired generation was held for good.** A lost acknowledgement left a generation 1 terminal in the daemon's outbox; once the fence moved to generation 2 its replay read as foreign and was held, retried and asked about every five minutes, and carried on every connect. At HEAD the drain acknowledged it unapplied, which hid the same hold. `applyEvent` now ignores an event that can never be placed: one from an older generation of the stream the agent follows (`retiredGeneration`), or one naming a turn the record already ended.
+- **A lost acknowledgement was never sent again,** which is what left that frame in the outbox. A frame replayed at or below the acknowledged mark is acknowledged again. The harness's lost-acknowledgement case now ends with a third link that carries nothing of the turn.
+- **A throw in a retry lost the held frames after it.** `retryHeld` keeps what it did not reach.
+- **Every scripted backend offered one set of driver methods,** so a Copilot case took recovery branches production never takes. `REAL_SESSION` names each backend's set, a test holds it to the real classes, and only OpenCode's scripted session drops a repeated start by its key. Every harness case still passes with the stricter doubles, so the daemon's own ledger is what keeps a start to once.
+- **No case made the Gateway resend:** a reliable answer replays before the resend runs. A refused start whose refusal the link lost is the new case: nothing retains a refusal, the Gateway resends, and the daemon answers from its ledger without asking the backend again.
+- **Loss flags passed at setup were dropped,** as `skillText` was, and a fake host that built its own daemon never shut it down.
+- **The held-replay case could pass with the replay swallowed.** A second case proves the held copy is applied.
+
+Read and left:
+
+- **A refused reconciliation may leave a held frame with no ask coming** when the agent's fence already names the live daemon. Unproven, same at HEAD, and B's to bound.
+- **A refused start whose write conflicts is acknowledged unpersisted.** Same at HEAD; D gives the commit the outcome to tell.
+- **An agent with 128 held frames retries all of them per applied frame.** Bounded by the cap.
+- **Dropped as wrong or out of scope:** local mode's silent turn, which this change does not touch, and two harness notes about failures no case models.
+
+**Re-check of those repairs,** three Luna readers and an Opus join; the applier angle found nothing:
+
+- **An acknowledgement could reach a daemon it did not name.** A frame arriving on a host socket another had replaced was labelled with the new socket, so it was applied, and the repeated acknowledgement added above then answered it on the new daemon's link. A daemon matched an acknowledgement by target, generation and event id alone, and every daemon numbers those from the same start. `queueHostFrame` now judges the socket a frame arrived on, and `AgentDaemonCore.acknowledge` ignores one naming another daemon. The labelling was the same at HEAD.
+- **A throw during a retry left the retry state wrong.** A change listener that threw skipped the retry of held frames, and inside a retry it queued a decided frame again. A listener's throw is caught where it is called, and a held frame whose own retry throws stays held while the rest are tried.
+- **Left: the scripted backends' test reads each real class's prototype,** so an optional method added as an instance property would pass it. None is one today.
+
+Left for B: a frame whose application `failed` has no ask and no deadline, the outbox evicts past 1,000 without telling the Gateway, and `askAgain` re-asks once.
+
 ### Bug Classes
 
 - **The same command rules live in local mode and in the daemon service** (`LocalAgentHandlers`, `AgentDaemonService`). Four disagreements found in one pass and patched in local mode. Codex's move found three more: the adopt after a failed start and the refused steer, both patched in local mode again, and the watchdog, left. One command handler over the driver for both is on the board, `bd_c9b55cbd21bc148fa77a38b0f3169a55`.
 - **A list that names backends by hand:** the registry array, two workflow schemas, the gated capability ids and the tool fixture each listed Codex and Copilot. Patched to derive from `BACKEND_ROWS`. The guidance prose still names them and is the owner's wording.
 - **An uncertain catalog write** (`AgentCatalogPersistence.commit` over a store that keeps an unconfirmed write in memory): patched in the generic service by abandoning the operation. The shared layer still reports it as "catalog changed while saving".
-- **A frame held for reconciliation is judged against a fence that moved while it waited** (`AgentRelayCore` deferred frames over `classifyEventFence` in the applier). Round one, the audit: a held receipt, patched with `laterFence` and binding the operation by its turn. Round two, Codex's move: a held event, patched with the `held` flag past the duplicate check. Round three, the red team: held frames had no ask pending once the guard swallowed one, patched with a one-shot re-ask. Three rounds in one mechanism. The fence orders by event id while a held frame's own id no longer says where it stands, and nothing owns how long a frame may wait. One owner for a held frame's order, deadline and replay gaps is on the board, `bd_6f6eeb94f93e76dcca7a126d098a6e35`.
-- **The harness's fake daemon is a second implementation of the daemon's wire behavior:** it had no outbox, so a case's result depended on which microtask ran first. `bd_0c0772d89f5e0cbafa83147fc68c5863` holds the frame-order half of the same gap.
+- **A frame held for reconciliation is judged against a fence that moved while it waited** (`AgentRelayCore` deferred frames over `classifyEventFence` in the applier). Round one, the audit: a held receipt, patched with `laterFence` and binding the operation by its turn. Round two, Codex's move: a held event, patched with the `held` flag past the duplicate check. Round three, the red team: held frames had no ask pending once the guard swallowed one, patched with a one-shot re-ask. Round four, the architecture step: a held receipt waited on its own reconcile answer while the frame that placed it had already been applied, and the drain acknowledged before it replayed; patched with a retry after every applied frame. Four rounds in one mechanism. The fence orders by event id while a held frame's own id no longer says where it stands, and nothing owns how long a frame may wait. One owner for a held frame's order, deadline and replay gaps is on the board, `bd_6f6eeb94f93e76dcca7a126d098a6e35`, and is opportunity B above.
+- **The harness's fake daemon was a second implementation of the daemon's wire behavior:** it had no outbox, so a case's result depended on which microtask ran first, and its reconcile answers came from its own map. Ended by opportunity A: the harness runs the daemon's own runtime.
 
 ## Phase 3 - Acceptance and docs
 
@@ -860,6 +912,9 @@ Read and left:
 
 ## Painpoints
 
+- **A workflow call with an option the engine does not know vanishes (2026-11-11):** `agent()` throws on one such as `cwd`, and `parallel()` turns the throw into `null`, so the run shows no step and no reason. On the board, `bd_7fe5d9a585cd9656aa67bc1dd21b979a`.
+- **A plain SSH command has no `bun` (2026-11-11):** `~/.bun/bin` is added by the login shell on mikan and matrix-edward, so every deploy command sets the path first.
+- **The comment step rewrites records as if they were code comments (2026-11-11, again 2026-11-12):** told to make prose timeless, a Luna step cut a doc comment's rule once, then replaced this plan's audit section and two Bug Classes histories with a description of the code, and stripped the reasons from five map lines in `AGENTS.md`. Each was restored by hand. The step needs the plan and the map's reasons named as out of bounds.
 - **An OpenCode step's `schema` is one sentence in its prompt (2026-11-11):** two of nine long mapping steps answered in prose after 300 tool calls and settled `invalid`, with their reports written. Codex enforces a schema at its API. One repair message into the same thread, naming the validation error, would have saved both.
 - **A running step or agent shows nothing until it ends (2026-11-11):** `workflowCollect` reads every unfinished step as `pending`, queued or working, and `agentCollect` on a running turn answers no activity and no counts. `agentList`'s `lastActiveAt` stayed at the start. The first sign of life is the ten minute notice.
 - **OpenCode refuses its whole event stream over one type name it does not know (2026-11-11):** `/api/event?types=` answers 400 for an unknown name, so a renamed event on a pin bump stops every turn's events. `EVENT_TYPES` in the bridge was probed against 2.2.5 by hand; no gate asks a real server.

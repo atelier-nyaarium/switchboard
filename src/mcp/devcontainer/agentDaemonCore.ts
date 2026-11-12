@@ -106,6 +106,8 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 	}
 
 	acknowledge(ack: AgentEventAck): void {
+		// Another daemon's stream reuses these numbers.
+		if (ack.daemonInstanceId !== undefined && ack.daemonInstanceId !== this.options.daemonInstanceId) return;
 		for (let index = this.outbox.length - 1; index >= 0; index -= 1) {
 			const entry = this.outbox[index]!;
 			if (

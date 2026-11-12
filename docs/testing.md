@@ -76,13 +76,23 @@ one scenario never mint the same nonce. Its timers have two drives:
 Only a scenario that must move a deadline needs manual drive. The handshake re-send window, the
 handshake expiry sweep, and a routine's own timer reaching its slot are the three that do.
 
-The fake host is also the agent daemon, for every backend. It answers a backend's command frames
-through a responder: `stockAgentResponder` accepts and completes at once, and a scenario installs
-its own for a running or refused turn. It keeps one `FakeDaemon` per machine across gateway
-restarts and validates every frame it sends against that backend's daemon schemas. Like the real
-daemon it holds each frame until the Gateway acknowledges it and replays the rest after its hello,
-so a frame in flight when a socket closes is not lost. A fake session can answer the lead handshake
-as a worker, present a binding token, or name a project path.
+The fake host builds `createAgentDaemonRuntime` for every backend, so the target manager, the daemon
+service, its outbox and its hello are the shipping code. The only double is a backend's own child:
+`scriptedAgents()` supplies a driver per backend, and `h.agents.of(backend)` records what that
+backend was asked.
+
+- **A turn:** completes at once with `done: <prompt>` unless `onTurn` scripts its outcome.
+  `onSteer`, `onInterrupt`, `startError`, `launchError` and `models` configure other outcomes.
+- **A child:** `h.agents.exitChild(backend)` kills it, and the supervisor's next launch is another
+  generation. `h.agents.skip(ms)` moves the daemon's clock past a crashed target's backoff.
+- **The daemon:** it persists across socket and Gateway restarts. `restartHost({ newDaemon: true })`
+  replaces it. Scripted threads persist.
+- **The link:** `host.handlers.loseAgentFrames`, `loseAgentAcks` and `loseAgentCommands` each drop
+  one direction. `host.daemonFrames` lists runtime frames carried by the link.
+  `host.agentCommands(backend)` lists Gateway commands.
+
+A fake session can answer the lead handshake as a worker, present a binding token, or name a
+project path.
 
 `createFakeOpencodeServer` (`src/testing/fakeOpencodeServer.ts`) is OpenCode's local server as a
 `fetch` function: sessions, prompts that drop a repeated id, pending permissions, a replayable log,

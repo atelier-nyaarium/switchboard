@@ -3,9 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
-import { AGENT_BACKENDS, agentEnvPrefix, agentFrameType } from "../../shared/agent-backend.js";
 import { AgentExecutionTargetSchema, parseAgentTargetId } from "../../shared/agent-execution-target.js";
-import { agentWire } from "../../shared/agent-wire.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
 import { cliProbeScript, parseCliProbe } from "../../shared/cli-probe.js";
@@ -38,8 +36,7 @@ import {
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { AGENT_DRIVERS } from "../agents/drivers.js";
-import { AgentDaemonService } from "./agentDaemonService.js";
-import { ExecutionTargetManager, targetLogger } from "./agentTargets.js";
+import { createAgentDaemonRuntime } from "./agentDaemonRuntime.js";
 import { appendBuildTranscript } from "./buildTranscript.js";
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CONTAINER_HOME, containerLaunchSite, createRuntimePlacer } from "./containerSite.js";
@@ -135,30 +132,15 @@ function resolveSpawnWorkdir(spawn: string, hint: string | undefined): { workdir
 }
 // Per process, not per socket.
 const daemonInstanceId = crypto.randomUUID();
-const AGENT_DAEMON_BINDINGS = AGENT_BACKENDS.map((descriptor) => {
-	const driver = AGENT_DRIVERS[descriptor.id];
-	const targets = new ExecutionTargetManager({
-		launcher: driver.launcher,
-		log: targetLogger(`${descriptor.id}-target`),
-		envPrefix: agentEnvPrefix(descriptor.id),
-	});
-	const service = new AgentDaemonService({
-		backend: descriptor,
-		targets,
-		daemonInstanceId,
-		send: safeSend,
-		open: driver.open,
-		resolveHostCwd: (hint) => resolveHostWorkdir(hint),
-		failureCode: driver.failureCode,
-		threadsResumable: driver.threadsResumable,
-		prepareTarget: driver.ownRuntime
-			? async (target) => {
-					const parsed = parseAgentTargetId(target.targetId);
-					if (parsed?.kind === "devcontainer") await placeContainerRuntime(parsed.project);
-				}
-			: undefined,
-	});
-	return { descriptor, targets, service, parseAck: agentWire(descriptor.id).ack };
+const agentRuntime = createAgentDaemonRuntime({
+	daemonInstanceId,
+	send: safeSend,
+	resolveHostCwd: (hint) => resolveHostWorkdir(hint),
+	drivers: AGENT_DRIVERS,
+	placeRuntime: async (target) => {
+		const parsed = parseAgentTargetId(target.targetId);
+		if (parsed?.kind === "devcontainer") await placeContainerRuntime(parsed.project);
+	},
 });
 
 // A send mid-close throws.
@@ -174,10 +156,7 @@ function safeSend(payload: Record<string, unknown>): void {
 export function stopSupervisedChildren(): void {
 	devContainers.close();
 	claudeRunner.stop();
-	for (const { service, targets } of AGENT_DAEMON_BINDINGS) {
-		service.shutdown();
-		targets.shutdown();
-	}
+	agentRuntime.shutdown();
 }
 
 /** Stops the reconnect timer as well as the children, so shutdown leaves nothing scheduled. */
@@ -320,10 +299,7 @@ function connect(): void {
 		);
 
 		// Replay what the gateway never committed.
-		for (const { service } of AGENT_DAEMON_BINDINGS) {
-			safeSend(service.hello());
-			service.replay();
-		}
+		agentRuntime.connected();
 		claudeRunner.replay();
 
 		// Results replay until acked.
@@ -376,13 +352,7 @@ function connect(): void {
 			);
 		}
 
-		for (const { descriptor, service, parseAck } of AGENT_DAEMON_BINDINGS) {
-			if (msg.type === agentFrameType(descriptor.id, "command")) service.handleCommand(msg);
-			if (msg.type === agentFrameType(descriptor.id, "ack")) {
-				const ack = parseAck.safeParse(msg);
-				if (ack.success) service.acknowledge(ack.data);
-			}
-		}
+		agentRuntime.receive(msg);
 		if (msg.type === "claude_turn_ack") {
 			const ack = ClaudeTurnAckFrameSchema.safeParse(msg);
 			if (ack.success) claudeRunner.acknowledge(ack.data);
@@ -733,10 +703,7 @@ const hostOpRunner = createHostOpRunner({
 	listDirs: async (p, spawn) =>
 		spawn === WINDOWS_SPAWN ? listWindowsDirs(p, windowsAvailability().userProfile) : listHostDirs(p),
 	readSkill: async (target, skillPath) => readWorkflowSkill(target, skillPath),
-	agentModels: async (backend, target) => {
-		const binding = AGENT_DAEMON_BINDINGS.find(({ descriptor }) => descriptor.id === backend);
-		return binding ? binding.service.listModels(target) : { kind: "refused", reason: `no ${backend} daemon` };
-	},
+	agentModels: (backend, target) => agentRuntime.listModels(backend, target),
 	claudeRun: (op) => claudeRunner.start(op),
 	claudeCancel: (op) => claudeRunner.cancel(op),
 });

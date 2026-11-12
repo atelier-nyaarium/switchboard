@@ -4,16 +4,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { WorkflowRunRecord, WorkflowStartInput } from "../gateway/workflows/workflowSchemas.js";
 import { AGENT_BACKEND_IDS } from "../shared/agent-backend.js";
-import type { AgentDaemonEvent } from "../shared/agent-wire.js";
 import { composeSessionName } from "../shared/session-id.js";
-import { type AgentResponder, type FakeAgentDaemon, stockAgentResponder } from "../testing/fakeHost.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness, waitFor } from "../testing/federationHarness.js";
-
-interface HeldTurn {
-	daemon: FakeAgentDaemon;
-	terminal: Extract<AgentDaemonEvent, { kind: "terminal" }>;
-}
+import type { ScriptedTurn } from "../testing/scriptedAgents.js";
 
 describe("workflow steps through the federation harness", () => {
 	let h: FederationHarness;
@@ -43,25 +37,26 @@ describe("workflow steps through the federation harness", () => {
 			return record?.status === status ? record : undefined;
 		}, `workflow ${status}`);
 
-	const withAnswer: AgentResponder = (command, daemon, backend) => {
-		if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-		const text = command.kind === "start" || command.kind === "message" ? command.prompt : "";
-		let answer: unknown = "Mock edit and build.";
-		if (text.includes("Mock tester")) {
-			testerRound += 1;
-			answer = { pass: testerRound > 1, version: 5, failure: testerRound > 1 ? null : "tests failed" };
-		} else if (text.includes("Mock verifier")) {
-			answer = { version: 5, isFive: true };
-		}
-		return (stockAgentResponder(command, daemon, backend) ?? []).map((frame) => {
-			if (frame.type === "codex_event" && frame.kind === "terminal") {
-				return {
-					...frame,
-					finalResponse: typeof answer === "string" ? answer : JSON.stringify(answer),
-				};
-			}
-			return frame;
+	const codexBackend = () => h.agents.of("codex");
+	const answerWith = (turn: ScriptedTurn, answer: unknown): void => {
+		turn.activity("working");
+		turn.settle({
+			status: "completed",
+			finalResponse: typeof answer === "string" ? answer : JSON.stringify(answer),
 		});
+	};
+	/** Test controls settlement. */
+	const running = (turn: ScriptedTurn): void => turn.activity("working");
+	const withAnswer = (turn: ScriptedTurn): void => {
+		if (turn.prompt.includes("Mock tester")) {
+			testerRound += 1;
+			answerWith(turn, {
+				pass: testerRound > 1,
+				version: 5,
+				failure: testerRound > 1 ? null : "tests failed",
+			});
+		} else if (turn.prompt.includes("Mock verifier")) answerWith(turn, { version: 5, isFive: true });
+		else answerWith(turn, "Mock edit and build.");
 	};
 
 	beforeEach(async () => {
@@ -70,9 +65,9 @@ describe("workflow steps through the federation harness", () => {
 		team = "";
 		h = await startFederationHarness({
 			drive: "manual",
-			host: { onAgentCommand: withAnswer },
 			workflowProgressIntervalMsForTests: 1_000,
 		});
+		codexBackend().onTurn = withAnswer;
 		h.host.handlers.onCreateSession = (op) => {
 			team = composeSessionName(op.target.name, op.target.sessionName);
 			session = attachFakeSession(h.gateway, {
@@ -236,12 +231,12 @@ describe("workflow steps through the federation harness", () => {
 		const run = startRun(`export const meta = {}; return await agent("held turn");`, {
 			defaultBackend: "claude",
 		});
-		const oldDaemonId = h.host.daemon.daemonInstanceId;
+		const oldDaemonId = h.host.daemonInstanceId;
 		await waitFor(() => (h.host.claudeRuns.length === 1 ? true : undefined), "Claude turn accepted");
 		h.restartHost({ newDaemon: true });
 		const record = await waitForStatus(run.runId, "succeeded");
 		expect(record.result).toBeNull();
-		expect(h.host.daemon.daemonInstanceId).not.toBe(oldDaemonId);
+		expect(h.host.daemonInstanceId).not.toBe(oldDaemonId);
 		expect(h.gateway.faults.workflowRows(run.runId)).toContainEqual(
 			expect.objectContaining({
 				kind: "settle",
@@ -319,13 +314,7 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("opens two correction turns on the same agent and journals invalid", async () => {
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			const replies = stockAgentResponder(command, daemon, backend) ?? [];
-			return replies.map((frame) =>
-				frame.type === "codex_event" && frame.kind === "terminal" ? { ...frame, finalResponse: "{}" } : frame,
-			);
-		};
+		codexBackend().onTurn = (turn) => answerWith(turn, "{}");
 		const script = `export const meta = {};\nawait agent("give an object", {schema: {type: "object", required: ["ok"], properties: {ok: {type: "boolean"}}}}); return true;`;
 		const run = startRun(script);
 		const record = await waitForStatus(run.runId, "succeeded");
@@ -341,21 +330,16 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("retries a start and a thread message once under each new daemon", async () => {
-		let holdStart = true;
-		let holdMessage = true;
-		const responder: AgentResponder = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if (command.kind === "start" && holdStart) {
-				holdStart = false;
-				return [];
+		// First answers are lost.
+		let loseMessage = true;
+		codexBackend().onTurn = (turn) => {
+			if (turn.prompt.includes("second") && loseMessage) {
+				loseMessage = false;
+				h.host.handlers.loseAgentFrames = true;
 			}
-			if (command.kind === "message" && holdMessage) {
-				holdMessage = false;
-				return [];
-			}
-			return stockAgentResponder(command, daemon, backend);
+			withAnswer(turn);
 		};
-		h.host.handlers.onAgentCommand = responder;
+		h.host.handlers.loseAgentFrames = true;
 		const run = startRun(
 			`export const meta = {}; await agent("first", {thread: "same"}); await agent("second", {thread: "same"}); return true;`,
 		);
@@ -377,7 +361,7 @@ describe("workflow steps through the federation harness", () => {
 								(operation) =>
 									operation.kind === "start" &&
 									operation.state === "indeterminate" &&
-									operation.daemonInstanceId === firstHost.daemon.daemonInstanceId,
+									operation.daemonInstanceId === firstHost.daemonInstanceId,
 							),
 					),
 			"abandoned start operation",
@@ -388,7 +372,7 @@ describe("workflow steps through the federation harness", () => {
 				operationId: originalTurn?.kind === "turn" ? originalTurn.operationId : undefined,
 				kind: "start",
 				state: "indeterminate",
-				daemonInstanceId: firstHost.daemon.daemonInstanceId,
+				daemonInstanceId: firstHost.daemonInstanceId,
 			}),
 		);
 		await waitFor(
@@ -412,12 +396,12 @@ describe("workflow steps through the federation harness", () => {
 		const startTurns = turns.filter((row) => row.issueOrdinal === 1);
 		const messageTurns = turns.filter((row) => row.issueOrdinal === 2);
 		expect(startTurns.map((row) => row.registerInstanceId)).toEqual([
-			firstHost.daemon.daemonInstanceId,
-			secondHost.daemon.daemonInstanceId,
+			firstHost.daemonInstanceId,
+			secondHost.daemonInstanceId,
 		]);
 		expect(messageTurns.map((row) => row.registerInstanceId)).toEqual([
-			secondHost.daemon.daemonInstanceId,
-			thirdHost.daemon.daemonInstanceId,
+			secondHost.daemonInstanceId,
+			thirdHost.daemonInstanceId,
 		]);
 		expect(new Set(startTurns.map((row) => row.operationId)).size).toBe(2);
 		expect(new Set(messageTurns.map((row) => row.operationId)).size).toBe(2);
@@ -436,13 +420,7 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("cancels a working run and stops its step agent", async () => {
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if (command.kind === "interrupt") return stockAgentResponder(command, daemon, backend);
-			return (stockAgentResponder(command, daemon, backend) ?? []).filter(
-				(frame) => !(frame.type === "codex_event" && frame.kind === "terminal"),
-			);
-		};
+		codexBackend().onTurn = running;
 		const run = startRun(`export const meta = {}; await agent("keep working"); return true;`);
 		await waitFor(
 			() => h.host.agentCommands("codex").some((command) => command.kind === "start") || undefined,
@@ -466,53 +444,28 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("stops an in-flight step when another step fails the run", async () => {
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if ((command.kind === "start" || command.kind === "message") && command.prompt.includes("slow step")) {
-				return (stockAgentResponder(command, daemon, backend) ?? []).filter(
-					(frame) => !(frame.type === "codex_event" && frame.kind === "terminal"),
-				);
-			}
-			return stockAgentResponder(command, daemon, backend);
-		};
+		codexBackend().onTurn = (turn) => (turn.prompt.includes("slow step") ? running(turn) : withAnswer(turn));
 		const run = startRun(
 			`export const meta = {}; const slow = agent("slow step"); await agent("fast step"); throw new Error("failed after fast step");`,
 		);
 		const record = await waitForStatus(run.runId, "failed");
 		expect(record.failureReason).toContain("failed after fast step");
-		const slowAgent = h.gateway.faults
-			.workflowAgents(team)
-			.find((agent) => agent.runId === run.runId && agent.state === "working");
+		const slowAgent = h.host
+			.agentCommands("codex")
+			.find((command) => command.kind === "start" && command.prompt.includes("slow step"));
 		expect(slowAgent).toBeDefined();
-		await waitFor(
-			() =>
-				h.host
-					.agentCommands("codex")
-					.find((command) => command.kind === "interrupt" && command.agentId === slowAgent?.agentId),
-			"terminal step stop",
-		);
+		const slow = codexBackend().turns.find((turn) => turn.prompt.includes("slow step"));
+		await waitFor(() => slow?.state() === "interrupted" || undefined, "the slow step's stop");
 		expect(
 			h.host
 				.agentCommands("codex")
 				.filter((command) => command.kind === "interrupt" && command.agentId === slowAgent?.agentId),
 		).toHaveLength(1);
+		expect(slow?.interrupts).toBe(1);
 	});
 
 	it("retries a terminal run stop once on a replacement host socket", async () => {
-		let stopAttempts = 0;
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if (command.kind === "interrupt") {
-				stopAttempts += 1;
-				return stopAttempts === 1 ? [] : stockAgentResponder(command, daemon, backend);
-			}
-			if ((command.kind === "start" || command.kind === "message") && command.prompt.includes("held stop")) {
-				return (stockAgentResponder(command, daemon, backend) ?? []).filter(
-					(frame) => !(frame.type === "codex_event" && frame.kind === "terminal"),
-				);
-			}
-			return stockAgentResponder(command, daemon, backend);
-		};
+		codexBackend().onTurn = running;
 		const run = startRun(`export const meta = {}; await agent("held stop"); return true;`);
 		const firstHost = h.host;
 		await waitFor(
@@ -526,6 +479,8 @@ describe("workflow steps through the federation harness", () => {
 					.find((agent) => agent.runId === run.runId && agent.state === "working"),
 			"stop test working agent",
 		);
+		// Stop races link loss.
+		firstHost.handlers.loseAgentCommands = true;
 		expect(h.gateway.faults.workflowCancel(run.runId)).toBe(true);
 		await waitForStatus(run.runId, "cancelled");
 		await waitFor(
@@ -540,10 +495,10 @@ describe("workflow steps through the federation harness", () => {
 		);
 		expect(firstHost.agentCommands("codex").filter((command) => command.kind === "interrupt")).toHaveLength(1);
 		expect(secondHost.agentCommands("codex").filter((command) => command.kind === "interrupt")).toHaveLength(1);
+		expect(codexBackend().turns.map((turn) => turn.interrupts)).toEqual([1]);
 	});
 
 	it("rejects a missing skill before dispatch", async () => {
-		h.host.handlers.onAgentCommand = stockAgentResponder;
 		const run = startRun(`export const meta = {}; await agent("read it", {skills: ["missing.md"]}); return true;`);
 		await waitForStatus(run.runId, "succeeded");
 		expect(h.gateway.faults.workflowRows(run.runId)).toContainEqual(
@@ -552,7 +507,6 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("gives one skill to steps that start together", async () => {
-		h.host.handlers.onAgentCommand = stockAgentResponder;
 		h.host.handlers.skillText = (path) => (path === "guide.md" ? "Read carefully." : undefined);
 		const run = startRun(
 			`export const meta = {}; const answers = await parallel(["one", "two", "three"].map((name) => () => agent(name, {skills: ["guide.md"]}))); return answers.filter(Boolean).length;`,
@@ -566,17 +520,10 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("sends one workflow notice chain and no step agent notices", async () => {
-		const held: HeldTurn[] = [];
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if (command.kind !== "start" && command.kind !== "message")
-				return stockAgentResponder(command, daemon, backend);
-			const replies = stockAgentResponder(command, daemon, backend) ?? [];
-			const terminal = replies.find(
-				(frame) => frame.type === "codex_event" && frame.kind === "terminal",
-			) as unknown as Extract<AgentDaemonEvent, { kind: "terminal" }>;
-			held.push({ daemon, terminal });
-			return replies.filter((frame) => !(frame.type === "codex_event" && frame.kind === "terminal"));
+		const held: ScriptedTurn[] = [];
+		codexBackend().onTurn = (turn) => {
+			held.push(turn);
+			running(turn);
 		};
 		const run = startRun(
 			`export const meta = {}; await parallel([() => agent("one"), () => agent("two"), () => agent("three")]); return true;`,
@@ -594,10 +541,7 @@ describe("workflow steps through the federation harness", () => {
 		expect(progress).toHaveLength(1);
 		expect(JSON.stringify(progress[0]?.awareness ?? {})).toContain("no_act");
 		expect(JSON.stringify(progress[0]?.awareness ?? {})).not.toContain("Codex agent");
-		for (const { daemon, terminal } of held) {
-			const eventId = daemon.nextEventId(terminal.targetId);
-			h.host.sendAgent("codex", { ...terminal, eventId });
-		}
+		for (const turn of held) turn.settle({ status: "completed", finalResponse: `done: ${turn.prompt}` });
 		await waitForStatus(run.runId, "succeeded");
 		const settleNotice = () =>
 			session.inbound.find(
@@ -615,13 +559,7 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("cancels before forget and reserves the session from the sweep", async () => {
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if (command.kind === "interrupt") return stockAgentResponder(command, daemon, backend);
-			return (stockAgentResponder(command, daemon, backend) ?? []).filter(
-				(frame) => !(frame.type === "codex_event" && frame.kind === "terminal"),
-			);
-		};
+		codexBackend().onTurn = running;
 		const run = startRun(`export const meta = {}; await agent("held until forgotten"); return true;`);
 		const working = await waitFor(() => {
 			const agents = h.gateway.faults.workflowAgents(team);

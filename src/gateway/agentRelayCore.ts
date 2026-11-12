@@ -148,11 +148,11 @@ export class AgentRelayCore<
 	private readonly reducers = createKeyedFifo<string>();
 	private readonly streams = new Map<string, StreamProgress>();
 	private readonly listeners = new Map<string, Set<() => void>>();
-	// Match request IDs before clearing.
-	private readonly reconciling = new Map<string, { requestId: string; askedAt: number }>();
 	private readonly lastReconcileAskedAt = new Map<string, { daemonInstanceId: string; askedAt: number }>();
 	private readonly deferred = new Map<string, Array<HeldFrame<TEvent, TReceipt>>>();
 	private readonly reasks = new Map<string, ReturnType<Ambient["setTimer"]>>();
+	private readonly retrying = new Set<string>();
+	private readonly retryAgain = new Set<string>();
 	private readonly progress = new Map<string, ProgressEntry>();
 	private readonly countedEvents = new Set<string>();
 
@@ -185,7 +185,6 @@ export class AgentRelayCore<
 	}
 
 	async onHostRegister(): Promise<void> {
-		this.reconciling.clear();
 		const daemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (!daemonInstanceId) return;
 		const pending: Promise<void>[] = [];
@@ -275,7 +274,6 @@ export class AgentRelayCore<
 		if (!hello) return;
 		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (liveDaemonInstanceId !== undefined && hello.daemonInstanceId !== liveDaemonInstanceId) return;
-		this.reconciling.clear();
 		const pending: Promise<void>[] = [];
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
@@ -298,13 +296,28 @@ export class AgentRelayCore<
 	private onReceipt(raw: Record<string, unknown>): Promise<void> {
 		const receipt = this.parse(this.family.receiptSchema, raw, "receipt");
 		if (!receipt) return Promise.resolve();
-		return this.serialize(receipt.ownerKey, receipt.agentId, () => this.reduceReceipt(receipt));
+		return this.serialize(receipt.ownerKey, receipt.agentId, () => {
+			if (this.retriesHeldCopy({ frame: "receipt", message: receipt })) return;
+			this.reduceReceipt(receipt);
+		});
 	}
 
 	private onEvent(raw: Record<string, unknown>): Promise<void> {
 		const event = this.parse(this.family.eventSchema, raw, "event");
 		if (!event) return Promise.resolve();
-		return this.serialize(event.ownerKey, event.agentId, () => this.reduceEvent(event));
+		return this.serialize(event.ownerKey, event.agentId, () => {
+			if (this.retriesHeldCopy({ frame: "event", message: event })) return;
+			this.reduceEvent(event);
+		});
+	}
+
+	/** Retry the held copy. */
+	private retriesHeldCopy(arrived: HeldFrame<TEvent, TReceipt>): boolean {
+		const { ownerKey, agentId } = arrived.message;
+		const queue = this.deferred.get(agentKey(ownerKey, agentId));
+		if (!queue?.some((existing) => sameFrame(existing, arrived))) return false;
+		this.retryHeld(ownerKey, agentId);
+		return true;
 	}
 
 	private parse<T>(schema: AgentRelaySchema<T>, raw: unknown, what: string): T | undefined {
@@ -324,13 +337,6 @@ export class AgentRelayCore<
 			if (turnId) this.countModelTurn(receipt.ownerKey, receipt.agentId, turnId, application.agent.runId);
 		}
 		this.settle({ frame: "receipt", message: receipt }, application);
-		// Operation refusals skip guard clearing.
-		if (receipt.kind === "rejected" && receipt.operationId !== undefined) return;
-		if (receipt.kind !== "reconciled" && receipt.kind !== "rejected") return;
-		const key = agentKey(receipt.ownerKey, receipt.agentId);
-		if (this.reconciling.get(key)?.requestId !== receipt.requestId) return;
-		this.reconciling.delete(key);
-		if (application.disposition === "applied") this.drainDeferred(receipt.ownerKey, receipt.agentId);
 	}
 
 	private reduceEvent(event: TEvent, held = false): void {
@@ -422,14 +428,14 @@ export class AgentRelayCore<
 		const repairable =
 			application.disposition === "failed" ||
 			(application.disposition === "reconcile" && this.isAskable(message.ownerKey, application.agent));
-		if (repairable) {
-			this.defer(held);
-			if (application.disposition === "reconcile") {
-				this.requestReconciliation(message.ownerKey, application.agent);
-			}
+		const kept = repairable && this.defer(held);
+		if (repairable && application.disposition === "reconcile") {
+			this.requestReconciliation(message.ownerKey, application.agent);
 		}
-		if (isFenced(message)) this.advance(message, repairable ? "hold" : "decided");
+		if (isFenced(message)) this.advance(message, kept ? "hold" : "decided");
 		this.notifyChanged(message.ownerKey, message.agentId, application);
+		// Applications retry held frames.
+		if (application.disposition === "applied") this.retryHeld(message.ownerKey, message.agentId);
 	}
 
 	private advance(message: FencedFrame, outcome: "hold" | "decided"): void {
@@ -446,16 +452,18 @@ export class AgentRelayCore<
 		}
 		progress.undecided.delete(message.eventId);
 		progress.highestDecided = Math.max(progress.highestDecided, message.eventId);
-		this.acknowledge(message, progress);
+		// Replay repeats lost acknowledgements.
+		this.acknowledge(message, progress, message.eventId <= progress.committedThrough);
 	}
 
 	private acknowledge(
 		message: { daemonInstanceId: string; targetId: string; generation: number },
 		progress: StreamProgress,
+		again = false,
 	): void {
 		const lowestUndecided = progress.undecided.size === 0 ? Infinity : Math.min(...progress.undecided.keys());
 		const through = Math.min(progress.highestDecided, lowestUndecided - 1);
-		if (through <= progress.committedThrough) return;
+		if (through < progress.committedThrough || (through === progress.committedThrough && !again)) return;
 		// Keep acknowledgement frames schema-exact.
 		const sent = this.deps.sendToHost({
 			type: this.frameType("ack"),
@@ -468,43 +476,54 @@ export class AgentRelayCore<
 		if (sent) progress.committedThrough = through;
 	}
 
-	private defer(held: HeldFrame<TEvent, TReceipt>): void {
+	/** False means frame dropped. */
+	private defer(held: HeldFrame<TEvent, TReceipt>): boolean {
 		const key = agentKey(held.message.ownerKey, held.message.agentId);
 		const queue = this.deferred.get(key) ?? [];
-		if (queue.some((existing) => sameFrame(existing, held))) return;
+		if (queue.some((existing) => sameFrame(existing, held))) return true;
 		queue.push(held);
 		this.deferred.set(key, queue);
+		let kept = true;
 		while (queue.length > MAX_DEFERRED_PER_AGENT) {
 			// Only commentary is dropped: anything else is an outcome.
 			const index = queue.findIndex((candidate) => candidate.message.kind === "activity");
 			if (index < 0) break;
-			queue.splice(index, 1);
+			const [dropped] = queue.splice(index, 1);
+			if (dropped === held) kept = false;
+			else if (dropped && isFenced(dropped.message)) this.advance(dropped.message, "decided");
 		}
+		return kept;
 	}
 
-	private drainDeferred(ownerKey: string, agentId: string): void {
+	/** Unplaced retries stay unacknowledged. */
+	private retryHeld(ownerKey: string, agentId: string): void {
 		const key = agentKey(ownerKey, agentId);
-		const queue = this.deferred.get(key);
-		this.deferred.delete(key);
-		// Reconciliation settles held frames.
-		for (const [streamId, progress] of this.streams) {
-			for (const [eventId, owner] of progress.undecided) {
-				if (owner === key) progress.undecided.delete(eventId);
-			}
-			this.releaseStream(streamId, progress);
+		if (this.retrying.has(key)) {
+			this.retryAgain.add(key);
+			return;
 		}
-		if (!queue?.length) return;
-		// Replay in event order.
-		for (const held of [...queue].sort((left, right) => left.message.eventId - right.message.eventId)) {
-			if (held.frame === "event") this.reduceEvent(held.message, true);
-			else this.reduceReceipt(held.message);
+		this.retrying.add(key);
+		try {
+			do {
+				this.retryAgain.delete(key);
+				const queue = this.deferred.get(key);
+				if (!queue?.length) return;
+				this.deferred.delete(key);
+				for (const held of [...queue].sort((left, right) => left.message.eventId - right.message.eventId)) {
+					try {
+						if (held.frame === "event") this.reduceEvent(held.message, true);
+						else this.reduceReceipt(held.message);
+					} catch (error) {
+						// Thrown before deciding: still held.
+						this.defer(held);
+						console.error(`[${this.family.backendId}-relay] retrying a held frame failed:`, error);
+					}
+				}
+			} while (this.retryAgain.has(key));
+		} finally {
+			this.retrying.delete(key);
+			this.retryAgain.delete(key);
 		}
-	}
-
-	private releaseStream(streamId: string, progress: StreamProgress): void {
-		const [daemonInstanceId, targetId, generation] = streamId.split(" ");
-		if (!daemonInstanceId || !targetId || generation === undefined) return;
-		this.acknowledge({ daemonInstanceId, targetId, generation: Number(generation) }, progress);
 	}
 
 	private isAskable(ownerKey: string, agent: TAgent): boolean {
@@ -531,12 +550,7 @@ export class AgentRelayCore<
 			this.askAgain(ownerKey, agent.agentId, previousAsk.askedAt + RECONCILE_GUARD_MS - now);
 			return;
 		}
-		const requestId = this.deps.ambient.newId();
-		this.reconciling.set(key, { requestId, askedAt: now });
-		if (!this.send(requestId, request)) {
-			this.reconciling.delete(key);
-			return;
-		}
+		if (!this.send(this.deps.ambient.newId(), request)) return;
 		this.lastReconcileAskedAt.set(key, { daemonInstanceId, askedAt: now });
 	}
 
@@ -561,7 +575,14 @@ export class AgentRelayCore<
 
 	private notifyChanged(ownerKey: string, agentId: string, application: AgentApplication<TAgent>): void {
 		if (application.disposition !== "applied") return;
-		for (const listener of this.listeners.get(agentKey(ownerKey, agentId)) ?? []) listener();
+		for (const listener of this.listeners.get(agentKey(ownerKey, agentId)) ?? []) {
+			// A listener's throw must not undo a decided frame.
+			try {
+				listener();
+			} catch (error) {
+				console.error(`[${this.family.backendId}-relay] an agent change listener failed:`, error);
+			}
+		}
 	}
 
 	/** Serialize reducers per agent. */

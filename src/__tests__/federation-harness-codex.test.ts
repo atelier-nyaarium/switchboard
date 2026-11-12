@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { AgentDaemonEvent, AgentDaemonReceipt } from "../shared/agent-wire.js";
 import { composeSessionName } from "../shared/session-id.js";
-import { type AgentResponder, stockAgentResponder } from "../testing/fakeHost.js";
+import { attachFakeHost } from "../testing/fakeHost.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
+import type { ScriptedTurn } from "../testing/scriptedAgents.js";
 
 interface AgentAnswer {
 	agentId: string;
@@ -65,6 +65,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			`an ended turn for ${agentId}`,
 			10_000,
 		);
+	const backend = () => h.agents.of("codex");
+	/** Leaves turn running. */
+	const running = (turn: ScriptedTurn): void => turn.activity("working");
 	let alice: FakeSession;
 	let carol: FakeSession;
 
@@ -112,8 +115,8 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			{ state: "completed", finalResponse: "done: first" },
 			{ state: "completed", finalResponse: "done: second" },
 		]);
-		const thread = h.host.agentCommands("codex").find((c) => c.kind === "message" && c.agentId === started.agentId);
-		expect(thread).toMatchObject({ sessionId: `session-${started.agentId}` });
+		const [first, second] = backend().turns.filter((turn) => ["first", "second"].includes(turn.prompt));
+		expect(second?.threadId).toBe(first?.threadId);
 
 		const again = await codex(alice, {
 			kind: "message",
@@ -155,44 +158,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 	});
 
 	it("interrupts a running turn and collects its terminal result", async () => {
-		const running: AgentResponder = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if (command.kind === "start") return stockAgentResponder(command, daemon, backend)?.slice(0, 2);
-			if (command.kind === "interrupt") {
-				const base = {
-					ownerKey: command.ownerKey,
-					daemonInstanceId: daemon.daemonInstanceId,
-					agentId: command.agentId,
-				};
-				const fence = { targetId: command.target.targetId, generation: daemon.generation };
-				return [
-					{
-						type: "codex_receipt",
-						requestId: command.requestId,
-						...base,
-						...fence,
-						eventId: daemon.nextEventId(fence.targetId),
-						kind: "interruptResult",
-						operationId: command.operationId,
-						sessionId: command.sessionId,
-						turnId: command.turnId,
-						ok: true,
-					},
-					{
-						type: "codex_event",
-						...base,
-						...fence,
-						eventId: daemon.nextEventId(fence.targetId),
-						sessionId: command.sessionId,
-						kind: "terminal",
-						turnId: command.turnId,
-						state: "interrupted",
-					},
-				];
-			}
-			return stockAgentResponder(command, daemon, backend);
-		};
-		h.host.handlers.onAgentCommand = running;
+		backend().onTurn = running;
 		try {
 			const startId = operationId();
 			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "long task" });
@@ -217,32 +183,43 @@ describe("Codex delegation through the gateway and the daemon", () => {
 				agentId: working.agentId,
 			});
 		} finally {
-			h.host.handlers.onAgentCommand = undefined;
+			backend().onTurn = undefined;
 		}
 	});
 
-	it("keeps one turn when the daemon replays its reliable frames", async () => {
-		const replayed: Array<AgentDaemonEvent | AgentDaemonReceipt> = [];
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			const frames = stockAgentResponder(command, daemon, backend) ?? [];
-			if (command.kind === "start") replayed.push(...(frames as Array<AgentDaemonEvent | AgentDaemonReceipt>));
-			return frames;
-		};
-		try {
-			const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "replay me" });
-			for (const frame of replayed) h.host.sendAgent("codex", frame);
+	it("keeps one turn when the daemon replays frames whose acknowledgements were lost", async () => {
+		h.host.handlers.loseAgentAcks = true;
+		const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "replay me" });
+		await h.waitFor(async () => {
 			const listed = (await (await alice.post("/codex", { kind: "list" })).json()) as {
-				agents: Array<{ agentId: string; uncollected: number; turnCount: number }>;
+				agents: Array<{ agentId: string; uncollected: number }>;
 			};
-			const agent = listed.agents.find((candidate) => candidate.agentId === started.agentId);
-			expect(agent).toMatchObject({ uncollected: 1, turnCount: 1 });
-			expect(await collectUntilTurn(alice, started.agentId)).toMatchObject({
-				turns: [{ id: started.turn?.id, state: "completed" }],
-			});
-		} finally {
-			h.host.handlers.onAgentCommand = undefined;
-		}
+			return listed.agents.some((agent) => agent.agentId === started.agentId && agent.uncollected === 1);
+		}, "the turn's end on the first link");
+
+		h.restartHost();
+		// Commentary is transient.
+		const replayed = h.host.daemonFrames.filter((frame) => frame.turnId === started.turn?.id);
+		expect(replayed.map((frame) => frame.kind)).toEqual(["accepted", "terminal"]);
+		const listed = (await (await alice.post("/codex", { kind: "list" })).json()) as {
+			agents: Array<{ agentId: string; uncollected: number; turnCount: number }>;
+		};
+		expect(listed.agents.find((agent) => agent.agentId === started.agentId)).toMatchObject({
+			uncollected: 1,
+			turnCount: 1,
+		});
+		expect(await collectUntilTurn(alice, started.agentId)).toMatchObject({
+			turns: [{ id: started.turn?.id, state: "completed" }],
+		});
+
+		// Ack clears replay buffers.
+		const ended = Number(replayed.at(-1)?.eventId);
+		await h.waitFor(
+			() => h.host.frames.some((frame) => frame.type === "codex_ack" && Number(frame.throughEventId) >= ended),
+			"the repeated acknowledgement",
+		);
+		h.restartHost();
+		expect(h.host.daemonFrames.filter((frame) => frame.turnId === started.turn?.id)).toEqual([]);
 	});
 
 	it("survives a gateway restart and collects a new message", async () => {
@@ -301,41 +278,29 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		expect(ended.at(-1)).toMatchObject({ state: "completed", finalResponse: "done: who are you now?" });
 	});
 
-	it("abandons an old daemon's pending start before the new host catalog", async () => {
-		h.host.handlers.onAgentCommand = (command, daemon, backend) =>
-			backend === "codex" ? undefined : stockAgentResponder(command, daemon, backend);
-		try {
-			const startId = operationId();
-			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "hold for restart" });
-			await h.waitFor(
-				() =>
-					h.host
-						.agentCommands("codex")
-						.find((command) => "operationId" in command && command.operationId === startId) || undefined,
-				"start dispatch on the first daemon",
-			);
-			const firstDaemonId = h.host.daemon.daemonInstanceId;
-			h.restartHost({ newDaemon: true });
-			const secondHost = h.host;
+	it("abandons an old daemon's unanswered start, and never sends it to the new daemon", async () => {
+		h.host.handlers.loseAgentFrames = true;
+		const startId = operationId();
+		const starting = codex(alice, { kind: "start", operationId: startId, prompt: "hold for restart" });
+		await h.waitFor(
+			() => backend().turns.some((turn) => turn.prompt === "hold for restart") || undefined,
+			"the start on the first daemon",
+		);
+		const firstDaemonId = h.host.daemonInstanceId;
+		h.restartHost({ newDaemon: true });
+		const secondHost = h.host;
 
-			expect(secondHost.daemon.daemonInstanceId).not.toBe(firstDaemonId);
-			expect(await starting).toMatchObject({ agentState: "unavailable", observation: "indeterminate" });
-			expect(
-				secondHost
-					.agentCommands("codex")
-					.filter((command) => "operationId" in command && command.operationId === startId),
-			).toHaveLength(0);
-		} finally {
-			h.host.handlers.onAgentCommand = undefined;
-		}
+		expect(secondHost.daemonInstanceId).not.toBe(firstDaemonId);
+		expect(await starting).toMatchObject({ agentState: "unavailable", observation: "indeterminate" });
+		expect(
+			secondHost
+				.agentCommands("codex")
+				.filter((command) => "operationId" in command && command.operationId === startId),
+		).toHaveLength(0);
 	});
 
 	it("collects a Codex turn lost when its daemon restarts", async () => {
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			const frames = stockAgentResponder(command, daemon, backend) ?? [];
-			return command.kind === "start" ? frames.slice(0, 1) : frames;
-		};
+		backend().onTurn = running;
 		try {
 			const started = await codex(alice, {
 				kind: "start",
@@ -349,36 +314,43 @@ describe("Codex delegation through the gateway and the daemon", () => {
 				{ state: "interrupted", reason: "turn lost: its agent process ended" },
 			]);
 		} finally {
-			h.host.handlers.onAgentCommand = undefined;
+			backend().onTurn = undefined;
+		}
+	});
+
+	it("ends a running turn when its child exits, and runs the next message on a fresh child", async () => {
+		backend().onTurn = running;
+		const launches = backend().launches;
+		try {
+			const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "crash under me" });
+			expect(started).toMatchObject({ agentState: "working", turn: { state: "inProgress" } });
+			h.agents.exitChild("codex");
+			const lost = await collectUntilTurn(alice, started.agentId);
+			expect(lost.turns).toMatchObject([{ id: started.turn?.id, state: "interrupted" }]);
+
+			h.agents.skip(5_000);
+			backend().onTurn = undefined;
+			const next = await codex(alice, {
+				kind: "message",
+				operationId: operationId(),
+				agentId: started.agentId,
+				prompt: "on the new child",
+			});
+			expect(next).toMatchObject({ delivery: "followup" });
+			const collected = await collectUntilTurn(alice, started.agentId);
+			expect(collected.turns?.at(-1)).toMatchObject({
+				state: "completed",
+				finalResponse: "done: on the new child",
+			});
+			expect(backend().launches).toBe(launches + 1);
+		} finally {
+			backend().onTurn = undefined;
 		}
 	});
 
 	it("clears an accepted stop when its turn is lost and accepts a later message", async () => {
-		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if (command.kind === "start") return (stockAgentResponder(command, daemon, backend) ?? []).slice(0, 1);
-			if (command.kind === "interrupt") {
-				const targetId = command.target.targetId;
-				return [
-					{
-						type: "codex_receipt",
-						kind: "interruptResult",
-						requestId: command.requestId,
-						ownerKey: command.ownerKey,
-						daemonInstanceId: daemon.daemonInstanceId,
-						targetId,
-						generation: daemon.generation,
-						eventId: daemon.nextEventId(targetId),
-						agentId: command.agentId,
-						operationId: command.operationId,
-						sessionId: command.sessionId,
-						turnId: command.turnId,
-						ok: true,
-					},
-				];
-			}
-			return stockAgentResponder(command, daemon, backend);
-		};
+		backend().onTurn = running;
+		backend().onInterrupt = () => {};
 		try {
 			const caller = alice;
 			const started = await codex(caller, {
@@ -395,157 +367,111 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			h.restartHost({ newDaemon: true });
 			const lost = await collectUntilTurn(caller, started.agentId);
 			expect(lost.turns).toMatchObject([{ state: "interrupted" }]);
-			const messageId = operationId();
+			backend().onTurn = undefined;
 			const next = await codex(caller, {
 				kind: "message",
-				operationId: messageId,
+				operationId: operationId(),
 				agentId: started.agentId,
 				prompt: "continue after restart",
 			});
-			expect(next).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
+			expect(next).toMatchObject({ delivery: "followup" });
 			const collected = await collectUntilTurn(caller, started.agentId);
 			expect(collected.turns?.at(-1)).toMatchObject({
 				state: "completed",
 				finalResponse: "done: continue after restart",
 			});
 		} finally {
-			h.host.handlers.onAgentCommand = undefined;
+			backend().onTurn = undefined;
+			backend().onInterrupt = undefined;
 		}
 	});
 
-	it("resends lost start, message, and stop answers once per operation", async () => {
-		const answers = new Map<string, AgentDaemonReceipt[]>();
-		const takes = new Map<string, number>();
-		const responder: AgentResponder = (command, daemon, backend) => {
-			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
-			if (command.kind === "reconcile") return stockAgentResponder(command, daemon, backend);
-			const previous = answers.get(command.operationId);
-			if (previous) return previous;
-			takes.set(command.operationId, (takes.get(command.operationId) ?? 0) + 1);
-			const resolvedTarget = command.kind === "start" ? daemon.resolve(command.target) : command.target;
-			const sessionId = command.kind === "start" ? `session-${command.agentId}` : command.sessionId;
-			const turnId =
-				command.kind === "interrupt"
-					? command.turnId
-					: command.kind === "message" && command.expectedTurnId
-						? command.expectedTurnId
-						: `turn-${command.operationId}`;
-			const common = {
-				type: "codex_receipt" as const,
-				requestId: command.requestId,
-				ownerKey: command.ownerKey,
-				daemonInstanceId: daemon.daemonInstanceId,
-				targetId: resolvedTarget.targetId,
-				generation: daemon.generation,
-				eventId: daemon.nextEventId(resolvedTarget.targetId),
-				agentId: command.agentId,
-			};
-			const answer: AgentDaemonReceipt =
-				command.kind === "interrupt"
-					? {
-							...common,
-							kind: "interruptResult",
-							operationId: command.operationId,
-							sessionId: command.sessionId,
-							turnId,
-							ok: true,
-						}
-					: {
-							...common,
-							kind: "accepted",
-							operationId: command.operationId,
-							resolvedTarget,
-							sessionId,
-							turnId,
-							delivery: command.kind === "start" ? "started" : "steered",
-						};
-			answers.set(command.operationId, [answer]);
-			return undefined;
-		};
-		h.host.handlers.onAgentCommand = responder;
+	it("runs a start, a message and a stop once each when the link loses their answers", async () => {
+		backend().onTurn = running;
 		try {
-			const startId = operationId();
-			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "start once" });
-			await h.waitFor(
-				() =>
-					h.host
-						.agentCommands("codex")
-						.some((command) => "operationId" in command && command.operationId === startId) || undefined,
-				"first start dispatch",
+			h.host.handlers.loseAgentFrames = true;
+			const starting = codex(alice, { kind: "start", operationId: operationId(), prompt: "start once" });
+			const turn = await h.waitFor(
+				() => backend().turns.find((held) => held.prompt === "start once"),
+				"the start on the daemon",
 			);
-			const firstHost = h.host;
 			h.restartHost();
-			const secondHost = h.host;
 			const started = await starting;
-			expect(started).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
-			expect(
-				secondHost
-					.agentCommands("codex")
-					.filter((command) => "operationId" in command && command.operationId === startId),
-			).toHaveLength(1);
+			expect(started).toMatchObject({ observation: "accepted", turn: { id: turn.turnId, state: "inProgress" } });
 
-			const messageId = operationId();
+			h.host.handlers.loseAgentFrames = true;
 			const messaging = codex(alice, {
 				kind: "message",
-				operationId: messageId,
+				operationId: operationId(),
 				agentId: started.agentId,
 				prompt: "message once",
 			});
-			await h.waitFor(
-				() =>
-					secondHost
-						.agentCommands("codex")
-						.some((command) => "operationId" in command && command.operationId === messageId) || undefined,
-				"first message dispatch",
-			);
+			await h.waitFor(() => turn.steers.length > 0 || undefined, "the message on the daemon");
 			h.restartHost();
-			const thirdHost = h.host;
-			const messaged = await messaging;
-			expect(messaged).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
-			expect(
-				thirdHost
-					.agentCommands("codex")
-					.filter((command) => "operationId" in command && command.operationId === messageId),
-			).toHaveLength(1);
+			expect(await messaging).toMatchObject({ turn: { id: turn.turnId }, delivery: "steered" });
 
-			const stopId = operationId();
-			const stopped = await codex(alice, { kind: "stop", operationId: stopId, agentId: started.agentId });
+			h.host.handlers.loseAgentFrames = true;
+			const stopped = await codex(alice, { kind: "stop", operationId: operationId(), agentId: started.agentId });
 			expect(stopped).toMatchObject({ observation: "interruptRequested" });
-			await h.waitFor(
-				() =>
-					thirdHost
-						.agentCommands("codex")
-						.some((command) => "operationId" in command && command.operationId === stopId) || undefined,
-				"first stop dispatch",
-			);
+			await h.waitFor(() => turn.interrupts > 0 || undefined, "the stop on the daemon");
 			h.restartHost();
-			const fourthHost = h.host;
-			await h.waitFor(
-				() =>
-					fourthHost
-						.agentCommands("codex")
-						.some((command) => "operationId" in command && command.operationId === stopId) || undefined,
-				"resent stop dispatch",
-			);
-			expect(
-				fourthHost
-					.agentCommands("codex")
-					.filter((command) => "operationId" in command && command.operationId === stopId),
-			).toHaveLength(1);
-			expect(takes).toEqual(
-				new Map([
-					[startId, 1],
-					[messageId, 1],
-					[stopId, 1],
-				]),
-			);
-			expect(
-				firstHost
-					.agentCommands("codex")
-					.filter((command) => "operationId" in command && command.operationId === startId),
-			).toHaveLength(1);
+			const collected = await collectUntilTurn(alice, started.agentId);
+			expect(collected.turns).toMatchObject([{ id: turn.turnId, state: "interrupted" }]);
+
+			// Replay resends are idempotent.
+			expect(backend().turns.filter((held) => held.prompt === "start once")).toHaveLength(1);
+			expect(turn.steers).toEqual(["message once"]);
+			expect(turn.interrupts).toBe(1);
 		} finally {
-			h.host.handlers.onAgentCommand = undefined;
+			backend().onTurn = undefined;
+		}
+	});
+
+	it("answers a refused start from the daemon's own record when the link lost the refusal", async () => {
+		const startId = operationId();
+		const turns = backend().turns.length;
+		backend().startError = new Error("model is not offered");
+		h.host.handlers.loseAgentFrames = true;
+		const starting = codex(alice, { kind: "start", operationId: startId, prompt: "refuse me once" });
+		await h.waitFor(() => backend().startError === undefined || undefined, "the refused start on the daemon");
+
+		// Gateway retries refusals.
+		h.restartHost();
+
+		expect(await starting).toMatchObject({ agentState: "unavailable" });
+		const resent = h.host
+			.agentCommands("codex")
+			.filter((command) => "operationId" in command && command.operationId === startId);
+		expect(resent).toHaveLength(1);
+		expect(backend().turns).toHaveLength(turns);
+	});
+
+	it("drops an agent frame that arrives on a host socket another has replaced", async () => {
+		const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "before a new host" });
+		await collectUntilTurn(alice, started.agentId);
+		const first = h.host;
+		const ended = first.daemonFrames.findLast(
+			(frame) => frame.turnId === started.turn?.id && frame.kind === "terminal",
+		);
+		if (!ended) throw new Error("the turn's terminal never crossed the link");
+		// The Gateway has not heard the first link close.
+		first.vanish();
+		const second = attachFakeHost(h.gateway, { token: h.set.tokens.host });
+		try {
+			const acknowledged = () =>
+				second.frames.filter(
+					(frame) => frame.type === "codex_ack" && frame.daemonInstanceId === first.daemonInstanceId,
+				);
+
+			// Frames apply in arrival order, so the live socket's answer follows the replaced one's.
+			first.sendFrame(ended);
+			second.sendFrame(ended);
+			await h.waitFor(() => acknowledged().length > 0 || undefined, "the live socket's acknowledgement");
+
+			expect(acknowledged()).toHaveLength(1);
+		} finally {
+			second.close();
+			h.restartHost();
 		}
 	});
 });

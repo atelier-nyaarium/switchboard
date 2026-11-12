@@ -622,6 +622,59 @@ describe("the agent gateway route", () => {
 		expect(listed.agents[0]).toMatchObject({ running: false, turnCount: 2 });
 	});
 
+	it("decides an event that can never be placed, and asks nothing about it", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const start = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await terminal(context, agentId, "turn-1", 1);
+		await start;
+		const relaunched = { daemonInstanceId: "daemon-1", generation: 2 };
+		await hello(context, relaunched.daemonInstanceId, relaunched.generation);
+		const message = context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: MESSAGE_OPERATION_ID,
+			agentId,
+			prompt: "Continue",
+		});
+		await flush();
+		await accept(context, MESSAGE_OPERATION_ID, "turn-2", 0, "started", relaunched);
+		await message;
+		const asks = () =>
+			context.sent.filter((frame) => frame.type === "copilot_command" && frame.kind === "reconcile").length;
+		const asked = asks();
+		const activity = (generation: number, eventId: number, turnId: string) => ({
+			type: "copilot_event",
+			kind: "activity",
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-1",
+			targetId: "container:recipe-app",
+			generation,
+			eventId,
+			agentId,
+			sessionId: "session-1",
+			turnId,
+			itemId: `late-${generation}`,
+			text: "late",
+		});
+
+		context.relay.handleHostMessage(activity(1, 5, "turn-lost"));
+		context.relay.handleHostMessage(activity(3, 0, "turn-1"));
+		await flush();
+
+		const acknowledged = context.sent
+			.filter((frame) => frame.type === "copilot_ack")
+			.map((frame) => [frame.generation, frame.throughEventId]);
+		expect(acknowledged).toContainEqual([1, 5]);
+		expect(acknowledged).toContainEqual([3, 0]);
+		expect(asks()).toBe(asked);
+	});
+
 	it("takes a new turn for a steer whose turn ended under it", async () => {
 		const context = setup();
 		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
@@ -1136,6 +1189,63 @@ describe("the agent gateway route", () => {
 			{ id: "turn-1", state: "interrupted" },
 			{ id: "turn-2", state: "completed", finalResponse: "Lexer done." },
 		]);
+	});
+
+	it("holds a new daemon's turn unacknowledged until the old turn's end lets it be placed", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+
+		const relaunched = { daemonInstanceId: "daemon-2", generation: 1 };
+		context.registerHost("daemon-2");
+		const message = context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: MESSAGE_OPERATION_ID,
+			agentId,
+			prompt: "Also the lexer",
+		});
+		await flush();
+		await accept(context, MESSAGE_OPERATION_ID, "turn-2", 0, "started", relaunched);
+		await terminal(context, agentId, "turn-2", 1, "Lexer done.", relaunched);
+		const reconcile = context.sent.findLast(
+			(frame) => frame.type === "copilot_command" && frame.kind === "reconcile",
+		);
+		const acked = () =>
+			context.sent.flatMap((frame) =>
+				frame.type === "copilot_ack" && frame.daemonInstanceId === "daemon-2" ? [frame.throughEventId] : [],
+			);
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: reconcile!.requestId,
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			...relaunched,
+			targetId: "container:recipe-app",
+			eventId: 2,
+			agentId,
+			resolvedTarget: { kind: "devcontainer", targetId: "container:recipe-app", cwd: "/workspace/recipe-app" },
+			sessionId: "session-1",
+			turnId: "turn-1",
+			turnState: "completed",
+		});
+		await flush();
+		expect(acked()).toEqual([]);
+
+		await terminal(context, agentId, "turn-1", 3, "Parser done.", relaunched);
+		expect(await (await message).json()).toMatchObject({ turn: { id: "turn-2" }, delivery: "followup" });
+		const collected = await collectUntilSettled(context, agentId);
+		expect(collected.turns).toMatchObject([
+			{ id: "turn-1", state: "completed", finalResponse: "Parser done." },
+			{ id: "turn-2", state: "completed", finalResponse: "Lexer done." },
+		]);
+		expect(acked().at(-1)).toBe(3);
 	});
 
 	it("reasks after a refused reconciliation and settles the lost turn", async () => {

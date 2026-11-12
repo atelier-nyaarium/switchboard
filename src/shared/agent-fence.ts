@@ -63,14 +63,23 @@ export function advancesFence(current: AgentFence | undefined, next: AgentFence)
 	return classifyAcceptanceFence(current, next) === "advances";
 }
 
+/** Retired generations never return. */
+export function retiredGeneration(current: AgentFence | undefined, next: AgentFence): boolean {
+	return (
+		current !== undefined &&
+		current.daemonInstanceId === next.daemonInstanceId &&
+		current.targetId === next.targetId &&
+		next.generation < current.generation
+	);
+}
+
 /** Adopts another stream; an older generation of the same one is stale. */
 export function classifyReconciliationFence(
 	current: AgentFence | undefined,
 	next: AgentFence,
 ): "adopts" | "duplicate" | "stale" {
 	if (!current) return "adopts";
-	const sameTarget = current.daemonInstanceId === next.daemonInstanceId && current.targetId === next.targetId;
-	if (sameTarget && next.generation < current.generation) return "stale";
+	if (retiredGeneration(current, next)) return "stale";
 	return classifyAcceptanceFence(current, next) === "duplicate" ? "duplicate" : "adopts";
 }
 

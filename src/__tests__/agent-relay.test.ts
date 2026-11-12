@@ -31,6 +31,7 @@ type ApplicationFactory = (
 	owner: SessionRecord,
 	agent: PersistedAgent,
 	message: AgentDaemonEvent | AgentDaemonReceipt,
+	held?: boolean,
 ) => AgentApplication<PersistedAgent>;
 
 interface SetupOptions {
@@ -183,9 +184,9 @@ function setup(options: SetupOptions = {}) {
 	} as unknown as SessionStore;
 	const service = {
 		listOwnedAgents: () => [agent],
-		applyEvent: (event: AgentDaemonEvent) => {
+		applyEvent: (event: AgentDaemonEvent, _at: number, held?: boolean) => {
 			eventCalls.push(event);
-			return options.onEvent?.(OWNER, agent, event) ?? applied(OWNER, agent);
+			return options.onEvent?.(OWNER, agent, event, held) ?? applied(OWNER, agent);
 		},
 		applyReceipt: (receipt: AgentDaemonReceipt) => {
 			receiptCalls.push(receipt);
@@ -275,7 +276,7 @@ describe("Copilot relay acknowledgement", () => {
 		});
 	});
 
-	it("releases a held event only on the answer to its own reconciliation", async () => {
+	it("keeps a held event unacknowledged until a later frame lets it be placed", async () => {
 		let hold = true;
 		const context = setup({
 			onEvent: (owner, agent) => (hold ? reconcile(owner, agent) : applied(owner, agent)),
@@ -283,27 +284,109 @@ describe("Copilot relay acknowledgement", () => {
 
 		context.relay.handleHostMessage(eventFrame(4));
 		await settleRelay();
-		hold = false;
-		context.relay.handleHostMessage(
-			COPILOT_WIRE.receipt.parse({
-				type: "copilot_receipt",
-				kind: "rejected",
-				requestId: REQUEST_ID,
-				ownerKey: OWNER_KEY,
-				daemonInstanceId: DAEMON_INSTANCE_ID,
-				agentId: AGENT_ID,
-				eventId: 0,
-				error: "target unavailable",
-			}),
-		);
-		context.relay.handleHostMessage(reconciledReceipt(5));
+		const command = messagesOf(context, "copilot_command")[0];
+		context.relay.handleHostMessage(reconciledReceipt(5, command?.requestId));
 		await settleRelay();
 		expect(messagesOf(context, "copilot_ack").some((ack) => (ack.throughEventId as number) >= 4)).toBe(false);
 
-		const command = messagesOf(context, "copilot_command")[0];
-		context.relay.handleHostMessage(reconciledReceipt(6, command?.requestId));
+		hold = false;
+		context.relay.handleHostMessage(reconciledReceipt(6));
 		await settleRelay();
 		expect(messagesOf(context, "copilot_ack").at(-1)?.throughEventId).toBe(6);
+	});
+
+	it("does not acknowledge a held event because the daemon replayed it", async () => {
+		let replaying = false;
+		const context = setup({
+			onEvent: (owner, agent, _event, held) =>
+				replaying && !held ? { disposition: "ignored", reason: "duplicate" } : reconcile(owner, agent),
+		});
+		context.relay.handleHostMessage(eventFrame(4));
+		await settleRelay();
+
+		replaying = true;
+		context.relay.handleHostMessage(eventFrame(4));
+		await settleRelay();
+
+		expect(messagesOf(context, "copilot_ack").some((ack) => (ack.throughEventId as number) >= 4)).toBe(false);
+	});
+
+	it("applies the held copy when the daemon replays its frame", async () => {
+		let replaying = false;
+		const context = setup({
+			onEvent: (owner, agent, _event, held) => {
+				if (!replaying) return reconcile(owner, agent);
+				return held ? applied(owner, agent) : { disposition: "ignored", reason: "duplicate" };
+			},
+		});
+		let changes = 0;
+		context.relay.onAgentChange(OWNER_KEY, AGENT_ID, () => {
+			changes += 1;
+		});
+		context.relay.handleHostMessage(eventFrame(4));
+		await settleRelay();
+
+		replaying = true;
+		context.relay.handleHostMessage(eventFrame(4));
+		await settleRelay();
+
+		expect(changes).toBe(1);
+		expect(messagesOf(context, "copilot_ack").at(-1)?.throughEventId).toBe(4);
+	});
+
+	it("acknowledges again when the daemon replays a frame it was already told to drop", async () => {
+		const context = setup();
+		context.relay.handleHostMessage(eventFrame(7));
+		await settleRelay();
+
+		context.relay.handleHostMessage(eventFrame(7));
+		await settleRelay();
+
+		expect(messagesOf(context, "copilot_ack").map((ack) => ack.throughEventId)).toEqual([7, 7]);
+	});
+
+	it("places a held frame once when a change listener throws", async () => {
+		let hold = true;
+		const context = setup({
+			onEvent: (owner, agent) => (hold ? reconcile(owner, agent) : applied(owner, agent)),
+		});
+		context.relay.onAgentChange(OWNER_KEY, AGENT_ID, () => {
+			throw new Error("listener bug");
+		});
+		context.relay.handleHostMessage(eventFrame(4));
+		await settleRelay();
+
+		hold = false;
+		context.relay.handleHostMessage(reconciledReceipt(5));
+		context.relay.handleHostMessage(reconciledReceipt(6));
+		await settleRelay();
+
+		expect(messagesOf(context, "copilot_ack").at(-1)?.throughEventId).toBe(6);
+		// The held event's first judging, then one application.
+		expect(context.eventCalls).toHaveLength(2);
+	});
+
+	it("keeps a held frame whose retry throws, and still places it later", async () => {
+		let mode: "hold" | "throw" | "apply" = "hold";
+		const context = setup({
+			onEvent: (owner, agent, event) => {
+				if (mode === "hold") return reconcile(owner, agent);
+				if (mode === "throw" && event.eventId === 4) throw new Error("reducer bug");
+				return applied(owner, agent);
+			},
+		});
+		context.relay.handleHostMessage(eventFrame(4));
+		context.relay.handleHostMessage(eventFrame(5));
+		await settleRelay();
+
+		mode = "throw";
+		context.relay.handleHostMessage(reconciledReceipt(6));
+		await settleRelay();
+		mode = "apply";
+		context.relay.handleHostMessage(reconciledReceipt(7));
+		await settleRelay();
+
+		expect(messagesOf(context, "copilot_ack").at(-1)?.throughEventId).toBe(7);
 	});
 
 	it("evicts activity before terminal and receipt frames", async () => {

@@ -57,7 +57,8 @@ export interface WebSocketDeps {
 	onRestartPending?: (team: string, pending: boolean) => void;
 	onVirtualPeerEvicted?: (conversationId: string) => void;
 	onDaemonCapabilities?: (capabilities: Capability[]) => void;
-	onAgentHostMessage?: (backend: AgentBackendId, msg: Record<string, unknown>) => void;
+	/** `socket` is the one the frame arrived on. */
+	onAgentHostMessage?: (backend: AgentBackendId, msg: Record<string, unknown>, socket: object) => void;
 	onClaudeTurnResult?: (frame: ClaudeTurnResultFrame, socket: ServerWebSocket<WsData>) => Promise<void>;
 	sessionStore?: SessionStore;
 	auth?: SessionAuthority;
