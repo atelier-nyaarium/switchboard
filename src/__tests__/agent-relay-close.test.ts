@@ -265,9 +265,27 @@ describe("a hold nothing places is closed at its limit", () => {
 		await context.hello(3);
 		expect(context.asks()).toHaveLength(0);
 
+		context.setReaches(false);
 		await context.accepted(0, START, "turn-1");
-
 		expect(context.agent().agentState).toBe("working");
+		expect(context.asks()).toHaveLength(0);
+
+		// The ask that did not get out goes at the next tick, once.
+		context.setReaches(true);
+		context.relay.reconcileStale(context.owner);
+		context.relay.reconcileStale(context.owner);
+		expect(context.asks()).toHaveLength(1);
+
+		// A later turn on the same stream is not asked about.
+		await context.terminal(1, "turn-1");
+		context.service.beginMessage(context.owner, {
+			agentId: AGENT,
+			operationId: FOLLOW_UP,
+			daemonInstanceId: DAEMON,
+			prompt: "more",
+			at: context.ambient.now(),
+		});
+		await context.accepted(2, FOLLOW_UP, "turn-2");
 		expect(context.asks()).toHaveLength(1);
 	});
 

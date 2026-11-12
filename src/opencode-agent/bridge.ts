@@ -401,6 +401,14 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 		return rows.flatMap((row) => stringOf(recordOf(row)?.id) ?? []);
 	};
 
+	/** Undefined when the inbox cannot be read. */
+	const queuedIn = async (threadId: string, promptId: string): Promise<boolean | undefined> => {
+		const { status, data } = await call("GET", `/api/session/${threadId}/inbox`);
+		if (status !== 200) return undefined;
+		const rows = recordOf(data)?.data;
+		return Array.isArray(rows) && rows.some((row) => stringOf(recordOf(row)?.id) === promptId);
+	};
+
 	const threadFor = (threadId: string): ThreadState => {
 		const held = threads.get(threadId);
 		if (!held) throw new BridgeFailure("not_found", "the OpenCode session is not open");
@@ -496,9 +504,12 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 			} catch {
 				// Unread: the next stream connection settles it.
 			}
-			if (ended && thread.active?.turnId === waiter.turnId) settle(thread, thread.active, ended, false);
+			// Its other steers are answered with it.
+			if (ended && thread.active?.turnId === waiter.turnId) settle(thread, thread.active, ended);
 		}
 		await cancelPrompt(thread.id, promptId);
+		// Unread counts as still queued.
+		let queued = true;
 		try {
 			const turns = turnsOf(await readRows(thread.id, waiter.turnId));
 			const landed = turnWithPrompt(turns, promptId);
@@ -507,16 +518,21 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 				return;
 			}
 			if (landed && !landed.idle && !thread.active) adoptTurn(thread, landed);
+			queued = (await queuedIn(thread.id, promptId)) !== false;
 		} catch {
 			// Reject below.
 		}
+		if (thread.active?.turnId !== waiter.turnId) {
+			waiter.reject(new BridgeFailure("turn_ended", "the OpenCode turn ended before the prompt was taken"));
+			return;
+		}
 		waiter.reject(
-			thread.active?.turnId === waiter.turnId
-				? new BridgeFailure(
-						"not_taken",
-						"the OpenCode turn did not take the prompt in time and is still working",
-					)
-				: new BridgeFailure("turn_ended", "the OpenCode turn ended before the prompt was taken"),
+			new BridgeFailure(
+				"not_taken",
+				queued
+					? "the OpenCode turn did not take the prompt in time, and it could not be withdrawn, so it may still land"
+					: "the OpenCode turn did not take the prompt in time and is still working",
+			),
 		);
 	};
 

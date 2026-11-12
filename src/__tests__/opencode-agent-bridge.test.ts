@@ -402,6 +402,28 @@ describe("the OpenCode bridge", () => {
 		await r.bridge.done;
 	});
 
+	it("says a timed-out steer may still land when it could not be withdrawn", async () => {
+		const r = await rig({ steerWaitMs: 200 });
+		const threadId = await open(r);
+		const turnId = promptIdOf("stuck-turn");
+		await r.result(r.send({ op: "start", threadId, turnId, prompt: "Review" }));
+		const promptId = promptIdOf("stuck-steer");
+		r.server.refuseCancel(true);
+		const steerId = r.send({ op: "steer", threadId, turnId, promptId, prompt: "Also" });
+
+		await expect(r.error(steerId)).resolves.toMatchObject({
+			type: "error",
+			code: "not_taken",
+			message: expect.stringContaining("may still land"),
+		});
+		expect(r.server.inbox(threadId)).toEqual([promptId]);
+		r.server.refuseCancel(false);
+		r.server.deliverNext(threadId);
+		r.server.finishTurn(threadId);
+		r.bridge.closed();
+		await r.bridge.done;
+	});
+
 	it("emits counters for tool rows missed across a reconnect", async () => {
 		const r = await rig();
 		const threadId = await open(r);

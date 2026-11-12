@@ -175,6 +175,8 @@ export class AgentRelayCore<
 	private helloFrom: string | undefined;
 	private stopped = false;
 	private readonly evictionsSeen = new Map<string, number>();
+	/** Agents still starting when their daemon said it dropped frames, until one ask about each goes out. */
+	private readonly lossPending = new Set<string>();
 	private readonly retrying = new Set<string>();
 	private readonly retryAgain = new Set<string>();
 	private readonly progress = new Map<string, ProgressEntry>();
@@ -306,7 +308,10 @@ export class AgentRelayCore<
 		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (liveDaemonInstanceId !== undefined && hello.daemonInstanceId !== liveDaemonInstanceId) return;
 		// Reports from prior daemons do not apply.
-		if (this.helloFrom !== hello.daemonInstanceId) this.said.clear();
+		if (this.helloFrom !== hello.daemonInstanceId) {
+			this.said.clear();
+			this.lossPending.clear();
+		}
 		this.helloFrom = hello.daemonInstanceId;
 		this.lastHelloAt = this.now();
 		const evicted = (hello.evicted ?? []).filter(
@@ -321,6 +326,9 @@ export class AgentRelayCore<
 				pending.push(
 					this.serialize(ownerKey, agent.agentId, () => {
 						const targetId = this.port.targetId(agent) ?? "";
+						// Its target is not known yet, so any dropped stream may be its own.
+						if (evicted.length > 0 && agent.agentState === "creating")
+							this.lossPending.add(agentKey(ownerKey, agent.agentId));
 						// A dropped terminal requires reconciliation.
 						const lost = agent.agentState === "working" && lossy.has(targetId);
 						if (
@@ -418,16 +426,16 @@ export class AgentRelayCore<
 		}
 	}
 
-	/** A turn opened on a stream that dropped frames: its terminal may be among them. */
+	/** A start that was pending at a lossy hello has opened its turn: its terminal may be among the dropped. */
 	private askAfterLoss(
 		ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>,
 		application: AgentApplication<TAgent>,
 	): void {
-		const { stream, daemonInstanceId } = ticket.identity;
-		if (ticket.payload.frame !== "receipt" || !stream || !inRecord(application)) return;
-		if (!this.port.modelTurn(ticket.payload.message)) return;
-		if ((this.evictionsSeen.get(this.evictionKey(daemonInstanceId, stream)) ?? 0) === 0) return;
-		this.requestReconciliation(ticket.payload.message.ownerKey, application.agent, true);
+		if (ticket.payload.frame !== "receipt" || !inRecord(application)) return;
+		const { ownerKey, agentId } = ticket.payload.message;
+		if (!this.lossPending.has(agentKey(ownerKey, agentId)) || !this.port.modelTurn(ticket.payload.message)) return;
+		// Unsent, the next persist tick asks.
+		this.requestReconciliation(ownerKey, application.agent, true);
 	}
 
 	private noteOpenTurn(key: string, application: AgentApplication<TAgent>): void {
@@ -671,6 +679,7 @@ export class AgentRelayCore<
 		const liveDaemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (!liveDaemonInstanceId || !this.isAskable(ownerKey, agent)) return false;
 		if (agent.agentState === "recovering") return true;
+		if (agent.agentState === "working" && this.lossPending.has(agentKey(ownerKey, agent.agentId))) return true;
 		return agent.agentState === "working" && this.port.fenceInstanceId(agent) !== liveDaemonInstanceId;
 	}
 
@@ -689,6 +698,7 @@ export class AgentRelayCore<
 		if (guarded && !unguarded) return false;
 		if (!this.send(this.deps.ambient.newId(), request)) return false;
 		this.lastReconcileAskedAt.set(key, { daemonInstanceId, askedAt: now });
+		this.lossPending.delete(key);
 		return true;
 	}
 

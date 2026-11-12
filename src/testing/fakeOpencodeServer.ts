@@ -84,6 +84,8 @@ export interface FakeOpencodeServer {
 	setMcp(status: "booting" | "connected" | "failed", error?: string): void;
 	/** The next requests answer this status and change nothing. */
 	failNext(status: number, times?: number): void;
+	/** A withdrawal answers 500 and leaves its prompt queued. */
+	refuseCancel(on: boolean): void;
 }
 
 interface Session {
@@ -120,6 +122,7 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 	const encoder = new TextEncoder();
 	let mcp: { status: "booting" | "connected" | "failed"; error?: string } = { status: "connected" };
 	let failing: { status: number; left: number } | null = null;
+	let refusingCancel = false;
 	const stalls: Array<{ route: string; computed: "arrival" | "release"; released: Promise<void> }> = [];
 	let minted = 0;
 
@@ -286,6 +289,7 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 				return new Response(null, { status: 204 });
 			}
 			if (method === "DELETE") {
+				if (refusingCancel) return json({ error: "InternalError" }, 500);
 				session.inbox.splice(session.inbox.indexOf(item), 1);
 				return new Response(null, { status: 204 });
 			}
@@ -486,6 +490,9 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 		},
 		failNext: (status, times = 1) => {
 			failing = { status, left: times };
+		},
+		refuseCancel: (on) => {
+			refusingCancel = on;
 		},
 	};
 }
