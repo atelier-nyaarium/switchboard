@@ -370,6 +370,13 @@ internal class ServiceNotifications(private val context: Context) {
 		NotificationManagerCompat.from(context).notify(launchFailedNotificationId(team), builder.build())
 	}
 
+	/** A launch's alert stands only while its failure is held. */
+	internal fun reconcileLaunchNotifications(held: Set<String>) {
+		val manager = context.getSystemService(NotificationManager::class.java) ?: return
+		val nmc = NotificationManagerCompat.from(context)
+		staleLaunchNotifications(manager.activeNotifications.map { it.id }, held).forEach(nmc::cancel)
+	}
+
 	/** Reconcile every team's bar notification against the live unread map, LEVEL-based (judged
 	 * fresh each emission against the actual shade contents, never against a remembered prior
 	 * emission - so a process restart's first emission converges cleanly and conflation/
@@ -680,15 +687,19 @@ internal class ServiceNotifications(private val context: Context) {
 		internal fun sessionPromptNotificationId(team: String): Int =
 			SESSION_PROMPT_ID_RANGE_START + (team.hashCode() and 0x7FFFFFFF) % SESSION_PROMPT_ID_RANGE_SIZE
 
-		// Own id range, like the others.
+		// Own id range.
 		internal const val LAUNCH_FAILED_ID_RANGE_START = 9_000_000
 		internal const val LAUNCH_FAILED_ID_RANGE_SIZE = 1_000_000
 
 		internal fun launchFailedNotificationId(team: String): Int =
 			LAUNCH_FAILED_ID_RANGE_START + (team.hashCode() and 0x7FFFFFFF) % LAUNCH_FAILED_ID_RANGE_SIZE
 
-		fun cancelLaunchFailedNotification(context: Context, team: String) {
-			NotificationManagerCompat.from(context).cancel(launchFailedNotificationId(team))
+		/** Shown launch alerts whose session holds no failure now. */
+		internal fun staleLaunchNotifications(showing: List<Int>, held: Set<String>): List<Int> {
+			val kept = held.mapTo(HashSet(), ::launchFailedNotificationId)
+			return showing.filter {
+				it >= LAUNCH_FAILED_ID_RANGE_START && it < LAUNCH_FAILED_ID_RANGE_START + LAUNCH_FAILED_ID_RANGE_SIZE && it !in kept
+			}
 		}
 
 		// Own id range, like the others.

@@ -37,6 +37,8 @@ internal interface DrainHost {
 	fun autoPlayTier(): SttsPlayer.Tier?
 	fun isSttsReady(): Boolean
 	fun onInbound(team: String, messages: List<Message>)
+	/** On disk before the cursor moves; false for a session already up. */
+	fun holdLaunchError(team: String, error: LaunchError): Boolean
 	/** A failed launch, newly held. */
 	fun onLaunchFailed(team: String, line: String)
 	fun preloadMessage(team: String, at: Long)
@@ -73,6 +75,11 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override fun autoPlayTier() = repo.playback.autoPlayTier(repo.sttsAutoPlay)
 	override fun isSttsReady() = repo.sttsReady()
 	override fun onInbound(team: String, messages: List<Message>) { repo.onInbound?.invoke(team, messages) }
+	override fun holdLaunchError(team: String, error: LaunchError): Boolean {
+		val held = repo._state.holdLaunchError(team, error)
+		if (held) repo.persistence.persistLaunchErrors()
+		return held
+	}
 	override fun onLaunchFailed(team: String, line: String) { repo.onLaunchFailed?.invoke(team, line) }
 	override fun preloadMessage(team: String, at: Long) { repo.playback.preloadMessage(team, at) }
 	override suspend fun enqueueForPlay(team: String, at: Long, tier: SttsPlayer.Tier) {

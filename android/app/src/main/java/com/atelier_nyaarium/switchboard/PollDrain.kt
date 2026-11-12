@@ -313,7 +313,7 @@ internal class PollDrain(
 			}
 			val failed = launchErrorOf(entry)
 			if (failed != null) {
-				if (host.state.holdLaunchError(team, failed)) host.onLaunchFailed(team, failed.line)
+				if (host.holdLaunchError(team, failed)) host.onLaunchFailed(team, failed.line)
 				continue
 			}
 			val record = recordOf(entry)

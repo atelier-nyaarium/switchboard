@@ -40,7 +40,7 @@ fun sessionCardPreview(
 	val timeAllowed = boardWork == null
 
 	val reply = state.lastReply(team)
-	// A failed launch outranks the last reply.
+	// Failed launch first.
 	val failed = state.launchErrors[team]
 	val headline = failed?.line ?: oneLine(reply?.title)
 	val lastRow = state.lastRow(team)

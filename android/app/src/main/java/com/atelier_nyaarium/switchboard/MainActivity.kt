@@ -746,11 +746,7 @@ fun App(
 				),
 				launch = LaunchState(
 					error = state.launchErrors[openTeam!!]?.line,
-					onDismissError = {
-						val dismissed = openTeam!!
-						repo.dismissLaunchError(dismissed)
-						SwitchboardService.cancelLaunchFailedNotification(context, dismissed)
-					},
+					onDismissError = { repo.dismissLaunchError(openTeam!!) },
 				),
 				onRename = { name -> repo.command { rename(openTeam!!, name) } },
 				onForget = {

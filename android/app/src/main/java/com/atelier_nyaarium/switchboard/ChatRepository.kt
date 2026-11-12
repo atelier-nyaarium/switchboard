@@ -254,7 +254,7 @@ class ChatRepository(
 				if (_state.value.domainId != domainId) _state.update { it.copy(domainId = domainId) }
 			}
 		}
-		// The drain, a dismiss, the roster and a forget all change it; one writer follows the state.
+		// The drain writes its own, before its cursor.
 		repoScope.launch {
 			_state.map { it.launchErrors }.distinctUntilChanged().drop(1).collect { persistence.persistLaunchErrors() }
 		}

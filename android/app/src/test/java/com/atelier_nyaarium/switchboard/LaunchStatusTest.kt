@@ -54,6 +54,21 @@ class LaunchStatusTest {
 	}
 
 	@Test
+	fun aLaunchAlertIsStaleOnceItsFailureIsNoLongerHeld() {
+		val other = "dom.gw.app.other"
+		val showing = listOf(
+			ServiceNotifications.launchFailedNotificationId(team),
+			ServiceNotifications.launchFailedNotificationId(other),
+			ServiceNotifications.scheduledSendFailedNotificationId(team),
+		)
+
+		assertEquals(
+			listOf(ServiceNotifications.launchFailedNotificationId(other)),
+			ServiceNotifications.staleLaunchNotifications(showing, held = setOf(team)),
+		)
+	}
+
+	@Test
 	fun theStartingDockShowsWhileBootingUnlessASendIsAlreadyWaking() {
 		assertTrue(startingDock(SessionWord.VERIFYING, sendAwaitingWake = false))
 		assertTrue(startingDock(SessionWord.WAKING, sendAwaitingWake = false))

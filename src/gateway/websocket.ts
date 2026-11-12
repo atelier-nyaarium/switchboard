@@ -506,7 +506,7 @@ export function createWebSocketHandlers({
 				const catalogProjects = new Set<string>();
 				offlineCatalog.clear();
 				for (const p of projects) {
-					// An older daemon sends every folder name.
+					// Older daemons send any name.
 					if (typeof p.team === "string" && typeof p.projectPath === "string" && isSlug(p.team)) {
 						offlineCatalog.set(p.team, p.projectPath);
 						knownTeamPaths.set(p.team, p.projectPath);

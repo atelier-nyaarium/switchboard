@@ -281,6 +281,10 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				showVaultPrompt(repo, repo.vault.pending.value.firstOrNull())
 			}
 		}
+		// A dismiss, a forget and a session coming up all clear it.
+		scope.launch {
+			repo.state.map { it.launchErrors.keys }.distinctUntilChanged().collect(notifications::reconcileLaunchNotifications)
+		}
 		// Another phone's dismissal lands as an anchor.
 		scope.launch {
 			repo.state
@@ -617,10 +621,6 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 
 		fun cancelScheduledSendFailedNotification(context: Context, team: String) {
 			ServiceNotifications.cancelScheduledSendFailedNotification(context, team)
-		}
-
-		fun cancelLaunchFailedNotification(context: Context, team: String) {
-			ServiceNotifications.cancelLaunchFailedNotification(context, team)
 		}
 
 		/** Start (or no-op if already running) once the app is provisioned. */

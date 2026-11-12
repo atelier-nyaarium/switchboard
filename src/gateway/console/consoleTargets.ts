@@ -1,5 +1,5 @@
 import { refusalError } from "../../shared/board-authority.js";
-import { isReservedHostSession, isShellSafeName, isTmuxName, type TmuxTarget } from "../../shared/host-op.js";
+import { isReservedHostSession, isTmuxName, type TmuxTarget } from "../../shared/host-op.js";
 import { isHostSpawn } from "../../shared/host-spawn.js";
 import {
 	Address,
@@ -115,9 +115,8 @@ export function createConsoleTargets({ localDomainId, localGatewayId, isTrustedC
 			target = { kind: "host", name: project, sessionName };
 		} else if (isTrustedCatalogProject?.(project)) target = { kind: "devcontainer", name: project, sessionName };
 		else throw new Error(`terminal view is not available for "${project}" (only the host and devcontainers)`);
-		// Both name and session reach the host's shell launch command; the grammar makes both strict
-		// dotless slugs, so assert it at the boundary regardless (defense in depth).
-		if (!isShellSafeName(target.name)) throw new Error(`invalid project name "${target.name}"`);
+		// Both reach the host's shell launch command.
+		if (!isTmuxName(target.name)) throw new Error(`invalid project name "${target.name}"`);
 		if (!isTmuxName(target.sessionName)) throw new Error(`invalid session name "${target.sessionName}"`);
 		return target;
 	}

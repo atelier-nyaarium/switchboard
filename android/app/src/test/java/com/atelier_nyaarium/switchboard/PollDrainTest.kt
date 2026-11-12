@@ -78,11 +78,21 @@ class PollDrainTest {
 		override fun onLaunchFailed(team: String, line: String) {
 			launchAlerts += team to line
 		}
+		/** What was durable when the cursor moved. */
+		var heldAtCommit: Map<String, LaunchError>? = null
+		private val durable = mutableMapOf<String, LaunchError>()
+		override fun holdLaunchError(team: String, error: LaunchError): Boolean {
+			val held = state.holdLaunchError(team, error)
+			if (held) durable[team] = error
+			return held
+		}
 		override fun preloadMessage(team: String, at: Long) = Unit
 		override suspend fun enqueueForPlay(team: String, at: Long, tier: SttsPlayer.Tier) {
 			played += at
 		}
-		override fun commitMailbox(cursor: SyncCursor) = Unit
+		override fun commitMailbox(cursor: SyncCursor) {
+			heldAtCommit = durable.toMap()
+		}
 		override fun decodeAttachments(files: List<ChannelFile>?) = emptyList<MessageFile>()
 		override fun fetchPendingAttachments() = Unit
 		override suspend fun dispatchInboxRows(rows: List<InboxRow>) { dispatched += rows.size }
@@ -246,8 +256,10 @@ class PollDrainTest {
 
 		assertEquals(emptyList<Pair<String, Message>>(), host.appended)
 		assertEquals(emptyList<Pair<String, List<Message>>>(), host.inbound)
+		val held = mapOf(session.canonical to LaunchError("Devcontainer failed to start.", 1L))
 		assertEquals(listOf(session.canonical to "Devcontainer failed to start."), host.launchAlerts)
-		assertEquals(LaunchError("Devcontainer failed to start.", 1L), host.state.value.launchErrors[session.canonical])
+		assertEquals(held, host.state.value.launchErrors)
+		assertEquals(held, host.heldAtCommit)
 	}
 
 	@Test

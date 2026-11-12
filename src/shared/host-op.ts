@@ -48,12 +48,6 @@ export function isReservedHostSession(session: string): boolean {
 	return RESERVED_HOST_SESSIONS.has(session);
 }
 
-export const SHELL_SAFE_NAME_RE = /^[a-z0-9][a-z0-9.-]*$/;
-// Rejects shell metacharacters.
-export function isShellSafeName(name: string): boolean {
-	return name.length <= MAX_TMUX_NAME_LEN && SHELL_SAFE_NAME_RE.test(name);
-}
-
 export const MAX_WORKDIR_PATH_LEN = 512;
 const WORKDIR_PATH_FORBIDDEN = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}'"`$\\]/u;
 export function isWorkdirPath(path: string): boolean {

@@ -50,8 +50,9 @@ describe("the spawn points a Gateway reports to the phone", () => {
 		expect(row.harnessSpawns).toEqual({ claude: ["host"], copilot: ["host", "windows"] });
 	}, 30_000);
 
-	it("offers a project named with an underscore, and never one whose name is no address segment", async () => {
+	it("offers and creates into a project named with an underscore, and never offers a name that is no address segment", async () => {
 		const harness = await startFederationHarness({
+			wakeTimeoutMs: 300,
 			host: {
 				projects: [
 					{ team: "client_portal", projectPath: "/home/fixture/client_portal" },
@@ -68,8 +69,15 @@ describe("the spawn points a Gateway reports to the phone", () => {
 			const names = payload?.rows?.map((row) => row.team) ?? [];
 			return names.includes("client_portal") ? names : undefined;
 		}, "the catalog's project in the presence plane");
+		const { result } = await harness.phone.value({
+			kind: "create_session",
+			target: harness.target("client_portal"),
+			sessionName: "probe",
+		});
 
 		expect(teams).not.toContain("Client Portal");
+		expect(result).toMatchObject({ created: true });
+		expect(harness.host.wakes.map((frame) => frame.team)).toContain("client_portal.probe");
 	}, 30_000);
 
 	it("reads the oldest daemon, which sent no list, as Claude everywhere and Copilot nowhere", async () => {

@@ -62,8 +62,7 @@ export function isValidSessionName(name: string): boolean {
 /** The one structural separator for every address/store/thread key. */
 export const ADDRESS_SEP = ".";
 
-/** The one segment validator: lowercase alnum, then also `-` and `_`, and no `.`/`/`/`:`. A project
- * folder names its spawn point, so `_` is in. Domain ids (lowercase hex) are a strict subset. */
+/** The one segment validator: lowercase alnum, then also `-` and `_`. */
 export const SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 export const MAX_SLUG_LEN = 64;
 export function isSlug(s: string): boolean {
