@@ -240,8 +240,11 @@ file inside the container (`execEventsFile` in `copilotCompaction.ts`).
 
 ### OpenCode
 
-Pinned to one version (`OPENCODE_PIN`); a launch refuses any other with its number. Each session runs
-its own server, since OpenCode's shared service gives every MCP child the service's environment.
+Pinned to one version (`OPENCODE_PIN`); a launch refuses any other with its number. Setup's
+"Install OpenCode" installs the pin on the host (`scripts/setup-opencode.ts`), and the phone's
+"Install OpenCode" shell macro does the same inside a container. Both run `OPENCODE_INSTALL_CMD`.
+Each session runs its own server, since OpenCode's shared service gives every MCP child the
+service's environment.
 
 **The launcher** (`main-opencode-launch.ts`, `opencode-launch/launcher.ts`) runs in the pane. It
 mints a password, starts `opencode serve --stdio --port 0`, and reads the URL the server announces. It

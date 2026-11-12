@@ -999,6 +999,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/pending-job-store.ts` / `plane-registry.ts` / `reconnect.ts` / `process-guards.ts` - shared jobs, planes, reconnect, and process guards
 - `android/` - Gradle/Kotlin console app; `proto/Protocol.kt` generated
 - `scripts/` - build, Kotlin codegen, leaf sync, setup, federation start, residue checks, and voice import
+- `scripts/setup-opencode.ts` / `scripts/lib/opencodeVersion.ts` - setup's "Install OpenCode": this machine's version against `OPENCODE_PIN`, and the install; it runs `OPENCODE_INSTALL_CMD`, the command the phone's shell macro runs in a container
 - `scripts/lib/routerStart.ts` - sole Router `.env` and startup owner
 - `src/shared/vault-askpass-wrapper.ts` - the `~/.local/bin/vault-askpass` wrapper; the host daemon lays it down at boot and removes the exact text it wrote on exit, the plugin lays it down inside a container, and `host-spawn.ts` exports its path into every bash session it spawns
 - `scripts/lib/verifyChecks.ts` - setup verification checks
@@ -1214,7 +1215,7 @@ same Bun.
 ### OpenCode pin
 
 On any work in this repo, compare `OPENCODE_PIN` with the newest OpenCode release at least 7 days old.
-- Compatible: bump `OPENCODE_PIN`, reinstall it on the host, bump `docker-workspace`'s `OPENCODE_VERSION`, run the gates, and say so in the report.
+- Compatible: bump `OPENCODE_PIN`, reinstall it on the host (setup's "Install OpenCode"), bump `docker-workspace`'s `OPENCODE_VERSION`, run the gates, and say so in the report.
 - Needs work: ask the owner whether to handle it first, naming what breaks.
 
 ### Synced leaves

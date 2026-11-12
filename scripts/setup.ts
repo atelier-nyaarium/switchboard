@@ -3,7 +3,8 @@
 // starts the Router, enrolls the gateway and emits the setup code the Console scans. Driven by
 // setup.sh, a thin launcher that execs this. The menu loop lives here; each dial option's logic is a
 // sibling module: setup-status.ts (the header above the dial), setup-gateway.ts (Gateway Setup),
-// setup-provision.ts (Router Setup), setup-purge.ts (Purge Gateway / Purge Federation),
+// setup-provision.ts (Router Setup), setup-opencode.ts (Install OpenCode),
+// setup-purge.ts (Purge Gateway / Purge Federation),
 // setup-enrollment-ui.ts (the QR/JSON present flow), setup-board-guard.ts (the typed purge
 // confirmation), setup-constants.ts (shared paths).
 //
@@ -26,10 +27,13 @@
 // identity, no Gateway keys).
 
 import fs from "node:fs";
+import { OPENCODE_PIN } from "../src/shared/session-harness.js";
 import { ask, die, err, note } from "./lib/host.js";
+import { opencodeStatusLine } from "./lib/opencodeVersion.js";
 import { BLOB_FILE, SECRETS_DIR } from "./setup-constants.js";
 import { qrMenu } from "./setup-enrollment-ui.js";
 import { gatewayHostname, setupGateway } from "./setup-gateway.js";
+import { installedOpencode, installOpencode } from "./setup-opencode.js";
 import { provision } from "./setup-provision.js";
 import { purgeFederation, purgeGateway } from "./setup-purge.js";
 import { printSetupStatus, readSetupStatus } from "./setup-status.js";
@@ -61,12 +65,14 @@ async function topMenu(): Promise<void> {
 			await provision();
 			await qrMenu();
 		},
+		"3": installOpencode,
 		"9": purgeGateway,
 		"0": purgeFederation,
 	};
 	const host = gatewayHostname();
 	for (;;) {
 		const status = await readSetupStatus();
+		const opencode = await installedOpencode();
 		console.log(`\n\u{1F365} Switchboard - Setup on ${host}\n`);
 		printSetupStatus(status);
 		// Wording matches the app's own, since these two screens are read by the same person minutes
@@ -86,6 +92,8 @@ async function topMenu(): Promise<void> {
 				? "  2) Router Setup         - Change the public address, show a new setup code\n"
 				: "  2) Router Setup         - Set the public address and make a setup code\n",
 		);
+		console.log("Session CLIs:");
+		console.log(`  3) Install OpenCode ${OPENCODE_PIN} - ${opencodeStatusLine(opencode)}\n`);
 		console.log("Purge:");
 		console.log("  9) Purge Gateway        - Remove this machine's gateway and erase its data (the Router stays)");
 		console.log(
@@ -96,7 +104,7 @@ async function topMenu(): Promise<void> {
 		if (choice === "" || choice === "q") return;
 		const op = ops[choice];
 		if (!op) {
-			err("Enter 1, 2, 9, 0, or q.");
+			err("Enter 1, 2, 3, 9, 0, or q.");
 			continue;
 		}
 		// A failed operation drops back to the menu so the admin can retry instead of crashing the tool.

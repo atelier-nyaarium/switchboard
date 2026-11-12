@@ -169,6 +169,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The one accepted OpenCode release. */
 export const OPENCODE_PIN = "2.2.5";
 
+/** Installs the pin into the running user's home; setup and the phone's macro share it. */
+export const OPENCODE_INSTALL_CMD = `curl -fsSL https://opencode.ai/v2/install | bash -s -- --version ${OPENCODE_PIN}`;
+
 /** A fresh session's first words. */
 export const FIRST_LAUNCH_GREETING = `welcome, see your switchboard capabilities`;
 
@@ -228,10 +231,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 			{ cmd: "/compact", autoSend: true },
 		],
 		shellMacros: [
-			{
-				label: "Install OpenCode",
-				cmd: `curl -fsSL https://opencode.ai/v2/install | bash -s -- --version ${OPENCODE_PIN}`,
-			},
+			{ label: "Install OpenCode", cmd: OPENCODE_INSTALL_CMD },
 			{ label: "OpenCode Sign-in", cmd: "opencode auth login" },
 		],
 		// An empty composer exits on it.
