@@ -121,17 +121,33 @@ from a daemon instance a later hello replaced (`fromReplacedDaemon`).
 **A held frame stays unacknowledged until it is decided.** It is retried after each frame applied to
 its agent, and decided when a retry applies it or ignores it, or when it is commentary dropped at
 the cap. An event that can never be placed is ignored rather than held: one from an older generation
-of the stream the agent follows, or one naming a turn the record already ended. A frame the daemon
-replays below the acknowledged mark is acknowledged again, since its replay means the first
-acknowledgement was lost.
+of the stream the agent follows, or one naming a turn the record already ended. An event the daemon
+replays below the decided mark is acknowledged again and not judged, since its replay means the
+first acknowledgement was lost. A receipt is judged every time, since it is placed by its operation.
+
+**One ledger owns a frame's life** (`agentFrameLedger.ts`). It takes a frame at arrival, before the
+agent's queue, so no acknowledgement passes one that is here and undecided. A reducer that throws
+holds its frame as `failed`.
+
+**A hold ends.** While an agent holds a frame nothing can place, the daemon is asked again every
+`RECONCILE_GUARD_MS`. After `HELD_FRAME_LIMIT_MS`, ten minutes from the later of the first hold and
+the daemon's last hello, the hold is closed: the record's open turn ends as interrupted unless the
+daemon's last reconciliation vouches for it, the turn that reconciliation reported running is adopted,
+and each frame is tried once more. What still cannot be placed is given up, a receipt's requested
+operation going `indeterminate` first. Nothing is given up while no daemon is live, and a frame
+awaiting its write has no limit.
+
+**The daemon says what its outbox dropped.** Past 1,000 unacknowledged frames on a stream it evicts
+the oldest and counts it, and every hello carries the counts. The Gateway asks about each working
+agent on such a target, whose terminal may be among them.
 
 **An uncertain delivery has one rule, `uncertainDeliveryState`.** A refused or unconfirmed start leaves
 the agent unavailable, a prompt leaves it recovering, and a refused stop leaves it as it was. The
 refusal and abandonment paths take it, and throw one `AgentTransitionError`.
 
-**One relay core, a family per backend.** The fence rules live in `agent-fence.ts` and the relay
-mechanics in `AgentRelayCore`: acknowledgement, held frames, the reconcile guard, and per-agent
-serialization. `AgentRelay` supplies a backend's wire schemas, applier, agent listing, and reconcile
+**One relay core, a family per backend.** The fence rules live in `agent-fence.ts`, a frame's life in
+`AgentFrameLedger`, and the relay mechanics in `AgentRelayCore`: what a hold asks and when it ends,
+and per-agent serialization. `AgentRelay` supplies a backend's wire schemas, applier, agent listing, and reconcile
 request. A held frame is one per stream and event id, and only commentary is dropped at the cap: an
 outcome evicted there would be acknowledged unapplied.
 

@@ -212,6 +212,10 @@ function build(backend: AgentBackendId) {
 			type: z.literal(agentFrameType(backend, "hello")),
 			daemonInstanceId: AgentOpaqueIdSchema,
 			targets: z.array(z.object({ targetId: AgentOpaqueIdSchema, generation: Count }).strict()),
+			/** Streams whose outbox dropped unacknowledged frames, with how many so far. Absent for none. */
+			evicted: z
+				.array(z.object({ targetId: AgentOpaqueIdSchema, generation: Count, count: Count }).strict())
+				.optional(),
 		})
 		.strict();
 	/** Cumulative per generation. */

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentDaemonCore, type AgentDaemonSession } from "../mcp/devcontainer/agentDaemonCore.js";
 import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/agentTargets.js";
 import type { AgentResolvedTarget } from "../shared/agent-execution-target.js";
+import { agentWire } from "../shared/agent-wire.js";
 
 const core = () =>
 	new AgentDaemonCore({
@@ -143,5 +144,42 @@ describe("agent daemon commands", () => {
 
 		expect(order).toEqual(["turn turn lost: its agent process ended true", "cleanup true", "close"]);
 		expect(daemon.live(session)).toBe(false);
+	});
+
+	it("names in its hello the stream whose outbox dropped frames nobody acknowledged", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const session: AgentDaemonSession = {
+			targetId: "container:recipe-app",
+			generation: 3,
+			nextEventId: 0,
+			client: { close: () => {} },
+		};
+		const daemon = new AgentDaemonCore({
+			backendId: "codex",
+			daemonInstanceId: "daemon-1",
+			targets: {
+				acquire: () => ({ state: "running", lease: { generation: 3, child: {} as AgentChild } }),
+				release: () => {},
+			} as TargetSupervisor,
+			send: () => {},
+			isReliable: () => true,
+			helloSchema: agentWire("codex").hello,
+		});
+		await daemon.acquireSession(
+			{ kind: "devcontainer", targetId: session.targetId, cwd: "/workspace/recipe-app" } as AgentResolvedTarget,
+			async () => session,
+		);
+		const anything = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
+		const publish = (count: number) => {
+			for (let sent = 0; sent < count; sent += 1) daemon.publish(session, { kind: "terminal" }, anything);
+		};
+
+		publish(1_000);
+		expect(daemon.hello()).not.toHaveProperty("evicted");
+
+		publish(2);
+		expect(daemon.hello()).toMatchObject({
+			evicted: [{ targetId: session.targetId, generation: 3, count: 2 }],
+		});
 	});
 });

@@ -146,7 +146,7 @@ export function withTerminal(
 	terminal: TurnTerminal,
 	fallbackError: string,
 	at: number,
-	fence: AgentFence,
+	fence: AgentFence | undefined,
 ): PersistedAgent {
 	const turn = agent.turns[turnIndex]!;
 	const base = { id: turn.id, activities: turn.activities, updatedAt: at };

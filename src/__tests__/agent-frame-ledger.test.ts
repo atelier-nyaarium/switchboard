@@ -19,7 +19,7 @@ describe("AgentFrameLedger", () => {
 		const first = arrive(ledger, frame(0, { agent: "slow" }));
 		const second = arrive(ledger, frame(1, { agent: "fast" }));
 
-		// The later frame's reducer ran first.
+		// The later ticket is decided first.
 		expect(ledger.decide(second)).toBeUndefined();
 		expect(ledger.decide(first)).toMatchObject({ throughEventId: 1 });
 	});
@@ -55,6 +55,21 @@ describe("AgentFrameLedger", () => {
 		expect(ledger.receive(frame(3), "again")).toEqual({ kind: "decided" });
 	});
 
+	it("judges a receipt again wherever it stands, and repeats its acknowledgement", () => {
+		const ledger = new AgentFrameLedger<string>(8);
+		const receipt = frame(0, { frame: "receipt" });
+		const first = arrive(ledger, receipt);
+		const ack = ledger.decide(first);
+		ledger.decide(arrive(ledger, frame(1)));
+
+		// Decided and not yet acknowledged, then acknowledged: placed by its operation each time.
+		const again = arrive(ledger, receipt);
+		expect(ledger.decide(again)).toMatchObject({ throughEventId: 1 });
+		ledger.acknowledged({ ...ack!, throughEventId: 1 });
+		const replayed = arrive(ledger, receipt);
+		expect(ledger.decide(replayed)).toMatchObject({ throughEventId: 1 });
+	});
+
 	it("drops only commentary from a full hold, and what it drops is decided", () => {
 		const ledger = new AgentFrameLedger<string>(2);
 		const outcome = arrive(ledger, frame(0));
@@ -72,22 +87,18 @@ describe("AgentFrameLedger", () => {
 		expect(ledger.hold(more, "failed", 4).kept).toBe(true);
 		expect(ledger.heldFor("a")).toHaveLength(3);
 
-		// A dropped arrival is not kept.
 		const late = arrive(ledger, frame(4, { droppable: true }));
 		expect(ledger.hold(late, "reconcile", 5).kept).toBe(false);
 	});
 
-	it("keeps a frame's first hold time and counted mark across its retries, by reason", () => {
+	it("keeps a frame's first hold time across its retries, by reason", () => {
 		const ledger = new AgentFrameLedger<string>(8);
 		const placed = arrive(ledger, frame(0));
 		const written = arrive(ledger, frame(1));
 		ledger.hold(placed, "reconcile", 100);
-		placed.counted = true;
 		ledger.hold(written, "awaiting", 50);
-		// A retry holds it again.
 		ledger.hold(placed, "failed", 900);
 
-		expect(placed.counted).toBe(true);
 		expect(ledger.heldSince("a", ["reconcile", "failed"])).toBe(100);
 		expect(ledger.heldSince("a", ["awaiting"])).toBe(50);
 		expect(ledger.heldSince("other", ["reconcile"])).toBeUndefined();
@@ -106,15 +117,19 @@ describe("AgentFrameLedger", () => {
 		});
 		expect(ledger.decide(refusal)).toBeUndefined();
 		expect(ledger.holds("a")).toBe(false);
-		// Nothing remembers a decided one.
+		// A frame with no stream leaves no decided mark.
 		expect(ledger.receive(frame(7, { frame: "receipt", stream: undefined }), "again").kind).toBe("new");
 	});
 
-	it("keeps each daemon's streams apart", () => {
+	it("keeps each daemon, target and generation a stream of its own", () => {
 		const ledger = new AgentFrameLedger<string>(8);
 		ledger.hold(arrive(ledger, frame(0)), "reconcile", 1);
 
 		const other = arrive(ledger, frame(0, { daemonInstanceId: "d2" }));
 		expect(ledger.decide(other)).toMatchObject({ daemonInstanceId: "d2", throughEventId: 0 });
+		const elsewhere = arrive(ledger, frame(0, { stream: { targetId: "container:app", generation: 1 } }));
+		expect(ledger.decide(elsewhere)).toMatchObject({ targetId: "container:app", throughEventId: 0 });
+		const relaunched = arrive(ledger, frame(0, { stream: { targetId: "host", generation: 2 } }));
+		expect(ledger.decide(relaunched)).toMatchObject({ generation: 2, throughEventId: 0 });
 	});
 });

@@ -1,0 +1,279 @@
+import { describe, expect, it } from "vitest";
+import { AgentRelay } from "../gateway/agentRelay.js";
+import { HELD_FRAME_LIMIT_MS, RECONCILE_GUARD_MS } from "../gateway/agentRelayCore.js";
+import { AgentService } from "../gateway/agentService.js";
+import { createSessionAuthority } from "../gateway/sessionAuthority.js";
+import { resolveLiveIncarnation, type TeamRegistry } from "../gateway/wsTypes.js";
+import { AGENT_BACKENDS, type AgentBackendId } from "../shared/agent-backend.js";
+import { AGENT_TURN_UNACCOUNTED_REASON, agentIdForOperation } from "../shared/agent-record.js";
+import { type PersistedAgentCatalogWriter, SessionStore } from "../shared/session-store.js";
+import { fakeAmbient } from "../testing/fakeAmbient.js";
+
+const BACKEND = AGENT_BACKENDS.find((backend) => backend.id === "opencode")!;
+const DAEMON = "daemon-1";
+const TARGET = { kind: "devcontainer" as const, project: "recipe-app", hostProjectPath: "/trusted/recipe-app" };
+const RESOLVED = { kind: "devcontainer" as const, targetId: "container:recipe-app", cwd: "/workspace/recipe-app" };
+const SESSION = "session-1";
+const START = "123e4567-e89b-42d3-a456-426614174000";
+const FOLLOW_UP = "123e4567-e89b-42d3-a456-426614174001";
+const AGENT = agentIdForOperation(BACKEND.id, START);
+
+/** A relay over the real service and applier, on a clock the test moves. */
+function setup() {
+	const ambient = fakeAmbient({ drive: "manual" });
+	const writers = new Map<AgentBackendId, PersistedAgentCatalogWriter>();
+	const store = new SessionStore({
+		ambient,
+		agentCatalogPersistence: { persistChecked: () => true, receiveWriter: (id, writer) => writers.set(id, writer) },
+	});
+	const registry: TeamRegistry = new Map();
+	const auth = createSessionAuthority({
+		sessionStore: store,
+		registry,
+		resolveLive: resolveLiveIncarnation,
+		localDomainId: () => "alice",
+		localGatewayId: "sakura",
+	});
+	const owner = store.mint({ spawn: "recipe-app", sessionLabel: "Work", harness: "claude" });
+	store.ensureBindToken(owner);
+	store.activateBinding(owner);
+	store.confirm(store.teamOf(owner));
+	const service = new AgentService({
+		backend: BACKEND,
+		auth,
+		sessionStore: store,
+		offlineCatalog: new Map([["recipe-app", "/trusted/recipe-app"]]),
+		catalogWriter: writers.get(BACKEND.id)!,
+	});
+	const sent: Record<string, unknown>[] = [];
+	let live: string | undefined = DAEMON;
+	let changes = 0;
+	const relay = new AgentRelay({
+		backendId: BACKEND.id,
+		service,
+		sessionStore: store,
+		liveDaemonInstanceId: () => live,
+		ambient,
+		sendToHost: (message) => {
+			sent.push(message);
+			return true;
+		},
+	});
+	const ownerKey = store.teamOf(owner);
+	relay.onAgentChange(ownerKey, AGENT, () => {
+		changes += 1;
+	});
+	const frame = (type: "event" | "receipt", eventId: number, body: Record<string, unknown>, generation = 1) => ({
+		type: `${BACKEND.id}_${type}`,
+		ownerKey,
+		daemonInstanceId: DAEMON,
+		targetId: RESOLVED.targetId,
+		generation,
+		eventId,
+		agentId: AGENT,
+		sessionId: SESSION,
+		...body,
+	});
+	const deliver = async (message: Record<string, unknown>) => {
+		await relay.handleHostMessage(message);
+		await ambient.advance(0);
+	};
+	return {
+		ambient,
+		service,
+		owner,
+		ownerKey,
+		sent,
+		deliver,
+		setLive: (next: string | undefined) => {
+			live = next;
+		},
+		changes: () => changes,
+		/** `evicted`: how many frames its outbox has dropped on the agent's stream. */
+		hello: (evicted?: number) =>
+			deliver({
+				type: `${BACKEND.id}_hello`,
+				daemonInstanceId: DAEMON,
+				targets: [{ targetId: RESOLVED.targetId, generation: 1 }],
+				...(evicted ? { evicted: [{ targetId: RESOLVED.targetId, generation: 1, count: evicted }] } : {}),
+			}),
+		/** A started agent, working on `turn-1`. */
+		async start() {
+			service.beginStart(owner, {
+				agentId: AGENT,
+				operationId: START,
+				daemonInstanceId: DAEMON,
+				prompt: "start",
+				target: TARGET,
+				at: ambient.now(),
+			});
+			await deliver(
+				frame("receipt", 0, {
+					kind: "accepted",
+					requestId: START,
+					operationId: START,
+					resolvedTarget: RESOLVED,
+					turnId: "turn-1",
+					delivery: "started",
+				}),
+			);
+		},
+		activity: (eventId: number, turnId: string, generation = 1) =>
+			deliver(
+				frame(
+					"event",
+					eventId,
+					{ kind: "activity", turnId, itemId: `item-${eventId}`, text: "working" },
+					generation,
+				),
+			),
+		reconciled: (eventId: number, turn?: { turnId: string; turnState: string }) =>
+			deliver(
+				frame("receipt", eventId, { kind: "reconciled", requestId: START, resolvedTarget: RESOLVED, ...turn }),
+			),
+		accepted: (eventId: number, operationId: string, turnId: string) =>
+			deliver(
+				frame("receipt", eventId, {
+					kind: "accepted",
+					requestId: operationId,
+					operationId,
+					resolvedTarget: RESOLVED,
+					turnId,
+					delivery: "started",
+				}),
+			),
+		agent: () => service.listOwnedAgents(owner).find((agent) => agent.agentId === AGENT)!,
+		asks: () => sent.filter((message) => message.kind === "reconcile"),
+		ackedThrough: (generation = 1) =>
+			sent
+				.filter((message) => message.type === `${BACKEND.id}_ack` && message.generation === generation)
+				.map((message) => message.throughEventId as number)
+				.at(-1),
+	};
+}
+
+describe("a hold nothing places is closed at its limit", () => {
+	it("ends the record's turn and adopts the one the daemon kept reporting", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		// The daemon runs a turn the record never opened.
+		await context.activity(1, "turn-2");
+		await context.reconciled(2, { turnId: "turn-2", turnState: "inProgress" });
+		expect(context.agent().activeTurnId).toBe("turn-1");
+		expect(context.ackedThrough()).toBe(0);
+
+		// It is asked again at each guard while the frames wait.
+		const asked = context.asks().length;
+		await context.ambient.advance(RECONCILE_GUARD_MS);
+		expect(context.asks().length).toBe(asked + 1);
+
+		const before = context.changes();
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS - RECONCILE_GUARD_MS);
+
+		const agent = context.agent();
+		expect(agent.turns.find((turn) => turn.id === "turn-1")).toMatchObject({
+			state: "interrupted",
+			reason: AGENT_TURN_UNACCOUNTED_REASON,
+		});
+		expect(agent).toMatchObject({ agentState: "working", activeTurnId: "turn-2" });
+		// The held activity lands on the adopted turn, and nothing is left waiting.
+		expect(agent.turns.find((turn) => turn.id === "turn-2")?.activities).toHaveLength(1);
+		expect(context.ackedThrough()).toBe(2);
+		// The session's watchers hear the turn end.
+		expect(context.changes()).toBeGreaterThan(before);
+	});
+
+	it("ends a turn the daemon never accounted for, and lets its stream go", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		// Another generation's frame: nothing places it, and no answer comes.
+		await context.activity(0, "turn-1", 2);
+		expect(context.asks()).toHaveLength(1);
+		expect(context.ackedThrough(2)).toBeUndefined();
+
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS);
+
+		expect(context.agent()).toMatchObject({ agentState: "idle" });
+		expect(context.agent().turns[0]).toMatchObject({ state: "interrupted", reason: AGENT_TURN_UNACCOUNTED_REASON });
+		expect(context.ackedThrough(2)).toBe(0);
+	});
+
+	it("keeps a turn the daemon vouches for, and gives up only the frame and its operation", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		context.service.beginMessage(context.owner, {
+			agentId: AGENT,
+			operationId: FOLLOW_UP,
+			daemonInstanceId: DAEMON,
+			prompt: "more",
+			at: context.ambient.now(),
+		});
+		// A second turn accepted while the first still runs cannot be placed.
+		await context.accepted(1, FOLLOW_UP, "turn-2");
+		await context.reconciled(2, { turnId: "turn-1", turnState: "inProgress" });
+		expect(context.ackedThrough()).toBe(0);
+
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS);
+
+		const agent = context.agent();
+		expect(agent.turns.find((turn) => turn.id === "turn-1")?.state).toBe("inProgress");
+		expect(agent.turns.some((turn) => turn.id === "turn-2")).toBe(false);
+		// Its operation is answered as uncertain, never left requested.
+		expect(agent.operations.find((operation) => operation.operationId === FOLLOW_UP)?.state).toBe("indeterminate");
+		expect(context.ackedThrough()).toBe(2);
+	});
+
+	it("asks about a working agent when its daemon says frames were dropped, once per report", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		// Its fence names the live daemon, so nothing else would ask.
+		await context.hello();
+		expect(context.asks()).toHaveLength(0);
+
+		await context.hello(3);
+		expect(context.asks()).toHaveLength(1);
+		await context.hello(3);
+		expect(context.asks()).toHaveLength(1);
+		// More were dropped, inside the ask guard.
+		await context.hello(4);
+		expect(context.asks()).toHaveLength(2);
+	});
+
+	it("starts the wait over at a hello", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(0, "turn-1", 2);
+
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS - 1_000);
+		await context.hello();
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS - 1_000);
+		expect(context.agent().agentState).toBe("working");
+
+		await context.ambient.advance(RECONCILE_GUARD_MS);
+		expect(context.agent().agentState).toBe("idle");
+	});
+
+	it("gives nothing up while no daemon is live", async () => {
+		const context = setup();
+		await context.hello();
+		await context.start();
+		await context.activity(0, "turn-1", 2);
+
+		context.setLive(undefined);
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS * 2);
+		expect(context.agent().agentState).toBe("working");
+
+		// Its return is a hello, and the wait starts there.
+		context.setLive(DAEMON);
+		await context.hello();
+		await context.ambient.advance(HELD_FRAME_LIMIT_MS - RECONCILE_GUARD_MS);
+		expect(context.agent().agentState).toBe("working");
+		await context.ambient.advance(RECONCILE_GUARD_MS * 2);
+		expect(context.agent().agentState).toBe("idle");
+	});
+});

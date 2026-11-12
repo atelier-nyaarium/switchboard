@@ -11,7 +11,7 @@ export interface FrameIdentity {
 	eventId: number;
 	/** Absent for a frame with no stream, a refusal. */
 	stream?: { targetId: string; generation: number };
-	/** Commentary, the only frame a full hold drops. */
+	/** Whether a full hold may drop it. */
 	droppable: boolean;
 }
 
@@ -27,6 +27,8 @@ export interface FrameTicket<P> {
 	heldSince?: number;
 	/** Its counter was counted. */
 	counted: boolean;
+	/** It arrived at or below the acknowledged mark, so its acknowledgement is repeated. */
+	readonly acked: boolean;
 }
 
 export type FrameArrival<P> =
@@ -87,12 +89,14 @@ export class AgentFrameLedger<P> {
 		const stream = identity.stream ? this.stream(identity.daemonInstanceId, identity.stream) : undefined;
 		const standing = stream ? stream.open.get(identity.eventId) : this.unfenced.get(unfencedKey(identity));
 		if (standing) return standing.state === "held" ? { kind: "held", ticket: standing } : { kind: "queued" };
-		if (stream && identity.eventId <= stream.highestDecided) {
-			// A lost acknowledgement is what replays one at or below the mark.
-			const ack = this.ackOf(stream, identity.eventId <= stream.committedThrough);
+		// A lost acknowledgement is what replays one at or below the mark.
+		const acked = stream !== undefined && identity.eventId <= stream.committedThrough;
+		// An event is ordered by its stream. A receipt is placed by its operation, whatever its id.
+		if (stream && identity.frame === "event" && identity.eventId <= stream.highestDecided) {
+			const ack = this.ackOf(stream, acked);
 			return { kind: "decided", ...(ack ? { ack } : {}) };
 		}
-		const ticket: FrameTicket<P> = { identity, payload, state: "open", counted: false };
+		const ticket: FrameTicket<P> = { identity, payload, state: "open", counted: false, acked };
 		if (stream) stream.open.set(identity.eventId, ticket);
 		else this.unfenced.set(unfencedKey(identity), ticket);
 		return { kind: "new", ticket };
@@ -111,7 +115,7 @@ export class AgentFrameLedger<P> {
 		const stream = this.stream(identity.daemonInstanceId, identity.stream);
 		stream.open.delete(identity.eventId);
 		stream.highestDecided = Math.max(stream.highestDecided, identity.eventId);
-		return this.ackOf(stream, false);
+		return this.ackOf(stream, ticket.acked);
 	}
 
 	hold(ticket: FrameTicket<P>, why: HoldReason, now: number): HoldResult {
@@ -126,7 +130,7 @@ export class AgentFrameLedger<P> {
 		ticket.heldSince ??= now;
 		const acks: FrameAck[] = [];
 		while (queue.length > this.maxHeldPerAgent) {
-			// Anything but commentary is an outcome.
+			// Only a droppable frame is evicted.
 			const dropped = queue.find((candidate) => candidate.identity.droppable);
 			if (!dropped) break;
 			const ack = this.decide(dropped);
@@ -135,7 +139,7 @@ export class AgentFrameLedger<P> {
 		return { kept: ticket.state === "held", acks };
 	}
 
-	/** In event order. */
+	/** By event id. */
 	heldFor(agent: string): Array<FrameTicket<P>> {
 		return [...(this.held.get(agent) ?? [])].sort((left, right) => left.identity.eventId - right.identity.eventId);
 	}

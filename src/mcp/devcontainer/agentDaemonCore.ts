@@ -78,6 +78,8 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		maxEntries: OPERATION_LEDGER_MAX_ENTRIES,
 	});
 	private rejections = 0;
+	/** Frames the outbox dropped unacknowledged, per stream. Told in every hello. */
+	private readonly evicted = new Map<string, { targetId: string; generation: number; count: number }>();
 
 	constructor(private readonly options: AgentDaemonCoreOptions<TSession>) {
 		options.targets.onRetire?.((targetId, generation) => {
@@ -87,6 +89,7 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 	}
 
 	hello(): Record<string, unknown> {
+		const evicted = [...this.evicted.values()];
 		const frame = {
 			type: agentFrameType(this.options.backendId, "hello"),
 			daemonInstanceId: this.options.daemonInstanceId,
@@ -94,6 +97,8 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 				targetId: session.targetId,
 				generation: session.generation,
 			})),
+			// Omitted when empty: an older Gateway's schema refuses the field.
+			...(evicted.length > 0 ? { evicted } : {}),
 		};
 		this.options.helloSchema?.parse(frame);
 		return frame;
@@ -310,6 +315,8 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 			const index = this.outbox.findIndex(sameStream);
 			if (index < 0) break;
 			const [dropped] = this.outbox.splice(index, 1);
+			const key = `${targetId} ${generation}`;
+			this.evicted.set(key, { targetId, generation, count: (this.evicted.get(key)?.count ?? 0) + 1 });
 			console.error(
 				`[${this.options.backendId}-daemon] outbox overflow, dropped event ${dropped?.eventId} on ${targetId}`,
 			);

@@ -967,6 +967,27 @@ Designed 2026-11-12 from a full read of `AgentRelayCore`, `agentApply.ts`, `agen
 
 Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness test passing unchanged. B3 the repeated ask and the close, with virtual-clock cases. B4 the eviction marker. Each is audited before the next.
 
+**Built, 2026-11-12.** B1 and B2 are commit `4fdc58de`, every existing relay and harness test passing unchanged; B3 and B4 follow it.
+
+- **What the build changed in the design:**
+  - **A receipt is judged every time.** The first cut skipped any replay at or below a stream's decided mark. A receipt the outbox evicted can come back from the daemon's operation ledger out of stream order, and the applier places a receipt by its operation whatever its id, so only an event is told as decided by its position.
+  - **No interrupt is sent to the daemon at a close.** Each branch was walked: where the daemon reports the turn running it is kept, where it reports another the first is not running, and where it answers nothing an interrupt would be refused too.
+  - **The close reads the daemon's last reconciliation,** kept per agent only while it holds unplaced frames, where the design said "the turn the daemon last reported". A duplicate or an older generation's reconciliation is no word on the turn.
+  - **A frame given up at a close is tried once more first,** so one the adopted turn can now take is applied, and a receipt still unplaced answers its operation `indeterminate` before it goes. A close whose write is unconfirmed makes the frames await that write.
+  - **The eviction marker is a count per stream in every hello,** so a lost hello loses nothing, and the field is absent when nothing was dropped, since an older Gateway's hello schema is strict.
+- **Checked by reading, with no gate:** frames reach the relay one at a time in arrival order (`queueHostFrame` chains them), and the daemon's `open` handler sends its hello and its replay before any live frame. An event told as decided by position relies on both.
+- **Not covered:** no harness case drives the close through the real daemon; the five cases in `agent-relay-close.test.ts` run the real service and applier on a clock the test moves.
+- **A new line an agent reads:** an interrupted turn's reason, "turn lost: its daemon could not account for it" (`AGENT_TURN_UNACCOUNTED_REASON`). To settle with the owner.
+
+**Audit of B1 and B2, 2026-11-12.** Three Luna readers on `4fdc58de`: old against new by scenario, the ledger as a state machine, and comments with what still sits outside the ledger. The ledger read found no defect. Two kept, both in how the relay settles:
+
+- **A throw before the hold or the decision left a ticket open for good.** `isAskable` runs first and can throw; the replay of an open ticket is dropped as queued, so its stream's acknowledgements stopped. `reduce` now never throws and holds a ticket still open as `failed`.
+- **A throw while retrying one held frame skipped the frames after it,** which the old loop caught per frame. The ask is caught where it is made, and `reduce` isolates each ticket.
+- **Two rules were spelled twice:** whether a reduction is a retry, now read off the ticket's state, and whether a frame has a stream, now read off its identity.
+- **A counter's mark was set before it counted.** Counted first now, and a relay case counts a held counter across two retries and a replay.
+- **Comments:** nine reworded or cut, three that claimed more than the ledger knows.
+- **Left:** streams are never pruned, as before the ledger. The ask guard's timestamp is not cleared when a reconciliation resolves, so a new need inside the guard waits for the watch.
+
 ## Phase 3 - Acceptance and docs
 
 - Live on Sakura from the phone: create an OpenCode session, talk to it, watch it in the terminal view, approve a `.env` read from the card, compact it, close and wake it, and crosstalk with a Claude session in both directions.

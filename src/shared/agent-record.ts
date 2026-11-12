@@ -15,6 +15,7 @@ export const AGENT_ACTIVITY_MAX_BYTES = 16 * 1024;
 export const AGENT_ACTIVITY_MAX_ITEMS = 32;
 export const AGENT_ERROR_MAX_BYTES = 16 * 1024;
 export const AGENT_TURN_LOST_REASON = "turn lost: its agent process ended";
+export const AGENT_TURN_UNACCOUNTED_REASON = "turn lost: its daemon could not account for it";
 
 ////////////////////////////////
 //  Interfaces & Types

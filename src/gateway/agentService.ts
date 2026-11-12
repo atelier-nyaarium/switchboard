@@ -12,7 +12,11 @@ import {
 	replaceAt,
 	uncertainDeliveryState,
 } from "../shared/agent-record.js";
-import { decideRegisterRecovery, type RegisterRecoveryDecision } from "../shared/agent-recovery.js";
+import {
+	type AgentReconciliationReport,
+	decideRegisterRecovery,
+	type RegisterRecoveryDecision,
+} from "../shared/agent-recovery.js";
 import type { AgentDaemonEvent, AgentDaemonReceipt } from "../shared/agent-wire.js";
 import type { SessionRecord } from "../shared/session-store.js";
 import { type AgentApplier, type AgentRefusal, createAgentApplier } from "./agentApply.js";
@@ -261,6 +265,19 @@ export class AgentService {
 
 	applyEvent(event: AgentDaemonEvent, at: number, held = false): Application {
 		return this.applier.applyEvent(event, at, held);
+	}
+
+	closeHeld(
+		ownerKey: string,
+		agentId: string,
+		report: AgentReconciliationReport | undefined,
+		at: number,
+	): Application {
+		return this.applier.closeHeld(ownerKey, agentId, report, at);
+	}
+
+	abandonOperation(ownerKey: string, agentId: string, operationId: string, at: number): Application {
+		return this.applier.abandonOperation(ownerKey, agentId, operationId, at);
 	}
 
 	/** Abandons unconfirmed deliveries. */

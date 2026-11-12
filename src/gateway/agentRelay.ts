@@ -26,6 +26,7 @@ export class AgentRelay extends AgentRelayCore<
 			commandSchema: wire.command,
 			listAgents: (owner) => deps.service.listOwnedAgents(owner),
 			fenceInstanceId: (agent) => agent.fence?.daemonInstanceId,
+			targetId: (agent) => agent.resolvedTarget?.targetId,
 			counterEvent: (event) =>
 				event.kind === "counter"
 					? {
@@ -38,6 +39,16 @@ export class AgentRelay extends AgentRelayCore<
 				receipt.kind === "accepted" && receipt.delivery !== "steered" ? receipt.turnId : undefined,
 			applyEvent: (event, at, held) => deps.service.applyEvent(event, at, held),
 			applyReceipt: (receipt, at) => deps.service.applyReceipt(receipt, at),
+			closeHeld: (ownerKey, agentId, report, at) => deps.service.closeHeld(ownerKey, agentId, report, at),
+			abandonOperation: (ownerKey, agentId, operationId, at) =>
+				deps.service.abandonOperation(ownerKey, agentId, operationId, at),
+			reconciliationReport: (receipt) =>
+				receipt.kind === "reconciled"
+					? {
+							...(receipt.turnId === undefined ? {} : { turnId: receipt.turnId }),
+							...(receipt.turnState === undefined ? {} : { turnState: receipt.turnState }),
+						}
+					: undefined,
 			confirmation: (owner, revision) => deps.service.confirmation(owner, revision),
 			abandonStaleOperations: (owner, agent, daemonInstanceId, at) =>
 				deps.service.abandonStaleOperations(owner, agent, daemonInstanceId, at),

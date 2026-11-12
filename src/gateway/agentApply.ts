@@ -2,8 +2,17 @@ import type { AgentBackendDescriptor } from "../shared/agent-backend.js";
 import { sameResolvedTarget } from "../shared/agent-execution-target.js";
 import { classifyEventFence, fenceOf, retiredGeneration } from "../shared/agent-fence.js";
 import { type AgentStoredTurn, type PersistedAgent, PersistedAgentSchema } from "../shared/agent-persisted.js";
-import { AGENT_TURN_LOST_REASON, replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
-import { type AgentReconciliationDecision, decideAgentReconciliation } from "../shared/agent-recovery.js";
+import {
+	AGENT_TURN_LOST_REASON,
+	AGENT_TURN_UNACCOUNTED_REASON,
+	replaceAt,
+	uncertainDeliveryState,
+} from "../shared/agent-record.js";
+import {
+	type AgentReconciliationDecision,
+	type AgentReconciliationReport,
+	decideAgentReconciliation,
+} from "../shared/agent-recovery.js";
 import type { AgentDaemonFailureCode } from "../shared/agent-state.js";
 import type { AgentDaemonEvent, AgentDaemonReceipt } from "../shared/agent-wire.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
@@ -29,6 +38,18 @@ export interface AgentApplier {
 	applyReceipt: (receipt: AgentDaemonReceipt, at: number) => Application;
 	/** Held replay bypasses duplicates. */
 	applyEvent: (event: AgentDaemonEvent, at: number, held?: boolean) => Application;
+	/**
+	 * Ends the open turn no reconciliation accounted for, and adopts the one the daemon last reported
+	 * running. Ignored when the daemon vouches for the open turn.
+	 */
+	closeHeld: (
+		ownerKey: string,
+		agentId: string,
+		report: AgentReconciliationReport | undefined,
+		at: number,
+	) => Application;
+	/** A requested operation whose receipt will never be placed. */
+	abandonOperation: (ownerKey: string, agentId: string, operationId: string, at: number) => Application;
 	/** One-shot transient refusal. */
 	takeRefusal: (operationId: string) => AgentRefusal | undefined;
 }
@@ -304,11 +325,65 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		);
 	}
 
+	function closeHeld(
+		ownerKey: string,
+		agentId: string,
+		report: AgentReconciliationReport | undefined,
+		at: number,
+	): Application {
+		const located = locate(ownerKey, agentId);
+		if (!located) return ignore("agent not found");
+		const { owner, agent } = located;
+		const active = agent.activeTurnId
+			? agent.turns.findIndex((turn) => turn.id === agent.activeTurnId && turn.state === "inProgress")
+			: -1;
+		if (active < 0) return ignore("no turn is open");
+		const reported = report?.turnState === "inProgress" ? report.turnId : undefined;
+		if (reported === agent.turns[active]!.id) return ignore("the daemon vouches for its turn");
+		const timestamp = Math.max(at, agent.updatedAt);
+		return commit(
+			owner,
+			() => {
+				const base = withTerminal(
+					agent,
+					active,
+					{ state: "interrupted", reason: AGENT_TURN_UNACCOUNTED_REASON },
+					fallbackError,
+					timestamp,
+					agent.fence,
+				);
+				// An applied terminal outranks a report.
+				const ended = base.turns.some((turn) => turn.id === reported && turn.state !== "inProgress");
+				const running = ended ? undefined : reported;
+				if (!running) return base;
+				const adopted: AgentStoredTurn[] = base.turns.some((turn) => turn.id === running)
+					? []
+					: [{ id: running, state: "inProgress", activities: [], updatedAt: timestamp }];
+				return PersistedAgentSchema.parse({
+					...base,
+					agentState: "working",
+					activeTurnId: running,
+					turns: [...base.turns, ...adopted],
+				});
+			},
+			"a closed hold",
+		);
+	}
+
+	function abandonOperation(ownerKey: string, agentId: string, operationId: string, at: number): Application {
+		const located = locate(ownerKey, agentId);
+		if (!located) return ignore("agent not found");
+		const index = located.agent.operations.findIndex((operation) => operation.operationId === operationId);
+		if (index < 0) return ignore("operation not found");
+		if (located.agent.operations[index]!.state !== "requested") return ignore("operation already settled");
+		return uncertain(located.owner, located.agent, index, at);
+	}
+
 	function takeRefusal(operationId: string): AgentRefusal | undefined {
 		const refusal = refusals.get(operationId);
 		refusals.delete(operationId);
 		return refusal;
 	}
 
-	return { applyReceipt, applyEvent, takeRefusal };
+	return { applyReceipt, applyEvent, closeHeld, abandonOperation, takeRefusal };
 }

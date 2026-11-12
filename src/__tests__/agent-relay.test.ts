@@ -128,6 +128,22 @@ function eventFrame(eventId: number, kind: "activity" | "terminal" = "activity")
 	});
 }
 
+function counterFrame(eventId: number): AgentDaemonEvent {
+	return COPILOT_WIRE.event.parse({
+		type: "copilot_event",
+		kind: "counter",
+		ownerKey: OWNER_KEY,
+		daemonInstanceId: DAEMON_INSTANCE_ID,
+		targetId: TARGET_ID,
+		generation: GENERATION,
+		eventId,
+		agentId: AGENT_ID,
+		sessionId: SESSION_ID,
+		turnId: TURN_ID,
+		counterKind: "shell",
+	});
+}
+
 function acceptedReceipt(eventId: number): AgentDaemonReceipt {
 	return COPILOT_WIRE.receipt.parse({
 		type: "copilot_receipt",
@@ -180,6 +196,7 @@ function setup(options: SetupOptions = {}) {
 	const receiptCalls: AgentDaemonReceipt[] = [];
 	const sessionStore = {
 		list: () => [OWNER],
+		getByTeam: (team: string) => (team === OWNER_KEY ? OWNER : undefined),
 		teamOf: (record: SessionRecord) => `${record.spawn}.${record.id}`,
 	} as unknown as SessionStore;
 	const service = {
@@ -343,7 +360,6 @@ describe("Copilot relay acknowledgement", () => {
 		await settleRelay();
 
 		expect(messagesOf(context, "copilot_ack").map((ack) => ack.throughEventId)).toEqual([7, 7]);
-		// Its replay is not judged a second time.
 		expect(context.eventCalls).toHaveLength(1);
 	});
 
@@ -378,6 +394,49 @@ describe("Copilot relay acknowledgement", () => {
 		await settleRelay();
 
 		expect(messagesOf(context, "copilot_ack").at(-1)?.throughEventId).toBe(6);
+	});
+
+	it("holds a frame whose settling throws, and judges its replay", async () => {
+		// Reading anything off this agent throws, before the frame is held or decided.
+		const poisoned = new Proxy({} as PersistedAgent, {
+			get() {
+				throw new Error("settle bug");
+			},
+		});
+		let broken = true;
+		const context = setup({
+			onEvent: (owner, agent, event) =>
+				broken && event.eventId === 4 ? reconcile(owner, poisoned) : applied(owner, agent),
+		});
+		context.relay.handleHostMessage(eventFrame(4));
+		context.relay.handleHostMessage(eventFrame(5));
+		await settleRelay();
+		expect(messagesOf(context, "copilot_ack").some((ack) => (ack.throughEventId as number) >= 4)).toBe(false);
+
+		broken = false;
+		context.relay.handleHostMessage(eventFrame(4));
+		await settleRelay();
+
+		expect(messagesOf(context, "copilot_ack").at(-1)?.throughEventId).toBe(5);
+	});
+
+	it("counts a held counter once, however often it is retried or replayed", async () => {
+		let hold = true;
+		const context = setup({
+			onEvent: (owner, agent) =>
+				hold ? reconcile(owner, agent) : { disposition: "ignored", reason: "counter-only" },
+		});
+		context.relay.handleHostMessage(counterFrame(4));
+		context.relay.handleHostMessage(reconciledReceipt(5));
+		await settleRelay();
+		expect(context.relay.progressCounts(OWNER_KEY, AGENT_ID, TURN_ID)).toBeUndefined();
+
+		hold = false;
+		context.relay.handleHostMessage(reconciledReceipt(6));
+		context.relay.handleHostMessage(counterFrame(4));
+		await settleRelay();
+
+		expect(context.relay.progressCounts(OWNER_KEY, AGENT_ID, TURN_ID)).toMatchObject({ toolCalls: 1, shell: 1 });
 	});
 
 	it("places a held frame once when a change listener throws", async () => {
