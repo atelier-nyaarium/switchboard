@@ -142,7 +142,6 @@ export const BridgeErrorCodeSchema = z.enum([
 	"model_not_offered",
 	"turn_inactive",
 	"turn_ended",
-	"not_taken",
 	"http",
 	"closed",
 	"protocol",

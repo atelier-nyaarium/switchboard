@@ -57,8 +57,8 @@ export interface AgentBackendSession {
 	/** Resolves on acceptance; later failure settles terminal. */
 	startTurn(threadId: string, prompt: string, turn?: TurnOptions): Promise<TurnHandle>;
 	/**
-	 * Omit to disable steering. `taken`: the turn holds the prompt. Anything else: only sent, so a
-	 * turn that ended since is given it again as a new turn.
+	 * A `taken` answer means held or queued, while a sent-only prompt is retried as a new turn if its
+	 * turn ended.
 	 */
 	steerTurn?(threadId: string, turnId: string, prompt: string, key?: string): Promise<SteerOutcome>;
 	interruptTurn(threadId: string, turnId: string): Promise<void>;

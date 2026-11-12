@@ -152,7 +152,7 @@ describe("an OpenCode agent on the daemon wire", () => {
 		r.bridge.closed();
 	});
 
-	it("steers a message into the running turn once the turn takes it", async () => {
+	it("steers a message into the running turn while a step is owed", async () => {
 		const r = await rig();
 		r.command("start", { operationId: START, target: { kind: "host", workdirHint: "agent" }, prompt: "Review" });
 		const accepted = await r.frame((sent) => sent.kind === "accepted", "the start's acceptance");
@@ -165,13 +165,12 @@ describe("an OpenCode agent on the daemon wire", () => {
 			expectedTurnId: promptIdOf(START),
 			prompt: "Also the lexer",
 		});
-		await until(() => (r.server.inbox(sessionId).length > 0 ? true : undefined), "the steer in the inbox");
-		expect(r.sent.filter((sent) => sent.operationId === MESSAGE)).toEqual([]);
-		r.server.deliverNext(sessionId);
 		expect(
 			await r.frame((sent) => sent.kind === "accepted" && sent.operationId === MESSAGE, "the steer's acceptance"),
 		).toMatchObject({ turnId: promptIdOf(START), delivery: "steered" });
+		expect(r.server.inbox(sessionId)).toHaveLength(1);
 
+		r.server.deliverNext(sessionId);
 		r.server.finishTurn(sessionId, undefined, "Both done.");
 		await r.frame((sent) => sent.kind === "terminal", "the terminal");
 		r.command("message", { operationId: NEXT, target: TARGET, sessionId, prompt: "Next" });

@@ -19,6 +19,9 @@ export interface FakeOpencodeMessage {
 	outcome?: "succeeded" | "failed" | "interrupted";
 	status?: "completed" | "failed";
 	error?: FakeOpencodeError;
+	/** An assistant step that ended. */
+	time?: { completed: number };
+	finish?: string;
 }
 
 export interface FakeOpencodePermission {
@@ -73,6 +76,11 @@ export interface FakeOpencodeServer {
 	models(): Array<{ id: string; providerID: string }>;
 	/** Holds the next answer on this route. */
 	stallNext(route: string, computed?: "arrival" | "release"): { release(): void };
+	/** Ends one step and not the turn. Unlike OpenCode, held steers stay queued. */
+	step(sessionId: string, how?: { finish?: string; text?: string }): void;
+	/** Ends the turn where its rows stand. */
+	goIdle(sessionId: string, error?: FakeOpencodeError): void;
+	/** A last step, then idle. */
 	finishTurn(sessionId: string, error?: FakeOpencodeError, finalText?: string): void;
 	ask(permission: FakeOpencodePermission): void;
 	/** Answers its row's id. */
@@ -82,8 +90,8 @@ export interface FakeOpencodeServer {
 	finishCompaction(sessionId: string, how?: { error?: FakeOpencodeError; midTurn?: boolean; quiet?: boolean }): void;
 	/** `booting` lists no server yet. */
 	setMcp(status: "booting" | "connected" | "failed", error?: string): void;
-	/** The next requests answer this status and change nothing. */
-	failNext(status: number, times?: number): void;
+	/** The next requests, or the next to `route`, answer this status and change nothing. */
+	failNext(status: number, times?: number, route?: string): void;
 	/** A withdrawal answers 500 and leaves its prompt queued. */
 	refuseCancel(on: boolean): void;
 }
@@ -121,7 +129,7 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 	const replies: FakeOpencodeReply[] = [];
 	const encoder = new TextEncoder();
 	let mcp: { status: "booting" | "connected" | "failed"; error?: string } = { status: "connected" };
-	let failing: { status: number; left: number } | null = null;
+	let failing: { status: number; left: number; route?: string } | null = null;
 	let refusingCancel = false;
 	const stalls: Array<{ route: string; computed: "arrival" | "release"; released: Promise<void> }> = [];
 	let minted = 0;
@@ -207,7 +215,8 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 				item: { type: "user", payload: { text }, delivery: delivery ?? "steer" },
 				delivery: delivery ?? "steer",
 			});
-			if (resume && !session.running) deliver(session, sessionId, session.inbox.length - 1);
+			// Idle delivery takes oldest first.
+			if (resume && !session.running) deliver(session, sessionId);
 			return json({ data: row });
 		}
 		session.rows.push(row);
@@ -280,6 +289,8 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 			const session = sessions.get(inboxItem[1] as string);
 			if (!session) return json({ error: "NotFoundError" }, 404);
 			const item = session.inbox.find((held) => held.row.id === inboxItem[2]);
+			// OpenCode answers 204 for one it does not hold.
+			if (!item && method === "DELETE" && !refusingCancel) return new Response(null, { status: 204 });
 			if (!item) return json({ error: "NotFoundError" }, 404);
 			if (method === "PATCH") {
 				const delivery = body.delivery === "queue" ? "queue" : "steer";
@@ -366,6 +377,29 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 		return json({ error: "no such route" }, 404);
 	};
 
+	const step: FakeOpencodeServer["step"] = (sessionId, how = {}) => {
+		need(sessionId).rows.push({
+			id: mint("msg"),
+			type: "assistant",
+			...(how.text === undefined ? {} : { content: [{ type: "text", text: how.text }] }),
+			time: { completed: 1 },
+			finish: how.finish ?? "stop",
+		});
+	};
+
+	const goIdle: FakeOpencodeServer["goIdle"] = (sessionId, error) => {
+		const session = need(sessionId);
+		session.running = false;
+		session.rows.push({
+			id: mint("msg"),
+			type: "idle",
+			outcome: error ? "failed" : "succeeded",
+			...(error ? { error } : {}),
+		});
+		if (error) emit("session.execution.failed", { sessionID: sessionId, error });
+		else emit("session.execution.succeeded", { sessionID: sessionId });
+	};
+
 	const fetchFake = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
 		const target = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
 		const method = (init?.method ?? "GET").toUpperCase();
@@ -376,7 +410,7 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 		if (new Headers(init?.headers).get("authorization") !== opencodeAuth(password)) {
 			return json({ error: "unauthorized" }, 401);
 		}
-		if (failing) {
+		if (failing && (failing.route === undefined || failing.route === target.pathname)) {
 			const { status } = failing;
 			failing.left -= 1;
 			if (failing.left <= 0) failing = null;
@@ -423,7 +457,7 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 			const session = need(sessionId);
 			const part = { type: "tool", id, name, state: { status: "running" } };
 			const last = session.rows.at(-1);
-			if (last?.type === "assistant") last.content = [...(last.content ?? []), part];
+			if (last?.type === "assistant" && !last.time) last.content = [...(last.content ?? []), part];
 			else session.rows.push({ id: mint("msg"), type: "assistant", content: [part] });
 		},
 		synthetic: (sessionId, id, text = id) => {
@@ -438,22 +472,11 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 			stalls.push({ route, computed, released });
 			return { release };
 		},
+		step,
+		goIdle,
 		finishTurn: (sessionId, error, finalText) => {
-			const session = need(sessionId);
-			session.running = false;
-			session.rows.push({
-				id: mint("msg"),
-				type: "assistant",
-				...(finalText === undefined ? {} : { content: [{ type: "text", text: finalText }] }),
-			});
-			session.rows.push({
-				id: mint("msg"),
-				type: "idle",
-				outcome: error ? "failed" : "succeeded",
-				...(error ? { error } : {}),
-			});
-			if (error) emit("session.execution.failed", { sessionID: sessionId, error });
-			else emit("session.execution.succeeded", { sessionID: sessionId });
+			step(sessionId, finalText === undefined ? {} : { text: finalText });
+			goIdle(sessionId, error);
 		},
 		ask: (permission) => {
 			permissions.push(permission);
@@ -488,8 +511,8 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 		setMcp: (status, error) => {
 			mcp = { status, ...(error ? { error } : {}) };
 		},
-		failNext: (status, times = 1) => {
-			failing = { status, left: times };
+		failNext: (status, times = 1, route) => {
+			failing = { status, left: times, ...(route === undefined ? {} : { route }) };
 		},
 		refuseCancel: (on) => {
 			refusingCancel = on;

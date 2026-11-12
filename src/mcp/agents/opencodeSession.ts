@@ -50,8 +50,8 @@ interface TurnRecord {
 // Past the bridge's own server start and stream connect.
 const READY_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 30_000;
-// Past the bridge's wait for a step boundary.
-const STEER_TIMEOUT_MS = 150_000;
+// Past the bridge's own deadline for a start or a steer.
+const TURN_REQUEST_TIMEOUT_MS = 90_000;
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -149,7 +149,7 @@ export class OpencodeBackendSession implements AgentBackendSession {
 		});
 		this.turns.set(turnId, { settle });
 		try {
-			const result = await this.request({ op: "start", threadId, turnId, prompt: text });
+			const result = await this.request({ op: "start", threadId, turnId, prompt: text }, TURN_REQUEST_TIMEOUT_MS);
 			if (result.op !== "start") throw new Error("OpenCode bridge answered the wrong operation");
 			if (result.terminal) this.settleTurn(turnId, result.terminal);
 		} catch (error) {
@@ -158,10 +158,10 @@ export class OpencodeBackendSession implements AgentBackendSession {
 		return { turnId, settled };
 	}
 
-	/** The bridge answers a steer only once its turn holds the prompt. */
+	/** The bridge accepts steers when queued or taken. */
 	async steerTurn(threadId: string, turnId: string, prompt: string, key?: string): Promise<"taken"> {
 		const promptId = key ? promptIdOf(key) : mintedTurnId();
-		const result = await this.request({ op: "steer", threadId, turnId, promptId, prompt }, STEER_TIMEOUT_MS);
+		const result = await this.request({ op: "steer", threadId, turnId, promptId, prompt }, TURN_REQUEST_TIMEOUT_MS);
 		if (result.op !== "steer") throw new Error("OpenCode bridge answered the wrong operation");
 		return "taken";
 	}

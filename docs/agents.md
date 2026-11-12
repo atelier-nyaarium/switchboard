@@ -70,12 +70,12 @@ the reconcile ran its turn in another process, so it is only reported.
 `started` or `steered`; `agentResultDelivery` maps them for an answer.
 
 **A steer says what it knows.** A driver answers `taken` when it knows the turn holds the prompt,
-and nothing when it only sent it. A steer that only sent, whose turn has ended since, is given again
-as a new turn, and so is one the driver rejected because its turn ended. Whether a turn ended is
-asked of the turn's own promise (`settledNow`), and after a rejected steer of the driver's
-`inspectTurn` too: Codex holds a finished turn's terminal up to ten seconds for its final item, so
-the promise alone would refuse a message the agent could take. Both posts carry the operation's id
-as their key, so a driver that can tell lands one prompt.
+taken or queued for its next step, and nothing when it only sent it. A steer that only sent, whose
+turn has ended since, is given again as a new turn, and so is one the driver rejected because its
+turn ended. Whether a turn ended is asked of the turn's own promise (`settledNow`), and after a
+rejected steer of the driver's `inspectTurn` too: Codex holds a finished turn's terminal up to ten
+seconds for its final item, so the promise alone would refuse a message the agent could take. Both
+posts carry the operation's id as their key, so a driver that can tell lands one prompt.
 
 **A catalog write has five outcomes, and a changed record is never read as an unchanged one.**
 `AgentCatalogPersistence.write` tells them apart:
@@ -376,15 +376,60 @@ pipe, and a failure's text has URLs removed.
   sessions in its own database, so a thread outlives its server and `resumeThread` finds it again.
 - **A turn is a prompt, and its id is the prompt's message id,** derived from the operation's id.
   OpenCode lands a repeated id once, so a replayed start or a steer's fallback posts nothing twice.
-- **A steer is taken at a step boundary.** The bridge posts it and answers only once the prompt's
-  row sits inside the turn it was sent for. One the turn ended without is withdrawn from the inbox
-  and rejected, after that turn's terminal, and the service then opens one new turn under the same
-  key. The wait is two minutes: a single tool call longer than that refuses the message as not
-  taken, and its turn runs on. Only a turn the server no longer runs is ended there.
+- **A steer is accepted only where its turn will take it.** The bridge posts it, then reads the
+  inbox and the rows, in that order. A prompt inside the running turn's rows is taken. A prompt
+  still in the inbox is accepted while the server runs that turn and a step is running or owed: its
+  last row is a prompt, an unfinished step, or a step that ended in tool calls. The server reads its
+  inbox when a step ends, however long the current tool call runs, and before its last step ends.
+  `queued` holds each accepted prompt still in the inbox, against its turn.
+- **A steer behind a turn's last step waits for the turn.** A last step that ended without tool
+  calls means the inbox was already read. The bridge reads again every half second until the turn
+  takes the prompt, starts another step, or ends. After ten seconds of a turn still running, the
+  steer is accepted.
+- **Before any refusal the prompt comes out, and one more read decides.** Three reads that fail, or
+  that show the prompt nowhere, end the wait, and so does a turn that ended. The bridge asks the
+  server to take the prompt out and reads once more. A prompt the turn took meanwhile is accepted,
+  and so is one still queued under a step. Then the turn's own end is read: a turn that ended
+  holding the prompt accepts the steer, and one that ended without it refuses the steer after its
+  terminal. The refusal of a running turn's steer says "withdrawn" only when the read shows the
+  prompt nowhere, since OpenCode answers a withdrawal alike for a prompt it never held. Rows that
+  hold the prompt prove it taken even when the inbox cannot be read.
+- **A turn answers the steers it accepted, or fails.** `conclude` is the one end of a turn. One that
+  failed or was interrupted asks the server to withdraw its queued steers, so a stop opens no turn.
+  One that completed while its rows hold no steer it accepted ends failed, never completed on an
+  answer that ignored the steer.
+- **Starts, steers, stops and ends take turns.** Each runs whole in its thread's `ending` chain and
+  reads the server there, so none decides on a read from before another. So does an inspect of a
+  turn the bridge holds, which ends it the same way.
+- **A start or a steer answers within a minute of its arrival.** Past that the bridge answers that
+  the outcome is unknown. Work past the deadline posts nothing new, and a steer not yet taken comes
+  back out. The driver waits ninety seconds, so it hears the bridge's answer and not its own
+  timeout.
+- **A start whose post gets no answer is read, never assumed.** The bridge takes the prompt out of
+  the inbox and reads the rows. A turn that began is kept and answered as started. One the rows
+  cannot show stays held until a read ends it.
+- **A steer that missed its turn opens one.** A prompt left in the inbox of a turn that ended is
+  withdrawn, and one that reached an idle session and opened its own turn is adopted. Either way the
+  steer is refused, after the ended turn's terminal, and the service opens or adopts one turn under
+  the same key. A start under a key that an ended turn already took answers that turn's terminal.
+- **A turn start withdraws its thread's stale prompts, or does not start.** Nothing runs there, and
+  the server would deliver a stale prompt ahead of the turn's own. It keeps an item under its own
+  prompt id, which the post then delivers. An inbox it cannot read, or a stale prompt it cannot
+  withdraw, refuses the start. A repeated start that cannot read the server keeps a turn the bridge
+  holds.
 - **A turn's end is read from the session's rows.** The event stream replays nothing after a
   reconnect, and a repeated prompt id emits an execution with no step. Every connection reads the
-  active sessions and the rows first, settles turns that ended while it was down, decides steers
-  still waiting, and emits a counter for each tool row not yet counted.
+  active sessions and the rows first, ends turns that ended while it was down, forgets the queued
+  steers a turn took meanwhile, and emits a counter for each tool row not yet counted.
+- **An end event names no turn, so only the held turn's own rows end it.** One that arrives while
+  the server still runs the turn ends nothing. One whose reads fail is read again, with backoff,
+  until it can be (`recheck`), and so is a thread a reconnect could not read. A turn the server no
+  longer runs, with no idle row, ends as its event says.
+- **An answer the bridge cannot read is a failure, never an empty one.** A body that does not
+  arrive, or a payload without its list, throws, so no turn is read as lost from it. A turn whose
+  first row lies past the page cap is unread as well.
+- **A closed bridge sends nothing and calls nothing.** Work still queued when it closes fails at
+  its next call.
 - **Commentary is each finished text part before the last message.** The last assistant message is
   the answer and is never also commentary. A tool start is a counter, kinded by its name
   (`counterKindOfTool`, shared with Copilot).
