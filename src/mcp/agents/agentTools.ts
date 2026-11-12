@@ -59,9 +59,9 @@ const LIST_DESCRIPTION = `
 
 Agents starting, running, or holding an uncollected turn, newest first. No answers.
 
-- \`backend\` limits the list to one family.
+- \`backend\` limits the list to one backend.
 - \`agentId\` returns that one agent, collected or not.
-- \`limit\` caps each family's rows.
+- \`limit\` caps each backend's rows.
 
 Keep the ids of agents you will message again.
 `.trim();
