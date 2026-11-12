@@ -486,21 +486,17 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 		if (thread.waiters.get(promptId) !== waiter) return;
 		thread.waiters.delete(promptId);
 		if (thread.active?.turnId === waiter.turnId) {
-			let turns: TurnRows[] | undefined;
+			// A turn that still runs is left running: a long step takes no prompt until it ends.
+			let ended: OpencodeTerminal | undefined;
 			try {
-				turns = turnsOf(await readRows(thread.id, waiter.turnId));
+				const old = turnById(turnsOf(await readRows(thread.id, waiter.turnId)), waiter.turnId);
+				if (old?.idle) ended = terminalOf(old);
+				else if (!(await readActive()).has(thread.id))
+					ended = { status: "failed", error: "the OpenCode turn was lost" };
 			} catch {
-				// A lost read still ends the turn.
+				// Unread: the next stream connection settles it.
 			}
-			if (thread.active?.turnId === waiter.turnId) {
-				const old = turns ? turnById(turns, waiter.turnId) : undefined;
-				settle(
-					thread,
-					thread.active,
-					old?.idle ? terminalOf(old) : { status: "failed", error: "the OpenCode turn was lost" },
-					false,
-				);
-			}
+			if (ended && thread.active?.turnId === waiter.turnId) settle(thread, thread.active, ended, false);
 		}
 		await cancelPrompt(thread.id, promptId);
 		try {
@@ -514,7 +510,14 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 		} catch {
 			// Reject below.
 		}
-		waiter.reject(new BridgeFailure("turn_ended", "the OpenCode turn ended before the prompt was taken"));
+		waiter.reject(
+			thread.active?.turnId === waiter.turnId
+				? new BridgeFailure(
+						"not_taken",
+						"the OpenCode turn did not take the prompt in time and is still working",
+					)
+				: new BridgeFailure("turn_ended", "the OpenCode turn ended before the prompt was taken"),
+		);
 	};
 
 	/** The prompt row, not the local pointer, decides where a steer landed. */

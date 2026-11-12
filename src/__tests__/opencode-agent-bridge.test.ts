@@ -381,7 +381,7 @@ describe("the OpenCode bridge", () => {
 		await r.bridge.done;
 	});
 
-	it("withdraws a timed-out steer so it cannot land later", async () => {
+	it("withdraws a timed-out steer so it cannot land later, and leaves its running turn alone", async () => {
 		const r = await rig({ steerWaitMs: 200 });
 		const threadId = await open(r);
 		const turnId = promptIdOf("timeout-turn");
@@ -389,10 +389,15 @@ describe("the OpenCode bridge", () => {
 		const promptId = promptIdOf("timeout-steer");
 		const steerId = r.send({ op: "steer", threadId, turnId, promptId, prompt: "Also" });
 		await waitFor(() => (r.server.inbox(threadId).includes(promptId) ? true : undefined));
-		await expect(r.error(steerId)).resolves.toMatchObject({ type: "error", code: "turn_ended" });
+		await expect(r.error(steerId)).resolves.toMatchObject({ type: "error", code: "not_taken" });
 		await waitFor(() => (r.server.inbox(threadId).includes(promptId) ? undefined : true));
 		expect(r.server.inbox(threadId)).toEqual([]);
-		r.server.finishTurn(threadId);
+		const terminals = () => r.events().filter((event) => event.type === "event" && event.event === "terminal");
+		expect(terminals()).toEqual([]);
+
+		r.server.finishTurn(threadId, undefined, "Done.");
+		await waitFor(() => (terminals().length > 0 ? true : undefined));
+		expect(terminals()).toMatchObject([{ turnId, terminal: { status: "completed", finalResponse: "Done." } }]);
 		r.bridge.closed();
 		await r.bridge.done;
 	});

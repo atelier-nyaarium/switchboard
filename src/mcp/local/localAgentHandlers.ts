@@ -86,6 +86,9 @@ export class LocalAgentHandlers {
 		{ runner: TurnRunner<LocalAgentRecord>; sweep: ReturnType<typeof setInterval> }
 	>();
 
+	/** Children that closed, some before any runner. */
+	private readonly gone = new WeakSet<AgentBackendSession>();
+
 	constructor(private readonly host: LocalHandlerHost) {}
 
 	list(): LocalListAgent[] {
@@ -290,6 +293,7 @@ export class LocalAgentHandlers {
 
 	/** Child closure loses active turns. */
 	closed(session: AgentBackendSession): void {
+		this.gone.add(session);
 		const held = this.runners.get(session);
 		if (!held) return;
 		this.runners.delete(session);
@@ -316,6 +320,8 @@ export class LocalAgentHandlers {
 			},
 			log: (line) => console.error(`[${this.host.spec.backendId}-local] ${line}`),
 		});
+		// Nothing clears a sweep made after its child closed.
+		if (this.gone.has(session)) return runner;
 		const sweep = setInterval(
 			() => void runner.watch(() => this.runners.get(session)?.runner === runner),
 			WATCH_EVERY_MS,

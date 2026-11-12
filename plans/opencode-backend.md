@@ -1085,6 +1085,25 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
 - A container with Copilot alone: its header offers Copilot alone, a session is created, talked to, compacted and woken.
 - Docs: `docs/architecture.md` (the harness table, the OpenCode roads), `docs/console.md` (the create pick), `docs/environment.md`, the setup step that installs the pin, AGENTS.md map lines. The stale line the map found, that Copilot gets no progress notices, goes. ✅ Each was already written with its slice, and the stale line is gone. The setup step is new: "3) Install OpenCode <pin>" in the setup menu (`scripts/setup-opencode.ts`), showing what this machine has against the pin and running `OPENCODE_INSTALL_CMD`, the phone macro's command.
 
+### Alignment read, 2026-11-12
+
+Five Luna readers on the plan against `255816f6`, one per angle, and a join. Sixteen entries, none a code defect in what this lap built.
+
+- **Docs brought level:** the launcher's fourth status `exited`, the fourth CLI word `unpicked`, the launch lane in the architecture's launch road, the row's `assistant` field, and `XDG_STATE_HOME` with the server file's `directory`.
+- **A rebuilt OpenCode view reads any running execution as working,** against the rule that only a step is a turn. Stated in the docs as the exception and put on the board: the rows could answer it, but not before a real server shows when a step's row appears.
+- **Leftover backend "family" names renamed,** in notices, the roster and three internals.
+- **Stale plan lines corrected:** the close's design paragraph, what was left for B, and three painpoints.
+
+### Red team, 2026-11-12
+
+Five Luna readers: version skew, a Codex turn under failure, the OpenCode driver, bounds and timers, and a pre-flight of the hands-on acceptance list. An Opus join ranked twenty.
+
+- **A steer that timed out ended its running turn as lost.** The bridge's withdraw settled the turn failed whenever its rows were not idle, so a tool call longer than two minutes with a message sent into it showed a failed turn that was still working, and the prompt opened a second one. A turn the server still runs is now left running and the steer is refused as `not_taken`. The docs already said only the message is refused.
+- **A turn that opens on a stream whose frames were dropped is asked about.** A start still `creating` at a lossy hello was passed over, and its replayed acceptance then left it working with its terminal gone.
+- **A local child that closed before its runner existed left a sweep interval.** It gets none.
+- **On the board, not built:** a stop refused or queued while a message is mid-steer; a failed start that runs after a Gateway restart; a start that runs twice past both daemon caps; local mode's unbounded history; a Codex turn completed with an empty answer; the smaller bounds.
+- **Judged as designed:** the `.env` card is a courtesy, as the plan says; Create offers every CLI until a starting container reports; a new daemon's hello is refused by an older Gateway, which is why the Gateway goes first.
+
 ## Side fix - Create and Forget for stopped containers
 
 The owner's decisions are under `## Owner asks, open`. Mapped on 2026-11-12 by an Opus read of the code; the four Luna readers ahead of it failed on Codex's usage limit. Its claims were checked before building.

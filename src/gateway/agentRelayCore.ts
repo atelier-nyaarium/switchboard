@@ -310,7 +310,7 @@ export class AgentRelayCore<
 		this.helloFrom = hello.daemonInstanceId;
 		this.lastHelloAt = this.now();
 		const evicted = (hello.evicted ?? []).filter(
-			(stream) => stream.count > (this.evictionsSeen.get(this.evictionKey(hello, stream)) ?? 0),
+			(stream) => stream.count > (this.evictionsSeen.get(this.evictionKey(hello.daemonInstanceId, stream)) ?? 0),
 		);
 		const lossy = new Set(evicted.map((stream) => stream.targetId));
 		const unasked = new Set<string>();
@@ -337,12 +337,13 @@ export class AgentRelayCore<
 		await Promise.all(pending);
 		// Retry evictions after unsent asks.
 		for (const stream of evicted) {
-			if (!unasked.has(stream.targetId)) this.evictionsSeen.set(this.evictionKey(hello, stream), stream.count);
+			if (!unasked.has(stream.targetId))
+				this.evictionsSeen.set(this.evictionKey(hello.daemonInstanceId, stream), stream.count);
 		}
 	}
 
-	private evictionKey(hello: AgentRelayHello, stream: { targetId: string; generation: number }): string {
-		return `${hello.daemonInstanceId} ${stream.targetId} ${stream.generation}`;
+	private evictionKey(daemonInstanceId: string, stream: { targetId: string; generation: number }): string {
+		return `${daemonInstanceId} ${stream.targetId} ${stream.generation}`;
 	}
 
 	private onReceipt(raw: Record<string, unknown>): Promise<void> {
@@ -406,6 +407,7 @@ export class AgentRelayCore<
 		}
 		try {
 			this.settle(ticket, application, closing);
+			this.askAfterLoss(ticket, application);
 		} catch (error) {
 			console.error(`[${this.port.backendId}-relay] settling a frame failed:`, error);
 		}
@@ -414,6 +416,18 @@ export class AgentRelayCore<
 			this.frames.hold(ticket, "failed", this.now());
 			this.watch(ownerKey, agentId);
 		}
+	}
+
+	/** A turn opened on a stream that dropped frames: its terminal may be among them. */
+	private askAfterLoss(
+		ticket: FrameTicket<HeldFrame<TEvent, TReceipt>>,
+		application: AgentApplication<TAgent>,
+	): void {
+		const { stream, daemonInstanceId } = ticket.identity;
+		if (ticket.payload.frame !== "receipt" || !stream || !inRecord(application)) return;
+		if (!this.port.modelTurn(ticket.payload.message)) return;
+		if ((this.evictionsSeen.get(this.evictionKey(daemonInstanceId, stream)) ?? 0) === 0) return;
+		this.requestReconciliation(ticket.payload.message.ownerKey, application.agent, true);
 	}
 
 	private noteOpenTurn(key: string, application: AgentApplication<TAgent>): void {

@@ -250,6 +250,27 @@ describe("a hold nothing places is closed at its limit", () => {
 		expect(context.asks()).toHaveLength(2);
 	});
 
+	it("asks about a turn that opens on a stream whose frames were dropped", async () => {
+		const context = setup();
+		await context.hello();
+		context.service.beginStart(context.owner, {
+			agentId: AGENT,
+			operationId: START,
+			daemonInstanceId: DAEMON,
+			prompt: "start",
+			target: TARGET,
+			at: context.ambient.now(),
+		});
+		// Its receipt and its terminal may both be among them, and it is not working yet.
+		await context.hello(3);
+		expect(context.asks()).toHaveLength(0);
+
+		await context.accepted(0, START, "turn-1");
+
+		expect(context.agent().agentState).toBe("working");
+		expect(context.asks()).toHaveLength(1);
+	});
+
 	it("starts the wait over at a hello", async () => {
 		const context = setup();
 		await context.hello();

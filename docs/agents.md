@@ -372,7 +372,8 @@ pipe, and a failure's text has URLs removed.
 - **A steer is taken at a step boundary.** The bridge posts it and answers only once the prompt's
   row sits inside the turn it was sent for. One the turn ended without is withdrawn from the inbox
   and rejected, after that turn's terminal, and the service then opens one new turn under the same
-  key. The wait is two minutes: a single tool call longer than that refuses the message.
+  key. The wait is two minutes: a single tool call longer than that refuses the message as not
+  taken, and its turn runs on. Only a turn the server no longer runs is ended there.
 - **A turn's end is read from the session's rows.** The event stream replays nothing after a
   reconnect, and a repeated prompt id emits an execution with no step. Every connection reads the
   active sessions and the rows first, settles turns that ended while it was down, decides steers
