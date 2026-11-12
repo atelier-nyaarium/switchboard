@@ -1,31 +1,22 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AGENT_BACKENDS, type AgentBackendId } from "../../shared/agent-backend.js";
+import { AGENT_BACKENDS, type AgentBackendId, agentBackend, agentBackendOf } from "../../shared/agent-backend.js";
 import { AgentOutputSchemaSchema } from "../../shared/agent-record.js";
 import {
-	CODEX_AGENT_ID_RE,
-	CodexListAgentsInputSchema,
-	CodexMessageAgentInputSchema,
-	CodexServiceTierSchema,
-	CodexStartAgentInputSchema,
-} from "../../shared/codex-agent.js";
-import {
-	COPILOT_AGENT_ID_RE,
-	CopilotMessageAgentInputSchema,
-	CopilotStartAgentInputSchema,
-} from "../../shared/copilot-agent.js";
+	AgentListInputSchema,
+	AgentMessageInputSchema,
+	type AgentServiceTier,
+	AgentServiceTierSchema,
+	AgentStartInputSchema,
+} from "../../shared/agent-state.js";
 import type { AgentDispatch } from "../agentDispatch.js";
-import { postAgentRequest } from "../agentRequest.js";
-import { codexRequestBody } from "../codex/codexTools.js";
-import { copilotRequestBody } from "../copilot/copilotTools.js";
+import { agentRequestBody, postAgentRequest } from "../agentRequest.js";
 
 export type AgentDispatches = Partial<Record<AgentBackendId, AgentDispatch>>;
 
 type ToolText = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
-const AgentIdSchema = z
-	.string()
-	.refine((id) => CODEX_AGENT_ID_RE.test(id) || COPILOT_AGENT_ID_RE.test(id), "not an agent id");
+const AgentIdSchema = z.string().refine((id) => agentBackendOf(id) !== undefined, "not an agent id");
 
 const START_DESCRIPTION = `
 # Start Agent
@@ -80,17 +71,26 @@ function refused(text: string): ToolText {
 }
 
 function backendOf(agentId: string): AgentBackendId {
-	return CODEX_AGENT_ID_RE.test(agentId) ? "codex" : "copilot";
+	const backend = agentBackendOf(agentId);
+	if (!backend) throw new Error(`not an agent id`);
+	return backend;
 }
 
-function descriptor(id: AgentBackendId) {
-	const found = AGENT_BACKENDS.find((backend) => backend.id === id);
-	if (!found) throw new Error(`unknown agent backend ${id}`);
-	return found;
-}
+const descriptor = agentBackend;
 
 function issues(error: z.ZodError): string {
 	return error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; ");
+}
+
+/** Preserve caller option names. */
+function untakenOption(
+	backend: AgentBackendId,
+	args: { effort?: string; tier?: AgentServiceTier },
+): string | undefined {
+	const { displayName, options } = descriptor(backend);
+	if (args.effort !== undefined && !options.reasoningEffort) return `\`effort\` is not a ${displayName} option`;
+	if (args.tier !== undefined && !options.serviceTier) return `\`tier\` is not a ${displayName} option`;
+	return undefined;
 }
 
 interface StartArgs {
@@ -98,58 +98,49 @@ interface StartArgs {
 	backend?: AgentBackendId;
 	model?: string;
 	effort?: string;
-	tier?: z.infer<typeof CodexServiceTierSchema>;
+	tier?: AgentServiceTier;
 	schema?: Record<string, unknown>;
 	cwd?: string;
 }
 
 export function startBody(backend: AgentBackendId, args: StartArgs): Record<string, unknown> | string {
-	const common = {
+	const untaken = untakenOption(backend, args);
+	if (untaken) return untaken;
+	const checked = AgentStartInputSchema.safeParse({
 		prompt: args.prompt,
 		...(args.model === undefined ? {} : { model: args.model }),
 		...(args.cwd === undefined ? {} : { cwd: args.cwd }),
+		...(args.tier === undefined ? {} : { serviceTier: args.tier }),
+		...(args.effort === undefined ? {} : { reasoningEffort: args.effort }),
 		...(args.schema === undefined ? {} : { outputSchema: args.schema }),
-	};
-	if (backend === "codex") {
-		if (args.effort !== undefined) return "`effort` is not a Codex option";
-		const input = { ...common, ...(args.tier === undefined ? {} : { serviceTier: args.tier }) };
-		const checked = CodexStartAgentInputSchema.safeParse(input);
-		return checked.success ? codexRequestBody("start", checked.data) : issues(checked.error);
-	}
-	if (args.tier !== undefined) return "`tier` is not a Copilot option";
-	const input = { ...common, ...(args.effort === undefined ? {} : { reasoningEffort: args.effort }) };
-	const checked = CopilotStartAgentInputSchema.safeParse(input);
-	return checked.success ? copilotRequestBody("start", checked.data) : issues(checked.error);
+	});
+	return checked.success ? agentRequestBody(descriptor(backend), "start", checked.data) : issues(checked.error);
 }
 
 interface MessageArgs {
 	agentId: string;
 	prompt: string;
-	tier?: z.infer<typeof CodexServiceTierSchema>;
+	tier?: AgentServiceTier;
 	schema?: Record<string, unknown>;
 }
 
 export function messageBody(args: MessageArgs): Record<string, unknown> | string {
-	const common = {
+	const backend = backendOf(args.agentId);
+	const untaken = untakenOption(backend, args);
+	if (untaken) return untaken;
+	const checked = AgentMessageInputSchema.safeParse({
 		agentId: args.agentId,
 		prompt: args.prompt,
+		...(args.tier === undefined ? {} : { serviceTier: args.tier }),
 		...(args.schema === undefined ? {} : { outputSchema: args.schema }),
-	};
-	if (backendOf(args.agentId) === "codex") {
-		const input = { ...common, ...(args.tier === undefined ? {} : { serviceTier: args.tier }) };
-		const checked = CodexMessageAgentInputSchema.safeParse(input);
-		return checked.success ? codexRequestBody("message", checked.data) : issues(checked.error);
-	}
-	if (args.tier !== undefined) return "`tier` is not a Copilot option";
-	const checked = CopilotMessageAgentInputSchema.safeParse(common);
-	return checked.success ? copilotRequestBody("message", checked.data) : issues(checked.error);
+	});
+	return checked.success ? agentRequestBody(descriptor(backend), "message", checked.data) : issues(checked.error);
 }
 
 function idBody(kind: "await" | "stop", agentId: string): Record<string, unknown> {
-	return backendOf(agentId) === "codex" ? codexRequestBody(kind, { agentId }) : copilotRequestBody(kind, { agentId });
+	return agentRequestBody(descriptor(backendOf(agentId)), kind, { agentId });
 }
 
-/** Registers enabled agent tools. */
 export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispatches): void {
 	const enabled = AGENT_BACKENDS.map((backend) => backend.id).filter((id) => dispatches[id] !== undefined);
 	const [first, ...rest] = enabled;
@@ -170,7 +161,7 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 			backend: BackendSchema.optional(),
 			model: z.string().optional(),
 			effort: z.string().optional(),
-			tier: CodexServiceTierSchema.optional(),
+			tier: AgentServiceTierSchema.optional(),
 			schema: AgentOutputSchemaSchema.optional(),
 			cwd: z.string().optional(),
 		})
@@ -180,7 +171,7 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 		.object({
 			agentId: AgentIdSchema,
 			prompt: z.string(),
-			tier: CodexServiceTierSchema.optional(),
+			tier: AgentServiceTierSchema.optional(),
 			schema: AgentOutputSchemaSchema.optional(),
 		})
 		.strict();
@@ -191,7 +182,7 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 		.object({
 			backend: BackendSchema.optional(),
 			agentId: AgentIdSchema.optional(),
-			limit: CodexListAgentsInputSchema.shape.limit,
+			limit: AgentListInputSchema.shape.limit,
 		})
 		.strict();
 
@@ -228,7 +219,7 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 		async (args: { backend?: AgentBackendId; agentId?: string; limit?: number }) => {
 			const listBody = (backend: AgentBackendId) => {
 				const query = { agentId: args.agentId, limit: args.limit };
-				return backend === "codex" ? codexRequestBody("list", query) : copilotRequestBody("list", query);
+				return agentRequestBody(descriptor(backend), "list", query);
 			};
 			if (args.agentId !== undefined) {
 				const backend = backendOf(args.agentId);

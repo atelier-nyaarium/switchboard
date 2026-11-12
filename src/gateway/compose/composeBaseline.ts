@@ -65,16 +65,10 @@ export function composeBaseline({
 		runningAgents: (team) => {
 			const record = sessionStore.getByTeam(team);
 			if (!record) return [];
-			return [
-				...sessionStore
-					.listCodexAgents(record)
-					.filter((agent) => agent.runId === undefined && agent.activeTurnId !== undefined)
-					.map((agent) => ({ family: "codex" as const, agentId: agent.agentId })),
-				...sessionStore
-					.listCopilotAgents(record)
-					.filter((agent) => agent.runId === undefined && agent.activeTurnId !== undefined)
-					.map((agent) => ({ family: "copilot" as const, agentId: agent.agentId })),
-			];
+			return sessionStore
+				.everyAgent(record)
+				.filter(({ agent }) => agent.runId === undefined && agent.activeTurnId !== undefined)
+				.map(({ backend, agent }) => ({ family: backend, agentId: agent.agentId }));
 		},
 	};
 	return {

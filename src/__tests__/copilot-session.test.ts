@@ -1,18 +1,40 @@
 import { expect, it } from "vitest";
+import { CopilotBackendSession, copilotFailureCode } from "../mcp/agents/copilotSession.js";
+import { AgentDaemonService } from "../mcp/devcontainer/agentDaemonService.js";
 import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
-import { CopilotDaemonService } from "../mcp/devcontainer/copilotDaemonService.js";
 import type { CopilotHeadlessClient, SessionEvent } from "../mcp/devcontainer/copilotHeadless.js";
+import { COPILOT_BACKEND } from "../shared/agent-backend.js";
 
 const OWNER_KEY = "recipe-app.work";
 const AGENT_ID = "copilot_0123456789abcdef0123456789abcdef";
 const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
 const OPERATION_ID = "123e4567-e89b-42d3-a456-426614174001";
 async function settle(): Promise<void> {
-	for (let tick = 0; tick < 12; tick += 1) await Promise.resolve();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function fakeChild(): AgentChild {
+	return { onExit: () => {} } as unknown as AgentChild;
+}
+
+function makeService(
+	targets: TargetSupervisor,
+	sent: Record<string, unknown>[],
+	openClient: (child: AgentChild) => Promise<CopilotHeadlessClient>,
+): AgentDaemonService {
+	return new AgentDaemonService({
+		backend: COPILOT_BACKEND,
+		targets,
+		daemonInstanceId: "daemon-1",
+		send: (message) => sent.push(message),
+		open: (child) => CopilotBackendSession.open(child, openClient),
+		resolveHostCwd: () => "/home/agent",
+		failureCode: copilotFailureCode,
+	});
 }
 
 it("streams a Copilot ACP turn into accepted, activity, and terminal frames", async () => {
-	const child = {} as AgentChild;
+	const child = fakeChild();
 	const sent: Record<string, unknown>[] = [];
 	let listener: (sessionId: string, event: SessionEvent) => void = () => {};
 	const client = {
@@ -30,13 +52,7 @@ it("streams a Copilot ACP turn into accepted, activity, and terminal frames", as
 		acquire: () => ({ state: "running", lease: { generation: 3, child } }),
 		release: () => {},
 	};
-	const service = new CopilotDaemonService({
-		targets,
-		daemonInstanceId: "daemon-1",
-		send: (message) => sent.push(message),
-		openClient: async () => client,
-		resolveHostCwd: () => "/home/agent",
-	});
+	const service = makeService(targets, sent, async () => client);
 
 	service.handleCommand({
 		type: "copilot_command",
@@ -89,16 +105,10 @@ it("rejects a start whose session the runtime refused", async () => {
 		close: () => {},
 	} as unknown as CopilotHeadlessClient;
 	const targets: TargetSupervisor = {
-		acquire: () => ({ state: "running", lease: { generation: 1, child: {} as AgentChild } }),
+		acquire: () => ({ state: "running", lease: { generation: 1, child: fakeChild() } }),
 		release: () => {},
 	};
-	const service = new CopilotDaemonService({
-		targets,
-		daemonInstanceId: "daemon-1",
-		send: (message) => sent.push(message),
-		openClient: async () => client,
-		resolveHostCwd: () => "/home/agent",
-	});
+	const service = makeService(targets, sent, async () => client);
 
 	service.handleCommand({
 		type: "copilot_command",
@@ -137,19 +147,17 @@ it("refuses a command whose generation retires while it is in flight", async () 
 		close: () => {},
 	} as unknown as CopilotHeadlessClient;
 	let generation = 1;
-	const service = new CopilotDaemonService({
-		targets: {
-			acquire: () => ({ state: "running", lease: { generation, child: {} as AgentChild } }),
+	const service = makeService(
+		{
+			acquire: () => ({ state: "running", lease: { generation, child: fakeChild() } }),
 			release: () => {},
 		},
-		daemonInstanceId: "daemon-1",
-		send: (message) => sent.push(message),
-		openClient: async () => {
+		sent,
+		async () => {
 			await opening;
 			return client;
 		},
-		resolveHostCwd: () => "/home/agent",
-	});
+	);
 
 	service.handleCommand({
 		type: "copilot_command",
@@ -184,17 +192,11 @@ it("refuses a command whose generation retires while it is in flight", async () 
 it("classifies login failures in rejected receipts", async () => {
 	const sent: Record<string, unknown>[] = [];
 	const targets: TargetSupervisor = {
-		acquire: () => ({ state: "running", lease: { generation: 1, child: {} as AgentChild } }),
+		acquire: () => ({ state: "running", lease: { generation: 1, child: fakeChild() } }),
 		release: () => {},
 	};
-	const service = new CopilotDaemonService({
-		targets,
-		daemonInstanceId: "daemon-1",
-		send: (message) => sent.push(message),
-		openClient: async () => {
-			throw new Error("Copilot login required");
-		},
-		resolveHostCwd: () => "/home/agent",
+	const service = makeService(targets, sent, async () => {
+		throw new Error("Copilot login required");
 	});
 
 	service.handleCommand({
@@ -237,16 +239,14 @@ it("steers a follow-up into the running turn it names, and refuses one that name
 		abort: async () => {},
 		close: () => {},
 	} as unknown as CopilotHeadlessClient;
-	const service = new CopilotDaemonService({
-		targets: {
-			acquire: () => ({ state: "running", lease: { generation: 1, child: {} as AgentChild } }),
+	const service = makeService(
+		{
+			acquire: () => ({ state: "running", lease: { generation: 1, child: fakeChild() } }),
 			release: () => {},
 		},
-		daemonInstanceId: "daemon-1",
-		send: (message) => sent.push(message),
-		openClient: async () => client,
-		resolveHostCwd: () => "/home/agent",
-	});
+		sent,
+		async () => client,
+	);
 	const target = { kind: "devcontainer", project: "recipe-app", hostProjectPath: "/projects/recipe-app" } as const;
 	service.handleCommand({
 		type: "copilot_command",
@@ -301,16 +301,14 @@ it("refuses a reasoning effort the catalog does not list for the model", async (
 		abort: async () => {},
 		close: () => {},
 	} as unknown as CopilotHeadlessClient;
-	const service = new CopilotDaemonService({
-		targets: {
-			acquire: () => ({ state: "running", lease: { generation: 1, child: {} as AgentChild } }),
+	const service = makeService(
+		{
+			acquire: () => ({ state: "running", lease: { generation: 1, child: fakeChild() } }),
 			release: () => {},
 		},
-		daemonInstanceId: "daemon-1",
-		send: (message) => sent.push(message),
-		openClient: async () => client,
-		resolveHostCwd: () => "/home/agent",
-	});
+		sent,
+		async () => client,
+	);
 	service.handleCommand({
 		type: "copilot_command",
 		kind: "start",
@@ -330,4 +328,56 @@ it("refuses a reasoning effort the catalog does not list for the model", async (
 		kind: "rejected",
 		error: expect.stringContaining("not offered for gpt-6-luna"),
 	});
+});
+
+it("accepts a turn before its send answers, and fails it when the send does", async () => {
+	const sent: Record<string, unknown>[] = [];
+	let failSend: (error: Error) => void = () => {};
+	const client = {
+		onEvent: () => {},
+		listModels: async () => [],
+		createSession: async () => "session-1",
+		resumeSession: async () => {},
+		send: () => new Promise<string>((_resolve, reject) => (failSend = reject)),
+		abort: async () => {},
+		close: () => {},
+	} as unknown as CopilotHeadlessClient;
+	const service = makeService(
+		{
+			acquire: () => ({ state: "running", lease: { generation: 1, child: fakeChild() } }),
+			release: () => {},
+		},
+		sent,
+		async () => client,
+	);
+	service.handleCommand({
+		type: "copilot_command",
+		kind: "start",
+		requestId: REQUEST_ID,
+		ownerKey: OWNER_KEY,
+		agentId: AGENT_ID,
+		operationId: OPERATION_ID,
+		target: { kind: "devcontainer", project: "recipe-app", hostProjectPath: "/projects/recipe-app" },
+		prompt: "Review the parser",
+	});
+	await settle();
+	expect(sent.at(-1)).toMatchObject({ kind: "accepted", delivery: "started" });
+
+	failSend(new Error("request timed out"));
+	await settle();
+	expect(sent.at(-1)).toMatchObject({ kind: "terminal", state: "failed", error: "request timed out" });
+});
+
+it("fails to open over a child that left while its models were read", async () => {
+	let exit: () => void = () => {};
+	const child = { onExit: (listener: () => void) => (exit = listener) } as unknown as AgentChild;
+	const client = {
+		onEvent: () => {},
+		listModels: async () => {
+			exit();
+			return [];
+		},
+		close: () => {},
+	} as unknown as CopilotHeadlessClient;
+	await expect(CopilotBackendSession.open(child, async () => client)).rejects.toThrow("Copilot exited");
 });

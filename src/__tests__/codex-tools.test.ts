@@ -1,45 +1,51 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { agentRequestBody, startDefaults } from "../mcp/agentRequest.js";
 import { initBridge, routerErrorText, routerPost } from "../mcp/bridge/helpers.js";
-import { codexRequestBody, codexStartDefaults } from "../mcp/codex/codexTools.js";
 import { pluginProfile } from "../mcp/sessionCli.js";
+import { CODEX_BACKEND } from "../shared/agent-backend.js";
 import { CodexRequestErrorSchema, sanitizeCodexErrorText } from "../shared/codex-agent.js";
 import { modelFamily, sameFamily } from "../shared/model-family.js";
 
 describe("Codex request identities", () => {
 	it("mints distinct ids for every call but a list", () => {
-		const first = codexRequestBody("start", { prompt: "Audit" });
-		const second = codexRequestBody("start", { prompt: "Audit" });
+		const first = agentRequestBody(CODEX_BACKEND, "start", { prompt: "Audit" });
+		const second = agentRequestBody(CODEX_BACKEND, "start", { prompt: "Audit" });
 		expect(first.operationId).not.toBe(second.operationId);
-		expect(codexRequestBody("await", { agentId: "codex_0123456789abcdef0123456789abcdef" })).toHaveProperty(
-			"operationId",
-		);
-		expect(codexRequestBody("list")).not.toHaveProperty("operationId");
+		expect(
+			agentRequestBody(CODEX_BACKEND, "await", { agentId: "codex_0123456789abcdef0123456789abcdef" }),
+		).toHaveProperty("operationId");
+		expect(agentRequestBody(CODEX_BACKEND, "list")).not.toHaveProperty("operationId");
 	});
 
 	it("applies start defaults without copying them to later turns", () => {
-		expect(codexRequestBody("start", { prompt: "Audit" })).toMatchObject({
+		expect(agentRequestBody(CODEX_BACKEND, "start", { prompt: "Audit" })).toMatchObject({
 			model: expect.any(String),
 			serviceTier: "priority",
 		});
-		expect(codexRequestBody("start", { prompt: "Audit", model: "gpt-6.1-sol" })).not.toHaveProperty("serviceTier");
+		expect(agentRequestBody(CODEX_BACKEND, "start", { prompt: "Audit", model: "gpt-6.1-sol" })).not.toHaveProperty(
+			"serviceTier",
+		);
 		expect(
-			codexRequestBody("message", { agentId: "codex_0123456789abcdef0123456789abcdef", prompt: "Continue" }),
+			agentRequestBody(CODEX_BACKEND, "message", {
+				agentId: "codex_0123456789abcdef0123456789abcdef",
+				prompt: "Continue",
+			}),
 		).not.toHaveProperty("model");
 	});
 
 	it("gives priority to any Luna model that names no tier, and lets a named tier win", () => {
-		expect(codexStartDefaults({})).toEqual({ model: "gpt-6-luna", serviceTier: "priority" });
-		expect(codexStartDefaults({ model: "gpt-6.1-luna" })).toEqual({
+		expect(startDefaults(CODEX_BACKEND, {})).toEqual({ model: "gpt-6-luna", serviceTier: "priority" });
+		expect(startDefaults(CODEX_BACKEND, { model: "gpt-6.1-luna" })).toEqual({
 			model: "gpt-6.1-luna",
 			serviceTier: "priority",
 		});
-		expect(codexStartDefaults({ model: "gpt-6.1-luna", serviceTier: "standard" })).toEqual({
+		expect(startDefaults(CODEX_BACKEND, { model: "gpt-6.1-luna", serviceTier: "standard" })).toEqual({
 			model: "gpt-6.1-luna",
 			serviceTier: "standard",
 		});
-		expect(codexStartDefaults({ model: "gpt-6.1-sol" })).toEqual({ model: "gpt-6.1-sol" });
+		expect(startDefaults(CODEX_BACKEND, { model: "gpt-6.1-sol" })).toEqual({ model: "gpt-6.1-sol" });
 	});
 });
 
@@ -81,7 +87,7 @@ describe("routerPost", () => {
 
 	it("returns the parsed gateway value", async () => {
 		reply = { status: 200, body: { agentId: "codex_0123456789abcdef0123456789abcdef", observation: "terminal" } };
-		expect(await routerPost("/codex", codexRequestBody("list"), { retries: 0 })).toEqual(reply.body);
+		expect(await routerPost("/codex", agentRequestBody(CODEX_BACKEND, "list"), { retries: 0 })).toEqual(reply.body);
 	});
 
 	it("exposes structured HTTP failures as an error object", async () => {
@@ -92,7 +98,7 @@ describe("routerPost", () => {
 			}),
 		};
 		try {
-			await routerPost("/codex", codexRequestBody("list"), { retries: 0 });
+			await routerPost("/codex", agentRequestBody(CODEX_BACKEND, "list"), { retries: 0 });
 			expect.fail("request should reject");
 		} catch (error) {
 			expect(error).toMatchObject({ status: 400 });
@@ -102,7 +108,7 @@ describe("routerPost", () => {
 	it("preserves status when the error body is null", async () => {
 		reply = { status: 502, body: null };
 		try {
-			await routerPost("/codex", codexRequestBody("list"), { retries: 0 });
+			await routerPost("/codex", agentRequestBody(CODEX_BACKEND, "list"), { retries: 0 });
 			expect.fail("request should reject");
 		} catch (error) {
 			expect(error).toMatchObject({ status: 502 });

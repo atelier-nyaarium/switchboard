@@ -1,0 +1,22 @@
+import type { AgentBackendId } from "../../shared/agent-backend.js";
+import { realLauncher } from "../devcontainer/codexTargets.js";
+import { copilotLauncher } from "../devcontainer/copilotTargets.js";
+import { CodexLocalSession } from "../local/codexLocalSession.js";
+import type { AgentDriver } from "./backendSession.js";
+import { CopilotBackendSession, copilotFailureCode } from "./copilotSession.js";
+
+/** Backend rows require drivers. */
+export const AGENT_DRIVERS: Record<AgentBackendId, AgentDriver> = {
+	codex: {
+		launcher: realLauncher,
+		open: (child) => CodexLocalSession.open(child),
+		threadsResumable: true,
+	},
+	copilot: {
+		launcher: copilotLauncher,
+		open: (child) => CopilotBackendSession.open(child),
+		// Child owns session lifetime.
+		threadsResumable: false,
+		failureCode: copilotFailureCode,
+	},
+};

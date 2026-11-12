@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { agentOperationIdentity } from "../shared/agent-identity.js";
+import { PersistedAgentSchema } from "../shared/agent-persisted.js";
+import { agentOperationFingerprintOf } from "../shared/agent-record.js";
 import { processAmbient } from "../shared/ambient.js";
-import { CopilotPersistedAgentSchema, copilotOperationFingerprint } from "../shared/copilot-agent.js";
 import { isReservedHostSession } from "../shared/host-op.js";
 import { sanitizeLabel, sanitizeWorkdirPath } from "../shared/session-sanitize.js";
-import { type CopilotCatalogWriter, resumeIdOf, SessionStore } from "../shared/session-store.js";
+import { type PersistedAgentCatalogWriter, resumeIdOf, SessionStore } from "../shared/session-store.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 function scriptedIds(...ids: string[]) {
@@ -20,8 +22,8 @@ const COPILOT_OPERATION_ID = "123e4567-e89b-42d3-a456-426614174000";
 const COPILOT_AGENT_ID = "copilot_0123456789abcdef0123456789abcdef";
 
 function requestedCopilotAgent() {
-	return CopilotPersistedAgentSchema.parse({
-		version: 1,
+	return PersistedAgentSchema.parse({
+		version: 2,
 		agentId: COPILOT_AGENT_ID,
 		agentState: "creating",
 		requestedTarget: { kind: "host", workdirHint: "Work" },
@@ -30,7 +32,9 @@ function requestedCopilotAgent() {
 				operationId: COPILOT_OPERATION_ID,
 				kind: "start",
 				prompt: "Review",
-				fingerprint: copilotOperationFingerprint("start", COPILOT_AGENT_ID, "Review\nauto"),
+				fingerprint: agentOperationFingerprintOf(
+					agentOperationIdentity({ kind: "start", agentId: COPILOT_AGENT_ID, prompt: "Review" }),
+				),
 				state: "requested",
 				createdAt: 10,
 				updatedAt: 10,
@@ -640,13 +644,13 @@ describe("SessionStore session binding", () => {
 
 describe("SessionStore Copilot catalogs", () => {
 	it("commits an agent, snapshots it, and restores it under its session", () => {
-		let writer!: CopilotCatalogWriter;
+		let writer!: PersistedAgentCatalogWriter;
 		const store = new SessionStore({
 			ambient: processAmbient(),
-			copilotCatalogPersistence: {
+			agentCatalogPersistence: {
 				persistChecked: () => {},
-				receiveWriter: (received) => {
-					writer = received;
+				receiveWriter: (backend, received) => {
+					if (backend === "copilot") writer = received;
 				},
 			},
 		});
@@ -659,19 +663,24 @@ describe("SessionStore Copilot catalogs", () => {
 		const restoredOwner = restored.getByTeam(store.teamOf(owner));
 
 		expect(result).toMatchObject({ committed: true, catalog: { revision: 1, agents: [agent] } });
-		expect(restored.listCopilotAgents(restoredOwner!)).toEqual([
+		expect(store.snapshot()[store.teamOf(owner)]?.agentCatalogs?.copilot).toEqual({
+			version: 1,
+			revision: 1,
+			agents: [agent],
+		});
+		expect(restored.listAgents(restoredOwner!, "copilot")).toEqual([
 			{ ...agent, turnMarks: { collected: [], notified: [] } },
 		]);
 	});
 
 	it("keeps a catalog unconfirmed when its snapshot landed without directory confirmation", () => {
-		let writer!: CopilotCatalogWriter;
+		let writer!: PersistedAgentCatalogWriter;
 		const store = new SessionStore({
 			ambient: processAmbient(),
-			copilotCatalogPersistence: {
+			agentCatalogPersistence: {
 				persistChecked: () => false,
-				receiveWriter: (received) => {
-					writer = received;
+				receiveWriter: (backend, received) => {
+					if (backend === "copilot") writer = received;
 				},
 			},
 		});
@@ -683,8 +692,50 @@ describe("SessionStore Copilot catalogs", () => {
 		expect(writer.checkpoint(owner, 1)).toEqual({ confirmed: false, reason: "unconfirmed" });
 	});
 
-	it("restores healthy Copilot agents while dropping a damaged sibling", () => {
-		const healthy = requestedCopilotAgent();
+	it("restores a legacy Copilot catalog and drops a damaged sibling", () => {
+		const requested = requestedCopilotAgent();
+		const healthy = {
+			...requested,
+			version: 1,
+			agentState: "working",
+			resolvedTarget: { kind: "host", targetId: "host", cwd: "/work" },
+			sessionId: "session-1",
+			activeTurnId: "turn-2",
+			operations: [
+				{
+					...requested.operations[0]!,
+					state: "accepted",
+					turnId: "turn-1",
+					sessionId: "session-1",
+					delivery: "started",
+					updatedAt: 20,
+				},
+				{
+					operationId: "123e4567-e89b-42d3-a456-426614174001",
+					kind: "message",
+					prompt: "Continue",
+					fingerprint: agentOperationFingerprintOf(
+						agentOperationIdentity({
+							kind: "message",
+							agentId: COPILOT_AGENT_ID,
+							prompt: "Continue",
+						}),
+					),
+					state: "accepted",
+					turnId: "turn-2",
+					sessionId: "session-1",
+					delivery: "followup",
+					createdAt: 30,
+					updatedAt: 35,
+				},
+			],
+			turns: [
+				{ id: "turn-1", state: "completed", activities: [], finalResponse: "Done", updatedAt: 25 },
+				{ id: "turn-2", state: "inProgress", activities: [], updatedAt: 35 },
+			],
+			createdAt: 10,
+			updatedAt: 35,
+		};
 		const store = new SessionStore({ ambient: processAmbient() });
 
 		store.restore({
@@ -698,10 +749,19 @@ describe("SessionStore Copilot catalogs", () => {
 		});
 
 		const owner = store.getByTeam("host.owner");
-		expect(store.copilotCatalog(owner!)).toEqual({
+		expect(store.agentCatalog(owner!, "copilot")).toEqual({
 			version: 1,
 			revision: 7,
-			agents: [{ ...healthy, turnMarks: { collected: [], notified: [] } }],
+			agents: [
+				{
+					...healthy,
+					version: 2,
+					operations: healthy.operations.map((operation) =>
+						operation.delivery === "followup" ? { ...operation, delivery: "started" } : operation,
+					),
+					turnMarks: { collected: ["turn-1"], notified: ["turn-1"] },
+				},
+			],
 		});
 	});
 });

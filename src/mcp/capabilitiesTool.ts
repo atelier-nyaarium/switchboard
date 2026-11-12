@@ -12,7 +12,7 @@ import {
 import { ASSISTANT_CAPABILITIES, ASSISTANT_INSTRUCTIONS } from "./assistant/instructions.js";
 import { readCapabilities } from "./capabilities.js";
 
-const AGENT_CAPABILITY_IDS = new Set(AGENT_BACKENDS.map((backend) => agentCapabilityId(backend.id)));
+const AGENT_CAPABILITY_IDS = new Set<string>(AGENT_BACKENDS.map((backend) => agentCapabilityId(backend.id)));
 
 /** Tool guidance, appended after the capability's own text. */
 const TOOL_GUIDANCE: Record<string, string> = { vault: VAULT_INSTRUCTIONS };

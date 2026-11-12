@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AgentBackendSession, TurnTerminal } from "../mcp/agents/backendSession.js";
 import {
 	LOCAL_IDLE_REAP_MS,
 	type LocalAgentAnswer,
@@ -7,15 +8,14 @@ import {
 	type LocalCollectAnswer,
 	type LocalRefusal,
 } from "../mcp/local/localAgentRuntime.js";
-import type { LocalBackendSession, LocalTerminal } from "../mcp/local/localAgentSession.js";
 import type { AgentBackendId } from "../shared/agent-backend.js";
 import { agentListAnswer, agentListRow } from "../shared/agent-collect.js";
 import type { AgentNotice } from "../shared/agent-notice.js";
 import { CODEX_ACTIVITY_MAX_ITEMS } from "../shared/codexAgentIdentity.js";
 
-type PendingTurn = { settled: Promise<LocalTerminal>; resolve(value: LocalTerminal): void };
+type PendingTurn = { settled: Promise<TurnTerminal>; resolve(value: TurnTerminal): void };
 
-class ValueBackendAdapter implements LocalBackendSession {
+class ValueBackendAdapter implements AgentBackendSession {
 	private readonly pending = new Map<string, PendingTurn>();
 	private activity?: (turnId: string, text: string) => void;
 	private closed?: () => void;
@@ -31,11 +31,11 @@ class ValueBackendAdapter implements LocalBackendSession {
 		if (this.options.openError) throw this.options.openError;
 		return "thread-1";
 	}
-	async startTurn(): Promise<{ turnId: string; settled: Promise<LocalTerminal> }> {
+	async startTurn(): Promise<{ turnId: string; settled: Promise<TurnTerminal> }> {
 		if (this.options.startError) throw this.options.startError;
 		const turnId = `turn-${++this.sequence}`;
-		let resolve!: (value: LocalTerminal) => void;
-		const settled = new Promise<LocalTerminal>((inner) => (resolve = inner));
+		let resolve!: (value: TurnTerminal) => void;
+		const settled = new Promise<TurnTerminal>((inner) => (resolve = inner));
 		this.pending.set(turnId, { settled, resolve });
 		return { turnId, settled };
 	}
@@ -52,7 +52,7 @@ class ValueBackendAdapter implements LocalBackendSession {
 	emitActivity(turnId: string, text: string): void {
 		this.activity?.(turnId, text);
 	}
-	emitTerminal(turnId: string, terminal: LocalTerminal): void {
+	emitTerminal(turnId: string, terminal: TurnTerminal): void {
 		const turn = this.pending.get(turnId);
 		if (!turn) throw new Error("unknown turn");
 		turn.resolve(terminal);
@@ -71,9 +71,10 @@ function setup(
 	const notices: AgentNotice[] = [];
 	const spec: LocalBackendSpec = {
 		backendId,
+		displayName: backendId === "copilot" ? "Copilot" : "Codex",
+		failureCode: (error) => (/login/.test(error) ? "authentication_required" : undefined),
 		openSession: async () => backend,
 		defaultCwd: () => "/workspace/project",
-		followupDelivery: backendId === "copilot" ? "followup" : "started",
 		maxActivities: CODEX_ACTIVITY_MAX_ITEMS,
 		threadsResumable: backendId === "codex",
 		replaysOperations: false,
@@ -122,10 +123,10 @@ function collected(value: LocalAgentAnswer | LocalRefusal | LocalCollectAnswer):
 	return value;
 }
 
-function publicList(runtime: LocalAgentRuntime) {
+function publicList(runtime: LocalAgentRuntime, backendId: "codex" | "copilot") {
 	const agents = runtime.list();
 	return agentListAnswer(agents, {}, (agent) =>
-		agentListRow(agent, "codex", { model: agent.model, latestPrompt: agent.exchanges.at(-1)?.prompt }),
+		agentListRow(agent, backendId, { model: agent.model, latestPrompt: agent.exchanges.at(-1)?.prompt }),
 	);
 }
 
@@ -143,7 +144,7 @@ describe("local publication", () => {
 			await turnReady(h.backend);
 			h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
 			await turnEnded(h.runtime, started.agentId);
-			const listed = publicList(h.runtime);
+			const listed = publicList(h.runtime, backendId);
 			const answer = collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
 			expect(answer).toMatchObject({
 				agentId: started.agentId,
@@ -155,6 +156,7 @@ describe("local publication", () => {
 				agents: [
 					{
 						agentId: started.agentId,
+						backend: backendId,
 						agentState: "idle",
 						running: false,
 						uncollected: 1,
@@ -164,7 +166,7 @@ describe("local publication", () => {
 				],
 				omitted: 0,
 			});
-			expect(publicList(h.runtime)).toEqual({ agents: [], omitted: 0 });
+			expect(publicList(h.runtime, backendId)).toEqual({ agents: [], omitted: 0 });
 		});
 	}
 
@@ -198,7 +200,7 @@ describe("local publication", () => {
 		collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
 		answered(await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "second prompt" }));
 		await turnReady(h.backend, "turn-2");
-		expect(publicList(h.runtime)).toMatchObject({
+		expect(publicList(h.runtime, "copilot")).toMatchObject({
 			agents: [
 				{
 					agentId: started.agentId,
@@ -216,6 +218,48 @@ describe("local publication", () => {
 		expect(collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }))).toMatchObject({
 			running: null,
 			turns: [{ id: "turn-2", state: "interrupted" }],
+		});
+	});
+
+	it("refuses a message and a second stop while an interrupt is pending", async () => {
+		const h = setup();
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "first job" }));
+		await turnReady(h.backend);
+		const stopped = answered(await h.runtime.handle({ kind: "stop", agentId: started.agentId }));
+		expect(stopped.observation).toBe("interruptRequested");
+		expect(await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "more" })).toHaveProperty(
+			"refused",
+		);
+		expect(await h.runtime.handle({ kind: "stop", agentId: started.agentId })).toHaveProperty("refused");
+
+		h.backend.emitTerminal("turn-1", { status: "interrupted" });
+		await turnEnded(h.runtime, started.agentId);
+		const next = answered(await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "more" }));
+		expect(next).toMatchObject({ observation: "accepted", turn: { id: "turn-2" } });
+	});
+
+	it("opens a new turn for a steer whose turn ended under it", async () => {
+		const h = setup();
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "first job" }));
+		await turnReady(h.backend);
+		h.backend.steerTurn = async (_thread, turnId) => {
+			h.backend.emitTerminal(turnId, { status: "completed", finalResponse: "first" });
+			throw new Error("turn is no longer active");
+		};
+		const followed = answered(
+			await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "more" }),
+		);
+		expect(followed).toMatchObject({ observation: "accepted", turn: { id: "turn-2", state: "inProgress" } });
+		const answer = collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
+		expect(answer).toMatchObject({ running: "turn-2", turns: [{ id: "turn-1", state: "completed" }] });
+	});
+
+	it("answers a start the child refuses with the driver's reading of why", async () => {
+		const h = setup("copilot", { openError: new Error("Copilot login required") });
+		const refused = answered(await h.runtime.handle({ kind: "start", prompt: "first job" }));
+		expect(refused).toMatchObject({
+			observation: "unavailable",
+			error: { code: "authentication_required", retryable: true },
 		});
 	});
 

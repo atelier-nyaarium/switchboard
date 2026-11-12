@@ -72,40 +72,22 @@ export function composeFaults({
 		workflowAgents: (team) => {
 			const owner = sessions.sessionStore.getByTeam(team);
 			if (!owner) return [];
-			return [
-				...sessions.sessionStore.listCodexAgents(owner).map((agent) => ({
-					family: "codex" as const,
-					agentId: agent.agentId,
-					...(agent.runId === undefined ? {} : { runId: agent.runId }),
-					state: agent.agentState,
-					...(agent.activeTurnId === undefined ? {} : { activeTurnId: agent.activeTurnId }),
-					operations: agent.operations.map((operation) => ({
-						operationId: operation.operationId,
-						kind: operation.kind,
-						state: operation.state,
-						...(operation.daemonInstanceId === undefined
-							? {}
-							: { daemonInstanceId: operation.daemonInstanceId }),
-					})),
-					turns: agent.turns.map((turn) => ({ id: turn.id, state: turn.state })),
+			return sessions.sessionStore.everyAgent(owner).map(({ backend, agent }) => ({
+				family: backend,
+				agentId: agent.agentId,
+				...(agent.runId === undefined ? {} : { runId: agent.runId }),
+				state: agent.agentState,
+				...(agent.activeTurnId === undefined ? {} : { activeTurnId: agent.activeTurnId }),
+				operations: agent.operations.map((operation) => ({
+					operationId: operation.operationId,
+					kind: operation.kind,
+					state: operation.state,
+					...(operation.daemonInstanceId === undefined
+						? {}
+						: { daemonInstanceId: operation.daemonInstanceId }),
 				})),
-				...sessions.sessionStore.listCopilotAgents(owner).map((agent) => ({
-					family: "copilot" as const,
-					agentId: agent.agentId,
-					...(agent.runId === undefined ? {} : { runId: agent.runId }),
-					state: agent.agentState,
-					...(agent.activeTurnId === undefined ? {} : { activeTurnId: agent.activeTurnId }),
-					operations: agent.operations.map((operation) => ({
-						operationId: operation.operationId,
-						kind: operation.kind,
-						state: operation.state,
-						...(operation.daemonInstanceId === undefined
-							? {}
-							: { daemonInstanceId: operation.daemonInstanceId }),
-					})),
-					turns: agent.turns.map((turn) => ({ id: turn.id, state: turn.state })),
-				})),
-			];
+				turns: agent.turns.map((turn) => ({ id: turn.id, state: turn.state })),
+			}));
 		},
 		sharesHeld: () => {
 			const shares = federated().shareState;

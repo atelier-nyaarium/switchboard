@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { AgentOutputSchemaSchema } from "./agent-record.js";
+import { AgentResultDeliverySchema } from "./agent-state.js";
 import { CodexActivitiesSchema } from "./codexAgentActivities.js";
 import {
 	CodexAgentIdSchema,
@@ -77,7 +78,7 @@ export const CodexAgentResultSchema = z
 			})
 			.strict()
 			.optional(),
-		delivery: CodexDeliverySchema.optional(),
+		delivery: AgentResultDeliverySchema.optional(),
 		activities: CodexActivitiesSchema,
 		finalResponse: z.string().optional(),
 		error: CodexErrorSchema.optional(),

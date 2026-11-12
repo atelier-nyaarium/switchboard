@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	AGENT_BACKENDS,
+	AGENT_WAIT_BUDGET_MS,
 	agentCapabilityId,
 	agentEnvPrefix,
 	agentFrameType,
@@ -9,12 +10,14 @@ import {
 	CODEX_BACKEND,
 	COPILOT_BACKEND,
 } from "../shared/agent-backend.js";
+import { agentWire } from "../shared/agent-wire.js";
 import { CODEX_AGENT_CAPABILITY_ID, COPILOT_AGENT_CAPABILITY_ID } from "../shared/capabilities.js";
 import { CODEX_WAIT_BUDGET_MS, CodexDaemonHelloSchema, CodexEventAckSchema } from "../shared/codex-agent.js";
-import { COPILOT_WAIT_BUDGET_MS, CopilotDaemonHelloSchema, CopilotEventAckSchema } from "../shared/copilot-agent.js";
 
 // Every derivation is pinned so a descriptor edit that would change a wire spelling fails here instead of at a peer.
 describe("agent backend derivations", () => {
+	const copilotWire = agentWire("copilot");
+
 	it("derives the capability ids the gates read", () => {
 		expect(agentCapabilityId("codex")).toBe(CODEX_AGENT_CAPABILITY_ID);
 		expect(agentCapabilityId("copilot")).toBe(COPILOT_AGENT_CAPABILITY_ID);
@@ -40,7 +43,7 @@ describe("agent backend derivations", () => {
 		};
 		expect(CodexDaemonHelloSchema.safeParse(codexHello).success).toBe(true);
 		const copilotHello = { ...codexHello, type: agentFrameType("copilot", "hello") };
-		expect(CopilotDaemonHelloSchema.safeParse(copilotHello).success).toBe(true);
+		expect(copilotWire.hello.safeParse(copilotHello).success).toBe(true);
 
 		const codexAck = {
 			type: agentFrameType("codex", "ack"),
@@ -51,7 +54,7 @@ describe("agent backend derivations", () => {
 		};
 		expect(CodexEventAckSchema.safeParse(codexAck).success).toBe(true);
 		const copilotAck = { ...codexAck, type: agentFrameType("copilot", "ack") };
-		expect(CopilotEventAckSchema.safeParse(copilotAck).success).toBe(true);
+		expect(copilotWire.ack.safeParse(copilotAck).success).toBe(true);
 	});
 
 	it("lists exactly the daemon-to-gateway frame types", () => {
@@ -66,8 +69,9 @@ describe("agent backend derivations", () => {
 	it("keeps the wait budget the tools document", () => {
 		expect(CODEX_BACKEND.waitBudgetMs).toBe(240_000);
 		expect(COPILOT_BACKEND.waitBudgetMs).toBe(240_000);
+		expect(CODEX_BACKEND.waitBudgetMs).toBe(AGENT_WAIT_BUDGET_MS);
+		expect(COPILOT_BACKEND.waitBudgetMs).toBe(AGENT_WAIT_BUDGET_MS);
 		expect(CODEX_WAIT_BUDGET_MS).toBe(CODEX_BACKEND.waitBudgetMs);
-		expect(COPILOT_WAIT_BUDGET_MS).toBe(COPILOT_BACKEND.waitBudgetMs);
 	});
 
 	it("registers each backend exactly once", () => {

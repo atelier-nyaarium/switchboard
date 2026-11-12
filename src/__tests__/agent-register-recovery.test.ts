@@ -1,14 +1,15 @@
 import { expect, it } from "vitest";
+import { AgentRelay } from "../gateway/agentRelay.js";
+import { AgentService } from "../gateway/agentService.js";
 import { CodexAgentService } from "../gateway/codexAgentService.js";
 import { CodexRelay } from "../gateway/codexRelay.js";
-import { CopilotAgentService } from "../gateway/copilotAgentService.js";
-import { CopilotRelay } from "../gateway/copilotRelay.js";
 import { createSessionAuthority } from "../gateway/sessionAuthority.js";
 import { resolveLiveIncarnation, type TeamRegistry } from "../gateway/wsTypes.js";
+import { COPILOT_BACKEND } from "../shared/agent-backend.js";
+import { agentIdForOperation } from "../shared/agent-record.js";
 import { processAmbient } from "../shared/ambient.js";
 import { codexAgentIdForOperation } from "../shared/codex-agent.js";
-import { copilotAgentIdForOperation } from "../shared/copilot-agent.js";
-import { type CodexCatalogWriter, type CopilotCatalogWriter, SessionStore } from "../shared/session-store.js";
+import { type CodexCatalogWriter, type PersistedAgentCatalogWriter, SessionStore } from "../shared/session-store.js";
 
 const oldDaemon = "daemon-old";
 const newDaemon = "daemon-new";
@@ -43,7 +44,7 @@ async function settle(): Promise<void> {
 
 it("abandons stale requested starts, messages, and stops before hello in both families", async () => {
 	let codexCatalogWriter: CodexCatalogWriter | undefined;
-	let copilotCatalogWriter: CopilotCatalogWriter | undefined;
+	let copilotCatalogWriter: PersistedAgentCatalogWriter | undefined;
 	const store = new SessionStore({
 		ambient: processAmbient(),
 		codexCatalogPersistence: {
@@ -52,10 +53,10 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 				codexCatalogWriter = writer;
 			},
 		},
-		copilotCatalogPersistence: {
+		agentCatalogPersistence: {
 			persistChecked: () => true,
-			receiveWriter: (writer) => {
-				copilotCatalogWriter = writer;
+			receiveWriter: (backend, writer) => {
+				if (backend === "copilot") copilotCatalogWriter = writer;
 			},
 		},
 	});
@@ -77,7 +78,8 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		offlineCatalog: new Map([["recipe-app", "/trusted/recipe-app"]]),
 		catalogWriter: codexCatalogWriter!,
 	});
-	const copilot = new CopilotAgentService({
+	const copilot = new AgentService({
+		backend: COPILOT_BACKEND,
 		auth,
 		sessionStore: store,
 		offlineCatalog: new Map([["recipe-app", "/trusted/recipe-app"]]),
@@ -91,7 +93,8 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		ambient: processAmbient(),
 		sendToHost: () => true,
 	});
-	const copilotRelay = new CopilotRelay({
+	const copilotRelay = new AgentRelay({
+		backendId: "copilot",
 		service: copilot,
 		sessionStore: store,
 		liveDaemonInstanceId: () => liveDaemonInstanceId,
@@ -103,7 +106,7 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 	const codexStartIds = [codexOps[0]!, codexOps[1]!, codexOps[3]!];
 	const copilotStartIds = [copilotOps[0]!, copilotOps[1]!, copilotOps[3]!];
 	const codexAgents = codexStartIds.map(codexAgentIdForOperation);
-	const copilotAgents = copilotStartIds.map(copilotAgentIdForOperation);
+	const copilotAgents = copilotStartIds.map((operationId) => agentIdForOperation("copilot", operationId));
 	const codexChanges = codexAgents.map(() => 0);
 	const copilotChanges = copilotAgents.map(() => 0);
 	for (const [index, agentId] of codexAgents.entries()) {
@@ -129,7 +132,7 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 	}
 	for (const operationId of copilotStartIds) {
 		copilot.beginStart(owner, {
-			agentId: copilotAgentIdForOperation(operationId),
+			agentId: agentIdForOperation("copilot", operationId),
 			operationId,
 			daemonInstanceId: oldDaemon,
 			prompt: "start",
@@ -161,7 +164,7 @@ it("abandons stale requested starts, messages, and stops before hello in both fa
 		);
 	}
 	for (const [index, operationId] of [copilotOps[1]!, copilotOps[3]!].entries()) {
-		const agentId = copilotAgentIdForOperation(operationId);
+		const agentId = agentIdForOperation("copilot", operationId);
 		copilot.applyReceipt(
 			{
 				type: "copilot_receipt",

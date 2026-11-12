@@ -8,7 +8,6 @@ import {
 	HostClaudeRunReplySchema,
 } from "../../shared/host-op.js";
 import type { SessionRecord } from "../../shared/session-store.js";
-import type { CodexAgentCommands } from "../codexAgentCommands.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
 import { answerOutcome, failureOutcome } from "./agentViews.js";
@@ -35,7 +34,7 @@ interface ClaudeStepDeps {
 	ambient: Pick<Ambient, "newId">;
 	readLiveness: HostLivenessReader;
 	relayToHost: (op: HostOp) => Promise<HostOpResult>;
-	codex: Pick<CodexAgentCommands, "resolveTarget">;
+	resolveTarget: (owner: SessionRecord) => AgentExecutionTarget | null;
 }
 
 interface ClaudeStepsContext {
@@ -216,7 +215,7 @@ export function createClaudeSteps(ctx: ClaudeStepsContext) {
 			: mapping
 				? parseTarget(mapping.target)
 				: undefined;
-		if (!target) target = deps.codex.resolveTarget(owner) ?? undefined;
+		if (!target) target = deps.resolveTarget(owner) ?? undefined;
 		if (!target) {
 			settle(task, { outcome: "rejected", answer: null, reason: "session has no agent execution target" });
 			return;

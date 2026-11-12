@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { decideReconciliation } from "../gateway/agentApply.js";
+import { decideAgentRegisterRecovery } from "../gateway/agentService.js";
 import { decideCodexReconciliation } from "../gateway/codexAgentApply.js";
 import { decideCodexRegisterRecovery } from "../gateway/codexAgentService.js";
-import { decideCopilotReconciliation } from "../gateway/copilotAgentApply.js";
-import { decideCopilotRegisterRecovery } from "../gateway/copilotAgentService.js";
 import type { AgentFence } from "../shared/agent-fence.js";
 import {
 	type AgentReconciliationReport,
@@ -50,8 +50,8 @@ describe("agent recovery decisions", () => {
 			),
 		).toEqual(vector.expected);
 		expect(
-			decideCopilotRegisterRecovery(
-				familyAgent as unknown as Parameters<typeof decideCopilotRegisterRecovery>[0],
+			decideAgentRegisterRecovery(
+				familyAgent as unknown as Parameters<typeof decideAgentRegisterRecovery>[0],
 				vector.liveDaemonInstanceId,
 			),
 		).toEqual(vector.expected);
@@ -65,7 +65,7 @@ describe("agent recovery decisions", () => {
 			report: vector.report,
 		};
 		expect(decideAgentReconciliation(input)).toEqual(vector.expected);
-		if (vector.report.family === "codex") {
+		if ("family" in vector.report) {
 			const agent = {
 				fence: vector.currentFence ?? undefined,
 				activeTurnId: vector.knownActiveTurn,
@@ -87,17 +87,18 @@ describe("agent recovery decisions", () => {
 			const agent = {
 				fence: vector.currentFence ?? undefined,
 				activeTurnId: vector.knownActiveTurn,
+				turns: vector.knownActiveTurn ? [{ id: vector.knownActiveTurn, state: "inProgress" as const }] : [],
 			};
 			const receipt = {
 				...vector.receiptFence,
 				eventId: vector.receiptFence.lastEventId,
-				active: vector.report.active,
 				turnId: vector.report.turnId,
+				turnState: vector.report.turnState,
 			};
 			expect(
-				decideCopilotReconciliation(
-					agent as Parameters<typeof decideCopilotReconciliation>[0],
-					receipt as Parameters<typeof decideCopilotReconciliation>[1],
+				decideReconciliation(
+					agent as Parameters<typeof decideReconciliation>[0],
+					receipt as Parameters<typeof decideReconciliation>[1],
 				),
 			).toEqual(vector.expected);
 		}

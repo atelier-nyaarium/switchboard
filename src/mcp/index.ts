@@ -5,12 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { RootsListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import packageJson from "../../package.json";
-import {
-	AGENT_BACKENDS,
-	type AgentBackendDescriptor,
-	type AgentBackendId,
-	agentCapabilityId,
-} from "../shared/agent-backend.js";
+import { AGENT_BACKENDS, type AgentBackendDescriptor, agentCapabilityId } from "../shared/agent-backend.js";
 import { isAgentBackendInstalled } from "../shared/agent-binary.js";
 import { ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { localAgentCapability } from "../shared/capabilities.js";
@@ -22,6 +17,7 @@ import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
 import type { AgentDispatch } from "./agentDispatch.js";
+import { gatewayDispatch } from "./agentRequest.js";
 import { type AgentDispatches, registerAgentTools } from "./agents/agentTools.js";
 import { registerActionFront } from "./assistant/actionFront.js";
 import { registerDeviceTool } from "./assistant/deviceTool.js";
@@ -37,12 +33,10 @@ import { capabilityInstructions, fetchCapabilities, hasCapability, saveStartupCa
 import { registerCapabilitiesTool, renderCapabilities } from "./capabilitiesTool.js";
 import { renderChannelTag } from "./channel/channelNotify.js";
 import { registerHumanTools } from "./channel/humanTools.js";
-import { gatewayDispatch as codexGatewayDispatch } from "./codex/codexTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
 import { registerProjectTools } from "./connector/projectTools.js";
 import { registerStubTool } from "./connector/utils.js";
-import { gatewayDispatch as copilotGatewayDispatch } from "./copilot/copilotTools.js";
 import { registerDesignerTools } from "./designer/designerTools.js";
 import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
@@ -71,14 +65,9 @@ import { setWorkspacePlane } from "./workspace/plane.js";
 // instant, since a warm client has no such race.
 const INITIAL_ROUTER_CONNECT_GRACE_MS = 200;
 
-const AGENT_GATEWAY_DISPATCH: Record<AgentBackendId, AgentDispatch> = {
-	codex: codexGatewayDispatch,
-	copilot: copilotGatewayDispatch,
-};
-
 function agentDispatchFor(backend: AgentBackendDescriptor, capabilities: Capability[]): AgentDispatch | undefined {
 	const bound = !!process.env.SWITCHBOARD_SESSION_TOKEN;
-	if (bound && hasCapability(capabilities, agentCapabilityId(backend.id))) return AGENT_GATEWAY_DISPATCH[backend.id];
+	if (bound && hasCapability(capabilities, agentCapabilityId(backend.id))) return gatewayDispatch(backend.id);
 	if (!isAgentBackendInstalled(backend)) return undefined;
 
 	const local = createLocalAgentBackend(backend);
@@ -90,7 +79,7 @@ function agentDispatchFor(backend: AgentBackendDescriptor, capabilities: Capabil
 
 /** Agent ids follow the dispatches; a fetched one with no dispatch is dropped. */
 function withServedAgents(capabilities: Capability[], agents: AgentDispatches): Capability[] {
-	const agentIds = new Set(AGENT_BACKENDS.map((backend) => agentCapabilityId(backend.id)));
+	const agentIds = new Set<string>(AGENT_BACKENDS.map((backend) => agentCapabilityId(backend.id)));
 	const kept = capabilities.filter(
 		(capability) =>
 			!agentIds.has(capability.id) ||

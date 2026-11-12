@@ -1,4 +1,4 @@
-import { type JsonValue, JsonValueSchema, WorkflowBackendSchema } from "./workflowSchemas.js";
+import { type JsonValue, JsonValueSchema, type WorkflowBackend, WorkflowBackendSchema } from "./workflowSchemas.js";
 
 export interface WorkflowScript {
 	meta: Record<string, JsonValue>;
@@ -338,6 +338,6 @@ export function extractWorkflowScript(source: string): WorkflowScript {
 	return { meta: metaRecord, metaLiteral: JSON.stringify(metaRecord), body, phases };
 }
 
-export function parseWorkflowDefaultBackend(value: unknown): "codex" | "copilot" | "claude" {
+export function parseWorkflowDefaultBackend(value: unknown): WorkflowBackend {
 	return WorkflowBackendSchema.parse(value);
 }

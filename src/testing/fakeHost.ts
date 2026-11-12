@@ -2,7 +2,14 @@
 
 import { randomBytes } from "node:crypto";
 import type { GatewayGraph } from "../gateway/composeGateway.js";
+import { type AgentBackendId, agentFrameType, GENERIC_AGENT_BACKENDS } from "../shared/agent-backend.js";
 import type { AgentExecutionTarget, AgentResolvedTarget } from "../shared/agent-execution-target.js";
+import {
+	type AgentDaemonCommand,
+	type AgentDaemonEvent,
+	type AgentDaemonReceipt,
+	agentWire,
+} from "../shared/agent-wire.js";
 import {
 	type CodexDaemonCommand,
 	CodexDaemonCommandSchema,
@@ -11,14 +18,6 @@ import {
 	type CodexDaemonReceipt,
 	CodexDaemonReceiptSchema,
 } from "../shared/codexAgentRelay.js";
-import {
-	type CopilotDaemonCommand,
-	CopilotDaemonCommandSchema,
-	type CopilotDaemonEvent,
-	CopilotDaemonEventSchema,
-	type CopilotDaemonReceipt,
-	CopilotDaemonReceiptSchema,
-} from "../shared/copilotAgentRelay.js";
 import {
 	type ClaudeTurnAckFrame,
 	ClaudeTurnAckFrameSchema,
@@ -66,13 +65,20 @@ export interface FakeHostHandlers {
 	answerWake?: (frame: Frame) => "launched" | "failed" | "silent" | { failure: LaunchFailure };
 	/** Absent means accept and complete. */
 	onCodexCommand?: CodexResponder;
-	onCopilotCommand?: CopilotResponder;
+	onAgentCommand?: AgentResponder;
 	onClaudeRun?: ClaudeResponder;
 	onClaudeAck?: (frame: ClaudeTurnAckFrame) => void;
+	/** A skill file's text; absent reads as missing. */
+	skillText?: (path: string) => string | undefined;
 }
 
 export type CodexResponder = (command: CodexDaemonCommand, daemon: FakeCodexDaemon) => Array<Frame> | undefined;
-export type CopilotResponder = (command: CopilotDaemonCommand, daemon: FakeCopilotDaemon) => Array<Frame> | undefined;
+/** Every backend on the generic stack. */
+export type AgentResponder = (
+	command: AgentDaemonCommand,
+	daemon: FakeAgentDaemon,
+	backend: AgentBackendId,
+) => Array<Frame> | undefined;
 export type ClaudeResponder = (op: HostClaudeRunOp) => FakeClaudeResult | undefined;
 
 export interface FakeClaudeResult {
@@ -97,14 +103,7 @@ export interface FakeCodexDaemon {
 	resolve(target: AgentExecutionTarget): AgentResolvedTarget;
 }
 
-export interface FakeCopilotDaemon {
-	daemonInstanceId: string;
-	generation: number;
-	targets: Map<string, number>;
-	turns: Map<string, FakeTurnState>;
-	nextEventId(targetId: string): number;
-	resolve(target: AgentExecutionTarget): AgentResolvedTarget;
-}
+export type FakeAgentDaemon = FakeCodexDaemon;
 
 export interface FakeHostOptions extends FakeHostHandlers {
 	token: string;
@@ -132,17 +131,18 @@ export interface FakeHost {
 	creates: FakeCreate[];
 	/** Every Codex command, schema-checked. */
 	codexCommands: CodexDaemonCommand[];
-	copilotCommands: CopilotDaemonCommand[];
+	/** Every command a generic backend took, schema-checked. */
+	agentCommands(backend: AgentBackendId): AgentDaemonCommand[];
 	claudeRuns: HostClaudeRunOp[];
 	claudeCancels: HostClaudeCancelOp[];
 	claudeResults: ClaudeTurnResultFrame[];
 	claudeAcks: ClaudeTurnAckFrame[];
 	handlers: FakeHostHandlers;
 	daemon: FakeCodexDaemon;
-	copilotDaemon: FakeCopilotDaemon;
+	agentDaemon(backend: AgentBackendId): FakeAgentDaemon;
 	/** One daemon frame to the gateway. */
 	sendCodex(frame: CodexDaemonEvent | CodexDaemonReceipt): void;
-	sendCopilot(frame: CopilotDaemonEvent | CopilotDaemonReceipt): void;
+	sendAgent(backend: AgentBackendId, frame: AgentDaemonEvent | AgentDaemonReceipt): void;
 	announceCatalog(): void;
 	/** What the daemon derives from that session's pane; null is nobody having said. */
 	reportWorking(team: string, working: boolean | null, compacting?: boolean): void;
@@ -192,26 +192,6 @@ export function createFakeCodexDaemon(daemonInstanceId = `fake-daemon-${randomBy
 	return daemon;
 }
 
-export function createFakeCopilotDaemon(daemonInstanceId: string) {
-	const eventIds = new Map<string, number>();
-	const daemon: FakeCopilotDaemon = {
-		daemonInstanceId,
-		generation: 1,
-		targets: new Map(),
-		turns: new Map(),
-		nextEventId: (targetId) => {
-			const next = (eventIds.get(targetId) ?? -1) + 1;
-			eventIds.set(targetId, next);
-			return next;
-		},
-		resolve: (target) =>
-			target.kind === "host"
-				? { kind: "host", targetId: "host", cwd: HOST_HOME }
-				: { kind: "devcontainer", targetId: `container:${target.project}`, cwd: target.hostProjectPath },
-	};
-	return daemon;
-}
-
 export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): FakeHost {
 	const namesLaunches = options.launchIds ?? true;
 	const socket = createFakeSocket();
@@ -220,7 +200,6 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 	const wakes: Frame[] = [];
 	const creates: FakeCreate[] = [];
 	const codexCommands: CodexDaemonCommand[] = [];
-	const copilotCommands: CopilotDaemonCommand[] = [];
 	const claudeRuns: HostClaudeRunOp[] = [];
 	const claudeCancels: HostClaudeCancelOp[] = [];
 	const claudeResults: ClaudeTurnResultFrame[] = [];
@@ -232,12 +211,22 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		onWake: options.onWake,
 		answerWake: options.answerWake,
 		onCodexCommand: options.onCodexCommand,
-		onCopilotCommand: options.onCopilotCommand,
+		onAgentCommand: options.onAgentCommand,
 		onClaudeRun: options.onClaudeRun,
 		onClaudeAck: options.onClaudeAck,
 	};
 	const daemon = options.daemon ?? createFakeCodexDaemon();
-	const copilotDaemon = createFakeCopilotDaemon(daemon.daemonInstanceId);
+	const agents = new Map(
+		GENERIC_AGENT_BACKENDS.map(({ id }) => [
+			id,
+			{ daemon: createFakeCodexDaemon(daemon.daemonInstanceId), commands: [] as AgentDaemonCommand[] },
+		]),
+	);
+	const agentOf = (backend: AgentBackendId) => {
+		const held = agents.get(backend);
+		if (!held) throw new Error(`no fake daemon for ${backend}`);
+		return held;
+	};
 	const send = (frame: Frame): void => graph.wsHandlers.message(socket.ws, JSON.stringify(frame));
 	const claudeTurnKey = (runId: string, turnId: string): string => JSON.stringify([runId, turnId]);
 	const sendClaudeResult = (frame: ClaudeTurnResultFrame): void => {
@@ -254,15 +243,13 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			daemon.turns.set(checked.turnId, checked.state);
 		send(checked);
 	};
-	const sendCopilot = (frame: CopilotDaemonEvent | CopilotDaemonReceipt): void => {
+	const sendAgent = (backend: AgentBackendId, frame: AgentDaemonEvent | AgentDaemonReceipt): void => {
+		const wire = agentWire(backend);
+		const turns = agentOf(backend).daemon.turns;
 		const checked =
-			frame.type === "copilot_event"
-				? CopilotDaemonEventSchema.parse(frame)
-				: CopilotDaemonReceiptSchema.parse(frame);
-		if (checked.type === "copilot_receipt" && checked.kind === "accepted")
-			copilotDaemon.turns.set(checked.turnId, "inProgress");
-		if (checked.type === "copilot_event" && checked.kind === "terminal")
-			copilotDaemon.turns.set(checked.turnId, checked.state);
+			frame.type === agentFrameType(backend, "event") ? wire.event.parse(frame) : wire.receipt.parse(frame);
+		if (checked.kind === "accepted") turns.set(checked.turnId, "inProgress");
+		if (checked.kind === "terminal") turns.set(checked.turnId, checked.state);
 		send(checked);
 	};
 	const answer = (op: HostOp): unknown => {
@@ -271,8 +258,10 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				return { kind: "tmux", ansi: options.screen ?? "$ ", hash: "h1" };
 			case "listDirs":
 				return { entries: options.entries ?? ["projects"], path: op.path || HOST_HOME };
-			case "readSkill":
-				return { kind: "refused", code: "missing" };
+			case "readSkill": {
+				const text = handlers.skillText?.(op.path);
+				return text === undefined ? { kind: "refused", code: "missing" } : { kind: "read", text };
+			}
 			case "kasaScan":
 				return { candidates: [] };
 			case "sendText":
@@ -371,15 +360,16 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			for (const reply of responder(command, daemon) ?? [])
 				sendCodex(reply as CodexDaemonEvent | CodexDaemonReceipt);
 		}
-		if (frame.type === "copilot_command") {
-			const command = CopilotDaemonCommandSchema.parse(frame);
-			copilotCommands.push(command);
+		for (const [backend, held] of agents) {
+			if (frame.type !== agentFrameType(backend, "command")) continue;
+			const command = agentWire(backend).command.parse(frame);
+			held.commands.push(command);
 			const targetId =
-				command.kind === "start" ? copilotDaemon.resolve(command.target).targetId : command.target.targetId;
-			if (!copilotDaemon.targets.has(targetId)) copilotDaemon.targets.set(targetId, copilotDaemon.generation);
-			const responder = handlers.onCopilotCommand ?? stockCopilotResponder;
-			for (const reply of responder(command, copilotDaemon) ?? [])
-				sendCopilot(reply as CopilotDaemonEvent | CopilotDaemonReceipt);
+				command.kind === "start" ? held.daemon.resolve(command.target).targetId : command.target.targetId;
+			if (!held.daemon.targets.has(targetId)) held.daemon.targets.set(targetId, held.daemon.generation);
+			const responder = handlers.onAgentCommand ?? stockAgentResponder;
+			for (const reply of responder(command, held.daemon, backend) ?? [])
+				sendAgent(backend, reply as AgentDaemonEvent | AgentDaemonReceipt);
 		}
 	});
 	graph.wsHandlers.open(socket.ws);
@@ -396,11 +386,13 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			daemonInstanceId: daemon.daemonInstanceId,
 			targets: [...daemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
 		});
-		send({
-			type: "copilot_hello",
-			daemonInstanceId: copilotDaemon.daemonInstanceId,
-			targets: [...copilotDaemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
-		});
+		for (const [backend, held] of agents) {
+			send({
+				type: agentFrameType(backend, "hello"),
+				daemonInstanceId: held.daemon.daemonInstanceId,
+				targets: [...held.daemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
+			});
+		}
 		const hostSpawns = options.hostSpawns ?? [];
 		const harnessSpawns: Record<SessionHarness, string[]> = {
 			claude: [HOST_SPAWN, ...hostSpawns],
@@ -427,16 +419,16 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		wakes,
 		creates,
 		codexCommands,
-		copilotCommands,
+		agentCommands: (backend) => agentOf(backend).commands,
 		claudeRuns,
 		claudeCancels,
 		claudeResults,
 		claudeAcks,
 		handlers,
 		daemon,
-		copilotDaemon,
+		agentDaemon: (backend) => agentOf(backend).daemon,
 		sendCodex,
-		sendCopilot,
+		sendAgent,
 		announceCatalog,
 		sendFrame: send,
 		reportWorking: (team, working, compacting) =>
@@ -537,11 +529,37 @@ export const stockCodexResponder: CodexResponder = (command, daemon) => {
 	];
 };
 
-export const stockCopilotResponder: CopilotResponder = (command, daemon) => {
+export const stockAgentResponder: AgentResponder = (command, daemon, backend) => {
+	if (command.kind === "reconcile") {
+		const turnState = command.turnId ? daemon.turns.get(command.turnId) : undefined;
+		return [
+			{
+				type: agentFrameType(backend, "receipt"),
+				requestId: command.requestId,
+				ownerKey: command.ownerKey,
+				daemonInstanceId: daemon.daemonInstanceId,
+				targetId: command.target.targetId,
+				generation: daemon.generation,
+				eventId: daemon.nextEventId(command.target.targetId),
+				agentId: command.agentId,
+				kind: "reconciled",
+				resolvedTarget: command.target,
+				sessionId: command.sessionId,
+				...(command.turnId ? { turnId: command.turnId } : {}),
+				...(command.turnId && turnState === "inProgress" ? { turnState: "inProgress" as const } : {}),
+			},
+		];
+	}
 	if (command.kind !== "start" && command.kind !== "message") return [];
 	const resolvedTarget = command.kind === "start" ? daemon.resolve(command.target) : command.target;
 	const sessionId = command.kind === "start" ? `session-${command.agentId}` : command.sessionId;
-	const turnId = `turn-${command.operationId}`;
+	const steeredTurnId =
+		command.kind === "message" &&
+		command.expectedTurnId &&
+		daemon.turns.get(command.expectedTurnId) === "inProgress"
+			? command.expectedTurnId
+			: undefined;
+	const turnId = steeredTurnId ?? `turn-${command.operationId}`;
 	const base = {
 		ownerKey: command.ownerKey,
 		daemonInstanceId: daemon.daemonInstanceId,
@@ -551,7 +569,7 @@ export const stockCopilotResponder: CopilotResponder = (command, daemon) => {
 	};
 	return [
 		{
-			type: "copilot_receipt",
+			type: agentFrameType(backend, "receipt"),
 			requestId: command.requestId,
 			...base,
 			eventId: daemon.nextEventId(resolvedTarget.targetId),
@@ -560,10 +578,10 @@ export const stockCopilotResponder: CopilotResponder = (command, daemon) => {
 			resolvedTarget,
 			sessionId,
 			turnId,
-			delivery: command.kind === "start" ? "started" : "followup",
+			delivery: steeredTurnId ? "steered" : "started",
 		},
 		{
-			type: "copilot_event",
+			type: agentFrameType(backend, "event"),
 			...base,
 			eventId: daemon.nextEventId(resolvedTarget.targetId),
 			sessionId,

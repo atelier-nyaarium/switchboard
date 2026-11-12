@@ -6,12 +6,13 @@ import { composeBaseline } from "../gateway/compose/composeBaseline.js";
 import { createSessionAuthority } from "../gateway/sessionAuthority.js";
 import type { WsData } from "../gateway/wsTypes.js";
 import { resolveLiveIncarnation, type TeamRegistry } from "../gateway/wsTypes.js";
+import type { AgentBackendId } from "../shared/agent-backend.js";
 import { agentHttpPath } from "../shared/agent-backend.js";
+import { agentIdForOperation } from "../shared/agent-record.js";
 import { processAmbient } from "../shared/ambient.js";
 import { codexAgentIdForOperation } from "../shared/codex-agent.js";
-import { copilotAgentIdForOperation } from "../shared/copilot-agent.js";
 import { SESSION_BASELINE_PATH } from "../shared/session-baseline.js";
-import { type CodexCatalogWriter, type CopilotCatalogWriter, SessionStore } from "../shared/session-store.js";
+import { type CodexCatalogWriter, type PersistedAgentCatalogWriter, SessionStore } from "../shared/session-store.js";
 
 const resolvedTarget = {
 	kind: "devcontainer" as const,
@@ -22,16 +23,18 @@ const resolvedTarget = {
 function setup() {
 	const ambient = processAmbient();
 	let codexCatalogWriter: CodexCatalogWriter | undefined;
-	let copilotCatalogWriter: CopilotCatalogWriter | undefined;
+	const agentCatalogWriters = new Map<AgentBackendId, PersistedAgentCatalogWriter>();
 	const sessionStore = new SessionStore({
 		ambient,
 		codexCatalogPersistence: {
 			persistChecked: () => true,
 			receiveWriter: (writer) => (codexCatalogWriter = writer),
 		},
-		copilotCatalogPersistence: {
+		agentCatalogPersistence: {
 			persistChecked: () => true,
-			receiveWriter: (writer) => (copilotCatalogWriter = writer),
+			receiveWriter: (backend, writer) => {
+				agentCatalogWriters.set(backend, writer);
+			},
 		},
 	});
 	const registry: TeamRegistry = new Map();
@@ -62,7 +65,7 @@ function setup() {
 			sessionStore,
 			offlineCatalog: new Map([["recipe-app", "/trusted/recipe-app"]]),
 			codexCatalogWriter: codexCatalogWriter!,
-			copilotCatalogWriter: copilotCatalogWriter!,
+			agentCatalogWriters,
 		},
 		host: {
 			readLiveness: () => ({
@@ -95,6 +98,12 @@ function setup() {
 	};
 }
 
+function listAgents(context: ReturnType<typeof setup>, family: "codex" | "copilot") {
+	return family === "codex"
+		? context.sessionStore.listCodexAgents(context.owner)
+		: context.sessionStore.listAgents(context.owner, "copilot");
+}
+
 function frameOf(context: ReturnType<typeof setup>, family: "codex" | "copilot", operationId: string) {
 	return context.outbound.find((frame) => frame.type === `${family}_command` && frame.operationId === operationId)!;
 }
@@ -124,8 +133,7 @@ async function accept(
 		turnId,
 		delivery: operationId.endsWith("000") ? "started" : "steered",
 	};
-	if (family === "codex") context.agents.codexRelay.handleHostMessage(receipt);
-	else context.agents.copilotRelay.handleHostMessage(receipt);
+	context.agents.stacks.get(family)!.relay.handleHostMessage(receipt);
 	for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
 }
 
@@ -151,136 +159,119 @@ describe("agent command seams", () => {
 		const context = setup();
 		const { owner, agents } = context;
 		for (const family of ["codex", "copilot"] as const) {
-			const commands = family === "codex" ? agents.codexCommands : agents.copilotCommands;
+			const stack = agents.stacks.get(family)!;
 			context.setDaemonInstanceId(undefined);
-			const unavailable = commands.start(owner, {
+			const unavailable = stack.start(owner, {
 				operationId: ids[family].noHost,
 				prompt: "start",
 			});
 			expect(unavailable.kind).toBe("refused");
-			expect(
-				(family === "codex"
-					? context.sessionStore.listCodexAgents(owner)
-					: context.sessionStore.listCopilotAgents(owner)
-				).length,
-			).toBe(0);
+			expect(listAgents(context, family)).toHaveLength(0);
 			context.setDaemonInstanceId("daemon-1");
 			context.setContainerInCatalog(false);
-			const missing = commands.start(owner, {
+			const missing = stack.start(owner, {
 				operationId: ids[family].missingCatalog,
 				prompt: "start",
 			});
 			expect(missing).toMatchObject({ kind: "refused", reason: "container target is not in the host catalog" });
-			expect(
-				(family === "codex"
-					? context.sessionStore.listCodexAgents(owner)
-					: context.sessionStore.listCopilotAgents(owner)
-				).length,
-			).toBe(0);
+			expect(listAgents(context, family)).toHaveLength(0);
 			context.setContainerInCatalog(true);
 		}
 
-		const codexStart = agents.codexCommands.start(owner, {
+		const codexStack = agents.stacks.get("codex")!;
+		const copilotStack = agents.stacks.get("copilot")!;
+		const codexStart = codexStack.start(owner, {
 			operationId: ids.codex.start,
 			prompt: "start",
 			runId: "run-codex",
 		});
-		const copilotStart = agents.copilotCommands.start(owner, {
+		const copilotStart = copilotStack.start(owner, {
 			operationId: ids.copilot.start,
 			prompt: "start",
 			runId: "run-copilot",
 		});
-		expect(codexStart).toMatchObject({ kind: "committed", transition: { agent: { runId: "run-codex" } } });
-		expect(copilotStart).toMatchObject({ kind: "committed", transition: { agent: { runId: "run-copilot" } } });
+		expect(codexStart).toMatchObject({ kind: "committed" });
+		expect(copilotStart).toMatchObject({ kind: "committed" });
+		expect(listAgents(context, "codex")[0]?.runId).toBe("run-codex");
+		expect(listAgents(context, "copilot")[0]?.runId).toBe("run-copilot");
 		for (const family of ["codex", "copilot"] as const) {
 			const operationId = ids[family].start;
-			const operation =
-				family === "codex"
-					? context.sessionStore.listCodexAgents(owner)[0]?.operations[0]
-					: context.sessionStore.listCopilotAgents(owner)[0]?.operations[0];
+			const operation = listAgents(context, family)[0]?.operations[0];
 			expect(operation?.daemonInstanceId).toBe("daemon-1");
 			await accept(context, family, operationId, `turn-${family}`);
 		}
-		expect(context.sessionStore.listCodexAgents(owner)[0]?.agentState).toBe("working");
-		expect(context.sessionStore.listCopilotAgents(owner)[0]?.agentState).toBe("working");
-		expect(agents.codexCommands.retire(owner, codexAgentIdForOperation(ids.codex.start))).toEqual({
+		expect(listAgents(context, "codex")[0]?.agentState).toBe("working");
+		expect(listAgents(context, "copilot")[0]?.agentState).toBe("working");
+		expect(codexStack.retire(owner, codexAgentIdForOperation(ids.codex.start))).toEqual({
 			retired: false,
 			reason: "active_turn",
 		});
-		expect(agents.copilotCommands.retire(owner, copilotAgentIdForOperation(ids.copilot.start))).toEqual({
+		expect(copilotStack.retire(owner, agentIdForOperation("copilot", ids.copilot.start))).toEqual({
 			retired: false,
 			reason: "active_turn",
 		});
 
 		context.setDaemonInstanceId(undefined);
-		const codexBefore = context.sessionStore.listCodexAgents(owner)[0]!.operations.length;
-		const copilotBefore = context.sessionStore.listCopilotAgents(owner)[0]!.operations.length;
+		const codexBefore = listAgents(context, "codex")[0]!.operations.length;
+		const copilotBefore = listAgents(context, "copilot")[0]!.operations.length;
 		expect(
-			agents.codexCommands.message(owner, {
+			codexStack.message(owner, {
 				agentId: codexAgentIdForOperation(ids.codex.start),
 				operationId: ids.codex.message,
 				prompt: "message",
 			}).kind,
 		).toBe("refused");
 		expect(
-			agents.codexCommands.stop(owner, {
+			codexStack.stop(owner, {
 				agentId: codexAgentIdForOperation(ids.codex.start),
 				operationId: ids.codex.stop,
 			}).kind,
 		).toBe("refused");
 		expect(
-			agents.copilotCommands.message(owner, {
-				agentId: copilotAgentIdForOperation(ids.copilot.start),
+			copilotStack.message(owner, {
+				agentId: agentIdForOperation("copilot", ids.copilot.start),
 				operationId: ids.copilot.message,
 				prompt: "message",
 			}).kind,
 		).toBe("refused");
 		expect(
-			agents.copilotCommands.stop(owner, {
-				agentId: copilotAgentIdForOperation(ids.copilot.start),
+			copilotStack.stop(owner, {
+				agentId: agentIdForOperation("copilot", ids.copilot.start),
 				operationId: ids.copilot.stop,
 			}).kind,
 		).toBe("refused");
-		expect(context.sessionStore.listCodexAgents(owner)[0]?.operations).toHaveLength(codexBefore);
-		expect(context.sessionStore.listCopilotAgents(owner)[0]?.operations).toHaveLength(copilotBefore);
+		expect(listAgents(context, "codex")[0]?.operations).toHaveLength(codexBefore);
+		expect(listAgents(context, "copilot")[0]?.operations).toHaveLength(copilotBefore);
 		context.setDaemonInstanceId("daemon-1");
 
-		const codexMessage = agents.codexCommands.message(owner, {
+		const codexMessage = codexStack.message(owner, {
 			agentId: codexAgentIdForOperation(ids.codex.start),
 			operationId: ids.codex.message,
 			prompt: "message",
 		});
-		const copilotMessage = agents.copilotCommands.message(owner, {
-			agentId: copilotAgentIdForOperation(ids.copilot.start),
+		const copilotMessage = copilotStack.message(owner, {
+			agentId: agentIdForOperation("copilot", ids.copilot.start),
 			operationId: ids.copilot.message,
 			prompt: "message",
 		});
-		expect(codexMessage).toMatchObject({
-			kind: "committed",
-			transition: { operation: { daemonInstanceId: "daemon-1" } },
-		});
-		expect(copilotMessage).toMatchObject({
-			kind: "committed",
-			transition: { operation: { daemonInstanceId: "daemon-1" } },
-		});
+		expect(codexMessage).toMatchObject({ kind: "committed" });
+		expect(copilotMessage).toMatchObject({ kind: "committed" });
+		expect(listAgents(context, "codex")[0]?.operations.at(-1)?.daemonInstanceId).toBe("daemon-1");
+		expect(listAgents(context, "copilot")[0]?.operations.at(-1)?.daemonInstanceId).toBe("daemon-1");
 		await accept(context, "codex", ids.codex.message, "turn-codex");
 		await accept(context, "copilot", ids.copilot.message, "turn-copilot");
-		const codexStop = agents.codexCommands.stop(owner, {
+		const codexStop = codexStack.stop(owner, {
 			agentId: codexAgentIdForOperation(ids.codex.start),
 			operationId: ids.codex.stop,
 		});
-		const copilotStop = agents.copilotCommands.stop(owner, {
-			agentId: copilotAgentIdForOperation(ids.copilot.start),
+		const copilotStop = copilotStack.stop(owner, {
+			agentId: agentIdForOperation("copilot", ids.copilot.start),
 			operationId: ids.copilot.stop,
 		});
-		expect(codexStop).toMatchObject({
-			kind: "committed",
-			transition: { operation: { daemonInstanceId: "daemon-1" } },
-		});
-		expect(copilotStop).toMatchObject({
-			kind: "committed",
-			transition: { operation: { daemonInstanceId: "daemon-1" } },
-		});
+		expect(codexStop).toMatchObject({ kind: "committed" });
+		expect(copilotStop).toMatchObject({ kind: "committed" });
+		expect(listAgents(context, "codex")[0]?.operations.at(-1)?.daemonInstanceId).toBe("daemon-1");
+		expect(listAgents(context, "copilot")[0]?.operations.at(-1)?.daemonInstanceId).toBe("daemon-1");
 
 		const codexRequest = new Request("http://gateway/codex", { headers: { "x-session-token": context.token } });
 		const copilotRequest = new Request("http://gateway/copilot", {
@@ -290,7 +281,7 @@ describe("agent command seams", () => {
 		const copilotRoute = agents.agentRoutes.get(agentHttpPath("copilot"))!;
 		for (const [route, request, family, agentId] of [
 			[codexRoute, codexRequest, "codex", codexAgentIdForOperation(ids.codex.start)],
-			[copilotRoute, copilotRequest, "copilot", copilotAgentIdForOperation(ids.copilot.start)],
+			[copilotRoute, copilotRequest, "copilot", agentIdForOperation("copilot", ids.copilot.start)],
 		] as const) {
 			const message = await route(request, {
 				kind: "message",

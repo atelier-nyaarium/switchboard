@@ -1,12 +1,12 @@
 // The daemon's own App Server client and turn tracker, wired to turn handles instead of a relay.
 
 import { CODEX_DEFAULT_MODEL, type CodexServiceTier } from "../../shared/codex-agent.js";
+import type { AgentBackendSession, TurnHandle, TurnTerminal } from "../agents/backendSession.js";
 import type { AppServerSession } from "../devcontainer/codexAppServerSession.js";
 import { defaultOpenClient } from "../devcontainer/codexAppServerSession.js";
 import type { AgentChild } from "../devcontainer/codexTargets.js";
 import { terminalOf } from "../devcontainer/codexTurnOutcome.js";
 import { CodexTurnTracker } from "../devcontainer/codexTurnTracker.js";
-import type { LocalBackendSession, LocalTerminal, LocalTurnHandle } from "./localAgentSession.js";
 
 ////////////////////////////////
 //  Class
@@ -17,9 +17,9 @@ import type { LocalBackendSession, LocalTerminal, LocalTurnHandle } from "./loca
  * An outcome arrives on the event stream, not from the call that started the turn, so each turn
  * parks a resolver here. The child dying settles them all, or a caller waits its whole budget.
  */
-export class CodexLocalSession implements LocalBackendSession {
+export class CodexLocalSession implements AgentBackendSession {
 	/** Keyed by turn, holding its thread, so a terminal cannot resolve a turn from another one. */
-	private readonly pending = new Map<string, { threadId: string; resolve: (terminal: LocalTerminal) => void }>();
+	private readonly pending = new Map<string, { threadId: string; resolve: (terminal: TurnTerminal) => void }>();
 	private activityListener?: (turnId: string, text: string) => void;
 	private closedListener?: () => void;
 	/** Events already in the pipe outlive the close that emptied it; none of them speak for it. */
@@ -74,10 +74,10 @@ export class CodexLocalSession implements LocalBackendSession {
 		threadId: string,
 		prompt: string,
 		turn?: { model?: string; serviceTier?: CodexServiceTier; outputSchema?: Record<string, unknown> },
-	): Promise<LocalTurnHandle> {
+	): Promise<TurnHandle> {
 		// Built from inside the start, which is where the owner guarantees nothing has published yet.
 		// The whole handle, so its id and its promise name one turn whatever the start goes on to return.
-		let handle: LocalTurnHandle | undefined;
+		let handle: TurnHandle | undefined;
 		const turnId = await this.client.startTurn(
 			threadId,
 			prompt,
@@ -114,13 +114,13 @@ export class CodexLocalSession implements LocalBackendSession {
 		this.closedListener?.();
 	}
 
-	private park(threadId: string, turnId: string): Promise<LocalTerminal> {
-		return new Promise<LocalTerminal>((resolve) => {
+	private park(threadId: string, turnId: string): Promise<TurnTerminal> {
+		return new Promise<TurnTerminal>((resolve) => {
 			this.pending.set(turnId, { threadId, resolve });
 		});
 	}
 
-	private settle(threadId: string, turnId: string, terminal: LocalTerminal): void {
+	private settle(threadId: string, turnId: string, terminal: TurnTerminal): void {
 		const parked = this.pending.get(turnId);
 		if (parked?.threadId !== threadId) return;
 		this.pending.delete(turnId);

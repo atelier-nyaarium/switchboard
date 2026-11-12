@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { AGENT_BACKENDS, type AgentBackendId, agentCapabilityId } from "./agent-backend.js";
+import { AGENT_BACKEND_IDS, AGENT_BACKENDS, type AgentBackendId, agentCapabilityId } from "./agent-backend.js";
 import { isAgentBackendInstalled, isBinaryOnPath } from "./agent-binary.js";
 import type { CapabilityBundleSchema, CapabilitySnapshotSchema, EnabledPluginSchema } from "./schemas.js";
 
@@ -18,6 +18,7 @@ export const UNREPORTED_CAPABILITIES: CapabilitySnapshot = { known: false, capab
 
 export const CODEX_AGENT_CAPABILITY_ID = agentCapabilityId("codex");
 export const COPILOT_AGENT_CAPABILITY_ID = agentCapabilityId("copilot");
+export const AGENT_CAPABILITY_IDS = AGENT_BACKEND_IDS.map((id) => agentCapabilityId(id));
 
 export const WORKFLOW_INSTRUCTIONS = `
 # Workflow

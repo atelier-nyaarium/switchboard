@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WORKFLOW_BACKEND_IDS } from "../../shared/agent-backend.js";
 import { WORKFLOW_AGENT_OUTCOMES } from "../../shared/workflow-agent-outcome.js";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -17,7 +18,8 @@ export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 
 export const JsonObjectSchema = z.record(z.string(), JsonValueSchema);
 
-export const WorkflowBackendSchema = z.enum(["codex", "copilot", "claude"]);
+export const WorkflowBackendSchema = z.enum(WORKFLOW_BACKEND_IDS);
+export type WorkflowBackend = z.infer<typeof WorkflowBackendSchema>;
 
 /** Claude instruction paths. */
 export const PROJECT_INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"] as const;

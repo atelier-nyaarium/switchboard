@@ -1,18 +1,14 @@
-// The Codex and Copilot catalogs, their host relays, and their HTTP routes.
-
-import { type AgentBackendId, agentHttpPath } from "../../shared/agent-backend.js";
-import { type AgentProgressCounts, addAgentProgressCounts } from "../../shared/agent-counter.js";
+import { type AgentBackendId, agentHttpPath, GENERIC_AGENT_BACKENDS } from "../../shared/agent-backend.js";
+import {
+	type AgentProgressCounts,
+	addAgentProgressCounts,
+	emptyAgentProgressCounts,
+} from "../../shared/agent-counter.js";
 import { marksOf } from "../../shared/agent-turn-marks.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { RosterAgent } from "../agentAwareness.js";
-import { type CodexAgentCommands, createCodexAgentCommands } from "../codexAgentCommands.js";
-import { CodexAgentService } from "../codexAgentService.js";
-import { CodexRelay } from "../codexRelay.js";
-import { CodexRoute } from "../codexRoute.js";
-import { type CopilotAgentCommands, createCopilotAgentCommands } from "../copilotAgentCommands.js";
-import { CopilotAgentService } from "../copilotAgentService.js";
-import { CopilotRelay } from "../copilotRelay.js";
-import { CopilotRoute } from "../copilotRoute.js";
+import { resolveAgentExecutionTarget } from "../agentExecutionTarget.js";
+import { type AgentStack, type AgentStacks, createAgentStack, createCodexStack } from "../agentStack.js";
 import { createWorkflowAgentDispatch, type WorkflowAgentDispatch } from "../workflows/agentDispatch.js";
 import type { WorkflowRunner } from "../workflows/runner.js";
 import { reached, sendOn } from "../wsSend.js";
@@ -22,7 +18,7 @@ import type { SessionsStage } from "./composeSessions.js";
 export interface AgentsStageDeps {
 	sessions: Pick<
 		SessionsStage,
-		"sessionAuthority" | "sessionStore" | "offlineCatalog" | "codexCatalogWriter" | "copilotCatalogWriter"
+		"sessionAuthority" | "sessionStore" | "offlineCatalog" | "codexCatalogWriter" | "agentCatalogWriters"
 	>;
 	host: Pick<HostStage, "readLiveness" | "relayToHost">;
 	ambient: Ambient;
@@ -36,18 +32,13 @@ export type TurnsCollected = (
 ) => void;
 
 export interface AgentsStage {
-	codexRelay: CodexRelay;
-	copilotRelay: CopilotRelay;
-	codexCommands: CodexAgentCommands;
-	copilotCommands: CopilotAgentCommands;
+	stacks: AgentStacks;
 	agentRoutes: Map<string, (req: Request, body: unknown) => Promise<Response>>;
 	reconcileStaleAgents: () => void;
-	/** Every agent of both families with its turns, for the awareness watch. */
 	agentRoster: () => RosterAgent[];
 	workflowProgress: (runId: string) => AgentProgressCounts;
-	/** False if marking fails. */
+	/** False means marking failed. */
 	markTurnNotified: (ownerKey: string, family: AgentBackendId, agentId: string, turnId: string) => boolean;
-	/** Registers collection listeners. */
 	onTurnsCollected: (listener: TurnsCollected) => void;
 	createWorkflowDispatch: (runner: WorkflowRunner) => WorkflowAgentDispatch;
 }
@@ -65,79 +56,44 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		return reached(sendOn(hostWs, JSON.stringify(message), "agent daemon command"));
 	};
 
-	const codexAgentService = new CodexAgentService({
-		auth: sessions.sessionAuthority,
-		sessionStore: sessions.sessionStore,
-		offlineCatalog: sessions.offlineCatalog,
-		catalogWriter: sessions.codexCatalogWriter,
-	});
-	const copilotAgentService = new CopilotAgentService({
-		auth: sessions.sessionAuthority,
-		sessionStore: sessions.sessionStore,
-		offlineCatalog: sessions.offlineCatalog,
-		catalogWriter: sessions.copilotCatalogWriter,
-	});
-
-	const codexRelay = new CodexRelay({
-		service: codexAgentService,
-		sessionStore: sessions.sessionStore,
-		liveDaemonInstanceId: () => host.readLiveness().daemonInstanceId,
-		sendToHost,
-		ambient,
-	});
-	const copilotRelay = new CopilotRelay({
-		service: copilotAgentService,
-		sessionStore: sessions.sessionStore,
-		liveDaemonInstanceId: () => host.readLiveness().daemonInstanceId,
-		sendToHost,
-		ambient,
-	});
-	const codexCommands = createCodexAgentCommands({
-		service: codexAgentService,
-		relay: codexRelay,
-		readLiveness: host.readLiveness,
-		ambient,
-	});
-	const copilotCommands = createCopilotAgentCommands({
-		service: copilotAgentService,
-		relay: copilotRelay,
-		readLiveness: host.readLiveness,
-		ambient,
-	});
 	let collectedListener: TurnsCollected | undefined;
-	const codexRoute = new CodexRoute({
-		service: codexAgentService,
-		relay: codexRelay,
-		commands: codexCommands,
+	const shared = {
+		auth: sessions.sessionAuthority,
+		sessionStore: sessions.sessionStore,
+		offlineCatalog: sessions.offlineCatalog,
+		readLiveness: host.readLiveness,
+		sendToHost,
 		ambient,
-		onCollected: (ownerKey, agentId, turnIds) => collectedListener?.(ownerKey, "codex", agentId, turnIds),
-	});
-	const copilotRoute = new CopilotRoute({
-		service: copilotAgentService,
-		relay: copilotRelay,
-		commands: copilotCommands,
-		ambient,
-		onCollected: (ownerKey, agentId, turnIds) => collectedListener?.(ownerKey, "copilot", agentId, turnIds),
-	});
+		onCollected: (backend: AgentBackendId, ownerKey: string, agentId: string, turnIds: readonly string[]) =>
+			collectedListener?.(ownerKey, backend, agentId, turnIds),
+	};
+	const built: AgentStack[] = [
+		createCodexStack({ ...shared, catalogWriter: sessions.codexCatalogWriter }),
+		...GENERIC_AGENT_BACKENDS.map((backend) => {
+			const catalogWriter = sessions.agentCatalogWriters.get(backend.id);
+			if (!catalogWriter) throw new Error(`no catalog writer for ${backend.id} agents`);
+			return createAgentStack({ ...shared, backend, catalogWriter });
+		}),
+	];
+	const stacks: AgentStacks = new Map(built.map((stack) => [stack.backend.id, stack]));
 
-	const agentRoutes = new Map<string, (req: Request, body: unknown) => Promise<Response>>([
-		[agentHttpPath("codex"), (req, body) => codexRoute.handle(req, body)],
-		[agentHttpPath("copilot"), (req, body) => copilotRoute.handle(req, body)],
-	]);
+	const agentRoutes = new Map(
+		built.map((stack) => [
+			agentHttpPath(stack.backend.id),
+			(req: Request, body: unknown) => stack.route(req, body),
+		]),
+	);
 
 	const agentRoster = (): RosterAgent[] =>
 		sessions.sessionStore.list().flatMap((owner) => {
 			const ownerKey = sessions.sessionStore.teamOf(owner);
-			const families = [
-				["codex", codexAgentService.listOwnedAgents(owner)],
-				["copilot", copilotAgentService.listOwnedAgents(owner)],
-			] as const;
-			return families.flatMap(([family, agents]) =>
-				agents
+			return built.flatMap((stack) =>
+				stack
+					.list(owner)
 					.filter((agent) => agent.runId === undefined)
 					.map((agent) => ({
 						ownerKey,
-						family,
+						family: stack.backend.id,
 						agentId: agent.agentId,
 						agentState: agent.agentState,
 						turns: agent.turns.map((turn) => ({
@@ -147,39 +103,24 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 							notified: marksOf(agent).notified.includes(turn.id),
 							updatedAt: turn.updatedAt,
 							notes: commentaryOf(turn.activities),
-							progress:
-								family === "codex"
-									? codexRelay.progressCounts(ownerKey, agent.agentId, turn.id)
-									: copilotRelay.progressCounts(ownerKey, agent.agentId, turn.id),
+							progress: stack.relay.progressCounts(ownerKey, agent.agentId, turn.id),
 						})),
 					})),
 			);
 		});
 
-	const workflowProgress = (runId: string): AgentProgressCounts =>
-		addAgentProgressCounts(codexRelay.progressForRun(runId), copilotRelay.progressForRun(runId));
-
-	const reconcileStaleAgents = (): void => {
-		for (const owner of sessions.sessionStore.list()) {
-			codexRelay.reconcileStale(owner);
-			copilotRelay.reconcileStale(owner);
-		}
-	};
-
 	return {
-		codexRelay,
-		copilotRelay,
-		codexCommands,
-		copilotCommands,
+		stacks,
 		agentRoutes,
 		agentRoster,
-		workflowProgress,
+		workflowProgress: (runId) =>
+			built.reduce(
+				(counts, stack) => addAgentProgressCounts(counts, stack.relay.progressForRun(runId)),
+				emptyAgentProgressCounts(),
+			),
 		markTurnNotified: (ownerKey, family, agentId, turnId) => {
 			const owner = sessions.sessionStore.getByTeam(ownerKey);
-			if (!owner) return false;
-			return family === "codex"
-				? codexAgentService.markTurnNotified(owner, agentId, turnId)
-				: copilotAgentService.markTurnNotified(owner, agentId, turnId);
+			return owner !== undefined && (stacks.get(family)?.markTurnNotified(owner, agentId, turnId) ?? false);
 		},
 		onTurnsCollected: (listener) => {
 			collectedListener = listener;
@@ -191,11 +132,13 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 				runner,
 				readLiveness: host.readLiveness,
 				relayToHost: host.relayToHost,
-				codex: codexCommands,
-				copilot: copilotCommands,
-				codexRelay,
-				copilotRelay,
+				stacks,
+				resolveTarget: (owner) =>
+					resolveAgentExecutionTarget(owner, undefined, sessions.sessionStore, sessions.offlineCatalog),
 			}),
-		reconcileStaleAgents,
+		reconcileStaleAgents: () => {
+			for (const owner of sessions.sessionStore.list())
+				for (const stack of built) stack.relay.reconcileStale(owner);
+		},
 	};
 }

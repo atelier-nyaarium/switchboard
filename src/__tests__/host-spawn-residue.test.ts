@@ -54,7 +54,7 @@ describe("host spawn residue", () => {
 			path.join("gateway", "wakeService.ts"),
 			path.join("gateway", "console", "consoleTargets.ts"),
 			path.join("gateway", "codexRoute.ts"),
-			path.join("gateway", "copilotRoute.ts"),
+			path.join("gateway", "agentRoute.ts"),
 			path.join("mcp", "devcontainer", "hostDaemon.ts"),
 			path.join("mcp", "devcontainer", "hostResolve.ts"),
 			path.join("mcp", "devcontainer", "tmuxCore.ts"),

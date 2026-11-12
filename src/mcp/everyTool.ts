@@ -1,6 +1,7 @@
 // Every tool group a session can list, with every capability on: what the build and the tests check.
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { AGENT_BACKENDS } from "../shared/agent-backend.js";
 import type { Capability } from "../shared/capabilities.js";
 import { registerAgentTools } from "./agents/agentTools.js";
 import { registerActionFront } from "./assistant/actionFront.js";
@@ -58,7 +59,7 @@ export function registerEveryTool(server: McpServer): void {
 	registerCompactSession(server);
 	registerHumanTools(server, capabilities);
 	registerDesignerTools(server);
-	registerAgentTools(server, { codex: dispatch, copilot: dispatch });
+	registerAgentTools(server, Object.fromEntries(AGENT_BACKENDS.map((backend) => [backend.id, dispatch])));
 	registerBoardTools(server);
 	registerVaultTools(server);
 	registerRoutineTools(server);

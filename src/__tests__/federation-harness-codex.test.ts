@@ -105,7 +105,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		expect(accepted).toMatchObject({
 			observation: "accepted",
 			turn: { state: "inProgress" },
-			delivery: "started",
+			delivery: "followup",
 		});
 		const answered = await collectUntilTurn(alice, started.agentId);
 		expect(answered.turns).toMatchObject([

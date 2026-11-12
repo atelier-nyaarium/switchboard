@@ -1,9 +1,9 @@
 // Call options, replay hashes.
 
 import { z } from "zod";
+import { AGENT_BACKENDS, type AgentBackendDescriptor, type AgentBackendId } from "../../shared/agent-backend.js";
+import { AgentMessageInputSchema, AgentStartInputSchema } from "../../shared/agent-state.js";
 import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
-import { CodexMessageAgentInputSchema, CodexStartAgentInputSchema } from "../../shared/codexAgentState.js";
-import { CopilotMessageAgentInputSchema, CopilotStartAgentInputSchema } from "../../shared/copilotAgentState.js";
 import { type JsonValue, type WorkflowCallOptions, WorkflowCallOptionsSchema } from "./workflowSchemas.js";
 
 ////////////////////////////////
@@ -30,53 +30,42 @@ const commonOptionShape = {
 	phase: WorkflowCallOptionsSchema.shape.phase,
 };
 
-const CodexCallOptionsSchema = z
-	.object({
-		...commonOptionShape,
-		model: CodexStartAgentInputSchema.shape.model,
-		tier: CodexStartAgentInputSchema.shape.serviceTier,
-		schema: CodexStartAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
-
-const CopilotCallOptionsSchema = z
-	.object({
-		...commonOptionShape,
-		model: CopilotStartAgentInputSchema.shape.model,
-		effort: CopilotStartAgentInputSchema.shape.reasoningEffort,
-		schema: CopilotStartAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
+function agentCallOptions(backend: AgentBackendDescriptor) {
+	return z
+		.object({
+			...commonOptionShape,
+			model: AgentStartInputSchema.shape.model,
+			...(backend.options.serviceTier ? { tier: AgentStartInputSchema.shape.serviceTier } : {}),
+			...(backend.options.reasoningEffort ? { effort: AgentStartInputSchema.shape.reasoningEffort } : {}),
+			schema: AgentStartInputSchema.shape.outputSchema,
+		})
+		.strict();
+}
 
 const ClaudeCallOptionsSchema = z
 	.object({
 		...commonOptionShape,
 		model: z.string().optional(),
 		effort: WorkflowCallOptionsSchema.shape.effort,
-		schema: CodexStartAgentInputSchema.shape.outputSchema,
+		schema: AgentStartInputSchema.shape.outputSchema,
 	})
 	.strict();
 
-const FAMILY_SCHEMAS: Record<WorkflowBackend, z.ZodType> = {
-	codex: CodexCallOptionsSchema,
-	copilot: CopilotCallOptionsSchema,
-	claude: ClaudeCallOptionsSchema,
-};
+const AGENT_SCHEMAS = new Map<AgentBackendId, z.ZodType>(
+	AGENT_BACKENDS.map((backend) => [backend.id, agentCallOptions(backend)]),
+);
 
-const CodexMessageOptionsSchema = z
-	.object({
-		prompt: CodexMessageAgentInputSchema.shape.prompt,
-		serviceTier: CodexMessageAgentInputSchema.shape.serviceTier,
-		outputSchema: CodexMessageAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
+function familySchema(backend: WorkflowBackend): z.ZodType {
+	const schema = backend === "claude" ? ClaudeCallOptionsSchema : AGENT_SCHEMAS.get(backend);
+	if (!schema) throw new Error(`unknown backend ${backend}`);
+	return schema;
+}
 
-const CopilotMessageOptionsSchema = z
-	.object({
-		prompt: CopilotMessageAgentInputSchema.shape.prompt,
-		outputSchema: CopilotMessageAgentInputSchema.shape.outputSchema,
-	})
-	.strict();
+const AgentMessageOptionsSchema = AgentMessageInputSchema.pick({
+	prompt: true,
+	serviceTier: true,
+	outputSchema: true,
+}).strict();
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -90,7 +79,7 @@ export function parseCallOptions(
 ): { backend: WorkflowBackend; options: WorkflowCallOptions } {
 	const parsed = WorkflowCallOptionsSchema.parse(raw ?? {});
 	const backend = parsed.backend ?? defaultBackend;
-	const family = FAMILY_SCHEMAS[backend].safeParse(parsed);
+	const family = familySchema(backend).safeParse(parsed);
 	if (!family.success) throw new Error(family.error.issues[0]?.message ?? "invalid backend options");
 	return { backend, options: family.data as WorkflowCallOptions };
 }
@@ -123,11 +112,8 @@ export function joinThread(
 	options.skills ??= [...held.skills];
 	options.model ??= held.model;
 	options.effort ??= held.effort;
-	if (backend === "codex") {
-		CodexMessageOptionsSchema.parse({ prompt, serviceTier: options.tier, outputSchema: options.schema });
-	} else if (backend === "copilot") {
-		CopilotMessageOptionsSchema.parse({ prompt, outputSchema: options.schema });
-	}
+	if (backend !== "claude")
+		AgentMessageOptionsSchema.parse({ prompt, serviceTier: options.tier, outputSchema: options.schema });
 }
 
 /** Replay omits `label`, `phase`. */

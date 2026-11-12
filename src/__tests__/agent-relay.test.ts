@@ -1,19 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { CopilotAgentService } from "../gateway/copilotAgentService.js";
-import type { CopilotApplication } from "../gateway/copilotAgentTypes.js";
-import { CopilotRelay } from "../gateway/copilotRelay.js";
+import { AgentRelay } from "../gateway/agentRelay.js";
+import type { AgentApplication } from "../gateway/agentRelayCore.js";
+import type { AgentService } from "../gateway/agentService.js";
+import { agentOperationIdentity } from "../shared/agent-identity.js";
+import { type PersistedAgent, PersistedAgentSchema } from "../shared/agent-persisted.js";
+import { agentOperationFingerprintOf } from "../shared/agent-record.js";
+import { type AgentDaemonEvent, type AgentDaemonReceipt, agentWire } from "../shared/agent-wire.js";
 import { processAmbient } from "../shared/ambient.js";
-import {
-	CopilotDaemonCommandSchema,
-	type CopilotDaemonEvent,
-	CopilotDaemonEventSchema,
-	CopilotDaemonHelloSchema,
-	type CopilotDaemonReceipt,
-	CopilotDaemonReceiptSchema,
-	CopilotEventAckSchema,
-	type CopilotPersistedAgent,
-	CopilotPersistedAgentSchema,
-} from "../shared/copilot-agent.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
 
 const OWNER_KEY = "recipe-app.work";
@@ -25,6 +18,7 @@ const SESSION_ID = "session-1";
 const TURN_ID = "turn-1";
 const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
 const RESOLVED_TARGET = { kind: "devcontainer" as const, targetId: TARGET_ID, cwd: "/workspace/recipe-app" };
+const COPILOT_WIRE = agentWire("copilot");
 const REQUESTED_TARGET = {
 	kind: "devcontainer" as const,
 	project: "recipe-app",
@@ -35,57 +29,75 @@ const OWNER: SessionRecord = { id: "work", sessionLabel: "Work", spawn: "recipe-
 
 type ApplicationFactory = (
 	owner: SessionRecord,
-	agent: CopilotPersistedAgent,
-	message: CopilotDaemonEvent | CopilotDaemonReceipt,
-) => CopilotApplication;
+	agent: PersistedAgent,
+	message: AgentDaemonEvent | AgentDaemonReceipt,
+) => AgentApplication<PersistedAgent>;
 
 interface SetupOptions {
-	agent?: CopilotPersistedAgent;
+	agent?: PersistedAgent;
 	onEvent?: ApplicationFactory;
 	onReceipt?: ApplicationFactory;
 	attached?: boolean;
 }
 
-function applied(owner: SessionRecord, agent: CopilotPersistedAgent): CopilotApplication {
+function applied(owner: SessionRecord, agent: PersistedAgent): AgentApplication<PersistedAgent> {
 	return { disposition: "applied", owner, agent, catalogRevision: 1 };
 }
 
-function reconcile(owner: SessionRecord, agent: CopilotPersistedAgent): CopilotApplication {
+function reconcile(owner: SessionRecord, agent: PersistedAgent): AgentApplication<PersistedAgent> {
 	return { disposition: "reconcile", owner, agent };
 }
 
-function askableAgent(agentState: "working" | "idle" = "working"): CopilotPersistedAgent {
-	return CopilotPersistedAgentSchema.parse({
-		version: 1,
+function startOperation(state: "requested" | "accepted" = "accepted") {
+	return {
+		operationId: REQUEST_ID,
+		kind: "start",
+		prompt: "start",
+		fingerprint: agentOperationFingerprintOf(
+			agentOperationIdentity({ kind: "start", agentId: AGENT_ID, prompt: "start" }),
+		),
+		state,
+		...(state === "accepted" ? { turnId: TURN_ID, sessionId: SESSION_ID, delivery: "started" } : {}),
+		createdAt: 0,
+		updatedAt: 0,
+	};
+}
+
+function askableAgent(agentState: "working" | "idle" = "working"): PersistedAgent {
+	return PersistedAgentSchema.parse({
+		version: 2,
 		agentId: AGENT_ID,
 		agentState,
 		requestedTarget: REQUESTED_TARGET,
 		resolvedTarget: RESOLVED_TARGET,
 		sessionId: SESSION_ID,
 		...(agentState === "working" ? { activeTurnId: TURN_ID } : {}),
-		operations: [],
-		turns: agentState === "working" ? [{ id: TURN_ID, state: "inProgress", activities: [], updatedAt: 0 }] : [],
+		operations: [startOperation()],
+		turns:
+			agentState === "working"
+				? [{ id: TURN_ID, state: "inProgress", activities: [], updatedAt: 0 }]
+				: [{ id: TURN_ID, state: "completed", activities: [], finalResponse: "done", updatedAt: 0 }],
 		createdAt: 0,
 		updatedAt: 0,
 	});
 }
 
-function agentWithoutSession(): CopilotPersistedAgent {
-	return CopilotPersistedAgentSchema.parse({
-		version: 1,
+function agentWithoutSession(): PersistedAgent {
+	return PersistedAgentSchema.parse({
+		version: 2,
 		agentId: AGENT_ID,
 		agentState: "creating",
 		requestedTarget: REQUESTED_TARGET,
-		operations: [],
+		operations: [startOperation("requested")],
 		turns: [],
 		createdAt: 0,
 		updatedAt: 0,
 	});
 }
 
-function eventFrame(eventId: number, kind: "activity" | "terminal" = "activity"): CopilotDaemonEvent {
+function eventFrame(eventId: number, kind: "activity" | "terminal" = "activity"): AgentDaemonEvent {
 	if (kind === "activity")
-		return CopilotDaemonEventSchema.parse({
+		return COPILOT_WIRE.event.parse({
 			type: "copilot_event",
 			kind,
 			ownerKey: OWNER_KEY,
@@ -99,7 +111,7 @@ function eventFrame(eventId: number, kind: "activity" | "terminal" = "activity")
 			itemId: `item-${eventId}`,
 			text: "activity",
 		});
-	return CopilotDaemonEventSchema.parse({
+	return COPILOT_WIRE.event.parse({
 		type: "copilot_event",
 		kind,
 		ownerKey: OWNER_KEY,
@@ -115,8 +127,8 @@ function eventFrame(eventId: number, kind: "activity" | "terminal" = "activity")
 	});
 }
 
-function acceptedReceipt(eventId: number): CopilotDaemonReceipt {
-	return CopilotDaemonReceiptSchema.parse({
+function acceptedReceipt(eventId: number): AgentDaemonReceipt {
+	return COPILOT_WIRE.receipt.parse({
 		type: "copilot_receipt",
 		kind: "accepted",
 		requestId: REQUEST_ID,
@@ -134,8 +146,8 @@ function acceptedReceipt(eventId: number): CopilotDaemonReceipt {
 	});
 }
 
-function reconciledReceipt(eventId: number, requestId: unknown = REQUEST_ID): CopilotDaemonReceipt {
-	return CopilotDaemonReceiptSchema.parse({
+function reconciledReceipt(eventId: number, requestId: unknown = REQUEST_ID): AgentDaemonReceipt {
+	return COPILOT_WIRE.receipt.parse({
 		type: "copilot_receipt",
 		kind: "reconciled",
 		requestId,
@@ -146,12 +158,12 @@ function reconciledReceipt(eventId: number, requestId: unknown = REQUEST_ID): Co
 		eventId,
 		agentId: AGENT_ID,
 		sessionId: SESSION_ID,
-		active: false,
+		resolvedTarget: RESOLVED_TARGET,
 	});
 }
 
 function helloFrame() {
-	return CopilotDaemonHelloSchema.parse({
+	return COPILOT_WIRE.hello.parse({
 		type: "copilot_hello",
 		daemonInstanceId: DAEMON_INSTANCE_ID,
 		targets: [{ targetId: TARGET_ID, generation: GENERATION }],
@@ -163,24 +175,25 @@ function setup(options: SetupOptions = {}) {
 	let attached = options.attached ?? true;
 	const sent: Record<string, unknown>[] = [];
 	const liveDaemonInstanceId: string | undefined = DAEMON_INSTANCE_ID;
-	const eventCalls: CopilotDaemonEvent[] = [];
-	const receiptCalls: CopilotDaemonReceipt[] = [];
+	const eventCalls: AgentDaemonEvent[] = [];
+	const receiptCalls: AgentDaemonReceipt[] = [];
 	const sessionStore = {
 		list: () => [OWNER],
 		teamOf: (record: SessionRecord) => `${record.spawn}.${record.id}`,
 	} as unknown as SessionStore;
 	const service = {
 		listOwnedAgents: () => [agent],
-		applyEvent: (event: CopilotDaemonEvent) => {
+		applyEvent: (event: AgentDaemonEvent) => {
 			eventCalls.push(event);
 			return options.onEvent?.(OWNER, agent, event) ?? applied(OWNER, agent);
 		},
-		applyReceipt: (receipt: CopilotDaemonReceipt) => {
+		applyReceipt: (receipt: AgentDaemonReceipt) => {
 			receiptCalls.push(receipt);
 			return options.onReceipt?.(OWNER, agent, receipt) ?? applied(OWNER, agent);
 		},
-	} as unknown as CopilotAgentService;
-	const relay = new CopilotRelay({
+	} as unknown as AgentService;
+	const relay = new AgentRelay({
+		backendId: "copilot",
 		service,
 		sessionStore,
 		liveDaemonInstanceId: () => liveDaemonInstanceId,
@@ -196,7 +209,7 @@ function setup(options: SetupOptions = {}) {
 		sent,
 		eventCalls,
 		receiptCalls,
-		setAgent: (next: CopilotPersistedAgent) => {
+		setAgent: (next: PersistedAgent) => {
 			agent = next;
 		},
 		setAttached: (next: boolean) => {
@@ -221,7 +234,7 @@ describe("Copilot relay acknowledgement", () => {
 		context.relay.handleHostMessage(frame);
 		await settleRelay();
 
-		const parsed = CopilotEventAckSchema.safeParse(messagesOf(context, "copilot_ack")[0]);
+		const parsed = COPILOT_WIRE.ack.safeParse(messagesOf(context, "copilot_ack")[0]);
 		expect(parsed.success).toBe(true);
 		if (!parsed.success) return;
 		expect(parsed.data.throughEventId).toBe(frame.eventId);
@@ -252,7 +265,7 @@ describe("Copilot relay acknowledgement", () => {
 		expect(messagesOf(context, "copilot_ack")).toEqual([]);
 		const commands = messagesOf(context, "copilot_command");
 		expect(commands).toHaveLength(1);
-		expect(CopilotDaemonCommandSchema.safeParse(commands[0]).success).toBe(true);
+		expect(COPILOT_WIRE.command.safeParse(commands[0]).success).toBe(true);
 		expect(commands[0]).toMatchObject({
 			kind: "reconcile",
 			ownerKey: OWNER_KEY,
@@ -272,7 +285,7 @@ describe("Copilot relay acknowledgement", () => {
 		await settleRelay();
 		hold = false;
 		context.relay.handleHostMessage(
-			CopilotDaemonReceiptSchema.parse({
+			COPILOT_WIRE.receipt.parse({
 				type: "copilot_receipt",
 				kind: "rejected",
 				requestId: REQUEST_ID,
@@ -321,6 +334,27 @@ describe("Copilot relay acknowledgement", () => {
 		expect(replayedActivities.every((eventId) => eventId >= 5)).toBe(true);
 		expect(replayedEvents).toContainEqual(expect.objectContaining({ kind: "terminal", eventId: 1 }));
 		expect(replayedReceipts).toContainEqual(expect.objectContaining({ kind: "accepted", eventId: 131 }));
+	});
+
+	it("holds outcomes past the cap, and one per stream under a shared event id", async () => {
+		let hold = true;
+		const context = setup({
+			onEvent: (owner, agent) => (hold ? reconcile(owner, agent) : applied(owner, agent)),
+			onReceipt: (owner, agent) => (hold ? reconcile(owner, agent) : applied(owner, agent)),
+		});
+		for (let eventId = 1; eventId <= 130; eventId += 1)
+			context.relay.handleHostMessage(eventFrame(eventId, "terminal"));
+		context.relay.handleHostMessage({ ...eventFrame(1, "terminal"), generation: GENERATION + 1 });
+		await settleRelay();
+		const before = context.eventCalls.length;
+
+		hold = false;
+		context.relay.handleHostMessage(reconciledReceipt(131, messagesOf(context, "copilot_command")[0]?.requestId));
+		await settleRelay();
+
+		const replayed = context.eventCalls.slice(before);
+		expect(replayed.filter((event) => event.generation === GENERATION)).toHaveLength(130);
+		expect(replayed.filter((event) => event.generation === GENERATION + 1)).toHaveLength(1);
 	});
 
 	it("reasks for deferred work when hello sees an idle agent", async () => {

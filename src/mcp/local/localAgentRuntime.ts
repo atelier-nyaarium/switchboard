@@ -1,10 +1,10 @@
 import type { AgentBackendId } from "../../shared/agent-backend.js";
 import type { AgentNotice } from "../../shared/agent-notice.js";
+import type { AgentDaemonFailureCode, AgentServiceTier } from "../../shared/agent-state.js";
 import type { AgentTurnMarks } from "../../shared/agent-turn-marks.js";
-import type { CodexServiceTier } from "../../shared/codex-agent.js";
+import type { AgentBackendSession } from "../agents/backendSession.js";
 import type { LocalExchangeRecord } from "./localAgentHandlers.js";
 import { LocalAgentHandlers } from "./localAgentHandlers.js";
-import type { LocalBackendSession } from "./localAgentSession.js";
 import { LocalChildSession } from "./localChildSession.js";
 import { LocalOperationLedger } from "./localOperationLedger.js";
 
@@ -14,7 +14,7 @@ export type LocalAgentState = "idle" | "working" | "unavailable";
 export type LocalTurnState = "inProgress" | "completed" | "failed" | "interrupted";
 export type LocalObservation = "accepted" | "terminal" | "waitTimedOut" | "idle" | "interruptRequested" | "unavailable";
 
-export type LocalErrorCode = "not_found" | "app_server_unavailable" | "turn_failed";
+export type LocalErrorCode = "not_found" | "turn_failed" | AgentDaemonFailureCode;
 
 export interface LocalRefusal {
 	refused: string;
@@ -51,17 +51,19 @@ export interface LocalRequest {
 	prompt?: string;
 	model?: string;
 	cwd?: string;
-	serviceTier?: CodexServiceTier;
+	serviceTier?: AgentServiceTier;
 	reasoningEffort?: string;
 	outputSchema?: Record<string, unknown>;
 }
 
 export interface LocalBackendSpec {
 	backendId: AgentBackendId;
-	openSession(): Promise<LocalBackendSession>;
+	displayName: string;
+	/** The driver's reading of a refusal. */
+	failureCode?: (error: string) => AgentDaemonFailureCode | undefined;
+	openSession(): Promise<AgentBackendSession>;
 	defaultCwd(): string;
 	busyMessage?: string;
-	followupDelivery: string;
 	maxActivities: number;
 	// Reap only backends whose threads survive child replacement.
 	threadsResumable: boolean;

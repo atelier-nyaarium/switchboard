@@ -430,7 +430,7 @@ describe("Codex relay behavior", () => {
 				agentState: "working",
 				observation: "accepted",
 				turn: { id: "turn-2", state: "inProgress" },
-				delivery: "started",
+				delivery: "followup",
 			});
 			expect(terminalAnswer).toMatchObject({
 				agentId,

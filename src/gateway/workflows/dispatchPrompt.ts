@@ -86,6 +86,8 @@ export function createWorkflowPrompt(
 	function appendSkillText(runId: string, path: string, text: string): boolean {
 		const sha256 = crypto.createHash("sha256").update(text, "utf8").digest("hex");
 		const rows = deps.runner.rows(runId);
+		// A sibling step read the same skill first.
+		if (rows.some((row) => row.kind === "skill_text" && row.path === path && row.sha256 === sha256)) return true;
 		const alreadyStored = rows.some(
 			(row) => row.kind === "skill_text" && row.sha256 === sha256 && row.text !== undefined,
 		);

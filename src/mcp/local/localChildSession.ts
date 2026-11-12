@@ -1,5 +1,5 @@
+import type { AgentBackendSession } from "../agents/backendSession.js";
 import type { LocalBackendSpec } from "./localAgentRuntime.js";
-import type { LocalBackendSession } from "./localAgentSession.js";
 
 export interface LocalChildHost {
 	spec: LocalBackendSpec;
@@ -13,8 +13,8 @@ export interface LocalChildHost {
 export const LOCAL_IDLE_REAP_MS = 10 * 60_000;
 
 export class LocalChildSession {
-	private session?: LocalBackendSession;
-	private opening?: Promise<LocalBackendSession>;
+	private session?: AgentBackendSession;
+	private opening?: Promise<AgentBackendSession>;
 	/** Child activity clock, independent of agent timestamps. */
 	private lastUsedAt = 0;
 	private idleTimer?: ReturnType<typeof setInterval>;
@@ -37,7 +37,7 @@ export class LocalChildSession {
 		this.lastUsedAt = Math.max(this.lastUsedAt, at);
 	}
 
-	open(): Promise<LocalBackendSession> {
+	open(): Promise<AgentBackendSession> {
 		if (this.session) return Promise.resolve(this.session);
 		this.startIdleReaper();
 		// Share one child to avoid duplicate readers and ID spaces.

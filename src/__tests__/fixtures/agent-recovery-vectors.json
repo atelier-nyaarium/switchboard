@@ -1,11 +1,11 @@
 {
 	"register": [
 		{
-			"name": "a legacy operation has no daemon stamp",
+			"name": "an operation no daemon was named for is abandoned",
 			"liveDaemonInstanceId": "daemon-b",
 			"agentState": "working",
-			"operations": [{ "operationId": "legacy", "kind": "start", "state": "requested" }],
-			"expected": { "staleOperationIds": [], "nextAgentState": "working" }
+			"operations": [{ "operationId": "unstamped", "kind": "message", "state": "requested" }],
+			"expected": { "staleOperationIds": ["unstamped"], "nextAgentState": "recovering" }
 		},
 		{
 			"name": "an operation from the live daemon remains requested",
@@ -96,7 +96,7 @@
 				"lastEventId": 4
 			},
 			"knownActiveTurn": "turn-a",
-			"report": { "family": "copilot", "active": true, "turnId": "turn-a" },
+			"report": { "turnId": "turn-a", "turnState": "inProgress" },
 			"expected": { "kind": "duplicate" }
 		},
 		{
@@ -114,11 +114,11 @@
 				"lastEventId": 9
 			},
 			"knownActiveTurn": "turn-a",
-			"report": { "family": "copilot", "active": false },
+			"report": {},
 			"expected": { "kind": "stale" }
 		},
 		{
-			"name": "the known Copilot turn survives on the same process",
+			"name": "the known turn survives on the same process",
 			"currentFence": {
 				"daemonInstanceId": "daemon-a",
 				"targetId": "target-a",
@@ -132,11 +132,11 @@
 				"lastEventId": 5
 			},
 			"knownActiveTurn": "turn-a",
-			"report": { "family": "copilot", "active": true, "turnId": "turn-a" },
+			"report": { "turnId": "turn-a", "turnState": "inProgress" },
 			"expected": { "kind": "survives", "turnId": "turn-a" }
 		},
 		{
-			"name": "a same-process different Copilot turn asks again",
+			"name": "a same-process different turn asks again",
 			"currentFence": {
 				"daemonInstanceId": "daemon-a",
 				"targetId": "target-a",
@@ -150,11 +150,11 @@
 				"lastEventId": 5
 			},
 			"knownActiveTurn": "turn-a",
-			"report": { "family": "copilot", "active": true, "turnId": "turn-b" },
+			"report": { "turnId": "turn-b", "turnState": "inProgress" },
 			"expected": { "kind": "askAgain" }
 		},
 		{
-			"name": "a replaced process loses the prior turn and adopts the reported Copilot turn",
+			"name": "a replaced process loses the prior turn and adopts the reported turn",
 			"currentFence": {
 				"daemonInstanceId": "daemon-a",
 				"targetId": "target-a",
@@ -168,11 +168,11 @@
 				"lastEventId": 0
 			},
 			"knownActiveTurn": "turn-a",
-			"report": { "family": "copilot", "active": true, "turnId": "turn-b" },
+			"report": { "turnId": "turn-b", "turnState": "inProgress" },
 			"expected": { "kind": "lost", "turnId": "turn-a", "adoptTurnId": "turn-b" }
 		},
 		{
-			"name": "a replaced process loses the prior turn when Copilot reports no active turn",
+			"name": "a replaced process loses the prior turn when it reports none",
 			"currentFence": {
 				"daemonInstanceId": "daemon-a",
 				"targetId": "target-a",
@@ -186,11 +186,11 @@
 				"lastEventId": 0
 			},
 			"knownActiveTurn": "turn-a",
-			"report": { "family": "copilot", "active": false },
+			"report": {},
 			"expected": { "kind": "lost", "turnId": "turn-a" }
 		},
 		{
-			"name": "a Copilot reconcile adopts an active turn without a known turn",
+			"name": "a reconcile adopts a running turn without a known turn",
 			"currentFence": null,
 			"receiptFence": {
 				"daemonInstanceId": "daemon-b",
@@ -198,11 +198,11 @@
 				"generation": 1,
 				"lastEventId": 0
 			},
-			"report": { "family": "copilot", "active": true, "turnId": "turn-b" },
+			"report": { "turnId": "turn-b", "turnState": "inProgress" },
 			"expected": { "kind": "adopt", "turnId": "turn-b" }
 		},
 		{
-			"name": "a same-process Copilot turn with no report remains recovering",
+			"name": "a same-process turn with no report remains recovering",
 			"currentFence": {
 				"daemonInstanceId": "daemon-a",
 				"targetId": "target-a",
@@ -216,7 +216,7 @@
 				"lastEventId": 5
 			},
 			"knownActiveTurn": "turn-a",
-			"report": { "family": "copilot", "active": false },
+			"report": {},
 			"expected": { "kind": "recovering", "turnId": "turn-a" }
 		},
 		{
@@ -302,6 +302,24 @@
 			},
 			"report": { "family": "codex" },
 			"expected": { "kind": "idle" }
+		},
+		{
+			"name": "a replaced process leaves a reported terminal turn for its terminal event",
+			"currentFence": {
+				"daemonInstanceId": "daemon-a",
+				"targetId": "target-a",
+				"generation": 1,
+				"lastEventId": 4
+			},
+			"receiptFence": {
+				"daemonInstanceId": "daemon-b",
+				"targetId": "target-a",
+				"generation": 2,
+				"lastEventId": 0
+			},
+			"knownActiveTurn": "turn-a",
+			"report": { "turnId": "turn-a", "turnState": "completed" },
+			"expected": { "kind": "recovering", "turnId": "turn-a" }
 		}
 	]
 }

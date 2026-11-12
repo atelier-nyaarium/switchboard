@@ -14,9 +14,10 @@ export interface RegisterRecoveryDecision {
 	nextAgentState?: string;
 }
 
+/** Missing state means unknown. */
 export type AgentReconciliationReport =
-	| { family: "codex"; turnId?: string; turnState?: string }
-	| { family: "copilot"; active: boolean; turnId?: string };
+	// Codex reports include family.
+	{ family: "codex"; turnId?: string; turnState?: string } | { turnId?: string; turnState?: string };
 
 export type AgentReconciliationDecision =
 	| { kind: "duplicate" | "stale" | "askAgain" | "idle" }
@@ -29,11 +30,9 @@ export function decideRegisterRecovery(
 	operations: readonly AgentRecoveryOperation[],
 	liveDaemonInstanceId: string,
 ): RegisterRecoveryDecision {
+	// One with no daemon named can be neither resent nor answered.
 	const stale = operations.filter(
-		(operation) =>
-			operation.state === "requested" &&
-			operation.daemonInstanceId !== undefined &&
-			operation.daemonInstanceId !== liveDaemonInstanceId,
+		(operation) => operation.state === "requested" && operation.daemonInstanceId !== liveDaemonInstanceId,
 	);
 	return {
 		staleOperationIds: stale.map((operation) => operation.operationId),
@@ -62,7 +61,7 @@ export function decideAgentReconciliation(input: {
 			input.currentFence.generation !== input.receiptFence.generation);
 	const knownActiveTurn = input.knownActiveTurn;
 
-	if (input.report.family === "codex") {
+	if ("family" in input.report) {
 		if (!knownActiveTurn) return { kind: "idle" };
 		if (input.report.turnId === knownActiveTurn && input.report.turnState === "inProgress") {
 			return { kind: "survives", turnId: knownActiveTurn };
@@ -73,7 +72,7 @@ export function decideAgentReconciliation(input: {
 		return { kind: "recovering", turnId: knownActiveTurn };
 	}
 
-	const reportedActiveTurn = input.report.active && input.report.turnId ? input.report.turnId : undefined;
+	const reportedActiveTurn = input.report.turnState === "inProgress" ? input.report.turnId : undefined;
 	if (knownActiveTurn && reportedActiveTurn && knownActiveTurn !== reportedActiveTurn) {
 		return changedProcess
 			? { kind: "lost", turnId: knownActiveTurn, adoptTurnId: reportedActiveTurn }
@@ -83,7 +82,8 @@ export function decideAgentReconciliation(input: {
 		return { kind: "survives", turnId: knownActiveTurn };
 	}
 	if (knownActiveTurn) {
-		return changedProcess
+		// Settled reports precede terminal events.
+		return changedProcess && input.report.turnState === undefined
 			? { kind: "lost", turnId: knownActiveTurn }
 			: { kind: "recovering", turnId: knownActiveTurn };
 	}

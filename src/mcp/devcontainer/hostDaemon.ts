@@ -3,14 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
-import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, COPILOT_BACKEND } from "../../shared/agent-backend.js";
+import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, GENERIC_AGENT_BACKENDS } from "../../shared/agent-backend.js";
 import { AgentExecutionTargetSchema } from "../../shared/agent-execution-target.js";
+import { agentWire } from "../../shared/agent-wire.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
 import { cliProbeScript, parseCliProbe } from "../../shared/cli-probe.js";
 import { placeCandidates } from "../../shared/cli-resolve.js";
 import { CodexEventAckSchema } from "../../shared/codex-agent.js";
-import { CopilotEventAckSchema } from "../../shared/copilot-agent.js";
 import {
 	ClaudeTurnAckFrameSchema,
 	classifyPeekError,
@@ -37,6 +37,8 @@ import {
 } from "../../shared/session-harness.js";
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
+import { AGENT_DRIVERS } from "../agents/drivers.js";
+import { AgentDaemonService } from "./agentDaemonService.js";
 import { appendBuildTranscript } from "./buildTranscript.js";
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
@@ -50,8 +52,6 @@ import {
 	execEventsFile,
 	localEventsFile,
 } from "./copilotCompaction.js";
-import { CopilotDaemonService } from "./copilotDaemonService.js";
-import { copilotLauncher } from "./copilotTargets.js";
 import { ensureContainerUpAsync, resolveProject } from "./helpers.js";
 import { createHostOpRunner } from "./hostOpRunner.js";
 import {
@@ -143,23 +143,29 @@ const codexDaemon = new CodexDaemonService({
 	send: safeSend,
 	resolveHostCwd: (hint) => resolveHostWorkdir(hint),
 });
-const copilotTargets = new ExecutionTargetManager(
-	copilotLauncher,
-	undefined,
-	targetLogger("copilot-target"),
-	undefined,
-	agentEnvPrefix("copilot"),
-);
-const copilotDaemon = new CopilotDaemonService({
-	targets: copilotTargets,
-	daemonInstanceId,
-	send: safeSend,
-	resolveHostCwd: (hint) => resolveHostWorkdir(hint),
-});
 const AGENT_DAEMON_BINDINGS = [
 	{ descriptor: CODEX_BACKEND, targets: codexTargets, service: codexDaemon, parseAck: CodexEventAckSchema },
-	{ descriptor: COPILOT_BACKEND, targets: copilotTargets, service: copilotDaemon, parseAck: CopilotEventAckSchema },
-] as const;
+	...GENERIC_AGENT_BACKENDS.map((descriptor) => {
+		const driver = AGENT_DRIVERS[descriptor.id];
+		const targets = new ExecutionTargetManager(
+			driver.launcher,
+			undefined,
+			targetLogger(`${descriptor.id}-target`),
+			undefined,
+			agentEnvPrefix(descriptor.id),
+		);
+		const service = new AgentDaemonService({
+			backend: descriptor,
+			targets,
+			daemonInstanceId,
+			send: safeSend,
+			open: driver.open,
+			resolveHostCwd: (hint) => resolveHostWorkdir(hint),
+			failureCode: driver.failureCode,
+		});
+		return { descriptor, targets, service, parseAck: agentWire(descriptor.id).ack };
+	}),
+];
 
 // A send mid-close throws.
 function safeSend(payload: Record<string, unknown>): void {

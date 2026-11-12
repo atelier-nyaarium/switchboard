@@ -1,3 +1,10 @@
+import { type AgentBackendId, GENERIC_AGENT_BACKENDS } from "./agent-backend.js";
+import {
+	type PersistedAgentCatalog,
+	PersistedAgentCatalogSchema,
+	restorePersistedAgentCatalog,
+} from "./agent-catalog.js";
+import type { PersistedAgent } from "./agent-persisted.js";
 import type { Clock } from "./ambient.js";
 import { ASSISTANT_SESSION_NAME, ASSISTANT_TEAM } from "./assistant-session.js";
 import {
@@ -6,12 +13,6 @@ import {
 	type CodexPersistedAgent,
 	restoreCodexAgentCatalog,
 } from "./codex-agent.js";
-import {
-	type CopilotAgentCatalog,
-	CopilotAgentCatalogSchema,
-	type CopilotPersistedAgent,
-	restoreCopilotAgentCatalog,
-} from "./copilot-agent.js";
 import { hostSpawnIds, isHostSpawn } from "./host-spawn.js";
 import {
 	foldHarness,
@@ -61,7 +62,7 @@ export type PersistedSessionRecord = Omit<SessionRecord, "liveTeam" | "harness">
 	// FIXME 2026-11-23: drop. Twin of `mintedSessionId`.
 	copilotSessionId?: string;
 	codexCatalog?: CodexAgentCatalog;
-	copilotCatalog?: CopilotAgentCatalog;
+	agentCatalogs?: Partial<Record<AgentBackendId, PersistedAgentCatalog>>;
 };
 
 export type AgentCatalogCommitResult<Catalog> =
@@ -81,9 +82,7 @@ export interface AgentCatalogWriter<Catalog, Agent> {
 export type CodexCatalogCommitResult = AgentCatalogCommitResult<CodexAgentCatalog>;
 export type CodexCatalogCheckpointResult = AgentCatalogCheckpointResult<CodexAgentCatalog>;
 export type CodexCatalogWriter = AgentCatalogWriter<CodexAgentCatalog, CodexPersistedAgent>;
-export type CopilotCatalogCommitResult = AgentCatalogCommitResult<CopilotAgentCatalog>;
-export type CopilotCatalogCheckpointResult = AgentCatalogCheckpointResult<CopilotAgentCatalog>;
-export type CopilotCatalogWriter = AgentCatalogWriter<CopilotAgentCatalog, CopilotPersistedAgent>;
+export type PersistedAgentCatalogWriter = AgentCatalogWriter<PersistedAgentCatalog, PersistedAgent>;
 
 export type ClashPredicate = (id: string) => boolean;
 
@@ -108,9 +107,9 @@ export interface SessionStoreOptions {
 		persistChecked: () => boolean | undefined;
 		receiveWriter: (writer: CodexCatalogWriter) => void;
 	};
-	copilotCatalogPersistence?: {
+	agentCatalogPersistence?: {
 		persistChecked: () => boolean | undefined;
-		receiveWriter: (writer: CopilotCatalogWriter) => void;
+		receiveWriter: (backend: AgentBackendId, writer: PersistedAgentCatalogWriter) => void;
 	};
 }
 
@@ -228,9 +227,14 @@ export class SessionStore {
 		(candidate) => CodexAgentCatalogSchema.parse(candidate),
 		(owner) => this.records.get(this.teamOf(owner)) === owner,
 	);
-	private readonly copilotCatalogStore = new AgentCatalogStore<CopilotAgentCatalog, CopilotPersistedAgent>(
-		(candidate) => CopilotAgentCatalogSchema.parse(candidate),
-		(owner) => this.records.get(this.teamOf(owner)) === owner,
+	private readonly agentCatalogStores = new Map(
+		GENERIC_AGENT_BACKENDS.map((backend) => [
+			backend.id,
+			new AgentCatalogStore<PersistedAgentCatalog, PersistedAgent>(
+				(candidate) => PersistedAgentCatalogSchema.parse(candidate),
+				(owner) => this.records.get(this.teamOf(owner)) === owner,
+			),
+		]),
 	);
 	private readonly labels = new Map<string, Set<string>>();
 	private readonly clash: ClashPredicate;
@@ -255,15 +259,16 @@ export class SessionStore {
 					this.codexCatalogStore.checkpoint(owner, expectedRevision, persistChecked),
 			});
 		}
-		if (opts.copilotCatalogPersistence) {
-			const { persistChecked, receiveWriter } = opts.copilotCatalogPersistence;
-			receiveWriter({
-				commit: (owner, expectedRevision, agents) =>
-					this.copilotCatalogStore.commit(owner, expectedRevision, agents, persistChecked),
-				isDurable: (owner, revision) => this.copilotCatalogStore.isDurable(owner, revision),
-				checkpoint: (owner, expectedRevision) =>
-					this.copilotCatalogStore.checkpoint(owner, expectedRevision, persistChecked),
-			});
+		if (opts.agentCatalogPersistence) {
+			const { persistChecked, receiveWriter } = opts.agentCatalogPersistence;
+			for (const [backend, store] of this.agentCatalogStores) {
+				receiveWriter(backend, {
+					commit: (owner, expectedRevision, agents) =>
+						store.commit(owner, expectedRevision, agents, persistChecked),
+					isDurable: (owner, revision) => store.isDurable(owner, revision),
+					checkpoint: (owner, expectedRevision) => store.checkpoint(owner, expectedRevision, persistChecked),
+				});
+			}
 		}
 	}
 
@@ -322,12 +327,21 @@ export class SessionStore {
 		return this.codexCatalogStore.get(owner)?.agents ?? [];
 	}
 
-	copilotCatalog(owner: SessionRecord): CopilotAgentCatalog | undefined {
-		return this.copilotCatalogStore.get(owner);
+	agentCatalog(owner: SessionRecord, backend: AgentBackendId): PersistedAgentCatalog | undefined {
+		return this.agentCatalogStores.get(backend)?.get(owner);
 	}
 
-	listCopilotAgents(owner: SessionRecord): readonly CopilotPersistedAgent[] {
-		return this.copilotCatalogStore.get(owner)?.agents ?? [];
+	listAgents(owner: SessionRecord, backend: AgentBackendId): readonly PersistedAgent[] {
+		return this.agentCatalog(owner, backend)?.agents ?? [];
+	}
+
+	everyAgent(owner: SessionRecord): Array<{ backend: AgentBackendId; agent: CodexPersistedAgent | PersistedAgent }> {
+		return [
+			...this.listCodexAgents(owner).map((agent) => ({ backend: "codex" as const, agent })),
+			...[...this.agentCatalogStores.keys()].flatMap((backend) =>
+				this.listAgents(owner, backend).map((agent) => ({ backend, agent })),
+			),
+		];
 	}
 
 	/** A name held by a record, read or not. */
@@ -551,15 +565,20 @@ export class SessionStore {
 		for (const record of this.records.values()) {
 			const {
 				codexCatalog: _escaped,
-				copilotCatalog: _copilotEscaped,
+				agentCatalogs: _agentsEscaped,
 				liveTeam: _live,
 				...rest
 			} = record as SessionRecord & {
 				codexCatalog?: unknown;
-				copilotCatalog?: unknown;
+				agentCatalogs?: unknown;
 			};
 			const codexCatalog = this.codexCatalogStore.get(record);
-			const copilotCatalog = this.copilotCatalogStore.get(record);
+			const agentCatalogs = Object.fromEntries(
+				[...this.agentCatalogStores].flatMap(([backend, store]) => {
+					const catalog = store.get(record);
+					return catalog ? [[backend, catalog]] : [];
+				}),
+			);
 			out[this.teamOf(record)] = {
 				...rest,
 				// Absent reads back as unnamed, which is Claude.
@@ -569,7 +588,7 @@ export class SessionStore {
 					? { copilotSessionId: rest.mintedSessionId }
 					: {}),
 				...(codexCatalog ? { codexCatalog } : {}),
-				...(copilotCatalog ? { copilotCatalog } : {}),
+				...(Object.keys(agentCatalogs).length > 0 ? { agentCatalogs } : {}),
 			};
 		}
 		return out;
@@ -631,8 +650,13 @@ export class SessionStore {
 			this.records.set(team, record);
 			const codexCatalog = restoreCodexAgentCatalog(v.codexCatalog);
 			if (codexCatalog) this.codexCatalogStore.install(record, codexCatalog);
-			const copilotCatalog = restoreCopilotAgentCatalog(v.copilotCatalog);
-			if (copilotCatalog) this.copilotCatalogStore.install(record, copilotCatalog);
+			const catalogs = (v.agentCatalogs ?? {}) as Record<string, unknown>;
+			for (const [backend, store] of this.agentCatalogStores) {
+				// FIXME 2026-12-11: drop the `copilotCatalog` read.
+				const legacy = backend === "copilot" ? (v as { copilotCatalog?: unknown }).copilotCatalog : undefined;
+				const catalog = restorePersistedAgentCatalog(catalogs[backend] ?? legacy);
+				if (catalog) store.install(record, catalog);
+			}
 			this.claimLabel(record);
 		}
 	}

@@ -3,8 +3,15 @@ import { collectAnswer } from "../../shared/agent-collect.js";
 import { emptyAgentProgressCounts } from "../../shared/agent-counter.js";
 import { AGENT_PROGRESS_EVERY_MS } from "../../shared/agent-notice.js";
 import { AGENT_ERROR_MAX_BYTES, agentIdForOperation, sanitizeAgentErrorText } from "../../shared/agent-record.js";
+import { agentResultDelivery, type AgentServiceTier as CodexServiceTier } from "../../shared/agent-state.js";
 import { type AgentTurnMarks, collectTurns } from "../../shared/agent-turn-marks.js";
-import type { CodexServiceTier } from "../../shared/codex-agent.js";
+import {
+	type AgentBackendSession,
+	settledNow,
+	type TurnHandle,
+	type TurnOptions,
+	type TurnTerminal,
+} from "../agents/backendSession.js";
 import type {
 	LocalAgentAnswer,
 	LocalAgentState,
@@ -16,12 +23,11 @@ import type {
 	LocalRequest,
 	LocalTurnState,
 } from "./localAgentRuntime.js";
-import type { LocalBackendSession, LocalTerminal, LocalTurnHandle } from "./localAgentSession.js";
 
 export interface LocalHandlerHost {
 	spec: LocalBackendSpec;
 	now(): number;
-	open(): Promise<LocalBackendSession>;
+	open(): Promise<AgentBackendSession>;
 	markUsed(at?: number): void;
 }
 
@@ -51,12 +57,14 @@ interface LocalAgentRecord {
 	createdAt: number;
 	updatedAt: number;
 	activeTurnId?: string;
+	/** The turn a stop was sent for. */
+	interruptingTurnId?: string;
 	serviceTier?: CodexServiceTier;
 	model?: string;
 	turns: LocalTurnRecord[];
 	turnMarks: AgentTurnMarks;
 	exchanges: LocalExchangeRecord[];
-	settled?: Promise<LocalTerminal>;
+	settled?: Promise<TurnTerminal>;
 	progress?: ReturnType<typeof setInterval>;
 }
 
@@ -104,11 +112,11 @@ export class LocalAgentHandlers {
 		const agentId = agentIdForOperation(this.host.spec.backendId, operationId);
 		const prompt = request.prompt ?? "";
 
-		let session: LocalBackendSession;
+		let session: AgentBackendSession;
 		try {
 			session = await this.host.open();
 		} catch (error) {
-			return this.fail(agentId, "app_server_unavailable", errorText(error), true);
+			return this.unavailable(agentId, error);
 		}
 
 		const createdAt = this.host.now();
@@ -121,7 +129,7 @@ export class LocalAgentHandlers {
 				reasoningEffort: request.reasoningEffort,
 			});
 		} catch (error) {
-			return this.fail(agentId, "app_server_unavailable", errorText(error), true);
+			return this.unavailable(agentId, error);
 		}
 
 		const agent: LocalAgentRecord = {
@@ -143,34 +151,42 @@ export class LocalAgentHandlers {
 		const agent = this.agents.get(request.agentId ?? "");
 		if (!agent) return this.notFound(request.agentId ?? "");
 		const prompt = request.prompt ?? "";
-		let session: LocalBackendSession;
+		let session: AgentBackendSession;
 		try {
 			session = await this.host.open();
 		} catch (error) {
-			return this.fail(agent.agentId, "app_server_unavailable", errorText(error), true);
+			return this.unavailable(agent.agentId, error);
 		}
 
 		const active = this.activeTurn(agent);
 		if (active) {
+			if (agent.interruptingTurnId === active.id)
+				return { refused: `agent cannot accept a message while interrupting` };
 			// Refuse busy requests when steering is unavailable.
 			if (!session.steerTurn) return { refused: this.host.spec.busyMessage ?? `agent is still working` };
+			let steerError: unknown;
 			try {
-				await session.steerTurn(agent.threadId, active.id, prompt);
+				await session.steerTurn(agent.threadId, active.id, prompt, request.operationId);
 			} catch (error) {
-				return this.fail(agent.agentId, "app_server_unavailable", errorText(error), true);
+				steerError = error;
 			}
-			const at = this.touch(agent);
-			agent.exchanges.push({
-				kind: "message",
-				prompt,
-				status: "accepted",
-				delivery: "steered",
-				turnId: active.id,
-				createdAt: at,
-				acceptedAt: at,
-			});
-			if (request.serviceTier !== undefined) agent.serviceTier = request.serviceTier;
-			return this.acceptedAnswer(agent, active.id, "steered");
+			if (agent.settled) await settledNow(agent.settled);
+			if (this.activeTurn(agent) === active) {
+				if (steerError !== undefined) return this.unavailable(agent.agentId, steerError);
+				const at = this.touch(agent);
+				agent.exchanges.push({
+					kind: "message",
+					prompt,
+					status: "accepted",
+					delivery: "steered",
+					turnId: active.id,
+					createdAt: at,
+					acceptedAt: at,
+				});
+				if (request.serviceTier !== undefined) agent.serviceTier = request.serviceTier;
+				return this.acceptedAnswer(agent, active.id, "steered");
+			}
+			// The turn ended under the steer, so the prompt opens a new one.
 		}
 
 		const serviceTier = request.serviceTier ?? agent.serviceTier;
@@ -178,6 +194,7 @@ export class LocalAgentHandlers {
 			model: agent.model,
 			serviceTier,
 			outputSchema: request.outputSchema,
+			key: request.operationId,
 		});
 		if (serviceTier !== undefined && answer.observation !== "unavailable") agent.serviceTier = serviceTier;
 		return answer;
@@ -205,22 +222,25 @@ export class LocalAgentHandlers {
 		}));
 	}
 
-	async stop(request: LocalRequest): Promise<LocalAgentAnswer> {
+	async stop(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal> {
 		const agent = this.agents.get(request.agentId ?? "");
 		if (!agent) return this.notFound(request.agentId ?? "");
 		const active = this.activeTurn(agent);
 		if (!active) return this.idleAnswer(agent);
+		if (agent.interruptingTurnId === active.id) return { refused: `an interrupt is already pending` };
 
-		let session: LocalBackendSession;
+		let session: AgentBackendSession;
 		try {
 			session = await this.host.open();
 		} catch (error) {
-			return this.fail(agent.agentId, "app_server_unavailable", errorText(error), true);
+			return this.unavailable(agent.agentId, error);
 		}
+		agent.interruptingTurnId = active.id;
 		try {
 			await session.interruptTurn(agent.threadId, active.id);
 		} catch (error) {
-			return this.fail(agent.agentId, "app_server_unavailable", errorText(error), true);
+			if (agent.interruptingTurnId === active.id) agent.interruptingTurnId = undefined;
+			return this.unavailable(agent.agentId, error);
 		}
 		return {
 			agentId: agent.agentId,
@@ -248,17 +268,17 @@ export class LocalAgentHandlers {
 	}
 
 	private async dispatchTurn(
-		session: LocalBackendSession,
+		session: AgentBackendSession,
 		agent: LocalAgentRecord,
 		prompt: string,
 		kind: "start" | "message",
-		settings: { model?: string; serviceTier?: CodexServiceTier; outputSchema?: Record<string, unknown> } = {},
+		settings: TurnOptions = {},
 	): Promise<LocalAgentAnswer> {
-		let handle: LocalTurnHandle;
+		let handle: TurnHandle;
 		try {
 			handle = await session.startTurn(agent.threadId, prompt, settings);
 		} catch (error) {
-			return this.fail(agent.agentId, "app_server_unavailable", errorText(error), true);
+			return this.unavailable(agent.agentId, error);
 		}
 
 		const at = this.touch(agent);
@@ -272,13 +292,14 @@ export class LocalAgentHandlers {
 		agent.turns.push(turn);
 		agent.activeTurnId = turn.id;
 		// Register the turn before racing its terminal.
-		const settled = handle.settled.catch((error): LocalTerminal => ({ status: "failed", error: errorText(error) }));
+		const settled = handle.settled.catch((error): TurnTerminal => ({ status: "failed", error: errorText(error) }));
 		agent.settled = settled;
+		const delivery = agentResultDelivery(kind, "started") ?? "started";
 		agent.exchanges.push({
 			kind,
 			prompt,
 			status: "accepted",
-			delivery: kind === "start" ? "started" : this.host.spec.followupDelivery,
+			delivery,
 			turnId: turn.id,
 			createdAt: at,
 			acceptedAt: at,
@@ -286,7 +307,7 @@ export class LocalAgentHandlers {
 		void settled.then((terminal) => this.applyTerminal(agent, turn.id, terminal));
 		this.watchProgress(agent, turn);
 
-		return this.acceptedAnswer(agent, turn.id, kind === "start" ? "started" : this.host.spec.followupDelivery);
+		return this.acceptedAnswer(agent, turn.id, delivery);
 	}
 
 	/** The turn as taken, without waiting on it; a completion notice follows. */
@@ -323,7 +344,7 @@ export class LocalAgentHandlers {
 		agent.progress.unref?.();
 	}
 
-	private applyTerminal(agent: LocalAgentRecord, turnId: string, terminal: LocalTerminal): void {
+	private applyTerminal(agent: LocalAgentRecord, turnId: string, terminal: TurnTerminal): void {
 		// Apply the terminal once because listener and waiter paths race.
 		const turn = agent.turns.find((candidate) => candidate.id === turnId);
 		if (turn?.state !== "inProgress") return;
@@ -332,6 +353,7 @@ export class LocalAgentHandlers {
 		// Normalize child errors before schema validation.
 		if (terminal.status === "failed") turn.error = errorText(terminal.error || `turn failed`);
 		turn.updatedAt = this.host.now();
+		if (agent.interruptingTurnId === turnId) agent.interruptingTurnId = undefined;
 		if (agent.activeTurnId === turnId) {
 			agent.activeTurnId = undefined;
 			agent.settled = undefined;
@@ -379,7 +401,12 @@ export class LocalAgentHandlers {
 	}
 
 	private notFound(agentId: string): LocalAgentAnswer {
-		return this.fail(agentId, "not_found", `agent is not known to this session`, false);
+		return this.fail(agentId, "not_found", `${this.host.spec.displayName} agent was not found`, false);
+	}
+
+	private unavailable(agentId: string, error: unknown): LocalAgentAnswer {
+		const text = errorText(error);
+		return this.fail(agentId, this.host.spec.failureCode?.(text) ?? "app_server_unavailable", text, true);
 	}
 
 	private fail(agentId: string, code: LocalErrorCode, message: string, retryable: boolean): LocalAgentAnswer {

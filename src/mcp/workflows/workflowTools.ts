@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { WORKFLOW_BACKEND_IDS } from "../../shared/agent-backend.js";
 import { requestHead } from "../agentRequest.js";
 import { routerPost } from "../bridge/helpers.js";
 
@@ -50,7 +51,7 @@ const StartInputSchema = z
 		script: z.string().optional(),
 		scriptPath: z.string().min(1).optional(),
 		args: z.record(z.string(), z.unknown()).optional(),
-		backend: z.enum(["codex", "copilot", "claude"]).optional(),
+		backend: z.enum(WORKFLOW_BACKEND_IDS).optional(),
 		resumeFrom: z.string().min(1).nullable().optional(),
 	})
 	.strict();
@@ -98,7 +99,7 @@ export function registerWorkflowTools(mcpServer: McpServer): void {
 			script?: string;
 			scriptPath?: string;
 			args?: Record<string, unknown>;
-			backend?: "codex" | "copilot" | "claude";
+			backend?: (typeof WORKFLOW_BACKEND_IDS)[number];
 			resumeFrom?: string | null;
 		}) => {
 			if ((inlineScript === undefined) === (scriptPath === undefined)) {

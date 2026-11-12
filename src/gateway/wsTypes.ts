@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from "bun";
+import type { AgentBackendId } from "../shared/agent-backend.js";
 import type { Ambient } from "../shared/ambient.js";
 import type { Capability } from "../shared/capabilities.js";
 import type { ClaudeTurnResultFrame } from "../shared/host-op.js";
@@ -56,8 +57,7 @@ export interface WebSocketDeps {
 	onRestartPending?: (team: string, pending: boolean) => void;
 	onVirtualPeerEvicted?: (conversationId: string) => void;
 	onDaemonCapabilities?: (capabilities: Capability[]) => void;
-	onCodexHostMessage?: (msg: Record<string, unknown>) => void;
-	onCopilotHostMessage?: (msg: Record<string, unknown>) => void;
+	onAgentHostMessage?: (backend: AgentBackendId, msg: Record<string, unknown>) => void;
 	onClaudeTurnResult?: (frame: ClaudeTurnResultFrame, socket: ServerWebSocket<WsData>) => Promise<void>;
 	sessionStore?: SessionStore;
 	auth?: SessionAuthority;

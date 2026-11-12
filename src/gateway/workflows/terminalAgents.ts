@@ -1,9 +1,7 @@
+import type { AgentBackendId } from "../../shared/agent-backend.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
-import type { CodexAgentCommands } from "../codexAgentCommands.js";
-import type { CodexRelay } from "../codexRelay.js";
-import type { CopilotAgentCommands } from "../copilotAgentCommands.js";
-import type { CopilotRelay } from "../copilotRelay.js";
+import type { AgentStacks } from "../agentStack.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
 import type { AgentFamilies } from "./agentFamilies.js";
 import type { AgentView } from "./agentViews.js";
@@ -12,10 +10,7 @@ interface TerminalAgentDeps {
 	ambient: Pick<Ambient, "newId">;
 	readLiveness: HostLivenessReader;
 	sessionStore: Pick<SessionStore, "teamOf">;
-	codex: Pick<CodexAgentCommands, "stop">;
-	copilot: Pick<CopilotAgentCommands, "stop">;
-	codexRelay: CodexRelay;
-	copilotRelay: CopilotRelay;
+	stacks: AgentStacks;
 }
 
 /** Owns terminal cleanup. */
@@ -28,7 +23,7 @@ export function createTerminalAgents(
 	const stopSent = new WeakMap<object, Set<string>>();
 	const idleListeners = new Map<string, () => void>();
 
-	function stopAgent(owner: SessionRecord, backend: "codex" | "copilot", agent: AgentView): boolean {
+	function stopAgent(owner: SessionRecord, backend: AgentBackendId, agent: AgentView): boolean {
 		const live = deps.readLiveness();
 		if (!live.socket || !live.daemonInstanceId) return false;
 		let sentForSocket = stopSent.get(live.socket);
@@ -44,11 +39,8 @@ export function createTerminalAgents(
 		const operationId = deps.ambient.newId();
 		sentForSocket.add(agent.agentId);
 		try {
-			const result =
-				backend === "codex"
-					? deps.codex.stop(owner, { agentId: agent.agentId, operationId })
-					: deps.copilot.stop(owner, { agentId: agent.agentId, operationId });
-			if (result.kind === "committed") {
+			const result = deps.stacks.get(backend)?.stop(owner, { agentId: agent.agentId, operationId });
+			if (result?.kind === "committed") {
 				return result.dispatched;
 			}
 		} catch {}
@@ -56,14 +48,14 @@ export function createTerminalAgents(
 	}
 	function watchIdle(
 		owner: SessionRecord,
-		backend: "codex" | "copilot",
+		backend: AgentBackendId,
 		agentId: string,
 		afterIdle: (agent: AgentView | undefined) => void,
 	): void {
 		const ownerKey = deps.sessionStore.teamOf(owner);
 		const key = `${ownerKey}:${backend}:${agentId}`;
-		if (idleListeners.has(key)) return;
-		const relay = backend === "codex" ? deps.codexRelay : deps.copilotRelay;
+		const relay = deps.stacks.get(backend)?.relay;
+		if (!relay || idleListeners.has(key)) return;
 		const unsubscribe = relay.onAgentChange(ownerKey, agentId, () => {
 			const agent = listAgent(owner, backend, agentId);
 			if (agent && agent.state !== "idle" && agent.state !== "unavailable") {

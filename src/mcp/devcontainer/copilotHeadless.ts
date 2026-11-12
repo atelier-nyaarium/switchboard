@@ -1,8 +1,7 @@
 // Copilot's own protocol, the one its SDK speaks: JSON-RPC over the headless CLI's stdio. A send
 // answers at once with a message id; the turn's events follow, and `session.idle` ends it.
 
-import { cutUtf8 } from "../../shared/agent-record.js";
-import { COPILOT_ACTIVITY_MAX_BYTES } from "../../shared/copilotAgentIdentity.js";
+import { AGENT_ACTIVITY_MAX_BYTES, cutUtf8 } from "../../shared/agent-record.js";
 import type { AgentChild } from "./codexTargets.js";
 
 ////////////////////////////////
@@ -313,7 +312,7 @@ export async function defaultOpenCopilotClient(child: AgentChild): Promise<Copil
 ////////////////////////////////
 //  Turn fold
 
-const bounded = (text: string): string => cutUtf8(text, COPILOT_ACTIVITY_MAX_BYTES);
+const bounded = (text: string): string => cutUtf8(text, AGENT_ACTIVITY_MAX_BYTES);
 
 /** The command a shell tool was given, or the tool's own description. */
 function commandOf(args: unknown): string {

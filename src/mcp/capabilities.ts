@@ -3,10 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import {
+	AGENT_CAPABILITY_IDS,
 	type Capability,
 	type CapabilityBundle,
-	CODEX_AGENT_CAPABILITY_ID,
-	COPILOT_AGENT_CAPABILITY_ID,
 	UNREPORTED_CAPABILITIES,
 	unionCapabilities,
 } from "../shared/capabilities.js";
@@ -37,8 +36,7 @@ export const GATED_CAPABILITY_IDS = [
 	"references",
 	"taskboard",
 	"vault",
-	CODEX_AGENT_CAPABILITY_ID,
-	COPILOT_AGENT_CAPABILITY_ID,
+	...AGENT_CAPABILITY_IDS,
 	"workflow",
 ] as const;
 

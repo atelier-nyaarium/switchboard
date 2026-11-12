@@ -119,9 +119,9 @@ describe("workflow steps through the federation harness", () => {
 			h.host.codexCommands.some((command) => command.kind === "start" && command.prompt.includes("codex step")),
 		).toBe(true);
 		expect(
-			h.host.copilotCommands.some(
-				(command) => command.kind === "start" && command.prompt.includes("copilot step"),
-			),
+			h.host
+				.agentCommands("copilot")
+				.some((command) => command.kind === "start" && command.prompt.includes("copilot step")),
 		).toBe(true);
 		expect(h.gateway.faults.workflowRows(run.runId).filter((row) => row.kind === "settle")).toEqual([
 			expect.objectContaining({ issueOrdinal: 1, outcome: "completed" }),
@@ -519,6 +519,18 @@ describe("workflow steps through the federation harness", () => {
 		expect(h.gateway.faults.workflowRows(run.runId)).toContainEqual(
 			expect.objectContaining({ kind: "settle", outcome: "rejected", reason: "skill missing.md: missing" }),
 		);
+	});
+
+	it("gives one skill to steps that start together", async () => {
+		h.host.handlers.onCodexCommand = stockCodexResponder;
+		h.host.handlers.skillText = (path) => (path === "guide.md" ? "Read carefully." : undefined);
+		const run = startRun(
+			`export const meta = {}; const answers = await parallel(["one", "two", "three"].map((name) => () => agent(name, {skills: ["guide.md"]}))); return answers.filter(Boolean).length;`,
+		);
+		await waitForStatus(run.runId, "succeeded");
+		expect(h.gateway.faults.workflowRecord(run.runId)?.result).toBe(3);
+		const prompts = h.host.codexCommands.flatMap((command) => (command.kind === "start" ? [command.prompt] : []));
+		expect(prompts.filter((prompt) => prompt.includes("Read carefully."))).toHaveLength(3);
 	});
 
 	it("sends one workflow notice chain and no step agent notices", async () => {

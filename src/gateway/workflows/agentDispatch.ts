@@ -1,13 +1,11 @@
-import { AGENT_TURN_LOST_REASON } from "../../shared/agent-record.js";
+import type { AgentBackendId } from "../../shared/agent-backend.js";
+import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
+import { AGENT_TURN_LOST_REASON, agentIdForOperation } from "../../shared/agent-record.js";
+import type { AgentServiceTier } from "../../shared/agent-state.js";
 import type { Ambient } from "../../shared/ambient.js";
-import { codexAgentIdForOperation } from "../../shared/codex-agent.js";
-import { copilotAgentIdForOperation } from "../../shared/copilot-agent.js";
 import type { ClaudeTurnResultFrame, HostOp, HostOpResult } from "../../shared/host-op.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
-import type { CodexAgentCommands, CodexDispatchResult } from "../codexAgentCommands.js";
-import type { CodexRelay } from "../codexRelay.js";
-import type { CopilotAgentCommands, CopilotDispatchResult } from "../copilotAgentCommands.js";
-import type { CopilotRelay } from "../copilotRelay.js";
+import type { AgentStacks } from "../agentStack.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
 import { createAgentFamilies } from "./agentFamilies.js";
@@ -33,10 +31,8 @@ export interface WorkflowAgentDispatchDeps {
 	runner: WorkflowRunner;
 	readLiveness: HostLivenessReader;
 	relayToHost: (op: HostOp) => Promise<HostOpResult>;
-	codex: CodexAgentCommands;
-	copilot: CopilotAgentCommands;
-	codexRelay: CodexRelay;
-	copilotRelay: CopilotRelay;
+	stacks: AgentStacks;
+	resolveTarget: (owner: SessionRecord) => AgentExecutionTarget | null;
 }
 
 export interface WorkflowAgentDispatch {
@@ -113,8 +109,8 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		detach(task);
 		task.changedBy = agentId;
 		const ownerKey = deps.sessionStore.teamOf(owner);
-		const relay = task.issued.backend === "codex" ? deps.codexRelay : deps.copilotRelay;
-		task.unsubscribe = relay.onAgentChange(ownerKey, agentId, () => {
+		const relay = task.issued.backend === "claude" ? undefined : deps.stacks.get(task.issued.backend)?.relay;
+		task.unsubscribe = relay?.onAgentChange(ownerKey, agentId, () => {
 			if (stopped || task.done) return;
 			fireAndForget("workflow agent change", poll(task));
 		});
@@ -123,56 +119,30 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 	function sendCommand(
 		task: PendingCall,
 		owner: SessionRecord,
-		backend: "codex" | "copilot",
+		backend: AgentBackendId,
 		mode: "start" | "message",
 		agentId: string,
 		operationId: string,
 		prompt: string,
 	): { dispatched: boolean; agentId: string } {
-		const outputSchema = task.issued.options.schema;
-		let result: CodexDispatchResult | CopilotDispatchResult;
-		if (backend === "codex") {
-			result =
-				mode === "start"
-					? deps.codex.start(owner, {
-							operationId,
-							prompt,
-							...(task.issued.options.model === undefined ? {} : { model: task.issued.options.model }),
-							...(task.issued.options.tier === undefined
-								? {}
-								: { serviceTier: task.issued.options.tier as "priority" | "standard" }),
-							...(outputSchema === undefined ? {} : { outputSchema }),
-							runId: task.issued.runId,
-						})
-					: deps.codex.message(owner, {
-							agentId,
-							operationId,
-							prompt,
-							...(task.issued.options.tier === undefined
-								? {}
-								: { serviceTier: task.issued.options.tier as "priority" | "standard" }),
-							...(outputSchema === undefined ? {} : { outputSchema }),
-						});
-		} else {
-			result =
-				mode === "start"
-					? deps.copilot.start(owner, {
-							operationId,
-							prompt,
-							...(task.issued.options.model === undefined ? {} : { model: task.issued.options.model }),
-							...(task.issued.options.effort === undefined
-								? {}
-								: { reasoningEffort: task.issued.options.effort }),
-							...(outputSchema === undefined ? {} : { outputSchema }),
-							runId: task.issued.runId,
-						})
-					: deps.copilot.message(owner, {
-							agentId,
-							operationId,
-							prompt,
-							...(outputSchema === undefined ? {} : { outputSchema }),
-						});
+		const stack = deps.stacks.get(backend);
+		if (!stack) {
+			settle(task, { outcome: "unavailable", answer: null, reason: `no ${backend} agents on this Gateway` });
+			return { dispatched: false, agentId };
 		}
+		const { model, tier, effort, schema: outputSchema } = task.issued.options;
+		// Options remain backend-scoped.
+		const serviceTier = tier === undefined ? {} : { serviceTier: tier as AgentServiceTier };
+		const shared = { operationId, prompt, ...serviceTier, ...(outputSchema === undefined ? {} : { outputSchema }) };
+		const result =
+			mode === "start"
+				? stack.start(owner, {
+						...shared,
+						...(model === undefined ? {} : { model }),
+						...(effort === undefined ? {} : { reasoningEffort: effort }),
+						runId: task.issued.runId,
+					})
+				: stack.message(owner, { ...shared, agentId });
 		if (result.kind === "refused") {
 			if (result.code === "daemon_unavailable") {
 				task.waitFor = "catalog";
@@ -186,7 +156,7 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 			settle(task, { outcome: "failed", answer: null, reason: "agent daemon did not take the workflow step" });
 			return { dispatched: false, agentId };
 		}
-		return { dispatched: true, agentId: result.transition.agent.agentId };
+		return { dispatched: true, agentId: result.agentId };
 	}
 
 	async function attempt(task: PendingCall): Promise<void> {
@@ -273,7 +243,6 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 				}
 			}
 			const backend = task.issued.backend;
-			const commands = backend === "codex" ? deps.codex : deps.copilot;
 			const requestedAgentId = task.issued.options.thread ? task.issued.threadAgent?.agentId : undefined;
 			const priorAgentId = previous?.agentId ?? requestedAgentId;
 			const existing = priorAgentId ? snapshot(owner, backend, priorAgentId) : undefined;
@@ -306,7 +275,7 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 				return;
 			}
 			const mode: "start" | "message" = canMessage ? "message" : "start";
-			const target = mode === "message" ? existing!.target : commands.resolveTarget(owner);
+			const target = mode === "message" ? existing!.target : deps.stacks.get(backend)?.resolveTarget(owner);
 			if (!target) {
 				settle(task, { outcome: "rejected", answer: null, reason: "session has no agent execution target" });
 				return;
@@ -344,9 +313,7 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 					? existing!.agentId
 					: reuseOperation && previous?.agentId
 						? previous.agentId
-						: backend === "codex"
-							? codexAgentIdForOperation(operationId)
-							: copilotAgentIdForOperation(operationId);
+						: agentIdForOperation(backend, operationId);
 			const currentRow =
 				reuseOperation &&
 				previous?.registerInstanceId === live.daemonInstanceId &&
@@ -426,16 +393,12 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		}
 		const restored = new Set(deps.runner.runs().map((record) => record.runId));
 		for (const owner of deps.sessionStore.list()) {
-			const orphans = [
-				...deps.codex
+			const orphans = [...deps.stacks.values()].flatMap((stack) =>
+				stack
 					.list(owner)
 					.filter((agent) => agent.runId && !restored.has(agent.runId))
-					.map((agent) => ["codex", agent.agentId] as const),
-				...deps.copilot
-					.list(owner)
-					.filter((agent) => agent.runId && !restored.has(agent.runId))
-					.map((agent) => ["copilot", agent.agentId] as const),
-			];
+					.map((agent) => [stack.backend.id, agent.agentId] as const),
+			);
 			for (const [backend, agentId] of orphans) {
 				const agent = listAgent(owner, backend, agentId);
 				if (agent)
@@ -554,16 +517,16 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		inspectThread({ team, agentId }) {
 			const owner = ownerOf(team);
 			if (!owner) return null;
-			const agent = listAgent(owner, "codex", agentId) ?? listAgent(owner, "copilot", agentId);
+			const family = families.familyOfAgent(owner, agentId);
+			const agent = family && listAgent(owner, family, agentId);
 			return agent ? { state: agent.state, ...(agent.runId ? { runId: agent.runId } : {}) } : null;
 		},
 		retagThread({ team, agentId, fromRunId, toRunId }) {
 			const owner = ownerOf(team);
 			if (!owner) return false;
-			if (deps.codex.list(owner).some((agent) => agent.agentId === agentId)) {
-				return deps.codex.retagRun(owner, agentId, fromRunId, toRunId, deps.ambient.now());
-			}
-			return deps.copilot.retagRun(owner, agentId, fromRunId, toRunId, deps.ambient.now());
+			const family = families.familyOfAgent(owner, agentId);
+			const stack = family && deps.stacks.get(family);
+			return stack ? stack.retagRun(owner, agentId, fromRunId, toRunId, deps.ambient.now()) : false;
 		},
 	};
 }

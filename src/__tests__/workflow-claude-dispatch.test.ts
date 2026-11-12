@@ -1,8 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { CodexAgentCommands } from "../gateway/codexAgentCommands.js";
-import type { CodexRelay } from "../gateway/codexRelay.js";
-import type { CopilotAgentCommands } from "../gateway/copilotAgentCommands.js";
-import type { CopilotRelay } from "../gateway/copilotRelay.js";
 import { createWebSocketHandlers } from "../gateway/websocket.js";
 import { createWorkflowAgentDispatch } from "../gateway/workflows/agentDispatch.js";
 import type { WorkflowDispatchOutcome, WorkflowIssuedCall } from "../gateway/workflows/engine.js";
@@ -151,10 +147,8 @@ function setup(
 			containerInCatalog: () => true,
 		}),
 		relayToHost,
-		codex: { resolveTarget: () => target, list: () => [] } as unknown as CodexAgentCommands,
-		copilot: { list: () => [] } as unknown as CopilotAgentCommands,
-		codexRelay: {} as CodexRelay,
-		copilotRelay: {} as CopilotRelay,
+		stacks: new Map(),
+		resolveTarget: () => target,
 	});
 	const outcomes: WorkflowDispatchOutcome[] = [];
 	const eventOrder: string[] = [];

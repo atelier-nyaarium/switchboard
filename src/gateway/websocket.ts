@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun";
-import { agentInboundFrameTypes } from "../shared/agent-backend.js";
+import { AGENT_BACKENDS, type AgentBackendId, agentInboundFrameTypes } from "../shared/agent-backend.js";
 import { ClaudeTurnAckFrameSchema, ClaudeTurnResultFrameSchema } from "../shared/host-op.js";
 import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { type LaunchFailure, LaunchFailureSchema } from "../shared/launch-notice.js";
@@ -29,8 +29,11 @@ import {
 	type WsData,
 } from "./wsTypes.js";
 
-const CODEX_INBOUND_FRAMES = agentInboundFrameTypes("codex");
-const COPILOT_INBOUND_FRAMES = agentInboundFrameTypes("copilot");
+const AGENT_FRAME_BACKEND = new Map<string, AgentBackendId>(
+	AGENT_BACKENDS.flatMap((backend) =>
+		[...agentInboundFrameTypes(backend.id)].map((type): [string, AgentBackendId] => [type, backend.id]),
+	),
+);
 
 function launchFailureOf(raw: unknown): { failure?: LaunchFailure } {
 	const parsed = LaunchFailureSchema.safeParse(raw);
@@ -57,8 +60,7 @@ export function createWebSocketHandlers({
 	onSpawnPointsChange,
 	onPickResolved,
 	onDaemonCapabilities,
-	onCodexHostMessage,
-	onCopilotHostMessage,
+	onAgentHostMessage,
 	onClaudeTurnResult,
 	onPresenceDerive,
 	onRestartPending,
@@ -492,12 +494,9 @@ export function createWebSocketHandlers({
 			}
 		}
 
-		if (ws.data.teamName === "host" && typeof msg.type === "string" && CODEX_INBOUND_FRAMES.has(msg.type)) {
-			onCodexHostMessage?.(msg);
-		}
-
-		if (ws.data.teamName === "host" && typeof msg.type === "string" && COPILOT_INBOUND_FRAMES.has(msg.type)) {
-			onCopilotHostMessage?.(msg);
+		if (ws.data.teamName === "host" && typeof msg.type === "string") {
+			const backend = AGENT_FRAME_BACKEND.get(msg.type);
+			if (backend) onAgentHostMessage?.(backend, msg);
 		}
 
 		if (msg.type === "catalog" && ws.data.teamName === "host") {

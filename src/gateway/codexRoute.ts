@@ -1,5 +1,6 @@
 import { agentListAnswer, agentListRow, collectAnswer } from "../shared/agent-collect.js";
 import { publishedActivities } from "../shared/agent-record.js";
+import { agentResultDelivery } from "../shared/agent-state.js";
 import type { Clock } from "../shared/ambient.js";
 import {
 	CODEX_WAIT_BUDGET_MS,
@@ -85,16 +86,17 @@ function describeAgent(
 		});
 	}
 	const exchange = agent.exchanges.findLast((candidate) => candidate.turnId === turn.id);
+	const delivery = exchange && agentResultDelivery(exchange.kind, exchange.delivery);
 	if (turn.state === "inProgress") {
 		const interrupting = agent.pendingInterrupt !== undefined;
-		const delivered = accepted && exchange?.delivery !== undefined;
+		const delivered = accepted && delivery !== undefined;
 		return CodexAgentResultSchema.parse({
 			agentId: agent.agentId,
 			agentState: "working",
 			observation: interrupting ? "interruptRequested" : delivered ? "accepted" : "waitTimedOut",
 			turn: { id: turn.id, state: turn.state },
 			// Interrupting turns omit delivery.
-			delivery: interrupting ? undefined : exchange?.delivery,
+			delivery: interrupting ? undefined : delivery,
 			activities,
 		});
 	}
@@ -103,7 +105,7 @@ function describeAgent(
 		agentState: "idle",
 		observation: "terminal",
 		turn: { id: turn.id, state: turn.state, ...(turn.state === "interrupted" ? { reason: turn.reason } : {}) },
-		delivery: exchange?.delivery,
+		delivery,
 		activities,
 		...(turn.state === "completed" ? { finalResponse: turn.finalResponse } : {}),
 		...(turn.state === "failed" ? { error: { code: "turn_failed", message: turn.error, retryable: false } } : {}),
@@ -113,11 +115,12 @@ function describeAgent(
 /** Dead-agent turns become lost. */
 function turnView(agent: CodexPersistedAgent, turn: CodexStoredTurn) {
 	const exchange = agent.exchanges.findLast((candidate) => candidate.turnId === turn.id);
+	const delivery = exchange && agentResultDelivery(exchange.kind, exchange.delivery);
 	return {
 		id: turn.id,
 		state: turn.state === "inProgress" ? "lost" : turn.state,
 		...(turn.state === "interrupted" ? { reason: turn.reason } : {}),
-		...(exchange?.delivery === undefined ? {} : { delivery: exchange.delivery }),
+		...(delivery === undefined ? {} : { delivery }),
 		activities: publishedActivities(turn.activities),
 		...(turn.state === "completed" ? { finalResponse: turn.finalResponse } : {}),
 		...(turn.state === "failed" ? { error: turn.error } : {}),

@@ -702,6 +702,79 @@ OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and 
     - On `agentMessage`, tier applies to the next new turn.
     ```
 - **Q6, how a session gets the backend?** A: its own capability, `opencode-agent`, on by default where OpenCode is installed, listed in the backends line, switchable like `codex-agent` and `copilot-agent`. Owner: "A".
+- **Q8, the `delivery` words:** three words, one meaning each, on every backend. `started` is an agent's first turn, from `agentStart` and never from a message. `followup` is an `agentMessage` that began a new turn. `steered` is an `agentMessage` into the turn already running. Codex answered `started` for a message to an idle agent and now answers `followup`. Owner, 2026-11-11: "each word has its own meaning", then "sounds good". `agentResultDelivery` in `agent-state.ts` is the one mapping, and the table's `followupDelivery` field is gone.
+- **Dogfooding:** once OpenCode can start an agent, build, push, have the owner reload the plugin, and implement the rest through `agentStart` on OpenCode and Switchboard workflows. Owner, 2026-11-11: "feel free at any point to build and push, then have me /reload your plugin, and then you just dog food work with start agents and Switchboard Workflows to use them to implement."
+
+### Design: one agent stack, one driver per backend
+
+Mapped on 2026-11-11 by eleven Luna readers, one per layer, with both Gateway stacks and the contracts read first hand. The two stacks are one state machine written twice. Copilot's copy is the leaner one, and local mode already has the per-backend seam (`LocalBackendSession`) the daemon lacks.
+
+**The rule:** the Gateway knows agents, and a backend is a table row plus a driver. Nothing decides by a backend's name, as nothing decides by a CLI's name.
+
+- **The table:** `AgentBackendDescriptor` takes every fact that is a name branch today: the default model, the start options it takes (`tier`, `effort`), and Copilot's legacy fingerprint spelling. Whether its threads outlive its child is the driver's. `AGENT_BACKENDS` stays the one list, derived from a row per id.
+- **One wire:** `agentWire(backend)` builds the command, receipt, event, hello and ack schemas, with the frame types `agentFrameType` already derives. The native handle is `sessionId` for every backend (Codex's `threadId` goes). Delivery on the wire is `started` or `steered`. A failed interrupt is an `interruptResult` with `ok: false`, fenced and reliable, in place of Codex's `interruptFailed` and Copilot's plain rejection. A reconcile reports `turnId` and `turnState`, and Copilot's `active` becomes `inProgress`.
+- **One record:** Copilot's shape, where an operation holds its own prompt, model and delivery, plus Codex's sticky `serviceTier` and a turn's `finalItemId`. Codex's `exchanges`, `preDispatch`, `acceptanceFence`, `acceptanceUnverified`, `noOp` and `pendingInterrupt` go: each restates a fact an operation or a turn already holds, and the record's cross-field checks exist only to keep the copies agreeing. An interrupt in progress is read off the stop operation aimed at the active turn.
+- **Stored catalogs:** one map on the session record, keyed by backend. A stored Codex or Copilot catalog is converted once at restore. A Gateway rolled back over the new file reads no agents and writes none back, so a rollback loses every agent's history. Accepted: a daemon restart ends running agents anyway.
+- **One Gateway stack:** one service, applier, commands facade, route and relay family, built per backend from the table. `composeAgents` holds a map of stacks, and the session store, the inbound frame routing, the workflow families, the awareness roster, the baseline and the notices read that map.
+- **One driver per backend, for the daemon and local mode alike:** `AgentBackendSession`, grown from `LocalBackendSession`: open a thread, resume one, start a turn that answers its id now and its outcome later, steer, interrupt, inspect a turn, list models, and report activity, counters and its own close. A generic daemon service runs the commands over it on `AgentDaemonCore`. A driver table pairs each backend with its launcher and its session.
+- **OpenCode's driver talks to a bridge:** `opencode serve` is an HTTP server, and a container's loopback is out of the daemon's reach. So a bundled entry point runs beside the server, on the host or inside the container, starts `opencode serve --stdio --port 0` with a minted password in its environment, and speaks JSON lines over its own stdio. The daemon's existing launchers carry that pipe, the server ends with the bridge, and the driver is one more child protocol, as Codex's and Copilot's are.
+
+**Order, the generic stack is Copilot's, generalized in place:** it is the leaner copy and its tests come with it, so the generic stack is born from one that runs. OpenCode is its second tenant and Codex moves last. Each step ends green.
+
+1. Copilot's stack rewritten as the generic one, in its final form: the one record, the one wire (each backend's frames keep their `<backend>_<kind>` types, so no routing changes), and the merged rules below. Its tests carried over, each changed assertion traced to a rule.
+2. The generic daemon service over `AgentBackendSession`, Copilot's session as the first driver, used by the daemon and local mode alike.
+3. `composeAgents` holds a map of stacks (`AgentStack`), and the consumers read it. Codex's stack sits behind the same seam, unchanged.
+4. Tests for each merged rule the carried tests do not reach, and for a stored Codex catalog read as the one shape.
+5. OpenCode: its row, its capability, its bridge and driver (built by Switchboard (OC) against the interface, each answer reviewed), `agentListModels`, the tool and guidance wording as settled. Release, reload, dogfood from here.
+6. Codex moves: its driver, its catalog converted, its old stack deleted, its tests carried over. Last, since its daemon holds the most.
+
+**What OpenCode adds to the contract:**
+
+- **A prompt has a key:** `TurnOptions.key` and a `key` on `steerTurn`, the operation's id. A prompt posted to an OpenCode session that has just gone idle starts a turn by itself, so a steer that misses its turn and the new turn the service then opens for it must be one prompt. A driver that can tell lands a repeat under one key once; Codex's and Copilot's ignore it.
+- **A steer resolves only once its turn took the prompt,** and rejects when the turn ended first. The facts are the driver's, so the race is closed there and the service's rule (a turn that ended under a steer opens a new one) holds unchanged.
+- **Threads outlive the child:** OpenCode keeps sessions in its own database, so `resumeThread` and `inspectTurn` work on a fresh server.
+- **A child that is this build's own entry point** needs the runtime in a container before it launches there. The driver table says so, and the daemon places it, as it does for a session's launcher.
+- **`agentListModels` waits for Codex's move,** so one `models` command answers for every backend. `newestPerFamily` in `src/shared/agent-models.ts` is its rule: a family is an id with its version tokens removed, where a version is a number standing alone or after letters (`v4`, `o3`, `qwen2.5`) and digits before letters are a size (`70b`, `4o`).
+
+A Gateway and its daemon restart together at every deploy, so the wire between them changes without a compatibility window. A plugin older than its Gateway keeps posting to its backend's path in the request shape it knows, and every field it reads in the answer stays.
+
+**Where the two disagree, the merged rule takes the stricter side:**
+
+- **A steer that lands as its turn ends:** Codex's daemon starts a new turn with the prompt once the end is confirmed; Copilot's reports `steered` into a finished turn and the message is lost. The generic service takes Codex's.
+- **A message while an interrupt is in flight:** Codex refuses until the turn's terminal; Copilot allows a steer into the turn being aborted. Refused for all.
+- **An event on a record with no fence:** Codex reconciles; Copilot lets the event set the first fence. Reconciled for all.
+- **Codex compares the record's fence at dispatch with its fence at receipt,** so commentary arriving between a steer's dispatch and its receipt refuses the acceptance. The merged rule checks the turn and the stream, as Copilot's does.
+- **A terminal's payload:** Codex's schema requires a completed turn's answer and a failed turn's error; Copilot's allows neither. Required for all.
+- **A daemon told to stop refuses new commands,** and a refusal's diagnostics are capped at 256 and kept only for an operation still waiting. Both for all.
+- **A silent turn:** Codex interrupts one after ten minutes without progress; Copilot waits forever. The watchdog's clock is generic and the probe is the driver's `inspectTurn`.
+- **Left as they are:** `reasoningEffort` and `serviceTier` stay outside an operation's fingerprint, since adding either would fail every stored record's check.
+
+### Built so far
+
+Steps 1 to 4, uncommitted until the audit below was triaged. Copilot's Gateway stack, daemon service and local session are deleted, and one generic stack (`agentService`, `agentApply`, `agentReducers`, `agentCommands`, `agentRelay`, `agentRoute`, `agentStack`), one daemon service (`agentDaemonService`) and one driver contract (`backendSession.ts`) run it. Codex sits behind `AgentStack` on its own stack.
+
+### Audit, 2026-11-11
+
+Six Luna readers on the uncommitted slice: Gateway parity with both old stacks, the daemon and the driver contract, local mode, stored state and mixed versions, decisions by a backend's name, and the tests. Changed after triage:
+
+- **A message's receipt that replays after reconciliation adopted its turn** was refused and the operation left uncertain. `decideAcceptance` binds a requested operation to a turn no other operation opened.
+- **Held frames:** `AgentRelayCore.defer` compared event ids across streams, and dropped an outcome when 128 were held. It compares the stream too, and drops commentary only.
+- **A requested operation with no daemon named** was neither abandoned nor resent at a register. `decideRegisterRecovery` abandons it, on both stacks.
+- **A write held unconfirmed** left its operation `requested` and unsent: the agent refused the next message, and the next register would have sent the stale one. The generic service gives the operation up. Codex's stack keeps the gap until it moves.
+- **Local mode** took the merged rules it lacked: a pending interrupt refuses a message and a second stop, a steer whose turn ended opens a new turn, the driver's failure code reaches the answer, and not-found reads as the Gateway's.
+- **`settledNow`:** whether a turn ended under a steer was read after a fixed number of promise hops, which a rejected steer got wrong in local mode. Both callers now ask the turn's own promise.
+- **Copilot's driver** answers a turn before its send does, as the old service did, and an exit while its models are read fails the open. The daemon service retires a session whose driver closes.
+- **One registry:** `BACKEND_ROWS` is keyed by every `AgentBackendId`, and the workflow backend schemas, the gated capability ids and the tool fixture derive from it. The relay core's `backendId === "codex"` is gone.
+
+Read and left: the mixed-version findings are the window the deploy note above accepts. A Gateway and its daemon restart back to back on each machine.
+
+**For Codex's move, from the driver audit:** a driver cannot hand back a turn it finds running (`adoptTurn`), cannot be told its terminal was published before it parks a thread, and the silent-turn watchdog has no home yet.
+
+### Bug Classes
+
+- **The same command rules live in local mode and in the daemon service** (`LocalAgentHandlers`, `AgentDaemonService`). Four disagreements found in one pass and patched in local mode. One command handler over the driver for both is on the board, `bd_c9b55cbd21bc148fa77a38b0f3169a55`.
+- **A list that names backends by hand:** the registry array, two workflow schemas, the gated capability ids and the tool fixture each listed Codex and Copilot. Patched to derive from `BACKEND_ROWS`. The guidance prose still names them and is the owner's wording.
+- **An uncertain catalog write** (`AgentCatalogPersistence.commit` over a store that keeps an unconfirmed write in memory): patched in the generic service by abandoning the operation. The shared layer still reports it as "catalog changed while saving".
 
 ## Phase 3 - Acceptance and docs
 
@@ -712,6 +785,8 @@ OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and 
 
 ## Painpoints
 
+- **Workflow steps sharing a `skills` file all failed but the first (2026-11-11):** the store answers a skill row already journaled as a no-op, and the dispatcher read that as "could not be journaled". Changed in `appendSkillText` with a harness test; no earlier test started two steps with one skill.
+- **A workflow whose result passes the size limit settles `failed` with every step completed (2026-11-11):** eleven map reports returned together read "workflow result is not JSON or exceeds the limit". Each step's answer was still on the collect, so nothing was lost, but the run reads as a failure.
 - **A daemon restart kills every delegated agent mid-turn, and nothing says so first (2026-11-11):** `start-host-daemon.sh` restarts with a workflow's Codex steps running, and they settle `lost`. A deploy and an audit cannot overlap, and only memory keeps them apart.
 - **The Gateway's log does not outlive a restart (2026-11-11):** `start-gateway.sh` recreates the container, so `docker logs` starts over, and `volumes/gateway/debug.log` holds no console ops. Who forgot two sessions an hour earlier could not be read anywhere.
 - **The release phone build logs no send (2026-11-11):** `DebugLog` reaches nothing in release, so a double send could be shown at the Router and the Gateway and never on the phone that made it.

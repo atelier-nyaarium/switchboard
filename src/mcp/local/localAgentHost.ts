@@ -13,29 +13,20 @@ import {
 	AgentResolvedTargetSchema,
 } from "../../shared/agent-execution-target.js";
 import { AGENT_NOTICE_SOURCE, agentNoticeAct, agentNoticeLine } from "../../shared/agent-notice.js";
+import { AGENT_ACTIVITY_MAX_ITEMS } from "../../shared/agent-record.js";
+import {
+	AgentGatewayRequestSchema,
+	AgentRequestErrorSchema,
+	AgentResultSchema,
+	agentRequestIssue,
+} from "../../shared/agent-state.js";
 import { uncollectedTurns } from "../../shared/agent-turn-marks.js";
 import { resolveWorkdir, workdirOrFallback } from "../../shared/agent-workdir.js";
-import {
-	CODEX_ACTIVITY_MAX_ITEMS,
-	CodexAgentResultSchema,
-	CodexGatewayRequestSchema,
-	CodexRequestErrorSchema,
-	type CodexServiceTier,
-	CodexServiceTierSchema,
-} from "../../shared/codex-agent.js";
-import {
-	COPILOT_ACTIVITY_MAX_ITEMS,
-	CopilotAgentResultSchema,
-	CopilotGatewayRequestSchema,
-	CopilotRequestErrorSchema,
-} from "../../shared/copilot-agent.js";
+import type { AgentBackendSession } from "../agents/backendSession.js";
+import { AGENT_DRIVERS } from "../agents/drivers.js";
 import { emitLocalAwareness } from "../bridge/helpers.js";
-import { ExecutionTargetManager, realLauncher, targetLogger } from "../devcontainer/codexTargets.js";
-import { copilotLauncher } from "../devcontainer/copilotTargets.js";
-import { CodexLocalSession } from "./codexLocalSession.js";
-import { CopilotLocalSession } from "./copilotLocalSession.js";
+import { ExecutionTargetManager, targetLogger } from "../devcontainer/codexTargets.js";
 import { LocalAgentRuntime, type LocalBackendSpec } from "./localAgentRuntime.js";
-import type { LocalBackendSession } from "./localAgentSession.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -65,12 +56,6 @@ export function resolveLocalCwd(requested: string | undefined, home: string = os
 	return workdirOrFallback(resolveWorkdir(requested, "agentCwd", { roots: [path.join(home, "projects")], home }));
 }
 
-/** Only the Codex half of the request union declares a tier, so the schema does the narrowing. */
-function serviceTierOf(request: object): { serviceTier?: CodexServiceTier } {
-	const parsed = CodexServiceTierSchema.safeParse((request as { serviceTier?: unknown }).serviceTier);
-	return parsed.success ? { serviceTier: parsed.data } : {};
-}
-
 function unavailable(errorClass: string, backend: AgentBackendDescriptor): Error {
 	return new Error(`${backend.displayName} is unavailable (${errorClass})`);
 }
@@ -81,9 +66,9 @@ function unavailable(errorClass: string, backend: AgentBackendDescriptor): Error
  * Only the host target exists: a devcontainer target crosses a boundary this process lacks.
  */
 export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalAgentBackend {
-	const isCodex = backend.id === "codex";
+	const driver = AGENT_DRIVERS[backend.id];
 	const targets = new ExecutionTargetManager(
-		isCodex ? realLauncher : copilotLauncher,
+		driver.launcher,
 		undefined,
 		targetLogger(`${backend.id}-local`),
 		undefined,
@@ -92,13 +77,12 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 
 	const spec: LocalBackendSpec = {
 		backendId: backend.id,
+		displayName: backend.displayName,
+		failureCode: driver.failureCode,
 		defaultCwd: () => process.cwd(),
-		followupDelivery: isCodex ? "started" : "followup",
-		maxActivities: isCodex ? CODEX_ACTIVITY_MAX_ITEMS : COPILOT_ACTIVITY_MAX_ITEMS,
-		// A codex thread is durable and gets resumed, so a reaped child's work is adopted by its
-		// replacement. An ACP session lives inside the Copilot child and dies with it, so reaping one
-		// would destroy agents the caller may still message - see the spec field's own doc.
-		threadsResumable: isCodex,
+		maxActivities: AGENT_ACTIVITY_MAX_ITEMS,
+		// Reaping loses nonresumable agents.
+		threadsResumable: driver.threadsResumable,
 		// Never, on either backend, and stated rather than absent. See the spec field: there is no
 		// transport that can retry unseen and no record that survives the process to replay from.
 		replaysOperations: false,
@@ -112,7 +96,7 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 				console.error(`[${backend.id}-local] notice failed:`, error),
 			);
 		},
-		openSession: async (): Promise<LocalBackendSession> => {
+		openSession: async (): Promise<AgentBackendSession> => {
 			const target: AgentResolvedTarget = AgentResolvedTargetSchema.parse({
 				kind: "host",
 				targetId: AGENT_HOST_TARGET_ID,
@@ -120,17 +104,11 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 			});
 			const availability = targets.acquire(target);
 			if (availability.state !== "running") throw unavailable(availability.errorClass, backend);
-			return isCodex
-				? CodexLocalSession.open(availability.lease.child)
-				: CopilotLocalSession.open(availability.lease.child);
+			return driver.open(availability.lease.child);
 		},
 	};
 
 	const runtime = new LocalAgentRuntime(spec);
-	const requestSchema = isCodex ? CodexGatewayRequestSchema : CopilotGatewayRequestSchema;
-	const requestErrorSchema = isCodex ? CodexRequestErrorSchema : CopilotRequestErrorSchema;
-	const resultSchema = isCodex ? CodexAgentResultSchema : CopilotAgentResultSchema;
-
 	const listAgents = (request: { agentId?: string; limit?: number }): unknown =>
 		agentListAnswer(runtime.list(), request, (agent) =>
 			agentListRow(agent, backend.id, { model: agent.model, latestPrompt: agent.exchanges.at(-1)?.prompt }),
@@ -138,13 +116,15 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 
 	/** The result envelope cannot carry this: it only permits an error when the AGENT is unwell. */
 	const refuse = (message: string): unknown =>
-		requestErrorSchema.parse({ error: { code: "invalid_input", retryable: false, message } });
+		AgentRequestErrorSchema.parse({ error: { code: "invalid_input", retryable: false, message } });
 
 	return {
 		async handle(body) {
 			// The gateway route's own schema, so a malformed call is refused identically on both paths.
-			const parsed = requestSchema.safeParse(body);
+			const parsed = AgentGatewayRequestSchema.safeParse(body);
 			if (!parsed.success) return refuse(parsed.error.issues[0]?.message ?? `invalid request`);
+			const issue = agentRequestIssue(backend, parsed.data);
+			if (issue) return refuse(issue);
 
 			const request = parsed.data;
 			if (request.kind === "list") return listAgents(request);
@@ -158,8 +138,9 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 				...("prompt" in request ? { prompt: request.prompt } : {}),
 				...("model" in request && request.model !== undefined ? { model: request.model } : {}),
 				...("cwd" in request && request.cwd !== undefined ? { cwd: resolveLocalCwd(request.cwd) } : {}),
-				// Narrowed by the schema itself: only the Codex half of this union declares the field.
-				...serviceTierOf(request),
+				...("serviceTier" in request && request.serviceTier !== undefined
+					? { serviceTier: request.serviceTier }
+					: {}),
 				...("reasoningEffort" in request && request.reasoningEffort !== undefined
 					? { reasoningEffort: request.reasoningEffort }
 					: {}),
@@ -168,7 +149,7 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 					: {}),
 			});
 			if ("refused" in answer) return refuse(answer.refused);
-			return "running" in answer ? answer : resultSchema.parse(answer);
+			return "running" in answer ? answer : AgentResultSchema.parse(answer);
 		},
 		shutdown() {
 			runtime.shutdown();

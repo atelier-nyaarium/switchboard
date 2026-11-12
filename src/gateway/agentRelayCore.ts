@@ -112,6 +112,11 @@ function streamKey(message: { daemonInstanceId: string; targetId: string; genera
 	return `${message.daemonInstanceId} ${message.targetId} ${message.generation}`;
 }
 
+/** An unfenced frame names its daemon alone. */
+function heldStream(message: AgentRelayFrame & { targetId?: string; generation?: number }): string {
+	return `${message.daemonInstanceId} ${message.targetId ?? ""} ${message.generation ?? ""}`;
+}
+
 function agentKey(ownerKey: string, agentId: string): string {
 	return `${ownerKey} ${agentId}`;
 }
@@ -361,7 +366,6 @@ export class AgentRelayCore<
 			{
 				...current,
 				modelTurns: (current.modelTurns ?? 0) + 1,
-				...(this.family.backendId === "codex" ? { filesChanged: current.filesChanged ?? 0 } : {}),
 			},
 			runId ?? entry?.runId,
 		);
@@ -457,17 +461,21 @@ export class AgentRelayCore<
 	private defer(held: HeldFrame<TEvent, TReceipt>): void {
 		const key = agentKey(held.message.ownerKey, held.message.agentId);
 		const queue = this.deferred.get(key) ?? [];
-		// Deduplicate reconnect replays.
+		// A reconnect replays; another stream reuses event ids.
 		const replayed = queue.some(
-			(existing) => existing.frame === held.frame && existing.message.eventId === held.message.eventId,
+			(existing) =>
+				existing.frame === held.frame &&
+				existing.message.eventId === held.message.eventId &&
+				heldStream(existing.message) === heldStream(held.message),
 		);
 		if (replayed) return;
 		queue.push(held);
 		this.deferred.set(key, queue);
 		while (queue.length > MAX_DEFERRED_PER_AGENT) {
-			// Drop activity first.
+			// Only commentary is dropped: anything else is an outcome.
 			const index = queue.findIndex((candidate) => candidate.message.kind === "activity");
-			queue.splice(index >= 0 ? index : 0, 1);
+			if (index < 0) break;
+			queue.splice(index, 1);
 		}
 	}
 
