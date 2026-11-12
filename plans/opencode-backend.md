@@ -663,7 +663,7 @@ Running or stopped is not shown: an agent's send starts the container either way
 
 **Eliminated:** the refusal for a stopped container, and the separate notice for a CLI found missing after a start.
 
-## Phase 2d - OpenCode as an agent backend
+## Phase 2d - OpenCode as an agent backend ✅
 
 OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and never made a phase; the owner placed it after 2c, before acceptance ("cool."). Owner, 2026-11-10: "let's add agentStart support as a slice after you get the session support. that way you can use OpenCode session to implement an OpenCode agent."
 
@@ -1005,6 +1005,14 @@ Left for B: a frame whose application `failed` has no ask and no deadline, the o
 - **Mechanical implementation goes to the Test OC session** (`host.76340a`, OpenCode, working in this checkout) by `crosstalk_send`, when it is mechanical enough to relay. Each relay names disjoint files from any teammate's, and its result is reviewed before it lands. Owner, 2026-11-10: "ok from now on, use Text OC session to do implementation, when mechanical enough to relay."
 
 - **Try Copilot and OpenCode in the evie-bot container once 2c lands.** The base image installs OpenCode 2.2.5 (`docker-workspace` `6eddb07`). Owner: "sweet. then you can try it on Evie bot later." and "also try open code there too." OpenCode goes into the running container by hand (no rebuild). First with no login, to see that the phone's login-required chip shows. Owner: "actually don't yet. see if the detect for login required chip shows" and "for both copilot and oc". The pane check reads Claude's wording, so Copilot's logged-out screen may need its own. Only after that, the host's auth file copied in, mode 600, never printed. Owner: "copy it in this time".
+  - **Run on 2026-11-12, 8.14.66.** Owner: "use Evie bot to ensure your login chip is noticed. then copy my login configs in and see that the session status works through devcontainer. then test a quick prompt on them". The chip's data, `needsLogin`, read true for an OpenCode and a Copilot session with no login. OpenCode 2.2.5 keeps credentials in its database, so there is no auth file: `opencode auth export` on the host was piped into `opencode auth import` in the container, and `model.json` copied. A session created after that read online with no chip and answered a prompt on `opencode-go/deepseek-v4.1-flash`.
+  - **Open:** whether Copilot's login, the work account's, is copied into the container. Asked with a recommendation to stop at the chip check. Test sessions to forget: `evie-bot.26570e`, `evie-bot.dd0ca7`, `evie-bot.06b640`.
+
+- **The phone's Create lists every devcontainer and starts a stopped one, and Forget offers to start a stopped container.** Owner, 2026-11-12, on the stopped-container prompt: "A. If it errors, hold off the forget and just have the usual startup failure path maybe I think? if that's the case, the create path needs the same thing. Show all Devcontainers and if it isn't up yet, attempt an auto up. Figure out the best way to display the start fail when auto up fails". This reverses Question 10's "only the phone's Create needs one running".
+  - **The Forget prompt, settled:** title "Container is stopped"; line "Switchboard can only purge this session's data while its container is up."; buttons "Start container", "Forget anyway", "Cancel". A start that fails holds the forget.
+  - **Open, question 7:** where a failed auto-up shows. Proposed: on the session, through the launch-failure dock, the card's headline and a notification, for Create and for Forget; a stopped project dimmed with "stopped" beside it; all three CLIs offered for a stopped container, a missing one failing with "Devcontainer does not have OpenCode. Choose another CLI." Board, `9fdb9c972f5040a99c0477b881690967`.
+
+- **Architecture opportunities left from 2026-11-12:** B, one owner for a held frame, with its hold deadline to settle with the owner; C, one turn runner over the driver for the daemon and local mode; E, one owner for a Codex turn's hold; F, a naming pass after B and C.
 
 - **Tell the owner when the app can create an OpenCode session.** Asked from the phone on 2026-11-10: "let me know when session start or startAgent is ready for use in this android app. I think a good exercise would be to make a session and you cross talk it to do adversarial from now on." ✅ Told on 8.14.54. Adversarial reads go to the session the owner names.
 - **OpenCode as an agent backend:** now `## Phase 2d`.
