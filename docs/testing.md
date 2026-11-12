@@ -214,6 +214,10 @@ asks for, since no fixture fills that and the refusal past it would be unreachab
 | untracked | `scratch/probe.ts` | `untracked` on the row and on the outline strip |
 | second session | `.other` | every workspace read refused |
 
+A sandbox Create takes 20 seconds to settle, so the thread's `Starting...` dock is on screen long
+enough to look at. A Create that picks Copilot never comes up: it settles asleep with a held failed
+launch, which is the only road to the dismissible dock and the card's failure headline here.
+
 Each seeded Gateway answers differently, or a grouping bug has nowhere to show: one holds the full
 set, one holds the same record ids as different records in another zone, and one answers empty,
 which is not a Gateway that could not be read.

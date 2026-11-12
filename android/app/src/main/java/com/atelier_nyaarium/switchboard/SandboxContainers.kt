@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
+import com.atelier_nyaarium.switchboard.proto.HarnessWord
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.TeamInfo
@@ -25,6 +26,8 @@ private const val SESSION_START_MS = 20_000L
 
 ////////////////////////////////
 //  Functions & Helpers
+
+private const val SANDBOX_LAUNCH_FAILURE = "Copilot was not installed."
 
 /** Gateway `index`'s containers, so each answers differently; the last reports none. */
 internal fun sandboxContainers(index: Int): List<SpawnContainer> = when (index) {
@@ -95,9 +98,13 @@ internal class SandboxContainerGateway(
 			harness = readHarness(harness),
 		)
 		state.update { s -> s.copy(teams = s.teams.filterNot { it.name == address } + row(Presence.AVAILABLE, working = true)) }
+		// A Copilot create never comes up, so the failed launch's dock is reachable.
+		val fails = (readHarness(harness) as? HarnessWord.Named)?.harness == SessionHarness.COPILOT
 		later {
 			delay(SESSION_START_MS)
-			state.update { s -> s.copy(teams = s.teams.filterNot { it.name == address } + row(Presence.ONLINE, working = null)) }
+			val settled = if (fails) row(Presence.AVAILABLE, working = null) else row(Presence.ONLINE, working = null)
+			state.update { s -> s.copy(teams = s.teams.filterNot { it.name == address } + settled) }
+			if (fails) state.holdLaunchError(address, LaunchError(SANDBOX_LAUNCH_FAILURE, System.currentTimeMillis()))
 		}
 		return ConsoleCreateSessionResult(created = true, id = id, sessionLabel = displayLabel, status = "pending")
 	}
