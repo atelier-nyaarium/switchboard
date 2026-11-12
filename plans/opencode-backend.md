@@ -925,7 +925,7 @@ Read and left:
 - **A second failed write while giving an operation up leaves it `requested`,** so the next register from the same daemon resends it. Same at HEAD.
 - **No case drives `conflict`, `failed` or `owner_missing` through a session's start, message or stop,** or an unconfirmed notify mark, retirement or register pass. The persistence test covers the kinds themselves.
 
-Left for B: a frame whose application `failed` has no ask and no deadline, the outbox evicts past 1,000 without telling the Gateway, and `askAgain` re-asks once.
+Left for B, and built there: a frame whose application `failed` had no ask and no deadline, the outbox evicted past 1,000 without telling the Gateway, and `askAgain` re-asked once.
 
 ### Bug Classes
 
@@ -960,7 +960,7 @@ Designed 2026-11-12 from a full read of `AgentRelayCore`, `agentApply.ts`, `agen
 **The relay's policy over it:**
 
 - **An ask repeats every `RECONCILE_GUARD_MS` while an agent holds a frame for `reconcile` or `failed`,** where it fired once.
-- **At 10 minutes the hold is closed** (`HELD_FRAME_LIMIT_MS`), counted from the later of the first hold and the live daemon's last hello, and only while a daemon is live. The applier's `closeHeld` ends the record's active turn as interrupted with `AGENT_TURN_LOST_REASON`, adopts the turn the daemon last reported running when the last answer was `askAgain`, and marks requested operations `indeterminate`. The held frames are retried once against that record and whatever still cannot be placed is decided and logged. An interrupt for the ended turn is sent to the daemon, best effort. The settled turn tells the session through the awareness it already has.
+- **At 10 minutes the hold is closed** (`HELD_FRAME_LIMIT_MS`), counted from the later of the first hold and the live daemon's last hello, and only while a daemon is live. The daemon's last reconciliation is applied at its word, which adopts the turn it reports running. The applier's `closeHeld` then ends the record's open turn as interrupted with `AGENT_TURN_UNACCOUNTED_REASON` unless that reconciliation vouches for it. The held frames are tried once more against that record, and whatever still cannot be placed is given up and logged, a receipt's requested operation going `indeterminate` first. No interrupt is sent. The settled turn tells the session through the awareness it already has.
 - **A frame awaiting its write has no deadline:** it is in the record, and `gone` already lets it go.
 
 **The daemon's hello names what its outbox evicted,** per stream, and the Gateway asks about every working agent on such a target whatever its fence says.
@@ -1064,9 +1064,10 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
 
 **Built, 2026-11-12,** after B, C and E removed half the names it was written for.
 
-- **"Family" now means a model family only.** `AgentRelayFamily` is `AgentRelayPort`, `AgentCatalogFamily` is `AgentCatalogPort`, and the workflow engine's `agentFamilies.ts` is `stackAgents.ts` (`createStackAgents`, `backendOfAgent`).
+- **A backend is no longer called a family.** `AgentRelayFamily` is `AgentRelayPort`, `AgentCatalogFamily` is `AgentCatalogPort`, and the workflow engine's `agentFamilies.ts` is `stackAgents.ts` (`createStackAgents`, `backendOfAgent`).
 - **"Held" now means a frame the relay holds.** The runner's map of what a child said before its turn was announced is `early`.
 - **A reconciliation's fence verdict is `follows`,** so "adopt" is left to a turn.
+- **Found by the alignment read and renamed too:** a notice's and a roster agent's `family` are `backend`, with `familySchema`, `hostFamilyPass` and `HostFamilyFrame`.
 - **Codex names left generic code:** the service tier alias in local mode, a test alias, and `codex-tools.test.ts`, which is `agent-request.test.ts`.
 - **Comments that counted two backends** now say every backend, in `agent-fence.ts`, `agent-record.ts`, `agent-execution-target.ts`, `agentRouteEnvelope.ts` and local mode's host.
 - **`docs/agents.md` split its Codex section:** the stream, the ledger, the close and the recovery rules are under "The daemon stream", and "Codex delegation" keeps what is Codex's.
@@ -1074,7 +1075,7 @@ Slices: B1 the ledger and its tests. B2 the relay on it, every relay and harness
   - **`TargetSession` in the daemon service.** It wraps exactly one driver session with its runner, so "session" there is not a third meaning.
   - **`threadId` in the driver contract.** Every driver calls it a thread.
   - **`await` for a collect, `interrupt` for a stop, `serviceTier` for `tier`.** Each is a wire, a stored field or the tool's own word, and each crossing is one mapping.
-  - **`AgentNotice.family`** names a backend and crosses from the plugin to the Gateway.
+  - **The baseline's `agents[].family`** names a backend on the wire between the Gateway and a session's hook, which update apart. An assistant action's `family` is its own word: where the action runs.
   - **"`backend` limits the list to one family"** in `agentList`'s description. Agent-facing, so it is the owner's to word.
 
 ## Phase 3 - Acceptance and docs
@@ -1112,7 +1113,7 @@ Slices:
 
 - **A workflow call with an option the engine does not know vanishes (2026-11-11):** `agent()` throws on one such as `cwd`, and `parallel()` turns the throw into `null`, so the run shows no step and no reason. On the board, `bd_7fe5d9a585cd9656aa67bc1dd21b979a`.
 - **A plain SSH command has no `bun` (2026-11-11):** `~/.bun/bin` is added by the login shell on mikan and matrix-edward, so every deploy command sets the path first.
-- **One undecided frame holds every agent on its target (2026-11-12):** `AgentRelayCore` acknowledges per stream, a daemon and target and generation, while it holds frames per agent. A frame held for one agent stops the cumulative acknowledgement for all of them, and nothing in the relay's shape says so. Two of D's four red team findings came from it.
+- **One undecided frame holds every agent on its target (2026-11-12):** `AgentRelayCore` acknowledges per stream, a daemon and target and generation, while it holds frames per agent. A frame held for one agent stops the cumulative acknowledgement for all of them. Since B the ledger holds both, frames per agent and undecided ids per stream, but the block itself stands. Two of D's four red team findings came from it.
 - **The relay's unit tests stub the applier with a flag (2026-11-12):** `setup` in `agent-relay.test.ts` answers `reconcile` or `applied` from a boolean, so a case can pass against a rule the real applier never produces. The case that pinned "release only on its own reconcile answer" was one; the real daemon in the harness is what showed the rule wrong.
 - **Two 1,024 character budgets leave no room for settled wording (2026-11-12):** adding the owner's approved words overflowed `workflowStart`'s description by 61 and `WORKFLOW_INSTRUCTIONS` by 12. One sentence moved to the field's description and " (uncollected runs)" was cut. Each further word in either costs one already agreed.
 - **An open question to the owner lives only in a message (2026-11-12):** the board and this plan held the titles of three waiting questions and none of their options. Asking them again meant searching the session transcript for the original wording.
@@ -1121,7 +1122,7 @@ Slices:
 - **An OpenCode session stays on the model its last turn used (2026-11-12):** the plugin posts a delivered prompt with no model, and the server reuses the session's last one. A session created in evie-bot before sign-in ran on the free model, hit its daily limit, and kept reading as login after the credentials were imported and its pane showed the signed-in model. A session created after the import answered at once. Only a prompt typed in its terminal moves it.
 - **The comment step rewrites records as if they were code comments (2026-11-11, again 2026-11-12):** told to make prose timeless, a Luna step cut a doc comment's rule once, then replaced this plan's audit section and two Bug Classes histories with a description of the code, and stripped the reasons from five map lines in `AGENTS.md`. Each was restored by hand. The step needs the plan and the map's reasons named as out of bounds.
 - **An OpenCode step's `schema` is one sentence in its prompt (2026-11-11):** two of nine long mapping steps answered in prose after 300 tool calls and settled `invalid`, with their reports written. Codex enforces a schema at its API. One repair message into the same thread, naming the validation error, would have saved both.
-- **A running step or agent shows nothing until it ends (2026-11-11):** `workflowCollect` reads every unfinished step as `pending`, queued or working, and `agentCollect` on a running turn answers no activity and no counts. `agentList`'s `lastActiveAt` stayed at the start. The first sign of life is the ten minute notice.
+- **A running step or agent shows nothing until it ends (2026-11-11):** `workflowCollect` reads every unfinished step as `pending`, queued or working, and `agentCollect` on a running turn answers no activity and no counts. The first sign of life is the ten minute notice, or `agentList`'s `lastActiveAt`, which moves with each applied activity.
 - **OpenCode refuses its whole event stream over one type name it does not know (2026-11-11):** `/api/event?types=` answers 400 for an unknown name, so a renamed event on a pin bump stops every turn's events. `EVENT_TYPES` in the bridge was probed against 2.2.5 by hand; no gate asks a real server.
 - **An OpenCode steer waits for a step boundary (2026-11-11):** the bridge answers only once the turn took the message, up to two minutes, then withdraws it and refuses.
 - **Workflow steps sharing a `skills` file all failed but the first (2026-11-11):** the store answers a skill row already journaled as a no-op, and the dispatcher read that as "could not be journaled". Changed in `appendSkillText` with a harness test; no earlier test started two steps with one skill.
@@ -1130,7 +1131,7 @@ Slices:
 - **The Gateway's log does not outlive a restart (2026-11-11):** `start-gateway.sh` recreates the container, so `docker logs` starts over, and `volumes/gateway/debug.log` holds no console ops. Who forgot two sessions an hour earlier could not be read anywhere.
 - **The release phone build logs no send (2026-11-11):** `DebugLog` reaches nothing in release, so a double send could be shown at the Router and the Gateway and never on the phone that made it.
 - **`setup.sh --verify` reads a busy start as down (2026-11-11):** it asks `/health` once. Right after a restart the Router or the Gateway can miss that one ask and pass a minute later.
-- **A second spelling of a rule hides from the search for it (2026-11-11):** `SHELL_SAFE_NAME_RE` held the segment's character set as `[a-z0-9.-]`, so a search for `a-z0-9-` passed it by when the rule widened. No residue test holds the set to `session-id.ts`.
+- **A second spelling of a rule hides from the search for it (2026-11-11):** `SHELL_SAFE_NAME_RE` held the segment's character set as `[a-z0-9.-]`, so a search for `a-z0-9-` passed it by when the rule widened. That copy is gone and tmux names read `SLUG_RE`, but no residue test holds the set to `session-id.ts`.
 - **An agent catalog commit costs the whole catalog (2026-11-11):** `AgentCatalogStore.commit` parses every agent to change one, and `session-resume.json`, 20 MB on Sakura, is written whole. A catalog now lives until its session is forgotten.
 - **A CLI pick is applied by team, not by launch (2026-11-11):** `wake_result` and `cli_found` in `websocket.ts` call `resolvePick` for the team, and the first pick wins. A replayed result of an earlier launch can land on a retry's record and name its CLI and session id.
 - **A late pick confirms nothing when two tokened sockets wait (2026-11-11):** `standLateToken` returns on more than one waiting socket and nothing asks again when one closes, so the survivor stays unconfirmed until evicted.
@@ -1183,7 +1184,7 @@ Slices:
   - **Three Create defaults told to the owner the same day, unanswered:** "no CLI" listed and unpickable; a remembered project preselected only when up; the failed start line unchanged.
   - **matrix-edward missed the 8.14.67 deploy,** powered off. Board, `bd_d563b8ca162f5c257d0bce4e4882545c`.
 
-- **Architecture opportunities left from 2026-11-12, all four in this plan:** B, one owner for a held frame; C, one turn runner over the driver for the daemon and local mode; E, one owner for a Codex turn's hold; F, a naming pass after B and C. Told to the owner in that order on 2026-11-12 with "say if any should wait"; the answer named none.
+- **Architecture opportunities from 2026-11-12, all four built in this plan and live in 8.14.68:** B, one owner for a held frame; C, one turn runner over the driver for the daemon and local mode; E, one owner for a Codex turn's hold; F, a naming pass after B and C. Told to the owner in that order on 2026-11-12 with "say if any should wait"; the answer named none.
   - **B's hold deadline, answered A on 2026-11-12.** Asked: how long may a held frame wait? A) 10 minutes, then give up on that turn: it ends as interrupted, the session that started the agent is told, and the agent takes a new message; a turn the daemon still reports as running is adopted instead. B) the same at 30 minutes. C) no deadline, as today. Owner: "A".
   - **C's design notes, read 2026-11-12 before B took the turn:** the driver-level rules go in one runner per driver session (`begin` with the adopt after a failed start, the steer with its fallback to a new turn under one key, the hold of what a child says before its turn is announced, the silent-turn watch, thread memory and resume). The record-level rules stay with each record's owner: the pending interrupt and not-found, in the Gateway's `AgentService` and in `LocalAgentHandlers`. Local mode gets a keyed queue per agent at its runtime, as the daemon core has. The daemon's `accepted` receipt and local mode's turn record are both written from the runner's `accepted` callback, before any held activity is published.
 

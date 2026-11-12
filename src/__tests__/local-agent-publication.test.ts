@@ -214,7 +214,7 @@ describe("local publication", () => {
 			running: null,
 			turns: [{ id: "turn-1", state: "completed", finalResponse: "done" }],
 		});
-		expect(h.notices).toEqual([{ kind: "done", family: "codex", agentId: started.agentId, outcome: "completed" }]);
+		expect(h.notices).toEqual([{ kind: "done", backend: "codex", agentId: started.agentId, outcome: "completed" }]);
 	});
 
 	it("projects local activity into the shared agent list row", async () => {

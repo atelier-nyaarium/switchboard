@@ -68,18 +68,18 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 	let baselineDue: ((team: string) => void) | undefined;
 	let restartPending: ((team: string, pending: boolean) => void) | undefined;
 	let hostRegisterPass: Promise<void> = Promise.resolve();
-	let hostFamilyPass: Promise<void> = Promise.resolve();
+	let hostAgentPass: Promise<void> = Promise.resolve();
 	let hostRegisterSocket: object | undefined;
 	let hostFamilyReady = true;
-	type HostFamilyFrame = { socket: object; backend: AgentBackendId; message: Record<string, unknown> };
-	let pendingHostFrames: HostFamilyFrame[] = [];
+	type HostAgentFrame = { socket: object; backend: AgentBackendId; message: Record<string, unknown> };
+	let pendingHostFrames: HostAgentFrame[] = [];
 	const relays = [...agents.stacks.values()].map((stack) => stack.relay);
-	const applyHostFrame = async (frame: HostFamilyFrame): Promise<void> => {
+	const applyHostFrame = async (frame: HostAgentFrame): Promise<void> => {
 		if (host.readLiveness().socket !== frame.socket) return;
 		await agents.stacks.get(frame.backend)?.relay.handleHostMessage(frame.message);
 	};
 	const queueHostFrame = (
-		backend: HostFamilyFrame["backend"],
+		backend: HostAgentFrame["backend"],
 		message: Record<string, unknown>,
 		socket: object,
 	): void => {
@@ -90,7 +90,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			pendingHostFrames.push(frame);
 			return;
 		}
-		hostFamilyPass = hostFamilyPass.then(() => applyHostFrame(frame));
+		hostAgentPass = hostAgentPass.then(() => applyHostFrame(frame));
 	};
 	// Built here because it needs the registry this stage owns, and the socket handler settles onto it.
 	const workspacePlane = createWorkspacePlane({
@@ -129,16 +129,16 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 				host.wakeCoordinator.failAll();
 				hostRegisterSocket = ws;
 				hostFamilyReady = false;
-				const frames: HostFamilyFrame[] = [];
+				const frames: HostAgentFrame[] = [];
 				pendingHostFrames = frames;
 				workflows.hostRegistering();
 				hostRegisterPass = Promise.all(relays.map((relay) => relay.onHostRegister())).then(() => undefined);
-				hostFamilyPass = hostRegisterPass.then(async () => {
+				hostAgentPass = hostRegisterPass.then(async () => {
 					if (host.readLiveness().socket !== ws) return;
 					while (frames.length > 0) await applyHostFrame(frames.shift()!);
 					if (hostRegisterSocket === ws) hostFamilyReady = true;
 				});
-				void hostFamilyPass.then(() => {
+				void hostAgentPass.then(() => {
 					if (host.readLiveness().socket !== ws) return;
 					workflows.hostRegistered();
 					host.pushPresenceWatch(true);
@@ -167,7 +167,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		onCatalogChange: (daemonInstanceId) => {
 			sessions.presence.markDirty();
 			const socket = hostRegisterSocket;
-			void hostFamilyPass.then(async () => {
+			void hostAgentPass.then(async () => {
 				const live = host.readLiveness();
 				if (!socket || live.socket !== socket || live.daemonInstanceId !== daemonInstanceId) return;
 				await Promise.all(relays.map((relay) => relay.resendRequested(daemonInstanceId)));
@@ -178,7 +178,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		onDaemonCapabilities: (capabilities) => stores.daemonCapabilityStore.declare(capabilities),
 		onAgentHostMessage: (backend, msg, socket) => queueHostFrame(backend, msg, socket),
 		onClaudeTurnResult: (frame: ClaudeTurnResultFrame, socket) =>
-			hostFamilyPass.then(() => {
+			hostAgentPass.then(() => {
 				if (host.readLiveness().socket !== socket) return;
 				return workflows.claudeTurnResult(frame);
 			}),

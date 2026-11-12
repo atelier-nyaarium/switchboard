@@ -187,15 +187,17 @@ differs by CLI reads it. Behavior that belongs to one process sits beside that p
 keyed by a row field's value: `LAUNCH` in `hostResolve.ts`, `ROADS` in `sessionLaunch.ts`,
 `TRANSPORTS` in the plugin's `helpers.ts`, `RESTART_SIGNALS` in `agent-screen.ts`. A new CLI, or a new value of a field, stops the
 build until each is handled. The phone reads the same rows through the generated
-`proto/HarnessRegistry.kt`.
+`proto/HarnessRegistry.kt`. A row also says whether the assistant may run on its CLI (`assistant`);
+OpenCode's says no.
 
 **A session's CLI is fixed at create and named everywhere.** Every record carries `harness`, and every
 door that creates one names it. It rides the register frame, the wake, the `presence_watch` entry and
 the presence row.
 
-**A CLI word off a wire or a file is read one way.** `readHarness` answers named, unnamed or unknown,
-and `foldHarness` makes each reader say what it does with each. Unnamed is an older sender and reads
-as Claude until its dated removal. Unknown is a newer build's CLI: a launch is refused, a stored record
+**A CLI word off a wire or a file is read one way.** `readHarness` answers named, unnamed, unpicked
+or unknown, and `foldHarness` makes each reader say what it does with each. Unnamed is an older sender
+and reads as Claude until its dated removal. Unpicked is a blank word: the place's only CLI once it
+reports, and a refusal naming them when it has several. Unknown is a newer build's CLI: a launch is refused, a stored record
 is held unread and written back untouched, and the phone passes the word back uninterpreted.
 
 **The row owns a session id's shape.** A CLI keeps its own id, or starts and resumes under one the
@@ -211,7 +213,9 @@ channel notification or typed text. On the API road the plugin does all of it ag
 local server, and no pane reader runs. `paneRoad` narrows a row to the pane-only facts.
 
 **One launch road serves a wake and a create** (`mcp/devcontainer/sessionLaunch.ts`). Its readiness
-is a table by road: a screen read, or the launcher's status file.
+is a table by road: a screen read, or the launcher's status file. Only the daemon's launch lane
+(`launchLane.ts`) runs it: one queue per physical pane, with a Stop and a kill ordered on the same
+queue.
 
 **A plugin-read session reports its own state.** Its `session_presence` frame carries the fields its
 API yields, the Gateway takes the team from the socket and never the frame, and both ingresses end in
@@ -258,9 +262,10 @@ so none outlives its pane.
 reads its status every 5 seconds and reconnects one that reads `failed`. A wake therefore keeps a pane
 whose launcher runs, since no registration there is a plugin reconnecting.
 
-**A launch status is only as live as its pid.** The launcher writes `starting`, `ready` or `failed`
-with its own pid, and `failed` the moment its server or terminal UI goes, since the UI reconnects to a
-dead server forever. A wake relaunches on a dead pid or `failed`. The launcher removes only a status
+**A launch status is only as live as its pid.** The launcher writes `starting`, `ready`, `failed` or
+`exited` with its own pid: `failed` the moment its server goes, since the UI reconnects to a dead
+server forever, and `exited` with the UI's exit code when the UI leaves. A wake relaunches on a dead
+pid, `failed` or `exited`. The launcher removes only a status
 it still owns, so a relaunch's status survives the old launcher's exit.
 
 **Nothing secret is on a command line.** The URL and password reach the plugin through a file only the
@@ -270,7 +275,9 @@ when the launcher exits. The daemon learns neither; it polls the launcher's stat
 **The plugin follows the server's event stream** (`mcp/opencode/`). The stream is volatile and a local
 server keeps no replayable log, so every connection rebuilds from three reads before it reports: the
 active sessions, the pending permissions, and the newest message rows. A turn reads as working from
-its first step, since a repeated prompt id opens an execution with none.
+its first step, since a repeated prompt id opens an execution with none. A view rebuilt from those
+reads is the exception: it reads any running execution as working, since the rows are not read for
+a step.
 
 **The plugin posts its own baseline.** For each finished compaction the follower names, after every
 read and on each live end, the session fetches the baseline from the Gateway, as Claude's compact hook

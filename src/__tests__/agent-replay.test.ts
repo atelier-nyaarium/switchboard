@@ -123,7 +123,7 @@ describe("fingerprint identity", () => {
 		expect(agentFingerprintVerdict(stored, { kind: "start", agentId: "a", prompt: "tampered" })).toBe("mismatch");
 	});
 
-	it("a family with a legacy era answers unverifiable rather than tampered", () => {
+	it("a record with a legacy era answers unverifiable rather than tampered", () => {
 		// Legacy model-less spellings cannot distinguish tampering.
 		const stored = agentOperationFingerprint("start", "a", "original");
 		expect(

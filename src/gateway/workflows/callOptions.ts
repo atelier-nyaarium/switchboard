@@ -55,7 +55,7 @@ const AGENT_SCHEMAS = new Map<AgentBackendId, z.ZodType>(
 	AGENT_BACKENDS.map((backend) => [backend.id, agentCallOptions(backend)]),
 );
 
-function familySchema(backend: WorkflowBackend): z.ZodType {
+function optionsSchema(backend: WorkflowBackend): z.ZodType {
 	const schema = backend === "claude" ? ClaudeCallOptionsSchema : AGENT_SCHEMAS.get(backend);
 	if (!schema) throw new Error(`unknown backend ${backend}`);
 	return schema;
@@ -79,9 +79,9 @@ export function parseCallOptions(
 ): { backend: WorkflowBackend; options: WorkflowCallOptions } {
 	const parsed = WorkflowCallOptionsSchema.parse(raw ?? {});
 	const backend = parsed.backend ?? defaultBackend;
-	const family = familySchema(backend).safeParse(parsed);
-	if (!family.success) throw new Error(family.error.issues[0]?.message ?? "invalid backend options");
-	return { backend, options: family.data as WorkflowCallOptions };
+	const checked = optionsSchema(backend).safeParse(parsed);
+	if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? "invalid backend options");
+	return { backend, options: checked.data as WorkflowCallOptions };
 }
 
 export const threadOptionsOf = (backend: WorkflowBackend, options: WorkflowCallOptions): ThreadOptions => ({

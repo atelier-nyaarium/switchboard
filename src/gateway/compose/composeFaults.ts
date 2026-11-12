@@ -73,7 +73,7 @@ export function composeFaults({
 			const owner = sessions.sessionStore.getByTeam(team);
 			if (!owner) return [];
 			return sessions.sessionStore.everyAgent(owner).map(({ backend, agent }) => ({
-				family: backend,
+				backend,
 				agentId: agent.agentId,
 				...(agent.runId === undefined ? {} : { runId: agent.runId }),
 				state: agent.agentState,

@@ -51,9 +51,11 @@ A delegated agent's model is a field on the request, never an environment variab
 ## OpenCode session
 
 `SWITCHBOARD_OPENCODE_SERVER` names the file its launcher leaves the plugin: the session's own
-server URL, password and session id. The launcher sets it in the MCP server's environment and removes
-the file when it exits. `OPENCODE_PASSWORD`, `OPENCODE_CONFIG_CONTENT` and
+server URL, password, session id and working directory. The launcher sets it in the MCP server's
+environment and removes the file when it exits. `OPENCODE_PASSWORD`, `OPENCODE_CONFIG_CONTENT` and
 `OPENCODE_CLI_CONFIG_CONTENT` are OpenCode's own, set by the launcher for its server and terminal UI.
+`XDG_STATE_HOME`, when set, is where the launcher reads OpenCode's `model.json` for a new session's
+model; otherwise `~/.local/state`.
 
 ## Askpass helper
 

@@ -73,7 +73,7 @@ export function retiredGeneration(current: AgentFence | undefined, next: AgentFe
 	);
 }
 
-/** Adopts another stream; an older generation of the same one is stale. */
+/** Follows another stream; an older generation of the same one is stale. */
 export function classifyReconciliationFence(
 	current: AgentFence | undefined,
 	next: AgentFence,

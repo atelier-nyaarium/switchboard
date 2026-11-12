@@ -99,7 +99,7 @@ duplicates, and they are acknowledged with the restored catalog's durability unc
 
 ## Workflow backends
 
-Workflow Codex calls use the Codex App Server family; Copilot calls use its headless CLI family
+Workflow Codex calls use the Codex App Server stack; Copilot calls use its headless CLI stack
 described below. Claude runs as a daemon-managed `claude -p` process for each turn; a named workflow
 thread resumes its Claude session id. `createClaudeSteps` in
 `src/gateway/workflows/claudeSteps.ts` owns Gateway turn handling, and `createClaudeRunner` in

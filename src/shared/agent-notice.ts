@@ -11,13 +11,13 @@ import { neutralizeMarkup, oneLine } from "./system-reminder.js";
 export type AgentNotice =
 	| {
 			kind: "progress";
-			family: AgentBackendId;
+			backend: AgentBackendId;
 			agentId: string;
 			minutes: number;
 			notes: readonly string[];
 			counts: AgentProgressCounts;
 	  }
-	| { kind: "done"; family: AgentBackendId; agentId: string; outcome: string };
+	| { kind: "done"; backend: AgentBackendId; agentId: string; outcome: string };
 
 export interface WorkflowNoticeText {
 	runId: string;
@@ -70,7 +70,7 @@ export function progressCheckupLine(counts: AgentProgressCounts, latest: string)
 }
 
 export function agentNoticeLine(notice: AgentNotice): string {
-	const agent = `${agentBackend(notice.family).displayName} agent \`${escaped(notice.agentId)}\``;
+	const agent = `${agentBackend(notice.backend).displayName} agent \`${escaped(notice.agentId)}\``;
 	if (notice.kind === "done") {
 		return `${agent} finished its turn: ${escaped(notice.outcome)}. Call \`${AGENT_COLLECT_TOOL}\` with its agentId for the result.`;
 	}

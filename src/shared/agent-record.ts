@@ -234,9 +234,7 @@ export function agentActivityIssues(activities: ReadonlyArray<AgentActivityView>
  * notice reports what it is doing now, and the marker counts the older items dropped.
  *
  * The SOLE producer of a stored activity array. `agentActivityIssues` validates the shape this
- * builds, and the two lived apart while each backend wrote its own builder - one of them against a
- * hardcoded 32 rather than the shared bound, so raising the bound would have moved one and not the
- * other. `agent-replay.test.ts` fails the build on a second builder.
+ * builds, and `agent-replay.test.ts` fails the build on a second builder.
  */
 export function appendAgentActivity(
 	existing: readonly AgentStoredActivity[],

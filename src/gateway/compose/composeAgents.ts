@@ -23,7 +23,7 @@ export interface AgentsStageDeps {
 
 export type TurnsCollected = (
 	ownerKey: string,
-	family: AgentBackendId,
+	backend: AgentBackendId,
 	agentId: string,
 	turnIds: readonly string[],
 ) => void;
@@ -37,7 +37,7 @@ export interface AgentsStage {
 	/** Ends every relay's watch over held frames. */
 	stopRelays: () => void;
 	/** False means marking failed. */
-	markTurnNotified: (ownerKey: string, family: AgentBackendId, agentId: string, turnId: string) => boolean;
+	markTurnNotified: (ownerKey: string, backend: AgentBackendId, agentId: string, turnId: string) => boolean;
 	onTurnsCollected: (listener: TurnsCollected) => void;
 	createWorkflowDispatch: (runner: WorkflowRunner) => WorkflowAgentDispatch;
 }
@@ -90,7 +90,7 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 					.filter((agent) => agent.runId === undefined)
 					.map((agent) => ({
 						ownerKey,
-						family: stack.backend.id,
+						backend: stack.backend.id,
 						agentId: agent.agentId,
 						agentState: agent.agentState,
 						turns: agent.turns.map((turn) => ({
@@ -118,9 +118,9 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 				(counts, stack) => addAgentProgressCounts(counts, stack.relay.progressForRun(runId)),
 				emptyAgentProgressCounts(),
 			),
-		markTurnNotified: (ownerKey, family, agentId, turnId) => {
+		markTurnNotified: (ownerKey, backend, agentId, turnId) => {
 			const owner = sessions.sessionStore.getByTeam(ownerKey);
-			return owner !== undefined && (stacks.get(family)?.markTurnNotified(owner, agentId, turnId) ?? false);
+			return owner !== undefined && (stacks.get(backend)?.markTurnNotified(owner, agentId, turnId) ?? false);
 		},
 		onTurnsCollected: (listener) => {
 			collectedListener = listener;

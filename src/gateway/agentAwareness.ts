@@ -21,7 +21,7 @@ import type { AwarenessObservation, AwarenessSubscriber } from "../shared/awaren
 /** One agent as the catalogs hold it, read fresh each tick. */
 export interface RosterAgent {
 	ownerKey: string;
-	family: AgentBackendId;
+	backend: AgentBackendId;
 	agentId: string;
 	runId?: string;
 	agentState: string;
@@ -45,7 +45,7 @@ export interface AgentWatch {
 
 /** Pushes progress; marks completions. */
 export function createAgentAwarenessSubscriber(
-	markNotified: (sessionKey: string, family: AgentBackendId, agentId: string, turnId: string) => void,
+	markNotified: (sessionKey: string, backend: AgentBackendId, agentId: string, turnId: string) => void,
 ): AwarenessSubscriber<AgentNotice> {
 	return {
 		source: AGENT_NOTICE_SOURCE,
@@ -55,13 +55,13 @@ export function createAgentAwarenessSubscriber(
 			changes.flatMap((change) => (change.post ? [agentNoticeLine(change.post)] : [])).join("\n\n"),
 		delivered: (sessionKey, change) => {
 			if (change.post?.kind !== "done") return;
-			markNotified(sessionKey, change.post.family, change.post.agentId, turnOfIdentity(change.identity));
+			markNotified(sessionKey, change.post.backend, change.post.agentId, turnOfIdentity(change.identity));
 		},
 	};
 }
 
-export function agentTurnIdentity(family: AgentBackendId, agentId: string, turnId: string): string {
-	return `${family}:${agentId}:${turnId}`;
+export function agentTurnIdentity(backend: AgentBackendId, agentId: string, turnId: string): string {
+	return `${backend}:${agentId}:${turnId}`;
 }
 
 function turnOfIdentity(identity: string): string {
@@ -90,7 +90,7 @@ export function createAgentWatch(deps: {
 				const lost = agent.agentState === "unavailable";
 				for (const turn of agent.turns) {
 					// Per turn, so two quick completions stay two notices.
-					const identity = agentTurnIdentity(agent.family, agent.agentId, turn.id);
+					const identity = agentTurnIdentity(agent.backend, agent.agentId, turn.id);
 					const key = `${agent.ownerKey}\n${identity}`;
 					present.add(key);
 					const settled = turn.state !== "inProgress";
@@ -100,7 +100,7 @@ export function createAgentWatch(deps: {
 						const outcome = settled ? turn.state : agent.agentState;
 						const post: AgentNotice = {
 							kind: "done",
-							family: agent.family,
+							backend: agent.backend,
 							agentId: agent.agentId,
 							outcome,
 						};
@@ -119,7 +119,7 @@ export function createAgentWatch(deps: {
 					held.lastCounts = currentCounts;
 					const post: AgentNotice = {
 						kind: "progress",
-						family: agent.family,
+						backend: agent.backend,
 						agentId: agent.agentId,
 						minutes: Math.round((now - held.since) / 60_000),
 						notes: turn.notes,

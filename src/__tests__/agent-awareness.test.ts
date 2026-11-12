@@ -9,7 +9,7 @@ function harness(roster: RosterAgent[], start = 100, everyMs = 10) {
 	const clock = { now: start };
 	const notices: AgentNotice[] = [];
 	const lines: string[] = [];
-	const subscriber = createAgentAwarenessSubscriber((_sessionKey, _family, agentId, turnId) => {
+	const subscriber = createAgentAwarenessSubscriber((_sessionKey, _backend, agentId, turnId) => {
 		const held = roster.find((candidate) => candidate.agentId === agentId);
 		if (held) held.turns = held.turns.map((turn) => (turn.id === turnId ? { ...turn, notified: true } : turn));
 	});
@@ -28,8 +28,8 @@ function harness(roster: RosterAgent[], start = 100, everyMs = 10) {
 	return { clock, notices, lines, watch, done };
 }
 
-function agent(agentId: string, family: "codex" | "copilot", agentState: string, turns: Turn[]) {
-	return { ownerKey: "owner", family, agentId, agentState, turns: marked(turns) } as RosterAgent;
+function agent(agentId: string, backend: "codex" | "copilot", agentState: string, turns: Turn[]) {
+	return { ownerKey: "owner", backend, agentId, agentState, turns: marked(turns) } as RosterAgent;
 }
 
 function marked(turns: Turn[]): RosterAgent["turns"] {
@@ -70,8 +70,8 @@ describe("agent awareness", () => {
 		watch.tick();
 
 		expect(done()).toEqual([
-			{ kind: "done", family: "codex", agentId: "codex-running", outcome: "completed" },
-			{ kind: "done", family: "copilot", agentId: "copilot-running", outcome: "unavailable" },
+			{ kind: "done", backend: "codex", agentId: "codex-running", outcome: "completed" },
+			{ kind: "done", backend: "copilot", agentId: "copilot-running", outcome: "unavailable" },
 		]);
 		expect(lines.join("\n")).toContain("agentCollect");
 	});
@@ -89,7 +89,7 @@ describe("agent awareness", () => {
 		const restarted = harness([codex], 200);
 		restarted.watch.tick();
 
-		expect(done()).toEqual([{ kind: "done", family: "codex", agentId: "codex-a", outcome: "completed" }]);
+		expect(done()).toEqual([{ kind: "done", backend: "codex", agentId: "codex-a", outcome: "completed" }]);
 		expect(restarted.done()).toEqual([]);
 	});
 
@@ -124,7 +124,7 @@ describe("agent awareness", () => {
 		codex.agentState = "idle";
 		codex.turns = marked([{ id: "t1", state: "completed", updatedAt: 130, notes: [] }]);
 		watch.tick();
-		expect(done()).toEqual([{ kind: "done", family: "codex", agentId: "codex-a", outcome: "completed" }]);
+		expect(done()).toEqual([{ kind: "done", backend: "codex", agentId: "codex-a", outcome: "completed" }]);
 	});
 
 	it("reports only counters since the previous ten-minute checkup", () => {

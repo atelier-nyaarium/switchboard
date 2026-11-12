@@ -384,7 +384,7 @@ export class LocalAgentHandlers {
 			if (turn.state !== "inProgress") return;
 			notify({
 				kind: "progress",
-				family: this.host.spec.backendId,
+				backend: this.host.spec.backendId,
 				agentId: agent.agentId,
 				minutes: Math.round((this.host.now() - since) / 60_000),
 				notes: [...turn.commentary],
@@ -412,7 +412,7 @@ export class LocalAgentHandlers {
 		this.host.markUsed(turn.updatedAt);
 		this.host.spec.notify?.({
 			kind: "done",
-			family: this.host.spec.backendId,
+			backend: this.host.spec.backendId,
 			agentId: agent.agentId,
 			outcome: turn.state,
 		});

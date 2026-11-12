@@ -63,7 +63,7 @@ export interface GatewayFaultPort {
 	workflowRecord(runId: string): WorkflowRunRecord | null;
 	workflowRows(runId: string): WorkflowJournalRow[];
 	workflowAgents(team: string): Array<{
-		family: AgentBackendId;
+		backend: AgentBackendId;
 		agentId: string;
 		runId?: string;
 		state: string;
