@@ -496,6 +496,13 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 		thread.active = adopted;
 	};
 
+	/** Undefined while the server runs the turn. Rows are read last, so an end the active read saw is in them. */
+	const endedNow = async (threadId: string, turnId: string): Promise<OpencodeTerminal | undefined> => {
+		const running = (await readActive()).has(threadId);
+		const turns = turnsOf(await readRows(threadId, turnId));
+		return turnById(turns, turnId)?.idle || !running ? endOf(turns, turnId) : undefined;
+	};
+
 	const withdrawAndReject = async (thread: ThreadState, promptId: string, waiter: SteerWaiter): Promise<void> => {
 		if (thread.waiters.get(promptId) !== waiter) return;
 		thread.waiters.delete(promptId);
@@ -503,10 +510,7 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 			// A turn that still runs is left running: a long step takes no prompt until it ends.
 			let ended: OpencodeTerminal | undefined;
 			try {
-				// Rows are read last, so an end the active read saw is in them.
-				const running = (await readActive()).has(thread.id);
-				const turns = turnsOf(await readRows(thread.id, waiter.turnId));
-				if (turnById(turns, waiter.turnId)?.idle || !running) ended = endOf(turns, waiter.turnId);
+				ended = await endedNow(thread.id, waiter.turnId);
 			} catch {
 				// Unread: the next stream connection settles it.
 			}
@@ -748,16 +752,16 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 				}
 				continue;
 			}
-			if (!thread.active) continue;
-			// Read again: the turn may have ended after the first read.
-			let latest: TurnRows[];
+			const held = thread.active;
+			if (!held) continue;
+			let ended: OpencodeTerminal | undefined;
 			try {
-				latest = turnsOf(await readRows(thread.id, thread.active.turnId));
+				ended = await endedNow(thread.id, held.turnId);
 			} catch {
 				continue;
 			}
 			if (signal.aborted) return;
-			if (thread.active) settle(thread, thread.active, endOf(latest, thread.active.turnId));
+			if (ended) settle(thread, held, ended);
 		}
 		for (const event of buffered.splice(0)) apply(event);
 	};
