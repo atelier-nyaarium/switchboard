@@ -64,6 +64,7 @@ const UNKNOWN: TurnInspection = { known: "unknown" };
 ////////////////////////////////
 //  Class
 
+/** One driver session's turns, run the same way by the daemon and by local mode. */
 export class TurnRunner<Owner> {
 	private readonly threads = new Set<string>();
 	private readonly active = new Map<string, ActiveTurn<Owner>>();

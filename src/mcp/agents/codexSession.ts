@@ -49,6 +49,7 @@ function framedTurn(message: { params?: unknown }): { threadId: string; turnId: 
 ////////////////////////////////
 //  Class
 
+/** Codex's driver, over its App Server client. */
 export class CodexBackendSession implements AgentBackendSession {
 	private readonly threads = new Map<string, true>();
 	private readonly turns: CodexTurns;

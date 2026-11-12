@@ -58,6 +58,7 @@ const OPERATION_LEDGER_MAX_ENTRIES = 1_000;
 ////////////////////////////////
 //  Class
 
+/** What every agent daemon shares: which generation serves a target, and the stream back to the Gateway. */
 export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 	private readonly sessions = new Map<string, TSession>();
 	private readonly opening = createSingleFlight<string, TSession | null>();

@@ -94,6 +94,7 @@ export interface LocalListAgent {
 	updatedAt: number;
 }
 
+/** Local mode's lease, operation claim and per-agent queue. */
 export class LocalAgentRuntime {
 	private readonly ledger: LocalOperationLedger;
 	private readonly child: LocalChildSession;

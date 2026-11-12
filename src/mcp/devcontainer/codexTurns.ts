@@ -92,6 +92,7 @@ function counterKind(type: string): AgentCounterKind | undefined {
 ////////////////////////////////
 //  Class
 
+/** A Codex turn from its first frame to its end. Parking its thread is `ThreadLifecycle`. */
 export class CodexTurns {
 	private readonly turns = new Map<string, Turn>();
 	/** Oldest first. */

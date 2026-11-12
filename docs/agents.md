@@ -160,7 +160,9 @@ unwritten step.
 
 **The daemon says what its outbox dropped.** Past 1,000 unacknowledged frames on a stream it evicts
 the oldest and counts it, and every hello carries the counts. The Gateway asks about each working
-agent on such a target, whose terminal may be among them.
+agent on such a target, whose terminal may be among them. An agent still starting has no target
+yet, so it is remembered and asked about once, when its acceptance opens its turn; an ask that does
+not get out goes at the next persist tick.
 
 **An uncertain delivery has one rule, `uncertainDeliveryState`.** A refused or unconfirmed start leaves
 the agent unavailable, a prompt leaves it recovering, and a refused stop leaves it as it was. The

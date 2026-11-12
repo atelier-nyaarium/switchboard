@@ -78,6 +78,7 @@ function errorText(error: unknown): string {
 	return sanitizeAgentErrorText(text, AGENT_ERROR_MAX_BYTES) || `agent command failed`;
 }
 
+/** Local mode's agent records, over a `TurnRunner` per child. */
 export class LocalAgentHandlers {
 	private readonly agents = new Map<string, LocalAgentRecord>();
 	/** One runner and silence sweep per session. */

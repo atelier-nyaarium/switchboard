@@ -69,7 +69,7 @@ function unfencedKey(identity: FrameIdentity): string {
 ////////////////////////////////
 //  Class
 
-/** Undecided frames block acknowledgements. */
+/** A daemon frame's life at the Gateway, from arrival to acknowledgement. Undecided frames block acknowledgements. */
 export class AgentFrameLedger<P> {
 	private readonly streams = new Map<string, Stream<P>>();
 	private readonly unfenced = new Map<string, FrameTicket<P>>();

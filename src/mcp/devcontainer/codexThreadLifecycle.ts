@@ -70,6 +70,7 @@ const RETIRED_MEMORY = 256;
 ////////////////////////////////
 //  Class
 
+/** A Codex thread's requests in order, its terminals published once, and its parking. */
 export class ThreadLifecycle {
 	private readonly threads = new Map<string, ThreadRecord>();
 	/** One entry per retired thread, oldest retirement first. */

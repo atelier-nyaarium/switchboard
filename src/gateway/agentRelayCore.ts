@@ -156,6 +156,7 @@ function isFenced(message: AgentRelayFrame): message is FencedFrame {
 ////////////////////////////////
 //  Class
 
+/** The relay every backend runs: a daemon frame's reduction, its hold, the asks and the close. */
 export class AgentRelayCore<
 	TEvent extends AgentRelayFrame,
 	TReceipt extends AgentRelayReceipt,

@@ -60,6 +60,7 @@ const REAP_QUIET_MS = 600_000;
 ////////////////////////////////
 //  Class
 
+/** A backend's commands on the daemon wire, each run through its session's `TurnRunner`. */
 export class AgentDaemonService {
 	private readonly core: AgentDaemonCore<TargetSession>;
 	private readonly wire: ReturnType<typeof agentWire>;

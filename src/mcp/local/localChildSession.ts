@@ -12,6 +12,7 @@ export interface LocalChildHost {
 
 export const LOCAL_IDLE_REAP_MS = 10 * 60_000;
 
+/** Local mode's one child: open, idle reap, drop, shutdown. */
 export class LocalChildSession {
 	private session?: AgentBackendSession;
 	private opening?: Promise<AgentBackendSession>;
