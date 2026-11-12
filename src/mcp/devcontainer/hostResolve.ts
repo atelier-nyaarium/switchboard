@@ -39,7 +39,7 @@ export function scanDevcontainerProjects(): Array<{ team: string; projectPath: s
 	return scanProjectFolders().projects;
 }
 
-/** A folder whose name is no address segment is `unaddressable`, and never a project. */
+/** No address segment, no project. */
 export function scanProjectFolders(): {
 	projects: Array<{ team: string; projectPath: string }>;
 	unaddressable: string[];

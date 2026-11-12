@@ -41,7 +41,7 @@ export interface DevContainersDeps {
 	up: (projectPath: string, opts: ContainerUpOptions) => Promise<unknown>;
 	/** The CLIs installed inside. */
 	look: (project: string, signal?: AbortSignal) => Promise<SessionHarness[]>;
-	/** Each given CLI's plugins: whether an install landed, and which CLIs are set up. Never throws. */
+	/** Installs plugins. Never throws. */
 	provision: (
 		project: string,
 		installed: readonly SessionHarness[],
@@ -217,7 +217,7 @@ function reasonOf(err: unknown): string {
 	return firstLine(err instanceof Error ? err.message : String(err)) || "unknown failure";
 }
 
-/** `docker` on this machine; rejects with its last stderr line. */
+/** `docker` on this machine. */
 export function docker(args: string[], timeoutMs = DOCKER_TIMEOUT_MS, signal?: AbortSignal): Promise<string> {
 	return new Promise((resolve, reject) => {
 		execFile(
@@ -505,7 +505,7 @@ export class DevContainers {
 			fenced();
 			await this.refresh().catch((err) => console.error(`[containers] read failed: ${reasonOf(err)}`));
 			fenced();
-			// Read before the probe, so its answer is this container's.
+			// Read before the probe.
 			const id = known.get(project)?.id;
 			const installed = await this.look(project, controller.signal);
 			fenced();
@@ -518,18 +518,18 @@ export class DevContainers {
 		}
 	}
 
-	/**
-	 * Each found CLI not yet set up in this container incarnation; a success is kept, a failure retried.
-	 * `unready` are the CLIs still without their plugins.
-	 */
+	/** CLIs still without plugins. */
 	private async provisionPending(
 		project: string,
 		id: string | undefined,
 		installed: readonly SessionHarness[],
 		signal: AbortSignal,
 	): Promise<{ landed: boolean; unready: SessionHarness[] }> {
-		// Replaced during the probe: the list is another container's.
-		if (!id || known.get(project)?.id !== id) return { landed: false, unready: [] };
+		// No id to remember under: check every CLI now.
+		if (!id || known.get(project)?.id !== id) {
+			const { landed, ready } = await this.deps.provision(project, [...installed], signal);
+			return { landed, unready: installed.filter((harness) => !ready.includes(harness)) };
+		}
 		const pending = this.provisioned.pending(project, id, installed);
 		if (pending.length === 0) return { landed: false, unready: [] };
 		const { landed, ready } = await this.deps.provision(project, pending, signal);

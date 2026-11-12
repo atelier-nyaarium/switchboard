@@ -10,7 +10,7 @@ import type { LaunchSite } from "./sessionLaunch.js";
 ////////////////////////////////
 //  Interfaces & Types
 
-/** One command in a target's container, as its user; throws on a non-zero exit. */
+/** One command in a container; throws on failure. */
 export type PlaceExec = (target: Pick<TmuxTarget, "kind" | "name">, argv: string[]) => Promise<string>;
 
 export interface RuntimeCopy {
@@ -35,7 +35,7 @@ const STATUS_DIR = `${CACHE}/launch`;
 ////////////////////////////////
 //  Functions & Helpers
 
-/** A build's runtime in a container, by its version. */
+/** A build's runtime, by version. */
 export function containerRuntimeRoot(version: string): string {
 	if (!/^[0-9A-Za-z._-]+$/.test(version)) throw new Error(`refusing a runtime version "${version.slice(0, 32)}"`);
 	return `${CACHE}/runtime/${version}`;
@@ -56,7 +56,7 @@ export function containerLaunchSite(version: string, exec: PlaceExec): LaunchSit
 	};
 }
 
-/** Copies the daemon's runtime into a container, unless that version is whole there. */
+/** Copies the runtime into a container. */
 export async function placeRuntime(copy: RuntimeCopy): Promise<"present" | "copied"> {
 	const root = containerRuntimeRoot(copy.version);
 	const present = await copy.exec(["test", "-f", `${root}/package.json`]).then(
@@ -64,7 +64,7 @@ export async function placeRuntime(copy: RuntimeCopy): Promise<"present" | "copi
 		() => false,
 	);
 	if (present) return "present";
-	// A copy cut short starts over; a nested part needs its folder first.
+	// A cut copy starts over.
 	const folders = PLUGIN_ROOT_PARTS.map((part) => path.posix.join(root, path.posix.dirname(part)));
 	await copy.exec(["sh", "-c", 'rm -rf "$1" && shift && mkdir -p "$@"', "sh", root, ...new Set(folders)]);
 	for (const part of PLUGIN_ROOT_PARTS) {
@@ -73,7 +73,7 @@ export async function placeRuntime(copy: RuntimeCopy): Promise<"present" | "copi
 	return "copied";
 }
 
-/** `placeRuntime`, one at a time per container and version: a second `docker cp` into one folder nests it. */
+/** One at a time per container and version: a second `docker cp` nests the folder. */
 export function createRuntimePlacer(): (copy: RuntimeCopy) => Promise<"present" | "copied"> {
 	const flights = createSingleFlight<string, "present" | "copied">();
 	return (copy) => flights.run(`${copy.container}:${copy.version}`, () => placeRuntime(copy));

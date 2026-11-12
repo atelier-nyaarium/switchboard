@@ -113,7 +113,7 @@ export function runInPlace(
 	return execInPlace(target, ["bash", "-c", `source ~/.bashrc >/dev/null 2>&1; ${script}`], timeoutMs);
 }
 
-/** One command where the target's panes run; throws on a non-zero exit or an abort. */
+/** One command where the panes run. */
 export function execInPlace(
 	target: Pick<TmuxTarget, "kind" | "name">,
 	argv: string[],
@@ -304,7 +304,7 @@ export function typeIntoPane(
 		if (!typeable.trim()) return { typed: true };
 		while (Date.now() < deadline) {
 			const screen = (await peekPane(target, false)).ansi;
-			// A signed-out CLI shows a composer it never reads.
+			// A signed-out composer is dead.
 			if (isLoggedOut(screen)) return { typed: false, reason: "busy" };
 			if (
 				Date.now() < deadline &&

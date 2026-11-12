@@ -514,11 +514,11 @@ async function placeContainerRuntime(project: string, signal?: AbortSignal): Pro
 const placeRuntime = createRuntimePlacer();
 
 const RUNTIME_COPY_MS = 60_000;
-// Bounded inside the container too, so a killed client leaves no install running.
+// Bounded inside the container too.
 const PROVISION_INSIDE_S = 300;
 const PROVISION_MS = (PROVISION_INSIDE_S + 10) * 1000;
 
-/** One provisioning script in a container, with the launch's shell setup. */
+/** One provisioning script with shell setup. */
 function provisionScript(project: string, script: string, signal: AbortSignal): Promise<boolean> {
 	const argv = ["timeout", String(PROVISION_INSIDE_S), "bash", "-c", `source ~/.bashrc >/dev/null 2>&1; ${script}`];
 	return execInPlace({ kind: "devcontainer", name: project }, argv, PROVISION_MS, signal).then(

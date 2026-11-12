@@ -429,7 +429,7 @@ export function createConsolePushOps({
 		return jsonResponse({ delivered: true });
 	}
 
-	/** A failed launch alerts; one that came up posts nothing, the roster says it. */
+	/** Only a failed launch alerts. */
 	function tellOwnerLaunch(
 		team: string,
 		outcome: { up: true } | { failure: LaunchFailure },

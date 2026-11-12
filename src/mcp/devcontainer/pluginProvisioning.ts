@@ -1,16 +1,16 @@
 import { HARNESS, type SessionHarness } from "../../shared/session-harness.js";
 
-/** Bash run inside the container; true when it exits 0. Never throws. */
+/** Bash in a container; true on exit 0. Never throws. */
 export type ContainerScript = (script: string) => Promise<boolean>;
 
 export interface Provisioned {
 	/** Any install landed. */
 	landed: boolean;
-	/** Each CLI whose own check now passes, or that needs nothing. */
+	/** CLIs now set up, or needing nothing. */
 	ready: SessionHarness[];
 }
 
-/** Which CLIs each container incarnation has set up; a failure or a CLI found later stays pending. */
+/** Which CLIs each incarnation set up. */
 export function createProvisionLedger() {
 	const held = new Map<string, { id: string; ready: Set<SessionHarness> }>();
 	const entry = (project: string, id: string) => {
@@ -30,10 +30,7 @@ export function createProvisionLedger() {
 	};
 }
 
-/**
- * Installs each found CLI's plugins its own way, and judges it by the row's own check. A CLI already
- * set up, or one that needs none, is left alone.
- */
+/** Installs plugins, judged by each CLI's own check. */
 export async function provisionPlugins(
 	found: readonly SessionHarness[],
 	run: ContainerScript,

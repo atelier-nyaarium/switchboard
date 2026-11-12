@@ -8,7 +8,7 @@ const POLL_MS = 2_000;
 /** Seeds the state at attach. */
 const TAIL_BYTES = 64 * 1024;
 const READ_CHUNK_BYTES = 256 * 1024;
-/** Per poll; the rest is read on the next. */
+/** Per poll. */
 const POLL_READ_BYTES = 192 * 1024;
 /** A longer line carries nothing we read. */
 const CARRY_MAX_BYTES = 1024 * 1024;
@@ -25,7 +25,7 @@ export interface CompactionFollow {
 	place: Pick<TmuxTarget, "kind" | "name">;
 }
 
-/** One session's events file, where it lives. */
+/** One session's events file. */
 export interface EventsFile {
 	/** Null while absent or unreadable. */
 	size(): Promise<number | null>;
@@ -34,7 +34,7 @@ export interface EventsFile {
 }
 
 export interface CompactionFollower {
-	/** Replaces the followed set; a dropped team stops. */
+	/** Replaces the followed set. */
 	setFollows(entries: CompactionFollow[]): Promise<void>;
 	/** One read of every followed file. Also the test entry. */
 	poll(): Promise<void>;
@@ -46,7 +46,7 @@ interface FollowState {
 	file: EventsFile;
 	/** Seeded from the tail. */
 	attached: boolean;
-	/** Absent or cut since; the next read seeds from the tail. */
+	/** Absent or cut; reseed next read. */
 	reset: boolean;
 	offset: number;
 	carry: string;
@@ -101,7 +101,7 @@ export function localEventsFile(file: string): EventsFile {
 	};
 }
 
-/** A file read through a command run where it lives. A failed command throws; only a missing file is absent. */
+/** A file read where it lives; only absence is null. */
 export function execEventsFile(exec: (argv: string[]) => Promise<string>, file: string): EventsFile {
 	return {
 		size: async () => {
@@ -112,7 +112,7 @@ export function execEventsFile(exec: (argv: string[]) => Promise<string>, file: 
 			if (!/^\d+$/.test(said)) throw new Error(`unreadable size for ${file}`);
 			return Number(said);
 		},
-		// One process, so a failed read is a failed command.
+		// One process: a failed read fails.
 		read: (start, end) =>
 			exec([
 				"dd",
@@ -126,7 +126,7 @@ export function execEventsFile(exec: (argv: string[]) => Promise<string>, file: 
 }
 
 export function createCompactionFollower(opts: {
-	/** The file's port for the place a follow runs in. */
+	/** The file's port, per place. */
 	file: (follow: CompactionFollow) => EventsFile;
 	onChange: (team: string, compacting: boolean) => void;
 	pollMs?: number;
@@ -141,7 +141,7 @@ export function createCompactionFollower(opts: {
 		opts.onChange(team, compacting);
 	};
 
-	/** The state as the file's tail says, from where appended bytes follow. */
+	/** Seeds from the tail, then follows. */
 	const seed = async (state: FollowState, size: number): Promise<void> => {
 		const start = Math.max(0, size - TAIL_BYTES);
 		const tail = await state.file.read(start, size);
@@ -160,7 +160,7 @@ export function createCompactionFollower(opts: {
 		state.attached = true;
 	};
 
-	// A read that throws changes nothing, so the offset holds.
+	// A failed read holds the offset.
 	const pollOne = async (team: string, state: FollowState): Promise<void> => {
 		const size = await state.file.size();
 		if (size === null) {
@@ -209,7 +209,7 @@ export function createCompactionFollower(opts: {
 			for (const [team, state] of follows) {
 				if (next.get(team)?.copilotSessionId === state.follow.copilotSessionId) continue;
 				follows.delete(team);
-				// A dropped follow can no longer say it ended.
+				// A dropped follow must end.
 				if (state.compacting) opts.onChange(team, false);
 			}
 			const attaching: Promise<void>[] = [];
@@ -227,7 +227,7 @@ export function createCompactionFollower(opts: {
 				follows.set(team, state);
 				attaching.push(
 					attach(state).catch(() => {
-						// Unreadable now; the next poll seeds from the tail.
+						// Unreadable now; the next poll reseeds.
 						state.reset = true;
 						state.attached = true;
 					}),

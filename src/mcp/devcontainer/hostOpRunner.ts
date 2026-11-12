@@ -52,7 +52,7 @@ export type PeekPriority = "interactive" | "derive";
 const MIN_PEEK_INTERVAL_MS = 300;
 const MAX_CONCURRENT_PEEKS = 6;
 const SEND_DEDUP_TTL_MS = 60_000;
-/** Past the last retry of one key. */
+/** Past one key's last retry. */
 const TYPED_DEDUP_TTL_MS = TYPED_GIVE_UP_MS + 2 * 60_000;
 /** Thrown so a joined flight's busy answer is not held. */
 const PANE_BUSY = Symbol("pane busy");

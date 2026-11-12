@@ -104,7 +104,7 @@ interface LaunchUnit {
 	/** A kill took the pane. */
 	preempted: boolean;
 	stage?: { stage: string; extra: Record<string, unknown> };
-	/** Its CLI once resolved, and the id it minted; a result repeats `cli_found`. */
+	/** Resolved CLI and minted id. */
 	resolved?: { harness: SessionHarness; sessionId?: string };
 	run(): Promise<void>;
 }
@@ -279,7 +279,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 
 	/** A wake's frame; `unit` is absent for a refusal at the door. */
 	function replyWake(taker: Taker, result: Settled, unit?: LaunchUnit): void {
-		// A lost `cli_found` must not leave the record without its CLI and id.
+		// Repeats a lost `cli_found`.
 		const id = { ...tag(taker.launchId), ...unit?.resolved };
 		if (!result.ok) {
 			deps.log(`failed to wake ${taker.team}: ${result.text}`);

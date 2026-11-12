@@ -54,7 +54,7 @@ export interface ApiRoad {
 
 /** Bash run in the container. */
 export interface PluginProvisioning {
-	/** Exits 0 once every plugin is in place. */
+	/** Exits 0 when all plugins are in. */
 	readonly installed: string;
 	/** Idempotent; `installed` judges it. */
 	readonly install: string;
@@ -125,7 +125,7 @@ const CLAUDE_SLASH: readonly SlashMacro[] = [
 	{ cmd: "/reload-plugins", autoSend: true },
 ];
 
-/** Every CLI's Switchboard plugins, from one marketplace. */
+/** Every CLI's plugins, one marketplace. */
 export const PLUGIN_SET = {
 	marketplace: "atelier-nyaarium",
 	source: "atelier-nyaarium/claude-marketplace",
@@ -135,7 +135,7 @@ export const PLUGIN_SET = {
 const PLUGINS = PLUGIN_SET.plugins.join(" ");
 const AT = `@${PLUGIN_SET.marketplace}`;
 
-/** Merged into the settings file the CLI wrote. */
+/** Merged into the CLI's settings. */
 const jqMerge = (file: string, patch: object) =>
 	`(cat ${file} 2>/dev/null || echo '{}') | jq '(if . == null then {} else . end) * ${JSON.stringify(patch)}' > ${file}.tmp && mv ${file}.tmp ${file}`;
 

@@ -54,7 +54,7 @@ export type SendRefusal = z.infer<typeof SendRefusalSchema>;
 
 export const LAUNCH_NOTICE_SOURCE = "launches";
 
-/** What an owner row says of a launch's end. */
+/** An owner row's launch end. */
 export const LAUNCH_ROWS = ["failed"] as const;
 export const LAUNCH_ROW_FAILED = "failed" satisfies (typeof LAUNCH_ROWS)[number];
 
@@ -126,7 +126,7 @@ export function ownerLaunchPhrase(failure: LaunchFailure): string {
 	}
 }
 
-/** `was` after "Stopped at <time>: ", `is` on a line of its own. */
+/** `was` after a time, `is` alone. */
 function ownerCliPhrase(refusal: CliRefusal, verb: "is" | "was"): string {
 	switch (refusal.cause) {
 		case "not_installed":
@@ -140,7 +140,7 @@ function ownerCliPhrase(refusal: CliRefusal, verb: "is" | "was"): string {
 	}
 }
 
-/** The owner's line for a launch that failed. A CLI's state reads in the present. */
+/** The owner's line for a failed launch. */
 export function ownerLaunchLine(failure: LaunchFailure): string {
 	const phrase = failure.kind === "cli" ? ownerCliPhrase(failure.refusal, "is") : ownerLaunchPhrase(failure);
 	return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;

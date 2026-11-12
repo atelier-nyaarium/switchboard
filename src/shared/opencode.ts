@@ -40,7 +40,7 @@ const LIMIT_ERRORS: ReadonlySet<string> = new Set([
 	"provider.model-budget-limit",
 	"provider.chatgpt-limit",
 ]);
-// The free tier spent: connect a provider.
+// Free tier spent: connect a provider.
 const LOGIN_ERRORS: ReadonlySet<string> = new Set(["provider.auth", "provider.free-limit"]);
 
 ////////////////////////////////

@@ -161,8 +161,7 @@ export function createWebSocketHandlers({
 		ws.data.daemonInstanceId = undefined;
 	}
 
-	/** Flag and announcement together; a bare assignment publishes "verifying". */
-	/** A tokened CLI that registered before its pick landed. */
+	/** A late tokened CLI. */
 	function standLateToken(team: string): void {
 		const record = sessionStore?.getByTeam(team);
 		const row = record?.harness ? HARNESS[record.harness] : undefined;
@@ -180,6 +179,7 @@ export function createWebSocketHandlers({
 		console.log(`[ws] ${team}/${ws.data.subId} is a ${row.label} session - handshake skipped late`);
 	}
 
+	/** Flag and announcement together; a bare assignment publishes "verifying". */
 	function confirmHandshake(ws: ServerWebSocket<WsData>): void {
 		ws.data.handshakeConfirmed = true;
 		announcePresenceDirty?.();
@@ -406,7 +406,7 @@ export function createWebSocketHandlers({
 			// A daemon that names launches never answers untagged.
 			if (frame.success && (launchId || !ws.data.launchIds)) {
 				const { team, success, error, harness } = frame.data;
-				// Once only; the record keeps a pick it already holds.
+				// Once only.
 				if (harness) {
 					onPickResolved?.(team, harness, frame.data.sessionId);
 					standLateToken(team);

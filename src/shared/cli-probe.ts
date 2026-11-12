@@ -23,7 +23,7 @@ function foundTest(harness: SessionHarness, launcher: ProbeLauncher | null): str
 	if (road.kind === "api") {
 		// No launcher here, so never offered.
 		if (!launcher) return "false";
-		// `package.json` lands last in a copy, so a half-copied runtime is not offered.
+		// `package.json` marks a whole copy.
 		tests.push(
 			`[ -x "${launcher.runtime}" ]`,
 			`[ -f "${launcher.root}/package.json" ]`,

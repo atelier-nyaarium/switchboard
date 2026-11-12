@@ -115,7 +115,7 @@ export function createConsoleTargets({ localDomainId, localGatewayId, isTrustedC
 			target = { kind: "host", name: project, sessionName };
 		} else if (isTrustedCatalogProject?.(project)) target = { kind: "devcontainer", name: project, sessionName };
 		else throw new Error(`terminal view is not available for "${project}" (only the host and devcontainers)`);
-		// Both reach the host's shell launch command.
+		// Both reach a host shell.
 		if (!isTmuxName(target.name)) throw new Error(`invalid project name "${target.name}"`);
 		if (!isTmuxName(target.sessionName)) throw new Error(`invalid session name "${target.sessionName}"`);
 		return target;

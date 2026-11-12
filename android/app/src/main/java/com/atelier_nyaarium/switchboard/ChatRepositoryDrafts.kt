@@ -123,7 +123,10 @@ fun ChatRepository.clearDraft(team: String) {
 fun ChatRepository.sendDraft(team: String) {
 	val taken = _state.takeDraft(team) ?: return
 	persistence.persistDrafts()
-	command { send(team, taken.text, taken.files) }
+	command {
+		// A send refused before the thread has it hands the draft back.
+		if (send(team, taken.text, taken.files) == null) takeBackIntoDraft(team, taken.text, taken.files)
+	}
 }
 
 /** The occupied draft, removed in the same step. Its file copies stay for the send to read. */

@@ -136,7 +136,7 @@ function frozen<T>(value: T): T {
 class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 	private readonly catalogs = new WeakMap<SessionRecord, Catalog>();
 	private readonly unconfirmed = new WeakMap<SessionRecord, number>();
-	/** One parse per held catalog, shared and frozen. */
+	/** One frozen parse per held catalog. */
 	private readonly views = new WeakMap<Catalog, Catalog>();
 
 	constructor(
@@ -380,7 +380,7 @@ export class SessionStore {
 		return existing ? { record: existing, created: false } : null;
 	}
 
-	/** Names a pending create's CLI, once; keeps the daemon's session id. */
+	/** Names a pending create's CLI, once. */
 	resolvePick(team: string, harness: SessionHarness, launchedAs?: string): SessionRecord | null {
 		const record = this.records.get(team);
 		if (!record || record.harness) return record?.harness === harness ? record : null;

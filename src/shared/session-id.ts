@@ -62,7 +62,7 @@ export function isValidSessionName(name: string): boolean {
 /** The one structural separator for every address/store/thread key. */
 export const ADDRESS_SEP = ".";
 
-/** The one segment validator: lowercase alnum, then also `-` and `_`. */
+/** The one segment validator. */
 export const SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 export const MAX_SLUG_LEN = 64;
 export function isSlug(s: string): boolean {

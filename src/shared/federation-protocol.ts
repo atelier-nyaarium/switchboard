@@ -71,7 +71,7 @@ export const ConsolePushEntrySchema = z
 		threads: z.array(RecordThreadSchema).min(1).max(RECORD_THREADS_MAX).optional(),
 		/** Peer send guard. */
 		guard: z.enum(SEND_GUARDS).optional(),
-		/** A launch's end. The phone docks it and threads nothing. */
+		/** A launch's end. */
 		launch: z.enum(LAUNCH_ROWS).optional(),
 	})
 	.superRefine((entry, ctx) => {

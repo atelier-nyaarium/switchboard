@@ -32,7 +32,7 @@ export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
 	"M-BSpace",
 ]);
 
-/** An address segment names a pane and a project. */
+/** An address segment. */
 export const TMUX_NAME_RE = SLUG_RE;
 export const MAX_TMUX_NAME_LEN = MAX_SLUG_LEN;
 export function isTmuxName(name: string): boolean {
@@ -68,7 +68,7 @@ export function isSpawnWorkdirPath(spawn: string | undefined, path: string): boo
 	return isWorkdirPath(path);
 }
 
-/** How long a typed delivery is retried under one key, so how long the daemon must hold that key. */
+/** One typed key's retry window, and so the daemon's hold. */
 export const TYPED_GIVE_UP_MS = 15 * 60_000;
 
 export const CONVERSATION_ID_RE = SLUG_RE;
