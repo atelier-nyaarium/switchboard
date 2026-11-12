@@ -116,8 +116,10 @@ data class ChatState(
 
 	/** Presence outranks peek, then wake state, then message status. */
 	fun working(team: String): Boolean {
-		teams.firstOrNull { it.name == team }?.presence?.working?.let { return it }
-		sessionWorking[team]?.let { return it }
+		val presence = teams.firstOrNull { it.name == team }?.presence
+		presence?.working?.let { return it }
+		// A peek read a pane. An asleep session's is gone.
+		if (presence?.isLive != false) sessionWorking[team]?.let { return it }
 		if (awaitingWake(team)) return true
 		val last = cardRows(team).lastOrNull() ?: return false
 		return (last.fromMe && (last.status == null || last.status == "pending")) || last.status == "running"

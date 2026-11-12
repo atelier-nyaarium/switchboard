@@ -34,6 +34,16 @@ class ChatStateWorkingTest {
 	}
 
 	@Test
+	fun aPeekOfAPaneSinceClosedSaysNothing() {
+		val closed = ChatState(
+			teams = listOf(testTeam(team, status = Presence.AVAILABLE)),
+			sessionWorking = mapOf(team to true),
+		)
+		assertEquals(false, closed.working(team))
+		assertEquals(SessionWord.AVAILABLE, closed.sessionWord(team, closed.teams.single().presence, now = 0))
+	}
+
+	@Test
 	fun aColdWakeReadsAsWorkingWithNeitherSource() {
 		assertEquals(true, ChatState(wakingTeams = mapOf(team to System.currentTimeMillis())).working(team))
 		assertEquals(false, ChatState().working(team))
