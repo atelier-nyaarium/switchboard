@@ -687,7 +687,11 @@ describe("SessionStore Copilot catalogs", () => {
 		const owner = store.mint({ spawn: "host", harness: "claude", sessionLabel: "Work" });
 		const agent = requestedCopilotAgent();
 
-		expect(writer.commit(owner, 0, [agent])).toEqual({ committed: false, reason: "unconfirmed" });
+		expect(writer.commit(owner, 0, [agent])).toMatchObject({
+			committed: false,
+			reason: "unconfirmed",
+			catalog: { revision: 1, agents: [{ agentId: agent.agentId }] },
+		});
 		expect(writer.isDurable(owner, 1)).toBe(false);
 		expect(writer.checkpoint(owner, 1)).toEqual({ confirmed: false, reason: "unconfirmed" });
 	});

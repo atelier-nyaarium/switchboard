@@ -21,7 +21,7 @@ function agent(agentId: string, state = "requested"): TestAgent {
 	};
 }
 
-type Write = "lands" | "conflicts" | "orphaned" | "throws";
+type Write = "lands" | "unconfirmed" | "conflicts" | "orphaned" | "throws";
 type Checkpoint = "durable" | "confirms" | "refuses" | "throws";
 
 function setup(write: Write = "lands", agents = [agent("a"), agent("b")], checkpoint: Checkpoint = "durable") {
@@ -35,6 +35,7 @@ function setup(write: Write = "lands", agents = [agent("a"), agent("b")], checkp
 				if (write === "conflicts") return { committed: false, reason: "revision_conflict" };
 				if (write === "orphaned") return { committed: false, reason: "owner_missing" };
 				catalog = { version: 1, revision: catalog.revision + 1, agents: [...next] };
+				if (write === "unconfirmed") return { committed: false, reason: "unconfirmed", catalog };
 				return { committed: true, catalog };
 			},
 			isDurable: () => checkpoint === "durable",
@@ -75,22 +76,41 @@ describe("agent catalog persistence", () => {
 		expect(landed.persistence.apply(landed.owner, agent("gone")).disposition).toBe("ignored");
 	});
 
-	it("refuses a transition whose write does not land, naming a lost owner as not found", () => {
-		const expected: Record<Exclude<Write, "lands">, string> = {
-			conflicts: "persistence_failed",
-			throws: "persistence_failed",
-			orphaned: "not_found",
-		};
-		for (const [write, code] of Object.entries(expected) as Array<[Exclude<Write, "lands">, string]>) {
+	it("says a daemon change is in the record when only its write's durability is open", () => {
+		const context = setup("unconfirmed", undefined, "refuses");
+
+		const applied = context.persistence.apply(context.owner, agent("b", "accepted"));
+
+		expect(applied).toMatchObject({ disposition: "unconfirmed", catalogRevision: 2 });
+		expect(context.persistence.find(context.owner, "b")?.operations[0]?.state).toBe("accepted");
+		expect(context.persistence.confirmation(context.owner, 2)).toBe("pending");
+	});
+
+	it("tells a transition's write apart: landed, unconfirmed, and the three that changed nothing", () => {
+		const kinds = (["lands", "unconfirmed", "conflicts", "throws", "orphaned"] as const).map((write) => {
 			const context = setup(write);
 			const catalog = context.persistence.read(context.owner);
 			const next = agent("c");
-			expect(
-				refusalOf(() =>
-					context.persistence.commit(context.owner, catalog, [...catalog.agents, next], next, "op-c"),
-				),
-			).toBe(code);
-		}
+			const commit = context.persistence.commit(context.owner, catalog, [...catalog.agents, next], next, "op-c");
+			return [commit.kind, context.persistence.find(context.owner, "c") !== undefined];
+		});
+
+		expect(kinds).toEqual([
+			["landed", true],
+			["unconfirmed", true],
+			["conflict", false],
+			["failed", false],
+			["owner_missing", false],
+		]);
+	});
+
+	it("counts a revision confirmed once it or a later one is on disk, and gone past what the catalog holds", () => {
+		const context = setup("lands", undefined, "durable");
+		context.persistence.apply(context.owner, agent("b", "accepted"));
+
+		expect(context.persistence.confirmation(context.owner, 1)).toBe("confirmed");
+		expect(context.persistence.confirmation(context.owner, 2)).toBe("confirmed");
+		expect(context.persistence.confirmation(context.owner, 3)).toBe("gone");
 	});
 
 	it("counts a catalog durable only once the writer or a checkpoint confirms it", () => {

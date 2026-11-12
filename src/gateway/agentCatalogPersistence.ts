@@ -41,6 +41,23 @@ export interface AgentCatalog<TAgent> {
 	agents: TAgent[];
 }
 
+/** Only `landed` guarantees disk. */
+export type CatalogWrite<TAgent> =
+	| { kind: "landed"; catalog: AgentCatalog<TAgent> }
+	/** Record changed; disk write unconfirmed. */
+	| { kind: "unconfirmed"; catalog: AgentCatalog<TAgent> }
+	/** Revision moved; nothing changed. */
+	| { kind: "conflict" }
+	/** Nothing changed: write threw. */
+	| { kind: "failed"; cause: unknown }
+	| { kind: "owner_missing" };
+
+export type CatalogConfirmation = "confirmed" | "pending" | "gone";
+
+export type AgentCommit<TAgent extends AgentCatalogAgent> =
+	| { kind: "landed"; transition: AgentTransitionResult<TAgent> }
+	| Exclude<CatalogWrite<TAgent>, { kind: "landed" }>;
+
 export interface AgentTransitionResult<TAgent extends AgentCatalogAgent> {
 	owner: SessionRecord;
 	agent: TAgent;
@@ -88,48 +105,62 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		}
 	}
 
+	/** Whether `revision` is on disk; may try the write once. `gone`: the catalog no longer reaches it. */
+	confirmation(owner: SessionRecord, revision: number): CatalogConfirmation {
+		const current = this.family.read(owner)?.revision;
+		// A live owner's revision never moves back.
+		if (current === undefined || current < revision) return "gone";
+		return this.durable(owner, current) ? "confirmed" : "pending";
+	}
+
+	private write(owner: SessionRecord, expectedRevision: number, agents: readonly TAgent[]): CatalogWrite<TAgent> {
+		let result: ReturnType<AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>["commit"]>;
+		try {
+			result = this.family.writer.commit(owner, expectedRevision, agents);
+		} catch (cause) {
+			return { kind: "failed", cause };
+		}
+		if (result.committed) return { kind: "landed", catalog: result.catalog };
+		if (result.reason === "unconfirmed") return { kind: "unconfirmed", catalog: result.catalog };
+		return result.reason === "owner_missing" ? { kind: "owner_missing" } : { kind: "conflict" };
+	}
+
 	commit(
 		owner: SessionRecord,
 		catalog: AgentCatalog<TAgent>,
 		agents: readonly TAgent[],
 		agent: TAgent,
 		operationId: string,
-	): AgentTransitionResult<TAgent> {
-		let committed: ReturnType<AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>["commit"]>;
-		try {
-			committed = this.family.writer.commit(owner, catalog.revision, agents);
-		} catch (error) {
-			throw new AgentTransitionError("persistence_failed", "transition could not be persisted", { cause: error });
-		}
-		if (!committed.committed && committed.reason === "owner_missing") {
-			throw new AgentTransitionError("not_found", "managed session was not found");
-		}
-		// A retry rereads the catalog.
-		if (!committed.committed) throw new AgentTransitionError("persistence_failed", "catalog changed while saving");
-		const stored = committed.catalog.agents.find((candidate) => candidate.agentId === agent.agentId)!;
+	): AgentCommit<TAgent> {
+		const write = this.write(owner, catalog.revision, agents);
+		if (write.kind !== "landed") return write;
+		const stored = write.catalog.agents.find((candidate) => candidate.agentId === agent.agentId)!;
 		return {
-			owner,
-			agent: stored,
-			operation: stored.operations.find((candidate) => candidate.operationId === operationId)!,
-			disposition: "committed",
-			catalogRevision: committed.catalog.revision,
+			kind: "landed",
+			transition: {
+				owner,
+				agent: stored,
+				operation: stored.operations.find((candidate) => candidate.operationId === operationId)!,
+				disposition: "committed",
+				catalogRevision: write.catalog.revision,
+			},
 		};
 	}
 
-	/** Unpersisted: reconcile, never acknowledge. */
 	apply(owner: SessionRecord, next: TAgent): AgentApplication<TAgent> {
 		const catalog = this.read(owner);
 		const index = this.matchOf(catalog, next.agentId);
 		if (index === undefined) return { disposition: "ignored", reason: "agent left the catalog" };
-		let committed: ReturnType<AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>["commit"]>;
-		try {
-			committed = this.family.writer.commit(owner, catalog.revision, replaceAt(catalog.agents, index, next));
-		} catch {
+		const write = this.write(owner, catalog.revision, replaceAt(catalog.agents, index, next));
+		if (write.kind !== "landed" && write.kind !== "unconfirmed")
 			return { disposition: "reconcile", owner, agent: next };
-		}
-		if (!committed.committed) return { disposition: "reconcile", owner, agent: next };
-		const agent = committed.catalog.agents.find((candidate) => candidate.agentId === next.agentId)!;
-		return { disposition: "applied", owner, agent, catalogRevision: committed.catalog.revision };
+		const agent = write.catalog.agents.find((candidate) => candidate.agentId === next.agentId)!;
+		return {
+			disposition: write.kind === "landed" ? "applied" : "unconfirmed",
+			owner,
+			agent,
+			catalogRevision: write.catalog.revision,
+		};
 	}
 
 	/** Retries conflicts; undefined if retired. */
@@ -145,7 +176,8 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 			const next = marks(current);
 			if (!next) return current;
 			const applied = this.apply(owner, parse({ ...current, turnMarks: next }));
-			if (applied.disposition === "applied") return applied.agent;
+			// Held marks make retries no-ops.
+			if (applied.disposition === "applied" || applied.disposition === "unconfirmed") return applied.agent;
 			if (applied.disposition === "ignored") return undefined;
 		}
 		throw new AgentTransitionError("persistence_failed", "catalog changed while saving");
@@ -193,23 +225,16 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		if (agent.turns.some((turn) => turn.state === "inProgress")) return { retired: false, reason: "active_turn" };
 		if (agent.operations.some((operation) => operation.state === "requested"))
 			return { retired: false, reason: "requested_operation" };
-		let committed: ReturnType<AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>["commit"]>;
-		try {
-			committed = this.family.writer.commit(
-				owner,
-				catalog.revision,
-				catalog.agents.filter((candidate) => candidate.agentId !== agentId),
-			);
-		} catch {
-			return { retired: false, reason: "catalog_changed" };
+		const write = this.write(
+			owner,
+			catalog.revision,
+			catalog.agents.filter((candidate) => candidate.agentId !== agentId),
+		);
+		// Unconfirmed drops count as retirement.
+		if (write.kind === "landed" || write.kind === "unconfirmed") {
+			return { retired: true, catalogRevision: write.catalog.revision };
 		}
-		if (!committed.committed) {
-			return {
-				retired: false,
-				reason: committed.reason === "owner_missing" ? "owner_missing" : "catalog_changed",
-			};
-		}
-		return { retired: true, catalogRevision: committed.catalog.revision };
+		return { retired: false, reason: write.kind === "owner_missing" ? "owner_missing" : "catalog_changed" };
 	}
 
 	replay(

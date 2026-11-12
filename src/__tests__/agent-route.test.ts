@@ -1528,6 +1528,116 @@ describe("the agent gateway route", () => {
 		expect(await (await retried).json()).toMatchObject({ observation: "accepted", delivery: "steered" });
 	});
 
+	it("shows an unconfirmed turn's end at once, and keeps the daemon's copy until the disk has it", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+		const acknowledged = () =>
+			Math.max(
+				-1,
+				...context.sent
+					.filter((frame) => frame.type === "copilot_ack")
+					.map((frame) => Number(frame.throughEventId)),
+			);
+		const asks = () =>
+			context.sent.filter((frame) => frame.type === "copilot_command" && frame.kind === "reconcile").length;
+		const asked = asks();
+
+		context.writes(false);
+		await terminal(context, agentId, "turn-1", 1);
+
+		const listed = await (await context.route.handle(post(context.token), { kind: "list", agentId })).json();
+		expect(listed.agents[0]).toMatchObject({ running: false, uncollected: 1 });
+		expect(acknowledged()).toBe(0);
+		expect(asks()).toBe(asked);
+
+		// Daemon replays unacknowledged frames.
+		context.writes(true);
+		await terminal(context, agentId, "turn-1", 1);
+		expect(acknowledged()).toBe(1);
+	});
+
+	it("confirms one agent's waiting frame when another agent's write lands", async () => {
+		const context = setup();
+		const first = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+		context.writes(false);
+		await terminal(context, first, "turn-1", 1);
+
+		// One stream carries every agent on the target, so the first agent's frame holds all of it.
+		context.writes(true);
+		const second = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: MESSAGE_OPERATION_ID,
+			prompt: "Review the lexer",
+		});
+		await flush();
+		await accept(context, MESSAGE_OPERATION_ID, "turn-2", 2, "started");
+		await second;
+		await flush();
+
+		const acknowledged = context.sent
+			.filter((frame) => frame.type === "copilot_ack")
+			.map((frame) => Number(frame.throughEventId));
+		expect(Math.max(...acknowledged)).toBe(2);
+	});
+
+	it("lets go of a waiting frame once its session is forgotten", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+		context.writes(false);
+		await terminal(context, agentId, "turn-1", 1);
+
+		context.sessionStore.forget(context.sessionStore.teamOf(context.owner));
+		await terminal(context, agentId, "turn-1", 1);
+
+		const acknowledged = context.sent
+			.filter((frame) => frame.type === "copilot_ack")
+			.map((frame) => Number(frame.throughEventId));
+		expect(Math.max(...acknowledged)).toBe(1);
+	});
+
+	it("hands over the turns a collect marked when the mark's write is unconfirmed", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await terminal(context, agentId, "turn-1", 1);
+		await started;
+
+		context.writes(false);
+		const collected = await (await context.route.handle(post(context.token), { kind: "await", agentId })).json();
+
+		expect(collected.turns).toMatchObject([{ id: "turn-1", state: "completed" }]);
+	});
+
 	it("keeps a collected turn collected across a restart, and replays its collect", async () => {
 		const context = setup();
 		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);

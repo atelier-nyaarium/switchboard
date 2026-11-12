@@ -13,9 +13,11 @@ import type { SessionRecord, SessionStore } from "../shared/session-store.js";
 ////////////////////////////////
 //  Interfaces & Types
 
-/** `applied` and `ignored` retire a frame on the daemon; `reconcile` and `failed` hold it. */
+/** Only applied and ignored retire daemon frames. */
 export type AgentApplication<TAgent> =
 	| { disposition: "applied"; owner: SessionRecord; agent: TAgent; catalogRevision: number }
+	/** Notify listeners; retain daemon copy until durable. */
+	| { disposition: "unconfirmed"; owner: SessionRecord; agent: TAgent; catalogRevision: number }
 	| { disposition: "ignored"; reason: string }
 	| { disposition: "reconcile"; owner: SessionRecord; agent: TAgent }
 	// A reducer bug. Acknowledging would delete the daemon's only copy.
@@ -70,6 +72,8 @@ export interface AgentRelayFamily<
 	fenceInstanceId(agent: TAgent): string | undefined;
 	applyEvent(event: TEvent, at: number, held?: boolean): AgentApplication<TAgent>;
 	applyReceipt(receipt: TReceipt, at: number): AgentApplication<TAgent>;
+	/** Confirms through revision on disk; may retry once. */
+	confirmation(owner: SessionRecord, revision: number): "confirmed" | "pending" | "gone";
 	abandonStaleOperations(
 		owner: SessionRecord,
 		agent: TAgent,
@@ -91,7 +95,10 @@ interface StreamProgress {
 	undecided: Map<number, string>;
 }
 
-type HeldFrame<TEvent, TReceipt> = { frame: "event"; message: TEvent } | { frame: "receipt"; message: TReceipt };
+/** Record changed; disk pending. */
+type HeldFrame<TEvent, TReceipt> = ({ frame: "event"; message: TEvent } | { frame: "receipt"; message: TReceipt }) & {
+	awaiting?: { owner: SessionRecord; revision: number };
+};
 
 type FencedFrame = AgentRelayFrame & { targetId: string; generation: number };
 type ProgressEntry = { runId?: string; counts: AgentProgressCounts };
@@ -128,6 +135,13 @@ function sameFrame(left: HeldFrame<AgentRelayFrame, AgentRelayFrame>, right: typ
 		left.message.eventId === right.message.eventId &&
 		heldStream(left.message) === heldStream(right.message)
 	);
+}
+
+/** Both outcomes are recorded. */
+export function inRecord<TAgent>(
+	application: AgentApplication<TAgent>,
+): application is Extract<AgentApplication<TAgent>, { disposition: "applied" | "unconfirmed" }> {
+	return application.disposition === "applied" || application.disposition === "unconfirmed";
 }
 
 // Refusals carry no stream.
@@ -182,6 +196,7 @@ export class AgentRelayCore<
 		for (const agent of this.family.listAgents(owner)) {
 			if (this.needsReconciliation(ownerKey, agent)) this.requestReconciliation(ownerKey, agent);
 		}
+		this.retryAwaiting();
 	}
 
 	async onHostRegister(): Promise<void> {
@@ -332,7 +347,7 @@ export class AgentRelayCore<
 		// Would install a dead fence.
 		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.deps.liveDaemonInstanceId(), receipt)) return;
 		const application = this.family.applyReceipt(receipt, this.now());
-		if (application.disposition === "applied") {
+		if (inRecord(application)) {
 			const turnId = this.family.modelTurn(receipt);
 			if (turnId) this.countModelTurn(receipt.ownerKey, receipt.agentId, turnId, application.agent.runId);
 		}
@@ -344,7 +359,7 @@ export class AgentRelayCore<
 		const counter = this.family.counterEvent(event);
 		if (
 			counter &&
-			(application.disposition === "applied" ||
+			(inRecord(application) ||
 				(application.disposition === "ignored" && application.reason === "counter-only")) &&
 			this.rememberCountedEvent(event)
 		) {
@@ -424,18 +439,25 @@ export class AgentRelayCore<
 
 	private settle(held: HeldFrame<TEvent, TReceipt>, application: AgentApplication<TAgent>): void {
 		const { message } = held;
+		// Retain frame until disk confirms.
+		const awaiting =
+			application.disposition === "unconfirmed" && isFenced(message)
+				? { owner: application.owner, revision: application.catalogRevision }
+				: undefined;
 		// Hold failures and askable reconciliations.
 		const repairable =
+			awaiting !== undefined ||
 			application.disposition === "failed" ||
 			(application.disposition === "reconcile" && this.isAskable(message.ownerKey, application.agent));
-		const kept = repairable && this.defer(held);
+		const kept = repairable && this.defer(awaiting ? { ...held, awaiting } : held);
 		if (repairable && application.disposition === "reconcile") {
 			this.requestReconciliation(message.ownerKey, application.agent);
 		}
 		if (isFenced(message)) this.advance(message, kept ? "hold" : "decided");
 		this.notifyChanged(message.ownerKey, message.agentId, application);
-		// Applications retry held frames.
-		if (application.disposition === "applied") this.retryHeld(message.ownerKey, message.agentId);
+		if (inRecord(application)) this.retryHeld(message.ownerKey, message.agentId);
+		// A write just landed: the disk takes writes again.
+		if (application.disposition === "applied") this.retryAwaiting(agentKey(message.ownerKey, message.agentId));
 	}
 
 	private advance(message: FencedFrame, outcome: "hold" | "decided"): void {
@@ -496,7 +518,7 @@ export class AgentRelayCore<
 	}
 
 	/** Unplaced retries stay unacknowledged. */
-	private retryHeld(ownerKey: string, agentId: string): void {
+	private retryHeld(ownerKey: string, agentId: string, unsynced = new Set<SessionRecord>()): void {
 		const key = agentKey(ownerKey, agentId);
 		if (this.retrying.has(key)) {
 			this.retryAgain.add(key);
@@ -511,7 +533,8 @@ export class AgentRelayCore<
 				this.deferred.delete(key);
 				for (const held of [...queue].sort((left, right) => left.message.eventId - right.message.eventId)) {
 					try {
-						if (held.frame === "event") this.reduceEvent(held.message, true);
+						if (held.awaiting) this.confirmHeld(held, held.awaiting, unsynced);
+						else if (held.frame === "event") this.reduceEvent(held.message, true);
 						else this.reduceReceipt(held.message);
 					} catch (error) {
 						// Thrown before deciding: still held.
@@ -523,6 +546,36 @@ export class AgentRelayCore<
 		} finally {
 			this.retrying.delete(key);
 			this.retryAgain.delete(key);
+		}
+	}
+
+	/** Confirmed frames skip reduction. */
+	private confirmHeld(
+		held: HeldFrame<TEvent, TReceipt>,
+		awaiting: { owner: SessionRecord; revision: number },
+		unsynced: Set<SessionRecord>,
+	): void {
+		// One write attempt per owner per pass: each is the whole snapshot.
+		const confirmation = unsynced.has(awaiting.owner)
+			? "pending"
+			: this.family.confirmation(awaiting.owner, awaiting.revision);
+		if (confirmation === "pending") {
+			unsynced.add(awaiting.owner);
+			this.defer(held);
+			return;
+		}
+		// `gone`: the record it protected no longer exists.
+		if (isFenced(held.message)) this.advance(held.message, "decided");
+	}
+
+	/** A frame awaiting its write is confirmed by any later write, whoever made it. */
+	private retryAwaiting(except?: string): void {
+		const unsynced = new Set<SessionRecord>();
+		for (const [key, queue] of this.deferred) {
+			const waiting = key === except ? undefined : queue.find((held) => held.awaiting);
+			if (!waiting) continue;
+			const { ownerKey, agentId } = waiting.message;
+			void this.serialize(ownerKey, agentId, () => this.retryHeld(ownerKey, agentId, unsynced));
 		}
 	}
 
@@ -574,7 +627,7 @@ export class AgentRelayCore<
 	}
 
 	private notifyChanged(ownerKey: string, agentId: string, application: AgentApplication<TAgent>): void {
-		if (application.disposition !== "applied") return;
+		if (!inRecord(application)) return;
 		for (const listener of this.listeners.get(agentKey(ownerKey, agentId)) ?? []) {
 			// A listener's throw must not undo a decided frame.
 			try {

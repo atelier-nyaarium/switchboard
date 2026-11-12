@@ -65,9 +65,30 @@ asked of the turn's own promise (`settledNow`), and after a rejected steer of th
 the promise alone would refuse a message the agent could take. Both posts carry the operation's id
 as their key, so a driver that can tell lands one prompt.
 
-**A write that did not land leaves no operation waiting.** The catalog store keeps an unconfirmed
-write in memory, so the generic service gives its operation up at once. Left `requested`, it would
-refuse the agent's next message and be sent at the next daemon register.
+**A catalog write has five outcomes, and a changed record is never read as an unchanged one.**
+`AgentCatalogPersistence.write` tells them apart:
+
+| Kind | The record | On disk |
+|---|---|---|
+| `landed` | changed | yes |
+| `unconfirmed` | changed | yes, unless a crash undoes the rename |
+| `conflict` | unchanged | no |
+| `failed` | unchanged | no |
+| `owner_missing` | unchanged | no |
+
+- **A session's operation** is sent only on `landed`. On `unconfirmed` the service gives the
+  operation up at once: left `requested`, it would refuse the agent's next message and be sent at the
+  next daemon register. The session hears `not_found` for `owner_missing` and `persistence_failed`
+  for the rest.
+- **A daemon frame** whose write is `unconfirmed` is in the record, so listeners hear it and a
+  collect sees it. A frame that names a stream is held unacknowledged until the revision is
+  confirmed on disk. That frame blocks every agent on its target, since one stream carries them all,
+  so it is retried when any agent's write lands and on each persist tick, and let go once its
+  session is forgotten. A write that changed nothing is still asked about and retried.
+- **A collect's mark** whose write is `unconfirmed` is made, and the collect hands over its turns.
+
+A Gateway restart forgets which frames were waiting: the daemon replays them, they read as
+duplicates, and they are acknowledged with the restored catalog's durability unchecked.
 
 ## Workflow backends
 

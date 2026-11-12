@@ -21,10 +21,11 @@ import {
 	AgentCatalogPersistence,
 	type AgentCatalogRetirement,
 	type AgentCollection,
+	type CatalogConfirmation,
 } from "./agentCatalogPersistence.js";
 import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
 import { hasUnresolvedOperation } from "./agentReducers.js";
-import type { AgentApplication } from "./agentRelayCore.js";
+import { type AgentApplication, inRecord } from "./agentRelayCore.js";
 import { AgentTransitionError, validateTimestamp } from "./agentRouteEnvelope.js";
 import type {
 	AgentMessageIntent,
@@ -112,7 +113,7 @@ export class AgentService {
 			runId: toRunId,
 			updatedAt: Math.max(at, current.updatedAt),
 		});
-		return next.success && this.persistence.apply(owner, next.data).disposition === "applied";
+		return next.success && inRecord(this.persistence.apply(owner, next.data));
 	}
 
 	resolveExecutionTarget(owner: SessionRecord, cwd?: string) {
@@ -283,7 +284,7 @@ export class AgentService {
 		});
 		if (!next.success) return current;
 		const applied = this.persistence.apply(owner, next.data);
-		return applied.disposition === "applied" ? applied.agent : current;
+		return inRecord(applied) ? applied.agent : current;
 	}
 
 	/** Stale-daemon operations become indeterminate. */
@@ -338,7 +339,7 @@ export class AgentService {
 		return this.persistence.read(owner);
 	}
 
-	/** An unconfirmed write stays held, so its operation is given up rather than left waiting unsent. */
+	/** Disk confirmation permits sending. */
 	private commit(
 		owner: SessionRecord,
 		catalog: AgentCatalog<PersistedAgent>,
@@ -346,11 +347,27 @@ export class AgentService {
 		agent: PersistedAgent,
 		operationId: string,
 	): AgentTransition {
-		try {
-			return this.persistence.commit(owner, catalog, agents, agent, operationId);
-		} catch (error) {
-			this.abandonDelivery(owner, agent.agentId, operationId, agent.updatedAt);
-			throw error;
+		const write = this.persistence.commit(owner, catalog, agents, agent, operationId);
+		switch (write.kind) {
+			case "landed":
+				return write.transition;
+			case "unconfirmed":
+				// Abandon prevents stale resend.
+				this.abandonDelivery(owner, agent.agentId, operationId, agent.updatedAt);
+				throw new AgentTransitionError("persistence_failed", "transition was not confirmed on disk");
+			case "conflict":
+				throw new AgentTransitionError("persistence_failed", "catalog changed while saving");
+			case "failed":
+				throw new AgentTransitionError("persistence_failed", "transition could not be persisted", {
+					cause: write.cause,
+				});
+			case "owner_missing":
+				throw new AgentTransitionError("not_found", "managed session was not found");
 		}
+	}
+
+	/** Whether `revision` is on disk; may try the write once. */
+	confirmation(owner: SessionRecord, revision: number): CatalogConfirmation {
+		return this.persistence.confirmation(owner, revision);
 	}
 }

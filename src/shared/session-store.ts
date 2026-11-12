@@ -66,7 +66,10 @@ const LEGACY_CATALOG_FIELD: Partial<Record<AgentBackendId, string>> = {
 
 export type AgentCatalogCommitResult<Catalog> =
 	| { committed: true; catalog: Catalog }
-	| { committed: false; reason: "owner_missing" | "revision_conflict" | "unconfirmed" };
+	/** Nothing changed. */
+	| { committed: false; reason: "owner_missing" | "revision_conflict" }
+	/** Crash may undo write. */
+	| { committed: false; reason: "unconfirmed"; catalog: Catalog };
 
 export type AgentCatalogCheckpointResult<Catalog> =
 	| { confirmed: true; catalog: Catalog }
@@ -175,7 +178,7 @@ class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 		}
 		if (confirmed === false) {
 			this.unconfirmed.set(owner, next.revision);
-			return { committed: false, reason: "unconfirmed" };
+			return { committed: false, reason: "unconfirmed", catalog: next };
 		}
 		this.unconfirmed.delete(owner);
 		return { committed: true, catalog: next };
