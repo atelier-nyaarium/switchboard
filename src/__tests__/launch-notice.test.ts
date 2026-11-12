@@ -15,6 +15,19 @@ describe("the owner's words for a failed launch", () => {
 		expect(ownerLaunchLine(unnamed)).toBe("Selected CLI is not installed.");
 	});
 
+	it("reads a CLI missing in a container as a pick to change, there alone", () => {
+		const missing: LaunchFailure = {
+			kind: "cli",
+			refusal: { cause: "not_installed", available: ["claude"], named: "opencode" },
+		};
+		const unnamed: LaunchFailure = { kind: "cli", refusal: { cause: "not_installed", available: ["claude"] } };
+
+		expect(ownerLaunchLine(missing, "container")).toBe("Devcontainer does not have OpenCode. Choose another CLI.");
+		expect(ownerLaunchLine(missing, "host")).toBe("OpenCode is not installed.");
+		expect(ownerLaunchLine(unnamed, "container")).toBe("Selected CLI is not installed.");
+		expect(ownerLaunchPhrase(missing)).toBe("OpenCode was not installed");
+	});
+
 	it("keeps every other failure's line as its phrase, capitalized", () => {
 		const failed: LaunchFailure = { kind: "container", spawn: "halo" };
 

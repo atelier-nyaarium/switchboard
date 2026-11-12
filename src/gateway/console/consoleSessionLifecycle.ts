@@ -12,7 +12,7 @@ import {
 	type SessionHarness,
 	UNNAMED_HARNESS,
 } from "../../shared/session-harness.js";
-import { composeSessionName } from "../../shared/session-id.js";
+import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
 import type { WakeResult } from "../wake.js";
@@ -159,7 +159,7 @@ export function createSessionLifecycleHandlers({
 			(settled.refusal?.kind === "cli" ? { kind: "cli", refusal: settled.refusal.refusal } : undefined);
 		if (failure) {
 			forgetBlank();
-			throw new CreateSessionFailedError(ownerLaunchLine(failure), failure);
+			throw new CreateSessionFailedError(ownerLaunchLine(failure, launchPlaceOf(target.name)), failure);
 		}
 		throw new Error(settled.error ?? "create session failed");
 	}
@@ -198,7 +198,9 @@ export function createSessionLifecycleHandlers({
 		}
 		if (!winner.ok) {
 			if (definite(winner) && mayForget()) sessionStore?.forget(name);
-			if (winner.failure) throw new Error(ownerLaunchLine(winner.failure));
+			if (winner.failure) {
+				throw new Error(ownerLaunchLine(winner.failure, launchPlaceOf(parseSessionName(name).project)));
+			}
 			const reason =
 				winner.error ??
 				(winner.errorKind === "disconnected"

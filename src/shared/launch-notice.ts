@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { type CliRefusal, CliRefusalSchema, cliRefusalText } from "./cli-resolve.js";
-import { HARNESS } from "./session-harness.js";
+import { HARNESS, type LaunchPlace, lacksCliText } from "./session-harness.js";
 import { neutralizeMarkup, oneLine } from "./system-reminder.js";
 
 ////////////////////////////////
@@ -140,8 +140,17 @@ function ownerCliPhrase(refusal: CliRefusal, verb: "is" | "was"): string {
 	}
 }
 
-/** The owner's line for a failed launch. */
-export function ownerLaunchLine(failure: LaunchFailure): string {
+/** The owner's line for a failed launch. `place` is where it was to land, when the caller knows. */
+export function ownerLaunchLine(failure: LaunchFailure, place?: LaunchPlace): string {
+	// A container's missing CLI reads as the pick it is.
+	if (
+		place === "container" &&
+		failure.kind === "cli" &&
+		failure.refusal.cause === "not_installed" &&
+		failure.refusal.named
+	) {
+		return lacksCliText("container", failure.refusal.named);
+	}
 	const phrase = failure.kind === "cli" ? ownerCliPhrase(failure.refusal, "is") : ownerLaunchPhrase(failure);
 	return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
 }

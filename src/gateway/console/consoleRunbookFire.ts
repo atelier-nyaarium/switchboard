@@ -1,5 +1,6 @@
 import type { CliRefusal } from "../../shared/cli-resolve.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
+import { launchPlaceOf } from "../../shared/host-spawn.js";
 import { ownerLaunchLine } from "../../shared/launch-notice.js";
 import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Runbook, runbookRefusal } from "../../shared/schemasRunbook.js";
@@ -47,9 +48,13 @@ export function createRunbookFireHandler({ targets, getRunbook, createSession, d
 		runbook: Pick<Runbook, "name">,
 		ctx: RunbookFireContext,
 	): Promise<{ team: string; sessionId: string } | RunbookFireResult> {
-		const chosen = pick(targets.localSpawn(into.target), into.cli);
+		const spawn = targets.localSpawn(into.target);
+		const chosen = pick(spawn, into.cli);
 		if ("refusal" in chosen) {
-			return { fired: false, reason: ownerLaunchLine({ kind: "cli", refusal: chosen.refusal }) };
+			return {
+				fired: false,
+				reason: ownerLaunchLine({ kind: "cli", refusal: chosen.refusal }, launchPlaceOf(spawn)),
+			};
 		}
 		const created = await createSession(
 			{

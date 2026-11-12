@@ -6,11 +6,12 @@ import { inboxBodyAadKind } from "../shared/content-envelope.js";
 import { DurableOutbox } from "../shared/durable-outbox.js";
 import { DurableStore } from "../shared/durable-store.js";
 import { type ConsolePushEntry, ConsolePushEntrySchema } from "../shared/federation-protocol.js";
+import { launchPlaceOf } from "../shared/host-spawn.js";
 import { LAUNCH_ROW_FAILED, type LaunchFailure, ownerLaunchLine } from "../shared/launch-notice.js";
 import { fenced, MIGRATING } from "../shared/migration-fence.js";
 import { pickTiers } from "../shared/notice.js";
 import { formatInboxAddress, OpResultEnvelopeSchema, RowStampSchema, signRowEnvelope } from "../shared/schemasInbox.js";
-import { type Address, storeKey } from "../shared/session-id.js";
+import { type Address, parseSessionName, storeKey } from "../shared/session-id.js";
 import type { ChannelFile } from "../shared/types.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { fireAndForget } from "./fireAndForget.js";
@@ -437,7 +438,7 @@ export function createConsolePushOps({
 	): boolean {
 		if ("up" in outcome) return true;
 		const sender = localAddress(team);
-		const line = ownerLaunchLine(outcome.failure);
+		const line = ownerLaunchLine(outcome.failure, launchPlaceOf(parseSessionName(team).project));
 		const entry: ConsolePushEntry = {
 			kind: "notice",
 			session_id: storeKey({ kind: "notice", sender }),

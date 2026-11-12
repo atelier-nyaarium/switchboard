@@ -329,13 +329,18 @@ export function mintedIdOf(harness: SessionHarness, value: unknown): string | un
 /** Which shell a launch lands in. */
 export type LaunchPlace = "host" | "windows" | "container";
 
+/** The owner's words for a CLI a place does not have, whether it never runs there or is not installed. */
+export function lacksCliText(place: Exclude<LaunchPlace, "host">, harness: SessionHarness): string {
+	const where = place === "container" ? "Devcontainer" : "Windows shell";
+	return `${where} does not have ${HARNESS[harness].label}. Choose another CLI.`;
+}
+
 export function launchRefusal(harness: SessionHarness, at: { place: LaunchPlace; assistant: boolean }): string | null {
 	const row = HARNESS[harness];
-	if (at.place === "container" && !row.containers)
-		return `Devcontainer does not have ${row.label}. Choose another CLI.`;
+	if (at.place === "container" && !row.containers) return lacksCliText("container", harness);
 	// A launcher never crosses to PowerShell.
 	if (at.place === "windows" && (row.binary.windows === null || row.road.kind === "api")) {
-		return `Windows shell does not have ${row.label}. Choose another CLI.`;
+		return lacksCliText("windows", harness);
 	}
 	if (at.assistant && !row.assistant) return `${row.label} never runs as the assistant`;
 	return null;
