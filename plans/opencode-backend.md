@@ -441,6 +441,8 @@ No CLI is installed
 
 ## Phase 2c - Copilot in containers
 
+✅ Built, audited and deployed, last as 8.14.62 (daemon, phone, Router, Gateway on Sakura; mikan and matrix-edward updated). Acceptance against a real container with a signed-in CLI is Phase 3's. `### Built`, `### Red team` and `### Architecture pass` say what stands.
+
 - **Typed delivery reaches a container pane:** `typeSession` refuses any spawn but the host's today, and its target is hard-coded to the host's. It builds the target from the session's spawn point. The daemon types into a container's pane as it already peeks and sends keys there.
 - **Each container gets the plugin of each CLI found in it:** each CLI has its own installed check and its own installer, `copilot plugin` for Copilot. Today's check reads Claude's plugin list alone and the install runs `claude plugin`, so a container with Claude set up skips everything else and one without Claude fails. OpenCode needs no plugin install, but its launcher and the Switchboard MCP server run from a Switchboard `dist/` and a bun, which nothing places in a container yet.
 - **The compaction file is read inside the container:** `createCompactionFollower` reads the host's home.
