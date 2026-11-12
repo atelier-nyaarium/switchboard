@@ -212,7 +212,7 @@ export const AgentMessageInputSchema = z
 	.object({
 		agentId: AgentIdSchema,
 		prompt: AgentPromptSchema,
-		/** A steer carries no tier, so a change lands on the next turn. */
+		/** A steer keeps its turn's tier, so a change lands on the next turn. */
 		serviceTier: AgentServiceTierSchema.optional(),
 		/** Steers preserve the active schema. */
 		outputSchema: AgentOutputSchemaSchema.optional(),

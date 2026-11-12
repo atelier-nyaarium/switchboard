@@ -5,15 +5,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type LauncherPorts, parseLaunchArgs, runLauncher, type ServerHandle } from "./opencode-launch/launcher.js";
+import { type LauncherPorts, parseLaunchArgs, runLauncher } from "./opencode-launch/launcher.js";
+import { startOpencodeServer } from "./opencode-launch/serverProcess.js";
 import { writeFileAtomic } from "./shared/atomic-write.js";
 import { launchGoing, readLaunchStatus } from "./shared/launch-status.js";
 import { moduleDir, packageRoot } from "./shared/plugin-root.js";
 import { installRejectionGuard } from "./shared/process-guards.js";
 import { FIRST_LAUNCH_GREETING } from "./shared/session-harness.js";
-
-const STOP_GRACE_MS = 3000;
-const ERROR_TAIL_CHARS = 1500;
 
 function readText(file: string): string | undefined {
 	try {
@@ -55,54 +53,6 @@ for (const signal of ["SIGHUP", "SIGTERM", "SIGINT"] as const) {
 	});
 }
 
-function startServer(binary: string, env: Record<string, string>): ServerHandle {
-	const child = spawn(binary, ["serve", "--stdio", "--hostname", "127.0.0.1", "--port", "0"], {
-		env,
-		// Piped, never inherited: its log lines would draw over the terminal UI.
-		stdio: ["pipe", "pipe", "pipe"],
-	});
-	let errors = "";
-	child.stderr.on("data", (chunk: Buffer) => {
-		errors = (errors + chunk.toString("utf8")).slice(-ERROR_TAIL_CHARS);
-	});
-	const exited = new Promise<void>((resolve) => {
-		child.once("exit", () => resolve());
-		child.once("error", () => resolve());
-	});
-	let buffer = "";
-	const url = new Promise<string | undefined>((resolve) => {
-		child.stdout.on("data", (chunk: Buffer) => {
-			// Drained for its whole life.
-			if (buffer.length > 65_536) return;
-			buffer += chunk.toString("utf8");
-			for (const line of buffer.split("\n")) {
-				try {
-					const announced = (JSON.parse(line) as { url?: unknown }).url;
-					if (typeof announced === "string") resolve(announced);
-				} catch {
-					// Not the announcement.
-				}
-			}
-		});
-		void exited.then(() => resolve(undefined));
-	});
-	return {
-		url,
-		exited,
-		errorTail: () => errors,
-		stop: () => {
-			child.stdin.end();
-			// A server that ignores both would hold the pane alive.
-			const term = setTimeout(() => child.kill("SIGTERM"), STOP_GRACE_MS);
-			const kill = setTimeout(() => child.kill("SIGKILL"), STOP_GRACE_MS * 2);
-			void exited.then(() => {
-				clearTimeout(term);
-				clearTimeout(kill);
-			});
-		},
-	};
-}
-
 const ports: LauncherPorts = {
 	pid: process.pid,
 	env: process.env,
@@ -125,7 +75,7 @@ const ports: LauncherPorts = {
 				resolve(error ? undefined : stdout),
 			);
 		}),
-	startServer,
+	startServer: startOpencodeServer,
 	runUi: (binary, uiArgs, env) =>
 		new Promise((resolve) => {
 			const child = spawn(binary, uiArgs, { env, stdio: "inherit" });

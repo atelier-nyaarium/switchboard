@@ -1,21 +1,19 @@
-// The delegated-agent backend registry: which second-model backends exist, and every name derived
-// from a backend's id. Sole source of the capability id, enable switch, env prefix, HTTP path, wire
-// frame types and tool prefix, so the layers that read them cannot disagree on a spelling. A pure
-// leaf: no imports, readable by the MCP, the gateway and the daemon alike.
+// The agent backend table, and every name derived from a backend's id: its capability id, env
+// prefix, HTTP path and wire frame types. A leaf with no imports.
 
 ////////////////////////////////
 //  Interfaces & Types
 
-export type AgentBackendId = "codex" | "copilot";
+export type AgentBackendId = "codex" | "copilot" | "opencode";
 
 /** Descriptors contain data only. */
 export interface AgentBackendDescriptor {
 	readonly id: AgentBackendId;
 	readonly displayName: string;
-	/** The executable that must be on PATH for this backend to run. Its presence IS the switch: both
-	 * the daemon's declaration and the plugin's tool gate probe for it, so installing the CLI is the
-	 * whole opt-in. */
+	/** On PATH is the opt-in: the daemon's capability declaration and the plugin's gate probe for it. */
 	readonly binaryName: string;
+	/** Under the home directory, where its installer puts it off PATH. */
+	readonly binaryHomeDir?: string;
 	/** Under the Gateway idle timeout. */
 	readonly waitBudgetMs: number;
 	readonly defaultModel: string;
@@ -49,10 +47,21 @@ export const COPILOT_BACKEND: AgentBackendDescriptor & { id: "copilot" } = {
 	legacyModellessStart: "trailing-separator",
 };
 
+export const OPENCODE_BACKEND: AgentBackendDescriptor & { id: "opencode" } = {
+	id: "opencode",
+	displayName: "OpenCode",
+	binaryName: "opencode",
+	binaryHomeDir: ".opencode/bin",
+	waitBudgetMs: AGENT_WAIT_BUDGET_MS,
+	defaultModel: "opencode-go/deepseek-v4-pro",
+	options: { serviceTier: false, reasoningEffort: false },
+};
+
 /** Every id needs its own row, or this does not compile. */
 const BACKEND_ROWS: { readonly [Id in AgentBackendId]: AgentBackendDescriptor & { id: Id } } = {
 	codex: CODEX_BACKEND,
 	copilot: COPILOT_BACKEND,
+	opencode: OPENCODE_BACKEND,
 };
 
 export const AGENT_BACKEND_IDS = Object.keys(BACKEND_ROWS) as [AgentBackendId, ...AgentBackendId[]];

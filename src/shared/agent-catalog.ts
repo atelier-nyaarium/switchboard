@@ -77,7 +77,7 @@ function fromExchangeRecord(raw: Raw): unknown {
 	return { ...rest, version: 2, ...(threadId === undefined ? {} : { sessionId: threadId }), operations };
 }
 
-/** One damaged or duplicated entry is dropped alone. */
+/** A damaged entry is dropped alone; a duplicated id drops every claimant. */
 export function restorePersistedAgentCatalog(raw: unknown): PersistedAgentCatalog | undefined {
 	const restored = restoreAgentCatalog(raw, (candidate) => {
 		const result = PersistedAgentSchema.safeParse(withTurnMarks(upgraded(candidate)));

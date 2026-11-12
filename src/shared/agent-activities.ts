@@ -17,7 +17,7 @@ export const AgentActivitySchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("truncated"), omitted: z.number().int().positive() }).strict(),
 ]);
 
-/** As stored, each row keeping the item it came from. */
+/** As stored: commentary keeps the item it came from. */
 export const AgentStoredActivitySchema = z.discriminatedUnion("kind", [
 	z
 		.object({

@@ -4,7 +4,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 ## Layout
 
-- `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` / `main-opencode-launch.ts` - seven entry points
+- `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` / `main-opencode-launch.ts` / `main-opencode-agent.ts` - eight entry points
 - `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` / `capabilityHook.ts` - the plugin's SessionStart `compact` hooks: the baseline, and the capability guidance
 - `src/mcp/capabilitiesTool.ts` `capabilityGuidance` - the one rendering of a session's capability guidance: the handshake answer (`channelReply.ts`), the `compact` hook and `switchboard_capabilities`; the `agents` section combines the unchanged `codex-agent` and `copilot-agent` ids
   - **A fresh session cannot skip it:** the plugin auto-answers a handshake only once the role is known, so a new process's agent answers its first one itself, and that answer carries the guidance. A Copilot session, confirmed at registration without one, reads it in its MCP server instructions. The hook renders the set the session started with, which the MCP process records per `PROJECT_NAME` (`saveStartupCapabilities`). Only a cut or unreadable guidance names the tool.
@@ -785,7 +785,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/codexTurnTracker.ts` - turn output; sole `answerOf` reader
 - `src/mcp/devcontainer/codexLiveTurns.ts` - live-turn bindings, clocks, and warnings
 - `src/mcp/devcontainer/agentDaemonCore.ts` - shared daemon registry, generation fence, serialization, numbering, outbox, the once-per-id op ledger, and retire-before-remove
-- `src/mcp/agents/backendSession.ts` / `drivers.ts` / `copilotSession.ts` - the driver a backend is to the daemon and to local mode alike (`AgentBackendSession`: open a thread, resume one, start a turn that answers its id now and its outcome later, steer, interrupt, inspect, list models); the table pairing each backend with its launcher and its session; Copilot's
+- `src/mcp/agents/backendSession.ts` / `drivers.ts` / `copilotSession.ts` / `opencodeSession.ts` - the driver a backend is to the daemon and to local mode alike (`AgentBackendSession`: open a thread, resume one, start a turn that answers its id now and its outcome later, steer, interrupt, inspect, list models); the table pairing each backend with its launcher and its session; Copilot's; OpenCode's
+  - **A steer says what it knows:** `taken` when the driver knows the turn holds the prompt, nothing when it only sent it. Only the second is given again as a new turn when its turn has ended.
+  - **A prompt has a key, the operation's id:** a driver that can tell lands a repeat under one key once.
 - `src/mcp/devcontainer/agentDaemonService.ts` - the generic daemon service: a backend's commands run over its driver and answered on the daemon wire
   - **The Gateway hears a turn before anything said about it:** what a child reports for a turn whose start has not answered is held (`whenAnnounced`) and published behind the `accepted` receipt.
   - **A steer whose turn ended under it opens a new turn with the prompt,** so the message is never reported steered into a turn that is over. Whether it ended is asked of the turn's own promise (`settledNow`), never read after a count of promise hops, and both posts carry the operation's id as their `key`, so a driver that can tell lands one prompt.
@@ -896,7 +898,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Held in memory:** a frame leaves when that Gateway registers, at 30 minutes, and on a restart.
 - `src/federation-server/routerTls.ts` - persistent self-signed certificate; rotation re-provisions clients
 - `src/federation-server/*Coordinator.ts` - in-memory flow windows; restart loses and re-arms them
-- `src/shared/agent-binary.ts` - uncached backend CLI presence check
+- `src/shared/agent-binary.ts` - uncached backend CLI presence check: PATH, then the row's `binaryHomeDir` under the probed env's own home
 - `src/shared/capabilities.ts` - capability ids, guidance, daemon declarations, and bundle folding
 - `src/shared/schemas.ts` / `schemas*.ts` - sole Zod wire truth; `.meta({id})` names generated Kotlin classes
 - `src/shared/schemasWireFixture.ts` - shared wire fixture schema for both runtimes
@@ -944,6 +946,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Every stream connection rebuilds before it reports:** the stream is volatile and nothing replays, so the follower buffers events from `server.connected` until its three reads land, then replays them through the live path.
   - **The plugin posts its own baseline, once per compaction id:** the follower names each finished compaction, and the session posts the baseline as synthetic input under an id derived from it, which OpenCode itself lands once. No edge memory exists in any process, and a failed compaction gets none.
   - **A presence report is erased only by the socket that wrote it:** a refused or nested socket of the same session closing leaves it, and the daemon may not write a session whose own plugin reports.
+- `src/shared/opencode-agent.ts` / `src/opencode-agent/bridge.ts` / `src/main-opencode-agent.ts` / `src/mcp/agents/opencodeSession.ts` / `src/mcp/devcontainer/opencodeTargets.ts` / `src/opencode-launch/serverProcess.ts` - OpenCode as an agent backend: the bridge's JSON-lines protocol, the bridge behind its ports, its entry point, the driver, the launcher, and the one `opencode serve` child the session launcher shares. `docs/agents.md` holds the rules
+  - **The driver's child is a bridge, because the server is HTTP on a loopback the daemon cannot reach in a container:** the bridge runs beside the server, mints its password, and ends it with its own stdin. Neither the URL nor the password crosses the pipe.
+  - **A bundled entry runs with a project's bun settings and env shut out** (`bundledEntryArgs` in `src/shared/launcher-spec.ts`): the bridge's working directory in a container is the project, whose `.env` bun would otherwise load into the server.
+  - **The daemon places the runtime before a bridge launches in a container:** `ownRuntime` on the driver row asks for it, and `prepareTarget` on the daemon service runs it once per session open.
+  - **A steer answers only once its turn holds the prompt, read off the server's rows:** the driver returns `taken`, so the service reports `steered` even when the turn ended since. One that misses is withdrawn from the inbox and rejected, and `startTurn` under the same key opens or adopts exactly one turn.
+  - **A turn's end is read from the rows, never from an event alone:** every stream connection reconciles running turns, steer waiters and tool counters before it trusts the stream.
+- `src/shared/launcher-spec.ts` - the bundled entry points a launch names: each API server's launcher (`LAUNCHERS`), each driver's own child (`AGENT_BRIDGES`), and the bun arguments both run under
 - `src/shared/session-control.ts` / `src/gateway/sessionControlPlane.ts` - the frames between the Gateway and a session's own plugin: its presence report and the control op a prompt answer rides; the Gateway's end, on the coordinator the workspace plane uses (`PlaneCoordinator`)
 - `src/shared/crypto.ts` / `admission.ts` / `router-protocol.ts` / `federation-lifecycle.ts` - federation trust wire vocabulary
 - `src/shared/notice.ts` - shared notice tiers
@@ -1004,6 +1013,7 @@ registration and its client stops with the floor in the log.
 **`main-vault-askpass.ts`** askpass helper in a session, host or container; asks the phone through the gateway as that session, falls back to the tty.
 **`main-session-hook.ts`** compact hook, printing the session's baseline as hook context; with `capabilities`, its capability guidance; with `gate`, the assistant's PreToolUse gate.
 **`main-opencode-launch.ts`** an OpenCode session's launcher, in its pane: its own server, then its terminal UI.
+**`main-opencode-agent.ts`** an OpenCode agent's bridge, beside its own server on the host or in a container; stdin and stdout are its protocol.
 
 | Port | Service |
 |---|---|

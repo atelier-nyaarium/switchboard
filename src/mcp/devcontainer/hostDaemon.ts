@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
 import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, GENERIC_AGENT_BACKENDS } from "../../shared/agent-backend.js";
-import { AgentExecutionTargetSchema } from "../../shared/agent-execution-target.js";
+import { AgentExecutionTargetSchema, parseAgentTargetId } from "../../shared/agent-execution-target.js";
 import { agentWire } from "../../shared/agent-wire.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
@@ -162,6 +162,12 @@ const AGENT_DAEMON_BINDINGS = [
 			open: driver.open,
 			resolveHostCwd: (hint) => resolveHostWorkdir(hint),
 			failureCode: driver.failureCode,
+			prepareTarget: driver.ownRuntime
+				? async (target) => {
+						const parsed = parseAgentTargetId(target.targetId);
+						if (parsed?.kind === "devcontainer") await placeContainerRuntime(parsed.project);
+					}
+				: undefined,
 		});
 		return { descriptor, targets, service, parseAck: agentWire(descriptor.id).ack };
 	}),

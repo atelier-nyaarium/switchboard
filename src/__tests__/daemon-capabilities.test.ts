@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -227,6 +227,18 @@ describe("what the daemon announces", () => {
 			CODEX_AGENT_CAPABILITY_ID,
 			"workflow",
 		]);
+	});
+
+	it("declares OpenCode from its installer's directory under home, off PATH", () => {
+		const home = mkdtempSync(path.join(tmpdir(), "daemon-capabilities-home-"));
+		tempDirs.push(home);
+		const bin = path.join(home, ".opencode", "bin");
+		mkdirSync(bin, { recursive: true });
+		writeFileSync(path.join(bin, "opencode"), "#!/bin/sh\n", { mode: 0o755 });
+
+		const declared = daemonCapabilityDeclaration({ ...envWithExecutables(), HOME: home });
+		expect(declared.map((c) => c.id)).toEqual(["opencode-agent", "workflow"]);
+		expect(declared[0]?.instructions).toContain("provider/model");
 	});
 
 	it("declares workflow for Claude alone", () => {

@@ -11,7 +11,7 @@ import { createWorkflowRunner } from "../src/gateway/workflows/runner.js";
 import { createWorkflowRunStore } from "../src/gateway/workflows/store.js";
 import { ASSISTANT_ONLY_TOOLS, ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../src/shared/assistant-session.js";
 import { readLaunchStatus } from "../src/shared/launch-status.js";
-import { LAUNCHERS } from "../src/shared/launcher-spec.js";
+import { AGENT_BRIDGES, LAUNCHERS } from "../src/shared/launcher-spec.js";
 import { SESSION_COMMANDS } from "../src/shared/session-commands.js";
 import {
 	deliveryOf,
@@ -182,6 +182,61 @@ async function checkOpencodeLauncher(dir: string): Promise<void> {
 		throw new Error(`status after exit: ${JSON.stringify(left)}`);
 	}
 	if (code !== FAKE_UI_EXIT) throw new Error(`launcher exited ${code}, not the UI's ${FAKE_UI_EXIT}`);
+}
+
+/** The real agent bridge under Bun, over the same fake `opencode`. */
+async function checkOpencodeBridge(dir: string): Promise<void> {
+	const { homeDir, posix } = HARNESS.opencode.binary;
+	if (!homeDir) throw new Error("OpenCode names no install directory");
+	const home = path.join(dir, "home");
+	const tmp = path.join(dir, "tmp");
+	mkdirSync(tmp, { recursive: true });
+	installFakeOpencode(path.join(home, homeDir));
+	const searched = (process.env.PATH ?? "")
+		.split(path.delimiter)
+		.filter((entry) => entry.length > 0 && !existsSync(path.join(entry, posix)));
+	const { child, output } = start("opencode-agent", [AGENT_BRIDGES.opencode.entry], {
+		...process.env,
+		HOME: home,
+		XDG_STATE_HOME: path.join(dir, "state"),
+		TMPDIR: tmp,
+		PATH: searched.join(path.delimiter),
+	});
+	const said = (wanted: (message: Record<string, unknown>) => boolean) =>
+		output
+			.flatMap((line) => {
+				try {
+					return [JSON.parse(line) as Record<string, unknown>];
+				} catch {
+					return [];
+				}
+			})
+			.find(wanted);
+	const leftEarly = () => {
+		if (child.exitCode !== null || child.signalCode !== null)
+			throw new Error(`bridge left early (${child.exitCode ?? child.signalCode})`);
+	};
+	const ready = await waitFor(
+		async () => {
+			leftEarly();
+			return said((message) => message.type === "ready");
+		},
+		"bridge ready",
+		20_000,
+	);
+	if (ready.ok !== true || ready.version !== OPENCODE_PIN) throw new Error(`bridge said ${JSON.stringify(ready)}`);
+
+	child.stdin?.write(`${JSON.stringify({ type: "request", id: "boot", op: "models" })}\n`);
+	const models = await waitFor(async () => {
+		leftEarly();
+		return said((message) => message.id === "boot");
+	}, "bridge models");
+	if (models.type !== "result" || !Array.isArray(models.models)) throw new Error(`models: ${JSON.stringify(models)}`);
+
+	// The server ends with the bridge's pipe.
+	child.stdin?.end();
+	const code = await exitCode(child, "OpenCode bridge");
+	if (code !== 0) throw new Error(`bridge exited ${code}`);
 }
 
 const TOOL = SESSION_COMMANDS.sessionRoutine.tool;
@@ -359,6 +414,7 @@ async function main(): Promise<void> {
 
 	await step("workflow sandbox", () => checkWorkflowSandbox(path.join(root, "workflows")));
 	await step("OpenCode launcher", () => checkOpencodeLauncher(path.join(root, "opencode")));
+	await step("OpenCode agent bridge", () => checkOpencodeBridge(path.join(root, "opencode-agent")));
 	await step("seed Router", async () => {
 		await seedRouter(routerDir, set);
 	});

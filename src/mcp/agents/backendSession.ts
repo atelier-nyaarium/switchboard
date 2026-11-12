@@ -39,6 +39,9 @@ export interface TurnCounter {
 	filesChanged?: number;
 }
 
+// biome-ignore lint/suspicious/noConfusingVoidType: a driver that cannot tell resolves with nothing.
+export type SteerOutcome = "taken" | void;
+
 export type TurnInspection = { known: "running" } | { known: "settled"; terminal: TurnTerminal } | { known: "unknown" };
 
 export interface AgentModel {
@@ -51,16 +54,20 @@ export interface AgentBackendSession {
 	openThread(options: ThreadOptions): Promise<string>;
 	/** Optional for ephemeral threads. */
 	resumeThread?(threadId: string, cwd: string): Promise<void>;
+	/** Answers once the prompt is on its way, within a bound; a later failure is the handle's terminal. */
 	startTurn(threadId: string, prompt: string, turn?: TurnOptions): Promise<TurnHandle>;
-	/** Omit to disable steering. */
-	steerTurn?(threadId: string, turnId: string, prompt: string, key?: string): Promise<void>;
+	/**
+	 * Omit to disable steering. `taken` says the turn is known to hold the prompt; anything else says
+	 * only that it was sent, so a turn that ended meanwhile is given the prompt again as a new turn.
+	 */
+	steerTurn?(threadId: string, turnId: string, prompt: string, key?: string): Promise<SteerOutcome>;
 	interruptTurn(threadId: string, turnId: string): Promise<void>;
 	/** Optional without readable history. */
 	inspectTurn?(threadId: string, turnId: string): Promise<TurnInspection>;
 	listModels?(): Promise<AgentModel[]>;
 	onActivity(listener: (turnId: string, text: string, itemId?: string) => void): void;
 	onCounter?(listener: (turnId: string, counter: TurnCounter) => void): void;
-	/** Evict cache on closure. */
+	/** Evict cache on closure. A listener set after the close is called at once. */
 	onClosed(listener: () => void): void;
 	close(): void;
 }
@@ -77,4 +84,6 @@ export interface AgentDriver {
 	threadsResumable: boolean;
 	/** Map recognizable refusal text. */
 	failureCode?(error: string): AgentDaemonFailureCode | undefined;
+	/** Its child is this build's own entry point, which a container must hold first. */
+	ownRuntime?: true;
 }

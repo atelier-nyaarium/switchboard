@@ -1,6 +1,6 @@
 // What a session is told about its delegated agents' turns, rendered once for the Gateway and local mode.
 
-import type { AgentBackendId } from "./agent-backend.js";
+import { type AgentBackendId, agentBackend } from "./agent-backend.js";
 import { type AgentProgressCounts, formatAgentProgressCounts } from "./agent-counter.js";
 import type { Ambient } from "./ambient.js";
 import { neutralizeMarkup, oneLine } from "./system-reminder.js";
@@ -46,8 +46,6 @@ const NOTE_CHARS = 300;
 
 const AGENT_COLLECT_TOOL = "agentCollect";
 
-const LABEL: Record<AgentBackendId, string> = { codex: "Codex", copilot: "Copilot" };
-
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -72,7 +70,7 @@ export function progressCheckupLine(counts: AgentProgressCounts, latest: string)
 }
 
 export function agentNoticeLine(notice: AgentNotice): string {
-	const agent = `${LABEL[notice.family]} agent \`${escaped(notice.agentId)}\``;
+	const agent = `${agentBackend(notice.family).displayName} agent \`${escaped(notice.agentId)}\``;
 	if (notice.kind === "done") {
 		return `${agent} finished its turn: ${escaped(notice.outcome)}. Call \`${AGENT_COLLECT_TOOL}\` with its agentId for the result.`;
 	}

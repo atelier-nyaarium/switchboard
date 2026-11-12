@@ -1,16 +1,40 @@
 # Delegated agents
 
-A session can hand a self-contained sub-task to a Codex or Copilot child. The daemon supervises one
-child per execution target; the gateway owns the durable record.
+A session can hand a self-contained sub-task to a Codex, Copilot or OpenCode child. The daemon
+supervises one child per execution target; the gateway owns the durable record.
 
 `claude -p` is available as a workflow backend only. It is not a session agent.
 
 `src/mcp/agents/agentTools.ts` registers `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, and
-`agentList` for both backends. `agentStart` takes `prompt` and optional `backend`, `model`, `effort`
+`agentList` for every backend. `agentStart` takes `prompt` and optional `backend`, `model`, `effort`
 (Copilot), `tier` (Codex), `schema`, and `cwd`. `agentMessage` takes `agentId` and `prompt`, with
 optional `schema` and Codex-only `tier`. `agentCollect` and `agentStop` take `agentId`; `agentList`
 accepts optional `backend`, `agentId` and `limit`. Capability guidance uses
-one `agents` section; the `codex-agent` and `copilot-agent` ids are unchanged.
+one `agents` section over the `codex-agent`, `copilot-agent` and `opencode-agent` ids.
+
+## One stack, one driver per backend
+
+A backend is a row in `src/shared/agent-backend.ts` and a driver in `src/mcp/agents/drivers.ts`.
+Nothing decides by a backend's name: a difference is a row field or the driver's own behavior, and
+a backend with no row or no driver does not compile. Copilot and OpenCode run on the generic stack
+(`agentService`, `agentApply`, `agentReducers`, `agentCommands`, `agentRelay`, `agentRoute` on the
+Gateway, `agentDaemonService` on the daemon). Codex runs its own older stack behind the same
+`AgentStack` seam until it moves.
+
+**`delivery` has three words on every backend.** `started` is an agent's first turn, from
+`agentStart` and never from a message. `followup` is an `agentMessage` that began a new turn.
+`steered` is an `agentMessage` into the turn already running. The wire and the record hold
+`started` or `steered`; `agentResultDelivery` maps them for an answer.
+
+**A steer says what it knows.** A driver answers `taken` when it knows the turn holds the prompt,
+and nothing when it only sent it. A steer that only sent, whose turn has ended since, is given again
+as a new turn, and so is one the driver rejected because its turn ended. Whether a turn ended is
+asked of the turn's own promise (`settledNow`). Both posts carry the operation's id as their key,
+so a driver that can tell lands one prompt.
+
+**A write that did not land leaves no operation waiting.** The catalog store keeps an unconfirmed
+write in memory, so the generic service gives its operation up at once. Left `requested`, it would
+refuse the agent's next message and be sent at the next daemon register.
 
 ## Workflow backends
 
@@ -36,8 +60,8 @@ Only the child that took the command can name its operation, so that is a reaped
 or a restarted daemon serving it, and no turn was in flight to misplace. The fence alone cannot order
 two children; the operation id is what does. Waiting on reconciliation there moves the fence, and the
 replayed receipt no longer matches the fence it was dispatched against, so the turn runs and its
-answer is dropped. Copilot's twin is `followUpOnNewChild`, read off the agent itself, since a Copilot
-follow-up is only dispatched to an idle agent with no turn in flight.
+answer is dropped. The generic stack's twin is in `decideAcceptance`: a `started` receipt from
+another stream is accepted when the agent is idle and holds no such turn.
 
 **A reconciliation adopts another stream, never a dead one.** `classifyReconciliationFence` refuses
 an older generation of the stream an agent already follows, and the relay drops a reconciliation
@@ -49,10 +73,12 @@ strand held frames.
 the agent unavailable, a prompt leaves it recovering, and a refused stop leaves it as it was. Both families'
 refusal and abandonment paths take it, and both throw one `AgentTransitionError`.
 
-**One relay, two adapters.** The fence rules live in `agent-fence.ts` and the relay mechanics in
+**One relay, two families.** The fence rules live in `agent-fence.ts` and the relay mechanics in
 `AgentRelayCore`: acknowledgement, held frames, the reconcile guard, and per-agent serialization.
-`CodexRelay` and `CopilotRelay` supply only their wire schemas, applier, agent listing, and
-reconcile request. An agent is askable exactly when its family can build that request.
+`CodexRelay` and the generic `AgentRelay` supply only their wire schemas, applier, agent listing, and
+reconcile request. An agent is askable exactly when its family can build that request. A held frame
+is one per stream and event id, and only commentary is dropped at the cap: an outcome evicted there
+would be acknowledged unapplied.
 
 **Every turn and every op ends.** The recovery decisions live once in `agent-recovery.ts`, and each
 family translates its record into them and applies the result through its own terminal path; the
@@ -60,8 +86,9 @@ shared vectors in `src/__tests__/fixtures/agent-recovery-vectors.json` run throu
 - **An op knows its daemon:** a route stamps each op with the host register frame's
   `daemonInstanceId`, which the host socket keeps and drops with the socket. Both relays read it
   through one callback.
-- **Register pass:** at each host register, before the family hellos, a `requested` op stamped with
-  another daemon is abandoned through `uncertainDeliveryState` (a stop also clears `pendingInterrupt`).
+- **Register pass:** at each host register, before the family hellos, a `requested` op not stamped
+  with the live daemon, one stamped with none included, is abandoned through `uncertainDeliveryState`
+  (on Codex's stack a stop also clears `pendingInterrupt`).
 - **Resend:** at the catalog frame after a register, a `requested` op stamped with the live daemon is
   sent again under its own operation id. `AgentDaemonCore` takes an op once per id: a repeat in
   flight is dropped and a settled one replays its answer, within a count-bounded ledger.
@@ -69,7 +96,7 @@ shared vectors in `src/__tests__/fixtures/agent-recovery-vectors.json` run throu
   the known turn `interrupted`, reason "turn lost: its agent process ended", unless it reports that
   turn settled. Codex binds a turn a reconcile read as running only on a thread its child holds.
   A retiring generation ends its own bound turns first (`AgentDaemonCore`'s retire-before-remove), and
-  Copilot answers `active: false` for a session it cannot resume.
+  the generic daemon reports no turn state for a thread it cannot resume or a turn it cannot read.
 - **Stale agents are asked again:** a `recovering` agent, and a `working` one fenced to another
   daemon, is asked on every hello and every persist tick, paced per agent by `RECONCILE_GUARD_MS`
   from its last ask whether answered or refused.
@@ -187,16 +214,19 @@ the opt-in.
   live for the process.
 - **Child errors are normalized where stored.** `errorText` covers every `fail()` site and
   `applyTerminal`.
-- **A closed local child must be evicted.** `LocalBackendSession.onClosed` is identity-guarded so a
-  late close cannot evict its successor.
-- **Idle reaping is Codex-only.** `threadsResumable` gates it. The hold spans the whole `handle()`
+- **A closed local child must be evicted.** `AgentBackendSession.onClosed` is identity-guarded so a
+  late close cannot evict its successor, and a listener set after the close is called at once.
+- **The command rules are written here a second time.** `LocalAgentHandlers` repeats the daemon
+  service's steer, pending interrupt and failure code rules, so a rule changed in one is changed in
+  the other.
+- **Idle reaping needs resumable threads.** `threadsResumable` on the driver row gates it. The hold spans the whole `handle()`
   request, not one child call; at every instant either that hold or `activeTurnId` guards the child.
   `applyTerminal` stamps the idle clock.
 - **Codex loads before every follow-up turn.** `ThreadLifecycle` owns the rule; a fresh child
   unarchives and resumes a parked thread.
 - **Local settlement uses the same owner.** `CodexLocalSession` calls `client.settleTurn`;
   `onTerminal` resolves the caller. Child exit, close, and retirement settle parked turns directly.
-- **`LocalTurnHandle.settled` never rejects.** A rejection becomes a failed terminal.
+- **`TurnHandle.settled` never rejects.** A rejection becomes a failed terminal.
 
 A Codex thread starts with `danger-full-access` and `approvalPolicy: "never"`, so it can write
 anywhere, reach the network, and run anything the delegating session could. The prompt is the only
@@ -223,3 +253,40 @@ on; the provider holds the answer to it, and the caller validates the `finalResp
 
 **Enabling it:** `copilot` on `PATH` announces the capability. Login uses the CLI and `/login`; no
 API key is forwarded. Default model `gpt-6-luna`.
+
+## OpenCode delegation
+
+`opencode serve` is an HTTP server on loopback, and a container's loopback is out of the daemon's
+reach. So the driver's child is a bridge (`src/main-opencode-agent.ts`), a bundled entry point that
+runs beside the server on the host or inside the container, starts
+`opencode serve --stdio --hostname 127.0.0.1 --port 0` with a password it mints, and speaks JSON
+lines over its own stdin and stdout (`src/shared/opencode-agent.ts`). The server ends with the
+bridge, and the bridge ends when its stdin closes. Neither the URL nor the password crosses the
+pipe, and a failure's text has URLs removed.
+
+- **An agent is an OpenCode session,** created under an id the bridge mints, at the agent's working
+  directory, with the model split at the first `/` and an allow-everything permission rule, so
+  nothing is ever asked. A model the server does not offer is refused by name. OpenCode keeps
+  sessions in its own database, so a thread outlives its server and `resumeThread` finds it again.
+- **A turn is a prompt, and its id is the prompt's message id,** derived from the operation's id.
+  OpenCode lands a repeated id once, so a replayed start or a steer's fallback posts nothing twice.
+- **A steer is taken at a step boundary.** The bridge posts it and answers only once the prompt's
+  row sits inside the turn it was sent for. One the turn ended without is withdrawn from the inbox
+  and rejected, after that turn's terminal, and the service then opens one new turn under the same
+  key. The wait is two minutes: a single tool call longer than that refuses the message.
+- **A turn's end is read from the session's rows.** The event stream replays nothing after a
+  reconnect, and a repeated prompt id emits an execution with no step. Every connection reads the
+  active sessions and the rows first, settles turns that ended while it was down, decides steers
+  still waiting, and emits a counter for each tool row not yet counted.
+- **Commentary is each finished text part before the last message.** The last assistant message is
+  the answer and is never also commentary. A tool start is a counter, kinded by its name
+  (`counterKindOfTool`, shared with Copilot).
+- **`schema`:** OpenCode has no response format on a prompt, so the driver appends an instruction
+  and the schema to the prompt text. The caller validates the answer, as for every backend.
+- **In a container the bridge runs from the copied runtime,** the same one a session's launcher
+  uses. The daemon places it before the first launch there (`ownRuntime` on the driver row). The
+  bridge runs under bun with a project's bun settings and `.env` shut out, since its working
+  directory is the project.
+
+**Enabling it:** `opencode` on `PATH`, or under `~/.opencode/bin` where its installer puts it,
+announces the capability. Sign-in is the CLI's own. Default model `opencode-go/deepseek-v4-pro`.

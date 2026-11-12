@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { COPILOT_BACKEND } from "../../shared/agent-backend.js";
-import type { AgentCounterKind } from "../../shared/agent-counter.js";
+import { counterKindOfTool } from "../../shared/agent-counter.js";
 import type { AgentDaemonFailureCode } from "../../shared/agent-state.js";
 import type { AgentChild } from "../devcontainer/codexTargets.js";
 import {
@@ -33,15 +33,6 @@ interface ActiveTurn {
 ////////////////////////////////
 //  Functions & Helpers
 
-function counterKindOf(event: SessionEvent): AgentCounterKind {
-	const raw = event.data?.toolName;
-	const name = typeof raw === "string" ? raw.toLowerCase() : "";
-	if (/shell|bash|terminal|command|run/.test(name)) return "shell";
-	if (/edit|write|patch|create_file/.test(name)) return "edit";
-	if (/read|view|list/.test(name)) return "read";
-	return "other";
-}
-
 export function copilotFailureCode(error: string): AgentDaemonFailureCode {
 	if (/auth|login|not logged in|unauthori[sz]ed|credential/i.test(error)) return "authentication_required";
 	if (/protocol version|incompatible/i.test(error)) return "protocol_incompatible";
@@ -58,6 +49,7 @@ export class CopilotBackendSession implements AgentBackendSession {
 	private activityListener?: (turnId: string, text: string, itemId?: string) => void;
 	private counterListener?: (turnId: string, counter: TurnCounter) => void;
 	private closedListener?: () => void;
+	private closed = false;
 
 	private constructor(
 		private readonly client: CopilotHeadlessClient,
@@ -75,8 +67,10 @@ export class CopilotBackendSession implements AgentBackendSession {
 		// Exit settles active turns.
 		child.onExit(() => {
 			exited = true;
-			opened?.settleAll({ status: "failed", error: `Copilot exited` });
-			opened?.closedListener?.();
+			if (!opened) return;
+			opened.closed = true;
+			opened.settleAll({ status: "failed", error: `Copilot exited` });
+			opened.closedListener?.();
 		});
 		const models = await client.listModels().catch((): HeadlessModel[] => []);
 		// Nothing would evict a session whose child left before it opened.
@@ -97,6 +91,7 @@ export class CopilotBackendSession implements AgentBackendSession {
 
 	onClosed(listener: () => void): void {
 		this.closedListener = listener;
+		if (this.closed) listener();
 	}
 
 	async listModels(): Promise<AgentModel[]> {
@@ -167,7 +162,7 @@ export class CopilotBackendSession implements AgentBackendSession {
 		const active = this.active.get(sessionId);
 		if (!active) return;
 		if (event.type === "tool.execution_start")
-			this.counterListener?.(active.turnId, { kind: counterKindOf(event) });
+			this.counterListener?.(active.turnId, { kind: counterKindOfTool(String(event.data?.toolName ?? "")) });
 		for (const text of active.turn.fold(event)) this.activityListener?.(active.turnId, text);
 		const terminal = active.turn.settle(event);
 		if (!terminal) return;

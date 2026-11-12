@@ -1,6 +1,7 @@
 // Session baseline after compaction.
 
 import { z } from "zod";
+import { AGENT_BACKEND_IDS } from "./agent-backend.js";
 import { neutralizeMarkup, oneLine, reminderBlock } from "./system-reminder.js";
 
 ////////////////////////////////
@@ -40,7 +41,7 @@ export const SessionBaselineSchema = z.object({
 		)
 		.optional(),
 	/** With a turn running. */
-	agents: z.array(z.object({ family: z.enum(["codex", "copilot"]), agentId: z.string() })),
+	agents: z.array(z.object({ family: z.enum(AGENT_BACKEND_IDS), agentId: z.string() })),
 	/** The assistant's session alone. */
 	assistant: z
 		.object({

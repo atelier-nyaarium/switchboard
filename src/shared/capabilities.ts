@@ -112,6 +112,12 @@ export const COPILOT_AGENT_INSTRUCTIONS = `
 \`effort\` must be offered by the selected model.
 `.trim();
 
+export const OPENCODE_AGENT_INSTRUCTIONS = `
+## OpenCode
+
+\`model\` uses the format: \`provider/model\`
+`.trim();
+
 /** A locally served agent backend: a session-made entry with no declared text. */
 export function localAgentCapability(id: AgentBackendId): Capability {
 	return { id: agentCapabilityId(id) };
@@ -126,6 +132,7 @@ export function isLocalAgentCapability(capability: Capability): boolean {
 export const AGENT_BACKEND_INSTRUCTIONS: Record<AgentBackendId, string> = {
 	codex: CODEX_AGENT_INSTRUCTIONS,
 	copilot: COPILOT_AGENT_INSTRUCTIONS,
+	opencode: OPENCODE_AGENT_INSTRUCTIONS,
 };
 
 /**

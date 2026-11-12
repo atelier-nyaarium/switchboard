@@ -72,9 +72,13 @@ class FakeSession implements AgentBackendSession {
 	}
 }
 
-function setup(configure: (session: FakeSession) => void = () => {}) {
+function setup(
+	configure: (session: FakeSession) => void = () => {},
+	prepareTarget?: (target: { targetId: string }) => Promise<void>,
+) {
 	const session = new FakeSession();
 	configure(session);
+	let opened = 0;
 	const sent: Record<string, unknown>[] = [];
 	const released: Array<[string, number]> = [];
 	const targets: TargetSupervisor = {
@@ -86,8 +90,12 @@ function setup(configure: (session: FakeSession) => void = () => {}) {
 		targets,
 		daemonInstanceId: "daemon-1",
 		send: (message) => sent.push(message),
-		open: async () => session,
+		open: async () => {
+			opened += 1;
+			return session;
+		},
 		resolveHostCwd: () => "/home/agent",
+		prepareTarget,
 	});
 	const command = (kind: string, fields: Record<string, unknown> = {}) => {
 		const frame: Record<string, unknown> = {
@@ -108,7 +116,7 @@ function setup(configure: (session: FakeSession) => void = () => {}) {
 	const message = (fields: Record<string, unknown> = {}) =>
 		command("message", { operationId: id(), target: TARGET, sessionId: "thread-1", prompt: "And this", ...fields });
 	const kinds = () => sent.map((frame) => `${frame.kind}${frame.state ? `:${frame.state}` : ""}`);
-	return { session, service, sent, released, command, start, message, kinds };
+	return { session, service, sent, released, command, start, message, kinds, opened: () => opened };
 }
 
 describe("the agent daemon service", () => {
@@ -230,6 +238,36 @@ describe("the agent daemon service", () => {
 		await settle();
 		expect(sent.at(-1)).toMatchObject({ kind: "terminal", turnId: "turn-1", state: "interrupted" });
 		expect(released).toEqual([["host", 1]]);
+	});
+
+	it("gives up a session whose driver closed before it was held", async () => {
+		const { session, sent, released, start } = setup((fake) => {
+			// Sticky, as the contract asks: the driver closed while it opened.
+			fake.onClosed = (listener) => listener();
+		});
+		await start();
+		expect(session.started).toBe(0);
+		expect(sent.at(-1)).toMatchObject({ kind: "rejected" });
+		expect(released).toEqual([["host", 1]]);
+	});
+
+	it("prepares a target once before its child opens, and refuses with the reason when it cannot", async () => {
+		const prepared: string[] = [];
+		const ready = setup(undefined, async (target) => {
+			prepared.push(target.targetId);
+		});
+		await ready.start();
+		ready.message({ expectedTurnId: "turn-1" });
+		await settle();
+		expect(prepared).toEqual(["host"]);
+		expect(ready.kinds()).toEqual(["accepted", "accepted"]);
+
+		const broken = setup(undefined, async () => {
+			throw new Error("runtime could not be copied in");
+		});
+		await broken.start();
+		expect(broken.opened()).toBe(0);
+		expect(broken.sent.at(-1)).toMatchObject({ kind: "rejected", error: "runtime could not be copied in" });
 	});
 
 	it("refuses commands once it is shutting down", async () => {

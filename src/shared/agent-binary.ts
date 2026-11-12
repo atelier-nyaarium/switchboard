@@ -50,5 +50,13 @@ export function isAgentBackendInstalled(
 	backend: AgentBackendDescriptor,
 	env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-	return isBinaryOnPath(backend.binaryName, env);
+	if (isBinaryOnPath(backend.binaryName, env)) return true;
+	// The env's own home, so a probe of another env never reads this process's.
+	if (!backend.binaryHomeDir || !env.HOME) return false;
+	try {
+		fs.accessSync(path.join(env.HOME, backend.binaryHomeDir, backend.binaryName), fs.constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
 }

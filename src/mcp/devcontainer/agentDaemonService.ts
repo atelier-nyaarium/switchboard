@@ -27,6 +27,8 @@ export interface AgentDaemonDeps {
 	open(child: AgentChild): Promise<AgentBackendSession>;
 	resolveHostCwd(hint: string | undefined): string;
 	failureCode?(error: string): AgentDaemonFailureCode | undefined;
+	/** What a target must hold before a child launches there. */
+	prepareTarget?(target: AgentResolvedTarget): Promise<void>;
 }
 
 interface Binding {
@@ -54,6 +56,8 @@ interface TargetSession {
 	active: Map<string, ActiveTurn>;
 	/** Buffers events before announcement. */
 	held: Map<string, Array<() => void>>;
+	/** Its driver closed, perhaps before it was held as live. */
+	closed: boolean;
 }
 
 type Command<Kind extends AgentDaemonCommand["kind"]> = Extract<AgentDaemonCommand, { kind: Kind }>;
@@ -157,6 +161,7 @@ export class AgentDaemonService {
 			model: command.model,
 			serviceTier: command.serviceTier,
 			outputSchema: command.outputSchema,
+			key: command.operationId,
 		});
 	}
 
@@ -170,13 +175,20 @@ export class AgentDaemonService {
 			if (!session.client.steerTurn || command.expectedTurnId !== active.turnId)
 				return this.reject(command, `${this.name} agent is still working`);
 			let steerError: unknown;
+			let taken = false;
 			try {
-				await session.client.steerTurn(command.sessionId, active.turnId, command.prompt, command.operationId);
+				const outcome = await session.client.steerTurn(
+					command.sessionId,
+					active.turnId,
+					command.prompt,
+					command.operationId,
+				);
+				taken = outcome === "taken";
 			} catch (error) {
 				steerError = error;
 			}
-			await settledNow(active.settled);
-			if (session.active.get(command.sessionId) === active) {
+			if (!taken) await settledNow(active.settled);
+			if (taken || session.active.get(command.sessionId) === active) {
 				if (steerError !== undefined) return this.reject(command, this.describe(steerError));
 				return this.emitReceipt(session, command, {
 					kind: "accepted",
@@ -287,8 +299,25 @@ export class AgentDaemonService {
 		this.emitTerminal(session, { binding, turnId: command.turnId }, seen.terminal);
 	}
 
-	private session(target: AgentResolvedTarget): Promise<TargetSession | null> {
-		return this.core.acquireSession(target, (resolved, lease) => this.open(resolved, lease));
+	private async session(target: AgentResolvedTarget): Promise<TargetSession | null> {
+		if (this.deps.prepareTarget && !this.core.getSession(target.targetId)) {
+			try {
+				await this.deps.prepareTarget(target);
+			} catch (error) {
+				this.openErrors.set(target.targetId, this.describe(error));
+				return null;
+			}
+		}
+		const session = await this.core.acquireSession(target, (resolved, lease) => this.open(resolved, lease));
+		if (!session?.closed) return session;
+		this.giveUp(session);
+		return null;
+	}
+
+	private giveUp(session: TargetSession): void {
+		if (!this.core.live(session)) return;
+		this.core.retire(session);
+		this.deps.targets.release(session.targetId, session.generation);
 	}
 
 	private async open(target: AgentResolvedTarget, lease: TargetLease): Promise<TargetSession | null> {
@@ -309,14 +338,14 @@ export class AgentDaemonService {
 			threads: new Map(),
 			active: new Map(),
 			held: new Map(),
+			closed: false,
 		};
 		client.onActivity((turnId, text, itemId) => this.onActivity(session, turnId, text, itemId));
 		client.onCounter?.((turnId, counter) => this.onCounter(session, turnId, counter));
-		// A driver can close with its child still alive.
+		// A driver can close with its child still alive, or before this session is held.
 		client.onClosed(() => {
-			if (!this.core.live(session)) return;
-			this.core.retire(session);
-			this.deps.targets.release(target.targetId, lease.generation);
+			session.closed = true;
+			this.giveUp(session);
 		});
 		return session;
 	}

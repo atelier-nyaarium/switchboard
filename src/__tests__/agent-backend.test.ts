@@ -9,10 +9,12 @@ import {
 	agentInboundFrameTypes,
 	CODEX_BACKEND,
 	COPILOT_BACKEND,
+	OPENCODE_BACKEND,
 } from "../shared/agent-backend.js";
 import { agentWire } from "../shared/agent-wire.js";
 import { CODEX_AGENT_CAPABILITY_ID, COPILOT_AGENT_CAPABILITY_ID } from "../shared/capabilities.js";
 import { CODEX_WAIT_BUDGET_MS, CodexDaemonHelloSchema, CodexEventAckSchema } from "../shared/codex-agent.js";
+import { HARNESS } from "../shared/session-harness.js";
 
 // Every derivation is pinned so a descriptor edit that would change a wire spelling fails here instead of at a peer.
 describe("agent backend derivations", () => {
@@ -75,6 +77,19 @@ describe("agent backend derivations", () => {
 	});
 
 	it("registers each backend exactly once", () => {
-		expect(AGENT_BACKENDS.map((backend) => backend.id)).toEqual(["codex", "copilot"]);
+		expect(AGENT_BACKENDS.map((backend) => backend.id)).toEqual(["codex", "copilot", "opencode"]);
+	});
+
+	it("derives OpenCode's names, and looks for its binary where its session CLI is installed", () => {
+		expect(agentCapabilityId("opencode")).toBe("opencode-agent");
+		expect(agentEnvPrefix("opencode")).toBe("OPENCODE_");
+		expect(agentHttpPath("opencode")).toBe("/opencode");
+		expect([...agentInboundFrameTypes("opencode")].sort()).toEqual([
+			"opencode_event",
+			"opencode_hello",
+			"opencode_receipt",
+		]);
+		expect(OPENCODE_BACKEND.binaryName).toBe(HARNESS.opencode.binary.posix);
+		expect(OPENCODE_BACKEND.binaryHomeDir).toBe(HARNESS.opencode.binary.homeDir);
 	});
 });

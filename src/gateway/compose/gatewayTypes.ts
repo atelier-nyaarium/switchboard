@@ -1,3 +1,4 @@
+import type { AgentBackendId } from "../../shared/agent-backend.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { SealedEnvelope } from "../../shared/crypto.js";
 import type { RowEnvelope } from "../../shared/schemasInbox.js";
@@ -62,7 +63,7 @@ export interface GatewayFaultPort {
 	workflowRecord(runId: string): WorkflowRunRecord | null;
 	workflowRows(runId: string): WorkflowJournalRow[];
 	workflowAgents(team: string): Array<{
-		family: "codex" | "copilot";
+		family: AgentBackendId;
 		agentId: string;
 		runId?: string;
 		state: string;

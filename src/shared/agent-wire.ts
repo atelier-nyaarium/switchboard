@@ -1,6 +1,6 @@
 // The Gateway to daemon wire for a delegated agent. Commands go down. Receipts and events come back
-// fenced by (daemonInstanceId, targetId, generation, eventId), the ack retires the daemon's outbox,
-// and the hello names its live generations on reconnect.
+// fenced by (daemonInstanceId, targetId, generation, eventId), a refusal by its daemon alone. The
+// ack retires the daemon's outbox, and the hello names its live generations on reconnect.
 
 import { z } from "zod";
 import { type AgentBackendId, agentFrameType } from "./agent-backend.js";

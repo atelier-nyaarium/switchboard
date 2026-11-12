@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { capabilityInstructions, fetchCapabilities, GATED_CAPABILITY_IDS, hasCapability } from "../mcp/capabilities.js";
 import {
+	AGENT_CAPABILITY_IDS,
 	type Capability,
 	CODEX_AGENT_CAPABILITY_ID,
 	COPILOT_AGENT_CAPABILITY_ID,
@@ -324,9 +325,8 @@ describe("the gated capability ids", () => {
 		// rename is planned work. Without this check it lands silently: the gateway stops reporting
 		// the old id, the gate stops matching, and the surface vanishes from every session while the
 		// gate still holds the old name, so the outage looks intermittent.
-		const consoleGated = GATED_CAPABILITY_IDS.filter(
-			(id) => id !== CODEX_AGENT_CAPABILITY_ID && id !== COPILOT_AGENT_CAPABILITY_ID && id !== "workflow",
-		);
+		const daemonDeclared: string[] = [...AGENT_CAPABILITY_IDS, "workflow"];
+		const consoleGated = GATED_CAPABILITY_IDS.filter((id) => !daemonDeclared.includes(id));
 
 		expect(shippedPlugins().map((p) => p.id)).toEqual(expect.arrayContaining(consoleGated));
 	});

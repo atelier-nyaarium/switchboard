@@ -13,6 +13,15 @@ export interface AgentProgressCounts {
 	other: number;
 }
 
+/** A tool call's kind, read off its name. */
+export function counterKindOfTool(toolName: string): AgentCounterKind {
+	const name = toolName.toLowerCase();
+	if (/shell|bash|terminal|command|run/.test(name)) return "shell";
+	if (/edit|write|patch|create_file/.test(name)) return "edit";
+	if (/read|view|list/.test(name)) return "read";
+	return "other";
+}
+
 export function emptyAgentProgressCounts(): AgentProgressCounts {
 	return { modelTurns: 0, toolCalls: 0, shell: 0, edits: 0, reads: 0, other: 0 };
 }

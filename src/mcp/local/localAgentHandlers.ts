@@ -144,7 +144,10 @@ export class LocalAgentHandlers {
 			exchanges: [],
 		};
 		this.agents.set(agentId, agent);
-		return this.dispatchTurn(session, agent, prompt, "start", { outputSchema: request.outputSchema });
+		return this.dispatchTurn(session, agent, prompt, "start", {
+			outputSchema: request.outputSchema,
+			key: operationId,
+		});
 	}
 
 	async message(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal> {
@@ -158,6 +161,8 @@ export class LocalAgentHandlers {
 			return this.unavailable(agent.agentId, error);
 		}
 
+		// One key for the steer and the turn it may fall back to: one prompt.
+		const key = request.operationId ?? crypto.randomUUID();
 		const active = this.activeTurn(agent);
 		if (active) {
 			if (agent.interruptingTurnId === active.id)
@@ -165,13 +170,14 @@ export class LocalAgentHandlers {
 			// Refuse busy requests when steering is unavailable.
 			if (!session.steerTurn) return { refused: this.host.spec.busyMessage ?? `agent is still working` };
 			let steerError: unknown;
+			let taken = false;
 			try {
-				await session.steerTurn(agent.threadId, active.id, prompt, request.operationId);
+				taken = (await session.steerTurn(agent.threadId, active.id, prompt, key)) === "taken";
 			} catch (error) {
 				steerError = error;
 			}
-			if (agent.settled) await settledNow(agent.settled);
-			if (this.activeTurn(agent) === active) {
+			if (!taken && agent.settled) await settledNow(agent.settled);
+			if (taken || this.activeTurn(agent) === active) {
 				if (steerError !== undefined) return this.unavailable(agent.agentId, steerError);
 				const at = this.touch(agent);
 				agent.exchanges.push({
@@ -194,7 +200,7 @@ export class LocalAgentHandlers {
 			model: agent.model,
 			serviceTier,
 			outputSchema: request.outputSchema,
-			key: request.operationId,
+			key,
 		});
 		if (serviceTier !== undefined && answer.observation !== "unavailable") agent.serviceTier = serviceTier;
 		return answer;

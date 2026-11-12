@@ -28,7 +28,7 @@ export interface RuntimeCopy {
 //  Constants
 
 export const CONTAINER_HOME = "/home/vscode";
-const CONTAINER_BUN = `${CONTAINER_HOME}/.bun/bin/bun`;
+export const CONTAINER_BUN = `${CONTAINER_HOME}/.bun/bin/bun`;
 const CACHE = `${CONTAINER_HOME}/.cache/switchboard`;
 const STATUS_DIR = `${CACHE}/launch`;
 

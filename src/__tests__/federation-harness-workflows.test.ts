@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { WorkflowRunRecord, WorkflowStartInput } from "../gateway/workflows/workflowSchemas.js";
+import { AGENT_BACKEND_IDS } from "../shared/agent-backend.js";
 import type { CodexDaemonEvent } from "../shared/codexAgentRelay.js";
 import { composeSessionName } from "../shared/session-id.js";
 import { type CodexResponder, type FakeCodexDaemon, stockCodexResponder } from "../testing/fakeHost.js";
@@ -110,23 +111,22 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("runs a step through each installed agent backend", async () => {
-		const run = startRun(
-			`export const meta = {}; await agent("codex step", {backend: "codex"}); await agent("copilot step", {backend: "copilot"}); return true;`,
-		);
+		const steps = AGENT_BACKEND_IDS.map((id) => `await agent("${id} step", {backend: "${id}"});`).join(" ");
+		const run = startRun(`export const meta = {}; ${steps} return true;`);
 		const record = await waitForStatus(run.runId, "succeeded");
 		expect(record.result).toBe(true);
-		expect(
-			h.host.codexCommands.some((command) => command.kind === "start" && command.prompt.includes("codex step")),
-		).toBe(true);
-		expect(
-			h.host
-				.agentCommands("copilot")
-				.some((command) => command.kind === "start" && command.prompt.includes("copilot step")),
-		).toBe(true);
-		expect(h.gateway.faults.workflowRows(run.runId).filter((row) => row.kind === "settle")).toEqual([
-			expect.objectContaining({ issueOrdinal: 1, outcome: "completed" }),
-			expect.objectContaining({ issueOrdinal: 2, outcome: "completed" }),
-		]);
+		for (const id of AGENT_BACKEND_IDS) {
+			const commands = id === "codex" ? h.host.codexCommands : h.host.agentCommands(id);
+			expect(
+				commands.some((command) => command.kind === "start" && command.prompt.includes(`${id} step`)),
+				id,
+			).toBe(true);
+		}
+		expect(h.gateway.faults.workflowRows(run.runId).filter((row) => row.kind === "settle")).toEqual(
+			AGENT_BACKEND_IDS.map((_, index) =>
+				expect.objectContaining({ issueOrdinal: index + 1, outcome: "completed" }),
+			),
+		);
 	});
 
 	it("runs two Claude steps with one workflow notice", async () => {

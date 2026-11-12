@@ -16,7 +16,7 @@ export interface RegisterRecoveryDecision {
 
 /** Missing state means unknown. */
 export type AgentReconciliationReport =
-	// Codex reports include family.
+	// FIXME: the `family` shape goes when Codex takes the generic stack.
 	{ family: "codex"; turnId?: string; turnState?: string } | { turnId?: string; turnState?: string };
 
 export type AgentReconciliationDecision =
