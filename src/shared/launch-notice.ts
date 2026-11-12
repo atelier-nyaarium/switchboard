@@ -122,16 +122,15 @@ export function ownerLaunchPhrase(failure: LaunchFailure): string {
 		case "error":
 			return `session encountered an error while starting: ${oneLine(failure.reason)}`;
 		case "cli":
-			return ownerCliPhrase(failure.refusal);
+			return ownerCliPhrase(failure.refusal, "was");
 	}
 }
 
-function ownerCliPhrase(refusal: CliRefusal): string {
+/** `was` after "Stopped at <time>: ", `is` on a line of its own. */
+function ownerCliPhrase(refusal: CliRefusal, verb: "is" | "was"): string {
 	switch (refusal.cause) {
 		case "not_installed":
-			return refusal.named
-				? `${HARNESS[refusal.named].label} was not installed`
-				: "Selected CLI was not installed";
+			return `${refusal.named ? HARNESS[refusal.named].label : "Selected CLI"} ${verb} not installed`;
 		case "needs_pick":
 			return "Multiple CLI are installed. Select one in the run config";
 		case "none_installed":
@@ -141,9 +140,9 @@ function ownerCliPhrase(refusal: CliRefusal): string {
 	}
 }
 
-/** The owner's line for a launch that failed. */
+/** The owner's line for a launch that failed. A CLI's state reads in the present. */
 export function ownerLaunchLine(failure: LaunchFailure): string {
-	const phrase = ownerLaunchPhrase(failure);
+	const phrase = failure.kind === "cli" ? ownerCliPhrase(failure.refusal, "is") : ownerLaunchPhrase(failure);
 	return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
 }
 

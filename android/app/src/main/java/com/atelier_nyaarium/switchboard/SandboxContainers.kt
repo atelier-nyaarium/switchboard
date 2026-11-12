@@ -27,7 +27,7 @@ private const val SESSION_START_MS = 20_000L
 ////////////////////////////////
 //  Functions & Helpers
 
-private const val SANDBOX_LAUNCH_FAILURE = "Copilot was not installed."
+private const val SANDBOX_LAUNCH_FAILURE = "Copilot is not installed."
 
 /** Gateway `index`'s containers, so each answers differently; the last reports none. */
 internal fun sandboxContainers(index: Int): List<SpawnContainer> = when (index) {

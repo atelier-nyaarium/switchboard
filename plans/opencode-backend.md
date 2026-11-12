@@ -431,6 +431,8 @@ No CLI is installed
 
 **Owner, 2026-11-11, superseding the thread line:** "I don't want this message to actually post on a session and remain there." A launch that comes up posts nothing; the thread docks `Starting...` while it boots. "any errors become a dismissable message": a failed launch's row is marked `launch: "failed"`, held on the phone as a dismissible dock, and threads nothing.
 
+**Owner wording, 2026-11-11, the failed launch's popup:** "let's write it as present tense in the popup": `<CLI> is not installed.` The line on its own (the dock, a create's toast, a fire's refusal) reads a CLI's state in the present; the routine row's "Stopped at <time>: <CLI> was not installed" keeps its tense.
+
 **Owner wording, the fire sheet once a fire is queued under a starting session:** the line `Runs once the session starts.`, Fire disabled, Cancel reads `Close`. "sounds good"
 
 **Architecture pass after slice 3:** no fan-out; every bug class above is resolved by a design change. The outcome travels typed (`LaunchFailure`) and each reader renders it once: an agent by `launchFailureText` and `launchNoticeText`, another Domain through `failureFor`, the owner by `ownerLaunchPhrase` and `ownerLaunchLine`. The two owner roads still reading agent words, a create refused before dispatch and a phone Wake's failure, take the owner's line. The daemon's `error` text stays beside the typed failure for an older Gateway.
