@@ -27,7 +27,8 @@ export interface AgentRefusal {
 
 export interface AgentApplier {
 	applyReceipt: (receipt: AgentDaemonReceipt, at: number) => Application;
-	applyEvent: (event: AgentDaemonEvent, at: number) => Application;
+	/** Held replay bypasses duplicates. */
+	applyEvent: (event: AgentDaemonEvent, at: number, held?: boolean) => Application;
 	/** One-shot transient refusal. */
 	takeRefusal: (operationId: string) => AgentRefusal | undefined;
 }
@@ -214,12 +215,15 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 						fence,
 					);
 				}
-				const running =
+				const reported =
 					recovery.kind === "survives" || recovery.kind === "adopt" || recovery.kind === "recovering"
 						? recovery.turnId
 						: recovery.kind === "lost"
 							? recovery.adoptTurnId
 							: undefined;
+				// An applied terminal outranks a later report.
+				const ended = base.turns.some((turn) => turn.id === reported && turn.state !== "inProgress");
+				const running = ended ? undefined : reported;
 				const adopted: AgentStoredTurn[] =
 					running && !base.turns.some((turn) => turn.id === running)
 						? [{ id: running, state: "inProgress", activities: [], updatedAt: timestamp }]
@@ -264,16 +268,18 @@ export function createAgentApplier(deps: AgentApplierDeps): AgentApplier {
 		return applyReconciled(owner, agent, receipt, at);
 	}
 
-	function applyEvent(event: AgentDaemonEvent, at: number): Application {
+	function applyEvent(event: AgentDaemonEvent, at: number, held = false): Application {
 		const located = locate(event.ownerKey, event.agentId);
 		if (!located) return ignore("agent not found");
 		const { owner, agent } = located;
 		if (agent.sessionId !== event.sessionId || agent.resolvedTarget?.targetId !== event.targetId)
 			return ignore("event names a different session");
-		const fence = fenceOf(event);
-		const standing = classifyEventFence(agent.fence, fence);
-		if (standing === "duplicate") return ignore("duplicate event");
+		const arriving = fenceOf(event);
+		const standing = classifyEventFence(agent.fence, arriving);
+		// Held events were unapplied.
+		if (standing === "duplicate" && !held) return ignore("duplicate event");
 		if (standing === "foreign") return { disposition: "reconcile", owner, agent };
+		const fence = laterFence(agent.fence, arriving);
 		const turnIndex = agent.turns.findIndex((turn) => turn.id === event.turnId);
 		if (turnIndex < 0) return { disposition: "reconcile", owner, agent };
 		if (agent.turns[turnIndex]!.state !== "inProgress") return ignore("turn already settled");

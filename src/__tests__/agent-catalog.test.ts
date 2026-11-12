@@ -3,7 +3,6 @@ import { restorePersistedAgentCatalog } from "../shared/agent-catalog.js";
 import { agentOperationIdentity } from "../shared/agent-identity.js";
 import { interruptingOperation } from "../shared/agent-persisted.js";
 import { agentOperationFingerprintOf } from "../shared/agent-record.js";
-import { CodexPersistedAgentSchema } from "../shared/codex-agent.js";
 
 const START = "123e4567-e89b-42d3-a456-426614174000";
 const MESSAGE = "123e4567-e89b-42d3-a456-426614174001";
@@ -19,9 +18,9 @@ function fingerprint(kind: "start" | "message" | "stop", agentId: string, prompt
 	return agentOperationFingerprintOf(agentOperationIdentity({ kind, agentId, prompt, model }));
 }
 
-/** An agent as Codex's own stack stored it: steered mid-turn, then asked to stop. */
+/** An agent as Codex's own stack stored it, a shape no schema reads now: steered mid-turn, then asked to stop. */
 function exchangeRecord() {
-	return CodexPersistedAgentSchema.parse({
+	return {
 		version: 1,
 		agentId: CODEX_AGENT,
 		agentState: "working",
@@ -98,7 +97,7 @@ function exchangeRecord() {
 		turnMarks: { collected: [], notified: [] },
 		createdAt: 10,
 		updatedAt: 40,
-	});
+	};
 }
 
 describe("a stored agent catalog", () => {

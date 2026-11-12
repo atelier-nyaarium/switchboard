@@ -3,18 +3,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
-import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, GENERIC_AGENT_BACKENDS } from "../../shared/agent-backend.js";
+import { AGENT_BACKENDS, agentEnvPrefix, agentFrameType } from "../../shared/agent-backend.js";
 import { AgentExecutionTargetSchema, parseAgentTargetId } from "../../shared/agent-execution-target.js";
 import { agentWire } from "../../shared/agent-wire.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
 import { cliProbeScript, parseCliProbe } from "../../shared/cli-probe.js";
 import { placeCandidates } from "../../shared/cli-resolve.js";
-import { CodexEventAckSchema } from "../../shared/codex-agent.js";
 import {
 	ClaudeTurnAckFrameSchema,
 	classifyPeekError,
 	type DaemonHostOp,
+	HostAgentModelsOpSchema,
 	HostClaudeCancelOpSchema,
 	HostClaudeRunOpSchema,
 	HostReadSkillOpSchema,
@@ -39,10 +39,9 @@ import { composeSessionName, parseSessionName } from "../../shared/session-id.js
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { AGENT_DRIVERS } from "../agents/drivers.js";
 import { AgentDaemonService } from "./agentDaemonService.js";
+import { ExecutionTargetManager, targetLogger } from "./agentTargets.js";
 import { appendBuildTranscript } from "./buildTranscript.js";
 import { createClaudeRunner } from "./claudeRunner.js";
-import { CodexDaemonService } from "./codexDaemonService.js";
-import { ExecutionTargetManager, targetLogger } from "./codexTargets.js";
 import { CONTAINER_HOME, containerLaunchSite, createRuntimePlacer } from "./containerSite.js";
 import { containerFor, DevContainers, docker } from "./containers.js";
 import {
@@ -136,42 +135,31 @@ function resolveSpawnWorkdir(spawn: string, hint: string | undefined): { workdir
 }
 // Per process, not per socket.
 const daemonInstanceId = crypto.randomUUID();
-const codexTargets = new ExecutionTargetManager();
-const codexDaemon = new CodexDaemonService({
-	targets: codexTargets,
-	daemonInstanceId,
-	send: safeSend,
-	resolveHostCwd: (hint) => resolveHostWorkdir(hint),
+const AGENT_DAEMON_BINDINGS = AGENT_BACKENDS.map((descriptor) => {
+	const driver = AGENT_DRIVERS[descriptor.id];
+	const targets = new ExecutionTargetManager({
+		launcher: driver.launcher,
+		log: targetLogger(`${descriptor.id}-target`),
+		envPrefix: agentEnvPrefix(descriptor.id),
+	});
+	const service = new AgentDaemonService({
+		backend: descriptor,
+		targets,
+		daemonInstanceId,
+		send: safeSend,
+		open: driver.open,
+		resolveHostCwd: (hint) => resolveHostWorkdir(hint),
+		failureCode: driver.failureCode,
+		threadsResumable: driver.threadsResumable,
+		prepareTarget: driver.ownRuntime
+			? async (target) => {
+					const parsed = parseAgentTargetId(target.targetId);
+					if (parsed?.kind === "devcontainer") await placeContainerRuntime(parsed.project);
+				}
+			: undefined,
+	});
+	return { descriptor, targets, service, parseAck: agentWire(descriptor.id).ack };
 });
-const AGENT_DAEMON_BINDINGS = [
-	{ descriptor: CODEX_BACKEND, targets: codexTargets, service: codexDaemon, parseAck: CodexEventAckSchema },
-	...GENERIC_AGENT_BACKENDS.map((descriptor) => {
-		const driver = AGENT_DRIVERS[descriptor.id];
-		const targets = new ExecutionTargetManager(
-			driver.launcher,
-			undefined,
-			targetLogger(`${descriptor.id}-target`),
-			undefined,
-			agentEnvPrefix(descriptor.id),
-		);
-		const service = new AgentDaemonService({
-			backend: descriptor,
-			targets,
-			daemonInstanceId,
-			send: safeSend,
-			open: driver.open,
-			resolveHostCwd: (hint) => resolveHostWorkdir(hint),
-			failureCode: driver.failureCode,
-			prepareTarget: driver.ownRuntime
-				? async (target) => {
-						const parsed = parseAgentTargetId(target.targetId);
-						if (parsed?.kind === "devcontainer") await placeContainerRuntime(parsed.project);
-					}
-				: undefined,
-		});
-		return { descriptor, targets, service, parseAck: agentWire(descriptor.id).ack };
-	}),
-];
 
 // A send mid-close throws.
 function safeSend(payload: Record<string, unknown>): void {
@@ -745,6 +733,10 @@ const hostOpRunner = createHostOpRunner({
 	listDirs: async (p, spawn) =>
 		spawn === WINDOWS_SPAWN ? listWindowsDirs(p, windowsAvailability().userProfile) : listHostDirs(p),
 	readSkill: async (target, skillPath) => readWorkflowSkill(target, skillPath),
+	agentModels: async (backend, target) => {
+		const binding = AGENT_DAEMON_BINDINGS.find(({ descriptor }) => descriptor.id === backend);
+		return binding ? binding.service.listModels(target) : { kind: "refused", reason: `no ${backend} daemon` };
+	},
 	claudeRun: (op) => claudeRunner.start(op),
 	claudeCancel: (op) => claudeRunner.cancel(op),
 });
@@ -840,6 +832,14 @@ async function handleHostOp(reqId: string, op: DaemonHostOp): Promise<void> {
 			const checked = HostReadSkillOpSchema.safeParse(op);
 			if (!checked.success) {
 				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid readSkill operation" });
+				return;
+			}
+			op = checked.data;
+		}
+		if (op.kind === "agentModels") {
+			const checked = HostAgentModelsOpSchema.safeParse(op);
+			if (!checked.success) {
+				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid agentModels operation" });
 				return;
 			}
 			op = checked.data;

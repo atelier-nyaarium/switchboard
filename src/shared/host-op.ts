@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AGENT_BACKEND_IDS, type AgentBackendId } from "./agent-backend.js";
 import { type AgentExecutionTarget, AgentExecutionTargetSchema } from "./agent-execution-target.js";
 import { AGENT_PROMPT_MAX_BYTES } from "./agent-record.js";
 import { WINDOWS_SPAWN } from "./host-spawn.js";
@@ -92,6 +93,7 @@ export type HostOp =
 	  }
 	| { kind: "listDirs"; path: string; spawn?: string }
 	| { kind: "readSkill"; target: AgentExecutionTarget; path: string }
+	| { kind: "agentModels"; backend: AgentBackendId; target: AgentExecutionTarget }
 	| HostClaudeRunOp
 	| HostClaudeCancelOp
 	| { kind: "reloadPlugins"; target: TmuxTarget; dedupKey?: string }
@@ -181,6 +183,21 @@ export const HostReadSkillResultSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type HostReadSkillResult = z.infer<typeof HostReadSkillResultSchema>;
+
+export const HostAgentModelsOpSchema = z
+	.object({
+		kind: z.literal("agentModels"),
+		backend: z.enum(AGENT_BACKEND_IDS),
+		target: AgentExecutionTargetSchema,
+	})
+	.strict();
+
+export const HostAgentModelsResultSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("listed"), models: z.array(z.string().min(1).max(128)).max(2048) }).strict(),
+	z.object({ kind: z.literal("refused"), reason: z.string().max(512) }).strict(),
+]);
+
+export type HostAgentModelsResult = z.infer<typeof HostAgentModelsResultSchema>;
 
 const HostJsonValueSchema: z.ZodType<HostJsonValue> = z.lazy(() =>
 	z.union([

@@ -6,7 +6,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 - `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` / `main-opencode-launch.ts` / `main-opencode-agent.ts` - eight entry points
 - `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` / `capabilityHook.ts` - the plugin's SessionStart `compact` hooks: the baseline, and the capability guidance
-- `src/mcp/capabilitiesTool.ts` `capabilityGuidance` - the one rendering of a session's capability guidance: the handshake answer (`channelReply.ts`), the `compact` hook and `switchboard_capabilities`; the `agents` section combines the unchanged `codex-agent` and `copilot-agent` ids
+- `src/mcp/capabilitiesTool.ts` `capabilityGuidance` - the one rendering of a session's capability guidance: the handshake answer (`channelReply.ts`), the `compact` hook and `switchboard_capabilities`; the `agents` section combines every enabled backend's `<id>-agent` capability
   - **A fresh session cannot skip it:** the plugin auto-answers a handshake only once the role is known, so a new process's agent answers its first one itself, and that answer carries the guidance. A Copilot session, confirmed at registration without one, reads it in its MCP server instructions. The hook renders the set the session started with, which the MCP process records per `PROJECT_NAME` (`saveStartupCapabilities`). Only a cut or unreadable guidance names the tool.
 - `src/mcp/devcontainer/hostResolve.ts` `assistantPermissionArgs` - the assistant's launch: Claude Code's permission engine in `dontAsk` with a closed `--tools` list and inline settings, the boundary its hook layers over
 - `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on the attachments and refs of `channel_reply` and `notify_human`
@@ -101,7 +101,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composeSessions.ts` - registries, `SessionStore`, planes, presence, session authority
 - `src/gateway/compose/composePersistence.ts` - the flush every writer takes part in, and its tick
 - `src/gateway/compose/composeHost.ts` - the host socket, wake service, host relay, presence watch, and the typed pane wait
-- `src/gateway/compose/composeAgents.ts` - Codex and Copilot services, relays, and HTTP routes
+- `src/gateway/compose/composeAgents.ts` - one stack per agent backend: its service, relay, and HTTP route
 - `src/gateway/compose/composeAwareness.ts` - awareness bank and watches; five-second agent sampling dirties presence when the owner set changes
 - `src/gateway/compose/composeFederation.ts` - `buildSlice`, the Router client, and the share mirror's registration read and delta apply
 - `src/gateway/compose/composeEnrollment.ts` / `src/gateway/federation/enrollPending.ts` / `src/gateway/router/routerExchange.ts` / `src/shared/schemasEnrollSetup.ts` - a setup that has not finished: the arm, the asks and the install; its record on disk; the pinned HTTPS exchange it asks through; the two loopback routes' wire. `docs/federation.md` holds the flow
@@ -279,23 +279,26 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **One signer check for a first and a repeat enrollment:** the frame's signer and every key
     envelope's signer must be admitted consoles under the merged live and bundle view.
 - `src/shared/agent-backend.ts` - the agent backend table: one row per backend id (default model, the start options it takes) and every name derived from its id
-  - **Nothing decides by a backend's name:** a difference is a descriptor field, or the backend's driver. `GENERIC_AGENT_BACKENDS` is every backend but Codex, which still runs its own stack below until it moves.
+  - **Nothing decides by a backend's name:** a difference is a descriptor field, or the backend's driver. Every backend runs on the one stack below.
   - **A backend with no row does not compile, and no list names backends by hand:** `BACKEND_ROWS` is keyed by every `AgentBackendId`, and `AGENT_BACKENDS`, the capability ids and the workflow backend schemas (`WORKFLOW_BACKEND_IDS`, the agents plus `claude`) derive from it.
-- `src/shared/agent-models.ts` - `newestPerFamily`, which of a backend's models are offered: a family is an id with its version tokens removed
+- `src/shared/agent-models.ts` - `newestPerFamily` and `offeredModels`, which of a backend's models `agentListModels` answers: a family is an id with its version tokens removed, and the backend's default stays listed and marked
 - `src/shared/agent-identity.ts` / `agent-activities.ts` / `agent-state.ts` / `agent-persisted.ts` / `agent-catalog.ts` / `agent-wire.ts` - the one agent contract: ids and prompts; a turn's commentary; the result and request a session posts and reads; the stored agent; its catalog and the two stored shapes read at restore; the Gateway to daemon frames, built per backend by `agentWire`
   - **An operation holds its own prompt, model and delivery,** and an interrupt in flight is read off the stop aimed at the running turn (`interruptingOperation`), so no fact is stored twice.
-  - **A catalog stored before the one shape is converted at restore:** `restorePersistedAgentCatalog` reads Codex's exchanges and thread id and Copilot's `followup`. `agent-catalog.test.ts` runs a record Codex's own schema accepts through it.
+  - **Backend catalogs are converted to one shape at restore:** `restorePersistedAgentCatalog` reads Codex's exchanges and thread id and Copilot's `followup`, and `SessionStore.restore` reads each backend's catalog from its recorded field (`LEGACY_CATALOG_FIELD`). `agent-catalog.test.ts` runs a stored Codex record through it.
   - **`delivery` has three words on every backend:** `started` is an agent's first turn, `followup` a message that opened a turn, `steered` a message into the running turn. The wire and the record hold `started` or `steered`, and `agentResultDelivery` is the one mapping to an answer.
 - `src/gateway/agentStack.ts` - a backend's stack as everything above it reaches it (`AgentStack`): its route, its relay and its commands; `composeAgents` holds a map of them, and the workflow dispatch, the host frame routing and the awareness roster read that map
 - `src/gateway/agentService.ts` / `agentApply.ts` / `agentReducers.ts` / `agentCommands.ts` / `agentRelay.ts` / `agentRoute.ts` / `agentTypes.ts` - the generic stack, one instance per backend: catalog transitions; daemon receipts and events folded into the stored agent; the pure decisions (`decideAcceptance`, `withTerminal`, `commandFor`); commit then dispatch; the relay family; what a session posts and reads back; the intent types
   - **A requested operation is placed by the turn its receipt names, whatever its event id:** a receipt held for reconciliation replays after later frames moved the fence, and `laterFence` never moves the mark back.
   - **Cannot be placed yet reconciles; can never be placed is uncertain:** `decideAcceptance` answers `reconcile` for an order problem and `refuse` for a wrong session, target or turn, which marks the operation `indeterminate`. A receipt naming a turn reconciliation adopted binds its operation to that turn, unless another operation opened it.
   - **A write that did not land leaves no operation waiting:** an unconfirmed write stays held in memory, so `AgentService.commit` gives its operation up, or the agent would refuse the next message and the next register would send the stale one.
-- `src/gateway/codexAgentService.ts` / `codexAgentReducers.ts` / `codexAgentApply.ts` / `codexAgentCommands.ts` / `codexAgentTypes.ts` / `codexRelay.ts` / `codexRoute.ts` - Codex's own stack, behind `createCodexStack`, until it moves onto the generic one
-- `src/gateway/agentRelayCore.ts` - the relay every backend runs: acknowledgement, held frames, the reconcile guard, per-agent serialization, the register pass and the catalog resend; `agentRelay.ts` and `codexRelay.ts` are its families
+- `src/gateway/agentRelayCore.ts` - the relay every backend runs: acknowledgement, held frames, the reconcile guard, per-agent serialization, the register pass and the catalog resend; `agentRelay.ts` is its family, one per backend
   - **A held frame is one per stream and event id, and only commentary is dropped:** another generation reuses event ids, and an outcome evicted at the cap would be acknowledged unapplied.
+  - **A held event is applied whatever moved the fence since:** the reconcile receipt that releases it carries a later event id, so `drainDeferred` replays it as `held` and `applyEvent` skips the duplicate check, or a turn's terminal is dropped and acknowledged.
+  - **A frame from a socket that is no longer the host's is dropped unacknowledged:** the daemon's outbox holds it and replays it after its next hello.
+  - **A held frame always has an ask coming:** when the five-minute guard swallows a reconcile ask, `askAgain` arms one for the moment it lifts. A held copy stays through a replay of the same frame, since the replay may be ignored as a duplicate where the held copy still applies.
+  - **An applied terminal outranks a later report:** a reconciliation naming a turn the record already ended leaves the agent idle.
 - `src/shared/agent-recovery.ts` - the recovery decisions every backend takes: whether an op is stale under the live daemon, and whether a reconcile loses, keeps or adopts a turn
-  - **Every turn and every op ends:** an op not stamped with the live daemon is abandoned at the next register, a turn the daemon's process lost settles `interrupted`, and a stale agent is asked again on every hello and persist tick. A child that reports a settled turn is believed and its terminal awaited. `agent-recovery-vectors.json` runs through both stacks. `docs/agents.md` holds the rules.
+  - **Every turn and every op ends:** an op not stamped with the live daemon is abandoned at the next register, a turn the daemon's process lost settles `interrupted`, and a stale agent is asked again on every hello and persist tick. A child that reports a settled turn is believed and its terminal awaited. `agent-recovery-vectors.json` runs through the decisions and the stack's appliers. `docs/agents.md` holds the rules.
 - `src/gateway/agentCatalogPersistence.ts` - one owner's agent catalog for one backend: reads, the strict agent lookup, commits, daemon-change applies, durable checks, and replay; a write that does not land answers `persistence_failed` to a caller and `reconcile` to the relay
 - `src/gateway/agentExecutionTarget.ts` - where an owner's agent runs, for every backend
 - `src/gateway/router/` - Router WS client; `pinnedSocket.ts` owns certificate pinning
@@ -777,26 +780,25 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/hostResolve.ts` - pure host/workdir/watch-target resolution and tmux command construction
 - `src/mcp/devcontainer/windowsSpawn.ts` - Windows PowerShell probing, WSL path translation, and native directory listing
 - `src/mcp/devcontainer/buildTranscript.ts` - latest `devcontainer up` transcript and pane-less terminal fallback
-- `src/mcp/devcontainer/codexTargets.ts` - one supervised Codex App Server per execution target
+- `src/mcp/devcontainer/agentTargets.ts` / `codexTargets.ts` / `copilotTargets.ts` / `opencodeTargets.ts` - one supervised child per execution target for every backend (`ExecutionTargetManager`), the child env scrub and the one process adoption (`adoptProcess`); each backend's launcher
 - `src/mcp/devcontainer/claudeRunner.ts` - `claude -p`, pidfiles, TERM/KILL cancellation state, replayable result outbox
 - `src/mcp/devcontainer/codexAppServer.ts` - JSONL transport and fail-closed App Server client
 - `src/mcp/devcontainer/copilotHeadless.ts` - Content-Length JSON-RPC transport, the headless Copilot client (protocol version 3, allow-all mode at create) and `HeadlessTurn`, the one fold of a turn's events
 - `src/mcp/devcontainer/codexThreadLifecycle.ts` - one queue per thread record, so a record `started()` replaces gets a fresh one; settled-turn archival; bounded retirement
 - `src/mcp/devcontainer/codexTurnTracker.ts` - turn output; sole `answerOf` reader
-- `src/mcp/devcontainer/codexLiveTurns.ts` - live-turn bindings, clocks, and warnings
 - `src/mcp/devcontainer/agentDaemonCore.ts` - shared daemon registry, generation fence, serialization, numbering, outbox, the once-per-id op ledger, and retire-before-remove
-- `src/mcp/agents/backendSession.ts` / `drivers.ts` / `copilotSession.ts` / `opencodeSession.ts` - the driver a backend is to the daemon and to local mode alike (`AgentBackendSession`: open a thread, resume one, start a turn that answers its id now and its outcome later, steer, interrupt, inspect, list models); the table pairing each backend with its launcher and its session; Copilot's; OpenCode's
+- `src/mcp/agents/backendSession.ts` / `drivers.ts` / `codexSession.ts` / `copilotSession.ts` / `opencodeSession.ts` - the driver a backend is to the daemon and to local mode alike (`AgentBackendSession`: open a thread, resume one, start a turn that answers its id now and its outcome later, steer, interrupt, inspect, list models); the table pairing each backend with its launcher and its session; Codex's, over its App Server client; Copilot's; OpenCode's
   - **A steer says what it knows:** `taken` when the driver knows the turn holds the prompt, nothing when it only sent it. Only the second is given again as a new turn when its turn has ended.
   - **A prompt has a key, the operation's id:** a driver that can tell lands a repeat under one key once.
 - `src/mcp/devcontainer/agentDaemonService.ts` - the generic daemon service: a backend's commands run over its driver and answered on the daemon wire
   - **The Gateway hears a turn before anything said about it:** what a child reports for a turn whose start has not answered is held (`whenAnnounced`) and published behind the `accepted` receipt.
-  - **A steer whose turn ended under it opens a new turn with the prompt,** so the message is never reported steered into a turn that is over. Whether it ended is asked of the turn's own promise (`settledNow`), never read after a count of promise hops, and both posts carry the operation's id as their `key`, so a driver that can tell lands one prompt.
+  - **A steer whose turn ended under it opens a new turn with the prompt,** so the message is never reported steered into a turn that is over. Whether it ended is asked of the turn's own promise (`settledNow`), never read after a count of promise hops, and both posts carry the operation's id as their `key`, so a driver that can tell lands one prompt. A refused steer also asks the driver's `inspectTurn`, since a driver may hold a finished turn's terminal: Codex waits up to ten seconds for a final item, and reads a turn it holds as running until the answer is in the read, so no empty answer is published.
   - **A driver that closes retires its session,** whether or not its child is still alive, and its running turns end as lost.
-  - **Local mode holds the same rules by hand:** `LocalAgentHandlers` repeats the steer, the pending interrupt and the failure code. A rule changed here is changed there.
-- `src/mcp/devcontainer/codexDaemonService.ts` - Codex's own daemon service, until it moves onto the generic one
-- `src/mcp/devcontainer/codexCommandDispatch.ts` - one command kind per run: session acquire, turn start and steer
-- `src/mcp/devcontainer/codexSessionLifecycle.ts` - session open, retire, and held-terminal deadlines
-- `src/mcp/devcontainer/codexWatchdog.ts` - silent-turn interrupt and idle-target reap
+  - **A reconcile rebinds a running turn to the owner it names,** since a session handover renames the owner while the turn runs.
+  - **Local mode holds the same rules by hand:** `LocalAgentHandlers` repeats the steer, the adopt after a failed start, the pending interrupt and the failure code. A rule changed here is changed there. It has no silent-turn watchdog.
+  - **A silent turn is read, then interrupted, then given up:** only for a driver that reports life (`onProgress`). After 600 seconds the sweep inspects the turn, publishes one that settled, interrupts one still running, and gives its generation up when it stays silent. `live-turns-residue.test.ts` holds that state to this file.
+  - **An idle child is reaped only when its threads can be resumed** (`threadsResumable`) and its driver is not `busy`. A child that cannot be reaped and was opened only to list models is given up when the listing ends, and listings of one target share one read.
+  - **A turn the daemon never started is adopted only on a thread it holds** (`adoptTurn`): after a start that failed, and at a reconcile. A reconcile about an earlier turn while a later one runs inspects the earlier and settles it.
 - `src/mcp/local/` - daemonless agent backend
 - `src/mcp/local/localAgentRuntime.ts` - the lease, the operation claim, and the dispatch to a request kind
 - `src/mcp/local/localAgentHandlers.ts` - per-kind request handlers and turn bookkeeping
@@ -804,7 +806,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/local/localOperationLedger.ts` - operation identity claim and release
 - `src/mcp/agentDispatch.ts` - agent tool serving seam
 - `src/mcp/agentRequest.ts` - every backend's request body (`agentRequestBody`), its per-invocation replay ids, the Gateway dispatch, and the posted answer
-- `src/mcp/agents/agentTools.ts` - one shared `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, and `agentList` tool set; an option a backend's row does not take is refused by name
+- `src/mcp/agents/agentTools.ts` - one shared `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, `agentList`, and `agentListModels` tool set; an option a backend's row does not take is refused by name, and a start names its backend unless one is enabled
 - `src/shared/agent-turn-marks.ts` / `agent-collect.ts` - which of an agent's turns were collected and told, kept on the agent; the list row and collect answer every backend and local mode share
 - `src/mcp/capabilities.ts` / `capabilitiesTool.ts` - capability gating and guidance
 - `src/federation-server/` - live self-hosted federation Router
@@ -909,7 +911,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     byte. The revision is absent. An untouched title or body keeps its envelope across edits. A device
     missing the epoch cannot re-seal it.
 - `src/shared/schemasContentKey.ts` - content key wire shapes
-- `src/shared/codex-agent.ts` / `codexAgent*.ts` - Codex's own delegation wire truth, until it moves; excluded from Kotlin codegen, as the `agent-*.ts` contract is
+- `src/shared/codex-app-server.ts` - the Codex App Server messages its driver reads; no Gateway wire
 - `src/shared/channel-file.ts` - declared ChannelFile metadata; receivers do not infer it from bytes or position
   - **The producer parses what it emits with the consumer's schema:** `buildArtifacts` drops a ref key
     the schema would refuse rather than sending it, since one refused key fails the WHOLE file and costs
@@ -991,7 +993,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `tests/fixtures/` - shared golden wire and signing fixtures; manifests drive both runtimes
 - `tests/fixtures/identity/set.json` - the one fixed identity set every harness and fixture generator reads; `scripts/gen-identity-set.ts` mints it
 - `tests/fixtures/wire/ts/` / `wire/kotlin/` - minted wire fixtures, each runtime's real composers under the set; `scripts/gen-wire-fixtures.ts` and `WireFixtureGenerator.kt` write them, `check:fixtures` and `kotlin-gate.sh` diff them
-- `src/testing/` - the federation harness, `fixtureWorld.ts`, real Router and gateway graph in-process, friend Domains linked through the real handshake, fake host and session sockets with the fake Codex daemon, the TS phone driver, the console socket; `docs/testing.md`
+- `src/testing/` - the federation harness, `fixtureWorld.ts`, real Router and gateway graph in-process, friend Domains linked through the real handshake, fake host and session sockets with the fake agent daemon, which replays its unacknowledged frames after each hello as the real one does, the TS phone driver, the console socket; `docs/testing.md`
 - `src/testing/fakeAmbient.ts` - the harness ambient: a clock offset on the harness `now`, entropy seeded per instance so two peers never collide, and timers on either drive. "real" (the default) rides the process timers so every scenario makes progress unchanged; "manual" holds them until `advance(ms)` reaches each deadline, yielding to the event loop between firings, and, given no `now`, its clock moves only by `advance`, so a deadline one millisecond away stays one millisecond away under load
 - `scripts/check-boot-runtime.ts` - the real entry points under Bun, one console op through a fake host
 - `skills/crosstalk/SKILL.md` - agent-facing tool reference
@@ -1028,7 +1030,7 @@ How each subsystem works lives in `docs/`:
 | `docs/architecture.md` | Addressing, host spawn points, sessions and wake, identity binding, state planes |
 | `docs/federation.md` | Router, reach failover, Gateway enrollment, TLS pinning, trust |
 | `docs/console.md` | Console OwnerOp client, terminal view, armed goals, capability union, Android app |
-| `docs/agents.md` | Codex and Copilot delegation, local agent mode |
+| `docs/agents.md` | Agent delegation on every backend, local agent mode |
 | `docs/task-board.md` | Board, attachments, awareness |
 | `docs/vault.md` | Vault client, grants, request road, loopback routes |
 | `docs/policies.md` | The policy record, the selector key, the store's rules, the askpass resolver, what a qualified grant covers |

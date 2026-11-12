@@ -2,7 +2,7 @@
 
 import { randomBytes } from "node:crypto";
 import type { GatewayGraph } from "../gateway/composeGateway.js";
-import { type AgentBackendId, agentFrameType, GENERIC_AGENT_BACKENDS } from "../shared/agent-backend.js";
+import { AGENT_BACKENDS, type AgentBackendId, agentBackend, agentFrameType } from "../shared/agent-backend.js";
 import type { AgentExecutionTarget, AgentResolvedTarget } from "../shared/agent-execution-target.js";
 import {
 	type AgentDaemonCommand,
@@ -10,14 +10,6 @@ import {
 	type AgentDaemonReceipt,
 	agentWire,
 } from "../shared/agent-wire.js";
-import {
-	type CodexDaemonCommand,
-	CodexDaemonCommandSchema,
-	type CodexDaemonEvent,
-	CodexDaemonEventSchema,
-	type CodexDaemonReceipt,
-	CodexDaemonReceiptSchema,
-} from "../shared/codexAgentRelay.js";
 import {
 	type ClaudeTurnAckFrame,
 	ClaudeTurnAckFrameSchema,
@@ -64,16 +56,15 @@ export interface FakeHostHandlers {
 	/** How the daemon answers a wake; absent says it launched. */
 	answerWake?: (frame: Frame) => "launched" | "failed" | "silent" | { failure: LaunchFailure };
 	/** Absent means accept and complete. */
-	onCodexCommand?: CodexResponder;
 	onAgentCommand?: AgentResponder;
 	onClaudeRun?: ClaudeResponder;
 	onClaudeAck?: (frame: ClaudeTurnAckFrame) => void;
 	/** A skill file's text; absent reads as missing. */
 	skillText?: (path: string) => string | undefined;
+	/** Absent: default. Empty: none. */
+	agentModels?: (backend: AgentBackendId) => string[] | undefined;
 }
 
-export type CodexResponder = (command: CodexDaemonCommand, daemon: FakeCodexDaemon) => Array<Frame> | undefined;
-/** Every backend on the generic stack. */
 export type AgentResponder = (
 	command: AgentDaemonCommand,
 	daemon: FakeAgentDaemon,
@@ -90,20 +81,25 @@ export interface FakeClaudeResult {
 
 export type FakeTurnState = "inProgress" | "completed" | "failed" | "interrupted";
 
-/** One daemon process; outlives the socket. */
-export interface FakeCodexDaemon {
+/** Backend daemon outlives socket. */
+export interface FakeAgentDaemon {
 	daemonInstanceId: string;
 	generation: number;
 	/** Targets the hello announces. */
 	targets: Map<string, number>;
 	/** What a reconcile answers per turn. */
 	turns: Map<string, FakeTurnState>;
+	/** Hello replays unacknowledged frames. */
+	outbox: Array<AgentDaemonEvent | AgentDaemonReceipt>;
 	/** Next event id per target. */
 	nextEventId(targetId: string): number;
 	resolve(target: AgentExecutionTarget): AgentResolvedTarget;
 }
 
-export type FakeAgentDaemon = FakeCodexDaemon;
+export interface FakeDaemon {
+	daemonInstanceId: string;
+	of(backend: AgentBackendId): FakeAgentDaemon;
+}
 
 export interface FakeHostOptions extends FakeHostHandlers {
 	token: string;
@@ -115,7 +111,7 @@ export interface FakeHostOptions extends FakeHostHandlers {
 	screen?: string;
 	entries?: string[];
 	/** A reconnecting daemon brings its own. */
-	daemon?: FakeCodexDaemon;
+	daemon?: FakeDaemon;
 	deferCatalog?: boolean;
 	/** False simulates an older daemon. Default true. */
 	launchIds?: boolean;
@@ -129,19 +125,16 @@ export interface FakeHost {
 	wakes: Frame[];
 	/** Every create's wake. */
 	creates: FakeCreate[];
-	/** Every Codex command, schema-checked. */
-	codexCommands: CodexDaemonCommand[];
-	/** Every command a generic backend took, schema-checked. */
+	/** Schema-checked backend commands. */
 	agentCommands(backend: AgentBackendId): AgentDaemonCommand[];
 	claudeRuns: HostClaudeRunOp[];
 	claudeCancels: HostClaudeCancelOp[];
 	claudeResults: ClaudeTurnResultFrame[];
 	claudeAcks: ClaudeTurnAckFrame[];
 	handlers: FakeHostHandlers;
-	daemon: FakeCodexDaemon;
+	daemon: FakeDaemon;
 	agentDaemon(backend: AgentBackendId): FakeAgentDaemon;
 	/** One daemon frame to the gateway. */
-	sendCodex(frame: CodexDaemonEvent | CodexDaemonReceipt): void;
 	sendAgent(backend: AgentBackendId, frame: AgentDaemonEvent | AgentDaemonReceipt): void;
 	announceCatalog(): void;
 	/** What the daemon derives from that session's pane; null is nobody having said. */
@@ -172,13 +165,14 @@ function createOf(frame: Frame): FakeCreate {
 	};
 }
 
-export function createFakeCodexDaemon(daemonInstanceId = `fake-daemon-${randomBytes(4).toString("hex")}`) {
+function createFakeAgentDaemon(daemonInstanceId: string): FakeAgentDaemon {
 	const eventIds = new Map<string, number>();
-	const daemon: FakeCodexDaemon = {
+	return {
 		daemonInstanceId,
 		generation: 1,
 		targets: new Map(),
 		turns: new Map(),
+		outbox: [],
 		nextEventId: (targetId) => {
 			const next = (eventIds.get(targetId) ?? -1) + 1;
 			eventIds.set(targetId, next);
@@ -189,7 +183,18 @@ export function createFakeCodexDaemon(daemonInstanceId = `fake-daemon-${randomBy
 				? { kind: "host", targetId: "host", cwd: HOST_HOME }
 				: { kind: "devcontainer", targetId: `container:${target.project}`, cwd: target.hostProjectPath },
 	};
-	return daemon;
+}
+
+export function createFakeDaemon(daemonInstanceId = `fake-daemon-${randomBytes(4).toString("hex")}`): FakeDaemon {
+	const services = new Map(AGENT_BACKENDS.map(({ id }) => [id, createFakeAgentDaemon(daemonInstanceId)]));
+	return {
+		daemonInstanceId,
+		of: (backend) => {
+			const held = services.get(backend);
+			if (!held) throw new Error(`no fake daemon for ${backend}`);
+			return held;
+		},
+	};
 }
 
 export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): FakeHost {
@@ -199,7 +204,6 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 	const ops: HostOp[] = [];
 	const wakes: Frame[] = [];
 	const creates: FakeCreate[] = [];
-	const codexCommands: CodexDaemonCommand[] = [];
 	const claudeRuns: HostClaudeRunOp[] = [];
 	const claudeCancels: HostClaudeCancelOp[] = [];
 	const claudeResults: ClaudeTurnResultFrame[] = [];
@@ -210,17 +214,13 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		failCreateSession: options.failCreateSession,
 		onWake: options.onWake,
 		answerWake: options.answerWake,
-		onCodexCommand: options.onCodexCommand,
 		onAgentCommand: options.onAgentCommand,
 		onClaudeRun: options.onClaudeRun,
 		onClaudeAck: options.onClaudeAck,
 	};
-	const daemon = options.daemon ?? createFakeCodexDaemon();
+	const daemon = options.daemon ?? createFakeDaemon();
 	const agents = new Map(
-		GENERIC_AGENT_BACKENDS.map(({ id }) => [
-			id,
-			{ daemon: createFakeCodexDaemon(daemon.daemonInstanceId), commands: [] as AgentDaemonCommand[] },
-		]),
+		AGENT_BACKENDS.map(({ id }) => [id, { daemon: daemon.of(id), commands: [] as AgentDaemonCommand[] }]),
 	);
 	const agentOf = (backend: AgentBackendId) => {
 		const held = agents.get(backend);
@@ -234,22 +234,14 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		claudeResults.push(checked);
 		if (socket.ws.readyState === 1) send(checked);
 	};
-	const sendCodex = (frame: CodexDaemonEvent | CodexDaemonReceipt): void => {
-		const checked =
-			frame.type === "codex_event" ? CodexDaemonEventSchema.parse(frame) : CodexDaemonReceiptSchema.parse(frame);
-		if (checked.type === "codex_receipt" && checked.kind === "accepted")
-			daemon.turns.set(checked.turnId, "inProgress");
-		if (checked.type === "codex_event" && checked.kind === "terminal")
-			daemon.turns.set(checked.turnId, checked.state);
-		send(checked);
-	};
 	const sendAgent = (backend: AgentBackendId, frame: AgentDaemonEvent | AgentDaemonReceipt): void => {
 		const wire = agentWire(backend);
-		const turns = agentOf(backend).daemon.turns;
+		const { turns, outbox } = agentOf(backend).daemon;
 		const checked =
 			frame.type === agentFrameType(backend, "event") ? wire.event.parse(frame) : wire.receipt.parse(frame);
 		if (checked.kind === "accepted") turns.set(checked.turnId, "inProgress");
 		if (checked.kind === "terminal") turns.set(checked.turnId, checked.state);
+		if ("targetId" in checked) outbox.push(checked);
 		send(checked);
 	};
 	const answer = (op: HostOp): unknown => {
@@ -261,6 +253,12 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			case "readSkill": {
 				const text = handlers.skillText?.(op.path);
 				return text === undefined ? { kind: "refused", code: "missing" } : { kind: "read", text };
+			}
+			case "agentModels": {
+				const models = handlers.agentModels?.(op.backend) ?? [agentBackend(op.backend).defaultModel];
+				return models.length > 0
+					? { kind: "listed", models }
+					: { kind: "refused", reason: "CLI not installed" };
 			}
 			case "kasaScan":
 				return { candidates: [] };
@@ -350,17 +348,18 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				if (create && answer === "launched") setTimeout(() => handlers.onCreateSession?.(create), 0);
 			}, 0);
 		}
-		if (frame.type === "codex_command") {
-			const command = CodexDaemonCommandSchema.parse(frame);
-			codexCommands.push(command);
-			const targetId =
-				command.kind === "start" ? daemon.resolve(command.target).targetId : command.target.targetId;
-			if (!daemon.targets.has(targetId)) daemon.targets.set(targetId, daemon.generation);
-			const responder = handlers.onCodexCommand ?? stockCodexResponder;
-			for (const reply of responder(command, daemon) ?? [])
-				sendCodex(reply as CodexDaemonEvent | CodexDaemonReceipt);
-		}
 		for (const [backend, held] of agents) {
+			if (frame.type === agentFrameType(backend, "ack")) {
+				const { outbox } = held.daemon;
+				const kept = outbox.filter(
+					(entry) =>
+						!("targetId" in entry) ||
+						entry.targetId !== frame.targetId ||
+						entry.generation !== frame.generation ||
+						entry.eventId > Number(frame.throughEventId),
+				);
+				outbox.splice(0, outbox.length, ...kept);
+			}
 			if (frame.type !== agentFrameType(backend, "command")) continue;
 			const command = agentWire(backend).command.parse(frame);
 			held.commands.push(command);
@@ -381,17 +380,14 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		daemonInstanceId: daemon.daemonInstanceId,
 	});
 	const announceCatalog = (): void => {
-		send({
-			type: "codex_hello",
-			daemonInstanceId: daemon.daemonInstanceId,
-			targets: [...daemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
-		});
 		for (const [backend, held] of agents) {
 			send({
 				type: agentFrameType(backend, "hello"),
 				daemonInstanceId: held.daemon.daemonInstanceId,
 				targets: [...held.daemon.targets].map(([targetId, generation]) => ({ targetId, generation })),
 			});
+			for (const entry of [...held.daemon.outbox].sort((left, right) => left.eventId - right.eventId))
+				send(entry);
 		}
 		const hostSpawns = options.hostSpawns ?? [];
 		const harnessSpawns: Record<SessionHarness, string[]> = {
@@ -418,7 +414,6 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		ops,
 		wakes,
 		creates,
-		codexCommands,
 		agentCommands: (backend) => agentOf(backend).commands,
 		claudeRuns,
 		claudeCancels,
@@ -427,7 +422,6 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		handlers,
 		daemon,
 		agentDaemon: (backend) => agentOf(backend).daemon,
-		sendCodex,
 		sendAgent,
 		announceCatalog,
 		sendFrame: send,
@@ -449,87 +443,26 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 }
 
 /** Accepts every command and completes each turn at once. */
-export const stockCodexResponder: CodexResponder = (command, daemon) => {
-	const base = { ownerKey: command.ownerKey, daemonInstanceId: daemon.daemonInstanceId, agentId: command.agentId };
-	if (command.kind === "start" || command.kind === "message") {
-		const resolvedTarget = command.kind === "start" ? daemon.resolve(command.target) : command.target;
-		const { targetId } = resolvedTarget;
-		const threadId = command.kind === "start" ? `thread-${command.agentId}` : command.threadId;
-		const turnId = `turn-${command.operationId}`;
-		const fence = { targetId, generation: daemon.generation };
-		return [
-			{
-				type: "codex_receipt",
-				requestId: command.requestId,
-				...base,
-				...fence,
-				eventId: daemon.nextEventId(targetId),
-				kind: "accepted",
-				operationId: command.operationId,
-				resolvedTarget,
-				threadId,
-				turnId,
-				delivery: "started",
-			},
-			{
-				type: "codex_event",
-				...base,
-				...fence,
-				eventId: daemon.nextEventId(targetId),
-				threadId,
-				kind: "activity",
-				turnId,
-				itemId: `item-${turnId}`,
-				text: "working",
-			},
-			{
-				type: "codex_event",
-				...base,
-				...fence,
-				eventId: daemon.nextEventId(targetId),
-				threadId,
-				kind: "terminal",
-				turnId,
-				state: "completed",
-				finalResponse: `done: ${command.prompt}`,
-			},
-		];
-	}
-	const { targetId } = command.target;
-	const fence = { targetId, generation: daemon.generation };
+export const stockAgentResponder: AgentResponder = (command, daemon, backend) => {
 	if (command.kind === "interrupt") {
 		return [
 			{
-				type: "codex_receipt",
+				type: agentFrameType(backend, "receipt"),
 				requestId: command.requestId,
-				...base,
-				...fence,
-				eventId: daemon.nextEventId(targetId),
+				ownerKey: command.ownerKey,
+				daemonInstanceId: daemon.daemonInstanceId,
+				targetId: command.target.targetId,
+				generation: daemon.generation,
+				eventId: daemon.nextEventId(command.target.targetId),
+				agentId: command.agentId,
 				kind: "interruptResult",
 				operationId: command.operationId,
-				threadId: command.threadId,
+				sessionId: command.sessionId,
 				turnId: command.turnId,
 				ok: true,
 			},
 		];
 	}
-	const turnState = command.turnId ? daemon.turns.get(command.turnId) : undefined;
-	return [
-		{
-			type: "codex_receipt",
-			requestId: command.requestId,
-			...base,
-			...fence,
-			eventId: daemon.nextEventId(targetId),
-			kind: "reconciled",
-			resolvedTarget: command.target,
-			threadId: command.threadId,
-			...(command.turnId && turnState ? { turnId: command.turnId, turnState } : {}),
-		},
-	];
-};
-
-export const stockAgentResponder: AgentResponder = (command, daemon, backend) => {
 	if (command.kind === "reconcile") {
 		const turnState = command.turnId ? daemon.turns.get(command.turnId) : undefined;
 		return [
@@ -550,7 +483,6 @@ export const stockAgentResponder: AgentResponder = (command, daemon, backend) =>
 			},
 		];
 	}
-	if (command.kind !== "start" && command.kind !== "message") return [];
 	const resolvedTarget = command.kind === "start" ? daemon.resolve(command.target) : command.target;
 	const sessionId = command.kind === "start" ? `session-${command.agentId}` : command.sessionId;
 	const steeredTurnId =
@@ -579,6 +511,16 @@ export const stockAgentResponder: AgentResponder = (command, daemon, backend) =>
 			sessionId,
 			turnId,
 			delivery: steeredTurnId ? "steered" : "started",
+		},
+		{
+			type: agentFrameType(backend, "event"),
+			...base,
+			eventId: daemon.nextEventId(resolvedTarget.targetId),
+			sessionId,
+			turnId,
+			kind: "activity",
+			itemId: `item-${command.operationId}`,
+			text: "working",
 		},
 		{
 			type: agentFrameType(backend, "event"),

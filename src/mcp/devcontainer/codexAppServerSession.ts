@@ -1,6 +1,6 @@
-import type { CodexServiceTier } from "../../shared/codex-agent.js";
+import type { AgentServiceTier as CodexServiceTier } from "../../shared/agent-state.js";
+import type { AgentChild } from "./agentTargets.js";
 import { CodexAppServerClient, createJsonlTransport, type LifecycleHooks } from "./codexAppServer.js";
-import type { CodexChild } from "./codexTargets.js";
 import type { ThreadInspection, ThreadPhase } from "./codexThreadLifecycle.js";
 import type { TerminalOutcome } from "./codexTurnOutcome.js";
 
@@ -34,6 +34,7 @@ export interface AppServerSession {
 	settleTurn(threadId: string, turnId: string, terminal: TerminalOutcome): Promise<void>;
 	/** What the owner believes about a thread, which is what says whether a child is reapable. */
 	stateOf(threadId: string): ThreadPhase | undefined;
+	models(): Promise<string[]>;
 	close(): void;
 }
 
@@ -41,7 +42,7 @@ export interface AppServerSession {
 //  Functions & Helpers
 
 export async function defaultOpenClient(
-	child: CodexChild,
+	child: AgentChild,
 	model: string,
 	hooks: LifecycleHooks = {},
 ): Promise<CodexAppServerClient> {

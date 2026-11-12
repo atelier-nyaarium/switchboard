@@ -4,7 +4,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { scrubChildEnv } from "../devcontainer/codexTargets.js";
+import { scrubChildEnv } from "../devcontainer/agentTargets.js";
 
 export const OUTPUT_CAP_CHARS = 64 * 1024;
 const RAW_CEILING_BYTES = 1024 * 1024;

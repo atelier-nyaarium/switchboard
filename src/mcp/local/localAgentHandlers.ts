@@ -177,6 +177,11 @@ export class LocalAgentHandlers {
 				steerError = error;
 			}
 			if (!taken && agent.settled) await settledNow(agent.settled);
+			if (steerError !== undefined && this.activeTurn(agent) === active) {
+				// Driver may retain terminal.
+				const seen = await session.inspectTurn?.(agent.threadId, active.id).catch(() => undefined);
+				if (seen?.known === "settled") this.applyTerminal(agent, active.id, seen.terminal);
+			}
 			if (taken || this.activeTurn(agent) === active) {
 				if (steerError !== undefined) return this.unavailable(agent.agentId, steerError);
 				const at = this.touch(agent);
@@ -284,7 +289,11 @@ export class LocalAgentHandlers {
 		try {
 			handle = await session.startTurn(agent.threadId, prompt, settings);
 		} catch (error) {
-			return this.unavailable(agent.agentId, error);
+			const running = await session.adoptTurn?.(agent.threadId).catch(() => undefined);
+			// A turn already held is another prompt's.
+			if (!running || agent.turns.some((turn) => turn.id === running.turnId))
+				return this.unavailable(agent.agentId, error);
+			handle = running;
 		}
 
 		const at = this.touch(agent);

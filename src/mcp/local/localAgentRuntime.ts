@@ -163,6 +163,18 @@ export class LocalAgentRuntime {
 		return this.handlers.list();
 	}
 
+	/** CLI models, if available. */
+	async listModels(): Promise<string[] | undefined> {
+		this.inFlight += 1;
+		try {
+			const session = await this.child.open();
+			return (await session.listModels?.())?.map((model) => model.id);
+		} finally {
+			this.inFlight -= 1;
+			this.child.markUsed();
+		}
+	}
+
 	shutdown(): void {
 		this.child.shutdown();
 	}

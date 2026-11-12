@@ -76,11 +76,13 @@ one scenario never mint the same nonce. Its timers have two drives:
 Only a scenario that must move a deadline needs manual drive. The handshake re-send window, the
 handshake expiry sweep, and a routine's own timer reaching its slot are the three that do.
 
-The fake host is also the Codex daemon. It answers `codex_command` frames through a responder:
-`stockCodexResponder` accepts and completes at once, and a scenario installs its own for a running
-or refused turn. It keeps one `FakeCodexDaemon` per machine across gateway restarts and validates
-every Codex frame it sends against the daemon schemas. A fake session can answer the lead
-handshake as a worker, present a binding token, or name a project path.
+The fake host is also the agent daemon, for every backend. It answers a backend's command frames
+through a responder: `stockAgentResponder` accepts and completes at once, and a scenario installs
+its own for a running or refused turn. It keeps one `FakeDaemon` per machine across gateway
+restarts and validates every frame it sends against that backend's daemon schemas. Like the real
+daemon it holds each frame until the Gateway acknowledges it and replays the rest after its hello,
+so a frame in flight when a socket closes is not lost. A fake session can answer the lead handshake
+as a worker, present a binding token, or name a project path.
 
 `createFakeOpencodeServer` (`src/testing/fakeOpencodeServer.ts`) is OpenCode's local server as a
 `fetch` function: sessions, prompts that drop a repeated id, pending permissions, a replayable log,
@@ -107,7 +109,7 @@ bookkeeping:
 | `federation-harness-router.test.ts` | Router-only: tenant provision, first root, rename and its refusals, removal, deletion, replay across a restart, device approval, the trust rendezvous |
 | `federation-harness-opencode.test.ts` | An OpenCode session through its plugin: launch under a minted id, state, delivery, a permission answer, its own baseline, the session ingress and its refusals |
 | `federation-harness-codex.test.ts` | Codex through the gateway and the daemon: start, message, list, stop, replayed frames, gateway and daemon restarts |
-| `federation-harness-workflows.test.ts` | Workflow scripts through both agent backends, thread reuse, schema correction, retry, cancellation, skill refusal and notice ownership |
+| `federation-harness-workflows.test.ts` | Workflow scripts through the agent backends, thread reuse, schema correction, retry, cancellation, skill refusal and notice ownership |
 | `assistant-phone-harness.test.ts` | Phone capabilities through two phone drivers: no holder, a status row stamped to the holder and the other phone's answer refused, a malformed answer refused at once, a registered act run, a call id replayed without a second row, a read anchor handed across the plane, a lapsed hold named |
 | `federation-harness-vault.test.ts` | A phone's sealed put read back by the gateway, the AAD binding, delta lists, the CAS conflict carrying the winner, delete and revive through the tombstone, the gateway's create-only road, the fence refusing a create, and the Router's sweep held under the fence |
 | `federation-harness-vault-requests.test.ts` | The loopback routes: search as a bound session, the sealed allowlist, a request row answered once, a window across a gateway restart and its revoke, a capture with its notice, the helper's askpass resolved through a policy or typed, a title that selects nothing, a capture that changes nothing, and the allowlist read again at the tap |
@@ -129,9 +131,10 @@ session, session end), `versioned-list` (the fold every Router-held list consume
 by `tests/fixtures/versioned-list/vectors.json` on both runtimes), and `versioned-slot` (the fold
 every reader of a Router-held plane applies, driven by `tests/fixtures/versioned-slot/vectors.json`
 on both runtimes). The phone's own benches are
-`VaultManagerTest`, `VaultDraftTest`, and `ApprovalGateTest`. The host daemon's Codex service has its own bench in
-`codex-daemon-service.test.ts`: the real `ThreadLifecycle`, tracker, and JSONL transport over a
-scripted App Server child, with only the launcher as a double.
+`VaultManagerTest`, `VaultDraftTest`, and `ApprovalGateTest`. Codex on the host daemon has its own bench in
+`codex-agent-daemon.test.ts`: the generic daemon service over the real Codex driver,
+`ThreadLifecycle`, tracker, and JSONL transport, on a scripted App Server child with only the
+launcher as a double.
 
 ## Minted wire fixtures
 

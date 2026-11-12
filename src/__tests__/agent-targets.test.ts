@@ -4,13 +4,17 @@ import {
 	containerEnvArgs,
 	type ExecutionTargetLauncher,
 	ExecutionTargetManager,
-	realLauncher,
 	scrubChildEnv,
-} from "../mcp/devcontainer/codexTargets.js";
-import { type CodexResolvedTarget, CodexResolvedTargetSchema, parseCodexTargetId } from "../shared/codex-agent.js";
+} from "../mcp/devcontainer/agentTargets.js";
+import { codexLauncher } from "../mcp/devcontainer/codexTargets.js";
+import {
+	type AgentResolvedTarget,
+	AgentResolvedTargetSchema,
+	parseAgentTargetId,
+} from "../shared/agent-execution-target.js";
 
-const HOST: CodexResolvedTarget = { kind: "host", targetId: "host", cwd: "/home/dev/projects/app" };
-const CONTAINER: CodexResolvedTarget = { kind: "devcontainer", targetId: "container:app", cwd: "/workspace/app" };
+const HOST: AgentResolvedTarget = { kind: "host", targetId: "host", cwd: "/home/dev/projects/app" };
+const CONTAINER: AgentResolvedTarget = { kind: "devcontainer", targetId: "container:app", cwd: "/workspace/app" };
 type Lifecycle = { kind: "launched" | "exited" | "killed"; targetId: string };
 
 function child(targetId: string, lifecycle: Lifecycle[]) {
@@ -45,12 +49,13 @@ function manager(options: { failWith?: Error } = {}) {
 		},
 	};
 	return {
-		manager: new ExecutionTargetManager(
+		manager: new ExecutionTargetManager({
 			launcher,
-			() => now,
-			() => {},
-			{ PATH: "/usr/bin", HOST_WS_TOKEN: "secret" },
-		),
+			log: () => {},
+			envPrefix: "CODEX_",
+			now: () => now,
+			baseEnv: { PATH: "/usr/bin", HOST_WS_TOKEN: "secret" },
+		}),
 		children,
 		lifecycle,
 		advance(ms: number) {
@@ -92,19 +97,19 @@ describe("target values", () => {
 	it.each([
 		["host", { kind: "host" }],
 		["container:app", { kind: "devcontainer", project: "app" }],
-	] as const)("parses %s", (targetId, expected) => expect(parseCodexTargetId(targetId)).toEqual(expected));
+	] as const)("parses %s", (targetId, expected) => expect(parseAgentTargetId(targetId)).toEqual(expected));
 	it.each(["app", "container:app; rm -rf /", "container:", "container:UPPER"])("rejects %s at launch", (targetId) => {
-		expect(() => realLauncher.launch({ ...CONTAINER, targetId }, {})).toThrow();
+		expect(() => codexLauncher.launch({ ...CONTAINER, targetId }, {})).toThrow();
 	});
 	it.each([HOST, CONTAINER])("accepts %j", (target) =>
-		expect(CodexResolvedTargetSchema.safeParse(target).success).toBe(true),
+		expect(AgentResolvedTargetSchema.safeParse(target).success).toBe(true),
 	);
 	it.each([
 		{ ...HOST, targetId: "container:app" },
 		{ ...CONTAINER, targetId: "host" },
 		{ ...CONTAINER, targetId: "container:Not A Slug" },
 	] as const)("rejects contradictory values: %j", (target) =>
-		expect(CodexResolvedTargetSchema.safeParse(target).success).toBe(false),
+		expect(AgentResolvedTargetSchema.safeParse(target).success).toBe(false),
 	);
 });
 

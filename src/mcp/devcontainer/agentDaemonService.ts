@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import { type AgentBackendDescriptor, agentFrameType } from "../../shared/agent-backend.js";
-import type { AgentResolvedTarget } from "../../shared/agent-execution-target.js";
+import type { AgentExecutionTarget, AgentResolvedTarget } from "../../shared/agent-execution-target.js";
 import { agentErrorText } from "../../shared/agent-identity.js";
 import type { AgentDaemonFailureCode } from "../../shared/agent-state.js";
 import { type AgentDaemonCommand, agentWire, isReliableAgentMessage } from "../../shared/agent-wire.js";
+import type { HostAgentModelsResult } from "../../shared/host-op.js";
+import { createSingleFlight } from "../../shared/single-flight.js";
 import {
 	type AgentBackendSession,
 	settledNow,
@@ -14,7 +16,7 @@ import {
 } from "../agents/backendSession.js";
 import { AgentDaemonCore, type AgentEventAck } from "./agentDaemonCore.js";
 import { resolveAgentTarget } from "./agentTargetResolve.js";
-import type { AgentChild, TargetLease, TargetSupervisor } from "./codexTargets.js";
+import type { AgentChild, TargetLease, TargetSupervisor } from "./agentTargets.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -27,8 +29,13 @@ export interface AgentDaemonDeps {
 	open(child: AgentChild): Promise<AgentBackendSession>;
 	resolveHostCwd(hint: string | undefined): string;
 	failureCode?(error: string): AgentDaemonFailureCode | undefined;
-	/** What a target must hold before a child launches there. */
+	/** Target setup before launch. */
 	prepareTarget?(target: AgentResolvedTarget): Promise<void>;
+	/** Reaped threads may reopen. */
+	threadsResumable?: boolean;
+	now?(): number;
+	setSweep?(run: () => void, ms: number): ReturnType<typeof setInterval>;
+	clearSweep?(handle: ReturnType<typeof setInterval>): void;
 }
 
 interface Binding {
@@ -44,6 +51,10 @@ interface NamedTurn {
 
 interface ActiveTurn extends NamedTurn {
 	settled: Promise<TurnTerminal>;
+	/** Last progress time. */
+	at: number;
+	/** Interrupted once for silence. */
+	warned: boolean;
 }
 
 interface TargetSession {
@@ -56,8 +67,9 @@ interface TargetSession {
 	active: Map<string, ActiveTurn>;
 	/** Buffers events before announcement. */
 	held: Map<string, Array<() => void>>;
-	/** Its driver closed, perhaps before it was held as live. */
+	/** Closure may precede acquisition. */
 	closed: boolean;
+	usedAt: number;
 }
 
 type Command<Kind extends AgentDaemonCommand["kind"]> = Extract<AgentDaemonCommand, { kind: Kind }>;
@@ -67,6 +79,12 @@ type Command<Kind extends AgentDaemonCommand["kind"]> = Extract<AgentDaemonComma
 
 const HELD_TURNS_MAX = 32;
 const HELD_EVENTS_MAX = 64;
+const THREAD_MEMORY = 256;
+/** Bounds silent reasoning hangs. */
+const NO_PROGRESS_MS = 600_000;
+const SWEEP_MS = 30_000;
+const REAP_QUIET_MS = 600_000;
+const UNKNOWN = { known: "unknown" } as const;
 
 ////////////////////////////////
 //  Class
@@ -76,7 +94,13 @@ export class AgentDaemonService {
 	private readonly wire: ReturnType<typeof agentWire>;
 	private readonly openErrors = new Map<string, string>();
 	private readonly name: string;
+	private readonly sessions = new Set<TargetSession>();
+	private readonly listings = createSingleFlight<string, HostAgentModelsResult>();
 	private stopped = false;
+	private inFlight = 0;
+	private quietSince = 0;
+	private sweeper?: ReturnType<typeof setInterval>;
+	private sweeping = false;
 
 	constructor(private readonly deps: AgentDaemonDeps) {
 		this.wire = agentWire(deps.backend.id);
@@ -95,8 +119,31 @@ export class AgentDaemonService {
 			onRetire: (session) => {
 				session.active.clear();
 				session.held.clear();
+				this.sessions.delete(session);
 			},
 		});
+	}
+
+	private now(): number {
+		return (this.deps.now ?? Date.now)();
+	}
+
+	/** Blocks idle reaping. */
+	private async lease<T>(run: () => Promise<T>): Promise<T> {
+		this.inFlight += 1;
+		try {
+			return await run();
+		} finally {
+			this.inFlight -= 1;
+		}
+	}
+
+	private async serve(command: AgentDaemonCommand): Promise<void> {
+		try {
+			await this.lease(() => this.dispatch(command));
+		} finally {
+			this.quietSince = this.now();
+		}
 	}
 
 	hello(): Record<string, unknown> {
@@ -121,14 +168,51 @@ export class AgentDaemonService {
 		}
 		this.core.enqueue(
 			command,
-			(next) => this.dispatch(next),
+			(next) => this.serve(next),
 			(next, error) => this.reject(next, error),
 			(error) => this.describe(error),
 		);
 	}
 
+	/** Serialize target model reads. */
+	async listModels(requested: AgentExecutionTarget): Promise<HostAgentModelsResult> {
+		if (this.stopped) return { kind: "refused", reason: `${this.name} daemon is shutting down` };
+		let target: AgentResolvedTarget;
+		try {
+			target = resolveAgentTarget(requested, this.deps.resolveHostCwd);
+		} catch (error) {
+			return { kind: "refused", reason: this.describe(error) };
+		}
+		return this.listings.run(target.targetId, () => this.listOnce(target));
+	}
+
+	private async listOnce(target: AgentResolvedTarget): Promise<HostAgentModelsResult> {
+		const opens = !this.core.getSession(target.targetId);
+		const held: { session?: TargetSession } = {};
+		try {
+			return await this.lease(async () => {
+				const session = await this.session(target);
+				if (!session) return { kind: "refused", reason: this.unavailable(target) };
+				held.session = session;
+				if (!session.client.listModels) return { kind: "refused", reason: `${this.name} lists no models` };
+				const models = await session.client.listModels();
+				return { kind: "listed", models: models.map((model) => model.id) };
+			});
+		} catch (error) {
+			return { kind: "refused", reason: this.describe(error) };
+		} finally {
+			this.quietSince = this.now();
+			// Nothing else reaps it.
+			const idle = held.session?.threads.size === 0 && held.session.active.size === 0 && this.inFlight === 0;
+			if (opens && idle && held.session && !this.deps.threadsResumable) this.giveUp(held.session);
+		}
+	}
+
 	shutdown(): void {
 		this.stopped = true;
+		if (this.sweeper !== undefined) (this.deps.clearSweep ?? clearInterval)(this.sweeper);
+		this.sweeper = undefined;
+		this.sessions.clear();
 		this.core.shutdown();
 	}
 
@@ -156,7 +240,7 @@ export class AgentDaemonService {
 			reasoningEffort: command.reasoningEffort,
 		});
 		const binding: Binding = { ownerKey: command.ownerKey, agentId: command.agentId, threadId };
-		session.threads.set(threadId, binding);
+		this.remember(session, binding);
 		await this.beginTurn(session, command, target, binding, {
 			model: command.model,
 			serviceTier: command.serviceTier,
@@ -188,6 +272,16 @@ export class AgentDaemonService {
 				steerError = error;
 			}
 			if (!taken) await settledNow(active.settled);
+			if (steerError !== undefined && session.active.get(command.sessionId) === active) {
+				// Driver may retain terminal.
+				const seen =
+					(await session.client.inspectTurn?.(command.sessionId, active.turnId).catch(() => UNKNOWN)) ??
+					UNKNOWN;
+				if (seen.known === "settled" && session.active.get(command.sessionId) === active) {
+					session.active.delete(command.sessionId);
+					this.emitTerminal(session, active, seen.terminal);
+				}
+			}
 			if (taken || session.active.get(command.sessionId) === active) {
 				if (steerError !== undefined) return this.reject(command, this.describe(steerError));
 				return this.emitReceipt(session, command, {
@@ -199,13 +293,13 @@ export class AgentDaemonService {
 					delivery: "steered",
 				});
 			}
-			// Preserve prompts when steering ends.
+			// Preserve prompts after steering.
 		}
 		if (!session.threads.has(command.sessionId)) {
 			if (!session.client.resumeThread) return this.reject(command, `${this.name} agent ended with its process`);
 			await session.client.resumeThread(command.sessionId, command.target.cwd);
-			session.threads.set(command.sessionId, binding);
 		}
+		this.remember(session, binding);
 		await this.beginTurn(session, command, command.target, binding, {
 			model: command.model,
 			serviceTier: command.serviceTier,
@@ -214,7 +308,6 @@ export class AgentDaemonService {
 		});
 	}
 
-	/** Receipt precedes turn events. */
 	private async beginTurn(
 		session: TargetSession,
 		command: Command<"start"> | Command<"message">,
@@ -222,25 +315,54 @@ export class AgentDaemonService {
 		binding: Binding,
 		turn: TurnOptions,
 	): Promise<void> {
-		const handle: TurnHandle = await session.client.startTurn(binding.threadId, command.prompt, turn);
-		const active: ActiveTurn = { binding, turnId: handle.turnId, settled: handle.settled };
-		session.active.set(binding.threadId, active);
-		this.emitReceipt(session, command, {
-			kind: "accepted",
-			operationId: command.operationId,
-			resolvedTarget: target,
-			sessionId: binding.threadId,
+		let handle: TurnHandle;
+		try {
+			handle = await session.client.startTurn(binding.threadId, command.prompt, turn);
+		} catch (error) {
+			const running = await session.client.adoptTurn?.(binding.threadId).catch(() => undefined);
+			if (!running) throw error;
+			handle = running;
+		}
+		this.announce(session, binding, handle, () =>
+			this.emitReceipt(session, command, {
+				kind: "accepted",
+				operationId: command.operationId,
+				resolvedTarget: target,
+				sessionId: binding.threadId,
+				turnId: handle.turnId,
+				delivery: "started",
+			}),
+		);
+	}
+
+	private announce(session: TargetSession, binding: Binding, handle: TurnHandle, receipt: () => void): void {
+		const active: ActiveTurn = {
+			binding,
 			turnId: handle.turnId,
-			delivery: "started",
-		});
+			settled: handle.settled,
+			at: this.now(),
+			warned: false,
+		};
+		session.active.set(binding.threadId, active);
+		receipt();
 		for (const publish of session.held.get(handle.turnId) ?? []) publish();
 		session.held.delete(handle.turnId);
 		void handle.settled.then((terminal) => {
-			// Retirement already terminalizes turns.
 			if (session.active.get(binding.threadId) !== active) return;
 			session.active.delete(binding.threadId);
 			this.emitTerminal(session, active, terminal);
 		});
+	}
+
+	/** Bounds remembered threads. */
+	private remember(session: TargetSession, binding: Binding): void {
+		session.threads.delete(binding.threadId);
+		session.threads.set(binding.threadId, binding);
+		if (!session.client.resumeThread) return;
+		for (const oldest of [...session.threads.keys()]) {
+			if (session.threads.size <= THREAD_MEMORY) return;
+			if (oldest !== binding.threadId && !session.active.has(oldest)) session.threads.delete(oldest);
+		}
 	}
 
 	private async runInterrupt(command: Command<"interrupt">): Promise<void> {
@@ -267,28 +389,55 @@ export class AgentDaemonService {
 		const session = await this.session(command.target);
 		if (!session) return this.reject(command, this.unavailable(command.target));
 		const reconciled = { kind: "reconciled", resolvedTarget: command.target, sessionId: command.sessionId };
-		const active = session.active.get(command.sessionId);
-		if (active)
-			return this.emitReceipt(session, command, {
-				...reconciled,
-				turnId: active.turnId,
-				turnState: "inProgress",
-			});
-
 		const binding: Binding = { ownerKey: command.ownerKey, agentId: command.agentId, threadId: command.sessionId };
+		const active = session.active.get(command.sessionId);
+		if (active) {
+			// Handover changes owner.
+			active.binding = binding;
+			this.remember(session, binding);
+			const asked = command.turnId !== undefined && command.turnId !== active.turnId ? command.turnId : undefined;
+			const earlier = asked
+				? await session.client.inspectTurn?.(command.sessionId, asked).catch(() => UNKNOWN)
+				: undefined;
+			if (asked && earlier?.known === "settled") {
+				this.emitReceipt(session, command, {
+					...reconciled,
+					turnId: asked,
+					turnState: earlier.terminal.status,
+				});
+				return this.emitTerminal(session, { binding, turnId: asked }, earlier.terminal);
+			}
+			// Turn may settle mid-read.
+			if (session.active.get(command.sessionId) === active) {
+				return this.emitReceipt(session, command, {
+					...reconciled,
+					turnId: active.turnId,
+					turnState: "inProgress",
+				});
+			}
+		}
+
 		const unknown = () => this.emitReceipt(session, command, { ...reconciled, turnId: command.turnId });
-		if (!session.threads.has(command.sessionId)) {
+		const held = session.threads.has(command.sessionId);
+		if (!held) {
 			try {
 				await session.client.resumeThread?.(command.sessionId, command.target.cwd);
 			} catch {
 				return unknown();
 			}
-			if (session.client.resumeThread) session.threads.set(command.sessionId, binding);
+			if (session.client.resumeThread) this.remember(session, binding);
 		}
 		if (!command.turnId || !session.client.inspectTurn) return unknown();
-		const seen = await session.client
-			.inspectTurn(command.sessionId, command.turnId)
-			.catch(() => ({ known: "unknown" as const }));
+		const seen = await session.client.inspectTurn(command.sessionId, command.turnId).catch(() => UNKNOWN);
+		if (seen.known === "running") {
+			const running = held
+				? await session.client.adoptTurn?.(command.sessionId).catch(() => undefined)
+				: undefined;
+			if (running?.turnId !== command.turnId || session.active.has(command.sessionId)) return unknown();
+			return this.announce(session, binding, running, () =>
+				this.emitReceipt(session, command, { ...reconciled, turnId: running.turnId, turnState: "inProgress" }),
+			);
+		}
 		if (seen.known !== "settled") return unknown();
 		// Fence receipt before terminal.
 		this.emitReceipt(session, command, {
@@ -309,8 +458,11 @@ export class AgentDaemonService {
 			}
 		}
 		const session = await this.core.acquireSession(target, (resolved, lease) => this.open(resolved, lease));
-		if (!session?.closed) return session;
-		this.giveUp(session);
+		if (session && !session.closed) {
+			session.usedAt = this.now();
+			return session;
+		}
+		if (session) this.giveUp(session);
 		return null;
 	}
 
@@ -330,6 +482,11 @@ export class AgentDaemonService {
 			return null;
 		}
 		this.openErrors.delete(target.targetId);
+		if (this.stopped) {
+			client.close();
+			this.deps.targets.release(target.targetId, lease.generation);
+			return null;
+		}
 		const session: TargetSession = {
 			targetId: target.targetId,
 			generation: lease.generation,
@@ -339,18 +496,95 @@ export class AgentDaemonService {
 			active: new Map(),
 			held: new Map(),
 			closed: false,
+			usedAt: this.now(),
 		};
 		client.onActivity((turnId, text, itemId) => this.onActivity(session, turnId, text, itemId));
 		client.onCounter?.((turnId, counter) => this.onCounter(session, turnId, counter));
-		// A driver can close with its child still alive, or before this session is held.
+		client.onProgress?.((turnId) => this.alive(session, turnId));
+		// Closure may precede acquisition or child exit.
 		client.onClosed(() => {
 			session.closed = true;
 			this.giveUp(session);
 		});
+		this.sessions.add(session);
+		this.startSweeping();
 		return session;
 	}
 
+	private startSweeping(): void {
+		if (this.sweeper !== undefined || this.stopped) return;
+		this.sweeper = (this.deps.setSweep ?? ((run, ms) => setInterval(run, ms)))(() => void this.sweep(), SWEEP_MS);
+		(this.sweeper as { unref?: () => void }).unref?.();
+	}
+
+	private async sweep(): Promise<void> {
+		if (this.sweeping) return;
+		this.sweeping = true;
+		try {
+			for (const session of [...this.sessions]) {
+				if (this.core.live(session)) await this.lease(() => this.watchTurns(session));
+			}
+			this.reapIdle();
+		} finally {
+			this.sweeping = false;
+		}
+	}
+
+	private async watchTurns(session: TargetSession): Promise<void> {
+		if (!session.client.onProgress) return;
+		const cutoff = this.now() - NO_PROGRESS_MS;
+		for (const active of [...session.active.values()]) {
+			if (active.at > cutoff) continue;
+			const { threadId } = active.binding;
+			const seen = (await session.client.inspectTurn?.(threadId, active.turnId).catch(() => UNKNOWN)) ?? UNKNOWN;
+			if (!this.core.live(session)) return;
+			if (session.active.get(threadId) !== active) continue;
+			if (seen.known === "settled") {
+				session.active.delete(threadId);
+				this.emitTerminal(session, active, seen.terminal);
+				continue;
+			}
+			if (!active.warned) {
+				active.warned = true;
+				active.at = this.now();
+				console.error(
+					`[${this.deps.backend.id}-daemon] ${session.targetId} interrupting turn ${active.turnId}: silent for ${NO_PROGRESS_MS / 1000}s`,
+				);
+				void session.client.interruptTurn(threadId, active.turnId).catch(() => undefined);
+				continue;
+			}
+			console.error(
+				`[${this.deps.backend.id}-daemon] retiring ${session.targetId} generation ${session.generation}: ${threadId} made no progress on ${active.turnId}`,
+			);
+			this.giveUp(session);
+			return;
+		}
+	}
+
+	private reapIdle(): void {
+		if (!this.deps.threadsResumable || this.inFlight > 0) return;
+		const now = this.now();
+		if (now - this.quietSince < REAP_QUIET_MS) return;
+		for (const session of [...this.sessions]) {
+			if (!this.core.live(session) || session.active.size > 0) continue;
+			if (now - session.usedAt < REAP_QUIET_MS || session.client.busy?.()) continue;
+			console.error(
+				`[${this.deps.backend.id}-daemon] reaping ${session.targetId} generation ${session.generation}: idle for ${Math.round((now - session.usedAt) / 1_000)}s`,
+			);
+			this.giveUp(session);
+		}
+	}
+
+	private alive(session: TargetSession, turnId: string): void {
+		session.usedAt = this.now();
+		const active = [...session.active.values()].find((candidate) => candidate.turnId === turnId);
+		if (!active) return;
+		active.at = session.usedAt;
+		active.warned = false;
+	}
+
 	private onActivity(session: TargetSession, turnId: string, text: string, itemId?: string): void {
+		this.alive(session, turnId);
 		if (!text) return;
 		this.whenAnnounced(session, turnId, (active) =>
 			this.emitEvent(session, active, { kind: "activity", itemId: itemId ?? crypto.randomUUID(), text }),
@@ -358,6 +592,7 @@ export class AgentDaemonService {
 	}
 
 	private onCounter(session: TargetSession, turnId: string, counter: TurnCounter): void {
+		this.alive(session, turnId);
 		this.whenAnnounced(session, turnId, (active) =>
 			this.emitEvent(session, active, {
 				kind: "counter",
@@ -414,10 +649,6 @@ export class AgentDaemonService {
 		);
 	}
 
-	/**
-	 * Retired generations drop fenced receipts.
-	 * Refuse unfenced to settle callers.
-	 */
 	private emitReceipt(session: TargetSession, command: AgentDaemonCommand, receipt: Record<string, unknown>): void {
 		if (!this.core.live(session)) {
 			this.reject(command, `${this.name} generation was retired mid-command`);

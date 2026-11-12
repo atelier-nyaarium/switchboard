@@ -220,7 +220,7 @@
 			"expected": { "kind": "recovering", "turnId": "turn-a" }
 		},
 		{
-			"name": "the known Codex turn survives when reported running",
+			"name": "the known turn survives when a replaced process reports it running",
 			"currentFence": {
 				"daemonInstanceId": "daemon-a",
 				"targetId": "target-a",
@@ -234,65 +234,11 @@
 				"lastEventId": 0
 			},
 			"knownActiveTurn": "turn-a",
-			"report": { "family": "codex", "turnId": "turn-a", "turnState": "inProgress" },
+			"report": { "turnId": "turn-a", "turnState": "inProgress" },
 			"expected": { "kind": "survives", "turnId": "turn-a" }
 		},
 		{
-			"name": "Codex loses a known turn when the new process reports another running turn",
-			"currentFence": {
-				"daemonInstanceId": "daemon-a",
-				"targetId": "target-a",
-				"generation": 1,
-				"lastEventId": 4
-			},
-			"receiptFence": {
-				"daemonInstanceId": "daemon-b",
-				"targetId": "target-a",
-				"generation": 2,
-				"lastEventId": 0
-			},
-			"knownActiveTurn": "turn-a",
-			"report": { "family": "codex", "turnId": "turn-b", "turnState": "inProgress" },
-			"expected": { "kind": "lost", "turnId": "turn-a" }
-		},
-		{
-			"name": "Codex loses a known turn when the new process reports no status",
-			"currentFence": {
-				"daemonInstanceId": "daemon-a",
-				"targetId": "target-a",
-				"generation": 1,
-				"lastEventId": 4
-			},
-			"receiptFence": {
-				"daemonInstanceId": "daemon-b",
-				"targetId": "target-a",
-				"generation": 2,
-				"lastEventId": 0
-			},
-			"knownActiveTurn": "turn-a",
-			"report": { "family": "codex" },
-			"expected": { "kind": "lost", "turnId": "turn-a" }
-		},
-		{
-			"name": "Codex leaves a reported terminal turn for its terminal event",
-			"currentFence": {
-				"daemonInstanceId": "daemon-a",
-				"targetId": "target-a",
-				"generation": 1,
-				"lastEventId": 4
-			},
-			"receiptFence": {
-				"daemonInstanceId": "daemon-b",
-				"targetId": "target-a",
-				"generation": 2,
-				"lastEventId": 0
-			},
-			"knownActiveTurn": "turn-a",
-			"report": { "family": "codex", "turnId": "turn-a", "turnState": "completed" },
-			"expected": { "kind": "recovering", "turnId": "turn-a" }
-		},
-		{
-			"name": "a Codex reconciliation with no known turn leaves the agent idle",
+			"name": "a reconciliation with no known turn and none reported leaves the agent idle",
 			"currentFence": null,
 			"receiptFence": {
 				"daemonInstanceId": "daemon-b",
@@ -300,7 +246,7 @@
 				"generation": 1,
 				"lastEventId": 0
 			},
-			"report": { "family": "codex" },
+			"report": {},
 			"expected": { "kind": "idle" }
 		},
 		{

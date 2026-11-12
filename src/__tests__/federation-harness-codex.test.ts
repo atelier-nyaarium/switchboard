@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CodexDaemonEvent, CodexDaemonReceipt } from "../shared/codexAgentRelay.js";
+import type { AgentDaemonEvent, AgentDaemonReceipt } from "../shared/agent-wire.js";
 import { composeSessionName } from "../shared/session-id.js";
-import { type CodexResponder, stockCodexResponder } from "../testing/fakeHost.js";
+import { type AgentResponder, stockAgentResponder } from "../testing/fakeHost.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
@@ -89,7 +89,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		const completed = await collectUntilTurn(alice, started.agentId);
 		expect(completed.turns).toMatchObject([{ state: "completed", finalResponse: "done: count to three" }]);
 		expect(completed.turns?.[0]?.activities.map((activity) => activity.text)).toContain("working");
-		const command = h.host.codexCommands.find((candidate) => candidate.kind === "start");
+		const command = h.host.agentCommands("codex").find((candidate) => candidate.kind === "start");
 		expect(command).toMatchObject({ target: { kind: "host" }, prompt: "count to three", agentId: started.agentId });
 	});
 
@@ -112,8 +112,8 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			{ state: "completed", finalResponse: "done: first" },
 			{ state: "completed", finalResponse: "done: second" },
 		]);
-		const thread = h.host.codexCommands.find((c) => c.kind === "message" && c.agentId === started.agentId);
-		expect(thread).toMatchObject({ threadId: `thread-${started.agentId}` });
+		const thread = h.host.agentCommands("codex").find((c) => c.kind === "message" && c.agentId === started.agentId);
+		expect(thread).toMatchObject({ sessionId: `session-${started.agentId}` });
 
 		const again = await codex(alice, {
 			kind: "message",
@@ -127,7 +127,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			finalResponse: "done: second",
 		});
 		expect(again.turn?.id).toBe(answered.turns?.at(-1)?.id);
-		expect(h.host.codexCommands.filter((c) => c.kind === "message" && c.operationId === followUp)).toHaveLength(1);
+		expect(
+			h.host.agentCommands("codex").filter((c) => c.kind === "message" && c.operationId === followUp),
+		).toHaveLength(1);
 	});
 
 	it("lists an owner's agents to that owner alone", async () => {
@@ -153,8 +155,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 	});
 
 	it("interrupts a running turn and collects its terminal result", async () => {
-		const running: CodexResponder = (command, daemon) => {
-			if (command.kind === "start") return stockCodexResponder(command, daemon)?.slice(0, 2);
+		const running: AgentResponder = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			if (command.kind === "start") return stockAgentResponder(command, daemon, backend)?.slice(0, 2);
 			if (command.kind === "interrupt") {
 				const base = {
 					ownerKey: command.ownerKey,
@@ -171,7 +174,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 						eventId: daemon.nextEventId(fence.targetId),
 						kind: "interruptResult",
 						operationId: command.operationId,
-						threadId: command.threadId,
+						sessionId: command.sessionId,
 						turnId: command.turnId,
 						ok: true,
 					},
@@ -180,21 +183,21 @@ describe("Codex delegation through the gateway and the daemon", () => {
 						...base,
 						...fence,
 						eventId: daemon.nextEventId(fence.targetId),
-						threadId: command.threadId,
+						sessionId: command.sessionId,
 						kind: "terminal",
 						turnId: command.turnId,
 						state: "interrupted",
 					},
 				];
 			}
-			return stockCodexResponder(command, daemon);
+			return stockAgentResponder(command, daemon, backend);
 		};
-		h.host.handlers.onCodexCommand = running;
+		h.host.handlers.onAgentCommand = running;
 		try {
 			const startId = operationId();
 			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "long task" });
 			const working = await h.waitFor(async () => {
-				const listed = (await (await alice.post("/codex", { kind: "list", detail: "full" })).json()) as {
+				const listed = (await (await alice.post("/codex", { kind: "list" })).json()) as {
 					agents: Array<{ agentId: string; agentState: string; running: boolean }>;
 				};
 				return listed.agents.find((agent) => agent.agentState === "working" && agent.running);
@@ -210,25 +213,26 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			expect(inProgress.running).toBe(started.turn?.id);
 			const interrupted = await collectUntilTurn(alice, working.agentId);
 			expect(interrupted.turns).toMatchObject([{ state: "interrupted" }]);
-			expect(h.host.codexCommands.find((c) => c.kind === "interrupt")).toMatchObject({
+			expect(h.host.agentCommands("codex").find((c) => c.kind === "interrupt")).toMatchObject({
 				agentId: working.agentId,
 			});
 		} finally {
-			h.host.handlers.onCodexCommand = undefined;
+			h.host.handlers.onAgentCommand = undefined;
 		}
 	});
 
 	it("keeps one turn when the daemon replays its reliable frames", async () => {
-		const replayed: Array<CodexDaemonEvent | CodexDaemonReceipt> = [];
-		h.host.handlers.onCodexCommand = (command, daemon) => {
-			const frames = stockCodexResponder(command, daemon) ?? [];
-			if (command.kind === "start") replayed.push(...(frames as Array<CodexDaemonEvent | CodexDaemonReceipt>));
+		const replayed: Array<AgentDaemonEvent | AgentDaemonReceipt> = [];
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			const frames = stockAgentResponder(command, daemon, backend) ?? [];
+			if (command.kind === "start") replayed.push(...(frames as Array<AgentDaemonEvent | AgentDaemonReceipt>));
 			return frames;
 		};
 		try {
 			const started = await codex(alice, { kind: "start", operationId: operationId(), prompt: "replay me" });
-			for (const frame of replayed) h.host.sendCodex(frame);
-			const listed = (await (await alice.post("/codex", { kind: "list", detail: "full" })).json()) as {
+			for (const frame of replayed) h.host.sendAgent("codex", frame);
+			const listed = (await (await alice.post("/codex", { kind: "list" })).json()) as {
 				agents: Array<{ agentId: string; uncollected: number; turnCount: number }>;
 			};
 			const agent = listed.agents.find((candidate) => candidate.agentId === started.agentId);
@@ -237,7 +241,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 				turns: [{ id: started.turn?.id, state: "completed" }],
 			});
 		} finally {
-			h.host.handlers.onCodexCommand = undefined;
+			h.host.handlers.onAgentCommand = undefined;
 		}
 	});
 
@@ -254,7 +258,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		await reattached.ready();
 		alice = reattached;
 		const listed = await h.waitFor(async () => {
-			const answer = (await (await reattached.post("/codex", { kind: "list" })).json()) as {
+			const answer = (await (
+				await reattached.post("/codex", { kind: "list", agentId: started.agentId })
+			).json()) as {
 				agents?: Array<{ agentId: string }>;
 			};
 			return answer.agents?.some((agent) => agent.agentId === started.agentId) ? answer : undefined;
@@ -279,30 +285,33 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			prompt: "before daemon restart",
 		});
 		h.restartHost({ newDaemon: true });
+		// New turn follows reconciliation.
 		const first = await codex(caller, {
 			kind: "message",
 			operationId: operationId(),
 			agentId: started.agentId,
 			prompt: "who are you now?",
 		});
-		expect(first).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
-		const collected = await collectUntilTurn(caller, started.agentId);
-		expect(collected.turns?.at(-1)).toMatchObject({
-			state: "completed",
-			finalResponse: "done: who are you now?",
-		});
+		expect(first).toMatchObject({ delivery: "followup" });
+		const ended: NonNullable<AgentAnswer["turns"]> = [];
+		await h.waitFor(async () => {
+			ended.push(...((await codex(caller, { kind: "await", agentId: started.agentId })).turns ?? []));
+			return ended.some((turn) => turn.finalResponse === "done: who are you now?") || undefined;
+		}, "the follow-up's answer");
+		expect(ended.at(-1)).toMatchObject({ state: "completed", finalResponse: "done: who are you now?" });
 	});
 
 	it("abandons an old daemon's pending start before the new host catalog", async () => {
-		h.host.handlers.onCodexCommand = () => undefined;
+		h.host.handlers.onAgentCommand = (command, daemon, backend) =>
+			backend === "codex" ? undefined : stockAgentResponder(command, daemon, backend);
 		try {
 			const startId = operationId();
 			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "hold for restart" });
 			await h.waitFor(
 				() =>
-					h.host.codexCommands.find(
-						(command) => "operationId" in command && command.operationId === startId,
-					) || undefined,
+					h.host
+						.agentCommands("codex")
+						.find((command) => "operationId" in command && command.operationId === startId) || undefined,
 				"start dispatch on the first daemon",
 			);
 			const firstDaemonId = h.host.daemon.daemonInstanceId;
@@ -312,18 +321,19 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			expect(secondHost.daemon.daemonInstanceId).not.toBe(firstDaemonId);
 			expect(await starting).toMatchObject({ agentState: "unavailable", observation: "indeterminate" });
 			expect(
-				secondHost.codexCommands.filter(
-					(command) => "operationId" in command && command.operationId === startId,
-				),
+				secondHost
+					.agentCommands("codex")
+					.filter((command) => "operationId" in command && command.operationId === startId),
 			).toHaveLength(0);
 		} finally {
-			h.host.handlers.onCodexCommand = undefined;
+			h.host.handlers.onAgentCommand = undefined;
 		}
 	});
 
 	it("collects a Codex turn lost when its daemon restarts", async () => {
-		h.host.handlers.onCodexCommand = (command, daemon) => {
-			const frames = stockCodexResponder(command, daemon) ?? [];
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			const frames = stockAgentResponder(command, daemon, backend) ?? [];
 			return command.kind === "start" ? frames.slice(0, 1) : frames;
 		};
 		try {
@@ -339,13 +349,14 @@ describe("Codex delegation through the gateway and the daemon", () => {
 				{ state: "interrupted", reason: "turn lost: its agent process ended" },
 			]);
 		} finally {
-			h.host.handlers.onCodexCommand = undefined;
+			h.host.handlers.onAgentCommand = undefined;
 		}
 	});
 
 	it("clears an accepted stop when its turn is lost and accepts a later message", async () => {
-		h.host.handlers.onCodexCommand = (command, daemon) => {
-			if (command.kind === "start") return (stockCodexResponder(command, daemon) ?? []).slice(0, 1);
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			if (command.kind === "start") return (stockAgentResponder(command, daemon, backend) ?? []).slice(0, 1);
 			if (command.kind === "interrupt") {
 				const targetId = command.target.targetId;
 				return [
@@ -360,13 +371,13 @@ describe("Codex delegation through the gateway and the daemon", () => {
 						eventId: daemon.nextEventId(targetId),
 						agentId: command.agentId,
 						operationId: command.operationId,
-						threadId: command.threadId,
+						sessionId: command.sessionId,
 						turnId: command.turnId,
 						ok: true,
 					},
 				];
 			}
-			return stockCodexResponder(command, daemon);
+			return stockAgentResponder(command, daemon, backend);
 		};
 		try {
 			const caller = alice;
@@ -398,20 +409,21 @@ describe("Codex delegation through the gateway and the daemon", () => {
 				finalResponse: "done: continue after restart",
 			});
 		} finally {
-			h.host.handlers.onCodexCommand = undefined;
+			h.host.handlers.onAgentCommand = undefined;
 		}
 	});
 
 	it("resends lost start, message, and stop answers once per operation", async () => {
-		const answers = new Map<string, CodexDaemonReceipt[]>();
+		const answers = new Map<string, AgentDaemonReceipt[]>();
 		const takes = new Map<string, number>();
-		const responder: CodexResponder = (command, daemon) => {
-			if (command.kind === "reconcile") return stockCodexResponder(command, daemon);
+		const responder: AgentResponder = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			if (command.kind === "reconcile") return stockAgentResponder(command, daemon, backend);
 			const previous = answers.get(command.operationId);
 			if (previous) return previous;
 			takes.set(command.operationId, (takes.get(command.operationId) ?? 0) + 1);
 			const resolvedTarget = command.kind === "start" ? daemon.resolve(command.target) : command.target;
-			const threadId = command.kind === "start" ? `thread-${command.agentId}` : command.threadId;
+			const sessionId = command.kind === "start" ? `session-${command.agentId}` : command.sessionId;
 			const turnId =
 				command.kind === "interrupt"
 					? command.turnId
@@ -428,13 +440,13 @@ describe("Codex delegation through the gateway and the daemon", () => {
 				eventId: daemon.nextEventId(resolvedTarget.targetId),
 				agentId: command.agentId,
 			};
-			const answer: CodexDaemonReceipt =
+			const answer: AgentDaemonReceipt =
 				command.kind === "interrupt"
 					? {
 							...common,
 							kind: "interruptResult",
 							operationId: command.operationId,
-							threadId: command.threadId,
+							sessionId: command.sessionId,
 							turnId,
 							ok: true,
 						}
@@ -443,22 +455,22 @@ describe("Codex delegation through the gateway and the daemon", () => {
 							kind: "accepted",
 							operationId: command.operationId,
 							resolvedTarget,
-							threadId,
+							sessionId,
 							turnId,
 							delivery: command.kind === "start" ? "started" : "steered",
 						};
 			answers.set(command.operationId, [answer]);
 			return undefined;
 		};
-		h.host.handlers.onCodexCommand = responder;
+		h.host.handlers.onAgentCommand = responder;
 		try {
 			const startId = operationId();
 			const starting = codex(alice, { kind: "start", operationId: startId, prompt: "start once" });
 			await h.waitFor(
 				() =>
-					h.host.codexCommands.some(
-						(command) => "operationId" in command && command.operationId === startId,
-					) || undefined,
+					h.host
+						.agentCommands("codex")
+						.some((command) => "operationId" in command && command.operationId === startId) || undefined,
 				"first start dispatch",
 			);
 			const firstHost = h.host;
@@ -467,9 +479,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			const started = await starting;
 			expect(started).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
 			expect(
-				secondHost.codexCommands.filter(
-					(command) => "operationId" in command && command.operationId === startId,
-				),
+				secondHost
+					.agentCommands("codex")
+					.filter((command) => "operationId" in command && command.operationId === startId),
 			).toHaveLength(1);
 
 			const messageId = operationId();
@@ -481,9 +493,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			});
 			await h.waitFor(
 				() =>
-					secondHost.codexCommands.some(
-						(command) => "operationId" in command && command.operationId === messageId,
-					) || undefined,
+					secondHost
+						.agentCommands("codex")
+						.some((command) => "operationId" in command && command.operationId === messageId) || undefined,
 				"first message dispatch",
 			);
 			h.restartHost();
@@ -491,9 +503,9 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			const messaged = await messaging;
 			expect(messaged).toMatchObject({ observation: "accepted", turn: { state: "inProgress" } });
 			expect(
-				thirdHost.codexCommands.filter(
-					(command) => "operationId" in command && command.operationId === messageId,
-				),
+				thirdHost
+					.agentCommands("codex")
+					.filter((command) => "operationId" in command && command.operationId === messageId),
 			).toHaveLength(1);
 
 			const stopId = operationId();
@@ -501,24 +513,24 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			expect(stopped).toMatchObject({ observation: "interruptRequested" });
 			await h.waitFor(
 				() =>
-					thirdHost.codexCommands.some(
-						(command) => "operationId" in command && command.operationId === stopId,
-					) || undefined,
+					thirdHost
+						.agentCommands("codex")
+						.some((command) => "operationId" in command && command.operationId === stopId) || undefined,
 				"first stop dispatch",
 			);
 			h.restartHost();
 			const fourthHost = h.host;
 			await h.waitFor(
 				() =>
-					fourthHost.codexCommands.some(
-						(command) => "operationId" in command && command.operationId === stopId,
-					) || undefined,
+					fourthHost
+						.agentCommands("codex")
+						.some((command) => "operationId" in command && command.operationId === stopId) || undefined,
 				"resent stop dispatch",
 			);
 			expect(
-				fourthHost.codexCommands.filter(
-					(command) => "operationId" in command && command.operationId === stopId,
-				),
+				fourthHost
+					.agentCommands("codex")
+					.filter((command) => "operationId" in command && command.operationId === stopId),
 			).toHaveLength(1);
 			expect(takes).toEqual(
 				new Map([
@@ -528,12 +540,12 @@ describe("Codex delegation through the gateway and the daemon", () => {
 				]),
 			);
 			expect(
-				firstHost.codexCommands.filter(
-					(command) => "operationId" in command && command.operationId === startId,
-				),
+				firstHost
+					.agentCommands("codex")
+					.filter((command) => "operationId" in command && command.operationId === startId),
 			).toHaveLength(1);
 		} finally {
-			h.host.handlers.onCodexCommand = undefined;
+			h.host.handlers.onAgentCommand = undefined;
 		}
 	});
 });

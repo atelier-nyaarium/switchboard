@@ -1,10 +1,6 @@
-import {
-	CODEX_STANDARD_SERVICE_TIER,
-	CodexAppServerResponseSchema,
-	CodexAppServerThreadStartResultSchema,
-	type CodexServiceTier,
-} from "../../shared/codex-agent.js";
-import type { CodexChild } from "./codexTargets.js";
+import type { AgentServiceTier as CodexServiceTier } from "../../shared/agent-state.js";
+import { CodexAppServerResponseSchema, CodexAppServerThreadStartResultSchema } from "../../shared/codex-app-server.js";
+import type { AgentChild } from "./agentTargets.js";
 import {
 	type LifecycleDeps,
 	type ThreadInspection,
@@ -104,7 +100,7 @@ function frame(message: unknown): string {
 }
 
 /** The JSONL wire over a child's stdio. A failed request rejects with this module's own `AppServerFailure`. */
-export function createJsonlTransport(child: CodexChild): AppServerTransport {
+export function createJsonlTransport(child: AgentChild): AppServerTransport {
 	let nextId = 1;
 	let buffered = "";
 	let closed = false;
@@ -244,7 +240,7 @@ export function createJsonlTransport(child: CodexChild): AppServerTransport {
 
 /** Per model, since they differ: luna tops out at `max` while others offer `ultra`. Undefined leaves
  * the thread on that model's own default. */
-export function strongestEffort(model: {
+function strongestEffort(model: {
 	supportedReasoningEfforts?: Array<{ reasoningEffort?: unknown }>;
 }): string | undefined {
 	const order = ["low", "medium", "high", "xhigh", "max", "ultra"];
@@ -257,8 +253,25 @@ export function strongestEffort(model: {
 
 /** A model's advertised tier ids. Never the deprecated `additionalSpeedTiers`, which spells the
  * same tier `fast` where the id is `priority`. */
-export function offeredServiceTiers(model: { serviceTiers?: Array<{ id?: unknown }> }): string[] {
+function offeredServiceTiers(model: { serviceTiers?: Array<{ id?: unknown }> }): string[] {
 	return (model.serviceTiers ?? []).map((tier) => tier.id).filter((id): id is string => typeof id === "string");
+}
+
+async function readOffered(transport: AppServerTransport): Promise<OfferedModels> {
+	const listed = (await transport.request("model/list", {})) as {
+		data?: Array<{
+			id?: string;
+			supportedReasoningEfforts?: Array<{ reasoningEffort?: unknown }>;
+			serviceTiers?: Array<{ id?: unknown }>;
+		}>;
+	};
+	const offered: OfferedModels = new Map();
+	for (const model of listed.data ?? []) {
+		if (typeof model.id === "string") {
+			offered.set(model.id, { effort: strongestEffort(model), serviceTiers: offeredServiceTiers(model) });
+		}
+	}
+	return offered;
 }
 
 ////////////////////////////////
@@ -303,19 +316,7 @@ export class CodexAppServerClient {
 		});
 		transport.notify("initialized", {});
 
-		const listed = (await transport.request("model/list", {})) as {
-			data?: Array<{
-				id?: string;
-				supportedReasoningEfforts?: Array<{ reasoningEffort?: unknown }>;
-				serviceTiers?: Array<{ id?: unknown }>;
-			}>;
-		};
-		const offered: OfferedModels = new Map();
-		for (const model of listed.data ?? []) {
-			if (typeof model.id === "string") {
-				offered.set(model.id, { effort: strongestEffort(model), serviceTiers: offeredServiceTiers(model) });
-			}
-		}
+		const offered = await readOffered(transport);
 		if (!offered.has(requestedModel)) throw new Error(`model not offered: ${requestedModel}`);
 
 		return new CodexAppServerClient(transport, requestedModel, offered, hooks);
@@ -357,7 +358,7 @@ export class CodexAppServerClient {
 	 */
 	private checkedTier(model: string | undefined, tier: CodexServiceTier | undefined): string | null | undefined {
 		if (tier === undefined) return undefined;
-		if (tier === CODEX_STANDARD_SERVICE_TIER) return null;
+		if (tier === "standard") return null;
 		const named = model ?? this.defaultModel;
 		if (!this.offered.get(named)?.serviceTiers.includes(tier)) {
 			throw new Error(`service tier not offered: ${tier}`);
@@ -426,6 +427,15 @@ export class CodexAppServerClient {
 
 	stateOf(threadId: string): ThreadPhase | undefined {
 		return this.lifecycle.stateOf(threadId);
+	}
+
+	/** Empty results preserve cache. */
+	async models(): Promise<string[]> {
+		const offered = await readOffered(this.transport);
+		if (offered.size === 0) throw new Error("model/list answered no models");
+		this.offered.clear();
+		for (const [id, model] of offered) this.offered.set(id, model);
+		return [...offered.keys()];
 	}
 
 	close(): void {

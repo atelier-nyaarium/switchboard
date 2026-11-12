@@ -2,7 +2,7 @@ import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { OpencodeBackendSession, opencodeFailureCode } from "../mcp/agents/opencodeSession.js";
 import { AgentDaemonService } from "../mcp/devcontainer/agentDaemonService.js";
-import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
+import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/agentTargets.js";
 import { startBridge } from "../opencode-agent/bridge.js";
 import { OPENCODE_BACKEND } from "../shared/agent-backend.js";
 import { promptIdOf } from "../shared/opencode.js";

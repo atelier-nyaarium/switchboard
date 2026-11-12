@@ -1,9 +1,10 @@
-import type { AgentBackendId } from "../../shared/agent-backend.js";
+import { type AgentBackendId, agentBackend } from "../../shared/agent-backend.js";
 import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
 import { AGENT_TURN_LOST_REASON, agentIdForOperation } from "../../shared/agent-record.js";
 import type { AgentServiceTier } from "../../shared/agent-state.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { ClaudeTurnResultFrame, HostOp, HostOpResult } from "../../shared/host-op.js";
+import { startDefaults } from "../../shared/model-family.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
 import type { AgentStacks } from "../agentStack.js";
 import { fireAndForget } from "../fireAndForget.js";
@@ -130,9 +131,10 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 			settle(task, { outcome: "unavailable", answer: null, reason: `no ${backend} agents on this Gateway` });
 			return { dispatched: false, agentId };
 		}
-		const { model, tier, effort, schema: outputSchema } = task.issued.options;
-		// Options remain backend-scoped.
-		const serviceTier = tier === undefined ? {} : { serviceTier: tier as AgentServiceTier };
+		const { effort, schema: outputSchema } = task.issued.options;
+		const named = { model: task.issued.options.model, serviceTier: task.issued.options.tier as AgentServiceTier };
+		const { model, serviceTier: tier } = mode === "start" ? startDefaults(agentBackend(backend), named) : named;
+		const serviceTier = tier === undefined ? {} : { serviceTier: tier };
 		const shared = { operationId, prompt, ...serviceTier, ...(outputSchema === undefined ? {} : { outputSchema }) };
 		const result =
 			mode === "start"

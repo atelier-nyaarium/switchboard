@@ -4,15 +4,15 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { WorkflowRunRecord, WorkflowStartInput } from "../gateway/workflows/workflowSchemas.js";
 import { AGENT_BACKEND_IDS } from "../shared/agent-backend.js";
-import type { CodexDaemonEvent } from "../shared/codexAgentRelay.js";
+import type { AgentDaemonEvent } from "../shared/agent-wire.js";
 import { composeSessionName } from "../shared/session-id.js";
-import { type CodexResponder, type FakeCodexDaemon, stockCodexResponder } from "../testing/fakeHost.js";
+import { type AgentResponder, type FakeAgentDaemon, stockAgentResponder } from "../testing/fakeHost.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness, waitFor } from "../testing/federationHarness.js";
 
 interface HeldTurn {
-	daemon: FakeCodexDaemon;
-	terminal: Extract<CodexDaemonEvent, { kind: "terminal" }>;
+	daemon: FakeAgentDaemon;
+	terminal: Extract<AgentDaemonEvent, { kind: "terminal" }>;
 }
 
 describe("workflow steps through the federation harness", () => {
@@ -43,7 +43,8 @@ describe("workflow steps through the federation harness", () => {
 			return record?.status === status ? record : undefined;
 		}, `workflow ${status}`);
 
-	const withAnswer: CodexResponder = (command, daemon) => {
+	const withAnswer: AgentResponder = (command, daemon, backend) => {
+		if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
 		const text = command.kind === "start" || command.kind === "message" ? command.prompt : "";
 		let answer: unknown = "Mock edit and build.";
 		if (text.includes("Mock tester")) {
@@ -52,7 +53,7 @@ describe("workflow steps through the federation harness", () => {
 		} else if (text.includes("Mock verifier")) {
 			answer = { version: 5, isFive: true };
 		}
-		return (stockCodexResponder(command, daemon) ?? []).map((frame) => {
+		return (stockAgentResponder(command, daemon, backend) ?? []).map((frame) => {
 			if (frame.type === "codex_event" && frame.kind === "terminal") {
 				return {
 					...frame,
@@ -69,7 +70,7 @@ describe("workflow steps through the federation harness", () => {
 		team = "";
 		h = await startFederationHarness({
 			drive: "manual",
-			host: { onCodexCommand: withAnswer },
+			host: { onAgentCommand: withAnswer },
 			workflowProgressIntervalMsForTests: 1_000,
 		});
 		h.host.handlers.onCreateSession = (op) => {
@@ -102,12 +103,29 @@ describe("workflow steps through the federation harness", () => {
 		const run = startRun(script, { args: { dir: "/tmp/project" } });
 		const record = await waitForStatus(run.runId, "succeeded");
 		expect(record.result).toEqual({ ok: true, rounds: 2, version: 5 });
-		const implementer = h.host.codexCommands.filter(
-			(command) =>
-				(command.kind === "start" || command.kind === "message") && command.prompt.includes("Mock implementer"),
-		);
+		const implementer = h.host
+			.agentCommands("codex")
+			.filter(
+				(command) =>
+					(command.kind === "start" || command.kind === "message") &&
+					command.prompt.includes("Mock implementer"),
+			);
 		expect(implementer.map((command) => command.kind)).toEqual(["start", "message"]);
 		expect(implementer[0]?.agentId).toBe(implementer[1]?.agentId);
+	});
+
+	it("starts a step in the default model's family at priority, unless the step names a tier", async () => {
+		const run = startRun(
+			`export const meta = {}; await agent("plain step"); await agent("slow step", {tier: "standard"}); return true;`,
+		);
+		await waitForStatus(run.runId, "succeeded");
+		const tierOf = (prompt: string) =>
+			h.host
+				.agentCommands("codex")
+				.flatMap((command) => (command.kind === "start" && command.prompt.includes(prompt) ? [command] : []))
+				.map((command) => command.serviceTier);
+		expect(tierOf("plain step")).toEqual(["priority"]);
+		expect(tierOf("slow step")).toEqual(["standard"]);
 	});
 
 	it("runs a step through each installed agent backend", async () => {
@@ -116,7 +134,7 @@ describe("workflow steps through the federation harness", () => {
 		const record = await waitForStatus(run.runId, "succeeded");
 		expect(record.result).toBe(true);
 		for (const id of AGENT_BACKEND_IDS) {
-			const commands = id === "codex" ? h.host.codexCommands : h.host.agentCommands(id);
+			const commands = h.host.agentCommands(id);
 			expect(
 				commands.some((command) => command.kind === "start" && command.prompt.includes(`${id} step`)),
 				id,
@@ -301,8 +319,9 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("opens two correction turns on the same agent and journals invalid", async () => {
-		h.host.handlers.onCodexCommand = (command, daemon) => {
-			const replies = stockCodexResponder(command, daemon) ?? [];
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			const replies = stockAgentResponder(command, daemon, backend) ?? [];
 			return replies.map((frame) =>
 				frame.type === "codex_event" && frame.kind === "terminal" ? { ...frame, finalResponse: "{}" } : frame,
 			);
@@ -324,7 +343,8 @@ describe("workflow steps through the federation harness", () => {
 	it("retries a start and a thread message once under each new daemon", async () => {
 		let holdStart = true;
 		let holdMessage = true;
-		const responder: CodexResponder = (command, daemon) => {
+		const responder: AgentResponder = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
 			if (command.kind === "start" && holdStart) {
 				holdStart = false;
 				return [];
@@ -333,15 +353,15 @@ describe("workflow steps through the federation harness", () => {
 				holdMessage = false;
 				return [];
 			}
-			return stockCodexResponder(command, daemon);
+			return stockAgentResponder(command, daemon, backend);
 		};
-		h.host.handlers.onCodexCommand = responder;
+		h.host.handlers.onAgentCommand = responder;
 		const run = startRun(
 			`export const meta = {}; await agent("first", {thread: "same"}); await agent("second", {thread: "same"}); return true;`,
 		);
 		const firstHost = h.host;
 		await waitFor(
-			() => firstHost.codexCommands.some((command) => command.kind === "start") || undefined,
+			() => firstHost.agentCommands("codex").some((command) => command.kind === "start") || undefined,
 			"first start",
 		);
 		h.restartHost({ newDaemon: true, deferCatalog: true });
@@ -372,18 +392,21 @@ describe("workflow steps through the federation harness", () => {
 			}),
 		);
 		await waitFor(
-			() => secondHost.codexCommands.find((command) => command.kind === "start"),
+			() => secondHost.agentCommands("codex").find((command) => command.kind === "start"),
 			"register retry start",
 		);
-		expect(secondHost.codexCommands.filter((command) => command.kind === "start")).toHaveLength(1);
+		expect(secondHost.agentCommands("codex").filter((command) => command.kind === "start")).toHaveLength(1);
 		secondHost.announceCatalog();
 		await waitFor(
-			() => secondHost.codexCommands.find((command) => command.kind === "message"),
+			() => secondHost.agentCommands("codex").find((command) => command.kind === "message"),
 			"first thread message",
 		);
 		h.restartHost({ newDaemon: true });
 		const thirdHost = h.host;
-		await waitFor(() => thirdHost.codexCommands.find((command) => command.kind === "message"), "retried message");
+		await waitFor(
+			() => thirdHost.agentCommands("codex").find((command) => command.kind === "message"),
+			"retried message",
+		);
 		await waitForStatus(run.runId, "succeeded");
 		const turns = h.gateway.faults.workflowRows(run.runId).filter((row) => row.kind === "turn");
 		const startTurns = turns.filter((row) => row.issueOrdinal === 1);
@@ -404,7 +427,8 @@ describe("workflow steps through the federation harness", () => {
 			[secondHost, "message"],
 			[thirdHost, "message"],
 		] as const) {
-			const operationIds = host.codexCommands
+			const operationIds = host
+				.agentCommands("codex")
 				.filter((command) => command.kind === kind)
 				.flatMap((command) => ("operationId" in command ? [command.operationId] : []));
 			expect(new Set(operationIds).size).toBe(1);
@@ -412,15 +436,16 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("cancels a working run and stops its step agent", async () => {
-		h.host.handlers.onCodexCommand = (command, daemon) => {
-			if (command.kind === "interrupt") return stockCodexResponder(command, daemon);
-			return (stockCodexResponder(command, daemon) ?? []).filter(
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			if (command.kind === "interrupt") return stockAgentResponder(command, daemon, backend);
+			return (stockAgentResponder(command, daemon, backend) ?? []).filter(
 				(frame) => !(frame.type === "codex_event" && frame.kind === "terminal"),
 			);
 		};
 		const run = startRun(`export const meta = {}; await agent("keep working"); return true;`);
 		await waitFor(
-			() => h.host.codexCommands.some((command) => command.kind === "start") || undefined,
+			() => h.host.agentCommands("codex").some((command) => command.kind === "start") || undefined,
 			"working start",
 		);
 		await waitFor(
@@ -435,19 +460,20 @@ describe("workflow steps through the federation harness", () => {
 		expect(await stopped.json()).toMatchObject({ runId: run.runId, status: "cancelled", stopped: true });
 		await waitForStatus(run.runId, "cancelled");
 		await waitFor(
-			() => h.host.codexCommands.some((command) => command.kind === "interrupt") || undefined,
+			() => h.host.agentCommands("codex").some((command) => command.kind === "interrupt") || undefined,
 			"step stop",
 		);
 	});
 
 	it("stops an in-flight step when another step fails the run", async () => {
-		h.host.handlers.onCodexCommand = (command, daemon) => {
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
 			if ((command.kind === "start" || command.kind === "message") && command.prompt.includes("slow step")) {
-				return (stockCodexResponder(command, daemon) ?? []).filter(
+				return (stockAgentResponder(command, daemon, backend) ?? []).filter(
 					(frame) => !(frame.type === "codex_event" && frame.kind === "terminal"),
 				);
 			}
-			return stockCodexResponder(command, daemon);
+			return stockAgentResponder(command, daemon, backend);
 		};
 		const run = startRun(
 			`export const meta = {}; const slow = agent("slow step"); await agent("fast step"); throw new Error("failed after fast step");`,
@@ -460,35 +486,39 @@ describe("workflow steps through the federation harness", () => {
 		expect(slowAgent).toBeDefined();
 		await waitFor(
 			() =>
-				h.host.codexCommands.find(
-					(command) => command.kind === "interrupt" && command.agentId === slowAgent?.agentId,
-				),
+				h.host
+					.agentCommands("codex")
+					.find((command) => command.kind === "interrupt" && command.agentId === slowAgent?.agentId),
 			"terminal step stop",
 		);
 		expect(
-			h.host.codexCommands.filter(
-				(command) => command.kind === "interrupt" && command.agentId === slowAgent?.agentId,
-			),
+			h.host
+				.agentCommands("codex")
+				.filter((command) => command.kind === "interrupt" && command.agentId === slowAgent?.agentId),
 		).toHaveLength(1);
 	});
 
 	it("retries a terminal run stop once on a replacement host socket", async () => {
 		let stopAttempts = 0;
-		h.host.handlers.onCodexCommand = (command, daemon) => {
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
 			if (command.kind === "interrupt") {
 				stopAttempts += 1;
-				return stopAttempts === 1 ? [] : stockCodexResponder(command, daemon);
+				return stopAttempts === 1 ? [] : stockAgentResponder(command, daemon, backend);
 			}
 			if ((command.kind === "start" || command.kind === "message") && command.prompt.includes("held stop")) {
-				return (stockCodexResponder(command, daemon) ?? []).filter(
+				return (stockAgentResponder(command, daemon, backend) ?? []).filter(
 					(frame) => !(frame.type === "codex_event" && frame.kind === "terminal"),
 				);
 			}
-			return stockCodexResponder(command, daemon);
+			return stockAgentResponder(command, daemon, backend);
 		};
 		const run = startRun(`export const meta = {}; await agent("held stop"); return true;`);
 		const firstHost = h.host;
-		await waitFor(() => firstHost.codexCommands.find((command) => command.kind === "start"), "stop test start");
+		await waitFor(
+			() => firstHost.agentCommands("codex").find((command) => command.kind === "start"),
+			"stop test start",
+		);
 		await waitFor(
 			() =>
 				h.gateway.faults
@@ -499,21 +529,21 @@ describe("workflow steps through the federation harness", () => {
 		expect(h.gateway.faults.workflowCancel(run.runId)).toBe(true);
 		await waitForStatus(run.runId, "cancelled");
 		await waitFor(
-			() => firstHost.codexCommands.find((command) => command.kind === "interrupt"),
+			() => firstHost.agentCommands("codex").find((command) => command.kind === "interrupt"),
 			"first terminal stop",
 		);
 		h.restartHost();
 		const secondHost = h.host;
 		await waitFor(
-			() => secondHost.codexCommands.find((command) => command.kind === "interrupt"),
+			() => secondHost.agentCommands("codex").find((command) => command.kind === "interrupt"),
 			"retried terminal stop",
 		);
-		expect(firstHost.codexCommands.filter((command) => command.kind === "interrupt")).toHaveLength(1);
-		expect(secondHost.codexCommands.filter((command) => command.kind === "interrupt")).toHaveLength(1);
+		expect(firstHost.agentCommands("codex").filter((command) => command.kind === "interrupt")).toHaveLength(1);
+		expect(secondHost.agentCommands("codex").filter((command) => command.kind === "interrupt")).toHaveLength(1);
 	});
 
 	it("rejects a missing skill before dispatch", async () => {
-		h.host.handlers.onCodexCommand = stockCodexResponder;
+		h.host.handlers.onAgentCommand = stockAgentResponder;
 		const run = startRun(`export const meta = {}; await agent("read it", {skills: ["missing.md"]}); return true;`);
 		await waitForStatus(run.runId, "succeeded");
 		expect(h.gateway.faults.workflowRows(run.runId)).toContainEqual(
@@ -522,25 +552,29 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("gives one skill to steps that start together", async () => {
-		h.host.handlers.onCodexCommand = stockCodexResponder;
+		h.host.handlers.onAgentCommand = stockAgentResponder;
 		h.host.handlers.skillText = (path) => (path === "guide.md" ? "Read carefully." : undefined);
 		const run = startRun(
 			`export const meta = {}; const answers = await parallel(["one", "two", "three"].map((name) => () => agent(name, {skills: ["guide.md"]}))); return answers.filter(Boolean).length;`,
 		);
 		await waitForStatus(run.runId, "succeeded");
 		expect(h.gateway.faults.workflowRecord(run.runId)?.result).toBe(3);
-		const prompts = h.host.codexCommands.flatMap((command) => (command.kind === "start" ? [command.prompt] : []));
+		const prompts = h.host
+			.agentCommands("codex")
+			.flatMap((command) => (command.kind === "start" ? [command.prompt] : []));
 		expect(prompts.filter((prompt) => prompt.includes("Read carefully."))).toHaveLength(3);
 	});
 
 	it("sends one workflow notice chain and no step agent notices", async () => {
 		const held: HeldTurn[] = [];
-		h.host.handlers.onCodexCommand = (command, daemon) => {
-			if (command.kind !== "start" && command.kind !== "message") return stockCodexResponder(command, daemon);
-			const replies = stockCodexResponder(command, daemon) ?? [];
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			if (command.kind !== "start" && command.kind !== "message")
+				return stockAgentResponder(command, daemon, backend);
+			const replies = stockAgentResponder(command, daemon, backend) ?? [];
 			const terminal = replies.find(
 				(frame) => frame.type === "codex_event" && frame.kind === "terminal",
-			) as unknown as Extract<CodexDaemonEvent, { kind: "terminal" }>;
+			) as unknown as Extract<AgentDaemonEvent, { kind: "terminal" }>;
 			held.push({ daemon, terminal });
 			return replies.filter((frame) => !(frame.type === "codex_event" && frame.kind === "terminal"));
 		};
@@ -562,7 +596,7 @@ describe("workflow steps through the federation harness", () => {
 		expect(JSON.stringify(progress[0]?.awareness ?? {})).not.toContain("Codex agent");
 		for (const { daemon, terminal } of held) {
 			const eventId = daemon.nextEventId(terminal.targetId);
-			h.host.sendCodex({ ...terminal, eventId });
+			h.host.sendAgent("codex", { ...terminal, eventId });
 		}
 		await waitForStatus(run.runId, "succeeded");
 		const settleNotice = () =>
@@ -581,9 +615,10 @@ describe("workflow steps through the federation harness", () => {
 	});
 
 	it("cancels before forget and reserves the session from the sweep", async () => {
-		h.host.handlers.onCodexCommand = (command, daemon) => {
-			if (command.kind === "interrupt") return stockCodexResponder(command, daemon);
-			return (stockCodexResponder(command, daemon) ?? []).filter(
+		h.host.handlers.onAgentCommand = (command, daemon, backend) => {
+			if (backend !== "codex") return stockAgentResponder(command, daemon, backend);
+			if (command.kind === "interrupt") return stockAgentResponder(command, daemon, backend);
+			return (stockAgentResponder(command, daemon, backend) ?? []).filter(
 				(frame) => !(frame.type === "codex_event" && frame.kind === "terminal"),
 			);
 		};
@@ -601,6 +636,6 @@ describe("workflow steps through the federation harness", () => {
 		await waitFor(() => h.gateway.faults.sessionRecord(team) === undefined || undefined, "forgotten session");
 		await waitForStatus(run.runId, "cancelled");
 		expect(h.gateway.faults.workflowRecord(run.runId)?.notified).toBe(true);
-		expect(h.host.codexCommands.some((command) => command.kind === "interrupt")).toBe(true);
+		expect(h.host.agentCommands("codex").some((command) => command.kind === "interrupt")).toBe(true);
 	});
 });

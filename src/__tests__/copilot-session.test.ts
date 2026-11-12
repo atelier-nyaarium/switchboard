@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { CopilotBackendSession, copilotFailureCode } from "../mcp/agents/copilotSession.js";
 import { AgentDaemonService } from "../mcp/devcontainer/agentDaemonService.js";
-import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
+import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/agentTargets.js";
 import type { CopilotHeadlessClient, SessionEvent } from "../mcp/devcontainer/copilotHeadless.js";
 import { COPILOT_BACKEND } from "../shared/agent-backend.js";
 

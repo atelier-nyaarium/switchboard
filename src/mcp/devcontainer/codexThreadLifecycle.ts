@@ -1,7 +1,10 @@
 // A thread's life after the App Server loads it: requests queue per thread, a terminal arriving
 // during `turn/start` is buffered until its turn id is known, and a settled turn parks the thread.
 
-import { CodexAppServerThreadReadResultSchema, CodexAppServerTurnStartResultSchema } from "../../shared/codex-agent.js";
+import {
+	CodexAppServerThreadReadResultSchema,
+	CodexAppServerTurnStartResultSchema,
+} from "../../shared/codex-app-server.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import type { AppServerFailure } from "./codexAppServer.js";
 import type { TerminalOutcome } from "./codexTurnOutcome.js";
@@ -59,16 +62,16 @@ interface ThreadRecord {
 //  Constants
 
 /** Refusals in a row before a park gives up on the generation. */
-export const PARK_ATTEMPTS = 3;
+const PARK_ATTEMPTS = 3;
 
 /** Between the two reads that must both prove zero turns before a thread is deleted. */
-export const DISPOSE_QUIET_MS = 250;
+const DISPOSE_QUIET_MS = 250;
 
 /** Before a park is retried after a refusal that was neither a no-rollout nor an adoption. */
-export const PARK_RETRY_MS = 1_000;
+const PARK_RETRY_MS = 1_000;
 
 /** Retirements remembered before the oldest is forgotten. */
-export const RETIRED_MEMORY = 256;
+const RETIRED_MEMORY = 256;
 
 ////////////////////////////////
 //  Class
@@ -491,7 +494,7 @@ export class ThreadLifecycle {
 //  Functions & Helpers
 
 /** The thread as a whole: the running turn if any, else the last settled one, else nothing. */
-export function inspectRead(result: unknown, threadId: string): ThreadInspection {
+function inspectRead(result: unknown, threadId: string): ThreadInspection {
 	const parsed = CodexAppServerThreadReadResultSchema.safeParse(result);
 	if (!parsed.success || parsed.data.thread.id !== threadId) return { known: "unknown" };
 	const turns = parsed.data.thread.turns;

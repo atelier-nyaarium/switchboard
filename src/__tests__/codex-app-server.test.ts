@@ -1,10 +1,10 @@
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentChild } from "../mcp/devcontainer/agentTargets.js";
 import { CodexAppServerClient, createJsonlTransport, isAppServerFailure } from "../mcp/devcontainer/codexAppServer.js";
-import type { CodexChild } from "../mcp/devcontainer/codexTargets.js";
-import { CODEX_DEFAULT_MODEL } from "../shared/codexAgentIdentity.js";
+import { CODEX_BACKEND } from "../shared/agent-backend.js";
 
-const MODEL = CODEX_DEFAULT_MODEL;
+const MODEL = CODEX_BACKEND.defaultModel;
 
 function child(script: (request: Record<string, unknown>, emit: (value: unknown) => void) => void) {
 	const stdout = new PassThrough();
@@ -27,7 +27,7 @@ function child(script: (request: Record<string, unknown>, emit: (value: unknown)
 			onExit(listener: (info: { code: number | null; signal: string | null }) => void) {
 				exit = listener;
 			},
-		} as unknown as CodexChild,
+		} as unknown as AgentChild,
 		outbound,
 		emit,
 		exit: () => exit({ code: 1, signal: null }),

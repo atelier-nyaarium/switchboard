@@ -1,6 +1,6 @@
 import type { AgentCounterKind } from "../../shared/agent-counter.js";
 import type { AgentDaemonFailureCode, AgentServiceTier } from "../../shared/agent-state.js";
-import type { AgentChild, ExecutionTargetLauncher } from "../devcontainer/codexTargets.js";
+import type { AgentChild, ExecutionTargetLauncher } from "../devcontainer/agentTargets.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -62,11 +62,17 @@ export interface AgentBackendSession {
 	 */
 	steerTurn?(threadId: string, turnId: string, prompt: string, key?: string): Promise<SteerOutcome>;
 	interruptTurn(threadId: string, turnId: string): Promise<void>;
-	/** Optional without readable history. */
+	/** Optional without readable history. Settling a parked turn also settles its handle. */
 	inspectTurn?(threadId: string, turnId: string): Promise<TurnInspection>;
+	/** Adopts starts without replies. */
+	adoptTurn?(threadId: string): Promise<TurnHandle | undefined>;
 	listModels?(): Promise<AgentModel[]>;
 	onActivity(listener: (turnId: string, text: string, itemId?: string) => void): void;
 	onCounter?(listener: (turnId: string, counter: TurnCounter) => void): void;
+	/** Absent progress disables silence checks. */
+	onProgress?(listener: (turnId: string) => void): void;
+	/** Own work prevents reaping. */
+	busy?(): boolean;
 	/** Evict cache on closure. A listener set after the close is called at once. */
 	onClosed(listener: () => void): void;
 	close(): void;

@@ -15,9 +15,7 @@ export interface RegisterRecoveryDecision {
 }
 
 /** Missing state means unknown. */
-export type AgentReconciliationReport =
-	// FIXME: the `family` shape goes when Codex takes the generic stack.
-	{ family: "codex"; turnId?: string; turnState?: string } | { turnId?: string; turnState?: string };
+export type AgentReconciliationReport = { turnId?: string; turnState?: string };
 
 export type AgentReconciliationDecision =
 	| { kind: "duplicate" | "stale" | "askAgain" | "idle" }
@@ -60,17 +58,6 @@ export function decideAgentReconciliation(input: {
 			input.currentFence.targetId !== input.receiptFence.targetId ||
 			input.currentFence.generation !== input.receiptFence.generation);
 	const knownActiveTurn = input.knownActiveTurn;
-
-	if ("family" in input.report) {
-		if (!knownActiveTurn) return { kind: "idle" };
-		if (input.report.turnId === knownActiveTurn && input.report.turnState === "inProgress") {
-			return { kind: "survives", turnId: knownActiveTurn };
-		}
-		if (changedProcess && (input.report.turnState === undefined || input.report.turnState === "inProgress")) {
-			return { kind: "lost", turnId: knownActiveTurn };
-		}
-		return { kind: "recovering", turnId: knownActiveTurn };
-	}
 
 	const reportedActiveTurn = input.report.turnState === "inProgress" ? input.report.turnId : undefined;
 	if (knownActiveTurn && reportedActiveTurn && knownActiveTurn !== reportedActiveTurn) {

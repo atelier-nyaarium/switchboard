@@ -34,11 +34,12 @@ script that throws fails the run with the error's message.
 
 ## Backends and outcomes
 
-`createWorkflowAgentDispatch` in `src/gateway/workflows/agentDispatch.ts` routes Codex and Copilot
-through the Gateway's delegated-agent commands. Codex uses its App Server session and turn protocol
-(`src/gateway/codexAgentCommands.ts`, `src/mcp/devcontainer/codexAppServer.ts`). Copilot uses
-`copilot --headless --stdio` and its JSON-RPC session protocol
-(`src/gateway/copilotAgentCommands.ts`, `src/mcp/devcontainer/copilotHeadless.ts`). Claude is
+`createWorkflowAgentDispatch` in `src/gateway/workflows/agentDispatch.ts` routes every agent backend
+through its stack's delegated-agent commands (`src/gateway/agentCommands.ts`). On the daemon each
+runs behind its driver: Codex over its App Server session and turn protocol
+(`src/mcp/devcontainer/codexAppServer.ts`), Copilot over `copilot --headless --stdio` and its
+JSON-RPC session protocol (`src/mcp/devcontainer/copilotHeadless.ts`), OpenCode over its bridge
+(`src/opencode-agent/bridge.ts`). Claude is
 workflow-only: `createClaudeSteps` in `src/gateway/workflows/claudeSteps.ts` asks the daemon to start
 one `claude -p` process per turn; a workflow thread resumes its stored Claude session id through
 `createClaudeRunner` in `src/mcp/devcontainer/claudeRunner.ts`. See `docs/agents.md` for the
@@ -89,8 +90,8 @@ and journal-derived cancellation retries. `createWorkflowPrompt` in
 `src/gateway/workflows/dispatchPrompt.ts` reads skills and finds the project instruction file.
 `src/gateway/workflows/dispatchCore.ts` exports turn, thread and host-failure helpers.
 `answerOutcome` and `failureOutcome` in `src/gateway/workflows/agentViews.ts` own shared outcome mapping.
-`createAgentFamilies` in `src/gateway/workflows/agentFamilies.ts` owns normalized Codex and Copilot
-operations; `createTerminalAgents` in `src/gateway/workflows/terminalAgents.ts` stops and retires
+`createAgentFamilies` in `src/gateway/workflows/agentFamilies.ts` owns each agent backend's
+normalized operations; `createTerminalAgents` in `src/gateway/workflows/terminalAgents.ts` stops and retires
 agents after a run.
 
 `src/mcp/devcontainer/claudeRunner.ts` runs the CLI in the host daemon.

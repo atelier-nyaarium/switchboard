@@ -47,14 +47,61 @@ describe("one agent tool set", () => {
 		expect(typeof messageBody({ agentId: COPILOT_ID, prompt: "Go on", tier: "priority" })).toBe("string");
 	});
 
-	it("registers five tools when a backend is enabled, and none when none is", () => {
+	it("registers its tools when a backend is enabled, and none when none is", () => {
 		const none = new McpServer({ name: "none", version: "0.0.0" });
 		registerAgentTools(none, {});
 		expect(toolNames(none)).toEqual([]);
 
 		const one = new McpServer({ name: "one", version: "0.0.0" });
 		registerAgentTools(one, { codex: async () => ({}) });
-		expect(toolNames(one).sort()).toEqual(["agentCollect", "agentList", "agentMessage", "agentStart", "agentStop"]);
+		expect(toolNames(one).sort()).toEqual([
+			"agentCollect",
+			"agentList",
+			"agentListModels",
+			"agentMessage",
+			"agentStart",
+			"agentStop",
+		]);
+	});
+
+	it("lists each enabled backend's models, and says which backend could not answer", async () => {
+		const server = new McpServer({ name: "models", version: "0.0.0" });
+		registerAgentTools(server, {
+			codex: async (body) => {
+				expect(body).toEqual({ kind: "models" });
+				return { models: [{ id: "gpt-6-luna", default: true }] };
+			},
+			opencode: async () => {
+				throw new Error("the host daemon is not connected");
+			},
+		});
+		const list = tools(server).agentListModels!.handler;
+
+		const all = await list({});
+		expect(all.isError).toBeUndefined();
+		expect(JSON.parse(all.content[0]!.text)).toEqual([
+			{ backend: "codex", models: [{ id: "gpt-6-luna", default: true }] },
+			{ backend: "opencode", error: "the host daemon is not connected" },
+		]);
+		expect((await list({ backend: "opencode" })).isError).toBe(true);
+	});
+
+	it("starts on the one enabled backend unasked, and makes the caller name one of several", async () => {
+		const asked: string[] = [];
+		const dispatch = (name: string) => async () => {
+			asked.push(name);
+			return {};
+		};
+		const one = new McpServer({ name: "one", version: "0.0.0" });
+		registerAgentTools(one, { copilot: dispatch("copilot") });
+		expect((await tools(one).agentStart!.handler({ prompt: "Audit" })).isError).toBeUndefined();
+
+		const several = new McpServer({ name: "several", version: "0.0.0" });
+		registerAgentTools(several, { codex: dispatch("codex"), copilot: dispatch("copilot") });
+		const start = tools(several).agentStart!.handler;
+		expect((await start({ prompt: "Audit" })).isError).toBe(true);
+		expect((await start({ prompt: "Audit", backend: "copilot" })).isError).toBeUndefined();
+		expect(asked).toEqual(["copilot", "copilot"]);
 	});
 
 	it("asks for one agent by id, refuses a conflicting backend, and marks a failed request", async () => {

@@ -74,11 +74,6 @@ export const WORKFLOW_BACKEND_IDS = [...AGENT_BACKEND_IDS, "claude"] as [
 	...(AgentBackendId | "claude")[],
 ];
 
-// FIXME: Codex joins when it takes the generic stack, and this list goes.
-export const GENERIC_AGENT_BACKENDS: readonly AgentBackendDescriptor[] = AGENT_BACKENDS.filter(
-	(backend) => backend.id !== "codex",
-);
-
 export function agentBackend(id: AgentBackendId): AgentBackendDescriptor {
 	return BACKEND_ROWS[id];
 }

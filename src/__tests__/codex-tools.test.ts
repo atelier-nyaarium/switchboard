@@ -1,12 +1,13 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agentRequestBody, startDefaults } from "../mcp/agentRequest.js";
+import { agentRequestBody } from "../mcp/agentRequest.js";
 import { initBridge, routerErrorText, routerPost } from "../mcp/bridge/helpers.js";
 import { pluginProfile } from "../mcp/sessionCli.js";
 import { CODEX_BACKEND } from "../shared/agent-backend.js";
-import { CodexRequestErrorSchema, sanitizeCodexErrorText } from "../shared/codex-agent.js";
-import { modelFamily, sameFamily } from "../shared/model-family.js";
+import { agentErrorText } from "../shared/agent-identity.js";
+import { AgentRequestErrorSchema } from "../shared/agent-state.js";
+import { modelFamily, sameFamily, startDefaults } from "../shared/model-family.js";
 
 describe("Codex request identities", () => {
 	it("mints distinct ids for every call but a list", () => {
@@ -93,8 +94,8 @@ describe("routerPost", () => {
 	it("exposes structured HTTP failures as an error object", async () => {
 		reply = {
 			status: 400,
-			body: CodexRequestErrorSchema.parse({
-				error: { code: "invalid_input", retryable: false, message: sanitizeCodexErrorText("invalid request") },
+			body: AgentRequestErrorSchema.parse({
+				error: { code: "invalid_input", retryable: false, message: agentErrorText("invalid request") },
 			}),
 		};
 		try {

@@ -10,7 +10,7 @@ import {
 	type BridgeResult,
 	promptForSchema,
 } from "../../shared/opencode-agent.js";
-import type { AgentChild } from "../devcontainer/codexTargets.js";
+import type { AgentChild } from "../devcontainer/agentTargets.js";
 import type {
 	AgentBackendSession,
 	AgentModel,
@@ -87,6 +87,7 @@ export class OpencodeBackendSession implements AgentBackendSession {
 	private readyReject: ((error: Error) => void) | undefined;
 	private activityListener: ((turnId: string, text: string, itemId?: string) => void) | undefined;
 	private counterListener: ((turnId: string, counter: TurnCounter) => void) | undefined;
+	private progressListener: ((turnId: string) => void) | undefined;
 	private closedListener: (() => void) | undefined;
 	private closedNotified = false;
 
@@ -108,6 +109,10 @@ export class OpencodeBackendSession implements AgentBackendSession {
 
 	onCounter(listener: (turnId: string, counter: TurnCounter) => void): void {
 		this.counterListener = listener;
+	}
+
+	onProgress(listener: (turnId: string) => void): void {
+		this.progressListener = listener;
 	}
 
 	onClosed(listener: () => void): void {
@@ -271,6 +276,10 @@ export class OpencodeBackendSession implements AgentBackendSession {
 				kind: message.counterKind,
 				...(message.itemId === undefined ? {} : { itemId: message.itemId }),
 			});
+			return;
+		}
+		if (message.event === "progress") {
+			this.progressListener?.(message.turnId);
 			return;
 		}
 		this.settleTurn(message.turnId, message.terminal);

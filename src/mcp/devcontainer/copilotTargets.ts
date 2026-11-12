@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { agentEnvPrefix } from "../../shared/agent-backend.js";
 import { parseAgentTargetId } from "../../shared/agent-execution-target.js";
-import { type AgentChild, containerEnvArgs, type ExecutionTargetLauncher } from "./codexTargets.js";
+import { type AgentChild, adoptProcess, containerEnvArgs, type ExecutionTargetLauncher } from "./agentTargets.js";
 import { containerFor } from "./containers.js";
 
 export const copilotLauncher: ExecutionTargetLauncher = {
@@ -39,25 +39,7 @@ export const copilotLauncher: ExecutionTargetLauncher = {
 
 function spawnCopilot(args: string[], env?: Record<string, string>): AgentChild {
 	const [command, ...argv] = args;
-	const proc = spawn(command!, argv, { env, stdio: ["pipe", "pipe", "pipe"] });
-	let stderr = "";
-	proc.stderr?.on("data", (chunk: Buffer) => {
-		stderr = (stderr + chunk.toString()).slice(-2_000);
-	});
-	proc.stdin?.on("error", () => {});
-	proc.stdout?.on("error", () => {});
-	proc.stderr?.on("error", () => {});
-	return {
-		stdin: proc.stdin!,
-		stdout: proc.stdout!,
-		kill: () => proc.kill(),
-		onExit(listener) {
-			const fire = (code: number | null, signal: string | null) => {
-				const reason = /authentication|required|login/i.test(stderr) ? "authFailed" : undefined;
-				listener({ code, signal, reason });
-			};
-			proc.once("exit", (code, signal) => fire(code, signal));
-			proc.once("error", () => fire(null, null));
-		},
-	};
+	return adoptProcess(spawn(command!, argv, { env, stdio: ["pipe", "pipe", "pipe"] }), (stderr) =>
+		/authentication|required|login/i.test(stderr) ? "authFailed" : undefined,
+	);
 }

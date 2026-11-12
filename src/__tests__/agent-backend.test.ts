@@ -13,7 +13,6 @@ import {
 } from "../shared/agent-backend.js";
 import { agentWire } from "../shared/agent-wire.js";
 import { CODEX_AGENT_CAPABILITY_ID, COPILOT_AGENT_CAPABILITY_ID } from "../shared/capabilities.js";
-import { CODEX_WAIT_BUDGET_MS, CodexDaemonHelloSchema, CodexEventAckSchema } from "../shared/codex-agent.js";
 import { HARNESS } from "../shared/session-harness.js";
 
 // Every derivation is pinned so a descriptor edit that would change a wire spelling fails here instead of at a peer.
@@ -43,7 +42,7 @@ describe("agent backend derivations", () => {
 			daemonInstanceId: "daemon-1",
 			targets: [],
 		};
-		expect(CodexDaemonHelloSchema.safeParse(codexHello).success).toBe(true);
+		expect(agentWire("codex").hello.safeParse(codexHello).success).toBe(true);
 		const copilotHello = { ...codexHello, type: agentFrameType("copilot", "hello") };
 		expect(copilotWire.hello.safeParse(copilotHello).success).toBe(true);
 
@@ -54,7 +53,7 @@ describe("agent backend derivations", () => {
 			generation: 1,
 			throughEventId: 0,
 		};
-		expect(CodexEventAckSchema.safeParse(codexAck).success).toBe(true);
+		expect(agentWire("codex").ack.safeParse(codexAck).success).toBe(true);
 		const copilotAck = { ...codexAck, type: agentFrameType("copilot", "ack") };
 		expect(copilotWire.ack.safeParse(copilotAck).success).toBe(true);
 	});
@@ -73,7 +72,6 @@ describe("agent backend derivations", () => {
 		expect(COPILOT_BACKEND.waitBudgetMs).toBe(240_000);
 		expect(CODEX_BACKEND.waitBudgetMs).toBe(AGENT_WAIT_BUDGET_MS);
 		expect(COPILOT_BACKEND.waitBudgetMs).toBe(AGENT_WAIT_BUDGET_MS);
-		expect(CODEX_WAIT_BUDGET_MS).toBe(CODEX_BACKEND.waitBudgetMs);
 	});
 
 	it("registers each backend exactly once", () => {

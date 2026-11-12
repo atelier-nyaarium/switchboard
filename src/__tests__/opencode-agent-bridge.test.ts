@@ -27,7 +27,9 @@ function waitFor<T>(read: () => T | undefined, timeoutMs = 1_000): Promise<T> {
 	});
 }
 
-async function rig(options: { steerWaitMs?: number; abortOn?: string } = {}) {
+async function rig(
+	options: { steerWaitMs?: number; abortOn?: string; sleep?: (ms: number) => Promise<void> | undefined } = {},
+) {
 	const server = createFakeOpencodeServer({ url: URL, password: PASSWORD });
 	const lines: BridgeMessage[] = [];
 	let aborted = false;
@@ -56,7 +58,7 @@ async function rig(options: { steerWaitMs?: number; abortOn?: string } = {}) {
 				return controller.signal;
 			},
 			randomHex: () => PASSWORD,
-			sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 50))),
+			sleep: (ms) => options.sleep?.(ms) ?? new Promise((resolve) => setTimeout(resolve, Math.min(ms, 50))),
 			write: (line) => {
 				const parsed = BridgeMessageSchema.safeParse(JSON.parse(line));
 				if (parsed.success) lines.push(parsed.data);
@@ -121,6 +123,46 @@ describe("the OpenCode bridge", () => {
 			code: "model_not_offered",
 			message: "model opencode-go/not-a-model is not offered by OpenCode",
 		});
+		r.bridge.closed();
+		await r.bridge.done;
+	});
+
+	it("says a running turn is alive once per interval, whatever the server said", async () => {
+		let nextInterval: () => void = () => {};
+		const r = await rig({
+			sleep: (ms) =>
+				ms === 15_000
+					? new Promise<void>((resolve) => {
+							nextInterval = resolve;
+						})
+					: undefined,
+		});
+		const threadId = await open(r);
+		const turnId = promptIdOf("turn-one");
+		await r.result(r.send({ op: "start", threadId, turnId, prompt: "Review" }));
+		const alive = () => r.events().filter((event) => event.type === "event" && event.event === "progress");
+		const counted = () => r.events().filter((event) => event.type === "event" && event.event === "counter");
+		// A counter marks everything before it as read.
+		const tool = (id: string) =>
+			r.server.emit("session.tool.input.started", {
+				sessionID: threadId,
+				assistantMessageID: "msg_a",
+				id,
+				name: "read",
+			});
+
+		r.server.emit("session.tool.progress", { sessionID: threadId, id: "call_0" });
+		r.server.emit("session.tool.progress", { sessionID: threadId, id: "call_0" });
+		tool("call_1");
+		await waitFor(() => (counted().length === 1 ? true : undefined));
+		expect(alive()).toEqual([{ type: "event", event: "progress", threadId, turnId }]);
+
+		nextInterval();
+		await Promise.resolve();
+		r.server.emit("session.tool.progress", { sessionID: threadId, id: "call_0" });
+		tool("call_2");
+		await waitFor(() => (counted().length === 2 ? true : undefined));
+		expect(alive()).toHaveLength(2);
 		r.bridge.closed();
 		await r.bridge.done;
 	});

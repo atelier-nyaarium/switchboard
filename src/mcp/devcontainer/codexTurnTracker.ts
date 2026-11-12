@@ -1,13 +1,15 @@
 import type { AgentCounterKind } from "../../shared/agent-counter.js";
+import { agentErrorText as sanitizeCodexErrorText } from "../../shared/agent-identity.js";
 import {
-	CODEX_ACTIVITY_MAX_BYTES,
-	CODEX_ACTIVITY_MAX_ITEMS,
+	AGENT_ACTIVITY_MAX_BYTES as CODEX_ACTIVITY_MAX_BYTES,
+	AGENT_ACTIVITY_MAX_ITEMS as CODEX_ACTIVITY_MAX_ITEMS,
+} from "../../shared/agent-record.js";
+import {
 	CodexAppServerAgentMessageCompletedSchema,
 	CodexAppServerOtherItemCompletedSchema,
 	CodexAppServerTurnCompletedSchema,
 	classifyCodexItemPhase,
-	sanitizeCodexErrorText,
-} from "../../shared/codex-agent.js";
+} from "../../shared/codex-app-server.js";
 
 ////////////////////////////////
 //  Interfaces & Types

@@ -1,29 +1,40 @@
 import { describe, expect, it } from "vitest";
 import { createAgentCommands } from "../gateway/agentCommands.js";
 import { AgentRelay } from "../gateway/agentRelay.js";
+import { RECONCILE_GUARD_MS } from "../gateway/agentRelayCore.js";
 import { AgentRoute } from "../gateway/agentRoute.js";
 import { AgentService } from "../gateway/agentService.js";
 import { createSessionAuthority } from "../gateway/sessionAuthority.js";
 import { resolveLiveIncarnation, type TeamRegistry } from "../gateway/wsTypes.js";
 import { CopilotBackendSession, copilotFailureCode } from "../mcp/agents/copilotSession.js";
 import { AgentDaemonService } from "../mcp/devcontainer/agentDaemonService.js";
-import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
+import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/agentTargets.js";
 import type { CopilotHeadlessClient } from "../mcp/devcontainer/copilotHeadless.js";
 import { COPILOT_BACKEND } from "../shared/agent-backend.js";
 import { agentIdForOperation } from "../shared/agent-record.js";
 import { AgentResultSchema } from "../shared/agent-state.js";
 import { processAmbient } from "../shared/ambient.js";
 import { type PersistedAgentCatalogWriter, SessionStore } from "../shared/session-store.js";
+import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 const START_OPERATION_ID = "123e4567-e89b-42d3-a456-426614174000";
 const MESSAGE_OPERATION_ID = "123e4567-e89b-42d3-a456-426614174001";
 const STOP_OPERATION_ID = "123e4567-e89b-42d3-a456-426614174002";
 
-function setup(options: { dispatch?: boolean; waitBudgetMs?: number; restore?: unknown } = {}) {
+function setup(
+	options: {
+		dispatch?: boolean;
+		waitBudgetMs?: number;
+		restore?: unknown;
+		ambient?: ReturnType<typeof processAmbient>;
+		listModels?: ConstructorParameters<typeof AgentRoute>[0]["listModels"];
+	} = {},
+) {
+	const ambient = options.ambient ?? processAmbient();
 	let catalogWriter: PersistedAgentCatalogWriter | undefined;
 	let writesLand: boolean | "throw" = true;
 	const sessionStore = new SessionStore({
-		ambient: processAmbient(),
+		ambient,
 		agentCatalogPersistence: {
 			persistChecked: () => {
 				if (writesLand === "throw") throw new Error("disk full");
@@ -58,7 +69,7 @@ function setup(options: { dispatch?: boolean; waitBudgetMs?: number; restore?: u
 		service,
 		sessionStore,
 		liveDaemonInstanceId: () => liveDaemonInstanceId,
-		ambient: processAmbient(),
+		ambient,
 		sendToHost: (message) => {
 			if (options.dispatch === false) return false;
 			sent.push(message);
@@ -83,10 +94,11 @@ function setup(options: { dispatch?: boolean; waitBudgetMs?: number; restore?: u
 				daemonInstanceId: liveDaemonInstanceId,
 				containerInCatalog: (target) => target.kind === "devcontainer",
 			}),
-			ambient: processAmbient(),
+			ambient,
 		}),
-		ambient: processAmbient(),
+		ambient,
 		waitBudgetMs: options.waitBudgetMs ?? 1_000,
+		listModels: options.listModels,
 	});
 	return {
 		route,
@@ -189,6 +201,14 @@ async function terminal(
 		finalResponse,
 	});
 	await flush();
+}
+
+function hello(context: ReturnType<typeof setup>, daemonInstanceId: string, generation: number): Promise<void> {
+	return context.relay.handleHostMessage({
+		type: "copilot_hello",
+		daemonInstanceId,
+		targets: [{ targetId: "container:recipe-app", generation }],
+	});
 }
 
 describe("the agent gateway route", () => {
@@ -430,6 +450,13 @@ describe("the agent gateway route", () => {
 			error: { code: "daemon_unavailable", retryable: true },
 		});
 		expect(context.sent.filter((message) => message.type === "copilot_command")).toEqual([]);
+		const dead = await (
+			await context.route.handle(post(context.token), {
+				kind: "await",
+				agentId: agentIdForOperation("copilot", START_OPERATION_ID),
+			})
+		).json();
+		expect(dead).toMatchObject({ agentState: "unavailable", error: { code: "agent_dead" } });
 	});
 
 	it("does not let a stale terminal settle a newer turn, and closes a racing stop", async () => {
@@ -539,6 +566,62 @@ describe("the agent gateway route", () => {
 		expect(context.service.listOwnedAgents(context.owner)[0]?.fence?.daemonInstanceId).toBe("daemon-2");
 	});
 
+	it("takes an idle agent's follow-up after its target relaunches and ignores the old generation", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const start = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await terminal(context, agentId, "turn-1", 1);
+		await start;
+
+		const relaunched = { daemonInstanceId: "daemon-1", generation: 2 };
+		await hello(context, relaunched.daemonInstanceId, relaunched.generation);
+		const message = context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: MESSAGE_OPERATION_ID,
+			agentId,
+			prompt: "Continue",
+		});
+		await flush();
+		await accept(context, MESSAGE_OPERATION_ID, "turn-2", 0, "started", relaunched);
+		await terminal(context, agentId, "turn-2", 1, "Continued.", relaunched);
+
+		expect(await (await message).json()).toMatchObject({
+			observation: "accepted",
+			turn: { id: "turn-2", state: "inProgress" },
+			delivery: "followup",
+		});
+		const collected = await collectUntilSettled(context, agentId);
+		expect(collected.turns).toMatchObject([
+			{ id: "turn-1", state: "completed" },
+			{ id: "turn-2", state: "completed", finalResponse: "Continued." },
+		]);
+
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: "123e4567-e89b-42d3-a456-426614174009",
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-1",
+			targetId: "container:recipe-app",
+			generation: 1,
+			eventId: 9,
+			agentId,
+			resolvedTarget: { kind: "devcontainer", targetId: "container:recipe-app", cwd: "/workspace/recipe-app" },
+			sessionId: "session-1",
+			turnId: "turn-1",
+			turnState: "inProgress",
+		});
+		await flush();
+		const listed = await (await context.route.handle(post(context.token), { kind: "list", agentId })).json();
+		expect(listed.agents[0]).toMatchObject({ running: false, turnCount: 2 });
+	});
+
 	it("takes a new turn for a steer whose turn ended under it", async () => {
 		const context = setup();
 		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
@@ -570,6 +653,93 @@ describe("the agent gateway route", () => {
 		});
 		const collected = await collectUntilSettled(context, agentId);
 		expect(collected).toMatchObject({ running: "turn-2", turns: [{ id: "turn-1", state: "completed" }] });
+	});
+
+	it("refuses a second message while the first delivery is unresolved", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+
+		const first = context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: MESSAGE_OPERATION_ID,
+			agentId,
+			prompt: "Continue",
+		});
+		await flush();
+		const refused = await context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: "123e4567-e89b-42d3-a456-426614174003",
+			agentId,
+			prompt: "Again",
+		});
+		const commands = context.sent.filter((frame) => frame.type === "copilot_command");
+		expect(refused.status).toBe(400);
+		expect(commands).toHaveLength(2);
+
+		await accept(context, MESSAGE_OPERATION_ID, "turn-1", 1, "steered");
+		expect(await (await first).json()).toMatchObject({ observation: "accepted", delivery: "steered" });
+	});
+
+	it.each([
+		["interrupt result then terminal", ["receipt", "terminal"]],
+		["terminal then interrupt result", ["terminal", "receipt"]],
+	])("settles an interrupt race: %s", async (_name, order) => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+
+		await context.route.handle(post(context.token), {
+			kind: "stop",
+			operationId: STOP_OPERATION_ID,
+			agentId,
+		});
+		const interrupt = commandFor(context, STOP_OPERATION_ID);
+		let eventId = 1;
+		for (const step of order) {
+			if (step === "receipt") {
+				context.relay.handleHostMessage({
+					type: "copilot_receipt",
+					kind: "interruptResult",
+					requestId: interrupt.requestId,
+					ownerKey: context.sessionStore.teamOf(context.owner),
+					daemonInstanceId: "daemon-1",
+					targetId: "container:recipe-app",
+					generation: 1,
+					eventId,
+					agentId,
+					operationId: STOP_OPERATION_ID,
+					sessionId: "session-1",
+					turnId: "turn-1",
+					ok: true,
+				});
+			} else {
+				await terminal(context, agentId, "turn-1", eventId);
+			}
+			eventId += 1;
+			await flush();
+		}
+
+		const collected = await collectUntilSettled(context, agentId);
+		expect(collected).toMatchObject({
+			agentState: "idle",
+			running: null,
+			turns: [{ id: "turn-1", state: "completed" }],
+		});
 	});
 
 	it("refuses a message and a second stop while an interrupt is pending, and reopens when it fails", async () => {
@@ -747,6 +917,332 @@ describe("the agent gateway route", () => {
 		expect(running).toMatchObject({ agentState: "working", running: "turn-2" });
 	});
 
+	it("asks again once the guard lifts, while a frame is still held", async () => {
+		const ambient = fakeAmbient({ drive: "manual" });
+		const context = setup({ ambient });
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await terminal(context, agentId, "turn-1", 1);
+		await started;
+
+		const stream = { ownerKey: context.sessionStore.teamOf(context.owner), ...FIRST_CHILD, agentId };
+		const asks = () =>
+			context.sent.filter((frame) => frame.type === "copilot_command" && frame.kind === "reconcile");
+		context.relay.handleHostMessage({
+			type: "copilot_event",
+			kind: "activity",
+			...stream,
+			targetId: "container:recipe-app",
+			eventId: 2,
+			sessionId: "session-1",
+			turnId: "turn-2",
+			itemId: "item-1",
+			text: "Checking",
+		});
+		await flush();
+		// Unplaceable events remain held.
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: asks()[0]!.requestId,
+			...stream,
+			targetId: "container:recipe-app",
+			eventId: 3,
+			resolvedTarget: { kind: "devcontainer", targetId: "container:recipe-app", cwd: "/workspace/recipe-app" },
+			sessionId: "session-1",
+		});
+		await flush();
+		expect(asks()).toHaveLength(1);
+
+		await ambient.advance(RECONCILE_GUARD_MS);
+		await flush();
+		expect(asks()).toHaveLength(2);
+	});
+
+	it("keeps an agent idle through a reconciliation that reports its ended turn as running", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await terminal(context, agentId, "turn-1", 1);
+		await started;
+
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: "123e4567-e89b-42d3-a456-426614174009",
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			...FIRST_CHILD,
+			agentId,
+			targetId: "container:recipe-app",
+			eventId: 2,
+			resolvedTarget: { kind: "devcontainer", targetId: "container:recipe-app", cwd: "/workspace/recipe-app" },
+			sessionId: "session-1",
+			turnId: "turn-1",
+			turnState: "inProgress",
+		});
+		await flush();
+
+		const settled = await (await context.route.handle(post(context.token), { kind: "await", agentId })).json();
+		expect(settled).toMatchObject({
+			agentState: "idle",
+			running: null,
+			turns: [{ id: "turn-1", state: "completed" }],
+		});
+		// Acknowledgment stops replay.
+		expect(context.sent.findLast((frame) => frame.type === "copilot_ack")).toMatchObject({ throughEventId: 2 });
+	});
+
+	it("drops a held event from a replaced generation", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+
+		context.relay.handleHostMessage({
+			type: "copilot_event",
+			kind: "activity",
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-1",
+			targetId: "container:recipe-app",
+			generation: 1,
+			eventId: 1,
+			agentId,
+			sessionId: "session-1",
+			turnId: "unknown-turn",
+			itemId: "held",
+			text: "held",
+		});
+		await flush();
+		context.registerHost("daemon-2");
+		await hello(context, "daemon-2", 2);
+		await flush();
+		const reconcile = context.sent.findLast(
+			(frame) => frame.type === "copilot_command" && frame.kind === "reconcile",
+		);
+		expect(reconcile).toBeDefined();
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: reconcile!.requestId,
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-2",
+			targetId: "container:recipe-app",
+			generation: 2,
+			eventId: 0,
+			agentId,
+			resolvedTarget: { kind: "devcontainer", targetId: "container:recipe-app", cwd: "/workspace/recipe-app" },
+			sessionId: "session-1",
+			turnId: "turn-1",
+			turnState: "inProgress",
+		});
+		await flush();
+		context.relay.handleHostMessage({
+			type: "copilot_event",
+			kind: "activity",
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-1",
+			targetId: "container:recipe-app",
+			generation: 1,
+			eventId: 2,
+			agentId,
+			sessionId: "session-1",
+			turnId: "turn-1",
+			itemId: "stale",
+			text: "stale",
+		});
+		context.relay.handleHostMessage({
+			type: "copilot_event",
+			kind: "activity",
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-2",
+			targetId: "container:recipe-app",
+			generation: 2,
+			eventId: 1,
+			agentId,
+			sessionId: "session-1",
+			turnId: "turn-1",
+			itemId: "fresh",
+			text: "fresh",
+		});
+		await flush();
+		await terminal(context, agentId, "turn-1", 2, "Done.", { daemonInstanceId: "daemon-2", generation: 2 });
+		const collected = await collectUntilSettled(context, agentId);
+		expect(collected.turns?.[0]).toMatchObject({ activities: [{ kind: "commentary", text: "fresh" }] });
+	});
+
+	it("applies what a turn said while its acceptance waited on a reconciliation", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+
+		// Lost turns start fresh.
+		const relaunched = { daemonInstanceId: "daemon-2", generation: 1 };
+		context.registerHost("daemon-2");
+		const message = context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: MESSAGE_OPERATION_ID,
+			agentId,
+			prompt: "Also the lexer",
+		});
+		await flush();
+		await accept(context, MESSAGE_OPERATION_ID, "turn-2", 0, "started", relaunched);
+		await terminal(context, agentId, "turn-2", 1, "Lexer done.", relaunched);
+		const reconcile = context.sent.findLast(
+			(frame) => frame.type === "copilot_command" && frame.kind === "reconcile",
+		);
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: reconcile!.requestId,
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			...relaunched,
+			targetId: "container:recipe-app",
+			eventId: 2,
+			agentId,
+			resolvedTarget: { kind: "devcontainer", targetId: "container:recipe-app", cwd: "/workspace/recipe-app" },
+			sessionId: "session-1",
+			turnId: "turn-1",
+		});
+		await flush();
+
+		expect(await (await message).json()).toMatchObject({ turn: { id: "turn-2" }, delivery: "followup" });
+		const collected = await collectUntilSettled(context, agentId);
+		expect(collected.turns).toMatchObject([
+			{ id: "turn-1", state: "interrupted" },
+			{ id: "turn-2", state: "completed", finalResponse: "Lexer done." },
+		]);
+	});
+
+	it("reasks after a refused reconciliation and settles the lost turn", async () => {
+		let now = 1_000;
+		const ambient = { ...processAmbient(), now: () => now };
+		const context = setup({ ambient, waitBudgetMs: 1_000 });
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+
+		context.registerHost("daemon-2");
+		await hello(context, "daemon-2", 2);
+		await flush();
+		const first = context.sent.find((frame) => frame.type === "copilot_command" && frame.kind === "reconcile");
+		expect(first).toBeDefined();
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "rejected",
+			requestId: first!.requestId,
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-2",
+			eventId: 0,
+			agentId,
+			error: "target unavailable",
+		});
+		await flush();
+
+		now += 299_999;
+		context.relay.reconcileStale(context.owner);
+		await flush();
+		expect(
+			context.sent.filter((frame) => frame.type === "copilot_command" && frame.kind === "reconcile"),
+		).toHaveLength(1);
+
+		now += 1;
+		context.relay.reconcileStale(context.owner);
+		await flush();
+		const second = context.sent.filter(
+			(frame) => frame.type === "copilot_command" && frame.kind === "reconcile",
+		)[1];
+		expect(second).toBeDefined();
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: second!.requestId,
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-2",
+			targetId: "container:recipe-app",
+			generation: 2,
+			eventId: 1,
+			agentId,
+			resolvedTarget: { kind: "devcontainer", targetId: "container:recipe-app", cwd: "/workspace/recipe-app" },
+			sessionId: "session-1",
+		});
+		await flush();
+
+		const settled = await collectUntilSettled(context, agentId);
+		expect(settled).toMatchObject({
+			agentState: "idle",
+			running: null,
+			turns: [{ id: "turn-1", state: "interrupted" }],
+		});
+	});
+
+	it("asks a new daemon immediately after the previous daemon refused", async () => {
+		const context = setup();
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await started;
+
+		context.registerHost("daemon-2");
+		await hello(context, "daemon-2", 2);
+		await flush();
+		const first = context.sent.find((frame) => frame.type === "copilot_command" && frame.kind === "reconcile");
+		expect(first).toBeDefined();
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "rejected",
+			requestId: first!.requestId,
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-2",
+			eventId: 0,
+			agentId,
+			error: "target unavailable",
+		});
+		await flush();
+
+		context.registerHost("daemon-3");
+		await hello(context, "daemon-3", 3);
+		await flush();
+		expect(
+			context.sent.filter((frame) => frame.type === "copilot_command" && frame.kind === "reconcile"),
+		).toHaveLength(2);
+	});
+
 	it("binds a message to the turn reconciliation adopted before its receipt could land", async () => {
 		const context = setup();
 		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
@@ -827,6 +1323,33 @@ describe("the agent gateway route", () => {
 			agentState: "unavailable",
 			observation: "unavailable",
 			error: { code: "authentication_required", message: "Copilot login required", retryable: true },
+		});
+	});
+
+	it("preserves a refused start without a failure code", async () => {
+		const context = setup();
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		const command = commandFor(context, START_OPERATION_ID);
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "rejected",
+			requestId: command.requestId,
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			daemonInstanceId: "daemon-1",
+			eventId: 0,
+			agentId: command.agentId,
+			operationId: START_OPERATION_ID,
+			error: "target unavailable",
+		});
+		expect(await (await started).json()).toMatchObject({
+			agentState: "unavailable",
+			observation: "indeterminate",
+			error: { retryable: true },
 		});
 	});
 
@@ -919,5 +1442,57 @@ describe("the agent gateway route", () => {
 		expect(replayed.turns).toEqual(first.turns);
 		const later = await (await restarted.route.handle(post(restarted.token), { kind: "await", agentId })).json();
 		expect(later.turns).toEqual([]);
+	});
+
+	it("lists the newest model of each family where the owner's agents run, and says when it cannot", async () => {
+		const asked: unknown[] = [];
+		const listing = setup({
+			listModels: async (target) => {
+				asked.push(target);
+				return { kind: "listed", models: ["gpt-6-luna", "gpt-6.1-luna", "gpt-5-sol", "gpt-6.1-sol"] };
+			},
+		});
+		const listed = await listing.route.handle(post(listing.token), { kind: "models" });
+		expect(listed.status).toBe(200);
+		expect(await listed.json()).toEqual({
+			models: [{ id: "gpt-6-luna", default: true }, { id: "gpt-6.1-luna" }, { id: "gpt-6.1-sol" }],
+		});
+		expect(asked).toEqual([
+			{ kind: "devcontainer", project: "recipe-app", hostProjectPath: "/trusted/recipe-app" },
+		]);
+
+		for (const answer of [{ kind: "unreachable" as const }, { kind: "refused" as const, reason: "no CLI" }]) {
+			const failing = setup({ listModels: async () => answer });
+			const refused = await failing.route.handle(post(failing.token), { kind: "models" });
+			expect(refused.status).toBe(503);
+			expect(await refused.json()).toMatchObject({ error: { retryable: true } });
+		}
+	});
+
+	it("replays a timed-out operation answer and isolates it to its owner", async () => {
+		const context = setup({ waitBudgetMs: 10 });
+		const request = {
+			kind: "start" as const,
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		};
+		const first = await (await context.route.handle(post(context.token), request)).json();
+		const replay = await (await context.route.handle(post(context.token), request)).json();
+		expect(first).toMatchObject({ agentState: "creating", observation: "waitTimedOut" });
+		expect(replay).toEqual(first);
+
+		const other = context.sessionStore.mint({ spawn: "recipe-app", sessionLabel: "Other", harness: "claude" });
+		const otherToken = context.sessionStore.ensureBindToken(other);
+		context.sessionStore.activateBinding(other);
+		context.sessionStore.confirm(context.sessionStore.teamOf(other));
+		const foreign = await (await context.route.handle(post(otherToken), { kind: "list" })).json();
+		expect(foreign.agents).toEqual([]);
+	});
+
+	it("lists for an older plugin that still sends `detail`", async () => {
+		const context = setup({ waitBudgetMs: 10 });
+		const listed = await context.route.handle(post(context.token), { kind: "list", detail: "summary" });
+		expect(listed.status).toBe(200);
+		expect((await listed.json()).agents).toEqual([]);
 	});
 });

@@ -12,10 +12,12 @@ import {
 	type AgentResolvedTarget,
 	AgentResolvedTargetSchema,
 } from "../../shared/agent-execution-target.js";
+import { offeredModels } from "../../shared/agent-models.js";
 import { AGENT_NOTICE_SOURCE, agentNoticeAct, agentNoticeLine } from "../../shared/agent-notice.js";
 import { AGENT_ACTIVITY_MAX_ITEMS } from "../../shared/agent-record.js";
 import {
 	AgentGatewayRequestSchema,
+	AgentModelsAnswerSchema,
 	AgentRequestErrorSchema,
 	AgentResultSchema,
 	agentRequestIssue,
@@ -25,7 +27,7 @@ import { resolveWorkdir, workdirOrFallback } from "../../shared/agent-workdir.js
 import type { AgentBackendSession } from "../agents/backendSession.js";
 import { AGENT_DRIVERS } from "../agents/drivers.js";
 import { emitLocalAwareness } from "../bridge/helpers.js";
-import { ExecutionTargetManager, targetLogger } from "../devcontainer/codexTargets.js";
+import { ExecutionTargetManager, targetLogger } from "../devcontainer/agentTargets.js";
 import { LocalAgentRuntime, type LocalBackendSpec } from "./localAgentRuntime.js";
 
 ////////////////////////////////
@@ -67,13 +69,11 @@ function unavailable(errorClass: string, backend: AgentBackendDescriptor): Error
  */
 export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalAgentBackend {
 	const driver = AGENT_DRIVERS[backend.id];
-	const targets = new ExecutionTargetManager(
-		driver.launcher,
-		undefined,
-		targetLogger(`${backend.id}-local`),
-		undefined,
-		agentEnvPrefix(backend.id),
-	);
+	const targets = new ExecutionTargetManager({
+		launcher: driver.launcher,
+		log: targetLogger(`${backend.id}-local`),
+		envPrefix: agentEnvPrefix(backend.id),
+	});
 
 	const spec: LocalBackendSpec = {
 		backendId: backend.id,
@@ -128,6 +128,11 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 
 			const request = parsed.data;
 			if (request.kind === "list") return listAgents(request);
+			if (request.kind === "models") {
+				const listed = await runtime.listModels();
+				if (!listed) throw new Error(`${backend.displayName} lists no models`);
+				return AgentModelsAnswerSchema.parse({ models: offeredModels(listed, backend.defaultModel) });
+			}
 			const answer = await runtime.handle({
 				kind: request.kind,
 				// Forwarded rather than dropped. It was validated by the schema above and then discarded

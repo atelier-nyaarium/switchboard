@@ -36,7 +36,7 @@ export class AgentRelay extends AgentRelayCore<
 					: undefined,
 			modelTurn: (receipt) =>
 				receipt.kind === "accepted" && receipt.delivery !== "steered" ? receipt.turnId : undefined,
-			applyEvent: (event, at) => deps.service.applyEvent(event, at),
+			applyEvent: (event, at, held) => deps.service.applyEvent(event, at, held),
 			applyReceipt: (receipt, at) => deps.service.applyReceipt(receipt, at),
 			abandonStaleOperations: (owner, agent, daemonInstanceId, at) =>
 				deps.service.abandonStaleOperations(owner, agent, daemonInstanceId, at),

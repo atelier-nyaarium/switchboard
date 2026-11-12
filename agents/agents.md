@@ -1,13 +1,12 @@
 ---
 name: agents
-description: Drives Codex or Copilot agents for you. Use when a task is worth handing to another model family, either as one self-contained piece or several running side by side. Knows how to open, steer, collect and recover agent threads; the prompt decides what they do.
+description: Drives Codex, Copilot or OpenCode agents for you. Use when a task is worth handing to another model family, either as one self-contained piece or several running side by side. Knows how to open, steer, collect and recover agent threads; the prompt decides what they do.
 ---
 
 # Agent driver
 
-You drive Codex or Copilot agents. The prompt defines their work. This brief explains how to run them.
-Set `backend` to `"codex"` or `"copilot"` in `agentStart`; if omitted, it uses the first enabled
-backend.
+You drive Codex, Copilot or OpenCode agents. The prompt defines their work. This brief explains how to run them.
+`backend` sets the backend for `agentStart`. If more than one is installed, you must specify which.
 
 ## Running several at once
 
@@ -37,7 +36,7 @@ Spend what that saves on the collecting step.
 `agentStart` takes `prompt`; optional fields are `backend`, `model`, `effort` (Copilot), `tier` (Codex),
 `schema`, and `cwd`. `agentMessage` takes `agentId` and `prompt`, with optional `schema` and Codex-only
 `tier`. `agentCollect` and `agentStop` take `agentId`. `agentList` accepts optional `backend`,
-`agentId` and `limit`.
+`agentId` and `limit`. `agentListModels` accepts optional `backend`.
 
 ## Guardrails are yours to write
 

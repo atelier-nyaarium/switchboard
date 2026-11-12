@@ -703,6 +703,9 @@ OpenCode behind `agentStart` and workflow steps. Planned for after Phase 2a and 
     ```
 - **Q6, how a session gets the backend?** A: its own capability, `opencode-agent`, on by default where OpenCode is installed, listed in the backends line, switchable like `codex-agent` and `copilot-agent`. Owner: "A".
 - **Q8, the `delivery` words:** three words, one meaning each, on every backend. `started` is an agent's first turn, from `agentStart` and never from a message. `followup` is an `agentMessage` that began a new turn. `steered` is an `agentMessage` into the turn already running. Codex answered `started` for a message to an idle agent and now answers `followup`. Owner, 2026-11-11: "each word has its own meaning", then "sounds good". `agentResultDelivery` in `agent-state.ts` is the one mapping, and the table's `followupDelivery` field is gone.
+- **The order backends are named in:** Codex, Copilot, OpenCode, the table's order, in every agent-facing string. The owner's "newest first." was not about this. Owner, 2026-11-11: "oh that's definitely not what I was talking about. so disregard my newest first comment."
+- **An omitted `backend`:** `agentStart` runs without one only when exactly one backend is enabled. With several the caller names it: the tool's schema requires the field and the handler refuses. Owner, 2026-11-11: "I do not want it auto pickup a backend if backend is omited. It shall only do so if there's exactly 1 backend. Otherwise it must be explicit. For instance, you know I don't want you using my Work paid copilot for personal things. So this would do that without either of our knowledge". Open: whether a workflow run keeps its unwritten Codex default (Q10).
+- **Its wording,** the owner's, 2026-11-11, for the brief's line: "Sets the backend for agentStart. If more than one is installed, you must specify which." and "Adjust other ones to be about as concise as that". Written from it: the brief, "`backend` sets the backend for `agentStart`. If more than one is installed, you must specify which."; the `agentStart` description, "`backend` sets the backend. If more than one is installed, you must specify which."; the guidance, the same with `agentStart.backend`; the refusal, "Specify `backend`: codex, copilot, opencode". The three written from it wait on the owner's read. The brief's description and first line name all three backends ("Codex, Copilot or OpenCode"). Owner: "alright. A. name them."
 - **Dogfooding:** once OpenCode can start an agent, build, push, have the owner reload the plugin, and implement the rest through `agentStart` on OpenCode and Switchboard workflows. Owner, 2026-11-11: "feel free at any point to build and push, then have me /reload your plugin, and then you just dog food work with start agents and Switchboard Workflows to use them to implement."
 
 ### Design: one agent stack, one driver per backend
@@ -751,7 +754,27 @@ A Gateway and its daemon restart together at every deploy, so the wire between t
 
 ### Built so far
 
-Steps 1 to 4, uncommitted until the audit below was triaged. Copilot's Gateway stack, daemon service and local session are deleted, and one generic stack (`agentService`, `agentApply`, `agentReducers`, `agentCommands`, `agentRelay`, `agentRoute`, `agentStack`), one daemon service (`agentDaemonService`) and one driver contract (`backendSession.ts`) run it. Codex sits behind `AgentStack` on its own stack.
+Steps 1 to 4, committed as `78597087` once the audit below was triaged. Copilot's Gateway stack, daemon service and local session are deleted, and one generic stack (`agentService`, `agentApply`, `agentReducers`, `agentCommands`, `agentRelay`, `agentRoute`, `agentStack`), one daemon service (`agentDaemonService`) and one driver contract (`backendSession.ts`) run it. Codex sits behind `AgentStack` on its own stack.
+
+Step 5 without `agentListModels`, committed as `75e89fa8` and released as 8.14.63 on Sakura, mikan and matrix-edward: OpenCode's row, the `opencode-agent` capability, the bridge (`src/opencode-agent/bridge.ts`, entry `main-opencode-agent.ts`), the driver (`opencodeSession.ts`), its launcher, and the container runtime placement. The Router and the phone were left as they were: neither reads a capability id strictly.
+
+**First live run, 2026-11-11, host target:** `agentStart` on OpenCode answered `started` and completed with a correct answer; an `agentMessage` to the idle agent answered `followup` on the resumed thread; a second message while that turn ran answered `steered` under the running turn's id; `agentStop` settled a running turn `interrupted` and its notice arrived. A Switchboard workflow with two OpenCode steps sharing one `skills` file and a `schema` succeeded, which also shows the skill journaling change live.
+
+Seen on that run and left: a collected turn's `delivery` is the word of the last message into it, on both stacks, so a turn a follow-up opened and a steer then joined reads `steered`.
+
+Step 6, Codex's move, in the working tree. Mapped first by nine OpenCode readers in one Switchboard workflow, one per slice (reports kept in the scratchpad), then built:
+
+- **Gateway:** Codex is one more `createAgentStack`. Its own service, reducers, applier, commands, relay and route are deleted. One catalog store per backend; a stored `codexCatalog` or `copilotCatalog` is read once at restore (`LEGACY_CATALOG_FIELD`, dated). The `family` branch of `decideAgentReconciliation` is gone, so Codex adopts a turn its daemon reports running that the record did not know, as the others do.
+- **Daemon:** `AgentDaemonService` took what only Codex's service had: the silent-turn watchdog and the idle reap (`now`, `setSweep` seams), a bound on remembered threads, `adoptTurn` after a failed start and at reconcile, and settling an earlier turn asked about while a later one runs. The contract grew `adoptTurn`, `onProgress` and `busy`. `CodexBackendSession` (`src/mcp/agents/codexSession.ts`, built by an OpenCode agent from a spec and reviewed) is the driver for the daemon and local mode: the held-terminal deadline, counters, progress from the turn's own thread, inspect, adopt, the model list.
+- **OpenCode's driver reports life too:** the bridge sends one `progress` line per turn every 15 seconds from a wider event list, probed against a real 2.2.5 server. Copilot's driver reports none, so its turns are never judged silent (`bd_458e7ca2ca3b98ec7c60cd2301ad6db2`).
+- **`agentListModels`:** a `models` request kind on each backend's route, the `agentModels` host op, `AgentDaemonService.listModels` over the driver, the same in local mode, and `offeredModels` (newest per family, the default marked and always listed). The owner's Q7 wording is in.
+- **Tests:** the harness's fake daemon lost its Codex-only surface (`createFakeDaemon`, `agentCommands("codex")`, `onAgentCommand`). The seam, register-recovery and recovery-vector tests run every backend through the one stack. Codex's contract, relay, harness and daemon tests were carried over by agents from specs.
+- **Deleted:** Codex's daemon service, command dispatch, session lifecycle, watchdog, live-turn store and daemon types, and its own wire files (`codex-agent.ts`, `codexAgent*.ts`). The App Server messages its driver reads stay in `src/shared/codex-app-server.ts`.
+- **One target layer:** `agentTargets.ts` holds the manager, the env scrub and the one process adoption for every backend, with no Codex defaults (`ExecutionTargetManagerOptions`). `codexTargets.ts`, `copilotTargets.ts` and `opencodeTargets.ts` hold a launcher each; the three copies of process adoption are one `adoptProcess`.
+- **A turn that hung running, found by a carried-over relay case:** an event held for reconciliation was judged a duplicate once the reconcile receipt moved the fence past it, and was acknowledged unapplied. `drainDeferred` now replays it as `held`. A regression case in `agent-route.test.ts` fails without it.
+- **The fake daemon keeps an outbox:** a restart case hung because the fake sent each frame once, so a terminal in flight when the host socket closed was gone, where the real daemon replays what was not acknowledged. Under Codex's own stack the same case passed on microtask order alone. The fake now holds frames until acknowledged and replays them after its hello.
+
+**The OpenCode Go plan ran out mid-run (2026-11-11):** fourteen agents on `opencode-go/deepseek-v4-pro` in about 35 minutes reached its five hour usage limit, and four of five implementers were cut off. Their partial edits were finished by Luna.
 
 ### Audit, 2026-11-11
 
@@ -770,11 +793,63 @@ Read and left: the mixed-version findings are the window the deploy note above a
 
 **For Codex's move, from the driver audit:** a driver cannot hand back a turn it finds running (`adoptTurn`), cannot be told its terminal was published before it parks a thread, and the silent-turn watchdog has no home yet.
 
+### Align audit, 2026-11-11, Codex's move
+
+Eight Luna readers and an Opus join on the uncommitted slice: Gateway parity, daemon parity, stored state and mixed versions, the settled wording, local mode, the tests carried over, residue, and workflow dispatch. Changed after triage:
+
+- **A reconcile about a running turn kept the owner it was started under.** A resume handover renames the owner's key, and the turn's terminal then names a session the Gateway no longer holds. `runReconcile` rebinds the running turn, as Codex's own dispatch did.
+- **An older plugin's list request was refused:** Codex's route accepted an ignored `detail`, and plugins from before 2026-11-07 still send it. `AgentListInputSchema` takes it again, dated 2026-11-25.
+- **A workflow step on Luna ran at the standard tier.** `startDefaults` ran on the tool's path alone. It moved to `src/shared/model-family.ts` and the workflow dispatch applies it to a start.
+- **Codex's model list was its child's handshake answer.** It is read on each call and replaces what the child may start; an empty answer replaces nothing.
+- **`agentListModels` was missing from the guidance's tool list, the brief and the map.** Added to each.
+- **The legacy catalog read lost its date** in the comment pass. Restored, 2026-12-11.
+- **Dead exports:** four App Server schemas nothing read are deleted, and seven helpers are file-local.
+
+Read and left:
+
+- **A stored Codex operation with no acceptance marker is no longer put into recovery.** The old stack wrote the marker at every restore since 2026-08-05, and all 2,416 accepted operations in Sakura's file carry a fence.
+- **Copilot's model list is still its child's handshake answer.** Not changed without a live run.
+- **"`effort` is Copilot only; `tier` is Codex only"** names Copilot first, in the options' order. The owner's wording.
+- **The foreign-daemon acceptance branch** is reached by "applies what a turn said while its acceptance waited on a reconciliation" in `agent-route.test.ts`.
+
+**Second pass** on what the first changed, the daemon's frame order, the route's answers, and recovery with local mode. Four Luna readers and an Opus join; two findings dropped as wrong, three kept:
+
+- **A steer refused while Codex still held a finished turn's terminal was rejected.** Codex holds a terminal up to ten seconds for its final item, so the turn's own promise had not settled and the generic service refused the message, where Codex's dispatch read the thread and opened a new turn. After a refused steer the service now asks the driver's `inspectTurn`; a settled turn is published and the prompt opens a new one. Local mode took the same rule.
+- **Local mode lost a turn whose start reply failed,** and a retry sent the prompt again on a second thread. It now takes the running turn through `adoptTurn`, as the daemon does. Same at HEAD; the Codex driver made it cheap.
+- **Local mode has no silent-turn watchdog.** Same at HEAD. On the board under the one-handler entry, `bd_c9b55cbd21bc148fa77a38b0f3169a55`.
+
+### Red team, 2026-11-11, Codex's move
+
+Eight Luna readers and an Opus join: daemon interleavings, the Codex driver, the relay under replays, security, deploy and mixed versions, workflows, what the harness cannot see, and cost. Eleven findings, checked against the code. Changed:
+
+- **A refused steer could publish an empty answer.** The second align pass made a refused steer ask `inspectTurn`, and Codex's read can show a turn completed before its final item is in it. The driver now reads a turn it still holds a terminal for as running until the answer is in the read; the hold's deadline settles it as before.
+- **A reconcile reported a turn as running after publishing its terminal.** `runReconcile` read an earlier turn while the running one ended. It looks again after the read. On the Gateway a reconciliation naming a turn the record already ended no longer makes it active, where the record used to fail to parse and the receipt was held for good.
+- **Held frames waited on an unrelated later frame** once the five minute guard swallowed their ask. A one-shot re-ask fires when the guard lifts.
+- **Listing Copilot's models left its child running for good,** since no reap takes a child whose threads cannot reopen. A child opened only to list is given up after, and concurrent listings of one target share one read.
+- **Each event built its fence twice.** Once now.
+
+**Re-check of those fixes,** four Luna readers and an Opus join; two angles found nothing:
+
+- **The driver's held-turn rule could strand a turn.** A hold's one deadline read that said running left the terminal held with no timer, and the new rule then read the turn as running for good, until the watchdog gave its whole child up. The rule holds only while the deadline is armed.
+- **Local mode could take another prompt's turn as its own.** Two messages racing on an idle agent: the second start is refused, and the adopt added above handed back the first one's turn. A turn the agent already holds is not adopted.
+- **Left: Copilot's steer refused just before its turn's end reaches the daemon is rejected,** since Copilot's driver has no `inspectTurn`. Same at HEAD, and not changed without a live run.
+
+Read and left:
+
+- **A backend's capability is checked only at the tool,** so a session that posts to a switched-off backend's route still starts its child. Same at HEAD. On the board, `bd_b0c16c940c9df941d2e3ddf4dd572cf7`.
+- **A held counter can be counted twice** when a replay counts it and more than 4,096 counters pass before the held copy drains. Dropping the held copy on a replay was tried and taken back: a replay ignored as a duplicate would then lose an event only the held copy can apply.
+- **`agentListModels` fails when Codex's default model is not offered,** since its child's open checks the default. Every start fails then too.
+- **The outbox can evict a terminal past 1,000 held frames, and a same-process turn mismatch can ask forever.** Same at HEAD. On the board with the held-frame entry, `bd_6f6eeb94f93e76dcca7a126d098a6e35`.
+- **A cumulative acknowledgement cannot pass an unreduced frame:** the socket stage applies a backend's frames one at a time.
+- **Dropped as wrong or accepted:** an older daemon or plugin beside a newer Gateway for the minutes between restarts, error text reaching the owner's own session, and the catalog's cost, which matches HEAD.
+
 ### Bug Classes
 
-- **The same command rules live in local mode and in the daemon service** (`LocalAgentHandlers`, `AgentDaemonService`). Four disagreements found in one pass and patched in local mode. One command handler over the driver for both is on the board, `bd_c9b55cbd21bc148fa77a38b0f3169a55`.
+- **The same command rules live in local mode and in the daemon service** (`LocalAgentHandlers`, `AgentDaemonService`). Four disagreements found in one pass and patched in local mode. Codex's move found three more: the adopt after a failed start and the refused steer, both patched in local mode again, and the watchdog, left. One command handler over the driver for both is on the board, `bd_c9b55cbd21bc148fa77a38b0f3169a55`.
 - **A list that names backends by hand:** the registry array, two workflow schemas, the gated capability ids and the tool fixture each listed Codex and Copilot. Patched to derive from `BACKEND_ROWS`. The guidance prose still names them and is the owner's wording.
 - **An uncertain catalog write** (`AgentCatalogPersistence.commit` over a store that keeps an unconfirmed write in memory): patched in the generic service by abandoning the operation. The shared layer still reports it as "catalog changed while saving".
+- **A frame held for reconciliation is judged against a fence that moved while it waited** (`AgentRelayCore` deferred frames over `classifyEventFence` in the applier). Round one, the audit: a held receipt, patched with `laterFence` and binding the operation by its turn. Round two, Codex's move: a held event, patched with the `held` flag past the duplicate check. Round three, the red team: held frames had no ask pending once the guard swallowed one, patched with a one-shot re-ask. Three rounds in one mechanism. The fence orders by event id while a held frame's own id no longer says where it stands, and nothing owns how long a frame may wait. One owner for a held frame's order, deadline and replay gaps is on the board, `bd_6f6eeb94f93e76dcca7a126d098a6e35`.
+- **The harness's fake daemon is a second implementation of the daemon's wire behavior:** it had no outbox, so a case's result depended on which microtask ran first. `bd_0c0772d89f5e0cbafa83147fc68c5863` holds the frame-order half of the same gap.
 
 ## Phase 3 - Acceptance and docs
 
@@ -785,6 +860,10 @@ Read and left: the mixed-version findings are the window the deploy note above a
 
 ## Painpoints
 
+- **An OpenCode step's `schema` is one sentence in its prompt (2026-11-11):** two of nine long mapping steps answered in prose after 300 tool calls and settled `invalid`, with their reports written. Codex enforces a schema at its API. One repair message into the same thread, naming the validation error, would have saved both.
+- **A running step or agent shows nothing until it ends (2026-11-11):** `workflowCollect` reads every unfinished step as `pending`, queued or working, and `agentCollect` on a running turn answers no activity and no counts. `agentList`'s `lastActiveAt` stayed at the start. The first sign of life is the ten minute notice.
+- **OpenCode refuses its whole event stream over one type name it does not know (2026-11-11):** `/api/event?types=` answers 400 for an unknown name, so a renamed event on a pin bump stops every turn's events. `EVENT_TYPES` in the bridge was probed against 2.2.5 by hand; no gate asks a real server.
+- **An OpenCode steer waits for a step boundary (2026-11-11):** the bridge answers only once the turn took the message, up to two minutes, then withdraws it and refuses.
 - **Workflow steps sharing a `skills` file all failed but the first (2026-11-11):** the store answers a skill row already journaled as a no-op, and the dispatcher read that as "could not be journaled". Changed in `appendSkillText` with a harness test; no earlier test started two steps with one skill.
 - **A workflow whose result passes the size limit settles `failed` with every step completed (2026-11-11):** eleven map reports returned together read "workflow result is not JSON or exceeds the limit". Each step's answer was still on the collect, so nothing was lost, but the run reads as a failure.
 - **A daemon restart kills every delegated agent mid-turn, and nothing says so first (2026-11-11):** `start-host-daemon.sh` restarts with a workflow's Codex steps running, and they settle `lost`. A deploy and an audit cannot overlap, and only memory keeps them apart.

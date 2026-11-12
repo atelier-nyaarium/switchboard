@@ -71,6 +71,8 @@ interface ActiveTurn {
 	turnId: string;
 	sawStep: boolean;
 	interrupted: boolean;
+	/** Progress sent recently. */
+	heard?: boolean;
 	seenTools: Set<string>;
 	pendingMessageId?: string;
 	pendingTexts: Map<number, string>;
@@ -109,6 +111,7 @@ const STEER_WAIT_MS = 120_000;
 const HISTORY_LIMIT = 200;
 const HISTORY_MAX_PAGES = 200;
 const HTTP_CALL_MS = 20_000;
+const PROGRESS_EVERY_MS = 15_000;
 const EVENT_TYPES = [
 	"session.execution.started",
 	"session.execution.succeeded",
@@ -118,6 +121,17 @@ const EVENT_TYPES = [
 	"session.text.ended",
 	"session.tool.input.started",
 	"session.inbox.delivered",
+	// Unknown types reject streams.
+	"session.step.ended",
+	"session.step.failed",
+	"session.text.started",
+	"session.reasoning.started",
+	"session.reasoning.ended",
+	"session.tool.input.ended",
+	"session.tool.called",
+	"session.tool.progress",
+	"session.tool.success",
+	"session.tool.failed",
 ];
 
 ////////////////////////////////
@@ -647,6 +661,13 @@ export async function startBridge(ports: BridgePorts, options: BridgeOptions = {
 		const thread = threads.get(stringOf(event.data.sessionID) ?? "");
 		if (!thread) return;
 		const active = thread.active;
+		if (active && !active.heard) {
+			active.heard = true;
+			sendEvent({ type: "event", event: "progress", threadId: thread.id, turnId: active.turnId });
+			void ports.sleep(PROGRESS_EVERY_MS).then(() => {
+				active.heard = false;
+			});
+		}
 		switch (event.type) {
 			case "session.execution.started":
 				if (!active) void adoptRunning(thread);

@@ -188,6 +188,8 @@ export const BridgeEventSchema = z.discriminatedUnion("event", [
 			terminal: OpencodeTerminalSchema,
 		})
 		.strict(),
+	// The turn's server said something.
+	z.object({ ...eventBase, event: z.literal("progress") }).strict(),
 ]);
 export type BridgeEvent = z.infer<typeof BridgeEventSchema>;
 

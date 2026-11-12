@@ -2,7 +2,7 @@
 // answers at once with a message id; the turn's events follow, and `session.idle` ends it.
 
 import { AGENT_ACTIVITY_MAX_BYTES, cutUtf8 } from "../../shared/agent-record.js";
-import type { AgentChild } from "./codexTargets.js";
+import type { AgentChild } from "./agentTargets.js";
 
 ////////////////////////////////
 //  Interfaces & Types

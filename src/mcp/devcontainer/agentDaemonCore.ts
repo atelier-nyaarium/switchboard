@@ -4,7 +4,7 @@ import { AGENT_TURN_LOST_REASON } from "../../shared/agent-record.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
-import type { TargetLease, TargetSupervisor } from "./codexTargets.js";
+import type { TargetLease, TargetSupervisor } from "./agentTargets.js";
 
 ////////////////////////////////
 //  Interfaces & Types

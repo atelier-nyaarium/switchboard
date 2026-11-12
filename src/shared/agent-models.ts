@@ -8,6 +8,12 @@ interface Versioned {
 	version: number[];
 }
 
+export interface OfferedModel {
+	id: string;
+	/** Used when model omitted. */
+	default?: true;
+}
+
 ////////////////////////////////
 //  Constants
 
@@ -59,4 +65,10 @@ export function newestPerFamily(ids: readonly string[]): string[] {
 		if (!held || newer(version, held.version)) families.set(family, { id, version });
 	}
 	return [...families.values()].map((entry) => entry.id);
+}
+
+export function offeredModels(ids: readonly string[], defaultModel: string): OfferedModel[] {
+	const newest = newestPerFamily(ids);
+	const listed = ids.includes(defaultModel) && !newest.includes(defaultModel) ? [defaultModel, ...newest] : newest;
+	return listed.map((id) => (id === defaultModel ? { id, default: true } : { id }));
 }

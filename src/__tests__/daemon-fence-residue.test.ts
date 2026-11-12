@@ -60,7 +60,9 @@ describe("a daemon frame carrying a generation goes out through the fence", () =
 	const swept = consumers();
 
 	it("sweeps every service built on the core", () => {
-		expect(swept.length).toBeGreaterThanOrEqual(2);
+		expect(swept.map(({ file }) => path.relative(REPO_ROOT, file))).toContain(
+			path.join("src", "mcp", "devcontainer", "agentDaemonService.ts"),
+		);
 	});
 
 	it("has nobody sending a second frame past AgentDaemonCore.publish", () => {

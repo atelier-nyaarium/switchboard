@@ -6,12 +6,7 @@ import { agentEnvPrefix } from "../../shared/agent-backend.js";
 import { parseAgentTargetId } from "../../shared/agent-execution-target.js";
 import { AGENT_BRIDGES, bundledEntryArgs } from "../../shared/launcher-spec.js";
 import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
-import {
-	type AgentChild,
-	classifyAgentStderr,
-	containerEnvArgs,
-	type ExecutionTargetLauncher,
-} from "./codexTargets.js";
+import { type AgentChild, adoptProcess, containerEnvArgs, type ExecutionTargetLauncher } from "./agentTargets.js";
 import { CONTAINER_BUN, containerRuntimeRoot } from "./containerSite.js";
 import { containerFor } from "./containers.js";
 
@@ -24,26 +19,7 @@ const BRIDGE = AGENT_BRIDGES.opencode;
 //  Functions & Helpers
 
 function spawnBridge(command: string, args: string[], env?: Record<string, string>): AgentChild {
-	const proc = spawn(command, args, { env, stdio: ["pipe", "pipe", "pipe"] });
-	let stderr = "";
-	proc.stderr?.on("data", (chunk: Buffer) => {
-		stderr = (stderr + chunk.toString()).slice(-2_000);
-	});
-	proc.stdin?.on("error", () => {});
-	proc.stdout?.on("error", () => {});
-	proc.stderr?.on("error", () => {});
-	return {
-		stdin: proc.stdin!,
-		stdout: proc.stdout!,
-		kill: () => proc.kill(),
-		onExit(listener) {
-			const fire = (code: number | null, signal: string | null) => {
-				listener({ code, signal, reason: classifyAgentStderr(stderr) });
-			};
-			proc.once("exit", (code, signal) => fire(code, signal));
-			proc.once("error", () => fire(null, null));
-		},
-	};
+	return adoptProcess(spawn(command, args, { env, stdio: ["pipe", "pipe", "pipe"] }));
 }
 
 export const opencodeLauncher: ExecutionTargetLauncher = {

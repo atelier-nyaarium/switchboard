@@ -5,21 +5,52 @@ supervises one child per execution target; the gateway owns the durable record.
 
 `claude -p` is available as a workflow backend only. It is not a session agent.
 
-`src/mcp/agents/agentTools.ts` registers `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, and
-`agentList` for every backend. `agentStart` takes `prompt` and optional `backend`, `model`, `effort`
-(Copilot), `tier` (Codex), `schema`, and `cwd`. `agentMessage` takes `agentId` and `prompt`, with
-optional `schema` and Codex-only `tier`. `agentCollect` and `agentStop` take `agentId`; `agentList`
-accepts optional `backend`, `agentId` and `limit`. Capability guidance uses
-one `agents` section over the `codex-agent`, `copilot-agent` and `opencode-agent` ids.
+`src/mcp/agents/agentTools.ts` registers `agentStart`, `agentMessage`, `agentCollect`, `agentStop`,
+`agentList` and `agentListModels` for every backend. `agentStart` takes `prompt`, `backend`, and
+optional `model`, `effort` (Copilot), `tier` (Codex), `schema`, and `cwd`. `agentMessage` takes
+`agentId` and `prompt`, with optional `schema` and Codex-only `tier`. `agentCollect` and `agentStop`
+take `agentId`; `agentList` accepts optional `backend`, `agentId` and `limit`. Capability guidance
+uses one `agents` section over the `codex-agent`, `copilot-agent` and `opencode-agent` ids.
+
+**`backend` is named unless only one is enabled.** With several enabled, the start tool's schema
+requires it and its handler refuses a call without it, so no start lands on a backend nobody chose.
+
+**A start in the default model's family runs at `priority`.** `startDefaults` in
+`src/shared/model-family.ts` sets it when a start names no tier and its model shares a family with
+the backend's default. The tool's start and a workflow step's start both take it; a named tier is
+kept.
+
+**`agentListModels` reads each backend's CLI where the session's agents run.** The route relays the
+`agentModels` host op, the daemon asks the driver's `listModels` on that target, and
+`offeredModels` in `src/shared/agent-models.ts` keeps the newest of each family and marks the
+backend's default, which stays listed even where a newer one superseded it. Codex and OpenCode ask
+their server on each call, and Codex's answer also replaces what its child may start. Copilot
+answers the list its child gave when it opened.
 
 ## One stack, one driver per backend
 
 A backend is a row in `src/shared/agent-backend.ts` and a driver in `src/mcp/agents/drivers.ts`.
 Nothing decides by a backend's name: a difference is a row field or the driver's own behavior, and
-a backend with no row or no driver does not compile. Copilot and OpenCode run on the generic stack
-(`agentService`, `agentApply`, `agentReducers`, `agentCommands`, `agentRelay`, `agentRoute` on the
-Gateway, `agentDaemonService` on the daemon). Codex runs its own older stack behind the same
-`AgentStack` seam until it moves.
+a backend with no row or no driver does not compile. Every backend runs on the one stack:
+`agentService`, `agentApply`, `agentReducers`, `agentCommands`, `agentRelay`, `agentRoute` on the
+Gateway, and `agentDaemonService` over a driver on the daemon. Local mode opens the same drivers.
+
+**A silent turn is read, then interrupted, then given up with its child.** `AgentDaemonService`
+sweeps every 30 seconds. A turn with no sign of life for ten minutes is read through the driver's
+`inspectTurn`; settled, its terminal is published; still running, it is interrupted; silent for
+another ten minutes, its whole generation is given up, which ends every other turn on that child.
+Silence is judged only where a driver reports life (`onProgress`): Codex's and OpenCode's do, and
+Copilot's turns are never judged. A tool that says nothing for ten minutes reads as a hang.
+
+**An idle child is reaped where its threads reopen.** With no command in flight and ten quiet
+minutes, a session with no running turn is given up unless its driver says it is `busy`. The next
+command opens a fresh child and resumes the thread. A driver whose threads die with its child
+(`threadsResumable: false`) is never reaped.
+
+**A turn found running is taken, not started twice.** When a start fails after its turn began, and
+when a reconcile reads a turn as running on a thread the session already knew, the service asks
+the driver's `adoptTurn` for that turn's handle and holds it as its own. A thread first loaded by
+the reconcile ran its turn in another process, so it is only reported.
 
 **`delivery` has three words on every backend.** `started` is an agent's first turn, from
 `agentStart` and never from a message. `followup` is an `agentMessage` that began a new turn.
@@ -29,8 +60,10 @@ Gateway, `agentDaemonService` on the daemon). Codex runs its own older stack beh
 **A steer says what it knows.** A driver answers `taken` when it knows the turn holds the prompt,
 and nothing when it only sent it. A steer that only sent, whose turn has ended since, is given again
 as a new turn, and so is one the driver rejected because its turn ended. Whether a turn ended is
-asked of the turn's own promise (`settledNow`). Both posts carry the operation's id as their key,
-so a driver that can tell lands one prompt.
+asked of the turn's own promise (`settledNow`), and after a rejected steer of the driver's
+`inspectTurn` too: Codex holds a finished turn's terminal up to ten seconds for its final item, so
+the promise alone would refuse a message the agent could take. Both posts carry the operation's id
+as their key, so a driver that can tell lands one prompt.
 
 **A write that did not land leaves no operation waiting.** The catalog store keeps an unconfirmed
 write in memory, so the generic service gives its operation up at once. Left `requested`, it would
@@ -54,14 +87,11 @@ answers are not classified as declines. The workflow journal, outcomes and recov
 ## Codex delegation
 
 **A fence is `(daemonInstanceId, targetId, generation, lastEventId)`.** Reconciliation is the only
-path that may install a non-advancing fence, with one exception: an idle agent's follow-up that
-starts a new turn, accepted by another child than the one fenced at dispatch (`servedByNewChild`).
-Only the child that took the command can name its operation, so that is a reaped target relaunched
-or a restarted daemon serving it, and no turn was in flight to misplace. The fence alone cannot order
-two children; the operation id is what does. Waiting on reconciliation there moves the fence, and the
-replayed receipt no longer matches the fence it was dispatched against, so the turn runs and its
-answer is dropped. The generic stack's twin is in `decideAcceptance`: a `started` receipt from
-another stream is accepted when the agent is idle and holds no such turn.
+path that may install a non-advancing fence, with one exception in `decideAcceptance`: a `started`
+receipt from another stream is accepted when the agent is idle and holds no such turn. Only the
+child that took the command can name its operation, so that is a reaped target relaunched or a
+restarted daemon serving it, and no turn was in flight to misplace. The fence alone cannot order
+two children; the operation id is what does.
 
 **A reconciliation adopts another stream, never a dead one.** `classifyReconciliationFence` refuses
 an older generation of the stream an agent already follows, and the relay drops a reconciliation
@@ -70,33 +100,32 @@ only on the answer carrying its own request id, so a replayed answer to an earli
 strand held frames.
 
 **An uncertain delivery has one rule, `uncertainDeliveryState`.** A refused or unconfirmed start leaves
-the agent unavailable, a prompt leaves it recovering, and a refused stop leaves it as it was. Both families'
-refusal and abandonment paths take it, and both throw one `AgentTransitionError`.
+the agent unavailable, a prompt leaves it recovering, and a refused stop leaves it as it was. The
+refusal and abandonment paths take it, and throw one `AgentTransitionError`.
 
-**One relay, two families.** The fence rules live in `agent-fence.ts` and the relay mechanics in
-`AgentRelayCore`: acknowledgement, held frames, the reconcile guard, and per-agent serialization.
-`CodexRelay` and the generic `AgentRelay` supply only their wire schemas, applier, agent listing, and
-reconcile request. An agent is askable exactly when its family can build that request. A held frame
-is one per stream and event id, and only commentary is dropped at the cap: an outcome evicted there
-would be acknowledged unapplied.
+**One relay core, a family per backend.** The fence rules live in `agent-fence.ts` and the relay
+mechanics in `AgentRelayCore`: acknowledgement, held frames, the reconcile guard, and per-agent
+serialization. `AgentRelay` supplies a backend's wire schemas, applier, agent listing, and reconcile
+request. A held frame is one per stream and event id, and only commentary is dropped at the cap: an
+outcome evicted there would be acknowledged unapplied.
 
-**Every turn and every op ends.** The recovery decisions live once in `agent-recovery.ts`, and each
-family translates its record into them and applies the result through its own terminal path; the
-shared vectors in `src/__tests__/fixtures/agent-recovery-vectors.json` run through both adapters.
+**Every turn and every op ends.** The recovery decisions live once in `agent-recovery.ts`; the
+vectors in `src/__tests__/fixtures/agent-recovery-vectors.json` run through them and through the
+stack's own appliers.
 - **An op knows its daemon:** a route stamps each op with the host register frame's
-  `daemonInstanceId`, which the host socket keeps and drops with the socket. Both relays read it
+  `daemonInstanceId`, which the host socket keeps and drops with the socket. Every relay reads it
   through one callback.
-- **Register pass:** at each host register, before the family hellos, a `requested` op not stamped
-  with the live daemon, one stamped with none included, is abandoned through `uncertainDeliveryState`
-  (on Codex's stack a stop also clears `pendingInterrupt`).
+- **Register pass:** at each host register, before the hellos, a `requested` op not stamped with the
+  live daemon, one stamped with none included, is abandoned through `uncertainDeliveryState`.
 - **Resend:** at the catalog frame after a register, a `requested` op stamped with the live daemon is
   sent again under its own operation id. `AgentDaemonCore` takes an op once per id: a repeat in
   flight is dropped and a settled one replays its answer, within a count-bounded ledger.
 - **Lost turns:** a reconcile answered under another fence (instance, target or generation) settles
   the known turn `interrupted`, reason "turn lost: its agent process ended", unless it reports that
-  turn settled. Codex binds a turn a reconcile read as running only on a thread its child holds.
-  A retiring generation ends its own bound turns first (`AgentDaemonCore`'s retire-before-remove), and
-  the generic daemon reports no turn state for a thread it cannot resume or a turn it cannot read.
+  turn settled. A retiring generation ends its own turns first (`AgentDaemonCore`'s
+  retire-before-remove), and the daemon reports no turn state for a thread it cannot resume or a
+  turn it cannot read. Asked about an earlier turn while the thread runs a later one, it reads the
+  earlier one and settles it.
 - **Stale agents are asked again:** a `recovering` agent, and a `working` one fenced to another
   daemon, is asked on every hello and every persist tick, paced per agent by `RECONCILE_GUARD_MS`
   from its last ask whether answered or refused.
@@ -117,30 +146,26 @@ nothing already retained in the outbox. `release` must name the generation, or a
 its successor.
 
 **`startTurn` hands the turn id to `onStarted` before draining.** A terminal can beat its own
-`turn/start` reply. Scheduling registration does not work. The local session and the daemon both rely
-on this ordering.
+`turn/start` reply. Scheduling registration does not work. `CodexBackendSession` parks the turn's
+handle inside that callback.
 
 **A terminal hold names its release event and bound.** The tracker holds a terminal that precedes its
-final item until that item arrives or the deadline releases it. A read still reporting `inProgress`
-leaves it held.
+final item until that item arrives or the driver's ten second deadline releases it. A read still
+reporting `inProgress` leaves it held.
 
 **Progress is any frame from the turn's own thread.** Matching only a turn id, or counting only
-tracker-parsed frames, misattributes or interrupts live work. Reconciliation treats an unconfirmed
-turn as `recovering`.
+tracker-parsed frames, misattributes or interrupts live work. The driver reports it through
+`onProgress`. It logs a frame arriving more than 60 s after the last one and any interrupted
+terminal, so an interruption nobody asked for is attributable on the daemon pane.
 
-**A silent turn is interrupted, then its child retired.** Ten minutes without a frame from its thread
-and the daemon sends `turn/interrupt`; a second silent window releases the whole target, which ends
-every other agent's turn on that child, since the App Server has no per-thread kill. Both steps are logged on the daemon pane, as are a frame arriving
-more than 60 s after the last one and any interrupted terminal, so an interruption nobody asked for
-is attributable there.
+**A poisoned thread closes the driver.** A request that timed out or answered unreadably leaves the
+child's state unknown, so the driver closes, the service gives the generation up, and its running
+turns end as lost. The App Server has no per-thread kill.
 
 **Bookkeeping names the record, never only the id.** `mutate` checks identity before its request and
 never after it; an awaited reply can resume after that record was replaced. Retire, load, and poison
 refuse or drop by record identity. Retirements move the record to the back, and eviction leaves
 queued or non-parked records for a later pass.
-
-**A turn's clock and warning live with its binding in `CodexLiveTurns`.** Rebinding to another thread
-creates a different identity and inherits neither.
 
 **A request failure is a `kind`, never a sentence.** The transport emits `refused`, `timeout`,
 `unreadable`, or `closed`. Callers must not branch on wording. Notifications dispatch in a microtask,
@@ -180,7 +205,7 @@ and stop refuse it. An agent stored before marks restores with its ended turns c
 newest first. Naming an `agentId` lists that agent whatever its turns.
 
 **The session hears about its turns as awareness.** `createAgentWatch` in `src/gateway/agentAwareness.ts`
-reads every agent of both families every 5 seconds. A turn that ends gets an `act_now` notice naming
+reads every agent of every backend every 5 seconds. A turn that ends gets an `act_now` notice naming
 `agentCollect` until its stored `notified` mark is set, which delivery and a collect both do; a collect
 also withdraws the turn's notice from the bank. A running turn gets a `no_act` notice every 10 minutes with its newest notes;
 its subscriber's `push` makes the bank push it rather than wait for a message, so an idle session
@@ -193,7 +218,7 @@ channel event; a Copilot session gets the block typed into its pane through the 
 delivery, which rechecks a done notice when its turn comes and drops it once the agent's turns were
 collected.
 
-**A waiting call holds for less than the client survives**, bounded by `CODEX_WAIT_BUDGET_MS`. Node's
+**A waiting call holds for less than the client survives**, bounded by `AGENT_WAIT_BUDGET_MS`. Node's
 fetch abandons a silent connection at 300s and `routerPost` re-posts, so a longer hold never delivers
 its answer. A turn outliving an await's budget keeps running, and the completion notice still arrives.
 
@@ -210,7 +235,7 @@ the opt-in.
 - **`AgentDispatch` hides the serving mode.** Local dispatch calls `LocalAgentBackend.handle` with
   the same body; local validation and result parsing reuse the gateway schemas.
 - **The list and the collect share the Gateway's shapes.** `agentListAnswer`, `agentListRow` and
-  `collectAnswer` in `src/shared/agent-collect.ts` serve both families and local mode; local marks
+  `collectAnswer` in `src/shared/agent-collect.ts` serve every backend and local mode; local marks
   live for the process.
 - **Child errors are normalized where stored.** `errorText` covers every `fail()` site and
   `applyTerminal`.
@@ -224,7 +249,7 @@ the opt-in.
   `applyTerminal` stamps the idle clock.
 - **Codex loads before every follow-up turn.** `ThreadLifecycle` owns the rule; a fresh child
   unarchives and resumes a parked thread.
-- **Local settlement uses the same owner.** `CodexLocalSession` calls `client.settleTurn`;
+- **Local settlement uses the same owner.** `CodexBackendSession` calls `client.settleTurn`;
   `onTerminal` resolves the caller. Child exit, close, and retirement settle parked turns directly.
 - **`TurnHandle.settled` never rejects.** A rejection becomes a failed terminal.
 
@@ -232,8 +257,8 @@ A Codex thread starts with `danger-full-access` and `approvalPolicy: "never"`, s
 anywhere, reach the network, and run anything the delegating session could. The prompt is the only
 boundary, as it is for the session itself. A start's or a new turn's `schema` option rides as
 `turn/start.outputSchema`, which constrains the final message; a steer keeps the running turn's. The
-caller validates the `finalResponse` text, on both families: the schema is not persisted on the
-operation, so a turn re-dispatched after a Gateway restart runs without it.
+caller validates the `finalResponse` text, on every backend. An operation keeps its schema, so a
+turn sent again after a Gateway restart still carries it.
 
 ## Copilot delegation
 

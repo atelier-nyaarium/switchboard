@@ -1,14 +1,14 @@
 import crypto from "node:crypto";
 import { type AgentBackendDescriptor, type AgentBackendId, agentHttpPath } from "../shared/agent-backend.js";
 import type { AgentServiceTier } from "../shared/agent-state.js";
-import { sameFamily } from "../shared/model-family.js";
+import { startDefaults } from "../shared/model-family.js";
 import type { AgentDispatch } from "./agentDispatch.js";
 import { routerPost } from "./bridge/helpers.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
-export type AgentRequestKind = "start" | "message" | "await" | "stop" | "list";
+export type AgentRequestKind = "start" | "message" | "await" | "stop" | "list" | "models";
 
 export interface AgentRequestArgs {
 	agentId?: string;
@@ -27,17 +27,7 @@ type ToolText = { content: Array<{ type: "text"; text: string }>; isError?: bool
 //  Functions & Helpers
 
 export function requestHead(kind: AgentRequestKind): { kind: AgentRequestKind; operationId?: string } {
-	return { kind, ...(kind === "list" ? {} : { operationId: crypto.randomUUID() }) };
-}
-
-/** Same-family defaults get priority. */
-export function startDefaults(
-	backend: AgentBackendDescriptor,
-	args: Pick<AgentRequestArgs, "model" | "serviceTier">,
-): Pick<AgentRequestArgs, "model" | "serviceTier"> {
-	if (!backend.options.serviceTier || args.serviceTier !== undefined) return args;
-	const model = args.model ?? backend.defaultModel;
-	return sameFamily(model, backend.defaultModel) ? { model, serviceTier: "priority" } : args;
+	return { kind, ...(kind === "list" || kind === "models" ? {} : { operationId: crypto.randomUUID() }) };
 }
 
 /** Strict schemas reject extras. */

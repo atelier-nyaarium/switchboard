@@ -170,7 +170,7 @@ describe("what switchboard_capabilities reports", () => {
 		);
 		expect(text).toContain("agentStart");
 		expect(text).not.toContain("codexStartAgent");
-		expect(text).toContain("gpt-6-luna");
+		expect(text).toContain("## Codex");
 	});
 
 	it("says so plainly when the session has nothing", () => {

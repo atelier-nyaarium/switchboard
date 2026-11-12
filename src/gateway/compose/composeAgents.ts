@@ -1,4 +1,4 @@
-import { type AgentBackendId, agentHttpPath, GENERIC_AGENT_BACKENDS } from "../../shared/agent-backend.js";
+import { AGENT_BACKENDS, type AgentBackendId, agentHttpPath } from "../../shared/agent-backend.js";
 import {
 	type AgentProgressCounts,
 	addAgentProgressCounts,
@@ -8,7 +8,7 @@ import { marksOf } from "../../shared/agent-turn-marks.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { RosterAgent } from "../agentAwareness.js";
 import { resolveAgentExecutionTarget } from "../agentExecutionTarget.js";
-import { type AgentStack, type AgentStacks, createAgentStack, createCodexStack } from "../agentStack.js";
+import { type AgentStack, type AgentStacks, createAgentStack } from "../agentStack.js";
 import { createWorkflowAgentDispatch, type WorkflowAgentDispatch } from "../workflows/agentDispatch.js";
 import type { WorkflowRunner } from "../workflows/runner.js";
 import { reached, sendOn } from "../wsSend.js";
@@ -16,10 +16,7 @@ import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
 
 export interface AgentsStageDeps {
-	sessions: Pick<
-		SessionsStage,
-		"sessionAuthority" | "sessionStore" | "offlineCatalog" | "codexCatalogWriter" | "agentCatalogWriters"
-	>;
+	sessions: Pick<SessionsStage, "sessionAuthority" | "sessionStore" | "offlineCatalog" | "agentCatalogWriters">;
 	host: Pick<HostStage, "readLiveness" | "relayToHost">;
 	ambient: Ambient;
 }
@@ -62,19 +59,17 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		sessionStore: sessions.sessionStore,
 		offlineCatalog: sessions.offlineCatalog,
 		readLiveness: host.readLiveness,
+		relayToHost: host.relayToHost,
 		sendToHost,
 		ambient,
 		onCollected: (backend: AgentBackendId, ownerKey: string, agentId: string, turnIds: readonly string[]) =>
 			collectedListener?.(ownerKey, backend, agentId, turnIds),
 	};
-	const built: AgentStack[] = [
-		createCodexStack({ ...shared, catalogWriter: sessions.codexCatalogWriter }),
-		...GENERIC_AGENT_BACKENDS.map((backend) => {
-			const catalogWriter = sessions.agentCatalogWriters.get(backend.id);
-			if (!catalogWriter) throw new Error(`no catalog writer for ${backend.id} agents`);
-			return createAgentStack({ ...shared, backend, catalogWriter });
-		}),
-	];
+	const built: AgentStack[] = AGENT_BACKENDS.map((backend) => {
+		const catalogWriter = sessions.agentCatalogWriters.get(backend.id);
+		if (!catalogWriter) throw new Error(`no catalog writer for ${backend.id} agents`);
+		return createAgentStack({ ...shared, backend, catalogWriter });
+	});
 	const stacks: AgentStacks = new Map(built.map((stack) => [stack.backend.id, stack]));
 
 	const agentRoutes = new Map(

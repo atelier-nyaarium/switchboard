@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { newestPerFamily } from "../shared/agent-models.js";
+import { newestPerFamily, offeredModels } from "../shared/agent-models.js";
+
+describe("the models a backend offers", () => {
+	it("marks the default, and keeps it listed when its family has a newer one", () => {
+		expect(offeredModels(["gpt-6-luna", "gpt-6.1-sol"], "gpt-6-luna")).toEqual([
+			{ id: "gpt-6-luna", default: true },
+			{ id: "gpt-6.1-sol" },
+		]);
+		expect(offeredModels(["gpt-6-luna", "gpt-6.1-luna"], "gpt-6-luna")).toEqual([
+			{ id: "gpt-6-luna", default: true },
+			{ id: "gpt-6.1-luna" },
+		]);
+		expect(offeredModels(["gpt-6.1-sol"], "gpt-6-luna")).toEqual([{ id: "gpt-6.1-sol" }]);
+	});
+});
 
 describe("the newest model of each family", () => {
 	it("drops a version its family has superseded", () => {

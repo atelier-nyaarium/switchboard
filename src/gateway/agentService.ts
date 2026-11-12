@@ -258,8 +258,8 @@ export class AgentService {
 		return this.applier.applyReceipt(receipt, at);
 	}
 
-	applyEvent(event: AgentDaemonEvent, at: number): Application {
-		return this.applier.applyEvent(event, at);
+	applyEvent(event: AgentDaemonEvent, at: number, held = false): Application {
+		return this.applier.applyEvent(event, at, held);
 	}
 
 	/** Abandons unconfirmed deliveries. */

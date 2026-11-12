@@ -23,7 +23,7 @@ const START_DESCRIPTION = `
 
 Start an agent for a self-contained task.
 
-\`backend\` selects an enabled backend and defaults to the first enabled one. \`effort\` is Copilot only; \`tier\` is Codex only. \`schema\` constrains the final answer; validate it yourself. Set \`model\` and \`cwd\` at start.
+\`backend\` sets the backend. If more than one is installed, you must specify which. \`effort\` is Copilot only; \`tier\` is Codex only. \`schema\` constrains the final answer; validate it yourself. Set \`model\` and \`cwd\` to start with. Use \`agentListModels\` to list the models.
 
 Returns when the agent accepts the turn. Call \`agentCollect\` after its completion notice. Running agents send progress notices every 10 minutes.
 
@@ -64,6 +64,13 @@ Agents starting, running, or holding an uncollected turn, newest first. No answe
 - \`limit\` caps each family's rows.
 
 Keep the ids of agents you will message again.
+`.trim();
+
+const MODELS_DESCRIPTION = `
+# List Agent Models
+
+List the newest models in all enabled model families.
+- \`backend\` lists for just that backend
 `.trim();
 
 function refused(text: string): ToolText {
@@ -146,6 +153,8 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 	const [first, ...rest] = enabled;
 	if (first === undefined) return;
 	const BackendSchema = z.enum([first, ...rest]);
+	// Caller selects among backends.
+	const sole = rest.length === 0 ? first : undefined;
 
 	const send = (backend: AgentBackendId, body: Record<string, unknown> | string): Promise<ToolText> => {
 		const dispatch = dispatches[backend];
@@ -158,8 +167,11 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 	const startSchema: any = z
 		.object({
 			prompt: z.string(),
-			backend: BackendSchema.optional(),
-			model: z.string().optional(),
+			backend: sole ? BackendSchema.optional() : BackendSchema,
+			model: z
+				.string()
+				.describe(`Model ID as listed by \`agentListModels\`. Omit to use the backend's default.`)
+				.optional(),
 			effort: z.string().optional(),
 			tier: AgentServiceTierSchema.optional(),
 			schema: AgentOutputSchemaSchema.optional(),
@@ -185,12 +197,15 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 			limit: AgentListInputSchema.shape.limit,
 		})
 		.strict();
+	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+	const modelsSchema: any = z.object({ backend: BackendSchema.optional() }).strict();
 
 	mcpServer.registerTool(
 		"agentStart",
 		{ title: `Start Agent`, description: START_DESCRIPTION, inputSchema: startSchema },
 		async (args: StartArgs) => {
-			const backend = args.backend ?? first;
+			const backend = args.backend ?? sole;
+			if (!backend) return refused(`Specify \`backend\`: ${enabled.join(", ")}`);
 			return send(backend, startBody(backend, args));
 		},
 	);
@@ -233,6 +248,27 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 			return {
 				content: answers.flatMap((answer) => answer.content),
 				...(answers.some((answer) => answer.isError) ? { isError: true } : {}),
+			};
+		},
+	);
+
+	mcpServer.registerTool(
+		"agentListModels",
+		{ title: `List Agent Models`, description: MODELS_DESCRIPTION, inputSchema: modelsSchema },
+		async (args: { backend?: AgentBackendId }) => {
+			const rows = await Promise.all(
+				(args.backend ? [args.backend] : enabled).map(async (backend) => {
+					try {
+						const listed = await dispatches[backend]?.(agentRequestBody(descriptor(backend), "models"));
+						return { backend, ...(listed as { models?: unknown }) };
+					} catch (error) {
+						return { backend, error: error instanceof Error ? error.message : String(error) };
+					}
+				}),
+			);
+			return {
+				content: [{ type: "text" as const, text: JSON.stringify(rows, null, 2) }],
+				...(rows.every((row) => "error" in row) ? { isError: true } : {}),
 			};
 		},
 	);

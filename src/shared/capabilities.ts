@@ -38,9 +38,9 @@ export const AGENT_TOOLS_INSTRUCTIONS = `
 
 Delegate a self-contained task with \`agentStart\`.
 
-Tools: \`agentStart\`, \`agentMessage\`, \`agentCollect\`, \`agentStop\`, and \`agentList\`.
+Tools: \`agentStart\`, \`agentMessage\`, \`agentCollect\`, \`agentStop\`, \`agentList\`, and \`agentListModels\`.
 
-\`agentStart.backend\` selects an enabled backend and defaults to the first enabled one. \`agentMessage\`, \`agentCollect\`, and \`agentStop\` infer it from \`agentId\`. \`agentCollect\` answers at once with every ended turn not yet collected; a notice wakes you when a running one ends. \`agentList\` shows busy and uncollected agents and accepts optional \`backend\`, \`agentId\` and \`limit\`.
+\`agentStart.backend\` sets the backend. If more than one is installed, you must specify which. \`agentMessage\`, \`agentCollect\`, and \`agentStop\` infer it from \`agentId\`. \`agentCollect\` answers at once with every ended turn not yet collected; a notice wakes you when a running one ends. \`agentList\` shows busy and uncollected agents and accepts optional \`backend\`, \`agentId\` and \`limit\`.
 
 \`agentStart\` accepts \`model\`, \`cwd\`, and \`schema\`, plus Copilot-only \`effort\` or Codex-only \`tier\`. \`agentMessage\` accepts \`schema\` and Codex-only \`tier\`.
 
@@ -81,13 +81,9 @@ Agents belong to the whole Claude Code session. A terminal result means finished
 export const CODEX_AGENT_INSTRUCTIONS = `
 ## Codex
 
-\`model\`, spelled exactly:
-- \`gpt-6-luna\` - Default. Exploration, audits, implementation.
-- \`gpt-6.1-sol\` - Hardest reasoning and coding. Ask permission first.
-
-If both \`model\` and \`tier\` are omitted, Codex uses \`gpt-6-luna\` at \`priority\`.
-
-\`tier\` accepts \`priority\` or \`standard\`. \`priority\` runs faster and uses more. A Codex \`agentMessage\` tier applies to the next new turn.
+\`tier\` accepts: \`priority\` or \`standard\`
+- When Luna family is selected, tier will be defaulted to \`priority\`.
+- On \`agentMessage\`, tier applies to the next new turn.
 `.trim();
 
 export const VAULT_INSTRUCTIONS = `

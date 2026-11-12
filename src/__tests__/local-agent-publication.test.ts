@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBackendSession, TurnTerminal } from "../mcp/agents/backendSession.js";
+import type { AgentBackendSession, TurnHandle, TurnTerminal } from "../mcp/agents/backendSession.js";
 import {
 	LOCAL_IDLE_REAP_MS,
 	type LocalAgentAnswer,
@@ -11,7 +11,7 @@ import {
 import type { AgentBackendId } from "../shared/agent-backend.js";
 import { agentListAnswer, agentListRow } from "../shared/agent-collect.js";
 import type { AgentNotice } from "../shared/agent-notice.js";
-import { CODEX_ACTIVITY_MAX_ITEMS } from "../shared/codexAgentIdentity.js";
+import { AGENT_ACTIVITY_MAX_ITEMS as CODEX_ACTIVITY_MAX_ITEMS } from "../shared/agent-record.js";
 
 type PendingTurn = { settled: Promise<TurnTerminal>; resolve(value: TurnTerminal): void };
 
@@ -23,6 +23,8 @@ class ValueBackendAdapter implements AgentBackendSession {
 	openThreadGate?: Promise<void>;
 	// Absent, like Copilot's session, when steering is unsupported.
 	steerTurn?: (threadId: string, turnId: string, prompt: string) => Promise<void>;
+	inspectTurn?: AgentBackendSession["inspectTurn"];
+	adoptTurn?: AgentBackendSession["adoptTurn"];
 	constructor(private readonly options: { openError?: Error; startError?: Error; steer?: boolean } = {}) {
 		if (options.steer !== false) this.steerTurn = async () => {};
 	}
@@ -31,9 +33,11 @@ class ValueBackendAdapter implements AgentBackendSession {
 		if (this.options.openError) throw this.options.openError;
 		return "thread-1";
 	}
-	async startTurn(): Promise<{ turnId: string; settled: Promise<TurnTerminal> }> {
+	async startTurn(): Promise<TurnHandle> {
 		if (this.options.startError) throw this.options.startError;
-		const turnId = `turn-${++this.sequence}`;
+		return this.running(`turn-${++this.sequence}`);
+	}
+	running(turnId: string): TurnHandle {
 		let resolve!: (value: TurnTerminal) => void;
 		const settled = new Promise<TurnTerminal>((inner) => (resolve = inner));
 		this.pending.set(turnId, { settled, resolve });
@@ -252,6 +256,44 @@ describe("local publication", () => {
 		expect(followed).toMatchObject({ observation: "accepted", turn: { id: "turn-2", state: "inProgress" } });
 		const answer = collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
 		expect(answer).toMatchObject({ running: "turn-2", turns: [{ id: "turn-1", state: "completed" }] });
+	});
+
+	it("opens a new turn after a refused steer when its driver reads the turn as ended", async () => {
+		const h = setup();
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "first job" }));
+		await turnReady(h.backend);
+		h.backend.steerTurn = async () => {
+			throw new Error("turn is no longer active");
+		};
+		h.backend.inspectTurn = async () => ({
+			known: "settled",
+			terminal: { status: "completed", finalResponse: "first" },
+		});
+		const followed = answered(
+			await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "more" }),
+		);
+		expect(followed).toMatchObject({ observation: "accepted", turn: { id: "turn-2", state: "inProgress" } });
+		const answer = collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
+		expect(answer).toMatchObject({
+			running: "turn-2",
+			turns: [{ id: "turn-1", state: "completed", finalResponse: "first" }],
+		});
+	});
+
+	it("takes the turn its child started when the start's reply failed, and never one it already holds", async () => {
+		const h = setup("codex", { startError: new Error("turn/start timed out") });
+		h.backend.adoptTurn = async () => h.backend.running("turn-9");
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "first job" }));
+		expect(started).toMatchObject({ observation: "accepted", turn: { id: "turn-9", state: "inProgress" } });
+
+		h.backend.emitTerminal("turn-9", { status: "completed", finalResponse: "done" });
+		await turnEnded(h.runtime, started.agentId, "turn-9");
+		expect(collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }))).toMatchObject({
+			turns: [{ id: "turn-9", state: "completed", finalResponse: "done" }],
+		});
+
+		const second = answered(await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "more" }));
+		expect(second).toMatchObject({ observation: "unavailable" });
 	});
 
 	it("answers a start the child refuses with the driver's reading of why", async () => {

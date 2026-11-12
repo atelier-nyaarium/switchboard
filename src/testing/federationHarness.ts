@@ -17,7 +17,7 @@ import { signXDomainLink } from "../shared/federation-protocol.js";
 import { signXDomainLinkEdge } from "../shared/federation-xdomain-links.js";
 import { MAX_BLOB_BYTES } from "../shared/router-protocol.js";
 import { type FakeAmbient, fakeAmbient } from "./fakeAmbient.js";
-import { attachFakeHost, createFakeCodexDaemon, type FakeHost, type FakeHostOptions } from "./fakeHost.js";
+import { attachFakeHost, createFakeDaemon, type FakeHost, type FakeHostOptions } from "./fakeHost.js";
 import { FixtureWorld } from "./fixtureWorld.js";
 import {
 	admitSecondConsole,
@@ -241,8 +241,8 @@ async function attachDomain(
 			workflowProgressIntervalMsForTests: options.workflowProgressIntervalMsForTests,
 		});
 	// The daemon survives gateway restarts.
-	let daemon = createFakeCodexDaemon();
-	let codexResponder = options.host?.onCodexCommand;
+	let daemon = createFakeDaemon();
+	let agentResponder = options.host?.onAgentCommand;
 	let claudeResponder = options.host?.onClaudeRun;
 	let claudeAckHandler = options.host?.onClaudeAck;
 	const attachHost = (graph: GatewayGraph, hostOptions: Pick<FakeHostOptions, "deferCatalog"> = {}): FakeHost =>
@@ -250,7 +250,7 @@ async function attachDomain(
 			token: set.tokens.host,
 			projects: [{ team: "fixture-app", projectPath: path.join(base.root, "fixture-app") }],
 			...options.host,
-			onCodexCommand: codexResponder,
+			onAgentCommand: agentResponder,
 			onClaudeRun: claudeResponder,
 			onClaudeAck: claudeAckHandler,
 			daemon,
@@ -281,7 +281,7 @@ async function attachDomain(
 		phone2: base.phoneFor(set, 2),
 		target: (team) => [set.domain.id, set.gateway.id, team].join("."),
 		restartGateway: async () => {
-			codexResponder = host.handlers.onCodexCommand;
+			agentResponder = host.handlers.onAgentCommand;
 			claudeResponder = host.handlers.onClaudeRun;
 			claudeAckHandler = host.handlers.onClaudeAck;
 			host.close();
@@ -291,11 +291,11 @@ async function attachDomain(
 			host = attachHost(currentGateway);
 		},
 		restartHost: (restart = {}) => {
-			codexResponder = host.handlers.onCodexCommand;
+			agentResponder = host.handlers.onAgentCommand;
 			claudeResponder = host.handlers.onClaudeRun;
 			claudeAckHandler = host.handlers.onClaudeAck;
 			host.close();
-			if (restart.newDaemon) daemon = createFakeCodexDaemon();
+			if (restart.newDaemon) daemon = createFakeDaemon();
 			host = attachHost(currentGateway, { deferCatalog: restart.deferCatalog ?? false });
 		},
 		close: async () => {

@@ -1,12 +1,15 @@
 import type { AgentBackendDescriptor } from "../shared/agent-backend.js";
 import { agentListAnswer, agentListRow, collectAnswer } from "../shared/agent-collect.js";
+import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import { agentErrorText } from "../shared/agent-identity.js";
+import { offeredModels } from "../shared/agent-models.js";
 import { type AgentStoredTurn, interruptingOperation, type PersistedAgent } from "../shared/agent-persisted.js";
 import { agentIdForOperation, publishedActivities } from "../shared/agent-record.js";
 import {
 	type AgentErrorCode,
 	type AgentGatewayRequest,
 	AgentGatewayRequestSchema,
+	AgentModelsAnswerSchema,
 	AgentRequestErrorSchema,
 	type AgentResult,
 	AgentResultSchema,
@@ -14,6 +17,7 @@ import {
 	agentResultDelivery,
 } from "../shared/agent-state.js";
 import type { Clock } from "../shared/ambient.js";
+import type { HostAgentModelsResult } from "../shared/host-op.js";
 import type { SessionRecord } from "../shared/session-store.js";
 import type { AgentCommands } from "./agentCommands.js";
 import type { AgentRelay } from "./agentRelay.js";
@@ -32,6 +36,7 @@ export interface AgentRouteDeps {
 	ambient: Clock;
 	waitBudgetMs?: number;
 	onCollected?: (ownerKey: string, agentId: string, turnIds: readonly string[]) => void;
+	listModels?: (target: AgentExecutionTarget) => Promise<HostAgentModelsResult | { kind: "unreachable" }>;
 }
 
 type Asked<Kind extends AgentGatewayRequest["kind"]> = Extract<AgentGatewayRequest, { kind: Kind }>;
@@ -79,6 +84,8 @@ export class AgentRoute {
 					return json(this.stop(owner, request));
 				case "list":
 					return json(this.list(owner, request));
+				case "models":
+					return this.models(owner);
 			}
 		} catch (error) {
 			if (!(error instanceof AgentTransitionError)) throw error;
@@ -140,6 +147,20 @@ export class AgentRoute {
 				model: agent.operations.find((operation) => operation.kind === "start")?.model,
 				latestPrompt: agent.operations.findLast((operation) => operation.prompt !== undefined)?.prompt,
 			}),
+		);
+	}
+
+	/** Live CLI model listing. */
+	private async models(owner: SessionRecord): Promise<Response> {
+		const failed = (message: string) =>
+			json({ error: { code: "daemon_unavailable", retryable: true, message: agentErrorText(message) } }, 503);
+		const target = this.deps.commands.resolveTarget(owner);
+		if (!target || !this.deps.listModels) return failed(`${this.name} has nowhere to run for this session`);
+		const listed = await this.deps.listModels(target);
+		if (listed.kind === "unreachable") return failed(`the host daemon is not connected`);
+		if (listed.kind === "refused") return failed(listed.reason || `${this.name} listed no models`);
+		return json(
+			AgentModelsAnswerSchema.parse({ models: offeredModels(listed.models, this.deps.backend.defaultModel) }),
 		);
 	}
 

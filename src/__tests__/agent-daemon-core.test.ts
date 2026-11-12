@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentDaemonCore, type AgentDaemonSession } from "../mcp/devcontainer/agentDaemonCore.js";
-import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/codexTargets.js";
+import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/agentTargets.js";
 import type { AgentResolvedTarget } from "../shared/agent-execution-target.js";
 
 const core = () =>

@@ -53,7 +53,6 @@ describe("host spawn residue", () => {
 		for (const sentinel of [
 			path.join("gateway", "wakeService.ts"),
 			path.join("gateway", "console", "consoleTargets.ts"),
-			path.join("gateway", "codexRoute.ts"),
 			path.join("gateway", "agentRoute.ts"),
 			path.join("mcp", "devcontainer", "hostDaemon.ts"),
 			path.join("mcp", "devcontainer", "hostResolve.ts"),

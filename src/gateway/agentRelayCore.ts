@@ -68,7 +68,7 @@ export interface AgentRelayFamily<
 	commandSchema: { safeParse(value: unknown): { success: boolean } };
 	listAgents(owner: SessionRecord): readonly TAgent[];
 	fenceInstanceId(agent: TAgent): string | undefined;
-	applyEvent(event: TEvent, at: number): AgentApplication<TAgent>;
+	applyEvent(event: TEvent, at: number, held?: boolean): AgentApplication<TAgent>;
 	applyReceipt(receipt: TReceipt, at: number): AgentApplication<TAgent>;
 	abandonStaleOperations(
 		owner: SessionRecord,
@@ -121,6 +121,15 @@ function agentKey(ownerKey: string, agentId: string): string {
 	return `${ownerKey} ${agentId}`;
 }
 
+/** Match replay stream identity. */
+function sameFrame(left: HeldFrame<AgentRelayFrame, AgentRelayFrame>, right: typeof left): boolean {
+	return (
+		left.frame === right.frame &&
+		left.message.eventId === right.message.eventId &&
+		heldStream(left.message) === heldStream(right.message)
+	);
+}
+
 // Refusals carry no stream.
 function isFenced(message: AgentRelayFrame): message is FencedFrame {
 	return "targetId" in message && "generation" in message;
@@ -143,6 +152,7 @@ export class AgentRelayCore<
 	private readonly reconciling = new Map<string, { requestId: string; askedAt: number }>();
 	private readonly lastReconcileAskedAt = new Map<string, { daemonInstanceId: string; askedAt: number }>();
 	private readonly deferred = new Map<string, Array<HeldFrame<TEvent, TReceipt>>>();
+	private readonly reasks = new Map<string, ReturnType<Ambient["setTimer"]>>();
 	private readonly progress = new Map<string, ProgressEntry>();
 	private readonly countedEvents = new Set<string>();
 
@@ -323,8 +333,8 @@ export class AgentRelayCore<
 		if (application.disposition === "applied") this.drainDeferred(receipt.ownerKey, receipt.agentId);
 	}
 
-	private reduceEvent(event: TEvent): void {
-		const application = this.family.applyEvent(event, this.now());
+	private reduceEvent(event: TEvent, held = false): void {
+		const application = this.family.applyEvent(event, this.now(), held);
 		const counter = this.family.counterEvent(event);
 		if (
 			counter &&
@@ -461,14 +471,7 @@ export class AgentRelayCore<
 	private defer(held: HeldFrame<TEvent, TReceipt>): void {
 		const key = agentKey(held.message.ownerKey, held.message.agentId);
 		const queue = this.deferred.get(key) ?? [];
-		// A reconnect replays; another stream reuses event ids.
-		const replayed = queue.some(
-			(existing) =>
-				existing.frame === held.frame &&
-				existing.message.eventId === held.message.eventId &&
-				heldStream(existing.message) === heldStream(held.message),
-		);
-		if (replayed) return;
+		if (queue.some((existing) => sameFrame(existing, held))) return;
 		queue.push(held);
 		this.deferred.set(key, queue);
 		while (queue.length > MAX_DEFERRED_PER_AGENT) {
@@ -493,7 +496,7 @@ export class AgentRelayCore<
 		if (!queue?.length) return;
 		// Replay in event order.
 		for (const held of [...queue].sort((left, right) => left.message.eventId - right.message.eventId)) {
-			if (held.frame === "event") this.reduceEvent(held.message);
+			if (held.frame === "event") this.reduceEvent(held.message, true);
 			else this.reduceReceipt(held.message);
 		}
 	}
@@ -524,8 +527,10 @@ export class AgentRelayCore<
 		const daemonInstanceId = this.deps.liveDaemonInstanceId();
 		if (!daemonInstanceId) return;
 		const previousAsk = this.lastReconcileAskedAt.get(key);
-		if (previousAsk?.daemonInstanceId === daemonInstanceId && now - previousAsk.askedAt < RECONCILE_GUARD_MS)
+		if (previousAsk?.daemonInstanceId === daemonInstanceId && now - previousAsk.askedAt < RECONCILE_GUARD_MS) {
+			this.askAgain(ownerKey, agent.agentId, previousAsk.askedAt + RECONCILE_GUARD_MS - now);
 			return;
+		}
 		const requestId = this.deps.ambient.newId();
 		this.reconciling.set(key, { requestId, askedAt: now });
 		if (!this.send(requestId, request)) {
@@ -533,6 +538,25 @@ export class AgentRelayCore<
 			return;
 		}
 		this.lastReconcileAskedAt.set(key, { daemonInstanceId, askedAt: now });
+	}
+
+	/** Retry after reconciliation guard. */
+	private askAgain(ownerKey: string, agentId: string, delayMs: number): void {
+		const key = agentKey(ownerKey, agentId);
+		if (this.reasks.has(key) || !this.deferred.has(key)) return;
+		const timer = this.deps.ambient.setTimer(
+			() => {
+				this.reasks.delete(key);
+				void this.serialize(ownerKey, agentId, () => {
+					if (!this.deferred.has(key)) return;
+					const owner = this.deps.sessionStore.getByTeam(ownerKey);
+					const agent = owner && this.family.listAgents(owner).find((held) => held.agentId === agentId);
+					if (agent) this.requestReconciliation(ownerKey, agent);
+				});
+			},
+			Math.max(0, delayMs),
+		);
+		this.reasks.set(key, timer);
 	}
 
 	private notifyChanged(ownerKey: string, agentId: string, application: AgentApplication<TAgent>): void {

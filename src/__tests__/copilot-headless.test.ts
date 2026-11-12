@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import type { AgentChild } from "../mcp/devcontainer/codexTargets.js";
+import type { AgentChild } from "../mcp/devcontainer/agentTargets.js";
 import {
 	CopilotHeadlessClient,
 	createHeadlessTransport,

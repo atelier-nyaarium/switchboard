@@ -11,15 +11,15 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const DEVCONTAINER = path.join(REPO_ROOT, "src", "mcp", "devcontainer");
 
 /** The one module that may hold how long a turn has been silent. */
-const OWNER = path.join(DEVCONTAINER, "codexLiveTurns.ts");
+const OWNER = path.join(DEVCONTAINER, "agentDaemonService.ts");
 
 /**
  * A turn's watchdog state, by the term only its owner has reason to write.
  *
- * Worth what a token check is worth: a second clock under another name walks past it. The class
- * itself is held by `codex-live-turns.test.ts`, which tests the behaviour rather than the spelling.
+ * Worth what a token check is worth: a second clock under another name walks past it.
+ * `agent-daemon-service.test.ts` holds the behavior.
  */
-const LIVENESS = /\bstrikes\b/;
+const LIVENESS = /\bwarned\b/;
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -67,10 +67,10 @@ describe("how long a turn has been silent lives with the turn", () => {
 
 	it("recognises the forbidden shape when planted, through the same stripping the sweep uses", () => {
 		const planted = [
-			{ file: "a.ts", source: `const watch = new Map<string, { at: number; strikes: number }>();` },
-			{ file: "b.ts", source: `if (seen.strikes === 0) interrupt();` },
-			{ file: "c.ts", source: `// strikes are counted elsewhere\nconst fine = 1;` },
-			{ file: "d.ts", source: `const note = "strikes";` },
+			{ file: "a.ts", source: `const watch = new Map<string, { at: number; warned: boolean }>();` },
+			{ file: "b.ts", source: `if (!seen.warned) interrupt();` },
+			{ file: "c.ts", source: `// warned is kept elsewhere\nconst fine = 1;` },
+			{ file: "d.ts", source: `const note = "warned";` },
 		].map((p) => ({ ...p, source: strip(p.source) }));
 		expect(offenders(planted)).toEqual(["a.ts", "b.ts"]);
 	});

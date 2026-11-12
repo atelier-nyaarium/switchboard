@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { COPILOT_BACKEND } from "../../shared/agent-backend.js";
 import { counterKindOfTool } from "../../shared/agent-counter.js";
 import type { AgentDaemonFailureCode } from "../../shared/agent-state.js";
-import type { AgentChild } from "../devcontainer/codexTargets.js";
+import type { AgentChild } from "../devcontainer/agentTargets.js";
 import {
 	type CopilotHeadlessClient,
 	defaultOpenCopilotClient,

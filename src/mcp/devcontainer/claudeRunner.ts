@@ -18,7 +18,7 @@ import {
 	type HostClaudeRunReply,
 	HostClaudeRunReplySchema,
 } from "../../shared/host-op.js";
-import { classifyAgentStderr, containerEnvArgs, scrubChildEnv } from "./codexTargets.js";
+import { classifyAgentStderr, containerEnvArgs, scrubChildEnv } from "./agentTargets.js";
 import { containerFor } from "./containers.js";
 import { resolveHostWorkdir } from "./hostResolve.js";
 

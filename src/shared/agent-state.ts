@@ -223,6 +223,8 @@ export const AgentStopInputSchema = z.object({ agentId: AgentIdSchema }).strict(
 export const AgentListInputSchema = z
 	.object({
 		agentId: AgentIdSchema.optional(),
+		// FIXME 2026-11-25: drop. Older plugins send it; ignored.
+		detail: z.enum(["summary", "full"]).optional(),
 		limit: z.number().int().positive().max(50).optional(),
 	})
 	.strict();
@@ -235,7 +237,14 @@ export const AgentGatewayRequestSchema = z.discriminatedUnion("kind", [
 	}).strict(),
 	AgentStopInputSchema.extend({ kind: z.literal("stop"), operationId: AgentOperationIdSchema }).strict(),
 	AgentListInputSchema.extend({ kind: z.literal("list") }).strict(),
+	z.object({ kind: z.literal("models") }).strict(),
 ]);
+
+export const AgentModelsAnswerSchema = z
+	.object({
+		models: z.array(z.object({ id: AgentModelSchema, default: z.literal(true).optional() }).strict()),
+	})
+	.strict();
 
 /** Routes narrow shared requests. */
 export function agentRequestIssue(backend: AgentBackendDescriptor, request: AgentGatewayRequest): string | undefined {

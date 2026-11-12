@@ -7,7 +7,7 @@ import { restoreDurable, writeChecked } from "../../shared/durable-store.js";
 import { isReservedHostSession } from "../../shared/host-op.js";
 import type { HostSpawnState } from "../../shared/host-spawn.js";
 import { PlaneRegistry } from "../../shared/plane-registry.js";
-import { type CodexCatalogWriter, type PersistedAgentCatalogWriter, SessionStore } from "../../shared/session-store.js";
+import { type PersistedAgentCatalogWriter, SessionStore } from "../../shared/session-store.js";
 import type { TrustedCatalogProject } from "../console/consoleTypes.js";
 import { PresenceFacade } from "../presence.js";
 import { ReadAnchors } from "../readAnchors.js";
@@ -33,7 +33,6 @@ export interface SessionsStage {
 	isTrustedCatalogProject: TrustedCatalogProject;
 	isAvailableProject: (name: string) => boolean;
 	sessionStore: SessionStore;
-	codexCatalogWriter: CodexCatalogWriter;
 	agentCatalogWriters: ReadonlyMap<AgentBackendId, PersistedAgentCatalogWriter>;
 	sessionReporter: ReturnType<typeof createSessionRegistryReporter>;
 	planeRegistry: PlaneRegistry;
@@ -65,7 +64,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 	const { isTrustedCatalogProject, isAvailableProject } = createProjectPredicates(offlineCatalog, knownTeamPaths);
 
 	let persistAgentCatalogChecked: (() => boolean | undefined) | undefined;
-	let codexCatalogWriter: CodexCatalogWriter | undefined;
 	const agentCatalogWriters = new Map<AgentBackendId, PersistedAgentCatalogWriter>();
 	const persistChecked = () => {
 		if (!persistAgentCatalogChecked) throw new Error("Agent persistence is not initialized");
@@ -74,12 +72,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 	const sessionStore = new SessionStore({
 		ambient,
 		clash: (id) => isTrustedCatalogProject(id) || isReservedHostSession(id),
-		codexCatalogPersistence: {
-			persistChecked,
-			receiveWriter: (writer) => {
-				codexCatalogWriter = writer;
-			},
-		},
 		agentCatalogPersistence: {
 			persistChecked,
 			receiveWriter: (backend, writer) => {
@@ -136,7 +128,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		return result.confirmed;
 	};
 	persistAgentCatalogChecked = saveSessionsChecked;
-	if (!codexCatalogWriter) throw new Error("Agent catalog writers were not initialized");
 
 	return {
 		registry,
@@ -147,7 +138,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		isTrustedCatalogProject,
 		isAvailableProject,
 		sessionStore,
-		codexCatalogWriter,
 		agentCatalogWriters,
 		sessionReporter,
 		planeRegistry,
