@@ -783,6 +783,9 @@ no TTL.
   grants; only a missing folder returns to the picker.
 - **Composer drafts** (`Draft.kt`, `DraftStrip.kt`): drafts are per-team store state. File tiles key
   by file, not position. `Draft.locations` preserves source metadata and every writer must copy it.
+  Send takes the draft from the state in one step (`sendDraft`, `takeDraft`), never the text the
+  screen last drew, so a second tap before a redraw sends nothing. A send refused before the thread
+  has it hands the draft back.
 - **Thumbnail sizing** (`ImageThumbs.kt`): bound both short and long edges. Extreme aspect ratios
   otherwise decode at full size.
 - **Scheduled send** (`ScheduledSend.kt`, `ScheduledSendOps.kt`): one record per team, held by the

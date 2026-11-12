@@ -47,21 +47,24 @@ keeps it across reconnects.
   (`mcp/bridge/channelPushDelivery.ts`), so a row re-offered after a lost ack is acked again without
   reaching the session twice. A restart forgets, so delivery stays at least once.
 - Claude receives channel pushes as MCP notifications. Copilot receives the same content and
-  metadata in a `<channel source="switchboard">` tag typed into its own host pane.
+  metadata in a `<channel source="switchboard">` tag typed into its own pane, on the host or in its
+  container.
 - A Copilot session is confirmed at registration by its launch token, since it has no channel to
   answer a handshake through. One socket types for the pane: the register names its agent process
   (`agentPid`), a plugin reloaded under the same agent (Copilot's `/clear` and `/resume` start a new
   one and may leave the old running) replaces the held socket, and one under another agent, a nested
   process inheriting the token, is refused. Either loser gets `handshake_reject` and stops
   reconnecting, so no push is typed twice.
-- `/session/type` requires the caller's confirmed Copilot host-session token. The Gateway derives the
-  pane from that session record and caps text at 128 KB. The host serializes typing with other sends,
+- `/session/type` requires the caller's own confirmed session token, for a CLI whose delivery is
+  typed. The Gateway derives the pane from that session record, a host pane or a container's, and
+  caps text at 128 KB. A pane that reads logged out answers busy. The host serializes typing with other sends,
   polls the pane once per second, drops control characters but tab and newline so nothing ends the
   bracketed paste early, and answers `{ typed: false, reason: "busy" }` when its 200-second wait
   expires.
 - A typing request carries a key, the delivery id when there is one, which the host scopes to the
-  session and holds for a minute once typed, so a retry after a lost answer replays rather than types
-  twice. A busy answer is not held.
+  session and holds past the sender's last retry of it (`TYPED_GIVE_UP_MS`, read by both ends), so a
+  retry after a lost answer replays rather than types twice. A busy answer is not held. The hold is
+  in memory, so a daemon restart inside the window can type a retried tag again.
 - Copilot channel and response pushes share one arrival-order queue. A busy answer retries after one
   second for as long as the turn runs. A 503, a 504 or a network failure backs off up to 30 seconds and
   gives up after 15 minutes, leaving a channel row held for the next connection. A channel row is
@@ -130,6 +133,11 @@ neutralizer for model-bound text.
 
 **`shared/session-id.ts`** owns session/team key production, separators, slug validation, `Address`,
 `SpawnPoint`, and target parsing. Kotlin mirrors it through the shared fixture vectors.
+
+A segment is lowercase letters and digits, then also `-` and `_` (`SLUG_RE`). A pane name, a console
+target's project and a conversation id read the same rule. A project folder whose name is no segment
+is left out of the catalog, and the daemon logs which. A reader checks a name off the wire and drops
+the row that fails, since one asserted name once lost the phone a whole roster update.
 
 Two target grammars, one per door. A session at the MCP door names a local team field (`spawn` or
 `spawn.session`) or a qualified address, and `parseTarget` fills this Gateway's Domain and id into
@@ -220,6 +228,14 @@ CLI with no row included.
 **Which CLIs a spawn point runs** travels as one `harnessSpawns` map from the daemon's catalog to the
 phone, where the create dialog offers them.
 
+**In a container, each found CLI is set up its own way.** The daemon asks a started container which
+CLIs it has, then installs each one's plugins by its row (`plugins` on the row,
+`pluginProvisioning.ts`), remembered per container incarnation and retried at the next launch until
+it lands. A launch whose CLI's plugins did not install fails with that reason, since that CLI could
+never register. OpenCode needs no plugin install: its launcher and the plugin's runtime are copied
+into the container by version (`containerSite.ts`). Copilot's compaction is read from its events
+file inside the container (`execEventsFile` in `copilotCompaction.ts`).
+
 **A session is greeted on each launch until it first confirms.**
 
 ### OpenCode
@@ -298,8 +314,9 @@ and holds until the session registers and the daemon answers (`WakeCoordinator.d
   failed on the daemon's typed failure, or `timeout` when its countdown runs out. A waiter's own
   timeout or a dropped host link settles nothing. A registered session wins over a late failure.
 - **Who is told, and how:** a session sender by the awareness bank, a relayed send on its reply
-  road, the owner by a line in the session's thread (`tellOwnerLaunch`, quiet when it came up), and a
-  routine run through `tellRoutine`, which stops it for review or walks it again.
+  road, the owner only when it failed, by a `notice` row marked `launch: "failed"` that the phone
+  docks and never threads (`tellOwnerLaunch`; a launch that came up posts nothing), and a routine
+  run through `tellRoutine`, which stops it for review or walks it again.
 - **A create is a wake with the create door** (`door: "create"`), sent only for a record just made, so
   the daemon leaves a pane it finds. A held record's Create, like any wake, repairs a pane whose CLI
   reads gone. The Gateway never sends the `createSession` host op; the daemon reads it from an
