@@ -2,6 +2,7 @@ import type { AgentBackendId } from "../../shared/agent-backend.js";
 import type { AgentNotice } from "../../shared/agent-notice.js";
 import type { AgentDaemonFailureCode, AgentServiceTier } from "../../shared/agent-state.js";
 import type { AgentTurnMarks } from "../../shared/agent-turn-marks.js";
+import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import type { AgentBackendSession } from "../agents/backendSession.js";
 import type { LocalExchangeRecord } from "./localAgentHandlers.js";
 import { LocalAgentHandlers } from "./localAgentHandlers.js";
@@ -97,6 +98,8 @@ export class LocalAgentRuntime {
 	private readonly ledger: LocalOperationLedger;
 	private readonly child: LocalChildSession;
 	private readonly handlers: LocalAgentHandlers;
+	/** One message or stop per agent at a time, as the daemon runs them. */
+	private readonly perAgent = createKeyedFifo<string>();
 	private inFlight = 0;
 
 	constructor(
@@ -108,6 +111,7 @@ export class LocalAgentRuntime {
 			spec: this.spec,
 			now: this.now,
 			open: () => this.child.open(),
+			drop: (session) => this.child.drop(session),
 			markUsed: (at) => this.child.markUsed(at),
 		});
 		this.child = new LocalChildSession({
@@ -115,7 +119,7 @@ export class LocalAgentRuntime {
 			now: this.now,
 			inFlight: () => this.inFlight,
 			hasActiveTurn: () => this.handlers.hasActiveTurn(),
-			onActivity: (turnId, text) => this.handlers.recordActivity(turnId, text),
+			onClosed: (session) => this.handlers.closed(session),
 		});
 	}
 
@@ -144,11 +148,11 @@ export class LocalAgentRuntime {
 			case "start":
 				return await this.handlers.start(request);
 			case "message":
-				return await this.handlers.message(request);
+				return await this.perAgent.run(request.agentId ?? "", () => this.handlers.message(request));
 			case "await":
 				return this.handlers.collect(request);
 			case "stop":
-				return await this.handlers.stop(request);
+				return await this.perAgent.run(request.agentId ?? "", () => this.handlers.stop(request));
 			default:
 				return { refused: `unsupported request: ${request.kind}` };
 		}

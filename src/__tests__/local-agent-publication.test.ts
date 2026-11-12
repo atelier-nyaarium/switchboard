@@ -20,22 +20,41 @@ class ValueBackendAdapter implements AgentBackendSession {
 	private activity?: (turnId: string, text: string) => void;
 	private closed?: () => void;
 	private sequence = 0;
+	private threads = 0;
 	openThreadGate?: Promise<void>;
 	// Absent, like Copilot's session, when steering is unsupported.
 	steerTurn?: (threadId: string, turnId: string, prompt: string) => Promise<void>;
 	inspectTurn?: AgentBackendSession["inspectTurn"];
 	adoptTurn?: AgentBackendSession["adoptTurn"];
-	constructor(private readonly options: { openError?: Error; startError?: Error; steer?: boolean } = {}) {
+	resumeThread?: AgentBackendSession["resumeThread"];
+	readonly resumed: Array<{ threadId: string; cwd: string }> = [];
+	constructor(
+		private readonly options: {
+			openError?: Error;
+			startError?: Error;
+			steer?: boolean;
+			/** Speaks of a turn before naming it. */
+			early?: string;
+			resume?: boolean;
+		} = {},
+	) {
 		if (options.steer !== false) this.steerTurn = async () => {};
+		if (options.resume)
+			this.resumeThread = async (threadId, cwd) => {
+				this.resumed.push({ threadId, cwd });
+			};
 	}
 	async openThread(): Promise<string> {
 		if (this.openThreadGate) await this.openThreadGate;
 		if (this.options.openError) throw this.options.openError;
-		return "thread-1";
+		// A thread per agent, as every driver opens.
+		return `thread-${++this.threads}`;
 	}
 	async startTurn(): Promise<TurnHandle> {
 		if (this.options.startError) throw this.options.startError;
-		return this.running(`turn-${++this.sequence}`);
+		const turnId = `turn-${++this.sequence}`;
+		if (this.options.early) this.emitActivity(turnId, this.options.early);
+		return this.running(turnId);
 	}
 	running(turnId: string): TurnHandle {
 		let resolve!: (value: TurnTerminal) => void;
@@ -414,6 +433,61 @@ describe("local publication", () => {
 			{ agentState: "idle", running: null, turns: [{ id: "turn-1", state: "completed" }] },
 			{ agentState: "idle", running: null, turns: [{ id: "turn-2", state: "completed" }] },
 		]);
+	});
+
+	it("keeps what a child said of a turn before the turn was named", async () => {
+		const h = setup("codex", { early: "thinking" });
+
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "work" }));
+
+		expect(started.activities).toEqual([{ kind: "commentary", text: "thinking" }]);
+	});
+
+	it("resumes an agent's thread on the child that replaces a reaped one", async () => {
+		const h = setup("codex", { resume: true });
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "work", cwd: "/workspace/app" }));
+		await turnReady(h.backend);
+		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
+		await turnEnded(h.runtime, started.agentId);
+		h.advance(LOCAL_IDLE_REAP_MS);
+		expect(h.runtime.reapIfIdle()).toBe(true);
+
+		const followed = answered(
+			await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "more" }),
+		);
+
+		expect(followed).toMatchObject({ observation: "accepted", turn: { id: "turn-2" } });
+		expect(h.backend.resumed).toEqual([{ threadId: "thread-1", cwd: "/workspace/app" }]);
+	});
+
+	it("says an agent ended with its process when its thread cannot be resumed", async () => {
+		const h = setup();
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "work" }));
+		await turnReady(h.backend);
+		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
+		await turnEnded(h.runtime, started.agentId);
+		h.advance(LOCAL_IDLE_REAP_MS);
+		h.runtime.reapIfIdle();
+
+		const followed = answered(
+			await h.runtime.handle({ kind: "message", agentId: started.agentId, prompt: "more" }),
+		);
+
+		expect(followed).toMatchObject({
+			observation: "unavailable",
+			error: { message: "Codex agent ended with its process" },
+		});
+	});
+
+	it("ends as lost the turns a child was running when it closed", async () => {
+		const h = setup();
+		const started = answered(await h.runtime.handle({ kind: "start", prompt: "work" }));
+		await turnReady(h.backend);
+
+		h.backend.close();
+
+		const agent = h.runtime.list().find((candidate) => candidate.agentId === started.agentId);
+		expect(agent).toMatchObject({ agentState: "idle", turns: [{ id: "turn-1", state: "interrupted" }] });
 	});
 
 	it("reaps only an idle resumable backend at the controlled timestamp", async () => {

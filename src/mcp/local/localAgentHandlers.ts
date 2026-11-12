@@ -2,16 +2,16 @@ import crypto from "node:crypto";
 import { collectAnswer } from "../../shared/agent-collect.js";
 import { emptyAgentProgressCounts } from "../../shared/agent-counter.js";
 import { AGENT_PROGRESS_EVERY_MS } from "../../shared/agent-notice.js";
-import { AGENT_ERROR_MAX_BYTES, agentIdForOperation, sanitizeAgentErrorText } from "../../shared/agent-record.js";
+import {
+	AGENT_ERROR_MAX_BYTES,
+	AGENT_TURN_LOST_REASON,
+	agentIdForOperation,
+	sanitizeAgentErrorText,
+} from "../../shared/agent-record.js";
 import { agentResultDelivery, type AgentServiceTier as CodexServiceTier } from "../../shared/agent-state.js";
 import { type AgentTurnMarks, collectTurns } from "../../shared/agent-turn-marks.js";
-import {
-	type AgentBackendSession,
-	settledNow,
-	type TurnHandle,
-	type TurnOptions,
-	type TurnTerminal,
-} from "../agents/backendSession.js";
+import type { AgentBackendSession, TurnOptions, TurnTerminal } from "../agents/backendSession.js";
+import { type MessageOutcome, TurnRunner } from "../agents/turnRunner.js";
 import type {
 	LocalAgentAnswer,
 	LocalAgentState,
@@ -28,6 +28,8 @@ export interface LocalHandlerHost {
 	spec: LocalBackendSpec;
 	now(): number;
 	open(): Promise<AgentBackendSession>;
+	/** Ends a child past saving. */
+	drop(session: AgentBackendSession): void;
 	markUsed(at?: number): void;
 }
 
@@ -54,6 +56,8 @@ export interface LocalExchangeRecord {
 interface LocalAgentRecord {
 	agentId: string;
 	threadId: string;
+	/** Where its thread is resumed. */
+	cwd: string;
 	createdAt: number;
 	updatedAt: number;
 	activeTurnId?: string;
@@ -64,9 +68,10 @@ interface LocalAgentRecord {
 	turns: LocalTurnRecord[];
 	turnMarks: AgentTurnMarks;
 	exchanges: LocalExchangeRecord[];
-	settled?: Promise<TurnTerminal>;
 	progress?: ReturnType<typeof setInterval>;
 }
+
+const WATCH_EVERY_MS = 30_000;
 
 function errorText(error: unknown): string {
 	const text = error instanceof Error ? error.message : String(error);
@@ -75,6 +80,11 @@ function errorText(error: unknown): string {
 
 export class LocalAgentHandlers {
 	private readonly agents = new Map<string, LocalAgentRecord>();
+	/** One runner per child, made before its first turn, with its silent-turn sweep. */
+	private readonly runners = new WeakMap<
+		AgentBackendSession,
+		{ runner: TurnRunner<LocalAgentRecord>; sweep: ReturnType<typeof setInterval> }
+	>();
 
 	constructor(private readonly host: LocalHandlerHost) {}
 
@@ -118,12 +128,14 @@ export class LocalAgentHandlers {
 		} catch (error) {
 			return this.unavailable(agentId, error);
 		}
+		const runner = this.runnerOf(session);
 
 		const createdAt = this.host.now();
+		const cwd = request.cwd ?? this.host.spec.defaultCwd();
 		let threadId: string;
 		try {
 			threadId = await session.openThread({
-				cwd: request.cwd ?? this.host.spec.defaultCwd(),
+				cwd,
 				model: request.model,
 				serviceTier: request.serviceTier,
 				reasoningEffort: request.reasoningEffort,
@@ -135,6 +147,7 @@ export class LocalAgentHandlers {
 		const agent: LocalAgentRecord = {
 			agentId,
 			threadId,
+			cwd,
 			createdAt,
 			updatedAt: createdAt,
 			...(request.serviceTier === undefined ? {} : { serviceTier: request.serviceTier }),
@@ -144,10 +157,17 @@ export class LocalAgentHandlers {
 			exchanges: [],
 		};
 		this.agents.set(agentId, agent);
-		return this.dispatchTurn(session, agent, prompt, "start", {
-			outputSchema: request.outputSchema,
-			key: operationId,
-		});
+		runner.remember(threadId, agent);
+		const settings: TurnOptions = { outputSchema: request.outputSchema, key: operationId };
+		let turnId: string;
+		try {
+			turnId = await runner.begin(threadId, agent, prompt, settings, (opened) =>
+				this.openTurn(agent, opened, prompt, "start"),
+			);
+		} catch (error) {
+			return this.unavailable(agentId, error);
+		}
+		return this.acceptedAnswer(agent, turnId, this.startedDelivery("start"));
 	}
 
 	async message(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal> {
@@ -161,54 +181,51 @@ export class LocalAgentHandlers {
 			return this.unavailable(agent.agentId, error);
 		}
 
-		// One key for the steer and the turn it may fall back to: one prompt.
-		const key = request.operationId ?? crypto.randomUUID();
 		const active = this.activeTurn(agent);
-		if (active) {
-			if (agent.interruptingTurnId === active.id)
-				return { refused: `agent cannot accept a message while interrupting` };
-			// Refuse busy requests when steering is unavailable.
-			if (!session.steerTurn) return { refused: this.host.spec.busyMessage ?? `agent is still working` };
-			let steerError: unknown;
-			let taken = false;
-			try {
-				taken = (await session.steerTurn(agent.threadId, active.id, prompt, key)) === "taken";
-			} catch (error) {
-				steerError = error;
-			}
-			if (!taken && agent.settled) await settledNow(agent.settled);
-			if (steerError !== undefined && this.activeTurn(agent) === active) {
-				// Driver may retain terminal.
-				const seen = await session.inspectTurn?.(agent.threadId, active.id).catch(() => undefined);
-				if (seen?.known === "settled") this.applyTerminal(agent, active.id, seen.terminal);
-			}
-			if (taken || this.activeTurn(agent) === active) {
-				if (steerError !== undefined) return this.unavailable(agent.agentId, steerError);
-				const at = this.touch(agent);
-				agent.exchanges.push({
-					kind: "message",
-					prompt,
-					status: "accepted",
-					delivery: "steered",
-					turnId: active.id,
-					createdAt: at,
-					acceptedAt: at,
-				});
-				if (request.serviceTier !== undefined) agent.serviceTier = request.serviceTier;
-				return this.acceptedAnswer(agent, active.id, "steered");
-			}
-			// The turn ended under the steer, so the prompt opens a new one.
-		}
-
+		if (active && agent.interruptingTurnId === active.id)
+			return { refused: `agent cannot accept a message while interrupting` };
 		const serviceTier = request.serviceTier ?? agent.serviceTier;
-		const answer = await this.dispatchTurn(session, agent, prompt, "message", {
-			model: agent.model,
-			serviceTier,
-			outputSchema: request.outputSchema,
-			key,
-		});
-		if (serviceTier !== undefined && answer.observation !== "unavailable") agent.serviceTier = serviceTier;
-		return answer;
+		let outcome: MessageOutcome;
+		try {
+			outcome = await this.runnerOf(session).message(
+				agent.threadId,
+				agent,
+				prompt,
+				{
+					expectedTurnId: agent.activeTurnId,
+					cwd: agent.cwd,
+					model: agent.model,
+					serviceTier,
+					outputSchema: request.outputSchema,
+					// One key for the steer and the turn it may fall back to: one prompt.
+					key: request.operationId ?? crypto.randomUUID(),
+				},
+				(accepted) => {
+					if (accepted.kind === "started") return this.openTurn(agent, accepted.turnId, prompt, "message");
+					const at = this.touch(agent);
+					agent.exchanges.push({
+						kind: "message",
+						prompt,
+						status: "accepted",
+						delivery: "steered",
+						turnId: accepted.turnId,
+						createdAt: at,
+						acceptedAt: at,
+					});
+				},
+			);
+		} catch (error) {
+			return this.unavailable(agent.agentId, error);
+		}
+		if (outcome.kind === "busy") return { refused: this.host.spec.busyMessage ?? `agent is still working` };
+		if (outcome.kind === "ended")
+			return this.unavailable(agent.agentId, `${this.host.spec.displayName} agent ended with its process`);
+		if (outcome.kind === "steered") {
+			if (request.serviceTier !== undefined) agent.serviceTier = request.serviceTier;
+			return this.acceptedAnswer(agent, outcome.turnId, "steered");
+		}
+		if (serviceTier !== undefined) agent.serviceTier = serviceTier;
+		return this.acceptedAnswer(agent, outcome.turnId, this.startedDelivery("message"));
 	}
 
 	/** Returns uncollected ended turns. */
@@ -247,10 +264,16 @@ export class LocalAgentHandlers {
 			return this.unavailable(agent.agentId, error);
 		}
 		agent.interruptingTurnId = active.id;
-		try {
-			await session.interruptTurn(agent.threadId, active.id);
-		} catch (error) {
+		const forget = () => {
 			if (agent.interruptingTurnId === active.id) agent.interruptingTurnId = undefined;
+		};
+		try {
+			if (!(await this.runnerOf(session).interrupt(agent.threadId, active.id))) {
+				forget();
+				return this.unavailable(agent.agentId, `${this.host.spec.displayName} turn is no longer active`);
+			}
+		} catch (error) {
+			forget();
 			return this.unavailable(agent.agentId, error);
 		}
 		return {
@@ -262,67 +285,76 @@ export class LocalAgentHandlers {
 		};
 	}
 
-	recordActivity(turnId: string, text: string): void {
-		if (!text) return;
-		for (const agent of this.agents.values()) {
-			const turn = agent.turns.find((candidate) => candidate.id === turnId);
-			if (turn?.state !== "inProgress") continue;
-			turn.commentary.push(text);
-			while (turn.commentary.length > this.host.spec.maxActivities) {
-				turn.commentary.shift();
-				turn.omitted += 1;
-			}
-			turn.updatedAt = this.host.now();
-			agent.updatedAt = Math.max(agent.updatedAt, turn.updatedAt);
-			return;
-		}
+	/** A child that closed: the turns it still ran are lost. */
+	closed(session: AgentBackendSession): void {
+		const held = this.runners.get(session);
+		if (!held) return;
+		this.runners.delete(session);
+		clearInterval(held.sweep);
+		const lost = held.runner.activeTurns();
+		held.runner.clear();
+		for (const turn of lost)
+			this.applyTerminal(turn.owner, turn.turnId, { status: "interrupted", reason: AGENT_TURN_LOST_REASON });
 	}
 
-	private async dispatchTurn(
-		session: AgentBackendSession,
-		agent: LocalAgentRecord,
-		prompt: string,
-		kind: "start" | "message",
-		settings: TurnOptions = {},
-	): Promise<LocalAgentAnswer> {
-		let handle: TurnHandle;
-		try {
-			handle = await session.startTurn(agent.threadId, prompt, settings);
-		} catch (error) {
-			const running = await session.adoptTurn?.(agent.threadId).catch(() => undefined);
-			// A turn already held is another prompt's.
-			if (!running || agent.turns.some((turn) => turn.id === running.turnId))
-				return this.unavailable(agent.agentId, error);
-			handle = running;
-		}
+	/** The child's runner, which takes its activity from then on. */
+	private runnerOf(session: AgentBackendSession): TurnRunner<LocalAgentRecord> {
+		const known = this.runners.get(session);
+		if (known) return known.runner;
+		const runner = new TurnRunner<LocalAgentRecord>(session, {
+			now: () => this.host.now(),
+			terminal: (turn, terminal) => this.applyTerminal(turn.owner, turn.turnId, terminal),
+			activity: (turn, text) => this.recordActivity(turn.owner, turn.turnId, text),
+			counter: () => {},
+			giveUp: (silent) => {
+				console.error(
+					`[${this.host.spec.backendId}-local] dropping its child: ${silent.threadId} made no progress on ${silent.turnId}`,
+				);
+				this.host.drop(session);
+			},
+			log: (line) => console.error(`[${this.host.spec.backendId}-local] ${line}`),
+		});
+		const sweep = setInterval(
+			() => void runner.watch(() => this.runners.get(session)?.runner === runner),
+			WATCH_EVERY_MS,
+		);
+		sweep.unref?.();
+		this.runners.set(session, { runner, sweep });
+		return runner;
+	}
 
+	private recordActivity(agent: LocalAgentRecord, turnId: string, text: string): void {
+		const turn = agent.turns.find((candidate) => candidate.id === turnId);
+		if (turn?.state !== "inProgress") return;
+		turn.commentary.push(text);
+		while (turn.commentary.length > this.host.spec.maxActivities) {
+			turn.commentary.shift();
+			turn.omitted += 1;
+		}
+		turn.updatedAt = this.host.now();
+		agent.updatedAt = Math.max(agent.updatedAt, turn.updatedAt);
+	}
+
+	private startedDelivery(kind: "start" | "message"): string {
+		return agentResultDelivery(kind, "started") ?? "started";
+	}
+
+	/** Records a turn the moment it is known, ahead of anything its child said of it. */
+	private openTurn(agent: LocalAgentRecord, turnId: string, prompt: string, kind: "start" | "message"): void {
 		const at = this.touch(agent);
-		const turn: LocalTurnRecord = {
-			id: handle.turnId,
-			state: "inProgress",
-			commentary: [],
-			omitted: 0,
-			updatedAt: at,
-		};
+		const turn: LocalTurnRecord = { id: turnId, state: "inProgress", commentary: [], omitted: 0, updatedAt: at };
 		agent.turns.push(turn);
 		agent.activeTurnId = turn.id;
-		// Register the turn before racing its terminal.
-		const settled = handle.settled.catch((error): TurnTerminal => ({ status: "failed", error: errorText(error) }));
-		agent.settled = settled;
-		const delivery = agentResultDelivery(kind, "started") ?? "started";
 		agent.exchanges.push({
 			kind,
 			prompt,
 			status: "accepted",
-			delivery,
+			delivery: this.startedDelivery(kind),
 			turnId: turn.id,
 			createdAt: at,
 			acceptedAt: at,
 		});
-		void settled.then((terminal) => this.applyTerminal(agent, turn.id, terminal));
 		this.watchProgress(agent, turn);
-
-		return this.acceptedAnswer(agent, turn.id, delivery);
 	}
 
 	/** The turn as taken, without waiting on it; a completion notice follows. */
@@ -360,7 +392,6 @@ export class LocalAgentHandlers {
 	}
 
 	private applyTerminal(agent: LocalAgentRecord, turnId: string, terminal: TurnTerminal): void {
-		// Apply the terminal once because listener and waiter paths race.
 		const turn = agent.turns.find((candidate) => candidate.id === turnId);
 		if (turn?.state !== "inProgress") return;
 		turn.state = terminal.status;
@@ -371,7 +402,6 @@ export class LocalAgentHandlers {
 		if (agent.interruptingTurnId === turnId) agent.interruptingTurnId = undefined;
 		if (agent.activeTurnId === turnId) {
 			agent.activeTurnId = undefined;
-			agent.settled = undefined;
 			if (agent.progress) clearInterval(agent.progress);
 			agent.progress = undefined;
 		}

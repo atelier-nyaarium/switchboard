@@ -6,7 +6,8 @@ export interface LocalChildHost {
 	now(): number;
 	inFlight(): number;
 	hasActiveTurn(): boolean;
-	onActivity(turnId: string, text: string): void;
+	/** A child that closed, by reap, by drop or on its own. */
+	onClosed(session: AgentBackendSession): void;
 }
 
 /** Idle duration before local child reaping. */
@@ -26,11 +27,18 @@ export class LocalChildSession {
 		if (this.host.inFlight() > 0) return false;
 		if (this.host.now() - this.lastUsedAt < LOCAL_IDLE_REAP_MS) return false;
 		if (this.host.hasActiveTurn()) return false;
-		// Clear locally even if close omits its callback.
-		this.session.close();
-		this.session = undefined;
-		this.opening = undefined;
+		this.drop(this.session);
 		return true;
+	}
+
+	/** Ends a child. The next open starts another. */
+	drop(session: AgentBackendSession): void {
+		// Clear locally even if close omits its callback.
+		if (this.session === session) {
+			this.session = undefined;
+			this.opening = undefined;
+		}
+		session.close();
 	}
 
 	markUsed(at: number = this.host.now()): void {
@@ -45,10 +53,10 @@ export class LocalChildSession {
 			.openSession()
 			.then((session) => {
 				this.session = session;
-				session.onActivity((turnId, text) => this.host.onActivity(turnId, text));
 				// Identity-guard late closes from evicting successors.
 				session.onClosed(() => {
 					if (this.session === session) this.session = undefined;
+					this.host.onClosed(session);
 				});
 				return session;
 			})
