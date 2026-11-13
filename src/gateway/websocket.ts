@@ -670,7 +670,7 @@ export function createWebSocketHandlers({
 		const claudeSessionId = ws.data.claudeSessionId;
 		let handover = false;
 		if (claudeSessionId) {
-			const holder = sessionStore.resumeRecord(claudeSessionId);
+			const holder = sessionStore.byClaudeTranscript(claudeSessionId);
 			if (holder && sessionStore.teamOf(holder) !== pending.team) {
 				const holderTeam = sessionStore.teamOf(holder);
 				const live = resolveLiveIncarnation(registry, sessionStore, holderTeam);

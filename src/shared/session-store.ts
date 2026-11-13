@@ -411,7 +411,7 @@ export class SessionStore {
 		return record ? this.bind(record, extra) : null;
 	}
 
-	resumeRecord(claudeSessionId: string): SessionRecord | undefined {
+	byClaudeTranscript(claudeSessionId: string): SessionRecord | undefined {
 		for (const record of this.records.values()) {
 			if (record.claudeSessionId === claudeSessionId) return record;
 		}
@@ -430,7 +430,7 @@ export class SessionStore {
 	}
 
 	bindResume(claudeSessionId: string, extra: { live?: LiveRef } = {}): SessionRecord | null {
-		const record = this.resumeRecord(claudeSessionId);
+		const record = this.byClaudeTranscript(claudeSessionId);
 		return record ? this.bind(record, { claudeSessionId, live: extra.live }) : null;
 	}
 

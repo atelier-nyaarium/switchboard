@@ -47,7 +47,7 @@ function make() {
 	const reported = new Set<string>();
 	const service = createReadAnchorsService({
 		registry,
-		hasSession: (_domainId, gatewayId, sessionId) => reported.has(`${gatewayId}/${sessionId}`),
+		reported: (_domainId, gatewayId, sessionId) => reported.has(`${gatewayId}/${sessionId}`),
 		pokeOwner: (id, result) => planes.push({ domainId: id, version: result.version, payload: result }),
 	});
 	service.register(hooks);

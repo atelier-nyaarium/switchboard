@@ -50,7 +50,7 @@ function show(plan: SweepPlan): void {
 				: `unnamed threads touched since ${new Date(row.liveSince).toISOString()}`;
 		console.log(`left at ${row.place} ${row.backend}: ${since}, since a session's own CLI is running there`);
 	}
-	if (plan.stopped.length > 0) console.log(`not swept, container not running: ${plan.stopped.join(", ")}`);
+	if (plan.stopped.length > 0) console.log(`not swept, container not up: ${plan.stopped.join(", ")}`);
 	if (plan.unreached.length > 0) console.log(`not swept, store not listed: ${plan.unreached.join(", ")}`);
 }
 

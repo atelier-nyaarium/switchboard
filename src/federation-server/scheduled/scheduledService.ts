@@ -33,7 +33,7 @@ export interface ScheduledDeps {
 	referenceHeld: Pick<ReferenceHeldStore, "has" | "publish">;
 	scheduler: ScheduledScheduler;
 	/** Whether a Gateway still reports the session. Absent sweeps nothing. */
-	hasSession?: (domainId: string, gatewayId: string, sessionId: string) => boolean;
+	reported?: (domainId: string, gatewayId: string, sessionId: string) => boolean;
 	now: () => number;
 }
 
@@ -203,13 +203,13 @@ export function createScheduledService(deps: ScheduledDeps) {
 
 	/** Armed sends, a day old, to a session no Gateway reports. Answers how many were cancelled. */
 	function sweepOrphans(domainId: string, now: number): number {
-		const hasSession = deps.hasSession;
-		if (!hasSession) return 0;
+		const reported = deps.reported;
+		if (!reported) return 0;
 		let cancelled = 0;
 		for (const record of list(domainId)) {
 			if (record.state !== "armed" || now - record.createdAt < ORPHAN_SEND_MS) continue;
 			const { gatewayId, sessionId } = record.target;
-			if (record.target.domainId !== domainId || hasSession(domainId, gatewayId, sessionId)) continue;
+			if (record.target.domainId !== domainId || reported(domainId, gatewayId, sessionId)) continue;
 			if (forgetSession(domainId, gatewayId, sessionId)) cancelled += 1;
 		}
 		return cancelled;

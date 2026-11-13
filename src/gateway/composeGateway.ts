@@ -138,23 +138,39 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			if (released) fireAndForget(`board release for ${team}`, released);
 		},
 		ended: (team) => {
-			awareness.awareness.dropFor(team);
-			vault?.sessionEnded(team);
-			routines.sessionEnded(team);
-			assistant.sessionEnded(team);
-			// What names the session in the Gateway's own stores.
-			stores.jobs.forgetTeam(team);
-			stores.pendingDeliveries.failTeam(team);
-			const domainId = context.domainId();
-			if (domainId) {
-				stores.inboxClaims.forget(
-					formatInboxAddress({
-						kind: "session",
-						domainId,
-						gatewayId: bootstrap.localGatewayId,
-						sessionId: team,
-					}),
-				);
+			const steps: Array<[string, () => unknown]> = [
+				["awareness", () => awareness.awareness.dropFor(team)],
+				["vault", () => vault?.sessionEnded(team)],
+				["routines", () => routines.sessionEnded(team)],
+				["assistant", () => assistant.sessionEnded(team)],
+				// What names the session in the Gateway's own stores.
+				["jobs", () => stores.jobs.forgetTeam(team)],
+				["deliveries", () => stores.pendingDeliveries.failTeam(team)],
+				[
+					"claims",
+					() => {
+						const domainId = context.domainId();
+						if (!domainId) return;
+						stores.inboxClaims.forget(
+							formatInboxAddress({
+								kind: "session",
+								domainId,
+								gatewayId: bootstrap.localGatewayId,
+								sessionId: team,
+							}),
+						);
+					},
+				],
+			];
+			// One step's throw skips no other.
+			for (const [label, step] of steps) {
+				try {
+					step();
+				} catch (error) {
+					console.warn(
+						`[session-end] ${team} ${label}: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
 			}
 		},
 	});
@@ -282,9 +298,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			const unreached = sessions.hostSpawnPoints.ids.filter((spawn) => spawn !== HOST_SPAWN);
 			for (const container of sessions.hostSpawnPoints.containers ?? []) {
 				const hostProjectPath = sessions.offlineCatalog.get(container.project);
-				if (container.state === "running" && hostProjectPath)
+				if (container.state !== "running") stopped.push(container.project);
+				else if (hostProjectPath)
 					up.push({ kind: "devcontainer", project: container.project, hostProjectPath });
-				else stopped.push(container.project);
+				else stopped.push(`${container.project} (not in the daemon's catalog)`);
 			}
 			return { up, stopped, unreached };
 		},

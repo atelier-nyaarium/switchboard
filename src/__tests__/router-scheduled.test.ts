@@ -136,7 +136,7 @@ function make(
 				timerDelays.delete(handle as number);
 			},
 		},
-		hasSession: (_domainId, _gatewayId, sessionId) => reported.has(sessionId),
+		reported: (_domainId, _gatewayId, sessionId) => reported.has(sessionId),
 		now: () => now,
 	};
 	return {

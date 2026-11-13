@@ -1,4 +1,4 @@
-// The one sweep: every thread a CLI's store holds that no session in the roster names.
+// The one sweep: every thread an agent backend's store holds that no roster record or agent names.
 
 import { createHash } from "node:crypto";
 import { AGENT_BACKENDS, type AgentBackendId } from "../shared/agent-backend.js";

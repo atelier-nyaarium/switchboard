@@ -1,4 +1,4 @@
-// Every removal uses this end.
+// The one end of a session. `session-end-residue.test.ts` names the plain removals left.
 
 import type { AgentBackendId } from "../shared/agent-backend.js";
 import type { PersistedAgent } from "../shared/agent-persisted.js";
@@ -18,7 +18,7 @@ export interface SessionEndDeps {
 	purges: Pick<PurgeQueue, "add">;
 	/** One write for removal and purges; a failure retries. */
 	save(): void;
-	/** Cancel runs, release board, then collect ids. */
+	/** Cancels runs and releases the board, before the record's ids are read. */
 	before(team: string, disposition: BoardDisposition): void;
 	ended(team: string): void;
 }

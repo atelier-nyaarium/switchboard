@@ -12,7 +12,7 @@ import type { OwnerServiceHooks } from "../ownerServiceHooks.js";
 export interface ReadAnchorsServiceDeps {
 	registry: OwnerStoreRegistry;
 	/** Whether a Gateway still reports the session. Absent sweeps nothing. */
-	hasSession?: (domainId: string, gatewayId: string, sessionId: string) => boolean;
+	reported?: (domainId: string, gatewayId: string, sessionId: string) => boolean;
 	pokeOwner?: (domainId: string, result: ReadAnchorsResult) => void;
 }
 
@@ -24,7 +24,7 @@ const anchorId = (stream: string): string => `readAnchor:${stream}`;
 const SCHEDULED_STREAM = "scheduled:";
 /** A session's conversation, and its scheduled results. */
 const sessionStreams = (sessionTarget: string): string[] => [sessionTarget, `${SCHEDULED_STREAM}${sessionTarget}`];
-/** An anchor left by a forget older than this build goes once unreported this long. */
+/** An anchor of a session no Gateway reports goes once unreported this long. */
 export const ORPHAN_ANCHOR_MS = 24 * 60 * 60 * 1000;
 
 /** The session a stream names; undefined for any other stream. */
@@ -135,8 +135,8 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 
 	/** Anchors of this Domain's sessions that no Gateway reports, a day past their last report. */
 	const sweepOrphans = (domainId: string, now: number): number => {
-		const hasSession = deps.hasSession;
-		if (!hasSession) return 0;
+		const reported = deps.reported;
+		if (!reported) return 0;
 		const store = deps.registry.for(domainId);
 		if (store.health().quarantined) return 0;
 		const orphaned = store.list("readAnchor").filter((record) => {
@@ -145,7 +145,7 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 			// A friend's shared session is its own Domain's to report.
 			if (!session || session.domain !== domainId) return false;
 			if (now - Number(record.clear.at) < ORPHAN_ANCHOR_MS) return false;
-			return !hasSession(domainId, session.gateway, `${session.spawn}.${session.session}`);
+			return !reported(domainId, session.gateway, `${session.spawn}.${session.session}`);
 		});
 		return drop(domainId, orphaned) ? orphaned.length : 0;
 	};

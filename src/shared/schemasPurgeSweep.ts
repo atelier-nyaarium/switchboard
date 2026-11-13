@@ -57,7 +57,7 @@ export interface SweepOrphanNames {
 
 export interface SweepPlan {
 	rows: SweepRow[];
-	/** Containers that are not running, and so not swept. */
+	/** Containers not swept: not running, or absent from the daemon's catalog. */
 	stopped: string[];
 	/** Host spawn points whose stores are not listed, and so not swept. */
 	unreached: string[];
