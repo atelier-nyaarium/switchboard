@@ -105,20 +105,36 @@ export class AgentService {
 		return this.persistence.collect(owner, agentId, operationId, at, parseAgent);
 	}
 
-	/** Uncollected turns keep the threadless record. */
-	expire(owner: SessionRecord, agentId: string, at: number): boolean {
-		const current = this.persistence.find(owner, agentId);
-		if (!current) return false;
-		if (current.runId !== undefined || uncollectedTurns(current) === 0)
-			return this.persistence.retire(owner, agentId).retired;
-		if (current.expiredAt !== undefined) return false;
-		const { sessionId: _thread, resolvedTarget: _target, fence: _fence, activeTurnId: _turn, ...rest } = current;
-		const next = PersistedAgentSchema.safeParse({ ...rest, agentState: "unavailable", expiredAt: at });
-		if (!next.success) return false;
-		const undo = this.deps.threadEnded?.(current);
-		if (inRecord(this.persistence.apply(owner, next.data))) return true;
-		undo?.();
-		return false;
+	/**
+	 * Ends every named thread in one catalog write, since a write is the whole snapshot.
+	 * Uncollected turns keep the threadless record. Answers how many ended.
+	 */
+	expireAll(owner: SessionRecord, agentIds: ReadonlySet<string>, at: number): number {
+		const undos: Array<(() => void) | undefined> = [];
+		const landed = this.persistence.rewrite(owner, (current) => {
+			if (!agentIds.has(current.agentId)) return undefined;
+			if (current.runId !== undefined || uncollectedTurns(current) === 0) {
+				if (current.turns.some((turn) => turn.state === "inProgress") || hasUnresolvedOperation(current))
+					return undefined;
+				undos.push(this.deps.threadEnded?.(current));
+				return null;
+			}
+			if (current.expiredAt !== undefined) return undefined;
+			const {
+				sessionId: _thread,
+				resolvedTarget: _target,
+				fence: _fence,
+				activeTurnId: _turn,
+				...rest
+			} = current;
+			const next = PersistedAgentSchema.safeParse({ ...rest, agentState: "unavailable", expiredAt: at });
+			if (!next.success) return undefined;
+			undos.push(this.deps.threadEnded?.(current));
+			return next.data;
+		});
+		if (landed) return undos.length;
+		for (const undo of undos) undo?.();
+		return 0;
 	}
 
 	markTurnNotified(owner: SessionRecord, agentId: string, turnId: string): boolean {

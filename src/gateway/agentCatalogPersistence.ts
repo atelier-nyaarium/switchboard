@@ -230,6 +230,28 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		}
 	}
 
+	/**
+	 * One write for many agents: `change` answers a replacement, null to remove, undefined to keep.
+	 * False when nothing changed or the write did not land.
+	 */
+	rewrite(owner: SessionRecord, change: (agent: TAgent) => TAgent | null | undefined): boolean {
+		const catalog = this.read(owner);
+		let changed = false;
+		const agents: TAgent[] = [];
+		for (const agent of catalog.agents) {
+			const next = change(agent);
+			if (next === undefined) {
+				agents.push(agent);
+				continue;
+			}
+			changed = true;
+			if (next !== null) agents.push(next);
+		}
+		if (!changed) return false;
+		const write = this.write(owner, catalog.revision, agents);
+		return write.kind === "landed" || write.kind === "unconfirmed";
+	}
+
 	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement {
 		const catalog = this.read(owner);
 		const index = this.matchOf(catalog, agentId);

@@ -139,10 +139,16 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 			const now = ambient.now();
 			let ended = 0;
 			for (const owner of sessions.sessionStore.list())
-				for (const stack of built)
-					for (const agent of stack.list(owner))
-						if (threadExpired(agent, now, runRunning) && stack.expire(owner, agent.agentId, now))
-							ended += 1;
+				for (const stack of built) {
+					const due = new Set(
+						stack
+							.list(owner)
+							.filter((agent) => threadExpired(agent, now, runRunning))
+							.map((agent) => agent.agentId),
+					);
+					// One write per catalog: each is the whole snapshot.
+					if (due.size > 0) ended += stack.expireAll(owner, due, now);
+				}
 			return ended;
 		},
 		workflowProgress: (runId) =>

@@ -252,6 +252,10 @@ in `composeAgents.ts`) and by local mode's. The clock is the record's `updatedAt
 that hands turns over also moves. It never ends an agent with a turn running, an operation requested,
 in `recovering`, or whose workflow run is running.
 
+**The pass is one catalog write per session and backend** (`AgentService.expireAll` over
+`AgentCatalogPersistence.rewrite`). A catalog write is the whole session snapshot, so a write per
+agent held the Gateway's event loop for minutes at two thousand agents.
+
 **An ended thread is queued, never awaited.** A retirement reads the agent's thread id and adds its
 delete to the purge queue before the catalog write (`AgentCatalogPort.retiring`), so one snapshot
 holds both, and a failed write takes the entry back. `docs/architecture.md` (One end) holds the queue.

@@ -57,8 +57,8 @@ export interface AgentStack {
 	): { agent: StackAgent | undefined; refusal?: AgentRefusal };
 	abandon(owner: SessionRecord, agentId: string, operationId: string, at: number): void;
 	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement;
-	/** Uncollected turns keep the threadless record. */
-	expire(owner: SessionRecord, agentId: string, at: number): boolean;
+	/** Ends the named threads in one write. Answers how many ended. */
+	expireAll(owner: SessionRecord, agentIds: ReadonlySet<string>, at: number): number;
 	retagRun(owner: SessionRecord, agentId: string, fromRunId: string, toRunId: string, at: number): boolean;
 	markTurnNotified(owner: SessionRecord, agentId: string, turnId: string): boolean;
 }
@@ -121,7 +121,7 @@ export function createAgentStack(deps: AgentStackDeps & Omit<AgentServiceDeps, "
 			commands.abandon(owner, agentId, operationId, at);
 		},
 		retire: (owner, agentId) => commands.retire(owner, agentId),
-		expire: (owner, agentId, at) => service.expire(owner, agentId, at),
+		expireAll: (owner, agentIds, at) => service.expireAll(owner, agentIds, at),
 		retagRun: (owner, agentId, fromRunId, toRunId, at) => commands.retagRun(owner, agentId, fromRunId, toRunId, at),
 		markTurnNotified: (owner, agentId, turnId) => service.markTurnNotified(owner, agentId, turnId),
 	};

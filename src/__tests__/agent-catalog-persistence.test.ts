@@ -30,6 +30,7 @@ function setup(write: Write = "lands", agents = [agent("a"), agent("b")], checkp
 	const owner = {} as SessionRecord;
 	let catalog: AgentCatalog<TestAgent> = { version: 1, revision: 1, agents };
 	const queued = new Set<string>();
+	const writes = { count: 0 };
 	const persistence = new AgentCatalogPersistence<TestAgent>({
 		read: () => catalog,
 		retiring: (_owner, retired) => {
@@ -38,6 +39,7 @@ function setup(write: Write = "lands", agents = [agent("a"), agent("b")], checkp
 		},
 		writer: {
 			commit: (_owner, _expected, next) => {
+				writes.count += 1;
 				if (write === "throws") throw new Error("disk full");
 				if (write === "conflicts") return { committed: false, reason: "revision_conflict" };
 				if (write === "orphaned") return { committed: false, reason: "owner_missing" };
@@ -54,7 +56,7 @@ function setup(write: Write = "lands", agents = [agent("a"), agent("b")], checkp
 			},
 		},
 	});
-	return { owner, persistence, queued };
+	return { owner, persistence, queued, writes };
 }
 
 function refusalOf(action: () => unknown): string | undefined {
@@ -135,6 +137,33 @@ describe("agent catalog persistence", () => {
 		expect(refusalOf(() => context.persistence.indexOf(catalog, "a"))).toBe("not_found");
 		expect(context.persistence.indexOf(catalog, "b")).toBe(2);
 		expect(context.persistence.apply(context.owner, agent("a", "accepted")).disposition).toBe("ignored");
+	});
+
+	it("removes and replaces many agents in one write, and says when nothing changed or nothing landed", () => {
+		const many = [agent("a"), agent("b"), agent("c"), agent("d")];
+		const landed = setup("lands", many);
+		const change = (held: TestAgent) =>
+			held.agentId === "a" || held.agentId === "c"
+				? null
+				: held.agentId === "b"
+					? { ...held, updatedAt: 99 }
+					: undefined;
+
+		expect(landed.persistence.rewrite(landed.owner, change)).toBe(true);
+		expect(landed.writes.count).toBe(1);
+		expect(landed.persistence.read(landed.owner).agents.map((held) => [held.agentId, held.updatedAt])).toEqual([
+			["b", 99],
+			["d", 10],
+		]);
+
+		expect(landed.persistence.rewrite(landed.owner, () => undefined)).toBe(false);
+		expect(landed.writes.count).toBe(1);
+		expect(setup("unconfirmed", many).persistence.rewrite({} as SessionRecord, change)).toBe(true);
+		for (const write of ["conflicts", "orphaned", "throws"] as const) {
+			const refused = setup(write, many);
+			expect(refused.persistence.rewrite(refused.owner, change)).toBe(false);
+			expect(refused.persistence.read(refused.owner).agents).toHaveLength(4);
+		}
 	});
 
 	it("retires only agents without a running turn or requested operation", () => {
