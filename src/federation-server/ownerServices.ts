@@ -18,7 +18,6 @@ import type { ConsoleSockets } from "./console/consoleSockets.js";
 import { createGatewayBootstrapService } from "./enroll/gatewayBootstrapService.js";
 import type { GatewayBridge } from "./gatewayBridge.js";
 import type { InboxService } from "./inbox/inboxService.js";
-import { sweepOpLedger } from "./inbox/inboxSweep.js";
 import type { OwnerOpIntake } from "./inbox/ownerOpIntake.js";
 import type { OwnerStoreRegistry } from "./inbox/ownerStoreRegistry.js";
 import { createKeyDeliveryService } from "./keyDeliveryService.js";
@@ -288,9 +287,6 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		gatewayBootstrap,
 	])
 		service.register(hooks);
-	hooks.onSweep("op ledger sweep", (domainId, now) => {
-		sweepOpLedger(registry, domainId, now);
-	});
 	// A catalogued kind nothing serves refuses at runtime, so construction refuses first.
 	const unserved = deps.intake.unregisteredKinds();
 	if (unserved.length) throw new Error(`owner op kinds without a handler: ${unserved.join(", ")}`);

@@ -412,10 +412,11 @@ decision.
   registry row.
 - **A claim file with no claims is no file.** The last ack removes it, so a row delivered after the
   end leaves nothing, and `InboxClaims.sweep` drops a claim a week past its row's lifetime.
-- **The Router's op ledger is swept by age** (`sweepOpLedger`): it is keyed by op, not by session,
-  so an entry goes a week past its row's lifetime. A pass is one write of at most
-  `OP_LEDGER_SWEEP_BATCH` entries, read in place (`OwnerStateStore.pick`): every write to an owner
-  store copies the whole store, and a write per entry holds the Router for the length of the pass.
+- **The Router's op ledger is not swept.** It is keyed by op, not by session, so no forget reaches
+  it, and it holds an entry for every op the Domain has taken. `sweepOpLedger` drops entries a week
+  past their row's lifetime, one write of at most `OP_LEDGER_SWEEP_BATCH` per pass, read in place
+  (`OwnerStateStore.pick`), and nothing registers it on the Router's pass. Every write to an owner
+  store copies the whole store, so a sweep there takes one `batch` and never a write per record.
 - **The one sweep** (`src/gateway/purgeSweep.ts`, `bun scripts/purge-sweep.ts`) deletes what was
   on disk before any of this existed. A `threads` host op lists a backend's whole store at a place
   through that backend's driver (`AgentBackendSession.listThreads`), and the Gateway sorts every

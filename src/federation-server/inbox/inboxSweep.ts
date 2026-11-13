@@ -38,6 +38,7 @@ function addresses(store: OwnerStateStore, domainId: string): string[] {
 /**
  * The ledger is keyed by op, so it is swept by age. One pass is one write of at most a batch: every
  * write copies the whole store, and a write per entry held the Router for minutes. Answers how many went.
+ * On no pass: nothing registers it.
  */
 export function sweepOpLedger(registry: OwnerStoreRegistry, domainId: string, now: number): number {
 	const store = registry.for(domainId);
