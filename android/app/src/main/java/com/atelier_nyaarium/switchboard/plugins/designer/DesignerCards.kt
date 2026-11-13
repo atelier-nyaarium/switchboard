@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.plugins.designer
 
 import com.atelier_nyaarium.switchboard.Attachments
 import com.atelier_nyaarium.switchboard.MessageFile
+import com.atelier_nyaarium.switchboard.plugins.InboundMessage
 
 /** Attributes parsed off a card's `@dsCard` marker. `width`/`height` are the author's intended
  * viewport (display hints only); `group` is the kit section label. */
@@ -77,6 +78,27 @@ internal fun resolveCardRel(rows: List<com.atelier_nyaarium.switchboard.Message>
 		}
 	}
 	return null
+}
+
+/** The cards a message ingests: an agent's design-card files. */
+internal fun cardsPushedBy(msg: InboundMessage): List<StoredCard> =
+	if (msg.fromMe || msg.isPeer) emptyList() else msg.files.mapNotNull { storedCardFrom(it, msg.at) }
+
+/** A cut's effect on the cards: the names that leave the dock, and the list that stands. */
+internal class CardCut(val gone: List<StoredCard>, val next: List<StoredCard>)
+
+/**
+ * A card goes when a cut message pushed its current version and no message left pushes that version.
+ * Its name then stands at the newest version a message left still pushes, if any.
+ */
+internal fun cardsAfterCut(cards: List<StoredCard>, rows: List<InboundMessage>, left: List<InboundMessage>): CardCut {
+	val cut = rows.flatMap(::cardsPushedBy).mapTo(HashSet()) { it.fileName to it.at }
+	val kept = left.flatMap(::cardsPushedBy)
+	val standing = kept.mapTo(HashSet()) { it.fileName to it.at }
+	val taken = cards.filter { (it.fileName to it.at).let { push -> push in cut && push !in standing } }
+	val names = taken.mapTo(HashSet()) { it.fileName }
+	val next = kept.filter { it.fileName in names }.fold(cards - taken.toSet(), ::upsertInto)
+	return CardCut(taken.filter { card -> next.none { it.fileName == card.fileName } }, next)
 }
 
 /** A message file's stored-card form, from its wire-declared fields alone. Zero disk, zero timing:

@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.plugins.designer
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.atelier_nyaarium.switchboard.plugins.InboundMessage
 import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.serialization.Serializable
@@ -92,6 +93,16 @@ object DesignStore {
 		val flow = flowFor(team)
 		val next = flow.value.filterNot { it.fileName == fileName }
 		if (next.size != flow.value.size) {
+			flow.value = next
+			write(team, next)
+		}
+	}
+
+	/** Folds a cut in: see [cardsAfterCut]. */
+	fun cut(team: String, rows: List<InboundMessage>, left: List<InboundMessage>) = synchronized(lock) {
+		val flow = flowFor(team)
+		val next = cardsAfterCut(flow.value, rows, left).next
+		if (next != flow.value) {
 			flow.value = next
 			write(team, next)
 		}

@@ -20,7 +20,11 @@ internal data class RowPress(val team: String, val rowId: Long, val rowAt: Long)
 
 /** Row menu, then its clear confirmation. */
 @Composable
-internal fun RowMenuDialog(repo: ChatRepository, pressState: MutableState<RowPress?>) {
+internal fun RowMenuDialog(
+	repo: ChatRepository,
+	pressState: MutableState<RowPress?>,
+	claimsOf: (team: String, rows: List<Message>, left: List<Message>) -> List<CutClaim>,
+) {
 	var press by pressState
 	val held = press ?: return
 	var confirming by remember(held) { mutableStateOf(false) }
@@ -40,14 +44,17 @@ internal fun RowMenuDialog(repo: ChatRepository, pressState: MutableState<RowPre
 		LaunchedEffect(held) { press = null }
 		return
 	}
-	val measured by produceState<Pair<ThreadCut, FreedSize>?>(null, cut) {
-		value = cut to withContext(Dispatchers.IO) { freedSize(repo.filesDir, cut.freed) }
+	val measured by produceState<Triple<ThreadCut, FreedSize, List<CutClaim>>?>(null, cut) {
+		value = withContext(Dispatchers.IO) {
+			Triple(cut, freedSize(repo.filesDir, cut.freed), claimsOf(cut.team, cut.rows, cut.left))
+		}
 	}
 	// Ignore a stale measure.
-	val size = measured?.takeIf { it.first == cut }?.second
+	val fresh = measured?.takeIf { it.first == cut }
+	val size = fresh?.second
 	ConfirmDialog(
 		title = "Clear and all above",
-		body = clearConfirmLines(cut.rows.size, size?.files ?: 0, size?.bytes ?: 0L).joinToString("\n"),
+		body = clearConfirmLines(cut.rows.size, size?.files ?: 0, size?.bytes ?: 0L, fresh?.third.orEmpty()).joinToString("\n"),
 		confirmText = "Clear",
 		onConfirm = {
 			press = null

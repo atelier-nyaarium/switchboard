@@ -3,6 +3,8 @@ package com.atelier_nyaarium.switchboard.plugins
 import android.content.Context
 import androidx.compose.runtime.Composable
 import com.atelier_nyaarium.switchboard.ChipDecoration
+import com.atelier_nyaarium.switchboard.CutClaim
+import com.atelier_nyaarium.switchboard.Message
 import com.atelier_nyaarium.switchboard.MessageFile
 import java.io.File
 import kotlinx.serialization.json.JsonObject
@@ -43,6 +45,14 @@ fun interface ThreadForgetHandler {
 	fun onForget(context: Context, team: String)
 }
 
+/** Told of a cut: the messages cleared and the messages left. */
+interface ThreadCutHandler {
+	/** For the confirmation; null when nothing. */
+	fun claims(team: String, rows: List<InboundMessage>, left: List<InboundMessage>): CutClaim?
+
+	fun onCut(team: String, rows: List<InboundMessage>, left: List<InboundMessage>)
+}
+
 /** Notified on a full account wipe (Clear / delete domain), so a plugin can drop ALL of its device
  * state, not just per-thread state. */
 fun interface AccountWipeHandler {
@@ -59,6 +69,9 @@ class InboundMessage(
 	val files: List<MessageFile>,
 	val text: String,
 )
+
+/** A row as a plugin sees one. */
+internal fun Message.asInbound(team: String) = InboundMessage(team, fromMe, isPeer, at, files, text)
 
 /** Processes each genuinely-new inbound message exactly once, on the poll thread, before the
  * mailbox cursor commits. The contract: fast, bounded, non-blocking, idempotent - a slow or hanging
@@ -157,6 +170,18 @@ class PluginHost internal constructor(
 	/** Thread-forget handlers, keyed `<plugin>:<handler>`. The app invokes every handler when a
 	 * thread is forgotten so a plugin can drop that conversation's device state. */
 	val threadForgetHandlers: PluginRegistry<ThreadForgetHandler> = runtime.createRegistry("thread-forget-handlers")
+
+	/** Thread-cut handlers, keyed `<plugin>:<handler>`. */
+	val threadCutHandlers: PluginRegistry<ThreadCutHandler> = runtime.createRegistry("thread-cut-handlers")
+
+	/** What every plugin would drop with a cut. */
+	fun cutClaims(team: String, rows: List<Message>, left: List<Message>): List<CutClaim> {
+		val cut = rows.map { it.asInbound(team) }
+		val kept = left.map { it.asInbound(team) }
+		val claims = mutableListOf<CutClaim>()
+		threadCutHandlers.forEachCaught { handler -> handler.claims(team, cut, kept)?.let(claims::add) }
+		return claims
+	}
 
 	/** Account-wipe handlers, keyed `<plugin>:<handler>`. The app invokes every handler on a full
 	 * wipe so a plugin can drop all of its device state. */

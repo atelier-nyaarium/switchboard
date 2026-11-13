@@ -643,6 +643,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     drafts and scheduled sends in one commit, and a failed commit keeps the files. A reference added
     between the check and the delete is not seen.
 - `android/.../ThreadCut.kt` / `RowMenu.kt` - Clear and all above: `threadCut`, the cut's id floor and swallowed echoes, the confirmation's lines; the row menu and its confirmation. `docs/console.md` holds the rules
+  - **A cut tells the plugins what it took:** once the cut is on disk, `clearThrough` hands the rows cleared and the rows left to every `ThreadCutSubscriber`, and the plugin bridge fans them to `threadCutHandlers`. A handler's `claims` and `onCut` read one rule, so the confirmation counts what the cut drops. The Designer's is `cardsAfterCut`.
 - `android/.../ScheduledSendOps.kt` - scheduled sends as Router-held intents: the drain, the cancel intent, and the Router's result rows, all under one mutex
   - **The Router fires; the phone intends:** a record is pending until `schedule_send` is accepted,
     a cancel of an accepted record is pending until `schedule_cancel` is, and a reschedule is a

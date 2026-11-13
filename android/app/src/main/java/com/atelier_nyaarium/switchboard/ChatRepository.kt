@@ -261,6 +261,9 @@ class ChatRepository(
 		}
 	}
 
+	/** Told of each cut. Register once per process. */
+	val cutSubscribers = java.util.concurrent.CopyOnWriteArrayList<ThreadCutSubscriber>()
+
 	fun dismissLaunchError(team: String) = _state.dismissLaunchError(team)
 
 	/** A container start a held forget asked for, and that failed. */

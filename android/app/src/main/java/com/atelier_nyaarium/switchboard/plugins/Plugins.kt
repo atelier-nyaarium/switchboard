@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.AppStateStore
 import com.atelier_nyaarium.switchboard.InboundSubscriber
 import com.atelier_nyaarium.switchboard.PluginActionSubscriber
 import com.atelier_nyaarium.switchboard.Repo
+import com.atelier_nyaarium.switchboard.ThreadCutSubscriber
 import com.atelier_nyaarium.switchboard.runIsolated
 
 /** Process-lifetime plugin framework, mirroring [com.atelier_nyaarium.switchboard.Repo]: built
@@ -44,7 +45,7 @@ object Plugins {
 		// currently-claimed handler (a disabled plugin's claim is swept, so it stops receiving).
 		Repo.get(app).drain.addInboundSubscriber(
 			InboundSubscriber { team, msg ->
-				val inbound = InboundMessage(team, msg.fromMe, msg.isPeer, msg.at, msg.files, msg.text)
+				val inbound = msg.asInbound(team)
 			host.inboundMessages.forEachCaught({ message, error ->
 				com.atelier_nyaarium.switchboard.DebugLog.log("Plugins", "$message: $error")
 			}) { handler -> handler.onMessage(app.filesDir, inbound) }
@@ -59,6 +60,15 @@ object Plugins {
 					runIsolated { handler.onAction(PluginAction(team, payload, stamp)) }
 						.onFailure { com.atelier_nyaarium.switchboard.DebugLog.log("Plugins", "plugin action handler threw: $it") }
 				}
+			},
+		)
+		Repo.get(app).cutSubscribers.add(
+			ThreadCutSubscriber { team, rows, left ->
+				val cut = rows.map { it.asInbound(team) }
+				val kept = left.map { it.asInbound(team) }
+				host.threadCutHandlers.forEachCaught({ message, error ->
+					com.atelier_nyaarium.switchboard.DebugLog.log("Plugins", "$message: $error")
+				}) { handler -> handler.onCut(team, cut, kept) }
 			},
 		)
 		return manager

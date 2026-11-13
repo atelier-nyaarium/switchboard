@@ -1,7 +1,21 @@
 package com.atelier_nyaarium.switchboard
 
+/** Told of a cut once it is on disk: the rows cleared and the rows left. */
+fun interface ThreadCutSubscriber {
+	fun onCut(team: String, rows: List<Message>, left: List<Message>)
+}
+
+/** Extra items a cut takes. */
+data class CutClaim(val count: Int, val noun: String)
+
 /** One thread cleared through a pressed row, phone only. `silenced`: `at`s no surviving row shares. */
-internal data class ThreadCut(val team: String, val rows: List<Message>, val freed: List<String>, val silenced: Set<Long>)
+internal data class ThreadCut(
+	val team: String,
+	val rows: List<Message>,
+	val left: List<Message>,
+	val freed: List<String>,
+	val silenced: Set<Long>,
+)
 
 /**
  * Rows through the pressed one, and files nothing else names; a pending send keeps its own.
@@ -15,7 +29,7 @@ internal fun threadCut(state: ChatState, team: String, rowId: Long, rowAt: Long)
 	val kept = state.threads.flatMap { (t, msgs) -> if (t == team) left else msgs } + rows.filter { it.fromMe && it.status == "pending" }
 	val named = state.namedSrcs(kept)
 	val freed = rows.flatMap { it.files }.mapNotNull { it.src }.distinct().filterNot { it in named }
-	return ThreadCut(team, rows, freed, rows.map { it.at }.toSet() - left.map { it.at }.toSet())
+	return ThreadCut(team, rows, left, freed, rows.map { it.at }.toSet() - left.map { it.at }.toSet())
 }
 
 /** Files these rows, drafts or scheduled sends name. */
@@ -53,12 +67,11 @@ internal fun ChatState.swallowEcho(echo: Message): ChatState? =
 internal fun nextRowId(thread: List<Message>, floor: Long?): Long = maxOf(thread.maxOfOrNull { it.id } ?: -1L, floor ?: -1L) + 1
 
 /** Omits zero counts. */
-internal fun clearConfirmLines(rows: Int, files: Int, bytes: Long): List<String> = listOfNotNull(
-	"This will clear this message and all above it from this phone. Claude session will remain untouched.",
-	countLine(rows, "message"),
-	countLine(files, "file"),
-	recoveredLine(bytes),
-)
+internal fun clearConfirmLines(rows: Int, files: Int, bytes: Long, claims: List<CutClaim> = emptyList()): List<String> =
+	listOf("This will clear this message and all above it from this phone. Claude session will remain untouched.") +
+		listOfNotNull(countLine(rows, "message"), countLine(files, "file")) +
+		claims.mapNotNull { countLine(it.count, it.noun) } +
+		listOfNotNull(recoveredLine(bytes))
 
 private fun countLine(count: Int, noun: String): String? = when (count) {
 	0 -> null

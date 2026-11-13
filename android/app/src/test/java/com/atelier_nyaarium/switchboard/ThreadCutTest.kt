@@ -87,6 +87,10 @@ class ThreadCutTest {
 
 		assertEquals(listOf(intro, "- 1 message"), clearConfirmLines(1, 0, 0L))
 		assertEquals(listOf(intro, "- 123 messages", "- 2 files", "- ~789 MB recovered"), clearConfirmLines(123, 2, 789L shl 20))
+		assertEquals(
+			listOf(intro, "- 4 messages", "- 2 files", "- 2 design cards", "- ~1 KB recovered"),
+			clearConfirmLines(4, 2, 1L shl 10, listOf(CutClaim(2, "design card"))),
+		)
 	}
 
 	@Test

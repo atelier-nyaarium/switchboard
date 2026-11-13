@@ -27,7 +27,11 @@ internal suspend fun ChatRepository.clearThrough(team: String, rowId: Long, rowA
 			cut?.also { landed ->
 				playback.dropRows(team, landed.silenced)
 				// Commits the cut too.
-				attachments.deleteWhenDurable(landed.freed)
+				if (!attachments.deleteWhenDurable(landed.freed)) return@also
+				cutSubscribers.forEach { subscriber ->
+					runIsolated { subscriber.onCut(team, landed.rows, landed.left) }
+						.onFailure { DebugLog.log("Cut", "subscriber threw: $it") }
+				}
 			}
 		}
 	}

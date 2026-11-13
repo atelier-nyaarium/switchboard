@@ -3,13 +3,16 @@ package com.atelier_nyaarium.switchboard.plugins.designer
 import android.content.Context
 import com.atelier_nyaarium.switchboard.Attachments
 import com.atelier_nyaarium.switchboard.ChipDecoration
+import com.atelier_nyaarium.switchboard.CutClaim
 import com.atelier_nyaarium.switchboard.plugins.AccountWipeHandler
 import com.atelier_nyaarium.switchboard.plugins.AttachmentChipDecorator
 import com.atelier_nyaarium.switchboard.plugins.AttachmentOpener
+import com.atelier_nyaarium.switchboard.plugins.InboundMessage
 import com.atelier_nyaarium.switchboard.plugins.InboundMessageHandler
 import com.atelier_nyaarium.switchboard.plugins.PluginActionHandler
 import com.atelier_nyaarium.switchboard.plugins.PluginEntry
 import com.atelier_nyaarium.switchboard.plugins.PluginHost
+import com.atelier_nyaarium.switchboard.plugins.ThreadCutHandler
 import com.atelier_nyaarium.switchboard.plugins.ThreadForgetHandler
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -33,8 +36,14 @@ class DesignerPlugin : PluginEntry {
 		// dependence on whether the bytes have landed: the card exists the moment its message does,
 		// and the dock resolves the bytes lazily at render.
 		host.inboundMessages.claim("designer:ingest", InboundMessageHandler { _, msg ->
-			if (msg.fromMe || msg.isPeer) return@InboundMessageHandler
-			msg.files.mapNotNull { storedCardFrom(it, msg.at) }.forEach { DesignStore.upsert(msg.team, it) }
+			cardsPushedBy(msg).forEach { DesignStore.upsert(msg.team, it) }
+		})
+		host.threadCutHandlers.claim("designer:cut", object : ThreadCutHandler {
+			override fun claims(team: String, rows: List<InboundMessage>, left: List<InboundMessage>) =
+				cardsAfterCut(DesignStore.cards(team).value, rows, left).gone.size.takeIf { it > 0 }?.let { CutClaim(it, "design card") }
+
+			override fun onCut(team: String, rows: List<InboundMessage>, left: List<InboundMessage>) =
+				DesignStore.cut(team, rows, left)
 		})
 		// Agent-initiated delete via the generic plugin-action dispatch. DesignStore.delete is
 		// already idempotent (a list-size check before any write), satisfying PluginActionHandler's

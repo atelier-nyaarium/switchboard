@@ -947,7 +947,7 @@ fun App(
 	QueueOverlay(repo, openQueueRequest, locked, revealAtState, openTeamRequest)
 	AttachmentViewerOverlay(viewerState, rendererPool)
 	LinkMenuDialog(linkMenuState, linkMenuNoteState)
-	RowMenuDialog(repo, rowPressState)
+	RowMenuDialog(repo, rowPressState, pluginManager.host::cutClaims)
 	// Board dialog replaces current screen.
 	boardModal?.let { entryId ->
 		BoardEntryDialog(state, repo, entryId) { boardModal = null }

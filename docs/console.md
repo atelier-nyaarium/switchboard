@@ -400,7 +400,13 @@ no TTL.
   A cut keeps a per-thread id floor, so no cut id is minted again, and drops the echo of a cut send
   that had not landed (`swallowEcho`). It runs under the drain gate and deletes through
   `AttachmentOps.deleteWhenDurable`. Phone only: the Router's copies expire on their own, and a new
-  mailbox epoch or another phone can still see them.
+  mailbox epoch or another phone can still see them. A plugin that keeps state a row brought claims
+  `threadCutHandlers`: once the cut is on disk, it tells every handler the rows cleared and the
+  rows left, and the confirmation adds each handler's count (`CutClaim`). The Designer's rule is
+  `cardsAfterCut`: a card goes when a cleared message pushed its current version and no message
+  left pushes that version, and its name then stands at the newest version a message left still
+  pushes. A plugin that is off at the cut hears nothing, as with a message that arrives while it
+  is off.
 - **Persistence writes** (`ChatPersistence`): every slot but the assistant home is written from the
   live `ChatState` under one lock and takes no argument, so a stale snapshot cannot put an older
   state back. The home's one writer is `AssistantHomeFence`. A file is deleted only through

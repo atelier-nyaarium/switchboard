@@ -2,6 +2,9 @@ package com.atelier_nyaarium.switchboard.plugins.designer
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.atelier_nyaarium.switchboard.CutClaim
+import com.atelier_nyaarium.switchboard.MessageFile
+import com.atelier_nyaarium.switchboard.plugins.InboundMessage
 import com.atelier_nyaarium.switchboard.plugins.PluginAction
 import com.atelier_nyaarium.switchboard.plugins.PluginHost
 import com.atelier_nyaarium.switchboard.plugins.PluginRuntime
@@ -10,12 +13,14 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 /**
- * Pins the Designer's `designer:delete-card` plugin-action handler: it claims the exact composite
+ * Pins the Designer's `designer:cut` handler, whose count is what it then drops, and its
+ * `designer:delete-card` plugin-action handler: it claims the exact composite
  * key the wire's `pluginId:actionType` bridges to, extracts `fileName` from the opaque payload, and
  * calls the already-idempotent `DesignStore.delete`. A malformed or absent payload is a no-op,
  * never a throw (the drain-loop bridge has no other backstop).
@@ -37,6 +42,21 @@ class DesignerPluginActionTest {
 		DesignerPlugin().register(host)
 		val handler = host.pluginActions.get("designer:delete-card")!!
 		return { action -> handler.onAction(action) }
+	}
+
+	@Test
+	fun theCutHandlerCountsWhatItThenDrops() {
+		val host = PluginHost(PluginRuntime(), context)
+		DesignerPlugin().register(host)
+		val handler = host.threadCutHandlers.get("designer:cut")!!
+		val card = MessageFile("editor-form.html", "text/html", blobId = "sha256-aa", role = "design-card")
+		val cut = listOf(InboundMessage("t", false, false, 1000, listOf(card), ""))
+
+		assertEquals(CutClaim(1, "design card"), handler.claims("t", cut, emptyList()))
+		handler.onCut("t", cut, emptyList())
+
+		assertTrue(DesignStore.cards("t").value.isEmpty())
+		assertNull(handler.claims("t", cut, emptyList()))
 	}
 
 	@Test

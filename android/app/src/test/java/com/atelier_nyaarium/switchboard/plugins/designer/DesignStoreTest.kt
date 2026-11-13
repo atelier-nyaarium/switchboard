@@ -126,6 +126,20 @@ class DesignStoreTest {
 	}
 
 	@Test
+	fun aCutDropsItsCardsForGoodAcrossARestart() {
+		DesignStore.upsert("t", card("a.html", at = 100))
+		DesignStore.upsert("t", card("b.html", at = 200))
+		val pushed = com.atelier_nyaarium.switchboard.MessageFile("a.html", "text/html", role = "design-card")
+		val cut = listOf(com.atelier_nyaarium.switchboard.plugins.InboundMessage("t", false, false, 100, listOf(pushed), ""))
+
+		DesignStore.cut("t", cut, emptyList())
+		DesignStore.resetForTest()
+		DesignStore.init(context)
+
+		assertEquals(listOf("b.html"), DesignStore.cards("t").value.map { it.fileName })
+	}
+
+	@Test
 	fun forgetClearsOnlyTheNamedConversation() {
 		DesignStore.upsert("keep", card("k.html"))
 		DesignStore.upsert("drop", card("d.html"))

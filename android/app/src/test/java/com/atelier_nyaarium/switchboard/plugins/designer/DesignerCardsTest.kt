@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.plugins.designer
 
 import com.atelier_nyaarium.switchboard.Message
 import com.atelier_nyaarium.switchboard.MessageFile
+import com.atelier_nyaarium.switchboard.plugins.InboundMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -33,6 +34,48 @@ class DesignerCardsTest {
 			cardWidth = 400,
 			cardHeight = 800,
 		)
+
+	////////////////////////////////
+	//  What a cut takes
+
+	private fun pushed(at: Long, vararg files: MessageFile, fromMe: Boolean = false, isPeer: Boolean = false) =
+		InboundMessage("t", fromMe, isPeer, at, files.toList(), "")
+
+	private fun stored(name: String, at: Long, blobId: String) = storedCardFrom(wireCard(name, blobId = blobId), at)!!
+
+	@Test
+	fun aCutTakesTheCardsItsMessagesPushedAndLeavesANamePushedAgainSince() {
+		val cards = listOf(stored("old.html", 100, "sha256-old"), stored("again.html", 300, "sha256-new"), stored("later.html", 400, "sha256-later"))
+		val cut = listOf(
+			pushed(100, wireCard("old.html", blobId = "sha256-old")),
+			pushed(200, wireCard("again.html", blobId = "sha256-first")),
+			// Not the agent's own push.
+			pushed(400, wireCard("later.html", blobId = "sha256-later"), fromMe = true),
+			pushed(400, wireCard("later.html", blobId = "sha256-later"), isPeer = true),
+			// A plain attachment of the same name.
+			pushed(300, MessageFile("again.html", "text/html", blobId = "sha256-new")),
+		)
+		val left = listOf(pushed(300, wireCard("again.html", blobId = "sha256-new")), pushed(400, wireCard("later.html", blobId = "sha256-later")))
+
+		val after = cardsAfterCut(cards, cut, left)
+
+		assertEquals(listOf("old.html"), after.gone.map { it.fileName })
+		assertEquals(listOf("again.html", "later.html"), after.next.map { it.fileName })
+	}
+
+	@Test
+	fun aCardStaysWhileAMessageLeftPushesItsVersionAndFallsBackToAnOlderOneStillPushed() {
+		val twice = wireCard("twice.html", blobId = "sha256-twice")
+		val cards = listOf(stored("twice.html", 500, "sha256-twice"), stored("late.html", 300, "sha256-late"))
+		val cut = listOf(pushed(500, twice), pushed(300, wireCard("late.html", blobId = "sha256-late")))
+		// One shares the cut push's time; the other arrived after a newer push it predates.
+		val left = listOf(pushed(500, twice), pushed(200, wireCard("late.html", blobId = "sha256-early")))
+
+		val after = cardsAfterCut(cards, cut, left)
+
+		assertEquals(emptyList<String>(), after.gone.map { it.fileName })
+		assertEquals(mapOf("twice.html" to "sha256-twice", "late.html" to "sha256-early"), after.next.associate { it.fileName to it.blobId })
+	}
 
 	////////////////////////////////
 	//  Wire-declared ingest
