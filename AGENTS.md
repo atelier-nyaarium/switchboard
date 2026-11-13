@@ -1025,6 +1025,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     disk. Bytes and holds wait for `landed`; a record write a caller can
     repeat idempotently takes `appliedOrUncertain` and passes the word on in its answer.
 - `src/shared/session-store.ts` - authoritative gateway sessions keyed by `spawn.id`
+  - **A session is the conversation it launched with:** switching conversations inside a CLI is unsupported, and nothing chases the one it moved to. `docs/architecture.md` holds the rule.
   - **An agent catalog is parsed once per held value and read as one frozen view:** the relay's register and hello passes look every agent up, so a read that parsed cost a whole catalog per agent and stalled a start for over a minute at a thousand agents. A reader that writes to a view throws.
 - `src/shared/session-sanitize.ts` / `session-tokens.ts` - normalization, session ids, and bind tokens
 - `src/shared/board-order.ts` - sibling order: a rank is a position among live siblings, and only the Router numbers; `BoardOrder.kt` is the twin
@@ -1390,6 +1391,8 @@ A new VALUE on a required enum deploys every reader before the emitter: a phone 
 A field that is optional only to cross that gap, and should be required once every part has updated, carries a comment above it naming the date it becomes required, about two weeks out. A field that is optional by meaning carries no date.
 
 That order covers fields the gateway EMITS. A change to what the Router ANSWERS deploys the Router first, since a gateway reads the answer it is given.
+
+A change to a bundled entry (`dist/`) is built before the daemon restarts. The daemon places a container's runtime under the version it read at its own start, so a daemon started before the build leaves the container on the old bundle until its next restart.
 
 ### Plugin
 

@@ -255,7 +255,9 @@ Questions 2, 8, 11, 12.
 
 ### Bug Classes
 
-- **Mechanism:** the keep set in `purgeSweep.ts` `sort`. **Defect class:** the sweep reads what a roster session owns from the id on its record, and an OpenCode or Copilot session's record does not follow the conversation its CLI is in. **Patched two rounds:** an unnamed thread touched since a session at that place last touched its own conversation is left (red team 1); only a session whose CLI is connected now sets that bound, and the dry run prints it (red team 2). **Still open:** the record should follow the conversation the CLI reports, as Question 6 says of Claude. Until then a dormant session's moved conversation is swept, and a running session's bound leaves other leftovers at its place. **Shape of the redesign, not built here:** one conversation id on the record with one writer after launch, a `follow` field on each `HARNESS` row saying how its CLI reports a move (Claude on register as today, OpenCode from its event stream, Copilot unknown), a control frame beside `session_presence` that carries the move, and the OpenCode plugin posting to the conversation its terminal is in. It then deletes the sweep's bound. It is its own piece of work: the plugin, the Gateway and the launcher change, in a deploy order, and its OpenCode half cannot be exercised while the OpenCode quota is spent.
+- **Mechanism:** the keep set in `purgeSweep.ts` `sort`. **Defect class:** the sweep reads what a roster session owns from the id on its record, and an OpenCode or Copilot session's record does not follow the conversation its CLI is in. **Patched two rounds:** an unnamed thread touched since a session at that place last touched its own conversation is left (red team 1); only a session whose CLI is connected now sets that bound, and the dry run prints it (red team 2). **Decided, not redesigned:** switching conversations inside a CLI is unsupported, and nothing chases the conversation it moved to. The sweep keeps its bound, so it deletes no conversation a connected session may have moved to.
+
+> "It shall be unsupported all the way. Docs will just say it's unexpected behavior."
 
 ## Painpoints
 

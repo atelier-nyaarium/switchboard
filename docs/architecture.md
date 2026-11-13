@@ -204,6 +204,12 @@ is held unread and written back untouched, and the phone passes the word back un
 Gateway mints (`sessionId`, `mintedSessionId` on the record). The shape also guards the launch command
 line.
 
+**A session is the conversation it launched with.** Switching to another conversation inside a CLI
+(`/new`, `/sessions`, `/resume`, `/clear`) is unsupported, and what follows is unexpected behavior:
+delivery, a wake and a forget keep acting on the conversation the record names. Nothing chases the
+conversation a CLI moved to. Claude's record follows only because its plugin registers again and
+names its conversation.
+
 **`launchRefusal` is the one placement rule,** read by the Gateway's create, the daemon's wake before any
 container starts, and `buildLaunchCommand`. A place is the host shell, the Windows shell or a container.
 
