@@ -1,8 +1,12 @@
 package com.atelier_nyaarium.switchboard
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+internal const val CONNECT_RETRY_FIRST_MS = 5_000L
+internal const val CONNECT_RETRY_MAX_MS = 5 * 60_000L
 
 internal interface ConnectHost {
 	val firstRooted: Boolean
@@ -24,6 +28,16 @@ internal class ConnectCoordinator(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: ConnectHost,
 ) {
+	/** A connect that failed for a passing reason is tried again, backing off, until it lands or fails for good. */
+	suspend fun retryWhileTransient(pause: suspend (Long) -> Unit = { delay(it) }) {
+		var wait = CONNECT_RETRY_FIRST_MS
+		while (state.value.status == "connecting" && !state.value.connected) {
+			pause(wait)
+			wait = (wait * 2).coerceAtMost(CONNECT_RETRY_MAX_MS)
+			connect()
+		}
+	}
+
 	suspend fun connect() {
 		host.attachIngest()
 		DebugLog.log("Connect", "start admitted=${host.consoleAdmitted}")
@@ -60,10 +74,9 @@ internal class ConnectCoordinator(
 				return
 			}
 			host.reportCapabilities()
-			val teams = state.value.teams
 			state.update {
 				it.copy(
-					teams = host.withoutTombstoned(teams),
+					teams = host.withoutTombstoned(it.teams),
 					status = "connected",
 					error = null,
 					connected = true,

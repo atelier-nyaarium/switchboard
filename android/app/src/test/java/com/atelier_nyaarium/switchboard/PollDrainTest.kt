@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -31,6 +32,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PollDrainTest {
@@ -101,7 +104,16 @@ class PollDrainTest {
 			return true
 		}
 		var polled: TickOutcome? = null
-		override suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long): TickOutcome = polled ?: error("unused")
+		var failingPolls = 0
+		var polls = 0
+		override suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long): TickOutcome {
+			polls++
+			if (failingPolls > 0) {
+				failingPolls--
+				throw java.net.ConnectException("Connection refused")
+			}
+			return polled ?: error("unused")
+		}
 
 		/** Router serves newer planes. */
 		override suspend fun readPlanes(held: JsonObject): List<PlaneRead> {
@@ -400,6 +412,35 @@ class PollDrainTest {
 			drain.stopAndJoin()
 			scope.cancel()
 		}
+	}
+
+	@Test
+	fun aPassThatLandsAfterFailuresReadsOnlineAgain() = runBlocking {
+		val host = FakeHost(emptyMap()).apply {
+			linkNow = ConsoleLink.POLL
+			planned = ConsoleTransportPlan(PollWait.Delay(5L))
+			polled = TickOutcome(0, 0, false, emptyMap())
+			failingPolls = 2
+			state.value = ChatState(connected = true)
+		}
+		val drain = PollDrain(host, IdlePresencePort)
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
+		val seen = mutableListOf<ChatState.Health>()
+		val watch = scope.launch { host.state.collect { synchronized(seen) { seen += it.health } } }
+		try {
+			drain.start(scope)
+			withTimeout(5_000L) {
+				while (host.polls < 3 || host.state.value.pollFailStreak != 0) delay(1L)
+			}
+		} finally {
+			drain.stopAndJoin()
+			watch.cancel()
+			scope.cancel()
+		}
+
+		assertTrue(synchronized(seen) { ChatState.Health.OFFLINE in seen })
+		assertEquals(ChatState.Health.ONLINE, host.state.value.health)
+		assertNull(host.state.value.error)
 	}
 
 	@Test

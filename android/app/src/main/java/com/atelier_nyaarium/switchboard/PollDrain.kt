@@ -360,6 +360,15 @@ internal class PollDrain(
 		host.fetchPendingAttachments()
 	}
 
+	/** A pass that landed ends the streak failed ones began. The error is the poll's only while connected. */
+	private fun landedPass() {
+		if (pollFails == 0 && host.state.value.pollFailStreak == 0) return
+		pollFails = 0
+		host.state.update { s ->
+			if (s.pollFailStreak == 0) s else s.copy(pollFailStreak = 0, error = if (s.connected) null else s.error, enrollingSince = 0L)
+		}
+	}
+
 	private suspend fun drainOwnerInbox() {
 		withDrainMutex {
 			val outcome = host.poll(knownPlanes, ::observe)
@@ -396,6 +405,7 @@ internal class PollDrain(
 					}
 					if (!host.isVisible && host.link() == ConsoleLink.POLL) {
 						drainOwnerInbox()
+						landedPass()
 						host.refreshRoutines()
 						host.tickEnrollments()
 						// Coordinator owns alarm scheduling.

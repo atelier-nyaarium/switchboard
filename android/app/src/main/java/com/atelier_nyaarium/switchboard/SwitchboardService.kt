@@ -249,6 +249,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		// -> this chain) - no separate re-arm step needed there.
 		scope.launch(Dispatchers.IO) {
 			repo.connect()
+			scope.launch(Dispatchers.IO) { repo.connector.retryWhileTransient() }
 			repo.reconcilePending()
 			repo.sessions.replayPendingForgets()
 			repo.attachments.sweepOrphanAttachments()

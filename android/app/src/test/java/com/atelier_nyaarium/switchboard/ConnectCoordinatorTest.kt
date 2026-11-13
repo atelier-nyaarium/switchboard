@@ -85,6 +85,49 @@ class ConnectCoordinatorTest {
 	}
 
 	@Test
+	fun aConnectThatFailedForAPassingReasonIsTriedAgainUntilItLands() = runBlocking {
+		val store = testStore()
+		val identity = PhoneIdentity(store, FederationManager(store))
+		identity.provision(blob())
+		val state = MutableStateFlow(ChatState())
+		val host = FakeHost()
+		var refusals = 2
+		val reach = FakeReach {
+			if (refusals-- > 0) throw java.net.ConnectException("Connection refused")
+			RouterReach(domainId = "learned")
+		}
+		val connector = coordinator(identity, host, state, reach)
+		val waits = mutableListOf<Long>()
+
+		connector.connect()
+		connector.retryWhileTransient { waits += it }
+
+		assertEquals(listOf(CONNECT_RETRY_FIRST_MS, 2 * CONNECT_RETRY_FIRST_MS), waits)
+		assertEquals(3, reach.calls)
+		assertTrue(state.value.connected)
+		assertEquals(ChatState.Health.ONLINE, state.value.health)
+		assertTrue(host.capabilitiesReported)
+	}
+
+	@Test
+	fun aConnectRefusedForGoodIsNotTriedAgain() = runBlocking {
+		val store = testStore()
+		val identity = PhoneIdentity(store, FederationManager(store))
+		identity.provision(blob())
+		val state = MutableStateFlow(ChatState())
+		val reach = FakeReach { error("HTTP 401") }
+		val connector = coordinator(identity, FakeHost(), state, reach)
+		val waits = mutableListOf<Long>()
+
+		connector.connect()
+		connector.retryWhileTransient { waits += it }
+
+		assertEquals("error", state.value.status)
+		assertEquals(emptyList<Long>(), waits)
+		assertEquals(1, reach.calls)
+	}
+
+	@Test
 	fun anUnreachableRouterStopsBeforeAdmissionAndLearnsNothing() = runBlocking {
 		val store = testStore()
 		val identity = PhoneIdentity(store, FederationManager(store))
