@@ -70,6 +70,11 @@ class Session {
 		});
 	}
 
+	/** A message the CLI took in while a turn ran. */
+	absorbs(prompt: string) {
+		return this.chain({ type: "attachment", attachment: { type: "queued_command", prompt } });
+	}
+
 	answers(id: string) {
 		return this.chain({
 			type: "user",
@@ -263,7 +268,7 @@ describe("claude session cut", () => {
 	it("cuts at a message typed mid-turn once every call above it is answered, and nowhere inside a call", async () => {
 		const { session, midTurn } = compacted();
 		const index = await indexSession(each(session.lines));
-		const answer = index.tail.find((row) => row.type === "user" && !row.turnStart);
+		const answer = index.tail.find((row) => row.type === "user" && !row.delivered);
 		const refusal = (request: CutRequest) => {
 			const plan = planCut(index, request, VERSION);
 			return plan.ok ? "planned" : plan.reason;
@@ -374,6 +379,9 @@ describe("claude session cut", () => {
 		session.calls("t1");
 		session.user("typed while it worked");
 		session.answers("t1");
+		const taken = session.absorbs(
+			`<channel source="plugin:switchboard:switchboard" session_id="conv.a" from="Phone">\nkeep going\n</channel>`,
+		);
 		session.says("shipped");
 		const again = session.user("go");
 		session.says("went again");
@@ -383,9 +391,11 @@ describe("claude session cut", () => {
 		expect(pickTurn(index, { at: at(1), text: "go" }, channelBodyOf)).toEqual({ uuid: first, exact: true });
 		expect(pickTurn(index, { at: at(9), text: "go" }, channelBodyOf)).toEqual({ uuid: again, exact: true });
 		expect(pickTurn(index, { at: at(3), text: "ship it" }, channelBodyOf)).toEqual({ uuid: tagged, exact: true });
-		// Typed mid-call, and a reply: neither starts a turn a cut can keep from.
-		expect(pickTurn(index, { at: at(5), text: "typed while it worked" })).toEqual({ uuid: tagged, exact: false });
-		expect(pickTurn(index, { at: at(7) })).toEqual({ uuid: tagged, exact: false });
+		// Taken in mid-turn once its calls were answered: a cut point.
+		expect(pickTurn(index, { at: at(7), text: "keep going" }, channelBodyOf)).toEqual({ uuid: taken, exact: true });
+		// Typed with a call open, and a reply: neither is a cut point.
+		expect(pickTurn(index, { at: at(4), text: "typed while it worked" })).toEqual({ uuid: tagged, exact: false });
+		expect(pickTurn(index, { at: at(8) })).toEqual({ uuid: taken, exact: false });
 		expect(pickTurn(index, { at: at(0) - 60_000 })).toBeNull();
 	});
 

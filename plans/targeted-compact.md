@@ -8,7 +8,7 @@ Settled before the questions, with the NyaaCode session and by measurement:
 - Rows from the chosen one on stay byte for byte. Everything above becomes a summary or is dropped.
 - Three modes: trim (drop what the session no longer loads), clear above (no summary), compact above (a summary).
 - The rules live in `claudeSessionCut` (`indexSession`, `planCut`, `buildCut`, `verifyCut`, `cutSession`), host neutral, so they move into NyaaAI's operator package.
-- Only a message that started a turn is a cut point. A message that arrived while the session was working is not one.
+- A cut point is a message the session was sent, whether it started a turn or was taken in mid-turn, once no tool call above it is open.
 
 ## Question 1 - Where the cut point is picked
 

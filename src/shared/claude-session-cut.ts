@@ -37,13 +37,11 @@ export interface RowMeta {
 	type: string;
 	uuid?: string;
 	at?: string;
-	/** A user row that opens a turn: not a tool result, a summary or a sidechain row. */
-	turnStart: boolean;
 	/** Tool calls still unanswered before this row. */
 	openTools: number;
-	/** A message reached the session here: a turn start, or one absorbed mid-turn. */
+	/** A message reached the session here: a turn start, or one taken in mid-turn. A cut point. */
 	delivered: boolean;
-	/** A turn start's own text. */
+	/** A delivered message's own text. */
 	text?: string;
 	/** Rows this one names: a prompt's leaf, a file snapshot's message. */
 	points: string[];
@@ -243,9 +241,12 @@ const textOf = (row: Row): string | undefined => {
 	return parts.map((part) => (typeof part.text === "string" ? part.text : "")).join("\n");
 };
 
-/** A message the CLI took in while a turn ran. */
-const absorbed = (row: Row) =>
-	row.type === "attachment" && (row.attachment as Row | undefined)?.type === "queued_command";
+/** A message the CLI took in while a turn ran: its text, else undefined. */
+function absorbedText(row: Row): string | undefined {
+	if (row.type !== "attachment") return undefined;
+	const held = row.attachment as Row | undefined;
+	return held?.type === "queued_command" && typeof held.prompt === "string" ? held.prompt : undefined;
+}
 
 const pointsOf = (row: Row): string[] =>
 	POINTER_KEYS.map((key) => row[key]).filter((id): id is string => typeof id === "string");
@@ -370,16 +371,16 @@ export async function indexSession(lines: AsyncIterable<string>): Promise<Sessio
 		for (const id of calls.answered) open.delete(id);
 		const opens =
 			type === "user" && row.isCompactSummary !== true && row.isSidechain !== true ? textOf(row) : undefined;
+		const message = opens ?? absorbedText(row);
 		tail.push({
 			line,
 			bytes: Buffer.byteLength(text) + 1,
 			type,
 			...(uuid ? { uuid } : {}),
 			...(typeof row.timestamp === "string" ? { at: row.timestamp } : {}),
-			turnStart: opens !== undefined,
 			openTools,
-			delivered: opens !== undefined || absorbed(row),
-			...(opens !== undefined ? { text: opens } : {}),
+			delivered: message !== undefined,
+			...(message !== undefined ? { text: message } : {}),
 			points: pointsOf(row),
 		});
 	}
@@ -387,7 +388,6 @@ export async function indexSession(lines: AsyncIterable<string>): Promise<Sessio
 		line: line + 1,
 		bytes: 0,
 		type: "end",
-		turnStart: false,
 		openTools: open.size,
 		delivered: false,
 		points: [],
@@ -454,12 +454,12 @@ export function planCut(index: SessionIndex, request: CutRequest, cliVersion: st
 			: refused("target_missing", "that row is not in the session");
 	}
 	const target = rows[at] as RowMeta;
-	if (!target.turnStart) return refused("target_not_turn_start", "a cut starts at a message, not inside a turn");
+	if (!target.delivered) return refused("target_not_turn_start", "a cut starts at a message the session was sent");
 	if (target.openTools > 0) return refused("target_mid_tool", "a tool call above that row is still unanswered");
 	let through = rows.length - 1;
 	if (request.endBefore !== undefined) {
 		const marker = request.endBefore;
-		const stop = rows.findIndex((row, i) => i > at && row.turnStart && row.text?.includes(marker) === true);
+		const stop = rows.findIndex((row, i) => i > at && row.delivered && row.text?.includes(marker) === true);
 		if (stop < 0) return refused("end_missing", "the message the kept rows end before is not in the session");
 		if (rows.slice(stop + 1).some((row) => row.delivered))
 			return refused("late_message", "a message reached the session after the summary was asked for");
@@ -653,7 +653,7 @@ export function pickTurn(
 	bodyOf: (text: string) => string = (text) => text,
 ): PickedTurn | null {
 	const starts = index.tail.filter(
-		(row): row is RowMeta & { uuid: string } => row.turnStart && row.openTools === 0 && row.uuid !== undefined,
+		(row): row is RowMeta & { uuid: string } => row.delivered && row.openTools === 0 && row.uuid !== undefined,
 	);
 	const timeOf = (row: RowMeta) => (row.at === undefined ? Number.NaN : Date.parse(row.at));
 	if (pick.text !== undefined && collapsed(pick.text).length > 0) {

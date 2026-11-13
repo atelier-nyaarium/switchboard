@@ -468,9 +468,11 @@ sends `session_cut_start`. `src/gateway/sessionCuts.ts` runs the rest:
   replaced in `cutFrom`, and a forget deletes them with the session's own.
 - **A launch waits while a cut runs** (`WakeService.hold`): a wake begun meanwhile would resume the
   conversation being replaced, so it reads the record once the cut repointed it.
-- **A cut point is a message that started a turn.** A pressed row is matched by the owner's own
-  words (`pickTurn`, `channelBodyOf`), nearest in time; any other row finds the turn at or before
-  it, and the confirmation says so.
+- **A cut point is a message the session was sent,** whether it started a turn or was taken in
+  mid-turn (a `queued_command` attachment), once every tool call above it is answered. Claude
+  Code's own compactions keep tails that begin mid-turn, at a model reply. A pressed row is matched
+  by the owner's own words (`pickTurn`, `channelBodyOf`), nearest in time; any other row finds the
+  message at or before it, and the confirmation says so.
 - **Only proven shapes are cut:** the installed CLI and the file's own rows must be a version in
   `CUT_CLI_VERSIONS`, and the file's compaction row a key set the build knows.
 
