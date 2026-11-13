@@ -226,9 +226,12 @@ Questions 2, 8, 11, 12.
 - A dry run prints the counts first. The delete runs only on the owner's go-ahead for those counts. The keep set and the listing are rebuilt just before deleting, and a changed set stops to ask again.
 
 **Left to run,** each on the owner's word:
-- The Router's restart, then the daemon and the Gateway, then the app and a release build.
-- The dry run on Sakura, its counts to the owner, and the delete of exactly that set.
+- The delete of exactly the set Sakura's dry run named, once the owner approves its counts.
 - The same on mikan.
+
+**Deployed on Sakura** as 8.14.73: the Router, the daemon, the Gateway and the app.
+
+**Built and switched off:** the op ledger sweep. Its first live pass deleted 8,785 entries one at a time from a 20 MB owner store inside one pass and held the Router for five and a half minutes. It goes back on once it deletes in bounded batches and a test runs it against a store of that size.
 
 **Decided while building:**
 - **A forgotten-session listener answers false for a write that did not land,** so `session_forget` answers not ok and the Gateway reports the forget again. An older Router answers ok as before.
@@ -279,6 +282,7 @@ From Phase 2.
 - **The Router's services are tested with their session read injected,** so the rule composed in `src/federation-server/ownerServices.ts` (`reported`: an admitted Gateway and a reported session) has no seam below the harness, and the harness cannot revoke a Gateway.
 - **One harness per test file leaks between tests.** A session launched in one test of `src/__tests__/federation-harness-purge.test.ts` is swept by the next one's "every session" sweep, so each test has to forget what it launched and wait for the drain.
 - **A drain cannot be watched from outside.** `/health` answers the 7 day counter and nothing of the purge queue's length or of how many agent records a session holds. Watching the first age pass took a scratch script over the session snapshot's field names.
+- **No sweep on the Router's pass has a bound, and no test runs one at the live store's size.** `RouterServer.sweep` runs every sweeper in one synchronous turn. `sweepOpLedger` in `src/federation-server/inbox/inboxSweep.ts` was tested against a handful of entries and met 23,040 live.
 - **The daemon answers `deleted` with no count.** Codex's store lost 2,335 files for 2,029 thread deletes, and nothing the Gateway holds says what the other 306 were.
 
 ## How it is built
