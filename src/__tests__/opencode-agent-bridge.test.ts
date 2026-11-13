@@ -749,7 +749,7 @@ describe("the OpenCode bridge", () => {
 		await expect(r.error(steerId)).resolves.toMatchObject({
 			type: "error",
 			code: "http",
-			message: expect.stringContaining("withdrawn"),
+			message: expect.stringContaining("not delivered"),
 		});
 		expect(r.server.inbox(threadId)).toEqual([]);
 		r.server.finishTurn(threadId, undefined, "Done.");

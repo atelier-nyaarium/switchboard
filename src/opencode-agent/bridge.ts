@@ -749,8 +749,8 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 		throw new BridgeFailure(
 			"http",
 			withdrawn && last?.at === "unseen"
-				? "the OpenCode server did not confirm the steer, so it was withdrawn"
-				: "the OpenCode server did not confirm the steer, so it may still land",
+				? "OpenCode did not confirm the message, so it was not delivered. Send it again."
+				: "OpenCode did not confirm the message, and it may still be delivered. Check the agent's answer before sending it again.",
 		);
 	};
 
