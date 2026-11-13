@@ -113,10 +113,8 @@ internal suspend fun ChatRepository.deliver(
 	} catch (e: Exception) {
 		// Cancellation must remain pending so reconciliation can retry it.
 		e.rethrowIfCancellation()
-		// Use the shared classifier so users see a connection cause, not raw transport text.
-		val (cause, _) = classifyConnError(e)
 		DebugLog.log("Send", "op=${opId.take(8)} threw: ${e::class.simpleName}: ${e.message?.take(160)}")
-		fail(cause)
+		fail(failureLine(e))
 	} finally {
 		// Clear wake state on failed or cancelled attempts, but preserve successful notices.
 		if (!succeeded && raisedWakeNotice) _state.update { it.copy(wakingTeams = it.wakingTeams - team) }

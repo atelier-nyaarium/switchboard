@@ -44,6 +44,7 @@ internal fun <T> ownerOpResult(answer: JsonElement?, serializer: kotlinx.seriali
 internal class ConsoleClientCollaborators(
 	val signOwnerOp: (JsonObject, String) -> OwnerOp?,
 	val saveProvisioning: (String) -> Unit,
+	val noteRouter: (RouterEvent) -> Unit,
 	val postOwnerOpSender: (suspend (OwnerOp) -> JsonElement?)? = null,
 	val rowSigner: ((RowEnvelope) -> String?)? = null,
 )
@@ -56,7 +57,7 @@ class ConsoleClient internal constructor(
 	private val coordinator: ConsoleTransportCoordinator? = null,
 	private val collaborators: ConsoleClientCollaborators,
 ) {
-	internal val transport = ConsoleRouterTransport(boot.credentials, store, collaborators.saveProvisioning)
+	internal val transport = ConsoleRouterTransport(boot.credentials, store, collaborators.saveProvisioning, collaborators.noteRouter)
 
 	/** Content-addressed blob staging. */
 	internal val blobs = BlobStore(BlobStore.root(store.filesDir))

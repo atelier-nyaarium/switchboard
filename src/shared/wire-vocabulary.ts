@@ -12,6 +12,11 @@ export const CONSOLE_TOKEN_HEADER = "x-console-bridge-token";
 export const BEARER_PREFIX = "Bearer ";
 
 export const OP_OUTCOME_ACCEPTED = "accepted";
+export const OP_OUTCOME_REFUSED = "refused";
+/** The Router does not admit the signer. */
+export const OP_REASON_NOT_ADMITTED = "not admitted";
+/** The signer's clock is too far off. */
+export const OP_REASON_CLOCK_SKEW = "clock_skew";
 export const BOARD_OUTCOME_APPLIED = "applied";
 export const CONSOLE_REASON_CURSOR_STALE = "cursor_stale";
 export const GATEWAY_ERROR_STALE_INCARNATION = "stale_incarnation";

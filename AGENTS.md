@@ -374,7 +374,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     asserts every count equals what its drill-in lists, so no screen claims a number the next contradicts.
     `HubRegistry` is the one exception, since a too-large drill-in lists nothing to count.
 - `android/.../RepositoryPorts.kt` / `RepositoryCollaborators.kt` - role ports for the ops classes and their repository adapters
-- `android/.../Message.kt` / `MessageFile.kt` / `MessageText.kt` / `Draft.kt` / `ThreadOps.kt` / `ReadAnchor.kt` / `ChatState.kt` / `ConnError.kt` / `FederationTypes.kt` / `ScheduledSend.kt` - repository value types and pure helpers
+- `android/.../Message.kt` / `MessageFile.kt` / `MessageText.kt` / `Draft.kt` / `ThreadOps.kt` / `ReadAnchor.kt` / `ChatState.kt` / `FederationTypes.kt` / `ScheduledSend.kt` - repository value types and pure helpers
 - `android/.../ChatPersistence.kt` - JSON codec between repository state and AppStateStore
   - **A slot is written from the live state, never a caller's snapshot:** every `persist*` but the
     assistant home takes no argument and reads `live` under one lock, so a write that lands late
@@ -658,7 +658,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../PresenceOps.kt` - team presence and read-anchor reporting
 - `android/.../SessionOps.kt` - terminal and session controls
 - `android/.../ChatRepositorySend.kt` / `ChatRepositoryThreads.kt` / `ChatRepositoryDomainLink.kt` / `ChatRepositoryInbox.kt` / `ChatRepositoryMigration.kt` / `ChatRepositoryStts.kt` / `ChatRepositoryDrafts.kt` - stateless repository extensions
-- `android/.../ConnectCoordinator.kt` - the connect sequence over the identity door and the Router reach; `ChatRepository.connect()` delegates to it
+- `android/.../RouterLink.kt` / `LinkView.kt` / `RouterSetup.kt` - the phone's standing with the Router: the record, its events and the typed reading of a failure, a status and a refusal reason; `linkView`, the one reading every surface draws; the setup steps owed before the phone is usable. `docs/console.md` holds the rules
+  - **Nothing stores a connection fact but `ChatState.router`,** and only `RouterLink.Writer` folds one. `ChatRepository.noteRouter` is its one caller, fed by the Router's doors (`ConsoleRouterTransport`, `ConsoleSocketDriver`) and by setup. `router-link-residue.test.ts` holds the feed to them and refuses the old flag names.
+  - **A door tells the link where the round trip happens:** a path that proves the Router answers cannot skip it, and a path that saw nothing has no event to send. `ChatState.error` is one-shot notices; the link never reads it or clears it for a cause of its own.
+  - **Setup is level-triggered:** `RouterSetup.settle` runs at the top of every poll pass while anything is owed, so a failed attempt cannot leave the phone stuck. A fault is never a refusal: the setup calls throw the status of a response that is not the op's own answer. `ChatRepository.linkChanged` is the one road for a blob that changed or went, and a run begun before it lands nothing.
+  - **A reason is read by type or token, never from prose:** an exception's class, a status code, `OP_REASON_*`. A new `LinkView` state does not compile until every surface draws it.
 - `android/.../RouterReach.kt` / `ConsoleRouterTransport.kt` / `ConsoleSocketMode` - Router addresses, the OwnerOp post with reach failover and pinning, socket mode
 - `android/.../OwnerFacts.kt` / `GatewayEnrollment.kt` / `EnrollCeremonyOps.kt` / `DeviceApprovalOps.kt` / `DomainAdminOps.kt` / `TrustOps.kt` - federation delegates
 - `android/.../PendingEnroll.kt` / `PendingEnrollOps.kt` - a Gateway's unfinished setup on the phone: the record, `gatewayScanOf`, `bootstrapPickupId`, `gatewayCardState`, `pendingStep`; the record store and the pass the drain calls on its visible and background paths

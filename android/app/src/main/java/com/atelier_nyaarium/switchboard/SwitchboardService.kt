@@ -239,17 +239,16 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		repo.enabledPlugins = { plugins.reportable() }
 		// Keep the CPU awake for the poll loop while the bridge runs (background delivery).
 		acquireWakeLock()
-		// connect() registers (cursor, epoch) before the poll loop starts, and never throws.
+		// settle() never throws, and the poll loop runs it again while anything is owed.
 		// sweepOrphanAttachments() must finish strictly before the drain starts: concurrently with a
 		// drain it could delete a bucket a crash re-drain is about to re-reference (see its doc).
-		// fireDueScheduledSends() is its own unconditional step, same reason: connect() swallows its
+		// fireDueScheduledSends() is its own unconditional step, same reason: settle() swallows its
 		// own failures internally, so gating the fire on it succeeding would starve the bounded-retry
 		// policy exactly when firing offline is the whole point of checking. This same call is what
 		// re-arms the alarm after a reboot (BootReceiver -> SwitchboardService.start() -> onCreate()
 		// -> this chain) - no separate re-arm step needed there.
 		scope.launch(Dispatchers.IO) {
-			repo.connect()
-			scope.launch(Dispatchers.IO) { repo.connector.retryWhileTransient() }
+			repo.setup.settle()
 			repo.reconcilePending()
 			repo.sessions.replayPendingForgets()
 			repo.attachments.sweepOrphanAttachments()
@@ -265,14 +264,14 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		// cross-team change (e.g. forget's re-anchor) still reconciles.
 		scope.launch {
 			repo.state
-				.map { Triple(it.provisioned, it.health, it.unread) }
+				.map { Triple(it.provisioned, linkView(it), it.unread) }
 				.distinctUntilChanged()
-				.collect { (provisioned, health, unread) ->
+				.collect { (provisioned, view, unread) ->
 					if (!provisioned) {
 						stopSelf()
 						return@collect
 					}
-					notifications.updateStatusNotification(health, unread.values.sum())
+					notifications.updateStatusNotification(view, unread.values.sum())
 					notifications.reconcileTeamNotifications(repo, unread)
 				}
 		}

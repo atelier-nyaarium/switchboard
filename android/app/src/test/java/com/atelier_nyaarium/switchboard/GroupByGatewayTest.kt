@@ -62,9 +62,10 @@ class GroupByGatewayTest {
 
 	@Test
 	fun emptyBoardKeepsItsCauses() {
-		val stalled = ChatState(connected = true, pollFailStreak = 2)
+		val missing = RouterEvent.Missed(Miss.UNREACHABLE)
+		val stalled = ChatState(router = linkAfter(RouterEvent.Accepted, RouterEvent.SetupSettled, missing))
 		assertTrue(emptyBoardHasCause(stalled))
-		val healthy = ChatState(connected = true)
+		val healthy = ChatState(router = onlineLink())
 		assertEquals(false, emptyBoardHasCause(healthy))
 	}
 }

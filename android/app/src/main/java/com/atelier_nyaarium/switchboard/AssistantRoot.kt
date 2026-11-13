@@ -70,9 +70,6 @@ internal fun assistantTeams(state: ChatState): Set<String> =
 		state.roles.filterValues { it == ASSISTANT_ROLE }.keys +
 		listOfNotNull(assistantAddress(state))
 
-/** Router unreached since last connect. */
-internal fun routerUnreachable(state: ChatState): Boolean = !state.connected && (state.error != null || state.pollFailStreak > 0)
-
 /** The one landing state. */
 internal fun assistantRoot(state: ChatState): AssistantRoot {
 	state.homeFailure?.let { return AssistantRoot.Failed(it) }

@@ -43,6 +43,8 @@ class PostRouterDirectTest {
 
 	private fun taggedFail(msg: String) = EnrollResult(ok = false, error = "FAIL:$msg")
 
+	private val statuses = mutableListOf<Int>()
+
 	private suspend fun call(logBody: Boolean = true): EnrollResult = ConsoleHttp.postRouterDirect(
 		client,
 		server.url("/console").toString(),
@@ -51,7 +53,8 @@ class PostRouterDirectTest {
 		"case",
 		emptyJsonBody(),
 		logBody,
-		::taggedFail,
+		onStatus = { statuses += it },
+		fail = ::taggedFail,
 	)
 
 	@Test
@@ -104,7 +107,7 @@ class PostRouterDirectTest {
 			dead.start()
 			val deadUrl = dead.url("/console").toString()
 			dead.shutdown()
-			ConsoleHttp.postRouterDirect(client, deadUrl, "app-token", "Test", "case", emptyJsonBody(), true, ::taggedFail)
+			ConsoleHttp.postRouterDirect(client, deadUrl, "app-token", "Test", "case", emptyJsonBody(), true, { statuses += it }, ::taggedFail)
 		}
 	}
 

@@ -22,9 +22,20 @@ internal interface ConsoleSocketTransport {
 	fun unreachable(base: String): Boolean = false
 }
 
-/** The Router preflight a connect attempt opens with. */
+/** The console surface answered outside 2xx. */
+internal class RouterStatus(val code: Int, text: String) : IllegalStateException("HTTP $code: $text")
+
+/** What setup's opening call learned. */
+internal sealed interface Preflight {
+	data class Answered(val reach: RouterReach?) : Preflight
+
+	/** The door noted why. */
+	data object Unanswered : Preflight
+}
+
+/** The Router preflight setup opens with. */
 internal interface ConsoleReach {
-	suspend fun apiReachable(): RouterReach?
+	suspend fun preflight(): Preflight
 }
 
 /** Posts OwnerOps to the Router console surface with reach failover and pinning. */
@@ -32,6 +43,8 @@ internal class ConsoleRouterTransport(
 	internal val credentials: ConsoleCredentials,
 	internal val store: AppStateStore,
 	private val saveProvisioning: (String) -> Unit,
+	/** Every round trip tells the link. */
+	internal val note: (RouterEvent) -> Unit,
 ) : ConsoleSocketTransport, ConsoleReach {
 	internal val client = ConsoleHttp.buildLeafPinnedClient(credentials.routerCertFp)
 
@@ -81,7 +94,10 @@ internal class ConsoleRouterTransport(
 				return attempt(base)
 			} catch (e: java.io.IOException) {
 				tries++
-				if (tries >= candidateCount || !failedToReach(base)) throw e
+				if (tries >= candidateCount || !failedToReach(base)) {
+					note(eventOfFailure(e))
+					throw e
+				}
 			}
 		}
 	}
@@ -113,26 +129,34 @@ internal class ConsoleRouterTransport(
 	}
 
 	/** Leaf-pinned Router preflight; answers the reach, which may name the Domain. */
-	override suspend fun apiReachable(): RouterReach? {
-		if (isSandbox) return null
-		// Only the preflight may fail over.
-		withReachFailover { base ->
-			val req = buildHealthRequest(base)
-			clientFor(base).newCall(req).execute().use { resp ->
-				val text = resp.body?.string().orEmpty()
-				if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+	override suspend fun preflight(): Preflight {
+		if (isSandbox) return Preflight.Unanswered
+		val healthy = runCatchingCancellable {
+			withReachFailover { base ->
+				clientFor(base).newCall(buildHealthRequest(base)).execute().use { resp ->
+					resp.body?.string()
+					note(eventOfStatus(resp.code))
+					resp.isSuccessful
+				}
 			}
-		}
+		}.getOrElse { return Preflight.Unanswered }
+		if (!healthy) return Preflight.Unanswered
 		val reach = runIsolated { fetchReach() }.getOrNull()
 		reached(reach)
-		return reach
+		return Preflight.Answered(reach)
 	}
 
 	private fun fetchReach(): RouterReach? {
 		val req = buildReachRequest(proxyBase)
-		client.newCall(req).execute().use { resp ->
-			if (!resp.isSuccessful) return null
-			return RouterReach.decode(resp.body?.string())
+		try {
+			client.newCall(req).execute().use { resp ->
+				val text = resp.body?.string()
+				note(eventOfStatus(resp.code))
+				return if (resp.isSuccessful) RouterReach.decode(text) else null
+			}
+		} catch (e: java.io.IOException) {
+			note(eventOfFailure(e))
+			throw e
 		}
 	}
 
@@ -159,12 +183,32 @@ internal class ConsoleRouterTransport(
 		describe: String,
 		body: RequestBody,
 		logBody: Boolean,
+		onStatus: (Int) -> Unit = {},
 		fail: (String) -> R,
 	): R {
 		if (isSandbox) return fail(SANDBOX_UNREACHABLE)
 		return withReachFailover { base ->
-			ConsoleHttp.postRouterDirect(clientFor(base), base + Protocol.Wire.ROUTER_PATH_CONSOLE, credentials.appToken, tag, describe, body, logBody, fail)
+			ConsoleHttp.postRouterDirect(
+				clientFor(base),
+				base + Protocol.Wire.ROUTER_PATH_CONSOLE,
+				credentials.appToken,
+				tag,
+				describe,
+				body,
+				logBody,
+				onStatus = {
+					note(eventOfStatus(it))
+					onStatus(it)
+				},
+				fail = fail,
+			)
 		}
+	}
+
+	/** As [postRouterDirect], but a response that is not the op's own answer throws its status. */
+	internal suspend inline fun <reified R> postRouterAnswered(tag: String, describe: String, body: RequestBody, logBody: Boolean): R {
+		var status = 0
+		return postRouterDirect(tag, describe, body, logBody, onStatus = { status = it }) { throw RouterStatus(status, it) }
 	}
 
 	/** Cancelling the one caller, since an ordinary throw would take its whole scope down. */
@@ -172,10 +216,22 @@ internal class ConsoleRouterTransport(
 		if (isSandbox) throw CancellationException(SANDBOX_UNREACHABLE)
 		return withReachFailover { base ->
 			val req = buildOwnerOpRequest(base, ownerOp)
-			val resp = ConsoleHttp.executeCancellable(clientFor(base), req)
-			if (!resp.isSuccessful) error("HTTP ${resp.code}: ${resp.text.take(500)}")
-			wireJson.parseToJsonElement(resp.text)
+			ownerAnswer(ConsoleHttp.executeCancellable(clientFor(base), req))
 		}
+	}
+
+	/** An owner op's response: tells the link, then answers or throws. */
+	internal fun ownerAnswer(resp: ConsoleHttp.HttpTextResult): JsonElement {
+		if (!resp.isSuccessful) {
+			note(eventOfOwnerOpStatus(resp.code))
+			throw RouterStatus(resp.code, resp.text.take(500))
+		}
+		val answer = runIsolated { wireJson.parseToJsonElement(resp.text) }.getOrElse {
+			note(RouterEvent.Reached)
+			throw it
+		}
+		note(eventOfOwnerAnswer(answer))
+		return answer
 	}
 
 	internal fun buildOwnerOpRequest(base: String, ownerOp: OwnerOp): Request =

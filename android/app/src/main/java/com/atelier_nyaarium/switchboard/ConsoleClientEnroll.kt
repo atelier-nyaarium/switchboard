@@ -19,15 +19,19 @@ import com.atelier_nyaarium.switchboard.proto.TrustPendingResult
 import java.util.UUID
 import okhttp3.RequestBody.Companion.toRequestBody
 
-suspend fun ConsoleClient.enroll(op: EnrollOp): EnrollResult {
-	val envelope = EnrollEnvelope(transport.credentials.device, transport.credentials.conversationId, UUID.randomUUID().toString(), op)
-	return transport.postRouterDirect(
-		tag = "Enroll",
-		describe = "op=${op::class.simpleName}",
-		body = wireJson.encodeToString(EnrollEnvelope.serializer(), envelope).toRequestBody(ConsoleHttp.JSON),
-		logBody = true,
-	) { EnrollResult(ok = false, error = it) }
-}
+private fun ConsoleClient.enrollBody(op: EnrollOp) = wireJson.encodeToString(
+	EnrollEnvelope.serializer(),
+	EnrollEnvelope(transport.credentials.device, transport.credentials.conversationId, UUID.randomUUID().toString(), op),
+).toRequestBody(ConsoleHttp.JSON)
+
+suspend fun ConsoleClient.enroll(op: EnrollOp): EnrollResult =
+	transport.postRouterDirect(tag = "Enroll", describe = "op=${op::class.simpleName}", body = enrollBody(op), logBody = true) {
+		EnrollResult(ok = false, error = it)
+	}
+
+/** The Router's own answer to an enroll op; anything else throws its status. */
+internal suspend fun ConsoleClient.enrollAnswered(op: EnrollOp): EnrollResult =
+	transport.postRouterAnswered(tag = "Enroll", describe = "op=${op::class.simpleName}", body = enrollBody(op), logBody = true)
 
 suspend fun ConsoleClient.postConsoleApproval(op: ConsoleApprovalOp): ConsoleApprovalResult =
 	transport.postRouterDirect(
@@ -37,15 +41,14 @@ suspend fun ConsoleClient.postConsoleApproval(op: ConsoleApprovalOp): ConsoleApp
 		logBody = true,
 	) { ConsoleApprovalResult(ok = false, error = it) }
 
-suspend fun ConsoleClient.firstRoot(signed: SignedFirstRoot): EnrollResult {
-	val envelope = FirstRootEnvelope(signed)
-	return transport.postRouterDirect(
+/** The Router's own answer to a first root; anything else throws its status. */
+internal suspend fun ConsoleClient.firstRoot(signed: SignedFirstRoot): EnrollResult =
+	transport.postRouterAnswered(
 		tag = "FirstRoot",
 		describe = "domain=${signed.firstRoot.domainId}",
-		body = wireJson.encodeToString(FirstRootEnvelope.serializer(), envelope).toRequestBody(ConsoleHttp.JSON),
+		body = wireJson.encodeToString(FirstRootEnvelope.serializer(), FirstRootEnvelope(signed)).toRequestBody(ConsoleHttp.JSON),
 		logBody = true,
-	) { EnrollResult(ok = false, error = it) }
-}
+	)
 
 suspend fun ConsoleClient.requestGatewayTransport(req: TransportRequest): TransportResult =
 	transport.postRouterDirect(

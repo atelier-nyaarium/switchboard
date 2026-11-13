@@ -56,8 +56,8 @@ a host declares only what no port covers, so the roster refresh and republish a 
 action asks for come from `PresencePort`. The nine other ops classes take the role ports
 (`ClientPort`, `IdentityPort`, `PresencePort`, `PlaybackPort`) plus a per-class collaborator record,
 adapted in `RepositoryCollaborators.kt`, so a JVM test constructs them over shared fakes.
-`ConnectCoordinator` owns the connect sequence over the door and the Router preflight
-(`ConsoleReach`), with `ConnectHost` for the rest. The one held `ConsoleClient` lives behind
+`RouterSetup` owns what the phone owes the Router before it is usable, over the door and the Router
+preflight (`ConsoleReach`), with `SetupHost` for the rest. The one held `ConsoleClient` lives behind
 `RepositoryProvisioningHost`, read through `client()` or `clientOrNull()` and dropped through
 `invalidateClient()`. `DrainGate` is the repository's one re-entrant drain mutex. Sealing takes an entropy hook (`Crypto.seal`, `ContentKeyring.wrapFor`,
 `KeyDeliveryOps.wrapEntropy`, `PhoneAmbient.newNonceBytes`); a null hook draws from `SecureRandom`.
@@ -128,6 +128,66 @@ cannot be delivered now. A vault revoke and deleting the own Domain wait for a `
 `PollDrain`'s plane cursor decides what lands (below); `applyOwnerProjection` lands and rewrites
 the slot without comparing, so an unchanged Router's plane after a restart promotes the restore and
 repairs a slot the phone could not read. `clearProvisioning` drops the Router slots with the Domain.
+
+### The Router link, one record and one reader
+
+`ChatState.router` is this device's standing with the Router, a `RouterLink`. It cannot be built or
+copied outside `RouterLink.kt`: its nested `Writer` holds the only fold, and
+`ChatRepository.noteRouter` is the only caller. Nothing else stores a connection fact, and
+`ChatState.error` holds one-shot notices only.
+
+**The doors feed it:** each Router round trip records one event where it happens.
+`ConsoleRouterTransport` notes every call it makes: `withReachFailover` notes a call no address
+answered, and each door notes the response. `ConsoleSocketDriver` notes a welcome, a refused frame,
+an open that failed before its welcome, and `Reached` for every other frame. A client the
+provisioning host dropped tells the link nothing more (`feed` in `RepositoryProvisioningHost.kt`).
+
+| Event | Says | Clears |
+|---|---|---|
+| `Reached` | the Router responded | the misses |
+| `Accepted` | the Router verified a signed call: an owner op past its admission check, or a socket welcome | the misses and the refusal |
+| `Refused(why)` | a response that refuses this device | the misses; sets the refusal |
+| `Missed(why)` | no usable answer | nothing |
+
+A refusal stands until an `Accepted`. Misses read as down once one lands `DOWN_AFTER_MS` after the
+first with no response between, so a burst of failed calls is not an outage.
+
+**A reason is typed at the door, never matched from prose:** an exception by its class
+(`eventOfFailure`), a status by its code (`eventOfStatus`), and a refused owner op or socket by its
+`reason` token (`OP_REASON_NOT_ADMITTED`, `OP_REASON_CLOCK_SKEW` in `wire-vocabulary.ts`). Any other
+refused owner op was refused after the admission check, and counts as `Accepted`.
+
+**Setup is owed until it settles:** `RouterSetup.settle` runs what this device owes before it is
+usable: the preflight that names the Domain, a pending first root, this console's admission, its
+content epochs and the capability report. It is one single-flight, run at service start and at the
+top of every poll pass, and it does nothing once settled. A step answers `Done`, `Later` (tried
+again next pass, with a cause when no door told the link why) or `Refused` (waits on the owner).
+Only the owner's Try again, or a changed link, runs a refused setup again. A fault is never a
+refusal: the setup calls throw the status of a response that is not the op's own answer
+(`postRouterAnswered`), and an admission the Router itself refuses is asked again, since its answer
+names no permanence. A first root's refusal is still read from the Router's prose
+(`classifyFirstRootError`). On this device, a corrupt key waits on the owner and anything else is
+tried again.
+
+Owed setup is paced like a failed pass, by the poll loop alone: in the background that is the idle
+tier's own wait, so a deep-idle phone settles at its next mark or when it is opened.
+
+`ChatRepository.linkChanged` is the one road for a blob that changed or went: a re-provision, a new
+endpoint, a rename, an approved-device install and a forgotten Domain. It drops the client and
+starts setup over. A run begun before setup started over lands nothing, so it cannot settle the
+link that replaced its own.
+
+**`linkView` is the one reader:** it answers a closed set, `Online`, `Connecting`, `Reconnecting`,
+`Offline`, `NoGateway` and `Refused`. The sessions header, the empty board, the status notification,
+a conversation's banner and the assistant's landing each read it, and a `when` over it has no else
+branch. `NoGateway` is a current roster with no Gateway, read from `ChatState.gateways`. While
+setup is owed, a `not admitted` refusal reads as `Connecting`, since admission is one of the owed
+steps. The assistant's landing reads the Router as unreachable only before setup settled
+(`routerUnreachable`), when no home record was read.
+
+A poll pass that fails past its door, such as an answer that does not decode, is not a link fact:
+it leaves a notice in `ChatState.error`. `router-link-residue.test.ts` holds the feed to the doors
+and setup, keeps the link's parts behind `linkView`, and refuses the old flag names.
 
 ### Plane lineage, the one reader rule
 

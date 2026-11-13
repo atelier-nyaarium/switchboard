@@ -465,7 +465,7 @@ fun App(
 		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
 	}
 	val watchersMoved by repo.assistantOps.watchersMoved.collectAsState()
-	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.connected, assistantShown, watchersMoved) {
+	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.router.settled, assistantShown, watchersMoved) {
 		if (!assistantShown) return@LaunchedEffect
 		// Covers a screen before the first drain.
 		repo.assistantOps.refreshShown()
@@ -676,8 +676,7 @@ fun App(
 				tabLabel = { tabLabelFor(state, it) },
 				onReorderTabs = repo::reorderTabs,
 				messages = state.threads[openTeam].orEmpty(),
-					// Suppress retry banner during wake.
-				error = state.error?.takeUnless { presence == SessionWord.WAKING && it.endsWith("retrying") },
+				error = threadBanner(state.error, linkView(state), presence == SessionWord.WAKING),
 				rendererPool = rendererPool,
 				canRename = kind == "loose",
 				openNonce = nav.generation,
@@ -875,6 +874,7 @@ fun App(
 				vaultPending = if (vaultOn) vaultPending.size else 0,
 				snackbarHostState = snackbarHostState,
 				onRefresh = {
+					repo.setup.retry()
 					repo.command { presence.refreshTeams() }
 						// Refresh retries non-route columns.
 					repo.boardOps.refreshBoard()
@@ -906,7 +906,10 @@ fun App(
 					SessionsScreen(
 						state = state,
 						modifier = modifier,
-						onRefresh = { repo.command { presence.refreshTeams() } },
+						onRefresh = {
+							repo.setup.retry()
+							repo.command { presence.refreshTeams() }
+						},
 						onManage = { openOverlay(Overlay.Manage) },
 						onAddGateway = { openOverlay(Overlay.AddGateway) },
 						onHostHelp = { openOverlay(Overlay.HostHelp) },

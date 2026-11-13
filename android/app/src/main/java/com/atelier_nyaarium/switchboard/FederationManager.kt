@@ -53,7 +53,7 @@ class FederationManager(private val store: AppStateStore) {
 		when (val load = store.loadOwnerIdentity()) {
 			is IdentityLoad.Loaded -> load.identity
 			IdentityLoad.Absent -> Crypto.generateIdentity().also { store.saveOwnerIdentity(it) }
-			IdentityLoad.Corrupt -> error("owner key corrupt - the stored owner root key did not decode; restore from backup or recover the Domain")
+			IdentityLoad.Corrupt -> throw IdentityCorrupt("owner key corrupt - the stored owner root key did not decode; restore from backup or recover the Domain")
 		}
 
 	@Synchronized
@@ -61,7 +61,7 @@ class FederationManager(private val store: AppStateStore) {
 		when (val load = store.loadIdentity()) {
 			is IdentityLoad.Loaded -> load.identity
 			IdentityLoad.Absent -> Crypto.generateIdentity().also { store.saveIdentity(it) }
-			IdentityLoad.Corrupt -> error("identity corrupt - the stored console key did not decode; restore from backup or re-run setup.sh")
+			IdentityLoad.Corrupt -> throw IdentityCorrupt("identity corrupt - the stored console key did not decode; restore from backup or re-run setup.sh")
 		}
 
 	fun ownerKeysForDisplay(): OwnerKeysView? =

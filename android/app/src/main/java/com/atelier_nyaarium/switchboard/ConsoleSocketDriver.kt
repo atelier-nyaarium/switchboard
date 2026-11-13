@@ -7,6 +7,8 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 internal class ConsoleSocketDriver(
 	private val coordinator: ConsoleTransportCoordinator,
 	private val newClient: (ConsoleSocketListener) -> ConsoleSocketClient,
+	/** A welcome, a refusal and a failed open tell the link. */
+	private val note: (RouterEvent) -> Unit,
 	private val onRows: (List<com.atelier_nyaarium.switchboard.proto.InboxRow>, Long) -> Unit,
 	/** Null payload means re-read. */
 	private val onPlane: (String, PlaneLineage, kotlinx.serialization.json.JsonElement?) -> Unit = { _, _, _ -> },
@@ -87,6 +89,7 @@ internal class ConsoleSocketDriver(
 			when (frame) {
 				is ConsoleSocketFrame.Welcome -> {
 					val v = frame.value
+					note(RouterEvent.Accepted)
 					val consumer = socketOf()?.socketMode == ConsoleSocketMode.INBOX
 					val adopted = coordinator.onWelcome(
 						gen,
@@ -126,6 +129,7 @@ internal class ConsoleSocketDriver(
 				}
 				is ConsoleSocketFrame.Refused -> {
 					DebugLog.log("Socket", "refused ${frame.value.reason} floor=${frame.value.floor} dropped=${frame.value.dropped}")
+					note(eventOfSocketRefusal(frame.value.reason))
 					if (frame.value.reason == Protocol.Wire.CONSOLE_REASON_CURSOR_STALE) {
 						val floor = frame.value.floor ?: 0L
 						val dropped = frame.value.dropped ?: 0L
@@ -136,6 +140,7 @@ internal class ConsoleSocketDriver(
 				}
 				is ConsoleSocketFrame.Pong -> Unit
 			}
+			if (frame !is ConsoleSocketFrame.Welcome && frame !is ConsoleSocketFrame.Refused) note(RouterEvent.Reached)
 		}
 
 		override fun onClosed(code: Int?, reason: String?, cause: Throwable?) {
@@ -143,7 +148,11 @@ internal class ConsoleSocketDriver(
 			DebugLog.log("Socket", "closed gen=$gen code=$code reason=$reason cause=${cause?.javaClass?.simpleName} welcomed=$welcomed")
 			coordinator.onSocketClosed(gen)
 			forget(gen)
-			if (cause != null && !welcomed) onUnreachable()
+			if (cause != null && !welcomed) {
+				onUnreachable()
+				// The upgrade's status, if answered.
+				note(code?.let(::eventOfStatus) ?: eventOfFailure(cause))
+			}
 			if (visible()) {
 				scheduleReconnect()
 			}

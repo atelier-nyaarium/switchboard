@@ -32,7 +32,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -51,12 +50,18 @@ class PollDrainTest {
 		override suspend fun refreshRoutines() {
 			routineRefreshes += 1
 		}
+		@Volatile var owedPasses = 0
+		override suspend fun settle(): Boolean = owedPasses-- <= 0
 		@Volatile var enrollTicks = 0
 		override suspend fun tickEnrollments() {
 			enrollTicks += 1
 		}
 		var planned: ConsoleTransportPlan? = null
-		override fun plan(visible: Boolean, failed: Boolean): ConsoleTransportPlan = planned ?: error("unused")
+		val pacedAsFailed = mutableListOf<Boolean>()
+		override fun plan(visible: Boolean, failed: Boolean): ConsoleTransportPlan {
+			synchronized(pacedAsFailed) { pacedAsFailed += failed }
+			return planned ?: error("unused")
+		}
 		override fun fromCanonical(value: String) = value
 		val forgotten = mutableSetOf<String>()
 		override fun isForgotten(team: String) = team in forgotten
@@ -104,14 +109,12 @@ class PollDrainTest {
 			return true
 		}
 		var polled: TickOutcome? = null
-		var failingPolls = 0
+		/** What each poll throws, in order; null lands. */
+		val pollThrows = ArrayDeque<Throwable?>()
 		var polls = 0
 		override suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long): TickOutcome {
 			polls++
-			if (failingPolls > 0) {
-				failingPolls--
-				throw java.net.ConnectException("Connection refused")
-			}
+			pollThrows.removeFirstOrNull()?.let { throw it }
 			return polled ?: error("unused")
 		}
 
@@ -415,32 +418,29 @@ class PollDrainTest {
 	}
 
 	@Test
-	fun aPassThatLandsAfterFailuresReadsOnlineAgain() = runBlocking {
+	fun owedSetupAndAFailedPassAreBothPacedAsFailedAndTheLoopGoesOn() = runBlocking {
 		val host = FakeHost(emptyMap()).apply {
 			linkNow = ConsoleLink.POLL
 			planned = ConsoleTransportPlan(PollWait.Delay(5L))
 			polled = TickOutcome(0, 0, false, emptyMap())
-			failingPolls = 2
-			state.value = ChatState(connected = true)
+			owedPasses = 1
+			pollThrows += listOf(null, IllegalStateException("poll failed"))
 		}
 		val drain = PollDrain(host, IdlePresencePort)
 		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
-		val seen = mutableListOf<ChatState.Health>()
-		val watch = scope.launch { host.state.collect { synchronized(seen) { seen += it.health } } }
 		try {
 			drain.start(scope)
 			withTimeout(5_000L) {
-				while (host.polls < 3 || host.state.value.pollFailStreak != 0) delay(1L)
+				while (host.polls < 3) delay(1L)
 			}
 		} finally {
 			drain.stopAndJoin()
-			watch.cancel()
 			scope.cancel()
 		}
 
-		assertTrue(synchronized(seen) { ChatState.Health.OFFLINE in seen })
-		assertEquals(ChatState.Health.ONLINE, host.state.value.health)
-		assertNull(host.state.value.error)
+		// Setup owed in pass one, a poll that threw in two, a clean pass in three.
+		assertEquals(listOf(true, true, false), synchronized(host.pacedAsFailed) { host.pacedAsFailed.take(3) })
+		assertTrue(host.state.value.error!!.contains("poll failed"))
 	}
 
 	@Test

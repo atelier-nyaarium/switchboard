@@ -28,8 +28,8 @@ data class ChatState(
 	val sessionWorking: Map<String, Boolean> = emptyMap(),
 	/** Login state remains separate from working state. */
 	val sessionNeedsLogin: Map<String, Boolean> = emptyMap(),
-	val status: String = "",
 	val drafts: Map<String, Draft> = emptyMap(),
+	/** One-shot notices; never the link's cause. */
 	val error: String? = null,
 	val biometricLock: Boolean = false,
 	val deviceName: String = "",
@@ -43,13 +43,11 @@ data class ChatState(
 	val phoneHold: PhoneHold? = null,
 	/** A home put's failure, until a newer choice. */
 	val homeFailure: String? = null,
-	val connected: Boolean = false,
+	/** Standing with the Router; [linkView] reads it. */
+	val router: RouterLink = RouterLink.none,
 	/** Mirrors repository visibility for Compose observation. */
 	val foreground: Boolean = false,
-	val pollFailStreak: Int = 0,
 	val domainId: String? = null,
-	/** Nonzero while enrollment admits the device before sync completes. */
-	val enrollingSince: Long = 0L,
 	val linkedPeerOwners: Map<String, String> = emptyMap(),
 	val crossDomainPeerSessions: Map<String, CrossDomainPresenceEntry> = emptyMap(),
 	/** Router-stated owner facts. */
@@ -127,23 +125,6 @@ data class ChatState(
 
 	fun needsLogin(team: String): Boolean =
 		teams.firstOrNull { it.name == team }?.presence?.needsLogin ?: (sessionNeedsLogin[team] == true)
-
-	enum class Health { ONLINE, SYNCING, DEGRADED, OFFLINE }
-
-	val health: Health
-		get() = when {
-			connected && pollFailStreak == 0 -> Health.ONLINE
-			enrollingSince != 0L && !connected -> Health.SYNCING
-			pollFailStreak >= 2 -> Health.OFFLINE
-			connected -> Health.DEGRADED
-			else -> Health.OFFLINE
-		}
-
-	val needsGateway: Boolean
-		get() = error?.startsWith("Add a Gateway") == true
-
-	val noGatewayState: NoGatewayState
-		get() = FriendOnboarding.noGatewayState(needsGateway, firstRooted)
 
 	/** Quiet rows skip card reads. */
 	private fun cardRows(team: String): List<Message> = threads[team].orEmpty().filterNot { it.isQuiet() }

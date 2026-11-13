@@ -80,6 +80,7 @@ internal class FixtureWorld private constructor(
 			collaborators = ConsoleClientCollaborators(
 				signOwnerOp = { op, opId -> signer.sign(op, opId).also { onSign?.invoke(it) } },
 				saveProvisioning = store::save,
+				noteRouter = {},
 				postOwnerOpSender = sender,
 			),
 		)

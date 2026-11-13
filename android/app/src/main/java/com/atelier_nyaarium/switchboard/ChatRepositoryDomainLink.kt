@@ -10,7 +10,7 @@ import org.json.JSONObject
 /** Report plugin changes. */
 suspend fun ChatRepository.reportEnabledPlugins() = withContext(Dispatchers.IO) {
 	pluginReportPending = true
-	if (!_state.value.connected) return@withContext
+	if (!_state.value.router.settled) return@withContext
 	runCatchingCancellable { reportCapabilitiesToRouter() }
 		.onSuccess { pluginReportPending = false }
 		.onFailure { DebugLog.log("Plugins", "capability report failed, retrying: ${it.message?.take(120)}") }
@@ -36,7 +36,7 @@ suspend fun ChatRepository.provision(blob: String) = withContext(Dispatchers.IO)
 	}
 	assistantOps.forgetHome {
 		identity.provision(blob)
-		invalidateClient()
+		linkChanged()
 	}
 	sttsClient = null
 	// Mirror the reset in UI state.
@@ -102,12 +102,17 @@ suspend fun ChatRepository.setEndpoint(host: String, port: Int, certFp: String) 
 		return@withContext
 	}
 	identity.saveBlob(edited)
-	invalidateClient()
+	linkChanged()
 	sttsClient = null
 	_state.update { it.copy(error = null) }
 }
 
-suspend fun ChatRepository.connect() = withContext(Dispatchers.IO) { connector.connect() }
+/** This device's blob changed or went: its client is dropped and setup starts over. */
+internal fun ChatRepository.linkChanged() {
+	invalidateClient()
+	setup.startOver()
+	if (isSandbox) sandboxSeeder.drawLink()
+}
 
 /** Router name, then stored name, then Domain id. */
 fun ChatRepository.displayName(): String =
@@ -131,9 +136,8 @@ suspend fun ChatRepository.setDeviceName(name: String) = withContext(Dispatchers
 			return@withContext
 		}
 	identity.saveBlob(updated)
-	invalidateClient()
+	linkChanged()
 	_state.update { it.copy(deviceName = name) }
-	connect()
 }
 
 internal fun ChatRepository.currentDeviceName(): String =
@@ -150,5 +154,6 @@ suspend fun ChatRepository.clearAll() = withContext(Dispatchers.IO) {
 	// Purge file-backed attachments too.
 	Attachments.purgeAll(filesDir)
 	_state.update { ChatState(provisioned = false) }
+	linkChanged()
 	// Cancel the OS-level alarm.
 }

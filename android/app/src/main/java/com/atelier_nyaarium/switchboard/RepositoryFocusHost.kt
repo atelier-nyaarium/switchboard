@@ -18,7 +18,8 @@ internal class ChatRepositoryFocusHost(private val repo: ChatRepository) : Repos
 	override fun onForeground() {
 		visibleValue = true
 		repo.drain.onForegroundResume()
-		repo._state.update { it.copy(error = null, pollFailStreak = 0, enrollingSince = 0L, foreground = true) }
+		// A resume clears the standing notice.
+		repo._state.update { it.copy(error = null, foreground = true) }
 		repo.drain.kickPoll()
 		if (repo.ownerOpsOrNull()?.domainId() != null) runIsolated { repo.socket.connect() }
 		// A file can have moved while the phone was away, and only the owner's own typing is at stake.

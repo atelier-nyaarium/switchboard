@@ -209,13 +209,8 @@ internal class ServiceNotifications(private val context: Context) {
 			)
 			.build()
 
-	internal fun updateStatusNotification(health: ChatState.Health, unread: Int) {
-		val line = when (health) {
-			ChatState.Health.ONLINE -> "Bridge online"
-			ChatState.Health.SYNCING -> "Finishing up enrollment..."
-			ChatState.Health.DEGRADED -> "Reconnecting..."
-			ChatState.Health.OFFLINE -> "Offline"
-		}
+	internal fun updateStatusNotification(view: LinkView, unread: Int) {
+		val line = statusLine(view)
 		if (!canNotify()) return
 		// Respect a swipe-dismissal: once the user clears the status entry, state
 		// changes must not resurrect it. It returns on the next service start.

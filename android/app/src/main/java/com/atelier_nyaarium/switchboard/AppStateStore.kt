@@ -13,6 +13,12 @@ import java.util.Base64
 import kotlinx.serialization.json.JsonObject
 import org.json.JSONObject
 
+/** The keystore will not hold a secret. */
+internal class SecureStorageUnavailable(message: String) : IllegalStateException(message)
+
+/** A stored key that did not decode. */
+internal class IdentityCorrupt(message: String) : IllegalStateException(message)
+
 /** Distinguishes absent from corrupt identities. */
 sealed interface IdentityLoad {
 	data class Loaded(val identity: Crypto.Identity) : IdentityLoad
@@ -93,7 +99,7 @@ class AppStateStore internal constructor(
 		domainVersion: String?,
 		contentKeys: Map<Int, ByteArray>,
 	): Boolean {
-		check(encrypted) { "secure storage unavailable; refusing to persist content keys in cleartext" }
+		if (!encrypted) throw SecureStorageUnavailable("secure storage unavailable; refusing to persist content keys in cleartext")
 		return prefs.edit().apply {
 			putString(KEY_BLOB, blob)
 			putBoolean(KEY_CONSOLE_ADMITTED, true)
@@ -369,7 +375,7 @@ class AppStateStore internal constructor(
 
 	/** Console identity, keystore-backed only. */
 	fun saveIdentity(identity: Crypto.Identity) {
-		check(encrypted) { "secure storage unavailable; refusing to persist the federation key in cleartext" }
+		if (!encrypted) throw SecureStorageUnavailable("secure storage unavailable; refusing to persist the federation key in cleartext")
 		prefs.edit().putString(KEY_IDENTITY, wireJson.encodeToString(Crypto.Identity.serializer(), identity)).apply()
 	}
 
@@ -377,7 +383,7 @@ class AppStateStore internal constructor(
 
 	/** Domain owner root, keystore-backed only. */
 	fun saveOwnerIdentity(identity: Crypto.Identity) {
-		check(encrypted) { "secure storage unavailable; refusing to persist the owner root key in cleartext" }
+		if (!encrypted) throw SecureStorageUnavailable("secure storage unavailable; refusing to persist the owner root key in cleartext")
 		prefs.edit()
 			.putString(KEY_OWNER_IDENTITY, wireJson.encodeToString(Crypto.Identity.serializer(), identity))
 			.apply()
@@ -386,7 +392,7 @@ class AppStateStore internal constructor(
 	fun loadOwnerIdentity(): IdentityLoad = readIdentity(KEY_OWNER_IDENTITY)
 
 	fun saveContentKeys(keys: Map<Int, ByteArray>): Boolean {
-		check(encrypted) { "secure storage unavailable; refusing to persist content keys in cleartext" }
+		if (!encrypted) throw SecureStorageUnavailable("secure storage unavailable; refusing to persist content keys in cleartext")
 		return prefs.edit().putString(KEY_CONTENT_KEYS, encodeContentKeys(keys)).commit()
 	}
 

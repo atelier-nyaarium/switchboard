@@ -99,8 +99,7 @@ internal class GoalOps(
 			.onSuccess { DebugLog.log("Goal", "typed into $team") }
 			.onFailure { e ->
 				DebugLog.log("Goal", "typing into $team failed: ${e.javaClass.simpleName}")
-				val (cause, _) = classifyConnError(e)
-			state.update { it.copy(error = "Could not type the goal into that session: $cause") }
+				state.update { it.copy(error = "Could not type the goal into that session: ${failureLine(e)}") }
 			}
 	}
 

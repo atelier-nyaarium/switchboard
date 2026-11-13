@@ -111,24 +111,6 @@ class FriendOnboardingTest {
 		assertTrue(r.message.contains("some odd transport failure"))
 	}
 
-
-	@Test
-	fun aGatewayPresentIsNotANoGatewayState() {
-		assertEquals(NoGatewayState.NONE, FriendOnboarding.noGatewayState(noGateway = false, firstRooted = false))
-		assertEquals(NoGatewayState.NONE, FriendOnboarding.noGatewayState(noGateway = false, firstRooted = true))
-	}
-
-	@Test
-	fun firstRootedWithNoGatewayAwaitsAHost() {
-		assertEquals(NoGatewayState.AWAITING_HOST, FriendOnboarding.noGatewayState(noGateway = true, firstRooted = true))
-	}
-
-	@Test
-	fun noGatewayWithoutAFirstRootIsTheAdminCta() {
-		assertEquals(NoGatewayState.NEEDS_GATEWAY, FriendOnboarding.noGatewayState(noGateway = true, firstRooted = false))
-	}
-
-
 	@Test
 	fun renameWaitsWhileDomainUnconfirmed() {
 		assertTrue(FriendOnboarding.renameAwaitsDiscovery(firstRooted = true, domainId = null))

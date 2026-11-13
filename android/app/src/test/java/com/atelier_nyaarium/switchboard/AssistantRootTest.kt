@@ -101,7 +101,8 @@ class AssistantRootTest {
 	fun theLandingFoldReadsTheHomeRecordAndCurrentReport() {
 		val unread = ChatState(domainId = "dom", gateways = testRegistry("sakura"))
 		assertEquals(AssistantRoot.Loading, assistantRoot(unread))
-		assertEquals(AssistantRoot.RouterUnreachable, assistantRoot(unread.copy(connected = false, error = "offline")))
+		val unreached = unread.copy(router = linkAfter(RouterEvent.Missed(Miss.UNREACHABLE)))
+		assertEquals(AssistantRoot.RouterUnreachable, assistantRoot(unreached))
 		assertEquals(AssistantRoot.SetUp, assistantRoot(unread.copy(assistantHome = AssistantHome.Read(null, null))))
 		assertEquals(
 			AssistantRoot.SetUp,
@@ -143,7 +144,7 @@ class AssistantRootTest {
 		// A stuck landing still reaches Settings.
 		assertEquals(
 			listOf(false, false, true, true),
-			listOf(unread, unread.copy(connected = false, error = "offline"), offline, moving).map { rootOffersSettings(assistantRoot(it)) },
+			listOf(unread, unreached, offline, moving).map { rootOffersSettings(assistantRoot(it)) },
 		)
 	}
 

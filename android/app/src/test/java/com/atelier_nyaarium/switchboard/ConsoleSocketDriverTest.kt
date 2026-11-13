@@ -8,6 +8,7 @@ import com.atelier_nyaarium.switchboard.proto.InboxRow
 import com.atelier_nyaarium.switchboard.proto.OpKey
 import com.atelier_nyaarium.switchboard.proto.OwnerOp
 import com.atelier_nyaarium.switchboard.proto.PlaneLineage
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.RowEnvelope
 import com.atelier_nyaarium.switchboard.proto.RowOrigin
 import java.lang.reflect.Proxy
@@ -160,6 +161,7 @@ class ConsoleSocketDriverTest {
 		val driver = ConsoleSocketDriver(
 			coordinator = coordinator,
 			newClient = { error("construct") },
+			note = {},
 			onRows = { _, _ -> },
 			reconnect = { reconnects += it },
 		)
@@ -229,6 +231,37 @@ class ConsoleSocketDriverTest {
 		h.listenerListeners.single().onClosed(null, null, java.io.IOException("no route"))
 
 		assertEquals(1, unreachable)
+	}
+
+	@Test
+	fun theLinkHearsAWelcomeARefusalAndAFailedOpen() {
+		val events = mutableListOf<RouterEvent>()
+		val welcome = ConsoleSocketFrame.Welcome(
+			ConsoleWelcomeFrame(incarnation = 1L, cursor = 1L, cursorEpoch = 1L, floor = 2L, versions = JsonObject(emptyMap())),
+		)
+		fun opened() = harness(newCoordinator(), note = { events += it }).also { it.driver.connect() }.listenerListeners.single()
+
+		opened().onFrame(welcome)
+		opened().onFrame(ConsoleSocketFrame.Refused(ConsoleRefusedFrame(reason = Protocol.Wire.OP_REASON_NOT_ADMITTED)))
+		opened().onFrame(ConsoleSocketFrame.Refused(ConsoleRefusedFrame(reason = "superseded")))
+		opened().onFrame(ConsoleSocketFrame.Pong(com.atelier_nyaarium.switchboard.proto.ConsolePongFrame(incarnation = 1L)))
+		opened().onClosed(null, null, java.net.UnknownHostException("router"))
+		opened().onClosed(401, null, java.net.ProtocolException("Expected HTTP 101 response but was '401 Unauthorized'"))
+		// A drop after the welcome says nothing; the reconnect will.
+		opened().also { it.onFrame(welcome) }.onClosed(null, null, java.io.IOException("dropped"))
+
+		assertEquals(
+			listOf(
+				RouterEvent.Accepted,
+				RouterEvent.Refused(Refusal.NOT_ADMITTED),
+				RouterEvent.Reached,
+				RouterEvent.Reached,
+				RouterEvent.Missed(Miss.NO_NETWORK),
+				RouterEvent.Refused(Refusal.TOKEN_REJECTED),
+				RouterEvent.Accepted,
+			),
+			events,
+		)
 	}
 
 	@Test
@@ -386,6 +419,7 @@ class ConsoleSocketDriverTest {
 		reconnect: (Long) -> Unit = {},
 		onWelcome: (Long, ConsoleWelcomeFrame) -> Unit = { _, _ -> },
 		onConsumerWelcome: (Long, ConsoleWelcomeFrame) -> Unit = { _, _ -> },
+		note: (RouterEvent) -> Unit = {},
 	): Harness {
 		val listenerListeners = mutableListOf<ConsoleSocketListener>()
 		val wireListeners = mutableListOf<WebSocketListener>()
@@ -428,6 +462,7 @@ class ConsoleSocketDriverTest {
 					socket
 				}.also { it.socketMode = clientMode }
 			},
+			note = note,
 			onRows = onRows,
 			onPlane = onPlane,
 			onGap = onGap,

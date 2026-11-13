@@ -327,6 +327,7 @@ class ConsoleClientOwnerOpsTest {
 		collaborators = ConsoleClientCollaborators(
 			signOwnerOp = { op, opId -> OwnerOp(1, "domain", "owner", "conversation", "device", opId, 1, "nonce", op, "sig") },
 			saveProvisioning = store::save,
+			noteRouter = {},
 		postOwnerOpSender = sender,
 		rowSigner = { "row-sig" },
 		),

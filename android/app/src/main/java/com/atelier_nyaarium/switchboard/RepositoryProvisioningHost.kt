@@ -25,16 +25,25 @@ internal class ChatRepositoryProvisioningHost(private val repo: ChatRepository) 
 
 	override fun clientOrNull(): ConsoleClient? = held
 
+	/** Bumped as clients drop, so a dropped one's doors tell the link nothing. */
+	@Volatile private var incarnation = 0
+
 	override fun invalidateClient() {
+		incarnation++
 		held = null
 		clientBoot = null
 		cachedTransport = null
 	}
 
+	private fun feed(): (RouterEvent) -> Unit {
+		val built = incarnation
+		return { event -> if (built == incarnation) repo.noteRouter(event) }
+	}
+
 	override fun transport(): ConsoleRouterTransport {
 		cachedTransport?.let { return it }
 		val blob = repo.store.load() ?: error("not provisioned")
-		return ConsoleRouterTransport(ConsoleCredentials.parse(blob, repo.store), repo.store, repo.identity::saveBlob).also {
+		return ConsoleRouterTransport(ConsoleCredentials.parse(blob, repo.store), repo.store, repo.identity::saveBlob, feed()).also {
 			cachedTransport = it
 		}
 	}
@@ -50,6 +59,7 @@ internal class ChatRepositoryProvisioningHost(private val repo: ChatRepository) 
 			collaborators = ConsoleClientCollaborators(
 				signOwnerOp = { op, opId -> repo.ownerOpsOrNull()?.sign(op, opId) },
 				saveProvisioning = repo.identity::saveBlob,
+				noteRouter = feed(),
 			),
 		).also {
 			clientBoot = boot

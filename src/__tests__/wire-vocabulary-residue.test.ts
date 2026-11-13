@@ -9,6 +9,8 @@ import {
 	GATEWAY_ERROR_NOT_REGISTERED,
 	GATEWAY_ERROR_STALE_INCARNATION,
 	GATEWAY_REASON_NO_WAITER,
+	OP_REASON_CLOCK_SKEW,
+	OP_REASON_NOT_ADMITTED,
 	ROUTER_PATHS,
 	SIGNING_TAGS,
 } from "../shared/wire-vocabulary.js";
@@ -20,6 +22,9 @@ const GATEWAY_ANSWERS = [
 	GATEWAY_ERROR_INBOX_UNAVAILABLE,
 	GATEWAY_REASON_NO_WAITER,
 ];
+
+/** Refusal reasons a phone reads off an owner op or its socket. */
+const OP_REASONS = [OP_REASON_NOT_ADMITTED, OP_REASON_CLOCK_SKEW];
 
 const root = join(import.meta.dirname, "..");
 const kotlinRoot = join(root, "..", "android/app/src/main/java/com/atelier_nyaarium/switchboard");
@@ -51,6 +56,7 @@ describe("wire vocabulary residue", () => {
 			CONSOLE_TOKEN_HEADER,
 			...Object.values(SIGNING_TAGS),
 			...GATEWAY_ANSWERS,
+			...OP_REASONS,
 		];
 		for (const value of values)
 			for (const file of files)
@@ -66,6 +72,7 @@ describe("wire vocabulary residue", () => {
 			CONSOLE_TOKEN_HEADER,
 			...Object.values(SIGNING_TAGS),
 			...GATEWAY_ANSWERS,
+			...OP_REASONS,
 			...OWNER_OP_KIND_LIST,
 			"welcome",
 			"inbox_rows",
@@ -88,6 +95,7 @@ describe("wire vocabulary residue", () => {
 			CONSOLE_TOKEN_HEADER,
 			...Object.values(SIGNING_TAGS),
 			...GATEWAY_ANSWERS,
+			...OP_REASONS,
 			"Bearer ",
 		];
 		for (const value of values) {

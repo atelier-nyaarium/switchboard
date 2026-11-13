@@ -85,6 +85,7 @@ internal object ConsoleHttp {
 		describe: String,
 		body: RequestBody,
 		logBody: Boolean,
+		onStatus: (Int) -> Unit,
 		fail: (String) -> R,
 	): R {
 		val req = Request.Builder()
@@ -103,6 +104,7 @@ internal object ConsoleHttp {
 				throw e
 			}
 		DebugLog.log(tag, "$describe resp HTTP ${resp.code} ${loggedBodyPreview(resp.text, logBody)}")
+		onStatus(resp.code)
 		if (resp.isSuccessful) {
 			return runIsolated { wireJson.decodeFromString<R>(resp.text) }
 				.getOrElse { fail("unexpected response (HTTP ${resp.code})") }

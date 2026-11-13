@@ -194,6 +194,7 @@ class ChatRepository(
 			DebugLog.log("Inbox", "$dropped rows expired before this phone read them; floor $floor")
 		},
 		kick = { drain.kickPoll() },
+		note = ::noteRouter,
 		onUnreachable = { client().transport.unreachable(client().transport.proxyBase) },
 		visible = { isVisible },
 		reconnect = { delay -> repoScope.launch {
@@ -273,7 +274,17 @@ class ChatRepository(
 
 	internal val ownerFacts = OwnerFacts(this)
 	internal val gatewayEnroll = GatewayEnrollment(this)
-	internal val connector = ConnectCoordinator(identity, ::transport, _state, ChatRepositoryConnectHost(this))
+	private val routerWriter = RouterLink.Writer(_state) { ambient.now() }
+
+	/** The link's one feed. An answer while setup is owed wakes the loop. */
+	internal fun noteRouter(event: RouterEvent) {
+		val before = _state.value.router
+		routerWriter.note(event)
+		val after = _state.value.router
+		if (after.setup is Setup.Owed && (!before.reached && after.reached || event == RouterEvent.SetupOwed)) drain.kickPoll()
+	}
+
+	internal val setup = RouterSetup(identity, ::transport, ChatRepositorySetupHost(this))
 	init {
 		wireMigration()
 	}

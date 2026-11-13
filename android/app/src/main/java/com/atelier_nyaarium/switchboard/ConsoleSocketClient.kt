@@ -113,7 +113,8 @@ internal class ConsoleSocketClient(
 			}
 
 			override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-				finish(null, null, t)
+				// A refused upgrade's status.
+				finish(response?.code, null, t)
 			}
 
 			override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {

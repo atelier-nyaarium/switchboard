@@ -176,7 +176,6 @@ internal class PollDrain(
 	private val clockMillis: () -> Long = System::currentTimeMillis,
 	private val speaksForHold: (Boolean) -> Boolean = { it },
 ) : ClearsOnReprovision {
-	private var pollFails = 0
 	private var pollJob: Job? = null
 	private var pollScope: CoroutineScope? = null
 
@@ -227,7 +226,6 @@ internal class PollDrain(
 	/** Mark the resume backlog. */
 	fun onForegroundResume() {
 		foregroundSince = System.currentTimeMillis()
-		pollFails = 0
 	}
 
 	/** Clear in-memory cursors. */
@@ -360,15 +358,6 @@ internal class PollDrain(
 		host.fetchPendingAttachments()
 	}
 
-	/** A pass that landed ends the streak failed ones began. The error is the poll's only while connected. */
-	private fun landedPass() {
-		if (pollFails == 0 && host.state.value.pollFailStreak == 0) return
-		pollFails = 0
-		host.state.update { s ->
-			if (s.pollFailStreak == 0) s else s.copy(pollFailStreak = 0, error = if (s.connected) null else s.error, enrollingSince = 0L)
-		}
-	}
-
 	private suspend fun drainOwnerInbox() {
 		withDrainMutex {
 			val outcome = host.poll(knownPlanes, ::observe)
@@ -389,9 +378,10 @@ internal class PollDrain(
 			var lastVisibleRoutineRefreshAt: Long? = null
 			pollLoop@ while (isActive) {
 				var failed = false
-				var heldEmpty = false
-				var hold = 0L
 				try {
+					// Owed setup paces like a failed pass.
+					val owed = !host.settle()
+					failed = owed
 					if (host.isVisible) {
 						val now = clockMillis()
 						val lastRefresh = lastVisibleRoutineRefreshAt
@@ -405,38 +395,18 @@ internal class PollDrain(
 					}
 					if (!host.isVisible && host.link() == ConsoleLink.POLL) {
 						drainOwnerInbox()
-						landedPass()
 						host.refreshRoutines()
 						host.tickEnrollments()
 						// Coordinator owns alarm scheduling.
-						park(host.plan(false, false).wait, kick, ChatRepository.BACKGROUND_TICK_MS)
+						park(host.plan(false, owed).wait, kick, ChatRepository.BACKGROUND_TICK_MS)
 						continue@pollLoop
 					}
 					} catch (e: Exception) {
-					// Rethrow cancellation before classification.
 					e.rethrowIfCancellation()
-					if (hold > 0 && e.message?.startsWith("HTTP 504") == true) {
-						// Treat held 504 as empty.
-						DebugLog.log("Poll", "hold timeout (504) treated as empty long-poll")
-						heldEmpty = true
-					} else {
-						// Classify connection failures.
-						val (cause, kind) = classifyConnError(e)
-						DebugLog.log("Poll", "error streak=${pollFails + 1} [$kind]: ${e.message?.take(120)}")
-						failed = true
-						pollFails++
-						host.state.update { s ->
-							when (kind) {
-								ConnKind.ENROLLING -> {
-									val (override, since) = enrollFold(s.enrollingSince)
-									s.copy(pollFailStreak = pollFails, error = override ?: cause, enrollingSince = since)
-								}
-								ConnKind.TERMINAL -> s.copy(pollFailStreak = pollFails, error = cause, enrollingSince = 0L)
-								ConnKind.TRANSIENT ->
-									s.copy(pollFailStreak = pollFails, error = if (pollFails >= 2) cause else s.error, enrollingSince = 0L)
-							}
-						}
-					}
+					DebugLog.log("Poll", "pass failed: ${e.javaClass.simpleName}: ${e.message?.take(120)}")
+					failed = true
+					// A door told the link of its own failures.
+					if (e !is java.io.IOException && e !is RouterStatus) host.state.update { it.copy(error = failureLine(e)) }
 					DebugLog.flushToIngest()
 				}
 				if (!host.isVisible) {
@@ -444,7 +414,7 @@ internal class PollDrain(
 					host.tickEnrollments()
 				}
 				val plan = host.plan(host.isVisible, failed)
-				park(plan.wait, kick, ChatRepository.POLL_INTERVAL_MS.takeIf { failed || heldEmpty })
+				park(plan.wait, kick, ChatRepository.POLL_INTERVAL_MS.takeIf { failed })
 			}
 		}
 	}

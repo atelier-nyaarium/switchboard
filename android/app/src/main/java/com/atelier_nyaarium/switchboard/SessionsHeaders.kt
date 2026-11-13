@@ -37,18 +37,12 @@ import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceSession
 
 @Composable
 fun HealthHeader(state: ChatState) {
-	val (dot, label) = when {
-		// Enrolled but no Gateway admitted yet is an ONBOARDING state, not a red error: the board
-		// body owns the Add-a-Gateway CTA, so the header stays a calm positive status (no duplicate).
-		state.needsGateway -> Color(0xFF0969DA) to "Enrolled"
-		state.health == ChatState.Health.ONLINE -> STATUS_GREEN to "Bridge online"
-		// Calm blue while a fresh enrollment's allowlist is still syncing to its Gateway -
-		// a normal, self-healing window, not an error.
-		state.health == ChatState.Health.SYNCING -> Color(0xFF0969DA) to (state.error ?: "Finishing enrollment...")
-		// Show the SPECIFIC classified cause (set by classifyConnError) rather than a
-		// blanket label, so the header tells the human exactly what to fix.
-		state.health == ChatState.Health.DEGRADED -> STATUS_AMBER to (state.error ?: "Reconnecting...")
-		else -> Color(0xFFCF222E) to (state.error ?: "Offline")
+	val (tone, label) = headerLine(linkView(state))
+	val dot = when (tone) {
+		LinkTone.GOOD -> STATUS_GREEN
+		LinkTone.CALM -> Color(0xFF0969DA)
+		LinkTone.WARN -> STATUS_AMBER
+		LinkTone.BAD -> Color(0xFFCF222E)
 	}
 	Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
 		Row(

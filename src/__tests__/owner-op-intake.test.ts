@@ -6,10 +6,11 @@ import { InboxService } from "../federation-server/inbox/inboxService.js";
 import { OwnerOpIntake } from "../federation-server/inbox/ownerOpIntake.js";
 import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistry.js";
 import { DomainQuota } from "../federation-server/owner/domainQuota.js";
-import { signAdmission } from "../shared/admission.js";
+import { REGISTER_MAX_SKEW_MS, signAdmission } from "../shared/admission.js";
 import { fingerprint, generateIdentity } from "../shared/crypto.js";
 import { ConsoleOpSchema } from "../shared/schemas.js";
 import { signOwnerOp, signRowEnvelope } from "../shared/schemasInbox.js";
+import { OP_OUTCOME_REFUSED, OP_REASON_CLOCK_SKEW, OP_REASON_NOT_ADMITTED } from "../shared/wire-vocabulary.js";
 import { mintIdentitySet } from "../testing/identitySet.js";
 
 const roots: string[] = [];
@@ -57,6 +58,7 @@ function signedOp(
 		opId?: string;
 		nonce?: string;
 		signer?: ReturnType<typeof generateIdentity>;
+		at?: number;
 	} = {},
 ) {
 	const signer = options.signer ?? fixture.consoleIdentity;
@@ -68,7 +70,7 @@ function signedOp(
 			conversationId: "conversation",
 			device: options.device ?? "phone",
 			opId: options.opId ?? "op-1",
-			at: 1_000_000,
+			at: options.at ?? 1_000_000,
 			nonce: Buffer.from(options.nonce ?? options.opId ?? "nonce").toString("base64"),
 			op: value,
 		},
@@ -165,6 +167,20 @@ describe("OwnerOp intake", () => {
 			{ opId: "clear" },
 		);
 		expect(await fixture.intake.handle(clearOp)).toMatchObject({ outcome: "refused" });
+	});
+
+	it("names why it refuses a signer it does not admit and one whose clock is off", async () => {
+		const fixture = localIntake();
+		const stranger = signedOp(fixture, { kind: "consumer_register" }, { signer: generateIdentity() });
+		expect(await fixture.intake.handle(stranger)).toMatchObject({
+			outcome: OP_OUTCOME_REFUSED,
+			reason: OP_REASON_NOT_ADMITTED,
+		});
+		const skewed = signedOp(fixture, { kind: "consumer_register" }, { at: 1_000_000 + REGISTER_MAX_SKEW_MS + 1 });
+		expect(await fixture.intake.handle(skewed)).toMatchObject({
+			outcome: OP_OUTCOME_REFUSED,
+			reason: OP_REASON_CLOCK_SKEW,
+		});
 	});
 
 	it("returns durability uncertainty while the owner store is quarantined", async () => {

@@ -9,38 +9,25 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 internal class OwnerFacts(private val repo: ChatRepository) {
-	/** First-root only after Router acceptance. */
-	suspend fun firstRootIfPending(): Boolean {
-		val blob = repo.identity.blob() ?: return true
-		val prov = runIsolated { ConsoleCredentials.parse(blob, repo.store) }.getOrNull() ?: return true
+	/** Roots a pending Domain. Rooted only once the Router accepts. */
+	suspend fun firstRoot(): StepResult {
+		val blob = repo.identity.blob() ?: return StepResult.Done
+		val prov = runIsolated { ConsoleCredentials.parse(blob, repo.store) }.getOrNull() ?: return StepResult.Done
 		return when (val decision = FriendOnboarding.decide(prov, repo.store.firstRooted)) {
-			is FirstRootDecision.NotPending -> true
+			is FirstRootDecision.NotPending -> StepResult.Done
 			is FirstRootDecision.Root -> {
 				DebugLog.log("FirstRoot", "pending domain=${decision.domainId}; rooting at owner key ${repo.federation.ownerSas()}")
 				val signed = repo.federation.signFirstRoot(decision.domainId, decision.nonce, System.currentTimeMillis())
-				val result = runCatchingCancellable { repo.client().firstRoot(signed) }.getOrElse {
-					val (cause, _) = classifyConnError(it)
-					repo._state.update { s -> s.copy(status = "connecting", error = cause, connected = false, enrollingSince = 0L) }
-					return false
-				}
+				val result = runCatchingCancellable { repo.client().firstRoot(signed) }.getOrElse { return laterOf(it) }
 				if (result.ok) {
 					repo.identity.markFirstRooted(blob)
 					repo.readyOrNull()?.let(repo.identity::ensureContentEpochs)
 					DebugLog.log("FirstRoot", "rooted ok domain=${decision.domainId}")
-					true
+					StepResult.Done
 				} else {
-					// Transient rejects retry. Terminal rejects stop connect.
 					val reject = FriendOnboarding.classifyFirstRootError(result.error)
 					DebugLog.log("FirstRoot", "rejected (transient=${reject.transient}): ${result.error?.take(120)}")
-					repo._state.update {
-						it.copy(
-							status = if (reject.transient) "connecting" else "error",
-							error = reject.message,
-							connected = false,
-							enrollingSince = 0L,
-						)
-					}
-					false
+					if (reject.transient) StepResult.Later(reject.message) else StepResult.Refused(reject.message)
 				}
 			}
 		}
@@ -78,20 +65,24 @@ internal class OwnerFacts(private val repo: ChatRepository) {
 		return true
 	}
 
-	suspend fun submitConsoleAdmission() {
-		val blob = repo.identity.blob() ?: return
-		if (repo.store.consoleAdmitted) {
-			DebugLog.log("Enroll", "submit skipped: consoleAdmitted flag already set")
-			return
-		}
+	/** Submits this console's own admission, once. */
+	suspend fun admitThisConsole(): StepResult {
+		val blob = repo.identity.blob() ?: return StepResult.Done
+		if (repo.store.consoleAdmitted) return StepResult.Done
 		val signed = repo.federation.consoleAdmission(System.currentTimeMillis())
 		DebugLog.log("Enroll", "submitting console admission to the Router (owner ${Crypto.fingerprint(signed.ownerSignPub)})")
-		if (submitOwnerFact(signed, { repo.client().enroll(EnrollOp.SubmitAdmission(it)) }, repo.identity::mergeAdmission, "Console admission rejected")) {
-			repo.identity.setConsoleAdmitted(true, blob)
-		} else {
-			DebugLog.log("Federation", "console admission submit failed")
-			error(repo._state.value.error ?: "Console admission rejected by the server")
+		val result = runCatchingCancellable { repo.client().enrollAnswered(EnrollOp.SubmitAdmission(signed)) }.getOrElse { return laterOf(it) }
+		if (!result.ok) {
+			DebugLog.log("Enroll", "console admission rejected: ${result.error?.take(140) ?: "unknown"}")
+			// The Router names no permanence, so it is asked again.
+			return StepResult.Later(
+				"Console admission rejected: ${result.error?.take(100) ?: "unknown"} - re-run setup.sh, then re-import the setup blob",
+			)
 		}
+		repo.identity.mergeAdmission(signed)
+		repo.identity.setConsoleAdmitted(true, blob)
+		runCatchingCancellable { repo.presence.refreshAfterAction() }
+		return StepResult.Done
 	}
 
 	suspend fun admitGateway(gatewayId: String, signPub: String, boxPub: String): SignedAdmission? =

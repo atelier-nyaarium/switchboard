@@ -24,6 +24,9 @@ internal interface DrainHost {
 	/** Reads the gateway's routines, so a background pass learns a miss with no tab open. */
 	suspend fun refreshRoutines()
 
+	/** Runs what setup still owes the Router; false while a step is owed. */
+	suspend fun settle(): Boolean
+
 	/** Retires or re-hands each unfinished Gateway setup. */
 	suspend fun tickEnrollments()
 	fun fromCanonical(value: String): String?
@@ -62,6 +65,7 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override val autoGenerate get() = repo.sttsAutoGen
 	override fun link() = repo.transportCoordinator.link()
 	override suspend fun refreshRoutines() = repo.routineOps.refreshAll()
+	override suspend fun settle() = repo.setup.settle()
 	override suspend fun tickEnrollments() = repo.gatewayEnroll.setups.tick()
 	override fun plan(visible: Boolean, failed: Boolean) =
 		repo.transportCoordinator.plan(visible, failed, repo.state.value.gateways.soonestRoutineAt())

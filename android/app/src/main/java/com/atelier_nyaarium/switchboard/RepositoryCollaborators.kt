@@ -45,7 +45,7 @@ internal class ChatRepositoryDeviceApprovalCollaborators(private val repo: ChatR
 		domainId: String?,
 	) = repo.identity.installApproved(blob, domainJson, domainVersion, contentKeys, domainId)
 	override fun invalidateClients() {
-		repo.invalidateClient()
+		repo.linkChanged()
 		repo.sttsClient = null
 	}
 	override suspend fun submitOwnerAdmission(signed: SignedAdmission) =
@@ -358,7 +358,8 @@ internal class ChatRepositoryTrustCollaborators(private val repo: ChatRepository
 		repo.ownerFacts.submitXdomainLink(srcDomainId, dstDomainId)
 	override suspend fun revokeXdomainLink(srcDomainId: String, dstDomainId: String) =
 		repo.ownerFacts.revokeXdomainLink(srcDomainId, dstDomainId)
-	override suspend fun routerReachable() = runCatchingCancellable { repo.client().transport.apiReachable() }.getOrNull() != null
+	override suspend fun routerReachable() =
+		runCatchingCancellable { repo.client().transport.preflight() }.getOrNull() is Preflight.Answered
 }
 
 internal class ChatRepositoryPlaybackPort(private val repo: ChatRepository) : PlaybackPort {

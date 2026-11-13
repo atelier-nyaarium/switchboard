@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import kotlinx.coroutines.flow.MutableStateFlow
+
 internal class TestIdentityPort(private val store: AppStateStore, private val boot: PhoneBootstrap? = null) : IdentityPort {
 	private val federationValue = FederationManager(store)
 	override fun readyOrNull(): PhoneBootstrap? = boot
@@ -41,3 +43,18 @@ internal fun testRegistry(
 	version = 1,
 	gateways = ids.map { GatewayEntry(it, connected = true, incarnation = 1, lastRegisteredAt = 1) }.sortedBy { it.id },
 )
+
+/** The link after these events, each [stepMs] after the last. */
+internal fun linkAfter(vararg events: RouterEvent, stepMs: Long = 1_000L): RouterLink {
+	val state = MutableStateFlow(ChatState())
+	var now = 0L
+	val writer = RouterLink.Writer(state) { now }
+	for (event in events) {
+		now += stepMs
+		writer.note(event)
+	}
+	return state.value.router
+}
+
+/** Setup settled, the Router answering. */
+internal fun onlineLink(): RouterLink = linkAfter(RouterEvent.Accepted, RouterEvent.SetupSettled)

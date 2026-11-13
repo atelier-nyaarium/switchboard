@@ -24,14 +24,6 @@ sealed interface FirstRootDecision {
 data class FirstRootReject(val message: String, val transient: Boolean)
 
 // Pending tenant selects first-root. Rooted devices skip it.
-enum class NoGatewayState {
-	NONE,
-
-	AWAITING_HOST,
-
-	NEEDS_GATEWAY,
-}
-
 object FriendOnboarding {
 	fun renameAwaitsDiscovery(firstRooted: Boolean, domainId: String?): Boolean =
 		firstRooted && domainId == null
@@ -62,14 +54,6 @@ object FriendOnboarding {
 	}
 
 	fun humanizeFirstRootError(message: String?): String = classifyFirstRootError(message).message
-
-	fun noGatewayState(noGateway: Boolean, firstRooted: Boolean): NoGatewayState =
-		// First-rooted friends await a host. Admins need a Gateway.
-		when {
-			!noGateway -> NoGatewayState.NONE
-			firstRooted -> NoGatewayState.AWAITING_HOST
-			else -> NoGatewayState.NEEDS_GATEWAY
-		}
 
 	fun hostedState(domainId: String, teams: List<Team>): HostedTenantState {
 		// A rooted tenant is online only when one of its sessions is live.

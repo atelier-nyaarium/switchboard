@@ -13,6 +13,7 @@ import {
 	parseInboxAddress,
 	verifyOwnerOp,
 } from "../../shared/schemasInbox.js";
+import { OP_OUTCOME_REFUSED, OP_REASON_CLOCK_SKEW, OP_REASON_NOT_ADMITTED } from "../../shared/wire-vocabulary.js";
 import { type LeaseService, readRouterMigrationWindow } from "../migration/leaseService.js";
 import { OwnerQuarantined } from "../owner/ownerStateStore.js";
 import {
@@ -103,15 +104,15 @@ export class OwnerOpIntake {
 		const domain = this.params.getDomain(op.domainId);
 		const refused = (reason: string): OpResultEnvelope => {
 			console.log(`[owner-op] refused ${String(op.op.kind)} dev=${op.device}: ${reason}`);
-			return { opKey: { conversationId: op.conversationId, opId: op.opId }, outcome: "refused", reason };
+			return { opKey: { conversationId: op.conversationId, opId: op.opId }, outcome: OP_OUTCOME_REFUSED, reason };
 		};
 		if (
 			!domain ||
 			!verifyOwnerOp(op) ||
 			!resolveAdmittedConsole(domain.admissions, domain.revocations, domain.ownerSignPub, op.signerSignPub)
 		)
-			return refused("not admitted");
-		if (Math.abs(this.now() - op.at) > REGISTER_MAX_SKEW_MS) return refused("stale");
+			return refused(OP_REASON_NOT_ADMITTED);
+		if (Math.abs(this.now() - op.at) > REGISTER_MAX_SKEW_MS) return refused(OP_REASON_CLOCK_SKEW);
 		for (const [nonce, entry] of this.nonces)
 			if (this.now() - entry.at > REGISTER_MAX_SKEW_MS) this.nonces.delete(nonce);
 		const nonceKey = `${op.domainId}/${op.signerSignPub}/${op.nonce}`;

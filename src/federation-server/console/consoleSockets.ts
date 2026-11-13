@@ -9,7 +9,7 @@ import {
 	type ConsoleSocketOutbound,
 } from "../../shared/schemasConsoleSocket.js";
 import type { InboxRow, PlaneLineage } from "../../shared/schemasInbox.js";
-import { CONSOLE_REASON_CURSOR_STALE } from "../../shared/wire-vocabulary.js";
+import { CONSOLE_REASON_CURSOR_STALE, OP_REASON_NOT_ADMITTED } from "../../shared/wire-vocabulary.js";
 import { readRouterMigrationWindow } from "../migration/leaseService.js";
 
 export interface ConsoleSocket {
@@ -134,7 +134,7 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 			| undefined;
 		const identity = answer?.hello;
 		if (!identity) {
-			refuse(socket, answer?.reason ?? "not admitted");
+			refuse(socket, answer?.reason ?? OP_REASON_NOT_ADMITTED);
 			return;
 		}
 		const admitted = new Set(deps.admittedConsoleSigners?.(identity.domainId) ?? [identity.signerSignPub]);

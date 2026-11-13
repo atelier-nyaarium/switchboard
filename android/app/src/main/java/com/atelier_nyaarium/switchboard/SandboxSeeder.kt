@@ -76,6 +76,12 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 	@Volatile private var dirs: Map<String, List<String>>? = null
 	val sandboxDirs: Map<String, List<String>>? get() = dirs
 
+	/** No Router here: states the link it draws. */
+	fun drawLink() {
+		repo.noteRouter(RouterEvent.Accepted)
+		repo.noteRouter(RouterEvent.SetupSettled)
+	}
+
 	override fun seedSandbox(
 		teams: List<Team>,
 		threads: Map<String, List<Message>>,
@@ -88,6 +94,7 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 		seedSandboxIdentity(repo.identity, teams.firstOrNull()?.domainId)
 		seedPendingGateway()
 		this.dirs = dirs
+		drawLink()
 		repo._state.update { s ->
 			s.copy(
 				teams = teams,
@@ -95,9 +102,7 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 				openTabs = sandboxTabs(teams, threads),
 				roles = rolesAfter(s.roles, teams),
 				unread = threads.mapValues { (team, msgs) -> unreadCount(msgs, s.readAnchors[team]) },
-				connected = true,
 				provisioned = true,
-				status = "",
 				error = null,
 				drafts = drafts,
 				goals = goals,
