@@ -285,6 +285,18 @@ export class OwnerStateStore {
 		this.assertReadable();
 		return Object.values(this.state.records[kind] ?? {}).map(clone);
 	}
+	/** Reads a kind's records in place, with no copy made: `pick` must neither keep nor change one. */
+	pick<T>(kind: RecordKind, pick: (record: Readonly<StateRecord>) => T | undefined, limit: number): T[] {
+		this.assertReadable();
+		const picked: T[] = [];
+		for (const record of Object.values(this.state.records[kind] ?? {})) {
+			const answer = pick(record);
+			if (answer === undefined) continue;
+			picked.push(answer);
+			if (picked.length >= limit) break;
+		}
+		return picked;
+	}
 	put(
 		kind: RecordKind,
 		id: string,

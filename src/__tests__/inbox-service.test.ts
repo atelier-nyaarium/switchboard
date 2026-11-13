@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReferenceHeldStore } from "../federation-server/blobs/referenceHeldStore.js";
 import { InboxService } from "../federation-server/inbox/inboxService.js";
-import { sweepOpLedger } from "../federation-server/inbox/inboxSweep.js";
+import { OP_LEDGER_SWEEP_BATCH, OP_LEDGER_TTL_MS, sweepOpLedger } from "../federation-server/inbox/inboxSweep.js";
 import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistry.js";
 import { DomainQuota } from "../federation-server/owner/domainQuota.js";
 import { OwnerQuarantined } from "../federation-server/owner/ownerStateStore.js";
@@ -424,6 +424,32 @@ describe("InboxService", () => {
 		now += 7 * 24 * 60 * 60_000;
 		expect(sweepOpLedger(registry, domainId, now)).toBe(1);
 		expect(append().seq).not.toBe(first.seq);
+		registry.close();
+	});
+
+	it("drops a pass's due ledger entries in one write, at most a batch", () => {
+		const now = OP_LEDGER_TTL_MS + 1_000;
+		const { registry } = make({ now: () => now });
+		const store = registry.for(domainId);
+		const seeded = store.batch((tx) => {
+			for (let index = 0; index < OP_LEDGER_SWEEP_BATCH + 5; index += 1)
+				tx.put("op", `old-${index}`, null, { clear: { at: 0 } });
+			tx.put("op", "recent", null, { clear: { at: now } });
+		});
+		expect(seeded.kind).toBe("ok");
+		let marks = 0;
+		const seq = () => {
+			marks += 1;
+			return (store.put("nonce", `mark-${marks}`, null, { clear: { at: now } }) as { seq: number }).seq;
+		};
+
+		const before = seq();
+		expect(sweepOpLedger(registry, domainId, now)).toBe(OP_LEDGER_SWEEP_BATCH);
+		// The sweep's one write, then the mark's.
+		expect(seq() - before).toBe(2);
+		expect(sweepOpLedger(registry, domainId, now)).toBe(5);
+		expect(sweepOpLedger(registry, domainId, now)).toBe(0);
+		expect(store.list("op").map((record) => record.id)).toEqual(["recent"]);
 		registry.close();
 	});
 

@@ -231,7 +231,7 @@ Questions 2, 8, 11, 12.
 
 **Deployed on Sakura** as 8.14.73: the Router, the daemon, the Gateway and the app.
 
-**Built and switched off:** the op ledger sweep. Its first live pass deleted 8,785 entries one at a time from a 20 MB owner store inside one pass and held the Router for five and a half minutes. It goes back on once it deletes in bounded batches and a test runs it against a store of that size.
+**The op ledger sweep was rewritten after its first live pass.** It deleted 8,785 entries one at a time from a 20 MB owner store inside one pass, each write copying the whole store, and held the Router for five and a half minutes. A pass is now one write of at most a batch. Rehearsed against a copy of the live store: three passes of about 75 ms, and the store went from 20 MB to 12 MB.
 
 **Decided while building:**
 - **A forgotten-session listener answers false for a write that did not land,** so `session_forget` answers not ok and the Gateway reports the forget again. An older Router answers ok as before.

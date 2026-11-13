@@ -16,6 +16,8 @@ import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 const JOURNAL_COMPACT_BYTES = 4 * 1024 * 1024;
 /** A ledger entry outlives its row by a week, for a late duplicate. */
 export const OP_LEDGER_TTL_MS = INBOX_ROW_TTL_MS + 7 * 24 * 60 * 60 * 1000;
+/** Ledger entries one pass drops. */
+export const OP_LEDGER_SWEEP_BATCH = 2_000;
 
 function sweepOwnerOpNonces(store: OwnerStateStore, now: number): void {
 	for (const record of store.list("nonce"))
@@ -33,18 +35,29 @@ function addresses(store: OwnerStateStore, domainId: string): string[] {
 		);
 }
 
-/** The ledger is keyed by op, so it is swept by age. Answers how many went. */
+/**
+ * The ledger is keyed by op, so it is swept by age. One pass is one write of at most a batch: every
+ * write copies the whole store, and a write per entry held the Router for minutes. Answers how many went.
+ */
 export function sweepOpLedger(registry: OwnerStoreRegistry, domainId: string, now: number): number {
 	const store = registry.for(domainId);
 	if (store.health().quarantined) return 0;
-	let dropped = 0;
-	for (const record of store.list("op")) {
-		const at = Number(record.clear.at);
-		// An entry with no time is left.
-		if (!Number.isFinite(at) || now - at <= OP_LEDGER_TTL_MS) continue;
-		if (store.del("op", record.id, record.version).kind === "ok") dropped += 1;
-	}
-	return dropped;
+	const due = store.pick(
+		"op",
+		(record) => {
+			const at = Number(record.clear.at);
+			// An entry with no time is left.
+			return Number.isFinite(at) && now - at > OP_LEDGER_TTL_MS
+				? { id: record.id, version: record.version }
+				: undefined;
+		},
+		OP_LEDGER_SWEEP_BATCH,
+	);
+	if (due.length === 0) return 0;
+	const written = store.batch((tx) => {
+		for (const entry of due) tx.del("op", entry.id, entry.version);
+	});
+	return written.kind === "ok" ? due.length : 0;
 }
 
 export function compactInbox(registry: OwnerStoreRegistry, domainId: string): void {
