@@ -196,7 +196,7 @@ Questions 1, 3, 4, 5, 6, 7, 9, 10. Delete calls, the purge queue, one end for a 
 
 **Order:** the daemon, then the Gateway, then the plugin release that carries the two tools.
 
-## Phase 2 - Prompts, small records, the one sweep
+## Phase 2 - Prompts, small records, the one sweep ✅
 
 Questions 2, 8, 11, 12.
 
@@ -224,6 +224,11 @@ Questions 2, 8, 11, 12.
 - One more pass removes what earlier forgets left: claim files and held rows on the Gateway, and read anchors on the Router, that name no session in the registry.
 - Claude Code is left to its own 30 day cleanup. The owner purges the third machine by hand.
 - A dry run prints the counts first. The delete runs only on the owner's go-ahead for those counts. The keep set and the listing are rebuilt just before deleting, and a changed set stops to ask again.
+
+**Left to run,** each on the owner's word:
+- The Router's restart, then the daemon and the Gateway, then the app and a release build.
+- The dry run on Sakura, its counts to the owner, and the delete of exactly that set.
+- The same on mikan.
 
 **Decided while building:**
 - **A forgotten-session listener answers false for a write that did not land,** so `session_forget` answers not ok and the Gateway reports the forget again. An older Router answers ok as before.
@@ -263,6 +268,16 @@ From Phase 1.
 - **The fake host answered for the daemon.** `src/testing/fakeHost.ts` answered a purge `deleted` without deleting, then routed threads past `createPurge`. Each was found by an audit, not by a test. Its per-op special cases are where a harness test stops proving the shipped branch.
 - **A comment pass needs a second pass.** A model told to shorten comments also deleted section banners and changed two rules' meaning. Each pass needed a snapshot, a code-identity check and a line-by-line read. The check is a scratch script, not a gate in `scripts/`.
 - **Multi-file scripted edits are not atomic.** An asserted replace script that fails on its fourth file has already written three, and a formatter or a comment pass between two scripts moves the text the next one matches on.
+
+From Phase 2.
+
+- **A store that names a session is listed by hand, twice.** The `ended` hook composed in `src/gateway/composeGateway.ts` names seven steps, and the sweep's orphan pass (`orphaned`, `dropOrphans` in the same file, `orphanedNames` in `src/gateway/purgeSweep.ts`) names two of them again. The Router has the same pair per service: `forgetSession` and `sweepOrphans` in `scheduledService.ts` and in `readAnchorsService.ts`, each with its own constant and its own parse of which session a record names. An audit found a store in one list and not the other each time.
+- **Every roster reader has to remember the records held unread.** `SessionStore.list` leaves them out, `SessionStore.taken` counts them and is private, `purgeHolds.resumed` reads `list` alone, and the sweep needed `SessionStore.unreadThreadIds`, a walk of raw JSON by key name.
+- **A record has no time it was made.** `SessionStore.confirm` stamps `confirmedAt` again on every registration, so "since this session began" cannot be asked. The sweep's bound reads the store's own time for the session's conversation instead.
+- **The Router's services are tested with their session read injected,** so the rule composed in `src/federation-server/ownerServices.ts` (`reported`: an admitted Gateway and a reported session) has no seam below the harness, and the harness cannot revoke a Gateway.
+- **One harness per test file leaks between tests.** A session launched in one test of `src/__tests__/federation-harness-purge.test.ts` is swept by the next one's "every session" sweep, so each test has to forget what it launched and wait for the drain.
+- **A drain cannot be watched from outside.** `/health` answers the 7 day counter and nothing of the purge queue's length or of how many agent records a session holds. Watching the first age pass took a scratch script over the session snapshot's field names.
+- **The daemon answers `deleted` with no count.** Codex's store lost 2,335 files for 2,029 thread deletes, and nothing the Gateway holds says what the other 306 were.
 
 ## How it is built
 
