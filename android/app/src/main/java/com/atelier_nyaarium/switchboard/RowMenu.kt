@@ -81,6 +81,15 @@ private fun CutConfirmDialog(
 			}
 		} ?: emptyList()
 	}
+	(view as? CutPlanView.Refused)?.let { refused ->
+		AlertDialog(
+			onDismissRequest = close,
+			title = { Text("Cannot compact") },
+			text = { Text(refused.line) },
+			confirmButton = { TextButton(onClick = hapticClick(close)) { Text("Close") } },
+		)
+		return
+	}
 	ConfirmDialog(
 		title = mode.label,
 		body = cutConfirmBody(view, clears.orEmpty()),

@@ -15,12 +15,7 @@ import {
 	planCut,
 	type SessionIndex,
 } from "../../shared/claude-session-cut.js";
-import {
-	CUT_KEEP_TEXT_MAX,
-	type CutFacts,
-	type HostSessionCutOp,
-	type HostSessionCutResult,
-} from "../../shared/schemasSessionCut.js";
+import type { CutFacts, HostSessionCutOp, HostSessionCutResult } from "../../shared/schemasSessionCut.js";
 import { oneLine } from "../../shared/system-reminder.js";
 import type { PurgeHome } from "./sessionPurge.js";
 
@@ -42,6 +37,8 @@ export interface SessionCutDeps {
 const CLAUDE_PROJECTS = "projects";
 const READ_CHUNK_BYTES = 1 << 20;
 const VERSION_WAIT_MS = 15_000;
+/** A quote's length, cut at a word. */
+const QUOTE_CHARS = 80;
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -83,9 +80,11 @@ function transcriptOf(claudeDir: string, id: string): string | undefined {
 
 /** Never ends on half a surrogate pair. */
 function quoteOf(text: string): string {
-	const cut = oneLine(channelBodyOf(text)).slice(0, CUT_KEEP_TEXT_MAX);
-	const last = cut.charCodeAt(cut.length - 1);
-	return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+	const whole = oneLine(channelBodyOf(text));
+	if (whole.length <= QUOTE_CHARS) return whole;
+	const cut = whole.slice(0, QUOTE_CHARS);
+	const word = cut.lastIndexOf(" ");
+	return `${word > QUOTE_CHARS / 2 ? cut.slice(0, word) : cut}...`;
 }
 
 function factsOf(plan: CutPlan, target: string | null, exact: boolean, sourceBytes: number): CutFacts {
@@ -106,9 +105,9 @@ function factsOf(plan: CutPlan, target: string | null, exact: boolean, sourceByt
 export function createSessionCut(deps: SessionCutDeps): (op: HostSessionCutOp) => Promise<HostSessionCutResult> {
 	return async (op) => {
 		const home = deps.homeOf(op.hostSpawn);
-		if (!home) return refusal("place_down", "that spawn point's home is out of reach");
+		if (!home) return refusal("place_down", "The host's home folder is out of reach.");
 		const source = transcriptOf(home.claudeDir, op.conversationId);
-		if (!source) return refusal("no_transcript", "the session's file is not on this machine");
+		if (!source) return refusal("no_transcript", "The session file is not on this machine.");
 		const read = () => sessionLines(source);
 		let held: Promise<SessionIndex> | undefined;
 		const index = () => {
@@ -119,12 +118,12 @@ export function createSessionCut(deps: SessionCutDeps): (op: HostSessionCutOp) =
 		let targetUuid: string | undefined;
 		let exact = true;
 		if (op.mode !== "trim") {
-			if (!op.pick) return refusal("target_missing", "no message was picked");
+			if (!op.pick) return refusal("target_missing", "No message was picked.");
 			if ("uuid" in op.pick) targetUuid = op.pick.uuid;
 			else {
 				const picked = pickTurn(await index(), op.pick, channelBodyOf);
 				if (!picked)
-					return refusal("target_missing", "no turn of the session starts at or before that message");
+					return refusal("target_missing", "No message of the session was found at or before this row.");
 				targetUuid = picked.uuid;
 				exact = picked.exact;
 			}
@@ -164,7 +163,7 @@ export function createSessionCut(deps: SessionCutDeps): (op: HostSessionCutOp) =
 		// The Gateway stopped waiting; nothing would name it.
 		if (deps.now().getTime() > op.build.deadline) {
 			fs.rmSync(built(done.sessionId), { force: true });
-			return refusal("late", "the build finished after the Gateway stopped waiting");
+			return refusal("late", "The new session file took too long to build, so it was discarded.");
 		}
 		return {
 			kind: "built",

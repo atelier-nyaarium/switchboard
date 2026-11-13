@@ -93,6 +93,9 @@ const COMMAND = SESSION_COMMANDS.sessionCutSummary;
 export const SUMMARY_WAIT_MS = 10 * 60_000;
 const TURN_END_WAIT_MS = 20_000;
 const CLOSE_WAIT_MS = 15_000;
+const DONE_TITLE = "Compacted";
+const FAILED_TITLE = "Compact failed";
+
 /** Inside the host op's own wait. */
 const BUILD_WAIT_MS = 120_000;
 const POLL_MS = 500;
@@ -116,11 +119,23 @@ Call ${COMMAND.tool} with cutId "${cutId}" and the summary. The session then clo
 	`.trim();
 }
 
-const megabytes = (bytes: number) =>
-	bytes >= 1 << 20 ? `${Math.round(bytes / (1 << 20))} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+/** Capitalized and closed, for text another layer wrote. */
+export function sentence(text: string): string {
+	const trimmed = text.trim();
+	const opened = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+	return /[.!?]$/.test(opened) ? opened : `${opened}.`;
+}
+
+/** One decimal past a megabyte. */
+const sizeText = (bytes: number) =>
+	bytes >= 2 ** 30
+		? `${(bytes / 2 ** 30).toFixed(1)} GB`
+		: bytes >= 2 ** 20
+			? `${(bytes / 2 ** 20).toFixed(1)} MB`
+			: `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 export function doneLine(mode: CutMode, facts: CutFacts): string {
-	const sizes = `Session file: ${megabytes(facts.sourceBytes)} before, about ${megabytes(facts.keptBytes)} now.`;
+	const sizes = `Session file: ${sizeText(facts.sourceBytes)} before, about ${sizeText(facts.keptBytes)} now.`;
 	if (mode === "trim") return `Trimmed to what the session still loads. ${sizes}`;
 	const above = mode === "compact" ? "Compacted" : "Cleared";
 	return `${above} above "${facts.keepText}". ${sizes} The old file is untouched.`;
@@ -144,19 +159,20 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 
 	function placeOf(team: string): Place | Refusal {
 		const record = deps.record(team);
-		if (!record) return { reason: "no_session", detail: "that session is not on this Gateway" };
-		if (team === ASSISTANT_TEAM) return { reason: "assistant", detail: "the assistant's session is not cut" };
+		if (!record) return { reason: "no_session", detail: "This session is not on this Gateway." };
+		if (team === ASSISTANT_TEAM)
+			return { reason: "assistant", detail: "The assistant's session cannot be compacted." };
 		if (!record.harness || !HARNESS[record.harness].cuts)
-			return { reason: "cli", detail: "only a Claude session's conversation can be cut" };
+			return { reason: "cli", detail: "Only Claude sessions can be compacted." };
 		if (record.spawn !== HOST_SPAWN)
-			return { reason: "place", detail: "only a session on the host can be cut for now" };
+			return { reason: "place", detail: "Only sessions on the host can be compacted for now." };
 		if (!deps.ownTerminal(record))
 			return {
 				reason: "foreign_terminal",
-				detail: "that session was started by hand; this Gateway cannot reopen it",
+				detail: "This session was started by hand, so the Gateway cannot reopen it.",
 			};
 		if (!record.claudeSessionId)
-			return { reason: "no_transcript", detail: "that session has not named its conversation yet" };
+			return { reason: "no_transcript", detail: "This session has not reported its conversation yet." };
 		const { project, session } = parseSessionName(team);
 		return {
 			target: { kind: "host", name: project, sessionName: session },
@@ -169,15 +185,23 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 		try {
 			answer = await deps.relayToHost(op);
 		} catch (error) {
-			return { kind: "refused", reason: "host", detail: error instanceof Error ? error.message : String(error) };
+			return {
+				kind: "refused",
+				reason: "host",
+				detail: sentence(`The host failed: ${error instanceof Error ? error.message : String(error)}`),
+			};
 		}
 		if (!answer.ok) {
-			return { kind: "refused", reason: "host", detail: answer.error ?? answer.errorKind ?? "the host refused" };
+			return {
+				kind: "refused",
+				reason: "host",
+				detail: sentence(`The host refused: ${answer.error ?? answer.errorKind ?? "no reason given"}`),
+			};
 		}
 		const parsed = HostSessionCutResultSchema.safeParse(answer.result);
 		return parsed.success
 			? parsed.data
-			: { kind: "refused", reason: "host", detail: "the host's answer could not be read" };
+			: { kind: "refused", reason: "host", detail: "The host's answer could not be read." };
 	}
 
 	async function planned(
@@ -196,22 +220,26 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 	/** What stops a start now, the same for a plan. */
 	function gate(team: string, mode: CutMode): Refusal | null {
 		if (cuts.has(team) || starting.has(team)) {
-			return { reason: "in_flight", detail: "a cut of that session is already running" };
+			return { reason: "in_flight", detail: "A compact of this session is already running." };
 		}
-		if (deps.launching(team)) return { reason: "launching", detail: "that session is starting; try once it is up" };
+		if (deps.launching(team))
+			return { reason: "launching", detail: "This session is starting. Try again once it is up." };
 		const live = deps.isLive(team);
 		if (live && deps.busy(team) === true) {
-			return { reason: "busy", detail: "that session is working; try once it is idle" };
+			return { reason: "busy", detail: "This session is working. Try again once it is idle." };
 		}
 		if (mode !== "compact") return null;
 		if (!live)
 			return {
 				reason: "not_live",
-				detail: "that session is closed, and it writes its own summary; wake it first",
+				detail: "This session is closed. Wake it first, since it writes its own summary.",
 			};
 		const version = deps.pluginVersion(team);
 		if (!version || compareVersions(version, CUT_TOOL_SINCE) < 0) {
-			return { reason: "plugin", detail: "that session's plugin predates compacting; update its plugins first" };
+			return {
+				reason: "plugin",
+				detail: "This session's plugin is too old to compact. Update its plugins first.",
+			};
 		}
 		return null;
 	}
@@ -220,6 +248,7 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 	async function run(cut: Cut): Promise<void> {
 		const { team, place } = cut;
 		let line: string;
+		let title = FAILED_TITLE;
 		let closed = false;
 		const wasLive = deps.isLive(team);
 		// A wake would resume the old file.
@@ -231,20 +260,23 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 			...(cut.mode === "compact" ? { endBefore: cut.cutId } : {}),
 		};
 		try {
-			if (deps.launching(team)) throw new Error("the session was starting");
+			if (deps.launching(team)) throw new Error("The session was starting.");
 			if (!(await until(() => deps.busy(team) !== true, TURN_END_WAIT_MS))) {
-				throw new Error(stopped ? "the Gateway is closing" : "the session kept working");
+				throw new Error(
+					stopped ? "The Gateway is shutting down." : "The session kept working after writing its summary.",
+				);
 			}
 			const checked = await relay(op);
 			if (checked.kind === "refused") throw new Error(checked.detail);
-			if (stopped) throw new Error("the Gateway is closing");
+			if (stopped) throw new Error("The Gateway is shutting down.");
 			// Missing pane is success.
 			closed = wasLive;
 			const killed = await deps.relayToHost({ kind: "killSession", target: place.target, dedupKey: cut.cutId });
-			if (!killed.ok) throw new Error(`the session could not be closed: ${killed.error ?? "unknown error"}`);
+			if (!killed.ok)
+				throw new Error(sentence(`The session could not be closed: ${killed.error ?? "no reason given"}`));
 			deps.closed(team);
 			if (!(await until(() => !deps.isLive(team), CLOSE_WAIT_MS))) {
-				throw new Error("the closed session did not leave");
+				throw new Error("The session did not shut down in time.");
 			}
 			const built = await relay({
 				...op,
@@ -254,14 +286,15 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 				},
 			});
 			if (built.kind === "refused") throw new Error(built.detail);
-			if (built.kind !== "built") throw new Error("the host planned where it should have built");
+			if (built.kind !== "built") throw new Error("The host planned where it should have built.");
 			if (!deps.repoint(team, built.conversationId)) {
-				throw new Error("the new conversation was built but could not be recorded");
+				throw new Error("The new session file was built but could not be recorded.");
 			}
 			const { kind: _kind, conversationId: _id, ...facts } = built;
 			line = doneLine(cut.mode, facts);
+			title = DONE_TITLE;
 		} catch (error) {
-			line = `Nothing was changed: ${error instanceof Error ? error.message : String(error)}.`;
+			line = `${sentence(error instanceof Error ? error.message : String(error))} Nothing was changed.`;
 		} finally {
 			cuts.delete(team);
 			release();
@@ -269,9 +302,9 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 		if (closed) {
 			const woke = await deps.wake(team).catch((error: Error) => ({ ok: false, error: error.message }));
 			if (!woke.ok)
-				line += ` The session did not come back up: ${woke.error ?? "unknown error"}. Wake it from here.`;
+				line += ` ${sentence(`The session did not restart: ${woke.error ?? "no reason given"}`)} Wake it from here.`;
 		}
-		deps.tellOwner(team, { title: "Session cut", body: line }, `${cut.cutId}:end`);
+		deps.tellOwner(team, { title, body: line }, `${cut.cutId}:end`);
 	}
 
 	const background = (cut: Cut): void => {
@@ -307,7 +340,10 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 				cuts.delete(target);
 				deps.tellOwner(
 					target,
-					{ title: "Session cut", body: "Nothing was changed: the session did not hand over a summary." },
+					{
+						title: FAILED_TITLE,
+						body: "The session did not hand over a summary within 10 minutes. Nothing was changed.",
+					},
 					`${cutId}:end`,
 				);
 			}, SUMMARY_WAIT_MS);
@@ -317,7 +353,7 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 			if (refused) {
 				deps.ambient.clearTimer(cut.waiting);
 				cuts.delete(target);
-				return refuse("ask", refused);
+				return refuse("ask", sentence(`The compact request was not delivered: ${refused}`));
 			}
 			return { started: true };
 		},

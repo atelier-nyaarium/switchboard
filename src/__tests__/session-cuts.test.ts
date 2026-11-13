@@ -97,7 +97,7 @@ function world(
 			return { ok: true };
 		},
 		closed: () => events.push("ended"),
-		tellOwner: (_team, line) => told.push(line.body),
+		tellOwner: (_team, line) => told.push(`${line.title}: ${line.body}`),
 	});
 	const cutIdOf = () => /cutId "(cut-[0-9a-f]+)"/.exec(asked.at(-1) ?? "")?.[1] ?? "";
 	const settle = () => ambient.advance(0);
@@ -123,7 +123,7 @@ describe("session cuts", () => {
 		expect(checked).toMatchObject({ conversationId: OLD, pick: { uuid: TURN }, endBefore: cutId });
 		expect(checked).not.toHaveProperty("build");
 		expect(built).toMatchObject({ ...checked, build: { summary: "what happened so far" } });
-		expect(w.told).toEqual([expect.stringContaining("Compacted")]);
+		expect(w.told).toEqual([expect.stringMatching(/^Compacted: /)]);
 	});
 
 	it("leaves the record alone when the build is refused, and wakes the session it closed", async () => {
@@ -135,7 +135,7 @@ describe("session cuts", () => {
 		await w.settle();
 
 		expect(w.events).toEqual(["close", "ended", "build", `wake:${OLD}`]);
-		expect(w.told).toEqual([expect.stringMatching(/^Nothing was changed/)]);
+		expect(w.told).toEqual([expect.stringMatching(/^Compact failed: .*Nothing was changed\.$/)]);
 		// The slot is free again.
 		expect(await w.cuts.start(TEAM, "compact", PICK, "Phone")).toEqual({ started: true });
 	});
@@ -156,11 +156,11 @@ describe("session cuts", () => {
 
 		// A kill that failed may still land.
 		expect(unclosed.events).toEqual([`wake:${OLD}`]);
-		expect(unclosed.told).toEqual([expect.stringMatching(/^Nothing was changed/)]);
+		expect(unclosed.told).toEqual([expect.stringMatching(/^Compact failed: .*Nothing was changed\.$/)]);
 		expect(unrecorded.events).toEqual(["close", "ended", "build", `wake:${OLD}`]);
-		expect(unrecorded.told).toEqual([expect.stringMatching(/^Nothing was changed/)]);
+		expect(unrecorded.told).toEqual([expect.stringMatching(/^Compact failed: .*Nothing was changed\.$/)]);
 		expect(asleep.events).toEqual(["close", "ended", "build", `repoint:${NEW}:held`, `wake:${NEW}`]);
-		expect(asleep.told).toEqual([expect.stringContaining("did not come back up")]);
+		expect(asleep.told).toEqual([expect.stringContaining("did not restart")]);
 		// Every road lifts the hold.
 		expect([unclosed, unrecorded, asleep].map((w) => w.state.held)).toEqual([false, false, false]);
 	});
@@ -177,7 +177,7 @@ describe("session cuts", () => {
 		await late.settle();
 
 		expect(working.events).toEqual([]);
-		expect(working.told).toEqual([expect.stringMatching(/^Nothing was changed/)]);
+		expect(working.told).toEqual([expect.stringMatching(/^Compact failed: .*Nothing was changed\.$/)]);
 		expect(late.events).toEqual([]);
 		expect(late.ops.some((op) => op.kind === "killSession")).toBe(false);
 	});
@@ -239,7 +239,7 @@ describe("session cuts", () => {
 		const cutId = w.cutIdOf();
 		await w.ambient.advance(SUMMARY_WAIT_MS);
 
-		expect(w.told).toEqual([expect.stringMatching(/^Nothing was changed/)]);
+		expect(w.told).toEqual([expect.stringMatching(/^Compact failed: .*Nothing was changed\.$/)]);
 		expect(w.cuts.submit(TEAM, cutId, "late")).toEqual({ kind: "unknown_cut" });
 		expect(w.events).toEqual([]);
 	});
@@ -253,7 +253,7 @@ describe("session cuts", () => {
 		expect(started).toEqual({ started: true });
 		expect(w.asked).toEqual([]);
 		expect(w.events).toEqual(["close", "ended", "build", `repoint:${NEW}:held`]);
-		expect(w.told).toEqual([expect.stringContaining("Cleared")]);
+		expect(w.told).toEqual([expect.stringMatching(/^Compacted: Cleared/)]);
 	});
 
 	it("answers a plan with what the cut keeps, and a refusal with its reason alone", async () => {

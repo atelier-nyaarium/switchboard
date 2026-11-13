@@ -44,28 +44,23 @@ internal fun cutOffered(row: Team?): Boolean {
 internal fun cutRowOf(message: Message): CutRow =
 	CutRow(message.at, message.text.takeIf { message.fromMe && !message.isPeer && it.isNotBlank() })
 
-private fun sizeText(bytes: Long): String = when {
-	bytes >= 1L shl 30 -> "${Math.round(bytes / (1L shl 30).toDouble())} GB"
-	bytes >= 1L shl 20 -> "${Math.round(bytes / (1L shl 20).toDouble())} MB"
+/** One decimal past a megabyte. */
+internal fun sizeText(bytes: Long): String = when {
+	bytes >= 1L shl 30 -> "%.1f GB".format(java.util.Locale.ROOT, bytes / (1L shl 30).toDouble())
+	bytes >= 1L shl 20 -> "%.1f MB".format(java.util.Locale.ROOT, bytes / (1L shl 20).toDouble())
 	else -> "${Math.round(bytes / 1024.0).coerceAtLeast(1)} KB"
 }
 
 internal fun cutPlanView(answer: ConsoleSessionCutPlanResult?): CutPlanView {
 	if (answer == null) return CutPlanView.Refused("The Gateway did not answer.")
-	if (!answer.planned) return CutPlanView.Refused(answer.detail?.let { "Not possible: $it." } ?: "Not possible.")
-	val quote = answer.keepText.orEmpty().ifBlank { "(no text)" }
+	if (!answer.planned) return CutPlanView.Refused(answer.detail ?: "The Gateway refused.")
 	return CutPlanView.Planned(
 		listOfNotNull(
-			"Keeps from: \"$quote\"",
-			"That row started no turn, so this keeps from the message above it.".takeIf { answer.snapped == true },
+			"That row is not a message you sent, so this keeps from the last message before it.".takeIf { answer.snapped == true },
+			"The session writes a summary of everything before this message, then closes and resumes from that summary and this message on.",
 			"",
-			"The session writes a summary of everything before it, then closes and resumes from that summary and this message on.",
-			"",
-			"- ${answer.foldedRows ?: 0} rows summarized",
-			"- ${answer.keptRows ?: 0} rows kept word for word",
-			"- Session file: ${sizeText(answer.sourceBytes ?: 0)} now, about ${sizeText(answer.keptBytes ?: 0)} after",
-			"",
-			"The old session file is kept, so nothing is lost.",
+			"Session file: ${sizeText(answer.sourceBytes ?: 0)} now, about ${sizeText(answer.keptBytes ?: 0)} after.",
+			"The old session file is kept.",
 		),
 	)
 }
@@ -81,20 +76,20 @@ internal fun cutConfirmBody(view: CutPlanView, clears: List<String>): String = w
 
 /** A start refused, as the owner reads it; null once started. */
 internal fun cutStartLine(answer: ConsoleSessionCutStartResult?): String? = when {
-	answer == null -> "The Gateway did not answer, so the cut may not have started."
+	answer == null -> "The Gateway did not answer, so the compact may not have started."
 	answer.started -> null
-	else -> (answer.detail ?: answer.reason)?.let { "Not started: $it." } ?: "Not started."
+	else -> "Cannot compact. ${answer.detail ?: "The Gateway refused."}"
 }
 
 /** The plan for a pressed row, read for the confirmation. */
 internal suspend fun ChatRepository.cutPlan(team: String, mode: CutMode, row: CutRow): CutPlanView =
 	runCatchingCancellable { clientOrNull()?.sessionCutPlan(team, mode.wire, row) }
-		.fold(::cutPlanView) { CutPlanView.Refused("Not possible: ${it.message ?: "the Gateway refused"}.") }
+		.fold(::cutPlanView) { CutPlanView.Refused(it.message ?: "The Gateway refused.") }
 
 /** Starts the cut; its end arrives in the thread. A refusal is told at once. True once started. */
 internal suspend fun ChatRepository.startCut(team: String, mode: CutMode, row: CutRow): Boolean {
 	val line = runCatchingCancellable { clientOrNull()?.sessionCutStart(team, mode.wire, row) }
-		.fold(::cutStartLine) { "Not started: ${it.message ?: "the Gateway refused"}." }
+		.fold(::cutStartLine) { "Cannot compact. ${it.message ?: "The Gateway refused."}" }
 	line?.let { refused -> _state.update { it.copy(error = refused) } }
 	return line == null
 }

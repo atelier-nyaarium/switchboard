@@ -48,14 +48,13 @@ class SessionCutTest {
 				sourceBytes = 800L shl 20,
 			),
 		) as CutPlanView.Planned
-		val refused = cutPlanView(ConsoleSessionCutPlanResult(planned = false, reason = "busy", detail = "that session is working"))
+		val refused = cutPlanView(ConsoleSessionCutPlanResult(planned = false, reason = "busy", detail = "This session is working."))
 
 		val unsnapped = cutPlanView(ConsoleSessionCutPlanResult(planned = true, keepText = "next task", snapped = false)) as CutPlanView.Planned
 
-		assertTrue(planned.lines.first().contains("next task"))
 		assertEquals(planned.lines.size, unsnapped.lines.size + 1)
-		assertTrue(planned.lines.any { it.contains("800 MB") && it.contains("3 MB") })
-		assertTrue((refused as CutPlanView.Refused).line.contains("that session is working"))
+		assertTrue(planned.lines.any { it.contains("800.0 MB") && it.contains("3.0 MB") })
+		assertEquals(CutPlanView.Refused("This session is working."), refused)
 		assertTrue(cutPlanView(null) is CutPlanView.Refused)
 	}
 
@@ -77,6 +76,13 @@ class SessionCutTest {
 		assertEquals("plan", cutConfirmBody(planned, emptyList()))
 		assertTrue(cutConfirmBody(planned, listOf("- 3 messages")).endsWith("- 3 messages"))
 		assertEquals("no", cutConfirmBody(CutPlanView.Refused("no"), listOf("- 3 messages")))
+	}
+
+	@Test
+	fun sizesShowOneDecimalPastAMegabyte() {
+		assertEquals("1.0 GB", sizeText((1L shl 30) + (1L shl 20)))
+		assertEquals("158 KB", sizeText(158L * 1024))
+		assertEquals("2.5 MB", sizeText(5L shl 19))
 	}
 
 	@Test

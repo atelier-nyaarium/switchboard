@@ -399,22 +399,24 @@ export async function indexSession(lines: AsyncIterable<string>): Promise<Sessio
 export function planCut(index: SessionIndex, request: CutRequest, cliVersion: string): CutPlan | CutRefused {
 	const rows = index.tail.slice(0, -1);
 	const end = index.tail.at(-1);
-	if (rows.length === 0 || !end) return refused("no_rows", "the session file holds no rows");
+	if (rows.length === 0 || !end) return refused("no_rows", "The session file is empty.");
 	if (
 		!CUT_CLI_VERSIONS.includes(cliVersion) ||
 		(index.version !== null && !CUT_CLI_VERSIONS.includes(index.version))
 	) {
 		return refused(
 			"cli_version",
-			`Claude Code ${cliVersion}, file last written by ${index.version ?? "an unknown version"}`,
+			CUT_CLI_VERSIONS.includes(cliVersion)
+				? `The session file was written by Claude Code ${index.version}, which compacting does not support yet.`
+				: `Claude Code ${cliVersion} is installed, which compacting does not support yet.`,
 		);
 	}
 	const live = index.boundary;
 	if (live && !live.known)
-		return refused("boundary_shape", "the file's own compaction row is not a shape a cut knows");
+		return refused("boundary_shape", "The session's last compaction is in a format compacting does not support.");
 	const unreadable = (from: number, to: number) =>
 		index.unreadable.some((line) => line >= from && line <= to)
-			? refused("unreadable_rows", "a row the cut would keep past does not parse")
+			? refused("unreadable_rows", "The session file has a damaged row after this message.")
 			: null;
 	const headerLines = [...index.header.values()].sort((a, b) => a - b);
 	const writes = (row: RowMeta) => !SKIPPED_TYPES.has(row.type);
@@ -423,9 +425,12 @@ export function planCut(index: SessionIndex, request: CutRequest, cliVersion: st
 	const size = (range: RowMeta[]) => range.reduce((sum, row) => sum + row.bytes, 0);
 
 	if (request.mode === "trim") {
-		if (!live) return refused("nothing_to_trim", "the session has never compacted");
+		if (!live) return refused("nothing_to_trim", "This session has never compacted.");
 		if (!live.preservedSound)
-			return refused("preserved_unresolved", "the last compaction's preserved rows are not all in the file");
+			return refused(
+				"preserved_unresolved",
+				"Messages the last compaction kept are missing from the session file.",
+			);
 		const torn = unreadable(live.line, end.line);
 		if (torn) return torn;
 		const held = new Set([
@@ -450,30 +455,37 @@ export function planCut(index: SessionIndex, request: CutRequest, cliVersion: st
 	const at = rows.findIndex((row) => row.uuid !== undefined && row.uuid === request.targetUuid);
 	if (at < 0) {
 		return live
-			? refused("target_compacted", "that row is not after the session's last compaction")
-			: refused("target_missing", "that row is not in the session");
+			? refused("target_compacted", "This message is from before the session's last compaction.")
+			: refused("target_missing", "This message is not in the session file.");
 	}
 	const target = rows[at] as RowMeta;
-	if (!target.delivered) return refused("target_not_turn_start", "a cut starts at a message the session was sent");
-	if (target.openTools > 0) return refused("target_mid_tool", "a tool call above that row is still unanswered");
+	if (!target.delivered) return refused("target_not_turn_start", "This row is not a message the session received.");
+	if (target.openTools > 0)
+		return refused(
+			"target_mid_tool",
+			"A tool call above this message is still open, so the session cannot be cut here.",
+		);
 	let through = rows.length - 1;
 	if (request.endBefore !== undefined) {
 		const marker = request.endBefore;
 		const stop = rows.findIndex((row, i) => i > at && row.delivered && row.text?.includes(marker) === true);
-		if (stop < 0) return refused("end_missing", "the message the kept rows end before is not in the session");
+		if (stop < 0) return refused("end_missing", "The compact request is not in the session file.");
 		if (rows.slice(stop + 1).some((row) => row.delivered))
-			return refused("late_message", "a message reached the session after the summary was asked for");
+			return refused(
+				"late_message",
+				"A message reached the session while it wrote its summary, and it would be lost.",
+			);
 		through = stop - 1;
 	} else if (request.throughUuid !== undefined) {
 		through = rows.findIndex((row) => row.uuid === request.throughUuid);
 	}
-	if (through < at) return refused("target_missing", "the last row to keep is not at or after the first");
+	if (through < at) return refused("target_missing", "The kept part would end above where it starts.");
 	const torn = unreadable(target.line, (rows[through] as RowMeta).line);
 	if (torn) return torn;
 	if (!request.liveTail && (rows[through + 1] ?? end).openTools > 0)
-		return refused("tail_mid_tool", "the kept rows end inside a tool call");
+		return refused("tail_mid_tool", "The kept part would end inside an open tool call.");
 	const above = rows.slice(0, at).filter((row) => row.line > (live?.summaryLine ?? 0) && row.uuid !== undefined);
-	if (above.length === 0) return refused("nothing_above", "nothing above that row to cut");
+	if (above.length === 0) return refused("nothing_above", "There is nothing above this message to compact.");
 
 	const range = rows.slice(at, through + 1);
 	const chain = range.map((row) => row.uuid).filter((id): id is string => id !== undefined);
@@ -701,7 +713,7 @@ export async function cutSession(ports: CutPorts, request: CutRequest): Promise<
 	if (plan.mode === "compact") {
 		let summary = request.summaryText;
 		if (summary === undefined) {
-			if (!ports.summarize) return refused("summary_needed", "no summarizer is set up for a compact");
+			if (!ports.summarize) return refused("summary_needed", "No summary was handed over.");
 			const fold = new Set(plan.foldLines);
 			const rows: string[] = [];
 			let line = 0;
@@ -711,7 +723,7 @@ export async function cutSession(ports: CutPorts, request: CutRequest): Promise<
 			}
 			summary = await ports.summarize({ standing: index.standing, rows });
 		}
-		if (summary.trim().length === 0) return refused("summary_needed", "the summary is empty");
+		if (summary.trim().length === 0) return refused("summary_needed", "The summary is empty.");
 		summaryText = compactedSummary(summary, ports.sourcePath);
 	}
 
