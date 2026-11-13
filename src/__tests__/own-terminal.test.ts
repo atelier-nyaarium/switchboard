@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ownTerminal } from "../gateway/console/consoleSessionLifecycle.js";
+import { ownTerminal } from "../gateway/sessionEnd.js";
 import type { SessionRecord } from "../shared/session-store.js";
 
 const teamOf = (record: SessionRecord) => `${record.spawn}.${record.id}`;

@@ -15,6 +15,8 @@ export interface FakeSessionOptions {
 	agentPid?: number;
 	/** The CLI word the register names. */
 	harness?: string;
+	/** Registered Claude conversation. */
+	claudeSessionId?: string;
 	cwdName?: string;
 	/** A bare project's register also names its path, as a devcontainer plugin does. */
 	projectPath?: string;
@@ -103,6 +105,7 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 		...(options.projectPath ? { projectPath: options.projectPath } : {}),
 		...(options.agentPid ? { agentPid: options.agentPid } : {}),
 		...(options.harness ? { harness: options.harness } : {}),
+		...(options.claudeSessionId ? { claudeSessionId: options.claudeSessionId } : {}),
 	};
 	WsRegisterSchema.parse(register);
 	graph.wsHandlers.message(socket.ws, JSON.stringify(register));

@@ -46,6 +46,13 @@ function requestedCopilotAgent() {
 	});
 }
 
+/** The records a sweep chose, each then forgotten as the Gateway's end does. */
+function swept(store: SessionStore, ...args: Parameters<SessionStore["sweepable"]>): string[] {
+	const teams = store.sweepable(...args);
+	for (const team of teams) store.forget(team);
+	return teams;
+}
+
 describe("SessionStore migration", () => {
 	it("restores a record from its persisted shape and skips a row with no id", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
@@ -200,6 +207,17 @@ describe("SessionStore mint / adopt", () => {
 		expect(store.list().map((record) => store.teamOf(record))).toEqual(["host.foo"]);
 		expect(store.getByTeam("windows.foo")).toBeUndefined();
 		expect(store.snapshot()["windows.foo"]).toEqual(second);
+	});
+
+	it("names the team that holds a pane, its own or another host spawn point's", () => {
+		const store = new SessionStore({ ambient: processAmbient() });
+		store.adoptById("foo", { spawn: "windows", harness: "claude" });
+		store.adoptById("bar", { spawn: "recipe-app", harness: "claude" });
+
+		expect(store.paneOwner("windows.foo")).toBe("windows.foo");
+		expect(store.paneOwner("host.foo")).toBe("windows.foo");
+		expect(store.paneOwner("host.bar")).toBeUndefined();
+		expect(store.paneOwner("recipe-app.bar")).toBe("recipe-app.bar");
 	});
 
 	it("re-rolls a minted host id held on another host spawn point", () => {
@@ -536,7 +554,7 @@ describe("SessionStore TTL", () => {
 		clock = 100;
 		store.touchLive("host.live01");
 		// Returns removed names.
-		expect(store.sweep(50)).toEqual(["host.stale1"]);
+		expect(swept(store, 50)).toEqual(["host.stale1"]);
 		expect(store.getByTeam("host.live01")).toBeDefined();
 		expect(store.getByTeam("host.stale1")).toBeUndefined();
 	});
@@ -546,7 +564,7 @@ describe("SessionStore TTL", () => {
 		const store = new SessionStore({ ambient: fakeAmbient({ now: () => clock }), idGen: scriptedIds("fresh1") });
 		store.mint({ spawn: "host", harness: "claude", sessionLabel: "fresh" });
 		clock = 10;
-		expect(store.sweep(1_000)).toEqual([]);
+		expect(swept(store, 1_000)).toEqual([]);
 		expect(store.getByTeam("host.fresh1")).toBeDefined();
 	});
 
@@ -562,7 +580,7 @@ describe("SessionStore TTL", () => {
 		}
 		store.touchLive("host.livest");
 
-		const removed = store.sweep(1_000_000, { cap: { maxEntries: 2, isLive: (team) => team === "host.oldest" } });
+		const removed = swept(store, 1_000_000, { cap: { maxEntries: 2, isLive: (team) => team === "host.oldest" } });
 
 		expect(removed).toEqual(["host.middle", "host.newest"]);
 		expect(store.getByTeam("host.oldest")).toBeDefined();
@@ -572,7 +590,7 @@ describe("SessionStore TTL", () => {
 	it("leaves the cap alone when the store is within it", () => {
 		const store = new SessionStore({ ambient: fakeAmbient({ now: () => 0 }), idGen: scriptedIds("only01") });
 		store.mint({ spawn: "host", harness: "claude", sessionLabel: "only" });
-		expect(store.sweep(1_000, { cap: { maxEntries: 8, isLive: () => false } })).toEqual([]);
+		expect(swept(store, 1_000, { cap: { maxEntries: 8, isLive: () => false } })).toEqual([]);
 		expect(store.getByTeam("host.only01")).toBeDefined();
 	});
 
@@ -583,7 +601,7 @@ describe("SessionStore TTL", () => {
 		});
 		store.mint({ spawn: "host", harness: "claude", sessionLabel: "one" });
 		store.mint({ spawn: "host", harness: "claude", sessionLabel: "two" });
-		expect(store.sweep(1_000, { cap: { maxEntries: 1, isLive: () => true } })).toEqual([]);
+		expect(swept(store, 1_000, { cap: { maxEntries: 1, isLive: () => true } })).toEqual([]);
 		expect(store.list()).toHaveLength(2);
 	});
 
@@ -598,7 +616,7 @@ describe("SessionStore TTL", () => {
 		clock = 100;
 		store.touchLive("host.other1");
 
-		const removed = store.sweep(50, {
+		const removed = swept(store, 50, {
 			cap: { maxEntries: 0, isLive: () => false },
 			isReserved: (team) => team === "host.kept01",
 		});

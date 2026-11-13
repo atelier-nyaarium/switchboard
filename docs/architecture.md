@@ -337,6 +337,65 @@ and holds until the session registers and the daemon answers (`WakeCoordinator.d
 - **The daemon's side is one lane per physical pane** (`launchLane.ts`): both doors enter it, a
   request joins a running launch only with the same facts, and tagged results replay until acked.
 
+### One end
+
+Every road that removes a session calls `createSessionEnd` (`src/gateway/sessionEnd.ts`): the phone's
+Forget, the 30 day sweep, a routine's own forget, the assistant's session being let go, and a failed
+launch or wake of a record that names a CLI. It cancels the session's workflow runs and releases its
+board entries, reads what the record leaves, removes the record, queues the deletes, saves once, then
+tells awareness, the vault, routines and the assistant. It never waits on the host: Forget sends its
+pane close first and ends without the answer.
+
+Two plain forgets remain, both of a record nothing launched: `forgetBlank`, and the rollback of a
+record minted in the same call (`WakeService.doWakeTeam`, the assistant's `place`).
+`session-end-residue.test.ts` names every file that forgets a record plainly, so a new road is a
+decision.
+
+- **What a record leaves** (`purgeItemsOf`): its conversation and Switchboard's own files, each
+  behind its pane's close, when the terminal is its own, and every agent's thread. The `conversation`
+  field of a `HARNESS` row says how a CLI's conversation is deleted: files for Claude Code, the CLI's
+  own thread delete for the rest. A Claude id that is no UUID names no conversation.
+- **A place is nameable with no daemon connected:** a container is its project alone, and an agent's
+  thread is where the agent was started (`threadItemOf` reads the agent's own target). The drainer
+  fills the project's path from the daemon's catalog at the delete, and a container the catalog does
+  not name waits like one that is down.
+- **The purge queue** (`src/gateway/purgeQueue.ts`) rides in the session snapshot, so a removal and
+  its deletes are one write. One drainer sends a `purge` host op per entry: `deleted` and `gone`
+  retire it, `place_down` skips that place for the pass, anything else retries with backoff. It is
+  kicked when the daemon registers and when a spawn point changes. An entry older than 30 days is
+  dropped.
+- **The daemon deletes one thing at one place** (`src/mcp/devcontainer/sessionPurge.ts`): a thread
+  through its backend's driver, a Claude Code conversation by its id under Claude's projects folder,
+  and a session name's own files on that name's launch lane. Its pane close queues behind whatever
+  the lane holds (`closeBehind`), so a launch already started ends first and the pane it made is
+  closed. A thread's delete runs behind its agent's queued commands.
+- **A host place names its spawn point, since each keeps its own home:** the daemon opens its own
+  home for `host` and the Windows profile for `windows` (`spawnHome` in `hostDaemon.ts`), and answers
+  `place_down` while that profile is out of reach. The queue keys a place by its spawn point, so a
+  Windows home that is down holds no other host entry. A thread at a spawn point no driver reaches
+  (`driversReach`, Copilot on Windows) is not queued, and stays on that machine.
+- **One read says who still holds an entry** (`purgeHolds` in `src/gateway/purgeHolds.ts`): its
+  pane, its files, its conversation. The drainer keeps only the verdicts, and a new kind of holder is
+  a reader row.
+  - **A held pane** drops the pane step. A host pane is one pane under every host spawn point, so
+    the holder is read through `SessionStore.paneOwner`.
+  - **Held files** drop the entry, and only the record of that same name holds them: files are
+    named by spawn and id, so another spawn point's record holds the pane alone.
+  - **A held conversation** is left, whatever name queued it: a record resumes under it, or a
+    running run's named thread resumes that Claude session. One whose pane's record has not named
+    its conversation yet waits.
+- **Only a home that was found answers `gone`:** the daemon checks the home it is about to search
+  is there. One that is not answers `place_down` on the host and fails in a container, so the entry
+  stays queued.
+- **`withdraw` takes what its own `add` answered,** so an undo never removes an entry another road
+  queued first.
+- **A delete that fails says so once:** the drainer logs a `[purge]` line per entry and cause, and
+  one more when an entry is given up at 30 days. Nothing is reported to the owner.
+- **The queue also keeps `BackstopTally`:** what a workflow run's seven day removal still found,
+  answered on `/health`. Zero is healthy. `docs/workflows.md` holds what counts.
+- **A Gateway rolled back below this build** writes the snapshot without the queue, so pending
+  deletes are lost, and it drops an agent record that carries `expiredAt`.
+
 ## Session identity binding
 
 A bind token is delivered only through the daemon launch command and presented at registration and on

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createAgentWatch } from "../gateway/agentAwareness.js";
 import { composeAgents } from "../gateway/compose/composeAgents.js";
 import { composeBaseline } from "../gateway/compose/composeBaseline.js";
+import { createPurgeQueue } from "../gateway/purgeQueue.js";
 import { createSessionAuthority } from "../gateway/sessionAuthority.js";
 import type { WsData } from "../gateway/wsTypes.js";
 import { resolveLiveIncarnation, type TeamRegistry } from "../gateway/wsTypes.js";
@@ -58,6 +59,8 @@ function setup() {
 			sessionStore,
 			offlineCatalog: new Map([["recipe-app", "/trusted/recipe-app"]]),
 			agentCatalogWriters,
+			purgeQueue: createPurgeQueue(processAmbient()),
+			saveSessionsChecked: () => true,
 		},
 		host: {
 			readLiveness: () => ({

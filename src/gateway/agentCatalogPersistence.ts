@@ -18,6 +18,7 @@ export interface AgentCatalogAgent {
 	operations: readonly AgentReplayOperation[];
 	turns: readonly { id: string; state: string }[];
 	turnMarks?: AgentTurnMarks;
+	updatedAt: number;
 }
 
 export interface AgentCollection<TAgent> {
@@ -69,6 +70,8 @@ export interface AgentTransitionResult<TAgent extends AgentCatalogAgent> {
 export interface AgentCatalogPort<TAgent extends AgentCatalogAgent> {
 	read(owner: SessionRecord): AgentCatalog<TAgent> | undefined;
 	writer: AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>;
+	/** Queues cleanup before retirement and returns its undo. */
+	retiring?(owner: SessionRecord, agent: TAgent): (() => void) | undefined;
 }
 
 ////////////////////////////////
@@ -166,15 +169,15 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 	private remark(
 		owner: SessionRecord,
 		agentId: string,
-		marks: (agent: TAgent) => AgentTurnMarks | null,
+		change: (agent: TAgent) => Partial<TAgent> | null,
 		parse: (candidate: unknown) => TAgent,
 	): TAgent | undefined {
 		for (let attempt = 0; attempt < MARK_ATTEMPTS; attempt += 1) {
 			const current = this.find(owner, agentId);
 			if (!current) return undefined;
-			const next = marks(current);
+			const next = change(current);
 			if (!next) return current;
-			const applied = this.apply(owner, parse({ ...current, turnMarks: next }));
+			const applied = this.apply(owner, parse({ ...current, ...next }));
 			// Held marks make retries idempotent.
 			if (applied.disposition === "applied" || applied.disposition === "unconfirmed") return applied.agent;
 			if (applied.disposition === "ignored") return undefined;
@@ -182,10 +185,12 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		throw new AgentTransitionError("persistence_failed", "catalog changed while saving");
 	}
 
+	/** Turn collection refreshes activity time. */
 	collect(
 		owner: SessionRecord,
 		agentId: string,
 		operationId: string | undefined,
+		at: number,
 		parse: (candidate: unknown) => TAgent,
 	): AgentCollection<TAgent> | undefined {
 		let turnIds: string[] = [];
@@ -195,7 +200,12 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 			(current) => {
 				const taken = collectTurns(current, operationId);
 				turnIds = taken.turnIds;
-				return taken.marks;
+				if (!taken.marks) return null;
+				const used: Partial<AgentCatalogAgent> = {
+					turnMarks: taken.marks,
+					updatedAt: Math.max(at, current.updatedAt),
+				};
+				return used as Partial<TAgent>;
 			},
 			parse,
 		);
@@ -210,7 +220,11 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		parse: (candidate: unknown) => TAgent,
 	): boolean {
 		try {
-			return this.remark(owner, agentId, (current) => notifyTurn(current, turnId), parse) !== undefined;
+			const told = (current: TAgent) => {
+				const turnMarks = notifyTurn(current, turnId);
+				return turnMarks && ({ turnMarks } as Partial<TAgent>);
+			};
+			return this.remark(owner, agentId, told, parse) !== undefined;
 		} catch {
 			return false;
 		}
@@ -224,6 +238,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		if (agent.turns.some((turn) => turn.state === "inProgress")) return { retired: false, reason: "active_turn" };
 		if (agent.operations.some((operation) => operation.state === "requested"))
 			return { retired: false, reason: "requested_operation" };
+		const undo = this.port.retiring?.(owner, agent);
 		const write = this.write(
 			owner,
 			catalog.revision,
@@ -233,6 +248,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		if (write.kind === "landed" || write.kind === "unconfirmed") {
 			return { retired: true, catalogRevision: write.catalog.revision };
 		}
+		undo?.();
 		return { retired: false, reason: write.kind === "owner_missing" ? "owner_missing" : "catalog_changed" };
 	}
 

@@ -17,6 +17,8 @@ export interface StatusRoutesDeps {
 	> | null;
 	routerCertFp?: string;
 	presence?: { snapshot(): TeamInfo[] };
+	/** What 7 day removals still found. Zero is healthy. */
+	backstop?: () => import("../purgeQueue.js").BackstopTally;
 	sessionStore?: Pick<import("../../shared/session-store.js").SessionStore, "touchLive">;
 	tryLocalAddress: (name: string) => Address | null;
 	provedLocalSession: (req: Request) => boolean;
@@ -30,6 +32,7 @@ export function createStatusRoutes({
 	routerClient,
 	routerCertFp,
 	presence,
+	backstop,
 	sessionStore,
 	tryLocalAddress,
 	provedLocalSession,
@@ -72,6 +75,7 @@ export function createStatusRoutes({
 			router_connected: routerClient?.isConnected() ?? false,
 			// Registration may be refused while the socket remains connected.
 			router_registered: routerClient?.isRegistered() ?? false,
+			...(backstop ? { backstop: backstop() } : {}),
 		});
 	}
 

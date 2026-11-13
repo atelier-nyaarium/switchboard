@@ -103,15 +103,12 @@ export function createSessionRegistryReporter(deps: SessionRegistryReporterDeps)
 		const store = deps.sessionStore as unknown as {
 			create: (id: string, opts: Parameters<SessionStore["mint"]>[0]) => SessionRecord;
 			forget: SessionStore["forget"];
-			sweep: SessionStore["sweep"];
 		};
 		const create = store.create;
 		const forgetRecord = store.forget;
-		const sweep = store.sweep;
 		restore = () => {
 			store.create = create;
 			store.forget = forgetRecord;
-			store.sweep = sweep;
 		};
 		store.create = (id, opts) => {
 			const record = create.call(deps.sessionStore, id, opts);
@@ -122,17 +119,6 @@ export function createSessionRegistryReporter(deps: SessionRegistryReporterDeps)
 			const record = deps.sessionStore.getByTeam(team);
 			const removed = forgetRecord.call(deps.sessionStore, team);
 			if (removed && record) forget(record);
-			return removed;
-		};
-		store.sweep = (ttlMs, cap) => {
-			const records = new Map(
-				deps.sessionStore.list().map((record) => [deps.sessionStore.teamOf(record), record]),
-			);
-			const removed = sweep.call(deps.sessionStore, ttlMs, cap);
-			for (const team of removed) {
-				const record = records.get(team);
-				if (record) forget(record);
-			}
 			return removed;
 		};
 	}

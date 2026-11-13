@@ -106,6 +106,10 @@ export class TurnRunner<Owner> {
 		}
 	}
 
+	forget(threadId: string): void {
+		this.threads.delete(threadId);
+	}
+
 	activeTurn(threadId: string): RunningTurn<Owner> | undefined {
 		return this.active.get(threadId);
 	}

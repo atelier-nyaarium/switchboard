@@ -57,7 +57,9 @@ export const AgentErrorCodeSchema = z.enum([
 	"indeterminate",
 	"turn_failed",
 	"agent_busy",
+	"expired",
 ]);
+export const AGENT_EXPIRED_REASON = "The agent's thread was deleted. Start a new agent and brief it again.";
 export const AgentDaemonFailureCodeSchema = z.enum([
 	"daemon_unavailable",
 	"app_server_unavailable",
@@ -144,7 +146,7 @@ export const AgentResultSchema = z
 		if (observation === "terminal" && turn?.state !== "failed" && error)
 			issue("only a failed terminal turn carries an error", ["error"]);
 		if (observation === "unavailable") {
-			const contextless = error?.code === "not_found";
+			const contextless = error?.code === "not_found" || error?.code === "expired";
 			const featureDisabled = error?.code === "feature_disabled";
 			const interruptBlocked = error?.code === "interrupt_in_progress";
 			const infrastructureError = error !== undefined && INFRASTRUCTURE_ERRORS.has(error.code);
@@ -220,6 +222,7 @@ export const AgentMessageInputSchema = z
 	.strict();
 export const AgentCollectInputSchema = z.object({ agentId: AgentIdSchema }).strict();
 export const AgentStopInputSchema = z.object({ agentId: AgentIdSchema }).strict();
+export const AgentDeleteInputSchema = z.object({ agentId: AgentIdSchema }).strict();
 export const AgentListInputSchema = z
 	.object({
 		agentId: AgentIdSchema.optional(),
@@ -236,9 +239,18 @@ export const AgentGatewayRequestSchema = z.discriminatedUnion("kind", [
 		operationId: AgentOperationIdSchema.optional(),
 	}).strict(),
 	AgentStopInputSchema.extend({ kind: z.literal("stop"), operationId: AgentOperationIdSchema }).strict(),
+	AgentDeleteInputSchema.extend({ kind: z.literal("delete") }).strict(),
 	AgentListInputSchema.extend({ kind: z.literal("list") }).strict(),
 	z.object({ kind: z.literal("models") }).strict(),
 ]);
+
+/** What a delete still waiting on a turn says. */
+export const AGENT_DELETE_PENDING_NOTE = "Its turn is still ending. The agent is deleted when it does.";
+
+/** `note` says why it is not deleted yet. */
+export const AgentDeleteAnswerSchema = z
+	.object({ agentId: AgentIdSchema, deleted: z.boolean(), note: AgentErrorTextSchema.optional() })
+	.strict();
 
 export const AgentModelsAnswerSchema = z
 	.object({

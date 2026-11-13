@@ -3,6 +3,7 @@
 import path from "node:path";
 import type { TmuxTarget } from "../../shared/host-op.js";
 import { PLUGIN_ROOT_PARTS } from "../../shared/plugin-root.js";
+import { LAUNCH_STATUS_DIR, launchStatusFile } from "../../shared/session-files.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
 import type { LaunchSite } from "./sessionLaunch.js";
@@ -30,7 +31,7 @@ export interface RuntimeCopy {
 export const CONTAINER_HOME = "/home/vscode";
 export const CONTAINER_BUN = `${CONTAINER_HOME}/.bun/bin/bun`;
 const CACHE = `${CONTAINER_HOME}/.cache/switchboard`;
-const STATUS_DIR = `${CACHE}/launch`;
+const STATUS_DIR = `${CONTAINER_HOME}/${LAUNCH_STATUS_DIR}`;
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -43,7 +44,7 @@ export function containerRuntimeRoot(version: string): string {
 
 export function containerLaunchSite(version: string, exec: PlaceExec): LaunchSite {
 	const statusFile = (target: TmuxTarget) =>
-		`${STATUS_DIR}/${composeSessionName(target.name, target.sessionName)}.json`;
+		`${CONTAINER_HOME}/${launchStatusFile(composeSessionName(target.name, target.sessionName))}`;
 	return {
 		runtime: CONTAINER_BUN,
 		root: containerRuntimeRoot(version),

@@ -15,16 +15,13 @@ import {
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
+import { ownTerminal } from "../sessionEnd.js";
 import type { WakeResult } from "../wake.js";
 import type { LaunchOpts, WakeFlight } from "../wakeService.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
 import { CreateSessionAmbiguousError, CreateSessionFailedError } from "./consoleTypes.js";
 
 /** Whether this Gateway launched the record's terminal; hand-started ones run under another name. */
-export function ownTerminal(record: SessionRecord | undefined, teamOf: (record: SessionRecord) => string): boolean {
-	return !record?.liveTeam || record.liveTeam.team === teamOf(record);
-}
-
 export interface SessionLifecycleDeps {
 	targets: ConsoleTargets;
 	createSessionBoundMs: number;
@@ -186,18 +183,23 @@ export function createSessionLifecycleHandlers({
 			const current = sessionStore.getByTeam(name);
 			return current === adopted && current.confirmedAt === undefined;
 		};
+		// Failed launches can leave panes.
+		const endAdopted = () => {
+			if (dropSessionResume) dropSessionResume(name, "release");
+			else sessionStore?.forget(name);
+		};
 		const wakeCall = tryWakeTeam(name, { retain: true });
 		const winner = await withinMs(ambient, wakeCall, createSessionBoundMs);
 		if (winner === null) {
 			void wakeCall
 				.then((r) => {
-					if (definite(r) && mayForget()) sessionStore?.forget(name);
+					if (definite(r) && mayForget()) endAdopted();
 				})
 				.catch(() => undefined);
 			return { ok: true, status: "pending" as const };
 		}
 		if (!winner.ok) {
-			if (definite(winner) && mayForget()) sessionStore?.forget(name);
+			if (definite(winner) && mayForget()) endAdopted();
 			if (winner.failure) {
 				throw new Error(ownerLaunchLine(winner.failure, launchPlaceOf(parseSessionName(name).project)));
 			}
@@ -249,23 +251,25 @@ export function createSessionLifecycleHandlers({
 		if (isWakeInFlight?.(name)) throw new Error(`"${name}" is waking; wait for it to finish before forgetting`);
 		// Forget leaves a foreign terminal running.
 		const record = sessionStore?.getByTeam(name);
-		let killed = false;
-		if (ownTerminal(record, (r) => sessionStore!.teamOf(r))) {
-			const dedupKey = `${conversationId}:${opId}`;
+		const kill = async (): Promise<boolean> => {
+			if (!ownTerminal(record, (r) => sessionStore!.teamOf(r))) return false;
 			try {
 				const target = targets.tmuxTarget(op.target);
-				const r = await relayToHost({ kind: "killSession", target, dedupKey });
-				killed = r.ok;
+				const r = await relayToHost({ kind: "killSession", target, dedupKey: `${conversationId}:${opId}` });
 				if (!r.ok) console.log(`[console] forget "${name}": kill failed - ${r.error ?? "unknown error"}`);
+				return r.ok;
 			} catch (e) {
 				console.log(`[console] forget "${name}": kill failed - ${(e as Error).message}`);
+				return false;
 			}
-		}
+		};
+		// End before kill settles.
+		const killing = kill();
 		const disposition: BoardDisposition = op.boardDisposition ?? "release";
+		// End clears held state.
 		dropSessionResume?.(name, disposition);
-		onSessionEnded?.(name);
 		// The kill may fail; the record goes regardless.
-		return { killed, boardDisposition: disposition };
+		return { killed: await killing, boardDisposition: disposition };
 	}
 
 	function renameSession(op: Extract<ConsoleOp, { kind: "rename_session" }>) {

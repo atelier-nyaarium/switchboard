@@ -1,12 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentBackendSession, AgentModel, TurnHandle, TurnTerminal } from "../mcp/agents/backendSession.js";
 import {
 	LOCAL_IDLE_REAP_MS,
+	LOCAL_THREAD_END_MS,
 	type LocalAgentAnswer,
 	LocalAgentRuntime,
+	type LocalAnswer,
 	type LocalBackendSpec,
 	type LocalCollectAnswer,
-	type LocalRefusal,
 } from "../mcp/local/localAgentRuntime.js";
 import type { AgentBackendId } from "../shared/agent-backend.js";
 import { agentListAnswer, agentListRow } from "../shared/agent-collect.js";
@@ -29,6 +30,8 @@ class ValueBackendAdapter implements AgentBackendSession {
 	adoptTurn?: AgentBackendSession["adoptTurn"];
 	resumeThread?: AgentBackendSession["resumeThread"];
 	readonly resumed: Array<{ threadId: string; cwd: string }> = [];
+	readonly deleted: string[] = [];
+	readonly interrupted: string[] = [];
 	constructor(
 		private readonly options: {
 			openError?: Error;
@@ -62,7 +65,13 @@ class ValueBackendAdapter implements AgentBackendSession {
 		this.pending.set(turnId, { settled, resolve });
 		return { turnId, settled };
 	}
-	async interruptTurn(): Promise<void> {}
+	async interruptTurn(_threadId: string, turnId: string): Promise<void> {
+		this.interrupted.push(turnId);
+	}
+	async deleteThread(threadId: string): Promise<"deleted" | "gone"> {
+		this.deleted.push(threadId);
+		return "deleted";
+	}
 	onActivity(listener: (turnId: string, text: string) => void): void {
 		this.activity = listener;
 	}
@@ -118,6 +127,13 @@ function setup(
 	};
 }
 
+const HOUR = 60 * 60_000;
+const DAY = 24 * HOUR;
+
+async function settled(done: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 50 && !done(); attempt += 1) await Promise.resolve();
+}
+
 async function turnReady(backend: ValueBackendAdapter, id = "turn-1"): Promise<void> {
 	for (let attempt = 0; attempt < 20; attempt += 1) {
 		if (backend.hasTurn(id)) return;
@@ -138,13 +154,13 @@ async function turnEnded(runtime: LocalAgentRuntime, agentId: string, id = "turn
 	throw new Error("turn did not end");
 }
 
-function answered(value: LocalAgentAnswer | LocalCollectAnswer | LocalRefusal): LocalAgentAnswer {
+function answered(value: LocalAnswer): LocalAgentAnswer {
 	if ("refused" in value) throw new Error(value.refused);
-	if ("running" in value) throw new Error("request did not return an agent answer");
+	if ("running" in value || "deleted" in value) throw new Error("request did not return an agent answer");
 	return value;
 }
 
-function collected(value: LocalAgentAnswer | LocalRefusal | LocalCollectAnswer): LocalCollectAnswer {
+function collected(value: LocalAnswer): LocalCollectAnswer {
 	if ("refused" in value) throw new Error(value.refused);
 	if (!("running" in value)) throw new Error("await did not return a collect answer");
 	return value;
@@ -409,6 +425,138 @@ describe("local publication", () => {
 		copilot.backend.emitTerminal("turn-1", { status: "interrupted" });
 		await turnEnded(copilot.runtime, id);
 		collected(await copilot.runtime.handle({ kind: "await", agentId: id }));
+	});
+
+	it("deletes an idle agent's thread at once, and a working one's when its interrupted turn ends", async () => {
+		const h = setup();
+		const idle = answered(await h.runtime.handle({ kind: "start", prompt: "one" }));
+		await turnReady(h.backend);
+		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
+		await turnEnded(h.runtime, idle.agentId);
+
+		expect(await h.runtime.handle({ kind: "delete", agentId: idle.agentId })).toEqual({
+			agentId: idle.agentId,
+			deleted: true,
+		});
+		expect(h.backend.deleted).toEqual(["thread-1"]);
+		expect(await h.runtime.handle({ kind: "delete", agentId: idle.agentId })).toMatchObject({ deleted: true });
+
+		const working = answered(await h.runtime.handle({ kind: "start", prompt: "two" }));
+		await turnReady(h.backend, "turn-2");
+		expect(await h.runtime.handle({ kind: "delete", agentId: working.agentId })).toMatchObject({ deleted: false });
+		expect(h.backend.interrupted).toEqual(["turn-2"]);
+		expect(await h.runtime.handle({ kind: "message", agentId: working.agentId, prompt: "more" })).toMatchObject({
+			error: { code: "expired", retryable: false },
+		});
+
+		h.backend.emitTerminal("turn-2", { status: "interrupted" });
+		await settled(() => h.backend.deleted.length === 2);
+		expect(h.backend.deleted).toEqual(["thread-1", "thread-2"]);
+		expect(h.runtime.list()).toEqual([]);
+	});
+
+	it("ends a thread unused for a day, keeps an uncollected answer, and refuses a message as expired", async () => {
+		const h = setup();
+		const kept = answered(await h.runtime.handle({ kind: "start", prompt: "one" }));
+		await turnReady(h.backend);
+		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "kept" });
+		await turnEnded(h.runtime, kept.agentId);
+		const used = answered(await h.runtime.handle({ kind: "start", prompt: "two" }));
+		await turnReady(h.backend, "turn-2");
+		h.backend.emitTerminal("turn-2", { status: "completed", finalResponse: "read" });
+		await turnEnded(h.runtime, used.agentId, "turn-2");
+
+		h.advance(DAY - HOUR);
+		await h.runtime.expireThreads();
+		expect(h.backend.deleted).toEqual([]);
+		// A collect counts as a use.
+		collected(await h.runtime.handle({ kind: "await", agentId: used.agentId }));
+
+		h.advance(2 * HOUR);
+		await h.runtime.expireThreads();
+		expect(h.backend.deleted).toEqual(["thread-1"]);
+		expect(await h.runtime.handle({ kind: "message", agentId: kept.agentId, prompt: "more" })).toMatchObject({
+			error: { code: "expired" },
+		});
+		expect(
+			answered(await h.runtime.handle({ kind: "message", agentId: used.agentId, prompt: "more" })),
+		).toMatchObject({ observation: "accepted" });
+
+		const answer = collected(await h.runtime.handle({ kind: "await", agentId: kept.agentId }));
+		expect(answer.turns).toMatchObject([{ finalResponse: "kept" }]);
+		await h.runtime.expireThreads();
+		expect(h.runtime.list().map((agent) => agent.agentId)).toEqual([used.agentId]);
+		expect(h.backend.deleted).toEqual(["thread-1"]);
+	});
+
+	it("deletes every thread it holds when it shuts down, a running turn's once interrupted, and ends its child either way", async () => {
+		const h = setup();
+		const idle = answered(await h.runtime.handle({ kind: "start", prompt: "one" }));
+		await turnReady(h.backend);
+		h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
+		await turnEnded(h.runtime, idle.agentId);
+		answered(await h.runtime.handle({ kind: "start", prompt: "two" }));
+		await turnReady(h.backend, "turn-2");
+
+		const ending = h.runtime.shutdown();
+		await settled(() => h.backend.interrupted.length === 1);
+		expect(h.backend.deleted).toEqual(["thread-1"]);
+		h.backend.emitTerminal("turn-2", { status: "interrupted" });
+		await ending;
+
+		expect(h.backend.deleted).toEqual(["thread-1", "thread-2"]);
+		expect(h.runtime.list()).toEqual([]);
+		expect(h.backend.closes).toBe(1);
+
+		// A thread still opening when the exit begins goes too.
+		const late = setup();
+		let open: () => void = () => {};
+		late.backend.openThreadGate = new Promise<void>((resolve) => {
+			open = resolve;
+		});
+		const starting = late.runtime.handle({ kind: "start", prompt: "one" });
+		await settled(() => false);
+		const closing = late.runtime.shutdown();
+		open();
+		expect(answered(await starting)).toMatchObject({ error: { retryable: true } });
+		await closing;
+		expect(late.backend.deleted).toEqual(["thread-1"]);
+		expect(late.backend.hasTurn("turn-1")).toBe(false);
+
+		vi.useFakeTimers();
+		try {
+			const stuck = setup();
+			answered(await stuck.runtime.handle({ kind: "start", prompt: "one" }));
+			await turnReady(stuck.backend);
+			const ended = stuck.runtime.shutdown();
+			await vi.advanceTimersByTimeAsync(LOCAL_THREAD_END_MS);
+			await ended;
+
+			expect(stuck.backend.deleted).toEqual([]);
+			expect(stuck.backend.closes).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("runs the day rule on its own each hour", async () => {
+		vi.useFakeTimers();
+		try {
+			const h = setup();
+			const started = answered(await h.runtime.handle({ kind: "start", prompt: "one" }));
+			await turnReady(h.backend);
+			h.backend.emitTerminal("turn-1", { status: "completed", finalResponse: "done" });
+			await turnEnded(h.runtime, started.agentId);
+			collected(await h.runtime.handle({ kind: "await", agentId: started.agentId }));
+
+			h.advance(DAY);
+			await vi.advanceTimersByTimeAsync(HOUR);
+
+			expect(h.backend.deleted).toEqual(["thread-1"]);
+			await h.runtime.shutdown();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("answers unknown agents without opening a backend", async () => {

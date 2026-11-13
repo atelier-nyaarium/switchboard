@@ -103,7 +103,7 @@ function agentDispatches(capabilities: Capability[]): AgentDispatches {
 const localBackends: LocalAgentBackend[] = [];
 /** Held so shutdown withdraws every pending request and stops every child. */
 let vaultTools: ReturnType<typeof registerVaultTools> | undefined;
-const VAULT_SHUTDOWN_MS = 3_000;
+const EXIT_WAIT_MS = 3_000;
 const BASELINE_FETCH_MS = 8_000;
 
 /** Each API server's session, from what its launcher left. */
@@ -336,11 +336,11 @@ Requirements:
 		// The daemon is shared and stays; only this process's socket goes.
 		void closeReferenceSession();
 		// The only thing that ever reaps a local child: no daemon supervises it.
-		for (const local of localBackends) local.shutdown();
+		const shutdown = Promise.allSettled([
+			vaultTools?.shutdown(),
+			...localBackends.map((local) => local.shutdown()),
+		]);
 		// Bounded: a child that ignores its signals must not hold the exit.
-		const shutdown = vaultTools?.shutdown() ?? Promise.resolve();
-		void Promise.race([shutdown, new Promise((r) => setTimeout(r, VAULT_SHUTDOWN_MS))]).finally(() =>
-			process.exit(0),
-		);
+		void Promise.race([shutdown, new Promise((r) => setTimeout(r, EXIT_WAIT_MS))]).finally(() => process.exit(0));
 	});
 }

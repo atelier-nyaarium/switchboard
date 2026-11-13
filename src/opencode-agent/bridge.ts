@@ -1219,6 +1219,23 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 					return { type: "result", id: request.id, op: "interrupt", interrupted };
 				});
 			}
+			case "delete": {
+				const remove = async (): Promise<BridgeResult> => {
+					if (threads.get(request.threadId)?.active)
+						throw new BridgeFailure("turn_inactive", "the OpenCode thread is still running");
+					const { status, data } = await call("DELETE", `/api/session/${request.threadId}`);
+					if (status !== 404 && status >= 300) throw httpFailure("deleting the session", status, data);
+					threads.delete(request.threadId);
+					return {
+						type: "result",
+						id: request.id,
+						op: "delete",
+						outcome: status === 404 ? "gone" : "deleted",
+					};
+				};
+				const thread = threads.get(request.threadId);
+				return thread ? serial(thread, remove) : remove();
+			}
 			case "inspect": {
 				const thread = threads.get(request.threadId);
 				const answer = (inspection: Extract<BridgeResult, { op: "inspect" }>["inspection"]): BridgeResult => ({

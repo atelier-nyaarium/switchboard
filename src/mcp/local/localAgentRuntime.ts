@@ -1,4 +1,5 @@
 import type { AgentBackendId } from "../../shared/agent-backend.js";
+import { AGENT_AGE_PASS_MS } from "../../shared/agent-collect.js";
 import type { AgentNotice } from "../../shared/agent-notice.js";
 import type { AgentDaemonFailureCode, AgentServiceTier } from "../../shared/agent-state.js";
 import type { AgentTurnMarks } from "../../shared/agent-turn-marks.js";
@@ -16,7 +17,7 @@ export type LocalAgentState = "idle" | "working" | "unavailable";
 export type LocalTurnState = "inProgress" | "completed" | "failed" | "interrupted";
 export type LocalObservation = "accepted" | "terminal" | "waitTimedOut" | "idle" | "interruptRequested" | "unavailable";
 
-export type LocalErrorCode = "not_found" | "turn_failed" | AgentDaemonFailureCode;
+export type LocalErrorCode = "not_found" | "expired" | "turn_failed" | AgentDaemonFailureCode;
 
 export interface LocalRefusal {
 	refused: string;
@@ -46,8 +47,16 @@ export interface LocalCollectAnswer {
 	turns: unknown[];
 }
 
+export interface LocalDeleteAnswer {
+	agentId: string;
+	deleted: boolean;
+	note?: string;
+}
+
+export type LocalAnswer = LocalAgentAnswer | LocalRefusal | LocalCollectAnswer | LocalDeleteAnswer;
+
 export interface LocalRequest {
-	kind: "start" | "message" | "await" | "stop" | "list";
+	kind: "start" | "message" | "await" | "stop" | "delete" | "list";
 	operationId?: string;
 	agentId?: string;
 	prompt?: string;
@@ -94,6 +103,9 @@ export interface LocalListAgent {
 	updatedAt: number;
 }
 
+/** Within plugin exit wait. */
+export const LOCAL_THREAD_END_MS = 2_000;
+
 /** Local mode's lease, operation claim and per-agent queue. */
 export class LocalAgentRuntime {
 	private readonly ledger: LocalOperationLedger;
@@ -102,6 +114,7 @@ export class LocalAgentRuntime {
 	/** Serialize messages and stops per agent. */
 	private readonly perAgent = createKeyedFifo<string>();
 	private readonly listing = createSingleFlight<null, string[] | undefined>();
+	private readonly ageTimer: ReturnType<typeof setInterval>;
 	private inFlight = 0;
 
 	constructor(
@@ -123,13 +136,33 @@ export class LocalAgentRuntime {
 			hasActiveTurn: () => this.handlers.hasActiveTurn(),
 			onClosed: (session) => this.handlers.closed(session),
 		});
+		this.ageTimer = setInterval(() => {
+			void this.expireThreads().catch((error) =>
+				console.error(`[${spec.backendId}-local] thread age pass failed:`, error),
+			);
+		}, AGENT_AGE_PASS_MS);
+		this.ageTimer.unref?.();
+	}
+
+	/** Expiry shares per-agent lanes. */
+	async expireThreads(): Promise<void> {
+		const now = this.now();
+		const aged = this.handlers.aged(now);
+		if (aged.length === 0) return;
+		this.inFlight += 1;
+		try {
+			for (const agentId of aged) await this.perAgent.run(agentId, () => this.handlers.expire(agentId, now));
+		} finally {
+			this.inFlight -= 1;
+			this.child.markUsed();
+		}
 	}
 
 	reapIfIdle(): boolean {
 		return this.child.reapIfIdle();
 	}
 
-	async handle(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal | LocalCollectAnswer> {
+	async handle(request: LocalRequest): Promise<LocalAnswer> {
 		// Count the entire dispatch as in flight.
 		this.inFlight += 1;
 		try {
@@ -145,7 +178,7 @@ export class LocalAgentRuntime {
 		}
 	}
 
-	private async dispatch(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal | LocalCollectAnswer> {
+	private async dispatch(request: LocalRequest): Promise<LocalAnswer> {
 		switch (request.kind) {
 			case "start":
 				return await this.handlers.start(request);
@@ -155,13 +188,15 @@ export class LocalAgentRuntime {
 				return this.handlers.collect(request);
 			case "stop":
 				return await this.perAgent.run(request.agentId ?? "", () => this.handlers.stop(request));
+			case "delete":
+				return await this.perAgent.run(request.agentId ?? "", () => this.handlers.delete(request));
 			default:
 				return { refused: `unsupported request: ${request.kind}` };
 		}
 	}
 
-	private unstarted(answer: LocalAgentAnswer | LocalRefusal | LocalCollectAnswer): boolean {
-		if ("refused" in answer || "running" in answer) return false;
+	private unstarted(answer: LocalAnswer): boolean {
+		if ("refused" in answer || "running" in answer || "deleted" in answer) return false;
 		return answer.observation === "unavailable" && answer.error?.retryable === true;
 	}
 
@@ -188,7 +223,18 @@ export class LocalAgentRuntime {
 		});
 	}
 
-	shutdown(): void {
-		this.child.shutdown();
+	/** Bounded thread deletion first; always end child. */
+	async shutdown(): Promise<void> {
+		clearInterval(this.ageTimer);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const late = new Promise<void>((resolve) => {
+			timer = setTimeout(resolve, LOCAL_THREAD_END_MS);
+		});
+		try {
+			await Promise.race([this.handlers.endAll(), late]);
+		} finally {
+			clearTimeout(timer);
+			this.child.shutdown();
+		}
 	}
 }

@@ -19,9 +19,11 @@ export interface WorkflowsStageDeps {
 	buildDispatch?: (runner: WorkflowRunner) => {
 		port: WorkflowDispatchPort;
 		retireRun: WorkflowAgentRetirement;
+		expireClaudeThreads: () => number;
 		claudeTurnResult: (frame: ClaudeTurnResultFrame) => Promise<void>;
 		inspectThread: NonNullable<WorkflowThreadAdoptionPort["inspect"]>;
 		retagThread: NonNullable<WorkflowThreadAdoptionPort["retag"]>;
+		watchThread: WorkflowThreadAdoptionPort["watch"];
 	};
 }
 
@@ -32,6 +34,7 @@ export interface WorkflowsStage {
 	start: () => boolean;
 	stop: () => void;
 	sweep: () => number;
+	expireClaudeThreads: () => number;
 	forgetSession: (team: string) => void;
 	reserves: (team: string) => boolean;
 	hostRegistering: () => void;
@@ -55,7 +58,7 @@ export function composeWorkflows(deps: WorkflowsStageDeps): WorkflowsStage {
 		dispatch: built?.port ?? deps.dispatch ?? { dispatch: () => {} },
 		onChanged: deps.onChanged,
 		...(built
-			? { threadAdoption: { inspect: built.inspectThread, retag: built.retagThread } }
+			? { threadAdoption: { inspect: built.inspectThread, retag: built.retagThread, watch: built.watchThread } }
 			: deps.threadAdoption
 				? { threadAdoption: deps.threadAdoption }
 				: {}),
@@ -70,6 +73,7 @@ export function composeWorkflows(deps: WorkflowsStageDeps): WorkflowsStage {
 			runner.stop();
 		},
 		sweep: () => runner.sweep(),
+		expireClaudeThreads: () => built?.expireClaudeThreads() ?? 0,
 		forgetSession: (team) => engine.forgetSession(team),
 		reserves: (team) => engine.reserves(team),
 		hostRegistering: () => engine.hostRegistering(),

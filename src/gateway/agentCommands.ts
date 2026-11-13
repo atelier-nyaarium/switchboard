@@ -2,7 +2,7 @@ import type { AgentBackendDescriptor } from "../shared/agent-backend.js";
 import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import type { PersistedAgent } from "../shared/agent-persisted.js";
 import { agentIdForOperation } from "../shared/agent-record.js";
-import type { AgentGatewayRequest } from "../shared/agent-state.js";
+import { AGENT_EXPIRED_REASON, type AgentGatewayRequest } from "../shared/agent-state.js";
 import type { Ambient } from "../shared/ambient.js";
 import { isHostSpawn } from "../shared/host-spawn.js";
 import type { SessionRecord } from "../shared/session-store.js";
@@ -30,8 +30,10 @@ export type AgentMessageCommand = Pick<
 >;
 export type AgentStopCommand = Pick<Request<"stop">, "agentId" | "operationId">;
 
+export type AgentRefusedCode = "daemon_unavailable" | "expired";
+
 export type AgentDispatchResult =
-	| { kind: "refused"; agentId: string; code: "daemon_unavailable" | "not_found"; reason: string }
+	| { kind: "refused"; agentId: string; code: AgentRefusedCode; reason: string }
 	/** False means daemon unreachable. */
 	| { kind: "committed"; transition: AgentTransition; dispatched: boolean };
 
@@ -80,19 +82,16 @@ export function createAgentCommands(deps: {
 		return { kind: "committed", transition, dispatched: command !== undefined && deps.relay.dispatch(command) };
 	}
 
+	/** Missing agents also read as expired. */
 	function existing(
 		owner: SessionRecord,
 		agentId: string,
 	): { daemonInstanceId: string } | Extract<AgentDispatchResult, { kind: "refused" }> {
+		const agent = service.findOwnedAgent(owner, agentId);
+		if (!agent || agent.expiredAt !== undefined)
+			return { kind: "refused", agentId, code: "expired", reason: AGENT_EXPIRED_REASON };
 		const live = liveDaemon();
 		if ("reason" in live) return { kind: "refused", agentId, code: "daemon_unavailable", reason: live.reason };
-		if (!service.findOwnedAgent(owner, agentId))
-			return {
-				kind: "refused",
-				agentId,
-				code: "not_found",
-				reason: `${backend.displayName} agent was not found`,
-			};
 		return live;
 	}
 

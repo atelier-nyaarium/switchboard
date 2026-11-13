@@ -502,7 +502,30 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		answer(taker, refusal(GAVE_UP, taker.team, false), unit);
 	}
 
-	/** Ahead of launches, which are given up. */
+	/** Closes the pane behind whatever its lane holds, then runs `then`, both before any later launch. */
+	function closeBehind(target: TmuxTarget, then?: () => Promise<void>): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			const unit: KillUnit = {
+				kind: "kill",
+				started: false,
+				settled: false,
+				async run() {
+					try {
+						await deps.kill(target);
+						await then?.();
+						resolve();
+					} catch (err) {
+						reject(err);
+					} finally {
+						unit.settled = true;
+					}
+				},
+			};
+			enqueue(physicalPane(target), unit);
+		});
+	}
+
+	/** Gives up the pane's launches. One already started is closed ahead of its end. */
 	function kill(target: TmuxTarget): Promise<void> {
 		const pane = physicalPane(target);
 		let preempts = false;
@@ -521,24 +544,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 			forgetMade((made) => physicalPane(made.target) === pane);
 			return deps.kill(target);
 		}
-		return new Promise<void>((resolve, reject) => {
-			const unit: KillUnit = {
-				kind: "kill",
-				started: false,
-				settled: false,
-				async run() {
-					try {
-						await deps.kill(target);
-						resolve();
-					} catch (err) {
-						reject(err);
-					} finally {
-						unit.settled = true;
-					}
-				},
-			};
-			enqueue(physicalPane(target), unit);
-		});
+		return closeBehind(target);
 	}
 
 	/** Answers by frames. */
@@ -617,6 +623,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		},
 
 		kill,
+		closeBehind,
 
 		/** Fails the project's queued and unregistered launches. */
 		stop(project: string): void {

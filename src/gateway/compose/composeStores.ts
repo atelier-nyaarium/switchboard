@@ -26,6 +26,9 @@ export interface RestoredState {
 	sessions: unknown;
 	planes: Record<string, PlanePersistedState> | undefined;
 	readAnchors: unknown;
+	/** Optional purge snapshot. */
+	purges: unknown;
+	purgeTally: unknown;
 }
 
 export interface StoresStage {
@@ -92,15 +95,21 @@ export function composeStores(deps: StoresStageDeps): StoresStage {
 function readRestoredState(sessionResumeDurable: DurableStore): RestoredState {
 	const raw = sessionResumeDurable.load();
 	const wrapped = raw !== null && typeof raw === "object" && "sessions" in raw;
-	if (!wrapped) return { sessions: raw, planes: undefined, readAnchors: undefined };
+	if (!wrapped) {
+		return { sessions: raw, planes: undefined, readAnchors: undefined, purges: undefined, purgeTally: undefined };
+	}
 	const record = raw as {
 		sessions?: unknown;
 		planes?: Record<string, PlanePersistedState>;
 		readAnchors?: unknown;
+		purges?: unknown;
+		purgeTally?: unknown;
 	};
 	return {
 		sessions: record.sessions,
 		planes: record.planes,
 		readAnchors: record.readAnchors,
+		purges: record.purges,
+		purgeTally: record.purgeTally,
 	};
 }

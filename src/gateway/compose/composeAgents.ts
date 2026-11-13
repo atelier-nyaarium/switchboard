@@ -1,4 +1,5 @@
 import { AGENT_BACKENDS, type AgentBackendId, agentHttpPath } from "../../shared/agent-backend.js";
+import { threadExpired } from "../../shared/agent-collect.js";
 import {
 	type AgentProgressCounts,
 	addAgentProgressCounts,
@@ -9,6 +10,7 @@ import type { Ambient } from "../../shared/ambient.js";
 import type { RosterAgent } from "../agentAwareness.js";
 import { resolveAgentExecutionTarget } from "../agentExecutionTarget.js";
 import { type AgentStack, type AgentStacks, createAgentStack } from "../agentStack.js";
+import { threadItemOf } from "../sessionEnd.js";
 import { createWorkflowAgentDispatch, type WorkflowAgentDispatch } from "../workflows/agentDispatch.js";
 import type { WorkflowRunner } from "../workflows/runner.js";
 import { reached, sendOn } from "../wsSend.js";
@@ -16,7 +18,15 @@ import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
 
 export interface AgentsStageDeps {
-	sessions: Pick<SessionsStage, "sessionAuthority" | "sessionStore" | "offlineCatalog" | "agentCatalogWriters">;
+	sessions: Pick<
+		SessionsStage,
+		| "sessionAuthority"
+		| "sessionStore"
+		| "offlineCatalog"
+		| "agentCatalogWriters"
+		| "purgeQueue"
+		| "saveSessionsChecked"
+	>;
 	host: Pick<HostStage, "readLiveness" | "relayToHost">;
 	ambient: Ambient;
 }
@@ -36,6 +46,8 @@ export interface AgentsStage {
 	workflowProgress: (runId: string) => AgentProgressCounts;
 	/** Ends every relay's watch over held frames. */
 	stopRelays: () => void;
+	/** Expires threads idle for one day. */
+	expireThreads: (runRunning: (runId: string) => boolean) => number;
 	/** False means marking failed. */
 	markTurnNotified: (ownerKey: string, backend: AgentBackendId, agentId: string, turnId: string) => boolean;
 	onTurnsCollected: (listener: TurnsCollected) => void;
@@ -70,7 +82,17 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 	const built: AgentStack[] = AGENT_BACKENDS.map((backend) => {
 		const catalogWriter = sessions.agentCatalogWriters.get(backend.id);
 		if (!catalogWriter) throw new Error(`no catalog writer for ${backend.id} agents`);
-		return createAgentStack({ ...shared, backend, catalogWriter });
+		return createAgentStack({
+			...shared,
+			backend,
+			catalogWriter,
+			threadEnded: (agent) => {
+				const item = threadItemOf(backend.id, agent);
+				if (!item) return undefined;
+				const queued = sessions.purgeQueue.add([item]);
+				return () => sessions.purgeQueue.withdraw(queued);
+			},
+		});
 	});
 	const stacks: AgentStacks = new Map(built.map((stack) => [stack.backend.id, stack]));
 
@@ -113,6 +135,16 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 		stopRelays: () => {
 			for (const stack of built) stack.relay.stop();
 		},
+		expireThreads: (runRunning) => {
+			const now = ambient.now();
+			let ended = 0;
+			for (const owner of sessions.sessionStore.list())
+				for (const stack of built)
+					for (const agent of stack.list(owner))
+						if (threadExpired(agent, now, runRunning) && stack.expire(owner, agent.agentId, now))
+							ended += 1;
+			return ended;
+		},
 		workflowProgress: (runId) =>
 			built.reduce(
 				(counts, stack) => addAgentProgressCounts(counts, stack.relay.progressForRun(runId)),
@@ -135,6 +167,11 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 				stacks,
 				resolveTarget: (owner) =>
 					resolveAgentExecutionTarget(owner, undefined, sessions.sessionStore, sessions.offlineCatalog),
+				purges: {
+					add: (items) => sessions.purgeQueue.add(items),
+					saved: () => sessions.saveSessionsChecked(),
+					found: (count, what) => sessions.purgeQueue.found(count, what),
+				},
 			}),
 		reconcileStaleAgents: () => {
 			for (const owner of sessions.sessionStore.list())

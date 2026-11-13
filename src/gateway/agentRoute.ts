@@ -6,6 +6,9 @@ import { offeredModels } from "../shared/agent-models.js";
 import { type AgentStoredTurn, interruptingOperation, type PersistedAgent } from "../shared/agent-persisted.js";
 import { agentIdForOperation, publishedActivities } from "../shared/agent-record.js";
 import {
+	AGENT_DELETE_PENDING_NOTE,
+	AGENT_EXPIRED_REASON,
+	AgentDeleteAnswerSchema,
 	type AgentErrorCode,
 	type AgentGatewayRequest,
 	AgentGatewayRequestSchema,
@@ -16,10 +19,11 @@ import {
 	agentRequestIssue,
 	agentResultDelivery,
 } from "../shared/agent-state.js";
-import type { Clock } from "../shared/ambient.js";
+import type { Ambient } from "../shared/ambient.js";
 import type { HostAgentModelsResult } from "../shared/host-op.js";
 import type { SessionRecord } from "../shared/session-store.js";
 import type { AgentCommands } from "./agentCommands.js";
+import { hasUnresolvedOperation } from "./agentReducers.js";
 import type { AgentRelay } from "./agentRelay.js";
 import { AGENT_FAILURE_ANSWERS, AgentTransitionError, jsonResponse as json } from "./agentRouteEnvelope.js";
 import type { AgentService } from "./agentService.js";
@@ -33,7 +37,7 @@ export interface AgentRouteDeps {
 	service: AgentService;
 	relay: AgentRelay;
 	commands: AgentCommands;
-	ambient: Clock;
+	ambient: Pick<Ambient, "now" | "newId">;
 	waitBudgetMs?: number;
 	onCollected?: (ownerKey: string, agentId: string, turnIds: readonly string[]) => void;
 	listModels?: (target: AgentExecutionTarget) => Promise<HostAgentModelsResult | { kind: "unreachable" }>;
@@ -46,6 +50,8 @@ type Asked<Kind extends AgentGatewayRequest["kind"]> = Extract<AgentGatewayReque
 
 export class AgentRoute {
 	private readonly name: string;
+	/** Tracks deletes awaiting turn completion. */
+	private readonly deleting = new Map<string, () => void>();
 
 	constructor(private readonly deps: AgentRouteDeps) {
 		this.name = deps.backend.displayName;
@@ -82,6 +88,8 @@ export class AgentRoute {
 					return json(this.collect(req, owner, request.agentId, request.operationId));
 				case "stop":
 					return json(this.stop(owner, request));
+				case "delete":
+					return json(await this.delete(owner, request.agentId));
 				case "list":
 					return json(this.list(owner, request));
 				case "models":
@@ -110,9 +118,12 @@ export class AgentRoute {
 
 	private async message(owner: SessionRecord, request: Asked<"message">): Promise<AgentResult> {
 		this.refuseRunAgent(owner, request.agentId);
+		// A pending delete would stop the turn it opens.
+		if (this.pendingDelete(this.deps.service.ownerKeyOf(owner), request.agentId))
+			return this.unavailable(request.agentId, "expired", false, AGENT_EXPIRED_REASON);
 		const result = this.deps.commands.message(owner, request);
 		if (result.kind === "refused")
-			return this.unavailable(request.agentId, result.code, result.code !== "not_found", result.reason);
+			return this.unavailable(request.agentId, result.code, result.code !== "expired", result.reason);
 		return this.settle(owner, request.agentId, request.operationId, result.dispatched);
 	}
 
@@ -120,16 +131,73 @@ export class AgentRoute {
 		this.refuseRunAgent(owner, request.agentId);
 		const result = this.deps.commands.stop(owner, request);
 		if (result.kind === "refused")
-			return this.unavailable(request.agentId, result.code, result.code !== "not_found", result.reason);
+			return this.unavailable(request.agentId, result.code, result.code !== "expired", result.reason);
 		const agent = this.current(owner, request.agentId) ?? result.transition.agent;
 		return this.describe(agent, agent.activeTurnId);
+	}
+
+	/** Stops the turn before retirement and retries on agent changes. */
+	private async delete(owner: SessionRecord, agentId: string): Promise<unknown> {
+		this.refuseRunAgent(owner, agentId);
+		const ownerKey = this.deps.service.ownerKeyOf(owner);
+		const gone = () => this.finish(ownerKey, agentId);
+		const deadline = this.now() + (this.deps.waitBudgetMs ?? this.deps.backend.waitBudgetMs);
+		const deleted = (await this.deps.relay.waitFor(ownerKey, agentId, gone, deadline)) || gone();
+		if (deleted) this.settleDelete(ownerKey, agentId);
+		if (!deleted && !this.deleting.has(`${ownerKey}:${agentId}`)) {
+			const unsubscribe = this.deps.relay.onAgentChange(ownerKey, agentId, () => {
+				if (!gone()) return;
+				unsubscribe();
+				this.deleting.delete(`${ownerKey}:${agentId}`);
+			});
+			this.deleting.set(`${ownerKey}:${agentId}`, unsubscribe);
+		}
+		return AgentDeleteAnswerSchema.parse({
+			agentId,
+			deleted,
+			...(deleted ? {} : { note: AGENT_DELETE_PENDING_NOTE }),
+		});
+	}
+
+	/** A record can go without a change being told, so a stale wait is dropped where it is read. */
+	private pendingDelete(ownerKey: string, agentId: string): boolean {
+		if (!this.deleting.has(`${ownerKey}:${agentId}`)) return false;
+		const owner = this.deps.service.ownerOf(ownerKey);
+		if (owner && this.current(owner, agentId)) return true;
+		this.settleDelete(ownerKey, agentId);
+		return false;
+	}
+
+	private settleDelete(ownerKey: string, agentId: string): void {
+		this.deleting.get(`${ownerKey}:${agentId}`)?.();
+		this.deleting.delete(`${ownerKey}:${agentId}`);
+	}
+
+	/** True once the record is gone. */
+	private finish(ownerKey: string, agentId: string): boolean {
+		const owner = this.deps.service.ownerOf(ownerKey);
+		const agent = owner && this.current(owner, agentId);
+		if (!owner || !agent) return true;
+		// The daemon may still run any other.
+		if (agent.agentState === "idle" || agent.agentState === "unavailable") {
+			const retired = this.deps.commands.retire(owner, agentId);
+			if (retired.retired || retired.reason === "not_found") return true;
+		}
+		if (agent.agentState === "working" && !interruptingOperation(agent) && !hasUnresolvedOperation(agent)) {
+			try {
+				this.deps.commands.stop(owner, { agentId, operationId: this.deps.ambient.newId() });
+			} catch {
+				// Retry when the agent changes.
+			}
+		}
+		return false;
 	}
 
 	private collect(req: Request, owner: SessionRecord, agentId: string, operationId: string | undefined): unknown {
 		const owned = this.deps.service.resolveOwnedAgent(req, agentId);
 		if (!owned || owned.agent.runId) return this.notFound(agentId);
 		if (!owned.agent.activeTurnId) this.deps.relay.reconcileStale(owner);
-		const collected = this.deps.service.collect(owner, agentId, operationId);
+		const collected = this.deps.service.collect(owner, agentId, operationId, this.now());
 		if (!collected) return this.notFound(agentId);
 		this.deps.onCollected?.(this.deps.service.ownerKeyOf(owner), agentId, collected.turnIds);
 		const { agent } = collected;
@@ -295,6 +363,8 @@ export class AgentRoute {
 	}
 
 	private trouble(agent: PersistedAgent) {
+		if (agent.expiredAt !== undefined)
+			return { code: "expired", retryable: false, message: AGENT_EXPIRED_REASON } as const;
 		if (agent.agentState === "unavailable")
 			return { code: "agent_dead", retryable: false, message: `${this.name} agent is dead` } as const;
 		if (agent.agentState === "recovering")

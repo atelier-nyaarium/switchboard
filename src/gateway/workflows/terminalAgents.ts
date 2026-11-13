@@ -67,6 +67,16 @@ export function createTerminalAgents(
 		});
 		idleListeners.set(key, unsubscribe);
 	}
+	/** Stops a current or arriving turn and retains the agent. */
+	function quiet(owner: SessionRecord, agent: AgentView): void {
+		const backend = backendOfAgent(owner, agent.agentId);
+		if (!backend || agent.state === "idle" || agent.state === "unavailable") return;
+		if (agent.state === "working") stopAgent(owner, backend, agent);
+		watchIdle(owner, backend, agent.agentId, (current) => {
+			if (current?.state === "working") stopAgent(owner, backend, current);
+		});
+	}
+	/** An agent a resumed run took is that run's. */
 	function ensureTerminalAgent(
 		owner: SessionRecord,
 		run: { runId: string; team: string },
@@ -81,6 +91,7 @@ export function createTerminalAgents(
 				return retire(owner, backend, agent.agentId);
 			}
 			watchIdle(owner, backend, agent.agentId, (current) => {
+				if (current && current.runId !== run.runId) return;
 				if (!current || current.state === "idle" || current.state === "unavailable") {
 					retire(owner, backend, agent.agentId);
 					return;
@@ -91,6 +102,7 @@ export function createTerminalAgents(
 		}
 		if (agent.state === "idle" || agent.state === "unavailable") return retire(owner, backend, agent.agentId);
 		watchIdle(owner, backend, agent.agentId, (current) => {
+			if (current && current.runId !== run.runId) return;
 			if (!current || current.state === "idle" || current.state === "unavailable")
 				retire(owner, backend, agent.agentId);
 			else ensureTerminalAgent(owner, run, current);
@@ -102,11 +114,14 @@ export function createTerminalAgents(
 		const owner = ownerOf(run.team);
 		if (!owner) return true;
 		let complete = true;
+		const liveDaemon = deps.readLiveness().daemonInstanceId;
 		for (const agent of listRunAgents(owner, run.runId)) {
 			const backend = backendOfAgent(owner, agent.agentId);
 			if (!backend) continue;
 			for (const operation of agent.operations) {
-				if (operation.state === "requested") abandon(owner, backend, agent.agentId, operation.operationId);
+				// A live daemon may still open the requested thread.
+				if (operation.state === "requested" && operation.daemonInstanceId !== liveDaemon)
+					abandon(owner, backend, agent.agentId, operation.operationId);
 			}
 			const current = listAgent(owner, backend, agent.agentId);
 			if (current && !ensureTerminalAgent(owner, run, current)) complete = false;
@@ -118,5 +133,5 @@ export function createTerminalAgents(
 		idleListeners.clear();
 	}
 
-	return { stopAgent, watchIdle, ensureTerminalAgent, retireRun, clearIdleListeners };
+	return { stopAgent, watchIdle, quiet, ensureTerminalAgent, retireRun, clearIdleListeners };
 }

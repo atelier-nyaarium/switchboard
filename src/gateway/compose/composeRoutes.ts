@@ -23,7 +23,13 @@ export interface RoutesStageDeps {
 	stores: Pick<StoresStage, "jobs" | "capabilityStore" | "daemonCapabilityStore" | "blobStore" | "boardReplays">;
 	sessions: Pick<
 		SessionsStage,
-		"registry" | "conversationRegistry" | "sessionAuthority" | "sessionStore" | "presence" | "hostSpawnPoints"
+		| "registry"
+		| "conversationRegistry"
+		| "sessionAuthority"
+		| "sessionStore"
+		| "presence"
+		| "hostSpawnPoints"
+		| "purgeQueue"
 	>;
 	host: Pick<HostStage, "wakeService" | "relayToHost">;
 	awareness: Pick<AwarenessStage, "awareness" | "launches" | "bankLaunch">;
@@ -72,6 +78,7 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 			relayToHost: host.relayToHost,
 			sessionStore: sessions.sessionStore,
 			presence: sessions.presence,
+			backstop: () => sessions.purgeQueue.tally(),
 			hostSpawnPoints: sessions.hostSpawnPoints,
 			routerClient: f?.routerClient ?? null,
 			sealer: f?.sealer ?? null,

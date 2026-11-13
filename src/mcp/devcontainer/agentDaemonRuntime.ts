@@ -29,6 +29,8 @@ export interface AgentDaemonRuntime {
 	/** True for handled frames. */
 	receive(frame: Record<string, unknown>): boolean;
 	listModels(backend: AgentBackendId, target: AgentExecutionTarget): Promise<HostAgentModelsResult>;
+	/** Throws on deletion failure. */
+	deleteThread(backend: AgentBackendId, target: AgentExecutionTarget, threadId: string): Promise<"deleted" | "gone">;
 	shutdown(): void;
 }
 
@@ -99,6 +101,12 @@ export function createAgentDaemonRuntime(deps: AgentDaemonRuntimeDeps): AgentDae
 			return binding
 				? binding.service.listModels(target)
 				: Promise.resolve({ kind: "refused", reason: `no ${backend} daemon` });
+		},
+		deleteThread(backend, target, threadId) {
+			const binding = bindings.find((candidate) => candidate.id === backend);
+			return binding
+				? binding.service.deleteThread(target, threadId)
+				: Promise.reject(new Error(`no ${backend} daemon`));
 		},
 		shutdown() {
 			for (const { service, targets } of bindings) {

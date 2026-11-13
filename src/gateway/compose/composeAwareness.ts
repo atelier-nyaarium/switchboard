@@ -18,6 +18,7 @@ import {
 	type LaunchRecordsDeps,
 	launchOutcome,
 } from "../launchRecords.js";
+import type { SessionEnd } from "../sessionEnd.js";
 import {
 	createWorkflowAwarenessSubscriber,
 	createWorkflowWatch,
@@ -35,6 +36,7 @@ import type { WorkflowsStage } from "./composeWorkflows.js";
 export interface AwarenessStageDeps {
 	dataDir: string;
 	sessions: Pick<SessionsStage, "registry" | "sessionStore" | "presence">;
+	sessionEnd: SessionEnd;
 	host: Pick<HostStage, "wakeService" | "wakeCoordinator" | "liveHostSocket">;
 	stores: Pick<StoresStage, "jobs">;
 	/** Read late; composed after this stage. */
@@ -76,6 +78,7 @@ const baselineAwarenessSubscriber: AwarenessSubscriber<SessionBaseline> = {
 export function composeAwareness({
 	dataDir,
 	sessions,
+	sessionEnd,
 	host,
 	stores,
 	deliveries,
@@ -142,7 +145,8 @@ export function composeAwareness({
 		},
 		forgetCreated: (team) => {
 			const record = sessions.sessionStore.getByTeam(team);
-			if (record && record.confirmedAt === undefined && !isLive(team)) sessions.presence.forget(team);
+			// Failed launches can leave panes.
+			if (record && record.confirmedAt === undefined && !isLive(team)) sessionEnd(team);
 		},
 		hostLink: () => host.liveHostSocket(),
 		cancel: (team, launchId) => {

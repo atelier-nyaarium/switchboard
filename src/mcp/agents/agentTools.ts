@@ -27,6 +27,8 @@ Start an agent for a self-contained task.
 
 Returns when the agent accepts the turn. Call \`agentCollect\` after its completion notice. Running agents send progress notices every 10 minutes.
 
+The agent's thread is deleted 24 hours after its last use.
+
 Agents have full access. State allowed writes, network access, and completion criteria in the prompt. See \`switchboard_capabilities\` for backend notes.
 `.trim();
 
@@ -38,6 +40,8 @@ Send a follow-up prompt. Running turns are steered; idle agents start a new turn
 The agent keeps its history. Repeat any guardrails that still apply. Codex \`tier\` and \`schema\` apply to the next new turn.
 
 Returns when the agent accepts the message. Call \`agentCollect\` after its completion notice.
+
+A thread unused for 24 hours is deleted.
 `.trim();
 
 const COLLECT_DESCRIPTION = `
@@ -52,6 +56,12 @@ const STOP_DESCRIPTION = `
 # Stop Agent
 
 Interrupt the current turn. Returns once the request is durable; the outcome arrives later. The agent remains usable with \`agentMessage\`. Started background processes keep running.
+`.trim();
+
+const DELETE_DESCRIPTION = `
+# Delete Agent
+
+Delete an agent and its thread. A running turn is stopped first.
 `.trim();
 
 const LIST_DESCRIPTION = `
@@ -144,7 +154,7 @@ export function messageBody(args: MessageArgs): Record<string, unknown> | string
 	return checked.success ? agentRequestBody(descriptor(backend), "message", checked.data) : issues(checked.error);
 }
 
-function idBody(kind: "await" | "stop", agentId: string): Record<string, unknown> {
+function idBody(kind: "await" | "stop" | "delete", agentId: string): Record<string, unknown> {
 	return agentRequestBody(descriptor(backendOf(agentId)), kind, { agentId });
 }
 
@@ -226,6 +236,12 @@ export function registerAgentTools(mcpServer: McpServer, dispatches: AgentDispat
 		"agentStop",
 		{ title: `Stop Agent`, description: STOP_DESCRIPTION, inputSchema: idSchema },
 		async (args: { agentId: string }) => send(backendOf(args.agentId), idBody("stop", args.agentId)),
+	);
+
+	mcpServer.registerTool(
+		"agentDelete",
+		{ title: `Delete Agent`, description: DELETE_DESCRIPTION, inputSchema: idSchema },
+		async (args: { agentId: string }) => send(backendOf(args.agentId), idBody("delete", args.agentId)),
 	);
 
 	mcpServer.registerTool(

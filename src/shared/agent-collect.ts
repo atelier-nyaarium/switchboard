@@ -5,6 +5,8 @@ import { type AgentTurnMarks, turnEnded, uncollectedTurns } from "./agent-turn-m
 
 export const AGENT_LIST_DEFAULT = 20;
 export const AGENT_LIST_MAX = 50;
+export const AGENT_THREAD_TTL_MS = 24 * 60 * 60_000;
+export const AGENT_AGE_PASS_MS = 60 * 60_000;
 
 interface ListedAgent {
 	agentId: string;
@@ -35,6 +37,22 @@ function busy(agent: ListedAgent): boolean {
 /** Busy or uncollected. */
 export function listedAgent(agent: ListedAgent): boolean {
 	return agent.runId === undefined && (busy(agent) || uncollectedTurns(agent) > 0);
+}
+
+/**
+ * Expires after a day, or after threadless turns are collected.
+ * Never during a running workflow, active work, recovery, or requested operations.
+ */
+export function threadExpired(
+	agent: ListedAgent & { operations: readonly { state: string }[]; expiredAt?: number },
+	now: number,
+	runRunning: (runId: string) => boolean,
+): boolean {
+	if (agent.expiredAt !== undefined) return uncollectedTurns(agent) === 0;
+	if (agent.runId !== undefined && runRunning(agent.runId)) return false;
+	if (busy(agent) || agent.agentState === "recovering") return false;
+	if (agent.operations.some((operation) => operation.state === "requested")) return false;
+	return now - agent.updatedAt >= AGENT_THREAD_TTL_MS;
 }
 
 export function agentListRow(

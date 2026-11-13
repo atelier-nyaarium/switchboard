@@ -10,11 +10,13 @@ import {
 	type HostListDirsResult,
 	type HostOp,
 	type HostPeekResult,
+	type HostPurgeOp,
 	type HostReadSkillResult,
 	type HostWifiNetworkResult,
 	type LegacyCreateSessionOp,
 	type PromptDecision,
 	type PromptOutcome,
+	type PurgeOutcome,
 	paneKey,
 	type TmuxTarget,
 	TYPED_GIVE_UP_MS,
@@ -37,6 +39,7 @@ export interface TmuxOps {
 	createSession: (op: LegacyCreateSessionOp) => Promise<unknown>;
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
+	purge?: (op: HostPurgeOp) => Promise<PurgeOutcome>;
 	/** Queued, never awaited to its end. */
 	containerStart: (project: string) => Promise<void>;
 	containerStop: (project: string) => Promise<void>;
@@ -170,6 +173,10 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 			return runDeduped(op.dedupKey, () => ops.reloadPlugins(op.target), { initiated: true });
 		if (op.kind === "killSession")
 			return runDeduped(op.dedupKey, () => ops.killSession(op.target), { killed: true });
+		if (op.kind === "purge") {
+			if (!ops.purge) throw new Error("purge unavailable");
+			return { outcome: await ops.purge(op) };
+		}
 		if (op.kind === "containerStart")
 			return runDeduped(op.dedupKey, () => ops.containerStart(op.project), { accepted: true });
 		if (op.kind === "containerStop")

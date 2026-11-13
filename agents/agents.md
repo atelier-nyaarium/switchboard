@@ -32,10 +32,11 @@ Spend what that saves on the collecting step.
 - **Threads outlive their caller.** Keep the ids you will message again: an idle agent with every turn collected leaves
   `agentList`, though `agentList` with `agentId` still finds it. If something dies, collect the
   existing work instead of repeating it.
+- **A thread lasts 24 hours past its last use.** `agentDelete` deletes an agent you are done with.
 
 `agentStart` takes `prompt`; optional fields are `backend`, `model`, `effort` (Copilot), `tier` (Codex),
 `schema`, and `cwd`. `agentMessage` takes `agentId` and `prompt`, with optional `schema` and Codex-only
-`tier`. `agentCollect` and `agentStop` take `agentId`. `agentList` accepts optional `backend`,
+`tier`. `agentCollect`, `agentStop` and `agentDelete` take `agentId`. `agentList` accepts optional `backend`,
 `agentId` and `limit`. `agentListModels` accepts optional `backend`.
 
 ## Guardrails are yours to write

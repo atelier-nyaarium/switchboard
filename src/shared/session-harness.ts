@@ -1,5 +1,7 @@
 // Session CLIs and their differences.
 
+import type { AgentBackendId } from "./agent-backend.js";
+
 ////////////////////////////////
 //  Interfaces & Types
 
@@ -88,6 +90,10 @@ export interface HarnessRow {
 	readonly road: PaneRoad | ApiRoad;
 	/** Who fetches a compacted session's baseline: the session itself, or the Gateway on its edge. */
 	readonly baseline: "session" | "gateway";
+	/** How its conversation is deleted. */
+	readonly conversation:
+		| { readonly delete: "files" }
+		| { readonly delete: "thread"; readonly backend: AgentBackendId };
 	/** Exact versions a launch accepts. Absent accepts any. */
 	readonly versions?: readonly string[];
 	/** Claude's slash commands and plugin UI. */
@@ -188,6 +194,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		handshake: true,
 		road: { kind: "pane", delivery: "channel", compaction: "screen", autoAnswers: ["limit"] },
 		baseline: "session",
+		conversation: { delete: "files" },
 		claudeSlashTools: true,
 		workflowTools: true,
 		guidance: "handshake",
@@ -218,6 +225,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		handshake: false,
 		road: { kind: "api", server: "opencode" },
 		baseline: "session",
+		conversation: { delete: "thread", backend: "opencode" },
 		versions: [OPENCODE_PIN],
 		claudeSlashTools: false,
 		workflowTools: true,
@@ -252,6 +260,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		handshake: false,
 		road: { kind: "pane", delivery: "typed", compaction: "copilot-events", autoAnswers: ["survey"] },
 		baseline: "gateway",
+		conversation: { delete: "thread", backend: "copilot" },
 		claudeSlashTools: false,
 		workflowTools: true,
 		guidance: "instructions",

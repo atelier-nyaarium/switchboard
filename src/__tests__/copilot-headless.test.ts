@@ -126,6 +126,26 @@ describe("Copilot headless client", () => {
 		]);
 	});
 
+	it("deletes a session, says gone for one Copilot does not hold, and throws any other refusal", async () => {
+		const context = fakeChild();
+		const open = CopilotHeadlessClient.open(createHeadlessTransport(context.child));
+		await tick();
+		context.feed({ jsonrpc: "2.0", id: 1, result: { protocolVersion: 3 } });
+		const client = await open;
+		const answered = async (result: unknown) => {
+			const deleted = client.deleteSession("session-1").catch((error: unknown) => error);
+			await tick();
+			const asked = context.written.at(-1) as { id: number };
+			expect(asked).toMatchObject({ method: "session.delete", params: { sessionId: "session-1" } });
+			context.feed({ jsonrpc: "2.0", id: asked.id, result });
+			return deleted;
+		};
+
+		expect(await answered({ success: true })).toBe("deleted");
+		expect(await answered({ success: false, error: "Session file not found: session-1" })).toBe("gone");
+		expect(await answered({ success: false, error: "session is busy" })).toBeInstanceOf(Error);
+	});
+
 	it("refuses another protocol version before any session exists", async () => {
 		const context = fakeChild();
 		const open = CopilotHeadlessClient.open(createHeadlessTransport(context.child));

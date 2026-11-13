@@ -1,4 +1,6 @@
 import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
+import { ClaudeConversationIdSchema } from "../../shared/host-op.js";
+import { type PurgeItem, purgePlaceOf } from "../purgeQueue.js";
 
 import type { WorkflowDispatchOutcome, WorkflowIssuedCall } from "./engine.js";
 import type { WorkflowRunner } from "./runner.js";
@@ -33,6 +35,40 @@ export function byteLength(text: string): number {
 
 export function thrownText(value: unknown): string {
 	return value instanceof Error ? value.message : String(value);
+}
+
+/** Maps named Claude threads to their targets. */
+export function claudeThreadsOf(rows: readonly WorkflowJournalRow[]): Map<string, AgentExecutionTarget> {
+	const sessions = new Map<string, AgentExecutionTarget>();
+	for (const map of threadMapsOf(rows)) {
+		const target = map.backend === "claude" ? parseTarget(map.target) : undefined;
+		if (target) sessions.set(map.agentId, target);
+	}
+	return sessions;
+}
+
+/** Returns one issue's Claude sessions, or all threads and turns. */
+export function claudeSessionsOf(
+	rows: readonly WorkflowJournalRow[],
+	issueOrdinal?: number,
+): Map<string, AgentExecutionTarget> {
+	const sessions = issueOrdinal === undefined ? claudeThreadsOf(rows) : new Map<string, AgentExecutionTarget>();
+	for (const row of rows) {
+		if (row.kind !== "turn" || row.backend !== "claude" || !row.agentId) continue;
+		if (issueOrdinal !== undefined && row.issueOrdinal !== issueOrdinal) continue;
+		const target = parseTarget(row.target);
+		if (target) sessions.set(row.agentId, target);
+	}
+	return sessions;
+}
+
+export function claudePurgeItems(sessions: ReadonlyMap<string, AgentExecutionTarget>): PurgeItem[] {
+	return [...sessions]
+		.filter(([conversationId]) => ClaudeConversationIdSchema.safeParse(conversationId).success)
+		.map(([conversationId, target]) => ({
+			place: purgePlaceOf(target),
+			what: { kind: "claude", conversationId },
+		}));
 }
 
 export function parseTarget(raw: string | null): AgentExecutionTarget | undefined {

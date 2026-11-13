@@ -56,6 +56,7 @@ describe("one agent tool set", () => {
 		registerAgentTools(one, { codex: async () => ({}) });
 		expect(toolNames(one).sort()).toEqual([
 			"agentCollect",
+			"agentDelete",
 			"agentList",
 			"agentListModels",
 			"agentMessage",
@@ -124,5 +125,8 @@ describe("one agent tool set", () => {
 		expect((await list({ agentId: COPILOT_ID, backend: "codex" })).isError).toBe(true);
 		expect((await list({})).isError).toBe(true);
 		expect((await tools(server).agentCollect!.handler({ agentId: CODEX_ID })).isError).toBe(true);
+
+		await tools(server).agentDelete!.handler({ agentId: COPILOT_ID });
+		expect(asked.at(-1)).toEqual({ kind: "delete", agentId: COPILOT_ID });
 	});
 });

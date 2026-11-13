@@ -210,6 +210,16 @@ export class ThreadLifecycle {
 		});
 	}
 
+	/** Deletes even untracked threads. */
+	dispose(threadId: string): Promise<void> {
+		if (!this.threads.has(threadId)) return this.deps.request("thread/delete", { threadId }).then(() => undefined);
+		return this.run(threadId, async (record) => {
+			await this.mutate(threadId, record, "thread/delete", { threadId }, () => undefined);
+			record.state = { phase: "disposed" };
+			this.retire(threadId, record);
+		});
+	}
+
 	/** Release pauses; do not retry after close. */
 	close(): void {
 		this.closed = true;

@@ -10,7 +10,7 @@ import {
 } from "./workflowSchemas.js";
 
 const RUN_CAP_PER_SESSION = 4;
-const SETTLED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+export const SETTLED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const NEXT_STATUS: Record<WorkflowRunStatus, readonly WorkflowTerminalStatus[]> = {
 	running: ["succeeded", "failed", "cancelled"],
 	succeeded: [],
@@ -18,7 +18,8 @@ const NEXT_STATUS: Record<WorkflowRunStatus, readonly WorkflowTerminalStatus[]> 
 	cancelled: [],
 };
 
-export type WorkflowAgentRetirement = (run: Pick<WorkflowRunRecord, "runId" | "team">) => boolean;
+/** `aged` is the 7 day rule's removal, not one asked for. */
+export type WorkflowAgentRetirement = (run: Pick<WorkflowRunRecord, "runId" | "team"> & { aged?: boolean }) => boolean;
 
 export interface WorkflowRunnerDeps {
 	store: WorkflowRunStore;
@@ -55,6 +56,8 @@ export interface WorkflowRunner {
 	running(): WorkflowRunRecord[];
 	rows(runId: string): WorkflowJournalRow[];
 	sweep(): number;
+	/** False until agents finish; sweep completes deletion. */
+	delete(runId: string): boolean;
 	stop(): void;
 }
 
@@ -62,6 +65,18 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 	const { store, ambient } = deps;
 	let admitting = false;
 	let stopped = false;
+	const deleting = new Set<string>();
+	const remove = (run: WorkflowRunRecord, aged: boolean): boolean => {
+		if (deps.retireAgents?.({ runId: run.runId, team: run.team, aged }) === false) return false;
+		try {
+			store.remove(run.runId);
+		} catch {
+			// A sync that fails after removal still removed it.
+			if (store.get(run.runId)) return false;
+		}
+		deleting.delete(run.runId);
+		return true;
+	};
 	const checkStart = (team: string): WorkflowStartCheck => {
 		if (stopped) return { kind: "refused", reason: "stopped" };
 		if (!admitting) return { kind: "refused", reason: "not_admitting" };
@@ -179,16 +194,20 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 			const now = ambient.now();
 			let removed = store.sweepAside(now, SETTLED_RETENTION_MS);
 			for (const run of store.all()) {
-				if (run.status === "running" || run.settledAt === null || now - run.settledAt < SETTLED_RETENTION_MS) {
-					continue;
-				}
-				if (deps.retireAgents?.({ runId: run.runId, team: run.team }) === false) continue;
-				try {
-					store.remove(run.runId);
-					removed += 1;
-				} catch {}
+				if (run.status === "running" || run.settledAt === null) continue;
+				if (!deleting.has(run.runId) && now - run.settledAt < SETTLED_RETENTION_MS) continue;
+				if (remove(run, !deleting.has(run.runId))) removed += 1;
 			}
 			return removed;
+		},
+		delete(runId) {
+			if (stopped) return false;
+			const run = store.get(runId);
+			if (!run) return true;
+			if (run.status === "running") return false;
+			if (remove(run, false)) return true;
+			deleting.add(runId);
+			return false;
 		},
 		stop() {
 			if (stopped) return;

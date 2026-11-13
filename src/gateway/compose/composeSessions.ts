@@ -10,6 +10,7 @@ import { PlaneRegistry } from "../../shared/plane-registry.js";
 import { type PersistedAgentCatalogWriter, SessionStore } from "../../shared/session-store.js";
 import type { TrustedCatalogProject } from "../console/consoleTypes.js";
 import { PresenceFacade } from "../presence.js";
+import { createPurgeQueue, type PurgeQueue } from "../purgeQueue.js";
 import { ReadAnchors } from "../readAnchors.js";
 import { createSessionRegistryReporter } from "../router/sessionRegistryReporter.js";
 import { createSessionAuthority, type SessionAuthority } from "../sessionAuthority.js";
@@ -42,6 +43,7 @@ export interface SessionsStage {
 	tripwireTimer: IntervalHandle;
 	sessionResumeSnapshot: (cleanShutdown: boolean) => Record<string, unknown>;
 	saveSessionsChecked: () => boolean;
+	purgeQueue: PurgeQueue;
 }
 
 export function createProjectPredicates(
@@ -117,10 +119,16 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 
 	const readAnchors = new ReadAnchors(planeRegistry, stores.restored.planes);
 	readAnchors.restore(stores.restored.readAnchors);
+	const purgeQueue = createPurgeQueue(ambient);
+	purgeQueue.restore(stores.restored.purges);
+	purgeQueue.restoreTally(stores.restored.purgeTally);
+	// One snapshot stores records and queued purges.
 	const sessionResumeSnapshot = (cleanShutdown: boolean) => ({
 		sessions: sessionStore.snapshot(),
 		planes: planeRegistry.persistedState(cleanShutdown),
 		readAnchors: readAnchors.snapshot(),
+		purges: purgeQueue.snapshot(),
+		purgeTally: purgeQueue.tally(),
 	});
 	const saveSessionsChecked = () => {
 		const result = writeChecked(stores.sessionResumeDurable, sessionResumeSnapshot(false), "session-resume");
@@ -147,5 +155,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		tripwireTimer,
 		sessionResumeSnapshot,
 		saveSessionsChecked,
+		purgeQueue,
 	};
 }

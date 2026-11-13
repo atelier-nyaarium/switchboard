@@ -1,4 +1,5 @@
 import { type AgentBackendId, agentBackend } from "../../shared/agent-backend.js";
+import { AGENT_THREAD_TTL_MS } from "../../shared/agent-collect.js";
 import type { AgentExecutionTarget } from "../../shared/agent-execution-target.js";
 import { AGENT_TURN_LOST_REASON, agentIdForOperation } from "../../shared/agent-record.js";
 import type { AgentServiceTier } from "../../shared/agent-state.js";
@@ -9,9 +10,13 @@ import type { SessionRecord, SessionStore } from "../../shared/session-store.js"
 import type { AgentStacks } from "../agentStack.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
+import type { PurgeItem } from "../purgeQueue.js";
 import { type AgentOperation, type AgentView, answerOutcome, failureOutcome, refusalOutcome } from "./agentViews.js";
 import { createClaudeSteps } from "./claudeSteps.js";
 import {
+	claudePurgeItems,
+	claudeSessionsOf,
+	claudeThreadsOf,
 	latestTurn,
 	makeTurn,
 	type PendingCall,
@@ -25,7 +30,7 @@ import type { WorkflowDispatchOutcome, WorkflowDispatchPort } from "./engine.js"
 import type { WorkflowRunner } from "./runner.js";
 import { createStackAgents } from "./stackAgents.js";
 import { createTerminalAgents } from "./terminalAgents.js";
-import type { WorkflowJournalRow } from "./workflowSchemas.js";
+import { threadMapsOf, type WorkflowJournalRow } from "./workflowSchemas.js";
 export interface WorkflowAgentDispatchDeps {
 	sessionStore: Pick<SessionStore, "getByTeam" | "list" | "teamOf">;
 	ambient: Pick<Ambient, "now" | "newId">;
@@ -34,19 +39,27 @@ export interface WorkflowAgentDispatchDeps {
 	relayToHost: (op: HostOp) => Promise<HostOpResult>;
 	stacks: AgentStacks;
 	resolveTarget: (owner: SessionRecord) => AgentExecutionTarget | null;
+	/** Origin-keyed Claude deletions; saved confirms persistence. */
+	purges: { add(items: PurgeItem[]): void; saved(): boolean; found?(count: number, what: string): void };
 }
 
 export interface WorkflowAgentDispatch {
 	port: WorkflowDispatchPort;
 	claudeTurnResult(frame: ClaudeTurnResultFrame): Promise<void>;
-	retireRun(run: { runId: string; team: string }): boolean;
-	inspectThread(input: { team: string; agentId: string }): { state: string; runId?: string } | null;
+	retireRun(run: { runId: string; team: string; aged?: boolean }): boolean;
+	expireClaudeThreads(): number;
+	inspectThread(input: { team: string; agentId: string }): { state: string; runId?: string; busy?: boolean } | null;
 	retagThread(input: { team: string; agentId: string; fromRunId: string; toRunId: string }): boolean;
+	/** Calls then on agent changes; returns unsubscribe. */
+	watchThread(input: { team: string; agentId: string }, then: () => void): () => void;
 }
 
-/** Owns workflow dispatch. */
 export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): WorkflowAgentDispatch {
 	const pending = new Map<string, PendingCall>();
+	/** Runs already queued. A restart queues them again. */
+	const claudeThreadsEnded = new Set<string>();
+	/** Agents an aged run held at removal; counted on landing. */
+	const leftAtRemoval = new Map<string, number>();
 	let stopped = false;
 	let registering = false;
 
@@ -385,13 +398,20 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		}
 	}
 
+	function endRunAgents(owner: SessionRecord, record: { runId: string; team: string }): void {
+		const named = new Set(threadMapsOf(deps.runner.rows(record.runId)).map((map) => map.agentId));
+		for (const agent of listRunAgents(owner, record.runId)) {
+			if (named.has(agent.agentId)) quiet(owner, agent);
+			else ensureTerminalAgent(owner, record, agent);
+		}
+	}
+
 	function reconcileTerminalRuns(): void {
 		if (stopped) return;
 		for (const record of deps.runner.runs()) {
 			if (record.status === "running") continue;
 			const owner = ownerOf(record.team);
-			if (!owner) continue;
-			for (const agent of listRunAgents(owner, record.runId)) ensureTerminalAgent(owner, record, agent);
+			if (owner) endRunAgents(owner, record);
 		}
 		const restored = new Set(deps.runner.runs().map((record) => record.runId));
 		for (const owner of deps.sessionStore.list()) {
@@ -422,15 +442,68 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		}
 		claudeSteps.releaseClaudeRun(record.runId);
 		claudeSteps.cancelStrandedClaudeTurns(record.runId);
+		queueUnsettledClaudeSteps(record.runId);
 		const owner = ownerOf(record.team);
-		if (!owner) return;
-		for (const agent of listRunAgents(owner, record.runId)) ensureTerminalAgent(owner, record, agent);
+		if (owner) endRunAgents(owner, record);
+	}
+
+	/** Queues Claude steps cut off before they settled. */
+	function queueUnsettledClaudeSteps(runId: string): void {
+		const rows = deps.runner.rows(runId);
+		const settled = new Set(rows.flatMap((row) => (row.kind === "settle" ? [row.issueOrdinal] : [])));
+		for (const row of rows) {
+			if (row.kind !== "issue" || row.resolvedBackend !== "claude" || row.options.thread) continue;
+			if (!settled.has(row.issueOrdinal))
+				deps.purges.add(claudePurgeItems(claudeSessionsOf(rows, row.issueOrdinal)));
+		}
+	}
+
+	function retireRun(run: { runId: string; team: string; aged?: boolean }): boolean {
+		const owner = run.aged && !leftAtRemoval.has(run.runId) ? ownerOf(run.team) : undefined;
+		if (owner) leftAtRemoval.set(run.runId, listRunAgents(owner, run.runId).length);
+		if (!terminalAgents.retireRun(run)) return false;
+		deps.purges.found?.(leftAtRemoval.get(run.runId) ?? 0, "agents still tagged with their run");
+		leftAtRemoval.delete(run.runId);
+		const sessions = claudeSessionsOf(deps.runner.rows(run.runId));
+		for (const other of deps.runner.runs()) {
+			if (other.runId === run.runId) continue;
+			for (const sessionId of claudeSessionsOf(deps.runner.rows(other.runId)).keys()) sessions.delete(sessionId);
+		}
+		claudeThreadsEnded.delete(run.runId);
+		if (sessions.size === 0) return true;
+		const items = claudePurgeItems(sessions);
+		deps.purges.add(run.aged ? items.map((item) => ({ ...item, backstop: true as const })) : items);
+		return deps.purges.saved();
+	}
+
+	/** Queues sessions after a day unless active or recent runs name them. */
+	function expireClaudeThreads(): number {
+		const now = deps.ambient.now();
+		const held = new Set<string>();
+		const aged: Array<{ runId: string; sessions: Map<string, AgentExecutionTarget> }> = [];
+		for (const run of deps.runner.runs()) {
+			const rows = deps.runner.rows(run.runId);
+			if (run.settledAt === null || now - run.settledAt < AGENT_THREAD_TTL_MS) {
+				for (const sessionId of claudeSessionsOf(rows).keys()) held.add(sessionId);
+			} else if (!claudeThreadsEnded.has(run.runId))
+				aged.push({ runId: run.runId, sessions: claudeThreadsOf(rows) });
+		}
+		let ended = 0;
+		for (const { runId, sessions } of aged) {
+			const named = sessions.size;
+			for (const sessionId of held) sessions.delete(sessionId);
+			deps.purges.add(claudePurgeItems(sessions));
+			// Sessions held by newer runs retry next pass.
+			if (sessions.size === named) claudeThreadsEnded.add(runId);
+			ended += sessions.size;
+		}
+		return ended;
 	}
 
 	const stackAgents = createStackAgents(deps);
 	const { snapshot, listRunAgents, listAgent, retire, abandon } = stackAgents;
 	const terminalAgents = createTerminalAgents(deps, stackAgents, ownerOf);
-	const { ensureTerminalAgent, watchIdle } = terminalAgents;
+	const { ensureTerminalAgent, quiet, watchIdle } = terminalAgents;
 	const promptSteps = createWorkflowPrompt(deps, settle, () => stopped);
 	const { composePrompt } = promptSteps;
 	const claudeSteps = createClaudeSteps({
@@ -461,6 +534,10 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 		settled(call) {
 			if (call.backend === "claude") {
 				claudeSteps.resolveClaudeWaiters(call);
+				if (!call.options.thread)
+					deps.purges.add(
+						claudePurgeItems(claudeSessionsOf(deps.runner.rows(call.runId), call.issueOrdinal)),
+					);
 				return;
 			}
 			if (call.options.thread) return;
@@ -515,13 +592,18 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 	return {
 		port,
 		claudeTurnResult: claudeSteps.claudeTurnResult,
-		retireRun: terminalAgents.retireRun,
+		retireRun,
+		expireClaudeThreads,
 		inspectThread({ team, agentId }) {
 			const owner = ownerOf(team);
 			if (!owner) return null;
 			const backend = stackAgents.backendOfAgent(owner, agentId);
 			const agent = backend && listAgent(owner, backend, agentId);
-			return agent ? { state: agent.state, ...(agent.runId ? { runId: agent.runId } : {}) } : null;
+			if (!agent) return null;
+			const busy =
+				agent.turns.some((turn) => turn.state === "inProgress") ||
+				agent.operations.some((operation) => operation.state === "requested");
+			return { state: agent.state, ...(agent.runId ? { runId: agent.runId } : {}), busy };
 		},
 		retagThread({ team, agentId, fromRunId, toRunId }) {
 			const owner = ownerOf(team);
@@ -529,6 +611,12 @@ export function createWorkflowAgentDispatch(deps: WorkflowAgentDispatchDeps): Wo
 			const backend = stackAgents.backendOfAgent(owner, agentId);
 			const stack = backend && deps.stacks.get(backend);
 			return stack ? stack.retagRun(owner, agentId, fromRunId, toRunId, deps.ambient.now()) : false;
+		},
+		watchThread({ team, agentId }, then) {
+			const owner = ownerOf(team);
+			const backend = owner && stackAgents.backendOfAgent(owner, agentId);
+			const relay = backend && deps.stacks.get(backend)?.relay;
+			return relay ? relay.onAgentChange(deps.sessionStore.teamOf(owner), agentId, then) : () => {};
 		},
 	};
 }

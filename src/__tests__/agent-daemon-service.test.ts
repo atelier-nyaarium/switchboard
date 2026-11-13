@@ -37,6 +37,7 @@ class FakeSession implements AgentBackendSession {
 	resumable = true;
 	/** The key each prompt was posted under. */
 	keys: Array<string | undefined> = [];
+	deleteThread = async (): Promise<"deleted" | "gone"> => "deleted";
 	steerTurn?: AgentBackendSession["steerTurn"] = (_thread, turnId, _prompt, key) => {
 		this.keys.push(key);
 		return this.steer(turnId);

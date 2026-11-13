@@ -19,6 +19,8 @@ export class LocalChildSession {
 	/** Reaping uses its own activity clock. */
 	private lastUsedAt = 0;
 	private idleTimer?: ReturnType<typeof setInterval>;
+	/** No child opens after shutdown. */
+	private ended = false;
 
 	constructor(private readonly host: LocalChildHost) {}
 
@@ -49,12 +51,17 @@ export class LocalChildSession {
 	}
 
 	open(): Promise<AgentBackendSession> {
+		if (this.ended) return Promise.reject(new Error(`${this.host.spec.displayName} is shut down`));
 		if (this.session) return Promise.resolve(this.session);
 		this.startIdleReaper();
 		// Share one child to preserve thread IDs.
 		this.opening ??= this.host.spec
 			.openSession()
 			.then((session) => {
+				if (this.ended) {
+					session.close();
+					throw new Error(`${this.host.spec.displayName} is shut down`);
+				}
 				this.session = session;
 				// Stale closes must not clear successors.
 				session.onClosed(() => {
@@ -70,6 +77,7 @@ export class LocalChildSession {
 	}
 
 	shutdown(): void {
+		this.ended = true;
 		if (this.idleTimer) clearInterval(this.idleTimer);
 		this.idleTimer = undefined;
 		this.session?.close();

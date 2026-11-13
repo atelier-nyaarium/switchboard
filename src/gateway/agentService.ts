@@ -17,6 +17,7 @@ import {
 	decideRegisterRecovery,
 	type RegisterRecoveryDecision,
 } from "../shared/agent-recovery.js";
+import { uncollectedTurns } from "../shared/agent-turn-marks.js";
 import type { AgentDaemonEvent, AgentDaemonReceipt } from "../shared/agent-wire.js";
 import type { SessionRecord } from "../shared/session-store.js";
 import { type AgentApplier, type AgentRefusal, createAgentApplier } from "./agentApply.js";
@@ -62,6 +63,7 @@ export class AgentService {
 		this.persistence = new AgentCatalogPersistence({
 			read: (owner) => deps.sessionStore.agentCatalog(owner, backend),
 			writer: deps.catalogWriter,
+			retiring: (_owner, agent) => deps.threadEnded?.(agent),
 		});
 		this.applier = createAgentApplier({
 			backend: deps.backend,
@@ -76,6 +78,10 @@ export class AgentService {
 
 	ownerKeyOf(owner: SessionRecord): string {
 		return this.deps.sessionStore.teamOf(owner);
+	}
+
+	ownerOf(ownerKey: string): SessionRecord | undefined {
+		return this.deps.sessionStore.getByTeam(ownerKey);
 	}
 
 	listOwnedAgents(owner: SessionRecord): readonly PersistedAgent[] {
@@ -94,8 +100,25 @@ export class AgentService {
 		owner: SessionRecord,
 		agentId: string,
 		operationId: string | undefined,
+		at: number,
 	): AgentCollection<PersistedAgent> | undefined {
-		return this.persistence.collect(owner, agentId, operationId, parseAgent);
+		return this.persistence.collect(owner, agentId, operationId, at, parseAgent);
+	}
+
+	/** Uncollected turns keep the threadless record. */
+	expire(owner: SessionRecord, agentId: string, at: number): boolean {
+		const current = this.persistence.find(owner, agentId);
+		if (!current) return false;
+		if (current.runId !== undefined || uncollectedTurns(current) === 0)
+			return this.persistence.retire(owner, agentId).retired;
+		if (current.expiredAt !== undefined) return false;
+		const { sessionId: _thread, resolvedTarget: _target, fence: _fence, activeTurnId: _turn, ...rest } = current;
+		const next = PersistedAgentSchema.safeParse({ ...rest, agentState: "unavailable", expiredAt: at });
+		if (!next.success) return false;
+		const undo = this.deps.threadEnded?.(current);
+		if (inRecord(this.persistence.apply(owner, next.data))) return true;
+		undo?.();
+		return false;
 	}
 
 	markTurnNotified(owner: SessionRecord, agentId: string, turnId: string): boolean {

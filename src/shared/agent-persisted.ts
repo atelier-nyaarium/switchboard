@@ -119,6 +119,8 @@ export const PersistedAgentSchema = z
 		turns: z.array(AgentStoredTurnSchema),
 		fence: AgentFenceSchema.optional(),
 		turnMarks: AgentTurnMarksSchema.optional(),
+		/** Threadless records remain until collection. */
+		expiredAt: Timestamp.optional(),
 		createdAt: Timestamp,
 		updatedAt: Timestamp,
 	})
@@ -126,6 +128,8 @@ export const PersistedAgentSchema = z
 	.superRefine((value, ctx) => {
 		const issue = (message: string) => ctx.addIssue({ code: "custom", message });
 		for (const message of agentTurnHistoryIssues(value)) issue(message);
+		if (value.expiredAt !== undefined && (value.sessionId || value.agentState !== "unavailable"))
+			issue("an expired agent holds no thread");
 		if (!!value.sessionId !== !!value.resolvedTarget) issue("session and target must appear together");
 		if (value.activeTurnId && !value.sessionId) issue("active turn requires a session");
 		if (value.agentState === "creating" && (value.sessionId || value.turns.length > 0 || value.activeTurnId))

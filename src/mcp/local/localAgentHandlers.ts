@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { collectAnswer } from "../../shared/agent-collect.js";
+import { collectAnswer, threadExpired } from "../../shared/agent-collect.js";
 import { emptyAgentProgressCounts } from "../../shared/agent-counter.js";
 import { AGENT_PROGRESS_EVERY_MS } from "../../shared/agent-notice.js";
 import {
@@ -8,8 +8,13 @@ import {
 	agentIdForOperation,
 	sanitizeAgentErrorText,
 } from "../../shared/agent-record.js";
-import { type AgentServiceTier, agentResultDelivery } from "../../shared/agent-state.js";
-import { type AgentTurnMarks, collectTurns } from "../../shared/agent-turn-marks.js";
+import {
+	AGENT_DELETE_PENDING_NOTE,
+	AGENT_EXPIRED_REASON,
+	type AgentServiceTier,
+	agentResultDelivery,
+} from "../../shared/agent-state.js";
+import { type AgentTurnMarks, collectTurns, uncollectedTurns } from "../../shared/agent-turn-marks.js";
 import type { AgentBackendSession, TurnOptions, TurnTerminal } from "../agents/backendSession.js";
 import { type MessageOutcome, TurnRunner } from "../agents/turnRunner.js";
 import type {
@@ -17,6 +22,7 @@ import type {
 	LocalAgentState,
 	LocalBackendSpec,
 	LocalCollectAnswer,
+	LocalDeleteAnswer,
 	LocalErrorCode,
 	LocalListAgent,
 	LocalRefusal,
@@ -69,6 +75,10 @@ interface LocalAgentRecord {
 	turnMarks: AgentTurnMarks;
 	exchanges: LocalExchangeRecord[];
 	progress?: ReturnType<typeof setInterval>;
+	/** Delete attempted; retain for turn collection. */
+	expiredAt?: number;
+	/** Delete at active turn end. */
+	deleting?: true;
 }
 
 const WATCH_EVERY_MS = 30_000;
@@ -89,6 +99,13 @@ export class LocalAgentHandlers {
 
 	/** Children that closed, some before any runner. */
 	private readonly gone = new WeakSet<AgentBackendSession>();
+	/** Thread deletes in flight. */
+	private readonly removals = new Set<Promise<void>>();
+	/** Threads being opened. */
+	private opening = 0;
+	/** Set at exit. A thread opened after it is deleted at once. */
+	private ending = false;
+	private onEmptied?: () => void;
 
 	constructor(private readonly host: LocalHandlerHost) {}
 
@@ -141,6 +158,7 @@ export class LocalAgentHandlers {
 		const createdAt = this.host.now();
 		const cwd = request.cwd ?? this.host.spec.defaultCwd();
 		let threadId: string;
+		this.opening += 1;
 		try {
 			threadId = await session.openThread({
 				cwd,
@@ -149,8 +167,11 @@ export class LocalAgentHandlers {
 				reasoningEffort: request.reasoningEffort,
 			});
 		} catch (error) {
+			this.opening -= 1;
+			this.emptied();
 			return this.unavailable(agentId, error);
 		}
+		this.opening -= 1;
 
 		const agent: LocalAgentRecord = {
 			agentId,
@@ -164,6 +185,10 @@ export class LocalAgentHandlers {
 			turnMarks: { collected: [], notified: [] },
 			exchanges: [],
 		};
+		if (this.ending) {
+			await this.remove(agent);
+			return this.unavailable(agentId, new Error(`${this.host.spec.displayName} is shutting down`));
+		}
 		this.agents.set(agentId, agent);
 		const settings: TurnOptions = { outputSchema: request.outputSchema, key: operationId };
 		let turnId: string;
@@ -178,8 +203,8 @@ export class LocalAgentHandlers {
 	}
 
 	async message(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal> {
-		const agent = this.agents.get(request.agentId ?? "");
-		if (!agent) return this.notFound(request.agentId ?? "");
+		const agent = this.threaded(request.agentId);
+		if (!agent) return this.expiredAnswer(request.agentId ?? "");
 		const prompt = request.prompt ?? "";
 		let session: AgentBackendSession;
 		try {
@@ -247,7 +272,11 @@ export class LocalAgentHandlers {
 			updatedAt: agent.updatedAt,
 		};
 		const taken = collectTurns(view, request.operationId);
-		if (taken.marks) agent.turnMarks = taken.marks;
+		if (taken.marks) {
+			agent.turnMarks = taken.marks;
+			// Collection resets age.
+			this.touch(agent);
+		}
 		return collectAnswer(view, taken.turnIds, (turn) => ({
 			id: turn.id,
 			state: turn.state,
@@ -258,8 +287,8 @@ export class LocalAgentHandlers {
 	}
 
 	async stop(request: LocalRequest): Promise<LocalAgentAnswer | LocalRefusal> {
-		const agent = this.agents.get(request.agentId ?? "");
-		if (!agent) return this.notFound(request.agentId ?? "");
+		const agent = this.threaded(request.agentId);
+		if (!agent) return this.expiredAnswer(request.agentId ?? "");
 		const active = this.activeTurn(agent);
 		if (!active) return this.idleAnswer(agent);
 		if (agent.interruptingTurnId === active.id) return { refused: `an interrupt is already pending` };
@@ -290,6 +319,54 @@ export class LocalAgentHandlers {
 			turn: { id: active.id, state: "inProgress" },
 			activities: this.activitiesOf(active),
 		};
+	}
+
+	/** Active turns delay deletion. */
+	async delete(request: LocalRequest): Promise<LocalDeleteAnswer> {
+		const agentId = request.agentId ?? "";
+		const agent = this.agents.get(agentId);
+		if (!agent) return { agentId, deleted: true };
+		const active = this.activeTurn(agent);
+		if (!active) {
+			await this.remove(agent);
+			return { agentId, deleted: true };
+		}
+		agent.deleting = true;
+		if (agent.interruptingTurnId !== active.id) {
+			agent.interruptingTurnId = active.id;
+			const interrupted = await this.host
+				.open()
+				.then((session) => this.runnerOf(session).interrupt(agent.threadId, active.id))
+				.catch(() => false);
+			if (!interrupted && agent.interruptingTurnId === active.id) agent.interruptingTurnId = undefined;
+		}
+		if (!this.agents.has(agentId)) return { agentId, deleted: true };
+		return { agentId, deleted: false, note: AGENT_DELETE_PENDING_NOTE };
+	}
+
+	/** Delete process-local threads on exit. A running turn is interrupted first. */
+	async endAll(): Promise<void> {
+		this.ending = true;
+		if (this.agents.size === 0 && this.removals.size === 0 && this.opening === 0) return;
+		const emptied = new Promise<void>((resolve) => {
+			this.onEmptied = resolve;
+		});
+		for (const agent of [...this.agents.values()]) void this.delete({ kind: "delete", agentId: agent.agentId });
+		await emptied;
+	}
+
+	aged(now: number): string[] {
+		return [...this.agents.values()].filter((agent) => this.unused(agent, now)).map((agent) => agent.agentId);
+	}
+
+	/** Uncollected turns remain collectable. */
+	async expire(agentId: string, now: number): Promise<void> {
+		const agent = this.agents.get(agentId);
+		if (!agent || !this.unused(agent, now)) return;
+		if (uncollectedTurns({ ...agent, agentState: this.stateOf(agent) }) === 0) return this.remove(agent);
+		if (agent.expiredAt !== undefined) return;
+		agent.expiredAt = now;
+		await this.deleteThread(agent);
 	}
 
 	/** Child closure loses active turns. */
@@ -416,6 +493,7 @@ export class LocalAgentHandlers {
 		}
 		agent.updatedAt = Math.max(agent.updatedAt, turn.updatedAt);
 		this.host.markUsed(turn.updatedAt);
+		if (agent.deleting) void this.remove(agent);
 		this.host.spec.notify?.({
 			kind: "done",
 			backend: this.host.spec.backendId,
@@ -455,6 +533,45 @@ export class LocalAgentHandlers {
 
 	private notFound(agentId: string): LocalAgentAnswer {
 		return this.fail(agentId, "not_found", `${this.host.spec.displayName} agent was not found`, false);
+	}
+
+	private expiredAnswer(agentId: string): LocalAgentAnswer {
+		return this.fail(agentId, "expired", AGENT_EXPIRED_REASON, false);
+	}
+
+	private threaded(agentId: string | undefined): LocalAgentRecord | undefined {
+		const agent = this.agents.get(agentId ?? "");
+		return agent && agent.expiredAt === undefined && !agent.deleting ? agent : undefined;
+	}
+
+	private unused(agent: LocalAgentRecord, now: number): boolean {
+		return threadExpired({ ...agent, agentState: this.stateOf(agent), operations: [] }, now, () => false);
+	}
+
+	private remove(agent: LocalAgentRecord): Promise<void> {
+		this.agents.delete(agent.agentId);
+		if (agent.progress) clearInterval(agent.progress);
+		const work = (agent.expiredAt === undefined ? this.deleteThread(agent) : Promise.resolve()).finally(() => {
+			this.removals.delete(work);
+			this.emptied();
+		});
+		this.removals.add(work);
+		return work;
+	}
+
+	private emptied(): void {
+		if (this.agents.size === 0 && this.removals.size === 0 && this.opening === 0) this.onEmptied?.();
+	}
+
+	/** Failed deletes preserve threads. */
+	private async deleteThread(agent: LocalAgentRecord): Promise<void> {
+		try {
+			const session = await this.host.open();
+			this.runnerOf(session).forget(agent.threadId);
+			await session.deleteThread(agent.threadId);
+		} catch (error) {
+			console.error(`[${this.host.spec.backendId}-local] thread was not deleted: ${errorText(error)}`);
+		}
 	}
 
 	private unavailable(agentId: string, error: unknown): LocalAgentAnswer {

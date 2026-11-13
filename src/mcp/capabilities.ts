@@ -11,6 +11,7 @@ import {
 } from "../shared/capabilities.js";
 import { CapabilityBundleSchema } from "../shared/schemas.js";
 import { EnabledPluginSchema } from "../shared/schemasCapability.js";
+import { sessionCapabilitiesFile } from "../shared/session-files.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -145,7 +146,7 @@ export function hasCapability(capabilities: Capability[], id: CapabilityId): boo
 }
 
 function startupFile(projectName: string): string {
-	return path.join(os.homedir(), ".config", "switchboard", "session-capabilities", `${projectName}.json`);
+	return path.join(os.homedir(), sessionCapabilitiesFile(projectName));
 }
 
 /** What this session's tools were gated on, for its compaction hook. */

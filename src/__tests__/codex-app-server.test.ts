@@ -145,6 +145,23 @@ describe("Codex App Server JSONL transport", () => {
 		expect((f.outbound[5] as { params: unknown }).params).toMatchObject({ expectedTurnId: "turn-1" });
 	});
 
+	it("deletes a thread, says gone for one with no rollout, and throws any other refusal", async () => {
+		const held = new Set(["thread-kept"]);
+		const f = child((request, emit) => {
+			if (request.method !== "thread/delete") return standard(request, emit);
+			const threadId = (request.params as { threadId: string }).threadId;
+			if (held.delete(threadId)) return emit(reply(request, {}));
+			const message =
+				threadId === "thread-locked" ? "thread is locked" : `no rollout found for thread id ${threadId}`;
+			emit({ jsonrpc: "2.0", id: request.id, error: { code: -32600, message } });
+		});
+		const client = await CodexAppServerClient.open(createJsonlTransport(f.child), MODEL);
+
+		await expect(client.deleteThread("thread-kept")).resolves.toBe("deleted");
+		await expect(client.deleteThread("thread-kept")).resolves.toBe("gone");
+		await expect(client.deleteThread("thread-locked")).rejects.toThrow();
+	});
+
 	it("rejects an unoffered model and preserves the failure brand", async () => {
 		const missing = child((request, emit) =>
 			emit(reply(request, request.method === "model/list" ? { data: [] } : {})),

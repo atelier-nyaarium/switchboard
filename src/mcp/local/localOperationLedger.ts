@@ -9,7 +9,7 @@ export class LocalOperationLedger {
 
 	claim(request: LocalRequest): LocalRefusal | undefined {
 		// Local mode refuses reuse because its ledger is process-local.
-		if (request.kind === "await" || request.kind === "list") return undefined;
+		if (request.kind === "await" || request.kind === "list" || request.kind === "delete") return undefined;
 		const operationId = request.operationId;
 		if (!operationId) return undefined;
 		// Fingerprint the named input so changed reuse is rejected.

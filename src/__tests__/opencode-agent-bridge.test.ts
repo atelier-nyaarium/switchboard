@@ -999,6 +999,23 @@ describe("the OpenCode bridge", () => {
 		await r.bridge.done;
 	});
 
+	it("deletes a thread's session once no turn runs on it, and says gone for one the server does not hold", async () => {
+		const r = await rig();
+		const threadId = await open(r);
+		const turnId = promptIdOf("turn-before-delete");
+		await r.result(r.send({ op: "start", threadId, turnId, prompt: "Review" }));
+		await expect(r.error(r.send({ op: "delete", threadId }))).resolves.toMatchObject({ code: "turn_inactive" });
+		expect(r.server.sessionOf(threadId)).toBeDefined();
+
+		r.server.finishTurn(threadId, undefined, "Done.");
+		await waitFor(() => r.events().find((event) => event.type === "event" && event.event === "terminal"));
+		await expect(r.result(r.send({ op: "delete", threadId }))).resolves.toMatchObject({ outcome: "deleted" });
+		expect(r.server.sessionOf(threadId)).toBeUndefined();
+		await expect(r.result(r.send({ op: "delete", threadId }))).resolves.toMatchObject({ outcome: "gone" });
+		r.bridge.closed();
+		await r.bridge.done;
+	});
+
 	it("refuses an open without a model", async () => {
 		const r = await rig();
 		const answer = await r.error(r.send({ op: "open", cwd: "/fake/project" }));

@@ -15,7 +15,12 @@ import type { SessionsStage } from "./composeSessions.js";
 
 const HOST_OP_TIMEOUT_MS = 20_000;
 /** Listing may launch CLI. */
-const SLOW_HOST_OP_MS: Partial<Record<HostOp["kind"], number>> = { typeIntoPane: 240_000, agentModels: 90_000 };
+const SLOW_HOST_OP_MS: Partial<Record<HostOp["kind"], number>> = {
+	typeIntoPane: 240_000,
+	agentModels: 90_000,
+	// Outlast CLI startup and request.
+	purge: 150_000,
+};
 export const PRESENCE_PEEK_MS = 2_000;
 const WATCH_PUSH_MS = 2_000;
 

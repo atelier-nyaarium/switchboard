@@ -101,6 +101,10 @@ function isPathShaped(hint: string): boolean {
 	return WINDOWS_DRIVE_PATH.test(hint) || hint.startsWith("/") || hint === "~" || hint.startsWith("~/");
 }
 
+export function windowsHomeOnHost(userProfile: string): string | undefined {
+	return run("wslpath", ["-u", userProfile])?.trim() || undefined;
+}
+
 /** The Windows home with forward slashes. */
 export function windowsHome(userProfile: string): string {
 	return userProfile.replace(/\\/g, "/").replace(/\/+$/, "");

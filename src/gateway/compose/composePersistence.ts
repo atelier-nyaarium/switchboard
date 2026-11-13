@@ -3,7 +3,7 @@
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import { createPersistRunner } from "../../shared/durable-store.js";
 import { fenced, MIGRATION_SETTLE_MS } from "../../shared/migration-fence.js";
-import { fireAndForget } from "../fireAndForget.js";
+import type { SessionEnd } from "../sessionEnd.js";
 import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
@@ -27,8 +27,8 @@ export interface PersistenceStageDeps {
 	>;
 	sessions: Pick<SessionsStage, "sessionStore" | "registry" | "presence" | "sessionResumeSnapshot">;
 	context: FederationContext;
-	/** Swept sessions end like closed ones. */
-	sessionEnded?: (team: string) => void;
+	/** Swept sessions end as forgotten. */
+	sessionEnd: SessionEnd;
 	/**
 	 * Whether a routine or the assistant reserves that session. Read late, since both compose after
 	 * this. A reserved record is a reachability root: sweeping it leaves its holder unable to reach a
@@ -59,7 +59,7 @@ export function composePersistence({
 	stores,
 	sessions,
 	context,
-	sessionEnded,
+	sessionEnd,
 	sessionReserved,
 	sweepDeliveries,
 	namesBlob,
@@ -68,21 +68,14 @@ export function composePersistence({
 }: PersistenceStageDeps): PersistenceStage {
 	const runPersistSteps = createPersistRunner();
 	const sweepSessions = (ttlMs: number): string[] => {
-		const sweptTeams = sessions.sessionStore.sweep(ttlMs, {
+		const sweptTeams = sessions.sessionStore.sweepable(ttlMs, {
 			cap: {
 				maxEntries: MAX_SESSION_RESUME_ENTRIES,
 				isLive: (team) => resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team) !== undefined,
 			},
 			isReserved: (team) => sessionReserved?.(team) === true,
 		});
-		for (const team of sweptTeams) {
-			const released = context.slice()?.boardClient.sessionEnded(team, "release");
-			if (released) fireAndForget(`board release for ${team}`, released);
-			sessionEnded?.(team);
-			// The sweep took the record straight out of the store, so the facade is told what
-			// it would have known had the forget gone through it.
-			sessions.presence.forgotten(team);
-		}
+		for (const team of sweptTeams) sessionEnd(team, "release");
 		return sweptTeams;
 	};
 	const persistDelivery = (cleanShutdown: boolean) =>

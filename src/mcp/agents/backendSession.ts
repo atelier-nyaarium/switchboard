@@ -67,6 +67,8 @@ export interface AgentBackendSession {
 	/** The thread's running turn, as the caller's. */
 	adoptTurn?(threadId: string): Promise<TurnHandle | undefined>;
 	listModels?(): Promise<AgentModel[]>;
+	/** Absent threads return `gone`. A thread mid-turn is refused. */
+	deleteThread(threadId: string): Promise<"deleted" | "gone">;
 	onActivity(listener: (turnId: string, text: string, itemId?: string) => void): void;
 	onCounter?(listener: (turnId: string, counter: TurnCounter) => void): void;
 	/** Omit to disable silence checks. */

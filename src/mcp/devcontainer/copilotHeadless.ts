@@ -50,6 +50,8 @@ const METHOD_NOT_FOUND = -32601;
 const REQUEST_TIMEOUT_MS = 60_000;
 const HEADER_END = "\r\n\r\n";
 const CLIENT_NAME = "switchboard";
+// Server reply for an absent session.
+const NO_SESSION = /not found/i;
 const COMMAND_NOTE_CHARS = 160;
 
 ////////////////////////////////
@@ -292,6 +294,17 @@ export class CopilotHeadlessClient {
 
 	async abort(sessionId: string): Promise<void> {
 		await this.transport.request("session.abort", { sessionId, reason: "remote_command" });
+	}
+
+	/** Missing sessions return `gone`. Other refusals throw. */
+	async deleteSession(sessionId: string): Promise<"deleted" | "gone"> {
+		const result = (await this.transport.request("session.delete", { sessionId })) as
+			| { success?: unknown; error?: unknown }
+			| undefined;
+		if (result?.success === true) return "deleted";
+		const reason = typeof result?.error === "string" ? result.error : "";
+		if (NO_SESSION.test(reason)) return "gone";
+		throw new Error(`Copilot would not delete the session${reason ? `: ${reason.slice(0, 200)}` : ""}`);
 	}
 
 	close(): void {

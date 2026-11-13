@@ -23,13 +23,13 @@ export const AGENT_CAPABILITY_IDS = AGENT_BACKEND_IDS.map((id) => agentCapabilit
 export const WORKFLOW_INSTRUCTIONS = `
 # Workflow
 
-Tools: \`workflowStart\`, \`workflowCollect\` (never waits), \`workflowList\`, \`workflowStop\`. Scripts start with \`export const meta = {...}\` and return JSON. Script helpers follow Workflow. A step is one \`agent()\` call. Steps use OpenCode, Codex, Copilot or \`claude -p\`; one without its CLI is \`unavailable\`.
+Tools: \`workflowStart\`, \`workflowCollect\`, \`workflowList\`, \`workflowStop\`, \`workflowDelete\`. Each tool describes itself. A step is one \`agent()\` call, on OpenCode, Codex, Copilot or \`claude -p\`; one without its CLI is \`unavailable\`. Scripts return JSON.
 
-\`agent(prompt, options)\`: \`backend\` defaults to the run's; \`model\` id; \`effort\` (Copilot, Claude); \`tier\` (Codex); \`thread\` reuses an agent; \`skills\` paths prepend to the prompt; \`schema\` validates the answer. Start takes \`scriptPath\`, \`args\`, \`backend\`, \`resumeFrom\`.
-
-Schema dialect: every property required; \`additionalProperties: false\`; nullable via \`["string", "null"]\`. Failed steps return null. Collect shows each step's outcome, and its answer when the run has no result.
+Schema dialect: every property required; \`additionalProperties: false\`; nullable via \`["string", "null"]\`. Failed steps return null.
 
 Outcomes: completed, invalid, failed, interrupted, lost, declined, rejected, unavailable. Checkups every 10 minutes. Caps: 4 runs per session, 8 concurrent dispatches, 200 calls per run. Runs survive Gateway restarts.
+
+A step's thread is deleted when the step ends; a \`thread\` agent's 24 hours after its last use. Runs are kept 7 days.
 `.trim();
 
 // Served by capabilityGuidance.
@@ -38,7 +38,7 @@ export const AGENT_TOOLS_INSTRUCTIONS = `
 
 Delegate a self-contained task with \`agentStart\`.
 
-Tools: \`agentStart\`, \`agentMessage\`, \`agentCollect\`, \`agentStop\`, \`agentList\`, and \`agentListModels\`.
+Tools: \`agentStart\`, \`agentMessage\`, \`agentCollect\`, \`agentStop\`, \`agentDelete\`, \`agentList\`, and \`agentListModels\`.
 
 \`agentStart.backend\` sets the backend. If more than one is installed, you must specify which. \`agentMessage\`, \`agentCollect\`, and \`agentStop\` infer it from \`agentId\`. \`agentCollect\` answers at once with every ended turn not yet collected; a notice wakes you when a running one ends. \`agentList\` shows busy and uncollected agents and accepts optional \`backend\`, \`agentId\` and \`limit\`.
 
@@ -76,6 +76,8 @@ Fan Out ► Join Style
 ## Recovery
 
 Agents belong to the whole Claude Code session. A terminal result means finished. \`agent_dead\` means the agent cannot run. \`agent_unreachable\` means its process may still be running, so do not duplicate the work. Keep the ids of agents you will message again: an idle agent with every turn collected leaves \`agentList\`, though \`agentId\` still finds it. A workflow step's agent is read through \`workflowCollect\`.
+
+An agent's thread is deleted 24 hours after its last use. A turn not yet collected stays collectable. \`agentDelete\` deletes an agent now.
 `.trim();
 
 export const CODEX_AGENT_INSTRUCTIONS = `

@@ -272,6 +272,36 @@ describe("a launch lane", () => {
 		expect(r.results("host.a")).toMatchObject([{ success: false }]);
 	});
 
+	it("runs a close's follow-up before a wake of that name queued behind it", async () => {
+		const r = rig();
+
+		const closed = r.lane.closeBehind(HOST_A, async () => {
+			await flush();
+			r.events.push("after close");
+		});
+		r.lane.wake("host.a", wake(HOST_A));
+		await closed;
+		await flush();
+
+		expect(r.events.slice(0, 3)).toEqual(["kill host.a", "after close", "launch host.a wake"]);
+	});
+
+	it("holds a close behind a launch that already started, then closes the pane it made", async () => {
+		const r = rig();
+
+		r.lane.wake("host.a", wake(HOST_A));
+		await flush();
+		const closed = r.lane.closeBehind(HOST_A, async () => {
+			r.events.push("after close");
+		});
+		await flush();
+		expect(r.events).toEqual(["launch host.a wake"]);
+
+		await r.launches[0]?.answer(MADE);
+		await closed;
+		expect(r.events).toEqual(["launch host.a wake", "kill host.a", "after close"]);
+	});
+
 	it("joins only a launch run with the same facts, and queues one with another record's token", async () => {
 		const r = rig();
 

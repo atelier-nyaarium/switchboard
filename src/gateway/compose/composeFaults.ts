@@ -12,10 +12,11 @@ import type { GatewayFaultPort, PeerAddress } from "./gatewayTypes.js";
 
 export interface FaultsStageDeps {
 	context: FederationContext;
-	sessions: Pick<SessionsStage, "sessionStore">;
+	sessions: Pick<SessionsStage, "sessionStore" | "purgeQueue">;
 	routines: Pick<RoutineStage, "reconcile">;
-	workflows: Pick<WorkflowsStage, "engine" | "runner" | "forgetSession">;
+	workflows: Pick<WorkflowsStage, "engine" | "runner" | "forgetSession" | "sweep">;
 	persistence: Pick<PersistenceStage, "sweepSessions">;
+	expireThreads: () => number;
 }
 
 export function composeFaults({
@@ -24,6 +25,7 @@ export function composeFaults({
 	routines,
 	workflows,
 	persistence,
+	expireThreads,
 }: FaultsStageDeps): GatewayFaultPort {
 	function federated(): FederationSlice {
 		const slice = context.slice();
@@ -44,7 +46,9 @@ export function composeFaults({
 		routerIncarnation: () => context.slice()?.routerClient.incarnation() ?? null,
 		heldEpochs: () => context.contentKeys().epochs(),
 		sessionRecord: (team) => sessions.sessionStore.getByTeam(team),
+		purgeQueue: () => sessions.purgeQueue.snapshot(),
 		sweepSessions: (ttlMs) => persistence.sweepSessions(ttlMs),
+		expireThreads,
 		forgePeerRow: async (target: PeerAddress, address: string, envelope: RowEnvelope, op: unknown) => {
 			const slice = federated();
 			const identity = context.boot();
@@ -66,6 +70,7 @@ export function composeFaults({
 		sweepRoutines: () => routines.reconcile(),
 		workflowStart: (input) => workflows.engine.startRun(input),
 		workflowCancel: (runId) => workflows.engine.cancel(runId),
+		workflowSweep: () => workflows.sweep(),
 		workflowForgetSession: (team) => workflows.forgetSession(team),
 		workflowRecord: (runId) => workflows.runner.get(runId),
 		workflowRows: (runId) => workflows.runner.rows(runId),

@@ -143,6 +143,72 @@ describe("agent daemon runtime", () => {
 		expect(agents.of("copilot").launches).toBe(0);
 	});
 
+	it("deletes a thread through its backend's own child, and says gone for one the store never held", async () => {
+		setup();
+		runtime.receive(startCommand("codex"));
+		await until(() => sent.some((frame) => frame.kind === "terminal"), "the turn's end");
+		const threadId = [...agents.of("codex").threads][0] as string;
+
+		await expect(runtime.deleteThread("codex", HOST_TARGET, threadId)).resolves.toBe("deleted");
+		expect(agents.of("codex").threads.has(threadId)).toBe(false);
+		await expect(runtime.deleteThread("codex", HOST_TARGET, threadId)).resolves.toBe("gone");
+		expect(agents.of("copilot").launches).toBe(0);
+	});
+
+	it("stops a thread's running turn and refuses its delete until the turn ends", async () => {
+		setup();
+		agents.of("codex").onTurn = () => {};
+		runtime.receive(startCommand("codex"));
+		await until(() => sent.some((frame) => frame.kind === "accepted"), "the turn's acceptance");
+		const threadId = [...agents.of("codex").threads][0] as string;
+
+		await expect(runtime.deleteThread("codex", HOST_TARGET, threadId)).rejects.toThrow();
+		expect(agents.of("codex").threads.has(threadId)).toBe(true);
+		await until(() => sent.some((frame) => frame.kind === "terminal"), "the interrupted turn's end");
+		await expect(runtime.deleteThread("codex", HOST_TARGET, threadId)).resolves.toBe("deleted");
+	});
+
+	it("holds a thread's delete behind a command its agent still has queued", async () => {
+		setup();
+		const codex = agents.of("codex");
+		codex.onTurn = () => {};
+		let release = (): void => {};
+		codex.onSteer = () => new Promise((resolve) => (release = () => resolve("taken")));
+		runtime.receive(startCommand("codex"));
+		await until(() => sent.some((frame) => frame.kind === "accepted"), "the turn's acceptance");
+		const accepted = sent.find((frame) => frame.kind === "accepted") as Frame;
+		runtime.receive(
+			agentWire("codex").command.parse({
+				type: agentFrameType("codex", "command"),
+				requestId: id(),
+				ownerKey: OWNER_KEY,
+				agentId: agentId("codex"),
+				kind: "message",
+				operationId: id(),
+				target: accepted.resolvedTarget,
+				sessionId: accepted.sessionId,
+				expectedTurnId: accepted.turnId,
+				prompt: "more",
+			}),
+		);
+		await until(() => codex.turns[0]?.steers.length === 1, "the steer to reach the child");
+
+		let answered = false;
+		const deleting = runtime
+			.deleteThread("codex", HOST_TARGET, accepted.sessionId as string)
+			.catch(() => undefined)
+			.finally(() => {
+				answered = true;
+			});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(answered).toBe(false);
+		expect(codex.turns[0]?.interrupts).toBe(0);
+
+		release();
+		await deleting;
+		expect(codex.turns[0]?.interrupts).toBe(1);
+	});
+
 	it("places the runtime only for a backend whose child is this build's own entry point", async () => {
 		agents = scriptedAgents();
 		sent = [];
@@ -180,6 +246,7 @@ describe("scripted backends", () => {
 		"inspectTurn",
 		"adoptTurn",
 		"listModels",
+		"deleteThread",
 		"onCounter",
 		"onProgress",
 		"busy",

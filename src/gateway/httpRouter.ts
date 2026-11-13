@@ -38,6 +38,7 @@ export type HttpRoutes = Pick<
 	| "workflowCollect"
 	| "workflowList"
 	| "workflowStop"
+	| "workflowDelete"
 	| "readBlob"
 >;
 
@@ -184,6 +185,7 @@ export function createHttpRouter({
 		if (method === "POST" && url.pathname === "/workflow/collect") return r.workflowCollect(req, body);
 		if (method === "POST" && url.pathname === "/workflow/list") return r.workflowList(req, body);
 		if (method === "POST" && url.pathname === "/workflow/stop") return r.workflowStop(req, body);
+		if (method === "POST" && url.pathname === "/workflow/delete") return r.workflowDelete(req, body);
 		if (method === "POST") {
 			const agentRoute = loopbackRoutes.get(url.pathname);
 			if (agentRoute) return agentRoute(req, body);

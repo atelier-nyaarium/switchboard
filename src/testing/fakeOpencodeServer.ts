@@ -312,6 +312,10 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 		const session = sessions.get(sessionId);
 		if (!session) return json({ error: "NotFoundError" }, 404);
 		if (method === "GET" && scoped[2] === undefined) return json({ data: { id: sessionId } });
+		if (method === "DELETE" && scoped[2] === undefined) {
+			sessions.delete(sessionId);
+			return new Response(null, { status: 204 });
+		}
 		if (method === "GET" && scoped[2] === "/inbox") return json({ data: session.inbox.map((item) => item.row) });
 		if (method === "POST" && scoped[2] === "/interrupt") {
 			const wasRunning = session.running;

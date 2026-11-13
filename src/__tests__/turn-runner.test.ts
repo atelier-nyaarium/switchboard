@@ -44,6 +44,7 @@ function driver(
 		interruptTurn: async (_threadId, turnId) => {
 			state.interrupts.push(turnId);
 		},
+		deleteThread: async () => "deleted",
 		onActivity: (listener) => {
 			state.onActivity = listener;
 		},

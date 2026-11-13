@@ -12,6 +12,8 @@ export interface AgentServiceDeps {
 	sessionStore: SessionStore;
 	offlineCatalog: ReadonlyMap<string, string>;
 	catalogWriter: PersistedAgentCatalogWriter;
+	/** Queues thread deletion at its origin and returns an undo. */
+	threadEnded?: (agent: Pick<PersistedAgent, "sessionId" | "requestedTarget">) => (() => void) | undefined;
 }
 
 export interface AgentStartIntent {

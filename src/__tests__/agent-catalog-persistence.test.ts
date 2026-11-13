@@ -10,6 +10,7 @@ interface TestAgent {
 	operations: Array<{ operationId: string; fingerprint: string; state: string }>;
 	turns: Array<{ id: string; state: string }>;
 	turnMarks?: { collected: string[]; notified: string[] };
+	updatedAt: number;
 }
 
 function agent(agentId: string, state = "requested"): TestAgent {
@@ -18,6 +19,7 @@ function agent(agentId: string, state = "requested"): TestAgent {
 		agentState: "idle",
 		operations: [{ operationId: `op-${agentId}`, fingerprint: "f", state }],
 		turns: [],
+		updatedAt: 10,
 	};
 }
 
@@ -27,8 +29,13 @@ type Checkpoint = "durable" | "confirms" | "refuses" | "throws";
 function setup(write: Write = "lands", agents = [agent("a"), agent("b")], checkpoint: Checkpoint = "durable") {
 	const owner = {} as SessionRecord;
 	let catalog: AgentCatalog<TestAgent> = { version: 1, revision: 1, agents };
+	const queued = new Set<string>();
 	const persistence = new AgentCatalogPersistence<TestAgent>({
 		read: () => catalog,
+		retiring: (_owner, retired) => {
+			queued.add(retired.agentId);
+			return () => queued.delete(retired.agentId);
+		},
 		writer: {
 			commit: (_owner, _expected, next) => {
 				if (write === "throws") throw new Error("disk full");
@@ -47,7 +54,7 @@ function setup(write: Write = "lands", agents = [agent("a"), agent("b")], checkp
 			},
 		},
 	});
-	return { owner, persistence };
+	return { owner, persistence, queued };
 }
 
 function refusalOf(action: () => unknown): string | undefined {
@@ -141,6 +148,13 @@ describe("agent catalog persistence", () => {
 		expect(working.persistence.retire(working.owner, "working")).toEqual({ retired: false, reason: "active_turn" });
 		expect(working.persistence.find(working.owner, "working")).toBeDefined();
 
+		expect([...idle.queued]).toEqual(["idle"]);
+		expect([...working.queued]).toEqual([]);
+
+		const unwritten = setup("conflicts", [agent("idle", "accepted")]);
+		expect(unwritten.persistence.retire(unwritten.owner, "idle")).toMatchObject({ retired: false });
+		expect([...unwritten.queued]).toEqual([]);
+
 		const requested = setup("lands", [{ ...agent("requested"), agentState: "unavailable" }]);
 		expect(requested.persistence.retire(requested.owner, "requested")).toEqual({
 			retired: false,
@@ -156,18 +170,18 @@ describe("agent catalog persistence", () => {
 		];
 		const parse = (candidate: unknown) => candidate as TestAgent;
 		const held = setup("lands", [{ ...agent("a", "accepted"), turns }]);
-		expect(held.persistence.collect(held.owner, "a", "op-1", parse)?.turnIds).toEqual(["t1", "t2"]);
-		expect(held.persistence.collect(held.owner, "a", "op-1", parse)?.turnIds).toEqual(["t1", "t2"]);
-		expect(held.persistence.collect(held.owner, "a", "op-2", parse)?.turnIds).toEqual([]);
-		expect(held.persistence.collect(held.owner, "a", "op-1", parse)?.turnIds).toEqual(["t1", "t2"]);
+		expect(held.persistence.collect(held.owner, "a", "op-1", 50, parse)?.turnIds).toEqual(["t1", "t2"]);
+		expect(held.persistence.collect(held.owner, "a", "op-1", 50, parse)?.turnIds).toEqual(["t1", "t2"]);
+		expect(held.persistence.collect(held.owner, "a", "op-2", 50, parse)?.turnIds).toEqual([]);
+		expect(held.persistence.collect(held.owner, "a", "op-1", 50, parse)?.turnIds).toEqual(["t1", "t2"]);
 		expect(held.persistence.find(held.owner, "a")?.turnMarks).toMatchObject({
 			collected: ["t1", "t2"],
 			notified: ["t1", "t2"],
 		});
-		expect(held.persistence.collect(held.owner, "missing", "op-3", parse)).toBeUndefined();
+		expect(held.persistence.collect(held.owner, "missing", "op-3", 50, parse)).toBeUndefined();
 
 		const stuck = setup("conflicts", [{ ...agent("a", "accepted"), turns }]);
-		expect(() => stuck.persistence.collect(stuck.owner, "a", "op-1", parse)).toThrow(AgentTransitionError);
+		expect(() => stuck.persistence.collect(stuck.owner, "a", "op-1", 50, parse)).toThrow(AgentTransitionError);
 		expect(stuck.persistence.markNotified(stuck.owner, "a", "t1", parse)).toBe(false);
 	});
 

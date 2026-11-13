@@ -160,11 +160,7 @@ export class PresenceFacade {
 		return r;
 	}
 
-	/**
-	 * That team's record has gone, by this facade or by the resume sweep taking it directly. The
-	 * cached working state has to go with it either way, or a swept session still reads as busy and
-	 * a routine declines to dispatch into the name it just freed.
-	 */
+	/** Cached working state goes with the record, or a swept session reads busy. */
 	forgotten(team: string): void {
 		this.markDirty();
 		this.working.delete(team);

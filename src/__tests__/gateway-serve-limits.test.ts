@@ -68,6 +68,7 @@ const SHORT_POST_PATHS = [
 	"/workflow/collect",
 	"/workflow/list",
 	"/workflow/stop",
+	"/workflow/delete",
 ];
 
 function quotedPaths(source: string): string[] {

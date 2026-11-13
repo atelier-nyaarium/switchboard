@@ -33,6 +33,7 @@ export interface ScriptedTurn {
 export interface ScriptedBackend {
 	/** Oldest first. */
 	turns: ScriptedTurn[];
+	threads: ReadonlySet<string>;
 	launches: number;
 	/** Default: activity, then completed. */
 	onTurn?: (turn: ScriptedTurn) => void;
@@ -118,6 +119,8 @@ class Backend implements ScriptedBackend {
 	launchError?: Error;
 	readonly children: Child[] = [];
 	readonly threads = new Set<string>();
+	/** Each thread's target. */
+	readonly places = new Map<string, string>();
 	minted = 0;
 
 	constructor(readonly id: AgentBackendId) {}
@@ -151,8 +154,9 @@ class Session implements AgentBackendSession {
 	}
 
 	async openThread(): Promise<string> {
-		const threadId = `thread-${this.backend.threads.size + 1}`;
+		const threadId = `thread-${this.backend.places.size + 1}`;
 		this.backend.threads.add(threadId);
+		this.backend.places.set(threadId, this.child.targetId);
 		return threadId;
 	}
 
@@ -244,6 +248,12 @@ class Session implements AgentBackendSession {
 
 	async listModels() {
 		return (this.backend.models ?? [agentBackend(this.backend.id).defaultModel]).map((id) => ({ id }));
+	}
+
+	/** Delete only store-owned threads. */
+	async deleteThread(threadId: string): Promise<"deleted" | "gone"> {
+		if (this.backend.places.get(threadId) !== this.child.targetId) return "gone";
+		return this.backend.threads.delete(threadId) ? "deleted" : "gone";
 	}
 
 	onActivity(listener: (turnId: string, text: string, itemId?: string) => void): void {

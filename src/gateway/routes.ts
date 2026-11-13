@@ -43,6 +43,7 @@ export interface RoutesDeps {
 	capabilityStore?: Pick<import("./console/capabilityStore.js").CapabilityStore, "snapshot">;
 	daemonCapabilityStore?: Pick<import("./daemonCapabilities.js").DaemonCapabilityStore, "snapshot">;
 	presence?: { snapshot(): TeamInfo[] };
+	backstop?: () => import("./purgeQueue.js").BackstopTally;
 	// `known` separates no reply from an empty catalog.
 	hostSpawnPoints?: HostSpawnState;
 	config: GatewayConfig;
@@ -143,6 +144,7 @@ export function createRoutes(deps: RoutesDeps) {
 		routerClient: deps.routerClient,
 		routerCertFp: deps.routerCertFp,
 		presence: deps.presence,
+		backstop: deps.backstop,
 		sessionStore: deps.sessionStore,
 		tryLocalAddress,
 		provedLocalSession,
@@ -241,6 +243,8 @@ export function createRoutes(deps: RoutesDeps) {
 				workflowList: () =>
 					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
 				workflowStop: () =>
+					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
+				workflowDelete: () =>
 					new Response(JSON.stringify({ error: "workflow engine unavailable" }), { status: 503 }),
 			};
 

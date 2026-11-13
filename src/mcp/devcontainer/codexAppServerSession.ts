@@ -11,6 +11,7 @@ export interface AppServerSession {
 	onEvent(listener: (message: { method: string; params?: unknown }) => void): void;
 	startThread(settings: { cwd: string; model?: string; serviceTier?: CodexServiceTier }): Promise<string>;
 	resumeThread(threadId: string): Promise<void>;
+	deleteThread(threadId: string): Promise<"deleted" | "gone">;
 	/** Loads and owns running turns; publishes and deletes nothing. */
 	adoptThread(threadId: string): Promise<ThreadInspection>;
 	readThread(threadId: string): Promise<unknown>;

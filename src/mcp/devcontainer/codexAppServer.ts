@@ -42,6 +42,8 @@ export type LifecycleHooks = Partial<Pick<LifecycleDeps, "onTerminal" | "onPoiso
 //  Functions & Helpers
 
 const METHOD_NOT_FOUND = -32601;
+// Server reply for an absent rollout.
+const NO_ROLLOUT = /no rollout found/i;
 const REQUEST_TIMEOUT_MS = 60_000;
 
 export type AppServerFailureKind = "refused" | "timeout" | "unreadable" | "closed";
@@ -369,6 +371,17 @@ export class CodexAppServerClient {
 	/** Loads the thread whatever its state: a parked one is unarchived first. */
 	async resumeThread(threadId: string): Promise<void> {
 		await this.lifecycle.activate(threadId);
+	}
+
+	/** No rollout returns `gone`. */
+	async deleteThread(threadId: string): Promise<"deleted" | "gone"> {
+		try {
+			await this.lifecycle.dispose(threadId);
+			return "deleted";
+		} catch (error) {
+			if (isAppServerFailure(error) && NO_ROLLOUT.test(error.message)) return "gone";
+			throw error;
+		}
 	}
 
 	/** `includeTurns` is load-bearing and NOT the default. Without it the reply is well-formed with an

@@ -56,6 +56,7 @@ type Command<Kind extends AgentDaemonCommand["kind"]> = Extract<AgentDaemonComma
 
 const SWEEP_MS = 30_000;
 const REAP_QUIET_MS = 600_000;
+const THREAD_AGENTS_MAX = 4_096;
 
 ////////////////////////////////
 //  Class
@@ -68,6 +69,8 @@ export class AgentDaemonService {
 	private readonly name: string;
 	private readonly sessions = new Set<TargetSession>();
 	private readonly listings = createSingleFlight<string, HostAgentModelsResult>();
+	/** Maps threads to command queues. */
+	private readonly threadAgents = new Map<string, Binding>();
 	private stopped = false;
 	private inFlight = 0;
 	private quietSince = 0;
@@ -173,10 +176,61 @@ export class AgentDaemonService {
 			return { kind: "refused", reason: this.describe(error) };
 		} finally {
 			this.quietSince = this.now();
-			// Nothing else reaps it.
-			const idle = held.session?.runner.empty() === true && this.inFlight === 0;
-			if (opens && idle && held.session && !this.deps.threadsResumable) this.giveUp(held.session);
+			this.releaseOpened(opens, held.session);
 		}
+	}
+
+	/** Records which queue must precede a delete. */
+	private bind(targetId: string, threadId: string, agent: Binding): void {
+		const key = `${targetId} ${threadId}`;
+		this.threadAgents.delete(key);
+		this.threadAgents.set(key, { ownerKey: agent.ownerKey, agentId: agent.agentId });
+		if (this.threadAgents.size <= THREAD_AGENTS_MAX) return;
+		for (const oldest of this.threadAgents.keys()) {
+			this.threadAgents.delete(oldest);
+			break;
+		}
+	}
+
+	/** Known threads delete in agent order. Throws on failure. */
+	async deleteThread(requested: AgentExecutionTarget, threadId: string): Promise<"deleted" | "gone"> {
+		if (this.stopped) throw new Error(`${this.name} daemon is shutting down`);
+		const target = resolveAgentTarget(requested, this.deps.resolveHostCwd);
+		const agent = this.threadAgents.get(`${target.targetId} ${threadId}`);
+		if (!agent) return this.deleteNow(target, threadId);
+		return this.core.inOrder(agent, () => this.deleteNow(target, threadId));
+	}
+
+	private async deleteNow(target: AgentResolvedTarget, threadId: string): Promise<"deleted" | "gone"> {
+		const opens = !this.core.getSession(target.targetId);
+		const held: { session?: TargetSession } = {};
+		try {
+			return await this.lease(async () => {
+				const session = await this.session(target);
+				if (!session) throw new Error(this.unavailable(target));
+				held.session = session;
+				const client = session.client;
+				const running = session.runner.activeTurn(threadId);
+				if (running) {
+					// Retry after interruption.
+					void client.interruptTurn(threadId, running.turnId).catch(() => undefined);
+					throw new Error(`${this.name} thread is still running`);
+				}
+				const outcome = await client.deleteThread(threadId);
+				session.runner.forget(threadId);
+				this.threadAgents.delete(`${target.targetId} ${threadId}`);
+				return outcome;
+			});
+		} finally {
+			this.quietSince = this.now();
+			this.releaseOpened(opens, held.session);
+		}
+	}
+
+	/** Reaps idle children opened for one operation. */
+	private releaseOpened(opens: boolean, session: TargetSession | undefined): void {
+		const idle = session?.runner.empty() === true && this.inFlight === 0;
+		if (opens && idle && session && !this.deps.threadsResumable) this.giveUp(session);
 	}
 
 	shutdown(): void {
@@ -211,6 +265,7 @@ export class AgentDaemonService {
 			serviceTier: command.serviceTier,
 			reasoningEffort: command.reasoningEffort,
 		});
+		this.bind(target.targetId, threadId, owner);
 		await session.runner.begin(
 			threadId,
 			owner,
@@ -236,6 +291,7 @@ export class AgentDaemonService {
 	private async runMessage(command: Command<"message">): Promise<void> {
 		const session = await this.session(command.target);
 		if (!session) return this.reject(command, this.unavailable(command.target));
+		this.bind(command.target.targetId, command.sessionId, command);
 		const outcome = await session.runner.message(
 			command.sessionId,
 			{ ownerKey: command.ownerKey, agentId: command.agentId },
@@ -288,6 +344,7 @@ export class AgentDaemonService {
 		const threadId = command.sessionId;
 		const reconciled = { kind: "reconciled", resolvedTarget: command.target, sessionId: threadId };
 		const owner: Binding = { ownerKey: command.ownerKey, agentId: command.agentId };
+		this.bind(command.target.targetId, threadId, owner);
 		const active = runner.activeTurn(threadId);
 		if (active) {
 			// Handover changes owner.

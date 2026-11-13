@@ -44,6 +44,8 @@ export interface HostSpawnPoint {
 	readonly nativePaths: boolean;
 	/** What a CLI's launch rules know it as. */
 	readonly place: Exclude<LaunchPlace, "container">;
+	/** False when daemon drivers cannot reach CLI stores. */
+	readonly driverHome: boolean;
 	/** The command tmux runs for a new session. */
 	build(ctx: HostLaunchContext): string;
 }
@@ -88,6 +90,7 @@ const HOST: HostSpawnPoint = {
 	alwaysAvailable: true,
 	nativePaths: true,
 	place: "host",
+	driverHome: true,
 	// `exec bash` keeps the pane peekable after the agent exits.
 	build(ctx) {
 		const cd = ctx.workdir ? `cd "${ctx.workdir}"; ` : "";
@@ -104,6 +107,7 @@ const WINDOWS: HostSpawnPoint = {
 	alwaysAvailable: false,
 	nativePaths: false,
 	place: "windows",
+	driverHome: false,
 	build(ctx) {
 		if (!ctx.workdir) {
 			throw new Error("refusing to launch: a windows session needs a resolved Windows working directory");
@@ -143,6 +147,11 @@ export function isHostSpawnSession(team: string): boolean {
 
 export function hostSpawnPoint(id: string): HostSpawnPoint | undefined {
 	return REGISTRY.find((p) => p.id === id);
+}
+
+/** Whether drivers reach CLI stores; containers run their own drivers. */
+export function driversReach(spawn: string): boolean {
+	return hostSpawnPoint(spawn)?.driverHome ?? true;
 }
 
 /** A spawn segment that names no host shell is a container. */

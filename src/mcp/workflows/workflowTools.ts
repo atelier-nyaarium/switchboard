@@ -20,7 +20,7 @@ agent(prompt, {
   model,    // that backend's model id
   effort,   // Copilot and claude only
   tier,     // Codex only: "priority" or "standard"
-  thread,   // reuse one agent for every call naming this key
+  thread,   // if set, reuses one agent across calls. Good for implementers
   skills,   // skill file paths prepended to the prompt
   schema,   // JSON Schema; the answer is validated, null on failure
 })
@@ -45,6 +45,11 @@ export const WORKFLOW_LIST_DESCRIPTION = `
 Running and uncollected runs, newest first: id, meta name, status, times, step counts. No results.
 `.trim();
 export const WORKFLOW_STOP_DESCRIPTION = `Cancel by runId.`;
+export const WORKFLOW_DELETE_DESCRIPTION = `
+# Delete Workflow
+
+Delete a run with its record and what its steps left: agents and threads. A running run is cancelled first.
+`.trim();
 
 type WorkflowBackendId = (typeof WORKFLOW_BACKEND_IDS)[number];
 
@@ -149,5 +154,10 @@ export function registerWorkflowTools(mcpServer: McpServer, agentBackends: reado
 		"workflowStop",
 		{ title: "Stop Workflow", description: WORKFLOW_STOP_DESCRIPTION, inputSchema: runInputSchema },
 		async ({ runId }: { runId: string }) => post("/workflow/stop", { runId }),
+	);
+	mcpServer.registerTool(
+		"workflowDelete",
+		{ title: "Delete Workflow", description: WORKFLOW_DELETE_DESCRIPTION, inputSchema: runInputSchema },
+		async ({ runId }: { runId: string }) => post("/workflow/delete", { runId }),
 	);
 }

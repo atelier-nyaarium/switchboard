@@ -30,6 +30,7 @@ const ListSchema = z
 		status: WorkflowRunStatusSchema.optional(),
 	})
 	.strict();
+const WORKFLOW_DELETE_PENDING_NOTE = "An agent is still ending. The run is deleted when it does.";
 /** Caps partial answers. */
 const PARTIAL_ANSWER_BUDGET_BYTES = 256 * 1024;
 const NAME_MAX = 200;
@@ -209,5 +210,25 @@ export function createWorkflowRoutes(deps: {
 		return jsonResponse({ runId: current.runId, status: current.status, stopped });
 	}
 
-	return { workflowStart, workflowCollect, workflowList, workflowStop };
+	/** Cancels first. A run not held reads as deleted. */
+	function workflowDelete(req: Request, body: Record<string, unknown>): Response {
+		const caller = owner(req);
+		if (!caller) return jsonResponse({ error: "a confirmed session token is required" }, 403);
+		const parsed = RunSchema.safeParse(body);
+		if (!parsed.success) return jsonResponse({ error: "Invalid workflow run id" }, 400);
+		const { runId } = parsed.data;
+		const record = ownedRun(caller.team, runId);
+		if (!record) return jsonResponse({ runId, deleted: true });
+		if (deps.runner.running().some((run) => run.resumeFrom === runId))
+			return jsonResponse({ error: "A running workflow resumes from this run. Stop that one first." }, 409);
+		if (record.status === "running" && !deps.engine.cancel(runId))
+			return jsonResponse({ error: "the run could not be stopped; try again" }, 503);
+		const deleted = deps.runner.delete(runId);
+		// Hide the run while its cleanup waits.
+		if (!deleted) deps.runner.markCollected(runId);
+		deps.withdraw?.(record.team, runId);
+		return jsonResponse({ runId, deleted, ...(deleted ? {} : { note: WORKFLOW_DELETE_PENDING_NOTE }) });
+	}
+
+	return { workflowStart, workflowCollect, workflowList, workflowStop, workflowDelete };
 }

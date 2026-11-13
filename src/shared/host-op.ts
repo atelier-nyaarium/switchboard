@@ -98,6 +98,7 @@ export type HostOp =
 	| HostClaudeCancelOp
 	| { kind: "reloadPlugins"; target: TmuxTarget; dedupKey?: string }
 	| { kind: "killSession"; target: TmuxTarget; dedupKey?: string }
+	| HostPurgeOp
 	// Answered once queued; the outcome rides the container state.
 	| { kind: "containerStart"; project: string; dedupKey?: string }
 	| { kind: "containerStop"; project: string; dedupKey?: string };
@@ -288,6 +289,49 @@ export type HostPeekResult =
 	| { kind: "container-logs"; text: string; hash: string };
 
 export type PeekErrorKind = "absent" | "failure";
+
+const TmuxTargetSchema = z
+	.object({
+		kind: z.enum(["host", "devcontainer"]),
+		name: z.string().refine(isTmuxName, "name must be a slug"),
+		sessionName: z.string().refine(isTmuxName, "session name must be a slug"),
+	})
+	.strict();
+
+/** Check ids at every filename build. */
+export const ClaudeConversationIdSchema = z.string().uuid();
+
+/** A retry deletes nothing more. The pane closes first to prevent writes. */
+export const HostPurgeOpSchema = z
+	.object({
+		kind: z.literal("purge"),
+		target: AgentExecutionTargetSchema,
+		what: z.discriminatedUnion("kind", [
+			// Drivers delete CLI threads.
+			z
+				.object({
+					kind: z.literal("thread"),
+					backend: z.enum(AGENT_BACKEND_IDS),
+					threadId: z.string().min(1).max(256),
+				})
+				.strict(),
+			// UUID becomes the filename.
+			z.object({ kind: z.literal("claude"), conversationId: ClaudeConversationIdSchema }).strict(),
+			z.object({ kind: z.literal("files"), session: TmuxTargetSchema }).strict(),
+		]),
+		pane: TmuxTargetSchema.optional(),
+		/** Host spawn point whose home holds the data. Absent is the daemon's own. */
+		hostSpawn: z.string().min(1).max(64).optional(),
+	})
+	.strict();
+
+export type HostPurgeOp = z.infer<typeof HostPurgeOpSchema>;
+
+/** `place_down`: its container or home is out of reach. A failure is the op's error. */
+export const PURGE_OUTCOMES = ["deleted", "gone", "place_down"] as const;
+export type PurgeOutcome = (typeof PURGE_OUTCOMES)[number];
+
+export const HostPurgeResultSchema = z.object({ outcome: z.enum(PURGE_OUTCOMES) }).strict();
 
 export interface HostOpResult {
 	ok: boolean;

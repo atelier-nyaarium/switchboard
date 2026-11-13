@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { PurgeItem } from "../gateway/purgeQueue.js";
 import { createWebSocketHandlers } from "../gateway/websocket.js";
 import { createWorkflowAgentDispatch } from "../gateway/workflows/agentDispatch.js";
 import type { WorkflowDispatchOutcome, WorkflowIssuedCall } from "../gateway/workflows/engine.js";
 import type { WorkflowRunner } from "../gateway/workflows/runner.js";
 import { threadMapsOf, type WorkflowJournalRow, type WorkflowRunRecord } from "../gateway/workflows/workflowSchemas.js";
 import type { TeamRegistry } from "../gateway/wsTypes.js";
+import { AGENT_THREAD_TTL_MS } from "../shared/agent-collect.js";
 import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import type { Ambient } from "../shared/ambient.js";
 import type { ClaudeTurnResultFrame, HostOp, HostOpResult } from "../shared/host-op.js";
@@ -106,18 +108,21 @@ function setup(
 		settledAt: null,
 	};
 	const rows: WorkflowJournalRow[] = [];
+	/** Other runs of the session, each with its own journal. */
+	const others = new Map<string, { record: WorkflowRunRecord; rows: WorkflowJournalRow[] }>();
 	const runner = {
 		append: (_id: string, row: WorkflowJournalRow) => {
 			rows.push(row);
 			return true;
 		},
-		rows: (_id: string) => rows,
-		get: (_id: string) => record,
-		runs: () => [record],
+		rows: (id: string) => others.get(id)?.rows ?? rows,
+		get: (id: string) => others.get(id)?.record ?? record,
+		runs: () => [record, ...[...others.values()].map((other) => other.record)],
 		running: () => [record],
 	} as unknown as WorkflowRunner;
 	const calls: HostOp[] = [];
 	const snapshots: WorkflowJournalRow[][] = [];
+	const purged: PurgeItem[] = [];
 	const replies = [...(options.runReplies ?? [])];
 	const cancelReplies = [...(options.cancelReplies ?? [])];
 	const relayToHost = async (op: HostOp): Promise<HostOpResult> => {
@@ -147,6 +152,7 @@ function setup(
 			containerInCatalog: () => true,
 		}),
 		relayToHost,
+		purges: { add: (items) => void purged.push(...items), saved: () => true },
 		stacks: new Map(),
 		resolveTarget: () => target,
 	});
@@ -183,7 +189,9 @@ function setup(
 		dispatch,
 		dispatchCall,
 		eventOrder,
+		others,
 		outcomes,
+		purged,
 		record,
 		rows,
 		setInstanceId: (value: string) => (instanceId = value),
@@ -316,6 +324,81 @@ describe("Claude workflow dispatch", () => {
 		await waitFor(() => state.calls.filter((op) => op.kind === "claudeRun").length === 2);
 		const operation = state.calls.filter((op) => op.kind === "claudeRun")[1];
 		expect(operation).toMatchObject({ sessionId: mapping.agentId, resume: true });
+	});
+
+	it("deletes a step's session when the step ends, and a thread's only with its run", async () => {
+		const state = setup({ agentsFile: { kind: "read", text: "Instructions" } });
+		const sessionOf = (item: PurgeItem) =>
+			item.what.kind === "claude" ? item.what.conversationId : item.what.kind;
+		state.dispatchCall(callOf(1));
+		await waitFor(() => state.calls.some((op) => op.kind === "claudeRun"));
+		const step = latestTurn(state.rows, 1);
+		await state.dispatch.claudeTurnResult(resultFor(step));
+		expect(state.purged.map(sessionOf)).toEqual([step.agentId]);
+		expect(state.purged[0]?.place).toEqual(JSON.parse(step.target!));
+
+		state.dispatchCall(callOf(2, { thread: "implementer" }));
+		await waitFor(() => state.calls.filter((op) => op.kind === "claudeRun").length === 2);
+		const threaded = latestTurn(state.rows, 2);
+		await state.dispatch.claudeTurnResult(resultFor(threaded));
+		expect(state.purged).toHaveLength(1);
+
+		expect(state.dispatch.retireRun({ runId, team: "team-a" })).toBe(true);
+		expect(state.purged.slice(1).map(sessionOf).sort()).toEqual([step.agentId, threaded.agentId].sort());
+		// Only the 7 day rule's removal is counted.
+		expect(state.purged.some((item) => item.backstop)).toBe(false);
+		state.dispatch.retireRun({ runId, team: "team-a", aged: true });
+		expect(state.purged.slice(3).map((item) => item.backstop)).toEqual([true, true]);
+	});
+
+	it("deletes the session of a step its run's end cut off mid-call", async () => {
+		const state = setup({ agentsFile: { kind: "read", text: "Instructions" } });
+		state.dispatchCall(callOf(1));
+		state.dispatchCall(callOf(2, { thread: "implementer" }));
+		await waitFor(() => state.calls.filter((op) => op.kind === "claudeRun").length === 2);
+
+		state.dispatch.port.terminal?.(state.record, "cancelled");
+
+		expect(state.purged).toMatchObject([
+			{ what: { kind: "claude", conversationId: latestTurn(state.rows, 1).agentId } },
+		]);
+	});
+
+	it("deletes a named thread's session a day after its run settled, once", async () => {
+		const state = setup({ agentsFile: { kind: "read", text: "Instructions" } });
+		state.dispatchCall(callOf(1, { thread: "implementer" }));
+		await waitFor(() => state.calls.some((op) => op.kind === "claudeRun"));
+		const threaded = latestTurn(state.rows, 1);
+		await state.dispatch.claudeTurnResult(resultFor(threaded));
+
+		expect(state.dispatch.expireClaudeThreads()).toBe(0);
+		Object.assign(state.record, { status: "succeeded", settledAt: state.ambient.now() });
+		expect(state.dispatch.expireClaudeThreads()).toBe(0);
+
+		Object.assign(state.record, { settledAt: state.ambient.now() - AGENT_THREAD_TTL_MS });
+		expect(state.dispatch.expireClaudeThreads()).toBe(1);
+		expect(state.dispatch.expireClaudeThreads()).toBe(0);
+		expect(state.purged).toMatchObject([{ what: { kind: "claude", conversationId: threaded.agentId } }]);
+	});
+
+	it("leaves a thread a newer run still holds, and deletes it once that run no longer does", async () => {
+		const state = setup({ agentsFile: { kind: "read", text: "Instructions" } });
+		state.dispatchCall(callOf(1, { thread: "implementer" }));
+		await waitFor(() => state.calls.some((op) => op.kind === "claudeRun"));
+		await state.dispatch.claudeTurnResult(resultFor(latestTurn(state.rows, 1)));
+		const aged = state.ambient.now() - AGENT_THREAD_TTL_MS;
+		Object.assign(state.record, { status: "succeeded", settledAt: aged });
+		// A resume that reused the thread, settled just now.
+		const newer = "123e4567-e89b-42d3-a456-426614174777";
+		state.others.set(newer, {
+			record: { ...state.record, runId: newer, settledAt: state.ambient.now() },
+			rows: [...state.rows],
+		});
+
+		expect(state.dispatch.expireClaudeThreads()).toBe(0);
+
+		state.others.delete(newer);
+		expect(state.dispatch.expireClaudeThreads()).toBe(1);
 	});
 
 	it("switches a missing thread session once", async () => {

@@ -5,6 +5,7 @@ import type { RowEnvelope } from "../../shared/schemasInbox.js";
 import type { SessionRecord } from "../../shared/session-store.js";
 import type { Watcher } from "../assistant/watcher.js";
 import type { KasaTransport } from "../devices/kasa/transport.js";
+import type { PurgeEntry } from "../purgeQueue.js";
 import type { RouterToolCallResult } from "../router/routerClient.js";
 import type { RouterExchanger } from "../router/routerExchange.js";
 import type { createWebSocketHandlers } from "../websocket.js";
@@ -49,8 +50,12 @@ export interface GatewayFaultPort {
 	routerIncarnation(): number | null;
 	heldEpochs(): number[];
 	sessionRecord(team: string): SessionRecord | undefined;
+	/** Pending deletion entries. */
+	purgeQueue(): PurgeEntry[];
 	/** Runs the persist step's session sweep at this age. Answers the swept teams. */
 	sweepSessions(ttlMs: number): string[];
+	/** Runs thread expiry immediately. */
+	expireThreads(): number;
 	forgePeerRow(target: PeerAddress, address: string, envelope: RowEnvelope, op: unknown): Promise<unknown>;
 	sealForPeer(target: PeerAddress, op: unknown): SealedEnvelope;
 	routerCall(name: string, params: Record<string, unknown>): Promise<RouterToolCallResult>;
@@ -59,6 +64,8 @@ export interface GatewayFaultPort {
 	sweepRoutines(): Promise<void>;
 	workflowStart(input: unknown): WorkflowEngineStartResult;
 	workflowCancel(runId: string): boolean;
+	/** Immediate workflow sweep. */
+	workflowSweep(): number;
 	workflowForgetSession(team: string): void;
 	workflowRecord(runId: string): WorkflowRunRecord | null;
 	workflowRows(runId: string): WorkflowJournalRow[];

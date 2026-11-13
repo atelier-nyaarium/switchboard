@@ -1689,6 +1689,59 @@ describe("the agent gateway route", () => {
 		}
 	});
 
+	it("holds the delete of an agent the daemon may still be running until its word comes", async () => {
+		const context = setup({ waitBudgetMs: 10 });
+		const agentId = agentIdForOperation("copilot", START_OPERATION_ID);
+		const started = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await terminal(context, agentId, "turn-1", 1);
+		await started;
+		const unconfirmed = await context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: MESSAGE_OPERATION_ID,
+			agentId,
+			prompt: "Continue",
+		});
+		expect(await unconfirmed.json()).toMatchObject({ agentState: "recovering" });
+		const remove = async () =>
+			(await context.route.handle(post(context.token), { kind: "delete", agentId })).json();
+
+		const listed = async () =>
+			(await (await context.route.handle(post(context.token), { kind: "list", agentId })).json()).agents;
+
+		expect(await remove()).toMatchObject({ agentId, deleted: false, note: expect.any(String) });
+		expect(await listed()).toHaveLength(1);
+		const late = await context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: "123e4567-e89b-42d3-a456-426614174010",
+			agentId,
+			prompt: "One more",
+		});
+		expect(await late.json()).toMatchObject({ error: { code: "expired", retryable: false } });
+
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: "123e4567-e89b-42d3-a456-426614174009",
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			...FIRST_CHILD,
+			targetId: "container:recipe-app",
+			eventId: 2,
+			agentId,
+			resolvedTarget: { kind: "devcontainer", targetId: "container:recipe-app", cwd: "/workspace/recipe-app" },
+			sessionId: "session-1",
+		});
+		await flush();
+
+		expect(await listed()).toEqual([]);
+		expect(await remove()).toEqual({ agentId, deleted: true });
+	});
+
 	it("replays a timed-out operation answer and isolates it to its owner", async () => {
 		const context = setup({ waitBudgetMs: 10 });
 		const request = {

@@ -138,6 +138,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A create is a wake with the create door:** `beginWake` is the only road, the create door goes only for a record just made, and the Gateway never emits `createSession` (`HostOp`); the daemon reads it as `LegacyCreateSessionOp` until its dated removal.
   - **A waiter settles nothing:** a timeout or a dropped link leaves the record to its tick (live, then the countdown), and a live team wins over a late failure.
   - **A routine run is a requester, never a reader of time:** it joins its launch and is told (`tellRoutine`, `runner.launchEnded`); `awaits(run)` holds it until told, so no walk relaunches a build.
+- `src/gateway/sessionEnd.ts` / `purgeQueue.ts` / `purgeHolds.ts` / `src/mcp/devcontainer/sessionPurge.ts` / `src/shared/session-files.ts` - the one end of a session on every road that removes one; what ended sessions, agents and workflow steps left at their places, queued in the session snapshot until the daemon deletes it; the one read of who still holds an entry; the daemon's delete of one thing at one place; Switchboard's own files for a session name. `docs/architecture.md` (One end) holds the rules
+  - **Removal and its deletes are one write:** the end reads the ids, removes the record, queues, then saves, and never waits on the host. An agent's retirement queues its thread before the catalog write and takes it back when the write fails.
+  - **An entry names its place with no daemon connected:** a container by its project alone, an agent's thread by the agent's own target. The drainer fills the path from the catalog at the delete, so ending a container session while the daemon is away still queues everything.
+  - **Only `deleted` and `gone` retire an entry:** a place that is down, an older daemon's refusal and a failed delete all retry, and 30 days drops one unasked.
+  - **A host place names its spawn point, whose home the daemon opens** (`spawnHome` in `hostDaemon.ts`): its own for `host`, the Windows profile for `windows`, place down while that is out of reach. A thread at a spawn point no driver reaches (`driversReach`) is not queued.
+  - **`purgeHolds` is the one read of who holds an entry:** its pane, its files, its conversation. A record of another host spawn point holds the pane alone; a record that resumes a conversation, or a running run's named thread, holds it whatever name queued the delete. A new holder is a reader row, never a branch in `drainOne`.
+  - **Only a home that was found answers `gone`:** `createPurge` checks the home it is about to search is there (host: place down; a container: the delete fails), and `session-end-residue.test.ts` names every plain removal of a record that does not go through the end.
+  - **The queue counts what a workflow run's seven day removal still found** (`BackstopTally`, on `/health` as `backstop`): an agent still tagged, or a delete that answers `deleted`. Zero is healthy; a `workflowDelete` counts nothing.
 - `src/gateway/sessionAuthority.ts` - sole owner of credential-field access; residue-tested
 - `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - session presence including running-agent `teammates`, read anchors, host RPC correlation
 - `src/shared/schemasPresence.ts` `DerivedPresenceSchema` - what the daemon derives from a pane, the `presence_derive` frame
@@ -175,12 +183,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The fake plug applies a held command:** `hold` runs the command and withholds only the reply, so a held relay command flips the fake's relay; one `waitForHeldReply` takes one hold.
 - `src/gateway/runbooks/store.ts` - gateway-held runbooks; sole writer, so a stored record has passed the rules
 - `src/gateway/routines/store.ts` - gateway-held routines; sole writer, and it publishes `onChanged` so the runner cannot be left armed for what the store no longer says
-- `src/gateway/workflows/` / `src/gateway/compose/composeWorkflows.ts` / `src/gateway/workflows/routes.ts` / `src/mcp/workflows/workflowTools.ts` - the durable sandboxed workflow engine and journal, dispatch bridge, owner-scoped routes, MCP tools, progress and settle notices; `docs/workflows.md` holds the tool and script contract
+- `src/gateway/workflows/` / `src/gateway/compose/composeWorkflows.ts` / `src/gateway/workflows/routes.ts` / `src/mcp/workflows/workflowTools.ts` - the durable sandboxed workflow engine and journal, dispatch bridge, owner-scoped routes, MCP tools, progress and settle notices; `docs/workflows.md` holds the tool and script contract, and what a step and a run leave
   - **The VM owns every QuickJS handle:** `vm.ts` holds the module, runtime, context, deferreds and budgets; `engine.ts` hands it a script, args and host callbacks and reads back a result or a `WorkflowVmError` naming its budget. The compile check and a run share one bounded runtime. A dispose asked for inside a host call lands once the guest unwinds.
   - **Call options:** `callOptions.ts` validates backend options, joins thread settings and fingerprints replay calls. Replay fingerprints omit `label` and `phase`.
   - **A script's syntax is QuickJS's call, never a scanner's:** `script.ts` cuts only the `export const meta` statement; the validator in `vm.ts` compiles the exact wrapper with `compileOnly` inside the synchronous start section, on one module loaded at engine start, so no lexer guesses whether a `/` starts a regex.
   - **Claude results settle before ack:** duplicate, terminal and unknown results are acked without another settle.
   - **Claude turn rows use a reread daemon id:** `attemptClaude` rereads liveness after host reads, before journaling.
+  - **A resume holds its calls on a named thread whose agent is still ending its turn** (`adoptResumeThreads`), then retags and messages it. A step never starts a fresh thread in its place.
 - `src/gateway/workflows/agentDispatch.ts` - `createWorkflowAgentDispatch`, shared dispatch and run cleanup
 - `src/gateway/workflows/claudeSteps.ts` - `createClaudeSteps`, Claude turns and journal-derived cancel retries
 - `src/gateway/workflows/dispatchPrompt.ts` - `createWorkflowPrompt`, skills and project instructions
@@ -699,6 +708,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
 - `src/shared/workspace-op.ts` - the workspace plane's wire vocabulary, beside `host-op.ts` and for the same reason: Gateway to an MCP-side process, never to Kotlin
 - `src/shared/host-op.ts` / `src/mcp/devcontainer/hostOpRunner.ts` / `tmuxCore.ts` / `hostDaemon.ts` - `typeIntoPane` wire, dispatch, idle polling, bracketed paste, and host handler
+  - **Enter waits behind typed keys:** every Enter the daemon presses after text, a paste or a menu's cursor moves is held `ENTER_PAUSE_MS` (`pressEnter` in `tmuxCore.ts`). A CLI reads keys that arrive together as one paste, where the Enter is a newline and the line is never submitted. The phone's goal typing gets the same gap by sending Enter as its own op.
   - **`WORKSPACE_BOUNDS` owns every wait on one op:** each class's plane wait and handler budget sit
     inside the phone's read timeout, `CONSOLE_ANSWER_WAIT_MS` in `console-protocol.ts`, generated into
     `Protocol.kt` and diffed by the Kotlin gate. `workspace-bounds.test.ts` pins the order. A save's
@@ -707,7 +717,6 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     write, a span save or a file mutation, as `unknown`, and the phone reads back. A retried write is safe,
     since the hash refuses the second one and a read-back of the owner's own text is adopted.
   - **Every file mutation is one op, `mutateFile`, carrying a strict `FileMutationSchema` variant:** a new
-  - **Enter waits behind typed keys:** every Enter the daemon presses after text, a paste or a menu's cursor moves is held `ENTER_PAUSE_MS` (`pressEnter` in `tmuxCore.ts`). A CLI reads keys that arrive together as one paste, where the Enter is a newline and the line is never submitted. The phone's goal typing gets the same gap by sending Enter as its own op.
     operation is a variant with its own preconditions, not a new op, and a reader that does not know a
     precondition refuses the mutation rather than stripping it.
 - `src/gateway/workspacePlane.ts` / `workspaceOpCoordinator.ts` - the Gateway's end of the plane, and the correlation it settles on
@@ -835,12 +844,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/local/localAgentRuntime.ts` - the lease, the operation claim, one message or stop per agent at a time, the shared model listing, and the dispatch to a request kind
 - `src/mcp/local/localAgentHandlers.ts` - local mode's agent records over a `TurnRunner` per child: what a request answers, and what the runner tells it
   - **A child that closes ends the turns it ran as lost,** by a reap, a drop or on its own, as the daemon's retirement does.
+  - **A plugin that exits deletes the threads it holds** (`LocalAgentRuntime.shutdown`), a running turn's once interrupted, within `LOCAL_THREAD_END_MS` of the plugin's exit wait. The child ends either way, and none opens after it.
 - `src/mcp/local/localChildSession.ts` - the one child: open, idle reap, drop, shutdown
 - `src/mcp/local/localOperationLedger.ts` - operation identity claim and release
 - `src/mcp/agentDispatch.ts` - agent tool serving seam
 - `src/mcp/agentRequest.ts` - every backend's request body (`agentRequestBody`), its per-invocation replay ids, the Gateway dispatch, and the posted answer
-- `src/mcp/agents/agentTools.ts` - one shared `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, `agentList`, and `agentListModels` tool set; an option a backend's row does not take is refused by name, and a start names its backend unless one is enabled
-- `src/shared/agent-turn-marks.ts` / `agent-collect.ts` - which of an agent's turns were collected and told, kept on the agent; the list row and collect answer every backend and local mode share
+- `src/mcp/agents/agentTools.ts` - one shared `agentStart`, `agentMessage`, `agentCollect`, `agentStop`, `agentDelete`, `agentList`, and `agentListModels` tool set; an option a backend's row does not take is refused by name, and a start names its backend unless one is enabled
+- `src/shared/agent-turn-marks.ts` / `agent-collect.ts` - which of an agent's turns were collected and told, kept on the agent; the list row and collect answer every backend and local mode share, and `threadExpired`, the one rule for a thread's 24 hours
+  - **A thread's clock is its record's `updatedAt`:** a collect that hands turns over moves it, and the hourly age pass reads it on the Gateway and in local mode. A record with an uncollected turn stays, threadless and `expiredAt`, until collected. `docs/agents.md` holds the rules.
 - `src/mcp/capabilities.ts` / `capabilitiesTool.ts` - capability gating and guidance
 - `src/federation-server/` - live self-hosted federation Router
 - `src/federation-server/routerServer.ts` - public `handle(Request)` over `preflight` and `dispatch`; sole `serve()` adapter and sole owner of the node HTTP types; residue-tested

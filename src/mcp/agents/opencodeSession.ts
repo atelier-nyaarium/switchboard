@@ -32,6 +32,7 @@ type RequestBody =
 	| { op: "steer"; threadId: string; turnId: string; promptId: string; prompt: string }
 	| { op: "interrupt"; threadId: string; turnId: string }
 	| { op: "inspect"; threadId: string; turnId: string }
+	| { op: "delete"; threadId: string }
 	| { op: "models" };
 
 interface PendingRequest {
@@ -138,6 +139,12 @@ export class OpencodeBackendSession implements AgentBackendSession {
 	async resumeThread(threadId: string, cwd: string): Promise<void> {
 		const result = await this.request({ op: "resume", threadId, cwd });
 		if (result.op !== "resume") throw new Error("OpenCode bridge answered the wrong operation");
+	}
+
+	async deleteThread(threadId: string): Promise<"deleted" | "gone"> {
+		const result = await this.request({ op: "delete", threadId });
+		if (result.op !== "delete") throw new Error("OpenCode bridge answered the wrong operation");
+		return result.outcome;
 	}
 
 	async startTurn(threadId: string, prompt: string, turn: TurnOptions = {}): Promise<TurnHandle> {

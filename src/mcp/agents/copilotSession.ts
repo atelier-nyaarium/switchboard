@@ -111,6 +111,10 @@ export class CopilotBackendSession implements AgentBackendSession {
 		await this.client.resumeSession(sessionId, cwd);
 	}
 
+	deleteThread(sessionId: string): Promise<"deleted" | "gone"> {
+		return this.client.deleteSession(sessionId);
+	}
+
 	async startTurn(sessionId: string, prompt: string, turn: TurnOptions = {}): Promise<TurnHandle> {
 		// Copilot lacks turn IDs.
 		const turnId = crypto.randomUUID();

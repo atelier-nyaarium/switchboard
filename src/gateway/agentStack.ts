@@ -9,6 +9,7 @@ import type { AgentRefusal } from "./agentApply.js";
 import type { AgentCatalogRetirement } from "./agentCatalogPersistence.js";
 import {
 	type AgentMessageCommand,
+	type AgentRefusedCode,
 	type AgentStartCommand,
 	type AgentStopCommand,
 	createAgentCommands,
@@ -25,7 +26,7 @@ import type { HostLivenessReader } from "./hostLiveness.js";
 export type StackAgent = PersistedAgent;
 
 export type StackDispatch =
-	| { kind: "refused"; agentId: string; code: "daemon_unavailable" | "not_found"; reason: string }
+	| { kind: "refused"; agentId: string; code: AgentRefusedCode; reason: string }
 	/** False means daemon unreachable. */
 	| { kind: "committed"; agentId: string; dispatched: boolean };
 
@@ -56,6 +57,8 @@ export interface AgentStack {
 	): { agent: StackAgent | undefined; refusal?: AgentRefusal };
 	abandon(owner: SessionRecord, agentId: string, operationId: string, at: number): void;
 	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement;
+	/** Uncollected turns keep the threadless record. */
+	expire(owner: SessionRecord, agentId: string, at: number): boolean;
 	retagRun(owner: SessionRecord, agentId: string, fromRunId: string, toRunId: string, at: number): boolean;
 	markTurnNotified(owner: SessionRecord, agentId: string, turnId: string): boolean;
 }
@@ -118,6 +121,7 @@ export function createAgentStack(deps: AgentStackDeps & Omit<AgentServiceDeps, "
 			commands.abandon(owner, agentId, operationId, at);
 		},
 		retire: (owner, agentId) => commands.retire(owner, agentId),
+		expire: (owner, agentId, at) => service.expire(owner, agentId, at),
 		retagRun: (owner, agentId, fromRunId, toRunId, at) => commands.retagRun(owner, agentId, fromRunId, toRunId, at),
 		markTurnNotified: (owner, agentId, turnId) => service.markTurnNotified(owner, agentId, turnId),
 	};

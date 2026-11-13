@@ -8,7 +8,7 @@ import { routerPost } from "./bridge/helpers.js";
 ////////////////////////////////
 //  Interfaces & Types
 
-export type AgentRequestKind = "start" | "message" | "await" | "stop" | "list" | "models";
+export type AgentRequestKind = "start" | "message" | "await" | "stop" | "delete" | "list" | "models";
 
 export interface AgentRequestArgs {
 	agentId?: string;
@@ -27,7 +27,8 @@ type ToolText = { content: Array<{ type: "text"; text: string }>; isError?: bool
 //  Functions & Helpers
 
 export function requestHead(kind: AgentRequestKind): { kind: AgentRequestKind; operationId?: string } {
-	return { kind, ...(kind === "list" || kind === "models" ? {} : { operationId: crypto.randomUUID() }) };
+	const unkeyed = kind === "list" || kind === "models" || kind === "delete";
+	return { kind, ...(unkeyed ? {} : { operationId: crypto.randomUUID() }) };
 }
 
 /** Strict schemas reject extras. */

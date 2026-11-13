@@ -32,6 +32,7 @@ export interface WebSocketsStageDeps {
 		| "presence"
 		| "sessionStore"
 		| "sessionAuthority"
+		| "purgeQueue"
 	>;
 	host: Pick<HostStage, "wakeCoordinator" | "hostOpCoordinator" | "pushPresenceWatch" | "readLiveness">;
 	agents: Pick<AgentsStage, "stacks">;
@@ -142,6 +143,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 					if (host.readLiveness().socket !== ws) return;
 					workflows.hostRegistered();
 					host.pushPresenceWatch(true);
+					sessions.purgeQueue.kick();
 				});
 			}
 			const handed = channelDeliveries.drain(team);
@@ -162,7 +164,11 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 				sessions.presence.markDirty();
 			}
 		},
-		onSpawnPointsChange: () => sessions.presence.markDirty(),
+		onSpawnPointsChange: () => {
+			sessions.presence.markDirty();
+			// Container may be live.
+			sessions.purgeQueue.kick();
+		},
 		onPickResolved: (team, harness, sessionId) => sessions.presence.resolvePick(team, harness, sessionId),
 		onCatalogChange: (daemonInstanceId) => {
 			sessions.presence.markDirty();

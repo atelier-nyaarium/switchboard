@@ -341,6 +341,11 @@ export class SessionStore {
 		return undefined;
 	}
 
+	/** The team holding this pane now: its own, or another host spawn's. Undefined for a free pane. */
+	paneOwner(team: string): string | undefined {
+		return this.taken(team) ? team : this.paneHolder(team)?.team;
+	}
+
 	/** A collision re-rolls. */
 	mint(opts: CreateOpts): SessionRecord {
 		for (let i = 0; i < 64; i++) {
@@ -504,30 +509,26 @@ export class SessionStore {
 		return cleared;
 	}
 
-	// Sweep before snapshot so expired records never persist.
-	sweep(ttlMs: number, policy: SweepPolicy = {}): string[] {
+	/** Expired, then least-recently-seen over-cap entries; removes none. */
+	sweepable(ttlMs: number, policy: SweepPolicy = {}): string[] {
 		const cutoff = this.now() - ttlMs;
 		const reserved = policy.isReserved ?? (() => false);
-		const removed: string[] = [];
+		const chosen = new Set<string>();
 		for (const [team, record] of this.records) {
-			if (record.lastSeen < cutoff && !reserved(team)) {
-				this.releaseLabel(record);
-				this.records.delete(team);
-				removed.push(team);
-			}
+			if (record.lastSeen < cutoff && !reserved(team)) chosen.add(team);
 		}
 		const { cap } = policy;
-		if (!cap || this.records.size <= cap.maxEntries) return removed;
+		let left = this.records.size - chosen.size;
+		if (!cap || left <= cap.maxEntries) return [...chosen];
 		const evictable = [...this.records]
-			.filter(([team]) => !cap.isLive(team) && !reserved(team))
-			.sort((left, right) => left[1].lastSeen - right[1].lastSeen);
-		for (const [team, record] of evictable) {
-			if (this.records.size <= cap.maxEntries) break;
-			this.releaseLabel(record);
-			this.records.delete(team);
-			removed.push(team);
+			.filter(([team]) => !chosen.has(team) && !cap.isLive(team) && !reserved(team))
+			.sort((earlier, later) => earlier[1].lastSeen - later[1].lastSeen);
+		for (const [team] of evictable) {
+			if (left <= cap.maxEntries) break;
+			chosen.add(team);
+			left -= 1;
 		}
-		return removed;
+		return [...chosen];
 	}
 
 	snapshot(): Record<string, PersistedSessionRecord> {

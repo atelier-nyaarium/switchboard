@@ -92,8 +92,11 @@ export interface WorkflowDispatchPort {
 }
 
 export interface WorkflowThreadAdoptionPort {
-	inspect(input: { team: string; agentId: string }): { state: string; runId?: string } | null;
+	/** `busy`: a turn still runs or an operation is unanswered. */
+	inspect(input: { team: string; agentId: string }): { state: string; runId?: string; busy?: boolean } | null;
 	retag(input: { team: string; agentId: string; fromRunId: string; toRunId: string }): boolean;
+	/** Calls then on agent changes; returns unsubscribe. */
+	watch(input: { team: string; agentId: string }, then: () => void): () => void;
 }
 
 export interface WorkflowEngineDeps {
@@ -142,6 +145,8 @@ interface CallState {
 interface ThreadState extends ThreadOptions {
 	active: boolean;
 	agent: Extract<WorkflowJournalRow, { kind: "thread_map" }> | null;
+	/** Set while the resumed-from run's agent is ending its turn. Ends that wait. */
+	adopting?: () => void;
 }
 
 interface ResumeSource {
@@ -339,6 +344,10 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 	const disposeRun = (run: RunState): void => {
 		if (run.dead) return;
 		run.dead = true;
+		for (const thread of run.threads.values()) {
+			thread.adopting?.();
+			thread.adopting = undefined;
+		}
 		run.vm.dispose();
 		active.delete(run.record.runId);
 	};
@@ -469,7 +478,8 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 				if (call.settled || call.dispatched) return false;
 				const threadKey = call.issued.options.thread;
 				if (!threadKey) return true;
-				return run.threads.get(threadKey)?.active !== true;
+				const thread = run.threads.get(threadKey);
+				return thread?.active !== true && !thread?.adopting;
 			});
 			if (nextIndex < 0) return;
 			const [call] = run.waiting.splice(nextIndex, 1);
@@ -648,19 +658,32 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
 		for (const map of threadMapsOf(source.rows)) latest.set(map.thread, map);
 		for (const row of latest.values()) {
 			if (!run.releasedIssueOrdinals.has(row.lastIssueOrdinal)) continue;
-			const held = threadAdoption.inspect({ team: run.record.team, agentId: row.agentId });
-			if (held?.state !== "idle" || held.runId !== source.record.runId) continue;
-			if (
-				!threadAdoption.retag({
-					team: run.record.team,
-					agentId: row.agentId,
+			const thread = run.threads.get(row.thread);
+			if (thread?.adopting) continue;
+			const at = { team: run.record.team, agentId: row.agentId };
+			/** False while its turn is still ending. */
+			const settle = (): boolean => {
+				const held = threadAdoption.inspect(at);
+				if (held?.runId !== source.record.runId || held.state === "unavailable") return true;
+				if (held.state !== "idle" || held.busy) return false;
+				const taken = threadAdoption.retag({
+					...at,
 					fromRunId: source.record.runId,
 					toRunId: run.record.runId,
-				})
-			)
-				continue;
-			const thread = run.threads.get(row.thread);
-			if (thread) thread.agent = row;
+				});
+				if (taken && thread) thread.agent = row;
+				return true;
+			};
+			if (settle() || !thread) continue;
+			// Fresh threads lack memory, so calls wait.
+			thread.adopting = threadAdoption.watch(at, () =>
+				enter(run, () => {
+					if (!thread.adopting || !settle()) return;
+					thread.adopting();
+					thread.adopting = undefined;
+					drive(run, true);
+				}),
+			);
 		}
 	};
 

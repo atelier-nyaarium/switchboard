@@ -118,6 +118,11 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		}
 	}
 
+	/** Serializes with agent commands. */
+	inOrder<T>(agent: { ownerKey: string; agentId: string }, work: () => Promise<T>): Promise<T> {
+		return this.commands.run(`${agent.ownerKey} ${agent.agentId}`, work);
+	}
+
 	enqueue<TCommand extends AgentCommand>(
 		command: TCommand,
 		dispatch: (command: TCommand) => Promise<void>,
@@ -125,7 +130,7 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		describe: (error: unknown) => string,
 	): void {
 		const run = async (): Promise<Record<string, unknown> | undefined> =>
-			this.commands.run(`${command.ownerKey} ${command.agentId}`, async () => {
+			this.inOrder(command, async () => {
 				const operationId = command.operationId;
 				if (operationId) {
 					this.activeOperations.add(operationId);

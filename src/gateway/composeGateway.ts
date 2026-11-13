@@ -1,5 +1,6 @@
 // The whole gateway graph, one stage at a time.
 
+import { AGENT_AGE_PASS_MS } from "../shared/agent-collect.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { hostSpawnPoint } from "../shared/host-spawn.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
@@ -33,8 +34,12 @@ import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSoc
 import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflows.js";
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
+import { fireAndForget } from "./fireAndForget.js";
+import { purgeHolds } from "./purgeHolds.js";
 import { createRouterExchange } from "./router/routerExchange.js";
 import { routineOwns, routineOwnsPane } from "./routines/reservation.js";
+import { createSessionEnd } from "./sessionEnd.js";
+import { claudeThreadsOf } from "./workflows/dispatchCore.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
 export type { GatewayConfig, GatewayDeps, GatewayFaultPort, GatewayGraph } from "./compose/gatewayTypes.js";
@@ -116,6 +121,24 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		context,
 	});
+	const sessionEnd = createSessionEnd({
+		sessionStore: sessions.sessionStore,
+		forget: (team) => sessions.presence.forget(team),
+		purges: sessions.purgeQueue,
+		save: () => void sessions.saveSessionsChecked(),
+		// Read after stages compose.
+		before: (team, disposition) => {
+			workflows?.forgetSession(team);
+			const released = context.slice()?.boardClient.sessionEnded(team, disposition);
+			if (released) fireAndForget(`board release for ${team}`, released);
+		},
+		ended: (team) => {
+			awareness.awareness.dropFor(team);
+			vault?.sessionEnded(team);
+			routines.sessionEnded(team);
+			assistant.sessionEnded(team);
+		},
+	});
 	const assistant = composeAssistant({
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
@@ -158,11 +181,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		sessions,
 		context,
-		sessionEnded: (team) => {
-			vault?.sessionEnded(team);
-			routines.sessionEnded(team);
-			assistant.sessionEnded(team);
-		},
+		sessionEnd,
 		sessionReserved: (team) =>
 			routines.reserves(team) || assistant.reserves(team) || (workflows?.reserves(team) ?? false),
 		sweepDeliveries: () => websockets?.channelDeliveries.sweep(),
@@ -174,6 +193,26 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		},
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
+	sessions.purgeQueue.start({
+		relay: host.relayToHost,
+		hostLive: () => host.liveHostSocket() !== undefined,
+		holds: (entry) =>
+			purgeHolds(entry, {
+				sessionStore: sessions.sessionStore,
+				runSessions: () => {
+					const held = new Set<string>();
+					for (const run of workflows?.runner.running() ?? []) {
+						for (const id of claudeThreadsOf(workflows?.runner.rows(run.runId) ?? []).keys()) held.add(id);
+					}
+					return held;
+				},
+			}),
+		targetOf: (place) => {
+			if (place.kind === "host") return { kind: "host", workdirHint: place.workdirHint };
+			const hostProjectPath = sessions.offlineCatalog.get(place.project);
+			return hostProjectPath ? { ...place, hostProjectPath } : undefined;
+		},
+	});
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });
 	reconcileStaleAgents = agents.reconcileStaleAgents;
 	workflows = composeWorkflows({
@@ -185,18 +224,33 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return {
 				port: dispatch.port,
 				retireRun: dispatch.retireRun,
+				expireClaudeThreads: dispatch.expireClaudeThreads,
 				claudeTurnResult: dispatch.claudeTurnResult,
 				inspectThread: dispatch.inspectThread,
 				retagThread: dispatch.retagThread,
+				watchThread: dispatch.watchThread,
 			};
 		},
 	});
+	const expireThreads = () =>
+		agents.expireThreads((runId) => workflows?.runner.get(runId)?.status === "running") +
+		(workflows?.expireClaudeThreads() ?? 0);
+	const threadAgeTimer = bootstrap.ambient.setInterval(() => {
+		// Stopped runners report none running.
+		if (isClosing()) return;
+		try {
+			expireThreads();
+		} catch (error) {
+			console.warn(`[agents] thread age pass failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}, AGENT_AGE_PASS_MS);
 	sessions.presence.setWorkflowRunningReader(
 		(team) => workflows?.runner.running().some((run) => run.team === team) ?? false,
 	);
 	const awareness = composeAwareness({
 		dataDir: bootstrap.dataDir,
 		sessions,
+		sessionEnd,
 		host,
 		stores,
 		deliveries: requireDeliveries,
@@ -355,6 +409,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		context,
 		stores,
 		sessions,
+		sessionEnd,
 		host,
 		routes: requireRoutes,
 		vault,
@@ -406,6 +461,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			};
 			try {
 				await capture(() => enrollment.stop());
+				await capture(() => sessions.purgeQueue.stop());
 				await capture(() => devices?.close());
 				await capture(() => federation?.drainInboxPump());
 				await capture(() => routines.stop());
@@ -418,6 +474,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			} finally {
 				await capture(() => bootstrap.ambient.clearInterval(sessions.tripwireTimer));
 				await capture(() => bootstrap.ambient.clearInterval(persistence.persistTimer));
+				await capture(() => bootstrap.ambient.clearInterval(threadAgeTimer));
 				await capture(() => bootstrap.ambient.clearInterval(host.presenceWatchTimer));
 				await capture(() => bootstrap.ambient.clearInterval(awareness.awarenessTimer));
 				await capture(() => assistantRestart.stop());
@@ -453,6 +510,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		router: listener.router,
 		wsHandlers,
 		close,
-		faults: composeFaults({ context, sessions, routines, workflows, persistence }),
+		faults: composeFaults({ context, sessions, routines, workflows, persistence, expireThreads }),
 	};
 }

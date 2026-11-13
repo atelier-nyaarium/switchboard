@@ -154,6 +154,12 @@ export class CodexBackendSession implements AgentBackendSession {
 		this.rememberThread(threadId);
 	}
 
+	async deleteThread(threadId: string): Promise<"deleted" | "gone"> {
+		const outcome = await this.client.deleteThread(threadId);
+		this.threads.delete(threadId);
+		return outcome;
+	}
+
 	async listModels(): Promise<AgentModel[]> {
 		return (await this.client.models()).map((id) => ({ id }));
 	}

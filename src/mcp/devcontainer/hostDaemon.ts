@@ -15,6 +15,7 @@ import {
 	HostAgentModelsOpSchema,
 	HostClaudeCancelOpSchema,
 	HostClaudeRunOpSchema,
+	HostPurgeOpSchema,
 	HostReadSkillOpSchema,
 	isReservedHostSession,
 	isTmuxName,
@@ -26,6 +27,7 @@ import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
 import { LaunchIdSchema, WakeCancelFrameSchema, WakeResultAckFrameSchema } from "../../shared/schemasWake.js";
+import { LAUNCH_STATUS_DIR, launchStatusFile } from "../../shared/session-files.js";
 import {
 	type LaunchPlace,
 	type PaneRoad,
@@ -68,6 +70,7 @@ import { PresenceScheduler, readWatch, type WatchEntry } from "./presenceSchedul
 import { answerPrompt, continueAfterLimit, dismissSurvey, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
 import { createSessionLaunch, type LaunchSite, launchAt } from "./sessionLaunch.js";
+import { createPurge, hostPurgeFiles, type PurgeHome } from "./sessionPurge.js";
 import {
 	awaitReady,
 	ensureSession,
@@ -94,6 +97,7 @@ import {
 	probeWindowsSpawn,
 	resolveWindowsWorkdir,
 	type WindowsSpawnAvailability,
+	windowsHomeOnHost,
 } from "./windowsSpawn.js";
 import { readWorkflowSkill } from "./workflowSkillRead.js";
 
@@ -129,6 +133,17 @@ function resolveSpawnWorkdir(spawn: string, hint: string | undefined): { workdir
 		return { error: `this machine cannot run a windows session (${probe.reason ?? "unavailable"})` };
 	}
 	return resolveWindowsWorkdir(hint, probe.userProfile);
+}
+
+function spawnHome(spawn: string | undefined): PurgeHome | undefined {
+	if (spawn === undefined || spawn === HOST_SPAWN) {
+		const home = os.homedir();
+		return { home, claudeDir: process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(home, ".claude") };
+	}
+	if (spawn !== WINDOWS_SPAWN) return undefined;
+	const profile = windowsAvailability().userProfile;
+	const home = profile && windowsHomeOnHost(profile);
+	return home ? { home, claudeDir: path.join(home, ".claude") } : undefined;
 }
 // Per process, not per socket.
 const daemonInstanceId = crypto.randomUUID();
@@ -425,7 +440,7 @@ const LAUNCH_ROOT = packageRoot(moduleDir(import.meta.url));
 
 /** This machine's own shell, or null when its status folder cannot be made. */
 function hostLaunchSite(): LaunchSite | null {
-	const statusDir = path.join(os.homedir(), ".cache", "switchboard", "launch");
+	const statusDir = path.join(os.homedir(), LAUNCH_STATUS_DIR);
 	try {
 		fs.mkdirSync(statusDir, { recursive: true, mode: 0o700 });
 	} catch (err) {
@@ -433,7 +448,7 @@ function hostLaunchSite(): LaunchSite | null {
 		return null;
 	}
 	const statusFile = (target: TmuxTarget) =>
-		path.join(statusDir, `${composeSessionName(target.name, target.sessionName)}.json`);
+		path.join(os.homedir(), launchStatusFile(composeSessionName(target.name, target.sessionName)));
 	return {
 		runtime: process.execPath,
 		root: LAUNCH_ROOT,
@@ -693,6 +708,13 @@ const hostOpRunner = createHostOpRunner({
 	},
 	// Close and Forget wait behind a launch on the pane.
 	killSession: (target) => launchLane.kill(target),
+	purge: createPurge({
+		homeOf: spawnHome,
+		files: hostPurgeFiles(),
+		exec: (target, argv) => execInPlace(target, argv),
+		closePane: (pane, then) => launchLane.closeBehind(pane, then),
+		deleteThread: (backend, target, threadId) => agentRuntime.deleteThread(backend, target, threadId),
+	}),
 	containerStart: async (project) => devContainers.start(project, catalogProjectPath(project)),
 	containerStop: async (project) => {
 		const projectPath = catalogProjectPath(project);
@@ -807,6 +829,15 @@ async function handleHostOp(reqId: string, op: DaemonHostOp): Promise<void> {
 			const checked = HostAgentModelsOpSchema.safeParse(op);
 			if (!checked.success) {
 				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid agentModels operation" });
+				return;
+			}
+			op = checked.data;
+		}
+		if (op.kind === "purge") {
+			// Purge ids become paths and requests.
+			const checked = HostPurgeOpSchema.safeParse(op);
+			if (!checked.success) {
+				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid purge operation" });
 				return;
 			}
 			op = checked.data;

@@ -252,8 +252,10 @@ async function attachDomain(
 	let agentDaemon = createHarnessAgentDaemon(agents);
 	let claudeResponder = options.host?.onClaudeRun;
 	let claudeAckHandler = options.host?.onClaudeAck;
+	const hostHome = path.join(gatewayDir, "host-home");
 	const attachHost = (graph: GatewayGraph, hostOptions: Pick<FakeHostOptions, "deferCatalog"> = {}): FakeHost =>
 		attachFakeHost(graph, {
+			home: hostHome,
 			token: set.tokens.host,
 			projects: [{ team: "fixture-app", projectPath: path.join(base.root, "fixture-app") }],
 			...options.host,

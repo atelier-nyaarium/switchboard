@@ -39,7 +39,7 @@ describe("session registry reporter", () => {
 		reporter.attach();
 		store.mint({ spawn: "host", harness: "claude" });
 		now = 200;
-		store.sweep(50);
+		for (const team of store.sweepable(50)) store.forget(team);
 		await flush();
 
 		expect(sent.at(-1)).toMatchObject({ action: "session_forget", params: { sessionId: "host.one" } });

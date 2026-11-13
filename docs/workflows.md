@@ -12,6 +12,7 @@ calls. Only JSON crosses the sandbox boundary.
 | `workflowCollect` | Read a run at once: its result, failure reason and step outcomes; step answers when it has no result. |
 | `workflowList` | Running and uncollected runs: id, meta name, status, times, step counts. Optional `limit` and `status`. |
 | `workflowStop` | Cancel a running run. |
+| `workflowDelete` | Delete a run, its record and what its steps left, cancelling it first. Refused while a running run resumes from it. |
 
 The MCP tool takes exactly one of `script` and `scriptPath`, reading the path from the session's
 working directory. A start with no `backend` runs only where one backend is enabled, Claude counted;
@@ -95,6 +96,37 @@ and journal-derived cancellation retries. `createWorkflowPrompt` in
 `createStackAgents` in `src/gateway/workflows/stackAgents.ts` reads and retires agents on every
 backend's stack; `createTerminalAgents` in `src/gateway/workflows/terminalAgents.ts` stops and retires
 agents after a run.
+
+### What a step leaves
+
+- **A step with no `thread`:** its agent is retired when the step settles, however it settled, which
+  queues its thread's delete. A Claude step has no agent, so the settle queues its session id from the
+  step's turn rows (`claudeSessionsOf`).
+- **A named thread:** its agent stays past the run's end, stopped and still tagged with the run, for a
+  `resumeFrom` to adopt. A resume that finds it still ending its turn holds its own calls on that
+  thread until the agent is idle with no turn running and no operation unanswered
+  (`adoptResumeThreads`), then retags and messages it, so the step never starts on a thread with no
+  memory. An agent that ends `unavailable` is given up, and the thread starts fresh. The agents' age pass ends it 24 hours after its last use, and never while
+  its run is running, a turn is running, an operation is requested or the agent is `recovering`. A
+  Claude thread has no agent, so the same hourly pass queues its session 24 hours after its run
+  settled (`expireClaudeThreads`), unless a run still running or settled within the day names it. One
+  withheld that way is tried again each pass.
+- **A run's removal,** at seven days or by `workflowDelete`: `retireRun` retires every agent still
+  tagged with the run, and queues the Claude sessions its journal names and no other run's does. The
+  queue is written before the record goes. `workflowDelete` answers `deleted: false` with a `note`
+  while an agent is still ending, and each sweep tries again until the agents have ended. A Gateway
+  restart forgets the request, and the run then goes at its seven days.
+- **The seven day removal counts what it still finds:** the step-end rule and the 24 hour rule
+  should leave it nothing. An agent still tagged with the run when its removal began, counted once
+  when the removal lands, and a Claude session whose delete answers `deleted` where `gone` is the
+  healthy answer, each add one to `BackstopTally` in
+  `src/gateway/purgeQueue.ts`, with a `[purge]` log line. The tally rides the session snapshot and
+  `/health` answers it as `backstop: { found, lastAt }`. A `workflowDelete` counts nothing. Runs
+  settled before this build still hold their Claude sessions, so the first week counts those.
+- **A removal's idle watcher retires only an agent still tagged with that run,** so one a resumed
+  run took meanwhile is left to it.
+- **A requested operation the live daemon holds is not abandoned at a removal:** an abandoned start
+  leaves the thread it opens with no record to delete it by.
 
 `src/mcp/devcontainer/claudeRunner.ts` runs the CLI in the host daemon.
 `src/shared/host-op.ts` defines its run, cancel and result frames; `src/mcp/devcontainer/hostDaemon.ts`

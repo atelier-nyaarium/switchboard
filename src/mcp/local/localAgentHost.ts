@@ -11,6 +11,7 @@ import { offeredModels } from "../../shared/agent-models.js";
 import { AGENT_NOTICE_SOURCE, agentNoticeAct, agentNoticeLine } from "../../shared/agent-notice.js";
 import { AGENT_ACTIVITY_MAX_ITEMS } from "../../shared/agent-record.js";
 import {
+	AgentDeleteAnswerSchema,
 	AgentGatewayRequestSchema,
 	AgentModelsAnswerSchema,
 	AgentRequestErrorSchema,
@@ -31,7 +32,8 @@ import { LocalAgentRuntime, type LocalBackendSpec } from "./localAgentRuntime.js
 export interface LocalAgentBackend {
 	/** Gateway-equivalent request body. */
 	handle(body: Record<string, unknown>): Promise<unknown>;
-	shutdown(): void;
+	/** Deletes threads before child shutdown. */
+	shutdown(): Promise<void>;
 }
 
 ////////////////////////////////
@@ -130,11 +132,15 @@ export function createLocalAgentBackend(backend: AgentBackendDescriptor): LocalA
 					: {}),
 			});
 			if ("refused" in answer) return refuse(answer.refused);
+			if ("deleted" in answer) return AgentDeleteAnswerSchema.parse(answer);
 			return "running" in answer ? answer : AgentResultSchema.parse(answer);
 		},
-		shutdown() {
-			runtime.shutdown();
-			targets.shutdown();
+		async shutdown() {
+			try {
+				await runtime.shutdown();
+			} finally {
+				targets.shutdown();
+			}
 		},
 	};
 }

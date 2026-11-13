@@ -353,9 +353,13 @@ describe("sessions, bindings, and console operations", () => {
 		expect(h.gateway.faults.sessionRecord(owned.team)).toBeDefined();
 
 		// The answer has no session address left to land on; the record's absence is the result.
+		const forgotAt = h.host.ops.length;
 		await dispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
 		expect(h.gateway.faults.sessionRecord(owned.team)).toBeUndefined();
-		expect(h.host.ops.at(-1)).toMatchObject({ kind: "killSession" });
+		expect(h.host.ops[forgotAt]).toMatchObject({ kind: "killSession" });
+		// Its own files go once the daemon has closed the pane.
+		await h.waitFor(() => (h.gateway.faults.purgeQueue().length === 0 ? true : undefined), "the purge to drain");
+		expect(h.host.purges.map((op) => op.what.kind)).toContain("files");
 		bound = undefined;
 
 		const opsBefore = h.host.ops.length;

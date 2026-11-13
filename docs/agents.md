@@ -6,10 +6,10 @@ supervises one child per execution target; the gateway owns the durable record.
 `claude -p` is available as a workflow backend only. It is not a session agent.
 
 `src/mcp/agents/agentTools.ts` registers `agentStart`, `agentMessage`, `agentCollect`, `agentStop`,
-`agentList` and `agentListModels` for every backend. `agentStart` takes `prompt`, `backend`, and
+`agentDelete`, `agentList` and `agentListModels` for every backend. `agentStart` takes `prompt`, `backend`, and
 optional `model`, `effort` (Copilot), `tier` (Codex), `schema`, and `cwd`. `agentMessage` takes
-`agentId` and `prompt`, with optional `schema` and Codex-only `tier`. `agentCollect` and `agentStop`
-take `agentId`; `agentList` accepts optional `backend`, `agentId` and `limit`. Capability guidance
+`agentId` and `prompt`, with optional `schema` and Codex-only `tier`. `agentCollect`, `agentStop` and
+`agentDelete` take `agentId`; `agentList` accepts optional `backend`, `agentId` and `limit`. Capability guidance
 uses one `agents` section over the `codex-agent`, `copilot-agent` and `opencode-agent` ids.
 
 **`backend` is named unless only one is enabled.** With several enabled, the start tool's schema
@@ -246,6 +246,33 @@ channel event; a Copilot session gets the block typed into its pane through the 
 delivery, which rechecks a done notice when its turn comes and drops it once the agent's turns were
 collected.
 
+**A thread to come back to lasts 24 hours past its last use.** `threadExpired` in
+`src/shared/agent-collect.ts` is the one rule, read by the Gateway's hourly age pass (`expireThreads`
+in `composeAgents.ts`) and by local mode's. The clock is the record's `updatedAt`, which a collect
+that hands turns over also moves. It never ends an agent with a turn running, an operation requested,
+in `recovering`, or whose workflow run is running.
+
+**An ended thread is queued, never awaited.** A retirement reads the agent's thread id and adds its
+delete to the purge queue before the catalog write (`AgentCatalogPort.retiring`), so one snapshot
+holds both, and a failed write takes the entry back. `docs/architecture.md` (One end) holds the queue.
+
+**An uncollected answer outlives its thread.** `AgentService.expire` strips the thread from such a
+record and stamps `expiredAt`. The record reads `unavailable`, so nothing dispatches to it, and the
+first pass after its collect removes it.
+
+**`expired` says start again.** A message or a stop to an agent with no record, or to a threadless
+one, is refused as `expired` before the daemon is read (`existing` in `agentCommands.ts`). A collect
+of a threadless record carries the same error beside its turns.
+
+**`agentDelete` ends one now.** The route retires an agent that is `idle` or `unavailable`, and sends
+a stop to a running turn first. It answers `deleted: false` with a `note` while a turn is still ending
+or the agent is `creating` or `recovering`, and a change listener retires the agent once it settles. A workflow's
+agent is refused. Uncollected turns go with the record.
+
+**A thread's delete runs behind its agent's commands on the daemon.** `AgentDaemonService` remembers
+which agent each thread's commands queue under and runs the delete in that queue. A thread with a
+turn running is interrupted and refused, so the Gateway asks again.
+
 **A waiting call holds for less than the client survives**, bounded by `AGENT_WAIT_BUDGET_MS`. Node's
 fetch abandons a silent connection at 300s and `routerPost` re-posts, so a longer hold never delivers
 its answer. A turn outliving an await's budget keeps running, and the completion notice still arrives.
@@ -321,6 +348,16 @@ the opt-in.
   request; the turns run through the same `TurnRunner`. The pending interrupt and the failure code
   are the record's, written here and in the Gateway's `AgentService`.
 - **One message or stop per agent at a time,** queued at the runtime as the daemon core queues them.
+- **The day rule and the delete are local too.** `LocalAgentRuntime.expireThreads` runs the same
+  predicate hourly, in order with that agent's messages, and deletes through its own driver. There is
+  no queue, so a failed delete leaves the thread.
+- **A plugin that exits deletes the threads it holds:** its records live in that process alone, so
+  nothing later reaches them. `LocalAgentRuntime.shutdown` deletes each within
+  `LOCAL_THREAD_END_MS`, inside the plugin's exit wait, interrupting a running turn first since a
+  driver refuses to delete a thread mid-turn. A thread still opening when the exit begins is
+  deleted as it opens. The child ends whether or not they answered, and `LocalChildSession` opens
+  none after it. A process that is killed, or a turn that does not end
+  inside the wait, leaves its thread.
 - **A child that closes ends its running turns as lost,** and a thread on its replacement is resumed
   before its next turn. A driver that cannot resume one answers that the agent ended with its process.
 - **A model listing ends the child it opened when no agent uses it,** read off that child's runner,

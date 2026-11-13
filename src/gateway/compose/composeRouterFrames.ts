@@ -25,6 +25,7 @@ import { OWNER_LAUNCH_KEY, type RoutineRun } from "../launchRecords.js";
 import { createRegistrationRead } from "../router/registrationRead.js";
 import { composeValueResult } from "../router/valueResult.js";
 import { createRoutineExecution } from "../routines/execution.js";
+import type { SessionEnd } from "../sessionEnd.js";
 import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { AssistantStage } from "./composeAssistant.js";
 import type { AwarenessStage } from "./composeAwareness.js";
@@ -51,6 +52,7 @@ export interface RouterFramesStageDeps {
 		"registry" | "conversationRegistry" | "isTrustedCatalogProject" | "presence" | "sessionStore"
 	>;
 	host: Pick<HostStage, "relayToHost" | "wakeService" | "wakeCoordinator" | "installedAt">;
+	sessionEnd: SessionEnd;
 	routes: () => GatewayRoutes;
 	vault: Pick<VaultStage, "console" | "sessionEnded">;
 	runbooks: Pick<RunbookStage, "console">;
@@ -96,13 +98,8 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		const localDomainId = context.activeDomainId();
 		const isLinkedDomain = (domainId: string) => context.isLinkedDomain(domainId);
 
-		// Shared with the routine stage's forget.
 		const dropSessionResume = (team: string, disposition: BoardDisposition): void => {
-			deps.workflows.forgetSession(team);
-			const released = context.slice()?.boardClient.sessionEnded(team, disposition);
-			if (released) fireAndForget(`board release for ${team}`, released);
-			sessions.presence.forget(team);
-			deps.awareness.awareness.dropFor(team);
+			deps.sessionEnd(team, disposition);
 		};
 		const launches = deps.awareness.launches;
 		const isLive = (team: string): boolean =>
@@ -318,8 +315,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				},
 				hasSession: (team) => sessions.presence.getByTeam(team) !== undefined,
 				forgetSession: (team) => {
-					dropSessionResume(team, "release");
-					onSessionEnded(team);
+					deps.sessionEnd(team, "release");
 				},
 				holdLine: deps.assistant.phoneHoldLine,
 				deliver: (nudge) => nudgeAsOwner(nudge, { scheduled: true }),

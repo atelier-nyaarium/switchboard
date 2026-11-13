@@ -1,8 +1,12 @@
 // The host daemon as the gateway sees it.
 
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { GatewayGraph } from "../gateway/composeGateway.js";
 import { type AgentDaemonRuntime, createAgentDaemonRuntime } from "../mcp/devcontainer/agentDaemonRuntime.js";
+import { createPurge, hostPurgeFiles } from "../mcp/devcontainer/sessionPurge.js";
 import { AGENT_BACKENDS, type AgentBackendId, agentFrameType } from "../shared/agent-backend.js";
 import { type AgentDaemonCommand, agentWire } from "../shared/agent-wire.js";
 import {
@@ -15,6 +19,8 @@ import {
 	type HostClaudeRunOp,
 	HostClaudeRunOpSchema,
 	type HostOp,
+	type HostPurgeOp,
+	type PurgeOutcome,
 } from "../shared/host-op.js";
 import { HOST_SPAWN, isHostSpawn } from "../shared/host-spawn.js";
 import type { LaunchFailure } from "../shared/launch-notice.js";
@@ -61,6 +67,10 @@ export interface FakeHostHandlers {
 	loseAgentAcks?: boolean;
 	/** Commands log before delivery. */
 	loseAgentCommands?: boolean;
+	/** Unscripted thread purges use daemon deletion. */
+	onPurge?: (op: HostPurgeOp) => PurgeOutcome | "fail" | undefined;
+	/** Drop pane-kill replies. */
+	silentKills?: boolean;
 }
 
 export type ClaudeResponder = (op: HostClaudeRunOp) => FakeClaudeResult | undefined;
@@ -95,10 +105,13 @@ export interface FakeHostOptions extends FakeHostHandlers {
 	deferCatalog?: boolean;
 	/** False simulates an older daemon. Default true. */
 	launchIds?: boolean;
+	/** Purge home; generated home removed on close. */
+	home?: string;
 }
 
 export interface FakeHost {
 	frames: Frame[];
+	home: string;
 	daemonInstanceId: string;
 	/** Forwarded runtime frames, ordered. */
 	daemonFrames: Frame[];
@@ -106,6 +119,8 @@ export interface FakeHost {
 	ops: HostOp[];
 	/** Every wake frame. */
 	wakes: Frame[];
+	/** Request-order purge log. */
+	purges: HostPurgeOp[];
 	/** Every create's wake. */
 	creates: FakeCreate[];
 	/** Gateway commands, schema-checked. */
@@ -177,6 +192,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 	socket.onPing(() => graph.wsHandlers.pong(socket.ws));
 	const ops: HostOp[] = [];
 	const wakes: Frame[] = [];
+	const purges: HostPurgeOp[] = [];
 	const creates: FakeCreate[] = [];
 	const claudeRuns: HostClaudeRunOp[] = [];
 	const claudeCancels: HostClaudeCancelOp[] = [];
@@ -194,6 +210,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		loseAgentFrames: options.loseAgentFrames,
 		loseAgentAcks: options.loseAgentAcks,
 		loseAgentCommands: options.loseAgentCommands,
+		onPurge: options.onPurge,
 	};
 	const ownDaemon = options.agentDaemon ? undefined : createHarnessAgentDaemon(scriptedAgents());
 	const agentDaemon = options.agentDaemon ?? ownDaemon!;
@@ -205,6 +222,22 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		commands: [] as AgentDaemonCommand[],
 	}));
 	const send = (frame: Frame): void => graph.wsHandlers.message(socket.ws, JSON.stringify(frame));
+	// Host-home deletion; fake containers appear up and empty.
+	const home = options.home ?? fs.mkdtempSync(path.join(os.tmpdir(), "fake-host-"));
+	// A real home is always there.
+	fs.mkdirSync(home, { recursive: true });
+	const purge = createPurge({
+		// Each spawn point has its own home.
+		homeOf: (spawn) => {
+			const at = spawn === undefined || spawn === HOST_SPAWN ? home : path.join(home, spawn);
+			fs.mkdirSync(at, { recursive: true });
+			return { home: at, claudeDir: path.join(at, ".claude") };
+		},
+		files: hostPurgeFiles(),
+		exec: async () => "",
+		closePane: async (_pane, then) => then?.(),
+		deleteThread: (backend, target, threadId) => agentDaemon.runtime.deleteThread(backend, target, threadId),
+	});
 	const claudeTurnKey = (runId: string, turnId: string): string => JSON.stringify([runId, turnId]);
 	const sendClaudeResult = (frame: ClaudeTurnResultFrame): void => {
 		const checked = ClaudeTurnResultFrameSchema.parse(frame);
@@ -230,6 +263,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				return { typed: true };
 			case "killSession":
 				return { killed: true };
+			case "purge":
+				return { outcome: "deleted" };
 			case "reloadPlugins":
 				return { initiated: true };
 			case "containerStart":
@@ -287,6 +322,28 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 					.then((result) => send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result }));
 				return;
 			}
+			if (op.kind === "purge") {
+				purges.push(op);
+				const scripted = handlers.onPurge?.(op);
+				const outcome: Promise<PurgeOutcome> =
+					scripted === "fail"
+						? Promise.reject(new Error("purge failed"))
+						: scripted !== undefined
+							? Promise.resolve(scripted)
+							: purge(op);
+				void outcome.then(
+					(done) => send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: { outcome: done } }),
+					(error: unknown) =>
+						send({
+							type: "host_op_reply",
+							reqId: frame.reqId,
+							ok: false,
+							error: error instanceof Error ? error.message : String(error),
+						}),
+				);
+				return;
+			}
+			if (op.kind === "killSession" && handlers.silentKills) return;
 			send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: answer(op) });
 		}
 		if (frame.type === "claude_turn_ack") {
@@ -362,10 +419,12 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 	if (!options.deferCatalog) announceCatalog();
 	return {
 		frames: socket.sent,
+		home,
 		daemonInstanceId: agentDaemon.daemonInstanceId,
 		daemonFrames,
 		ops,
 		wakes,
+		purges,
 		creates,
 		agentCommands: (backend) => wires.find((wire) => wire.id === backend)?.commands ?? [],
 		claudeRuns,
@@ -388,6 +447,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 			socket.ws.close();
 			graph.wsHandlers.close(socket.ws);
 			ownDaemon?.shutdown();
+			if (!options.home) fs.rmSync(home, { recursive: true, force: true });
 		},
 		vanish: () => socket.ws.close(),
 	};
