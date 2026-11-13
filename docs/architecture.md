@@ -401,6 +401,26 @@ decision.
   (`routerForgets`) and are replayed at the next registration.
 - **The Router's op ledger is swept by age** (`sweepOpLedger`): it is keyed by op, not by session,
   so an entry goes a week past its row's lifetime.
+- **The one sweep** (`src/gateway/purgeSweep.ts`, `bun scripts/purge-sweep.ts`) deletes what was
+  on disk before any of this existed. A `threads` host op lists a backend's whole store at a place
+  through that backend's driver (`AgentBackendSession.listThreads`), and the Gateway sorts every
+  thread on the host and in each running container:
+  - **Kept:** a roster session's own conversation, and every thread spawned under it.
+  - **Running:** an agent record names it and a turn runs, an operation is unanswered, or a running
+    workflow names it.
+  - **Unreadable:** no record names it and its store does not say it has been at rest for
+    `SWEEP_REST_MS`.
+  - **Deleted:** the rest. A thread an agent record names ends as the age pass ends it
+    (`expireAll`), so an uncollected answer stays. One no record names is queued.
+  A dry run answers the counts and a fingerprint of the exact set. An apply names that
+  fingerprint, rebuilds the listing, and refuses a set that moved. `/purge/sweep` takes the host's
+  token, like a retire. A store that could not be listed is not swept and says why, and a stopped
+  container is listed as not swept. The apply also drops what earlier forgets left in the Gateway's
+  own stores: claim files and held rows that name a session with no record (`orphanedNames`).
+  Claude Code's own store is left to its 30 day cleanup.
+- **The Router sweeps what earlier forgets left** on its own, each pass: a read anchor
+  (`ORPHAN_ANCHOR_MS`) or an armed scheduled send (`ORPHAN_SEND_MS`) that names a session of the
+  Domain no Gateway reports, a day past its last touch.
 - **The queue also keeps `BackstopTally`:** what a workflow run's seven day removal still found,
   answered on `/health`. Zero is healthy. `docs/workflows.md` holds what counts.
 - **A Gateway rolled back below this build** writes the snapshot without the queue, so pending

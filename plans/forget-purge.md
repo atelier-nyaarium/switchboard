@@ -225,6 +225,19 @@ Questions 2, 8, 11, 12.
 - Claude Code is left to its own 30 day cleanup. The owner purges the third machine by hand.
 - A dry run prints the counts first. The delete runs only on the owner's go-ahead for those counts. The keep set and the listing are rebuilt just before deleting, and a changed set stops to ask again.
 
+**Decided while building:**
+- **A forgotten-session listener answers false for a write that did not land,** so `session_forget` answers not ok and the Gateway reports the forget again. An older Router answers ok as before.
+- **The stopped-container prompt stacks its three buttons.** A row wrapped Cancel alone onto a second line.
+- **A held forget's wait is in memory.** A process that dies mid-start keeps the session.
+- **A draft written before each target had a folder is still read** from the flat directory, with a dated removal.
+- **The sweep is a Gateway route, not a script that deletes.** `bun scripts/purge-sweep.ts` asks `/purge/sweep` with the host's token. The Gateway lists each store through a new `threads` host op and each driver's `listThreads`, sorts, and queues, so every delete takes the purge queue's road.
+- **A thread spawned under a kept conversation is kept:** OpenCode lists a session's sub-agent sessions as sessions of their own, with a parent.
+- **"State cannot be read" is a thread no record names that its store touched within the hour,** or that carries no time at all. Such a thread may be running outside Switchboard.
+- **A thread an agent record names ends as the age pass ends it,** not by a plain retire, so an answer not yet collected stays collectable.
+- **The dry run's fingerprint names the exact set.** The apply rebuilds the listing and refuses a different one.
+- **The Router's leftovers are a sweep of its own, each pass,** not a one-time op: a read anchor or an armed send naming a session of the Domain no Gateway reports, a day past its last touch.
+- **The age pass is one catalog write per session and backend.** A write per agent held the Gateway's event loop for minutes at the first pass's two thousand agents.
+
 ## Painpoints
 
 From Phase 1.

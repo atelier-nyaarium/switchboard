@@ -11,7 +11,7 @@ import type {
 	OwnerOpMutation,
 } from "../federation-server/ownerOpRegistry.js";
 import type { OwnerServiceHooks } from "../federation-server/ownerServiceHooks.js";
-import { createReadAnchorsService } from "../federation-server/tier1/readAnchorsService.js";
+import { createReadAnchorsService, ORPHAN_ANCHOR_MS } from "../federation-server/tier1/readAnchorsService.js";
 
 const domainId = "domain";
 const roots: string[] = [];
@@ -44,8 +44,10 @@ function make() {
 		gatewayIncarnation: () => null,
 		connectedGateways: () => [],
 	} satisfies OwnerServiceHooks;
+	const reported = new Set<string>();
 	const service = createReadAnchorsService({
 		registry,
+		hasSession: (_domainId, gatewayId, sessionId) => reported.has(`${gatewayId}/${sessionId}`),
 		pokeOwner: (id, result) => planes.push({ domainId: id, version: result.version, payload: result }),
 	});
 	service.register(hooks);
@@ -54,6 +56,7 @@ function make() {
 		service,
 		ownerOps,
 		planes,
+		reported,
 		setNow: (value: number) => (now = value),
 	};
 }
@@ -90,6 +93,40 @@ describe("Router read-anchor plane", () => {
 			payload: held,
 		});
 		expect(held).toMatchObject({ anchors: [{ stream: "team-a", epoch: 2, seq: 17, at: 4_000 }] });
+	});
+
+	it("drops a forgotten session's anchors, and an older forget's leftovers once a day unreported", async () => {
+		const harness = make();
+		const report = harness.ownerOps.get("report_read");
+		if (!report) throw new Error("read-anchor owner ops were not registered");
+		const streams = () => harness.service.read(domainId).anchors.map((anchor) => anchor.stream);
+		const mark = (stream: string) => report(operation, { kind: "report_read", stream, epoch: 1, seq: 1, at: 1 });
+		for (const stream of [
+			"domain.gw.host.gone",
+			"scheduled:domain.gw.host.gone",
+			"domain.gw.host.left",
+			"domain.gw.host.live",
+			"friend.gw.host.shared",
+			"scheduled-results",
+		])
+			await mark(stream);
+		harness.reported.add("gw/host.live");
+		const before = harness.service.read(domainId).version.version;
+
+		expect(harness.service.forgetSession(domainId, "domain.gw.host.gone")).toBe(true);
+		expect(streams()).toEqual([
+			"domain.gw.host.left",
+			"domain.gw.host.live",
+			"friend.gw.host.shared",
+			"scheduled-results",
+		]);
+		expect(harness.service.read(domainId).version.version).toBe(before + 1);
+
+		// Too fresh to judge.
+		expect(harness.service.sweepOrphans(domainId, 4_000 + ORPHAN_ANCHOR_MS - 1)).toBe(0);
+		expect(harness.service.sweepOrphans(domainId, 4_000 + ORPHAN_ANCHOR_MS)).toBe(1);
+		// A friend's session and a stream that names none stay.
+		expect(streams()).toEqual(["domain.gw.host.live", "friend.gw.host.shared", "scheduled-results"]);
 	});
 
 	it("pushes the held plane for a stale report", async () => {

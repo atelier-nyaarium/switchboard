@@ -1,9 +1,10 @@
 // The whole gateway graph, one stage at a time.
 
 import { AGENT_AGE_PASS_MS } from "../shared/agent-collect.js";
+import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { hostSpawnPoint } from "../shared/host-spawn.js";
-import { formatInboxAddress } from "../shared/schemasInbox.js";
+import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
@@ -37,6 +38,7 @@ import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
 import { fireAndForget } from "./fireAndForget.js";
 import { purgeHolds } from "./purgeHolds.js";
+import { createPurgeSweep, orphanedNames } from "./purgeSweep.js";
 import { createRouterExchange } from "./router/routerExchange.js";
 import { routineOwns, routineOwnsPane } from "./routines/reservation.js";
 import { createSessionEnd } from "./sessionEnd.js";
@@ -247,6 +249,69 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			};
 		},
 	});
+	const heldName = (team: string): boolean => sessions.sessionStore.paneOwner(team) === team;
+	/** Names earlier forgets left in this Gateway's own stores. */
+	const orphaned = () => {
+		const domainId = context.domainId();
+		const claimed = stores.inboxClaims.addresses().flatMap((address) => {
+			const parsed = parseInboxAddress(address);
+			const own =
+				parsed?.kind === "session" &&
+				parsed.domainId === domainId &&
+				parsed.gatewayId === bootstrap.localGatewayId;
+			return own ? [parsed.sessionId] : [];
+		});
+		const jobs = stores.jobs.listAll();
+		const names = orphanedNames(
+			claimed,
+			jobs.map((job) => job.to),
+			heldName,
+		);
+		return { ...names, jobs: jobs.filter((job) => names.teams.includes(job.to)).length };
+	};
+	const purgeSweep = createPurgeSweep({
+		relay: host.relayToHost,
+		places: () => {
+			if (host.liveHostSocket() === undefined) return undefined;
+			const up: AgentExecutionTarget[] = [{ kind: "host", workdirHint: "~" }];
+			const stopped: string[] = [];
+			for (const container of sessions.hostSpawnPoints.containers ?? []) {
+				const hostProjectPath = sessions.offlineCatalog.get(container.project);
+				if (container.state === "running" && hostProjectPath)
+					up.push({ kind: "devcontainer", project: container.project, hostProjectPath });
+				else stopped.push(container.project);
+			}
+			return { up, stopped };
+		},
+		sessions: () => sessions.sessionStore.list(),
+		agents: (owner) => sessions.sessionStore.everyAgent(owner),
+		runRunning: (runId) => workflows?.runner.get(runId)?.status === "running",
+		endThreads: (owner, backend, agentIds, at) => agents.endThreads(owner, backend, agentIds, at),
+		purges: sessions.purgeQueue,
+		save: () => void sessions.saveSessionsChecked(),
+		orphans: () => {
+			const found = orphaned();
+			return { claims: found.claims.length, jobs: found.jobs };
+		},
+		dropOrphans: () => {
+			const found = orphaned();
+			const domainId = context.domainId();
+			let claims = 0;
+			for (const sessionId of found.claims) {
+				const address = formatInboxAddress({
+					kind: "session",
+					domainId: domainId ?? "",
+					gatewayId: bootstrap.localGatewayId,
+					sessionId,
+				});
+				if (stores.inboxClaims.forget(address)) claims += 1;
+			}
+			let jobs = 0;
+			for (const team of found.teams) jobs += stores.jobs.forgetTeam(team);
+			return { claims, jobs };
+		},
+		now: bootstrap.ambient.now,
+	});
 	const expireThreads = () =>
 		agents.expireThreads((runId) => workflows?.runner.get(runId)?.status === "running") +
 		(workflows?.expireClaudeThreads() ?? 0);
@@ -448,6 +513,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		hostWsToken: config.hostWsToken,
 		ambient: bootstrap.ambient,
 		isClosing,
+		purgeSweep,
 		context,
 		stores,
 		sessions,

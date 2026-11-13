@@ -322,6 +322,19 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 					.then((result) => send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result }));
 				return;
 			}
+			if (op.kind === "threads") {
+				void agentDaemon.runtime.listThreads(op.backend, op.target).then(
+					(threads) => send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: { threads } }),
+					(error: unknown) =>
+						send({
+							type: "host_op_reply",
+							reqId: frame.reqId,
+							ok: false,
+							error: error instanceof Error ? error.message : String(error),
+						}),
+				);
+				return;
+			}
 			if (op.kind === "purge") {
 				purges.push(op);
 				const scripted = handlers.onPurge?.(op);

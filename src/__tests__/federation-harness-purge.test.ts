@@ -2,10 +2,13 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SWEEP_REST_MS } from "../gateway/purgeSweep.js";
 import { SETTLED_RETENTION_MS } from "../gateway/workflows/runner.js";
 import { AGENT_THREAD_TTL_MS } from "../shared/agent-collect.js";
+import { AGENT_HOST_TARGET_ID } from "../shared/agent-execution-target.js";
 import { VAULT_VALUE_KIND, vaultAadKind } from "../shared/content-envelope.js";
 import type { HostPurgeOp } from "../shared/host-op.js";
+import { PURGE_SWEEP_PATH, type SweepAnswer } from "../shared/schemasPurgeSweep.js";
 import { ownSessionFiles } from "../shared/session-files.js";
 import { composeSessionName } from "../shared/session-id.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
@@ -543,5 +546,67 @@ describe("what a run's seven day removal still finds", () => {
 		expect(h.gateway.faults.workflowRecord(aged)).toBeNull();
 		expect(await found()).toBe(1);
 		expect(h.agents.of("codex").threads.size).toBe(0);
+	});
+});
+
+describe("the one sweep", () => {
+	let h: FederationHarness;
+	const sessions: FakeSession[] = [];
+	const { launch, start, collect, ask, drained } = rig(() => h, sessions);
+	const sweep = async (body: Record<string, unknown>, token = h.set.tokens.host) => {
+		const answered = await h.gateway.router(
+			new Request(`http://gateway${PURGE_SWEEP_PATH}`, {
+				method: "POST",
+				headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+				body: JSON.stringify(body),
+			}),
+		);
+		return { status: answered.status, body: (await answered.json()) as SweepAnswer };
+	};
+
+	beforeAll(async () => {
+		h = await startFederationHarness();
+	}, 30_000);
+	afterAll(async () => {
+		for (const attached of sessions) attached.close();
+		await h.close();
+	});
+
+	it("lists a store through the daemon, deletes what no roster session names, and ends the agents it took from", async () => {
+		const mia = await launch("Mia");
+		const held = await start(mia);
+		const codex = h.agents.of("codex");
+		codex.plant("stray-old", AGENT_HOST_TARGET_ID, Date.now() - 2 * SWEEP_REST_MS);
+		codex.plant("stray-fresh", AGENT_HOST_TARGET_ID, Date.now());
+
+		expect((await sweep({}, "not the host's")).status).toBe(403);
+		const shown = (await sweep({})).body;
+		expect(shown.plan?.rows.find((row) => row.place === "host" && row.backend === "codex")).toEqual({
+			place: "host",
+			backend: "codex",
+			listed: 3,
+			kept: 0,
+			running: 0,
+			unreadable: 1,
+			agents: 1,
+			unnamed: 1,
+		});
+		expect([...codex.threads].sort()).toEqual(["stray-fresh", "stray-old", held.threadId].sort());
+
+		const done = (await sweep({ apply: true, expect: shown.plan?.fingerprint })).body;
+		await drained();
+
+		expect(done).toMatchObject({ applied: true, ended: 1, queued: 1 });
+		expect([...codex.threads]).toEqual(["stray-fresh"]);
+		// Its answer was not collected, so the record stays without its thread.
+		expect((await collect(mia, held.agentId)).turns).toHaveLength(1);
+		expect(
+			await ask<{ error?: { code: string } }>(mia, {
+				kind: "message",
+				agentId: held.agentId,
+				operationId: randomUUID(),
+				prompt: "more",
+			}),
+		).toMatchObject({ error: { code: "expired" } });
 	});
 });

@@ -105,6 +105,7 @@ function fakeClient(): AppServerSession {
 		startThread: async () => THREAD,
 		resumeThread: async () => {},
 		deleteThread: async () => "deleted" as const,
+		listThreads: async () => [],
 		adoptThread: async () => ({ known: "empty" as const }),
 		readThread: async () => ({}),
 		startTurn: async () => TURN,

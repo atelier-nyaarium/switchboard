@@ -2,6 +2,7 @@
 // answers at once with a message id; the turn's events follow, and `session.idle` ends it.
 
 import { AGENT_ACTIVITY_MAX_BYTES, cutUtf8 } from "../../shared/agent-record.js";
+import type { ListedThread } from "../../shared/host-op.js";
 import type { AgentChild } from "./agentTargets.js";
 
 ////////////////////////////////
@@ -294,6 +295,18 @@ export class CopilotHeadlessClient {
 
 	async abort(sessionId: string): Promise<void> {
 		await this.transport.request("session.abort", { sessionId, reason: "remote_command" });
+	}
+
+	/** Every session in the store. */
+	async listSessions(): Promise<ListedThread[]> {
+		const result = (await this.transport.request("session.list", {})) as { sessions?: unknown } | undefined;
+		if (!Array.isArray(result?.sessions)) throw new Error("Copilot answered no session list");
+		return (result.sessions as Array<{ sessionId?: unknown; modifiedTime?: unknown }>).map((held) => {
+			if (typeof held?.sessionId !== "string" || !held.sessionId)
+				throw new Error("Copilot listed a session with no id");
+			const at = typeof held.modifiedTime === "string" ? Date.parse(held.modifiedTime) : Number.NaN;
+			return { threadId: held.sessionId, updatedAt: Number.isFinite(at) ? at : null, parentId: null };
+		});
 	}
 
 	/** Missing sessions return `gone`. Other refusals throw. */

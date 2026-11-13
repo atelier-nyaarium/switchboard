@@ -20,6 +20,8 @@ const SLOW_HOST_OP_MS: Partial<Record<HostOp["kind"], number>> = {
 	agentModels: 90_000,
 	// Outlast CLI startup and request.
 	purge: 150_000,
+	// A store of thousands pages for a while.
+	threads: 150_000,
 };
 export const PRESENCE_PEEK_MS = 2_000;
 const WATCH_PUSH_MS = 2_000;

@@ -21,6 +21,7 @@ export interface ListenerStageDeps {
 	hostWsToken?: string;
 	ambient: Pick<Ambient, "now" | "randomBytes">;
 	isClosing: () => boolean;
+	purgeSweep?: (input: { apply?: boolean; expect?: string }) => Promise<unknown>;
 	context: FederationContext;
 	stores: Pick<StoresStage, "blobStore">;
 	sessions: Pick<SessionsStage, "sessionAuthority">;
@@ -103,6 +104,7 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId),
 		hostWsToken: deps.hostWsToken,
 		retire,
+		purgeSweep: deps.purgeSweep,
 		isClosing: deps.isClosing,
 	});
 

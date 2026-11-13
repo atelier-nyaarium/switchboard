@@ -8,6 +8,7 @@ import { CodexTurns } from "../devcontainer/codexTurns.js";
 import type {
 	AgentBackendSession,
 	AgentModel,
+	ListedThread,
 	ThreadOptions,
 	TurnCounter,
 	TurnHandle,
@@ -158,6 +159,10 @@ export class CodexBackendSession implements AgentBackendSession {
 		const outcome = await this.client.deleteThread(threadId);
 		this.threads.delete(threadId);
 		return outcome;
+	}
+
+	listThreads(): Promise<ListedThread[]> {
+		return this.client.listThreads();
 	}
 
 	async listModels(): Promise<AgentModel[]> {

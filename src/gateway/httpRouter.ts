@@ -7,6 +7,7 @@ import {
 	EnrollArmRequestSchema,
 	type EnrollStatus,
 } from "../shared/schemasEnrollSetup.js";
+import { PURGE_SWEEP_PATH, PurgeSweepRequestSchema } from "../shared/schemasPurgeSweep.js";
 import { answerBlobOp, BlobGetOpSchema, BlobPutOpSchema, BlobStatOpSchema, BlobTooLarge } from "./blobOps.js";
 import { routerBootstrapOverride } from "./router/transport.js";
 import type { createRoutes } from "./routes.js";
@@ -54,6 +55,8 @@ export interface HttpRouterDeps {
 	unenrolledHealth: () => Response;
 	hostWsToken?: string;
 	retire?: () => Promise<{ outcome: string; error?: string }>;
+	/** The one sweep. A dry run unless `apply` names the fingerprint it was shown. */
+	purgeSweep?: (input: { apply?: boolean; expect?: string }) => Promise<unknown>;
 	isClosing?: () => boolean;
 }
 
@@ -82,6 +85,7 @@ export function createHttpRouter({
 	unenrolledHealth,
 	hostWsToken,
 	retire,
+	purgeSweep,
 	isClosing,
 }: HttpRouterDeps) {
 	const closingResponse = () => Response.json({ error: "Gateway is closing" }, { status: 503 });
@@ -97,6 +101,15 @@ export function createHttpRouter({
 	async function serveRetire(req: Request): Promise<Response> {
 		if (!fromHost(req)) return Response.json({ outcome: "refused", error: "unauthorized" }, { status: 403 });
 		return Response.json(await (retire?.() ?? Promise.resolve({ outcome: "unreachable" })));
+	}
+
+	/** Deletes on the host's word alone, like a retire. */
+	async function servePurgeSweep(req: Request, body: Record<string, unknown>): Promise<Response> {
+		if (!fromHost(req)) return Response.json({ error: "unauthorized" }, { status: 403 });
+		if (!purgeSweep) return Response.json({ error: "the sweep is unavailable" }, { status: 503 });
+		const parsed = PurgeSweepRequestSchema.safeParse(body);
+		if (!parsed.success) return Response.json({ error: "invalid sweep request" }, { status: 400 });
+		return Response.json(await purgeSweep(parsed.data));
 	}
 
 	async function serveEnrollArm(req: Request, body: Record<string, unknown>): Promise<Response> {
@@ -164,6 +177,7 @@ export function createHttpRouter({
 		if (method === "POST" && url.pathname === ENROLL_ARM_PATH) return serveEnrollArm(req, body);
 		if (method === "GET" && url.pathname === ENROLL_STATUS_PATH) return serveEnrollStatus(req);
 		if (method === "POST" && url.pathname === "/federation/retire") return serveRetire(req);
+		if (method === "POST" && url.pathname === PURGE_SWEEP_PATH) return servePurgeSweep(req, body);
 		const r = routes();
 		if (!r) {
 			if (method === "GET" && url.pathname === "/health") return unenrolledHealth();

@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import type {
 	AgentBackendSession,
 	AgentDriver,
+	ListedThread,
 	SteerOutcome,
 	TurnCounter,
 	TurnHandle,
@@ -34,6 +35,8 @@ export interface ScriptedBackend {
 	/** Oldest first. */
 	turns: ScriptedTurn[];
 	threads: ReadonlySet<string>;
+	/** A thread no agent record names, at a place. Null `updatedAt` reads as unknown. */
+	plant(threadId: string, targetId: string, updatedAt: number | null, parentId?: string): void;
 	launches: number;
 	/** Default: activity, then completed. */
 	onTurn?: (turn: ScriptedTurn) => void;
@@ -121,9 +124,23 @@ class Backend implements ScriptedBackend {
 	readonly threads = new Set<string>();
 	/** Each thread's target. */
 	readonly places = new Map<string, string>();
+	/** When each thread last changed; absent reads as unknown. */
+	readonly updated = new Map<string, number>();
+
+	readonly parents = new Map<string, string>();
+
+	plant(threadId: string, targetId: string, updatedAt: number | null, parentId?: string): void {
+		this.threads.add(threadId);
+		this.places.set(threadId, targetId);
+		if (updatedAt !== null) this.updated.set(threadId, updatedAt);
+		if (parentId !== undefined) this.parents.set(threadId, parentId);
+	}
 	minted = 0;
 
-	constructor(readonly id: AgentBackendId) {}
+	constructor(
+		readonly id: AgentBackendId,
+		readonly clock: () => number,
+	) {}
 }
 
 class Session implements AgentBackendSession {
@@ -157,6 +174,7 @@ class Session implements AgentBackendSession {
 		const threadId = `thread-${this.backend.places.size + 1}`;
 		this.backend.threads.add(threadId);
 		this.backend.places.set(threadId, this.child.targetId);
+		this.backend.updated.set(threadId, this.backend.clock());
 		return threadId;
 	}
 
@@ -250,6 +268,17 @@ class Session implements AgentBackendSession {
 		return (this.backend.models ?? [agentBackend(this.backend.id).defaultModel]).map((id) => ({ id }));
 	}
 
+	/** This place's threads, all updated at the scripted clock's start. */
+	async listThreads(): Promise<ListedThread[]> {
+		return [...this.backend.threads]
+			.filter((threadId) => this.backend.places.get(threadId) === this.child.targetId)
+			.map((threadId) => ({
+				threadId,
+				updatedAt: this.backend.updated.get(threadId) ?? null,
+				parentId: this.backend.parents.get(threadId) ?? null,
+			}));
+	}
+
 	/** Delete only store-owned threads. */
 	async deleteThread(threadId: string): Promise<"deleted" | "gone"> {
 		if (this.backend.places.get(threadId) !== this.child.targetId) return "gone";
@@ -298,7 +327,8 @@ class Session implements AgentBackendSession {
  */
 export function scriptedAgents(): ScriptedAgents {
 	let offset = 0;
-	const backends = new Map(AGENT_BACKENDS.map(({ id }) => [id, new Backend(id)] as const));
+	const clock = (): number => Date.now() + offset;
+	const backends = new Map(AGENT_BACKENDS.map(({ id }) => [id, new Backend(id, clock)] as const));
 	const of = (backend: AgentBackendId): Backend => {
 		const held = backends.get(backend);
 		if (!held) throw new Error(`no scripted ${backend} backend`);
@@ -330,7 +360,7 @@ export function scriptedAgents(): ScriptedAgents {
 				if (child.alive && (targetId === undefined || child.targetId === targetId)) child.exit(1);
 			}
 		},
-		clock: { now: () => Date.now() + offset },
+		clock: { now: clock },
 		skip(ms) {
 			offset += ms;
 		},

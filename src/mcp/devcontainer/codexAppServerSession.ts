@@ -1,4 +1,5 @@
 import type { AgentServiceTier as CodexServiceTier } from "../../shared/agent-state.js";
+import type { ListedThread } from "../../shared/host-op.js";
 import type { AgentChild } from "./agentTargets.js";
 import { CodexAppServerClient, createJsonlTransport, type LifecycleHooks } from "./codexAppServer.js";
 import type { ThreadInspection, ThreadPhase } from "./codexThreadLifecycle.js";
@@ -12,6 +13,7 @@ export interface AppServerSession {
 	startThread(settings: { cwd: string; model?: string; serviceTier?: CodexServiceTier }): Promise<string>;
 	resumeThread(threadId: string): Promise<void>;
 	deleteThread(threadId: string): Promise<"deleted" | "gone">;
+	listThreads(): Promise<ListedThread[]>;
 	/** Loads and owns running turns; publishes and deletes nothing. */
 	adoptThread(threadId: string): Promise<ThreadInspection>;
 	readThread(threadId: string): Promise<unknown>;

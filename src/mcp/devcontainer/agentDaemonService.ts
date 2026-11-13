@@ -6,7 +6,7 @@ import type { AgentDaemonFailureCode } from "../../shared/agent-state.js";
 import { type AgentDaemonCommand, agentWire, isReliableAgentMessage } from "../../shared/agent-wire.js";
 import type { HostAgentModelsResult } from "../../shared/host-op.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
-import type { AgentBackendSession, TurnTerminal } from "../agents/backendSession.js";
+import type { AgentBackendSession, ListedThread, TurnTerminal } from "../agents/backendSession.js";
 import { type RunningTurn, TurnRunner } from "../agents/turnRunner.js";
 import { AgentDaemonCore, type AgentEventAck } from "./agentDaemonCore.js";
 import { resolveAgentTarget } from "./agentTargetResolve.js";
@@ -199,6 +199,25 @@ export class AgentDaemonService {
 		const agent = this.threadAgents.get(`${target.targetId} ${threadId}`);
 		if (!agent) return this.deleteNow(target, threadId);
 		return this.core.inOrder(agent, () => this.deleteNow(target, threadId));
+	}
+
+	/** Every thread in this backend's store at a place. Throws rather than answer part of it. */
+	async listThreads(requested: AgentExecutionTarget): Promise<ListedThread[]> {
+		if (this.stopped) throw new Error(`${this.name} daemon is shutting down`);
+		const target = resolveAgentTarget(requested, this.deps.resolveHostCwd);
+		const opens = !this.core.getSession(target.targetId);
+		const held: { session?: TargetSession } = {};
+		try {
+			return await this.lease(async () => {
+				const session = await this.session(target);
+				if (!session) throw new Error(this.unavailable(target));
+				held.session = session;
+				return session.client.listThreads();
+			});
+		} finally {
+			this.quietSince = this.now();
+			this.releaseOpened(opens, held.session);
+		}
 	}
 
 	private async deleteNow(target: AgentResolvedTarget, threadId: string): Promise<"deleted" | "gone"> {

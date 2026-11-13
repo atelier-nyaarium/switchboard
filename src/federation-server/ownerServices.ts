@@ -220,12 +220,14 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 			set: (ms, fn) => chainedTimer(ambient, ms, fn),
 			clear: (handle) => ambient.clearTimer((handle as ReturnType<typeof chainedTimer>).handle()),
 		},
+		hasSession: (domainId, gatewayId, sessionId) => inbox.hasSession(domainId, gatewayId, sessionId),
 		now: () => registry.now(),
 	});
 
 	const capabilities = createCapabilitiesService({ registry });
 	const readAnchors = createReadAnchorsService({
 		registry,
+		hasSession: (domainId, gatewayId, sessionId) => inbox.hasSession(domainId, gatewayId, sessionId),
 		pokeOwner: (domainId, result) =>
 			deps.consoleSockets?.pushPlane(domainId, "readAnchors", result.version, result),
 	});

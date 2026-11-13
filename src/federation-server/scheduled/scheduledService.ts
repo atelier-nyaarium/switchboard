@@ -32,10 +32,14 @@ export interface ScheduledDeps {
 	) => OpResultEnvelope & { seq?: number };
 	referenceHeld: Pick<ReferenceHeldStore, "has" | "publish">;
 	scheduler: ScheduledScheduler;
+	/** Whether a Gateway still reports the session. Absent sweeps nothing. */
+	hasSession?: (domainId: string, gatewayId: string, sessionId: string) => boolean;
 	now: () => number;
 }
 
 const RETRY_MS = 60_000;
+/** A send armed for a session no Gateway reports is cancelled once this old. */
+export const ORPHAN_SEND_MS = 24 * 60 * 60 * 1000;
 const TERMINAL = new Set(["fired", "cancelled", "error"]);
 const recordId = (target: ScheduledTarget): string => `${target.domainId}/${target.gatewayId}/${target.sessionId}`;
 const addressOf = (target: ScheduledTarget): InboxAddress => ({ kind: "session", ...target });
@@ -197,6 +201,20 @@ export function createScheduledService(deps: ScheduledDeps) {
 		return cancel(domainId, target, current.version).outcome === OP_OUTCOME_ACCEPTED;
 	}
 
+	/** Armed sends, a day old, to a session no Gateway reports. Answers how many were cancelled. */
+	function sweepOrphans(domainId: string, now: number): number {
+		const hasSession = deps.hasSession;
+		if (!hasSession) return 0;
+		let cancelled = 0;
+		for (const record of list(domainId)) {
+			if (record.state !== "armed" || now - record.createdAt < ORPHAN_SEND_MS) continue;
+			const { gatewayId, sessionId } = record.target;
+			if (record.target.domainId !== domainId || hasSession(domainId, gatewayId, sessionId)) continue;
+			if (forgetSession(domainId, gatewayId, sessionId)) cancelled += 1;
+		}
+		return cancelled;
+	}
+
 	function list(domainId: string): ScheduledRecord[] {
 		return deps.registry
 			.for(domainId)
@@ -300,6 +318,7 @@ export function createScheduledService(deps: ScheduledDeps) {
 		fire,
 		rearm,
 		forgetSession,
+		sweepOrphans,
 		register(hooks: OwnerServiceHooks) {
 			hooks.ownerOp("schedule_send", (op: OwnerOp, value) =>
 				schedule(op.domainId, { conversationId: op.conversationId, device: op.device, opId: op.opId }, value),
@@ -307,6 +326,9 @@ export function createScheduledService(deps: ScheduledDeps) {
 			hooks.ownerOp("schedule_cancel", (op, value) => cancel(op.domainId, value.target, value.expectedVersion));
 			hooks.ownerOp("schedule_list", (op) => list(op.domainId));
 			hooks.onSessionForgotten((reg, sessionId) => forgetSession(reg.domainId, reg.gatewayId, sessionId));
+			hooks.onSweep("orphan scheduled send sweep", (domainId, now) => {
+				sweepOrphans(domainId, now);
+			});
 		},
 	};
 }

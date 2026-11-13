@@ -2,7 +2,7 @@ import { AGENT_BACKENDS, type AgentBackendId, agentEnvPrefix, agentFrameType } f
 import type { AgentExecutionTarget, AgentResolvedTarget } from "../../shared/agent-execution-target.js";
 import { agentWire } from "../../shared/agent-wire.js";
 import type { HostAgentModelsResult } from "../../shared/host-op.js";
-import type { AgentDriver } from "../agents/backendSession.js";
+import type { AgentDriver, ListedThread } from "../agents/backendSession.js";
 import { type AgentDaemonDeps, AgentDaemonService } from "./agentDaemonService.js";
 import { ExecutionTargetManager, type TargetLogEvent, targetLogger } from "./agentTargets.js";
 
@@ -31,6 +31,8 @@ export interface AgentDaemonRuntime {
 	listModels(backend: AgentBackendId, target: AgentExecutionTarget): Promise<HostAgentModelsResult>;
 	/** Throws on deletion failure. */
 	deleteThread(backend: AgentBackendId, target: AgentExecutionTarget, threadId: string): Promise<"deleted" | "gone">;
+	/** A backend's whole store at a place. Throws when it cannot be read. */
+	listThreads(backend: AgentBackendId, target: AgentExecutionTarget): Promise<ListedThread[]>;
 	shutdown(): void;
 }
 
@@ -107,6 +109,10 @@ export function createAgentDaemonRuntime(deps: AgentDaemonRuntimeDeps): AgentDae
 			return binding
 				? binding.service.deleteThread(target, threadId)
 				: Promise.reject(new Error(`no ${backend} daemon`));
+		},
+		listThreads(backend, target) {
+			const binding = bindings.find((candidate) => candidate.id === backend);
+			return binding ? binding.service.listThreads(target) : Promise.reject(new Error(`no ${backend} daemon`));
 		},
 		shutdown() {
 			for (const { service, targets } of bindings) {

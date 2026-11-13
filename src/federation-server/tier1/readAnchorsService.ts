@@ -2,6 +2,7 @@ import type { z } from "zod";
 import { mintEpoch } from "../../shared/epoch.js";
 import { MAX_STREAMS_PER_OWNER, mergeReadAnchor, type ReadAnchorEntry } from "../../shared/read-anchor-rules.js";
 import { ReadAnchorsResultSchema } from "../../shared/schemasTier1.js";
+import { Address, parseQualifiedTarget } from "../../shared/session-id.js";
 import { foldWriteResult } from "../../shared/write-result.js";
 import { OwnerOpRefused } from "../inbox/ownerOpIntake.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
@@ -10,6 +11,8 @@ import type { OwnerServiceHooks } from "../ownerServiceHooks.js";
 
 export interface ReadAnchorsServiceDeps {
 	registry: OwnerStoreRegistry;
+	/** Whether a Gateway still reports the session. Absent sweeps nothing. */
+	hasSession?: (domainId: string, gatewayId: string, sessionId: string) => boolean;
 	pokeOwner?: (domainId: string, result: ReadAnchorsResult) => void;
 }
 
@@ -18,8 +21,22 @@ type ReadAnchorsResult = z.infer<typeof ReadAnchorsResultSchema>;
 // Keep version outside streams.
 const VERSION_ID = "readAnchor.version";
 const anchorId = (stream: string): string => `readAnchor:${stream}`;
+const SCHEDULED_STREAM = "scheduled:";
 /** A session's conversation, and its scheduled results. */
-const sessionStreams = (sessionTarget: string): string[] => [sessionTarget, `scheduled:${sessionTarget}`];
+const sessionStreams = (sessionTarget: string): string[] => [sessionTarget, `${SCHEDULED_STREAM}${sessionTarget}`];
+/** An anchor left by a forget older than this build goes once unreported this long. */
+export const ORPHAN_ANCHOR_MS = 24 * 60 * 60 * 1000;
+
+/** The session a stream names; undefined for any other stream. */
+function sessionOfStream(stream: string): Address | undefined {
+	const target = stream.startsWith(SCHEDULED_STREAM) ? stream.slice(SCHEDULED_STREAM.length) : stream;
+	try {
+		const parsed = parseQualifiedTarget(target);
+		return parsed instanceof Address ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
+}
 const write = (result: Parameters<typeof foldWriteResult>[0]) => foldWriteResult(result);
 
 export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
@@ -86,19 +103,15 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 	const report = (domainId: string, stream: string, entry: ReadAnchorEntry): boolean =>
 		reportResult(domainId, stream, entry).advanced;
 
-	/** Deletes the anchors of every stream that names a session. False asks for another try. */
-	const forgetSession = (domainId: string, sessionTarget: string): boolean => {
-		const store = deps.registry.for(domainId);
-		const held = sessionStreams(sessionTarget)
-			.map((stream) => store.get("readAnchor", anchorId(stream)))
-			.filter((record): record is StateRecord => record !== null);
+	/** One write, with a version advance a reader takes as it takes a report. False when it did not land. */
+	const drop = (domainId: string, held: StateRecord[]): boolean => {
 		if (held.length === 0) return true;
+		const store = deps.registry.for(domainId);
 		const version = ensureVersion(domainId);
 		if ("outcome" in version) return false;
 		const dropped = write(
 			store.batch((tx) => {
 				for (const record of held) tx.del("readAnchor", record.id, record.version);
-				// A reader takes the removal as it takes a report.
 				tx.put("readAnchor", VERSION_ID, version.version, {
 					clear: { epoch: version.clear.epoch, version: Number(version.clear.version) + 1 },
 				});
@@ -109,10 +122,39 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 		return true;
 	};
 
+	/** Deletes the anchors of every stream that names a session. False asks for another try. */
+	const forgetSession = (domainId: string, sessionTarget: string): boolean => {
+		const store = deps.registry.for(domainId);
+		return drop(
+			domainId,
+			sessionStreams(sessionTarget)
+				.map((stream) => store.get("readAnchor", anchorId(stream)))
+				.filter((record): record is StateRecord => record !== null),
+		);
+	};
+
+	/** Anchors of this Domain's sessions that no Gateway reports, a day past their last report. */
+	const sweepOrphans = (domainId: string, now: number): number => {
+		const hasSession = deps.hasSession;
+		if (!hasSession) return 0;
+		const store = deps.registry.for(domainId);
+		if (store.health().quarantined) return 0;
+		const orphaned = store.list("readAnchor").filter((record) => {
+			if (record.id === VERSION_ID) return false;
+			const session = sessionOfStream(record.id.slice("readAnchor:".length));
+			// A friend's shared session is its own Domain's to report.
+			if (!session || session.domain !== domainId) return false;
+			if (now - Number(record.clear.at) < ORPHAN_ANCHOR_MS) return false;
+			return !hasSession(domainId, session.gateway, `${session.spawn}.${session.session}`);
+		});
+		return drop(domainId, orphaned) ? orphaned.length : 0;
+	};
+
 	return {
 		report,
 		read,
 		forgetSession,
+		sweepOrphans,
 		register(hooks: OwnerServiceHooks): void {
 			hooks.ownerOp("report_read", async (op, value) => {
 				// Router stamps time; epochs use equality, never ordering.
@@ -125,6 +167,9 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 			hooks.onSessionForgotten((reg, sessionId) =>
 				forgetSession(reg.domainId, `${reg.domainId}.${reg.gatewayId}.${sessionId}`),
 			);
+			hooks.onSweep("orphan read anchor sweep", (domainId, now) => {
+				sweepOrphans(domainId, now);
+			});
 		},
 	};
 }

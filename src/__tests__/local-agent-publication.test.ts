@@ -72,6 +72,9 @@ class ValueBackendAdapter implements AgentBackendSession {
 		this.deleted.push(threadId);
 		return "deleted";
 	}
+	async listThreads() {
+		return [];
+	}
 	onActivity(listener: (turnId: string, text: string) => void): void {
 		this.activity = listener;
 	}

@@ -110,6 +110,7 @@ export const BridgeRequestSchema = z.discriminatedUnion("op", [
 		})
 		.strict(),
 	z.object({ ...requestBase, op: z.literal("delete"), threadId: ThreadIdSchema }).strict(),
+	z.object({ ...requestBase, op: z.literal("threads") }).strict(),
 	z.object({ ...requestBase, op: z.literal("models") }).strict(),
 ]);
 export type BridgeRequest = z.infer<typeof BridgeRequestSchema>;
@@ -134,6 +135,21 @@ export const BridgeResultSchema = z.discriminatedUnion("op", [
 	z.object({ ...resultBase, op: z.literal("interrupt"), interrupted: z.boolean() }).strict(),
 	z.object({ ...resultBase, op: z.literal("inspect"), inspection: OpencodeInspectionSchema }).strict(),
 	z.object({ ...resultBase, op: z.literal("delete"), outcome: z.enum(["deleted", "gone"]) }).strict(),
+	z
+		.object({
+			...resultBase,
+			op: z.literal("threads"),
+			threads: z.array(
+				z
+					.object({
+						threadId: ThreadIdSchema,
+						updatedAt: z.number().int().nonnegative().nullable(),
+						parentId: ThreadIdSchema.nullable(),
+					})
+					.strict(),
+			),
+		})
+		.strict(),
 	z.object({ ...resultBase, op: z.literal("models"), models: z.array(OpencodeModelSchema) }).strict(),
 ]);
 export type BridgeResult = z.infer<typeof BridgeResultSchema>;

@@ -14,6 +14,7 @@ import type { AgentChild } from "../devcontainer/agentTargets.js";
 import type {
 	AgentBackendSession,
 	AgentModel,
+	ListedThread,
 	ThreadOptions,
 	TurnCounter,
 	TurnHandle,
@@ -33,6 +34,7 @@ type RequestBody =
 	| { op: "interrupt"; threadId: string; turnId: string }
 	| { op: "inspect"; threadId: string; turnId: string }
 	| { op: "delete"; threadId: string }
+	| { op: "threads" }
 	| { op: "models" };
 
 interface PendingRequest {
@@ -145,6 +147,12 @@ export class OpencodeBackendSession implements AgentBackendSession {
 		const result = await this.request({ op: "delete", threadId });
 		if (result.op !== "delete") throw new Error("OpenCode bridge answered the wrong operation");
 		return result.outcome;
+	}
+
+	async listThreads(): Promise<ListedThread[]> {
+		const result = await this.request({ op: "threads" }, TURN_REQUEST_TIMEOUT_MS);
+		if (result.op !== "threads") throw new Error("OpenCode bridge answered the wrong operation");
+		return result.threads;
 	}
 
 	async startTurn(threadId: string, prompt: string, turn: TurnOptions = {}): Promise<TurnHandle> {

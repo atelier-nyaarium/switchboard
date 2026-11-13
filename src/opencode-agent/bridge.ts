@@ -124,6 +124,8 @@ const UNDELIVERED: OpencodeTerminal = {
 const LOST: OpencodeTerminal = { status: "failed", error: "the OpenCode turn was lost" };
 const UNREADABLE = "the OpenCode server sent an answer this bridge cannot read";
 const HISTORY_LIMIT = 200;
+const SESSION_LIST_PAGE = 100;
+const SESSION_LIST_PAGES = 2_000;
 const HISTORY_MAX_PAGES = 200;
 const HTTP_CALL_MS = 20_000;
 const PROGRESS_EVERY_MS = 15_000;
@@ -1235,6 +1237,37 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 				};
 				const thread = threads.get(request.threadId);
 				return thread ? serial(thread, remove) : remove();
+			}
+			case "threads": {
+				const listed: Array<{ threadId: string; updatedAt: number | null; parentId: string | null }> = [];
+				let cursor: string | undefined;
+				for (let page = 0; ; page += 1) {
+					if (page >= SESSION_LIST_PAGES)
+						throw new BridgeFailure("http", "OpenCode lists more sessions than can be read");
+					const route = `/api/session?limit=${SESSION_LIST_PAGE}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+					const { status, data } = await call("GET", route);
+					if (status >= 300) throw httpFailure("listing sessions", status, data);
+					const body = data as { data?: unknown; cursor?: { next?: unknown } } | undefined;
+					if (!Array.isArray(body?.data))
+						throw new BridgeFailure("http", "OpenCode answered no session list");
+					for (const held of body.data as Array<{
+						id?: unknown;
+						parentID?: unknown;
+						time?: { updated?: unknown };
+					}>) {
+						if (typeof held?.id !== "string" || !held.id)
+							throw new BridgeFailure("http", "OpenCode listed a session with no id");
+						const at = Number(held.time?.updated);
+						listed.push({
+							threadId: held.id,
+							updatedAt: Number.isFinite(at) && at > 0 ? Math.round(at) : null,
+							parentId: typeof held.parentID === "string" && held.parentID ? held.parentID : null,
+						});
+					}
+					cursor = typeof body.cursor?.next === "string" && body.cursor.next ? body.cursor.next : undefined;
+					if (!cursor || body.data.length === 0) break;
+				}
+				return { type: "result", id: request.id, op: "threads", threads: listed };
 			}
 			case "inspect": {
 				const thread = threads.get(request.threadId);

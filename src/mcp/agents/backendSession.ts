@@ -49,6 +49,14 @@ export interface AgentModel {
 	reasoningEfforts?: string[];
 }
 
+/** A thread a store holds. `updatedAt` is null when the store does not say. */
+export interface ListedThread {
+	threadId: string;
+	updatedAt: number | null;
+	/** The thread it was spawned under; null for a root or a store with none. */
+	parentId: string | null;
+}
+
 export interface AgentBackendSession {
 	/** Thread directory stays fixed. */
 	openThread(options: ThreadOptions): Promise<string>;
@@ -69,6 +77,8 @@ export interface AgentBackendSession {
 	listModels?(): Promise<AgentModel[]>;
 	/** Absent threads return `gone`. A thread mid-turn is refused. */
 	deleteThread(threadId: string): Promise<"deleted" | "gone">;
+	/** Every thread in the store, whoever made it. Throws rather than answer part of it. */
+	listThreads(): Promise<ListedThread[]>;
 	onActivity(listener: (turnId: string, text: string, itemId?: string) => void): void;
 	onCounter?(listener: (turnId: string, counter: TurnCounter) => void): void;
 	/** Omit to disable silence checks. */

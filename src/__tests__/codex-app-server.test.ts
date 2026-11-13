@@ -162,6 +162,33 @@ describe("Codex App Server JSONL transport", () => {
 		await expect(client.deleteThread("thread-locked")).rejects.toThrow();
 	});
 
+	it("lists every thread across pages, archived or not, and throws rather than answer part of a store", async () => {
+		const pages: Record<string, { data: unknown[]; nextCursor?: string }> = {
+			"false:": { data: [{ id: "t1", updatedAt: 1_700_000_000 }], nextCursor: "next" },
+			"false:next": { data: [{ id: "t2", updatedAt: 0 }] },
+			"true:": { data: [{ id: "t3" }] },
+		};
+		const asked: unknown[] = [];
+		const f = child((request, emit) => {
+			if (request.method !== "thread/list") return standard(request, emit);
+			const params = request.params as { archived: boolean; cursor: string | null; sourceKinds: string[] };
+			asked.push(params.sourceKinds.length);
+			emit(reply(request, pages[`${params.archived}:${params.cursor ?? ""}`] ?? { data: [] }));
+		});
+		const client = await CodexAppServerClient.open(createJsonlTransport(f.child), MODEL);
+
+		await expect(client.listThreads()).resolves.toEqual([
+			{ threadId: "t1", updatedAt: 1_700_000_000_000, parentId: null },
+			{ threadId: "t2", updatedAt: null, parentId: null },
+			{ threadId: "t3", updatedAt: null, parentId: null },
+		]);
+		// Every door a thread is made through.
+		expect(asked.every((kinds) => kinds === 10)).toBe(true);
+
+		pages["true:"] = { data: [{ updatedAt: 5 }] };
+		await expect(client.listThreads()).rejects.toThrow();
+	});
+
 	it("rejects an unoffered model and preserves the failure brand", async () => {
 		const missing = child((request, emit) =>
 			emit(reply(request, request.method === "model/list" ? { data: [] } : {})),

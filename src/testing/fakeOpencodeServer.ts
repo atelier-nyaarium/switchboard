@@ -52,7 +52,8 @@ export interface FakeOpencodeServer {
 	requests: Array<{ method: string; route: string; body?: unknown }>;
 	/** Every permission reply taken. */
 	replies: FakeOpencodeReply[];
-	addSession(id: string, directory?: string): void;
+	/** `parentId` makes it one a session spawned. */
+	addSession(id: string, directory?: string, parentId?: string): void;
 	sessionOf(id: string): { directory: string; model?: unknown } | undefined;
 	/** Oldest first. */
 	messages(sessionId: string): FakeOpencodeMessage[];
@@ -123,6 +124,11 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 		{ id: "deepseek-v4-pro", providerID: "opencode-go" },
 	];
 	const sessions = new Map<string, Session>();
+	/** A listed session's parent. */
+	const parents = new Map<string, string>();
+	/** What every listed session says it last changed at. */
+	const listedAt = 1_700_000_000_000;
+	const LIST_PAGE = 2;
 	const permissions: FakeOpencodePermission[] = [];
 	const streams = new Set<Stream>();
 	const requests: FakeOpencodeServer["requests"] = [];
@@ -238,6 +244,19 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 				...("model" in body ? { model: body.model } : {}),
 			});
 			return json({ data: { id } });
+		}
+		if (method === "GET" && path === "/api/session") {
+			const all = [...sessions.keys()];
+			const from = Number(query.get("cursor") ?? 0);
+			const page = all.slice(from, from + LIST_PAGE);
+			return json({
+				data: page.map((id) => ({
+					id,
+					time: { updated: listedAt },
+					...(parents.has(id) ? { parentID: parents.get(id) } : {}),
+				})),
+				cursor: from + LIST_PAGE < all.length ? { next: String(from + LIST_PAGE) } : {},
+			});
 		}
 		if (method === "GET" && path === "/api/session/active") {
 			const running = [...sessions].filter(([, session]) => session.running);
@@ -437,8 +456,9 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 		fetch: fetchFake as typeof fetch,
 		requests,
 		replies,
-		addSession: (id, directory = "/fake/project") => {
+		addSession: (id, directory = "/fake/project", parentId) => {
 			sessions.set(id, { directory, rows: [], inbox: [], running: false });
+			if (parentId !== undefined) parents.set(id, parentId);
 		},
 		sessionOf: (id) => {
 			const held = sessions.get(id);

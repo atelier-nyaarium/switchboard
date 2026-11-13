@@ -99,6 +99,7 @@ export type HostOp =
 	| { kind: "reloadPlugins"; target: TmuxTarget; dedupKey?: string }
 	| { kind: "killSession"; target: TmuxTarget; dedupKey?: string }
 	| HostPurgeOp
+	| { kind: "threads"; backend: AgentBackendId; target: AgentExecutionTarget }
 	// Answered once queued; the outcome rides the container state.
 	| { kind: "containerStart"; project: string; dedupKey?: string }
 	| { kind: "containerStop"; project: string; dedupKey?: string };
@@ -332,6 +333,20 @@ export const PURGE_OUTCOMES = ["deleted", "gone", "place_down"] as const;
 export type PurgeOutcome = (typeof PURGE_OUTCOMES)[number];
 
 export const HostPurgeResultSchema = z.object({ outcome: z.enum(PURGE_OUTCOMES) }).strict();
+
+/** A thread a CLI's store holds. `updatedAt` is null when the store does not say. */
+export const ListedThreadSchema = z
+	.object({
+		threadId: z.string().min(1).max(256),
+		updatedAt: z.number().int().nonnegative().nullable(),
+		/** The thread it was spawned under. */
+		parentId: z.string().min(1).max(256).nullable(),
+	})
+	.strict();
+export type ListedThread = z.infer<typeof ListedThreadSchema>;
+
+/** The whole store at one place, never part of it. */
+export const HostThreadsResultSchema = z.object({ threads: z.array(ListedThreadSchema) }).strict();
 
 export interface HostOpResult {
 	ok: boolean;

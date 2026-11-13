@@ -1,5 +1,6 @@
 import type { AgentServiceTier as CodexServiceTier } from "../../shared/agent-state.js";
 import { CodexAppServerResponseSchema, CodexAppServerThreadStartResultSchema } from "../../shared/codex-app-server.js";
+import type { ListedThread } from "../../shared/host-op.js";
 import type { AgentChild } from "./agentTargets.js";
 import {
 	type LifecycleDeps,
@@ -44,6 +45,21 @@ export type LifecycleHooks = Partial<Pick<LifecycleDeps, "onTerminal" | "onPoiso
 const METHOD_NOT_FOUND = -32601;
 // Server reply for an absent rollout.
 const NO_ROLLOUT = /no rollout found/i;
+const THREAD_LIST_PAGE = 100;
+const THREAD_LIST_PAGES = 2_000;
+/** Every door a thread is made through. */
+const THREAD_SOURCE_KINDS = [
+	"cli",
+	"vscode",
+	"exec",
+	"appServer",
+	"subAgent",
+	"subAgentReview",
+	"subAgentCompact",
+	"subAgentThreadSpawn",
+	"subAgentOther",
+	"unknown",
+];
 const REQUEST_TIMEOUT_MS = 60_000;
 
 export type AppServerFailureKind = "refused" | "timeout" | "unreadable" | "closed";
@@ -371,6 +387,40 @@ export class CodexAppServerClient {
 	/** Loads the thread whatever its state: a parked one is unarchived first. */
 	async resumeThread(threadId: string): Promise<void> {
 		await this.lifecycle.activate(threadId);
+	}
+
+	/** Every thread in the store, archived or not, from every door. */
+	async listThreads(): Promise<ListedThread[]> {
+		const listed: ListedThread[] = [];
+		for (const archived of [false, true]) {
+			let cursor: string | null = null;
+			for (let page = 0; ; page += 1) {
+				if (page >= THREAD_LIST_PAGES) throw new Error("Codex lists more threads than can be read");
+				const answer = (await this.transport.request("thread/list", {
+					archived,
+					limit: THREAD_LIST_PAGE,
+					cursor,
+					sourceKinds: THREAD_SOURCE_KINDS,
+					useStateDbOnly: true,
+				})) as { data?: unknown; nextCursor?: unknown } | undefined;
+				if (!Array.isArray(answer?.data)) throw new Error("Codex answered no thread list");
+				for (const thread of answer.data as Array<{ id?: unknown; updatedAt?: unknown }>) {
+					if (typeof thread?.id !== "string" || !thread.id)
+						throw new Error("Codex listed a thread with no id");
+					// Seconds on the wire.
+					const seconds = Number(thread.updatedAt);
+					const known = Number.isFinite(seconds) && seconds > 0;
+					listed.push({
+						threadId: thread.id,
+						updatedAt: known ? Math.round(seconds * 1000) : null,
+						parentId: null,
+					});
+				}
+				cursor = typeof answer.nextCursor === "string" && answer.nextCursor ? answer.nextCursor : null;
+				if (!cursor || answer.data.length === 0) break;
+			}
+		}
+		return listed;
 	}
 
 	/** No rollout returns `gone`. */

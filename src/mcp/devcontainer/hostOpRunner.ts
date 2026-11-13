@@ -14,6 +14,7 @@ import {
 	type HostReadSkillResult,
 	type HostWifiNetworkResult,
 	type LegacyCreateSessionOp,
+	type ListedThread,
 	type PromptDecision,
 	type PromptOutcome,
 	type PurgeOutcome,
@@ -40,6 +41,7 @@ export interface TmuxOps {
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
 	purge?: (op: HostPurgeOp) => Promise<PurgeOutcome>;
+	threads?: (backend: AgentBackendId, target: AgentExecutionTarget) => Promise<ListedThread[]>;
 	/** Queued, never awaited to its end. */
 	containerStart: (project: string) => Promise<void>;
 	containerStop: (project: string) => Promise<void>;
@@ -176,6 +178,10 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		if (op.kind === "purge") {
 			if (!ops.purge) throw new Error("purge unavailable");
 			return { outcome: await ops.purge(op) };
+		}
+		if (op.kind === "threads") {
+			if (!ops.threads) throw new Error("threads unavailable");
+			return { threads: await ops.threads(op.backend, op.target) };
 		}
 		if (op.kind === "containerStart")
 			return runDeduped(op.dedupKey, () => ops.containerStart(op.project), { accepted: true });

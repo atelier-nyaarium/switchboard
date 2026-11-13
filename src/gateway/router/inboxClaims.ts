@@ -1,6 +1,10 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { Clock } from "../../shared/ambient.js";
 import { commitChecked, DurableStore } from "../../shared/durable-store.js";
+
+const CLAIMS_DIR = "inbox-claims";
+const CLAIM_PREFIX = "claim-";
 
 export interface InboxClaim {
 	deliveryId: string;
@@ -70,6 +74,19 @@ export class InboxClaims {
 		this.commit(address, { deliveryEpoch, claims: kept });
 	}
 
+	/** Every address with a claim file. */
+	addresses(): string[] {
+		let names: string[];
+		try {
+			names = fs.readdirSync(path.join(this.dataDir, CLAIMS_DIR));
+		} catch {
+			return [];
+		}
+		return names
+			.filter((name) => name.startsWith(CLAIM_PREFIX) && name.endsWith(".json"))
+			.map((name) => Buffer.from(name.slice(CLAIM_PREFIX.length, -".json".length), "base64url").toString());
+	}
+
 	/** Deletes an address's file. A failure leaves it for the next try. */
 	forget(address: string): boolean {
 		try {
@@ -91,8 +108,8 @@ export class InboxClaims {
 	private file(address: string): DurableStore {
 		const existing = this.files.get(address);
 		if (existing) return existing;
-		const name = `claim-${Buffer.from(address).toString("base64url")}`;
-		const store = new DurableStore(path.join(this.dataDir, "inbox-claims"), name);
+		const name = `${CLAIM_PREFIX}${Buffer.from(address).toString("base64url")}`;
+		const store = new DurableStore(path.join(this.dataDir, CLAIMS_DIR), name);
 		const restored = store.load();
 		const state: ClaimFile =
 			restored && typeof restored === "object" && typeof (restored as ClaimFile).deliveryEpoch === "number"

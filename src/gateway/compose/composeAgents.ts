@@ -7,6 +7,7 @@ import {
 } from "../../shared/agent-counter.js";
 import { marksOf } from "../../shared/agent-turn-marks.js";
 import type { Ambient } from "../../shared/ambient.js";
+import type { SessionRecord } from "../../shared/session-store.js";
 import type { RosterAgent } from "../agentAwareness.js";
 import { resolveAgentExecutionTarget } from "../agentExecutionTarget.js";
 import { type AgentStack, type AgentStacks, createAgentStack } from "../agentStack.js";
@@ -48,6 +49,8 @@ export interface AgentsStage {
 	stopRelays: () => void;
 	/** Expires threads idle for one day. */
 	expireThreads: (runRunning: (runId: string) => boolean) => number;
+	/** Ends the named agents' threads now, as the age pass does. */
+	endThreads: (owner: SessionRecord, backend: AgentBackendId, agentIds: ReadonlySet<string>, at: number) => number;
 	/** False means marking failed. */
 	markTurnNotified: (ownerKey: string, backend: AgentBackendId, agentId: string, turnId: string) => boolean;
 	onTurnsCollected: (listener: TurnsCollected) => void;
@@ -151,6 +154,7 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 				}
 			return ended;
 		},
+		endThreads: (owner, backend, agentIds, at) => stacks.get(backend)?.expireAll(owner, agentIds, at) ?? 0,
 		workflowProgress: (runId) =>
 			built.reduce(
 				(counts, stack) => addAgentProgressCounts(counts, stack.relay.progressForRun(runId)),

@@ -5,7 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { InboxService } from "../federation-server/inbox/inboxService.js";
 import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistry.js";
 import { DomainQuota } from "../federation-server/owner/domainQuota.js";
-import { createScheduledService, type ScheduledDeps } from "../federation-server/scheduled/scheduledService.js";
+import {
+	createScheduledService,
+	ORPHAN_SEND_MS,
+	type ScheduledDeps,
+} from "../federation-server/scheduled/scheduledService.js";
 import { processAmbient } from "../shared/ambient.js";
 import { type BlobReference, formatBlobReference } from "../shared/blob-reference.js";
 import { generateIdentity } from "../shared/crypto.js";
@@ -49,6 +53,8 @@ function make(
 	const timerDelays = new Map<number, number>();
 	let nextTimer = 1;
 	const messages: unknown[] = [];
+	/** Sessions a Gateway reports. */
+	const reported = new Set<string>([target.sessionId]);
 	const rows: unknown[] = [];
 	const held: unknown[] = [];
 	const released: unknown[] = [];
@@ -130,9 +136,11 @@ function make(
 				timerDelays.delete(handle as number);
 			},
 		},
+		hasSession: (_domainId, _gatewayId, sessionId) => reported.has(sessionId),
 		now: () => now,
 	};
 	return {
+		reported,
 		service: createScheduledService(deps),
 		registry,
 		timers,
@@ -366,6 +374,35 @@ describe("scheduled service", () => {
 			{ blobId: "blob-2", ref: { kind: "scheduled", id: "domain-a/gateway-a/spawn.session" } },
 		]);
 		registry.close();
+	});
+
+	it("cancels a forgotten session's armed send and keeps its record, and one left armed for a session no Gateway reports", () => {
+		const { service, timers, reported, setNow } = make();
+		const sender = { conversationId: "phone", device: "pixel", opId: "op-1" };
+		const armed = () =>
+			service.schedule("domain-a", sender, {
+				kind: "schedule_send",
+				target,
+				fireAt: 10_000_000_000,
+				opId: `send-${service.list("domain-a").length}-${timers.size}`,
+				files: [],
+				body,
+			});
+		expect(armed().outcome).toBe("accepted");
+
+		expect(service.forgetSession("domain-a", target.gatewayId, target.sessionId)).toBe(true);
+		expect(service.list("domain-a")).toMatchObject([{ state: "cancelled" }]);
+		expect(timers.size).toBe(0);
+		// Nothing armed is nothing to do.
+		expect(service.forgetSession("domain-a", target.gatewayId, target.sessionId)).toBe(true);
+
+		expect(armed().outcome).toBe("accepted");
+		setNow(100 + ORPHAN_SEND_MS);
+		expect(service.sweepOrphans("domain-a", 100 + ORPHAN_SEND_MS)).toBe(0);
+		reported.clear();
+		expect(service.sweepOrphans("domain-a", 100 + ORPHAN_SEND_MS - 1)).toBe(0);
+		expect(service.sweepOrphans("domain-a", 100 + ORPHAN_SEND_MS)).toBe(1);
+		expect(service.list("domain-a")).toMatchObject([{ state: "cancelled" }]);
 	});
 
 	it("fires once with the sealed body and content references", async () => {

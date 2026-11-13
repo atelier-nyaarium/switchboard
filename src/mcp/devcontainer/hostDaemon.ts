@@ -726,6 +726,7 @@ const hostOpRunner = createHostOpRunner({
 		spawn === WINDOWS_SPAWN ? listWindowsDirs(p, windowsAvailability().userProfile) : listHostDirs(p),
 	readSkill: async (target, skillPath) => readWorkflowSkill(target, skillPath),
 	agentModels: (backend, target) => agentRuntime.listModels(backend, target),
+	threads: (backend, target) => agentRuntime.listThreads(backend, target),
 	claudeRun: (op) => claudeRunner.start(op),
 	claudeCancel: (op) => claudeRunner.cancel(op),
 });

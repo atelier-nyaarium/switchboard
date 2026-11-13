@@ -999,6 +999,28 @@ describe("the OpenCode bridge", () => {
 		await r.bridge.done;
 	});
 
+	it("lists every session the server holds across its pages, with each one's parent", async () => {
+		const r = await rig();
+		const threadId = await open(r);
+		r.server.addSession("ses_stray");
+		r.server.addSession("ses_child", "/fake/project", "ses_stray");
+
+		const listed = await r.result(r.send({ op: "threads" }));
+
+		expect(listed).toMatchObject({
+			op: "threads",
+			threads: [
+				{ threadId, updatedAt: 1_700_000_000_000, parentId: null },
+				{ threadId: "ses_stray", updatedAt: 1_700_000_000_000, parentId: null },
+				{ threadId: "ses_child", updatedAt: 1_700_000_000_000, parentId: "ses_stray" },
+			],
+		});
+		// Three sessions over pages of two.
+		expect(r.server.requests.filter((asked) => asked.route.startsWith("/api/session?")).length).toBe(2);
+		r.bridge.closed();
+		await r.bridge.done;
+	});
+
 	it("deletes a thread's session once no turn runs on it, and says gone for one the server does not hold", async () => {
 		const r = await rig();
 		const threadId = await open(r);

@@ -51,6 +51,8 @@ const ROUTE_WAIT_MS = new Map<string, number>([
 const SHORT_POST_PATHS = [
 	"/enroll/arm",
 	"/federation/retire",
+	// Its listings run together, each inside the host op's own wait.
+	"/purge/sweep",
 	"/respond",
 	"/poll",
 	"/human/notify",
@@ -157,7 +159,8 @@ describe("gateway long waits", () => {
 			...quotedPaths(baselinePaths),
 			...AGENT_BACKENDS.map(({ id }) => agentHttpPath(id)),
 		];
-		const postPaths = new Set([...postHttpPaths(httpRouter, enrollPaths), ...loopbackPaths]);
+		const sweepPaths = fs.readFileSync("src/shared/schemasPurgeSweep.ts", "utf8");
+		const postPaths = new Set([...postHttpPaths(httpRouter, `${enrollPaths}\n${sweepPaths}`), ...loopbackPaths]);
 		const classifiedPaths = new Set([...ROUTE_WAIT_MS.keys(), ...SHORT_POST_PATHS]);
 
 		expect([...postPaths].sort()).toEqual([...classifiedPaths].sort());

@@ -13,6 +13,7 @@ import {
 import type {
 	AgentBackendSession,
 	AgentModel,
+	ListedThread,
 	ThreadOptions,
 	TurnCounter,
 	TurnHandle,
@@ -113,6 +114,10 @@ export class CopilotBackendSession implements AgentBackendSession {
 
 	deleteThread(sessionId: string): Promise<"deleted" | "gone"> {
 		return this.client.deleteSession(sessionId);
+	}
+
+	listThreads(): Promise<ListedThread[]> {
+		return this.client.listSessions();
 	}
 
 	async startTurn(sessionId: string, prompt: string, turn: TurnOptions = {}): Promise<TurnHandle> {

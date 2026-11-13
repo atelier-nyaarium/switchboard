@@ -126,6 +126,32 @@ describe("Copilot headless client", () => {
 		]);
 	});
 
+	it("lists every session with when it last changed, and throws for an answer that is no list", async () => {
+		const context = fakeChild();
+		const open = CopilotHeadlessClient.open(createHeadlessTransport(context.child));
+		await tick();
+		context.feed({ jsonrpc: "2.0", id: 1, result: { protocolVersion: 3 } });
+		const client = await open;
+		const answered = async (result: unknown) => {
+			const listed = client.listSessions().catch((error: unknown) => error);
+			await tick();
+			const asked = context.written.at(-1) as { id: number };
+			expect(asked).toMatchObject({ method: "session.list" });
+			context.feed({ jsonrpc: "2.0", id: asked.id, result });
+			return listed;
+		};
+
+		expect(
+			await answered({
+				sessions: [{ sessionId: "s1", modifiedTime: "2026-11-01T00:00:00.000Z" }, { sessionId: "s2" }],
+			}),
+		).toEqual([
+			{ threadId: "s1", updatedAt: Date.parse("2026-11-01T00:00:00.000Z"), parentId: null },
+			{ threadId: "s2", updatedAt: null, parentId: null },
+		]);
+		expect(await answered({})).toBeInstanceOf(Error);
+	});
+
 	it("deletes a session, says gone for one Copilot does not hold, and throws any other refusal", async () => {
 		const context = fakeChild();
 		const open = CopilotHeadlessClient.open(createHeadlessTransport(context.child));
