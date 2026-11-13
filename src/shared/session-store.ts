@@ -668,7 +668,7 @@ export class SessionStore {
 
 	private bind(record: SessionRecord, extra: { claudeSessionId?: string; live?: LiveRef }): SessionRecord {
 		if (extra.claudeSessionId) {
-			// `--resume` mints a fresh id; the log is the only trace of the fork.
+			// Logged, not chased.
 			const previous = record.claudeSessionId;
 			if (previous && previous !== extra.claudeSessionId) {
 				console.log(`[session] ${this.teamOf(record)} transcript ${previous} -> ${extra.claudeSessionId}`);
