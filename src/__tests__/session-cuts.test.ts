@@ -30,6 +30,8 @@ function world(
 		killed?: boolean;
 		repointed?: boolean;
 		woke?: boolean;
+		/** What the woken CLI reports running. */
+		loaded?: string;
 	} = {},
 ) {
 	const ambient = fakeAmbient({ drive: "manual" });
@@ -48,6 +50,7 @@ function world(
 		launching: false,
 		held: false,
 		version: CUT_TOOL_SINCE as string | undefined,
+		conversation: OLD as string | undefined,
 	};
 	const events: string[] = [];
 	const asked: string[] = [];
@@ -73,6 +76,7 @@ function world(
 		isLive: () => state.live,
 		busy: () => state.busy,
 		pluginVersion: () => state.version,
+		liveConversation: () => (state.live ? state.conversation : undefined),
 		launching: () => state.launching,
 		holdWakes: () => {
 			state.held = true;
@@ -94,8 +98,10 @@ function world(
 			events.push(`wake:${record.claudeSessionId}${state.held ? ":held" : ""}`);
 			if (over.woke === false) return { ok: false, error: "no launch" };
 			state.live = true;
+			state.conversation = over.loaded ?? record.claudeSessionId;
 			return { ok: true };
 		},
+		discard: (_team, conversationId) => events.push(`discard:${conversationId}`),
 		closed: () => events.push("ended"),
 		tellOwner: (_team, line) => told.push(`${line.title}: ${line.body}`),
 	});
@@ -105,7 +111,7 @@ function world(
 }
 
 describe("session cuts", () => {
-	it("compacts: asks the session, then on its summary closes it, builds at the planned turn, repoints and wakes", async () => {
+	it("compacts: asks the session, then on its summary closes it, builds at the planned turn, repoints, wakes and discards the old file", async () => {
 		const w = world();
 		const started = await w.cuts.start(TEAM, "compact", PICK, "Phone");
 		const cutId = w.cutIdOf();
@@ -118,7 +124,7 @@ describe("session cuts", () => {
 		expect(before).toEqual([]);
 		expect(answer).toEqual({ kind: "taken" });
 		// The wake comes after the hold lifts, so it reads the repointed record.
-		expect(w.events).toEqual(["close", "ended", "build", `repoint:${NEW}:held`, `wake:${NEW}`]);
+		expect(w.events).toEqual(["close", "ended", "build", `repoint:${NEW}:held`, `wake:${NEW}`, `discard:${OLD}`]);
 		const [checked, built] = w.ops.filter((op) => op.kind === "sessionCut").slice(-2);
 		expect(checked).toMatchObject({ conversationId: OLD, pick: { uuid: TURN }, endBefore: cutId });
 		expect(checked).not.toHaveProperty("build");
@@ -140,7 +146,7 @@ describe("session cuts", () => {
 		expect(await w.cuts.start(TEAM, "compact", PICK, "Phone")).toEqual({ started: true });
 	});
 
-	it("never builds over a session it could not close, and wakes the old file when the record could not move", async () => {
+	it("never builds over a session it could not close, wakes the old file when the record could not move, and keeps it unless the session came up on the new one", async () => {
 		const unclosed = world({ killed: false });
 		await unclosed.cuts.start(TEAM, "compact", PICK, "Phone");
 		unclosed.cuts.submit(TEAM, unclosed.cutIdOf(), "summary");
@@ -153,6 +159,10 @@ describe("session cuts", () => {
 		await asleep.cuts.start(TEAM, "compact", PICK, "Phone");
 		asleep.cuts.submit(TEAM, asleep.cutIdOf(), "summary");
 		await asleep.settle();
+		const elsewhere = world({ loaded: "another" });
+		await elsewhere.cuts.start(TEAM, "compact", PICK, "Phone");
+		elsewhere.cuts.submit(TEAM, elsewhere.cutIdOf(), "summary");
+		await elsewhere.settle();
 
 		// A kill that failed may still land.
 		expect(unclosed.events).toEqual([`wake:${OLD}`]);
@@ -161,6 +171,8 @@ describe("session cuts", () => {
 		expect(unrecorded.told).toEqual([expect.stringMatching(/^Compact failed: .*Nothing was changed\.$/)]);
 		expect(asleep.events).toEqual(["close", "ended", "build", `repoint:${NEW}:held`, `wake:${NEW}`]);
 		expect(asleep.told).toEqual([expect.stringContaining("did not restart")]);
+		// Up, but not on the new file.
+		expect(elsewhere.events).toEqual(["close", "ended", "build", `repoint:${NEW}:held`, `wake:${NEW}`]);
 		// Every road lifts the hold.
 		expect([unclosed, unrecorded, asleep].map((w) => w.state.held)).toEqual([false, false, false]);
 	});

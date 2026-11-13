@@ -59,7 +59,6 @@ internal fun cutPlanView(answer: ConsoleSessionCutPlanResult?): CutPlanView {
 			"Session file:",
 			"- ${sizeText(answer.sourceBytes ?: 0)} now",
 			"- ~${sizeText(answer.keptBytes ?: 0)} after",
-			"- Old file kept",
 		),
 	)
 }

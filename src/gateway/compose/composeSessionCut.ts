@@ -5,7 +5,7 @@ import type { Ambient } from "../../shared/ambient.js";
 import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import type { Handler } from "../routines/routineRoutes.js";
 import { createSessionCuts, type SessionCuts } from "../sessionCuts.js";
-import { ownTerminal } from "../sessionEnd.js";
+import { ownTerminal, replacedItemOf } from "../sessionEnd.js";
 import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { HostStage } from "./composeHost.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -52,6 +52,8 @@ export function composeSessionCut(deps: SessionCutStageDeps): SessionCutStage {
 		isLive: (team) => Boolean(resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team)),
 		busy: (team) => sessions.presence.busyOf(team),
 		pluginVersion: (team) => resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team)?.data.version,
+		liveConversation: (team) =>
+			resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team)?.data.claudeSessionId,
 		launching: deps.launching,
 		holdWakes: (team) => host.wakeService.hold(team),
 		ask: async (request) => {
@@ -67,6 +69,14 @@ export function composeSessionCut(deps: SessionCutStageDeps): SessionCutStage {
 			return true;
 		},
 		wake: (team) => host.wakeService.tryWakeTeam(team, undefined, { retain: true }),
+		discard: (team, conversationId) => {
+			const record = sessions.sessionStore.getByTeam(team);
+			const item = record && replacedItemOf(record, conversationId, sessions.sessionStore);
+			if (!item) return;
+			sessions.purgeQueue.add([item]);
+			// A failed write retries on the persist tick.
+			sessions.saveSessionsChecked();
+		},
 		closed: deps.closed,
 		tellOwner: (team, told, identity) => {
 			if (!deps.routes().tellOwnerOf(team, told, identity)) {

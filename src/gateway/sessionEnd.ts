@@ -61,22 +61,33 @@ export function threadItemOf(
 	return { place: purgePlaceOf(agent.requestedTarget), what: { kind: "thread", backend, threadId: agent.sessionId } };
 }
 
+const paneOf = (record: SessionRecord): TmuxTarget => ({
+	kind: isHostSpawn(record.spawn) ? "host" : "devcontainer",
+	name: record.spawn,
+	sessionName: record.id,
+});
+
+/** A Claude conversation a cut replaced. No pane: it may be live. */
+export function replacedItemOf(
+	record: SessionRecord,
+	conversationId: string,
+	sessionStore: Pick<SessionStore, "hostWorkdirHint">,
+): PurgeItem | undefined {
+	if (!ClaudeConversationIdSchema.safeParse(conversationId).success) return undefined;
+	return { place: placeOf(record, sessionStore), what: { kind: "claude", conversationId } };
+}
+
 export function purgeItemsOf(record: SessionRecord, deps: Pick<SessionEndDeps, "sessionStore">): PurgeItem[] {
 	const items: PurgeItem[] = [];
 	if (ownTerminal(record, (held) => deps.sessionStore.teamOf(held))) {
 		const place = placeOf(record, deps.sessionStore);
-		const pane: TmuxTarget = {
-			kind: isHostSpawn(record.spawn) ? "host" : "devcontainer",
-			name: record.spawn,
-			sessionName: record.id,
-		};
+		const pane = paneOf(record);
 		const conversation = conversationOf(record);
 		if (conversation) items.push({ place, what: conversation, pane });
-		// Replaced conversations too.
 		if (conversation?.kind === "claude") {
 			for (const id of record.cutFrom ?? []) {
-				if (ClaudeConversationIdSchema.safeParse(id).success)
-					items.push({ place, what: { kind: "claude", conversationId: id }, pane });
+				const replaced = replacedItemOf(record, id, deps.sessionStore);
+				if (replaced) items.push(replaced);
 			}
 		}
 		items.push({ place, what: { kind: "files", session: pane }, pane });

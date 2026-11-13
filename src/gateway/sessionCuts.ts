@@ -36,6 +36,8 @@ export interface SessionCutsDeps {
 	busy(team: string): boolean | undefined;
 	/** The live plugin's version. */
 	pluginVersion(team: string): string | undefined;
+	/** The conversation the live CLI runs. */
+	liveConversation(team: string): string | undefined;
 	launching(team: string): boolean;
 	/** Makes a launch of the team wait until the release. */
 	holdWakes(team: string): () => void;
@@ -44,6 +46,8 @@ export interface SessionCutsDeps {
 	/** False when no record holds the team. */
 	repoint(team: string, conversationId: string): boolean;
 	wake(team: string): Promise<{ ok: boolean; error?: string }>;
+	/** Queues a replaced conversation's delete. */
+	discard(team: string, conversationId: string): void;
 	/** What a close ends. */
 	closed(team: string): void;
 	tellOwner(team: string, told: { title: string; body: string }, identity: string): void;
@@ -138,7 +142,7 @@ export function doneLine(mode: CutMode, facts: CutFacts): string {
 	const sizes = `Session file: ${sizeText(facts.sourceBytes)} before, about ${sizeText(facts.keptBytes)} now.`;
 	if (mode === "trim") return `Trimmed to what the session still loads. ${sizes}`;
 	const above = mode === "compact" ? "Compacted" : "Cleared";
-	return `${above} above "${facts.keepText}". ${sizes} The old file is untouched.`;
+	return `${above} above "${facts.keepText}". ${sizes}`;
 }
 
 export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
@@ -244,12 +248,13 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 		return null;
 	}
 
-	/** Never writes the source file. Every check that can refuse runs before the close. */
+	/** Never writes the source file; deletes it once woken on the new. Every check that can refuse runs before the close. */
 	async function run(cut: Cut): Promise<void> {
 		const { team, place } = cut;
 		let line: string;
 		let title = FAILED_TITLE;
 		let closed = false;
+		let replacement: string | undefined;
 		const wasLive = deps.isLive(team);
 		// A wake would resume the old file.
 		const release = deps.holdWakes(team);
@@ -290,7 +295,8 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 			if (!deps.repoint(team, built.conversationId)) {
 				throw new Error("The new session file was built but could not be recorded.");
 			}
-			const { kind: _kind, conversationId: _id, ...facts } = built;
+			const { kind: _kind, conversationId, ...facts } = built;
+			replacement = conversationId;
 			line = doneLine(cut.mode, facts);
 			title = DONE_TITLE;
 		} catch (error) {
@@ -303,6 +309,9 @@ export function createSessionCuts(deps: SessionCutsDeps): SessionCuts {
 			const woke = await deps.wake(team).catch((error: Error) => ({ ok: false, error: error.message }));
 			if (!woke.ok)
 				line += ` ${sentence(`The session did not restart: ${woke.error ?? "no reason given"}`)} Wake it from here.`;
+			// Back up on the new file.
+			else if (replacement && deps.liveConversation(team) === replacement)
+				deps.discard(team, place.op.conversationId);
 		}
 		deps.tellOwner(team, { title, body: line }, `${cut.cutId}:end`);
 	}

@@ -464,8 +464,10 @@ sends `session_cut_start`. `src/gateway/sessionCuts.ts` runs the rest:
 3. It points the record at the new id (`repointConversation`) and wakes the session, which resumes
    the new file.
 
-- **The old file is never written:** resuming its id is the undo. The record keeps the ids a cut
-  replaced in `cutFrom`, and a forget deletes them with the session's own.
+- **The old file is never written, and goes once the session is back on the new one:** a wake that
+  lands on the new id queues the old conversation's delete through the purge queue
+  (`replacedItemOf`). Until then resuming the old id is the undo. The record keeps the ids a cut
+  replaced in `cutFrom`, and a forget deletes any still there.
 - **A launch waits while a cut runs** (`WakeService.hold`): a wake begun meanwhile would resume the
   conversation being replaced, so it reads the record once the cut repointed it.
 - **A cut point is a message the session was sent,** whether it started a turn or was taken in

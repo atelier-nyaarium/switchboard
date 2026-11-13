@@ -4,7 +4,7 @@ Targeted compact: cut a managed Claude session's conversation at a chosen row. A
 
 Settled before the questions, with the NyaaCode session and by measurement:
 
-- A cut builds a new session file under a new id while the CLI is closed, then the session resumes it. The source file is only read, and resuming the old id is the undo.
+- A cut builds a new session file under a new id while the CLI is closed, then the session resumes it. The source file is only read, and deleted once the session is back up on the new file. Owner: "let's not keep the old session file after we prove it works once." Proven 2026-11-13.
 - Rows from the chosen one on stay byte for byte. Everything above becomes a summary or is dropped.
 - Three modes: trim (drop what the session no longer loads), clear above (no summary), compact above (a summary).
 - The rules live in `claudeSessionCut` (`indexSession`, `planCut`, `buildCut`, `verifyCut`, `cutSession`), host neutral, so they move into NyaaAI's operator package.
