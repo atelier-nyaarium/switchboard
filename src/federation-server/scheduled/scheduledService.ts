@@ -189,6 +189,14 @@ export function createScheduledService(deps: ScheduledDeps) {
 		return { outcome: OP_OUTCOME_ACCEPTED, version: writeVersion(write, current.version + 1) };
 	}
 
+	/** A forgotten session's armed send is cancelled and its record kept. False asks for another try. */
+	function forgetSession(domainId: string, gatewayId: string, sessionId: string): boolean {
+		const target: ScheduledTarget = { domainId, gatewayId, sessionId };
+		const current = deps.registry.for(domainId).get("scheduled", recordId(target));
+		if (!current || TERMINAL.has(String(current.clear.state))) return true;
+		return cancel(domainId, target, current.version).outcome === OP_OUTCOME_ACCEPTED;
+	}
+
 	function list(domainId: string): ScheduledRecord[] {
 		return deps.registry
 			.for(domainId)
@@ -291,12 +299,14 @@ export function createScheduledService(deps: ScheduledDeps) {
 		list,
 		fire,
 		rearm,
+		forgetSession,
 		register(hooks: OwnerServiceHooks) {
 			hooks.ownerOp("schedule_send", (op: OwnerOp, value) =>
 				schedule(op.domainId, { conversationId: op.conversationId, device: op.device, opId: op.opId }, value),
 			);
 			hooks.ownerOp("schedule_cancel", (op, value) => cancel(op.domainId, value.target, value.expectedVersion));
 			hooks.ownerOp("schedule_list", (op) => list(op.domainId));
+			hooks.onSessionForgotten((reg, sessionId) => forgetSession(reg.domainId, reg.gatewayId, sessionId));
 		},
 	};
 }

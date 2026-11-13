@@ -3,6 +3,7 @@
 import { AGENT_AGE_PASS_MS } from "../shared/agent-collect.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { hostSpawnPoint } from "../shared/host-spawn.js";
+import { formatInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
@@ -137,6 +138,20 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			vault?.sessionEnded(team);
 			routines.sessionEnded(team);
 			assistant.sessionEnded(team);
+			// What names the session in the Gateway's own stores.
+			stores.jobs.forgetTeam(team);
+			stores.pendingDeliveries.failTeam(team);
+			const domainId = context.domainId();
+			if (domainId) {
+				stores.inboxClaims.forget(
+					formatInboxAddress({
+						kind: "session",
+						domainId,
+						gatewayId: bootstrap.localGatewayId,
+						sessionId: team,
+					}),
+				);
+			}
 		},
 	});
 	const assistant = composeAssistant({

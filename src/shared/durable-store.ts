@@ -54,6 +54,11 @@ export class DurableStore {
 		this.quarantined = true;
 	}
 
+	/** Deletes the file. Throws when it is there and cannot be removed. */
+	remove(): void {
+		fs.rmSync(this.file, { force: true });
+	}
+
 	/** Atomic write that reports failure to callers whose state transition depends on durability. */
 	saveChecked(state: unknown): void {
 		this.writeAtomic(state, true);

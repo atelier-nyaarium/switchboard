@@ -12,6 +12,7 @@ import {
 	type OwnerOpMutation,
 	ownerOpEntry,
 } from "../federation-server/ownerOpRegistry.js";
+import type { SessionForgottenListener } from "../federation-server/ownerServiceHooks.js";
 import { combinedOutcome, createShareService, type ShareServiceDeps } from "../federation-server/share/shareService.js";
 import { generateIdentity } from "../shared/crypto.js";
 import type { WriteOutcome } from "../shared/write-result.js";
@@ -34,6 +35,7 @@ const make = () => {
 	const gatewayFrames = new Map<string, GatewayFrameHandler>();
 	const classes = new Map<string, string>();
 	let gatewayDropped: ((reg: GatewayRegistration) => void) | undefined;
+	let sessionForgotten: SessionForgottenListener | undefined;
 	const gateways = new Map([
 		["a", ["a-gateway"]],
 		["b", ["b-gateway"]],
@@ -83,6 +85,7 @@ const make = () => {
 		unreported,
 		assistants,
 		dropGateway: (reg: GatewayRegistration) => gatewayDropped?.(reg),
+		forget: (reg: GatewayRegistration, sessionId: string) => sessionForgotten?.(reg, sessionId),
 		setNow: (value: number) => (now = value),
 		setDropBehavior: (gate: Promise<void> | undefined, outcome: WriteOutcome | undefined) => {
 			dropGate = gate;
@@ -100,7 +103,9 @@ const make = () => {
 			onGatewayDropped: (listener: (reg: GatewayRegistration) => void) => {
 				gatewayDropped = listener;
 			},
-			onSessionForgotten: () => undefined,
+			onSessionForgotten: (listener: SessionForgottenListener) => {
+				sessionForgotten = listener;
+			},
 			pushFrameTo: (domainId: string, gatewayId: string, frame: Record<string, unknown>) => {
 				pushed.push({ domainId, gatewayId, frame });
 				return true;
@@ -162,6 +167,20 @@ describe("ShareService", () => {
 		expect(ctx.service.listShares("a").shares.map((held) => held.sessionTarget)).toEqual(["a.gw.app.dev"]);
 		expect(ctx.service.isSharedTo("a", "a.gw.host.assistant", "b")).toBe(false);
 		expect(ctx.retired).toEqual([["a", "a.gw.host.assistant", "b"]]);
+		ctx.registry.close();
+	});
+
+	it("withdraws a forgotten session's shares and leaves its neighbours'", () => {
+		const ctx = make();
+		ctx.links.add("a|b");
+		ctx.service.register(ctx.hooks);
+		ctx.service.share("a", "a.gw.app.dev", { kind: "domain", domainId: "b" });
+		ctx.service.share("a", "a.gw.app.dev", { kind: "everyone_trusted" });
+		ctx.service.share("a", "a.gw.app.other", { kind: "domain", domainId: "b" });
+
+		expect(ctx.forget({ domainId: "a", gatewayId: "gw", incarnation: 1, signPub: "" }, "app.dev")).toBe(true);
+
+		expect(ctx.service.listShares("a").shares.map((held) => held.sessionTarget)).toEqual(["a.gw.app.other"]);
 		ctx.registry.close();
 	});
 

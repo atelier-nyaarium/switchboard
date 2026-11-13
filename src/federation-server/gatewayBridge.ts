@@ -17,6 +17,7 @@ import { type ConnectionId, GatewayTransport, type ToolProvider } from "./gatewa
 import type { InboxService, PeerRowGate } from "./inbox/inboxService.js";
 import { readRouterMigrationWindow } from "./migration/leaseService.js";
 import type { OwnerOpMutation } from "./ownerOpRegistry.js";
+import type { SessionForgottenListener } from "./ownerServiceHooks.js";
 
 export interface GatewayBridgeParams {
 	port: number;
@@ -58,7 +59,7 @@ export interface ConnGatewayRecord {
 
 export class GatewayBridge implements ToolProvider {
 	private readonly frames = new GatewayFrameCatalog();
-	private readonly sessionForgottenListeners: Array<(reg: GatewayRegistration, sessionId: string) => void> = [];
+	private readonly sessionForgottenListeners: SessionForgottenListener[] = [];
 	/** Whether a gateway is migration-fenced. */
 	private migrationFenced: ((domainId: string, gatewayId: string) => boolean) | null = null;
 	private migrationReady: ((domainId: string) => boolean) | null = null;
@@ -148,7 +149,12 @@ export class GatewayBridge implements ToolProvider {
 			getConnection: (connId) => this.transport?.getConnection(connId) ?? null,
 			send: (domainId, gatewayId, frame) => this.pushToGatewayInDomain(domainId, gatewayId, frame),
 			notifySessionForgotten: (identity, sessionId) => {
-				for (const listener of this.sessionForgottenListeners) listener(identity, sessionId);
+				let landed = true;
+				// Every listener runs, whatever an earlier one answered.
+				for (const listener of this.sessionForgottenListeners) {
+					if (listener(identity, sessionId) === false) landed = false;
+				}
+				return landed;
 			},
 		});
 		this.registerBuiltInFrames();
@@ -301,7 +307,7 @@ export class GatewayBridge implements ToolProvider {
 		return this.frames.names();
 	}
 
-	public onSessionForgotten(listener: (reg: GatewayRegistration, sessionId: string) => void): void {
+	public onSessionForgotten(listener: SessionForgottenListener): void {
 		this.sessionForgottenListeners.push(listener);
 	}
 

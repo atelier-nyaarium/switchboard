@@ -230,6 +230,24 @@ describe("PendingJobStore.expireByDomain", () => {
 	});
 });
 
+describe("PendingJobStore.forgetTeam", () => {
+	it("drops every job to or from a forgotten session, settles its waiter, and leaves the rest", async () => {
+		const store = new PendingJobStore<string>(600_000, processAmbient());
+		const to = convKey("c1", "lib");
+		const from = convKey("c2", "docs");
+		const other = convKey("c3", "docs");
+		anchor(store, to, outbound("c1", "alice"), { persistent: true, from: "alice.app", to: "lib" });
+		anchor(store, from, outbound("c2", "alice"), { persistent: true, from: "lib", to: "docs" });
+		anchor(store, other, outbound("c3", "alice"), { persistent: true, from: "alice.app", to: "docs" });
+		const waiting = store.waitForResult(to, 60_000);
+
+		expect(store.forgetTeam("lib")).toBe(2);
+
+		await expect(waiting).resolves.toMatchObject({ delivered: false });
+		expect([to, from, other].map((id) => store.has(id))).toEqual([false, false, true]);
+	});
+});
+
 // Session expiry matches canonical address and friend Domain.
 describe("PendingJobStore.expireBySession", () => {
 	function destJob(store: PendingJobStore<string>, conv: string, spawn: string, friendDomain: string): string {

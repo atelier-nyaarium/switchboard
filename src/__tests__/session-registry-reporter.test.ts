@@ -68,6 +68,38 @@ describe("session registry reporter", () => {
 		expect(sent.filter((entry) => entry.action === "session_forget")).toHaveLength(1);
 	});
 
+	it("reports a forget the Router had not confirmed again after a restart, until it is taken", async () => {
+		const sent: Array<{ action: string; params: Record<string, unknown> }> = [];
+		const make = (store: SessionStore, taken: boolean) =>
+			createSessionRegistryReporter({
+				sessionStore: store,
+				send: async (action, params) => {
+					sent.push({ action, params });
+					return taken ? { result: { ok: true } } : { result: { ok: false } };
+				},
+				incarnation: () => 3,
+				localGatewayId: "gateway",
+				ambient: fakeAmbient({ drive: "manual" }),
+			});
+		const store = new SessionStore({ ambient: processAmbient(), idGen: () => "one" });
+		const first = make(store, false);
+		first.attach();
+		const record = store.mint({ spawn: "host", harness: "claude" });
+		store.forget(store.teamOf(record));
+		await flush();
+		const saved = JSON.parse(JSON.stringify(first.pendingForgets())) as unknown;
+		expect(saved).toEqual(["host.one"]);
+
+		const second = make(new SessionStore({ ambient: processAmbient() }), true);
+		second.restoreForgets(saved);
+		sent.length = 0;
+		second.reconcile();
+		await flush();
+
+		expect(sent).toMatchObject([{ action: "session_forget", params: { sessionId: "host.one" } }]);
+		expect(second.pendingForgets()).toEqual([]);
+	});
+
 	it("retries a rejected tombstone", async () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: () => "one" });
 		const sent: string[] = [];

@@ -150,5 +150,14 @@ export function createSessionRegistryReporter(deps: SessionRegistryReporterDeps)
 		for (const sessionId of current) known.add(sessionId);
 	}
 
-	return { attach, detach, upsert, reconcile };
+	/** Forgets the Router has not confirmed. Rides the session snapshot. */
+	const pendingForgets = (): string[] => [...pendingTombstones];
+
+	/** Replayed at the next registration. */
+	function restoreForgets(raw: unknown): void {
+		if (!Array.isArray(raw)) return;
+		for (const sessionId of raw) if (typeof sessionId === "string" && sessionId) pendingTombstones.add(sessionId);
+	}
+
+	return { attach, detach, upsert, reconcile, pendingForgets, restoreForgets };
 }

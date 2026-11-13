@@ -18,6 +18,8 @@ type ReadAnchorsResult = z.infer<typeof ReadAnchorsResultSchema>;
 // Keep version outside streams.
 const VERSION_ID = "readAnchor.version";
 const anchorId = (stream: string): string => `readAnchor:${stream}`;
+/** A session's conversation, and its scheduled results. */
+const sessionStreams = (sessionTarget: string): string[] => [sessionTarget, `scheduled:${sessionTarget}`];
 const write = (result: Parameters<typeof foldWriteResult>[0]) => foldWriteResult(result);
 
 export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
@@ -84,9 +86,33 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 	const report = (domainId: string, stream: string, entry: ReadAnchorEntry): boolean =>
 		reportResult(domainId, stream, entry).advanced;
 
+	/** Deletes the anchors of every stream that names a session. False asks for another try. */
+	const forgetSession = (domainId: string, sessionTarget: string): boolean => {
+		const store = deps.registry.for(domainId);
+		const held = sessionStreams(sessionTarget)
+			.map((stream) => store.get("readAnchor", anchorId(stream)))
+			.filter((record): record is StateRecord => record !== null);
+		if (held.length === 0) return true;
+		const version = ensureVersion(domainId);
+		if ("outcome" in version) return false;
+		const dropped = write(
+			store.batch((tx) => {
+				for (const record of held) tx.del("readAnchor", record.id, record.version);
+				// A reader takes the removal as it takes a report.
+				tx.put("readAnchor", VERSION_ID, version.version, {
+					clear: { epoch: version.clear.epoch, version: Number(version.clear.version) + 1 },
+				});
+			}),
+		);
+		if (!dropped.applied) return false;
+		deps.pokeOwner?.(domainId, read(domainId));
+		return true;
+	};
+
 	return {
 		report,
 		read,
+		forgetSession,
 		register(hooks: OwnerServiceHooks): void {
 			hooks.ownerOp("report_read", async (op, value) => {
 				// Router stamps time; epochs use equality, never ordering.
@@ -96,6 +122,9 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 				return result;
 			});
 			hooks.ownerOp("read_anchors_read", async (op) => read(op.domainId));
+			hooks.onSessionForgotten((reg, sessionId) =>
+				forgetSession(reg.domainId, `${reg.domainId}.${reg.gatewayId}.${sessionId}`),
+			);
 		},
 	};
 }

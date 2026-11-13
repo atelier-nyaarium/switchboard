@@ -29,6 +29,7 @@ export interface RestoredState {
 	/** Optional purge snapshot. */
 	purges: unknown;
 	purgeTally: unknown;
+	routerForgets: unknown;
 }
 
 export interface StoresStage {
@@ -96,7 +97,14 @@ function readRestoredState(sessionResumeDurable: DurableStore): RestoredState {
 	const raw = sessionResumeDurable.load();
 	const wrapped = raw !== null && typeof raw === "object" && "sessions" in raw;
 	if (!wrapped) {
-		return { sessions: raw, planes: undefined, readAnchors: undefined, purges: undefined, purgeTally: undefined };
+		return {
+			sessions: raw,
+			planes: undefined,
+			readAnchors: undefined,
+			purges: undefined,
+			purgeTally: undefined,
+			routerForgets: undefined,
+		};
 	}
 	const record = raw as {
 		sessions?: unknown;
@@ -104,6 +112,7 @@ function readRestoredState(sessionResumeDurable: DurableStore): RestoredState {
 		readAnchors?: unknown;
 		purges?: unknown;
 		purgeTally?: unknown;
+		routerForgets?: unknown;
 	};
 	return {
 		sessions: record.sessions,
@@ -111,5 +120,6 @@ function readRestoredState(sessionResumeDurable: DurableStore): RestoredState {
 		readAnchors: record.readAnchors,
 		purges: record.purges,
 		purgeTally: record.purgeTally,
+		routerForgets: record.routerForgets,
 	};
 }

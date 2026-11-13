@@ -14,6 +14,8 @@ import { retireRow } from "./inboxRetire.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 
 const JOURNAL_COMPACT_BYTES = 4 * 1024 * 1024;
+/** A ledger entry outlives its row by a week, for a late duplicate. */
+export const OP_LEDGER_TTL_MS = INBOX_ROW_TTL_MS + 7 * 24 * 60 * 60 * 1000;
 
 function sweepOwnerOpNonces(store: OwnerStateStore, now: number): void {
 	for (const record of store.list("nonce"))
@@ -29,6 +31,20 @@ function addresses(store: OwnerStateStore, domainId: string): string[] {
 				address.startsWith(`session:${domainId}/`) ||
 				address.startsWith(`gateway:${domainId}/`),
 		);
+}
+
+/** The ledger is keyed by op, so it is swept by age. Answers how many went. */
+export function sweepOpLedger(registry: OwnerStoreRegistry, domainId: string, now: number): number {
+	const store = registry.for(domainId);
+	if (store.health().quarantined) return 0;
+	let dropped = 0;
+	for (const record of store.list("op")) {
+		const at = Number(record.clear.at);
+		// An entry with no time is left.
+		if (!Number.isFinite(at) || now - at <= OP_LEDGER_TTL_MS) continue;
+		if (store.del("op", record.id, record.version).kind === "ok") dropped += 1;
+	}
+	return dropped;
 }
 
 export function compactInbox(registry: OwnerStoreRegistry, domainId: string): void {

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReferenceHeldStore } from "../federation-server/blobs/referenceHeldStore.js";
 import { InboxService } from "../federation-server/inbox/inboxService.js";
+import { sweepOpLedger } from "../federation-server/inbox/inboxSweep.js";
 import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistry.js";
 import { DomainQuota } from "../federation-server/owner/domainQuota.js";
 import { OwnerQuarantined } from "../federation-server/owner/ownerStateStore.js";
@@ -403,6 +404,26 @@ describe("InboxService", () => {
 		expect(service.readOwner(domainId, "phone", consumer.cursor, 10, consumer.cursorEpoch)).toMatchObject({
 			floor: (expired.seq as number) + 1,
 		});
+		registry.close();
+	});
+
+	it("keeps an op's ledger entry a week past its row's lifetime, then takes that op as new", () => {
+		let now = 100;
+		const { service, registry, owner, producer } = make({ now: () => now });
+		const address = ownerAddress(owner);
+		const row = rowFor(producer, "once");
+		const append = () => service.appendRow({ address, row, producerSignPub: producer.sign.pub });
+		const first = append();
+
+		now += INBOX_ROW_TTL_MS + 1;
+		service.sweep(now);
+		expect(sweepOpLedger(registry, domainId, now)).toBe(0);
+		// The entry still answers a late duplicate.
+		expect(append()).toMatchObject({ seq: first.seq });
+
+		now += 7 * 24 * 60 * 60_000;
+		expect(sweepOpLedger(registry, domainId, now)).toBe(1);
+		expect(append().seq).not.toBe(first.seq);
 		registry.close();
 	});
 

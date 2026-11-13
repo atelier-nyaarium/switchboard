@@ -63,8 +63,23 @@ export class InboxClaims {
 		this.file(address);
 		const current = this.claims.get(address)!;
 		if (current.deliveryEpoch !== deliveryEpoch) return;
-		const { [`${address}:${seq}:${deliveryEpoch}`]: _acked, ...kept } = current.claims;
+		const deliveryId = `${address}:${seq}:${deliveryEpoch}`;
+		// A forgotten address gets no file back.
+		if (!(deliveryId in current.claims)) return;
+		const { [deliveryId]: _acked, ...kept } = current.claims;
 		this.commit(address, { deliveryEpoch, claims: kept });
+	}
+
+	/** Deletes an address's file. A failure leaves it for the next try. */
+	forget(address: string): boolean {
+		try {
+			this.file(address).remove();
+		} catch {
+			return false;
+		}
+		this.files.delete(address);
+		this.claims.delete(address);
+		return true;
 	}
 
 	/** Throws unless landed. */

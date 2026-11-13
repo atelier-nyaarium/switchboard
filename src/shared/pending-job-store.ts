@@ -391,6 +391,24 @@ export class PendingJobStore<T> {
 		return expired;
 	}
 
+	/** Drops every job to or from a session that is gone, settling its waiters. */
+	forgetTeam(team: string, error = "session forgotten"): number {
+		let dropped = 0;
+		for (const [id, entry] of this.entries) {
+			if (entry.to !== team && entry.from !== team) continue;
+			if (entry.timer) this.ambient.clearTimer(entry.timer);
+			entry.timer = null;
+			entry.state = "timed_out";
+			const resolve = entry.resolve;
+			entry.resolve = null;
+			resolve?.({ delivered: false, error });
+			this.entries.delete(id);
+			this.notifyCrossDomainJobChange(entry);
+			dropped++;
+		}
+		return dropped;
+	}
+
 	// Persistent results remain available after polling.
 	poll(id: string): T | null | undefined {
 		const entry = this.entries.get(id);

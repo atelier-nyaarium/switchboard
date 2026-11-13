@@ -462,6 +462,10 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 		register(hooks) {
 			registeredHooks = hooks;
 			hooks.onSweep("share sweep", (domainId, now) => this.sweep(domainId, now));
+			hooks.onSessionForgotten(
+				(reg, sessionId) =>
+					this.withdraw(reg.domainId, `${reg.domainId}.${reg.gatewayId}.${sessionId}`) === undefined,
+			);
 			hooks.ownerOp("cross_domain_share", (op, value) =>
 				this.share(op.domainId, value.sessionTarget, value.target),
 			);

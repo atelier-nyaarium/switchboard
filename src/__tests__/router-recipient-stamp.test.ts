@@ -51,7 +51,7 @@ function make() {
 		getConnectionId: () => undefined,
 		getConnection: () => null as never,
 		send: () => false,
-		notifySessionForgotten: () => {},
+		notifySessionForgotten: () => true,
 	});
 	frames.setPhoneHoldReader((id, at) => hold.read(id, at));
 	const pushed: ReturnType<typeof inbox.rows> = [];

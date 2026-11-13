@@ -25,6 +25,22 @@ describe("InboxClaims", () => {
 		expect(claim).toMatchObject({ deliveryId: `${address}:4:1`, outcome: "failed" });
 	});
 
+	it("deletes a forgotten address's file and its claims, and no other's", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-claims-"));
+		roots.push(root);
+		const other = "session:domain/gateway/other";
+		const claims = createInboxClaims(root, { now: () => 10 });
+		claims.claim(address, 4, 1);
+		claims.claim(other, 4, 1);
+
+		expect(claims.forget(address)).toBe(true);
+
+		expect(fs.readdirSync(path.join(root, "inbox-claims"))).toHaveLength(1);
+		const reopened = createInboxClaims(root, { now: () => 20 });
+		expect(reopened.get(address, 4, 1)).toBeNull();
+		expect(reopened.get(other, 4, 1)).toMatchObject({ seq: 4 });
+	});
+
 	it("clears claims when the address epoch changes", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-claims-"));
 		roots.push(root);

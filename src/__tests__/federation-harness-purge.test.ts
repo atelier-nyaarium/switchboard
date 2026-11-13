@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SETTLED_RETENTION_MS } from "../gateway/workflows/runner.js";
 import { AGENT_THREAD_TTL_MS } from "../shared/agent-collect.js";
+import { VAULT_VALUE_KIND, vaultAadKind } from "../shared/content-envelope.js";
 import type { HostPurgeOp } from "../shared/host-op.js";
 import { ownSessionFiles } from "../shared/session-files.js";
 import { composeSessionName } from "../shared/session-id.js";
@@ -92,6 +93,47 @@ describe("what an ended session leaves at its place", () => {
 	afterAll(async () => {
 		for (const attached of sessions) attached.close();
 		await h.close();
+	});
+
+	it("leaves no armed send and no read anchor at the Router for a forgotten session", async () => {
+		const nia = await launch("Nia");
+		// A neighbour's stream, which stays.
+		const kept = { team: "host.neighbour" };
+		const [domainId, gatewayId] = h.target(nia.team).split(".") as [string, string];
+		const stream = (team: string) => h.target(team);
+		const armed = (await h.phone.send({
+			kind: "schedule_send",
+			target: { domainId, gatewayId, sessionId: nia.team },
+			fireAt: h.now() + 60 * 60_000,
+			opId: randomUUID(),
+			files: [],
+			// The Router never opens it, so any sealed body serves.
+			body: h.phone.seal("later", vaultAadKind(VAULT_VALUE_KIND, randomUUID())),
+		})) as { outcome: string };
+		expect(armed.outcome).toBe("accepted");
+		for (const name of [stream(nia.team), `scheduled:${stream(nia.team)}`, stream(kept.team)]) {
+			expect((await h.phone.reportRead(name, 1, 1)).status).toBe(200);
+		}
+		const anchors = async () =>
+			((await h.phone.send({ kind: "read_anchors_read" })) as { anchors: Array<{ stream: string }> }).anchors.map(
+				(anchor) => anchor.stream,
+			);
+		const sends = async () =>
+			(await h.phone.send({ kind: "schedule_list" })) as Array<{ target: { sessionId: string }; state: string }>;
+		expect(await anchors()).toHaveLength(3);
+
+		await forget(nia);
+		await h.waitFor(async () => ((await anchors()).length === 1 ? true : undefined), "the anchors to go");
+
+		expect(await anchors()).toEqual([stream(kept.team)]);
+		expect((await sends()).filter((send) => send.target.sessionId === nia.team)).toMatchObject([
+			{ state: "cancelled" },
+		]);
+		// The Gateway's claim file for its address went with it.
+		const claimed = fs
+			.readdirSync(path.join(h.root, "gateway", "inbox-claims"))
+			.map((file) => Buffer.from(file.slice("claim-".length, -".json".length), "base64url").toString());
+		expect(claimed.filter((address) => address.endsWith(`/${nia.team}`))).toEqual([]);
 	});
 
 	it("deletes a forgotten session's conversation, own files and agent threads, behind its pane's close", async () => {

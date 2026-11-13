@@ -38,7 +38,8 @@ export interface InboxFramesDeps {
 	getConnectionId: (domainId: string, gatewayId: string) => ConnectionId | undefined;
 	getConnection: (connId: ConnectionId) => WSLike;
 	send: (domainId: string, gatewayId: string, frame: Record<string, unknown>) => boolean;
-	notifySessionForgotten: (identity: GatewayRegistration, sessionId: string) => void;
+	/** False when a listener's write did not land. */
+	notifySessionForgotten: (identity: GatewayRegistration, sessionId: string) => boolean;
 }
 
 /** Inbox operations and forwarding. */
@@ -161,8 +162,8 @@ export class InboxFrames {
 		const parsed = SessionForgetParamsSchema.safeParse(params);
 		if (!parsed.success) return { ok: false, error: "invalid session_forget" };
 		this.deps.inbox?.forgetSession(reg.domainId, reg.gatewayId, parsed.data.sessionId);
-		this.deps.notifySessionForgotten(reg, parsed.data.sessionId);
-		return { ok: true };
+		// Not ok is reported again.
+		return { ok: this.deps.notifySessionForgotten(reg, parsed.data.sessionId) };
 	}
 
 	private pushRow(address: InboxAddress, row: InboxRow): boolean {

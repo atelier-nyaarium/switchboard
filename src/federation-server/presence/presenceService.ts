@@ -394,6 +394,7 @@ export function createPresenceService(deps: {
 		hooks.onSessionForgotten((reg, sessionId) => {
 			forgetSession(reg, sessionId);
 			pushIfChanged(reg.domainId);
+			return undefined;
 		});
 		hooks.gatewayFrame("presence_read", "read", (reg) => {
 			if (!deps.projection) return { ok: false, error: "projection unavailable" };

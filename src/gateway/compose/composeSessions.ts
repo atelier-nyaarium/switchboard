@@ -122,6 +122,7 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 	const purgeQueue = createPurgeQueue(ambient);
 	purgeQueue.restore(stores.restored.purges);
 	purgeQueue.restoreTally(stores.restored.purgeTally);
+	sessionReporter.restoreForgets(stores.restored.routerForgets);
 	// One snapshot stores records and queued purges.
 	const sessionResumeSnapshot = (cleanShutdown: boolean) => ({
 		sessions: sessionStore.snapshot(),
@@ -129,6 +130,7 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		readAnchors: readAnchors.snapshot(),
 		purges: purgeQueue.snapshot(),
 		purgeTally: purgeQueue.tally(),
+		routerForgets: sessionReporter.pendingForgets(),
 	});
 	const saveSessionsChecked = () => {
 		const result = writeChecked(stores.sessionResumeDurable, sessionResumeSnapshot(false), "session-resume");
