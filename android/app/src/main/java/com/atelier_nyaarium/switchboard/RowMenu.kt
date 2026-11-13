@@ -18,7 +18,9 @@ import kotlinx.coroutines.withContext
 /** A long-pressed row. */
 internal data class RowPress(val team: String, val rowId: Long, val rowAt: Long)
 
-/** Row menu, then its clear confirmation. */
+private enum class RowAct { CLEAR, CUT }
+
+/** Row menu, then its confirmation. */
 @Composable
 internal fun RowMenuDialog(
 	repo: ChatRepository,
@@ -27,21 +29,85 @@ internal fun RowMenuDialog(
 ) {
 	var press by pressState
 	val held = press ?: return
-	var confirming by remember(held) { mutableStateOf(false) }
-	if (!confirming) {
-		AlertDialog(
-			onDismissRequest = { press = null },
-			text = { TextButton(onClick = hapticClick { confirming = true }) { Text("Clear and all above") } },
-			confirmButton = {},
-		)
+	var picked by remember(held) { mutableStateOf<RowAct?>(null) }
+	val state by repo.state.collectAsState()
+	val message = state.threads[held.team]?.firstOrNull { it.id == held.rowId && it.at == held.rowAt }
+	val above = remember(state.threads, held) { rowAbove(state, held.team, held.rowId, held.rowAt) }
+	val cuts = remember(state.teams, held) { cutOffered(state.teams.firstOrNull { it.name == held.team }) }
+	if (message == null || (!cuts && above == null)) {
+		LaunchedEffect(held) { press = null }
 		return
 	}
-	val state by repo.state.collectAsState()
-	val cut = remember(state.threads, state.drafts, state.scheduledSends, held) {
-		threadCut(state, held.team, held.rowId, held.rowAt)
+	when (picked) {
+		null -> AlertDialog(
+			onDismissRequest = { press = null },
+			text = {
+				if (cuts) {
+					TextButton(onClick = hapticClick { picked = RowAct.CUT }) { Text(CutMode.COMPACT.label) }
+				} else {
+					TextButton(onClick = hapticClick { picked = RowAct.CLEAR }) { Text("Clear above") }
+				}
+			},
+			confirmButton = {},
+		)
+		RowAct.CUT -> CutConfirmDialog(repo, held.team, above, state, cutRowOf(message), claimsOf) { press = null }
+		RowAct.CLEAR -> above?.let { ClearConfirmDialog(repo, held.team, it, state, claimsOf) { press = null } }
+	}
+}
+
+/** What a compact keeps and folds, read from the Gateway before it is confirmed, and what the phone clears with it. */
+@Composable
+private fun CutConfirmDialog(
+	repo: ChatRepository,
+	team: String,
+	through: Message?,
+	state: ChatState,
+	row: CutRow,
+	claimsOf: (team: String, rows: List<Message>, left: List<Message>) -> List<CutClaim>,
+	close: () -> Unit,
+) {
+	val mode = CutMode.COMPACT
+	val view by produceState<CutPlanView>(CutPlanView.Loading, team, row) {
+		value = withContext(Dispatchers.IO) { repo.cutPlan(team, mode, row) }
+	}
+	val cut = remember(state.threads, state.drafts, state.scheduledSends, through) {
+		through?.let { threadCut(state, team, it.id, it.at) }
+	}
+	val clears by produceState<List<String>?>(null, cut) {
+		value = cut?.let {
+			withContext(Dispatchers.IO) {
+				val size = freedSize(repo.filesDir, it.freed)
+				clearCountLines(it.rows.size, size.files, size.bytes, claimsOf(it.team, it.rows, it.left))
+			}
+		} ?: emptyList()
+	}
+	ConfirmDialog(
+		title = mode.label,
+		body = cutConfirmBody(view, clears.orEmpty()),
+		confirmText = "Compact",
+		onConfirm = {
+			close()
+			repo.command { if (startCut(team, mode, row) && through != null) clearThrough(team, through.id, through.at) }
+		},
+		onDismiss = close,
+		confirmEnabled = view is CutPlanView.Planned && clears != null,
+	)
+}
+
+@Composable
+private fun ClearConfirmDialog(
+	repo: ChatRepository,
+	team: String,
+	through: Message,
+	state: ChatState,
+	claimsOf: (team: String, rows: List<Message>, left: List<Message>) -> List<CutClaim>,
+	close: () -> Unit,
+) {
+	val cut = remember(state.threads, state.drafts, state.scheduledSends, through) {
+		threadCut(state, team, through.id, through.at)
 	}
 	if (cut == null) {
-		LaunchedEffect(held) { press = null }
+		LaunchedEffect(through) { close() }
 		return
 	}
 	val measured by produceState<Triple<ThreadCut, FreedSize, List<CutClaim>>?>(null, cut) {
@@ -53,14 +119,14 @@ internal fun RowMenuDialog(
 	val fresh = measured?.takeIf { it.first == cut }
 	val size = fresh?.second
 	ConfirmDialog(
-		title = "Clear and all above",
+		title = "Clear above",
 		body = clearConfirmLines(cut.rows.size, size?.files ?: 0, size?.bytes ?: 0L, fresh?.third.orEmpty()).joinToString("\n"),
 		confirmText = "Clear",
 		onConfirm = {
-			press = null
-			repo.command { clearThrough(held.team, held.rowId, held.rowAt) }
+			close()
+			repo.command { clearThrough(team, through.id, through.at) }
 		},
-		onDismiss = { press = null },
+		onDismiss = close,
 		confirmEnabled = size != null,
 	)
 }

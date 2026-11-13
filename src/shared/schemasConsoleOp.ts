@@ -11,6 +11,7 @@ import { PhoneCapabilityAnswerSchema } from "./schemasPhoneCapabilities.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
+import { CUT_MODES, CUT_ROW_TEXT_MAX } from "./schemasSessionCut.js";
 import { VaultDecisionSchema } from "./schemasVault.js";
 import { FileMutationSchema, SymbolFacetSchema } from "./schemasWorkspace.js";
 import { SESSION_HARNESSES } from "./session-harness.js";
@@ -107,6 +108,22 @@ export const ConsoleOpSchema = z
 			target: z.string().min(1).max(128),
 			/** The row's CLI, for a session the Gateway holds no record for. */
 			harness: z.enum(SESSION_HARNESSES).optional(),
+		}),
+		z.object({
+			kind: z.literal("session_cut_plan"),
+			target: z.string().min(1).max(128),
+			mode: z.enum(CUT_MODES),
+			/** The pressed row. Absent for a trim. */
+			rowAt: z.number().int().nonnegative().optional(),
+			/** Its text, when it is a message the session was sent. */
+			rowText: z.string().max(CUT_ROW_TEXT_MAX).optional(),
+		}),
+		z.object({
+			kind: z.literal("session_cut_start"),
+			target: z.string().min(1).max(128),
+			mode: z.enum(CUT_MODES),
+			rowAt: z.number().int().nonnegative().optional(),
+			rowText: z.string().max(CUT_ROW_TEXT_MAX).optional(),
 		}),
 		// `target` names a container's spawn point.
 		z.object({
@@ -395,6 +412,8 @@ export const VALUE_OP_KINDS = new Set([
 	"workspace_file_history",
 	"workspace_paint_text",
 	"create_session",
+	"session_cut_plan",
+	"session_cut_start",
 	"container_start",
 	"container_stop",
 	"reload_plugins",

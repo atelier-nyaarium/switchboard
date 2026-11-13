@@ -272,6 +272,7 @@ export function createRoutes(deps: RoutesDeps) {
 		humanNotify,
 		deliverToOwner,
 		tellOwnerLaunch: consolePush.tellOwnerLaunch,
+		tellOwnerOf: consolePush.tellOwnerOf,
 		pluginAction,
 		taskBoard,
 		namesBlob: consolePush.namesBlob,

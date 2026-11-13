@@ -16,6 +16,7 @@ import { GATED_CAPABILITY_IDS } from "./capabilities.js";
 import { registerCapabilitiesTool } from "./capabilitiesTool.js";
 import { registerChannelReply, registerChannelReplyStructured } from "./channel/channelReply.js";
 import { registerHumanTools } from "./channel/humanTools.js";
+import { registerCutTools } from "./cut/cutTools.js";
 import { registerDesignerTools } from "./designer/designerTools.js";
 import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
@@ -37,6 +38,7 @@ export const EVERY_TOOL_REGISTRAR = [
 	"registerBoardTools",
 	"registerVaultTools",
 	"registerRoutineTools",
+	"registerCutTools",
 	"registerWorkflowTools",
 	"registerInboxTool",
 	"registerActionFront",
@@ -63,6 +65,7 @@ export function registerEveryTool(server: McpServer): void {
 	registerBoardTools(server);
 	registerVaultTools(server);
 	registerRoutineTools(server);
+	registerCutTools(server);
 	registerWorkflowTools(
 		server,
 		AGENT_BACKENDS.map((backend) => backend.id),

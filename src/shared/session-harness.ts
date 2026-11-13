@@ -108,6 +108,8 @@ export interface HarnessRow {
 	readonly refusedKeys: readonly string[];
 	/** Takes a typed `/goal` line. */
 	readonly goals: boolean;
+	/** Supports targeted cuts. */
+	readonly cuts: boolean;
 	/** Laid over the CLI's own policy at create. */
 	readonly permissions: readonly PermissionRule[];
 	/** Null needs none. */
@@ -208,6 +210,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		],
 		refusedKeys: [],
 		goals: true,
+		cuts: true,
 		permissions: [],
 		plugins: CLAUDE_PLUGINS,
 	},
@@ -245,6 +248,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		// An empty composer exits on it.
 		refusedKeys: ["C-c"],
 		goals: false,
+		cuts: false,
 		permissions: [],
 		// Launcher runs the daemon's `dist/`.
 		plugins: null,
@@ -275,6 +279,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		],
 		refusedKeys: [],
 		goals: true,
+		cuts: false,
 		permissions: [],
 		plugins: COPILOT_PLUGINS,
 	},

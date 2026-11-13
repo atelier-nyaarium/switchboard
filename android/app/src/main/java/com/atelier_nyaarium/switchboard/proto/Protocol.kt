@@ -146,6 +146,8 @@ object Protocol {
 			const val CLOSE_SESSION: String = "close_session"
 			const val RENAME_SESSION: String = "rename_session"
 			const val WAKE: String = "wake"
+			const val SESSION_CUT_PLAN: String = "session_cut_plan"
+			const val SESSION_CUT_START: String = "session_cut_start"
 			const val CONTAINER_START: String = "container_start"
 			const val CONTAINER_STOP: String = "container_stop"
 			const val LIST_DIRS: String = "list_dirs"
@@ -785,6 +787,24 @@ sealed class ConsoleOp {
 	data class Wake(
 		val target: String,
 		val harness: String? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("session_cut_plan")
+	data class SessionCutPlan(
+		val target: String,
+		val mode: String,
+		val rowAt: Long? = null,
+		val rowText: String? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("session_cut_start")
+	data class SessionCutStart(
+		val target: String,
+		val mode: String,
+		val rowAt: Long? = null,
+		val rowText: String? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -1608,6 +1628,27 @@ data class ConsolePolicyPutResult(
 data class ConsolePolicyDeleteResult(
 	val deleted: Boolean,
 	val reason: String? = null,
+)
+
+@Serializable
+data class ConsoleSessionCutPlanResult(
+	val planned: Boolean,
+	val reason: String? = null,
+	val detail: String? = null,
+	val keepAt: Long? = null,
+	val keepText: String? = null,
+	val snapped: Boolean? = null,
+	val keptRows: Long? = null,
+	val foldedRows: Long? = null,
+	val keptBytes: Long? = null,
+	val sourceBytes: Long? = null,
+)
+
+@Serializable
+data class ConsoleSessionCutStartResult(
+	val started: Boolean,
+	val reason: String? = null,
+	val detail: String? = null,
 )
 
 @Serializable

@@ -63,6 +63,7 @@ const SHORT_POST_PATHS = [
 	"/assistant/send/withdraw",
 	"/routine/session",
 	"/routine/report",
+	"/session/cut/summary",
 	"/session/baseline",
 	"/session/type",
 	"/assistant/hold",
@@ -112,6 +113,7 @@ describe("gateway long waits", () => {
 			"deps.agents.agentRoutes",
 			"deps.vault.routes",
 			"deps.routines?.routes",
+			"deps.sessionCut.routes",
 			"deps.baseline.routes",
 			"deps.assistant.routes",
 		]);
@@ -149,6 +151,7 @@ describe("gateway long waits", () => {
 		]);
 		expect(mapKeys(routineRoutes)).toEqual(["COMMAND.path", "REPORT.path"]);
 		expect(mapKeys(baselineRoutes)).toEqual(["SESSION_BASELINE_PATH"]);
+		expect(mapKeys(fs.readFileSync("src/gateway/compose/composeSessionCut.ts", "utf8"))).toEqual(["COMMAND.path"]);
 
 		const loopbackPaths = [
 			...quotedPaths(vaultRoutes),

@@ -37,6 +37,7 @@ import {
 	ConsoleRunbookPreviewResultSchema,
 	ConsoleRunbookPutResultSchema,
 } from "./schemasRunbook.js";
+import { ConsoleSessionCutPlanResultSchema, ConsoleSessionCutStartResultSchema } from "./schemasSessionCut.js";
 import {
 	ConsoleVaultAnswerResultSchema,
 	ConsoleVaultGrantsResultSchema,
@@ -394,6 +395,8 @@ export const ConsoleOpResultSchema = z.union([
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
 	ConsolePolicyDeleteResultSchema,
+	ConsoleSessionCutPlanResultSchema,
+	ConsoleSessionCutStartResultSchema,
 	...Object.values(DEVICE_CONSOLE_RESULTS),
 	ConsoleAssistantStateResultSchema,
 	ConsoleAssistantRulesResultSchema,

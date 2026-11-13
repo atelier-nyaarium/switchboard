@@ -72,6 +72,13 @@ export function purgeItemsOf(record: SessionRecord, deps: Pick<SessionEndDeps, "
 		};
 		const conversation = conversationOf(record);
 		if (conversation) items.push({ place, what: conversation, pane });
+		// Replaced conversations too.
+		if (conversation?.kind === "claude") {
+			for (const id of record.cutFrom ?? []) {
+				if (ClaudeConversationIdSchema.safeParse(id).success)
+					items.push({ place, what: { kind: "claude", conversationId: id }, pane });
+			}
+		}
 		items.push({ place, what: { kind: "files", session: pane }, pane });
 	}
 	for (const { backend, agent } of deps.sessionStore.everyAgent(record)) {

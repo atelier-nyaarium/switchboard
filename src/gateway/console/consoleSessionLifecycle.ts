@@ -34,6 +34,7 @@ export interface SessionLifecycleDeps {
 	/** Reports the launch's end. */
 	watchOwnerLaunch?: (team: string, launchId: string) => void;
 	isWakeInFlight?: (team: string) => boolean;
+	cutRunning?: (team: string) => boolean;
 	dropSessionResume?: (team: string, boardDisposition: BoardDisposition) => void;
 	/** Close and forget end session grants. */
 	onSessionEnded?: (team: string) => void;
@@ -53,6 +54,7 @@ export function createSessionLifecycleHandlers({
 	beginLaunch,
 	watchOwnerLaunch,
 	isWakeInFlight,
+	cutRunning,
 	dropSessionResume,
 	onSessionEnded,
 	forgetRefusal,
@@ -230,6 +232,7 @@ export function createSessionLifecycleHandlers({
 		if (isWakeInFlight?.(name)) {
 			throw new Error(`"${name}" is waking; wait for it to finish before closing`);
 		}
+		if (cutRunning?.(name)) throw new Error(`"${name}" is being compacted; wait for it to finish before closing`);
 		const dedupKey = `${conversationId}:${opId}`;
 		const r = await relayToHost({ kind: "killSession", target, dedupKey });
 		if (!r.ok) throw new Error(r.error ?? "close failed");
@@ -249,6 +252,8 @@ export function createSessionLifecycleHandlers({
 		const refusal = released ? null : forgetRefusal?.(name);
 		if (refusal) throw new Error(`cannot forget "${name}": ${refusal}`);
 		if (isWakeInFlight?.(name)) throw new Error(`"${name}" is waking; wait for it to finish before forgetting`);
+		if (cutRunning?.(name))
+			throw new Error(`"${name}" is being compacted; wait for it to finish before forgetting`);
 		// Forget leaves a foreign terminal running.
 		const record = sessionStore?.getByTeam(name);
 		const kill = async (): Promise<boolean> => {

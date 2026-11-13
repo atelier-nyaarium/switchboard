@@ -64,6 +64,17 @@ describe("what a record leaves at its place", () => {
 		expect(purgeItemsOf(copilot, deps()).map((item) => item.what.kind)).toEqual(["files"]);
 	});
 
+	it("deletes what a cut replaced with the conversation, and no id that is not one", () => {
+		const replaced = "223e4567-e89b-42d3-a456-426614174000";
+		const items = purgeItemsOf(record({ cutFrom: [replaced, "../../etc"] }), deps());
+
+		expect(items.map((item) => item.what)).toEqual([
+			{ kind: "claude", conversationId: CONVERSATION },
+			{ kind: "claude", conversationId: replaced },
+			{ kind: "files", session: PANE },
+		]);
+	});
+
 	it("names no conversation whose id is not one, and still deletes the session's own files", () => {
 		const items = purgeItemsOf(record({ claudeSessionId: "../../etc" }), deps());
 

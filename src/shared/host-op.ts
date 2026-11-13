@@ -5,6 +5,7 @@ import { AGENT_PROMPT_MAX_BYTES } from "./agent-record.js";
 import { WINDOWS_SPAWN } from "./host-spawn.js";
 import type { LaunchFailure } from "./launch-notice.js";
 import { DEVICE_MAX_RECORDS, DeviceCandidateSchema } from "./schemasDevices.js";
+import type { HostSessionCutOp } from "./schemasSessionCut.js";
 import type { SessionHarness, UNPICKED_WORD } from "./session-harness.js";
 import { MAX_SLUG_LEN, SLUG_RE } from "./session-id.js";
 
@@ -99,6 +100,7 @@ export type HostOp =
 	| { kind: "reloadPlugins"; target: TmuxTarget; dedupKey?: string }
 	| { kind: "killSession"; target: TmuxTarget; dedupKey?: string }
 	| HostPurgeOp
+	| HostSessionCutOp
 	| { kind: "threads"; backend: AgentBackendId; target: AgentExecutionTarget }
 	// Answered once queued; the outcome rides the container state.
 	| { kind: "containerStart"; project: string; dedupKey?: string }

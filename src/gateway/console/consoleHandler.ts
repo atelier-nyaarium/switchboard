@@ -14,6 +14,7 @@ import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "
 import { isDeviceConsoleOp } from "../../shared/schemasDevices.js";
 import { type HolderKey, HolderKeySchema } from "../../shared/schemasPhoneHold.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
+import type { CutPick } from "../../shared/schemasSessionCut.js";
 import { type CliPick, type SessionHarness, UNPICKED_WORD } from "../../shared/session-harness.js";
 import { SpawnPoint } from "../../shared/session-id.js";
 import type { WorkspaceOp } from "../../shared/workspace-op.js";
@@ -69,6 +70,7 @@ export function createConsoleDispatcher({
 	runbooks,
 	routines,
 	policies,
+	cuts,
 	devices,
 	workspaceAsk,
 	sessionControlAsk,
@@ -117,6 +119,7 @@ export function createConsoleDispatcher({
 		beginLaunch,
 		watchOwnerLaunch,
 		isWakeInFlight,
+		...(cuts ? { cutRunning: (team: string) => cuts.running(team) } : {}),
 		dropSessionResume,
 		onSessionEnded,
 		forgetRefusal,
@@ -336,6 +339,17 @@ export function createConsoleDispatcher({
 			case "create_session":
 				return sessionLifecycle.createSession(op, conversationId, opId);
 
+			case "session_cut_plan":
+				return requireCuts().plan(targets.requireLocalComposite(op.target, "cut").name, op.mode, cutPickOf(op));
+
+			case "session_cut_start":
+				return requireCuts().start(
+					targets.requireLocalComposite(op.target, "cut").name,
+					op.mode,
+					cutPickOf(op),
+					device,
+				);
+
 			case "reload_plugins":
 				return terminalOps.reloadPlugins(op, conversationId, opId);
 
@@ -513,6 +527,17 @@ export function createConsoleDispatcher({
 				throw new Error(`unhandled console op ${String(unhandled)}`);
 			}
 		}
+	}
+
+	function requireCuts() {
+		if (!cuts) throw new Error("session cuts are not available on this Gateway");
+		return cuts;
+	}
+
+	/** The pressed row, as the daemon finds a turn by it. */
+	function cutPickOf(op: { rowAt?: number; rowText?: string }): CutPick | undefined {
+		if (op.rowAt === undefined) return undefined;
+		return { at: op.rowAt, ...(op.rowText === undefined ? {} : { text: op.rowText }) };
 	}
 
 	function requireRoutines() {

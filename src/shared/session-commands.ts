@@ -9,6 +9,7 @@ import {
 	SessionRoutineAnswerSchema,
 	SessionRoutineRequestShape,
 } from "./schemasRoutine.js";
+import { SessionCutSummaryAnswerSchema, SessionCutSummaryRequestShape } from "./schemasSessionCut.js";
 
 export interface SessionCommand {
 	/** The MCP tool a session calls. */
@@ -37,6 +38,12 @@ export const SESSION_COMMANDS = {
 		path: "/routine/report",
 		request: SessionReportRequestShape,
 		answer: SessionReportAnswerSchema,
+	},
+	sessionCutSummary: {
+		tool: "submit_session_summary",
+		path: "/session/cut/summary",
+		request: SessionCutSummaryRequestShape,
+		answer: SessionCutSummaryAnswerSchema,
 	},
 } as const satisfies Record<string, SessionCommand>;
 

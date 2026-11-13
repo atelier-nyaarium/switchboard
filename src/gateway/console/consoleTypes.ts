@@ -50,6 +50,7 @@ import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import type { WorkspaceOp, WorkspaceOpResult } from "../../shared/workspace-op.js";
 import type { DeliverToOwner } from "../consolePushOps.js";
 import type { RoutineRun } from "../launchRecords.js";
+import type { SessionCuts } from "../sessionCuts.js";
 import type { WakeResult } from "../wake.js";
 import type { LaunchOpts, WakeFlight } from "../wakeService.js";
 import type { WorkspaceChange } from "../workspaceAwareness.js";
@@ -145,6 +146,7 @@ export interface ConsoleHandlerDeps {
 	runbooks?: RunbookConsoleHandlers;
 	routines?: RoutineConsoleHandlers;
 	policies?: PolicyConsoleHandlers;
+	cuts?: Pick<SessionCuts, "plan" | "start" | "running">;
 	/** Absent before the socket stage composes, which refuses every workspace op. */
 	workspaceAsk?: (team: string, op: WorkspaceOp) => Promise<WorkspaceOpResult>;
 	/** Asks a session's plugin. */

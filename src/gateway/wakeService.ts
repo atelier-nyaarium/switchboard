@@ -61,6 +61,8 @@ interface FlightClaim {
 export class WakeService {
 	// One launch per team.
 	private flights = new Map<string, WakeFlight>();
+	/** Per-team wake holds. */
+	private holds = new Map<string, Promise<void>>();
 	private claims = new WeakMap<WakeFlight, FlightClaim>();
 	private ledger: LaunchLedger | null = null;
 	private settledListeners: Array<(team: string, result: WakeResult, launchId?: string) => void> = [];
@@ -70,6 +72,19 @@ export class WakeService {
 	/** Held until registered and answered; Close and Forget wait. */
 	isWakeInFlight(team: string): boolean {
 		return this.flights.has(team);
+	}
+
+	/** Launches wait for the release. */
+	hold(team: string): () => void {
+		let open: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			open = resolve;
+		});
+		this.holds.set(team, held);
+		return () => {
+			if (this.holds.get(team) === held) this.holds.delete(team);
+			open();
+		};
 	}
 
 	/** Every launch's end, whoever started it. */
@@ -105,6 +120,8 @@ export class WakeService {
 		const outcome = (async () => {
 			this.deps.presence.wakeStart(team);
 			try {
+				const held = this.holds.get(team);
+				if (held) await held;
 				const result = await this.doWakeTeam(
 					team,
 					createOpts,

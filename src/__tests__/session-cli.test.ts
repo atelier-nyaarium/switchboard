@@ -31,6 +31,7 @@ describe("a session CLI's profile", () => {
 			instructions: "handshake",
 			claudeSlashTools: true,
 			workflowTools: true,
+			cuts: true,
 		},
 		opencode: {
 			answersHandshake: false,
@@ -40,6 +41,7 @@ describe("a session CLI's profile", () => {
 			instructions: "whole",
 			claudeSlashTools: false,
 			workflowTools: true,
+			cuts: false,
 		},
 		copilot: {
 			answersHandshake: false,
@@ -49,6 +51,7 @@ describe("a session CLI's profile", () => {
 			instructions: "whole",
 			claudeSlashTools: false,
 			workflowTools: true,
+			cuts: false,
 		},
 	};
 
@@ -70,6 +73,7 @@ describe("a CLI with no row", () => {
 				instructions: "none",
 				claudeSlashTools: true,
 				workflowTools: false,
+				cuts: false,
 			},
 		});
 	});

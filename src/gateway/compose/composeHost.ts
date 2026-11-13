@@ -21,6 +21,8 @@ const SLOW_HOST_OP_MS: Partial<Record<HostOp["kind"], number>> = {
 	// Outlast CLI startup and request.
 	purge: 150_000,
 	threads: 150_000,
+	// Reads and writes a whole session file.
+	sessionCut: 150_000,
 };
 export const PRESENCE_PEEK_MS = 2_000;
 const WATCH_PUSH_MS = 2_000;

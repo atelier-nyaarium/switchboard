@@ -28,6 +28,8 @@ export interface PluginProfile {
 	readonly instructions: "handshake" | "whole" | "none";
 	readonly claudeSlashTools: boolean;
 	readonly workflowTools: boolean;
+	/** Submits cut summaries. */
+	readonly cuts: boolean;
 }
 
 export interface PluginCli {
@@ -55,6 +57,7 @@ export const OTHER_AGENT: PluginProfile = {
 	instructions: "none",
 	claudeSlashTools: true,
 	workflowTools: false,
+	cuts: false,
 };
 
 ////////////////////////////////
@@ -71,6 +74,7 @@ function sessionProfile(harness: SessionHarness): PluginProfile {
 		instructions: INSTRUCTIONS[row.guidance],
 		claudeSlashTools: row.claudeSlashTools,
 		workflowTools: row.workflowTools,
+		cuts: row.cuts,
 	};
 }
 

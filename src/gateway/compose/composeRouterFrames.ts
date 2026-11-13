@@ -25,6 +25,7 @@ import { OWNER_LAUNCH_KEY, type RoutineRun } from "../launchRecords.js";
 import { createRegistrationRead } from "../router/registrationRead.js";
 import { composeValueResult } from "../router/valueResult.js";
 import { createRoutineExecution } from "../routines/execution.js";
+import type { SessionCuts } from "../sessionCuts.js";
 import type { SessionEnd } from "../sessionEnd.js";
 import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { AssistantStage } from "./composeAssistant.js";
@@ -57,6 +58,9 @@ export interface RouterFramesStageDeps {
 	vault: Pick<VaultStage, "console" | "sessionEnded">;
 	runbooks: Pick<RunbookStage, "console">;
 	routines: Pick<RoutineStage, "console" | "bindExecution" | "sessionEnded">;
+	cuts: Pick<SessionCuts, "plan" | "start" | "running">;
+	/** What a close ends, the one list. */
+	sessionClosed: (team: string) => void;
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 	devices: Pick<DeviceStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
@@ -117,11 +121,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				routine: run,
 				foreign: false,
 			});
-		const onSessionEnded = (team: string): void => {
-			deps.vault.sessionEnded(team);
-			deps.routines.sessionEnded(team);
-			deps.assistant.sessionEnded(team);
-		};
+		const onSessionEnded = deps.sessionClosed;
 		/** Null when it landed. */
 		const nudgeAsOwner = async (
 			nudge: { from: string; to: string; body: string; deliveryId: string },
@@ -190,6 +190,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			runbooks: deps.runbooks.console,
 			routines: deps.routines.console,
 			policies: deps.policies.console,
+			cuts: deps.cuts,
 			devices: deps.devices.console,
 			workspaceAsk: deps.workspacePlane.ask,
 			sessionControlAsk: deps.sessionControl.ask,

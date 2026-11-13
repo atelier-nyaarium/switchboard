@@ -316,6 +316,27 @@ describe("WakeService", () => {
 		expect(s.sent).toEqual([expect.objectContaining({ type: "wake", team, door: "create" })]);
 	});
 
+	it("makes a launch begun inside a hold wait, then resume the conversation the record names by then", async () => {
+		const s = setup();
+		const before = "11111111-1111-4111-8111-111111111111";
+		const after = "22222222-2222-4222-8222-222222222222";
+		const record = s.sessionStore.mint({ spawn: "host", harness: "claude", claudeSessionId: before });
+		const team = s.sessionStore.teamOf(record);
+
+		const release = s.service.hold(team);
+		const wake = s.service.tryWakeTeam(team);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const heldBack = s.sent.length;
+		s.sessionStore.repointConversation(team, after);
+		release();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		s.up(team);
+
+		await expect(wake).resolves.toEqual({ ok: true });
+		expect(heldBack).toBe(0);
+		expect(s.sent).toEqual([expect.objectContaining({ type: "wake", team, resumeSessionId: after })]);
+	});
+
 	it("holds a launch in flight past the session registering, until the daemon answers it", async () => {
 		const s = setup();
 		const wake = s.service.tryWakeTeam("proj");

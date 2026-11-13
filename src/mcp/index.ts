@@ -37,6 +37,7 @@ import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
 import { registerProjectTools } from "./connector/projectTools.js";
 import { registerStubTool } from "./connector/utils.js";
+import { registerCutTools } from "./cut/cutTools.js";
 import { registerDesignerTools } from "./designer/designerTools.js";
 import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
@@ -251,6 +252,7 @@ export async function startMcp(): Promise<void> {
 	// Behind no capability: a session a routine reserved must be able to read what it was asked,
 	// and the owner never opts that session into anything.
 	if (process.env.SWITCHBOARD_SESSION_TOKEN) registerRoutineTools(mcpServer);
+	if (!isAssistant && process.env.SWITCHBOARD_SESSION_TOKEN && profile.cuts) registerCutTools(mcpServer);
 	// The Gateway checks the token is the assistant's too; this only keeps it off other sessions.
 	if (isAssistant) {
 		registerInboxTool(mcpServer);

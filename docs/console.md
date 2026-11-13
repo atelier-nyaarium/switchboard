@@ -391,11 +391,14 @@ no TTL.
   (`rowDelta`), since the page replaces by head id. A rebuild over drawn rows keeps the open records
   and the first surviving visible row at its offset. The first draw, or a rebuild that keeps no
   visible row, snaps to the divider or the bottom.
-- **Clear and all above** (`ThreadCut.kt`, `RowMenu.kt`, `ChatRepository.clearThrough`): a long-press
+- **Clear above** (`ThreadCut.kt`, `RowMenu.kt`, `ChatRepository.clearThrough`): a long-press
   on a row outside its text (`thread.js`'s `contextmenu`, `ThreadRenderer.rowMenu`) opens the row
-  menu, so text keeps its selection. A run row is pressed as its last record (`through`). `threadCut`
-  is the rule: the rows through the pressed one, and the files nothing else names, with a pending
-  send keeping its own; the read anchor stays. The
+  menu, so text keeps its selection. A run row is pressed as its last record (`through`). The pressed
+  row stays: the clear runs through the row above it (`rowAbove`). `threadCut` is the rule: the rows
+  through that one, and the files nothing else names, with a pending send keeping its own; the read
+  anchor stays. A host Claude session's menu offers "Compact and clear above" instead (`SessionCut.kt`), which
+  compacts the session above the pressed message and runs the same clear once the cut has started.
+  The
   confirmation counts the rows and the freed files still on disk, and Clear waits for that measure.
   A cut keeps a per-thread id floor, so no cut id is minted again, and drops the echo of a cut send
   that had not landed (`swallowEcho`). It runs under the drain gate and deletes through

@@ -284,6 +284,10 @@ import {
 	ScheduleSendValueSchema,
 } from "../src/shared/schemasScheduled.js";
 import {
+	ConsoleSessionCutPlanResultSchema,
+	ConsoleSessionCutStartResultSchema,
+} from "../src/shared/schemasSessionCut.js";
+import {
 	CrossDomainShareValueSchema,
 	CrossDomainUnlinkValueSchema,
 	CrossDomainUnshareValueSchema,
@@ -477,6 +481,8 @@ const ROOTS: z.ZodType[] = [
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
 	ConsolePolicyDeleteResultSchema,
+	ConsoleSessionCutPlanResultSchema,
+	ConsoleSessionCutStartResultSchema,
 	DeviceKindSchema,
 	DeviceDriverSchema,
 	DeviceCloudStateSchema,
@@ -1331,6 +1337,7 @@ function emitHarnessRegistry(): string {
 				`${INDENT}${INDENT}),`,
 				`${INDENT}${INDENT}refusedKeys = listOf(${row.refusedKeys.map(kotlinString).join(", ")}),`,
 				`${INDENT}${INDENT}goals = ${row.goals},`,
+				`${INDENT}${INDENT}cuts = ${row.cuts},`,
 				`${INDENT}),`,
 			].join("\n"),
 		)
@@ -1359,6 +1366,8 @@ ${INDENT}/** Keys that end the app, never sent. */
 ${INDENT}val refusedKeys: List<String>,
 ${INDENT}/** Takes a typed \`/goal\` line. */
 ${INDENT}val goals: Boolean,
+${INDENT}/** Supports targeted cuts. */
+${INDENT}val cuts: Boolean,
 ) {
 ${entries}
 }

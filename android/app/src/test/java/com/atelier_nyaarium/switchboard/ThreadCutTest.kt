@@ -83,7 +83,7 @@ class ThreadCutTest {
 
 	@Test
 	fun theConfirmationLeavesOutZeroLines() {
-		val intro = "This will clear this message and all above it from this phone. Claude session will remain untouched."
+		val intro = clearConfirmLines(0, 0, 0L).single()
 
 		assertEquals(listOf(intro, "- 1 message"), clearConfirmLines(1, 0, 0L))
 		assertEquals(listOf(intro, "- 123 messages", "- 2 files", "- ~789 MB recovered"), clearConfirmLines(123, 2, 789L shl 20))

@@ -53,6 +53,24 @@ function swept(store: SessionStore, ...args: Parameters<SessionStore["sweepable"
 	return teams;
 }
 
+describe("SessionStore cuts", () => {
+	it("repoints to a built conversation, keeps the replaced ones across a restart, and keeps the newest eight", () => {
+		const store = new SessionStore({ ambient: processAmbient() });
+		store.restore(RESUME_FILE);
+		const ids = Array.from({ length: 10 }, (_, n) => `id-${n}`);
+		for (const id of ids) store.repointConversation("host.switchboard", id);
+		store.repointConversation("host.switchboard", "id-9");
+
+		const next = new SessionStore({ ambient: processAmbient() });
+		next.restore(store.snapshot());
+		const record = next.getByTeam("host.switchboard");
+
+		expect(record?.claudeSessionId).toBe("id-9");
+		expect(record?.cutFrom).toEqual(["16aa1d0d-aaaa", ...ids.slice(0, 9)].slice(-8));
+		expect(store.repointConversation("host.gone", "id-0")).toBeUndefined();
+	});
+});
+
 describe("SessionStore migration", () => {
 	it("restores a record from its persisted shape and skips a row with no id", () => {
 		const store = new SessionStore({ ambient: processAmbient() });

@@ -450,6 +450,18 @@ export function createConsolePushOps({
 		return deliverToOwner({ entry, dedupeKey: identity, label: "launch" }) === true;
 	}
 
+	function tellOwnerOf(team: string, told: { title: string; body: string }, identity: string): boolean {
+		const sender = localAddress(team);
+		const entry: ConsolePushEntry = {
+			kind: "notice",
+			session_id: storeKey({ kind: "notice", sender }),
+			from: sender.canonical,
+			body: told.body,
+			...pickTiers({ title: told.title }),
+		};
+		return deliverToOwner({ entry, dedupeKey: identity, label: "session" }) === true;
+	}
+
 	function pluginAction(req: Request, body: Record<string, unknown>): Response {
 		const parsed = PluginActionRequestSchema.safeParse(body);
 		if (!parsed.success) {
@@ -495,6 +507,7 @@ export function createConsolePushOps({
 		pluginAction,
 		deliverToOwner,
 		tellOwnerLaunch,
+		tellOwnerOf,
 		drainOutbox,
 		namesBlob,
 		retireStaging,

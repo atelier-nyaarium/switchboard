@@ -20,6 +20,8 @@ enum class SessionHarness(
 	val refusedKeys: List<String>,
 	/** Takes a typed `/goal` line. */
 	val goals: Boolean,
+	/** Supports targeted cuts. */
+	val cuts: Boolean,
 ) {
 	CLAUDE(
 		wire = "claude",
@@ -44,6 +46,7 @@ enum class SessionHarness(
 		),
 		refusedKeys = listOf(),
 		goals = true,
+		cuts = true,
 	),
 	OPENCODE(
 		wire = "opencode",
@@ -63,6 +66,7 @@ enum class SessionHarness(
 		),
 		refusedKeys = listOf("C-c"),
 		goals = false,
+		cuts = false,
 	),
 	COPILOT(
 		wire = "copilot",
@@ -87,6 +91,7 @@ enum class SessionHarness(
 		),
 		refusedKeys = listOf(),
 		goals = true,
+		cuts = false,
 	),
 }
 

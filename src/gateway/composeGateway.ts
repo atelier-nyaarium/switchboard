@@ -29,6 +29,7 @@ import {
 import { composeRoutes, type GatewayRoutes, type RoutesStage } from "./compose/composeRoutes.js";
 import { composeRoutines } from "./compose/composeRoutines.js";
 import { composeRunbooks } from "./compose/composeRunbooks.js";
+import { composeSessionCut, type SessionCutStage } from "./compose/composeSessionCut.js";
 import { composeSessions } from "./compose/composeSessions.js";
 import { composeStores } from "./compose/composeStores.js";
 import { composeVault, type VaultStage } from "./compose/composeVault.js";
@@ -65,6 +66,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	let routes: RoutesStage | undefined;
 	let routerPresence: RouterPresenceStage | undefined;
 	let routerFrames: RouterFramesStage | undefined;
+	let sessionCut: SessionCutStage | undefined;
 	let frames: RouterFramesBuild | undefined;
 	let presenceHandlers: RouterPresenceBuild | undefined;
 	let vault: VaultStage | undefined;
@@ -142,6 +144,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				["awareness", () => awareness.awareness.dropFor(team)],
 				["vault", () => vault?.sessionEnded(team)],
 				["routines", () => routines.sessionEnded(team)],
+				["cuts", () => sessionCut?.cuts.sessionEnded(team)],
 				["assistant", () => assistant.sessionEnded(team)],
 				// What names the session in the Gateway's own stores.
 				["jobs", () => stores.jobs.forgetTeam(team)],
@@ -508,6 +511,24 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		relayToHost: host.relayToHost,
 		...(deps.kasaTransport === undefined ? {} : { transport: deps.kasaTransport }),
 	});
+	const sessionClosed = (team: string): void => {
+		vault?.sessionEnded(team);
+		routines.sessionEnded(team);
+		assistant.sessionEnded(team);
+		sessionCut?.cuts.sessionEnded(team);
+	};
+	sessionCut = composeSessionCut({
+		ambient: bootstrap.ambient,
+		sessions,
+		host,
+		routes: requireRoutes,
+		launching: (team) => host.wakeService.isWakeInFlight(team) || awareness.launches.launching(team),
+		closed: sessionClosed,
+		resolveCaller: (req) => {
+			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
+			return record ? sessions.sessionStore.teamOf(record) : null;
+		},
+	});
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,
 		wakeTimeoutMs: config.wakeTimeoutMs,
@@ -522,6 +543,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		runbooks,
 		routines,
 		policies,
+		cuts: sessionCut.cuts,
+		sessionClosed,
 		devices: requireDevices(),
 		workspacePlane: websockets.workspacePlane,
 		sessionControl: websockets.sessionControl,
@@ -546,6 +569,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		agents,
 		enrollment,
 		routines,
+		sessionCut,
 		routes,
 		vault,
 		baseline,
@@ -572,6 +596,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				await capture(() => devices?.close());
 				await capture(() => federation?.drainInboxPump());
 				await capture(() => routines.stop());
+				await capture(() => sessionCut?.cuts.stop());
 				await capture(() => workflows?.stop());
 				await capture(() => agents.stopRelays());
 				await capture(() => assistant.stop());

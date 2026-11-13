@@ -26,6 +26,7 @@ import { HOST_SPAWN, isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.
 import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { DerivedPresenceSchema } from "../../shared/schemasPresence.js";
+import { HostSessionCutOpSchema } from "../../shared/schemasSessionCut.js";
 import { LaunchIdSchema, WakeCancelFrameSchema, WakeResultAckFrameSchema } from "../../shared/schemasWake.js";
 import { LAUNCH_STATUS_DIR, launchStatusFile } from "../../shared/session-files.js";
 import {
@@ -69,6 +70,7 @@ import { provisionPlugins } from "./pluginProvisioning.js";
 import { PresenceScheduler, readWatch, type WatchEntry } from "./presenceScheduler.js";
 import { answerPrompt, continueAfterLimit, dismissSurvey, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
+import { claudeCliVersion, createSessionCut } from "./sessionCut.js";
 import { createSessionLaunch, type LaunchSite, launchAt } from "./sessionLaunch.js";
 import { createPurge, hostPurgeFiles, type PurgeHome } from "./sessionPurge.js";
 import {
@@ -715,6 +717,12 @@ const hostOpRunner = createHostOpRunner({
 		closePane: (pane, then) => launchLane.closeBehind(pane, then),
 		deleteThread: (backend, target, threadId) => agentRuntime.deleteThread(backend, target, threadId),
 	}),
+	sessionCut: createSessionCut({
+		homeOf: spawnHome,
+		cliVersion: claudeCliVersion,
+		newId: () => crypto.randomUUID(),
+		now: () => new Date(),
+	}),
 	containerStart: async (project) => devContainers.start(project, catalogProjectPath(project)),
 	containerStop: async (project) => {
 		const projectPath = catalogProjectPath(project);
@@ -839,6 +847,15 @@ async function handleHostOp(reqId: string, op: DaemonHostOp): Promise<void> {
 			const checked = HostPurgeOpSchema.safeParse(op);
 			if (!checked.success) {
 				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid purge operation" });
+				return;
+			}
+			op = checked.data;
+		}
+		if (op.kind === "sessionCut") {
+			// Its id becomes a filename.
+			const checked = HostSessionCutOpSchema.safeParse(op);
+			if (!checked.success) {
+				safeSend({ type: "host_op_reply", reqId, ok: false, error: "invalid sessionCut operation" });
 				return;
 			}
 			op = checked.data;

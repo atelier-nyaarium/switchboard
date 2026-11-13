@@ -32,6 +32,13 @@ internal fun threadCut(state: ChatState, team: String, rowId: Long, rowAt: Long)
 	return ThreadCut(team, rows, left, freed, rows.map { it.at }.toSet() - left.map { it.at }.toSet())
 }
 
+/** The row a clear above the pressed one runs through; the pressed row stays. Null when none is above. */
+internal fun rowAbove(state: ChatState, team: String, rowId: Long, rowAt: Long): Message? {
+	val thread = state.threads[team] ?: return null
+	val pressed = thread.indexOfFirst { it.id == rowId && it.at == rowAt }
+	return if (pressed > 0) thread[pressed - 1] else null
+}
+
 /** Files these rows, drafts or scheduled sends name. */
 internal fun ChatState.namedSrcs(rows: List<Message>): Set<String> = (
 	rows.flatMap { it.files } +
@@ -68,8 +75,12 @@ internal fun nextRowId(thread: List<Message>, floor: Long?): Long = maxOf(thread
 
 /** Omits zero counts. */
 internal fun clearConfirmLines(rows: Int, files: Int, bytes: Long, claims: List<CutClaim> = emptyList()): List<String> =
-	listOf("This will clear this message and all above it from this phone. Claude session will remain untouched.") +
-		listOfNotNull(countLine(rows, "message"), countLine(files, "file")) +
+	listOf("This will clear the messages above this one from this phone. The session will remain untouched.") +
+		clearCountLines(rows, files, bytes, claims)
+
+/** What a clear takes, one line each; zero counts omitted. */
+internal fun clearCountLines(rows: Int, files: Int, bytes: Long, claims: List<CutClaim> = emptyList()): List<String> =
+	listOfNotNull(countLine(rows, "message"), countLine(files, "file")) +
 		claims.mapNotNull { countLine(it.count, it.noun) } +
 		listOfNotNull(recoveredLine(bytes))
 

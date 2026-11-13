@@ -32,6 +32,8 @@ export interface SessionRecord {
 	workdirHint?: string;
 	workdirPath?: string;
 	claudeSessionId?: string;
+	/** Replaced conversations, oldest first. */
+	cutFrom?: string[];
 	/** Fixed at create; absent only while a create waits on its place to name it. */
 	harness?: SessionHarness;
 	/** Minted for a CLI that takes its id. */
@@ -57,6 +59,9 @@ export type PersistedSessionRecord = Omit<SessionRecord, "liveTeam" | "harness">
 	copilotSessionId?: string;
 	agentCatalogs?: Partial<Record<AgentBackendId, PersistedAgentCatalog>>;
 };
+
+/** Cap on `cutFrom`. */
+const CUT_FROM_MAX = 8;
 
 /** The keys a stored record names a conversation or a thread under. */
 const UNREAD_ID_KEYS = new Set(["mintedSessionId", "copilotSessionId", "claudeSessionId", "sessionId", "threadId"]);
@@ -434,6 +439,19 @@ export class SessionStore {
 		return record ? this.bind(record, { claudeSessionId, live: extra.live }) : null;
 	}
 
+	/** Repoints; keeps the old id. */
+	repointConversation(team: string, conversationId: string): SessionRecord | undefined {
+		const record = this.records.get(team);
+		if (!record) return undefined;
+		const previous = record.claudeSessionId;
+		if (previous && previous !== conversationId) {
+			record.cutFrom = [...(record.cutFrom ?? []), previous].slice(-CUT_FROM_MAX);
+			console.log(`[session] ${team} cut ${previous} -> ${conversationId}`);
+		}
+		record.claudeSessionId = conversationId;
+		return record;
+	}
+
 	confirm(team: string, live?: LiveRef): SessionRecord | undefined {
 		const record = this.records.get(team);
 		if (record) {
@@ -624,6 +642,9 @@ export class SessionStore {
 				workdirHint: sanitizeLabel(v.workdirHint) ?? undefined,
 				workdirPath: sanitizeWorkdirPath(v.workdirPath) ?? undefined,
 				claudeSessionId: typeof v.claudeSessionId === "string" ? v.claudeSessionId : undefined,
+				...(Array.isArray(v.cutFrom) && v.cutFrom.every((id) => typeof id === "string") && v.cutFrom.length > 0
+					? { cutFrom: v.cutFrom.slice(-CUT_FROM_MAX) }
+					: {}),
 				...(harness ? { harness } : {}),
 				...(heldId ? { mintedSessionId: heldId } : {}),
 				mintedFrom: typeof v.mintedFrom === "string" ? v.mintedFrom : undefined,

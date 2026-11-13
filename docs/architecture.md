@@ -449,6 +449,31 @@ decision.
 - **A Gateway rolled back below this build** writes the snapshot without the queue, so pending
   deletes are lost, and it drops an agent record that carries `expiredAt`.
 
+### Cutting a conversation
+
+A Claude session on the host can be compacted above a message the owner picks, where `/compact`
+cuts at now. The phone's row menu asks `session_cut_plan`, shows what it keeps and folds, then
+sends `session_cut_start`. `src/gateway/sessionCuts.ts` runs the rest:
+
+1. It asks the session itself for the summary, a channel message naming a `cutId`. The session
+   hands it back through `submit_session_summary`, so no program starts a model call.
+2. It closes the pane, and the daemon's `sessionCut` host op builds a new session file beside the
+   old one under a new id (`claude-session-cut.ts`): the newest header rows, the kept rows byte for
+   byte with only their session id changed, a compaction row preserving them, and the summary. The
+   kept rows end before the request that carried the `cutId`. The build reads itself back.
+3. It points the record at the new id (`repointConversation`) and wakes the session, which resumes
+   the new file.
+
+- **The old file is never written:** resuming its id is the undo. The record keeps the ids a cut
+  replaced in `cutFrom`, and a forget deletes them with the session's own.
+- **A launch waits while a cut runs** (`WakeService.hold`): a wake begun meanwhile would resume the
+  conversation being replaced, so it reads the record once the cut repointed it.
+- **A cut point is a message that started a turn.** A pressed row is matched by the owner's own
+  words (`pickTurn`, `channelBodyOf`), nearest in time; any other row finds the turn at or before
+  it, and the confirmation says so.
+- **Only proven shapes are cut:** the installed CLI and the file's own rows must be a version in
+  `CUT_CLI_VERSIONS`, and the file's compaction row a key set the build knows.
+
 ## Session identity binding
 
 A bind token is delivered only through the daemon launch command and presented at registration and on

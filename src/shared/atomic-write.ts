@@ -28,6 +28,8 @@ export interface AtomicWriteOptions {
  * another process is in the middle of. */
 export const ATOMIC_TEMP_SUFFIX = `.tmp.${process.pid}`;
 const ATOMIC_TEMP_RE = /\.tmp\.(\d+)$/;
+/** Lines held before a write. */
+const LINES_FLUSH_CHARS = 1 << 20;
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -145,19 +147,60 @@ export function createFileExclusive(file: string, source: AtomicSource, options:
 		} finally {
 			fs.closeSync(descriptor);
 		}
+		placeExclusive(temp, file);
+	} finally {
 		try {
-			fs.linkSync(temp, file);
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new NameTaken(file);
-			if (!noHardlinks(error)) throw error;
-			try {
-				fs.copyFileSync(temp, file, fs.constants.COPYFILE_EXCL);
-			} catch (copyError) {
-				if ((copyError as NodeJS.ErrnoException).code === "EEXIST") throw new NameTaken(file);
-				throw copyError;
-			}
+			fs.rmSync(temp, { force: true });
+		} catch {}
+	}
+}
+
+/** Links a filled temp onto an absent name. */
+function placeExclusive(temp: string, file: string): void {
+	try {
+		fs.linkSync(temp, file);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new NameTaken(file);
+		if (!noHardlinks(error)) throw error;
+		try {
+			fs.copyFileSync(temp, file, fs.constants.COPYFILE_EXCL);
+		} catch (copyError) {
+			if ((copyError as NodeJS.ErrnoException).code === "EEXIST") throw new NameTaken(file);
+			throw copyError;
 		}
-		syncDirectory(path.dirname(file));
+	}
+	syncDirectory(path.dirname(file));
+}
+
+/** `createFileExclusive` over streamed lines. */
+export async function createFileExclusiveFromLines(
+	file: string,
+	lines: AsyncIterable<string>,
+	options: { mode?: number } = {},
+): Promise<void> {
+	const temp = `${file}${ATOMIC_TEMP_SUFFIX}`;
+	try {
+		const handle = await fs.promises.open(temp, "w", options.mode ?? 0o600);
+		try {
+			let held: string[] = [];
+			let size = 0;
+			const flush = async () => {
+				if (held.length === 0) return;
+				await handle.writeFile(held.join(""));
+				held = [];
+				size = 0;
+			};
+			for await (const line of lines) {
+				held.push(line, "\n");
+				size += line.length + 1;
+				if (size >= LINES_FLUSH_CHARS) await flush();
+			}
+			await flush();
+			await handle.sync();
+		} finally {
+			await handle.close();
+		}
+		placeExclusive(temp, file);
 	} finally {
 		try {
 			fs.rmSync(temp, { force: true });

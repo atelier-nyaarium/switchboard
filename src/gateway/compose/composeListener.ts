@@ -10,6 +10,7 @@ import type { BaselineStage } from "./composeBaseline.js";
 import type { EnrollmentStage } from "./composeEnrollment.js";
 import type { RoutesStage } from "./composeRoutes.js";
 import type { RoutineStage } from "./composeRoutines.js";
+import type { SessionCutStage } from "./composeSessionCut.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
 import type { VaultStage } from "./composeVault.js";
@@ -30,6 +31,7 @@ export interface ListenerStageDeps {
 	routes: Pick<RoutesStage, "current">;
 	/** Required: an omitted stage leaves a routine's own session with no door, and typechecks. */
 	routines: Pick<RoutineStage, "routes">;
+	sessionCut: Pick<SessionCutStage, "routes">;
 	vault: Pick<VaultStage, "routes">;
 	baseline: Pick<BaselineStage, "routes">;
 	assistant: Pick<AssistantStage, "routes">;
@@ -97,6 +99,7 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 			...deps.agents.agentRoutes,
 			...deps.vault.routes,
 			...(deps.routines?.routes ?? []),
+			...deps.sessionCut.routes,
 			...deps.baseline.routes,
 			...deps.assistant.routes,
 		]),

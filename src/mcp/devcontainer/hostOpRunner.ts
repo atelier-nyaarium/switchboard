@@ -24,6 +24,7 @@ import {
 	type TypeIntoPaneResult,
 } from "../../shared/host-op.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
+import type { HostSessionCutOp, HostSessionCutResult } from "../../shared/schemasSessionCut.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
 
 export interface TmuxOps {
@@ -41,6 +42,7 @@ export interface TmuxOps {
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
 	purge?: (op: HostPurgeOp) => Promise<PurgeOutcome>;
+	sessionCut?: (op: HostSessionCutOp) => Promise<HostSessionCutResult>;
 	threads?: (backend: AgentBackendId, target: AgentExecutionTarget) => Promise<ListedThread[]>;
 	/** Queued, never awaited to its end. */
 	containerStart: (project: string) => Promise<void>;
@@ -178,6 +180,10 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		if (op.kind === "purge") {
 			if (!ops.purge) throw new Error("purge unavailable");
 			return { outcome: await ops.purge(op) };
+		}
+		if (op.kind === "sessionCut") {
+			if (!ops.sessionCut) throw new Error("sessionCut unavailable");
+			return ops.sessionCut(op);
 		}
 		if (op.kind === "threads") {
 			if (!ops.threads) throw new Error("threads unavailable");
