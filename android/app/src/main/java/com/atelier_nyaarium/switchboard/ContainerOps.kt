@@ -39,6 +39,18 @@ internal class ContainerOps(private val host: ContainerHost) {
 
 	fun stop(target: String) = act(target) { gateway, opId -> gateway.stop(target, opId) }
 
+	/** Starts [target] and tells [settled] once, when it runs or when its start fails. */
+	fun startThen(target: String, settled: (ContainerSettle) -> Unit) {
+		val before = containerAt(host.state.value, target)
+		start(target)
+		host.launchInBackground {
+			val end = host.state.first {
+				containerSettle(before, containerAt(it, target), target in it.containerOpsInFlight) != null
+			}
+			containerSettle(before, containerAt(end, target), target in end.containerOpsInFlight)?.let(settled)
+		}
+	}
+
 	/** Op answers at acceptance, so busy until state moves. */
 	private fun act(target: String, call: suspend (ContainerGateway, String) -> Unit) {
 		val from = containerAt(host.state.value, target)

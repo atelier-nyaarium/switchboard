@@ -391,6 +391,16 @@ decision.
   queued first.
 - **A delete that fails says so once:** the drainer logs a `[purge]` line per entry and cause, and
   one more when an entry is given up at 30 days. Nothing is reported to the owner.
+- **What names the session elsewhere goes too.** In the Gateway's own stores the end drops its
+  held jobs (`PendingJobStore.forgetTeam`), fails its queued deliveries and deletes its
+  `InboxClaims` file. At the Router, `session_forget` runs every `onSessionForgotten` listener: the
+  armed scheduled send is cancelled and its record kept, its shares are withdrawn, and the read
+  anchors of its conversation and scheduled-result streams are deleted with a version advance. A
+  listener answers false for a write that did not land, the frame answers not ok, and the Gateway
+  reports the forget again. Forgets the Router has not confirmed ride the session snapshot
+  (`routerForgets`) and are replayed at the next registration.
+- **The Router's op ledger is swept by age** (`sweepOpLedger`): it is keyed by op, not by session,
+  so an entry goes a week past its row's lifetime.
 - **The queue also keeps `BackstopTally`:** what a workflow run's seven day removal still found,
   answered on `/health`. Zero is healthy. `docs/workflows.md` holds what counts.
 - **A Gateway rolled back below this build** writes the snapshot without the queue, so pending

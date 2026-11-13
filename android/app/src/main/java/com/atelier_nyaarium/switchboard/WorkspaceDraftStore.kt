@@ -31,6 +31,7 @@ internal data class HeldDraft(val base: String, val text: String)
  * what `RunbookManager` pays by serialising its library into one preferences string.
  *
  * Nothing indexes the files; a listing would be a second source of truth about which windows exist.
+ * Each target's drafts sit in a folder of their own, so a forgotten session's go together.
  *
  * Every touch goes through one queue, reads included, so a save asked for before a clear cannot land
  * after it and leave the file holding text the window has already dropped. A caller says what the
@@ -84,14 +85,23 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 	 * Hashed because a symbol id carries spaces, slashes and parentheses, none of them a filename. A file
 	 * key nests one level deeper, so no span key can spell it.
 	 */
-	private fun fileFor(target: WorkspaceTarget, key: DraftKey): File {
+	private fun fileFor(target: WorkspaceTarget, key: DraftKey): File = File(folderFor(target), nameFor(target, key))
+
+	private fun nameFor(target: WorkspaceTarget, key: DraftKey): String {
 		val name = when (key) {
 			is DraftKey.Span -> separated(target.key, key.symbolId)
 			is DraftKey.File -> separated(separated(target.key, "file"), key.path)
 		}
-		val digest = MessageDigest.getInstance("SHA-256").digest(name.toByteArray())
-		return File(dir, digest.joinToString("") { "%02x".format(it) } + ".draft")
+		return hashed(name) + ".draft"
 	}
+
+	private fun folderFor(target: WorkspaceTarget): File = File(dir, hashed(target.key))
+
+	private fun hashed(text: String): String =
+		MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+
+	// FIXME 2026-11-26: drop, with its read in `load`. Drafts written before each target had a folder.
+	private fun flatFileFor(target: WorkspaceTarget, key: DraftKey): File = File(dir, nameFor(target, key))
 
 	/**
 	 * The fallback is for a throwing job alone, since `hand` leaves nothing unrun. Logged on the way
@@ -136,7 +146,7 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 			is Intent.Hold -> {
 				val base = intent.draft.base
 				check(base.isNotEmpty() && '\n' !in base) { "a draft base is empty or holds a line break" }
-				dir.mkdirs()
+				final.parentFile?.mkdirs()
 				val tmp = File(final.parentFile, "${final.name}.part")
 				try {
 					tmp.writeText("$base\n${intent.draft.text}")
@@ -156,7 +166,7 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 	/** Null for no draft, which a caller reads as the text being untouched. */
 	suspend fun load(target: WorkspaceTarget, key: DraftKey): HeldDraft? =
 		queued(null) {
-			val file = fileFor(target, key)
+			val file = fileFor(target, key).takeIf { it.isFile } ?: flatFileFor(target, key)
 			if (!file.isFile) null else file.readText().let { HeldDraft(it.substringBefore('\n'), it.substringAfter('\n')) }
 		}
 
@@ -166,6 +176,18 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 	 */
 	fun clear(target: WorkspaceTarget, key: DraftKey) {
 		settle(fileFor(target, key), Intent.Drop)
+		val flat = flatFileFor(target, key)
+		hand { flat.delete() }
+	}
+
+	/** A forgotten session: every draft it left, whether or not its window is open now. */
+	fun clearTarget(target: WorkspaceTarget) {
+		val folder = folderFor(target)
+		hand {
+			val names = folder.list().orEmpty().toSet()
+			refused.update { it - names }
+			check(folder.deleteRecursively() || !folder.exists()) { "a forgotten session's drafts stayed" }
+		}
 	}
 
 	/** A re-provision: no key is known for the previous owner's drafts, so the directory goes. */

@@ -262,6 +262,7 @@ internal class SessionOps(
 		host.persistDrafts()
 		host.cancelScheduled(key)
 		host.cancelGoal(key)
+		host.dropWorkspace(key)
 		// Remove playback queue entries before cached audio.
 		host.dropPlayback(key)
 		host.scheduleAttachmentDelete(dropped.flatMap { it.files }.mapNotNull { it.src })

@@ -262,6 +262,11 @@ class ChatRepository(
 
 	fun dismissLaunchError(team: String) = _state.dismissLaunchError(team)
 
+	/** A container start a held forget asked for, and that failed. */
+	fun holdStartFailure(team: String, line: String) {
+		_state.holdLaunchError(team, LaunchError(line, ambient.now()))
+	}
+
 
 	internal fun applyDomainSync(snapshot: com.atelier_nyaarium.switchboard.proto.DomainSnapshot, version: String) =
 		provisioningHost.applyDomainSync(snapshot, version)

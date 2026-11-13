@@ -135,7 +135,36 @@ class WorkspaceDraftStoreTest {
 		store.save(one, G_ID, typed("for g"))
 
 		assertEquals("for g", textOf(G_ID))
-		assertEquals(2, dir.listFiles()?.count { it.isFile })
+		assertEquals(2, dir.walk().count { it.isFile })
+	}
+
+	@Test
+	fun `a forgotten session's drafts all go and its neighbour's stay`() = runBlocking {
+		store.save(one, F_ID, typed("for f"))
+		store.save(one, DraftKey.File("src/a.ts"), typed("a file"))
+		store.save(two, F_ID, typed("the neighbour's"))
+
+		store.clearTarget(one)
+
+		assertNull(store.load(one, F_ID))
+		assertNull(store.load(one, DraftKey.File("src/a.ts")))
+		assertEquals("the neighbour's", textOf(F_ID, two))
+		// A window reopened afterwards starts a folder of its own again.
+		store.save(one, F_ID, typed("typed again"))
+		assertEquals("typed again", textOf(F_ID))
+	}
+
+	@Test
+	fun `a draft written before each session had a folder is still read, and a clear takes it`() = runBlocking {
+		store.save(one, F_ID, typed("typed long ago"))
+		textOf(F_ID)
+		val nested = dir.walk().single { it.isFile }
+		assertTrue(nested.renameTo(File(dir, nested.name)))
+
+		assertEquals("typed long ago", textOf(F_ID))
+		store.clear(one, F_ID)
+		assertNull(store.load(one, F_ID))
+		assertEquals(0, dir.walk().count { it.isFile })
 	}
 
 	@Test

@@ -13,6 +13,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -246,7 +247,30 @@ fun App(
 
 	// Initialize plugins before registry reads.
 	val pluginManager = remember { Plugins.get(context) }
-	val forgetSession = remember { SessionForget(context, repo.sessions, pluginManager.host.threadForgetHandlers) }
+	val forgetSession = remember { SessionForget(context, repo, pluginManager.host.threadForgetHandlers) }
+	var forgetAsking by remember { mutableStateOf<ForgetAsking?>(null) }
+	// A held forget commits later, so leaving its conversation hangs on the commit.
+	SideEffect { forgetSession.onForgotten = { forgotten -> nav = nav.forgot(forgotten) } }
+	val requestForget = { team: String, cancelTasks: Boolean? ->
+		when (val ask = forgetSession.ask(team)) {
+			ForgetAsk.None -> forgetSession.forget(team, cancelTasks)
+			else -> forgetAsking = ForgetAsking(team, cancelTasks, ask)
+		}
+	}
+	forgetAsking?.let { asking ->
+		ForgetAskDialog(
+			ask = asking.ask,
+			onStart = { container ->
+				forgetSession.startThenForget(asking.team, container, asking.cancelTasks)
+				forgetAsking = null
+			},
+			onForgetAnyway = {
+				forgetSession.forget(asking.team, asking.cancelTasks)
+				forgetAsking = null
+			},
+			onDismiss = { forgetAsking = null },
+		)
+	}
 
 	val viewerState = remember { mutableStateOf<OpenAttachment?>(null) }
 	var viewer by viewerState
@@ -750,18 +774,10 @@ fun App(
 					container = containerAt(state, openTeam!!)?.run,
 				),
 				onRename = { name -> repo.command { rename(openTeam!!, name) } },
-				onForget = {
-					val forgotten = openTeam!!
-					forgetSession.forget(forgotten)
-					nav = nav.forgot(forgotten)
-				},
+				onForget = { requestForget(openTeam!!, null) },
 				// Use the same board forget gate.
 				undoneTasks = if (boardOn) repo.boardOps.boardUndoneCountFor(openTeam!!) else 0,
-				onForgetWithTasks = { cancelThem ->
-					val forgotten = openTeam!!
-					forgetSession.forget(forgotten, cancelTasks = cancelThem)
-					nav = nav.forgot(forgotten)
-				},
+				onForgetWithTasks = { cancelThem -> requestForget(openTeam!!, cancelThem) },
 				terminal = TerminalState(
 					eligible = ConversationView.TERMINAL in offered,
 						// Peek uses presence freshness.
@@ -897,7 +913,7 @@ fun App(
 						onOpen = { team -> arriveAt(team, Arrival.OUTSIDE, null) },
 						onRename = { team, name -> repo.command { rename(team, name) } },
 						onMarkRead = { team -> repo.markRead(team) },
-						onForget = { team -> forgetSession.forget(team) },
+						onForget = { team -> requestForget(team, null) },
 						// Spawn stays on board; next poll reveals session.
 						onSpawn = { target, label, workdir, harness ->
 							repo.command { sessions.spawnSession(target, label, workdir, harness) }
@@ -918,7 +934,7 @@ fun App(
 								repo.boardOps.boardUndoneCountFor(team.name)
 							} else 0
 						},
-						onForgetWithTasks = { team, cancelThem -> forgetSession.forget(team, cancelTasks = cancelThem) },
+						onForgetWithTasks = { team, cancelThem -> requestForget(team, cancelThem) },
 					)
 				}
 			}

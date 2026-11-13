@@ -47,6 +47,8 @@ internal interface SessionHost {
 	fun cancelScheduled(team: String)
 	fun cancelGoal(team: String)
 	fun dropPlayback(team: String)
+	/** Its open windows, its open files and every draft it left. */
+	fun dropWorkspace(team: String)
 	fun scheduleAttachmentDelete(srcs: List<String>)
 }
 
@@ -102,6 +104,12 @@ internal class ChatRepositorySessionHost(private val repo: ChatRepository) : Ses
 	override fun persistDrafts() = repo.persistence.persistDrafts()
 	override fun cancelScheduled(team: String) = repo.scheduled.cancelScheduledSend(team)
 	override fun cancelGoal(team: String) = repo.goals.cancelGoal(team)
+	override fun dropWorkspace(team: String) {
+		val target = WorkspaceTarget(gatewayId = gatewayOf(team), address = team)
+		// Files first: the folder goes last, behind their own drops.
+		repo.rawFileOps.forgetTarget(target)
+		repo.windowOps.forgetTarget(target)
+	}
 	override fun dropPlayback(team: String) {
 		repo.repoScope.launch {
 			repo.playback.dropQueuedFor(team)

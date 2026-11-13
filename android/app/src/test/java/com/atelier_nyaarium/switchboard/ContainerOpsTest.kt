@@ -86,6 +86,34 @@ class ContainerOpsTest {
 	}
 
 	@Test
+	fun aStartToldToSettleAnswersOnceWhenTheContainerRunsOrItsStartFails() {
+		val gateway = FakeGateway().apply { answer.complete(Unit) }
+		val runs = FakeHost(gateway).apply { report(row(ContainerRun.STOPPED)) }
+		val settled = mutableListOf<ContainerSettle>()
+		ContainerOps(runs).startThen(target) { settled += it }
+		assertEquals(listOf("start $target"), gateway.calls)
+		runs.report(row(ContainerRun.STARTING))
+		assertTrue(settled.isEmpty())
+		runs.report(row(ContainerRun.RUNNING))
+		runs.report(row(ContainerRun.STOPPED))
+		assertEquals(listOf<ContainerSettle>(ContainerSettle.Running), settled)
+
+		val fails = FakeHost(gateway).apply { report(row(ContainerRun.STOPPED)) }
+		settled.clear()
+		ContainerOps(fails).startThen(target) { settled += it }
+		fails.report(row(ContainerRun.STARTING))
+		fails.report(row(ContainerRun.STOPPED, failure = "devcontainer up exited 1"))
+		assertEquals(listOf<ContainerSettle>(ContainerSettle.Failed("devcontainer up exited 1")), settled)
+
+		// A Start the Gateway refuses never moves the container.
+		val refused = FakeHost(FakeGateway().apply { refusal = "Not connected"; answer.complete(Unit) })
+			.apply { report(row(ContainerRun.STOPPED)) }
+		settled.clear()
+		ContainerOps(refused).startThen(target) { settled += it }
+		assertEquals(listOf<ContainerSettle>(ContainerSettle.Failed(CONTAINER_START_FAILED)), settled)
+	}
+
+	@Test
 	fun aRefusalIsToldAndFreesTheContainerAtOnce() {
 		val gateway = FakeGateway().apply {
 			answer.complete(Unit)

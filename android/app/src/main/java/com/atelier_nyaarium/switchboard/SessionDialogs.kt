@@ -652,6 +652,32 @@ fun ConfirmDialog(
 	)
 }
 
+/** A forget whose data cannot be purged right now. Dismissing abandons the forget. */
+@Composable
+internal fun ForgetAskDialog(
+	ask: ForgetAsk,
+	onStart: (String) -> Unit,
+	onForgetAnyway: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val stopped = ask as? ForgetAsk.ContainerStopped
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(forgetAskTitle(ask)) },
+		text = { Text(forgetAskLine(ask)) },
+		// Three long labels stack; a row wraps the last one alone.
+		confirmButton = {
+			Column(horizontalAlignment = Alignment.End) {
+				if (stopped != null) {
+					TextButton(onClick = hapticClick { onStart(stopped.container) }) { Text(FORGET_START_CONTAINER) }
+				}
+				TextButton(onClick = hapticClick(onForgetAnyway)) { Text(FORGET_ANYWAY) }
+				TextButton(onClick = hapticClick(onDismiss)) { Text("Cancel") }
+			}
+		},
+	)
+}
+
 /** Forgetting a session with unfinished board work: cancel the tasks (trash with the session) or
  * unassign them (return to the backlog). Dismissing abandons the forget rather than deciding by inaction. */
 @Composable

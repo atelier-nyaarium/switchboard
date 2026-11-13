@@ -64,11 +64,19 @@ internal class SandboxContainerGateway(
 	override suspend fun start(target: String, opId: String) {
 		delay(CONTAINER_ROUND_TRIP_MS)
 		val point = spawnPointOf(target)
+		// A standing failure fails again.
+		val broken = state.value.gateways.container(point.gateway, point.spawn)?.failure
 		move(point) { it.copy(run = ContainerRun.STARTING, failure = null) }
 		later {
 			delay(CONTAINER_BUILD_MS)
 			// A Stop meanwhile wins.
-			move(point) { if (it.run == ContainerRun.STARTING) it.copy(run = ContainerRun.RUNNING) else it }
+			move(point) {
+				when {
+					it.run != ContainerRun.STARTING -> it
+					broken != null -> it.copy(run = ContainerRun.STOPPED, failure = broken)
+					else -> it.copy(run = ContainerRun.RUNNING)
+				}
+			}
 		}
 	}
 

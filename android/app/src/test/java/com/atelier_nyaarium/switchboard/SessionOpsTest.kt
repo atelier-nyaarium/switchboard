@@ -43,6 +43,7 @@ class SessionOpsTest {
 		var scheduled = 0
 		var goals = 0
 		var playback = 0
+		var workspaces = 0
 		var persisted = 0
 
 		override fun forgetReadAnchor(team: String) = Unit
@@ -78,6 +79,7 @@ class SessionOpsTest {
 		override fun cancelScheduled(team: String) { scheduled++ }
 		override fun cancelGoal(team: String) { goals++ }
 		override fun dropPlayback(team: String) { playback++ }
+		override fun dropWorkspace(team: String) { workspaces++ }
 		override fun scheduleAttachmentDelete(srcs: List<String>) = Unit
 	}
 
@@ -229,6 +231,7 @@ class SessionOpsTest {
 		assertEquals(1, host.scheduled)
 		assertEquals(1, host.goals)
 		assertEquals(1, host.playback)
+		assertEquals(1, host.workspaces)
 		assertEquals(3, host.persisted)
 		// Confirmed: the journal entry goes and the tombstone is the bounded window.
 		assertTrue(MutationJournal(dir).entries("forget").isEmpty())

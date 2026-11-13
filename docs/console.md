@@ -246,6 +246,18 @@ single-flight, cadence and concurrency limits, and mutating-op deduplication.
   retried delivery carries nothing a surface still owes. While the tombstone holds, the drain lands
   nothing for that session (`DrainHost.isForgotten`), so a row already on its way cannot put back what
   the plugins just dropped.
+- **A forget asks first when its data cannot be purged now** (`forgetAsk` in `ForgetRules.kt`): a
+  stopped container offers Start container, Forget anyway and Cancel; a Gateway that a current
+  roster says is disconnected offers Forget anyway and Cancel. A roster still read from cache asks
+  nothing. The shell's `requestForget` is the one road both surfaces take, and the handlers,
+  notification cancels and navigation run only once the forget commits (`SessionForget.onForgotten`).
+- **Start container holds the forget** (`SessionForget.startThenForget` over `ContainerOps.startThen`):
+  `containerSettle` answers once, when the container runs or its start fails. Running commits the
+  forget. A failure keeps the session and becomes its `LaunchError`. The hold is in memory, so a
+  process that dies mid-start keeps the session.
+- **Forget clears the session's workspace** (`SessionHost.dropWorkspace`): its open windows, its open
+  raw files, and its draft folder. `WorkspaceDraftStore` keeps each target's drafts in a folder of
+  their own, and reads a draft written before that from the flat directory until its dated removal.
 - The reserved `host` slot requires `HOST_WS_TOKEN`.
 
 ## Armed goals

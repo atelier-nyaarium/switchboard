@@ -231,6 +231,12 @@ A sandbox Create takes 20 seconds to settle, so the thread's `Starting...` dock 
 enough to look at. A Create that picks Copilot never comes up: it settles asleep with a held failed
 launch, which is the only road to the dismissible dock and the card's failure headline here.
 
+The session `Tiles` sleeps in `godot-game`, a stopped container whose start fails. Forgetting it
+opens the stopped-container prompt: Start container fails after the build delay and leaves the
+session with its failure line, and Forget anyway drops it. The offline-Gateway prompt is not
+reachable, since no seeded session lives on a disconnected Gateway; `ForgetRulesTest` holds its
+decision.
+
 Each seeded Gateway answers differently, or a grouping bug has nowhere to show: one holds the full
 set, one holds the same record ids as different records in another zone, and one answers empty,
 which is not a Gateway that could not be read.

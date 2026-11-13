@@ -274,6 +274,11 @@ internal class RawFileOps(
 		for (target in held.targets()) recheck(target)
 	}
 
+	/** A forgotten session's open files go. `WindowOps.forgetTarget` clears the shared draft folder. */
+	fun forgetTarget(target: WorkspaceTarget) {
+		held.apply(target) { emptyList() }
+	}
+
 	/** A re-provision takes the previous owner's files with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {
 		shown.clear()

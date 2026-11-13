@@ -325,6 +325,12 @@ internal class WindowOps(
 		return appliedOf(outbox.submit(RequestKey(target.address, RequestKind.APPLY, ""), text, admission), requests.size)
 	}
 
+	/** A forgotten session's windows go, and every draft it left with them. */
+	fun forgetTarget(target: WorkspaceTarget) {
+		apply(target) { emptyList() }
+		drafts.clearTarget(target)
+	}
+
 	/** A re-provision takes the previous owner's code with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {
 		for (target in held.targets()) apply(target) { emptyList() }

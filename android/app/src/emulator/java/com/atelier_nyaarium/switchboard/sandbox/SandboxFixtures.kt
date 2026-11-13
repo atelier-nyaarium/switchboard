@@ -62,7 +62,7 @@ import kotlinx.serialization.json.Json
  * eventually, and that is fine for a sandbox.
  */
 class SandboxFixtures(private val filesDir: File, private val assets: AssetManager) {
-	/** Four sessions: surfaces, tab row, own palette, one in a container. Names fully qualified. */
+	/** Five sessions: surfaces, tab row, own palette, one in a running container, one in a stopped one. */
 	fun teams(): List<Team> = listOf(
 		Team(
 			name = SESSION,
@@ -93,6 +93,14 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			sessionLabel = "Mixer",
 			harness = HarnessWord.Named(SessionHarness.CLAUDE),
 		),
+		// Asleep in a stopped container whose start fails, so Forget asks first.
+		Team(
+			name = STOPPED_SESSION,
+			presence = sandboxPresence(status = Presence.AVAILABLE),
+			kind = "loose",
+			sessionLabel = "Tiles",
+			harness = HarnessWord.Named(SessionHarness.CLAUDE),
+		),
 		Team(
 			name = ASSISTANT,
 			presence = sandboxPresence(),
@@ -103,13 +111,13 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 
 	/** LIVE, because a seeded session stands in for one the route Gateway just pushed. Anything less
 	 * authoritative makes the surfaces that gate on evidence, like the terminal's peek, sit idle. */
-	private fun sandboxPresence(working: Boolean? = null): Presence =
+	private fun sandboxPresence(working: Boolean? = null, status: String = Presence.ONLINE): Presence =
 		Presence.reported(
 			TeamInfo(
 				team = SESSION,
 				gatewayId = GATEWAY,
 				domainId = DOMAIN,
-				status = Presence.ONLINE,
+				status = status,
 				mode = "channel",
 				kind = "loose",
 				queue_depth = 0,
@@ -497,6 +505,9 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 
 		/** Inside the seeded running container. */
 		const val CONTAINER_SESSION = "local.sandbox.recipe-app.mixer"
+
+		/** Inside the seeded stopped container. */
+		const val STOPPED_SESSION = "local.sandbox.godot-game.tiles"
 
 		/** The sandbox assistant's home. */
 		const val ASSISTANT = "local.sandbox.host.assistant"
