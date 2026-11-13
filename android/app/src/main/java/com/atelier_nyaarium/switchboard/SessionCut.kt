@@ -55,12 +55,11 @@ internal fun cutPlanView(answer: ConsoleSessionCutPlanResult?): CutPlanView {
 	if (answer == null) return CutPlanView.Refused("The Gateway did not answer.")
 	if (!answer.planned) return CutPlanView.Refused(answer.detail ?: "The Gateway refused.")
 	return CutPlanView.Planned(
-		listOfNotNull(
-			"That row is not a message you sent, so this keeps from the last message before it.".takeIf { answer.snapped == true },
-			"The session writes a summary of everything before this message, then closes and resumes from that summary and this message on.",
-			"",
-			"Session file: ${sizeText(answer.sourceBytes ?: 0)} now, about ${sizeText(answer.keptBytes ?: 0)} after.",
-			"The old session file is kept.",
+		listOf(
+			"Session file:",
+			"- ${sizeText(answer.sourceBytes ?: 0)} now",
+			"- ~${sizeText(answer.keptBytes ?: 0)} after",
+			"- Old file kept",
 		),
 	)
 }
@@ -70,7 +69,7 @@ internal fun cutConfirmBody(view: CutPlanView, clears: List<String>): String = w
 	CutPlanView.Loading -> "Reading the session..."
 	is CutPlanView.Refused -> view.line
 	is CutPlanView.Planned ->
-		(view.lines + if (clears.isEmpty()) emptyList() else listOf("", "Clears from this phone, above that message:") + clears)
+		(view.lines + if (clears.isEmpty()) emptyList() else listOf("", "This phone, above this message:") + clears)
 			.joinToString("\n")
 }
 

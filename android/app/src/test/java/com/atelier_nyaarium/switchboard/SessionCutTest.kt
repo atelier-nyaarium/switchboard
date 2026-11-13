@@ -50,10 +50,8 @@ class SessionCutTest {
 		) as CutPlanView.Planned
 		val refused = cutPlanView(ConsoleSessionCutPlanResult(planned = false, reason = "busy", detail = "This session is working."))
 
-		val unsnapped = cutPlanView(ConsoleSessionCutPlanResult(planned = true, keepText = "next task", snapped = false)) as CutPlanView.Planned
-
-		assertEquals(planned.lines.size, unsnapped.lines.size + 1)
-		assertTrue(planned.lines.any { it.contains("800.0 MB") && it.contains("3.0 MB") })
+		assertTrue(planned.lines.any { it.contains("800.0 MB") })
+		assertTrue(planned.lines.any { it.contains("3.0 MB") })
 		assertEquals(CutPlanView.Refused("This session is working."), refused)
 		assertTrue(cutPlanView(null) is CutPlanView.Refused)
 	}
