@@ -393,34 +393,48 @@ decision.
   one more when an entry is given up at 30 days. Nothing is reported to the owner.
 - **What names the session elsewhere goes too.** In the Gateway's own stores the end drops its
   held jobs (`PendingJobStore.forgetTeam`), fails its queued deliveries and deletes its
-  `InboxClaims` file. At the Router, `session_forget` runs every `onSessionForgotten` listener: the
+  `InboxClaims` file. Each step runs alone, so one that throws skips no other. An outbox that is
+  migrating fails nothing, which leaves those deliveries to their lifetime. At the Router, `session_forget` runs every `onSessionForgotten` listener: the
   armed scheduled send is cancelled and its record kept, its shares are withdrawn, and the read
   anchors of its conversation and scheduled-result streams are deleted with a version advance. A
   listener answers false for a write that did not land, the frame answers not ok, and the Gateway
   reports the forget again. Forgets the Router has not confirmed ride the session snapshot
   (`routerForgets`) and are replayed at the next registration.
+- **A forget still owed lands before the upsert of a session created again under its name**
+  (`SessionRegistryReporter`), or the old session's armed send and anchors pass to the new one. One
+  forget per name is in flight, since one landing after the upsert would take the new session's
+  registry row.
+- **A claim file with no claims is no file.** The last ack removes it, so a row delivered after the
+  end leaves nothing, and `InboxClaims.sweep` drops a claim a week past its row's lifetime.
 - **The Router's op ledger is swept by age** (`sweepOpLedger`): it is keyed by op, not by session,
   so an entry goes a week past its row's lifetime.
 - **The one sweep** (`src/gateway/purgeSweep.ts`, `bun scripts/purge-sweep.ts`) deletes what was
   on disk before any of this existed. A `threads` host op lists a backend's whole store at a place
   through that backend's driver (`AgentBackendSession.listThreads`), and the Gateway sorts every
   thread on the host and in each running container:
-  - **Kept:** a roster session's own conversation, and every thread spawned under it.
-  - **Running:** an agent record names it and a turn runs, an operation is unanswered, or a running
-    workflow names it.
+  - **Kept:** the conversation a roster record names, which for OpenCode and Copilot is the one it
+    launched with, and every id a record held unread names.
+  - **Running:** an agent record names it and a turn runs, an operation is unanswered, the daemon
+    may still hold it, or a running workflow names it.
   - **Unreadable:** no record names it and its store does not say it has been at rest for
-    `SWEEP_REST_MS`.
+    `SWEEP_REST_MS`, or it was touched since a connected session CLI at that place last touched
+    its own conversation. Such a CLI can move to another conversation without its record
+    following, and the dry run prints that bound (`SweepRow.liveSince`).
   - **Deleted:** the rest. A thread an agent record names ends as the age pass ends it
     (`expireAll`), so an uncollected answer stays. One no record names is queued.
-  A dry run answers the counts and a fingerprint of the exact set. An apply names that
-  fingerprint, rebuilds the listing, and refuses a set that moved. `/purge/sweep` takes the host's
-  token, like a retire. A store that could not be listed is not swept and says why, and a stopped
-  container is listed as not swept. The apply also drops what earlier forgets left in the Gateway's
-  own stores: claim files and held rows that name a session with no record (`orphanedNames`).
-  Claude Code's own store is left to its 30 day cleanup.
+  A thread stays as the one it was spawned under does, kept, running or unreadable, and one whose
+  parent the listing lacks is unreadable. A dry run answers the counts and a fingerprint of the
+  exact set. An apply names that fingerprint, rebuilds the listing, and refuses a set that moved.
+  `/purge/sweep` takes the host's token, like a retire. A store that could not be listed is not
+  swept and says why, and so is a container that is not up and a host spawn point whose store is
+  not listed. The apply also drops what earlier forgets left in the Gateway's own stores: claim
+  files and held rows that name a session with no record (`orphanedNames`). Those names are part of
+  the fingerprint, and the apply drops exactly the ones surveyed. Claude Code's own store is left to
+  its 30 day cleanup.
 - **The Router sweeps what earlier forgets left** on its own, each pass: a read anchor
   (`ORPHAN_ANCHOR_MS`) or an armed scheduled send (`ORPHAN_SEND_MS`) that names a session of the
-  Domain no Gateway reports, a day past its last touch.
+  Domain no admitted Gateway reports (`reported` in `ownerServices.ts`), a day past its last touch.
+  A revoked Gateway's sessions read as unreported, and a Domain that cannot be read sweeps nothing.
 - **The queue also keeps `BackstopTally`:** what a workflow run's seven day removal still found,
   answered on `/health`. Zero is healthy. `docs/workflows.md` holds what counts.
 - **A Gateway rolled back below this build** writes the snapshot without the queue, so pending

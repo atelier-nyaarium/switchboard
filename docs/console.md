@@ -254,10 +254,14 @@ single-flight, cadence and concurrency limits, and mutating-op deduplication.
 - **Start container holds the forget** (`SessionForget.startThenForget` over `ContainerOps.startThen`):
   `containerSettle` answers once, when the container runs or its start fails. Running commits the
   forget. A failure keeps the session and becomes its `LaunchError`. The hold is in memory, so a
-  process that dies mid-start keeps the session.
+  process that dies mid-start keeps the session. When the start settles the forget reads the session
+  again (`heldForgetStep`) and does nothing for one forgotten meanwhile. A second Start for a session
+  already held is ignored.
 - **Forget clears the session's workspace** (`SessionHost.dropWorkspace`): its open windows, its open
   raw files, and its draft folder. `WorkspaceDraftStore` keeps each target's drafts in a folder of
   their own, and reads a draft written before that from the flat directory until its dated removal.
+  An open still in flight lands nothing: the forget moves the window epoch and leaves the target's
+  raw file showings.
 - The reserved `host` slot requires `HOST_WS_TOKEN`.
 
 ## Armed goals
