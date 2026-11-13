@@ -62,6 +62,7 @@ send_key() {
 
 send_text() {
 	tmux_cmd send-keys -t "$PANE" -l "$1"
+	sleep 0.3
 	tmux_cmd send-keys -t "$PANE" Enter
 }
 

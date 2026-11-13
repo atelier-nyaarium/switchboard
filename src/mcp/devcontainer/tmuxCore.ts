@@ -47,6 +47,7 @@ const TMUX_ROWS = 38;
 // A resumed history renders slowly.
 const READY_TIMEOUT_MS = 90_000;
 const READY_POLL_MS = 1_000;
+export const ENTER_PAUSE_MS = 300;
 // A dead launch never captures.
 const DEAD_LAUNCH_PROBES = 8;
 
@@ -262,18 +263,30 @@ function sendKeyRaw(target: TmuxTarget, key: string): Promise<string> {
 	return run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), key]));
 }
 
+/** CLI treats batched Enter as pasted newline; callers hold the lock. */
+async function pressEnter(target: TmuxTarget, pauseMs: number): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, pauseMs));
+	await sendKeyRaw(target, "Enter");
+}
+
 /** Type a literal line; Enter is its own send-keys call, since an embedded CR reads as text. */
-export function sendText(target: TmuxTarget, text: string, submit = true): Promise<void> {
+export function sendText(
+	target: TmuxTarget,
+	text: string,
+	submit = true,
+	enterPauseMs = ENTER_PAUSE_MS,
+): Promise<void> {
 	return sends.run(targetKey(target), async () => {
 		assertNotReservedHostSink(target);
 		await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), "-l", "--", text]));
-		if (submit) await sendKeyRaw(target, "Enter");
+		if (submit) await pressEnter(target, enterPauseMs);
 	});
 }
 
 export interface TypeIntoPaneOptions {
 	timeoutMs?: number;
 	pollMs?: number;
+	enterPauseMs?: number;
 }
 
 /**
@@ -317,7 +330,7 @@ export function typeIntoPane(
 					input: typeable,
 				});
 				await run(tmuxArgv(target, ["paste-buffer", "-p", "-d", "-b", bufferName, "-t", paneTarget(target)]));
-				await sendKeyRaw(target, "Enter");
+				await pressEnter(target, options.enterPauseMs ?? ENTER_PAUSE_MS);
 				return { typed: true };
 			}
 			const remaining = deadline - Date.now();
@@ -351,7 +364,8 @@ export function withPane<T>(target: TmuxTarget, work: (hands: PaneHands) => Prom
 		return work({
 			read: async () => (await peekPane(target, false)).ansi,
 			press: async (key) => {
-				await sendKeyRaw(target, key);
+				if (key === "Enter") await pressEnter(target, ENTER_PAUSE_MS);
+				else await sendKeyRaw(target, key);
 			},
 			type: async (text) => {
 				await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), "-l", "--", typeableText(text)]));
@@ -460,14 +474,14 @@ function pressDigit(target: TmuxTarget, digit: string): Promise<void> {
 }
 
 /** A named key, for the menus a digit no longer answers. Daemon-pressed, so it skips the whitelist. */
-function pressKey(target: TmuxTarget, key: "Up" | "Down" | "Enter"): Promise<void> {
+function pressKey(target: TmuxTarget, key: "Up" | "Down"): Promise<void> {
 	return sends.run(targetKey(target), async () => {
 		await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), key]));
 	});
 }
 
 /** An unfound trust cursor or Yes row is left alone: Enter could pick "No, exit". */
-async function answerStartupPrompt(target: TmuxTarget, clean: string): Promise<void> {
+async function answerStartupPrompt(target: TmuxTarget, clean: string, enterPauseMs: number): Promise<void> {
 	if (NUMBERED_MENU_RE.test(clean) || COPILOT_TRUST_RE.test(clean)) return pressDigit(target, "1");
 	const lines = clean.split("\n");
 	const yes = lines.findIndex((line) => TRUST_YES_RE.test(line));
@@ -479,16 +493,18 @@ async function answerStartupPrompt(target: TmuxTarget, clean: string): Promise<v
 		const steps = lines.slice(from + 1, to + 1).filter((line) => line.trim() !== "").length;
 		for (let i = 0; i < steps; i += 1) await pressKey(target, cursor < yes ? "Down" : "Up");
 	}
-	await pressKey(target, "Enter");
+	// Move cursor before Enter.
+	await sends.run(targetKey(target), () => pressEnter(target, enterPauseMs));
 }
 
 /** Poll until the composer appears, pressing through the startup and resume menus. */
 export async function awaitReady(
 	target: TmuxTarget,
-	opts: { timeoutMs?: number; pollMs?: number } = {},
+	opts: { timeoutMs?: number; pollMs?: number; enterPauseMs?: number } = {},
 ): Promise<{ alive: boolean; ready: boolean; screen: string; limit?: LimitNotice }> {
 	const timeoutMs = opts.timeoutMs ?? READY_TIMEOUT_MS;
 	const pollMs = opts.pollMs ?? READY_POLL_MS;
+	const enterPauseMs = opts.enterPauseMs ?? ENTER_PAUSE_MS;
 	const deadline = Date.now() + timeoutMs;
 	let captureOk = false;
 	let missedProbes = 0;
@@ -508,7 +524,7 @@ export async function awaitReady(
 		// A prompt outranks a stale composer sharing its frame.
 		if (STARTUP_PROMPT_RE.test(clean)) {
 			try {
-				await answerStartupPrompt(target, clean);
+				await answerStartupPrompt(target, clean, enterPauseMs);
 			} catch {
 				// Self-heals next poll.
 			}

@@ -707,6 +707,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     write, a span save or a file mutation, as `unknown`, and the phone reads back. A retried write is safe,
     since the hash refuses the second one and a read-back of the owner's own text is adopted.
   - **Every file mutation is one op, `mutateFile`, carrying a strict `FileMutationSchema` variant:** a new
+  - **Enter waits behind typed keys:** every Enter the daemon presses after text, a paste or a menu's cursor moves is held `ENTER_PAUSE_MS` (`pressEnter` in `tmuxCore.ts`). A CLI reads keys that arrive together as one paste, where the Enter is a newline and the line is never submitted. The phone's goal typing gets the same gap by sending Enter as its own op.
     operation is a variant with its own preconditions, not a new op, and a reader that does not know a
     precondition refuses the mutation rather than stripping it.
 - `src/gateway/workspacePlane.ts` / `workspaceOpCoordinator.ts` - the Gateway's end of the plane, and the correlation it settles on

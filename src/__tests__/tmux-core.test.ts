@@ -64,6 +64,7 @@ import {
 	awaitReady,
 	classifyPaneProcesses,
 	createSession,
+	ENTER_PAUSE_MS,
 	ensureSession,
 	hasSession,
 	isAgentReady,
@@ -98,7 +99,7 @@ afterEach(() => {
 
 describe("tmuxCore sendText", () => {
 	it("types text then sends Enter as its own send-keys call, with -- guarding a leading dash", async () => {
-		await sendText({ kind: "host", name: "host", sessionName: "claude" }, "-l hello");
+		await sendText({ kind: "host", name: "host", sessionName: "claude" }, "-l hello", true, 0);
 		// Two invocations: Enter rides as its own send-keys call rather than an embedded CR, since a
 		// target CLI's paste detection would otherwise swallow an embedded CR as inserted text
 		// instead of a submit keypress.
@@ -108,13 +109,28 @@ describe("tmuxCore sendText", () => {
 		]);
 	});
 
+	it("holds Enter back from the text, so a CLI cannot read both as one paste", async () => {
+		vi.useFakeTimers();
+		try {
+			const sent = sendText({ kind: "host", name: "host", sessionName: "claude" }, "hello");
+			await vi.advanceTimersByTimeAsync(ENTER_PAUSE_MS - 1);
+			expect(calls.map((call) => call.at(-1))).toEqual(["hello"]);
+
+			await vi.advanceTimersByTimeAsync(1);
+			await sent;
+			expect(calls.map((call) => call.at(-1))).toEqual(["hello", "Enter"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("omits the trailing CR when submit is false (types into the composer without submitting)", async () => {
 		await sendText({ kind: "host", name: "host", sessionName: "claude" }, "hello", false);
 		expect(calls).toEqual([["tmux", "send-keys", "-t", "=claude.0", "-l", "--", "hello"]]);
 	});
 
 	it("targets a devcontainer via docker exec by the compose container name", async () => {
-		await sendText({ kind: "devcontainer", name: "recipe-app", sessionName: "claude" }, "hi");
+		await sendText({ kind: "devcontainer", name: "recipe-app", sessionName: "claude" }, "hi", true, 0);
 		expect(calls).toEqual([
 			[
 				"docker",
@@ -156,9 +172,9 @@ describe("tmuxCore sendText", () => {
 		holdEnter = new Promise((resolve) => {
 			release = resolve;
 		});
-		const first = sendText(target, "one");
+		const first = sendText(target, "one", true, 0);
 		await killSession(target);
-		const second = sendText(target, "two");
+		const second = sendText(target, "two", true, 0);
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(calls.some((call) => call.includes("two"))).toBe(false);
 
@@ -194,7 +210,7 @@ describe("tmuxCore typeIntoPane", () => {
 		const [esc, cr, csi] = [0x1b, 0x0d, 0x9b].map((code) => String.fromCharCode(code));
 		const text = `first line${cr}\nsecond${esc}[201~ line\tend${csi}2J`;
 
-		expect(await typeIntoPane(target, text, { timeoutMs: 100, pollMs: 1 })).toEqual({
+		expect(await typeIntoPane(target, text, { timeoutMs: 100, pollMs: 1, enterPauseMs: 0 })).toEqual({
 			typed: true,
 		});
 		expect(calls.filter((call) => call.includes("capture-pane"))).toHaveLength(2);
@@ -213,7 +229,7 @@ describe("tmuxCore typeIntoPane", () => {
 		const loggedOut = vectors.vectors.find((vector) => vector.name === "copilot-logged-out")?.screen ?? "";
 		stdoutData = loggedOut;
 
-		expect(await typeIntoPane(target, "hello", { timeoutMs: 100, pollMs: 1 })).toEqual({
+		expect(await typeIntoPane(target, "hello", { timeoutMs: 100, pollMs: 1, enterPauseMs: 0 })).toEqual({
 			typed: false,
 			reason: "busy",
 		});
@@ -237,7 +253,9 @@ describe("tmuxCore typeIntoPane", () => {
 		captureScreens.push("──────\n❯ \n──────");
 		const target: TmuxTarget = { kind: "devcontainer", name: "recipe-app", sessionName: "copilot" };
 
-		await expect(typeIntoPane(target, "hello", { timeoutMs: 100, pollMs: 1 })).resolves.toEqual({ typed: true });
+		await expect(typeIntoPane(target, "hello", { timeoutMs: 100, pollMs: 1, enterPauseMs: 0 })).resolves.toEqual({
+			typed: true,
+		});
 		expect(calls.find((call) => call.includes("load-buffer"))).toEqual([
 			"docker",
 			"exec",
@@ -733,7 +751,7 @@ describe("tmuxCore awaitReady", () => {
 		]) {
 			calls.length = 0;
 			stdoutData = menu;
-			await awaitReady(target, { pollMs: 5, timeoutMs: 30 });
+			await awaitReady(target, { pollMs: 5, timeoutMs: 30, enterPauseMs: 0 });
 			expect(calls).toContainEqual(["tmux", "send-keys", "-t", "=scratch.0", "-l", "--", "1"]);
 		}
 	});
@@ -767,13 +785,13 @@ describe("tmuxCore awaitReady", () => {
 
 	it("confirms an unnumbered non-trust prompt with Enter, and leaves a trust dialog with no cursor alone", async () => {
 		stdoutData = " Try the new fullscreen renderer?\n > Yes, try it\n   Not now";
-		await awaitReady(target, { pollMs: 5, timeoutMs: 30 });
+		await awaitReady(target, { pollMs: 5, timeoutMs: 30, enterPauseMs: 0 });
 		const keys = calls.filter((c) => c.includes("send-keys")).map((c) => c[c.length - 1]);
 		expect(keys.slice(0, 1)).toEqual(["Enter"]);
 
 		calls.length = 0;
 		stdoutData = " Is this a project you created or one you trust?\n   No, exit\n   Yes, I trust this folder";
-		await awaitReady(target, { pollMs: 5, timeoutMs: 30 });
+		await awaitReady(target, { pollMs: 5, timeoutMs: 30, enterPauseMs: 0 });
 		expect(calls.some((c) => c.includes("send-keys"))).toBe(false);
 	});
 
