@@ -63,6 +63,12 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		const snapshot = deps.getDomain(domainId);
 		return snapshot ? admittedGatewayIds(snapshot) : [];
 	};
+	/** A session a Gateway reported, while the Domain still admits that Gateway. An unread Domain sweeps nothing. */
+	const reported = (domainId: string, gatewayId: string, sessionId: string): boolean => {
+		const snapshot = deps.getDomain(domainId);
+		if (!snapshot) return true;
+		return admittedGatewayIds(snapshot).includes(gatewayId) && inbox.hasSession(domainId, gatewayId, sessionId);
+	};
 	const linkedDomains = (domainId: string): string[] =>
 		registry.domains().filter((other) => other !== domainId && deps.hasLinkEdge(domainId, other));
 	const sweepers: Array<{ label: string; sweep: (domainId: string, now: number) => void }> = [];
@@ -220,14 +226,14 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 			set: (ms, fn) => chainedTimer(ambient, ms, fn),
 			clear: (handle) => ambient.clearTimer((handle as ReturnType<typeof chainedTimer>).handle()),
 		},
-		hasSession: (domainId, gatewayId, sessionId) => inbox.hasSession(domainId, gatewayId, sessionId),
+		hasSession: reported,
 		now: () => registry.now(),
 	});
 
 	const capabilities = createCapabilitiesService({ registry });
 	const readAnchors = createReadAnchorsService({
 		registry,
-		hasSession: (domainId, gatewayId, sessionId) => inbox.hasSession(domainId, gatewayId, sessionId),
+		hasSession: reported,
 		pokeOwner: (domainId, result) =>
 			deps.consoleSockets?.pushPlane(domainId, "readAnchors", result.version, result),
 	});

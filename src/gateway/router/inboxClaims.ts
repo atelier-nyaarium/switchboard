@@ -2,9 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Clock } from "../../shared/ambient.js";
 import { commitChecked, DurableStore } from "../../shared/durable-store.js";
+import { INBOX_ROW_TTL_MS } from "../../shared/schemasInbox.js";
 
 const CLAIMS_DIR = "inbox-claims";
 const CLAIM_PREFIX = "claim-";
+/** Claim outlives its row by a week. */
+export const INBOX_CLAIM_TTL_MS = INBOX_ROW_TTL_MS + 7 * 24 * 60 * 60 * 1000;
 
 export interface InboxClaim {
 	deliveryId: string;
@@ -71,7 +74,28 @@ export class InboxClaims {
 		// A forgotten address gets no file back.
 		if (!(deliveryId in current.claims)) return;
 		const { [deliveryId]: _acked, ...kept } = current.claims;
-		this.commit(address, { deliveryEpoch, claims: kept });
+		this.keep(address, { deliveryEpoch, claims: kept });
+	}
+
+	/** Drops claims offered before `before`. Answers how many went. */
+	sweep(before: number): number {
+		let dropped = 0;
+		for (const address of this.addresses()) {
+			this.file(address);
+			const current = this.claims.get(address)!;
+			const kept = Object.fromEntries(
+				Object.entries(current.claims).filter(([, claim]) => claim.offeredAt >= before),
+			);
+			const gone = Object.keys(current.claims).length - Object.keys(kept).length;
+			if (gone === 0 && Object.keys(kept).length > 0) continue;
+			try {
+				this.keep(address, { deliveryEpoch: current.deliveryEpoch, claims: kept });
+				dropped += gone;
+			} catch {
+				// Left for the next pass.
+			}
+		}
+		return dropped;
 	}
 
 	/** Every address with a claim file. */
@@ -97,6 +121,17 @@ export class InboxClaims {
 		this.files.delete(address);
 		this.claims.delete(address);
 		return true;
+	}
+
+	/** Empty claims write no file. Throws unless landed. */
+	private keep(address: string, next: ClaimFile): void {
+		if (Object.keys(next.claims).length > 0) {
+			this.commit(address, next);
+			return;
+		}
+		this.file(address).remove();
+		this.files.delete(address);
+		this.claims.delete(address);
 	}
 
 	/** Throws unless landed. */

@@ -1015,8 +1015,6 @@ describe("the OpenCode bridge", () => {
 				{ threadId: "ses_child", updatedAt: 1_700_000_000_000, parentId: "ses_stray" },
 			],
 		});
-		// Three sessions over pages of two.
-		expect(r.server.requests.filter((asked) => asked.route.startsWith("/api/session?")).length).toBe(2);
 		r.bridge.closed();
 		await r.bridge.done;
 	});

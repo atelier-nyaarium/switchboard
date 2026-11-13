@@ -152,7 +152,14 @@ export class GatewayBridge implements ToolProvider {
 				let landed = true;
 				// Every listener runs, whatever an earlier one answered.
 				for (const listener of this.sessionForgottenListeners) {
-					if (listener(identity, sessionId) === false) landed = false;
+					try {
+						if (listener(identity, sessionId) === false) landed = false;
+					} catch (error) {
+						landed = false;
+						console.warn(
+							`[sessions] forget listener failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+						);
+					}
 				}
 				return landed;
 			},

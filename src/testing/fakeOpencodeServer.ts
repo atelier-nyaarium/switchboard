@@ -52,7 +52,6 @@ export interface FakeOpencodeServer {
 	requests: Array<{ method: string; route: string; body?: unknown }>;
 	/** Every permission reply taken. */
 	replies: FakeOpencodeReply[];
-	/** `parentId` makes it one a session spawned. */
 	addSession(id: string, directory?: string, parentId?: string): void;
 	sessionOf(id: string): { directory: string; model?: unknown } | undefined;
 	/** Oldest first. */
@@ -124,9 +123,7 @@ export function createFakeOpencodeServer(options: FakeOpencodeServerOptions = {}
 		{ id: "deepseek-v4-pro", providerID: "opencode-go" },
 	];
 	const sessions = new Map<string, Session>();
-	/** A listed session's parent. */
 	const parents = new Map<string, string>();
-	/** What every listed session says it last changed at. */
 	const listedAt = 1_700_000_000_000;
 	const LIST_PAGE = 2;
 	const permissions: FakeOpencodePermission[] = [];

@@ -57,7 +57,6 @@ export interface AgentStack {
 	): { agent: StackAgent | undefined; refusal?: AgentRefusal };
 	abandon(owner: SessionRecord, agentId: string, operationId: string, at: number): void;
 	retire(owner: SessionRecord, agentId: string): AgentCatalogRetirement;
-	/** Ends the named threads in one write. Answers how many ended. */
 	expireAll(owner: SessionRecord, agentIds: ReadonlySet<string>, at: number): number;
 	retagRun(owner: SessionRecord, agentId: string, fromRunId: string, toRunId: string, at: number): boolean;
 	markTurnNotified(owner: SessionRecord, agentId: string, turnId: string): boolean;

@@ -35,7 +35,7 @@ export interface ScriptedBackend {
 	/** Oldest first. */
 	turns: ScriptedTurn[];
 	threads: ReadonlySet<string>;
-	/** A thread no agent record names, at a place. Null `updatedAt` reads as unknown. */
+	/** A thread no agent record names. Null `updatedAt` reads as unknown. */
 	plant(threadId: string, targetId: string, updatedAt: number | null, parentId?: string): void;
 	launches: number;
 	/** Default: activity, then completed. */
@@ -124,7 +124,7 @@ class Backend implements ScriptedBackend {
 	readonly threads = new Set<string>();
 	/** Each thread's target. */
 	readonly places = new Map<string, string>();
-	/** When each thread last changed; absent reads as unknown. */
+	/** Absent reads as unknown. */
 	readonly updated = new Map<string, number>();
 
 	readonly parents = new Map<string, string>();
@@ -268,7 +268,6 @@ class Session implements AgentBackendSession {
 		return (this.backend.models ?? [agentBackend(this.backend.id).defaultModel]).map((id) => ({ id }));
 	}
 
-	/** This place's threads, all updated at the scripted clock's start. */
 	async listThreads(): Promise<ListedThread[]> {
 		return [...this.backend.threads]
 			.filter((threadId) => this.backend.places.get(threadId) === this.child.targetId)

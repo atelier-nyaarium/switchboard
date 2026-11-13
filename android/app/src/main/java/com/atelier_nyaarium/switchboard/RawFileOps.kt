@@ -276,6 +276,11 @@ internal class RawFileOps(
 
 	/** A forgotten session's open files go. `WindowOps.forgetTarget` clears the shared draft folder. */
 	fun forgetTarget(target: WorkspaceTarget) {
+		for (key in shown.all.value.keys) {
+			if (key.first != target) continue
+			shown.leave(key)
+			painted.leave(key)
+		}
 		held.apply(target) { emptyList() }
 	}
 

@@ -127,19 +127,21 @@ describe("session registry reporter", () => {
 		expect(sent.filter((action) => action === "session_forget")).toHaveLength(2);
 	});
 
-	it("cancels a pending tombstone when the session is recreated", async () => {
+	it("lands a pending forget before the upsert of a session created again under its name", async () => {
 		const store = new SessionStore({ ambient: processAmbient(), idGen: () => "one" });
-		const sent: Array<{ action: string; params: Record<string, unknown> }> = [];
+		const ambient = fakeAmbient({ drive: "manual" });
+		const sent: string[] = [];
 		let incarnation: number | null = 3;
+		let taken = false;
 		const reporter = createSessionRegistryReporter({
 			sessionStore: store,
-			send: async (action, params) => {
-				sent.push({ action, params });
-				return { result: { ok: true } };
+			send: async (action) => {
+				sent.push(action);
+				return { result: { ok: action !== "session_forget" || taken } };
 			},
 			incarnation: () => incarnation,
 			localGatewayId: "gateway",
-			ambient: fakeAmbient({ drive: "manual" }),
+			ambient,
 		});
 		reporter.attach();
 		incarnation = null;
@@ -150,8 +152,15 @@ describe("session registry reporter", () => {
 		reporter.reconcile();
 		await flush();
 
-		expect(sent.filter((entry) => entry.action === "session_upsert")).toHaveLength(1);
-		expect(sent.filter((entry) => entry.action === "session_forget")).toHaveLength(0);
+		expect(sent).toEqual(["session_forget"]);
+		expect(reporter.pendingForgets()).toEqual(["host.one"]);
+
+		taken = true;
+		await ambient.advance(SESSION_REGISTRY_RETRY_MS);
+		await flush();
+
+		expect(sent).toEqual(["session_forget", "session_forget", "session_upsert"]);
+		expect(reporter.pendingForgets()).toEqual([]);
 	});
 
 	it("reconcile reports records that vanished", async () => {

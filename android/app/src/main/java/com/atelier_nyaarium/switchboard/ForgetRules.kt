@@ -6,7 +6,6 @@ import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 ////////////////////////////////
 //  Interfaces & Types
 
-/** What a forget asks before it runs. */
 internal sealed interface ForgetAsk {
 	data object None : ForgetAsk
 
@@ -16,14 +15,18 @@ internal sealed interface ForgetAsk {
 	data object GatewayOffline : ForgetAsk
 }
 
-/** A forget waiting on its answer. */
 internal data class ForgetAsking(val team: String, val cancelTasks: Boolean?, val ask: ForgetAsk)
 
-/** How a container start asked for by a held forget ended. */
 internal sealed interface ContainerSettle {
 	data object Running : ContainerSettle
 
 	data class Failed(val line: String) : ContainerSettle
+}
+
+internal sealed interface HeldForgetStep {
+	data object Forget : HeldForgetStep
+
+	data class Keep(val line: String) : HeldForgetStep
 }
 
 ////////////////////////////////
@@ -59,6 +62,13 @@ internal fun forgetAskTitle(ask: ForgetAsk): String =
 
 internal fun forgetAskLine(ask: ForgetAsk): String =
 	if (ask is ForgetAsk.ContainerStopped) CONTAINER_STOPPED_LINE else GATEWAY_OFFLINE_LINE
+
+/** Null for a session forgotten while its start was out. */
+internal fun heldForgetStep(state: ChatState, team: String, settle: ContainerSettle): HeldForgetStep? = when {
+	state.teams.none { it.name == team } -> null
+	settle is ContainerSettle.Failed -> HeldForgetStep.Keep(settle.line)
+	else -> HeldForgetStep.Forget
+}
 
 /**
  * Null while the start is still out. [before] is the container when Start was pressed, so a state

@@ -168,11 +168,11 @@ describe("Codex App Server JSONL transport", () => {
 			"false:next": { data: [{ id: "t2", updatedAt: 0 }] },
 			"true:": { data: [{ id: "t3" }] },
 		};
-		const asked: unknown[] = [];
+		const asked: string[][] = [];
 		const f = child((request, emit) => {
 			if (request.method !== "thread/list") return standard(request, emit);
 			const params = request.params as { archived: boolean; cursor: string | null; sourceKinds: string[] };
-			asked.push(params.sourceKinds.length);
+			asked.push(params.sourceKinds);
 			emit(reply(request, pages[`${params.archived}:${params.cursor ?? ""}`] ?? { data: [] }));
 		});
 		const client = await CodexAppServerClient.open(createJsonlTransport(f.child), MODEL);
@@ -182,8 +182,9 @@ describe("Codex App Server JSONL transport", () => {
 			{ threadId: "t2", updatedAt: null, parentId: null },
 			{ threadId: "t3", updatedAt: null, parentId: null },
 		]);
-		// Every door a thread is made through.
-		expect(asked.every((kinds) => kinds === 10)).toBe(true);
+		// Sub-agent threads are listed only when asked for.
+		for (const kinds of asked)
+			expect(kinds).toEqual(expect.arrayContaining(["cli", "exec", "appServer", "subAgent"]));
 
 		pages["true:"] = { data: [{ updatedAt: 5 }] };
 		await expect(client.listThreads()).rejects.toThrow();

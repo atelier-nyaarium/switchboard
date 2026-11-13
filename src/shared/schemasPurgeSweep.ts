@@ -33,6 +33,11 @@ export interface SweepRow {
 	agents: number;
 	/** Threads no record names. */
 	unnamed: number;
+	/**
+	 * A session's own CLI runs here and may have moved to another conversation, so unnamed threads touched
+	 * since this time are left. 0 leaves them all.
+	 */
+	liveSince?: number;
 	/** The store could not be listed, so nothing here is swept. */
 	error?: string;
 }
@@ -43,10 +48,19 @@ export interface SweepOrphans {
 	jobs: number;
 }
 
+/** The names behind a `SweepOrphans` count. */
+export interface SweepOrphanNames {
+	claims: string[];
+	teams: string[];
+	jobs: number;
+}
+
 export interface SweepPlan {
 	rows: SweepRow[];
 	/** Containers that are not running, and so not swept. */
 	stopped: string[];
+	/** Host spawn points whose stores are not listed, and so not swept. */
+	unreached: string[];
 	orphans: SweepOrphans;
 	/** Names the exact set an apply would delete. */
 	fingerprint: string;

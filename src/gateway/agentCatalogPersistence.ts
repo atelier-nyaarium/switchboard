@@ -230,10 +230,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		}
 	}
 
-	/**
-	 * One write for many agents: `change` answers a replacement, null to remove, undefined to keep.
-	 * False when nothing changed or the write did not land.
-	 */
+	/** `change` answers a replacement, null to remove, undefined to keep. False when nothing landed. */
 	rewrite(owner: SessionRecord, change: (agent: TAgent) => TAgent | null | undefined): boolean {
 		const catalog = this.read(owner);
 		let changed = false;

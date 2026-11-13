@@ -31,7 +31,7 @@ internal data class HeldDraft(val base: String, val text: String)
  * what `RunbookManager` pays by serialising its library into one preferences string.
  *
  * Nothing indexes the files; a listing would be a second source of truth about which windows exist.
- * Each target's drafts sit in a folder of their own, so a forgotten session's go together.
+ * One folder per target, cleared whole on a forget.
  *
  * Every touch goes through one queue, reads included, so a save asked for before a clear cannot land
  * after it and leave the file holding text the window has already dropped. A caller says what the
@@ -100,7 +100,7 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 	private fun hashed(text: String): String =
 		MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
-	// FIXME 2026-11-26: drop, with its read in `load`. Drafts written before each target had a folder.
+	// FIXME 2026-11-26: drop the flat layout: its read in `load`, its delete in `clear`, and every `*.draft` left in `dir`.
 	private fun flatFileFor(target: WorkspaceTarget, key: DraftKey): File = File(dir, nameFor(target, key))
 
 	/**

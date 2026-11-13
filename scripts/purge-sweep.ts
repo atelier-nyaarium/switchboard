@@ -42,7 +42,16 @@ function show(plan: SweepPlan): void {
 	console.log(
 		`left by earlier forgets on this Gateway: ${plan.orphans.claims} claim files, ${plan.orphans.jobs} held rows`,
 	);
+	for (const row of swept) {
+		if (row.liveSince === undefined) continue;
+		const since =
+			row.liveSince === 0
+				? "every unnamed thread"
+				: `unnamed threads touched since ${new Date(row.liveSince).toISOString()}`;
+		console.log(`left at ${row.place} ${row.backend}: ${since}, since a session's own CLI is running there`);
+	}
 	if (plan.stopped.length > 0) console.log(`not swept, container not running: ${plan.stopped.join(", ")}`);
+	if (plan.unreached.length > 0) console.log(`not swept, store not listed: ${plan.unreached.join(", ")}`);
 }
 
 const args = process.argv.slice(2);

@@ -237,6 +237,19 @@ Questions 2, 8, 11, 12.
 - **The dry run's fingerprint names the exact set.** The apply rebuilds the listing and refuses a different one.
 - **The Router's leftovers are a sweep of its own, each pass,** not a one-time op: a read anchor or an armed send naming a session of the Domain no Gateway reports, a day past its last touch.
 - **The age pass is one catalog write per session and backend.** A write per agent held the Gateway's event loop for minutes at the first pass's two thousand agents.
+- **A forget still owed lands before the upsert of a session created again under its name.** `SessionRegistryReporter.upsert` dropped the tombstone, so the old session's armed send and anchors passed to the new one.
+- **A claim file with no claims is removed, and a claim leaves a week after its row's lifetime.** A row delivered after the end wrote the file again, and the Gateway's orphan pass runs once.
+- **The fingerprint also names the orphan claim files and job teams,** and the apply drops exactly the surveyed names.
+- **A host spawn point whose store is not listed is reported as not swept,** beside the stopped containers.
+- **A thread stays as the one it was spawned under does,** kept, running or unreadable, and one whose parent the listing lacks is unreadable.
+- **A record held unread keeps every id it names.**
+- **A held forget reads the session again when its start settles,** and does nothing for one forgotten meanwhile.
+- **The Router's leftover sweeps read a revoked Gateway's sessions as unreported.** A Domain that cannot be read sweeps nothing.
+- **Left as they are:** `failTeam` answering `MIGRATING` leaves a forgotten session's queued deliveries to their own lifetime. A step of the `ended` hook that throws skips the steps after it. A forget the Router never takes holds the recreated name's upsert.
+
+### Bug Classes
+
+- **Mechanism:** the keep set in `purgeSweep.ts` `sort`. **Defect class:** the sweep reads what a roster session owns from the id on its record, and an OpenCode or Copilot session's record does not follow the conversation its CLI is in. **Patched two rounds:** an unnamed thread touched since a session at that place last touched its own conversation is left (red team 1); only a session whose CLI is connected now sets that bound, and the dry run prints it (red team 2). **Still open:** the record should follow the conversation the CLI reports, as Question 6 says. Until then a dormant session's moved conversation is swept, and a running session's bound leaves other leftovers at its place.
 
 ## Painpoints
 

@@ -105,10 +105,7 @@ export class AgentService {
 		return this.persistence.collect(owner, agentId, operationId, at, parseAgent);
 	}
 
-	/**
-	 * Ends every named thread in one catalog write, since a write is the whole snapshot.
-	 * Uncollected turns keep the threadless record. Answers how many ended.
-	 */
+	/** One catalog write; uncollected turns keep the threadless record. */
 	expireAll(owner: SessionRecord, agentIds: ReadonlySet<string>, at: number): number {
 		const undos: Array<(() => void) | undefined> = [];
 		const landed = this.persistence.rewrite(owner, (current) => {

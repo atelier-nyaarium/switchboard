@@ -137,6 +137,14 @@ describe("what an ended session leaves at its place", () => {
 			.readdirSync(path.join(h.root, "gateway", "inbox-claims"))
 			.map((file) => Buffer.from(file.slice("claim-".length, -".json".length), "base64url").toString());
 		expect(claimed.filter((address) => address.endsWith(`/${nia.team}`))).toEqual([]);
+
+		// A day on, an anchor for a session no Gateway reports goes, and a reported session's stays.
+		const kai = await launch("Kai");
+		expect((await h.phone.reportRead(stream(kai.team), 1, 1)).status).toBe(200);
+		h.router.server.sweep(h.now() + 2 * 24 * 60 * 60_000);
+		expect(await anchors()).toEqual([stream(kai.team)]);
+		await forget(kai);
+		await drained();
 	});
 
 	it("deletes a forgotten session's conversation, own files and agent threads, behind its pane's close", async () => {

@@ -16,6 +16,7 @@ export function createSessionRegistryReporter(deps: SessionRegistryReporterDeps)
 	const known = new Set<string>();
 	const pendingUpserts = new Map<string, SessionRecord>();
 	const pendingTombstones = new Set<string>();
+	const forgetting = new Set<string>();
 	let retry: TimerHandle | null = null;
 	const sessionIdOf = (record: SessionRecord) => `${record.spawn}.${record.id}`;
 
@@ -59,24 +60,36 @@ export function createSessionRegistryReporter(deps: SessionRegistryReporterDeps)
 	}
 
 	async function sendForget(sessionId: string, incarnation: number): Promise<void> {
+		// A second in flight would land after the upsert the first releases.
+		if (forgetting.has(sessionId)) return;
+		forgetting.add(sessionId);
 		let taken = false;
 		try {
 			taken = landed(await deps.send("session_forget", { sessionId, incarnation }));
 		} catch {
 			taken = false;
+		} finally {
+			forgetting.delete(sessionId);
 		}
-		if (taken) pendingTombstones.delete(sessionId);
-		else if (pendingTombstones.has(sessionId)) scheduleRetry();
+		if (!taken) {
+			if (pendingTombstones.has(sessionId)) scheduleRetry();
+			return;
+		}
+		pendingTombstones.delete(sessionId);
+		const held = pendingUpserts.get(sessionId);
+		const current = deps.incarnation();
+		if (held && current !== null) void sendUpsert(held, current);
 	}
 
 	function upsert(record: SessionRecord): void {
 		const sessionId = sessionIdOf(record);
-		pendingTombstones.delete(sessionId);
 		known.add(sessionId);
 		pendingUpserts.set(sessionId, record);
 		const incarnation = deps.incarnation();
 		if (incarnation === null) return;
-		void sendUpsert(record, incarnation);
+		// A name created again waits on its forget.
+		if (pendingTombstones.has(sessionId)) void sendForget(sessionId, incarnation);
+		else void sendUpsert(record, incarnation);
 	}
 
 	function forget(record: SessionRecord): void {
@@ -93,7 +106,9 @@ export function createSessionRegistryReporter(deps: SessionRegistryReporterDeps)
 	function flush(): void {
 		const incarnation = deps.incarnation();
 		if (incarnation === null) return;
-		for (const record of pendingUpserts.values()) void sendUpsert(record, incarnation);
+		for (const [sessionId, record] of pendingUpserts) {
+			if (!pendingTombstones.has(sessionId)) void sendUpsert(record, incarnation);
+		}
 		for (const sessionId of pendingTombstones) void sendForget(sessionId, incarnation);
 	}
 

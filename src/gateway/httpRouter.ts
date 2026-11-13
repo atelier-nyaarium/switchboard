@@ -55,7 +55,7 @@ export interface HttpRouterDeps {
 	unenrolledHealth: () => Response;
 	hostWsToken?: string;
 	retire?: () => Promise<{ outcome: string; error?: string }>;
-	/** The one sweep. A dry run unless `apply` names the fingerprint it was shown. */
+	/** Dry run unless `apply` names the shown fingerprint. */
 	purgeSweep?: (input: { apply?: boolean; expect?: string }) => Promise<unknown>;
 	isClosing?: () => boolean;
 }

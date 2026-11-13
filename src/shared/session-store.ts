@@ -58,6 +58,9 @@ export type PersistedSessionRecord = Omit<SessionRecord, "liveTeam" | "harness">
 	agentCatalogs?: Partial<Record<AgentBackendId, PersistedAgentCatalog>>;
 };
 
+/** The keys a stored record names a conversation or a thread under. */
+const UNREAD_ID_KEYS = new Set(["mintedSessionId", "copilotSessionId", "claudeSessionId", "sessionId", "threadId"]);
+
 // FIXME 2026-12-11: drop the legacy reads.
 const LEGACY_CATALOG_FIELD: Partial<Record<AgentBackendId, string>> = {
 	codex: "codexCatalog",
@@ -312,6 +315,24 @@ export class SessionStore {
 		return [...this.agentCatalogStores.keys()].flatMap((backend) =>
 			this.listAgents(owner, backend).map((agent) => ({ backend, agent })),
 		);
+	}
+
+	/** Every conversation and thread id a record held unread names. */
+	unreadThreadIds(): string[] {
+		const ids = new Set<string>();
+		const walk = (value: unknown): void => {
+			if (Array.isArray(value)) {
+				for (const item of value) walk(item);
+				return;
+			}
+			if (!value || typeof value !== "object") return;
+			for (const [key, held] of Object.entries(value)) {
+				if (typeof held === "string" && UNREAD_ID_KEYS.has(key)) ids.add(held);
+				else walk(held);
+			}
+		};
+		for (const raw of this.unread.values()) walk(raw);
+		return [...ids];
 	}
 
 	/** A name held by a record, read or not. */

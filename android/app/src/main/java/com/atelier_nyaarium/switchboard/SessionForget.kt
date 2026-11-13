@@ -14,6 +14,9 @@ internal class SessionForget(
 ) {
 	private val main = Handler(Looper.getMainLooper())
 
+	/** Sessions whose forget waits on a start. Main thread only. */
+	private val held = HashSet<String>()
+
 	/** Told once a forget has run. The shell leaves the conversation here. */
 	var onForgotten: (String) -> Unit = {}
 
@@ -30,11 +33,14 @@ internal class SessionForget(
 
 	/** Holds the forget until [container] runs. A start that fails keeps the session. */
 	fun startThenForget(team: String, container: String, cancelTasks: Boolean? = null) {
+		if (!held.add(team)) return
 		repo.containers.startThen(container) { settle ->
 			main.post {
-				when (settle) {
-					ContainerSettle.Running -> forget(team, cancelTasks)
-					is ContainerSettle.Failed -> repo.holdStartFailure(team, settle.line)
+				held.remove(team)
+				when (val step = heldForgetStep(repo.state.value, team, settle)) {
+					HeldForgetStep.Forget -> forget(team, cancelTasks)
+					is HeldForgetStep.Keep -> repo.holdStartFailure(team, step.line)
+					null -> Unit
 				}
 			}
 		}

@@ -41,6 +41,25 @@ describe("InboxClaims", () => {
 		expect(reopened.get(other, 4, 1)).toMatchObject({ seq: 4 });
 	});
 
+	it("keeps no file for an address with no claims, and drops a claim its row has outlived", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-claims-"));
+		roots.push(root);
+		const other = "session:domain/gateway/other";
+		let now = 10;
+		const claims = createInboxClaims(root, { now: () => now });
+		claims.claim(address, 4, 1);
+		claims.ack(address, 4, 1);
+		expect(claims.addresses()).toEqual([]);
+
+		claims.claim(address, 5, 1);
+		now = 20;
+		claims.claim(other, 6, 1);
+
+		expect(claims.sweep(15)).toBe(1);
+		expect(claims.addresses()).toEqual([other]);
+		expect(createInboxClaims(root, { now: () => now }).get(other, 6, 1)).toMatchObject({ seq: 6 });
+	});
+
 	it("clears claims when the address epoch changes", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-claims-"));
 		roots.push(root);

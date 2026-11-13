@@ -5,7 +5,8 @@ import { AGENT_BACKENDS, type AgentBackendId } from "../shared/agent-backend.js"
 import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import type { PersistedAgent } from "../shared/agent-persisted.js";
 import { type HostOp, type HostOpResult, HostThreadsResultSchema, type ListedThread } from "../shared/host-op.js";
-import type { SweepAnswer, SweepOrphans, SweepPlan, SweepRow } from "../shared/schemasPurgeSweep.js";
+import { HOST_SPAWN } from "../shared/host-spawn.js";
+import type { SweepAnswer, SweepOrphanNames, SweepOrphans, SweepPlan, SweepRow } from "../shared/schemasPurgeSweep.js";
 import { HARNESS } from "../shared/session-harness.js";
 import { isValidSessionName } from "../shared/session-id.js";
 import { resumeIdOf, type SessionRecord } from "../shared/session-store.js";
@@ -17,18 +18,25 @@ import { type PurgeItem, purgePlaceOf } from "./purgeQueue.js";
 export interface PurgeSweepDeps {
 	relay(op: HostOp): Promise<HostOpResult>;
 	/** Undefined while no daemon is connected. */
-	places(): { up: AgentExecutionTarget[]; stopped: string[] } | undefined;
+	places(): { up: AgentExecutionTarget[]; stopped: string[]; unreached: string[] } | undefined;
 	sessions(): SessionRecord[];
+	/** Thread ids named by records the store holds unread. */
+	unreadIds(): string[];
+	/** Whether the session's own CLI is connected now. */
+	live(record: SessionRecord): boolean;
 	agents(owner: SessionRecord): Array<{ backend: AgentBackendId; agent: PersistedAgent }>;
 	runRunning(runId: string): boolean;
-	/** Ends the named agents' threads as the age pass does. Answers how many ended. */
+	/** Ends the named agents' threads; answers how many. */
 	endThreads(owner: SessionRecord, backend: AgentBackendId, agentIds: ReadonlySet<string>, at: number): number;
 	purges: { add(items: readonly PurgeItem[]): unknown };
 	save(): void;
-	orphans(): SweepOrphans;
-	dropOrphans(): SweepOrphans;
+	orphans(): SweepOrphanNames;
+	/** Drops exactly the names surveyed. */
+	dropOrphans(found: SweepOrphanNames): SweepOrphans;
 	now(): number;
 }
+
+type Verdict = "kept" | "running" | "unreadable" | "agents" | "unnamed";
 
 interface Sorted {
 	row: SweepRow;
@@ -50,13 +58,15 @@ export const SWEEP_REST_MS = 60 * 60_000;
 
 const labelOf = (target: AgentExecutionTarget): string => (target.kind === "host" ? "host" : target.project);
 
-/** A session CLI's own conversation, when it lives in an agent backend's store. */
-function mainThreadOf(record: SessionRecord): { backend: AgentBackendId; threadId: string } | undefined {
-	const id = resumeIdOf(record);
-	if (!id || !record.harness) return undefined;
+/** The agent backend whose store holds a session CLI's own conversation. */
+function ownBackendOf(record: SessionRecord): AgentBackendId | undefined {
+	if (!record.harness) return undefined;
 	const how = HARNESS[record.harness].conversation;
-	return how.delete === "thread" ? { backend: how.backend, threadId: id } : undefined;
+	return how.delete === "thread" ? how.backend : undefined;
 }
+
+const livesAt = (record: SessionRecord, target: AgentExecutionTarget): boolean =>
+	target.kind === "host" ? record.spawn === HOST_SPAWN : record.spawn === target.project;
 
 /** A turn runs, an operation is unanswered, or the daemon may still hold it. */
 function busy(agent: PersistedAgent): boolean {
@@ -108,12 +118,8 @@ export function createPurgeSweep(
 			unnamed: 0,
 		};
 		const sessions = deps.sessions();
-		const mains = new Set(
-			sessions.flatMap((record) => {
-				const main = mainThreadOf(record);
-				return main?.backend === backend ? [main.threadId] : [];
-			}),
-		);
+		const own = sessions.filter((record) => ownBackendOf(record) === backend);
+		const mains = new Set([...own.flatMap((record) => resumeIdOf(record) ?? []), ...deps.unreadIds()]);
 		const named = new Map<string, { owner: SessionRecord; agent: PersistedAgent }>();
 		for (const owner of sessions) {
 			for (const held of deps.agents(owner)) {
@@ -121,52 +127,67 @@ export function createPurgeSweep(
 					named.set(held.agent.sessionId, { owner, agent: held.agent });
 			}
 		}
-		const parents = new Map(threads.map((thread) => [thread.threadId, thread.parentId]));
-		/** Its own conversation, or spawned under one. */
-		const kept = (threadId: string): boolean => {
-			const seen = new Set<string>();
-			for (let at: string | null | undefined = threadId; at && !seen.has(at); at = parents.get(at)) {
-				if (mains.has(at)) return true;
-				seen.add(at);
-			}
-			return false;
-		};
+		const byId = new Map(threads.map((thread) => [thread.threadId, thread]));
+		/**
+		 * A running session CLI can move to another conversation without its record following. A thread
+		 * touched since that session last touched its own may be the one it is in, so it is left.
+		 */
+		const liveSince = own
+			.filter((record) => livesAt(record, target) && deps.live(record))
+			.map((record) => byId.get(resumeIdOf(record) ?? "")?.updatedAt ?? 0)
+			.reduce<number | undefined>((least, at) => (least === undefined ? at : Math.min(least, at)), undefined);
+		if (liveSince !== undefined) row.liveSince = liveSince;
 		const now = deps.now();
-		const sorted: Sorted = { row, ending: new Map(), unnamed: [], lines: [] };
-		for (const thread of threads) {
-			if (kept(thread.threadId)) {
-				row.kept += 1;
-				continue;
-			}
+		const alone = (thread: ListedThread): Verdict => {
+			if (mains.has(thread.threadId)) return "kept";
 			const record = named.get(thread.threadId);
 			if (record) {
 				const inRun = record.agent.runId !== undefined && deps.runRunning(record.agent.runId);
-				if (busy(record.agent) || inRun) {
-					row.running += 1;
-					continue;
-				}
-				row.agents += 1;
+				return busy(record.agent) || inRun ? "running" : "agents";
+			}
+			if (thread.updatedAt === null || now - thread.updatedAt < SWEEP_REST_MS) return "unreadable";
+			return liveSince !== undefined && thread.updatedAt >= liveSince ? "unreadable" : "unnamed";
+		};
+		const verdicts = new Map<string, Verdict>();
+		/** A thread spawned under one that stays, stays as it does. */
+		const verdictOf = (thread: ListedThread, walked = new Set<string>()): Verdict => {
+			const held = verdicts.get(thread.threadId);
+			if (held) return held;
+			let verdict = alone(thread);
+			if (thread.parentId && verdict !== "kept" && !walked.has(thread.threadId)) {
+				walked.add(thread.threadId);
+				const parent = byId.get(thread.parentId);
+				// A parent the listing lacks cannot be judged.
+				const above = parent ? verdictOf(parent, walked) : "unreadable";
+				if (above === "kept") verdict = "kept";
+				else if (above !== "agents" && above !== "unnamed" && verdict !== "running") verdict = above;
+			}
+			verdicts.set(thread.threadId, verdict);
+			return verdict;
+		};
+		const sorted: Sorted = { row, ending: new Map(), unnamed: [], lines: [] };
+		for (const thread of threads) {
+			const verdict = verdictOf(thread);
+			row[verdict] += 1;
+			if (verdict === "agents") {
+				const record = named.get(thread.threadId);
+				if (!record) continue;
 				const ids = sorted.ending.get(record.owner) ?? new Set<string>();
 				ids.add(record.agent.agentId);
 				sorted.ending.set(record.owner, ids);
-			} else {
-				if (thread.updatedAt === null || now - thread.updatedAt < SWEEP_REST_MS) {
-					row.unreadable += 1;
-					continue;
-				}
-				row.unnamed += 1;
+			} else if (verdict === "unnamed") {
 				sorted.unnamed.push({
 					place: purgePlaceOf(target),
 					what: { kind: "thread", backend, threadId: thread.threadId },
 				});
-			}
+			} else continue;
 			sorted.lines.push(`${row.place}\t${backend}\t${thread.threadId}`);
 		}
 		return sorted;
 	}
 
 	async function survey(): Promise<
-		{ plan: SweepPlan; sorted: Array<Sorted & { backend: AgentBackendId }> } | undefined
+		{ plan: SweepPlan; sorted: Array<Sorted & { backend: AgentBackendId }>; orphans: SweepOrphanNames } | undefined
 	> {
 		const places = deps.places();
 		if (!places) return undefined;
@@ -195,15 +216,30 @@ export function createPurgeSweep(
 			sorted.push({ ...held, backend: pair.backend });
 			rows.push(held.row);
 		}
-		const lines = sorted.flatMap((held) => held.lines).sort();
+		const orphans = deps.orphans();
+		const lines = [
+			...sorted.flatMap((held) => held.lines),
+			...orphans.claims.map((name) => `claim\t${name}`),
+			...orphans.teams.map((team) => `jobs\t${team}`),
+		].sort();
 		const fingerprint = createHash("sha256").update(lines.join("\n")).digest("hex").slice(0, 16);
-		return { plan: { rows, stopped: [...places.stopped].sort(), orphans: deps.orphans(), fingerprint }, sorted };
+		return {
+			plan: {
+				rows,
+				stopped: [...places.stopped].sort(),
+				unreached: [...places.unreached].sort(),
+				orphans: { claims: orphans.claims.length, jobs: orphans.jobs },
+				fingerprint,
+			},
+			sorted,
+			orphans,
+		};
 	}
 
 	return async ({ apply, expect }) => {
 		const surveyed = await survey();
 		if (!surveyed) return { applied: false, reason: "no_daemon" };
-		const { plan, sorted } = surveyed;
+		const { plan, sorted, orphans } = surveyed;
 		if (!apply) return { applied: false, reason: "dry_run", plan };
 		// A set that moved since its counts were shown is shown again.
 		if (expect !== plan.fingerprint) return { applied: false, reason: "changed", plan };
@@ -216,6 +252,6 @@ export function createPurgeSweep(
 			queued += held.unnamed.length;
 		}
 		deps.save();
-		return { applied: true, plan, queued, ended, orphans: deps.dropOrphans() };
+		return { applied: true, plan, queued, ended, orphans: deps.dropOrphans(orphans) };
 	};
 }

@@ -297,7 +297,6 @@ export class CopilotHeadlessClient {
 		await this.transport.request("session.abort", { sessionId, reason: "remote_command" });
 	}
 
-	/** Every session in the store. */
 	async listSessions(): Promise<ListedThread[]> {
 		const result = (await this.transport.request("session.list", {})) as { sessions?: unknown } | undefined;
 		if (!Array.isArray(result?.sessions)) throw new Error("Copilot answered no session list");

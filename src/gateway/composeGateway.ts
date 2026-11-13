@@ -3,7 +3,7 @@
 import { AGENT_AGE_PASS_MS } from "../shared/agent-collect.js";
 import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
-import { hostSpawnPoint } from "../shared/host-spawn.js";
+import { HOST_SPAWN, hostSpawnPoint } from "../shared/host-spawn.js";
 import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
@@ -39,10 +39,12 @@ import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
 import { fireAndForget } from "./fireAndForget.js";
 import { purgeHolds } from "./purgeHolds.js";
 import { createPurgeSweep, orphanedNames } from "./purgeSweep.js";
+import { INBOX_CLAIM_TTL_MS } from "./router/inboxClaims.js";
 import { createRouterExchange } from "./router/routerExchange.js";
 import { routineOwns, routineOwnsPane } from "./routines/reservation.js";
 import { createSessionEnd } from "./sessionEnd.js";
 import { claudeThreadsOf } from "./workflows/dispatchCore.js";
+import { resolveLiveIncarnation } from "./wsTypes.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
 export type { GatewayConfig, GatewayDeps, GatewayFaultPort, GatewayGraph } from "./compose/gatewayTypes.js";
@@ -264,10 +266,12 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		const jobs = stores.jobs.listAll();
 		const names = orphanedNames(
 			claimed,
-			jobs.map((job) => job.to),
+			jobs.flatMap((job) => [job.to, job.from]),
 			heldName,
 		);
-		return { ...names, jobs: jobs.filter((job) => names.teams.includes(job.to)).length };
+		// Counted as `forgetTeam` drops them.
+		const gone = new Set(names.teams);
+		return { ...names, jobs: jobs.filter((job) => gone.has(job.to) || gone.has(job.from)).length };
 	};
 	const purgeSweep = createPurgeSweep({
 		relay: host.relayToHost,
@@ -275,26 +279,26 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			if (host.liveHostSocket() === undefined) return undefined;
 			const up: AgentExecutionTarget[] = [{ kind: "host", workdirHint: "~" }];
 			const stopped: string[] = [];
+			const unreached = sessions.hostSpawnPoints.ids.filter((spawn) => spawn !== HOST_SPAWN);
 			for (const container of sessions.hostSpawnPoints.containers ?? []) {
 				const hostProjectPath = sessions.offlineCatalog.get(container.project);
 				if (container.state === "running" && hostProjectPath)
 					up.push({ kind: "devcontainer", project: container.project, hostProjectPath });
 				else stopped.push(container.project);
 			}
-			return { up, stopped };
+			return { up, stopped, unreached };
 		},
 		sessions: () => sessions.sessionStore.list(),
+		unreadIds: () => sessions.sessionStore.unreadThreadIds(),
+		live: (record) =>
+			!!resolveLiveIncarnation(sessions.registry, sessions.sessionStore, sessions.sessionStore.teamOf(record)),
 		agents: (owner) => sessions.sessionStore.everyAgent(owner),
 		runRunning: (runId) => workflows?.runner.get(runId)?.status === "running",
 		endThreads: (owner, backend, agentIds, at) => agents.endThreads(owner, backend, agentIds, at),
 		purges: sessions.purgeQueue,
 		save: () => void sessions.saveSessionsChecked(),
-		orphans: () => {
-			const found = orphaned();
-			return { claims: found.claims.length, jobs: found.jobs };
-		},
-		dropOrphans: () => {
-			const found = orphaned();
+		orphans: orphaned,
+		dropOrphans: (found) => {
 			const domainId = context.domainId();
 			let claims = 0;
 			for (const sessionId of found.claims) {
@@ -322,6 +326,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			expireThreads();
 		} catch (error) {
 			console.warn(`[agents] thread age pass failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		try {
+			stores.inboxClaims.sweep(bootstrap.ambient.now() - INBOX_CLAIM_TTL_MS);
+		} catch (error) {
+			console.warn(`[inbox] claim sweep failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}, AGENT_AGE_PASS_MS);
 	sessions.presence.setWorkflowRunningReader(

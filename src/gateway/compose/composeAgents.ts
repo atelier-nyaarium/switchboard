@@ -49,7 +49,6 @@ export interface AgentsStage {
 	stopRelays: () => void;
 	/** Expires threads idle for one day. */
 	expireThreads: (runRunning: (runId: string) => boolean) => number;
-	/** Ends the named agents' threads now, as the age pass does. */
 	endThreads: (owner: SessionRecord, backend: AgentBackendId, agentIds: ReadonlySet<string>, at: number) => number;
 	/** False means marking failed. */
 	markTurnNotified: (ownerKey: string, backend: AgentBackendId, agentId: string, turnId: string) => boolean;
@@ -149,7 +148,6 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 							.filter((agent) => threadExpired(agent, now, runRunning))
 							.map((agent) => agent.agentId),
 					);
-					// One write per catalog: each is the whole snapshot.
 					if (due.size > 0) ended += stack.expireAll(owner, due, now);
 				}
 			return ended;

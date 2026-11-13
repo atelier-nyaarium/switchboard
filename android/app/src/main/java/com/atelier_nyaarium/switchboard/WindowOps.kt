@@ -327,6 +327,8 @@ internal class WindowOps(
 
 	/** A forgotten session's windows go, and every draft it left with them. */
 	fun forgetTarget(target: WorkspaceTarget) {
+		// An open still in flight lands nothing.
+		epoch.incrementAndGet()
 		apply(target) { emptyList() }
 		drafts.clearTarget(target)
 	}

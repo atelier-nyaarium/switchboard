@@ -54,7 +54,7 @@ export class DurableStore {
 		this.quarantined = true;
 	}
 
-	/** Deletes the file. Throws when it is there and cannot be removed. */
+	/** Throws when the file exists and cannot be removed. */
 	remove(): void {
 		fs.rmSync(this.file, { force: true });
 	}

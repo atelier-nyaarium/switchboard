@@ -249,7 +249,7 @@ fun App(
 	val pluginManager = remember { Plugins.get(context) }
 	val forgetSession = remember { SessionForget(context, repo, pluginManager.host.threadForgetHandlers) }
 	var forgetAsking by remember { mutableStateOf<ForgetAsking?>(null) }
-	// A held forget commits later, so leaving its conversation hangs on the commit.
+	// Leave once the forget commits.
 	SideEffect { forgetSession.onForgotten = { forgotten -> nav = nav.forgot(forgotten) } }
 	val requestForget = { team: String, cancelTasks: Boolean? ->
 		when (val ask = forgetSession.ask(team)) {

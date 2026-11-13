@@ -389,7 +389,7 @@ export class CodexAppServerClient {
 		await this.lifecycle.activate(threadId);
 	}
 
-	/** Every thread in the store, archived or not, from every door. */
+	/** Archived or not, from every door. */
 	async listThreads(): Promise<ListedThread[]> {
 		const listed: ListedThread[] = [];
 		for (const archived of [false, true]) {

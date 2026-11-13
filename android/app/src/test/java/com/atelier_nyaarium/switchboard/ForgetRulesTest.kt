@@ -65,4 +65,15 @@ class ForgetRulesTest {
 		assertEquals(ContainerSettle.Failed("port 5432 is taken"), containerSettle(failed, failed, inFlight = false))
 		assertEquals(ContainerSettle.Failed(CONTAINER_START_FAILED), containerSettle(stopped, null, inFlight = false))
 	}
+
+	@Test
+	fun aHeldForgetDoesNothingForASessionForgottenMeanwhile() {
+		val listed = ChatState(teams = listOf(testTeam(session, status = Presence.AVAILABLE)))
+		val failed = ContainerSettle.Failed("devcontainer up exited 1")
+
+		assertEquals(HeldForgetStep.Forget, heldForgetStep(listed, session, ContainerSettle.Running))
+		assertEquals(HeldForgetStep.Keep("devcontainer up exited 1"), heldForgetStep(listed, session, failed))
+		assertNull(heldForgetStep(ChatState(), session, ContainerSettle.Running))
+		assertNull(heldForgetStep(ChatState(), session, failed))
+	}
 }
