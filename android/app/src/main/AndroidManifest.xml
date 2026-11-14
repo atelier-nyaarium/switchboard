@@ -39,6 +39,10 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Scans never derive location. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
 
     <!-- Package visibility for the launch acts and the probe. -->
     <queries>
@@ -154,6 +158,10 @@
 
         <receiver
             android:name=".PollAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".BleScanReceiver"
             android:exported="false" />
 
 

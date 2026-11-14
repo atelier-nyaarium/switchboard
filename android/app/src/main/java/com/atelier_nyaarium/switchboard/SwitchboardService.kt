@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit
  */
 internal enum class PassOwner {
 	POLL,
+	RADIO,
 }
 
 /**
@@ -679,7 +680,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		}
 
 		/** One owner is done. The lock drops only once no live owner still needs it. */
-		private fun releasePassLock(owner: PassOwner) {
+		internal fun releasePassLock(owner: PassOwner) {
 			synchronized(this) {
 				passHolders.remove(owner)
 				if (passNeeded() > 0L) return

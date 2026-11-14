@@ -4,10 +4,11 @@ import { z } from "zod";
 import type { Advert } from "../../shared/ble-recognition.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { DEVICE_SENSOR_PAYLOADS_MAX, type DeviceRadio } from "../../shared/schemasDevices.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_HOURS = 24;
-export const PAYLOADS_MAX = 4;
+export const PAYLOADS_MAX = DEVICE_SENSOR_PAYLOADS_MAX;
 
 const AdvertSchema = z.object({
 	name: z.string().max(64).optional(),
@@ -33,6 +34,10 @@ type DeviceRow = z.infer<typeof DeviceRowSchema>;
 export interface Heard {
 	advert: Advert;
 	at: number;
+}
+
+export interface HeldPayload extends Heard {
+	radio: DeviceRadio;
 }
 
 export interface Extremes {
@@ -62,7 +67,7 @@ function restore(raw: unknown, now: number): Map<string, DeviceRow> {
 /** Newest capture wins. */
 export function createReadingsHold(deps: ReadingsHoldDeps) {
 	const rows = restore(deps.store.load(), deps.now());
-	const payloads = new Map<string, Heard[]>();
+	const payloads = new Map<string, HeldPayload[]>();
 	let dirty = false;
 
 	const rowOf = (mac: string): DeviceRow => {
@@ -74,7 +79,7 @@ export function createReadingsHold(deps: ReadingsHoldDeps) {
 	};
 
 	/** False for late captures. */
-	const ingest = (mac: string, advert: Advert, at: number): boolean => {
+	const ingest = (mac: string, advert: Advert, at: number, radio: DeviceRadio): boolean => {
 		const row = rowOf(mac);
 		if (row.heard && row.heard.at > at) return false;
 		row.heard = { advert: { ...advert, data: { ...advert.data }, services: [...advert.services] }, at };
@@ -82,7 +87,7 @@ export function createReadingsHold(deps: ReadingsHoldDeps) {
 		const seen = payloads.get(mac) ?? [];
 		const key = canonicalJson(advert.data);
 		if (canonicalJson(seen.at(-1)?.advert.data ?? null) !== key) {
-			payloads.set(mac, [...seen, { advert, at }].slice(-PAYLOADS_MAX));
+			payloads.set(mac, [...seen, { advert: row.heard.advert, at, radio }].slice(-PAYLOADS_MAX));
 		}
 		return true;
 	};
@@ -149,7 +154,7 @@ export function createReadingsHold(deps: ReadingsHoldDeps) {
 		record,
 		latest: (mac: string): Heard | null => rows.get(mac)?.heard ?? null,
 		/** Oldest first. */
-		payloads: (mac: string): readonly Heard[] => payloads.get(mac) ?? [],
+		payloads: (mac: string): readonly HeldPayload[] => [...(payloads.get(mac) ?? [])].reverse(),
 		extremes,
 		flush,
 		forget,

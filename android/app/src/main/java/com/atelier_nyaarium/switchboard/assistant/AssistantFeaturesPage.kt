@@ -86,6 +86,7 @@ internal fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
 					PhoneSettingDoor.NOTIFICATION_PAGE -> openNotificationSettings(context)
 					PhoneSettingDoor.LOCATION -> open(LOCATION_NEED)
 					PhoneSettingDoor.LOCATION_SETTINGS -> openLocationSettings(context)
+					PhoneSettingDoor.NEARBY -> open(NEARBY_NEED)
 					PhoneSettingDoor.APP_SETTINGS -> openAppSettings(context)
 				}
 			}
@@ -143,6 +144,7 @@ internal fun phoneSettingFacts(context: android.content.Context) = PhoneSettingF
 	screenData = assistantScreenDataEnabled(context),
 	notifications = grantedOn(context, "notifications"),
 	location = phoneLocation(context),
+	nearby = grantedOn(context, NEARBY_NEED),
 )
 
 private fun grantedOn(context: android.content.Context, need: String): Boolean {

@@ -2,6 +2,11 @@ package com.atelier_nyaarium.switchboard
 
 import android.content.ContentResolver
 import android.content.Context
+import androidx.core.content.ContextCompat
+import android.content.IntentFilter
+import android.content.Intent
+import android.content.BroadcastReceiver
+import android.bluetooth.BluetoothAdapter
 import com.atelier_nyaarium.switchboard.board.BoardRouterWriter
 import com.atelier_nyaarium.switchboard.proto.BoardWriteResult
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
@@ -16,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
@@ -429,7 +435,49 @@ class ChatRepository(
 	internal val routineOps = RoutineOps(state = _state, host = ChatRepositoryRoutineHost(this))
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
-	internal val deviceOps = DeviceOps(host = ChatRepositoryDeviceHost(this, workspaceHost.generation))
+	private val deviceHost = ChatRepositoryDeviceHost(this, workspaceHost.generation)
+	internal val deviceOps = DeviceOps(host = deviceHost)
+
+	internal val phoneRadio = PhoneRadio(
+		repoScope,
+		if (isSandbox) SandboxBlePlatform() else AndroidBlePlatform(applicationContext),
+		object : BindingsStore {
+			override fun load(): Map<String, String> =
+				store.loadBleBindings()?.let { runIsolated { wireJson.decodeFromString(BindingsSerializer, it) }.getOrNull() }.orEmpty()
+
+			override fun save(bindings: Map<String, String>) = store.saveBleBindings(wireJson.encodeToString(BindingsSerializer, bindings))
+		},
+		gateway = { deviceHost.gateway },
+		now = { System.currentTimeMillis() },
+		hold = { SwitchboardService.acquirePassLock(applicationContext, PassOwner.RADIO, RADIO_PASS_MS) },
+		release = { SwitchboardService.releasePassLock(PassOwner.RADIO) },
+	)
+
+	init {
+		repoScope.launch {
+			combine(_state.map { it.gateways }.distinctUntilChanged(), deviceOps.views) { roster, views -> roster to views }
+				.collect { (roster, views) -> phoneRadio.rosterChanged(roster, views) }
+		}
+		if (!isSandbox) {
+			ContextCompat.registerReceiver(
+				applicationContext,
+				object : BroadcastReceiver() {
+					override fun onReceive(context: Context, intent: Intent) {
+						when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+							BluetoothAdapter.STATE_ON -> phoneRadio.radioOn()
+							BluetoothAdapter.STATE_OFF -> phoneRadio.radioOff()
+						}
+					}
+				},
+				IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+				ContextCompat.RECEIVER_NOT_EXPORTED,
+			)
+		}
+		// Phone records name Gateways.
+		repoScope.launch {
+			_state.map { it.gateways.reachableIds() }.distinctUntilChanged().collect { live -> for (gatewayId in live) deviceOps.relist(gatewayId) }
+		}
+	}
 
 	internal val sandboxPlugSetup by lazy { SandboxPlugSetup() }
 

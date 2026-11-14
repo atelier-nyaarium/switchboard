@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
@@ -17,6 +19,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,19 +38,26 @@ import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.DeviceLive
 import com.atelier_nyaarium.switchboard.DevicesView
 import com.atelier_nyaarium.switchboard.ServiceRow
+import com.atelier_nyaarium.switchboard.WorkKey
+import com.atelier_nyaarium.switchboard.answerText
 import com.atelier_nyaarium.switchboard.alert
-import com.atelier_nyaarium.switchboard.brandLine
 import com.atelier_nyaarium.switchboard.busy
 import com.atelier_nyaarium.switchboard.capabilitiesOf
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.kindGroups
-import com.atelier_nyaarium.switchboard.kindTitle
 import com.atelier_nyaarium.switchboard.PowerSlot
 import com.atelier_nyaarium.switchboard.liveOf
 import com.atelier_nyaarium.switchboard.powerSlot
 import com.atelier_nyaarium.switchboard.proto.DeviceCapability
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
-import com.atelier_nyaarium.switchboard.retryable
+import com.atelier_nyaarium.switchboard.MainValue
+import com.atelier_nyaarium.switchboard.deviceGroups
+import com.atelier_nyaarium.switchboard.displayUnitOf
+import com.atelier_nyaarium.switchboard.isSensor
+import com.atelier_nyaarium.switchboard.mainValue
+import com.atelier_nyaarium.switchboard.rowBrandLine
+import com.atelier_nyaarium.switchboard.saidOf
+import com.atelier_nyaarium.switchboard.sensorOf
+import com.atelier_nyaarium.switchboard.sensorTrouble
 import com.atelier_nyaarium.switchboard.serviceRows
 import com.atelier_nyaarium.switchboard.troubleLine
 
@@ -64,13 +76,16 @@ internal fun AssistantIntegrationsPage(
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
 	val services = remember(holding?.integrations, entries) { serviceRows(holding?.integrations, entries) }
 	val views by repo.deviceOps.views.collectAsState()
-	val devices = home?.let { views[it] } ?: DevicesView()
-	val reach = home?.let { gatewayId ->
-		state.gateways.entry(gatewayId)?.let { state.gateways.reachable(gatewayId) to it.incarnation }
-	}
+	val roster = state.gateways.ids()
+	val reach = roster.map { gatewayId -> gatewayId to state.gateways.entry(gatewayId)?.let { state.gateways.reachable(gatewayId) to it.incarnation } }
 	LaunchedEffect(home, reach) {
-		home?.let { gatewayId -> repo.command { deviceOps.refresh(gatewayId) } }
+		if (home != null) for (gatewayId in roster) repo.command { deviceOps.refresh(gatewayId) }
 	}
+	val display = displayUnitOf(holding)
+	val works by repo.assistantOps.work.collectAsState()
+	val unitsBusy = works[WorkKey.Units]?.busy == true
+	val unitsSaid = works[WorkKey.Units]?.said
+	val now = System.currentTimeMillis()
 
 	AssistantPageScaffold(
 		"Integrations",
@@ -81,35 +96,87 @@ internal fun AssistantIntegrationsPage(
 			Text(PLACE_FIRST, style = MaterialTheme.typography.bodyLarge)
 			return@AssistantPageScaffold
 		}
-		val list = devices.list
-		val listed = (list as? DeviceListView.Listed)?.records.orEmpty()
-		if (list is DeviceListView.Unavailable) {
-			Text(list.line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-			if (list.retryable()) OutlinedButton(onClick = hapticClick { repo.command { deviceOps.refresh(home) } }) { Text("Retry") }
-		}
-		if (list == DeviceListView.Loading) CircularProgressIndicator(Modifier.size(24.dp))
-		if (listed.isNotEmpty()) {
-			Text("Devices", style = MaterialTheme.typography.labelLarge)
-			for (group in kindGroups(listed)) {
-				Text(kindTitle(group.kind), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-				for (record in group.records) {
-					DeviceRow(
-						record,
-						devices.liveOf(record.id),
-						busy = devices.busy(record.id),
-						said = devices.alert(record.id),
-						onOpen = { onDevice(home, record.id) },
-						onSwitch = { on -> repo.command { deviceOps.set(home, record.id, on) } },
-					)
+		val groups = deviceGroups(roster, home, views)
+		for (group in groups) {
+			val devices = views[group.gatewayId] ?: DevicesView()
+			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Text(group.gatewayId, style = MaterialTheme.typography.labelLarge)
+				if (group.assistant) AssistantChip()
+			}
+			when (val list = group.list) {
+				DeviceListView.Loading -> CircularProgressIndicator(Modifier.size(24.dp))
+				is DeviceListView.Unavailable -> {
+					Text(list.line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+					OutlinedButton(onClick = hapticClick { repo.command { deviceOps.refresh(group.gatewayId) } }) { Text("Retry") }
 				}
+				is DeviceListView.Listed -> for (record in list.records) {
+					if (record.isSensor()) {
+						SensorRow(
+							record,
+							mainValue(devices.sensorOf(record.id), display),
+							sensorTrouble(devices.sensorOf(record.id), now),
+							said = devices.saidOf(record.id),
+							onOpen = { onDevice(group.gatewayId, record.id) },
+						)
+					} else {
+						DeviceRow(
+							record,
+							devices.liveOf(record.id),
+							busy = devices.busy(record.id),
+							said = devices.alert(record.id),
+							onOpen = { onDevice(group.gatewayId, record.id) },
+							onSwitch = { on -> repo.command { deviceOps.set(group.gatewayId, record.id, on) } },
+						)
+					}
+				}
+				DeviceListView.Declined -> Unit
 			}
 		}
 		if (services.isNotEmpty()) {
-			if (listed.isNotEmpty()) HorizontalDivider()
+			if (groups.isNotEmpty()) HorizontalDivider()
 			Text("Services", style = MaterialTheme.typography.labelLarge)
 			for (service in services) ServiceRowView(service) { onService(home, service.id) }
 		}
+		holding?.temperatureUnit?.let { unit ->
+			HorizontalDivider()
+			UnitRow(unit, busy = unitsBusy) { picked ->
+				repo.command { assistantOps.runWork(WorkKey.Units) { answerText(setTemperatureUnit(home, picked)) } }
+			}
+			unitsSaid?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		}
 	}
+}
+
+private val TEMPERATURE_UNITS = listOf("C" to "°C", "F" to "°F")
+
+@Composable
+private fun UnitRow(unit: String, busy: Boolean, onPick: (String) -> Unit) {
+	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+		Text("Temperature", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+		SingleChoiceSegmentedButtonRow(Modifier.width(128.dp)) {
+			TEMPERATURE_UNITS.forEachIndexed { at, (value, label) ->
+				SegmentedButton(
+					selected = unit == value,
+					onClick = hapticClick { if (unit != value) onPick(value) },
+					shape = SegmentedButtonDefaults.itemShape(index = at, count = TEMPERATURE_UNITS.size),
+					enabled = !busy,
+					icon = {},
+				) { Text(label) }
+			}
+		}
+	}
+}
+
+@Composable
+private fun AssistantChip() {
+	Text(
+		"Assistant",
+		style = MaterialTheme.typography.labelSmall,
+		color = MaterialTheme.colorScheme.onSecondaryContainer,
+		modifier = Modifier
+			.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(50))
+			.padding(horizontal = 8.dp, vertical = 2.dp),
+	)
 }
 
 @Composable
@@ -128,11 +195,34 @@ private fun DeviceRow(
 	) {
 		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
 			Text(record.name, style = MaterialTheme.typography.bodyLarge)
-			Text(brandLine(record), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			Text(rowBrandLine(record), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			troubleLine(live)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 			said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 		}
 		if (DeviceCapability.SWITCH in capabilitiesOf(record)) PowerControl(live, busy, onSwitch)
+	}
+}
+
+@Composable
+private fun SensorRow(record: DeviceRecord, value: MainValue?, trouble: String?, said: String?, onOpen: () -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().clickable(onClick = hapticClick(onOpen)).padding(vertical = 6.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+			Text(record.name, style = MaterialTheme.typography.bodyLarge)
+			Text(rowBrandLine(record), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			trouble?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+			said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		}
+		value?.let {
+			Text(
+				it.text,
+				style = MaterialTheme.typography.bodyLarge,
+				color = if (it.stale) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+			)
+		}
 	}
 }
 

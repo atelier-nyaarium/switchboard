@@ -1,0 +1,15 @@
+{
+	"kind": "ok",
+	"candidates": [],
+	"nearby": [
+		{
+			"mac": "ce:1c:44:06:3c:5d",
+			"radio": "gateway",
+			"name": "GVH5110_3C5D",
+			"signal": -61,
+			"data": { "1": "010103bac864" },
+			"services": ["ec88"]
+		}
+	],
+	"bluetooth": true
+}

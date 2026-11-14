@@ -7,6 +7,7 @@ import { openDurable } from "../../shared/durable-store.js";
 import { refKey } from "../../shared/expressions.js";
 import {
 	type DeviceAddFieldsSchema,
+	type DeviceRadio,
 	type DeviceRecord,
 	type DeviceRefusalCode,
 	type DriverOf,
@@ -106,7 +107,7 @@ export interface DeviceRoad {
 	operation<A>(surface: Surface, shape: Shape<A>, run: (op: Operation) => Promise<A>): Promise<A>;
 	onSlot<A>(surface: Surface, shape: Shape<A>, id: string, run: (slot: Slot) => Promise<A>): Promise<A>;
 	onDevice<A>(surface: Surface, shape: Shape<A>, id: string, run: (plug: Plug) => Promise<A>): Promise<A>;
-	ingest(id: string, advert: Advert, at: number): string[] | null;
+	ingest(id: string, advert: Advert, at: number, radio: DeviceRadio): string[] | null;
 	reads: {
 		list(): ReturnType<DeviceStore["list"]>;
 		get(id: string): DeviceRecord | null;
@@ -175,7 +176,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		);
 	};
 
-	const ingest = (id: string, advert: Advert, at: number): string[] | null => {
+	const ingest = (id: string, advert: Advert, at: number, radio: DeviceRadio): string[] | null => {
 		if (stage.signal.aborted) return null;
 		const record = store.get(id);
 		if (record?.kind !== "sensor") return [];
@@ -183,7 +184,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		if (at > deps.ambient.now() + INGEST_SKEW_MS) return [];
 		const definition = record.definition ? definitionOf(record.definition) : null;
 		if (definition && !matches(definition, advert)) return [];
-		if (!readings.ingest(id, advert, at)) return [];
+		if (!readings.ingest(id, advert, at, radio)) return [];
 		// Fresh capture clears staleness.
 		const keys: string[] = [];
 		for (const [key, value] of numericReadings(record, advert)) {

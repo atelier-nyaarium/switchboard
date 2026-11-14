@@ -83,10 +83,10 @@ internal fun DeviceListView.retryable(): Boolean = this is DeviceListView.Unavai
 internal fun deviceRecord(view: DevicesView, id: String): DeviceRecord? =
 	(view.list as? DeviceListView.Listed)?.records?.find { it.id == id }
 
-internal fun DevicesView.liveOf(id: String): DeviceLive? = plugs[id]?.live
+internal fun DevicesView.liveOf(id: String): DeviceLive? = devices[id]?.live
 
 internal fun DevicesView.detailOf(id: String): DeviceDetail? {
-	val plug = plugs[id] ?: return null
+	val plug = devices[id] ?: return null
 	val schedule = plug.schedule.held ?: return null
 	return DeviceDetail(schedule, plug.settings.held, plug.settings.readAt)
 }
@@ -95,7 +95,7 @@ internal fun DevicesView.busy(id: String): Boolean = work[id]?.busy == true
 
 internal fun DevicesView.saidOf(id: String): String? = work[id]?.said
 
-internal fun DevicesView.editOf(id: String): ScheduleEdit? = plugs[id]?.schedule?.edit
+internal fun DevicesView.editOf(id: String): ScheduleEdit? = devices[id]?.schedule?.edit
 
 internal fun DeviceLive?.switchOn(): Boolean = knownOn() == true
 
@@ -118,18 +118,18 @@ internal fun powerSlot(live: DeviceLive?): PowerSlot =
 	live.knownOn()?.let(PowerSlot::Switch) ?: if (live == null) PowerSlot.Reading else PowerSlot.Hidden
 
 internal fun DevicesView.alert(id: String): String? =
-	saidOf(id) ?: liveOf(id)?.failed ?: plugs[id]?.schedule?.failed?.takeIf { detailOf(id) == null }
+	saidOf(id) ?: liveOf(id)?.failed ?: devices[id]?.schedule?.failed?.takeIf { detailOf(id) == null }
 
-internal fun DevicesView.detailRetry(id: String): Boolean = detailOf(id) == null && plugs[id]?.schedule?.failed != null
+internal fun DevicesView.detailRetry(id: String): Boolean = detailOf(id) == null && devices[id]?.schedule?.failed != null
 
-internal fun DevicesView.scheduleBase(id: String): DeviceSchedule? = editOf(id)?.base ?: plugs[id]?.schedule?.held
+internal fun DevicesView.scheduleBase(id: String): DeviceSchedule? = editOf(id)?.base ?: devices[id]?.schedule?.held
 
 internal fun DevicesView.scheduleDraft(id: String): ScheduleDraft? =
-	editOf(id)?.draft ?: plugs[id]?.schedule?.held?.let(::scheduleDraftOf)
+	editOf(id)?.draft ?: devices[id]?.schedule?.held?.let(::scheduleDraftOf)
 
 internal fun DevicesView.scheduleSavable(id: String): Boolean {
 	val draft = editOf(id)?.draft ?: return false
-	val held = plugs[id]?.schedule?.held ?: return false
+	val held = devices[id]?.schedule?.held ?: return false
 	return !busy(id) && draft.savable && draft != scheduleDraftOf(held)
 }
 
@@ -140,6 +140,9 @@ internal fun DevicesView.addable(): List<DeviceCandidate>? {
 }
 
 internal fun DevicesView.paired(mac: String): Boolean = deviceRecord(this, mac) != null
+
+internal fun pairedAcross(views: Collection<DevicesView>): Set<String> =
+	views.flatMap { (it.list as? DeviceListView.Listed)?.records.orEmpty() }.map { it.id }.toSet()
 
 internal fun DeviceSaved.keepsDraft(): Boolean =
 	this is DeviceSaved.Unanswered || (this is DeviceSaved.Refused && code != Protocol.Wire.DeviceRefusalCode.STALE)

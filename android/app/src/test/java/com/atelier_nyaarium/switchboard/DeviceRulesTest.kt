@@ -90,7 +90,7 @@ class DeviceRulesTest {
 	}
 
 	@Test
-	fun `a device page resolves back to Integrations once its plug is no longer listed`() {
+	fun `a device page unwinds when its plug or its Gateway goes, and stays across a home move`() {
 		val page = AssistantPage.Device("sakura", lamp.id)
 		val state = ChatState()
 		assertEquals(page, page.resolved(state) { DeviceListView.Listed(listOf(lamp), 1L) })
@@ -102,19 +102,21 @@ class DeviceRulesTest {
 				AssistantHomeReport(version = 1L, gatewayId = "mikan", outcome = "placed"),
 			),
 		)
-		assertEquals(AssistantPage.Integrations, page.resolved(movedAway) { DeviceListView.Listed(listOf(lamp), 1L) })
+		assertEquals(page, page.resolved(movedAway) { DeviceListView.Listed(listOf(lamp), 1L) })
+		val dropped = ChatState(gateways = GatewayRegistry(provenance = RegistryProvenance.Current, gateways = emptyList()))
+		assertEquals(AssistantPage.Integrations, page.resolved(dropped) { DeviceListView.Listed(listOf(lamp), 1L) })
 		assertEquals(page, pageOf(pageWords(page)))
 		assertEquals(AssistantPage.Integrations, assistantPageBack(page))
 	}
 
 	@Test
-	fun `found plugs are offered only beside a known list, and a write's reason outranks a read's`() {
+	fun `found devices are offered only beside a known list, and a write's reason outranks a read's`() {
 		val fan = DeviceCandidate("aa:bb:cc:dd:ee:02", "10.0.0.2", "Fan", "HS103", "3.0", "1.0.3")
 		val found = DevicesView(scan = ScanView.Found(listOf(fan)))
 		assertNull(found.addable())
 		assertEquals(listOf(fan), found.copy(list = DeviceListView.Listed(listOf(lamp), 1L)).addable())
-		val failedPlug = Plug(1L, live = DeviceLive("unknown", failed = "The plug did not answer"))
-		val failed = DevicesView(plugs = mapOf(lamp.id to failedPlug))
+		val failedPlug = HeldDevice(1L, live = DeviceLive("unknown", failed = "The plug did not answer"))
+		val failed = DevicesView(devices = mapOf(lamp.id to failedPlug))
 		assertEquals("The plug did not answer", failed.alert(lamp.id))
 		assertEquals("Changed elsewhere", failed.copy(work = mapOf(lamp.id to Work(said = "Changed elsewhere"))).alert(lamp.id))
 	}

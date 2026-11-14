@@ -345,4 +345,47 @@ describe("device road", () => {
 			fs.rmSync(dataDir, { recursive: true, force: true });
 		}
 	});
+
+	it("returns raw payloads and source radios for a sensor without a definition", async () => {
+		const dataDir = fresh("raw-sensor");
+		let snapshot: unknown = null;
+		const deviceStore = createDeviceStore({
+			store: {
+				load: () => snapshot,
+				saveChecked: (next) => {
+					snapshot = structuredClone(next);
+				},
+			},
+			onChanged: () => {},
+		});
+		const added = deviceStore.addSensor({ mac: SENSOR_MAC, name: "Sensor", driver: "govee", radio: "phones" });
+		if (!added.stored) throw new Error(added.reason);
+		const stage = composeDevices({ dataDir, ambient: fakeAmbient(), relayToHost: noHost, deviceStore });
+		try {
+			await stage.console({
+				kind: "device_reading_post",
+				id: SENSOR_MAC,
+				advert: { name: "GVH5110_3C5D", data: { "1": "010103bac864" }, services: ["ec88"] },
+				at: 1,
+			});
+			const answer = await stage.console({ kind: "device_read", id: SENSOR_MAC });
+			expect(answer).toMatchObject({
+				kind: "sensor",
+				readings: [],
+				payloads: [
+					{
+						at: 1,
+						radio: "phones",
+						name: "GVH5110_3C5D",
+						data: { "1": "010103bac864" },
+						services: ["ec88"],
+					},
+				],
+			});
+			expect(answer).not.toHaveProperty("model");
+		} finally {
+			await stage.close();
+			fs.rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
 });

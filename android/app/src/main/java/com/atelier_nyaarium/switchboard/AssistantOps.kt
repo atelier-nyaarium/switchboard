@@ -61,6 +61,7 @@ internal interface AssistantHost {
 /** Settings a move carries. */
 internal fun carriedOf(state: ConsoleAssistantStateResult): AssistantHomeCarried = AssistantHomeCarried(
 	approveEverySend = state.approveEverySend ?: true,
+	temperatureUnit = state.temperatureUnit,
 	watchers = state.watchers.mapNotNull { watcher ->
 		watcher.rules?.let {
 			AssistantHomeCarriedWatcher(id = watcher.id, rules = it, grant = watcher.grants.firstOrNull(), enabled = watcherOn(watcher))
@@ -251,6 +252,8 @@ internal sealed interface WorkKey {
 	data object Location : WorkKey
 
 	data object Safety : WorkKey
+
+	data object Units : WorkKey
 
 	data class Watcher(val gatewayId: String, val watcherId: String) : WorkKey
 
@@ -525,6 +528,9 @@ internal class AssistantOps(
 
 	suspend fun setSafety(gatewayId: String, approveEverySend: Boolean): AssistantAnswer =
 		carriedSetting(gatewayId, ConsoleOp.AssistantSafety(approveEverySend))
+
+	suspend fun setTemperatureUnit(gatewayId: String, unit: String): AssistantAnswer =
+		carriedSetting(gatewayId, ConsoleOp.AssistantTemperatureUnit(unit))
 
 	suspend fun setGrants(gatewayId: String, watcherId: String, entryIds: List<String>): AssistantAnswer =
 		carriedSetting(gatewayId, ConsoleOp.AssistantWatcherGrants(watcherId = watcherId, entryIds = entryIds))

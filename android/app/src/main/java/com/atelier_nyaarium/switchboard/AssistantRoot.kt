@@ -176,8 +176,9 @@ internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> Devic
 	return if (this is AssistantPage.Watcher || rulesOf(watcher) != null) this else AssistantPage.Watcher(gatewayId, watcherId)
 }
 
+/** Home moves keep it. */
 private fun AssistantPage.Device.deviceResolved(state: ChatState, list: DeviceListView?): AssistantPage = when {
-	assistantLeft(state, gatewayId) -> AssistantPage.Integrations
+	state.gateways.loaded && !state.gateways.has(gatewayId) -> AssistantPage.Integrations
 	list is DeviceListView.Listed && list.records.none { it.id == deviceId } -> AssistantPage.Integrations
 	else -> this
 }

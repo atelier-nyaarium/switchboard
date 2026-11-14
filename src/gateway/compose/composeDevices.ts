@@ -1,12 +1,14 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { type Advert, familyOf } from "../../shared/ble-recognition.js";
-import { definitionOf, matches, SHIPPED_DEFINITIONS } from "../../shared/device-definitions/index.js";
+import { definitionOf, identifies, SHIPPED_DEFINITIONS } from "../../shared/device-definitions/index.js";
 import { type FieldRef, refKey } from "../../shared/expressions.js";
+import type { TemperatureUnit } from "../../shared/schemasAssistant.js";
 import { type DeviceWatchEntry, DeviceWatchFrameSchema } from "../../shared/schemasDeviceBluetooth.js";
 import {
 	type DeviceConsoleOp,
 	type DeviceConsoleOpKind,
 	type DeviceConsoleResult,
+	type DeviceRadio,
 	type DeviceRecord,
 	type DeviceSensorThreshold,
 	type DeviceSensorThresholdPutRequest,
@@ -50,6 +52,7 @@ export interface DeviceStageDeps {
 	deviceStore?: DeviceStore;
 	onChanged?: (deviceId: string) => void;
 	onIngested?: (keys: readonly string[]) => void;
+	temperatureUnit?: () => TemperatureUnit;
 	sensors?: SensorReads;
 	sightings?: (mac: string) => Advert | null;
 	thresholds?: {
@@ -105,8 +108,8 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 	const sensors = deps.sensors ?? sensorReadings;
 	const sensorInput = sensorReadings.input;
 	const sightings = (mac: string): Advert | null => nearbySightings.get(mac) ?? deps.sightings?.(mac) ?? null;
-	const ingest = (mac: string, advert: Advert, at: number): string[] | null => {
-		const keys = road.ingest(mac, advert, at);
+	const ingest = (mac: string, advert: Advert, at: number, radio: DeviceRadio): string[] | null => {
+		const keys = road.ingest(mac, advert, at, radio);
 		if (keys === null) return null;
 		deps.onIngested?.(keys);
 		return keys;
@@ -136,7 +139,9 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		});
 	const ingestGatewayAdvert = (mac: string, advert: Advert, at: number): string[] => {
 		const record = road.reads.get(mac);
-		return record?.kind === "sensor" && record.radio === "gateway" ? (ingest(mac, advert, at) ?? []) : [];
+		return record?.kind === "sensor" && record.radio === "gateway"
+			? (ingest(mac, advert, at, "gateway") ?? [])
+			: [];
 	};
 
 	const bySensor = <A>(
@@ -175,7 +180,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		}
 		if (op.definition !== undefined) {
 			const definition = definitionOf(op.definition);
-			if (!definition || definition.family !== family || !matches(definition, heard)) {
+			if (!definition || definition.family !== family || !identifies(definition, heard)) {
 				throw new Decline({
 					kind: "refused",
 					code: "invalid",
@@ -188,7 +193,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			throw new Decline({ kind: "refused", code: "write_failed", text: "old alert settings were not cleared" });
 		}
 		// Bind a unique match.
-		const fits = SHIPPED_DEFINITIONS.filter((entry) => entry.family === family && matches(entry, heard));
+		const fits = SHIPPED_DEFINITIONS.filter((entry) => entry.family === family && identifies(entry, heard));
 		const definition = op.definition ?? (fits.length === 1 ? fits[0]?.key : undefined);
 		return unwrap(
 			slot.write.addSensor({
@@ -218,11 +223,23 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				surface,
 				shape,
 				op.id,
-				async (slot) => ({
-					kind: "sensor",
-					...sensors.read(slot.record),
-					...(deps.thresholds ? { thresholds: deps.thresholds.read(slot.record) } : {}),
-				}),
+				async (slot) => {
+					const model = slot.record.definition ? definitionOf(slot.record.definition)?.models[0] : undefined;
+					return {
+						kind: "sensor",
+						...(model ? { model } : {}),
+						...sensors.read(slot.record),
+						payloads: road.readings.payloads(slot.record.id).map(({ advert, at, radio }) => ({
+							...advert,
+							data: { ...advert.data },
+							services: [...advert.services],
+							at,
+							radio,
+						})),
+						...(surface === "assistant" ? { temperatureUnit: deps.temperatureUnit?.() ?? "C" } : {}),
+						...(deps.thresholds ? { thresholds: deps.thresholds.read(slot.record) } : {}),
+					};
+				},
 				async (plug) => {
 					const read = await plug.drive((ctx) => plug.driver.read(plug.record, ctx), "confirms-relay");
 					// Settings fail alone.
@@ -240,7 +257,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			if (!record) return shape.decline({ kind: "refused", code: "not_found" });
 			if (record.kind !== "sensor" || record.radio !== "phones")
 				return shape.decline({ kind: "refused", code: "not_supported" });
-			if (ingest(op.id, op.advert, op.at) === null) return shape.decline({ kind: "notStarted" });
+			if (ingest(op.id, op.advert, op.at, "phones") === null) return shape.decline({ kind: "notStarted" });
 			return { kind: "ok" };
 		},
 		sensor_threshold_put: (surface, shape, op) =>

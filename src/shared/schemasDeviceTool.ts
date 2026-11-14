@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canonicalJson } from "./canonical-json.js";
+import { TemperatureUnitSchema } from "./schemasAssistant.js";
 import {
 	DEVICE_CONSOLE_REQUESTS,
 	DEVICE_CONSOLE_RESULTS,
@@ -95,7 +96,10 @@ export const DEVICE_TOOL_RESULTS = {
 	]),
 	device_read: z.discriminatedUnion("kind", [
 		okOf(DEVICE_CONSOLE_RESULTS.device_read),
-		memberOf(DEVICE_CONSOLE_RESULTS.device_read, "sensor"),
+		memberOf(DEVICE_CONSOLE_RESULTS.device_read, "sensor").extend({
+			// Required starting 2026-11-28.
+			temperatureUnit: TemperatureUnitSchema.optional(),
+		}),
 		Refused,
 	]),
 	device_rename: z.discriminatedUnion("kind", [

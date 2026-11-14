@@ -47,7 +47,17 @@ export const DefinitionSchema = z.strictObject({
 		.min(1)
 		.max(8),
 	readings: z
-		.array(z.strictObject({ key: Key, spec: AssistantFieldSpecSchema, nodes: ExpressionSchema }))
+		.array(
+			z.strictObject({
+				key: Key,
+				spec: AssistantFieldSpecSchema,
+				nodes: ExpressionSchema,
+				alerts: z
+					.array(z.enum(["low", "high"]))
+					.max(2)
+					.optional(),
+			}),
+		)
 		.min(1)
 		.max(16),
 	examples: z
@@ -101,6 +111,11 @@ export function matches(definition: Definition, advert: Advert): boolean {
 		const data = advert.data[String(source.company)];
 		return data?.startsWith(source.prefix) && data.length / 2 >= source.minLength;
 	});
+}
+
+export function identifies(definition: Definition, advert: Advert): boolean {
+	const prefix = definition.match.namePrefix;
+	return matches(definition, advert) && (prefix === undefined || advert.name?.startsWith(prefix) === true);
 }
 
 const familyMatch = (family: string): BluetoothMatch | undefined =>

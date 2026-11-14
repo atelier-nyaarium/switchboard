@@ -79,7 +79,8 @@ import kotlinx.serialization.json.JsonObject
 private const val REFUSING_ID = "held-elsewhere"
 
 /** Each answers differently, or a grouping bug has nowhere to show. */
-private const val SECOND_GATEWAY = "parsing"
+internal const val SECOND_SANDBOX_GATEWAY = "parsing"
+private const val SECOND_GATEWAY = SECOND_SANDBOX_GATEWAY
 
 internal const val EMPTY_GATEWAY = "idle-box"
 
@@ -354,6 +355,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 	private var claimed = false
 	private var workdir = "~/projects/notes"
 	private var approveEverySend = true
+	private var temperatureUnit = "F"
 	private val grants = mutableMapOf<String, List<String>>()
 	private val off = mutableSetOf<String>()
 	/** Exercises unlisted choices. */
@@ -441,6 +443,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 		team = "host.assistant".takeIf { gatewayId == home },
 		watchers = watchers(),
 		approveEverySend = approveEverySend,
+		temperatureUnit = temperatureUnit,
 		checkIns = true,
 		integrations = listOf(AssistantIntegration(id = "ifttt", label = "IFTTT", grants = grants["ifttt"].orEmpty())),
 		offered = INTEGRATIONS.map { it.id },
@@ -459,6 +462,10 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			}
 			is ConsoleOp.AssistantSafety -> {
 				approveEverySend = op.approveEverySend
+				AssistantAnswer.State(stateOf(gatewayId))
+			}
+			is ConsoleOp.AssistantTemperatureUnit -> {
+				temperatureUnit = op.temperatureUnit
 				AssistantAnswer.State(stateOf(gatewayId))
 			}
 			is ConsoleOp.AssistantWatcherEnabled -> {

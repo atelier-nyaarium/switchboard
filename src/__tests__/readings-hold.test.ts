@@ -31,14 +31,21 @@ function world(start = 100 * HOUR) {
 describe("readings hold", () => {
 	it("keeps the newest capture, ignoring one that arrives late, and the last distinct payloads", () => {
 		const hold = world().open();
-		expect(hold.ingest(FREEZER, advert("010103bac864"), 2_000)).toBe(true);
-		expect(hold.ingest(FREEZER, advert("010180d16c5a"), 1_000)).toBe(false);
-		hold.ingest(FREEZER, advert("010103bac864"), 3_000);
-		for (let i = 0; i < PAYLOADS_MAX + 2; i++) hold.ingest(FREEZER, advert(`0101${i}0`), 4_000 + i);
+		expect(hold.ingest(FREEZER, advert("010103bac864"), 2_000, "gateway")).toBe(true);
+		expect(hold.ingest(FREEZER, advert("010180d16c5a"), 1_000, "phones")).toBe(false);
+		hold.ingest(FREEZER, advert("010103bac864"), 3_000, "phones");
+		for (let i = 0; i < PAYLOADS_MAX + 2; i++)
+			hold.ingest(FREEZER, advert(`0101${i}0`), 4_000 + i, i % 2 === 0 ? "gateway" : "phones");
 
 		expect(hold.latest(FREEZER)?.at).toBe(4_000 + PAYLOADS_MAX + 1);
 		expect(hold.payloads(FREEZER)).toHaveLength(PAYLOADS_MAX);
 		expect(new Set(hold.payloads(FREEZER).map((heard) => heard.advert.data["1"])).size).toBe(PAYLOADS_MAX);
+		expect(hold.payloads(FREEZER).map(({ at, radio }) => ({ at, radio }))).toEqual([
+			{ at: 4_000 + PAYLOADS_MAX + 1, radio: "phones" },
+			{ at: 4_000 + PAYLOADS_MAX, radio: "gateway" },
+			{ at: 4_000 + PAYLOADS_MAX - 1, radio: "phones" },
+			{ at: 4_000 + PAYLOADS_MAX - 2, radio: "gateway" },
+		]);
 	});
 
 	it("answers the 24-hour low and high across hourly buckets, dropping what aged out", () => {
@@ -66,7 +73,7 @@ describe("readings hold", () => {
 	it("persists on flush, keeps memory when the write fails, and restores across a reopen", () => {
 		const w = world();
 		const hold = w.open();
-		hold.ingest(FREEZER, advert("010103bac864"), 100 * HOUR);
+		hold.ingest(FREEZER, advert("010103bac864"), 100 * HOUR, "gateway");
 		hold.record(FREEZER, "temperature", 24.4, 100 * HOUR);
 		w.fail(true);
 		expect(hold.flush()).toBe(false);

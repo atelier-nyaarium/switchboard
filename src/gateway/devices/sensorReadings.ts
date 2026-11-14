@@ -57,7 +57,12 @@ export function createSensorReadings(deps: SensorReadingsDeps): SensorReads & {
 		const readings = definition.readings.map((reading) => {
 			const value = values[reading.key];
 			const held = value?.known && typeof value.value !== "boolean" ? { value: value.value } : {};
-			return { spec: reading.spec, ...held, ...(deps.extremes?.(record.id, reading.key) ?? {}) };
+			return {
+				spec: reading.spec,
+				...(reading.alerts ? { alerts: reading.alerts } : {}),
+				...held,
+				...(deps.extremes?.(record.id, reading.key) ?? {}),
+			};
 		});
 		return { readings, ...at, ...(stale ? { stale } : {}) };
 	};

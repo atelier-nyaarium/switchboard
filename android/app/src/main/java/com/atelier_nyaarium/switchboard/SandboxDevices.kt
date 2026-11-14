@@ -1,6 +1,15 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceAddResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
+import com.atelier_nyaarium.switchboard.proto.DeviceExtreme
+import com.atelier_nyaarium.switchboard.proto.DeviceReading
+import com.atelier_nyaarium.switchboard.proto.DeviceSensorPayload
+import com.atelier_nyaarium.switchboard.proto.DeviceSensorThreshold
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRemoveResult
@@ -12,6 +21,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSettingPutResult
 import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
 import com.atelier_nyaarium.switchboard.proto.DeviceLiveState
+import com.atelier_nyaarium.switchboard.proto.DeviceNearby
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceRefusal
 import com.atelier_nyaarium.switchboard.proto.DeviceSchedule
@@ -24,14 +34,103 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 // Invented MACs and addresses.
 private const val LAMP = "02:00:00:00:00:01"
 private const val FAN = "02:00:00:00:00:02"
 private const val PORCH = "02:00:00:00:00:03"
+private const val FREEZER = "02:00:00:00:00:11"
+private const val KITCHEN = "02:00:00:00:00:12"
+private const val SHED = "02:00:00:00:00:13"
+private const val GARAGE = "02:00:00:00:00:14"
+private const val H5110 = "govee-h5110"
 
 private fun record(id: String, name: String, address: String) =
 	DeviceRecord(id = id, name = name, kind = "switch", driver = "kasa", address = address, revision = 1L)
+
+private fun sensor(id: String, name: String, radio: String, definition: String?) = DeviceRecord(
+	id = id,
+	name = name,
+	kind = Protocol.Wire.DeviceKind.SENSOR,
+	driver = Protocol.Wire.DeviceDriver.GOVEE,
+	address = id,
+	radio = radio,
+	definition = definition,
+	revision = 1L,
+)
+
+private val TEMPERATURE = AssistantFieldSpec.Number(field = "temperature", label = "Temperature", unit = "C", decimals = 1)
+private val HUMIDITY = AssistantFieldSpec.Number(field = "humidity", label = "Humidity", unit = "%", decimals = 1)
+private val BATTERY = AssistantFieldSpec.Number(field = "battery", label = "Battery", unit = "%", decimals = 0)
+
+private class SensorFeed(val temperature: Double, val humidity: Double, val battery: Double, val heardAgoMs: Long)
+
+private const val MINUTE = 60_000L
+
+private val FEEDS = mapOf(
+	FREEZER to SensorFeed(temperature = -18.2, humidity = 61.2, battery = 90.0, heardAgoMs = MINUTE),
+	KITCHEN to SensorFeed(temperature = 21.8, humidity = 44.0, battery = 70.0, heardAgoMs = 3 * MINUTE),
+	SHED to SensorFeed(temperature = 12.2, humidity = 80.5, battery = 15.0, heardAgoMs = 120 * MINUTE),
+)
+
+private fun reading(spec: AssistantFieldSpec.Number, value: Double, now: Long, alerts: List<String>) = DeviceReading(
+	spec = spec,
+	value = JsonPrimitive(value),
+	low = DeviceExtreme(value = value - 1.6, at = now - 9 * 60 * MINUTE),
+	high = DeviceExtreme(value = value + 3.9, at = now - 3 * 60 * MINUTE),
+	alerts = alerts,
+)
+
+private const val FOUND_TESTED = "02:00:00:00:00:21"
+private const val FOUND_RAW = "02:00:00:00:00:22"
+
+private fun goveeNearby(mac: String, name: String, hex: String, signal: Long) = DeviceNearby(
+	mac = mac,
+	radio = Protocol.Wire.DeviceRadio.GATEWAY,
+	name = name,
+	signal = signal,
+	data = JsonObject(mapOf("1" to JsonPrimitive(hex))),
+	services = listOf("ec88"),
+)
+
+/** Each Gateway hears differently. */
+private fun nearbyOn(gatewayId: String): List<DeviceNearby> = when (gatewayId) {
+	EMPTY_GATEWAY -> emptyList()
+	SECOND_SANDBOX_GATEWAY -> listOf(goveeNearby(FOUND_TESTED, "GVH5110_3C5D", "010103bac864", -84))
+	else -> listOf(
+		goveeNearby(FOUND_TESTED, "GVH5110_3C5D", "010103bac864", -61),
+		goveeNearby(FOUND_RAW, "Govee_H5199_7F01", "0101027a3f550000", -73),
+	)
+}
+
+/** Sandbox phone hears both. */
+internal class SandboxBlePlatform : BlePlatform {
+	override fun readiness() = RadioReadiness.READY
+
+	override suspend fun scan(windowMs: Long): List<Sighting> {
+		delay(1_500)
+		return listOf(
+			Sighting(FOUND_TESTED, -70, Advert("GVH5110_3C5D", mapOf("1" to "010103bac864"), listOf("ec88"))),
+			Sighting(FOUND_RAW, -58, Advert("Govee_H5199_7F01", mapOf("1" to "0101027a3f550000"), listOf("ec88"))),
+		)
+	}
+
+	override fun watch(addresses: Set<String>) = true
+}
+
+/** One payload byte drifts. */
+private fun payloads(now: Long): List<DeviceSensorPayload> =
+	listOf("7a3f", "79b4", "77c1", "8002").mapIndexed { at, drift ->
+		DeviceSensorPayload(
+			name = "Govee_H5199_7F01",
+			data = JsonObject(mapOf("1" to JsonPrimitive("010102${drift}550000"))),
+			services = emptyList(),
+			at = now - (40_000L + at * 5 * MINUTE),
+			radio = if (at == 1) Protocol.Wire.DeviceRadio.PHONES else Protocol.Wire.DeviceRadio.GATEWAY,
+		)
+	}
 
 private fun <T> answered(value: T): DeviceAnswer<T> = DeviceAnswer.Answered(value)
 
@@ -57,6 +156,26 @@ private class SandboxPlugs(seeded: Boolean) {
 		),
 	)
 	val settings = mutableMapOf<String, DeviceSettings.Kasa>()
+	val thresholds = mutableMapOf<Pair<String, String>, DeviceSensorThreshold>()
+}
+
+private fun SandboxPlugs.seedSensors(gatewayId: String) {
+	val held = when (gatewayId) {
+		EMPTY_GATEWAY -> emptyList()
+		SECOND_SANDBOX_GATEWAY -> listOf(
+			sensor(SHED, "Shed", Protocol.Wire.DeviceRadio.GATEWAY, H5110),
+			sensor(GARAGE, "Garage", Protocol.Wire.DeviceRadio.GATEWAY, null),
+		)
+		else -> listOf(
+			sensor(FREEZER, "Freezer", Protocol.Wire.DeviceRadio.GATEWAY, H5110),
+			sensor(KITCHEN, "Kitchen", Protocol.Wire.DeviceRadio.PHONES, H5110),
+		)
+	}
+	for (record in held) records[record.id] = record
+	if (FREEZER in records) {
+		thresholds[FREEZER to "temperature"] =
+			DeviceSensorThreshold(measure = "temperature", low = -28.9, high = -12.2, deadZone = 1.1, coolDownSec = 0, revision = 1)
+	}
 }
 
 /** Canned plugs; mutations persist. */
@@ -71,7 +190,28 @@ internal class SandboxDeviceGateway(
 		DeviceCandidate(mac = FAN, address = "192.0.2.12", alias = "Fan", model = "HS103(US)", hardware = "3.0", firmware = "1.0.3"),
 	)
 
-	private fun plugs(gatewayId: String) = gateways.getOrPut(gatewayId) { SandboxPlugs(seeded = gatewayId != EMPTY_GATEWAY) }
+	private fun plugs(gatewayId: String) =
+		gateways.getOrPut(gatewayId) { SandboxPlugs(seeded = gatewayId != EMPTY_GATEWAY).also { it.seedSensors(gatewayId) } }
+
+	private fun SandboxPlugs.sensorRead(record: DeviceRecord): ConsoleDeviceReadResult.Sensor {
+		val now = System.currentTimeMillis()
+		val feed = FEEDS[record.id]
+		if (record.definition == null || feed == null) {
+			return ConsoleDeviceReadResult.Sensor(readings = emptyList(), heardAt = now - 40_000, payloads = payloads(now))
+		}
+		val stale = if (feed.heardAgoMs > 15 * MINUTE) "not heard in 15 minutes" else null
+		return ConsoleDeviceReadResult.Sensor(
+			readings = listOf(
+				reading(TEMPERATURE, feed.temperature, now, listOf("low", "high")),
+				reading(HUMIDITY, feed.humidity, now, listOf("low")),
+				reading(BATTERY, feed.battery, now, listOf("low")),
+			),
+			model = "H5110",
+			heardAt = now - feed.heardAgoMs,
+			stale = stale,
+			thresholds = thresholds.filterKeys { it.first == record.id }.values.sortedBy { it.measure },
+		)
+	}
 
 	private fun refusal(code: String, record: DeviceRecord? = null) =
 		DeviceRefusal(code = code, effect = Protocol.Wire.DeviceEffect.NONE, record = record)
@@ -106,7 +246,8 @@ internal class SandboxDeviceGateway(
 	override suspend fun read(gatewayId: String, id: String): DeviceAnswer<ConsoleDeviceReadResult> {
 		trip()
 		val plugs = plugs(gatewayId)
-		if (id !in plugs.records) return answered(ConsoleDeviceReadResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.NOT_FOUND)))
+		val held = plugs.records[id] ?: return answered(ConsoleDeviceReadResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.NOT_FOUND)))
+		if (held.kind == Protocol.Wire.DeviceKind.SENSOR) return answered(plugs.sensorRead(held))
 		if (id == PORCH) return answered(ConsoleDeviceReadResult.Refused(silent))
 		return answered(
 			ConsoleDeviceReadResult.Ok(
@@ -125,7 +266,7 @@ internal class SandboxDeviceGateway(
 		if (plugs.scans % 2 == 0) {
 			return answered(ConsoleDeviceScanResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.DAEMON_AWAY)))
 		}
-		return answered(ConsoleDeviceScanResult.Ok(found + listOfNotNull(setUp())))
+		return answered(ConsoleDeviceScanResult.Ok(found + listOfNotNull(setUp()), nearby = nearbyOn(gatewayId), bluetooth = gatewayId != EMPTY_GATEWAY))
 	}
 
 	override suspend fun homeNetwork(gatewayId: String): DeviceAnswer<ConsoleDeviceHomeNetworkResult> {
@@ -141,6 +282,60 @@ internal class SandboxDeviceGateway(
 		val added = DeviceRecord(id = mac, name = name, kind = "switch", driver = "kasa", address = address, revision = 1L)
 		plugs.records[mac] = added
 		return answered(ConsoleDeviceAddResult.Ok(added))
+	}
+
+	override suspend fun addSensor(
+		gatewayId: String,
+		mac: String,
+		name: String,
+		radio: String,
+		definition: String?,
+		advert: DeviceAdvert?,
+	): DeviceAnswer<ConsoleDeviceAddResult> {
+		trip()
+		val plugs = plugs(gatewayId)
+		plugs.records[mac]?.let { return answered(ConsoleDeviceAddResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.EXISTS, it))) }
+		plugs.revision += 1
+		val added = sensor(mac, name, radio, definition)
+		plugs.records[mac] = added
+		return answered(ConsoleDeviceAddResult.Ok(added))
+	}
+
+	override suspend fun postReading(gatewayId: String, id: String, advert: DeviceAdvert, at: Long): DeviceAnswer<ConsoleDeviceReadingPostResult> {
+		trip()
+		val held = plugs(gatewayId).records[id]
+			?: return answered(ConsoleDeviceReadingPostResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.NOT_FOUND)))
+		if (held.radio != Protocol.Wire.DeviceRadio.PHONES) {
+			return answered(ConsoleDeviceReadingPostResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.NOT_SUPPORTED)))
+		}
+		return answered(ConsoleDeviceReadingPostResult.Ok)
+	}
+
+	override suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut): DeviceAnswer<ConsoleDeviceSensorThresholdPutResult> {
+		trip()
+		val plugs = plugs(gatewayId)
+		if (plugs.records[put.id]?.kind != Protocol.Wire.DeviceKind.SENSOR) {
+			return answered(ConsoleDeviceSensorThresholdPutResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.NOT_FOUND)))
+		}
+		val key = put.id to put.measure
+		val held = plugs.thresholds[key]
+		if ((held?.revision ?: 0L) != put.revision) {
+			return answered(ConsoleDeviceSensorThresholdPutResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.STALE)))
+		}
+		if (put.low == null && put.high == null) {
+			plugs.thresholds.remove(key)
+			return answered(ConsoleDeviceSensorThresholdPutResult.Ok(null))
+		}
+		val stored = DeviceSensorThreshold(
+			measure = put.measure,
+			low = put.low,
+			high = put.high,
+			deadZone = put.deadZone,
+			coolDownSec = put.coolDownSec,
+			revision = put.revision + 1,
+		)
+		plugs.thresholds[key] = stored
+		return answered(ConsoleDeviceSensorThresholdPutResult.Ok(stored))
 	}
 
 	override suspend fun rename(gatewayId: String, id: String, name: String, revision: Long): DeviceAnswer<ConsoleDeviceRenameResult> {

@@ -10,7 +10,10 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSettingPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
 import com.atelier_nyaarium.switchboard.proto.DeviceSchedule
 import com.atelier_nyaarium.switchboard.proto.DeviceSettingPut
 import kotlinx.serialization.KSerializer
@@ -43,6 +46,29 @@ internal class ConsoleDeviceGateway(private val client: ConsoleClient) : DeviceG
 
 	override suspend fun add(gatewayId: String, mac: String, address: String, name: String) =
 		client.deviceCall(gatewayId, ConsoleOp.DeviceAdd(mac = mac, address = address, name = name), ConsoleDeviceAddResult.serializer())
+
+	override suspend fun addSensor(
+		gatewayId: String,
+		mac: String,
+		name: String,
+		radio: String,
+		definition: String?,
+		advert: DeviceAdvert?,
+	) = client.deviceCall(
+		gatewayId,
+		ConsoleOp.DeviceAdd(mac = mac, name = name, radio = radio, definition = definition, advert = advert),
+		ConsoleDeviceAddResult.serializer(),
+	)
+
+	override suspend fun postReading(gatewayId: String, id: String, advert: DeviceAdvert, at: Long) =
+		client.deviceCall(
+			gatewayId,
+			ConsoleOp.DeviceReadingPost(id = id, advert = advert, at = at),
+			ConsoleDeviceReadingPostResult.serializer(),
+		)
+
+	override suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut) =
+		client.deviceCall(gatewayId, put, ConsoleDeviceSensorThresholdPutResult.serializer())
 
 	override suspend fun rename(gatewayId: String, id: String, name: String, revision: Long) =
 		client.deviceCall(gatewayId, ConsoleOp.DeviceRename(id = id, name = name, revision = revision), ConsoleDeviceRenameResult.serializer())

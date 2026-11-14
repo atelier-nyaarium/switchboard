@@ -147,7 +147,7 @@ internal fun AssistantPageHost(
 				state,
 				page.gatewayId,
 				page.integrationId,
-				onDevice = { onPage(AssistantPage.Device(page.gatewayId, it)) },
+				onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) },
 				onSetup = { onPage(AssistantPage.Setup(page.gatewayId, page.integrationId)) },
 				onAdded = { onPage(AssistantPage.Integrations) },
 				onBack,

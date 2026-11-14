@@ -38,6 +38,7 @@
 		{ "file": "console-op-phone-capability-answer-unavailable.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-phone-capability-answer-disabled.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-assistant-act-answer.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "console-op-assistant-temperature-unit.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "invalid-vault-answer-missing-decision.json", "schema": "ConsoleOp", "expect": "fail" },
 		{ "file": "owner-row-vault-request.json", "schema": "MailboxEntry", "expect": "pass" },
 		{ "file": "invalid-owner-row-vault-request-bare.json", "schema": "MailboxEntry", "expect": "fail" },
@@ -61,11 +62,24 @@
 		{ "file": "console-op-device-schedule-put.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "invalid-console-op-device-schedule-put-no-base.json", "schema": "ConsoleOp", "expect": "fail" },
 		{ "file": "console-op-device-setting-put.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "assistant-state-temperature-unit.json", "schema": "ConsoleAssistantStateResult", "expect": "pass" },
+		{ "file": "device-list-result-bluetooth.json", "schema": "ConsoleDeviceListResult", "expect": "pass" },
 		{ "file": "device-remove-result-ok.json", "schema": "ConsoleDeviceRemoveResult", "expect": "pass" },
+		{ "file": "device-reading-post-result-ok.json", "schema": "ConsoleDeviceReadingPostResult", "expect": "pass" },
+		{
+			"file": "device-sensor-threshold-put-result-ok.json",
+			"schema": "ConsoleDeviceSensorThresholdPutResult",
+			"expect": "pass"
+		},
 		{ "file": "device-read-result-settings.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
 		{ "file": "device-read-result-no-settings.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
 		{ "file": "device-read-result-sensor.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
 		{ "file": "device-read-result-sensor-thresholds.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
+		{
+			"file": "device-read-result-sensor-payloads-alerts.json",
+			"schema": "ConsoleDeviceReadResult",
+			"expect": "pass"
+		},
 		{
 			"file": "device-read-result-future-kind.json",
 			"schema": "ConsoleDeviceReadResult",
@@ -82,6 +96,11 @@
 			"schema": "ConsoleDeviceSchedulePutResult",
 			"expect": "pass"
 		},
-		{ "file": "device-scan-result-nearby.json", "schema": "ConsoleDeviceScanResult", "expect": "pass" }
+		{ "file": "device-scan-result-nearby.json", "schema": "ConsoleDeviceScanResult", "expect": "pass" },
+		{
+			"file": "device-scan-result-bluetooth-nearby.json",
+			"schema": "ConsoleDeviceScanResult",
+			"expect": "pass"
+		}
 	]
 }

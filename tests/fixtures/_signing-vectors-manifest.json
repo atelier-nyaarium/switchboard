@@ -10,6 +10,7 @@
 		"cross-domain-sas",
 		"content-envelope",
 		"content-hash",
+		"definition-match",
 		"device-join",
 		"enroll-sas",
 		"field-types",

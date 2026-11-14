@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
+import com.atelier_nyaarium.switchboard.proto.DeviceNearby
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceSchedule
 import com.atelier_nyaarium.switchboard.proto.DeviceSettings
@@ -15,6 +16,9 @@ internal sealed interface DeviceListView {
 	data class Listed(val records: List<DeviceRecord>, val revision: Long) : DeviceListView
 
 	data class Unavailable(val line: String) : DeviceListView
+
+	/** Gateway lacks device support. */
+	data object Declined : DeviceListView
 }
 
 internal sealed interface ScanView {
@@ -22,7 +26,11 @@ internal sealed interface ScanView {
 
 	data object Scanning : ScanView
 
-	data class Found(val candidates: List<DeviceCandidate>) : ScanView
+	data class Found(
+		val candidates: List<DeviceCandidate>,
+		val nearby: List<DeviceNearby> = emptyList(),
+		val bluetooth: Boolean? = null,
+	) : ScanView
 
 	data class Failed(val line: String) : ScanView
 }
@@ -49,11 +57,16 @@ internal data class ScheduleHeld(
 
 internal data class SettingsHeld(val held: DeviceSettings? = null, val readAt: Long = 0L)
 
-internal data class Plug(
+internal data class SensorHeld(val read: ConsoleDeviceReadResult.Sensor? = null, val failed: String? = null)
+
+internal data class HeldDevice(
 	val incarnation: Long,
+	/** Kind when first listed. */
+	val kind: String? = null,
 	val live: DeviceLive? = null,
 	val schedule: ScheduleHeld = ScheduleHeld(),
 	val settings: SettingsHeld = SettingsHeld(),
+	val sensor: SensorHeld = SensorHeld(),
 )
 
 internal data class Work(val busy: Boolean = false, val said: String? = null)
@@ -61,7 +74,7 @@ internal data class Work(val busy: Boolean = false, val said: String? = null)
 internal data class DevicesView(
 	val list: DeviceListView = DeviceListView.Loading,
 	val scan: ScanView = ScanView.Idle,
-	val plugs: Map<String, Plug> = emptyMap(),
+	val devices: Map<String, HeldDevice> = emptyMap(),
 	val work: Map<String, Work> = emptyMap(),
 	val minted: Long = 0L,
 )
@@ -86,52 +99,57 @@ internal sealed interface DeviceSlot<S> : Slot<DevicesView, S> {
 		override fun write(view: DevicesView, part: Work) = view.copy(work = view.work + (id to part))
 	}
 
-	sealed interface OfPlug<S> : DeviceSlot<S> {
+	sealed interface OfDevice<S> : DeviceSlot<S> {
 		val id: String
 		val incarnation: Long
 
-		/** A listed answer prunes plugs. */
-		override fun owned(view: DevicesView): Boolean = view.plugs[id]?.incarnation == incarnation
+		/** Listed answers prune devices. */
+		override fun owned(view: DevicesView): Boolean = view.devices[id]?.incarnation == incarnation
 	}
 
-	data class Live(override val id: String, override val incarnation: Long) : OfPlug<DeviceLive?> {
-		override fun read(view: DevicesView) = view.plugs[id]?.live
+	data class Live(override val id: String, override val incarnation: Long) : OfDevice<DeviceLive?> {
+		override fun read(view: DevicesView) = view.devices[id]?.live
 
-		override fun write(view: DevicesView, part: DeviceLive?) = view.withPlug(id, incarnation) { copy(live = part) }
+		override fun write(view: DevicesView, part: DeviceLive?) = view.withDevice(id, incarnation) { copy(live = part) }
 	}
 
-	data class Schedule(override val id: String, override val incarnation: Long) : OfPlug<ScheduleHeld> {
-		override fun read(view: DevicesView) = view.plugs[id]?.schedule ?: ScheduleHeld()
+	data class Schedule(override val id: String, override val incarnation: Long) : OfDevice<ScheduleHeld> {
+		override fun read(view: DevicesView) = view.devices[id]?.schedule ?: ScheduleHeld()
 
-		override fun write(view: DevicesView, part: ScheduleHeld) = view.withPlug(id, incarnation) { copy(schedule = part) }
+		override fun write(view: DevicesView, part: ScheduleHeld) = view.withDevice(id, incarnation) { copy(schedule = part) }
 	}
 
-	data class Settings(override val id: String, override val incarnation: Long) : OfPlug<SettingsHeld> {
-		override fun read(view: DevicesView) = view.plugs[id]?.settings ?: SettingsHeld()
+	data class Settings(override val id: String, override val incarnation: Long) : OfDevice<SettingsHeld> {
+		override fun read(view: DevicesView) = view.devices[id]?.settings ?: SettingsHeld()
 
-		override fun write(view: DevicesView, part: SettingsHeld) = view.withPlug(id, incarnation) { copy(settings = part) }
+		override fun write(view: DevicesView, part: SettingsHeld) = view.withDevice(id, incarnation) { copy(settings = part) }
+	}
+
+	data class Sensor(override val id: String, override val incarnation: Long) : OfDevice<SensorHeld> {
+		override fun read(view: DevicesView) = view.devices[id]?.sensor ?: SensorHeld()
+
+		override fun write(view: DevicesView, part: SensorHeld) = view.withDevice(id, incarnation) { copy(sensor = part) }
 	}
 }
 
-private inline fun DevicesView.withPlug(id: String, incarnation: Long, change: Plug.() -> Plug): DevicesView {
-	val plug = plugs[id]?.takeIf { it.incarnation == incarnation } ?: return this
-	return copy(plugs = plugs + (id to plug.change()))
+private inline fun DevicesView.withDevice(id: String, incarnation: Long, change: HeldDevice.() -> HeldDevice): DevicesView {
+	val plug = devices[id]?.takeIf { it.incarnation == incarnation } ?: return this
+	return copy(devices = devices + (id to plug.change()))
 }
 
 private fun DevicesView.afterList(list: DeviceListView): DevicesView {
 	if (list !is DeviceListView.Listed) {
 		return when (list) {
-			is DeviceListView.Unavailable -> copy(list = list)
-			DeviceListView.Loading -> copy(list = list)
+			is DeviceListView.Unavailable, DeviceListView.Declined, DeviceListView.Loading -> copy(list = list)
 			is DeviceListView.Listed -> this
 		}
 	}
 	var nextIncarnation = minted
-	val nextPlugs = list.records.associate { record ->
-		val held = plugs[record.id] ?: Plug(incarnation = ++nextIncarnation)
+	val nextDevices = list.records.associate { record ->
+		val held = devices[record.id] ?: HeldDevice(incarnation = ++nextIncarnation, kind = record.kind)
 		record.id to held
 	}
-	return copy(list = list, plugs = nextPlugs, minted = nextIncarnation)
+	return copy(list = list, devices = nextDevices, minted = nextIncarnation)
 }
 
 /** Unreachable preserves listed devices. */
@@ -141,7 +159,7 @@ internal fun DeviceListView.afterList(answer: DeviceAnswer<ConsoleDeviceListResu
 			is ConsoleDeviceListResult.Ok -> DeviceListView.Listed(value.records, value.revision)
 			is ConsoleDeviceListResult.Refused -> DeviceListView.Unavailable(refusalLine(value.refusal))
 		}
-		DeviceAnswer.Declined -> DeviceListView.Unavailable(GATEWAY_DECLINED)
+		DeviceAnswer.Declined -> DeviceListView.Declined
 		DeviceAnswer.Unreachable -> if (this is DeviceListView.Listed) this else DeviceListView.Unavailable(GATEWAY_UNREACHABLE)
 	}
 
@@ -182,6 +200,17 @@ internal fun SettingsHeld.afterRead(answer: DeviceAnswer<ConsoleDeviceReadResult
 		DeviceAnswer.Declined, DeviceAnswer.Unreachable -> this
 	}
 
+/** Failure preserves prior readings. */
+internal fun SensorHeld.afterRead(answer: DeviceAnswer<ConsoleDeviceReadResult>): SensorHeld =
+	when (answer) {
+		is DeviceAnswer.Answered -> when (val value = answer.value) {
+			is ConsoleDeviceReadResult.Sensor -> SensorHeld(read = value)
+			is ConsoleDeviceReadResult.Refused -> copy(failed = refusalLine(value.refusal))
+			is ConsoleDeviceReadResult.Ok, is ConsoleDeviceReadResult.Unknown -> copy(failed = NEWER_APP)
+		}
+		DeviceAnswer.Declined, DeviceAnswer.Unreachable -> copy(failed = answer.unansweredLine())
+	}
+
 internal fun ScheduleHeld.afterPut(schedule: DeviceSchedule): ScheduleHeld =
 	copy(held = schedule, edit = null, failed = null)
 
@@ -202,7 +231,7 @@ internal fun ScheduleHeld.editDraft(draft: ScheduleDraft): ScheduleHeld {
 internal fun ScanView.afterScan(answer: DeviceAnswer<ConsoleDeviceScanResult>): ScanView {
 	if (answer !is DeviceAnswer.Answered) return ScanView.Failed(answer.unansweredLine())
 	return when (val value = answer.value) {
-		is ConsoleDeviceScanResult.Ok -> ScanView.Found(value.candidates)
+		is ConsoleDeviceScanResult.Ok -> ScanView.Found(value.candidates, value.nearby.orEmpty(), value.bluetooth)
 		is ConsoleDeviceScanResult.Refused -> ScanView.Failed(refusalLine(value.refusal))
 	}
 }

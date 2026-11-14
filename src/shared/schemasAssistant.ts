@@ -17,6 +17,9 @@ const AssistantWatcherBackoffSchema = z
 /** Grant-bearing services. */
 export const INTEGRATION_IDS = SERVICE_KEYS;
 
+export const TemperatureUnitSchema = z.enum(["C", "F"]).meta({ id: "TemperatureUnit" });
+export type TemperatureUnit = z.infer<typeof TemperatureUnitSchema>;
+
 export const IntegrationSchema = z
 	.object({
 		id: z.string(),
@@ -73,6 +76,8 @@ export const ConsoleAssistantStateResultSchema = z
 		watchers: z.array(AssistantWatcherSchema),
 		/** Omitted without send guard. */
 		approveEverySend: z.boolean().optional(),
+		// Required starting 2026-11-28.
+		temperatureUnit: TemperatureUnitSchema.optional(),
 		/** Omitted by a Gateway that cannot hold a check-in. */
 		checkIns: z.boolean().optional(),
 		// Required starting 2026-11-15.

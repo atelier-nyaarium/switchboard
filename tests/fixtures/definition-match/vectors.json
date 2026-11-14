@@ -1,0 +1,43 @@
+{
+	"_comment": "Shared definition vectors.",
+	"cases": [
+		{
+			"case": "matching name and payload",
+			"advert": {
+				"name": "GVH5110_3C5D",
+				"data": { "1": "010103bac864" },
+				"services": ["ec88"]
+			},
+			"definition": "govee-h5110",
+			"identifies": "govee-h5110"
+		},
+		{
+			"case": "wrong name prefix",
+			"advert": {
+				"name": "GVH5075_3C5D",
+				"data": { "1": "010103bac864" },
+				"services": ["ec88"]
+			},
+			"definition": null,
+			"identifies": null
+		},
+		{
+			"case": "no name",
+			"advert": { "data": { "1": "010103bac864" }, "services": ["ec88"] },
+			"definition": "govee-h5110",
+			"identifies": null
+		},
+		{
+			"case": "short payload",
+			"advert": { "data": { "1": "0101" }, "services": ["ec88"] },
+			"definition": null,
+			"identifies": null
+		},
+		{
+			"case": "wrong company",
+			"advert": { "data": { "76": "010103bac864" }, "services": ["ec88"] },
+			"definition": null,
+			"identifies": null
+		}
+	]
+}

@@ -1,0 +1,34 @@
+{
+	"kind": "sensor",
+	"model": "H5110",
+	"readings": [
+		{
+			"spec": { "kind": "number", "field": "temperature", "label": "Temperature", "unit": "C", "decimals": 1 },
+			"value": -18.2,
+			"alerts": ["low", "high"],
+			"low": { "value": -19.1, "at": 1793650000000 },
+			"high": { "value": -16.4, "at": 1793640000000 }
+		},
+		{
+			"spec": { "kind": "number", "field": "humidity", "label": "Humidity", "unit": "%", "decimals": 1 },
+			"value": 42.4,
+			"alerts": ["low"]
+		}
+	],
+	"heardAt": 1793660000000,
+	"payloads": [
+		{
+			"at": 1793660000000,
+			"radio": "phones",
+			"name": "GVH5110_3C5D",
+			"data": { "1": "010103bac864" },
+			"services": ["ec88"]
+		},
+		{
+			"at": 1793650000000,
+			"radio": "gateway",
+			"data": { "1": "010180d16c5a" },
+			"services": ["ec88"]
+		}
+	]
+}

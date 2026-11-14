@@ -30,7 +30,17 @@ interface Faults {
 	thresholdSaves: boolean;
 }
 
-function fixture(home = true) {
+interface ThresholdSeed {
+	device: string;
+	measure: string;
+	low?: number;
+	high?: number;
+	deadZone: number;
+	coolDownSec: number;
+	revision: number;
+}
+
+function fixture(home = true, seededThresholds: ThresholdSeed[] = []) {
 	const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "sensor-thresholds-"));
 	roots.push(dataDir);
 	let clock = 1_000;
@@ -122,8 +132,14 @@ function fixture(home = true) {
 		definition: "govee-h5110",
 	});
 	if (!seed.stored) throw new Error(seed.reason);
+	if (seededThresholds.length > 0) {
+		openDurable(dataDir, "sensor-thresholds", (store) =>
+			store.saveChecked({ v: 1, thresholds: seededThresholds, unswept: [] }),
+		);
+	}
 	let current = build();
 	return {
+		dataDir,
 		ambient,
 		faults,
 		get now() {
@@ -200,13 +216,132 @@ describe("sensor threshold composition", () => {
 			const read = await world.devices.console({ kind: "device_read", id: MAC });
 			expect(read).toMatchObject({
 				kind: "sensor",
+				model: "H5110",
+				payloads: [
+					{ at: 2_000, radio: "gateway", data: { "1": "010180d16c5a" } },
+					{ at: 1_000, radio: "gateway", data: { "1": "010103bac864" } },
+				],
 				thresholds: [{ measure: "temperature", low: 10, deadZone: 1, coolDownSec: 0, revision: 1 }],
 			});
 			if (read.kind !== "sensor") throw new Error("sensor read expected");
 			expect(read.readings.find((item) => item.spec.field === "temperature")).toMatchObject({
+				alerts: ["low", "high"],
 				value: -5.3,
 				low: { value: -5.3, at: 2_000 },
 				high: { value: 24.4, at: 1_000 },
+			});
+		} finally {
+			await world.devices.close();
+		}
+	});
+
+	it("refuses alert sides the definition does not offer", async () => {
+		const world = fixture();
+		try {
+			const temperature = await world.devices.console({ ...put(0, undefined), high: 30 });
+			const humidity = await world.devices.console({
+				...put(0, undefined),
+				measure: "humidity",
+				high: 60,
+			});
+			const battery = await world.devices.console({
+				...put(0, undefined),
+				measure: "battery",
+				high: 80,
+			});
+			expect(temperature).toMatchObject({ kind: "ok", threshold: { high: 30 } });
+			expect(humidity).toMatchObject({ kind: "refused", refusal: { code: "invalid" } });
+			expect(battery).toMatchObject({ kind: "refused", refusal: { code: "invalid" } });
+		} finally {
+			await world.devices.close();
+		}
+	});
+
+	it("filters an unoffered side from startup, reads, and the next put", async () => {
+		const world = fixture(true, [
+			{ device: MAC, measure: "humidity", low: 10, high: 20, deadZone: 1, coolDownSec: 0, revision: 7 },
+		]);
+		try {
+			const highId = thresholdIds(MAC, "humidity").high;
+			expect(world.automations.list().find((row) => row.id === highId)?.body.enabled).toBe(false);
+			const original = openDurable(world.dataDir, "sensor-thresholds", (store) => store.load()) as {
+				thresholds: ThresholdSeed[];
+			};
+			expect(original.thresholds.find((entry) => entry.measure === "humidity")).toMatchObject({
+				low: 10,
+				high: 20,
+			});
+			world.devices.ingestGatewayAdvert(MAC, warm, 1_000);
+			expect(
+				(await world.automations.watcher.list!({ scope: "all" }, new AbortController().signal)).events,
+			).toEqual([]);
+
+			const read = await world.devices.console({ kind: "device_read", id: MAC });
+			if (read.kind !== "sensor") throw new Error("sensor read expected");
+			const threshold = read.thresholds?.find((entry) => entry.measure === "humidity");
+			expect(threshold).toEqual({ measure: "humidity", low: 10, deadZone: 1, coolDownSec: 0, revision: 7 });
+			if (!threshold) throw new Error("humidity threshold expected");
+
+			const saved = await world.devices.console({
+				kind: "sensor_threshold_put",
+				id: MAC,
+				measure: "humidity",
+				low: 10,
+				deadZone: 1,
+				coolDownSec: 0,
+				revision: threshold.revision,
+			});
+			expect(saved).toMatchObject({ kind: "ok", threshold: { measure: "humidity", low: 10, revision: 8 } });
+			const stored = openDurable(world.dataDir, "sensor-thresholds", (store) => store.load()) as {
+				thresholds: ThresholdSeed[];
+			};
+			expect(stored.thresholds.find((entry) => entry.measure === "humidity")).toEqual({
+				device: MAC,
+				measure: "humidity",
+				low: 10,
+				deadZone: 1,
+				coolDownSec: 0,
+				revision: 8,
+			});
+		} finally {
+			await world.devices.close();
+		}
+	});
+
+	it("lets a revision-zero put replace a hidden-only threshold", async () => {
+		const world = fixture(true, [
+			{ device: MAC, measure: "humidity", high: 20, deadZone: 1, coolDownSec: 0, revision: 4 },
+		]);
+		try {
+			const read = await world.devices.console({ kind: "device_read", id: MAC });
+			expect(read).toMatchObject({ kind: "sensor", thresholds: [] });
+			const saved = await world.devices.console({
+				kind: "sensor_threshold_put",
+				id: MAC,
+				measure: "humidity",
+				low: 10,
+				deadZone: 1,
+				coolDownSec: 0,
+				revision: 0,
+			});
+			expect(saved).toMatchObject({ kind: "ok", threshold: { measure: "humidity", low: 10 } });
+			const stored = openDurable(world.dataDir, "sensor-thresholds", (store) => store.load()) as {
+				thresholds: ThresholdSeed[];
+			};
+			expect(stored.thresholds.find((entry) => entry.measure === "humidity")).not.toHaveProperty("high");
+		} finally {
+			await world.devices.close();
+		}
+	});
+
+	it("refuses a dead zone that removes the two-sided band", async () => {
+		const world = fixture();
+		try {
+			expect(await world.devices.console(put(0, 10))).toMatchObject({ kind: "ok", threshold: { low: 10 } });
+			const refused = await world.devices.console({ ...put(1, 10), high: 11 });
+			expect(refused).toMatchObject({ kind: "refused", refusal: { code: "invalid" } });
+			expect(await world.devices.console({ kind: "device_read", id: MAC })).toMatchObject({
+				thresholds: [{ measure: "temperature", low: 10, deadZone: 1, revision: 1 }],
 			});
 		} finally {
 			await world.devices.close();

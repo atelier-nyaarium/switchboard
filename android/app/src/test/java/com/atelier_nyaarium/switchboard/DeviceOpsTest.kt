@@ -4,11 +4,15 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceAddResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRemoveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRenameResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSettingPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
 import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
 import com.atelier_nyaarium.switchboard.proto.DeviceLanded
 import com.atelier_nyaarium.switchboard.proto.DeviceLiveState
@@ -16,6 +20,7 @@ import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceRefusal
 import com.atelier_nyaarium.switchboard.proto.DeviceSchedule
 import com.atelier_nyaarium.switchboard.proto.DeviceScheduleRule
+import com.atelier_nyaarium.switchboard.proto.DeviceSensorThreshold
 import com.atelier_nyaarium.switchboard.proto.DeviceSettingPut
 import com.atelier_nyaarium.switchboard.proto.DeviceSettings
 import com.atelier_nyaarium.switchboard.proto.KasaClock
@@ -36,6 +41,14 @@ private fun record(id: String = LAMP, name: String = "Lamp", revision: Long = 1L
 
 private fun refusal(code: String, effect: String = "none", detail: String? = null, landed: DeviceLanded? = null, record: DeviceRecord? = null) =
 	DeviceRefusal(code = code, effect = effect, detail = detail, landed = landed, record = record)
+
+private const val FREEZER = "aa:bb:cc:dd:ee:11"
+
+private fun sensorRecord(id: String = FREEZER, name: String = "Freezer") =
+	DeviceRecord(id = id, name = name, kind = "sensor", driver = "govee", address = id, radio = "gateway", definition = "govee-h5110", revision = 1L)
+
+private fun sensorRead(vararg thresholds: DeviceSensorThreshold) =
+	ConsoleDeviceReadResult.Sensor(readings = emptyList(), heardAt = 5L, thresholds = thresholds.toList())
 
 private val schedule = DeviceSchedule(enabled = true, rules = emptyList())
 private val settings = DeviceSettings.Kasa(led = true, clock = KasaClock(time = "2026-11-02T18:00:00-08:00", zone = "PST8PDT"), cloud = "bound")
@@ -132,6 +145,19 @@ class DeviceOpsTest {
 		override suspend fun settingPut(gatewayId: String, id: String, revision: Long, setting: DeviceSettingPut) = reply {
 			ConsoleDeviceSettingPutResult.Ok(settings.copy(led = false, clock = KasaClock(time = "2026-11-02T18:09:00-08:00", zone = "PST8PDT")))
 		}
+
+		override suspend fun addSensor(gatewayId: String, mac: String, name: String, radio: String, definition: String?, advert: DeviceAdvert?) =
+			reply { addAnswer ?: ConsoleDeviceAddResult.Ok(sensorRecord(mac, name)) }
+
+		override suspend fun postReading(gatewayId: String, id: String, advert: DeviceAdvert, at: Long) =
+			reply<ConsoleDeviceReadingPostResult> { ConsoleDeviceReadingPostResult.Ok }
+
+		var thresholdPut: (ConsoleOp.SensorThresholdPut) -> Unit = {}
+
+		override suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut) = reply {
+			thresholdPut(put)
+			ConsoleDeviceSensorThresholdPutResult.Ok(null)
+		}
 	}
 
 	private class Host(override val gateway: DeviceGateway?) : DeviceHost {
@@ -150,6 +176,43 @@ class DeviceOpsTest {
 			refusalLine(refusal("write_failed", effect = "unknown", landed = DeviceLanded(1L, 3L))),
 		)
 		assertEquals("The plug refused (err_code -3: busy)", refusalLine(refusal("device_error", detail = "err_code -3: busy")))
+	}
+
+	@Test
+	fun `a sensor read lands on its sensor slot alone, and a threshold put reads it again`() = runBlocking {
+		val gateway = FakeGateway().apply {
+			held = sensorRecord()
+			readAnswer = sensorRead()
+		}
+		val ops = DeviceOps(Host(gateway))
+		ops.refresh(GW)
+		val first = ops.view(GW).devices.getValue(FREEZER)
+		assertEquals(sensorRead(), first.sensor.read)
+		assertNull(first.live)
+		assertNull(first.schedule.failed)
+		val set = DeviceSensorThreshold(measure = "temperature", low = -20.0, deadZone = 1.0, coolDownSec = 0, revision = 1)
+		gateway.thresholdPut = { gateway.readAnswer = sensorRead(set) }
+		val put = ConsoleOp.SensorThresholdPut(id = FREEZER, measure = "temperature", low = -20.0, deadZone = 1.0, coolDownSec = 0, revision = 0)
+		assertEquals(DeviceSaved.Stored(null), ops.putThreshold(GW, put))
+		assertEquals(listOf(set), ops.view(GW).devices.getValue(FREEZER).sensor.read?.thresholds)
+	}
+
+	@Test
+	fun `a sensor read still lands on its sensor slot while its list is refused`() = runBlocking {
+		val gateway = FakeGateway().apply {
+			held = sensorRecord()
+			readAnswer = sensorRead()
+		}
+		val ops = DeviceOps(Host(gateway))
+		ops.refresh(GW)
+		gateway.listAnswer = ConsoleDeviceListResult.Refused(refusal("daemon_away"))
+		ops.relist(GW)
+		val later = sensorRead(DeviceSensorThreshold(measure = "temperature", low = -20.0, deadZone = 1.0, coolDownSec = 0, revision = 1))
+		gateway.readAnswer = later
+		ops.read(GW, FREEZER)
+		val held = ops.view(GW).devices.getValue(FREEZER)
+		assertEquals(later, held.sensor.read)
+		assertNull(held.live)
 	}
 
 	@Test
@@ -358,7 +421,7 @@ class DeviceOpsTest {
 		assertEquals(DeviceListView.Listed(listOf(record()), 1L), ops.view(GW).list)
 		gateway.declined = true
 		ops.relist(GW)
-		assertEquals(DeviceListView.Unavailable(GATEWAY_DECLINED), ops.view(GW).list)
+		assertEquals(DeviceListView.Declined, ops.view(GW).list)
 	}
 
 	@Test

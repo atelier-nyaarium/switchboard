@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -10,10 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,9 +48,11 @@ import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.DAY_INITIALS
 import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.DevicesView
+import com.atelier_nyaarium.switchboard.GATEWAY_DECLINED
 import com.atelier_nyaarium.switchboard.ScheduleDraft
 import com.atelier_nyaarium.switchboard.actOffered
 import com.atelier_nyaarium.switchboard.alert
+import com.atelier_nyaarium.switchboard.assistantGateway
 import com.atelier_nyaarium.switchboard.brandLine
 import com.atelier_nyaarium.switchboard.busy
 import com.atelier_nyaarium.switchboard.capabilitiesOf
@@ -54,9 +60,11 @@ import com.atelier_nyaarium.switchboard.clockLine
 import com.atelier_nyaarium.switchboard.daysText
 import com.atelier_nyaarium.switchboard.detailOf
 import com.atelier_nyaarium.switchboard.detailRetry
+import com.atelier_nyaarium.switchboard.displayUnitOf
 import com.atelier_nyaarium.switchboard.deviceRecord
 import com.atelier_nyaarium.switchboard.editOf
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.isSensor
 import com.atelier_nyaarium.switchboard.liveLine
 import com.atelier_nyaarium.switchboard.liveOf
 import com.atelier_nyaarium.switchboard.providerActs
@@ -73,6 +81,9 @@ import com.atelier_nyaarium.switchboard.retryable
 import com.atelier_nyaarium.switchboard.scheduleBase
 import com.atelier_nyaarium.switchboard.scheduleDraft
 import com.atelier_nyaarium.switchboard.scheduleSavable
+import com.atelier_nyaarium.switchboard.sensorOf
+import com.atelier_nyaarium.switchboard.sensorSubtitle
+import com.atelier_nyaarium.switchboard.sensorTrouble
 
 private val SCHEDULE_ACTIONS = listOf(
 	Protocol.Wire.DeviceScheduleAction.ON to "On",
@@ -89,24 +100,89 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 	val open = { repo.command { deviceOps.open(gatewayId, deviceId) } }
 	val reach = state.gateways.entry(gatewayId)?.let { state.gateways.reachable(gatewayId) to it.incarnation }
 	LaunchedEffect(gatewayId, deviceId, reach) { open() }
+	var menu by remember { mutableStateOf(false) }
+	var removing by remember { mutableStateOf(false) }
+	val display = displayUnitOf(assistantGateway(state)?.let { state.gateways.assistantOn(it) })
 
 	AssistantPageScaffold(
 		record?.name ?: "Device",
 		onBack,
 		actions = {
 			IconButton(onClick = hapticClick { open() }) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }
+			if (record != null) {
+				Box {
+					IconButton(onClick = hapticClick { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
+					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+						DropdownMenuItem(
+							text = { Text("Remove device", color = MaterialTheme.colorScheme.error) },
+							enabled = !view.busy(record.id),
+							onClick = {
+								menu = false
+								removing = true
+							},
+						)
+					}
+				}
+			}
 		},
 	) {
 		val list = view.list
 		when {
-			record != null -> DeviceBody(repo, gatewayId, record, view, onRetry = { open() })
+			record != null -> {
+				val subtitle = if (record.isSensor()) {
+					sensorSubtitle(record, view.sensorOf(record.id)?.read?.model, gatewayId, view.sensorOf(record.id), System.currentTimeMillis())
+				} else {
+					"${brandLine(record)} · $gatewayId"
+				}
+				Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				if (record.isSensor()) {
+					sensorTrouble(view.sensorOf(record.id), System.currentTimeMillis())?.let {
+						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+					}
+				}
+				if (record.isSensor()) SensorBody(repo, gatewayId, record, view, display)
+				else DeviceBody(repo, gatewayId, record, view, onRetry = { open() })
+			}
 			list is DeviceListView.Unavailable -> {
 				Text(list.line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 				if (list.retryable()) OutlinedButton(onClick = hapticClick { open() }) { Text("Retry") }
 			}
+			list == DeviceListView.Declined -> Text(GATEWAY_DECLINED, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 			else -> CircularProgressIndicator()
 		}
 	}
+	if (removing && record != null) {
+		ConfirmDialog(
+			title = "Remove ${record.name}?",
+			body = if (record.isSensor()) {
+				"Switchboard stops reading it, and its alerts go with it."
+			} else {
+				"Switchboard stops controlling it. Its own schedule stays on the device."
+			},
+			confirmText = "Remove",
+			onConfirm = {
+				removing = false
+				repo.command { deviceOps.remove(gatewayId, record) }
+			},
+			onDismiss = { removing = false },
+		)
+	}
+}
+
+@Composable
+internal fun RenameSection(repo: ChatRepository, gatewayId: String, record: DeviceRecord, busy: Boolean) {
+	var name by rememberSaveable(record.id) { mutableStateOf(record.name) }
+	OutlinedTextField(
+		value = name,
+		onValueChange = { name = it },
+		label = { Text("Name") },
+		singleLine = true,
+		modifier = Modifier.fillMaxWidth(),
+	)
+	OutlinedButton(
+		onClick = hapticClick { repo.command { deviceOps.rename(gatewayId, record, name.trim()) } },
+		enabled = !busy && renameReady(name, record),
+	) { Text("Rename") }
 }
 
 @Composable
@@ -115,11 +191,9 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 	val detail = view.detailOf(record.id)
 	val busy = view.busy(record.id)
 	val capabilities = capabilitiesOf(record)
-	var name by rememberSaveable(record.id) { mutableStateOf(record.name) }
 	val held = view.scheduleDraft(record.id)
 	var picking by remember { mutableStateOf<Int?>(null) }
 	var confirming by remember { mutableStateOf<IntegrationAct?>(null) }
-	var removing by remember { mutableStateOf(false) }
 	val draftEdit = { draft: ScheduleDraft -> repo.deviceOps.editDraft(gatewayId, record.id, draft) }
 	val runAct = { act: IntegrationAct ->
 		repo.command { deviceOps.putSetting(gatewayId, record, act.put) }
@@ -137,17 +211,7 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 		HorizontalDivider()
 	}
 
-	OutlinedTextField(
-		value = name,
-		onValueChange = { name = it },
-		label = { Text("Name") },
-		singleLine = true,
-		modifier = Modifier.fillMaxWidth(),
-	)
-	OutlinedButton(
-		onClick = hapticClick { repo.command { deviceOps.rename(gatewayId, record, name.trim()) } },
-		enabled = !busy && renameReady(name, record),
-	) { Text("Rename") }
+	RenameSection(repo, gatewayId, record, busy)
 
 	HorizontalDivider()
 	if (detail == null || held == null) {
@@ -186,13 +250,6 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 		)
 	}
 
-	HorizontalDivider()
-	OutlinedButton(
-		onClick = hapticClick { removing = true },
-		enabled = !busy,
-		colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-	) { Text("Remove device") }
-
 	picking?.let { index ->
 		val rule = held?.rules?.getOrNull(index)
 		if (rule != null) {
@@ -216,18 +273,6 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 				runAct(act)
 			},
 			onDismiss = { confirming = null },
-		)
-	}
-	if (removing) {
-		ConfirmDialog(
-			title = "Remove ${record.name}?",
-			body = "Switchboard stops controlling it. Its own schedule stays on the device.",
-			confirmText = "Remove",
-			onConfirm = {
-				removing = false
-				repo.command { deviceOps.remove(gatewayId, record) }
-			},
-			onDismiss = { removing = false },
 		)
 	}
 }

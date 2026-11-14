@@ -118,6 +118,10 @@ class AppStateStore internal constructor(
 
 	fun loadRouterReach(): String? = prefs.getString(KEY_ROUTER_REACH, null)
 
+	fun saveBleBindings(json: String) = prefs.edit().putString(KEY_BLE_BINDINGS, json).apply()
+
+	fun loadBleBindings(): String? = prefs.getString(KEY_BLE_BINDINGS, null)
+
 	internal fun saveRouterState(kind: String, slot: RouterStateSlot) {
 		check(prefs.edit().putString(KEY_ROUTER_STATE_PREFIX + kind, wireJson.encodeToString(JsonObject.serializer(), slot.encode())).commit()) {
 			"router state commit failed"
@@ -513,6 +517,7 @@ class AppStateStore internal constructor(
 	internal companion object {
 		const val KEY_BLOB = "provisioning"
 		const val KEY_ROUTER_REACH = "router_reach"
+		const val KEY_BLE_BINDINGS = "ble_bindings"
 		const val KEY_DOMAIN_ID = "domain_id"
 		const val KEY_ROUTER_STATE_PREFIX = "router_state."
 		const val KEY_BIO = "biometric_lock"

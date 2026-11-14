@@ -91,13 +91,19 @@ class AssistantPermissionsTest {
 			screenData = true,
 			notifications = true,
 			location = PhoneLocation.ON,
+			nearby = true,
 		)
 		val unheld = held.copy(roleHeld = false)
 		val unadopted = held.copy(sessionAdopted = false)
 		fun setting(facts: PhoneSettingFacts, label: String) = phoneSettingRows(facts).single { it.label == label }
 
-		assertEquals(listOf("Default assistant", "Screen and app data", "Notifications", "Location"), phoneSettingRows(held).map { it.label })
-		assertEquals(listOf(true, true, true, true), phoneSettingRows(held).map { it.on })
+		assertEquals(
+			listOf("Default assistant", "Screen and app data", "Notifications", "Location", "Nearby devices"),
+			phoneSettingRows(held).map { it.label },
+		)
+		assertEquals(listOf(true, true, true, true, true), phoneSettingRows(held).map { it.on })
+		assertEquals(PhoneSettingDoor.NEARBY, setting(held.copy(nearby = false), "Nearby devices").door)
+		assertEquals(android.Manifest.permission.BLUETOOTH_SCAN, manifestPermissionOf(NEARBY_NEED))
 		assertEquals(false, phoneSettingRows(unadopted).first().on)
 		assertEquals(assistantSetupLine(false, true), phoneSettingRows(unheld).first().offWord)
 		assertEquals(false, setting(held.copy(notifications = false), "Notifications").on)

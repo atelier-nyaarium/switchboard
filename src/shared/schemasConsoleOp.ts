@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
 import { LAUNCH_ROWS } from "./launch-notice.js";
+import { TemperatureUnitSchema } from "./schemasAssistant.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
@@ -357,6 +358,7 @@ export const ConsoleOpSchema = z
 		}),
 		/** Gateway-local; survives release. */
 		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
+		z.object({ kind: z.literal("assistant_temperature_unit"), temperatureUnit: TemperatureUnitSchema }),
 		z.object({
 			kind: z.literal("assistant_watcher_enabled"),
 			watcherId: z.string().min(1).max(64),
@@ -456,6 +458,7 @@ export const VALUE_OP_KINDS = new Set([
 	"assistant_otherwise_put",
 	"assistant_rules_preview",
 	"assistant_safety",
+	"assistant_temperature_unit",
 	"assistant_watcher_enabled",
 	"assistant_watcher_check",
 	"assistant_send_answer",

@@ -15,13 +15,17 @@ import {
 	PlanesReadResultSchema,
 	PlanesReadValueSchema,
 } from "../shared/schemas.js";
+import { ConsoleAssistantStateResultSchema } from "../shared/schemasAssistant.js";
 import { AssistantFieldSpecSchema } from "../shared/schemasAssistantRules.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
+	ConsoleDeviceListResultSchema,
+	ConsoleDeviceReadingPostResultSchema,
 	ConsoleDeviceReadResultSchema,
 	ConsoleDeviceRemoveResultSchema,
 	ConsoleDeviceScanResultSchema,
 	ConsoleDeviceSchedulePutResultSchema,
+	ConsoleDeviceSensorThresholdPutResultSchema,
 } from "../shared/schemasDevices.js";
 import {
 	FileHistoryAnswerSchema,
@@ -48,8 +52,12 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsoleForgetResult: ConsoleForgetResultSchema,
 	ConsoleListDirsResult: ConsoleListDirsResultSchema,
 	ConsolePeekResult: ConsolePeekResultSchema,
+	ConsoleAssistantStateResult: ConsoleAssistantStateResultSchema,
+	ConsoleDeviceListResult: ConsoleDeviceListResultSchema,
 	ConsoleDeviceRemoveResult: ConsoleDeviceRemoveResultSchema,
 	ConsoleDeviceReadResult: ConsoleDeviceReadResultSchema,
+	ConsoleDeviceReadingPostResult: ConsoleDeviceReadingPostResultSchema,
+	ConsoleDeviceSensorThresholdPutResult: ConsoleDeviceSensorThresholdPutResultSchema,
 	ConsoleDeviceScanResult: ConsoleDeviceScanResultSchema,
 	ConsoleDeviceSchedulePutResult: ConsoleDeviceSchedulePutResultSchema,
 	AssistantFieldSpec: AssistantFieldSpecSchema,

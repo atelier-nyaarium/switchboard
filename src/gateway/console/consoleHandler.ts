@@ -506,6 +506,9 @@ export function createConsoleDispatcher({
 			case "assistant_safety":
 				return requireAssistant().setSafety(op.approveEverySend);
 
+			case "assistant_temperature_unit":
+				return requireAssistant().setTemperatureUnit(op.temperatureUnit);
+
 			case "assistant_watcher_enabled":
 				return requireAssistant().setWatcherEnabled(op.watcherId, op.enabled);
 

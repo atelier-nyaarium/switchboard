@@ -48,6 +48,7 @@ import com.atelier_nyaarium.switchboard.catalogued
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.nameReady
 import com.atelier_nyaarium.switchboard.paired
+import com.atelier_nyaarium.switchboard.pairedAcross
 import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
 import com.atelier_nyaarium.switchboard.proto.Integration
 import com.atelier_nyaarium.switchboard.proto.IntegrationDiscovery
@@ -63,7 +64,7 @@ internal fun IntegrationEntryPage(
 	state: ChatState,
 	gatewayId: String,
 	integrationId: String,
-	onDevice: (String) -> Unit,
+	onDevice: (String, String) -> Unit,
 	onSetup: () -> Unit,
 	onAdded: () -> Unit,
 	onBack: () -> Unit,
@@ -74,8 +75,8 @@ internal fun IntegrationEntryPage(
 		return
 	}
 	when (integration.discovery) {
-		IntegrationDiscovery.SCAN -> ScanEntryPage(repo, state, gatewayId, integration, onDevice, onSetup, onBack)
-		IntegrationDiscovery.LISTEN -> AssistantPageScaffold(integration.label, onBack) {}
+		IntegrationDiscovery.SCAN -> ScanEntryPage(repo, state, gatewayId, integration, { onDevice(gatewayId, it) }, onSetup, onBack)
+		IntegrationDiscovery.LISTEN -> ListenEntryPage(repo, state, gatewayId, integration, onDevice, onBack)
 		IntegrationDiscovery.NONE -> NeedsEntryPage(repo, state, gatewayId, integration, onAdded, onBack)
 	}
 }
@@ -123,7 +124,8 @@ private fun ScanEntryPage(
 		if (scan is ScanView.Failed) {
 			Text(scan.line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
-		val fresh = devices.addable().orEmpty()
+		val pairedAnywhere = pairedAcross(state.gateways.ids().mapNotNull { views[it] })
+		val fresh = devices.addable().orEmpty().filter { it.mac !in pairedAnywhere }
 		val paired = (devices.list as? DeviceListView.Listed)?.records.orEmpty().filter { it.driver == integration.id }
 		if (fresh.isNotEmpty() || paired.isNotEmpty()) HorizontalDivider()
 		for (candidate in fresh) {

@@ -16,18 +16,21 @@ bun scripts/check-kotlin-imports.ts || exit 1
 protocol=android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/Protocol.kt
 phone_registry=android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/PhoneCapabilityRegistry.kt
 integration_registry=android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/IntegrationRegistry.kt
+device_definitions=android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/DeviceDefinitions.kt
 harness_registry=android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/HarnessRegistry.kt
 fresh_protocol=$(mktemp)
 fresh_phone_registry=$(mktemp)
 fresh_integration_registry=$(mktemp)
+fresh_device_definitions=$(mktemp)
 fresh_harness_registry=$(mktemp)
-trap 'rm -f "$fresh_protocol" "$fresh_phone_registry" "$fresh_integration_registry" "$fresh_harness_registry"' EXIT
+trap 'rm -f "$fresh_protocol" "$fresh_phone_registry" "$fresh_integration_registry" "$fresh_device_definitions" "$fresh_harness_registry"' EXIT
 KOTLIN_PROTOCOL_OUT="$fresh_protocol" \
 	KOTLIN_PHONE_CAPABILITY_REGISTRY_OUT="$fresh_phone_registry" \
 	KOTLIN_INTEGRATION_REGISTRY_OUT="$fresh_integration_registry" \
+	KOTLIN_DEVICE_DEFINITIONS_OUT="$fresh_device_definitions" \
 	KOTLIN_HARNESS_REGISTRY_OUT="$fresh_harness_registry" \
 	bun scripts/codegen-kotlin.ts >/dev/null || exit 1
-for pair in "$protocol:$fresh_protocol" "$phone_registry:$fresh_phone_registry" "$integration_registry:$fresh_integration_registry" "$harness_registry:$fresh_harness_registry"; do
+for pair in "$protocol:$fresh_protocol" "$phone_registry:$fresh_phone_registry" "$integration_registry:$fresh_integration_registry" "$device_definitions:$fresh_device_definitions" "$harness_registry:$fresh_harness_registry"; do
 	committed=${pair%%:*}
 	fresh_file=${pair#*:}
 	if ! diff -q "$committed" "$fresh_file" >&2; then
@@ -39,7 +42,7 @@ done
 # Fresh regeneration must match.
 fixtures=tests/fixtures/wire/kotlin
 fresh=$(mktemp -d)
-trap 'rm -rf "$fresh" "$fresh_protocol" "$fresh_phone_registry" "$fresh_integration_registry" "$fresh_harness_registry"' EXIT
+trap 'rm -rf "$fresh" "$fresh_protocol" "$fresh_phone_registry" "$fresh_integration_registry" "$fresh_device_definitions" "$fresh_harness_registry"' EXIT
 (cd android && ./gradlew :app:generateWireFixtures -PwireFixturesOut="$fresh" --console=plain) || exit 1
 if ! diff -r "$fixtures" "$fresh" >&2; then
 	echo "kotlin-gate: $fixtures drifted; run ./gradlew :app:generateWireFixtures from android/ and commit" >&2

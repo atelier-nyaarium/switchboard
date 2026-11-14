@@ -13,7 +13,7 @@ import com.atelier_nyaarium.switchboard.assistantSetupLine
 internal enum class PermissionDoor { REQUEST, APP_SETTINGS, LISTENER_SETTINGS }
 
 /** Row destinations. */
-internal enum class PhoneSettingDoor { PICKER, NOTIFICATIONS, NOTIFICATION_PAGE, LOCATION, LOCATION_SETTINGS, APP_SETTINGS }
+internal enum class PhoneSettingDoor { PICKER, NOTIFICATIONS, NOTIFICATION_PAGE, LOCATION, LOCATION_SETTINGS, NEARBY, APP_SETTINGS }
 
 internal data class PhoneSettingFacts(
 	val roleHeld: Boolean,
@@ -21,6 +21,7 @@ internal data class PhoneSettingFacts(
 	val screenData: Boolean,
 	val notifications: Boolean,
 	val location: PhoneLocation,
+	val nearby: Boolean,
 ) {
 	val assistantOn: Boolean get() = roleHeld && sessionAdopted
 }
@@ -51,6 +52,8 @@ private const val NOTIFICATIONS_NEED = "notifications"
 
 internal const val LOCATION_NEED = "location"
 
+internal const val NEARBY_NEED = "nearby_devices"
+
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -61,6 +64,7 @@ internal fun manifestPermissionOf(need: String): String? = when (need) {
 	"call_phone" -> Manifest.permission.CALL_PHONE
 	NOTIFICATIONS_NEED -> Manifest.permission.POST_NOTIFICATIONS
 	LOCATION_NEED -> PRECISE_LOCATION
+	NEARBY_NEED -> Manifest.permission.BLUETOOTH_SCAN
 	"notification_access" -> null
 	else -> null
 }
@@ -78,6 +82,7 @@ internal fun needLabel(need: String): String = when (need) {
 	"call_phone" -> "Phone calls"
 	NOTIFICATIONS_NEED -> "Notifications"
 	"notification_access" -> "Notification access"
+	NEARBY_NEED -> "Nearby devices"
 	else -> need
 }
 
@@ -104,6 +109,12 @@ internal fun phoneSettingRows(facts: PhoneSettingFacts): List<PhoneSettingRow> =
 			PhoneLocation.OFF -> PhoneSettingDoor.LOCATION_SETTINGS
 			PhoneLocation.ON -> PhoneSettingDoor.APP_SETTINGS
 		},
+	),
+	PhoneSettingRow(
+		"Nearby devices",
+		facts.nearby,
+		"Not granted",
+		if (facts.nearby) PhoneSettingDoor.APP_SETTINGS else PhoneSettingDoor.NEARBY,
 	),
 )
 

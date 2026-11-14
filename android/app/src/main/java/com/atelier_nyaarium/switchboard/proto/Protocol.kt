@@ -221,6 +221,7 @@ object Protocol {
 			const val ASSISTANT_OTHERWISE_PUT: String = "assistant_otherwise_put"
 			const val ASSISTANT_RULES_PREVIEW: String = "assistant_rules_preview"
 			const val ASSISTANT_SAFETY: String = "assistant_safety"
+			const val ASSISTANT_TEMPERATURE_UNIT: String = "assistant_temperature_unit"
 			const val ASSISTANT_WATCHER_ENABLED: String = "assistant_watcher_enabled"
 			const val ASSISTANT_WATCHER_CHECK: String = "assistant_watcher_check"
 			const val ASSISTANT_SEND_ANSWER: String = "assistant_send_answer"
@@ -290,6 +291,11 @@ object Protocol {
 		object DeviceDriver {
 			const val KASA: String = "kasa"
 			const val GOVEE: String = "govee"
+		}
+
+		object DeviceRadio {
+			const val GATEWAY: String = "gateway"
+			const val PHONES: String = "phones"
 		}
 
 		object DeviceState {
@@ -1246,6 +1252,12 @@ sealed class ConsoleOp {
 	) : ConsoleOp()
 
 	@Serializable
+	@SerialName("assistant_temperature_unit")
+	data class AssistantTemperatureUnit(
+		val temperatureUnit: String,
+	) : ConsoleOp()
+
+	@Serializable
 	@SerialName("assistant_watcher_enabled")
 	data class AssistantWatcherEnabled(
 		val watcherId: String,
@@ -1836,10 +1848,12 @@ sealed class ConsoleDeviceReadResult {
 	@Serializable
 	@SerialName("sensor")
 	data class Sensor(
+		val model: String? = null,
 		val readings: List<DeviceReading>,
 		val heardAt: Long? = null,
 		val stale: String? = null,
 		val thresholds: List<DeviceSensorThreshold>? = null,
+		val payloads: List<DeviceSensorPayload>? = null,
 	) : ConsoleDeviceReadResult()
 
 	@Serializable
@@ -2078,6 +2092,7 @@ data class ConsoleAssistantStateResult(
 	val team: String? = null,
 	val watchers: List<AssistantWatcher>,
 	val approveEverySend: Boolean? = null,
+	val temperatureUnit: String? = null,
 	val checkIns: Boolean? = null,
 	val integrations: List<AssistantIntegration>? = null,
 	val offered: List<String>? = null,
@@ -2094,6 +2109,7 @@ data class AssistantHomeCarriedWatcher(
 @Serializable
 data class AssistantHomeCarried(
 	val approveEverySend: Boolean,
+	val temperatureUnit: String? = null,
 	val watchers: List<AssistantHomeCarriedWatcher>,
 	val integrations: List<AssistantHomeCarriedIntegration>? = null,
 )
@@ -4116,6 +4132,7 @@ data class CrossDomainShareEntry(
 data class DeviceReading(
 	val spec: AssistantFieldSpec,
 	val value: JsonElement? = null,
+	val alerts: List<String>? = null,
 	val low: DeviceExtreme? = null,
 	val high: DeviceExtreme? = null,
 )
@@ -4134,6 +4151,15 @@ data class DeviceSensorThreshold(
 	val deadZone: Double,
 	val coolDownSec: Long,
 	val revision: Long,
+)
+
+@Serializable
+data class DeviceSensorPayload(
+	val name: String? = null,
+	val data: JsonObject,
+	val services: List<String>,
+	val at: Long,
+	val radio: String,
 )
 
 @Serializable

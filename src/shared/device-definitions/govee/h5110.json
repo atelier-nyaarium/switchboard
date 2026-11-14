@@ -14,6 +14,7 @@
 	"readings": [
 		{
 			"key": "temperature",
+			"alerts": ["low", "high"],
 			"spec": { "kind": "number", "field": "temperature", "label": "Temperature", "unit": "C", "decimals": 1 },
 			"nodes": [
 				{ "kind": "field", "ref": { "source": "input", "key": "adv" } },
@@ -45,6 +46,7 @@
 		},
 		{
 			"key": "humidity",
+			"alerts": ["low"],
 			"spec": { "kind": "number", "field": "humidity", "label": "Humidity", "unit": "%", "decimals": 1 },
 			"nodes": [
 				{ "kind": "field", "ref": { "source": "input", "key": "adv" } },
@@ -69,6 +71,7 @@
 		},
 		{
 			"key": "battery",
+			"alerts": ["low"],
 			"spec": { "kind": "number", "field": "battery", "label": "Battery", "unit": "%", "decimals": 0 },
 			"nodes": [
 				{ "kind": "field", "ref": { "source": "input", "key": "adv" } },

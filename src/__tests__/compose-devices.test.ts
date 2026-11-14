@@ -272,6 +272,7 @@ describe("Gateway device stage", () => {
 			kind: "sensor",
 			readings: [{ spec: temperature, value: -18.2 }],
 			heardAt: 900,
+			payloads: [],
 		});
 		expect(await stage.console({ kind: "device_set", id: FREEZER, verb: "on" })).toMatchObject(
 			refused("not_supported"),
@@ -326,6 +327,26 @@ describe("Gateway device stage", () => {
 		expect(await stage.console({ kind: "device_add", mac: LAMP, name: "Lamp" })).toMatchObject(refused("invalid"));
 		expect(traffic).toEqual([]);
 		await stage.close();
+	});
+
+	it("leaves a nameless sensor raw-only", async () => {
+		const mac = "ce:1c:44:06:3c:5d";
+		const advert = { data: { "1": "010103bac864" }, services: ["ec88"] };
+		const stage = composeDevices({
+			dataDir: fs.mkdtempSync(path.join(os.tmpdir(), "compose-devices-")),
+			ambient: fakeAmbient({ now: () => 1_000 }),
+			deviceStore: memoryDeviceStore(),
+			transport: { request: async () => undefined as never },
+			relayToHost: async () => ({ ok: false, errorKind: "unavailable" }) as never,
+			sightings: (id) => (id === mac ? advert : null),
+		});
+		try {
+			const answer = await stage.console({ kind: "device_add", mac, name: "Freezer", radio: "gateway" });
+			expect(answer).toMatchObject({ kind: "ok", record: { id: mac, kind: "sensor", driver: "govee" } });
+			expect(answer).not.toHaveProperty("record.definition");
+		} finally {
+			await stage.close();
+		}
 	});
 
 	it("answers the host's radio on device_list after a scan, and refuses a gateway-radio sensor without one", async () => {

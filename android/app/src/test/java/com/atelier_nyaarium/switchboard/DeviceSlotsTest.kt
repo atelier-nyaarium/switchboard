@@ -32,13 +32,13 @@ private val secondSettings = firstSettings.copy(led = false)
 class DeviceSlotsTest {
 	@Test
 	fun `distinct slots leave another owned part unchanged`() {
-		val firstPlug = Plug(
+		val firstPlug = HeldDevice(
 			incarnation = 1L,
 			live = DeviceLive("on"),
 			schedule = ScheduleHeld(firstSchedule, ScheduleEdit(firstSchedule, scheduleDraftOf(firstSchedule))),
 			settings = SettingsHeld(firstSettings, 1L),
 		)
-		val secondPlug = Plug(
+		val secondPlug = HeldDevice(
 			incarnation = 2L,
 			live = DeviceLive("off"),
 			schedule = ScheduleHeld(secondSchedule),
@@ -48,19 +48,19 @@ class DeviceSlotsTest {
 			DevicesView(),
 			DevicesView(
 				list = DeviceListView.Listed(listOf(firstRecord), 1L),
-				plugs = mapOf(firstRecord.id to firstPlug),
+				devices = mapOf(firstRecord.id to firstPlug),
 				work = mapOf(firstRecord.id to Work(true, "held")),
 				minted = 1L,
 			),
 			DevicesView(
 				list = DeviceListView.Listed(listOf(firstRecord, secondRecord), 2L),
-				plugs = mapOf(firstRecord.id to firstPlug, secondRecord.id to secondPlug),
+				devices = mapOf(firstRecord.id to firstPlug, secondRecord.id to secondPlug),
 				work = mapOf("candidate" to Work(true, "waiting")),
 				minted = 2L,
 			),
 			DevicesView(
 				list = DeviceListView.Listed(listOf(secondRecord), 3L),
-				plugs = mapOf(secondRecord.id to secondPlug),
+				devices = mapOf(secondRecord.id to secondPlug),
 				work = mapOf("candidate" to Work(true)),
 				minted = 2L,
 			),
@@ -93,24 +93,24 @@ class DeviceSlotsTest {
 	}
 
 	@Test
-	fun `listing keeps drops and remints plugs`() {
+	fun `listing keeps drops and remints devices`() {
 		val first = DeviceSlot.Listing.write(DevicesView(), DeviceListView.Listed(listOf(firstRecord), 1L))
-		val heldPlug = first.plugs.getValue(firstRecord.id)
+		val heldPlug = first.devices.getValue(firstRecord.id)
 		val kept = DeviceSlot.Listing.write(first, DeviceListView.Listed(listOf(firstRecord), 2L))
-		assertSame(heldPlug, kept.plugs[firstRecord.id])
+		assertSame(heldPlug, kept.devices[firstRecord.id])
 
 		val dropped = DeviceSlot.Listing.write(kept, DeviceListView.Listed(emptyList(), 3L))
-		assertNull(dropped.plugs[firstRecord.id])
+		assertNull(dropped.devices[firstRecord.id])
 		val readded = DeviceSlot.Listing.write(dropped, DeviceListView.Listed(listOf(firstRecord), 4L))
-		assertNotNull(readded.plugs[firstRecord.id])
-		assertTrue(readded.plugs.getValue(firstRecord.id).incarnation > heldPlug.incarnation)
+		assertNotNull(readded.devices[firstRecord.id])
+		assertTrue(readded.devices.getValue(firstRecord.id).incarnation > heldPlug.incarnation)
 		val unavailable = DeviceSlot.Listing.write(readded, DeviceListView.Unavailable("offline"))
 		val loading = DeviceSlot.Listing.write(readded, DeviceListView.Loading)
-		assertSame(readded.plugs, unavailable.plugs)
-		assertSame(readded.plugs, loading.plugs)
+		assertSame(readded.devices, unavailable.devices)
+		assertSame(readded.devices, loading.devices)
 
 		val scanned = DeviceSlot.Scan.write(readded, ScanView.Found(emptyList()))
-		assertSame(readded.plugs, scanned.plugs)
+		assertSame(readded.devices, scanned.devices)
 	}
 
 	private interface SlotChange {

@@ -529,6 +529,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		dataDir: bootstrap.dataDir,
 		ambient: bootstrap.ambient,
 		relayToHost: host.relayToHost,
+		temperatureUnit: assistant.temperatureUnit,
 		...(deps.kasaTransport === undefined ? {} : { transport: deps.kasaTransport }),
 		onChanged: () => {
 			host.pushDeviceWatch();

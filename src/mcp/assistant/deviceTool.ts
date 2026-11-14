@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { toDisplay, UNIT_DISPLAYS } from "../../shared/field-types.js";
+import { formatFieldValue } from "../../shared/field-values.js";
 import { ACTION_FRONT_ROUTES, type ActionRunResult, ActionRunResultSchema } from "../../shared/schemasActionFront.js";
 import {
 	DEVICE_TOOL,
@@ -14,6 +16,50 @@ import { phoneText, type ToolText, text } from "./actionFront.js";
 export function deviceText(op: DeviceToolOp, result: ActionRunResult): ToolText {
 	const answer = result.kind === "ok" ? DEVICE_TOOL_RESULTS[op.kind].safeParse(result.answer).data : undefined;
 	const failed = result.kind !== "ok" || answer === undefined || answer.kind === "refused";
+	if (answer?.kind === "sensor") {
+		const display = answer.temperatureUnit ?? "C";
+		const { temperatureUnit: _temperatureUnit, ...sensor } = answer;
+		const readings = sensor.readings.map((reading) => {
+			const shownUnit =
+				reading.spec.kind === "number" && reading.spec.unit
+					? toDisplay(0, reading.spec.unit, display).unit
+					: undefined;
+			const spec =
+				reading.spec.kind === "number" && shownUnit !== undefined && shownUnit !== reading.spec.unit
+					? { ...reading.spec, unit: shownUnit }
+					: reading.spec;
+			return {
+				...reading,
+				spec,
+				...(reading.value === undefined
+					? {}
+					: { value: formatFieldValue(reading.spec, reading.value, display) }),
+				...(reading.low
+					? { low: { ...reading.low, value: formatFieldValue(reading.spec, reading.low.value, display) } }
+					: {}),
+				...(reading.high
+					? { high: { ...reading.high, value: formatFieldValue(reading.spec, reading.high.value, display) } }
+					: {}),
+			};
+		});
+		const thresholds = sensor.thresholds?.map((threshold) => {
+			const reading = sensor.readings.find((item) => item.spec.field === threshold.measure);
+			if (reading?.spec.kind !== "number" || !reading.spec.unit) return threshold;
+			const unit = reading.spec.unit;
+			const conversion = UNIT_DISPLAYS.find((row) => row.unit === unit && row.display === display);
+			if (!conversion) return threshold;
+			return {
+				...threshold,
+				...(threshold.low === undefined ? {} : { low: toDisplay(threshold.low, unit, display).value }),
+				...(threshold.high === undefined ? {} : { high: toDisplay(threshold.high, unit, display).value }),
+				deadZone: threshold.deadZone * conversion.scale,
+			};
+		});
+		return text(
+			phoneText(result, { ...sensor, readings, ...(thresholds === undefined ? {} : { thresholds }) }),
+			failed,
+		);
+	}
 	return text(phoneText(result, answer), failed);
 }
 

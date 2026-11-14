@@ -17,8 +17,9 @@ describe("the device road is the only way to a store or a driver", () => {
 		const websocket = fs.readFileSync(path.join(REPO_ROOT, "src/gateway/websocket.ts"), "utf8");
 		const gateway = fs.readFileSync(path.join(REPO_ROOT, "src/gateway/composeGateway.ts"), "utf8");
 
-		expect(devices).toMatch(/const ingest = .*road\.ingest\(mac, advert, at\)/s);
-		expect(devices).toMatch(/device_reading_post: .*ingest\(op\.id, op\.advert, op\.at\)/s);
+		expect(devices).toMatch(/const ingest = .*road\.ingest\(mac, advert, at, radio\)/s);
+		expect(devices).toMatch(/ingestGatewayAdvert = .*ingest\(mac, advert, at, "gateway"\)/s);
+		expect(devices).toMatch(/device_reading_post: .*ingest\(op\.id, op\.advert, op\.at, "phones"\)/s);
 		expect(devices).not.toMatch(/createReadingsHold|readingsHold/);
 		expect(sockets).toMatch(/ingestDeviceAdvertFromCurrentHost/);
 		expect(websocket).toMatch(/DeviceAdvertFrameSchema\.safeParse/);

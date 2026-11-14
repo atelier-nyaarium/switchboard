@@ -13,7 +13,7 @@ import type {
 import type { SignedXDomainLink } from "../../shared/federation-protocol.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import type { LaunchFailure } from "../../shared/launch-notice.js";
-import type { ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
+import type { ConsoleAssistantStateResult, TemperatureUnit } from "../../shared/schemasAssistant.js";
 import type {
 	AssistantRule,
 	AssistantRuleOtherwise,
@@ -177,6 +177,7 @@ export interface AssistantConsoleHandlers {
 	putOtherwise: (watcherId: string, otherwise: AssistantRuleOtherwise) => Promise<ConsoleAssistantRulesResult>;
 	previewRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantPreviewResult>;
 	setSafety: (approveEverySend: boolean) => Promise<ConsoleAssistantStateResult>;
+	setTemperatureUnit: (temperatureUnit: TemperatureUnit) => Promise<ConsoleAssistantStateResult>;
 	setWatcherEnabled: (watcherId: string, enabled: boolean) => Promise<ConsoleAssistantStateResult>;
 	/** Bounded by the send wait. */
 	checkWatcher: (watcherId: string, from: string, opId: string) => Promise<ConsoleAssistantStateResult>;

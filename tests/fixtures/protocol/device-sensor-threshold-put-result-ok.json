@@ -1,0 +1,11 @@
+{
+	"kind": "ok",
+	"threshold": {
+		"measure": "temperature",
+		"low": -10,
+		"high": 30,
+		"deadZone": 1,
+		"coolDownSec": 60,
+		"revision": 1
+	}
+}

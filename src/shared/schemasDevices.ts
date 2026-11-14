@@ -32,6 +32,7 @@ export const DEVICE_REFUSAL_CODES = [
 export const DEVICE_EFFECTS = ["none", "unknown"] as const;
 export const DEVICE_MAX_RULES = 32;
 export const DEVICE_MAX_RECORDS = 64;
+export const DEVICE_SENSOR_PAYLOADS_MAX = 4;
 
 export const DeviceKindSchema = z.enum(DEVICE_KINDS).meta({ id: "DeviceKind" });
 export const DeviceRadioSchema = z.enum(DEVICE_RADIOS).meta({ id: "DeviceRadio" });
@@ -40,6 +41,8 @@ export const DeviceStateSchema = z.enum(DEVICE_STATES).meta({ id: "DeviceState" 
 export const DeviceScheduleActionSchema = z.enum(DEVICE_ACTIONS).meta({ id: "DeviceScheduleAction" });
 export const DeviceVerbSchema = z.enum(DEVICE_VERBS).meta({ id: "DeviceVerb" });
 export const DeviceCloudStateSchema = z.enum(DEVICE_CLOUD_STATES).meta({ id: "DeviceCloudState" });
+
+export type DeviceRadio = z.infer<typeof DeviceRadioSchema>;
 
 export function normalizeDeviceMac(value: string): string | null {
 	const compact = /^[0-9a-f]{12}$/i.test(value)
@@ -212,6 +215,11 @@ export const DeviceNearbySchema = z
 	})
 	.meta({ id: "DeviceNearby" });
 
+export const DeviceSensorPayloadSchema = DeviceAdvertSchema.extend({
+	at: z.number().int().nonnegative(),
+	radio: DeviceRadioSchema,
+}).meta({ id: "DeviceSensorPayload" });
+
 export const DeviceExtremeSchema = z
 	.object({ value: z.number(), at: z.number().int().nonnegative() })
 	.meta({ id: "DeviceExtreme" });
@@ -220,6 +228,10 @@ export const DeviceReadingSchema = z
 	.object({
 		spec: AssistantFieldSpecSchema,
 		value: z.union([z.number(), z.string()]).optional(),
+		alerts: z
+			.array(z.enum(["low", "high"]))
+			.max(2)
+			.optional(),
 		low: DeviceExtremeSchema.optional(),
 		high: DeviceExtremeSchema.optional(),
 	})
@@ -368,12 +380,15 @@ export const ConsoleDeviceReadResultSchema = z
 		}),
 		z.object({
 			kind: z.literal("sensor"),
+			model: z.string().min(1).max(32).optional(),
 			readings: z.array(DeviceReadingSchema).max(16),
 			/** Newest capture. */
 			heardAt: z.number().int().nonnegative().optional(),
 			/** Why not current. */
 			stale: z.string().max(200).optional(),
 			thresholds: z.array(DeviceSensorThresholdSchema).max(16).optional(),
+			// Required starting 2026-11-28.
+			payloads: z.array(DeviceSensorPayloadSchema).max(DEVICE_SENSOR_PAYLOADS_MAX).optional(),
 		}),
 		RefusedAnswerSchema,
 	])

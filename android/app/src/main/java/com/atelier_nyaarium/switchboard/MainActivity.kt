@@ -93,6 +93,8 @@ class MainActivity : FragmentActivity() {
 	override fun onResume() {
 		super.onResume()
 		retryDismissal()
+		// Recheck after Settings.
+		Repo.get(this).phoneRadio.resumed()
 	}
 
 	override fun onDestroy() {

@@ -20,6 +20,7 @@ import {
 	type AssistantWatcher,
 	type ConsoleAssistantStateResult,
 	INTEGRATION_IDS,
+	type TemperatureUnit,
 } from "../../shared/schemasAssistant.js";
 import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../../shared/schemasAssistantHome.js";
@@ -33,12 +34,7 @@ import {
 	ruleMatches,
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
-import {
-	IFTTT_INTEGRATION_ID,
-	INTEGRATION_KEYS,
-	INTEGRATIONS,
-	integrationLabel,
-} from "../../shared/schemasIntegrations.js";
+import { IFTTT_INTEGRATION_ID, INTEGRATION_KEYS, integrationLabel } from "../../shared/schemasIntegrations.js";
 import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilities.js";
 import type { PhoneHoldPlane } from "../../shared/schemasPhoneHold.js";
 import { type BaselineHold, holdLine, type SessionBaseline } from "../../shared/session-baseline.js";
@@ -62,6 +58,7 @@ import { createOriginMarker, createSafetyStore, createSendGuard } from "../assis
 import { SensorsClear } from "../assistant/sensorsClear.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
 import { createStatusMemo } from "../assistant/statusMemo.js";
+import { createTemperatureUnitStore } from "../assistant/temperatureUnit.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
 import type { WatcherActions } from "../assistant/watcherAction.js";
@@ -143,6 +140,7 @@ export interface AssistantStageDeps {
 }
 
 export interface AssistantStage {
+	temperatureUnit: () => TemperatureUnit;
 	/** Identifies sweep-exempt sessions. */
 	reserves: (team: string) => boolean;
 	/** Check-ins use this session. */
@@ -375,6 +373,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		return found;
 	};
 	const safety = openDurable(deps.dataDir, "assistant-safety", (store) => createSafetyStore(store));
+	const temperature = openDurable(deps.dataDir, "assistant-temperature-unit", (store) =>
+		createTemperatureUnitStore(store),
+	);
 	const phoneHold = createHoldFollow(() => ambient.now());
 	// Preboot rows cannot establish owner activity.
 	const marker = createOriginMarker(deps.lastDeliverySeq() + 1);
@@ -603,9 +604,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				label: integrationLabel(id),
 				grants: deps.vault.watcherGrants(id),
 			})),
-			// No Add flow for listen.
-			offered: INTEGRATION_KEYS.filter((key) => INTEGRATIONS[key].discovery !== "listen"),
+			offered: INTEGRATION_KEYS,
 			approveEverySend: safety.approveEverySend(),
+			temperatureUnit: temperature.temperatureUnit(),
 			checkIns: true,
 		};
 	};
@@ -645,6 +646,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if (!rules.replaceAll(ids, (watcherId) => byId.get(watcherId)?.rules ?? null))
 			return "the rules could not be saved";
 		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
+		if (!temperature.set(carried?.temperatureUnit ?? "C")) return "the temperature unit could not be saved";
 		// Fresh is off; unflagged carried is on.
 		const off = watchers.filter((watcher) => {
 			const moved = byId.get(watcher.id);
@@ -712,6 +714,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	});
 
 	return {
+		temperatureUnit: temperature.temperatureUnit,
 		reserves: isAssistant,
 		placed: () => held() !== undefined && home.allowsLanes(),
 		follow: homeFollow.follow,
@@ -778,6 +781,11 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			setSafety: (approveEverySend) =>
 				settled(() => {
 					if (!safety.set(approveEverySend)) throw new Error("the setting could not be saved");
+					return state();
+				}),
+			setTemperatureUnit: (temperatureUnit) =>
+				settled(() => {
+					if (!temperature.set(temperatureUnit)) throw new Error("the setting could not be saved");
 					return state();
 				}),
 			// No await: `switched` voids a poll in flight before it can commit.

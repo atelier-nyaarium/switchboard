@@ -13,6 +13,7 @@ import {
 	CONSOLE_PROTOCOL_VERSION,
 	CREATE_SESSION_BOUND_MS,
 } from "../src/shared/console-protocol.js";
+import { SHIPPED_DEFINITIONS } from "../src/shared/device-definitions/index.js";
 import {
 	ConsoleApprovalOpSchema,
 	ConsoleApprovalResultSchema,
@@ -188,6 +189,7 @@ import {
 	DEVICE_EFFECTS,
 	DEVICE_KINDS,
 	DEVICE_MAX_RULES,
+	DEVICE_RADIOS,
 	DEVICE_REFUSAL_CODES,
 	DEVICE_STATES,
 	DEVICE_VERBS,
@@ -417,6 +419,9 @@ const INTEGRATION_REGISTRY_OUT_PATH =
 const HARNESS_REGISTRY_OUT_PATH =
 	process.env.KOTLIN_HARNESS_REGISTRY_OUT ??
 	join(import.meta.dir, "../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/HarnessRegistry.kt");
+const DEVICE_DEFINITIONS_OUT_PATH =
+	process.env.KOTLIN_DEVICE_DEFINITIONS_OUT ??
+	join(import.meta.dir, "../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/DeviceDefinitions.kt");
 
 const ROOTS: z.ZodType[] = [
 	RowRecipientSchema,
@@ -1429,6 +1434,45 @@ ${INDENT})
 `;
 }
 
+function emitDeviceDefinitions(): string {
+	const entries = SHIPPED_DEFINITIONS.map((definition) => {
+		const sources = definition.match.sources
+			.map(
+				(source) =>
+					`DeviceDefinitionMatchSource(${source.company}, ${kotlinString(source.prefix)}, ${source.minLength})`,
+			)
+			.join(", ");
+		return [
+			`${INDENT}${INDENT}DeviceDefinitionMatch(`,
+			`${INDENT}${INDENT}${INDENT}key = ${kotlinString(definition.key)},`,
+			`${INDENT}${INDENT}${INDENT}family = ${kotlinString(definition.family)},`,
+			`${INDENT}${INDENT}${INDENT}models = listOf(${definition.models.map(kotlinString).join(", ")}),`,
+			`${INDENT}${INDENT}${INDENT}namePrefix = ${definition.match.namePrefix === undefined ? "null" : kotlinString(definition.match.namePrefix)},`,
+			`${INDENT}${INDENT}${INDENT}sources = listOf(${sources}),`,
+			`${INDENT}${INDENT}),`,
+		].join("\n");
+	}).join("\n");
+	return `${GENERATED_HEADER}
+
+package com.atelier_nyaarium.switchboard.proto
+
+internal data class DeviceDefinitionMatchSource(val company: Int, val prefix: String, val minLength: Int)
+
+internal data class DeviceDefinitionMatch(
+${INDENT}val key: String,
+${INDENT}val family: String,
+${INDENT}val models: List<String>,
+${INDENT}val namePrefix: String?,
+${INDENT}val sources: List<DeviceDefinitionMatchSource>,
+)
+
+internal val SHIPPED_DEVICE_DEFINITION_MATCHES: List<DeviceDefinitionMatch> =
+${INDENT}listOf(
+${entries}
+${INDENT})
+`;
+}
+
 function emitHarnessRegistry(): string {
 	const spawnsId = idOf(HarnessSpawnsSchema);
 	const spawnsProps = (defs.get(spawnsId)?.properties ?? {}) as Record<string, Json>;
@@ -1629,6 +1673,8 @@ ${schemaConstantBlock("DeviceKind", [...DEVICE_KINDS])}
 
 ${schemaConstantBlock("DeviceDriver", [...DEVICE_DRIVERS])}
 
+${schemaConstantBlock("DeviceRadio", [...DEVICE_RADIOS])}
+
 ${schemaConstantBlock("DeviceState", [...DEVICE_STATES])}
 
 ${schemaConstantBlock("DeviceScheduleAction", [...DEVICE_ACTIONS])}
@@ -1712,6 +1758,7 @@ function emitFieldTypeTable(): string {
 const output = `${[header, ...blocks, emitFieldTypeTable()].join("\n\n")}\n`;
 const phoneCapabilityRegistryOutput = emitPhoneCapabilityRegistry();
 const integrationRegistryOutput = emitIntegrationRegistry();
+const deviceDefinitionsOutput = emitDeviceDefinitions();
 const harnessRegistryOutput = emitHarnessRegistry();
 
 mkdirSync(dirname(OUT_PATH), { recursive: true });
@@ -1720,9 +1767,12 @@ mkdirSync(dirname(PHONE_CAPABILITY_REGISTRY_OUT_PATH), { recursive: true });
 writeFileSync(PHONE_CAPABILITY_REGISTRY_OUT_PATH, phoneCapabilityRegistryOutput);
 mkdirSync(dirname(INTEGRATION_REGISTRY_OUT_PATH), { recursive: true });
 writeFileSync(INTEGRATION_REGISTRY_OUT_PATH, integrationRegistryOutput);
+mkdirSync(dirname(DEVICE_DEFINITIONS_OUT_PATH), { recursive: true });
+writeFileSync(DEVICE_DEFINITIONS_OUT_PATH, deviceDefinitionsOutput);
 mkdirSync(dirname(HARNESS_REGISTRY_OUT_PATH), { recursive: true });
 writeFileSync(HARNESS_REGISTRY_OUT_PATH, harnessRegistryOutput);
 console.log(`Wrote ${OUT_PATH} (${blocks.length} types + constants).`);
 console.log(`Wrote ${PHONE_CAPABILITY_REGISTRY_OUT_PATH} (phone capability registry).`);
 console.log(`Wrote ${INTEGRATION_REGISTRY_OUT_PATH} (integration registry).`);
+console.log(`Wrote ${DEVICE_DEFINITIONS_OUT_PATH} (shipped definition matchers).`);
 console.log(`Wrote ${HARNESS_REGISTRY_OUT_PATH} (harness registry).`);

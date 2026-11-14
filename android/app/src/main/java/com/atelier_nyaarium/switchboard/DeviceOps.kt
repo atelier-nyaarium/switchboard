@@ -10,6 +10,10 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSettingPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
 import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceRefusal
@@ -44,6 +48,19 @@ internal interface DeviceGateway {
 	suspend fun homeNetwork(gatewayId: String): DeviceAnswer<ConsoleDeviceHomeNetworkResult>
 
 	suspend fun add(gatewayId: String, mac: String, address: String, name: String): DeviceAnswer<ConsoleDeviceAddResult>
+
+	suspend fun addSensor(
+		gatewayId: String,
+		mac: String,
+		name: String,
+		radio: String,
+		definition: String?,
+		advert: DeviceAdvert?,
+	): DeviceAnswer<ConsoleDeviceAddResult>
+
+	suspend fun postReading(gatewayId: String, id: String, advert: DeviceAdvert, at: Long): DeviceAnswer<ConsoleDeviceReadingPostResult>
+
+	suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut): DeviceAnswer<ConsoleDeviceSensorThresholdPutResult>
 
 	suspend fun rename(gatewayId: String, id: String, name: String, revision: Long): DeviceAnswer<ConsoleDeviceRenameResult>
 
@@ -91,10 +108,10 @@ internal fun refusalLine(refusal: DeviceRefusal): String {
 		code.NOT_FOUND -> "No longer paired"
 		code.STALE -> "Changed elsewhere"
 		code.EXISTS -> "Already paired"
-		code.FULL -> "Plug limit reached"
+		code.FULL -> "Device limit reached"
 		code.INVALID -> refusal.detail ?: "Not valid"
 		code.WRONG_DEVICE -> "That address answers a different plug"
-		code.NOT_SUPPORTED -> "Not supported on this plug"
+		code.NOT_SUPPORTED -> "Not supported on this device"
 		code.TOGGLE_UNKNOWN -> "Read the plug first"
 		code.UNREACHABLE -> "The plug did not answer"
 		code.TIMEOUT -> if (unknown) "No answer in time" else "Took too long; nothing changed"
@@ -110,6 +127,13 @@ internal fun refusalLine(refusal: DeviceRefusal): String {
 	return base + landed + changed
 }
 
+internal data class SensorPairing(
+	val mac: String,
+	val radio: String,
+	val definition: String?,
+	val advert: DeviceAdvert?,
+)
+
 internal fun unpaired(found: List<DeviceCandidate>, records: List<DeviceRecord>): List<DeviceCandidate> =
 	found.filter { candidate -> records.none { it.id == candidate.mac } }
 
@@ -124,12 +148,12 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 	override suspend fun clearInMemory() = slots.clear()
 
 	fun editDraft(gatewayId: String, id: String, draft: ScheduleDraft) {
-		val held = view(gatewayId).plugs[id] ?: return
+		val held = view(gatewayId).devices[id] ?: return
 		slots.now(gatewayId, DeviceSlot.Schedule(id, held.incarnation)) { it.editDraft(draft) }
 	}
 
 	fun discardDraft(gatewayId: String, id: String) {
-		val held = view(gatewayId).plugs[id] ?: return
+		val held = view(gatewayId).devices[id] ?: return
 		slots.now(gatewayId, DeviceSlot.Schedule(id, held.incarnation)) { it.copy(edit = null) }
 	}
 
@@ -155,7 +179,13 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 	}
 
 	suspend fun read(gatewayId: String, id: String) {
-		val plug = slots.of(gatewayId)?.plugs?.get(id) ?: return
+		val plug = slots.of(gatewayId)?.devices?.get(id) ?: return
+		if ((deviceRecord(view(gatewayId), id)?.kind ?: plug.kind) == Protocol.Wire.DeviceKind.SENSOR) {
+			val ticket = slots.begin(gatewayId, DeviceSlot.Sensor(id, plug.incarnation))
+			val answer = ask(gatewayId) { it.read(gatewayId, id) }
+			if (slots.land(ticket) { it.afterRead(answer) } && answer.notFound()) relist(gatewayId)
+			return
+		}
 		val liveTicket = slots.begin(gatewayId, DeviceSlot.Live(id, plug.incarnation))
 		val scheduleTicket = slots.begin(gatewayId, DeviceSlot.Schedule(id, plug.incarnation))
 		val settingsTicket = slots.begin(gatewayId, DeviceSlot.Settings(id, plug.incarnation))
@@ -163,25 +193,26 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 		val liveLanded = slots.land(liveTicket) { it.afterRead(answer) }
 		val scheduleLanded = slots.land(scheduleTicket) { it.afterRead(answer) }
 		val settingsLanded = slots.land(settingsTicket) { it.afterRead(answer) }
-		val refusal = ((answer as? DeviceAnswer.Answered)?.value as? ConsoleDeviceReadResult.Refused)?.refusal
-		if (refusal?.code == Protocol.Wire.DeviceRefusalCode.NOT_FOUND && (liveLanded || scheduleLanded || settingsLanded)) {
-			relist(gatewayId)
-		}
+		if (answer.notFound() && (liveLanded || scheduleLanded || settingsLanded)) relist(gatewayId)
 	}
 
-	private fun <S> beginPlug(
+	private fun DeviceAnswer<ConsoleDeviceReadResult>.notFound(): Boolean =
+		((this as? DeviceAnswer.Answered)?.value as? ConsoleDeviceReadResult.Refused)?.refusal?.code ==
+			Protocol.Wire.DeviceRefusalCode.NOT_FOUND
+
+	private fun <S> beginDevice(
 		gatewayId: String,
 		id: String,
 		slot: (Long) -> DeviceSlot<S>,
 	): SlotViews.Ticket<String, DevicesView, S>? {
-		val plug = slots.of(gatewayId)?.plugs?.get(id) ?: return null
+		val plug = slots.of(gatewayId)?.devices?.get(id) ?: return null
 		return slots.begin(gatewayId, slot(plug.incarnation))
 	}
 
 	/** Flips optimistically. */
 	suspend fun set(gatewayId: String, id: String, on: Boolean) {
 		write(gatewayId, id, call = { client, _ ->
-			val liveTicket = beginPlug(gatewayId, id) { DeviceSlot.Live(id, it) }
+			val liveTicket = beginDevice(gatewayId, id) { DeviceSlot.Live(id, it) }
 				?: return@write DeviceSaved.Unanswered(GATEWAY_UNREACHABLE)
 			slots.land(liveTicket) { live ->
 				(live ?: DeviceLive(Protocol.Wire.DeviceState.UNKNOWN)).copy(pending = on)
@@ -209,7 +240,7 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 		})
 	}
 
-	/** Rereads plugs it moved. */
+	/** Rereads devices it moved. */
 	suspend fun scan(gatewayId: String) {
 		val before = (view(gatewayId).list as? DeviceListView.Listed)?.records.orEmpty().associate { it.id to it.address }
 		val ticket = slots.begin(gatewayId, DeviceSlot.Scan)
@@ -237,6 +268,37 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 				else -> relist(gatewayId)
 			}
 		}
+
+	suspend fun addSensor(gatewayId: String, pairing: SensorPairing, name: String): DeviceSaved =
+		write(gatewayId, pairing.mac, call = { client, _ ->
+			saved(
+				invoke(client) {
+					it.addSensor(gatewayId, pairing.mac, name, pairing.radio, pairing.definition, pairing.advert)
+				},
+			) { value ->
+				when (value) {
+					is ConsoleDeviceAddResult.Ok -> DeviceSaved.Stored(value.record)
+					is ConsoleDeviceAddResult.Refused -> refused(value.refusal)
+				}
+			}
+		}) { result ->
+			when (result) {
+				is DeviceSaved.Stored -> refresh(gatewayId)
+				DeviceSaved.Busy -> Unit
+				else -> relist(gatewayId)
+			}
+		}
+
+	/** Reads after threshold writes. */
+	suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut): DeviceSaved =
+		write(gatewayId, put.id, call = { client, _ ->
+			saved(invoke(client) { it.putThreshold(gatewayId, put) }) { value ->
+				when (value) {
+					is ConsoleDeviceSensorThresholdPutResult.Ok -> DeviceSaved.Stored(null)
+					is ConsoleDeviceSensorThresholdPutResult.Refused -> refused(value.refusal)
+				}
+			}
+		}) { result -> if (result != DeviceSaved.Busy) read(gatewayId, put.id) }
 
 	suspend fun rename(gatewayId: String, record: DeviceRecord, name: String): DeviceSaved =
 		write(gatewayId, record.id, call = { client, _ ->
@@ -268,7 +330,7 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 		var scheduleTicket: SlotViews.Ticket<String, DevicesView, ScheduleHeld>? = null
 		var rebase: ScheduleDraft? = null
 		return write(gatewayId, record.id, call = { client, _ ->
-			val ticket = beginPlug(gatewayId, record.id) { DeviceSlot.Schedule(record.id, it) }
+			val ticket = beginDevice(gatewayId, record.id) { DeviceSlot.Schedule(record.id, it) }
 				?: return@write DeviceSaved.Unanswered(GATEWAY_UNREACHABLE)
 			scheduleTicket = ticket
 			val editBase = view(gatewayId).editOf(record.id)?.base ?: base
@@ -297,7 +359,7 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 
 	suspend fun putSetting(gatewayId: String, record: DeviceRecord, setting: DeviceSettingPut): DeviceSaved =
 		write(gatewayId, record.id, call = { client, _ ->
-			val ticket = beginPlug(gatewayId, record.id) { DeviceSlot.Settings(record.id, it) }
+			val ticket = beginDevice(gatewayId, record.id) { DeviceSlot.Settings(record.id, it) }
 				?: return@write DeviceSaved.Unanswered(GATEWAY_UNREACHABLE)
 			saved(invoke(client) { it.settingPut(gatewayId, record.id, record.revision, setting) }) { value ->
 				when (value) {

@@ -31,6 +31,7 @@ internal fun integrationLines(home: String?, devices: DeviceListView?, services:
 	home == null -> SettingsLines(line = PLACE_FIRST)
 	devices is DeviceListView.Listed -> SettingsLines(line = integrationCountLine(devices.records, services))
 	devices is DeviceListView.Unavailable -> SettingsLines(warning = devices.line)
+	devices == DeviceListView.Declined -> SettingsLines(line = integrationCountLine(emptyList(), services))
 	else -> SettingsLines()
 }
 

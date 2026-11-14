@@ -2,8 +2,9 @@
 
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
-import { definitionOf } from "../../shared/device-definitions/index.js";
+import { type Definition, definitionOf } from "../../shared/device-definitions/index.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { checkExpression } from "../../shared/expressions.js";
 import type {
 	DeviceRecord,
 	DeviceSensorThreshold,
@@ -93,8 +94,19 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 			{ label: "sensor thresholds" },
 		).landed;
 
-	const entryOf = (device: string, measure: string) =>
+	const storedEntryOf = (device: string, measure: string) =>
 		snapshot.thresholds.find((entry) => entry.device === device && entry.measure === measure);
+
+	const entryOf = (record: DeviceRecord, reading: Definition["readings"][number]) => {
+		const entry = storedEntryOf(record.id, reading.key);
+		if (!entry) return undefined;
+		const { low, high, ...rest } = entry;
+		return {
+			...rest,
+			...(low !== undefined && reading.alerts?.includes("low") ? { low } : {}),
+			...(high !== undefined && reading.alerts?.includes("high") ? { high } : {}),
+		};
+	};
 
 	const heldRows = (device: string) => {
 		const prefix = rowPrefix(device);
@@ -109,7 +121,7 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 		const automations = new Map<string, unknown>();
 		if (!record) return { fields, automations };
 		for (const reading of numericReadings(record)) {
-			const entry = entryOf(record.id, reading.key);
+			const entry = entryOf(record, reading);
 			if (!entry || !banded(entry)) continue;
 			const threshold: Threshold = {
 				device: record.id,
@@ -159,7 +171,7 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 
 	const read = (record: DeviceRecord): ThresholdView[] =>
 		numericReadings(record).flatMap((reading) => {
-			const entry = entryOf(record.id, reading.key);
+			const entry = entryOf(record, reading);
 			return entry && banded(entry) ? [viewOf(entry)] : [];
 		});
 
@@ -178,21 +190,46 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 	const put = (record: DeviceRecord, op: PutRequest): SensorThresholdPutAnswer => {
 		if (record.kind !== "sensor") return { kind: "refused", code: "not_supported" };
 		if (!record.definition) return { kind: "refused", code: "not_supported", text: "the sensor has no definition" };
-		if (!numericReadings(record).some((reading) => reading.key === op.measure))
+		const reading = numericReadings(record).find((entry) => entry.key === op.measure);
+		if (!reading)
 			return { kind: "refused", code: "invalid", text: "the definition does not read this numeric measure" };
-		const held = entryOf(record.id, op.measure);
+		if (
+			(op.low !== undefined && !reading.alerts?.includes("low")) ||
+			(op.high !== undefined && !reading.alerts?.includes("high"))
+		)
+			return { kind: "refused", code: "invalid", text: "the definition does not offer that alert side" };
+		const stored = storedEntryOf(record.id, op.measure);
+		const held = entryOf(record, reading);
+		const hidden =
+			stored !== undefined &&
+			held !== undefined &&
+			canonicalJson(contentOf(stored)) !== canonicalJson(contentOf(held));
 		const content = contentOf(op);
 		const clearing = content.low === undefined && content.high === undefined;
 		if (held && banded(held)) {
 			const echoes = op.revision === held.revision || op.revision === held.revision - 1 || op.revision === 0;
-			if (echoes && canonicalJson(contentOf(held)) === canonicalJson(content))
+			if (echoes && stored && canonicalJson(contentOf(stored)) === canonicalJson(content))
 				return { kind: "ok", threshold: viewOf(held) };
 			if (op.revision !== held.revision) return { kind: "refused", code: "stale" };
 		} else {
-			if (clearing) return { kind: "ok", threshold: null };
+			if (clearing && !hidden) return { kind: "ok", threshold: null };
 			if (op.revision !== 0 && op.revision !== held?.revision) return { kind: "refused", code: "stale" };
 		}
 		if (!clearing) {
+			const band = checkExpression(
+				[
+					{ kind: "unknown", reason: "sensor threshold input" },
+					{
+						kind: "band",
+						input: 0,
+						...(content.low === undefined ? {} : { low: content.low }),
+						...(content.high === undefined ? {} : { high: content.high }),
+						deadZone: content.deadZone,
+					},
+				],
+				() => null,
+			);
+			if (!band.ok) return { kind: "refused", code: "invalid", text: band.issue.message };
 			const full = roomFor(record.id, op.measure);
 			if (full) return full;
 		}
@@ -202,7 +239,7 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 			...content,
 			revision: (held?.revision ?? 0) + 1,
 		};
-		const others = snapshot.thresholds.filter((item) => item !== held);
+		const others = snapshot.thresholds.filter((item) => item !== stored);
 		if (!write({ ...snapshot, thresholds: [...others, entry] })) return { kind: "refused", code: "write_failed" };
 		reconcile(record.id);
 		return { kind: "ok", threshold: clearing ? null : viewOf(entry) };

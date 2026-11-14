@@ -1,7 +1,7 @@
 // Where the assistant lives: one Router-held record per Domain owner.
 
 import { z } from "zod";
-import { INTEGRATION_IDS } from "./schemasAssistant.js";
+import { INTEGRATION_IDS, TemperatureUnitSchema } from "./schemasAssistant.js";
 import { AssistantWatcherRulesSchema } from "./schemasAssistantRules.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 
@@ -34,6 +34,8 @@ export const AssistantHomeCarriedIntegrationSchema = z
 export const AssistantHomeCarriedSchema = z
 	.object({
 		approveEverySend: z.boolean(),
+		// Required starting 2026-11-27.
+		temperatureUnit: TemperatureUnitSchema.optional(),
 		watchers: z.array(AssistantHomeCarriedWatcherSchema).max(WATCHERS_MAX),
 		// Required starting 2026-11-15. Null from a phone that read an older Gateway.
 		integrations: z.array(AssistantHomeCarriedIntegrationSchema).nullish(),
