@@ -180,6 +180,8 @@ passed to `wslpath`.
 
 The daemon also serves `kasaScan`, a host op with a closed contract: no caller input, a discovery broadcast on every non-loopback IPv4 interface, typed candidates back. `wifiNetwork` is closed the same way and answers the WiFi the host is on, or `none`. `docs/devices.md` holds both.
 
+Bluetooth rides the same socket. `bleScan` is a closed host op: it holds discovery for one bounded window and answers typed sightings, or `no_radio` on a host with no adapter. `device_watch` is a Gateway frame naming the `gateway`-radio sensors to listen for; each one replaces the last, and the Gateway sends it on every host registration and device store change. The daemon answers with advert batches, which the Gateway ingests only from the host socket registered now. Both run through one client, `createBluezCoordinator` in `src/mcp/devcontainer/bluetooth/bluez.ts`, which speaks D-Bus to BlueZ over the system bus socket with no native module. `docs/devices.md` holds its lifecycle.
+
 ## Session CLIs
 
 `src/shared/session-harness.ts` holds one row per session CLI (`HARNESS`), and every place that

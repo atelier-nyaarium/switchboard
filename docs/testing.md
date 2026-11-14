@@ -48,6 +48,8 @@ reconnects the daemon, and with `newDaemon` as a fresh process. The harness reac
 
 `src/testing/fakeKasaPlug.ts` is a Kasa plug on a loopback TCP port speaking the XOR protocol, with a behaviour per request: `hold` applies the command and withholds only the reply, and one `waitForHeldReply` takes one hold; `disconnect`, `error` with an `err_code`, `differentMac`, `changeMacAfter` and `changeRelayStateAfter`. The harness takes a `kasaPort` and builds the transport; the stage tests pass a transport directly.
 
+Bluetooth is faked below the D-Bus client, never above it. `bluez-coordinator.test.ts` drives `createBluezCoordinator` over a `FakeTransport` that answers BlueZ's method calls and emits its signals, including one landing in the same read as a reply, with a `FakeClock` for the backoff and stable timers. `dbus-wire.test.ts` pins the marshalling byte for byte. `device-advert.test.ts` drives the Gateway's watch frame and ingest through the host stage with a fake host socket. On the phone, `PhoneRadioTest` and `PairRulesTest` run the radio owner and the coalescer over a fake `BlePlatform`, and the emulator build's `SandboxBlePlatform` hears canned sightings, so Scan and Pair with draw with no radio.
+
 ## The ambient
 
 The gateway and the Router read the clock, the entropy, the ids, and the timers only through an

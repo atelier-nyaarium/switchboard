@@ -359,6 +359,14 @@ A watcher is plain Gateway code, never a model.
   session. The op answers once the nudge lands or `SEND_BOUND_MS` passes; a disabled watcher is
   refused. The delivery id is the op's, so a retried op nudges once.
 
+### Sensors
+
+The `sensors` watcher lists the Gateway's sensors queue: one event per automation crossing, with the
+text fields automation, field and value, so the owner's rules match on them as on any watcher. A
+crossing is the owner's automation saying a computed field became the value it named, never a raw
+reading. The queue, the edge engine and the cool-down live in `docs/fields.md`. A crossing on a
+Gateway that is not the assistant's home logs `refused` and wakes nothing.
+
 ### GitHub notifications
 
 - **The poll:** it reads the unread list, sending the stored `Last-Modified` as `If-Modified-Since`. A
