@@ -226,6 +226,15 @@ describe("HeadlessTurn", () => {
 		const failed = new HeadlessTurn();
 		expect(failed.fold(event("session.error", { message: "quota" }))).toEqual(["quota"]);
 		expect(failed.settle(event("session.idle"))).toEqual({ status: "failed", error: "quota" });
+
+		const refused = new HeadlessTurn();
+		refused.fold(
+			event("session.error", { message: "No response was returned.", errorType: "policy", statusCode: 403 }),
+		);
+		expect(refused.settle(event("session.idle"))).toEqual({
+			status: "failed",
+			error: "No response was returned. (policy, HTTP 403)",
+		});
 	});
 
 	it("interrupts on an abort or an aborted idle", () => {

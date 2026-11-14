@@ -347,6 +347,15 @@ function commandOf(args: unknown): string {
 	return text.replace(/\s+/g, " ").trim().slice(0, COMMAND_NOTE_CHARS);
 }
 
+/** Copilot's message with its error type and status, which name a policy refusal. */
+function errorText(data: Record<string, unknown>): string {
+	const message = typeof data.message === "string" && data.message ? data.message : "Copilot reported an error";
+	const kind = typeof data.errorType === "string" && data.errorType ? data.errorType : null;
+	const status = typeof data.statusCode === "number" ? `HTTP ${data.statusCode}` : null;
+	const why = [kind, status].filter((part) => part !== null);
+	return why.length > 0 ? `${message} (${why.join(", ")})` : message;
+}
+
 /**
  * One turn's events folded: notes as they come, and the terminal at `session.idle`. An error a
  * later assistant message follows was recovered from; one the turn ends on fails it.
@@ -373,8 +382,7 @@ export class HeadlessTurn {
 				return [bounded(command ? `${name}: ${command}` : name)];
 			}
 			case "session.error": {
-				const message =
-					typeof data.message === "string" && data.message ? data.message : `Copilot reported an error`;
+				const message = errorText(data);
 				this.error = message;
 				return [bounded(message)];
 			}
