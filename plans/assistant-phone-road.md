@@ -526,7 +526,7 @@ As built, beyond the list above:
 ## Phase 2.6d - Acceptance and docs
 
 - The H5110 paired to Sakura, then re-paired to This Phone: readings, the 24-hour low and high, the stale reason with the phone away; delivery with the app closed; duplicate advertisements coalescing into one post; the scan registration surviving a phone restart; two radios hearing one device, deduped, the chooser ordered by signal with This Phone last; Nearby devices granted and denied; a threshold typed in Fahrenheit shown back unchanged; a crossing reaching the assistant's inbox once, and an edit that does not fire; a 24-hour low ageing out of the window; a home move after which phones still post to the Gateway holding the record; the battery pulled and the address re-matched.
-- `docs/devices.md` (sensors, definitions, the matchers), `docs/assistant.md` (computed fields, automations, the sensors watcher), `docs/architecture.md` (the Bluetooth host op, the watch frame, the client), `docs/testing.md` (the fakes), the AGENTS.md map lines.
+- ✅ `docs/devices.md` (sensors, definitions, the matchers), `docs/assistant.md` (computed fields, automations, the sensors watcher), `docs/architecture.md` (the Bluetooth host op, the watch frame, the client), `docs/testing.md` (the fakes), the AGENTS.md map lines.
 
 ## Painpoints
 
