@@ -102,15 +102,22 @@ internal class BleReadings(
 	private val release: () -> Unit = {},
 ) {
 	private val last = mutableMapOf<String, Posted>()
+	private val heard = mutableMapOf<String, Advert>()
 	private var inflight = 0
 
-	/** Newest capture per address. */
+	/** Union up to the newest capture. */
 	fun accept(sightings: List<Sighting>): Int {
 		val bound = bindings()
 		val due = synchronized(last) {
-			val newest = sightings.filter { bound[it.mac] != null && familyOf(it.advert) != null }
+			heard.keys.retainAll(bound.keys)
+			val newest = sightings.filter { bound[it.mac] != null }
+				.sortedBy { it.at ?: Long.MIN_VALUE }
 				.groupBy { it.mac }
-				.map { (_, rows) -> rows.reversed().maxBy { it.at ?: Long.MIN_VALUE } }
+				.mapNotNull { (mac, rows) ->
+					val advert = rows.fold(heard[mac] ?: Advert()) { held, row -> unionAdvert(held, row.advert) }
+					heard[mac] = advert
+					rows.last().copy(advert = advert).takeIf { familyOf(advert) != null }
+				}
 			val picked = newest.map { it to Posted(it.advert, it.at ?: now()) }.filter { (sighting, posted) ->
 				shouldPost(last[sighting.mac], sighting.advert, posted.at)
 			}

@@ -72,7 +72,9 @@ internal class AndroidBlePlatform(private val context: Context) : BlePlatform {
 		val callback = object : ScanCallback() {
 			override fun onScanResult(callbackType: Int, result: ScanResult) {
 				val sighting = sightingOf(result) ?: return
-				heard.merge(sighting.mac, sighting) { held, fresh -> fresh.copy(signal = maxOf(held.signal, fresh.signal)) }
+				heard.merge(sighting.mac, sighting) { held, fresh ->
+					fresh.copy(signal = maxOf(held.signal, fresh.signal), advert = unionAdvert(held.advert, fresh.advert))
+				}
 			}
 
 			override fun onBatchScanResults(results: MutableList<ScanResult>) {

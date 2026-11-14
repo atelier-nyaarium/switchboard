@@ -10,6 +10,13 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Capture time when known. */
 internal data class Sighting(val mac: String, val signal: Int, val advert: Advert, val at: Long? = null)
 
+/** BlueZ's per-device union. */
+internal fun unionAdvert(held: Advert, fresh: Advert): Advert = Advert(
+	name = fresh.name ?: held.name,
+	data = held.data + fresh.data,
+	services = (held.services + fresh.services).distinct(),
+)
+
 /** Null Gateway means phone. */
 internal data class Hearer(val gatewayId: String?, val signal: Int)
 
@@ -58,16 +65,19 @@ internal fun testedLine(found: FoundDevice): String? = if (found.definition == n
 
 internal fun foundModel(found: FoundDevice): String? = found.definition?.model
 
-internal data class PairChoice(val gatewayId: String?, val label: String, val assistant: Boolean)
+internal data class PairChoice(val gatewayId: String?, val label: String, val assistant: Boolean, val signal: Int)
+
+/** Skips known-offline Gateways. */
+internal fun scanTargets(roster: GatewayRegistry): List<String> = roster.ids().filter { roster.connected(it) != false }
 
 /** Gateways first; phone last. */
 internal fun pairChoices(found: FoundDevice, home: String?): List<PairChoice> {
 	val gateways = found.hearers.filter { it.gatewayId != null }.sortedByDescending { it.signal }
 		.distinctBy { it.gatewayId }
-		.mapNotNull { hearer -> hearer.gatewayId?.let { PairChoice(it, it, assistant = it == home) } }
-	val phone = found.hearers.firstOrNull { it.gatewayId == null }
+		.mapNotNull { hearer -> hearer.gatewayId?.let { PairChoice(it, it, assistant = it == home, hearer.signal) } }
+	val phone = found.hearers.filter { it.gatewayId == null }.maxByOrNull { it.signal }
 		?.takeIf { home != null }
-		?.let { PairChoice(null, THIS_PHONE, assistant = true) }
+		?.let { PairChoice(null, THIS_PHONE, assistant = true, it.signal) }
 	return gateways + listOfNotNull(phone)
 }
 

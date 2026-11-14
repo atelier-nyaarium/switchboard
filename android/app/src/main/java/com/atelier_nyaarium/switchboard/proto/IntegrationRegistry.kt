@@ -99,7 +99,7 @@ internal val INTEGRATIONS: List<Integration> =
 			capabilities = listOf(),
 			acts = listOf(),
 			setup = null,
-			bluetooth = BluetoothMatch(listOf("ec88"), listOf(MakerDataMarker(60552, "", null), MakerDataMarker(1, "0101", "ec88"), MakerDataMarker(34817, "ec00", null), MakerDataMarker(34819, "ec00", null), MakerDataMarker(34883, "ec00", null)), listOf("ihoment_", "GBK_", "Govee_H6", "Govee_H7", "Govee_H1"), listOf(MakerDataExclusion(34883, "ec00xx02"), MakerDataExclusion(34883, "ec00xx03"))),
+			bluetooth = BluetoothMatch(listOf("ec88"), listOf(MakerDataMarker(60552, "", null), MakerDataMarker(1, "0101", "ec88"), MakerDataMarker(34817, "ec00", null), MakerDataMarker(34819, "ec00", null), MakerDataMarker(34883, "ec00", null)), listOf("ihoment_", "GBK_", "Govee_H6", "Govee_H7", "Govee_H1", "Govee_H5151"), listOf(MakerDataExclusion(34883, "ec00xx02"), MakerDataExclusion(34883, "ec00xx03"))),
 		),
 		Integration(
 			id = "ifttt",

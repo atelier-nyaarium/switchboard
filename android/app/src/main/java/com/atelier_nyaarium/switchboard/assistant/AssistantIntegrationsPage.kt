@@ -18,7 +18,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -34,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
-import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.DeviceLive
 import com.atelier_nyaarium.switchboard.DevicesView
 import com.atelier_nyaarium.switchboard.ServiceRow
@@ -51,6 +49,7 @@ import com.atelier_nyaarium.switchboard.proto.DeviceCapability
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.MainValue
 import com.atelier_nyaarium.switchboard.deviceGroups
+import com.atelier_nyaarium.switchboard.devicesPending
 import com.atelier_nyaarium.switchboard.displayUnitOf
 import com.atelier_nyaarium.switchboard.isSensor
 import com.atelier_nyaarium.switchboard.mainValue
@@ -97,39 +96,32 @@ internal fun AssistantIntegrationsPage(
 			return@AssistantPageScaffold
 		}
 		val groups = deviceGroups(roster, home, views)
+		if (devicesPending(roster, views)) CircularProgressIndicator(Modifier.size(24.dp))
 		for (group in groups) {
 			val devices = views[group.gatewayId] ?: DevicesView()
 			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 				Text(group.gatewayId, style = MaterialTheme.typography.labelLarge)
 				if (group.assistant) AssistantChip()
 			}
-			when (val list = group.list) {
-				DeviceListView.Loading -> CircularProgressIndicator(Modifier.size(24.dp))
-				is DeviceListView.Unavailable -> {
-					Text(list.line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-					OutlinedButton(onClick = hapticClick { repo.command { deviceOps.refresh(group.gatewayId) } }) { Text("Retry") }
+			for (record in group.records) {
+				if (record.isSensor()) {
+					SensorRow(
+						record,
+						mainValue(devices.sensorOf(record.id), display),
+						sensorTrouble(devices.sensorOf(record.id), now),
+						said = devices.saidOf(record.id),
+						onOpen = { onDevice(group.gatewayId, record.id) },
+					)
+				} else {
+					DeviceRow(
+						record,
+						devices.liveOf(record.id),
+						busy = devices.busy(record.id),
+						said = devices.alert(record.id),
+						onOpen = { onDevice(group.gatewayId, record.id) },
+						onSwitch = { on -> repo.command { deviceOps.set(group.gatewayId, record.id, on) } },
+					)
 				}
-				is DeviceListView.Listed -> for (record in list.records) {
-					if (record.isSensor()) {
-						SensorRow(
-							record,
-							mainValue(devices.sensorOf(record.id), display),
-							sensorTrouble(devices.sensorOf(record.id), now),
-							said = devices.saidOf(record.id),
-							onOpen = { onDevice(group.gatewayId, record.id) },
-						)
-					} else {
-						DeviceRow(
-							record,
-							devices.liveOf(record.id),
-							busy = devices.busy(record.id),
-							said = devices.alert(record.id),
-							onOpen = { onDevice(group.gatewayId, record.id) },
-							onSwitch = { on -> repo.command { deviceOps.set(group.gatewayId, record.id, on) } },
-						)
-					}
-				}
-				DeviceListView.Declined -> Unit
 			}
 		}
 		if (services.isNotEmpty()) {

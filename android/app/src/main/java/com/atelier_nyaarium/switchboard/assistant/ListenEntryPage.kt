@@ -57,6 +57,7 @@ import com.atelier_nyaarium.switchboard.pairingOf
 import com.atelier_nyaarium.switchboard.proto.Integration
 import com.atelier_nyaarium.switchboard.readinessLine
 import com.atelier_nyaarium.switchboard.saidOf
+import com.atelier_nyaarium.switchboard.scanTargets
 import com.atelier_nyaarium.switchboard.sensorOf
 import com.atelier_nyaarium.switchboard.sensorTrouble
 import com.atelier_nyaarium.switchboard.sightingOf
@@ -84,7 +85,7 @@ internal fun ListenEntryPage(
 	val scanAll = {
 		repo.command {
 			coroutineScope {
-				for (gatewayId in roster) launch { deviceOps.scan(gatewayId) }
+				for (gatewayId in scanTargets(state.gateways)) launch { deviceOps.scan(gatewayId) }
 				launch {
 					phoneRadio.scan()
 				}
@@ -247,7 +248,9 @@ private fun PairWithDialog(
 					Row(
 						Modifier.fillMaxWidth().clickable(enabled = !busy, onClick = hapticClick { onPick(choice) }).padding(vertical = 10.dp),
 						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(8.dp),
 					) {
+						SignalBars(signalBars(choice.signal))
 						Text(choice.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
 						Text(
 							if (choice.assistant) "Assistant" else "App only",

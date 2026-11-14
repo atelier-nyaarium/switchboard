@@ -74,19 +74,18 @@ internal fun displayedUnit(unit: String, display: String?): String =
 internal fun rowBrandLine(record: DeviceRecord): String =
 	if (record.onPhones()) "${brandLine(record)} · $THIS_PHONE" else brandLine(record)
 
-internal data class GatewayGroup(val gatewayId: String, val assistant: Boolean, val list: DeviceListView)
+internal data class GatewayGroup(val gatewayId: String, val assistant: Boolean, val records: List<DeviceRecord>)
 
-/** Home first; hides empties. */
+/** Home first; listed devices only. */
 internal fun deviceGroups(ids: List<String>, home: String?, views: Map<String, DevicesView>): List<GatewayGroup> =
-	(listOfNotNull(home?.takeIf { it in ids }) + ids.filter { it != home })
-		.map { GatewayGroup(it, it == home, views[it]?.list ?: DeviceListView.Loading) }
-		.filter { group ->
-			when (val list = group.list) {
-				DeviceListView.Declined -> false
-				is DeviceListView.Listed -> list.records.isNotEmpty()
-				DeviceListView.Loading, is DeviceListView.Unavailable -> true
-			}
-		}
+	(listOfNotNull(home?.takeIf { it in ids }) + ids.filter { it != home }).mapNotNull { gatewayId ->
+		val records = (views[gatewayId]?.list as? DeviceListView.Listed)?.records
+		records?.takeIf { it.isNotEmpty() }?.let { GatewayGroup(gatewayId, gatewayId == home, it) }
+	}
+
+/** No Gateway has answered. */
+internal fun devicesPending(ids: List<String>, views: Map<String, DevicesView>): Boolean =
+	ids.isNotEmpty() && ids.all { (views[it]?.list ?: DeviceListView.Loading) == DeviceListView.Loading }
 
 /** Null shows Celsius. */
 internal fun displayUnitOf(assistant: ConsoleAssistantStateResult?): String? =

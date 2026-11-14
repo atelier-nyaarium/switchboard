@@ -20,6 +20,10 @@ private val tested = Advert("GVH5110_3C5D", mapOf("1" to "010103bac864"), listOf
 private val untested = Advert("Govee_H5199_7F01", mapOf("1" to "0101027a3f550000"), listOf("ec88"))
 private val stranger = Advert("Kettle", mapOf("76" to "0102"), emptyList())
 
+private val named = Advert("GVH5110_3C5D", emptyMap(), listOf("ec88"))
+private val reading = Advert(null, mapOf("1" to "010103bac864"), emptyList())
+private val beacon = Advert(null, mapOf("76" to "0215494e54454c4c495f524f434b535f4857"), emptyList())
+
 private fun found(gateways: Map<String, List<Sighting>>, phone: List<Sighting> = emptyList(), paired: Set<String> = emptySet()) =
 	foundDevices("govee", gateways, phone, paired) { definitionHit("govee", it) }
 
@@ -41,6 +45,15 @@ class PairRulesTest {
 	}
 
 	@Test
+	fun `a device splitting its markers across packets is recognized only as their union`() {
+		assertEquals(emptyList<FoundDevice>(), found(emptyMap(), phone = listOf(Sighting(THERMO, -50, reading))))
+		val joined = listOf(named, reading, beacon).reduce(::unionAdvert)
+		val row = found(emptyMap(), phone = listOf(Sighting(THERMO, -50, joined))).single()
+		assertEquals(DefinitionHit("govee-h5110", "H5110"), row.definition)
+		assertEquals(listOf(THIS_PHONE), pairChoices(row, home = "sakura").map { it.label })
+	}
+
+	@Test
 	fun `Pair with lists the Gateways that heard it strongest first, then This Phone, marking what the assistant sees`() {
 		val device = found(
 			gateways = mapOf("mikan" to listOf(Sighting(THERMO, -84, tested)), "sakura" to listOf(Sighting(THERMO, -61, tested))),
@@ -48,12 +61,21 @@ class PairRulesTest {
 		).single()
 		val choices = pairChoices(device, home = "sakura")
 		assertEquals(listOf("sakura" to true, "mikan" to false, THIS_PHONE to true), choices.map { it.label to it.assistant })
+		assertEquals(listOf(-61, -84, -50), choices.map { it.signal })
 		val (onPhone, viaPhone) = pairingOf(device, choices.last(), home = "sakura")
 		assertEquals("sakura" to Protocol.Wire.DeviceRadio.PHONES, onPhone to viaPhone.radio)
 		assertEquals(advertOf(tested), viaPhone.advert)
 		val (onMikan, viaMikan) = pairingOf(device, choices[1], home = "sakura")
 		assertEquals("mikan" to Protocol.Wire.DeviceRadio.GATEWAY, onMikan to viaMikan.radio)
 		assertNull(viaMikan.advert)
+		val roster = GatewayRegistry(
+			provenance = RegistryProvenance.Current,
+			gateways = listOf(
+				GatewayEntry("sakura", connected = true, incarnation = 1L, lastRegisteredAt = 0L),
+				GatewayEntry("matrix", connected = false, incarnation = 1L, lastRegisteredAt = 0L),
+			),
+		)
+		assertEquals(listOf("sakura"), scanTargets(roster))
 	}
 
 	@Test
@@ -95,6 +117,23 @@ class PairRulesTest {
 		assertEquals(1, readings.accept(listOf(Sighting(THERMO, -55, warmer))))
 		assertEquals(listOf(20L, REPOST_MS + 20, REPOST_MS + 1_020), posts.map { it.third })
 		assertEquals(3 to 3, holds to releases)
+	}
+
+	@Test
+	fun `split packets post their union, so a lone beacon never posts a reading without its data`() = runBlocking {
+		val posts = mutableListOf<DeviceAdvert>()
+		val gateway = object : DeviceGateway by unusedGateway() {
+			override suspend fun postReading(gatewayId: String, id: String, advert: DeviceAdvert, at: Long): DeviceAnswer<ConsoleDeviceReadingPostResult> {
+				posts += advert
+				return DeviceAnswer.Answered(ConsoleDeviceReadingPostResult.Ok)
+			}
+		}
+		val readings = BleReadings(CoroutineScope(Dispatchers.Unconfined), { mapOf(THERMO to "mikan") }, { gateway }, { 0L })
+		assertEquals(0, readings.accept(listOf(Sighting(THERMO, -60, reading, at = 1))))
+		assertEquals(1, readings.accept(listOf(Sighting(THERMO, -60, named, at = 2))))
+		assertEquals(1, readings.accept(listOf(Sighting(THERMO, -60, beacon, at = 3))))
+		assertEquals(0, readings.accept(listOf(Sighting(THERMO, -60, beacon, at = 4))))
+		assertEquals(listOf(unionAdvert(reading, named), listOf(reading, named, beacon).reduce(::unionAdvert)).map(::advertOf), posts)
 	}
 
 	@Test

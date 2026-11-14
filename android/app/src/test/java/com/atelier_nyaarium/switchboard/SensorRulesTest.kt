@@ -51,16 +51,20 @@ class SensorRulesTest {
 	}
 
 	@Test
-	fun `groups put home first and hide a Gateway that declines or holds nothing`() {
+	fun `groups put home first and show only Gateways listing a device, with one spinner until any answers`() {
 		val lamp = DeviceListView.Listed(listOf(sensor(MAC, "gateway")), 1L)
 		val views = mapOf(
 			"mikan" to DevicesView(list = lamp),
 			"sakura" to DevicesView(list = lamp),
 			"idle" to DevicesView(list = DeviceListView.Listed(emptyList(), 1L)),
 			"old" to DevicesView(list = DeviceListView.Declined),
+			"away" to DevicesView(list = DeviceListView.Unavailable("This Gateway could not be reached")),
 		)
-		val groups = deviceGroups(listOf("mikan", "idle", "old", "sakura"), home = "sakura", views)
+		val roster = listOf("mikan", "idle", "old", "away", "waking", "sakura")
+		val groups = deviceGroups(roster, home = "sakura", views)
 		assertEquals(listOf("sakura" to true, "mikan" to false), groups.map { it.gatewayId to it.assistant })
+		assertEquals(false, devicesPending(roster, views))
+		assertEquals(true, devicesPending(listOf("sakura", "waking"), mapOf("sakura" to DevicesView(list = DeviceListView.Loading))))
 		assertEquals("Govee · This Phone", rowBrandLine(sensor(MAC, "phones")))
 	}
 

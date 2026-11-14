@@ -13,6 +13,17 @@
 			"family": "govee"
 		},
 		{
+			"case": "the H5151 Wi-Fi hub is no sensor",
+			"advert": {
+				"name": "Govee_H5151_4E42",
+				"data": {
+					"34817": "ec000101"
+				},
+				"services": []
+			},
+			"family": null
+		},
+		{
 			"case": "company 1 without the service is not Govee",
 			"advert": {
 				"data": {

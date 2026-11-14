@@ -134,7 +134,7 @@ export const INTEGRATIONS = {
 				{ company: 0x8803, prefix: "ec00" },
 				{ company: 0x8843, prefix: "ec00" },
 			],
-			excludeNames: ["ihoment_", "GBK_", "Govee_H6", "Govee_H7", "Govee_H1"],
+			excludeNames: ["ihoment_", "GBK_", "Govee_H6", "Govee_H7", "Govee_H1", "Govee_H5151"],
 			excludeData: [
 				{ company: 0x8843, pattern: "ec00xx02" },
 				{ company: 0x8843, pattern: "ec00xx03" },
