@@ -40,10 +40,19 @@ export function thresholdField(threshold: Threshold): ComputedField | null {
 	};
 }
 
-export function thresholdAutomations(threshold: Threshold): Record<ThresholdSide, Automation> {
+export function thresholdAutomations(
+	threshold: Threshold,
+	valueText: (value: number) => string = String,
+): Record<ThresholdSide, Automation> {
 	const ids = thresholdIds(threshold.device, threshold.measure);
 	const side = (which: ThresholdSide): Automation => ({
-		label: `${threshold.label} ${which === "low" ? "below" : "above"} ${threshold[which] ?? ""}`.trim(),
+		label: [
+			threshold.label,
+			which === "low" ? "below" : "above",
+			threshold[which] === undefined ? "" : valueText(threshold[which]),
+		]
+			.join(" ")
+			.trim(),
 		enabled: threshold[which] !== undefined,
 		trigger: { field: ids.field, becomes: which },
 		action: { kind: "tell_assistant" },

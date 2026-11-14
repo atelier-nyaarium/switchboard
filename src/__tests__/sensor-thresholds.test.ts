@@ -57,7 +57,13 @@ function fixture(home = true, seededThresholds: ThresholdSeed[] = []) {
 		let fields: ComputedFields | undefined;
 		let automations: Automations | undefined;
 		let thresholds: SensorThresholds | undefined;
-		const deviceStore = createDeviceStore({ store: deviceState, onChanged: () => fields?.typesChanged() });
+		const deviceStore = createDeviceStore({
+			store: deviceState,
+			onChanged: () => {
+				fields?.typesChanged();
+				thresholds?.recordsChanged();
+			},
+		});
 		const devices = composeDevices({
 			dataDir,
 			ambient,
@@ -199,7 +205,7 @@ describe("sensor threshold composition", () => {
 			expect(page.events).toHaveLength(1);
 			expect(page.events[0]?.fields).toEqual({
 				automation: expect.any(String),
-				field: "Temperature",
+				field: "Freezer temperature",
 				value: "low",
 			});
 			const member = page.events[0]?.id;
@@ -230,6 +236,25 @@ describe("sensor threshold composition", () => {
 				low: { value: -5.3, at: 2_000 },
 				high: { value: 24.4, at: 1_000 },
 			});
+		} finally {
+			await world.devices.close();
+		}
+	});
+
+	it("names the device and unit in an alert, and follows a rename", async () => {
+		const world = fixture();
+		try {
+			await world.devices.console(put(0, 10));
+			const labels = () =>
+				world.automations
+					.list()
+					.map(({ body }) => body.label)
+					.sort();
+			expect(labels()).toEqual(["Freezer temperature above", "Freezer temperature below 10.0 °C"]);
+			const listed = await world.devices.console({ kind: "device_list" });
+			const revision = listed.kind === "ok" ? (listed.records.find(({ id }) => id === MAC)?.revision ?? 0) : 0;
+			await world.devices.console({ kind: "device_rename", id: MAC, name: "Chest freezer", revision });
+			expect(labels()).toEqual(["Chest freezer temperature above", "Chest freezer temperature below 10.0 °C"]);
 		} finally {
 			await world.devices.close();
 		}

@@ -534,6 +534,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		onChanged: () => {
 			host.pushDeviceWatch();
 			fields?.typesChanged();
+			sensorThresholds?.recordsChanged();
 		},
 		onIngested: (keys) => {
 			// One evaluation per frame.

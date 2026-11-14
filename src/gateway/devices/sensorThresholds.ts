@@ -5,6 +5,7 @@ import { canonicalJson } from "../../shared/canonical-json.js";
 import { type Definition, definitionOf } from "../../shared/device-definitions/index.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { checkExpression } from "../../shared/expressions.js";
+import { formatFieldValue } from "../../shared/field-values.js";
 import type {
 	DeviceRecord,
 	DeviceSensorThreshold,
@@ -126,13 +127,13 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 			const threshold: Threshold = {
 				device: record.id,
 				measure: reading.key,
-				label: reading.spec.label,
+				label: `${record.name} ${reading.spec.label.toLowerCase()}`,
 				...contentOf(entry),
 			};
 			const ids = thresholdIds(record.id, reading.key);
 			const field = thresholdField(threshold);
 			if (field) fields.set(ids.field, field);
-			const sides = thresholdAutomations(threshold);
+			const sides = thresholdAutomations(threshold, (value) => formatFieldValue(reading.spec, value));
 			automations.set(ids.low, sides.low);
 			automations.set(ids.high, sides.high);
 		}
@@ -271,13 +272,18 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 		for (const device of devices) reconcile(device);
 	};
 
+	/** Names follow a rename. */
+	const recordsChanged = (): void => {
+		for (const record of deps.records()) reconcile(record.id);
+	};
+
 	/** Retries failed projections. */
 	const tick = (): void => {
 		for (const device of [...forgetDue]) forget(device);
 		for (const device of [...dirty]) reconcile(device);
 	};
 
-	return { read, put, forget, start, tick };
+	return { read, put, forget, start, tick, recordsChanged };
 }
 
 export type SensorThresholds = ReturnType<typeof createSensorThresholds>;
