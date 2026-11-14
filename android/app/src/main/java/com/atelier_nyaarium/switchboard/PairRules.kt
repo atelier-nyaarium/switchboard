@@ -41,24 +41,39 @@ internal fun sightingOf(nearby: DeviceNearby): Sighting = Sighting(
 	),
 )
 
-/** Strongest sighting per address. */
+/** Null radio means phone. */
+internal data class Heard(
+	val order: List<String> = emptyList(),
+	val radios: Map<String?, Map<String, Sighting>> = emptyMap(),
+)
+
+/** Per-radio packet unions. */
+internal fun Heard.with(radio: String?, sightings: List<Sighting>): Heard {
+	if (sightings.isEmpty()) return this
+	val held = radios[radio].orEmpty().toMutableMap()
+	val known = order.toHashSet()
+	val order = order.toMutableList()
+	for (sighting in sightings) {
+		val prior = held[sighting.mac]
+		held[sighting.mac] = prior?.let { sighting.copy(advert = unionAdvert(it.advert, sighting.advert)) } ?: sighting
+		if (known.add(sighting.mac)) order += sighting.mac
+	}
+	return Heard(order, radios + (radio to held))
+}
+
+/** Rows retain first-heard order. */
 internal fun foundDevices(
 	family: String,
-	gateways: Map<String, List<Sighting>>,
-	phone: List<Sighting>,
+	heard: Heard,
 	paired: Set<String>,
 	definitionOf: (Advert) -> DefinitionHit?,
-): List<FoundDevice> {
-	val heard = gateways.flatMap { (gatewayId, sightings) -> sightings.map { Hearer(gatewayId, it.signal) to it } } +
-		phone.map { Hearer(null, it.signal) to it }
-	return heard
-		.filter { (_, sighting) -> sighting.mac !in paired && familyOf(sighting.advert) == family }
-		.groupBy { (_, sighting) -> sighting.mac }
-		.map { (mac, rows) ->
-			val loudest = rows.maxBy { (_, sighting) -> sighting.signal }.second
-			FoundDevice(mac, loudest.advert, definitionOf(loudest.advert), rows.map { it.first })
-		}
-		.sortedByDescending { it.strongest }
+): List<FoundDevice> = heard.order.filter { it !in paired }.mapNotNull { mac ->
+	val rows = heard.radios.mapNotNull { (radio, held) ->
+		held[mac]?.takeIf { familyOf(it.advert) == family }?.let { Hearer(radio, it.signal) to it.advert }
+	}
+	if (rows.isEmpty()) return@mapNotNull null
+	val advert = rows.map { it.second }.reduce(::unionAdvert)
+	FoundDevice(mac, advert, definitionOf(advert), rows.map { it.first })
 }
 
 internal fun testedLine(found: FoundDevice): String? = if (found.definition == null) "Not tested · raw only" else null
@@ -70,11 +85,12 @@ internal data class PairChoice(val gatewayId: String?, val label: String, val as
 /** Skips known-offline Gateways. */
 internal fun scanTargets(roster: GatewayRegistry): List<String> = roster.ids().filter { roster.connected(it) != false }
 
-/** Gateways first; phone last. */
+/** Home first, phone last. */
 internal fun pairChoices(found: FoundDevice, home: String?): List<PairChoice> {
-	val gateways = found.hearers.filter { it.gatewayId != null }.sortedByDescending { it.signal }
-		.distinctBy { it.gatewayId }
-		.mapNotNull { hearer -> hearer.gatewayId?.let { PairChoice(it, it, assistant = it == home, hearer.signal) } }
+	val gateways = found.hearers.mapNotNull { hearer -> hearer.gatewayId?.let { it to hearer.signal } }
+		.distinctBy { it.first }
+		.sortedWith(compareBy({ it.first != home }, { it.first }))
+		.map { (gatewayId, signal) -> PairChoice(gatewayId, gatewayId, assistant = gatewayId == home, signal) }
 	val phone = found.hearers.filter { it.gatewayId == null }.maxByOrNull { it.signal }
 		?.takeIf { home != null }
 		?.let { PairChoice(null, THIS_PHONE, assistant = true, it.signal) }

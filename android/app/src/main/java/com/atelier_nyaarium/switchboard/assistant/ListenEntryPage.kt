@@ -18,11 +18,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,15 +34,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.DevicesView
 import com.atelier_nyaarium.switchboard.FoundDevice
 import com.atelier_nyaarium.switchboard.PairChoice
-import com.atelier_nyaarium.switchboard.PhoneScanView
 import com.atelier_nyaarium.switchboard.RadioReadiness
-import com.atelier_nyaarium.switchboard.ScanView
 import com.atelier_nyaarium.switchboard.THIS_PHONE
 import com.atelier_nyaarium.switchboard.busy
 import com.atelier_nyaarium.switchboard.definitionHit
@@ -55,16 +57,12 @@ import com.atelier_nyaarium.switchboard.pairChoices
 import com.atelier_nyaarium.switchboard.pairedAcross
 import com.atelier_nyaarium.switchboard.pairingOf
 import com.atelier_nyaarium.switchboard.proto.Integration
-import com.atelier_nyaarium.switchboard.readinessLine
 import com.atelier_nyaarium.switchboard.saidOf
 import com.atelier_nyaarium.switchboard.scanTargets
 import com.atelier_nyaarium.switchboard.sensorOf
 import com.atelier_nyaarium.switchboard.sensorTrouble
-import com.atelier_nyaarium.switchboard.sightingOf
 import com.atelier_nyaarium.switchboard.signalBars
 import com.atelier_nyaarium.switchboard.testedLine
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 
 @Composable
 internal fun ListenEntryPage(
@@ -76,33 +74,22 @@ internal fun ListenEntryPage(
 	onBack: () -> Unit,
 ) {
 	val views by repo.deviceOps.views.collectAsState()
-	val phone by repo.phoneRadio.scanView.collectAsState()
+	val listen by repo.phoneRadio.listenView.collectAsState()
 	val roster = state.gateways.ids()
 	var pairing by remember { mutableStateOf<FoundDevice?>(null) }
 	var pairingOn by remember { mutableStateOf<String?>(null) }
 	val display = displayUnitOf(state.gateways.assistantOn(home))
 	val now = System.currentTimeMillis()
-	val scanAll = {
-		repo.command {
-			coroutineScope {
-				for (gatewayId in scanTargets(state.gateways)) launch { deviceOps.scan(gatewayId) }
-				launch {
-					phoneRadio.scan()
-				}
-			}
-		}
-	}
-	val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { scanAll() }
-	val scanning = phone == PhoneScanView.Scanning || roster.any { views[it]?.scan == ScanView.Scanning }
+	val start = { repo.phoneRadio.startListening(scanTargets(state.gateways)) }
+	val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { start() }
+	DisposableEffect(Unit) { onDispose { repo.phoneRadio.stopListening() } }
+	LifecycleEventEffect(Lifecycle.Event.ON_STOP) { repo.phoneRadio.stopListening() }
 	val paired = roster.flatMap { gatewayId ->
 		((views[gatewayId]?.list as? DeviceListView.Listed)?.records.orEmpty()).map { gatewayId to it }
 	}
 	val found = foundDevices(
 		family = integration.id,
-		gateways = roster.associateWith { gatewayId ->
-			(views[gatewayId]?.scan as? ScanView.Found)?.nearby.orEmpty().map(::sightingOf)
-		},
-		phone = (phone as? PhoneScanView.Heard)?.sightings.orEmpty(),
+		heard = listen.heard,
 		paired = pairedAcross(roster.mapNotNull { views[it] }),
 		definitionOf = { advert -> definitionHit(integration.id, advert) },
 	)
@@ -113,24 +100,23 @@ internal fun ListenEntryPage(
 		actions = {
 			OutlinedButton(
 				onClick = hapticClick {
-					if (repo.phoneRadio.readiness() == RadioReadiness.NOT_GRANTED) ask.launch(Manifest.permission.BLUETOOTH_SCAN) else scanAll()
+					when {
+						listen.listening -> repo.phoneRadio.stopListening()
+						repo.phoneRadio.readiness() == RadioReadiness.NOT_GRANTED -> ask.launch(Manifest.permission.BLUETOOTH_SCAN)
+						else -> start()
+					}
 				},
-				enabled = !scanning,
 			) {
-				if (scanning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Scan")
+				Text(if (listen.listening) "Stop scan" else "Start scan")
 			}
 		},
 	) {
-		for (gatewayId in roster) {
-			(views[gatewayId]?.scan as? ScanView.Failed)?.let {
-				Text("$gatewayId: ${it.line}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-			}
+		if (listen.listening) LinearProgressIndicator(Modifier.fillMaxWidth())
+		for ((gatewayId, line) in listen.failed) {
+			Text("$gatewayId: $line", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
-		(phone as? PhoneScanView.Unavailable)?.let { readinessLine(it.readiness) }?.let {
+		listen.phone?.let {
 			Text("$THIS_PHONE: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		}
-		(phone as? PhoneScanView.Failed)?.let {
-			Text("$THIS_PHONE: ${it.line}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
 		if (found.isNotEmpty()) {
 			Text("Found", style = MaterialTheme.typography.labelLarge)

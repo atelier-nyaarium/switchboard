@@ -18,9 +18,7 @@ import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import com.atelier_nyaarium.switchboard.proto.INTEGRATIONS
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.withTimeoutOrNull
 
 private const val BASE_UUID_TAIL = "-0000-1000-8000-00805f9b34fb"
 internal const val RADIO_PASS_MS = 20_000L
@@ -64,17 +62,12 @@ internal class AndroidBlePlatform(private val context: Context) : BlePlatform {
 	}
 
 	@SuppressLint("MissingPermission")
-	override suspend fun scan(windowMs: Long): List<Sighting> {
-		if (readiness() != RadioReadiness.READY) return emptyList()
-		val radio = scanner ?: return emptyList()
-		val heard = ConcurrentHashMap<String, Sighting>()
+	override suspend fun listen(heard: (Sighting) -> Unit) {
+		val radio = scanner ?: return
 		val failed = CompletableDeferred<Int>()
 		val callback = object : ScanCallback() {
 			override fun onScanResult(callbackType: Int, result: ScanResult) {
-				val sighting = sightingOf(result) ?: return
-				heard.merge(sighting.mac, sighting) { held, fresh ->
-					fresh.copy(signal = maxOf(held.signal, fresh.signal), advert = unionAdvert(held.advert, fresh.advert))
-				}
+				sightingOf(result)?.let(heard)
 			}
 
 			override fun onBatchScanResults(results: MutableList<ScanResult>) {
@@ -87,12 +80,11 @@ internal class AndroidBlePlatform(private val context: Context) : BlePlatform {
 		}
 		radio.startScan(familyFilters(), ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), callback)
 		val code = try {
-			withTimeoutOrNull(windowMs) { failed.await() }
+			failed.await()
 		} finally {
 			runIsolated { radio.stopScan(callback) }
 		}
-		if (code != null) throw BleScanFailed(code)
-		return heard.values.toList()
+		throw BleScanFailed(code)
 	}
 
 	private fun pending(): PendingIntent = PendingIntent.getBroadcast(

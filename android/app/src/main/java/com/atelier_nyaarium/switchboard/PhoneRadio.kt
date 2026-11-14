@@ -2,12 +2,16 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 
@@ -23,43 +27,79 @@ internal fun readinessLine(readiness: RadioReadiness): String? = when (readiness
 internal interface BlePlatform {
 	fun readiness(): RadioReadiness
 
-	/** Empty when not ready. */
-	suspend fun scan(windowMs: Long): List<Sighting>
+	/** Until cancelled; throws [BleScanFailed]. */
+	suspend fun listen(heard: (Sighting) -> Unit)
 
 	/** Empty stops background scans. */
 	fun watch(addresses: Set<String>): Boolean
 }
 
-internal sealed interface PhoneScanView {
-	data object Idle : PhoneScanView
-
-	data object Scanning : PhoneScanView
-
-	data class Heard(val sightings: List<Sighting>) : PhoneScanView
-
-	data class Unavailable(val readiness: RadioReadiness) : PhoneScanView
-
-	data class Failed(val line: String) : PhoneScanView
-}
-
 internal class BleScanFailed(code: Int) : Exception("Bluetooth scan failed ($code)")
 
-internal const val PHONE_SCAN_WINDOW_MS = 6_000L
+internal data class ListenView(
+	val listening: Boolean = false,
+	val heard: Heard = Heard(),
+	/** Phone trouble line. */
+	val phone: String? = null,
+	/** Gateway trouble lines. */
+	val failed: Map<String, String> = emptyMap(),
+)
 
-internal class PhoneScanOps(private val platform: () -> BlePlatform?) {
-	private val _view = MutableStateFlow<PhoneScanView>(PhoneScanView.Idle)
-	val view: StateFlow<PhoneScanView> = _view.asStateFlow()
+/** Scan battery cap. */
+internal const val LISTEN_MS = 2 * 60_000L
+internal const val RESCAN_GAP_MS = 2_000L
 
-	suspend fun scan() {
+/** Phone and Gateway listener. */
+internal class ListenOps(
+	private val platform: () -> BlePlatform?,
+	private val gateway: () -> DeviceGateway?,
+	private val pause: suspend (Long) -> Unit = { delay(it) },
+) {
+	private val _view = MutableStateFlow(ListenView())
+	val view: StateFlow<ListenView> = _view.asStateFlow()
+
+	suspend fun listen(gateways: List<String>) {
+		_view.value = ListenView(listening = true)
+		try {
+			withTimeoutOrNull(LISTEN_MS) {
+				coroutineScope {
+					launch { listenPhone() }
+					for (gatewayId in gateways) launch { listenGateway(gatewayId) }
+				}
+			}
+		} finally {
+			_view.update { it.copy(listening = false) }
+		}
+	}
+
+	private suspend fun listenPhone() {
 		val radio = platform()
 		val readiness = radio?.readiness() ?: RadioReadiness.ABSENT
 		if (radio == null || readiness != RadioReadiness.READY) {
-			_view.value = PhoneScanView.Unavailable(readiness)
+			_view.update { it.copy(phone = readinessLine(readiness)) }
 			return
 		}
-		_view.value = PhoneScanView.Scanning
-		_view.value = runCatchingCancellable { radio.scan(PHONE_SCAN_WINDOW_MS) }
-			.fold({ PhoneScanView.Heard(it) }) { PhoneScanView.Failed(it.message ?: "Bluetooth scan failed") }
+		runCatchingCancellable { radio.listen { sighting -> _view.update { it.copy(heard = it.heard.with(null, listOf(sighting))) } } }
+			.onFailure { e -> _view.update { it.copy(phone = e.message ?: "Bluetooth scan failed") } }
+	}
+
+	private suspend fun listenGateway(gatewayId: String) {
+		while (true) {
+			val answer = gateway()?.let { client -> runCatchingCancellable { client.scan(gatewayId) }.getOrNull() }
+				?: DeviceAnswer.Unreachable
+			when (val found = ScanView.Idle.afterScan(answer)) {
+				is ScanView.Found -> {
+					_view.update { it.copy(heard = it.heard.with(gatewayId, found.nearby.map(::sightingOf)), failed = it.failed - gatewayId) }
+					if (found.bluetooth == false) return
+				}
+				is ScanView.Failed -> {
+					_view.update { it.copy(failed = it.failed + (gatewayId to found.line)) }
+					if (answer is DeviceAnswer.Declined) return
+				}
+				else -> Unit
+			}
+			pause(RESCAN_GAP_MS)
+		}
 	}
 }
 
@@ -199,9 +239,10 @@ internal class PhoneRadio(
 	private var retrying = false
 
 	private val readings = BleReadings(scope, { wanted }, gateway, now, hold, release)
-	private val scans = PhoneScanOps { platform }
+	private val listens = ListenOps({ platform }, gateway)
+	private var listening: Job? = null
 
-	val scanView: StateFlow<PhoneScanView> get() = scans.view
+	val listenView: StateFlow<ListenView> get() = listens.view
 
 	init {
 		scope.launch { for (event in events) apply(event) }
@@ -233,9 +274,20 @@ internal class PhoneRadio(
 	/** Hold before receiver returns. */
 	fun heard(sightings: List<Sighting>): Int = readings.accept(sightings)
 
-	suspend fun scan() {
-		scans.scan()
-		events.send(Event.Check)
+	fun startListening(gateways: List<String>) {
+		listening?.cancel()
+		listening = scope.launch {
+			try {
+				listens.listen(gateways)
+			} finally {
+				events.trySend(Event.Check)
+			}
+		}
+	}
+
+	fun stopListening() {
+		listening?.cancel()
+		listening = null
 	}
 
 	private fun apply(event: Event) {

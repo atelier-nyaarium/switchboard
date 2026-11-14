@@ -19,7 +19,7 @@ private class FakeRadio : BlePlatform {
 
 	override fun readiness() = readiness
 
-	override suspend fun scan(windowMs: Long): List<Sighting> = emptyList()
+	override suspend fun listen(heard: (Sighting) -> Unit) = awaitCancellation()
 
 	override fun watch(addresses: Set<String>): Boolean {
 		watched += addresses
@@ -116,7 +116,8 @@ class PhoneRadioTest {
 		clock.at = START_GAP_MS
 		owner.rosterChanged(roster("mikan"), mapOf("mikan" to listing(PANTRY)))
 		owner.resumed()
-		owner.scan()
+		owner.startListening(emptyList())
+		owner.stopListening()
 		assertEquals(setOf(PANTRY), platform.watched.last())
 		assertEquals(mapOf(PANTRY to "mikan"), store.held)
 	}

@@ -33,6 +33,7 @@ import com.atelier_nyaarium.switchboard.proto.KasaSettingPut
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -109,12 +110,12 @@ private fun nearbyOn(gatewayId: String): List<DeviceNearby> = when (gatewayId) {
 internal class SandboxBlePlatform : BlePlatform {
 	override fun readiness() = RadioReadiness.READY
 
-	override suspend fun scan(windowMs: Long): List<Sighting> {
+	override suspend fun listen(heard: (Sighting) -> Unit) {
 		delay(1_500)
-		return listOf(
-			Sighting(FOUND_TESTED, -70, Advert("GVH5110_3C5D", mapOf("1" to "010103bac864"), listOf("ec88"))),
-			Sighting(FOUND_RAW, -58, Advert("Govee_H5199_7F01", mapOf("1" to "0101027a3f550000"), listOf("ec88"))),
-		)
+		heard(Sighting(FOUND_TESTED, -70, Advert("GVH5110_3C5D", mapOf("1" to "010103bac864"), listOf("ec88"))))
+		delay(4_000)
+		heard(Sighting(FOUND_RAW, -58, Advert("Govee_H5199_7F01", mapOf("1" to "0101027a3f550000"), listOf("ec88"))))
+		awaitCancellation()
 	}
 
 	override fun watch(addresses: Set<String>) = true

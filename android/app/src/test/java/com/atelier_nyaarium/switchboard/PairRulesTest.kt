@@ -1,12 +1,16 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
+import com.atelier_nyaarium.switchboard.proto.DeviceNearby
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -24,20 +28,27 @@ private val named = Advert("GVH5110_3C5D", emptyMap(), listOf("ec88"))
 private val reading = Advert(null, mapOf("1" to "010103bac864"), emptyList())
 private val beacon = Advert(null, mapOf("76" to "0215494e54454c4c495f524f434b535f4857"), emptyList())
 
+private fun heardOf(gateways: Map<String, List<Sighting>>, phone: List<Sighting> = emptyList()): Heard =
+	gateways.entries.fold(Heard()) { heard, (gatewayId, sightings) -> heard.with(gatewayId, sightings) }.with(null, phone)
+
 private fun found(gateways: Map<String, List<Sighting>>, phone: List<Sighting> = emptyList(), paired: Set<String> = emptySet()) =
-	foundDevices("govee", gateways, phone, paired) { definitionHit("govee", it) }
+	foundDevices("govee", heardOf(gateways, phone), paired) { definitionHit("govee", it) }
 
 class PairRulesTest {
 	@Test
-	fun `every radio's sightings merge by address, strongest first, family only and unpaired`() {
-		val rows = found(
+	fun `every radio's sightings merge by address in first-heard order, family only and unpaired`() {
+		val heard = heardOf(
 			gateways = mapOf(
 				"sakura" to listOf(Sighting(THERMO, -61, tested), Sighting(RAW, -73, untested), Sighting(LIGHT, -40, stranger)),
 				"mikan" to listOf(Sighting(THERMO, -84, tested)),
 			),
 			phone = listOf(Sighting(RAW, -58, untested)),
 		)
-		assertEquals(listOf(RAW, THERMO), rows.map { it.mac })
+		val rows = foundDevices("govee", heard, emptySet()) { definitionHit("govee", it) }
+		assertEquals(listOf(THERMO, RAW), rows.map { it.mac })
+		val louder = foundDevices("govee", heard.with(null, listOf(Sighting(RAW, -30, untested))), emptySet()) { definitionHit("govee", it) }
+		assertEquals(listOf(THERMO, RAW), louder.map { it.mac })
+		assertEquals(-30, louder.single { it.mac == RAW }.strongest)
 		assertEquals(DefinitionHit("govee-h5110", "H5110"), rows.single { it.mac == THERMO }.definition)
 		assertEquals("Not tested · raw only", testedLine(rows.single { it.mac == RAW }))
 		assertNull(testedLine(rows.single { it.mac == THERMO }))
@@ -47,27 +58,26 @@ class PairRulesTest {
 	@Test
 	fun `a device splitting its markers across packets is recognized only as their union`() {
 		assertEquals(emptyList<FoundDevice>(), found(emptyMap(), phone = listOf(Sighting(THERMO, -50, reading))))
-		val joined = listOf(named, reading, beacon).reduce(::unionAdvert)
-		val row = found(emptyMap(), phone = listOf(Sighting(THERMO, -50, joined))).single()
+		val row = found(emptyMap(), phone = listOf(named, reading, beacon).map { Sighting(THERMO, -50, it) }).single()
 		assertEquals(DefinitionHit("govee-h5110", "H5110"), row.definition)
 		assertEquals(listOf(THIS_PHONE), pairChoices(row, home = "sakura").map { it.label })
 	}
 
 	@Test
-	fun `Pair with lists the Gateways that heard it strongest first, then This Phone, marking what the assistant sees`() {
+	fun `Pair with lists home first, then other Gateways, then This Phone, whatever their signal`() {
 		val device = found(
-			gateways = mapOf("mikan" to listOf(Sighting(THERMO, -84, tested)), "sakura" to listOf(Sighting(THERMO, -61, tested))),
+			gateways = mapOf("sakura" to listOf(Sighting(THERMO, -61, tested)), "mikan" to listOf(Sighting(THERMO, -84, tested))),
 			phone = listOf(Sighting(THERMO, -50, tested)),
 		).single()
-		val choices = pairChoices(device, home = "sakura")
-		assertEquals(listOf("sakura" to true, "mikan" to false, THIS_PHONE to true), choices.map { it.label to it.assistant })
-		assertEquals(listOf(-61, -84, -50), choices.map { it.signal })
-		val (onPhone, viaPhone) = pairingOf(device, choices.last(), home = "sakura")
-		assertEquals("sakura" to Protocol.Wire.DeviceRadio.PHONES, onPhone to viaPhone.radio)
+		val choices = pairChoices(device, home = "mikan")
+		assertEquals(listOf("mikan" to true, "sakura" to false, THIS_PHONE to true), choices.map { it.label to it.assistant })
+		assertEquals(listOf(-84, -61, -50), choices.map { it.signal })
+		val (onPhone, viaPhone) = pairingOf(device, choices.last(), home = "mikan")
+		assertEquals("mikan" to Protocol.Wire.DeviceRadio.PHONES, onPhone to viaPhone.radio)
 		assertEquals(advertOf(tested), viaPhone.advert)
-		val (onMikan, viaMikan) = pairingOf(device, choices[1], home = "sakura")
-		assertEquals("mikan" to Protocol.Wire.DeviceRadio.GATEWAY, onMikan to viaMikan.radio)
-		assertNull(viaMikan.advert)
+		val (onSakura, viaSakura) = pairingOf(device, choices[1], home = "mikan")
+		assertEquals("sakura" to Protocol.Wire.DeviceRadio.GATEWAY, onSakura to viaSakura.radio)
+		assertNull(viaSakura.advert)
 		val roster = GatewayRegistry(
 			provenance = RegistryProvenance.Current,
 			gateways = listOf(
@@ -137,17 +147,39 @@ class PairRulesTest {
 	}
 
 	@Test
-	fun `a scan the radio refuses reads as failed, not as nothing heard`() = runBlocking {
+	fun `one Start scan keeps every device heard across rescans, in order, and names a refused radio`() = runBlocking {
 		val refusing = object : BlePlatform {
 			override fun readiness() = RadioReadiness.READY
 
-			override suspend fun scan(windowMs: Long): List<Sighting> = throw BleScanFailed(2)
+			override suspend fun listen(heard: (Sighting) -> Unit) = throw BleScanFailed(2)
 
 			override fun watch(addresses: Set<String>) = true
 		}
-		val ops = PhoneScanOps { refusing }
-		ops.scan()
-		assertTrue(ops.view.value is PhoneScanView.Failed)
+		fun nearby(mac: String, advert: Advert) = DeviceNearby(
+			mac = mac,
+			radio = Protocol.Wire.DeviceRadio.GATEWAY,
+			name = advert.name,
+			signal = -60,
+			data = JsonObject(advert.data.mapValues { JsonPrimitive(it.value) }),
+			services = advert.services,
+		)
+		val answers = ArrayDeque(
+			listOf<DeviceAnswer<ConsoleDeviceScanResult>>(
+				DeviceAnswer.Answered(ConsoleDeviceScanResult.Ok(emptyList(), listOf(nearby(THERMO, tested)), bluetooth = true)),
+				DeviceAnswer.Answered(ConsoleDeviceScanResult.Ok(emptyList(), listOf(nearby(RAW, untested)), bluetooth = true)),
+				DeviceAnswer.Declined,
+			),
+		)
+		val gateway = object : DeviceGateway by unusedGateway() {
+			override suspend fun scan(gatewayId: String): DeviceAnswer<ConsoleDeviceScanResult> = answers.removeFirst()
+		}
+		val ops = ListenOps({ refusing }, { gateway }, pause = {})
+		ops.listen(listOf("sakura"))
+		val view = ops.view.value
+		assertEquals(false, view.listening)
+		assertEquals(listOf(THERMO, RAW), foundDevices("govee", view.heard, emptySet()) { null }.map { it.mac })
+		assertTrue(view.phone != null)
+		assertTrue("sakura" in view.failed)
 	}
 }
 
