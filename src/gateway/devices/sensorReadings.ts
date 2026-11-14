@@ -2,7 +2,7 @@ import type { Advert } from "../../shared/ble-recognition.js";
 import { type Definition, definitionOf, inputsOf, readingsOf } from "../../shared/device-definitions/index.js";
 import type { ExprType, FieldRef } from "../../shared/expressions.js";
 import { unknown } from "../../shared/expressions.js";
-import type { DeviceRecord } from "../../shared/schemasDevices.js";
+import type { DeviceRadio, DeviceRecord } from "../../shared/schemasDevices.js";
 import type { FieldInput } from "../computed/computedFields.js";
 import type { SensorReadAnswer, SensorReads } from "./driver.js";
 
@@ -20,7 +20,8 @@ export interface SensorReadingsDeps {
 	record: (mac: string) => DeviceRecord | null;
 	latest: (mac: string) => Heard | null;
 	now: () => number;
-	staleAfterMs: number;
+	/** Per listening radio. */
+	staleAfterMs: Readonly<Record<DeviceRadio, number>>;
 	definitions?: (key: string) => Definition | null;
 	extremes?: (mac: string, measure: string) => Extremes;
 }
@@ -41,16 +42,17 @@ export function createSensorReadings(deps: SensorReadingsDeps): SensorReads & {
 	const bound = (record: DeviceRecord | null) =>
 		record?.kind === "sensor" && record.definition ? definitions(record.definition) : null;
 
-	const staleness = (heard: Heard | null): string | undefined => {
+	const staleness = (record: DeviceRecord, heard: Heard | null): string | undefined => {
 		if (!heard) return "not heard yet";
 		const quiet = deps.now() - heard.at;
-		return quiet > deps.staleAfterMs ? `not heard for ${Math.round(quiet / 60_000)} minutes` : undefined;
+		const limit = deps.staleAfterMs[record.radio ?? "gateway"];
+		return quiet > limit ? `not heard for ${Math.round(quiet / 60_000)} minutes` : undefined;
 	};
 
 	const read = (record: DeviceRecord): SensorReadAnswer => {
 		const definition = bound(record);
 		const heard = deps.latest(record.id);
-		const stale = staleness(heard);
+		const stale = staleness(record, heard);
 		const at = heard ? { heardAt: heard.at } : {};
 		if (!definition) return { readings: [], ...at, stale: stale ?? "no definition reads this model" };
 		const values = heard ? readingsOf(definition, inputsOf(definition, heard.advert)) : {};
@@ -74,7 +76,7 @@ export function createSensorReadings(deps: SensorReadingsDeps): SensorReads & {
 		const reading = definition?.readings.find((entry) => entry.key === ref.key);
 		if (!record || !definition || !reading) return null;
 		const heard = deps.latest(record.id);
-		const stale = staleness(heard);
+		const stale = staleness(record, heard);
 		const value =
 			heard && !stale ? readingsOf(definition, inputsOf(definition, heard.advert))[reading.key] : undefined;
 		return {

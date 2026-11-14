@@ -64,7 +64,7 @@ describe("sensor readings", () => {
 			record: (mac) => (mac === FREEZER ? record : null),
 			latest: () => (heardAt === null ? null : { advert: heardH5110, at: heardAt }),
 			now: () => now,
-			staleAfterMs: 5_000,
+			staleAfterMs: { gateway: 5_000, phones: 10_000 },
 			definitions: definition,
 		});
 	const ref = { source: "device" as const, device: FREEZER, key: "temperature" };
@@ -81,6 +81,10 @@ describe("sensor readings", () => {
 		).toEqual([["low", "high"], ["low"], ["low"]]);
 		expect(world(9_000).read(record).stale).toBeUndefined();
 		expect(world(1_000).read(record)).toMatchObject({ stale: expect.stringContaining("not heard for") });
+		expect(world(1_000).read({ ...record, radio: "phones" }).stale).toBeUndefined();
+		expect(world(-1_000).read({ ...record, radio: "phones" })).toMatchObject({
+			stale: expect.stringContaining("not heard for"),
+		});
 		expect(world(null).read(record)).toMatchObject({ stale: "not heard yet" });
 		expect(
 			world(null)

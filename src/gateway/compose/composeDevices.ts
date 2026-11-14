@@ -42,7 +42,8 @@ const isSensorDriver = (family: string): family is DriverOf<"sensor"> =>
 /** Per-plug bounds. */
 export const DEVICE_IDENTIFY_WAIT_MS = 3_000;
 export const DEVICE_READ_WAIT_MS = 5_000;
-const DEVICE_SENSOR_STALE_AFTER_MS = 15 * 60_000;
+/** Phones listen at low power. */
+const DEVICE_SENSOR_STALE_AFTER_MS = { gateway: 15 * 60_000, phones: 30 * 60_000 } as const;
 
 export interface DeviceStageDeps {
 	dataDir: string;
