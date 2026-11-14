@@ -394,8 +394,18 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			const devices = await Promise.all(
 				road.reads.list().records.map(async (record) => {
 					if (record.kind === "sensor") {
-						const { id, name, kind, driver, revision } = record;
-						return { id, name, kind, driver, revision, state: "unknown" as const, capabilities: [] };
+						const { id, name, kind, driver, radio, revision } = record;
+						const { heardAt, stale } = sensors.read(record);
+						return {
+							id,
+							name,
+							kind,
+							driver,
+							...(radio === undefined ? {} : { radio }),
+							revision,
+							...(heardAt === undefined ? {} : { heardAt }),
+							...(stale === undefined ? {} : { stale }),
+						};
 					}
 					const outcome = await op.plug(
 						record.id,

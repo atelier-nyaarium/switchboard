@@ -60,9 +60,12 @@ export const AssistantDeviceRecordSchema = DeviceRecordSchema.omit({ address: tr
 
 export type AssistantDeviceRecord = z.infer<typeof AssistantDeviceRecordSchema>;
 
+/** A switch's state and capabilities; a sensor's hearing. */
 export const AssistantDeviceSchema = AssistantDeviceRecordSchema.extend({
-	state: DeviceStateSchema,
-	capabilities: z.array(z.enum(DEVICE_CAPABILITIES)),
+	state: DeviceStateSchema.optional(),
+	capabilities: z.array(z.enum(DEVICE_CAPABILITIES)).optional(),
+	heardAt: z.number().int().optional(),
+	stale: z.string().optional(),
 });
 
 export const AssistantDeviceRefusalSchema = DeviceRefusalSchema.omit({ record: true }).extend({

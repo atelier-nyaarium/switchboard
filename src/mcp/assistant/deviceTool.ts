@@ -83,12 +83,12 @@ export function registerDeviceTool(mcpServer: McpServer): void {
 			description: `
 # Device
 
-One op on the owner's paired devices, run on the Gateway. Start with \`device_list\`: each device's id, name, kind, driver, revision, live state and capabilities. An id is the lower-case colon MAC from that list; a name is not an id.
+One op on the owner's paired devices, run on the Gateway. Start with \`device_list\`: each device's id, name, kind, driver, revision, and a switch's state and capabilities or a sensor's \`heardAt\` and \`stale\`. An id is the lower-case colon MAC from that list; a name is not an id.
 
-- \`device_read\`: a switch's state, schedule and settings; a sensor's readings, each with its 24-hour low and high, when last heard, and why stale if so.
-- \`device_set\`: \`on\`, \`off\` or \`toggle\`, switches only. After a \`toggle\` that answers \`timeout\`, \`device_read\` before sending another.
+- \`device_read\`: a switch's state, schedule and settings; a sensor's readings with their 24-hour lows and highs, when last heard, and why stale.
+- \`device_set\`: \`on\`, \`off\` or \`toggle\`, switches only. After a \`toggle\` answering \`timeout\`, \`device_read\` before another.
 - \`device_rename\`, \`device_schedule_put\`, \`device_setting_put\`: carry the device's \`revision\` from the list; \`stale\` means read again. A schedule put carries the schedule it edits as \`base\`. A sensor takes only a rename.
-- A danger setting, such as a plug's cloud disconnect, waits for the owner's approval on the phone. A denial's note is the owner steering you.
+- A danger setting, such as cloud disconnect, waits for the owner's approval on the phone. A denial's note steers you.
 
 A refusal names a \`code\`. \`effect\` \`unknown\` means the device may have changed, and \`landed\` counts the steps that did.
 			`.trim(),

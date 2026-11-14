@@ -284,10 +284,10 @@ describe("Gateway device stage", () => {
 			record: { name: "Chest freezer", revision: 2 },
 		});
 		expect(await stage.assistant({ kind: "device_read", id: FREEZER })).toMatchObject({ kind: "sensor" });
-		expect(await stage.assistant({ kind: "device_list" })).toMatchObject({
-			kind: "ok",
-			devices: [{ id: FREEZER, kind: "sensor", state: "unknown" }],
-		});
+		const listed = await stage.assistant({ kind: "device_list" });
+		expect(listed).toMatchObject({ kind: "ok", devices: [{ id: FREEZER, kind: "sensor", heardAt: 900 }] });
+		const row = listed.kind === "ok" ? listed.devices[0] : undefined;
+		expect(row && ("state" in row || "capabilities" in row)).toBe(false);
 		expect(traffic).toEqual([]);
 		await stage.close();
 	});
