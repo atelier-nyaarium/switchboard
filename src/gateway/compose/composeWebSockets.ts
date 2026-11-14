@@ -2,7 +2,9 @@
 
 import type { AgentBackendId } from "../../shared/agent-backend.js";
 import type { Ambient } from "../../shared/ambient.js";
+import type { Advert } from "../../shared/ble-recognition.js";
 import type { ClaudeTurnResultFrame } from "../../shared/host-op.js";
+import type { DeviceAdvertFrame } from "../../shared/schemasDeviceBluetooth.js";
 import { pushesBaseline, readsOwnState } from "../../shared/session-harness.js";
 import { ChannelDeliveryCoordinator, type ChannelDeliveryObserver } from "../channelDelivery.js";
 import { createSessionControlPlane, type SessionControlPlane } from "../sessionControlPlane.js";
@@ -34,13 +36,17 @@ export interface WebSocketsStageDeps {
 		| "sessionAuthority"
 		| "purgeQueue"
 	>;
-	host: Pick<HostStage, "wakeCoordinator" | "hostOpCoordinator" | "pushPresenceWatch" | "readLiveness">;
+	host: Pick<
+		HostStage,
+		"wakeCoordinator" | "hostOpCoordinator" | "pushPresenceWatch" | "pushDeviceWatch" | "readLiveness"
+	>;
 	agents: Pick<AgentsStage, "stacks">;
 	workflows: Pick<WorkflowsStage, "hostRegistering" | "hostRegistered" | "catalogChanged" | "claudeTurnResult">;
 	federation: Pick<FederationStage, "channelDeliveryAck">;
 	/** Composes after routes. */
 	retireStaging?: (blobIds: string[]) => void;
 	observer: ChannelDeliveryObserver;
+	ingestDeviceAdvert?: (mac: string, advert: Advert, at: number) => void;
 	onSessionConfirmed?: (team: string) => void;
 }
 
@@ -52,6 +58,16 @@ export interface WebSocketsStage {
 	/** A compaction ended for a CLI no hook hands its baseline. */
 	onBaselineDue: (listener: (team: string) => void) => void;
 	onRestartPending: (listener: (team: string, pending: boolean) => void) => void;
+}
+
+export function ingestDeviceAdvertFromCurrentHost(
+	host: Pick<HostStage, "readLiveness">,
+	frame: DeviceAdvertFrame,
+	socket: object,
+	ingest: (mac: string, advert: Advert, at: number) => void,
+): void {
+	if (host.readLiveness().socket !== socket) return;
+	for (const observation of frame.observations) ingest(observation.mac, observation.advert, observation.at);
 }
 
 export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
@@ -143,6 +159,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 					if (host.readLiveness().socket !== ws) return;
 					workflows.hostRegistered();
 					host.pushPresenceWatch(true);
+					host.pushDeviceWatch(true);
 					sessions.purgeQueue.kick();
 				});
 			}
@@ -201,6 +218,11 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 			if (wasCompacting && !derived.compacting && baselinePushed(team)) baselineDue?.(team);
 		},
 		onRestartPending: (team, pending) => restartPending?.(team, pending),
+		onDeviceAdvert: (frame: DeviceAdvertFrame, socket) => {
+			ingestDeviceAdvertFromCurrentHost(host, frame, socket, (mac, advert, at) =>
+				deps.ingestDeviceAdvert?.(mac, advert, at),
+			);
+		},
 		sessionStore: sessions.sessionStore,
 		auth: sessions.sessionAuthority,
 		presenceWriter: {

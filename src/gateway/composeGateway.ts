@@ -3,7 +3,9 @@
 import { AGENT_AGE_PASS_MS } from "../shared/agent-collect.js";
 import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { openDurable } from "../shared/durable-store.js";
 import { HOST_SPAWN, hostSpawnPoint } from "../shared/host-spawn.js";
+import { SENSORS_WATCHER_ID } from "../shared/schemasAssistantActions.js";
 import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
@@ -37,6 +39,9 @@ import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSoc
 import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflows.js";
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
+import { type Automations, createAutomations } from "./computed/automations.js";
+import { type ComputedFields, createComputedFields } from "./computed/computedFields.js";
+import { createSensorThresholds, type SensorThresholds } from "./devices/sensorThresholds.js";
 import { fireAndForget } from "./fireAndForget.js";
 import { purgeHolds } from "./purgeHolds.js";
 import { createPurgeSweep, orphanedNames } from "./purgeSweep.js";
@@ -71,6 +76,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	let presenceHandlers: RouterPresenceBuild | undefined;
 	let vault: VaultStage | undefined;
 	let devices: DeviceStage | undefined;
+	let fields: ComputedFields | undefined;
+	let automations: Automations | undefined;
+	let sensorThresholds: SensorThresholds | undefined;
+	const pendingKeys = new Set<string>();
 	let workflows: WorkflowsStage | undefined;
 	let reconcileStaleAgents = (): void => {};
 
@@ -88,7 +97,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		if (!devices) throw new Error("the devices stage is not composed yet");
 		return devices;
 	};
-
 	const context = new FederationContext({
 		contentKeys: bootstrap.contentKeyStore,
 		initialDomainId: bootstrap.initialDomainId,
@@ -213,6 +221,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		lastDeliverySeq: () => stores.pendingDeliveries.lastSeq(),
 		fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
 		...(deps.assistantWatchers ? { watchers: deps.assistantWatchers } : {}),
+		clearSensorEvents: (members) => automations?.clear(members) ?? false,
 	});
 	const persistence = composePersistence({
 		ambient: bootstrap.ambient,
@@ -228,9 +237,17 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		onPersistTick: () => {
 			reconcileStaleAgents();
 			workflows?.engine.tick();
+			devices?.flushReadings();
+			fields?.inputsChanged(devices?.sensorInputKeys() ?? []);
+			sensorThresholds?.tick();
 		},
 	});
-	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
+	const host = composeHost({
+		sessions,
+		wakeTimeoutMs: config.wakeTimeoutMs,
+		ambient: bootstrap.ambient,
+		deviceWatch: () => devices?.deviceWatch() ?? [],
+	});
 	sessions.purgeQueue.start({
 		relay: host.relayToHost,
 		hostLive: () => host.liveHostSocket() !== undefined,
@@ -426,6 +443,9 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			offered: (row) => assistant.offered(row),
 			acknowledged: (row) => assistant.delivered(row),
 		},
+		ingestDeviceAdvert: (mac, advert, at) => {
+			devices?.ingestGatewayAdvert(mac, advert, at);
+		},
 		onSessionConfirmed: awareness.workflowWatch.sessionConfirmed,
 	});
 	routes = composeRoutes({
@@ -510,7 +530,71 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		ambient: bootstrap.ambient,
 		relayToHost: host.relayToHost,
 		...(deps.kasaTransport === undefined ? {} : { transport: deps.kasaTransport }),
+		onChanged: () => {
+			host.pushDeviceWatch();
+			fields?.typesChanged();
+		},
+		onIngested: (keys) => {
+			// One evaluation per frame.
+			const fresh = pendingKeys.size === 0;
+			for (const key of keys) pendingKeys.add(key);
+			if (fresh && pendingKeys.size > 0) {
+				queueMicrotask(() => {
+					const batch = [...pendingKeys];
+					pendingKeys.clear();
+					fields?.inputsChanged(batch);
+				});
+			}
+		},
+		thresholds: {
+			read: (record) => sensorThresholds?.read(record) ?? [],
+			put: (record, op) => sensorThresholds?.put(record, op) ?? { kind: "refused", code: "write_failed" },
+			forget: (device) => sensorThresholds?.forget(device) ?? true,
+		},
 	});
+	fields = openDurable(bootstrap.dataDir, "computed-fields", (records) =>
+		openDurable(bootstrap.dataDir, "computed-state", (state) =>
+			createComputedFields({
+				records,
+				state,
+				newIncarnation: () => bootstrap.ambient.newId(),
+				now: () => bootstrap.ambient.now(),
+				input: devices!.sensorInput,
+				// Flush readings before events.
+				onCommit: () => {
+					devices?.flushReadings();
+					automations?.drain();
+				},
+			}),
+		),
+	);
+	automations = openDurable(bootstrap.dataDir, "automations", (records) =>
+		openDurable(bootstrap.dataDir, "automation-state", (state) =>
+			createAutomations({
+				records,
+				state,
+				fields: fields!,
+				newIncarnation: () => bootstrap.ambient.newId(),
+				now: () => bootstrap.ambient.now(),
+				isHome: () => assistant.placed(),
+				onQueued: () => assistant.pokeWatcher(SENSORS_WATCHER_ID),
+			}),
+		),
+	);
+	assistant.registerWatcher(automations.watcher);
+	sensorThresholds = openDurable(bootstrap.dataDir, "sensor-thresholds", (store) =>
+		createSensorThresholds({
+			store,
+			fields: fields!,
+			automations: automations!,
+			record: (id) => devices?.record(id) ?? null,
+			records: () => devices?.records() ?? [],
+			holds: (id) => devices?.holds(id) ?? true,
+		}),
+	);
+	// Repair projections before evaluating.
+	sensorThresholds.start();
+	fields.start();
 	const sessionClosed = (team: string): void => {
 		vault?.sessionEnded(team);
 		routines.sessionEnded(team);
@@ -608,6 +692,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				await capture(() => bootstrap.ambient.clearInterval(persistence.persistTimer));
 				await capture(() => bootstrap.ambient.clearInterval(threadAgeTimer));
 				await capture(() => bootstrap.ambient.clearInterval(host.presenceWatchTimer));
+				await capture(() => bootstrap.ambient.clearInterval(host.deviceWatchTimer));
 				await capture(() => bootstrap.ambient.clearInterval(awareness.awarenessTimer));
 				await capture(() => assistantRestart.stop());
 				await capture(() => bootstrap.ambient.clearInterval(websockets.wsHandlers.heartbeatInterval));

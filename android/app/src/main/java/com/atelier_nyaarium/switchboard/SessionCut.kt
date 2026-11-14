@@ -94,12 +94,12 @@ internal suspend fun ChatRepository.startCut(team: String, mode: CutMode, row: C
 
 internal suspend fun ConsoleClient.sessionCutPlan(target: String, mode: String, row: CutRow): ConsoleSessionCutPlanResult =
 	valueResult(
-		sendValueOp(transport.gatewayOf(target), ConsoleOp.SessionCutPlan(target, mode, row.at, row.text)),
+		sendValueOp(transport.gatewayOf(target), ConsoleOp.SessionCutPlan(target = target, mode = mode, rowAt = row.at, rowText = row.text)),
 		Protocol.Wire.ConsoleOpKind.SESSION_CUT_PLAN,
 	)
 
 internal suspend fun ConsoleClient.sessionCutStart(target: String, mode: String, row: CutRow): ConsoleSessionCutStartResult =
 	valueResult(
-		sendValueOp(transport.gatewayOf(target), ConsoleOp.SessionCutStart(target, mode, row.at, row.text)),
+		sendValueOp(transport.gatewayOf(target), ConsoleOp.SessionCutStart(target = target, mode = mode, rowAt = row.at, rowText = row.text)),
 		Protocol.Wire.ConsoleOpKind.SESSION_CUT_START,
 	)

@@ -1,8 +1,11 @@
 import { z } from "zod";
+import { AssistantFieldSpecSchema } from "./schemasAssistantRules.js";
+import { DeviceAdvertSchema } from "./schemasDeviceBluetooth.js";
 import { REVISION_CEILING } from "./schemasRunbook.js";
 
-export const DEVICE_KINDS = ["switch"] as const;
-export const DEVICE_DRIVERS = ["kasa"] as const;
+export const DEVICE_KINDS = ["switch", "sensor"] as const;
+export const DEVICE_DRIVERS = ["kasa", "govee"] as const;
+export const DEVICE_RADIOS = ["gateway", "phones"] as const;
 export const DEVICE_STATES = ["on", "off", "unknown", "unreachable"] as const;
 export const DEVICE_ACTIONS = ["on", "off"] as const;
 export const DEVICE_VERBS = ["on", "off", "toggle"] as const;
@@ -23,6 +26,7 @@ export const DEVICE_REFUSAL_CODES = [
 	"write_failed",
 	"daemon_away",
 	"scan_failed",
+	"no_radio",
 ] as const;
 /** Plug may have changed. */
 export const DEVICE_EFFECTS = ["none", "unknown"] as const;
@@ -30,6 +34,7 @@ export const DEVICE_MAX_RULES = 32;
 export const DEVICE_MAX_RECORDS = 64;
 
 export const DeviceKindSchema = z.enum(DEVICE_KINDS).meta({ id: "DeviceKind" });
+export const DeviceRadioSchema = z.enum(DEVICE_RADIOS).meta({ id: "DeviceRadio" });
 export const DeviceDriverSchema = z.enum(DEVICE_DRIVERS).meta({ id: "DeviceDriver" });
 export const DeviceStateSchema = z.enum(DEVICE_STATES).meta({ id: "DeviceState" });
 export const DeviceScheduleActionSchema = z.enum(DEVICE_ACTIONS).meta({ id: "DeviceScheduleAction" });
@@ -59,9 +64,15 @@ function isIpv4Literal(value: string): boolean {
 	);
 }
 
+export const DeviceIpv4Schema = z.string().refine(isIpv4Literal, "device address must be an IPv4 literal");
+
+/** Switch IPv4, sensor MAC. */
 export const DeviceAddressSchema = z
 	.string()
-	.refine(isIpv4Literal, "device address must be an IPv4 literal")
+	.refine(
+		(value) => isIpv4Literal(value) || normalizeDeviceMac(value) === value,
+		"device address must be an IPv4 literal or a lower-case colon MAC",
+	)
 	.meta({ id: "DeviceAddress" });
 
 /** The one name rule. */
@@ -90,6 +101,9 @@ export const DeviceRecordSchema = z
 		kind: DeviceKindSchema,
 		driver: DeviceDriverSchema,
 		address: DeviceAddressSchema,
+		/** Sensors only. */
+		radio: DeviceRadioSchema.optional(),
+		definition: z.string().min(1).max(64).optional(),
 		revision: DeviceRevisionSchema,
 	})
 	.meta({ id: "DeviceRecord" });
@@ -182,10 +196,67 @@ export const DeviceSettingPutSchema = z
 
 export type DeviceSettingPut = z.infer<typeof DeviceSettingPutSchema>;
 
+export const DeviceNearbySchema = z
+	.object({
+		mac: DeviceIdSchema,
+		radio: DeviceRadioSchema,
+		name: z.string().max(64).optional(),
+		/** dBm. */
+		signal: z.number().int().min(-127).max(20),
+		/** Hex by company id. */
+		data: z.record(z.string().regex(/^[0-9]{1,5}$/), z.string().regex(/^(?:[0-9a-f]{2}){0,64}$/)),
+		services: z
+			.array(z.string().regex(/^[0-9a-f]{4}$/))
+			.max(64)
+			.optional(),
+	})
+	.meta({ id: "DeviceNearby" });
+
+export const DeviceExtremeSchema = z
+	.object({ value: z.number(), at: z.number().int().nonnegative() })
+	.meta({ id: "DeviceExtreme" });
+
+export const DeviceReadingSchema = z
+	.object({
+		spec: AssistantFieldSpecSchema,
+		value: z.union([z.number(), z.string()]).optional(),
+		low: DeviceExtremeSchema.optional(),
+		high: DeviceExtremeSchema.optional(),
+	})
+	.meta({ id: "DeviceReading" });
+
+export const DeviceSensorThresholdSchema = z
+	.strictObject({
+		measure: z.string().min(1).max(64),
+		low: z.number().optional(),
+		high: z.number().optional(),
+		deadZone: z.number().nonnegative(),
+		coolDownSec: z.number().int().min(0).max(86_400),
+		revision: z.number().int().nonnegative().max(REVISION_CEILING),
+	})
+	.meta({ id: "DeviceSensorThreshold" });
+export type DeviceSensorThreshold = z.infer<typeof DeviceSensorThresholdSchema>;
+
+export const DeviceSensorThresholdPutRequestSchema = z.strictObject({
+	kind: z.literal("sensor_threshold_put"),
+	id: DeviceIdSchema,
+	measure: z
+		.string()
+		.regex(/^[a-z0-9][a-z0-9-]*$/)
+		.max(64),
+	low: z.number().optional(),
+	high: z.number().optional(),
+	deadZone: z.number().nonnegative(),
+	coolDownSec: z.number().int().min(0).max(86_400),
+	/** Zero creates. */
+	revision: z.number().int().nonnegative().max(REVISION_CEILING),
+});
+export type DeviceSensorThresholdPutRequest = z.infer<typeof DeviceSensorThresholdPutRequestSchema>;
+
 export const DeviceCandidateSchema = z
 	.object({
 		mac: DeviceIdSchema,
-		address: DeviceAddressSchema,
+		address: DeviceIpv4Schema,
 		alias: z.string().max(128),
 		model: z.string().max(128),
 		hardware: z.string().max(128),
@@ -218,15 +289,30 @@ const RefusedAnswerSchema = z.object({ kind: z.literal("refused"), refusal: Devi
 
 export const DeviceAddFieldsSchema = z.object({
 	mac: DeviceIdSchema,
-	address: DeviceAddressSchema,
+	address: DeviceIpv4Schema,
 	name: DeviceNameSchema,
 });
 
 export const DeviceListRequestSchema = z.object({ kind: z.literal("device_list") });
 export const DeviceReadRequestSchema = z.object({ kind: z.literal("device_read"), id: DeviceIdSchema });
+export const DeviceReadingPostRequestSchema = z.strictObject({
+	kind: z.literal("device_reading_post"),
+	id: DeviceIdSchema,
+	advert: DeviceAdvertSchema,
+	at: z.number().int().nonnegative(),
+});
 export const DeviceScanRequestSchema = z.object({ kind: z.literal("device_scan") });
 export const DeviceHomeNetworkRequestSchema = z.object({ kind: z.literal("device_home_network") });
-export const DeviceAddRequestSchema = DeviceAddFieldsSchema.extend({ kind: z.literal("device_add") });
+export const DeviceAddRequestSchema = z.object({
+	kind: z.literal("device_add"),
+	mac: DeviceIdSchema,
+	address: DeviceIpv4Schema.optional(),
+	name: DeviceNameSchema,
+	radio: DeviceRadioSchema.optional(),
+	definition: z.string().min(1).max(64).optional(),
+	/** Phone-captured sensor advert. */
+	advert: DeviceAdvertSchema.optional(),
+});
 export const DeviceRenameRequestSchema = z.object({
 	kind: z.literal("device_rename"),
 	id: DeviceIdSchema,
@@ -264,6 +350,8 @@ export const ConsoleDeviceListResultSchema = z
 			kind: z.literal("ok"),
 			records: z.array(DeviceRecordSchema).max(DEVICE_MAX_RECORDS),
 			revision: z.number().int().nonnegative().max(REVISION_CEILING),
+			/** Host radio; absent until a scan. */
+			bluetooth: z.boolean().optional(),
 		}),
 		RefusedAnswerSchema,
 	])
@@ -278,13 +366,40 @@ export const ConsoleDeviceReadResultSchema = z
 			/** Absent if read failed. */
 			settings: DeviceSettingsSchema.optional(),
 		}),
+		z.object({
+			kind: z.literal("sensor"),
+			readings: z.array(DeviceReadingSchema).max(16),
+			/** Newest capture. */
+			heardAt: z.number().int().nonnegative().optional(),
+			/** Why not current. */
+			stale: z.string().max(200).optional(),
+			thresholds: z.array(DeviceSensorThresholdSchema).max(16).optional(),
+		}),
 		RefusedAnswerSchema,
 	])
 	.meta({ id: "ConsoleDeviceReadResult" });
 
+export const ConsoleDeviceReadingPostResultSchema = z
+	.discriminatedUnion("kind", [z.object({ kind: z.literal("ok") }), RefusedAnswerSchema])
+	.meta({ id: "ConsoleDeviceReadingPostResult" });
+
+export const ConsoleDeviceSensorThresholdPutResultSchema = z
+	.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("ok"), threshold: DeviceSensorThresholdSchema.nullable() }),
+		RefusedAnswerSchema,
+	])
+	.meta({ id: "ConsoleDeviceSensorThresholdPutResult" });
+
 export const ConsoleDeviceScanResultSchema = z
 	.discriminatedUnion("kind", [
-		z.object({ kind: z.literal("ok"), candidates: z.array(DeviceCandidateSchema).max(DEVICE_MAX_RECORDS) }),
+		z.object({
+			kind: z.literal("ok"),
+			candidates: z.array(DeviceCandidateSchema).max(DEVICE_MAX_RECORDS),
+			/** Never in `candidates`. */
+			nearby: z.array(DeviceNearbySchema).max(DEVICE_MAX_RECORDS).optional(),
+			/** False: no radio. */
+			bluetooth: z.boolean().optional(),
+		}),
 		RefusedAnswerSchema,
 	])
 	.meta({ id: "ConsoleDeviceScanResult" });
@@ -333,6 +448,8 @@ export const ConsoleDeviceSettingPutResultSchema = z
 export const DEVICE_CONSOLE_REQUESTS = [
 	DeviceListRequestSchema,
 	DeviceReadRequestSchema,
+	DeviceReadingPostRequestSchema,
+	DeviceSensorThresholdPutRequestSchema,
 	DeviceScanRequestSchema,
 	DeviceHomeNetworkRequestSchema,
 	DeviceAddRequestSchema,
@@ -349,6 +466,8 @@ export type DeviceConsoleOpKind = DeviceConsoleOp["kind"];
 export const DEVICE_CONSOLE_RESULTS = {
 	device_list: ConsoleDeviceListResultSchema,
 	device_read: ConsoleDeviceReadResultSchema,
+	device_reading_post: ConsoleDeviceReadingPostResultSchema,
+	sensor_threshold_put: ConsoleDeviceSensorThresholdPutResultSchema,
 	device_scan: ConsoleDeviceScanResultSchema,
 	device_home_network: ConsoleDeviceHomeNetworkResultSchema,
 	device_add: ConsoleDeviceAddResultSchema,
@@ -369,12 +488,23 @@ export function isDeviceConsoleOp<T extends { kind: string }>(op: T): op is Extr
 	return (DEVICE_CONSOLE_OP_KINDS as readonly string[]).includes(op.kind);
 }
 
+export const DRIVER_KINDS = {
+	kasa: "switch",
+	govee: "sensor",
+} as const satisfies Record<DeviceRecord["driver"], DeviceRecord["kind"]>;
+
+export type DriverOf<K extends DeviceRecord["kind"]> = {
+	[D in keyof typeof DRIVER_KINDS]: (typeof DRIVER_KINDS)[D] extends K ? D : never;
+}[keyof typeof DRIVER_KINDS];
+
 export function deviceRefusal(device: DeviceRecord): string | null {
-	const supportedKinds: Readonly<Record<DeviceRecord["driver"], readonly DeviceRecord["kind"][]>> = {
-		kasa: ["switch"],
-	};
-	if (!supportedKinds[device.driver].includes(device.kind)) {
-		return `${device.driver} does not support ${device.kind}`;
+	if (DRIVER_KINDS[device.driver] !== device.kind) return `${device.driver} does not support ${device.kind}`;
+	if (device.kind === "switch") {
+		if (!isIpv4Literal(device.address)) return "a switch's address is an IPv4 literal";
+		if (device.radio !== undefined || device.definition !== undefined) return "a switch has no radio or definition";
+	} else {
+		if (device.address !== device.id) return "a sensor's address is its MAC";
+		if (device.radio === undefined) return "a sensor names its radio";
 	}
 	return null;
 }

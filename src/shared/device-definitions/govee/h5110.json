@@ -1,0 +1,89 @@
+{
+	"format": 1,
+	"key": "govee-h5110",
+	"version": 1,
+	"family": "govee",
+	"label": "Govee thermometer and hygrometer",
+	"models": ["H5110"],
+	"match": {
+		"sources": [{ "company": 1, "prefix": "0101", "minLength": 6 }],
+		"namePrefix": "GVH5110",
+		"activeScan": false
+	},
+	"inputs": [{ "key": "adv", "company": 1 }],
+	"readings": [
+		{
+			"key": "temperature",
+			"spec": { "kind": "number", "field": "temperature", "label": "Temperature", "unit": "C", "decimals": 1 },
+			"nodes": [
+				{ "kind": "field", "ref": { "source": "input", "key": "adv" } },
+				{ "kind": "take", "input": 0, "offset": 2, "length": 3, "signed": false, "endian": "big" },
+				{ "kind": "literal", "type": "number", "value": "8388607" },
+				{ "kind": "arith", "op": "and", "left": 1, "right": 2 },
+				{ "kind": "literal", "type": "number", "value": "8388608" },
+				{ "kind": "arith", "op": "and", "left": 1, "right": 4 },
+				{ "kind": "literal", "type": "number", "value": "0" },
+				{ "kind": "compare", "op": "ne", "left": 5, "right": 6 },
+				{ "kind": "literal", "type": "number", "value": "1000" },
+				{ "kind": "arith", "op": "intdiv", "left": 3, "right": 8 },
+				{ "kind": "literal", "type": "number", "value": "10" },
+				{ "kind": "arith", "op": "div", "left": 9, "right": 10 },
+				{ "kind": "arith", "op": "sub", "left": 6, "right": 11 },
+				{ "kind": "choose", "branches": [{ "when": 7, "result": 12 }], "otherwise": 11 },
+				{ "kind": "take", "input": 0, "offset": 5, "length": 1, "signed": false, "endian": "big" },
+				{ "kind": "literal", "type": "number", "value": "128" },
+				{ "kind": "arith", "op": "and", "left": 14, "right": 15 },
+				{ "kind": "compare", "op": "eq", "left": 16, "right": 6 },
+				{ "kind": "literal", "type": "number", "value": "-40" },
+				{ "kind": "compare", "op": "ge", "left": 13, "right": 18 },
+				{ "kind": "literal", "type": "number", "value": "100" },
+				{ "kind": "compare", "op": "le", "left": 13, "right": 20 },
+				{ "kind": "all", "args": [17, 19, 21] },
+				{ "kind": "unknown", "reason": "error flag or out of range" },
+				{ "kind": "choose", "branches": [{ "when": 22, "result": 13 }], "otherwise": 23 }
+			]
+		},
+		{
+			"key": "humidity",
+			"spec": { "kind": "number", "field": "humidity", "label": "Humidity", "unit": "%", "decimals": 1 },
+			"nodes": [
+				{ "kind": "field", "ref": { "source": "input", "key": "adv" } },
+				{ "kind": "take", "input": 0, "offset": 2, "length": 3, "signed": false, "endian": "big" },
+				{ "kind": "literal", "type": "number", "value": "8388607" },
+				{ "kind": "arith", "op": "and", "left": 1, "right": 2 },
+				{ "kind": "literal", "type": "number", "value": "1000" },
+				{ "kind": "arith", "op": "mod", "left": 3, "right": 4 },
+				{ "kind": "literal", "type": "number", "value": "10" },
+				{ "kind": "arith", "op": "div", "left": 5, "right": 6 },
+				{ "kind": "take", "input": 0, "offset": 5, "length": 1, "signed": false, "endian": "big" },
+				{ "kind": "literal", "type": "number", "value": "128" },
+				{ "kind": "arith", "op": "and", "left": 8, "right": 9 },
+				{ "kind": "literal", "type": "number", "value": "0" },
+				{ "kind": "compare", "op": "eq", "left": 10, "right": 11 },
+				{ "kind": "literal", "type": "number", "value": "100" },
+				{ "kind": "compare", "op": "le", "left": 7, "right": 13 },
+				{ "kind": "all", "args": [12, 14] },
+				{ "kind": "unknown", "reason": "error flag or out of range" },
+				{ "kind": "choose", "branches": [{ "when": 15, "result": 7 }], "otherwise": 16 }
+			]
+		},
+		{
+			"key": "battery",
+			"spec": { "kind": "number", "field": "battery", "label": "Battery", "unit": "%", "decimals": 0 },
+			"nodes": [
+				{ "kind": "field", "ref": { "source": "input", "key": "adv" } },
+				{ "kind": "take", "input": 0, "offset": 5, "length": 1, "signed": false, "endian": "big" },
+				{ "kind": "literal", "type": "number", "value": "127" },
+				{ "kind": "arith", "op": "and", "left": 1, "right": 2 }
+			]
+		}
+	],
+	"examples": [
+		{ "inputs": { "adv": "010103bac864" }, "readings": { "temperature": 24.4, "humidity": 42.4, "battery": 100 } },
+		{ "inputs": { "adv": "010180d16c5a" }, "readings": { "temperature": -5.3, "humidity": 61.2, "battery": 90 } },
+		{ "inputs": { "adv": "010103bac8e4" }, "readings": { "temperature": null, "humidity": null, "battery": 100 } },
+		{ "inputs": { "adv": "0101817c86d8" }, "readings": { "temperature": null, "humidity": null, "battery": 88 } },
+		{ "inputs": { "adv": "0101" }, "readings": { "temperature": null, "humidity": null, "battery": null } }
+	],
+	"attribution": "Decode vectors follow govee-ble (Apache-2.0)."
+}

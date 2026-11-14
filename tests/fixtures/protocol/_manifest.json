@@ -64,6 +64,8 @@
 		{ "file": "device-remove-result-ok.json", "schema": "ConsoleDeviceRemoveResult", "expect": "pass" },
 		{ "file": "device-read-result-settings.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
 		{ "file": "device-read-result-no-settings.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
+		{ "file": "device-read-result-sensor.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
+		{ "file": "device-read-result-sensor-thresholds.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
 		{
 			"file": "device-read-result-future-kind.json",
 			"schema": "ConsoleDeviceReadResult",
@@ -79,6 +81,7 @@
 			"file": "device-schedule-put-result-refused.json",
 			"schema": "ConsoleDeviceSchedulePutResult",
 			"expect": "pass"
-		}
+		},
+		{ "file": "device-scan-result-nearby.json", "schema": "ConsoleDeviceScanResult", "expect": "pass" }
 	]
 }

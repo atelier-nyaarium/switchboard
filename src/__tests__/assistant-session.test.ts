@@ -226,6 +226,18 @@ describe("the assistant's session", () => {
 		expect(assistant.forgetRefusal(ASSISTANT_TEAM)).not.toBeNull();
 	});
 
+	it("lists a watcher registered before start and refuses one after", async () => {
+		const { assistant, followHome } = stage();
+		const sensors = { ...counting(), id: "sensors", label: "Sensors" };
+
+		assistant.registerWatcher(sensors);
+		assistant.start();
+		await followHome();
+
+		expect(assistant.console.state().watchers.map((watcher) => watcher.id)).toEqual(["github", "sensors"]);
+		expect(() => assistant.registerWatcher({ ...sensors, id: "late" })).toThrow();
+	});
+
 	it("compares home versions only within one Domain", async () => {
 		const before = stage({ domainId: "old-domain" });
 		await before.followHome(5, OTHER_GATEWAY);

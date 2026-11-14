@@ -42,28 +42,28 @@ internal class ConsoleDeviceGateway(private val client: ConsoleClient) : DeviceG
 		client.deviceCall(gatewayId, ConsoleOp.DeviceHomeNetwork, ConsoleDeviceHomeNetworkResult.serializer())
 
 	override suspend fun add(gatewayId: String, mac: String, address: String, name: String) =
-		client.deviceCall(gatewayId, ConsoleOp.DeviceAdd(mac, address, name), ConsoleDeviceAddResult.serializer())
+		client.deviceCall(gatewayId, ConsoleOp.DeviceAdd(mac = mac, address = address, name = name), ConsoleDeviceAddResult.serializer())
 
 	override suspend fun rename(gatewayId: String, id: String, name: String, revision: Long) =
-		client.deviceCall(gatewayId, ConsoleOp.DeviceRename(id, name, revision), ConsoleDeviceRenameResult.serializer())
+		client.deviceCall(gatewayId, ConsoleOp.DeviceRename(id = id, name = name, revision = revision), ConsoleDeviceRenameResult.serializer())
 
 	override suspend fun remove(gatewayId: String, id: String, revision: Long) =
-		client.deviceCall(gatewayId, ConsoleOp.DeviceRemove(id, revision), ConsoleDeviceRemoveResult.serializer())
+		client.deviceCall(gatewayId, ConsoleOp.DeviceRemove(id = id, revision = revision), ConsoleDeviceRemoveResult.serializer())
 
 	override suspend fun set(gatewayId: String, id: String, verb: String) =
-		client.deviceCall(gatewayId, ConsoleOp.DeviceSet(id, verb), ConsoleDeviceSetResult.serializer())
+		client.deviceCall(gatewayId, ConsoleOp.DeviceSet(id = id, verb = verb), ConsoleDeviceSetResult.serializer())
 
 	override suspend fun schedulePut(gatewayId: String, id: String, revision: Long, base: DeviceSchedule, schedule: DeviceSchedule) =
 		client.deviceCall(
 			gatewayId,
-			ConsoleOp.DeviceSchedulePut(id, revision, base, schedule),
+			ConsoleOp.DeviceSchedulePut(id = id, revision = revision, base = base, schedule = schedule),
 			ConsoleDeviceSchedulePutResult.serializer(),
 		)
 
 	override suspend fun settingPut(gatewayId: String, id: String, revision: Long, setting: DeviceSettingPut) =
 		client.deviceCall(
 			gatewayId,
-			ConsoleOp.DeviceSettingPut(id, revision, setting),
+			ConsoleOp.DeviceSettingPut(id = id, revision = revision, setting = setting),
 			ConsoleDeviceSettingPutResult.serializer(),
 		)
 }

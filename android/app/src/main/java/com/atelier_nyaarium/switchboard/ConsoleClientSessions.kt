@@ -25,7 +25,7 @@ suspend fun ConsoleClient.respond(
 ): ConsoleRespondResult = deliveryResult(
 	sendDeliveryOp(
 		sessionAddressOf(target),
-		ConsoleOp.Respond(target, status, response, replyAsJson, files),
+		ConsoleOp.Respond(session_id = target, status = status, response = response, replyAsJson = replyAsJson, files = files),
 		opId,
 	),
 	Protocol.Wire.ConsoleOpKind.RESPOND,
@@ -33,7 +33,7 @@ suspend fun ConsoleClient.respond(
 
 /** `harness` serves a Gateway holding no record of the session. */
 suspend fun ConsoleClient.wake(target: String, opId: String = ambient.newOpId(), harness: String? = null) {
-	requireDelivery(sendDeliveryOp(sessionAddressOf(target), ConsoleOp.Wake(target, harness), opId), Protocol.Wire.ConsoleOpKind.WAKE)
+	requireDelivery(sendDeliveryOp(sessionAddressOf(target), ConsoleOp.Wake(target = target, harness = harness), opId), Protocol.Wire.ConsoleOpKind.WAKE)
 }
 
 suspend fun ConsoleClient.reloadPlugins(gatewayId: String, opId: String = ambient.newOpId()): com.atelier_nyaarium.switchboard.proto.ConsoleReloadPluginsResult =

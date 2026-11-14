@@ -4,6 +4,7 @@ import type { ServerWebSocket } from "bun";
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import { type HostSpawnState, hostSpawnPoint } from "../../shared/host-spawn.js";
+import { type DeviceWatchEntry, DeviceWatchFrameSchema } from "../../shared/schemasDeviceBluetooth.js";
 import { SESSION_HARNESSES, type SessionHarness } from "../../shared/session-harness.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
 import { HostOpCoordinator } from "../hostOpCoordinator.js";
@@ -40,6 +41,7 @@ export interface HostStageDeps {
 	>;
 	wakeTimeoutMs: number;
 	ambient: Ambient;
+	deviceWatch?: () => DeviceWatchEntry[];
 }
 
 export interface HostStage {
@@ -52,6 +54,8 @@ export interface HostStage {
 	/** Re-sends the watch list; `force` re-sends an unchanged one. */
 	pushPresenceWatch: (force?: boolean) => void;
 	presenceWatchTimer: IntervalHandle;
+	pushDeviceWatch: (force?: boolean) => void;
+	deviceWatchTimer: IntervalHandle;
 	/** What a spawn point runs; undefined until the daemon said. */
 	installedAt: (spawn: string) => readonly SessionHarness[] | undefined;
 }
@@ -66,7 +70,7 @@ function installedAt(state: HostSpawnState, spawn: string): readonly SessionHarn
 	return container?.state === "running" && container.clis?.length ? container.clis : undefined;
 }
 
-export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps): HostStage {
+export function composeHost({ sessions, wakeTimeoutMs, ambient, deviceWatch = () => [] }: HostStageDeps): HostStage {
 	const wakeCoordinator = new WakeCoordinator(ambient, (team) =>
 		Boolean(resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team)),
 	);
@@ -143,6 +147,17 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 			lastPushedWatch = serialized;
 	}
 	const presenceWatchTimer = ambient.setInterval(() => pushPresenceWatch(), WATCH_PUSH_MS);
+	let lastPushedDeviceWatch = "";
+	function pushDeviceWatch(force = false): void {
+		const hostWs = liveHostSocket();
+		if (!hostWs) return;
+		const watch = DeviceWatchFrameSchema.parse({ type: "device_watch", watch: deviceWatch() }).watch;
+		const serialized = JSON.stringify(watch);
+		if (!force && serialized === lastPushedDeviceWatch) return;
+		if (reached(sendOn(hostWs, JSON.stringify({ type: "device_watch", watch }), "device_watch")))
+			lastPushedDeviceWatch = serialized;
+	}
+	const deviceWatchTimer = ambient.setInterval(() => pushDeviceWatch(), WATCH_PUSH_MS);
 
 	return {
 		liveHostSocket,
@@ -153,6 +168,8 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 		relayToHost,
 		pushPresenceWatch,
 		presenceWatchTimer,
+		pushDeviceWatch,
+		deviceWatchTimer,
 		installedAt: (spawn) => installedAt(sessions.hostSpawnPoints, spawn),
 	};
 }

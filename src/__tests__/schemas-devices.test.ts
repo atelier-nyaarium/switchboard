@@ -8,6 +8,7 @@ import {
 	DeviceScheduleSchema,
 	DeviceSettingsSchema,
 	deviceNameRefusal,
+	deviceRefusal,
 	normalizeDeviceMac,
 } from "../shared/schemasDevices.js";
 
@@ -25,6 +26,34 @@ const schedule = {
 };
 
 describe("device schemas", () => {
+	it("takes an IPv4 address for a switch and its own MAC for a sensor, which names its radio", () => {
+		const lamp = {
+			id,
+			name: "Lamp",
+			kind: "switch",
+			driver: "kasa",
+			address: "192.168.1.10",
+			revision: 1,
+		} as const;
+		const freezer = {
+			id,
+			name: "Freezer",
+			kind: "sensor",
+			driver: "govee",
+			address: id,
+			radio: "gateway",
+			revision: 1,
+		} as const;
+
+		expect(deviceRefusal(lamp)).toBeNull();
+		expect(deviceRefusal(freezer)).toBeNull();
+		expect(deviceRefusal({ ...lamp, address: id })).not.toBeNull();
+		expect(deviceRefusal({ ...lamp, radio: "gateway" })).not.toBeNull();
+		expect(deviceRefusal({ ...freezer, address: "192.168.1.10" })).not.toBeNull();
+		expect(deviceRefusal({ ...freezer, radio: undefined })).not.toBeNull();
+		expect(deviceRefusal({ ...freezer, driver: "kasa" })).not.toBeNull();
+	});
+
 	it("normalizes MAC spellings and only accepts canonical ids", () => {
 		expect(normalizeDeviceMac("AA-BB-CC-DD-EE-FF")).toBe(id);
 		expect(normalizeDeviceMac("AABBCCDDEEFF")).toBe(id);
@@ -39,6 +68,8 @@ describe("device schemas", () => {
 		expect(DeviceNameSchema.safeParse("Desk lamp").success).toBe(true);
 		expect(DeviceAddressSchema.safeParse("192.168.1.10").success).toBe(true);
 		expect(DeviceAddressSchema.safeParse("010.0.0.1").success).toBe(false);
+		expect(DeviceAddressSchema.safeParse(id).success).toBe(true);
+		expect(DeviceAddressSchema.safeParse("AA:BB:CC:DD:EE:FF").success).toBe(false);
 	});
 
 	it("bounds schedules and validates driver settings", () => {

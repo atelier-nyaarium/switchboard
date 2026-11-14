@@ -10,6 +10,7 @@ export const GITHUB_DONE_IDS_MAX = 25;
 const INBOX = ASSISTANT_COMMANDS.inbox.tool;
 
 export const GITHUB_WATCHER_ID = "github";
+export const SENSORS_WATCHER_ID = "sensors";
 
 const SummarySchema = z
 	.string()
@@ -69,6 +70,23 @@ Send at most ${GITHUB_DONE_IDS_MAX} ids per call; each id takes three GitHub req
 				.refine((ids) => new Set(ids).size === ids.length, "each id once")
 				.meta({ uniqueItems: true })
 				.describe(`Thread ids, as events and \`${INBOX}\` give them.`),
+			summary: SummarySchema.optional(),
+		},
+		answer: ActionAnswerSchema,
+	},
+	sensors_clear: {
+		watcherId: SENSORS_WATCHER_ID,
+		label: "Clear events",
+		description: "Removes selected sensor threshold events from your inbox.",
+		usage: `Clear sensor threshold events by their event ids.`,
+		params: {
+			members: z
+				.array(z.string().min(1).max(256))
+				.min(1)
+				.max(RECORD_THREADS_MAX)
+				.refine((members) => new Set(members).size === members.length, "each event once")
+				.meta({ uniqueItems: true })
+				.describe("Event ids from the Sensors inbox."),
 			summary: SummarySchema.optional(),
 		},
 		answer: ActionAnswerSchema,

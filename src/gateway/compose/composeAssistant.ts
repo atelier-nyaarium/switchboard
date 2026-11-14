@@ -33,7 +33,12 @@ import {
 	ruleMatches,
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
-import { IFTTT_INTEGRATION_ID, INTEGRATION_KEYS, integrationLabel } from "../../shared/schemasIntegrations.js";
+import {
+	IFTTT_INTEGRATION_ID,
+	INTEGRATION_KEYS,
+	INTEGRATIONS,
+	integrationLabel,
+} from "../../shared/schemasIntegrations.js";
 import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilities.js";
 import type { PhoneHoldPlane } from "../../shared/schemasPhoneHold.js";
 import { type BaselineHold, holdLine, type SessionBaseline } from "../../shared/session-baseline.js";
@@ -54,6 +59,7 @@ import { createPhoneDispatch, holdRefusal } from "../assistant/phoneDispatch.js"
 import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } from "../assistant/phoneRequests.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
+import { SensorsClear } from "../assistant/sensorsClear.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
 import { createStatusMemo } from "../assistant/statusMemo.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
@@ -133,6 +139,7 @@ export interface AssistantStageDeps {
 	fetch: GithubClientDeps["fetch"];
 	/** Replaces the built-in watchers. */
 	watchers?: readonly Watcher[];
+	clearSensorEvents?: (members: readonly string[]) => boolean;
 }
 
 export interface AssistantStage {
@@ -155,8 +162,11 @@ export interface AssistantStage {
 	bindWake: (wake: AssistantWake) => void;
 	/** Check now's road. */
 	bindNudge: (nudge: AssistantNudge) => void;
+	/** Register before start. */
+	registerWatcher: (watcher: Watcher) => void;
 	/** Arms watchers after activation. */
 	start: () => void;
+	pokeWatcher: (watcherId: string) => void;
 	/** Stop lanes before flush. */
 	stop: () => Promise<void>;
 	/** Plugin-confirmed delivery. */
@@ -201,8 +211,11 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		token: tokenFor(GITHUB_WATCHER_ID),
 		now: () => ambient.now(),
 	});
-	const watchers = deps.watchers ?? [createGithubWatcher(github)];
-	const actions: WatcherActions = { github_done: new GithubDone(github) };
+	const watchers: Watcher[] = [...(deps.watchers ?? [createGithubWatcher(github)])];
+	const actions: WatcherActions = {
+		github_done: new GithubDone(github),
+		sensors_clear: new SensorsClear((members) => deps.clearSensorEvents?.(members) ?? false),
+	};
 
 	const watcherState = openDurable(deps.dataDir, "assistant-watchers", (store) => createWatcherStateStore(store));
 	const enabled = openDurable(deps.dataDir, "assistant-watcher-enabled", (store) => createWatcherEnabledStore(store));
@@ -329,7 +342,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const held = deps.vault.watcherGrants(watcherId);
 		return held.length === entryIds.length && entryIds.every((entryId) => held.includes(entryId));
 	};
-	const grantTargets = [...watchers.map((watcher) => watcher.id), ...INTEGRATION_IDS];
+	const grantTargets = () => [...watchers.map((watcher) => watcher.id), ...INTEGRATION_IDS];
 
 	const watcherOf = (watcher: Watcher): AssistantWatcher => {
 		const state = watcherState.get(watcher.id);
@@ -590,7 +603,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				label: integrationLabel(id),
 				grants: deps.vault.watcherGrants(id),
 			})),
-			offered: INTEGRATION_KEYS,
+			// No Add flow for listen.
+			offered: INTEGRATION_KEYS.filter((key) => INTEGRATIONS[key].discovery !== "listen"),
 			approveEverySend: safety.approveEverySend(),
 			checkIns: true,
 		};
@@ -613,8 +627,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const refused = placeRefusal(workdirPath, sessions);
 		if (refused) return refused;
 		marker.ended();
-		for (const id of grantTargets) deps.vault.setWatcherGrants(id, []);
-		if (!grantTargets.every((id) => grantsLanded(id, [])))
+		for (const id of grantTargets()) deps.vault.setWatcherGrants(id, []);
+		if (!grantTargets().every((id) => grantsLanded(id, [])))
 			return "a grant left from an earlier placement could not be dropped";
 		// First poll primes again.
 		if (!watchers.every((watcher) => watcherState.put(watcher.id, FRESH_STATE)))
@@ -667,10 +681,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			if (held()) return false;
 		}
 		marker.ended();
-		for (const id of grantTargets) {
+		for (const id of grantTargets()) {
 			if (deps.vault.watcherGrants(id).length > 0) deps.vault.setWatcherGrants(id, []);
 		}
-		if (!grantTargets.every((id) => grantsLanded(id, []))) return false;
+		if (!grantTargets().every((id) => grantsLanded(id, []))) return false;
 		const ids = watchers.map((watcher) => watcher.id);
 		const residue = ids.some((watcherId) => {
 			const held = rules.get(watcherId);
@@ -841,6 +855,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				};
 			},
 		},
+		registerWatcher: (watcher) => {
+			if (deps.watchers) return;
+			if (active) throw new Error("watchers register before the assistant starts");
+			if (watchers.some((held) => held.id === watcher.id)) throw new Error(`${watcher.id} is registered twice`);
+			watchers.push(watcher);
+		},
 		start: () => {
 			active = true;
 			startLanes();
@@ -865,6 +885,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				}
 			});
 		},
+		pokeWatcher: (watcherId) => lanes?.poke(watcherId),
 		stop: async () => {
 			ownerOpsClosed = true;
 			// Late applies start nothing.

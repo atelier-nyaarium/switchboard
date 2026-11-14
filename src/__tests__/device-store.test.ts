@@ -159,11 +159,10 @@ describe("device store", () => {
 		const file = path.join(dataDir, "devices.json");
 		const sensor = {
 			id: "ce:1c:44:06:3c:5d",
-			name: "Freezer",
-			kind: "sensor",
-			driver: "govee",
-			address: "ce:1c:44:06:3c:5d",
-			radio: "gateway",
+			name: "Porch light",
+			kind: "light",
+			driver: "lifx",
+			address: "192.168.1.30",
 			revision: 2,
 		};
 		const lamp = device("aa:bb:cc:dd:ee:ff", { name: "Lamp" });

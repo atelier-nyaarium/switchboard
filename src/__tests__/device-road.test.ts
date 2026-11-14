@@ -6,12 +6,14 @@ import { composeDevices, DEVICE_IDENTIFY_WAIT_MS, DEVICE_READ_WAIT_MS } from "..
 import { createKasaTransport, type KasaTransport } from "../gateway/devices/kasa/transport.js";
 import { createDeviceRoad, Decline, type Shape, unwrap } from "../gateway/devices/road.js";
 import { consoleShape } from "../gateway/devices/shapes.js";
+import { createDeviceStore } from "../gateway/devices/store.js";
 import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../shared/console-protocol.js";
 import type { DeviceConsoleOp, DeviceConsoleOpKind } from "../shared/schemasDevices.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 import { createFakeKasaPlug } from "../testing/fakeKasaPlug.js";
 
 const MAC = "aa:bb:cc:dd:ee:ff";
+const SENSOR_MAC = "aa:bb:cc:dd:ee:fe";
 const CONSOLE_BOUND_MS = CONSOLE_ANSWER_WAIT_MS - CONSOLE_HOP_MARGIN_MS;
 const NOT_STARTED_ANSWER = { kind: "refused", refusal: { code: "timeout", effect: "none" } };
 
@@ -192,11 +194,24 @@ describe("device road", () => {
 		const dataDir = fresh("fence");
 		const plug = await createFakeKasaPlug({ mac: MAC });
 		const relay = vi.fn(noHost);
+		let snapshot: unknown = null;
+		const deviceStore = createDeviceStore({
+			store: {
+				load: () => snapshot,
+				saveChecked: (next) => {
+					snapshot = structuredClone(next);
+				},
+			},
+			onChanged: () => {},
+		});
+		const sensor = deviceStore.addSensor({ mac: SENSOR_MAC, name: "Sensor", driver: "govee", radio: "phones" });
+		if (!sensor.stored) throw new Error(sensor.reason);
 		const stage = composeDevices({
 			dataDir,
 			ambient: fakeAmbient(),
 			transport: createKasaTransport(plug.port),
 			relayToHost: relay,
+			deviceStore,
 		});
 		try {
 			await stage.console(addLamp);
@@ -205,6 +220,21 @@ describe("device road", () => {
 			const ops: { [K in DeviceConsoleOpKind]: Extract<DeviceConsoleOp, { kind: K }> } = {
 				device_list: { kind: "device_list" },
 				device_read: { kind: "device_read", id: MAC },
+				device_reading_post: {
+					kind: "device_reading_post",
+					id: SENSOR_MAC,
+					advert: { data: {}, services: [] },
+					at: 1,
+				},
+				sensor_threshold_put: {
+					kind: "sensor_threshold_put",
+					id: SENSOR_MAC,
+					measure: "temperature",
+					high: 28,
+					deadZone: 1,
+					coolDownSec: 0,
+					revision: 0,
+				},
 				device_scan: { kind: "device_scan" },
 				device_home_network: { kind: "device_home_network" },
 				device_add: { kind: "device_add", mac: "aa:bb:cc:dd:ee:01", address: "127.0.0.1", name: "Fan" },

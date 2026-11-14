@@ -107,7 +107,14 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 		unread: (): number => held.filter((row) => read(row) === null).length,
 
 		/** Zero base creates. */
-		put(kind: string, id: string, body: unknown, base: number): OwnerPutResult<T> {
+		/** Allows id revival. */
+		put(
+			kind: string,
+			id: string,
+			body: unknown,
+			base: number,
+			options: { revive?: boolean } = {},
+		): OwnerPutResult<T> {
 			// Avoid prototype-key semantics.
 			if (!RULE_ID_RE.test(id) || id === "__proto__") return { stored: false, reason: "not a record id" };
 			const schema = deps.kinds[kind];
@@ -127,7 +134,8 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 			if (row && !current) return { stored: false, reason: "held by a newer build; update this Gateway" };
 			if (current) {
 				// Lost replies allow retries.
-				const echoes = base === current.revision || base === current.revision - 1;
+				// Matching create retries echo.
+				const echoes = base === current.revision || base === current.revision - 1 || base === 0;
 				if (echoes && current.kind === kind && sameBody(current.body, parsed.data))
 					return { stored: true, record: current };
 				if (base !== current.revision) {
@@ -137,13 +145,14 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 					return { stored: false, reason: "revision ceiling", record: current };
 			} else {
 				if (base !== 0) return { stored: false, reason: "not stored; it may have been removed" };
-				if (buried.has(id)) return { stored: false, reason: "removed" };
+				if (buried.has(id) && !options.revive) return { stored: false, reason: "removed" };
 				if (held.length >= deps.max) return { stored: false, reason: `this Gateway holds ${deps.max} already` };
 			}
 			const record: OwnerRecord<T> = {
 				id,
 				kind,
-				revision: (current?.revision ?? 0) + 1,
+				// Revival preserves revisions.
+				revision: (current?.revision ?? (options.revive ? (buried.get(id) ?? 0) : 0)) + 1,
 				incarnation: current?.incarnation ?? deps.newIncarnation(),
 				body: parsed.data,
 			};

@@ -44,6 +44,10 @@ The Gateway reads typed values (a sensor's temperature, a frame of bytes), deriv
 - **The watcher:** `watcher` (id `sensors`, text fields automation, field and value) lists the queue for the source lane.
 - **Composition order:** read the home, build computed fields, build automations (it drains at construction, so it must see the home), then `start()`.
 
+## Device definitions
+
+`src/shared/device-definitions/`: one JSON file per model under its family, the same bytes whether shipped, built or shared. A definition is `{ format, key, version, family, label, models, match { sources, namePrefix, activeScan }, inputs, readings, examples, attribution }`: each input is a company's maker data as bytes, each reading a field spec and a node table over the inputs. `definitionRefusal` is the one load rule: the schema, sources inside the family's catalogued markers (a definition never widens the radio filter), every reading checked against its inputs, and every example replayed. `SHIPPED_DEFINITIONS` loads at boot and refuses a bad file. `govee-h5110` is the first.
+
 ## Newer kinds on an older phone
 
 `scripts/codegen-kotlin.ts` gives every sealed root a decode policy in `SEALED_ROOTS`. A `preserve` root (`AssistantFieldSpec`, `ConsoleDeviceReadResult`) decodes a kind this build does not know to `Unknown(kind, raw)`; every `when` over it carries a fail-closed arm that shows the field and never saves or acts on it. Codegen refuses a discriminated root with no policy, and a `preserve` root without a future-kind fixture in `tests/fixtures/protocol/_manifest.json` (`expect: { ts: "fail", kotlin: "unknown" }`).

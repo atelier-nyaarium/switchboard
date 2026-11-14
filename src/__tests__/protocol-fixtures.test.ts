@@ -20,6 +20,7 @@ import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
 	ConsoleDeviceReadResultSchema,
 	ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceScanResultSchema,
 	ConsoleDeviceSchedulePutResultSchema,
 } from "../shared/schemasDevices.js";
 import {
@@ -49,6 +50,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsolePeekResult: ConsolePeekResultSchema,
 	ConsoleDeviceRemoveResult: ConsoleDeviceRemoveResultSchema,
 	ConsoleDeviceReadResult: ConsoleDeviceReadResultSchema,
+	ConsoleDeviceScanResult: ConsoleDeviceScanResultSchema,
 	ConsoleDeviceSchedulePutResult: ConsoleDeviceSchedulePutResultSchema,
 	AssistantFieldSpec: AssistantFieldSpecSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,

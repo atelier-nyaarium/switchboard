@@ -203,6 +203,8 @@ object Protocol {
 			const val POLICY_ENABLE: String = "policy_enable"
 			const val DEVICE_LIST: String = "device_list"
 			const val DEVICE_READ: String = "device_read"
+			const val DEVICE_READING_POST: String = "device_reading_post"
+			const val SENSOR_THRESHOLD_PUT: String = "sensor_threshold_put"
 			const val DEVICE_SCAN: String = "device_scan"
 			const val DEVICE_HOME_NETWORK: String = "device_home_network"
 			const val DEVICE_ADD: String = "device_add"
@@ -282,10 +284,12 @@ object Protocol {
 
 		object DeviceKind {
 			const val SWITCH: String = "switch"
+			const val SENSOR: String = "sensor"
 		}
 
 		object DeviceDriver {
 			const val KASA: String = "kasa"
+			const val GOVEE: String = "govee"
 		}
 
 		object DeviceState {
@@ -326,6 +330,7 @@ object Protocol {
 			const val WRITE_FAILED: String = "write_failed"
 			const val DAEMON_AWAY: String = "daemon_away"
 			const val SCAN_FAILED: String = "scan_failed"
+			const val NO_RADIO: String = "no_radio"
 		}
 
 		object DeviceEffect {
@@ -1108,6 +1113,26 @@ sealed class ConsoleOp {
 	) : ConsoleOp()
 
 	@Serializable
+	@SerialName("device_reading_post")
+	data class DeviceReadingPost(
+		val id: String,
+		val advert: DeviceAdvert,
+		val at: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("sensor_threshold_put")
+	data class SensorThresholdPut(
+		val id: String,
+		val measure: String,
+		val low: Double? = null,
+		val high: Double? = null,
+		val deadZone: Double,
+		val coolDownSec: Long,
+		val revision: Long,
+	) : ConsoleOp()
+
+	@Serializable
 	@SerialName("device_scan")
 	data object DeviceScan : ConsoleOp()
 
@@ -1119,8 +1144,11 @@ sealed class ConsoleOp {
 	@SerialName("device_add")
 	data class DeviceAdd(
 		val mac: String,
-		val address: String,
+		val address: String? = null,
 		val name: String,
+		val radio: String? = null,
+		val definition: String? = null,
+		val advert: DeviceAdvert? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -1669,6 +1697,8 @@ data class DeviceRecord(
 	val kind: String,
 	val driver: String,
 	val address: String,
+	val radio: String? = null,
+	val definition: String? = null,
 	val revision: Long,
 )
 
@@ -1783,6 +1813,7 @@ sealed class ConsoleDeviceListResult {
 	data class Ok(
 		val records: List<DeviceRecord>,
 		val revision: Long,
+		val bluetooth: Boolean? = null,
 	) : ConsoleDeviceListResult()
 
 	@Serializable
@@ -1800,6 +1831,15 @@ sealed class ConsoleDeviceReadResult {
 		val state: DeviceLiveState,
 		val schedule: DeviceSchedule,
 		val settings: DeviceSettings? = null,
+	) : ConsoleDeviceReadResult()
+
+	@Serializable
+	@SerialName("sensor")
+	data class Sensor(
+		val readings: List<DeviceReading>,
+		val heardAt: Long? = null,
+		val stale: String? = null,
+		val thresholds: List<DeviceSensorThreshold>? = null,
 	) : ConsoleDeviceReadResult()
 
 	@Serializable
@@ -1821,6 +1861,7 @@ object ConsoleDeviceReadResultSerializer : KSerializer<ConsoleDeviceReadResult> 
 		val body = JsonObject(raw - "kind")
 		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
 			"ok" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Ok.serializer(), body)
+			"sensor" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Sensor.serializer(), body)
 			"refused" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Refused.serializer(), body)
 			else -> ConsoleDeviceReadResult.Unknown(kind ?: "", raw)
 		}
@@ -1830,6 +1871,7 @@ object ConsoleDeviceReadResultSerializer : KSerializer<ConsoleDeviceReadResult> 
 		val output = encoder as? JsonEncoder ?: throw SerializationException("ConsoleDeviceReadResult writes JSON only")
 		val element = when (value) {
 			is ConsoleDeviceReadResult.Ok -> tagged("ok", output.json.encodeToJsonElement(ConsoleDeviceReadResult.Ok.serializer(), value))
+			is ConsoleDeviceReadResult.Sensor -> tagged("sensor", output.json.encodeToJsonElement(ConsoleDeviceReadResult.Sensor.serializer(), value))
 			is ConsoleDeviceReadResult.Refused -> tagged("refused", output.json.encodeToJsonElement(ConsoleDeviceReadResult.Refused.serializer(), value))
 			is ConsoleDeviceReadResult.Unknown -> value.raw
 		}
@@ -1843,11 +1885,45 @@ object ConsoleDeviceReadResultSerializer : KSerializer<ConsoleDeviceReadResult> 
 @Serializable
 @OptIn(ExperimentalSerializationApi::class)
 @JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceReadingPostResult {
+	@Serializable
+	@SerialName("ok")
+	data object Ok : ConsoleDeviceReadingPostResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceReadingPostResult()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleDeviceSensorThresholdPutResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val threshold: DeviceSensorThreshold? = null,
+	) : ConsoleDeviceSensorThresholdPutResult()
+
+	@Serializable
+	@SerialName("refused")
+	data class Refused(
+		val refusal: DeviceRefusal,
+	) : ConsoleDeviceSensorThresholdPutResult()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
 sealed class ConsoleDeviceScanResult {
 	@Serializable
 	@SerialName("ok")
 	data class Ok(
 		val candidates: List<DeviceCandidate>,
+		val nearby: List<DeviceNearby>? = null,
+		val bluetooth: Boolean? = null,
 	) : ConsoleDeviceScanResult()
 
 	@Serializable
@@ -3914,6 +3990,13 @@ data class XDomainLink(
 )
 
 @Serializable
+data class DeviceAdvert(
+	val name: String? = null,
+	val data: JsonObject,
+	val services: List<String>,
+)
+
+@Serializable
 data class DomainSnapshot(
 	val ownerSignPub: String,
 	val admissions: List<SignedAdmission>,
@@ -4027,6 +4110,40 @@ data class BlobRange(
 data class CrossDomainShareEntry(
 	val sessionTarget: String,
 	val target: CrossDomainShareTarget,
+)
+
+@Serializable
+data class DeviceReading(
+	val spec: AssistantFieldSpec,
+	val value: JsonElement? = null,
+	val low: DeviceExtreme? = null,
+	val high: DeviceExtreme? = null,
+)
+
+@Serializable
+data class DeviceExtreme(
+	val value: Double,
+	val at: Long,
+)
+
+@Serializable
+data class DeviceSensorThreshold(
+	val measure: String,
+	val low: Double? = null,
+	val high: Double? = null,
+	val deadZone: Double,
+	val coolDownSec: Long,
+	val revision: Long,
+)
+
+@Serializable
+data class DeviceNearby(
+	val mac: String,
+	val radio: String,
+	val name: String? = null,
+	val signal: Long,
+	val data: JsonObject,
+	val services: List<String>? = null,
 )
 
 @Serializable

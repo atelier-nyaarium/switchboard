@@ -20,6 +20,8 @@ export const DEVICE_TOOL = "device";
 export const DEVICE_TOOL_OFFERS = {
 	device_list: true,
 	device_read: true,
+	device_reading_post: false,
+	sensor_threshold_put: false,
 	device_scan: false,
 	device_home_network: false,
 	device_add: false,
@@ -79,12 +81,23 @@ function okOf<U extends z.ZodDiscriminatedUnion<Options>>(union: U): U["options"
 	return first;
 }
 
+/** A console answer by its kind. */
+function memberOf<U extends z.ZodDiscriminatedUnion<Options>>(union: U, kind: string): U["options"][number] {
+	const member = union.options.find((option) => (option.shape.kind as z.ZodLiteral<string>).value === kind);
+	if (!member) throw new Error(`no ${kind} answer`);
+	return member;
+}
+
 export const DEVICE_TOOL_RESULTS = {
 	device_list: z.discriminatedUnion("kind", [
 		z.object({ kind: z.literal("ok"), devices: z.array(AssistantDeviceSchema).max(DEVICE_MAX_RECORDS) }),
 		Refused,
 	]),
-	device_read: z.discriminatedUnion("kind", [okOf(DEVICE_CONSOLE_RESULTS.device_read), Refused]),
+	device_read: z.discriminatedUnion("kind", [
+		okOf(DEVICE_CONSOLE_RESULTS.device_read),
+		memberOf(DEVICE_CONSOLE_RESULTS.device_read, "sensor"),
+		Refused,
+	]),
 	device_rename: z.discriminatedUnion("kind", [
 		z.object({ kind: z.literal("ok"), record: AssistantDeviceRecordSchema }),
 		Refused,

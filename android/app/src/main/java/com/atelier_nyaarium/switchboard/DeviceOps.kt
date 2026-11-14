@@ -102,6 +102,7 @@ internal fun refusalLine(refusal: DeviceRefusal): String {
 		code.WRITE_FAILED -> "Not saved"
 		code.DAEMON_AWAY -> "The host daemon is not running"
 		code.SCAN_FAILED -> "The scan could not run"
+		code.NO_RADIO -> "No Bluetooth on this Gateway"
 		else -> refusal.code
 	}
 	val landed = refusal.landed?.let { "; ${it.done} of ${it.total} changes landed" } ?: ""

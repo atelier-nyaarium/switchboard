@@ -80,10 +80,10 @@ describe("Gateway device scan", () => {
 			containerStop: async () => {},
 		};
 		const runner = createHostOpRunner(ops);
-		let receivedOp: unknown;
+		const receivedOps: unknown[] = [];
 		fakeHost.onFrame((frame) => {
 			if (frame.type !== "host_op") return;
-			receivedOp = frame.op;
+			receivedOps.push(frame.op);
 			void runner.run(frame.op as HostOp).then((result) => {
 				websocket.message(
 					fakeHost.ws,
@@ -93,12 +93,60 @@ describe("Gateway device scan", () => {
 		});
 
 		try {
-			expect(await createDeviceScan(host.relayToHost)()).toEqual({ kind: "ok", candidates: [candidate] });
-			expect(receivedOp).toEqual({ kind: "kasaScan" });
+			expect(await createDeviceScan(host.relayToHost)()).toMatchObject({ kind: "ok", candidates: [candidate] });
+			expect(receivedOps).toContainEqual({ kind: "kasaScan" });
+			expect(receivedOps).toContainEqual({ kind: "bleScan" });
 		} finally {
 			ambient.clearInterval(host.presenceWatchTimer);
+			ambient.clearInterval(host.deviceWatchTimer);
 			ambient.clearInterval(websocket.heartbeatInterval);
 		}
+	});
+
+	it("adds catalogued Bluetooth devices beside Kasa candidates, leaving strangers out", async () => {
+		const device = {
+			mac: "ce:1c:44:06:3c:5d",
+			name: "GVH5110_3C5D",
+			signal: -61,
+			data: { "1": "010103bac864" },
+			services: ["ec88"],
+		};
+		const stranger = { mac: "aa:bb:cc:00:11:22", signal: -40, data: { "76": "0215" }, services: [] };
+		const scan = createDeviceScan(async (op) =>
+			op.kind === "kasaScan"
+				? { ok: true, result: { candidates: [candidate] } }
+				: { ok: true, result: { devices: [stranger, device] } },
+		);
+
+		expect(await scan()).toEqual({
+			kind: "ok",
+			candidates: [candidate],
+			nearby: [{ ...device, radio: "gateway" }],
+			bluetooth: true,
+		});
+	});
+
+	it("keeps Bluetooth devices when the Kasa scan fails", async () => {
+		const device = { mac: "ce:1c:44:06:3c:5d", signal: -61, data: { "1": "010103bac864" }, services: ["ec88"] };
+		const scan = createDeviceScan(async (op) =>
+			op.kind === "kasaScan"
+				? { ok: true, result: { reason: "no_interface" } }
+				: { ok: true, result: { devices: [device] } },
+		);
+
+		expect(await scan()).toMatchObject({ kind: "ok", candidates: [], nearby: [{ mac: device.mac }] });
+	});
+
+	it("keeps Kasa candidates when the host has no Bluetooth radio, and remembers it has none", async () => {
+		const scan = createDeviceScan(async (op) =>
+			op.kind === "kasaScan"
+				? { ok: true, result: { candidates: [candidate] } }
+				: { ok: true, result: { reason: "no_radio" } },
+		);
+
+		expect(scan.bluetooth()).toBeUndefined();
+		expect(await scan()).toEqual({ kind: "ok", candidates: [candidate], bluetooth: false });
+		expect(scan.bluetooth()).toBe(false);
 	});
 
 	it("does not turn a malformed relay answer into an empty success", async () => {

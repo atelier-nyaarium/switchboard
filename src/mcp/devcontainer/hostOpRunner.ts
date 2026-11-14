@@ -3,6 +3,7 @@ import type { AgentExecutionTarget } from "../../shared/agent-execution-target.j
 import {
 	type DaemonHostOp,
 	type HostAgentModelsResult,
+	type HostBleScanResult,
 	type HostClaudeCancelOp,
 	type HostClaudeRunOp,
 	type HostClaudeRunReply,
@@ -50,6 +51,7 @@ export interface TmuxOps {
 	listDirs: (path: string, spawn?: string) => Promise<HostListDirsResult>;
 	readSkill: (target: AgentExecutionTarget, path: string) => Promise<HostReadSkillResult>;
 	kasaScan: () => Promise<HostKasaScanResult>;
+	bleScan?: () => Promise<HostBleScanResult>;
 	wifiNetwork: () => Promise<HostWifiNetworkResult>;
 	typeIntoPane: (target: TmuxTarget, text: string) => Promise<TypeIntoPaneResult>;
 	agentModels?: (backend: AgentBackendId, target: AgentExecutionTarget) => Promise<HostAgentModelsResult>;
@@ -149,6 +151,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 	async function run(op: DaemonHostOp): Promise<unknown> {
 		if (op.kind === "peek") return runPeek(op.target);
 		if (op.kind === "kasaScan") return ops.kasaScan();
+		if (op.kind === "bleScan") return ops.bleScan ? ops.bleScan() : { reason: "no_radio" };
 		if (op.kind === "wifiNetwork") return ops.wifiNetwork();
 		if (op.kind === "typeIntoPane") return runTyping(op);
 		if (op.kind === "sendText" || op.kind === "sendKey") return runSend(op);

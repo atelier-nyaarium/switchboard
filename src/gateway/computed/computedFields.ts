@@ -69,6 +69,8 @@ type FieldState = z.infer<typeof FieldStateSchema>[string];
 export interface FieldInput {
 	type: ExprType;
 	value: Value;
+	/** Joins the basis hash. */
+	basis?: string;
 }
 
 export interface ComputedFieldsDeps {
@@ -184,7 +186,9 @@ export function createComputedFields(deps: ComputedFieldsDeps) {
 				: [
 						[
 							refKey(node.ref),
-							node.ref.source === "computed" ? computed.get(node.ref.id) : read(node.ref)?.type,
+							node.ref.source === "computed"
+								? computed.get(node.ref.id)
+								: { type: read(node.ref)?.type, basis: read(node.ref)?.basis },
 						],
 					],
 		);
@@ -293,8 +297,8 @@ export function createComputedFields(deps: ComputedFieldsDeps) {
 		value: current,
 		/** Epoch, seq and transitions. */
 		stateOf: (id: string): Readonly<FieldState> | null => state[id] ?? null,
-		put(id: string, field: unknown, base: number) {
-			const result = records.put(COMPUTED_KIND, id, field, base);
+		put(id: string, field: unknown, base: number, options?: { revive?: boolean }) {
+			const result = records.put(COMPUTED_KIND, id, field, base, options);
 			if (result.stored) evaluateAll(new Set());
 			return result;
 		},

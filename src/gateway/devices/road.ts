@@ -1,10 +1,15 @@
 import type { z } from "zod";
 import { type Ambient, type Linked, linkedSignal } from "../../shared/ambient.js";
+import type { Advert } from "../../shared/ble-recognition.js";
 import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../../shared/console-protocol.js";
+import { definitionOf, inputsOf, matches, readingsOf } from "../../shared/device-definitions/index.js";
+import { openDurable } from "../../shared/durable-store.js";
+import { refKey } from "../../shared/expressions.js";
 import {
 	type DeviceAddFieldsSchema,
 	type DeviceRecord,
 	type DeviceRefusalCode,
+	type DriverOf,
 	deviceRefusal,
 } from "../../shared/schemasDevices.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
@@ -17,7 +22,11 @@ import {
 } from "./driver.js";
 import { createKasaDriver } from "./kasa/kasaDriver.js";
 import { createKasaTransport, type KasaTransport } from "./kasa/transport.js";
-import { type DeviceStore, type DeviceStoreRefusal, openDeviceStore } from "./store.js";
+import { createReadingsHold } from "./readingsHold.js";
+import { type DeviceStore, type DeviceStoreRefusal, openDeviceStore, type SensorAdd } from "./store.js";
+
+/** Tolerated capture clock lead. */
+export const INGEST_SKEW_MS = 2 * 60_000;
 
 export const TOGGLE_DOUBT = "read the device first; the last toggle's outcome is unknown";
 
@@ -56,6 +65,7 @@ export interface Shape<A> {
 /** One id's store writes. */
 export interface DeviceWrites {
 	add(request: z.input<typeof DeviceAddFieldsSchema>): Written<DeviceRecord>;
+	addSensor(request: SensorAdd): Written<DeviceRecord>;
 	rename(name: string, baseRevision: number): Written<DeviceRecord>;
 	remove(baseRevision: number): Written<void>;
 	refreshAddress(address: string): Written<DeviceRecord>;
@@ -96,7 +106,14 @@ export interface DeviceRoad {
 	operation<A>(surface: Surface, shape: Shape<A>, run: (op: Operation) => Promise<A>): Promise<A>;
 	onSlot<A>(surface: Surface, shape: Shape<A>, id: string, run: (slot: Slot) => Promise<A>): Promise<A>;
 	onDevice<A>(surface: Surface, shape: Shape<A>, id: string, run: (plug: Plug) => Promise<A>): Promise<A>;
-	reads: { list(): ReturnType<DeviceStore["list"]>; get(id: string): DeviceRecord | null };
+	ingest(id: string, advert: Advert, at: number): string[] | null;
+	reads: {
+		list(): ReturnType<DeviceStore["list"]>;
+		get(id: string): DeviceRecord | null;
+		holds(id: string): boolean;
+	};
+	readings: Pick<ReturnType<typeof createReadingsHold>, "latest" | "payloads" | "extremes">;
+	flushReadings(): boolean;
 	close(): Promise<void>;
 }
 
@@ -128,13 +145,53 @@ export function unwrap<T>(outcome: Outcome<T>): T {
 export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 	const store =
 		deps.deviceStore ?? openDeviceStore(deps.dataDir, { onChanged: (deviceId) => deps.onChanged?.(deviceId) });
-	const drivers: Readonly<Record<DeviceRecord["driver"], DeviceDriver>> = {
+	const readings = openDurable(deps.dataDir, "sensor-readings", (durable) =>
+		createReadingsHold({ store: durable, now: () => deps.ambient.now() }),
+	);
+	readings.keepOnly(new Set(store.list().records.map((record) => record.id)));
+	const drivers: Readonly<Record<DriverOf<"switch">, DeviceDriver>> = {
 		kasa: createKasaDriver({ transport: deps.transport ?? createKasaTransport() }),
 	};
 	const stage = new AbortController();
 	const leases = new Set<Promise<void>>();
 	const doubt = new Set<string>();
 	let closing: Promise<void> | null = null;
+
+	const numericReadings = (record: DeviceRecord | null, advert: Advert | null): Map<string, number | null> => {
+		if (record?.kind !== "sensor" || !record.definition) return new Map();
+		const definition = definitionOf(record.definition);
+		if (!definition) return new Map();
+		const values = advert ? readingsOf(definition, inputsOf(definition, advert)) : {};
+		return new Map(
+			definition.readings.flatMap((reading) => {
+				const value = values[reading.key];
+				if (reading.spec.kind !== "number") return [];
+				const numeric =
+					value?.known && typeof value.value === "number" && Number.isFinite(value.value)
+						? value.value
+						: null;
+				return [[reading.key, numeric] as const];
+			}),
+		);
+	};
+
+	const ingest = (id: string, advert: Advert, at: number): string[] | null => {
+		if (stage.signal.aborted) return null;
+		const record = store.get(id);
+		if (record?.kind !== "sensor") return [];
+		// Future timestamps freeze readings.
+		if (at > deps.ambient.now() + INGEST_SKEW_MS) return [];
+		const definition = record.definition ? definitionOf(record.definition) : null;
+		if (definition && !matches(definition, advert)) return [];
+		if (!readings.ingest(id, advert, at)) return [];
+		// Fresh capture clears staleness.
+		const keys: string[] = [];
+		for (const [key, value] of numericReadings(record, advert)) {
+			if (value !== null) readings.record(id, key, value, at);
+			keys.push(refKey({ source: "device", device: id, key }));
+		}
+		return keys;
+	};
 
 	const lease = (parent: Lease | null, ms: number): Lease => {
 		const inner = linkedSignal(deps.ambient, {
@@ -179,13 +236,17 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 
 	const makeSlot = (id: string, held: Lease): Slot => {
 		const record = store.get(id);
-		const driver = drivers[record?.driver ?? "kasa"];
+		const driver = record?.kind === "switch" ? drivers[record.driver as DriverOf<"switch">] : drivers.kasa;
 		const slot: Slot = {
 			id,
 			record,
 			write: {
 				add: (request) => {
 					const result = store.add(request);
+					return result.stored ? { ok: true, value: result.record } : { ok: false, why: refusedBy(result) };
+				},
+				addSensor: (request) => {
+					const result = store.addSensor(request);
 					return result.stored ? { ok: true, value: result.record } : { ok: false, why: refusedBy(result) };
 				},
 				rename: (name, baseRevision) => {
@@ -195,6 +256,8 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 				remove: (baseRevision) => {
 					const result = store.remove(id, baseRevision);
 					if (!result.deleted) return { ok: false, why: refusedBy(result) };
+					readings.forget(id);
+					readings.flush();
 					doubt.delete(id);
 					return { ok: true, value: undefined };
 				},
@@ -291,7 +354,19 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 									why: { kind: "refused", code: "not_supported", text: refusal, record: slot.record },
 								};
 							}
-							const plug: Plug = { ...slot, record: slot.record, driver: drivers[slot.record.driver] };
+							if (slot.record.kind !== "switch") {
+								return {
+									ok: false,
+									why: {
+										kind: "refused",
+										code: "not_supported",
+										text: "a sensor has no switch, schedule or settings",
+										record: slot.record,
+									},
+								};
+							}
+							const driver = drivers[slot.record.driver as DriverOf<"switch">];
+							const plug: Plug = { ...slot, record: slot.record, driver };
 							return { ok: true, value: await (work as (plug: Plug) => Promise<T>)(plug) };
 						}
 						return { ok: true, value: await work(slot) };
@@ -339,6 +414,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		stage.abort("device stage closed");
 		closing = (async () => {
 			while (leases.size > 0) await Promise.all([...leases]);
+			readings.flush();
 		})();
 		return closing;
 	};
@@ -347,7 +423,10 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		operation,
 		onSlot: (surface, shape, id, run) => operation(surface, shape, async (op) => unwrap(await op.device(id, run))),
 		onDevice: (surface, shape, id, run) => operation(surface, shape, async (op) => unwrap(await op.plug(id, run))),
-		reads: { list: () => store.list(), get: (id) => store.get(id) },
+		ingest,
+		reads: { list: () => store.list(), get: (id) => store.get(id), holds: (id) => store.holds(id) },
+		readings: { latest: readings.latest, payloads: readings.payloads, extremes: readings.extremes },
+		flushReadings: readings.flush,
 		close,
 	};
 }

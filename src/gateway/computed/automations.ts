@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { SENSORS_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
 import { RULE_ID_RE } from "../../shared/schemasAssistantRules.js";
 import type { ListPage, ListQuery, PollAnswer, Watcher, WatcherEvent } from "../assistant/watcher.js";
 import { createOwnerRecords, type OwnerRecord } from "../ownerRecords.js";
@@ -15,7 +16,6 @@ export const QUEUE_MAX_BYTES = 64 * 1024;
 const LOG_MAX = 64;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const FALLBACK_POLL_MS = 10 * 60 * 1000;
-export const SENSORS_WATCHER_ID = "sensors";
 
 export const AutomationSchema = z.strictObject({
 	label: z.string().min(1).max(80),
@@ -297,8 +297,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		list: () => records.list(),
 		/** Read-time validity; never stored. */
 		invalidOf: (id: string): string | null => records.invalidOf(id),
-		put(id: string, body: unknown, base: number) {
-			const result = records.put(AUTOMATION_KIND, id, body, base);
+		put(id: string, body: unknown, base: number, options?: { revive?: boolean }) {
+			const result = records.put(AUTOMATION_KIND, id, body, base, options);
 			if (result.stored) drain();
 			return result;
 		},

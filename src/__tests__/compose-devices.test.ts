@@ -70,14 +70,14 @@ describe("Gateway device stage", () => {
 		const plug = await createFakeKasaPlug({ mac: "aa:bb:cc:dd:ee:ff" });
 		const identity = generateIdentity();
 		const ambient = fakeAmbient({ now: () => 1_000 });
-		let scanKind = "";
+		const scanKinds: string[] = [];
 		let scanAddress = "127.0.0.1";
 		const stage = composeDevices({
 			dataDir,
 			ambient,
 			transport: loopbackTransport(plug.port),
 			relayToHost: async (op) => {
-				scanKind = op.kind;
+				scanKinds.push(op.kind);
 				return {
 					ok: true,
 					result: {
@@ -200,7 +200,8 @@ describe("Gateway device stage", () => {
 
 			scanAddress = "127.0.0.2";
 			const scanned = await value({ kind: "device_scan" });
-			expect(scanKind).toBe("kasaScan");
+			expect(scanKinds).toContain("kasaScan");
+			expect(scanKinds).toContain("bleScan");
 			expect(scanned).toMatchObject({
 				kind: "ok",
 				candidates: [{ mac: "aa:bb:cc:dd:ee:ff", address: "127.0.0.2", alias: "Lamp" }],
@@ -233,6 +234,117 @@ describe("Gateway device stage", () => {
 			await plug.close().catch(() => undefined);
 			fs.rmSync(dataDir, { recursive: true, force: true });
 		}
+	});
+
+	it("reads, renames and lists a sensor from its record and held readings, and refuses it a switch's ops", async () => {
+		const FREEZER = "ce:1c:44:06:3c:5d";
+		const sensor = {
+			id: FREEZER,
+			name: "Freezer",
+			kind: "sensor",
+			driver: "govee",
+			address: FREEZER,
+			radio: "gateway",
+			revision: 1,
+		};
+		const deviceStore = createDeviceStore({
+			store: { load: () => ({ revision: 1, records: [sensor] }), saveChecked: () => {} },
+			onChanged: () => {},
+		});
+		const temperature = {
+			kind: "number" as const,
+			field: "temperature",
+			label: "Temperature",
+			unit: "C",
+			decimals: 1,
+		};
+		const traffic: string[] = [];
+		const stage = composeDevices({
+			dataDir: fs.mkdtempSync(path.join(os.tmpdir(), "compose-devices-")),
+			ambient: fakeAmbient({ now: () => 1_000 }),
+			deviceStore,
+			transport: { request: async (address) => traffic.push(address) as never },
+			relayToHost: async () => ({ ok: false, errorKind: "unavailable" }) as never,
+			sensors: { read: () => ({ readings: [{ spec: temperature, value: -18.2 }], heardAt: 900 }) },
+		});
+
+		expect(await stage.console({ kind: "device_read", id: FREEZER })).toEqual({
+			kind: "sensor",
+			readings: [{ spec: temperature, value: -18.2 }],
+			heardAt: 900,
+		});
+		expect(await stage.console({ kind: "device_set", id: FREEZER, verb: "on" })).toMatchObject(
+			refused("not_supported"),
+		);
+		expect(
+			await stage.console({ kind: "device_rename", id: FREEZER, name: "Chest freezer", revision: 1 }),
+		).toMatchObject({
+			kind: "ok",
+			record: { name: "Chest freezer", revision: 2 },
+		});
+		expect(await stage.assistant({ kind: "device_read", id: FREEZER })).toMatchObject({ kind: "sensor" });
+		expect(await stage.assistant({ kind: "device_list" })).toMatchObject({
+			kind: "ok",
+			devices: [{ id: FREEZER, kind: "sensor", state: "unknown" }],
+		});
+		expect(traffic).toEqual([]);
+		await stage.close();
+	});
+
+	it("pairs a sensor on what was heard (a phone sends its own), binds the one matching definition, and never identifies", async () => {
+		const FREEZER = "ce:1c:44:06:3c:5d";
+		const heard = { name: "GVH5110_3C5D", data: { "1": "010103bac864" }, services: ["ec88"] };
+		const sightings = new Map<string, typeof heard>([[FREEZER, heard]]);
+		const traffic: string[] = [];
+		const stage = composeDevices({
+			dataDir: fs.mkdtempSync(path.join(os.tmpdir(), "compose-devices-")),
+			ambient: fakeAmbient({ now: () => 1_000 }),
+			deviceStore: memoryDeviceStore(),
+			transport: { request: async (address) => traffic.push(address) as never },
+			relayToHost: async () => ({ ok: false, errorKind: "unavailable" }) as never,
+			sightings: (mac) => sightings.get(mac) ?? null,
+		});
+		const add = { kind: "device_add", mac: FREEZER, name: "Freezer", radio: "gateway" } as const;
+
+		expect(await stage.console({ ...add, mac: "aa:bb:cc:dd:ee:01" })).toMatchObject(refused("not_found"));
+		expect(await stage.console({ ...add, definition: "acme-thermo" })).toMatchObject(refused("invalid"));
+		expect(await stage.console({ ...add, definition: "govee-h5110" })).toMatchObject({
+			kind: "ok",
+			record: { kind: "sensor", driver: "govee", address: FREEZER, radio: "gateway", definition: "govee-h5110" },
+		});
+		const pocket = { ...add, mac: "ce:1c:44:06:aa:01", radio: "phones" as const, advert: heard };
+		expect(await stage.console(pocket)).toMatchObject({
+			kind: "ok",
+			record: { radio: "phones", definition: "govee-h5110" },
+		});
+		expect(await stage.console({ ...add, definition: "govee-h5110" })).toMatchObject({
+			kind: "ok",
+			record: { revision: 1 },
+		});
+		sightings.set("aa:bb:cc:dd:ee:02", { name: "Nokia", data: { "1": "0505" }, services: [] });
+		expect(await stage.console({ ...add, mac: "aa:bb:cc:dd:ee:02" })).toMatchObject(refused("not_supported"));
+		expect(await stage.console({ kind: "device_add", mac: LAMP, name: "Lamp" })).toMatchObject(refused("invalid"));
+		expect(traffic).toEqual([]);
+		await stage.close();
+	});
+
+	it("answers the host's radio on device_list after a scan, and refuses a gateway-radio sensor without one", async () => {
+		const stage = composeDevices({
+			dataDir: fs.mkdtempSync(path.join(os.tmpdir(), "compose-devices-")),
+			ambient: fakeAmbient({ now: () => 1_000 }),
+			deviceStore: memoryDeviceStore(),
+			relayToHost: async (op) =>
+				op.kind === "bleScan"
+					? { ok: true, result: { reason: "no_radio" } }
+					: ({ ok: true, result: { candidates: [] } } as never),
+		});
+
+		expect(await stage.console({ kind: "device_list" })).not.toHaveProperty("bluetooth");
+		expect(await stage.console({ kind: "device_scan" })).toMatchObject({ kind: "ok", bluetooth: false });
+		expect(await stage.console({ kind: "device_list" })).toMatchObject({ kind: "ok", bluetooth: false });
+		const add = { kind: "device_add", mac: "ce:1c:44:06:3c:5d", name: "Freezer", radio: "gateway" } as const;
+		expect(await stage.console(add)).toMatchObject(refused("no_radio"));
+		await stage.close();
 	});
 
 	it("answers a repeated add before identifying the plug", async () => {

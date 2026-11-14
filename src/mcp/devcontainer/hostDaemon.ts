@@ -40,6 +40,8 @@ import { composeSessionName, parseSessionName } from "../../shared/session-id.js
 import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { AGENT_DRIVERS } from "../agents/drivers.js";
 import { createAgentDaemonRuntime } from "./agentDaemonRuntime.js";
+import { createBluezCoordinator } from "./bluetooth/bluez.js";
+import { createDeviceWatchController } from "./bluetooth/deviceWatch.js";
 import { appendBuildTranscript } from "./buildTranscript.js";
 import { createClaudeRunner } from "./claudeRunner.js";
 import { CONTAINER_HOME, containerLaunchSite, createRuntimePlacer } from "./containerSite.js";
@@ -169,6 +171,9 @@ function safeSend(payload: Record<string, unknown>): void {
 	}
 }
 
+const bluetoothCoordinator = createBluezCoordinator();
+const deviceWatchController = createDeviceWatchController(bluetoothCoordinator, safeSend);
+
 /** Stop supervised agent processes and container builds. */
 export function stopSupervisedChildren(): void {
 	devContainers.close();
@@ -179,6 +184,8 @@ export function stopSupervisedChildren(): void {
 /** Stops the reconnect timer as well as the children, so shutdown leaves nothing scheduled. */
 export function stopHostDaemon(): void {
 	reconnector.cancel();
+	deviceWatchController.close();
+	bluetoothCoordinator.close();
 	compactionFollower.stop();
 	if (hostProbeRetry) clearTimeout(hostProbeRetry);
 	hostProbeRetry = null;
@@ -302,6 +309,7 @@ function connect(): void {
 
 	ws.on("open", () => {
 		console.error("[host-wake] connected to gateway");
+		deviceWatchController.discardPending();
 		reconnector.reset();
 		// The host slot is fail-closed.
 		const hostToken = process.env.HOST_WS_TOKEN;
@@ -396,6 +404,10 @@ function connect(): void {
 				.catch((err) => console.error("[presence] compaction follow failed:", err));
 		}
 
+		if (msg.type === "device_watch") {
+			deviceWatchController.replace(msg);
+		}
+
 		if (msg.type === "channel_push") {
 			if (channelPushHandler) {
 				channelPushHandler(msg);
@@ -405,6 +417,7 @@ function connect(): void {
 
 	ws.on("close", () => {
 		console.error("[host-wake] disconnected");
+		deviceWatchController.discardPending();
 		reconnector.schedule();
 	});
 
@@ -671,6 +684,7 @@ const claudeRunner = createClaudeRunner({ send: (frame) => safeSend({ ...frame }
 // The runner owns single-flight and the cadence floor.
 const hostOpRunner = createHostOpRunner({
 	kasaScan: createKasaScanner(),
+	bleScan: () => bluetoothCoordinator.scan(),
 	wifiNetwork: createWifiNetworkReader(),
 	typeIntoPane,
 	// Internal callers use peekPane for its reject-on-absent.

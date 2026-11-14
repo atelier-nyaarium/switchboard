@@ -3,6 +3,7 @@
 	"directories": [
 		"agent-screen",
 		"assistant-rules",
+		"ble-recognition",
 		"board-order",
 		"board-trash",
 		"code-spans",

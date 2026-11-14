@@ -4,6 +4,7 @@ import type { Ambient } from "../shared/ambient.js";
 import type { Capability } from "../shared/capabilities.js";
 import type { ClaudeTurnResultFrame } from "../shared/host-op.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
+import type { DeviceAdvertFrame } from "../shared/schemasDeviceBluetooth.js";
 import type { DerivedPresence } from "../shared/schemasPresence.js";
 import type { SessionControlResult } from "../shared/session-control.js";
 import type { HarnessWord, SessionHarness } from "../shared/session-harness.js";
@@ -53,6 +54,7 @@ export interface WebSocketDeps {
 	/** Session id, when daemon-minted. */
 	onPickResolved?: (team: string, harness: SessionHarness, sessionId?: string) => void;
 	onPresenceDerive?: (team: string, derived: DerivedPresence | undefined) => void;
+	onDeviceAdvert?: (frame: DeviceAdvertFrame, socket: object) => void;
 	/** A session's pane waits on a restart to apply an installed update. */
 	onRestartPending?: (team: string, pending: boolean) => void;
 	onVirtualPeerEvicted?: (conversationId: string) => void;

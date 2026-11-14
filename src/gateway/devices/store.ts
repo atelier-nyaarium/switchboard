@@ -1,15 +1,17 @@
 import { z } from "zod";
+import { canonicalJson } from "../../shared/canonical-json.js";
 import { commitChecked, type DurableStore, openDurable } from "../../shared/durable-store.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import {
 	DEVICE_MAX_RECORDS,
 	DeviceAddFieldsSchema,
-	DeviceAddressSchema,
 	DeviceIdSchema,
+	DeviceIpv4Schema,
 	type DeviceRecord,
 	DeviceRecordSchema,
 	type DeviceRefusalCode,
 	DeviceRevisionSchema,
+	type DriverOf,
 	deviceNameRefusal,
 	deviceRefusal,
 } from "../../shared/schemasDevices.js";
@@ -18,6 +20,14 @@ import { REVISION_CEILING } from "../../shared/schemasRunbook.js";
 export interface DeviceStoreDeps {
 	store: Pick<DurableStore, "load" | "saveChecked">;
 	onChanged: (deviceId: string) => void;
+}
+
+export interface SensorAdd {
+	mac: string;
+	name: string;
+	driver: DriverOf<"sensor">;
+	radio: NonNullable<DeviceRecord["radio"]>;
+	definition?: string;
 }
 
 export interface DeviceStoreRefusal {
@@ -139,17 +149,15 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 
 	const get = (id: string): DeviceRecord | null => held(id) ?? null;
 
-	const add = (request: z.input<typeof DeviceAddFieldsSchema>): DeviceWriteResult => {
-		const nameRefusal = deviceNameRefusal(request.name);
-		if (nameRefusal) return { stored: false, code: "invalid", reason: nameRefusal };
-		const parsed = DeviceAddFieldsSchema.safeParse(request);
-		if (!parsed.success) return { stored: false, code: "invalid", reason: "Invalid device" };
-		const incoming = parsed.data;
-		const current = held(incoming.mac);
-		if (unreadHolds(incoming.mac)) return { stored: false, code: "exists", reason: NEWER };
+	/** Unread rows included. */
+	const holds = (id: string): boolean => held(id) !== undefined || unreadHolds(id);
+
+	/** A repeat is a lost answer. */
+	const insert = (fields: Omit<DeviceRecord, "revision">): DeviceWriteResult => {
+		const current = held(fields.id);
+		if (unreadHolds(fields.id)) return { stored: false, code: "exists", reason: NEWER };
 		if (current) {
-			// Repeated add: lost answer.
-			const same = current.address === incoming.address && current.name === incoming.name;
+			const same = canonicalJson({ ...current, revision: 0 }) === canonicalJson({ ...fields, revision: 0 });
 			return same
 				? { stored: true, record: current }
 				: { stored: false, code: "exists", record: current, reason: "a device with that id is already stored" };
@@ -159,18 +167,11 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 		}
 		if (snapshot.revision >= REVISION_CEILING)
 			return { stored: false, code: "write_failed", reason: "the device list has no revision left" };
-		const deleted = snapshot.tombstones.find((entry) => entry.id === incoming.mac);
+		const deleted = snapshot.tombstones.find((entry) => entry.id === fields.id);
 		if (deleted && deleted.revision >= REVISION_CEILING) {
 			return { stored: false, code: "write_failed", reason: "this device has no revision left to write" };
 		}
-		const record: DeviceRecord = {
-			id: incoming.mac,
-			name: incoming.name,
-			kind: "switch",
-			driver: "kasa",
-			address: incoming.address,
-			revision: (deleted?.revision ?? 0) + 1,
-		};
+		const record: DeviceRecord = { ...fields, revision: (deleted?.revision ?? 0) + 1 };
 		const refusal = deviceRefusal(record);
 		if (refusal) return { stored: false, code: "not_supported", reason: refusal };
 		const tombstones = snapshot.tombstones.filter((entry) => entry.id !== record.id);
@@ -178,6 +179,30 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 			return { stored: false, code: "write_failed", reason: "could not be written" };
 		}
 		return { stored: true, record: held(record.id) ?? record };
+	};
+
+	const add = (request: z.input<typeof DeviceAddFieldsSchema>): DeviceWriteResult => {
+		const nameRefusal = deviceNameRefusal(request.name);
+		if (nameRefusal) return { stored: false, code: "invalid", reason: nameRefusal };
+		const parsed = DeviceAddFieldsSchema.safeParse(request);
+		if (!parsed.success) return { stored: false, code: "invalid", reason: "Invalid device" };
+		const { mac, name, address } = parsed.data;
+		return insert({ id: mac, name, kind: "switch", driver: "kasa", address });
+	};
+
+	const addSensor = (request: SensorAdd): DeviceWriteResult => {
+		const nameRefusal = deviceNameRefusal(request.name);
+		if (nameRefusal) return { stored: false, code: "invalid", reason: nameRefusal };
+		const { mac, name, driver, radio, definition } = request;
+		return insert({
+			id: mac,
+			name,
+			kind: "sensor",
+			driver,
+			address: mac,
+			radio,
+			...(definition === undefined ? {} : { definition }),
+		});
 	};
 
 	const rename = (id: string, name: string, baseRevision: number): DeviceWriteResult => {
@@ -264,7 +289,10 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 		if (unreadHolds(id)) return { changed: false, code: "not_supported", reason: NEWER };
 		const current = held(id);
 		if (!current) return { changed: false, code: "not_found", reason: "no device with that id is stored" };
-		const parsedAddress = DeviceAddressSchema.safeParse(address);
+		if (current.kind !== "switch") {
+			return { changed: false, code: "not_supported", record: current, reason: "a sensor's address is its MAC" };
+		}
+		const parsedAddress = DeviceIpv4Schema.safeParse(address);
 		if (!parsedAddress.success) {
 			return { changed: false, code: "invalid", record: current, reason: "Invalid IPv4 address" };
 		}
@@ -292,7 +320,7 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 
 	const perDevice = <T>(id: string, work: () => T | PromiseLike<T>): Promise<T> => fifo.run(id, work);
 
-	return { list, get, add, rename, remove, refreshAddress, perDevice };
+	return { list, get, holds, add, addSensor, rename, remove, refreshAddress, perDevice };
 }
 
 export function openDeviceStore(dataDir: string, options: DeviceStoreOpenOptions = {}) {

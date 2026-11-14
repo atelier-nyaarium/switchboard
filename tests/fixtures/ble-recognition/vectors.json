@@ -1,0 +1,131 @@
+{
+	"_comment": "Bluetooth family recognition over the catalogue's markers; both runtimes replay it.",
+	"cases": [
+		{
+			"case": "an H5110 with its service",
+			"advert": {
+				"name": "GVH5110_3C5D",
+				"data": {
+					"1": "010103bac864"
+				},
+				"services": ["ec88"]
+			},
+			"family": "govee"
+		},
+		{
+			"case": "company 1 without the service is not Govee",
+			"advert": {
+				"data": {
+					"1": "010103bac864"
+				},
+				"services": []
+			},
+			"family": null
+		},
+		{
+			"case": "Nokia's company 1",
+			"advert": {
+				"data": {
+					"1": "0505"
+				},
+				"services": []
+			},
+			"family": null
+		},
+		{
+			"case": "Govee's own company id",
+			"advert": {
+				"data": {
+					"60552": "0102"
+				},
+				"services": []
+			},
+			"family": "govee"
+		},
+		{
+			"case": "company 0x8801 starting ec00",
+			"advert": {
+				"data": {
+					"34817": "ec000101"
+				},
+				"services": []
+			},
+			"family": "govee"
+		},
+		{
+			"case": "company 0x8801 not starting ec00",
+			"advert": {
+				"data": {
+					"34817": "ab000101"
+				},
+				"services": []
+			},
+			"family": null
+		},
+		{
+			"case": "a light on company 0x8843",
+			"advert": {
+				"data": {
+					"34883": "ec000102"
+				},
+				"services": []
+			},
+			"family": null
+		},
+		{
+			"case": "a sensor on company 0x8843",
+			"advert": {
+				"data": {
+					"34883": "ec000101"
+				},
+				"services": []
+			},
+			"family": "govee"
+		},
+		{
+			"case": "a light by name",
+			"advert": {
+				"name": "ihoment_H6159_1234",
+				"data": {},
+				"services": ["ec88"]
+			},
+			"family": null
+		},
+		{
+			"case": "a Govee_H6 light",
+			"advert": {
+				"name": "Govee_H6008_ABCD",
+				"data": {},
+				"services": ["ec88"]
+			},
+			"family": null
+		},
+		{
+			"case": "a name alone",
+			"advert": {
+				"name": "GVH5075_1234",
+				"data": {},
+				"services": []
+			},
+			"family": null
+		},
+		{
+			"case": "the service alone",
+			"advert": {
+				"data": {},
+				"services": ["ec88"]
+			},
+			"family": "govee"
+		},
+		{
+			"case": "a short excluded payload is not excluded",
+			"advert": {
+				"data": {
+					"34883": "ec00"
+				},
+				"services": []
+			},
+			"family": "govee"
+		}
+	]
+}

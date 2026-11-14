@@ -173,7 +173,12 @@ internal class VaultOps(
 		}
 		val gatewayId = runIsolated { gatewayOf(pending.team) }.getOrNull()
 			?: return false.also { report("Vault: the request names no gateway") }
-		val op = ConsoleOp.VaultAnswer(pending.requestId, decision, value, note?.trim()?.ifEmpty { null })
+		val op = ConsoleOp.VaultAnswer(
+			requestId = pending.requestId,
+			decision = decision,
+			value = value,
+			note = note?.trim()?.ifEmpty { null },
+		)
 		val answer = runCatchingCancellable {
 			valueAnswer?.invoke(gatewayId, op) ?: client?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
 		}.onFailure { DebugLog.log("Vault", "answer failed: ${it.message?.take(80)}") }.getOrNull()

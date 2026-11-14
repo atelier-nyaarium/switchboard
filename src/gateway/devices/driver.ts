@@ -2,6 +2,7 @@ import type { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
 import type {
 	DeviceLanded,
+	DeviceReadingSchema,
 	DeviceRecord,
 	DeviceScheduleSchema,
 	DeviceSettingPutSchema,
@@ -87,7 +88,20 @@ export interface DeviceSettingsAccess {
 	put(setting: DeviceSetting): Promise<DeviceSettings>;
 }
 
-/** Identity before every mutation. */
+export interface SensorReadAnswer {
+	readings: z.infer<typeof DeviceReadingSchema>[];
+	heardAt?: number;
+	stale?: string;
+}
+
+/** A sensor's held readings; no device I/O. */
+export interface SensorReads {
+	read(record: DeviceRecord): SensorReadAnswer;
+}
+
+export const NOT_HEARD: SensorReads = { read: () => ({ readings: [], stale: "not heard yet" }) };
+
+/** A switch's driver; identity before every mutation. */
 export interface DeviceDriver {
 	kinds(): readonly DeviceRecord["kind"][];
 	identify(address: string, ctx: DeviceOperationContext): Promise<string>;

@@ -1,0 +1,15 @@
+{
+	"kind": "sensor",
+	"readings": [
+		{
+			"spec": { "kind": "number", "field": "temperature", "label": "Temperature", "unit": "C", "decimals": 1 },
+			"value": -18.2,
+			"low": { "value": -19.1, "at": 1793650000000 },
+			"high": { "value": -16.4, "at": 1793640000000 }
+		},
+		{
+			"spec": { "kind": "number", "field": "battery", "label": "Battery", "unit": "%", "decimals": 0 }
+		}
+	],
+	"heardAt": 1793660000000
+}

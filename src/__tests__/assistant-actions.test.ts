@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { createActionDispatch } from "../gateway/assistant/actionDispatch.js";
 import { createGithubClient } from "../gateway/assistant/githubClient.js";
 import { GithubDone } from "../gateway/assistant/githubDone.js";
+import { SensorsClear } from "../gateway/assistant/sensorsClear.js";
 import { createSourceLanes } from "../gateway/assistant/sourceLane.js";
 import { ASSISTANT_WAITS } from "../gateway/assistant/waits.js";
 import { FRESH_STATE } from "../gateway/assistant/watcherState.js";
@@ -260,7 +261,7 @@ describe("an assistant action", () => {
 			changed: () => undefined,
 		});
 		const dispatch = createActionDispatch({
-			actions: { github_done: new GithubDone(client) },
+			actions: { github_done: new GithubDone(client), sensors_clear: new SensorsClear(() => true) },
 			ambient,
 			write: lanes.write,
 			recount: lanes.recount,

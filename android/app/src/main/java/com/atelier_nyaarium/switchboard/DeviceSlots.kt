@@ -154,7 +154,7 @@ internal fun DeviceLive?.afterRead(answer: DeviceAnswer<ConsoleDeviceReadResult>
 		is DeviceAnswer.Answered -> when (val value = answer.value) {
 			is ConsoleDeviceReadResult.Ok -> DeviceLive(value.state.state)
 			is ConsoleDeviceReadResult.Refused -> failedWith(refusalLine(value.refusal))
-			is ConsoleDeviceReadResult.Unknown -> failedWith(NEWER_APP)
+			is ConsoleDeviceReadResult.Sensor, is ConsoleDeviceReadResult.Unknown -> failedWith(NEWER_APP)
 		}
 		DeviceAnswer.Declined, DeviceAnswer.Unreachable -> failedWith(answer.unansweredLine())
 	}
@@ -168,7 +168,7 @@ internal fun ScheduleHeld.afterRead(answer: DeviceAnswer<ConsoleDeviceReadResult
 				failed = null,
 			)
 			is ConsoleDeviceReadResult.Refused -> copy(failed = refusalLine(value.refusal))
-			is ConsoleDeviceReadResult.Unknown -> copy(failed = NEWER_APP)
+			is ConsoleDeviceReadResult.Sensor, is ConsoleDeviceReadResult.Unknown -> copy(failed = NEWER_APP)
 		}
 		DeviceAnswer.Declined, DeviceAnswer.Unreachable -> copy(failed = answer.unansweredLine())
 	}
@@ -177,7 +177,7 @@ internal fun SettingsHeld.afterRead(answer: DeviceAnswer<ConsoleDeviceReadResult
 	when (answer) {
 		is DeviceAnswer.Answered -> when (val value = answer.value) {
 			is ConsoleDeviceReadResult.Ok -> copy(held = value.settings, readAt = value.state.readAt)
-			is ConsoleDeviceReadResult.Refused, is ConsoleDeviceReadResult.Unknown -> this
+			is ConsoleDeviceReadResult.Refused, is ConsoleDeviceReadResult.Sensor, is ConsoleDeviceReadResult.Unknown -> this
 		}
 		DeviceAnswer.Declined, DeviceAnswer.Unreachable -> this
 	}

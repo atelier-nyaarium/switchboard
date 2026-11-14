@@ -58,6 +58,28 @@ export type IntegrationAct =
 			readonly put: DeviceSettingPut;
 	  };
 
+/** `withService` must ride along. */
+export interface MakerDataMarker {
+	readonly company: number;
+	readonly prefix: string;
+	readonly withService?: string;
+}
+
+/** `xx` is any byte. */
+export interface MakerDataExclusion {
+	readonly company: number;
+	readonly pattern: string;
+}
+
+/** Any one names the family. */
+export interface BluetoothMatch {
+	/** Lower-case hex, 16-bit. */
+	readonly services: readonly string[];
+	readonly makerData: readonly MakerDataMarker[];
+	readonly excludeNames: readonly string[];
+	readonly excludeData: readonly MakerDataExclusion[];
+}
+
 export interface IntegrationDeclaration {
 	readonly group: IntegrationGroup;
 	readonly label: string;
@@ -67,6 +89,7 @@ export interface IntegrationDeclaration {
 	readonly capabilities: readonly DeviceCapability[];
 	readonly acts: readonly IntegrationAct[];
 	readonly setup?: IntegrationSetup;
+	readonly bluetooth?: BluetoothMatch;
 }
 
 export const INTEGRATIONS = {
@@ -91,6 +114,31 @@ export const INTEGRATIONS = {
 			kind: "access_point",
 			networkPrefix: "TP-LINK_Smart Plug_",
 			needs: [{ key: "wifi", kind: "secret", label: "Home WiFi password" }],
+		},
+	},
+	govee: {
+		group: "brand",
+		label: "Govee",
+		discovery: "listen",
+		needs: [],
+		yields: "devices",
+		capabilities: [],
+		acts: [],
+		bluetooth: {
+			services: ["ec88"],
+			makerData: [
+				{ company: 0xec88, prefix: "" },
+				// Company 1 alone is Nokia's.
+				{ company: 0x0001, prefix: "0101", withService: "ec88" },
+				{ company: 0x8801, prefix: "ec00" },
+				{ company: 0x8803, prefix: "ec00" },
+				{ company: 0x8843, prefix: "ec00" },
+			],
+			excludeNames: ["ihoment_", "GBK_", "Govee_H6", "Govee_H7", "Govee_H1"],
+			excludeData: [
+				{ company: 0x8843, pattern: "ec00xx02" },
+				{ company: 0x8843, pattern: "ec00xx03" },
+			],
 		},
 	},
 	ifttt: {

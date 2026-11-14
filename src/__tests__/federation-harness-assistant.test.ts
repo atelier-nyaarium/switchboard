@@ -88,7 +88,7 @@ describe("the assistant's session through the console", () => {
 		expect(before).toMatchObject({ workdir: null, team: null });
 		expect(refused).toMatchObject({ workdir: null, team: null });
 		expect(placed).toMatchObject({ workdir: "~/projects/notes", team: ASSISTANT_TEAM });
-		expect(placed.watchers.map((watcher) => watcher.id)).toEqual(["github"]);
+		expect(placed.watchers.map((watcher) => watcher.id)).toEqual(["github", "sensors"]);
 		expect(placed.watchers[0]?.secret).toBeTruthy();
 		expect(forgot.ok, JSON.stringify(forgot)).toBe(false);
 		expect(h.host.ops.length).toBe(opsBefore);
@@ -136,7 +136,7 @@ describe("the assistant's session through the console", () => {
 		const after = await assistant({ kind: "assistant_state" });
 
 		expect(granted.watchers[0]?.grants).toEqual(["gh-token"]);
-		expect(after.watchers.map((watcher) => watcher.id)).toEqual(["github"]);
+		expect(after.watchers.map((watcher) => watcher.id)).toEqual(["github", "sensors"]);
 	});
 
 	it("outlives the session sweep that takes an ordinary idle session", async () => {

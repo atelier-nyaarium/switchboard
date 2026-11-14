@@ -1344,6 +1344,17 @@ function emitIntegrationRegistry(): string {
 			)
 			.join(", ");
 		const capabilities = entry.capabilities.map((capability) => enumOf("DeviceCapability", capability)).join(", ");
+		const strings = (values: readonly string[]) => `listOf(${values.map(kotlinString).join(", ")})`;
+		const bluetooth = entry.bluetooth
+			? `BluetoothMatch(${strings(entry.bluetooth.services)}, listOf(${entry.bluetooth.makerData
+					.map(
+						(marker) =>
+							`MakerDataMarker(${marker.company}, ${kotlinString(marker.prefix)}, ${marker.withService === undefined ? "null" : kotlinString(marker.withService)})`,
+					)
+					.join(", ")}), ${strings(entry.bluetooth.excludeNames)}, listOf(${entry.bluetooth.excludeData
+					.map((rule) => `MakerDataExclusion(${rule.company}, ${kotlinString(rule.pattern)})`)
+					.join(", ")}))`
+			: "null";
 		return [
 			`${INDENT}${INDENT}Integration(`,
 			`${INDENT}${INDENT}${INDENT}id = ${kotlinString(key)},`,
@@ -1355,6 +1366,7 @@ function emitIntegrationRegistry(): string {
 			`${INDENT}${INDENT}${INDENT}capabilities = listOf(${capabilities}),`,
 			`${INDENT}${INDENT}${INDENT}acts = listOf(${acts}),`,
 			`${INDENT}${INDENT}${INDENT}setup = ${setup},`,
+			`${INDENT}${INDENT}${INDENT}bluetooth = ${bluetooth},`,
 			`${INDENT}${INDENT}),`,
 		].join("\n");
 	}).join("\n");
@@ -1386,6 +1398,17 @@ ${INDENT}val networkPrefix: String,
 ${INDENT}val needs: List<IntegrationNeed>,
 )
 
+internal data class MakerDataMarker(val company: Int, val prefix: String, val withService: String?)
+
+internal data class MakerDataExclusion(val company: Int, val pattern: String)
+
+internal data class BluetoothMatch(
+${INDENT}val services: List<String>,
+${INDENT}val makerData: List<MakerDataMarker>,
+${INDENT}val excludeNames: List<String>,
+${INDENT}val excludeData: List<MakerDataExclusion>,
+)
+
 internal data class Integration(
 ${INDENT}val id: String,
 ${INDENT}val group: IntegrationGroup,
@@ -1396,6 +1419,7 @@ ${INDENT}val yields: IntegrationYield,
 ${INDENT}val capabilities: List<DeviceCapability>,
 ${INDENT}val acts: List<IntegrationAct>,
 ${INDENT}val setup: IntegrationSetup?,
+${INDENT}val bluetooth: BluetoothMatch?,
 )
 
 internal val INTEGRATIONS: List<Integration> =

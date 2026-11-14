@@ -4,7 +4,7 @@ import { type AgentExecutionTarget, AgentExecutionTargetSchema } from "./agent-e
 import { AGENT_PROMPT_MAX_BYTES } from "./agent-record.js";
 import { WINDOWS_SPAWN } from "./host-spawn.js";
 import type { LaunchFailure } from "./launch-notice.js";
-import { DEVICE_MAX_RECORDS, DeviceCandidateSchema } from "./schemasDevices.js";
+import { DEVICE_MAX_RECORDS, DeviceCandidateSchema, DeviceNearbySchema } from "./schemasDevices.js";
 import type { HostSessionCutOp } from "./schemasSessionCut.js";
 import type { SessionHarness, UNPICKED_WORD } from "./session-harness.js";
 import { MAX_SLUG_LEN, SLUG_RE } from "./session-id.js";
@@ -79,6 +79,7 @@ export const MAX_CONVERSATION_ID_LEN = 128;
 export type HostOp =
 	| { kind: "peek"; target: TmuxTarget }
 	| { kind: "kasaScan" }
+	| { kind: "bleScan" }
 	| { kind: "wifiNetwork" }
 	| { kind: "typeIntoPane"; target: TmuxTarget; text: string; dedupKey?: string }
 	// Mutations replay by dedupKey.
@@ -153,6 +154,19 @@ export const HostKasaScanResultSchema = z.union([
 ]);
 
 export type HostKasaScanResult = z.infer<typeof HostKasaScanResultSchema>;
+
+export const HOST_BLE_SCAN_MAX_DEVICES = 256;
+
+export const HostBleScanDeviceSchema = DeviceNearbySchema.omit({ radio: true }).extend({
+	services: z.array(z.string().regex(/^[0-9a-f]{4}$/)).max(64),
+});
+
+export const HostBleScanResultSchema = z.union([
+	z.object({ devices: z.array(HostBleScanDeviceSchema).max(HOST_BLE_SCAN_MAX_DEVICES) }).strict(),
+	z.object({ reason: z.enum(["no_radio", "scan_failed"]) }).strict(),
+]);
+
+export type HostBleScanResult = z.infer<typeof HostBleScanResultSchema>;
 
 /** The WiFi the host is on; `none` when it is on none or cannot tell. */
 export const HostWifiNetworkResultSchema = z.union([

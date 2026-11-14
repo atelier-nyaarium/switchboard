@@ -4,6 +4,7 @@ import { ClaudeTurnAckFrameSchema, ClaudeTurnResultFrameSchema } from "../shared
 import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { type LaunchFailure, LaunchFailureSchema } from "../shared/launch-notice.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
+import { DeviceAdvertFrameSchema } from "../shared/schemasDeviceBluetooth.js";
 import { ContainerListSchema, DerivedPresenceSchema, HarnessSpawnsSchema } from "../shared/schemasPresence.js";
 import { WakeResultFrameSchema, WakeStageFrameSchema } from "../shared/schemasWake.js";
 import {
@@ -63,6 +64,7 @@ export function createWebSocketHandlers({
 	onAgentHostMessage,
 	onClaudeTurnResult,
 	onPresenceDerive,
+	onDeviceAdvert,
 	onRestartPending,
 	sessionStore,
 	auth,
@@ -573,6 +575,12 @@ export function createWebSocketHandlers({
 				else console.warn(`[ws] presence_derive refused for ${msg.team}`);
 			}
 			flushHandshakes();
+		}
+
+		if (msg.type === "device_advert" && ws.data.teamName === "host") {
+			const frame = DeviceAdvertFrameSchema.safeParse(msg);
+			if (frame.success) onDeviceAdvert?.(frame.data, ws);
+			else console.warn("[ws] device_advert refused");
 		}
 
 		ws.data.missedPings = 0;

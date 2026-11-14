@@ -1,0 +1,13 @@
+{
+	"kind": "sensor",
+	"readings": [
+		{
+			"spec": { "kind": "number", "field": "temperature", "label": "Temperature", "unit": "C", "decimals": 1 },
+			"value": -5.3,
+			"low": { "value": -19.1, "at": 1793650000000 },
+			"high": { "value": -5.3, "at": 1793660000000 }
+		}
+	],
+	"heardAt": 1793660000000,
+	"thresholds": [{ "measure": "temperature", "low": 10, "deadZone": 1, "coolDownSec": 60, "revision": 2 }]
+}

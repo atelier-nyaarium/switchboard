@@ -7,6 +7,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleForgetResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleListDirsResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRemoveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
@@ -56,6 +57,7 @@ class ProtocolFixturesTest {
 			"ConsolePeekResult" -> wireJson.decodeFromString<ConsolePeekResult>(body)
 			"ConsoleDeviceRemoveResult" -> wireJson.decodeFromString<ConsoleDeviceRemoveResult>(body)
 			"ConsoleDeviceReadResult" -> wireJson.decodeFromString<ConsoleDeviceReadResult>(body)
+			"ConsoleDeviceScanResult" -> wireJson.decodeFromString<ConsoleDeviceScanResult>(body)
 			"ConsoleDeviceSchedulePutResult" -> wireJson.decodeFromString<ConsoleDeviceSchedulePutResult>(body)
 			"AssistantFieldSpec" -> wireJson.decodeFromString<AssistantFieldSpec>(body)
 			"WorkspaceSaveSpanAnswer" -> wireJson.decodeFromString<WorkspaceSaveSpanAnswer>(body)

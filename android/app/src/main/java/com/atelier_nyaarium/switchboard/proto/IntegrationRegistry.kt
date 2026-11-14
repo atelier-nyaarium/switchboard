@@ -51,6 +51,17 @@ internal data class IntegrationSetup(
 	val needs: List<IntegrationNeed>,
 )
 
+internal data class MakerDataMarker(val company: Int, val prefix: String, val withService: String?)
+
+internal data class MakerDataExclusion(val company: Int, val pattern: String)
+
+internal data class BluetoothMatch(
+	val services: List<String>,
+	val makerData: List<MakerDataMarker>,
+	val excludeNames: List<String>,
+	val excludeData: List<MakerDataExclusion>,
+)
+
 internal data class Integration(
 	val id: String,
 	val group: IntegrationGroup,
@@ -61,6 +72,7 @@ internal data class Integration(
 	val capabilities: List<DeviceCapability>,
 	val acts: List<IntegrationAct>,
 	val setup: IntegrationSetup?,
+	val bluetooth: BluetoothMatch?,
 )
 
 internal val INTEGRATIONS: List<Integration> =
@@ -75,6 +87,19 @@ internal val INTEGRATIONS: List<Integration> =
 			capabilities = listOf(DeviceCapability.SWITCH, DeviceCapability.SCHEDULE, DeviceCapability.LED, DeviceCapability.CLOCK, DeviceCapability.CLOUD),
 			acts = listOf(IntegrationAct("cloud_disconnect", "Disconnect from the cloud", ActTier.DANGER, "The Kasa app, Alexa and Google lose access. Switchboard keeps local control. To undo, set the plug up again in the Kasa app.", DeviceSettingPut.Kasa(setting = KasaSettingPut.Cloud(value = "disconnected")))),
 			setup = IntegrationSetup(IntegrationSetupKind.ACCESS_POINT, "TP-LINK_Smart Plug_", listOf(IntegrationNeed("wifi", IntegrationNeedKind.SECRET, "Home WiFi password"))),
+			bluetooth = null,
+		),
+		Integration(
+			id = "govee",
+			group = IntegrationGroup.BRAND,
+			label = "Govee",
+			discovery = IntegrationDiscovery.LISTEN,
+			needs = listOf(),
+			yields = IntegrationYield.DEVICES,
+			capabilities = listOf(),
+			acts = listOf(),
+			setup = null,
+			bluetooth = BluetoothMatch(listOf("ec88"), listOf(MakerDataMarker(60552, "", null), MakerDataMarker(1, "0101", "ec88"), MakerDataMarker(34817, "ec00", null), MakerDataMarker(34819, "ec00", null), MakerDataMarker(34883, "ec00", null)), listOf("ihoment_", "GBK_", "Govee_H6", "Govee_H7", "Govee_H1"), listOf(MakerDataExclusion(34883, "ec00xx02"), MakerDataExclusion(34883, "ec00xx03"))),
 		),
 		Integration(
 			id = "ifttt",
@@ -86,5 +111,6 @@ internal val INTEGRATIONS: List<Integration> =
 			capabilities = listOf(),
 			acts = listOf(),
 			setup = null,
+			bluetooth = null,
 		),
 	)
