@@ -21,6 +21,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 internal const val GATEWAY_DECLINED = "This Gateway does not offer devices"
+internal const val NEWER_APP = "Needs a newer app"
 
 internal sealed interface DeviceAnswer<out T> {
 	data class Answered<T>(val value: T) : DeviceAnswer<T>

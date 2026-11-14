@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { OWNER_OP_KIND_LIST } from "../src/federation-server/ownerOpRegistry.js";
@@ -33,6 +33,17 @@ import {
 	TrustPendingResultSchema,
 } from "../src/shared/federation-lifecycle.js";
 import { SignedXDomainUntrustSchema } from "../src/shared/federation-protocol.js";
+import {
+	BYTES_PER_ROW,
+	CONVERTED_DECIMALS,
+	FIELD_KINDS,
+	FIELD_TYPES,
+	type FieldTypeRow,
+	RULE_TESTS,
+	TEST_LABELS,
+	UNIT_DISPLAYS,
+	UNITS,
+} from "../src/shared/field-types.js";
 import {
 	BLOB_CHUNK_BYTES,
 	FEDERATION_PROTOCOL_FLOOR,
@@ -676,31 +687,64 @@ const ROOTS: z.ZodType[] = [
 	PaintTextAnswerSchema,
 ];
 
-const SEALED_ROOTS = new Set([
-	"ConsoleOp",
-	"EnrollOp",
-	"EnrollHandshakeOp",
-	"ConsoleApprovalOp",
-	"TrustHandshakeOp",
-	"CrossDomainShareTarget",
-	"RunbookFireTarget",
-	"BoardOp",
-	"BoardActor",
-	"VaultGrant",
-	"VaultHolder",
-	"VaultRequest",
-	"DeviceSettings",
-	"DeviceSettingPut",
-	"KasaSettingPut",
-	...Object.values(DEVICE_CONSOLE_RESULTS).map(idOf),
-	"WireFixture",
-	"WorkspaceFileMutation",
-	"WorkspaceFileDestination",
-	"WorkspaceFacet",
-	"WorkspaceFacetAnswer",
-	"AssistantFieldSpec",
-	"PhoneCapabilityAnswer",
+type DecodePolicy = "strict" | "preserve";
+
+const strict = (names: string[]): [string, DecodePolicy][] => names.map((name) => [name, "strict"]);
+
+/** Unknown kinds become Unknown. */
+const SEALED_ROOTS = new Map<string, DecodePolicy>([
+	...strict([
+		"ConsoleOp",
+		"EnrollOp",
+		"EnrollHandshakeOp",
+		"ConsoleApprovalOp",
+		"TrustHandshakeOp",
+		"CrossDomainShareTarget",
+		"RunbookFireTarget",
+		"BoardOp",
+		"BoardActor",
+		"VaultGrant",
+		"VaultHolder",
+		"VaultRequest",
+		"DeviceSettings",
+		"DeviceSettingPut",
+		"KasaSettingPut",
+		...Object.values(DEVICE_CONSOLE_RESULTS).map(idOf),
+		"WireFixture",
+		"WorkspaceFileMutation",
+		"WorkspaceFileDestination",
+		"WorkspaceFacet",
+		"WorkspaceFacetAnswer",
+		"PhoneCapabilityAnswer",
+	]),
+	["AssistantFieldSpec", "preserve"],
+	["ConsoleDeviceReadResult", "preserve"],
 ]);
+
+/** Phone parses these manually. */
+const MEMBER_ONLY_UNIONS = new Set(["ConsoleSocketInbound", "ConsoleSocketOutbound"]);
+
+for (const schema of ROOTS) {
+	const id = z.globalRegistry.get(schema)?.id;
+	const def = (schema as unknown as { _zod: { def: { discriminator?: string } } })._zod.def;
+	if (id && def.discriminator && !SEALED_ROOTS.has(id) && !MEMBER_ONLY_UNIONS.has(id)) {
+		throw new Error(`classify ${id} in SEALED_ROOTS`);
+	}
+}
+for (const name of SEALED_ROOTS.keys()) {
+	if (!ROOTS.some((schema) => z.globalRegistry.get(schema)?.id === name)) throw new Error(`${name} is not in ROOTS`);
+}
+{
+	const manifest = JSON.parse(
+		readFileSync(join(import.meta.dir, "../tests/fixtures/protocol/_manifest.json"), "utf8"),
+	) as { fixtures: Array<{ schema: string; expect: unknown }> };
+	for (const [name, policy] of SEALED_ROOTS) {
+		const future = manifest.fixtures.some(
+			(entry) => entry.schema === name && (entry.expect as { kotlin?: string })?.kotlin === "unknown",
+		);
+		if (policy === "preserve" && !future) throw new Error(`${name} needs a future-kind protocol fixture`);
+	}
+}
 
 type Json = Record<string, unknown>;
 
@@ -1017,20 +1061,26 @@ function qualifyShadowed(line: string, memberName: string): string {
 }
 
 function emitSealedClass(name: string, node: Json, discriminator: string, defs: Map<string, Json>): string {
-	// SerialName carries the wire discriminator.
+	// SerialName sets wire values.
 	const members = (node.oneOf ?? node.anyOf) as Json[];
 	if (!members) throw new Error(`sealed root ${name} has no oneOf`);
-	const out: string[] = [
-		`@Serializable`,
-		`@OptIn(ExperimentalSerializationApi::class)`,
-		`@JsonClassDiscriminator(${kotlinString(discriminator)})`,
-		`sealed class ${name} {`,
-	];
+	const tolerant = SEALED_ROOTS.get(name) === "preserve";
+	const out: string[] = tolerant
+		? [`@Serializable(with = ${name}Serializer::class)`, `sealed class ${name} {`]
+		: [
+				`@Serializable`,
+				`@OptIn(ExperimentalSerializationApi::class)`,
+				`@JsonClassDiscriminator(${kotlinString(discriminator)})`,
+				`sealed class ${name} {`,
+			];
+	const known: Array<{ kind: string; member: string }> = [];
 	for (const member of members) {
 		const props = (member.properties ?? {}) as Record<string, Json>;
 		const kindValue = props[discriminator]?.const as string | undefined;
 		if (!kindValue) throw new Error(`sealed member of ${name} lacks const ${discriminator}`);
 		const memberName = pascal(kindValue);
+		if (tolerant && memberName === "Unknown") throw new Error(`${name}: a member named Unknown hides the fallback`);
+		known.push({ kind: kindValue, member: memberName });
 		const params = emitParams(member, defs, new Set([discriminator])).map((line) =>
 			qualifyShadowed(line, memberName),
 		);
@@ -1045,9 +1095,59 @@ function emitSealedClass(name: string, node: Json, discriminator: string, defs: 
 		}
 		out.push("");
 	}
-	while (out[out.length - 1] === "") out.pop();
-	out.push(`}`);
+	if (!tolerant) {
+		while (out[out.length - 1] === "") out.pop();
+		out.push(`}`);
+		return out.join("\n");
+	}
+	out.push(`${INDENT}/** Unknown member, preserved as sent. */`);
+	out.push(`${INDENT}data class Unknown(val ${discriminator}: String, val raw: JsonObject) : ${name}()`);
+	out.push(`}`, "", emitTolerantSerializer(name, discriminator, known));
 	return out.join("\n");
+}
+
+/** JSON-only unknown members round-trip. */
+function emitTolerantSerializer(
+	name: string,
+	discriminator: string,
+	known: Array<{ kind: string; member: string }>,
+): string {
+	const key = kotlinString(discriminator);
+	const reads = known.map(
+		({ kind, member }) =>
+			`${INDENT.repeat(3)}${kotlinString(kind)} -> input.json.decodeFromJsonElement(${name}.${member}.serializer(), body)`,
+	);
+	const writes = known.map(
+		({ kind, member }) =>
+			`${INDENT.repeat(3)}is ${name}.${member} -> tagged(${kotlinString(kind)}, output.json.encodeToJsonElement(${name}.${member}.serializer(), value))`,
+	);
+	return [
+		`object ${name}Serializer : KSerializer<${name}> {`,
+		`${INDENT}override val descriptor: SerialDescriptor = buildClassSerialDescriptor(${kotlinString(name)})`,
+		"",
+		`${INDENT}override fun deserialize(decoder: Decoder): ${name} {`,
+		`${INDENT}${INDENT}val input = decoder as? JsonDecoder ?: throw SerializationException(${kotlinString(`${name} reads JSON only`)})`,
+		`${INDENT}${INDENT}val raw = input.decodeJsonElement().jsonObject`,
+		`${INDENT}${INDENT}val body = JsonObject(raw - ${key})`,
+		`${INDENT}${INDENT}return when (val kind = (raw[${key}] as? JsonPrimitive)?.contentOrNull) {`,
+		...reads,
+		`${INDENT.repeat(3)}else -> ${name}.Unknown(kind ?: "", raw)`,
+		`${INDENT}${INDENT}}`,
+		`${INDENT}}`,
+		"",
+		`${INDENT}override fun serialize(encoder: Encoder, value: ${name}) {`,
+		`${INDENT}${INDENT}val output = encoder as? JsonEncoder ?: throw SerializationException(${kotlinString(`${name} writes JSON only`)})`,
+		`${INDENT}${INDENT}val element = when (value) {`,
+		...writes,
+		`${INDENT.repeat(3)}is ${name}.Unknown -> value.raw`,
+		`${INDENT}${INDENT}}`,
+		`${INDENT}${INDENT}output.encodeJsonElement(element)`,
+		`${INDENT}}`,
+		"",
+		`${INDENT}private fun tagged(kind: String, body: JsonElement): JsonObject =`,
+		`${INDENT}${INDENT}JsonObject(mapOf(${key} to JsonPrimitive(kind)) + body.jsonObject)`,
+		`}`,
+	].join("\n");
 }
 
 const defs = new Map<string, Json>();
@@ -1460,9 +1560,20 @@ package com.atelier_nyaarium.switchboard.proto
 
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonClassDiscriminator
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -1541,7 +1652,40 @@ ${INDENT}/** Board attachment limit. */
 ${INDENT}const val BOARD_ATTACHMENTS_MAX: Int = ${BOARD_ATTACHMENTS_MAX}
 }`;
 
-const output = `${[header, ...blocks].join("\n\n")}\n`;
+/** Mirrors FieldRules.kt metadata. */
+function emitFieldTypeTable(): string {
+	const list = (values: readonly string[]) => `listOf(${values.map(kotlinString).join(", ")})`;
+	const double = (value: number) => (Number.isInteger(value) ? `${value}.0` : String(value));
+	const rows = FIELD_KINDS.map((kind) => {
+		const row: FieldTypeRow = FIELD_TYPES[kind];
+		return `${INDENT}${INDENT}${kotlinString(kind)} to FieldTypeRow(${kotlinString(kind)}, ${kotlinString(row.label)}, ${list(row.tests)}),`;
+	});
+	const labels = RULE_TESTS.map((test) => `${kotlinString(test)} to ${kotlinString(TEST_LABELS[test])}`);
+	const suffixes = UNITS.map((row) => `${kotlinString(row.unit)} to ${kotlinString(row.suffix)}`);
+	const displays = UNIT_DISPLAYS.map(
+		(row) =>
+			`UnitDisplay(${kotlinString(row.unit)}, ${kotlinString(row.display)}, ${double(row.scale)}, ${double(row.offset)})`,
+	);
+	return [
+		`data class FieldTypeRow(val kind: String, val label: String, val tests: List<String>)`,
+		"",
+		`/** shown = stored * scale + offset. */`,
+		`data class UnitDisplay(val unit: String, val display: String, val scale: Double, val offset: Double)`,
+		"",
+		`object FieldTypes {`,
+		`${INDENT}val ROWS: Map<String, FieldTypeRow> = mapOf(`,
+		...rows,
+		`${INDENT})`,
+		`${INDENT}val TEST_LABELS: Map<String, String> = mapOf(${labels.join(", ")})`,
+		`${INDENT}val UNIT_SUFFIXES: Map<String, String> = mapOf(${suffixes.join(", ")})`,
+		`${INDENT}val UNIT_DISPLAYS: List<UnitDisplay> = listOf(${displays.join(", ")})`,
+		`${INDENT}const val CONVERTED_DECIMALS: Int = ${CONVERTED_DECIMALS}`,
+		`${INDENT}const val BYTES_PER_ROW: Int = ${BYTES_PER_ROW}`,
+		`}`,
+	].join("\n");
+}
+
+const output = `${[header, ...blocks, emitFieldTypeTable()].join("\n\n")}\n`;
 const phoneCapabilityRegistryOutput = emitPhoneCapabilityRegistry();
 const integrationRegistryOutput = emitIntegrationRegistry();
 const harnessRegistryOutput = emitHarnessRegistry();

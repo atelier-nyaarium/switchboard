@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.ConsoleCloseSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleForgetResult
@@ -56,6 +57,7 @@ class ProtocolFixturesTest {
 			"ConsoleDeviceRemoveResult" -> wireJson.decodeFromString<ConsoleDeviceRemoveResult>(body)
 			"ConsoleDeviceReadResult" -> wireJson.decodeFromString<ConsoleDeviceReadResult>(body)
 			"ConsoleDeviceSchedulePutResult" -> wireJson.decodeFromString<ConsoleDeviceSchedulePutResult>(body)
+			"AssistantFieldSpec" -> wireJson.decodeFromString<AssistantFieldSpec>(body)
 			"WorkspaceSaveSpanAnswer" -> wireJson.decodeFromString<WorkspaceSaveSpanAnswer>(body)
 			"WorkspaceFileMutationAnswer" -> wireJson.decodeFromString<WorkspaceFileMutationAnswer>(body)
 			"WorkspaceFileStateAnswer" -> wireJson.decodeFromString<WorkspaceFileStateAnswer>(body)
@@ -74,12 +76,24 @@ class ProtocolFixturesTest {
 			val obj = entry.jsonObject
 			val file = obj["file"]!!.jsonPrimitive.content
 			val schema = obj["schema"]!!.jsonPrimitive.content
-			val expectPass = obj["expect"]!!.jsonPrimitive.content == "pass"
+			val expect = (obj["expect"] as? JsonObject)?.get("kotlin") ?: obj["expect"]!!
+			val expected = expect.jsonPrimitive.content
 			val decoded = runCatching { decodeAs(schema, fixture(file)) }
-			assertEquals("$file decode result", expectPass, decoded.isSuccess)
-			if (expectPass) assertNotNull("$file decoded as $schema", decoded.getOrNull())
+			assertEquals("$file decode result", expected != "fail", decoded.isSuccess)
+			if (expected == "fail") continue
+			val value = decoded.getOrNull()
+			assertNotNull("$file decoded as $schema", value)
+			val sent = wireJson.parseToJsonElement(fixture(file)).jsonObject["kind"]?.jsonPrimitive?.content
+			assertEquals("$file Unknown kind", if (expected == "unknown") sent else null, unknownKindOf(value!!))
 		}
 	}
+
+	private fun unknownKindOf(value: Any): String? =
+		when (value) {
+			is AssistantFieldSpec.Unknown -> value.kind
+			is ConsoleDeviceReadResult.Unknown -> value.kind
+			else -> null
+		}
 
 	@Test
 	fun preservesLargeIntegers() {

@@ -405,7 +405,8 @@ assistant cannot rewrite what sorts its own events.
   choice list (`enumeration`) carries value and label pairs, takes `is` and `is_not`, and compares
   the exact value; labels are display only. Text takes `is`, `is_not` and `contains`, case
   ignored. A missing field fails every test on it, `is_not` included. A value is stored trimmed of
-  ASCII whitespace at its edges, `trimRuleValue`, and nothing else.
+  ASCII whitespace at its edges, `trimRuleValue`, and nothing else. A number or bytes field takes
+  no tests, and a kind the phone does not know is shown but never offered (`docs/fields.md`).
 - **One parse, one match:** `parseRuleForFields` in `schemasAssistantRules.ts` refuses an undeclared
   field, a value off its list, a test its kind does not take and a blank value. `firstMatch`, the
   one reading of which rule decides a thread, skips a rule that does not parse; `decideEvent`, the

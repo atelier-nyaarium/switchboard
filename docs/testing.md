@@ -176,6 +176,12 @@ schema and derives the manifest from it. `check:fixtures` validates every commit
 manifest entry on both sides. The n-th random draw of a case is the first N bytes of
 `sha256("<producer>:<composer>:<case>:<n>")`, recorded in `inputs`.
 
+## Protocol fixtures
+
+`tests/fixtures/protocol/_manifest.json` names each fixture's schema and whether it parses. An
+`expect` of `{ ts, kotlin }` sets each runtime apart: a future-kind fixture of a `preserve` root is
+refused by the TS schema and decodes to `Unknown` on the phone (`docs/fields.md`).
+
 ## The emulator sandbox
 
 The `emulator` variant draws every phone screen with no onboarding and no Gateway, so a screen that

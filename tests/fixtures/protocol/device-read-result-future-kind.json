@@ -1,0 +1,5 @@
+{
+	"kind": "future_kind",
+	"readings": [{ "key": "temperature", "value": 24.4 }],
+	"readAt": 1793660000000
+}

@@ -21,6 +21,8 @@ import com.atelier_nyaarium.switchboard.assistant.testsOf
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleInvalid
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
@@ -118,6 +120,41 @@ class RuleDraftTest {
 		assertNotNull(choiceRules.issueOf(stale.conditions.single()))
 		assertEquals(RuleEditing(edit = true, save = false, delete = true), ruleEditing(slot, stale, false, false, choiceRules))
 		assertEquals(RuleEditing(edit = true, save = true, delete = true), ruleEditing(slot, repicked, false, false, choiceRules))
+	}
+
+	@Test
+	fun aFieldKindThisBuildDoesNotKnowKeepsItsNameAndBlocksSave() {
+		val raw = buildJsonObject {
+			put("kind", "future_kind")
+			put("field", "reason")
+			put("label", "Reason")
+		}
+		val rules = WatcherRules(specs = listOf(AssistantFieldSpec.Unknown("future_kind", raw)), held = held)
+		val draft = RuleDraft.draftOf(rule("reviews", "review_requested", "wake"))
+
+		assertEquals("Reason", rules.fieldLabelOf("reason"))
+		assertNotNull(rules.issueOf(draft.conditions.single()))
+		assertEquals(false, ruleEditing(RuleSlot.Held("reviews"), draft, false, false, rules).save)
+	}
+
+	@Test
+	fun aFieldWithNoRuleTestsIsNeverOfferedOrOpenedInto() {
+		val unknown = AssistantFieldSpec.Unknown("future_kind", buildJsonObject { put("kind", "future_kind"); put("field", "later") })
+		val number = AssistantFieldSpec.Number(field = "temperature", label = "Temperature")
+		val text = AssistantFieldSpec.Text(field = "reason", label = "Reason")
+		val rules = WatcherRules(specs = listOf(unknown, number, text), held = held)
+		val onlyUnusable = WatcherRules(specs = listOf(unknown, number), held = held)
+
+		val opened = RuleDraft.of(RuleSlot.New, rules)!!
+		val moved = opened.withField(0, "temperature", rules)
+
+		assertEquals(listOf("reason"), rules.ruleFields)
+		assertEquals("reason", opened.conditions.single().field)
+		assertNotNull(rules.issueOf(moved.changed(0) { it.copy(value = "30") }.conditions.single()))
+		assertNull(RuleDraft.of(RuleSlot.New, onlyUnusable))
+		assertEquals(opened, opened.withCondition(onlyUnusable))
+		val shadowed = WatcherRules(specs = listOf(AssistantFieldSpec.Number(field = "reason", label = "Reason"), text), held = held)
+		assertEquals("is", RuleDraft.of(RuleSlot.New, shadowed)!!.conditions.single().test)
 	}
 
 	@Test

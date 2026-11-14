@@ -1,17 +1,15 @@
 // Watcher rules: ordered, first match wins.
 
 import { z } from "zod";
+import { FIELD_TYPES, RULE_TESTS, type RuleTest, UNIT_CODES } from "./field-types.js";
 import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULE_VALUE_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
 
-export const RULE_TESTS = ["is", "is_not", "contains"] as const;
-/** Enumeration tests. */
-export const CHOICE_TESTS = ["is", "is_not"] as const;
+export { RULE_TESTS, type RuleTest };
 export const RULE_ACTIONS = ["wake", "inbox"] as const;
 /** The phone mints it; the Gateway keeps it. */
 export const RULE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export type RuleAction = (typeof RULE_ACTIONS)[number];
-export type RuleTest = (typeof RULE_TESTS)[number];
 
 /** ASCII whitespace edges only. */
 export const trimRuleValue = (value: string): string => value.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, "");
@@ -43,13 +41,32 @@ export const AssistantFieldSpecSchema = z
 		}),
 		/** Case-insensitive open text. */
 		z.strictObject({ kind: z.literal("text"), field: fieldName, label: fieldLabel }),
+		/** Thresholds, not rule tests. */
+		z.strictObject({
+			kind: z.literal("number"),
+			field: fieldName,
+			label: fieldLabel,
+			unit: z
+				.string()
+				.refine((unit) => UNIT_CODES.includes(unit), "unknown unit")
+				.optional(),
+			decimals: z.number().int().min(0).max(6).optional(),
+			min: z.number().optional(),
+			max: z.number().optional(),
+		}),
+		/** Bytes display as hex. */
+		z.strictObject({
+			kind: z.literal("bytes"),
+			field: fieldName,
+			label: fieldLabel,
+			maxLength: z.number().int().min(1).max(64).optional(),
+		}),
 	])
 	.meta({ id: "AssistantFieldSpec" });
 
 export type AssistantFieldSpec = z.infer<typeof AssistantFieldSpecSchema>;
 
-export const testsOf = (spec: AssistantFieldSpec): readonly RuleTest[] =>
-	spec.kind === "enumeration" ? CHOICE_TESTS : RULE_TESTS;
+export const testsOf = (spec: AssistantFieldSpec): readonly RuleTest[] => FIELD_TYPES[spec.kind].tests;
 
 export const fieldsOf = (specs: readonly AssistantFieldSpec[]): string[] => specs.map((spec) => spec.field);
 

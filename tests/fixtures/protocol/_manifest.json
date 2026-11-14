@@ -65,6 +65,17 @@
 		{ "file": "device-read-result-settings.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
 		{ "file": "device-read-result-no-settings.json", "schema": "ConsoleDeviceReadResult", "expect": "pass" },
 		{
+			"file": "device-read-result-future-kind.json",
+			"schema": "ConsoleDeviceReadResult",
+			"expect": { "ts": "fail", "kotlin": "unknown" }
+		},
+		{ "file": "assistant-field-spec-text.json", "schema": "AssistantFieldSpec", "expect": "pass" },
+		{
+			"file": "assistant-field-spec-future-kind.json",
+			"schema": "AssistantFieldSpec",
+			"expect": { "ts": "fail", "kotlin": "unknown" }
+		},
+		{
 			"file": "device-schedule-put-result-refused.json",
 			"schema": "ConsoleDeviceSchedulePutResult",
 			"expect": "pass"

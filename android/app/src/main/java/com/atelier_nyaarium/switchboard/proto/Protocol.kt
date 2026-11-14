@@ -13,9 +13,20 @@ package com.atelier_nyaarium.switchboard.proto
 
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonClassDiscriminator
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -1781,9 +1792,7 @@ sealed class ConsoleDeviceListResult {
 	) : ConsoleDeviceListResult()
 }
 
-@Serializable
-@OptIn(ExperimentalSerializationApi::class)
-@JsonClassDiscriminator("kind")
+@Serializable(with = ConsoleDeviceReadResultSerializer::class)
 sealed class ConsoleDeviceReadResult {
 	@Serializable
 	@SerialName("ok")
@@ -1798,6 +1807,37 @@ sealed class ConsoleDeviceReadResult {
 	data class Refused(
 		val refusal: DeviceRefusal,
 	) : ConsoleDeviceReadResult()
+
+	/** Unknown member, preserved as sent. */
+	data class Unknown(val kind: String, val raw: JsonObject) : ConsoleDeviceReadResult()
+}
+
+object ConsoleDeviceReadResultSerializer : KSerializer<ConsoleDeviceReadResult> {
+	override val descriptor: SerialDescriptor = buildClassSerialDescriptor("ConsoleDeviceReadResult")
+
+	override fun deserialize(decoder: Decoder): ConsoleDeviceReadResult {
+		val input = decoder as? JsonDecoder ?: throw SerializationException("ConsoleDeviceReadResult reads JSON only")
+		val raw = input.decodeJsonElement().jsonObject
+		val body = JsonObject(raw - "kind")
+		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
+			"ok" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Ok.serializer(), body)
+			"refused" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Refused.serializer(), body)
+			else -> ConsoleDeviceReadResult.Unknown(kind ?: "", raw)
+		}
+	}
+
+	override fun serialize(encoder: Encoder, value: ConsoleDeviceReadResult) {
+		val output = encoder as? JsonEncoder ?: throw SerializationException("ConsoleDeviceReadResult writes JSON only")
+		val element = when (value) {
+			is ConsoleDeviceReadResult.Ok -> tagged("ok", output.json.encodeToJsonElement(ConsoleDeviceReadResult.Ok.serializer(), value))
+			is ConsoleDeviceReadResult.Refused -> tagged("refused", output.json.encodeToJsonElement(ConsoleDeviceReadResult.Refused.serializer(), value))
+			is ConsoleDeviceReadResult.Unknown -> value.raw
+		}
+		output.encodeJsonElement(element)
+	}
+
+	private fun tagged(kind: String, body: JsonElement): JsonObject =
+		JsonObject(mapOf("kind" to JsonPrimitive(kind)) + body.jsonObject)
 }
 
 @Serializable
@@ -2081,9 +2121,7 @@ data class AssistantFieldOption(
 	val label: String,
 )
 
-@Serializable
-@OptIn(ExperimentalSerializationApi::class)
-@JsonClassDiscriminator("kind")
+@Serializable(with = AssistantFieldSpecSerializer::class)
 sealed class AssistantFieldSpec {
 	@Serializable
 	@SerialName("enumeration")
@@ -2099,6 +2137,60 @@ sealed class AssistantFieldSpec {
 		val field: String,
 		val label: String,
 	) : AssistantFieldSpec()
+
+	@Serializable
+	@SerialName("number")
+	data class Number(
+		val field: String,
+		val label: String,
+		val unit: String? = null,
+		val decimals: Long? = null,
+		val min: Double? = null,
+		val max: Double? = null,
+	) : AssistantFieldSpec()
+
+	@Serializable
+	@SerialName("bytes")
+	data class Bytes(
+		val field: String,
+		val label: String,
+		val maxLength: Long? = null,
+	) : AssistantFieldSpec()
+
+	/** Unknown member, preserved as sent. */
+	data class Unknown(val kind: String, val raw: JsonObject) : AssistantFieldSpec()
+}
+
+object AssistantFieldSpecSerializer : KSerializer<AssistantFieldSpec> {
+	override val descriptor: SerialDescriptor = buildClassSerialDescriptor("AssistantFieldSpec")
+
+	override fun deserialize(decoder: Decoder): AssistantFieldSpec {
+		val input = decoder as? JsonDecoder ?: throw SerializationException("AssistantFieldSpec reads JSON only")
+		val raw = input.decodeJsonElement().jsonObject
+		val body = JsonObject(raw - "kind")
+		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
+			"enumeration" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Enumeration.serializer(), body)
+			"text" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Text.serializer(), body)
+			"number" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Number.serializer(), body)
+			"bytes" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Bytes.serializer(), body)
+			else -> AssistantFieldSpec.Unknown(kind ?: "", raw)
+		}
+	}
+
+	override fun serialize(encoder: Encoder, value: AssistantFieldSpec) {
+		val output = encoder as? JsonEncoder ?: throw SerializationException("AssistantFieldSpec writes JSON only")
+		val element = when (value) {
+			is AssistantFieldSpec.Enumeration -> tagged("enumeration", output.json.encodeToJsonElement(AssistantFieldSpec.Enumeration.serializer(), value))
+			is AssistantFieldSpec.Text -> tagged("text", output.json.encodeToJsonElement(AssistantFieldSpec.Text.serializer(), value))
+			is AssistantFieldSpec.Number -> tagged("number", output.json.encodeToJsonElement(AssistantFieldSpec.Number.serializer(), value))
+			is AssistantFieldSpec.Bytes -> tagged("bytes", output.json.encodeToJsonElement(AssistantFieldSpec.Bytes.serializer(), value))
+			is AssistantFieldSpec.Unknown -> value.raw
+		}
+		output.encodeJsonElement(element)
+	}
+
+	private fun tagged(kind: String, body: JsonElement): JsonObject =
+		JsonObject(mapOf("kind" to JsonPrimitive(kind)) + body.jsonObject)
 }
 
 @Serializable
@@ -4293,3 +4385,22 @@ data class WorkspaceKnowledgeFacts(
 	val comments: Long,
 	val counts: WorkspaceKnowledgeCounts? = null,
 )
+
+data class FieldTypeRow(val kind: String, val label: String, val tests: List<String>)
+
+/** shown = stored * scale + offset. */
+data class UnitDisplay(val unit: String, val display: String, val scale: Double, val offset: Double)
+
+object FieldTypes {
+	val ROWS: Map<String, FieldTypeRow> = mapOf(
+		"enumeration" to FieldTypeRow("enumeration", "Choice", listOf("is", "is_not")),
+		"text" to FieldTypeRow("text", "Text", listOf("is", "is_not", "contains")),
+		"number" to FieldTypeRow("number", "Number", listOf()),
+		"bytes" to FieldTypeRow("bytes", "Bytes", listOf()),
+	)
+	val TEST_LABELS: Map<String, String> = mapOf("is" to "is", "is_not" to "is not", "contains" to "contains")
+	val UNIT_SUFFIXES: Map<String, String> = mapOf("C" to " °C", "F" to " °F", "%" to "%")
+	val UNIT_DISPLAYS: List<UnitDisplay> = listOf(UnitDisplay("C", "F", 1.8, 32.0))
+	const val CONVERTED_DECIMALS: Int = 2
+	const val BYTES_PER_ROW: Int = 8
+}

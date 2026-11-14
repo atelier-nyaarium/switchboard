@@ -15,6 +15,7 @@ import {
 	PlanesReadResultSchema,
 	PlanesReadValueSchema,
 } from "../shared/schemas.js";
+import { AssistantFieldSpecSchema } from "../shared/schemasAssistantRules.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
 	ConsoleDeviceReadResultSchema,
@@ -49,6 +50,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsoleDeviceRemoveResult: ConsoleDeviceRemoveResultSchema,
 	ConsoleDeviceReadResult: ConsoleDeviceReadResultSchema,
 	ConsoleDeviceSchedulePutResult: ConsoleDeviceSchedulePutResultSchema,
+	AssistantFieldSpec: AssistantFieldSpecSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
 	WorkspaceFileStateAnswer: FileStateAnswerSchema,
@@ -61,8 +63,11 @@ const SCHEMAS: Record<string, z.ZodType> = {
 interface ManifestEntry {
 	file: string;
 	schema: string;
-	expect: "pass" | "fail";
+	/** Runtime-specific decode expectations. */
+	expect: "pass" | "fail" | { ts: "pass" | "fail"; kotlin: "pass" | "fail" | "unknown" };
 }
+
+const tsExpect = (entry: ManifestEntry) => (typeof entry.expect === "string" ? entry.expect : entry.expect.ts);
 
 function fixture(name: string): unknown {
 	return JSON.parse(fs.readFileSync(path.join(FIXTURES, name), "utf8"));
@@ -87,7 +92,7 @@ describe("protocol fixtures", () => {
 
 	it.each(manifest.map((entry) => [entry.file, entry] as const))("%s matches its manifest entry", (_, entry) => {
 		const result = SCHEMAS[entry.schema].safeParse(fixture(entry.file));
-		expect(result.success).toBe(entry.expect === "pass");
+		expect(result.success).toBe(tsExpect(entry) === "pass");
 	});
 
 	it("preserves large integer fields", () => {

@@ -1,0 +1,317 @@
+{
+	"_comment": "Field number grammar, rounding, display conversion and rendering; both runtimes replay it.",
+	"decimal": [
+		{
+			"text": "0",
+			"value": 0
+		},
+		{
+			"text": "24.4",
+			"value": 24.4
+		},
+		{
+			"text": "-5.3",
+			"value": -5.3
+		},
+		{
+			"text": "-0",
+			"value": 0
+		},
+		{
+			"text": "007",
+			"value": null
+		},
+		{
+			"text": "1e3",
+			"value": null
+		},
+		{
+			"text": "0x10",
+			"value": null
+		},
+		{
+			"text": "",
+			"value": null
+		},
+		{
+			"text": " 1",
+			"value": null
+		},
+		{
+			"text": "1 ",
+			"value": null
+		},
+		{
+			"text": "+1",
+			"value": null
+		},
+		{
+			"text": ".5",
+			"value": null
+		},
+		{
+			"text": "5.",
+			"value": null
+		},
+		{
+			"text": "NaN",
+			"value": null
+		},
+		{
+			"text": "Infinity",
+			"value": null
+		},
+		{
+			"text": "1.005",
+			"value": 1.005
+		},
+		{
+			"text": "-0.04",
+			"value": -0.04
+		},
+		{
+			"text": "123456.789",
+			"value": 123456.789
+		}
+	],
+	"format": [
+		{
+			"value": 24.4,
+			"decimals": 1,
+			"text": "24.4"
+		},
+		{
+			"value": 24.44,
+			"decimals": 1,
+			"text": "24.4"
+		},
+		{
+			"value": 24.45,
+			"decimals": 1,
+			"text": "24.5"
+		},
+		{
+			"value": -0.04,
+			"decimals": 1,
+			"text": "0.0"
+		},
+		{
+			"value": -0.05,
+			"decimals": 1,
+			"text": "0.0"
+		},
+		{
+			"value": 1.005,
+			"decimals": 2,
+			"text": "1.00"
+		},
+		{
+			"value": 70.1,
+			"decimals": 1,
+			"text": "70.1"
+		},
+		{
+			"value": 0,
+			"decimals": 0,
+			"text": "0"
+		},
+		{
+			"value": 99.95,
+			"decimals": 1,
+			"text": "100.0"
+		},
+		{
+			"value": -19.4,
+			"decimals": 1,
+			"text": "-19.4"
+		},
+		{
+			"value": 100,
+			"decimals": 0,
+			"text": "100"
+		}
+	],
+	"roundTrip": [
+		{
+			"typed": 70.1,
+			"stored": 21.17,
+			"readBack": "70.1"
+		},
+		{
+			"typed": 70.2,
+			"stored": 21.22,
+			"readBack": "70.2"
+		},
+		{
+			"typed": -4,
+			"stored": -20,
+			"readBack": "-4.0"
+		},
+		{
+			"typed": 32,
+			"stored": 0,
+			"readBack": "32.0"
+		},
+		{
+			"typed": 98.6,
+			"stored": 37,
+			"readBack": "98.6"
+		},
+		{
+			"typed": 0.1,
+			"stored": -17.72,
+			"readBack": "0.1"
+		},
+		{
+			"typed": -40,
+			"stored": -40,
+			"readBack": "-40.0"
+		}
+	],
+	"range": [
+		{
+			"value": 9007199254740991,
+			"decimals": 0,
+			"inRange": true
+		},
+		{
+			"value": 9007199254740992,
+			"decimals": 0,
+			"inRange": false
+		},
+		{
+			"value": -9007199254740991,
+			"decimals": 0,
+			"inRange": true
+		},
+		{
+			"value": 9007199254740.99,
+			"decimals": 3,
+			"inRange": true
+		},
+		{
+			"value": 9007199254741,
+			"decimals": 3,
+			"inRange": false
+		},
+		{
+			"value": 100000000000000000000,
+			"decimals": 0,
+			"inRange": false
+		},
+		{
+			"value": 24.4,
+			"decimals": 6,
+			"inRange": true
+		}
+	],
+	"fields": [
+		{
+			"spec": {
+				"kind": "number",
+				"field": "temperature",
+				"label": "Temperature",
+				"unit": "C",
+				"decimals": 1
+			},
+			"value": 24.4,
+			"display": "F",
+			"text": "75.9 °F"
+		},
+		{
+			"spec": {
+				"kind": "number",
+				"field": "temperature",
+				"label": "Temperature",
+				"unit": "C",
+				"decimals": 1
+			},
+			"value": 24.4,
+			"text": "24.4 °C"
+		},
+		{
+			"spec": {
+				"kind": "number",
+				"field": "temperature",
+				"label": "Temperature",
+				"unit": "C",
+				"decimals": 1
+			},
+			"value": -5.3,
+			"display": "F",
+			"text": "22.5 °F"
+		},
+		{
+			"spec": {
+				"kind": "number",
+				"field": "battery",
+				"label": "Battery",
+				"unit": "%",
+				"decimals": 0
+			},
+			"value": 90,
+			"display": "F",
+			"text": "90%"
+		},
+		{
+			"spec": {
+				"kind": "number",
+				"field": "count",
+				"label": "Count"
+			},
+			"value": 3,
+			"text": "3"
+		},
+		{
+			"spec": {
+				"kind": "bytes",
+				"field": "adv",
+				"label": "Advertisement"
+			},
+			"value": "010103bac864",
+			"text": "0: 01 01 03 ba c8 64"
+		},
+		{
+			"spec": {
+				"kind": "bytes",
+				"field": "adv",
+				"label": "Advertisement"
+			},
+			"value": "0101027a3f550000ec88",
+			"text": "0: 01 01 02 7a 3f 55 00 00 | 8: ec 88"
+		},
+		{
+			"spec": {
+				"kind": "bytes",
+				"field": "adv",
+				"label": "Advertisement"
+			},
+			"value": "",
+			"text": ""
+		},
+		{
+			"spec": {
+				"kind": "enumeration",
+				"field": "crossing",
+				"label": "Crossing",
+				"options": [
+					{
+						"value": "above_high",
+						"label": "Above high"
+					}
+				]
+			},
+			"value": "above_high",
+			"text": "Above high"
+		},
+		{
+			"spec": {
+				"kind": "text",
+				"field": "title",
+				"label": "Title"
+			},
+			"value": "Freezer",
+			"text": "Freezer"
+		}
+	]
+}

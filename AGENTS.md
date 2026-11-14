@@ -56,6 +56,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     `gateway-serve-limits.test.ts` derives the set from each route's wait.
 - `src/gateway/vault/vaultUse.ts` - the one release a vault value leaves by: the routes' and a watcher's standing grant read
 - `src/shared/schemasAssistant.ts` - the assistant's console answer: where it lives on a Gateway and its watchers there
+- `src/shared/field-types.ts` / `field-values.ts` / `expressions.ts` / `src/gateway/ownerRecords.ts` / `src/gateway/computed/computedFields.ts` / `automations.ts` / `android/.../FieldRules.kt` - the field table, a value's parse and render, the expression nodes, the owner-record store, computed fields, automations with the sensors queue and watcher, and the phone's render twin. `docs/fields.md` holds the design
+  - **`drain()` is the one reader of field transitions:** the field state stores its last 16 transitions in the same commit as its `seq`, and a checkpoint per automation names the record revision and field epoch, so no crossing is inferred from today's value.
+  - **Every sealed root names a decode policy:** `SEALED_ROOTS` in `scripts/codegen-kotlin.ts`; codegen refuses a discriminated root without one, and a `preserve` root without its future-kind fixture.
 - `src/shared/schemasAssistantRules.ts` / `src/gateway/assistant/rulesStore.ts` - watcher rules: the record, the field declarations, `trimRuleValue`, `parseRuleForFields`, `invalidRules`, `firstMatch`, `decideEvent`; the store, sole writer, one rule per op on the policy store's model
   - **A rule's validity is read, never stored:** `parseRuleForFields` checks it against the watcher's current `fieldSpecs` on every read, so a declaration change moves no revision. An unfit rule is kept, matches nothing, and rides in `invalid`.
   - **The phone's Save gate is pinned to this parse:** `fittingRule` in `RuleDraft.kt` and `parseRuleForFields` both replay `tests/fixtures/assistant-rules/vectors.json`, so the trim and the fit cannot drift between runtimes.
@@ -1106,6 +1109,7 @@ How each subsystem works lives in `docs/`:
 | `docs/routines.md` | The routine record, its targets, recurrence in a recorded zone, the console operations, what a session asks back, and the manual pass no gate here can reach |
 | `docs/assistant.md` | Assistant session, notes, gate, actions, watchers, rules, delivery and check-ins |
 | `docs/devices.md` | The device record and store, the driver contract, the Kasa driver, the road, the scan, the assistant's device tool |
+| `docs/fields.md` | The field table, owner records, expressions, computed fields, automations and the sensors queue, Unknown decoding |
 | `docs/references.md` | `ref://` grammar and matchers |
 | `docs/testing.md` | The federation harness, the minted wire fixtures, the identity set, the gates |
 | `docs/environment.md` | Every environment variable |

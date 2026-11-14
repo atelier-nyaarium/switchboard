@@ -93,7 +93,7 @@ internal fun WatcherRulesPage(
 		)
 		TextButton(
 			onClick = hapticClick { onEdit(RuleSlot.New) },
-			enabled = !busy && rules.held.rules.size < MAX_RULES,
+			enabled = !busy && rules.held.rules.size < MAX_RULES && rules.ruleFields.isNotEmpty(),
 		) { Text("+ Add rule") }
 		works[workKey]?.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 	}
@@ -221,7 +221,7 @@ internal fun RuleEditorPage(
 					Box(Modifier.weight(1f)) {
 						PickMenu(
 							label = "Field",
-							choices = rules.fields,
+							choices = rules.ruleFields,
 							picked = condition.field,
 							labelOf = rules::fieldLabelOf,
 							onPick = { field -> ops.editRule(key, draft.withField(index, field, rules)) },

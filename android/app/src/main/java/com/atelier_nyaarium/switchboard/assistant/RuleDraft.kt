@@ -8,23 +8,22 @@ import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
+import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
-/** Mirrors `schemasAssistantRules`. */
-internal val RULE_TESTS = listOf("is", "is_not", "contains")
-internal val CHOICE_TESTS = listOf("is", "is_not")
 internal val RULE_ACTIONS = listOf("wake", "inbox")
 internal val MAX_RULES = Protocol.Wire.ASSISTANT_RULES_MAX
 internal val MAX_CONDITIONS = Protocol.Wire.ASSISTANT_RULE_CONDITIONS_MAX
 private val MAX_VALUE_LEN = Protocol.Wire.ASSISTANT_RULE_VALUE_MAX
 
-/** ASCII whitespace code points. */
 private val ASCII_EDGES = setOf(0x20, 0x09, 0x0A, 0x0B, 0x0C, 0x0D)
 
 /** ASCII whitespace edges only. */
 internal fun trimRuleValue(value: String): String = value.trim { it.code in ASCII_EDGES }
 
-internal fun testLabel(test: String): String = if (test == "is_not") "is not" else test
+internal fun testLabel(test: String): String = FieldTypes.TEST_LABELS[test] ?: test
 
 internal fun actionLabel(action: String): String = action.replaceFirstChar { it.uppercase() }
 
@@ -34,25 +33,39 @@ internal val AssistantFieldSpec.field: String
 	get() = when (this) {
 		is AssistantFieldSpec.Enumeration -> field
 		is AssistantFieldSpec.Text -> field
+		is AssistantFieldSpec.Number -> field
+		is AssistantFieldSpec.Bytes -> field
+		is AssistantFieldSpec.Unknown -> (raw["field"] as? JsonPrimitive)?.contentOrNull ?: kind
 	}
 
 internal val AssistantFieldSpec.label: String
 	get() = when (this) {
 		is AssistantFieldSpec.Enumeration -> label
 		is AssistantFieldSpec.Text -> label
+		is AssistantFieldSpec.Number -> label
+		is AssistantFieldSpec.Bytes -> label
+		is AssistantFieldSpec.Unknown -> (raw["label"] as? JsonPrimitive)?.contentOrNull ?: fieldLabel(field)
 	}
 
-/** Choice fields omit `contains`. */
+/** Unknown kinds: no tests. */
 internal fun testsOf(spec: AssistantFieldSpec?): List<String> =
-	if (spec is AssistantFieldSpec.Enumeration) CHOICE_TESTS else RULE_TESTS
+	when (spec) {
+		is AssistantFieldSpec.Enumeration -> FieldTypes.ROWS.getValue("enumeration").tests
+		is AssistantFieldSpec.Text, null -> FieldTypes.ROWS.getValue("text").tests
+		is AssistantFieldSpec.Number -> FieldTypes.ROWS.getValue("number").tests
+		is AssistantFieldSpec.Bytes -> FieldTypes.ROWS.getValue("bytes").tests
+		is AssistantFieldSpec.Unknown -> emptyList()
+	}
 
 internal data class WatcherRules(
 	val specs: List<AssistantFieldSpec>,
 	val held: AssistantWatcherRules,
-	/** Gateway reason keyed by rule ID. */
+	/** Gateway reasons by ID. */
 	val invalid: Map<String, String> = emptyMap(),
 ) {
 	val fields: List<String> get() = specs.map { it.field }
+
+	val ruleFields: List<String> get() = specs.filter { testsOf(it).isNotEmpty() }.map { it.field }
 
 	fun specOf(field: String): AssistantFieldSpec? = specs.find { it.field == field }
 
@@ -62,23 +75,22 @@ internal data class WatcherRules(
 	fun valueLabelOf(field: String, value: String): String =
 		(specOf(field) as? AssistantFieldSpec.Enumeration)?.options?.find { it.value == value }?.label ?: value
 
-	/** Stale held choice first; text has no menu. */
+	/** Keep stale enum choices. */
 	fun choicesFor(field: String, held: String): List<String>? {
 		val offered = (specOf(field) as? AssistantFieldSpec.Enumeration)?.options?.map { it.value } ?: return null
 		return if (trimRuleValue(held).isEmpty() || held in offered) offered else listOf(held) + offered
 	}
 
-	/** Text takes any value. */
+	/** Non-enums accept any value. */
 	fun offers(field: String, value: String): Boolean =
 		(specOf(field) as? AssistantFieldSpec.Enumeration)?.options?.any { it.value == value } ?: true
 
-	/** "Reason is Review requested". */
 	fun summary(rule: AssistantRule): String =
 		rule.conditions.joinToString(" and ") {
 			"${fieldLabelOf(it.field)} ${testLabel(it.test)} ${valueLabelOf(it.field, it.value)}"
 		}
 
-	/** Mirrors rule validation; blank drafts defer. */
+	/** Blank drafts defer validation. */
 	fun issueOf(condition: AssistantRuleCondition): String? {
 		val spec = specOf(condition.field) ?: return "${fieldLabel(condition.field)} is not a field here"
 		val value = trimRuleValue(condition.value)
@@ -92,7 +104,7 @@ internal data class WatcherRules(
 	}
 }
 
-/** Legacy fields become text; absent fields mean null. */
+/** Legacy fields become text. */
 internal fun rulesOf(watcher: AssistantWatcher): WatcherRules? {
 	val specs = watcher.fieldSpecs?.takeIf { it.isNotEmpty() }
 		?: watcher.fields?.map { AssistantFieldSpec.Text(field = it, label = fieldLabel(it)) }
@@ -101,14 +113,13 @@ internal fun rulesOf(watcher: AssistantWatcher): WatcherRules? {
 	return WatcherRules(specs, held, watcher.invalid.orEmpty().associate { it.id to it.reason })
 }
 
-/** Which row the editor opened. */
 internal sealed interface RuleSlot {
 	data class Held(val id: String) : RuleSlot
 	data object New : RuleSlot
 	data object Otherwise : RuleSlot
 }
 
-/** The id above, or null. */
+/** Previous rule ID. */
 internal fun raisedBefore(held: AssistantWatcherRules, ruleId: String): String? {
 	val at = held.rules.indexOfFirst { it.id == ruleId }
 	return if (at > 0) held.rules[at - 1].id else null
@@ -121,16 +132,18 @@ internal data class RuleDraft(
 	/** 0 adds the rule. */
 	val revision: Long,
 ) {
-	fun withCondition(rules: WatcherRules): RuleDraft =
-		if (conditions.size >= MAX_CONDITIONS) this else copy(conditions = conditions + blankCondition(rules))
+	fun withCondition(rules: WatcherRules): RuleDraft {
+		val blank = blankCondition(rules) ?: return this
+		return if (conditions.size >= MAX_CONDITIONS) this else copy(conditions = conditions + blank)
+	}
 
-	/** Same field keeps all; text-to-text keeps the value; others clear it. Unsupported tests reset. */
+	/** Text-to-text changes preserve values. */
 	fun withField(at: Int, field: String, rules: WatcherRules): RuleDraft = changed(at) { held ->
 		if (field == held.field) return@changed held
 		val was = rules.specOf(held.field)
 		val now = rules.specOf(field)
 		val keepsValue = was is AssistantFieldSpec.Text && now is AssistantFieldSpec.Text
-		val test = held.test.takeIf { it in testsOf(now) } ?: testsOf(now).first()
+		val test = held.test.takeIf { it in testsOf(now) } ?: testsOf(now).firstOrNull() ?: held.test
 		held.copy(field = field, test = test, value = if (keepsValue) held.value else "")
 	}
 
@@ -150,22 +163,19 @@ internal data class RuleDraft(
 
 	fun toOtherwise(): AssistantRuleOtherwise = AssistantRuleOtherwise(action = action, revision = revision)
 
-	/** Rebased onto the held revision, so going over it is an owner tap. Null when there is nothing to go over. */
+	/** Rebase requires owner retry. */
 	fun over(held: AssistantWatcherRules, slot: RuleSlot): RuleDraft? {
 		val now = if (slot == RuleSlot.Otherwise) held.otherwise.revision else held.rules.find { it.id == id }?.revision
 		return now?.takeIf { it != revision }?.let { copy(revision = it) }
 	}
 
 	companion object {
-		/** Null for a rule no longer held. */
+		/** Missing rules return null. */
 		fun of(slot: RuleSlot, rules: WatcherRules): RuleDraft? = when (slot) {
 			is RuleSlot.Held -> rules.held.rules.find { it.id == slot.id }?.let { draftOf(it) }
-			RuleSlot.New -> RuleDraft(
-				id = "rule-${java.util.UUID.randomUUID()}",
-				conditions = listOf(blankCondition(rules)),
-				action = "inbox",
-				revision = 0L,
-			)
+			RuleSlot.New -> blankCondition(rules)?.let {
+				RuleDraft(id = "rule-${java.util.UUID.randomUUID()}", conditions = listOf(it), action = "inbox", revision = 0L)
+			}
 			RuleSlot.Otherwise -> rules.held.otherwise.let { RuleDraft("otherwise", emptyList(), it.action, it.revision) }
 		}
 
@@ -173,14 +183,13 @@ internal data class RuleDraft(
 	}
 }
 
-private fun blankCondition(rules: WatcherRules): AssistantRuleCondition {
-	val field = rules.fields.first()
-	return AssistantRuleCondition(field = field, test = testsOf(rules.specOf(field)).first(), value = "")
+private fun blankCondition(rules: WatcherRules): AssistantRuleCondition? {
+	val spec = rules.specs.firstOrNull { testsOf(it).isNotEmpty() } ?: return null
+	return AssistantRuleCondition(field = spec.field, test = testsOf(spec).first(), value = "")
 }
 
 private const val UNREACHABLE = "That Gateway could not be reached"
 
-/** A list op's line; null when it landed. */
 internal fun listText(saved: RuleSaved): String? = when (saved) {
 	is RuleSaved.Stored -> null
 	is RuleSaved.Refused -> saved.reason
@@ -190,19 +199,15 @@ internal fun listText(saved: RuleSaved): String? = when (saved) {
 internal sealed interface SaveOutcome {
 	data object Done : SaveOutcome
 
-	/** Changed elsewhere; the editor takes `draft`, and a second tap goes over the held revision. */
+	/** Rebased writes need confirmation. */
 	data class Offer(val draft: RuleDraft, val line: String) : SaveOutcome
 
 	data class Said(val reason: String) : SaveOutcome
 }
 
-/** The draft, or a delete of its rule. */
 internal enum class RuleEdit { SAVE, DELETE }
 
-/**
- * A refused save keeps the owner's draft over the held revision. A refused delete shows the held
- * rule instead, so a second Delete deletes what is there and a Save cannot carry an old copy over it.
- */
+/** Save rebases; delete restores. */
 internal fun outcomeOf(saved: RuleSaved, draft: RuleDraft, slot: RuleSlot, edit: RuleEdit = RuleEdit.SAVE): SaveOutcome =
 	when (saved) {
 		is RuleSaved.Stored -> SaveOutcome.Done
@@ -223,20 +228,18 @@ internal fun outcomeOf(saved: RuleSaved, draft: RuleDraft, slot: RuleSlot, edit:
 private const val SAVE_OVER = "It changed elsewhere. Save again to go over it."
 private const val DELETE_OVER = "It changed elsewhere; this is it now. Delete again to delete it."
 
-/** Shown opening has landed. */
 internal fun editorLanded(shown: Long?, landed: Long?): Boolean = shown != null && shown == landed
 
-/** The editor's rule left the held list. */
 internal fun goneFrom(rules: WatcherRules, slot: RuleSlot): Boolean =
 	slot is RuleSlot.Held && rules.held.rules.none { it.id == slot.id }
 
 internal data class RuleEditing(val edit: Boolean, val save: Boolean, val delete: Boolean)
 
-/** The rule Save sends and the preview asks about; null until it fits. */
+/** Shared save/preview validation. */
 internal fun fittingRule(draft: RuleDraft, rules: WatcherRules): AssistantRule? =
 	draft.toRule()?.takeIf { draft.conditions.all { rules.issueOf(it) == null } }
 
-/** Invalid rules allow edits and deletion; unsupported conditions block saving until fixed. */
+/** Invalid rules stay editable. */
 internal fun ruleEditing(slot: RuleSlot, draft: RuleDraft, busy: Boolean, gone: Boolean, rules: WatcherRules): RuleEditing {
 	val edit = !busy && !gone
 	val valid = slot == RuleSlot.Otherwise || fittingRule(draft, rules) != null

@@ -451,7 +451,7 @@ describe("a watcher's rules", () => {
 		expect(answered.fieldSpecs?.map((spec) => spec.kind)).toEqual(["enumeration", "text"]);
 		expect(answered.fields).toEqual(["reason", "repository"]);
 		expect(answered.invalid).toEqual([{ id: "stale", reason: expect.stringContaining("retired_reason") }]);
-		expect(AssistantFieldSpecSchema.safeParse({ kind: "number", field: "n", label: "N" }).success).toBe(false);
+		expect(AssistantFieldSpecSchema.safeParse({ kind: "future_kind", field: "n", label: "N" }).success).toBe(false);
 		expect(
 			AssistantFieldSpecSchema.safeParse({ kind: "enumeration", field: "n", label: "N", options: [] }).success,
 		).toBe(false);
