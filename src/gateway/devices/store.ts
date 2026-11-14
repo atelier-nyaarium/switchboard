@@ -39,6 +39,8 @@ export interface DeviceStoreOpenOptions {
 }
 
 const PersistedDeviceRecordSchema = z.strictObject(DeviceRecordSchema.shape);
+/** What a newer build's row must keep. */
+const DeviceEnvelopeSchema = z.looseObject({ id: DeviceIdSchema, revision: DeviceRevisionSchema });
 const DeviceTombstoneSchema = z.strictObject({ id: DeviceIdSchema, revision: DeviceRevisionSchema });
 
 /** Oldest tombstones evicted. */
@@ -47,13 +49,26 @@ const DEVICE_MAX_TOMBSTONES = 256;
 const DeviceSnapshotSchema = z
 	.object({
 		revision: z.number().int().nonnegative().max(REVISION_CEILING),
-		records: z.array(PersistedDeviceRecordSchema).max(DEVICE_MAX_RECORDS),
+		records: z.array(z.unknown()).max(DEVICE_MAX_RECORDS),
 		tombstones: z.array(DeviceTombstoneSchema).max(DEVICE_MAX_TOMBSTONES).optional(),
 	})
 	.strict();
 
 type DeviceTombstone = z.infer<typeof DeviceTombstoneSchema>;
-type DeviceSnapshot = { revision: number; records: DeviceRecord[]; tombstones: DeviceTombstone[] };
+/** A row this build cannot read, written back untouched. */
+interface UnreadRow {
+	id: string;
+	revision: number;
+	raw: unknown;
+}
+type DeviceSnapshot = {
+	revision: number;
+	records: DeviceRecord[];
+	unread: UnreadRow[];
+	tombstones: DeviceTombstone[];
+};
+
+const NEWER = "held by a newer build; update this Gateway";
 
 function frozen(record: DeviceRecord): DeviceRecord {
 	return Object.freeze({ ...record });
@@ -62,14 +77,18 @@ function frozen(record: DeviceRecord): DeviceRecord {
 function restore(store: DeviceStoreDeps["store"]): DeviceSnapshot {
 	const snapshot = DeviceSnapshotSchema.parse(store.load() ?? { revision: 0, records: [] });
 	const ids = new Set<string>();
-	const records = snapshot.records.map((record) => {
-		if (ids.has(record.id)) throw new Error(`${record.id} is stored twice`);
-		ids.add(record.id);
-		if (record.revision > snapshot.revision) throw new Error(`${record.id} is ahead of the device list revision`);
-		const refusal = deviceRefusal(record);
-		if (refusal) throw new Error(`${record.id}: ${refusal}`);
-		return frozen(record);
-	});
+	const records: DeviceRecord[] = [];
+	const unread: UnreadRow[] = [];
+	for (const row of snapshot.records) {
+		// A corrupt envelope still refuses the file.
+		const { id, revision } = DeviceEnvelopeSchema.parse(row);
+		if (ids.has(id)) throw new Error(`${id} is stored twice`);
+		ids.add(id);
+		if (revision > snapshot.revision) throw new Error(`${id} is ahead of the device list revision`);
+		const parsed = PersistedDeviceRecordSchema.safeParse(row);
+		if (parsed.success && !deviceRefusal(parsed.data)) records.push(frozen(parsed.data));
+		else unread.push({ id, revision, raw: row });
+	}
 	const tombstones = snapshot.tombstones ?? [];
 	for (const tombstone of tombstones) {
 		if (ids.has(tombstone.id)) throw new Error(`${tombstone.id} is both held and deleted`);
@@ -77,7 +96,7 @@ function restore(store: DeviceStoreDeps["store"]): DeviceSnapshot {
 		if (tombstone.revision > snapshot.revision)
 			throw new Error(`${tombstone.id} is ahead of the device list revision`);
 	}
-	return { revision: snapshot.revision, records, tombstones };
+	return { revision: snapshot.revision, records, unread, tombstones };
 }
 
 /** Sole writer of the device file. */
@@ -98,13 +117,20 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 				snapshot = {
 					revision: landed.revision,
 					records: landed.records.map(frozen),
+					unread: snapshot.unread,
 					tombstones: landed.tombstones,
 				};
 			},
-			{ label: "device", onLanded: () => deps.onChanged(deviceId) },
+			{
+				// Unread rows ride every write.
+				snapshot: { revision, records: [...records, ...snapshot.unread.map((row) => row.raw)], tombstones },
+				label: "device",
+				onLanded: () => deps.onChanged(deviceId),
+			},
 		).landed;
 
 	const held = (id: string): DeviceRecord | undefined => snapshot.records.find((record) => record.id === id);
+	const unreadHolds = (id: string) => snapshot.unread.some((row) => row.id === id);
 
 	const list = () => ({
 		records: [...snapshot.records].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
@@ -120,6 +146,7 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 		if (!parsed.success) return { stored: false, code: "invalid", reason: "Invalid device" };
 		const incoming = parsed.data;
 		const current = held(incoming.mac);
+		if (unreadHolds(incoming.mac)) return { stored: false, code: "exists", reason: NEWER };
 		if (current) {
 			// Repeated add: lost answer.
 			const same = current.address === incoming.address && current.name === incoming.name;
@@ -127,7 +154,7 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 				? { stored: true, record: current }
 				: { stored: false, code: "exists", record: current, reason: "a device with that id is already stored" };
 		}
-		if (snapshot.records.length >= DEVICE_MAX_RECORDS) {
+		if (snapshot.records.length + snapshot.unread.length >= DEVICE_MAX_RECORDS) {
 			return { stored: false, code: "full", reason: `this Gateway holds ${DEVICE_MAX_RECORDS} devices already` };
 		}
 		if (snapshot.revision >= REVISION_CEILING)
@@ -154,6 +181,7 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 	};
 
 	const rename = (id: string, name: string, baseRevision: number): DeviceWriteResult => {
+		if (unreadHolds(id)) return { stored: false, code: "not_supported", reason: NEWER };
 		const current = held(id);
 		if (!current) return { stored: false, code: "not_found", reason: "no device with that id is stored" };
 		const nameRefusal = deviceNameRefusal(name);
@@ -192,6 +220,7 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 	};
 
 	const remove = (id: string, baseRevision: number): DeviceRemoveResult => {
+		if (unreadHolds(id)) return { deleted: false, code: "not_supported", reason: NEWER };
 		const current = held(id);
 		if (!current) {
 			const tombstone = snapshot.tombstones.find((entry) => entry.id === id);
@@ -232,6 +261,7 @@ export function createDeviceStore(deps: DeviceStoreDeps) {
 	};
 
 	const refreshAddress = (id: string, address: string): DeviceRefreshResult => {
+		if (unreadHolds(id)) return { changed: false, code: "not_supported", reason: NEWER };
 		const current = held(id);
 		if (!current) return { changed: false, code: "not_found", reason: "no device with that id is stored" };
 		const parsedAddress = DeviceAddressSchema.safeParse(address);

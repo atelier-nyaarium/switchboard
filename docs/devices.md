@@ -8,7 +8,7 @@ The Gateway controls the owner's smart plugs on the local network with no cloud 
 
 ## The store
 
-`src/gateway/devices/store.ts`, on `openDurable` and `commitChecked`, the sole writer, Gateway-named revisions. Restore refuses the file whole on a duplicate id, an unnormalized MAC, a driver that does not serve the record's kind, or a record ahead of the list's revision. A removed id leaves a tombstone holding its last revision, bounded to the newest 256, so a re-added plug continues its numbering. A repeated add of the same address and name, a repeated removal at the tombstone's revision, and a rename to the held name at the previous revision are lost answers.
+`src/gateway/devices/store.ts`, on `openDurable` and `commitChecked`, the sole writer, Gateway-named revisions. Restore refuses the file whole on a duplicate id, an unnormalized MAC, a driver that does not serve the record's kind, or a record ahead of the list's revision. A row this build cannot read (a newer kind or field) is held raw behind its `{ id, revision }` envelope: it reserves its id and its place in the cap, stays out of `list` and `get`, refuses edits, and is written back on every commit; a corrupt envelope still refuses the file. A removed id leaves a tombstone holding its last revision, bounded to the newest 256, so a re-added plug continues its numbering. A repeated add of the same address and name, a repeated removal at the tombstone's revision, and a rename to the held name at the previous revision are lost answers.
 
 ## The driver contract
 

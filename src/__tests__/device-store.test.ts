@@ -127,21 +127,11 @@ describe("device store", () => {
 		const dataDir = fresh();
 		const file = path.join(dataDir, "devices.json");
 		const valid = device("aa:bb:cc:dd:ee:ff");
-		const invalidSettings = {
-			...valid,
-			settings: {
-				driver: "kasa",
-				led: "off",
-				clock: { time: "not a date", zone: "" },
-				cloud: "connected",
-			},
-		};
 		const poisoned: unknown[] = [
 			{ revision: REVISION_CEILING + 1, records: [] },
 			{ revision: 1, records: [valid, valid] },
 			{ revision: 1, records: [device("AA:BB:CC:DD:EE:FF")] },
-			{ revision: 1, records: [{ ...valid, kind: "light" }] },
-			{ revision: 1, records: [invalidSettings] },
+			{ revision: 1, records: [{ ...valid, id: undefined }] },
 			{ revision: 0, records: [valid] },
 			{
 				revision: DEVICE_MAX_RECORDS + 1,
@@ -162,6 +152,37 @@ describe("device store", () => {
 					.records.map((record) => record.id),
 			).toEqual(["bb:bb:cc:dd:ee:ff"]);
 		}
+	});
+
+	it("holds a row a newer build wrote: reserves its id and its place, refuses its edits, and writes it back", () => {
+		const dataDir = fresh();
+		const file = path.join(dataDir, "devices.json");
+		const sensor = {
+			id: "ce:1c:44:06:3c:5d",
+			name: "Freezer",
+			kind: "sensor",
+			driver: "govee",
+			address: "ce:1c:44:06:3c:5d",
+			radio: "gateway",
+			revision: 2,
+		};
+		const lamp = device("aa:bb:cc:dd:ee:ff", { name: "Lamp" });
+		fs.writeFileSync(file, JSON.stringify({ revision: 2, records: [lamp, sensor] }));
+		const store = openDeviceStore(dataDir);
+
+		expect(store.list().records.map((record) => record.id)).toEqual([lamp.id]);
+		expect(store.get(sensor.id)).toBeNull();
+		expect(store.add(addRequest(sensor.id))).toMatchObject({ stored: false, code: "exists" });
+		expect(store.rename(sensor.id, "Fridge", 2)).toMatchObject({ stored: false, code: "not_supported" });
+		expect(store.remove(sensor.id, 2)).toMatchObject({ deleted: false, code: "not_supported" });
+		expect(store.rename(lamp.id, "Desk lamp", 1)).toMatchObject({ stored: true });
+		expect(JSON.parse(fs.readFileSync(file, "utf8")).records).toContainEqual(sensor);
+
+		const others = Array.from({ length: DEVICE_MAX_RECORDS - 1 }, (_, i) =>
+			device(`aa:bb:cc:dd:ee:${i.toString(16).padStart(2, "0")}`, { name: `Lamp ${i}` }),
+		);
+		fs.writeFileSync(file, JSON.stringify({ revision: 2, records: [...others, sensor] }));
+		expect(openDeviceStore(dataDir).add(addRequest("bb:bb:cc:dd:ee:ff"))).toMatchObject({ code: "full" });
 	});
 
 	it("serializes writes for one device and runs another device concurrently", async () => {
