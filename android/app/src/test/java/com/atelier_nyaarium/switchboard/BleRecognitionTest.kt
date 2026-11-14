@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -26,6 +27,8 @@ class BleRecognitionTest {
 			)
 			val family = row["family"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
 			assertEquals(row["case"]!!.jsonPrimitive.content, family, familyOf(parsed))
+			val shut = row["unsupported"]?.jsonPrimitive?.boolean ?: false
+			assertEquals(row["case"]!!.jsonPrimitive.content, shut, unsupported(parsed))
 		}
 	}
 }

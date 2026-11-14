@@ -78,6 +78,8 @@ export interface BluetoothMatch {
 	readonly makerData: readonly MakerDataMarker[];
 	readonly excludeNames: readonly string[];
 	readonly excludeData: readonly MakerDataExclusion[];
+	/** Recognized, never paired. */
+	readonly unsupportedNames: readonly string[];
 }
 
 export interface IntegrationDeclaration {
@@ -134,11 +136,13 @@ export const INTEGRATIONS = {
 				{ company: 0x8803, prefix: "ec00" },
 				{ company: 0x8843, prefix: "ec00" },
 			],
-			excludeNames: ["ihoment_", "GBK_", "Govee_H6", "Govee_H7", "Govee_H1", "Govee_H5151"],
+			excludeNames: ["ihoment_", "GBK_", "Govee_H6", "Govee_H7", "Govee_H1"],
 			excludeData: [
 				{ company: 0x8843, pattern: "ec00xx02" },
 				{ company: 0x8843, pattern: "ec00xx03" },
 			],
+			// The Wi-Fi hub.
+			unsupportedNames: ["Govee_H5151"],
 		},
 	},
 	ifttt: {

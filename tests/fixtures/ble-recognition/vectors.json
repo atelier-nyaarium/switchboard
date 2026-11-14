@@ -1,5 +1,5 @@
 {
-	"_comment": "Bluetooth family recognition over the catalogue's markers; both runtimes replay it.",
+	"_comment": "Bluetooth family recognition over the catalogue's markers; both runtimes replay it. A missing unsupported reads false.",
 	"cases": [
 		{
 			"case": "an H5110 with its service",
@@ -13,7 +13,7 @@
 			"family": "govee"
 		},
 		{
-			"case": "the H5151 Wi-Fi hub is no sensor",
+			"case": "the H5151 Wi-Fi hub is Govee, but never paired",
 			"advert": {
 				"name": "Govee_H5151_4E42",
 				"data": {
@@ -21,7 +21,8 @@
 				},
 				"services": []
 			},
-			"family": null
+			"family": "govee",
+			"unsupported": true
 		},
 		{
 			"case": "company 1 without the service is not Govee",

@@ -27,10 +27,20 @@ export function recognizes(match: BluetoothMatch, advert: Advert): boolean {
 	});
 }
 
+const matchOf = (key: IntegrationKey): BluetoothMatch | undefined =>
+	(INTEGRATIONS[key] as { bluetooth?: BluetoothMatch }).bluetooth;
+
 export function familyOf(advert: Advert): IntegrationKey | null {
 	for (const key of INTEGRATION_KEYS) {
-		const match = (INTEGRATIONS[key] as { bluetooth?: BluetoothMatch }).bluetooth;
+		const match = matchOf(key);
 		if (match && recognizes(match, advert)) return key;
 	}
 	return null;
+}
+
+/** Recognized, never paired. */
+export function unsupported(advert: Advert): boolean {
+	const family = familyOf(advert);
+	const name = advert.name ?? "";
+	return family !== null && (matchOf(family)?.unsupportedNames ?? []).some((prefix) => name.startsWith(prefix));
 }

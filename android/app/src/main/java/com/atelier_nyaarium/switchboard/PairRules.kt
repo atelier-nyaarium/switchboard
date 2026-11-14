@@ -27,6 +27,7 @@ internal data class FoundDevice(
 	val advert: Advert,
 	val definition: DefinitionHit?,
 	val hearers: List<Hearer>,
+	val supported: Boolean = true,
 ) {
 	val strongest: Int get() = hearers.maxOf { it.signal }
 }
@@ -73,10 +74,11 @@ internal fun foundDevices(
 	}
 	if (rows.isEmpty()) return@mapNotNull null
 	val advert = rows.map { it.second }.reduce(::unionAdvert)
-	FoundDevice(mac, advert, definitionOf(advert), rows.map { it.first })
+	FoundDevice(mac, advert, definitionOf(advert), rows.map { it.first }, supported = !unsupported(advert))
 }
 
-internal fun testedLine(found: FoundDevice): String? = if (found.definition == null) "Not tested · raw only" else null
+internal fun testedLine(found: FoundDevice): String? =
+	if (found.definition == null && found.supported) "Not tested · raw only" else null
 
 internal fun foundModel(found: FoundDevice): String? = found.definition?.model
 

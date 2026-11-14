@@ -120,7 +120,7 @@ internal fun ListenEntryPage(
 		if (found.isNotEmpty()) {
 			Text("Found", style = MaterialTheme.typography.labelLarge)
 			for (device in found) {
-				FoundRow(device) { open = device.mac.takeIf { it != open } }
+				FoundRow(device) { open = device.mac.takeIf { it != open && device.supported } }
 				if (open == device.mac) {
 					val choices = pairChoices(device, home)
 					PairCard(
@@ -185,7 +185,7 @@ internal fun ListenEntryPage(
 @Composable
 private fun FoundRow(device: FoundDevice, onToggle: () -> Unit) {
 	Row(
-		Modifier.fillMaxWidth().clickable(onClick = hapticClick(onToggle)).padding(vertical = 6.dp),
+		Modifier.fillMaxWidth().clickable(enabled = device.supported, onClick = hapticClick(onToggle)).padding(vertical = 6.dp),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(8.dp),
 	) {
@@ -195,6 +195,9 @@ private fun FoundRow(device: FoundDevice, onToggle: () -> Unit) {
 			(foundModel(device) ?: testedLine(device))?.let {
 				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
+		}
+		if (!device.supported) {
+			Text("Not supported", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
 	}
 }

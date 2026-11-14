@@ -1358,7 +1358,7 @@ function emitIntegrationRegistry(): string {
 					)
 					.join(", ")}), ${strings(entry.bluetooth.excludeNames)}, listOf(${entry.bluetooth.excludeData
 					.map((rule) => `MakerDataExclusion(${rule.company}, ${kotlinString(rule.pattern)})`)
-					.join(", ")}))`
+					.join(", ")}), ${strings(entry.bluetooth.unsupportedNames)})`
 			: "null";
 		return [
 			`${INDENT}${INDENT}Integration(`,
@@ -1412,6 +1412,7 @@ ${INDENT}val services: List<String>,
 ${INDENT}val makerData: List<MakerDataMarker>,
 ${INDENT}val excludeNames: List<String>,
 ${INDENT}val excludeData: List<MakerDataExclusion>,
+${INDENT}val unsupportedNames: List<String>,
 )
 
 internal data class Integration(

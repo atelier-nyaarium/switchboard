@@ -23,6 +23,7 @@ private const val LIGHT = "02:00:00:00:00:23"
 private val tested = Advert("GVH5110_3C5D", mapOf("1" to "010103bac864"), listOf("ec88"))
 private val untested = Advert("Govee_H5199_7F01", mapOf("1" to "0101027a3f550000"), listOf("ec88"))
 private val stranger = Advert("Kettle", mapOf("76" to "0102"), emptyList())
+private val hub = Advert("Govee_H5151_4E42", mapOf("34817" to "ec000101"), emptyList())
 
 private val named = Advert("GVH5110_3C5D", emptyMap(), listOf("ec88"))
 private val reading = Advert(null, mapOf("1" to "010103bac864"), emptyList())
@@ -52,6 +53,9 @@ class PairRulesTest {
 		assertEquals(DefinitionHit("govee-h5110", "H5110"), rows.single { it.mac == THERMO }.definition)
 		assertEquals("Not tested · raw only", testedLine(rows.single { it.mac == RAW }))
 		assertNull(testedLine(rows.single { it.mac == THERMO }))
+		val listed = found(mapOf("sakura" to listOf(Sighting(LIGHT, -50, hub))), phone = listOf(Sighting(THERMO, -50, tested)))
+		assertEquals(listOf(false, true), listed.map { it.supported })
+		assertNull(testedLine(listed.first()))
 		assertEquals(emptyList<FoundDevice>(), found(mapOf("sakura" to listOf(Sighting(THERMO, -61, tested))), paired = setOf(THERMO)))
 	}
 

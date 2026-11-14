@@ -204,6 +204,16 @@ describe("Bluetooth advertisement flow", () => {
 			expect(
 				await stage.console({ kind: "device_reading_post", id: GATEWAY_MAC, advert: phoneAdvert, at: 1_000 }),
 			).toMatchObject({ kind: "refused", refusal: { code: "not_supported" } });
+			const hub = { name: "Govee_H5151_4E42", data: { "34817": "ec000101" }, services: [] };
+			expect(
+				await stage.console({
+					kind: "device_add",
+					mac: "f2:3a:41:46:4e:42",
+					name: "Hub",
+					radio: "phones",
+					advert: hub,
+				}),
+			).toMatchObject({ kind: "refused", refusal: { code: "not_supported" } });
 			expect(
 				await stage.console({ kind: "device_reading_post", id: PHONE_MAC, advert: phoneAdvert, at: 1_000 }),
 			).toEqual({ kind: "ok" });

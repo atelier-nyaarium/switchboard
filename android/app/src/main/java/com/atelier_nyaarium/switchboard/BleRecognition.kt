@@ -31,3 +31,9 @@ internal fun recognizes(match: BluetoothMatch, advert: Advert): Boolean {
 
 internal fun familyOf(advert: Advert): String? =
 	INTEGRATIONS.firstOrNull { integration -> integration.bluetooth?.let { recognizes(it, advert) } == true }?.id
+
+/** Recognized, never paired. */
+internal fun unsupported(advert: Advert): Boolean {
+	val match = INTEGRATIONS.firstOrNull { it.id == familyOf(advert) }?.bluetooth ?: return false
+	return match.unsupportedNames.any { (advert.name ?: "").startsWith(it) }
+}

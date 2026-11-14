@@ -1,5 +1,5 @@
 import type { Ambient } from "../../shared/ambient.js";
-import { type Advert, familyOf } from "../../shared/ble-recognition.js";
+import { type Advert, familyOf, unsupported } from "../../shared/ble-recognition.js";
 import { definitionOf, identifies, SHIPPED_DEFINITIONS } from "../../shared/device-definitions/index.js";
 import { type FieldRef, refKey } from "../../shared/expressions.js";
 import type { TemperatureUnit } from "../../shared/schemasAssistant.js";
@@ -171,7 +171,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		const heard = (radio === "phones" ? op.advert : undefined) ?? sightings(op.mac);
 		if (!heard) throw new Decline({ kind: "refused", code: "not_found", text: "not heard nearby; scan again" });
 		const family = familyOf(heard);
-		if (family === null || !isSensorDriver(family)) {
+		if (family === null || !isSensorDriver(family) || unsupported(heard)) {
 			throw new Decline({
 				kind: "refused",
 				code: "not_supported",
