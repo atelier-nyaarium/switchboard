@@ -15,14 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -76,8 +75,8 @@ internal fun ListenEntryPage(
 	val views by repo.deviceOps.views.collectAsState()
 	val listen by repo.phoneRadio.listenView.collectAsState()
 	val roster = state.gateways.ids()
-	var pairing by remember { mutableStateOf<FoundDevice?>(null) }
-	var pairingOn by remember { mutableStateOf<String?>(null) }
+	var open by remember { mutableStateOf<String?>(null) }
+	var pending by remember { mutableStateOf<Pair<String, String>?>(null) }
 	val display = displayUnitOf(state.gateways.assistantOn(home))
 	val now = System.currentTimeMillis()
 	val start = { repo.phoneRadio.startListening(scanTargets(state.gateways)) }
@@ -120,7 +119,21 @@ internal fun ListenEntryPage(
 		}
 		if (found.isNotEmpty()) {
 			Text("Found", style = MaterialTheme.typography.labelLarge)
-			for (device in found) FoundRow(device) { pairing = device }
+			for (device in found) {
+				FoundRow(device) { open = device.mac.takeIf { it != open } }
+				if (open == device.mac) {
+					val choices = pairChoices(device, home)
+					PairCard(
+						choices,
+						busy = choices.any { views[it.gatewayId ?: home]?.busy(device.mac) == true },
+						said = choices.firstNotNullOfOrNull { views[it.gatewayId ?: home]?.saidOf(device.mac) },
+					) { choice ->
+						val (gatewayId, pair) = pairingOf(device, choice, home)
+						pending = device.mac to gatewayId
+						repo.command { deviceOps.addSensor(gatewayId, pair, device.advert.name ?: device.mac) }
+					}
+				}
+			}
 		}
 		val ours = paired.filter { (_, record) -> record.driver == integration.id }
 		if (ours.isNotEmpty()) {
@@ -158,31 +171,21 @@ internal fun ListenEntryPage(
 		}
 	}
 
-	pairing?.let { device ->
-		val chosen = pairingOn
-		if (chosen != null && landedOn(paired, device.mac, chosen)) {
-			LaunchedEffect(device.mac, chosen) {
-				pairing = null
-				pairingOn = null
-				onDevice(chosen, device.mac)
+	pending?.let { (mac, gatewayId) ->
+		if (landedOn(paired, mac, gatewayId)) {
+			LaunchedEffect(mac, gatewayId) {
+				pending = null
+				open = null
+				onDevice(gatewayId, mac)
 			}
-			return@let
-		}
-		val choices = pairChoices(device, home)
-		val busy = choices.any { choice -> views[choice.gatewayId ?: home]?.busy(device.mac) == true }
-		val said = choices.firstNotNullOfOrNull { choice -> views[choice.gatewayId ?: home]?.saidOf(device.mac) }
-		PairWithDialog(device, choices, busy, said, onDismiss = { pairing = null }) { choice ->
-			val (gatewayId, pair) = pairingOf(device, choice, home)
-			pairingOn = gatewayId
-			repo.command { deviceOps.addSensor(gatewayId, pair, device.advert.name ?: device.mac) }
 		}
 	}
 }
 
 @Composable
-private fun FoundRow(device: FoundDevice, onAdd: () -> Unit) {
+private fun FoundRow(device: FoundDevice, onToggle: () -> Unit) {
 	Row(
-		Modifier.fillMaxWidth().padding(vertical = 6.dp),
+		Modifier.fillMaxWidth().clickable(onClick = hapticClick(onToggle)).padding(vertical = 6.dp),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(8.dp),
 	) {
@@ -193,7 +196,6 @@ private fun FoundRow(device: FoundDevice, onAdd: () -> Unit) {
 				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
-		OutlinedButton(onClick = hapticClick(onAdd)) { Text("Add") }
 	}
 }
 
@@ -212,47 +214,27 @@ private fun SignalBars(bars: Int) {
 }
 
 @Composable
-private fun PairWithDialog(
-	device: FoundDevice,
-	choices: List<PairChoice>,
-	busy: Boolean,
-	said: String?,
-	onDismiss: () -> Unit,
-	onPick: (PairChoice) -> Unit,
-) {
-	AlertDialog(
-		onDismissRequest = onDismiss,
-		title = { Text("Pair with") },
-		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-				Text(
-					listOfNotNull(device.advert.name, foundModel(device), testedLine(device)).joinToString(" · "),
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				for (choice in choices) {
-					Row(
-						Modifier.fillMaxWidth().clickable(enabled = !busy, onClick = hapticClick { onPick(choice) }).padding(vertical = 10.dp),
-						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(8.dp),
-					) {
-						SignalBars(signalBars(choice.signal))
-						Text(choice.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-						Text(
-							if (choice.assistant) "Assistant" else "App only",
-							style = MaterialTheme.typography.labelSmall,
-							color = MaterialTheme.colorScheme.onSecondaryContainer,
-							modifier = Modifier
-								.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(50))
-								.padding(horizontal = 8.dp, vertical = 2.dp),
-						)
-					}
+private fun PairCard(choices: List<PairChoice>, busy: Boolean, said: String?, onPair: (PairChoice) -> Unit) {
+	Card(Modifier.fillMaxWidth()) {
+		Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+			Text("Pair to which device?", style = MaterialTheme.typography.labelLarge)
+			for (choice in choices) {
+				Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					SignalBars(signalBars(choice.signal))
+					Text(choice.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+					Text(
+						if (choice.assistant) "Assistant" else "App only",
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.onSecondaryContainer,
+						modifier = Modifier
+							.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(50))
+							.padding(horizontal = 8.dp, vertical = 2.dp),
+					)
+					OutlinedButton(onClick = hapticClick { onPair(choice) }, enabled = !busy) { Text("Pair") }
 				}
-				if (busy) CircularProgressIndicator(Modifier.size(18.dp))
-				said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 			}
-		},
-		confirmButton = {},
-		dismissButton = { TextButton(onClick = hapticClick(onDismiss)) { Text("Cancel") } },
-	)
+			if (busy) CircularProgressIndicator(Modifier.size(18.dp))
+			said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		}
+	}
 }
