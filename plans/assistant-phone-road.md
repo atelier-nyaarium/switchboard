@@ -364,6 +364,54 @@ Recommended: one home (Sakura), moves rare, and the cross-Gateway follow-up remo
 
 > ok that's fine
 
+## Question 26 - Where does the live console live, and who types into it?
+
+Raised during the 2.6d walk, after inspection was done with ad-hoc scripts over the Gateway's state files.
+
+> As part of the core plan, remember when I said I want it as good as NyaaDot? it has a live console that lets you debug easily. MCP tools that let you query and inspect with ease. We need this in core so you don't have to live in squalor.
+
+Q: One engine on the Gateway with two doors, an MCP tool for sessions first and a phone Console page second (A); fixed MCP query tools with no language (B); or a phone-only console (C)?
+A: A. NyaaDot's small expression language (lexer, recursive-descent parser, tree-walk evaluator) over a typed registry of what the Gateway holds, read-only to start. Door 1, an MCP `console` tool, ships first; door 2, a phone Console page with autocomplete and cards, second. Each Gateway answers for itself.
+
+Recommended: one registry declared as data, as the field table is, serves the earlier ask (a schema's card in the app) and this one (agents inspecting without scripts); read-only adds no authority.
+
+> A
+
+> and the 2 doors are human console and agent MCP right?
+
+Yes: the agent door is the MCP tool, the human door the app's Console page; both send the same expressions to the same engine.
+
+## Question 27 - How far does the console language go in the first cut?
+
+The first registry, from research: `devices.list`, `devices.get(id)`; `sensors.read`, `sensors.payloads`, `sensors.extremes` with readings in the owner's unit; `thresholds.of`; `fields.list`, `fields.state` (value, seq, transitions); `automations.list`, `automations.runs`, `automations.queue`; `watchers.list`, `watchers.rules`; `Definition.get` as a card, `Definition.decode(key, advert)`. Three read accessors are new (a sensor's readings and payloads off the road, `sensorThresholds.list`, an automation's checkpoint); the rest exist. The engine gets read seams only: no write seam, no vault, no tokens, keys or pane text.
+
+Q: NyaaDot's read grammar without assignment (A); paths, calls and indexing only (B); or A plus filter lambdas (C)?
+A: A. Paths, method calls, indexing, literals, `==` `!=` `!`, arithmetic, and list helpers (`count`, `first`, `take(n)`, `where(field, value)`). No assignment; variables arrive with the phone page. A tree-walk with step, node, source and answer caps, so one query cannot stall the Gateway's loop.
+
+Recommended: parity with NyaaDot for reading, covers every read the 2.6d scripts did, and lambdas can be added later on the same base.
+
+> A.
+
+## Question 28 - Which sessions can use the agent door?
+
+Q: Host sessions only (A); host and devcontainer sessions (B); or B plus the assistant (C)?
+A: A, for now. Host sessions can already read the Gateway's state files, so the first cut adds no reach. The audience is a table keyed by entity (`satisfies Record<EntityId, readonly Audience[]>`), so containers or the assistant are a row each later. A container session and the assistant are answered `not_served`.
+
+Recommended: zero new reach; the assistant's tool list is fixed on purpose and would need its own projection.
+
+> A for now.
+
+Decided without asking, with the reason: the agent door is a core tool bound by the session token, as the routine tools are, registered outside containers; a `SESSION_COMMANDS` tool cannot sit behind a capability without failing `check:boot`. The phone learns the vocabulary from a describe op cached per Gateway by a registry hash, never generated Kotlin, since each Gateway can run a different build and live ids cannot be generated.
+
+## Question 29 - Does the console hear raw Bluetooth, beyond what definitions read?
+
+Q: A read-only listen on the daemon for everything heard (A); keep `bluetoothctl` for unknown devices (B); or add it later (C)?
+A: A, two minutes by default. `bluetooth.listen(seconds)` lists everything heard for the window: address, name, signal, raw maker data and services. A host op that writes nothing, unlike Scan, which updates plug addresses. Two minutes because the H5110 was heard about once a minute; the cap stays under the Gateway's 255-second idle cut.
+
+Recommended: closes the last scripting gap of the 2.6d walk, and verifies a new definition.
+
+> a. 30 is too short. you seen what happened with these sensors. do like 2 minutes.
+
 ## Design rulings, mocked in the Designer dock
 
 - **Pair with** (a dialogue over the family's entry page after Scan): Found rows merged across every radio with signal bars from the strongest, untested rows marked "Not tested" (a known format) or "Not tested · raw only"; Paired rows below with their live value. The dialogue lists the Gateways that heard the device, strongest first, then This Phone last, each with a chip: "Assistant" (home, and This Phone) or "App only". Owner: "looks good".
@@ -527,6 +575,27 @@ As built, beyond the list above:
 
 - The H5110 paired to Sakura, then re-paired to This Phone: readings, the 24-hour low and high, the stale reason with the phone away; delivery with the app closed; duplicate advertisements coalescing into one post; the scan registration surviving a phone restart; two radios hearing one device, deduped, the chooser ordered by signal with This Phone last; Nearby devices granted and denied; a threshold typed in Fahrenheit shown back unchanged; a crossing reaching the assistant's inbox once, and an edit that does not fire; a 24-hour low ageing out of the window; a home move after which phones still post to the Gateway holding the record; the battery pulled and the address re-matched.
 - ✅ `docs/devices.md` (sensors, definitions, the matchers), `docs/assistant.md` (computed fields, automations, the sensors watcher), `docs/architecture.md` (the Bluetooth host op, the watch frame, the client), `docs/testing.md` (the fakes), the AGENTS.md map lines.
+
+Walk so far: pairing on Sakura and as This Phone, live readings, the background scan surviving a swipe and matching with the screen off, and a crossing reaching the assistant's inbox once (both alerts, 14:35 and 14:37) pass. Fixed on the way: empty Gateway groups hidden, the H5151 hub listed as Not supported and refused at pairing, signal bars per radio, Start scan listening continuously in first-heard order, a live pair card under the Found row, This Phone sensors stale at 30 minutes, alert text naming the device and unit and following a rename, the assistant's sensor rows carrying `heardAt` and `stale` instead of a placeholder state.
+
+## Phase 2.6e - The live console, agent door (Q26 to Q29)
+
+One engine on the Gateway, read-only, NyaaDot's read grammar over a typed registry. The tool is named `console`; the code lives under `liveConsole` beside the phone's existing `console` ops, so the names never collide.
+
+Slices:
+
+1. **The engine.** The grammar in `src/shared/liveConsole/grammar.ts`, pure, so the phone's tokenizer twin can be pinned by vectors later: identifiers, numbers, strings with a `closed` flag, `. ( ) [ ] { } , :`, `== != !`, `+ - * /`; a `-` is unary or binary by position, never inside a number token. Expressions only, `=` refused; every node carries a span and `closed`. The evaluator in `src/gateway/liveConsole/`: a fresh instance per call over the registry and one builtin table (`count`, `first`, `take`, `skip`, `keys`, `where(field, value)`); no reflective calls; one error shape `{ code, start, end, message }`. Caps: source length, node count, steps and answer bytes, read from `Ambient` for time. Registry entries declare their members with Zod schemas as data, and a handler only reads: purity is a registration rule, not an AST walk. Values come back as projections or frozen copies, never live store objects.
+2. **The registry and the stage.** `composeLiveConsole` after devices, computed fields and the assistant, taking late-bound readers as `composeBaseline` does. First entries: `devices`, `sensors` (`read`, `payloads`, `extremes`, readings in the owner's unit), `thresholds`, `fields` (`list`, `get`, `value`, `state`, `invalid`), `automations` (`list`, `runs`, `invalid`, `queue`, `checkpoint`), `watchers` (`list`, `get`, `rules`, `test`), `Definition` (`all`, `get`, `match`, `decode`), `gateway` (`id`, `version`, `router`). Three new read accessors: a sensor's readings and payloads off the road (not the store, so `device-road-residue` passes), `sensorThresholds.list`, an automation's checkpoint. Never readable: vault values and private text, session credentials and raw `SessionRecord`s, `HOST_WS_TOKEN`, keys and enrollment material, watcher credentials, the inbox page-token key, the assistant home's sealed parts, pane text and other sessions' prompts. Never registered because they look like reads and are not: Scan (writes addresses), `inbox.list("new")` (moves the mark), live GitHub fetches, a plug's network read.
+3. **The agent door.** `SESSION_COMMANDS.console` (`/console/eval`, `{ expr?, limit? }`), auth through `resolveConfirmedManagedSession`, answering `ok { text, registryHash, cut? }`, `error`, `unauthenticated` or `not_served` per the audience table (Q28: host sessions only). No `expr` answers the describe text: entities, members, signatures, a grammar summary, from the one `describe()` the phone reuses. Text renders as `key: value` lines in the style of `eventLines`, owner-named strings through `oneLine` and `neutralizeMarkup`, readings through `formatFieldValue` in the owner's unit, instants as an age and a time, unknown values with their reason, nesting cut at depth 3; 16 KiB by default, cut between items with a footer naming `.skip(n)`. The tool handles an older Gateway's 404 as "not served yet". Plugin release; `check:boot` proves it registers for a host session.
+4. **Raw Bluetooth (Q29).** A read-only host op, `bleListen`, holding a discovery hold through the coordinator for a window (default 120 s, capped under the 255-second idle cut) and answering everything heard: address, name, signal, maker data, services. `bluetooth.listen(seconds)` in the registry; the route lifts its wait through `gateway-long-waits.ts`. `familyOf` marks each row's family, if any.
+5. **Shared helpers, so the console is not a third copy:** one JSON Schema root-inline helper (`zodToCleanJsonSchema` and `paramsJsonSchema` each do it), `typeOf(spec)` moved to shared, one reading-in-the-display-unit helper (`deviceTool.ts` converts by hand), and `formatFieldValue` covering a number with no `decimals` and booleans.
+6. **Docs:** `docs/console-live.md` (the grammar, the registry, the audience, the caps, what is never readable), the AGENTS.md map lines.
+
+## Phase 2.6f - The live console, human door
+
+- A describe op (`console_describe`) cached per Gateway by `registryHash`, and an eval op (`console_eval`) through the same engine; the Gateway ships before the phone.
+- The phone's tokenizer twin, pinned by vectors generated from `grammar.ts`, for highlighting and the cursor's context; completions and hints come from the describe answer, live ids included.
+- The Console page: input with completions and parameter hints, results as cards (a schema card per entity, a reading card in the owner's unit), session variables (assignment returns here), history. Mocked in the Designer dock first.
 
 ## Painpoints
 
