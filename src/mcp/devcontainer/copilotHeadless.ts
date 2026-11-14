@@ -29,6 +29,8 @@ export interface SessionEvent {
 export interface HeadlessModel {
 	id: string;
 	reasoningEfforts: string[];
+	/** The account's policy state; absent when none applies. */
+	policy?: string;
 }
 
 export type HeadlessTerminal =
@@ -232,12 +234,17 @@ export class CopilotHeadlessClient {
 		if (!Array.isArray(result?.models)) return [];
 		return result.models.flatMap((entry): HeadlessModel[] => {
 			if (typeof entry !== "object" || entry === null) return [];
-			const { id, supportedReasoningEfforts } = entry as { id?: unknown; supportedReasoningEfforts?: unknown };
+			const { id, supportedReasoningEfforts, policy } = entry as {
+				id?: unknown;
+				supportedReasoningEfforts?: unknown;
+				policy?: { state?: unknown };
+			};
 			if (typeof id !== "string") return [];
 			const reasoningEfforts = Array.isArray(supportedReasoningEfforts)
 				? supportedReasoningEfforts.filter((effort): effort is string => typeof effort === "string")
 				: [];
-			return [{ id, reasoningEfforts }];
+			const state = typeof policy?.state === "string" ? { policy: policy.state } : {};
+			return [{ id, reasoningEfforts, ...state }];
 		});
 	}
 

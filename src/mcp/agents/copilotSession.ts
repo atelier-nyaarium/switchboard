@@ -95,14 +95,20 @@ export class CopilotBackendSession implements AgentBackendSession {
 		if (this.closed) listener();
 	}
 
+	/** A model the account's policy turns off is not offered. */
 	async listModels(): Promise<AgentModel[]> {
-		return this.models.map((model) => ({ id: model.id, reasoningEfforts: [...model.reasoningEfforts] }));
+		return this.models
+			.filter((model) => model.policy === undefined || model.policy === "enabled")
+			.map((model) => ({ id: model.id, reasoningEfforts: [...model.reasoningEfforts] }));
 	}
 
 	async openThread(options: ThreadOptions): Promise<string> {
 		const model = options.model ?? COPILOT_BACKEND.defaultModel;
 		const effort = options.reasoningEffort;
-		const offered = this.models.find((candidate) => candidate.id === model)?.reasoningEfforts;
+		const listed = this.models.find((candidate) => candidate.id === model);
+		if (listed?.policy !== undefined && listed.policy !== "enabled")
+			throw new Error(`${model} is turned off by this account's Copilot policy (${listed.policy})`);
+		const offered = listed?.reasoningEfforts;
 		if (effort !== undefined && offered !== undefined && !offered.includes(effort))
 			throw new Error(`reasoning effort ${effort} is not offered for ${model}; offered: ${offered.join(", ")}`);
 		return this.client.createSession({ cwd: options.cwd, model, reasoningEffort: effort });

@@ -131,6 +131,49 @@ it("rejects a start whose session the runtime refused", async () => {
 	);
 });
 
+it("rejects a start on a model the account's policy turns off, and never offers it", async () => {
+	const sent: Record<string, unknown>[] = [];
+	const created: string[] = [];
+	const client = {
+		onEvent: () => {},
+		createSession: async (options: { model: string }) => {
+			created.push(options.model);
+			return "session-1";
+		},
+		listModels: async () => [
+			{ id: "gpt-6-luna", reasoningEfforts: ["low"], policy: "enabled" },
+			{ id: "claude-haiku-5.5", reasoningEfforts: ["low"], policy: "disabled" },
+		],
+		resumeSession: async () => {},
+		send: async () => "message-1",
+		abort: async () => {},
+		close: () => {},
+	} as unknown as CopilotHeadlessClient;
+	const targets: TargetSupervisor = {
+		acquire: () => ({ state: "running", lease: { generation: 1, child: fakeChild() } }),
+		release: () => {},
+	};
+	const service = makeService(targets, sent, async () => client);
+
+	service.handleCommand({
+		type: "copilot_command",
+		kind: "start",
+		requestId: REQUEST_ID,
+		ownerKey: OWNER_KEY,
+		agentId: AGENT_ID,
+		operationId: OPERATION_ID,
+		model: "claude-haiku-5.5",
+		target: { kind: "devcontainer", project: "recipe-app", hostProjectPath: "/projects/recipe-app" },
+		prompt: "Reply with pong",
+	});
+	await settle();
+
+	expect(sent).toContainEqual(
+		expect.objectContaining({ kind: "rejected", error: expect.stringContaining("Copilot policy (disabled)") }),
+	);
+	expect(created).toEqual([]);
+});
+
 it("refuses a command whose generation retires while it is in flight", async () => {
 	const sent: Record<string, unknown>[] = [];
 	let started = () => {};
