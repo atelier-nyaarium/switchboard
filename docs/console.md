@@ -482,7 +482,13 @@ no TTL.
     shell's `leaveAssistantPage`, under its one `BackHandler`. On the automation editor with a
     changed draft (`leaveAsks`), `AutomationOps.askLeave` holds the leave instead, and the editor
     draws "Leave and discard changes?" from `leaving`, with Discard and Stay. An unchanged draft
-    leaves at once.
+    leaves at once. The ask names the opening it was made on (`LeaveAsk`, `leaveShown`), so it
+    never shows over a later one, and a Back while a save is in flight leaves at once with the
+    draft held, so the answer still lands.
+  - **A record is removed from its top bar's menu:** `RemoveMenu` (`RecordMenu.kt`) then
+    `ConfirmDialog`, on the automation, runbook, routine and policy editors, a device's page and a
+    service's entry. `delete-affordance-residue.test.ts` names the few removals that are not a
+    record page's.
   - **A page reads its op's result from its ops class, never from its own coroutine:** `runWork`
     holds each page's busy flag and line under a `WorkKey`, and an automation save lands in
     `AutomationOps.drafts` and `landed`, so Back never loses a result. The editor holds its draft's

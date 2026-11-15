@@ -184,6 +184,16 @@ manifest entry on both sides. The n-th random draw of a case is the first N byte
 `expect` of `{ ts, kotlin }` sets each runtime apart: a future-kind fixture of a `preserve` root is
 refused by the TS schema and decodes to `Unknown` on the phone (`docs/fields.md`).
 
+## What the phone encodes
+
+`tests/fixtures/phone-encoded/cases.json` holds values the Kotlin phone encodes, each named by the
+schema the Gateway parses it with. `PhoneEncodedFixtureTest.kt` writes it with the phone's own
+encoder (`UPDATE_FIXTURES=1 ./gradlew :app:testDebugUnitTest --tests '*PhoneEncodedFixtureTest*'`)
+and fails when the committed file differs; `phone-encoded.test.ts` parses every case. It is the gate
+for a null written where the Gateway wants the field absent, or left out where it is required.
+`kotlin-null-encoding-residue.test.ts` holds the other half: every nullable field in the generated
+`Protocol.kt` states whether its null is written, and no phone `Json` sets `explicitNulls`.
+
 ## The emulator sandbox
 
 The `emulator` variant draws every phone screen with no onboarding and no Gateway, so a screen that
