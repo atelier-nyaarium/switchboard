@@ -870,6 +870,13 @@ Runs after 2.7b ships and before 2.7c. Phone only.
 - **A Gateway's lists keep their three answers** (from the 2.7b architecture review, class "refused read as empty"): `GatewayEntry` holds each list as unread, listed or not served instead of a nullable list, one decoder and one fold serve the four ops classes, and their copied `attempt` and `refresh` go into `GatewayReads.kt`. The Gateway ships first with a `not served` reason token for an op kind or stage it does not have, so the phone stops inferring a build from an unrelated field.
 - **One model for an edit in progress** (class "editor state keyed to a slot"): an opening minted only by `open`, every mutator taking it, saves on the repository's scope, and the leave dialogue drawn by `EditorScaffold`, shared by the runbook, routine, policy and automation editors. Today a Back during a save cancels it in the three older editors and their drafts outlive Back; what Cancel means there is asked first.
 
+Slices:
+
+1. **The Gateway says "not served".** ✅ `OP_REASON_NOT_SERVED` in `wire-vocabulary.ts`; `composeRouterFrames` answers it for a kind no schema names and for a stage guard's `NotServedError`.
+2. **One menu.** `RootView` gains Sources and Automations, in the order of Question 40. A session keeps only its own views (Chat, Terminal, Files) as a switch in its bar; `ConversationView`'s six scoped views go, and the session's drawer with them. The one drawer opens from a session too; a pick there lands the root view with `ViewScope.Session` and a chip that clears it to `ViewScope.Everything`, and Back returns to the session. Sources and Automations take no session scope. The assistant's settings index loses Sources and Automations; `AssistantPage.Sources`, `Source`, `Automations`, `AutomationEditor`, `Add`, `Entry`, `Setup` and `Device` hang off the two root views.
+3. **A Gateway's lists keep their three answers.** `GatewayList<T>` (unread, listed, not served) on `GatewayEntry` for routines, runbooks, policies, automations and peers; one `ListAnswer<T>` decoder in place of `PolicyListAnswer` and `AutomationListAnswer`, with the routine and runbook lists moved onto it; `gatewayAttempt` and one fold in `GatewayReads.kt`. Until Gateways carry the token, any refusal of a list reads as not served.
+4. **One model for an edit in progress,** after Question 43.
+
 ## Phase 2.7c - Triggers and the action catalogue (Q34, Q35, Q36)
 
 - **Value trigger:** a threshold becomes an automation whose trigger is "a value crosses a line", with its dead zone and cool-down; the sensor page's Alerts rows write such automations. The Sensors queue becomes the automations' outbox, listed in the inbox as its own section.
