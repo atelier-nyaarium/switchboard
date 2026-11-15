@@ -9,6 +9,7 @@ import { HOST_SPAWN, hostSpawnPoint, isHostSpawn } from "../shared/host-spawn.js
 import { SENSORS_SOURCE_ID } from "../shared/schemasAssistantActions.js";
 import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
+import { createOutboxSource } from "./assistant/outboxSource.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
 import { composeAssistant } from "./compose/composeAssistant.js";
@@ -585,7 +586,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			}),
 		),
 	);
-	assistant.registerSource(automations.source);
+	assistant.registerSource(createOutboxSource(automations.outbox));
 	sensorThresholds = openDurable(bootstrap.dataDir, "sensor-thresholds", (store) =>
 		createSensorThresholds({
 			store,

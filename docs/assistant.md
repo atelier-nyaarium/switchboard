@@ -361,8 +361,11 @@ A watcher is plain Gateway code, never a model.
 
 ### Sensors
 
-The `sensors` watcher lists the Gateway's sensors queue: one event per automation crossing, with the
-text fields automation, field and value, so the owner's rules match on them as on any watcher. A
+The `sensors` watcher lists the automations' outbox: one event per automation crossing, with the
+text fields automation, field and value, so the owner's rules match on them as on any watcher. The
+automations answer the outbox in their own words (`AutomationOutbox` in
+`src/gateway/computed/automations.ts`), and `createOutboxSource` in
+`src/gateway/assistant/outboxSource.ts` is the source that lists it in the assistant's lane. A
 crossing is the owner's automation saying a computed field became the value it named, never a raw
 reading. The queue, the edge engine and the cool-down live in `docs/fields.md`. A crossing on a
 Gateway that is not the assistant's home logs `refused` and wakes nothing.

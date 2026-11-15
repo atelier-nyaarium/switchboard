@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { type Automation, createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { openDurable } from "../shared/durable-store.js";
@@ -119,7 +120,7 @@ function world(dir: string, home = true) {
 }
 
 const queued = async (automations: ReturnType<typeof createAutomations>) => {
-	const answer = await automations.source.poll(null, new AbortController().signal);
+	const answer = await createOutboxSource(automations.outbox).poll(null, new AbortController().signal);
 	return answer.kind === "events" ? answer.events.map((event) => event.fields.value) : [];
 };
 
@@ -138,9 +139,11 @@ describe("automations", () => {
 		expect(await queued(automations)).toEqual(["high", "high"]);
 		expect(automations.runs().map((run) => run.outcome)).toEqual(["ran", "ran"]);
 		expect(w.pokes()).toBe(2);
-		const first = await automations.source.poll(null, new AbortController().signal);
+		const first = await createOutboxSource(automations.outbox).poll(null, new AbortController().signal);
 		const cursor = first.kind === "events" ? first.cursor : null;
-		expect((await automations.source.poll(cursor, new AbortController().signal)).kind).toBe("unchanged");
+		expect((await createOutboxSource(automations.outbox).poll(cursor, new AbortController().signal)).kind).toBe(
+			"unchanged",
+		);
 	});
 
 	it("takes the current value as its baseline when it or its field is edited, so an edit never fires", async () => {
@@ -202,7 +205,10 @@ describe("automations", () => {
 		w.read(after.fields, -5);
 		expect(await queued(after.automations)).toEqual(["high"]);
 
-		const page = await after.automations.source.list?.({ scope: "all" }, new AbortController().signal);
+		const page = await createOutboxSource(after.automations.outbox).list?.(
+			{ scope: "all" },
+			new AbortController().signal,
+		);
 		expect(after.automations.clear((page?.events ?? []).map((event) => event.id))).toBe(true);
 		expect(await queued(after.automations)).toEqual([]);
 	});
@@ -310,7 +316,7 @@ describe("automations", () => {
 		fields.put("band", { ...hotBand, decimals: 1 }, 1);
 		w.read(fields, -5);
 
-		const first = await automations.source.poll(null, new AbortController().signal);
+		const first = await createOutboxSource(automations.outbox).poll(null, new AbortController().signal);
 		const ids = first.kind === "events" ? first.events.map((event) => event.id) : [];
 		expect(new Set(ids).size).toBe(2);
 		automations.clear([ids[0] as string]);
@@ -329,7 +335,10 @@ describe("automations", () => {
 		w.read(fields, -5);
 
 		expect(await queued(automations)).toEqual(["high"]);
-		const page = await automations.source.list?.({ scope: "all" }, new AbortController().signal);
+		const page = await createOutboxSource(automations.outbox).list?.(
+			{ scope: "all" },
+			new AbortController().signal,
+		);
 		automations.clear((page?.events ?? []).map((event) => event.id));
 		const held = JSON.parse(fs.readFileSync(path.join(dir, "automation-state.json"), "utf8"));
 		expect(held.queue.events).toEqual([future]);

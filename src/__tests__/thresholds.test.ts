@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { createAutomations } from "../gateway/computed/automations.js";
 import { createComputedFields } from "../gateway/computed/computedFields.js";
 import { thresholdAutomations, thresholdField, thresholdIds } from "../gateway/computed/thresholds.js";
@@ -74,7 +75,7 @@ describe("threshold template", () => {
 
 		read(-5);
 		read(-40);
-		const poll = await automations.source.poll(null, new AbortController().signal);
+		const poll = await createOutboxSource(automations.outbox).poll(null, new AbortController().signal);
 		expect(poll.kind === "events" ? poll.events.map((event) => event.title) : []).toEqual(["Freezer above -10"]);
 		expect(thresholdField({ ...threshold, high: undefined })).toBeNull();
 	});
