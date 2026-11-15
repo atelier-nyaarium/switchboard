@@ -742,6 +742,14 @@ Slices:
 - **Home move:** the carried payload holds sources and their event automations; an old sealed payload decodes through a one-shot reader.
 - **As mocked:** the Sources, service source, Automations, editor, message editor and leave dialogue rulings under "Design rulings" above, and Question 39.
 
+Slices, in deploy order (a reader ships before what it reads):
+
+1. **The record.** `AutomationSchema` moves to `src/shared/schemasAutomation.ts` as wire truth: `enabled`, a `trigger` (`event`: a source id and conditions; `value`: today's field and `becomes`, with its cool-down), and `actions` (a list; `tell_assistant` with `when`). The row's sentence is derived by the Gateway and answered beside the record, never stored (Q39). Threshold automations are projections, so `sensorThresholds` rewrites them in the new shape at start; they tell quietly, as today.
+2. **Event automations decide the lane.** The lane's sort reads the enabled event automations for the source: any match that tells `now` wakes, and an event several match wakes once. `rulesStore` retires. On first boot `assistant-rules.json` converts: each rule that woke becomes an automation; `otherwise`, the order and the Sensors rules go; an inbox rule that stood ahead of a wake rule is logged, since order no longer excepts. The file is then moved aside.
+3. **The phone reads both.** `sources` and `automations` beside `watchers` in the assistant state, `sources-changed` beside `watchers-changed`, the Sources page, a service's page, the Automations list and editor (retargeted from `RuleDraft`, with the leave dialogue), the inbox strip renamed. Installed before the Gateway that sends them.
+4. **The Gateway sends the new words.** `sources` and `automations` in the state (`watchers` stays through a dated window for an older phone), `assistant_source_*` and `automation_list`, `automation_put`, `automation_delete`, `automation_preview` ops with the `assistant_watcher_*` kinds parsed through the same window, `source/` action ids, `sources` in the baseline, `source:` in the inbox header, the baseline's overdue `evicted` dropped.
+5. **Home move.** The carried payload holds each source's `enabled` and grant and the event automations; an older sealed payload's rules convert through the same reader as slice 2.
+
 Configuration held before the rebuild (2026-11-15), which the carry-over must reproduce:
 
 - **GitHub notifications** (`github`): enabled; reads the vault entry "GitHub PAT - Development"; wakes when `reason` is `approval_requested`, `security_alert` or `mention`, or `type` is `PullRequest`; everything else to the inbox; offers Mark done.
