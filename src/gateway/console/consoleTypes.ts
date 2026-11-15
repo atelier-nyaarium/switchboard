@@ -60,6 +60,9 @@ import type { WorkspaceChange } from "../workspaceAwareness.js";
 import type { ConversationRegistry, TeamRegistry } from "../wsTypes.js";
 import type { DurableOpStore } from "./durableOpStore.js";
 
+/** This build holds no stage for the op. */
+export class NotServedError extends Error {}
+
 export interface ConsoleRoutes {
 	// Owner-only console door.
 	/** `scheduled`: a routine's, which never reads as the owner present. */

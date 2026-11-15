@@ -373,6 +373,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/router/blobUploader.ts` - stages this Gateway's bytes on the Router as sealed chunks, resuming from the Router's cursor, and holds relayed bytes under this Gateway's name
 - `src/gateway/router/routerBlobReader.ts` - the Router range read a session's `/blob/get` falls through to once local staging is gone
 - `src/gateway/console/` - Android OwnerOp dispatch and capability store
+- `src/gateway/console/consoleTypes.ts` `NotServedError` / `src/shared/wire-vocabulary.ts` `OP_REASON_NOT_SERVED` - a value op this build cannot serve
+  - **An op a build lacks is refused by token, never by prose:** `composeRouterFrames` answers `not_served` for a kind no schema here names, and for a stage guard's `NotServedError`, so a phone tells an older build from a refusal without inferring it from another field. A Gateway from before the token still answers schema prose.
 - `src/gateway/console/consoleTargets.ts` - every console target, `domain.gateway.spawn[.session]` by contract; the bare-name and foreign-Gateway refusals live here alone
 - `src/gateway/console/consoleCrossDomain.ts` - the console's link, unlink and untrust handlers
 - `src/gateway/console/consoleSessionLifecycle.ts` - create, wake, close, forget, and rename

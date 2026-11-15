@@ -13,12 +13,14 @@ import {
 	AssistantHomeSealedSchema,
 	readableSealed,
 } from "../../shared/schemasAssistantHome.js";
-import { ConsoleOpSchema } from "../../shared/schemasConsoleOp.js";
+import { ConsoleOpSchema, DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { ContentEnvelopeSchema } from "../../shared/schemasContentKey.js";
 import { PhoneHoldFrameSchema, PhoneHoldPlaneSchema } from "../../shared/schemasPhoneHold.js";
+import { OP_REASON_NOT_SERVED } from "../../shared/wire-vocabulary.js";
 import { WAKE_BUSY } from "../assistant/sourceLane.js";
 import type { FederationSlice, RouterFrameHandlers } from "../boot.js";
 import { createConsoleDispatcher } from "../console/consoleHandler.js";
+import { NotServedError } from "../console/consoleTypes.js";
 import { createCrossDomainHandshakePump } from "../federation/crossDomainHandshake.js";
 import { createGatewayRelayHandler, createGatewayRelayPump } from "../federation/gatewayRelay.js";
 import { fireAndForget } from "../fireAndForget.js";
@@ -87,6 +89,12 @@ export interface RouterFramesStageDeps {
 
 const HOME_READ_RETRY_MS = 10_000;
 const HomeReadAnswerSchema = z.object({ record: AssistantHomeRecordSchema.nullable() });
+
+/** False for a kind no schema here names. */
+const servedKind = (raw: unknown): boolean => {
+	const kind = typeof raw === "object" && raw !== null ? (raw as { kind?: unknown }).kind : undefined;
+	return typeof kind !== "string" || VALUE_OP_KINDS.has(kind) || DELIVERY_OP_KINDS.has(kind);
+};
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
 	consoleDelivery: ReturnType<typeof createConsoleDispatcher>["handleDelivery"];
@@ -356,7 +364,9 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 					if (opened.kind !== "ok") result = { kind: "refusal", reason: "content key unavailable" };
 					else {
 						try {
-							const op = ConsoleOpSchema.parse(JSON.parse(opened.plaintext.toString("utf8")));
+							const raw: unknown = JSON.parse(opened.plaintext.toString("utf8"));
+							if (!servedKind(raw)) throw new NotServedError("no such op on this build");
+							const op = ConsoleOpSchema.parse(raw);
 							result = {
 								kind: "ok",
 								// Replies use owner key.
@@ -370,7 +380,9 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 								),
 							};
 						} catch (error) {
-							result = { kind: "refusal", reason: (error as Error).message };
+							const reason =
+								error instanceof NotServedError ? OP_REASON_NOT_SERVED : (error as Error).message;
+							result = { kind: "refusal", reason };
 						}
 					}
 				}

@@ -11,6 +11,7 @@ import type {
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { composeSessionName } from "../shared/session-id.js";
 import type { TeamInfo } from "../shared/types.js";
+import { OP_REASON_NOT_SERVED } from "../shared/wire-vocabulary.js";
 import { eventAutomation } from "../testing/assistantAutomations.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
@@ -64,8 +65,8 @@ describe("the assistant's session through the console", () => {
 		const released = await h.phone.value({ kind: "assistant_release" } as never);
 		const home = await h.phone.homeRead();
 
-		expect(placed.result).toMatchObject({ kind: "refusal" });
-		expect(released.result).toMatchObject({ kind: "refusal" });
+		expect(placed.result).toEqual({ kind: "refusal", reason: OP_REASON_NOT_SERVED });
+		expect(released.result).toEqual({ kind: "refusal", reason: OP_REASON_NOT_SERVED });
 		expect(home.record).toBeNull();
 	});
 

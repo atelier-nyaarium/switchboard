@@ -717,7 +717,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			throw error;
 		}
 		const byId = new Map((carried?.watchers ?? []).map((source) => [source.id, source]));
-		const ids = sources.map((source) => source.id);
 		if (!automations?.replaceEvents(carriedEvents(carried))) return "the automations could not be saved";
 		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
 		if (!temperature.set(carried?.temperatureUnit ?? "C")) return "the temperature unit could not be saved";

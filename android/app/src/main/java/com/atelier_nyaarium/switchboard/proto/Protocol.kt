@@ -125,6 +125,7 @@ object Protocol {
 		const val OP_OUTCOME_REFUSED: String = "refused"
 		const val OP_REASON_NOT_ADMITTED: String = "not admitted"
 		const val OP_REASON_CLOCK_SKEW: String = "clock_skew"
+		const val OP_REASON_NOT_SERVED: String = "not_served"
 		const val BOARD_OUTCOME_APPLIED: String = "applied"
 		const val CONSOLE_REASON_CURSOR_STALE: String = "cursor_stale"
 		const val GATEWAY_ERROR_STALE_INCARNATION: String = "stale_incarnation"

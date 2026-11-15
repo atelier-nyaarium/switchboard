@@ -35,7 +35,13 @@ import { createRunbookFireHandler } from "./consoleRunbookFire.js";
 import { createSessionLifecycleHandlers } from "./consoleSessionLifecycle.js";
 import { createConsoleTargets } from "./consoleTargets.js";
 import { createTerminalHandlers } from "./consoleTerminal.js";
-import { type ConsoleHandlerDeps, CreateSessionFailedError, FAKE_REQ, type SendRouteJson } from "./consoleTypes.js";
+import {
+	type ConsoleHandlerDeps,
+	CreateSessionFailedError,
+	FAKE_REQ,
+	NotServedError,
+	type SendRouteJson,
+} from "./consoleTypes.js";
 
 export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
 
@@ -569,7 +575,7 @@ export function createConsoleDispatcher({
 	}
 
 	function requireCuts() {
-		if (!cuts) throw new Error("session cuts are not available on this Gateway");
+		if (!cuts) throw new NotServedError("session cuts are not available on this Gateway");
 		return cuts;
 	}
 
@@ -580,42 +586,42 @@ export function createConsoleDispatcher({
 	}
 
 	function requireRoutines() {
-		if (!routines) throw new Error("routines are not available on this Gateway");
+		if (!routines) throw new NotServedError("routines are not available on this Gateway");
 		return routines;
 	}
 
 	function requirePolicies() {
-		if (!policies) throw new Error("policies are not available on this Gateway");
+		if (!policies) throw new NotServedError("policies are not available on this Gateway");
 		return policies;
 	}
 
 	function requireDevices() {
-		if (!devices) throw new Error("devices are not available on this Gateway");
+		if (!devices) throw new NotServedError("devices are not available on this Gateway");
 		return devices;
 	}
 
 	function requireLiveConsole() {
-		if (!liveConsole) throw new Error("the live console is not available on this Gateway");
+		if (!liveConsole) throw new NotServedError("the live console is not available on this Gateway");
 		return liveConsole;
 	}
 
 	function requireAutomations() {
-		if (!automations) throw new Error("automations are not available on this Gateway");
+		if (!automations) throw new NotServedError("automations are not available on this Gateway");
 		return automations;
 	}
 
 	function requireAssistant() {
-		if (!assistant) throw new Error("the assistant is not available on this Gateway");
+		if (!assistant) throw new NotServedError("the assistant is not available on this Gateway");
 		return assistant;
 	}
 
 	function requireVault() {
-		if (!vault) throw new Error("vault is not available on this Gateway");
+		if (!vault) throw new NotServedError("vault is not available on this Gateway");
 		return vault;
 	}
 
 	function requireRunbooks() {
-		if (!runbooks) throw new Error("runbooks are not available on this Gateway");
+		if (!runbooks) throw new NotServedError("runbooks are not available on this Gateway");
 		return runbooks;
 	}
 

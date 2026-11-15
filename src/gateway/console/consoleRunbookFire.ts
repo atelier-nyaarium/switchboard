@@ -7,6 +7,7 @@ import { type Runbook, runbookRefusal } from "../../shared/schemasRunbook.js";
 import type { CliPick, SessionHarness } from "../../shared/session-harness.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
+import { NotServedError } from "./consoleTypes.js";
 
 export interface RunbookFireResult {
 	fired: boolean;
@@ -75,7 +76,7 @@ export function createRunbookFireHandler({ targets, getRunbook, createSession, d
 
 	/** The one road from a stored id and values to text, so a preview cannot differ from a fire. */
 	function textOf(runbookId: string, values: Readonly<Record<string, string>>) {
-		if (!getRunbook) throw new Error("runbooks are not available on this Gateway");
+		if (!getRunbook) throw new NotServedError("runbooks are not available on this Gateway");
 		const runbook = getRunbook(runbookId);
 		if (!runbook) return { reason: `no runbook "${runbookId}" on this Gateway`, revision: 0 };
 		// A stored record is checked again here, so a rule it no longer passes reaches the owner.
