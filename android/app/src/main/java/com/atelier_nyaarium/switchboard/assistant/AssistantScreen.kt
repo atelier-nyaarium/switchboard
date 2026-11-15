@@ -54,6 +54,7 @@ import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.DirListing
 import com.atelier_nyaarium.switchboard.DirectoryField
 import com.atelier_nyaarium.switchboard.LocationAction
+import com.atelier_nyaarium.switchboard.LocationBase
 import com.atelier_nyaarium.switchboard.PageWork
 import com.atelier_nyaarium.switchboard.PhoneCapabilities
 import com.atelier_nyaarium.switchboard.PickMenu
@@ -64,9 +65,11 @@ import com.atelier_nyaarium.switchboard.answerText
 import com.atelier_nyaarium.switchboard.workdirOf
 import com.atelier_nyaarium.switchboard.assistantSections
 import com.atelier_nyaarium.switchboard.folderOf
+import com.atelier_nyaarium.switchboard.folderShown
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.homeRefusal
 import com.atelier_nyaarium.switchboard.locationAction
+import com.atelier_nyaarium.switchboard.locationBase
 import com.atelier_nyaarium.switchboard.moveErrorText
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.runIsolated
@@ -242,13 +245,19 @@ private fun AssistantLocationPage(
 	val work = works[WorkKey.Location] ?: PageWork()
 	val busy = work.busy
 	val gateways = state.gateways.ids()
+	val homeRead = home?.let(state.gateways::assistantRead)
 	// Its answer, not proof of placement.
-	val workdir = workdirOf(home?.let(state.gateways::assistantRead))
+	val base = locationBase(home, homeRead)
+	val workdir = (base as? LocationBase.Known)?.workdir
 	var target by rememberSaveable(home) { mutableStateOf(home ?: gateways.firstOrNull()) }
 	val folderText = workdir ?: DEFAULT_FOLDER
-	// A late answer reseeds it.
-	var folder by rememberSaveable(home, workdir, stateSaver = TextFieldValue.Saver) {
+	var folder by rememberSaveable(home, stateSaver = TextFieldValue.Saver) {
 		mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length)))
+	}
+	var touched by rememberSaveable(home) { mutableStateOf(false) }
+	// Untouched follows the answer.
+	LaunchedEffect(folderText) {
+		if (!touched) folder = TextFieldValue(folderText, TextRange(folderText.length))
 	}
 	// Leaving closes the dialog.
 	var abandoning by remember { mutableStateOf<LocationAction.Move?>(null) }
@@ -258,68 +267,72 @@ private fun AssistantLocationPage(
 		(work.said ?: state.homeFailure?.let(::moveErrorText))?.let {
 			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
-					PickMenu(
-						label = "Gateway",
-						choices = gateways,
-						picked = target,
-						labelOf = { it },
-						onPick = { target = it },
-						trailingOf = { gatewayId ->
-							when {
-								gatewayId == home -> "now"
-								!state.gateways.reachable(gatewayId) -> "offline"
-								else -> null
-							}
-						},
-					)
-					val domainId = state.domainId
-					val picked = target
-					val action = locationAction(state.gateways, home, picked, folder.text, workdir)
-					if (picked != null && domainId != null) {
-						val hostTarget = runIsolated { SpawnPoint.of(domainId, picked, ASSISTANT_SPAWN).canonical }.getOrNull()
-						DirectoryField(
-							value = folder,
-							onValueChange = { folder = it },
-							spawn = ASSISTANT_SPAWN,
-							machine = hostTarget ?: picked,
-							offline = action is LocationAction.Offline,
-							onListDirs = { path, spawn ->
-								if (hostTarget == null) DirListing(emptyList()) else onListDirs(path, hostTarget, spawn)
-							},
-						)
+		if (base is LocationBase.Unread) UnreadLine(repo, base.read, base.home)
+		PickMenu(
+			label = "Gateway",
+			choices = gateways,
+			picked = target,
+			labelOf = { it },
+			onPick = { target = it },
+			trailingOf = { gatewayId ->
+				when {
+					gatewayId == home -> "now"
+					!state.gateways.reachable(gatewayId) -> "offline"
+					else -> null
+				}
+			},
+		)
+		val domainId = state.domainId
+		val picked = target
+		val action = locationAction(state.gateways, home, picked, folder.text, base)
+		if (picked != null && domainId != null && folderShown(base, picked)) {
+			val hostTarget = runIsolated { SpawnPoint.of(domainId, picked, ASSISTANT_SPAWN).canonical }.getOrNull()
+			DirectoryField(
+				value = folder,
+				onValueChange = {
+					if (it.text != folder.text) touched = true
+					folder = it
+				},
+				spawn = ASSISTANT_SPAWN,
+				machine = hostTarget ?: picked,
+				offline = action is LocationAction.Offline,
+				onListDirs = { path, spawn ->
+					if (hostTarget == null) DirListing(emptyList()) else onListDirs(path, hostTarget, spawn)
+				},
+			)
+		}
+		if (action is LocationAction.Offline) {
+			Text(
+				"${action.gatewayId} is offline.",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		homeRefusal(state)?.let { reason ->
+			Text(
+				moveErrorText(reason),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.SpaceBetween,
+			modifier = Modifier.fillMaxWidth(),
+		) {
+			Button(
+				onClick = hapticClick {
+					val pending = action as? LocationAction.Move ?: return@hapticClick
+					if (pending.abandoning != null) {
+						abandoning = pending
+					} else {
+						val workdir = folderOf(folder.text)
+						settings { moveAssistant(pending.target, workdir); null }
 					}
-					if (action is LocationAction.Offline) {
-						Text(
-							"${action.gatewayId} is offline.",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.error,
-						)
-					}
-					homeRefusal(state)?.let { reason ->
-						Text(
-							moveErrorText(reason),
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.error,
-						)
-					}
-					Row(
-						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.SpaceBetween,
-						modifier = Modifier.fillMaxWidth(),
-					) {
-						Button(
-							onClick = hapticClick {
-								val pending = action as? LocationAction.Move ?: return@hapticClick
-								if (pending.abandoning != null) {
-									abandoning = pending
-								} else {
-									val workdir = folderOf(folder.text)
-									settings { moveAssistant(pending.target, workdir); null }
-								}
-							},
-							enabled = !busy && action is LocationAction.Move,
-						) { Text(if (home == null) "Set up here" else "Move here") }
-					}
+				},
+				enabled = !busy && action is LocationAction.Move,
+			) { Text(if (home == null) "Set up here" else "Move here") }
+		}
 	}
 
 	abandoning?.let { pending ->

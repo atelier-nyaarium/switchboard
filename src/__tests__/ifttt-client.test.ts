@@ -102,28 +102,31 @@ describe("IFTTT trigger client", () => {
 		expect(await trigger.trigger(params)).toEqual({ status: 401, ok: false });
 	});
 
-	it("answers not granted without posting", async () => {
-		let reads = 0;
-		let posts = 0;
-		const trigger = client({
-			entryId: "webhook-entry",
-			readForService: async () => {
-				reads += 1;
-				return { kind: "unusable", reason: "no grant", status: 403 };
-			},
-			fetch: async () => {
-				posts += 1;
-				return new Response(null, { status: 200 });
-			},
-		});
-		const dispatch = dispatchFor((request) => trigger.trigger(request));
+	it.each([403, 404, 409] as const)(
+		"answers a key unusable with %s as not granted, without posting",
+		async (status) => {
+			let reads = 0;
+			let posts = 0;
+			const trigger = client({
+				entryId: "webhook-entry",
+				readForService: async () => {
+					reads += 1;
+					return { kind: "unusable", reason: "unusable", status };
+				},
+				fetch: async () => {
+					posts += 1;
+					return new Response(null, { status: 200 });
+				},
+			});
+			const dispatch = dispatchFor((request) => trigger.trigger(request));
 
-		const answer = await dispatch({ key: "ifttt_trigger", callId: "ifttt-call-none", params });
+			const answer = await dispatch({ key: "ifttt_trigger", callId: "ifttt-call-none", params });
 
-		expect(answer).toEqual({ kind: "unavailable", reason: "not_granted" });
-		expect(reads).toBe(1);
-		expect(posts).toBe(0);
-	});
+			expect(answer).toEqual({ kind: "unavailable", reason: "not_granted" });
+			expect(reads).toBe(1);
+			expect(posts).toBe(0);
+		},
+	);
 
 	it.each(["unready", "unopened"] as const)("answers vault %s as not ready", async (kind) => {
 		const trigger = client({

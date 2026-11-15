@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.PolicyBinding
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
@@ -90,6 +91,24 @@ class GatewayScopedStateTest {
 		assertEquals("Here", com.atelier_nyaarium.switchboard.vault.policyLabel(state.policyOn("sakura", "apt"), "apt"))
 		assertEquals("apt", com.atelier_nyaarium.switchboard.vault.policyLabel(unread.policyOn("sakura", "apt"), "apt"))
 		assertEquals(null, keptRow(unread.automationOn("sakura", "a")))
+	}
+
+	@Test
+	fun everyReaderTellsUnreadUnreachableNotServedAndListedWithNone() {
+		val lookups = listOf(Lookup.Reading, Lookup.Unreachable, Lookup.NotServed, Lookup.Gone)
+		val lists = listOf(GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed, GatewayList.Listed(emptyList<Runbook>()))
+		val none = ConsoleAssistantStateResult(sources = emptyList())
+
+		assertEquals(listOf(null, null, null, null), lookups.map { com.atelier_nyaarium.switchboard.runbooks.fireable(it) })
+		assertEquals(listOf("apt", "apt", "apt", "apt"), lookups.map { com.atelier_nyaarium.switchboard.vault.policyLabel(it, "apt") })
+		assertEquals(listOf(null, null, null, null), lookups.map { keptRow(it) })
+		val shelves = lists.map { com.atelier_nyaarium.switchboard.routines.runbookShelf(it) }
+		assertEquals(listOf(true, true, true, false), shelves.map { it.line != null })
+		assertEquals(4, shelves.map { it.line }.distinct().size)
+		assertEquals(
+			listOf(null, null, null),
+			listOf(AssistantRead.Reading, AssistantRead.Refused, AssistantRead.Answered(none)).map { heldSource(it, "github") },
+		)
 	}
 
 	@Test

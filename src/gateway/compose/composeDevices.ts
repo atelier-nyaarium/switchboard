@@ -70,6 +70,8 @@ export type DeviceAssistant = <Op extends DeviceToolOp>(
 export interface DeviceStage {
 	console: DeviceConsole;
 	assistant: DeviceAssistant;
+	/** `not_started`: nothing sent by its deadline. */
+	automationSet: (id: string, verb: DeviceVerb) => Promise<DeviceToolResult<"device_set"> | "not_started">;
 	record: (id: string) => DeviceRecord | null;
 	records: () => readonly DeviceRecord[];
 	/** Unread rows included. */
@@ -468,23 +470,39 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			return { kind: "ok", devices: devices.filter((device) => device !== null) };
 		});
 
-	const assistant: DeviceAssistant = <Op extends DeviceToolOp>(op: Op, approval?: "approved") => {
-		type Result = Promise<DeviceToolResult<Op["kind"]>>;
-		if (op.kind === "device_list") return listForAssistant() as Result;
-		const shape = assistantShape(op.kind as DeviceToolOpKind);
+	const assistantRun = <Op extends DeviceToolOp, A>(
+		op: Op,
+		approval: "approved" | undefined,
+		shape: Shape<A>,
+	): Promise<A> => {
 		if (approval !== "approved" && "id" in op && dangerActOf(op, road.reads.get(op.id)?.driver)) {
 			return Promise.resolve(
 				shape.decline({ kind: "refused", code: "invalid", text: "this act needs the owner's approval" }),
-			) as Result;
+			);
 		}
 		// Assistant schema narrows the body.
 		const narrowed = shape as unknown as Shape<DeviceConsoleResult<Op["kind"]>>;
-		return body(op.kind)("assistant", narrowed, op) as unknown as Result;
+		return body(op.kind)("assistant", narrowed, op) as unknown as Promise<A>;
+	};
+
+	const assistant: DeviceAssistant = <Op extends DeviceToolOp>(op: Op, approval?: "approved") => {
+		type Result = Promise<DeviceToolResult<Op["kind"]>>;
+		if (op.kind === "device_list") return listForAssistant() as Result;
+		return assistantRun(op, approval, assistantShape(op.kind as DeviceToolOpKind)) as Result;
+	};
+
+	const automationSet: DeviceStage["automationSet"] = (id, verb) => {
+		const shape = assistantShape("device_set");
+		return assistantRun({ kind: "device_set", id, verb }, undefined, {
+			...shape,
+			decline: (why) => (why.kind === "notStarted" ? "not_started" : shape.decline(why)),
+		});
 	};
 
 	return {
 		console: deviceConsole,
 		assistant,
+		automationSet,
 		record: (id) => road.reads.get(id),
 		records: () => road.reads.list().records,
 		holds: (id) => road.reads.holds(id),

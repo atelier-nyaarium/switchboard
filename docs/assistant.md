@@ -588,8 +588,10 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the sou
   page uncut. A `new` read keeps only threads strictly after the mark, whatever `since` returns.
   Newest first, 50 a page. The Gateway signs each page token with a key it holds in memory, so the
   agent can neither forge nor edit one, and a restart answers "stale page"; inside it, GitHub's
-  `Link` is bound to the grant, the scope and the read's `since` and mark. A list that changes
-  between pages may repeat or skip. Each item carries its thread id, title, repository, reason,
+  `Link` is bound to the grant, the scope and the read's `since` and mark. A GitHub list that changes
+  between its own pages may repeat or skip, so the listing counts the actions run on each source: a
+  `new` read whose pages span an action (a thread marked done shifts the rest) does not move the
+  mark, and the next `new` read shows those threads again. Each item carries its thread id, title, repository, reason,
   type, a link built from the validated repository and subject (omitted when the repository fails
   validation), and `decision` `now` when an automation wakes for it, absent otherwise, which the
   tool prints as `tell: now`. A thread id

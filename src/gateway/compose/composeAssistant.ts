@@ -404,7 +404,15 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		actions,
 		ambient,
 		write: (sourceId, deadlineMs, work) =>
-			lanes ? lanes.write(sourceId, deadlineMs, work) : Promise.reject(new Error(NOT_HERE)),
+			lanes
+				? lanes.write(sourceId, deadlineMs, async (signal) => {
+						try {
+							return await work(signal);
+						} finally {
+							inbox.acted(sourceId);
+						}
+					})
+				: Promise.reject(new Error(NOT_HERE)),
 		recount: (sourceId) => lanes?.recount(sourceId),
 		record: postRecord,
 		hideNotFound: (sourceId, ids) => {

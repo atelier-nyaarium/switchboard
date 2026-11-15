@@ -89,6 +89,12 @@ internal fun servesSources(read: AssistantRead): Boolean = when (read) {
 	AssistantRead.Reading, AssistantRead.Refused -> false
 }
 
+/** Only a state answered without sources. */
+internal fun saysOlderBuild(read: AssistantRead): Boolean = when (read) {
+	is AssistantRead.Answered -> !servesSources(read.state)
+	AssistantRead.Reading, AssistantRead.Refused -> false
+}
+
 private val NO_RULES = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 0L), 0L)
 
 // Remove 2026-11-28: an older Gateway reads rules.
@@ -176,6 +182,29 @@ internal fun folderOf(text: String): String = text.trim().trimEnd('/').ifEmpty {
 internal fun placementMoves(home: String?, target: String?, folder: String, workdir: String?): Boolean =
 	target != null && (target != home || workdir == null || folderOf(folder) != folderOf(workdir))
 
+/** What a placement is measured against. */
+internal sealed interface LocationBase {
+	/** No move in place. */
+	data class Unread(val home: String, val read: AssistantRead) : LocationBase
+
+	data class Known(val workdir: String?) : LocationBase
+}
+
+/** `read` is the home's; no home places fresh. */
+internal fun locationBase(home: String?, read: AssistantRead?): LocationBase =
+	if (home == null) LocationBase.Known(null)
+	else when (read) {
+		is AssistantRead.Answered -> LocationBase.Known(read.state.workdir)
+		AssistantRead.Reading, null -> LocationBase.Unread(home, AssistantRead.Reading)
+		AssistantRead.Refused -> LocationBase.Unread(home, AssistantRead.Refused)
+	}
+
+/** An unread home shows no folder. */
+internal fun folderShown(base: LocationBase, target: String?): Boolean = when (base) {
+	is LocationBase.Unread -> target != base.home
+	is LocationBase.Known -> true
+}
+
 /** What the location button does. */
 internal sealed interface LocationAction {
 	/** Grey: incomplete or unchanged. */
@@ -188,13 +217,16 @@ internal sealed interface LocationAction {
 	data class Move(val target: String, val abandoning: String?) : LocationAction
 }
 
-internal fun locationAction(registry: GatewayRegistry, home: String?, target: String?, folder: String, workdir: String?): LocationAction =
-	when {
-		target == null || folder.isBlank() -> LocationAction.None
-		!registry.reachable(target) -> LocationAction.Offline(target)
-		!placementMoves(home, target, folder, workdir) -> LocationAction.None
-		else -> LocationAction.Move(target, home?.takeIf { it != target && !registry.reachable(it) })
+internal fun locationAction(registry: GatewayRegistry, home: String?, target: String?, folder: String, base: LocationBase): LocationAction {
+	if (target == null || folder.isBlank()) return LocationAction.None
+	if (!registry.reachable(target)) return LocationAction.Offline(target)
+	val moves = when (base) {
+		// Unread: only away.
+		is LocationBase.Unread -> target != base.home
+		is LocationBase.Known -> placementMoves(home, target, folder, base.workdir)
 	}
+	return if (moves) LocationAction.Move(target, home?.takeIf { it != target && !registry.reachable(it) }) else LocationAction.None
+}
 
 /** Grant or Safety status; null when it landed. */
 internal fun answerText(answer: AssistantAnswer): String? = when (answer) {
@@ -416,7 +448,8 @@ internal class AssistantOps(
 			is AssistantAnswer.State -> fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Answered(answer.state)))
 			// Refusal leaves placement unknown.
 			is AssistantAnswer.Refused -> fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Refused))
-			AssistantAnswer.Unreachable, null -> {}
+			AssistantAnswer.Unreachable -> fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Unreachable))
+			null -> if (read is GatewayRead.Fresh) fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Unreachable))
 		}
 	}
 

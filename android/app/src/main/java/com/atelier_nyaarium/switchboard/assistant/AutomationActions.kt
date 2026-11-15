@@ -21,6 +21,7 @@ internal const val PARAM_CHOICE = "choice"
 private val PARAM_KINDS = setOf(PARAM_TEXT, PARAM_WORD, PARAM_SWITCH, PARAM_CHOICE)
 private val WORD = Regex("^[A-Za-z0-9_-]+$")
 private const val KIND = "kind"
+private const val HOME_ONLY = "Runs only where the assistant lives"
 
 internal data class ParamOption(val value: String, val label: String)
 
@@ -115,11 +116,12 @@ private fun unnamed(action: ActionDraft.Filled, row: ActionOffer): Boolean =
 	action.values.any { (key, value) -> value.isNotBlank() && row.param(key) == null }
 
 private fun issueOf(action: ActionDraft, offer: AutomationOffer, blanks: Boolean): String? = when (action) {
-	is ActionDraft.Kept -> null
+	is ActionDraft.Kept -> if (offer.action(kindOf(action.action))?.home == true && offer.away) HOME_ONLY else null
 	is ActionDraft.Filled -> {
 		val row = offer.action(action.kind)
 		when {
 			row == null -> "This Gateway no longer offers it"
+			row.home && offer.away -> HOME_ONLY
 			unnamed(action, row) -> "This Gateway no longer offers part of it"
 			else -> row.params.firstNotNullOfOrNull { param ->
 				val value = action.values[param.name].orEmpty()

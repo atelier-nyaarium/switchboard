@@ -38,6 +38,7 @@ const CONTEXT = "assistant/AutomationContext.kt";
 const ALLOWED: Record<string, Record<string, string>> = {
 	members: {},
 	casts: {},
+	tests: {},
 	elses: {},
 	deleted: {},
 	serves: {},
@@ -46,9 +47,12 @@ const ALLOWED: Record<string, Record<string, string>> = {
 // R1: a member on the interface reads every answer as one.
 const SEALED = new RegExp(`^(?:internal\\s+)?sealed interface (${TYPES})\\b`);
 
-// R2: a cast with a default reads every other answer as none.
-const CAST = new RegExp(`as\\?\\s*(?:${TYPES})\\.\\w+`, "g");
+// R2: a cast or a filter keeps one variant and drops the rest.
+const CAST = new RegExp(`\\bas(?:\\?\\s*|\\s+)(?:${TYPES})\\.\\w+|\\bfilterIsInstance\\s*<\\s*(?:${TYPES})\\.`, "g");
 const VARIANT_IMPORT = new RegExp(`^import\\s+[\\w.]+\\.(?:${TYPES})\\.\\w+`, "gm");
+
+// R6: a variant test outside a branch label, as an `if` or a filter.
+const VARIANT_TEST = new RegExp(`!?\\bis\\s+(?:${TYPES})\\.\\w+`, "g");
 
 // R3: a branch label naming one of the types.
 const TYPED_LABEL = new RegExp(`^(?:!?is\\s+)?(?:${TYPES})\\.`);
@@ -108,35 +112,79 @@ function castsIn(source: string): number {
 	return [...text.matchAll(CAST)].length + [...text.matchAll(VARIANT_IMPORT)].length;
 }
 
-/** Top-level branch labels of each `when` block. */
-function whenBlocks(source: string): string[][] {
-	const text = code(source);
-	const blocks: string[][] = [];
-	for (const opened of text.matchAll(/\bwhen\b\s*(?:\([^{}]*\))?\s*\{/g)) {
-		let depth = 1;
-		let line = "";
-		let lineDepth = 1;
-		const labels: string[] = [];
-		const close = (end: string) => {
-			const arrow = end.indexOf("->");
-			if (lineDepth === 1 && arrow > 0) labels.push(end.slice(0, arrow).trim());
-		};
-		for (let at = (opened.index ?? 0) + opened[0].length; at < text.length && depth > 0; at++) {
+interface Label {
+	text: string;
+	start: number;
+	end: number;
+}
+
+interface WhenBlock {
+	subject: boolean;
+	labels: Label[];
+}
+
+/** Each `when` body and subject. */
+function whenOpeners(text: string): { body: number; subject: boolean }[] {
+	const found: { body: number; subject: boolean }[] = [];
+	const skipSpace = (from: number) => {
+		let at = from;
+		while (at < text.length && /\s/.test(text[at])) at++;
+		return at;
+	};
+	for (const hit of text.matchAll(/\bwhen\b/g)) {
+		let at = skipSpace((hit.index ?? 0) + hit[0].length);
+		const subject = text[at] === "(";
+		if (subject) {
+			let depth = 0;
+			for (; at < text.length; at++) {
+				if (text[at] === "(") depth++;
+				else if (text[at] === ")" && --depth === 0) break;
+			}
+			at = skipSpace(at + 1);
+		}
+		if (text[at] === "{") found.push({ body: at + 1, subject });
+	}
+	return found;
+}
+
+/** Top-level branch labels. */
+function whenBlocksIn(text: string): WhenBlock[] {
+	return whenOpeners(text).map(({ body, subject }) => {
+		const labels: Label[] = [];
+		let braces = 1;
+		let parens = 0;
+		let start = body;
+		let flat = "";
+		let open = true;
+		for (let at = body; at < text.length && braces > 0; at++) {
 			const char = text[at];
-			if (char === "\n") {
-				close(line);
-				line = "";
-				lineDepth = depth;
+			const top = braces === 1 && parens === 0;
+			if (char === "\n" && top) {
+				// Comma continues the label.
+				if (open && flat.trim().endsWith(",")) flat += " ";
+				else {
+					start = at + 1;
+					flat = "";
+					open = true;
+				}
 				continue;
 			}
-			if (char === "{") depth++;
-			if (char === "}") depth--;
-			if (depth > 0 && (depth === 1 || char !== "{")) line += depth === 1 ? char : " ";
+			if (top && open && char === "-" && text[at + 1] === ">") {
+				labels.push({ text: flat.trim(), start, end: at });
+				open = false;
+			}
+			if (char === "{") braces++;
+			else if (char === "}") braces--;
+			else if (char === "(") parens++;
+			else if (char === ")") parens--;
+			if (open) flat += braces === 1 ? char : " ";
 		}
-		close(line);
-		blocks.push(labels);
-	}
-	return blocks;
+		return { subject, labels };
+	});
+}
+
+function whenBlocks(source: string): string[][] {
+	return whenBlocksIn(code(source)).map((block) => block.labels.map((label) => label.text));
 }
 
 function typedElses(source: string): number {
@@ -144,6 +192,16 @@ function typedElses(source: string): number {
 		const typed = labels.some((label) => label.split(",").some((part) => TYPED_LABEL.test(part.trim())));
 		return typed && labels.some((label) => label === "else");
 	}).length;
+}
+
+/** Variant tests outside labels. */
+function variantTests(source: string): number {
+	const text = code(source).split("");
+	for (const block of whenBlocksIn(text.join(""))) {
+		if (!block.subject) continue;
+		for (const label of block.labels) text.fill(" ", label.start, label.end);
+	}
+	return [...text.join("").matchAll(VARIANT_TEST)].length;
 }
 
 function deletedIn(source: string): number {
@@ -172,6 +230,10 @@ describe("A Gateway's answer", () => {
 
 	it("is never cast to one variant with a default for the rest", () => {
 		expect(offenders("casts", (text) => castsIn(text) > 0)).toEqual([]);
+	});
+
+	it("is told apart in a branch label alone", () => {
+		expect(offenders("tests", (text) => variantTests(text) > 0)).toEqual([]);
 	});
 
 	it("is folded with every answer named, never an else", () => {
@@ -211,6 +273,19 @@ describe("A Gateway's answer", () => {
 		expect(castsIn("import com.atelier_nyaarium.switchboard.Lookup.Found")).toBe(1);
 		expect(castsIn("(read as? GatewayRead.Fresh)?.value")).toBe(0);
 		expect(castsIn('val label = "as? Lookup.Found"')).toBe(0);
+		expect(castsIn("(entry.peers as GatewayList.Listed).rows")).toBe(1);
+		expect(castsIn("lists.filterIsInstance<GatewayList.Listed<Peer>>()")).toBe(1);
+		expect(castsIn("lists.filterIsInstance<GatewayRead.Fresh<Peer>>()")).toBe(0);
+
+		expect(variantTests("if (peers is GatewayList.Listed) peers.rows else emptyList()")).toBe(1);
+		expect(variantTests("val known = read !is AssistantRead.Answered")).toBe(1);
+		expect(variantTests("when {\n\tread is AssistantRead.Answered -> read.state\n\telse -> null\n}")).toBe(1);
+		expect(
+			variantTests(
+				"when (val peers = registry.listOn(id) { it.peers }) {\n\tis GatewayList.Listed,\n\t!is Lookup.Found -> peers.rows\n\tGatewayList.Unread -> none\n}",
+			),
+		).toBe(0);
+		expect(variantTests("if (read is GatewayRead.Fresh) land(read.value)")).toBe(0);
 
 		expect(typedElses("when (list) {\n\tis GatewayList.Listed -> list.rows\n\telse -> emptyList()\n}")).toBe(1);
 		expect(typedElses("when (held) {\n\tnull, Lookup.Gone -> 1\n\telse -> 0\n}")).toBe(1);
@@ -220,6 +295,12 @@ describe("A Gateway's answer", () => {
 			),
 		).toBe(0);
 		expect(typedElses("when (count) {\n\t1 -> one()\n\telse -> many()\n}")).toBe(0);
+		expect(
+			typedElses(
+				"when (val peers = registry.listOn(id) { it.peers }) {\n\tis GatewayList.Listed -> peers.rows\n\telse -> emptyList()\n}",
+			),
+		).toBe(1);
+		expect(typedElses("when (lookup(a, f(b))) {\n\tLookup.Gone -> 1\n\telse -> 0\n}")).toBe(1);
 		expect(
 			typedElses(
 				"when (read) {\n\tis AssistantRead.Answered -> rows.map { when (it) { 1 -> a\n else -> b } }\n\tAssistantRead.Reading, AssistantRead.Refused -> none\n}",

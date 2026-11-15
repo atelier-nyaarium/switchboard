@@ -30,6 +30,7 @@ export interface InboxListingDeps {
 
 export interface InboxListing {
 	list(scope: InboxScope, page?: string): Promise<InboxList[]>;
+	acted(sourceId: string): void;
 }
 
 /** The last item a cut page showed. */
@@ -43,9 +44,15 @@ interface PageAt {
 	sourceId: string;
 	inner?: string;
 	after?: Anchor;
+	acted?: number;
 }
 
-const PageBodySchema = z.tuple([z.string(), z.string().nullable(), z.tuple([z.number(), z.string()]).nullable()]);
+const PageBodySchema = z.tuple([
+	z.string(),
+	z.string().nullable(),
+	z.tuple([z.number(), z.string()]).nullable(),
+	z.number().int().nonnegative(),
+]);
 
 /** After the anchor, else after every item newer than it; newest first. */
 const startOf = (listed: readonly SourceEvent[], after: Anchor | undefined): number => {
@@ -61,10 +68,13 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 	/** Signed, so the agent can neither forge nor edit one. */
 	const pageKey = deps.ambient.randomBytes(32);
 	const signed = (body: string) => createHmac("sha256", pageKey).update(body).digest("base64url");
-	const wrapPage = (at: PageAt) => {
-		const body = JSON.stringify([at.sourceId, at.inner ?? null, at.after ? [at.after.at, at.after.id] : null]);
+	const wrapPage = (at: PageAt & { acted: number }) => {
+		const after = at.after ? [at.after.at, at.after.id] : null;
+		const body = JSON.stringify([at.sourceId, at.inner ?? null, after, at.acted]);
 		return Buffer.from(JSON.stringify([body, signed(body)])).toString("base64url");
 	};
+	const actions = new Map<string, number>();
+	const actedOn = (sourceId: string) => actions.get(sourceId) ?? 0;
 	const unwrapPage = (page: string): PageAt | null => {
 		try {
 			const [body, signature] = z
@@ -73,9 +83,10 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 			const expected = Buffer.from(signed(body));
 			const given = Buffer.from(signature);
 			if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
-			const [sourceId, inner, after] = PageBodySchema.parse(JSON.parse(body));
+			const [sourceId, inner, after, acted] = PageBodySchema.parse(JSON.parse(body));
 			return {
 				sourceId,
+				acted,
 				...(inner === null ? {} : { inner }),
 				...(after === null ? {} : { after: { at: after[0], id: after[1] } }),
 			};
@@ -86,7 +97,7 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 
 	/**
 	 * A cut page continues after the last item it showed, whatever left meanwhile. A `new` read's
-	 * last page moves the mark only once it is shown whole.
+	 * last page moves the mark only when shown whole and no action ran since its first page.
 	 */
 	const listOne = (source: Source, scope: InboxScope, at: Omit<PageAt, "sourceId">): Promise<InboxList> => {
 		const { label } = source;
@@ -114,13 +125,15 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 				const last = items.at(-1);
 				const after = last ? { at: last.at, id: last.id } : at.after;
 				const held = state.get(source.id);
-				const moves = read.mark !== undefined && whole && read.mark > (held.mark ?? -1);
+				const acted = at.acted ?? actedOn(source.id);
+				const moves =
+					read.mark !== undefined && whole && read.mark > (held.mark ?? -1) && acted === actedOn(source.id);
 				const unsaved = moves && !state.put(source.id, { ...held, mark: read.mark });
 				const next = whole
 					? read.next === undefined
 						? undefined
-						: wrapPage({ sourceId: source.id, inner: read.next })
-					: wrapPage({ sourceId: source.id, inner: read.here, ...(after ? { after } : {}) });
+						: wrapPage({ sourceId: source.id, inner: read.next, acted })
+					: wrapPage({ sourceId: source.id, inner: read.here, acted, ...(after ? { after } : {}) });
 				return {
 					label,
 					items,
@@ -142,6 +155,9 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 				(source) => source.list && deps.enabled(source.id) && (!asked || asked.sourceId === source.id),
 			);
 			return Promise.all(listed.map((source) => listOne(source, scope, asked ?? {})));
+		},
+		acted(sourceId) {
+			actions.set(sourceId, actedOn(sourceId) + 1);
 		},
 	};
 }

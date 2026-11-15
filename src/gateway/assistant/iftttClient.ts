@@ -40,9 +40,7 @@ export function createIftttClient(deps: IftttClientDeps) {
 					// Nothing was sent.
 					throw new GatewayCapabilityRefusal("not_ready");
 				}
-				if (grant.kind === "unusable") {
-					throw new GatewayCapabilityRefusal(grant.status === 403 ? "not_granted" : "not_ready");
-				}
+				if (grant.kind === "unusable") throw new GatewayCapabilityRefusal("not_granted");
 				if (grant.kind !== "released") throw new GatewayCapabilityRefusal("not_ready");
 
 				const request = linkedSignal(deps.ambient, {

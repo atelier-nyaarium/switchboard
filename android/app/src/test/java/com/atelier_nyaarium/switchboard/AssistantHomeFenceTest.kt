@@ -33,7 +33,7 @@ class AssistantHomeFenceTest {
 		assertEquals(HomeLanding.Stale, fence.land(before, HomeEffect.Word("sakura", word)))
 		assertNull(state.value.homeFailure)
 		// A new choice drops answers given before it.
-		assertNull(state.value.gateways.assistantOn("sakura"))
+		assertEquals(AssistantRead.Reading, state.value.gateways.assistantRead("sakura"))
 		assertEquals(listOf(v4), persisted)
 		assertEquals(HomeLanding.Current, fence.land(fence.begin(), HomeEffect.Record(v3)))
 	}

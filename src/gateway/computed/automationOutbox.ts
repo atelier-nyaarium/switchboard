@@ -86,27 +86,31 @@ const readEntry = (entry: QueueEntry): OutboxEvent | null => {
 /** Quiet entries lost, by owner; null owns an unowned member. */
 export type Dropped = Map<string | null, number>;
 
-/**
- * Appends `entry`, dropping the oldest quiet entry of the owner holding the most until it fits. Null
- * when only urgent or unreadable entries are left to drop.
- */
+/** Drops the biggest owner's oldest quiet entry until it fits; null when only urgent ones remain. */
 export function roomFor(
 	events: readonly QueueEntry[],
 	entry: QueueEntry,
 	now: number,
 ): { events: QueueEntry[]; dropped: Dropped } | null {
 	const kept = [...events.filter((held) => now - held.at < RETENTION_MS), entry];
-	const owners = kept.map((held, index) => {
-		const read = index < kept.length - 1 ? readEntry(held) : null;
+	const quiet = (held: QueueEntry) => {
+		const read = readEntry(held);
 		return read && read.when !== "now" ? { owner: ownerOf(held.member) } : null;
-	});
+	};
+	const asker = quiet(entry);
+	const owners = kept.map((held, index) => (index < kept.length - 1 ? quiet(held) : null));
 	let bytes = queueBytes(kept);
 	const dropped: Dropped = new Map();
 	while (kept.length > QUEUE_MAX_EVENTS || bytes > QUEUE_MAX_BYTES) {
 		const shares = new Map<string | null, number>();
 		for (const held of owners) if (held) shares.set(held.owner, (shares.get(held.owner) ?? 0) + 1);
 		let largest: { owner: string | null; count: number } | null = null;
-		for (const [owner, count] of shares) if (!largest || count > largest.count) largest = { owner, count };
+		for (const [held, count] of shares) {
+			const asks = asker !== null && asker.owner === held;
+			const counted = count + (asks ? 1 : 0);
+			if (!largest || counted > largest.count || (counted === largest.count && asks))
+				largest = { owner: held, count: counted };
+		}
 		if (!largest) return null;
 		const owner = largest.owner;
 		const at = owners.findIndex((held) => held !== null && held.owner === owner);

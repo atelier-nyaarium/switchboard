@@ -22,10 +22,19 @@ import {
 } from "../../shared/schemasAutomation.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
 import { createOwnerRecords, type OwnerIssue, type OwnerRecord } from "../ownerRecords.js";
-import { clockIssue, clockSentence, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
+import {
+	CLOCK_GRACE_MS,
+	clockIssue,
+	clockSentence,
+	clockShown,
+	isClock,
+	nextSlot,
+	walkSlots,
+} from "./automationClock.js";
 import {
 	admit,
 	claim,
+	EFFECT_LATE_MS,
 	EFFECT_RETRY_MS,
 	type EffectRef,
 	effectKey,
@@ -37,9 +46,10 @@ import {
 	finished,
 	holdsClaim,
 	mayWait,
-	type Work as NextWork,
-	nextWork,
+	nextEffect,
+	nextFill,
 	pendingEffects,
+	retryDue,
 	type Sighting,
 	sighted,
 	withEffect,
@@ -74,7 +84,7 @@ import { holeOwnerIssue, holeSpanOf, holeTexts, laneTellWhen, tellPlan } from ".
 import type { ComputedFields, DerivedField } from "./computedFields.js";
 import { crossingField, crossingFieldId, crossingSide } from "./crossingBand.js";
 
-export { EFFECT_RETRY_MS, EFFECT_WAIT_MS, FIRES_MAX } from "./automationFires.js";
+export { EFFECT_LATE_MS, EFFECT_RETRY_MS, EFFECT_WAIT_MS, FIRES_MAX } from "./automationFires.js";
 export { type AutomationRun, RUN_OUTCOMES } from "./automationLog.js";
 export {
 	type AutomationOutbox,
@@ -96,6 +106,7 @@ const EFFECT_TEXT_MAX = 500;
 /** Event fires remembered against a repeat. */
 const FIRED_MAX = 256;
 const NOT_READY = "its service was not ready";
+const TOO_LATE = "too late after its trigger";
 /** A walk whose write failed is retried after this. */
 const CLOCK_RETRY_MS = 30_000;
 
@@ -578,8 +589,13 @@ export function createAutomations(deps: AutomationsDeps) {
 			const { trigger } = record.body;
 			if (!isClock(trigger) || !armed(record)) continue;
 			const held = own(state.slots, record.id);
-			if (!held || held.revision !== record.revision || held.incarnation !== record.incarnation) {
-				// A saved clock starts from now.
+			const restarts =
+				!held ||
+				held.revision !== record.revision ||
+				held.incarnation !== record.incarnation ||
+				held.at > now + CLOCK_GRACE_MS;
+			if (restarts) {
+				// A saved or stepped-back clock starts from now.
 				slots[record.id] = { revision: record.revision, incarnation: record.incarnation, at: now };
 				continue;
 			}
@@ -603,15 +619,16 @@ export function createAutomations(deps: AutomationsDeps) {
 		return landed;
 	}
 
-	/** The work the run holds. */
-	let running: { work: NextWork; done: Promise<void> } | null = null;
+	/** The effect in flight. */
+	let running: { ref: EffectRef; done: Promise<void> } | null = null;
+	/** The fill beside it. */
+	let filling: Promise<void> | null = null;
 	/** Effect outcomes, until their write lands; `unsent` sent nothing. */
 	const spent = new Map<string, { ref: EffectRef; runs: AutomationRun[]; unsent?: string }>();
 	/** Effects this process saw unable to start. */
 	const sightings = new Map<string, Sighting>();
 
-	const isRunning = (ref: EffectRef): boolean =>
-		running?.work.kind === "effect" && effectKey(running.work.ref) === effectKey(ref);
+	const isRunning = (ref: EffectRef): boolean => running !== null && effectKey(running.ref) === effectKey(ref);
 
 	/** Why a fire no longer runs. */
 	const retireOf = (fire: Fire): AutomationRun | null => {
@@ -632,14 +649,18 @@ export function createAutomations(deps: AutomationsDeps) {
 			if (isRunning(ref)) continue;
 			const key = effectKey(ref);
 			const outcome = spent.get(key);
+			const kind = records.get(fire.automation)?.body.actions[action]?.kind;
+			let runs = outcome?.runs ?? (lost ? [fireRun(fire, "uncertain", "interrupted mid-run", kind)] : null);
 			if (outcome?.unsent !== undefined) {
 				const now = deps.now();
-				sightings.set(key, sighted(sightings.get(key), now, outcome.unsent, now + EFFECT_RETRY_MS));
-				landed = withEffect(landed, action, "pending");
-				continue;
+				const seen = sightings.get(key);
+				if (seen && !mayWait(seen, now)) runs = [fireRun(fire, "refused", outcome.unsent, kind)];
+				else {
+					sightings.set(key, sighted(seen, now, outcome.unsent, now + EFFECT_RETRY_MS));
+					landed = withEffect(landed, action, "pending");
+					continue;
+				}
 			}
-			const kind = records.get(fire.automation)?.body.actions[action]?.kind;
-			const runs = outcome?.runs ?? (lost ? [fireRun(fire, "uncertain", "interrupted mid-run", kind)] : null);
 			if (!runs) continue;
 			log = runs.reduce(logged, log);
 			if (runs.some((run) => run.outcome === "ran")) ran = { ...ran, [fire.automation]: fire.at };
@@ -651,12 +672,12 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Waits alone while it cannot start; refused once the wait has passed. */
 	const effectStep = (effect: AutomationEffect, key: string, now: number): "go" | "wait" | { refused: string } => {
 		const seen = sightings.get(key);
-		if (seen && !mayWait(seen, now)) return { refused: seen.reason };
 		if (!(deps.actions?.ready(effect) ?? true)) {
+			if (seen && !mayWait(seen, now)) return { refused: NOT_READY };
 			sightings.set(key, sighted(seen, now, NOT_READY));
 			return "wait";
 		}
-		return seen && now < seen.retryAt ? "wait" : "go";
+		return seen && !retryDue(seen, now) ? "wait" : "go";
 	};
 
 	const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
@@ -689,9 +710,11 @@ export function createAutomations(deps: AutomationsDeps) {
 				if (!effect || !isEffect(effect)) continue;
 				const key = effectKey({ member: fire.member, action });
 				const step =
-					AUTOMATION_ACTIONS[effect.kind].home && !home
-						? { refused: NOT_HOME }
-						: effectStep(effect, key, now);
+					now - fire.at > EFFECT_LATE_MS
+						? { refused: TOO_LATE }
+						: AUTOMATION_ACTIONS[effect.kind].home && !home
+							? { refused: NOT_HOME }
+							: effectStep(effect, key, now);
 				if (step === "go") goes.add(key);
 				else if (step !== "wait") {
 					log = logged(log, fireRun(fire, "refused", step.refused, effect.kind));
@@ -726,8 +749,9 @@ export function createAutomations(deps: AutomationsDeps) {
 			const by = owner === null ? droppedBy : { automation: owner, seq: 0, at: now };
 			if (by) log = logged(log, fireRun(by, "suppressed", reason, "tell_assistant"));
 		}
-		const next = running ? null : nextWork(fires, (ref) => goes.has(effectKey(ref)));
-		if (next?.kind === "effect") fires = claim(fires, next.ref);
+		const effect = running ? null : nextEffect(fires, (ref) => goes.has(effectKey(ref)));
+		if (effect) fires = claim(fires, effect);
+		const toFill = filling ? null : nextFill(fires);
 		const moved: State = { ...state, queue, log, ran, fires };
 		// An unlanded pass is retried whole, its claim with it.
 		if (canonicalJson(moved) !== canonicalJson(state) && !commit(moved)) return;
@@ -746,26 +770,53 @@ export function createAutomations(deps: AutomationsDeps) {
 		);
 		for (const key of [...sightings.keys()]) if (!open.has(key)) sightings.delete(key);
 		// The claim's runner registers first.
-		if (next) start(next);
+		if (effect) startEffect(effect);
+		if (toFill) startFill(toFill);
 		if (queued) deps.onQueued?.();
 	}
 
-	function start(next: NextWork): void {
-		const member = next.kind === "fill" ? next.member : next.ref.member;
+	const heldWork = (member: string) => {
 		const fire = state.fires.find((held) => held.member === member);
 		const record = fire && records.get(fire.automation);
-		if (!fire || !record) return;
-		const done = Promise.resolve()
-			.then(() => (next.kind === "fill" ? fill(fire, record) : runOne(fire, record, next.ref.action)))
+		return fire && record ? { fire, record } : null;
+	};
+
+	/** `thrown`: whether a throw pumps again. */
+	const launch = (work: () => Promise<boolean>, end: () => void, thrown: boolean): Promise<void> =>
+		Promise.resolve()
+			.then(work)
 			.catch((error) => {
 				console.error("[automations] a run failed:", error);
-				return true;
+				return thrown;
 			})
 			.then((moved) => {
-				running = null;
+				end();
 				if (moved) pump();
 			});
-		running = { work: next, done };
+
+	function startEffect(ref: EffectRef): void {
+		const held = heldWork(ref.member);
+		if (!held) return;
+		const done = launch(
+			() => runOne(held.fire, held.record, ref.action),
+			() => {
+				running = null;
+			},
+			true,
+		);
+		running = { ref, done };
+	}
+
+	function startFill(member: string): void {
+		const held = heldWork(member);
+		if (!held) return;
+		filling = launch(
+			() => fill(held.fire, held.record),
+			() => {
+				filling = null;
+			},
+			false,
+		);
 	}
 
 	const patched = (member: string, patch: Partial<Fire>): Fire[] =>
@@ -824,11 +875,18 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** A message's holes; false when nothing moved. */
 	async function fill(fire: Fire, record: OwnerRecord<Automation>): Promise<boolean> {
-		const runs: AutomationRun[] = [];
+		let runs: AutomationRun[] = [];
 		const filled = fillerOf(fire, runs);
 		const written = tellPlan(record.body).messages;
-		const messages: string[] = [];
-		for (const message of written) messages.push(await filled(message, "tell_assistant"));
+		let messages: string[] = [];
+		try {
+			for (const message of written) messages.push(await filled(message, "tell_assistant"));
+		} catch (error) {
+			// A thrown fill gives up.
+			console.error("[automations] a fill failed:", error);
+			messages = written.map(unreadText);
+			runs = [fireRun(fire, "uncertain", "its holes could not be read", "tell_assistant")];
+		}
 		if (!fire.tell) return false;
 		const tell = { when: fire.tell.when, fields: withMessage(fire.tell.fields, messages, written) };
 		return commit({ ...state, fires: patched(fire.member, { tell }), log: runs.reduce(logged, state.log) });
@@ -969,7 +1027,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		},
 		/** Resolves once no run is in flight. */
 		async settled(): Promise<void> {
-			while (running) await running.done;
+			while (running || filling) await Promise.all([running?.done, filling]);
 		},
 		/** Event automations that woke the assistant. */
 		noteEvents(ids: readonly string[], at: number): void {
@@ -1012,7 +1070,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			stopped = true;
 			if (clock) deps.timers?.clearTimer(clock.handle());
 			clock = null;
-			while (running) await running.done;
+			while (running || filling) await Promise.all([running?.done, filling]);
 			landSpent();
 		},
 		/** Clear events, then drain; a repeat retries. */

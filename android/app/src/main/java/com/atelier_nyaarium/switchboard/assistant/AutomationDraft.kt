@@ -5,7 +5,6 @@ import com.atelier_nyaarium.switchboard.AutomationSaved
 import com.atelier_nyaarium.switchboard.EditStanding
 import com.atelier_nyaarium.switchboard.waitingLine
 import com.atelier_nyaarium.switchboard.Lookup
-import com.atelier_nyaarium.switchboard.GatewayEntry
 import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.GatewayRegistry
 import com.atelier_nyaarium.switchboard.ListEmpty
@@ -21,7 +20,6 @@ import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import com.atelier_nyaarium.switchboard.servesSources
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
@@ -338,13 +336,8 @@ private fun placedOn(home: AssistantHome): String? = when (home) {
 
 /** Home build outranks the rest. */
 internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmpty {
-	// Remove 2026-11-29: a Gateway answering sources serves this list, so its refusal is a fault.
-	val read = { entry: GatewayEntry ->
-		val faulted = entry.automations == GatewayList.NotServed && servesSources(registry.assistantRead(entry.id))
-		if (faulted) GatewayList.Unreachable else entry.automations
-	}
-	val notServed = home != null && registry.entry(home)?.let(read) == GatewayList.NotServed
-	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else listEmpty(registry, registry.gateways, read)
+	val notServed = home != null && registry.entry(home)?.automations == GatewayList.NotServed
+	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else listEmpty(registry, registry.gateways) { it.automations }
 }
 
 /** Needs a trigger the Gateway holds; undrawable actions are kept. */

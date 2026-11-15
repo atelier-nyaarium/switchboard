@@ -60,7 +60,7 @@ class SandboxAutomationGatewayTest {
 	fun theSecondGatewayRefusesAsAnOlderBuildTheEmptyOneListsNoneAndEveryCallTakesARoundTrip() = runBlocking {
 		val gateway = gateway()
 
-		assertEquals(ListAnswer.NotServed, gateway.list(SECOND_SANDBOX_GATEWAY).rows)
+		assertEquals(AutomationListing(ListAnswer.NotServed), gateway.list(SECOND_SANDBOX_GATEWAY))
 		assertEquals(false, gateway.put(SECOND_SANDBOX_GATEWAY, "new", mention(), 0L).stored)
 		assertNull(gateway.preview(SECOND_SANDBOX_GATEWAY, mention().trigger, null))
 		assertEquals(ListAnswer.Listed(emptyList<Any>()), gateway.list(EMPTY_GATEWAY).rows)

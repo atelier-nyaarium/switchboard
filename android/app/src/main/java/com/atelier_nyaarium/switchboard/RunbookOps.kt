@@ -123,6 +123,12 @@ internal fun runbookDeleteLine(routines: GatewayList<com.atelier_nyaarium.switch
 	}
 }
 
+/** Drawn rows outlive "not served"; the library is durable. */
+internal fun runbooksAfter(held: GatewayList<Runbook>, answer: ListAnswer<Runbook>): GatewayList<Runbook> = when (held) {
+	is GatewayList.Listed -> if (answer == ListAnswer.NotServed && held.rows.isNotEmpty()) held else held.after(answer)
+	GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed -> held.after(answer)
+}
+
 internal class RunbookOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: RunbookHost,
@@ -264,7 +270,7 @@ internal class RunbookOps(
 	/** Unplaced reads failed; placed stays. */
 	private fun missed(gatewayId: String, answer: ListAnswer<Runbook>) {
 		state.update { held ->
-			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(runbooks = it.runbooks.after(answer)) })
+			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(runbooks = runbooksAfter(it.runbooks, answer)) })
 		}
 	}
 

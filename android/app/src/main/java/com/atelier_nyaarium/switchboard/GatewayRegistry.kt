@@ -118,12 +118,17 @@ sealed interface ListEmpty {
 	data object None : ListEmpty
 }
 
+private fun <T> listed(list: GatewayList<T>): Boolean = when (list) {
+	is GatewayList.Listed -> true
+	GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed -> false
+}
+
 /** Answered outranks unread. */
 fun <T> listEmpty(registry: GatewayRegistry, entries: List<GatewayEntry>, of: (GatewayEntry) -> GatewayList<T>): ListEmpty {
 	val lists = entries.map { it.id to of(it) }
 	return when {
 		!registry.loaded -> ListEmpty.NoRoster
-		lists.any { it.second is GatewayList.Listed } -> ListEmpty.None
+		lists.any { listed(it.second) } -> ListEmpty.None
 		lists.any { it.second == GatewayList.Unread } -> ListEmpty.Reading
 		lists.any { it.second == GatewayList.Unreachable } -> ListEmpty.Unreachable
 		lists.isNotEmpty() -> ListEmpty.NotServed(lists.map { it.first })
@@ -169,11 +174,19 @@ sealed interface AssistantWord {
 
 	/** Unsupported op or fault. */
 	data object Refused : AssistantWord
+
+	/** No answer arrived. */
+	data object Unreachable : AssistantWord
 }
 
-internal fun readOf(word: AssistantWord): AssistantRead = when (word) {
+/** Silence keeps an answer and ends a wait. */
+internal fun readAfter(held: AssistantRead, word: AssistantWord): AssistantRead = when (word) {
 	is AssistantWord.Answered -> AssistantRead.Answered(word.state)
 	AssistantWord.Refused -> AssistantRead.Refused
+	AssistantWord.Unreachable -> when (held) {
+		is AssistantRead.Answered -> held
+		AssistantRead.Reading, AssistantRead.Refused -> AssistantRead.Refused
+	}
 }
 
 /** A Gateway's word on the assistant, as a reader must tell it apart. */

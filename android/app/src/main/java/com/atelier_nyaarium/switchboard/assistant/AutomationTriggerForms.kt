@@ -182,7 +182,7 @@ private fun CrossingForm(
 		choices = offer.numbers,
 		picked = number,
 		labelOf = { it.label },
-		onPick = { picked -> edit { it.onCrossing { held -> held.picked(picked) } } },
+		onPick = { picked -> edit { it.onCrossing { held -> held.picked(picked, display) } } },
 		enabled = enabled,
 	)
 	ChoiceRow(

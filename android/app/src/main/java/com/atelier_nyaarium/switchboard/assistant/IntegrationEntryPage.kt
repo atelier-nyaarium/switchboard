@@ -232,7 +232,10 @@ private fun NeedsEntryPage(
 	val added = service?.grants?.isNotEmpty() == true
 	// Baseline waits for the state answer.
 	var baseline by remember(integration.id) { mutableStateOf<Boolean?>(null) }
-	val answered = read is AssistantRead.Answered
+	val answered = when (read) {
+		is AssistantRead.Answered -> true
+		AssistantRead.Reading, AssistantRead.Refused -> false
+	}
 	LaunchedEffect(answered, added) {
 		if (!answered) return@LaunchedEffect
 		if (baseline == null) baseline = added else if (added && baseline == false) onAdded()

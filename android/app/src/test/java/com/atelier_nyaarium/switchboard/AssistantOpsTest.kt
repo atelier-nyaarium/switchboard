@@ -272,7 +272,7 @@ class AssistantOpsTest {
 		assertEquals("mikan", assistantGateway(state.value))
 		assertEquals(listOf("sakura" to "AssistantState"), fake.calls)
 		// Stale home answer.
-		assertNull(state.value.gateways.assistantOn("sakura"))
+		assertEquals(AssistantRead.Reading, state.value.gateways.assistantRead("sakura"))
 	}
 
 	@Test
@@ -379,7 +379,7 @@ class AssistantOpsTest {
 		gate.complete(Unit)
 		late.await()
 
-		assertNull(state.value.gateways.assistantOn("sakura"))
+		assertEquals(AssistantRead.Reading, state.value.gateways.assistantRead("sakura"))
 	}
 
 	@Test
@@ -782,12 +782,26 @@ class AssistantOpsTest {
 		val base = testRegistry("home", "target", "offline")
 		val registry = base.copy(gateways = base.gateways.map { it.copy(connected = it.id != "offline") })
 
-		assertEquals(LocationAction.None, locationAction(registry, null, null, "~/notes", null))
-		assertEquals(LocationAction.None, locationAction(registry, null, "target", "  ", null))
-		assertEquals(LocationAction.None, locationAction(registry, "home", "home", "~/notes", "~/notes/"))
-		assertEquals(LocationAction.Offline("offline"), locationAction(registry, null, "offline", "~/notes", null))
-		assertEquals(LocationAction.Move("target", null), locationAction(registry, "home", "target", "~/notes", "~/notes"))
-		assertEquals(LocationAction.Move("target", "offline"), locationAction(registry, "offline", "target", "~/notes", null))
+		val known = { workdir: String? -> LocationBase.Known(workdir) }
+		assertEquals(LocationAction.None, locationAction(registry, null, null, "~/notes", known(null)))
+		assertEquals(LocationAction.None, locationAction(registry, null, "target", "  ", known(null)))
+		assertEquals(LocationAction.None, locationAction(registry, "home", "home", "~/notes", known("~/notes/")))
+		assertEquals(LocationAction.Offline("offline"), locationAction(registry, null, "offline", "~/notes", known(null)))
+		assertEquals(LocationAction.Move("target", null), locationAction(registry, "home", "target", "~/notes", known("~/notes")))
+		assertEquals(LocationAction.Move("target", "offline"), locationAction(registry, "offline", "target", "~/notes", known(null)))
+	}
+
+	@Test
+	fun anUnreadHomeMovesAwayButNeverInPlace() {
+		val base = testRegistry("home", "target", "offline")
+		val registry = base.copy(gateways = base.gateways.map { it.copy(connected = it.id != "offline") })
+		val reading = LocationBase.Unread("home", AssistantRead.Reading)
+		val dead = LocationBase.Unread("offline", AssistantRead.Refused)
+
+		assertEquals(LocationAction.None, locationAction(registry, "home", "home", "~/", reading))
+		assertEquals(LocationAction.Move("target", null), locationAction(registry, "home", "target", "~/", reading))
+		assertEquals(LocationAction.Move("target", "offline"), locationAction(registry, "offline", "target", "~/", dead))
+		assertEquals(listOf(false, true, true), listOf(folderShown(reading, "home"), folderShown(reading, "target"), folderShown(LocationBase.Known(null), "home")))
 	}
 
 	@Test
@@ -870,6 +884,24 @@ class AssistantOpsTest {
 	}
 
 	@Test
+	fun aFailedFirstReadEndsTheWaitAndALaterOneKeepsTheAnswer() = runBlocking {
+		val fake = FakeGateway(home = "sakura").apply { deaf += "sakura" }
+		val (ops, state) = ops(fake, "sakura")
+
+		ops.refresh("sakura")
+		assertEquals(AssistantRead.Refused, state.value.gateways.assistantRead("sakura"))
+
+		fake.deaf.clear()
+		ops.refresh("sakura")
+		val answered = state.value.gateways.assistantRead("sakura")
+		fake.deaf += "sakura"
+		ops.refresh("sakura")
+
+		assertTrue(answered is AssistantRead.Answered)
+		assertEquals(answered, state.value.gateways.assistantRead("sakura"))
+	}
+
+	@Test
 	fun settingSafetyLandsTheChosenGatewayAnswer() = runBlocking {
 		val fake = FakeGateway(home = "sakura").apply { approveEverySend = true }
 		val (ops, state) = ops(fake, "sakura")
@@ -916,6 +948,17 @@ class AssistantOpsTest {
 		assertTrue(placementMoves(home = null, target = "sakura", folder = "~/notes", workdir = null))
 		assertFalse(placementMoves(home = null, target = null, folder = "~/notes", workdir = null))
 		assertEquals("/", folderOf("/"))
+	}
+
+	@Test
+	fun theLocationPageOffersNoMoveOverAnUnreadHome() {
+		val placed = AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList()))
+
+		assertEquals(LocationBase.Known(null), locationBase(home = null, read = null))
+		assertEquals(LocationBase.Unread("sakura", AssistantRead.Reading), locationBase("sakura", AssistantRead.Reading))
+		assertEquals(LocationBase.Unread("sakura", AssistantRead.Refused), locationBase("sakura", AssistantRead.Refused))
+		assertEquals(LocationBase.Known("~/notes"), locationBase("sakura", placed))
+		assertFalse(placementMoves("sakura", "sakura", "~/notes", (locationBase("sakura", placed) as LocationBase.Known).workdir))
 	}
 
 	@Test

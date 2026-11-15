@@ -278,6 +278,17 @@ class RunbookOpsTest {
 	}
 
 	@Test
+	fun aDrawnLibraryOutlivesNotServedAndOnlyAnEmptyOneSaysIt() {
+		val drawn = GatewayList.Listed(listOf(book("a")))
+		val empty = GatewayList.Listed(emptyList<Runbook>())
+
+		assertEquals(drawn, runbooksAfter(drawn, ListAnswer.NotServed))
+		assertEquals(GatewayList.NotServed, runbooksAfter(empty, ListAnswer.NotServed))
+		assertEquals(GatewayList.NotServed, runbooksAfter(GatewayList.Unread, ListAnswer.NotServed))
+		assertEquals(drawn, runbooksAfter(drawn, ListAnswer.Unreachable))
+	}
+
+	@Test
 	fun refreshingOneGatewayDoesNotReopenTheSyncOnAnother() {
 		val host = WithGateway()
 		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host, ProvisionFence())

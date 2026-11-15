@@ -161,6 +161,31 @@ describe("an automation's clock", () => {
 		expect(after.automations.rows()[0]?.nextRunAt).toBe(T0 + 3_001 * HOUR);
 	});
 
+	it("starts over from now after a clock stepped forward then back, and never refires a slot for a small step back", async () => {
+		let shift = 0;
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 + shift });
+		const { automations, told } = open(fresh(), ambient);
+		automations.ownerPut("hourly", tells(hourly), 0);
+
+		await ambient.advance(HOUR);
+		shift -= 2 * MINUTE;
+		automations.tick();
+		const small = await told();
+		shift += 2 * MINUTE + 24 * HOUR;
+		automations.tick();
+		shift -= 24 * HOUR;
+		automations.tick();
+		await ambient.advance(HOUR);
+		automations.stop();
+
+		expect(small).toEqual([["Every hour", "19:00 UTC"]]);
+		expect(await told()).toEqual([
+			["Every hour", "19:00 UTC"],
+			["Every hour", "19:00 UTC"],
+			["Every hour", "20:00 UTC"],
+		]);
+	});
+
 	it("starts over from now when it is edited or switched back on, so an edit never fires", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { automations, told } = open(fresh(), ambient);

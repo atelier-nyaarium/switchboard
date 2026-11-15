@@ -370,9 +370,9 @@ class AutomationDraftTest {
 		assertEquals(ListEmpty.Reading, automationsEmpty(registry("sakura" to GatewayList.Unread), "sakura"))
 		assertEquals(ListEmpty.Unreachable, automationsEmpty(registry("sakura" to GatewayList.Unreachable), "sakura"))
 		assertEquals(ListEmpty.NotServed(listOf("sakura")), automationsEmpty(registry("sakura" to GatewayList.NotServed), "sakura"))
-		// Sources answered wins over refusal.
+		// Classified at landing.
 		val refusedOnce = registry("sakura" to GatewayList.NotServed).withEntry("sakura") { it.copy(assistant = serving) }
-		assertEquals(ListEmpty.Unreachable, automationsEmpty(refusedOnce, "sakura"))
+		assertEquals(ListEmpty.NotServed(listOf("sakura")), automationsEmpty(refusedOnce, "sakura"))
 		assertEquals(ListEmpty.None, automationsEmpty(registry("sakura" to listed, "older" to GatewayList.NotServed), "sakura"))
 		assertEquals(ListEmpty.None, automationsEmpty(registry("sakura" to listed), null))
 		val cached = registry("sakura" to GatewayList.Unread).copy(provenance = RegistryProvenance.Cached)
@@ -398,8 +398,9 @@ class AutomationPartsTest {
 			numberSuffix("C", null),
 			numberSuffix("%", "F"),
 		).map(String::trim))
-		val picked = humid.picked(FULL.number(SENSOR, "temperature")!!)
+		val picked = humid.picked(FULL.number(SENSOR, "temperature")!!, "F")
 		assertEquals("°F", numberSuffix(picked.unit, "F").trim())
+		assertEquals("70" to "2", picked.threshold to picked.deadZone)
 	}
 
 	@Test
@@ -410,6 +411,9 @@ class AutomationPartsTest {
 		assertEquals(null, triggerOf(opened, missing, "F"))
 		assertEquals(crossing, triggerOf(opened, FULL, "F"))
 		assertEquals("", numberSuffix(opened.unit, "F"))
+		val repicked = opened.picked(FULL.number(SENSOR, "temperature")!!, "F")
+		assertEquals(crossing, triggerOf(repicked, FULL, "F"))
+		assertEquals(crossing, triggerOf(repicked.picked(FULL.number(SENSOR, "temperature")!!, "F"), FULL, "F"))
 	}
 
 	@Test
@@ -493,6 +497,9 @@ class AutomationPartsTest {
 		assertEquals(listOf("tell_assistant", "device_set", "ifttt_trigger"), kinds(FULL))
 		assertEquals(listOf("device_set"), kinds(away))
 		assertEquals(listOf("tell_assistant", "ifttt_trigger"), kinds(FULL.copy(switches = emptyList())))
+		val held = listOf(toldDraft("now"), iftttDraft("door", "open"), ActionDraft.Kept(AutomationAction.TellAssistant("now")), plugDraft(PLUG, "on"))
+		assertEquals(listOf(true, true, true, false), held.map { actionIssue(it, away) != null })
+		assertEquals(listOf(false, false, false, false), held.map { actionIssue(it, FULL) != null })
 		assertEquals(emptyList<ActionOffer>(), addableActions(FULL, List(8) { toldDraft("now") }))
 	}
 

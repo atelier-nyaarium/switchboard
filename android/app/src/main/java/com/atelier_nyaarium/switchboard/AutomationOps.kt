@@ -20,7 +20,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /** A Gateway's rows, and the kinds it says it holds. */
-internal data class AutomationListing(val rows: ListAnswer<AutomationRow>, val serves: AutomationServes? = null)
+internal data class AutomationListing(
+	val rows: ListAnswer<AutomationRow>,
+	val serves: AutomationServes? = null,
+	/** Not served read from prose, not the token. */
+	val prose: Boolean = false,
+)
 
 internal interface AutomationGateway {
 	suspend fun list(gatewayId: String): AutomationListing
@@ -145,18 +150,19 @@ internal class AutomationOps(
 		if (gatewayId.isBlank()) return
 		val client = host.gateway
 		var listedServes: AutomationServes? = null
+		var prose = false
 		val call = client?.let { held ->
 			suspend {
 				val listing = held.list(gatewayId)
 				listedServes = listing.serves
+				prose = listing.prose
 				listing.rows
 			}
 		}
 		val read = reads.list(TAG, gatewayId, call) ?: return
 		// Remove 2026-11-29: with the prose shim.
-		// A Gateway that answers sources serves this list, so its refusal is a fault.
-		val serves = servesSources(state.value.gateways.assistantRead(gatewayId))
-		val answer = if (read == ListAnswer.NotServed && serves) ListAnswer.Unreachable else read
+		val older = saysOlderBuild(state.value.gateways.assistantRead(gatewayId))
+		val answer = if (read == ListAnswer.NotServed && prose && !older) ListAnswer.Unreachable else read
 		state.update { held ->
 			held.copy(
 				gateways = held.gateways.withEntry(gatewayId) {

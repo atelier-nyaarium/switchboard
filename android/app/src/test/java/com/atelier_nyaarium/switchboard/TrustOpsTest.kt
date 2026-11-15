@@ -160,6 +160,22 @@ class TrustOpsTest {
 	}
 
 	@Test
+	fun aFriendDomainsSessionsGoOnlyOnceEveryGatewayAnsweredWithoutIt() {
+		val sessions = mapOf(
+			"friend-domain" to com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry(
+				"friend-domain", null, com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceVersion(1L, 1L), emptyList(), 0L,
+			),
+		)
+		val cold = ChatState(gateways = testRegistry("gw-a", "gw-b"), crossDomainPeerSessions = sessions)
+		val oneListed = cold.copy(gateways = cold.gateways.withEntry("gw-a") { it.copy(peers = GatewayList.Listed(emptyList())) })
+		val bothListed = oneListed.copy(gateways = oneListed.gateways.withEntry("gw-b") { it.copy(peers = GatewayList.Listed(emptyList())) })
+
+		assertEquals(sessions, peersLanded(cold).crossDomainPeerSessions)
+		assertEquals(sessions, peersLanded(oneListed).crossDomainPeerSessions)
+		assertEquals(emptyMap<String, Any>(), peersLanded(bothListed).crossDomainPeerSessions)
+	}
+
+	@Test
 	fun aSessionSharesToADomainOnlyWhenItsOwnGatewayPairsWithIt() = runBlocking {
 		val registry = testRegistry("gw-a", "gw-b").withEntry("gw-a") { it.copy(peers = GatewayList.Listed(listOf(peer("friend-domain", "friend-owner")))) }
 		val ops = ops("shareable", MutableStateFlow(ChatState(gateways = registry)), Fake()) { null }
@@ -170,6 +186,12 @@ class TrustOpsTest {
 		assertFalse(ops.canShareTo(onA, "other-domain"))
 		assertTrue(ops.canShareTo(onB, "other-domain"))
 		assertFalse(ops.canShareTo(testTeam("${world.domainId}.gone-gw.app.dev"), "friend-domain"))
+		val answers = listOf(GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed, GatewayList.Listed(emptyList<CrossDomainPeerEntry>()))
+		val shareable = answers.map { peers ->
+			val held = testRegistry("gw-a").withEntry("gw-a") { it.copy(peers = peers) }
+			ops("table", MutableStateFlow(ChatState(gateways = held)), Fake()) { null }.canShareTo(onA, "friend-domain")
+		}
+		assertEquals(listOf(true, true, true, false), shareable)
 	}
 
 	@Test

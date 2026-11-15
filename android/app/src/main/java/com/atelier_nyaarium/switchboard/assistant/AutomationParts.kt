@@ -59,8 +59,17 @@ internal fun offerOf(serves: AutomationServes?, away: Boolean): AutomationOffer 
 		away = away,
 	)
 
-internal fun TriggerDraft.Crossing.picked(number: NumberOffer): TriggerDraft.Crossing =
-	copy(device = number.device, measure = number.measure, unit = number.unit)
+/** Its own number returning converts the stored texts. */
+internal fun TriggerDraft.Crossing.picked(number: NumberOffer, display: String?): TriggerDraft.Crossing {
+	val picked = copy(device = number.device, measure = number.measure, unit = number.unit)
+	if (unit != null || number.unit == null || number.device != device || number.measure != measure) return picked
+	val stored = parseDecimal(threshold.trim())
+	val width = parseDecimal(deadZone.trim())
+	return picked.copy(
+		threshold = stored?.let { typedOf(it, number.unit, number.decimals, display) } ?: threshold,
+		deadZone = width?.let { typedWidthOf(it, number.unit, number.decimals, display) } ?: deadZone,
+	)
+}
 
 internal fun movesWithHome(automation: Automation): Boolean = automation.trigger is AutomationTrigger.Event
 

@@ -1,8 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Automation
-import com.atelier_nyaarium.switchboard.proto.AutomationRow
-import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
@@ -14,12 +12,13 @@ import kotlinx.serialization.json.decodeFromJsonElement
 
 /** `serves` rides the same answer as the rows. */
 internal suspend fun ConsoleClient.automationList(gatewayId: String): AutomationListing {
-	var serves: AutomationServes? = null
-	val rows = listAnswer<ConsoleAutomationListResult, AutomationRow>(gatewayId, ConsoleOp.AutomationList, ProseRefusal.OLDER_BUILD) {
-		serves = it.serves
-		it.automations
+	val answer = sendValueAnswer(gatewayId, ConsoleOp.AutomationList)
+	val listed = (answer as? ConsoleClient.ValueAnswer.Answered)?.let { held ->
+		runIsolated { wireJson.decodeFromJsonElement<ConsoleAutomationListResult>(held.result) }.getOrNull()
 	}
-	return AutomationListing(rows, serves)
+	val rows = listAnswerOf(answer, ProseRefusal.OLDER_BUILD) { listed?.automations }
+	val prose = answer is ConsoleClient.ValueAnswer.Refused && answer.reason != Protocol.Wire.OP_REASON_NOT_SERVED
+	return AutomationListing(rows, listed?.serves, prose)
 }
 
 internal suspend fun ConsoleClient.automationPut(

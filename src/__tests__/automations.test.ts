@@ -8,13 +8,14 @@ import { PollAnswerSchema, told } from "../gateway/assistant/source.js";
 import { memberKey } from "../gateway/assistant/sourceLane.js";
 import { FRESH_STATE, type SourceState } from "../gateway/assistant/sourceState.js";
 import type { ActionOutcome } from "../gateway/computed/automationRunner.js";
-import { createAutomations, EFFECT_RETRY_MS, EFFECT_WAIT_MS } from "../gateway/computed/automations.js";
+import { createAutomations, EFFECT_LATE_MS, EFFECT_RETRY_MS, EFFECT_WAIT_MS } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { openDurable } from "../shared/durable-store.js";
 import { type FieldRef, known, refKey, unknown, type Value } from "../shared/expressions.js";
 import { AUTOMATIONS_MAX, type Automation, type ValueTrigger } from "../shared/schemasAutomation.js";
+import { unreadText } from "../shared/text-holes.js";
 
 const REGISTRY = createConsoleRegistry([]);
 const roots: string[] = [];
@@ -60,6 +61,7 @@ function world(dir: string, home = true) {
 	const effects: string[] = [];
 	let switches = ["plug"];
 	let readable = true;
+	let broken = false;
 	let iftttReady = true;
 	let iftttAnswer: ActionOutcome = { outcome: "refused", reason: "not_granted" };
 	/** Effects wait on it. */
@@ -103,7 +105,10 @@ function world(dir: string, home = true) {
 						readable
 							? {
 									issue: (text, names) => holeIssue(text, names, REGISTRY),
-									fill: (text, names) => fillHoles(text, names, REGISTRY),
+									fill: async (text, names) => {
+										if (broken) throw new Error("fill broke");
+										return fillHoles(text, names, REGISTRY);
+									},
 								}
 							: undefined,
 					actions: {
@@ -173,6 +178,10 @@ function world(dir: string, home = true) {
 	const unreadable = () => {
 		readable = false;
 	};
+	/** Fills throw. */
+	const breakFills = () => {
+		broken = true;
+	};
 	const setIftttReady = (ready: boolean) => {
 		iftttReady = ready;
 	};
@@ -194,6 +203,7 @@ function world(dir: string, home = true) {
 		holdEffects,
 		unplug,
 		unreadable,
+		breakFills,
 		setIftttReady,
 		answerIfttt,
 	};
@@ -481,20 +491,51 @@ describe("automations", () => {
 
 		w.read(fields, -5);
 		await automations.settled();
-		const waiting = automations.runs().map((run) => [run.action, run.outcome]);
+		const waiting = automations.runs().map((run) => `${run.action} ${run.outcome}`);
 		automations.clear(old);
 		await automations.settled();
 		const answer = await polled(automations);
 		const told = answer.kind === "events" ? answer.events : [];
 
 		expect(w.effects).toEqual(["plug:on"]);
-		expect(waiting).toEqual([
-			["tell_assistant", "refused"],
-			["device_set", "ran"],
-		]);
+		expect(waiting.toSorted()).toEqual(["device_set ran", "tell_assistant refused"]);
 		expect(told.map((event) => [event.fields.value, event.fields.message?.length, event.tell])).toEqual([
 			["high", 1_000, "now"],
 		]);
+	});
+
+	it("refuses unsent an effect it finds long after its trigger, and still tells the fire", async () => {
+		const dir = fresh();
+		const old = fullQueue(dir, "now");
+		const w = world(dir);
+		const before = w.open();
+		before.fields.put("band", hotBand, 0);
+		const bell: Automation = {
+			...iceBucket(),
+			actions: [
+				{ kind: "ifttt_trigger", event: "freezer" },
+				{ kind: "tell_assistant", when: "now" },
+			],
+		};
+		before.automations.ownerPut("bell", bell, 0, true);
+		w.setIftttReady(false);
+		w.read(before.fields, -5);
+		await before.automations.settled();
+		w.setIftttReady(true);
+		w.answerIfttt({ outcome: "ran" });
+		w.advance(EFFECT_LATE_MS + 1);
+
+		const after = w.open().automations;
+		after.clear(old);
+		await after.settled();
+
+		expect(w.effects).toEqual([]);
+		expect(after.runs().map((run) => [run.action, run.outcome])).toEqual([
+			["tell_assistant", "refused"],
+			["ifttt_trigger", "refused"],
+			["tell_assistant", "ran"],
+		]);
+		expect(await queued(after)).toEqual(["high"]);
 	});
 
 	it("drops a waiting fire once its automation is edited, and starts no run after a stop", async () => {
@@ -868,7 +909,7 @@ describe("automations", () => {
 			.filter((run) => run.action === "ifttt_trigger")
 			.map((run) => run.outcome);
 
-	it("runs a fire's plug and tell while its unready effect waits alone, and refuses that effect unsent once the wait has passed", async () => {
+	it("runs a fire's plug and tell while its unready effect waits alone, refuses it unsent once the wait has passed, and sends it once ready however long it queues", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -881,12 +922,27 @@ describe("automations", () => {
 		automations.tick();
 		await automations.settled();
 
+		const queues = world(fresh());
+		const b = queues.open();
+		b.fields.put("band", hotBand, 0);
+		b.automations.ownerPut("bell", bell, 0, true);
+		queues.setIftttReady(false);
+		queues.answerIfttt({ outcome: "ran" });
+		const release = queues.holdEffects();
+		queues.read(b.fields, -5);
+		queues.setIftttReady(true);
+		queues.advance(EFFECT_WAIT_MS + 1);
+		b.automations.tick();
+		release();
+		await b.automations.settled();
+
 		expect(held).toEqual([["plug:on"], 1, []]);
 		expect(w.effects).toEqual(["plug:on"]);
 		expect(ifttt(automations)).toEqual(["refused"]);
+		expect([queues.effects, ifttt(b.automations)]).toEqual([["plug:on", "ifttt:freezer"], ["ran"]]);
 	});
 
-	it("retries an effect that sent nothing while its plug and tell go ahead, sends it once it can, and refuses it once the wait has passed", async () => {
+	it("retries an effect that sent nothing while its plug and tell go ahead, holds no retry for a clock stepped back, and refuses it once the wait has passed", async () => {
 		const sends = world(fresh());
 		const a = sends.open();
 		a.fields.put("band", hotBand, 0);
@@ -899,7 +955,7 @@ describe("automations", () => {
 		await a.automations.settled();
 		const resting = [...sends.effects];
 		sends.answerIfttt({ outcome: "ran" });
-		sends.advance(EFFECT_RETRY_MS);
+		sends.advance(-60 * 60_000);
 		a.automations.tick();
 		await a.automations.settled();
 
@@ -920,7 +976,7 @@ describe("automations", () => {
 		expect(resting).toEqual(["plug:on", "ifttt:freezer"]);
 		expect([sends.effects, ifttt(a.automations)]).toEqual([["plug:on", "ifttt:freezer", "ifttt:freezer"], ["ran"]]);
 		expect([lapses.effects, ifttt(b.automations)]).toEqual([
-			["plug:on", "ifttt:freezer", "ifttt:freezer"],
+			["plug:on", "ifttt:freezer", "ifttt:freezer", "ifttt:freezer"],
 			["refused"],
 		]);
 	});
@@ -1100,6 +1156,82 @@ describe("automations", () => {
 		expect([held, automations.rows().map((row) => typeof row.invalid)]).toEqual([["undefined"], ["string"]]);
 		expect(answer.kind === "events" ? answer.events : []).toEqual([]);
 		expect(automations.runs()).toEqual([]);
+	});
+
+	it("gives up a fill that throws: tells the message with its holes marked, logs it uncertain, and runs the rest", async () => {
+		const w = world(fresh());
+		const { automations } = w.open();
+		const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
+		const message = "{event} on {source}";
+		automations.ownerPut(
+			"messaged",
+			{ enabled: true, trigger: event, actions: [{ kind: "tell_assistant", when: "now", message }] },
+			0,
+		);
+		automations.ownerPut(
+			"flash",
+			{ enabled: true, trigger: event, actions: [{ kind: "device_set", device: "plug", verb: "toggle" }] },
+			0,
+		);
+		w.breakFills();
+
+		const key = memberKey("github", { id: "7", at: 7 });
+		automations.fireEvents(
+			[
+				{ automation: "messaged", key, names: {} },
+				{ automation: "flash", key, names: {} },
+			],
+			5_000,
+		);
+		await automations.settled();
+		const answer = await polled(automations);
+
+		expect(answer.kind === "events" ? answer.events.map((told) => told.fields.message) : []).toEqual([
+			unreadText(message),
+		]);
+		expect(w.effects).toEqual(["plug:toggle"]);
+		expect(
+			automations
+				.runs()
+				.map((run) => `${run.automation} ${run.outcome}`)
+				.toSorted(),
+		).toEqual(["flash ran", "messaged ran", "messaged uncertain"]);
+	});
+
+	it("fills and tells a message while another automation's effect is in flight", async () => {
+		const w = world(fresh());
+		const { automations } = w.open();
+		const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
+		automations.ownerPut(
+			"flash",
+			{ enabled: true, trigger: event, actions: [{ kind: "device_set", device: "plug", verb: "toggle" }] },
+			0,
+		);
+		automations.ownerPut(
+			"messaged",
+			{
+				enabled: true,
+				trigger: event,
+				actions: [{ kind: "tell_assistant", when: "now", message: "{source} spoke" }],
+			},
+			0,
+		);
+		const messages = async () => {
+			const answer = await polled(automations);
+			return answer.kind === "events" ? answer.events.map((told) => told.fields.message) : [];
+		};
+		const release = w.holdEffects();
+
+		const key = memberKey("github", { id: "7", at: 7 });
+		automations.fireEvents([{ automation: "flash", key, names: {} }], 5_000);
+		automations.fireEvents([{ automation: "messaged", key, names: { source: { value: "GitHub" } } }], 5_001);
+		await vi.waitFor(async () => expect(await messages()).toEqual(["GitHub spoke"]));
+		const during = automations.runs().map((run) => run.automation);
+		release();
+		await automations.settled();
+
+		expect(during).toEqual(["messaged"]);
+		expect(w.effects).toEqual(["plug:toggle"]);
 	});
 
 	it("tells an event's message through the outbox with the event's names, and leaves only a tell with no message to the source's lane", async () => {

@@ -386,10 +386,7 @@ internal class TrustOps(
 			state.update { it.copy(gateways = it.gateways.withEntry(gatewayId) { e -> e.copy(peers = GatewayList.Listed(answer.peers)) }) }
 			gatewayId
 		} }.awaitAll().filterNotNull().toSet()
-		state.update {
-			val owners = linkedOwners(it.gateways.gateways.map { entry -> entry.peers })
-			it.copy(linkedPeerOwners = owners, crossDomainPeerSessions = it.crossDomainPeerSessions.filterKeys { domain -> domain in owners })
-		}
+		state.update(::peersLanded)
 		fresh
 	}
 
@@ -442,6 +439,20 @@ internal fun linkedOwners(lists: List<GatewayList<com.atelier_nyaarium.switchboa
 	val conflicted = named.filterValues { it.distinct().size > 1 }.keys
 	for (domain in conflicted) DebugLog.log("Trust", "conflicting peer owner for $domain")
 	return named.mapValues { it.value.first() } - conflicted
+}
+
+/** A held Domain goes only once every Gateway answered without it. */
+internal fun peersLanded(state: ChatState): ChatState {
+	val lists = state.gateways.gateways.map { it.peers }
+	val named = linkedOwners(lists)
+	val answered = lists.all { list ->
+		when (list) {
+			is GatewayList.Listed, GatewayList.NotServed -> true
+			GatewayList.Unread, GatewayList.Unreachable -> false
+		}
+	}
+	if (!answered) return state.copy(linkedPeerOwners = state.linkedPeerOwners + named)
+	return state.copy(linkedPeerOwners = named, crossDomainPeerSessions = state.crossDomainPeerSessions.filterKeys { it in named })
 }
 
 /** By owner: sessions shared to its Domain, and those shared to everyone. */

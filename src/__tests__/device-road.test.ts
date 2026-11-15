@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { ASSISTANT_WAITS } from "../gateway/assistant/waits.js";
+import { automationActions } from "../gateway/compose/automationActions.js";
 import { composeDevices, DEVICE_IDENTIFY_WAIT_MS, DEVICE_READ_WAIT_MS } from "../gateway/compose/composeDevices.js";
 import { createKasaTransport, type KasaTransport } from "../gateway/devices/kasa/transport.js";
 import { createDeviceRoad, Decline, type Shape, unwrap } from "../gateway/devices/road.js";
@@ -94,6 +96,39 @@ describe("device road", () => {
 			expect(await stage.console(toggle)).toEqual(NOT_STARTED_ANSWER);
 			expect(await stage.console(toggle)).toMatchObject({ kind: "ok", state: { state: "on" } });
 			expect(plug.received().filter((row) => row.command === "set_relay_state")).toHaveLength(1);
+		} finally {
+			await stage.close();
+			await plug.close();
+			fs.rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("answers an automation's switch not started when nothing left by its deadline, and refused for a device it lacks", async () => {
+		const dataDir = fresh("automation");
+		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
+		const plug = await createFakeKasaPlug({ mac: MAC });
+		const base = createKasaTransport(plug.port);
+		let cut = false;
+		const transport: KasaTransport = {
+			request: async (_address, command, signal) => {
+				if (commandName(command) === "set_relay_state" && !cut) {
+					cut = true;
+					await ambient.advance(ASSISTANT_WAITS.action);
+				}
+				return base.request("127.0.0.1", command, signal);
+			},
+		};
+		const stage = composeDevices({ dataDir, ambient, transport, relayToHost: noHost });
+		const actions = automationActions({
+			devices: () => stage,
+			ifttt: () => Promise.reject(new Error("no IFTTT here")),
+			vaultReady: () => true,
+		});
+		try {
+			await stage.console(addLamp);
+			expect(await actions.deviceSet(MAC, "toggle")).toMatchObject({ outcome: "not_started" });
+			expect(await actions.deviceSet(MAC, "toggle")).toEqual({ outcome: "ran" });
+			expect(await actions.deviceSet("aa:bb:cc:dd:ee:00", "on")).toMatchObject({ outcome: "refused" });
 		} finally {
 			await stage.close();
 			await plug.close();

@@ -11,7 +11,7 @@ import type { DeviceStage } from "./composeDevices.js";
 
 export interface AutomationActionsDeps {
 	/** Undefined until composed. */
-	devices: () => Pick<DeviceStage, "record" | "assistant"> | undefined;
+	devices: () => Pick<DeviceStage, "record" | "automationSet"> | undefined;
 	ifttt: (params: IftttTriggerRequest) => Promise<IftttTriggerAnswer>;
 	/** Vault can answer reads. */
 	vaultReady: () => boolean;
@@ -38,7 +38,8 @@ export function automationActions(deps: AutomationActionsDeps): AutomationAction
 		deviceSet: async (device, verb) => {
 			const devices = deps.devices();
 			if (!devices) return { outcome: "not_started", reason: "devices are not loaded" };
-			const answer = await devices.assistant({ kind: "device_set", id: device, verb });
+			const answer = await devices.automationSet(device, verb);
+			if (answer === "not_started") return { outcome: "not_started", reason: "nothing was sent in time" };
 			if (answer.kind === "ok") return { outcome: "ran" };
 			const { code, effect } = answer.refusal;
 			return { outcome: effect === "none" ? "refused" : "uncertain", reason: code };

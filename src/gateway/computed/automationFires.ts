@@ -11,6 +11,8 @@ export const FIRES_MAX = 64;
 export const EFFECT_WAIT_MS = 120_000;
 /** Between attempts of an effect that sent nothing. */
 export const EFFECT_RETRY_MS = 5_000;
+/** An effect this long after its trigger is refused. */
+export const EFFECT_LATE_MS = 10 * 60_000;
 
 /** An effect seen unable to start. */
 export interface Sighting {
@@ -27,6 +29,10 @@ export const sighted = (held: Sighting | undefined, now: number, reason: string,
 });
 
 export const mayWait = (seen: Sighting, now: number): boolean => now - seen.since < EFFECT_WAIT_MS;
+
+/** A clock stepped back is due. */
+export const retryDue = (seen: Sighting, now: number): boolean =>
+	now >= seen.retryAt || seen.retryAt - now > EFFECT_RETRY_MS;
 
 export const EFFECT_STATES = ["pending", "claimed", "done"] as const;
 export type EffectState = (typeof EFFECT_STATES)[number];
@@ -92,16 +98,16 @@ export const unstarted = (fire: Fire): boolean => {
 	return held > 0 && effectsIn(fire, "pending").length === held;
 };
 
-export type Work = { kind: "fill"; member: string } | { kind: "effect"; ref: EffectRef };
+/** Oldest fire first. */
+export const nextFill = (fires: readonly Fire[]): string | null =>
+	fires.find((fire) => fire.tell?.fill)?.member ?? null;
 
-/** Fills first, then effects; oldest fire first. */
-export function nextWork(fires: readonly Fire[], goes: (ref: EffectRef) => boolean): Work | null {
-	const filling = fires.find((fire) => fire.tell?.fill);
-	if (filling) return { kind: "fill", member: filling.member };
+/** Oldest fire first. */
+export function nextEffect(fires: readonly Fire[], goes: (ref: EffectRef) => boolean): EffectRef | null {
 	for (const fire of fires) {
 		for (const action of effectsIn(fire, "pending")) {
 			const ref = { member: fire.member, action };
-			if (goes(ref)) return { kind: "effect", ref };
+			if (goes(ref)) return ref;
 		}
 	}
 	return null;
@@ -125,10 +131,7 @@ const victimOf = (held: readonly Fire[]): Fire | undefined => {
 	return free.find(onlyTelling) ?? free.find(unstarted) ?? free[0];
 };
 
-/**
- * `supersede` replaces an unstarted fire of the same automation that an earlier pass stored. Past
- * the bound, the automation holding the most fires gives one up; a claimed effect is never touched.
- */
+/** Past the bound, the automation holding the most fires gives up its least advanced unclaimed one. */
 export function admit(
 	fires: readonly Fire[],
 	incoming: Fire,
@@ -159,7 +162,7 @@ export function admit(
 	const holders = new Map<string, Fire[]>();
 	for (const fire of [...held, incoming])
 		holders.set(fire.automation, [...(holders.get(fire.automation) ?? []), fire]);
-	// A tie refuses the newcomer.
+	// On a tie, the newcomer's pays.
 	const own = (group: Fire[]) => (group.includes(incoming) ? 1 : 0);
 	const largest = [...holders.values()].sort((a, b) => b.length - a.length || own(b) - own(a));
 	const victim = largest.map(victimOf).find((fire) => fire !== undefined);

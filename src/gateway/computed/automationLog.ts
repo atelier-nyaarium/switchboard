@@ -23,7 +23,9 @@ export type AutomationRun = z.infer<typeof RunSchema>;
 
 /** A standing reason is logged once per automation and action. */
 export const logged = (log: readonly AutomationRun[], run: AutomationRun): AutomationRun[] => {
-	const last = log.findLast((held) => held.automation === run.automation && held.action === run.action);
+	const last = log.findLast(
+		(held) => held.automation === run.automation && (run.action === undefined || held.action === run.action),
+	);
 	const stands = run.outcome === "refused" || (run.reason !== undefined && STANDING_REASONS.has(run.reason));
 	const standing = stands && last?.outcome === run.outcome && last.reason === run.reason;
 	return standing ? [...log] : [...log, run].slice(-LOG_MAX);
