@@ -288,10 +288,6 @@ internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResul
 		AssistantSection.REMOVE.takeIf { home != null },
 	)
 
-/** New goes to a home that serves automations. */
-internal fun newAutomationOn(home: String?, placed: ConsoleAssistantStateResult?): String? =
-	home?.takeIf { servesSources(placed) }
-
 /** Page operation and result. */
 internal data class PageWork(val busy: Boolean = false, val said: String? = null)
 

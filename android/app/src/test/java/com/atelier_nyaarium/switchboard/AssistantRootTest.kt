@@ -188,7 +188,7 @@ class AssistantRootTest {
 		val elsewhere = open.followAssistant(AssistantRoot.HomeUnreachable("sakura"), placed)
 		assertEquals(Drawn.Root(RootView.ASSISTANT, null), drawn(elsewhere))
 
-		// An unreachable home it still names keeps the thread.
+		// Named unreachable home keeps thread.
 		assertEquals(open, open.followAssistant(AssistantRoot.HomeUnreachable("sakura"), homeAt("sakura")))
 
 		val refused = homeAt("sakura").copy(
@@ -308,7 +308,7 @@ class AssistantRootTest {
 		assertEquals(itsAutomations, itsAutomations.resolved(placed))
 		assertNull(itsAutomations.resolved(noSource))
 
-		// An older Gateway's watchers read as sources.
+		// Watchers read as sources.
 		val older = placed.withWord(
 			"sakura",
 			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),

@@ -53,6 +53,7 @@ import com.atelier_nyaarium.switchboard.MainValue
 import com.atelier_nyaarium.switchboard.NoHome
 import com.atelier_nyaarium.switchboard.noHome
 import com.atelier_nyaarium.switchboard.devicesPending
+import com.atelier_nyaarium.switchboard.servicesWaiting
 import com.atelier_nyaarium.switchboard.displayUnitOf
 import com.atelier_nyaarium.switchboard.isSensor
 import com.atelier_nyaarium.switchboard.mainValue
@@ -120,6 +121,10 @@ internal fun SourcesView(
 				FoldRow("Disabled", showDisabled) { showDisabled = !showDisabled }
 				if (showDisabled) for (source in off) SourceRow(source.label, null, false) { onSource(home, source.id) }
 			}
+		}
+		servicesWaiting(state.gateways.assistantRead(home))?.let { line ->
+			SubLabel("Services")
+			if (line.isEmpty()) CircularProgressIndicator(Modifier.size(24.dp)) else Text(line, style = MaterialTheme.typography.bodyMedium)
 		}
 		if (devicesPending(roster, views)) CircularProgressIndicator(Modifier.size(24.dp))
 		for (group in groups) {

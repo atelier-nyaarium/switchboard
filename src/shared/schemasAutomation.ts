@@ -312,7 +312,7 @@ export const ConsoleAutomationPreviewResultSchema = z
 		matches: z
 			.array(z.object({ title: z.string(), at: z.number().int() }).meta({ id: "AutomationPreviewMatch" }))
 			.max(AUTOMATION_PREVIEW_SHOWN),
-		/** The trigger's names as they stand now; an event's are its newest match's. */
+		/** An event's names are its newest match's. */
 		names: z
 			.array(
 				z

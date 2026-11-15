@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -26,10 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-/**
- * A new record belongs to the Gateway that holds it, and no Gateway is the default one. One is taken
- * without asking, several are asked, and none draws no button.
- */
+/** One Gateway is taken, several are asked, none draws nothing. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NewOnGatewayFab(
@@ -49,27 +47,42 @@ internal fun NewOnGatewayFab(
 		modifier = modifier,
 	) { Icon(Icons.Default.Add, contentDescription = description) }
 
-	if (picking) {
-		ModalBottomSheet(onDismissRequest = { picking = false }) {
-			Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-				Text(
-					"$description on",
-					style = MaterialTheme.typography.titleMedium,
-					modifier = Modifier.padding(horizontal = 16.dp),
+	if (picking) GatewayPickSheet(description, offered, onNew) { picking = false }
+}
+
+/** The same rule as a button: none draws nothing, one is taken, several are asked. */
+@Composable
+internal fun NewOnGatewayButton(offered: List<String>, description: String, onNew: (String) -> Unit) {
+	var picking by remember { mutableStateOf(false) }
+	if (offered.isEmpty()) return
+
+	Button(onClick = hapticClick { if (offered.size > 1) picking = true else onNew(offered.first()) }) { Text("New") }
+
+	if (picking) GatewayPickSheet(description, offered, onNew) { picking = false }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GatewayPickSheet(description: String, offered: List<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+	ModalBottomSheet(onDismissRequest = onDismiss) {
+		Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+			Text(
+				"$description on",
+				style = MaterialTheme.typography.titleMedium,
+				modifier = Modifier.padding(horizontal = 16.dp),
+			)
+			for (gatewayId in offered) {
+				ListItem(
+					headlineContent = { Text(gatewayId) },
+					leadingContent = { Icon(Icons.Default.Hub, contentDescription = null) },
+					colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+					modifier = Modifier.clickable(
+						onClick = hapticClick {
+							onDismiss()
+							onPick(gatewayId)
+						},
+					),
 				)
-				for (gatewayId in offered) {
-					ListItem(
-						headlineContent = { Text(gatewayId) },
-						leadingContent = { Icon(Icons.Default.Hub, contentDescription = null) },
-						colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-						modifier = Modifier.clickable(
-							onClick = hapticClick {
-								picking = false
-								onNew(gatewayId)
-							},
-						),
-					)
-				}
 			}
 		}
 	}

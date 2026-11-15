@@ -90,6 +90,8 @@ internal class EditorSessions<K : Any, D : Any, S : Any>(
 	private val changed: (D, D) -> Boolean = { draft, opened -> draft != opened },
 	/** A send that stayed with no page to show why. */
 	private val unattended: (EditSession<D, S>) -> Unit = {},
+	/** Closes a draft's own page first. */
+	private val inner: (D) -> D? = { null },
 ) {
 	private val written = MutableStateFlow(EditState<K, D, S>())
 
@@ -157,6 +159,11 @@ internal class EditorSessions<K : Any, D : Any, S : Any>(
 		written.update { now ->
 			val key = now.shown
 			val session = key?.let { now.held[it] }
+			val closed = session?.takeUnless { it.busy }?.let { inner(it.draft) }
+			if (key != null && session != null && closed != null) {
+				left = false
+				return@update now.copy(held = now.held + (key to session.copy(draft = closed)))
+			}
 			left = session == null || !session.keeps() || session.busy
 			if (left) now.hidden() else now.copy(leaving = LeaveAsk(key!!, session!!.opening))
 		}
@@ -218,10 +225,15 @@ internal fun shownEditorOf(runbook: EditKey?, routine: EditKey?, policy: EditKey
 	policy?.let(ShownEditor::Policy) ?: routine?.let(ShownEditor::Routine) ?: runbook?.let(ShownEditor::Runbook)
 		?: automation?.let(ShownEditor::Automation)
 
-/** A policy needs the vault on; an automation needs its Gateway to still be the assistant's. */
-internal fun editorStands(editor: ShownEditor?, vaultOn: Boolean, assistantLeft: (String) -> Boolean): Boolean = when (editor) {
+/** A policy needs the vault on; an event automation needs its Gateway to still be the assistant's. */
+internal fun editorStands(
+	editor: ShownEditor?,
+	vaultOn: Boolean,
+	movesWithHome: (AutomationDraftKey) -> Boolean,
+	assistantLeft: (String) -> Boolean,
+): Boolean = when (editor) {
 	is ShownEditor.Policy -> vaultOn
-	is ShownEditor.Automation -> !assistantLeft(editor.key.gatewayId)
+	is ShownEditor.Automation -> !(movesWithHome(editor.key) && assistantLeft(editor.key.gatewayId))
 	is ShownEditor.Runbook, is ShownEditor.Routine, null -> true
 }
 

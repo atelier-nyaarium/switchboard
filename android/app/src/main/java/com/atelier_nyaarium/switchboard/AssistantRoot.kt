@@ -104,7 +104,7 @@ internal fun homeUnsettled(state: ChatState): Boolean = (state.assistantHome as?
 internal fun assistantLeft(state: ChatState, gatewayId: String): Boolean =
 	state.assistantHome is AssistantHome.Read && assistantGateway(state) != gatewayId
 
-/** A page over the shell, on its stack. */
+/** A page over the shell. */
 internal sealed interface ShellPage {
 	data object Settings : ShellPage
 

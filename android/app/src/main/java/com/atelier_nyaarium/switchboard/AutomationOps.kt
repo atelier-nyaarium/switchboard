@@ -2,10 +2,16 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
+import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
+import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
+import com.atelier_nyaarium.switchboard.assistant.movesWithHome
+import com.atelier_nyaarium.switchboard.assistant.offerOn
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.Automation
+import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
+import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
@@ -13,14 +19,25 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
-internal interface AutomationGateway {
-	suspend fun list(gatewayId: String): ListAnswer<AutomationRow>
+/** A Gateway's rows, and the kinds it says it holds. */
+internal data class AutomationListing(val rows: ListAnswer<AutomationRow>, val serves: AutomationServes? = null)
 
-	suspend fun put(gatewayId: String, automationId: String, automation: Automation, baseRevision: Long): ConsoleAutomationPutResult
+internal interface AutomationGateway {
+	suspend fun list(gatewayId: String): AutomationListing
+
+	/** `confirmed` once the owner agreed to its dangerous actions. */
+	suspend fun put(
+		gatewayId: String,
+		automationId: String,
+		automation: Automation,
+		baseRevision: Long,
+		confirmed: Boolean,
+	): ConsoleAutomationPutResult
 
 	suspend fun delete(gatewayId: String, automationId: String, baseRevision: Long): ConsoleAutomationDeleteResult
 
-	suspend fun preview(gatewayId: String, trigger: AutomationTrigger): ConsoleAutomationPreviewResult?
+	/** `text` is a message whose holes to fill. */
+	suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?): ConsoleAutomationPreviewResult?
 }
 
 internal interface AutomationHost {
@@ -33,6 +50,15 @@ internal interface AutomationHost {
 	}
 }
 
+/** One write's answer, or why there is none. */
+private sealed interface Written<out T> {
+	data class Answered<T>(val answer: T) : Written<T>
+
+	data object Moved : Written<Nothing>
+
+	data object Unreachable : Written<Nothing>
+}
+
 internal const val HOME_MOVED = "The assistant moved to another Gateway"
 
 /** A gateway answer, never a Boolean. */
@@ -40,8 +66,13 @@ internal sealed interface AutomationSaved {
 	/** Null after a delete. */
 	data class Stored(val row: AutomationRow?) : AutomationSaved
 
-	/** The held row names what it lost to. */
-	data class Refused(val reason: String, val heldRow: AutomationRow? = null) : AutomationSaved
+	/** The held row names what it lost to; `confirm` and `hole` say what to ask or mark. */
+	data class Refused(
+		val reason: String,
+		val heldRow: AutomationRow? = null,
+		val confirm: List<String> = emptyList(),
+		val hole: AutomationHoleSpan? = null,
+	) : AutomationSaved
 
 	data object Unreachable : AutomationSaved
 }
@@ -57,13 +88,22 @@ internal class AutomationOps(
 
 	val toggles = ToggleFence()
 
-	/** The editor's edits; its line is what the last send said. */
-	val edits = EditorSessions<AutomationDraftKey, AutomationDraft, String>(
+	/** The editor's edits, with what the last send said. */
+	val edits = EditorSessions<AutomationDraftKey, AutomationDraft, AutomationSaid>(
 		changed = { draft, opened -> draft.changedFrom(opened) },
-		unattended = { left -> tell(leftLine("", "Automation", left.said.orEmpty())) },
+		unattended = { left -> tell(leftLine("", "Automation", left.said?.line.orEmpty())) },
+		inner = { draft -> draft.takeIf { it.text != null }?.copy(text = null) },
 	)
 
 	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
+
+	/** An edit of what moves with the home: its draft, else the row it would open. */
+	fun editsEvent(key: AutomationDraftKey): Boolean {
+		val draft = edits.state.value.held[key]?.draft
+		if (draft != null) return draft.trigger is TriggerDraft.Event
+		val held = (key.slot as? AutomationSlot.Held)?.let { state.value.gateways.automationOn(key.gatewayId, it.id).found() }
+		return held?.automation?.let(::movesWithHome) ?: false
+	}
 
 	override suspend fun clearInMemory() {
 		reads.clear()
@@ -77,11 +117,13 @@ internal class AutomationOps(
 		opening: Long,
 		deleting: Boolean,
 		op: suspend (AutomationDraft) -> AutomationSaved,
-	): EditOutcome<AutomationDraft, String>? = edits.send(key, opening) { sent ->
-		when (val outcome = outcomeOf(op(sent), sent, deleting)) {
+	): EditOutcome<AutomationDraft, AutomationSaid>? = edits.send(key, opening) { sent ->
+		val held = state.value
+		val offer = offerOn(held.gateways.entry(key.gatewayId), away = assistantGateway(held) != key.gatewayId)
+		when (val outcome = outcomeOf(op(sent), sent, deleting, offer)) {
 			AutomationOutcome.Done -> EditOutcome.Done
-			is AutomationOutcome.Offer -> EditOutcome.Stays(outcome.line, outcome.draft, reopened = deleting)
-			is AutomationOutcome.Said -> EditOutcome.Stays(outcome.reason)
+			is AutomationOutcome.Offer -> EditOutcome.Stays(AutomationSaid.Line(outcome.line), outcome.draft, reopened = deleting)
+			is AutomationOutcome.Said -> EditOutcome.Stays(outcome.said)
 		}
 	}
 
@@ -92,67 +134,73 @@ internal class AutomationOps(
 	suspend fun refresh(gatewayId: String) {
 		if (gatewayId.isBlank()) return
 		val client = host.gateway
-		val read = reads.list(TAG, gatewayId, client?.let { held -> suspend { held.list(gatewayId) } }) ?: return
+		var listedServes: AutomationServes? = null
+		val call = client?.let { held ->
+			suspend {
+				val listing = held.list(gatewayId)
+				listedServes = listing.serves
+				listing.rows
+			}
+		}
+		val read = reads.list(TAG, gatewayId, call) ?: return
 		// Remove 2026-11-29: with the prose shim.
 		// A Gateway that answers sources serves this list, so its refusal is a fault.
 		val serves = servesSources(state.value.gateways.assistantOn(gatewayId))
 		val answer = if (read == ListAnswer.NotServed && serves) ListAnswer.Unreachable else read
 		state.update { held ->
-			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(automations = it.automations.after(answer)) })
+			held.copy(
+				gateways = held.gateways.withEntry(gatewayId) {
+					// Only a listed answer says what is served.
+					val serves = if (answer is ListAnswer.Listed) listedServes else it.automationServes
+					it.copy(automations = it.automations.after(answer), automationServes = serves)
+				},
+			)
 		}
 	}
+
+	/** Only what moves with the home takes the move lock. */
+	private suspend fun <T : Any> write(gatewayId: String, moves: Boolean, call: suspend (AutomationGateway) -> T): Written<T> {
+		if (gatewayId.isBlank()) return Written.Unreachable
+		var answer: T? = null
+		val send: suspend () -> Unit = { answer = host.gateway?.let { client -> attempt { call(client) } } }
+		if (!moves) send() else if (!host.carried(gatewayId, send)) return Written.Moved
+		return answer?.let { Written.Answered(it) } ?: Written.Unreachable
+	}
+
+	private suspend fun put(gatewayId: String, id: String, automation: Automation, base: Long, confirmed: Boolean): AutomationSaved =
+		when (val written = write(gatewayId, movesWithHome(automation)) { it.put(gatewayId, id, automation, base, confirmed) }) {
+			Written.Moved -> AutomationSaved.Refused(HOME_MOVED)
+			Written.Unreachable -> AutomationSaved.Unreachable
+			is Written.Answered -> {
+				refresh(gatewayId)
+				saved(written.answer)
+			}
+		}
 
 	suspend fun save(
 		gatewayId: String,
 		id: String,
 		automation: Automation,
 		base: Long,
-	): AutomationSaved {
-		if (gatewayId.isBlank()) return AutomationSaved.Unreachable
-		var answer: ConsoleAutomationPutResult? = null
-		val here = host.carried(gatewayId) {
-			answer = host.gateway?.let { client -> attempt { client.put(gatewayId, id, automation, base) } }
-		}
-		if (!here) return AutomationSaved.Refused(HOME_MOVED)
-		val stored = answer ?: return AutomationSaved.Unreachable
-		refresh(gatewayId)
-		return saved(stored)
-	}
+		confirmed: Boolean = false,
+	): AutomationSaved = put(gatewayId, id, automation, base, confirmed)
 
-	/** A refusal names the row as re-read. */
-	suspend fun delete(gatewayId: String, id: String, base: Long): AutomationSaved {
-		if (gatewayId.isBlank()) return AutomationSaved.Unreachable
-		var answer: ConsoleAutomationDeleteResult? = null
-		val here = host.carried(gatewayId) {
-			answer = host.gateway?.let { client -> attempt { client.delete(gatewayId, id, base) } }
+	/** `moves` is what the deleted automation did; a refusal names the row as re-read. */
+	suspend fun delete(gatewayId: String, id: String, base: Long, moves: Boolean): AutomationSaved =
+		when (val written = write(gatewayId, moves) { it.delete(gatewayId, id, base) }) {
+			Written.Moved -> AutomationSaved.Refused(HOME_MOVED)
+			Written.Unreachable -> AutomationSaved.Unreachable
+			is Written.Answered -> {
+				refresh(gatewayId)
+				val deleted = written.answer
+				if (deleted.deleted) AutomationSaved.Stored(null)
+				else AutomationSaved.Refused(deleted.reason ?: "This Gateway kept it", state.value.gateways.automationOn(gatewayId, id).found())
+			}
 		}
-		if (!here) return AutomationSaved.Refused(HOME_MOVED)
-		val deleted = answer ?: return AutomationSaved.Unreachable
-		refresh(gatewayId)
-		if (deleted.deleted) return AutomationSaved.Stored(null)
-		return AutomationSaved.Refused(deleted.reason ?: "This Gateway kept it", state.value.gateways.automationOn(gatewayId, id).found())
-	}
 
 	suspend fun setEnabled(gatewayId: String, row: AutomationRow, enabled: Boolean): AutomationSaved =
 		toggles.run(gatewayId, row.id, ::toggleLine) {
-			val answer = if (gatewayId.isBlank()) {
-				AutomationSaved.Unreachable
-			} else {
-				var result: ConsoleAutomationPutResult? = null
-				val here = host.carried(gatewayId) {
-					result = host.gateway?.let { client ->
-						attempt { client.put(gatewayId, row.id, row.automation.copy(enabled = enabled), row.revision) }
-					}
-				}
-				val put = result
-				when {
-					!here -> AutomationSaved.Refused(HOME_MOVED)
-					put == null -> AutomationSaved.Unreachable
-					else -> saved(put)
-				}
-			}
-			refresh(gatewayId)
-			answer
+			put(gatewayId, row.id, row.automation.copy(enabled = enabled), row.revision, false)
 		}
 
 	private fun toggleLine(saved: AutomationSaved): String? = when (saved) {
@@ -161,15 +209,20 @@ internal class AutomationOps(
 		AutomationSaved.Unreachable -> GATEWAY_UNREACHABLE
 	}
 
-	suspend fun preview(gatewayId: String, trigger: AutomationTrigger): ConsoleAutomationPreviewResult? {
+	suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String? = null): ConsoleAutomationPreviewResult? {
 		val client = host.gateway ?: return null
 		if (gatewayId.isBlank()) return null
-		return attempt { client.preview(gatewayId, trigger) }
+		return attempt { client.preview(gatewayId, trigger, text) }
 	}
 
 	private fun saved(answer: ConsoleAutomationPutResult): AutomationSaved = when {
 		answer.stored && answer.row != null -> AutomationSaved.Stored(answer.row)
-		else -> AutomationSaved.Refused(answer.reason ?: "This Gateway holds a different copy", answer.row)
+		else -> AutomationSaved.Refused(
+			answer.reason ?: "This Gateway holds a different copy",
+			answer.row,
+			answer.confirm.orEmpty(),
+			answer.hole,
+		)
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = gatewayAttempt(TAG, call)

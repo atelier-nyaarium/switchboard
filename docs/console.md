@@ -463,7 +463,8 @@ no TTL.
 - **The Assistant view** (`AssistantOps.kt`, `AssistantHomeFence.kt`, `AssistantRoot.kt`,
   `AutomationOps.kt`, `assistant/AssistantScreen.kt`, `assistant/AssistantSourcesPage.kt`,
   `assistant/AssistantSourcePage.kt`, `assistant/AutomationsPage.kt`,
-  `assistant/AutomationDraft.kt`): the landing fold over the Router's home record and the rules
+  `assistant/AutomationEditorPage.kt`, `assistant/AutomationDraft.kt`,
+  `assistant/AutomationParts.kt`): the landing fold over the Router's home record and the rules
   `ShellNav.enterAssistant` and `followAssistant` read, and the root with no conversation
   (`AssistantRootScreen`). The conversation is the usual thread screen, drawn from `ThreadChrome`.
   Every write to the home lands through `AssistantHomeFence`. `sourcesOf` is the one reader of a

@@ -3,7 +3,7 @@ package com.atelier_nyaarium.switchboard
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 
-/** An open conversation and a menu pick over it. */
+/** A conversation and its pick. */
 internal data class ConversationNav(
 	val team: String,
 	val view: ConversationView,
@@ -28,7 +28,7 @@ internal data class ShellNav private constructor(
 	private val settings: SettingsRoute?,
 	/** Top last. */
 	private val pages: List<ShellPage>,
-	/** Bumped on a genuine open to re-snap the thread to its first unread. */
+	/** Bumped on open to re-snap. */
 	private val generation: Int,
 ) {
 	constructor() : this(RootView.SESSIONS, null, null, emptyList(), 0)
@@ -36,7 +36,7 @@ internal data class ShellNav private constructor(
 	/** Drawn, or beneath a pick or a page. */
 	val heldTeam: String? get() = conversation?.team
 
-	/** The one reading of what is on screen. */
+	/** What is on screen. */
 	fun drawn(facts: ShellFacts): Drawn {
 		val open = conversation
 		val over = open?.over
@@ -56,7 +56,7 @@ internal data class ShellNav private constructor(
 	fun arrive(team: String, arrival: Arrival, facts: ArrivalFacts, place: WorkspacePlace? = null): ShellNav =
 		landed(team, assistant = false, arrival, facts, place)
 
-	/** The assistant: its own root, no Files. */
+	/** The assistant: own root, no Files. */
 	fun arriveAt(team: String, assistant: Boolean, arrival: Arrival, facts: ArrivalFacts, place: WorkspacePlace? = null): ShellNav {
 		val nextRoot = when {
 			assistant -> RootView.ASSISTANT
@@ -103,7 +103,7 @@ internal data class ShellNav private constructor(
 
 	private fun withOver(over: OverNav?): ShellNav = copy(conversation = conversation?.copy(over = over))
 
-	/** The menu's pick. Inside a session it lands over it. */
+	/** Inside a session, lands over it. */
 	fun pick(view: RootView, assistantOpen: Boolean): ShellNav = when {
 		conversation == null -> showRoot(view)
 		view == RootView.ASSISTANT && assistantOpen -> withOver(null)
@@ -111,7 +111,7 @@ internal data class ShellNav private constructor(
 		else -> withOver(OverNav(view, filtered = true))
 	}
 
-	/** A saved entry returns to the session, else to Sessions. */
+	/** Saved entry returns to session. */
 	fun boardSaved(): ShellNav = if (conversation?.over != null) withOver(null) else showRoot(RootView.SESSIONS)
 
 	/** The chip: this session, or everything. */

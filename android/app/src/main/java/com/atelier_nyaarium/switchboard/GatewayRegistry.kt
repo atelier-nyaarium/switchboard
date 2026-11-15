@@ -154,6 +154,8 @@ data class GatewayEntry(
 	val runbooks: GatewayList<Runbook> = GatewayList.Unread,
 	val policies: GatewayList<AuthorizationPolicy> = GatewayList.Unread,
 	val automations: GatewayList<AutomationRow> = GatewayList.Unread,
+	/** Null from a build that holds an event and a tell alone. */
+	val automationServes: com.atelier_nyaarium.switchboard.proto.AutomationServes? = null,
 	val peers: GatewayList<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = GatewayList.Unread,
 	val assistant: AssistantWord? = null,
 ) {
@@ -166,6 +168,15 @@ sealed interface AssistantWord {
 
 	/** Unsupported op or fault. */
 	data object Refused : AssistantWord
+}
+
+/** A Gateway's word on the assistant, as a reader must tell it apart. */
+sealed interface AssistantRead {
+	data class Answered(val state: ConsoleAssistantStateResult) : AssistantRead
+
+	data object Reading : AssistantRead
+
+	data object Refused : AssistantRead
 }
 
 data class GatewayRegistry(
@@ -246,10 +257,17 @@ data class GatewayRegistry(
 		lookup(gatewayId, { it.automations }) { it.id == automationId }
 
 	/** Its sources and Safety; placement is the Router's. */
+	/** Unread kept apart from refused. */
+	fun assistantRead(gatewayId: String): AssistantRead = when (val word = entry(gatewayId)?.assistant) {
+		is AssistantWord.Answered -> AssistantRead.Answered(word.state)
+		AssistantWord.Refused -> AssistantRead.Refused
+		null -> AssistantRead.Reading
+	}
+
 	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? =
 		(entry(gatewayId)?.assistant as? AssistantWord.Answered)?.state
 
-	/** Answers predating a new choice. */
+	/** Drops every held assistant answer. */
 	fun withoutAssistantWords(): GatewayRegistry = copy(gateways = gateways.map { it.copy(assistant = null) })
 
 	/** Wake at earliest routine. */

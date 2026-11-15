@@ -35,6 +35,7 @@ import com.atelier_nyaarium.switchboard.canRetry
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.inboxCount
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
+import com.atelier_nyaarium.switchboard.countdownText
 import com.atelier_nyaarium.switchboard.relativeTime
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.routines.SecretNeeded
@@ -87,7 +88,7 @@ internal fun AssistantSourcePage(
 	repo: ChatRepository,
 	gatewayId: String,
 	source: AssistantSource,
-	/** Automations triggered by it; null from a Gateway that lists none. */
+	/** Null from a Gateway listing none. */
 	uses: Int?,
 	onAutomations: () -> Unit,
 	onBack: () -> Unit,
@@ -190,3 +191,5 @@ internal fun AssistantSourcePage(
 }
 
 internal fun agoText(at: Long): String = relativeTime(at).let { if (it == "now") "just now" else "$it ago" }
+
+internal fun untilText(at: Long): String = countdownText(at - System.currentTimeMillis())

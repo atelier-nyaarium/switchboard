@@ -74,24 +74,41 @@ Router's record names. That Gateway feeds it events. The session decides what to
       its lists; and Retry when stopped.
     - **Automations:** one group per Gateway that lists any, the home first with its Assistant chip.
       Each row shows the Gateway's sentence, what it does, when it last ran or why it is invalid,
-      and the only on and off switch. New opens the editor on the home. Only an event automation's
-      row in the home's group opens the editor or takes the switch (`AutomationGroup.edits`); a
-      sensor alert's row is read-only here.
-    - **The editor:** When shows the three trigger kinds, "Event arrives", "Value crosses" and "Time
-      comes", with only "Event arrives" selectable; then Source, the conditions, and "Would have
-      matched N of the last M" from `automation_preview`, a fold that opens to the matches. Do holds
-      "Tell the assistant" with Now or Quietly. Delete sits in the top bar's menu and asks first, as
+      and the only on and off switch; a clock's row says when it runs next. New opens the editor on
+      a Gateway a new automation can start on, asking which when there are several
+      (`newAutomationGateways`). A row opens the editor where its Gateway holds its trigger and
+      this build reads every action; an event automation's only in the home's group
+      (`AutomationGroup.edits`), and a sensor alert's row is read-only here.
+    - **The editor:** When shows "Event arrives", "Value crosses" and "Time comes", each selectable
+      where the Gateway offers it (`offersChoice`). An event takes a Source, the conditions, and
+      "Would have matched N of the last M" from `automation_preview`, a fold that opens to the
+      matches. A crossing takes a Value from the numbers the Gateway's sensors read, "Goes below"
+      or "Goes above", a Threshold and a Dead zone in the owner's unit, and a Cool-down in minutes.
+      A clock is "At a time" (a time picked on a clock, in the phone's zone, and the weekdays) or
+      "Every" (a count of minutes, hours or days). Do is a list of actions, each in a card with its
+      remove, and "+ Add action" listing what the Gateway offers: "Tell the assistant" with Now or
+      Quietly and a Message; "Switch a plug" with the plug and On, Off or Toggle; "Send to IFTTT"
+      with an event name and three values. A Message or an IFTTT value opens on its own page
+      when tapped (`HoleTextEditor`): the text with each hole coloured as the Console colours an
+      expression, a count against its cap, "Names here" with the trigger's names and what they
+      hold now and then the Console's entities, and the Console's hint and completions above the
+      keyboard for the hole under the cursor. Its back arrow returns to the automation with the
+      text kept. Any text that holds a hole shows the Gateway's filled form in a box labelled
+      Preview, or the hole it refused, on both pages. A dangerous action says "Asks once when saved", and the save asks "Run
+      without asking?" before it sends again. Delete sits in the top bar's menu and asks first, as
       every record page's removal does (`RemoveMenu`). Back on a changed draft asks "Leave and
       discard changes?" with Discard and Stay.
     - **`AutomationOps`** follows `PolicyOps`: the list per Gateway, nothing durable on the phone, a
-      fenced toggle per row, and the editor's edit session (`EditorSessions`), so Back loses no result. Every put and
-      delete holds the lock a move holds (`AssistantOps.carriedWrite`) and is refused, unsent, once
-      the home has left its Gateway. The leave dialogue belongs to the opening Back was pressed on,
+      fenced toggle per row, and the editor's edit session (`EditorSessions`), so Back loses no result. An event
+      automation's put and delete hold the lock a move holds (`AssistantOps.carriedWrite`) and are
+      refused, unsent, once the home has left its Gateway; any other automation stays on its
+      Gateway and is written straight to it. The leave dialogue belongs to the opening Back was pressed on,
       and a Back during a save leaves at once while the answer still lands. A Gateway on an older build
-      answers `watchers` and no `sources` (`servesSources`): Automations offers no New
-      (`newAutomationOn`), its sources draw no uses line, and its source ops go as the
-      `assistant_watcher_*` kinds. `AutomationDraft.kt`
-      holds the draft, its `outcomeOf`, `fittingAutomation` and the lines each row shows.
+      answers `watchers` and no `sources` (`servesSources`): its sources draw no uses line and its
+      source ops go as the `assistant_watcher_*` kinds; one that answers no `serves` holds an event
+      and a tell alone. `AutomationDraft.kt` holds the draft, its `outcomeOf`, `fittingAutomation`
+      and the lines each row shows; `AutomationParts.kt` holds a trigger and an action as the
+      editor holds them, the offer and a text's preview.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
     its fresh `assistant_state` and its event automations (`carriedOf`), or an older Gateway's rules
     when it refuses `automation_list`; a list it cannot read, or one a current Gateway refuses,

@@ -39,7 +39,6 @@ class ShellNavTest {
 
 	private fun conversation(nav: ShellNav) = drawn(nav) as Drawn.Conversation
 
-	/** Drives Back until the system handles it, recording layers. */
 	private fun backAll(start: ShellNav, facts: ShellFacts = shellFacts()): List<BackLayer> {
 		var nav = start
 		val layers = mutableListOf<BackLayer>()
@@ -262,7 +261,7 @@ class ShellNavTest {
 		)
 	}
 
-	// Each drill-in is a place, so Back unwinds the walk before it leaves Files.
+	// Back unwinds drill-ins first.
 	@Test
 	fun `Back walks a drill-in one place at a time before leaving Files`() {
 		val detail = WorkspacePlace.Detail("lexicon typescript src/a.ts f().", "src/a.ts", "f")
@@ -326,7 +325,7 @@ class ShellNavTest {
 		assertEquals(SettingsRoute.NETWORKS, settingsBack(SettingsRoute.FEDERATION, provisioned = true))
 		assertEquals(SettingsRoute.HUB, settingsBack(SettingsRoute.FEDERATION, provisioned = false))
 		assertEquals(SettingsRoute.HUB, settingsBack(SettingsRoute.SECURITY, provisioned = true))
-		// Provisioned-only routes resolve to the hub before provisioning.
+		// Hub before provisioning.
 		assertNull(settingsBack(SettingsRoute.SECURITY, provisioned = false))
 		assertEquals(
 			listOf(BackLayer.SETTINGS, BackLayer.SETTINGS, BackLayer.SETTINGS),
@@ -334,7 +333,7 @@ class ShellNavTest {
 		)
 	}
 
-	// The render and Back read this one value, so what Back closes is what is drawn.
+	// Render and Back share one value.
 	@Test
 	fun `the lock hides everything, an overlay hides settings, and settings open before boot`() {
 		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts).openSettings()

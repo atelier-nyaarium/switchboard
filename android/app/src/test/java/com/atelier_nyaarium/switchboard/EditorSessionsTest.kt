@@ -321,17 +321,21 @@ class EditorSessionsTest {
 	}
 
 	@Test
-	fun aPolicyEditorNeedsTheVaultAndAnAutomationEditorItsHome() {
+	fun aPolicyEditorNeedsTheVaultAndAnEventAutomationsEditorItsHome() {
 		val policy = ShownEditor.Policy(key)
 		val automation = ShownEditor.Automation(AutomationDraftKey("sakura", AutomationSlot.New))
 		val left: (String) -> Boolean = { it == "sakura" }
+		val stands = { editor: ShownEditor?, vaultOn: Boolean, moves: Boolean, gone: (String) -> Boolean ->
+			editorStands(editor, vaultOn, { moves }, gone)
+		}
 
-		assertTrue(editorStands(policy, vaultOn = true, assistantLeft = left))
-		assertFalse(editorStands(policy, vaultOn = false, assistantLeft = left))
-		assertFalse(editorStands(automation, vaultOn = true, assistantLeft = left))
-		assertTrue(editorStands(automation, vaultOn = false) { false })
-		assertTrue(editorStands(ShownEditor.Runbook(key), vaultOn = false, assistantLeft = left))
-		assertTrue(editorStands(null, vaultOn = false, assistantLeft = left))
+		assertTrue(stands(policy, true, true, left))
+		assertFalse(stands(policy, false, true, left))
+		assertFalse(stands(automation, true, true, left))
+		assertTrue(stands(automation, true, false, left))
+		assertTrue(stands(automation, false, true) { false })
+		assertTrue(stands(ShownEditor.Runbook(key), false, true, left))
+		assertTrue(stands(null, false, true, left))
 	}
 
 	@Test

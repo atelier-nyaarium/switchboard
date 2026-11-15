@@ -1,5 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.ActionDraft
+import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
+import com.atelier_nyaarium.switchboard.assistant.IntervalUnit
+import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
+import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.proto.AppOpenAnswer
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
@@ -101,6 +106,28 @@ class PhoneEncodedFixtureTest {
 		),
 	)
 
+	private val offer = offerOf(SANDBOX_SERVES)
+
+	private fun draft(trigger: TriggerDraft, vararg actions: ActionDraft) =
+		AutomationDraft("a", trigger, actions.toList(), enabled = true, revision = 0L)
+
+	/** What the editor saves, typed as an owner types it. */
+	private val edited = listOf(
+		"a crossing that switches a plug and tells with a message" to draft(
+			TriggerDraft.Crossing(SANDBOX_SENSOR, "temperature", "below", "35.6", "0.9", "10"),
+			ActionDraft.DeviceSet(SANDBOX_SWITCH, "on"),
+			ActionDraft.Tell("quietly", "It is {value} at {device}."),
+		),
+		"a time of day that sends to IFTTT with one value" to draft(
+			TriggerDraft.Time("18:30", setOf(1, 5), "America/Los_Angeles"),
+			ActionDraft.Ifttt("door_open", "Lamp at {time}", "", ""),
+		),
+		"an interval that tells with no message" to draft(
+			TriggerDraft.Interval("2", IntervalUnit.HOURS),
+			ActionDraft.Tell("now", ""),
+		),
+	)
+
 	private val cases = listOf(
 		"a home that lists automations" to AssistantHomeSealed(
 			"~/notes",
@@ -129,7 +156,8 @@ class PhoneEncodedFixtureTest {
 				),
 			),
 		).map { case("a status held by ${it.holder ?: "nobody"}", PhoneStatusAnswer.serializer(), it) } +
-		case("an app opened with nothing else to say", AppOpenAnswer.serializer(), AppOpenAnswer(opened = true))
+		case("an app opened with nothing else to say", AppOpenAnswer.serializer(), AppOpenAnswer(opened = true)) +
+		edited.map { (name, draft) -> case(name, Automation.serializer(), draft.toAutomation(offer, "F")!!) }
 
 	private class Case(val name: String, val schema: String, val value: JsonElement)
 

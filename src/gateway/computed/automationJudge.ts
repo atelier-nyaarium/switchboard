@@ -77,7 +77,7 @@ function unconfirmed(next: Automation, held: Automation | undefined): string[] {
 	return [...new Set(asks.map((action) => AUTOMATION_ACTIONS[action.kind].label))];
 }
 
-/** The rows that may arrive, last of an id winning; `runnable` drops what this Gateway cannot run. */
+/** Last of an id wins. */
 function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView, runnable: boolean) {
 	const wanted = new Map<string, Automation>();
 	const dropped: DroppedAutomation[] = [];
@@ -115,7 +115,7 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 			return { kind: "writes", writes: [{ op: "remove", id: intent.id, base: intent.base }], dropped: [] };
 		}
 		case "carry": {
-			// One it cannot run is kept and reads invalid, so a move loses nothing the owner wrote.
+			// Kept and reads invalid, so a move loses nothing.
 			const { wanted, dropped } = fitting(intent.rows, view, false);
 			const leaving = view.held.filter((record) => movesWithHome(record.body) && !wanted.has(record.id));
 			const puts: OwnerWrite[] = [];

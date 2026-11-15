@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
+import com.atelier_nyaarium.switchboard.assistant.newAutomationGateways
 import com.atelier_nyaarium.switchboard.board.GroupKey
 import com.atelier_nyaarium.switchboard.plugins.Plugins
 import kotlinx.coroutines.launch
@@ -473,7 +474,7 @@ fun App(
 	LaunchedEffect(screen.kind in MENU_SCREENS) {
 		if (screen.kind !in MENU_SCREENS && menuDrawer.holdsBack()) shellScope.launch { menuDrawer.snapClosed() }
 	}
-	val stands = editorStands(shownEditor, features.vault) { assistantLeft(state, it) }
+	val stands = editorStands(shownEditor, features.vault, repo.automationOps::editsEvent) { assistantLeft(state, it) }
 	LaunchedEffect(stands) { if (!stands) repo.editors.hideAll() }
 	// No drawer over the summoned composer.
 	LaunchedEffect(summon?.id, summon?.routed) {
@@ -821,7 +822,7 @@ fun App(
 			// A pick made inside a session is drawn over it.
 			val over = screen.over
 			val home = assistantGateway(state)
-			val newAutomation = newAutomationOn(home, home?.let { state.gateways.assistantOn(it) })
+			val newAutomations = newAutomationGateways(state.gateways, ViewScope.Everything.newOn(state.gateways), home)
 			RootScreen(
 				shown = screen.view,
 				drawerSide = drawerSide,
@@ -853,13 +854,11 @@ fun App(
 					when {
 						view == RootView.SOURCES && home != null ->
 							Button(onClick = hapticClick { nav = nav.push(ShellPage.Add) }) { Text("Add") }
-						view == RootView.AUTOMATIONS && newAutomation != null ->
-							Button(
-								onClick = hapticClick {
-									val slot = com.atelier_nyaarium.switchboard.assistant.AutomationSlot.New
-									repo.editors.show(ShownEditor.Automation(AutomationDraftKey(newAutomation, slot)))
-								},
-							) { Text("New") }
+						view == RootView.AUTOMATIONS ->
+							NewOnGatewayButton(newAutomations, "New automation") { gatewayId ->
+								val slot = com.atelier_nyaarium.switchboard.assistant.AutomationSlot.New
+								repo.editors.show(ShownEditor.Automation(AutomationDraftKey(gatewayId, slot)))
+							}
 					}
 				},
 			) { view, modifier ->

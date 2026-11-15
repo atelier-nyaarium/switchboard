@@ -2,68 +2,32 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.atelier_nyaarium.switchboard.AutomationDraftKey
-import com.atelier_nyaarium.switchboard.AutomationSaved
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
-import com.atelier_nyaarium.switchboard.ConfirmDialog
-import com.atelier_nyaarium.switchboard.EditorScaffold
-import com.atelier_nyaarium.switchboard.Lookup
-import com.atelier_nyaarium.switchboard.rememberEdit
-import com.atelier_nyaarium.switchboard.waitingLine
-import com.atelier_nyaarium.switchboard.editStanding
-import com.atelier_nyaarium.switchboard.EditStanding
-import com.atelier_nyaarium.switchboard.PickMenu
-import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.emptyLine
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.leading
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
-import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
-import com.atelier_nyaarium.switchboard.sourcesOf
-import kotlinx.coroutines.delay
-
-private const val PREVIEW_DEBOUNCE_MS = 400L
-
-private val TRIGGER_KINDS = listOf("Event arrives", "Value crosses", "Time comes")
-private val TELLS = listOf("now" to "Now", "quietly" to "Quietly")
 
 @Composable
 internal fun AutomationsView(
 	repo: ChatRepository,
 	state: ChatState,
 	home: String?,
-	/** A session's Gateway, listed first. */
+	/** Session's Gateway first. */
 	lead: String?,
 	onEdit: (String, AutomationSlot) -> Unit,
 	modifier: Modifier = Modifier,
@@ -74,7 +38,11 @@ internal fun AutomationsView(
 
 	PageColumn(modifier) {
 		if (groups.isEmpty()) {
-			Text(emptyLine(automationsEmpty(state.gateways, home), "automations"), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			Text(
+				emptyLine(automationsEmpty(state.gateways, home), "automations"),
+				style = MaterialTheme.typography.bodyLarge,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
 		}
 		for (group in groups) {
 			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -84,6 +52,7 @@ internal fun AutomationsView(
 			for (row in group.rows) {
 				AutomationRowView(
 					row = row,
+					offer = group.offer,
 					can = group.edits(row),
 					refusal = toggleRefusals[group.gatewayId to row.id],
 					onOpen = { onEdit(group.gatewayId, AutomationSlot.Held(row.id)) },
@@ -95,7 +64,14 @@ internal fun AutomationsView(
 }
 
 @Composable
-private fun AutomationRowView(row: AutomationRow, can: Boolean, refusal: String?, onOpen: () -> Unit, onToggle: (Boolean) -> Unit) {
+private fun AutomationRowView(
+	row: AutomationRow,
+	offer: AutomationOffer,
+	can: Boolean,
+	refusal: String?,
+	onOpen: () -> Unit,
+	onToggle: (Boolean) -> Unit,
+) {
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
 	Row(
 		Modifier.fillMaxWidth().clickable(enabled = can, onClick = hapticClick(onOpen)).padding(vertical = 6.dp),
@@ -104,225 +80,14 @@ private fun AutomationRowView(row: AutomationRow, can: Boolean, refusal: String?
 	) {
 		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
 			Text(row.sentence, style = MaterialTheme.typography.bodyLarge)
-			Text(doesText(row.automation), style = MaterialTheme.typography.bodySmall, color = dim)
+			Text(doesText(row.automation, offer), style = MaterialTheme.typography.bodySmall, color = dim)
 			Text(
-				row.invalid ?: ranText(row, ::agoText),
+				row.invalid ?: ranText(row, ::agoText, ::untilText),
 				style = MaterialTheme.typography.bodySmall,
 				color = if (row.invalid != null) MaterialTheme.colorScheme.error else dim,
 			)
 			refusal?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 		}
 		Switch(checked = row.automation.enabled, onCheckedChange = onToggle, enabled = can)
-	}
-}
-
-/** Drafts outlive this page. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun AutomationEditorPage(
-	repo: ChatRepository,
-	state: ChatState,
-	gatewayId: String,
-	slot: AutomationSlot,
-	onBack: () -> Unit,
-) {
-	val ops = repo.automationOps
-	val key = AutomationDraftKey(gatewayId, slot)
-	val sources = state.gateways.assistantOn(gatewayId)?.let(::sourcesOf).orEmpty()
-	val held = slot as? AutomationSlot.Held
-	val lookup = held?.let { state.gateways.automationOn(gatewayId, it.id) }
-	val row = lookup?.found()
-	val opened = remember(key, row, sources.isEmpty()) { openedDraft(slot, row, sources) }
-	LaunchedEffect(gatewayId) { ops.refresh(gatewayId) }
-	val open = rememberEdit(ops.edits, key, editStanding(lookup), opened) { standing ->
-		AssistantPageScaffold("Automation", onBack) {
-			val line = when {
-				slot == AutomationSlot.New -> "No source can trigger an automation."
-				standing == EditStanding.READY -> "This automation is not edited here."
-				else -> waitingLine(standing)
-			}
-			line?.let { Text(it, style = MaterialTheme.typography.bodyLarge) } ?: CircularProgressIndicator()
-		}
-	} ?: return
-	val session = open.session
-	val draft = session.draft
-
-	val fields = SourceFields(sources.find { it.id == draft.source }?.fieldSpecs.orEmpty())
-	val choices = sourceChoices(sources, draft.source)
-	val offered = sources.any { it.id == draft.source && it.triggers }
-	val gone = lookup == Lookup.Gone
-	val busy = session.busy
-	val can = automationEditing(slot, draft, fields, offered, busy, gone)
-	val trigger = fittingAutomation(draft, fields)?.trigger?.takeIf { offered }
-	var preview by remember(key) { mutableStateOf<ConsoleAutomationPreviewResult?>(null) }
-	var previewFailed by remember(key) { mutableStateOf(false) }
-	var previewOpen by rememberSaveable(key) { mutableStateOf(false) }
-	var confirmingDelete by remember(key) { mutableStateOf(false) }
-
-	LaunchedEffect(trigger) {
-		preview = null
-		previewFailed = false
-		val asked = trigger ?: return@LaunchedEffect
-		delay(PREVIEW_DEBOUNCE_MS)
-		preview = ops.preview(gatewayId, asked)
-		previewFailed = preview == null
-	}
-
-	fun send(deleting: Boolean, op: suspend (AutomationDraft) -> AutomationSaved) {
-		repo.command { automationOps.send(key, open.opening, deleting, op) }
-	}
-
-	fun edit(change: (AutomationDraft) -> AutomationDraft) {
-		ops.edits.edit(key, open.opening, change)
-	}
-
-	EditorScaffold(
-		title = if (gone) "Deleted elsewhere" else "Automation",
-		saving = busy,
-		canSave = can.save,
-		onSave = {
-			send(deleting = false) { sent ->
-				fittingAutomation(sent, fields)?.let { ops.save(gatewayId, sent.id, it, sent.revision) }
-					?: AutomationSaved.Refused("Not a complete automation")
-			}
-		},
-		onBack = onBack,
-		leaving = open.leaving,
-		menu = { if (slot is AutomationSlot.Held) RemoveMenu("Delete automation", enabled = can.delete) { confirmingDelete = true } },
-	) {
-		Text("When", style = MaterialTheme.typography.labelLarge)
-		SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-			TRIGGER_KINDS.forEachIndexed { index, label ->
-				SegmentedButton(
-					selected = index == 0,
-					onClick = {},
-					enabled = index == 0,
-					shape = SegmentedButtonDefaults.itemShape(index = index, count = TRIGGER_KINDS.size),
-					icon = {},
-				) { Text(label, maxLines = 1) }
-			}
-		}
-		PickMenu(
-			label = "Source",
-			choices = choices,
-			picked = draft.source.takeIf { it.isNotBlank() },
-			labelOf = { id -> sources.find { it.id == id }?.label ?: id },
-			onPick = { id -> if (id != draft.source) edit { now -> now.withSource(id) } },
-			trailingOf = { id -> "not offered".takeUnless { sources.any { it.id == id && it.triggers } } },
-			enabled = can.edit,
-		)
-		draft.conditions.forEachIndexed { index, condition ->
-			if (index > 0) {
-				Text("and", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			}
-			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-				Box(Modifier.weight(1f)) {
-					PickMenu(
-						label = "Field",
-						choices = fields.ruleFields,
-						picked = condition.field,
-						labelOf = fields::fieldLabelOf,
-						onPick = { field -> edit { now -> now.withField(index, field, fields) } },
-						enabled = can.edit,
-					)
-				}
-				Box(Modifier.weight(0.7f)) {
-					PickMenu(
-						label = "Test",
-						choices = testsOf(fields.specOf(condition.field)),
-						picked = condition.test,
-						labelOf = ::testLabel,
-						onPick = { test -> edit { now -> now.changed(index) { it.copy(test = test) } } },
-						enabled = can.edit,
-					)
-				}
-				IconButton(onClick = hapticClick { edit { now -> now.withoutCondition(index) } }, enabled = can.edit) {
-					Icon(Icons.Default.Close, contentDescription = "Remove condition")
-				}
-			}
-			val values = fields.choicesFor(condition.field, condition.value)
-			if (values != null) {
-				PickMenu(
-					label = "Value",
-					choices = values,
-					picked = condition.value.takeIf { trimRuleValue(it).isNotEmpty() },
-					labelOf = { value -> fields.valueLabelOf(condition.field, value) },
-					onPick = { value -> edit { now -> now.changed(index) { it.copy(value = value) } } },
-					trailingOf = { value -> "not offered".takeUnless { fields.offers(condition.field, value) } },
-					enabled = can.edit,
-				)
-			} else {
-				OutlinedTextField(
-					value = condition.value,
-					onValueChange = { value -> edit { now -> now.changed(index) { it.copy(value = value) } } },
-					label = { Text("Value") },
-					singleLine = true,
-					enabled = can.edit,
-					modifier = Modifier.fillMaxWidth(),
-				)
-			}
-			fields.issueOf(condition)?.let {
-				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-			}
-		}
-		if (draft.conditions.size < MAX_CONDITIONS && fields.ruleFields.isNotEmpty()) {
-			TextButton(onClick = hapticClick { edit { now -> now.withCondition(fields) } }, enabled = can.edit) {
-				Text("+ Add condition")
-			}
-		}
-		PreviewFold(preview, previewFailed, previewOpen) { previewOpen = !previewOpen }
-
-		HorizontalDivider()
-		Text("Do", style = MaterialTheme.typography.labelLarge)
-		Text("Tell the assistant", style = MaterialTheme.typography.bodyMedium)
-		SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-			TELLS.forEachIndexed { index, (value, label) ->
-				SegmentedButton(
-					selected = draft.tell == value,
-					onClick = hapticClick { edit { now -> now.copy(tell = value) } },
-					enabled = can.edit,
-					shape = SegmentedButtonDefaults.itemShape(index = index, count = TELLS.size),
-					icon = {},
-				) { Text(label) }
-			}
-		}
-		session.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-	}
-
-	if (confirmingDelete) {
-		ConfirmDialog(
-			title = "Delete this automation?",
-			body = null,
-			confirmText = "Delete",
-			onConfirm = {
-				confirmingDelete = false
-				send(deleting = true) { sent -> ops.delete(gatewayId, sent.id, sent.revision) }
-			},
-			onDismiss = { confirmingDelete = false },
-		)
-	}
-}
-
-@Composable
-private fun PreviewFold(preview: ConsoleAutomationPreviewResult?, failed: Boolean, open: Boolean, onToggle: () -> Unit) {
-	val dim = MaterialTheme.colorScheme.onSurfaceVariant
-	if (failed) {
-		Text("Could not check recent events.", style = MaterialTheme.typography.bodySmall, color = dim)
-		return
-	}
-	val shown = preview ?: return
-	val head = previewHead(shown)
-	if (head == null) {
-		Text("No recent events.", style = MaterialTheme.typography.bodySmall, color = dim)
-		return
-	}
-	FoldRow(head, open, onToggle)
-	if (open) {
-		for (match in shown.matches) {
-			Row(Modifier.fillMaxWidth().padding(start = 26.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				Text(match.title, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
-				Text(agoText(match.at), style = MaterialTheme.typography.bodySmall, color = dim)
-			}
-		}
 	}
 }

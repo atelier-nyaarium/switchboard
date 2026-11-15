@@ -74,6 +74,12 @@ class SensorRulesTest {
 		assertEquals(listOf("mikan", "sakura"), sourceGroups(roster, "idle", views, hasServices = false, lead = null).map { it.gatewayId })
 		assertEquals(false, devicesPending(roster, views))
 		assertEquals(true, devicesPending(listOf("sakura", "waking"), mapOf("sakura" to DevicesView(list = DeviceListView.Loading))))
+		val word = { held: AssistantWord? ->
+			val entry = GatewayEntry("sakura", connected = true, incarnation = 1L, lastRegisteredAt = 1L, assistant = held)
+			servicesWaiting(GatewayRegistry(RegistryProvenance.Current, gateways = listOf(entry)).assistantRead("sakura"))
+		}
+		val answered = AssistantWord.Answered(com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes"))
+		assertEquals(listOf("", null, false), listOf(word(null), word(answered), word(AssistantWord.Refused).isNullOrEmpty()))
 		assertEquals("Govee · This Phone", rowBrandLine(sensor(MAC, "phones")))
 	}
 

@@ -15,7 +15,10 @@ class SandboxAutomationGatewayTest {
 	private fun gateway() = SandboxAutomationGateway(now = { 1_000_000_000L }, pause = { trips += 1 })
 
 	private suspend fun SandboxAutomationGateway.rows(gatewayId: String) =
-		(list(gatewayId) as ListAnswer.Listed).rows
+		(list(gatewayId).rows as ListAnswer.Listed).rows
+
+	private suspend fun SandboxAutomationGateway.put(gatewayId: String, id: String, automation: Automation, base: Long) =
+		put(gatewayId, id, automation, base, confirmed = false)
 
 	private fun mention(tell: String = "now") = Automation(
 		enabled = true,
@@ -56,12 +59,30 @@ class SandboxAutomationGatewayTest {
 	fun theSecondGatewayRefusesAsAnOlderBuildTheEmptyOneListsNoneAndEveryCallTakesARoundTrip() = runBlocking {
 		val gateway = gateway()
 
-		assertEquals(ListAnswer.NotServed, gateway.list(SECOND_SANDBOX_GATEWAY))
+		assertEquals(ListAnswer.NotServed, gateway.list(SECOND_SANDBOX_GATEWAY).rows)
 		assertEquals(false, gateway.put(SECOND_SANDBOX_GATEWAY, "new", mention(), 0L).stored)
-		assertNull(gateway.preview(SECOND_SANDBOX_GATEWAY, mention().trigger))
-		assertEquals(ListAnswer.Listed(emptyList<Any>()), gateway.list(EMPTY_GATEWAY))
-		assertEquals(ListAnswer.Unreachable, gateway.list(SANDBOX_NEVER_REGISTERED))
-		assertEquals(1L, gateway.preview("sandbox", mention().trigger)?.matched)
+		assertNull(gateway.preview(SECOND_SANDBOX_GATEWAY, mention().trigger, null))
+		assertEquals(ListAnswer.Listed(emptyList<Any>()), gateway.list(EMPTY_GATEWAY).rows)
+		assertEquals(ListAnswer.Unreachable, gateway.list(SANDBOX_NEVER_REGISTERED).rows)
+		assertEquals(1L, gateway.preview("sandbox", mention().trigger, null)?.matched)
 		assertEquals(6, trips)
+	}
+
+	@Test
+	fun aDangerousActionAsksOnceAndATextIsFilledFromTheTriggersNamesOrRefusedAtItsHole() = runBlocking {
+		val gateway = gateway()
+		val posts = mention().copy(actions = listOf(AutomationAction.IftttTrigger("door")))
+		val evening = AutomationTrigger.Time("18:00", listOf(1L), "America/Los_Angeles")
+
+		val asked = gateway.put("sandbox", "posts", posts, 0L)
+		val agreed = gateway.put("sandbox", "posts", posts, 0L, confirmed = true)
+		val toggled = gateway.put("sandbox", "posts", posts.copy(enabled = false), 1L)
+		val filled = gateway.preview("sandbox", evening, "It is {time}.")
+		val refused = gateway.preview("sandbox", evening, "It is {value}.")
+
+		assertEquals(listOf("Send to IFTTT"), asked.confirm)
+		assertEquals(listOf(true, true), listOf(agreed.stored, toggled.stored))
+		assertEquals("It is 18:00.", filled?.filled)
+		assertEquals(listOf(6L, 13L), listOf(refused?.hole?.start, refused?.hole?.end))
 	}
 }

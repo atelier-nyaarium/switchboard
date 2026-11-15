@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import { AssistantHomeSealedSchema, readableSealed } from "../shared/schemasAssistantHome.js";
 import { AssistantWatcherRulesSchema } from "../shared/schemasAssistantRules.js";
-import { canonicalAutomation } from "../shared/schemasAutomation.js";
+import { AutomationSchema, canonicalAutomation } from "../shared/schemasAutomation.js";
 import { PHONE_CAPABILITIES } from "../shared/schemasPhoneCapabilities.js";
 
 // Written by PhoneEncodedFixtureTest.kt
@@ -16,6 +16,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	AssistantHomeSealed: AssistantHomeSealedSchema,
 	PhoneStatusAnswer: PHONE_CAPABILITIES.status.answer,
 	AppOpenAnswer: PHONE_CAPABILITIES.app_open.answer,
+	Automation: AutomationSchema,
 };
 
 const sealed = corpus.cases.filter((entry) => entry.schema === "AssistantHomeSealed").map((entry) => entry.value);

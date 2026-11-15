@@ -253,19 +253,20 @@ internal class ChatRepositoryDeviceHost(
 internal class ConsoleAssistantGateway(private val client: ConsoleClient) : AssistantGateway {
 	override suspend fun call(gatewayId: String, op: ConsoleOp) = client.assistantOp(gatewayId, op)
 
-	override suspend fun automations(gatewayId: String) = client.automationList(gatewayId)
+	override suspend fun automations(gatewayId: String) = client.automationList(gatewayId).rows
 }
 
 internal class ConsoleAutomationGateway(private val client: ConsoleClient) : AutomationGateway {
 	override suspend fun list(gatewayId: String) = client.automationList(gatewayId)
 
-	override suspend fun put(gatewayId: String, automationId: String, automation: Automation, baseRevision: Long) =
-		client.automationPut(gatewayId, automationId, automation, baseRevision)
+	override suspend fun put(gatewayId: String, automationId: String, automation: Automation, baseRevision: Long, confirmed: Boolean) =
+		client.automationPut(gatewayId, automationId, automation, baseRevision, confirmed)
 
 	override suspend fun delete(gatewayId: String, automationId: String, baseRevision: Long) =
 		client.automationDelete(gatewayId, automationId, baseRevision)
 
-	override suspend fun preview(gatewayId: String, trigger: AutomationTrigger) = client.automationPreview(gatewayId, trigger)
+	override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?) =
+		client.automationPreview(gatewayId, trigger, text)
 }
 
 internal class ChatRepositoryAutomationHost(private val repo: ChatRepository) : AutomationHost {

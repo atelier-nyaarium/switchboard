@@ -82,14 +82,18 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import com.atelier_nyaarium.switchboard.AssistantHome
 
-private val CODE = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = Color(CodePalette.TEXT))
+internal val CODE = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = Color(CodePalette.TEXT))
 
 private class Names(val entities: Set<String>, val variables: Set<String>)
 
 private fun painted(source: String, names: Names, issue: IntRange? = null): AnnotatedString =
+	paintedCode(source, consolePaint(source, names.entities, names.variables), issue)
+
+/** `issue` is underlined. */
+internal fun paintedCode(source: String, spans: List<PaintSpan>, issue: IntRange? = null): AnnotatedString =
 	buildAnnotatedString {
 		append(source)
-		for (span in consolePaint(source, names.entities, names.variables)) {
+		for (span in spans) {
 			val style = CodePalette.styleOf(span.token)
 			addStyle(
 				SpanStyle(
@@ -435,6 +439,54 @@ private fun FieldsCard(card: ConsoleCard.Fields) {
 	}
 }
 
+/** Hint, then completions. */
+@Composable
+internal fun AssistRows(assist: ConsoleAssist, onApply: (ConsoleCompletion) -> Unit) {
+	assist.hint?.let { hint ->
+		Surface(
+			shape = RoundedCornerShape(12.dp),
+			color = MaterialTheme.colorScheme.surfaceContainerHigh,
+			modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+		) {
+			Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+				Text(
+					buildAnnotatedString {
+						append("${hint.name}(")
+						hint.params.forEachIndexed { at, param ->
+							if (at > 0) append(", ")
+							if (at == hint.active) {
+								pushStyle(SpanStyle(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline))
+								append(param)
+								pop()
+							} else {
+								append(param)
+							}
+						}
+						append(") -> ${hint.returns}")
+					},
+					style = CODE.copy(color = MaterialTheme.colorScheme.onSurface),
+				)
+				hint.note?.let {
+					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				}
+			}
+		}
+	}
+	if (assist.completions.isNotEmpty()) {
+		Row(
+			Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+		) {
+			for (completion in assist.completions) {
+				AssistChip(
+					onClick = hapticClick { onApply(completion) },
+					label = { Text(completion.label, fontFamily = FontFamily.Monospace) },
+				)
+			}
+		}
+	}
+}
+
 @Composable
 private fun Dock(
 	field: TextFieldValue,
@@ -446,51 +498,9 @@ private fun Dock(
 	onSend: () -> Unit,
 ) {
 	Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(top = 6.dp)) {
-		assist.hint?.let { hint ->
-			Surface(
-				shape = RoundedCornerShape(12.dp),
-				color = MaterialTheme.colorScheme.surfaceContainerHigh,
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-			) {
-				Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-					Text(
-						buildAnnotatedString {
-							append("${hint.name}(")
-							hint.params.forEachIndexed { at, param ->
-								if (at > 0) append(", ")
-								if (at == hint.active) {
-									pushStyle(SpanStyle(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline))
-									append(param)
-									pop()
-								} else {
-									append(param)
-								}
-							}
-							append(") -> ${hint.returns}")
-						},
-						style = CODE.copy(color = MaterialTheme.colorScheme.onSurface),
-					)
-					hint.note?.let {
-						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-					}
-				}
-			}
-		}
-		if (assist.completions.isNotEmpty()) {
-			Row(
-				Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				for (completion in assist.completions) {
-					AssistChip(
-						onClick = hapticClick {
-							val (text, cursor) = completion.applyTo(field.text)
-							onField(TextFieldValue(text, TextRange(cursor)))
-						},
-						label = { Text(completion.label, fontFamily = FontFamily.Monospace) },
-					)
-				}
-			}
+		AssistRows(assist) { completion ->
+			val (text, cursor) = completion.applyTo(field.text)
+			onField(TextFieldValue(text, TextRange(cursor)))
 		}
 		Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
 			var history by remember { mutableStateOf(false) }

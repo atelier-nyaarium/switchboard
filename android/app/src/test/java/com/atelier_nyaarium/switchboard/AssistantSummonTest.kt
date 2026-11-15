@@ -118,7 +118,7 @@ class AssistantSummonTest {
 		)
 		assertTrue(roots.all { summonLanding(remembered, it, "mikan") == SummonLanding.At(past) })
 		assertTrue(roots.all { summonLanding(unread, it, null) == SummonLanding.Root })
-		// A moving home without a thread lands at the root.
+		// No thread lands at root.
 		val moving = state(AssistantHome.Read(AssistantHomeRecord(version = 2L, gatewayId = "sakura"), null))
 		assertEquals(SummonLanding.Root, summonLanding(moving, assistantRoot(moving), null))
 

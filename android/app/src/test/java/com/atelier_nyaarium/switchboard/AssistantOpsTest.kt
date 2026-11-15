@@ -862,9 +862,6 @@ class AssistantOpsTest {
 			listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.SAFETY, AssistantSection.REMOVE),
 			assistantSections("sakura", safe),
 		)
-		assertEquals("sakura", newAutomationOn("sakura", placed))
-		assertNull(newAutomationOn("sakura", placed.copy(sources = null)))
-		assertNull(newAutomationOn(null, placed))
 	}
 
 	@Test

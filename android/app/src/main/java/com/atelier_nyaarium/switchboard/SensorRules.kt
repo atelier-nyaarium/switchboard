@@ -97,6 +97,13 @@ internal fun sourceGroups(
 	return leading(groups, lead) { it.gatewayId }
 }
 
+/** What stands where Services go until the home has answered; null draws them. */
+internal fun servicesWaiting(read: AssistantRead): String? = when (read) {
+	is AssistantRead.Answered -> null
+	AssistantRead.Reading -> ""
+	AssistantRead.Refused -> "This Gateway did not answer for its services."
+}
+
 /** No Gateway has answered. */
 internal fun devicesPending(ids: List<String>, views: Map<String, DevicesView>): Boolean =
 	ids.isNotEmpty() && ids.all { (views[it]?.list ?: DeviceListView.Loading) == DeviceListView.Loading }

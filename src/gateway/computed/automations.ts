@@ -135,7 +135,7 @@ const RunSchema = z.strictObject({
 });
 export type AutomationRun = z.infer<typeof RunSchema>;
 
-/** A trigger that fired, until its effects ran and its tell is queued. */
+/** A fired trigger awaiting its run. */
 const FireSchema = z.strictObject({
 	member: z.string(),
 	automation: z.string(),
@@ -1016,7 +1016,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		tick: (): void => {
 			tick();
 		},
-		/** No clock fires and no run starts after this; resolves once the run in flight ended. */
+		/** Stops clocks and runs; awaits the run in flight. */
 		async stop(): Promise<void> {
 			stopped = true;
 			if (clock) deps.timers?.clearTimer(clock.handle());
