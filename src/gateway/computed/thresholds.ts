@@ -1,7 +1,7 @@
 // Band field plus automations.
 
 import type { ExpressionNode } from "../../shared/expressions.js";
-import type { Automation } from "./automations.js";
+import type { Automation } from "../../shared/schemasAutomation.js";
 import type { ComputedField } from "./computedFields.js";
 
 export const THRESHOLD_SIDES = ["low", "high"] as const;
@@ -54,9 +54,8 @@ export function thresholdAutomations(
 			.join(" ")
 			.trim(),
 		enabled: threshold[which] !== undefined,
-		trigger: { field: ids.field, becomes: which },
-		action: { kind: "tell_assistant" },
-		coolDownSec: threshold.coolDownSec,
+		trigger: { kind: "value", field: ids.field, becomes: which, coolDownSec: threshold.coolDownSec },
+		actions: [{ kind: "tell_assistant", when: "quietly" }],
 	});
 	return { low: side("low"), high: side("high") };
 }

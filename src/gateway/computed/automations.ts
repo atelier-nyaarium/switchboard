@@ -3,39 +3,61 @@
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
-import { RULE_ID_RE } from "../../shared/schemasAssistantRules.js";
+import {
+	AUTOMATIONS_MAX,
+	type Automation,
+	AutomationSchema,
+	type EventTrigger,
+	TELL_WHEN,
+	type TellWhen,
+	tellWhen,
+} from "../../shared/schemasAutomation.js";
 import { createOwnerRecords, type OwnerRecord } from "../ownerRecords.js";
 import type { ComputedFields } from "./computedFields.js";
 
-export const AUTOMATIONS_MAX = 64;
 export const AUTOMATION_KIND = "automation";
 export const QUEUE_MAX_EVENTS = 256;
 export const QUEUE_MAX_BYTES = 64 * 1024;
 const LOG_MAX = 64;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const AutomationSchema = z.strictObject({
-	label: z.string().min(1).max(80),
+// Remove 2026-11-28: a body stored before triggers had kinds.
+const LegacyBodySchema = z.strictObject({
+	label: z.string(),
 	enabled: z.boolean(),
-	trigger: z.strictObject({
-		field: z.string().regex(RULE_ID_RE),
-		becomes: z.union([z.string().min(1).max(256), z.boolean()]),
-	}),
-	action: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("tell_assistant") })]),
-	coolDownSec: z.number().int().min(0).max(86_400),
+	trigger: z.strictObject({ field: z.string(), becomes: z.union([z.string(), z.boolean()]) }),
+	action: z.strictObject({ kind: z.literal("tell_assistant") }),
+	coolDownSec: z.number(),
 });
-export type Automation = z.infer<typeof AutomationSchema>;
+
+const StoredAutomationSchema = z.preprocess((body) => {
+	const legacy = LegacyBodySchema.safeParse(body);
+	if (!legacy.success) return body;
+	const { label, enabled, trigger, coolDownSec } = legacy.data;
+	return {
+		label,
+		enabled,
+		trigger: { kind: "value", ...trigger, coolDownSec },
+		actions: [{ kind: "tell_assistant", when: "quietly" }],
+	};
+}, AutomationSchema);
 
 /** Unreadable bodies stay queued. */
 const QueueEntrySchema = z.strictObject({ member: z.string(), at: z.number().int(), body: z.unknown() });
 type QueueEntry = z.infer<typeof QueueEntrySchema>;
-const EventBodySchema = z.strictObject({ title: z.string(), fields: z.record(z.string(), z.string()) });
+const EventBodySchema = z.strictObject({
+	title: z.string(),
+	fields: z.record(z.string(), z.string()),
+	/** Absent in an older entry: quietly. */
+	when: z.enum(TELL_WHEN).optional(),
+});
 
 export interface OutboxEvent {
 	id: string;
 	at: number;
 	title: string;
 	fields: Record<string, string>;
+	when: TellWhen;
 }
 
 /** What automations left for the assistant. */
@@ -115,6 +137,10 @@ export interface AutomationsDeps {
 	isHome: () => boolean;
 	/** Wake after queue append. */
 	onQueued?: () => void;
+	/** Why an event trigger cannot run here. */
+	eventIssue?: (trigger: EventTrigger) => string | null;
+	/** An event trigger in words. */
+	eventSentence?: (trigger: EventTrigger) => string;
 }
 
 const queueBytes = (events: readonly QueueEntry[]) => Buffer.byteLength(JSON.stringify(events));
@@ -124,7 +150,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const records = createOwnerRecords<Automation>({
 		store: deps.records,
-		kinds: { [AUTOMATION_KIND]: AutomationSchema },
+		kinds: { [AUTOMATION_KIND]: StoredAutomationSchema },
 		max: AUTOMATIONS_MAX,
 		newIncarnation: deps.newIncarnation,
 		refusal: (candidate) => triggerIssue(candidate.body),
@@ -132,6 +158,9 @@ export function createAutomations(deps: AutomationsDeps) {
 	});
 
 	function triggerIssue(body: Automation): string | null {
+		if (body.trigger.kind === "event") {
+			return deps.eventIssue ? deps.eventIssue(body.trigger) : "this Gateway holds no sources";
+		}
 		const { field, becomes } = body.trigger;
 		const type = deps.fields.typeOf(field);
 		if (!type) return deps.fields.invalidOf(field) ?? "no such field";
@@ -143,6 +172,14 @@ export function createAutomations(deps: AutomationsDeps) {
 		}
 		return "only a field of choices or true and false can trigger";
 	}
+
+	/** What the row and its events are called. */
+	const sentenceOf = (body: Automation): string => {
+		if (body.label !== undefined) return body.label;
+		if (body.trigger.kind === "event") return deps.eventSentence?.(body.trigger) ?? `${body.trigger.source} event`;
+		const field = deps.fields.get(body.trigger.field)?.body.label ?? body.trigger.field;
+		return `${field} becomes ${String(body.trigger.becomes)}`;
+	};
 
 	const commit = (next: State): boolean =>
 		commitChecked(
@@ -168,8 +205,10 @@ export function createAutomations(deps: AutomationsDeps) {
 		let queued = false;
 		const checkpoints: State["automations"] = {};
 		for (const record of records.list()) {
-			if (!armed(record)) continue;
-			const { field, becomes } = record.body.trigger;
+			const { trigger } = record.body;
+			// The lane runs event triggers.
+			if (trigger.kind !== "value" || !armed(record)) continue;
+			const { field, becomes } = trigger;
 			const saved = state.automations[record.id];
 			const held = unsaved[record.id];
 			const was = held?.revision === record.revision && saved?.revision !== record.revision ? held : saved;
@@ -228,7 +267,7 @@ export function createAutomations(deps: AutomationsDeps) {
 					at = handled;
 					continue;
 				}
-				if (at.firedAt !== undefined && row.at - at.firedAt < record.body.coolDownSec * 1000) {
+				if (at.firedAt !== undefined && row.at - at.firedAt < trigger.coolDownSec * 1000) {
 					log = logged(log, run(row.seq, row.at, "suppressed", "cooling down"));
 					at = handled;
 					continue;
@@ -239,13 +278,15 @@ export function createAutomations(deps: AutomationsDeps) {
 					continue;
 				}
 				const appendAt = Math.max(now, queue.lastAt + 1);
+				const sentence = sentenceOf(record.body);
 				const event: QueueEntry = {
 					member: `automation:${record.id}:${record.incarnation}:${current.epoch}:${row.seq}`,
 					at: appendAt,
 					body: {
-						title: record.body.label,
+						title: sentence,
+						...(tellWhen(record.body) === "now" ? { when: "now" } : {}),
 						fields: {
-							automation: record.body.label,
+							automation: sentence,
 							field: deps.fields.get(field)?.body.label ?? field,
 							value: String(row.value),
 						},
@@ -279,7 +320,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		events: () =>
 			state.queue.events.flatMap((event) => {
 				const body = EventBodySchema.safeParse(event.body);
-				return body.success ? [{ id: event.member, at: event.at, ...body.data }] : [];
+				if (!body.success) return [];
+				const { when = "quietly", ...shown } = body.data;
+				return [{ id: event.member, at: event.at, ...shown, when }];
 			}),
 	};
 
@@ -313,6 +356,18 @@ export function createAutomations(deps: AutomationsDeps) {
 				return false;
 			}
 			return drain();
+		},
+		sentenceOf: (id: string): string | null => {
+			const record = records.list().find((held) => held.id === id);
+			return record ? sentenceOf(record.body) : null;
+		},
+		/** A source's armed event automations. */
+		eventsOf(sourceId: string): { id: string; trigger: EventTrigger; when: TellWhen | null }[] {
+			return records.list().flatMap((record) => {
+				const { trigger } = record.body;
+				if (trigger.kind !== "event" || trigger.source !== sourceId || !armed(record)) return [];
+				return [{ id: record.id, trigger, when: tellWhen(record.body) }];
+			});
 		},
 		runs: (): readonly AutomationRun[] => state.log,
 		checkpoint: (id: string) => state.automations[id] ?? null,

@@ -3,10 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
-import { type Automation, createAutomations } from "../gateway/computed/automations.js";
+import { createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { openDurable } from "../shared/durable-store.js";
 import { type FieldRef, known, refKey, unknown, type Value } from "../shared/expressions.js";
+import type { Automation, ValueTrigger } from "../shared/schemasAutomation.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -30,14 +31,16 @@ const hotBand: ComputedField = {
 	],
 };
 
-const iceBucket = (over: Partial<Automation> = {}): Automation => ({
-	label: "Throw ice bucket!",
-	enabled: true,
-	trigger: { field: "band", becomes: "high" },
-	action: { kind: "tell_assistant" },
-	coolDownSec: 0,
-	...over,
-});
+const iceBucket = (over: Partial<Automation> & Partial<ValueTrigger> = {}): Automation => {
+	const { field = "band", becomes = "high", coolDownSec = 0, kind: _kind, ...rest } = over;
+	return {
+		label: "Throw ice bucket!",
+		enabled: true,
+		trigger: { kind: "value", field, becomes, coolDownSec },
+		actions: [{ kind: "tell_assistant", when: "quietly" }],
+		...rest,
+	};
+};
 
 /** Reopenable Gateway fixture. */
 function world(dir: string, home = true) {
@@ -78,6 +81,7 @@ function world(dir: string, home = true) {
 					now: () => clock,
 					isHome: () => home,
 					onQueued: () => pokes++,
+					eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
 				});
 			}),
 		);
@@ -125,6 +129,50 @@ const queued = async (automations: ReturnType<typeof createAutomations>) => {
 };
 
 describe("automations", () => {
+	it("reads a body stored before triggers had kinds as a value trigger that tells quietly", () => {
+		const { fields, automations } = world(fresh()).open();
+		fields.put("band", hotBand, 0);
+		const earlier = {
+			label: "Throw ice bucket!",
+			enabled: true,
+			trigger: { field: "band", becomes: "high" },
+			action: { kind: "tell_assistant" },
+			coolDownSec: 30,
+		};
+
+		expect(automations.put("bucket", earlier, 0).stored).toBe(true);
+		expect(automations.list()[0]?.body).toEqual(iceBucket({ coolDownSec: 30 }));
+	});
+
+	it("holds a source's event automations for its lane, armed ones only, and tells a crossing as its action says", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const review = (over: Partial<Automation> = {}): Automation => ({
+			enabled: true,
+			trigger: {
+				kind: "event",
+				source: "github",
+				conditions: [{ field: "reason", test: "is", value: "mention" }],
+			},
+			actions: [{ kind: "tell_assistant", when: "now" }],
+			...over,
+		});
+		automations.put("review", review(), 0);
+		automations.put("off", review({ enabled: false }), 0);
+		const elsewhere = review({ trigger: { kind: "event", source: "gmail", conditions: [] } });
+		expect(automations.put("elsewhere", elsewhere, 0).stored).toBe(false);
+		automations.put("bucket", { ...iceBucket(), actions: [{ kind: "tell_assistant", when: "now" }] }, 0);
+
+		expect(automations.eventsOf("github").map(({ id, when }) => [id, when])).toEqual([["review", "now"]]);
+		expect(automations.eventsOf("sensors")).toEqual([]);
+
+		w.read(fields, -5);
+		expect(automations.outbox.events().map(({ title, when }) => [title, when])).toEqual([
+			["Throw ice bucket!", "now"],
+		]);
+	});
+
 	it("fires once per change into its value, queues for the sensors watcher, and pokes the lane", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
@@ -348,12 +396,10 @@ describe("automations", () => {
 		const { fields, automations } = world(fresh()).open();
 		fields.put("band", hotBand, 0);
 
-		expect(automations.put("bucket", iceBucket({ trigger: { field: "band", becomes: "Hot!" } }), 0)).toMatchObject({
+		expect(automations.put("bucket", iceBucket({ becomes: "Hot!" }), 0)).toMatchObject({
 			stored: false,
 		});
-		expect(
-			automations.put("bucket", iceBucket({ trigger: { field: "nowhere", becomes: "high" } }), 0),
-		).toMatchObject({
+		expect(automations.put("bucket", iceBucket({ field: "nowhere" }), 0)).toMatchObject({
 			stored: false,
 		});
 		automations.put("bucket", iceBucket(), 0);

@@ -35,7 +35,9 @@ export interface ConsoleReaders {
 	};
 	devices: () => Pick<DeviceStage, "records" | "sensorRead"> | undefined;
 	fields: () => Pick<ComputedFields, "list" | "get" | "value" | "stateOf" | "invalidOf"> | undefined;
-	automations: () => Pick<Automations, "list" | "runs" | "invalidOf" | "checkpoint" | "queued"> | undefined;
+	automations: () =>
+		| Pick<Automations, "list" | "runs" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf">
+		| undefined;
 	thresholds: () => Pick<SensorThresholds, "list"> | undefined;
 	assistant: () => ConsoleAssistantStateResult;
 	temperatureUnit: () => TemperatureUnit;
@@ -94,7 +96,7 @@ export function consoleIds(readers: ConsoleReaders): ConsoleIds {
 		fields: (readers.fields()?.list() ?? []).map((record) => ({ id: record.id, label: record.body.label })),
 		automations: (readers.automations()?.list() ?? []).map((record) => ({
 			id: record.id,
-			label: record.body.label,
+			label: readers.automations()?.sentenceOf(record.id) ?? record.id,
 		})),
 		sources: readers.assistant().watchers.map((entry) => ({ id: entry.id, label: entry.label })),
 		definitions: SHIPPED_DEFINITIONS.map((definition) => definition.key),
@@ -189,10 +191,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		if (!found) throw new ConsoleError("not_found", `no definition ${key}`);
 		return found;
 	};
-	const labelOf = (automationId: string) =>
-		automations()
-			.list()
-			.find((record) => record.id === automationId)?.body.label ?? null;
+	const labelOf = (automationId: string) => automations().sentenceOf(automationId);
 
 	return [
 		{
@@ -385,6 +384,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 							.map((record) => ({
 								id: record.id,
 								...record.body,
+								label: labelOf(record.id),
 								invalid: automations().invalidOf(record.id),
 							})),
 				},
@@ -408,7 +408,12 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					returns: "Automation",
 					call: ([id]) => {
 						const record = automation(id as string);
-						return { id: record.id, ...record.body, invalid: automations().invalidOf(record.id) };
+						return {
+							id: record.id,
+							...record.body,
+							label: labelOf(record.id),
+							invalid: automations().invalidOf(record.id),
+						};
 					},
 				},
 				read: {

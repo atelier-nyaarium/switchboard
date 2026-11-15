@@ -6,12 +6,13 @@ import { type Definition, definitionOf } from "../../shared/device-definitions/i
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { checkExpression } from "../../shared/expressions.js";
 import { formatFieldValue } from "../../shared/field-values.js";
+import { AUTOMATIONS_MAX } from "../../shared/schemasAutomation.js";
 import type {
 	DeviceRecord,
 	DeviceSensorThreshold,
 	DeviceSensorThresholdPutRequest,
 } from "../../shared/schemasDevices.js";
-import { AUTOMATIONS_MAX, type Automations } from "../computed/automations.js";
+import type { Automations } from "../computed/automations.js";
 import { COMPUTED_FIELDS_MAX, type ComputedFields } from "../computed/computedFields.js";
 import { type Threshold, thresholdAutomations, thresholdField, thresholdIds } from "../computed/thresholds.js";
 

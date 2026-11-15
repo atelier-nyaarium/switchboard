@@ -55,6 +55,7 @@ const AUTOMATIONS = {
 	list: () => [
 		{ id: "threshold-low", revision: 1, body: { label: "Freezer temperature below 21.0 °C", enabled: true } },
 	],
+	sentenceOf: () => "Freezer temperature below 21.0 °C",
 	runs: () => [
 		{ automation: "threshold-low", seq: 1, at: 1_794_694_000_000, outcome: "ran" },
 		{ automation: "threshold-low", seq: 2, at: 1_794_694_500_000, outcome: "suppressed" },

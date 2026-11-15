@@ -3,7 +3,7 @@
 import { z } from "zod";
 import type { AssistantFieldSpec } from "../../shared/schemasAssistantRules.js";
 
-export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+export { SOURCE_ID_RE } from "../../shared/schemasAutomation.js";
 
 /** Per poll. A source pages past it. */
 export const MAX_POLL_EVENTS = 500;
