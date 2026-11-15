@@ -3,7 +3,9 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleCard
 import com.atelier_nyaarium.switchboard.liveconsole.EntryDrawn
 import com.atelier_nyaarium.switchboard.liveconsole.canRun
+import com.atelier_nyaarium.switchboard.liveconsole.consoleGateways
 import com.atelier_nyaarium.switchboard.liveconsole.entryDrawn
+import com.atelier_nyaarium.switchboard.liveconsole.failedLine
 import com.atelier_nyaarium.switchboard.liveconsole.memberInsert
 import com.atelier_nyaarium.switchboard.liveconsole.memberSignature
 import com.atelier_nyaarium.switchboard.liveconsole.moreLine
@@ -107,6 +109,10 @@ class LiveConsoleTest {
 	fun aRowDrawsItsWaitItsRefusalOrItsCardsAndAMemberTypesItsCall() {
 		assertEquals(EntryDrawn.Running, entryDrawn(ConsoleEntryState.Running, description, now))
 		assertEquals(EntryDrawn.Said("no such op"), entryDrawn(ConsoleEntryState.Refused("no such op"), description, now))
+		val dump = entryDrawn(ConsoleEntryState.Refused("[\n" + "x".repeat(400)), description, now) as EntryDrawn.Said
+		assertTrue(dump.line.length < 200 && "\n" !in dump.line)
+		assertEquals("unexpected )", failedLine(ConsoleIssue("unexpected", 0, 1, "unexpected )")))
+		assertEquals("incomplete: missing )", failedLine(ConsoleIssue("incomplete", 0, 1, "missing )")))
 		val answered = entryDrawn(ConsoleEntryState.Answered(ok("27")), description, now)
 		assertEquals(EntryDrawn.Cards(listOf(ConsoleDrawn(ConsoleCard.Scalar("27"), null))), answered)
 
@@ -141,6 +147,11 @@ class LiveConsoleTest {
 		assertEquals("sakura", consoleGatewayOf(ViewScope.Everything, roster, "sakura"))
 		assertEquals("tsubaki", consoleGatewayOf(ViewScope.Everything, roster, "gone"))
 		assertEquals("sakura", consoleGatewayOf(ViewScope.Session("dom.sakura.host.abc123"), roster, "tsubaki"))
+		val wider = roster.copy(gateways = roster.gateways + GatewayEntry("ume", true, 1, 0))
+		assertEquals("ume", consoleGatewayOf(ViewScope.Everything, wider, null, home = "ume"))
+		assertEquals("tsubaki", consoleGatewayOf(ViewScope.Everything, wider, null, home = "sakura"))
+		assertEquals(listOf("sakura", "tsubaki"), consoleGateways(roster, "sakura"))
+		assertEquals(listOf("tsubaki"), consoleGateways(roster, "tsubaki"))
 		assertTrue(picksGateway(ViewScope.Everything, roster))
 		assertTrue(!picksGateway(ViewScope.Session("dom.sakura.host.abc123"), roster))
 	}
@@ -302,10 +313,8 @@ class LiveConsoleTest {
 		val gateway = FakeGateway().apply { refuses = "unknown op console_describe" }
 		val ops = LiveConsoleOps(Host(gateway))
 		ops.open("sakura")
-		assertEquals(
-			"This Gateway does not serve the console: unknown op console_describe",
-			vocabularyLine(ops.viewOf("sakura").vocabulary),
-		)
+		assertEquals(ConsoleVocabulary.Refused("unknown op console_describe"), ops.viewOf("sakura").vocabulary)
+		assertTrue(vocabularyLine(ops.viewOf("sakura").vocabulary) != vocabularyLine(ConsoleVocabulary.Unreachable))
 		ops.run("sakura", "devices")
 		assertEquals(ConsoleEntryState.Refused("unknown op console_describe"), ops.viewOf("sakura").entries.single().state)
 	}

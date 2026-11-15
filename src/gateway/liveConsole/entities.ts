@@ -54,6 +54,7 @@ const deviceParam: ConsoleParam = {
 	description: "Id or name.",
 	completes: "devices",
 };
+const sensorParam: ConsoleParam = { ...deviceParam, completes: "sensors" };
 const idOf = (completes: NonNullable<ConsoleParam["completes"]>, description: string): ConsoleParam => ({
 	name: "id",
 	schema: z.string(),
@@ -270,14 +271,14 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				read: {
 					kind: "method",
 					description: "Readings now, with 24-hour lows and highs.",
-					params: [deviceParam],
+					params: [sensorParam],
 					returns: "Sensor",
 					call: ([device]) => sensorView(device as string),
 				},
 				payloads: {
 					kind: "method",
 					description: "The last distinct adverts, newest first, with the radio that heard each.",
-					params: [deviceParam],
+					params: [sensorParam],
 					returns: "List<Payload>",
 					call: ([device]) => sensorOf(device as string).answer.payloads,
 				},
@@ -285,7 +286,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					kind: "method",
 					description: "A reading's 24-hour low and high.",
 					params: [
-						deviceParam,
+						sensorParam,
 						{
 							name: "key",
 							schema: z.string(),
@@ -321,7 +322,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				get: {
 					kind: "method",
 					description: "One sensor's thresholds.",
-					params: [deviceParam],
+					params: [sensorParam],
 					returns: "List<Threshold>",
 					call: ([device]) => thresholdsOf(device as string),
 				},

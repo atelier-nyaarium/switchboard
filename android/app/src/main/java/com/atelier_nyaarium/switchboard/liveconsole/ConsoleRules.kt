@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.addressOf
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleEntityDescription
+import com.atelier_nyaarium.switchboard.proto.ConsoleIssue
 import com.atelier_nyaarium.switchboard.proto.ConsoleMemberDescription
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonArray
@@ -20,12 +21,19 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Session scope ignores picks. */
-internal fun consoleGatewayOf(scope: ViewScope, roster: GatewayRegistry, picked: String?): String? =
+internal fun consoleGatewayOf(scope: ViewScope, roster: GatewayRegistry, picked: String?, home: String? = null): String? =
 	when (scope) {
 		is ViewScope.Session -> addressOf(scope.team)?.gateway
-		ViewScope.Everything ->
-			picked?.takeIf { roster.has(it) } ?: roster.reachableIds().firstOrNull() ?: roster.ids().firstOrNull()
+		ViewScope.Everything -> {
+			val reachable = roster.reachableIds()
+			// The assistant's home holds the devices.
+			picked?.takeIf { roster.has(it) } ?: home?.takeIf { it in reachable } ?: reachable.firstOrNull() ?: roster.ids().firstOrNull()
+		}
 	}
+
+/** Reachable Gateways, and the chosen one. */
+internal fun consoleGateways(roster: GatewayRegistry, chosen: String): List<String> =
+	roster.ids().filter { it == chosen || it in roster.reachableIds() }
 
 internal data class PaintSpan(val start: Int, val end: Int, val token: CodeToken)
 
@@ -110,8 +118,19 @@ internal fun vocabularyLine(vocabulary: ConsoleVocabulary): String =
 	when (vocabulary) {
 		ConsoleVocabulary.Loading, ConsoleVocabulary.Ready -> "Loading"
 		ConsoleVocabulary.Unreachable -> GATEWAY_UNREACHABLE
-		is ConsoleVocabulary.Refused -> "This Gateway does not serve the console: ${vocabulary.reason}"
+		// An older Gateway refuses in a schema dump.
+		is ConsoleVocabulary.Refused -> "This Gateway does not serve the console. It may need updating."
 	}
+
+private const val REFUSAL_MAX = 160
+
+/** One line, cut. */
+internal fun refusalLine(reason: String): String =
+	oneLine(reason).let { if (it.length > REFUSAL_MAX) it.take(REFUSAL_MAX) + "..." else it }
+
+/** The code, unless the message opens with it. */
+internal fun failedLine(issue: ConsoleIssue): String =
+	if (issue.message.startsWith(issue.code)) issue.message else "${issue.code}: ${issue.message}"
 
 /** A dot takes a keyword too. */
 private fun isName(key: String): Boolean =
@@ -141,7 +160,7 @@ internal fun entryDrawn(state: ConsoleEntryState, description: ConsoleDescriptio
 	when (state) {
 		ConsoleEntryState.Running -> EntryDrawn.Running
 		ConsoleEntryState.Unreachable -> EntryDrawn.Said(GATEWAY_UNREACHABLE)
-		is ConsoleEntryState.Refused -> EntryDrawn.Said(state.reason)
+		is ConsoleEntryState.Refused -> EntryDrawn.Said(refusalLine(state.reason))
 		is ConsoleEntryState.Answered -> EntryDrawn.Cards(cardsOf(state.result, description, now))
 	}
 

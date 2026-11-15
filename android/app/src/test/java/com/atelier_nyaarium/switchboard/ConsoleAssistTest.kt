@@ -41,7 +41,7 @@ class ConsoleAssistTest {
 						false,
 						listOf(
 							ConsoleMemberDescription("list", "property", "List<Sensor>", "", emptyList(), false),
-							method("read", param("device", "Id or name.", "devices")),
+							method("read", param("device", "Id or name.", "sensors")),
 							method("extremes", param("device", "Id or name.", "devices"), param("key", "Reading key.", "readings")),
 						),
 					),
@@ -116,6 +116,11 @@ class ConsoleAssistTest {
 		assertEquals("key: Reading key.", second.hint?.note)
 		assertEquals(listOf("temperature", "battery"), second.completions.map { it.label })
 
+		val plugged = ids.copy(devices = ids.devices + ConsoleDeviceIds("10.0.0.5", "Lamp", emptyList()))
+		assertEquals(
+			listOf("Freezer", "Fridge"),
+			consoleAssist("sensors.read(", 13, description, plugged, emptyMap()).completions.map { it.label },
+		)
 		assertEquals(listOf("govee-h5110"), labels("definitions.get("))
 		assertEquals(emptyList<String>(), labels("definitions.match("))
 		assertEquals("take", at("sensors.list.take(").hint?.name)
@@ -160,7 +165,7 @@ class ConsoleAssistTest {
 
 	@Test
 	fun aSharedDeviceNameCompletesAsItsId() {
-		val twins = ids.copy(devices = ids.devices + ConsoleDeviceIds("aa:bb", "Fridge", emptyList()))
+		val twins = ids.copy(devices = ids.devices + ConsoleDeviceIds("aa:bb", "Fridge", listOf("humidity")))
 		val offered = consoleAssist("sensors.read(", 13, description, twins, emptyMap()).completions
 		assertEquals(listOf("\"Freezer\"", "\"d5:9f\"", "\"aa:bb\""), offered.map { it.insert })
 		assertEquals("Fridge · d5:9f", offered[1].label)
@@ -170,7 +175,7 @@ class ConsoleAssistTest {
 
 	@Test
 	fun aNameWithAnEscapeCompletesByWhatItDecodesTo() {
-		val escaped = ids.copy(devices = listOf(ConsoleDeviceIds("aa:01", "Cold\\Box", emptyList())))
+		val escaped = ids.copy(devices = listOf(ConsoleDeviceIds("aa:01", "Cold\\Box", listOf("temperature"))))
 		val source = "sensors.read(\"Cold\\\\"
 		val offered = consoleAssist(source, source.length, description, escaped, emptyMap()).completions
 		assertEquals("sensors.read(\"Cold\\\\Box\"", offered.single().applyTo(source).first)

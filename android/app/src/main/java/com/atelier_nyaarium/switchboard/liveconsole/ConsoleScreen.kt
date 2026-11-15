@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -75,6 +76,11 @@ import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleEntityDescription
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import com.atelier_nyaarium.switchboard.AssistantHome
 
 private val CODE = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = Color(CodePalette.TEXT))
 
@@ -109,6 +115,10 @@ private class ConsoleHighlight(private val names: Names) : VisualTransformation 
 	override fun filter(text: AnnotatedString) = TransformedText(painted(text.text, names), OffsetMapping.Identity)
 }
 
+/** Code is typed as written. */
+private val CODE_KEYBOARD =
+	KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii)
+
 @Composable
 internal fun ConsoleScreen(
 	repo: ChatRepository,
@@ -117,7 +127,8 @@ internal fun ConsoleScreen(
 	scope: ViewScope = ViewScope.Everything,
 ) {
 	var picked by rememberSaveable { mutableStateOf<String?>(null) }
-	val gatewayId = consoleGatewayOf(scope, state.gateways, picked)
+	val home = (state.assistantHome as? AssistantHome.Read)?.record?.gatewayId
+	val gatewayId = consoleGatewayOf(scope, state.gateways, picked, home)
 	val views by repo.liveConsoleOps.state.collectAsState()
 	if (gatewayId == null) {
 		Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -148,11 +159,16 @@ internal fun ConsoleScreen(
 		repo.liveConsoleOps.setDraft(gatewayId, next.text)
 	}
 
-	fun insert(text: String) = edit(TextFieldValue(text, TextRange(text.length)))
+	val focus = remember { FocusRequester() }
+
+	fun insert(text: String) {
+		edit(TextFieldValue(text, TextRange(text.length)))
+		focus.requestFocus()
+	}
 
 	Column(modifier.fillMaxSize().imePadding()) {
 		if (picksGateway(scope, state.gateways)) {
-			GatewayPicker(gatewayId, state.gateways.ids()) { picked = it }
+			GatewayPicker(gatewayId, consoleGateways(state.gateways, gatewayId)) { picked = it }
 		}
 		if (view.variables.isNotEmpty()) {
 			VariableStrip(view.variables, onPick = ::insert, onDrop = { repo.liveConsoleOps.dropVariable(gatewayId, it) })
@@ -172,6 +188,7 @@ internal fun ConsoleScreen(
 			assist = assist,
 			names = names,
 			recall = repo.liveConsoleOps.recall(gatewayId),
+			focus = focus,
 			onField = ::edit,
 			onSend = {
 				val expr = field.text
@@ -303,7 +320,7 @@ private fun ResultSurface(content: @Composable () -> Unit) {
 private fun FailedCard(source: String, card: ConsoleCard.Failed, names: Names) {
 	Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
 		Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-			Text("${card.issue.code}: ${card.issue.message}", color = MaterialTheme.colorScheme.onErrorContainer)
+			Text(failedLine(card.issue), color = MaterialTheme.colorScheme.onErrorContainer)
 			val range = card.issue.start.toInt() until card.issue.end.toInt()
 			Text(painted(source, names, range), style = CODE)
 		}
@@ -424,6 +441,7 @@ private fun Dock(
 	assist: ConsoleAssist,
 	names: Names,
 	recall: List<String>,
+	focus: FocusRequester,
 	onField: (TextFieldValue) -> Unit,
 	onSend: () -> Unit,
 ) {
@@ -495,8 +513,10 @@ private fun Dock(
 				textStyle = CODE,
 				cursorBrush = SolidColor(Color(CodePalette.TEXT)),
 				visualTransformation = remember(names) { ConsoleHighlight(names) },
+				keyboardOptions = CODE_KEYBOARD,
 				modifier =
 					Modifier.weight(1f)
+						.focusRequester(focus)
 						.heightIn(min = 48.dp)
 						.background(Color(CodePalette.BACKGROUND), RoundedCornerShape(12.dp))
 						.border(1.dp, Color(CodePalette.BORDER), RoundedCornerShape(12.dp))

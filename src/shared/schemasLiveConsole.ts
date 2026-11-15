@@ -26,7 +26,15 @@ export const LiveConsoleRequestShape = {
 };
 
 /** Readings follow the first device. */
-export const CONSOLE_COMPLETES = ["devices", "readings", "fields", "automations", "sources", "definitions"] as const;
+export const CONSOLE_COMPLETES = [
+	"devices",
+	"sensors",
+	"readings",
+	"fields",
+	"automations",
+	"sources",
+	"definitions",
+] as const;
 export type ConsoleCompletes = (typeof CONSOLE_COMPLETES)[number];
 
 export const ConsoleParamDescriptionSchema = z

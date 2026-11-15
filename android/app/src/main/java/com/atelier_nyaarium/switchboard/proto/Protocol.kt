@@ -153,6 +153,7 @@ object Protocol {
 
 		enum class ConsoleCompletes(val wire: String) {
 			DEVICES("devices"),
+			SENSORS("sensors"),
 			READINGS("readings"),
 			FIELDS("fields"),
 			AUTOMATIONS("automations"),

@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.liveconsole
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
+import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceIds
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
 import com.atelier_nyaarium.switchboard.proto.Protocol
 
@@ -73,6 +74,14 @@ private fun hintOf(call: OpenCall, description: ConsoleDescription): ConsoleHint
 
 private data class Choice(val label: String, val value: String)
 
+/** A name another device shares completes by id. */
+private fun named(offered: List<ConsoleDeviceIds>, all: List<ConsoleDeviceIds>): List<Choice> {
+	val shared = all.groupingBy { it.name.lowercase() }.eachCount()
+	return offered.map {
+		if ((shared[it.name.lowercase()] ?: 0) > 1) Choice("${it.name} · ${it.id}", it.id) else Choice(it.name, it.name)
+	}
+}
+
 private fun argumentChoices(call: OpenCall, description: ConsoleDescription, ids: ConsoleIds?): List<Choice> {
 	if (ids == null) return emptyList()
 	val member =
@@ -83,13 +92,9 @@ private fun argumentChoices(call: OpenCall, description: ConsoleDescription, ids
 	// A kind this build does not know offers nothing.
 	val kind = Protocol.Wire.ConsoleCompletes.entries.firstOrNull { it.wire == param.completes } ?: return emptyList()
 	return when (kind) {
-		Protocol.Wire.ConsoleCompletes.DEVICES -> {
-			val shared = ids.devices.groupingBy { it.name.lowercase() }.eachCount()
-			// Resolve duplicate names by ID.
-			ids.devices.map {
-				if ((shared[it.name.lowercase()] ?: 0) > 1) Choice("${it.name} · ${it.id}", it.id) else Choice(it.name, it.name)
-			}
-		}
+		Protocol.Wire.ConsoleCompletes.DEVICES -> named(ids.devices, ids.devices)
+		// A sensor is a device with readings.
+		Protocol.Wire.ConsoleCompletes.SENSORS -> named(ids.devices.filter { it.readings.isNotEmpty() }, ids.devices)
 		Protocol.Wire.ConsoleCompletes.READINGS -> {
 			val device = call.args.firstOrNull()?.lowercase()
 			plain(
