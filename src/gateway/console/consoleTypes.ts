@@ -167,22 +167,22 @@ export type DeviceConsole = <Op extends DeviceConsoleOp>(op: Op) => Promise<Devi
 /** A rule op answers a refusal with the held rules; others throw. */
 export interface AssistantConsoleHandlers {
 	state: () => ConsoleAssistantStateResult;
-	setServiceGrants: (watcherId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
-	putRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantRulesResult>;
-	deleteRule: (watcherId: string, ruleId: string, base: number) => Promise<ConsoleAssistantRulesResult>;
+	setServiceGrants: (sourceId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
+	putRule: (sourceId: string, rule: AssistantRule) => Promise<ConsoleAssistantRulesResult>;
+	deleteRule: (sourceId: string, ruleId: string, base: number) => Promise<ConsoleAssistantRulesResult>;
 	moveRule: (
-		watcherId: string,
+		sourceId: string,
 		ruleId: string,
 		beforeId: string | undefined,
 		base: number,
 	) => Promise<ConsoleAssistantRulesResult>;
-	putOtherwise: (watcherId: string, otherwise: AssistantRuleOtherwise) => Promise<ConsoleAssistantRulesResult>;
-	previewRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantPreviewResult>;
+	putOtherwise: (sourceId: string, otherwise: AssistantRuleOtherwise) => Promise<ConsoleAssistantRulesResult>;
+	previewRule: (sourceId: string, rule: AssistantRule) => Promise<ConsoleAssistantPreviewResult>;
 	setSafety: (approveEverySend: boolean) => Promise<ConsoleAssistantStateResult>;
 	setTemperatureUnit: (temperatureUnit: TemperatureUnit) => Promise<ConsoleAssistantStateResult>;
-	setWatcherEnabled: (watcherId: string, enabled: boolean) => Promise<ConsoleAssistantStateResult>;
+	setSourceEnabled: (sourceId: string, enabled: boolean) => Promise<ConsoleAssistantStateResult>;
 	/** Bounded by the send wait. */
-	checkWatcher: (watcherId: string, from: string, opId: string) => Promise<ConsoleAssistantStateResult>;
+	checkSource: (sourceId: string, from: string, opId: string) => Promise<ConsoleAssistantStateResult>;
 	/** One delivery; collect outcome. */
 	answerSend: (requestId: string, decision: "approve" | "deny", note?: string) => ConsoleAssistantSendAnswerResult;
 	answerPhone: (

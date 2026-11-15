@@ -3,9 +3,9 @@
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
-import { SENSORS_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
+import { SENSORS_SOURCE_ID } from "../../shared/schemasAssistantActions.js";
 import { RULE_ID_RE } from "../../shared/schemasAssistantRules.js";
-import type { ListPage, ListQuery, PollAnswer, Watcher, WatcherEvent } from "../assistant/watcher.js";
+import type { ListPage, ListQuery, PollAnswer, Source, SourceEvent } from "../assistant/source.js";
 import { createOwnerRecords, type OwnerRecord } from "../ownerRecords.js";
 import type { ComputedFields } from "./computedFields.js";
 
@@ -262,14 +262,14 @@ export function createAutomations(deps: AutomationsDeps) {
 	}
 
 	/** Unreadable entries stay hidden. */
-	const watcherEvents = (events: readonly QueueEntry[]): WatcherEvent[] =>
+	const sourceEvents = (events: readonly QueueEntry[]): SourceEvent[] =>
 		events.flatMap((event) => {
 			const body = EventBodySchema.safeParse(event.body);
 			return body.success ? [{ id: event.member, at: event.at, ...body.data }] : [];
 		});
 
-	const watcher: Watcher = {
-		id: SENSORS_WATCHER_ID,
+	const source: Source = {
+		id: SENSORS_SOURCE_ID,
 		label: "Sensors",
 		fieldSpecs: [
 			{ kind: "text", field: "automation", label: "Automation" },
@@ -281,7 +281,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			if (cursor === String(lastAt)) return { kind: "unchanged", nextPollMs: FALLBACK_POLL_MS };
 			return {
 				kind: "events",
-				events: watcherEvents(events),
+				events: sourceEvents(events),
 				cursor: String(lastAt),
 				capped: false,
 				nextPollMs: FALLBACK_POLL_MS,
@@ -289,7 +289,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		},
 		async list(query: ListQuery): Promise<ListPage> {
 			const since = query.scope === "new" ? (query.since ?? 0) : -1;
-			const shown = watcherEvents(state.queue.events.filter((event) => event.at > since)).reverse();
+			const shown = sourceEvents(state.queue.events.filter((event) => event.at > since)).reverse();
 			return { events: shown, here: "p0", ...(query.scope === "new" ? { mark: state.queue.lastAt } : {}) };
 		},
 	};
@@ -328,7 +328,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		runs: (): readonly AutomationRun[] => state.log,
 		checkpoint: (id: string) => state.automations[id] ?? null,
 		queued: () => state.queue,
-		watcher,
+		source,
 	};
 }
 

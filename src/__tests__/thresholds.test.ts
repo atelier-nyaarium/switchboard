@@ -74,7 +74,7 @@ describe("threshold template", () => {
 
 		read(-5);
 		read(-40);
-		const poll = await automations.watcher.poll(null, new AbortController().signal);
+		const poll = await automations.source.poll(null, new AbortController().signal);
 		expect(poll.kind === "events" ? poll.events.map((event) => event.title) : []).toEqual(["Freezer above -10"]);
 		expect(thresholdField({ ...threshold, high: undefined })).toBeNull();
 	});

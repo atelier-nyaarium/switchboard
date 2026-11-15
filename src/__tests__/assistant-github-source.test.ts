@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createGithubClient, type TokenRead } from "../gateway/assistant/githubClient.js";
-import { createGithubWatcher, GITHUB_FIELD_SPECS } from "../gateway/assistant/githubWatcher.js";
-import { type ListQuery, PollAnswerSchema } from "../gateway/assistant/watcher.js";
+import { createGithubSource, GITHUB_FIELD_SPECS } from "../gateway/assistant/githubSource.js";
+import { type ListQuery, PollAnswerSchema } from "../gateway/assistant/source.js";
 import { AssistantFieldSpecSchema } from "../shared/schemasAssistantRules.js";
 
 const NOW = 1_800_000_000_000;
@@ -24,7 +24,7 @@ function github(replies: Reply[], token: TokenRead = { kind: "token", value: "gh
 	const asked: { url: string; headers: Record<string, string> }[] = [];
 	let current = token;
 	let now = NOW;
-	const watcher = createGithubWatcher(
+	const watcher = createGithubSource(
 		createGithubClient({
 			now: () => now,
 			token: async () => current,

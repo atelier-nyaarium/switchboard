@@ -27,7 +27,7 @@ const STATUS_ID = "phone/status";
 const NOT_RECORDED = "Your summary was not recorded.";
 const NOT_SERVED = `This Gateway does not serve ${LIST} and ${RUN}; it needs updating.`;
 
-/** Terminal watcher outcomes. */
+/** Terminal source outcomes. */
 const SETTLED = new Set(["done", "not_found"]);
 
 /** Pre-dispatch refusals. */
@@ -72,7 +72,7 @@ export function listingText(actions: ActionListing[]): string {
 		.join("\n\n");
 }
 
-export function watcherText(result: ActionRunResult, answer: ActionAnswer | null, summarized: boolean): string {
+export function sourceText(result: ActionRunResult, answer: ActionAnswer | null, summarized: boolean): string {
 	if (result.kind === "not_assistant" || result.kind === "unauthenticated") return SESSION_TEXT[result.kind];
 	const lost = summarized ? ["", NOT_RECORDED] : [];
 	if (result.kind === "refused") return [`Refused: ${oneLine(result.reason)}`, ...lost].join("\n");
@@ -107,7 +107,7 @@ function render(ref: ActionRef | null, result: ActionRunResult, params: Record<s
 			!result.recorded ||
 			!answer ||
 			answer.threads.some((thread) => !SETTLED.has(thread.outcome));
-		return text(watcherText(result, answer, typeof params.summary === "string"), failed);
+		return text(sourceText(result, answer, typeof params.summary === "string"), failed);
 	}
 	// An unknown key renders the answer as sent.
 	const answer =

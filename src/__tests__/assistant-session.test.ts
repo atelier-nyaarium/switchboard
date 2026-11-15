@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import type { Watcher } from "../gateway/assistant/watcher.js";
+import type { Source } from "../gateway/assistant/source.js";
 import {
 	type AssistantHomePort,
 	type AssistantNudge,
@@ -41,7 +41,7 @@ type StageAssistant = ReturnType<typeof composeAssistant>;
 interface StageOptions {
 	dataDir?: string;
 	store?: SessionStore;
-	watchers?: Watcher[];
+	watchers?: Source[];
 	ambient?: FakeAmbient;
 	fetch?: AssistantStageDeps["fetch"];
 	vault?: AssistantVault;
@@ -76,7 +76,7 @@ function vault(
 	return held;
 }
 
-function counting(options: { repeat?: boolean; onPoll?: () => void } = {}): Watcher & { polls: number } {
+function counting(options: { repeat?: boolean; onPoll?: () => void } = {}): Source & { polls: number } {
 	const watcher = {
 		id: "github",
 		label: "GitHub",
@@ -158,7 +158,7 @@ function stage(options: StageOptions = {}) {
 		blobSize: () => null,
 		lastDeliverySeq: () => 0,
 		fetch: options.fetch ?? (async () => new Response(null, { status: 304 })),
-		...(options.watchers ? { watchers: options.watchers } : {}),
+		...(options.watchers ? { sources: options.watchers } : {}),
 	});
 	const opened = new Map<number, HomeOpen>();
 	const reports: HomeReport[] = [];
@@ -230,12 +230,12 @@ describe("the assistant's session", () => {
 		const { assistant, followHome } = stage();
 		const sensors = { ...counting(), id: "sensors", label: "Sensors" };
 
-		assistant.registerWatcher(sensors);
+		assistant.registerSource(sensors);
 		assistant.start();
 		await followHome();
 
 		expect(assistant.console.state().watchers.map((watcher) => watcher.id)).toEqual(["github", "sensors"]);
-		expect(() => assistant.registerWatcher({ ...sensors, id: "late" })).toThrow();
+		expect(() => assistant.registerSource({ ...sensors, id: "late" })).toThrow();
 	});
 
 	it("compares home versions only within one Domain", async () => {
@@ -341,10 +341,10 @@ describe("the assistant's session", () => {
 		await ambient.advance(60_000);
 		const fresh = { enabled: test.assistant.console.state().watchers[0]?.enabled, polls: watcher.polls };
 
-		await test.assistant.console.setWatcherEnabled("github", true);
+		await test.assistant.console.setSourceEnabled("github", true);
 		await ambient.advance(0);
 		const on = watcher.polls;
-		await test.assistant.console.setWatcherEnabled("github", false);
+		await test.assistant.console.setSourceEnabled("github", false);
 		await ambient.advance(120_000);
 		const off = watcher.polls;
 
@@ -370,12 +370,12 @@ describe("the assistant's session", () => {
 		});
 		await test.followHome(1, LOCAL_GATEWAY, { kind: "ok", sealed: sealedHome(NOTES, carriedSettings()) });
 
-		await test.assistant.console.checkWatcher("github", "Pixel", "op-1");
-		await test.assistant.console.setWatcherEnabled("github", false);
-		const disabled = test.assistant.console.checkWatcher("github", "Pixel", "op-2");
+		await test.assistant.console.checkSource("github", "Pixel", "op-1");
+		await test.assistant.console.setSourceEnabled("github", false);
+		const disabled = test.assistant.console.checkSource("github", "Pixel", "op-2");
 		await expect(disabled).rejects.toThrow("disabled");
-		await test.assistant.console.setWatcherEnabled("github", true);
-		const refused = test.assistant.console.checkWatcher("github", "Pixel", "op-3");
+		await test.assistant.console.setSourceEnabled("github", true);
+		const refused = test.assistant.console.checkSource("github", "Pixel", "op-3");
 		await expect(refused).rejects.toThrow("the session is gone");
 
 		expect(sent.map((nudge) => nudge.deliveryId)).toEqual(["assistant-check:op-1", "assistant-check:op-3"]);

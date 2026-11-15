@@ -520,10 +520,10 @@ export function createConsoleDispatcher({
 				return requireAssistant().setTemperatureUnit(op.temperatureUnit);
 
 			case "assistant_watcher_enabled":
-				return requireAssistant().setWatcherEnabled(op.watcherId, op.enabled);
+				return requireAssistant().setSourceEnabled(op.watcherId, op.enabled);
 
 			case "assistant_watcher_check":
-				return requireAssistant().checkWatcher(op.watcherId, device, opId);
+				return requireAssistant().checkSource(op.watcherId, device, opId);
 
 			case "assistant_send_answer":
 				return requireAssistant().answerSend(op.requestId, op.decision, op.note);

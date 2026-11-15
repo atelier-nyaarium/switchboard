@@ -1,4 +1,4 @@
-// The assistant's one session and its watchers, placed where the Router's home record names.
+// The assistant's one session and its sources, placed where the Router's home record names.
 
 import { type Ambient, withinMs } from "../../shared/ambient.js";
 import type { HoldAnswer } from "../../shared/assistant-hold.js";
@@ -10,7 +10,7 @@ import {
 	isAssistantRecord,
 } from "../../shared/assistant-session.js";
 import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
-import { openDurable } from "../../shared/durable-store.js";
+import { openDurable, renameDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
@@ -22,7 +22,7 @@ import {
 	INTEGRATION_IDS,
 	type TemperatureUnit,
 } from "../../shared/schemasAssistant.js";
-import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
+import { actionsOf, GITHUB_SOURCE_ID } from "../../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../../shared/schemasAssistantHome.js";
 import { eventLines } from "../../shared/schemasAssistantInbox.js";
 import {
@@ -46,7 +46,7 @@ import { createAssistantRoutes, type Handler } from "../assistant/assistantRoute
 import { approvedDeviceRun, createDeviceDispatch } from "../assistant/deviceDispatch.js";
 import { createGithubClient, type GithubClientDeps, type TokenRead } from "../assistant/githubClient.js";
 import { GithubDone } from "../assistant/githubDone.js";
-import { createGithubWatcher } from "../assistant/githubWatcher.js";
+import { createGithubSource } from "../assistant/githubSource.js";
 import { createHomeFollow, type HomeFollowEffects } from "../assistant/homeFollow.js";
 import { createHomeMarkStore } from "../assistant/homeMark.js";
 import { createIftttClient } from "../assistant/iftttClient.js";
@@ -56,14 +56,14 @@ import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } fro
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
 import { SensorsClear } from "../assistant/sensorsClear.js";
+import type { ListPage, ListQuery, Source, SourceEvent } from "../assistant/source.js";
+import type { SourceActions } from "../assistant/sourceAction.js";
+import { createSourceEnabledStore } from "../assistant/sourceEnabled.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
+import { createSourceStateStore, FRESH_STATE, goneAdded, unexpectedNow } from "../assistant/sourceState.js";
 import { createStatusMemo } from "../assistant/statusMemo.js";
 import { createTemperatureUnitStore } from "../assistant/temperatureUnit.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
-import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
-import type { WatcherActions } from "../assistant/watcherAction.js";
-import { createWatcherEnabledStore } from "../assistant/watcherEnabled.js";
-import { createWatcherStateStore, FRESH_STATE, goneAdded, unexpectedNow } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
 import { createHoldFollow } from "../phone/holdFollow.js";
 import { presentedByRequest } from "../sessionAuthority.js";
@@ -99,9 +99,9 @@ Reply only if something needs the owner.
 
 /** What the assistant reaches in the vault, read late. */
 export interface AssistantVault {
-	serviceGrants: (watcherId: string) => string[];
-	setServiceGrants: (watcherId: string, entryIds: string[]) => void;
-	readForService: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+	serviceGrants: (sourceId: string) => string[];
+	setServiceGrants: (sourceId: string, entryIds: string[]) => void;
+	readForService: (sourceId: string, entryId: string) => Promise<VaultRelease>;
 	/** Whether this Gateway may use the entry's value. */
 	usableHere: (entryId: string) => Promise<boolean>;
 }
@@ -134,8 +134,8 @@ export interface AssistantStageDeps {
 	/** The newest delivery acceptance. */
 	lastDeliverySeq: () => number;
 	fetch: GithubClientDeps["fetch"];
-	/** Replaces the built-in watchers. */
-	watchers?: readonly Watcher[];
+	/** Replaces the built-in sources. */
+	sources?: readonly Source[];
 	clearSensorEvents?: (members: readonly string[]) => boolean;
 }
 
@@ -161,10 +161,10 @@ export interface AssistantStage {
 	/** Check now's road. */
 	bindNudge: (nudge: AssistantNudge) => void;
 	/** Register before start. */
-	registerWatcher: (watcher: Watcher) => void;
-	/** Arms watchers after activation. */
+	registerSource: (source: Source) => void;
+	/** Arms sources after activation. */
 	start: () => void;
-	pokeWatcher: (watcherId: string) => void;
+	pokeSource: (sourceId: string) => void;
 	/** Stop lanes before flush. */
 	stop: () => Promise<void>;
 	/** Plugin-confirmed delivery. */
@@ -178,7 +178,7 @@ export interface AssistantStage {
 	sessionEnded: (team: string) => void;
 }
 
-/** The vault's answer, as a watcher reads it: a missing grant stops it, a transient wait backs off. */
+/** The vault's answer, as a source reads it: a missing grant stops it, a transient wait backs off. */
 function tokenOf(read: VaultRelease, entryId: string): TokenRead {
 	if (read.kind === "released") return { kind: "token", value: read.value, key: entryId };
 	if (read.kind === "unusable") return { kind: "stopped", reason: read.reason };
@@ -199,28 +199,31 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	/** Its routes answer only while the home lets its lanes run. */
 	const acting = (record: Parameters<typeof isAssistantRecord>[0]) => isAssistantRecord(record) && home.allowsLanes();
 
-	const tokenFor = (watcherId: string) => async (): Promise<TokenRead> => {
-		const entryId = deps.vault.serviceGrants(watcherId)[0];
+	const tokenFor = (sourceId: string) => async (): Promise<TokenRead> => {
+		const entryId = deps.vault.serviceGrants(sourceId)[0];
 		if (entryId === undefined) return { kind: "stopped", reason: NEEDS_SECRET };
-		return tokenOf(await deps.vault.readForService(watcherId, entryId), entryId);
+		return tokenOf(await deps.vault.readForService(sourceId, entryId), entryId);
 	};
 	const github = createGithubClient({
 		fetch: deps.fetch,
-		token: tokenFor(GITHUB_WATCHER_ID),
+		token: tokenFor(GITHUB_SOURCE_ID),
 		now: () => ambient.now(),
 	});
-	const watchers: Watcher[] = [...(deps.watchers ?? [createGithubWatcher(github)])];
-	const actions: WatcherActions = {
+	const sources: Source[] = [...(deps.sources ?? [createGithubSource(github)])];
+	const actions: SourceActions = {
 		github_done: new GithubDone(github),
 		sensors_clear: new SensorsClear((members) => deps.clearSensorEvents?.(members) ?? false),
 	};
 
-	const watcherState = openDurable(deps.dataDir, "assistant-watchers", (store) => createWatcherStateStore(store));
-	const enabled = openDurable(deps.dataDir, "assistant-watcher-enabled", (store) => createWatcherEnabledStore(store));
-	// Unknown watcher returns undefined.
-	const specsOf = (watcherId: string) => watchers.find((candidate) => candidate.id === watcherId)?.fieldSpecs;
+	// Remove 2026-11-28: names from before sources.
+	renameDurable(deps.dataDir, "assistant-watchers", "assistant-sources");
+	renameDurable(deps.dataDir, "assistant-watcher-enabled", "assistant-source-enabled");
+	const sourceState = openDurable(deps.dataDir, "assistant-sources", (store) => createSourceStateStore(store));
+	const enabled = openDurable(deps.dataDir, "assistant-source-enabled", (store) => createSourceEnabledStore(store));
+	// Unknown source returns undefined.
+	const specsOf = (sourceId: string) => sources.find((candidate) => candidate.id === sourceId)?.fieldSpecs;
 	const rules = openDurable(deps.dataDir, "assistant-rules", (store) => createRulesStore({ store, specsOf }));
-	const render = (watcher: Watcher, event: WatcherEvent) => eventLines({ label: watcher.label, ...event }).join("\n");
+	const render = (source: Source, event: SourceEvent) => eventLines({ label: source.label, ...event }).join("\n");
 
 	let lanes: SourceLanes | null = null;
 	let wake: AssistantWake | null = null;
@@ -229,7 +232,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	let ownerOpsClosed = false;
 
 	/** A quiet row; the phone re-reads. */
-	const watchersChanged = (watcherId: string) => {
+	const sourcesChanged = (sourceId: string) => {
 		try {
 			const routes = deps.routes();
 			const sessionId = routes.ownerSessionKey(ASSISTANT_TEAM);
@@ -239,30 +242,31 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					kind: "plugin_action",
 					session_id: sessionId,
 					pluginId: "assistant",
+					// The phone's word until it reads sources.
 					actionType: "watchers-changed",
-					payload: { watcherId },
+					payload: { watcherId: sourceId },
 				},
-				dedupeKey: `assistant-watchers:${ambient.newId()}`,
+				dedupeKey: `assistant-sources:${ambient.newId()}`,
 				label: "assistant",
 				volatile: true,
 			});
 		} catch (error) {
-			console.warn(`[assistant] watcher change signal not sent: ${(error as Error).message}`);
+			console.warn(`[assistant] source change signal not sent: ${(error as Error).message}`);
 		}
 	};
 	const startLanes = () => {
 		if (!active || lanes || !held() || !home.allowsLanes()) return;
 		lanes = createSourceLanes({
 			ambient,
-			state: watcherState,
-			watchers,
-			enabled: (watcherId) => enabled.enabled(watcherId),
-			sort: (watcherId, event) => decideEvent(rules.get(watcherId), specsOf(watcherId) ?? [], event.fields),
+			state: sourceState,
+			sources,
+			enabled: (sourceId) => enabled.enabled(sourceId),
+			sort: (sourceId, event) => decideEvent(rules.get(sourceId), specsOf(sourceId) ?? [], event.fields),
 			wake: () => wake,
 			to: ASSISTANT_TEAM,
 			holdLine: () => renderPhoneHold(phoneHold.answer()).line,
 			render,
-			changed: watchersChanged,
+			changed: sourcesChanged,
 		});
 		lanes.start();
 	};
@@ -271,31 +275,29 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		lanes = null;
 		await stopping?.stop();
 	};
-	/** One live page in the watcher's lane; the query is built there, so it reads the lane's mark. */
+	/** One live page in the source's lane; the query is built there, so it reads the lane's mark. */
 	const livePage = async <T>(
-		watcherId: string,
+		sourceId: string,
 		query: () => ListQuery,
 		deadlineMs: number,
 		settle: (page: ListPage) => T,
 	): Promise<T> => {
 		if (!lanes) throw new Error(NOT_HERE);
 		const answer = await lanes.read(
-			watcherId,
+			sourceId,
 			deadlineMs,
-			async (watcher, signal): Promise<ListPage> =>
-				watcher.list ? await watcher.list(query(), signal) : { events: [], here: "" },
+			async (source, signal): Promise<ListPage> =>
+				source.list ? await source.list(query(), signal) : { events: [], here: "" },
 			settle,
 		);
 		if (answer.kind === "ran") return answer.value;
-		throw new Error(
-			answer.end === "stopping" ? "the assistant is stopping" : `${watcherId} did not answer in time`,
-		);
+		throw new Error(answer.end === "stopping" ? "the assistant is stopping" : `${sourceId} did not answer in time`);
 	};
 	const inbox = createInboxListing({
-		watchers,
-		enabled: (watcherId) => enabled.enabled(watcherId),
-		state: watcherState,
-		rulesFor: (watcherId) => rules.get(watcherId),
+		sources,
+		enabled: (sourceId) => enabled.enabled(sourceId),
+		state: sourceState,
+		rulesFor: (sourceId) => rules.get(sourceId),
 		ambient,
 		livePage,
 	});
@@ -317,14 +319,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const dispatch = createActionDispatch({
 		actions,
 		ambient,
-		write: (watcherId, deadlineMs, work) =>
-			lanes ? lanes.write(watcherId, deadlineMs, work) : Promise.reject(new Error(NOT_HERE)),
-		recount: (watcherId) => lanes?.recount(watcherId),
+		write: (sourceId, deadlineMs, work) =>
+			lanes ? lanes.write(sourceId, deadlineMs, work) : Promise.reject(new Error(NOT_HERE)),
+		recount: (sourceId) => lanes?.recount(sourceId),
 		record: postRecord,
-		hideNotFound: (watcherId, ids) => {
-			const held = watcherState.get(watcherId);
-			if (ids.length > 0 && !watcherState.put(watcherId, goneAdded(held, ids, ambient.now()))) {
-				console.warn(`[assistant] ${watcherId}: not-found threads not saved, so they stay listed`);
+		hideNotFound: (sourceId, ids) => {
+			const held = sourceState.get(sourceId);
+			if (ids.length > 0 && !sourceState.put(sourceId, goneAdded(held, ids, ambient.now()))) {
+				console.warn(`[assistant] ${sourceId}: not-found threads not saved, so they stay listed`);
 			}
 		},
 	});
@@ -336,20 +338,20 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			return work();
 		});
 	/** A write that did not land answers as a refusal, never as the state it meant. */
-	const grantsLanded = (watcherId: string, entryIds: readonly string[]) => {
-		const held = deps.vault.serviceGrants(watcherId);
+	const grantsLanded = (sourceId: string, entryIds: readonly string[]) => {
+		const held = deps.vault.serviceGrants(sourceId);
 		return held.length === entryIds.length && entryIds.every((entryId) => held.includes(entryId));
 	};
-	const grantTargets = () => [...watchers.map((watcher) => watcher.id), ...INTEGRATION_IDS];
+	const grantTargets = () => [...sources.map((source) => source.id), ...INTEGRATION_IDS];
 
-	const watcherOf = (watcher: Watcher): AssistantWatcher => {
-		const state = watcherState.get(watcher.id);
-		const specs = watcher.fieldSpecs;
-		const held = rules.get(watcher.id);
+	const sourceOf = (source: Source): AssistantWatcher => {
+		const state = sourceState.get(source.id);
+		const specs = source.fieldSpecs;
+		const held = rules.get(source.id);
 		return {
-			id: watcher.id,
-			label: watcher.label,
-			grants: deps.vault.serviceGrants(watcher.id),
+			id: source.id,
+			label: source.label,
+			grants: deps.vault.serviceGrants(source.id),
 			unread: state.unread,
 			capped: state.capped,
 			evicted: 0,
@@ -362,14 +364,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			rules: held,
 			invalid: invalidRules(held.rules, specs),
 			unexpected: unexpectedNow(state, specs),
-			...(watcher.secret === undefined ? {} : { secret: watcher.secret }),
-			actions: actionsOf(watcher.id),
-			enabled: enabled.enabled(watcher.id),
+			...(source.secret === undefined ? {} : { secret: source.secret }),
+			actions: actionsOf(source.id),
+			enabled: enabled.enabled(source.id),
 		};
 	};
-	const watcherNamed = (watcherId: string) => {
-		const found = watchers.find((watcher) => watcher.id === watcherId);
-		if (!found) throw new Error(`no watcher "${watcherId}"`);
+	const sourceNamed = (sourceId: string) => {
+		const found = sources.find((source) => source.id === sourceId);
+		if (!found) throw new Error(`no source "${sourceId}"`);
 		return found;
 	};
 	const safety = openDurable(deps.dataDir, "assistant-safety", (store) => createSafetyStore(store));
@@ -548,7 +550,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		fetch: deps.fetch,
 		vault: {
 			entryId: () => deps.vault.serviceGrants(IFTTT_INTEGRATION_ID)[0],
-			readForService: (watcherId, entryId) => deps.vault.readForService(watcherId, entryId),
+			readForService: (sourceId, entryId) => deps.vault.readForService(sourceId, entryId),
 		},
 		ambient,
 	});
@@ -598,7 +600,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		return {
 			workdir: record?.workdirPath ?? null,
 			team: record ? ASSISTANT_TEAM : null,
-			watchers: watchers.map(watcherOf),
+			watchers: sources.map(sourceOf),
 			integrations: INTEGRATION_IDS.map((id) => ({
 				id,
 				label: integrationLabel(id),
@@ -632,8 +634,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if (!grantTargets().every((id) => grantsLanded(id, [])))
 			return "a grant left from an earlier placement could not be dropped";
 		// First poll primes again.
-		if (!watchers.every((watcher) => watcherState.put(watcher.id, FRESH_STATE)))
-			return "a watcher's earlier state could not be reset";
+		if (!sources.every((source) => sourceState.put(source.id, FRESH_STATE)))
+			return "a source's earlier state could not be reset";
 		const undo = place(workdirPath, sessions);
 		try {
 			deps.saveSessions();
@@ -641,22 +643,22 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			undo();
 			throw error;
 		}
-		const byId = new Map((carried?.watchers ?? []).map((watcher) => [watcher.id, watcher]));
-		const ids = watchers.map((watcher) => watcher.id);
-		if (!rules.replaceAll(ids, (watcherId) => byId.get(watcherId)?.rules ?? null))
+		const byId = new Map((carried?.watchers ?? []).map((source) => [source.id, source]));
+		const ids = sources.map((source) => source.id);
+		if (!rules.replaceAll(ids, (sourceId) => byId.get(sourceId)?.rules ?? null))
 			return "the rules could not be saved";
 		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
 		if (!temperature.set(carried?.temperatureUnit ?? "C")) return "the temperature unit could not be saved";
 		// Fresh is off; unflagged carried is on.
-		const off = watchers.filter((watcher) => {
-			const moved = byId.get(watcher.id);
+		const off = sources.filter((source) => {
+			const moved = byId.get(source.id);
 			return moved === undefined || moved.enabled === false;
 		});
-		if (!enabled.replaceOff(off.map((watcher) => watcher.id))) return "the watchers' Enabled could not be saved";
+		if (!enabled.replaceOff(off.map((source) => source.id))) return "the sources' Enabled could not be saved";
 		// Unusable grants drop.
-		for (const watcher of watchers) {
-			const grant = byId.get(watcher.id)?.grant;
-			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setServiceGrants(watcher.id, [grant]);
+		for (const source of sources) {
+			const grant = byId.get(source.id)?.grant;
+			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setServiceGrants(source.id, [grant]);
 		}
 		const carriedIntegrations = new Map(
 			(carried?.integrations ?? []).map((integration) => [integration.id, integration.grant]),
@@ -687,14 +689,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			if (deps.vault.serviceGrants(id).length > 0) deps.vault.setServiceGrants(id, []);
 		}
 		if (!grantTargets().every((id) => grantsLanded(id, []))) return false;
-		const ids = watchers.map((watcher) => watcher.id);
-		const residue = ids.some((watcherId) => {
-			const held = rules.get(watcherId);
+		const ids = sources.map((source) => source.id);
+		const residue = ids.some((sourceId) => {
+			const held = rules.get(sourceId);
 			return held.rules.length > 0 || held.revision > 0;
 		});
 		if (residue && !rules.replaceAll(ids, () => null)) return false;
 		if (!safety.approveEverySend() && !safety.set(true)) return false;
-		if (ids.some((watcherId) => !enabled.enabled(watcherId)) && !enabled.replaceOff([])) return false;
+		if (ids.some((sourceId) => !enabled.enabled(sourceId)) && !enabled.replaceOff([])) return false;
 		return true;
 	};
 
@@ -731,12 +733,13 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			const { baseline: hold } = renderPhoneHold(phoneHold.answer());
 			return {
 				hold,
-				watchers: watchers
-					.filter((watcher) => enabled.enabled(watcher.id))
-					.map((watcher) => {
-						const health = watcherState.get(watcher.id);
+				// Sent as `sources` once every plugin reads it.
+				watchers: sources
+					.filter((source) => enabled.enabled(source.id))
+					.map((source) => {
+						const health = sourceState.get(source.id);
 						return {
-							label: watcher.label,
+							label: source.label,
 							unread: health.unread,
 							capped: health.capped,
 							checked: health.lastSuccessAt !== undefined,
@@ -755,28 +758,28 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		console: {
 			state,
-			/** Also the retry: the same set polls a stopped watcher again. */
-			setServiceGrants: (watcherId, entryIds) =>
+			/** Also the retry: the same set polls a stopped source again. */
+			setServiceGrants: (sourceId, entryIds) =>
 				settled(() => {
-					const watcher = watchers.find((candidate) => candidate.id === watcherId);
-					const integration = INTEGRATION_IDS.find((id) => id === watcherId);
-					if (!watcher && !integration) throw new Error(`no watcher "${watcherId}"`);
-					if (entryIds.length > 1) throw new Error("a watcher takes one secret");
+					const source = sources.find((candidate) => candidate.id === sourceId);
+					const integration = INTEGRATION_IDS.find((id) => id === sourceId);
+					if (!source && !integration) throw new Error(`no source "${sourceId}"`);
+					if (entryIds.length > 1) throw new Error("a source takes one secret");
 					if (!held()) throw new Error(NOT_HERE);
-					deps.vault.setServiceGrants(watcherId, entryIds);
-					if (!grantsLanded(watcherId, entryIds)) throw new Error("the grant could not be saved");
-					if (watcher) {
-						if (lanes) lanes.poke(watcherId);
+					deps.vault.setServiceGrants(sourceId, entryIds);
+					if (!grantsLanded(sourceId, entryIds)) throw new Error("the grant could not be saved");
+					if (source) {
+						if (lanes) lanes.poke(sourceId);
 						else startLanes();
 					}
 					return state();
 				}),
 			// Only owner ops reach these, so no event text can rewrite what sorts later events.
-			putRule: (watcherId, rule) => settled(() => rules.putRule(watcherId, rule)),
-			deleteRule: (watcherId, ruleId, base) => settled(() => rules.deleteRule(watcherId, ruleId, base)),
-			moveRule: (watcherId, ruleId, beforeId, base) =>
-				settled(() => rules.moveRule(watcherId, ruleId, beforeId, base)),
-			putOtherwise: (watcherId, otherwise) => settled(() => rules.putOtherwise(watcherId, otherwise)),
+			putRule: (sourceId, rule) => settled(() => rules.putRule(sourceId, rule)),
+			deleteRule: (sourceId, ruleId, base) => settled(() => rules.deleteRule(sourceId, ruleId, base)),
+			moveRule: (sourceId, ruleId, beforeId, base) =>
+				settled(() => rules.moveRule(sourceId, ruleId, beforeId, base)),
+			putOtherwise: (sourceId, otherwise) => settled(() => rules.putOtherwise(sourceId, otherwise)),
 			// A move carries it; a let-go resets it.
 			setSafety: (approveEverySend) =>
 				settled(() => {
@@ -789,31 +792,31 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					return state();
 				}),
 			// No await: `switched` voids a poll in flight before it can commit.
-			setWatcherEnabled: (watcherId, on) =>
+			setSourceEnabled: (sourceId, on) =>
 				settled(() => {
-					watcherNamed(watcherId);
+					sourceNamed(sourceId);
 					if (!held()) throw new Error(NOT_HERE);
-					if (enabled.enabled(watcherId) === on) return state();
+					if (enabled.enabled(sourceId) === on) return state();
 					// Backlog wakes nothing.
-					const unprimed = { ...watcherState.get(watcherId), primed: false };
-					if (on && !watcherState.put(watcherId, unprimed)) throw new Error("the watcher could not be reset");
-					if (!enabled.set(watcherId, on)) throw new Error("the setting could not be saved");
-					if (lanes) lanes.switched(watcherId);
+					const unprimed = { ...sourceState.get(sourceId), primed: false };
+					if (on && !sourceState.put(sourceId, unprimed)) throw new Error("the source could not be reset");
+					if (!enabled.set(sourceId, on)) throw new Error("the setting could not be saved");
+					if (lanes) lanes.switched(sourceId);
 					else startLanes();
 					return state();
 				}),
-			checkWatcher: async (watcherId, from, opId) => {
-				const watcher = await settled(() => {
-					const found = watcherNamed(watcherId);
+			checkSource: async (sourceId, from, opId) => {
+				const source = await settled(() => {
+					const found = sourceNamed(sourceId);
 					if (!held() || !home.allowsLanes()) throw new Error(NOT_HERE);
-					if (!enabled.enabled(watcherId)) throw new Error(`${found.label} is disabled`);
+					if (!enabled.enabled(sourceId)) throw new Error(`${found.label} is disabled`);
 					return found;
 				});
 				if (!nudge) throw new Error("federation is not active");
 				// Outside the queue; wakes are slow.
 				const sent = nudge({
 					from,
-					body: checkNudge(watcher.label),
+					body: checkNudge(source.label),
 					deliveryId: `assistant-check:${opId}`,
 				}).catch((error: Error) => error.message);
 				const answered = await withinMs(
@@ -824,7 +827,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				if (answered?.refused) throw new Error(answered.refused);
 				if (!answered) {
 					void sent.then((refused) => {
-						if (refused) console.warn(`[assistant] check of ${watcherId} not delivered: ${refused}`);
+						if (refused) console.warn(`[assistant] check of ${sourceId} not delivered: ${refused}`);
 					});
 				}
 				return state();
@@ -833,18 +836,18 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			answerPhone: (requestId, answer, signer) => phoneRequests.answer(requestId, answer, signer),
 			answerAct: (requestId, decision, note) => actGuard.answer(requestId, decision, note),
 			/** Over the live first page, from the rule's place. */
-			previewRule: async (watcherId, rule) => {
-				const refusal = rules.refusalOf(watcherId, rule);
+			previewRule: async (sourceId, rule) => {
+				const refusal = rules.refusalOf(sourceId, rule);
 				if (refusal) throw new Error(refusal);
 				// Read as a save would store it.
 				const asStored = canonicalRule(rule);
-				const held = rules.get(watcherId).rules;
+				const held = rules.get(sourceId).rules;
 				const placed = held.some((existing) => existing.id === asStored.id)
 					? held.map((existing) => (existing.id === asStored.id ? asStored : existing))
 					: [...held, asStored];
 				const recent = (
 					await livePage(
-						watcherId,
+						sourceId,
 						() => ({ scope: "all" }),
 						ASSISTANT_WAITS.preview,
 						(page) => page.events,
@@ -852,7 +855,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				)
 					.sort((a, b) => b.at - a.at)
 					.slice(0, PREVIEW_EVENTS);
-				const specs = specsOf(watcherId) ?? [];
+				const specs = specsOf(sourceId) ?? [];
 				const matched = recent.filter((event) => ruleMatches(asStored, specs, event.fields));
 				const decided = matched.filter((event) => firstMatch(placed, specs, event.fields)?.id === asStored.id);
 				return {
@@ -863,11 +866,11 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				};
 			},
 		},
-		registerWatcher: (watcher) => {
-			if (deps.watchers) return;
-			if (active) throw new Error("watchers register before the assistant starts");
-			if (watchers.some((held) => held.id === watcher.id)) throw new Error(`${watcher.id} is registered twice`);
-			watchers.push(watcher);
+		registerSource: (source) => {
+			if (deps.sources) return;
+			if (active) throw new Error("sources register before the assistant starts");
+			if (sources.some((held) => held.id === source.id)) throw new Error(`${source.id} is registered twice`);
+			sources.push(source);
 		},
 		start: () => {
 			active = true;
@@ -893,7 +896,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				}
 			});
 		},
-		pokeWatcher: (watcherId) => lanes?.poke(watcherId),
+		pokeSource: (sourceId) => lanes?.poke(sourceId),
 		stop: async () => {
 			ownerOpsClosed = true;
 			// Late applies start nothing.

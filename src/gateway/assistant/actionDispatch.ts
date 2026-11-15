@@ -6,12 +6,12 @@ import {
 	type AssistantActionRequest,
 	type AssistantActionResult,
 	type ParamsOf,
-	watcherParamsSchema,
+	sourceParamsSchema,
 } from "../../shared/schemasAssistantActions.js";
 import type { RecordThread } from "../../shared/schemasAssistantRecord.js";
+import type { SourceActions } from "./sourceAction.js";
 import type { SourceLanes } from "./sourceLane.js";
 import { ASSISTANT_WAITS, CALL_HOLD_MS } from "./waits.js";
-import type { WatcherActions } from "./watcherAction.js";
 
 export interface ActionRecord {
 	notify: boolean;
@@ -20,13 +20,13 @@ export interface ActionRecord {
 }
 
 export interface ActionDispatchDeps {
-	actions: WatcherActions;
+	actions: SourceActions;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	write: SourceLanes["write"];
 	recount: SourceLanes["recount"];
 	record: (callId: string, record: ActionRecord) => boolean;
 	/** Held in the lane, so no poll overwrites it. */
-	hideNotFound: (watcherId: string, ids: string[]) => void;
+	hideNotFound: (sourceId: string, ids: string[]) => void;
 }
 
 /** Retries join by call id. */
@@ -42,7 +42,7 @@ export function createActionDispatch(
 	): Promise<AssistantActionResult> => {
 		const action = deps.actions[key];
 		const { declaration } = action;
-		const parsed = watcherParamsSchema(key).safeParse(raw);
+		const parsed = sourceParamsSchema(key).safeParse(raw);
 		if (!parsed.success) {
 			const issue = parsed.error.issues[0];
 			return { kind: "refused", reason: `${issue?.path.join(".") || "params"}: ${issue?.message}`.slice(0, 400) };
@@ -50,17 +50,17 @@ export function createActionDispatch(
 		const params = parsed.data as ParamsOf<K>;
 		let answer: z.infer<typeof declaration.answer>;
 		try {
-			const ran = await deps.write(declaration.watcherId, ASSISTANT_WAITS.action, async (signal) => {
+			const ran = await deps.write(declaration.sourceId, ASSISTANT_WAITS.action, async (signal) => {
 				const value = await action.run(params, { signal, ambient: deps.ambient });
 				const gone = value.threads.filter((thread) => thread.outcome === "not_found");
 				deps.hideNotFound(
-					declaration.watcherId,
+					declaration.sourceId,
 					gone.map((thread) => thread.threadId),
 				);
 				return value;
 			});
 			if (ran.kind === "not_started") {
-				const why = ran.end === "stopping" ? "the assistant is stopping" : "the watcher stayed busy";
+				const why = ran.end === "stopping" ? "the assistant is stopping" : "the source stayed busy";
 				return { kind: "refused", reason: `${why}; nothing was sent` };
 			}
 			answer = declaration.answer.parse(ran.value);
@@ -69,7 +69,7 @@ export function createActionDispatch(
 		}
 		// Record attempted actions only.
 		const attempted = answer.threads.some((thread) => thread.outcome !== "not_attempted");
-		if (attempted) deps.recount(declaration.watcherId);
+		if (attempted) deps.recount(declaration.sourceId);
 		const { summary } = parsed.data as { summary?: string };
 		const recorded =
 			attempted &&

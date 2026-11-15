@@ -15,7 +15,7 @@ export interface ActionContext {
 	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
 }
 
-export abstract class WatcherAction<K extends AssistantActionKey> {
+export abstract class SourceAction<K extends AssistantActionKey> {
 	abstract readonly key: K;
 
 	get declaration(): (typeof ASSISTANT_ACTIONS)[K] {
@@ -26,7 +26,7 @@ export abstract class WatcherAction<K extends AssistantActionKey> {
 	abstract run(params: ParamsOf<K>, ctx: ActionContext): Promise<AnswerOf<K>>;
 }
 
-export type WatcherActions = { [K in AssistantActionKey]: WatcherAction<K> };
+export type SourceActions = { [K in AssistantActionKey]: SourceAction<K> };
 
 const NOTES: Record<LaneEnd, string> = {
 	past_deadline: "out of time; send the rest again",

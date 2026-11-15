@@ -42,7 +42,7 @@ export interface MessageDelivery extends HeldRow {
 	reader?: ReplyReader;
 }
 
-/** A watcher event. */
+/** A source event. */
 export interface EventDelivery extends HeldRow {
 	event: true;
 	/** Each emitted once. */

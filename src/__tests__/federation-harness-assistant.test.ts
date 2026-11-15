@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
+import type { Source, SourceEvent } from "../gateway/assistant/source.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
 import type { AssistantHomeCarried } from "../shared/schemasAssistantHome.js";
@@ -176,7 +176,7 @@ describe("the assistant's session through the console", () => {
 describe("a watcher event reaching the assistant", () => {
 	let h: FederationHarness;
 	const attached = new Map<string, FakeSession>();
-	const event = (id: string, kind: string, at: number): WatcherEvent => ({
+	const event = (id: string, kind: string, at: number): SourceEvent => ({
 		id,
 		at,
 		title: `${kind} ${id}`,
@@ -186,7 +186,7 @@ describe("a watcher event reaching the assistant", () => {
 	let polls = 0;
 	let wakesIgnored = 0;
 	const source = [event("e1", "mention", 3), event("e2", "review", 2), event("e0", "mention", 1)];
-	const watcher: Watcher = {
+	const watcher: Source = {
 		id: "fake",
 		label: "Fake source",
 		fieldSpecs: [{ kind: "text", field: "kind", label: "Kind" }],
@@ -213,7 +213,7 @@ describe("a watcher event reaching the assistant", () => {
 		(await (session ?? attachedless(h)).post(path, body)).json() as Promise<Record<string, unknown>>;
 
 	beforeAll(async () => {
-		h = await startFederationHarness({ assistantWatchers: [watcher], wakeTimeoutMs: 2_000 });
+		h = await startFederationHarness({ assistantSources: [watcher], wakeTimeoutMs: 2_000 });
 		const attach = (team: string, sessionToken: string | undefined) => {
 			if (attached.has(team)) return;
 			const conversationId = `conv-${team.replaceAll(".", "-")}`;

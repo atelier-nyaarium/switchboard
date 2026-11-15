@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import type { ParamsOf } from "../../shared/schemasAssistantActions.js";
-import { type ActionContext, stoppedBy, WatcherAction } from "./watcherAction.js";
+import { type ActionContext, SourceAction, stoppedBy } from "./sourceAction.js";
 
 /** Automation id, member hash. */
 const shortId = (member: string): string =>
 	`${(member.split(":")[1] ?? "event").slice(0, 40)}:${createHash("sha256").update(member).digest("hex").slice(0, 12)}`;
 
-export class SensorsClear extends WatcherAction<"sensors_clear"> {
+export class SensorsClear extends SourceAction<"sensors_clear"> {
 	readonly key = "sensors_clear";
 
 	constructor(private readonly clear: (members: readonly string[]) => boolean) {

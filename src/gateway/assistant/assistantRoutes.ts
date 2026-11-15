@@ -15,7 +15,7 @@ import {
 	ActionRunResultSchema,
 	actionRef,
 	type DeviceRunRequest,
-	runResultOfWatcher,
+	runResultOfSource,
 } from "../../shared/schemasActionFront.js";
 import {
 	type AssistantActionRequest,
@@ -40,7 +40,7 @@ import { ASSISTANT_WAITS } from "./waits.js";
 
 const INBOX = ASSISTANT_COMMANDS.inbox;
 const PHONE_ROUTE_WAIT_MS = ASSISTANT_WAITS.phone * 2 + CONSOLE_ANSWER_WAIT_MS + CONSOLE_HOP_MARGIN_MS;
-const WATCHER_ROUTE_WAIT_MS = ASSISTANT_WAITS.action + CONSOLE_HOP_MARGIN_MS;
+const SOURCE_ROUTE_WAIT_MS = ASSISTANT_WAITS.action + CONSOLE_HOP_MARGIN_MS;
 const LATE = "the Gateway did not answer in time; read the inbox before sending it again";
 
 export type Handler = (req: Request, body: unknown) => Promise<Response>;
@@ -86,7 +86,7 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		if ("device" in parsed.data) return json(await runDevice(parsed.data), 200);
 		const { callId, params } = parsed.data;
 		const ref = actionRef(parsed.data.id);
-		if (ref.family === "watcher") return json(await runWatcher({ action: ref.key, callId, params }), 200);
+		if (ref.family === "watcher") return json(await runSource({ action: ref.key, callId, params }), 200);
 		return json(await runPhone({ key: ref.key, callId, params }), 200);
 	};
 
@@ -95,9 +95,9 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		return result ?? { kind: "unavailable", reason: "timeout" };
 	};
 
-	const runWatcher = async (request: AssistantActionRequest): Promise<ActionRunResult> => {
-		const result = await withinMs(deps.ambient, deps.dispatch(request), WATCHER_ROUTE_WAIT_MS);
-		return result ? runResultOfWatcher(result) : { kind: "refused", reason: LATE };
+	const runSource = async (request: AssistantActionRequest): Promise<ActionRunResult> => {
+		const result = await withinMs(deps.ambient, deps.dispatch(request), SOURCE_ROUTE_WAIT_MS);
+		return result ? runResultOfSource(result) : { kind: "refused", reason: LATE };
 	};
 
 	const runPhone = async (request: PhoneCapabilityRequest): Promise<ActionRunResult> => {
@@ -111,7 +111,7 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		if (!parsed.success) return json({ error: "not an action request" }, 400);
 		const caller = deps.caller(req);
 		if (caller !== "assistant") return json({ kind: caller } satisfies AssistantActionResult, 200);
-		const result = await runWatcher(parsed.data);
+		const result = await runSource(parsed.data);
 		return json(
 			result.kind === "ok" ? { kind: "ran", answer: result.answer, recorded: result.recorded } : result,
 			200,

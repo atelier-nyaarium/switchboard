@@ -8,9 +8,9 @@ import {
 	holdText,
 	isRefusal,
 } from "./githubClient.js";
-import { linkOf, ThreadSchema } from "./githubWatcher.js";
+import { linkOf, ThreadSchema } from "./githubSource.js";
+import { type ActionContext, bounded, SourceAction, stoppedBy } from "./sourceAction.js";
 import { ASSISTANT_WAITS } from "./waits.js";
-import { type ActionContext, bounded, stoppedBy, WatcherAction } from "./watcherAction.js";
 
 interface Step {
 	thread: RecordThread;
@@ -26,7 +26,7 @@ const refused = (thread: Omit<RecordThread, "outcome">, refusal: GithubRefusal |
 		? { thread: { ...thread, outcome: "rate_limited" }, stop: holdText(refusal.retryMs) }
 		: { thread: { ...thread, outcome: "not_attempted" }, stop: refusal.reason };
 
-export class GithubDone extends WatcherAction<"github_done"> {
+export class GithubDone extends SourceAction<"github_done"> {
 	readonly key = "github_done";
 
 	constructor(private readonly client: GithubClient) {

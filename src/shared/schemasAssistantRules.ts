@@ -1,4 +1,4 @@
-// Watcher rules: ordered, first match wins.
+// Source rules: ordered, first match wins.
 
 import { z } from "zod";
 import { FIELD_TYPES, RULE_TESTS, type RuleTest, UNIT_CODES } from "./field-types.js";
@@ -29,7 +29,7 @@ export const AssistantFieldOptionSchema = z
 	})
 	.meta({ id: "AssistantFieldOption" });
 
-/** Watcher-declared testable fields. */
+/** Source-declared testable fields. */
 export const AssistantFieldSpecSchema = z
 	.discriminatedUnion("kind", [
 		/** Exact values; labels display-only. */

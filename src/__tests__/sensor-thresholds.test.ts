@@ -201,7 +201,7 @@ describe("sensor threshold composition", () => {
 			expect(threshold).toMatchObject({ kind: "ok", threshold: { low: 10, revision: 1 } });
 			world.devices.ingestGatewayAdvert(MAC, warm, 1_000);
 			world.devices.ingestGatewayAdvert(MAC, cold, 2_000);
-			const page = await world.automations.watcher.list!({ scope: "all" }, new AbortController().signal);
+			const page = await world.automations.source.list!({ scope: "all" }, new AbortController().signal);
 			expect(page.events).toHaveLength(1);
 			expect(page.events[0]?.fields).toEqual({
 				automation: expect.any(String),
@@ -217,7 +217,7 @@ describe("sensor threshold composition", () => {
 			);
 			expect(answer.threads).toEqual([{ threadId: expect.stringMatching(/:[0-9a-f]{12}$/), outcome: "done" }]);
 			expect(
-				(await world.automations.watcher.list!({ scope: "all" }, new AbortController().signal)).events,
+				(await world.automations.source.list!({ scope: "all" }, new AbortController().signal)).events,
 			).toEqual([]);
 			const read = await world.devices.console({ kind: "device_read", id: MAC });
 			expect(read).toMatchObject({
@@ -298,7 +298,7 @@ describe("sensor threshold composition", () => {
 			});
 			world.devices.ingestGatewayAdvert(MAC, warm, 1_000);
 			expect(
-				(await world.automations.watcher.list!({ scope: "all" }, new AbortController().signal)).events,
+				(await world.automations.source.list!({ scope: "all" }, new AbortController().signal)).events,
 			).toEqual([]);
 
 			const read = await world.devices.console({ kind: "device_read", id: MAC });
@@ -417,7 +417,7 @@ describe("sensor threshold composition", () => {
 			expect(world.fields.value(ids.field)).toEqual(known("low"));
 			expect(world.automations.runs().map((run) => run.outcome)).toEqual(["refused"]);
 			expect(
-				(await world.automations.watcher.list!({ scope: "all" }, new AbortController().signal)).events,
+				(await world.automations.source.list!({ scope: "all" }, new AbortController().signal)).events,
 			).toEqual([]);
 			world.now = 16 * 60_000;
 			world.devices.flushReadings();
@@ -427,7 +427,7 @@ describe("sensor threshold composition", () => {
 			expect(world.fields.value(ids.field)).toEqual(known("low"));
 			expect(world.automations.runs().map((run) => run.outcome)).toEqual(["refused"]);
 			expect(
-				(await world.automations.watcher.list!({ scope: "all" }, new AbortController().signal)).events,
+				(await world.automations.source.list!({ scope: "all" }, new AbortController().signal)).events,
 			).toEqual([]);
 		} finally {
 			await world.devices.close();

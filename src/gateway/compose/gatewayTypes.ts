@@ -3,7 +3,7 @@ import type { Ambient } from "../../shared/ambient.js";
 import type { SealedEnvelope } from "../../shared/crypto.js";
 import type { RowEnvelope } from "../../shared/schemasInbox.js";
 import type { SessionRecord } from "../../shared/session-store.js";
-import type { Watcher } from "../assistant/watcher.js";
+import type { Source } from "../assistant/source.js";
 import type { KasaTransport } from "../devices/kasa/transport.js";
 import type { PurgeEntry } from "../purgeQueue.js";
 import type { RouterToolCallResult } from "../router/routerClient.js";
@@ -29,10 +29,10 @@ export interface GatewayDeps {
 	/** Replaces the enrollment's road to the Router. */
 	routerExchange?: RouterExchanger;
 	allowFixtureIdentity?: boolean;
-	/** The watchers' network door. */
+	/** The sources' network door. */
 	fetch?: (url: string, init: RequestInit) => Promise<Response>;
-	/** Replaces the built-in watchers. */
-	assistantWatchers?: readonly Watcher[];
+	/** Replaces the built-in sources. */
+	assistantSources?: readonly Source[];
 	/** Replaces the Kasa transport. */
 	kasaTransport?: KasaTransport;
 	workflowProgressIntervalMsForTests?: number;

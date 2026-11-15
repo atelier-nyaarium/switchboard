@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { sweepAtomicTemps, writeFileAtomic } from "./atomic-write.js";
+import { renameFileSync, sweepAtomicTemps, writeFileAtomic } from "./atomic-write.js";
 
 /** A checked snapshot reached its final pathname, but the directory sync could not be confirmed. */
 export class DurableStoreInstalledError extends Error {
@@ -175,6 +175,13 @@ export function commitChecked<T>(
  * files under one try loses every restore after the throwing one, and whoever restores under no try
  * fails the whole boot with no way to self-heal.
  */
+/** A snapshot's earlier name moves to its current one, once. */
+export function renameDurable(dir: string, from: string, to: string): void {
+	const old = path.join(dir, `${from}.json`);
+	const current = path.join(dir, `${to}.json`);
+	if (fs.existsSync(old) && !fs.existsSync(current)) renameFileSync(old, current);
+}
+
 export function openDurable<T>(dir: string, name: string, build: (store: DurableStore) => T): T {
 	const store = new DurableStore(dir, name);
 	try {

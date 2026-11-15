@@ -5,7 +5,7 @@ import path from "node:path";
 import { FileSecretStore } from "../federation-server/fileSecretStore.js";
 import { RouterServer } from "../federation-server/routerServer.js";
 import { loadRouterTls } from "../federation-server/routerTls.js";
-import type { Watcher } from "../gateway/assistant/watcher.js";
+import type { Source } from "../gateway/assistant/source.js";
 import { composeGateway, type GatewayGraph } from "../gateway/composeGateway.js";
 import { createKasaTransport } from "../gateway/devices/kasa/transport.js";
 import type {
@@ -36,7 +36,7 @@ export interface FederationHarnessOptions {
 	wakeTimeoutMs?: number;
 	host?: Omit<FakeHostOptions, "token">;
 	seedContentKey?: boolean;
-	assistantWatchers?: readonly Watcher[];
+	assistantSources?: readonly Source[];
 	kasaPort?: number;
 	workflowProgressIntervalMsForTests?: number;
 }
@@ -45,7 +45,7 @@ export interface GatewayComposeOptions {
 	seedContentKey?: boolean;
 	/** Boots with no credentials installed. */
 	unenrolled?: boolean;
-	assistantWatchers?: readonly Watcher[];
+	assistantSources?: readonly Source[];
 	kasaPort?: number;
 	workflowProgressIntervalMsForTests?: number;
 }
@@ -140,7 +140,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 		own = await attachDomain(base, base.set, path.join(base.root, "gateway"), {
 			host: options.host,
 			seedContentKey: options.seedContentKey,
-			assistantWatchers: options.assistantWatchers,
+			assistantSources: options.assistantSources,
 			kasaPort: options.kasaPort,
 			workflowProgressIntervalMsForTests: options.workflowProgressIntervalMsForTests,
 		});
@@ -231,7 +231,7 @@ async function attachDomain(
 	options: {
 		host?: Omit<FakeHostOptions, "token">;
 		seedContentKey?: boolean;
-		assistantWatchers?: readonly Watcher[];
+		assistantSources?: readonly Source[];
 		kasaPort?: number;
 		workflowProgressIntervalMsForTests?: number;
 	},
@@ -242,7 +242,7 @@ async function attachDomain(
 	const compose = () =>
 		base.composeGatewayFor(set, gatewayDir, {
 			seedContentKey: options.seedContentKey,
-			assistantWatchers: options.assistantWatchers,
+			assistantSources: options.assistantSources,
 			kasaPort: options.kasaPort,
 			workflowProgressIntervalMsForTests: options.workflowProgressIntervalMsForTests,
 		});
@@ -448,7 +448,7 @@ export async function startRouterOnly(
 				fetch: async () => {
 					throw new Error("the harness reaches no network");
 				},
-				...(gatewayOptions.assistantWatchers ? { assistantWatchers: gatewayOptions.assistantWatchers } : {}),
+				...(gatewayOptions.assistantSources ? { assistantSources: gatewayOptions.assistantSources } : {}),
 				...(gatewayOptions.kasaPort === undefined
 					? {}
 					: { kasaTransport: createKasaTransport(gatewayOptions.kasaPort) }),

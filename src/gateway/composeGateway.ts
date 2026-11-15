@@ -6,7 +6,7 @@ import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
 import { ASSISTANT_TEAM, isAssistantRecord } from "../shared/assistant-session.js";
 import { openDurable } from "../shared/durable-store.js";
 import { HOST_SPAWN, hostSpawnPoint, isHostSpawn } from "../shared/host-spawn.js";
-import { SENSORS_WATCHER_ID } from "../shared/schemasAssistantActions.js";
+import { SENSORS_SOURCE_ID } from "../shared/schemasAssistantActions.js";
 import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
@@ -222,7 +222,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		},
 		lastDeliverySeq: () => stores.pendingDeliveries.lastSeq(),
 		fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
-		...(deps.assistantWatchers ? { watchers: deps.assistantWatchers } : {}),
+		...(deps.assistantSources ? { sources: deps.assistantSources } : {}),
 		clearSensorEvents: (members) => automations?.clear(members) ?? false,
 	});
 	const persistence = composePersistence({
@@ -581,11 +581,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				newIncarnation: () => bootstrap.ambient.newId(),
 				now: () => bootstrap.ambient.now(),
 				isHome: () => assistant.placed(),
-				onQueued: () => assistant.pokeWatcher(SENSORS_WATCHER_ID),
+				onQueued: () => assistant.pokeSource(SENSORS_SOURCE_ID),
 			}),
 		),
 	);
-	assistant.registerWatcher(automations.watcher);
+	assistant.registerSource(automations.source);
 	sensorThresholds = openDurable(bootstrap.dataDir, "sensor-thresholds", (store) =>
 		createSensorThresholds({
 			store,

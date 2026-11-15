@@ -9,8 +9,8 @@ export const GITHUB_DONE_IDS_MAX = 25;
 
 const INBOX = ASSISTANT_COMMANDS.inbox.tool;
 
-export const GITHUB_WATCHER_ID = "github";
-export const SENSORS_WATCHER_ID = "sensors";
+export const GITHUB_SOURCE_ID = "github";
+export const SENSORS_SOURCE_ID = "sensors";
 
 const SummarySchema = z
 	.string()
@@ -29,7 +29,7 @@ export type ActionAnswer = z.infer<typeof ActionAnswerSchema>;
 
 export interface AssistantActionDeclaration {
 	/** Calls cannot choose the watcher. */
-	watcherId: string;
+	sourceId: string;
 	label: string;
 	/** Owner-visible, single-line text. */
 	description: string;
@@ -42,7 +42,7 @@ export interface AssistantActionDeclaration {
 
 export const ASSISTANT_ACTIONS = {
 	github_done: {
-		watcherId: GITHUB_WATCHER_ID,
+		sourceId: GITHUB_SOURCE_ID,
 		label: "Mark done",
 		description: "Clears threads from your GitHub inbox.",
 		usage: `
@@ -75,7 +75,7 @@ Send at most ${GITHUB_DONE_IDS_MAX} ids per call; each id takes three GitHub req
 		answer: ActionAnswerSchema,
 	},
 	sensors_clear: {
-		watcherId: SENSORS_WATCHER_ID,
+		sourceId: SENSORS_SOURCE_ID,
 		label: "Clear events",
 		description: "Removes selected sensor threshold events from your inbox.",
 		usage: `Clear sensor threshold events by their event ids.`,
@@ -101,7 +101,7 @@ export type ParamsOf<K extends AssistantActionKey> = z.infer<z.ZodObject<(typeof
 export type AnswerOf<K extends AssistantActionKey> = z.infer<(typeof ASSISTANT_ACTIONS)[K]["answer"]>;
 
 /** Shared parse and listing schema. */
-export function watcherParamsSchema<K extends AssistantActionKey>(
+export function sourceParamsSchema<K extends AssistantActionKey>(
 	key: K,
 ): z.ZodObject<(typeof ASSISTANT_ACTIONS)[K]["params"]> {
 	return z.strictObject(ASSISTANT_ACTIONS[key].params);
@@ -133,8 +133,8 @@ export const AssistantActionDescriptorSchema = z
 
 export type AssistantActionDescriptor = z.infer<typeof AssistantActionDescriptorSchema>;
 
-export function actionsOf(watcherId: string): AssistantActionDescriptor[] {
-	return ASSISTANT_ACTION_KEYS.filter((key) => ASSISTANT_ACTIONS[key].watcherId === watcherId).map((key) => ({
+export function actionsOf(sourceId: string): AssistantActionDescriptor[] {
+	return ASSISTANT_ACTION_KEYS.filter((key) => ASSISTANT_ACTIONS[key].sourceId === sourceId).map((key) => ({
 		key,
 		label: ASSISTANT_ACTIONS[key].label,
 		description: ASSISTANT_ACTIONS[key].description,

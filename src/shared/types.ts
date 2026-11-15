@@ -64,7 +64,7 @@ export interface ChannelPushPayload {
 	owner_approved?: boolean;
 	/** Absent when the Gateway does not know. */
 	reader?: ReplyReader;
-	/** A watcher event: data only, with no sender, conversation or reply owed. */
+	/** A source event: data only, with no sender, conversation or reply owed. */
 	event?: boolean;
 	/** Receiver acks stored id; untracked pushes omit it. */
 	delivery_id?: string;

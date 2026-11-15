@@ -12,7 +12,7 @@ interface IftttClientDeps {
 	fetch: (url: string, init: RequestInit) => Promise<Response>;
 	vault: {
 		entryId: () => string | undefined;
-		readForService: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+		readForService: (serviceId: string, entryId: string) => Promise<VaultRelease>;
 	};
 	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
 }

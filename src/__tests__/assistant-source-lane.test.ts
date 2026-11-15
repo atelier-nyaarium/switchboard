@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import type { PollAnswer, Source, SourceEvent } from "../gateway/assistant/source.js";
 import {
 	type AssistantWake,
 	createSourceLanes,
@@ -12,17 +13,16 @@ import {
 	WAKE_DEADLINE_MS,
 	WAKE_RETRY_MS,
 } from "../gateway/assistant/sourceLane.js";
-import type { PollAnswer, Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
 import {
-	createWatcherStateStore,
+	createSourceStateStore,
 	FRESH_STATE,
 	goneAdded,
 	MAX_UNEXPECTED,
+	type SourceStateStore,
 	unexpectedAfter,
-	type WatcherStateStore,
-} from "../gateway/assistant/watcherState.js";
+} from "../gateway/assistant/sourceState.js";
 import { ChannelDeliveryCoordinator } from "../gateway/channelDelivery.js";
-import { DurableStore } from "../shared/durable-store.js";
+import { DurableStore, renameDurable } from "../shared/durable-store.js";
 import { type EventMember, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
 import type { RuleAction } from "../shared/schemasAssistantRules.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
@@ -54,17 +54,16 @@ function stateDir(): string {
 	return dir;
 }
 
-const stateIn = (dir: string): WatcherStateStore =>
-	createWatcherStateStore(new DurableStore(dir, "assistant-watchers"));
+const stateIn = (dir: string): SourceStateStore => createSourceStateStore(new DurableStore(dir, "assistant-sources"));
 
-const thread = (id: string, at: number, reason = "mention"): WatcherEvent => ({
+const thread = (id: string, at: number, reason = "mention"): SourceEvent => ({
 	id,
 	at,
 	title: `Thread ${id}`,
 	fields: { reason },
 });
 
-const unread = (cursor: string, events: WatcherEvent[], nextPollMs = 60_000): PollAnswer => ({
+const unread = (cursor: string, events: SourceEvent[], nextPollMs = 60_000): PollAnswer => ({
 	kind: "events",
 	events,
 	cursor,
@@ -77,7 +76,7 @@ function scripted(id = "github") {
 	const cursors: (string | null)[] = [];
 	const signals: AbortSignal[] = [];
 	const pending: ((answer: PollAnswer) => void)[] = [];
-	const watcher: Watcher = {
+	const watcher: Source = {
 		id,
 		label: `${id} label`,
 		fieldSpecs: [],
@@ -138,7 +137,7 @@ function queued(dir: string, answers: (string | null)[] = []) {
 }
 
 /** The `put` numbered in `failing` does not land. */
-function flaky(inner: WatcherStateStore, failing: number[]): WatcherStateStore {
+function flaky(inner: SourceStateStore, failing: number[]): SourceStateStore {
 	let puts = 0;
 	return {
 		get: (watcherId) => inner.get(watcherId),
@@ -151,10 +150,10 @@ function flaky(inner: WatcherStateStore, failing: number[]): WatcherStateStore {
 
 function lanes(
 	ambient: FakeAmbient,
-	state: WatcherStateStore,
-	watcher: Watcher,
+	state: SourceStateStore,
+	watcher: Source,
 	wake: AssistantWake,
-	sort: (event: WatcherEvent) => RuleAction = () => "wake",
+	sort: (event: SourceEvent) => RuleAction = () => "wake",
 	enabled: () => boolean = () => true,
 	holdLine: () => string = () => "",
 	changed: (watcherId: string) => void = () => undefined,
@@ -162,7 +161,7 @@ function lanes(
 	return createSourceLanes({
 		ambient,
 		state,
-		watchers: [watcher],
+		sources: [watcher],
 		enabled,
 		sort: (_watcherId, event) => sort(event),
 		wake: () => wake,
@@ -180,7 +179,25 @@ async function stopped(lane: SourceLanes, ambient: FakeAmbient): Promise<void> {
 	await done;
 }
 
-describe("a watcher's source lane", () => {
+describe("a source's lane", () => {
+	it("keeps the state a file from before sources held, under its new name and key", () => {
+		const dir = stateDir();
+		const earlier = path.join(dir, "assistant-watchers.json");
+		const held = { ...FRESH_STATE, unread: 4 };
+		fs.writeFileSync(earlier, JSON.stringify({ v: 1, watchers: { github: held } }));
+
+		renameDurable(dir, "assistant-watchers", "assistant-sources");
+		const state = stateIn(dir);
+		expect(state.get("github")).toEqual(held);
+		state.put("github", { ...held, unread: 5 });
+
+		expect(fs.existsSync(earlier)).toBe(false);
+		expect(JSON.parse(fs.readFileSync(path.join(dir, "assistant-sources.json"), "utf8"))).toEqual({
+			v: 1,
+			sources: { github: { ...held, unread: 5 } },
+		});
+	});
+
 	it("starts each wake batch with the current phone hold", async () => {
 		let line = "phone hold: held by Pixel, 42000ms remaining";
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
@@ -352,7 +369,7 @@ describe("a watcher's source lane", () => {
 		state.put("github", goneAdded(FRESH_STATE, ["x", "y"], 500));
 		const pushes = wakes();
 		const lane = lanes(ambient, state, source.watcher, pushes.wake);
-		const poll = async (cursor: string, events: WatcherEvent[], capped = false) => {
+		const poll = async (cursor: string, events: SourceEvent[], capped = false) => {
 			source.answer({ kind: "events", events, cursor, capped, nextPollMs: 60_000 });
 			await ambient.advance(0);
 			await ambient.advance(60_000);
@@ -376,9 +393,9 @@ describe("a watcher's source lane", () => {
 		const source = scripted();
 		const dir = stateDir();
 		const state = stateIn(dir);
-		const watcher: Watcher = { ...source.watcher, fieldSpecs: REASON_SPECS };
+		const watcher: Source = { ...source.watcher, fieldSpecs: REASON_SPECS };
 		const lane = lanes(ambient, state, watcher, wakes().wake);
-		const bare: WatcherEvent = { id: "bare", at: 50, title: "bare", fields: {} };
+		const bare: SourceEvent = { id: "bare", at: 50, title: "bare", fields: {} };
 
 		lane.start();
 		await ambient.advance(0);
@@ -709,7 +726,7 @@ describe("a watcher's source lane", () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const state = stateIn(stateDir());
 		const cursors: (string | null)[] = [];
-		const watcher: Watcher = {
+		const watcher: Source = {
 			id: "github",
 			label: "GitHub",
 			fieldSpecs: [],

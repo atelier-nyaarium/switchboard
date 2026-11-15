@@ -1,20 +1,20 @@
-// One lane per watcher, so a poll cannot wake what an action cleared. The lane owns every deadline.
+// One lane per source, so a poll cannot wake what an action cleared. The lane owns every deadline.
 
 import { type Ambient, type Linked, linkedSignal, type TimerHandle } from "../../shared/ambient.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { RuleAction } from "../../shared/schemasAssistantRules.js";
 import { fireAndForget } from "../fireAndForget.js";
-import { type PollAnswer, PollAnswerSchema, WATCHER_ID_RE, type Watcher, type WatcherEvent } from "./watcher.js";
+import { type PollAnswer, PollAnswerSchema, SOURCE_ID_RE, type Source, type SourceEvent } from "./source.js";
 import {
 	goneListed,
 	isGone,
+	type SourceState,
+	type SourceStateStore,
 	shownChanged,
 	unexpectedAfter,
 	unexpectedNow,
-	type WatcherState,
-	type WatcherStateStore,
-} from "./watcherState.js";
+} from "./sourceState.js";
 
 /** Bounds a hung source. */
 export const POLL_TIMEOUT_MS = 60_000;
@@ -38,19 +38,19 @@ export type AssistantWake = (event: {
 
 export interface SourceLanesDeps {
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
-	state: WatcherStateStore;
-	watchers: readonly Watcher[];
+	state: SourceStateStore;
+	sources: readonly Source[];
 	/** Disabled polls nothing. */
-	enabled: (watcherId: string) => boolean;
+	enabled: (sourceId: string) => boolean;
 	/** Read on commit. */
-	sort: (watcherId: string, event: WatcherEvent) => RuleAction;
+	sort: (sourceId: string, event: SourceEvent) => RuleAction;
 	/** Null until bound. */
 	wake: () => AssistantWake | null;
 	to: string;
 	holdLine: () => string;
-	render: (watcher: Watcher, event: WatcherEvent) => string;
+	render: (source: Source, event: SourceEvent) => string;
 	/** After a landed settle the phone would draw differently. */
-	changed: (watcherId: string) => void;
+	changed: (sourceId: string) => void;
 }
 
 export type LaneEnd = "past_deadline" | "stopping";
@@ -61,20 +61,20 @@ export type ReadAnswer<T> = WriteAnswer<T> | { kind: "gave_up"; end: LaneEnd };
 export interface SourceLanes {
 	start(): void;
 	/** Polls now, stopped or not; a disabled one drops its timer. */
-	poke(watcherId: string): void;
+	poke(sourceId: string): void;
 	/** Turned on or off: a poll in flight commits and wakes nothing, then as `poke`. */
-	switched(watcherId: string): void;
+	switched(sourceId: string): void;
 	/** Next poll reads whole. */
-	recount(watcherId: string): void;
+	recount(sourceId: string): void;
 	/** Released at the deadline; `settle` runs only while the read is live. */
 	read<L, T>(
-		watcherId: string,
+		sourceId: string,
 		deadlineMs: number,
-		load: (watcher: Watcher, signal: AbortSignal) => Promise<L>,
+		load: (source: Source, signal: AbortSignal) => Promise<L>,
 		settle: (loaded: L) => T,
 	): Promise<ReadAnswer<T>>;
 	/** Held until `work` settles; its signal ends at the deadline. */
-	write<T>(watcherId: string, deadlineMs: number, work: (signal: AbortSignal) => Promise<T>): Promise<WriteAnswer<T>>;
+	write<T>(sourceId: string, deadlineMs: number, work: (signal: AbortSignal) => Promise<T>): Promise<WriteAnswer<T>>;
 	/** Final; fences commits. */
 	stop(): Promise<void>;
 }
@@ -100,7 +100,7 @@ const SETTLED = Symbol("settled");
 
 /** Any failure backs off. */
 async function answerOf(
-	watcher: Watcher,
+	source: Source,
 	cursor: string | null,
 	signal: AbortSignal,
 	ambient: SourceLanesDeps["ambient"],
@@ -108,7 +108,7 @@ async function answerOf(
 	const bound = linkedSignal(ambient, { parent: signal, ms: POLL_TIMEOUT_MS, reason: CUT });
 	const cut = bound.ended.then((reason) => backedOff(reason === CUT ? "poll timed out" : "poll aborted"));
 	try {
-		const polled = await Promise.race([watcher.poll(cursor, bound.signal).then((raw) => ({ raw })), cut]);
+		const polled = await Promise.race([source.poll(cursor, bound.signal).then((raw) => ({ raw })), cut]);
 		if (!("raw" in polled)) return polled;
 		const answer = PollAnswerSchema.safeParse(polled.raw);
 		if (!answer.success) return backedOff("poll answered malformed data");
@@ -122,25 +122,25 @@ async function answerOf(
 }
 
 /** New activity is a new member. */
-const memberKey = (watcherId: string, event: Pick<WatcherEvent, "id" | "at">) =>
-	JSON.stringify([watcherId, event.id, event.at]);
+const memberKey = (sourceId: string, event: Pick<SourceEvent, "id" | "at">) =>
+	JSON.stringify([sourceId, event.id, event.at]);
 
 /** Stable, so a retry builds the same batches. */
-const oldestFirst = (a: WatcherEvent, b: WatcherEvent) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+const oldestFirst = (a: SourceEvent, b: SourceEvent) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /** Health without standing marks. */
-function cleared(held: WatcherState): WatcherState {
+function cleared(held: SourceState): SourceState {
 	const { backoff: _backoff, stopped: _stopped, nextPollAt: _next, ...kept } = held;
 	return kept;
 }
 
 export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	const { ambient, state } = deps;
-	const ids = deps.watchers.map((watcher) => watcher.id);
-	const bad = ids.find((id, index) => !WATCHER_ID_RE.test(id) || ids.indexOf(id) !== index);
-	if (bad !== undefined) throw new Error(`watcher id "${bad}" is malformed or taken twice`);
-	const unnamed = deps.watchers.find((watcher) => watcher.label.trim() === "");
-	if (unnamed) throw new Error(`watcher "${unnamed.id}" has no label`);
+	const ids = deps.sources.map((source) => source.id);
+	const bad = ids.find((id, index) => !SOURCE_ID_RE.test(id) || ids.indexOf(id) !== index);
+	if (bad !== undefined) throw new Error(`source id "${bad}" is malformed or taken twice`);
+	const unnamed = deps.sources.find((source) => source.label.trim() === "");
+	if (unnamed) throw new Error(`source "${unnamed.id}" has no label`);
 
 	let phase: "idle" | "running" | "stopped" = "idle";
 	const timers = new Map<string, TimerHandle>();
@@ -153,7 +153,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	const recounts = new Set<string>();
 	/** Bumped by `switched`. */
 	const generations = new Map<string, number>();
-	const generationOf = (watcherId: string) => generations.get(watcherId) ?? 0;
+	const generationOf = (sourceId: string) => generations.get(sourceId) ?? 0;
 
 	/**
 	 * The one road into a lane. An item's deadline counts the queue: one not started by then answers
@@ -161,7 +161,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	 * `hold` item keeps it until it settles, and its signal says the deadline passed.
 	 */
 	const queued = <T>(
-		watcherId: string,
+		sourceId: string,
 		bound: { ms: number; atDeadline: "release" | "hold" } | null,
 		work: (signal: AbortSignal) => Promise<T>,
 	): Promise<ReadAnswer<T>> => {
@@ -169,7 +169,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		if (phase === "stopped") item.end(STOPPING);
 		items.add(item);
 		let started = false;
-		const turn = lanes.run(watcherId, async (): Promise<ReadAnswer<T>> => {
+		const turn = lanes.run(sourceId, async (): Promise<ReadAnswer<T>> => {
 			try {
 				const ended = laneEnd(item.signal);
 				if (ended) return { kind: "not_started", end: ended };
@@ -196,43 +196,43 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		return Promise.race([turn, unstarted]);
 	};
 
-	const arm = (watcher: Watcher, at: number): void => {
+	const arm = (source: Source, at: number): void => {
 		if (phase !== "running") return;
-		const held = timers.get(watcher.id);
+		const held = timers.get(source.id);
 		if (held) ambient.clearTimer(held);
-		timers.delete(watcher.id);
-		if (!deps.enabled(watcher.id)) return;
+		timers.delete(source.id);
+		if (!deps.enabled(source.id)) return;
 		const timer = ambient.setTimer(
 			() => {
-				timers.delete(watcher.id);
-				schedule(watcher);
+				timers.delete(source.id);
+				schedule(source);
 			},
 			Math.max(0, at - ambient.now()),
 		);
-		timers.set(watcher.id, timer);
+		timers.set(source.id, timer);
 	};
 
 	/** Fenced by stop; true once landed. */
-	const settle = (watcher: Watcher, next: WatcherState, at: number | undefined): boolean => {
+	const settle = (source: Source, next: SourceState, at: number | undefined): boolean => {
 		if (phase !== "running") return false;
-		const before = state.get(watcher.id);
-		if (state.put(watcher.id, next)) {
-			if (at !== undefined) arm(watcher, at);
-			if (shownChanged(before, next)) deps.changed(watcher.id);
+		const before = state.get(source.id);
+		if (state.put(source.id, next)) {
+			if (at !== undefined) arm(source, at);
+			if (shownChanged(before, next)) deps.changed(source.id);
 			return true;
 		}
-		arm(watcher, Math.max(at ?? 0, ambient.now() + RETRY_MS));
+		arm(source, Math.max(at ?? 0, ambient.now() + RETRY_MS));
 		return false;
 	};
 
 	/** First failure, or null. */
-	const pushAll = async (watcher: Watcher, wakes: readonly WatcherEvent[], signal: AbortSignal) => {
+	const pushAll = async (source: Source, wakes: readonly SourceEvent[], signal: AbortSignal) => {
 		for (let at = 0; at < wakes.length; at += WAKE_BATCH) {
 			const wake = deps.wake();
 			if (!wake) return "the send path is not bound yet";
 			const members = wakes
 				.slice(at, at + WAKE_BATCH)
-				.map((event) => ({ key: memberKey(watcher.id, event), text: deps.render(watcher, event) }));
+				.map((event) => ({ key: memberKey(source.id, event), text: deps.render(source, event) }));
 			const batch = linkedSignal(ambient, { parent: signal, ms: WAKE_DEADLINE_MS, reason: CUT });
 			const compose = () => {
 				if (batch.signal.aborted || phase !== "running") return null;
@@ -259,48 +259,48 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	};
 
 	/** Validator and newest commit only once every wake is queued. */
-	const pollOnce = async (watcher: Watcher, signal: AbortSignal): Promise<void> => {
-		const began = generationOf(watcher.id);
-		const live = () => phase === "running" && deps.enabled(watcher.id) && generationOf(watcher.id) === began;
+	const pollOnce = async (source: Source, signal: AbortSignal): Promise<void> => {
+		const began = generationOf(source.id);
+		const live = () => phase === "running" && deps.enabled(source.id) && generationOf(source.id) === began;
 		if (!live()) return;
-		const held = state.get(watcher.id);
-		const whole = recounts.has(watcher.id);
-		const answer = await answerOf(watcher, whole ? null : held.cursor, signal, ambient);
+		const held = state.get(source.id);
+		const whole = recounts.has(source.id);
+		const answer = await answerOf(source, whole ? null : held.cursor, signal, ambient);
 		if (!live()) return;
 		const now = ambient.now();
 		// Every settle writes the set pruned against the current specs.
-		const health = { ...cleared(held), unexpected: unexpectedNow(held, watcher.fieldSpecs) };
+		const health = { ...cleared(held), unexpected: unexpectedNow(held, source.fieldSpecs) };
 		if (answer.kind === "backoff") {
 			const until = now + answer.retryMs;
-			settle(watcher, { ...health, backoff: { until, reason: answer.reason }, nextPollAt: until }, until);
+			settle(source, { ...health, backoff: { until, reason: answer.reason }, nextPollAt: until }, until);
 			return;
 		}
 		if (answer.kind === "stopped") {
-			settle(watcher, { ...health, stopped: answer.reason }, undefined);
+			settle(source, { ...health, stopped: answer.reason }, undefined);
 			return;
 		}
 		if (answer.kind === "unchanged") {
 			const next = now + answer.nextPollMs;
-			settle(watcher, { ...health, lastSuccessAt: now, nextPollAt: next }, next);
+			settle(source, { ...health, lastSuccessAt: now, nextPollAt: next }, next);
 			return;
 		}
 		// Record all event values before freshness filtering.
-		const unexpected = unexpectedAfter(held.unexpected, answer.events, watcher.fieldSpecs);
+		const unexpected = unexpectedAfter(held.unexpected, answer.events, source.fieldSpecs);
 		const pruned = goneListed(health, answer.events, answer.capped);
 		const shown = answer.events.filter((event) => !isGone(pruned, event));
 		const read = { unread: shown.length, capped: answer.capped, lastSuccessAt: now, unexpected };
 		const newest = answer.events.reduce((max, event) => Math.max(max, event.at), held.newest);
 		// First poll primes without waking.
 		const fresh = held.primed ? shown.filter((event) => event.at > held.newest) : [];
-		const wakes = fresh.filter((event) => deps.sort(watcher.id, event) === "wake").sort(oldestFirst);
-		const failed = await pushAll(watcher, wakes, signal);
+		const wakes = fresh.filter((event) => deps.sort(source.id, event) === "wake").sort(oldestFirst);
+		const failed = await pushAll(source, wakes, signal);
 		if (!live()) return;
 		if (failed) {
 			// A busy session is not a failing one, so it does not back off further.
 			const busy = failed === WAKE_BUSY;
 			const retry = busy ? WAKE_RETRY_MS : (held.wakeRetryMs ?? WAKE_RETRY_MS);
 			const until = ambient.now() + retry;
-			console.warn(`[assistant] ${watcher.id} wake not delivered; polling again in ${retry / 1000}s: ${failed}`);
+			console.warn(`[assistant] ${source.id} wake not delivered; polling again in ${retry / 1000}s: ${failed}`);
 			const kept = {
 				...pruned,
 				...read,
@@ -308,38 +308,38 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 				nextPollAt: until,
 				...(busy ? {} : { wakeRetryMs: Math.min(retry * 2, WAKE_RETRY_MAX_MS) }),
 			};
-			settle(watcher, kept, until);
+			settle(source, kept, until);
 			return;
 		}
 		const next = now + answer.nextPollMs;
 		const { wakeRetryMs: _retry, ...rest } = pruned;
 		const advanced = { ...rest, ...read, cursor: answer.cursor, newest, primed: true, nextPollAt: next };
-		if (settle(watcher, advanced, next) && whole) recounts.delete(watcher.id);
+		if (settle(source, advanced, next) && whole) recounts.delete(source.id);
 	};
 
-	const schedule = (watcher: Watcher): void => {
-		if (phase !== "running" || pollQueued.has(watcher.id) || !deps.enabled(watcher.id)) return;
-		pollQueued.add(watcher.id);
-		const flight = queued(watcher.id, null, (signal) => {
-			pollQueued.delete(watcher.id);
-			return pollOnce(watcher, signal);
+	const schedule = (source: Source): void => {
+		if (phase !== "running" || pollQueued.has(source.id) || !deps.enabled(source.id)) return;
+		pollQueued.add(source.id);
+		const flight = queued(source.id, null, (signal) => {
+			pollQueued.delete(source.id);
+			return pollOnce(source, signal);
 		});
-		fireAndForget(`assistant watcher ${watcher.id}`, flight);
+		fireAndForget(`assistant source ${source.id}`, flight);
 	};
 
-	const poke = (watcherId: string): void => {
-		const watcher = deps.watchers.find((candidate) => candidate.id === watcherId);
-		if (phase !== "running" || !watcher) return;
-		const held = timers.get(watcherId);
+	const poke = (sourceId: string): void => {
+		const source = deps.sources.find((candidate) => candidate.id === sourceId);
+		if (phase !== "running" || !source) return;
+		const held = timers.get(sourceId);
 		if (held) ambient.clearTimer(held);
-		timers.delete(watcherId);
-		schedule(watcher);
+		timers.delete(sourceId);
+		schedule(source);
 	};
 
-	const watcherOf = (watcherId: string): Watcher => {
-		const watcher = deps.watchers.find((candidate) => candidate.id === watcherId);
-		if (!watcher) throw new Error(`no watcher "${watcherId}"`);
-		return watcher;
+	const sourceOf = (sourceId: string): Source => {
+		const source = deps.sources.find((candidate) => candidate.id === sourceId);
+		if (!source) throw new Error(`no source "${sourceId}"`);
+		return source;
 	};
 
 	return {
@@ -348,31 +348,31 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			phase = "running";
 			// Stopped ones retry once.
 			const now = ambient.now();
-			for (const watcher of deps.watchers) arm(watcher, state.get(watcher.id).nextPollAt ?? now);
+			for (const source of deps.sources) arm(source, state.get(source.id).nextPollAt ?? now);
 		},
 		poke,
-		switched(watcherId) {
-			generations.set(watcherId, generationOf(watcherId) + 1);
-			poke(watcherId);
+		switched(sourceId) {
+			generations.set(sourceId, generationOf(sourceId) + 1);
+			poke(sourceId);
 		},
-		recount(watcherId) {
-			if (phase !== "running" || !deps.watchers.some((watcher) => watcher.id === watcherId)) return;
-			recounts.add(watcherId);
-			poke(watcherId);
+		recount(sourceId) {
+			if (phase !== "running" || !deps.sources.some((source) => source.id === sourceId)) return;
+			recounts.add(sourceId);
+			poke(sourceId);
 		},
-		async read(watcherId, deadlineMs, load, settle) {
-			const watcher = watcherOf(watcherId);
-			return queued(watcherId, { ms: deadlineMs, atDeadline: "release" }, async (signal) => {
-				const loaded = await load(watcher, signal);
+		async read(sourceId, deadlineMs, load, settle) {
+			const source = sourceOf(sourceId);
+			return queued(sourceId, { ms: deadlineMs, atDeadline: "release" }, async (signal) => {
+				const loaded = await load(source, signal);
 				// Given up on, so it commits nothing.
 				if (signal.aborted) throw new Error("the read was given up");
 				return settle(loaded);
 			});
 		},
-		async write(watcherId, deadlineMs, work) {
-			watcherOf(watcherId);
+		async write(sourceId, deadlineMs, work) {
+			sourceOf(sourceId);
 			// A held item never answers `gave_up`.
-			return queued(watcherId, { ms: deadlineMs, atDeadline: "hold" }, work) as Promise<
+			return queued(sourceId, { ms: deadlineMs, atDeadline: "hold" }, work) as Promise<
 				WriteAnswer<Awaited<ReturnType<typeof work>>>
 			>;
 		},

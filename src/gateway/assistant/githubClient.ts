@@ -1,6 +1,6 @@
 // Shared token, rate limit.
 
-import type { PollAnswer } from "./watcher.js";
+import type { PollAnswer } from "./source.js";
 
 export const GITHUB_API = "https://api.github.com";
 /** GitHub's default poll interval. */
@@ -28,7 +28,7 @@ export interface GithubToken {
 
 export interface GithubClientDeps {
 	fetch: (url: string, init: RequestInit) => Promise<Response>;
-	/** Watcher's grant per call. */
+	/** Source's grant per call. */
 	token: () => Promise<TokenRead>;
 	now: () => number;
 }

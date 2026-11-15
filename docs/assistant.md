@@ -259,7 +259,7 @@ actions; `run_action` runs a listed id.
   answer. Every watcher action takes an optional `summary`. The registry holds data and schemas only,
   so the plugin imports no Gateway code, and `assistant_state` carries each watcher's descriptors
   (`actionsOf`).
-- **One class per action on the Gateway:** `WatcherAction<K>` (`watcherAction.ts`), with its `key`,
+- **One class per action on the Gateway:** `SourceAction<K>` (`sourceAction.ts`), with its `key`,
   its `declaration` and a typed `run(params, ctx)`. The instances sit in a map typed by the
   registry's keys, so a declared action with no class does not compile.
 - **Two routes:** `POST /assistant/actions` lists the actions for the assistant's own token.
@@ -346,7 +346,7 @@ A watcher is plain Gateway code, never a model.
   checks the grant after the vault refresh and takes the same release a session's use does. A
   missing or refused grant stops the watcher, and an unreachable vault backs it off. A Gmail
   watcher needs its own OAuth token in the vault, since a watcher cannot use Claude's connectors.
-- **Enabled** (`watcherEnabled.ts`, `assistant_watcher_enabled`): a disabled watcher polls, wakes
+- **Enabled** (`sourceEnabled.ts`, `assistant_watcher_enabled`): a disabled watcher polls, wakes
   and lists nothing for the assistant, and the baseline leaves it out; its grant and rules stay, and
   an owner's rule preview still reads it. The store holds the off set, so a Gateway that predates it
   runs every watcher. A switch calls the lane's `switched`, which voids a poll in flight: it commits
@@ -397,8 +397,8 @@ Gateway that is not the assistant's home logs `refused` and wakes nothing.
 - **A scope check on every answer:** a classic token names its scopes in `X-OAuth-Scopes`. One
   without `notifications` stops the watcher and its actions, since GitHub lists and reads threads
   under `repo` alone and answers a done with 204 that changes nothing. A 403 carrying
-  `X-GitHub-SSO: required` stops it as an organization SSO refusal. `createGithubWatcher` in
-  `src/gateway/assistant/githubWatcher.ts`, over the shared client.
+  `X-GitHub-SSO: required` stops it as an organization SSO refusal. `createGithubSource` in
+  `src/gateway/assistant/githubSource.ts`, over the shared client.
 
 ### Rules
 

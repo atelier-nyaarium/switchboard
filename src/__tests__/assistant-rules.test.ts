@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createRulesStore } from "../gateway/assistant/rulesStore.js";
-import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
+import type { Source, SourceEvent } from "../gateway/assistant/source.js";
 import {
 	type AssistantHomePort,
 	type AssistantStage,
@@ -70,7 +70,7 @@ const rule = (
 	extra: Partial<AssistantRule> = {},
 ): AssistantRule => ({ id, conditions: [{ field: "reason", test: "is", value }], action, revision: 0, ...extra });
 
-const event = (id: string, reason: string, at = 1): WatcherEvent => ({
+const event = (id: string, reason: string, at = 1): SourceEvent => ({
 	id,
 	at,
 	title: `${reason} ${id}`,
@@ -78,7 +78,7 @@ const event = (id: string, reason: string, at = 1): WatcherEvent => ({
 });
 
 /** Lists `held`; polls nothing new. */
-function listing(held: WatcherEvent[], fieldSpecs = SPECS): Watcher {
+function listing(held: SourceEvent[], fieldSpecs = SPECS): Source {
 	return {
 		id: "github",
 		label: "GitHub",
@@ -114,7 +114,7 @@ function bindHome(assistant: AssistantStage, store: SessionStore) {
 	};
 }
 
-function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
+function stage(dataDir: string, watcher: Source, ambient: FakeAmbient) {
 	const store = new SessionStore({ ambient: processAmbient() });
 	const grants = new Map<string, string[]>();
 	const vault: AssistantVault = {
@@ -137,7 +137,7 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 		blobSize: () => null,
 		lastDeliverySeq: () => 0,
 		fetch: async () => new Response(null, { status: 304 }),
-		watchers: [watcher],
+		sources: [watcher],
 	});
 	return { assistant, home: bindHome(assistant, store) };
 }

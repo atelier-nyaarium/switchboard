@@ -6,7 +6,7 @@ import {
 	ASSISTANT_ACTIONS,
 	type AssistantActionKey,
 	type AssistantActionResult,
-	watcherParamsSchema,
+	sourceParamsSchema,
 } from "./schemasAssistantActions.js";
 import {
 	type CapabilityHost,
@@ -77,7 +77,7 @@ export function actionRefOf(id: string): ActionRef | null {
 /** Shared parse and listing schema. */
 export function actionParamsSchema(id: ActionId): z.ZodType {
 	const ref = actionRef(id);
-	return ref.family === "watcher" ? watcherParamsSchema(ref.key) : PHONE_CAPABILITIES[ref.key].request;
+	return ref.family === "watcher" ? sourceParamsSchema(ref.key) : PHONE_CAPABILITIES[ref.key].request;
 }
 
 /** Last status, per key. */
@@ -189,6 +189,6 @@ export const ActionRunResultSchema = z.discriminatedUnion("kind", [
 
 export type ActionRunResult = z.infer<typeof ActionRunResultSchema>;
 
-export function runResultOfWatcher(result: AssistantActionResult): ActionRunResult {
+export function runResultOfSource(result: AssistantActionResult): ActionRunResult {
 	return result.kind === "ran" ? { kind: "ok", answer: result.answer, recorded: result.recorded } : result;
 }

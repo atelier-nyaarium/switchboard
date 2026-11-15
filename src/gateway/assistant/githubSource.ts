@@ -1,7 +1,7 @@
 // GitHub notifications. The cursor is `Last-Modified`.
 
 import { z } from "zod";
-import { GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
+import { GITHUB_SOURCE_ID } from "../../shared/schemasAssistantActions.js";
 import type { AssistantFieldSpec } from "../../shared/schemasAssistantRules.js";
 import {
 	GITHUB_API,
@@ -11,7 +11,7 @@ import {
 	HIDDEN,
 	isRefusal,
 } from "./githubClient.js";
-import { type ListQuery, MAX_POLL_EVENTS, type Watcher, type WatcherEvent } from "./watcher.js";
+import { type ListQuery, MAX_POLL_EVENTS, type Source, type SourceEvent } from "./source.js";
 
 const NOTIFICATIONS = `${GITHUB_API}/notifications?`;
 const PAGE_SIZE = 50;
@@ -61,7 +61,7 @@ const firstPageOf = (since: number | undefined) =>
 	`${NOTIFICATIONS}per_page=${PAGE_SIZE}${since === undefined ? "" : `&since=${isoOf(since)}`}`;
 
 /** Newest copy of each thread. */
-function unique(events: WatcherEvent[]): WatcherEvent[] {
+function unique(events: SourceEvent[]): SourceEvent[] {
 	const seen = new Set<string>();
 	return events.filter((event) => !seen.has(event.id) && Boolean(seen.add(event.id)));
 }
@@ -92,7 +92,7 @@ export function linkOf(thread: Thread): string | undefined {
 	return `https://github.com/${repo}/${kind === "pulls" ? "pull" : kind === "commits" ? "commit" : "issues"}/${ref}`;
 }
 
-function eventOf(thread: Thread): WatcherEvent {
+function eventOf(thread: Thread): SourceEvent {
 	const at = Date.parse(thread.updated_at);
 	const url = linkOf(thread);
 	return {
@@ -109,7 +109,7 @@ function eventOf(thread: Thread): WatcherEvent {
 	};
 }
 
-function eventsOf(body: unknown): WatcherEvent[] {
+function eventsOf(body: unknown): SourceEvent[] {
 	if (!Array.isArray(body)) throw new Error("GitHub answered something other than a list");
 	return body.flatMap((raw) => {
 		const thread = ThreadSchema.safeParse(raw);
@@ -177,16 +177,16 @@ GitHub PAT (Classic) with scope:
 - Notifications
 `.trim();
 
-export function createGithubWatcher(client: GithubClient): Watcher {
+export function createGithubSource(client: GithubClient): Source {
 	return {
-		id: GITHUB_WATCHER_ID,
+		id: GITHUB_SOURCE_ID,
 		label: "GitHub notifications",
 		fieldSpecs: GITHUB_FIELD_SPECS,
 		secret: GITHUB_SECRET,
 		async poll(cursor, signal) {
 			const token = await client.token(signal);
 			if (isRefusal(token)) return token;
-			const events: WatcherEvent[] = [];
+			const events: SourceEvent[] = [];
 			let url: string | null = `${GITHUB_API}/notifications?per_page=${PAGE_SIZE}`;
 			let validator = validatorOf(cursor, token.key);
 			let nextPollMs = GITHUB_FLOOR_MS;

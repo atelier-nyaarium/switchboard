@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createGithubClient, type TokenRead } from "../gateway/assistant/githubClient.js";
 import { GithubDone } from "../gateway/assistant/githubDone.js";
 import { createSourceLanes } from "../gateway/assistant/sourceLane.js";
-import { FRESH_STATE } from "../gateway/assistant/watcherState.js";
+import { FRESH_STATE } from "../gateway/assistant/sourceState.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
 const T0 = 1_800_000_000_000;
@@ -55,7 +55,7 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 		ambient,
 		state: { get: () => FRESH_STATE, put: () => true },
 		enabled: () => true,
-		watchers: [
+		sources: [
 			{
 				id: "github",
 				label: "GitHub",

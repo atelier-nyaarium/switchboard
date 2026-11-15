@@ -1,15 +1,15 @@
-// A watcher is plain code. Its source holds the only copy.
+// A source is plain code. Its source holds the only copy.
 
 import { z } from "zod";
 import type { AssistantFieldSpec } from "../../shared/schemasAssistantRules.js";
 
-export const WATCHER_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /** Per poll. A source pages past it. */
 export const MAX_POLL_EVENTS = 500;
 const MAX_FIELDS = 32;
 
-export const WatcherEventSchema = z.strictObject({
+export const SourceEventSchema = z.strictObject({
 	/** The source's own id, as its actions take it. */
 	id: z.string().min(1).max(256),
 	/** When the source last updated it. */
@@ -22,7 +22,7 @@ export const WatcherEventSchema = z.strictObject({
 	url: z.string().max(2_000).optional(),
 });
 
-export type WatcherEvent = z.infer<typeof WatcherEventSchema>;
+export type SourceEvent = z.infer<typeof SourceEventSchema>;
 
 const delay = z
 	.number()
@@ -34,7 +34,7 @@ export const PollAnswerSchema = z.discriminatedUnion("kind", [
 	/** The unread list as it stands, with the validator to send next. */
 	z.strictObject({
 		kind: z.literal("events"),
-		events: z.array(WatcherEventSchema).max(MAX_POLL_EVENTS),
+		events: z.array(SourceEventSchema).max(MAX_POLL_EVENTS),
 		cursor: z.string().max(4_096).nullable(),
 		/** More unread than a poll reads. */
 		capped: z.boolean(),
@@ -59,7 +59,7 @@ export interface ListQuery {
 
 export interface ListPage {
 	/** Newest first. */
-	events: WatcherEvent[];
+	events: SourceEvent[];
 	/** This page again, with the read's state. */
 	here: string;
 	next?: string;
@@ -67,7 +67,7 @@ export interface ListPage {
 	mark?: number;
 }
 
-export interface Watcher {
+export interface Source {
 	readonly id: string;
 	/** Display name; never blank. */
 	readonly label: string;

@@ -7,8 +7,8 @@ import { createGithubClient } from "../gateway/assistant/githubClient.js";
 import { GithubDone } from "../gateway/assistant/githubDone.js";
 import { SensorsClear } from "../gateway/assistant/sensorsClear.js";
 import { createSourceLanes } from "../gateway/assistant/sourceLane.js";
+import { FRESH_STATE } from "../gateway/assistant/sourceState.js";
 import { ASSISTANT_WAITS } from "../gateway/assistant/waits.js";
-import { FRESH_STATE } from "../gateway/assistant/watcherState.js";
 import {
 	type AssistantHomePort,
 	type AssistantStage,
@@ -20,7 +20,7 @@ import type {
 	DeliverToOwnerOptions,
 	DeliverToOwnerResult,
 } from "../gateway/consolePushOps.js";
-import { watcherText } from "../mcp/assistant/actionFront.js";
+import { sourceText } from "../mcp/assistant/actionFront.js";
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { ConsolePushEntrySchema } from "../shared/federation-protocol.js";
@@ -222,10 +222,10 @@ describe("an assistant action", () => {
 	it("tells the model whether its summary was recorded, whatever stopped it", () => {
 		const done = { threads: [{ threadId: "1", outcome: "done" as const }] };
 
-		const refused = watcherText({ kind: "refused", reason: "busy" }, null, true);
-		const unrecorded = watcherText({ kind: "ok", answer: done, recorded: false }, done, true);
-		const recorded = watcherText({ kind: "ok", answer: done, recorded: true }, done, true);
-		const quiet = watcherText({ kind: "ok", answer: done, recorded: false }, done, false);
+		const refused = sourceText({ kind: "refused", reason: "busy" }, null, true);
+		const unrecorded = sourceText({ kind: "ok", answer: done, recorded: false }, done, true);
+		const recorded = sourceText({ kind: "ok", answer: done, recorded: true }, done, true);
+		const quiet = sourceText({ kind: "ok", answer: done, recorded: false }, done, false);
 
 		expect(refused).toMatch(/summary was not recorded/);
 		expect(unrecorded).toMatch(/summary was not recorded/);
@@ -245,7 +245,7 @@ describe("an assistant action", () => {
 			ambient,
 			state: { get: () => FRESH_STATE, put: () => true },
 			enabled: () => true,
-			watchers: [
+			sources: [
 				{
 					id: "github",
 					label: "GitHub",
@@ -300,7 +300,7 @@ describe("an assistant action", () => {
 			return watcher();
 		};
 
-		await assistant.console.setWatcherEnabled("github", true);
+		await assistant.console.setSourceEnabled("github", true);
 		const before = await counted(2);
 		await call({ id: "watcher/github_done", callId: "call-0008", params: { ids: ["7"] } });
 		const after = await counted(1);
@@ -320,7 +320,7 @@ describe("an assistant action", () => {
 			return watcher()?.unread;
 		};
 
-		await assistant.console.setWatcherEnabled("github", true);
+		await assistant.console.setSourceEnabled("github", true);
 		const before = await counted(2);
 		const result = await call({ id: "watcher/github_done", callId: "call-0009", params: { ids: ["404"] } });
 		const after = await counted(1);

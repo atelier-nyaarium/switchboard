@@ -109,7 +109,7 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 	): Promise<Response> {
 		const covering = deps.decisions.covers(scope, deps.ambient.now());
 		if (covering) {
-			// The grant is read again after the refresh, as a watcher's is.
+			// The grant is read again after the refresh, as a service's is.
 			const stillCovered = (): VaultUnusable | null =>
 				deps.decisions.covers(scope, deps.ambient.now())
 					? null

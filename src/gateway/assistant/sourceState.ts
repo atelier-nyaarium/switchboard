@@ -1,4 +1,4 @@
-// What a watcher keeps between polls, and the threads it hides.
+// What a source keeps between polls, and the threads it hides.
 
 import { z } from "zod";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
@@ -7,11 +7,11 @@ import {
 	type AssistantFieldValue,
 	trimRuleValue,
 } from "../../shared/schemasAssistantRules.js";
-import type { WatcherEvent } from "./watcher.js";
+import type { SourceEvent } from "./source.js";
 
 export const MAX_GONE = 256;
 
-const WatcherStateSchema = z.strictObject({
+const SourceStateSchema = z.strictObject({
 	/** Sent as `If-Modified-Since`. */
 	cursor: z.string().nullable(),
 	/** Nothing at or before it wakes. */
@@ -44,20 +44,28 @@ const WatcherStateSchema = z.strictObject({
 		.optional(),
 });
 
-export type WatcherState = z.infer<typeof WatcherStateSchema>;
+export type SourceState = z.infer<typeof SourceStateSchema>;
 
 const SnapshotSchema = z.strictObject({
 	v: z.literal(1),
-	watchers: z.record(z.string(), WatcherStateSchema),
+	sources: z.record(z.string(), SourceStateSchema),
 });
 
 type Snapshot = z.infer<typeof SnapshotSchema>;
 
-export const FRESH_STATE: WatcherState = { cursor: null, newest: 0, primed: false, unread: 0, capped: false };
+// Remove 2026-11-28: the file's key before sources.
+const LegacySnapshotSchema = z.strictObject({ v: z.literal(1), watchers: z.record(z.string(), SourceStateSchema) });
+
+function restored(loaded: unknown): Snapshot {
+	const legacy = LegacySnapshotSchema.safeParse(loaded);
+	return legacy.success ? { v: 1, sources: legacy.data.watchers } : SnapshotSchema.parse(loaded);
+}
+
+export const FRESH_STATE: SourceState = { cursor: null, newest: 0, primed: false, unread: 0, capped: false };
 
 export const MAX_UNEXPECTED = 32;
 
-type Unexpected = NonNullable<WatcherState["unexpected"]>;
+type Unexpected = NonNullable<SourceState["unexpected"]>;
 
 const keyOf = (entry: AssistantFieldValue) => JSON.stringify([entry.field, entry.value]);
 
@@ -73,7 +81,7 @@ const stillUnexpected = (specs: readonly AssistantFieldSpec[], entry: AssistantF
 /** Prune listed values, add observed values; ignore missing fields. */
 export function unexpectedAfter(
 	held: Unexpected | undefined,
-	events: readonly WatcherEvent[],
+	events: readonly SourceEvent[],
 	specs: readonly AssistantFieldSpec[],
 ): Unexpected | undefined {
 	const values = (held?.values ?? []).filter((entry) => stillUnexpected(specs, entry));
@@ -98,14 +106,14 @@ export function unexpectedAfter(
 }
 
 /** Pruned against active specs. */
-export const unexpectedNow = (state: WatcherState, specs: readonly AssistantFieldSpec[]) =>
+export const unexpectedNow = (state: SourceState, specs: readonly AssistantFieldSpec[]) =>
 	unexpectedAfter(state.unexpected, [], specs);
 
-export const isGone = (state: WatcherState, event: Pick<WatcherEvent, "id" | "at">): boolean =>
+export const isGone = (state: SourceState, event: Pick<SourceEvent, "id" | "at">): boolean =>
 	state.gone?.some((entry) => entry.id === event.id && event.at <= entry.at) ?? false;
 
 /** Newest kept at the cap. */
-export function goneAdded(state: WatcherState, ids: readonly string[], at: number): WatcherState {
+export function goneAdded(state: SourceState, ids: readonly string[], at: number): SourceState {
 	if (ids.length === 0) return state;
 	const kept = (state.gone ?? []).filter((entry) => !ids.includes(entry.id));
 	const gone = [...kept, ...ids.map((id) => ({ id, at }))].slice(-MAX_GONE);
@@ -113,7 +121,7 @@ export function goneAdded(state: WatcherState, ids: readonly string[], at: numbe
 }
 
 /** A whole read drops what the source stopped listing. */
-export function goneListed(state: WatcherState, events: readonly WatcherEvent[], capped: boolean): WatcherState {
+export function goneListed(state: SourceState, events: readonly SourceEvent[], capped: boolean): SourceState {
 	if (capped || state.gone === undefined) return state;
 	const { gone: held, ...rest } = state;
 	const gone = held.filter((entry) => events.some((event) => event.id === entry.id));
@@ -121,7 +129,7 @@ export function goneListed(state: WatcherState, events: readonly WatcherEvent[],
 }
 
 /** Drawn counts and health; poll ages excluded. */
-const shownOf = (state: WatcherState) =>
+const shownOf = (state: SourceState) =>
 	JSON.stringify([
 		state.unread,
 		state.capped,
@@ -130,38 +138,37 @@ const shownOf = (state: WatcherState) =>
 		state.unexpected ?? null,
 	]);
 
-export const shownChanged = (before: WatcherState, after: WatcherState): boolean => shownOf(before) !== shownOf(after);
+export const shownChanged = (before: SourceState, after: SourceState): boolean => shownOf(before) !== shownOf(after);
 
-export interface WatcherStateStore {
-	get(watcherId: string): WatcherState;
+export interface SourceStateStore {
+	get(sourceId: string): SourceState;
 	/** Checked; false keeps memory. */
-	put(watcherId: string, next: WatcherState): boolean;
+	put(sourceId: string, next: SourceState): boolean;
 }
 
-export function createWatcherStateStore(store: DurableStore): WatcherStateStore {
+export function createSourceStateStore(store: DurableStore): SourceStateStore {
 	const loaded = store.load();
-	let state: Snapshot = loaded === null ? { v: 1, watchers: {} } : SnapshotSchema.parse(loaded);
-	const held = (watcherId: string) =>
-		Object.hasOwn(state.watchers, watcherId) ? state.watchers[watcherId] : undefined;
+	let state: Snapshot = loaded === null ? { v: 1, sources: {} } : restored(loaded);
+	const held = (sourceId: string) => (Object.hasOwn(state.sources, sourceId) ? state.sources[sourceId] : undefined);
 	return {
-		get: (watcherId) => structuredClone(held(watcherId) ?? FRESH_STATE),
-		put(watcherId, next) {
-			const watchers = { ...state.watchers };
-			// A watcher id stays a plain key.
-			Object.defineProperty(watchers, watcherId, {
-				value: WatcherStateSchema.parse(next),
+		get: (sourceId) => structuredClone(held(sourceId) ?? FRESH_STATE),
+		put(sourceId, next) {
+			const sources = { ...state.sources };
+			// A source id stays a plain key.
+			Object.defineProperty(sources, sourceId, {
+				value: SourceStateSchema.parse(next),
 				enumerable: true,
 				writable: true,
 				configurable: true,
 			});
-			const written: Snapshot = { v: 1, watchers };
+			const written: Snapshot = { v: 1, sources };
 			return commitChecked(
 				store,
 				written,
 				(landed) => {
 					state = landed;
 				},
-				{ label: "assistant watcher state" },
+				{ label: "assistant source state" },
 			).landed;
 		},
 	};

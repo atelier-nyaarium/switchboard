@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
+import type { Source, SourceEvent } from "../gateway/assistant/source.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { blobIdFor } from "../shared/blob-store.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
@@ -25,9 +25,9 @@ describe("the assistant's guarded sends", () => {
 	const tokens = new Map<string, string | undefined>();
 	/** Next registration drops immediately. */
 	const dropOnWake = new Set<string>();
-	const events: WatcherEvent[] = [];
+	const events: SourceEvent[] = [];
 	let polls = 0;
-	const watcher: Watcher = {
+	const watcher: Source = {
 		id: "fake",
 		label: "Fake source",
 		fieldSpecs: [{ kind: "text", field: "kind", label: "Kind" }],
@@ -107,7 +107,7 @@ describe("the assistant's guarded sends", () => {
 	let friend: FakeSession;
 
 	beforeAll(async () => {
-		h = await startFederationHarness({ assistantWatchers: [watcher], wakeTimeoutMs: 2_000 });
+		h = await startFederationHarness({ assistantSources: [watcher], wakeTimeoutMs: 2_000 });
 		h.host.handlers.onCreateSession = (op) =>
 			void attach(composeSessionName(op.target.name, op.target.sessionName), op.sessionToken);
 		h.host.handlers.onWake = (frame) => void attach(String(frame.team), frame.sessionToken as string | undefined);

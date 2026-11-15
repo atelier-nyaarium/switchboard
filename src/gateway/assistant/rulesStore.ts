@@ -63,7 +63,7 @@ function withoutPing(rule: Loose): Loose {
 /** Older files, before the parse refuses them. A changed list moves its revision. */
 function decodedLegacy(raw: unknown): unknown {
 	if (!isLoose(raw) || !isLoose(raw.watchers)) return raw;
-	// Watcher ids stay plain keys.
+	// Source ids stay plain keys.
 	const watchers: Loose = Object.create(null);
 	for (const [watcherId, held] of Object.entries(raw.watchers)) {
 		if (!isLoose(held) || !Array.isArray(held.rules) || !isLoose(held.otherwise)) {
