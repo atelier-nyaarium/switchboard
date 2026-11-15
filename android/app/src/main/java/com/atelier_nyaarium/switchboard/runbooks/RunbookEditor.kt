@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,23 +40,29 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.EditKey
 import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.EditorWaiting
+import com.atelier_nyaarium.switchboard.GatewayList
+import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.MirroredDraft
 import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.refusalToShow
 import com.atelier_nyaarium.switchboard.rememberEdit
+import com.atelier_nyaarium.switchboard.runbookDeleteLine
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, onClose: () -> Unit) {
+fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?) {
 	val existing = remember(gatewayId, runbookId) { runbookId?.let { repo.runbooks.find(gatewayId, it) } }
-	// The repository outlives this activity, so an edit in progress survives a rotation there.
+	// Repository outlives the activity.
 	val edits = repo.runbookOps.edits
 	val key = EditKey(gatewayId, runbookId)
 	// The library is on this phone, so it is always read.
-	val open = rememberEdit(edits, key, editStanding(runbookId, existing, listed = true), "Edit runbook", onClose) {
-		existing?.let { RunbookDraft.of(it) } ?: RunbookDraft(id = newRunbookId())
+	val stored = runbookId?.let { existing?.let { held -> Lookup.Found(held) } ?: Lookup.Gone }
+	val fresh = remember(key, existing) { existing?.let { RunbookDraft.of(it) } ?: RunbookDraft(id = newRunbookId()) }
+	val open = rememberEdit(edits, key, editStanding(stored), fresh) {
+		EditorWaiting("Edit runbook", it, edits::hide)
 	} ?: return
 	val opening = open.opening
 	val session = open.session
@@ -126,19 +133,13 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 	}
 
 	if (deleting) {
-		// Named rather than counted: a routine pinning this stops, and only the owner can decide
-		// whether that is what they meant.
 		// This Gateway's routines only. Another Gateway's copy of the id is another runbook.
-		val pinning = repo.state.value.gateways.routinesOn(gatewayId)
-			.filter { it.routine.runbookId == draft.id }
-			.map { it.routine.name }
+		val registry = repo.state.collectAsState().value.gateways
+		// On the repository's scope: a read cut off with this dialogue would land nothing.
+		LaunchedEffect(gatewayId) { repo.command { routineOps.refresh(gatewayId) } }
 		ConfirmDialog(
 			title = "Delete this runbook?",
-			body = if (pinning.isEmpty()) {
-				"It goes from this Gateway and from this phone."
-			} else {
-				"It goes, and these routines stop running until you give them another: " + pinning.joinToString(", ")
-			},
+			body = runbookDeleteLine(registry.entry(gatewayId)?.routines ?: GatewayList.Unread, draft.id),
 			confirmText = "Delete",
 			onConfirm = {
 				deleting = false

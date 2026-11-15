@@ -29,8 +29,11 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
 import com.atelier_nyaarium.switchboard.ViewScope
+import com.atelier_nyaarium.switchboard.emptyLine
 import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.listEmpty
+import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.vault.VaultEntryView
 import kotlinx.coroutines.launch
@@ -45,24 +48,21 @@ internal fun PoliciesScreen(
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.policyOps.refreshAll() }
 	val launcher = rememberCoroutineScope()
-	val groups = scope.groupsOf(state.gateways.gateways).filter { it.policies.listed }
+	val scoped = scope.groupsOf(state.gateways.gateways)
+	val groups = scoped.listedGroups { it.policies }
 	val named = groups.size > 1
-	val toggleRefusals by repo.policyOps.toggleRefusals
+	val toggleRefusals by repo.policyOps.toggles.refusals
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.policies.rows.isEmpty() }) {
+		if (groups.all { it.rows.isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				// Refused is hidden, so empty is not broken.
-				Text(
-					if (state.gateways.loaded) "No policies" else "No roster yet",
-					style = MaterialTheme.typography.titleMedium,
-				)
+				Text(emptyLine(listEmpty(state.gateways, scoped) { it.policies }, "policies"), style = MaterialTheme.typography.titleMedium)
 			}
 		} else {
 			LazyColumn(
@@ -73,24 +73,24 @@ internal fun PoliciesScreen(
 				for (group in groups) {
 					// Named only with several gateways.
 					if (named) {
-						item(key = "gateway:${group.id}") {
+						item(key = "gateway:${group.gatewayId}") {
 							Text(
-								group.id,
+								group.gatewayId,
 								style = MaterialTheme.typography.labelLarge,
 								modifier = Modifier.padding(top = 6.dp),
 							)
 						}
 					}
-					for (policy in group.policies.rows) {
-						item(key = "policy:${group.id}:${policy.id}") {
+					for (policy in group.rows) {
+						item(key = "policy:${group.gatewayId}:${policy.id}") {
 							PolicyRow(
 								policy = policy,
-								binding = bindingLine(policy, entries, group.id),
-								toggleRefusal = toggleRefusals[group.id to policy.id],
-								onEdit = { onEdit(group.id, policy.id) },
+								binding = bindingLine(policy, entries, group.gatewayId),
+								toggleRefusal = toggleRefusals[group.gatewayId to policy.id],
+								onEdit = { onEdit(group.gatewayId, policy.id) },
 								onEnable = { on ->
 									launcher.launch {
-										repo.policyOps.setEnabled(policy.id, on, policy.revision, group.id)
+										repo.policyOps.setEnabled(policy.id, on, policy.revision, group.gatewayId)
 									}
 								},
 							)

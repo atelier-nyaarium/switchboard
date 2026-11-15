@@ -190,6 +190,7 @@ private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 		GrantSecretsSheet(
 			entries = offered,
 			granted = listOfNotNull(entry),
+			listed = repo.vault.routerRevision > 0,
 			onDone = { picks ->
 				choosing = false
 				entry = picks.lastOrNull()

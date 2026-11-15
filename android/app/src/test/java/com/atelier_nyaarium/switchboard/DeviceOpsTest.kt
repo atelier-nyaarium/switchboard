@@ -161,7 +161,7 @@ class DeviceOpsTest {
 	}
 
 	private class Host(override val gateway: DeviceGateway?) : DeviceHost {
-		override val generation = WorkspaceGeneration()
+		override val generation = ProvisionFence()
 		var present = true
 
 		override fun names(gatewayId: String) = present
@@ -620,8 +620,7 @@ class DeviceOpsTest {
 		gateway.readHolds.addLast(hold)
 		val slow = launch { ops.read(GW, LAMP) }
 		hold.entered.await()
-		host.generation.advance()
-		ops.clearInMemory()
+		host.generation.reprovision { ops.clearInMemory() }
 		ops.relist(GW)
 		hold.release()
 		slow.join()

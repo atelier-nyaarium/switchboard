@@ -37,7 +37,11 @@ sealed interface BoardEnqueueResult {
 	data class Refused(val entryId: String?, val reason: String) : BoardEnqueueResult
 }
 
-class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
+class BoardManager(
+	private val store: BoardStore,
+	/** True while a re-provision wipes; nothing lands then. */
+	private val wiping: () -> Boolean = { false },
+) : ClearsOnReprovision {
 	private val json = Json { ignoreUnknownKeys = true }
 	private data class RenderMemo(
 		val stored: List<BoardStoredEntry>,
@@ -193,12 +197,12 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		opId: String,
 		revision: Long,
 		entries: List<BoardStoredEntry>,
+		generation: Long,
 		at: Long = System.currentTimeMillis(),
-		generation: Long = this.generation,
 	): Boolean {
 		val next = renderIncoming(entries)
 		synchronized(stateLock) {
-			val fold = if (generation == this.generation) landed(revision, entries) else VersionedFold.Ignore
+			val fold = if (generation == this.generation && !wiping()) landed(revision, entries) else VersionedFold.Ignore
 			val landed = if (fold is VersionedFold.Apply) {
 				blob.copy(
 					routerRevision = fold.revision,
@@ -228,12 +232,12 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 	fun applyRouterBoard(
 		revision: Long,
 		entries: List<BoardStoredEntry>,
+		generation: Long,
 		at: Long = System.currentTimeMillis(),
-		generation: Long = this.generation,
 	): Boolean {
 		val next = renderIncoming(entries)
 		synchronized(stateLock) {
-			if (generation != this.generation) return false
+			if (generation != this.generation || wiping()) return false
 			val fold = landed(revision, entries) as? VersionedFold.Apply ?: return false
 			val persisted = persist(
 				blob.copy(

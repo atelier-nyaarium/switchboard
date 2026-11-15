@@ -55,10 +55,7 @@ internal class AutomationOps(
 ) : ClearsOnReprovision {
 	private val reads = GatewayReadFence()
 
-	/** One counter per row. */
-	private val toggles = GatewayReadFence()
-
-	val toggleRefusals = androidx.compose.runtime.mutableStateOf<Map<Pair<String, String>, String>>(emptyMap())
+	val toggles = ToggleFence()
 
 	/** The editor's edits; its line is what the last send said. */
 	val edits = EditorSessions<AutomationDraftKey, AutomationDraft, String>(
@@ -72,7 +69,6 @@ internal class AutomationOps(
 		reads.clear()
 		toggles.clear()
 		edits.clear()
-		toggleRefusals.value = emptyMap()
 	}
 
 	/** A delete's offer is the held row, not an edit. */
@@ -89,17 +85,15 @@ internal class AutomationOps(
 		}
 	}
 
-	fun toggleRefusalFor(gatewayId: String, automationId: String): String? =
-		toggleRefusals.value[gatewayId to automationId]
-
 	suspend fun refreshAll() {
 		refreshEach(state.value.gateways.ids(), ::refresh)
 	}
 
 	suspend fun refresh(gatewayId: String) {
-		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val read = reads.list(TAG, gatewayId) { client.list(gatewayId) }
+		val client = host.gateway
+		val read = reads.list(TAG, gatewayId, client?.let { held -> suspend { held.list(gatewayId) } }) ?: return
+		// Remove 2026-11-29: with the prose shim.
 		// A Gateway that answers sources serves this list, so its refusal is a fault.
 		val serves = servesSources(state.value.gateways.assistantOn(gatewayId))
 		val answer = if (read == ListAnswer.NotServed && serves) ListAnswer.Unreachable else read
@@ -136,14 +130,12 @@ internal class AutomationOps(
 		val deleted = answer ?: return AutomationSaved.Unreachable
 		refresh(gatewayId)
 		if (deleted.deleted) return AutomationSaved.Stored(null)
-		return AutomationSaved.Refused(deleted.reason ?: "This Gateway kept it", state.value.gateways.automationOn(gatewayId, id))
+		return AutomationSaved.Refused(deleted.reason ?: "This Gateway kept it", state.value.gateways.automationOn(gatewayId, id).found())
 	}
 
-	suspend fun setEnabled(gatewayId: String, row: AutomationRow, enabled: Boolean): AutomationSaved {
-		val key = gatewayId to row.id
-		var answer: AutomationSaved = AutomationSaved.Unreachable
-		val current = toggles.read("$gatewayId/${row.id}") {
-			answer = if (gatewayId.isBlank()) {
+	suspend fun setEnabled(gatewayId: String, row: AutomationRow, enabled: Boolean): AutomationSaved =
+		toggles.run(gatewayId, row.id, ::toggleLine) {
+			val answer = if (gatewayId.isBlank()) {
 				AutomationSaved.Unreachable
 			} else {
 				var result: ConsoleAutomationPutResult? = null
@@ -162,17 +154,11 @@ internal class AutomationOps(
 			refresh(gatewayId)
 			answer
 		}
-		if (current is GatewayRead.Fresh) {
-			noteToggle(
-				key,
-				when (val result = answer) {
-					is AutomationSaved.Stored -> null
-					is AutomationSaved.Refused -> result.reason
-					AutomationSaved.Unreachable -> GATEWAY_UNREACHABLE
-				},
-			)
-		}
-		return answer
+
+	private fun toggleLine(saved: AutomationSaved): String? = when (saved) {
+		is AutomationSaved.Stored -> null
+		is AutomationSaved.Refused -> saved.reason
+		AutomationSaved.Unreachable -> GATEWAY_UNREACHABLE
 	}
 
 	suspend fun preview(gatewayId: String, trigger: AutomationTrigger): ConsoleAutomationPreviewResult? {
@@ -184,10 +170,6 @@ internal class AutomationOps(
 	private fun saved(answer: ConsoleAutomationPutResult): AutomationSaved = when {
 		answer.stored && answer.row != null -> AutomationSaved.Stored(answer.row)
 		else -> AutomationSaved.Refused(answer.reason ?: "This Gateway holds a different copy", answer.row)
-	}
-
-	private fun noteToggle(key: Pair<String, String>, reason: String?) {
-		toggleRefusals.value = if (reason == null) toggleRefusals.value - key else toggleRefusals.value + (key to reason)
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = gatewayAttempt(TAG, call)

@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -143,17 +145,27 @@ suspend fun ChatRepository.setDeviceName(name: String) = withContext(Dispatchers
 internal fun ChatRepository.currentDeviceName(): String =
 	store.load()?.let { runIsolated { ConsoleCredentials.parse(it, store).device }.getOrNull() } ?: ""
 
-suspend fun ChatRepository.clearAll() = withContext(Dispatchers.IO) {
-	// Join the poll loop before wiping state.
-	drain.stopAndJoin()
-	// Preserve voice settings.
-	assistantOps.forgetHome { identity.clear() }
-	// Wipe durable state first.
-	for (cache in clearedOnReprovision) cache.clearInMemory()
-	stts.purgeAll()
-	// Purge file-backed attachments too.
-	Attachments.purgeAll(filesDir)
-	_state.update { ChatState(provisioned = false) }
+// Never cancelled part way, and one at a time: a wipe cut short would move the term over a phone half wiped.
+suspend fun ChatRepository.clearAll() = withContext(Dispatchers.IO + NonCancellable) {
+	wipes.withLock {
+		// Closed first: nothing lands from here to the end of the wipe.
+		provision.advance()
+		try {
+			// Join poll loop.
+			drain.stopAndJoin()
+			// Keep voice settings.
+			assistantOps.forgetHome { identity.clear() }
+			// Wipe durable state.
+			for (cache in clearedOnReprovision) cache.clearInMemory()
+			stts.purgeAll()
+			// Purge attachment files.
+			Attachments.purgeAll(filesDir)
+			_state.update { ChatState(provisioned = false) }
+			// Again: a write still out when the identity went may have put a key back.
+			identity.clear()
+		} finally {
+			provision.settle()
+		}
+	}
 	linkChanged()
-	// Cancel the OS-level alarm.
 }

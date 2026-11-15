@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -17,91 +18,93 @@ class EditorSessionsTest {
 
 	private fun sessions() = EditorSessions<EditKey, String, String>(unattended = { left -> told += left.said.orEmpty() })
 
-	private fun EditorSessions<EditKey, String, String>.showing(shown: Long?) = editorShowing(shown, held.value[key])
+	private val EditorSessions<EditKey, String, String>.now get() = state.value
+
+	private fun EditorSessions<EditKey, String, String>.typed(draft: String = "changed"): Long {
+		show(key)
+		val opening = open(key, "opened")!!
+		edit(key, opening) { draft }
+		return opening
+	}
 
 	@Test
-	fun aLateAnswerNeverLandsOnADraftOpenedAfterItWasSent() = runBlocking {
+	fun onlyTheShownKeyIsOpenedAndAHeldEditKeepsItsOpening() {
 		val edits = sessions()
-		val first = edits.open(key, "first")
-		val late = CompletableDeferred<EditOutcome<String, String>>()
-		val sent = async { edits.send(key, first) { late.await() } }
-		yield()
+		assertNull(edits.open(key, "never shown"))
 
-		edits.edit(key, first) { "typed while sending" }
-		assertEquals("first", edits.held.value.getValue(key).draft)
-		edits.discard(key, first)
-		val second = edits.open(key, "reopened")
-		late.complete(EditOutcome.Done)
-		sent.await()
+		edits.show(key)
+		val opening = edits.open(key, "opened")
 
-		assertEquals("reopened", edits.held.value.getValue(key).draft)
-		assertEquals(EditorShowing.DRAWN, edits.showing(second))
-		assertEquals(EditorShowing.CLOSING, edits.showing(first))
+		assertEquals(EditSession<String, String>("opened", "opened", opening!!), edits.now.held[key])
+		assertEquals(opening, edits.open(key, "a later page of the same record"))
+		assertEquals("opened", edits.now.held.getValue(key).draft)
 	}
 
 	@Test
 	fun backLeavesAnUnchangedDraftAtOnceAndAsksForAChangedOne() {
 		val edits = sessions()
+		edits.show(key)
 		edits.open(key, "opened")
 
-		assertTrue(edits.askLeave(key))
-		assertNull(edits.held.value[key])
-		assertTrue(edits.askLeave(key))
+		assertTrue(edits.askLeave())
+		assertEquals(EditState<EditKey, String, String>(), edits.now)
+		assertTrue(edits.askLeave())
 
-		val opening = edits.open(key, "opened")
-		edits.edit(key, opening) { "changed" }
-		assertFalse(edits.askLeave(key))
-		assertTrue(leaveShown(edits.leaving.value, key, edits.held.value[key]))
+		val opening = edits.typed()
+		assertFalse(edits.askLeave())
+		assertTrue(edits.now.asks(key))
 		edits.stay()
-		assertNull(edits.leaving.value)
-		assertEquals("changed", edits.held.value.getValue(key).draft)
-		edits.askLeave(key)
+		assertFalse(edits.now.asks(key))
+		assertEquals(key, edits.now.shown)
+
+		edits.askLeave()
 		edits.discard(key, opening)
-		assertNull(edits.leaving.value)
-		assertEquals(EditorShowing.CLOSING, edits.showing(opening))
+		assertEquals(EditState<EditKey, String, String>(), edits.now)
 	}
 
 	@Test
-	fun backDuringASaveLeavesAtOnceAndAnAnswerThatLandsClosesOnlyItsOwnPage() = runBlocking {
+	fun backDuringASaveHidesTheEditorAndTheSaveThatLandsEndsTheEdit() = runBlocking {
 		val edits = sessions()
-		val first = edits.open(key, "opened")
-		edits.edit(key, first) { "changed" }
-		assertFalse(edits.askLeave(key))
-		val asked = edits.leaving.value
-		val entered = CompletableDeferred<Unit>()
+		val opening = edits.typed()
 		val gate = CompletableDeferred<Unit>()
-
 		val sent = async {
-			edits.send(key, first) {
-				entered.complete(Unit)
+			edits.send(key, opening) {
 				gate.await()
 				EditOutcome.Done
 			}
 		}
-		entered.await()
-		val left = edits.askLeave(key)
-		edits.park(key, first)
-		val kept = edits.showing(first)
-		val again = edits.send(key, first) { EditOutcome.Done }
+		yield()
+
+		assertTrue(edits.askLeave())
+		assertNull(edits.now.shown)
+		assertTrue(edits.now.held.getValue(key).busy)
+		assertNull(edits.send(key, opening) { EditOutcome.Done })
 		gate.complete(Unit)
 		sent.await()
-		val second = edits.open(key, "opened")
 
-		assertEquals(true to EditorShowing.DRAWN, left to kept)
-		assertNull(again)
-		assertEquals(EditorShowing.CLOSING, edits.showing(first))
-		assertFalse(leaveShown(asked, key, edits.held.value[key]))
-		assertEquals(EditorShowing.DRAWN, edits.showing(second))
+		assertEquals(EditState<EditKey, String, String>(), edits.now)
 		assertEquals(emptyList<String>(), told)
 	}
 
 	@Test
-	fun aSaveThatFailsAfterItsPageLeftTellsTheOwnerAndOneStillWatchedDoesNot() = runBlocking {
+	fun aSaveThatLandsClosesItsShownEditorInOneStep() = runBlocking {
 		val edits = sessions()
-		val opening = edits.open(key, "opened")
-		edits.edit(key, opening) { "changed" }
+		val opening = edits.typed()
+		edits.askLeave()
 
-		edits.send(key, opening) { EditOutcome.Stays("refused while watched") }
+		assertEquals(EditOutcome.Done, edits.send(key, opening) { EditOutcome.Done })
+
+		assertEquals(EditState<EditKey, String, String>(), edits.now)
+		assertNull(edits.open(key, "blank"))
+	}
+
+	@Test
+	fun aRefusalIsShownOnItsEditorAndToldOnlyWhenNoEditorShowsIt() = runBlocking {
+		val edits = sessions()
+		val opening = edits.typed()
+
+		edits.send(key, opening) { EditOutcome.Stays("refused while shown") }
+		assertEquals("refused while shown", edits.now.held.getValue(key).said)
 		assertEquals(emptyList<String>(), told)
 
 		val gate = CompletableDeferred<Unit>()
@@ -112,71 +115,118 @@ class EditorSessionsTest {
 			}
 		}
 		yield()
-		edits.park(key, opening)
+		assertNull(edits.now.held.getValue(key).said)
+		edits.hide()
 		gate.complete(Unit)
 		sent.await()
 
 		assertEquals(listOf("this Gateway could not be reached"), told)
-		// Reopened page shows it.
+		edits.show(key)
 		assertEquals(opening, edits.open(key, "a later page"))
-		assertEquals("this Gateway could not be reached", edits.held.value.getValue(key).said)
-		edits.send(key, opening) { EditOutcome.Stays("refused again") }
-		assertEquals(1, told.size)
+		assertEquals("this Gateway could not be reached", edits.now.held.getValue(key).said)
 	}
 
 	@Test
-	fun anEditADiscardAParkAndASendFromAnotherOpeningTouchNothing() = runBlocking {
+	fun anUntouchedEditRefusedWithNoEditorIsToldAndDropped() = runBlocking {
 		val edits = sessions()
-		val stale = edits.open(key, "first")
-		edits.discard(key, stale)
-		val opening = edits.open(key, "second")
-
-		edits.edit(key, stale) { "from the page that left" }
-		edits.discard(key, stale)
-		edits.park(key, stale)
-		val sent = edits.send(key, stale) { EditOutcome.Done }
-
-		assertNull(sent)
-		assertEquals(EditSession<String, String>("second", "second", opening), edits.held.value[key])
-		assertEquals(opening, edits.open(key, "a third page of the same record"))
-	}
-
-	@Test
-	fun aSendThatStaysSaysWhyAndADraftItAnswersReplacesTheHeldOne() = runBlocking {
-		val edits = sessions()
-		val opening = edits.open(key, "opened")
-		edits.edit(key, opening) { "changed" }
-
-		edits.send(key, opening) { EditOutcome.Stays("refused") }
-		assertEquals(EditSession("changed", "opened", opening, said = "refused"), edits.held.value[key])
-		// No stale refusal showing.
+		edits.show(key)
+		val opening = edits.open(key, "opened")!!
 		val gate = CompletableDeferred<Unit>()
-		val resent = async {
+		val deleting = async {
 			edits.send(key, opening) {
 				gate.await()
-				EditOutcome.Stays("refused again")
+				EditOutcome.Stays("this Gateway still runs it")
 			}
 		}
 		yield()
-		assertEquals(EditSession<String, String>("changed", "opened", opening, busy = true), edits.held.value[key])
+		assertTrue(edits.askLeave())
 		gate.complete(Unit)
-		resent.await()
+		deleting.await()
 
-		edits.send(key, opening) { EditOutcome.Stays("offered", draft = "theirs") }
-		assertEquals(EditSession("theirs", "opened", opening, said = "offered"), edits.held.value[key])
-		assertFalse(edits.askLeave(key))
-
-		edits.send(key, opening) { EditOutcome.Stays("held", draft = "held row", reopened = true) }
-		assertTrue(edits.askLeave(key))
+		assertEquals(listOf("this Gateway still runs it"), told)
+		assertEquals(EditState<EditKey, String, String>(), edits.now)
 	}
 
 	@Test
-	fun aSendThatThrowsFreesTheDraftAndRecordsAreHeldPerGateway() = runBlocking {
+	fun aRefusalOnAnUntouchedDraftStaysWhileItsEditorIsShown() = runBlocking {
+		val edits = sessions()
+		edits.show(key)
+		val opening = edits.open(key, "opened")!!
+
+		edits.send(key, opening) { EditOutcome.Stays("this Gateway still holds it") }
+
+		// Disposal keeps the edit.
+		assertEquals(EditSession("opened", "opened", opening, said = "this Gateway still holds it"), edits.now.held[key])
+		assertEquals(key, edits.now.shown)
+		assertEquals(emptyList<String>(), told)
+	}
+
+	@Test
+	fun anArrivalHidesAnUntouchedEditForGoodAndKeepsATouchedOne() {
+		val edits = sessions()
+		edits.show(key)
+		edits.open(key, "opened")
+		edits.hide()
+		assertEquals(EditState<EditKey, String, String>(), edits.now)
+
+		val opening = edits.typed()
+		edits.askLeave()
+		edits.hide()
+
+		assertNull(edits.now.shown)
+		assertFalse(edits.now.asks(key))
+		assertEquals("changed", edits.now.held.getValue(key).draft)
+		edits.show(key)
+		assertEquals(opening, edits.open(key, "reopened"))
+	}
+
+	@Test
+	fun showingAnotherRecordHidesTheOneShownBefore() {
 		val edits = sessions()
 		val other = EditKey("mikan", "apt")
-		val opening = edits.open(key, "here")
+		edits.typed()
+
+		edits.show(other)
 		edits.open(other, "there")
 
+		assertEquals(other, edits.now.shown)
+		assertEquals(setOf(key, other), edits.now.held.keys)
+		assertTrue(edits.askLeave())
+		assertEquals(setOf(key), edits.now.held.keys)
+	}
+
+	@Test
+	fun aLateAnswerNeverLandsOnADraftOpenedAfterItWasSent() = runBlocking {
+		val edits = sessions()
+		val first = edits.typed("first")
+		val late = CompletableDeferred<EditOutcome<String, String>>()
+		val sent = async { edits.send(key, first) { late.await() } }
+		yield()
+
+		edits.edit(key, first) { "typed while sending" }
+		assertEquals("first", edits.now.held.getValue(key).draft)
+		edits.discard(key, first)
+		edits.show(key)
+		val second = edits.open(key, "reopened")!!
+		edits.edit(key, first) { "from the page that left" }
+		edits.discard(key, first)
+		late.complete(EditOutcome.Done)
+		sent.await()
+
+		assertEquals(EditSession<String, String>("reopened", "reopened", second), edits.now.held[key])
+		assertEquals(key, edits.now.shown)
+	}
+
+	@Test
+	fun aSendThatStaysCanReplaceTheDraftAndASendThatThrowsFreesIt() = runBlocking {
+		val edits = sessions()
+		val opening = edits.typed()
+
+		edits.send(key, opening) { EditOutcome.Stays("offered", draft = "theirs") }
+		assertEquals(EditSession("theirs", "opened", opening, said = "offered"), edits.now.held[key])
+		assertFalse(edits.askLeave())
+
+		edits.send(key, opening) { EditOutcome.Stays("held", draft = "held row", reopened = true) }
 		val thrown = try {
 			edits.send(key, opening) { error("down") }
 			null
@@ -185,86 +235,126 @@ class EditorSessionsTest {
 		}
 
 		assertEquals("down", thrown)
-		assertEquals(EditSession<String, String>("here", "here", opening), edits.held.value[key])
-		assertEquals("there", edits.held.value.getValue(other).draft)
-		edits.clear()
-		assertTrue(edits.held.value.isEmpty())
+		assertEquals(EditSession("held row", "held row", opening, said = "held"), edits.now.held[key])
+		assertTrue(edits.askLeave())
 	}
 
 	@Test
-	fun aPageThatLeavesDropsAnUntouchedEditAndKeepsATouchedOneUnasked() {
+	fun aReprovisionEndsEveryEditAndALateAnswerFindsNothing() = runBlocking {
 		val edits = sessions()
-		val touched = edits.open(key, "opened")
-		edits.edit(key, touched) { "changed" }
-		assertFalse(edits.askLeave(key))
-
-		edits.park(key, touched)
-		assertNull(edits.leaving.value)
-		assertEquals(touched, edits.open(key, "a later page"))
-		assertEquals("changed", edits.held.value.getValue(key).draft)
-
-		edits.discard(key, touched)
-		val untouched = edits.open(key, "opened")
-		edits.park(key, untouched)
-		assertEquals(EditorShowing.CLOSING, edits.showing(untouched))
-	}
-
-	@Test
-	fun backLeavesAnEditNoPageDrawsAndAnUntouchedOneThatSettlesUnwatchedIsDropped() = runBlocking {
-		val edits = sessions()
-		val touched = edits.open(key, "opened")
-		edits.edit(key, touched) { "changed" }
-		edits.park(key, touched)
-
-		assertTrue(edits.askLeave(key))
-		assertNull(edits.leaving.value)
-		assertEquals("changed", edits.held.value.getValue(key).draft)
-
-		edits.discard(key, touched)
-		val untouched = edits.open(key, "opened")
+		val opening = edits.typed()
 		val gate = CompletableDeferred<Unit>()
-		val deleting = async {
-			edits.send(key, untouched) {
+		val sent = async {
+			edits.send(key, opening) {
 				gate.await()
-				EditOutcome.Stays("this Gateway still runs it")
+				EditOutcome.Stays("refused for the previous owner")
 			}
 		}
 		yield()
-		edits.park(key, untouched)
-		gate.complete(Unit)
-		deleting.await()
 
-		assertEquals(listOf("this Gateway still runs it"), told)
-		assertNull(edits.held.value[key])
-		assertEquals(setOf("held"), setOfNotNull(hiddenEditor("held", setOf("held")), hiddenEditor("ended", setOf("held")), hiddenEditor(null, setOf("held"))))
+		edits.clear()
+		gate.complete(Unit)
+		sent.await()
+
+		assertEquals(EditState<EditKey, String, String>(), edits.now)
+		assertEquals(emptyList<String>(), told)
+	}
+
+	@Test
+	fun oneEditorIsShownAtATimeAcrossKindsAndBackAsksTheShownOne() {
+		val runbooks = sessions()
+		val routines = sessions()
+		val policies = sessions()
+		val automations = EditorSessions<AutomationDraftKey, String, String>()
+		val editors = Editors(runbooks, routines, policies, automations)
+		val automation = AutomationDraftKey("sakura", AutomationSlot.New)
+		fun shown() = shownEditorOf(runbooks.now.shown, routines.now.shown, policies.now.shown, automations.state.value.shown)
+
+		editors.show(ShownEditor.Runbook(key))
+		runbooks.edit(key, runbooks.open(key, "opened")!!) { "changed" }
+		editors.show(ShownEditor.Automation(automation))
+
+		assertEquals(ShownEditor.Automation(automation), shown())
+		assertEquals("changed", runbooks.now.held.getValue(key).draft)
+		assertTrue(editors.askLeave())
+		assertNull(shown())
+
+		editors.show(ShownEditor.Runbook(key))
+		assertFalse(editors.askLeave())
+		assertEquals(ShownEditor.Runbook(key), shown())
+		editors.hideAll()
+		assertNull(shown())
+	}
+
+	@Test
+	fun aRowTappedTwiceKeepsItsFreshEdit() {
+		val runbooks = sessions()
+		val editors = Editors(runbooks, sessions(), sessions(), EditorSessions<AutomationDraftKey, String, String>())
+		editors.show(ShownEditor.Runbook(key))
+		val opening = runbooks.open(key, "opened")
+
+		editors.show(ShownEditor.Runbook(key))
+
+		assertEquals(key, runbooks.now.shown)
+		assertEquals(opening, runbooks.now.held[key]?.opening)
+	}
+
+	@Test
+	fun anArrivalOverARefusalNobodySawTellsIt() = runBlocking {
+		val edits = sessions()
+		val opening = edits.typed()
+		edits.send(key, opening) { EditOutcome.Stays("refused in the background") }
+		assertEquals(emptyList<String>(), told)
+
+		edits.hide()
+
+		assertEquals(listOf("refused in the background"), told)
+		assertEquals("changed", edits.now.held.getValue(key).draft)
+		// Told once per refusal.
+		edits.show(key)
+		edits.hide()
+		assertEquals(1, told.size)
+		edits.show(key)
+		edits.send(key, opening) { EditOutcome.Stays("refused again") }
+		edits.hide()
+		assertEquals(listOf("refused in the background", "refused again"), told)
+	}
+
+	@Test
+	fun aPolicyEditorNeedsTheVaultAndAnAutomationEditorItsHome() {
+		val policy = ShownEditor.Policy(key)
+		val automation = ShownEditor.Automation(AutomationDraftKey("sakura", AutomationSlot.New))
+		val left: (String) -> Boolean = { it == "sakura" }
+
+		assertTrue(editorStands(policy, vaultOn = true, assistantLeft = left))
+		assertFalse(editorStands(policy, vaultOn = false, assistantLeft = left))
+		assertFalse(editorStands(automation, vaultOn = true, assistantLeft = left))
+		assertTrue(editorStands(automation, vaultOn = false) { false })
+		assertTrue(editorStands(ShownEditor.Runbook(key), vaultOn = false, assistantLeft = left))
+		assertTrue(editorStands(null, vaultOn = false, assistantLeft = left))
 	}
 
 	@Test
 	fun whatIsTypedReachesItsSessionAtOnceAndAHeldRecordWaitsForItsList() {
 		val edits = sessions()
-		val opening = edits.open(key, "opened")
+		edits.show(key)
+		val opening = edits.open(key, "opened")!!
 		var draft by MirroredDraft("opened") { next -> edits.edit(key, opening) { next } }
 
 		draft = "typed"
 
 		assertEquals("typed", draft)
-		assertEquals("typed", edits.held.value.getValue(key).draft)
-		assertFalse(edits.askLeave(key))
-		assertEquals(EditStanding.READY, editStanding(id = null, held = null, listed = false))
-		assertEquals(EditStanding.READY, editStanding(id = "apt", held = "record", listed = false))
-		assertEquals(EditStanding.WAITING, editStanding(id = "apt", held = null, listed = false))
-		assertEquals(EditStanding.GONE, editStanding(id = "apt", held = null, listed = true))
+		assertEquals("typed", edits.now.held.getValue(key).draft)
+		assertFalse(edits.askLeave())
+		assertEquals(EditStanding.READY, editStanding(held = null))
+		assertEquals(EditStanding.READY, editStanding(Lookup.Found("record")))
+		assertEquals(EditStanding.GONE, editStanding(Lookup.Gone))
+		// Only pending reads spin.
+		val waiting = listOf(Lookup.Reading, Lookup.Unreachable, Lookup.NotServed).map(::editStanding)
+		assertEquals(listOf(EditStanding.READING, EditStanding.UNREACHABLE, EditStanding.NOT_SERVED), waiting)
+		assertEquals(listOf(true, false, false), waiting.map { waitingLine(it) == null })
+		assertEquals(false, waitingLine(EditStanding.GONE) == null)
 		assertEquals("Apt: revision 5 is stored", leftLine("Apt", "Policy", "revision 5 is stored"))
 		assertEquals("Policy: unreachable", leftLine(" ", "Policy", "unreachable"))
-	}
-
-	@Test
-	fun aPageDrawsOnlyItsOwnOpening() {
-		val edits = sessions()
-
-		assertEquals(EditorShowing.OPENING, edits.showing(null))
-		val opening = edits.open(key, "opened")
-		assertEquals(EditorShowing.DRAWN, edits.showing(opening))
-		assertEquals(EditorShowing.CLOSING, edits.showing(opening + 1))
 	}
 }

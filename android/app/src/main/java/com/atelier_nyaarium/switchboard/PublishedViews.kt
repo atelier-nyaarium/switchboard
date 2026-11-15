@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
  * same slot landing first all drop its answer. The one guard for a view map an ops class publishes beside
  * `HeldEdits`, so none chooses its own.
  */
-internal class PublishedViews<K : Any, V : Any>(private val generation: WorkspaceGeneration) {
+internal class PublishedViews<K : Any, V : Any>(private val generation: ProvisionFence) {
 	/** Where work began. Opaque, so no caller compares its parts. */
 	class Showing<K> internal constructor(val key: K, internal val token: Any, internal val generation: Long)
 
@@ -78,7 +78,7 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 
 	private fun start(key: K, initial: () -> V): Showing<K> {
 		if (key !in drawn.value) drawn.value = drawn.value + (key to initial())
-		val showing = Showing(key, Any(), generation.capture())
+		val showing = Showing(key, Any(), generation.upcoming())
 		showings[key] = showing
 		return showing
 	}

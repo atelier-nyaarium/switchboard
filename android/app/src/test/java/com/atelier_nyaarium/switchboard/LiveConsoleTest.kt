@@ -157,7 +157,7 @@ class LiveConsoleTest {
 	}
 
 	private class Host(override val gateway: LiveConsoleGateway?, private val named: Boolean = true) : LiveConsoleHost {
-		override val generation = WorkspaceGeneration()
+		override val generation = ProvisionFence()
 
 		override fun names(gatewayId: String) = named
 	}

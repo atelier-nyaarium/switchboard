@@ -50,8 +50,22 @@ internal class ScheduledSendOps(
 	private val filesDir: File,
 	private val repoScope: CoroutineScope,
 	private val collaborators: ScheduledSendOpsCollaborators,
+	private val provision: ProvisionFence,
 ) {
 	private val scheduledSendMutex = Mutex()
+
+	/** Term the pass began under. */
+	private var began = 0L
+
+	private suspend fun <T> pass(work: suspend () -> T): T = scheduledSendMutex.withLock {
+		began = provision.capture()
+		work()
+	}
+
+	/** Nothing lands after a re-provision. */
+	private fun land(write: () -> Unit) {
+		provision.land(began, write)
+	}
 	private val failurePositionLock = Any()
 	private val failurePositions = LinkedHashMap<String, ReadAnchor>()
 	var onScheduledSendFailed: ((team: String, opId: String) -> Unit)? = null
@@ -63,7 +77,7 @@ internal class ScheduledSendOps(
 		val opId = java.util.UUID.randomUUID().toString()
 		val fileRefs = Attachments.storeOutgoing(filesDir, "sched-$opId", picked)
 		if (collaborators.fromCanonical(team) == null) { state.update { it.copy(error = "That session has no address to send to.") }; return@withContext false }
-		scheduledSendMutex.withLock {
+		pass {
 			// Replacement names prior version.
 			val prior = state.value.scheduledSends[team]
 			put(team, ScheduledSend(text, fileRefs, fireAtMillis, opId, null, System.currentTimeMillis(), replacesVersion = prior?.routerVersion))
@@ -83,8 +97,8 @@ internal class ScheduledSendOps(
 	}
 
 	/** Accepted records become replacements. */
-	internal suspend fun rescheduleNow(team: String, fireAtMillis: Long) = scheduledSendMutex.withLock {
-		val prior = state.value.scheduledSends[team] ?: return@withLock
+	internal suspend fun rescheduleNow(team: String, fireAtMillis: Long) = pass {
+		val prior = state.value.scheduledSends[team] ?: return@pass
 		put(
 			team,
 			if (prior.routerVersion == null) prior.copy(fireAtMillis = fireAtMillis)
@@ -102,13 +116,13 @@ internal class ScheduledSendOps(
 	fun cancelScheduledSendForEdit(team: String) { repoScope.launch(Dispatchers.IO) { cancelNow(team, true) } }
 
 	/** Accepted records become cancellations. */
-	internal suspend fun cancelNow(team: String, edit: Boolean) = scheduledSendMutex.withLock {
-		val rec = state.value.scheduledSends[team] ?: return@withLock
-		if (edit && !rec.draftTaken) collaborators.takeBackIntoDraft(team, rec.text, withSources(rec))
+	internal suspend fun cancelNow(team: String, edit: Boolean) = pass {
+		val rec = state.value.scheduledSends[team] ?: return@pass
+		if (edit && !rec.draftTaken) withSources(rec).let { files -> land { collaborators.takeBackIntoDraft(team, rec.text, files) } }
 		if (rec.routerVersion == null) {
 			remove(team, rec)
 			if (!edit) deleteSourcesIfUnreferenced(team, rec)
-			return@withLock
+			return@pass
 		}
 		val marked = rec.copy(cancelRequested = true, draftTaken = rec.draftTaken || edit)
 		put(team, marked)
@@ -138,7 +152,7 @@ internal class ScheduledSendOps(
 		}
 	}
 
-	suspend fun drainPending() = scheduledSendMutex.withLock {
+	suspend fun drainPending() = pass {
 		val ordered = state.value.scheduledSends.entries.sortedBy { it.value.createdAt }
 		for ((team, rec) in ordered.filter { it.value.routerVersion == null }) {
 			if (state.value.scheduledSends[team]?.opId != rec.opId) continue
@@ -169,7 +183,7 @@ internal class ScheduledSendOps(
 					when (answer.jsonObject["state"]?.jsonPrimitive?.content) {
 						// Echoes a prior fire.
 						"fired" -> {
-							collaborators.append(team, Message(true, current.text, System.currentTimeMillis(), files = current.fileRefs, opId = current.opId))
+							land { collaborators.append(team, Message(true, current.text, System.currentTimeMillis(), files = current.fileRefs, opId = current.opId)) }
 							remove(team, current)
 						}
 						"cancelled" -> takeBack(team, current, "cancelled elsewhere")
@@ -204,18 +218,18 @@ internal class ScheduledSendOps(
 		failurePositions.remove(opId)
 	}
 
-	internal suspend fun applyRouterResult(row: ScheduledResultRow, position: ReadAnchor) = scheduledSendMutex.withLock {
+	internal suspend fun applyRouterResult(row: ScheduledResultRow, position: ReadAnchor) = pass {
 		val found = state.value.scheduledSends.entries.firstOrNull { it.value.opId == row.opId }
 		when (row.outcome) {
 			"pending" -> if (found == null) mirror(row)
 			"sent" -> found?.let { (team, rec) ->
-				collaborators.append(team, Message(true, rec.text, System.currentTimeMillis(), files = rec.fileRefs, opId = rec.opId))
+				land { collaborators.append(team, Message(true, rec.text, System.currentTimeMillis(), files = rec.fileRefs, opId = rec.opId)) }
 				remove(team, rec)
 				if (!rec.draftTaken) deleteSourcesIfUnreferenced(team, rec)
 			} ?: routerRecord(row.opId)?.let { (team, wire) ->
-				if (state.value.threads[team]?.any { it.opId == wire.opId } == true) return@withLock
-				val (text, files) = decodedBody(wire) ?: return@withLock
-				collaborators.append(team, Message(true, text, System.currentTimeMillis(), files = files, opId = wire.opId))
+				if (state.value.threads[team]?.any { it.opId == wire.opId } == true) return@pass
+				val (text, files) = decodedBody(wire) ?: return@pass
+				land { collaborators.append(team, Message(true, text, System.currentTimeMillis(), files = files, opId = wire.opId)) }
 			}
 			"failed" -> found?.let { (team, rec) ->
 				synchronized(failurePositionLock) {
@@ -239,7 +253,8 @@ internal class ScheduledSendOps(
 	/** The record leaves; its text and files go to the composer. */
 	private suspend fun takeBack(team: String, rec: ScheduledSend, reason: String?) {
 		remove(team, rec)
-		collaborators.takeBackIntoDraft(team, rec.text, withSources(rec))
+		val files = withSources(rec)
+		land { collaborators.takeBackIntoDraft(team, rec.text, files) }
 		setError(reason)
 	}
 
@@ -288,8 +303,8 @@ internal class ScheduledSendOps(
 		return at > now && at - now <= ChatRepository.SCHEDULED_SEND_MAX_HORIZON_MS
 	}
 
-	private fun put(team: String, rec: ScheduledSend) { state.update { it.copy(scheduledSends = it.scheduledSends + (team to rec)) }; persistence.persistScheduledSends() }
-	private fun remove(team: String, rec: ScheduledSend) { if (state.value.scheduledSends[team]?.opId != rec.opId) return; state.update { it.copy(scheduledSends = it.scheduledSends - team) }; persistence.persistScheduledSends() }
+	private fun put(team: String, rec: ScheduledSend) = land { state.update { it.copy(scheduledSends = it.scheduledSends + (team to rec)) }; persistence.persistScheduledSends() }
+	private fun remove(team: String, rec: ScheduledSend) = land { if (state.value.scheduledSends[team]?.opId == rec.opId) { state.update { it.copy(scheduledSends = it.scheduledSends - team) }; persistence.persistScheduledSends() } }
 	private fun deleteSourcesIfUnreferenced(team: String, rec: ScheduledSend) { if (state.value.threads[team]?.any { it.opId == rec.opId } != true) collaborators.scheduleAttachmentDelete(rec.fileRefs.mapNotNull(MessageFile::src)) }
 	private fun setError(reason: String?) { state.update { it.copy(error = "Scheduled send: ${reason ?: "unavailable"}") } }
 }

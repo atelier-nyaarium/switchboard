@@ -44,6 +44,36 @@ internal fun testRegistry(
 	gateways = ids.map { GatewayEntry(it, connected = true, incarnation = 1, lastRegisteredAt = 1) }.sortedBy { it.id },
 )
 
+/** Re-provision around [wipe]. */
+internal inline fun ProvisionFence.reprovision(wipe: () -> Unit = {}) {
+	advance()
+	try {
+		wipe()
+	} finally {
+		settle()
+	}
+}
+
+/** Weekly routine pinning [runbookId]. */
+internal fun testRoutine(id: String, runbookId: String = "book") = com.atelier_nyaarium.switchboard.proto.Routine(
+	id = id,
+	name = id,
+	weekdays = listOf(1L),
+	weekInterval = 1L,
+	startDate = "2026-01-05",
+	time = "09:00",
+	zone = "America/Los_Angeles",
+	runbookId = runbookId,
+	approvedRevision = 1L,
+	values = kotlinx.serialization.json.JsonObject(emptyMap()),
+	target = com.atelier_nyaarium.switchboard.proto.RoutineTarget(spawn = "host"),
+	linkedEntries = emptyList(),
+	enabled = true,
+	revision = 1L,
+	since = 0L,
+	forgetAfterDays = 30L,
+)
+
 /** The link after these events, each [stepMs] after the last. */
 internal fun linkAfter(vararg events: RouterEvent, stepMs: Long = 1_000L): RouterLink {
 	val state = MutableStateFlow(ChatState())

@@ -239,9 +239,12 @@ class RoutineTextTest {
 	@Test
 	fun doneKeepsHeldOrderAppendsNewPicksInVaultOrderAndDropsGhosts() {
 		val vault = listOf(entry("a", "A"), entry("b", "B"), entry("c", "C"))
-		val after = grantedAfter(previous = listOf("c", "ghost", "a"), chosen = setOf("c", "ghost", "a", "b"), entries = vault)
+		val chosen = setOf("c", "ghost", "a", "b")
+		val after = grantedAfter(previous = listOf("c", "ghost", "a"), chosen = chosen, entries = vault, listed = true)
 		assertEquals(listOf("c", "a", "b"), after)
-		assertEquals(listOf("a"), grantedAfter(listOf("c", "a"), setOf("a"), vault))
+		assertEquals(listOf("a"), grantedAfter(listOf("c", "a"), setOf("a"), vault, listed = true))
+		// A vault never read names no ghost.
+		assertEquals(listOf("c", "ghost"), grantedAfter(listOf("c", "ghost"), setOf("c", "ghost"), emptyList(), listed = false))
 	}
 
 	@Test

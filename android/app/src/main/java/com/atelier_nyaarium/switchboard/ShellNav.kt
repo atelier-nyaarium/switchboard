@@ -130,8 +130,6 @@ internal fun ShellNav.closeSettings(): ShellNav = copy(settings = null)
 
 internal fun ShellNav.openAssistantPage(page: AssistantPage): ShellNav = copy(assistantPage = page)
 
-internal fun ShellNav.closeAssistantPage(): ShellNav = copy(assistantPage = null)
-
 /** Its root, its own pages, any page over its conversation, or that conversation, when drawn. */
 internal fun ShellNav.showsAssistant(assistantOpen: Boolean, screen: ShellScreen): Boolean = when (screen) {
 	ShellScreen.ASSISTANT_PAGE -> assistantOpen || assistantPage?.own == true

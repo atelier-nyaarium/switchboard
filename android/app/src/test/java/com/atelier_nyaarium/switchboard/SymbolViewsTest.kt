@@ -106,7 +106,7 @@ class SymbolViewsTest {
 	}
 
 	private class Host(override val workspace: WorkspaceGateway?) : WorkspaceHost {
-		override val generation = WorkspaceGeneration()
+		override val generation = ProvisionFence()
 
 		override suspend fun send(address: String, text: String) = error("not reached")
 	}
@@ -163,8 +163,7 @@ class SymbolViewsTest {
 
 		val keeping = launch { views.keepOutline(one, "src/a.ts") }
 		withTimeout(5_000) { views.outlineViews.first { it[one to "src/a.ts"]?.outline is WorkspaceAnswer.Read } }
-		host.generation.advance()
-		views.clearInMemory()
+		host.generation.reprovision { views.clearInMemory() }
 		val reloaded = withTimeout(5_000) {
 			views.outlineViews.first { (it[one to "src/a.ts"]?.outline as? WorkspaceAnswer.Read)?.value?.lines == 3L }
 		}
@@ -215,8 +214,7 @@ class SymbolViewsTest {
 
 		val keeping = launch { views.keepFacet(one, ID, WorkspaceFacet.Comments) }
 		withTimeout(5_000) { views.facetViews.first { it[comments]?.answer != null } }
-		host.generation.advance()
-		views.clearInMemory()
+		host.generation.reprovision { views.clearInMemory() }
 		withTimeout(5_000) { views.facetViews.first { totalOf(it, comments) == 3L } }
 
 		assertEquals(3, reads.facetReads[WorkspaceFacet.Comments])

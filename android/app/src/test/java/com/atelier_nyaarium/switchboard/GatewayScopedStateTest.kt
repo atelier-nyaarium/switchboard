@@ -63,30 +63,50 @@ class GatewayScopedStateTest {
 
 	@Test
 	fun oneIdOnTwoGatewaysReadsAsTwoRecords() {
-		assertEquals("Here", state.runbookOn("sakura", "shared")?.name)
-		assertEquals("There", state.runbookOn("mikan", "shared")?.name)
-		assertEquals("Here", state.routineOn("sakura", "triage")?.routine?.name)
-		assertEquals("There", state.routineOn("mikan", "triage")?.routine?.name)
-		assertEquals("Here", state.policyOn("sakura", "apt")?.name)
-		assertEquals("There", state.policyOn("mikan", "apt")?.name)
+		assertEquals("Here", state.runbookOn("sakura", "shared").found()?.name)
+		assertEquals("There", state.runbookOn("mikan", "shared").found()?.name)
+		assertEquals("Here", state.routineOn("sakura", "triage").found()?.routine?.name)
+		assertEquals("There", state.routineOn("mikan", "triage").found()?.routine?.name)
+		assertEquals("Here", state.policyOn("sakura", "apt").found()?.name)
+		assertEquals("There", state.policyOn("mikan", "apt").found()?.name)
 	}
 
 	@Test
 	fun aRecordOnAnotherGatewayIsNotFoundUnderThisOne() {
-		assertEquals(null, state.runbookOn("sakura", "only-there"))
-		assertEquals(null, state.routineOn("sakura", "nothing"))
-		assertEquals(null, state.policyOn("sakura", "nothing"))
-		// An unknown gateway answers nothing rather than whatever happens to be first.
-		assertEquals(emptyList<Runbook>(), state.runbooksOn("unknown"))
-		assertEquals(emptyList<RoutineState>(), state.routinesOn("unknown"))
-		assertEquals(emptyList<AuthorizationPolicy>(), state.policiesOn("unknown"))
+		assertEquals(Lookup.Gone, state.runbookOn("sakura", "only-there"))
+		assertEquals(Lookup.Gone, state.routineOn("sakura", "nothing"))
+		assertEquals(Lookup.Gone, state.policyOn("sakura", "nothing"))
+		// Off-roster Gateway is unknown.
+		assertEquals(Lookup.Unreachable, state.runbookOn("unknown", "shared"))
+		assertEquals(Lookup.Unreachable, state.routineOn("unknown", "triage"))
+		assertEquals(Lookup.Unreachable, state.policyOn("unknown", "apt"))
 	}
 
 	@Test
 	fun aRoutinePicksFromItsOwnGatewaysLibrary() {
 		// What the editor offers, so a routine cannot pin words another machine holds.
-		assertEquals(listOf("Here"), state.runbooksOn("sakura").map { it.name })
-		assertEquals(listOf("There", "Only there"), state.runbooksOn("mikan").map { it.name })
+		assertEquals(listOf("Here"), state.entry("sakura")?.runbooks?.listedRows()?.map { it.name })
+		assertEquals(listOf("There", "Only there"), state.entry("mikan")?.runbooks?.listedRows()?.map { it.name })
+	}
+
+	@Test
+	fun anEmptyViewSaysWhetherItsListsWereReadFailedOrHoldNothing() {
+		fun registry(vararg lists: GatewayList<Runbook>) = GatewayRegistry(
+			provenance = RegistryProvenance.Current,
+			gateways = lists.mapIndexed { at, list -> GatewayEntry("g$at", connected = true, incarnation = 1, lastRegisteredAt = 1, runbooks = list) },
+		)
+		fun empty(registry: GatewayRegistry) = listEmpty(registry, registry.gateways) { it.runbooks }
+		val none = GatewayList.Listed(emptyList<Runbook>())
+
+		assertEquals(ListEmpty.NoRoster, empty(GatewayRegistry()))
+		assertEquals(ListEmpty.Reading, empty(registry(GatewayList.Unread, GatewayList.Unreachable)))
+		assertEquals(ListEmpty.Unreachable, empty(registry(GatewayList.Unreachable, GatewayList.NotServed)))
+		assertEquals(ListEmpty.NotServed(listOf("g0")), empty(registry(GatewayList.NotServed)))
+		assertEquals(ListEmpty.None, empty(registry(none, GatewayList.Unread)))
+		assertEquals(ListEmpty.NoGateway, empty(registry()))
+		// Only answered lists draw.
+		val held = registry(GatewayList.Unread, GatewayList.Listed(listOf(book("a", "A"))), GatewayList.NotServed)
+		assertEquals(listOf(ListedGroup("g1", listOf(book("a", "A")))), held.gateways.listedGroups { it.runbooks })
 	}
 
 	@Test
@@ -117,6 +137,6 @@ class GatewayScopedStateTest {
 	fun anAnswerForAGatewayTheRosterDoesNotNameDrawsNothing() {
 		val written = state.withEntry("gone") { it.copy(runbooks = GatewayList.Listed(listOf(book("x", "X")))) }
 		assertEquals(state, written)
-		assertEquals(emptyList<Runbook>(), written.runbooksOn("gone"))
+		assertEquals(Lookup.Unreachable, written.runbookOn("gone", "x"))
 	}
 }

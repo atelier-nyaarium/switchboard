@@ -242,7 +242,7 @@ private fun GrantRow(
 					},
 					entryTitle,
 					// Names the policy that answered.
-					grant.policy?.let { ref -> "via ${state.gateways.policyOn(gatewayId, ref.policyId)?.name ?: ref.policyId}" },
+					grant.policy?.let { ref -> "via ${state.gateways.policyOn(gatewayId, ref.policyId).found()?.name ?: ref.policyId}" },
 					grantCovers(grant.coveredShapes),
 					grant.expiresAt?.let { expiresIn(it).text },
 				).joinToString(" - "),

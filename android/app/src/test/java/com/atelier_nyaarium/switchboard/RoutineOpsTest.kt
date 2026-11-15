@@ -87,7 +87,7 @@ class RoutineOpsTest {
 	private fun ChatState.on(gatewayId: String) = gateways.entry(gatewayId)
 
 	/** Drawn Gateway answers. */
-	private fun ChatState.drawn() = gateways.gateways.filter { it.routines.listed }.map { it.id }
+	private fun ChatState.drawn() = gateways.gateways.filter { it.routines is GatewayList.Listed }.map { it.id }
 
 	/** Roster controls drawn groups. */
 	private fun admitting(vararg gatewayIds: String) =
@@ -104,7 +104,7 @@ class RoutineOpsTest {
 		runBlocking { ops.refreshAll() }
 
 		assertEquals(listOf("mikan", "sakura"), state.value.drawn())
-		assertEquals("Elsewhere", state.value.on("mikan")?.routines?.rows?.single()?.routine?.name)
+		assertEquals("Elsewhere", state.value.on("mikan")?.routines?.listedRows()?.single()?.routine?.name)
 	}
 
 	@Test
@@ -153,8 +153,8 @@ class RoutineOpsTest {
 		slow.await()
 
 		// One counter per gateway, so the held read still lands under its own id.
-		assertEquals("slow", state.value.on("sakura")?.routines?.rows?.single()?.routine?.id)
-		assertEquals("quick", state.value.on("mikan")?.routines?.rows?.single()?.routine?.id)
+		assertEquals("slow", state.value.on("sakura")?.routines?.listedRows()?.single()?.routine?.id)
+		assertEquals("quick", state.value.on("mikan")?.routines?.listedRows()?.single()?.routine?.id)
 	}
 
 	@Test
@@ -173,7 +173,7 @@ class RoutineOpsTest {
 		gate.complete(Unit)
 		stale.await()
 
-		assertEquals("new", state.value.on("sakura")?.routines?.rows?.single()?.routine?.id)
+		assertEquals("new", state.value.on("sakura")?.routines?.listedRows()?.single()?.routine?.id)
 	}
 
 	@Test
@@ -235,27 +235,29 @@ class RoutineOpsTest {
 
 		val refused = runBlocking { ops.setEnabled("triage", false, 1L, "sakura") }
 		assertEquals(true, refused is RoutineSaved.Refused)
-		assertEquals("revision 2 is stored; this edits 1", ops.toggleRefusalFor("sakura", "triage"))
+		assertEquals("revision 2 is stored; this edits 1", ops.toggles.refusalFor("sakura", "triage"))
 		// The gateway's own state is what the row draws after a refusal.
-		assertEquals(true, state.value.on("sakura")?.routines?.rows?.single()?.routine?.enabled)
+		assertEquals(true, state.value.on("sakura")?.routines?.listedRows()?.single()?.routine?.enabled)
 
 		fake.refuseToggles -= "triage"
 		assertEquals(true, runBlocking { ops.setEnabled("triage", false, 1L, "sakura") } is RoutineSaved.Stored)
-		assertEquals(null, ops.toggleRefusalFor("sakura", "triage"))
+		assertEquals(null, ops.toggles.refusalFor("sakura", "triage"))
 	}
 
 	@Test
 	fun anEditorsSaveLandsOnItsOpeningAndADraftThatIsNoRoutineStays() {
 		val ops = RoutineOps(admitting("sakura"), Host(FakeGateway()))
 		val key = EditKey("sakura", "triage")
-		val opening = ops.edits.open(key, RoutineDraft.of(routine("triage")))
+		ops.edits.show(key)
+		val opening = ops.edits.open(key, RoutineDraft.of(routine("triage")))!!
 
 		runBlocking { ops.commit(key, opening) { null } }
-		assertEquals(SaveSaid("Not a complete routine"), ops.edits.held.value.getValue(key).said)
+		assertEquals(SaveSaid("Not a complete routine"), ops.edits.state.value.held.getValue(key).said)
 
 		assertEquals(EditOutcome.Done, runBlocking { ops.commit(key, opening) { routine("triage") } })
-		assertEquals(EditorShowing.CLOSING, editorShowing(opening, ops.edits.held.value[key]))
-		val reopened = ops.edits.open(key, RoutineDraft.of(routine("triage")))
+		assertEquals(null, ops.edits.state.value.shown)
+		ops.edits.show(key)
+		val reopened = ops.edits.open(key, RoutineDraft.of(routine("triage")))!!
 		assertEquals(EditOutcome.Done, runBlocking { ops.remove(key, reopened) })
 	}
 }

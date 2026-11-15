@@ -77,7 +77,7 @@ class BoardOptimisticTest {
 	) = BoardEntry(id, title, body, state, parent, rank, session?.sessionId, session, trashedAt)
 
 	private fun board(entry: BoardStoredEntry? = null, revision: Long = 0L) = BoardManager(FakeStore()).also {
-		it.applyRouterBoard(revision, entry?.let(::listOf) ?: emptyList())
+		it.applyRouterBoard(revision, entry?.let(::listOf) ?: emptyList(), generation = it.generation)
 	}
 
 	private fun writer(
@@ -256,7 +256,7 @@ class BoardOptimisticTest {
 		enqueue(board, second, "second")
 		val result = stored("id", title("id", "title"))
 
-		board.settleWrite("first", 8L, listOf(result))
+		board.settleWrite("first", 8L, listOf(result), generation = board.generation)
 
 		assertEquals(8L, board.routerRevision)
 		assertEquals(result, board.storedById().getValue("id"))
@@ -270,7 +270,7 @@ class BoardOptimisticTest {
 		enqueue(board, BoardIntent.Create("new", "new", state = "open"), "op")
 		val older = stored("id", title("id", "older"))
 
-		board.settleWrite("op", 4L, listOf(older))
+		board.settleWrite("op", 4L, listOf(older), generation = board.generation)
 
 		assertEquals(5L, board.routerRevision)
 		assertEquals(original, board.storedById().getValue("id"))

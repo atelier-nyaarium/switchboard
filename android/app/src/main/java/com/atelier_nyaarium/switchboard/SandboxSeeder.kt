@@ -156,6 +156,7 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 					sealed = sealed,
 				),
 				revision,
+				generation = repo.vault.generation,
 			)
 		}
 	}

@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.ScheduledTarget
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -37,6 +38,7 @@ class ScheduledSendOpsTest {
 		val deleted = mutableListOf<String>()
 		var answers: (String) -> JsonElement? = { buildJsonObject { put("outcome", "accepted"); put("version", 4) } }
 		var plaintext: ByteArray? = null
+		var fetchHold: TestHold? = null
 		override fun admitFiles(files: List<MessageFile>) = emptyList<OutgoingFile>() to null
 		override fun fromCanonical(team: String) = team
 		override fun scheduleAttachmentDelete(srcs: List<String>) { deleted += srcs }
@@ -51,7 +53,10 @@ class ScheduledSendOpsTest {
 		override fun targetOf(team: String) = ScheduledTarget("domain", "gateway", "spawn.session")
 		override fun teamOf(target: ScheduledTarget) = "domain.gateway.spawn.session"
 		override suspend fun uploadFile(file: MessageFile): String { uploaded += file.name; return "sha256-${file.name}" }
-		override suspend fun fetchFile(file: MessageFile, bucket: String): MessageFile? = file.copy(src = "/tmp/$bucket/${file.name}")
+		override suspend fun fetchFile(file: MessageFile, bucket: String): MessageFile? {
+			fetchHold?.pass()
+			return file.copy(src = "/tmp/$bucket/${file.name}")
+		}
 	}
 
 	private fun record(
@@ -61,13 +66,15 @@ class ScheduledSendOpsTest {
 		fireAt: Long = System.currentTimeMillis() + 60_000,
 	) = ScheduledSend("text", files, fireAt, opId, null, 1, routerVersion)
 
+	private val provision = ProvisionFence()
+
 	private fun world(
 		vararg records: ScheduledSend,
 		threads: Map<String, List<Message>> = emptyMap(),
 	): Triple<MutableStateFlow<ChatState>, Fake, ScheduledSendOps> {
 		val state = MutableStateFlow(ChatState(scheduledSends = records.associateBy { team }, threads = threads))
 		val fake = Fake()
-		val ops = ScheduledSendOps(state, ChatPersistence(testStore()) { state.value }, File("/tmp/scheduled"), CoroutineScope(Dispatchers.Unconfined), fake)
+		val ops = ScheduledSendOps(state, ChatPersistence(testStore()) { state.value }, File("/tmp/scheduled"), CoroutineScope(Dispatchers.Unconfined), fake, provision)
 		return Triple(state, fake, ops)
 	}
 
@@ -275,6 +282,23 @@ class ScheduledSendOpsTest {
 		assertEquals("sha256-a", draft.blobId)
 		assertEquals("/tmp/sched-op/a.png", draft.src)
 		assertTrue(state.value.scheduledSends.getValue(team).cancelRequested)
+	}
+
+	@Test
+	fun aTakeBackStillFetchingAtAReprovisionWritesNothingForTheNextOwner() = runBlocking {
+		val routerOnly = MessageFile("a.png", "image/png", src = null, blobId = "sha256-a")
+		val (state, fake, ops) = world(record(routerVersion = 4, files = listOf(routerOnly)))
+		val hold = TestHold().also { fake.fetchHold = it }
+		fake.answers = { buildJsonObject { put("outcome", "refused"); put("reason", "settled") } }
+
+		val cancelling = async { ops.cancelNow(team, edit = true) }
+		hold.entered.await()
+		provision.reprovision { state.value = ChatState() }
+		hold.release()
+		cancelling.await()
+
+		assertEquals(emptyList<Pair<String, List<MessageFile>>>(), fake.drafts)
+		assertEquals(emptyMap<String, ScheduledSend>(), state.value.scheduledSends)
 	}
 
 	@Test

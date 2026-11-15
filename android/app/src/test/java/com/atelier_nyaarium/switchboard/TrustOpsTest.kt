@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.crypto.valueResultAadKind
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry
 import com.atelier_nyaarium.switchboard.proto.OwnerOp
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -30,12 +31,16 @@ class TrustOpsTest {
 
 	private class Fake(var reachable: Boolean = true, var revokes: Boolean = true) : TrustOpsCollaborators {
 		val log: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf())
+		var reachHold: TestHold? = null
 		override suspend fun submitXdomainLink(srcDomainId: String, dstDomainId: String) = dstDomainId == "friend-domain"
 		override suspend fun revokeXdomainLink(srcDomainId: String, dstDomainId: String): Boolean {
 			log += "revoke:$dstDomainId"
 			return revokes
 		}
-		override suspend fun routerReachable() = reachable
+		override suspend fun routerReachable(): Boolean {
+			reachHold?.pass()
+			return reachable
+		}
 	}
 
 	private fun identity() = TestIdentityPort(testStore().also { it.saveOwnerIdentity(world.ownerIdentity) }, world.bootstrap())
@@ -45,6 +50,7 @@ class TrustOpsTest {
 		state: MutableStateFlow<ChatState>,
 		fake: Fake,
 		identity: TestIdentityPort = identity(),
+		provision: ProvisionFence = ProvisionFence(),
 		answer: (OwnerOp) -> String?,
 	): TrustOps {
 		val client = world.client(FixtureDraws.forCase("TrustOps", case), sender = { op ->
@@ -62,6 +68,7 @@ class TrustOpsTest {
 			identity,
 			IdlePresencePort,
 			fake,
+			provision,
 		)
 	}
 
@@ -147,8 +154,8 @@ class TrustOpsTest {
 
 		ops.refreshPeers()
 
-		assertEquals(listOf(peer("friend-domain", "friend-owner").copy(gatewayId = "friend-gw")), ops.peersOn("gw-a"))
-		assertEquals(stale, ops.peersOn("gw-b"))
+		assertEquals(listOf(peer("friend-domain", "friend-owner").copy(gatewayId = "friend-gw")), state.value.gateways.entry("gw-a")?.peers?.listedRows())
+		assertEquals(stale, state.value.gateways.entry("gw-b")?.peers?.listedRows())
 		assertEquals(mapOf("friend-domain" to "friend-owner", "old-domain" to "old-owner"), state.value.linkedPeerOwners)
 	}
 
@@ -213,6 +220,49 @@ class TrustOpsTest {
 		}
 	}
 
+	@Test
+	fun linkedDomainsComeFromEachGatewaysLastAnswerAndSharedSessionsAreCountedByOwner() {
+		val read = GatewayList.Listed(listOf(peer("friend-domain", "friend-owner"), peer("second-domain", "friend-owner")))
+		val unlinked = GatewayList.Listed(listOf(peer("friend-domain", "friend-owner")))
+
+		// Unread Gateway blocks nothing.
+		assertEquals(mapOf("friend-domain" to "friend-owner"), linkedOwners(listOf(unlinked, GatewayList.Unread)))
+		assertEquals(
+			mapOf("friend-domain" to "friend-owner", "second-domain" to "friend-owner"),
+			linkedOwners(listOf(read, GatewayList.Unreachable)),
+		)
+		val disputed = GatewayList.Listed(listOf(peer("friend-domain", "other-owner")))
+		assertEquals(mapOf("second-domain" to "friend-owner"), linkedOwners(listOf(read, disputed)))
+
+		val counts = sharedCountsOf(
+			linkedOwners = mapOf("friend-domain" to "friend-owner", "second-domain" to "friend-owner", "quiet-domain" to "quiet-owner"),
+			specific = listOf("a" to "friend-domain", "d" to "second-domain", "a" to "second-domain", "a" to "elsewhere"),
+			everyone = setOf("b", "c"),
+		)
+		// One owner's Domains count together.
+		assertEquals(mapOf("friend-owner" to 4, "quiet-owner" to 2), counts)
+	}
+
+	@Test
+	fun aGatewayThatRestartsKeepsItsLastPeersUntilItAnswersAgain() {
+		val peers = GatewayList.Listed(listOf(peer("friend-domain", "friend-owner")))
+		val held = testRegistry("gw-a").withEntry("gw-a") { it.copy(peers = peers, policies = GatewayList.Listed(emptyList())) }
+		val restarted = com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection(
+			plane = com.atelier_nyaarium.switchboard.proto.PresencePlane(epoch = 1, version = 2),
+			owner = com.atelier_nyaarium.switchboard.proto.OwnerFacts("d", null, false),
+			rows = emptyList(),
+			linked = emptyList(),
+			roster = listOf(com.atelier_nyaarium.switchboard.proto.RosterEntry("gw-a", true, 2, 2)),
+			coverage = com.atelier_nyaarium.switchboard.proto.DiscoverCoverage(rosterKnown = true, asked = 1, answered = 1),
+			spawnPoints = emptyList(),
+		)
+
+		val entry = held.landed(restarted, RegistryProvenance.Current) { null }.entry("gw-a")
+
+		assertEquals(peers, entry?.peers)
+		assertEquals(GatewayList.Unread, entry?.policies)
+	}
+
 	private fun peerJson(domainId: String, owner: String) = """{"domainId":"$domainId","gatewayId":"$domainId-gw","ownerSignPub":"$owner"}"""
 
 	@Test
@@ -223,7 +273,7 @@ class TrustOpsTest {
 			"gw-a" to peerJson("friend-domain", "friend-owner"),
 			"gw-b" to "${peerJson("friend-domain", "friend-owner")},${peerJson("second-domain", "friend-owner")}",
 		)
-		val ops = ops("untrust", MutableStateFlow(ChatState(gateways = testRegistry("gw-a", "gw-b"))), fake, identity, untrustAnswers(peersOf))
+		val ops = ops("untrust", MutableStateFlow(ChatState(gateways = testRegistry("gw-a", "gw-b"))), fake, identity, answer = untrustAnswers(peersOf))
 
 		val away = ops.untrustOwner("friend-owner")
 		assertTrue(away.isFailure)
@@ -244,10 +294,27 @@ class TrustOpsTest {
 	}
 
 	@Test
+	fun anUntrustStillOutAtAReprovisionMarksNothingForTheNextOwner() = runBlocking {
+		val fake = Fake(reachable = false)
+		val hold = TestHold().also { fake.reachHold = it }
+		val identity = identity().also { it.federation.addTrustedOwner("friend-owner") }
+		val provision = ProvisionFence()
+		val ops = ops("untrust", MutableStateFlow(ChatState(gateways = testRegistry("gw-a"))), fake, identity, provision) { null }
+
+		val out = async { ops.untrustOwner("friend-owner") }
+		hold.entered.await()
+		provision.reprovision { ops.clearInMemory() }
+		hold.release()
+
+		assertTrue(out.await().isFailure)
+		assertEquals(emptySet<String>(), identity.federation.pendingUntrust())
+	}
+
+	@Test
 	fun aRevocationTheRouterDoesNotTakeKeepsTheOwnerTrustedAndPending() = runBlocking {
 		val fake = Fake(revokes = false)
 		val identity = identity().also { it.federation.addTrustedOwner("friend-owner") }
-		val ops = ops("untrust-refused", MutableStateFlow(ChatState(gateways = testRegistry("gw-a"))), fake, identity, untrustAnswers(mapOf("gw-a" to peerJson("friend-domain", "friend-owner"))))
+		val ops = ops("untrust-refused", MutableStateFlow(ChatState(gateways = testRegistry("gw-a"))), fake, identity, answer = untrustAnswers(mapOf("gw-a" to peerJson("friend-domain", "friend-owner"))))
 
 		assertTrue(ops.untrustOwner("friend-owner").isFailure)
 		assertTrue(ops.isOwnerTrusted("friend-owner"))

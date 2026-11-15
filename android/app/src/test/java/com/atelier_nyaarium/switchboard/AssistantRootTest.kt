@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
@@ -238,9 +237,9 @@ class AssistantRootTest {
 	}
 
 	@Test
-	fun anEditorClosesOverRemoveOntoTheRoot() {
+	fun aPageClosesOverRemoveOntoTheRoot() {
 		val editor = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
-			.openAssistantPage(AssistantPage.AutomationEditor("sakura", AutomationSlot.New))
+			.openAssistantPage(AssistantPage.Source("sakura", "github"))
 		val removed = homeAt("sakura").copy(
 			assistantHome = AssistantHome.Read(AssistantHomeRecord(2L, null), null),
 		)
@@ -290,10 +289,6 @@ class AssistantRootTest {
 		assertEquals(source, source.resolved(placed.withWord("sakura", AssistantWord.Refused)))
 		assertNull(source.resolved(noSource))
 		assertNull(source.resolved(placedOn("mikan", "sakura")))
-
-		val editor = AssistantPage.AutomationEditor("sakura", AutomationSlot.New)
-		assertEquals(editor, editor.resolved(noSource))
-		assertNull(editor.resolved(placedOn("mikan", "sakura")))
 
 		// An older Gateway's watchers read as sources.
 		val older = placed.withWord(

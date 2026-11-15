@@ -164,7 +164,7 @@ class WindowOpsTest {
 
 	/** Records what was sent, since an apply is an ordinary message and nothing else marks it. */
 	private class FakeHost(override val workspace: WorkspaceGateway?) : WorkspaceHost {
-		override val generation = WorkspaceGeneration()
+		override val generation = ProvisionFence()
 		val sent = mutableListOf<Pair<String, String>>()
 		var sends = true
 		var throws = false
@@ -410,8 +410,7 @@ class WindowOpsTest {
 
 		val opening = async { ops.openWindow(one, F_ID) }
 		hold.entered.await()
-		host.generation.advance()
-		ops.clearInMemory()
+		host.generation.reprovision { ops.clearInMemory() }
 		hold.release()
 		opening.await()
 

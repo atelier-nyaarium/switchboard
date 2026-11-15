@@ -34,7 +34,11 @@ interface VaultStore {
 }
 
 /** The Router-held entry set, the requests awaiting an answer, and the grants last read. */
-class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
+class VaultManager(
+	private val store: VaultStore,
+	/** True while a re-provision wipes; nothing lands then. */
+	private val wiping: () -> Boolean = { false },
+) : ClearsOnReprovision {
 	private val json = Json { ignoreUnknownKeys = true }
 
 	private data class ViewMemo(val stored: List<VaultStoredEntry>, val epochs: List<Int>, val views: List<VaultEntryView>)
@@ -117,9 +121,9 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 	}
 
 	/** The shared fold decides; a restart asks for a full list next. */
-	fun applyList(result: VaultListResult, at: Long = System.currentTimeMillis(), generation: Long = this.generation): Boolean {
+	fun applyList(result: VaultListResult, generation: Long, at: Long = System.currentTimeMillis()): Boolean {
 		synchronized(stateLock) {
-			if (generation != this.generation) return false
+			if (generation != this.generation || wiping()) return false
 			val current = blob
 			val fold = foldVersionedList(
 				current.revision,
@@ -143,9 +147,9 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 
 	/** Lands a write's own entry unless a newer one is held; the revision advances only when nothing was skipped. */
 	/** False only when the entry could not be stored. */
-	fun applyWrite(entry: VaultStoredEntry, revision: Long, at: Long = System.currentTimeMillis(), generation: Long = this.generation): Boolean {
+	fun applyWrite(entry: VaultStoredEntry, revision: Long, generation: Long, at: Long = System.currentTimeMillis()): Boolean {
 		synchronized(stateLock) {
-			if (generation != this.generation) return true
+			if (generation != this.generation || wiping()) return true
 			val current = blob
 			val held = current.stored.firstOrNull { it.clear.id == entry.clear.id }
 			if (held != null && held.clear.revision >= entry.clear.revision) return true

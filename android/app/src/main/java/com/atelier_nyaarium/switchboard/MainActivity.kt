@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
-import com.atelier_nyaarium.switchboard.board.BoardEntryDialog
 import com.atelier_nyaarium.switchboard.board.GroupKey
 import com.atelier_nyaarium.switchboard.plugins.Plugins
 import kotlinx.coroutines.launch
@@ -101,7 +100,11 @@ class MainActivity : FragmentActivity() {
 
 	override fun onDestroy() {
 		// A rotation keeps the unlock.
-		if (isFinishing) AppLock.relock()
+		if (isFinishing) {
+			AppLock.relock()
+			// The edit outlives the window; the open editor does not.
+			Repo.get(this).editors.hideAll()
+		}
 		super.onDestroy()
 	}
 
@@ -175,16 +178,6 @@ private val OPEN_EXTRAS = listOf(
 	SwitchboardService.EXTRA_ASSISTANT_ACT_REQUEST,
 )
 
-/** The vault's open modal. */
-private sealed interface VaultModal {
-	data class Entry(val id: String?) : VaultModal
-
-	data class Request(val id: String) : VaultModal
-}
-
-/** Runbook fire and destination. */
-private data class RunbookFire(val gatewayId: String, val id: String, val into: String?)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App(
@@ -205,27 +198,24 @@ fun App(
 	val openTeam = nav.conversation?.team
 	// Composition mirror; store persists.
 	var boardStripHeight by remember { mutableStateOf(repo.store.boardStripHeight) }
-	var boardModal by remember { mutableStateOf<String?>(null) }
-	var vaultModal by remember { mutableStateOf<VaultModal?>(null) }
-	var assistantSendModal by remember { mutableStateOf<Pair<String, String>?>(null) }
-	var assistantActModal by remember { mutableStateOf<Pair<String, String>?>(null) }
-	var fireRunbook by remember { mutableStateOf<RunbookFire?>(null) }
-	// Gateway and id. Null is closed, a blank id is a new one.
-	var editRunbook by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
-	var editRoutine by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
-	var editPolicy by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
+	var modals by remember { mutableStateOf(Modals()) }
+	val runbookEdits by repo.runbookOps.edits.state.collectAsState()
+	val routineEdits by repo.routineOps.edits.state.collectAsState()
+	val policyEdits by repo.policyOps.edits.state.collectAsState()
+	val automationEdits by repo.automationOps.edits.state.collectAsState()
+	val shownEditor = shownEditorOf(runbookEdits.shown, routineEdits.shown, policyEdits.shown, automationEdits.shown)
 	var drawerSide by remember { mutableStateOf(repo.store.drawerSide) }
 	val shellScope = rememberCoroutineScope()
 	val menuDrawer = remember { SideDrawers() }
 	val shellActions = ShellActions(
-		openBoardEntry = { boardModal = it },
+		openBoardEntry = { modals = modals.copy(board = it) },
 		moveBoardEntry = { row, drop -> repo.boardOps.boardMove(row.entry.id, drop.parent, drop.index) },
-		openVaultEntry = { vaultModal = VaultModal.Entry(it) },
-		openVaultRequest = { vaultModal = VaultModal.Request(it) },
-		fireRunbook = { gatewayId, id, into -> fireRunbook = RunbookFire(gatewayId, id, into) },
-		editRunbook = { gatewayId, id -> editRunbook = gatewayId to id.orEmpty() },
-		editRoutine = { gatewayId, id -> editRoutine = gatewayId to id.orEmpty() },
-		editPolicy = { gatewayId, id -> editPolicy = gatewayId to id.orEmpty() },
+		openVaultEntry = { modals = modals.copy(vault = VaultModal.Entry(it)) },
+		openVaultRequest = { modals = modals.copy(vault = VaultModal.Request(it)) },
+		fireRunbook = { gatewayId, id, into -> modals = modals.copy(fire = RunbookFire(gatewayId, id, into)) },
+		editRunbook = { gatewayId, id -> repo.editors.show(ShownEditor.Runbook(EditKey(gatewayId, id))) },
+		editRoutine = { gatewayId, id -> repo.editors.show(ShownEditor.Routine(EditKey(gatewayId, id))) },
+		editPolicy = { gatewayId, id -> repo.editors.show(ShownEditor.Policy(EditKey(gatewayId, id))) },
 	)
 	// Clear reveal after handoff.
 	val revealAtState = remember { mutableStateOf<Pair<String, Long>?>(null) }
@@ -253,29 +243,13 @@ fun App(
 	// Initialize plugins before registry reads.
 	val pluginManager = remember { Plugins.get(context) }
 	val forgetSession = remember { SessionForget(context, repo, pluginManager.host.threadForgetHandlers) }
-	var forgetAsking by remember { mutableStateOf<ForgetAsking?>(null) }
 	// Leave once the forget commits.
 	SideEffect { forgetSession.onForgotten = { forgotten -> nav = nav.forgot(forgotten) } }
 	val requestForget = { team: String, cancelTasks: Boolean? ->
 		when (val ask = forgetSession.ask(team)) {
 			ForgetAsk.None -> forgetSession.forget(team, cancelTasks)
-			else -> forgetAsking = ForgetAsking(team, cancelTasks, ask)
+			else -> modals = modals.copy(forget = ForgetAsking(team, cancelTasks, ask))
 		}
-	}
-	// Nothing draws over the lock.
-	if (!appLockAsks(state, unlocked)) forgetAsking?.let { asking ->
-		ForgetAskDialog(
-			ask = asking.ask,
-			onStart = { container ->
-				forgetSession.startThenForget(asking.team, container, asking.cancelTasks)
-				forgetAsking = null
-			},
-			onForgetAnyway = {
-				forgetSession.forget(asking.team, asking.cancelTasks)
-				forgetAsking = null
-			},
-			onDismiss = { forgetAsking = null },
-		)
 	}
 
 	val viewerState = remember { mutableStateOf<OpenAttachment?>(null) }
@@ -284,6 +258,9 @@ fun App(
 	val linkMenuNoteState = remember { mutableStateOf<String?>(null) }
 	val rowPressState = remember { mutableStateOf<RowPress?>(null) }
 	val rendererPool = rememberBoundRendererPool(repo, pluginManager, viewerState, linkMenuState, linkMenuNoteState, rowPressState)
+	val overlayRequests = remember {
+		OverlayRequests(viewerState, linkMenuState, linkMenuNoteState, rowPressState, openQueueRequest, revealAtState, openTeamRequest)
+	}
 
 	LaunchedEffect(injectedBlob) {
 		if (injectedBlob != null && Need.PROVISIONING in (missingBoot?.needs ?: emptySet())) {
@@ -340,19 +317,9 @@ fun App(
 		if (menuDrawer.holdsBack()) shellScope.launch { menuDrawer.close() }
 		nav = nav.closeSettings()
 		overlays = emptyList()
-		editRunbook = null
-		editRoutine = null
-		editPolicy = null
-		fireRunbook = null
-		boardModal = null
-		vaultModal = null
-		viewer = null
-		openQueueRequest.value = false
-		linkMenuState.value = null
-		linkMenuNoteState.value = null
-		rowPressState.value = null
-		assistantSendModal = null
-		assistantActModal = null
+		repo.editors.hideAll()
+		modals = Modals()
+		overlayRequests.close()
 	}
 	// The one arrival road.
 	val arriveAt = { team: String, arrival: Arrival, place: WorkspacePlace? ->
@@ -424,7 +391,7 @@ fun App(
 		vaultRequestRequest.value?.let { requestId ->
 			nav = nav.closeSettings()
 			overlays = emptyList()
-			vaultModal = VaultModal.Request(requestId)
+			modals = modals.copy(vault = VaultModal.Request(requestId))
 			vaultRequestRequest.value = null
 		}
 	}
@@ -432,7 +399,7 @@ fun App(
 	LaunchedEffect(assistantSendRequestRequest.value) {
 		assistantSendRequestRequest.value?.let { request ->
 			dismissForArrival()
-			assistantSendModal = request
+			modals = modals.copy(send = request)
 			assistantSendRequestRequest.value = null
 		}
 	}
@@ -440,7 +407,7 @@ fun App(
 	LaunchedEffect(assistantActRequestRequest.value) {
 		assistantActRequestRequest.value?.let { request ->
 			dismissForArrival()
-			assistantActModal = request
+			modals = modals.copy(act = request)
 			assistantActRequestRequest.value = null
 		}
 	}
@@ -480,17 +447,8 @@ fun App(
 	LaunchedEffect(screen in MENU_SCREENS) {
 		if (screen !in MENU_SCREENS && menuDrawer.holdsBack()) shellScope.launch { menuDrawer.snapClosed() }
 	}
-	// The lock hides the editors; one whose edit ended or was dropped meanwhile does not return.
-	LaunchedEffect(locked) {
-		if (!locked) return@LaunchedEffect
-		launch { repo.runbookOps.edits.held.collect { held -> editRunbook = editRunbook?.takeIf { hiddenEditor(editKeyOf(it), held.keys) != null } } }
-		launch { repo.routineOps.edits.held.collect { held -> editRoutine = editRoutine?.takeIf { hiddenEditor(editKeyOf(it), held.keys) != null } } }
-		launch { repo.policyOps.edits.held.collect { held -> editPolicy = editPolicy?.takeIf { hiddenEditor(editKeyOf(it), held.keys) != null } } }
-		repo.automationOps.edits.held.collect { held ->
-			val page = nav.assistantPage as? AssistantPage.AutomationEditor ?: return@collect
-			if (hiddenEditor(AutomationDraftKey(page.gatewayId, page.slot), held.keys) == null) nav = nav.closeAssistantPage()
-		}
-	}
+	val stands = editorStands(shownEditor, features.vault) { assistantLeft(state, it) }
+	LaunchedEffect(stands) { if (!stands) repo.editors.hideAll() }
 	// No drawer over the summoned composer.
 	LaunchedEffect(summon?.id, summon?.routed) {
 		if (summon?.routed == true && menuDrawer.holdsBack()) menuDrawer.close()
@@ -532,7 +490,7 @@ fun App(
 	}
 	// The one Back authority: `backLayer` orders what is drawn over what.
 	val backFacts = BackFacts(
-		editorOpen = editRunbook != null || editRoutine != null || editPolicy != null,
+		editorOpen = shownEditor != null,
 		locked = locked,
 		overlayOpen = overlays.isNotEmpty(),
 		booted = missingBoot == null,
@@ -542,22 +500,10 @@ fun App(
 		assistantOpen = assistantOpen,
 	)
 	val layer = backLayer(nav, backFacts)
-	// A changed automation draft asks first.
-	val leaveAssistantPage = {
-		val editor = nav.assistantPage as? AssistantPage.AutomationEditor
-		if (editor == null || repo.automationOps.edits.askLeave(AutomationDraftKey(editor.gatewayId, editor.slot))) {
-			nav = nav.back(BackLayer.ASSISTANT_PAGE, backFacts, state.provisioned)
-		}
-	}
 	BackHandler(enabled = layer != null) {
 		when (layer) {
-			BackLayer.ASSISTANT_PAGE -> leaveAssistantPage()
 			// A changed draft asks first.
-			BackLayer.EDITOR -> when {
-				editPolicy != null -> if (repo.policyOps.edits.askLeave(editKeyOf(editPolicy))) editPolicy = null
-				editRoutine != null -> if (repo.routineOps.edits.askLeave(editKeyOf(editRoutine))) editRoutine = null
-				else -> if (repo.runbookOps.edits.askLeave(editKeyOf(editRunbook))) editRunbook = null
-			}
+			BackLayer.EDITOR -> repo.editors.askLeave()
 			BackLayer.OVERLAY -> closeOverlay()
 			BackLayer.DRAWER -> shellScope.launch { menuDrawer.close() }
 			null -> Unit
@@ -618,8 +564,7 @@ fun App(
 					onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
 					onPage = { nav = nav.openAssistantPage(it) },
 					onRoot = { nav = nav.toRoot(it, assistantOpen) },
-					onClose = { nav = nav.closeAssistantPage() },
-					onBack = leaveAssistantPage,
+					onBack = { nav = nav.back(BackLayer.ASSISTANT_PAGE, backFacts, state.provisioned) },
 				)
 			}
 		}
@@ -712,14 +657,14 @@ fun App(
 				boardRevision = boardRevision,
 				boardStripHeight = boardStripHeight,
 				onBoardStripHeight = { boardStripHeight = it; repo.store.boardStripHeight = it },
-				onOpenBoardEntry = { boardModal = it.entry.id },
+				onOpenBoardEntry = { modals = modals.copy(board = it.entry.id) },
 				onMoveBoardEntry = shellActions.moveBoardEntry,
 				vaultTile = vaultTileFor,
-				onOpenVaultRequest = { vaultModal = VaultModal.Request(it) },
+				onOpenVaultRequest = { modals = modals.copy(vault = VaultModal.Request(it)) },
 				assistantSendTile = assistantSendTileFor,
-				onOpenAssistantSend = { requestId -> assistantSendModal = gatewayOf(team) to requestId },
+				onOpenAssistantSend = { requestId -> modals = modals.copy(send = gatewayOf(team) to requestId) },
 				assistantActTile = assistantActTileFor,
-				onOpenAssistantAct = { requestId -> assistantActModal = gatewayOf(team) to requestId },
+				onOpenAssistantAct = { requestId -> modals = modals.copy(act = gatewayOf(team) to requestId) },
 				approval = approvalFor,
 				onApprove = { promptId ->
 					shellScope.launch {
@@ -868,7 +813,6 @@ fun App(
 				}.toMap()
 			}
 			val vaultOn = features.vault
-			LaunchedEffect(vaultOn) { if (!vaultOn) editPolicy = null }
 			// Grants re-read on the vault's own tick.
 			val vaultRevision by repo.vault.revision
 			val vaultTiers = remember(vaultRevision, state.teams, vaultOn) {
@@ -900,6 +844,9 @@ fun App(
 					when (nav.rootShown(offeredRoot)) {
 						RootView.SOURCES -> for (gatewayId in state.gateways.ids()) repo.command { deviceOps.refresh(gatewayId) }
 						RootView.AUTOMATIONS -> repo.command { automationOps.refreshAll() }
+						RootView.ROUTINES -> repo.command { routineOps.refreshAll() }
+						RootView.RUNBOOKS -> repo.command { runbookOps.refreshAll() }
+						RootView.POLICIES -> repo.command { policyOps.refreshAll() }
 						else -> Unit
 					}
 				},
@@ -913,9 +860,8 @@ fun App(
 						view == RootView.AUTOMATIONS && newAutomation != null ->
 							Button(
 								onClick = hapticClick {
-									nav = nav.openAssistantPage(
-										AssistantPage.AutomationEditor(newAutomation, com.atelier_nyaarium.switchboard.assistant.AutomationSlot.New),
-									)
+									val slot = com.atelier_nyaarium.switchboard.assistant.AutomationSlot.New
+									repo.editors.show(ShownEditor.Automation(AutomationDraftKey(newAutomation, slot)))
 								},
 							) { Text("New") }
 					}
@@ -960,7 +906,7 @@ fun App(
 						state = state,
 						home = home,
 						lead = overTeam?.let(::gatewayOf),
-						onEdit = { g, slot -> nav = nav.openAssistantPage(AssistantPage.AutomationEditor(g, slot)) },
+						onEdit = { g, slot -> repo.editors.show(ShownEditor.Automation(AutomationDraftKey(g, slot))) },
 						modifier = modifier,
 					)
 				} else {
@@ -1005,57 +951,19 @@ fun App(
 		}
 	}
 
-	QueueOverlay(repo, openQueueRequest, locked, revealAtState, openTeamRequest)
-	if (!locked) {
-		AttachmentViewerOverlay(viewerState, rendererPool)
-		LinkMenuDialog(linkMenuState, linkMenuNoteState)
-		RowMenuDialog(repo, rowPressState, pluginManager.host::cutClaims)
-	}
-	// Board dialog replaces current screen.
-	if (!locked) boardModal?.let { entryId ->
-		BoardEntryDialog(state, repo, entryId) { boardModal = null }
-	}
-	// Cards wait for unlock.
-	val cardsShow = requestCardsShow(locked)
-	when (val modal = vaultModal) {
-		is VaultModal.Entry -> if (!locked) {
-			com.atelier_nyaarium.switchboard.vault.VaultEntryDialog(repo, state, modal.id) { vaultModal = null }
-		}
-		is VaultModal.Request -> if (cardsShow) {
-			com.atelier_nyaarium.switchboard.vault.VaultRequestSheet(repo, state, modal.id) { vaultModal = null }
-		}
-		null -> {}
-	}
-	if (cardsShow) {
-		assistantSendModal?.let { (gatewayId, requestId) ->
-			com.atelier_nyaarium.switchboard.assistant.AssistantSendSheet(repo, gatewayId, requestId) { assistantSendModal = null }
-		}
-		assistantActModal?.let { (gatewayId, requestId) ->
-			com.atelier_nyaarium.switchboard.assistant.AssistantActSheet(repo, gatewayId, requestId) { assistantActModal = null }
-		}
-	}
-	// Nothing draws over the lock; a parked edit returns with its editor.
-	if (locked) return
-	fireRunbook?.let { fire ->
-		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, fire.gatewayId, fire.id, fire.into) { fireRunbook = null }
-	}
-	editRunbook?.let { opened ->
-		val key = editKeyOf(opened)
-		com.atelier_nyaarium.switchboard.runbooks.RunbookEditor(repo, key.gatewayId, key.id) { editRunbook = null }
-	}
-	editRoutine?.let { opened ->
-		val key = editKeyOf(opened)
-		com.atelier_nyaarium.switchboard.routines.RoutineEditor(repo, state, key.gatewayId, key.id) { editRoutine = null }
-	}
-	editPolicy?.let { opened ->
-		val key = editKeyOf(opened)
-		com.atelier_nyaarium.switchboard.policies.PolicyEditor(repo, state, key.gatewayId, key.id) { editPolicy = null }
-	}
+	ShellOverlays(
+		locked = locked,
+		repo = repo,
+		state = state,
+		modals = modals,
+		onModals = { change -> modals = change(modals) },
+		editor = shownEditor,
+		requests = overlayRequests,
+		rendererPool = rendererPool,
+		forgetSession = forgetSession,
+		claimsOf = pluginManager.host::cutClaims,
+	)
 }
-
-/** An open editor's saved pair; a blank id is a new record. */
-private fun editKeyOf(opened: Pair<String, String>?): EditKey = EditKey(opened?.first.orEmpty(), opened?.second?.ifEmpty { null })
-
 
 /** Log and skip plugin claim errors. */
 internal fun logPluginThrow(message: String, err: Throwable) {

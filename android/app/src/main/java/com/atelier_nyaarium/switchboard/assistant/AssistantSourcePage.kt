@@ -178,6 +178,7 @@ internal fun AssistantSourcePage(
 		GrantSecretsSheet(
 			entries = offered,
 			granted = source.grants,
+			listed = repo.vault.routerRevision > 0,
 			onDone = { picks ->
 				granting = false
 				run { answerText(setGrants(gatewayId, source.id, picks)) }

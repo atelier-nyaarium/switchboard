@@ -8,29 +8,21 @@ import androidx.compose.runtime.setValue
 ////////////////////////////////
 //  Composables
 
-// The queue list. Opened by the bubble and by the transport notification's body, so it is reachable
-// whether or not the overlay permission was ever granted.
-// NOT while locked. Every other overlay down here is reached by an in-app gesture, which already
-// implies an unlocked session; this one arrives by INTENT from the notification or the bubble, so
-// without the guard a tap on a locked phone would put queued message titles and working transport
-// controls on top of the lock screen.
+// Opened by intent, so only `ShellOverlays` draws it: that host waits for the lock.
 @Composable
 internal fun QueueOverlay(
 	repo: ChatRepository,
 	openQueueRequest: MutableState<Boolean>,
-	locked: Boolean,
 	revealAtState: MutableState<Pair<String, Long>?>,
 	openTeamRequest: MutableState<String?>,
 ) {
 	var revealAt by revealAtState
-	if (openQueueRequest.value && !locked) {
+	if (openQueueRequest.value) {
 		QueueSheetHost(
 			repo = repo,
 			onDismiss = { openQueueRequest.value = false },
 			onJump = { entry ->
-				// Through the same request the notification tap uses, so the jump inherits its whole
-				// open gesture - dismissing masking surfaces, selecting the tab, re-snapping - rather
-				// than re-implementing a partial copy of it.
+				// Same request as a notification tap, so the open gesture is shared.
 				revealAt = entry.team to entry.at
 				openTeamRequest.value = entry.team
 				openQueueRequest.value = false

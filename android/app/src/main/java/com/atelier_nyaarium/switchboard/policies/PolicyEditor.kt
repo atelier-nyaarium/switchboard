@@ -34,14 +34,16 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
-import com.atelier_nyaarium.switchboard.EditorScaffold
-import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.EditKey
+import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.EditorWaiting
+import com.atelier_nyaarium.switchboard.EditStanding
 import com.atelier_nyaarium.switchboard.MirroredDraft
+import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.rememberEdit
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.rememberEdit
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,23 +53,23 @@ fun PolicyEditor(
 	state: ChatState,
 	gatewayId: String,
 	policyId: String?,
-	onClose: () -> Unit,
 ) {
-	val held: AuthorizationPolicy? = remember(gatewayId, policyId, state.gateways) {
+	val lookup = remember(gatewayId, policyId, state.gateways) {
 		policyId?.let { state.gateways.policyOn(gatewayId, it) }
 	}
+	val held: AuthorizationPolicy? = lookup?.found()
 	// The edit lives in the ops class, which outlives the activity.
 	val edits = repo.policyOps.edits
 	val key = EditKey(gatewayId, policyId)
-	val listed = state.gateways.entry(gatewayId)?.policies?.listed == true
-	val open = rememberEdit(edits, key, editStanding(policyId, held, listed), "Edit policy", onClose) {
-		held?.let { PolicyDraft.of(it) } ?: PolicyDraft.fresh()
-	} ?: return
+	val fresh = remember(key, held) { held?.let { PolicyDraft.of(it) } ?: PolicyDraft.fresh() }
+	val standing = editStanding(lookup)
+	if (standing == EditStanding.READING || standing == EditStanding.UNREACHABLE) {
+		LaunchedEffect(gatewayId) { repo.command { policyOps.refresh(gatewayId) } }
+	}
+	val open = rememberEdit(edits, key, standing, fresh) { EditorWaiting("Edit policy", it, edits::hide) } ?: return
 	val opening = open.opening
 	val session = open.session
 	val close = open.close
-	// What this edit opened on; the list can go unread under it.
-	val base = remember(key, opening) { held }
 	val typed = remember(key, opening) { MirroredDraft(session.draft) { next -> edits.edit(key, opening) { next } } }
 	var draft by typed
 	// Typed while its op was out.
@@ -94,10 +96,10 @@ fun PolicyEditor(
 	}
 
 	EditorScaffold(
-		title = if (base == null) "New policy" else "Edit policy",
+		title = if (policyId == null) "New policy" else "Edit policy",
 		saving = saving,
 		canSave = draft.toPolicy() != null,
-		menu = { if (base != null) RemoveMenu("Delete policy", enabled = !saving) { confirmingDelete = true } },
+		menu = { if (policyId != null) RemoveMenu("Delete policy", enabled = !saving) { confirmingDelete = true } },
 		onCancel = close,
 		onSave = { commit(draft) },
 		leaving = open.leaving,

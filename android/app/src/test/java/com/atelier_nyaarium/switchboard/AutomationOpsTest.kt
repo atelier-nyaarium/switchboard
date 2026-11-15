@@ -133,7 +133,7 @@ class AutomationOpsTest {
 
 	private fun admitting(vararg ids: String) = MutableStateFlow(ChatState(gateways = testRegistry(*ids)))
 
-	private fun ChatState.drawn() = gateways.gateways.filter { it.automations.listed }.map { it.id }
+	private fun ChatState.drawn() = gateways.gateways.filter { it.automations is GatewayList.Listed }.map { it.id }
 
 	@Test
 	fun listedGatewaysAreDrawnWhileRefusalHidesAndUnreachableKeepsTheLastList() {
@@ -145,11 +145,11 @@ class AutomationOpsTest {
 
 		runBlocking { ops.refreshAll() }
 		assertEquals(listOf("sakura"), state.value.drawn())
-		assertEquals("review", state.value.gateways.entry("sakura")?.automations?.rows?.single()?.id)
+		assertEquals("review", state.value.gateways.entry("sakura")?.automations?.listedRows()?.single()?.id)
 
 		fake.unreachable += "sakura"
 		runBlocking { ops.refreshAll() }
-		assertEquals("review", state.value.gateways.entry("sakura")?.automations?.rows?.single()?.id)
+		assertEquals("review", state.value.gateways.entry("sakura")?.automations?.listedRows()?.single()?.id)
 
 		fake.unreachable -= "sakura"
 		fake.refusing += "sakura"
@@ -188,11 +188,11 @@ class AutomationOpsTest {
 		hold.entered.await()
 		fake.shelves["sakura"] = listOf(automationRow(sentence = "New"))
 		ops.refresh("sakura")
-		assertEquals("New", state.value.gateways.entry("sakura")?.automations?.rows?.single()?.sentence)
+		assertEquals("New", state.value.gateways.entry("sakura")?.automations?.listedRows()?.single()?.sentence)
 		hold.gate.complete(Unit)
 		older.join()
 
-		assertEquals("New", state.value.gateways.entry("sakura")?.automations?.rows?.single()?.sentence)
+		assertEquals("New", state.value.gateways.entry("sakura")?.automations?.listedRows()?.single()?.sentence)
 	}
 
 	@Test
@@ -223,13 +223,13 @@ class AutomationOpsTest {
 
 		val stale = runBlocking { ops.setEnabled("sakura", automationRow(revision = 2L), false) }
 		assertEquals("the held revision differs", (stale as AutomationSaved.Refused).reason)
-		assertEquals("the held revision differs", ops.toggleRefusalFor("sakura", "review"))
-		assertEquals(true, state.value.gateways.entry("sakura")?.automations?.rows?.single()?.automation?.enabled)
+		assertEquals("the held revision differs", ops.toggles.refusalFor("sakura", "review"))
+		assertEquals(true, state.value.gateways.entry("sakura")?.automations?.listedRows()?.single()?.automation?.enabled)
 
-		val current = state.value.gateways.entry("sakura")!!.automations.rows.single()
+		val current = state.value.gateways.entry("sakura")!!.automations.listedRows()!!.single()
 		assertTrue(runBlocking { ops.setEnabled("sakura", current, false) } is AutomationSaved.Stored)
-		assertNull(ops.toggleRefusalFor("sakura", "review"))
-		assertEquals(false, state.value.gateways.entry("sakura")?.automations?.rows?.single()?.automation?.enabled)
+		assertNull(ops.toggles.refusalFor("sakura", "review"))
+		assertEquals(false, state.value.gateways.entry("sakura")?.automations?.listedRows()?.single()?.automation?.enabled)
 		assertEquals(listOf(2L, 3L), fake.puts.map { it.third })
 	}
 
@@ -245,13 +245,13 @@ class AutomationOpsTest {
 
 		val older = launch { ops.setEnabled("sakura", automationRow(revision = 1L), false) }
 		hold.entered.await()
-		val row = state.value.gateways.entry("sakura")!!.automations.rows.single()
+		val row = state.value.gateways.entry("sakura")!!.automations.listedRows()!!.single()
 		assertTrue(ops.setEnabled("sakura", row, false) is AutomationSaved.Stored)
 		hold.gate.complete(Unit)
 		older.join()
 
-		assertNull(ops.toggleRefusalFor("sakura", "review"))
-		assertEquals(false, state.value.gateways.entry("sakura")?.automations?.rows?.single()?.automation?.enabled)
+		assertNull(ops.toggles.refusalFor("sakura", "review"))
+		assertEquals(false, state.value.gateways.entry("sakura")?.automations?.listedRows()?.single()?.automation?.enabled)
 	}
 
 	@Test
@@ -265,7 +265,7 @@ class AutomationOpsTest {
 		val refused = runBlocking { ops.save("sakura", "review", automation(), 3L) }		as? AutomationSaved.Refused
 		assertEquals(newer, refused?.heldRow)
 		assertEquals("the held revision differs", refused?.reason)
-		assertEquals(newer, state.value.gateways.entry("sakura")?.automations?.rows?.single())
+		assertEquals(newer, state.value.gateways.entry("sakura")?.automations?.listedRows()?.single())
 
 		assertTrue(runBlocking { ops.save("sakura", "new", automation(), 0L) } is AutomationSaved.Stored)
 		assertEquals(listOf(3L, 0L), fake.puts.map { it.third })
@@ -290,14 +290,14 @@ class AutomationOpsTest {
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		val stale = automationDraftOf(automationRow(revision = 2L)).copy(tell = "quietly")
 		val save: suspend (AutomationDraft) -> AutomationSaved = { ops.save("sakura", it.id, it.toAutomation()!!, it.revision) }
-		val shown = ops.edits.open(key, stale)
+		ops.edits.show(key)
+		val shown = ops.edits.open(key, stale)!!
 
 		assertTrue(ops.send(key, shown, deleting = false, save) is EditOutcome.Stays)
-		val offered = ops.edits.held.value.getValue(key)
+		val offered = ops.edits.state.value.held.getValue(key)
 		assertEquals(5L to "quietly", offered.draft.revision to offered.draft.tell)
 		assertEquals(EditOutcome.Done, ops.send(key, shown, deleting = false, save))
-		assertNull(ops.edits.held.value[key])
-		assertEquals(EditorShowing.CLOSING, editorShowing(shown, ops.edits.held.value[key]))
+		assertEquals(EditState<AutomationDraftKey, AutomationDraft, String>(), ops.edits.state.value)
 	}
 
 	@Test
@@ -306,23 +306,25 @@ class AutomationOpsTest {
 		fake.shelves["sakura"] = listOf(automationRow(revision = 5L))
 		val ops = AutomationOps(admitting("sakura"), Host(fake))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
-		val shown = ops.edits.open(key, automationDraftOf(automationRow(revision = 2L)))
+		ops.edits.show(key)
+		val shown = ops.edits.open(key, automationDraftOf(automationRow(revision = 2L)))!!
 
 		val outcome = ops.send(key, shown, deleting = true) { ops.delete("sakura", it.id, it.revision) }
 
 		assertTrue(outcome is EditOutcome.Stays)
-		assertEquals(5L, ops.edits.held.value.getValue(key).draft.revision)
-		assertTrue(ops.edits.askLeave(key))
+		assertEquals(5L, ops.edits.state.value.held.getValue(key).draft.revision)
+		assertTrue(ops.edits.askLeave())
 	}
 
 	@Test
 	fun aChangedAutomationDraftAsksBeforeLeaving() {
 		val ops = AutomationOps(admitting("sakura"), Host(FakeGateway()))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
-		val shown = ops.edits.open(key, automationDraftOf(automationRow()))
+		ops.edits.show(key)
+		val shown = ops.edits.open(key, automationDraftOf(automationRow()))!!
 
 		ops.edits.edit(key, shown) { it.copy(tell = "quietly") }
 
-		assertFalse(ops.edits.askLeave(key))
+		assertFalse(ops.edits.askLeave())
 	}
 }

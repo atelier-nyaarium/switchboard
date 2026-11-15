@@ -47,6 +47,11 @@ class ChatRepository(
 	internal val federation = FederationManager(store)
 	internal val identity = PhoneIdentity(store, federation)
 	internal val ambient = PhoneAmbient.system()
+
+	internal val provision = ProvisionFence()
+
+	/** One re-provision at a time. */
+	internal val wipes = kotlinx.coroutines.sync.Mutex()
 	internal val bootState: StateFlow<BootState> get() = identity.bootState
 	private var ownerOpsBoot: PhoneBootstrap? = null
 	private var ownerOpsValue: OwnerOps? = null
@@ -58,9 +63,9 @@ class ChatRepository(
 	@Volatile
 	internal var deviceLocked: () -> Boolean = { false }
 
-	val board = com.atelier_nyaarium.switchboard.board.BoardManager(store)
+	val board = com.atelier_nyaarium.switchboard.board.BoardManager(store) { provision.clearing }
 
-	val vault = com.atelier_nyaarium.switchboard.vault.VaultManager(store)
+	val vault = com.atelier_nyaarium.switchboard.vault.VaultManager(store) { provision.clearing }
 
 	internal val assistantSends = com.atelier_nyaarium.switchboard.assistant.AssistantSendManager(store)
 
@@ -315,8 +320,7 @@ class ChatRepository(
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
-			// runbookOps before runbooks: a save still out must be fenced before the library is wiped.
-			this, board, vault, assistantSends, assistantActs, runbookOps, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, workspaceHost, composedRequests,
+			this, board, vault, assistantSends, assistantActs, runbookOps, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, composedRequests,
 			windowOps, symbolViews, windowRequests, rawFileOps, fileOps, deviceOps, liveConsoleOps, automationOps, routineOps, policyOps,
 			gatewayEnroll.setups,
 		)
@@ -391,6 +395,7 @@ class ChatRepository(
 		identity = ports,
 		presence = ports,
 		collaborators = trustCollaborators,
+		provision = provision,
 	)
 	internal val playback = PlaybackOps(
 		state = _state,
@@ -432,8 +437,11 @@ class ChatRepository(
 		state = _state,
 		repoScope = repoScope,
 		collaborators = vaultCollaborators,
+		provision = provision,
 	)
-	internal val runbookOps = RunbookOps(state = _state, host = ChatRepositoryRunbookHost(this))
+	internal val runbookOps = RunbookOps(state = _state, host = ChatRepositoryRunbookHost(this), provision = provision)
+
+	internal val editors by lazy { Editors(runbookOps.edits, routineOps.edits, policyOps.edits, automationOps.edits) }
 	internal val routineOps = RoutineOps(state = _state, host = ChatRepositoryRoutineHost(this))
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	internal val automationOps = AutomationOps(state = _state, host = ChatRepositoryAutomationHost(this))
@@ -536,6 +544,7 @@ class ChatRepository(
 		filesDir = filesDir,
 		repoScope = repoScope,
 		collaborators = scheduledSendCollaborators,
+		provision = provision,
 	)
 
 	init {

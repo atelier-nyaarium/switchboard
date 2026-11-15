@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -134,8 +133,6 @@ internal sealed interface AssistantPage {
 	data class Device(val gatewayId: String, val deviceId: String) : AssistantPage
 
 	data class Source(val gatewayId: String, val sourceId: String) : AssistantPage
-
-	data class AutomationEditor(val gatewayId: String, val slot: AutomationSlot) : AssistantPage
 }
 
 /** The assistant's own pages, not a Sources or Automations child. */
@@ -149,7 +146,7 @@ internal fun assistantPageBack(page: AssistantPage): AssistantPage? = when (page
 	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety -> AssistantPage.Settings
 	is AssistantPage.Entry -> AssistantPage.Add
 	is AssistantPage.Setup -> AssistantPage.Entry(page.gatewayId, page.integrationId)
-	is AssistantPage.Device, is AssistantPage.Source, is AssistantPage.AutomationEditor -> null
+	is AssistantPage.Device, is AssistantPage.Source -> null
 }
 
 /** Only answers unwind pages. Null closes them. */
@@ -171,12 +168,11 @@ internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> Devic
 		val answered = state.gateways.assistantOn(gatewayId)
 		takeUnless { assistantLeft(state, gatewayId) || (answered != null && sourcesOf(answered).none { it.id == sourceId }) }
 	}
-	is AssistantPage.AutomationEditor -> takeUnless { assistantLeft(state, gatewayId) }
 }
 
 /** Home moves keep it. */
 private fun AssistantPage.Device.deviceGone(state: ChatState, list: DeviceListView?): Boolean =
-	(state.gateways.loaded && !state.gateways.has(gatewayId)) ||
+	(state.gateways.current && !state.gateways.has(gatewayId)) ||
 		(list is DeviceListView.Listed && list.records.none { it.id == deviceId })
 
 internal fun ShellNav.resolvePage(state: ChatState, devices: (String) -> DeviceListView? = { null }): ShellNav {
@@ -195,7 +191,6 @@ internal fun pageWords(page: AssistantPage): List<String> = when (page) {
 	is AssistantPage.Setup -> listOf(PAGE_SETUP, page.gatewayId, page.integrationId)
 	is AssistantPage.Device -> listOf(PAGE_DEVICE, page.gatewayId, page.deviceId)
 	is AssistantPage.Source -> listOf(PAGE_SOURCE, page.gatewayId, page.sourceId)
-	is AssistantPage.AutomationEditor -> listOf(PAGE_AUTOMATION, page.gatewayId) + slotWords(page.slot)
 }
 
 internal fun pageOf(words: List<String>): AssistantPage? {
@@ -211,27 +206,12 @@ internal fun pageOf(words: List<String>): AssistantPage? {
 		PAGE_SETUP -> if (gatewayId != null && named != null) AssistantPage.Setup(gatewayId, named) else null
 		PAGE_DEVICE -> if (gatewayId != null && named != null) AssistantPage.Device(gatewayId, named) else null
 		PAGE_SOURCE -> if (gatewayId != null && named != null) AssistantPage.Source(gatewayId, named) else null
-		PAGE_AUTOMATION -> {
-			val slot = slotOf(words.drop(2))
-			if (gatewayId != null && slot != null) AssistantPage.AutomationEditor(gatewayId, slot) else null
-		}
 		else -> null
 	}
 }
 
 /** Page keys stay unique. */
 internal fun pageKey(page: AssistantPage): String = pageWords(page).joinToString(Char(0x1e).toString())
-
-private fun slotWords(slot: AutomationSlot): List<String> = when (slot) {
-	is AutomationSlot.Held -> listOf(SLOT_HELD, slot.id)
-	AutomationSlot.New -> listOf(SLOT_NEW)
-}
-
-private fun slotOf(words: List<String>): AutomationSlot? = when (words.firstOrNull()) {
-	SLOT_HELD -> words.getOrNull(1)?.let { AutomationSlot.Held(it) }
-	SLOT_NEW -> AutomationSlot.New
-	else -> null
-}
 
 private const val PAGE_SETTINGS = "settings"
 private const val PAGE_LOCATION = "location"
@@ -242,9 +222,6 @@ private const val PAGE_ENTRY = "entry"
 private const val PAGE_SETUP = "setup"
 private const val PAGE_DEVICE = "device"
 private const val PAGE_SOURCE = "source"
-private const val PAGE_AUTOMATION = "automation"
-private const val SLOT_HELD = "held"
-private const val SLOT_NEW = "new"
 
 /** Moves retarget; a home elsewhere, nobody, or a refusal leaves. */
 internal fun ShellNav.followAssistant(root: AssistantRoot, state: ChatState): ShellNav {

@@ -11,7 +11,7 @@ import org.junit.Test
 class ComposedRequestsTest {
 	private class HeldHost : WorkspaceHost {
 		override val workspace: WorkspaceGateway? = null
-		override val generation = WorkspaceGeneration()
+		override val generation = ProvisionFence()
 		val sent = mutableListOf<String>()
 		val holds = mutableListOf<TestHold>()
 		var sends = true
@@ -114,8 +114,7 @@ class ComposedRequestsTest {
 			val pending = async { requests.submit(key, "record why") }
 			val pendingOther = async { requests.submit(other, "record usage") }
 			holds.forEach { it.entered.await() }
-			host.generation.advance()
-			requests.clearInMemory()
+			host.generation.reprovision { requests.clearInMemory() }
 			val newer = TestHold().also { host.holds += it }
 			val current = async { requests.submit(key, "record why again") }
 			newer.entered.await()
@@ -135,8 +134,7 @@ class ComposedRequestsTest {
 	@Test
 	fun `a caller that began before a re-provision sends nothing and draws nothing`() = runBlocking {
 		val admission = requests.admit()
-		host.generation.advance()
-		requests.clearInMemory()
+		host.generation.reprovision { requests.clearInMemory() }
 
 		assertEquals(Submitted.Failed, submitWriting(key, "stale", admission))
 
@@ -149,8 +147,7 @@ class ComposedRequestsTest {
 	@Test
 	fun `a caller that began before a re-provision is refused, never told a newer send of its key is out`() = runBlocking {
 		val stale = requests.admit()
-		host.generation.advance()
-		requests.clearInMemory()
+		host.generation.reprovision { requests.clearInMemory() }
 		val hold = TestHold().also { host.holds += it }
 		val current = async { submitWriting(key, "current") }
 		hold.entered.await()
@@ -200,8 +197,7 @@ class ComposedRequestsTest {
 	@Test
 	fun `each admission names its own write, a re-provision included`() = runBlocking {
 		val before = listOf(requests.admit().incarnation, requests.admit().incarnation)
-		host.generation.advance()
-		requests.clearInMemory()
+		host.generation.reprovision { requests.clearInMemory() }
 		val after = requests.admit().incarnation
 
 		assertEquals(before.distinct(), before)

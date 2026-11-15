@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import androidx.compose.runtime.saveable.SaverScope
-import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -50,11 +49,10 @@ class ShellNavTest {
 		assertEquals(List(3) { BackLayer.ASSISTANT_PAGE } + BackLayer.CONVERSATION, backAll(open))
 		assertEquals(AssistantPage.Settings, assistantPageBack(AssistantPage.Safety))
 		assertEquals(
-			listOf(null, null, null),
+			listOf(null, null),
 			listOf(
 				AssistantPage.Source("sakura", "github"),
 				AssistantPage.Device("sakura", "aa:bb:cc:dd:ee:01"),
-				AssistantPage.AutomationEditor("sakura", AutomationSlot.New),
 			).map(::assistantPageBack),
 		)
 		assertFalse(open.showsAssistant(assistantOpen = false, screen = ShellScreen.LOCK))
@@ -131,7 +129,6 @@ class ShellNavTest {
 			OverNav(RootView.AUTOMATIONS, filtered = false),
 			inSession.toRoot(RootView.AUTOMATIONS, assistantOpen = false).also { assertNull(it.assistantPage) }.over,
 		)
-		assertEquals(ShellNav(root = RootView.SOURCES), atRoot.closeAssistantPage())
 	}
 
 	@Test
@@ -166,8 +163,6 @@ class ShellNavTest {
 			AssistantPage.Features,
 			AssistantPage.Safety,
 			AssistantPage.Source("sakura", "github"),
-			AssistantPage.AutomationEditor("sakura", AutomationSlot.Held("reviews")),
-			AssistantPage.AutomationEditor("sakura", AutomationSlot.New),
 			AssistantPage.Add,
 			AssistantPage.Entry("sakura", "kasa"),
 			AssistantPage.Device("sakura", "aa:bb:cc:dd:ee:01"),

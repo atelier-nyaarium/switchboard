@@ -48,16 +48,12 @@ internal class PolicyOps(
 
 	private val reads = GatewayReadFence()
 
-	/** One counter per row, keyed by gateway and id. */
-	private val toggles = GatewayReadFence()
-
-	val toggleRefusals = androidx.compose.runtime.mutableStateOf<Map<Pair<String, String>, String>>(emptyMap())
+	val toggles = ToggleFence()
 
 	override suspend fun clearInMemory() {
 		reads.clear()
 		toggles.clear()
 		edits.clear()
-		toggleRefusals.value = emptyMap()
 	}
 
 	suspend fun commit(key: EditKey, opening: Long) = edits.send(key, opening) { draft ->
@@ -77,17 +73,15 @@ internal class PolicyOps(
 		}
 	}
 
-	fun toggleRefusalFor(gatewayId: String, policyId: String): String? = toggleRefusals.value[gatewayId to policyId]
-
 	/** All roster Gateways, concurrently. */
 	suspend fun refreshAll() {
 		refreshEach(state.value.gateways.ids(), ::refresh)
 	}
 
 	suspend fun refresh(gatewayId: String) {
-		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val answer = reads.list(TAG, gatewayId) { client.list(gatewayId) }
+		val client = host.gateway
+		val answer = reads.list(TAG, gatewayId, client?.let { held -> suspend { held.list(gatewayId) } }) ?: return
 		state.update { held -> held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(policies = it.policies.after(answer)) }) }
 	}
 
@@ -109,32 +103,23 @@ internal class PolicyOps(
 		return if (answer.deleted) PolicyDeleted.Deleted else PolicyDeleted.Refused(answer.reason ?: "This Gateway kept it")
 	}
 
-	/** The answer reaches the row; an older toggle's answer never overwrites a newer one's. */
 	suspend fun setEnabled(policyId: String, enabled: Boolean, baseRevision: Long, gatewayId: String): PolicySaved {
-		val key = gatewayId to policyId
 		val client = host.gateway
 		if (client == null || gatewayId.isBlank()) {
-			noteToggle(key, GATEWAY_UNREACHABLE)
+			toggles.note(gatewayId, policyId, GATEWAY_UNREACHABLE)
 			return PolicySaved.Unreachable
 		}
-		var saved: PolicySaved = PolicySaved.Unreachable
-		val current = toggles.read("$gatewayId/$policyId") {
+		return toggles.run(gatewayId, policyId, ::toggleLine) {
 			val answer = attempt { client.enable(gatewayId, policyId, enabled, baseRevision) }
 			refresh(gatewayId)
-			saved = if (answer == null) PolicySaved.Unreachable else saved(answer)
-			saved
+			if (answer == null) PolicySaved.Unreachable else saved(answer)
 		}
-		if (current is GatewayRead.Fresh) {
-			noteToggle(
-				key,
-				when (val landed = saved) {
-					is PolicySaved.Stored -> null
-					is PolicySaved.Refused -> landed.reason
-					PolicySaved.Unreachable -> GATEWAY_UNREACHABLE
-				},
-			)
-		}
-		return saved
+	}
+
+	private fun toggleLine(saved: PolicySaved): String? = when (saved) {
+		is PolicySaved.Stored -> null
+		is PolicySaved.Refused -> saved.reason
+		PolicySaved.Unreachable -> GATEWAY_UNREACHABLE
 	}
 
 	private fun saved(answer: ConsolePolicyPutResult): PolicySaved {
@@ -143,10 +128,6 @@ internal class PolicyOps(
 			return PolicySaved.Refused(answer.reason ?: "This Gateway holds a different copy", answer.revision)
 		}
 		return PolicySaved.Stored(stored)
-	}
-
-	private fun noteToggle(key: Pair<String, String>, reason: String?) {
-		toggleRefusals.value = if (reason == null) toggleRefusals.value - key else toggleRefusals.value + (key to reason)
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = gatewayAttempt(TAG, call)

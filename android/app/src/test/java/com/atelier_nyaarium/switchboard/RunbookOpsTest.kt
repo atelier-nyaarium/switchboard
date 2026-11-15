@@ -106,13 +106,13 @@ class RunbookOpsTest {
 		revision = revision,
 	)
 
-	private fun ChatState.books(gatewayId: String = GW) = gateways.runbooksOn(gatewayId)
+	private fun ChatState.books(gatewayId: String = GW) = gateways.entry(gatewayId)?.runbooks?.listedRows().orEmpty()
 
 	private fun opsOver(library: List<Runbook>): Pair<RunbookOps, MutableStateFlow<ChatState>> {
 		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
 		val host = NoGateway()
 		host.library.merge(GW, library)
-		return RunbookOps(state, host) to state
+		return RunbookOps(state, host, ProvisionFence()) to state
 	}
 
 	@Test
@@ -151,11 +151,11 @@ class RunbookOpsTest {
 	fun aSaveSendsTheBaseItReadAndKeepsTheRevisionTheGatewayNamed() {
 		val host = WithGateway()
 		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
-		val ops = RunbookOps(state, host)
+		val ops = RunbookOps(state, host, ProvisionFence())
 
 		val first = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
 		assertEquals(RunbookSaved.Stored, first)
-		// Sent no base, since nothing was stored yet, and took back what the gateway named.
+		// No base sent; took the gateway's.
 		assertEquals(null, host.fake.puts[0].second)
 		assertEquals(1L, state.value.books().first { it.id == "a" }.revision)
 
@@ -170,10 +170,10 @@ class RunbookOpsTest {
 	@Test
 	fun aRetryOfAnAnswerThatWasLostIsNotASecondEdit() {
 		val host = WithGateway()
-		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host)
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host, ProvisionFence())
 		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
 
-		// The editor never heard, so it names the base it read rather than the one now stored.
+		// Names the base it read.
 		val again = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW, baseRevision = null) }
 		assertEquals(RunbookSaved.Stored, again)
 		// Still the first revision, so the retry did not land as a second edit.
@@ -185,7 +185,7 @@ class RunbookOpsTest {
 	fun aSaveTheGatewayRefusesLeavesTheLibraryAlone() {
 		val host = WithGateway()
 		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
-		val ops = RunbookOps(state, host)
+		val ops = RunbookOps(state, host, ProvisionFence())
 		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
 
 		val refused = kotlinx.coroutines.runBlocking {
@@ -198,13 +198,17 @@ class RunbookOpsTest {
 	@Test
 	fun aSaveStillOutAtAReprovisionWritesNothingToTheNextOwnersLibrary() = kotlinx.coroutines.runBlocking<Unit> {
 		val host = WithGateway()
-		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW))), host)
+		val provision = ProvisionFence()
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW))), host, provision)
 		val hold = TestHold().also { host.fake.putHold = it }
 
 		val saved = async { ops.save(book("a", revision = 0L), GW) }
 		hold.entered.await()
-		ops.clearInMemory()
-		host.library.clearInMemory()
+		// Library first; roster order irrelevant.
+		provision.reprovision {
+			host.library.clearInMemory()
+			ops.clearInMemory()
+		}
 		hold.release()
 
 		assertEquals(true, saved.await() is RunbookSaved.Refused)
@@ -215,19 +219,21 @@ class RunbookOpsTest {
 	@Test
 	fun anEditorsSaveLandsOnItsOpeningAndADeleteItsGatewayNeverTookStays() {
 		val host = WithGateway()
-		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host)
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host, ProvisionFence())
 		val key = EditKey(GW, null)
 		val draft = com.atelier_nyaarium.switchboard.runbooks.RunbookDraft.of(book("a")).copy(revision = 0L)
-		val opening = ops.edits.open(key, draft)
+		ops.edits.show(key)
+		val opening = ops.edits.open(key, draft)!!
 
 		assertEquals(EditOutcome.Done, kotlinx.coroutines.runBlocking { ops.commit(key, opening, overwrite = false) })
-		assertEquals(null, ops.edits.held.value[key])
-		assertEquals(EditorShowing.CLOSING, editorShowing(opening, ops.edits.held.value[key]))
+		assertEquals(null, ops.edits.state.value.shown)
+		assertEquals(null, ops.edits.state.value.held[key])
 
 		kotlinx.coroutines.runBlocking { host.fake.delete(GW, "a") }
-		val reopened = ops.edits.open(key, draft)
+		ops.edits.show(key)
+		val reopened = ops.edits.open(key, draft)!!
 		kotlinx.coroutines.runBlocking { ops.remove(key, reopened) }
-		assertEquals("This Gateway still holds it; it was not reached", ops.edits.held.value.getValue(key).said?.reason)
+		assertEquals("This Gateway still holds it; it was not reached", ops.edits.state.value.held.getValue(key).said?.reason)
 	}
 
 	@Test
@@ -241,7 +247,7 @@ class RunbookOpsTest {
 	fun oneGatewaysGroupIsReplacedWithoutDisturbingAnother() {
 		val host = WithGateway()
 		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
-		val ops = RunbookOps(state, host)
+		val ops = RunbookOps(state, host, ProvisionFence())
 
 		kotlinx.coroutines.runBlocking {
 			ops.save(book("a", name = "Here"), GW)
@@ -254,9 +260,27 @@ class RunbookOpsTest {
 	}
 
 	@Test
+	fun aLibraryNeverPlacedSaysItsReadFailedAndADeleteSaysWhenRoutinesAreUnread() {
+		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW)))
+		val ops = RunbookOps(state, NoGateway(), ProvisionFence())
+		assertEquals(GatewayList.Unread, state.value.gateways.entry(GW)?.runbooks)
+
+		kotlinx.coroutines.runBlocking { ops.refresh(GW) }
+
+		assertEquals(GatewayList.Unreachable, state.value.gateways.entry(GW)?.runbooks)
+		val pinned = com.atelier_nyaarium.switchboard.proto.RoutineState(testRoutine("triage", runbookId = "a"))
+		val listed = runbookDeleteLine(GatewayList.Listed(listOf(pinned)), "a")
+		val unpinned = runbookDeleteLine(GatewayList.Listed(listOf(pinned)), "b")
+		assertEquals(true, listed.contains("triage"))
+		assertEquals(unpinned, runbookDeleteLine(GatewayList.NotServed, "a"))
+		assertNotEquals(unpinned, runbookDeleteLine(GatewayList.Unread, "a"))
+		assertEquals(runbookDeleteLine(GatewayList.Unread, "a"), runbookDeleteLine(GatewayList.Unreachable, "a"))
+	}
+
+	@Test
 	fun refreshingOneGatewayDoesNotReopenTheSyncOnAnother() {
 		val host = WithGateway()
-		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host)
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host, ProvisionFence())
 
 		kotlinx.coroutines.runBlocking {
 			ops.save(book("a"), OTHER)
@@ -273,7 +297,7 @@ class RunbookOpsTest {
 	fun aGatewayThatKeepsItKeepsThePhonesCopyToo() {
 		val host = WithGateway()
 		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
-		val ops = RunbookOps(state, host)
+		val ops = RunbookOps(state, host, ProvisionFence())
 		host.library.merge(GW, listOf(book("a")))
 
 		// The Gateway holds no such id, so it answers no, and the owner is not shown a library that
@@ -301,7 +325,7 @@ class RunbookOpsTest {
 	@Test
 	fun aRefusalOnOneGatewayLeavesTheEditorOnAnotherUnblocked() {
 		val host = WithGateway()
-		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host)
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host, ProvisionFence())
 
 		kotlinx.coroutines.runBlocking {
 			ops.save(book("a", revision = 1L), GW)

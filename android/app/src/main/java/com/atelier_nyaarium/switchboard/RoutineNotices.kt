@@ -25,10 +25,10 @@ internal fun routineNoticePlan(
 	idOf: (String, String) -> Int,
 	missText: (String) -> String,
 ): RoutineNoticePlan {
-	val listed = registry.gateways.filter { it.routines.listed }
-	val answered = listed.mapTo(HashSet()) { it.id }
+	val listed = registry.gateways.listedGroups { it.routines }
+	val answered = listed.mapTo(HashSet()) { it.gatewayId }
 	val everyListed = registry.current && listed.isNotEmpty() && listed.size == registry.gateways.size
-	val rows = listed.flatMap { entry -> entry.routines.rows.map { entry.id to it } }
+	val rows = listed.flatMap { group -> group.rows.map { group.gatewayId to it } }
 	val notices = rows.mapNotNull { (gatewayId, row) -> noticeOf(gatewayId, row, idOf, missText) }
 	val live = rows.mapTo(HashSet()) { (gatewayId, row) -> idOf(gatewayId, row.routine.id) }
 	val told = notices.mapTo(HashSet()) { it.id }

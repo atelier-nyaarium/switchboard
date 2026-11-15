@@ -26,14 +26,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
-import com.atelier_nyaarium.switchboard.GatewayEntry
-import com.atelier_nyaarium.switchboard.GatewayRegistry
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
 import com.atelier_nyaarium.switchboard.ViewScope
+import com.atelier_nyaarium.switchboard.emptyLine
 import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.routinesOf
+import com.atelier_nyaarium.switchboard.listEmpty
+import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.proto.RoutineState
+import com.atelier_nyaarium.switchboard.routinesOf
 import kotlinx.coroutines.launch
 
 @Composable
@@ -49,18 +50,19 @@ internal fun RoutinesScreen(
 	// keeps its own, and `scheduleLine` names it.
 	val zone = java.time.ZoneId.systemDefault()
 	val launcher = rememberCoroutineScope()
-	val groups = scope.groupsOf(state.gateways.gateways).filter { it.routines.listed }
+	val scoped = scope.groupsOf(state.gateways.gateways)
+	val groups = scoped.listedGroups { it.routines }.map { it.copy(rows = scope.routinesOf(it.rows)) }
 	val named = groups.size > 1
-	val toggleRefusals by repo.routineOps.toggleRefusals
+	val toggleRefusals by repo.routineOps.toggles.refusals
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { scope.routinesOf(it.routines.rows).isEmpty() }) {
+		if (groups.all { it.rows.isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				Text(emptyTitle(state.gateways, groups), style = MaterialTheme.typography.titleMedium)
+				Text(emptyLine(listEmpty(state.gateways, scoped) { it.routines }, "routines"), style = MaterialTheme.typography.titleMedium)
 			}
 		} else {
 			LazyColumn(
@@ -71,37 +73,37 @@ internal fun RoutinesScreen(
 				for (group in groups) {
 					// Named only when there is more than one, so a single-gateway phone gains no words.
 					if (named) {
-						item(key = "gateway:${group.id}") {
+						item(key = "gateway:${group.gatewayId}") {
 							Text(
-								group.id,
+								group.gatewayId,
 								style = MaterialTheme.typography.labelLarge,
 								modifier = Modifier.padding(top = 6.dp),
 							)
 						}
 					}
-					for (row in scope.routinesOf(group.routines.rows)) {
-						item(key = "routine:${group.id}:${row.routine.id}") {
+					for (row in group.rows) {
+						item(key = "routine:${group.gatewayId}:${row.routine.id}") {
 							RoutineRow(
 								row = row,
 								zone = zone,
-								onEdit = { onEdit(group.id, row.routine.id) },
+								onEdit = { onEdit(group.gatewayId, row.routine.id) },
 								onRun = {
-									launcher.launch { repo.routineOps.run(row.routine.id, group.id) }
+									launcher.launch { repo.routineOps.run(row.routine.id, group.gatewayId) }
 								},
-								toggleRefusal = toggleRefusals[group.id to row.routine.id],
+								toggleRefusal = toggleRefusals[group.gatewayId to row.routine.id],
 								onEnable = { on ->
 									launcher.launch {
-										repo.routineOps.setEnabled(row.routine.id, on, row.routine.revision, group.id)
+										repo.routineOps.setEnabled(row.routine.id, on, row.routine.revision, group.gatewayId)
 									}
 								},
 								onRunNow = { occurrenceId ->
 									launcher.launch {
-										repo.routineOps.runNow(row.routine.id, occurrenceId, group.id)
+										repo.routineOps.runNow(row.routine.id, occurrenceId, group.gatewayId)
 									}
 								},
 								onDismiss = { occurrenceId ->
 									launcher.launch {
-										repo.routineOps.dismiss(row.routine.id, occurrenceId, group.id)
+										repo.routineOps.dismiss(row.routine.id, occurrenceId, group.gatewayId)
 									}
 								},
 							)
@@ -118,13 +120,6 @@ internal fun RoutinesScreen(
 			scope = scope,
 		)
 	}
-}
-
-/** A gateway that answered and holds nothing is not the same as one that could not be read. */
-private fun emptyTitle(registry: GatewayRegistry, groups: List<GatewayEntry>): String = when {
-	!registry.loaded -> "No roster yet"
-	groups.isEmpty() -> "No Gateway could be read"
-	else -> "No routines"
 }
 
 @Composable

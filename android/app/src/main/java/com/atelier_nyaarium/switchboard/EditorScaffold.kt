@@ -23,14 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -101,44 +96,34 @@ internal class OpenEdit<D, S>(
 	val leaving: LeaveAsking?,
 )
 
-/** Null draws nothing, or the waiting page. */
+/** Null draws nothing, or [unopened] without a draft. */
 @Composable
-internal fun <D : Any, S : Any> rememberEdit(
-	edits: EditorSessions<EditKey, D, S>,
-	key: EditKey,
+internal fun <K : Any, D : Any, S : Any> rememberEdit(
+	edits: EditorSessions<K, D, S>,
+	key: K,
 	standing: EditStanding,
-	title: String,
-	onClose: () -> Unit,
-	initial: () -> D,
+	opened: D?,
+	unopened: @Composable (EditStanding) -> Unit,
 ): OpenEdit<D, S>? {
-	val sessions by edits.held.collectAsState()
-	val leaving by edits.leaving.collectAsState()
-	var opening by remember(key) { mutableStateOf<Long?>(null) }
-	LaunchedEffect(key, standing) {
-		if (opening == null && standing == EditStanding.READY) opening = edits.open(key, initial())
+	val state by edits.state.collectAsState()
+	LaunchedEffect(key, standing, opened) {
+		if (standing == EditStanding.READY && opened != null) edits.open(key, opened)
 	}
-	val shown = opening
-	val latest = rememberUpdatedState(shown)
-	DisposableEffect(key) { onDispose { latest.value?.let { edits.park(key, it) } } }
-	val showing = editorShowing(shown, sessions[key])
-	LaunchedEffect(showing) { if (showing == EditorShowing.CLOSING) onClose() }
-	val session = sessions[key]
-	if (shown == null || session == null || showing != EditorShowing.DRAWN) {
-		if (shown == null && standing != EditStanding.READY) EditorWaiting(title, standing == EditStanding.GONE, onClose)
+	if (state.shown != key) return null
+	val session = state.held[key]
+	if (session == null) {
+		if (standing != EditStanding.READY || opened == null) unopened(standing)
 		return null
 	}
-	val close = {
-		edits.discard(key, shown)
-		onClose()
-	}
-	return OpenEdit(shown, session, close, LeaveAsking(edits::stay, close).takeIf { leaveShown(leaving, key, session) })
+	val close = { edits.discard(key, session.opening) }
+	return OpenEdit(session.opening, session, close, LeaveAsking(edits::stay, close).takeIf { state.asks(key) })
 }
 
 /** An editor whose record is unread or gone. */
 @Composable
-private fun EditorWaiting(title: String, gone: Boolean, onClose: () -> Unit) {
+internal fun EditorWaiting(title: String, standing: EditStanding, onClose: () -> Unit) {
 	EditorScaffold(title = title, saving = false, canSave = false, onSave = {}, onCancel = onClose) {
-		if (gone) Text("Deleted elsewhere.", style = MaterialTheme.typography.bodyLarge) else CircularProgressIndicator()
+		waitingLine(standing)?.let { Text(it, style = MaterialTheme.typography.bodyLarge) } ?: CircularProgressIndicator()
 	}
 }
 

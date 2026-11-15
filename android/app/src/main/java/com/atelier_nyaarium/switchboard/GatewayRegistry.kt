@@ -58,16 +58,85 @@ data class SpawnContainer(
 	val harnesses: SpawnHarnesses,
 )
 
+/** Only `Listed` has rows. */
 sealed interface GatewayList<out T> {
+	/** Never asked. */
 	data object Unread : GatewayList<Nothing>
 
-	data class Listed<T>(override val rows: List<T>) : GatewayList<T>
+	data class Listed<T>(val rows: List<T>) : GatewayList<T>
 
 	data object NotServed : GatewayList<Nothing>
 
-	val rows: List<T> get() = emptyList()
+	/** Asked; nothing came back. */
+	data object Unreachable : GatewayList<Nothing>
+}
 
-	val listed: Boolean get() = this is Listed
+/** Null unless listed. */
+fun <T> GatewayList<T>.listedRows(): List<T>? = (this as? GatewayList.Listed)?.rows
+
+sealed interface Lookup<out T> {
+	data class Found<T>(val row: T) : Lookup<T>
+
+	/** Its list answered without it. */
+	data object Gone : Lookup<Nothing>
+
+	data object Reading : Lookup<Nothing>
+
+	data object Unreachable : Lookup<Nothing>
+
+	data object NotServed : Lookup<Nothing>
+
+	fun found(): T? = (this as? Found)?.row
+}
+
+fun <T> GatewayList<T>.lookup(match: (T) -> Boolean): Lookup<T> = when (this) {
+	is GatewayList.Listed -> rows.find(match)?.let { Lookup.Found(it) } ?: Lookup.Gone
+	GatewayList.Unread -> Lookup.Reading
+	GatewayList.Unreachable -> Lookup.Unreachable
+	GatewayList.NotServed -> Lookup.NotServed
+}
+
+data class ListedGroup<T>(val gatewayId: String, val rows: List<T>)
+
+fun <T> List<GatewayEntry>.listedGroups(of: (GatewayEntry) -> GatewayList<T>): List<ListedGroup<T>> =
+	mapNotNull { entry -> of(entry).listedRows()?.let { ListedGroup(entry.id, it) } }
+
+sealed interface ListEmpty {
+	data object NoRoster : ListEmpty
+
+	/** A first read is out. */
+	data object Reading : ListEmpty
+
+	data object Unreachable : ListEmpty
+
+	data class NotServed(val gatewayIds: List<String>) : ListEmpty
+
+	/** No Gateway in scope. */
+	data object NoGateway : ListEmpty
+
+	data object None : ListEmpty
+}
+
+/** Answered outranks unread. */
+fun <T> listEmpty(registry: GatewayRegistry, entries: List<GatewayEntry>, of: (GatewayEntry) -> GatewayList<T>): ListEmpty {
+	val lists = entries.map { it.id to of(it) }
+	return when {
+		!registry.loaded -> ListEmpty.NoRoster
+		lists.any { it.second is GatewayList.Listed } -> ListEmpty.None
+		lists.any { it.second == GatewayList.Unread } -> ListEmpty.Reading
+		lists.any { it.second == GatewayList.Unreachable } -> ListEmpty.Unreachable
+		lists.isNotEmpty() -> ListEmpty.NotServed(lists.map { it.first })
+		else -> ListEmpty.NoGateway
+	}
+}
+
+fun emptyLine(empty: ListEmpty, noun: String): String = when (empty) {
+	ListEmpty.NoRoster -> "No roster yet"
+	ListEmpty.Reading -> "Reading $noun"
+	ListEmpty.Unreachable -> "No Gateway could be read"
+	is ListEmpty.NotServed -> "${empty.gatewayIds.joinToString(", ")} does not serve $noun"
+	ListEmpty.NoGateway -> "No Gateway to read"
+	ListEmpty.None -> "No $noun"
 }
 
 data class GatewayEntry(
@@ -161,29 +230,20 @@ data class GatewayRegistry(
 	/** Re-ask on incarnation change. */
 	fun incarnations(): List<Pair<String, Long>> = gateways.map { it.id to it.incarnation }
 
-	/** Records stay Gateway-scoped. */
-	fun runbooksOn(gatewayId: String): List<Runbook> = entry(gatewayId)?.runbooks?.rows.orEmpty()
+	/** Gateway-scoped; off-roster is unknown. */
+	private fun <T> lookup(gatewayId: String, of: (GatewayEntry) -> GatewayList<T>, match: (T) -> Boolean): Lookup<T> =
+		entry(gatewayId)?.let { of(it).lookup(match) } ?: Lookup.Unreachable
 
-	fun runbookOn(gatewayId: String, runbookId: String): Runbook? = runbooksOn(gatewayId).find { it.id == runbookId }
+	fun runbookOn(gatewayId: String, runbookId: String): Lookup<Runbook> = lookup(gatewayId, { it.runbooks }) { it.id == runbookId }
 
-	fun routinesOn(gatewayId: String): List<RoutineState> = entry(gatewayId)?.routines?.rows.orEmpty()
+	fun routineOn(gatewayId: String, routineId: String): Lookup<RoutineState> =
+		lookup(gatewayId, { it.routines }) { it.routine.id == routineId }
 
-	fun routineOn(gatewayId: String, routineId: String): RoutineState? =
-		routinesOn(gatewayId).find { it.routine.id == routineId }
+	fun policyOn(gatewayId: String, policyId: String): Lookup<AuthorizationPolicy> =
+		lookup(gatewayId, { it.policies }) { it.id == policyId }
 
-	fun policiesOn(gatewayId: String): List<AuthorizationPolicy> = entry(gatewayId)?.policies?.rows.orEmpty()
-
-	fun policyOn(gatewayId: String, policyId: String): AuthorizationPolicy? =
-		policiesOn(gatewayId).find { it.id == policyId }
-
-	fun automationsOn(gatewayId: String): List<AutomationRow> = entry(gatewayId)?.automations?.rows.orEmpty()
-
-	fun automationOn(gatewayId: String, automationId: String): AutomationRow? =
-		automationsOn(gatewayId).find { it.id == automationId }
-
-	fun peersOn(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = entry(gatewayId)?.peers?.rows.orEmpty()
-
-	fun hasPeer(gatewayId: String, domainId: String): Boolean = peersOn(gatewayId).any { it.domainId == domainId }
+	fun automationOn(gatewayId: String, automationId: String): Lookup<AutomationRow> =
+		lookup(gatewayId, { it.automations }) { it.id == automationId }
 
 	/** Its sources and Safety; placement is the Router's. */
 	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? =
@@ -194,7 +254,7 @@ data class GatewayRegistry(
 
 	/** Wake at earliest routine. */
 	fun soonestRoutineAt(): Long? =
-		gateways.flatMap { entry -> entry.routines.rows.mapNotNull { it.nextAt } }.minOrNull()
+		gateways.listedGroups { it.routines }.flatMap { group -> group.rows.mapNotNull { it.nextAt } }.minOrNull()
 
 	/** Roster membership preserves answers. */
 	fun landed(
@@ -225,7 +285,8 @@ data class GatewayRegistry(
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId)?.let { GatewayList.Listed(it) } ?: GatewayList.Unread,
 						policies = prior?.policies ?: GatewayList.Unread,
 						automations = prior?.automations ?: GatewayList.Unread,
-						peers = prior?.peers ?: GatewayList.Unread,
+						// Pairings outlive a restart, so the last answer stands.
+						peers = kept[row.gatewayId]?.peers ?: GatewayList.Unread,
 						assistant = prior?.assistant,
 					)
 				}

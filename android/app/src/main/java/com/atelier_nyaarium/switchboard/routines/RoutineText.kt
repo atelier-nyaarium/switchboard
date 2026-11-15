@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.routines
 
+import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineAttention
@@ -92,6 +93,16 @@ internal fun clockOf(time: String): Pair<Int, Int> {
 
 /** ASCII digits whatever the locale, since the schema reads them. */
 internal fun clockText(hour: Int, minute: Int): String = String.format(java.util.Locale.ROOT, "%02d:%02d", hour, minute)
+
+/** Runbooks for a routine, or why none. */
+internal data class RunbookShelf(val library: List<Runbook>, val line: String?)
+
+internal fun runbookShelf(list: GatewayList<Runbook>): RunbookShelf = when (list) {
+	is GatewayList.Listed -> RunbookShelf(list.rows, null)
+	GatewayList.Unread -> RunbookShelf(emptyList(), "Reading runbooks")
+	GatewayList.Unreachable -> RunbookShelf(emptyList(), "This Gateway's runbooks could not be read")
+	GatewayList.NotServed -> RunbookShelf(emptyList(), "This Gateway serves no runbooks")
+}
 
 /** A held runbook the library no longer holds stays pickable, first and marked. */
 internal fun runbookMenu(library: List<Runbook>, heldId: String, heldRevision: Long): List<Runbook> =

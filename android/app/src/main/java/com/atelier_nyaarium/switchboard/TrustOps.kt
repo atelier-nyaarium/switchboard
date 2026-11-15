@@ -53,6 +53,7 @@ internal class TrustOps(
 	private val identity: IdentityPort,
 	private val presence: PresencePort,
 	private val collaborators: TrustOpsCollaborators,
+	private val provision: ProvisionFence,
 ) : ClearsOnReprovision {
 	private var pairing: Pairing? = null
 	private val reads = GatewayReadFence()
@@ -64,11 +65,16 @@ internal class TrustOps(
 
 	override suspend fun clearInMemory() {
 		pairing = null
+		_pendingUntrust.value = emptySet()
 	}
 
-	private fun markPending(owner: String, pending: Boolean) {
-		identity.federation.markUntrustPending(owner, pending)
-		_pendingUntrust.value = identity.federation.pendingUntrust()
+	/** Lands nothing after a re-provision. */
+	private fun markPending(began: Long, owner: String, pending: Boolean, untrust: Boolean = false) {
+		provision.land(began) {
+			if (untrust) identity.federation.removeTrustedOwner(owner)
+			identity.federation.markUntrustPending(owner, pending)
+			_pendingUntrust.value = identity.federation.pendingUntrust()
+		}
 	}
 
 	/** Fetch the signed-proof-scoped cross-tenant roster. */
@@ -244,29 +250,29 @@ internal class TrustOps(
 	 * could not be told, or whose peers were never read, keeps the owner pending for the next welcome.
 	 */
 	suspend fun untrustOwner(peerOwnerSignPub: String): Result<Unit> = withContext(Dispatchers.IO) {
+		val began = provision.capture()
 		runCatchingCancellable {
 			if (!collaborators.routerReachable()) {
-				markPending(peerOwnerSignPub, true)
+				markPending(began, peerOwnerSignPub, true)
 				error("The Router cannot be reached; the untrust is pending")
 			}
 			val fresh = refreshPeers()
 			val entries = state.value.gateways.gateways
-			val peers = entries.flatMap { entry ->
-				entry.peers.rows.filter { it.ownerSignPub == peerOwnerSignPub }.map { peer -> entry.id to peer }
+			val peers = entries.listedGroups { it.peers }.flatMap { group ->
+				group.rows.filter { it.ownerSignPub == peerOwnerSignPub }.map { peer -> group.gatewayId to peer }
 			}
 			val revoked = peers.map { it.second.domainId }.toSet().all { domainId ->
 				runCatchingCancellable { collaborators.revokeXdomainLink(identity.ready().domainId, domainId) }.getOrDefault(false)
 			}
 			if (!revoked) {
-				markPending(peerOwnerSignPub, true)
+				markPending(began, peerOwnerSignPub, true)
 				error("The Router did not take the revocation; the untrust is pending")
 			}
 			// A Gateway read this round and told is done; one read earlier may hold a pairing this round missed.
 			val told = peers.map { it.first }.toSet().all { gatewayId ->
 				runCatchingCancellable { clientPort.client().crossDomainUntrust(gatewayId, peerOwnerSignPub) }.isSuccess
 			} && fresh.containsAll(entries.map { it.id })
-			identity.federation.removeTrustedOwner(peerOwnerSignPub)
-			markPending(peerOwnerSignPub, !told)
+			markPending(began, peerOwnerSignPub, !told, untrust = true)
 			refreshPeers()
 			presence.refreshAfterAction()
 			Unit
@@ -348,9 +354,7 @@ internal class TrustOps(
 	suspend fun sharedSessionCounts(): Result<Map<String, Int>> = withContext(Dispatchers.IO) {
 		runCatchingCancellable {
 			val shares = crossDomainShares().getOrThrow()
-			state.value.linkedPeerOwners.mapValues { (_, domain) ->
-				(shares.specific.filter { it.second == domain }.map { it.first }.toSet() + shares.everyone).size
-			}
+			sharedCountsOf(state.value.linkedPeerOwners, shares.specific, shares.everyone)
 		}
 	}
 
@@ -363,12 +367,12 @@ internal class TrustOps(
 			}.mapFailure { if (it.message == "session") IllegalStateException("This Gateway has not reported the session yet") else it }
 	}
 
-	/** Never-read peers answer true; a Gateway the roster does not name answers false. */
-	fun canShareTo(team: Team, domainId: String): Boolean = state.value.gateways.entry(team.gatewayId)?.let { entry ->
-		!entry.peers.listed || state.value.gateways.hasPeer(team.gatewayId, domainId)
-	} ?: false
-
-	fun peersOn(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = state.value.gateways.peersOn(gatewayId)
+	/** Unread peers answer true. */
+	fun canShareTo(team: Team, domainId: String): Boolean = when (val peers = state.value.gateways.entry(team.gatewayId)?.peers) {
+		null -> false
+		is GatewayList.Listed -> peers.rows.any { it.domainId == domainId }
+		GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed -> true
+	}
 
 	/** Answers the Gateways whose read landed this round; the rest keep what they had. */
 	suspend fun refreshPeers(): Set<String> = coroutineScope {
@@ -378,15 +382,10 @@ internal class TrustOps(
 			state.update { it.copy(gateways = it.gateways.withEntry(gatewayId) { e -> e.copy(peers = GatewayList.Listed(answer.peers)) }) }
 			gatewayId
 		} }.awaitAll().filterNotNull().toSet()
-		val all = state.value.gateways.gateways.flatMap { it.peers.rows }.filter { it.domainId.isNotEmpty() }
-		val owners = all.groupBy { it.domainId }.mapNotNull { (domain, entries) ->
-			val values = entries.map { it.ownerSignPub }.distinct()
-			if (values.size == 1) domain to values.single() else {
-				DebugLog.log("Trust", "conflicting peer owner for $domain")
-				null
-			}
-		}.toMap()
-		state.update { it.copy(linkedPeerOwners = owners, crossDomainPeerSessions = it.crossDomainPeerSessions.filterKeys { domain -> domain in owners }) }
+		state.update {
+			val owners = linkedOwners(it.gateways.gateways.map { entry -> entry.peers })
+			it.copy(linkedPeerOwners = owners, crossDomainPeerSessions = it.crossDomainPeerSessions.filterKeys { domain -> domain in owners })
+		}
 		fresh
 	}
 
@@ -425,4 +424,22 @@ internal class TrustOps(
 		java.security.SecureRandom().nextBytes(bytes)
 		return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 	}
+}
+
+/** By Domain, from each Gateway's last answer. Two owners for one Domain name none. */
+internal fun linkedOwners(lists: List<GatewayList<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>>): Map<String, String> {
+	val named = lists.mapNotNull { it.listedRows() }.flatten().filter { it.domainId.isNotEmpty() }
+		.groupBy({ it.domainId }, { it.ownerSignPub })
+	val conflicted = named.filterValues { it.distinct().size > 1 }.keys
+	for (domain in conflicted) DebugLog.log("Trust", "conflicting peer owner for $domain")
+	return named.mapValues { it.value.first() } - conflicted
+}
+
+/** By owner: sessions shared to its Domain, and those shared to everyone. */
+internal fun sharedCountsOf(
+	linkedOwners: Map<String, String>,
+	specific: Collection<Pair<String, String>>,
+	everyone: Collection<String>,
+): Map<String, Int> = linkedOwners.entries.groupBy({ it.value }, { it.key }).mapValues { (_, domains) ->
+	(specific.filter { it.second in domains }.map { it.first }.toSet() + everyone).size
 }

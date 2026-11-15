@@ -56,7 +56,6 @@ class ClearsOnReprovisionTest {
 				"runbookOps",
 				"routineOps",
 				"policyOps",
-				"workspaceHost",
 				"composedRequests",
 				"windowOps",
 				"symbolViews",

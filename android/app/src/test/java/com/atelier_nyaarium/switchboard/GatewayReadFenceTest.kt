@@ -58,8 +58,16 @@ class GatewayReadFenceTest {
 		assertEquals(GatewayList.Listed(listOf("b")), drawn.after(ListAnswer.Listed(listOf("b"))))
 		assertEquals(GatewayList.NotServed, drawn.after(ListAnswer.NotServed))
 		assertEquals(drawn, drawn.after(ListAnswer.Unreachable))
-		assertEquals(GatewayList.Unread, GatewayList.Unread.after(ListAnswer.Unreachable))
-		assertEquals(listOf(listOf("a"), emptyList(), emptyList()), listOf(drawn, GatewayList.NotServed, GatewayList.Unread).map { it.rows })
+		assertEquals(GatewayList.NotServed, GatewayList.NotServed.after(ListAnswer.Unreachable))
+		assertEquals(GatewayList.Unreachable, GatewayList.Unread.after(ListAnswer.Unreachable))
+		assertEquals(GatewayList.Listed(listOf("b")), GatewayList.Unreachable.after(ListAnswer.Listed(listOf("b"))))
+		val lists = listOf(drawn, GatewayList.NotServed, GatewayList.Unread, GatewayList.Unreachable)
+		assertEquals(listOf(listOf("a"), null, null, null), lists.map { it.listedRows() })
+		assertEquals(
+			listOf(Lookup.Found("a"), Lookup.NotServed, Lookup.Reading, Lookup.Unreachable),
+			lists.map { list -> list.lookup { it == "a" } },
+		)
+		assertEquals(Lookup.Gone, drawn.lookup { it == "missing" })
 	}
 
 	@Test
@@ -79,10 +87,11 @@ class GatewayReadFenceTest {
 	}
 
 	@Test
-	fun aListThatThrowsOrIsSupersededAnswersAsUnreachable() = runBlocking {
+	fun aListThatThrowsIsUnreachableAndASupersededOneAnswersNothing() = runBlocking {
 		val fence = GatewayReadFence()
 		assertEquals(ListAnswer.Unreachable, fence.list<String>("Test", "sakura") { error("down") })
 		assertEquals(ListAnswer.NotServed, fence.list<String>("Test", "sakura") { ListAnswer.NotServed })
+		assertEquals(ListAnswer.Unreachable, fence.list<String>("Test", "sakura", null))
 
 		val entered = CompletableDeferred<Unit>()
 		val gate = CompletableDeferred<Unit>()
@@ -96,6 +105,6 @@ class GatewayReadFenceTest {
 		entered.await()
 		assertEquals(ListAnswer.Listed(listOf("newer")), fence.list("Test", "sakura") { ListAnswer.Listed(listOf("newer")) })
 		gate.complete(Unit)
-		assertEquals(ListAnswer.Unreachable, older.await())
+		assertEquals(null, older.await())
 	}
 }

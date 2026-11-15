@@ -79,6 +79,7 @@ private fun AssistantWatcher.toSource(): AssistantSource = AssistantSource(
 	triggers = id != "sensors",
 )
 
+// Remove 2026-11-29 with its readers: the not-served token says what a Gateway serves.
 /** An older build answers `watchers` alone. */
 internal fun servesSources(state: ConsoleAssistantStateResult?): Boolean = state?.sources != null
 

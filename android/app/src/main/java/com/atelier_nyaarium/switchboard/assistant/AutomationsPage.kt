@@ -23,13 +23,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,15 +37,17 @@ import com.atelier_nyaarium.switchboard.AutomationSaved
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
+import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.Lookup
+import com.atelier_nyaarium.switchboard.rememberEdit
+import com.atelier_nyaarium.switchboard.waitingLine
+import com.atelier_nyaarium.switchboard.editStanding
+import com.atelier_nyaarium.switchboard.EditStanding
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.RemoveMenu
-import com.atelier_nyaarium.switchboard.EditorScaffold
-import com.atelier_nyaarium.switchboard.LeaveAsking
-import com.atelier_nyaarium.switchboard.EditorShowing
-import com.atelier_nyaarium.switchboard.editorShowing
+import com.atelier_nyaarium.switchboard.emptyLine
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.leading
-import com.atelier_nyaarium.switchboard.leaveShown
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.sourcesOf
@@ -71,17 +70,11 @@ internal fun AutomationsView(
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.automationOps.refreshAll() }
 	val groups = leading(automationGroups(state.gateways, home), lead) { it.gatewayId }
-	val toggleRefusals by repo.automationOps.toggleRefusals
+	val toggleRefusals by repo.automationOps.toggles.refusals
 
 	PageColumn(modifier) {
 		if (groups.isEmpty()) {
-			val line = when (val empty = automationsEmpty(state.gateways, home)) {
-				AutomationsEmpty.NoRoster -> "No roster yet"
-				AutomationsEmpty.Unread -> "No Gateway could be read"
-				is AutomationsEmpty.NotServed -> "${empty.gatewayId} does not serve automations."
-				AutomationsEmpty.None -> "No automations"
-			}
-			Text(line, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			Text(emptyLine(automationsEmpty(state.gateways, home), "automations"), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 		for (group in groups) {
 			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -131,45 +124,34 @@ internal fun AutomationEditorPage(
 	state: ChatState,
 	gatewayId: String,
 	slot: AutomationSlot,
-	onClose: () -> Unit,
 	onBack: () -> Unit,
 ) {
 	val ops = repo.automationOps
 	val key = AutomationDraftKey(gatewayId, slot)
 	val sources = state.gateways.assistantOn(gatewayId)?.let(::sourcesOf).orEmpty()
-	val listed = state.gateways.entry(gatewayId)?.automations?.listed == true
-	val row = (slot as? AutomationSlot.Held)?.let { state.gateways.automationOn(gatewayId, it.id) }
-	val drafts by ops.edits.held.collectAsState()
-	val leaving by ops.edits.leaving.collectAsState()
-	var shown by remember(key) { mutableStateOf<Long?>(null) }
+	val held = slot as? AutomationSlot.Held
+	val lookup = held?.let { state.gateways.automationOn(gatewayId, it.id) }
+	val row = lookup?.found()
 	val opened = remember(key, row, sources.isEmpty()) { openedDraft(slot, row, sources) }
-	LaunchedEffect(key, opened) { if (shown == null && opened != null) shown = ops.edits.open(key, opened) }
-	val latest = rememberUpdatedState(shown)
-	DisposableEffect(key) { onDispose { latest.value?.let { ops.edits.park(key, it) } } }
-	val showing = editorShowing(shown, drafts[key])
-	LaunchedEffect(showing) { if (showing == EditorShowing.CLOSING) onClose() }
 	LaunchedEffect(gatewayId) { ops.refresh(gatewayId) }
-	// Closing; nothing to draw.
-	if (showing == EditorShowing.CLOSING) return
-	val held = drafts[key]?.takeIf { showing == EditorShowing.DRAWN }
-	val draft = held?.draft ?: opened
-
-	if (draft == null) {
+	val open = rememberEdit(ops.edits, key, editStanding(lookup), opened) { standing ->
 		AssistantPageScaffold("Automation", onBack) {
-			when {
-				slot == AutomationSlot.New -> Text("No source can trigger an automation.", style = MaterialTheme.typography.bodyLarge)
-				listed -> Text("This automation is not edited here.", style = MaterialTheme.typography.bodyLarge)
-				else -> CircularProgressIndicator()
+			val line = when {
+				slot == AutomationSlot.New -> "No source can trigger an automation."
+				standing == EditStanding.READY -> "This automation is not edited here."
+				else -> waitingLine(standing)
 			}
+			line?.let { Text(it, style = MaterialTheme.typography.bodyLarge) } ?: CircularProgressIndicator()
 		}
-		return
-	}
+	} ?: return
+	val session = open.session
+	val draft = session.draft
 
 	val fields = SourceFields(sources.find { it.id == draft.source }?.fieldSpecs.orEmpty())
 	val choices = sourceChoices(sources, draft.source)
 	val offered = sources.any { it.id == draft.source && it.triggers }
-	val gone = slot is AutomationSlot.Held && listed && row == null
-	val busy = held?.busy == true
+	val gone = lookup == Lookup.Gone
+	val busy = session.busy
 	val can = automationEditing(slot, draft, fields, offered, busy, gone)
 	val trigger = fittingAutomation(draft, fields)?.trigger?.takeIf { offered }
 	var preview by remember(key) { mutableStateOf<ConsoleAutomationPreviewResult?>(null) }
@@ -187,12 +169,11 @@ internal fun AutomationEditorPage(
 	}
 
 	fun send(deleting: Boolean, op: suspend (AutomationDraft) -> AutomationSaved) {
-		val opening = held?.opening ?: return
-		repo.command { automationOps.send(key, opening, deleting, op) }
+		repo.command { automationOps.send(key, open.opening, deleting, op) }
 	}
 
 	fun edit(change: (AutomationDraft) -> AutomationDraft) {
-		held?.let { ops.edits.edit(key, it.opening, change) }
+		ops.edits.edit(key, open.opening, change)
 	}
 
 	EditorScaffold(
@@ -206,15 +187,7 @@ internal fun AutomationEditorPage(
 			}
 		},
 		onBack = onBack,
-		leaving = held?.takeIf { leaveShown(leaving, key, it) }?.let { session ->
-			LeaveAsking(
-				onStay = ops.edits::stay,
-				onDiscard = {
-					ops.edits.discard(key, session.opening)
-					onClose()
-				},
-			)
-		},
+		leaving = open.leaving,
 		menu = { if (slot is AutomationSlot.Held) RemoveMenu("Delete automation", enabled = can.delete) { confirmingDelete = true } },
 	) {
 		Text("When", style = MaterialTheme.typography.labelLarge)
@@ -313,7 +286,7 @@ internal fun AutomationEditorPage(
 				) { Text(label) }
 			}
 		}
-		held?.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		session.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 	}
 
 	if (confirmingDelete) {

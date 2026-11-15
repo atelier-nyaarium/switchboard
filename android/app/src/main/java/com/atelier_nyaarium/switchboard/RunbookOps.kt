@@ -109,9 +109,24 @@ internal sealed interface RunbookSaved {
 	data class Refused(val refusal: SaveRefusal) : RunbookSaved
 }
 
+/** Named, not counted; unread is said. */
+internal fun runbookDeleteLine(routines: GatewayList<com.atelier_nyaarium.switchboard.proto.RoutineState>, runbookId: String): String {
+	val goes = "It goes from this Gateway and from this phone."
+	return when (routines) {
+		is GatewayList.Listed -> {
+			val pinning = routines.rows.filter { it.routine.runbookId == runbookId }.map { it.routine.name }
+			if (pinning.isEmpty()) goes
+			else "It goes, and these routines stop running until you give them another: " + pinning.joinToString(", ")
+		}
+		GatewayList.NotServed -> goes
+		GatewayList.Unread, GatewayList.Unreachable -> "$goes This Gateway's routines were not read; any that use it stop running."
+	}
+}
+
 internal class RunbookOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: RunbookHost,
+	private val provision: ProvisionFence,
 ) : ClearsOnReprovision {
 	// Gateways are refreshed side by side, so these are touched from more than one coroutine at once.
 	private val synced = java.util.concurrent.ConcurrentHashMap.newKeySet<Triple<String, String, Long>>()
@@ -125,17 +140,12 @@ internal class RunbookOps(
 
 	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
 
-	private val generation = java.util.concurrent.atomic.AtomicLong()
+	private fun owns(began: Long): Boolean = provision.isCurrent(began)
 
-	private fun owns(began: Long): Boolean = generation.get() == began
-
-	private val wipe = Any()
-
-	/** A library write under the lock a re-provision takes; null once one ran since `began`. */
-	private fun <T> written(began: Long, write: () -> T): T? = synchronized(wipe) { if (owns(began)) write() else null }
+	/** Null once a re-provision began. */
+	private fun <T> written(began: Long, write: () -> T): T? = provision.land(began, write)
 
 	override suspend fun clearInMemory() {
-		synchronized(wipe) { generation.incrementAndGet() }
 		reads.clear()
 		edits.clear()
 		synced.clear()
@@ -170,12 +180,13 @@ internal class RunbookOps(
 	}
 
 	suspend fun refresh(gatewayId: String) {
-		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val began = generation.get()
+		val client = host.gateway
+		val began = provision.capture()
 		// One gateway's failure, whatever raised it, must not take down the pass around it.
 		attempt {
-			val held = reads.list(TAG, gatewayId) { client.list(gatewayId) } as? ListAnswer.Listed ?: return@attempt
+			val answer = reads.list(TAG, gatewayId, client?.let { held -> suspend { held.list(gatewayId) } }) ?: return@attempt
+			val held = answer as? ListAnswer.Listed ?: return@attempt unread(gatewayId)
 			written(began) {
 				// This gateway's markers only. Clearing every gateway's would push again for nothing.
 				synced.removeAll { it.first == gatewayId }
@@ -190,13 +201,13 @@ internal class RunbookOps(
 		baseRevision: Long? = null,
 		overwrite: Boolean = false,
 	): RunbookSaved {
-		val began = generation.get()
+		val began = provision.capture()
 		synced.removeAll { it.first == gatewayId && it.second == runbook.id }
 		val client = host.gateway
 		val reachable = client != null && gatewayId.isNotBlank()
 
 		val answer = if (reachable) put(began, client as RunbookGateway, gatewayId, runbook, baseRevision, overwrite) else null
-		if (!owns(began)) return RunbookSaved.Refused(SaveRefusal(GATEWAY_UNREACHABLE, 0L))
+		if (!owns(began)) return RunbookSaved.Refused(SaveRefusal(REPROVISIONED, 0L))
 		if (answer != null && !answer.stored) return RunbookSaved.Refused(gatewayRefusal(answer))
 
 		// The gateway names the revision, so what it answers with is what the library takes.
@@ -205,7 +216,7 @@ internal class RunbookOps(
 			written(began) {
 				show(gatewayId, host.library.adopt(gatewayId, landed))
 				synced += Triple(gatewayId, landed.id, landed.revision)
-			} ?: return RunbookSaved.Refused(SaveRefusal(GATEWAY_UNREACHABLE, 0L))
+			} ?: return RunbookSaved.Refused(SaveRefusal(REPROVISIONED, 0L))
 			return RunbookSaved.Stored
 		}
 		val kept = written(began) { keep(gatewayId, runbook) } ?: return RunbookSaved.Refused(libraryRefusal(gatewayId, runbook))
@@ -236,7 +247,7 @@ internal class RunbookOps(
 			return true
 		}
 		// Asked before the local copy goes. Removing first would hide a copy the Gateway still holds.
-		val began = generation.get()
+		val began = provision.capture()
 		val answer = attempt { client.delete(gatewayId, runbookId) }
 		if (answer?.deleted != true) return false
 		return written(began) { forget(gatewayId, runbookId) } != null
@@ -246,6 +257,13 @@ internal class RunbookOps(
 		synced.removeAll { it.first == gatewayId && it.second == runbookId }
 		refusals.updateAndGet { it - (gatewayId to runbookId) }
 		show(gatewayId, host.library.remove(gatewayId, runbookId))
+	}
+
+	/** Unplaced reads failed; placed stays. */
+	private fun unread(gatewayId: String) {
+		state.update { held ->
+			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(runbooks = it.runbooks.after(ListAnswer.Unreachable)) })
+		}
 	}
 
 	/** Gateway copy, replaced whole. */
@@ -286,7 +304,7 @@ internal class RunbookOps(
 	private suspend fun sync(runbookId: String, gatewayId: String): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
-		val began = generation.get()
+		val began = provision.capture()
 		val mine = host.library.find(gatewayId, runbookId) ?: return false
 		if (Triple(gatewayId, runbookId, mine.revision) in synced) return true
 
@@ -334,7 +352,7 @@ internal class RunbookOps(
 	suspend fun overwrite(runbookId: String, gatewayId: String): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
-		val began = generation.get()
+		val began = provision.capture()
 		val mine = host.library.find(gatewayId, runbookId) ?: return false
 		val answer = put(began, client, gatewayId, mine, overwrite = true)
 		if (answer?.stored != true) return false
@@ -348,5 +366,6 @@ internal class RunbookOps(
 
 	private companion object {
 		const val TAG = "Runbook"
+		const val REPROVISIONED = "This phone was set up again"
 	}
 }

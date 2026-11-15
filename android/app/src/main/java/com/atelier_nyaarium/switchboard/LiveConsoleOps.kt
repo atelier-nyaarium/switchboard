@@ -30,7 +30,7 @@ internal interface LiveConsoleGateway {
 
 internal interface LiveConsoleHost {
 	val gateway: LiveConsoleGateway?
-	val generation: WorkspaceGeneration
+	val generation: ProvisionFence
 
 	fun names(gatewayId: String): Boolean
 }

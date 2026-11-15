@@ -116,7 +116,7 @@ class RawFileOpsTest {
 	}
 
 	private class Host(override val workspace: WorkspaceGateway?) : WorkspaceHost {
-		override val generation = WorkspaceGeneration()
+		override val generation = ProvisionFence()
 
 		override suspend fun send(address: String, text: String) = error("not reached")
 	}

@@ -81,25 +81,25 @@ class VaultManagerTest {
 	@Test
 	fun aFullListReplacesAndADeltaMergesWhileTombstonesHide() {
 		val vault = VaultManager(FakeStore())
-		assertTrue(vault.applyList(list(2L, 0L, entry("a"), entry("b", revision = 1L, changedAt = 2L))))
+		assertTrue(vault.applyList(list(2L, 0L, entry("a"), entry("b", revision = 1L, changedAt = 2L)), generation = vault.generation))
 		assertEquals(listOf("a", "b"), vault.live().map { it.clear.id })
 		assertEquals(2L, vault.routerRevision)
 
-		assertTrue(vault.applyList(list(4L, 2L, entry("b", revision = 2L, changedAt = 3L, tombstone = true), entry("c", changedAt = 4L))))
+		assertTrue(vault.applyList(list(4L, 2L, entry("b", revision = 2L, changedAt = 3L, tombstone = true), entry("c", changedAt = 4L)), generation = vault.generation))
 		assertEquals(listOf("a", "c"), vault.live().map { it.clear.id })
 		assertNull(vault.stored("b"))
 		assertEquals(4L, vault.routerRevision)
 
-		// A full list drops what it no longer names.
-		assertTrue(vault.applyList(list(5L, 0L, entry("c", changedAt = 5L))))
+		// Full list drops unnamed.
+		assertTrue(vault.applyList(list(5L, 0L, entry("c", changedAt = 5L)), generation = vault.generation))
 		assertEquals(listOf("c"), vault.live().map { it.clear.id })
 	}
 
 	@Test
 	fun aRouterThatFellBehindAsksForAFullListNext() {
 		val vault = VaultManager(FakeStore())
-		vault.applyList(list(9L, 0L, entry("a")))
-		assertFalse(vault.applyList(list(3L, 9L)))
+		vault.applyList(list(9L, 0L, entry("a")), generation = vault.generation)
+		assertFalse(vault.applyList(list(3L, 9L), generation = vault.generation))
 		assertEquals(0L, vault.routerRevision)
 		assertEquals(listOf("a"), vault.live().map { it.clear.id })
 	}
@@ -107,11 +107,11 @@ class VaultManagerTest {
 	@Test
 	fun aWriteLandsItsEntryAndAdvancesOnlyWhenNothingWasSkipped() {
 		val vault = VaultManager(FakeStore())
-		vault.applyList(list(2L, 0L, entry("a")))
-		vault.applyWrite(entry("b", changedAt = 3L), 3L)
+		vault.applyList(list(2L, 0L, entry("a")), generation = vault.generation)
+		vault.applyWrite(entry("b", changedAt = 3L), 3L, generation = vault.generation)
 		assertEquals(3L, vault.routerRevision)
 		// Another phone wrote revision 4 first.
-		vault.applyWrite(entry("c", changedAt = 5L), 5L)
+		vault.applyWrite(entry("c", changedAt = 5L), 5L, generation = vault.generation)
 		assertEquals(3L, vault.routerRevision)
 		assertEquals(listOf("a", "b", "c"), vault.live().map { it.clear.id })
 	}
@@ -119,13 +119,13 @@ class VaultManagerTest {
 	@Test
 	fun aLateAnswerNeverRollsBackWhatADeltaAlreadyLanded() {
 		val vault = VaultManager(FakeStore())
-		vault.applyList(list(1L, 0L, entry("a")))
-		vault.applyList(list(3L, 1L, entry("a", revision = 3L, changedAt = 3L)))
+		vault.applyList(list(1L, 0L, entry("a")), generation = vault.generation)
+		vault.applyList(list(3L, 1L, entry("a", revision = 3L, changedAt = 3L)), generation = vault.generation)
 		// The phone's own write at revision 2 answers after the delta that superseded it.
-		vault.applyWrite(entry("a", revision = 2L, changedAt = 2L), 2L)
+		vault.applyWrite(entry("a", revision = 2L, changedAt = 2L), 2L, generation = vault.generation)
 		assertEquals(3L, vault.stored("a")!!.clear.revision)
 		// A full list older than the held revision is a late answer too.
-		assertFalse(vault.applyList(list(2L, 0L, entry("a", revision = 2L, changedAt = 2L))))
+		assertFalse(vault.applyList(list(2L, 0L, entry("a", revision = 2L, changedAt = 2L)), generation = vault.generation))
 		assertEquals(3L, vault.routerRevision)
 	}
 
@@ -139,7 +139,7 @@ class VaultManagerTest {
 		vault.applyWrite(entry("b"), 1L, generation = generation)
 		assertTrue(vault.live().isEmpty())
 		assertTrue(vault.pending.value.isEmpty())
-		assertTrue(vault.applyList(list(1L, 0L, entry("a"))))
+		assertTrue(vault.applyList(list(1L, 0L, entry("a")), generation = vault.generation))
 		vault.addRequest("dom.gw.host.alice", entryRequest("r2", 10_000L), now = 1_000L)
 		vault.clearRequests()
 		assertTrue(vault.pending.value.isEmpty())
@@ -155,7 +155,7 @@ class VaultManagerTest {
 			value = open.seal("hunter2", VAULT_VALUE_KIND, "k"),
 			gateways = open.seal("[\"laptop\",\"desk\"]", VAULT_GATEWAYS_KIND, "k"),
 		)
-		vault.applyList(list(1L, 0L, entry("k", sealed = sealed)))
+		vault.applyList(list(1L, 0L, entry("k", sealed = sealed)), generation = vault.generation)
 		val view = vault.views(open).single()
 		assertEquals("prod deploy", view.title)
 		assertEquals("Deploy key", view.publicTitle)
@@ -244,7 +244,7 @@ class VaultManagerTest {
 		val store = FakeStore()
 		val first = VaultManager(store)
 		val now = System.currentTimeMillis()
-		first.applyList(list(2L, 0L, entry("a")))
+		first.applyList(list(2L, 0L, entry("a")), generation = first.generation)
 		first.addRequest("dom.gw.host.alice", entryRequest("r1", now + 60_000L), now = now)
 		first.addRequest("dom.gw.host.alice", entryRequest("stale", now + 1L), now = now)
 		// A reopen reads the wall clock.
@@ -262,7 +262,7 @@ class VaultManagerTest {
 	fun anotherLineageDropsTheListAndAnAnswerBegunUnderTheOldOneLandsNothing() {
 		val vault = VaultManager(FakeStore())
 		vault.adoptEpoch(1L)
-		vault.applyList(list(40L, 0L, entry("old")))
+		vault.applyList(list(40L, 0L, entry("old")), generation = vault.generation)
 		val begun = vault.generation
 
 		vault.adoptEpoch(2L)
@@ -272,14 +272,27 @@ class VaultManagerTest {
 		vault.applyWrite(entry("old", revision = 2L), 42L, generation = begun)
 		assertTrue(vault.live().isEmpty())
 
-		assertTrue(vault.applyList(list(1L, 0L, entry("new"))))
+		assertTrue(vault.applyList(list(1L, 0L, entry("new")), generation = vault.generation))
 		assertEquals(listOf("new"), vault.live().map { it.clear.id })
+	}
+
+	@Test
+	fun nothingLandsWhileAReprovisionWipes() {
+		var wiping = true
+		val vault = VaultManager(FakeStore()) { wiping }
+
+		assertFalse(vault.applyList(list(1L, 0L, entry("a")), generation = vault.generation))
+		vault.applyWrite(entry("b"), 1L, generation = vault.generation)
+		assertTrue(vault.live().isEmpty())
+
+		wiping = false
+		assertTrue(vault.applyList(list(1L, 0L, entry("a")), generation = vault.generation))
 	}
 
 	@Test
 	fun anUnknownLineageKeepsTheStoredListAndListsFromZero() {
 		val vault = VaultManager(FakeStore())
-		vault.applyList(list(7L, 0L, entry("kept")))
+		vault.applyList(list(7L, 0L, entry("kept")), generation = vault.generation)
 		vault.adoptEpoch(5L)
 		assertEquals(listOf("kept"), vault.live().map { it.clear.id })
 		assertEquals(0L, vault.routerRevision)

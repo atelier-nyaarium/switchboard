@@ -64,7 +64,7 @@ fun RunbookFireSheet(
 	into: String? = null,
 	onDismiss: () -> Unit,
 ) {
-	val runbook = remember(gatewayId, runbookId, state.gateways) { state.gateways.runbookOn(gatewayId, runbookId) }
+	val runbook = remember(gatewayId, runbookId, state.gateways) { state.gateways.runbookOn(gatewayId, runbookId).found() }
 	if (runbook == null) {
 		LaunchedEffect(runbookId) { onDismiss() }
 		return

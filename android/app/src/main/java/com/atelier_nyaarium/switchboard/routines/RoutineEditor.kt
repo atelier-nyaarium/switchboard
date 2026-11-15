@@ -29,23 +29,26 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.CliToggles
 import com.atelier_nyaarium.switchboard.ClockPickerDialog
-import com.atelier_nyaarium.switchboard.cliChoices
 import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.EditKey
 import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.EditorWaiting
+import com.atelier_nyaarium.switchboard.EditStanding
+import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.MirroredDraft
+import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.RemoveMenu
-import com.atelier_nyaarium.switchboard.editStanding
-import com.atelier_nyaarium.switchboard.rememberEdit
 import com.atelier_nyaarium.switchboard.absoluteTimeText
+import com.atelier_nyaarium.switchboard.cliChoices
+import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Routine
-import com.atelier_nyaarium.switchboard.PickMenu
+import com.atelier_nyaarium.switchboard.rememberEdit
 import com.atelier_nyaarium.switchboard.runbooks.PreviewPane
 import com.atelier_nyaarium.switchboard.runbooks.PreviewState
 import com.atelier_nyaarium.switchboard.runbooks.settledPreview
-import com.atelier_nyaarium.switchboard.spawnChoices
 import com.atelier_nyaarium.switchboard.runbooks.stale
+import com.atelier_nyaarium.switchboard.spawnChoices
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 import kotlinx.coroutines.launch
 
@@ -58,25 +61,30 @@ fun RoutineEditor(
 	state: ChatState,
 	gatewayId: String,
 	routineId: String?,
-	onClose: () -> Unit,
 ) {
-	val held: Routine? = remember(gatewayId, routineId, state.gateways) {
-		routineId?.let { state.gateways.routineOn(gatewayId, it)?.routine }
+	val lookup = remember(gatewayId, routineId, state.gateways) {
+		routineId?.let { state.gateways.routineOn(gatewayId, it) }
 	}
+	val held: Routine? = lookup?.found()?.routine
 	val zone = remember { java.time.ZoneId.systemDefault() }
 	// Shown in the owner's zone.
 	val edits = repo.routineOps.edits
 	val key = EditKey(gatewayId, routineId)
-	val listed = state.gateways.entry(gatewayId)?.routines?.listed == true
-	val open = rememberEdit(edits, key, editStanding(routineId, held, listed), "Edit routine", onClose) {
+	val fresh = remember(key, held) {
 		val opened = held?.let { RoutineDraft.of(it).shown(zone.id) } ?: RoutineDraft.fresh(zone)
 		opened.withDefaultPick(state.gateways.harnessesOn(gatewayId, opened.spawn))
-	} ?: return
+	}
+	val standing = editStanding(lookup)
+	if (standing == EditStanding.READING || standing == EditStanding.UNREACHABLE) {
+		LaunchedEffect(gatewayId) { repo.command { routineOps.refresh(gatewayId) } }
+	}
+	val open = rememberEdit(edits, key, standing, fresh) { EditorWaiting("Edit routine", it, edits::hide) } ?: return
 	val opening = open.opening
 	val session = open.session
 	val close = open.close
 	// What this edit opened on; the list can go unread under it.
-	val base = remember(key, opening) { held }
+	// Own copy: the list can go unread.
+	val base = session.opened.base
 	val keptIn = keptZoneOf(base, zone)
 	val typed = remember(key, opening) { MirroredDraft(session.draft) { next -> edits.edit(key, opening) { next } } }
 	var draft by typed
@@ -95,7 +103,9 @@ fun RoutineEditor(
 	var pickingTime by remember(routineId) { mutableStateOf(false) }
 
 	// This gateway's only. A routine cannot run words another machine holds.
-	val library = remember(gatewayId, state.gateways) { state.gateways.runbooksOn(gatewayId) }
+	val shelf = remember(gatewayId, state.gateways) { runbookShelf(state.gateways.entry(gatewayId)?.runbooks ?: GatewayList.Unread) }
+	val library = shelf.library
+	LaunchedEffect(gatewayId) { repo.command { runbookOps.refresh(gatewayId) } }
 	val names = library.map { it.name }
 	val picked = library.find { it.id == draft.runbookId }
 	val books = remember(library, draft.runbookId, draft.approvedRevision) {
@@ -125,10 +135,10 @@ fun RoutineEditor(
 	}
 
 	EditorScaffold(
-		title = if (base == null) "New routine" else "Edit routine",
+		title = if (routineId == null) "New routine" else "Edit routine",
 		saving = saving,
 		canSave = draft.refusal(here) == null,
-		menu = { if (base != null) RemoveMenu("Delete routine", enabled = !saving) { confirmingDelete = true } },
+		menu = { if (routineId != null) RemoveMenu("Delete routine", enabled = !saving) { confirmingDelete = true } },
 		onCancel = close,
 		onSave = { if (ruleMoved(base, draft)) confirming = true else commit() },
 		leaving = open.leaving,
@@ -239,8 +249,9 @@ fun RoutineEditor(
 				picked = books.find { it.id == draft.runbookId },
 				labelOf = { runbookChipLabel(it.name, it.id, names) },
 				onPick = { draft = draft.pickRunbook(it) },
-				trailingOf = { book -> if (library.any { it.id == book.id }) null else "not stored now" },
+				trailingOf = { book -> if (shelf.line != null || library.any { it.id == book.id }) null else "not stored now" },
 			)
+			shelf.line?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 			for (parameter in picked?.parameters.orEmpty()) {
 				val value = draft.values[parameter.name].orEmpty()
 				val set = { text: String -> draft = draft.copy(values = draft.values + (parameter.name to text)) }
@@ -291,6 +302,7 @@ fun RoutineEditor(
 		GrantSecretsSheet(
 			entries = offered,
 			granted = draft.linkedEntries,
+			listed = repo.vault.routerRevision > 0,
 			onDone = {
 				draft = draft.copy(linkedEntries = it)
 				granting = false

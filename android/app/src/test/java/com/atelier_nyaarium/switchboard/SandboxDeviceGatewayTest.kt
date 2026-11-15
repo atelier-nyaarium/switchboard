@@ -10,7 +10,7 @@ class SandboxDeviceGatewayTest {
 	private fun ops() = DeviceOps(
 		object : DeviceHost {
 			override val gateway: DeviceGateway = SandboxDeviceGateway(pause = {})
-			override val generation = WorkspaceGeneration()
+			override val generation = ProvisionFence()
 			override fun names(gatewayId: String) = true
 		},
 	)

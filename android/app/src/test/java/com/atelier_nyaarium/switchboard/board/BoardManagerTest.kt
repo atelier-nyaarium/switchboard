@@ -80,7 +80,7 @@ class BoardManagerTest {
 			testAmbient(),
 		) {}
 		board.sealing = { sealing }
-		board.applyRouterBoard(1L, entries.map { stored(it, sealing) })
+		board.applyRouterBoard(1L, entries.map { stored(it, sealing) }, generation = board.generation)
 	}
 
 	@Test
@@ -142,7 +142,7 @@ class BoardManagerTest {
 		val board = BoardManager(storeStub()).also { it.sealing = { sealing } }
 		val entries = listOf(stored(entry("one", "team"), sealing), stored(entry("two", "team"), sealing))
 		val before = sealing.openCount
-		Thread { board.applyRouterBoard(1L, entries) }.apply { start(); join() }
+		Thread { board.applyRouterBoard(1L, entries, generation = board.generation) }.apply { start(); join() }
 		val afterApply = sealing.openCount
 
 		repeat(3) {
@@ -164,7 +164,7 @@ class BoardManagerTest {
 		val keyring = ContentKeyring(store = null).also { it.deriveOwned(identity, "domain", 1) }
 		val sealing = sealing(identity, keyring)
 		val board = BoardManager(storeStub()).also { it.sealing = { sealing } }
-		board.applyRouterBoard(1L, listOf(stored(entry("one"), epochTwoSealing)))
+		board.applyRouterBoard(1L, listOf(stored(entry("one"), epochTwoSealing)), generation = board.generation)
 
 		assertEquals(BOARD_TEXT_UNAVAILABLE, board.routerEntries().single().title)
 		keyring.deriveOwned(identity, "domain", 2)
@@ -182,7 +182,7 @@ class BoardManagerTest {
 		val sourceSealing = sealing(identity, keyring)
 		val store = FakeStore()
 		val board = BoardManager(store).also { it.sealing = { sourceSealing } }
-		board.applyRouterBoard(1L, listOf(stored(entry("one"), sourceSealing)))
+		board.applyRouterBoard(1L, listOf(stored(entry("one"), sourceSealing)), generation = board.generation)
 
 		val restored = BoardManager(store)
 		val emptySealing = sealing(identity, ContentKeyring())
@@ -199,7 +199,7 @@ class BoardManagerTest {
 		val sealing = sealing(identity, keyring)
 		val board = BoardManager(storeStub()).also { it.sealing = { sealing } }
 		board.adoptEpoch(1L)
-		board.applyRouterBoard(40L, listOf(stored(entry("old"), sealing)))
+		board.applyRouterBoard(40L, listOf(stored(entry("old"), sealing)), generation = board.generation)
 		val begun = board.generation
 
 		board.adoptEpoch(2L)
@@ -210,7 +210,7 @@ class BoardManagerTest {
 		board.settleWrite("op", 42L, listOf(stored(entry("old"), sealing)), generation = begun)
 		assertEquals(emptyList<String>(), board.snapshot().stored.map { it.clear.id })
 
-		assertTrue(board.applyRouterBoard(1L, listOf(stored(entry("new"), sealing))))
+		assertTrue(board.applyRouterBoard(1L, listOf(stored(entry("new"), sealing)), generation = board.generation))
 		assertEquals(listOf("new"), board.snapshot().stored.map { it.clear.id })
 		// The same lineage again changes nothing.
 		board.adoptEpoch(2L)
@@ -223,7 +223,7 @@ class BoardManagerTest {
 		val keyring = ContentKeyring(store = null).also { it.deriveOwned(identity, "domain", 1) }
 		val sealing = sealing(identity, keyring)
 		val board = BoardManager(storeStub()).also { it.sealing = { sealing } }
-		board.applyRouterBoard(7L, listOf(stored(entry("kept"), sealing)))
+		board.applyRouterBoard(7L, listOf(stored(entry("kept"), sealing)), generation = board.generation)
 
 		board.adoptEpoch(5L)
 		assertEquals(listOf("kept"), board.snapshot().stored.map { it.clear.id })

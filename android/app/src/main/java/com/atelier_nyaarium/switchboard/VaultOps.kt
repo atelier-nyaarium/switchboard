@@ -47,6 +47,7 @@ internal class VaultOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val repoScope: CoroutineScope,
 	private val collaborators: VaultOpsCollaborators,
+	private val provision: ProvisionFence,
 	private val valueAnswer: (suspend (String, ConsoleOp) -> ConsoleClient.ValueAnswer)? = null,
 ) {
 	private val manager get() = collaborators.vault
@@ -167,6 +168,7 @@ internal class VaultOps(
 	): Boolean {
 		val client = collaborators.client
 		if (client == null && valueAnswer == null) return false.also { report("Vault: not connected") }
+		val began = provision.capture()
 		val value = typedValue?.let { text ->
 			collaborators.sealing()?.seal(text, VAULT_TYPED_KIND, pending.requestId)
 				?: return false.also { report("Vault: no content key to seal the value") }
@@ -201,7 +203,7 @@ internal class VaultOps(
 			wireJson.decodeFromJsonElement<ConsoleVaultAnswerResult>(answer.result)
 		}.getOrNull() ?: return false.also { report("Vault: the answer could not be read") }
 		if (result.ok) {
-			if (decision != VAULT_DECISION_DENY) manager.recordAnswer(pending)
+			if (decision != VAULT_DECISION_DENY) provision.land(began) { manager.recordAnswer(pending) }
 		} else {
 			report("Vault: ${result.reason ?: "the answer was refused"}")
 		}

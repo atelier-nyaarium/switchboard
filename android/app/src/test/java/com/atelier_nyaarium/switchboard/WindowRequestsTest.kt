@@ -18,7 +18,7 @@ private const val MODULE = "src/shared/schemasRoutine.ts"
 class WindowRequestsTest {
 	private class Host : WorkspaceHost {
 		override val workspace: WorkspaceGateway? = null
-		override val generation = WorkspaceGeneration()
+		override val generation = ProvisionFence()
 		val sent = mutableListOf<String>()
 		val holds = mutableListOf<TestHold>()
 		var sends = true

@@ -86,7 +86,7 @@ internal interface DeviceGateway {
 
 internal interface DeviceHost {
 	val gateway: DeviceGateway?
-	val generation: WorkspaceGeneration
+	val generation: ProvisionFence
 
 	fun names(gatewayId: String): Boolean
 }

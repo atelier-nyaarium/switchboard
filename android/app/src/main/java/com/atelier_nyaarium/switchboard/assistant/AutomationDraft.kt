@@ -1,9 +1,12 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.AutomationSaved
+import com.atelier_nyaarium.switchboard.GatewayEntry
 import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.GatewayRegistry
-import com.atelier_nyaarium.switchboard.servesSources
+import com.atelier_nyaarium.switchboard.ListEmpty
+import com.atelier_nyaarium.switchboard.listEmpty
+import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -11,9 +14,10 @@ import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
+import com.atelier_nyaarium.switchboard.servesSources
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
@@ -219,33 +223,20 @@ internal data class AutomationGroup(val gatewayId: String, val assistant: Boolea
 /** Gateways that list any, the home first. */
 internal fun automationGroups(registry: GatewayRegistry, home: String?): List<AutomationGroup> =
 	registry.gateways
-		.filter { it.automations.rows.isNotEmpty() }
-		.map { AutomationGroup(it.id, it.id == home, it.automations.rows) }
+		.listedGroups { it.automations }
+		.filter { it.rows.isNotEmpty() }
+		.map { AutomationGroup(it.gatewayId, it.gatewayId == home, it.rows) }
 		.sortedByDescending { it.assistant }
 
-/** What Automations says with no group to draw. */
-internal sealed interface AutomationsEmpty {
-	data object NoRoster : AutomationsEmpty
-
-	/** No Gateway's list is read. */
-	data object Unread : AutomationsEmpty
-
-	/** The home's build lists none. */
-	data class NotServed(val gatewayId: String) : AutomationsEmpty
-
-	data object None : AutomationsEmpty
-}
-
-/** An unread list is not an empty one; a home that answers sources serves this list. */
-internal fun automationsEmpty(registry: GatewayRegistry, home: String?): AutomationsEmpty {
-	val notServed = home != null && registry.entry(home)?.automations == GatewayList.NotServed &&
-		!servesSources(registry.assistantOn(home))
-	return when {
-		!registry.loaded -> AutomationsEmpty.NoRoster
-		notServed -> AutomationsEmpty.NotServed(home!!)
-		registry.gateways.none { it.automations.listed } -> AutomationsEmpty.Unread
-		else -> AutomationsEmpty.None
+/** Home build outranks the rest. */
+internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmpty {
+	// Remove 2026-11-29: a Gateway answering sources serves this list, so its refusal is a fault.
+	val read = { entry: GatewayEntry ->
+		val faulted = entry.automations == GatewayList.NotServed && servesSources(registry.assistantOn(entry.id))
+		if (faulted) GatewayList.Unreachable else entry.automations
 	}
+	val notServed = home != null && registry.entry(home)?.let(read) == GatewayList.NotServed
+	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else listEmpty(registry, registry.gateways, read)
 }
 
 internal fun editable(row: AutomationRow): Boolean =

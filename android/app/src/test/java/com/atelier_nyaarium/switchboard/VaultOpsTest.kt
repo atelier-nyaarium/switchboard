@@ -62,6 +62,7 @@ class VaultOpsTest {
 		state = state,
 		repoScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
 		collaborators = TestCollaborators(manager),
+		provision = ProvisionFence(),
 		valueAnswer = valueAnswer,
 	)
 

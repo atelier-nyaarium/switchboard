@@ -12,7 +12,7 @@ internal interface Slot<V : Any, S> {
 }
 
 /** PublishedViews landing one slot per ticket. */
-internal class SlotViews<K : Any, V : Any>(generation: WorkspaceGeneration, private val initial: () -> V) {
+internal class SlotViews<K : Any, V : Any>(generation: ProvisionFence, private val initial: () -> V) {
 	class Ticket<K : Any, V : Any, S> internal constructor(
 		internal val inner: PublishedViews.ReadTicket<K>,
 		internal val slot: Slot<V, S>,

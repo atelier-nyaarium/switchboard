@@ -65,6 +65,8 @@ internal data class RoutineDraft(
 	val forgetAfterDays: Int = Protocol.Wire.ROUTINE_FORGET_DAYS_DEFAULT,
 	/** What was read, so a save says which record it edits. Zero means nothing was stored. */
 	val revision: Long = 0L,
+	/** The record it was made from; a new one has none. */
+	val base: Routine? = null,
 ) {
 	/**
 	 * Every rule the gateway's schema would refuse, checked here too. Without it a schema refusal
@@ -213,6 +215,7 @@ internal data class RoutineDraft(
 			enabled = routine.enabled,
 			forgetAfterDays = routine.forgetAfterDays.toInt(),
 			revision = routine.revision,
+			base = routine,
 		)
 	}
 }

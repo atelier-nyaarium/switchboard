@@ -469,8 +469,8 @@ no TTL.
   Every write to the home lands through `AssistantHomeFence`. `sourcesOf` is the one reader of a
   Gateway's sources: `sources`, else an older Gateway's `watchers`, until 2026-11-28.
   - **Its pages are one route on `ShellNav`:** `assistantPage` holds Settings and its index pages
-    (Location, Features, Safety), and the pages the Sources and Automations views open: Add, an
-    Entry, a Setup, a Device, a Source and the AutomationEditor. They draw in their own
+    (Location, Features, Safety), and the pages the Sources view opens: Add, an Entry, a Setup, a
+    Device and a Source. The automation editor is an editor, not a page. They draw in their own
     `ShellScreen` slot above whatever opened them, with their own `BackLayer`. Back walks
     `assistantPageBack`: a Setup to its Entry, an Entry to Add, an index page to Settings, and
     every other page closes onto what lies beneath; `arrive` clears them. `AssistantPage.resolved`
@@ -483,16 +483,23 @@ no TTL.
     class. The system Back and the automation editor's arrow call `askLeave` under the shell's one
     `BackHandler`. A changed draft holds the leave, and `EditorScaffold` draws "Leave and discard
     changes?" with Discard and Stay. An unchanged draft leaves at once. The ask names the opening
-    it was made on (`LeaveAsk`, `leaveShown`), so it never shows over a later one, and a Back
+    it was made on (`LeaveAsk`, `EditState.asks`), so it never shows over a later one, and a Back
     while a save is in flight leaves at once with the draft held, so the answer still lands.
     Cancel, on the runbook, routine and policy editors, discards at once.
-  - **A page and its session end together:** a page draws only its own opening and closes when
-    that session is gone (`editorShowing`). A page that leaves composition parks its session
-    (`park`): an untouched edit goes, a touched or busy one waits for the next opening of that
-    record. A send that then stays, with no page to show why, is told as a transient message
-    (`leftLine`). The three older editors open through `rememberEdit`, which waits for the record
-    (`editStanding`) rather than opening a blank draft under "Edit", and they read the title, the
-    Delete entry and the routine's kept zone from the record the edit opened on.
+  - **The edit model alone says which editor is open:** each kind's `EditorSessions` holds its
+    edits and the one that is shown in one `EditState`, `Editors` shows one at a time across the
+    kinds, and the shell draws the `ShownEditor` it derives from them. A page that leaves
+    composition ends nothing, so the lock, a rotation and a second window keep the edit and what
+    its last send said. A save that lands drops its edit and unshows it in one update. `hide` is
+    every other exit, an arrival, a window that finishes or an editor that may not stay
+    (`editorStands`): an untouched edit goes, a touched or busy one waits for the next showing of
+    that record. A refusal with no editor to show it, or one `hide` takes off the screen, is told
+    as a transient message (`leftLine`). The four
+    editors open through `rememberEdit`, which waits for the record (`editStanding`) rather than
+    opening a blank draft under "Edit". The title and the Delete entry read whether the editor
+    was opened on an id, and the routine's kept zone comes from the record its draft was made
+    from (`RoutineDraft.base`), since a page can return under the lock with its list unread. An editor is not restored after the
+    process dies.
   - **A record is removed from its top bar's menu:** `RemoveMenu` (`RecordMenu.kt`) then
     `ConfirmDialog`, on the automation, runbook, routine and policy editors, a device's page and a
     service's entry. `delete-affordance-residue.test.ts` names the few removals that are not a
@@ -500,8 +507,7 @@ no TTL.
   - **A page reads its op's result from its ops class, never from its own coroutine:** `runWork`
     holds each page's busy flag and line under a `WorkKey`, and an editor's save or delete runs on
     the repository's scope and lands in its `EditorSessions`, so Back never loses a result. `open`
-    mints the opening, every mutator takes it, and the editor closes once its session is gone
-    (`editorShowing`).
+    mints the opening, every mutator takes it, and the editor closes once its edit is unshown.
   - **Each edit is one automation op:** `AutomationDraft.kt` holds the draft and `outcomeOf`, which
     reads the op's answer, never the drawn copy: done, an offer to go over a newer revision on a
     second tap, or the reason. `docs/assistant.md` holds the design.
@@ -520,8 +526,10 @@ no TTL.
   release settles by `releasedSlot`. Where the shell stands is one `ShellNav` value,
   and every road through it is a transition: `arrive` decides the view and whether the thread re-snaps
   (`Arrival` names the road), and the conversation carries its own Files stack. Every road that lands
-  somewhere first clears what draws above the shell through one list, `dismissForArrival`; a vault
-  request's sheet is the exception, since it opens over drafts. A request held on a process-lifetime
+  somewhere first clears what draws above the shell (`dismissForArrival`): the modals as one
+  `Modals` value, the shown editor through `Editors.hideAll`, and the viewer, menus and queue
+  through `OverlayRequests.close`. A vault request's sheet is the exception, since it opens over
+  drafts. A request held on a process-lifetime
   bus (`WorkspaceOpenBus`, `SummonBus`) is taken only by a resumed window, since a picker can leave a
   stopped `MainActivity` beneath a second one.
 
@@ -532,10 +540,12 @@ no TTL.
   names, since a handler wins by when it composed rather than by what it closes. The drawer is one
   state: every arrival closes it (`dismissForArrival`), and so does a screen without it, so a
   drawer left open never reappears open. The menu's picks and its button run on the shell's scope,
-  since a pick can swap the screen beneath it. Nothing draws over the lock: the editors, the fire
-  sheet, the entry dialogues, the attachment viewer and the link, row and forget dialogues are not
-  composed while it shows, and Back reads the lock first. An editor the lock hid returns only while
-  its edit is still held (`hiddenEditor`), so one that landed meanwhile does not reopen blank.
+  since a pick can swap the screen beneath it. Nothing draws over the lock: `ShellOverlays` draws
+  everything the shell composes over a screen (the queue, the attachment viewer, the link, row and
+  forget dialogues, the entry dialogues, the request sheets, the fire sheet and the shown editor)
+  and returns first while the lock shows, and Back reads the lock first. `shell-overlay-residue.test.ts`
+  refuses one composed in `MainActivity.kt`. An editor the lock hid returns as its edit stands, so
+  one whose save landed meanwhile does not return.
 
   **A filtered view is its root view with a `ViewScope.Session`.** The session's Gateway for Runbooks
   and Policies, its spawn point for Routines (a routine targets a spawn point, not a session), its own
@@ -544,10 +554,17 @@ no TTL.
   two chips, the session and "Everything". The assistant's session filters nothing. Sources and
   Automations are a Gateway's and take no filter; over a session they list its Gateway first.
 - **A Gateway's lists** (`GatewayReads.kt`, `GatewayRegistry.kt`): routines, runbooks, policies,
-  automations and peers each sit on the entry as a `GatewayList`: unread, listed or not served. One
-  decoder (`listAnswer`, over the pure `listAnswerOf`) reads a routine, runbook, policy or
-  automation list op as rows, not served or unreachable, and one fold (`after`) lands it: rows
-  replace, not served says so, silence keeps what was drawn. The `not_served` token always reads as
+  automations and peers each sit on the entry as a `GatewayList`: unread, listed, not served or
+  unreachable, and only a listed one has rows. One decoder (`listAnswer`, over the pure
+  `listAnswerOf`) reads a routine, runbook, policy or automation list op as rows, not served or
+  unreachable, and one fold (`after`) lands it: rows replace, not served says so, silence keeps
+  what was drawn, and a first read that fails is unreachable rather than still unread. A reader
+  takes a typed read: `lookup` for one record (found, gone, reading, unreachable or not served),
+  `listedGroups` for what a view draws, `listEmpty` for why a view has no row (no roster, no
+  Gateway, reading, unreachable, not served, none), or a `when` over the four answers, so a list
+  nobody read never passes for an empty one. A runbook's delete says when its Gateway's routines
+  are unread. A Gateway's peers alone outlive its restart on the entry, so its linked Domains stay
+  until it answers again. Refresh re-reads the view that is drawn. The `not_served` token always reads as
   not served. A refusal in prose is a fault for routines, runbooks and policies, so what was drawn
   stays; for automations it reads as not served until 2026-11-29, since a Gateway from before the
   token refuses an unknown op in schema prose (`ProseRefusal`), and only when that Gateway's state
@@ -571,10 +588,12 @@ no TTL.
   keyed by SESSION, not by Gateway: two sessions of one Gateway hold different workspaces. Reads are re-read
   rather than cached, as the per-Gateway views do; the exceptions are the open windows, the raw files being
   edited, their drafts, and one cached file per module for the lines around a window.
-- **A re-provision is one generation** (`WorkspaceHost.generation`): advanced once, first in the
-  re-provision roster, and read by every workspace ops class, so work begun under the previous owner lands
+- **A re-provision is one fence** (`ProvisionFence`, which `WorkspaceHost.generation` is): `clearAll`
+  closes it as its first step, before the identity goes, and moves its term as its last, so nothing
+  lands while it wipes and nothing begun before or during the wipe lands after it. Every workspace ops class reads it, so work begun under the previous owner lands
   nothing after it and an op still waiting for its lock is not sent. A write already on the wire lands on
-  disk regardless.
+  disk regardless. Saves that outlive their page, scheduled sends and a pending untrust land through
+  the same fence.
 - **Held edits** (`HeldEdits`): windows and raw files are held the same way. `apply` is the one road for
   a change to the set or an edit made without waiting, and hands a transform what is held NOW. An edit
   carries an incarnation minted at open, since a symbol id or a path names which text and not which

@@ -60,7 +60,7 @@ class BoardRouterWriterTest {
 	)
 
 	private fun board(entry: BoardStoredEntry? = null, revision: Long = 0L) = BoardManager(FakeStore()).also {
-		it.applyRouterBoard(revision, entry?.let(::listOf) ?: emptyList())
+		it.applyRouterBoard(revision, entry?.let(::listOf) ?: emptyList(), generation = it.generation)
 	}
 
 	private fun writer(

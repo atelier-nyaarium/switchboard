@@ -81,7 +81,7 @@ internal class ComposedRequests(private val host: WorkspaceHost) : ClearsOnRepro
 
 	/** A new ledger, so a claim or a landing read against the old one cannot commit. */
 	override suspend fun clearInMemory() {
-		held.value = Ledger(host.generation.capture(), emptyMap())
+		held.value = Ledger(host.generation.upcoming(), emptyMap())
 	}
 
 	/** Null once the key is claimed, so nothing draws as sending that never goes. */

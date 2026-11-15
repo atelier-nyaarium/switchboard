@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.reflect.KProperty
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
@@ -25,12 +27,20 @@ internal data class EditSession<D, S>(
 	/** What the last send left to show. */
 	val said: S? = null,
 	val busy: Boolean = false,
-	/** Its page left while it was kept. */
-	val unattended: Boolean = false,
+	/** What it said reached the owner off the editor; told once. */
+	val told: Boolean = false,
 )
 
 /** A Back that asked, for one opening. */
 internal data class LeaveAsk<K>(val key: K, val opening: Long)
+
+internal data class EditState<K, D, S>(
+	val held: Map<K, EditSession<D, S>> = emptyMap(),
+	val shown: K? = null,
+	val leaving: LeaveAsk<K>? = null,
+) {
+	fun asks(key: K): Boolean = leaving != null && leaving.key == key && leaving.opening == held[key]?.opening
+}
 
 internal sealed interface EditOutcome<out D, out S> {
 	/** Landed; the editor closes. */
@@ -40,33 +50,26 @@ internal sealed interface EditOutcome<out D, out S> {
 	data class Stays<D, S>(val said: S?, val draft: D? = null, val reopened: Boolean = false) : EditOutcome<D, S>
 }
 
-/** While the lock hides an editor: one whose edit is gone does not return. */
-internal fun <K> hiddenEditor(open: K?, held: Set<K>): K? = open?.takeIf { it in held }
-
-/** Shown over its own opening. */
-internal fun <K> leaveShown(ask: LeaveAsk<K>?, key: K, held: EditSession<*, *>?): Boolean =
-	ask != null && ask.key == key && ask.opening == held?.opening
-
-/** What a send that stayed tells the owner once its page has left. */
 internal fun leftLine(name: String, fallback: String, reason: String): String = "${name.ifBlank { fallback }}: $reason"
 
-internal enum class EditorShowing { OPENING, DRAWN, CLOSING }
+/** Whether an editor has its record to open on. */
+internal enum class EditStanding { READY, READING, UNREACHABLE, NOT_SERVED, GONE }
 
-/** A page draws its own opening. One that landed, was discarded or was taken by another closes. */
-internal fun editorShowing(shown: Long?, held: EditSession<*, *>?): EditorShowing = when {
-	shown == null -> EditorShowing.OPENING
-	held?.opening == shown -> EditorShowing.DRAWN
-	else -> EditorShowing.CLOSING
+/** A new record, with no lookup, is ready; a held one stands as its list answered. */
+internal fun editStanding(held: Lookup<*>?): EditStanding = when (held) {
+	null, is Lookup.Found -> EditStanding.READY
+	Lookup.Gone -> EditStanding.GONE
+	Lookup.Reading -> EditStanding.READING
+	Lookup.Unreachable -> EditStanding.UNREACHABLE
+	Lookup.NotServed -> EditStanding.NOT_SERVED
 }
 
-/** Whether an editor has its record to open on. */
-internal enum class EditStanding { READY, WAITING, GONE }
-
-/** A new record is ready; a held one waits for its list, and is gone once the list lacks it. */
-internal fun editStanding(id: String?, held: Any?, listed: Boolean): EditStanding = when {
-	id == null || held != null -> EditStanding.READY
-	listed -> EditStanding.GONE
-	else -> EditStanding.WAITING
+/** What an editor with no record to open on says; null spins. */
+internal fun waitingLine(standing: EditStanding): String? = when (standing) {
+	EditStanding.GONE -> "Deleted elsewhere."
+	EditStanding.UNREACHABLE -> "This Gateway could not be read."
+	EditStanding.NOT_SERVED -> "This Gateway does not serve this."
+	EditStanding.READY, EditStanding.READING -> null
 }
 
 /** What a screen types, written through to its session as it changes. */
@@ -81,112 +84,171 @@ internal class MirroredDraft<D : Any>(initial: D, private val mirror: (D) -> Uni
 	}
 }
 
-/** One editor kind's edits in progress, held past the screen that draws them. */
+/** Sole owner of edits and shown key. */
 internal class EditorSessions<K : Any, D : Any, S : Any>(
 	/** Whether Back asks: the draft against what was opened. */
 	private val changed: (D, D) -> Boolean = { draft, opened -> draft != opened },
 	/** A send that stayed with no page to show why. */
 	private val unattended: (EditSession<D, S>) -> Unit = {},
 ) {
-	val held = MutableStateFlow<Map<K, EditSession<D, S>>>(emptyMap())
+	private val written = MutableStateFlow(EditState<K, D, S>())
 
-	val leaving = MutableStateFlow<LeaveAsk<K>?>(null)
+	val state: StateFlow<EditState<K, D, S>> = written.asStateFlow()
 
 	private val openings = AtomicLong()
 
 	fun clear() {
-		held.value = emptyMap()
-		leaving.value = null
+		written.value = EditState()
 	}
 
-	/** The only mint. A held key keeps its opening and its draft, and is attended again. */
-	fun open(key: K, draft: D): Long {
+	private fun EditSession<D, S>.keeps(): Boolean = busy || changed(draft, opened)
+
+	private fun EditState<K, D, S>.hidden(): EditState<K, D, S> {
+		val key = shown ?: return this
+		val session = held[key]
+		return copy(held = if (session == null || session.keeps()) held else held - key, shown = null, leaving = null)
+	}
+
+	fun show(key: K) {
+		written.update { now -> if (now.shown == key) now else now.hidden().copy(shown = key) }
+	}
+
+	/** Untouched goes; touched or busy waits. */
+	fun hide() {
+		var unseen: EditSession<D, S>? = null
+		written.update { now ->
+			val key = now.shown
+			val telling = key?.let { now.held[it] }?.takeIf { it.said != null && !it.busy && !it.told }
+			unseen = telling
+			val marked = if (key != null && telling != null) now.copy(held = now.held + (key to telling.copy(told = true))) else now
+			marked.hidden()
+		}
+		unseen?.let(unattended)
+	}
+
+	/** Only mint; shown key only. */
+	fun open(key: K, draft: D): Long? {
 		val minted = openings.incrementAndGet()
-		return held.updateAndGet { now ->
-			val kept = now[key]
-			now + (key to (kept?.copy(unattended = false) ?: EditSession(draft, draft, minted)))
-		}.getValue(key).opening
+		return written.updateAndGet { now ->
+			if (now.shown != key || key in now.held) now
+			else now.copy(held = now.held + (key to EditSession(draft, draft, minted)))
+		}.held[key]?.opening
 	}
 
 	/** Its own opening only, never while its op is out. */
 	fun edit(key: K, opening: Long, change: (D) -> D) {
-		held.update { now ->
-			val session = now[key]
+		written.update { now ->
+			val session = now.held[key]
 			if (session == null || session.opening != opening || session.busy) now
-			else now + (key to session.copy(draft = change(session.draft)))
+			else now.copy(held = now.held + (key to session.copy(draft = change(session.draft))))
 		}
 	}
+
+	private fun EditState<K, D, S>.without(key: K): EditState<K, D, S> =
+		copy(held = held - key, shown = shown.takeUnless { it == key }, leaving = leaving.takeUnless { it?.key == key })
 
 	fun discard(key: K, opening: Long) {
-		held.update { now -> if (now[key]?.opening == opening) now - key else now }
-		leaving.update { if (it?.key == key && it.opening == opening) null else it }
+		written.update { now -> if (now.held[key]?.opening == opening) now.without(key) else now }
 	}
 
-	/** True leaves now: nothing changed, or a send in flight, which still lands. */
-	fun askLeave(key: K): Boolean {
-		val session = held.value[key] ?: return true
-		// No page draws an unattended one, so nothing could ask.
-		if (session.busy || session.unattended) return true
-		if (!changed(session.draft, session.opened)) {
-			discard(key, session.opening)
-			return true
+	/** True leaves now; a send in flight still lands. */
+	fun askLeave(): Boolean {
+		var left = true
+		written.update { now ->
+			val key = now.shown
+			val session = key?.let { now.held[it] }
+			left = session == null || !session.keeps() || session.busy
+			if (left) now.hidden() else now.copy(leaving = LeaveAsk(key!!, session!!.opening))
 		}
-		leaving.value = LeaveAsk(key, session.opening)
-		return false
+		return left
 	}
 
 	fun stay() {
-		leaving.value = null
-	}
-
-	/** A settled edit its page left untouched has nothing to wait for. */
-	private fun kept(settled: EditSession<D, S>): Boolean = !settled.unattended || changed(settled.draft, settled.opened)
-
-	/** Its page left: an untouched edit goes, a touched or busy one waits unattended, unasked. */
-	fun park(key: K, opening: Long) {
-		held.update { now ->
-			val session = now[key]
-			when {
-				session == null || session.opening != opening -> now
-				!session.busy && !changed(session.draft, session.opened) -> now - key
-				else -> now + (key to session.copy(unattended = true))
-			}
-		}
-		leaving.update { if (it?.key == key && it.opening == opening) null else it }
+		written.update { it.copy(leaving = null) }
 	}
 
 	/** Null when nothing was sent: another opening holds the key, or its op is out. */
 	suspend fun send(key: K, opening: Long, op: suspend (D) -> EditOutcome<D, S>): EditOutcome<D, S>? {
-		val before = held.getAndUpdate { now ->
-			val session = now[key]
+		val before = written.getAndUpdate { now ->
+			val session = now.held[key]
 			if (session == null || session.opening != opening || session.busy) now
-			else now + (key to session.copy(busy = true, said = null))
+			else now.copy(held = now.held + (key to session.copy(busy = true, said = null, told = false)))
 		}
-		val sent = before[key]?.takeIf { it.opening == opening && !it.busy } ?: return null
+		val sent = before.held[key]?.takeIf { it.opening == opening && !it.busy } ?: return null
 		var outcome: EditOutcome<D, S>? = null
 		try {
 			outcome = op(sent.draft)
 		} finally {
-			var stayed: EditSession<D, S>? = null
-			held.update { now ->
-				stayed = null
-				// A page may have left meanwhile.
-				val current = now[key]?.takeIf { it.opening == sent.opening } ?: return@update now
-				when (val result = outcome) {
-					EditOutcome.Done -> now - key
+			var unseen: EditSession<D, S>? = null
+			written.update { now ->
+				unseen = null
+				// Discarded or cleared meanwhile.
+				val current = now.held[key]?.takeIf { it.opening == sent.opening } ?: return@update now
+				val settled = when (val result = outcome) {
+					EditOutcome.Done -> return@update now.without(key)
 					is EditOutcome.Stays -> {
 						val draft = result.draft ?: current.draft
-						val opened = if (result.reopened) draft else current.opened
-						val settled = current.copy(draft = draft, opened = opened, said = result.said, busy = false)
-						stayed = settled
-						if (kept(settled)) now + (key to settled) else now - key
+						current.copy(draft = draft, opened = if (result.reopened) draft else current.opened, said = result.said, busy = false)
 					}
-					null -> current.copy(said = sent.said, busy = false).let { if (kept(it)) now + (key to it) else now - key }
+					null -> current.copy(said = sent.said, busy = false)
 				}
+				val shown = now.shown == key
+				val telling = !shown && outcome != null && settled.said != null
+				if (telling) unseen = settled
+				val kept = settled.copy(told = telling)
+				if (shown || kept.keeps()) now.copy(held = now.held + (key to kept)) else now.copy(held = now.held - key)
 			}
-			if (outcome == EditOutcome.Done) leaving.update { if (it?.key == key && it.opening == sent.opening) null else it }
-			stayed?.takeIf { it.unattended && it.said != null }?.let(unattended)
+			unseen?.let(unattended)
 		}
 		return outcome
 	}
+}
+
+internal sealed interface ShownEditor {
+	data class Runbook(val key: EditKey) : ShownEditor
+
+	data class Routine(val key: EditKey) : ShownEditor
+
+	data class Policy(val key: EditKey) : ShownEditor
+
+	data class Automation(val key: AutomationDraftKey) : ShownEditor
+}
+
+internal fun shownEditorOf(runbook: EditKey?, routine: EditKey?, policy: EditKey?, automation: AutomationDraftKey?): ShownEditor? =
+	policy?.let(ShownEditor::Policy) ?: routine?.let(ShownEditor::Routine) ?: runbook?.let(ShownEditor::Runbook)
+		?: automation?.let(ShownEditor::Automation)
+
+/** A policy needs the vault on; an automation needs its Gateway to still be the assistant's. */
+internal fun editorStands(editor: ShownEditor?, vaultOn: Boolean, assistantLeft: (String) -> Boolean): Boolean = when (editor) {
+	is ShownEditor.Policy -> vaultOn
+	is ShownEditor.Automation -> !assistantLeft(editor.key.gatewayId)
+	is ShownEditor.Runbook, is ShownEditor.Routine, null -> true
+}
+
+internal class Editors(
+	private val runbooks: EditorSessions<EditKey, *, *>,
+	private val routines: EditorSessions<EditKey, *, *>,
+	private val policies: EditorSessions<EditKey, *, *>,
+	private val automations: EditorSessions<AutomationDraftKey, *, *>,
+) {
+	private val kinds get() = listOf(runbooks, routines, policies, automations)
+
+	fun show(editor: ShownEditor) {
+		when (editor) {
+			is ShownEditor.Runbook -> only(runbooks, editor.key)
+			is ShownEditor.Routine -> only(routines, editor.key)
+			is ShownEditor.Policy -> only(policies, editor.key)
+			is ShownEditor.Automation -> only(automations, editor.key)
+		}
+	}
+
+	// Its own kind keeps a key shown twice.
+	private fun <K : Any> only(kind: EditorSessions<K, *, *>, key: K) {
+		kinds.filter { it !== kind }.forEach { it.hide() }
+		kind.show(key)
+	}
+
+	fun hideAll() = kinds.forEach { it.hide() }
+
+	fun askLeave(): Boolean = kinds.map { it.askLeave() }.all { it }
 }

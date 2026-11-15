@@ -106,7 +106,7 @@ fun VaultRequestCard(
 	var note by remember(requestId) { mutableStateOf("") }
 	val steerFocus = remember { FocusRequester() }
 	val secretFocus = remember { FocusRequester() }
-	var busy by remember { mutableStateOf(false) }
+	var busy by remember(requestId) { mutableStateOf(false) }
 	var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 	// The ticker also retires the request once its deadline passes.
 	LaunchedEffect(requestId) {

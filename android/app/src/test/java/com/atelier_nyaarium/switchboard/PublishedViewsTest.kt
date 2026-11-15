@@ -20,7 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PublishedViewsTest {
-	private val generation = WorkspaceGeneration()
+	private val generation = ProvisionFence()
 	private val views = PublishedViews<String, String>(generation)
 
 	private val reads = AtomicInteger()
@@ -48,8 +48,7 @@ class PublishedViewsTest {
 		assertEquals("again", views.of("a"))
 
 		val beforeReprovision = views.begin("a")!!
-		generation.advance()
-		views.clear()
+		generation.reprovision { views.clear() }
 		views.show("a") { "fresh" }
 		assertFalse(views.update(beforeReprovision) { "previous owner" })
 		assertEquals("fresh", views.of("a"))
@@ -63,6 +62,8 @@ class PublishedViewsTest {
 		assertFalse(views.update(ticket) { "stale" })
 
 		views.clear()
+		generation.settle()
+		assertFalse(views.update(ticket) { "stale" })
 		views.show("a") { "fresh" }
 		assertTrue(views.update(views.begin("a")!!) { "landed" })
 		assertEquals("landed", views.of("a"))
@@ -131,8 +132,7 @@ class PublishedViewsTest {
 		views.leave("a")
 		assertTrue(views.show("a") { "loading" }.started)
 
-		generation.advance()
-		views.clear()
+		generation.reprovision { views.clear() }
 		assertTrue(views.show("a") { "loading" }.started)
 	}
 

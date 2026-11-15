@@ -35,10 +35,10 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.vault.VaultEntryView
 
-/** Held order, then new picks; ghosts dropped. */
-internal fun grantedAfter(previous: List<String>, chosen: Set<String>, entries: List<VaultEntryView>): List<String> {
+/** Held order, then new picks; ghosts dropped once read. */
+internal fun grantedAfter(previous: List<String>, chosen: Set<String>, entries: List<VaultEntryView>, listed: Boolean): List<String> {
 	val known = entries.map { it.id }.toSet()
-	val kept = previous.filter { it in chosen && it in known }
+	val kept = previous.filter { it in chosen && (it in known || !listed) }
 	val added = entries.map { it.id }.filter { it in chosen && it !in kept }
 	return kept + added
 }
@@ -61,6 +61,8 @@ internal fun SecretNeeded(text: String) {
 internal fun GrantSecretsSheet(
 	entries: List<VaultEntryView>,
 	granted: List<String>,
+	/** Vault list was read. */
+	listed: Boolean,
 	onDone: (List<String>) -> Unit,
 	onDismiss: () -> Unit,
 	needs: String? = null,
@@ -145,7 +147,7 @@ internal fun GrantSecretsSheet(
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 				TextButton(onClick = hapticClick(onDismiss), modifier = Modifier.weight(1f)) { Text("Cancel") }
 				Button(
-					onClick = hapticClick { onDone(grantedAfter(granted, chosen, entries)) },
+					onClick = hapticClick { onDone(grantedAfter(granted, chosen, entries, listed)) },
 					modifier = Modifier.weight(1f),
 				) { Text("Done") }
 			}

@@ -62,11 +62,12 @@ internal class RoutineOps(
 
 	private val reads = GatewayReadFence()
 
+	val toggles = ToggleFence()
+
 	override suspend fun clearInMemory() {
 		reads.clear()
 		toggles.clear()
 		edits.clear()
-		toggleRefusals.value = emptyMap()
 	}
 
 	suspend fun commit(key: EditKey, opening: Long, candidate: (RoutineDraft) -> Routine?) = edits.send(key, opening) { draft ->
@@ -90,16 +91,15 @@ internal class RoutineOps(
 	}
 
 	suspend fun refresh(gatewayId: String) {
-		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
+		val client = host.gateway
 		// One gateway's failure, whatever raised it, must not take down the pass around it.
 		attempt {
-			val answer = reads.list(TAG, gatewayId) { client.list(gatewayId) }
-			if (answer == ListAnswer.Unreachable) return@attempt
+			val answer = reads.list(TAG, gatewayId, client?.let { held -> suspend { held.list(gatewayId) } }) ?: return@attempt
 			state.update { held ->
 				held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(routines = it.routines.after(answer)) })
 			}
-			host.onRoutinesChanged()
+			if (answer != ListAnswer.Unreachable) host.onRoutinesChanged()
 		}
 	}
 
@@ -123,46 +123,29 @@ internal class RoutineOps(
 		return attempt { client.next(gatewayId, routine) }?.nextAt
 	}
 
-	val toggleRefusals = androidx.compose.runtime.mutableStateOf<Map<Pair<String, String>, String>>(emptyMap())
-
-	fun toggleRefusalFor(gatewayId: String, routineId: String): String? = toggleRefusals.value[gatewayId to routineId]
-
-	/** One counter per row, keyed by gateway and id. */
-	private val toggles = GatewayReadFence()
-
-	/** The answer reaches the row; an older toggle's answer never overwrites a newer one's. */
 	suspend fun setEnabled(routineId: String, enabled: Boolean, baseRevision: Long, gatewayId: String): RoutineSaved {
-		val key = gatewayId to routineId
-		val client = host.gateway ?: return RoutineSaved.Unreachable.also { noteToggle(key, GATEWAY_UNREACHABLE) }
-		if (gatewayId.isBlank()) return RoutineSaved.Unreachable
-		var saved: RoutineSaved = RoutineSaved.Unreachable
-		val current = toggles.read("$gatewayId/$routineId") {
+		val client = host.gateway
+		if (client == null || gatewayId.isBlank()) {
+			toggles.note(gatewayId, routineId, GATEWAY_UNREACHABLE)
+			return RoutineSaved.Unreachable
+		}
+		return toggles.run(gatewayId, routineId, ::toggleLine) {
 			val answer = attempt { client.enable(gatewayId, routineId, enabled, baseRevision) }
 			refresh(gatewayId)
 			val stored = answer?.routine
-			saved = when {
+			when {
 				answer == null -> RoutineSaved.Unreachable
 				!answer.stored || stored == null ->
 					RoutineSaved.Refused(answer.reason ?: "This Gateway holds a different copy", answer.revision)
 				else -> RoutineSaved.Stored(stored)
 			}
-			saved
 		}
-		if (current is GatewayRead.Fresh) {
-			noteToggle(
-				key,
-				when (val landed = saved) {
-					is RoutineSaved.Stored -> null
-					is RoutineSaved.Refused -> landed.reason
-					RoutineSaved.Unreachable -> GATEWAY_UNREACHABLE
-				},
-			)
-		}
-		return saved
 	}
 
-	private fun noteToggle(key: Pair<String, String>, reason: String?) {
-		toggleRefusals.value = if (reason == null) toggleRefusals.value - key else toggleRefusals.value + (key to reason)
+	private fun toggleLine(saved: RoutineSaved): String? = when (saved) {
+		is RoutineSaved.Stored -> null
+		is RoutineSaved.Refused -> saved.reason
+		RoutineSaved.Unreachable -> GATEWAY_UNREACHABLE
 	}
 
 	/** The gateway's own answer, so nothing says gone about a routine it still runs. */

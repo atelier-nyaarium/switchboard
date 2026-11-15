@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
-import com.atelier_nyaarium.switchboard.assistant.AutomationsEmpty
 import com.atelier_nyaarium.switchboard.assistant.automationsEmpty
 import com.atelier_nyaarium.switchboard.assistant.AutomationEditing
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
@@ -254,15 +253,16 @@ class AutomationDraftTest {
 			com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList()),
 		)
 
-		assertEquals(AutomationsEmpty.NoRoster, automationsEmpty(GatewayRegistry(), "sakura"))
-		assertEquals(AutomationsEmpty.Unread, automationsEmpty(registry("sakura" to GatewayList.Unread), "sakura"))
-		assertEquals(AutomationsEmpty.NotServed("sakura"), automationsEmpty(registry("sakura" to GatewayList.NotServed), "sakura"))
+		assertEquals(ListEmpty.NoRoster, automationsEmpty(GatewayRegistry(), "sakura"))
+		assertEquals(ListEmpty.Reading, automationsEmpty(registry("sakura" to GatewayList.Unread), "sakura"))
+		assertEquals(ListEmpty.Unreachable, automationsEmpty(registry("sakura" to GatewayList.Unreachable), "sakura"))
+		assertEquals(ListEmpty.NotServed(listOf("sakura")), automationsEmpty(registry("sakura" to GatewayList.NotServed), "sakura"))
 		// A home that answers sources serves the list, whatever one refusal said.
 		val refusedOnce = registry("sakura" to GatewayList.NotServed).withEntry("sakura") { it.copy(assistant = serving) }
-		assertEquals(AutomationsEmpty.Unread, automationsEmpty(refusedOnce, "sakura"))
-		assertEquals(AutomationsEmpty.None, automationsEmpty(registry("sakura" to listed, "older" to GatewayList.NotServed), "sakura"))
-		assertEquals(AutomationsEmpty.None, automationsEmpty(registry("sakura" to listed), null))
+		assertEquals(ListEmpty.Unreachable, automationsEmpty(refusedOnce, "sakura"))
+		assertEquals(ListEmpty.None, automationsEmpty(registry("sakura" to listed, "older" to GatewayList.NotServed), "sakura"))
+		assertEquals(ListEmpty.None, automationsEmpty(registry("sakura" to listed), null))
 		val cached = registry("sakura" to GatewayList.Unread).copy(provenance = RegistryProvenance.Cached)
-		assertEquals(AutomationsEmpty.Unread, automationsEmpty(cached, "sakura"))
+		assertEquals(ListEmpty.Reading, automationsEmpty(cached, "sakura"))
 	}
 }

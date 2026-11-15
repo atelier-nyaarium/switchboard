@@ -27,8 +27,11 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
 import com.atelier_nyaarium.switchboard.ViewScope
+import com.atelier_nyaarium.switchboard.emptyLine
 import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.listEmpty
+import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.proto.Runbook
 
 @Composable
@@ -41,23 +44,18 @@ internal fun RunbooksScreen(
 	scope: ViewScope = ViewScope.Everything,
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.runbookOps.refreshAll() }
-	val groups = scope.groupsOf(state.gateways.gateways).filter { it.runbooks.listed }
+	val scoped = scope.groupsOf(state.gateways.gateways)
+	val groups = scoped.listedGroups { it.runbooks }
 	val named = groups.size > 1
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.runbooks.rows.isEmpty() }) {
+		if (groups.all { it.rows.isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				// A gateway that answered and holds nothing is not one that could not be read.
-				val title = when {
-					!state.gateways.loaded -> "No roster yet"
-					groups.isEmpty() -> "No Gateway could be read"
-					else -> "No runbooks"
-				}
-				Text(title, style = MaterialTheme.typography.titleMedium)
+				Text(emptyLine(listEmpty(state.gateways, scoped) { it.runbooks }, "runbooks"), style = MaterialTheme.typography.titleMedium)
 			}
 		} else {
 			LazyColumn(
@@ -68,20 +66,20 @@ internal fun RunbooksScreen(
 				for (group in groups) {
 					// Named only when there is more than one, so a single-gateway phone gains no words.
 					if (named) {
-						item(key = "gateway:${group.id}") {
+						item(key = "gateway:${group.gatewayId}") {
 							Text(
-								group.id,
+								group.gatewayId,
 								style = MaterialTheme.typography.labelLarge,
 								modifier = Modifier.padding(top = 6.dp),
 							)
 						}
 					}
-					for (runbook in group.runbooks.rows) {
-						item(key = "runbook:${group.id}:${runbook.id}") {
+					for (runbook in group.rows) {
+						item(key = "runbook:${group.gatewayId}:${runbook.id}") {
 							RunbookRow(
 								runbook,
-								onFire = { onFire(group.id, runbook.id) },
-								onEdit = { onEdit(group.id, runbook.id) },
+								onFire = { onFire(group.gatewayId, runbook.id) },
+								onEdit = { onEdit(group.gatewayId, runbook.id) },
 							)
 						}
 					}

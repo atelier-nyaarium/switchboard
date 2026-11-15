@@ -4,8 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -49,27 +49,28 @@ import com.atelier_nyaarium.switchboard.AssistantPage
 import com.atelier_nyaarium.switchboard.AssistantRoot
 import com.atelier_nyaarium.switchboard.AssistantSection
 import com.atelier_nyaarium.switchboard.AssistantWord
-import com.atelier_nyaarium.switchboard.PageWork
-import com.atelier_nyaarium.switchboard.WorkKey
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.DirListing
 import com.atelier_nyaarium.switchboard.DirectoryField
+import com.atelier_nyaarium.switchboard.LocationAction
+import com.atelier_nyaarium.switchboard.PageWork
 import com.atelier_nyaarium.switchboard.PhoneCapabilities
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.RootView
+import com.atelier_nyaarium.switchboard.WorkKey
 import com.atelier_nyaarium.switchboard.answerText
 import com.atelier_nyaarium.switchboard.assistantSections
-import com.atelier_nyaarium.switchboard.LocationAction
 import com.atelier_nyaarium.switchboard.folderOf
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.homeRefusal
+import com.atelier_nyaarium.switchboard.listedRows
 import com.atelier_nyaarium.switchboard.locationAction
 import com.atelier_nyaarium.switchboard.moveErrorText
-import com.atelier_nyaarium.switchboard.sourcesOf
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.runIsolated
+import com.atelier_nyaarium.switchboard.sourcesOf
 
 private const val DEFAULT_FOLDER = "~/"
 
@@ -118,8 +119,6 @@ internal fun AssistantPageHost(
 	onPage: (AssistantPage) -> Unit,
 	/** Closes the pages onto a root view. */
 	onRoot: (RootView) -> Unit,
-	/** Closes without asking. */
-	onClose: () -> Unit,
 	onBack: () -> Unit,
 ) {
 	when (page) {
@@ -157,14 +156,12 @@ internal fun AssistantPageHost(
 					repo,
 					page.gatewayId,
 					source,
-					uses = state.gateways.entry(page.gatewayId)?.automations?.takeIf { it.listed }?.let { usesOf(source.id, it.rows) },
+					uses = state.gateways.entry(page.gatewayId)?.automations?.listedRows()?.let { usesOf(source.id, it) },
 					onAutomations = { onRoot(RootView.AUTOMATIONS) },
 					onBack,
 				)
 			}
 		}
-		is AssistantPage.AutomationEditor ->
-			AutomationEditorPage(repo, state, page.gatewayId, page.slot, onClose, onBack)
 	}
 }
 

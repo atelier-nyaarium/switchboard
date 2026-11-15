@@ -67,14 +67,17 @@ internal suspend fun refreshEach(gatewayIds: List<String>, refresh: suspend (Str
 internal fun <T> GatewayList<T>.after(answer: ListAnswer<T>): GatewayList<T> = when (answer) {
 	is ListAnswer.Listed -> GatewayList.Listed(answer.rows)
 	ListAnswer.NotServed -> GatewayList.NotServed
-	ListAnswer.Unreachable -> this
+	ListAnswer.Unreachable -> if (this == GatewayList.Unread) GatewayList.Unreachable else this
 }
 
-internal suspend fun <T> GatewayReadFence.list(tag: String, gatewayId: String, call: suspend () -> ListAnswer<T>): ListAnswer<T> =
-	when (val read = read(gatewayId) { gatewayAttempt(tag, call) ?: ListAnswer.Unreachable }) {
+/** Null when a newer read owns it. */
+internal suspend fun <T> GatewayReadFence.list(tag: String, gatewayId: String, call: (suspend () -> ListAnswer<T>)?): ListAnswer<T>? {
+	if (call == null) return ListAnswer.Unreachable
+	return when (val read = read(gatewayId) { gatewayAttempt(tag, call) ?: ListAnswer.Unreachable }) {
 		is GatewayRead.Fresh -> read.value
-		GatewayRead.Stale -> ListAnswer.Unreachable
+		GatewayRead.Stale -> null
 	}
+}
 
 /** What a fenced read answers: the body's value, or nothing because a newer read owns the key. */
 internal sealed interface GatewayRead<out T> {
@@ -108,5 +111,32 @@ internal class GatewayReadFence {
 		val mine = counter.incrementAndGet()
 		val value = call()
 		return if (mine == counter.get() && began == generation.get()) GatewayRead.Fresh(value) else GatewayRead.Stale
+	}
+}
+
+/** Per-row refusals; the newest toggle wins. */
+internal class ToggleFence {
+	private val fence = GatewayReadFence()
+
+	val refusals = androidx.compose.runtime.mutableStateOf<Map<Pair<String, String>, String>>(emptyMap())
+
+	fun refusalFor(gatewayId: String, id: String): String? = refusals.value[gatewayId to id]
+
+	/** Null clears the line. */
+	fun note(gatewayId: String, id: String, reason: String?) {
+		val key = gatewayId to id
+		refusals.value = if (reason == null) refusals.value - key else refusals.value + (key to reason)
+	}
+
+	suspend fun <T : Any> run(gatewayId: String, id: String, reasonOf: (T) -> String?, call: suspend () -> T): T {
+		lateinit var answer: T
+		val read = fence.read("$gatewayId/$id") { call().also { answer = it } }
+		if (read is GatewayRead.Fresh) note(gatewayId, id, reasonOf(answer))
+		return answer
+	}
+
+	fun clear() {
+		fence.clear()
+		refusals.value = emptyMap()
 	}
 }

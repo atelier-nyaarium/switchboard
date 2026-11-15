@@ -113,7 +113,7 @@ class WorkspaceFileOpsTest {
 	}
 
 	private class Host(override val workspace: WorkspaceGateway?) : WorkspaceHost {
-		override val generation = WorkspaceGeneration()
+		override val generation = ProvisionFence()
 
 		override suspend fun send(address: String, text: String) = error("not reached")
 	}
@@ -186,8 +186,7 @@ class WorkspaceFileOpsTest {
 		assertEquals(2, disk.sent.size)
 
 		armed(ArmedAction.Delete("lib/b.ts"))
-		host.generation.advance()
-		ops.clearInMemory()
+		host.generation.reprovision { ops.clearInMemory() }
 		ops.open(one, "src")
 		ops.confirm(one, "src")
 		assertEquals(2, disk.sent.size)
@@ -199,8 +198,7 @@ class WorkspaceFileOpsTest {
 		val hold = TestHold().also { disk.stateHolds += it }
 		val arming = async { ops.begin(one, "src", ArmedAction.Delete(APP)) }
 		hold.entered.await()
-		host.generation.advance()
-		ops.clearInMemory()
+		host.generation.reprovision { ops.clearInMemory() }
 		ops.open(one, "src")
 		hold.release()
 		arming.await()
@@ -247,8 +245,7 @@ class WorkspaceFileOpsTest {
 		// Lets the second confirm reach the lock the first holds.
 		yield()
 		assertEquals(true, ops.viewOf(one, "lib")?.busy)
-		host.generation.advance()
-		ops.clearInMemory()
+		host.generation.reprovision { ops.clearInMemory() }
 		first.release()
 		sending.await()
 		waiting.await()
@@ -432,8 +429,7 @@ class WorkspaceFileOpsTest {
 		withTimeout(5_000) { ops.views.first { it[one to "src"]?.listing is WorkspaceAnswer.Read } }
 
 		val reads = disk.treeReads
-		host.generation.advance()
-		ops.clearInMemory()
+		host.generation.reprovision { ops.clearInMemory() }
 		withTimeout(5_000) { ops.views.first { it[one to "src"]?.listing is WorkspaceAnswer.Read } }
 		assertEquals(reads + 1, disk.treeReads)
 

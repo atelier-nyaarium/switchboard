@@ -268,6 +268,7 @@ private fun NeedsEntryPage(
 		GrantSecretsSheet(
 			entries = service.offered,
 			granted = service.grants,
+			listed = repo.vault.routerRevision > 0,
 			onDone = { picks ->
 				choosing = false
 				repo.command { assistantOps.runWork(key) { answerText(setGrants(gatewayId, integration.id, picks)) } }
