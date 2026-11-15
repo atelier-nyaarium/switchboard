@@ -17,7 +17,7 @@ const ANDROID_MAIN = path.join(
 );
 
 // .optional() refuses null, .nullable() refuses absence
-const NULLABLE_FIELD = /^\s*val \w+: .+\? = null,$/;
+const NULLABLE_FIELD = /^\s*val [`\w]+: .+\? = null,$/;
 const MODE = /^\s*@EncodeDefault\(EncodeDefault\.Mode\.(ALWAYS|NEVER)\)$/;
 
 function kotlinFiles(dir: string, acc: string[] = []): string[] {
@@ -53,5 +53,6 @@ describe("a null the phone encodes", () => {
 		expect(unstated(stated)).toEqual([]);
 		expect(unstated("\tval label: String? = null,")).toEqual(["val label: String? = null,"]);
 		expect(unstated("\tval enabled: Boolean,")).toEqual([]);
+		expect(unstated("\tval `package`: String? = null,")).toEqual(["val `package`: String? = null,"]);
 	});
 });

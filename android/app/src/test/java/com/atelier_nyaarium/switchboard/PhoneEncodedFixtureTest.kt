@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AppOpenAnswer
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
@@ -18,6 +19,7 @@ import com.atelier_nyaarium.switchboard.proto.PhoneStatusAnswer
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusKey
 import java.io.File
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -116,13 +118,24 @@ class PhoneEncodedFixtureTest {
 		"a home with no automations" to AssistantHomeSealed("~/notes", carriedOf(current, emptyList())),
 		"a home on an older build" to AssistantHomeSealed("~/notes", carriedOf(older, null)),
 		"nothing carried" to AssistantHomeSealed("~/fresh", null),
-	).map { (name, sealed) -> Case(name, "AssistantHomeSealed", wireJson.encodeToJsonElement(AssistantHomeSealed.serializer(), sealed)) } +
+	).map { (name, sealed) -> case(name, AssistantHomeSealed.serializer(), sealed) } +
 		listOf(
 			PhoneStatusAnswer(holder = null, keys = emptyList()),
-			PhoneStatusAnswer(holder = "pixel", keys = listOf(PhoneStatusKey("torch", available = false, reason = "disabled", needs = emptyList()))),
-		).map { Case("a status held by ${it.holder ?: "nobody"}", "PhoneStatusAnswer", wireJson.encodeToJsonElement(PhoneStatusAnswer.serializer(), it)) }
+			PhoneStatusAnswer(
+				holder = "pixel",
+				keys = listOf(
+					PhoneStatusKey("torch", available = false, reason = "disabled", needs = emptyList()),
+					PhoneStatusKey("alarm", available = true, needs = emptyList()),
+				),
+			),
+		).map { case("a status held by ${it.holder ?: "nobody"}", PhoneStatusAnswer.serializer(), it) } +
+		case("an app opened with nothing else to say", AppOpenAnswer.serializer(), AppOpenAnswer(opened = true))
 
 	private class Case(val name: String, val schema: String, val value: JsonElement)
+
+	/** Labelled by the class encoded. */
+	private fun <T> case(name: String, serializer: KSerializer<T>, value: T) =
+		Case(name, serializer.descriptor.serialName.substringAfterLast('.'), wireJson.encodeToJsonElement(serializer, value))
 
 	@OptIn(ExperimentalSerializationApi::class)
 	private fun rendered(): String {

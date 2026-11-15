@@ -259,8 +259,20 @@
 						"available": false,
 						"reason": "disabled",
 						"needs": []
+					},
+					{
+						"key": "alarm",
+						"available": true,
+						"needs": []
 					}
 				]
+			}
+		},
+		{
+			"name": "an app opened with nothing else to say",
+			"schema": "AppOpenAnswer",
+			"value": {
+				"opened": true
 			}
 		}
 	]

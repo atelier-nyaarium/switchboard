@@ -15,6 +15,7 @@ const corpus = JSON.parse(
 const SCHEMAS: Record<string, z.ZodType> = {
 	AssistantHomeSealed: AssistantHomeSealedSchema,
 	PhoneStatusAnswer: PHONE_CAPABILITIES.status.answer,
+	AppOpenAnswer: PHONE_CAPABILITIES.app_open.answer,
 };
 
 const sealed = corpus.cases.filter((entry) => entry.schema === "AssistantHomeSealed").map((entry) => entry.value);
