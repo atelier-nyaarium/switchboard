@@ -176,13 +176,13 @@ private fun CrossingForm(
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 ) {
 	val number = offer.number(trigger.device, trigger.measure)
-	val suffix = numberSuffix(number, display).trim()
+	val suffix = numberSuffix(trigger.unit, display).trim()
 	PickMenu(
 		label = "Value",
 		choices = offer.numbers,
 		picked = number,
 		labelOf = { it.label },
-		onPick = { picked -> edit { it.onCrossing { held -> held.copy(device = picked.device, measure = picked.measure) } } },
+		onPick = { picked -> edit { it.onCrossing { held -> held.picked(picked) } } },
 		enabled = enabled,
 	)
 	ChoiceRow(

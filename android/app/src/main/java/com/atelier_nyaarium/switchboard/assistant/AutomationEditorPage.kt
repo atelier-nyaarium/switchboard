@@ -22,7 +22,7 @@ import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.MirroredDraft
 import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.assistantGateway
-import com.atelier_nyaarium.switchboard.displayUnitOf
+import com.atelier_nyaarium.switchboard.homeDisplayUnit
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.rememberEdit
 import kotlinx.coroutines.delay
@@ -55,19 +55,18 @@ internal fun AutomationEditorPage(
 	val ops = repo.automationOps
 	val key = AutomationDraftKey(gatewayId, slot)
 	val home = assistantGateway(state)
-	val sources = editorSources(state.gateways, gatewayId, home)
-	val offer = offerOn(state.gateways.entry(gatewayId), away = gatewayId != home)
-	val display = displayUnitOf(home?.let { state.gateways.assistantOn(it) })
+	val context = automationContext(state.gateways, state.assistantHome, gatewayId)
+	val display = homeDisplayUnit(state.gateways, home)
 	val zone = remember { java.time.ZoneId.systemDefault().id }
 	val held = slot as? AutomationSlot.Held
 	val lookup = held?.let { state.gateways.automationOn(gatewayId, it.id) }
-	val row = lookup?.found()
+	val minted = context.minted()
 	// Unit read at mint only.
-	val opened = remember(key, row, sources.isEmpty(), offer, display) { openedDraft(slot, row, sources, offer, display, zone) }
+	val opened = remember(key, lookup, minted, display) { minted?.let { openedDraft(slot, lookup, it, display, zone) } }
 	// Restart drops served state.
 	LaunchedEffect(gatewayId, state.gateways.entry(gatewayId)?.incarnation) { ops.refresh(gatewayId) }
 	LaunchedEffect(home) { home?.let { repo.assistantOps.refresh(it) } }
-	val open = rememberEdit(ops.edits, key, automationStanding(state.gateways, gatewayId, home, lookup), opened) { standing ->
+	val open = rememberEdit(ops.edits, key, automationStanding(context, lookup), opened) { standing ->
 		AssistantPageScaffold("Automation", onBack) {
 			unopenedLine(slot, standing)?.let { Text(it, style = MaterialTheme.typography.bodyLarge) } ?: CircularProgressIndicator()
 		}
@@ -78,6 +77,9 @@ internal fun AutomationEditorPage(
 		MirroredDraft(session.draft) { next -> ops.edits.edit(key, open.opening) { next } }
 	}
 	var draft by typed
+	val heard = context.over(draft.context)
+	val offer = heard.offer
+	val sources = heard.sources
 
 	val fields = SourceFields(sources.find { it.id == draft.source }?.fieldSpecs.orEmpty())
 	val gone = lookup == Lookup.Gone

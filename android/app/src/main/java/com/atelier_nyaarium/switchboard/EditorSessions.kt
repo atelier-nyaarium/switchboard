@@ -64,6 +64,13 @@ internal fun editStanding(held: Lookup<*>?): EditStanding = when (held) {
 	Lookup.NotServed -> EditStanding.NOT_SERVED
 }
 
+/** New opens fresh, found on itself, else nothing. */
+internal fun <R, D> openingDraft(held: Lookup<R>?, fresh: () -> D, of: (R) -> D): D? = when (held) {
+	null -> fresh()
+	is Lookup.Found -> of(held.row)
+	Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> null
+}
+
 /** What an editor with no record to open on says; null spins. */
 internal fun waitingLine(standing: EditStanding): String? = when (standing) {
 	EditStanding.GONE -> "Deleted elsewhere."

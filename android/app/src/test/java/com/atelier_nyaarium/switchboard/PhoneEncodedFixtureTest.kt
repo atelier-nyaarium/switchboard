@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.ActionDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
+import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.IntervalUnit
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.assistant.offerOf
@@ -106,15 +107,15 @@ class PhoneEncodedFixtureTest {
 		),
 	)
 
-	private val offer = offerOf(SANDBOX_SERVES)
+	private val offer = offerOf(SANDBOX_SERVES, away = false)
 
 	private fun draft(trigger: TriggerDraft, vararg actions: ActionDraft) =
-		AutomationDraft("a", trigger, actions.toList(), enabled = true, revision = 0L, display = "F")
+		AutomationDraft("a", trigger, actions.toList(), enabled = true, revision = 0L, EditContext(offer, emptyList()), display = "F")
 
 	/** What the editor saves, typed as an owner types it. */
 	private val edited = listOf(
 		"a crossing that switches a plug and tells with a message" to draft(
-			TriggerDraft.Crossing(SANDBOX_SENSOR, "temperature", "below", "35.6", "0.9", "10"),
+			TriggerDraft.Crossing(SANDBOX_SENSOR, "temperature", "below", "35.6", "0.9", "10", "C"),
 			plugDraft(SANDBOX_SWITCH, "on"),
 			toldDraft("quietly", "It is {value} at {device}."),
 		),

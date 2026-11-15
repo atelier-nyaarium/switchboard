@@ -41,7 +41,6 @@ import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.EditKey
 import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.EditorWaiting
-import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.MirroredDraft
 import com.atelier_nyaarium.switchboard.RemoveMenu
@@ -139,7 +138,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?) {
 		LaunchedEffect(gatewayId) { repo.command { routineOps.refresh(gatewayId) } }
 		ConfirmDialog(
 			title = "Delete this runbook?",
-			body = runbookDeleteLine(registry.entry(gatewayId)?.routines ?: GatewayList.Unread, draft.id),
+			body = runbookDeleteLine(registry.listOn(gatewayId) { it.routines }, draft.id),
 			confirmText = "Delete",
 			onConfirm = {
 				deleting = false

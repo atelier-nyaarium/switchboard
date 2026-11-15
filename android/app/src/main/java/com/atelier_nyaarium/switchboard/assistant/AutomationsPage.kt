@@ -33,7 +33,7 @@ internal fun AutomationsView(
 	modifier: Modifier = Modifier,
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.automationOps.refreshAll() }
-	val groups = leading(automationGroups(state.gateways, home), lead) { it.gatewayId }
+	val groups = leading(automationGroups(state.gateways, state.assistantHome), lead) { it.gatewayId }
 	val toggleRefusals by repo.automationOps.toggles.refusals
 
 	PageColumn(modifier) {
@@ -52,8 +52,8 @@ internal fun AutomationsView(
 			for (row in group.rows) {
 				AutomationRowView(
 					row = row,
-					offer = group.offer,
-					can = group.edits(row),
+					served = group.context.served,
+					can = opensIn(row, group.context),
 					refusal = toggleRefusals[group.gatewayId to row.id],
 					onOpen = { onEdit(group.gatewayId, AutomationSlot.Held(row.id)) },
 					onToggle = { on -> repo.command { automationOps.setEnabled(group.gatewayId, row, on) } },
@@ -66,7 +66,7 @@ internal fun AutomationsView(
 @Composable
 private fun AutomationRowView(
 	row: AutomationRow,
-	offer: AutomationOffer,
+	served: Served,
 	can: Boolean,
 	refusal: String?,
 	onOpen: () -> Unit,
@@ -80,7 +80,7 @@ private fun AutomationRowView(
 	) {
 		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
 			Text(row.sentence, style = MaterialTheme.typography.bodyLarge)
-			Text(doesText(row.automation, offer), style = MaterialTheme.typography.bodySmall, color = dim)
+			Text(doesText(row.automation, served), style = MaterialTheme.typography.bodySmall, color = dim)
 			Text(
 				row.invalid ?: ranText(row, ::agoText, ::untilText),
 				style = MaterialTheme.typography.bodySmall,

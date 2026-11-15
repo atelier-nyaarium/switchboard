@@ -358,6 +358,10 @@ class EditorSessionsTest {
 		assertEquals(listOf(EditStanding.READING, EditStanding.UNREACHABLE, EditStanding.NOT_SERVED), waiting)
 		assertEquals(listOf(true, false, false), waiting.map { waitingLine(it) == null })
 		assertEquals(false, waitingLine(EditStanding.GONE) == null)
+		// Only a new or found record opens.
+		val opens = { held: Lookup<String>? -> openingDraft(held, { "fresh" }) { "on $it" } }
+		assertEquals(listOf("fresh", "on record"), listOf(null, Lookup.Found("record")).map(opens))
+		assertEquals(listOf(null, null, null, null), listOf(Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed).map(opens))
 		assertEquals("Apt: revision 5 is stored", leftLine("Apt", "Policy", "revision 5 is stored"))
 		assertEquals("Policy: unreachable", leftLine(" ", "Policy", "unreachable"))
 	}

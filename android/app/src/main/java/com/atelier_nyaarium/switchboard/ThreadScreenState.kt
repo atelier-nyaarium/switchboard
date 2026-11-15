@@ -90,10 +90,15 @@ internal fun threadChrome(
 	assistant: Boolean,
 	label: String,
 	tabs: List<String>,
-	sources: List<com.atelier_nyaarium.switchboard.proto.AssistantSource>,
+	/** The strip waits for an answer. */
+	home: AssistantRead,
 ): ThreadChrome =
 	if (assistant) {
-		ThreadChrome(RootView.ASSISTANT.title, monospace = false, tabRow = false, sessionMenu = false, inbox = inboxRows(sources))
+		val inbox = when (home) {
+			is AssistantRead.Answered -> inboxRows(sourcesOf(home.state))
+			AssistantRead.Reading, AssistantRead.Refused -> emptyList()
+		}
+		ThreadChrome(RootView.ASSISTANT.title, monospace = false, tabRow = false, sessionMenu = false, inbox = inbox)
 	} else {
 		ThreadChrome(label, monospace = true, tabRow = tabs.size > 1, sessionMenu = true, inbox = emptyList())
 	}

@@ -1,16 +1,17 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.AssistantHome
 import com.atelier_nyaarium.switchboard.AutomationSaved
 import com.atelier_nyaarium.switchboard.EditStanding
 import com.atelier_nyaarium.switchboard.waitingLine
 import com.atelier_nyaarium.switchboard.Lookup
-import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.GatewayEntry
 import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.GatewayRegistry
 import com.atelier_nyaarium.switchboard.ListEmpty
 import com.atelier_nyaarium.switchboard.listEmpty
 import com.atelier_nyaarium.switchboard.listedGroups
+import com.atelier_nyaarium.switchboard.openingDraft
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -21,7 +22,6 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.servesSources
-import com.atelier_nyaarium.switchboard.sourcesOf
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
@@ -107,6 +107,8 @@ internal data class AutomationDraft(
 	val actions: List<ActionDraft>,
 	val enabled: Boolean,
 	val revision: Long,
+	/** Survives a restart. */
+	val context: EditContext,
 	val original: Automation? = null,
 	/** Triggers swapped away, newest first. */
 	val stash: List<TriggerDraft> = emptyList(),
@@ -174,7 +176,7 @@ internal data class AutomationDraft(
 	fun minusAction(at: Int): AutomationDraft = copy(actions = actions.filterIndexed { index, _ -> index != at })
 
 	/** Null while the trigger cannot be saved. */
-	fun builtTrigger(offer: AutomationOffer = AutomationOffer()): AutomationTrigger? {
+	fun builtTrigger(offer: AutomationOffer): AutomationTrigger? {
 		val built = triggerOf(trigger, offer, display) ?: return null
 		val unfit = built is AutomationTrigger.Event &&
 			built.conditions.any { it.value.isEmpty() || it.value.length > MAX_VALUE_LEN }
@@ -182,7 +184,7 @@ internal data class AutomationDraft(
 	}
 
 	/** Null while the trigger or an action cannot be saved. */
-	fun toAutomation(offer: AutomationOffer = AutomationOffer()): Automation? {
+	fun toAutomation(offer: AutomationOffer): Automation? {
 		val built = builtTrigger(offer) ?: return null
 		if (actions.isEmpty() || actions.any { actionIssue(it, offer) != null }) return null
 		val written = actions.map { actionOf(it, offer) ?: return null }
@@ -202,12 +204,13 @@ private fun watchTrigger(device: String, offer: AutomationOffer, zone: String): 
 
 /** First offered trigger and action, or a crossing; null if none. */
 internal fun newAutomationDraft(
-	sources: List<AssistantSource>,
-	offer: AutomationOffer = AutomationOffer(),
+	context: EditContext,
 	zone: String = "",
 	watch: String? = null,
 	display: String? = null,
 ): AutomationDraft? {
+	val offer = context.offer
+	val sources = context.sources
 	val firstSource = sources.firstOrNull { it.triggers }?.id
 	val trigger = if (watch != null) {
 		watchTrigger(watch, offer, zone)
@@ -223,30 +226,9 @@ internal fun newAutomationDraft(
 		actions = listOf(action),
 		enabled = true,
 		revision = 0L,
+		context = context,
 		display = display,
 	)
-}
-
-/** The sources an editor on that Gateway may trigger on: the home's alone. */
-internal fun editorSources(registry: GatewayRegistry, gatewayId: String, home: String?): List<AssistantSource> =
-	registry.assistantOn(gatewayId)?.takeIf { gatewayId == home }?.let(::sourcesOf).orEmpty()
-
-/** Whether lists and the home's word are read. */
-internal fun automationStanding(registry: GatewayRegistry, gatewayId: String, home: String?, held: Lookup<AutomationRow>?): EditStanding {
-	val entry = registry.entry(gatewayId)
-	val listed = when (entry?.automations) {
-		is GatewayList.Listed -> EditStanding.READY
-		GatewayList.Unread, null -> EditStanding.READING
-		GatewayList.Unreachable -> EditStanding.UNREACHABLE
-		GatewayList.NotServed -> EditStanding.NOT_SERVED
-	}
-	return when {
-		held != null -> editStanding(held)
-		listed != EditStanding.READY -> listed
-		// New at home needs sources.
-		gatewayId == home && entry?.assistant == null -> EditStanding.READING
-		else -> EditStanding.READY
-	}
 }
 
 /** Null draws a spinner. */
@@ -256,13 +238,9 @@ internal fun unopenedLine(slot: AutomationSlot, standing: EditStanding): String?
 	else -> "This automation is not edited here."
 }
 
-internal fun newAutomationGateways(registry: GatewayRegistry, reachable: List<String>, home: String?): List<String> =
-	reachable.filter { id ->
-		newAutomationDraft(editorSources(registry, id, home), offerOn(registry.entry(id), away = id != home)) != null
-	}
-
 /** Null for a trigger the editor does not draw. */
-internal fun automationDraftOf(row: AutomationRow, offer: AutomationOffer = AutomationOffer(), display: String? = null): AutomationDraft? {
+internal fun automationDraftOf(row: AutomationRow, context: EditContext, display: String? = null): AutomationDraft? {
+	val offer = context.offer
 	val trigger = triggerDraftOf(row.automation.trigger, offer, display) ?: return null
 	return AutomationDraft(
 		id = row.id,
@@ -270,12 +248,13 @@ internal fun automationDraftOf(row: AutomationRow, offer: AutomationOffer = Auto
 		actions = row.automation.actions.map { actionDraftOf(it, offer) },
 		enabled = row.automation.enabled,
 		revision = row.revision,
+		context = context,
 		original = row.automation,
 		display = display,
 	)
 }
 
-internal fun fittingAutomation(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer = AutomationOffer()): Automation? =
+internal fun fittingAutomation(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): Automation? =
 	draft.toAutomation(offer)?.takeIf { draft.conditions.all { condition -> fields.issueOf(condition) == null } }
 
 /** The trigger a preview asks about; null while it could not be saved here. */
@@ -291,14 +270,14 @@ internal fun askedTrigger(
 
 internal fun openedDraft(
 	slot: AutomationSlot,
-	row: AutomationRow?,
-	sources: List<AssistantSource>,
-	offer: AutomationOffer = AutomationOffer(),
+	held: Lookup<AutomationRow>?,
+	context: EditContext,
 	display: String? = null,
 	zone: String = "",
 ): AutomationDraft? = when (slot) {
-	is AutomationSlot.Held -> row?.takeIf { editable(it, offer) }?.let { automationDraftOf(it, offer, display) }
-	is AutomationSlot.New -> newAutomationDraft(sources, offer, zone, slot.watch, display)
+	is AutomationSlot.Held ->
+		openingDraft(held, { null }) { row -> row.takeIf { editable(it, context.offer) }?.let { automationDraftOf(it, context, display) } }
+	is AutomationSlot.New -> newAutomationDraft(context, zone, slot.watch, display)
 }
 
 /** Held source stays first. */
@@ -317,7 +296,7 @@ internal fun automationEditing(
 	offered: Boolean,
 	busy: Boolean,
 	gone: Boolean,
-	offer: AutomationOffer = AutomationOffer(),
+	offer: AutomationOffer,
 ): AutomationEditing {
 	val edit = !busy && !gone
 	return AutomationEditing(
@@ -339,28 +318,29 @@ internal data class AutomationGroup(
 	val gatewayId: String,
 	val assistant: Boolean,
 	val rows: List<AutomationRow>,
-	val offer: AutomationOffer = AutomationOffer(),
-) {
-	/** Only the home takes an event automation. */
-	fun edits(row: AutomationRow): Boolean =
-		editable(row, offer) && (assistant || row.automation.trigger !is AutomationTrigger.Event)
-}
+	val context: AutomationContext,
+)
 
-internal fun automationGroups(registry: GatewayRegistry, home: String?): List<AutomationGroup> =
+internal fun automationGroups(registry: GatewayRegistry, home: AssistantHome): List<AutomationGroup> =
 	registry.gateways
 		.listedGroups { it.automations }
 		.filter { it.rows.isNotEmpty() }
 		.map {
-			val assistant = it.gatewayId == home
-			AutomationGroup(it.gatewayId, assistant, it.rows, offerOn(registry.entry(it.gatewayId), away = !assistant))
+			val context = automationContext(registry, home, it.gatewayId)
+			AutomationGroup(it.gatewayId, placedOn(home) == it.gatewayId, it.rows, context)
 		}
 		.sortedByDescending { it.assistant }
+
+private fun placedOn(home: AssistantHome): String? = when (home) {
+	AssistantHome.Unread -> null
+	is AssistantHome.Read -> home.record?.gatewayId
+}
 
 /** Home build outranks the rest. */
 internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmpty {
 	// Remove 2026-11-29: a Gateway answering sources serves this list, so its refusal is a fault.
 	val read = { entry: GatewayEntry ->
-		val faulted = entry.automations == GatewayList.NotServed && servesSources(registry.assistantOn(entry.id))
+		val faulted = entry.automations == GatewayList.NotServed && servesSources(registry.assistantRead(entry.id))
 		if (faulted) GatewayList.Unreachable else entry.automations
 	}
 	val notServed = home != null && registry.entry(home)?.let(read) == GatewayList.NotServed
@@ -368,7 +348,7 @@ internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmp
 }
 
 /** Needs a trigger the Gateway holds; undrawable actions are kept. */
-internal fun editable(row: AutomationRow, offer: AutomationOffer = AutomationOffer()): Boolean {
+internal fun editable(row: AutomationRow, offer: AutomationOffer): Boolean {
 	val trigger = triggerDraftOf(row.automation.trigger, offer, null) ?: return false
 	return trigger.kind in offer.triggers
 }
@@ -378,7 +358,7 @@ internal sealed interface AutomationSaid {
 
 	data class Line(override val line: String) : AutomationSaid
 
-	/** Dangerous actions to agree to before a save lands. */
+	/** Dangerous actions to confirm. */
 	data class Confirm(val labels: List<String>) : AutomationSaid {
 		override val line get() = "It needs your go-ahead: ${labels.joinToString(", ")}"
 	}
@@ -406,14 +386,14 @@ internal sealed interface AutomationOutcome {
 internal fun outcomeOf(
 	saved: AutomationSaved,
 	draft: AutomationDraft,
-	deleting: Boolean = false,
-	offer: AutomationOffer = AutomationOffer(),
+	deleting: Boolean,
+	context: EditContext,
 ): AutomationOutcome =
 	when (saved) {
 		is AutomationSaved.Stored -> AutomationOutcome.Done
 		AutomationSaved.Unreachable -> AutomationOutcome.Said("That Gateway could not be reached")
 		is AutomationSaved.Refused -> {
-			val held = saved.heldRow?.takeIf { it.id == draft.id && it.revision != draft.revision && editable(it, offer) }
+			val held = saved.heldRow?.takeIf { it.id == draft.id && it.revision != draft.revision && editable(it, context.offer) }
 			val hole = saved.hole
 			when {
 				saved.confirm.isNotEmpty() -> AutomationOutcome.Said(AutomationSaid.Confirm(saved.confirm))
@@ -429,7 +409,7 @@ internal fun outcomeOf(
 				)
 				held == null -> AutomationOutcome.Said(saved.reason)
 				deleting -> AutomationOutcome.Offer(
-					automationDraftOf(held, offer, draft.display) ?: draft,
+					automationDraftOf(held, context, draft.display) ?: draft,
 					"It changed elsewhere; this is it now. Delete again to delete it.",
 				)
 				else -> AutomationOutcome.Offer(
@@ -439,9 +419,6 @@ internal fun outcomeOf(
 			}
 		}
 	}
-
-internal fun doesText(automation: Automation, offer: AutomationOffer = AutomationOffer()): String =
-	automation.actions.joinToString(" · ") { actionLine(it, offer) }
 
 /** A clock's next slot outranks its last run. */
 internal fun ranText(row: AutomationRow, ago: (Long) -> String, until: (Long) -> String = { "soon" }): String =
@@ -457,5 +434,3 @@ internal fun producesText(specs: List<AssistantFieldSpec>): String =
 /** Null for no recent events. */
 internal fun previewHead(preview: ConsoleAutomationPreviewResult): String? =
 	if (preview.of == 0L) null else "Would have matched ${preview.matched} of the last ${preview.of}"
-
-internal fun usesOf(sourceId: String, rows: List<AutomationRow>): Int = triggeredBy(sourceId, rows).size

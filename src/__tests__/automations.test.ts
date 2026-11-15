@@ -1,11 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createInboxListing } from "../gateway/assistant/inboxListing.js";
 import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { PollAnswerSchema, told } from "../gateway/assistant/source.js";
 import { memberKey } from "../gateway/assistant/sourceLane.js";
-import { createAutomations, READY_GRACE_MS } from "../gateway/computed/automations.js";
+import { FRESH_STATE, type SourceState } from "../gateway/assistant/sourceState.js";
+import type { ActionOutcome } from "../gateway/computed/automationRunner.js";
+import { createAutomations, EFFECT_RETRY_MS, EFFECT_WAIT_MS } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
@@ -58,8 +61,11 @@ function world(dir: string, home = true) {
 	let switches = ["plug"];
 	let readable = true;
 	let iftttReady = true;
+	let iftttAnswer: ActionOutcome = { outcome: "refused", reason: "not_granted" };
 	/** Effects wait on it. */
 	let gate: Promise<void> = Promise.resolve();
+	/** Only this effect waits; null: all. */
+	let gated: string | null = null;
 	const open = () => {
 		let automations: ReturnType<typeof createAutomations> | undefined;
 		const fields = openDurable(dir, "computed-fields", (records) =>
@@ -105,12 +111,12 @@ function world(dir: string, home = true) {
 						switchName: (device) => (switches.includes(device) ? "Heater" : null),
 						deviceSet: async (device, verb) => {
 							effects.push(`${device}:${verb}`);
-							await gate;
+							if (gated === null || gated === `${device}:${verb}`) await gate;
 							return { outcome: "ran" };
 						},
 						iftttTrigger: async ({ event }) => {
 							effects.push(`ifttt:${event}`);
-							return { outcome: "refused", reason: "not_granted" };
+							return iftttAnswer;
 						},
 					},
 				});
@@ -152,7 +158,8 @@ function world(dir: string, home = true) {
 		failing = count;
 	};
 	/** Effects wait until released. */
-	const holdEffects = () => {
+	const holdEffects = (only: string | null = null) => {
+		gated = only;
 		let release = () => {};
 		gate = new Promise((resolve) => {
 			release = resolve;
@@ -168,6 +175,9 @@ function world(dir: string, home = true) {
 	};
 	const setIftttReady = (ready: boolean) => {
 		iftttReady = ready;
+	};
+	const answerIfttt = (answer: ActionOutcome) => {
+		iftttAnswer = answer;
 	};
 	const advance = (ms: number) => {
 		clock += ms;
@@ -185,6 +195,7 @@ function world(dir: string, home = true) {
 		unplug,
 		unreadable,
 		setIftttReady,
+		answerIfttt,
 	};
 }
 
@@ -416,6 +427,41 @@ describe("automations", () => {
 		expect(automations.runs().map((run) => run.outcome)).toEqual(["ran", "suppressed"]);
 	});
 
+	it("drops quiet events from the automation holding the most, and names each automation that lost one", () => {
+		const dir = fresh();
+		const quiet = (owner: string, at: number) => ({
+			member: `automation:${owner}:a0:${at}`,
+			at: 500 + at,
+			body: { title: owner, fields: { value: "x" } },
+		});
+		const old = [
+			...Array.from({ length: 128 }, (_, i) => quiet("alpha", i)),
+			...Array.from({ length: 128 }, (_, i) => quiet("beta", 128 + i)),
+		];
+		const state = { automations: {}, queue: { lastAt: 999, events: old }, log: [] };
+		fs.writeFileSync(path.join(dir, "automation-state.json"), JSON.stringify(state));
+		const w = world(dir);
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const urgent = { ...iceBucket(), actions: [{ kind: "tell_assistant", when: "now" }] } as Automation;
+		automations.ownerPut("bucket", urgent, 0);
+		automations.ownerPut("pail", { ...urgent, label: "Pail" }, 0);
+		w.read(fields, -5);
+
+		const ids = automations.outbox.events().map((event) => event.id);
+		expect([old[0]?.member, old[128]?.member].map((member) => ids.includes(member as string))).toEqual([
+			false,
+			false,
+		]);
+		expect(ids).toHaveLength(256);
+		expect(
+			automations
+				.runs()
+				.filter((run) => run.outcome === "suppressed")
+				.map((run) => run.automation),
+		).toEqual(["alpha", "beta"]);
+	});
+
 	it("runs a fire's effects whatever the outbox holds, and tells it within the lane's bounds once there is room", async () => {
 		const dir = fresh();
 		const old = fullQueue(dir, "now");
@@ -443,8 +489,8 @@ describe("automations", () => {
 
 		expect(w.effects).toEqual(["plug:on"]);
 		expect(waiting).toEqual([
-			["device_set", "ran"],
 			["tell_assistant", "refused"],
+			["device_set", "ran"],
 		]);
 		expect(told.map((event) => [event.fields.value, event.fields.message?.length, event.tell])).toEqual([
 			["high", 1_000, "now"],
@@ -550,6 +596,64 @@ describe("automations", () => {
 		expect(new Set(ids).size).toBe(2);
 		automations.clear([ids[0] as string]);
 		expect(await queued(automations)).toEqual(["high"]);
+	});
+
+	it("continues a cut listing after the last event it showed, skipping none a clear removed meanwhile, and marks only what it listed", async () => {
+		const dir = fresh();
+		const old = Array.from({ length: 200 }, (_, i) => ({
+			member: `automation:alpha:a0:${i}`,
+			at: 500 + i,
+			body: { title: "Old", fields: { value: "x".repeat(600) } },
+		}));
+		const state = { automations: {}, queue: { lastAt: 999, events: old }, log: [] };
+		fs.writeFileSync(path.join(dir, "automation-state.json"), JSON.stringify(state));
+		const w = world(dir);
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
+		const source = createOutboxSource(automations.outbox);
+		let held: SourceState = { ...FRESH_STATE, mark: 0 };
+		const listing = createInboxListing({
+			sources: [source],
+			enabled: () => true,
+			state: {
+				get: () => held,
+				put: (_id, next) => {
+					held = next;
+					return true;
+				},
+			},
+			decide: () => "inbox",
+			ambient: { randomBytes: (size) => Buffer.alloc(size, 7) },
+			livePage: async (_id, query, _ms, settle) => {
+				const read = await source.list?.(query(), new AbortController().signal);
+				if (!read) throw new Error("the outbox lists nothing");
+				return settle(read);
+			},
+		});
+		const shown: string[] = [];
+		let cleared: string[] = [];
+		let page: string | undefined;
+		do {
+			const [list] = await listing.list("new", page);
+			shown.push(...(list?.items ?? []).map((item) => item.id));
+			page = list?.next;
+			if (cleared.length === 0) {
+				cleared = [...shown];
+				automations.clear(cleared);
+				// Tell drops old events.
+				w.read(fields, -5);
+			}
+		} while (page);
+		const kept = automations.outbox
+			.events()
+			.filter((event) => event.title === "Old")
+			.map((event) => event.id);
+		const [after] = await listing.list("new");
+
+		expect([cleared.length, kept.length].every((count) => count > 0)).toBe(true);
+		expect(shown.toSorted()).toEqual([...cleared, ...kept].toSorted());
+		expect(after?.items.map((item) => item.fields.value)).toEqual(["high"]);
 	});
 
 	it("holds a queue entry this build cannot read, and lists and clears the rest", async () => {
@@ -691,6 +795,40 @@ describe("automations", () => {
 		expect(await queued(automations)).toHaveLength(80);
 	});
 
+	it("lets a flood of one automation crowd out only its own waiting runs, never another automation's", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut(
+			"flash",
+			{
+				enabled: true,
+				trigger: { kind: "event", source: "github", conditions: [] },
+				actions: [{ kind: "device_set", device: "plug", verb: "toggle" }],
+			},
+			0,
+		);
+		automations.ownerPut(
+			"heat",
+			{ ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] },
+			0,
+		);
+		const release = w.holdEffects();
+		const flood = Array.from({ length: 70 }, (_, at) => ({
+			automation: "flash",
+			key: memberKey("github", { id: String(at), at }),
+			names: {},
+		}));
+		automations.fireEvents(flood, 5_000);
+		w.read(fields, -5);
+		const crowded = automations.runs().map(({ automation, outcome }) => [automation, outcome]);
+		release();
+		await automations.settled();
+
+		expect(crowded).toEqual([["flash", "suppressed"]]);
+		expect([w.effects.filter((at) => at === "plug:toggle").length, w.effects.at(-1)]).toEqual([63, "plug:on"]);
+	});
+
 	it("leaves a fire queued while its effect cannot be attempted, runs the others, and sends it once it can", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
@@ -716,30 +854,75 @@ describe("automations", () => {
 		expect(w.effects).toEqual(["plug:on", "ifttt:freezer"]);
 	});
 
-	it("attempts an unready effect once the start's grace has passed, and holds a fire's plug and tell no longer than that", async () => {
+	const bell: Automation = {
+		...iceBucket(),
+		actions: [
+			{ kind: "device_set", device: "plug", verb: "on" },
+			{ kind: "ifttt_trigger", event: "freezer" },
+			{ kind: "tell_assistant", when: "now" },
+		],
+	};
+	const ifttt = (automations: ReturnType<typeof createAutomations>) =>
+		automations
+			.runs()
+			.filter((run) => run.action === "ifttt_trigger")
+			.map((run) => run.outcome);
+
+	it("runs a fire's plug and tell while its unready effect waits alone, and refuses that effect unsent once the wait has passed", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
-		const bell: Automation = {
-			...iceBucket(),
-			actions: [
-				{ kind: "device_set", device: "plug", verb: "on" },
-				{ kind: "ifttt_trigger", event: "freezer" },
-				{ kind: "tell_assistant", when: "now" },
-			],
-		};
 		automations.ownerPut("bell", bell, 0, true);
 		w.setIftttReady(false);
 		w.read(fields, -5);
 		await automations.settled();
-		const held = [[...w.effects], (await queued(automations)).length];
-		w.advance(READY_GRACE_MS);
+		const held = [[...w.effects], (await queued(automations)).length, ifttt(automations)];
+		w.advance(EFFECT_WAIT_MS);
 		automations.tick();
 		await automations.settled();
 
-		expect(held).toEqual([[], 0]);
-		expect(w.effects).toEqual(["plug:on", "ifttt:freezer"]);
-		expect(await queued(automations)).toHaveLength(1);
+		expect(held).toEqual([["plug:on"], 1, []]);
+		expect(w.effects).toEqual(["plug:on"]);
+		expect(ifttt(automations)).toEqual(["refused"]);
+	});
+
+	it("retries an effect that sent nothing while its plug and tell go ahead, sends it once it can, and refuses it once the wait has passed", async () => {
+		const sends = world(fresh());
+		const a = sends.open();
+		a.fields.put("band", hotBand, 0);
+		a.automations.ownerPut("bell", bell, 0, true);
+		sends.answerIfttt({ outcome: "not_started", reason: "not_ready" });
+		sends.read(a.fields, -5);
+		await a.automations.settled();
+		const first = [[...sends.effects], (await queued(a.automations)).length, ifttt(a.automations)];
+		a.automations.tick();
+		await a.automations.settled();
+		const resting = [...sends.effects];
+		sends.answerIfttt({ outcome: "ran" });
+		sends.advance(EFFECT_RETRY_MS);
+		a.automations.tick();
+		await a.automations.settled();
+
+		const lapses = world(fresh());
+		const b = lapses.open();
+		b.fields.put("band", hotBand, 0);
+		b.automations.ownerPut("bell", bell, 0, true);
+		lapses.answerIfttt({ outcome: "not_started", reason: "not_ready" });
+		lapses.read(b.fields, -5);
+		await b.automations.settled();
+		for (const step of [EFFECT_RETRY_MS, EFFECT_WAIT_MS, EFFECT_RETRY_MS]) {
+			lapses.advance(step);
+			b.automations.tick();
+			await b.automations.settled();
+		}
+
+		expect(first).toEqual([["plug:on", "ifttt:freezer"], 1, []]);
+		expect(resting).toEqual(["plug:on", "ifttt:freezer"]);
+		expect([sends.effects, ifttt(a.automations)]).toEqual([["plug:on", "ifttt:freezer", "ifttt:freezer"], ["ran"]]);
+		expect([lapses.effects, ifttt(b.automations)]).toEqual([
+			["plug:on", "ifttt:freezer", "ifttt:freezer"],
+			["refused"],
+		]);
 	});
 
 	it("runs the effect of every event one poll brings, and of each that arrives behind a busy run", async () => {
@@ -845,6 +1028,30 @@ describe("automations", () => {
 			["uncertain"],
 			["ran"],
 		]);
+	});
+
+	it("after a crash mid-run, runs the effects not yet started, logs the one in flight uncertain, and repeats none", async () => {
+		const w = world(fresh());
+		const before = w.open();
+		before.fields.put("band", hotBand, 0);
+		const three: Automation = {
+			...iceBucket(),
+			actions: [
+				{ kind: "device_set", device: "plug", verb: "on" },
+				{ kind: "device_set", device: "plug", verb: "off" },
+				{ kind: "device_set", device: "plug", verb: "toggle" },
+			],
+		};
+		before.automations.ownerPut("three", three, 0);
+		w.holdEffects("plug:off");
+		w.read(before.fields, -5);
+		await vi.waitFor(() => expect(w.effects).toContain("plug:off"));
+
+		const after = w.open().automations;
+		await after.settled();
+
+		expect(w.effects).toEqual(["plug:on", "plug:off", "plug:toggle"]);
+		expect(after.runs().map((run) => run.outcome)).toEqual(["ran", "uncertain", "ran"]);
 	});
 
 	it("runs an event's effects once per member, again for later activity on it, and refuses an action whose switch this Gateway lacks", async () => {

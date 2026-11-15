@@ -633,7 +633,7 @@ fun App(
 				assistant = assistantOpen,
 				label = tabLabelFor(state, team),
 				tabs = state.openTabs,
-				sources = state.gateways.assistantOn(gatewayOf(team))?.let(::sourcesOf).orEmpty(),
+				home = state.gateways.assistantRead(gatewayOf(team)),
 			)
 			SideDrawer(drawers = menuDrawer, sheet = menuSheet) {
 			ThreadScreen(
@@ -822,7 +822,7 @@ fun App(
 			// A pick made inside a session is drawn over it.
 			val over = screen.over
 			val home = assistantGateway(state)
-			val newAutomations = newAutomationGateways(state.gateways, ViewScope.Everything.newOn(state.gateways), home)
+			val newAutomations = newAutomationGateways(state.gateways, ViewScope.Everything.newOn(state.gateways), state.assistantHome)
 			RootScreen(
 				shown = screen.view,
 				drawerSide = drawerSide,

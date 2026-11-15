@@ -42,7 +42,7 @@ import com.atelier_nyaarium.switchboard.MirroredDraft
 import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.openingDraft
 import com.atelier_nyaarium.switchboard.rememberEdit
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 
@@ -57,11 +57,10 @@ fun PolicyEditor(
 	val lookup = remember(gatewayId, policyId, state.gateways) {
 		policyId?.let { state.gateways.policyOn(gatewayId, it) }
 	}
-	val held: AuthorizationPolicy? = lookup?.found()
 	// The edit lives in the ops class, which outlives the activity.
 	val edits = repo.policyOps.edits
 	val key = EditKey(gatewayId, policyId)
-	val fresh = remember(key, held) { held?.let { PolicyDraft.of(it) } ?: PolicyDraft.fresh() }
+	val fresh = remember(key, lookup) { openingDraft(lookup, PolicyDraft::fresh, PolicyDraft::of) }
 	val standing = editStanding(lookup)
 	if (standing == EditStanding.READING || standing == EditStanding.UNREACHABLE) {
 		LaunchedEffect(gatewayId) { repo.command { policyOps.refresh(gatewayId) } }
@@ -109,7 +108,7 @@ fun PolicyEditor(
 					Column(Modifier.padding(12.dp)) {
 						Text(reason, style = MaterialTheme.typography.bodyMedium)
 						// An owner tap, as a runbook's overwrite is.
-						val over = held?.takeIf { refusedAt != null && it.revision >= refusedAt }?.let(draft::over)
+						val over = draft.saveOver(lookup, refusedAt)
 						if (over != null && !saving) {
 							TextButton(onClick = hapticClick { draft = over; commit(over) }) {
 								Text("Save over revision ${over.revision}")

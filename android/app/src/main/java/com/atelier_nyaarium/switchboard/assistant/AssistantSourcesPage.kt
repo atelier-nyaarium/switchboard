@@ -54,7 +54,7 @@ import com.atelier_nyaarium.switchboard.NoHome
 import com.atelier_nyaarium.switchboard.noHome
 import com.atelier_nyaarium.switchboard.devicesPending
 import com.atelier_nyaarium.switchboard.servicesWaiting
-import com.atelier_nyaarium.switchboard.displayUnitOf
+import com.atelier_nyaarium.switchboard.homeHolding
 import com.atelier_nyaarium.switchboard.isSensor
 import com.atelier_nyaarium.switchboard.mainValue
 import com.atelier_nyaarium.switchboard.rowBrandLine
@@ -65,7 +65,6 @@ import com.atelier_nyaarium.switchboard.serviceRows
 import com.atelier_nyaarium.switchboard.sourceGroups
 import com.atelier_nyaarium.switchboard.sourceHealth
 import com.atelier_nyaarium.switchboard.sourceTroubled
-import com.atelier_nyaarium.switchboard.sourcesOf
 import com.atelier_nyaarium.switchboard.troubleLine
 
 /** Devices by Gateway, then the home's services. */
@@ -81,19 +80,19 @@ internal fun SourcesView(
 	onSource: (String, String) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
-	val holding = home?.let { state.gateways.assistantOn(it) }
-	val (on, off) = remember(holding) { holding?.let(::sourcesOf).orEmpty().partition { it.enabled } }
+	val holding = homeHolding(home?.let(state.gateways::assistantRead))
+	val (on, off) = remember(holding) { holding.sources.partition { it.enabled } }
 	var showDisabled by rememberSaveable { mutableStateOf(false) }
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
-	val services = remember(holding?.integrations, entries) { serviceRows(holding?.integrations, entries) }
+	val services = remember(holding.integrations, entries) { serviceRows(holding.integrations, entries) }
 	val views by repo.deviceOps.views.collectAsState()
 	val roster = state.gateways.ids()
 	val reach = roster.map { gatewayId -> gatewayId to state.gateways.entry(gatewayId)?.let { state.gateways.reachable(gatewayId) to it.incarnation } }
 	LaunchedEffect(home, reach) {
 		if (home != null) for (gatewayId in roster) repo.command { deviceOps.refresh(gatewayId) }
 	}
-	val display = displayUnitOf(holding)
+	val display = holding.display
 	val works by repo.assistantOps.work.collectAsState()
 	val unitsBusy = works[WorkKey.Units]?.busy == true
 	val unitsSaid = works[WorkKey.Units]?.said
@@ -154,7 +153,7 @@ internal fun SourcesView(
 			}
 			if (withServices) serviceRows()
 		}
-		holding?.temperatureUnit?.let { unit ->
+		holding.temperatureUnit?.let { unit ->
 			HorizontalDivider()
 			UnitRow(unit, busy = unitsBusy) { picked ->
 				repo.command { assistantOps.runWork(WorkKey.Units) { answerText(setTemperatureUnit(home, picked)) } }

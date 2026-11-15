@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.safetyLines
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
@@ -253,7 +254,7 @@ class AssistantOpsTest {
 		val (ops, state) = stateWithHome(fake, router, listOf("sakura", "mikan"))
 		state.value = state.value.copy(
 			gateways = state.value.gateways.withEntry("sakura") {
-				it.copy(assistant = AssistantWord.Answered(assistantState(approveEverySend = true)))
+				it.copy(assistant = AssistantRead.Answered(assistantState(approveEverySend = true)))
 			},
 		)
 
@@ -742,8 +743,8 @@ class AssistantOpsTest {
 		val (ops, state) = ops(fake, "sakura", "mikan")
 		state.value = state.value.copy(
 			gateways = state.value.gateways
-				.withEntry("sakura") { it.copy(assistant = AssistantWord.Answered(assistantState(sources = listOf(source())))) }
-				.withEntry("mikan") { it.copy(assistant = AssistantWord.Answered(older)) },
+				.withEntry("sakura") { it.copy(assistant = AssistantRead.Answered(assistantState(sources = listOf(source())))) }
+				.withEntry("mikan") { it.copy(assistant = AssistantRead.Answered(older)) },
 		)
 
 		ops.setEnabled("sakura", "github", false)
@@ -855,12 +856,17 @@ class AssistantOpsTest {
 
 		val unplaced = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES)
 
-		assertEquals(unplaced, assistantSections(home = null, placed = null))
-		assertEquals(unplaced + AssistantSection.REMOVE, assistantSections("sakura", placed))
-		assertEquals(
-			listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.SAFETY, AssistantSection.REMOVE),
-			assistantSections("sakura", safe),
-		)
+		val all = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.SAFETY, AssistantSection.REMOVE)
+
+		assertEquals(unplaced, assistantSections(home = null, read = null))
+		assertEquals(unplaced + AssistantSection.REMOVE, assistantSections("sakura", AssistantRead.Answered(placed)))
+		assertEquals(all, assistantSections("sakura", AssistantRead.Answered(safe)))
+		// Unread Safety stays, saying why.
+		assertEquals(all, assistantSections("sakura", AssistantRead.Reading))
+		assertEquals(all, assistantSections("sakura", AssistantRead.Refused))
+		assertEquals("Approve every send: on", safetyLines(AssistantRead.Answered(safe)).line)
+		assertEquals(listOf(true, false), listOf(AssistantRead.Refused, AssistantRead.Reading).map { safetyLines(it).warning != null })
+		assertEquals(listOf("~/notes", null, null), listOf(AssistantRead.Answered(placed), AssistantRead.Reading, null).map(::workdirOf))
 	}
 
 	@Test

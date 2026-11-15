@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
+import com.atelier_nyaarium.switchboard.assistant.EditContext
+import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
@@ -53,8 +55,9 @@ class AssistantRuleVectorsTest {
 			val name = o["name"]!!.jsonPrimitive.content
 			val condition = AutomationCondition(o["field"]!!.jsonPrimitive.content, o["test"]!!.jsonPrimitive.content, valueOf(o))
 			val trigger = TriggerDraft.Event("github", listOf(condition))
-			val draft = AutomationDraft("a", trigger, listOf(toldDraft("now")), enabled = true, revision = 0L)
-			val fitted = fittingAutomation(draft, rules)?.trigger as? AutomationTrigger.Event
+			val legacy = offerOf(null, away = false)
+			val draft = AutomationDraft("a", trigger, listOf(toldDraft("now")), enabled = true, revision = 0L, EditContext(legacy, emptyList()))
+			val fitted = fittingAutomation(draft, rules, legacy)?.trigger as? AutomationTrigger.Event
 			assertEquals(name, o["fits"]!!.jsonPrimitive.boolean, fitted != null)
 			o["canonical"]?.let { assertEquals(name, it.jsonPrimitive.content, fitted?.conditions?.single()?.value) }
 			// A blocked Save says why, unless the value is blank.

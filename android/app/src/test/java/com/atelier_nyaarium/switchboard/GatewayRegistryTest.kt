@@ -30,7 +30,7 @@ class GatewayRegistryTest {
 				automations = GatewayList.Listed(emptyList()),
 				automationServes = SANDBOX_SERVES,
 				peers = peers,
-				assistant = AssistantWord.Refused,
+				assistant = AssistantRead.Refused,
 			)
 		}
 

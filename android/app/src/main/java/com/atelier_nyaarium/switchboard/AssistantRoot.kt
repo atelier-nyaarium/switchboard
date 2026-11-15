@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Protocol
 
 /** Same spawn and session everywhere. */
@@ -142,7 +143,7 @@ internal fun ShellPage.resolved(state: ChatState, devices: (String) -> DeviceLis
 	is ShellPage.Entry -> when {
 		assistantLeft(state, gatewayId) -> null
 		catalogued(integrationId) == null -> ShellPage.Add
-		state.gateways.assistantOn(gatewayId)?.offered?.let { integrationId !in it } == true -> ShellPage.Add
+		!offers(state.gateways.assistantRead(gatewayId), integrationId) -> ShellPage.Add
 		else -> this
 	}
 	is ShellPage.Setup -> when {
@@ -155,9 +156,24 @@ internal fun ShellPage.resolved(state: ChatState, devices: (String) -> DeviceLis
 	is ShellPage.SourceAutomations -> takeUnless { sourceGone(state, gatewayId, sourceId) }
 }
 
+/** Older Gateways name no offer. */
+private fun offers(read: AssistantRead, integrationId: String): Boolean = when (read) {
+	is AssistantRead.Answered -> read.state.offered?.let { integrationId in it } ?: true
+	AssistantRead.Reading, AssistantRead.Refused -> true
+}
+
 private fun sourceGone(state: ChatState, gatewayId: String, sourceId: String): Boolean {
-	val answered = state.gateways.assistantOn(gatewayId)
-	return assistantLeft(state, gatewayId) || (answered != null && sourcesOf(answered).none { it.id == sourceId })
+	if (assistantLeft(state, gatewayId)) return true
+	return when (val read = state.gateways.assistantRead(gatewayId)) {
+		is AssistantRead.Answered -> sourcesOf(read.state).none { it.id == sourceId }
+		AssistantRead.Reading, AssistantRead.Refused -> false
+	}
+}
+
+/** Null spins or retries. */
+internal fun heldSource(read: AssistantRead, sourceId: String): AssistantSource? = when (read) {
+	is AssistantRead.Answered -> sourcesOf(read.state).find { it.id == sourceId }
+	AssistantRead.Reading, AssistantRead.Refused -> null
 }
 
 /** Home moves keep it. */

@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.AssistantRead
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
@@ -56,7 +57,7 @@ import com.atelier_nyaarium.switchboard.proto.IntegrationDiscovery
 import com.atelier_nyaarium.switchboard.proto.IntegrationNeedKind
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.saidOf
-import com.atelier_nyaarium.switchboard.serviceEntry
+import com.atelier_nyaarium.switchboard.serviceEntryOf
 
 /** One catalogue entry. */
 @Composable
@@ -219,12 +220,10 @@ private fun NeedsEntryPage(
 	onAdded: () -> Unit,
 	onBack: () -> Unit,
 ) {
-	val holding = state.gateways.assistantOn(gatewayId)
+	val read = state.gateways.assistantRead(gatewayId)
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
-	val service = remember(holding?.integrations, entries, gatewayId) {
-		serviceEntry(integration, holding?.integrations, entries, gatewayId)
-	}
+	val service = remember(read, entries, gatewayId) { serviceEntryOf(read, integration, entries, gatewayId) }
 	val works by repo.assistantOps.work.collectAsState()
 	val key = WorkKey.Source(gatewayId, integration.id)
 	val work = works[key] ?: PageWork()
@@ -233,8 +232,9 @@ private fun NeedsEntryPage(
 	val added = service?.grants?.isNotEmpty() == true
 	// Baseline waits for the state answer.
 	var baseline by remember(integration.id) { mutableStateOf<Boolean?>(null) }
-	LaunchedEffect(holding != null, added) {
-		if (holding == null) return@LaunchedEffect
+	val answered = read is AssistantRead.Answered
+	LaunchedEffect(answered, added) {
+		if (!answered) return@LaunchedEffect
 		if (baseline == null) baseline = added else if (added && baseline == false) onAdded()
 	}
 
@@ -244,6 +244,7 @@ private fun NeedsEntryPage(
 		actions = { if (added) RemoveMenu("Remove service", enabled = !work.busy) { removing = true } },
 	) {
 		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		if (!answered) UnreadLine(repo, read, gatewayId)
 		if (service == null) return@AssistantPageScaffold
 		for (need in integration.needs) {
 			when (need.kind) {

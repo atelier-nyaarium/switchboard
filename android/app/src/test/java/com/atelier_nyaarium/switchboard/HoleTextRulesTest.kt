@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
+import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.TextPreview
 import com.atelier_nyaarium.switchboard.assistant.TextRef
@@ -110,13 +111,14 @@ class HoleTextRulesTest {
 
 	@Test
 	fun aRefNamesOneTextOfTheDraftWithTheLabelAndCapItsGatewayGaveIt() {
-		val offer = offerOf(SANDBOX_SERVES)
+		val offer = offerOf(SANDBOX_SERVES, away = false)
 		val draft = AutomationDraft(
 			"a",
 			TriggerDraft.Interval("1", com.atelier_nyaarium.switchboard.assistant.IntervalUnit.HOURS),
 			listOf(toldDraft("now", "Hi"), iftttDraft("door", value2 = "two"), plugDraft("aa", "on")),
 			enabled = true,
 			revision = 0L,
+			EditContext(offer, emptyList()),
 		)
 		val at = { action: Int, param: String -> textAt(draft, TextRef(action, param), offer) }
 		val named = { action: Int, param: String -> textParam(draft, TextRef(action, param), offer)?.let { it.label to it.max } }
@@ -126,7 +128,7 @@ class HoleTextRulesTest {
 			listOf(at(0, "message"), at(0, "value1"), at(1, "value2"), at(1, "event"), at(2, "verb"), at(9, "message")),
 		)
 		assertEquals(listOf("Message" to 1_000, "Value 2" to 500, null), listOf(named(0, "message"), named(1, "value2"), named(0, "when")))
-		assertNull(textAt(draft, TextRef(0, "message"), offerOf(null)))
+		assertNull(textAt(draft, TextRef(0, "message"), offerOf(null, away = false)))
 	}
 
 	@Test

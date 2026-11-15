@@ -58,8 +58,19 @@ internal data class ServiceEntry(
 	val offered: List<VaultEntryView>,
 )
 
-/** One service's page: its grants, their line, and the vault entries it may be granted. */
-internal fun serviceEntry(
+/** Only an answer holds grants. */
+internal fun serviceEntryOf(
+	read: AssistantRead,
+	integration: Integration,
+	entries: List<VaultEntryView>,
+	gatewayId: String,
+): ServiceEntry? = when (read) {
+	is AssistantRead.Answered -> serviceEntry(integration, read.state.integrations, entries, gatewayId)
+	AssistantRead.Reading, AssistantRead.Refused -> null
+}
+
+/** An older Gateway holds no services. */
+private fun serviceEntry(
 	integration: Integration,
 	services: List<AssistantIntegration>?,
 	entries: List<VaultEntryView>,

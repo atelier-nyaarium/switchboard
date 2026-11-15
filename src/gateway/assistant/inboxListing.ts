@@ -1,4 +1,4 @@
-// The assistant's live inbox: one signed page at a time, and the mark a `new` read moves.
+// The assistant's live inbox.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -19,7 +19,7 @@ export interface InboxListingDeps {
 	state: Pick<SourceStateStore, "get" | "put">;
 	decide: (sourceId: string, event: SourceEvent) => RuleAction;
 	ambient: Pick<Ambient, "randomBytes">;
-	/** One page read in the source's lane; the query is built there, so it reads the lane's mark. */
+	/** One page, read in the source's lane. */
 	livePage: <T>(
 		sourceId: string,
 		query: () => ListQuery,
@@ -32,14 +32,29 @@ export interface InboxListing {
 	list(scope: InboxScope, page?: string): Promise<InboxList[]>;
 }
 
-/** A source's own page token, and how many of its items were shown. */
+/** The last item a cut page showed. */
+interface Anchor {
+	at: number;
+	id: string;
+}
+
+/** A source's own page token, and where its items were cut. */
 interface PageAt {
 	sourceId: string;
 	inner?: string;
-	skip: number;
+	after?: Anchor;
 }
 
-const PageBodySchema = z.tuple([z.string(), z.string().nullable(), z.number().int().nonnegative()]);
+const PageBodySchema = z.tuple([z.string(), z.string().nullable(), z.tuple([z.number(), z.string()]).nullable()]);
+
+/** After the anchor, else after every item newer than it; newest first. */
+const startOf = (listed: readonly SourceEvent[], after: Anchor | undefined): number => {
+	if (!after) return 0;
+	const held = listed.findIndex((event) => event.id === after.id);
+	if (held !== -1) return held + 1;
+	const older = listed.findIndex((event) => event.at <= after.at);
+	return older === -1 ? listed.length : older;
+};
 
 export function createInboxListing(deps: InboxListingDeps): InboxListing {
 	const { state } = deps;
@@ -47,7 +62,7 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 	const pageKey = deps.ambient.randomBytes(32);
 	const signed = (body: string) => createHmac("sha256", pageKey).update(body).digest("base64url");
 	const wrapPage = (at: PageAt) => {
-		const body = JSON.stringify([at.sourceId, at.inner ?? null, at.skip]);
+		const body = JSON.stringify([at.sourceId, at.inner ?? null, at.after ? [at.after.at, at.after.id] : null]);
 		return Buffer.from(JSON.stringify([body, signed(body)])).toString("base64url");
 	};
 	const unwrapPage = (page: string): PageAt | null => {
@@ -58,16 +73,20 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 			const expected = Buffer.from(signed(body));
 			const given = Buffer.from(signature);
 			if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
-			const [sourceId, inner, skip] = PageBodySchema.parse(JSON.parse(body));
-			return { sourceId, ...(inner === null ? {} : { inner }), skip };
+			const [sourceId, inner, after] = PageBodySchema.parse(JSON.parse(body));
+			return {
+				sourceId,
+				...(inner === null ? {} : { inner }),
+				...(after === null ? {} : { after: { at: after[0], id: after[1] } }),
+			};
 		} catch {
 			return null;
 		}
 	};
 
 	/**
-	 * A cut page continues from its first unshown item. A `new` read's last page moves the mark only
-	 * once it is shown whole.
+	 * A cut page continues after the last item it showed, whatever left meanwhile. A `new` read's
+	 * last page moves the mark only once it is shown whole.
 	 */
 	const listOne = (source: Source, scope: InboxScope, at: Omit<PageAt, "sourceId">): Promise<InboxList> => {
 		const { label } = source;
@@ -78,7 +97,8 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 		return deps
 			.livePage(source.id, query, ASSISTANT_WAITS.list, (read) => {
 				const listed = read.events.filter((event) => !isGone(state.get(source.id), event));
-				const shown: InboxItem[] = listed.slice(at.skip).map((event) => {
+				const unshown = listed.slice(startOf(listed, at.after));
+				const shown: InboxItem[] = unshown.map((event) => {
 					const { title: _title, ...fields } = event.fields;
 					return {
 						id: event.id,
@@ -91,14 +111,16 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 				});
 				const items = withinBytes(shown, MAX_LIST_BYTES);
 				const whole = items.length === shown.length;
+				const last = items.at(-1);
+				const after = last ? { at: last.at, id: last.id } : at.after;
 				const held = state.get(source.id);
 				const moves = read.mark !== undefined && whole && read.mark > (held.mark ?? -1);
 				const unsaved = moves && !state.put(source.id, { ...held, mark: read.mark });
 				const next = whole
 					? read.next === undefined
 						? undefined
-						: wrapPage({ sourceId: source.id, inner: read.next, skip: 0 })
-					: wrapPage({ sourceId: source.id, inner: read.here, skip: at.skip + items.length });
+						: wrapPage({ sourceId: source.id, inner: read.next })
+					: wrapPage({ sourceId: source.id, inner: read.here, ...(after ? { after } : {}) });
 				return {
 					label,
 					items,
@@ -119,7 +141,7 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 			const listed = deps.sources.filter(
 				(source) => source.list && deps.enabled(source.id) && (!asked || asked.sourceId === source.id),
 			);
-			return Promise.all(listed.map((source) => listOne(source, scope, asked ?? { skip: 0 })));
+			return Promise.all(listed.map((source) => listOne(source, scope, asked ?? {})));
 		},
 	};
 }

@@ -173,7 +173,7 @@ internal fun withValue(action: ActionDraft, param: String, value: String): Actio
 }
 
 /** Its label, then what its choices, switch and words are set to. */
-internal fun actionLine(action: AutomationAction, offer: AutomationOffer = AutomationOffer()): String {
+internal fun actionLine(action: AutomationAction, offer: AutomationOffer): String {
 	val draft = actionDraftOf(action, offer) as? ActionDraft.Filled ?: return offer.labelOf(kindOf(action))
 	val row = offer.action(draft.kind) ?: return draft.kind
 	val set = row.params.mapNotNull { param ->

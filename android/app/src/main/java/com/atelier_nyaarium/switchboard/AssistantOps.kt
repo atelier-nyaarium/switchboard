@@ -83,6 +83,12 @@ private fun AssistantWatcher.toSource(): AssistantSource = AssistantSource(
 /** An older build answers `watchers` alone. */
 internal fun servesSources(state: ConsoleAssistantStateResult?): Boolean = state?.sources != null
 
+/** Unread or refused reads as an older build. */
+internal fun servesSources(read: AssistantRead): Boolean = when (read) {
+	is AssistantRead.Answered -> servesSources(read.state)
+	AssistantRead.Reading, AssistantRead.Refused -> false
+}
+
 private val NO_RULES = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 0L), 0L)
 
 // Remove 2026-11-28: an older Gateway reads rules.
@@ -279,14 +285,27 @@ internal fun unexpectedLines(source: AssistantSource): List<String> {
 
 internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, REMOVE }
 
-/** Safety and remove are the home's. */
-internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResult?): List<AssistantSection> =
+/** Unread Safety stays, saying why. */
+internal fun assistantSections(home: String?, read: AssistantRead?): List<AssistantSection> =
 	listOfNotNull(
 		AssistantSection.LOCATION,
 		AssistantSection.FEATURES,
-		AssistantSection.SAFETY.takeIf { home != null && placed?.approveEverySend != null },
+		AssistantSection.SAFETY.takeIf { home != null && holdsSafety(read) },
 		AssistantSection.REMOVE.takeIf { home != null },
 	)
+
+/** An older build holds no Safety. */
+private fun holdsSafety(read: AssistantRead?): Boolean = when (read) {
+	is AssistantRead.Answered -> read.state.approveEverySend != null
+	AssistantRead.Reading, AssistantRead.Refused -> true
+	null -> false
+}
+
+/** Unread names no folder; a late answer reseeds. */
+internal fun workdirOf(read: AssistantRead?): String? = when (read) {
+	is AssistantRead.Answered -> read.state.workdir
+	null, AssistantRead.Reading, AssistantRead.Refused -> null
+}
 
 /** Page operation and result. */
 internal data class PageWork(val busy: Boolean = false, val said: String? = null)
@@ -526,7 +545,7 @@ internal class AssistantOps(
 
 	// Remove 2026-11-28: an older build knows the watcher kinds alone.
 	private fun sourceOp(gatewayId: String, source: ConsoleOp, watcher: ConsoleOp): ConsoleOp =
-		if (servesSources(state.value.gateways.assistantOn(gatewayId))) source else watcher
+		if (servesSources(state.value.gateways.assistantRead(gatewayId))) source else watcher
 
 	suspend fun setGrants(gatewayId: String, sourceId: String, entryIds: List<String>): AssistantAnswer = carriedSetting(
 		gatewayId,

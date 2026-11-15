@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard.assistant
 
-import com.atelier_nyaarium.switchboard.GatewayEntry
 import com.atelier_nyaarium.switchboard.displayedUnit
 import com.atelier_nyaarium.switchboard.formatDecimal
 import com.atelier_nyaarium.switchboard.fromDisplay
@@ -32,12 +31,12 @@ internal data class NumberOffer(val device: String, val measure: String, val lab
 internal data class SwitchOffer(val device: String, val name: String)
 
 internal data class AutomationOffer(
-	val triggers: Set<String> = setOf(TRIGGER_EVENT),
-	val actions: List<ActionOffer> = listOf(DEFAULT_TELL),
+	val triggers: Set<String>,
+	val actions: List<ActionOffer>,
 	val numbers: List<NumberOffer> = emptyList(),
 	val switches: List<SwitchOffer> = emptyList(),
 	/** Not the assistant's home: no event arrives, and an action that needs the home does nothing. */
-	val away: Boolean = false,
+	val away: Boolean,
 ) {
 	fun action(kind: String): ActionOffer? = actions.find { it.kind == kind }
 
@@ -48,9 +47,10 @@ internal data class AutomationOffer(
 	fun labelOf(kind: String): String = actions.find { it.kind == kind }?.label ?: kind
 }
 
-/** A Gateway that names no kinds holds an event and a tell. */
-internal fun offerOf(serves: AutomationServes?, away: Boolean = false): AutomationOffer =
-	if (serves == null) AutomationOffer(away = away)
+// Remove 2026-11-29: every listing names what it serves.
+/** A listing with no `serves` holds an event and a bare tell. */
+internal fun offerOf(serves: AutomationServes?, away: Boolean): AutomationOffer =
+	if (serves == null) AutomationOffer(triggers = setOf(TRIGGER_EVENT), actions = listOf(DEFAULT_TELL), away = away)
 	else AutomationOffer(
 		triggers = serves.triggers.toSet(),
 		actions = serves.actions.map(::actionOfferOf),
@@ -59,7 +59,8 @@ internal fun offerOf(serves: AutomationServes?, away: Boolean = false): Automati
 		away = away,
 	)
 
-internal fun offerOn(entry: GatewayEntry?, away: Boolean = false): AutomationOffer = offerOf(entry?.automationServes, away)
+internal fun TriggerDraft.Crossing.picked(number: NumberOffer): TriggerDraft.Crossing =
+	copy(device = number.device, measure = number.measure, unit = number.unit)
 
 internal fun movesWithHome(automation: Automation): Boolean = automation.trigger is AutomationTrigger.Event
 
@@ -84,6 +85,8 @@ internal sealed interface TriggerDraft {
 		val threshold: String,
 		val deadZone: String,
 		val coolDownMin: String,
+		/** Stored unit. */
+		val unit: String?,
 	) : TriggerDraft {
 		override val kind get() = TRIGGER_CROSSING
 	}
@@ -114,21 +117,20 @@ internal fun offersChoice(offer: AutomationOffer, choice: TriggerChoice, sources
 /** The clock kinds a Gateway holds, a time first. */
 internal fun clockKinds(offer: AutomationOffer): List<String> = listOf(TRIGGER_TIME, TRIGGER_INTERVAL).filter { it in offer.triggers }
 
-internal fun numberSuffix(number: NumberOffer?, display: String?): String =
-	number?.unit?.let { suffixOf(displayedUnit(it, display)) }.orEmpty()
+internal fun numberSuffix(unit: String?, display: String?): String =
+	unit?.let { suffixOf(displayedUnit(it, display)) }.orEmpty()
 
 private fun scaleOf(unit: String?, display: String?): Double =
 	FieldTypes.UNIT_DISPLAYS.find { it.unit == unit && it.display == display }?.scale ?: 1.0
 
-private fun typedOf(value: Double, number: NumberOffer?, display: String?): String {
-	val unit = number?.unit
+private fun typedOf(value: Double, unit: String?, decimals: Int, display: String?): String {
 	val shown = if (unit != null && display != null) toDisplay(value, unit, display).value else value
-	return formatDecimal(shown, number?.decimals ?: 1)
+	return formatDecimal(shown, decimals)
 }
 
 /** A width scales without the unit's offset. */
-private fun typedWidthOf(value: Double, number: NumberOffer?, display: String?): String =
-	formatDecimal(value * scaleOf(number?.unit, display), number?.decimals ?: 1)
+private fun typedWidthOf(value: Double, unit: String?, decimals: Int, display: String?): String =
+	formatDecimal(value * scaleOf(unit, display), decimals)
 
 /** Whole minutes plain, else to two places, which reads back to the same second. */
 internal fun coolDownTyped(seconds: Long): String =
@@ -146,13 +148,15 @@ internal fun triggerDraftOf(trigger: AutomationTrigger, offer: AutomationOffer, 
 	is AutomationTrigger.Event -> TriggerDraft.Event(trigger.source, trigger.conditions)
 	is AutomationTrigger.Crossing -> {
 		val number = offer.number(trigger.device, trigger.measure)
+		val decimals = number?.decimals ?: 1
 		TriggerDraft.Crossing(
 			device = trigger.device,
 			measure = trigger.measure,
 			direction = trigger.direction,
-			threshold = typedOf(trigger.threshold, number, display),
-			deadZone = typedWidthOf(trigger.deadZone, number, display),
+			threshold = typedOf(trigger.threshold, number?.unit, decimals, display),
+			deadZone = typedWidthOf(trigger.deadZone, number?.unit, decimals, display),
 			coolDownMin = coolDownTyped(trigger.coolDownSec),
+			unit = number?.unit,
 		)
 	}
 	is AutomationTrigger.Time -> TriggerDraft.Time(trigger.time, trigger.weekdays.map { it.toInt() }.toSet(), trigger.zone)
@@ -204,10 +208,9 @@ internal fun triggerOf(trigger: TriggerDraft, offer: AutomationOffer, display: S
 			conditions = trigger.conditions.map { it.copy(value = trimRuleValue(it.value)) },
 		)
 		is TriggerDraft.Crossing -> {
-			val number = offer.number(trigger.device, trigger.measure) ?: return null
 			val typed = parseDecimal(trigger.threshold.trim()) ?: return null
 			val width = parseDecimal(trigger.deadZone.trim()) ?: return null
-			val unit = number.unit
+			val unit = trigger.unit
 			AutomationTrigger.Crossing(
 				device = trigger.device,
 				measure = trigger.measure,
@@ -226,7 +229,7 @@ internal fun triggerOf(trigger: TriggerDraft, offer: AutomationOffer, display: S
 internal fun freshTrigger(choice: TriggerChoice, offer: AutomationOffer, firstSource: String?, zone: String): TriggerDraft? = when (choice) {
 	TriggerChoice.EVENT -> firstSource?.let { TriggerDraft.Event(it, emptyList()) }
 	TriggerChoice.CROSSING -> offer.numbers.firstOrNull()?.let {
-		TriggerDraft.Crossing(it.device, it.measure, "below", "", "0.5", "10")
+		TriggerDraft.Crossing(it.device, it.measure, "below", "", "0.5", "10", it.unit)
 	}
 	TriggerChoice.TIME -> clockKinds(offer).firstNotNullOfOrNull { freshClock(it, zone) }
 }

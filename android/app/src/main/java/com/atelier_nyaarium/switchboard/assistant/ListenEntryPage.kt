@@ -77,7 +77,7 @@ internal fun ListenEntryPage(
 	val roster = state.gateways.ids()
 	var open by remember { mutableStateOf<String?>(null) }
 	var pending by remember { mutableStateOf<Pair<String, String>?>(null) }
-	val display = displayUnitOf(state.gateways.assistantOn(home))
+	val display = displayUnitOf(state.gateways.assistantRead(home))
 	val now = System.currentTimeMillis()
 	val start = { repo.phoneRadio.startListening(scanTargets(state.gateways)) }
 	val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { start() }

@@ -72,13 +72,25 @@ class SensorRulesTest {
 		assertEquals(listOf("mikan", "sakura"), sourceGroups(roster, "idle", views, hasServices = false, lead = null).map { it.gatewayId })
 		assertEquals(false, devicesPending(roster, views))
 		assertEquals(true, devicesPending(listOf("sakura", "waking"), mapOf("sakura" to DevicesView(list = DeviceListView.Loading))))
-		val word = { held: AssistantWord? ->
-			val entry = GatewayEntry("sakura", connected = true, incarnation = 1L, lastRegisteredAt = 1L, assistant = held)
+		val word = { held: AssistantRead? ->
+			val entry = GatewayEntry("sakura", connected = true, incarnation = 1L, lastRegisteredAt = 1L, assistant = held ?: AssistantRead.Reading)
 			servicesWaiting(GatewayRegistry(RegistryProvenance.Current, gateways = listOf(entry)).assistantRead("sakura"))
 		}
-		val answered = AssistantWord.Answered(com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes"))
-		assertEquals(listOf("", null, false), listOf(word(null), word(answered), word(AssistantWord.Refused).isNullOrEmpty()))
+		val answered = AssistantRead.Answered(com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes"))
+		assertEquals(listOf("", null, false), listOf(word(null), word(answered), word(AssistantRead.Refused).isNullOrEmpty()))
 		assertEquals("Govee · This Phone", rowBrandLine(sensor(MAC, "phones")))
+	}
+
+	@Test
+	fun theHomesSourcesAndUnitShowOnlyOnceItAnswered() {
+		val state = com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(sources = emptyList(), temperatureUnit = "F")
+		val answered = homeHolding(AssistantRead.Answered(state))
+
+		assertEquals("F" to "F", answered.display to answered.temperatureUnit)
+		assertEquals(emptyList<Any>(), answered.sources)
+		listOf(null, AssistantRead.Reading, AssistantRead.Refused).forEach { assertEquals(HomeHolding(), homeHolding(it)) }
+		assertEquals(listOf("F", null, null), listOf(AssistantRead.Answered(state), AssistantRead.Reading, AssistantRead.Refused).map(::displayUnitOf))
+		assertNull(displayUnitOf(AssistantRead.Answered(state.copy(temperatureUnit = "C"))))
 	}
 
 	@Test

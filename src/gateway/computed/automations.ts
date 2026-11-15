@@ -1,6 +1,5 @@
 // Queue and checkpoint, atomically.
 
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
@@ -19,12 +18,32 @@ import {
 	type ConsoleAutomationPutResult,
 	type CrossingTrigger,
 	type EventTrigger,
-	TELL_WHEN,
 	type TellWhen,
 } from "../../shared/schemasAutomation.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
 import { createOwnerRecords, type OwnerIssue, type OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, clockSentence, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
+import {
+	admit,
+	claim,
+	EFFECT_RETRY_MS,
+	type EffectRef,
+	effectKey,
+	effectsIn,
+	FIRES_MAX,
+	type Fire,
+	type FireNames,
+	FireSchema,
+	finished,
+	holdsClaim,
+	mayWait,
+	type Work as NextWork,
+	nextWork,
+	pendingEffects,
+	type Sighting,
+	sighted,
+	withEffect,
+} from "./automationFires.js";
 import {
 	AUTOMATION_KIND,
 	type AutomationIntent,
@@ -32,11 +51,37 @@ import {
 	judgeAutomationWrite,
 	NOT_HOME,
 } from "./automationJudge.js";
-import { type AutomationActionPorts, effectIssue, isEffect, runEffect } from "./automationRunner.js";
+import { type AutomationRun, fireRun, LOG_MAX, logged, RunSchema } from "./automationLog.js";
+import {
+	clip,
+	type Dropped,
+	memberOf,
+	outboxOf,
+	QUEUE_FULL,
+	QUEUE_MAX_EVENTS,
+	QueueEntrySchema,
+	type QueueState,
+	told,
+} from "./automationOutbox.js";
+import {
+	type AutomationActionPorts,
+	type AutomationEffect,
+	effectIssue,
+	isEffect,
+	runEffect,
+} from "./automationRunner.js";
 import { holeOwnerIssue, holeSpanOf, holeTexts, laneTellWhen, tellPlan } from "./automationText.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
 import { crossingField, crossingFieldId, crossingSide } from "./crossingBand.js";
 
+export { EFFECT_RETRY_MS, EFFECT_WAIT_MS, FIRES_MAX } from "./automationFires.js";
+export { type AutomationRun, RUN_OUTCOMES } from "./automationLog.js";
+export {
+	type AutomationOutbox,
+	type OutboxEvent,
+	QUEUE_MAX_BYTES,
+	QUEUE_MAX_EVENTS,
+} from "./automationOutbox.js";
 export { AUTOMATION_KIND };
 
 export type AutomationWritten =
@@ -46,34 +91,13 @@ export type AutomationWritten =
 
 /** An id may spell a prototype key. */
 const own = <T>(held: Record<string, T>, id: string): T | undefined => (Object.hasOwn(held, id) ? held[id] : undefined);
-export const QUEUE_MAX_EVENTS = 256;
-export const QUEUE_MAX_BYTES = 64 * 1024;
-const LOG_MAX = 64;
-/** A told title or field. */
-const TOLD_FIELD_MAX = 1_000;
 /** A filled effect parameter. */
 const EFFECT_TEXT_MAX = 500;
-/** Runs waiting on their effects. */
-export const FIRES_MAX = 64;
 /** Event fires remembered against a repeat. */
 const FIRED_MAX = 256;
-/** Effect readiness wait. */
-export const READY_GRACE_MS = 120_000;
-const REPLACED = "a newer run replaced it";
-const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const NOT_READY = "its service was not ready";
 /** A walk whose write failed is retried after this. */
 const CLOCK_RETRY_MS = 30_000;
-const MEMBER_MAX = 256;
-const FIELD_NAME_MAX = 64;
-const FIELDS_MAX = 32;
-
-/** A long member keeps its head and a digest of the whole. */
-function memberOf(...parts: (string | number)[]): string {
-	const member = ["automation", ...parts].join(":");
-	if (member.length <= MEMBER_MAX) return member;
-	const digest = createHash("sha256").update(member).digest("hex");
-	return `${member.slice(0, MEMBER_MAX - digest.length - 1)}:${digest}`;
-}
 
 // Remove 2026-11-28: a body stored before triggers had kinds.
 const LegacyBodySchema = z.strictObject({
@@ -96,76 +120,6 @@ const StoredAutomationSchema = z.preprocess((body) => {
 	};
 }, AutomationSchema);
 
-/** Unreadable bodies stay queued. */
-const QueueEntrySchema = z.strictObject({ member: z.string(), at: z.number().int(), body: z.unknown() });
-type QueueEntry = z.infer<typeof QueueEntrySchema>;
-/** Bounded as the lane's reader bounds an event. */
-const EventBodySchema = z.strictObject({
-	title: z.string().max(TOLD_FIELD_MAX),
-	fields: z
-		.record(z.string().max(FIELD_NAME_MAX), z.string().max(TOLD_FIELD_MAX))
-		.refine((fields) => Object.keys(fields).length <= FIELDS_MAX),
-	/** Absent: quietly. */
-	when: z.enum(TELL_WHEN).optional(),
-});
-
-export interface OutboxEvent {
-	id: string;
-	at: number;
-	title: string;
-	fields: Record<string, string>;
-	when: TellWhen;
-}
-
-/** What automations left for the assistant. */
-export interface AutomationOutbox {
-	/** Moves with every append. */
-	revision: () => number;
-	/** Oldest first. */
-	events: () => OutboxEvent[];
-}
-
-export const RUN_OUTCOMES = ["ran", "refused", "uncertain", "suppressed"] as const;
-
-const RunSchema = z.strictObject({
-	automation: z.string(),
-	seq: z.number().int(),
-	at: z.number().int(),
-	outcome: z.enum(RUN_OUTCOMES),
-	reason: z.string().optional(),
-	/** The action kind, for an effect. */
-	action: z.string().optional(),
-});
-export type AutomationRun = z.infer<typeof RunSchema>;
-
-/** A fired trigger awaiting its run. */
-const FireSchema = z.strictObject({
-	member: z.string(),
-	automation: z.string(),
-	incarnation: z.string(),
-	/** The record as it fired; an edit retires the fire. */
-	revision: z.number().int().positive(),
-	/** The transition it answers; zero for a slot or an event. */
-	seq: z.number().int().nonnegative(),
-	at: z.number().int(),
-	/** What the trigger read, for its texts' holes. */
-	names: z.record(z.string(), z.object({ value: z.unknown(), shown: z.string().optional() })).optional(),
-	/** Claimed before the first effect; never run again. */
-	effects: z.enum(["claimed", "done"]).optional(),
-	tell: z
-		.strictObject({
-			when: z.enum(TELL_WHEN),
-			fields: z.record(z.string(), z.string()),
-			/** Its messages' holes are unread. */
-			fill: z.literal(true).optional(),
-		})
-		.optional(),
-	/** The outbox had no room. */
-	waiting: z.literal(true).optional(),
-});
-type Fire = z.infer<typeof FireSchema>;
-type FireNames = NonNullable<Fire["names"]>;
-
 const SlotSchema = z.object({
 	revision: z.number().int().positive(),
 	incarnation: z.string(),
@@ -187,7 +141,7 @@ type Checkpoint = z.infer<typeof CheckpointSchema>;
 
 interface State {
 	automations: Record<string, Checkpoint>;
-	queue: { lastAt: number; events: QueueEntry[] };
+	queue: QueueState;
 	log: AutomationRun[];
 	/** When each automation last ran. */
 	ran: Record<string, number>;
@@ -220,6 +174,14 @@ const LooseStateSchema = z.object({
 	slots: z.record(z.string(), z.unknown()).catch({}),
 });
 
+/** A fire of another shape never runs. */
+function restoreFires(rows: unknown[], pick: (rows: unknown[], schema: typeof FireSchema) => Fire[]): Fire[] {
+	const fires = pick(rows, FireSchema);
+	const lost = rows.length - fires.length;
+	if (lost > 0) console.warn(`[automations] ${lost} stored runs of another shape were dropped and will not run`);
+	return fires.slice(-FIRES_MAX);
+}
+
 function restore(raw: unknown): State {
 	const loose = LooseStateSchema.parse(raw ?? EMPTY);
 	const automations: State["automations"] = {};
@@ -245,7 +207,7 @@ function restore(raw: unknown): State {
 		},
 		log: pick(loose.log, RunSchema).slice(-LOG_MAX),
 		ran,
-		fires: pick(loose.fires, FireSchema).slice(-FIRES_MAX),
+		fires: restoreFires(loose.fires, pick),
 		fired: loose.fired.slice(-FIRED_MAX),
 		slots: Object.fromEntries(
 			Object.entries(loose.slots).flatMap(([id, row]) => {
@@ -299,11 +261,8 @@ export interface AutomationsDeps {
 	timers?: Pick<Ambient, "setTimer" | "clearTimer">;
 }
 
-const queueBytes = (events: readonly QueueEntry[]) => Buffer.byteLength(JSON.stringify(events));
-
 export function createAutomations(deps: AutomationsDeps) {
 	let state: State = restore(deps.state.load());
-	const startedAt = deps.now();
 
 	const store = createOwnerRecords<Automation>({
 		store: deps.records,
@@ -417,48 +376,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		};
 	};
 
-	const clip = (text: string) => text.slice(0, TOLD_FIELD_MAX);
-
-	/** Wakes nobody. */
-	const isQuiet = (entry: QueueEntry): boolean => {
-		const body = EventBodySchema.safeParse(entry.body);
-		return body.success && body.data.when !== "now";
-	};
-
-	/** Quiet entries make room. */
-	const told = (
-		queue: State["queue"],
-		entry: { member: string; when: TellWhen; fields: Record<string, string> },
-		sentence: string,
-		now: number,
-	): { queue: State["queue"]; dropped: number } | null => {
-		const at = Math.max(now, queue.lastAt + 1);
-		const title = clip(sentence);
-		const event: QueueEntry = {
-			member: entry.member,
-			at,
-			body: {
-				title,
-				...(entry.when === "now" ? { when: "now" } : {}),
-				fields: { automation: title, ...entry.fields },
-			},
-		};
-		const events = [...queue.events.filter((held) => now - held.at < RETENTION_MS), event];
-		let bytes = queueBytes(events);
-		let dropped = 0;
-		while (events.length > QUEUE_MAX_EVENTS || bytes > QUEUE_MAX_BYTES) {
-			const quiet = events.findIndex((held, index) => index < events.length - 1 && isQuiet(held));
-			if (quiet === -1) return null;
-			const [gone] = events.splice(quiet, 1);
-			// Entry and comma.
-			bytes -= queueBytes([gone as QueueEntry]) - 1;
-			dropped += 1;
-		}
-		return { queue: { lastAt: at, events }, dropped };
-	};
-
-	const QUEUE_FULL = "the automations outbox is full";
-
 	const commit = (next: State): boolean =>
 		commitChecked(
 			deps.state,
@@ -468,14 +385,6 @@ export function createAutomations(deps: AutomationsDeps) {
 			},
 			{ label: "automation state" },
 		).landed;
-
-	/** Refusal logged once per action. */
-	const logged = (log: readonly AutomationRun[], run: AutomationRun): AutomationRun[] => {
-		const last = log.findLast((held) => held.automation === run.automation && held.action === run.action);
-		const stands = run.outcome === "refused" || run.reason === REPLACED;
-		const standing = stands && last?.outcome === run.outcome && last.reason === run.reason;
-		return standing ? [...log] : [...log, run].slice(-LOG_MAX);
-	};
 
 	const armed = (record: OwnerRecord<Automation>) => record.body.enabled && automationIssue(record.body) === null;
 
@@ -489,20 +398,6 @@ export function createAutomations(deps: AutomationsDeps) {
 	}
 
 	const workOf = (): Work => ({ log: state.log, fires: [...state.fires] });
-
-	const fireRun = (
-		fire: Pick<Fire, "automation" | "seq" | "at">,
-		outcome: AutomationRun["outcome"],
-		reason?: string,
-		action?: string,
-	): AutomationRun => ({
-		automation: fire.automation,
-		seq: fire.seq,
-		at: fire.at,
-		outcome,
-		...(reason ? { reason } : {}),
-		...(action ? { action } : {}),
-	});
 
 	/** `notes`: owner texts, holes unfilled. */
 	const withMessage = (
@@ -524,38 +419,6 @@ export function createAutomations(deps: AutomationsDeps) {
 				return shown === undefined ? [] : [[name, shown]];
 			}),
 		);
-
-	/** Backlog keeps newest unstarted fire. */
-	const replaceUnstarted = (work: Work, fire: Fire): void => {
-		const older = work.fires.findIndex(
-			(held) =>
-				held.automation === fire.automation &&
-				held.effects === undefined &&
-				held.member !== running?.member &&
-				held.member !== fire.member &&
-				state.fires.some((stored) => stored.member === held.member),
-		);
-		const held = work.fires[older];
-		if (!held) return;
-		work.log = logged(work.log, fireRun(held, "suppressed", REPLACED));
-		if (held.tell) work.fires[older] = { ...held, effects: "done" };
-		else work.fires.splice(older, 1);
-	};
-
-	/** A fire waiting only on the outbox gives up its place. */
-	const admit = (work: Work, fire: Fire, collapses: boolean): boolean => {
-		if (collapses) replaceUnstarted(work, fire);
-		if (work.fires.length >= FIRES_MAX) {
-			const waiting = work.fires.findIndex((held) => held.waiting);
-			if (waiting === -1) {
-				work.log = logged(work.log, fireRun(fire, "refused", "too many runs are waiting"));
-				return false;
-			}
-			work.fires.splice(waiting, 1);
-		}
-		work.fires.push(fire);
-		return true;
-	};
 
 	/** Records a fire for the run; false when nothing will run. */
 	const fire = (
@@ -584,10 +447,17 @@ export function createAutomations(deps: AutomationsDeps) {
 			incarnation: record.incarnation,
 			revision: record.revision,
 			names,
+			effects: pendingEffects(record.body.actions),
 			...(tell ? { tell } : {}),
 		};
-		// Events never collapse.
-		return admit(work, recorded, effects && record.body.trigger.kind !== "event");
+		const verdict = admit(work.fires, recorded, {
+			// Each event carries its own.
+			supersede: effects && record.body.trigger.kind !== "event",
+			earlier: (member) => state.fires.some((stored) => stored.member === member),
+		});
+		work.fires = verdict.fires;
+		for (const run of verdict.runs) work.log = logged(work.log, fireRun(run.fire, run.outcome, run.reason));
+		return verdict.admitted;
 	};
 
 	/** Replays transitions idempotently. */
@@ -733,44 +603,179 @@ export function createAutomations(deps: AutomationsDeps) {
 		return landed;
 	}
 
-	/** The fire the run holds. */
-	let running: { member: string; done: Promise<void> } | null = null;
-	/** Effects that ran, until their write lands. */
-	const spent = new Map<string, AutomationRun[]>();
+	/** The work the run holds. */
+	let running: { work: NextWork; done: Promise<void> } | null = null;
+	/** Effect outcomes, until their write lands; `unsent` sent nothing. */
+	const spent = new Map<string, { ref: EffectRef; runs: AutomationRun[]; unsent?: string }>();
+	/** Effects this process saw unable to start. */
+	const sightings = new Map<string, Sighting>();
 
-	type Step =
-		| { kind: "retire"; runs: AutomationRun[] }
-		| { kind: "effects" | "fill" | "tell"; record: OwnerRecord<Automation> };
+	const isRunning = (ref: EffectRef): boolean =>
+		running?.work.kind === "effect" && effectKey(running.work.ref) === effectKey(ref);
 
-	/** What a fire waits on. */
-	const stepOf = (fire: Fire): Step => {
-		const retire = (outcome: AutomationRun["outcome"], reason: string, action?: string): Step => ({
-			kind: "retire",
-			runs: [fireRun(fire, outcome, reason, action)],
-		});
+	/** Why a fire no longer runs. */
+	const retireOf = (fire: Fire): AutomationRun | null => {
 		const record = records.get(fire.automation);
-		if (!record || record.incarnation !== fire.incarnation) return retire("uncertain", "the automation is gone");
-		if (record.revision !== fire.revision) return retire("suppressed", "the automation changed");
+		if (!record || record.incarnation !== fire.incarnation)
+			return fireRun(fire, "uncertain", "the automation is gone");
+		if (record.revision !== fire.revision) return fireRun(fire, "suppressed", "the automation changed");
 		const issue = automationIssue(record.body);
-		if (issue !== null) return retire("refused", issue);
-		if (fire.effects !== "done" && record.body.actions.some(isEffect)) return { kind: "effects", record };
-		if (!fire.tell) return { kind: "retire", runs: [] };
-		if (!deps.isHome()) return retire("refused", NOT_HOME, "tell_assistant");
-		return { kind: fire.tell.fill ? "fill" : "tell", record };
+		return issue === null ? null : fireRun(fire, "refused", issue);
 	};
+
+	/** Claimed effects' outcomes; `lost`: a claim with none never runs again. */
+	const landClaims = (fire: Fire, held: Pick<State, "log" | "ran">, lost: boolean) => {
+		let { log, ran } = held;
+		let landed = fire;
+		for (const action of effectsIn(fire, "claimed")) {
+			const ref = { member: fire.member, action };
+			if (isRunning(ref)) continue;
+			const key = effectKey(ref);
+			const outcome = spent.get(key);
+			if (outcome?.unsent !== undefined) {
+				const now = deps.now();
+				sightings.set(key, sighted(sightings.get(key), now, outcome.unsent, now + EFFECT_RETRY_MS));
+				landed = withEffect(landed, action, "pending");
+				continue;
+			}
+			const kind = records.get(fire.automation)?.body.actions[action]?.kind;
+			const runs = outcome?.runs ?? (lost ? [fireRun(fire, "uncertain", "interrupted mid-run", kind)] : null);
+			if (!runs) continue;
+			log = runs.reduce(logged, log);
+			if (runs.some((run) => run.outcome === "ran")) ran = { ...ran, [fire.automation]: fire.at };
+			landed = withEffect(landed, action, "done");
+		}
+		return { fire: landed, log, ran };
+	};
+
+	/** Waits alone while it cannot start; refused once the wait has passed. */
+	const effectStep = (effect: AutomationEffect, key: string, now: number): "go" | "wait" | { refused: string } => {
+		const seen = sightings.get(key);
+		if (seen && !mayWait(seen, now)) return { refused: seen.reason };
+		if (!(deps.actions?.ready(effect) ?? true)) {
+			sightings.set(key, sighted(seen, now, NOT_READY));
+			return "wait";
+		}
+		return seen && now < seen.retryAt ? "wait" : "go";
+	};
+
+	const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
+
+	/** Lands outcomes and queues every tell that is ready, in one write with the next claim; then runs it. */
+	function pump(): void {
+		if (stopped) return;
+		const now = deps.now();
+		const home = deps.isHome();
+		let { queue, log, ran } = state;
+		let fires: Fire[] = [];
+		const goes = new Set<string>();
+		let queued = false;
+		const dropped: Dropped = new Map();
+		/** Takes an unowned drop's row. */
+		let droppedBy: Fire | null = null;
+		for (const held of state.fires) {
+			let fire: Fire;
+			({ fire, log, ran } = landClaims(held, { log, ran }, true));
+			const retired = retireOf(fire);
+			if (retired) {
+				// Retired once its effect lands.
+				if (holdsClaim(fire)) fires.push(fire);
+				else log = logged(log, retired);
+				continue;
+			}
+			const record = records.get(fire.automation) as OwnerRecord<Automation>;
+			for (const action of effectsIn(fire, "pending")) {
+				const effect = record.body.actions[action];
+				if (!effect || !isEffect(effect)) continue;
+				const key = effectKey({ member: fire.member, action });
+				const step =
+					AUTOMATION_ACTIONS[effect.kind].home && !home
+						? { refused: NOT_HOME }
+						: effectStep(effect, key, now);
+				if (step === "go") goes.add(key);
+				else if (step !== "wait") {
+					log = logged(log, fireRun(fire, "refused", step.refused, effect.kind));
+					fire = withEffect(fire, action, "done");
+				}
+			}
+			if (fire.tell && !home) {
+				log = logged(log, fireRun(fire, "refused", NOT_HOME, "tell_assistant"));
+				fire = untold(fire);
+			} else if (fire.tell && !fire.tell.fill) {
+				const entry = { member: fire.member, when: fire.tell.when, fields: fire.tell.fields };
+				const room = told(queue, entry, sentenceOf(record.body), now);
+				if (!room) {
+					if (!fire.waiting) log = logged(log, fireRun(fire, "refused", QUEUE_FULL, "tell_assistant"));
+					fire = { ...fire, waiting: true };
+				} else {
+					queue = room.queue;
+					for (const [owner, count] of room.dropped) {
+						dropped.set(owner, (dropped.get(owner) ?? 0) + count);
+						if (owner === null) droppedBy = fire;
+					}
+					log = logged(log, fireRun(fire, "ran", undefined, "tell_assistant"));
+					ran = { ...ran, [fire.automation]: fire.at };
+					queued = true;
+					fire = untold(fire);
+				}
+			}
+			if (!finished(fire)) fires.push(fire);
+		}
+		for (const [owner, count] of dropped) {
+			const reason = `dropped ${count} older quiet event${count === 1 ? "" : "s"} for room`;
+			const by = owner === null ? droppedBy : { automation: owner, seq: 0, at: now };
+			if (by) log = logged(log, fireRun(by, "suppressed", reason, "tell_assistant"));
+		}
+		const next = running ? null : nextWork(fires, (ref) => goes.has(effectKey(ref)));
+		if (next?.kind === "effect") fires = claim(fires, next.ref);
+		const moved: State = { ...state, queue, log, ran, fires };
+		// An unlanded pass is retried whole, its claim with it.
+		if (canonicalJson(moved) !== canonicalJson(state) && !commit(moved)) return;
+		for (const [key, { ref }] of [...spent]) {
+			const claimed = state.fires.some(
+				(held) => held.member === ref.member && held.effects[ref.action] === "claimed",
+			);
+			if (!claimed) spent.delete(key);
+		}
+		const open = new Set(
+			state.fires.flatMap((held) =>
+				Object.entries(held.effects)
+					.filter(([, effect]) => effect !== "done")
+					.map(([action]) => effectKey({ member: held.member, action: Number(action) })),
+			),
+		);
+		for (const key of [...sightings.keys()]) if (!open.has(key)) sightings.delete(key);
+		// The claim's runner registers first.
+		if (next) start(next);
+		if (queued) deps.onQueued?.();
+	}
+
+	function start(next: NextWork): void {
+		const member = next.kind === "fill" ? next.member : next.ref.member;
+		const fire = state.fires.find((held) => held.member === member);
+		const record = fire && records.get(fire.automation);
+		if (!fire || !record) return;
+		const done = Promise.resolve()
+			.then(() => (next.kind === "fill" ? fill(fire, record) : runOne(fire, record, next.ref.action)))
+			.catch((error) => {
+				console.error("[automations] a run failed:", error);
+				return true;
+			})
+			.then((moved) => {
+				running = null;
+				if (moved) pump();
+			});
+		running = { work: next, done };
+	}
 
 	const patched = (member: string, patch: Partial<Fire>): Fire[] =>
 		state.fires.map((held) => (held.member === member ? { ...held, ...patch } : held));
 
-	/** Effects, or a message's holes; false when nothing moved. */
-	async function work(fire: Fire): Promise<boolean> {
-		const step = stepOf(fire);
-		if (step.kind !== "effects" && step.kind !== "fill") return false;
+	/** Fills a text's holes; a failed hole prints a mark and logs once. */
+	const fillerOf = (fire: Fire, runs: AutomationRun[]) => {
 		const names = fire.names ?? {};
 		const holes = deps.holes?.();
-		const runs: AutomationRun[] = [];
-		/** Failed hole prints a mark, logs once. */
-		const filled = async (text: string, action: string): Promise<string> => {
+		return async (text: string, action: string): Promise<string> => {
 			if (!hasHoles(text)) return unescapedText(text);
 			if (!holes) {
 				runs.push(fireRun(fire, "uncertain", "its holes cannot be read yet", action));
@@ -782,33 +787,46 @@ export function createAutomations(deps: AutomationsDeps) {
 			}
 			return read.text;
 		};
-		if (step.kind === "effects") {
-			// Claimed before any effect.
-			if (!commit({ ...state, fires: patched(fire.member, { effects: "claimed" }) })) return false;
-			const ports = deps.actions;
-			for (const action of step.record.body.actions) {
-				if (!isEffect(action)) continue;
-				const row = AUTOMATION_ACTIONS[action.kind];
-				if (row.home && !deps.isHome()) {
-					runs.push(fireRun(fire, "refused", NOT_HOME, action.kind));
-					continue;
-				}
-				const texts: Record<string, string> = {};
-				for (const { param, text } of holeTexts({ actions: [action] })) {
-					const params: readonly AutomationActionParam[] = row.params;
-					const max = params.find((held) => held.name === param)?.max ?? EFFECT_TEXT_MAX;
-					texts[param] = (await filled(text, action.kind)).slice(0, max);
-				}
-				const done = ports
-					? await runEffect({ ...action, ...texts }, ports)
-					: ({ outcome: "refused", reason: "this Gateway runs no such action" } as const);
-				runs.push(fireRun(fire, done.outcome, done.outcome === "ran" ? undefined : done.reason, action.kind));
-			}
-			// The pump lands them.
-			spent.set(fire.member, runs);
+	};
+
+	/** One claimed effect; the pump lands its outcome. */
+	async function runOne(fire: Fire, record: OwnerRecord<Automation>, action: number): Promise<boolean> {
+		const ref = { member: fire.member, action };
+		const runs: AutomationRun[] = [];
+		const effect = record.body.actions[action];
+		if (!effect || !isEffect(effect)) {
+			spent.set(effectKey(ref), { ref, runs });
 			return true;
 		}
-		const written = tellPlan(step.record.body).messages;
+		const row = AUTOMATION_ACTIONS[effect.kind];
+		if (row.home && !deps.isHome()) {
+			spent.set(effectKey(ref), { ref, runs: [fireRun(fire, "refused", NOT_HOME, effect.kind)] });
+			return true;
+		}
+		const filled = fillerOf(fire, runs);
+		const texts: Record<string, string> = {};
+		for (const { param, text } of holeTexts({ actions: [effect] })) {
+			const params: readonly AutomationActionParam[] = row.params;
+			const max = params.find((held) => held.name === param)?.max ?? EFFECT_TEXT_MAX;
+			texts[param] = (await filled(text, effect.kind)).slice(0, max);
+		}
+		const done = deps.actions
+			? await runEffect({ ...effect, ...texts }, deps.actions)
+			: ({ outcome: "refused", reason: "this Gateway runs no such action" } as const);
+		if (done.outcome === "not_started") {
+			spent.set(effectKey(ref), { ref, runs: [], unsent: done.reason });
+			return true;
+		}
+		runs.push(fireRun(fire, done.outcome, done.outcome === "ran" ? undefined : done.reason, effect.kind));
+		spent.set(effectKey(ref), { ref, runs });
+		return true;
+	}
+
+	/** A message's holes; false when nothing moved. */
+	async function fill(fire: Fire, record: OwnerRecord<Automation>): Promise<boolean> {
+		const runs: AutomationRun[] = [];
+		const filled = fillerOf(fire, runs);
+		const written = tellPlan(record.body).messages;
 		const messages: string[] = [];
 		for (const message of written) messages.push(await filled(message, "tell_assistant"));
 		if (!fire.tell) return false;
@@ -816,125 +834,19 @@ export function createAutomations(deps: AutomationsDeps) {
 		return commit({ ...state, fires: patched(fire.member, { tell }), log: runs.reduce(logged, state.log) });
 	}
 
-	/** Claimed fire's runs. */
-	const landClaim = (fire: Fire, runs: readonly AutomationRun[], held: Pick<State, "log" | "ran">) => ({
-		fire: { ...fire, effects: "done" as const },
-		log: runs.reduce(logged, held.log),
-		ran: runs.some((run) => run.outcome === "ran") ? { ...held.ran, [fire.automation]: fire.at } : held.ran,
-	});
-
-	/** Unready effects wait, within the start grace. */
-	const effectsReady = (body: Automation): boolean =>
-		deps.now() - startedAt >= READY_GRACE_MS ||
-		body.actions.every(
-			(action) =>
-				!isEffect(action) ||
-				(AUTOMATION_ACTIONS[action.kind].home && !deps.isHome()) ||
-				(deps.actions?.ready(action) ?? true),
-		);
-
-	/** Queues every tell that is ready, in one write; then runs one fire. */
-	function pump(): void {
-		if (stopped) return;
-		const now = deps.now();
-		let { queue, log, ran } = state;
-		const fires: Fire[] = [];
-		let queued = false;
-		let next: Fire | null = null;
-		/** Quiet events dropped. */
-		let dropped = 0;
-		let droppedBy: Fire | null = null;
-		for (const held of state.fires) {
-			if (running?.member === held.member) {
-				fires.push(held);
-				continue;
-			}
-			let fire = held;
-			if (fire.effects === "claimed") {
-				// A claim with no run left never runs again.
-				const runs = spent.get(fire.member) ?? [fireRun(fire, "uncertain", "interrupted mid-run")];
-				({ fire, log, ran } = landClaim(fire, runs, { log, ran }));
-			}
-			const step = stepOf(fire);
-			if (step.kind === "retire") {
-				log = step.runs.reduce(logged, log);
-				continue;
-			}
-			if (step.kind === "effects" && !effectsReady(step.record.body)) {
-				fires.push(fire);
-				continue;
-			}
-			if (step.kind !== "tell" || !fire.tell) {
-				fires.push(fire);
-				next ??= fire;
-				continue;
-			}
-			const entry = { member: fire.member, when: fire.tell.when, fields: fire.tell.fields };
-			const room = told(queue, entry, sentenceOf(step.record.body), now);
-			if (!room) {
-				if (!fire.waiting) log = logged(log, fireRun(fire, "refused", QUEUE_FULL, "tell_assistant"));
-				fires.push({ ...fire, waiting: true });
-				continue;
-			}
-			queue = room.queue;
-			if (room.dropped > 0) {
-				dropped += room.dropped;
-				droppedBy = fire;
-			}
-			log = logged(log, fireRun(fire, "ran", undefined, "tell_assistant"));
-			ran = { ...ran, [fire.automation]: fire.at };
-			queued = true;
-		}
-		if (droppedBy) {
-			const reason = `dropped ${dropped} older quiet event${dropped === 1 ? "" : "s"} for room`;
-			log = logged(log, fireRun(droppedBy, "suppressed", reason, "tell_assistant"));
-		}
-		const moved: State = { ...state, queue, log, ran, fires };
-		// An unlanded pass is retried whole.
-		if (canonicalJson(moved) !== canonicalJson(state) && !commit(moved)) return;
-		for (const member of [...spent.keys()]) {
-			if (!state.fires.some((held) => held.member === member && held.effects === "claimed")) spent.delete(member);
-		}
-		if (queued) deps.onQueued?.();
-		if (!next || running) return;
-		const done = work(next)
-			.catch((error) => {
-				console.error("[automations] a run failed:", error);
-				return true;
-			})
-			.then((moved) => {
-				running = null;
-				if (moved) pump();
-			});
-		running = { member: next.member, done };
-	}
-
-	/** Runs in one write. */
+	/** Outcomes in one write. */
 	const landSpent = (): void => {
 		let { log, ran } = state;
-		let changed = false;
 		const fires = state.fires.flatMap((held) => {
-			const runs = held.effects === "claimed" ? spent.get(held.member) : undefined;
-			if (!runs) return [held];
-			const landed = landClaim(held, runs, { log, ran });
+			const landed = landClaims(held, { log, ran }, false);
 			({ log, ran } = landed);
-			changed = true;
-			return held.tell ? [landed.fire] : [];
+			return finished(landed.fire) ? [] : [landed.fire];
 		});
-		if (changed && commit({ ...state, log, ran, fires })) spent.clear();
+		const next: State = { ...state, log, ran, fires };
+		if (canonicalJson(next) !== canonicalJson(state) && commit(next)) spent.clear();
 	};
 
-	const outbox: AutomationOutbox = {
-		revision: () => state.queue.lastAt,
-		/** Unreadable entries stay hidden. */
-		events: () =>
-			state.queue.events.flatMap((event) => {
-				const body = EventBodySchema.safeParse(event.body);
-				if (!body.success || event.member.length > MEMBER_MAX) return [];
-				const { when = "quietly", ...shown } = body.data;
-				return [{ id: event.member, at: event.at, ...shown, when }];
-			}),
-	};
+	const outbox = outboxOf(() => state.queue);
 
 	/** One band per crossing. */
 	const derivedFields = (): DerivedField[] =>

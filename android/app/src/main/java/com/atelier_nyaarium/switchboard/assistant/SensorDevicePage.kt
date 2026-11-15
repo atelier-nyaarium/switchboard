@@ -27,7 +27,6 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.DevicesView
 import com.atelier_nyaarium.switchboard.ShownEditor
-import com.atelier_nyaarium.switchboard.assistantGateway
 import com.atelier_nyaarium.switchboard.busy
 import com.atelier_nyaarium.switchboard.extremesLine
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -82,16 +81,14 @@ internal fun SensorBody(repo: ChatRepository, state: ChatState, gatewayId: Strin
 @Composable
 private fun WatchingSection(repo: ChatRepository, state: ChatState, gatewayId: String, deviceId: String) {
 	LaunchedEffect(gatewayId, state.gateways.entry(gatewayId)?.incarnation) { repo.automationOps.refresh(gatewayId) }
-	val home = assistantGateway(state)
-	val entry = state.gateways.entry(gatewayId)
-	val offer = offerOn(entry, away = gatewayId != home)
-	val uses = usedBy(gatewayId, entry?.automations) { watching(deviceId, it) }
+	val context = automationContext(state.gateways, state.assistantHome, gatewayId)
+	val uses = usedBy(gatewayId, state.gateways.listOn(gatewayId) { it.automations }) { watching(deviceId, it) }
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
 	val open = { slot: AutomationSlot -> repo.editors.show(ShownEditor.Automation(AutomationDraftKey(gatewayId, slot))) }
 
 	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 		Text("Automations", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-		if (offersWatch(deviceId, offer)) {
+		if (offersWatch(deviceId, context)) {
 			TextButton(onClick = hapticClick { open(AutomationSlot.New(watch = deviceId)) }) { Text("New") }
 		}
 	}
@@ -104,12 +101,12 @@ private fun WatchingSection(repo: ChatRepository, state: ChatState, gatewayId: S
 			val on = row.automation.enabled
 			Column(
 				Modifier.fillMaxWidth()
-					.clickable(enabled = editable(row, offer), onClick = hapticClick { open(AutomationSlot.Held(row.id)) })
+					.clickable(enabled = opensIn(row, context), onClick = hapticClick { open(AutomationSlot.Held(row.id)) })
 					.padding(vertical = 6.dp),
 				verticalArrangement = Arrangement.spacedBy(2.dp),
 			) {
 				Text(row.sentence, style = MaterialTheme.typography.bodyLarge, color = if (on) Color.Unspecified else dim)
-				Text(doesText(row.automation, offer), style = MaterialTheme.typography.bodySmall, color = dim)
+				Text(doesText(row.automation, context.served), style = MaterialTheme.typography.bodySmall, color = dim)
 				row.invalid?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 			}
 		}

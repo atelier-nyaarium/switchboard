@@ -71,9 +71,6 @@ sealed interface GatewayList<out T> {
 	data object Unreachable : GatewayList<Nothing>
 }
 
-/** Null unless listed. */
-fun <T> GatewayList<T>.listedRows(): List<T>? = (this as? GatewayList.Listed)?.rows
-
 sealed interface Lookup<out T> {
 	data class Found<T>(val row: T) : Lookup<T>
 
@@ -85,8 +82,6 @@ sealed interface Lookup<out T> {
 	data object Unreachable : Lookup<Nothing>
 
 	data object NotServed : Lookup<Nothing>
-
-	fun found(): T? = (this as? Found)?.row
 }
 
 fun <T> GatewayList<T>.lookup(match: (T) -> Boolean): Lookup<T> = when (this) {
@@ -98,8 +93,14 @@ fun <T> GatewayList<T>.lookup(match: (T) -> Boolean): Lookup<T> = when (this) {
 
 data class ListedGroup<T>(val gatewayId: String, val rows: List<T>)
 
+/** Only listed Gateways draw a group. */
 fun <T> List<GatewayEntry>.listedGroups(of: (GatewayEntry) -> GatewayList<T>): List<ListedGroup<T>> =
-	mapNotNull { entry -> of(entry).listedRows()?.let { ListedGroup(entry.id, it) } }
+	mapNotNull { entry ->
+		when (val list = of(entry)) {
+			is GatewayList.Listed -> ListedGroup(entry.id, list.rows)
+			GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed -> null
+		}
+	}
 
 sealed interface ListEmpty {
 	data object NoRoster : ListEmpty
@@ -154,10 +155,10 @@ data class GatewayEntry(
 	val runbooks: GatewayList<Runbook> = GatewayList.Unread,
 	val policies: GatewayList<AuthorizationPolicy> = GatewayList.Unread,
 	val automations: GatewayList<AutomationRow> = GatewayList.Unread,
-	/** Null from a build that holds an event and a tell alone. */
+	/** Read only by `automationContext`. */
 	val automationServes: com.atelier_nyaarium.switchboard.proto.AutomationServes? = null,
 	val peers: GatewayList<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = GatewayList.Unread,
-	val assistant: AssistantWord? = null,
+	val assistant: AssistantRead = AssistantRead.Reading,
 ) {
 	val seen: Boolean get() = incarnation > 0
 }
@@ -168,6 +169,11 @@ sealed interface AssistantWord {
 
 	/** Unsupported op or fault. */
 	data object Refused : AssistantWord
+}
+
+internal fun readOf(word: AssistantWord): AssistantRead = when (word) {
+	is AssistantWord.Answered -> AssistantRead.Answered(word.state)
+	AssistantWord.Refused -> AssistantRead.Refused
 }
 
 /** A Gateway's word on the assistant, as a reader must tell it apart. */
@@ -241,9 +247,12 @@ data class GatewayRegistry(
 	/** Re-ask on incarnation change. */
 	fun incarnations(): List<Pair<String, Long>> = gateways.map { it.id to it.incarnation }
 
-	/** Gateway-scoped; off-roster is unknown. */
+	/** Off the roster: unread before the roster loads, unreachable after. */
+	fun <T> listOn(gatewayId: String, of: (GatewayEntry) -> GatewayList<T>): GatewayList<T> =
+		entry(gatewayId)?.let(of) ?: if (loaded) GatewayList.Unreachable else GatewayList.Unread
+
 	private fun <T> lookup(gatewayId: String, of: (GatewayEntry) -> GatewayList<T>, match: (T) -> Boolean): Lookup<T> =
-		entry(gatewayId)?.let { of(it).lookup(match) } ?: Lookup.Unreachable
+		listOn(gatewayId, of).lookup(match)
 
 	fun runbookOn(gatewayId: String, runbookId: String): Lookup<Runbook> = lookup(gatewayId, { it.runbooks }) { it.id == runbookId }
 
@@ -256,19 +265,12 @@ data class GatewayRegistry(
 	fun automationOn(gatewayId: String, automationId: String): Lookup<AutomationRow> =
 		lookup(gatewayId, { it.automations }) { it.id == automationId }
 
-	/** Unread kept apart from refused. */
-	fun assistantRead(gatewayId: String): AssistantRead = when (val word = entry(gatewayId)?.assistant) {
-		is AssistantWord.Answered -> AssistantRead.Answered(word.state)
-		AssistantWord.Refused -> AssistantRead.Refused
-		null -> AssistantRead.Reading
-	}
-
-	/** Its sources and Safety; placement is the Router's. */
-	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? =
-		(entry(gatewayId)?.assistant as? AssistantWord.Answered)?.state
+	/** Off the roster as [listOn]. */
+	fun assistantRead(gatewayId: String): AssistantRead =
+		entry(gatewayId)?.assistant ?: if (loaded) AssistantRead.Refused else AssistantRead.Reading
 
 	/** Drops every held assistant answer. */
-	fun withoutAssistantWords(): GatewayRegistry = copy(gateways = gateways.map { it.copy(assistant = null) })
+	fun withoutAssistantWords(): GatewayRegistry = copy(gateways = gateways.map { it.copy(assistant = AssistantRead.Reading) })
 
 	/** Wake at earliest routine. */
 	fun soonestRoutineAt(): Long? =

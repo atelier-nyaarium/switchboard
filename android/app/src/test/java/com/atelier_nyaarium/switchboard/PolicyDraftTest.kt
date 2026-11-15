@@ -47,6 +47,13 @@ class PolicyDraftTest {
 		assertEquals(opened.copy(revision = 5L, enabled = false), opened.over(newer))
 		assertNull(opened.over(newer.copy(revision = 2L)))
 		assertNull(opened.over(newer.copy(revision = opened.revision)))
+		// Only over found record.
+		assertEquals(opened.over(newer), opened.saveOver(Lookup.Found(newer), refusedAt = 5L))
+		assertNull(opened.saveOver(Lookup.Found(newer), refusedAt = 6L))
+		assertNull(opened.saveOver(Lookup.Found(newer), refusedAt = null))
+		listOf(null, Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed).forEach {
+			assertNull(opened.saveOver(it, refusedAt = 5L))
+		}
 	}
 
 	@Test

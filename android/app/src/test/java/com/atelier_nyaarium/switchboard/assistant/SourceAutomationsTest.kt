@@ -30,25 +30,35 @@ class SourceAutomationsTest {
 		)
 
 		assertEquals(listOf("github-a", "github-b"), triggeredBy("github", rows).map { it.id })
-		assertEquals(usesOf("github", rows), triggeredBy("github", rows).size)
 		assertEquals(listOf("outside-cold", "outside-damp"), watching("ce:1c", rows).map { it.id })
 	}
 
 	@Test
 	fun `a source's page keeps each answer of its Gateway's list apart`() {
 		val rows = listOf(row("github-a", AutomationTrigger.Event("github", emptyList())))
-		val read = { list: GatewayList<AutomationRow>?, source: String -> usedBy("sakura", list) { triggeredBy(source, it) } }
+		val read = { list: GatewayList<AutomationRow>, source: String -> usedBy("sakura", list) { triggeredBy(source, it) } }
 
 		assertEquals(UsedBy.Rows(rows), read(GatewayList.Listed(rows), "github"))
 		assertEquals(
-			listOf(ListEmpty.None, ListEmpty.Reading, ListEmpty.Reading, ListEmpty.Unreachable, ListEmpty.NotServed(listOf("sakura"))),
+			listOf(ListEmpty.None, ListEmpty.Reading, ListEmpty.Unreachable, ListEmpty.NotServed(listOf("sakura"))),
 			listOf(
 				read(GatewayList.Listed(rows), "ifttt"),
 				read(GatewayList.Unread, "github"),
-				read(null, "github"),
 				read(GatewayList.Unreachable, "github"),
 				read(GatewayList.NotServed, "github"),
 			).map { (it as UsedBy.Empty).why },
+		)
+		// Listed answers count.
+		val counts = { uses: UsedBy -> usesLine(uses).any(Char::isDigit) }
+		assertEquals(
+			listOf(true, true, false, false, false),
+			listOf(
+				UsedBy.Rows(rows),
+				UsedBy.Empty(ListEmpty.None),
+				UsedBy.Empty(ListEmpty.Reading),
+				UsedBy.Empty(ListEmpty.Unreachable),
+				UsedBy.Empty(ListEmpty.NotServed(listOf("sakura"))),
+			).map(counts),
 		)
 		assertEquals(listOf(true, false, false), listOf(ListEmpty.Reading, ListEmpty.None, ListEmpty.Unreachable).map { watchingEmptyLine(it) == null })
 		// Unknown list warns, no count.

@@ -5,7 +5,8 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.movesWithHome
-import com.atelier_nyaarium.switchboard.assistant.offerOn
+import com.atelier_nyaarium.switchboard.assistant.automationContext
+import com.atelier_nyaarium.switchboard.assistant.over
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
@@ -76,6 +77,12 @@ internal sealed interface AutomationSaved {
 	data object Unreachable : AutomationSaved
 }
 
+/** Rebases only onto a held row. */
+internal fun keptRow(held: Lookup<AutomationRow>): AutomationRow? = when (held) {
+	is Lookup.Found -> held.row
+	Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> null
+}
+
 internal data class AutomationDraftKey(val gatewayId: String, val slot: AutomationSlot)
 
 /** Nothing held on the phone; a change re-reads. */
@@ -101,8 +108,11 @@ internal class AutomationOps(
 	fun editsEvent(key: AutomationDraftKey): Boolean {
 		val slot = key.slot as? AutomationSlot.Held ?: return false
 		val session = edits.state.value.held[key]
-		val stored = if (session != null) session.draft.original else state.value.gateways.automationOn(key.gatewayId, slot.id).found()?.automation
-		return stored?.let(::movesWithHome) == true
+		if (session != null) return session.draft.original?.let(::movesWithHome) == true
+		return when (val held = state.value.gateways.automationOn(key.gatewayId, slot.id)) {
+			is Lookup.Found -> movesWithHome(held.row.automation)
+			Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> false
+		}
 	}
 
 	override suspend fun clearInMemory() {
@@ -119,8 +129,8 @@ internal class AutomationOps(
 		op: suspend (AutomationDraft) -> AutomationSaved,
 	): EditOutcome<AutomationDraft, AutomationSaid>? = edits.send(key, opening) { sent ->
 		val held = state.value
-		val offer = offerOn(held.gateways.entry(key.gatewayId), away = assistantGateway(held) != key.gatewayId)
-		when (val outcome = outcomeOf(op(sent), sent, deleting, offer)) {
+		val heard = automationContext(held.gateways, held.assistantHome, key.gatewayId).over(sent.context)
+		when (val outcome = outcomeOf(op(sent), sent, deleting, heard)) {
 			AutomationOutcome.Done -> EditOutcome.Done
 			is AutomationOutcome.Offer -> EditOutcome.Stays(AutomationSaid.Line(outcome.line), outcome.draft, reopened = deleting)
 			is AutomationOutcome.Said -> EditOutcome.Stays(outcome.said)
@@ -145,14 +155,17 @@ internal class AutomationOps(
 		val read = reads.list(TAG, gatewayId, call) ?: return
 		// Remove 2026-11-29: with the prose shim.
 		// A Gateway that answers sources serves this list, so its refusal is a fault.
-		val serves = servesSources(state.value.gateways.assistantOn(gatewayId))
+		val serves = servesSources(state.value.gateways.assistantRead(gatewayId))
 		val answer = if (read == ListAnswer.NotServed && serves) ListAnswer.Unreachable else read
 		state.update { held ->
 			held.copy(
 				gateways = held.gateways.withEntry(gatewayId) {
+					val after = it.copy(automations = it.automations.after(answer))
 					// Only a listed answer says what is served.
-					val serves = if (answer is ListAnswer.Listed) listedServes else it.automationServes
-					it.copy(automations = it.automations.after(answer), automationServes = serves)
+					when (answer) {
+						is ListAnswer.Listed -> after.copy(automationServes = listedServes)
+						ListAnswer.NotServed, ListAnswer.Unreachable -> after
+					}
 				},
 			)
 		}
@@ -205,7 +218,7 @@ internal class AutomationOps(
 				refresh(gatewayId)
 				val deleted = written.answer
 				if (deleted.deleted) AutomationSaved.Stored(null)
-				else AutomationSaved.Refused(deleted.reason ?: "This Gateway kept it", state.value.gateways.automationOn(gatewayId, id).found())
+				else AutomationSaved.Refused(deleted.reason ?: "This Gateway kept it", keptRow(state.value.gateways.automationOn(gatewayId, id)))
 			}
 		}
 

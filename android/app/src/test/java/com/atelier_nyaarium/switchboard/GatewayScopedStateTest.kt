@@ -9,10 +9,6 @@ import com.atelier_nyaarium.switchboard.proto.Runbook
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * The reads the two tabs and their editors do. They live here rather than in a screen because
- * nothing can call into a `@Composable`, and a rule written inside one is invisible to every gate.
- */
 class GatewayScopedStateTest {
 	private fun book(id: String, name: String) =
 		Runbook(id = id, name = name, body = "do it", parameters = emptyList(), revision = 1L)
@@ -76,15 +72,29 @@ class GatewayScopedStateTest {
 		assertEquals(Lookup.Gone, state.runbookOn("sakura", "only-there"))
 		assertEquals(Lookup.Gone, state.routineOn("sakura", "nothing"))
 		assertEquals(Lookup.Gone, state.policyOn("sakura", "nothing"))
-		// Off-roster Gateway is unknown.
+		// Off the roster once it loaded.
 		assertEquals(Lookup.Unreachable, state.runbookOn("unknown", "shared"))
 		assertEquals(Lookup.Unreachable, state.routineOn("unknown", "triage"))
 		assertEquals(Lookup.Unreachable, state.policyOn("unknown", "apt"))
+		assertEquals(GatewayList.Unreachable, state.listOn("unknown") { it.automations })
+		val unloaded = GatewayRegistry()
+		assertEquals(Lookup.Reading, unloaded.automationOn("sakura", "a"))
+		assertEquals(GatewayList.Unread, unloaded.listOn("sakura") { it.runbooks })
+	}
+
+	@Test
+	fun onlyAFoundRecordFiresLabelsOrRebases() {
+		val unread = GatewayRegistry()
+		assertEquals("Here", com.atelier_nyaarium.switchboard.runbooks.fireable(state.runbookOn("sakura", "shared"))?.name)
+		assertEquals(null, com.atelier_nyaarium.switchboard.runbooks.fireable(unread.runbookOn("sakura", "shared")))
+		assertEquals("Here", com.atelier_nyaarium.switchboard.vault.policyLabel(state.policyOn("sakura", "apt"), "apt"))
+		assertEquals("apt", com.atelier_nyaarium.switchboard.vault.policyLabel(unread.policyOn("sakura", "apt"), "apt"))
+		assertEquals(null, keptRow(unread.automationOn("sakura", "a")))
 	}
 
 	@Test
 	fun aRoutinePicksFromItsOwnGatewaysLibrary() {
-		// What the editor offers, so a routine cannot pin words another machine holds.
+		// Editor offers only its own Gateway's.
 		assertEquals(listOf("Here"), state.entry("sakura")?.runbooks?.listedRows()?.map { it.name })
 		assertEquals(listOf("There", "Only there"), state.entry("mikan")?.runbooks?.listedRows()?.map { it.name })
 	}
@@ -112,7 +122,7 @@ class GatewayScopedStateTest {
 	@Test
 	fun thePhoneWakesForTheSoonestRunOnAnyGateway() {
 		assertEquals(300L, state.soonestRoutineAt())
-		// Nothing scheduled anywhere leaves the wake to whatever else asks for one.
+		// Nothing scheduled: no wake.
 		assertEquals(null, GatewayRegistry().soonestRoutineAt())
 	}
 

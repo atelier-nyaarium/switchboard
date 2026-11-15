@@ -50,7 +50,7 @@ internal fun homeLanding(state: ChatState, generation: Long, ticket: HomeTicket,
 			}
 		}
 		is HomeEffect.Word ->
-			state.copy(gateways = state.gateways.withEntry(effect.gatewayId) { it.copy(assistant = effect.word) }).withoutAssistantTabs()
+			state.copy(gateways = state.gateways.withEntry(effect.gatewayId) { it.copy(assistant = readOf(effect.word)) }).withoutAssistantTabs()
 		is HomeEffect.Failure -> state.copy(homeFailure = effect.reason)
 	}
 }

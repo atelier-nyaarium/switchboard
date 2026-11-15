@@ -47,7 +47,7 @@ import com.atelier_nyaarium.switchboard.ASSISTANT_SPAWN
 import com.atelier_nyaarium.switchboard.AssistantOps
 import com.atelier_nyaarium.switchboard.AssistantRoot
 import com.atelier_nyaarium.switchboard.AssistantSection
-import com.atelier_nyaarium.switchboard.AssistantWord
+import com.atelier_nyaarium.switchboard.AssistantRead
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
@@ -61,16 +61,16 @@ import com.atelier_nyaarium.switchboard.RootView
 import com.atelier_nyaarium.switchboard.ShellPage
 import com.atelier_nyaarium.switchboard.WorkKey
 import com.atelier_nyaarium.switchboard.answerText
+import com.atelier_nyaarium.switchboard.workdirOf
 import com.atelier_nyaarium.switchboard.assistantSections
 import com.atelier_nyaarium.switchboard.folderOf
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.homeRefusal
-import com.atelier_nyaarium.switchboard.listedRows
 import com.atelier_nyaarium.switchboard.locationAction
 import com.atelier_nyaarium.switchboard.moveErrorText
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.runIsolated
-import com.atelier_nyaarium.switchboard.sourcesOf
+import com.atelier_nyaarium.switchboard.heldSource
 
 private const val DEFAULT_FOLDER = "~/"
 
@@ -133,7 +133,7 @@ internal fun AssistantPageHost(
 			if (home == null) {
 				AssistantPageScaffold("Add", onBack) { Text(PLACE_FIRST, style = MaterialTheme.typography.bodyLarge) }
 			} else {
-				IntegrationAddPage(state, home, onEntry = { g, id -> onPage(ShellPage.Entry(g, id)) }, onBack)
+				IntegrationAddPage(repo, state, home, onEntry = { g, id -> onPage(ShellPage.Entry(g, id)) }, onBack)
 			}
 		is ShellPage.Entry ->
 			IntegrationEntryPage(
@@ -150,7 +150,7 @@ internal fun AssistantPageHost(
 			PlugSetupPage(repo, page.gatewayId, onDevice = { onReplace(ShellPage.Device(page.gatewayId, it)) }, onBack)
 		is ShellPage.Device -> AssistantDevicePage(repo, page.gatewayId, page.deviceId, onBack)
 		is ShellPage.Source -> {
-			val source = state.gateways.assistantOn(page.gatewayId)?.let(::sourcesOf)?.find { it.id == page.sourceId }
+			val source = heldSource(state.gateways.assistantRead(page.gatewayId), page.sourceId)
 			if (source == null) {
 				UnreadPage("Source", repo, state, page.gatewayId, onBack)
 			} else {
@@ -159,21 +159,21 @@ internal fun AssistantPageHost(
 					repo,
 					page.gatewayId,
 					source,
-					uses = state.gateways.entry(page.gatewayId)?.automations?.listedRows()?.let { usesOf(source.id, it) },
+					uses = usedBy(page.gatewayId, state.gateways.listOn(page.gatewayId) { it.automations }) { triggeredBy(source.id, it) },
 					onAutomations = { onPage(ShellPage.SourceAutomations(page.gatewayId, page.sourceId)) },
 					onBack,
 				)
 			}
 		}
 		is ShellPage.SourceAutomations -> {
-			val source = state.gateways.assistantOn(page.gatewayId)?.let(::sourcesOf)?.find { it.id == page.sourceId }
+			val source = heldSource(state.gateways.assistantRead(page.gatewayId), page.sourceId)
 			if (source == null) {
 				UnreadPage("Automations", repo, state, page.gatewayId, onBack)
 			} else {
 				LaunchedEffect(page.gatewayId) { repo.automationOps.refresh(page.gatewayId) }
 				SourceAutomationsPage(
 					source.label,
-					usedBy(page.gatewayId, state.gateways.entry(page.gatewayId)?.automations) { triggeredBy(source.id, it) },
+					usedBy(page.gatewayId, state.gateways.listOn(page.gatewayId) { it.automations }) { triggeredBy(source.id, it) },
 					onBack,
 				)
 			}
@@ -181,16 +181,20 @@ internal fun AssistantPageHost(
 	}
 }
 
-/** Refused: Retry; unanswered waits. */
 @Composable
 private fun UnreadPage(title: String, repo: ChatRepository, state: ChatState, gatewayId: String, onBack: () -> Unit) {
-	AssistantPageScaffold(title, onBack) {
-		if (state.gateways.entry(gatewayId)?.assistant is AssistantWord.Refused) {
+	AssistantPageScaffold(title, onBack) { UnreadLine(repo, state.gateways.assistantRead(gatewayId), gatewayId) }
+}
+
+/** Refused: Retry; unanswered waits. */
+@Composable
+internal fun UnreadLine(repo: ChatRepository, read: AssistantRead, gatewayId: String) {
+	when (read) {
+		AssistantRead.Refused -> {
 			Text("$gatewayId could not be read.", style = MaterialTheme.typography.bodyLarge)
 			OutlinedButton(onClick = hapticClick { repo.command { assistantOps.refresh(gatewayId) } }) { Text("Retry") }
-		} else {
-			CircularProgressIndicator()
 		}
+		AssistantRead.Reading, is AssistantRead.Answered -> CircularProgressIndicator()
 	}
 }
 
@@ -239,11 +243,11 @@ private fun AssistantLocationPage(
 	val busy = work.busy
 	val gateways = state.gateways.ids()
 	// Its answer, not proof of placement.
-	val homeState = home?.let { state.gateways.assistantOn(it) }
+	val workdir = workdirOf(home?.let(state.gateways::assistantRead))
 	var target by rememberSaveable(home) { mutableStateOf(home ?: gateways.firstOrNull()) }
-	val folderText = homeState?.workdir ?: DEFAULT_FOLDER
+	val folderText = workdir ?: DEFAULT_FOLDER
 	// A late answer reseeds it.
-	var folder by rememberSaveable(home, homeState?.workdir, stateSaver = TextFieldValue.Saver) {
+	var folder by rememberSaveable(home, workdir, stateSaver = TextFieldValue.Saver) {
 		mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length)))
 	}
 	// Leaving closes the dialog.
@@ -270,7 +274,7 @@ private fun AssistantLocationPage(
 					)
 					val domainId = state.domainId
 					val picked = target
-					val action = locationAction(state.gateways, home, picked, folder.text, homeState?.workdir)
+					val action = locationAction(state.gateways, home, picked, folder.text, workdir)
 					if (picked != null && domainId != null) {
 						val hostTarget = runIsolated { SpawnPoint.of(domainId, picked, ASSISTANT_SPAWN).canonical }.getOrNull()
 						DirectoryField(
@@ -348,7 +352,7 @@ private fun AssistantSettingsIndex(
 ) {
 	val works by repo.assistantOps.work.collectAsState()
 	val work = works[WorkKey.Settings] ?: PageWork()
-	val homeState = home?.let { state.gateways.assistantOn(it) }
+	val homeRead = home?.let(state.gateways::assistantRead)
 	val context = androidx.compose.ui.platform.LocalContext.current
 	val wanted by repo.phoneCapabilityOps.features.wanted.collectAsState()
 	var tick by remember { mutableStateOf(0) }
@@ -368,14 +372,14 @@ private fun AssistantSettingsIndex(
 		(work.said ?: state.homeFailure?.let(::moveErrorText))?.let {
 			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
-		for (section in assistantSections(home, homeState)) {
+		for (section in assistantSections(home, homeRead)) {
 			when (section) {
 				AssistantSection.LOCATION ->
-					SettingsRow("Session data location", locationLines(home, homeState?.workdir)) { onPage(ShellPage.Location) }
+					SettingsRow("Session data location", locationLines(home, workdirOf(homeRead))) { onPage(ShellPage.Location) }
 				AssistantSection.FEATURES ->
 					SettingsRow("Features", featureLines(phoneSettings.assistantOn, phoneSettings.screenData, features)) { onPage(ShellPage.Features) }
 				AssistantSection.SAFETY ->
-					SettingsRow("Safety", safetyLines(homeState?.approveEverySend)) { onPage(ShellPage.Safety) }
+					SettingsRow("Safety", safetyLines(homeRead)) { onPage(ShellPage.Safety) }
 				AssistantSection.REMOVE -> SettingsRow("Remove assistant", SettingsLines(line = REMOVE_LINE)) { removing = true }
 			}
 		}
@@ -418,11 +422,19 @@ private fun AssistantSafetyPage(repo: ChatRepository, state: ChatState, home: St
 	val works by repo.assistantOps.work.collectAsState()
 	val work = works[WorkKey.Safety] ?: PageWork()
 	val busy = work.busy
-	val approveEverySend = home?.let { state.gateways.assistantOn(it) }?.approveEverySend
 	val settings = settingsRunner(repo, WorkKey.Safety)
 	AssistantPageScaffold("Safety", onBack) {
 		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-		if (home != null && approveEverySend != null) {
+		if (home == null) return@AssistantPageScaffold
+		val read = state.gateways.assistantRead(home)
+		val approveEverySend = when (read) {
+			is AssistantRead.Answered -> read.state.approveEverySend
+			AssistantRead.Reading, AssistantRead.Refused -> {
+				UnreadLine(repo, read, home)
+				null
+			}
+		}
+		if (approveEverySend != null) {
 			Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
 				Text("Approve every send", modifier = Modifier.weight(1f))
 				Switch(

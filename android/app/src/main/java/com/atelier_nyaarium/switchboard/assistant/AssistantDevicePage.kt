@@ -58,7 +58,7 @@ import com.atelier_nyaarium.switchboard.clockLine
 import com.atelier_nyaarium.switchboard.daysText
 import com.atelier_nyaarium.switchboard.detailOf
 import com.atelier_nyaarium.switchboard.detailRetry
-import com.atelier_nyaarium.switchboard.displayUnitOf
+import com.atelier_nyaarium.switchboard.homeDisplayUnit
 import com.atelier_nyaarium.switchboard.deviceRecord
 import com.atelier_nyaarium.switchboard.editOf
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -99,7 +99,7 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 	val reach = state.gateways.entry(gatewayId)?.let { state.gateways.reachable(gatewayId) to it.incarnation }
 	LaunchedEffect(gatewayId, deviceId, reach) { open() }
 	var removing by remember { mutableStateOf(false) }
-	val display = displayUnitOf(assistantGateway(state)?.let { state.gateways.assistantOn(it) })
+	val display = homeDisplayUnit(state.gateways, assistantGateway(state))
 
 	AssistantPageScaffold(
 		record?.name ?: "Device",
@@ -140,7 +140,7 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 		ConfirmDialog(
 			title = "Remove ${record.name}?",
 			body = if (record.isSensor()) {
-				removeSensorLine(usedBy(gatewayId, state.gateways.entry(gatewayId)?.automations) { watching(record.id, it) })
+				removeSensorLine(usedBy(gatewayId, state.gateways.listOn(gatewayId) { it.automations }) { watching(record.id, it) })
 			} else {
 				"Switchboard stops controlling it. Its own schedule stays on the device."
 			},

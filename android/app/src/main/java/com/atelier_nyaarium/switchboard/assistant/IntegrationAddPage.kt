@@ -16,12 +16,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.AssistantRead
+import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.addGroups
 import com.atelier_nyaarium.switchboard.groupTitle
@@ -29,12 +30,24 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Integration
 
 @Composable
-internal fun IntegrationAddPage(state: ChatState, home: String, onEntry: (String, String) -> Unit, onBack: () -> Unit) {
-	val offered = state.gateways.assistantOn(home)?.offered
+internal fun IntegrationAddPage(
+	repo: ChatRepository,
+	state: ChatState,
+	home: String,
+	onEntry: (String, String) -> Unit,
+	onBack: () -> Unit,
+) {
+	val read = state.gateways.assistantRead(home)
 	var query by rememberSaveable(home) { mutableStateOf("") }
-	val groups = remember(offered, query) { addGroups(offered, query) }
 
 	AssistantPageScaffold("Add", onBack) {
+		val groups = when (read) {
+			is AssistantRead.Answered -> addGroups(read.state.offered, query)
+			AssistantRead.Reading, AssistantRead.Refused -> {
+				UnreadLine(repo, read, home)
+				return@AssistantPageScaffold
+			}
+		}
 		OutlinedTextField(
 			value = query,
 			onValueChange = { query = it },

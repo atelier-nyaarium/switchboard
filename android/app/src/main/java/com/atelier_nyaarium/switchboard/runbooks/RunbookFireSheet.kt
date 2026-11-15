@@ -39,6 +39,7 @@ import com.atelier_nyaarium.switchboard.FIRES_ONCE_STARTED
 import com.atelier_nyaarium.switchboard.FireOutcome
 import com.atelier_nyaarium.switchboard.fireOutcome
 import com.atelier_nyaarium.switchboard.CliToggles
+import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.SpawnHarnesses
 import com.atelier_nyaarium.switchboard.cliChoices
@@ -64,7 +65,7 @@ fun RunbookFireSheet(
 	into: String? = null,
 	onDismiss: () -> Unit,
 ) {
-	val runbook = remember(gatewayId, runbookId, state.gateways) { state.gateways.runbookOn(gatewayId, runbookId).found() }
+	val runbook = remember(gatewayId, runbookId, state.gateways) { fireable(state.gateways.runbookOn(gatewayId, runbookId)) }
 	if (runbook == null) {
 		LaunchedEffect(runbookId) { onDismiss() }
 		return
@@ -238,6 +239,12 @@ internal fun PreviewPane(preview: PreviewState, onOverwrite: () -> Unit) {
 			}
 		}
 	}
+}
+
+/** Else closes the sheet. */
+internal fun fireable(held: Lookup<Runbook>): Runbook? = when (held) {
+	is Lookup.Found -> held.row
+	Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> null
 }
 
 internal class FireSheetState(runbook: Runbook, private val into: String? = null) {

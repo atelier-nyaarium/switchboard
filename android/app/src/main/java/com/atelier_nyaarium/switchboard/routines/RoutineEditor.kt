@@ -34,7 +34,6 @@ import com.atelier_nyaarium.switchboard.EditKey
 import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.EditorWaiting
 import com.atelier_nyaarium.switchboard.EditStanding
-import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.MirroredDraft
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.RemoveMenu
@@ -42,7 +41,7 @@ import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.cliChoices
 import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.proto.Routine
+import com.atelier_nyaarium.switchboard.openingDraft
 import com.atelier_nyaarium.switchboard.rememberEdit
 import com.atelier_nyaarium.switchboard.runbooks.PreviewPane
 import com.atelier_nyaarium.switchboard.runbooks.PreviewState
@@ -65,14 +64,13 @@ fun RoutineEditor(
 	val lookup = remember(gatewayId, routineId, state.gateways) {
 		routineId?.let { state.gateways.routineOn(gatewayId, it) }
 	}
-	val held: Routine? = lookup?.found()?.routine
 	val zone = remember { java.time.ZoneId.systemDefault() }
 	// Shown in the owner's zone.
 	val edits = repo.routineOps.edits
 	val key = EditKey(gatewayId, routineId)
-	val fresh = remember(key, held) {
-		val opened = held?.let { RoutineDraft.of(it).shown(zone.id) } ?: RoutineDraft.fresh(zone)
-		opened.withDefaultPick(state.gateways.harnessesOn(gatewayId, opened.spawn))
+	val fresh = remember(key, lookup) {
+		openingDraft(lookup, { RoutineDraft.fresh(zone) }) { RoutineDraft.of(it.routine).shown(zone.id) }
+			?.let { opened -> opened.withDefaultPick(state.gateways.harnessesOn(gatewayId, opened.spawn)) }
 	}
 	val standing = editStanding(lookup)
 	if (standing == EditStanding.READING || standing == EditStanding.UNREACHABLE) {
@@ -103,7 +101,7 @@ fun RoutineEditor(
 	var pickingTime by remember(routineId) { mutableStateOf(false) }
 
 	// This gateway's only. A routine cannot run words another machine holds.
-	val shelf = remember(gatewayId, state.gateways) { runbookShelf(state.gateways.entry(gatewayId)?.runbooks ?: GatewayList.Unread) }
+	val shelf = remember(gatewayId, state.gateways) { runbookShelf(state.gateways.listOn(gatewayId) { it.runbooks }) }
 	val library = shelf.library
 	LaunchedEffect(gatewayId) { repo.command { runbookOps.refresh(gatewayId) } }
 	val names = library.map { it.name }

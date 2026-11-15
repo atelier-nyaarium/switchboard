@@ -368,11 +368,14 @@ internal class TrustOps(
 			}.mapFailure { if (it.message == "session") IllegalStateException("This Gateway has not reported the session yet") else it }
 	}
 
-	/** Unread peers answer true. */
-	fun canShareTo(team: Team, domainId: String): Boolean = when (val peers = state.value.gateways.entry(team.gatewayId)?.peers) {
-		null -> false
-		is GatewayList.Listed -> peers.rows.any { it.domainId == domainId }
-		GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed -> true
+	/** Off the roster answers false; unread peers answer true. */
+	fun canShareTo(team: Team, domainId: String): Boolean {
+		val registry = state.value.gateways
+		if (!registry.has(team.gatewayId)) return false
+		return when (val peers = registry.listOn(team.gatewayId) { it.peers }) {
+			is GatewayList.Listed -> peers.rows.any { it.domainId == domainId }
+			GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed -> true
+		}
 	}
 
 	/** Answers the Gateways whose read landed this round; the rest keep what they had. */
@@ -429,7 +432,12 @@ internal class TrustOps(
 
 /** By Domain, from each Gateway's last answer. Two owners for one Domain name none. */
 internal fun linkedOwners(lists: List<GatewayList<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>>): Map<String, String> {
-	val named = lists.mapNotNull { it.listedRows() }.flatten().filter { it.domainId.isNotEmpty() }
+	val named = lists.flatMap { list ->
+		when (list) {
+			is GatewayList.Listed -> list.rows
+			GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed -> emptyList()
+		}
+	}.filter { it.domainId.isNotEmpty() }
 		.groupBy({ it.domainId }, { it.ownerSignPub })
 	val conflicted = named.filterValues { it.distinct().size > 1 }.keys
 	for (domain in conflicted) DebugLog.log("Trust", "conflicting peer owner for $domain")

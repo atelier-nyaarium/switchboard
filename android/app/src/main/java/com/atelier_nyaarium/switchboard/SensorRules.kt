@@ -1,7 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.DeviceReading
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceSensorPayload
@@ -100,13 +101,33 @@ internal fun servicesWaiting(read: AssistantRead): String? = when (read) {
 	AssistantRead.Refused -> "This Gateway did not answer for its services."
 }
 
+internal data class HomeHolding(
+	val sources: List<AssistantSource> = emptyList(),
+	val integrations: List<AssistantIntegration>? = null,
+	val display: String? = null,
+	/** Null hides the unit row. */
+	val temperatureUnit: String? = null,
+)
+
+/** Unread: [servicesWaiting] stands in. */
+internal fun homeHolding(read: AssistantRead?): HomeHolding = when (read) {
+	is AssistantRead.Answered -> HomeHolding(sourcesOf(read.state), read.state.integrations, displayUnitOf(read), read.state.temperatureUnit)
+	null, AssistantRead.Reading, AssistantRead.Refused -> HomeHolding()
+}
+
 /** No Gateway has answered. */
 internal fun devicesPending(ids: List<String>, views: Map<String, DevicesView>): Boolean =
 	ids.isNotEmpty() && ids.all { (views[it]?.list ?: DeviceListView.Loading) == DeviceListView.Loading }
 
-/** Null shows Celsius. */
-internal fun displayUnitOf(assistant: ConsoleAssistantStateResult?): String? =
-	assistant?.temperatureUnit?.takeIf { it != "C" }
+/** Unread shows the stored unit. */
+internal fun displayUnitOf(read: AssistantRead): String? = when (read) {
+	is AssistantRead.Answered -> read.state.temperatureUnit?.takeIf { it != "C" }
+	AssistantRead.Reading, AssistantRead.Refused -> null
+}
+
+/** No home holds no preference. */
+internal fun homeDisplayUnit(registry: GatewayRegistry, home: String?): String? =
+	if (home == null) null else displayUnitOf(registry.assistantRead(home))
 
 internal data class PayloadRow(val at: Long, val radio: String, val bytes: List<String>, val changed: List<Boolean>)
 

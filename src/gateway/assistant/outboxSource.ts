@@ -1,7 +1,7 @@
 // The automations' outbox, listed in the assistant's lane.
 
 import { SENSORS_SOURCE_ID } from "../../shared/schemasAssistantActions.js";
-import type { AutomationOutbox, OutboxEvent } from "../computed/automations.js";
+import type { AutomationOutbox, OutboxEvent } from "../computed/automationOutbox.js";
 import type { ListPage, ListQuery, PollAnswer, Source, SourceEvent } from "./source.js";
 
 const FALLBACK_POLL_MS = 10 * 60 * 1000;
@@ -31,14 +31,17 @@ export function createOutboxSource(outbox: AutomationOutbox): Source {
 				nextPollMs: FALLBACK_POLL_MS,
 			};
 		},
+		/** Holds the first read's revision, so later pages cover the same span. */
 		async list(query: ListQuery): Promise<ListPage> {
 			const since = query.scope === "new" ? (query.since ?? 0) : -1;
+			const upTo = query.page === undefined ? outbox.revision() : Number(query.page);
+			if (!Number.isSafeInteger(upTo)) throw new Error("stale page; list again");
 			const shown = outbox
 				.events()
-				.filter((event) => event.at > since)
+				.filter((event) => event.at > since && event.at <= upTo)
 				.map(eventOf)
 				.reverse();
-			return { events: shown, here: "p0", ...(query.scope === "new" ? { mark: outbox.revision() } : {}) };
+			return { events: shown, here: String(upTo), ...(query.scope === "new" ? { mark: upTo } : {}) };
 		},
 	};
 }

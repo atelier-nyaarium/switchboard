@@ -88,8 +88,7 @@ internal fun AssistantSourcePage(
 	repo: ChatRepository,
 	gatewayId: String,
 	source: AssistantSource,
-	/** Null from a Gateway listing none. */
-	uses: Int?,
+	uses: UsedBy,
 	onAutomations: () -> Unit,
 	onBack: () -> Unit,
 ) {
@@ -151,7 +150,7 @@ internal fun AssistantSourcePage(
 				}
 			}
 		}
-		if (source.triggers && uses != null) {
+		if (source.triggers) {
 			HorizontalDivider()
 			Row(
 				Modifier.fillMaxWidth().clickable(onClick = hapticClick(onAutomations)).padding(vertical = 8.dp),
@@ -160,7 +159,7 @@ internal fun AssistantSourcePage(
 			) {
 				Column(Modifier.weight(1f)) {
 					Text("Automations", style = MaterialTheme.typography.bodyLarge)
-					Text(usesText(uses), style = MaterialTheme.typography.bodySmall, color = dim)
+					Text(usesLine(uses), style = MaterialTheme.typography.bodySmall, color = dim)
 				}
 				Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
 			}

@@ -186,11 +186,13 @@ internal class RunbookOps(
 		// One gateway's failure, whatever raised it, must not take down the pass around it.
 		attempt {
 			val answer = reads.list(TAG, gatewayId, client?.let { held -> suspend { held.list(gatewayId) } }) ?: return@attempt
-			val held = answer as? ListAnswer.Listed ?: return@attempt unread(gatewayId)
-			written(began) {
-				// This gateway's markers only. Clearing every gateway's would push again for nothing.
-				synced.removeAll { it.first == gatewayId }
-				show(gatewayId, host.library.merge(gatewayId, held.rows))
+			when (answer) {
+				is ListAnswer.Listed -> written(began) {
+					// Only this gateway's markers clear.
+					synced.removeAll { it.first == gatewayId }
+					show(gatewayId, host.library.merge(gatewayId, answer.rows))
+				}
+				ListAnswer.NotServed, ListAnswer.Unreachable -> missed(gatewayId, answer)
 			}
 		}
 	}
@@ -260,9 +262,9 @@ internal class RunbookOps(
 	}
 
 	/** Unplaced reads failed; placed stays. */
-	private fun unread(gatewayId: String) {
+	private fun missed(gatewayId: String, answer: ListAnswer<Runbook>) {
 		state.update { held ->
-			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(runbooks = it.runbooks.after(ListAnswer.Unreachable)) })
+			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(runbooks = it.runbooks.after(answer)) })
 		}
 	}
 
@@ -309,8 +311,12 @@ internal class RunbookOps(
 		if (Triple(gatewayId, runbookId, mine.revision) in synced) return true
 
 		// Fenced like every other per-gateway read; this one writes through show() too.
-		val theirs = reads.list(TAG, gatewayId) { client.list(gatewayId) } as? ListAnswer.Listed ?: return false
-		val held = theirs.rows.find { it.id == runbookId }
+		// False: not confirmed.
+		val theirs = when (val answer = reads.list(TAG, gatewayId) { client.list(gatewayId) }) {
+			is ListAnswer.Listed -> answer.rows
+			ListAnswer.NotServed, ListAnswer.Unreachable, null -> return false
+		}
+		val held = theirs.find { it.id == runbookId }
 		var settledRevision = mine.revision
 		val settled = when (val decision = pushDecision(mine, held)) {
 			PushDecision.Ready -> true

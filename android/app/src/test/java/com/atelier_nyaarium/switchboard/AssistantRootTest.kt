@@ -60,13 +60,13 @@ class AssistantRootTest {
 	private fun placedOn(gatewayId: String, vararg others: String) =
 		homeAt(gatewayId, *others).withWord(
 			gatewayId,
-			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),
+			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),
 		)
 
-	private val holdsNone = AssistantWord.Answered(ConsoleAssistantStateResult(watchers = emptyList()))
+	private val holdsNone = AssistantRead.Answered(ConsoleAssistantStateResult(watchers = emptyList()))
 
-	private fun ChatState.withWord(gatewayId: String, word: AssistantWord?) =
-		copy(gateways = gateways.withEntry(gatewayId) { it.copy(assistant = word) })
+	private fun ChatState.withWord(gatewayId: String, word: AssistantRead?) =
+		copy(gateways = gateways.withEntry(gatewayId) { it.copy(assistant = word ?: AssistantRead.Reading) })
 
 	@Test
 	fun theAssistantArrivesUnderItsRootAndBackStepsTerminalChatSessions() {
@@ -259,7 +259,7 @@ class AssistantRootTest {
 		val placed = placedOn("sakura")
 		val unoffered = placed.withWord(
 			"sakura",
-			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", sources = emptyList(), offered = listOf("ifttt"))),
+			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", sources = emptyList(), offered = listOf("ifttt"))),
 		)
 
 		assertEquals(stack, stack.resolvePages(placed))
@@ -280,7 +280,7 @@ class AssistantRootTest {
 		val placed = placedOn("sakura")
 		val offersIfttt = placed.withWord(
 			"sakura",
-			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = emptyList(), offered = listOf("ifttt"))),
+			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = emptyList(), offered = listOf("ifttt"))),
 		)
 
 		assertEquals(entry, entry.resolved(placed))
@@ -297,12 +297,12 @@ class AssistantRootTest {
 		val placed = placedOn("sakura")
 		val noSource = placed.withWord(
 			"sakura",
-			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", sources = emptyList())),
+			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", sources = emptyList())),
 		)
 
 		assertEquals(source, source.resolved(placed))
 		assertEquals(source, source.resolved(placed.withWord("sakura", null)))
-		assertEquals(source, source.resolved(placed.withWord("sakura", AssistantWord.Refused)))
+		assertEquals(source, source.resolved(placed.withWord("sakura", AssistantRead.Refused)))
 		assertNull(source.resolved(noSource))
 		assertNull(source.resolved(placedOn("mikan", "sakura")))
 		assertEquals(itsAutomations, itsAutomations.resolved(placed))
@@ -311,7 +311,7 @@ class AssistantRootTest {
 		// Watchers read as sources.
 		val older = placed.withWord(
 			"sakura",
-			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),
+			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),
 		)
 		assertEquals(source, source.resolved(older))
 	}
@@ -357,12 +357,14 @@ class AssistantRootTest {
 			triggers = true,
 		)
 		val tabs = listOf(session, "dom.mikan.app.dev")
-		val chrome = threadChrome(assistant = true, label = "assistant", tabs = tabs, sources = listOf(watcher))
-		val sessionChrome = threadChrome(assistant = false, label = "dev", tabs = tabs, sources = listOf(watcher))
+		val answered = AssistantRead.Answered(ConsoleAssistantStateResult(sources = listOf(watcher)))
+		val chrome = threadChrome(assistant = true, label = "assistant", tabs = tabs, home = answered)
+		val sessionChrome = threadChrome(assistant = false, label = "dev", tabs = tabs, home = answered)
 
 		assertEquals(Triple("Assistant", false, false), Triple(chrome.title, chrome.tabRow, chrome.sessionMenu))
 		assertEquals(listOf(InboxRow.Waiting("github", "GitHub", "3 new")), chrome.inbox)
 		assertEquals(Triple("dev", true, true), Triple(sessionChrome.title, sessionChrome.tabRow, sessionChrome.sessionMenu))
 		assertEquals(emptyList<InboxRow>(), sessionChrome.inbox)
+		assertEquals(emptyList<InboxRow>(), threadChrome(true, "assistant", tabs, AssistantRead.Reading).inbox)
 	}
 }

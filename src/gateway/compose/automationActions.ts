@@ -1,8 +1,12 @@
 // How an automation's effects reach the devices and IFTTT.
 
-import type { IftttTriggerAnswer, IftttTriggerRequest } from "../../shared/schemasPhoneCapabilities.js";
+import type {
+	IftttTriggerAnswer,
+	IftttTriggerRequest,
+	UnavailableReason,
+} from "../../shared/schemasPhoneCapabilities.js";
 import { GatewayCapabilityRefusal } from "../assistant/gatewayCapabilityRefusal.js";
-import type { AutomationActionPorts, AutomationEffect } from "../computed/automationRunner.js";
+import type { ActionOutcome, AutomationActionPorts, AutomationEffect } from "../computed/automationRunner.js";
 import type { DeviceStage } from "./composeDevices.js";
 
 export interface AutomationActionsDeps {
@@ -12,6 +16,12 @@ export interface AutomationActionsDeps {
 	/** Vault can answer reads. */
 	vaultReady: () => boolean;
 }
+
+/** Otherwise refused. */
+const REFUSAL_OUTCOMES: Partial<Record<UnavailableReason, ActionOutcome["outcome"]>> = {
+	timeout: "uncertain",
+	not_ready: "not_started",
+};
 
 export function automationActions(deps: AutomationActionsDeps): AutomationActionPorts {
 	const ready: Record<AutomationEffect["kind"], () => boolean> = {
@@ -27,7 +37,7 @@ export function automationActions(deps: AutomationActionsDeps): AutomationAction
 		},
 		deviceSet: async (device, verb) => {
 			const devices = deps.devices();
-			if (!devices) return { outcome: "refused", reason: "devices are not loaded" };
+			if (!devices) return { outcome: "not_started", reason: "devices are not loaded" };
 			const answer = await devices.assistant({ kind: "device_set", id: device, verb });
 			if (answer.kind === "ok") return { outcome: "ran" };
 			const { code, effect } = answer.refusal;
@@ -43,7 +53,8 @@ export function automationActions(deps: AutomationActionsDeps): AutomationAction
 					: { outcome: "refused", reason: `IFTTT answered ${status}` };
 			} catch (error) {
 				if (!(error instanceof GatewayCapabilityRefusal)) throw error;
-				return { outcome: error.reason === "timeout" ? "uncertain" : "refused", reason: error.reason };
+				const outcome = REFUSAL_OUTCOMES[error.reason] ?? "refused";
+				return { outcome, reason: error.reason };
 			}
 		},
 	};

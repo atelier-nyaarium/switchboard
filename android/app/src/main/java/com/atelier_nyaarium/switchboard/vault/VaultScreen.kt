@@ -39,11 +39,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.StatusChip
 import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.grantsOf
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.requestsOf
+import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
 import com.atelier_nyaarium.switchboard.proto.VaultHolder
 import kotlinx.coroutines.launch
@@ -242,7 +244,7 @@ private fun GrantRow(
 					},
 					entryTitle,
 					// Names the policy that answered.
-					grant.policy?.let { ref -> "via ${state.gateways.policyOn(gatewayId, ref.policyId).found()?.name ?: ref.policyId}" },
+					grant.policy?.let { ref -> "via ${policyLabel(state.gateways.policyOn(gatewayId, ref.policyId), ref.policyId)}" },
 					grantCovers(grant.coveredShapes),
 					grant.expiresAt?.let { expiresIn(it).text },
 				).joinToString(" - "),
@@ -254,6 +256,12 @@ private fun GrantRow(
 		}
 		TextButton(onClick = hapticClick(onRevoke)) { Text("Revoke") }
 	}
+}
+
+/** Name, else id. */
+internal fun policyLabel(held: Lookup<AuthorizationPolicy>, policyId: String): String = when (held) {
+	is Lookup.Found -> held.row.name
+	Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> policyId
 }
 
 /** Who the grant is for. */

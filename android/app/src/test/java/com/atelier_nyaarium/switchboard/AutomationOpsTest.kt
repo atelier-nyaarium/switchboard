@@ -16,7 +16,9 @@ import com.atelier_nyaarium.switchboard.assistant.TextRef
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
+import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
+import com.atelier_nyaarium.switchboard.assistant.offerOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -48,6 +50,9 @@ private val SERVES = AutomationServes(
 	numbers = emptyList(),
 	switches = emptyList(),
 )
+
+
+private val HERE = EditContext(offerOf(null, away = false), emptyList())
 
 class AutomationOpsTest {
 	private class FakeGateway : AutomationGateway {
@@ -181,9 +186,9 @@ class AutomationOpsTest {
 			return key
 		}
 
-		val clock = typed(AutomationSlot.Held("hourly"), automationDraftOf(hourly)!!, toEvent)
-		val event = typed(AutomationSlot.Held("review"), automationDraftOf(automationRow())!!, toClock)
-		val fresh = typed(AutomationSlot.New(), automationDraftOf(hourly)!!.copy(original = null), toEvent)
+		val clock = typed(AutomationSlot.Held("hourly"), automationDraftOf(hourly, HERE)!!, toEvent)
+		val event = typed(AutomationSlot.Held("review"), automationDraftOf(automationRow(), HERE)!!, toClock)
+		val fresh = typed(AutomationSlot.New(), automationDraftOf(hourly, HERE)!!.copy(original = null), toEvent)
 
 		assertEquals(listOf(false, true, false), listOf(clock, event, fresh).map(ops::editsEvent))
 		ops.edits.clear()
@@ -195,7 +200,7 @@ class AutomationOpsTest {
 		val ops = AutomationOps(admitting("sakura"), Host(FakeGateway()))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		ops.edits.show(key)
-		val shown = ops.edits.open(key, automationDraftOf(automationRow())!!)!!
+		val shown = ops.edits.open(key, automationDraftOf(automationRow(), HERE)!!)!!
 		val said = { ops.edits.state.value.held.getValue(key).said }
 
 		ops.send(key, shown, deleting = false) { AutomationSaved.Refused("confirm", confirm = listOf("Send to IFTTT")) }
@@ -261,7 +266,7 @@ class AutomationOpsTest {
 		val fake = FakeGateway()
 		fake.shelves["sakura"] = listOf(automationRow())
 		val state = admitting("sakura")
-		val serving = AssistantWord.Answered(
+		val serving = AssistantRead.Answered(
 			com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList()),
 		)
 		state.value = state.value.copy(gateways = state.value.gateways.withEntry("sakura") { it.copy(assistant = serving) })
@@ -387,8 +392,8 @@ class AutomationOpsTest {
 		fake.shelves["sakura"] = listOf(automationRow(revision = 5L))
 		val ops = AutomationOps(admitting("sakura"), Host(fake))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
-		val stale = automationDraftOf(automationRow(revision = 2L))!!.withAction(0) { toldDraft("quietly") }
-		val save: suspend (AutomationDraft) -> AutomationSaved = { ops.save("sakura", it.id, it.toAutomation()!!, it.revision, it.original) }
+		val stale = automationDraftOf(automationRow(revision = 2L), HERE)!!.withAction(0) { toldDraft("quietly") }
+		val save: suspend (AutomationDraft) -> AutomationSaved = { ops.save("sakura", it.id, it.toAutomation(HERE.offer)!!, it.revision, it.original) }
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, stale)!!
 
@@ -406,7 +411,7 @@ class AutomationOpsTest {
 		val ops = AutomationOps(admitting("sakura"), Host(fake))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		ops.edits.show(key)
-		val shown = ops.edits.open(key, automationDraftOf(automationRow(revision = 2L))!!)!!
+		val shown = ops.edits.open(key, automationDraftOf(automationRow(revision = 2L), HERE)!!)!!
 
 		val outcome = ops.send(key, shown, deleting = true) { ops.delete("sakura", it.id, it.revision, it.original!!) }
 
@@ -420,7 +425,7 @@ class AutomationOpsTest {
 		val ops = AutomationOps(admitting("sakura"), Host(FakeGateway()))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		ops.edits.show(key)
-		val shown = ops.edits.open(key, automationDraftOf(automationRow())!!)!!
+		val shown = ops.edits.open(key, automationDraftOf(automationRow(), HERE)!!)!!
 		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("now", "Hi") }.copy(text = TextRef(0, "message")) }
 
 		val first = ops.edits.askLeave()
@@ -437,7 +442,7 @@ class AutomationOpsTest {
 		val ops = AutomationOps(admitting("sakura"), Host(FakeGateway()))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		ops.edits.show(key)
-		val shown = ops.edits.open(key, automationDraftOf(automationRow())!!)!!
+		val shown = ops.edits.open(key, automationDraftOf(automationRow(), HERE)!!)!!
 
 		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("quietly") } }
 

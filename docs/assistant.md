@@ -594,7 +594,10 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the sou
   validation), and `decision` `now` when an automation wakes for it, absent otherwise, which the
   tool prints as `tell: now`. A thread id
   that is not digits is dropped, and every text value is one line and capped. Past 64 KB a page is
-  cut, and its next token continues from the first item not shown. It marks nothing.
+  cut, and its next token names the last item shown (its time and id), so the next page continues
+  after that item whatever was cleared or dropped in between. It marks nothing. The automations'
+  outbox pages the span its first read saw, and its `new` mark comes from that span, so an event
+  appended between two pages is not passed by the mark.
 - **Who reads it:** the `inbox` tool and the action tools are registered only for `host.assistant`.
   The Gateway doors in `assistantRoutes.ts` answer only a token bound to the assistant's own record,
   and answer `not_assistant` or `unauthenticated` otherwise.

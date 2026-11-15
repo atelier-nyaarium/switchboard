@@ -14,10 +14,6 @@ internal fun triggeredBy(sourceId: String, rows: List<AutomationRow>): List<Auto
 internal fun watching(deviceId: String, rows: List<AutomationRow>): List<AutomationRow> =
 	rows.filter { (it.automation.trigger as? AutomationTrigger.Crossing)?.device == deviceId }
 
-/** Whether New can start watching that device. */
-internal fun offersWatch(deviceId: String, offer: AutomationOffer): Boolean =
-	newAutomationDraft(emptyList(), offer, watch = deviceId) != null
-
 /** Rows, or why there are none. */
 internal sealed interface UsedBy {
 	data class Rows(val rows: List<AutomationRow>) : UsedBy
@@ -26,25 +22,39 @@ internal sealed interface UsedBy {
 }
 
 /** Answers kept apart. */
-internal fun usedBy(gatewayId: String, list: GatewayList<AutomationRow>?, pick: (List<AutomationRow>) -> List<AutomationRow>): UsedBy =
+internal fun usedBy(gatewayId: String, list: GatewayList<AutomationRow>, pick: (List<AutomationRow>) -> List<AutomationRow>): UsedBy =
 	when (list) {
 		is GatewayList.Listed -> pick(list.rows).let { if (it.isEmpty()) UsedBy.Empty(ListEmpty.None) else UsedBy.Rows(it) }
-		GatewayList.Unread, null -> UsedBy.Empty(ListEmpty.Reading)
+		GatewayList.Unread -> UsedBy.Empty(ListEmpty.Reading)
 		GatewayList.Unreachable -> UsedBy.Empty(ListEmpty.Unreachable)
 		GatewayList.NotServed -> UsedBy.Empty(ListEmpty.NotServed(listOf(gatewayId)))
 	}
 
 /** Names automations left behind; an unread list gives no count. */
-internal fun removeSensorLine(uses: UsedBy): String = when {
-	uses is UsedBy.Rows && uses.rows.size == 1 -> "Switchboard stops reading it. 1 automation watches it and will stop working."
-	uses is UsedBy.Rows -> "Switchboard stops reading it. ${uses.rows.size} automations watch it and will stop working."
-	uses == UsedBy.Empty(ListEmpty.None) -> "Switchboard stops reading it."
-	else -> "Switchboard stops reading it. Any automation watching it will stop working."
+internal fun removeSensorLine(uses: UsedBy): String = when (uses) {
+	is UsedBy.Rows -> when (uses.rows.size) {
+		1 -> "Switchboard stops reading it. 1 automation watches it and will stop working."
+		else -> "Switchboard stops reading it. ${uses.rows.size} automations watch it and will stop working."
+	}
+	is UsedBy.Empty -> when (uses.why) {
+		ListEmpty.None -> "Switchboard stops reading it."
+		ListEmpty.NoRoster, ListEmpty.Reading, ListEmpty.Unreachable, is ListEmpty.NotServed, ListEmpty.NoGateway ->
+			"Switchboard stops reading it. Any automation watching it will stop working."
+	}
 }
 
 /** A sensor's empty list; null while reading. */
 internal fun watchingEmptyLine(why: ListEmpty): String? = when (why) {
 	ListEmpty.Reading -> null
 	ListEmpty.None -> "No automation watches this sensor."
-	else -> emptyLine(why, "automations")
+	ListEmpty.NoRoster, ListEmpty.Unreachable, is ListEmpty.NotServed, ListEmpty.NoGateway -> emptyLine(why, "automations")
+}
+
+internal fun usesLine(uses: UsedBy): String = when (uses) {
+	is UsedBy.Rows -> usesText(uses.rows.size)
+	is UsedBy.Empty -> when (uses.why) {
+		ListEmpty.None -> usesText(0)
+		ListEmpty.NoRoster, ListEmpty.Reading, ListEmpty.Unreachable, is ListEmpty.NotServed, ListEmpty.NoGateway ->
+			emptyLine(uses.why, "automations")
+	}
 }

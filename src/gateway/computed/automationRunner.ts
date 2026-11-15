@@ -7,8 +7,8 @@ import {
 } from "../../shared/schemasAutomation.js";
 import type { DeviceVerb } from "../devices/driver.js";
 
-/** `uncertain` may have landed. */
-export type ActionOutcome = { outcome: "ran" } | { outcome: "refused" | "uncertain"; reason: string };
+/** `uncertain` may have landed; `not_started` sent nothing. */
+export type ActionOutcome = { outcome: "ran" } | { outcome: "refused" | "uncertain" | "not_started"; reason: string };
 
 /** An action with an effect to run. */
 export type AutomationEffect = Exclude<AutomationAction, { kind: "tell_assistant" }>;

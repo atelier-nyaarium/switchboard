@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.policies
 
+import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.PolicyBinding
 
@@ -23,6 +24,12 @@ internal data class PolicyDraft(
 	/** Enabling is the row's, so it follows the record. */
 	fun over(held: AuthorizationPolicy): PolicyDraft? =
 		if (held.revision > revision) copy(revision = held.revision, enabled = held.enabled) else null
+
+	/** Found at refusal revision. */
+	fun saveOver(held: Lookup<AuthorizationPolicy>?, refusedAt: Long?): PolicyDraft? = when (held) {
+		is Lookup.Found -> held.row.takeIf { refusedAt != null && it.revision >= refusedAt }?.let(::over)
+		null, Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> null
+	}
 
 	/** Trimmed, once; blank adds nothing. */
 	fun withExample(typed: String): PolicyDraft {
