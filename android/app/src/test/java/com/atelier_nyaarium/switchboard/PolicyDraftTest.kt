@@ -42,9 +42,11 @@ class PolicyDraftTest {
 	@Test
 	fun aRefusalNamingANewerRevisionIsTheOnlyOneASaveOverItRebasesOnto() {
 		val opened = ready.copy(revision = 2L)
-		assertEquals(opened.copy(revision = 5L), opened.over(5L))
-		assertNull(opened.over(2L))
-		assertNull(opened.over(0L))
+		// Save keeps it off.
+		val newer = opened.toPolicy()!!.copy(revision = 5L, enabled = false)
+		assertEquals(opened.copy(revision = 5L, enabled = false), opened.over(newer))
+		assertNull(opened.over(newer.copy(revision = 2L)))
+		assertNull(opened.over(newer.copy(revision = opened.revision)))
 	}
 
 	@Test

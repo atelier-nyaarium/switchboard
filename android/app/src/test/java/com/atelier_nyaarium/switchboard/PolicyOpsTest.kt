@@ -40,13 +40,13 @@ class PolicyOpsTest {
 		val holds = mutableMapOf<String, TestHold>()
 		val enableHolds = mutableMapOf<String, TestHold>()
 
-		override suspend fun list(gatewayId: String): PolicyListAnswer {
+		override suspend fun list(gatewayId: String): ListAnswer<AuthorizationPolicy> {
 			// Read before the hold, so a held answer is the older one.
 			val listed = shelves[gatewayId].orEmpty()
 			holds.remove(gatewayId)?.pass()
-			if (gatewayId in refusing) return PolicyListAnswer.Refused
+			if (gatewayId in refusing) return ListAnswer.NotServed
 			if (gatewayId in unreachable) throw IllegalStateException("timed out")
-			return PolicyListAnswer.Listed(listed)
+			return ListAnswer.Listed(listed)
 		}
 
 		override suspend fun put(gatewayId: String, policy: AuthorizationPolicy, baseRevision: Long?): ConsolePolicyPutResult {
@@ -82,7 +82,7 @@ class PolicyOpsTest {
 	private fun admitting(vararg gatewayIds: String) = MutableStateFlow(ChatState(gateways = testRegistry(*gatewayIds)))
 
 	/** Drawn Gateway answers. */
-	private fun ChatState.drawn() = gateways.gateways.filter { it.policies != null }.map { it.id }
+	private fun ChatState.drawn() = gateways.gateways.filter { it.policies.listed }.map { it.id }
 
 	@Test
 	fun everyAdmittedGatewayIsDrawnAndOneThatRefusesTheListIsDrawnAsNothing() {
@@ -244,17 +244,22 @@ class PolicyOpsTest {
 	}
 
 	@Test
-	fun anEditOnOneGatewayIsNotTheEditOnAnotherOfTheSameId() {
-		val ops = PolicyOps(MutableStateFlow(ChatState()), Host(null))
-		val here = com.atelier_nyaarium.switchboard.policies.PolicyDraft(id = "apt", name = "Here")
-		val there = com.atelier_nyaarium.switchboard.policies.PolicyDraft(id = "apt", name = "There")
+	fun anEditorsSaveAndDeleteLandOnItsOpeningAndARefusedOneStaysWithTheRevisionHeld() {
+		val fake = FakeGateway()
+		val ops = PolicyOps(admitting("sakura"), Host(fake))
+		val key = EditKey("sakura", "apt")
+		val opening = ops.edits.open(key, com.atelier_nyaarium.switchboard.policies.PolicyDraft.of(policy("apt")))
+		fake.staleIds += "apt"
 
-		ops.keepDraft("sakura", "apt", here)
-		ops.keepDraft("mikan", "apt", there)
-		assertEquals(here, ops.draftFor("sakura", "apt"))
-		assertEquals(there, ops.draftFor("mikan", "apt"))
-		ops.dropDraft("sakura", "apt")
-		assertEquals(null, ops.draftFor("sakura", "apt"))
-		assertEquals(there, ops.draftFor("mikan", "apt"))
+		runBlocking { ops.commit(key, opening) }
+		assertEquals(5L, ops.edits.held.value.getValue(key).said?.heldRevision)
+		runBlocking { ops.remove(key, opening) }
+		assertEquals(SaveSaid("revision 5 is stored"), ops.edits.held.value.getValue(key).said)
+
+		fake.staleIds -= "apt"
+		assertEquals(EditOutcome.Done, runBlocking { ops.commit(key, opening) })
+		assertEquals(null, ops.edits.held.value[key])
+		assertEquals(EditorShowing.CLOSING, editorShowing(opening, ops.edits.held.value[key]))
+		assertEquals(listOf("apt"), fake.shelves["sakura"].orEmpty().map { it.id })
 	}
 }

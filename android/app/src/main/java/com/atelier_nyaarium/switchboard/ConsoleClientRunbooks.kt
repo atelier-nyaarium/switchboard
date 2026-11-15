@@ -18,8 +18,8 @@ import kotlinx.serialization.json.JsonPrimitive
 private fun valuesOf(values: Map<String, String>): JsonObject =
 	JsonObject(values.mapValues { (_, value) -> JsonPrimitive(value) })
 
-suspend fun ConsoleClient.runbookList(gatewayId: String): ConsoleRunbookListResult =
-	valueResult(sendValueOp(gatewayId, ConsoleOp.RunbookList), Protocol.Wire.ConsoleOpKind.RUNBOOK_LIST)
+internal suspend fun ConsoleClient.runbookList(gatewayId: String): ListAnswer<Runbook> =
+	listAnswer<ConsoleRunbookListResult, _>(gatewayId, ConsoleOp.RunbookList, ProseRefusal.FAULT) { it.runbooks }
 
 suspend fun ConsoleClient.runbookPut(
 	gatewayId: String,

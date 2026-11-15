@@ -6,27 +6,11 @@ import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyListResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import kotlinx.serialization.json.decodeFromJsonElement
 
 // A policy lives on one gateway, so every call names the one it means.
 
-/** A refused list is the gateway's word; an unreachable one is no word at all. */
-internal sealed interface PolicyListAnswer {
-	data class Listed(val policies: List<AuthorizationPolicy>) : PolicyListAnswer
-	data object Refused : PolicyListAnswer
-	data object Unreachable : PolicyListAnswer
-}
-
-internal suspend fun ConsoleClient.policyList(gatewayId: String): PolicyListAnswer =
-	when (val answer = sendValueAnswer(gatewayId, ConsoleOp.PolicyList)) {
-		is ConsoleClient.ValueAnswer.Answered ->
-			runIsolated { wireJson.decodeFromJsonElement<ConsolePolicyListResult>(answer.result) }
-				.map { PolicyListAnswer.Listed(it.policies) }
-				.getOrElse { PolicyListAnswer.Unreachable }
-		is ConsoleClient.ValueAnswer.Refused -> PolicyListAnswer.Refused
-		is ConsoleClient.ValueAnswer.Undelivered -> PolicyListAnswer.Unreachable
-		ConsoleClient.ValueAnswer.Unreachable -> PolicyListAnswer.Unreachable
-	}
+internal suspend fun ConsoleClient.policyList(gatewayId: String): ListAnswer<AuthorizationPolicy> =
+	listAnswer<ConsolePolicyListResult, _>(gatewayId, ConsoleOp.PolicyList, ProseRefusal.FAULT) { it.policies }
 
 suspend fun ConsoleClient.policyPut(
 	gatewayId: String,

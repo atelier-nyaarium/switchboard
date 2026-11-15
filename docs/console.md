@@ -468,38 +468,51 @@ no TTL.
   (`AssistantRootScreen`). The conversation is the usual thread screen, drawn from `ThreadChrome`.
   Every write to the home lands through `AssistantHomeFence`. `sourcesOf` is the one reader of a
   Gateway's sources: `sources`, else an older Gateway's `watchers`, until 2026-11-28.
-  - **Its pages are one route on `ShellNav`:** `assistantPage` holds Settings, its index pages
-    (Location, Features, Safety, Sources, Automations), and below them Add, an Entry, a Setup, a
-    Device, a Source or the AutomationEditor, drawn in their own `ShellScreen` slot above the
-    conversation, with their own `BackLayer`. Back walks `assistantPageBack`: the editor to
-    Automations, a Device, a Source and Add to Sources, a Setup to its Entry, an Entry to Add, an
-    index page to Settings, then what lies beneath; `arrive` clears them. `AssistantPage.resolved`
-    unwinds only on an answer, never on a missing one: a Source or the editor to Settings when the
-    assistant left its Gateway, a Source to Sources when its Gateway no longer lists it, and a
-    Device, an Entry or a Setup to Sources or Add. The inbox strip's Settings opens the source's page
-    directly.
-  - **Leaving an edit page asks first:** the system Back and the top bar's arrow both call the
-    shell's `leaveAssistantPage`, under its one `BackHandler`. On the automation editor with a
-    changed draft (`leaveAsks`), `AutomationOps.askLeave` holds the leave instead, and the editor
-    draws "Leave and discard changes?" from `leaving`, with Discard and Stay. An unchanged draft
-    leaves at once. The ask names the opening it was made on (`LeaveAsk`, `leaveShown`), so it
-    never shows over a later one, and a Back while a save is in flight leaves at once with the
-    draft held, so the answer still lands.
+  - **Its pages are one route on `ShellNav`:** `assistantPage` holds Settings and its index pages
+    (Location, Features, Safety), and the pages the Sources and Automations views open: Add, an
+    Entry, a Setup, a Device, a Source and the AutomationEditor. They draw in their own
+    `ShellScreen` slot above whatever opened them, with their own `BackLayer`. Back walks
+    `assistantPageBack`: a Setup to its Entry, an Entry to Add, an index page to Settings, and
+    every other page closes onto what lies beneath; `arrive` clears them. `AssistantPage.resolved`
+    unwinds only on an answer, never on a missing one: a Source, a Device or the editor closes when
+    its Gateway stops holding it, and an Entry or a Setup falls to Add or closes. The inbox strip's
+    Settings opens the source's page directly, and its Back returns to the conversation. A page's
+    exit to a root view (`toRoot`) closes the pages and picks that view.
+  - **Leaving an edit page asks first** (`EditorSessions.kt`, `EditorScaffold.kt`): the runbook,
+    routine, policy and automation editors each hold their edit in an `EditorSessions` on their ops
+    class. The system Back and the automation editor's arrow call `askLeave` under the shell's one
+    `BackHandler`. A changed draft holds the leave, and `EditorScaffold` draws "Leave and discard
+    changes?" with Discard and Stay. An unchanged draft leaves at once. The ask names the opening
+    it was made on (`LeaveAsk`, `leaveShown`), so it never shows over a later one, and a Back
+    while a save is in flight leaves at once with the draft held, so the answer still lands.
+    Cancel, on the runbook, routine and policy editors, discards at once.
+  - **A page and its session end together:** a page draws only its own opening and closes when
+    that session is gone (`editorShowing`). A page that leaves composition parks its session
+    (`park`): an untouched edit goes, a touched or busy one waits for the next opening of that
+    record. A send that then stays, with no page to show why, is told as a transient message
+    (`leftLine`). The three older editors open through `rememberEdit`, which waits for the record
+    (`editStanding`) rather than opening a blank draft under "Edit", and they read the title, the
+    Delete entry and the routine's kept zone from the record the edit opened on.
   - **A record is removed from its top bar's menu:** `RemoveMenu` (`RecordMenu.kt`) then
     `ConfirmDialog`, on the automation, runbook, routine and policy editors, a device's page and a
     service's entry. `delete-affordance-residue.test.ts` names the few removals that are not a
     record page's.
   - **A page reads its op's result from its ops class, never from its own coroutine:** `runWork`
-    holds each page's busy flag and line under a `WorkKey`, and an automation save lands in
-    `AutomationOps.drafts` and `landed`, so Back never loses a result. The editor holds its draft's
-    opening before it sends (`hold`) and closes when that opening lands (`editorLanded`).
+    holds each page's busy flag and line under a `WorkKey`, and an editor's save or delete runs on
+    the repository's scope and lands in its `EditorSessions`, so Back never loses a result. `open`
+    mints the opening, every mutator takes it, and the editor closes once its session is gone
+    (`editorShowing`).
   - **Each edit is one automation op:** `AutomationDraft.kt` holds the draft and `outcomeOf`, which
     reads the op's answer, never the drawn copy: done, an offer to go over a newer revision on a
     second tap, or the reason. `docs/assistant.md` holds the design.
-- **The shell and its drawers** (`ShellNav.kt`, `DrawerNav.kt`, `ViewScope.kt`, `SideDrawer.kt`,
-  `ScopedViews.kt`): the root shows one global view (Sessions, Assistant, Backlog, Runbooks, Routines,
-  Policies, Vault) and a conversation shows Chat, Terminal, Files or one of those views filtered to it, each
-  picked from a drawer. A swipe opens it from the edge the swipe moves away from, and the menu button
+- **The shell and its menu** (`ShellNav.kt`, `DrawerNav.kt`, `ViewScope.kt`, `SideDrawer.kt`,
+  `ScopedViews.kt`, `ViewSwitch.kt`): one menu (`MenuSheet`) lists the root views everywhere, in
+  three groups: Sessions, Assistant, Backlog; Sources, Automations, Routines, Runbooks; Vault,
+  Policies, Console; then Settings. A session shows Chat, Terminal or Files, switched in its bar
+  (`ViewSwitch`); the assistant has no Files. `pick` is the menu's one transition: at the root it
+  shows the view; inside a session Sessions and Assistant leave it, and any other view lands `over`
+  the session, drawn by the root screen with a back arrow, and Back returns to the session.
+  A swipe opens the drawer from the edge the swipe moves away from, and the menu button
   sits on, and opens from, the side `DrawerSide` names, left unless right was stored. `SideDrawers` is
   one anchored state over both edges (`drawerAnchors`), since Material's drawer drags from one edge and
   two nested ones swallow each other's swipe. A swipe claims it only past twice the touch slop and
@@ -514,19 +527,38 @@ no TTL.
 
   **Back is ordered by what is drawn over what.** `shellScreen` is the one order the render and
   `backLayer` both read; `App` holds the only shell `BackHandler` and dispatches the layer it names
-  (editor, overlay, settings, drawer, Files stack, view, conversation, root view).
-  `back-handler-residue.test.ts` refuses a handler anywhere else but the two full screens it names,
-  since a handler wins by when it composed rather than by what it closes. A drawer's state belongs to
-  one showing of its screen, so a drawer left open never reappears open.
+  (editor, overlay, settings, drawer, a pick over a session, Files stack, view, conversation, root
+  view). `back-handler-residue.test.ts` refuses a handler anywhere else but the two full screens it
+  names, since a handler wins by when it composed rather than by what it closes. The drawer is one
+  state: every arrival closes it (`dismissForArrival`), and so does a screen without it, so a
+  drawer left open never reappears open. The menu's picks and its button run on the shell's scope,
+  since a pick can swap the screen beneath it. Nothing draws over the lock: the editors, the fire
+  sheet, the entry dialogues, the attachment viewer and the link, row and forget dialogues are not
+  composed while it shows, and Back reads the lock first. An editor the lock hid returns only while
+  its edit is still held (`hiddenEditor`), so one that landed meanwhile does not reopen blank.
 
   **A filtered view is its root view with a `ViewScope.Session`.** The session's Gateway for Runbooks
   and Policies, its spawn point for Routines (a routine targets a spawn point, not a session), its own
   requests and grants for Vault, and its tree for Backlog. New creates only on that Gateway, and Fire
-  opens aimed at the session.
+  opens aimed at the session. A pick made inside a session arrives filtered, and `FilterRow` draws
+  two chips, the session and "Everything". The assistant's session filters nothing. Sources and
+  Automations are a Gateway's and take no filter; over a session they list its Gateway first.
+- **A Gateway's lists** (`GatewayReads.kt`, `GatewayRegistry.kt`): routines, runbooks, policies,
+  automations and peers each sit on the entry as a `GatewayList`: unread, listed or not served. One
+  decoder (`listAnswer`, over the pure `listAnswerOf`) reads a routine, runbook, policy or
+  automation list op as rows, not served or unreachable, and one fold (`after`) lands it: rows
+  replace, not served says so, silence keeps what was drawn. The `not_served` token always reads as
+  not served. A refusal in prose is a fault for routines, runbooks and policies, so what was drawn
+  stays; for automations it reads as not served until 2026-11-29, since a Gateway from before the
+  token refuses an unknown op in schema prose (`ProseRefusal`), and only when that Gateway's state
+  answers no `sources`. Runbooks keep only rows, since the phone's library is durable. Peers are
+  read by `TrustOps`, which keeps what it had on any failure. A re-provision clears each fence, so
+  a read still out lands nothing.
 - **Policies** (`PolicyOps.kt`, `policies/`): one group per Gateway, read when the view shows and
-  after every mutation, never held. `policyList` answers listed, refused or unreachable; a refusal
-  hides that Gateway's group, unreachable keeps what was drawn, and the fence drops a stale read.
-  The editor's draft lives in `PolicyOps` keyed by gateway and id; `PolicyDraft` holds every
+  after every mutation, never held. A refusal hides that Gateway's group, unreachable keeps what was
+  drawn, and the fence drops a stale read. "Save over revision N" rebases onto the newer record and
+  takes its enabled state, since enabling is the row's.
+  The editor's edit lives in `PolicyOps.edits` keyed by gateway and id; `PolicyDraft` holds every
   decision the editor makes (the per-field refusals, a typed example, the id, the rebase a "Save
   over revision N" tap performs). The binding picker offers only entries with a value that
   `allowedOn` that Gateway. A row's toggle and a routine's carry the row's revision and show the

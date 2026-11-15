@@ -111,37 +111,26 @@ internal class ServiceNotifications(private val context: Context) {
 	internal fun reconcileRoutineNotifications(repo: ChatRepository) {
 		if (!canNotify()) return
 		val nmc = NotificationManagerCompat.from(context)
-		val active = context.getSystemService(NotificationManager::class.java)
+		val shade = context.getSystemService(NotificationManager::class.java)
 			.activeNotifications
-			.mapTo(HashSet()) { it.id }
-		val rows = repo.state.value.gateways.gateways.flatMap { entry -> entry.routines.orEmpty().map { entry.id to it } }
-		// A routine that is gone is named by nothing in the list, so its own range is swept for it.
-		val live = rows.mapTo(HashSet()) { (gatewayId, row) -> routineNotificationId(gatewayId, row.routine.id) }
-		for (id in active) {
-			val inRange = id >= ROUTINE_ID_RANGE_START && id < ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE
-			if (inRange && id !in live) nmc.cancel(id)
-		}
-		for ((gatewayId, row) in rows) {
-			val id = routineNotificationId(gatewayId, row.routine.id)
-			// Misses take priority.
-			val told = row.missed?.let { "${row.routine.name} did not run" to routineMissText(it.reason) }
-				?: row.reviewAt?.let {
-					"${row.routine.name} stopped" to (row.reviewReason?.replaceFirstChar { c -> c.uppercase() } ?: "Its runbook could not run")
-				}
-			if (told == null) {
-				if (id in active) nmc.cancel(id)
-				continue
-			}
+			.filter { it.id >= ROUTINE_ID_RANGE_START && it.id < ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE }
+			.map { ShadeRoutine(it.id, it.notification.extras?.getString(EXTRA_ROUTINE_GATEWAY)) }
+		val plan = routineNoticePlan(repo.state.value.gateways, shade, ::routineNotificationId, ::routineMissText)
+		for (id in plan.cancel) nmc.cancel(id)
+		for (notice in plan.post) {
 			val builder = NotificationCompat.Builder(context, CHANNEL_ROUTINE)
 				.setSmallIcon(android.R.drawable.stat_notify_error)
-				.setContentTitle(told.first)
-				.setContentText(told.second)
+				.setContentTitle(notice.title)
+				.setContentText(notice.text)
 				.setAutoCancel(true)
 				.setOnlyAlertOnce(true)
 				.setContentIntent(contentIntent(null))
+				.addExtras(android.os.Bundle().apply { putString(EXTRA_ROUTINE_GATEWAY, notice.gatewayId) })
 			// Swipe dismisses everywhere.
-			row.missed?.let { builder.setDeleteIntent(routineMissDismissIntent(gatewayId, row.routine.id, it.occurrenceId)) }
-			nmc.notify(id, builder.build())
+			notice.row.missed?.let {
+				builder.setDeleteIntent(routineMissDismissIntent(notice.gatewayId, notice.row.routine.id, it.occurrenceId))
+			}
+			nmc.notify(notice.id, builder.build())
 		}
 	}
 
@@ -698,6 +687,7 @@ internal class ServiceNotifications(private val context: Context) {
 		}
 
 		// Own id range, like the others.
+		private const val EXTRA_ROUTINE_GATEWAY = "switchboard.routine.gateway"
 		internal const val ROUTINE_ID_RANGE_START = 4_000_000
 		internal const val ROUTINE_ID_RANGE_SIZE = 1_000_000
 

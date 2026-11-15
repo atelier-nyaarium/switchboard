@@ -1,17 +1,17 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
+import com.atelier_nyaarium.switchboard.assistant.AutomationsEmpty
+import com.atelier_nyaarium.switchboard.assistant.automationsEmpty
 import com.atelier_nyaarium.switchboard.assistant.AutomationEditing
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
-import com.atelier_nyaarium.switchboard.assistant.automationCountLine
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
 import com.atelier_nyaarium.switchboard.assistant.automationEditing
 import com.atelier_nyaarium.switchboard.assistant.automationGroups
 import com.atelier_nyaarium.switchboard.assistant.doesText
 import com.atelier_nyaarium.switchboard.assistant.editable
-import com.atelier_nyaarium.switchboard.assistant.editorLanded
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.newAutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.openedDraft
@@ -194,9 +194,7 @@ class AutomationDraftTest {
 		assertEquals(false, opened.changedFrom(opened))
 		assertEquals(true, opened.copy(tell = "quietly").changedFrom(opened))
 		assertEquals(true, opened.withCondition(fields).changedFrom(opened))
-		assertEquals(false, leaveAsks(null))
-		assertEquals(false, leaveAsks(HeldAutomationDraft(opened, opened, opening = 1L)))
-		assertEquals(true, leaveAsks(HeldAutomationDraft(opened.withSource("other"), opened, opening = 1L)))
+		assertEquals(true, opened.withSource("other").changedFrom(opened))
 	}
 
 	@Test
@@ -208,7 +206,6 @@ class AutomationDraftTest {
 		assertEquals(listOf("Never ran", "Ran 9 ago", "Never ran"), rows.map { ranText(it) { at -> "$at ago" } })
 		assertEquals(2, usesOf("github", rows))
 		assertEquals(listOf("1 uses this source", "2 use this source"), listOf(1, 2).map(::usesText))
-		assertEquals(listOf("None", "1 automation", "3 automations"), listOf(0, 1, 3).map(::automationCountLine))
 		assertEquals("reason, repository", producesText(SPECS))
 	}
 
@@ -219,16 +216,15 @@ class AutomationDraftTest {
 	}
 
 	@Test
-	fun anEditorClosesOnlyWhenTheOpeningItShowedLanded() {
-		assertEquals(false, editorLanded(shown = null, landed = 3L))
-		assertEquals(false, editorLanded(shown = 4L, landed = 3L))
-		assertEquals(true, editorLanded(shown = 3L, landed = 3L))
-	}
-
-	@Test
 	fun groupsListOnlyGatewaysWithAutomationsTheHomeFirstAndOnlyTheHomesRowsEdit() {
 		fun entry(id: String, rows: List<AutomationRow>?) =
-			GatewayEntry(id, connected = true, incarnation = 1L, lastRegisteredAt = 1L, automations = rows)
+			GatewayEntry(
+				id,
+				connected = true,
+				incarnation = 1L,
+				lastRegisteredAt = 1L,
+				automations = rows?.let { GatewayList.Listed(it) } ?: GatewayList.NotServed,
+			)
 		val registry = GatewayRegistry(
 			provenance = RegistryProvenance.Current,
 			gateways = listOf(
@@ -243,5 +239,30 @@ class AutomationDraftTest {
 
 		assertEquals(listOf("sakura" to true, "mikan" to false), groups.map { it.gatewayId to it.assistant })
 		assertEquals(listOf(true, false, false), groups.flatMap { group -> group.rows.map(group::edits) })
+	}
+
+	@Test
+	fun anEmptyAutomationsViewTellsAnUnreadListFromAnEmptyOneAndAnOlderHomeFromAFault() {
+		fun registry(vararg lists: Pair<String, GatewayList<AutomationRow>>) = GatewayRegistry(
+			provenance = RegistryProvenance.Current,
+			gateways = lists.map { (id, list) ->
+				GatewayEntry(id, connected = true, incarnation = 1L, lastRegisteredAt = 1L, automations = list)
+			},
+		)
+		val listed = GatewayList.Listed(emptyList<AutomationRow>())
+		val serving = AssistantWord.Answered(
+			com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList()),
+		)
+
+		assertEquals(AutomationsEmpty.NoRoster, automationsEmpty(GatewayRegistry(), "sakura"))
+		assertEquals(AutomationsEmpty.Unread, automationsEmpty(registry("sakura" to GatewayList.Unread), "sakura"))
+		assertEquals(AutomationsEmpty.NotServed("sakura"), automationsEmpty(registry("sakura" to GatewayList.NotServed), "sakura"))
+		// A home that answers sources serves the list, whatever one refusal said.
+		val refusedOnce = registry("sakura" to GatewayList.NotServed).withEntry("sakura") { it.copy(assistant = serving) }
+		assertEquals(AutomationsEmpty.Unread, automationsEmpty(refusedOnce, "sakura"))
+		assertEquals(AutomationsEmpty.None, automationsEmpty(registry("sakura" to listed, "older" to GatewayList.NotServed), "sakura"))
+		assertEquals(AutomationsEmpty.None, automationsEmpty(registry("sakura" to listed), null))
+		val cached = registry("sakura" to GatewayList.Unread).copy(provenance = RegistryProvenance.Cached)
+		assertEquals(AutomationsEmpty.Unread, automationsEmpty(cached, "sakura"))
 	}
 }

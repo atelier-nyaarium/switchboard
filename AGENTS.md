@@ -76,14 +76,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **An event is data, end to end:** `PendingDelivery` is a union of `MessageDelivery` and `EventDelivery`, and an event row holds no sender or reply route, so none can be read off it; the queue refuses an id held by the other arm. `ChannelPushPayload.event` carries it to the session, and `emitChannelNotification` gives it no sender, `session_id` or `meta.instructions`.
   - **The batch is composed where it is sent:** `deliverEvent` calls the wake's `compose` after `reach` and hands the result straight to the synchronous accept.
   - **The queue skips an event member it holds or emitted within the delivery TTL:** an event row carries its member keys, and `acknowledge` records them as emitted in the same write that retires it. `acceptEvent` drops a seen key and answers `seen` when nothing is left, so a retried or restarted push wakes nothing twice. A message duplicate is still offered again.
-- `android/.../AssistantOps.kt` / `AssistantHomeFence.kt` / `AssistantHomeRouter.kt` / `ConsoleClientAssistant.kt` / `AssistantRoot.kt` / `assistant/AssistantScreen.kt` / `assistant/AssistantFeaturesPage.kt` / `assistant/AssistantSourcePage.kt` / `assistant/InboxStrip.kt` / `assistant/IntegrationRows.kt` - the gateway calls, `sourcesOf`, the home's read, move, remove and seed, `inboxRows` and the health lines; the one writer of the home; the Router's home ops and their sealing; the landing fold, `isAssistant`, the enter, follow and leave rules, and the `AssistantPage` route; the root with no conversation, the settings index and its pages; the Features page; a service source's page; the conversation's inbox strip; the Sources page's service rows
+- `android/.../AssistantOps.kt` / `AssistantHomeFence.kt` / `AssistantHomeRouter.kt` / `ConsoleClientAssistant.kt` / `AssistantRoot.kt` / `assistant/AssistantScreen.kt` / `assistant/AssistantFeaturesPage.kt` / `assistant/AssistantSourcePage.kt` / `assistant/InboxStrip.kt` / `assistant/IntegrationRows.kt` - the gateway calls, `sourcesOf`, the home's read, move, remove and seed, `inboxRows` and the health lines; the one writer of the home; the Router's home ops and their sealing; the landing fold, `isAssistant`, the enter, follow and leave rules, and the `AssistantPage` route; the root with no conversation, the settings index and its pages; the Features page; a service source's page; the conversation's inbox strip; the Sources view's service rows
   - **`sourcesOf` is the one reader of a Gateway's sources:** it takes `sources`, else an older Gateway's `watchers` converted. Only `carriedOf` reads `watchers` beside it, for an older Gateway's rules.
 - `src/shared/schemasIntegrations.ts` / `android/.../proto/IntegrationRegistry.kt` / `android/.../IntegrationRules.kt` / `assistant/IntegrationAddPage.kt` / `assistant/IntegrationEntryPage.kt` - the integrations catalogue: every brand, service and protocol declared once (group, discovery, needs, yields, capabilities, acts with a tier), its generated Kotlin twin, the phone's decisions over it, the Add page and an entry's page. `docs/devices.md` holds the design
   - **A catalogue entry the phone cannot draw does not compile:** the generated enums are closed, and each page's `when` over a group, a discovery mode, a need kind or a capability has no else branch. Device drivers and the grant-bearing service ids derive from the catalogue.
   - **The Gateway says what it serves:** `offered` on the assistant state; the phone draws Add from the compiled catalogue filtered by it, so an older Gateway hides an entry and an older phone ignores the field.
 - `android/.../PlugSetup.kt` / `PlugSetupOps.kt` / `AndroidPlugSetupPlatform.kt` / `SandboxPlugSetup.kt` / `KasaCodec.kt` / `PhoneLocation.kt` / `assistant/PlugSetupPage.kt` - a fresh device's setup from the phone: the rules and answers, the run, Android's network picker and the plug link, the emulator's plug, the codec twin pinned by `tests/fixtures/kasa-codec/vectors.json`, the one location reading the Features row and the signal bars share, and the page. `docs/devices.md` holds the flow
   - **The phone joins through the system picker, never a scan:** a prefix `WifiNetworkSpecifier` needs no location permission. The phone's own scan only adds signal bars, and only when `phoneLocation` answers `ON`; otherwise the list is radios.
-- `android/.../DeviceOps.kt` / `DeviceSlots.kt` / `SlotViews.kt` / `DeviceRules.kt` / `ConsoleClientDevices.kt` / `SandboxDevices.kt` / `ClockPicker.kt` / `assistant/AssistantSourcesPage.kt` / `assistant/AssistantDevicePage.kt` - the phone's devices: every call and landing, the view and its slots, the typed slot facade over `PublishedViews`, what the pages decide, the Router calls, the emulator's fake Gateway, the shared time picker, and the two pages. `docs/devices.md` holds the rules
+- `android/.../DeviceOps.kt` / `DeviceSlots.kt` / `SlotViews.kt` / `DeviceRules.kt` / `ConsoleClientDevices.kt` / `SandboxDevices.kt` / `ClockPicker.kt` / `assistant/AssistantSourcesPage.kt` / `assistant/AssistantDevicePage.kt` - the phone's devices: every call and landing, the view and its slots, the typed slot facade over `PublishedViews`, what the pages decide, the Router calls, the emulator's fake Gateway, the shared time picker, the Sources view and a device's page. `docs/devices.md` holds the rules
   - **Every device answer lands on its own slot:** a ticket is minted before the await and lands only its slot's part, a per-plug slot is owned while the plug is held at its incarnation, and a write holds one `Writing` claim through its settle. A Gateway the roster does not name is asked nothing.
 - `android/.../SensorRules.kt` / `PairRules.kt` / `DefinitionMatch.kt` / `PhoneRadio.kt` / `AndroidBlePlatform.kt` / `assistant/SensorDevicePage.kt` / `assistant/ListenEntryPage.kt` - phone sensor rows and alerts, scan sightings and Pair choices, shared definition matching, radio ownership, and the Sensor and Listen pages. See `docs/devices.md` for the rules.
   - **`PhoneRadio` owns scanning:** it reconciles wanted bindings with registered addresses. One consumer handles events. `watch` runs only when bindings differ or registration is unknown. Screens and receivers cannot call it.
@@ -97,10 +97,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Placement is the Router's record and its report, never a Gateway's answer:** `placedGateway` reads a `placed` report for the held choice. An `AssistantWord` is only that Gateway's own state.
 - `android/.../PhoneCapabilities.kt` / `PhoneCalendarRules.kt` / `AssistantNotificationListener.kt` / `NotificationRing.kt` / `NotificationRules.kt` / `AppMatchingRules.kt` / `PhoneLaunchRules.kt` / `PhoneTelephonyRules.kt` - the phone handlers, the calendar's rules, the listener's entry conversion and bounded ring, the rules for listing and replying, the app match the launch and the notifications filter share, the launch decisions (the maps URI, the app resolve, the alarm and timer extras), and the number, URI and SMS part rules
   - **The listener decides nothing:** the service converts and the ring holds; `NotificationRules` is the one reading, so a JVM test covers it. Eviction takes a dismissed row before a showing one, and a reconnect marks every row the system no longer shows as dismissed.
-- `android/.../AutomationOps.kt` / `ConsoleClientAutomations.kt` / `assistant/AutomationDraft.kt` / `assistant/AutomationsPage.kt` / `SandboxAutomations.kt` - each Gateway's automation list and its calls, on the `PolicyOps` model, with the editor's held drafts; the draft, `SourceFields` (labels, menus, `issueOf`), `fittingAutomation`, `automationEditing`, `editable` and `outcomeOf`, the one reading of a save's or delete's answer; the Automations list and the editor; the emulator's Gateway
-  - **A page reads its op's result from its ops class, never from its own coroutine:** `AssistantOps.runWork` and `work` hold each page's busy flag and line; `AutomationOps.drafts` and `landed` hold an editor's, and a draft's `opening` is what a send settles, so a late answer never lands on a newer draft.
-  - **Back asks before discarding an edit:** `leaveAsks` compares the held draft with what the editor opened, `askLeave` either discards and leaves or sets `leaving`, and the editor draws the dialogue from it. The ask names its opening (`LeaveAsk`, `leaveShown`), so it never shows over a later one, and a Back during a send leaves at once with the draft held, so the answer still lands. The shell's one `BackHandler` and the top-bar arrow call the same function.
-  - **A Gateway on an older build is read off its state, never off a refusal:** `servesSources` is true once a state answers `sources`. Without it the Automations row and a source's uses line are not drawn, the source ops go as their `assistant_watcher_*` kinds, and a refused `automation_list` carries rules; with it a refused list fails the move.
+- `android/.../AutomationOps.kt` / `ConsoleClientAutomations.kt` / `assistant/AutomationDraft.kt` / `assistant/AutomationsPage.kt` / `SandboxAutomations.kt` - each Gateway's automation list and its calls, on the `PolicyOps` model, with the editor's edit session; the draft, `SourceFields` (labels, menus, `issueOf`), `fittingAutomation`, `automationEditing`, `editable` and `outcomeOf`, the one reading of a save's or delete's answer; the Automations view and the editor; the emulator's Gateway
+  - **A page reads its op's result from its ops class, never from its own coroutine:** `AssistantOps.runWork` and `work` hold each page's busy flag and line; `AutomationOps.edits` holds the editor's, an `EditorSessions`.
+  - **A Gateway on an older build is read off its state, never off a refusal:** `servesSources` is true once a state answers `sources`. Without it Automations offers no New (`newAutomationOn`) and a source's uses line is not drawn, the source ops go as their `assistant_watcher_*` kinds, and a refused `automation_list` carries rules; with it a refused list fails the move.
   - **An automation write holds the move lock:** `AutomationHost.carried` runs every put and delete under `AssistantOps.writes` and refuses one whose Gateway is no longer the home once it holds the lock, so a move seals a write or the write is never sent.
 - `src/shared/schemasAssistantRecord.ts` / `android/.../AssistantRecordRules.kt` - the outcome enum and per-thread shape an action's answer and its record row share; the phone's reading of a record row: `recordOf`, `isQuietRecord`, `threadRows` (a run of quiet records as one row), the view the thread page draws, and the codec
   - **A quiet record carries nothing an older phone would show:** `ConsolePushEntrySchema`'s refine ties `notify` to a summary in `body`, so an older phone shows a response and drops a quiet row. The new phone keeps a quiet record out of the burst, alerts, autoplay, `countsUnread` and the session card's reads.
@@ -436,8 +435,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     current save earned outranks it, which `RunbookEditor` names rather than nests.
   - **The phone adopts the revision, it does not mint one:** `save` sends the revision the editor was
     opened at and keeps whatever record the gateway answers with.
-  - **An edit in progress lives in `RunbookOps`, not the screen:** the repository outlives an
+  - **An edit in progress lives in `RunbookOps.edits`, not the screen:** the repository outlives an
     activity and saved instance state is a parcel, which a runbook body is not bounded to fit.
+  - **A save begun before a re-provision writes nothing after it:** saves run on the repository's
+    scope, so `RunbookOps` holds a generation its `clearInMemory` moves. Every library write checks
+    it under the lock that clear takes (`written`), and `clearedOnReprovision` clears `runbookOps`
+    before the library, so a write that passed the check is wiped with it.
   - **Every method names its gateway, and none of them defaults it:** a call that does not say which
     machine it means does not compile, so the compiler enumerates the call sites rather than a
     reviewer. Drafts, refusals and `synced` are all keyed by gateway and id, since `"new"` and any
@@ -478,11 +481,16 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A typed option keeps its indent:** `trimmedOption` drops blank edge lines, and trims fully only
     when one line is left, so a pasted block does not lose the indentation of its first line alone.
 - `android/.../RoutineOps.kt` / `routines/RoutinesScreen.kt` / `RoutineEditor.kt` / `RoutineText.kt` /
-  `GrantSecretsSheet.kt` - the gateway calls, the view, the editor, the pure lines each row shows, and
-  the sheet a routine's secrets are granted through
+  `GrantSecretsSheet.kt` / `RoutineNotices.kt` - the gateway calls, the view, the editor, the pure lines
+  each row shows, the sheet a routine's secrets are granted through, and `routineNoticePlan`, what the
+  shade should hold for routines
+  - **A Gateway that has not answered says nothing about its notifications:** each one names its
+    Gateway, and `routineNoticePlan` sweeps only those of a Gateway whose list is read or that left
+    a current roster. An unread list is not an empty one.
   - **The phone caches, it never owns:** a routine's record, its next run, its misses and its
     reviews are the gateway's, so a change re-reads rather than guessing. `GatewayEntry` holds the
-    displayed copy per gateway for routines and policies alike, and reconciles only by rereading.
+    displayed copy per gateway for routines, policies and automations alike, each a `GatewayList`,
+    and reconciles only by rereading.
     Runbooks are the exception that keeps a durable library, which can disagree until a sync.
   - **The editor picks from what the Gateway offers, through the builders New session and Fire use:**
     `spawnChoices` for the spawn point, the library for the runbook. A held value the Gateway no
@@ -518,17 +526,16 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../PolicyOps.kt` / `policies/PolicyDraft.kt` / `policies/PoliciesScreen.kt` / `policies/PolicyEditor.kt` /
   `ConsoleClientPolicies.kt` - the gateway calls, the editor's model and its pure refusal, the view, the editor
   - **Nothing is held on the phone, and every method names its gateway,** as routines do. A
-    Gateway that refuses `policy_list` is drawn as nothing, since an older build refuses an unknown
-    op with no stable code; one that cannot be reached keeps what it drew. `ConsoleClient.sendValueAnswer`
-    tells the gateway's own refusal from the Router's and from silence, and `policyList` answers
-    listed, refused or unreachable, so the ops class never reads a null for two things.
+    Gateway that refuses `policy_list` is drawn as nothing; one that cannot be reached keeps what it
+    drew. `GatewayReads.kt` holds the answer and its fold.
   - **A gateway answer is never flattened to a Boolean before the screen sees it:** `save`,
     `delete` and `setEnabled` answer `PolicySaved` or `PolicyDeleted` with the reason, and a
     refused toggle's reason sits on the row in `toggleRefusals` until a toggle of it lands. The
     routine toggle follows the same rule, and carries the revision the row was drawn at. Both
     toggles are fenced per row, so an older toggle's answer never overwrites a newer one's.
   - **A save refusal naming a newer revision offers a save over it:** `PolicyDraft.over` rebases
-    the draft onto the revision the gateway named, and only an owner tap reaches it.
+    the draft onto the newer record, and only an owner tap reaches it. Enabling is the row's, so
+    the rebase takes it from the record, or a save over would turn a disabled policy back on.
   - **Examples go as typed; the gateway keeps keys.** `PolicyDraft` adopts the record the gateway
     answers with, so the phone holds no twin of the key rule. The editor offers only entries
     `allowedOn` that Gateway, and names a binding it cannot resolve.
@@ -536,7 +543,16 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A new record has no Gateway yet:** one is taken without asking, several are asked, and none
     draws no button. Nothing else on these views chooses a Gateway, since every row belongs to one.
     Inside a conversation only that session's Gateway is offered (`ViewScope.newOn`).
-- `android/.../GatewayReads.kt` - `GatewayReadFence`, the one freshness rule for per-gateway reads
+- `android/.../GatewayReads.kt` - `GatewayReadFence`, the one freshness rule for per-gateway reads, cleared at a re-provision so a read still out lands nothing; `ListAnswer`, `listAnswer` over `listAnswerOf`, and `after`, the one decoder and fold of a Gateway's list; `gatewayAttempt` and `refreshEach`
+  - **A Gateway's list keeps three answers, in the entry and on the wire:** `GatewayList` is unread,
+    listed or not served, and `ListAnswer` is rows, not served or unreachable. `after` is the only
+    fold: rows replace, not served says so, silence keeps what was drawn. Routines, runbooks,
+    policies and automations all read through `listAnswer` and `GatewayReadFence.list`; runbooks
+    keep only rows, since their library is durable, and peers are `TrustOps`' own read.
+  - **Only the token says not served for a list every build serves:** `OP_REASON_NOT_SERVED` always
+    reads so. A refusal in prose keeps what was drawn for routines, runbooks and policies. For
+    automations it reads as not served until 2026-11-29 (`ProseRefusal`), since an older Gateway
+    refuses an unknown op in prose, and only from a Gateway whose state answers no `sources`.
   - **The later read of a gateway wins, and only of that gateway:** the drain loop and a tap both
     start reads, so an older answer can land after a newer one and put back what the owner just
     settled. One counter per gateway, or a slow read of one discards a fresh read of another. Each
@@ -659,19 +675,31 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     it as `ShellNav.arrive` with `Arrival.FILES_ASKED` and the place, so no screen consumes a request
     and a roster tick cannot route it twice.
 - `android/.../ShellNav.kt` / `DrawerNav.kt` / `ViewScope.kt` / `SideDrawer.kt` / `ScopedViews.kt` /
-  `RootScreen.kt` - where the shell stands, the drawers, and the views filtered to a conversation.
-  `docs/console.md` holds the whole of it
+  `RootScreen.kt` / `ViewSwitch.kt` - where the shell stands, the one menu, a session's view switch,
+  and a view filtered to a session. `docs/console.md` holds the whole of it
   - **Where the shell stands is one `ShellNav` value, and every road through it is a transition:** the
-    open conversation, its view, its Files stack, the root view, settings and the thread's re-snap
-    generation. `arrive` decides the view and the re-snap together from an `Arrival`, so no road can
-    land a conversation without deciding both.
+    open conversation, its view, its Files stack, a menu pick drawn over it, the root view, settings
+    and the thread's re-snap generation. `arrive` decides the view and the re-snap together from an
+    `Arrival`, so no road can land a conversation without deciding both.
+  - **One menu, and `pick` is its one transition:** `MenuSheet` draws `RootView` in its order from
+    every screen with a drawer. A session keeps only how it is shown (`ConversationView`: Chat,
+    Terminal, Files), switched in its bar. A pick inside a session lands `over` it and Back returns
+    to the session; Sessions and Assistant leave it.
+  - **The menu's picks and its button run on the shell's scope:** a pick can swap the screen under
+    the drawer, and a close launched by the screen that left would stop half way.
   - **Back is ordered by what is drawn over what, never by when a handler composed:** `shellScreen` is
     the one order the render and `backLayer` both read, and `App` holds the only shell `BackHandler`.
+    Nothing draws over the lock: the editors, the fire sheet, the entry dialogues, the attachment
+    viewer and the link, row and forget dialogues wait for it, and Back reads the lock before an open
+    editor. An editor the lock hid returns only while its edit is held (`hiddenEditor`).
     `back-handler-residue.test.ts` refuses one anywhere else but the full screens it names with a reason.
-    A drawer's state is remembered per showing of its screen, so a drawer left open never reappears open.
+    The drawer is one state, closed by every arrival and whenever a screen without it shows, so a
+    drawer left open never reappears open.
   - **A filtered view is the root's view with a `ViewScope.Session`:** its Gateway for Runbooks and
-    Policies, its spawn point for Routines, its own requests and grants for Vault. The filters are pure
-    functions in `ViewScope.kt`, tested there; a screen takes the scope and asks.
+    Policies, its spawn point for Routines, its own requests and grants for Vault. A pick over a
+    session arrives filtered and `FilterRow` clears it; Sources and Automations take no filter and
+    list the session's Gateway first (`leading`). The filters are pure functions in `ViewScope.kt`,
+    tested there; a screen takes the scope and asks.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state, and `deleteWhenDurable`, the one road a file is deleted by
   - **Committed first, then only what nothing names:** `commitFileOwners` writes threads, anchors,
     drafts and scheduled sends in one commit, and a failed commit keeps the files. A reference added
@@ -721,7 +749,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../crypto/ContentKeyring.kt` - phone keyring, classify then commit
 - `android/.../crypto/ContentAadKinds.kt` - sole AAD kind builders, twins of `content-envelope.ts`; `aad-kinds-residue.test.ts` pins both to one vector each
 - `android/.../MainActivity.kt` - `Repo`, activity, and `App` navigation shell
-- `android/.../RecordMenu.kt` / `EditorScaffold.kt` - a record page's removal and the one full-screen editor frame
+- `android/.../EditorSessions.kt` / `RecordMenu.kt` / `EditorScaffold.kt` - an edit in progress, a record page's removal, and the one full-screen editor frame with its leave dialogue and `rememberEdit`
+  - **One model for the four editors:** `EditorSessions` holds each edit as an `EditSession` (the draft, what it opened as, its opening, what the last send said, busy). `open` is the only mint, and `edit`, `discard` and `send` take the opening, so nothing from a page that left touches a later one. A send runs on the repository's scope (`repo.command`) and settles only its own opening, so Back loses no answer.
+  - **Back asks before discarding an edit:** `askLeave` leaves at once on an unchanged draft or a send in flight, else sets `leaving`, and `EditorScaffold` draws "Leave and discard changes?" from it (`leaveShown`). The shell's one `BackHandler` calls it for every editor; Cancel discards at once.
+  - **A page and its session end together, and the page owns both ends:** `editorShowing` is the one rule a page obeys: it draws its own opening and closes once that session is gone, whether it landed, was discarded or was taken by another. A page that leaves composition parks its own session (`park`): an untouched edit goes, a touched or busy one waits. The shell parks nothing, so no road can drop a session under a page still drawn.
+  - **A send that stays with no page watching is told:** a parked session is `unattended`, and its refusal reaches the owner as a transient message (`leftLine`), so a save or delete that failed after Back does not fail silently. An untouched one is dropped once told, Back leaves an unattended one unasked, and Cancel waits while a save is out.
+  - **Typing stays in the screen:** the runbook, routine and policy editors hold what is typed in a `MirroredDraft`, which writes each change through to the session as it is made, since a text field fed from a flow lags a frame.
+  - **An editor opens once its record is read:** `rememberEdit` opens on `EditStanding.READY`; a held record whose list is unread draws a waiting page, and one its list lacks says so, never a blank draft under "Edit".
   - **A record is removed from its top bar's menu:** `RemoveMenu` then `ConfirmDialog`, on the runbook, routine, policy and automation editors, a device's page and a service's entry. `delete-affordance-residue.test.ts` refuses a delete button drawn anywhere else.
 - `android/.../SessionsScreen.kt` / `SettingsScreen.kt` / `ThreadScreen.kt` / `ComposerField.kt` / `Onboarding.kt` / `SessionDialogs.kt` / `ReorderableTabRow.kt` / `TabDragMath.kt` / `TimeText.kt` - screen siblings and tab geometry
   - **One composer field for the panel and the thread:** `ComposerField` wraps the text field; while `working` it dims the border and draws the comet from `cometSpans`, the one span rule.

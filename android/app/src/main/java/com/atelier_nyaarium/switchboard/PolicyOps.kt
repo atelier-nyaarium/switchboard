@@ -4,16 +4,12 @@ import com.atelier_nyaarium.switchboard.policies.PolicyDraft
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
-import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /** Gateway calls, as a port. */
 internal interface PolicyGateway {
-	suspend fun list(gatewayId: String): PolicyListAnswer
+	suspend fun list(gatewayId: String): ListAnswer<AuthorizationPolicy>
 
 	suspend fun put(gatewayId: String, policy: AuthorizationPolicy, baseRevision: Long?): ConsolePolicyPutResult
 
@@ -43,8 +39,12 @@ internal sealed interface PolicyDeleted {
 internal class PolicyOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: PolicyHost,
-) {
-	private val drafts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, PolicyDraft>()
+) : ClearsOnReprovision {
+	val edits = EditorSessions<EditKey, PolicyDraft, SaveSaid>(
+		unattended = { left -> tell(leftLine(left.draft.name, "Policy", left.said?.reason.orEmpty())) },
+	)
+
+	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
 
 	private val reads = GatewayReadFence()
 
@@ -53,34 +53,42 @@ internal class PolicyOps(
 
 	val toggleRefusals = androidx.compose.runtime.mutableStateOf<Map<Pair<String, String>, String>>(emptyMap())
 
-	fun draftFor(gatewayId: String, key: String): PolicyDraft? = drafts[gatewayId to key]
-
-	fun keepDraft(gatewayId: String, key: String, draft: PolicyDraft) {
-		drafts[gatewayId to key] = draft
+	override suspend fun clearInMemory() {
+		reads.clear()
+		toggles.clear()
+		edits.clear()
+		toggleRefusals.value = emptyMap()
 	}
 
-	fun dropDraft(gatewayId: String, key: String) {
-		drafts.remove(gatewayId to key)
+	suspend fun commit(key: EditKey, opening: Long) = edits.send(key, opening) { draft ->
+		val candidate = draft.toPolicy() ?: return@send EditOutcome.Stays(SaveSaid("Not a complete policy"))
+		when (val saved = save(candidate, draft.revision.takeIf { it > 0L }, key.gatewayId)) {
+			is PolicySaved.Stored -> EditOutcome.Done
+			is PolicySaved.Refused -> EditOutcome.Stays(SaveSaid(saved.reason, saved.heldRevision))
+			PolicySaved.Unreachable -> EditOutcome.Stays(SaveSaid(GATEWAY_UNREACHABLE))
+		}
+	}
+
+	suspend fun remove(key: EditKey, opening: Long) = edits.send(key, opening) { draft ->
+		when (val deleted = delete(draft.id, draft.revision, key.gatewayId)) {
+			PolicyDeleted.Deleted -> EditOutcome.Done
+			is PolicyDeleted.Refused -> EditOutcome.Stays(SaveSaid(deleted.reason))
+			PolicyDeleted.Unreachable -> EditOutcome.Stays(SaveSaid(GATEWAY_UNREACHABLE))
+		}
 	}
 
 	fun toggleRefusalFor(gatewayId: String, policyId: String): String? = toggleRefusals.value[gatewayId to policyId]
 
 	/** All roster Gateways, concurrently. */
 	suspend fun refreshAll() {
-		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
+		refreshEach(state.value.gateways.ids(), ::refresh)
 	}
 
-	/** Refused hides; unreachable keeps what was drawn. */
 	suspend fun refresh(gatewayId: String) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val read = reads.read(gatewayId) { attempt { client.list(gatewayId) } ?: PolicyListAnswer.Unreachable }
-		if (read !is GatewayRead.Fresh) return
-		when (val answer = read.value) {
-			is PolicyListAnswer.Listed -> show(gatewayId, answer.policies)
-			PolicyListAnswer.Refused -> hide(gatewayId)
-			PolicyListAnswer.Unreachable -> {}
-		}
+		val answer = reads.list(TAG, gatewayId) { client.list(gatewayId) }
+		state.update { held -> held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(policies = it.policies.after(answer)) }) }
 	}
 
 	/** The gateway names the stored revision. */
@@ -141,21 +149,9 @@ internal class PolicyOps(
 		toggleRefusals.value = if (reason == null) toggleRefusals.value - key else toggleRefusals.value + (key to reason)
 	}
 
-	/** Gateway answer, replaced whole. */
-	private fun show(gatewayId: String, policies: List<AuthorizationPolicy>) {
-		state.update { held -> held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(policies = policies) }) }
-	}
+	private suspend fun <T> attempt(call: suspend () -> T): T? = gatewayAttempt(TAG, call)
 
-	private fun hide(gatewayId: String) {
-		state.update { held -> held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(policies = null) }) }
-	}
-
-	private suspend fun <T> attempt(call: suspend () -> T): T? = try {
-		call()
-	} catch (e: CancellationException) {
-		throw e
-	} catch (e: Exception) {
-		DebugLog.log("Policy", "gateway call failed: ${e::class.simpleName}")
-		null
+	private companion object {
+		const val TAG = "Policy"
 	}
 }

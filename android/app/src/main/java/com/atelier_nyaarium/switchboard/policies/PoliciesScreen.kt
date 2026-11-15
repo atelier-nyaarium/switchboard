@@ -45,14 +45,14 @@ internal fun PoliciesScreen(
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.policyOps.refreshAll() }
 	val launcher = rememberCoroutineScope()
-	val groups = scope.groupsOf(state.gateways.gateways).filter { it.policies != null }
+	val groups = scope.groupsOf(state.gateways.gateways).filter { it.policies.listed }
 	val named = groups.size > 1
 	val toggleRefusals by repo.policyOps.toggleRefusals
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.policies.orEmpty().isEmpty() }) {
+		if (groups.all { it.policies.rows.isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
@@ -81,7 +81,7 @@ internal fun PoliciesScreen(
 							)
 						}
 					}
-					for (policy in group.policies.orEmpty()) {
+					for (policy in group.policies.rows) {
 						item(key = "policy:${group.id}:${policy.id}") {
 							PolicyRow(
 								policy = policy,

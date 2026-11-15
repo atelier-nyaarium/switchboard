@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -51,7 +50,8 @@ import com.atelier_nyaarium.switchboard.powerSlot
 import com.atelier_nyaarium.switchboard.proto.DeviceCapability
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.MainValue
-import com.atelier_nyaarium.switchboard.deviceGroups
+import com.atelier_nyaarium.switchboard.NoHome
+import com.atelier_nyaarium.switchboard.noHome
 import com.atelier_nyaarium.switchboard.devicesPending
 import com.atelier_nyaarium.switchboard.displayUnitOf
 import com.atelier_nyaarium.switchboard.isSensor
@@ -61,6 +61,7 @@ import com.atelier_nyaarium.switchboard.saidOf
 import com.atelier_nyaarium.switchboard.sensorOf
 import com.atelier_nyaarium.switchboard.sensorTrouble
 import com.atelier_nyaarium.switchboard.serviceRows
+import com.atelier_nyaarium.switchboard.sourceGroups
 import com.atelier_nyaarium.switchboard.sourceHealth
 import com.atelier_nyaarium.switchboard.sourceTroubled
 import com.atelier_nyaarium.switchboard.sourcesOf
@@ -68,15 +69,16 @@ import com.atelier_nyaarium.switchboard.troubleLine
 
 /** Devices by Gateway, then the home's services. */
 @Composable
-internal fun AssistantSourcesPage(
+internal fun SourcesView(
 	repo: ChatRepository,
 	state: ChatState,
 	home: String?,
-	onAdd: () -> Unit,
+	/** A session's Gateway, listed first. */
+	lead: String?,
 	onDevice: (String, String) -> Unit,
 	onService: (String, String) -> Unit,
 	onSource: (String, String) -> Unit,
-	onBack: () -> Unit,
+	modifier: Modifier = Modifier,
 ) {
 	val holding = home?.let { state.gateways.assistantOn(it) }
 	val (on, off) = remember(holding) { holding?.let(::sourcesOf).orEmpty().partition { it.enabled } }
@@ -96,17 +98,18 @@ internal fun AssistantSourcesPage(
 	val unitsSaid = works[WorkKey.Units]?.said
 	val now = System.currentTimeMillis()
 
-	AssistantPageScaffold(
-		"Sources",
-		onBack,
-		actions = { if (home != null) Button(onClick = hapticClick(onAdd)) { Text("Add") } },
-	) {
+	PageColumn(modifier) {
 		if (home == null) {
-			Text(PLACE_FIRST, style = MaterialTheme.typography.bodyLarge)
-			return@AssistantPageScaffold
+			when (noHome(state)) {
+				NoHome.READING -> CircularProgressIndicator(Modifier.size(24.dp))
+				NoHome.ROUTER_UNREACHABLE ->
+					Text("Could not reach the Federation Router.", style = MaterialTheme.typography.bodyLarge)
+				NoHome.NOT_PLACED -> Text(PLACE_FIRST, style = MaterialTheme.typography.bodyLarge)
+			}
+			return@PageColumn
 		}
-		val groups = deviceGroups(roster, home, views)
 		val hasServices = on.isNotEmpty() || off.isNotEmpty() || services.isNotEmpty()
+		val groups = sourceGroups(roster, home, views, hasServices, lead)
 		val serviceRows: @Composable () -> Unit = {
 			SubLabel("Services")
 			for (source in on) {
@@ -119,16 +122,11 @@ internal fun AssistantSourcesPage(
 			}
 		}
 		if (devicesPending(roster, views)) CircularProgressIndicator(Modifier.size(24.dp))
-		// A home with no devices.
-		if (hasServices && groups.none { it.assistant }) {
-			GatewayHeader(home, assistant = true)
-			serviceRows()
-		}
 		for (group in groups) {
 			val devices = views[group.gatewayId] ?: DevicesView()
 			val withServices = group.assistant && hasServices
 			GatewayHeader(group.gatewayId, group.assistant)
-			if (withServices) SubLabel("Devices")
+			if (withServices && group.records.isNotEmpty()) SubLabel("Devices")
 			for (record in group.records) {
 				if (record.isSensor()) {
 					SensorRow(

@@ -8,8 +8,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -214,6 +216,7 @@ fun App(
 	var editPolicy by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
 	var drawerSide by remember { mutableStateOf(repo.store.drawerSide) }
 	val shellScope = rememberCoroutineScope()
+	val menuDrawer = remember { SideDrawers() }
 	val shellActions = ShellActions(
 		openBoardEntry = { boardModal = it },
 		moveBoardEntry = { row, drop -> repo.boardOps.boardMove(row.entry.id, drop.parent, drop.index) },
@@ -259,7 +262,8 @@ fun App(
 			else -> forgetAsking = ForgetAsking(team, cancelTasks, ask)
 		}
 	}
-	forgetAsking?.let { asking ->
+	// Nothing draws over the lock.
+	if (!appLockAsks(state, unlocked)) forgetAsking?.let { asking ->
 		ForgetAskDialog(
 			ask = asking.ask,
 			onStart = { container ->
@@ -320,10 +324,7 @@ fun App(
 	}
 	val features = DrawerFeatures(board = pluginManager.isActive("taskboard"), vault = pluginManager.isActive("vault"))
 	val offeredRoot = rootViews(features)
-	val offeredFor = { team: String ->
-		val terminal = terminalEligible(state, team)
-		if (isAssistant(state, team)) assistantConversationViews(terminal) else conversationViews(features, terminal)
-	}
+	val offeredFor = { team: String -> conversationViews(terminalEligible(state, team), isAssistant(state, team)) }
 	val offeredConversation = openTeam?.let(offeredFor).orEmpty()
 	val assistantOpen = openTeam?.let { isAssistant(state, it) } == true
 	val assistantRoot = assistantRoot(state)
@@ -336,6 +337,7 @@ fun App(
 	}
 	// Every road that lands somewhere takes this one list.
 	val dismissForArrival = {
+		if (menuDrawer.holdsBack()) shellScope.launch { menuDrawer.close() }
 		nav = nav.closeSettings()
 		overlays = emptyList()
 		editRunbook = null
@@ -382,8 +384,8 @@ fun App(
 		nav = nav.enterAssistant(assistantRoot, factsFor)
 	}
 	val deviceViews by repo.deviceOps.views.collectAsState()
-	LaunchedEffect(assistantRoot, openTeam, nav.root, nav.assistantPage, state.gateways, deviceViews) {
-		nav = nav.followAssistant(assistantRoot, state).resolvePage(state) { deviceViews[it]?.list }
+	LaunchedEffect(assistantRoot, openTeam, nav.root, nav.assistantPage, state.gateways, deviceViews, offeredRoot) {
+		nav = nav.followAssistant(assistantRoot, state).resolvePage(state) { deviceViews[it]?.list }.offering(offeredRoot)
 	}
 	// A ref's exit opens Files. Clearing first prevents duplicate routing.
 	val workspaceRequest by com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collectAsState()
@@ -466,20 +468,52 @@ fun App(
 	LaunchedEffect(assistantShown) {
 		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
 	}
+	val homeRead = nav.readsHome(assistantOpen, screen, offeredRoot)
 	val sourcesMoved by repo.assistantOps.sourcesMoved.collectAsState()
-	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.router.settled, assistantShown, sourcesMoved) {
-		if (!assistantShown) return@LaunchedEffect
+	val homeReader = if (homeRead) screen to nav.rootShown(offeredRoot) else null
+	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.router.settled, homeReader, sourcesMoved) {
+		if (homeReader == null) return@LaunchedEffect
 		// Covers a screen before the first drain.
 		repo.assistantOps.refreshShown()
 	}
-	// One state per showing of its screen, so a drawer left open never reappears open.
-	val rootDrawer = remember(screen == ShellScreen.ROOT) { SideDrawers() }
-	val conversationDrawer = remember(screen == ShellScreen.CONVERSATION, openTeam) { SideDrawers() }
+	// A drawer left open never reappears open. On the shell's scope: a return cancels this effect.
+	LaunchedEffect(screen in MENU_SCREENS) {
+		if (screen !in MENU_SCREENS && menuDrawer.holdsBack()) shellScope.launch { menuDrawer.snapClosed() }
+	}
+	// The lock hides the editors; one whose edit ended or was dropped meanwhile does not return.
+	LaunchedEffect(locked) {
+		if (!locked) return@LaunchedEffect
+		launch { repo.runbookOps.edits.held.collect { held -> editRunbook = editRunbook?.takeIf { hiddenEditor(editKeyOf(it), held.keys) != null } } }
+		launch { repo.routineOps.edits.held.collect { held -> editRoutine = editRoutine?.takeIf { hiddenEditor(editKeyOf(it), held.keys) != null } } }
+		launch { repo.policyOps.edits.held.collect { held -> editPolicy = editPolicy?.takeIf { hiddenEditor(editKeyOf(it), held.keys) != null } } }
+		repo.automationOps.edits.held.collect { held ->
+			val page = nav.assistantPage as? AssistantPage.AutomationEditor ?: return@collect
+			if (hiddenEditor(AutomationDraftKey(page.gatewayId, page.slot), held.keys) == null) nav = nav.closeAssistantPage()
+		}
+	}
 	// No drawer over the summoned composer.
 	LaunchedEffect(summon?.id, summon?.routed) {
-		if (summon?.routed != true) return@LaunchedEffect
-		if (rootDrawer.holdsBack()) rootDrawer.close()
-		if (conversationDrawer.holdsBack()) conversationDrawer.close()
+		if (summon?.routed == true && menuDrawer.holdsBack()) menuDrawer.close()
+	}
+	val vaultPending by repo.vault.pending.collectAsState()
+	val menuBadges = offeredRoot.map { rootBadge(it, if (features.vault) vaultPending.size else 0) }
+	val openMenu: () -> Unit = { shellScope.launch { menuDrawer.open(drawerSide) } }
+	// Every close runs on the shell's scope: a pick can swap the screen under the drawer.
+	val menuSheet: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
+		MenuSheet(
+			views = offeredRoot,
+			shown = nav.menuShown(offeredRoot, assistantOpen),
+			badges = menuBadges,
+			domainId = state.domainId,
+			onPick = { view ->
+				nav = nav.pick(view, assistantOpen)
+				shellScope.launch { menuDrawer.close() }
+			},
+			onSettings = {
+				shellScope.launch { menuDrawer.close() }
+				nav = nav.openSettings()
+			},
+		)
 	}
 	val shownConversationView = nav.conversation?.let { shownView(offeredConversation, it.view) }
 	val composerShown = openTeam != null && state.scheduledSends[openTeam] == null
@@ -490,20 +524,19 @@ fun App(
 		shownConversationView,
 		assistantRoot,
 		composerShown,
-		covered = conversationDrawer.holdsBack(),
+		covered = menuDrawer.holdsBack(),
 	)
 	val focus = focusStep(summon, shownToSummon, windowFocused, resumed)
 	LaunchedEffect(focus, summon?.id) {
 		if (focus == FocusStep.DROP) summon?.let { SummonBus.step(it.id, Summon::focusSpent) }
 	}
 	// The one Back authority: `backLayer` orders what is drawn over what.
-	val shownDrawer = if (screen == ShellScreen.CONVERSATION) conversationDrawer else rootDrawer
 	val backFacts = BackFacts(
 		editorOpen = editRunbook != null || editRoutine != null || editPolicy != null,
 		locked = locked,
 		overlayOpen = overlays.isNotEmpty(),
 		booted = missingBoot == null,
-		drawerOpen = shownDrawer.holdsBack(),
+		drawerOpen = menuDrawer.holdsBack(),
 		offeredRoot = offeredRoot,
 		offeredConversation = offeredConversation,
 		assistantOpen = assistantOpen,
@@ -512,20 +545,21 @@ fun App(
 	// A changed automation draft asks first.
 	val leaveAssistantPage = {
 		val editor = nav.assistantPage as? AssistantPage.AutomationEditor
-		if (editor == null || repo.automationOps.askLeave(AutomationDraftKey(editor.gatewayId, editor.slot))) {
+		if (editor == null || repo.automationOps.edits.askLeave(AutomationDraftKey(editor.gatewayId, editor.slot))) {
 			nav = nav.back(BackLayer.ASSISTANT_PAGE, backFacts, state.provisioned)
 		}
 	}
 	BackHandler(enabled = layer != null) {
 		when (layer) {
 			BackLayer.ASSISTANT_PAGE -> leaveAssistantPage()
+			// A changed draft asks first.
 			BackLayer.EDITOR -> when {
-				editPolicy != null -> editPolicy = null
-				editRoutine != null -> editRoutine = null
-				else -> editRunbook = null
+				editPolicy != null -> if (repo.policyOps.edits.askLeave(editKeyOf(editPolicy))) editPolicy = null
+				editRoutine != null -> if (repo.routineOps.edits.askLeave(editKeyOf(editRoutine))) editRoutine = null
+				else -> if (repo.runbookOps.edits.askLeave(editKeyOf(editRunbook))) editRunbook = null
 			}
 			BackLayer.OVERLAY -> closeOverlay()
-			BackLayer.DRAWER -> shellScope.launch { shownDrawer.close() }
+			BackLayer.DRAWER -> shellScope.launch { menuDrawer.close() }
 			null -> Unit
 			else -> nav = nav.back(layer, backFacts, state.provisioned)
 		}
@@ -583,6 +617,8 @@ fun App(
 					home = assistantGateway(state),
 					onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
 					onPage = { nav = nav.openAssistantPage(it) },
+					onRoot = { nav = nav.toRoot(it, assistantOpen) },
+					onClose = { nav = nav.closeAssistantPage() },
 					onBack = leaveAssistantPage,
 				)
 			}
@@ -610,7 +646,6 @@ fun App(
 			}
 			// The overlay draws over this screen, so a request it is already showing is not tiled
 			// again underneath it.
-			val vaultPending by repo.vault.pending.collectAsState()
 			val promptShowing by repo.vault.promptShowing.collectAsState()
 			val vaultRevision by repo.vault.revision
 			val vaultTileFor = remember(openTeam, vaultPending, promptShowing, vaultRevision) {
@@ -632,14 +667,6 @@ fun App(
 			val team = openTeam!!
 			val offered = offeredConversation
 			val shown = shownView(offered, nav.conversation?.view ?: ConversationView.CHAT)
-			val windowBoards by repo.windowOps.windows.collectAsState()
-			val facts = ConversationFacts(
-				team = team,
-				openWindows = windowBoards.entries.firstOrNull { it.key.address == team }?.value?.size ?: 0,
-				undoneTasks = if (boardOn) repo.boardOps.boardUndoneCountFor(team) else 0,
-				pendingRequests = ViewScope.Session(team).requestsOf(vaultPending).size,
-			)
-			val marks = offered.map { conversationMark(it, facts) }
 			val assistantWork by repo.assistantOps.work.collectAsState()
 			val assistantSends by repo.assistantSendOps.pending.collectAsState()
 			val assistantActs by repo.assistantActOps.pending.collectAsState()
@@ -662,19 +689,7 @@ fun App(
 				tabs = state.openTabs,
 				sources = state.gateways.assistantOn(gatewayOf(team))?.let(::sourcesOf).orEmpty(),
 			)
-			SideDrawer(
-				drawers = conversationDrawer,
-				sheet = {
-					DrawerHeader(chrome.title, localFieldOf(team), monospace = chrome.monospace)
-					offered.forEachIndexed { index, view ->
-						if (index > 0 && view.scoped != null && offered[index - 1].scoped == null) DrawerDivider()
-						DrawerRow(view.title, iconOf(view), view == shown, marks[index]) {
-							nav = nav.showView(view)
-							shellScope.launch { conversationDrawer.close() }
-						}
-					}
-				},
-			) {
+			SideDrawer(drawers = menuDrawer, sheet = menuSheet) {
 			ThreadScreen(
 				team = openTeam!!,
 				onConversationShown = repo.phoneHoldOps::onConversationShown,
@@ -788,7 +803,6 @@ fun App(
 				undoneTasks = if (boardOn) repo.boardOps.boardUndoneCountFor(openTeam!!) else 0,
 				onForgetWithTasks = { cancelThem -> requestForget(openTeam!!, cancelThem) },
 				terminal = TerminalState(
-					eligible = ConversationView.TERMINAL in offered,
 						// Peek uses presence freshness.
 					presence = session?.presence,
 						// Presence supplies login status before online.
@@ -807,45 +821,32 @@ fun App(
 					onSend = { text, key, submit -> repo.sessions.tmuxSend(openTeam!!, text, key, submit) },
 				),
 				onKickPoll = repo::kickPoll,
+				views = offered,
 				view = shown,
 				onView = { nav = nav.showView(it) },
 				drawerSide = drawerSide,
-				drawerBadged = anyBadge(marks),
-				onOpenDrawer = { shellScope.launch { conversationDrawer.open(drawerSide) } },
+				drawerBadged = anyBadge(menuBadges),
+				onOpenDrawer = openMenu,
 				body = { modifier ->
-					val scoped = shown.scoped
-					if (scoped == null) {
-						com.atelier_nyaarium.switchboard.workspace.WorkspaceScreen(
-							repo = repo,
-							session = state.teams.firstOrNull { it.name == team },
-							rosterLoaded = state.gateways.loaded,
-							stack = nav.conversation?.files ?: listOf(WORKSPACE_ROOT),
-							onPush = { nav = nav.pushFiles(it) },
-							onJump = { nav = nav.jumpFiles(it) },
-							onPop = { nav = nav.popFiles() },
-							modifier = modifier,
-						)
-					} else {
-						androidx.compose.foundation.layout.Column(modifier) {
-							ScopeRow(scoped, team) { nav = nav.wholeOf(scoped) }
-							ScopedViewBody(
-								view = scoped,
-								scope = ViewScope.Session(team),
-								repo = repo,
-								state = state,
-								actions = shellActions,
-								modifier = Modifier.weight(1f),
-							)
-						}
-					}
+					com.atelier_nyaarium.switchboard.workspace.WorkspaceScreen(
+						repo = repo,
+						session = state.teams.firstOrNull { it.name == team },
+						rosterLoaded = state.gateways.loaded,
+						stack = nav.conversation?.files ?: listOf(WORKSPACE_ROOT),
+						onPush = { nav = nav.pushFiles(it) },
+						onJump = { nav = nav.jumpFiles(it) },
+						onPop = { nav = nav.popFiles() },
+						modifier = modifier,
+					)
 				},
 			)
 			}
 		}
 		ShellScreen.ROOT -> {
 			val snackbarHostState = remember { SnackbarHostState() }
-			// Transient failures use snackbar.
-			LaunchedEffect(state.transientMessages) {
+			// Transient failures use snackbar, once no editor covers it.
+			LaunchedEffect(state.transientMessages, backFacts.editorOpen) {
+				if (backFacts.editorOpen) return@LaunchedEffect
 				state.transientMessages.firstOrNull()?.let {
 					repo.sessions.consumeTransientMessage()
 					snackbarHostState.showSnackbar(it)
@@ -866,50 +867,100 @@ fun App(
 					team.name to repo.boardOps.boardCardBranchFor(team.name, line.currentId)
 				}.toMap()
 			}
-			val vaultOn = pluginManager.isActive("vault")
+			val vaultOn = features.vault
 			LaunchedEffect(vaultOn) { if (!vaultOn) editPolicy = null }
-			val vaultPending by repo.vault.pending.collectAsState()
 			// Grants re-read on the vault's own tick.
 			val vaultRevision by repo.vault.revision
 			val vaultTiers = remember(vaultRevision, state.teams, vaultOn) {
 				if (!vaultOn) emptyMap() else state.teams.associate { it.name to repo.vaultOps.grantTierFor(it.name) }
 			}
+			// A pick made inside a session is drawn over it.
+			val over = nav.over
+			val overTeam = openTeam.takeIf { over != null }
+			// The assistant's session filters nothing.
+			val filterable = overTeam != null && !assistantOpen
+			val filtered = filterable && over?.filtered == true
+			val home = assistantGateway(state)
+			val newAutomation = newAutomationOn(home, home?.let { state.gateways.assistantOn(it) })
 			RootScreen(
-				views = offeredRoot,
-				shown = shownView(offeredRoot, nav.root),
-				onView = { nav = nav.showRoot(it) },
+				shown = nav.rootShown(offeredRoot),
 				drawerSide = drawerSide,
-				drawers = rootDrawer,
-				domainId = state.domainId,
-				vaultPending = if (vaultOn) vaultPending.size else 0,
+				drawers = menuDrawer,
+				sheet = menuSheet,
+				drawerBadged = anyBadge(menuBadges),
+				onOpenDrawer = openMenu,
+				onBack = { nav = nav.back(BackLayer.OVER, backFacts, state.provisioned) }.takeIf { over != null },
 				snackbarHostState = snackbarHostState,
 				onRefresh = {
 					repo.setup.retry()
 					repo.command { presence.refreshTeams() }
 						// Refresh retries non-route columns.
 					repo.boardOps.refreshBoard()
-					if (nav.root == RootView.ASSISTANT) repo.command { assistantOps.refreshShown() }
+					if (homeRead) repo.command { assistantOps.refreshShown() }
+					when (nav.rootShown(offeredRoot)) {
+						RootView.SOURCES -> for (gatewayId in state.gateways.ids()) repo.command { deviceOps.refresh(gatewayId) }
+						RootView.AUTOMATIONS -> repo.command { automationOps.refreshAll() }
+						else -> Unit
+					}
 				},
-				onSettings = { nav = nav.openSettings() },
 				onAssistantSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) }.takeIf { rootOffersSettings(assistantRoot) },
 				queueState = queueState,
 				onQueue = { openQueueRequest.value = true },
+				viewActions = { view ->
+					when {
+						view == RootView.SOURCES && home != null ->
+							Button(onClick = hapticClick { nav = nav.openAssistantPage(AssistantPage.Add) }) { Text("Add") }
+						view == RootView.AUTOMATIONS && newAutomation != null ->
+							Button(
+								onClick = hapticClick {
+									nav = nav.openAssistantPage(
+										AssistantPage.AutomationEditor(newAutomation, com.atelier_nyaarium.switchboard.assistant.AutomationSlot.New),
+									)
+								},
+							) { Text("New") }
+					}
+				},
 			) { view, modifier ->
 				val scoped = view.scoped
 				if (scoped != null) {
-					ScopedViewBody(
-						view = scoped,
-						scope = ViewScope.Everything,
-						repo = repo,
-						state = state,
-						actions = shellActions,
-						modifier = modifier,
-						onBoardSaved = { nav = nav.showRoot(RootView.SESSIONS) },
-					)
+					androidx.compose.foundation.layout.Column(modifier) {
+						if (overTeam != null && filterable) {
+							FilterRow(tabLabelFor(state, overTeam), filtered) { nav = nav.filter(it) }
+						}
+						ScopedViewBody(
+							view = scoped,
+							scope = if (overTeam != null && filtered) ViewScope.Session(overTeam) else ViewScope.Everything,
+							repo = repo,
+							state = state,
+							actions = shellActions,
+							modifier = Modifier.weight(1f),
+							onBoardSaved = { nav = nav.boardSaved() },
+						)
+					}
 				} else if (view == RootView.ASSISTANT) {
 					com.atelier_nyaarium.switchboard.assistant.AssistantRootScreen(
 						root = assistantRoot,
 						onSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) },
+						modifier = modifier,
+					)
+				} else if (view == RootView.SOURCES) {
+					com.atelier_nyaarium.switchboard.assistant.SourcesView(
+						repo = repo,
+						state = state,
+						home = home,
+						lead = overTeam?.let(::gatewayOf),
+						onDevice = { g, d -> nav = nav.openAssistantPage(AssistantPage.Device(g, d)) },
+						onService = { g, s -> nav = nav.openAssistantPage(AssistantPage.Entry(g, s)) },
+						onSource = { g, s -> nav = nav.openAssistantPage(AssistantPage.Source(g, s)) },
+						modifier = modifier,
+					)
+				} else if (view == RootView.AUTOMATIONS) {
+					com.atelier_nyaarium.switchboard.assistant.AutomationsView(
+						repo = repo,
+						state = state,
+						home = home,
+						lead = overTeam?.let(::gatewayOf),
+						onEdit = { g, slot -> nav = nav.openAssistantPage(AssistantPage.AutomationEditor(g, slot)) },
 						modifier = modifier,
 					)
 				} else {
@@ -955,18 +1006,21 @@ fun App(
 	}
 
 	QueueOverlay(repo, openQueueRequest, locked, revealAtState, openTeamRequest)
-	AttachmentViewerOverlay(viewerState, rendererPool)
-	LinkMenuDialog(linkMenuState, linkMenuNoteState)
-	RowMenuDialog(repo, rowPressState, pluginManager.host::cutClaims)
+	if (!locked) {
+		AttachmentViewerOverlay(viewerState, rendererPool)
+		LinkMenuDialog(linkMenuState, linkMenuNoteState)
+		RowMenuDialog(repo, rowPressState, pluginManager.host::cutClaims)
+	}
 	// Board dialog replaces current screen.
-	boardModal?.let { entryId ->
+	if (!locked) boardModal?.let { entryId ->
 		BoardEntryDialog(state, repo, entryId) { boardModal = null }
 	}
 	// Cards wait for unlock.
 	val cardsShow = requestCardsShow(locked)
 	when (val modal = vaultModal) {
-		is VaultModal.Entry ->
+		is VaultModal.Entry -> if (!locked) {
 			com.atelier_nyaarium.switchboard.vault.VaultEntryDialog(repo, state, modal.id) { vaultModal = null }
+		}
 		is VaultModal.Request -> if (cardsShow) {
 			com.atelier_nyaarium.switchboard.vault.VaultRequestSheet(repo, state, modal.id) { vaultModal = null }
 		}
@@ -980,22 +1034,27 @@ fun App(
 			com.atelier_nyaarium.switchboard.assistant.AssistantActSheet(repo, gatewayId, requestId) { assistantActModal = null }
 		}
 	}
+	// Nothing draws over the lock; a parked edit returns with its editor.
+	if (locked) return
 	fireRunbook?.let { fire ->
 		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, fire.gatewayId, fire.id, fire.into) { fireRunbook = null }
 	}
-	editRunbook?.let { (gatewayId, opened) ->
-		val id = opened.ifEmpty { null }
-		com.atelier_nyaarium.switchboard.runbooks.RunbookEditor(repo, gatewayId, id) { editRunbook = null }
+	editRunbook?.let { opened ->
+		val key = editKeyOf(opened)
+		com.atelier_nyaarium.switchboard.runbooks.RunbookEditor(repo, key.gatewayId, key.id) { editRunbook = null }
 	}
-	editRoutine?.let { (gatewayId, opened) ->
-		val id = opened.ifEmpty { null }
-		com.atelier_nyaarium.switchboard.routines.RoutineEditor(repo, state, gatewayId, id) { editRoutine = null }
+	editRoutine?.let { opened ->
+		val key = editKeyOf(opened)
+		com.atelier_nyaarium.switchboard.routines.RoutineEditor(repo, state, key.gatewayId, key.id) { editRoutine = null }
 	}
-	editPolicy?.let { (gatewayId, opened) ->
-		val id = opened.ifEmpty { null }
-		com.atelier_nyaarium.switchboard.policies.PolicyEditor(repo, state, gatewayId, id) { editPolicy = null }
+	editPolicy?.let { opened ->
+		val key = editKeyOf(opened)
+		com.atelier_nyaarium.switchboard.policies.PolicyEditor(repo, state, key.gatewayId, key.id) { editPolicy = null }
 	}
 }
+
+/** An open editor's saved pair; a blank id is a new record. */
+private fun editKeyOf(opened: Pair<String, String>?): EditKey = EditKey(opened?.first.orEmpty(), opened?.second?.ifEmpty { null })
 
 
 /** Log and skip plugin claim errors. */

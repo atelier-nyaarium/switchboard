@@ -39,16 +39,16 @@ class GatewayScopedStateTest {
 	private val state = testRegistry("sakura", "mikan")
 		.withEntry("sakura") {
 			it.copy(
-				runbooks = listOf(book("shared", "Here")),
-				routines = listOf(RoutineState(routine("triage", "Here"), nextAt = 900L)),
-				policies = listOf(policy("apt", "Here")),
+				runbooks = GatewayList.Listed(listOf(book("shared", "Here"))),
+				routines = GatewayList.Listed(listOf(RoutineState(routine("triage", "Here"), nextAt = 900L))),
+				policies = GatewayList.Listed(listOf(policy("apt", "Here"))),
 			)
 		}
 		.withEntry("mikan") {
 			it.copy(
-				runbooks = listOf(book("shared", "There"), book("only-there", "Only there")),
-				routines = listOf(RoutineState(routine("triage", "There"), nextAt = 300L)),
-				policies = listOf(policy("apt", "There")),
+				runbooks = GatewayList.Listed(listOf(book("shared", "There"), book("only-there", "Only there"))),
+				routines = GatewayList.Listed(listOf(RoutineState(routine("triage", "There"), nextAt = 300L))),
+				policies = GatewayList.Listed(listOf(policy("apt", "There"))),
 			)
 		}
 
@@ -115,7 +115,7 @@ class GatewayScopedStateTest {
 
 	@Test
 	fun anAnswerForAGatewayTheRosterDoesNotNameDrawsNothing() {
-		val written = state.withEntry("gone") { it.copy(runbooks = listOf(book("x", "X"))) }
+		val written = state.withEntry("gone") { it.copy(runbooks = GatewayList.Listed(listOf(book("x", "X")))) }
 		assertEquals(state, written)
 		assertEquals(emptyList<Runbook>(), written.runbooksOn("gone"))
 	}

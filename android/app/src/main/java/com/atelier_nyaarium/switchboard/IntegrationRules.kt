@@ -70,22 +70,6 @@ internal fun serviceEntry(
 	return ServiceEntry(integration, grants, grantedLine(grants, entries), entries.grantableOn(gatewayId))
 }
 
-internal fun deviceNoun(kind: String, count: Int): String {
-	val one = when (kind) {
-		Protocol.Wire.DeviceKind.SWITCH -> "plug"
-		else -> kind
-	}
-	return if (count == 1) one else "${one}s"
-}
-
-internal fun kindTitle(kind: String): String = deviceNoun(kind, 2).replaceFirstChar { it.uppercase() }
-
-internal data class KindGroup(val kind: String, val records: List<DeviceRecord>)
-
-/** Devices by kind, kinds in first-seen order. */
-internal fun kindGroups(records: List<DeviceRecord>): List<KindGroup> =
-	records.groupBy { it.kind }.map { (kind, members) -> KindGroup(kind, members) }
-
 internal fun brandLine(record: DeviceRecord): String = catalogued(record.driver)?.label ?: record.driver
 
 /** An unknown brand still switches. */
@@ -106,10 +90,3 @@ internal fun actOffered(key: String, settings: DeviceSettings?): Boolean = when 
 internal fun troubleLine(live: DeviceLive?): String? =
 	if (live != null && live.confirmed && !live.stale) null else liveLine(live)
 
-/** Counts per type; a service counts once it is added. Null when nothing is. */
-internal fun integrationCountLine(records: List<DeviceRecord>, services: List<AssistantIntegration>?): String? {
-	val devices = kindGroups(records).map { "${it.records.size} ${deviceNoun(it.kind, it.records.size)}" }
-	val added = services.orEmpty().count(::serviceAdded)
-	val parts = devices + listOfNotNull("$added ${if (added == 1) "service" else "services"}".takeIf { added > 0 })
-	return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
-}

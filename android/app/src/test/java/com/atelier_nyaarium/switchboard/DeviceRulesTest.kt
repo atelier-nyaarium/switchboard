@@ -95,7 +95,7 @@ class DeviceRulesTest {
 		val state = ChatState()
 		assertEquals(page, page.resolved(state) { DeviceListView.Listed(listOf(lamp), 1L) })
 		assertEquals(page, page.resolved(state) { DeviceListView.Loading })
-		assertEquals(AssistantPage.Sources, page.resolved(state) { DeviceListView.Listed(emptyList(), 2L) })
+		assertNull(page.resolved(state) { DeviceListView.Listed(emptyList(), 2L) })
 		val movedAway = ChatState(
 			assistantHome = AssistantHome.Read(
 				AssistantHomeRecord(version = 1L, gatewayId = "mikan"),
@@ -104,9 +104,9 @@ class DeviceRulesTest {
 		)
 		assertEquals(page, page.resolved(movedAway) { DeviceListView.Listed(listOf(lamp), 1L) })
 		val dropped = ChatState(gateways = GatewayRegistry(provenance = RegistryProvenance.Current, gateways = emptyList()))
-		assertEquals(AssistantPage.Sources, page.resolved(dropped) { DeviceListView.Listed(listOf(lamp), 1L) })
+		assertNull(page.resolved(dropped) { DeviceListView.Listed(listOf(lamp), 1L) })
 		assertEquals(page, pageOf(pageWords(page)))
-		assertEquals(AssistantPage.Sources, assistantPageBack(page))
+		assertNull(assistantPageBack(page))
 	}
 
 	@Test

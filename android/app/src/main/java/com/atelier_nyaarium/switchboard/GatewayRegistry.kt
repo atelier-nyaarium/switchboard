@@ -58,6 +58,18 @@ data class SpawnContainer(
 	val harnesses: SpawnHarnesses,
 )
 
+sealed interface GatewayList<out T> {
+	data object Unread : GatewayList<Nothing>
+
+	data class Listed<T>(override val rows: List<T>) : GatewayList<T>
+
+	data object NotServed : GatewayList<Nothing>
+
+	val rows: List<T> get() = emptyList()
+
+	val listed: Boolean get() = this is Listed
+}
+
 data class GatewayEntry(
 	val id: String,
 	val connected: Boolean,
@@ -69,12 +81,11 @@ data class GatewayEntry(
 	val harnessSpawns: Map<SessionHarness, List<String>>? = null,
 	/** Null from a Gateway that reports none. */
 	val containers: List<SpawnContainer>? = null,
-	val routines: List<RoutineState>? = null,
-	val runbooks: List<Runbook>? = null,
-	val policies: List<AuthorizationPolicy>? = null,
-	/** Null from a Gateway that lists none. */
-	val automations: List<AutomationRow>? = null,
-	val peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>? = null,
+	val routines: GatewayList<RoutineState> = GatewayList.Unread,
+	val runbooks: GatewayList<Runbook> = GatewayList.Unread,
+	val policies: GatewayList<AuthorizationPolicy> = GatewayList.Unread,
+	val automations: GatewayList<AutomationRow> = GatewayList.Unread,
+	val peers: GatewayList<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = GatewayList.Unread,
 	val assistant: AssistantWord? = null,
 ) {
 	val seen: Boolean get() = incarnation > 0
@@ -151,28 +162,28 @@ data class GatewayRegistry(
 	fun incarnations(): List<Pair<String, Long>> = gateways.map { it.id to it.incarnation }
 
 	/** Records stay Gateway-scoped. */
-	fun runbooksOn(gatewayId: String): List<Runbook> = entry(gatewayId)?.runbooks.orEmpty()
+	fun runbooksOn(gatewayId: String): List<Runbook> = entry(gatewayId)?.runbooks?.rows.orEmpty()
 
 	fun runbookOn(gatewayId: String, runbookId: String): Runbook? = runbooksOn(gatewayId).find { it.id == runbookId }
 
-	fun routinesOn(gatewayId: String): List<RoutineState> = entry(gatewayId)?.routines.orEmpty()
+	fun routinesOn(gatewayId: String): List<RoutineState> = entry(gatewayId)?.routines?.rows.orEmpty()
 
 	fun routineOn(gatewayId: String, routineId: String): RoutineState? =
 		routinesOn(gatewayId).find { it.routine.id == routineId }
 
-	fun policiesOn(gatewayId: String): List<AuthorizationPolicy> = entry(gatewayId)?.policies.orEmpty()
+	fun policiesOn(gatewayId: String): List<AuthorizationPolicy> = entry(gatewayId)?.policies?.rows.orEmpty()
 
 	fun policyOn(gatewayId: String, policyId: String): AuthorizationPolicy? =
 		policiesOn(gatewayId).find { it.id == policyId }
 
-	fun automationsOn(gatewayId: String): List<AutomationRow> = entry(gatewayId)?.automations.orEmpty()
+	fun automationsOn(gatewayId: String): List<AutomationRow> = entry(gatewayId)?.automations?.rows.orEmpty()
 
 	fun automationOn(gatewayId: String, automationId: String): AutomationRow? =
 		automationsOn(gatewayId).find { it.id == automationId }
 
-	fun peersOn(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = entry(gatewayId)?.peers.orEmpty()
+	fun peersOn(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = entry(gatewayId)?.peers?.rows.orEmpty()
 
-	fun hasPeer(gatewayId: String, domainId: String): Boolean = entry(gatewayId)?.peers?.any { it.domainId == domainId } == true
+	fun hasPeer(gatewayId: String, domainId: String): Boolean = peersOn(gatewayId).any { it.domainId == domainId }
 
 	/** Its sources and Safety; placement is the Router's. */
 	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? =
@@ -183,7 +194,7 @@ data class GatewayRegistry(
 
 	/** Wake at earliest routine. */
 	fun soonestRoutineAt(): Long? =
-		gateways.flatMap { entry -> entry.routines.orEmpty().mapNotNull { it.nextAt } }.minOrNull()
+		gateways.flatMap { entry -> entry.routines.rows.mapNotNull { it.nextAt } }.minOrNull()
 
 	/** Roster membership preserves answers. */
 	fun landed(
@@ -210,11 +221,11 @@ data class GatewayRegistry(
 						hostSpawns = points[row.gatewayId]?.hostSpawns,
 						harnessSpawns = points[row.gatewayId]?.let(::harnessSpawnsOf),
 						containers = points[row.gatewayId]?.containers?.let(::addressableContainers),
-						routines = prior?.routines,
-						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),
-						policies = prior?.policies,
-						automations = prior?.automations,
-						peers = prior?.peers,
+						routines = prior?.routines ?: GatewayList.Unread,
+						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId)?.let { GatewayList.Listed(it) } ?: GatewayList.Unread,
+						policies = prior?.policies ?: GatewayList.Unread,
+						automations = prior?.automations ?: GatewayList.Unread,
+						peers = prior?.peers ?: GatewayList.Unread,
 						assistant = prior?.assistant,
 					)
 				}

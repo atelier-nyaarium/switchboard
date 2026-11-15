@@ -79,17 +79,6 @@ class IntegrationRulesTest {
 	}
 
 	@Test
-	fun `the settings line counts per type and says when nothing is added`() {
-		val plugs = listOf(plug("aa:bb:cc:dd:ee:01", "Light"), plug("aa:bb:cc:dd:ee:02", "Sign"))
-		val services = listOf(AssistantIntegration("ifttt", "IFTTT", listOf("key")))
-
-		assertEquals("2 plugs · 1 service", integrationCountLine(plugs, services))
-		assertEquals("1 plug", integrationCountLine(plugs.take(1), listOf(AssistantIntegration("ifttt", "IFTTT", emptyList()))))
-		assertNull(integrationCountLine(emptyList(), null))
-		assertEquals(listOf("Plugs"), kindGroups(plugs).map { kindTitle(it.kind) })
-	}
-
-	@Test
 	fun `the cloud act carries its write and is offered only while the plug is bound`() {
 		val cloud = INTEGRATIONS.flatMap { it.acts }.single { it.key == ACT_CLOUD_DISCONNECT }
 		val bound = DeviceSettings.Kasa(led = true, clock = KasaClock(time = "2026-11-02T18:00:00-08:00", zone = "PST8PDT"), cloud = "bound")

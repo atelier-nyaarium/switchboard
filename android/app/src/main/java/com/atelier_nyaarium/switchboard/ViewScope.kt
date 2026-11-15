@@ -48,6 +48,10 @@ internal fun ViewScope.grantsOf(grants: Map<String, List<VaultGrant>>): List<Pai
 	}
 }
 
+/** A session's Gateway group leads a whole list. */
+internal fun <T> leading(groups: List<T>, gatewayId: String?, idOf: (T) -> String): List<T> =
+	if (gatewayId == null) groups else groups.sortedByDescending { idOf(it) == gatewayId }
+
 /** Grant holders use local session names. */
 internal fun grantsHeldBy(grants: Map<String, List<VaultGrant>>, team: String): List<VaultGrant> {
 	val address = addressOf(team) ?: return emptyList()

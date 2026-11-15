@@ -49,12 +49,12 @@ internal fun RoutinesScreen(
 	// keeps its own, and `scheduleLine` names it.
 	val zone = java.time.ZoneId.systemDefault()
 	val launcher = rememberCoroutineScope()
-	val groups = scope.groupsOf(state.gateways.gateways).filter { it.routines != null }
+	val groups = scope.groupsOf(state.gateways.gateways).filter { it.routines.listed }
 	val named = groups.size > 1
 	val toggleRefusals by repo.routineOps.toggleRefusals
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { scope.routinesOf(it.routines.orEmpty()).isEmpty() }) {
+		if (groups.all { scope.routinesOf(it.routines.rows).isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
@@ -79,7 +79,7 @@ internal fun RoutinesScreen(
 							)
 						}
 					}
-					for (row in scope.routinesOf(group.routines.orEmpty())) {
+					for (row in scope.routinesOf(group.routines.rows)) {
 						item(key = "routine:${group.id}:${row.routine.id}") {
 							RoutineRow(
 								row = row,

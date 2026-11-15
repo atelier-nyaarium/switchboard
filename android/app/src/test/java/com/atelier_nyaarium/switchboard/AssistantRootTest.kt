@@ -18,7 +18,7 @@ class AssistantRootTest {
 	private val session = "dom.sakura.app.dev"
 	private val facts = { team: String ->
 		ArrivalFacts(
-			offered = if (team == assistant) assistantConversationViews(terminal = true) else conversationViews(DrawerFeatures(true, true), true),
+			offered = conversationViews(terminal = true, assistant = team == assistant),
 			stuckAtLogin = false,
 		)
 	}
@@ -93,8 +93,8 @@ class AssistantRootTest {
 
 	@Test
 	fun theAssistantIsOfferedChatAndTerminalAlone() {
-		assertEquals(listOf(ConversationView.CHAT, ConversationView.TERMINAL), assistantConversationViews(terminal = true))
-		assertEquals(listOf(ConversationView.CHAT), assistantConversationViews(terminal = false))
+		assertEquals(listOf(ConversationView.CHAT, ConversationView.TERMINAL), conversationViews(terminal = true, assistant = true))
+		assertEquals(listOf(ConversationView.CHAT), conversationViews(terminal = false, assistant = true))
 	}
 
 	@Test
@@ -226,23 +226,19 @@ class AssistantRootTest {
 	}
 
 	@Test
-	fun settingsStayOverAMoveAndBackLandsOnTheRetargetedConversation() {
+	fun aSourcePageClosesOverAMoveOntoTheRetargetedConversation() {
 		val rules = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
 			.openAssistantPage(AssistantPage.Source("sakura", "github"))
 		val moved = placedOn("mikan", "sakura").withWord("sakura", holdsNone)
-		val mikan = "dom.mikan.host.assistant"
 
 		val after = rules.followAssistant(assistantRoot(moved), moved).resolvePage(moved)
 
-		assertEquals(AssistantPage.Settings, after.assistantPage)
-		assertEquals(mikan, after.conversation?.team)
-		val back = after.back(BackLayer.ASSISTANT_PAGE, backFacts(after), provisioned = true)
-		assertNull(back.assistantPage)
-		assertEquals(mikan, back.conversation?.team)
+		assertNull(after.assistantPage)
+		assertEquals("dom.mikan.host.assistant", after.conversation?.team)
 	}
 
 	@Test
-	fun settingsStayOverRemoveAndBackLandsOnTheRoot() {
+	fun anEditorClosesOverRemoveOntoTheRoot() {
 		val editor = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
 			.openAssistantPage(AssistantPage.AutomationEditor("sakura", AutomationSlot.New))
 		val removed = homeAt("sakura").copy(
@@ -250,11 +246,16 @@ class AssistantRootTest {
 		)
 
 		val after = editor.followAssistant(assistantRoot(removed), removed).resolvePage(removed)
-		val back = after.back(BackLayer.ASSISTANT_PAGE, backFacts(after), provisioned = true)
 
-		assertEquals(AssistantPage.Settings, after.assistantPage)
-		assertEquals(ShellScreen.ROOT, shellScreen(back, locked = false, overlayOpen = false, booted = true))
-		assertEquals(RootView.ASSISTANT, back.root)
+		assertNull(after.assistantPage)
+		assertEquals(ShellScreen.ROOT, shellScreen(after, locked = false, overlayOpen = false, booted = true))
+		assertEquals(RootView.ASSISTANT, after.root)
+	}
+
+	@Test
+	fun aViewOfTheHomesRecordsSaysWhetherTheHomeIsUnreadUnreachableOrNobody() {
+		assertEquals(NoHome.READING, noHome(ChatState()))
+		assertEquals(NoHome.NOT_PLACED, noHome(ChatState(assistantHome = AssistantHome.Read(AssistantHomeRecord(1L, null), null))))
 	}
 
 	@Test
@@ -270,9 +271,9 @@ class AssistantRootTest {
 		assertEquals(entry, entry.resolved(placed.withWord("sakura", null)))
 		assertEquals(AssistantPage.Add, entry.resolved(offersIfttt))
 		assertEquals(AssistantPage.Add, AssistantPage.Entry("sakura", "zigbee").resolved(placed))
-		assertEquals(AssistantPage.Sources, entry.resolved(placedOn("mikan", "sakura")))
+		assertNull(entry.resolved(placedOn("mikan", "sakura")))
 		assertEquals(AssistantPage.Add, assistantPageBack(entry))
-		assertEquals(AssistantPage.Sources, assistantPageBack(AssistantPage.Add))
+		assertNull(assistantPageBack(AssistantPage.Add))
 	}
 
 	@Test
@@ -287,12 +288,12 @@ class AssistantRootTest {
 		assertEquals(source, source.resolved(placed))
 		assertEquals(source, source.resolved(placed.withWord("sakura", null)))
 		assertEquals(source, source.resolved(placed.withWord("sakura", AssistantWord.Refused)))
-		assertEquals(AssistantPage.Sources, source.resolved(noSource))
-		assertEquals(AssistantPage.Settings, source.resolved(placedOn("mikan", "sakura")))
+		assertNull(source.resolved(noSource))
+		assertNull(source.resolved(placedOn("mikan", "sakura")))
 
 		val editor = AssistantPage.AutomationEditor("sakura", AutomationSlot.New)
 		assertEquals(editor, editor.resolved(noSource))
-		assertEquals(AssistantPage.Settings, editor.resolved(placedOn("mikan", "sakura")))
+		assertNull(editor.resolved(placedOn("mikan", "sakura")))
 
 		// An older Gateway's watchers read as sources.
 		val older = placed.withWord(

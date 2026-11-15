@@ -31,9 +31,12 @@ import com.atelier_nyaarium.switchboard.CliToggles
 import com.atelier_nyaarium.switchboard.ClockPickerDialog
 import com.atelier_nyaarium.switchboard.cliChoices
 import com.atelier_nyaarium.switchboard.ConfirmDialog
+import com.atelier_nyaarium.switchboard.EditKey
 import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.MirroredDraft
 import com.atelier_nyaarium.switchboard.RemoveMenu
-import com.atelier_nyaarium.switchboard.RoutineSaved
+import com.atelier_nyaarium.switchboard.editStanding
+import com.atelier_nyaarium.switchboard.rememberEdit
 import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Routine
@@ -61,30 +64,31 @@ fun RoutineEditor(
 		routineId?.let { state.gateways.routineOn(gatewayId, it)?.routine }
 	}
 	val zone = remember { java.time.ZoneId.systemDefault() }
-	val keptIn = keptZoneOf(held, zone)
 	// Shown in the owner's zone.
-	val draftKey = routineId ?: "new"
-	var draft by remember(gatewayId, routineId, keptIn) {
-		mutableStateOf(
-			(
-				repo.routineOps.draftFor(gatewayId, draftKey)?.shown(zone.id)
-					?: held?.let { RoutineDraft.of(it).shown(zone.id) }
-					?: RoutineDraft.fresh(zone)
-			).let { it.withDefaultPick(state.gateways.harnessesOn(gatewayId, it.spawn)) },
-		)
-	}
+	val edits = repo.routineOps.edits
+	val key = EditKey(gatewayId, routineId)
+	val listed = state.gateways.entry(gatewayId)?.routines?.listed == true
+	val open = rememberEdit(edits, key, editStanding(routineId, held, listed), "Edit routine", onClose) {
+		val opened = held?.let { RoutineDraft.of(it).shown(zone.id) } ?: RoutineDraft.fresh(zone)
+		opened.withDefaultPick(state.gateways.harnessesOn(gatewayId, opened.spawn))
+	} ?: return
+	val opening = open.opening
+	val session = open.session
+	val close = open.close
+	// What this edit opened on; the list can go unread under it.
+	val base = remember(key, opening) { held }
+	val keptIn = keptZoneOf(base, zone)
+	val typed = remember(key, opening) { MirroredDraft(session.draft) { next -> edits.edit(key, opening) { next } } }
+	var draft by typed
+	// Typed while its op was out.
+	LaunchedEffect(session.busy) { if (!session.busy) edits.edit(key, opening) { draft } }
 	val here = state.gateways.harnessesOn(gatewayId, draft.spawn)
-	LaunchedEffect(draft) { repo.routineOps.keepDraft(gatewayId, draftKey, draft) }
-	val close = {
-		repo.routineOps.dropDraft(gatewayId, draftKey)
-		onClose()
-	}
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
 	val offered = remember(entries, gatewayId) { entries.grantableOn(gatewayId) }
 	val scope = rememberCoroutineScope()
-	var saving by remember(routineId) { mutableStateOf(false) }
-	var refused by remember(routineId) { mutableStateOf<String?>(null) }
+	val saving = session.busy
+	val refused = session.said?.reason
 	var confirming by remember(routineId) { mutableStateOf(false) }
 	var confirmingDelete by remember(routineId) { mutableStateOf(false) }
 	var granting by remember(routineId) { mutableStateOf(false) }
@@ -114,29 +118,20 @@ fun RoutineEditor(
 		preview = settledPreview(repo, gatewayId, book.id, draft.values, book.revision)
 	}
 
+	// Sends what is typed now, on a scope that outlives this page.
 	val commit: () -> Unit = {
-		val candidate = draft.asKept(keptIn).toRoutine(here)
-		if (candidate != null) {
-			saving = true
-			refused = null
-			scope.launch {
-				when (val saved = repo.routineOps.save(candidate, draft.revision.takeIf { it > 0L }, gatewayId)) {
-					is RoutineSaved.Refused -> refused = saved.reason
-					RoutineSaved.Unreachable -> refused = com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
-					is RoutineSaved.Stored -> close()
-				}
-				saving = false
-			}
-		}
+		edits.edit(key, opening) { draft }
+		repo.command { routineOps.commit(key, opening) { it.asKept(keptIn).toRoutine(here) } }
 	}
 
 	EditorScaffold(
-		title = if (held == null) "New routine" else "Edit routine",
+		title = if (base == null) "New routine" else "Edit routine",
 		saving = saving,
 		canSave = draft.refusal(here) == null,
-		menu = { if (held != null) RemoveMenu("Delete routine") { confirmingDelete = true } },
+		menu = { if (base != null) RemoveMenu("Delete routine", enabled = !saving) { confirmingDelete = true } },
 		onCancel = close,
-		onSave = { if (ruleMoved(held, draft)) confirming = true else commit() },
+		onSave = { if (ruleMoved(base, draft)) confirming = true else commit() },
+		leaving = open.leaving,
 	) {
 			refused?.let {
 				Card(Modifier.fillMaxWidth()) {
@@ -350,13 +345,7 @@ fun RoutineEditor(
 			confirmText = "Delete",
 			onConfirm = {
 				confirmingDelete = false
-				scope.launch {
-					if (repo.routineOps.delete(draft.id, gatewayId)) {
-						close()
-					} else {
-						refused = "This Gateway still runs it; it was not reached"
-					}
-				}
+				repo.command { routineOps.remove(key, opening) }
 			},
 			onDismiss = { confirmingDelete = false },
 		)

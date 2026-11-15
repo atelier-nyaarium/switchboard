@@ -5,18 +5,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.board.BoardDrop
 import com.atelier_nyaarium.switchboard.board.BoardRow
@@ -94,53 +97,26 @@ internal fun ScopedViewBody(
 	}
 }
 
+/** This session, or everything. */
 @Composable
-internal fun ScopeRow(view: ScopedView, team: String, onWhole: () -> Unit) {
-	val address = remember(team) { addressOf(team) }
+internal fun FilterRow(session: String, filtered: Boolean, onFilter: (Boolean) -> Unit) {
 	Column(Modifier.fillMaxWidth()) {
 		Row(
-			Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+			Modifier.fillMaxWidth().padding(horizontal = 12.dp),
 			horizontalArrangement = Arrangement.spacedBy(8.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
-			scopeChip(view, address)?.let { chip ->
-				Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-					Text(
-						chip,
-						Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-						style = MaterialTheme.typography.labelMedium,
-						fontFamily = FontFamily.Monospace,
-					)
-				}
-			}
-			Text(
-				scopeLine(view),
-				Modifier.weight(1f),
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			FilterChip(
+				selected = filtered,
+				onClick = hapticClick { onFilter(!filtered) },
+				label = { Text(session, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+				trailingIcon = {
+					if (filtered) Icon(Icons.Default.Close, contentDescription = "Clear filter", Modifier.size(FilterChipDefaults.IconSize))
+				},
+				modifier = Modifier.weight(1f, fill = false),
 			)
-			TextButton(onClick = hapticClick(onWhole)) { Text(wholeLabel(view)) }
+			FilterChip(selected = !filtered, onClick = hapticClick { onFilter(false) }, label = { Text("Everything") })
 		}
 		HorizontalDivider()
 	}
-}
-
-private fun scopeChip(view: ScopedView, address: com.atelier_nyaarium.switchboard.proto.Address?): String? = when (view) {
-	ScopedView.RUNBOOKS, ScopedView.POLICIES, ScopedView.CONSOLE -> address?.gateway
-	ScopedView.ROUTINES -> address?.spawn
-	ScopedView.BACKLOG, ScopedView.VAULT -> null
-}
-
-private fun scopeLine(view: ScopedView): String = when (view) {
-	ScopedView.BACKLOG -> "This session's tasks"
-	ScopedView.RUNBOOKS -> "Fires into this session"
-	ScopedView.ROUTINES -> "Starts on this spawn point"
-	ScopedView.POLICIES, ScopedView.CONSOLE -> "This Gateway"
-	ScopedView.VAULT -> "This session's requests and grants"
-}
-
-private fun wholeLabel(view: ScopedView): String = when (view) {
-	ScopedView.BACKLOG -> "Backlog"
-	ScopedView.VAULT -> "All entries"
-	ScopedView.RUNBOOKS, ScopedView.ROUTINES, ScopedView.POLICIES, ScopedView.CONSOLE -> "All Gateways"
 }

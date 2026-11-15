@@ -873,9 +873,73 @@ Runs after 2.7b ships and before 2.7c. Phone only.
 Slices:
 
 1. **The Gateway says "not served".** ✅ `OP_REASON_NOT_SERVED` in `wire-vocabulary.ts`; `composeRouterFrames` answers it for a kind no schema names and for a stage guard's `NotServedError`.
-2. **One menu.** `RootView` gains Sources and Automations, in the order of Question 40. A session keeps only its own views (Chat, Terminal, Files) as a switch in its bar; `ConversationView`'s six scoped views go, and the session's drawer with them. The one drawer opens from a session too; a pick there lands the root view with `ViewScope.Session` and a chip that clears it to `ViewScope.Everything`, and Back returns to the session. Sources and Automations take no session scope. The assistant's settings index loses Sources and Automations; `AssistantPage.Sources`, `Source`, `Automations`, `AutomationEditor`, `Add`, `Entry`, `Setup` and `Device` hang off the two root views.
-3. **A Gateway's lists keep their three answers.** `GatewayList<T>` (unread, listed, not served) on `GatewayEntry` for routines, runbooks, policies, automations and peers; one `ListAnswer<T>` decoder in place of `PolicyListAnswer` and `AutomationListAnswer`, with the routine and runbook lists moved onto it; `gatewayAttempt` and one fold in `GatewayReads.kt`. Until Gateways carry the token, any refusal of a list reads as not served.
-4. **One model for an edit in progress,** after Question 43.
+2. **One menu.** ✅ built, not walked. `RootView` holds the ten views in Question 40's order and `MenuSheet` draws it from the root and from a session. `ConversationView` keeps Chat, Terminal and Files, switched by `ViewSwitch` in the session's bar. `ShellNav.pick` is the menu's one transition: inside a session it lands `over` it (`OverNav`), filtered where the view takes a session, with `FilterRow`'s two chips and Back returning to the session. Sources and Automations are root views (`SourcesView`, `AutomationsView`) that list the session's Gateway first; `AssistantPage` lost Sources and Automations, and a Source, a Device, the editor and Add close onto what opened them. The settings index keeps Location, Features, Safety and Remove.
+3. **A Gateway's lists keep their three answers.** ✅ `GatewayList` on `GatewayEntry` for routines, runbooks, policies, automations and peers; `ListAnswer`, `listAnswer`, `after`, `gatewayAttempt` and `refreshEach` in `GatewayReads.kt`, with the four ops classes on them. The phone reads the token now; a refusal in prose reads as not served only for automations, until 2026-11-29.
+4. **One model for an edit in progress.** ✅ built, not walked. `EditorSessions` holds each editor's edit by its opening; the four ops classes own one, saves and deletes run on the repository's scope, Back asks through `askLeave`, and `EditorScaffold` draws the leave dialogue. Cancel still discards at once, pending Question 43.
+
+Dropped with the session's own menu: the "N windows" note beside Files and the "N open" note beside Backlog, and the settings index's count lines for Sources and Automations.
+
+Not verified: the emulator would not run without KVM, so no screen of this phase has been seen.
+
+**Alignment audit, lap 1** (eight angles on Opus and Sonnet, Opus synthesis). Fixed:
+
+- An editor closed by an arrival, a plugin turned off or an unwinding answer kept its edit and its leave question for the next opening. `EditorSessions.park` drops an untouched edit, keeps a touched one and clears the question. The red team then moved the call from the shell into the page.
+- A refused routine list read as not served, which emptied that Gateway's routines and cancelled a missed-run notification. `listAnswerOf` reads the `not_served` token itself; a refusal in prose keeps what was drawn for routines and runbooks. For automations it reads as not served until 2026-11-29 (`ProseRefusal`).
+- The routine and policy editors opened a blank draft under "Edit" when their list was unread. `rememberEdit` waits for the record (`editStanding`) and says when it is gone.
+- Typing reached the session a frame late, so a quick Back could leave unasked. `MirroredDraft` writes each change through as it is made.
+- `summonShown` still read the root under a pick; the filter stayed on with no chip once a session proved to be the assistant's; a send kept the last refusal on screen; Sources put the home's services ahead of the session's Gateway (`sourceGroups`); Automations said "No automations" for a list that was unread or not served (`automationsEmpty`); Refresh and a change of view did not re-read what the two views draw.
+- The phone hold is claimed from the assistant's root, its conversation, its own four pages, and any page opened over its conversation. A page opened from Sources or Automations elsewhere no longer claims it, since those views are no longer the assistant's.
+- `refreshEach` and `gatewayAttempt` replace the five copied fan-outs and attempts.
+
+Left as it is:
+
+- An Entry's Back still leads to Add even when Sources opened it, and a Device opened from an Entry closes past it, as before this phase. Pages need a stack, which 2.7c builds for "N use this source".
+- Text typed into the policy's command field or a runbook's option field and not yet added is not a change, so Back does not ask.
+- A pick over a session is dropped when that session is left by something other than Back.
+- The emulator can show a Gateway that does not serve a list only for Automations.
+- The settings index's "A source needs configuration" warning went with its Sources row; the Sources view marks the row itself.
+
+**Red team, lap 1** (six angles on Opus and Sonnet, Opus synthesis). Sixteen confirmed. Fixed:
+
+- "Save over revision N" sent the stale draft's enabled state, so it could turn a disabled policy back on. `PolicyDraft.over` takes the newer record and its enabled state. Older than this phase.
+- The shell parked an editor's session while its page was still drawn, which left the automation editor on screen with nothing behind it. A page now parks its own session when it leaves composition and closes when its session is gone (`editorShowing`); the shell parks nothing, and the `landed` map is gone.
+- A save or delete still out when the owner pressed Back failed without a word. A parked session is `unattended`, and a send that stays tells the owner in a transient message.
+- A runbook save still out at Forget wrote the previous owner's runbook into the wiped library, because saves now outlive the editor. `RunbookOps` holds a generation checked before every library write, and every ops class clears its read fences at a re-provision.
+- A Gateway whose routines were unread had its missed-run notifications cancelled, then posted again with sound. Each notification names its Gateway and `routineNoticePlan` sweeps only what an answered or departed Gateway owns. Older than this phase.
+- The runbook, routine and policy editors, the fire sheet and the board and vault entry dialogues drew over the app lock. They wait for it now, and Back reads the lock first. Older than this phase.
+- A Gateway restart mid-edit changed a routine's kept zone and flipped the title to "New". The routine and policy editors read their title, Delete and kept zone from the record the edit opened on.
+- A transient refusal read as "does not serve automations" beside an enabled New. A refusal from a Gateway whose state answers sources is a fault, and policies read every prose refusal as one.
+- Automations said "No automations" and Sources said "Place the assistant first" before anything was read (`automationsEmpty`, `noHome`).
+- Delete and "Save over" stay disabled while a save is out; the runbook's standing refusal hides while one is out; the drawer is one state that every arrival closes.
+
+Left as it is:
+
+- Two New records of one kind on one Gateway share a key, so a New opened while the last New is still saving joins it. Text typed while a save is out is lost when it lands, as before this phase.
+- Two activities on one edit: the stale page's typing wins. Rare.
+- A summon during a home move lands on the old thread and is then dropped. Older than this phase.
+- `RunbookOps` keeps only rows and never folds a not-served answer, since its library is durable.
+
+Plausible, to settle on screen: the session name squeezed by the switch on a 360dp phone; the switch's 38dp segments as touch targets; the root bar's title beside a full Button over a pick; one blank frame as an editor opens.
+
+**Red team, lap 2** (three Opus angles on the lap-1 fixes, Opus synthesis). Thirteen confirmed, seven of them introduced by lap-1 fixes. Smallest patches:
+
+- The runbook save at Forget still wrote: the library was wiped before `RunbookOps` moved its generation. `clearedOnReprovision` clears `runbookOps` first, and every library write checks the generation under the lock that clear takes (`written`).
+- Back was swallowed over a kept edit no page draws. `askLeave` leaves an unattended edit at once.
+- The attachment viewer and the link, row and forget dialogues still drew over the lock. Gated.
+- Automations could spin forever. `automationsEmpty` says what the Routines and Runbooks views say: no roster, no Gateway read, not served, or none.
+- Cancel during a save discarded the edit, so a refusal went unheard. Cancel waits while a save is out.
+- A save that landed while the lock hid its editor reopened a blank form. An editor the lock hid returns only while its edit is held (`hiddenEditor`).
+- The drawer's close on a screen change could stop half way. It snaps shut on the shell's scope.
+- An untouched edit that settled unwatched was kept for good; it is dropped once told. A transient message waits until no editor covers it. `routineNoticePlan` no longer reads an empty roster as "every Gateway listed".
+
+Left as it is: the lock drops page-local state the edit does not hold (the runbook's overwrite intent, a half-typed policy example, an open confirmation); a drawer drag cut off by a screen swap is unverified.
+
+### Bug Classes
+
+- **An edit session's exits not tied to the page that shows it** (mechanism: `EditorSessions` with its pages). Six red-team findings in one mechanism, after 2.7b patched three sites in its predecessor and the alignment round added `park` at the shell. The round-1 patch was itself a defect: the shell parked beside a transition and could park under a live page. The mechanism now has one rule each way: a page closes when its session goes, and a page parks its session when it goes. Lap 2 found four more at the seam with the lock, which now disposes pages: Back over an edit no page draws, a landed save reopening blank, an untouched edit kept for good, Cancel discarding a busy edit. Each took a one-line patch. What is still missing is one owner for "is this editor open": the shell holds the open editor (a saveable pair, or a page on `ShellNav`) and the ops class holds the edit, so every new way a page can leave needs both told. For the architecture review.
+- **Work begun before a re-provision landing after it** (mechanism: saves on the repository's scope, with per-class `clearInMemory`). Lap 1 added a generation to `RunbookOps`; lap 2 showed the roster's order defeated it. The fix is now a lock and an order, both local to runbooks. Routines, policies and automations write only the registry, which a re-provision resets, so they hold nothing durable to leak.
+- **Unread read as empty** (mechanism: readers of `GatewayList.rows` with a side effect or an empty-state sentence). The alignment round declared it closed and the red team found three more: the notification sweep, the Automations sentence, the Sources home check. Each decision now lives in a pure function that takes the registry.
+- **A reader that still assumes the old shape** (mechanism: a field's type changed and its readers were converted by the compiler's errors alone). `summonShown` read `nav.root` under a pick; `ServiceNotifications` read an unlisted Gateway's empty rows as "the routines are gone". The compiler finds a reader that no longer type-checks, never one whose meaning moved. Round 1 fixed both sites.
 
 ## Phase 2.7c - Triggers and the action catalogue (Q34, Q35, Q36)
 

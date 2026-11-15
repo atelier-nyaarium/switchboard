@@ -1,7 +1,9 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.AutomationSaved
+import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.GatewayRegistry
+import com.atelier_nyaarium.switchboard.servesSources
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -208,7 +210,6 @@ internal fun automationEditing(
 	)
 }
 
-internal fun editorLanded(shown: Long?, landed: Long?): Boolean = shown != null && shown == landed
 
 internal data class AutomationGroup(val gatewayId: String, val assistant: Boolean, val rows: List<AutomationRow>) {
 	/** Only the home takes an event automation. */
@@ -218,15 +219,33 @@ internal data class AutomationGroup(val gatewayId: String, val assistant: Boolea
 /** Gateways that list any, the home first. */
 internal fun automationGroups(registry: GatewayRegistry, home: String?): List<AutomationGroup> =
 	registry.gateways
-		.filter { !it.automations.isNullOrEmpty() }
-		.map { AutomationGroup(it.id, it.id == home, it.automations.orEmpty()) }
+		.filter { it.automations.rows.isNotEmpty() }
+		.map { AutomationGroup(it.id, it.id == home, it.automations.rows) }
 		.sortedByDescending { it.assistant }
 
-/** "5 automations". */
-internal fun automationCountLine(count: Int): String = when (count) {
-	0 -> "None"
-	1 -> "1 automation"
-	else -> "$count automations"
+/** What Automations says with no group to draw. */
+internal sealed interface AutomationsEmpty {
+	data object NoRoster : AutomationsEmpty
+
+	/** No Gateway's list is read. */
+	data object Unread : AutomationsEmpty
+
+	/** The home's build lists none. */
+	data class NotServed(val gatewayId: String) : AutomationsEmpty
+
+	data object None : AutomationsEmpty
+}
+
+/** An unread list is not an empty one; a home that answers sources serves this list. */
+internal fun automationsEmpty(registry: GatewayRegistry, home: String?): AutomationsEmpty {
+	val notServed = home != null && registry.entry(home)?.automations == GatewayList.NotServed &&
+		!servesSources(registry.assistantOn(home))
+	return when {
+		!registry.loaded -> AutomationsEmpty.NoRoster
+		notServed -> AutomationsEmpty.NotServed(home!!)
+		registry.gateways.none { it.automations.listed } -> AutomationsEmpty.Unread
+		else -> AutomationsEmpty.None
+	}
 }
 
 internal fun editable(row: AutomationRow): Boolean =

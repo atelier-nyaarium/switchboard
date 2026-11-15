@@ -10,10 +10,15 @@ internal data class ConversationNav(
 	val files: List<WorkspacePlace>,
 )
 
+/** A menu pick made inside a session, drawn over it. */
+internal data class OverNav(val view: RootView, val filtered: Boolean)
+
 /** Where the shell stands. Every road through it is a transition on this value. */
 internal data class ShellNav(
 	val root: RootView = RootView.SESSIONS,
 	val conversation: ConversationNav? = null,
+	/** Only while a conversation is open. */
+	val over: OverNav? = null,
 	val settings: SettingsRoute? = null,
 	val assistantPage: AssistantPage? = null,
 	/** Bumped on a genuine open to re-snap the thread to its first unread. */
@@ -45,6 +50,7 @@ internal fun ShellNav.arrive(
 	}
 	return copy(
 		conversation = ConversationNav(team, view, files),
+		over = null,
 		settings = null,
 		assistantPage = null,
 		generation = if (reopens) generation + 1 else generation,
@@ -71,7 +77,7 @@ internal fun ShellNav.arriveAt(
 /** Moves the open conversation's address. */
 internal fun ShellNav.retarget(team: String): ShellNav = copy(conversation = conversation?.copy(team = team))
 
-internal fun ShellNav.leave(): ShellNav = copy(conversation = null)
+internal fun ShellNav.leave(): ShellNav = copy(conversation = null, over = null)
 
 /** Forget closes only the shown session. */
 internal fun ShellNav.forgot(team: String): ShellNav = if (conversation?.team == team) leave() else this
@@ -80,8 +86,35 @@ internal fun ShellNav.showView(view: ConversationView): ShellNav = copy(conversa
 
 internal fun ShellNav.showRoot(view: RootView): ShellNav = copy(root = view)
 
-/** A scoped view returns to its root view. */
-internal fun ShellNav.wholeOf(view: ScopedView): ShellNav = copy(root = RootView.of(view), conversation = null)
+/** The menu's pick. Inside a session it lands over it, filtered where the view takes a session. */
+internal fun ShellNav.pick(view: RootView, assistantOpen: Boolean): ShellNav = when {
+	conversation == null -> showRoot(view)
+	view == RootView.ASSISTANT && assistantOpen -> copy(over = null)
+	view == RootView.SESSIONS || view == RootView.ASSISTANT -> leave().showRoot(view)
+	else -> copy(over = OverNav(view, filtered = view.scoped != null && !assistantOpen))
+}
+
+/** A saved entry returns to the session, else to Sessions. */
+internal fun ShellNav.boardSaved(): ShellNav = if (over != null) copy(over = null) else showRoot(RootView.SESSIONS)
+
+/** The chip: this session, or everything. */
+internal fun ShellNav.filter(on: Boolean): ShellNav = copy(over = over?.copy(filtered = on))
+
+/** A page's exit to a root view. */
+internal fun ShellNav.toRoot(view: RootView, assistantOpen: Boolean): ShellNav = copy(assistantPage = null).pick(view, assistantOpen)
+
+/** A pick whose view stopped being offered returns to its session. */
+internal fun ShellNav.offering(offered: List<RootView>): ShellNav = if (over != null && over.view !in offered) copy(over = null) else this
+
+/** The root view drawn. */
+internal fun ShellNav.rootShown(offered: List<RootView>): RootView = shownView(offered, over?.view ?: root)
+
+/** The menu's selected row. */
+internal fun ShellNav.menuShown(offered: List<RootView>, assistantOpen: Boolean): RootView = when {
+	conversation == null || over != null -> rootShown(offered)
+	assistantOpen -> RootView.ASSISTANT
+	else -> RootView.SESSIONS
+}
 
 internal fun ShellNav.pushFiles(place: WorkspacePlace): ShellNav =
 	copy(conversation = conversation?.let { it.copy(files = pushPlace(it.files, place)) })
@@ -97,11 +130,22 @@ internal fun ShellNav.closeSettings(): ShellNav = copy(settings = null)
 
 internal fun ShellNav.openAssistantPage(page: AssistantPage): ShellNav = copy(assistantPage = page)
 
-/** Root, a page, or its conversation, when drawn. */
-internal fun ShellNav.showsAssistant(assistantOpen: Boolean, screen: ShellScreen): Boolean =
-	screen in ASSISTANT_DRAWN && (root == RootView.ASSISTANT || assistantPage != null || assistantOpen)
+internal fun ShellNav.closeAssistantPage(): ShellNav = copy(assistantPage = null)
 
-private val ASSISTANT_DRAWN = setOf(ShellScreen.ROOT, ShellScreen.CONVERSATION, ShellScreen.ASSISTANT_PAGE)
+/** Its root, its own pages, any page over its conversation, or that conversation, when drawn. */
+internal fun ShellNav.showsAssistant(assistantOpen: Boolean, screen: ShellScreen): Boolean = when (screen) {
+	ShellScreen.ASSISTANT_PAGE -> assistantOpen || assistantPage?.own == true
+	ShellScreen.CONVERSATION -> assistantOpen
+	ShellScreen.ROOT -> over == null && root == RootView.ASSISTANT
+	else -> false
+}
+
+/** The drawn view lists what the home answers. */
+internal fun ShellNav.readsHome(assistantOpen: Boolean, screen: ShellScreen, offered: List<RootView>): Boolean =
+	screen == ShellScreen.ASSISTANT_PAGE || showsAssistant(assistantOpen, screen) ||
+		(screen == ShellScreen.ROOT && rootShown(offered) in HOME_LISTS)
+
+private val HOME_LISTS = setOf(RootView.SOURCES, RootView.AUTOMATIONS)
 
 /** Routes allowed before provisioning. */
 private val PRE_PROVISION_ROUTES = setOf(SettingsRoute.HUB, SettingsRoute.SYSTEM, SettingsRoute.PLUGINS, SettingsRoute.FEDERATION)
@@ -117,6 +161,9 @@ internal fun settingsBack(route: SettingsRoute, provisioned: Boolean): SettingsR
 		SettingsRoute.FEDERATION -> if (provisioned) SettingsRoute.NETWORKS else SettingsRoute.HUB
 		else -> SettingsRoute.HUB
 	}
+
+/** Screens under the menu's drawer. */
+internal val MENU_SCREENS = setOf(ShellScreen.CONVERSATION, ShellScreen.ROOT)
 
 /** The one screen the shell draws, first match wins. */
 internal enum class ShellScreen {
@@ -135,7 +182,7 @@ internal fun shellScreen(nav: ShellNav, locked: Boolean, overlayOpen: Boolean, b
 	nav.settings != null -> ShellScreen.SETTINGS
 	!booted -> ShellScreen.BOOT
 	nav.assistantPage != null -> ShellScreen.ASSISTANT_PAGE
-	nav.conversation != null -> ShellScreen.CONVERSATION
+	nav.conversation != null && nav.over == null -> ShellScreen.CONVERSATION
 	else -> ShellScreen.ROOT
 }
 
@@ -146,6 +193,7 @@ internal enum class BackLayer {
 	SETTINGS,
 	ASSISTANT_PAGE,
 	DRAWER,
+	OVER,
 	FILES,
 	VIEW,
 	CONVERSATION,
@@ -164,8 +212,9 @@ internal data class BackFacts(
 	val assistantOpen: Boolean = false,
 )
 
-/** Null lets the system handle Back. Editors draw over every screen, so they go first. */
+/** Null lets the system handle Back. Editors draw over every screen but the lock, so they go next. */
 internal fun backLayer(nav: ShellNav, facts: BackFacts): BackLayer? {
+	if (facts.locked) return null
 	if (facts.editorOpen) return BackLayer.EDITOR
 	val open = nav.conversation
 	return when (shellScreen(nav, facts.locked, facts.overlayOpen, facts.booted)) {
@@ -175,6 +224,7 @@ internal fun backLayer(nav: ShellNav, facts: BackFacts): BackLayer? {
 		ShellScreen.ASSISTANT_PAGE -> BackLayer.ASSISTANT_PAGE
 		ShellScreen.CONVERSATION, ShellScreen.ROOT -> when {
 			facts.drawerOpen -> BackLayer.DRAWER
+			nav.over != null -> BackLayer.OVER
 			open == null -> BackLayer.ROOT_VIEW.takeIf { backFrom(facts.offeredRoot, shownView(facts.offeredRoot, nav.root)) != null }
 			shownView(facts.offeredConversation, open.view) == ConversationView.FILES && open.files.size > 1 -> BackLayer.FILES
 			backFrom(facts.offeredConversation, shownView(facts.offeredConversation, open.view)) != null -> BackLayer.VIEW
@@ -187,9 +237,10 @@ internal fun backLayer(nav: ShellNav, facts: BackFacts): BackLayer? {
 internal fun ShellNav.back(layer: BackLayer, facts: BackFacts, provisioned: Boolean): ShellNav = when (layer) {
 	BackLayer.SETTINGS -> copy(settings = settings?.let { settingsBack(it, provisioned) })
 	BackLayer.ASSISTANT_PAGE -> copy(assistantPage = assistantPage?.let(::assistantPageBack))
+	BackLayer.OVER -> copy(over = null)
 	BackLayer.FILES -> popFiles()
 	BackLayer.VIEW -> showView(facts.offeredConversation.first())
-	BackLayer.CONVERSATION -> if (facts.assistantOpen) copy(conversation = null, root = RootView.SESSIONS) else leave()
+	BackLayer.CONVERSATION -> if (facts.assistantOpen) leave().showRoot(RootView.SESSIONS) else leave()
 	BackLayer.ROOT_VIEW -> showRoot(facts.offeredRoot.first())
 	BackLayer.EDITOR, BackLayer.OVERLAY, BackLayer.DRAWER -> this
 }

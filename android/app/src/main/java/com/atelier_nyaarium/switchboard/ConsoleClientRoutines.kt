@@ -9,11 +9,12 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineRunResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Routine
+import com.atelier_nyaarium.switchboard.proto.RoutineState
 
 // A routine runs on one gateway, so every call names the one it means.
 
-suspend fun ConsoleClient.routineList(gatewayId: String): ConsoleRoutineListResult =
-	valueResult(sendValueOp(gatewayId, ConsoleOp.RoutineList), Protocol.Wire.ConsoleOpKind.ROUTINE_LIST)
+internal suspend fun ConsoleClient.routineList(gatewayId: String): ListAnswer<RoutineState> =
+	listAnswer<ConsoleRoutineListResult, _>(gatewayId, ConsoleOp.RoutineList, ProseRefusal.FAULT) { it.routines }
 
 suspend fun ConsoleClient.routinePut(
 	gatewayId: String,

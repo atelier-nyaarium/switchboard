@@ -29,7 +29,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -38,32 +37,36 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ConfirmDialog
+import com.atelier_nyaarium.switchboard.EditKey
 import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.MirroredDraft
 import com.atelier_nyaarium.switchboard.RemoveMenu
-import com.atelier_nyaarium.switchboard.SaveRefusal
-import com.atelier_nyaarium.switchboard.RunbookSaved
+import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.refusalToShow
-import kotlinx.coroutines.launch
+import com.atelier_nyaarium.switchboard.rememberEdit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, onClose: () -> Unit) {
 	val existing = remember(gatewayId, runbookId) { runbookId?.let { repo.runbooks.find(gatewayId, it) } }
-	val draftKey = runbookId ?: "new"
-	var draft by remember(gatewayId, runbookId) {
-		mutableStateOf(
-			repo.runbookOps.draftFor(gatewayId, draftKey)
-				?: existing?.let { RunbookDraft.of(it) }
-				?: RunbookDraft(id = newRunbookId()),
-		)
-	}
 	// The repository outlives this activity, so an edit in progress survives a rotation there.
-	LaunchedEffect(draft) { repo.runbookOps.keepDraft(gatewayId, draftKey, draft) }
+	val edits = repo.runbookOps.edits
+	val key = EditKey(gatewayId, runbookId)
+	// The library is on this phone, so it is always read.
+	val open = rememberEdit(edits, key, editStanding(runbookId, existing, listed = true), "Edit runbook", onClose) {
+		existing?.let { RunbookDraft.of(it) } ?: RunbookDraft(id = newRunbookId())
+	} ?: return
+	val opening = open.opening
+	val session = open.session
+	val close = open.close
+	val typed = remember(key, opening) { MirroredDraft(session.draft) { next -> edits.edit(key, opening) { next } } }
+	var draft by typed
+	// Typed while its op was out.
+	LaunchedEffect(session.busy) { if (!session.busy) edits.edit(key, opening) { draft } }
 	val declared = draft.declared
-	val scope = rememberCoroutineScope()
-	var saving by remember(gatewayId, runbookId) { mutableStateOf(false) }
-	var refused by remember(gatewayId, runbookId) { mutableStateOf<SaveRefusal?>(null) }
+	val saving = session.busy
+	val refused = session.said
 	// Kept with the draft, or a rotation would leave the intent behind and save an ordinary edit.
 	var overwriting by rememberSaveable(gatewayId, runbookId) { mutableStateOf(false) }
 	var deleting by remember(gatewayId, runbookId) { mutableStateOf(false) }
@@ -72,36 +75,16 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 		title = if (existing == null) "New runbook" else "Edit runbook",
 		saving = saving,
 		canSave = draft.refusal() == null,
-		menu = { if (existing != null) RemoveMenu("Delete runbook") { deleting = true } },
-		onCancel = {
-			repo.runbookOps.dropDraft(gatewayId, draftKey)
-			onClose()
-		},
+		menu = { if (existing != null) RemoveMenu("Delete runbook", enabled = !saving) { deleting = true } },
+		onCancel = close,
+		// Sends what is typed now, on a scope that outlives this page.
 		onSave = {
-			val candidate = draft.toRunbook()
-			if (candidate != null) {
-				saving = true
-				refused = null
-				val base = draft.revision.takeIf { it > 0L }
-				scope.launch {
-					val saved = repo.runbookOps.save(
-						candidate,
-						gatewayId = gatewayId,
-						baseRevision = base,
-						overwrite = overwriting,
-					)
-					when (saved) {
-						is RunbookSaved.Refused -> refused = saved.refusal
-						else -> {
-							repo.runbookOps.dropDraft(gatewayId, draftKey)
-							onClose()
-						}
-					}
-					overwriting = false
-					saving = false
-				}
-			}
+			val overwrite = overwriting
+			overwriting = false
+			edits.edit(key, opening) { draft }
+			repo.command { runbookOps.commit(key, opening, overwrite) }
 		},
+		leaving = open.leaving,
 	) {
 			OutlinedTextField(
 				value = draft.name,
@@ -126,7 +109,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 				)
 			}
 
-			val shown = if (overwriting) {
+			val shown = if (overwriting || saving) {
 				null
 			} else {
 				refusalToShow(refused, repo.runbookOps.refusalFor(gatewayId, draft.id), draft.revision)
@@ -135,12 +118,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 				Card(Modifier.fillMaxWidth()) {
 					Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 						Text(refusal.reason, style = MaterialTheme.typography.bodyMedium)
-						TextButton(
-							onClick = hapticClick {
-								overwriting = true
-								refused = null
-							},
-						) { Text("Overwrite") }
+						TextButton(onClick = hapticClick { overwriting = true }) { Text("Overwrite") }
 					}
 				}
 			}
@@ -164,16 +142,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 			confirmText = "Delete",
 			onConfirm = {
 				deleting = false
-				scope.launch {
-					// Closing on a delete this Gateway never took would say gone about a copy
-					// it still holds.
-					if (repo.runbookOps.delete(draft.id, gatewayId)) {
-						repo.runbookOps.dropDraft(gatewayId, draftKey)
-						onClose()
-					} else {
-						refused = SaveRefusal("This Gateway still holds it; it was not reached", 0L)
-					}
-				}
+				repo.command { runbookOps.remove(key, opening) }
 			},
 			onDismiss = { deleting = false },
 		)

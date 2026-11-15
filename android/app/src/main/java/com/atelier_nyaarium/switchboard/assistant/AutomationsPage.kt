@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -25,11 +23,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,7 +42,12 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.RemoveMenu
+import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.LeaveAsking
+import com.atelier_nyaarium.switchboard.EditorShowing
+import com.atelier_nyaarium.switchboard.editorShowing
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.leading
 import com.atelier_nyaarium.switchboard.leaveShown
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
@@ -55,24 +60,28 @@ private val TRIGGER_KINDS = listOf("Event arrives", "Value crosses", "Time comes
 private val TELLS = listOf("now" to "Now", "quietly" to "Quietly")
 
 @Composable
-internal fun AutomationsPage(
+internal fun AutomationsView(
 	repo: ChatRepository,
 	state: ChatState,
 	home: String?,
+	/** A session's Gateway, listed first. */
+	lead: String?,
 	onEdit: (String, AutomationSlot) -> Unit,
-	onBack: () -> Unit,
+	modifier: Modifier = Modifier,
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.automationOps.refreshAll() }
-	val groups = automationGroups(state.gateways, home)
+	val groups = leading(automationGroups(state.gateways, home), lead) { it.gatewayId }
 	val toggleRefusals by repo.automationOps.toggleRefusals
 
-	AssistantPageScaffold(
-		"Automations",
-		onBack,
-		actions = { if (home != null) Button(onClick = hapticClick { onEdit(home, AutomationSlot.New) }) { Text("New") } },
-	) {
+	PageColumn(modifier) {
 		if (groups.isEmpty()) {
-			Text("No automations", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			val line = when (val empty = automationsEmpty(state.gateways, home)) {
+				AutomationsEmpty.NoRoster -> "No roster yet"
+				AutomationsEmpty.Unread -> "No Gateway could be read"
+				is AutomationsEmpty.NotServed -> "${empty.gatewayId} does not serve automations."
+				AutomationsEmpty.None -> "No automations"
+			}
+			Text(line, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 		for (group in groups) {
 			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -128,19 +137,21 @@ internal fun AutomationEditorPage(
 	val ops = repo.automationOps
 	val key = AutomationDraftKey(gatewayId, slot)
 	val sources = state.gateways.assistantOn(gatewayId)?.let(::sourcesOf).orEmpty()
-	val listed = state.gateways.entry(gatewayId)?.automations != null
+	val listed = state.gateways.entry(gatewayId)?.automations?.listed == true
 	val row = (slot as? AutomationSlot.Held)?.let { state.gateways.automationOn(gatewayId, it.id) }
-	val drafts by ops.drafts.collectAsState()
-	val landed by ops.landed.collectAsState()
-	val leaving by ops.leaving.collectAsState()
-	val held = drafts[key]
+	val drafts by ops.edits.held.collectAsState()
+	val leaving by ops.edits.leaving.collectAsState()
 	var shown by remember(key) { mutableStateOf<Long?>(null) }
 	val opened = remember(key, row, sources.isEmpty()) { openedDraft(slot, row, sources) }
-	LaunchedEffect(key, opened) { if (shown == null && opened != null) shown = ops.hold(key, opened) }
-	LaunchedEffect(shown, landed[key]) { if (editorLanded(shown, landed[key])) onClose() }
+	LaunchedEffect(key, opened) { if (shown == null && opened != null) shown = ops.edits.open(key, opened) }
+	val latest = rememberUpdatedState(shown)
+	DisposableEffect(key) { onDispose { latest.value?.let { ops.edits.park(key, it) } } }
+	val showing = editorShowing(shown, drafts[key])
+	LaunchedEffect(showing) { if (showing == EditorShowing.CLOSING) onClose() }
 	LaunchedEffect(gatewayId) { ops.refresh(gatewayId) }
 	// Closing; nothing to draw.
-	if (editorLanded(shown, landed[key])) return
+	if (showing == EditorShowing.CLOSING) return
+	val held = drafts[key]?.takeIf { showing == EditorShowing.DRAWN }
 	val draft = held?.draft ?: opened
 
 	if (draft == null) {
@@ -176,25 +187,35 @@ internal fun AutomationEditorPage(
 	}
 
 	fun send(deleting: Boolean, op: suspend (AutomationDraft) -> AutomationSaved) {
-		repo.command { automationOps.send(key, deleting, op) }
+		val opening = held?.opening ?: return
+		repo.command { automationOps.send(key, opening, deleting, op) }
 	}
 
-	AssistantPageScaffold(
-		if (gone) "Deleted elsewhere" else "Automation",
-		onBack,
-		actions = {
-			Button(
-				enabled = can.save,
-				onClick = hapticClick {
-					send(deleting = false) { sent ->
-						fittingAutomation(sent, fields)?.let { ops.save(gatewayId, sent.id, it, sent.revision) }
-							?: AutomationSaved.Refused("Not a complete automation")
-					}
-				},
-				modifier = Modifier.padding(end = 8.dp),
-			) { Text(if (busy) "Saving" else "Save") }
-			if (slot is AutomationSlot.Held) RemoveMenu("Delete automation", enabled = can.delete) { confirmingDelete = true }
+	fun edit(change: (AutomationDraft) -> AutomationDraft) {
+		held?.let { ops.edits.edit(key, it.opening, change) }
+	}
+
+	EditorScaffold(
+		title = if (gone) "Deleted elsewhere" else "Automation",
+		saving = busy,
+		canSave = can.save,
+		onSave = {
+			send(deleting = false) { sent ->
+				fittingAutomation(sent, fields)?.let { ops.save(gatewayId, sent.id, it, sent.revision) }
+					?: AutomationSaved.Refused("Not a complete automation")
+			}
 		},
+		onBack = onBack,
+		leaving = held?.takeIf { leaveShown(leaving, key, it) }?.let { session ->
+			LeaveAsking(
+				onStay = ops.edits::stay,
+				onDiscard = {
+					ops.edits.discard(key, session.opening)
+					onClose()
+				},
+			)
+		},
+		menu = { if (slot is AutomationSlot.Held) RemoveMenu("Delete automation", enabled = can.delete) { confirmingDelete = true } },
 	) {
 		Text("When", style = MaterialTheme.typography.labelLarge)
 		SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -213,7 +234,7 @@ internal fun AutomationEditorPage(
 			choices = choices,
 			picked = draft.source.takeIf { it.isNotBlank() },
 			labelOf = { id -> sources.find { it.id == id }?.label ?: id },
-			onPick = { id -> if (id != draft.source) ops.edit(key, draft.withSource(id)) },
+			onPick = { id -> if (id != draft.source) edit { now -> now.withSource(id) } },
 			trailingOf = { id -> "not offered".takeUnless { sources.any { it.id == id && it.triggers } } },
 			enabled = can.edit,
 		)
@@ -228,7 +249,7 @@ internal fun AutomationEditorPage(
 						choices = fields.ruleFields,
 						picked = condition.field,
 						labelOf = fields::fieldLabelOf,
-						onPick = { field -> ops.edit(key, draft.withField(index, field, fields)) },
+						onPick = { field -> edit { now -> now.withField(index, field, fields) } },
 						enabled = can.edit,
 					)
 				}
@@ -238,11 +259,11 @@ internal fun AutomationEditorPage(
 						choices = testsOf(fields.specOf(condition.field)),
 						picked = condition.test,
 						labelOf = ::testLabel,
-						onPick = { test -> ops.edit(key, draft.changed(index) { it.copy(test = test) }) },
+						onPick = { test -> edit { now -> now.changed(index) { it.copy(test = test) } } },
 						enabled = can.edit,
 					)
 				}
-				IconButton(onClick = hapticClick { ops.edit(key, draft.withoutCondition(index)) }, enabled = can.edit) {
+				IconButton(onClick = hapticClick { edit { now -> now.withoutCondition(index) } }, enabled = can.edit) {
 					Icon(Icons.Default.Close, contentDescription = "Remove condition")
 				}
 			}
@@ -253,14 +274,14 @@ internal fun AutomationEditorPage(
 					choices = values,
 					picked = condition.value.takeIf { trimRuleValue(it).isNotEmpty() },
 					labelOf = { value -> fields.valueLabelOf(condition.field, value) },
-					onPick = { value -> ops.edit(key, draft.changed(index) { it.copy(value = value) }) },
+					onPick = { value -> edit { now -> now.changed(index) { it.copy(value = value) } } },
 					trailingOf = { value -> "not offered".takeUnless { fields.offers(condition.field, value) } },
 					enabled = can.edit,
 				)
 			} else {
 				OutlinedTextField(
 					value = condition.value,
-					onValueChange = { value -> ops.edit(key, draft.changed(index) { it.copy(value = value) }) },
+					onValueChange = { value -> edit { now -> now.changed(index) { it.copy(value = value) } } },
 					label = { Text("Value") },
 					singleLine = true,
 					enabled = can.edit,
@@ -272,7 +293,7 @@ internal fun AutomationEditorPage(
 			}
 		}
 		if (draft.conditions.size < MAX_CONDITIONS && fields.ruleFields.isNotEmpty()) {
-			TextButton(onClick = hapticClick { ops.edit(key, draft.withCondition(fields)) }, enabled = can.edit) {
+			TextButton(onClick = hapticClick { edit { now -> now.withCondition(fields) } }, enabled = can.edit) {
 				Text("+ Add condition")
 			}
 		}
@@ -285,7 +306,7 @@ internal fun AutomationEditorPage(
 			TELLS.forEachIndexed { index, (value, label) ->
 				SegmentedButton(
 					selected = draft.tell == value,
-					onClick = hapticClick { ops.edit(key, draft.copy(tell = value)) },
+					onClick = hapticClick { edit { now -> now.copy(tell = value) } },
 					enabled = can.edit,
 					shape = SegmentedButtonDefaults.itemShape(index = index, count = TELLS.size),
 					icon = {},
@@ -305,23 +326,6 @@ internal fun AutomationEditorPage(
 				send(deleting = true) { sent -> ops.delete(gatewayId, sent.id, sent.revision) }
 			},
 			onDismiss = { confirmingDelete = false },
-		)
-	}
-
-	if (leaveShown(leaving, key, held)) {
-		AlertDialog(
-			onDismissRequest = { ops.stay() },
-			title = { Text("Leave and discard changes?") },
-			text = { Text("Changes have not been saved.") },
-			confirmButton = { TextButton(onClick = hapticClick { ops.stay() }) { Text("Stay") } },
-			dismissButton = {
-				TextButton(
-					onClick = hapticClick {
-						ops.discard(key)
-						onClose()
-					},
-				) { Text("Discard", color = MaterialTheme.colorScheme.error) }
-			},
 		)
 	}
 }

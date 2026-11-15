@@ -64,39 +64,32 @@ internal fun sheetX(shown: DrawerSlot, offset: Float, width: Float, screen: Int)
 
 enum class ScopedView(val title: String) {
 	BACKLOG("Backlog"),
-	RUNBOOKS("Runbooks"),
 	ROUTINES("Routines"),
-	POLICIES("Policies"),
+	RUNBOOKS("Runbooks"),
 	VAULT("Vault"),
+	POLICIES("Policies"),
 	CONSOLE("Console"),
 }
 
-enum class RootView(val title: String, val scoped: ScopedView?) {
-	SESSIONS("Sessions", null),
-	ASSISTANT("Assistant", null),
-	BACKLOG("Backlog", ScopedView.BACKLOG),
-	RUNBOOKS("Runbooks", ScopedView.RUNBOOKS),
-	ROUTINES("Routines", ScopedView.ROUTINES),
-	POLICIES("Policies", ScopedView.POLICIES),
-	VAULT("Vault", ScopedView.VAULT),
-	CONSOLE("Console", ScopedView.CONSOLE),
-	;
-
-	companion object {
-		fun of(scoped: ScopedView): RootView = entries.first { it.scoped == scoped }
-	}
+/** The one menu, in its order. A divider falls between groups. */
+enum class RootView(val title: String, val scoped: ScopedView?, val group: Int) {
+	SESSIONS("Sessions", null, 0),
+	ASSISTANT("Assistant", null, 0),
+	BACKLOG("Backlog", ScopedView.BACKLOG, 0),
+	SOURCES("Sources", null, 1),
+	AUTOMATIONS("Automations", null, 1),
+	ROUTINES("Routines", ScopedView.ROUTINES, 1),
+	RUNBOOKS("Runbooks", ScopedView.RUNBOOKS, 1),
+	VAULT("Vault", ScopedView.VAULT, 2),
+	POLICIES("Policies", ScopedView.POLICIES, 2),
+	CONSOLE("Console", ScopedView.CONSOLE, 2),
 }
 
-enum class ConversationView(val title: String, val scoped: ScopedView?) {
-	CHAT("Chat", null),
-	TERMINAL("Terminal", null),
-	FILES("Files", null),
-	BACKLOG("Backlog", ScopedView.BACKLOG),
-	RUNBOOKS("Runbooks", ScopedView.RUNBOOKS),
-	ROUTINES("Routines", ScopedView.ROUTINES),
-	POLICIES("Policies", ScopedView.POLICIES),
-	VAULT("Vault", ScopedView.VAULT),
-	CONSOLE("Console", ScopedView.CONSOLE),
+/** How a session is shown. */
+enum class ConversationView(val title: String) {
+	CHAT("Chat"),
+	TERMINAL("Terminal"),
+	FILES("Files"),
 }
 
 internal data class DrawerFeatures(val board: Boolean, val vault: Boolean)
@@ -110,16 +103,12 @@ private fun ScopedView.offeredWith(features: DrawerFeatures): Boolean = when (th
 internal fun rootViews(features: DrawerFeatures): List<RootView> =
 	RootView.entries.filter { it.scoped?.offeredWith(features) ?: true }
 
-internal fun conversationViews(features: DrawerFeatures, terminal: Boolean): List<ConversationView> =
-	ConversationView.entries.filter {
-		when {
-			it == ConversationView.TERMINAL -> terminal
-			else -> it.scoped?.offeredWith(features) ?: true
-		}
-	}
-
-internal fun assistantConversationViews(terminal: Boolean): List<ConversationView> =
-	listOfNotNull(ConversationView.CHAT, ConversationView.TERMINAL.takeIf { terminal })
+/** The assistant has no Files. */
+internal fun conversationViews(terminal: Boolean, assistant: Boolean): List<ConversationView> = listOfNotNull(
+	ConversationView.CHAT,
+	ConversationView.TERMINAL.takeIf { terminal },
+	ConversationView.FILES.takeUnless { assistant },
+)
 
 /** Unoffered views fall back. */
 internal fun <V> shownView(offered: List<V>, held: V): V = if (held in offered) held else offered.first()
@@ -154,39 +143,11 @@ internal fun arrivedView(
 	else -> held
 }
 
-internal sealed interface DrawerMark {
-	data class Detail(val text: String) : DrawerMark
+/** Pending requests badge the Vault row. */
+internal fun rootBadge(view: RootView, pendingRequests: Int): Int? =
+	pendingRequests.takeIf { view == RootView.VAULT && it > 0 }
 
-	data class Badge(val count: Int) : DrawerMark
-}
-
-internal data class ConversationFacts(
-	val team: String,
-	val openWindows: Int,
-	val undoneTasks: Int,
-	val pendingRequests: Int,
-)
-
-internal fun conversationMark(view: ConversationView, facts: ConversationFacts): DrawerMark? = when (view) {
-	ConversationView.CHAT, ConversationView.TERMINAL -> null
-	ConversationView.FILES -> windowsDetail(facts.openWindows)
-	ConversationView.BACKLOG -> facts.undoneTasks.takeIf { it > 0 }?.let { DrawerMark.Detail("$it open") }
-	ConversationView.RUNBOOKS, ConversationView.POLICIES, ConversationView.CONSOLE ->
-		addressOf(facts.team)?.let { DrawerMark.Detail(it.gateway) }
-	ConversationView.ROUTINES -> addressOf(facts.team)?.let { DrawerMark.Detail(it.spawn) }
-	ConversationView.VAULT -> facts.pendingRequests.takeIf { it > 0 }?.let { DrawerMark.Badge(it) }
-}
-
-private fun windowsDetail(count: Int): DrawerMark? = when (count) {
-	0 -> null
-	1 -> DrawerMark.Detail("1 window")
-	else -> DrawerMark.Detail("$count windows")
-}
-
-internal fun rootMark(view: RootView, pendingRequests: Int): DrawerMark? =
-	if (view == RootView.VAULT && pendingRequests > 0) DrawerMark.Badge(pendingRequests) else null
-
-/** Badges mark the closed drawer. */
-internal fun anyBadge(marks: List<DrawerMark?>): Boolean = marks.any { it is DrawerMark.Badge }
+/** A badged row marks the closed drawer. */
+internal fun anyBadge(badges: List<Int?>): Boolean = badges.any { it != null }
 
 internal fun addressOf(team: String): Address? = runIsolated { parseQualifiedTarget(team) }.getOrNull() as? Address

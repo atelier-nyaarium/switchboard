@@ -158,7 +158,7 @@ class AssistantOpsTest {
 		val calls = mutableListOf<Pair<String, String>>()
 		val states = mutableMapOf<String, ConsoleAssistantStateResult>()
 		var approveEverySend: Boolean? = null
-		val listed = mutableMapOf<String, AutomationListAnswer>()
+		val listed = mutableMapOf<String, ListAnswer<AutomationRow>>()
 		var gate: CompletableDeferred<Unit>? = null
 
 		private fun stateOf(gatewayId: String) = states[gatewayId] ?: ConsoleAssistantStateResult(
@@ -168,8 +168,8 @@ class AssistantOpsTest {
 			approveEverySend = approveEverySend,
 		)
 
-		override suspend fun automations(gatewayId: String): AutomationListAnswer =
-			if (gatewayId in deaf) AutomationListAnswer.Unreachable else listed[gatewayId] ?: AutomationListAnswer.Listed(emptyList())
+		override suspend fun automations(gatewayId: String): ListAnswer<AutomationRow> =
+			if (gatewayId in deaf) ListAnswer.Unreachable else listed[gatewayId] ?: ListAnswer.Listed(emptyList())
 
 		override suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer {
 			calls += gatewayId to op::class.simpleName.orEmpty()
@@ -248,7 +248,7 @@ class AssistantOpsTest {
 		val rows = listOf(eventRow("urgent"), alertRow)
 		val fake = FakeGateway(home = "sakura").apply {
 			states["sakura"] = fresh
-			listed["sakura"] = AutomationListAnswer.Listed(rows)
+			listed["sakura"] = ListAnswer.Listed(rows)
 		}
 		val router = FakeHomeRouter(placedAt(7L, "sakura"))
 		val (ops, state) = stateWithHome(fake, router, listOf("sakura", "mikan"))
@@ -691,7 +691,7 @@ class AssistantOpsTest {
 		val holder = assistantState(workdir = "~/holder", sources = listOf(source()))
 		val fake = FakeGateway(home = null).apply {
 			states["alpha"] = holder
-			listed["alpha"] = AutomationListAnswer.Unreachable
+			listed["alpha"] = ListAnswer.Unreachable
 		}
 		val router = FakeHomeRouter()
 		val state = MutableStateFlow(ChatState(gateways = testRegistry("alpha")))
@@ -699,7 +699,7 @@ class AssistantOpsTest {
 
 		assertTrue(ops.readHome())
 		val unread = router.puts.size
-		fake.listed["alpha"] = AutomationListAnswer.Listed(listOf(eventRow("urgent"), alertRow))
+		fake.listed["alpha"] = ListAnswer.Listed(listOf(eventRow("urgent"), alertRow))
 		assertTrue(ops.readHome())
 
 		assertEquals(0, unread)
@@ -708,7 +708,7 @@ class AssistantOpsTest {
 
 	@Test
 	fun aMoveIsRefusedWhenAGatewayThatHoldsAutomationsRefusesToListThem() = runBlocking {
-		val fake = FakeGateway(home = "sakura").apply { listed["sakura"] = AutomationListAnswer.Refused }
+		val fake = FakeGateway(home = "sakura").apply { listed["sakura"] = ListAnswer.NotServed }
 		val router = FakeHomeRouter(placedAt(7L, "sakura"))
 		val (ops, _) = stateWithHome(fake, router, listOf("sakura", "mikan"))
 
@@ -769,7 +769,7 @@ class AssistantOpsTest {
 
 	@Test
 	fun aMoveFromAnUnreadableAutomationListIsRefusedRatherThanCarryingNone() = runBlocking {
-		val fake = FakeGateway(home = "sakura").apply { listed["sakura"] = AutomationListAnswer.Unreachable }
+		val fake = FakeGateway(home = "sakura").apply { listed["sakura"] = ListAnswer.Unreachable }
 		val router = FakeHomeRouter(placedAt(7L, "sakura"))
 		val (ops, _) = stateWithHome(fake, router, listOf("sakura", "mikan"))
 
@@ -854,28 +854,17 @@ class AssistantOpsTest {
 		val placed = ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList())
 		val safe = placed.copy(approveEverySend = true)
 
-		val unplaced = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.SOURCES)
-		val placedSections = listOf(
-			AssistantSection.LOCATION,
-			AssistantSection.FEATURES,
-			AssistantSection.SOURCES,
-			AssistantSection.AUTOMATIONS,
-			AssistantSection.REMOVE,
-		)
+		val unplaced = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES)
 
 		assertEquals(unplaced, assistantSections(home = null, placed = null))
-		assertEquals(placedSections, assistantSections("sakura", placed))
+		assertEquals(unplaced + AssistantSection.REMOVE, assistantSections("sakura", placed))
 		assertEquals(
-			listOf(
-				AssistantSection.LOCATION,
-				AssistantSection.FEATURES,
-				AssistantSection.SAFETY,
-				AssistantSection.SOURCES,
-				AssistantSection.AUTOMATIONS,
-				AssistantSection.REMOVE,
-			),
+			listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.SAFETY, AssistantSection.REMOVE),
 			assistantSections("sakura", safe),
 		)
+		assertEquals("sakura", newAutomationOn("sakura", placed))
+		assertNull(newAutomationOn("sakura", placed.copy(sources = null)))
+		assertNull(newAutomationOn(null, placed))
 	}
 
 	@Test

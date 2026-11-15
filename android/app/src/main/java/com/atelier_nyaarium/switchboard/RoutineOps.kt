@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
@@ -9,16 +8,12 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineRunResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.routines.RoutineDraft
-import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /** The gateway calls this class makes, so a test can answer them without a transport. */
 internal interface RoutineGateway {
-	suspend fun list(gatewayId: String): ConsoleRoutineListResult
+	suspend fun list(gatewayId: String): ListAnswer<RoutineState>
 
 	suspend fun put(gatewayId: String, routine: Routine, baseRevision: Long?): ConsoleRoutinePutResult
 
@@ -58,24 +53,39 @@ internal sealed interface RoutineSaved {
 internal class RoutineOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: RoutineHost,
-) {
-	private val drafts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, RoutineDraft>()
+) : ClearsOnReprovision {
+	val edits = EditorSessions<EditKey, RoutineDraft, SaveSaid>(
+		unattended = { left -> tell(leftLine(left.draft.name, "Routine", left.said?.reason.orEmpty())) },
+	)
+
+	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
 
 	private val reads = GatewayReadFence()
 
-	fun draftFor(gatewayId: String, key: String): RoutineDraft? = drafts[gatewayId to key]
-
-	fun keepDraft(gatewayId: String, key: String, draft: RoutineDraft) {
-		drafts[gatewayId to key] = draft
+	override suspend fun clearInMemory() {
+		reads.clear()
+		toggles.clear()
+		edits.clear()
+		toggleRefusals.value = emptyMap()
 	}
 
-	fun dropDraft(gatewayId: String, key: String) {
-		drafts.remove(gatewayId to key)
+	suspend fun commit(key: EditKey, opening: Long, candidate: (RoutineDraft) -> Routine?) = edits.send(key, opening) { draft ->
+		val routine = candidate(draft) ?: return@send EditOutcome.Stays(SaveSaid("Not a complete routine"))
+		when (val saved = save(routine, draft.revision.takeIf { it > 0L }, key.gatewayId)) {
+			is RoutineSaved.Stored -> EditOutcome.Done
+			is RoutineSaved.Refused -> EditOutcome.Stays(SaveSaid(saved.reason, saved.heldRevision))
+			RoutineSaved.Unreachable -> EditOutcome.Stays(SaveSaid(GATEWAY_UNREACHABLE))
+		}
+	}
+
+	suspend fun remove(key: EditKey, opening: Long) = edits.send(key, opening) { draft ->
+		if (delete(draft.id, key.gatewayId)) EditOutcome.Done
+		else EditOutcome.Stays(SaveSaid("This Gateway still runs it; it was not reached"))
 	}
 
 	/** All roster Gateways, concurrently. */
 	suspend fun refreshAll() {
-		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
+		refreshEach(state.value.gateways.ids(), ::refresh)
 		host.onRoutinesChanged()
 	}
 
@@ -84,9 +94,11 @@ internal class RoutineOps(
 		if (gatewayId.isBlank()) return
 		// One gateway's failure, whatever raised it, must not take down the pass around it.
 		attempt {
-			val read = reads.read(gatewayId) { attempt { client.list(gatewayId) } }
-			val held = (read as? GatewayRead.Fresh)?.value ?: return@attempt
-			show(gatewayId, held.routines)
+			val answer = reads.list(TAG, gatewayId) { client.list(gatewayId) }
+			if (answer == ListAnswer.Unreachable) return@attempt
+			state.update { held ->
+				held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(routines = it.routines.after(answer)) })
+			}
 			host.onRoutinesChanged()
 		}
 	}
@@ -188,19 +200,9 @@ internal class RoutineOps(
 		return answer?.applied == true
 	}
 
-	/** Gateway answer, replaced whole. */
-	private fun show(gatewayId: String, routines: List<RoutineState>) {
-		state.update { held ->
-			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(routines = routines) })
-		}
-	}
+	private suspend fun <T> attempt(call: suspend () -> T): T? = gatewayAttempt(TAG, call)
 
-	private suspend fun <T> attempt(call: suspend () -> T): T? = try {
-		call()
-	} catch (e: CancellationException) {
-		throw e
-	} catch (e: Exception) {
-		DebugLog.log("Routine", "gateway call failed: ${e::class.simpleName}")
-		null
+	private companion object {
+		const val TAG = "Routine"
 	}
 }

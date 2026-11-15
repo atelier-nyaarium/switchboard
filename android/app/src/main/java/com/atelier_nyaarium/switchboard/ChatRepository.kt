@@ -315,8 +315,10 @@ class ChatRepository(
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
-			this, board, vault, assistantSends, assistantActs, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, workspaceHost, composedRequests, windowOps,
-			symbolViews, windowRequests, rawFileOps, fileOps, deviceOps, liveConsoleOps, automationOps, gatewayEnroll.setups,
+			// runbookOps before runbooks: a save still out must be fenced before the library is wiped.
+			this, board, vault, assistantSends, assistantActs, runbookOps, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, workspaceHost, composedRequests,
+			windowOps, symbolViews, windowRequests, rawFileOps, fileOps, deviceOps, liveConsoleOps, automationOps, routineOps, policyOps,
+			gatewayEnroll.setups,
 		)
 
 	override suspend fun clearInMemory() {

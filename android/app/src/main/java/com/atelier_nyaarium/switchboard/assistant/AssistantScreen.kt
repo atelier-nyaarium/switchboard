@@ -58,6 +58,7 @@ import com.atelier_nyaarium.switchboard.DirListing
 import com.atelier_nyaarium.switchboard.DirectoryField
 import com.atelier_nyaarium.switchboard.PhoneCapabilities
 import com.atelier_nyaarium.switchboard.PickMenu
+import com.atelier_nyaarium.switchboard.RootView
 import com.atelier_nyaarium.switchboard.answerText
 import com.atelier_nyaarium.switchboard.assistantSections
 import com.atelier_nyaarium.switchboard.LocationAction
@@ -115,6 +116,10 @@ internal fun AssistantPageHost(
 	home: String?,
 	onListDirs: suspend (String, String, String) -> DirListing,
 	onPage: (AssistantPage) -> Unit,
+	/** Closes the pages onto a root view. */
+	onRoot: (RootView) -> Unit,
+	/** Closes without asking. */
+	onClose: () -> Unit,
 	onBack: () -> Unit,
 ) {
 	when (page) {
@@ -122,19 +127,6 @@ internal fun AssistantPageHost(
 		AssistantPage.Location -> AssistantLocationPage(repo, state, home, onListDirs, onBack)
 		AssistantPage.Features -> AssistantFeaturesPage(repo, onBack)
 		AssistantPage.Safety -> AssistantSafetyPage(repo, state, home, onBack)
-		AssistantPage.Automations ->
-			AutomationsPage(repo, state, home, onEdit = { g, slot -> onPage(AssistantPage.AutomationEditor(g, slot)) }, onBack)
-		AssistantPage.Sources ->
-			AssistantSourcesPage(
-				repo,
-				state,
-				home,
-				onAdd = { onPage(AssistantPage.Add) },
-				onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) },
-				onService = { g, s -> onPage(AssistantPage.Entry(g, s)) },
-				onSource = { g, s -> onPage(AssistantPage.Source(g, s)) },
-				onBack,
-			)
 		AssistantPage.Add ->
 			if (home == null) {
 				AssistantPageScaffold("Add", onBack) { Text(PLACE_FIRST, style = MaterialTheme.typography.bodyLarge) }
@@ -149,7 +141,7 @@ internal fun AssistantPageHost(
 				page.integrationId,
 				onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) },
 				onSetup = { onPage(AssistantPage.Setup(page.gatewayId, page.integrationId)) },
-				onAdded = { onPage(AssistantPage.Sources) },
+				onAdded = { onRoot(RootView.SOURCES) },
 				onBack,
 			)
 		is AssistantPage.Setup ->
@@ -165,14 +157,14 @@ internal fun AssistantPageHost(
 					repo,
 					page.gatewayId,
 					source,
-					uses = state.gateways.entry(page.gatewayId)?.automations?.let { usesOf(source.id, it) },
-					onAutomations = { onPage(AssistantPage.Automations) },
+					uses = state.gateways.entry(page.gatewayId)?.automations?.takeIf { it.listed }?.let { usesOf(source.id, it.rows) },
+					onAutomations = { onRoot(RootView.AUTOMATIONS) },
 					onBack,
 				)
 			}
 		}
 		is AssistantPage.AutomationEditor ->
-			AutomationEditorPage(repo, state, page.gatewayId, page.slot, onClose = { onPage(AssistantPage.Automations) }, onBack)
+			AutomationEditorPage(repo, state, page.gatewayId, page.slot, onClose, onBack)
 	}
 }
 
@@ -207,14 +199,17 @@ internal fun AssistantPageScaffold(
 				actions = actions,
 			)
 		},
-	) { pad ->
-		Column(
-			Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
-				.padding(bottom = 24.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
-			content = content,
-		)
-	}
+	) { pad -> PageColumn(Modifier.padding(pad), content) }
+}
+
+/** A page's scrolling body. */
+@Composable
+internal fun PageColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+	Column(
+		modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+		verticalArrangement = Arrangement.spacedBy(12.dp),
+		content = content,
+	)
 }
 
 @Composable
@@ -355,17 +350,6 @@ private fun AssistantSettingsIndex(
 	val phoneSettings = remember(tick) { phoneSettingFacts(context) }
 	var removing by remember { mutableStateOf(false) }
 	val settings = settingsRunner(repo)
-	val deviceViews by repo.deviceOps.views.collectAsState()
-	val deviceReach = home?.let { gatewayId ->
-		state.gateways.entry(gatewayId)?.let { state.gateways.reachable(gatewayId) to it.incarnation }
-	}
-	LaunchedEffect(home, deviceReach) {
-		home?.let { gatewayId ->
-			repo.command { assistantOps.refresh(gatewayId) }
-			repo.command { deviceOps.relist(gatewayId) }
-			repo.command { automationOps.refresh(gatewayId) }
-		}
-	}
 
 	AssistantPageScaffold("Assistant settings", onBack) {
 		(work.said ?: state.homeFailure?.let(::moveErrorText))?.let {
@@ -379,15 +363,6 @@ private fun AssistantSettingsIndex(
 					SettingsRow("Features", featureLines(phoneSettings.assistantOn, phoneSettings.screenData, features)) { onPage(AssistantPage.Features) }
 				AssistantSection.SAFETY ->
 					SettingsRow("Safety", safetyLines(homeState?.approveEverySend)) { onPage(AssistantPage.Safety) }
-				AssistantSection.SOURCES ->
-					SettingsRow(
-						"Sources",
-						sourceLines(home, home?.let { deviceViews[it]?.list }, homeState?.integrations, homeState?.let(::sourcesOf).orEmpty()),
-					) { onPage(AssistantPage.Sources) }
-				AssistantSection.AUTOMATIONS ->
-					SettingsRow("Automations", automationLines(home?.let { state.gateways.automationsOn(it).size } ?: 0)) {
-						onPage(AssistantPage.Automations)
-					}
 				AssistantSection.REMOVE -> SettingsRow("Remove assistant", SettingsLines(line = REMOVE_LINE)) { removing = true }
 			}
 		}

@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.animateTo
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.snapTo
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Folder
@@ -30,6 +32,8 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Badge
@@ -84,6 +88,9 @@ internal class SideDrawers {
 	suspend fun open(side: DrawerSide) = state.animateTo(slotOf(side))
 
 	suspend fun close() = state.animateTo(DrawerSlot.CLOSED)
+
+	/** No drawer is drawn to animate. */
+	suspend fun snapClosed() = state.snapTo(DrawerSlot.CLOSED)
 
 	/** Open or closing, so Back belongs to the drawer. */
 	fun holdsBack(): Boolean = state.currentValue != DrawerSlot.CLOSED || state.targetValue != DrawerSlot.CLOSED
@@ -205,15 +212,9 @@ internal fun DrawerButton(badged: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-internal fun DrawerHeader(title: String, subtitle: String?, monospace: Boolean = false) {
+internal fun DrawerHeader(title: String, subtitle: String?) {
 	Column(Modifier.padding(horizontal = 28.dp, vertical = 12.dp)) {
-		Text(
-			title,
-			style = MaterialTheme.typography.titleMedium,
-			fontFamily = if (monospace) FontFamily.Monospace else null,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-		)
+		Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
 		subtitle?.let {
 			Text(
 				it,
@@ -227,22 +228,33 @@ internal fun DrawerHeader(title: String, subtitle: String?, monospace: Boolean =
 	}
 }
 
+/** The one menu, drawn from every screen that has a drawer. */
 @Composable
-internal fun DrawerRow(title: String, icon: ImageVector, selected: Boolean, mark: DrawerMark?, onClick: () -> Unit) {
+internal fun MenuSheet(
+	views: List<RootView>,
+	shown: RootView,
+	badges: List<Int?>,
+	domainId: String?,
+	onPick: (RootView) -> Unit,
+	onSettings: () -> Unit,
+) {
+	DrawerHeader("Switchboard", domainId)
+	views.forEachIndexed { index, view ->
+		if (index > 0 && views[index - 1].group != view.group) DrawerDivider()
+		DrawerRow(view.title, iconOf(view), view == shown, badges[index]) { onPick(view) }
+	}
+	DrawerDivider()
+	DrawerRow("Settings", Icons.Default.Settings, selected = false, badge = null, onClick = onSettings)
+}
+
+@Composable
+internal fun DrawerRow(title: String, icon: ImageVector, selected: Boolean, badge: Int?, onClick: () -> Unit) {
 	NavigationDrawerItem(
 		label = { Text(title) },
 		icon = { Icon(icon, contentDescription = null) },
 		selected = selected,
 		onClick = hapticClick(onClick),
-		badge = when (mark) {
-			is DrawerMark.Detail -> {
-				{ Text(mark.text, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace) }
-			}
-			is DrawerMark.Badge -> {
-				{ Badge { Text("${mark.count}") } }
-			}
-			null -> null
-		},
+		badge = badge?.let { count -> { Badge { Text("$count") } } },
 		modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
 	)
 }
@@ -252,13 +264,17 @@ internal fun DrawerDivider() {
 	HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
 }
 
-internal fun iconOf(view: RootView): ImageVector =
-	view.scoped?.let(::iconOf) ?: if (view == RootView.ASSISTANT) Icons.Default.SmartToy else Icons.Default.Forum
+internal fun iconOf(view: RootView): ImageVector = view.scoped?.let(::iconOf) ?: when (view) {
+	RootView.ASSISTANT -> Icons.Default.SmartToy
+	RootView.SOURCES -> Icons.Default.Sensors
+	RootView.AUTOMATIONS -> Icons.Default.Bolt
+	else -> Icons.Default.Forum
+}
 
-internal fun iconOf(view: ConversationView): ImageVector = view.scoped?.let(::iconOf) ?: when (view) {
+internal fun iconOf(view: ConversationView): ImageVector = when (view) {
+	ConversationView.CHAT -> Icons.AutoMirrored.Filled.Chat
 	ConversationView.TERMINAL -> Icons.Default.Terminal
 	ConversationView.FILES -> Icons.Default.Folder
-	else -> Icons.AutoMirrored.Filled.Chat
 }
 
 private fun iconOf(view: ScopedView): ImageVector = when (view) {

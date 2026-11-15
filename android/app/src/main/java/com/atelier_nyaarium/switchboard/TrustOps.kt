@@ -252,7 +252,7 @@ internal class TrustOps(
 			val fresh = refreshPeers()
 			val entries = state.value.gateways.gateways
 			val peers = entries.flatMap { entry ->
-				entry.peers.orEmpty().filter { it.ownerSignPub == peerOwnerSignPub }.map { peer -> entry.id to peer }
+				entry.peers.rows.filter { it.ownerSignPub == peerOwnerSignPub }.map { peer -> entry.id to peer }
 			}
 			val revoked = peers.map { it.second.domainId }.toSet().all { domainId ->
 				runCatchingCancellable { collaborators.revokeXdomainLink(identity.ready().domainId, domainId) }.getOrDefault(false)
@@ -365,7 +365,7 @@ internal class TrustOps(
 
 	/** Never-read peers answer true; a Gateway the roster does not name answers false. */
 	fun canShareTo(team: Team, domainId: String): Boolean = state.value.gateways.entry(team.gatewayId)?.let { entry ->
-		entry.peers?.let { state.value.gateways.hasPeer(team.gatewayId, domainId) } ?: true
+		!entry.peers.listed || state.value.gateways.hasPeer(team.gatewayId, domainId)
 	} ?: false
 
 	fun peersOn(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = state.value.gateways.peersOn(gatewayId)
@@ -375,10 +375,10 @@ internal class TrustOps(
 		val fresh = state.value.gateways.ids().map { gatewayId -> async {
 			val read = runCatchingCancellable { reads.read(gatewayId) { clientPort.client().crossDomainListPeers(gatewayId) } }.getOrNull()
 			val answer = (read as? GatewayRead.Fresh)?.value ?: return@async null
-			state.update { it.copy(gateways = it.gateways.withEntry(gatewayId) { e -> e.copy(peers = answer.peers) }) }
+			state.update { it.copy(gateways = it.gateways.withEntry(gatewayId) { e -> e.copy(peers = GatewayList.Listed(answer.peers)) }) }
 			gatewayId
 		} }.awaitAll().filterNotNull().toSet()
-		val all = state.value.gateways.gateways.flatMap { it.peers.orEmpty() }.filter { it.domainId.isNotEmpty() }
+		val all = state.value.gateways.gateways.flatMap { it.peers.rows }.filter { it.domainId.isNotEmpty() }
 		val owners = all.groupBy { it.domainId }.mapNotNull { (domain, entries) ->
 			val values = entries.map { it.ownerSignPub }.distinct()
 			if (values.size == 1) domain to values.single() else {

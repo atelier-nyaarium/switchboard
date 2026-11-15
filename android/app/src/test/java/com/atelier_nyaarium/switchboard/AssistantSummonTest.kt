@@ -11,7 +11,7 @@ import org.junit.Test
 
 class AssistantSummonTest {
 	private val assistant = "dom.sakura.host.assistant"
-	private val facts = { _: String -> ArrivalFacts(offered = assistantConversationViews(terminal = true), stuckAtLogin = false) }
+	private val facts = { _: String -> ArrivalFacts(offered = conversationViews(terminal = true, assistant = true), stuckAtLogin = false) }
 
 	private fun state(home: AssistantHome = AssistantHome.Unread) = ChatState(
 		domainId = "dom",
@@ -153,6 +153,8 @@ class AssistantSummonTest {
 		val terminal = chat.showView(ConversationView.TERMINAL)
 		assertEquals(FocusStep.DROP, focusStep(armed, shown(terminal, AssistantRoot.Placed(assistant)), windowFocused = true, resumed = true))
 		assertEquals(FocusStep.DROP, focusStep(armed, shown(ShellNav(), AssistantRoot.Loading), windowFocused = true, resumed = true))
+		val picked = chat.pick(RootView.RUNBOOKS, assistantOpen = true)
+		assertEquals(FocusStep.DROP, focusStep(armed, shown(picked, AssistantRoot.Placed(assistant)), windowFocused = true, resumed = true))
 	}
 
 	@Test

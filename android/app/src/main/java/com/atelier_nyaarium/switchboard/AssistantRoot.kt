@@ -82,6 +82,15 @@ internal fun assistantRoot(state: ChatState): AssistantRoot {
 	return placedAddress(state)?.let { AssistantRoot.Placed(it) } ?: AssistantRoot.Moving(gatewayId)
 }
 
+/** Why a view of the home's records has no home to draw. */
+internal enum class NoHome { READING, ROUTER_UNREACHABLE, NOT_PLACED }
+
+internal fun noHome(state: ChatState): NoHome = when (assistantRoot(state)) {
+	AssistantRoot.Loading -> NoHome.READING
+	AssistantRoot.RouterUnreachable -> NoHome.ROUTER_UNREACHABLE
+	else -> NoHome.NOT_PLACED
+}
+
 /** The top bar's way out of a stuck landing. */
 internal fun rootOffersSettings(root: AssistantRoot): Boolean = root != AssistantRoot.Loading && root != AssistantRoot.RouterUnreachable
 
@@ -113,10 +122,6 @@ internal sealed interface AssistantPage {
 
 	data object Safety : AssistantPage
 
-	data object Sources : AssistantPage
-
-	data object Automations : AssistantPage
-
 	/** The catalogue. */
 	data object Add : AssistantPage
 
@@ -133,51 +138,46 @@ internal sealed interface AssistantPage {
 	data class AutomationEditor(val gatewayId: String, val slot: AutomationSlot) : AssistantPage
 }
 
+/** The assistant's own pages, not a Sources or Automations child. */
+internal val AssistantPage.own: Boolean
+	get() = this == AssistantPage.Settings || this == AssistantPage.Location || this == AssistantPage.Features ||
+		this == AssistantPage.Safety
+
+/** Null closes the pages onto the view beneath. */
 internal fun assistantPageBack(page: AssistantPage): AssistantPage? = when (page) {
-	AssistantPage.Settings -> null
-	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Sources, AssistantPage.Automations ->
-		AssistantPage.Settings
-	AssistantPage.Add -> AssistantPage.Sources
+	AssistantPage.Settings, AssistantPage.Add -> null
+	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety -> AssistantPage.Settings
 	is AssistantPage.Entry -> AssistantPage.Add
 	is AssistantPage.Setup -> AssistantPage.Entry(page.gatewayId, page.integrationId)
-	is AssistantPage.Device -> AssistantPage.Sources
-	is AssistantPage.Source -> AssistantPage.Sources
-	is AssistantPage.AutomationEditor -> AssistantPage.Automations
+	is AssistantPage.Device, is AssistantPage.Source, is AssistantPage.AutomationEditor -> null
 }
 
-/** Only answers unwind pages. */
-internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> DeviceListView? = { null }): AssistantPage = when (this) {
-	AssistantPage.Settings, AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Sources,
-	AssistantPage.Automations, AssistantPage.Add -> this
+/** Only answers unwind pages. Null closes them. */
+internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> DeviceListView? = { null }): AssistantPage? = when (this) {
+	AssistantPage.Settings, AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Add -> this
 	is AssistantPage.Entry -> when {
-		assistantLeft(state, gatewayId) -> AssistantPage.Sources
+		assistantLeft(state, gatewayId) -> null
 		catalogued(integrationId) == null -> AssistantPage.Add
 		state.gateways.assistantOn(gatewayId)?.offered?.let { integrationId !in it } == true -> AssistantPage.Add
 		else -> this
 	}
 	is AssistantPage.Setup -> when {
-		assistantLeft(state, gatewayId) -> AssistantPage.Sources
+		assistantLeft(state, gatewayId) -> null
 		catalogued(integrationId)?.setup == null -> AssistantPage.Add
 		else -> this
 	}
-	is AssistantPage.Device -> deviceResolved(state, devices(gatewayId))
+	is AssistantPage.Device -> takeUnless { deviceGone(state, devices(gatewayId)) }
 	is AssistantPage.Source -> {
 		val answered = state.gateways.assistantOn(gatewayId)
-		when {
-			assistantLeft(state, gatewayId) -> AssistantPage.Settings
-			answered != null && sourcesOf(answered).none { it.id == sourceId } -> AssistantPage.Sources
-			else -> this
-		}
+		takeUnless { assistantLeft(state, gatewayId) || (answered != null && sourcesOf(answered).none { it.id == sourceId }) }
 	}
-	is AssistantPage.AutomationEditor -> if (assistantLeft(state, gatewayId)) AssistantPage.Settings else this
+	is AssistantPage.AutomationEditor -> takeUnless { assistantLeft(state, gatewayId) }
 }
 
 /** Home moves keep it. */
-private fun AssistantPage.Device.deviceResolved(state: ChatState, list: DeviceListView?): AssistantPage = when {
-	state.gateways.loaded && !state.gateways.has(gatewayId) -> AssistantPage.Sources
-	list is DeviceListView.Listed && list.records.none { it.id == deviceId } -> AssistantPage.Sources
-	else -> this
-}
+private fun AssistantPage.Device.deviceGone(state: ChatState, list: DeviceListView?): Boolean =
+	(state.gateways.loaded && !state.gateways.has(gatewayId)) ||
+		(list is DeviceListView.Listed && list.records.none { it.id == deviceId })
 
 internal fun ShellNav.resolvePage(state: ChatState, devices: (String) -> DeviceListView? = { null }): ShellNav {
 	val page = assistantPage ?: return this
@@ -190,8 +190,6 @@ internal fun pageWords(page: AssistantPage): List<String> = when (page) {
 	AssistantPage.Location -> listOf(PAGE_LOCATION)
 	AssistantPage.Features -> listOf(PAGE_FEATURES)
 	AssistantPage.Safety -> listOf(PAGE_SAFETY)
-	AssistantPage.Sources -> listOf(PAGE_SOURCES)
-	AssistantPage.Automations -> listOf(PAGE_AUTOMATIONS)
 	AssistantPage.Add -> listOf(PAGE_ADD)
 	is AssistantPage.Entry -> listOf(PAGE_ENTRY, page.gatewayId, page.integrationId)
 	is AssistantPage.Setup -> listOf(PAGE_SETUP, page.gatewayId, page.integrationId)
@@ -208,8 +206,6 @@ internal fun pageOf(words: List<String>): AssistantPage? {
 		PAGE_LOCATION -> AssistantPage.Location
 		PAGE_FEATURES -> AssistantPage.Features
 		PAGE_SAFETY -> AssistantPage.Safety
-		PAGE_SOURCES -> AssistantPage.Sources
-		PAGE_AUTOMATIONS -> AssistantPage.Automations
 		PAGE_ADD -> AssistantPage.Add
 		PAGE_ENTRY -> if (gatewayId != null && named != null) AssistantPage.Entry(gatewayId, named) else null
 		PAGE_SETUP -> if (gatewayId != null && named != null) AssistantPage.Setup(gatewayId, named) else null
@@ -241,8 +237,6 @@ private const val PAGE_SETTINGS = "settings"
 private const val PAGE_LOCATION = "location"
 private const val PAGE_FEATURES = "features"
 private const val PAGE_SAFETY = "safety"
-private const val PAGE_SOURCES = "sources"
-private const val PAGE_AUTOMATIONS = "automations"
 private const val PAGE_ADD = "add"
 private const val PAGE_ENTRY = "entry"
 private const val PAGE_SETUP = "setup"

@@ -63,6 +63,15 @@ class SensorRulesTest {
 		val roster = listOf("mikan", "idle", "old", "away", "waking", "sakura")
 		val groups = deviceGroups(roster, home = "sakura", views)
 		assertEquals(listOf("sakura" to true, "mikan" to false), groups.map { it.gatewayId to it.assistant })
+		// Session Gateway leads.
+		assertEquals(
+			listOf("mikan", "sakura"),
+			sourceGroups(roster, "sakura", views, hasServices = true, lead = "mikan").map { it.gatewayId },
+		)
+		val servicesOnly = sourceGroups(roster, "idle", views, hasServices = true, lead = "mikan")
+		assertEquals(listOf("mikan" to false, "idle" to true, "sakura" to false), servicesOnly.map { it.gatewayId to it.assistant })
+		assertEquals(emptyList<Any>(), servicesOnly.first { it.assistant }.records)
+		assertEquals(listOf("mikan", "sakura"), sourceGroups(roster, "idle", views, hasServices = false, lead = null).map { it.gatewayId })
 		assertEquals(false, devicesPending(roster, views))
 		assertEquals(true, devicesPending(listOf("sakura", "waking"), mapOf("sakura" to DevicesView(list = DeviceListView.Loading))))
 		assertEquals("Govee · This Phone", rowBrandLine(sensor(MAC, "phones")))

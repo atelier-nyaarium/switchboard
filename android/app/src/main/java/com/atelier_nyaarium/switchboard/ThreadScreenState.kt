@@ -52,8 +52,6 @@ data class GoalState(
 
 /** The terminal view and the session-health facts it decides from. */
 data class TerminalState(
-	/** Only the host-agent and devcontainers have a daemon-drivable pane. */
-	val eligible: Boolean,
 	/** The Gateway's report and its freshness; null with no row held. See Presence.kt. */
 	val presence: Presence?,
 	/** Daemon-derived (presence plane), true independent of the status: the one signal at tap

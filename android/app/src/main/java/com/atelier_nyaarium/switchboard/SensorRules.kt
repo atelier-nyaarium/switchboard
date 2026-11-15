@@ -83,6 +83,20 @@ internal fun deviceGroups(ids: List<String>, home: String?, views: Map<String, D
 		records?.takeIf { it.isNotEmpty() }?.let { GatewayGroup(gatewayId, gatewayId == home, it) }
 	}
 
+/** Home services get a group; session Gateway leads. */
+internal fun sourceGroups(
+	ids: List<String>,
+	home: String?,
+	views: Map<String, DevicesView>,
+	hasServices: Boolean,
+	lead: String?,
+): List<GatewayGroup> {
+	val devices = deviceGroups(ids, home, views)
+	val servicesOnly = home != null && hasServices && devices.none { it.assistant }
+	val groups = if (servicesOnly) listOf(GatewayGroup(home!!, assistant = true, records = emptyList())) + devices else devices
+	return leading(groups, lead) { it.gatewayId }
+}
+
 /** No Gateway has answered. */
 internal fun devicesPending(ids: List<String>, views: Map<String, DevicesView>): Boolean =
 	ids.isNotEmpty() && ids.all { (views[it]?.list ?: DeviceListView.Loading) == DeviceListView.Loading }

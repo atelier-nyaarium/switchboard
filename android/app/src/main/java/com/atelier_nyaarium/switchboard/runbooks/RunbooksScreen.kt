@@ -41,11 +41,11 @@ internal fun RunbooksScreen(
 	scope: ViewScope = ViewScope.Everything,
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.runbookOps.refreshAll() }
-	val groups = scope.groupsOf(state.gateways.gateways).filter { it.runbooks != null }
+	val groups = scope.groupsOf(state.gateways.gateways).filter { it.runbooks.listed }
 	val named = groups.size > 1
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.runbooks.orEmpty().isEmpty() }) {
+		if (groups.all { it.runbooks.rows.isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
@@ -76,7 +76,7 @@ internal fun RunbooksScreen(
 							)
 						}
 					}
-					for (runbook in group.runbooks.orEmpty()) {
+					for (runbook in group.runbooks.rows) {
 						item(key = "runbook:${group.id}:${runbook.id}") {
 							RunbookRow(
 								runbook,

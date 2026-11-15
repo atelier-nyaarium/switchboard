@@ -63,6 +63,15 @@ class ViewScopeTest {
 	}
 
 	@Test
+	fun `a session's Gateway leads a whole list, the rest keeping their order`() {
+		val groups = listOf("mikan", "sakura", "ume")
+
+		assertEquals(listOf("sakura", "mikan", "ume"), leading(groups, "sakura") { it })
+		assertEquals(groups, leading(groups, null) { it })
+		assertEquals(groups, leading(groups, "gone") { it })
+	}
+
+	@Test
 	fun `a session's routines are those that start on its spawn point`() {
 		val rows = listOf(
 			routine("nightly", "host"),

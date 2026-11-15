@@ -1,9 +1,13 @@
 package com.atelier_nyaarium.switchboard
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -18,57 +22,45 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RootScreen(
-	views: List<RootView>,
 	shown: RootView,
-	onView: (RootView) -> Unit,
 	drawerSide: DrawerSide,
 	drawers: SideDrawers,
-	domainId: String?,
-	vaultPending: Int,
+	sheet: @Composable ColumnScope.() -> Unit,
+	drawerBadged: Boolean,
+	onOpenDrawer: () -> Unit,
+	/** A pick over a session returns to it. */
+	onBack: (() -> Unit)?,
 	snackbarHostState: SnackbarHostState,
 	onRefresh: () -> Unit,
-	onSettings: () -> Unit,
 	onAssistantSettings: (() -> Unit)?,
 	// Idle has no action.
 	queueState: QueueGlance,
 	onQueue: () -> Unit,
+	viewActions: @Composable RowScope.(RootView) -> Unit,
 	body: @Composable (RootView, Modifier) -> Unit,
 ) {
-	val scope = rememberCoroutineScope()
-	val marks = views.map { rootMark(it, vaultPending) }
-
-	SideDrawer(
-		drawers = drawers,
-		sheet = {
-			DrawerHeader("Switchboard", domainId)
-			views.forEachIndexed { index, view ->
-				DrawerRow(view.title, iconOf(view), view == shown, marks[index]) {
-					onView(view)
-					scope.launch { drawers.close() }
-				}
-			}
-			DrawerDivider()
-			DrawerRow("Settings", Icons.Default.Settings, selected = false, mark = null) {
-				scope.launch { drawers.close() }
-				onSettings()
-			}
-		},
-	) {
+	SideDrawer(drawers = drawers, sheet = sheet) {
 		Scaffold(
 			topBar = {
 				TopAppBar(
 					title = { Text(shown.title) },
 					navigationIcon = {
-						if (drawerSide == DrawerSide.LEFT) DrawerButton(anyBadge(marks)) { scope.launch { drawers.open(drawerSide) } }
+						Row {
+							if (onBack != null) {
+								IconButton(onClick = hapticClick(onBack)) {
+									Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to session")
+								}
+							}
+							if (drawerSide == DrawerSide.LEFT) DrawerButton(drawerBadged, onOpenDrawer)
+						}
 					},
 					actions = {
+						viewActions(shown)
 						// The queue's only in-app door.
 						if (queueState != QueueGlance.IDLE) {
 							IconButton(onClick = hapticClick(onQueue)) {
@@ -92,7 +84,7 @@ internal fun RootScreen(
 							}
 						}
 						IconButton(onClick = hapticClick(onRefresh)) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }
-						if (drawerSide == DrawerSide.RIGHT) DrawerButton(anyBadge(marks)) { scope.launch { drawers.open(drawerSide) } }
+						if (drawerSide == DrawerSide.RIGHT) DrawerButton(drawerBadged, onOpenDrawer)
 					},
 				)
 			},

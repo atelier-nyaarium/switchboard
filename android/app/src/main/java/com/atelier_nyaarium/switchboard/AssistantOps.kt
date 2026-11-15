@@ -22,7 +22,6 @@ import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -45,7 +44,7 @@ internal interface AssistantGateway {
 	suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer
 
 	/** Old home's list. */
-	suspend fun automations(gatewayId: String): AutomationListAnswer
+	suspend fun automations(gatewayId: String): ListAnswer<AutomationRow>
 }
 
 internal interface AssistantHost {
@@ -277,18 +276,20 @@ internal fun unexpectedLines(source: AssistantSource): List<String> {
 	return if (seen.capped) named + "and more" else named
 }
 
-internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, SOURCES, AUTOMATIONS, REMOVE }
+internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, REMOVE }
 
-/** Safety, automations and remove are the home's. */
+/** Safety and remove are the home's. */
 internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResult?): List<AssistantSection> =
 	listOfNotNull(
 		AssistantSection.LOCATION,
 		AssistantSection.FEATURES,
 		AssistantSection.SAFETY.takeIf { home != null && placed?.approveEverySend != null },
-		AssistantSection.SOURCES,
-		AssistantSection.AUTOMATIONS.takeIf { home != null && servesSources(placed) },
 		AssistantSection.REMOVE.takeIf { home != null },
 	)
+
+/** New goes to a home that serves automations. */
+internal fun newAutomationOn(home: String?, placed: ConsoleAssistantStateResult?): String? =
+	home?.takeIf { servesSources(placed) }
 
 /** Page operation and result. */
 internal data class PageWork(val busy: Boolean = false, val said: String? = null)
@@ -486,9 +487,9 @@ internal class AssistantOps(
 	/** Null when unread; a refusal counts only from an older build. */
 	private suspend fun eventRows(client: AssistantGateway, gatewayId: String, held: ConsoleAssistantStateResult): EventRows? =
 		when (val listed = attempt { client.automations(gatewayId) }) {
-			is AutomationListAnswer.Listed -> EventRows(listed.automations)
-			AutomationListAnswer.Refused -> EventRows(null).takeUnless { servesSources(held) }
-			AutomationListAnswer.Unreachable, null -> null
+			is ListAnswer.Listed -> EventRows(listed.rows)
+			ListAnswer.NotServed -> EventRows(null).takeUnless { servesSources(held) }
+			ListAnswer.Unreachable, null -> null
 		}
 
 	/** Fresh answers from the roster as asked; an owner choice wins. */
@@ -586,12 +587,5 @@ internal class AssistantOps(
 		return answer
 	}
 
-	private suspend fun <T> attempt(call: suspend () -> T): T? = try {
-		call()
-	} catch (e: CancellationException) {
-		throw e
-	} catch (e: Exception) {
-		DebugLog.log("Assistant", "gateway call failed: ${e::class.simpleName}")
-		null
-	}
+	private suspend fun <T> attempt(call: suspend () -> T): T? = gatewayAttempt("Assistant", call)
 }

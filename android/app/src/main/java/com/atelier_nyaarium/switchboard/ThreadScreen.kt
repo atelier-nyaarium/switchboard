@@ -15,14 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -150,6 +148,7 @@ internal fun ThreadScreen(
 	undoneTasks: Int = 0,
 	onForgetWithTasks: (Boolean) -> Unit = {},
 	onKickPoll: () -> Unit,
+	views: List<ConversationView> = listOf(ConversationView.CHAT),
 	view: ConversationView = ConversationView.CHAT,
 	onView: (ConversationView) -> Unit = {},
 	drawerSide: DrawerSide = DrawerSide.LEFT,
@@ -329,20 +328,15 @@ internal fun ThreadScreen(
 		topBar = {
 			TopAppBar(
 				title = {
-					Column {
-						Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-							Text(
-								chrome.title,
-								fontFamily = if (chrome.monospace) FontFamily.Monospace else FontFamily.Default,
-								maxLines = 1,
-								overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-								modifier = Modifier.weight(1f, fill = false),
-							)
-							presence?.let { StatusChip(it.text, presenceColor(it)) }
-						}
-						if (view != ConversationView.CHAT) {
-							Text(view.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-						}
+					Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+						Text(
+							chrome.title,
+							fontFamily = if (chrome.monospace) FontFamily.Monospace else FontFamily.Default,
+							maxLines = 1,
+							overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+							modifier = Modifier.weight(1f, fill = false),
+						)
+						presence?.let { StatusChip(it.text, presenceColor(it)) }
 					}
 				},
 				navigationIcon = {
@@ -354,15 +348,7 @@ internal fun ThreadScreen(
 					}
 				},
 				actions = {
-					if (terminal.eligible) {
-						IconButton(onClick = hapticClick { onView(if (terminalMode) ConversationView.CHAT else ConversationView.TERMINAL) }) {
-							if (terminalMode) {
-								Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Back to chat")
-							} else {
-								Icon(Icons.Default.Terminal, contentDescription = "Terminal view")
-							}
-						}
-					}
+					ViewSwitch(views, view, onView)
 					if (!chrome.sessionMenu) {
 						IconButton(onClick = hapticClick(onSettings)) {
 							Icon(Icons.Default.Settings, contentDescription = "Assistant settings")

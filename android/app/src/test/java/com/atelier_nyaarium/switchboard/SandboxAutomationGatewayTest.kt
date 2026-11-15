@@ -15,7 +15,7 @@ class SandboxAutomationGatewayTest {
 	private fun gateway() = SandboxAutomationGateway(now = { 1_000_000_000L }, pause = { trips += 1 })
 
 	private suspend fun SandboxAutomationGateway.rows(gatewayId: String) =
-		(list(gatewayId) as AutomationListAnswer.Listed).automations
+		(list(gatewayId) as ListAnswer.Listed).rows
 
 	private fun mention(tell: String = "now") = Automation(
 		enabled = true,
@@ -56,11 +56,11 @@ class SandboxAutomationGatewayTest {
 	fun theSecondGatewayRefusesAsAnOlderBuildTheEmptyOneListsNoneAndEveryCallTakesARoundTrip() = runBlocking {
 		val gateway = gateway()
 
-		assertEquals(AutomationListAnswer.Refused, gateway.list(SECOND_SANDBOX_GATEWAY))
+		assertEquals(ListAnswer.NotServed, gateway.list(SECOND_SANDBOX_GATEWAY))
 		assertEquals(false, gateway.put(SECOND_SANDBOX_GATEWAY, "new", mention(), 0L).stored)
 		assertNull(gateway.preview(SECOND_SANDBOX_GATEWAY, mention().trigger))
-		assertEquals(AutomationListAnswer.Listed(emptyList()), gateway.list(EMPTY_GATEWAY))
-		assertEquals(AutomationListAnswer.Unreachable, gateway.list(SANDBOX_NEVER_REGISTERED))
+		assertEquals(ListAnswer.Listed(emptyList<Any>()), gateway.list(EMPTY_GATEWAY))
+		assertEquals(ListAnswer.Unreachable, gateway.list(SANDBOX_NEVER_REGISTERED))
 		assertEquals(1L, gateway.preview("sandbox", mention().trigger)?.matched)
 		assertEquals(6, trips)
 	}

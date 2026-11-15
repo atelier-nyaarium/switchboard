@@ -23,7 +23,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,13 +36,13 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.RemoveMenu
-import com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
-import com.atelier_nyaarium.switchboard.PolicyDeleted
-import com.atelier_nyaarium.switchboard.PolicySaved
+import com.atelier_nyaarium.switchboard.EditKey
+import com.atelier_nyaarium.switchboard.MirroredDraft
+import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.rememberEdit
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.vault.grantableOn
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,27 +57,28 @@ fun PolicyEditor(
 		policyId?.let { state.gateways.policyOn(gatewayId, it) }
 	}
 	// The edit lives in the ops class, which outlives the activity.
-	val draftKey = policyId ?: "new"
-	var draft by remember(gatewayId, policyId) {
-		mutableStateOf(
-			repo.policyOps.draftFor(gatewayId, draftKey)
-				?: held?.let { PolicyDraft.of(it) }
-				?: PolicyDraft.fresh(),
-		)
-	}
-	LaunchedEffect(draft) { repo.policyOps.keepDraft(gatewayId, draftKey, draft) }
-	val close = {
-		repo.policyOps.dropDraft(gatewayId, draftKey)
-		onClose()
-	}
+	val edits = repo.policyOps.edits
+	val key = EditKey(gatewayId, policyId)
+	val listed = state.gateways.entry(gatewayId)?.policies?.listed == true
+	val open = rememberEdit(edits, key, editStanding(policyId, held, listed), "Edit policy", onClose) {
+		held?.let { PolicyDraft.of(it) } ?: PolicyDraft.fresh()
+	} ?: return
+	val opening = open.opening
+	val session = open.session
+	val close = open.close
+	// What this edit opened on; the list can go unread under it.
+	val base = remember(key, opening) { held }
+	val typed = remember(key, opening) { MirroredDraft(session.draft) { next -> edits.edit(key, opening) { next } } }
+	var draft by typed
+	// Typed while its op was out.
+	LaunchedEffect(session.busy) { if (!session.busy) edits.edit(key, opening) { draft } }
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision, gatewayId) { repo.vaultOps.views().grantableOn(gatewayId) }
-	val scope = rememberCoroutineScope()
 	var example by remember(gatewayId, policyId) { mutableStateOf("") }
 	var editing by remember(gatewayId, policyId) { mutableStateOf<String?>(null) }
-	var saving by remember(gatewayId, policyId) { mutableStateOf(false) }
-	var refused by remember(gatewayId, policyId) { mutableStateOf<String?>(null) }
-	var refusedAt by remember(gatewayId, policyId) { mutableStateOf<Long?>(null) }
+	val saving = session.busy
+	val refused = session.said?.reason
+	val refusedAt = session.said?.heldRevision
 	var confirmingDelete by remember(gatewayId, policyId) { mutableStateOf(false) }
 
 	val addExample = {
@@ -87,42 +87,29 @@ fun PolicyEditor(
 		example = ""
 		editing = null
 	}
-	val commit: () -> Unit = {
-		val candidate = draft.toPolicy()
-		if (candidate != null) {
-			saving = true
-			refused = null
-			refusedAt = null
-			scope.launch {
-				when (val saved = repo.policyOps.save(candidate, draft.revision.takeIf { it > 0L }, gatewayId)) {
-					is PolicySaved.Refused -> {
-						refused = saved.reason
-						refusedAt = saved.heldRevision
-					}
-					PolicySaved.Unreachable -> refused = GATEWAY_UNREACHABLE
-					is PolicySaved.Stored -> close()
-				}
-				saving = false
-			}
-		}
+	// Sends what is typed now, on a scope that outlives this page.
+	val commit: (PolicyDraft) -> Unit = { sent ->
+		edits.edit(key, opening) { sent }
+		repo.command { policyOps.commit(key, opening) }
 	}
 
 	EditorScaffold(
-		title = if (held == null) "New policy" else "Edit policy",
+		title = if (base == null) "New policy" else "Edit policy",
 		saving = saving,
 		canSave = draft.toPolicy() != null,
-		menu = { if (held != null) RemoveMenu("Delete policy") { confirmingDelete = true } },
+		menu = { if (base != null) RemoveMenu("Delete policy", enabled = !saving) { confirmingDelete = true } },
 		onCancel = close,
-		onSave = commit,
+		onSave = { commit(draft) },
+		leaving = open.leaving,
 	) {
 			refused?.let { reason ->
 				Card(Modifier.fillMaxWidth()) {
 					Column(Modifier.padding(12.dp)) {
 						Text(reason, style = MaterialTheme.typography.bodyMedium)
 						// An owner tap, as a runbook's overwrite is.
-						val over = refusedAt?.let { draft.over(it) }
-						if (over != null) {
-							TextButton(onClick = hapticClick { draft = over; commit() }) {
+						val over = held?.takeIf { refusedAt != null && it.revision >= refusedAt }?.let(draft::over)
+						if (over != null && !saving) {
+							TextButton(onClick = hapticClick { draft = over; commit(over) }) {
 								Text("Save over revision ${over.revision}")
 							}
 						}
@@ -210,13 +197,7 @@ fun PolicyEditor(
 			confirmText = "Delete",
 			onConfirm = {
 				confirmingDelete = false
-				scope.launch {
-					when (val deleted = repo.policyOps.delete(draft.id, draft.revision, gatewayId)) {
-						PolicyDeleted.Deleted -> close()
-						is PolicyDeleted.Refused -> refused = deleted.reason
-						PolicyDeleted.Unreachable -> refused = GATEWAY_UNREACHABLE
-					}
-				}
+				repo.command { policyOps.remove(key, opening) }
 			},
 			onDismiss = { confirmingDelete = false },
 		)

@@ -7,17 +7,17 @@ import org.junit.Test
 // The read after a mutation drew the old fixture once, and only the emulator's screen could see it.
 class SandboxPolicyGatewayTest {
 	private suspend fun SandboxPolicyGateway.ids(gatewayId: String) =
-		(list(gatewayId) as PolicyListAnswer.Listed).policies.map { it.id }
+		(list(gatewayId) as ListAnswer.Listed).rows.map { it.id }
 
 	@Test
 	fun aMutationSurvivesTheReadAfterItAndTheRefusingIdRefuses() = runBlocking {
 		val gateway = SandboxPolicyGateway()
 		val before = gateway.ids("sandbox")
-		val docker = (gateway.list("sandbox") as PolicyListAnswer.Listed).policies.first { it.id == "docker" }
+		val docker = (gateway.list("sandbox") as ListAnswer.Listed).rows.first { it.id == "docker" }
 		assertEquals(false, docker.enabled)
 
 		assertEquals(true, gateway.enable("sandbox", "docker", true, docker.revision).stored)
-		val after = (gateway.list("sandbox") as PolicyListAnswer.Listed).policies
+		val after = (gateway.list("sandbox") as ListAnswer.Listed).rows
 		assertEquals(before, after.map { it.id })
 		assertEquals(true, after.first { it.id == "docker" }.enabled)
 
@@ -31,7 +31,7 @@ class SandboxPolicyGatewayTest {
 		assertEquals(true, "held-elsewhere" in gateway.ids("sandbox"))
 
 		// A save over the revision it named lands, and the record is an ordinary one after.
-		val moved = (gateway.list("sandbox") as PolicyListAnswer.Listed).policies.first { it.id == "held-elsewhere" }
+		val moved = (gateway.list("sandbox") as ListAnswer.Listed).rows.first { it.id == "held-elsewhere" }
 		val over = gateway.put("sandbox", moved.copy(revision = 9L), 9L)
 		assertEquals(true, over.stored)
 		assertEquals(true, gateway.enable("sandbox", "held-elsewhere", false, over.revision).stored)
@@ -41,12 +41,12 @@ class SandboxPolicyGatewayTest {
 	@Test
 	fun aStaleBaseIsRefusedWithTheHeldRevisionAsTheGatewayWould() = runBlocking {
 		val gateway = SandboxPolicyGateway()
-		val apt = (gateway.list("sandbox") as PolicyListAnswer.Listed).policies.first { it.id == "apt" }
+		val apt = (gateway.list("sandbox") as ListAnswer.Listed).rows.first { it.id == "apt" }
 
 		val refused = gateway.enable("sandbox", "apt", false, apt.revision - 1)
 		assertEquals(false, refused.stored)
 		assertEquals(apt.revision, refused.revision)
-		assertEquals(true, (gateway.list("sandbox") as PolicyListAnswer.Listed).policies.first { it.id == "apt" }.enabled)
+		assertEquals(true, (gateway.list("sandbox") as ListAnswer.Listed).rows.first { it.id == "apt" }.enabled)
 
 		assertEquals(false, gateway.put("sandbox", apt.copy(name = "Renamed"), null).stored)
 		assertEquals(false, gateway.delete("sandbox", "apt", apt.revision + 5).deleted)

@@ -83,12 +83,12 @@ internal class SandboxAutomationGateway(
 		}
 	}
 
-	override suspend fun list(gatewayId: String): AutomationListAnswer {
+	override suspend fun list(gatewayId: String): ListAnswer<AutomationRow> {
 		pause()
 		return when (gatewayId) {
-			SANDBOX_NEVER_REGISTERED -> AutomationListAnswer.Unreachable
-			SECOND_SANDBOX_GATEWAY -> AutomationListAnswer.Refused
-			else -> AutomationListAnswer.Listed(shelf(gatewayId))
+			SANDBOX_NEVER_REGISTERED -> ListAnswer.Unreachable
+			SECOND_SANDBOX_GATEWAY -> ListAnswer.NotServed
+			else -> ListAnswer.Listed(shelf(gatewayId))
 		}
 	}
 

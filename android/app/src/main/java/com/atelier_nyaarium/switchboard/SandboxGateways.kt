@@ -102,7 +102,7 @@ private fun nextSlot(weeksOut: Long = 0L): Long {
 }
 
 internal class SandboxRunbookGateway : RunbookGateway {
-	override suspend fun list(gatewayId: String) = ConsoleRunbookListResult(
+	override suspend fun list(gatewayId: String): ListAnswer<Runbook> = ListAnswer.Listed(ConsoleRunbookListResult(
 		runbooks = when (gatewayId) {
 			EMPTY_GATEWAY -> emptyList()
 			// The same id, a different record, so a mix-up is visible.
@@ -135,7 +135,7 @@ internal class SandboxRunbookGateway : RunbookGateway {
 				),
 			)
 		},
-	)
+	).runbooks)
 
 	override suspend fun put(gatewayId: String, runbook: Runbook, baseRevision: Long?, overwrite: Boolean) =
 		if (runbook.id == REFUSING_ID && !overwrite) {
@@ -197,7 +197,7 @@ internal class SandboxPolicyGateway : PolicyGateway {
 		return ConsolePolicyPutResult(stored = true, revision = stored.revision, policy = stored)
 	}
 
-	override suspend fun list(gatewayId: String) = PolicyListAnswer.Listed(shelf(gatewayId))
+	override suspend fun list(gatewayId: String) = ListAnswer.Listed(shelf(gatewayId))
 
 	/** A base off the held revision is refused with it. */
 	private fun stale(gatewayId: String, policyId: String, baseRevision: Long?): ConsolePolicyPutResult? {
@@ -254,7 +254,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 	)
 
 	/** One of each panel, so no line in the tab is unreachable. */
-	override suspend fun list(gatewayId: String) = when (gatewayId) {
+	override suspend fun list(gatewayId: String): ListAnswer<RoutineState> = ListAnswer.Listed(when (gatewayId) {
 		EMPTY_GATEWAY -> ConsoleRoutineListResult(routines = emptyList())
 		// Another zone, same id as another Gateway's, and a pick this host no longer runs.
 		SECOND_GATEWAY -> ConsoleRoutineListResult(
@@ -295,7 +295,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 				),
 			),
 		)
-	}
+	}.routines)
 
 	override suspend fun put(gatewayId: String, routine: Routine, baseRevision: Long?) =
 		if (routine.id == REFUSING_ID) {

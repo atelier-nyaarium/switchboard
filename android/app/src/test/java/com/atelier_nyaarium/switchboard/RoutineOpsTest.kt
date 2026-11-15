@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
@@ -44,12 +43,14 @@ class RoutineOpsTest {
 		val asked = mutableListOf<String>()
 		val ranOn = mutableListOf<String>()
 		val unreachable = mutableSetOf<String>()
+		val refusing = mutableSetOf<String>()
 
-		override suspend fun list(gatewayId: String): ConsoleRoutineListResult {
+		override suspend fun list(gatewayId: String): ListAnswer<RoutineState> {
 			asked += gatewayId
 			held[gatewayId]?.await()
 			if (gatewayId in unreachable) throw IllegalStateException("unreachable")
-			return ConsoleRoutineListResult(routines = shelves[gatewayId].orEmpty())
+			if (gatewayId in refusing) return ListAnswer.NotServed
+			return ListAnswer.Listed(shelves[gatewayId].orEmpty())
 		}
 
 		override suspend fun put(gatewayId: String, routine: Routine, baseRevision: Long?) =
@@ -86,7 +87,7 @@ class RoutineOpsTest {
 	private fun ChatState.on(gatewayId: String) = gateways.entry(gatewayId)
 
 	/** Drawn Gateway answers. */
-	private fun ChatState.drawn() = gateways.gateways.filter { it.routines != null }.map { it.id }
+	private fun ChatState.drawn() = gateways.gateways.filter { it.routines.listed }.map { it.id }
 
 	/** Roster controls drawn groups. */
 	private fun admitting(vararg gatewayIds: String) =
@@ -103,7 +104,24 @@ class RoutineOpsTest {
 		runBlocking { ops.refreshAll() }
 
 		assertEquals(listOf("mikan", "sakura"), state.value.drawn())
-		assertEquals("Elsewhere", state.value.on("mikan")?.routines?.single()?.routine?.name)
+		assertEquals("Elsewhere", state.value.on("mikan")?.routines?.rows?.single()?.routine?.name)
+	}
+
+	@Test
+	fun aGatewayThatRefusesTheListStopsBeingDrawnAndOneOutOfReachKeepsItsRows() {
+		val fake = FakeGateway()
+		fake.shelves["sakura"] = listOf(RoutineState(routine("triage")))
+		fake.shelves["mikan"] = listOf(RoutineState(routine("triage")))
+		val state = admitting("sakura", "mikan")
+		val ops = RoutineOps(state, Host(fake))
+		runBlocking { ops.refreshAll() }
+
+		fake.unreachable += "sakura"
+		fake.refusing += "mikan"
+		runBlocking { ops.refreshAll() }
+
+		assertEquals(listOf("sakura"), state.value.drawn())
+		assertEquals(GatewayList.NotServed, state.value.on("mikan")?.routines)
 	}
 
 	@Test
@@ -135,8 +153,8 @@ class RoutineOpsTest {
 		slow.await()
 
 		// One counter per gateway, so the held read still lands under its own id.
-		assertEquals("slow", state.value.on("sakura")?.routines?.single()?.routine?.id)
-		assertEquals("quick", state.value.on("mikan")?.routines?.single()?.routine?.id)
+		assertEquals("slow", state.value.on("sakura")?.routines?.rows?.single()?.routine?.id)
+		assertEquals("quick", state.value.on("mikan")?.routines?.rows?.single()?.routine?.id)
 	}
 
 	@Test
@@ -155,7 +173,7 @@ class RoutineOpsTest {
 		gate.complete(Unit)
 		stale.await()
 
-		assertEquals("new", state.value.on("sakura")?.routines?.single()?.routine?.id)
+		assertEquals("new", state.value.on("sakura")?.routines?.rows?.single()?.routine?.id)
 	}
 
 	@Test
@@ -219,7 +237,7 @@ class RoutineOpsTest {
 		assertEquals(true, refused is RoutineSaved.Refused)
 		assertEquals("revision 2 is stored; this edits 1", ops.toggleRefusalFor("sakura", "triage"))
 		// The gateway's own state is what the row draws after a refusal.
-		assertEquals(true, state.value.on("sakura")?.routines?.single()?.routine?.enabled)
+		assertEquals(true, state.value.on("sakura")?.routines?.rows?.single()?.routine?.enabled)
 
 		fake.refuseToggles -= "triage"
 		assertEquals(true, runBlocking { ops.setEnabled("triage", false, 1L, "sakura") } is RoutineSaved.Stored)
@@ -227,22 +245,17 @@ class RoutineOpsTest {
 	}
 
 	@Test
-	fun anEditOnOneGatewayIsNotTheEditOnAnotherOfTheSameId() {
-		val ops = RoutineOps(MutableStateFlow(ChatState()), Host(null))
-		val here = RoutineDraft.of(routine("triage", name = "Here"))
-		val there = RoutineDraft.of(routine("triage", name = "There"))
+	fun anEditorsSaveLandsOnItsOpeningAndADraftThatIsNoRoutineStays() {
+		val ops = RoutineOps(admitting("sakura"), Host(FakeGateway()))
+		val key = EditKey("sakura", "triage")
+		val opening = ops.edits.open(key, RoutineDraft.of(routine("triage")))
 
-		ops.keepDraft("sakura", "triage", here)
-		ops.keepDraft("mikan", "triage", there)
-		assertEquals(here, ops.draftFor("sakura", "triage"))
-		assertEquals(there, ops.draftFor("mikan", "triage"))
+		runBlocking { ops.commit(key, opening) { null } }
+		assertEquals(SaveSaid("Not a complete routine"), ops.edits.held.value.getValue(key).said)
 
-		// A new routine shares the key "new" on every gateway, and must not share the draft.
-		ops.keepDraft("sakura", "new", here)
-		ops.keepDraft("mikan", "new", there)
-		assertEquals(here, ops.draftFor("sakura", "new"))
-
-		ops.dropDraft("sakura", "new")
-		assertEquals(there, ops.draftFor("mikan", "new"))
+		assertEquals(EditOutcome.Done, runBlocking { ops.commit(key, opening) { routine("triage") } })
+		assertEquals(EditorShowing.CLOSING, editorShowing(opening, ops.edits.held.value[key]))
+		val reopened = ops.edits.open(key, RoutineDraft.of(routine("triage")))
+		assertEquals(EditOutcome.Done, runBlocking { ops.remove(key, reopened) })
 	}
 }

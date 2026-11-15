@@ -134,7 +134,7 @@ class TrustOpsTest {
 	@Test
 	fun peersLandPerGatewayAndAGatewayThatCannotBeReadKeepsWhatItHad() = runBlocking {
 		val stale = listOf(peer("old-domain", "old-owner"))
-		val registry = testRegistry("gw-a", "gw-b").withEntry("gw-b") { it.copy(peers = stale) }
+		val registry = testRegistry("gw-a", "gw-b").withEntry("gw-b") { it.copy(peers = GatewayList.Listed(stale)) }
 		val state = MutableStateFlow(ChatState(gateways = registry))
 		val fake = Fake()
 		val ops = ops("peers", state, fake) { op ->
@@ -154,7 +154,7 @@ class TrustOpsTest {
 
 	@Test
 	fun aSessionSharesToADomainOnlyWhenItsOwnGatewayPairsWithIt() = runBlocking {
-		val registry = testRegistry("gw-a", "gw-b").withEntry("gw-a") { it.copy(peers = listOf(peer("friend-domain", "friend-owner"))) }
+		val registry = testRegistry("gw-a", "gw-b").withEntry("gw-a") { it.copy(peers = GatewayList.Listed(listOf(peer("friend-domain", "friend-owner")))) }
 		val ops = ops("shareable", MutableStateFlow(ChatState(gateways = registry)), Fake()) { null }
 		val onA = testTeam("${world.domainId}.gw-a.app.dev")
 		val onB = testTeam("${world.domainId}.gw-b.app.dev")
@@ -189,7 +189,7 @@ class TrustOpsTest {
 	fun untrustStaysPendingWhileAGatewayCouldNotBeReadThisRound() = runBlocking {
 		val fake = Fake()
 		val identity = identity().also { it.federation.addTrustedOwner("friend-owner") }
-		val registry = testRegistry("gw-a", "gw-b").withEntry("gw-b") { it.copy(peers = emptyList()) }
+		val registry = testRegistry("gw-a", "gw-b").withEntry("gw-b") { it.copy(peers = GatewayList.Listed(emptyList())) }
 		val answers = untrustAnswers(mapOf("gw-a" to peerJson("friend-domain", "friend-owner")))
 		val ops = ops("untrust-unread", MutableStateFlow(ChatState(gateways = registry)), fake, identity) { op ->
 			if (op.op["gatewayId"]?.jsonPrimitive?.content == "gw-b") null else answers(op)

@@ -2,13 +2,13 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPutResult
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.async
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
@@ -35,6 +35,7 @@ class RunbookOpsTest {
 	private class FakeGateway : RunbookGateway {
 		val stored = mutableMapOf<String, MutableMap<String, Runbook>>()
 		val puts = mutableListOf<Triple<Runbook, Long?, Boolean>>()
+		var putHold: TestHold? = null
 
 		private fun shelf(gatewayId: String) = stored.getOrPut(gatewayId) { mutableMapOf() }
 
@@ -43,9 +44,9 @@ class RunbookOpsTest {
 
 		val listed = mutableListOf<String>()
 
-		override suspend fun list(gatewayId: String): ConsoleRunbookListResult {
+		override suspend fun list(gatewayId: String): ListAnswer<Runbook> {
 			listed += gatewayId
-			return ConsoleRunbookListResult(runbooks = shelf(gatewayId).values.sortedWith(compareBy({ it.name }, { it.id })))
+			return ListAnswer.Listed(shelf(gatewayId).values.sortedWith(compareBy({ it.name }, { it.id })))
 		}
 
 		override suspend fun put(
@@ -55,6 +56,7 @@ class RunbookOpsTest {
 			overwrite: Boolean,
 		): ConsoleRunbookPutResult {
 			puts += Triple(runbook, baseRevision, overwrite)
+			putHold?.pass()
 			val shelf = shelf(gatewayId)
 			val held = shelf[runbook.id]
 			if (held == null && baseRevision != null) {
@@ -176,7 +178,7 @@ class RunbookOpsTest {
 		assertEquals(RunbookSaved.Stored, again)
 		// Still the first revision, so the retry did not land as a second edit.
 		val held = kotlinx.coroutines.runBlocking { host.fake.list(GW) }
-		assertEquals(1L, held.runbooks.single().revision)
+		assertEquals(1L, (held as ListAnswer.Listed).rows.single().revision)
 	}
 
 	@Test
@@ -194,21 +196,38 @@ class RunbookOpsTest {
 	}
 
 	@Test
-	fun anEditInProgressOutlivesTheScreenAndBelongsToOneGateway() {
-		val (ops, _) = opsOver(listOf(book("a")))
-		val here = com.atelier_nyaarium.switchboard.runbooks.RunbookDraft(id = "a", name = "Here")
-		val there = com.atelier_nyaarium.switchboard.runbooks.RunbookDraft(id = "a", name = "There")
+	fun aSaveStillOutAtAReprovisionWritesNothingToTheNextOwnersLibrary() = kotlinx.coroutines.runBlocking<Unit> {
+		val host = WithGateway()
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW))), host)
+		val hold = TestHold().also { host.fake.putHold = it }
 
-		ops.keepDraft(GW, "a", here)
-		ops.keepDraft(OTHER, "a", there)
-		// What a recreated editor asks for, holding nothing of its own.
-		assertEquals(here, ops.draftFor(GW, "a"))
-		assertEquals(there, ops.draftFor(OTHER, "a"))
+		val saved = async { ops.save(book("a", revision = 0L), GW) }
+		hold.entered.await()
+		ops.clearInMemory()
+		host.library.clearInMemory()
+		hold.release()
 
-		// Closing one editor leaves the other still being typed.
-		ops.dropDraft(GW, "a")
-		assertEquals(null, ops.draftFor(GW, "a"))
-		assertEquals(there, ops.draftFor(OTHER, "a"))
+		assertEquals(true, saved.await() is RunbookSaved.Refused)
+		assertEquals(null, host.library.find(GW, "a"))
+		assertEquals(null, ops.refusalFor(GW, "a"))
+	}
+
+	@Test
+	fun anEditorsSaveLandsOnItsOpeningAndADeleteItsGatewayNeverTookStays() {
+		val host = WithGateway()
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host)
+		val key = EditKey(GW, null)
+		val draft = com.atelier_nyaarium.switchboard.runbooks.RunbookDraft.of(book("a")).copy(revision = 0L)
+		val opening = ops.edits.open(key, draft)
+
+		assertEquals(EditOutcome.Done, kotlinx.coroutines.runBlocking { ops.commit(key, opening, overwrite = false) })
+		assertEquals(null, ops.edits.held.value[key])
+		assertEquals(EditorShowing.CLOSING, editorShowing(opening, ops.edits.held.value[key]))
+
+		kotlinx.coroutines.runBlocking { host.fake.delete(GW, "a") }
+		val reopened = ops.edits.open(key, draft)
+		kotlinx.coroutines.runBlocking { ops.remove(key, reopened) }
+		assertEquals("This Gateway still holds it; it was not reached", ops.edits.held.value.getValue(key).said?.reason)
 	}
 
 	@Test

@@ -20,8 +20,9 @@ internal data class PolicyDraft(
 	/** What was read, so a save says which record it edits. Zero means nothing was stored. */
 	val revision: Long = 0L,
 ) {
-	/** Rebased onto the revision a refusal named, so a save over it is an owner tap. */
-	fun over(held: Long): PolicyDraft? = if (held > revision) copy(revision = held) else null
+	/** Enabling is the row's, so it follows the record. */
+	fun over(held: AuthorizationPolicy): PolicyDraft? =
+		if (held.revision > revision) copy(revision = held.revision, enabled = held.enabled) else null
 
 	/** Trimmed, once; blank adds nothing. */
 	fun withExample(typed: String): PolicyDraft {

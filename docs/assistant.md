@@ -56,15 +56,16 @@ Router's record names. That Gateway feeds it events. The session decides what to
     shown Assistant re-reads its state; the phone claims `sources-changed` the same way. A poll that
     moved only its timestamps sends nothing.
   - The gear opens Assistant settings, also reachable from the app's Settings page: an index with a
-    status line per page (`AssistantSettingsLines.kt`), refreshed on open. Session data location (the
-    Gateway, the folder, Move here or Set up here), Features (below), Safety (Approve every send),
-    Sources, Automations, Remove assistant. Each page shows its own failure under its `WorkKey`.
-    `docs/console.md` holds how the pages route.
+    status line per page (`AssistantSettingsLines.kt`). Session data location (the Gateway, the
+    folder, Move here or Set up here), Features (below), Safety (Approve every send), Remove
+    assistant. Each page shows its own failure under its `WorkKey`. `docs/console.md` holds how the
+    pages route.
+  - **Sources and Automations are views in the menu,** beside Routines and Runbooks, since they are
+    a Gateway's records. Both read the home's state while shown (`readsHome`).
     - **Sources:** devices by Gateway, then the home's service sources (one row each with its health
       line, `SourceStatus`, red when it needs a secret or stopped, and a collapsible Disabled group)
       and its integration services, then the temperature unit. Add opens the catalogue
-      (`docs/devices.md`). Its status line warns "A source needs configuration" when an enabled
-      source needs a secret or stopped.
+      (`docs/devices.md`).
     - **A service source's page:** Enabled with its health line; Secret with Assign secret; Produces,
       the event and its fields; Inbox with its count; Commands, its actions; "N use this source",
       which opens Automations, for a source whose events can trigger one; the values seen outside
@@ -81,12 +82,13 @@ Router's record names. That Gateway feeds it events. The session decides what to
       every record page's removal does (`RemoveMenu`). Back on a changed draft asks "Leave and
       discard changes?" with Discard and Stay.
     - **`AutomationOps`** follows `PolicyOps`: the list per Gateway, nothing durable on the phone, a
-      fenced toggle per row, and the editor's held drafts, so Back loses no result. Every put and
+      fenced toggle per row, and the editor's edit session (`EditorSessions`), so Back loses no result. Every put and
       delete holds the lock a move holds (`AssistantOps.carriedWrite`) and is refused, unsent, once
       the home has left its Gateway. The leave dialogue belongs to the opening Back was pressed on,
       and a Back during a save leaves at once while the answer still lands. A Gateway on an older build
-      answers `watchers` and no `sources` (`servesSources`): it is drawn with no Automations row and
-      no uses line, and its source ops go as the `assistant_watcher_*` kinds. `AutomationDraft.kt`
+      answers `watchers` and no `sources` (`servesSources`): Automations offers no New
+      (`newAutomationOn`), its sources draw no uses line, and its source ops go as the
+      `assistant_watcher_*` kinds. `AutomationDraft.kt`
       holds the draft, its `outcomeOf`, `fittingAutomation` and the lines each row shows.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
     its fresh `assistant_state` and its event automations (`carriedOf`), or an older Gateway's rules
@@ -631,7 +633,7 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
   `MainActivity`, and the stopped one beneath must not take it.
 - **Landing:** placed, it lands on the Assistant's Chat; before any Gateway answers, on the last
   assistant conversation (`lastAssistant`), which the answer then retargets; unplaced, on Settings.
-  The arrival clears what draws above the shell (`dismissForArrival`) and closes the drawers.
+  The arrival clears what draws above the shell (`dismissForArrival`) and closes the drawer.
 - **The keyboard fires once** (`focusStep`), when the Chat and its composer are drawn, nothing covers
   them, the app lock is clear and the window is focused. A locked summon arms it only when our
   dismissal succeeds.

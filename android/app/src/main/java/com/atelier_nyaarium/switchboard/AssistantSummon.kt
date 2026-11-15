@@ -108,9 +108,9 @@ internal fun lastAssistant(state: ChatState, preferred: String?): String? {
 
 internal fun ShellNav.summonedTo(landing: SummonLanding, facts: (String) -> ArrivalFacts): ShellNav = when (landing) {
 	is SummonLanding.At -> arriveAt(landing.team, assistant = true, Arrival.OUTSIDE, facts(landing.team))
-	SummonLanding.Root -> copy(root = RootView.ASSISTANT, conversation = null, settings = null, assistantPage = null)
+	SummonLanding.Root -> leave().copy(root = RootView.ASSISTANT, settings = null, assistantPage = null)
 	SummonLanding.Configure ->
-		copy(root = RootView.ASSISTANT, conversation = null, settings = null, assistantPage = AssistantPage.Settings)
+		leave().copy(root = RootView.ASSISTANT, settings = null, assistantPage = AssistantPage.Settings)
 }
 
 internal enum class SummonShown { ASSISTANT_CHAT, WAITING, ELSEWHERE }
@@ -130,8 +130,8 @@ internal fun summonShown(
 	screen == ShellScreen.CONVERSATION && covered -> SummonShown.WAITING
 	screen == ShellScreen.CONVERSATION && assistantOpen && view == ConversationView.CHAT && composerShown ->
 		SummonShown.ASSISTANT_CHAT
-	screen == ShellScreen.ROOT && nav.root == RootView.ASSISTANT && (root is AssistantRoot.Loading || root is AssistantRoot.Placed) ->
-		SummonShown.WAITING
+	screen == ShellScreen.ROOT && nav.over == null && nav.root == RootView.ASSISTANT &&
+		(root is AssistantRoot.Loading || root is AssistantRoot.Placed) -> SummonShown.WAITING
 	else -> SummonShown.ELSEWHERE
 }
 

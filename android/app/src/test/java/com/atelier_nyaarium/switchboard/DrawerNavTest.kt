@@ -8,14 +8,35 @@ import org.junit.Test
 
 class DrawerNavTest {
 	private val everything = DrawerFeatures(board = true, vault = true)
-	private val team = "home.sakura.host.aaa"
+
+	@Test
+	fun `the menu lists every view in three groups`() {
+		val groups = rootViews(everything).groupBy { it.group }.values.toList()
+
+		assertEquals(
+			listOf(
+				listOf(RootView.SESSIONS, RootView.ASSISTANT, RootView.BACKLOG),
+				listOf(RootView.SOURCES, RootView.AUTOMATIONS, RootView.ROUTINES, RootView.RUNBOOKS),
+				listOf(RootView.VAULT, RootView.POLICIES, RootView.CONSOLE),
+			),
+			groups,
+		)
+	}
 
 	@Test
 	fun `a view whose plugin is off is not offered, and a held one falls back to the first`() {
 		val offered = rootViews(DrawerFeatures(board = false, vault = false))
 
 		assertEquals(
-			listOf(RootView.SESSIONS, RootView.ASSISTANT, RootView.RUNBOOKS, RootView.ROUTINES, RootView.CONSOLE),
+			listOf(
+				RootView.SESSIONS,
+				RootView.ASSISTANT,
+				RootView.SOURCES,
+				RootView.AUTOMATIONS,
+				RootView.ROUTINES,
+				RootView.RUNBOOKS,
+				RootView.CONSOLE,
+			),
 			offered,
 		)
 		assertEquals(RootView.SESSIONS, shownView(offered, RootView.VAULT))
@@ -23,15 +44,19 @@ class DrawerNavTest {
 	}
 
 	@Test
-	fun `a conversation offers its terminal only when the pane can be driven`() {
-		assertFalse(ConversationView.TERMINAL in conversationViews(everything, terminal = false))
-		assertEquals(ConversationView.entries, conversationViews(everything, terminal = true))
-		assertEquals(ConversationView.CHAT, shownView(conversationViews(everything, terminal = false), ConversationView.TERMINAL))
+	fun `a session offers its terminal only when the pane can be driven, and the assistant has no Files`() {
+		assertEquals(listOf(ConversationView.CHAT, ConversationView.FILES), conversationViews(terminal = false, assistant = false))
+		assertEquals(ConversationView.entries, conversationViews(terminal = true, assistant = false))
+		assertEquals(listOf(ConversationView.CHAT, ConversationView.TERMINAL), conversationViews(terminal = true, assistant = true))
+		assertEquals(
+			ConversationView.CHAT,
+			shownView(conversationViews(terminal = false, assistant = false), ConversationView.TERMINAL),
+		)
 	}
 
 	@Test
 	fun `Back walks to the first view, then leaves`() {
-		val offered = conversationViews(everything, terminal = true)
+		val offered = conversationViews(terminal = true, assistant = false)
 
 		assertEquals(ConversationView.CHAT, backFrom(offered, ConversationView.FILES))
 		assertNull(backFrom(offered, ConversationView.CHAT))
@@ -39,45 +64,32 @@ class DrawerNavTest {
 
 	@Test
 	fun `a tab switch keeps the view, and arriving from outside starts on chat`() {
-		val offered = conversationViews(everything, terminal = true)
+		val offered = conversationViews(terminal = true, assistant = false)
 
-		assertEquals(ConversationView.VAULT, arrivedView(ConversationView.VAULT, offered, Arrival.TAB, stuckAtLogin = false))
-		assertEquals(ConversationView.CHAT, arrivedView(ConversationView.VAULT, offered, Arrival.OUTSIDE, stuckAtLogin = false))
+		assertEquals(ConversationView.FILES, arrivedView(ConversationView.FILES, offered, Arrival.TAB, stuckAtLogin = false))
+		assertEquals(ConversationView.CHAT, arrivedView(ConversationView.FILES, offered, Arrival.OUTSIDE, stuckAtLogin = false))
 	}
 
 	@Test
 	fun `a login prompt outranks the held view, and a ref's exit outranks both`() {
-		val withTerminal = conversationViews(everything, terminal = true)
-		val without = conversationViews(everything, terminal = false)
+		val withTerminal = conversationViews(terminal = true, assistant = false)
+		val without = conversationViews(terminal = false, assistant = false)
 
-		assertEquals(ConversationView.TERMINAL, arrivedView(ConversationView.VAULT, withTerminal, Arrival.TAB, stuckAtLogin = true))
+		assertEquals(ConversationView.TERMINAL, arrivedView(ConversationView.FILES, withTerminal, Arrival.TAB, stuckAtLogin = true))
 		assertEquals(ConversationView.TERMINAL, arrivedView(ConversationView.CHAT, withTerminal, Arrival.OUTSIDE, stuckAtLogin = true))
 		assertEquals(ConversationView.CHAT, arrivedView(ConversationView.CHAT, without, Arrival.OUTSIDE, stuckAtLogin = true))
 		assertEquals(ConversationView.FILES, arrivedView(ConversationView.CHAT, withTerminal, Arrival.FILES_ASKED, stuckAtLogin = true))
 	}
 
 	@Test
-	fun `a conversation's rows name their scope and counts, and only a badge dots the button`() {
-		val quiet = ConversationFacts(team, openWindows = 0, undoneTasks = 0, pendingRequests = 0)
-		val busy = quiet.copy(openWindows = 2, undoneTasks = 4, pendingRequests = 3)
-		val quietMarks = ConversationView.entries.map { conversationMark(it, quiet) }
+	fun `pending requests badge the vault alone, and a badge dots the button`() {
+		val views = rootViews(everything)
 
-		assertEquals(DrawerMark.Detail("sakura"), conversationMark(ConversationView.RUNBOOKS, quiet))
-		assertEquals(DrawerMark.Detail("sakura"), conversationMark(ConversationView.POLICIES, quiet))
-		assertEquals(DrawerMark.Detail("host"), conversationMark(ConversationView.ROUTINES, quiet))
-		assertNull(conversationMark(ConversationView.FILES, quiet))
-		assertEquals(DrawerMark.Detail("2 windows"), conversationMark(ConversationView.FILES, busy))
-		assertEquals(DrawerMark.Detail("4 open"), conversationMark(ConversationView.BACKLOG, busy))
-		assertEquals(DrawerMark.Badge(3), conversationMark(ConversationView.VAULT, busy))
-		assertFalse(anyBadge(quietMarks))
-		assertTrue(anyBadge(ConversationView.entries.map { conversationMark(it, busy) }))
-	}
-
-	@Test
-	fun `the root badges its vault alone`() {
-		assertEquals(DrawerMark.Badge(2), rootMark(RootView.VAULT, 2))
-		assertNull(rootMark(RootView.VAULT, 0))
-		assertNull(rootMark(RootView.BACKLOG, 2))
+		assertEquals(2, rootBadge(RootView.VAULT, 2))
+		assertNull(rootBadge(RootView.VAULT, 0))
+		assertNull(rootBadge(RootView.BACKLOG, 2))
+		assertTrue(anyBadge(views.map { rootBadge(it, 2) }))
+		assertFalse(anyBadge(views.map { rootBadge(it, 0) }))
 	}
 
 	@Test

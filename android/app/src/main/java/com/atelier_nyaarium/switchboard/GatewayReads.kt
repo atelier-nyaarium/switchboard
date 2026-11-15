@@ -1,9 +1,80 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.decodeFromJsonElement
 
 internal const val GATEWAY_UNREACHABLE = "This Gateway could not be reached"
+
+internal suspend fun <T> gatewayAttempt(tag: String, call: suspend () -> T): T? = try {
+	call()
+} catch (e: CancellationException) {
+	throw e
+} catch (e: Exception) {
+	DebugLog.log(tag, "gateway call failed: ${e::class.simpleName}")
+	null
+}
+
+internal sealed interface ListAnswer<out T> {
+	data class Listed<T>(val rows: List<T>) : ListAnswer<T>
+
+	data object NotServed : ListAnswer<Nothing>
+
+	data object Unreachable : ListAnswer<Nothing>
+}
+
+/** Reads a prose refusal from a Gateway older than the token. */
+internal enum class ProseRefusal(val answer: ListAnswer<Nothing>) {
+	/** Every build serves it: a refusal is a fault. */
+	FAULT(ListAnswer.Unreachable),
+
+	// Remove 2026-11-29: the token alone says not served.
+	/** An older build lacks it. */
+	OLDER_BUILD(ListAnswer.NotServed),
+}
+
+/** The one reading of a list answer. */
+internal fun <T> listAnswerOf(
+	answer: ConsoleClient.ValueAnswer,
+	prose: ProseRefusal,
+	rows: (kotlinx.serialization.json.JsonElement) -> List<T>?,
+): ListAnswer<T> = when (answer) {
+	is ConsoleClient.ValueAnswer.Answered -> rows(answer.result)?.let { ListAnswer.Listed(it) } ?: ListAnswer.Unreachable
+	is ConsoleClient.ValueAnswer.Refused ->
+		if (answer.reason == com.atelier_nyaarium.switchboard.proto.Protocol.Wire.OP_REASON_NOT_SERVED) ListAnswer.NotServed else prose.answer
+	is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> ListAnswer.Unreachable
+}
+
+internal suspend inline fun <reified R, T> ConsoleClient.listAnswer(
+	gatewayId: String,
+	op: ConsoleOp,
+	prose: ProseRefusal,
+	crossinline rows: (R) -> List<T>,
+): ListAnswer<T> = listAnswerOf(sendValueAnswer(gatewayId, op), prose) { result ->
+	runIsolated { rows(wireJson.decodeFromJsonElement<R>(result)) }.getOrNull()
+}
+
+internal suspend fun refreshEach(gatewayIds: List<String>, refresh: suspend (String) -> Unit) {
+	coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
+}
+
+/** Silence keeps what was drawn. */
+internal fun <T> GatewayList<T>.after(answer: ListAnswer<T>): GatewayList<T> = when (answer) {
+	is ListAnswer.Listed -> GatewayList.Listed(answer.rows)
+	ListAnswer.NotServed -> GatewayList.NotServed
+	ListAnswer.Unreachable -> this
+}
+
+internal suspend fun <T> GatewayReadFence.list(tag: String, gatewayId: String, call: suspend () -> ListAnswer<T>): ListAnswer<T> =
+	when (val read = read(gatewayId) { gatewayAttempt(tag, call) ?: ListAnswer.Unreachable }) {
+		is GatewayRead.Fresh -> read.value
+		GatewayRead.Stale -> ListAnswer.Unreachable
+	}
 
 /** What a fenced read answers: the body's value, or nothing because a newer read owns the key. */
 internal sealed interface GatewayRead<out T> {
@@ -20,14 +91,22 @@ internal sealed interface GatewayRead<out T> {
 internal class GatewayReadFence {
 	private val counters = ConcurrentHashMap<String, AtomicLong>()
 
+	private val generation = AtomicLong()
+
+	/** Reads still out answer Stale. */
+	fun clear() {
+		generation.incrementAndGet()
+	}
+
 	/**
 	 * Claims a read; the body's answer is Fresh only while no later claim of the key exists. The key is
 	 * whatever the holder scopes by: a gateway id for the per-gateway tabs, a session address for windows.
 	 */
 	suspend fun <T> read(key: String, call: suspend () -> T): GatewayRead<T> {
+		val began = generation.get()
 		val counter = counters.computeIfAbsent(key) { AtomicLong(0) }
 		val mine = counter.incrementAndGet()
 		val value = call()
-		return if (mine == counter.get()) GatewayRead.Fresh(value) else GatewayRead.Stale
+		return if (mine == counter.get() && began == generation.get()) GatewayRead.Fresh(value) else GatewayRead.Stale
 	}
 }
