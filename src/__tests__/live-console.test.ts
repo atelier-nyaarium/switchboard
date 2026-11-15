@@ -65,6 +65,31 @@ describe("live console grammar", () => {
 		expect(await run("sensors.list = 2")).toMatchObject({ ok: false, issue: { code: "assignment" } });
 	});
 
+	it("orders numbers below sums and above equality, and refuses to order anything else", async () => {
+		expect(await run("1 + 2 < 4")).toEqual({ ok: true, value: true });
+		expect(await run("3 <= 3 == true")).toEqual({ ok: true, value: true });
+		expect(await run("2 > 3")).toEqual({ ok: true, value: false });
+		expect(await run("2>=3")).toEqual({ ok: true, value: false });
+		expect(await run('"a" < "b"')).toMatchObject({ ok: false, issue: { code: "wrong_type" } });
+	});
+
+	it("calls round and if by their names alone, and reads only the branch if chooses", async () => {
+		expect(await run("round(2.456, 2)")).toEqual({ ok: true, value: 2.46 });
+		expect(await run("round(-0.4)")).toEqual({ ok: true, value: 0 });
+		expect(await run('if(1 < 2, "warm", missing)')).toEqual({ ok: true, value: "warm" });
+		expect(await run('if(2 < 1, missing, sensors.read("Freezer").name)')).toMatchObject({
+			ok: true,
+			value: "Freezer",
+		});
+		expect(await run('round("x")')).toMatchObject({ ok: false, issue: { code: "wrong_args" } });
+		expect(await run("round(1, 2, 3)")).toMatchObject({ ok: false, issue: { code: "wrong_args" } });
+		expect(await run("if(1, 2, 3)")).toMatchObject({ ok: false, issue: { code: "wrong_args" } });
+		expect(await run("sensors.list.round()")).toMatchObject({ ok: false, issue: { code: "no_member" } });
+		expect(await run("shout(1)")).toMatchObject({ ok: false, issue: { code: "unknown_name", start: 0, end: 5 } });
+		expect(await run("sensors(1)")).toMatchObject({ ok: false, issue: { code: "is_entity" } });
+		expect(registry.describe("host")).toContain("round(x: Number, places?: Number) -> Number");
+	});
+
 	it("keeps partial input in the tree, flagged, and refuses it at evaluation", async () => {
 		const open = parseConsole('sensors.read("Free');
 		expect(open.statements[0]?.node).toMatchObject({ kind: "call", closed: false });

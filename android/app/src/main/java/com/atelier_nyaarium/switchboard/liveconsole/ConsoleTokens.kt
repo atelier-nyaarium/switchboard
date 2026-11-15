@@ -24,8 +24,8 @@ data class ConsoleToken(
 
 private val KEYWORDS = setOf("true", "false", "null")
 private val PUNCT = setOf('.', '(', ')', '[', ']', '{', '}', ',', ':', ';')
-private val TWO_CHAR_OPS = setOf("==", "!=")
-private val ONE_CHAR_OPS = setOf('!', '+', '-', '*', '/', '=')
+private val TWO_CHAR_OPS = setOf("==", "!=", "<=", ">=")
+private val ONE_CHAR_OPS = setOf('!', '+', '-', '*', '/', '=', '<', '>')
 private val ESCAPES = mapOf('n' to '\n', 't' to '\t', '\\' to '\\', '"' to '"', '\'' to '\'')
 
 private fun isDigit(c: Char) = c in '0'..'9'

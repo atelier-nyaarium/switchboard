@@ -29,8 +29,11 @@ export interface ConsoleToken {
 }
 
 const PUNCT = new Set([".", "(", ")", "[", "]", "{", "}", ",", ":", ";"]);
-const TWO_CHAR_OPS = new Set(["==", "!="]);
-const ONE_CHAR_OPS = new Set(["!", "+", "-", "*", "/", "="]);
+const TWO_CHAR_OPS = new Set(["==", "!=", "<=", ">="]);
+const ONE_CHAR_OPS = new Set(["!", "+", "-", "*", "/", "=", "<", ">"]);
+
+export const CONSOLE_BINARY_OPS = ["==", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/"] as const;
+export type ConsoleBinaryOp = (typeof CONSOLE_BINARY_OPS)[number];
 const ESCAPES: Record<string, string> = { n: "\n", t: "\t", "\\": "\\", '"': '"', "'": "'" };
 
 const isDigit = (c: string) => c >= "0" && c <= "9";
@@ -113,7 +116,7 @@ export type ConsoleNode = Span &
 		| { kind: "call"; target: ConsoleNode; args: ConsoleNode[]; closed: boolean }
 		| { kind: "index"; target: ConsoleNode; index: ConsoleNode | null; closed: boolean }
 		| { kind: "unary"; op: "-" | "!"; operand: ConsoleNode }
-		| { kind: "binary"; op: "==" | "!=" | "+" | "-" | "*" | "/"; left: ConsoleNode; right: ConsoleNode }
+		| { kind: "binary"; op: ConsoleBinaryOp; left: ConsoleNode; right: ConsoleNode }
 		| { kind: "list"; items: ConsoleNode[]; closed: boolean }
 		| { kind: "dict"; entries: { key: string; value: ConsoleNode }[]; closed: boolean }
 	);
@@ -211,8 +214,10 @@ class Parser {
 		return this.binary(0);
 	}
 
-	private static readonly LEVELS: readonly (readonly string[])[] = [
+	/** Loosest first. */
+	private static readonly LEVELS: readonly (readonly ConsoleBinaryOp[])[] = [
 		["==", "!="],
+		["<", ">", "<=", ">="],
 		["+", "-"],
 		["*", "/"],
 	];
@@ -222,7 +227,7 @@ class Parser {
 		if (!ops) return this.unary();
 		let left = this.binary(level + 1);
 		while (ops.some((op) => this.is(op))) {
-			const op = this.take()?.text as "==" | "!=" | "+" | "-" | "*" | "/";
+			const op = this.take()?.text as ConsoleBinaryOp;
 			const right = this.binary(level + 1);
 			left = this.node({ kind: "binary", op, left, right, start: left.start, end: right.end });
 		}

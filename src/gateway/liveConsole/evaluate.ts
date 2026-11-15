@@ -4,7 +4,7 @@ import {
 	isConsoleVariableName,
 	parseConsole,
 } from "../../shared/live-console-grammar.js";
-import { ConsoleError, elementOf, runBuiltin, sameValue } from "./builtins.js";
+import { ConsoleError, checkArgs, elementOf, freeBuiltin, runBuiltin, runFree, sameValue } from "./builtins.js";
 import type { ConsoleAudience, ConsoleEntity, ConsoleRegistry } from "./registry.js";
 
 export const CONSOLE_STEPS_MAX = 100_000;
@@ -119,8 +119,33 @@ export async function evaluateConsole(
 		return fail(node, "wrong_type", `${kindOf(target)} has no fields`);
 	};
 
+	/** A builtin called by its name alone. */
+	const free = async (node: ConsoleNode & { kind: "call" }, name: string): Promise<unknown> => {
+		if (registry.get(name, audience)) return fail(node, "is_entity", `${name} is an entity; pick a member`);
+		const builtin = freeBuiltin(name);
+		if (!builtin) return fail(node.target, "unknown_name", `no function ${name}()`);
+		try {
+			if (!builtin.lazy) {
+				const args: unknown[] = [];
+				for (const arg of node.args) args.push(scalar(arg, await walk(arg)));
+				return runFree(builtin, args, step);
+			}
+			// Only the chosen branch is read.
+			const [when, ...branches] = node.args;
+			const held = when ? scalar(when, await walk(when)) : undefined;
+			checkArgs(builtin, [held, ...branches.map(() => null)]);
+			const chosen = branches[held ? 0 : 1];
+			return chosen ? await walk(chosen) : null;
+		} catch (error) {
+			if (error instanceof ConsoleError && !(error instanceof Located))
+				return fail(node, error.code, error.message);
+			throw error;
+		}
+	};
+
 	const call = async (node: ConsoleNode & { kind: "call" }): Promise<unknown> => {
-		if (node.target.kind !== "member") return fail(node, "not_callable", "only a member can be called");
+		if (node.target.kind === "ident") return free(node, node.target.name);
+		if (node.target.kind !== "member") return fail(node, "not_callable", "only a name can be called");
 		const owner = await walk(node.target.target);
 		const name = node.target.name;
 		const args: unknown[] = [];
@@ -238,17 +263,26 @@ export async function evaluateConsole(
 						`${node.op} needs two numbers, not ${kindOf(left)} and ${kindOf(right)}`,
 					);
 				}
-				if (node.op === "/" && right === 0) return fail(node, "division_by_zero", "division by zero");
-				return finite(
-					node,
-					node.op === "+"
-						? left + right
-						: node.op === "-"
-							? left - right
-							: node.op === "*"
-								? left * right
-								: left / right,
-				);
+				switch (node.op) {
+					case "<":
+						return left < right;
+					case ">":
+						return left > right;
+					case "<=":
+						return left <= right;
+					case ">=":
+						return left >= right;
+					case "+":
+						return finite(node, left + right);
+					case "-":
+						return finite(node, left - right);
+					case "*":
+						return finite(node, left * right);
+					default:
+						return right === 0
+							? fail(node, "division_by_zero", "division by zero")
+							: finite(node, left / right);
+				}
 			}
 			case "list": {
 				const items: unknown[] = [];

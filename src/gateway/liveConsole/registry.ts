@@ -88,12 +88,16 @@ export function describeEntity(entity: ConsoleEntity): ConsoleEntityDescription 
 const BUILTIN_DESCRIPTIONS: ConsoleDescription["builtins"] = BUILTINS.map((builtin) => ({
 	name: builtin.name,
 	receiver: builtin.receiver,
-	params: builtin.params.map((param) => ({ name: param.name, type: param.type })),
+	params: builtin.params.map((param) => ({
+		name: param.name,
+		type: param.type,
+		...(param.optional ? { optional: true } : {}),
+	})),
 	returns: builtin.returns,
 	description: builtin.description,
 }));
 
-const RECEIVERS = { list: "List", object: "Record", collection: "List or Record" } as const;
+const RECEIVERS = { list: "List.", object: "Record.", collection: "List or Record.", none: "" } as const;
 
 const params = (list: readonly { name: string; type: string; optional?: boolean }[]) =>
 	list.map((param) => `${param.name}${param.optional ? "?" : ""}: ${param.type}`).join(", ");
@@ -113,11 +117,11 @@ function descriptionText(description: ConsoleDescription): string {
 		list.length === 0 ? [] : [title, ...list.flatMap(entityText), ""];
 	return [
 		"Read-only expressions over this Gateway.",
-		'Grammar: paths and calls (sensors.read("Freezer")), indexing (x[0], x["key"]), == != ! + - * /, lists [a, b] and dicts {k: v}. No assignment.',
+		'Grammar: paths and calls (sensors.read("Freezer")), indexing (x[0], x["key"]), == != < > <= >= ! + - * /, lists [a, b] and dicts {k: v}. No assignment.',
 		"Builtins on values:",
 		...description.builtins.map(
 			(builtin) =>
-				`  ${RECEIVERS[builtin.receiver]}.${builtin.name}(${params(builtin.params)}) -> ${builtin.returns}  ${builtin.description}`,
+				`  ${RECEIVERS[builtin.receiver]}${builtin.name}(${params(builtin.params)}) -> ${builtin.returns}  ${builtin.description}`,
 		),
 		"Type an entity's name alone to list its members.",
 		"",

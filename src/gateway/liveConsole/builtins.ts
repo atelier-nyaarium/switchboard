@@ -1,4 +1,5 @@
 import { canonicalJson } from "../../shared/canonical-json.js";
+import { roundTo } from "../../shared/field-types.js";
 
 export class ConsoleError extends Error {
 	constructor(
@@ -9,14 +10,17 @@ export class ConsoleError extends Error {
 	}
 }
 
-type Receiver = "list" | "object" | "collection";
+/** `none` is called by its name alone. */
+type Receiver = "list" | "object" | "collection" | "none";
 
 export interface Builtin {
 	name: string;
 	receiver: Receiver;
-	params: readonly { name: string; check: (value: unknown) => boolean; type: string }[];
+	params: readonly { name: string; check: (value: unknown) => boolean; type: string; optional?: boolean }[];
 	returns: string;
 	description: string;
+	/** Reads only the arguments it needs. */
+	lazy?: boolean;
 	/** Receiver sets result type. */
 	type: (receiver: string | undefined) => string | undefined;
 	/** Charge steps for work. */
@@ -28,6 +32,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const count = (value: unknown) => Number.isInteger(value) && (value as number) >= 0;
 const field = (value: unknown) => typeof value === "string";
 const any = () => true;
+const number = (value: unknown) => typeof value === "number";
+const places = (value: unknown) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 6;
 const same = (receiver: string | undefined) => receiver;
 export const elementOf = (type: string | undefined) => type?.match(/^List<(.+)>$/)?.[1];
 
@@ -111,16 +117,74 @@ export const BUILTINS: readonly Builtin[] = [
 			});
 		},
 	},
+	{
+		name: "round",
+		receiver: "none",
+		params: [
+			{ name: "x", check: number, type: "Number" },
+			{ name: "places", check: places, type: "Number", optional: true },
+		],
+		returns: "Number",
+		description: "x to that many decimals, none when left out.",
+		type: () => undefined,
+		run: (_receiver, [x, digits]) => roundTo(x as number, (digits as number | undefined) ?? 0),
+	},
+	{
+		name: "if",
+		receiver: "none",
+		params: [
+			{ name: "when", check: (value) => typeof value === "boolean", type: "Yes/no" },
+			{ name: "then", check: any, type: "Any" },
+			{ name: "otherwise", check: any, type: "Any" },
+		],
+		returns: "Any",
+		description: "then when it holds, else otherwise; only the one chosen is read.",
+		lazy: true,
+		type: () => undefined,
+		run: (_receiver, [when, then, otherwise]) => (when ? then : otherwise),
+	},
 ];
 
-const BY_NAME = new Map(BUILTINS.map((builtin) => [builtin.name, builtin]));
+const BY_NAME = new Map(
+	BUILTINS.filter((builtin) => builtin.receiver !== "none").map((builtin) => [builtin.name, builtin]),
+);
+const FREE = new Map(
+	BUILTINS.filter((builtin) => builtin.receiver === "none").map((builtin) => [builtin.name, builtin]),
+);
+
+/** A builtin called by its name alone. */
+export const freeBuiltin = (name: string): Builtin | undefined => FREE.get(name);
+
+const arity = ({ name, params }: Builtin): string => {
+	const required = params.filter((param) => !param.optional).length;
+	const range = required === params.length ? `${required}` : `${required} to ${params.length}`;
+	return `${name}() takes ${range} argument${params.length === 1 ? "" : "s"}`;
+};
+
+/** Argument count and kinds. */
+export function checkArgs(builtin: Builtin, args: readonly unknown[]): void {
+	const required = builtin.params.filter((param) => !param.optional).length;
+	if (args.length < required || args.length > builtin.params.length) {
+		throw new ConsoleError("wrong_args", arity(builtin));
+	}
+	args.forEach((arg, at) => {
+		const param = builtin.params[at];
+		if (param && !param.check(arg))
+			throw new ConsoleError("wrong_args", `${builtin.name}(): ${param.name} must be ${param.type}`);
+	});
+}
+
+export function runFree(builtin: Builtin, args: unknown[], step: (count: number) => void): unknown {
+	checkArgs(builtin, args);
+	return builtin.run(null, args, step);
+}
 
 const fits = (receiver: Receiver, value: unknown) =>
 	receiver === "list"
 		? Array.isArray(value)
 		: receiver === "object"
 			? isRecord(value)
-			: Array.isArray(value) || isRecord(value);
+			: receiver === "collection" && (Array.isArray(value) || isRecord(value));
 
 export function runBuiltin(
 	name: string,
@@ -130,22 +194,18 @@ export function runBuiltin(
 	step: (count: number) => void,
 ): { value: unknown; type: string | undefined } {
 	const builtin = BY_NAME.get(name);
-	if (!builtin) throw new ConsoleError("no_member", `no builtin ${name}()`);
+	if (!builtin) {
+		throw new ConsoleError(
+			"no_member",
+			FREE.has(name) ? `${name}() is called by its name alone` : `no builtin ${name}()`,
+		);
+	}
 	if (!fits(builtin.receiver, receiver)) {
 		throw new ConsoleError(
 			"wrong_type",
 			`${name}() works on a ${builtin.receiver === "collection" ? "list or record" : builtin.receiver}`,
 		);
 	}
-	if (args.length !== builtin.params.length) {
-		throw new ConsoleError(
-			"wrong_args",
-			`${name}() takes ${builtin.params.length} argument${builtin.params.length === 1 ? "" : "s"}`,
-		);
-	}
-	builtin.params.forEach((param, at) => {
-		if (!param.check(args[at]))
-			throw new ConsoleError("wrong_args", `${name}(): ${param.name} must be ${param.type}`);
-	});
+	checkArgs(builtin, args);
 	return { value: builtin.run(receiver, args, step), type: builtin.type(held) };
 }

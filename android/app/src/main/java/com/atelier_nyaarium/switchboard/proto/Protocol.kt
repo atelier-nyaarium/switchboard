@@ -4994,6 +4994,8 @@ data class ConsoleBuiltinDescription(
 data class ConsoleBuiltinParam(
 	val name: String,
 	val type: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val optional: Boolean? = null,
 )
 
 @Serializable

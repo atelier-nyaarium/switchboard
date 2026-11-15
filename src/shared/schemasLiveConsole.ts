@@ -71,8 +71,13 @@ export const ConsoleEntityDescriptionSchema = z
 export const ConsoleBuiltinDescriptionSchema = z
 	.object({
 		name: z.string(),
-		receiver: z.enum(["list", "object", "collection"]),
-		params: z.array(z.object({ name: z.string(), type: z.string() }).meta({ id: "ConsoleBuiltinParam" })),
+		/** `none` is called by its name alone. */
+		receiver: z.enum(["list", "object", "collection", "none"]),
+		params: z.array(
+			z
+				.object({ name: z.string(), type: z.string(), optional: z.boolean().optional() })
+				.meta({ id: "ConsoleBuiltinParam" }),
+		),
 		returns: z.string(),
 		description: z.string(),
 	})
