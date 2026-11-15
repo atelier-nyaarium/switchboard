@@ -216,7 +216,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		sensors_clear: new SensorsClear((members) => deps.clearSensorEvents?.(members) ?? false),
 	};
 
-	// The files keep their names, so the build before sources still reads them.
+	// An older build reads these names.
 	const sourceState = openDurable(deps.dataDir, "assistant-watchers", (store) => createSourceStateStore(store));
 	const enabled = openDurable(deps.dataDir, "assistant-watcher-enabled", (store) => createSourceEnabledStore(store));
 	// Unknown source returns undefined.
@@ -243,7 +243,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					kind: "plugin_action",
 					session_id: sessionId,
 					pluginId: "assistant",
-					// The phone's word until it reads sources.
+					// The phone reads this word.
 					actionType: "watchers-changed",
 					payload: { watcherId: sourceId },
 				},
@@ -734,7 +734,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			const { baseline: hold } = renderPhoneHold(phoneHold.answer());
 			return {
 				hold,
-				// Sent as `sources` once every plugin reads it.
+				// Older plugins read `watchers`.
 				watchers: sources
 					.filter((source) => enabled.enabled(source.id))
 					.map((source) => {
