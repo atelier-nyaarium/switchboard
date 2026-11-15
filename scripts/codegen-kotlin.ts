@@ -1053,6 +1053,9 @@ function emitParams(node: Json, defs: Map<string, Json>, omit: Set<string>): str
 					: `${INDENT}val ${kotlinIdentifier(name)}: ${type} = ${literal},`,
 			);
 		} else if (optional) {
+			// Absent and null are two shapes; no Json setting picks.
+			const mode = required.has(name) ? "ALWAYS" : "NEVER";
+			lines.push(`${INDENT}@EncodeDefault(EncodeDefault.Mode.${mode})`);
 			lines.push(`${INDENT}val ${kotlinIdentifier(name)}: ${baseType}? = null,`);
 		} else {
 			lines.push(`${INDENT}val ${kotlinIdentifier(name)}: ${baseType},`);
@@ -1683,8 +1686,9 @@ const header = `// generated from src/shared/schemas.ts + src/shared/console-pro
 // Decode with ignoreUnknownKeys = true. Enum-like fields are open Strings, so a console
 // tolerates values newer than its build.
 //
-// Keep encodeDefaults false: zod .optional() rejects an explicit null. Enabling it MUST pair
-// with explicitNulls = false. Required consts become parameters.
+// Each nullable field states how it encodes: a required one always writes its null, an optional
+// one never does, since zod .optional() rejects an explicit null and .nullable() rejects absence.
+// No Json setting may decide it, so never set explicitNulls. Required consts become parameters.
 //
 @file:Suppress("unused")
 @file:OptIn(ExperimentalSerializationApi::class)

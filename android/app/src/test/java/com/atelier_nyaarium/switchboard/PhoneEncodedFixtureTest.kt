@@ -14,9 +14,12 @@ import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.proto.PhoneStatusAnswer
+import com.atelier_nyaarium.switchboard.proto.PhoneStatusKey
 import java.io.File
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -24,13 +27,13 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-private const val FIXTURE = "assistant-home/sealed.json"
+private const val FIXTURE = "phone-encoded/cases.json"
 
 /**
- * The sealed home payload as this phone encodes it; `assistant-home-sealed.test.ts` parses the same file.
- * Regenerate with `UPDATE_FIXTURES=1 ./gradlew :app:testDebugUnitTest --tests '*AssistantHomeSealedFixtureTest*'`.
+ * What this phone encodes, as it encodes it; `phone-encoded.test.ts` parses the same file by schema.
+ * Regenerate with `UPDATE_FIXTURES=1 ./gradlew :app:testDebugUnitTest --tests '*PhoneEncodedFixtureTest*'`.
  */
-class AssistantHomeSealedFixtureTest {
+class PhoneEncodedFixtureTest {
 	private fun source(id: String, label: String, grants: List<String>, enabled: Boolean, triggers: Boolean) = AssistantSource(
 		id = id,
 		label = label,
@@ -113,24 +116,31 @@ class AssistantHomeSealedFixtureTest {
 		"a home with no automations" to AssistantHomeSealed("~/notes", carriedOf(current, emptyList())),
 		"a home on an older build" to AssistantHomeSealed("~/notes", carriedOf(older, null)),
 		"nothing carried" to AssistantHomeSealed("~/fresh", null),
-	)
+	).map { (name, sealed) -> Case(name, "AssistantHomeSealed", wireJson.encodeToJsonElement(AssistantHomeSealed.serializer(), sealed)) } +
+		listOf(
+			PhoneStatusAnswer(holder = null, keys = emptyList()),
+			PhoneStatusAnswer(holder = "pixel", keys = listOf(PhoneStatusKey("torch", available = false, reason = "disabled", needs = emptyList()))),
+		).map { Case("a status held by ${it.holder ?: "nobody"}", "PhoneStatusAnswer", wireJson.encodeToJsonElement(PhoneStatusAnswer.serializer(), it)) }
+
+	private class Case(val name: String, val schema: String, val value: JsonElement)
 
 	@OptIn(ExperimentalSerializationApi::class)
 	private fun rendered(): String {
-		val pretty = Json(sealedJson) {
+		val pretty = Json(wireJson) {
 			prettyPrint = true
 			prettyPrintIndent = "\t"
 		}
 		val corpus = buildJsonObject {
-			put("description", "The assistant home's sealed plaintext, as the Kotlin phone encodes it.")
+			put("description", "Values the Kotlin phone encodes, each named by the schema the Gateway parses it with.")
 			put(
 				"cases",
 				buildJsonArray {
-					for ((name, sealed) in cases) {
+					for (case in cases) {
 						add(
 							buildJsonObject {
-								put("name", name)
-								put("sealed", sealedJson.encodeToJsonElement(AssistantHomeSealed.serializer(), sealed))
+								put("name", case.name)
+								put("schema", case.schema)
+								put("value", case.value)
 							},
 						)
 					}
@@ -141,7 +151,7 @@ class AssistantHomeSealedFixtureTest {
 	}
 
 	@Test
-	fun theCommittedPayloadsAreWhatThisPhoneSeals() {
+	fun theCommittedCasesAreWhatThisPhoneEncodes() {
 		val fresh = rendered()
 		if (System.getenv("UPDATE_FIXTURES") != null) {
 			File("../../tests/fixtures/$FIXTURE").writeText(fresh)

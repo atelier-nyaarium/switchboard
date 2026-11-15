@@ -3,8 +3,9 @@
 // Decode with ignoreUnknownKeys = true. Enum-like fields are open Strings, so a console
 // tolerates values newer than its build.
 //
-// Keep encodeDefaults false: zod .optional() rejects an explicit null. Enabling it MUST pair
-// with explicitNulls = false. Required consts become parameters.
+// Each nullable field states how it encodes: a required one always writes its null, an optional
+// one never does, since zod .optional() rejects an explicit null and .nullable() rejects absence.
+// No Json setting may decide it, so never set explicitNulls. Required consts become parameters.
 //
 @file:Suppress("unused")
 @file:OptIn(ExperimentalSerializationApi::class)
@@ -431,6 +432,7 @@ data class PhoneHold(
 @Serializable
 data class PhoneHoldPlane(
 	val version: Long,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val hold: PhoneHold? = null,
 )
 
@@ -443,6 +445,7 @@ data class HoldClaimValue(
 @Serializable
 data class HoldClaimResult(
 	val hold: PhoneHold,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val lineage: PlaneLineage? = null,
 )
 
@@ -456,6 +459,7 @@ data class PhoneHoldReadValue(
 data class PhoneStatusKey(
 	val key: String,
 	val available: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 	val needs: List<String>,
 )
@@ -466,6 +470,7 @@ data class PhoneContact(
 	val name: String,
 	val phones: List<String>,
 	val emails: List<String>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val birthday: String? = null,
 )
 
@@ -474,6 +479,7 @@ class PhoneStatusRequest
 
 @Serializable
 data class PhoneStatusAnswer(
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val holder: String? = null,
 	val keys: List<PhoneStatusKey>,
 )
@@ -482,6 +488,7 @@ data class PhoneStatusAnswer(
 data class ContactsSearchRequest(
 	/** A name, number or email fragment. */
 	val query: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val limit: Long? = null,
 )
 
@@ -492,21 +499,28 @@ data class ContactsSearchAnswer(
 
 @Serializable
 data class CalendarEventsRequest(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val from: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val days: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val query: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val limit: Long? = null,
 )
 
 @Serializable
 data class CalendarEventsAnswer(
 	val events: List<PhoneCalendarEvent>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val partial: Boolean? = null,
 )
 
 @Serializable
 data class NotificationsRecentRequest(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val app: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val limit: Long? = null,
 )
 
@@ -529,6 +543,7 @@ data class NotificationReplyAnswer(
 @Serializable
 data class TorchRequest(
 	val on: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val strength: Long? = null,
 )
 
@@ -541,6 +556,7 @@ data class TorchAnswer(
 @Serializable
 data class MapsOpenRequest(
 	val query: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val navigate: Boolean? = null,
 )
 
@@ -557,7 +573,9 @@ data class AppOpenRequest(
 @Serializable
 data class AppOpenAnswer(
 	val opened: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val `package`: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val candidates: List<LaunchableApp>? = null,
 )
 
@@ -565,6 +583,7 @@ data class AppOpenAnswer(
 data class AlarmSetRequest(
 	val hour: Long,
 	val minutes: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val message: String? = null,
 )
 
@@ -576,6 +595,7 @@ data class AlarmSetAnswer(
 @Serializable
 data class TimerSetRequest(
 	val seconds: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val message: String? = null,
 )
 
@@ -588,6 +608,7 @@ data class TimerSetAnswer(
 data class SmsRequest(
 	val to: String,
 	val body: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val send: Boolean? = null,
 )
 
@@ -600,6 +621,7 @@ data class SmsAnswer(
 @Serializable
 data class CallRequest(
 	val number: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val place: Boolean? = null,
 )
 
@@ -611,8 +633,11 @@ data class CallAnswer(
 @Serializable
 data class IftttTriggerRequest(
 	val event: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val value1: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val value2: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val value3: String? = null,
 )
 
@@ -645,7 +670,9 @@ sealed class PhoneCapabilityAnswer {
 	@SerialName("unavailable")
 	data class Unavailable(
 		val reason: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val needs: List<String>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val detail: String? = null,
 	) : PhoneCapabilityAnswer()
 }
@@ -665,13 +692,20 @@ data class ChannelFile(
 	val mime: String,
 	val size: Long,
 	val descriptiveKey: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val modifiedAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val blobId: String? = null,
 	val role: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val ref: RefFileMeta? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val cardTitle: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val cardGroup: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val cardWidth: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val cardHeight: Long? = null,
 )
 
@@ -681,23 +715,39 @@ data class TeamInfo(
 	val gatewayId: String,
 	val domainId: String,
 	val status: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val mode: String? = null,
 	val kind: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sessionLabel: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val harness: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val role: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val description: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val version: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastActive: Long? = null,
 	val queue_depth: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val working: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val needsLogin: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val limitBlocked: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val limitDetail: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val workflow: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val teammates: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val compacting: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val promptId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val presenceFresh: String? = null,
 )
 
@@ -707,22 +757,39 @@ data class MailboxEntry(
 	val at: Long,
 	val kind: String,
 	val session_id: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val from: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val to: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val dedupeKey: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val opId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val title: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val summary: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val body: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val fullSpoken: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val status: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val files: List<ChannelFile>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val pluginId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val actionType: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val payload: JsonObject? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val notify: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val threads: List<AssistantRecordThread>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val guard: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val launch: String? = null,
 )
 
@@ -749,8 +816,10 @@ sealed class ConsoleOp {
 	@SerialName("send")
 	data class Send(
 		val to: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val domainId: String? = null,
 		val body: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val files: List<ChannelFile>? = null,
 	) : ConsoleOp()
 
@@ -758,9 +827,13 @@ sealed class ConsoleOp {
 	@SerialName("respond")
 	data class Respond(
 		val session_id: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val status: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val response: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val replyAsJson: JsonObject? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val files: List<ChannelFile>? = null,
 	) : ConsoleOp()
 
@@ -768,6 +841,7 @@ sealed class ConsoleOp {
 	@SerialName("peek")
 	data class Peek(
 		val target: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val sinceHash: String? = null,
 	) : ConsoleOp()
 
@@ -775,8 +849,11 @@ sealed class ConsoleOp {
 	@SerialName("tmux_send")
 	data class TmuxSend(
 		val target: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val text: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val key: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val submit: Boolean? = null,
 	) : ConsoleOp()
 
@@ -784,9 +861,13 @@ sealed class ConsoleOp {
 	@SerialName("create_session")
 	data class CreateSession(
 		val target: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val sessionName: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val displayLabel: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val workdir: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val harness: String? = null,
 	) : ConsoleOp()
 
@@ -808,6 +889,7 @@ sealed class ConsoleOp {
 		val target: String,
 		val promptId: String,
 		val decision: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val reason: String? = null,
 	) : ConsoleOp()
 
@@ -815,6 +897,7 @@ sealed class ConsoleOp {
 	@SerialName("forget")
 	data class Forget(
 		val target: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val boardDisposition: String? = null,
 	) : ConsoleOp()
 
@@ -835,6 +918,7 @@ sealed class ConsoleOp {
 	@SerialName("wake")
 	data class Wake(
 		val target: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val harness: String? = null,
 	) : ConsoleOp()
 
@@ -843,7 +927,9 @@ sealed class ConsoleOp {
 	data class SessionCutPlan(
 		val target: String,
 		val mode: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val rowAt: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val rowText: String? = null,
 	) : ConsoleOp()
 
@@ -852,7 +938,9 @@ sealed class ConsoleOp {
 	data class SessionCutStart(
 		val target: String,
 		val mode: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val rowAt: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val rowText: String? = null,
 	) : ConsoleOp()
 
@@ -872,6 +960,7 @@ sealed class ConsoleOp {
 	@SerialName("list_dirs")
 	data class ListDirs(
 		val path: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val spawn: String? = null,
 	) : ConsoleOp()
 
@@ -985,7 +1074,9 @@ sealed class ConsoleOp {
 	@Serializable
 	@SerialName("cross_domain_cancel")
 	data class CrossDomainCancel(
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val listeningToken: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val pin: String? = null,
 	) : ConsoleOp()
 
@@ -1010,7 +1101,9 @@ sealed class ConsoleOp {
 	data class VaultAnswer(
 		val requestId: String,
 		val decision: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val value: ContentEnvelope? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val note: String? = null,
 	) : ConsoleOp()
 
@@ -1032,7 +1125,9 @@ sealed class ConsoleOp {
 	@SerialName("runbook_put")
 	data class RunbookPut(
 		val runbook: Runbook,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val baseRevision: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val overwrite: Boolean? = null,
 	) : ConsoleOp()
 
@@ -1055,6 +1150,7 @@ sealed class ConsoleOp {
 		val runbookId: String,
 		val values: JsonObject,
 		val into: RunbookFireTarget,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val expectedRevision: Long? = null,
 	) : ConsoleOp()
 
@@ -1066,6 +1162,7 @@ sealed class ConsoleOp {
 	@SerialName("routine_put")
 	data class RoutinePut(
 		val routine: Routine,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val baseRevision: Long? = null,
 	) : ConsoleOp()
 
@@ -1117,6 +1214,7 @@ sealed class ConsoleOp {
 	@SerialName("policy_put")
 	data class PolicyPut(
 		val policy: AuthorizationPolicy,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val baseRevision: Long? = null,
 	) : ConsoleOp()
 
@@ -1158,7 +1256,9 @@ sealed class ConsoleOp {
 	data class SensorThresholdPut(
 		val id: String,
 		val measure: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val low: Double? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val high: Double? = null,
 		val deadZone: Double,
 		val coolDownSec: Long,
@@ -1177,10 +1277,14 @@ sealed class ConsoleOp {
 	@SerialName("device_add")
 	data class DeviceAdd(
 		val mac: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val address: String? = null,
 		val name: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val radio: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val definition: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val advert: DeviceAdvert? = null,
 	) : ConsoleOp()
 
@@ -1235,7 +1339,9 @@ sealed class ConsoleOp {
 	@SerialName("console_eval")
 	data class ConsoleEval(
 		val expr: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val limit: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val variables: JsonObject? = null,
 	) : ConsoleOp()
 
@@ -1327,6 +1433,7 @@ sealed class ConsoleOp {
 	data class AssistantRuleMove(
 		val watcherId: String,
 		val ruleId: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val beforeId: String? = null,
 		val baseRevision: Long,
 	) : ConsoleOp()
@@ -1363,6 +1470,7 @@ sealed class ConsoleOp {
 	data class AssistantSendAnswer(
 		val requestId: String,
 		val decision: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val note: String? = null,
 	) : ConsoleOp()
 
@@ -1378,6 +1486,7 @@ sealed class ConsoleOp {
 	data class AssistantActAnswer(
 		val requestId: String,
 		val decision: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val note: String? = null,
 	) : ConsoleOp()
 }
@@ -1388,17 +1497,29 @@ data class ConsolePollResult(
 	val cursor: Long,
 	val dropped: Long,
 	val epoch: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val domainVersion: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val domain: DomainSnapshot? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val presence: List<TeamInfo>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val presenceVersions: List<PresenceVersion>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val linkedPeers: List<CrossDomainPeerEntry>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val linkedPeersVersion: LinkedPeersVersion? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val readAnchors: List<ReadAnchorWireEntry>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val readAnchorsVersion: ReadAnchorsVersion? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val taskBoard: List<BoardEntry>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val taskBoardVersion: TaskBoardVersion? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val taskBoardTruncated: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val settled: String? = null,
 )
 
@@ -1420,6 +1541,7 @@ data class SignedFirstRoot(
 @Serializable
 data class CrossDomainPresenceEntry(
 	val domainId: String,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val displayName: String? = null,
 	val version: CrossDomainPresenceVersion,
 	val sessions: List<CrossDomainPresenceSession>,
@@ -1442,6 +1564,7 @@ data class ConsoleHelloFrame(
 	@EncodeDefault
 	val type: String = "hello",
 	val ownerOp: OwnerOp,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val mode: String? = null,
 )
 
@@ -1470,6 +1593,7 @@ data class ConsoleWelcomeFrame(
 	val cursorEpoch: Long,
 	val floor: Long,
 	val versions: JsonObject,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val migrationEpoch: Long? = null,
 )
 
@@ -1489,6 +1613,7 @@ data class ConsolePlaneFrame(
 	val incarnation: Long,
 	val name: String,
 	val lineage: PlaneLineage,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val payload: JsonElement? = null,
 )
 
@@ -1497,7 +1622,9 @@ data class ConsoleRefusedFrame(
 	@EncodeDefault
 	val type: String = "refused",
 	val reason: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val floor: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val dropped: Long? = null,
 )
 
@@ -1510,10 +1637,14 @@ data class ConsolePongFrame(
 
 @Serializable
 data class ConsolePeekResult(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val ansi: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val text: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val kind: String? = null,
 	val hash: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val unchanged: Boolean? = null,
 )
 
@@ -1526,8 +1657,11 @@ data class ConsoleTmuxSendResult(
 data class ConsoleCreateSessionResult(
 	val created: Boolean,
 	val id: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sessionLabel: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val labelSanitized: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val status: String? = null,
 )
 
@@ -1543,6 +1677,7 @@ data class ConsoleContainerResult(
 
 @Serializable
 data class ConsoleSessionPromptResult(
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val prompt: SessionPrompt? = null,
 )
 
@@ -1554,6 +1689,7 @@ data class ConsoleSessionPromptAnswerResult(
 @Serializable
 data class ConsoleForgetResult(
 	val killed: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val boardDisposition: String? = null,
 )
 
@@ -1570,13 +1706,16 @@ data class ConsoleCloseSessionResult(
 @Serializable
 data class ConsoleRenameSessionResult(
 	val renamed: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sessionLabel: String? = null,
 )
 
 @Serializable
 data class ConsoleListDirsResult(
 	val entries: List<String>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val truncated: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val path: String? = null,
 )
 
@@ -1620,43 +1759,61 @@ data class BlobFetchValue(
 	@EncodeDefault
 	val kind: String = "blob_fetch",
 	val blobId: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val range: BlobRange? = null,
 )
 
 @Serializable
 data class BlobBeginAnswer(
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lease: BlobLease? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val have: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class BlobChunkAnswer(
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val have: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val complete: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class BlobUploadStatusAnswer(
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val have: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lease: BlobLease? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val size: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val ciphertextSize: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val ciphertextDigest: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val epoch: Long? = null,
 )
 
 @Serializable
 data class BlobFetchAnswer(
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val bytes: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val eof: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val epoch: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val offset: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val size: Long? = null,
 )
 
@@ -1695,14 +1852,23 @@ data class CrossDomainCancelResult(
 @Serializable
 data class CrossDomainListenStateResult(
 	val pairingArrived: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val pin: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sas: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val friendOwnerSignPub: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val friendGatewaySignPub: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val friendGatewayBoxPub: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val friendDomainId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val friendGatewayId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val expiresAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val expired: Boolean? = null,
 )
 
@@ -1759,34 +1925,48 @@ data class ConsolePolicyListResult(
 data class ConsolePolicyPutResult(
 	val stored: Boolean,
 	val revision: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val policy: AuthorizationPolicy? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class ConsolePolicyDeleteResult(
 	val deleted: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class ConsoleSessionCutPlanResult(
 	val planned: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val detail: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val keepAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val keepText: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val snapped: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val keptRows: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val foldedRows: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val keptBytes: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sourceBytes: Long? = null,
 )
 
 @Serializable
 data class ConsoleSessionCutStartResult(
 	val started: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val detail: String? = null,
 )
 
@@ -1797,7 +1977,9 @@ data class DeviceRecord(
 	val kind: String,
 	val driver: String,
 	val address: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val radio: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val definition: String? = null,
 	val revision: Long,
 )
@@ -1810,6 +1992,7 @@ data class DeviceLiveState(
 
 @Serializable
 data class DeviceScheduleRule(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val id: String? = null,
 	val days: List<Boolean>,
 	val time: String,
@@ -1899,8 +2082,11 @@ data class DeviceLanded(
 data class DeviceRefusal(
 	val code: String,
 	val effect: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val landed: DeviceLanded? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val detail: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val record: DeviceRecord? = null,
 )
 
@@ -1913,6 +2099,7 @@ sealed class ConsoleDeviceListResult {
 	data class Ok(
 		val records: List<DeviceRecord>,
 		val revision: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val bluetooth: Boolean? = null,
 	) : ConsoleDeviceListResult()
 
@@ -1930,17 +2117,23 @@ sealed class ConsoleDeviceReadResult {
 	data class Ok(
 		val state: DeviceLiveState,
 		val schedule: DeviceSchedule,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val settings: DeviceSettings? = null,
 	) : ConsoleDeviceReadResult()
 
 	@Serializable
 	@SerialName("sensor")
 	data class Sensor(
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val model: String? = null,
 		val readings: List<DeviceReading>,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val heardAt: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val stale: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val thresholds: List<DeviceSensorThreshold>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val payloads: List<DeviceSensorPayload>? = null,
 	) : ConsoleDeviceReadResult()
 
@@ -2006,6 +2199,7 @@ sealed class ConsoleDeviceSensorThresholdPutResult {
 	@Serializable
 	@SerialName("ok")
 	data class Ok(
+		@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 		val threshold: DeviceSensorThreshold? = null,
 	) : ConsoleDeviceSensorThresholdPutResult()
 
@@ -2024,7 +2218,9 @@ sealed class ConsoleDeviceScanResult {
 	@SerialName("ok")
 	data class Ok(
 		val candidates: List<DeviceCandidate>,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val nearby: List<DeviceNearby>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val bluetooth: Boolean? = null,
 	) : ConsoleDeviceScanResult()
 
@@ -2042,6 +2238,7 @@ sealed class ConsoleDeviceHomeNetworkResult {
 	@Serializable
 	@SerialName("ok")
 	data class Ok(
+		@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 		val ssid: String? = null,
 	) : ConsoleDeviceHomeNetworkResult()
 
@@ -2192,19 +2389,33 @@ data class AssistantWatcher(
 	val label: String,
 	val grants: List<String>,
 	val unread: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val capped: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val evicted: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastSuccessAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val nextPollAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val backoff: AssistantWatcherBackoff? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val stopped: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val fields: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val fieldSpecs: List<AssistantFieldSpec>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val rules: AssistantWatcherRules? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val invalid: List<AssistantRuleInvalid>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val unexpected: AssistantUnexpectedValues? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val secret: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val actions: List<AssistantActionDescriptor>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val enabled: Boolean? = null,
 )
 
@@ -2214,13 +2425,20 @@ data class AssistantSource(
 	val label: String,
 	val grants: List<String>,
 	val unread: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val capped: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastSuccessAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val nextPollAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val backoff: AssistantWatcherBackoff? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val stopped: String? = null,
 	val fieldSpecs: List<AssistantFieldSpec>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val unexpected: AssistantUnexpectedValues? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val secret: String? = null,
 	val actions: List<AssistantActionDescriptor>,
 	val enabled: Boolean,
@@ -2229,14 +2447,23 @@ data class AssistantSource(
 
 @Serializable
 data class ConsoleAssistantStateResult(
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val workdir: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val team: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val watchers: List<AssistantWatcher>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sources: List<AssistantSource>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val approveEverySend: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val temperatureUnit: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val checkIns: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val integrations: List<AssistantIntegration>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val offered: List<String>? = null,
 )
 
@@ -2336,6 +2563,7 @@ object AutomationActionSerializer : KSerializer<AutomationAction> {
 
 @Serializable
 data class Automation(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val label: String? = null,
 	val enabled: Boolean,
 	val trigger: AutomationTrigger,
@@ -2354,8 +2582,11 @@ data class AutomationRow(
 	val revision: Long,
 	val automation: Automation,
 	val sentence: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val invalid: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastRanAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val device: String? = null,
 )
 
@@ -2368,13 +2599,16 @@ data class ConsoleAutomationListResult(
 data class ConsoleAutomationPutResult(
 	val stored: Boolean,
 	val revision: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val row: AutomationRow? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class ConsoleAutomationDeleteResult(
 	val deleted: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -2388,30 +2622,39 @@ data class ConsoleAutomationPreviewResult(
 @Serializable
 data class AssistantHomeCarriedWatcher(
 	val id: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val rules: AssistantWatcherRules? = null,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val grant: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val enabled: Boolean? = null,
 )
 
 @Serializable
 data class AssistantHomeCarried(
 	val approveEverySend: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val temperatureUnit: String? = null,
 	val watchers: List<AssistantHomeCarriedWatcher>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val automations: List<CarriedAutomation>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val integrations: List<AssistantHomeCarriedIntegration>? = null,
 )
 
 @Serializable
 data class AssistantHomeSealed(
 	val workdirPath: String,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val carried: AssistantHomeCarried? = null,
 )
 
 @Serializable
 data class AssistantHomeRecord(
 	val version: Long,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val gatewayId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val sealed: ContentEnvelope? = null,
 )
 
@@ -2420,6 +2663,7 @@ data class AssistantHomeReport(
 	val version: Long,
 	val gatewayId: String,
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -2431,7 +2675,9 @@ data class AssistantHomeReadValue(
 
 @Serializable
 data class AssistantHomeReadResult(
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val record: AssistantHomeRecord? = null,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val report: AssistantHomeReport? = null,
 )
 
@@ -2440,14 +2686,18 @@ data class AssistantHomePutValue(
 	@EncodeDefault
 	val kind: String = "assistant_home_put",
 	val baseVersion: Long,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val gatewayId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val sealed: ContentEnvelope? = null,
 )
 
 @Serializable
 data class AssistantHomePutResult(
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val record: AssistantHomeRecord? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val refusal: String? = null,
 )
 
@@ -2483,7 +2733,9 @@ data class AssistantWatcherRules(
 data class ConsoleAssistantRulesResult(
 	val stored: Boolean,
 	val rules: AssistantWatcherRules,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val invalid: List<AssistantRuleInvalid>? = null,
 )
 
@@ -2523,9 +2775,13 @@ sealed class AssistantFieldSpec {
 	data class Number(
 		val field: String,
 		val label: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val unit: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val decimals: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val min: Double? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val max: Double? = null,
 	) : AssistantFieldSpec()
 
@@ -2534,6 +2790,7 @@ sealed class AssistantFieldSpec {
 	data class Bytes(
 		val field: String,
 		val label: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val maxLength: Long? = null,
 	) : AssistantFieldSpec()
 
@@ -2602,10 +2859,14 @@ data class AssistantSendFile(
 @Serializable
 data class AssistantSendIntent(
 	val target: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val friendDomain: String? = null,
 	val body: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val disposition: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val displayLabel: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val cli: String? = null,
 	val createsSession: Boolean,
 	val files: List<AssistantSendFile>,
@@ -2628,21 +2889,33 @@ data class AssistantSendRetract(
 @Serializable
 data class ConsoleAssistantSendAnswerResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class Provisioning(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val routerUrl: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val routerCertFp: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val appToken: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val namespace: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val service: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val port: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val device: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val conversationId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val pendingTenant: PendingTenantRef? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val enrollHandshake: EnrollHandshakeRef? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val deviceApprovalReach: String? = null,
 )
 
@@ -2656,6 +2929,7 @@ data class Admission(
 	val kind: String,
 	val signPub: String,
 	val boxPub: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val gatewayId: String? = null,
 	val issuedAt: Long,
 	val nonce: String,
@@ -2746,7 +3020,9 @@ sealed class EnrollOp {
 @Serializable
 data class EnrollResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val error: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val outcome: String? = null,
 )
 
@@ -2781,8 +3057,11 @@ sealed class EnrollHandshakeOp {
 @Serializable
 data class EnrollHandshakeResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val error: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val peerCommitment: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val peerReveal: EnrollReveal? = null,
 )
 
@@ -2804,7 +3083,9 @@ sealed class ConsoleApprovalOp {
 		val nonce: String,
 		val newSignPub: String,
 		val newBoxPub: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val joinSig: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val device: String? = null,
 	) : ConsoleApprovalOp()
 
@@ -2838,8 +3119,11 @@ sealed class ConsoleApprovalOp {
 @Serializable
 data class ConsoleApprovalResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val error: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val join: ConsoleApprovalJoin? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sealed: SealedEnvelope? = null,
 )
 
@@ -2855,8 +3139,11 @@ data class PendingTenant(
 
 @Serializable
 data class GatewayTransport(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val routerUrl: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val routerCertFp: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val bearer: String? = null,
 )
 
@@ -2866,7 +3153,9 @@ data class GatewayBootstrapBundle(
 	val transport: GatewayTransport,
 	val admission: SignedAdmission,
 	val domain: DomainSnapshot,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val domainId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val contentKeys: List<KeyEnvelope>? = null,
 )
 
@@ -2889,6 +3178,7 @@ data class GatewayBootstrapPutValue(
 @Serializable
 data class GatewayBootstrapPutResult(
 	val held: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val refusal: String? = null,
 )
 
@@ -3006,7 +3296,9 @@ data class RosterRequest(
 @Serializable
 data class RosterResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val error: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val members: List<RosterMember>? = null,
 )
 
@@ -3049,8 +3341,11 @@ sealed class TrustHandshakeOp {
 @Serializable
 data class TrustHandshakeResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val error: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val peerCommitment: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val peerReveal: EnrollReveal? = null,
 )
 
@@ -3065,7 +3360,9 @@ data class TrustPendingRequest(
 @Serializable
 data class TrustPendingResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val error: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val pending: List<TrustPendingEntry>? = null,
 )
 
@@ -3080,9 +3377,13 @@ data class TransportRequest(
 @Serializable
 data class TransportResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val routerUrl: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val routerCertFp: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val bearer: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val error: String? = null,
 )
 
@@ -3118,6 +3419,7 @@ data class PlaneLineage(
 data class PlaneRead(
 	val name: String,
 	val lineage: PlaneLineage,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val payload: JsonElement? = null,
 )
 
@@ -3141,6 +3443,7 @@ data class InboxRow(
 	val seq: Long,
 	val acceptedAt: Long,
 	val size: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val stamp: RowStamp? = null,
 )
 
@@ -3151,6 +3454,7 @@ data class RowEnvelope(
 	val epoch: JsonElement,
 	val kind: String,
 	val contentRefs: List<String>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val recipient: RowRecipient? = null,
 )
 
@@ -3158,8 +3462,11 @@ data class RowEnvelope(
 data class RowOrigin(
 	val kind: String,
 	val domainId: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val gatewayId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sessionId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val device: String? = null,
 )
 
@@ -3167,6 +3474,7 @@ data class RowOrigin(
 data class OpKey(
 	val conversationId: String,
 	val opId: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val hash: String? = null,
 )
 
@@ -3174,8 +3482,11 @@ data class OpKey(
 data class OpResultEnvelope(
 	val opKey: OpKey,
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val result: JsonElement? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val seq: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -3251,12 +3562,18 @@ sealed class BoardOp {
 	data class Upsert(
 		val id: String,
 		val state: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val parent: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val session: BoardSession? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val trashedAt: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val attachments: List<BoardStateAttachment>? = null,
 		val title: ContentEnvelope,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val body: ContentEnvelope? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val names: JsonObject? = null,
 	) : BoardOp()
 
@@ -3277,7 +3594,9 @@ sealed class BoardOp {
 	@SerialName("move")
 	data class Move(
 		val id: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val parent: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val index: Long? = null,
 	) : BoardOp()
 
@@ -3292,6 +3611,7 @@ sealed class BoardOp {
 	@SerialName("set_session")
 	data class SetSession(
 		val id: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val session: BoardSession? = null,
 	) : BoardOp()
 
@@ -3319,7 +3639,9 @@ data class BoardWriteResult(
 	val outcome: String,
 	val revision: Long,
 	val entries: List<BoardStoredEntry>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val cascaded: List<BoardCascaded>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val refusal: String? = null,
 )
 
@@ -3332,7 +3654,9 @@ data class BoardReadResult(
 @Serializable
 data class BoardObservationRow(
 	val identity: String,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val pre: BoardStoredEntry? = null,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val post: BoardStoredEntry? = null,
 )
 
@@ -3353,7 +3677,9 @@ data class VaultPut(
 data class VaultWriteResult(
 	val outcome: String,
 	val revision: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val entry: VaultStoredEntry? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val refusal: String? = null,
 )
 
@@ -3368,6 +3694,7 @@ data class VaultListResult(
 data class VaultListValue(
 	@EncodeDefault
 	val kind: String = "vault_list",
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sinceRevision: Long? = null,
 )
 
@@ -3401,7 +3728,9 @@ sealed class VaultRequest {
 		val coveredShapes: List<String>,
 		val sessionTarget: String,
 		val deadlineAt: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val asker: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val policy: PolicyRef? = null,
 	) : VaultRequest()
 
@@ -3415,6 +3744,7 @@ sealed class VaultRequest {
 		val coveredShapes: List<String>,
 		val sessionTarget: String,
 		val deadlineAt: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val asker: String? = null,
 	) : VaultRequest()
 }
@@ -3437,6 +3767,7 @@ sealed class VaultGrant {
 		val displayShape: String,
 		val coveredShapes: List<String>,
 		val expiresAt: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val policy: PolicyRef? = null,
 	) : VaultGrant()
 
@@ -3447,6 +3778,7 @@ sealed class VaultGrant {
 		val entryId: String,
 		val holder: VaultHolder,
 		val expiresAt: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val policy: PolicyRef? = null,
 	) : VaultGrant()
 
@@ -3462,6 +3794,7 @@ sealed class VaultGrant {
 @Serializable
 data class ConsoleVaultAnswerResult(
 	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -3480,7 +3813,9 @@ data class RunbookParameter(
 	val name: String,
 	val label: String,
 	val kind: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val default: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val options: List<String>? = null,
 )
 
@@ -3501,8 +3836,11 @@ sealed class RunbookFireTarget {
 	@SerialName("new")
 	data class New(
 		val target: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val displayLabel: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val workdir: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val cli: String? = null,
 	) : RunbookFireTarget()
 
@@ -3522,7 +3860,9 @@ data class ConsoleRunbookListResult(
 data class ConsoleRunbookPutResult(
 	val stored: Boolean,
 	val revision: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val runbook: Runbook? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -3533,24 +3873,32 @@ data class ConsoleRunbookDeleteResult(
 
 @Serializable
 data class ConsoleRunbookPreviewResult(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val text: String? = null,
 	val revision: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class ConsoleRunbookFireResult(
 	val fired: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sessionId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val status: String? = null,
 )
 
 @Serializable
 data class RoutineTarget(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val kind: String? = null,
 	val spawn: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val workdir: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val cli: String? = null,
 )
 
@@ -3572,6 +3920,7 @@ data class Routine(
 	val revision: Long,
 	val since: Long,
 	val forgetAfterDays: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val incarnation: String? = null,
 )
 
@@ -3586,19 +3935,28 @@ data class RoutineMiss(
 @Serializable
 data class RoutineState(
 	val routine: Routine,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val nextAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastRanAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastReadAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val missed: RoutineMiss? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reviewAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reviewReason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val waiting: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val attention: RoutineAttention? = null,
 )
 
 @Serializable
 data class ConsoleRoutineListResult(
 	val routines: List<RoutineState>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val zone: String? = null,
 )
 
@@ -3606,7 +3964,9 @@ data class ConsoleRoutineListResult(
 data class ConsoleRoutinePutResult(
 	val stored: Boolean,
 	val revision: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val routine: Routine? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -3617,20 +3977,25 @@ data class ConsoleRoutineDeleteResult(
 
 @Serializable
 data class ConsoleRoutineNextResult(
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val nextAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class ConsoleRoutineOccurrenceResult(
 	val applied: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
 @Serializable
 data class ConsoleRoutineRunResult(
 	val ran: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val occurrenceId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -3657,6 +4022,7 @@ data class ScheduleSendValue(
 	val opId: String,
 	val files: List<String>,
 	val body: ContentEnvelope,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val expectedVersion: Long? = null,
 )
 
@@ -3672,6 +4038,7 @@ data class ScheduleCancelValue(
 data class ScheduledResultRow(
 	val opId: String,
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val seq: Long? = null,
 	val body: ContentEnvelope,
 )
@@ -3680,7 +4047,9 @@ data class ScheduledResultRow(
 data class CapabilitiesReport(
 	@EncodeDefault
 	val kind: String = "capabilities_report",
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val capabilities: List<EnabledPlugin>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val clientVersion: String? = null,
 )
 
@@ -3731,8 +4100,11 @@ data class WirePhoneDecode(
 data class WireSealed(
 	val path: String,
 	val aadKind: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val decodeAs: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val plaintextOf: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val expectJson: JsonObject? = null,
 )
 
@@ -3778,6 +4150,7 @@ sealed class WireFixture {
 		val inputs: JsonObject,
 		val expect: JsonObject,
 		val frame: WireFrame,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val phone: WirePhoneDecode? = null,
 	) : WireFixture()
 
@@ -3790,6 +4163,7 @@ sealed class WireFixture {
 		val inputs: JsonObject,
 		val expect: JsonObject,
 		val request: WireRequest,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val sealed: List<WireSealed>? = null,
 	) : WireFixture()
 }
@@ -3812,8 +4186,11 @@ data class WireManifest(
 data class WorkspaceTreeEntry(
 	val name: String,
 	val directory: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val bytes: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val children: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lines: Long? = null,
 )
 
@@ -3834,7 +4211,9 @@ data class WorkspaceReadAnswer(
 	val path: String,
 	val text: String,
 	val lines: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val hash: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val readOnly: String? = null,
 )
 
@@ -3843,8 +4222,11 @@ data class WorkspaceOutlineSymbol(
 	val symbolId: String,
 	val name: String,
 	val symbolKind: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val containerId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val signature: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val startLine: Long? = null,
 )
 
@@ -3854,6 +4236,7 @@ data class WorkspaceOutlineAnswer(
 	val kind: String = "outline",
 	val path: String,
 	val symbols: List<WorkspaceOutlineSymbol>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lines: Long? = null,
 	val root: String,
 )
@@ -3869,7 +4252,9 @@ data class WorkspaceSymbolSourceAnswer(
 	val startLine: Long,
 	val endLine: Long,
 	val spanHash: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val container: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val spans: List<List<Long>>? = null,
 )
 
@@ -3881,11 +4266,16 @@ data class WorkspaceKnowledgeAnswer(
 	val name: String,
 	val symbolKind: String,
 	val module: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val note: WorkspaceKnowledgeNote? = null,
 	val facts: WorkspaceKnowledgeFacts,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val startLine: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val endLine: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val signature: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val documentation: String? = null,
 )
 
@@ -3893,7 +4283,9 @@ data class WorkspaceKnowledgeAnswer(
 data class WorkspaceSaveIssue(
 	val kind: String,
 	val detail: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val module: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val line: Long? = null,
 )
 
@@ -3903,10 +4295,15 @@ data class WorkspaceSaveSpanAnswer(
 	val kind: String = "saveSpan",
 	val symbolId: String,
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val current: WorkspaceSymbolSourceAnswer? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val gone: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val joined: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val issues: List<WorkspaceSaveIssue>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -3979,8 +4376,11 @@ data class WorkspaceFileMutationAnswer(
 	val kind: String = "mutateFile",
 	val path: String,
 	val outcome: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val hash: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val gone: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -3990,8 +4390,11 @@ data class WorkspaceFileStateAnswer(
 	val kind: String = "fileState",
 	val path: String,
 	val state: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val bytes: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val hash: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val identity: String? = null,
 )
 
@@ -4045,9 +4448,13 @@ data class WorkspaceFacetSymbol(
 	val name: String,
 	val symbolKind: String,
 	val module: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val startLine: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val endLine: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val signature: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val signatureSpans: List<List<Long>>? = null,
 )
 
@@ -4059,11 +4466,17 @@ data class WorkspaceFacetUse(
 	val endColumn: Long,
 	val name: String,
 	val role: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val holder: WorkspaceFacetSymbol? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val topLevel: WorkspaceFacetSymbol? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val language: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val text: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val textStart: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val spans: List<Long>? = null,
 )
 
@@ -4071,7 +4484,9 @@ data class WorkspaceFacetUse(
 data class WorkspaceFacetTarget(
 	val name: String,
 	val status: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val target: WorkspaceFacetSymbol? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 	val uses: List<WorkspaceFacetUse>,
 )
@@ -4079,12 +4494,14 @@ data class WorkspaceFacetTarget(
 @Serializable
 data class WorkspaceFacetType(
 	val symbol: WorkspaceFacetSymbol,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val role: String? = null,
 )
 
 @Serializable
 data class WorkspaceFacetUnboundType(
 	val name: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val role: String? = null,
 )
 
@@ -4093,6 +4510,7 @@ data class WorkspaceFacetComment(
 	val text: String,
 	val form: String,
 	val line: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val holder: WorkspaceFacetSymbol? = null,
 )
 
@@ -4100,6 +4518,7 @@ data class WorkspaceFacetComment(
 data class WorkspaceHistoryCommit(
 	val hash: String,
 	val at: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val author: String? = null,
 	val subject: String,
 	val added: Long,
@@ -4151,6 +4570,7 @@ sealed class WorkspaceFacetAnswer {
 	data class Comments(
 		val comments: List<WorkspaceFacetComment>,
 		val total: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val truncated: Boolean? = null,
 	) : WorkspaceFacetAnswer()
 
@@ -4184,7 +4604,9 @@ data class WorkspaceFileHistoryAnswer(
 	val count: Long,
 	val added: Long,
 	val removed: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val firstSeen: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastTouched: Long? = null,
 	val truncated: Boolean,
 )
@@ -4194,6 +4616,7 @@ data class WorkspaceTooLargeAnswer(
 	@EncodeDefault
 	val kind: String = "tooLarge",
 	val rows: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val bytes: Long? = null,
 )
 
@@ -4203,7 +4626,9 @@ data class WorkspacePaintTextAnswer(
 	val kind: String = "paintText",
 	val path: String,
 	val textHash: String,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val spans: List<List<Long>>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
 )
 
@@ -4215,7 +4640,9 @@ data class PhoneCalendarEvent(
 	val end: String,
 	val allDay: Boolean,
 	val daysUntil: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val location: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val calendar: String? = null,
 )
 
@@ -4224,7 +4651,9 @@ data class PhoneNotification(
 	val id: String,
 	val app: String,
 	val `package`: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val title: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val text: String? = null,
 	val postedAt: String,
 	val replyable: Boolean,
@@ -4239,6 +4668,7 @@ data class LaunchableApp(
 @Serializable
 data class RefFileMeta(
 	val refPath: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val segments: List<RefSegmentMeta>? = null,
 	val keys: List<RefKeyMeta>,
 )
@@ -4254,13 +4684,20 @@ data class RefKeyMeta(
 	val key: String,
 	val startLine: Long,
 	val endLine: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val span: RefSpanMeta? = null,
 	val quality: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val ambiguous: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val matchCount: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val spanHash: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val symbolId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val symbolStartLine: Long? = null,
 )
 
@@ -4275,7 +4712,9 @@ data class RefSpanMeta(
 @Serializable
 data class AssistantRecordThread(
 	val threadId: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val title: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val url: String? = null,
 	val outcome: String,
 )
@@ -4301,6 +4740,7 @@ data class XDomainLink(
 
 @Serializable
 data class DeviceAdvert(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val name: String? = null,
 	val data: JsonObject,
 	val services: List<String>,
@@ -4309,6 +4749,7 @@ data class DeviceAdvert(
 @Serializable
 data class ConsoleVariable(
 	val value: JsonElement,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val type: String? = null,
 )
 
@@ -4317,6 +4758,7 @@ data class DomainSnapshot(
 	val ownerSignPub: String,
 	val admissions: List<SignedAdmission>,
 	val revocations: List<SignedRevocation>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val displayName: String? = null,
 )
 
@@ -4358,13 +4800,19 @@ data class ReadAnchorsVersion(
 data class BoardEntry(
 	val id: String,
 	val title: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val body: String? = null,
 	val state: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val parent: String? = null,
 	val rank: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sessionId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val session: BoardSession? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val trashedAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val attachments: List<BoardAttachment>? = null,
 )
 
@@ -4401,11 +4849,16 @@ data class CrossDomainPresenceSession(
 	val gatewayId: String,
 	val status: String,
 	val kind: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val sessionLabel: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val description: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastActive: Long? = null,
 	val queueDepth: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val working: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val needsLogin: Boolean? = null,
 )
 
@@ -4431,9 +4884,13 @@ data class CrossDomainShareEntry(
 @Serializable
 data class DeviceReading(
 	val spec: AssistantFieldSpec,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val value: JsonElement? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val alerts: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val low: DeviceExtreme? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val high: DeviceExtreme? = null,
 )
 
@@ -4446,7 +4903,9 @@ data class DeviceExtreme(
 @Serializable
 data class DeviceSensorThreshold(
 	val measure: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val low: Double? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val high: Double? = null,
 	val deadZone: Double,
 	val coolDownSec: Long,
@@ -4455,6 +4914,7 @@ data class DeviceSensorThreshold(
 
 @Serializable
 data class DeviceSensorPayload(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val name: String? = null,
 	val data: JsonObject,
 	val services: List<String>,
@@ -4466,9 +4926,11 @@ data class DeviceSensorPayload(
 data class DeviceNearby(
 	val mac: String,
 	val radio: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val name: String? = null,
 	val signal: Long,
 	val data: JsonObject,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val services: List<String>? = null,
 )
 
@@ -4517,6 +4979,7 @@ data class ConsoleParamDescription(
 	val type: String,
 	val description: String,
 	val optional: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val completes: String? = null,
 )
 
@@ -4536,9 +4999,13 @@ data class ConsoleLabelledId(
 @Serializable
 data class ConsoleResultItem(
 	val value: JsonElement,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val type: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val entity: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val assigned: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val cut: ConsoleCut? = null,
 )
 
@@ -4585,6 +5052,7 @@ data class AutomationPreviewMatch(
 @Serializable
 data class AssistantHomeCarriedIntegration(
 	val id: String,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val grant: String? = null,
 )
 
@@ -4609,11 +5077,13 @@ data class SttsProvider(
 	val label: String,
 	val path: String,
 	val hasSample: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val container: String? = null,
 	val request: JsonObject,
 	val defaults: SttsDefaults,
 	val voices: List<SttsVoice>,
 	val voiceHint: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val note: String? = null,
 )
 
@@ -4625,6 +5095,7 @@ data class SttsDefaults(
 @Serializable
 data class SttsVoice(
 	val id: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val label: String? = null,
 )
 
@@ -4736,7 +5207,9 @@ data class SealedEnvelope(
 data class ConsoleApprovalJoin(
 	val newSignPub: String,
 	val newBoxPub: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val joinSig: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val device: String? = null,
 )
 
@@ -4770,6 +5243,7 @@ data class PresencePlane(
 @Serializable
 data class OwnerFacts(
 	val domainId: String,
+	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val displayName: String? = null,
 	val isAdminDomain: Boolean,
 )
@@ -4779,7 +5253,9 @@ data class DiscoverCoverage(
 	val rosterKnown: Boolean,
 	val asked: Long,
 	val answered: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val unreachable: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val unreachablePeers: List<String>? = null,
 )
 
@@ -4788,16 +5264,23 @@ data class GatewaySpawnPoints(
 	val domainId: String,
 	val gatewayId: String,
 	val hostSpawns: List<String>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val harnessSpawns: HarnessSpawns? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val claudeSpawns: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val copilotSpawns: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val containers: List<ContainerState>? = null,
 )
 
 @Serializable
 data class HarnessSpawns(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val claude: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val opencode: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val copilot: List<String>? = null,
 )
 
@@ -4805,7 +5288,9 @@ data class HarnessSpawns(
 data class ContainerState(
 	val project: String,
 	val state: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val failure: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val clis: List<String>? = null,
 )
 
@@ -4813,10 +5298,14 @@ data class ContainerState(
 data class BoardEntryClear(
 	val id: String,
 	val state: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val parent: String? = null,
 	val rank: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val session: BoardSession? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val trashedAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val attachments: List<BoardStateAttachment>? = null,
 	val version: Long,
 )
@@ -4831,7 +5320,9 @@ data class BoardStateAttachment(
 @Serializable
 data class BoardEntrySealed(
 	val title: ContentEnvelope,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val body: ContentEnvelope? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val names: JsonObject? = null,
 )
 
@@ -4856,11 +5347,17 @@ data class VaultEntryClear(
 
 @Serializable
 data class VaultEntrySealed(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val publicTitle: ContentEnvelope? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val publicDescription: ContentEnvelope? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val privateTitle: ContentEnvelope? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val privateDescription: ContentEnvelope? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val value: ContentEnvelope? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val gateways: ContentEnvelope? = null,
 )
 
@@ -4895,6 +5392,7 @@ data class EnabledPlugin(
 	/** The plugin's globally unique id, as its manifest declares it. */
 	val id: String,
 	/** Agent-facing usage guidance for this capability, surfaced to the session. */
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val instructions: String? = null,
 )
 
@@ -4916,6 +5414,7 @@ data class WorkspaceKnowledgeFacts(
 	val supertypes: Long,
 	val subtypes: Long,
 	val comments: Long,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val counts: WorkspaceKnowledgeCounts? = null,
 )
 

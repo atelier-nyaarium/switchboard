@@ -1,9 +1,10 @@
 {
-	"description": "The assistant home's sealed plaintext, as the Kotlin phone encodes it.",
+	"description": "Values the Kotlin phone encodes, each named by the schema the Gateway parses it with.",
 	"cases": [
 		{
 			"name": "a home that lists automations",
-			"sealed": {
+			"schema": "AssistantHomeSealed",
+			"value": {
 				"workdirPath": "~/notes",
 				"carried": {
 					"approveEverySend": false,
@@ -53,7 +54,6 @@
 						{
 							"id": "mentions",
 							"automation": {
-								"label": null,
 								"enabled": true,
 								"trigger": {
 									"kind": "event",
@@ -77,7 +77,6 @@
 						{
 							"id": "everything",
 							"automation": {
-								"label": null,
 								"enabled": true,
 								"trigger": {
 									"kind": "event",
@@ -95,7 +94,6 @@
 						{
 							"id": "quiet",
 							"automation": {
-								"label": null,
 								"enabled": true,
 								"trigger": {
 									"kind": "event",
@@ -119,7 +117,6 @@
 						{
 							"id": "off",
 							"automation": {
-								"label": null,
 								"enabled": false,
 								"trigger": {
 									"kind": "event",
@@ -152,7 +149,8 @@
 		},
 		{
 			"name": "a home with no automations",
-			"sealed": {
+			"schema": "AssistantHomeSealed",
+			"value": {
 				"workdirPath": "~/notes",
 				"carried": {
 					"approveEverySend": false,
@@ -197,7 +195,8 @@
 		},
 		{
 			"name": "a home on an older build",
-			"sealed": {
+			"schema": "AssistantHomeSealed",
+			"value": {
 				"workdirPath": "~/notes",
 				"carried": {
 					"approveEverySend": true,
@@ -229,17 +228,39 @@
 							"grant": null,
 							"enabled": true
 						}
-					],
-					"automations": null,
-					"integrations": null
+					]
 				}
 			}
 		},
 		{
 			"name": "nothing carried",
-			"sealed": {
+			"schema": "AssistantHomeSealed",
+			"value": {
 				"workdirPath": "~/fresh",
 				"carried": null
+			}
+		},
+		{
+			"name": "a status held by nobody",
+			"schema": "PhoneStatusAnswer",
+			"value": {
+				"holder": null,
+				"keys": []
+			}
+		},
+		{
+			"name": "a status held by pixel",
+			"schema": "PhoneStatusAnswer",
+			"value": {
+				"holder": "pixel",
+				"keys": [
+					{
+						"key": "torch",
+						"available": false,
+						"reason": "disabled",
+						"needs": []
+					}
+				]
 			}
 		}
 	]

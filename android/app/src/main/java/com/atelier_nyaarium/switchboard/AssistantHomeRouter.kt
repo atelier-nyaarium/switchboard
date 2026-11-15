@@ -9,7 +9,6 @@ import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -64,9 +63,6 @@ internal const val PUT_CONFLICT = "conflict"
 /** The intake's answer, not the home's. */
 private fun intakeAnswer(answer: JsonElement): JsonObject? = (answer as? JsonObject)?.takeIf { "opKey" in it || "malformed" in it }
 
-/** Every unset field is sealed as null, so the Gateway's schema must take one wherever a field is optional. */
-internal val sealedJson = Json(wireJson) { encodeDefaults = true }
-
 /** Sole sealer, bound to Gateway and version. */
 internal class AssistantHomeSealing(boot: PhoneBootstrap, ambient: PhoneAmbient, onMissingEpoch: (Int) -> Unit) :
 	ContentSealing(boot, ambient, { gatewayId, version -> assistantHomeAadKind(gatewayId, version.toLong()) }, onMissingEpoch)
@@ -100,7 +96,7 @@ internal class OwnerOpHomeRouter(
 	}
 
 	override fun seal(gatewayId: String, version: Long, sealed: AssistantHomeSealed): ContentEnvelope? =
-		sealing()?.seal(sealedJson.encodeToString(AssistantHomeSealed.serializer(), sealed), gatewayId, version.toString())
+		sealing()?.seal(wireJson.encodeToString(AssistantHomeSealed.serializer(), sealed), gatewayId, version.toString())
 
 	override fun open(gatewayId: String, version: Long, envelope: ContentEnvelope): AssistantHomeSealed? {
 		val text = sealing()?.open(envelope, gatewayId, version.toString()) ?: return null

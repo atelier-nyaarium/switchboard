@@ -93,10 +93,11 @@ Router's record names. That Gateway feeds it events. The session decides what to
     when it refuses `automation_list`; a list it cannot read, or one a current Gateway refuses,
     refuses the move. Until 2026-11-28 the payload also names rules for every source (`rulesOf`:
     each enabled automation that tells now, an unconditioned one as the fallback), which a Gateway
-    on an older build requires; a current one reads the automations and ignores them. The phone
-    seals every unset field as null, so the Gateway's schema takes null wherever a carried field is
-    optional, and `tests/fixtures/assistant-home/sealed.json` holds the phone's own encoding for the
-    Gateway's schema to parse. A carried automation or service the destination cannot read is
+    on an older build requires; a current one reads the automations and ignores them. Each
+    generated Kotlin field states whether its null is written, so the payload is sealed with the
+    phone's one encoder, and `tests/fixtures/phone-encoded/cases.json` holds the phone's own
+    encoding for the Gateway's schemas to parse. The carried fields still take null, which a phone
+    on 8.14.81 sealed. A carried automation or service the destination cannot read is
     dropped with a log (`readableSealed`), never the move. An unplaced home
     carries what the record sealed; a placed home that cannot be reached carries nothing, only once
     the owner confirms abandoning it. Remove puts nobody. A conflict adopts the winner, and an unknown outcome is read back. A record never written
