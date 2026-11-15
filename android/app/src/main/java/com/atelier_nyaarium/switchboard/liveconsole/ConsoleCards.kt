@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleEntityDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleEvalResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleIssue
 import com.atelier_nyaarium.switchboard.proto.ConsoleResultItem
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -34,11 +35,11 @@ sealed interface ConsoleCard {
 	data class Scalar(val text: String) : ConsoleCard
 }
 
-private val INSTANT_KEYS = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
+private val INSTANT_KEYS = Protocol.Wire.CONSOLE_INSTANT_KEYS
 private val TITLE_KEYS = listOf("name", "label", "id", "automation", "mac", "key")
 private val TAG_KEYS = listOf("outcome", "kind", "action", "radio")
-private const val INSTANT_FLOOR = 1_000_000_000_000L
-private const val INSTANT_CEILING = 8_640_000_000_000_000L
+private const val INSTANT_FLOOR = Protocol.Wire.CONSOLE_INSTANT_FLOOR
+private const val INSTANT_CEILING = Protocol.Wire.CONSOLE_INSTANT_CEILING
 private const val FIELD_DEPTH_MAX = 3
 
 internal fun ageOf(at: Long, now: Long): String {

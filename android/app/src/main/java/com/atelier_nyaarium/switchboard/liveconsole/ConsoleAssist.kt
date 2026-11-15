@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.liveconsole
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
+import com.atelier_nyaarium.switchboard.proto.Protocol
 
 data class ConsoleCompletion(val label: String, val insert: String, val start: Int, val end: Int)
 
@@ -79,15 +80,17 @@ private fun argumentChoices(call: OpenCall, description: ConsoleDescription, ids
 			?: return emptyList()
 	val param = member.params.getOrNull(call.commas) ?: return emptyList()
 	val plain = { values: List<String> -> values.map { Choice(it, it) } }
-	return when (param.completes) {
-		"devices" -> {
+	// A kind this build does not know offers nothing.
+	val kind = Protocol.Wire.ConsoleCompletes.entries.firstOrNull { it.wire == param.completes } ?: return emptyList()
+	return when (kind) {
+		Protocol.Wire.ConsoleCompletes.DEVICES -> {
 			val shared = ids.devices.groupingBy { it.name.lowercase() }.eachCount()
 			// Resolve duplicate names by ID.
 			ids.devices.map {
 				if ((shared[it.name.lowercase()] ?: 0) > 1) Choice("${it.name} · ${it.id}", it.id) else Choice(it.name, it.name)
 			}
 		}
-		"readings" -> {
+		Protocol.Wire.ConsoleCompletes.READINGS -> {
 			val device = call.args.firstOrNull()?.lowercase()
 			plain(
 				ids.devices.filter { device == null || it.name.lowercase() == device || it.id == device }
@@ -95,11 +98,10 @@ private fun argumentChoices(call: OpenCall, description: ConsoleDescription, ids
 					.distinct(),
 			)
 		}
-		"fields" -> plain(ids.fields.map { it.id })
-		"automations" -> plain(ids.automations.map { it.id })
-		"sources" -> plain(ids.sources.map { it.id })
-		"definitions" -> plain(ids.definitions)
-		else -> emptyList()
+		Protocol.Wire.ConsoleCompletes.FIELDS -> plain(ids.fields.map { it.id })
+		Protocol.Wire.ConsoleCompletes.AUTOMATIONS -> plain(ids.automations.map { it.id })
+		Protocol.Wire.ConsoleCompletes.SOURCES -> plain(ids.sources.map { it.id })
+		Protocol.Wire.ConsoleCompletes.DEFINITIONS -> plain(ids.definitions)
 	}
 }
 
@@ -122,7 +124,8 @@ private fun slotOf(source: String, token: ConsoleToken, cursor: Int): Slot? {
 		return Slot(SlotKind.NAME, token.start, token.end, source.substring(token.start, cursor))
 	}
 	if (token.kind != ConsoleTokenKind.STRING) return null
-	val typed = source.substring((token.start + 1).coerceAtMost(cursor), cursor)
+	// The lexer's decoding, as a choice holds it.
+	val typed = lexConsole(source.substring(token.start, cursor)).firstOrNull()?.value.orEmpty()
 	return when {
 		// An open string swallowed what follows.
 		token.closed != true -> Slot(SlotKind.STRING, token.start, cursor, typed)
@@ -136,9 +139,11 @@ private fun slotAt(source: String, tokens: List<ConsoleToken>, cursor: Int): Slo
 	val left = tokens.lastOrNull { it.start < cursor && cursor <= it.end }
 	val right = tokens.firstOrNull { it.start == cursor }
 	val inside = left != null && cursor < left.end
+	// Text against a number would join it.
+	val joins = right?.kind == ConsoleTokenKind.NUMBER || right?.kind == ConsoleTokenKind.ERROR
 	return left?.let { slotOf(source, it, cursor) }
 		?: right?.let { slotOf(source, it, cursor) }
-		?: Slot(if (inside) SlotKind.NONE else SlotKind.EMPTY, cursor, cursor, "")
+		?: Slot(if (inside || joins) SlotKind.NONE else SlotKind.EMPTY, cursor, cursor, "")
 }
 
 private fun memberNames(

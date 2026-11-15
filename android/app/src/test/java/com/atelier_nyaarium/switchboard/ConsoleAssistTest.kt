@@ -86,8 +86,8 @@ class ConsoleAssistTest {
 		assertEquals(listOf(ConsoleCompletion("sensors", "sensors", 0, 3)), at("sen").completions)
 		assertEquals(listOf("outside"), labels("1 + ou", saved))
 		assertEquals(listOf("name", "readings"), labels("outside.", saved))
-		val odd = variableShapes(mapOf("x" to ConsoleVariable(Json.parseToJsonElement("""{"bad-key":1,"good":2}"""), null)))
-		assertEquals(listOf("good"), labels("x.", odd))
+		val odd = variableShapes(mapOf("x" to ConsoleVariable(Json.parseToJsonElement("""{"bad-key":1,"good":2,"true":3}"""), null)))
+		assertEquals(listOf("good", "true"), labels("x.", odd))
 		assertEquals(listOf("take", "first"), labels("runs.", saved))
 		assertEquals(emptyList<String>(), labels("n.", saved))
 	}
@@ -169,12 +169,22 @@ class ConsoleAssistTest {
 	}
 
 	@Test
+	fun aNameWithAnEscapeCompletesByWhatItDecodesTo() {
+		val escaped = ids.copy(devices = listOf(ConsoleDeviceIds("aa:01", "Cold\\Box", emptyList())))
+		val source = "sensors.read(\"Cold\\\\"
+		val offered = consoleAssist(source, source.length, description, escaped, emptyMap()).completions
+		assertEquals("sensors.read(\"Cold\\\\Box\"", offered.single().applyTo(source).first)
+	}
+
+	@Test
 	fun aFinishedValueOffersNothing() {
 		val closed = at("sensors.read(\"Freezer\")")
 		assertNull(closed.hint)
 		assertEquals(emptyList<ConsoleCompletion>(), closed.completions)
 		assertEquals(emptyList<ConsoleCompletion>(), at("sensors.list ").completions)
 		assertEquals(emptyList<ConsoleCompletion>(), at("1 == 2", cursor = 3).completions)
+		assertEquals(emptyList<ConsoleCompletion>(), at("1", cursor = 0).completions)
+		assertEquals(emptyList<ConsoleCompletion>(), at("sensors.read(1", cursor = 13).completions)
 		assertEquals(emptyList<ConsoleCompletion>(), consoleAssist("sen", 3, null, ids, emptyMap()).completions)
 	}
 }

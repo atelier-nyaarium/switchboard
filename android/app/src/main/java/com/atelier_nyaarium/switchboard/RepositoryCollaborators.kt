@@ -183,11 +183,16 @@ internal class ConsoleLiveConsoleGateway(private val client: ConsoleClient) : Li
 		client.consoleEval(gatewayId, expr, variables)
 }
 
-internal class ChatRepositoryLiveConsoleHost(private val repo: ChatRepository) : LiveConsoleHost {
+internal class ChatRepositoryLiveConsoleHost(
+	private val repo: ChatRepository,
+	override val generation: WorkspaceGeneration,
+) : LiveConsoleHost {
 	private val sandbox by lazy { SandboxLiveConsoleGateway() }
 
 	override val gateway: LiveConsoleGateway? get() =
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleLiveConsoleGateway)
+
+	override fun names(gatewayId: String): Boolean = repo.state.value.gateways.has(gatewayId)
 }
 
 /** The port over the console client's policy calls. */

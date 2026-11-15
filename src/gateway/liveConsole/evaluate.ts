@@ -4,7 +4,7 @@ import {
 	isConsoleVariableName,
 	parseConsole,
 } from "../../shared/live-console-grammar.js";
-import { ConsoleError, runBuiltin, sameValue } from "./builtins.js";
+import { ConsoleError, elementOf, runBuiltin, sameValue } from "./builtins.js";
 import type { ConsoleAudience, ConsoleEntity, ConsoleRegistry } from "./registry.js";
 
 export const CONSOLE_STEPS_MAX = 100_000;
@@ -34,10 +34,6 @@ export interface ConsoleEvalOptions {
 	/** Cross-call saved values. */
 	variables?: Readonly<Record<string, ConsoleVariable>>;
 }
-
-/** Type-preserving builtins. */
-const KEEPS_TYPE = new Set(["take", "skip", "where"]);
-const elementOf = (type: string | undefined) => type?.match(/^List<(.+)>$/)?.[1];
 
 class Located extends ConsoleError {
 	constructor(
@@ -164,9 +160,8 @@ export async function evaluateConsole(
 			}
 		}
 		try {
-			const result = runBuiltin(name, owner, args, step);
-			const held = typeOf(owner);
-			return typed(result, KEEPS_TYPE.has(name) ? held : name === "first" ? elementOf(held) : undefined);
+			const result = runBuiltin(name, owner, typeOf(owner), args, step);
+			return typed(result.value, result.type);
 		} catch (error) {
 			if (error instanceof ConsoleError) return fail(node, error.code, error.message);
 			throw error;

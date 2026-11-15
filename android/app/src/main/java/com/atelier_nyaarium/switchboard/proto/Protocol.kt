@@ -146,6 +146,19 @@ object Protocol {
 		const val CONSOLE_VARIABLES_MAX: Int = 16
 		const val CONSOLE_VALUE_BYTES: Int = 64000
 		const val CONSOLE_VARIABLES_BYTES: Int = 256000
+		const val CONSOLE_INSTANT_FLOOR: Long = 1000000000000L
+		const val CONSOLE_INSTANT_CEILING: Long = 8640000000000000L
+
+		val CONSOLE_INSTANT_KEYS: Set<String> = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
+
+		enum class ConsoleCompletes(val wire: String) {
+			DEVICES("devices"),
+			READINGS("readings"),
+			FIELDS("fields"),
+			AUTOMATIONS("automations"),
+			SOURCES("sources"),
+			DEFINITIONS("definitions"),
+		}
 
 		object ConsoleOpKind {
 			const val SEND: String = "send"

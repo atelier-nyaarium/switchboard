@@ -17,6 +17,8 @@ export interface Builtin {
 	params: readonly { name: string; check: (value: unknown) => boolean; type: string }[];
 	returns: string;
 	description: string;
+	/** The result's label, from the receiver's. */
+	type: (receiver: string | undefined) => string | undefined;
 	/** Charge steps for work. */
 	run: (receiver: unknown, args: unknown[], step: (count: number) => void) => unknown;
 }
@@ -26,6 +28,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const count = (value: unknown) => Number.isInteger(value) && (value as number) >= 0;
 const field = (value: unknown) => typeof value === "string";
 const any = () => true;
+const same = (receiver: string | undefined) => receiver;
+export const elementOf = (type: string | undefined) => type?.match(/^List<(.+)>$/)?.[1];
 
 export const sameValue = (left: unknown, right: unknown): boolean =>
 	left === right || canonicalJson(left ?? null) === canonicalJson(right ?? null);
@@ -37,6 +41,7 @@ export const BUILTINS: readonly Builtin[] = [
 		params: [],
 		returns: "Number",
 		description: "Items in a list, or fields in a record.",
+		type: () => undefined,
 		run: (receiver) => (Array.isArray(receiver) ? receiver.length : Object.keys(receiver as object).length),
 	},
 	{
@@ -45,6 +50,7 @@ export const BUILTINS: readonly Builtin[] = [
 		params: [],
 		returns: "Item or none",
 		description: "The first item.",
+		type: elementOf,
 		run: (receiver) => (receiver as unknown[])[0] ?? null,
 	},
 	{
@@ -53,6 +59,7 @@ export const BUILTINS: readonly Builtin[] = [
 		params: [{ name: "n", check: count, type: "Number" }],
 		returns: "List",
 		description: "The first n items.",
+		type: same,
 		run: (receiver, [n], step) => {
 			step(Math.min(n as number, (receiver as unknown[]).length));
 			return (receiver as unknown[]).slice(0, n as number);
@@ -64,6 +71,7 @@ export const BUILTINS: readonly Builtin[] = [
 		params: [{ name: "n", check: count, type: "Number" }],
 		returns: "List",
 		description: "All but the first n items.",
+		type: same,
 		run: (receiver, [n], step) => {
 			step((receiver as unknown[]).length);
 			return (receiver as unknown[]).slice(n as number);
@@ -75,6 +83,7 @@ export const BUILTINS: readonly Builtin[] = [
 		params: [],
 		returns: "List<Text>",
 		description: "A record's field names.",
+		type: () => "List<Text>",
 		run: (receiver, _args, step) => {
 			const keys = Object.keys(receiver as object);
 			step(keys.length);
@@ -90,6 +99,7 @@ export const BUILTINS: readonly Builtin[] = [
 		],
 		returns: "List",
 		description: "Records whose field equals value.",
+		type: same,
 		run: (receiver, [name, value], step) => {
 			const list = receiver as unknown[];
 			step(list.length);
@@ -113,7 +123,14 @@ const fits = (receiver: Receiver, value: unknown) =>
 			? isRecord(value)
 			: Array.isArray(value) || isRecord(value);
 
-export function runBuiltin(name: string, receiver: unknown, args: unknown[], step: (count: number) => void): unknown {
+/** The result with its label. */
+export function runBuiltin(
+	name: string,
+	receiver: unknown,
+	held: string | undefined,
+	args: unknown[],
+	step: (count: number) => void,
+): { value: unknown; type: string | undefined } {
 	const builtin = BY_NAME.get(name);
 	if (!builtin) throw new ConsoleError("no_member", `no builtin ${name}()`);
 	if (!fits(builtin.receiver, receiver)) {
@@ -132,5 +149,5 @@ export function runBuiltin(name: string, receiver: unknown, args: unknown[], ste
 		if (!param.check(args[at]))
 			throw new ConsoleError("wrong_args", `${name}(): ${param.name} must be ${param.type}`);
 	});
-	return builtin.run(receiver, args, step);
+	return { value: builtin.run(receiver, args, step), type: builtin.type(held) };
 }

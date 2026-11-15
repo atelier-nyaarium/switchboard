@@ -1,4 +1,9 @@
 import type { ConsoleIssue } from "../../shared/live-console-grammar.js";
+import {
+	CONSOLE_INSTANT_CEILING,
+	CONSOLE_INSTANT_FLOOR,
+	CONSOLE_INSTANT_KEYS,
+} from "../../shared/schemasLiveConsole.js";
 import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
 import { EntityRef } from "./evaluate.js";
 import { describeEntity, entityText } from "./registry.js";
@@ -9,11 +14,7 @@ export const CONSOLE_ITEMS_DEFAULT = 50;
 const NESTED_ITEMS = 5;
 const DEPTH_MAX = 3;
 const TEXT_MAX = 200;
-/** Reject second-based timestamps. */
-const INSTANT_FLOOR = 1e12;
-/** JavaScript Date limit. */
-const INSTANT_CEILING = 8.64e15;
-const INSTANT_KEYS = new Set(["at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt"]);
+const INSTANT_KEYS: ReadonlySet<string> = new Set(CONSOLE_INSTANT_KEYS);
 
 export interface RenderOptions {
 	now: number;
@@ -34,8 +35,8 @@ const isInstant = (value: number, key: string | undefined) =>
 	key !== undefined &&
 	INSTANT_KEYS.has(key) &&
 	Number.isInteger(value) &&
-	value > INSTANT_FLOOR &&
-	value <= INSTANT_CEILING;
+	value > CONSOLE_INSTANT_FLOOR &&
+	value <= CONSOLE_INSTANT_CEILING;
 
 function ageText(at: number, now: number): string {
 	const ago = Math.abs(Math.round((now - at) / 1000));

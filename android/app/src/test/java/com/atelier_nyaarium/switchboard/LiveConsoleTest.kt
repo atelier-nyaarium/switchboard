@@ -1,6 +1,15 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleCard
+import com.atelier_nyaarium.switchboard.liveconsole.EntryDrawn
+import com.atelier_nyaarium.switchboard.liveconsole.canRun
+import com.atelier_nyaarium.switchboard.liveconsole.entryDrawn
+import com.atelier_nyaarium.switchboard.liveconsole.memberInsert
+import com.atelier_nyaarium.switchboard.liveconsole.memberSignature
+import com.atelier_nyaarium.switchboard.liveconsole.moreLine
+import com.atelier_nyaarium.switchboard.liveconsole.picksGateway
+import com.atelier_nyaarium.switchboard.proto.ConsoleMemberDescription
+import com.atelier_nyaarium.switchboard.proto.ConsoleParamDescription
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleDrawn
 import com.atelier_nyaarium.switchboard.liveconsole.oneLine
 import com.atelier_nyaarium.switchboard.liveconsole.withVariable
@@ -17,6 +26,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleEntityDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleEvalResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
 import com.atelier_nyaarium.switchboard.proto.ConsoleIssue
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -94,6 +104,33 @@ class LiveConsoleTest {
 	}
 
 	@Test
+	fun aRowDrawsItsWaitItsRefusalOrItsCardsAndAMemberTypesItsCall() {
+		assertEquals(EntryDrawn.Running, entryDrawn(ConsoleEntryState.Running, description, now))
+		assertEquals(EntryDrawn.Said("no such op"), entryDrawn(ConsoleEntryState.Refused("no such op"), description, now))
+		val answered = entryDrawn(ConsoleEntryState.Answered(ok("27")), description, now)
+		assertEquals(EntryDrawn.Cards(listOf(ConsoleDrawn(ConsoleCard.Scalar("27"), null))), answered)
+
+		val cut = cardOf(ok("""[{"label":"a"},{"label":"b"}]""", "List<Run>", ConsoleCut(2, 9))) as ConsoleCard.Rows
+		assertEquals("7 more; add .skip(2)", moreLine(cut))
+		assertEquals(null, moreLine(cardOf(ok("""[{"label":"a"}]""")) as ConsoleCard.Rows))
+
+		val entity = description.entities.first()
+		val read = ConsoleMemberDescription(
+			"read",
+			"method",
+			"Sensor",
+			"",
+			listOf(ConsoleParamDescription("device", "Text", "", false, null), ConsoleParamDescription("at", "Number", "", true, null)),
+			false,
+		)
+		val list = ConsoleMemberDescription("list", "property", "List<Device>", "", emptyList(), false)
+		assertEquals("read(device: Text, at?: Number) -> Sensor", memberSignature(read))
+		assertEquals("${entity.name}.read(", memberInsert(entity, read))
+		assertEquals("${entity.name}.list", memberInsert(entity, list))
+		assertTrue(canRun(" devices ") && !canRun("  "))
+	}
+
+	@Test
 	fun aConversationReadsItsOwnGatewayAndTheWholeViewKeepsAPickTheRosterNames() {
 		val roster =
 			GatewayRegistry(
@@ -104,6 +141,14 @@ class LiveConsoleTest {
 		assertEquals("sakura", consoleGatewayOf(ViewScope.Everything, roster, "sakura"))
 		assertEquals("tsubaki", consoleGatewayOf(ViewScope.Everything, roster, "gone"))
 		assertEquals("sakura", consoleGatewayOf(ViewScope.Session("dom.sakura.host.abc123"), roster, "tsubaki"))
+		assertTrue(picksGateway(ViewScope.Everything, roster))
+		assertTrue(!picksGateway(ViewScope.Session("dom.sakura.host.abc123"), roster))
+	}
+
+	private class Host(override val gateway: LiveConsoleGateway?, private val named: Boolean = true) : LiveConsoleHost {
+		override val generation = WorkspaceGeneration()
+
+		override fun names(gatewayId: String) = named
 	}
 
 	private class FakeGateway : LiveConsoleGateway {
@@ -113,11 +158,14 @@ class LiveConsoleTest {
 
 		var refuses: String? = null
 		var idReads = 0
+		var entities = emptyList<String>()
+		val carried = mutableListOf<JsonObject?>()
 
 		override suspend fun describe(gatewayId: String): ConsoleCall<ConsoleDescribeResult> {
 			describes++
 			refuses?.let { return ConsoleCall.Refused(it) }
-			return ConsoleCall.Answered(ConsoleDescribeResult(ConsoleDescription(emptyList(), emptyList()), hash))
+			val held = entities.map { ConsoleEntityDescription(it, "", false, emptyList()) }
+			return ConsoleCall.Answered(ConsoleDescribeResult(ConsoleDescription(emptyList(), held), hash))
 		}
 
 		override suspend fun ids(gatewayId: String): ConsoleCall<ConsoleIds> {
@@ -131,10 +179,19 @@ class LiveConsoleTest {
 
 		override suspend fun eval(gatewayId: String, expr: String, variables: JsonObject?): ConsoleCall<ConsoleEvalResult> {
 			sent += variables?.keys.orEmpty()
+			carried += variables
 			refuses?.let { return ConsoleCall.Refused(it) }
+			val saved = expr.substringBefore(" = ", "")
 			return ConsoleCall.Answered(
 				when {
 					expr == "slow" -> held.await()
+					expr.endsWith(" = big") ->
+						ConsoleEvalResult.Ok(
+							listOf(ConsoleResultItem(value = JsonPrimitive("x".repeat(60_000)), assigned = saved)),
+							hash,
+						)
+					expr.endsWith(" = 4") ->
+						ConsoleEvalResult.Ok(listOf(ConsoleResultItem(value = JsonPrimitive(4), assigned = saved)), hash)
 					expr == "gone.member" -> ConsoleEvalResult.Error(ConsoleIssue("no_member", 0, 11, "gone"), hash)
 					expr.startsWith("cold = ") ->
 						ConsoleEvalResult.Ok(
@@ -150,9 +207,7 @@ class LiveConsoleTest {
 	@Test
 	fun anAnswerLandsOnItsOwnEntryAndANewVocabularyIsReadAgain() = runBlocking {
 		val gateway = FakeGateway()
-		val ops = LiveConsoleOps(object : LiveConsoleHost {
-			override val gateway: LiveConsoleGateway = gateway
-		})
+		val ops = LiveConsoleOps(Host(gateway))
 		ops.open("sakura")
 		assertEquals(listOf("govee-h5110"), ops.viewOf("sakura").ids?.definitions)
 		val slow = async { ops.run("sakura", "slow") }
@@ -175,9 +230,7 @@ class LiveConsoleTest {
 	@Test
 	fun aReadBegunBeforeAReprovisionLandsNothingAfterIt() = runBlocking {
 		val gateway = FakeGateway()
-		val ops = LiveConsoleOps(object : LiveConsoleHost {
-			override val gateway: LiveConsoleGateway = gateway
-		})
+		val ops = LiveConsoleOps(Host(gateway))
 		ops.run("sakura", "cold = 1")
 		val slow = async { ops.run("sakura", "slow") }
 		while (ops.viewOf("sakura").entries.size < 2) kotlinx.coroutines.yield()
@@ -189,11 +242,65 @@ class LiveConsoleTest {
 	}
 
 	@Test
+	fun savedValuesTravelUnderWhatOneReadMayCarryOldestDroppedFirst() = runBlocking {
+		val gateway = FakeGateway()
+		val ops = LiveConsoleOps(Host(gateway))
+		for (name in listOf("a", "b", "c", "d")) ops.run("sakura", "$name = big")
+		ops.run("sakura", "a + b + c + d")
+		val sent = gateway.carried.last()
+		assertEquals(setOf("b", "c", "d"), sent?.keys)
+		assertTrue(sent.toString().toByteArray().size <= Protocol.Wire.CONSOLE_VARIABLES_BYTES)
+	}
+
+	@Test
+	fun aSavedNameTheGatewayTakesAsAnEntityIsDroppedAndStaysDropped() = runBlocking {
+		val gateway = FakeGateway()
+		val ops = LiveConsoleOps(Host(gateway))
+		ops.open("sakura")
+		ops.run("sakura", "gadgets = 4")
+		assertEquals(setOf("gadgets"), ops.viewOf("sakura").variables.keys)
+		gateway.entities = listOf("gadgets")
+		gateway.hash = "h2"
+		ops.run("sakura", "devices")
+		assertEquals(emptySet<String>(), ops.viewOf("sakura").variables.keys)
+		ops.run("sakura", "gadgets = 4")
+		assertEquals(emptySet<String>(), ops.viewOf("sakura").variables.keys)
+	}
+
+	@Test
+	fun eachSandboxGatewayAnswersItsOwnWay() = runBlocking {
+		val ops = LiveConsoleOps(Host(SandboxLiveConsoleGateway(now = { now }, pause = {})))
+		for (gatewayId in listOf("sandbox", SECOND_SANDBOX_GATEWAY, SANDBOX_NEVER_REGISTERED)) {
+			ops.open(gatewayId)
+			ops.run(gatewayId, "outside = sensors.read(\"Outside thermometer\")")
+		}
+		ops.run("sandbox", "1 + 1")
+
+		val home = ops.viewOf("sandbox")
+		assertEquals(ConsoleVocabulary.Ready, home.vocabulary)
+		assertEquals(setOf("outside"), home.variables.keys)
+		val unanswered = (home.entries.last().state as ConsoleEntryState.Answered).result
+		assertTrue(unanswered is ConsoleEvalResult.Error)
+		assertTrue(ops.viewOf(SECOND_SANDBOX_GATEWAY).vocabulary is ConsoleVocabulary.Refused)
+		assertTrue(ops.viewOf(SECOND_SANDBOX_GATEWAY).entries.single().state is ConsoleEntryState.Refused)
+		assertEquals(ConsoleVocabulary.Unreachable, ops.viewOf(SANDBOX_NEVER_REGISTERED).vocabulary)
+		assertEquals(ConsoleEntryState.Unreachable, ops.viewOf(SANDBOX_NEVER_REGISTERED).entries.single().state)
+	}
+
+	@Test
+	fun aGatewayTheRosterDoesNotNameIsAskedNothing() = runBlocking {
+		val gateway = FakeGateway()
+		val ops = LiveConsoleOps(Host(gateway, named = false))
+		ops.open("gone")
+		ops.run("gone", "devices")
+		assertEquals(ConsoleEntryState.Unreachable, ops.viewOf("gone").entries.single().state)
+		assertEquals(0, gateway.describes + gateway.idReads + gateway.sent.size)
+	}
+
+	@Test
 	fun aGatewaysRefusalIsShownAsItsOwnWordNotAsSilence() = runBlocking {
 		val gateway = FakeGateway().apply { refuses = "unknown op console_describe" }
-		val ops = LiveConsoleOps(object : LiveConsoleHost {
-			override val gateway: LiveConsoleGateway = gateway
-		})
+		val ops = LiveConsoleOps(Host(gateway))
 		ops.open("sakura")
 		assertEquals(
 			"This Gateway does not serve the console: unknown op console_describe",
@@ -206,9 +313,7 @@ class LiveConsoleTest {
 	@Test
 	fun aSavedResultIsKeptAndTravelsWithAnyReadThatNamesIt() = runBlocking {
 		val gateway = FakeGateway()
-		val ops = LiveConsoleOps(object : LiveConsoleHost {
-			override val gateway: LiveConsoleGateway = gateway
-		})
+		val ops = LiveConsoleOps(Host(gateway))
 		ops.run("sakura", "cold = sensors.read(\"Freezer\").readings[0].value")
 		assertEquals(mapOf("cold" to ConsoleVariable(JsonPrimitive(-18), "Number")), ops.viewOf("sakura").variables)
 		assertEquals("Number", variableLabel(ops.viewOf("sakura").variables.getValue("cold")))
@@ -237,9 +342,7 @@ class LiveConsoleTest {
 
 	@Test
 	fun noGatewayToReadAnswersUnreachable() = runBlocking {
-		val ops = LiveConsoleOps(object : LiveConsoleHost {
-			override val gateway: LiveConsoleGateway? = null
-		})
+		val ops = LiveConsoleOps(Host(null))
 		ops.run("sakura", "devices")
 		assertEquals(ConsoleEntryState.Unreachable, ops.viewOf("sakura").entries.single().state)
 	}

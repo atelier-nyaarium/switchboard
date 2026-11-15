@@ -70,8 +70,6 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.CodePalette
 import com.atelier_nyaarium.switchboard.ConsoleEntry
-import com.atelier_nyaarium.switchboard.ConsoleEntryState
-import com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
 import com.atelier_nyaarium.switchboard.LiveConsoleView
 import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -123,7 +121,7 @@ internal fun ConsoleScreen(
 	val views by repo.liveConsoleOps.state.collectAsState()
 	if (gatewayId == null) {
 		Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-			Text(if (state.gateways.loaded) "No Gateway" else "No roster yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+			Text(noGatewayLine(state.gateways), color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 		return
 	}
@@ -153,7 +151,7 @@ internal fun ConsoleScreen(
 	fun insert(text: String) = edit(TextFieldValue(text, TextRange(text.length)))
 
 	Column(modifier.fillMaxSize().imePadding()) {
-		if (scope == ViewScope.Everything && state.gateways.ids().size > 1) {
+		if (picksGateway(scope, state.gateways)) {
 			GatewayPicker(gatewayId, state.gateways.ids()) { picked = it }
 		}
 		if (view.variables.isNotEmpty()) {
@@ -177,7 +175,7 @@ internal fun ConsoleScreen(
 			onField = ::edit,
 			onSend = {
 				val expr = field.text
-				if (expr.isNotBlank()) {
+				if (canRun(expr)) {
 					edit(TextFieldValue(""))
 					repo.command { liveConsoleOps.run(gatewayId, expr) }
 				}
@@ -266,13 +264,12 @@ private fun EntryBlock(
 			Text("> ", style = CODE.copy(color = Color(CodePalette.LINE_NUMBER)))
 			Text(painted(entry.expr, names), style = CODE)
 		}
-		when (val state = entry.state) {
-			ConsoleEntryState.Running -> CircularProgressIndicator(Modifier.size(20.dp).padding(2.dp), strokeWidth = 2.dp)
-			ConsoleEntryState.Unreachable -> Text(GATEWAY_UNREACHABLE, color = MaterialTheme.colorScheme.error)
-			is ConsoleEntryState.Refused -> Text(state.reason, color = MaterialTheme.colorScheme.error)
-			is ConsoleEntryState.Answered ->
+		when (val shown = entryDrawn(entry.state, description, now)) {
+			EntryDrawn.Running -> CircularProgressIndicator(Modifier.size(20.dp).padding(2.dp), strokeWidth = 2.dp)
+			is EntryDrawn.Said -> Text(shown.line, color = MaterialTheme.colorScheme.error)
+			is EntryDrawn.Cards ->
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-					for (drawn in cardsOf(state.result, description, now)) {
+					for (drawn in shown.cards) {
 						drawn.saved?.let {
 							Text(
 								"saved as $it",
@@ -324,13 +321,12 @@ private fun SchemaCard(entity: ConsoleEntityDescription, names: Names, onInsert:
 			modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
 		)
 		for (member in entity.members) {
-			val call = if (member.kind == "method") "(${member.params.joinToString(", ") { "${it.name}${if (it.optional) "?" else ""}: ${it.type}" }})" else ""
 			Column(
 				Modifier.fillMaxWidth()
-					.clickable { onInsert("${entity.name}.${member.name}${if (member.kind == "method") "(" else ""}") }
+					.clickable { onInsert(memberInsert(entity, member)) }
 					.padding(horizontal = 16.dp, vertical = 8.dp),
 			) {
-				Text(painted("${member.name}$call -> ${member.returns}", names), style = CODE)
+				Text(painted(memberSignature(member), names), style = CODE)
 				if (member.description.isNotEmpty()) {
 					Text(member.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
@@ -392,9 +388,9 @@ private fun RowsCard(card: ConsoleCard.Rows) {
 				}
 			}
 		}
-		if (card.more > 0) {
+		moreLine(card)?.let {
 			Text(
-				"${card.more} more; add .skip(${card.rows.size})",
+				it,
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.primary,
 				modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -485,7 +481,7 @@ private fun Dock(
 					Icon(Icons.Filled.History, contentDescription = "History")
 				}
 				DropdownMenu(expanded = history, onDismissRequest = { history = false }) {
-					for (expr in recall.take(20)) {
+					for (expr in recall) {
 						DropdownMenuItem(text = { Text(painted(expr, names), style = CODE, maxLines = 2) }, onClick = {
 							history = false
 							onField(TextFieldValue(expr, TextRange(expr.length)))
@@ -507,7 +503,7 @@ private fun Dock(
 						.padding(horizontal = 14.dp, vertical = 14.dp),
 			)
 			Spacer(Modifier.size(8.dp))
-			FilledIconButton(onClick = hapticClick(onSend), enabled = field.text.isNotBlank()) {
+			FilledIconButton(onClick = hapticClick(onSend), enabled = canRun(field.text)) {
 				Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Run")
 			}
 		}

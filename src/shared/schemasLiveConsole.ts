@@ -113,6 +113,21 @@ const IssueSchema = z
 
 const CutSchema = z.object({ shown: z.number().int(), total: z.number().int() }).meta({ id: "ConsoleCut" });
 
+/** A whole number under one of these keys draws as an age. */
+export const CONSOLE_INSTANT_KEYS = [
+	"at",
+	"heardAt",
+	"lastAt",
+	"firedAt",
+	"readAt",
+	"lastSuccessAt",
+	"nextPollAt",
+] as const;
+/** Reject second-based timestamps. */
+export const CONSOLE_INSTANT_FLOOR = 1e12;
+/** JavaScript Date limit. */
+export const CONSOLE_INSTANT_CEILING = 8.64e15;
+
 /** Shared protocol byte cap. */
 export const CONSOLE_VALUE_BYTES = 64_000;
 export const CONSOLE_VARIABLES_MAX = 16;

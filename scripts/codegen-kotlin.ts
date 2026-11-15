@@ -234,6 +234,10 @@ import {
 	type IntegrationNeed,
 } from "../src/shared/schemasIntegrations.js";
 import {
+	CONSOLE_COMPLETES,
+	CONSOLE_INSTANT_CEILING,
+	CONSOLE_INSTANT_FLOOR,
+	CONSOLE_INSTANT_KEYS,
 	CONSOLE_VALUE_BYTES,
 	CONSOLE_VARIABLES_BYTES,
 	CONSOLE_VARIABLES_MAX,
@@ -707,7 +711,7 @@ type DecodePolicy = "strict" | "preserve";
 
 const strict = (names: string[]): [string, DecodePolicy][] => names.map((name) => [name, "strict"]);
 
-/** Unknown kinds become Unknown. */
+/** Preserve keeps an unknown kind; strict refuses it. */
 const SEALED_ROOTS = new Map<string, DecodePolicy>([
 	...strict([
 		"ConsoleOp",
@@ -1256,13 +1260,29 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["CONSOLE_VARIABLES_MAX", CONSOLE_VARIABLES_MAX],
 	["CONSOLE_VALUE_BYTES", CONSOLE_VALUE_BYTES],
 	["CONSOLE_VARIABLES_BYTES", CONSOLE_VARIABLES_BYTES],
+	["CONSOLE_INSTANT_FLOOR", CONSOLE_INSTANT_FLOOR],
+	["CONSOLE_INSTANT_CEILING", CONSOLE_INSTANT_CEILING],
 ];
+const KOTLIN_INT_MAX = 2_147_483_647;
+const kotlinConstType = (value: string | number) =>
+	typeof value === "string" ? "String" : value > KOTLIN_INT_MAX ? "Long" : "Int";
+const kotlinConstValue = (value: string | number) =>
+	typeof value === "string" ? kotlinString(value) : value > KOTLIN_INT_MAX ? `${value}L` : `${value}`;
 const wireConstantBlock = wireConstants
 	.map(
 		([name, value]) =>
-			`${INDENT}${INDENT}const val ${kotlinConstName(name)}: ${typeof value === "number" ? "Int" : "String"} = ${typeof value === "number" ? value : kotlinString(value)}`,
+			`${INDENT}${INDENT}const val ${kotlinConstName(name)}: ${kotlinConstType(value)} = ${kotlinConstValue(value)}`,
 	)
 	.join("\n");
+const wireSetBlock = (name: string, values: readonly string[]) =>
+	`${INDENT}${INDENT}val ${name}: Set<String> = setOf(${values.map(kotlinString).join(", ")})`;
+/** Exhaustive on the phone. */
+const wireEnumBlock = (name: string, values: readonly string[]) =>
+	[
+		`${INDENT}${INDENT}enum class ${name}(val wire: String) {`,
+		...values.map((value) => `${INDENT}${INDENT}${INDENT}${kotlinConstName(value)}(${kotlinString(value)}),`),
+		`${INDENT}${INDENT}}`,
+	].join("\n");
 const consoleOpKinds = literalValues(ConsoleOpSchema, "kind");
 const socketFrameTypes = literalValues(ConsoleSocketOutboundSchema, "type");
 const keyOpKinds = [KeyRequestOpSchema, KeyGrantOpSchema, KeyReceiptOpSchema, KeyReceiptsReadOpSchema].flatMap(
@@ -1672,6 +1692,10 @@ ${INDENT}const val DEVICE_MAX_RULES: Int = ${DEVICE_MAX_RULES}
 
 ${INDENT}object Wire {
 ${wireConstantBlock}
+
+${wireSetBlock("CONSOLE_INSTANT_KEYS", CONSOLE_INSTANT_KEYS)}
+
+${wireEnumBlock("ConsoleCompletes", CONSOLE_COMPLETES)}
 
 ${schemaConstantBlock("ConsoleOpKind", consoleOpKinds)}
 

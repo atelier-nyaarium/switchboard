@@ -93,6 +93,7 @@ describe("live console evaluation", () => {
 		expect(await run('sensors.read("Freezer").keys()')).toEqual({
 			ok: true,
 			value: ["name", "readings", "heardAt"],
+			type: "List<Text>",
 		});
 	});
 

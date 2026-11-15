@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.liveconsole.CONSOLE_RECALL_SHOWN
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleVariable
 import com.atelier_nyaarium.switchboard.liveconsole.variablesFor
 import com.atelier_nyaarium.switchboard.liveconsole.withVariable
@@ -7,11 +8,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDescribeResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleEvalResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
-import java.util.concurrent.atomic.AtomicLong
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.JsonObject
 
 /** Gateway refusal differs from silence. */
@@ -33,6 +30,9 @@ internal interface LiveConsoleGateway {
 
 internal interface LiveConsoleHost {
 	val gateway: LiveConsoleGateway?
+	val generation: WorkspaceGeneration
+
+	fun names(gatewayId: String): Boolean
 }
 
 internal sealed interface ConsoleEntryState {
@@ -66,47 +66,143 @@ internal data class LiveConsoleView(
 	val draft: String = "",
 	val variables: Map<String, ConsoleVariable> = emptyMap(),
 	val savedBy: Map<String, Long> = emptyMap(),
+	/** The newest entry id. */
+	val minted: Long = 0,
 )
+
+internal data class ConsoleVocabularyPart(
+	val description: ConsoleDescription?,
+	val registryHash: String?,
+	val vocabulary: ConsoleVocabulary,
+	val variables: Map<String, ConsoleVariable>,
+)
+
+internal data class ConsoleRunPart(
+	val entries: List<ConsoleEntry>,
+	val draft: String,
+	val minted: Long,
+	val variables: Map<String, ConsoleVariable>,
+	val savedBy: Map<String, Long>,
+	val entities: Set<String>,
+)
+
+internal sealed interface ConsoleSlot<S> : Slot<LiveConsoleView, S> {
+	data object Vocabulary : ConsoleSlot<ConsoleVocabularyPart> {
+		override fun read(view: LiveConsoleView) =
+			ConsoleVocabularyPart(view.description, view.registryHash, view.vocabulary, view.variables)
+
+		override fun write(view: LiveConsoleView, part: ConsoleVocabularyPart) =
+			view.copy(
+				description = part.description,
+				registryHash = part.registryHash,
+				vocabulary = part.vocabulary,
+				variables = part.variables,
+			)
+	}
+
+	data object Ids : ConsoleSlot<ConsoleIds?> {
+		override fun read(view: LiveConsoleView) = view.ids
+
+		override fun write(view: LiveConsoleView, part: ConsoleIds?) = view.copy(ids = part)
+	}
+
+	/** One run, from its row to its answer. */
+	class Run : ConsoleSlot<ConsoleRunPart> {
+		override fun read(view: LiveConsoleView) =
+			ConsoleRunPart(
+				view.entries,
+				view.draft,
+				view.minted,
+				view.variables,
+				view.savedBy,
+				view.description?.entities.orEmpty().map { it.name }.toSet(),
+			)
+
+		override fun write(view: LiveConsoleView, part: ConsoleRunPart) =
+			view.copy(
+				entries = part.entries,
+				draft = part.draft,
+				minted = part.minted,
+				variables = part.variables,
+				savedBy = part.savedBy,
+			)
+	}
+
+	data object Draft : ConsoleSlot<String> {
+		override fun read(view: LiveConsoleView) = view.draft
+
+		override fun write(view: LiveConsoleView, part: String) = view.copy(draft = part)
+	}
+}
+
+/** An entity outranks a saved name. */
+internal fun vocabularyAfter(
+	held: ConsoleVocabularyPart,
+	answer: ConsoleCall<ConsoleDescribeResult>,
+): ConsoleVocabularyPart =
+	when (answer) {
+		is ConsoleCall.Answered -> {
+			val entities = answer.value.description.entities.map { it.name }.toSet()
+			ConsoleVocabularyPart(
+				answer.value.description,
+				answer.value.registryHash,
+				ConsoleVocabulary.Ready,
+				held.variables.filterKeys { it !in entities },
+			)
+		}
+		// Retain vocabulary after failure.
+		is ConsoleCall.Refused ->
+			if (held.description == null) held.copy(vocabulary = ConsoleVocabulary.Refused(answer.reason)) else held
+		ConsoleCall.Unreachable ->
+			if (held.description == null) held.copy(vocabulary = ConsoleVocabulary.Unreachable) else held
+	}
+
+/** Newer saves win. */
+internal fun runSettled(held: ConsoleRunPart, id: Long, answer: ConsoleCall<ConsoleEvalResult>): ConsoleRunPart {
+	val landed =
+		when (answer) {
+			is ConsoleCall.Answered -> ConsoleEntryState.Answered(answer.value)
+			is ConsoleCall.Refused -> ConsoleEntryState.Refused(answer.reason)
+			ConsoleCall.Unreachable -> ConsoleEntryState.Unreachable
+		}
+	val saved =
+		((answer as? ConsoleCall.Answered)?.value as? ConsoleEvalResult.Ok)?.results.orEmpty().mapNotNull { item ->
+			item.assigned?.let { it to ConsoleVariable(item.value, item.type) }
+		}
+	val fresh = saved.filter { (name, _) -> (held.savedBy[name] ?: 0) < id && name !in held.entities }
+	return held.copy(
+		entries = held.entries.map { if (it.id == id) it.copy(state = landed) else it },
+		variables = fresh.fold(held.variables) { all, (name, variable) -> withVariable(all, name, variable) },
+		savedBy = held.savedBy + fresh.map { (name, _) -> name to id },
+	)
+}
 
 internal const val CONSOLE_HISTORY_MAX = 100
 
 /** Answers survive screen removal. */
 internal class LiveConsoleOps(private val host: LiveConsoleHost) : ClearsOnReprovision {
-	private val views = MutableStateFlow<Map<String, LiveConsoleView>>(emptyMap())
-	val state: StateFlow<Map<String, LiveConsoleView>> = views.asStateFlow()
+	private val slots = SlotViews<String, LiveConsoleView>(host.generation, ::LiveConsoleView)
 
-	private val reads = GatewayReadFence()
-	private val entryIds = AtomicLong(0)
-	private val owner = AtomicLong(0)
+	val state: StateFlow<Map<String, LiveConsoleView>> get() = slots.all
 
-	private fun change(gatewayId: String, transform: (LiveConsoleView) -> LiveConsoleView) {
-		views.update { held -> held + (gatewayId to transform(held[gatewayId] ?: LiveConsoleView())) }
+	fun viewOf(gatewayId: String): LiveConsoleView = slots.of(gatewayId) ?: LiveConsoleView()
+
+	override suspend fun clearInMemory() = slots.clear()
+
+	fun setDraft(gatewayId: String, draft: String) {
+		slots.land(slots.begin(gatewayId, ConsoleSlot.Draft)) { draft }
 	}
 
-	/** An answer begun under another owner lands nothing. */
-	private fun land(began: Long, gatewayId: String, transform: (LiveConsoleView) -> LiveConsoleView) {
-		views.update { held ->
-			if (owner.get() != began) held else held + (gatewayId to transform(held[gatewayId] ?: LiveConsoleView()))
+	/** Newest first, each once. */
+	fun recall(gatewayId: String): List<String> =
+		viewOf(gatewayId).entries.asReversed().map { it.expr }.distinct().take(CONSOLE_RECALL_SHOWN)
+
+	/** A read already sent cannot bring it back. */
+	fun dropVariable(gatewayId: String, name: String) {
+		slots.land(slots.begin(gatewayId, ConsoleSlot.Run())) {
+			it.copy(variables = it.variables - name, savedBy = it.savedBy + (name to it.minted))
 		}
 	}
-
-	override suspend fun clearInMemory() {
-		// Bump before the wipe.
-		owner.incrementAndGet()
-		views.value = emptyMap()
-	}
-
-	fun viewOf(gatewayId: String): LiveConsoleView = views.value[gatewayId] ?: LiveConsoleView()
-
-	fun setDraft(gatewayId: String, draft: String) = change(gatewayId) { it.copy(draft = draft) }
-
-	fun recall(gatewayId: String): List<String> = viewOf(gatewayId).entries.asReversed().map { it.expr }.distinct()
-
-	fun clear(gatewayId: String) = change(gatewayId) { it.copy(entries = emptyList()) }
-
-	fun dropVariable(gatewayId: String, name: String) =
-		// A read already sent cannot bring it back.
-		change(gatewayId) { it.copy(variables = it.variables - name, savedBy = it.savedBy + (name to entryIds.get())) }
 
 	suspend fun open(gatewayId: String) {
 		describe(gatewayId)
@@ -114,79 +210,49 @@ internal class LiveConsoleOps(private val host: LiveConsoleHost) : ClearsOnRepro
 	}
 
 	suspend fun refreshIds(gatewayId: String) {
-		val client = host.gateway ?: return
-		val began = owner.get()
-		val read = reads.read("$gatewayId/ids") { attempt { client.ids(gatewayId) } }
-		val ids = ((read as? GatewayRead.Fresh)?.value as? ConsoleCall.Answered)?.value ?: return
-		land(began, gatewayId) { it.copy(ids = ids) }
+		val ticket = slots.begin(gatewayId, ConsoleSlot.Ids)
+		val ids = (ask(gatewayId) { it.ids(gatewayId) } as? ConsoleCall.Answered)?.value ?: return
+		slots.land(ticket) { ids }
 	}
 
 	private suspend fun describe(gatewayId: String) {
-		val client = host.gateway
-		val began = owner.get()
-		val read = reads.read("$gatewayId/describe") { client?.let { attempt { it.describe(gatewayId) } } }
-		if (read !is GatewayRead.Fresh) return
-		land(began, gatewayId) { view ->
-			when (val answer = read.value) {
-				is ConsoleCall.Answered ->
-					view.copy(
-						description = answer.value.description,
-						registryHash = answer.value.registryHash,
-						vocabulary = ConsoleVocabulary.Ready,
-					)
-				// Retain vocabulary after failure.
-				is ConsoleCall.Refused ->
-					if (view.description == null) view.copy(vocabulary = ConsoleVocabulary.Refused(answer.reason)) else view
-				ConsoleCall.Unreachable, null ->
-					if (view.description == null) view.copy(vocabulary = ConsoleVocabulary.Unreachable) else view
-			}
-		}
+		val ticket = slots.begin(gatewayId, ConsoleSlot.Vocabulary)
+		val answer = ask(gatewayId) { it.describe(gatewayId) }
+		slots.land(ticket) { vocabularyAfter(it, answer) }
 	}
 
-	/** Late results settle by ID; changed hashes reload. */
+	/** A changed hash reads the vocabulary again. */
 	suspend fun run(gatewayId: String, expr: String) {
 		val text = expr.trim()
 		if (text.isEmpty()) return
-		val id = entryIds.incrementAndGet()
-		val began = owner.get()
-		change(gatewayId) {
-			it.copy(entries = (it.entries + ConsoleEntry(id, text, ConsoleEntryState.Running)).takeLast(CONSOLE_HISTORY_MAX), draft = "")
-		}
-		val sent = variablesFor(text, viewOf(gatewayId).variables)
-		val answer = host.gateway?.let { client -> attempt { client.eval(gatewayId, text, sent) } } ?: ConsoleCall.Unreachable
-		val landed =
-			when (answer) {
-				is ConsoleCall.Answered -> ConsoleEntryState.Answered(answer.value)
-				is ConsoleCall.Refused -> ConsoleEntryState.Refused(answer.reason)
-				ConsoleCall.Unreachable -> ConsoleEntryState.Unreachable
+		val ticket = slots.begin(gatewayId, ConsoleSlot.Run())
+		var id = 0L
+		val appended =
+			slots.land(ticket) { held ->
+				id = held.minted + 1
+				val row = ConsoleEntry(id, text, ConsoleEntryState.Running)
+				held.copy(entries = (held.entries + row).takeLast(CONSOLE_HISTORY_MAX), draft = "", minted = id)
 			}
-		val result = (answer as? ConsoleCall.Answered)?.value
-		val saved = (result as? ConsoleEvalResult.Ok)?.results.orEmpty().mapNotNull { item ->
-			item.assigned?.let { it to ConsoleVariable(item.value, item.type) }
-		}
-		land(began, gatewayId) { view ->
-			// Newer saves win.
-			val fresh = saved.filter { (name, _) -> (view.savedBy[name] ?: 0) < id }
-			view.copy(
-				entries = view.entries.map { if (it.id == id) it.copy(state = landed) else it },
-				variables = fresh.fold(view.variables) { held, (name, variable) -> withVariable(held, name, variable) },
-				savedBy = view.savedBy + fresh.map { (name, _) -> name to id },
-			)
-		}
+		if (!appended) return
+		val sent = variablesFor(text, viewOf(gatewayId).variables)
+		val answer = ask(gatewayId) { it.eval(gatewayId, text, sent) }
+		if (!slots.land(ticket) { runSettled(it, id, answer) }) return
 		val hash =
-			when (result) {
+			when (val result = (answer as? ConsoleCall.Answered)?.value) {
 				is ConsoleEvalResult.Ok -> result.registryHash
 				is ConsoleEvalResult.Error -> result.registryHash
-				null -> null
+				null -> return
 			}
-		if (owner.get() != began) return
-		if (hash != null && hash != viewOf(gatewayId).registryHash) describe(gatewayId)
-		if (result != null) refreshIds(gatewayId)
+		if (hash != viewOf(gatewayId).registryHash) describe(gatewayId)
+		refreshIds(gatewayId)
 	}
 
-	private suspend fun <T> attempt(call: suspend () -> ConsoleCall<T>): ConsoleCall<T> =
-		runCatchingCancellable { call() }.getOrElse {
+	private suspend fun <T> ask(gatewayId: String, call: suspend (LiveConsoleGateway) -> ConsoleCall<T>): ConsoleCall<T> {
+		if (!host.names(gatewayId)) return ConsoleCall.Unreachable
+		val client = host.gateway ?: return ConsoleCall.Unreachable
+		return runCatchingCancellable { call(client) }.getOrElse {
 			DebugLog.log("LiveConsole", "gateway call failed: ${it.message}")
 			ConsoleCall.Unreachable
 		}
+	}
 }

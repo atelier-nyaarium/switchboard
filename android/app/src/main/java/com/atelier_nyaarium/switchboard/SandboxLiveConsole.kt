@@ -1,8 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.liveconsole.ConsoleToken
-import com.atelier_nyaarium.switchboard.liveconsole.ConsoleTokenKind
-import com.atelier_nyaarium.switchboard.liveconsole.lexConsole
 import com.atelier_nyaarium.switchboard.proto.ConsoleBuiltinDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleBuiltinParam
 import com.atelier_nyaarium.switchboard.proto.ConsoleCut
@@ -19,20 +16,26 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleParamDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleResultItem
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 
 private const val CONSOLE_ROUND_TRIP_MS = 400L
 private const val SANDBOX_HASH = "sandbox"
+private const val OLDER_GATEWAY = "unknown op console_describe"
 
-private val DEVICE = ConsoleParamDescription("device", "Text", "Id or name.", false, "devices")
+private fun param(name: String, description: String, completes: String) =
+	ConsoleParamDescription(name, "Text", description, false, completes)
+
+private val DEVICE = param("device", "Id or name.", "devices")
 
 private fun property(name: String, returns: String, description: String) =
 	ConsoleMemberDescription(name, "property", returns, description, emptyList(), false)
 
 private fun method(name: String, returns: String, description: String, vararg params: ConsoleParamDescription) =
 	ConsoleMemberDescription(name, "method", returns, description, params.toList(), false)
+
+private fun entity(name: String, description: String, vararg members: ConsoleMemberDescription) =
+	ConsoleEntityDescription(name, description, false, members.toList())
 
 private val SANDBOX_DESCRIPTION =
 	ConsoleDescription(
@@ -44,37 +47,28 @@ private val SANDBOX_DESCRIPTION =
 			),
 		entities =
 			listOf(
-				ConsoleEntityDescription(
+				entity(
 					"devices",
 					"Devices this Gateway holds.",
-					false,
-					listOf(
-						property("list", "List<Device>", "Every device, plugs and sensors."),
-						method("get", "Device", "One device.", DEVICE),
-					),
+					property("list", "List<Device>", "Every device, plugs and sensors."),
+					method("get", "Device", "One device.", DEVICE),
 				),
-				ConsoleEntityDescription(
+				entity(
 					"sensors",
 					"Paired sensors, readings in the owner's unit.",
-					false,
-					listOf(
-						property("list", "List<SensorSummary>", "Every sensor, its main reading and when heard."),
-						method("read", "Sensor", "Readings now, with 24-hour lows and highs.", DEVICE),
-						method(
-							"extremes",
-							"Extremes",
-							"One reading's 24-hour low and high.",
-							DEVICE,
-							ConsoleParamDescription("key", "Text", "Reading key.", false, "readings"),
-						),
-					),
+					property("list", "List<SensorSummary>", "Every sensor, its main reading and when heard."),
+					method("read", "Sensor", "Readings now, with 24-hour lows and highs.", DEVICE),
+					method("extremes", "Extremes", "One reading's 24-hour low and high.", DEVICE, param("key", "Reading key.", "readings")),
 				),
-				ConsoleEntityDescription(
+				entity("fields", "Computed fields.", method("read", "Field", "A field's value now.", param("field", "Field id.", "fields"))),
+				entity(
 					"automations",
 					"Automations and what they did.",
-					false,
-					listOf(property("runs", "List<Run>", "Recent runs, newest first.")),
+					property("runs", "List<Run>", "Recent runs, newest first."),
+					method("get", "Automation", "One automation as set.", param("automation", "Automation id.", "automations")),
 				),
+				entity("sources", "Sources and their health.", method("get", "Source", "One source as set.", param("source", "Source id.", "sources"))),
+				entity("definitions", "Device definitions.", method("get", "Definition", "One definition.", param("key", "Definition key.", "definitions"))),
 			),
 	)
 
@@ -91,80 +85,58 @@ private val SANDBOX_IDS =
 		definitions = listOf("govee-h5110"),
 	)
 
-internal class SandboxLiveConsoleGateway(private val now: () -> Long = System::currentTimeMillis) : LiveConsoleGateway {
-	override suspend fun describe(gatewayId: String): ConsoleCall<ConsoleDescribeResult> {
-		delay(CONSOLE_ROUND_TRIP_MS)
-		return ConsoleCall.Answered(ConsoleDescribeResult(SANDBOX_DESCRIPTION, SANDBOX_HASH))
+private const val OUTSIDE = """sensors.read("Outside thermometer")"""
+
+private fun sensorJson(at: Long) =
+	"""{"name":"Outside thermometer","id":"ce:1c:44:06:3c:5d","radio":"gateway","model":"H5110",
+	"heardAt":${at - 4_000},"stale":null,"readings":[
+	{"label":"Temperature","key":"temperature","value":64.6,"shown":"64.6 °F",
+	"low":{"shown":"58.1 °F","at":${at - 40_000_000}},"high":{"shown":"71.4 °F","at":${at - 9_000_000}}},
+	{"label":"Humidity","key":"humidity","value":48.2,"shown":"48.2%"},
+	{"label":"Battery","key":"battery","value":100,"shown":"100%"}]}"""
+
+private fun runsJson(at: Long) =
+	"""[{"label":"Outside thermometer temperature below 2.0 °C","automation":"a","seq":9,"at":${at - 720_000},"outcome":"ran"},
+	{"label":"Random thermometer temperature below 25.0 °C","automation":"b","seq":8,"at":${at - 7_200_000},"outcome":"ran"},
+	{"label":"Random thermometer temperature below 25.0 °C","automation":"b","seq":7,"at":${at - 7_300_000},"outcome":"suppressed"}]"""
+
+/** Canned answers by exact text; nothing is evaluated. */
+private fun cannedItem(expr: String, at: Long): ConsoleResultItem? =
+	when (expr) {
+		OUTSIDE -> ConsoleResultItem(value = Json.parseToJsonElement(sensorJson(at)), type = "Sensor")
+		"outside = $OUTSIDE" -> ConsoleResultItem(value = Json.parseToJsonElement(sensorJson(at)), type = "Sensor", assigned = "outside")
+		"automations.runs" -> ConsoleResultItem(value = Json.parseToJsonElement(runsJson(at)), type = "List<Run>", cut = ConsoleCut(3, 12))
+		"sensors.list.count()" -> ConsoleResultItem(value = Json.parseToJsonElement("2"))
+		else -> SANDBOX_DESCRIPTION.entities.firstOrNull { it.name == expr }?.let { ConsoleResultItem(value = JsonNull, entity = it.name) }
 	}
 
-	override suspend fun ids(gatewayId: String): ConsoleCall<ConsoleIds> {
-		delay(CONSOLE_ROUND_TRIP_MS)
-		return ConsoleCall.Answered(SANDBOX_IDS)
-	}
-
-	override suspend fun eval(gatewayId: String, expr: String, variables: JsonObject?): ConsoleCall<ConsoleEvalResult> {
-		delay(CONSOLE_ROUND_TRIP_MS)
-		val refused = { code: String, message: String ->
-			ConsoleCall.Answered(ConsoleEvalResult.Error(ConsoleIssue(code, 0, expr.length.toLong(), message), SANDBOX_HASH))
+/** One Gateway answers, one is older, one is never reached. */
+internal class SandboxLiveConsoleGateway(
+	private val now: () -> Long = System::currentTimeMillis,
+	private val pause: suspend () -> Unit = { delay(CONSOLE_ROUND_TRIP_MS) },
+) : LiveConsoleGateway {
+	private suspend fun <T> answered(gatewayId: String, value: () -> T): ConsoleCall<T> {
+		pause()
+		return when (gatewayId) {
+			SANDBOX_NEVER_REGISTERED -> ConsoleCall.Unreachable
+			SECOND_SANDBOX_GATEWAY -> ConsoleCall.Refused(OLDER_GATEWAY)
+			else -> ConsoleCall.Answered(value())
 		}
-		val saves = variables.orEmpty().mapNotNull { (name, held) -> (held as? JsonObject)?.get("value")?.let { name to it } }.toMap(mutableMapOf())
-		val results = mutableListOf<ConsoleResultItem>()
-		for (tokens in statementsOf(expr)) {
-			val equals = tokens.getOrNull(1)
-			val target = tokens.first().takeIf { it.kind == ConsoleTokenKind.IDENT && equals?.kind == ConsoleTokenKind.OP && equals.text == "=" }
-			val from = if (target == null) tokens.first().start else tokens.getOrNull(2)?.start ?: tokens.last().end
-			val read = expr.substring(from, tokens.last().end)
-			if (target != null && SANDBOX_DESCRIPTION.entities.any { it.name == target.text }) {
-				return refused("name_taken", "${target.text} is an entity")
+	}
+
+	override suspend fun describe(gatewayId: String) =
+		answered(gatewayId) { ConsoleDescribeResult(SANDBOX_DESCRIPTION, SANDBOX_HASH) }
+
+	override suspend fun ids(gatewayId: String) = answered(gatewayId) { SANDBOX_IDS }
+
+	override suspend fun eval(gatewayId: String, expr: String, variables: JsonObject?): ConsoleCall<ConsoleEvalResult> =
+		answered(gatewayId) {
+			val item = cannedItem(expr, now())
+			if (item == null) {
+				val issue = ConsoleIssue("not_found", 0, expr.length.toLong(), "the sandbox answers only its canned reads")
+				ConsoleEvalResult.Error(issue, SANDBOX_HASH)
+			} else {
+				ConsoleEvalResult.Ok(listOf(item), SANDBOX_HASH)
 			}
-			val item = itemOf(read, saves) ?: return refused("not_found", "the sandbox does not answer that")
-			if (target != null) saves[target.text] = item.value
-			results += item.copy(assigned = target?.text)
 		}
-		return ConsoleCall.Answered(ConsoleEvalResult.Ok(results, SANDBOX_HASH))
-	}
-
-	private fun statementsOf(expr: String): List<List<ConsoleToken>> {
-		val statements = mutableListOf(mutableListOf<ConsoleToken>())
-		for (token in lexConsole(expr)) {
-			if (token.kind == ConsoleTokenKind.PUNCT && token.text == ";") statements += mutableListOf<ConsoleToken>() else statements.last() += token
-		}
-		return statements.filter { it.isNotEmpty() }
-	}
-
-	private fun itemOf(read: String, saves: Map<String, JsonElement>): ConsoleResultItem? {
-		val at = now()
-		val entity = SANDBOX_DESCRIPTION.entities.firstOrNull { it.name == read }
-		val saved = saves[read]
-		return when {
-			entity != null -> ConsoleResultItem(value = JsonNull, entity = entity.name)
-			saved != null -> ConsoleResultItem(value = saved)
-			read.startsWith("sensors.read(") ->
-				ConsoleResultItem(
-					value =
-						Json.parseToJsonElement(
-							"""{"name":"Outside thermometer","id":"ce:1c:44:06:3c:5d","radio":"gateway","model":"H5110",
-							"heardAt":${at - 4_000},"stale":null,"readings":[
-							{"label":"Temperature","key":"temperature","value":64.6,"shown":"64.6 °F",
-							"low":{"shown":"58.1 °F","at":${at - 40_000_000}},"high":{"shown":"71.4 °F","at":${at - 9_000_000}}},
-							{"label":"Humidity","key":"humidity","value":48.2,"shown":"48.2%"},
-							{"label":"Battery","key":"battery","value":100,"shown":"100%"}]}""",
-						),
-					type = "Sensor",
-				)
-			read.startsWith("automations.runs") ->
-				ConsoleResultItem(
-					value =
-						Json.parseToJsonElement(
-							"""[{"label":"Outside thermometer temperature below 2.0 °C","automation":"a","seq":9,"at":${at - 720_000},"outcome":"ran"},
-							{"label":"Random thermometer temperature below 25.0 °C","automation":"b","seq":8,"at":${at - 7_200_000},"outcome":"ran"},
-							{"label":"Random thermometer temperature below 25.0 °C","automation":"b","seq":7,"at":${at - 7_300_000},"outcome":"suppressed"}]""",
-						),
-					type = "List<Run>",
-					cut = ConsoleCut(3, 12),
-				)
-			read == "sensors.list.count()" -> ConsoleResultItem(value = Json.parseToJsonElement("3"))
-			else -> null
-		}
-	}
 }

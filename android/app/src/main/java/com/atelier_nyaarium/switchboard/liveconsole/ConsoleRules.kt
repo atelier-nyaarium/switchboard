@@ -1,11 +1,15 @@
 package com.atelier_nyaarium.switchboard.liveconsole
 
 import com.atelier_nyaarium.switchboard.CodeToken
+import com.atelier_nyaarium.switchboard.ConsoleEntryState
 import com.atelier_nyaarium.switchboard.ConsoleVocabulary
 import com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
 import com.atelier_nyaarium.switchboard.GatewayRegistry
 import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.addressOf
+import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
+import com.atelier_nyaarium.switchboard.proto.ConsoleEntityDescription
+import com.atelier_nyaarium.switchboard.proto.ConsoleMemberDescription
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -34,8 +38,9 @@ internal fun consolePaint(source: String, entities: Set<String>, variables: Set<
 				ConsoleTokenKind.IDENT ->
 					when {
 						afterDot -> CodeToken.FUNCTION
-						token.text in variables -> CodeToken.VARIABLE
+						// An entity outranks a saved name.
 						token.text in entities -> CodeToken.TYPE
+						token.text in variables -> CodeToken.VARIABLE
 						else -> CodeToken.PROPERTY
 					}
 				ConsoleTokenKind.NUMBER -> CodeToken.NUMBER
@@ -108,4 +113,51 @@ internal fun vocabularyLine(vocabulary: ConsoleVocabulary): String =
 		is ConsoleVocabulary.Refused -> "This Gateway does not serve the console: ${vocabulary.reason}"
 	}
 
-private fun isName(key: String): Boolean = lexConsole(key).singleOrNull()?.let { it.kind == ConsoleTokenKind.IDENT && it.text == key } == true
+/** A dot takes a keyword too. */
+private fun isName(key: String): Boolean =
+	lexConsole(key).singleOrNull()?.let {
+		(it.kind == ConsoleTokenKind.IDENT || it.kind == ConsoleTokenKind.KEYWORD) && it.text == key
+	} == true
+
+internal const val CONSOLE_RECALL_SHOWN = 20
+
+/** The picker shows only for the whole view. */
+internal fun picksGateway(scope: ViewScope, roster: GatewayRegistry): Boolean =
+	scope == ViewScope.Everything && roster.ids().size > 1
+
+internal fun noGatewayLine(roster: GatewayRegistry): String = if (roster.loaded) "No Gateway" else "No roster yet"
+
+internal fun canRun(draft: String): Boolean = draft.isNotBlank()
+
+/** What one history row draws under its input. */
+internal sealed interface EntryDrawn {
+	data object Running : EntryDrawn
+
+	data class Said(val line: String) : EntryDrawn
+
+	data class Cards(val cards: List<ConsoleDrawn>) : EntryDrawn
+}
+
+internal fun entryDrawn(state: ConsoleEntryState, description: ConsoleDescription?, now: Long): EntryDrawn =
+	when (state) {
+		ConsoleEntryState.Running -> EntryDrawn.Running
+		ConsoleEntryState.Unreachable -> EntryDrawn.Said(GATEWAY_UNREACHABLE)
+		is ConsoleEntryState.Refused -> EntryDrawn.Said(state.reason)
+		is ConsoleEntryState.Answered -> EntryDrawn.Cards(cardsOf(state.result, description, now))
+	}
+
+/** Null when the list is whole. */
+internal fun moreLine(card: ConsoleCard.Rows): String? =
+	if (card.more > 0) "${card.more} more; add .skip(${card.rows.size})" else null
+
+private fun isMethod(member: ConsoleMemberDescription) = member.kind == "method"
+
+internal fun memberSignature(member: ConsoleMemberDescription): String {
+	val params = member.params.joinToString(", ") { "${it.name}${if (it.optional) "?" else ""}: ${it.type}" }
+	return "${member.name}${if (isMethod(member)) "($params)" else ""} -> ${member.returns}"
+}
+
+/** What a tap on a member types. */
+internal fun memberInsert(entity: ConsoleEntityDescription, member: ConsoleMemberDescription): String =
+	"${entity.name}.${member.name}${if (isMethod(member)) "(" else ""}"
+

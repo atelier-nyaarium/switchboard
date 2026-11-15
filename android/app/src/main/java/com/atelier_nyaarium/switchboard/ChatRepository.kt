@@ -434,8 +434,8 @@ class ChatRepository(
 	internal val runbookOps = RunbookOps(state = _state, host = ChatRepositoryRunbookHost(this))
 	internal val routineOps = RoutineOps(state = _state, host = ChatRepositoryRoutineHost(this))
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
-	internal val liveConsoleOps = LiveConsoleOps(host = ChatRepositoryLiveConsoleHost(this))
 	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
+	internal val liveConsoleOps = LiveConsoleOps(host = ChatRepositoryLiveConsoleHost(this, workspaceHost.generation))
 	private val deviceHost = ChatRepositoryDeviceHost(this, workspaceHost.generation)
 	internal val deviceOps = DeviceOps(host = deviceHost)
 
