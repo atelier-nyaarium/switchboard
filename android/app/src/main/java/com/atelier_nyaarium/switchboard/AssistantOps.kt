@@ -591,7 +591,7 @@ internal class AssistantOps(
 	} catch (e: CancellationException) {
 		throw e
 	} catch (e: Exception) {
-		DebugLog.log("Assistant", "gateway call failed: ${e.message}")
+		DebugLog.log("Assistant", "gateway call failed: ${e::class.simpleName}")
 		null
 	}
 }

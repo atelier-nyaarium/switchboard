@@ -288,7 +288,7 @@ internal class AutomationOps(
 	} catch (e: CancellationException) {
 		throw e
 	} catch (e: Exception) {
-		DebugLog.log("Automation", "gateway call failed: ${e.message}")
+		DebugLog.log("Automation", "gateway call failed: ${e::class.simpleName}")
 		null
 	}
 }

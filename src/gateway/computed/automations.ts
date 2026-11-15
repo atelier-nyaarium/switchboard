@@ -365,8 +365,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		};
 	};
 
-	const isEvent = (record: OwnerRecord<Automation>, sourceIds: readonly string[]) =>
-		record.body.trigger.kind === "event" && sourceIds.includes(record.body.trigger.source);
+	const isEvent = (record: OwnerRecord<Automation>) => record.body.trigger.kind === "event";
 
 	/** A revived id starts unrun. */
 	const forgetRan = (ids: readonly string[]): void => {
@@ -421,21 +420,21 @@ export function createAutomations(deps: AutomationsDeps) {
 			return { deleted: true };
 		},
 		/** Makes `carried` the sources' events. */
-		replaceEvents(sourceIds: readonly string[], carried: readonly CarriedAutomation[]): boolean {
+		replaceEvents(carried: readonly CarriedAutomation[]): boolean {
 			// An alert's id is its sensor's.
 			const named = carried.filter((row) => !row.id.startsWith(THRESHOLD_PREFIX));
 			const wanted = new Map(named.map((row) => [row.id, canonicalAutomation(row.automation)]));
 			const fresh: string[] = [];
 			let ok = true;
 			for (const record of records.list()) {
-				if (!isEvent(record, sourceIds) || wanted.has(record.id)) continue;
+				if (!isEvent(record) || wanted.has(record.id)) continue;
 				ok = records.remove(record.id, record.revision).removed && ok;
 				fresh.push(record.id);
 			}
 			for (const [id, automation] of wanted) {
 				const current = records.get(id);
 				// Another automation holds the id.
-				if (current && !isEvent(current, sourceIds)) ok = false;
+				if (current && !isEvent(current)) ok = false;
 				else
 					ok =
 						records.put(AUTOMATION_KIND, id, automation, current?.revision ?? 0, { revive: true }).stored &&

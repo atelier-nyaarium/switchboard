@@ -842,6 +842,8 @@ Red-team audit, lap 1 (eight angles on Opus and Sonnet, Opus synthesis). Fixed: 
 - **The cap of 64 is shared with sensor alerts** and is checked late in an apply; a move to the same Gateway drops an automation its fields no longer take; a throw inside adoption would write the mark. None is reachable with the owner's configuration.
 - **A preview reads a source that is off.** It is the owner's read; off gates what reaches the assistant.
 
+Compliance review, lap 1 (four angles, scoped to a one-owner deployment). Fixed: a let-go left the old rules file on a Gateway the assistant had left, now emptied there as before automations; an event automation of a source the build no longer has survived a let-go and a move; the phone's `gateway call failed` log lines carried an unbounded message, now the error's class, in all seven ops classes. Left: a source's Enabled and grant ops carry no base revision, so the Router could replay one; older than this phase and on the board.
+
 ### Bug Classes
 
 - **Editor state keyed to a slot, not an opening.** Mechanism: `AutomationOps.leaving`, `discard` and `opened`. First round: the ask now names its opening, a Back during a send leaves without discarding, and a delete's offer rebases `opened`.

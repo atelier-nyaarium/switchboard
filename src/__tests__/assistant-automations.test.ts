@@ -288,8 +288,8 @@ describe("an event automation", () => {
 		automations.noteEvents(["a"], T0);
 		const ran = automations.rows().find((row) => row.id === "a")?.lastRanAt;
 
-		automations.replaceEvents(["github"], []);
-		automations.replaceEvents(["github"], [all, { id: "threshold-carried", automation: all.automation }]);
+		automations.replaceEvents([]);
+		automations.replaceEvents([all, { id: "threshold-carried", automation: all.automation }]);
 		automations.ownerPut("toString", all.automation, 0);
 		const named = automations.ownerPut("threshold-b", all.automation, 0);
 		const edited = automations.ownerPut("threshold-a-low", { ...alert, enabled: false }, 1);
@@ -426,5 +426,29 @@ describe("stored rules", () => {
 
 		expect(automations.rows()).toEqual([]);
 		expect(rulesBytes(dir)).toBe(before);
+	});
+
+	it("are emptied when the home moves away, and no event automation stays, one of a source this build lost included", async () => {
+		const dir = freshDir();
+		seedRules(dir, {
+			github: { rules: [rule("a", "mention", "wake")], otherwise: { action: "inbox", revision: 0 }, revision: 1 },
+		});
+		const mail: Source = { ...listing([], SPECS), id: "mail", label: "Mail" };
+		const first = await placed([listing(), mail], dir);
+		first.automations.ownerPut("g", eventAutomation("github", reason("mention")), 0);
+		first.automations.ownerPut("m", eventAutomation("mail", []), 0);
+		await first.stop();
+		const { assistant, automations, stop } = await placed([listing()], dir);
+		const held = automations.rows().map((row) => row.id);
+
+		await assistant.follow(
+			{ version: 2, gatewayId: "elsewhere", sealed: HOME_ENVELOPE } satisfies AssistantHomeRecord,
+			{ registered: false },
+		);
+		await stop();
+
+		expect(held.sort()).toEqual(["g", "m"]);
+		expect(automations.rows()).toEqual([]);
+		expect(JSON.parse(rulesBytes(dir)).watchers).toEqual({});
 	});
 });

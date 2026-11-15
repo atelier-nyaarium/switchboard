@@ -395,7 +395,7 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 		var result: DeviceSaved? = null
 		try {
 			val saved = runCatchingCancellable { call(client, ticket) }.getOrElse { error ->
-				DebugLog.log("Device", "gateway call failed: ${error.message}")
+				DebugLog.log("Device", "gateway call failed: ${error::class.simpleName}")
 				DeviceSaved.Unanswered(GATEWAY_UNREACHABLE)
 			}
 			result = saved
@@ -419,7 +419,7 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 
 	private suspend fun <T> invoke(client: DeviceGateway, call: suspend (DeviceGateway) -> DeviceAnswer<T>): DeviceAnswer<T> =
 		runCatchingCancellable { call(client) }.getOrElse { error ->
-			DebugLog.log("Device", "gateway call failed: ${error.message}")
+			DebugLog.log("Device", "gateway call failed: ${error::class.simpleName}")
 			DeviceAnswer.Unreachable
 		}
 

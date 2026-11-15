@@ -510,9 +510,11 @@ cannot rewrite what sorts its own events.
   automations as it lists, so an edit takes effect on the next read.
 - **Stored rules convert once, until 2026-11-28:** at boot `rulesAdoption.ts` turns each stored
   watcher rule that woke into an event automation under the rule's id, and a fallback that woke
-  into one for every event (`every-<source>`). `assistant-rules.json` is never written again, and
+  into one for every event (`every-<source>`). `assistant-rules.json` is left as it was at the home and emptied when the home lets go, and
   `assistant-rules-adopted.json` marks the conversion, so an automation the owner deletes is not
-  brought back. The older rule ops answer that rules became automations.
+  brought back. A let-go removes every event automation, one of a source this build no longer
+  has included. The older rule ops answer that rules became automations and the rules that match
+  what wakes now.
 
 ### Limits
 

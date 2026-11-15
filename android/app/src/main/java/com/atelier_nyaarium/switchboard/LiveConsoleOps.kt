@@ -251,7 +251,7 @@ internal class LiveConsoleOps(private val host: LiveConsoleHost) : ClearsOnRepro
 		if (!host.names(gatewayId)) return ConsoleCall.Unreachable
 		val client = host.gateway ?: return ConsoleCall.Unreachable
 		return runCatchingCancellable { call(client) }.getOrElse {
-			DebugLog.log("LiveConsole", "gateway call failed: ${it.message}")
+			DebugLog.log("LiveConsole", "gateway call failed: ${it::class.simpleName}")
 			ConsoleCall.Unreachable
 		}
 	}

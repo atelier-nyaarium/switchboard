@@ -200,7 +200,7 @@ internal class RoutineOps(
 	} catch (e: CancellationException) {
 		throw e
 	} catch (e: Exception) {
-		DebugLog.log("Routine", "gateway call failed: ${e.message}")
+		DebugLog.log("Routine", "gateway call failed: ${e::class.simpleName}")
 		null
 	}
 }

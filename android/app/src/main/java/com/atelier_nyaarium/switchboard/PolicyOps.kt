@@ -155,7 +155,7 @@ internal class PolicyOps(
 	} catch (e: CancellationException) {
 		throw e
 	} catch (e: Exception) {
-		DebugLog.log("Policy", "gateway call failed: ${e.message}")
+		DebugLog.log("Policy", "gateway call failed: ${e::class.simpleName}")
 		null
 	}
 }

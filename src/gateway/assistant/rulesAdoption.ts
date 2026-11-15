@@ -1,5 +1,5 @@
 // Stored watcher rules, read once into event automations.
-// Remove 2026-11-28 with `assistant-rules.json` and its mark.
+// Remove 2026-11-28, deleting `assistant-rules.json` and its mark from the data directory.
 
 import { z } from "zod";
 import { type DurableStore, writeChecked } from "../../shared/durable-store.js";
@@ -68,6 +68,13 @@ export function storedRules(store: DurableStore): Record<string, AssistantWatche
 	if (loaded === null) return {};
 	const parsed = SnapshotSchema.safeParse(decodedLegacy(loaded));
 	return parsed.success ? parsed.data.watchers : null;
+}
+
+/** A let-go leaves no rules, as it did before automations. */
+export function clearStoredRules(rules: DurableStore): boolean {
+	const held = storedRules(rules);
+	if (held !== null && Object.keys(held).length === 0) return true;
+	return writeChecked(rules, { v: 1, watchers: {} }, "assistant rules").landed;
 }
 
 export interface RulesAdoptionDeps {

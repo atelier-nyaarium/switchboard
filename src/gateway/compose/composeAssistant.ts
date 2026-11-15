@@ -65,7 +65,7 @@ import { createIftttClient } from "../assistant/iftttClient.js";
 import { createInboxListing } from "../assistant/inboxListing.js";
 import { createPhoneDispatch, holdRefusal } from "../assistant/phoneDispatch.js";
 import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } from "../assistant/phoneRequests.js";
-import { adoptStoredRules } from "../assistant/rulesAdoption.js";
+import { adoptStoredRules, clearStoredRules } from "../assistant/rulesAdoption.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
 import { SensorsClear } from "../assistant/sensorsClear.js";
 import { type ListPage, type ListQuery, type Source, type SourceEvent, told } from "../assistant/source.js";
@@ -718,7 +718,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}
 		const byId = new Map((carried?.watchers ?? []).map((source) => [source.id, source]));
 		const ids = sources.map((source) => source.id);
-		if (!automations?.replaceEvents(ids, carriedEvents(carried))) return "the automations could not be saved";
+		if (!automations?.replaceEvents(carriedEvents(carried))) return "the automations could not be saved";
 		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
 		if (!temperature.set(carried?.temperatureUnit ?? "C")) return "the temperature unit could not be saved";
 		// Fresh is off; unflagged carried is on.
@@ -762,7 +762,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}
 		if (!grantTargets().every((id) => grantsLanded(id, []))) return false;
 		const ids = sources.map((source) => source.id);
-		if (automations && !automations.replaceEvents(ids, [])) return false;
+		if (automations && !automations.replaceEvents([])) return false;
+		if (!openDurable(deps.dataDir, "assistant-rules", clearStoredRules)) return false;
 		if (!safety.approveEverySend() && !safety.set(true)) return false;
 		if (ids.some((sourceId) => !enabled.enabled(sourceId)) && !enabled.replaceOff([])) return false;
 		return true;
