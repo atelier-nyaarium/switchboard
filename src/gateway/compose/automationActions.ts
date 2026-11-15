@@ -2,17 +2,25 @@
 
 import type { IftttTriggerAnswer, IftttTriggerRequest } from "../../shared/schemasPhoneCapabilities.js";
 import { GatewayCapabilityRefusal } from "../assistant/gatewayCapabilityRefusal.js";
-import type { AutomationActionPorts } from "../computed/automationRunner.js";
+import type { AutomationActionPorts, AutomationEffect } from "../computed/automationRunner.js";
 import type { DeviceStage } from "./composeDevices.js";
 
 export interface AutomationActionsDeps {
 	/** Undefined until composed. */
 	devices: () => Pick<DeviceStage, "record" | "assistant"> | undefined;
 	ifttt: (params: IftttTriggerRequest) => Promise<IftttTriggerAnswer>;
+	/** Vault can answer reads. */
+	vaultReady: () => boolean;
 }
 
 export function automationActions(deps: AutomationActionsDeps): AutomationActionPorts {
+	const ready: Record<AutomationEffect["kind"], () => boolean> = {
+		device_set: () => true,
+		// A missing grant is a refusal, not unreadiness.
+		ifttt_trigger: () => deps.vaultReady(),
+	};
 	return {
+		ready: (action) => ready[action.kind](),
 		switchName: (device) => {
 			const record = deps.devices()?.record(device);
 			return record?.kind === "switch" ? record.name : null;

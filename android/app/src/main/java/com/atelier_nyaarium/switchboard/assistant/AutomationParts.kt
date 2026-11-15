@@ -298,3 +298,11 @@ internal fun confirmBody(labels: List<String>): String {
 /** The refused hole, while its text stands. */
 internal fun refusedHole(said: AutomationSaid?, action: Int, param: String, text: String): AutomationSaid.Hole? =
 	(said as? AutomationSaid.Hole)?.takeIf { it.action == action && it.param == param && it.text == text }
+
+/** The editor's own line: any reason, and a hole no field draws. */
+internal fun generalLine(said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): String? = when (said) {
+	null -> null
+	is AutomationSaid.Hole ->
+		holeLine(said.text, said.line, said.start, said.end).takeIf { textParam(draft, TextRef(said.action, said.param), offer) == null }
+	else -> said.line
+}

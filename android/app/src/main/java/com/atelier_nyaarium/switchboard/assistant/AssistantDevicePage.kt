@@ -43,6 +43,7 @@ import com.atelier_nyaarium.switchboard.ClockPickerDialog
 import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.DAY_INITIALS
 import com.atelier_nyaarium.switchboard.DeviceListView
+import com.atelier_nyaarium.switchboard.DeviceSaved
 import com.atelier_nyaarium.switchboard.DevicesView
 import com.atelier_nyaarium.switchboard.GATEWAY_DECLINED
 import com.atelier_nyaarium.switchboard.RemoveMenu
@@ -146,7 +147,10 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 			confirmText = "Remove",
 			onConfirm = {
 				removing = false
-				repo.command { deviceOps.remove(gatewayId, record) }
+				repo.command {
+					// Its numbers and switches leave the offer.
+					if (deviceOps.remove(gatewayId, record) is DeviceSaved.Stored) automationOps.refresh(gatewayId)
+				}
 			},
 			onDismiss = { removing = false },
 		)

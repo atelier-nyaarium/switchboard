@@ -67,7 +67,6 @@ internal fun TriggerSection(
 	offer: AutomationOffer,
 	sources: List<AssistantSource>,
 	fields: SourceFields,
-	display: String?,
 	zone: String,
 	enabled: Boolean,
 	read: PreviewRead,
@@ -83,7 +82,7 @@ internal fun TriggerSection(
 	)
 	when (val trigger = draft.trigger) {
 		is TriggerDraft.Event -> EventForm(draft, sources, fields, enabled, read, edit)
-		is TriggerDraft.Crossing -> CrossingForm(trigger, offer, display, enabled, edit)
+		is TriggerDraft.Crossing -> CrossingForm(trigger, offer, draft.display, enabled, edit)
 		is TriggerDraft.Time, is TriggerDraft.Interval -> ClockForm(trigger, offer, zone, enabled, edit)
 	}
 	IssueLine(triggerHint(draft.trigger, offer).takeUnless { draft.trigger is TriggerDraft.Event })

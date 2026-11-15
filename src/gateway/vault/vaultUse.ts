@@ -16,6 +16,8 @@ export type VaultRelease =
 
 export interface VaultUseDeps {
 	client: () => VaultClient | null;
+	/** Router takes reads. */
+	registered?: () => boolean;
 	decisions: Pick<VaultDecisions, "covers">;
 	ambient: Pick<Ambient, "now">;
 }
@@ -63,7 +65,10 @@ export function createVaultUse(deps: VaultUseDeps) {
 		);
 	}
 
-	return { ready, usable, release, readForService };
+	/** Read answerable now. */
+	const canRead = (): boolean => deps.client() !== null && (deps.registered?.() ?? true);
+
+	return { ready, usable, release, readForService, canRead };
 }
 
 export type VaultUse = ReturnType<typeof createVaultUse>;

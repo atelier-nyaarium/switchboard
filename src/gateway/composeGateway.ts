@@ -618,7 +618,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				eventIssue: assistant.eventIssue,
 				eventSentence: assistant.eventSentence,
 				reading: devices!.watchedReading,
-				actions: automationActions({ devices: () => devices, ifttt: assistant.iftttTrigger }),
+				actions: automationActions({
+					devices: () => devices,
+					ifttt: assistant.iftttTrigger,
+					vaultReady: () => vault?.canRead() ?? false,
+				}),
 				holes: () => liveConsole.holes,
 				timers: bootstrap.ambient,
 			}),

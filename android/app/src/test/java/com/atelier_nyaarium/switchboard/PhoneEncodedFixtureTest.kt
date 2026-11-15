@@ -109,7 +109,7 @@ class PhoneEncodedFixtureTest {
 	private val offer = offerOf(SANDBOX_SERVES)
 
 	private fun draft(trigger: TriggerDraft, vararg actions: ActionDraft) =
-		AutomationDraft("a", trigger, actions.toList(), enabled = true, revision = 0L)
+		AutomationDraft("a", trigger, actions.toList(), enabled = true, revision = 0L, display = "F")
 
 	/** What the editor saves, typed as an owner types it. */
 	private val edited = listOf(
@@ -157,13 +157,13 @@ class PhoneEncodedFixtureTest {
 			),
 		).map { case("a status held by ${it.holder ?: "nobody"}", PhoneStatusAnswer.serializer(), it) } +
 		case("an app opened with nothing else to say", AppOpenAnswer.serializer(), AppOpenAnswer(opened = true)) +
-		edited.map { (name, draft) -> case(name, Automation.serializer(), draft.toAutomation(offer, "F")!!) } +
+		edited.map { (name, draft) -> case(name, Automation.serializer(), draft.toAutomation(offer)!!) } +
 		listOf(
-			"a save the owner agreed to" to ConsoleOp.AutomationPut("door", edited[1].second.toAutomation(offer, "F")!!, 2L, confirmed = true),
-			"a save that needs no go-ahead" to ConsoleOp.AutomationPut("hourly", edited[2].second.toAutomation(offer, "F")!!, 0L),
+			"a save the owner agreed to" to ConsoleOp.AutomationPut("door", edited[1].second.toAutomation(offer)!!, 2L, confirmed = true),
+			"a save that needs no go-ahead" to ConsoleOp.AutomationPut("hourly", edited[2].second.toAutomation(offer)!!, 0L),
 			"a preview of a text with holes" to
-				ConsoleOp.AutomationPreview(edited[0].second.toAutomation(offer, "F")!!.trigger, text = "It is {value} at {device}."),
-			"a preview of a trigger alone" to ConsoleOp.AutomationPreview(edited[2].second.toAutomation(offer, "F")!!.trigger),
+				ConsoleOp.AutomationPreview(edited[0].second.toAutomation(offer)!!.trigger, text = "It is {value} at {device}."),
+			"a preview of a trigger alone" to ConsoleOp.AutomationPreview(edited[2].second.toAutomation(offer)!!.trigger),
 		).map { (name, op) -> case(name, ConsoleOp.serializer(), op) }
 
 	private class Case(val name: String, val schema: String, val value: JsonElement)

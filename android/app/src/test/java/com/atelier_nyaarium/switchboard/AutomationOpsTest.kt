@@ -11,7 +11,9 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
+import com.atelier_nyaarium.switchboard.assistant.IntervalUnit
 import com.atelier_nyaarium.switchboard.assistant.TextRef
+import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
@@ -135,28 +137,78 @@ class AutomationOpsTest {
 		val ops = AutomationOps(admitting("sakura", "mikan"), host)
 		val hourly = automation().copy(trigger = AutomationTrigger.Interval(60L))
 
-		ops.save("sakura", "new", automation(), 0L)
+		ops.save("sakura", "new", automation(), 0L, stored = null)
 		ops.setEnabled("sakura", automationRow(), false)
-		ops.delete("sakura", "new", 1L)
+		ops.delete("sakura", "new", 1L, automation())
 		host.home = "mikan"
 		val moved = listOf(
-			ops.save("sakura", "late", automation(), 0L),
+			ops.save("sakura", "late", automation(), 0L, stored = null),
 			ops.setEnabled("sakura", automationRow(), true),
-			ops.delete("sakura", "review", 2L),
-			ops.save("sakura", "review", hourly, 2L),
+			ops.delete("sakura", "review", 2L, automation()),
+			ops.save("sakura", "review", hourly, 2L, stored = automation()),
 		)
 		val sent = fake.deletes
-		val missing = ops.delete("sakura", "nope", 1L) to fake.deletes - sent
+		val missing = ops.delete("sakura", "nope", 1L, hourly) to fake.deletes - sent
+		// Never read; stored body decides.
+		val unread = AutomationOps(admitting("sakura"), host)
+		val blind = listOf(unread.save("sakura", "review", hourly, 2L, stored = automation()), unread.delete("sakura", "gone", 1L, hourly))
 		val stays = listOf(
-			ops.save("sakura", "hourly", hourly, 0L),
+			ops.save("sakura", "hourly", hourly, 0L, stored = null),
 			ops.setEnabled("sakura", automationRow("hourly", 1L, hourly), false),
-			ops.delete("sakura", "hourly", 2L),
+			ops.delete("sakura", "hourly", 2L, hourly),
 		)
 
 		assertEquals(3, host.writes)
 		assertEquals(List(4) { AutomationSaved.Refused(HOME_MOVED) }, moved)
 		assertEquals(AutomationSaved.Refused("stale") to 1, missing)
+		assertEquals(listOf(AutomationSaved.Refused(HOME_MOVED), AutomationSaved.Refused("stale")), blind)
 		assertEquals(listOf(true, true, true), stays.map { it is AutomationSaved.Stored })
+	}
+
+	@Test
+	fun anEditorStandsOnWhatIsStoredNotOnWhatIsTyped() {
+		val fake = FakeGateway().apply { shelves["sakura"] = listOf(automationRow()) }
+		val ops = AutomationOps(admitting("sakura"), Host(fake))
+		runBlocking { ops.refresh("sakura") }
+		val hourly = automationRow("hourly", 1L, automation().copy(trigger = AutomationTrigger.Interval(60L)))
+		val toEvent: (AutomationDraft) -> AutomationDraft = { it.copy(trigger = TriggerDraft.Event("github", emptyList())) }
+		val toClock: (AutomationDraft) -> AutomationDraft = { it.copy(trigger = TriggerDraft.Interval("1", IntervalUnit.HOURS)) }
+		fun typed(slot: AutomationSlot, opened: AutomationDraft, change: (AutomationDraft) -> AutomationDraft): AutomationDraftKey {
+			val key = AutomationDraftKey("sakura", slot)
+			ops.edits.show(key)
+			ops.edits.edit(key, ops.edits.open(key, opened)!!, change)
+			ops.edits.hide()
+			return key
+		}
+
+		val clock = typed(AutomationSlot.Held("hourly"), automationDraftOf(hourly)!!, toEvent)
+		val event = typed(AutomationSlot.Held("review"), automationDraftOf(automationRow())!!, toClock)
+		val fresh = typed(AutomationSlot.New(), automationDraftOf(hourly)!!.copy(original = null), toEvent)
+
+		assertEquals(listOf(false, true, false), listOf(clock, event, fresh).map(ops::editsEvent))
+		ops.edits.clear()
+		assertTrue(ops.editsEvent(event))
+	}
+
+	@Test
+	fun aGoAheadIsDroppedOnceTheDraftChangesAndAPlainRefusalStays() = runBlocking {
+		val ops = AutomationOps(admitting("sakura"), Host(FakeGateway()))
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val shown = ops.edits.open(key, automationDraftOf(automationRow())!!)!!
+		val said = { ops.edits.state.value.held.getValue(key).said }
+
+		ops.send(key, shown, deleting = false) { AutomationSaved.Refused("confirm", confirm = listOf("Send to IFTTT")) }
+		ops.edits.edit(key, shown) { it.copy(text = TextRef(0, "message")) }
+		val kept = said()
+		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("quietly") } }
+		val dropped = said()
+		ops.send(key, shown, deleting = false) { AutomationSaved.Refused("no") }
+		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("now") } }
+
+		assertEquals(AutomationSaid.Confirm(listOf("Send to IFTTT")), kept)
+		assertNull(dropped)
+		assertEquals(AutomationSaid.Line("no"), said())
 	}
 
 	@Test
@@ -168,9 +220,9 @@ class AutomationOpsTest {
 		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "confirm", confirm = listOf("Send to IFTTT"))
 		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "no name x here", hole = AutomationHoleSpan(0L, "message", 3L, 6L))
 
-		val asks = ops.save("sakura", "new", automation(), 0L) as AutomationSaved.Refused
-		val hole = ops.save("sakura", "new", automation(), 0L) as AutomationSaved.Refused
-		ops.save("sakura", "new", automation(), 0L, confirmed = true)
+		val asks = ops.save("sakura", "new", automation(), 0L, stored = null) as AutomationSaved.Refused
+		val hole = ops.save("sakura", "new", automation(), 0L, stored = null) as AutomationSaved.Refused
+		ops.save("sakura", "new", automation(), 0L, stored = null, confirmed = true)
 
 		assertEquals(SERVES, state.value.gateways.entry("sakura")?.automationServes)
 		assertEquals(listOf("Send to IFTTT"), asks.confirm)
@@ -309,12 +361,12 @@ class AutomationOpsTest {
 		val state = admitting("sakura")
 		val ops = AutomationOps(state, Host(fake))
 
-		val refused = runBlocking { ops.save("sakura", "review", automation(), 3L) }		as? AutomationSaved.Refused
+		val refused = runBlocking { ops.save("sakura", "review", automation(), 3L, stored = automation()) } as? AutomationSaved.Refused
 		assertEquals(newer, refused?.heldRow)
 		assertEquals("the held revision differs", refused?.reason)
 		assertEquals(newer, state.value.gateways.entry("sakura")?.automations?.listedRows()?.single())
 
-		assertTrue(runBlocking { ops.save("sakura", "new", automation(), 0L) } is AutomationSaved.Stored)
+		assertTrue(runBlocking { ops.save("sakura", "new", automation(), 0L, stored = null) } is AutomationSaved.Stored)
 		assertEquals(listOf(3L, 0L), fake.puts.map { it.third })
 	}
 
@@ -325,7 +377,7 @@ class AutomationOpsTest {
 		val ops = AutomationOps(admitting("sakura"), Host(fake))
 		runBlocking { ops.refresh("sakura") }
 
-		assertEquals(AutomationSaved.Stored(null), runBlocking { ops.delete("sakura", "review", 1L) })
+		assertEquals(AutomationSaved.Stored(null), runBlocking { ops.delete("sakura", "review", 1L, automation()) })
 		assertEquals(1L, runBlocking { ops.preview("sakura", automation().trigger) }?.matched)
 	}
 
@@ -336,7 +388,7 @@ class AutomationOpsTest {
 		val ops = AutomationOps(admitting("sakura"), Host(fake))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		val stale = automationDraftOf(automationRow(revision = 2L))!!.withAction(0) { toldDraft("quietly") }
-		val save: suspend (AutomationDraft) -> AutomationSaved = { ops.save("sakura", it.id, it.toAutomation()!!, it.revision) }
+		val save: suspend (AutomationDraft) -> AutomationSaved = { ops.save("sakura", it.id, it.toAutomation()!!, it.revision, it.original) }
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, stale)!!
 
@@ -356,7 +408,7 @@ class AutomationOpsTest {
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, automationDraftOf(automationRow(revision = 2L))!!)!!
 
-		val outcome = ops.send(key, shown, deleting = true) { ops.delete("sakura", it.id, it.revision) }
+		val outcome = ops.send(key, shown, deleting = true) { ops.delete("sakura", it.id, it.revision, it.original!!) }
 
 		assertTrue(outcome is EditOutcome.Stays)
 		assertEquals(5L, ops.edits.state.value.held.getValue(key).draft.revision)

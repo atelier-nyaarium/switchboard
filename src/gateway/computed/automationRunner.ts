@@ -16,6 +16,8 @@ export type AutomationEffect = Exclude<AutomationAction, { kind: "tell_assistant
 export type IftttParams = Omit<Extract<AutomationAction, { kind: "ifttt_trigger" }>, "kind">;
 
 export interface AutomationActionPorts {
+	/** False: not attempted yet. */
+	ready: (action: AutomationEffect) => boolean;
 	/** Null when no switch is held under it. */
 	switchName: (device: string) => string | null;
 	deviceSet: (device: string, verb: DeviceVerb) => Promise<ActionOutcome>;

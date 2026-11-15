@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.AssistantRead
 import com.atelier_nyaarium.switchboard.AutomationSaved
 import com.atelier_nyaarium.switchboard.EditStanding
 import com.atelier_nyaarium.switchboard.Lookup
@@ -111,6 +112,8 @@ internal data class AutomationDraft(
 	val stash: List<TriggerDraft> = emptyList(),
 	/** The text open on its own page. */
 	val text: TextRef? = null,
+	/** Unit its numbers are typed in. */
+	val display: String? = null,
 ) {
 	private val event: TriggerDraft.Event? get() = trigger as? TriggerDraft.Event
 
@@ -171,7 +174,7 @@ internal data class AutomationDraft(
 	fun minusAction(at: Int): AutomationDraft = copy(actions = actions.filterIndexed { index, _ -> index != at })
 
 	/** Null while the trigger cannot be saved. */
-	fun builtTrigger(offer: AutomationOffer = AutomationOffer(), display: String? = null): AutomationTrigger? {
+	fun builtTrigger(offer: AutomationOffer = AutomationOffer()): AutomationTrigger? {
 		val built = triggerOf(trigger, offer, display) ?: return null
 		val unfit = built is AutomationTrigger.Event &&
 			built.conditions.any { it.value.isEmpty() || it.value.length > MAX_VALUE_LEN }
@@ -179,8 +182,8 @@ internal data class AutomationDraft(
 	}
 
 	/** Null while the trigger or an action cannot be saved. */
-	fun toAutomation(offer: AutomationOffer = AutomationOffer(), display: String? = null): Automation? {
-		val built = builtTrigger(offer, display) ?: return null
+	fun toAutomation(offer: AutomationOffer = AutomationOffer()): Automation? {
+		val built = builtTrigger(offer) ?: return null
 		if (actions.isEmpty() || actions.any { actionIssue(it, offer) != null }) return null
 		val written = actions.map { actionOf(it, offer) ?: return null }
 		return Automation(label = original?.label, enabled = enabled, trigger = built, actions = written)
@@ -203,6 +206,7 @@ internal fun newAutomationDraft(
 	offer: AutomationOffer = AutomationOffer(),
 	zone: String = "",
 	watch: String? = null,
+	display: String? = null,
 ): AutomationDraft? {
 	val firstSource = sources.firstOrNull { it.triggers }?.id
 	val trigger = if (watch != null) {
@@ -219,6 +223,7 @@ internal fun newAutomationDraft(
 		actions = listOf(action),
 		enabled = true,
 		revision = 0L,
+		display = display,
 	)
 }
 
@@ -226,20 +231,21 @@ internal fun newAutomationDraft(
 internal fun editorSources(registry: GatewayRegistry, gatewayId: String, home: String?): List<AssistantSource> =
 	registry.assistantOn(gatewayId)?.takeIf { gatewayId == home }?.let(::sourcesOf).orEmpty()
 
-/** Whether the Gateway's lists, and at the home its word, are read. */
+/** Whether the Gateway's lists, and the home's word with its unit, are read. */
 internal fun automationStanding(registry: GatewayRegistry, gatewayId: String, home: String?, held: Lookup<AutomationRow>?): EditStanding {
-	val entry = registry.entry(gatewayId)
-	val listed = when (entry?.automations) {
+	val listed = when (registry.entry(gatewayId)?.automations) {
 		is GatewayList.Listed -> EditStanding.READY
 		GatewayList.Unread, null -> EditStanding.READING
 		GatewayList.Unreachable -> EditStanding.UNREACHABLE
 		GatewayList.NotServed -> EditStanding.NOT_SERVED
 	}
+	// A home offline or off the roster cannot answer.
+	val wordUnread = home != null && registry.connected(home) == true && registry.assistantRead(home) == AssistantRead.Reading
+	val word = if (wordUnread) EditStanding.READING else EditStanding.READY
 	return when {
-		held != null -> editStanding(held)
+		held != null -> editStanding(held).takeUnless { it == EditStanding.READY } ?: word
 		listed != EditStanding.READY -> listed
-		gatewayId == home && entry?.assistant == null -> EditStanding.READING
-		else -> EditStanding.READY
+		else -> word
 	}
 }
 
@@ -258,16 +264,12 @@ internal fun automationDraftOf(row: AutomationRow, offer: AutomationOffer = Auto
 		enabled = row.automation.enabled,
 		revision = row.revision,
 		original = row.automation,
+		display = display,
 	)
 }
 
-internal fun fittingAutomation(
-	draft: AutomationDraft,
-	fields: SourceFields,
-	offer: AutomationOffer = AutomationOffer(),
-	display: String? = null,
-): Automation? =
-	draft.toAutomation(offer, display)?.takeIf { draft.conditions.all { condition -> fields.issueOf(condition) == null } }
+internal fun fittingAutomation(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer = AutomationOffer()): Automation? =
+	draft.toAutomation(offer)?.takeIf { draft.conditions.all { condition -> fields.issueOf(condition) == null } }
 
 /** The trigger a preview asks about; null while it could not be saved here. */
 internal fun askedTrigger(
@@ -275,9 +277,8 @@ internal fun askedTrigger(
 	fields: SourceFields,
 	sources: List<AssistantSource>,
 	offer: AutomationOffer,
-	display: String?,
 ): AutomationTrigger? =
-	draft.builtTrigger(offer, display)?.takeIf {
+	draft.builtTrigger(offer)?.takeIf {
 		triggerOffered(draft, sources, offer) && draft.conditions.all { condition -> fields.issueOf(condition) == null }
 	}
 
@@ -290,7 +291,7 @@ internal fun openedDraft(
 	zone: String = "",
 ): AutomationDraft? = when (slot) {
 	is AutomationSlot.Held -> row?.takeIf { editable(it, offer) }?.let { automationDraftOf(it, offer, display) }
-	is AutomationSlot.New -> newAutomationDraft(sources, offer, zone, slot.watch)
+	is AutomationSlot.New -> newAutomationDraft(sources, offer, zone, slot.watch, display)
 }
 
 /** Held source stays first. */
@@ -310,12 +311,11 @@ internal fun automationEditing(
 	busy: Boolean,
 	gone: Boolean,
 	offer: AutomationOffer = AutomationOffer(),
-	display: String? = null,
 ): AutomationEditing {
 	val edit = !busy && !gone
 	return AutomationEditing(
 		edit = edit,
-		save = edit && offered && fittingAutomation(draft, fields, offer, display) != null,
+		save = edit && offered && fittingAutomation(draft, fields, offer) != null,
 		delete = edit && slot is AutomationSlot.Held,
 	)
 }
@@ -422,7 +422,7 @@ internal fun outcomeOf(
 				)
 				held == null -> AutomationOutcome.Said(saved.reason)
 				deleting -> AutomationOutcome.Offer(
-					automationDraftOf(held, offer) ?: draft,
+					automationDraftOf(held, offer, draft.display) ?: draft,
 					"It changed elsewhere; this is it now. Delete again to delete it.",
 				)
 				else -> AutomationOutcome.Offer(

@@ -274,7 +274,7 @@ data class GatewayRegistry(
 	fun soonestRoutineAt(): Long? =
 		gateways.listedGroups { it.routines }.flatMap { group -> group.rows.mapNotNull { it.nextAt } }.minOrNull()
 
-	/** Roster membership preserves answers. */
+	/** Same incarnation keeps every answer. */
 	fun landed(
 		projection: OwnerPresenceProjection,
 		provenance: RegistryProvenance,
@@ -289,23 +289,25 @@ data class GatewayRegistry(
 			coverage = projection.coverage,
 			gateways = projection.roster
 				.map { row ->
+					val point = points[row.gatewayId]
 					// Restarted answers are discarded.
 					val prior = kept[row.gatewayId]?.takeIf { it.incarnation == row.incarnation }
-					GatewayEntry(
+					val base = prior ?: GatewayEntry(
 						id = row.gatewayId,
 						connected = row.connected,
 						incarnation = row.incarnation,
 						lastRegisteredAt = row.lastRegisteredAt,
-						hostSpawns = points[row.gatewayId]?.hostSpawns,
-						harnessSpawns = points[row.gatewayId]?.let(::harnessSpawnsOf),
-						containers = points[row.gatewayId]?.containers?.let(::addressableContainers),
-						routines = prior?.routines ?: GatewayList.Unread,
-						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId)?.let { GatewayList.Listed(it) } ?: GatewayList.Unread,
-						policies = prior?.policies ?: GatewayList.Unread,
-						automations = prior?.automations ?: GatewayList.Unread,
+						runbooks = storedRunbooks(row.gatewayId)?.let { GatewayList.Listed(it) } ?: GatewayList.Unread,
 						// Pairings outlive a restart, so the last answer stands.
 						peers = kept[row.gatewayId]?.peers ?: GatewayList.Unread,
-						assistant = prior?.assistant,
+					)
+					base.copy(
+						connected = row.connected,
+						incarnation = row.incarnation,
+						lastRegisteredAt = row.lastRegisteredAt,
+						hostSpawns = point?.hostSpawns,
+						harnessSpawns = point?.let(::harnessSpawnsOf),
+						containers = point?.containers?.let(::addressableContainers),
 					)
 				}
 				.sortedBy { it.id },

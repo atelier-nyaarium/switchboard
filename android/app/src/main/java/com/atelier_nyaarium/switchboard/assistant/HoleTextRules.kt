@@ -83,10 +83,17 @@ internal fun holeAssist(
 	return assist.copy(completions = assist.completions.map { it.copy(start = it.start + inner, end = it.end + inner) })
 }
 
+/** A space where `\{` would escape the brace. */
+internal fun holeGap(text: String, at: Int): String {
+	var run = 0
+	while (at - run > 0 && text[at - run - 1] == '\\') run++
+	return if (run % 2 == 1) " " else ""
+}
+
 /** Bare inside a hole, else its own hole. */
 internal fun withName(text: String, cursor: Int, name: String): Pair<String, Int> {
 	val at = cursor.coerceIn(0, text.length)
-	val insert = if (holeAt(text, at) != null) name else "{$name}"
+	val insert = if (holeAt(text, at) != null) name else "${holeGap(text, at)}{$name}"
 	return text.replaceRange(at, at, insert) to at + insert.length
 }
 
@@ -94,7 +101,7 @@ internal fun withName(text: String, cursor: Int, name: String): Pair<String, Int
 internal fun withEntity(text: String, cursor: Int, name: String): Pair<String, Int> {
 	val at = cursor.coerceIn(0, text.length)
 	val inside = holeAt(text, at) != null
-	val insert = if (inside) "$name." else "{$name.}"
+	val insert = if (inside) "$name." else "${holeGap(text, at)}{$name.}"
 	return text.replaceRange(at, at, insert) to at + insert.length - if (inside) 0 else 1
 }
 

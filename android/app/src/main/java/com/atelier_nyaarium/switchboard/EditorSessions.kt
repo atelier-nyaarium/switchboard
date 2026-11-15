@@ -92,6 +92,8 @@ internal class EditorSessions<K : Any, D : Any, S : Any>(
 	private val unattended: (EditSession<D, S>) -> Unit = {},
 	/** Closes a draft's own page first. */
 	private val inner: (D) -> D? = { null },
+	/** A said clears once the draft changes. */
+	private val clears: (S) -> Boolean = { false },
 ) {
 	private val written = MutableStateFlow(EditState<K, D, S>())
 
@@ -141,8 +143,10 @@ internal class EditorSessions<K : Any, D : Any, S : Any>(
 	fun edit(key: K, opening: Long, change: (D) -> D) {
 		written.update { now ->
 			val session = now.held[key]
-			if (session == null || session.opening != opening || session.busy) now
-			else now.copy(held = now.held + (key to session.copy(draft = change(session.draft))))
+			if (session == null || session.opening != opening || session.busy) return@update now
+			val next = change(session.draft)
+			val said = session.said?.takeUnless { clears(it) && changed(next, session.draft) }
+			now.copy(held = now.held + (key to session.copy(draft = next, said = said)))
 		}
 	}
 

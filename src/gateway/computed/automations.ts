@@ -415,13 +415,19 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const clip = (text: string) => text.slice(0, TOLD_FIELD_MAX);
 
-	/** Null when the outbox has no room. */
+	/** Wakes nobody. */
+	const isQuiet = (entry: QueueEntry): boolean => {
+		const body = EventBodySchema.safeParse(entry.body);
+		return body.success && body.data.when !== "now";
+	};
+
+	/** Quiet entries make room. */
 	const told = (
 		queue: State["queue"],
 		entry: { member: string; when: TellWhen; fields: Record<string, string> },
 		sentence: string,
 		now: number,
-	): State["queue"] | null => {
+	): { queue: State["queue"]; dropped: number } | null => {
 		const at = Math.max(now, queue.lastAt + 1);
 		const title = clip(sentence);
 		const event: QueueEntry = {
@@ -434,8 +440,17 @@ export function createAutomations(deps: AutomationsDeps) {
 			},
 		};
 		const events = [...queue.events.filter((held) => now - held.at < RETENTION_MS), event];
-		if (events.length > QUEUE_MAX_EVENTS || queueBytes(events) > QUEUE_MAX_BYTES) return null;
-		return { lastAt: at, events };
+		let bytes = queueBytes(events);
+		let dropped = 0;
+		while (events.length > QUEUE_MAX_EVENTS || bytes > QUEUE_MAX_BYTES) {
+			const quiet = events.findIndex((held, index) => index < events.length - 1 && isQuiet(held));
+			if (quiet === -1) return null;
+			const [gone] = events.splice(quiet, 1);
+			// Entry and comma.
+			bytes -= queueBytes([gone as QueueEntry]) - 1;
+			dropped += 1;
+		}
+		return { queue: { lastAt: at, events }, dropped };
 	};
 
 	const QUEUE_FULL = "the automations outbox is full";
@@ -450,14 +465,10 @@ export function createAutomations(deps: AutomationsDeps) {
 			{ label: "automation state" },
 		).landed;
 
-	/** A standing refusal is logged once. */
+	/** Refusal logged once per action. */
 	const logged = (log: readonly AutomationRun[], run: AutomationRun): AutomationRun[] => {
-		const last = log.findLast((held) => held.automation === run.automation);
-		const standing =
-			run.outcome === "refused" &&
-			last?.outcome === "refused" &&
-			last.reason === run.reason &&
-			last.action === run.action;
+		const last = log.findLast((held) => held.automation === run.automation && held.action === run.action);
+		const standing = run.outcome === "refused" && last?.outcome === "refused" && last.reason === run.reason;
 		return standing ? [...log] : [...log, run].slice(-LOG_MAX);
 	};
 
@@ -488,8 +499,17 @@ export function createAutomations(deps: AutomationsDeps) {
 		...(action ? { action } : {}),
 	});
 
-	const withMessage = (fields: Record<string, string>, messages: readonly string[]): Record<string, string> =>
-		messages.length === 0 ? fields : { ...fields, message: clip(messages.join("\n")) };
+	/** `notes`: owner texts, holes unfilled. */
+	const withMessage = (
+		fields: Record<string, string>,
+		messages: readonly string[],
+		notes: readonly string[] = [],
+	): Record<string, string> => {
+		if (messages.length === 0) return fields;
+		const told: Record<string, string> = { ...fields, message: clip(messages.join("\n")) };
+		if (notes.length > 0) told.note = clip(notes.join("\n"));
+		return told;
+	};
 
 	/** A name's shown form, by name. */
 	const fieldsOf = (names: FireNames): Record<string, string> =>
@@ -500,8 +520,25 @@ export function createAutomations(deps: AutomationsDeps) {
 			}),
 		);
 
+	/** One unstarted effects fire per automation. */
+	const replaceUnstarted = (work: Work, fire: Fire): void => {
+		const older = work.fires.findIndex(
+			(held) =>
+				held.automation === fire.automation &&
+				held.effects === undefined &&
+				held.member !== running?.member &&
+				held.member !== fire.member,
+		);
+		const held = work.fires[older];
+		if (!held) return;
+		work.log = logged(work.log, fireRun(held, "suppressed", "a newer run replaced it"));
+		if (held.tell) work.fires[older] = { ...held, effects: "done" };
+		else work.fires.splice(older, 1);
+	};
+
 	/** A fire waiting only on the outbox gives up its place. */
-	const admit = (work: Work, fire: Fire): boolean => {
+	const admit = (work: Work, fire: Fire, effects: boolean): boolean => {
+		if (effects) replaceUnstarted(work, fire);
 		if (work.fires.length >= FIRES_MAX) {
 			const waiting = work.fires.findIndex((held) => held.waiting);
 			if (waiting === -1) {
@@ -533,15 +570,17 @@ export function createAutomations(deps: AutomationsDeps) {
 				: plan.filling
 					? { when: plan.when, fields: told, fill: true }
 					: { when: plan.when, fields: withMessage(told, plan.messages.map(unescapedText)) };
-		if (!tell && !record.body.actions.some(isEffect)) return false;
-		return admit(work, {
+		const effects = record.body.actions.some(isEffect);
+		if (!tell && !effects) return false;
+		const recorded: Fire = {
 			...fired,
 			member: at.member,
 			incarnation: record.incarnation,
 			revision: record.revision,
 			names,
 			...(tell ? { tell } : {}),
-		});
+		};
+		return admit(work, recorded, effects);
 	};
 
 	/** Replays transitions idempotently. */
@@ -549,6 +588,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const now = deps.now();
 		const work = workOf();
 		const checkpoints: State["automations"] = {};
+		const baselines: State["automations"] = {};
 		for (const record of records.list()) {
 			// The lane runs event triggers.
 			const trigger = watched(record);
@@ -557,6 +597,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			const saved = own(state.automations, record.id);
 			const held = unsaved[record.id];
 			const was = held?.revision === record.revision && saved?.revision !== record.revision ? held : saved;
+			if (held && was === held) baselines[record.id] = held;
 			const current = deps.fields.stateOf(field);
 			if (!current) {
 				if (was) checkpoints[record.id] = was;
@@ -566,13 +607,15 @@ export function createAutomations(deps: AutomationsDeps) {
 				was?.incarnation === record.incarnation && was.firedAt !== undefined ? { firedAt: was.firedAt } : {};
 			if (!was || was.revision !== record.revision || was.incarnation !== record.incarnation) {
 				// Record changes reset baseline.
-				checkpoints[record.id] = {
+				const baseline = {
 					revision: record.revision,
 					incarnation: record.incarnation,
 					fieldEpoch: current.epoch,
 					handledSeq: current.seq,
 					...carried,
 				};
+				checkpoints[record.id] = baseline;
+				baselines[record.id] = baseline;
 				continue;
 			}
 			// Epoch changes reset sequence.
@@ -621,7 +664,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			return true;
 		}
 		const landed = commit(next);
-		unsaved = landed ? {} : checkpoints;
+		unsaved = landed ? {} : baselines;
 		pump();
 		return landed;
 	}
@@ -758,13 +801,29 @@ export function createAutomations(deps: AutomationsDeps) {
 			spent.set(fire.member, runs);
 			return true;
 		}
+		const written = tellPlan(step.record.body).messages;
 		const messages: string[] = [];
-		for (const message of tellPlan(step.record.body).messages)
-			messages.push(await filled(message, "tell_assistant"));
+		for (const message of written) messages.push(await filled(message, "tell_assistant"));
 		if (!fire.tell) return false;
-		const tell = { when: fire.tell.when, fields: withMessage(fire.tell.fields, messages) };
+		const tell = { when: fire.tell.when, fields: withMessage(fire.tell.fields, messages, written) };
 		return commit({ ...state, fires: patched(fire.member, { tell }), log: runs.reduce(logged, state.log) });
 	}
+
+	/** Claimed fire's runs. */
+	const landClaim = (fire: Fire, runs: readonly AutomationRun[], held: Pick<State, "log" | "ran">) => ({
+		fire: { ...fire, effects: "done" as const },
+		log: runs.reduce(logged, held.log),
+		ran: runs.some((run) => run.outcome === "ran") ? { ...held.ran, [fire.automation]: fire.at } : held.ran,
+	});
+
+	/** Unready effects wait unclaimed. */
+	const effectsReady = (body: Automation): boolean =>
+		body.actions.every(
+			(action) =>
+				!isEffect(action) ||
+				(AUTOMATION_ACTIONS[action.kind].home && !deps.isHome()) ||
+				(deps.actions?.ready(action) ?? true),
+		);
 
 	/** Queues every tell that is ready, in one write; then runs one fire. */
 	function pump(): void {
@@ -774,6 +833,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		const fires: Fire[] = [];
 		let queued = false;
 		let next: Fire | null = null;
+		/** Quiet events dropped. */
+		let dropped = 0;
+		let droppedBy: Fire | null = null;
 		for (const held of state.fires) {
 			if (running?.member === held.member) {
 				fires.push(held);
@@ -783,13 +845,15 @@ export function createAutomations(deps: AutomationsDeps) {
 			if (fire.effects === "claimed") {
 				// A claim with no run left never runs again.
 				const runs = spent.get(fire.member) ?? [fireRun(fire, "uncertain", "interrupted mid-run")];
-				log = runs.reduce(logged, log);
-				if (runs.some((run) => run.outcome === "ran")) ran = { ...ran, [fire.automation]: fire.at };
-				fire = { ...fire, effects: "done" };
+				({ fire, log, ran } = landClaim(fire, runs, { log, ran }));
 			}
 			const step = stepOf(fire);
 			if (step.kind === "retire") {
 				log = step.runs.reduce(logged, log);
+				continue;
+			}
+			if (step.kind === "effects" && !effectsReady(step.record.body)) {
+				fires.push(fire);
 				continue;
 			}
 			if (step.kind !== "tell" || !fire.tell) {
@@ -804,10 +868,18 @@ export function createAutomations(deps: AutomationsDeps) {
 				fires.push({ ...fire, waiting: true });
 				continue;
 			}
-			queue = room;
+			queue = room.queue;
+			if (room.dropped > 0) {
+				dropped += room.dropped;
+				droppedBy = fire;
+			}
 			log = logged(log, fireRun(fire, "ran", undefined, "tell_assistant"));
 			ran = { ...ran, [fire.automation]: fire.at };
 			queued = true;
+		}
+		if (droppedBy) {
+			const reason = `dropped ${dropped} older quiet event${dropped === 1 ? "" : "s"} for room`;
+			log = logged(log, fireRun(droppedBy, "suppressed", reason, "tell_assistant"));
 		}
 		const moved: State = { ...state, queue, log, ran, fires };
 		// An unlanded pass is retried whole.
@@ -828,6 +900,21 @@ export function createAutomations(deps: AutomationsDeps) {
 			});
 		running = { member: next.member, done };
 	}
+
+	/** Runs in one write. */
+	const landSpent = (): void => {
+		let { log, ran } = state;
+		let changed = false;
+		const fires = state.fires.flatMap((held) => {
+			const runs = held.effects === "claimed" ? spent.get(held.member) : undefined;
+			if (!runs) return [held];
+			const landed = landClaim(held, runs, { log, ran });
+			({ log, ran } = landed);
+			changed = true;
+			return held.tell ? [landed.fire] : [];
+		});
+		if (changed && commit({ ...state, log, ran, fires })) spent.clear();
+	};
 
 	const outbox: AutomationOutbox = {
 		revision: () => state.queue.lastAt,
@@ -1006,6 +1093,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			if (clock) deps.timers?.clearTimer(clock.handle());
 			clock = null;
 			while (running) await running.done;
+			landSpent();
 		},
 		/** Clear events, then drain; a repeat retries. */
 		clear(members: readonly string[]): boolean {

@@ -57,6 +57,7 @@ function world(dir: string, home = true) {
 	const effects: string[] = [];
 	let switches = ["plug"];
 	let readable = true;
+	let iftttReady = true;
 	/** Effects wait on it. */
 	let gate: Promise<void> = Promise.resolve();
 	const open = () => {
@@ -100,6 +101,7 @@ function world(dir: string, home = true) {
 								}
 							: undefined,
 					actions: {
+						ready: (action) => action.kind !== "ifttt_trigger" || iftttReady,
 						switchName: (device) => (switches.includes(device) ? "Heater" : null),
 						deviceSet: async (device, verb) => {
 							effects.push(`${device}:${verb}`);
@@ -149,9 +151,13 @@ function world(dir: string, home = true) {
 	const failWrites = (count: number) => {
 		failing = count;
 	};
-	/** Effects never finish. */
+	/** Effects wait until released. */
 	const holdEffects = () => {
-		gate = new Promise(() => {});
+		let release = () => {};
+		gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		return () => release();
 	};
 	const unplug = () => {
 		switches = [];
@@ -160,7 +166,22 @@ function world(dir: string, home = true) {
 	const unreadable = () => {
 		readable = false;
 	};
-	return { open, read, missed, unheard, failWrites, pokes: () => pokes, effects, holdEffects, unplug, unreadable };
+	const setIftttReady = (ready: boolean) => {
+		iftttReady = ready;
+	};
+	return {
+		open,
+		read,
+		missed,
+		unheard,
+		failWrites,
+		pokes: () => pokes,
+		effects,
+		holdEffects,
+		unplug,
+		unreadable,
+		setIftttReady,
+	};
 }
 
 /** Through the lane's own parse. */
@@ -347,20 +368,20 @@ describe("automations", () => {
 		expect(await queued(after.automations)).toEqual(["high", "high"]);
 	});
 
-	const fullQueue = (dir: string) => {
+	const fullQueue = (dir: string, when: "now" | "quietly") => {
 		const old = Array.from({ length: 256 }, (_, i) => ({
 			member: `old:${i}`,
 			at: 500 + i,
-			body: { title: "Old", fields: { value: "x" } },
+			body: { title: "Old", fields: { value: "x" }, ...(when === "now" ? { when } : {}) },
 		}));
 		const state = { automations: {}, queue: { lastAt: 999, events: old }, log: [] };
 		fs.writeFileSync(path.join(dir, "automation-state.json"), JSON.stringify(state));
 		return old.map((event) => event.member);
 	};
 
-	it("holds a crossing a full queue refused past later changes, and fires it once a clear makes room", async () => {
+	it("holds a crossing an outbox full of urgent events refused past later changes, and fires it once a clear makes room", async () => {
 		const dir = fresh();
-		const old = fullQueue(dir);
+		const old = fullQueue(dir, "now");
 		const w = world(dir);
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -374,9 +395,26 @@ describe("automations", () => {
 		expect(automations.runs().map((run) => run.outcome)).toEqual(["refused", "ran"]);
 	});
 
+	it("drops the oldest quiet events to tell an urgent one at once", async () => {
+		const dir = fresh();
+		const old = fullQueue(dir, "quietly");
+		const w = world(dir);
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut("bucket", { ...iceBucket(), actions: [{ kind: "tell_assistant", when: "now" }] }, 0);
+		w.read(fields, -5);
+
+		const ids = automations.outbox.events().map((event) => event.id);
+		expect(ids).not.toContain(old[0]);
+		expect(ids).toContain(old.at(-1));
+		expect(automations.outbox.events().at(-1)).toMatchObject({ title: "Throw ice bucket!", when: "now" });
+		expect(w.pokes()).toBe(1);
+		expect(automations.runs().map((run) => run.outcome)).toEqual(["ran", "suppressed"]);
+	});
+
 	it("runs a fire's effects whatever the outbox holds, and tells it within the lane's bounds once there is room", async () => {
 		const dir = fresh();
-		const old = fullQueue(dir);
+		const old = fullQueue(dir, "now");
 		const w = world(dir);
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -469,7 +507,7 @@ describe("automations", () => {
 		expect((await queued(automations)).length).toBeGreaterThan(0);
 	});
 
-	it("keeps a baseline whose write failed, and retries a drain whose write failed on the next clear", async () => {
+	it("keeps a baseline whose write failed until it lands, and retries a drain whose write failed on the next clear", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -484,6 +522,13 @@ describe("automations", () => {
 		expect(await queued(automations)).toEqual(["high"]);
 		expect(automations.clear([])).toBe(true);
 		expect(await queued(automations)).toEqual(["high", "high"]);
+
+		w.read(fields, -15);
+		w.failWrites(2);
+		automations.ownerPut("bucket", iceBucket({ label: "Renamed" }), 1);
+		w.read(fields, -5);
+		expect(automations.clear([])).toBe(true);
+		expect(await queued(automations)).toEqual(["high", "high", "high"]);
 	});
 
 	it("names each queued event by its field epoch, so an edit never makes two crossings one", async () => {
@@ -557,7 +602,7 @@ describe("automations", () => {
 		expect(automations.eventsOf("gmail")).toEqual([]);
 	});
 
-	it("converts only a sensor's own stored alerts, and keeps an event automation to the home", () => {
+	it("converts only a sensor's own stored alerts, creating none, and keeps an event automation to the home", () => {
 		const home = world(fresh()).open();
 		home.fields.put("band", hotBand, 0);
 		const away = world(fresh(), false).open();
@@ -567,17 +612,21 @@ describe("automations", () => {
 			trigger: { kind: "event", source: "github", conditions: [] },
 			actions: [{ kind: "tell_assistant", when: "now" }],
 		};
-		const alert = (id: string) => new Map([[id, iceBucket()]]);
+		const alert = (...ids: string[]) => new Map(ids.map((id) => [id, iceBucket()]));
 		const convert = (prefix: string, rows: Map<string, Automation>) =>
 			home.automations.write({ kind: "conversion", prefix, rows });
+		home.fields.put("threshold-aa-t", hotBand, 0);
+		home.automations.ownerPut("threshold-aa-t-high", iceBucket({ field: "threshold-aa-t" }), 0);
 
-		const mine = convert("threshold-aa-", alert("threshold-aa-t-high"));
+		const mine = convert("threshold-aa-", alert("threshold-aa-t-high", "threshold-aa-t-low"));
 		const other = convert("threshold-aa-", alert("threshold-bb-t-high"));
 		const named = convert("threshold-aa-", alert("bucket"));
 		const swept = convert("threshold-bb-", new Map());
 
 		expect([mine.written, other.written, named.written, swept.written]).toEqual([true, false, false, true]);
-		expect(home.automations.list().map((record) => record.id)).toEqual(["threshold-aa-t-high"]);
+		expect(home.automations.list().map(({ id, body }) => [id, body])).toEqual([
+			["threshold-aa-t-high", iceBucket()],
+		]);
 		expect(away.automations.ownerPut("review", event, 0).stored).toBe(false);
 		expect(away.automations.ownerPut("bucket", iceBucket(), 0).stored).toBe(true);
 	});
@@ -610,7 +659,60 @@ describe("automations", () => {
 		expect(await queued(automations)).toEqual([]);
 	});
 
-	it("away from the home, switches its plug and refuses unsent an action that needs the home", async () => {
+	it("keeps one unstarted fire per automation, so a busy one starves no other", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut(
+			"heat",
+			{ ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] },
+			0,
+		);
+		const cross = (times: number) => {
+			for (let at = 0; at < times; at++) {
+				w.read(fields, -5);
+				w.read(fields, -15);
+			}
+		};
+		const release = w.holdEffects();
+		cross(3);
+		const replaced = automations.runs().map((run) => run.outcome);
+		automations.ownerPut("bucket", iceBucket(), 0);
+		cross(80);
+		release();
+		await automations.settled();
+
+		expect(replaced).toEqual(["suppressed"]);
+		expect(w.effects).toEqual(["plug:on", "plug:on"]);
+		expect(await queued(automations)).toHaveLength(80);
+	});
+
+	it("leaves a fire queued while its effect cannot be attempted, runs the others, and sends it once it can", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const bell = { ...iceBucket(), actions: [{ kind: "ifttt_trigger", event: "freezer" }] };
+		automations.ownerPut("bell", bell, 0, true);
+		automations.ownerPut(
+			"heat",
+			{ ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] },
+			0,
+		);
+		w.setIftttReady(false);
+		w.read(fields, -5);
+		await automations.settled();
+		const unready = [[...w.effects], automations.runs().map((run) => run.automation)];
+		w.setIftttReady(true);
+		automations.tick();
+		await automations.settled();
+		automations.tick();
+		await automations.settled();
+
+		expect(unready).toEqual([["plug:on"], ["heat"]]);
+		expect(w.effects).toEqual(["plug:on", "ifttt:freezer"]);
+	});
+
+	it("away from the home, switches its plug, refuses unsent an action that needs the home, and logs each standing refusal once", async () => {
 		const w = world(fresh(), false);
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -621,31 +723,68 @@ describe("automations", () => {
 				{ kind: "device_set", device: "plug", verb: "on" },
 			],
 		};
+		const alert: Automation = {
+			...iceBucket(),
+			actions: [
+				{ kind: "tell_assistant", when: "now" },
+				{ kind: "ifttt_trigger", event: "freezer" },
+			],
+		};
 		automations.ownerPut("heat", heat, 0, true);
 		w.read(fields, -5);
 		await automations.settled();
+		const first = automations.runs().map((run) => [run.action, run.outcome]);
+		automations.ownerPut("alert", alert, 0, true);
+		for (let at = 0; at < 3; at++) {
+			w.read(fields, -15);
+			w.read(fields, -5);
+			await automations.settled();
+		}
 
-		expect(w.effects).toEqual(["plug:on"]);
-		expect(automations.runs().map((run) => [run.action, run.outcome])).toEqual([
+		expect(first).toEqual([
 			["ifttt_trigger", "refused"],
 			["device_set", "ran"],
 		]);
+		expect(w.effects).toEqual(["plug:on", "plug:on", "plug:on", "plug:on"]);
+		expect(
+			automations
+				.runs()
+				.filter((run) => run.automation === "alert")
+				.map((run) => [run.action, run.outcome]),
+		).toEqual([
+			[undefined, "refused"],
+			["ifttt_trigger", "refused"],
+		]);
 	});
 
-	it("never reruns a fire a restart found claimed, and logs it uncertain", async () => {
-		const w = world(fresh());
-		const before = w.open();
-		before.fields.put("band", hotBand, 0);
+	it("never reruns a fire a restart found claimed: uncertain after a crash, ran after a graceful stop", async () => {
 		const heat = { ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] };
-		before.automations.ownerPut("heat", heat, 0);
-		w.holdEffects();
-		w.read(before.fields, -5);
+		const started = (w: ReturnType<typeof world>) => {
+			const before = w.open();
+			before.fields.put("band", hotBand, 0);
+			before.automations.ownerPut("heat", heat, 0);
+			const release = w.holdEffects();
+			w.read(before.fields, -5);
+			return { before, release };
+		};
+		const crashed = world(fresh());
+		started(crashed);
+		const lost = crashed.open().automations;
+		await lost.settled();
 
-		const after = w.open();
-		await after.automations.settled();
+		const stopped = world(fresh());
+		const { before, release } = started(stopped);
+		const stopping = before.automations.stop();
+		release();
+		await stopping;
+		const kept = stopped.open().automations;
+		await kept.settled();
 
-		expect(w.effects).toEqual(["plug:on"]);
-		expect(after.automations.runs().map((run) => run.outcome)).toEqual(["uncertain"]);
+		expect([crashed.effects, stopped.effects]).toEqual([["plug:on"], ["plug:on"]]);
+		expect([lost.runs().map((run) => run.outcome), kept.runs().map((run) => run.outcome)]).toEqual([
+			["uncertain"],
+			["ran"],
+		]);
 	});
 
 	it("runs an event's effects once per member, again for later activity on it, and refuses an action whose switch this Gateway lacks", async () => {
@@ -706,15 +845,21 @@ describe("automations", () => {
 			actions: [{ kind: "tell_assistant", when: "now", message: "{event.reason} on {source}: {event}" }],
 		};
 		const plain: Automation = { enabled: true, trigger: event, actions: [{ kind: "tell_assistant", when: "now" }] };
+		const noted: Automation = {
+			enabled: true,
+			trigger: event,
+			actions: [{ kind: "tell_assistant", when: "now", message: "Look now" }],
+		};
 		automations.ownerPut("messaged", messaged, 0);
 		automations.ownerPut("plain", plain, 0);
+		automations.ownerPut("noted", noted, 0);
 		const names = {
 			event: { value: { reason: "mention", title: "Fix the build" }, shown: "Fix the build" },
 			source: { value: "GitHub" },
 		};
 
 		automations.fireEvents(
-			["messaged", "plain"].map((automation) => ({ automation, key: "event:github:7", names })),
+			["messaged", "plain", "noted"].map((automation) => ({ automation, key: "event:github:7", names })),
 			5_000,
 		);
 		await automations.settled();
@@ -724,9 +869,11 @@ describe("automations", () => {
 		expect(automations.eventsOf("github").map(({ id, when }) => [id, when])).toEqual([
 			["messaged", null],
 			["plain", "now"],
+			["noted", null],
 		]);
-		expect(events.map((told) => [told.fields.message, told.fields.event, told.tell])).toEqual([
-			["mention on GitHub: Fix the build", "Fix the build", "now"],
+		expect(events.map((told) => [told.fields.message, told.fields.note, told.fields.event, told.tell])).toEqual([
+			["Look now", undefined, "Fix the build", "now"],
+			["mention on GitHub: Fix the build", "{event.reason} on {source}: {event}", "Fix the build", "now"],
 		]);
 	});
 

@@ -15,8 +15,10 @@ import com.atelier_nyaarium.switchboard.assistant.textAt
 import com.atelier_nyaarium.switchboard.assistant.textParam
 import com.atelier_nyaarium.switchboard.assistant.withEntity
 import com.atelier_nyaarium.switchboard.assistant.withName
+import com.atelier_nyaarium.switchboard.liveconsole.HolePart
 import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.consoleAssist
+import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleEntityDescription
@@ -59,6 +61,11 @@ class HoleTextRulesTest {
 		assertEquals("{a + time}" to 9, withName("{a + }", 5, "time"))
 		assertEquals("Now {sensors.}" to 13, withEntity("Now ", 4, "sensors"))
 		assertEquals("{sensors.}" to 9, withEntity("{}", 1, "sensors"))
+		// Odd backslash escapes the brace.
+		val holes = { text: String -> scanHoles(text).count { it is HolePart.Hole } }
+		val inserted = listOf(withName("C:\\", 3, "time"), withEntity("C:\\", 3, "sensors"), withName("a\\\\", 3, "time"))
+		assertEquals(listOf(1, 1, 1), inserted.map { holes(it.first) })
+		assertEquals("a\\\\{time}" to 9, inserted[2])
 	}
 
 	@Test

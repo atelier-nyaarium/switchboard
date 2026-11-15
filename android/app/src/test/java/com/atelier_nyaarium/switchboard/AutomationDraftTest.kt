@@ -38,6 +38,7 @@ import com.atelier_nyaarium.switchboard.assistant.editable
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.freshAction
 import com.atelier_nyaarium.switchboard.assistant.freshTrigger
+import com.atelier_nyaarium.switchboard.assistant.generalLine
 import com.atelier_nyaarium.switchboard.assistant.holeLine
 import com.atelier_nyaarium.switchboard.assistant.newAutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.newAutomationGateways
@@ -375,6 +376,22 @@ class AutomationPartsTest {
 	}
 
 	@Test
+	fun aDraftKeepsTheUnitItWasTypedInThroughASaveAReopenAndADeleteRebase() {
+		val watched = event().copy(trigger = crossing)
+		val draft = automationDraftOf(row("a", watched, revision = 2L), FULL, "F")!!
+		val colder = crossing.copy(threshold = 1.0)
+		val fresh = newAutomationDraft(emptyList(), FULL, ZONE, watch = SENSOR, display = "F")!!.onCrossing { it.copy(threshold = "35.6") }
+		val newer = row("a", watched.copy(trigger = colder), revision = 5L)
+		val rebased = (outcomeOf(AutomationSaved.Refused("moved", newer), draft, deleting = true, FULL) as AutomationOutcome.Offer).draft
+
+		assertEquals(crossing, draft.toAutomation(FULL)?.trigger)
+		assertEquals(colder, draft.onCrossing { it.copy(threshold = "33.8") }.toAutomation(FULL)?.trigger)
+		assertEquals(draft.trigger, automationDraftOf(row("a", draft.toAutomation(FULL)!!), FULL, "F")?.trigger)
+		assertEquals(2.0, (fresh.toAutomation(FULL)?.trigger as AutomationTrigger.Crossing).threshold, 0.0)
+		assertEquals("33.8" to colder, (rebased.trigger as TriggerDraft.Crossing).threshold to rebased.toAutomation(FULL)?.trigger)
+	}
+
+	@Test
 	fun aTriggerThatCannotBeSavedSaysWhyOnceItsFieldIsTyped() {
 		val blank = TriggerDraft.Crossing(SENSOR, "temperature", "below", "", "0.5", "10")
 		val says = { trigger: TriggerDraft -> listOf(triggerIssue(trigger, FULL) != null, triggerHint(trigger, FULL) != null) }
@@ -482,7 +499,7 @@ class AutomationPartsTest {
 	}
 
 	@Test
-	fun aNewAutomationsEditorWaitsUntilItsGatewayAndAtTheHomeTheAssistantHaveAnswered() {
+	fun anEditorWaitsUntilItsGatewayAndTheHomesWordHaveAnswered() {
 		fun registry(list: GatewayList<AutomationRow>, word: AssistantWord?) = GatewayRegistry(
 			provenance = RegistryProvenance.Current,
 			gateways = listOf(GatewayEntry("sakura", connected = true, incarnation = 1L, lastRegisteredAt = 1L, automations = list, assistant = word)),
@@ -499,6 +516,14 @@ class AutomationPartsTest {
 		assertEquals(EditStanding.READY, standing(listed, AssistantWord.Refused, "sakura"))
 		assertEquals(EditStanding.READY, standing(listed, null, "mikan"))
 		assertEquals(EditStanding.GONE, automationStanding(registry(listed, null), "sakura", "sakura", held = Lookup.Gone))
+		val elsewhere = registry(listed, null).copy(
+			gateways = registry(listed, null).gateways + GatewayEntry("mikan", connected = true, incarnation = 1L, lastRegisteredAt = 1L, automations = listed),
+		)
+		val onMikan = { registry: GatewayRegistry, held: Lookup<AutomationRow>? -> automationStanding(registry, "mikan", "sakura", held) }
+		assertEquals(EditStanding.READING, onMikan(elsewhere, null))
+		assertEquals(EditStanding.READING, onMikan(elsewhere, Lookup.Found(row("a", event()))))
+		assertEquals(EditStanding.READY, onMikan(elsewhere.withEntry("sakura") { it.copy(assistant = AssistantWord.Refused) }, null))
+		assertEquals(EditStanding.READY, onMikan(elsewhere.withEntry("sakura") { it.copy(connected = false) }, Lookup.Found(row("a", event()))))
 	}
 
 	@Test
@@ -570,6 +595,10 @@ class AutomationPartsTest {
 		)
 		assertNotNull(actionIssue(plugDraft(PLUG, "on"), retired))
 		assertNull(actionOf(plugDraft(PLUG, "on"), retired))
+		// Unnamed message blocks save.
+		assertNotNull(actionIssue(toldDraft("now", "Hi"), AutomationOffer()))
+		assertNull(actionOf(toldDraft("now", "Hi"), AutomationOffer()))
+		assertEquals(AutomationAction.TellAssistant("now"), actionOf(toldDraft("now", " "), AutomationOffer()))
 		assertEquals(lamp, automationDraftOf(row("a", event().copy(actions = listOf(lamp))), retired)!!.toAutomation(retired)!!.actions.single())
 	}
 
@@ -599,6 +628,21 @@ class AutomationPartsTest {
 			listOf(Triple(1, "value2", "{x} here"), Triple(0, "value2", "{x} here"), Triple(1, "value1", "{x} here"), Triple(1, "value2", "{y} here"))
 				.map { (at, param, text) -> refusedHole(refused, at, param, text) },
 		)
+		val kept = eventDraft().copy(actions = listOf(ActionDraft.Kept(future)))
+		val messaged = eventDraft().copy(actions = listOf(toldDraft("now", "{x} here")))
+		val onKept = AutomationSaid.Hole(0, "message", 0, 3, "no name x", "")
+		val onField = AutomationSaid.Hole(0, "message", 0, 3, "no name x", "{x} here")
+		val shown = { said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer -> generalLine(said, draft, offer) != null }
+		assertEquals(
+			listOf(true, false, true, true, false),
+			listOf(
+				shown(onKept, kept, FULL),
+				shown(onField, messaged, FULL),
+				shown(onField, messaged, AutomationOffer()),
+				shown(AutomationSaid.Line("no"), messaged, FULL),
+				shown(null, messaged, FULL),
+			),
+		)
 	}
 
 	@Test
@@ -606,11 +650,11 @@ class AutomationPartsTest {
 		val sources = listOf(source("github"))
 		val timed = eventDraft().copy(trigger = TriggerDraft.Time("18:00", setOf(1), ZONE))
 
-		assertEquals(event(reason("mention")).trigger, askedTrigger(eventDraft(reason("mention")), fields, sources, FULL, null))
-		assertNull(askedTrigger(eventDraft(reason("")), fields, sources, FULL, null))
-		assertNull(askedTrigger(eventDraft(reason("retired")), fields, sources, FULL, null))
-		assertNull(askedTrigger(eventDraft(), fields, emptyList(), FULL, null))
-		assertNotNull(askedTrigger(timed, fields, emptyList(), FULL, null))
-		assertNull(askedTrigger(timed, fields, emptyList(), AutomationOffer(), null))
+		assertEquals(event(reason("mention")).trigger, askedTrigger(eventDraft(reason("mention")), fields, sources, FULL))
+		assertNull(askedTrigger(eventDraft(reason("")), fields, sources, FULL))
+		assertNull(askedTrigger(eventDraft(reason("retired")), fields, sources, FULL))
+		assertNull(askedTrigger(eventDraft(), fields, emptyList(), FULL))
+		assertNotNull(askedTrigger(timed, fields, emptyList(), FULL))
+		assertNull(askedTrigger(timed, fields, emptyList(), AutomationOffer()))
 	}
 }

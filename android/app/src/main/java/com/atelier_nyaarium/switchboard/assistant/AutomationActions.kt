@@ -110,14 +110,21 @@ private fun paramIssue(param: ParamOffer, value: String, offer: AutomationOffer)
 	else -> null
 }
 
+/** Holds a value its row lacks. */
+private fun unnamed(action: ActionDraft.Filled, row: ActionOffer): Boolean =
+	action.values.any { (key, value) -> value.isNotBlank() && row.param(key) == null }
+
 private fun issueOf(action: ActionDraft, offer: AutomationOffer, blanks: Boolean): String? = when (action) {
 	is ActionDraft.Kept -> null
 	is ActionDraft.Filled -> {
 		val row = offer.action(action.kind)
-		if (row == null) "This Gateway no longer offers it"
-		else row.params.firstNotNullOfOrNull { param ->
-			val value = action.values[param.name].orEmpty()
-			if (!blanks && value.isBlank()) null else paramIssue(param, value, offer)
+		when {
+			row == null -> "This Gateway no longer offers it"
+			unnamed(action, row) -> "This Gateway no longer offers part of it"
+			else -> row.params.firstNotNullOfOrNull { param ->
+				val value = action.values[param.name].orEmpty()
+				if (!blanks && value.isBlank()) null else paramIssue(param, value, offer)
+			}
 		}
 	}
 }
@@ -127,10 +134,10 @@ internal fun actionIssue(action: ActionDraft, offer: AutomationOffer): String? =
 /** Silent about a parameter that is still blank. */
 internal fun actionHint(action: ActionDraft, offer: AutomationOffer): String? = issueOf(action, offer, blanks = false)
 
-/** A blank optional parameter is left out; null when the action does not read back. */
+/** A blank optional parameter is left out; null when the action does not read back or would drop a value. */
 internal fun actionOf(action: ActionDraft, offer: AutomationOffer): AutomationAction? = when (action) {
 	is ActionDraft.Kept -> action.action
-	is ActionDraft.Filled -> offer.action(action.kind)?.let { row ->
+	is ActionDraft.Filled -> offer.action(action.kind)?.takeUnless { unnamed(action, it) }?.let { row ->
 		val json = buildJsonObject {
 			put(KIND, action.kind)
 			for (param in row.params) {

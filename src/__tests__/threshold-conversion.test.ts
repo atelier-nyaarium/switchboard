@@ -270,18 +270,21 @@ describe("a sensor's stored thresholds", () => {
 		}
 	});
 
-	it("leave an owner's edit alone when a lost mark runs them again", async () => {
-		const freezer = storedAlert(MAC, { low: 10 });
+	it("leave an owner's edit and delete alone when a lost mark runs them again", async () => {
+		const freezer = storedAlert(MAC, { low: 10, high: 30 });
 		const low = alertId(MAC, "temperature", "low");
+		const high = alertId(MAC, "temperature", "high");
 		const world = fixture({ thresholds: [freezer.entry], fields: [freezer.field], automations: freezer.alerts });
 		try {
 			const row = world.automations.rows().find((held) => held.id === low);
 			const edited = { ...(row?.automation as Automation), enabled: false };
 			world.automations.ownerPut(low, edited, row?.revision ?? 0);
+			const deleted = world.automations.rows().find((held) => held.id === high);
+			world.automations.ownerRemove(high, deleted?.revision ?? 0);
 			fs.rmSync(path.join(world.dataDir, "sensor-thresholds-converted.json"));
 			await world.restart();
 
-			expect(world.automations.list().find((record) => record.id === low)?.body).toEqual(edited);
+			expect(world.automations.list().map(({ id, body }) => [id, body])).toEqual([[low, edited]]);
 			expect(world.conversion.pending()).toEqual([]);
 		} finally {
 			await world.devices.close();

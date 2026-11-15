@@ -51,9 +51,17 @@ class SourceAutomationsTest {
 			).map { (it as UsedBy.Empty).why },
 		)
 		assertEquals(listOf(true, false, false), listOf(ListEmpty.Reading, ListEmpty.None, ListEmpty.Unreachable).map { watchingEmptyLine(it) == null })
+		// Unknown list warns, no count.
+		val warns = { uses: UsedBy -> removeSensorLine(uses).let { it.contains("automation") to it.any(Char::isDigit) } }
 		assertEquals(
-			listOf(false, false, true),
-			listOf(UsedBy.Empty(ListEmpty.Reading), UsedBy.Empty(ListEmpty.None), UsedBy.Rows(rows)).map { removeSensorLine(it).contains("automation") },
+			listOf(true to false, true to false, true to false, false to false, true to true),
+			listOf(
+				UsedBy.Empty(ListEmpty.Reading),
+				UsedBy.Empty(ListEmpty.Unreachable),
+				UsedBy.Empty(ListEmpty.NotServed(listOf("sakura"))),
+				UsedBy.Empty(ListEmpty.None),
+				UsedBy.Rows(rows),
+			).map(warns),
 		)
 	}
 }

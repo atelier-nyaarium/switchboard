@@ -4,7 +4,6 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
-import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.assistant.movesWithHome
 import com.atelier_nyaarium.switchboard.assistant.offerOn
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
@@ -93,22 +92,17 @@ internal class AutomationOps(
 		changed = { draft, opened -> draft.changedFrom(opened) },
 		unattended = { left -> tell(leftLine("", "Automation", left.said?.line.orEmpty())) },
 		inner = { draft -> draft.takeIf { it.text != null }?.copy(text = null) },
+		clears = { said -> said is AutomationSaid.Confirm },
 	)
 
 	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
 
-	/** Null while its list is unread. */
-	private fun heldMoves(gatewayId: String, id: String): Boolean? =
-		when (val held = state.value.gateways.automationOn(gatewayId, id)) {
-			is Lookup.Found -> movesWithHome(held.row.automation)
-			Lookup.Gone -> false
-			Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> null
-		}
-
-	/** Stored row or its draft moves with the home. */
+	/** What is stored moves with the home, never what is typed. */
 	fun editsEvent(key: AutomationDraftKey): Boolean {
-		val held = (key.slot as? AutomationSlot.Held)?.let { heldMoves(key.gatewayId, it.id) }
-		return held == true || edits.state.value.held[key]?.draft?.trigger is TriggerDraft.Event
+		val slot = key.slot as? AutomationSlot.Held ?: return false
+		val session = edits.state.value.held[key]
+		val stored = if (session != null) session.draft.original else state.value.gateways.automationOn(key.gatewayId, slot.id).found()?.automation
+		return stored?.let(::movesWithHome) == true
 	}
 
 	override suspend fun clearInMemory() {
@@ -173,8 +167,16 @@ internal class AutomationOps(
 		return answer?.let { Written.Answered(it) } ?: Written.Unreachable
 	}
 
-	private suspend fun put(gatewayId: String, id: String, automation: Automation, base: Long, confirmed: Boolean): AutomationSaved =
-		when (val written = write(gatewayId, movesWithHome(automation) || heldMoves(gatewayId, id) == true) { it.put(gatewayId, id, automation, base, confirmed) }) {
+	private suspend fun put(
+		gatewayId: String,
+		id: String,
+		automation: Automation,
+		base: Long,
+		stored: Automation?,
+		confirmed: Boolean,
+	): AutomationSaved {
+		val moves = movesWithHome(automation) || stored?.let(::movesWithHome) == true
+		return when (val written = write(gatewayId, moves) { it.put(gatewayId, id, automation, base, confirmed) }) {
 			Written.Moved -> AutomationSaved.Refused(HOME_MOVED)
 			Written.Unreachable -> AutomationSaved.Unreachable
 			is Written.Answered -> {
@@ -182,18 +184,21 @@ internal class AutomationOps(
 				saved(written.answer)
 			}
 		}
+	}
 
+	/** `stored` is what the edit began from; null for a new one. */
 	suspend fun save(
 		gatewayId: String,
 		id: String,
 		automation: Automation,
 		base: Long,
+		stored: Automation?,
 		confirmed: Boolean = false,
-	): AutomationSaved = put(gatewayId, id, automation, base, confirmed)
+	): AutomationSaved = put(gatewayId, id, automation, base, stored, confirmed)
 
-	/** Unread row is taken to move. */
-	suspend fun delete(gatewayId: String, id: String, base: Long): AutomationSaved =
-		when (val written = write(gatewayId, heldMoves(gatewayId, id) ?: true) { it.delete(gatewayId, id, base) }) {
+	/** `stored` is the body being deleted. */
+	suspend fun delete(gatewayId: String, id: String, base: Long, stored: Automation): AutomationSaved =
+		when (val written = write(gatewayId, movesWithHome(stored)) { it.delete(gatewayId, id, base) }) {
 			Written.Moved -> AutomationSaved.Refused(HOME_MOVED)
 			Written.Unreachable -> AutomationSaved.Unreachable
 			is Written.Answered -> {
@@ -206,7 +211,7 @@ internal class AutomationOps(
 
 	suspend fun setEnabled(gatewayId: String, row: AutomationRow, enabled: Boolean): AutomationSaved =
 		toggles.run(gatewayId, row.id, ::toggleLine) {
-			put(gatewayId, row.id, row.automation.copy(enabled = enabled), row.revision, false)
+			put(gatewayId, row.id, row.automation.copy(enabled = enabled), row.revision, row.automation, false)
 		}
 
 	private fun toggleLine(saved: AutomationSaved): String? = when (saved) {

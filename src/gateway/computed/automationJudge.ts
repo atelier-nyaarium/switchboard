@@ -135,10 +135,10 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 			const stored = ({ id, body }: OwnerRecord<Automation>) =>
 				id.startsWith(prefix) && body.trigger.kind === "value" && body.trigger.field.startsWith(prefix);
 			const stale = view.held.filter((record) => stored(record) && !rows.has(record.id));
-			// An owner's edit stands.
+			// Replaces only; an owner's edit or delete stands.
 			const puts = [...rows].flatMap(([id, body]) => {
 				const current = heldAt(id);
-				return current && !stored(current) ? [] : [put(id, body, current?.revision ?? 0, true)];
+				return current && stored(current) ? [put(id, body, current.revision)] : [];
 			});
 			return { kind: "writes", writes: [...stale.map(remove), ...puts], dropped: [] };
 		}

@@ -48,6 +48,8 @@ export interface VaultStage {
 	/** The entries a service's standing grants name. */
 	serviceGrants: (serviceId: string) => string[];
 	readForService: (serviceId: string, entryId: string) => Promise<VaultRelease>;
+	/** Read answerable now. */
+	canRead: () => boolean;
 	/** Whether this Gateway may use the entry, after a refresh. */
 	usableHere: (entryId: string) => Promise<boolean>;
 	/** Retracts stale cards when routable. */
@@ -144,7 +146,12 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		}),
 	);
 
-	const use = createVaultUse({ client: () => context.slice()?.vaultClient ?? null, decisions, ambient });
+	const use = createVaultUse({
+		client: () => context.slice()?.vaultClient ?? null,
+		registered: () => context.slice()?.routerClient.isRegistered() ?? false,
+		decisions,
+		ambient,
+	});
 
 	const routes = createVaultRoutes({
 		use,
@@ -212,6 +219,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 				.filter((grant) => grant.holder.kind === "service" && grant.holder.serviceId === serviceId)
 				.map((grant) => grant.entryId),
 		readForService: (serviceId, entryId) => use.readForService(serviceId, entryId),
+		canRead: () => use.canRead(),
 		usableHere: async (entryId) => {
 			const answer = await use.ready();
 			return answer.kind === "ready" && use.usable(answer.client, entryId).kind === "usable";

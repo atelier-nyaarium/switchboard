@@ -18,6 +18,7 @@ export function createOutboxSource(outbox: AutomationOutbox): Source {
 			{ kind: "text", field: "field", label: "Field" },
 			{ kind: "text", field: "value", label: "Value" },
 			{ kind: "text", field: "message", label: "Message" },
+			{ kind: "text", field: "note", label: "Note" },
 		],
 		async poll(cursor): Promise<PollAnswer> {
 			const revision = String(outbox.revision());

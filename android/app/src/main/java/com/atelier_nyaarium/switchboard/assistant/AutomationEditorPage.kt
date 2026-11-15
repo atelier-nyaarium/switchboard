@@ -64,7 +64,8 @@ internal fun AutomationEditorPage(
 	val held = slot as? AutomationSlot.Held
 	val lookup = held?.let { state.gateways.automationOn(gatewayId, it.id) }
 	val row = lookup?.found()
-	val opened = remember(key, row, sources.isEmpty(), offer) { openedDraft(slot, row, sources, offer, display, zone) }
+	// Unit read at mint only.
+	val opened = remember(key, row, sources.isEmpty(), offer, display) { openedDraft(slot, row, sources, offer, display, zone) }
 	LaunchedEffect(gatewayId) { ops.refresh(gatewayId) }
 	val open = rememberEdit(ops.edits, key, automationStanding(state.gateways, gatewayId, home, lookup), opened) { standing ->
 		AssistantPageScaffold("Automation", onBack) {
@@ -86,8 +87,8 @@ internal fun AutomationEditorPage(
 	val fields = SourceFields(sources.find { it.id == draft.source }?.fieldSpecs.orEmpty())
 	val gone = lookup == Lookup.Gone
 	val busy = session.busy
-	val can = automationEditing(slot, draft, fields, triggerOffered(draft, sources, offer), busy, gone, offer, display)
-	val trigger = askedTrigger(draft, fields, sources, offer, display)
+	val can = automationEditing(slot, draft, fields, triggerOffered(draft, sources, offer), busy, gone, offer)
+	val trigger = askedTrigger(draft, fields, sources, offer)
 	val triggerRead = previewRead(ops, gatewayId, trigger, null)
 	var confirmingDelete by remember(key) { mutableStateOf(false) }
 	var asking by remember(key) { mutableStateOf<AutomationSaid.Confirm?>(null) }
@@ -98,7 +99,7 @@ internal fun AutomationEditorPage(
 	}
 
 	fun save(confirmed: Boolean) = send(deleting = false) { sent ->
-		fittingAutomation(sent, fields, offer, display)?.let { ops.save(gatewayId, sent.id, it, sent.revision, confirmed) }
+		fittingAutomation(sent, fields, offer)?.let { ops.save(gatewayId, sent.id, it, sent.revision, sent.original, confirmed) }
 			?: AutomationSaved.Refused("Not a complete automation")
 	}
 
@@ -139,7 +140,7 @@ internal fun AutomationEditorPage(
 		menu = { if (slot is AutomationSlot.Held) RemoveMenu("Delete automation", enabled = can.delete) { confirmingDelete = true } },
 	) {
 		Text("When", style = MaterialTheme.typography.labelLarge)
-		TriggerSection(draft, offer, sources, fields, display, zone, can.edit, triggerRead, edit)
+		TriggerSection(draft, offer, sources, fields, zone, can.edit, triggerRead, edit)
 
 		HorizontalDivider()
 		Text("Do", style = MaterialTheme.typography.labelLarge)
@@ -152,8 +153,8 @@ internal fun AutomationEditorPage(
 			asked = trigger != null,
 			edit = edit,
 		)
-		session.said?.takeIf { it !is AutomationSaid.Hole }?.let {
-			Text(it.line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+		generalLine(session.said, draft, offer)?.let {
+			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
 	}
 
@@ -164,7 +165,9 @@ internal fun AutomationEditorPage(
 			confirmText = "Delete",
 			onConfirm = {
 				confirmingDelete = false
-				send(deleting = true) { sent -> ops.delete(gatewayId, sent.id, sent.revision) }
+				send(deleting = true) { sent ->
+					sent.original?.let { ops.delete(gatewayId, sent.id, sent.revision, it) } ?: AutomationSaved.Refused("Not a stored automation")
+				}
 			},
 			onDismiss = { confirmingDelete = false },
 		)

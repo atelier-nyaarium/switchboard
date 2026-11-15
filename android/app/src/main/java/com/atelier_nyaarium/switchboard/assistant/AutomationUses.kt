@@ -34,11 +34,12 @@ internal fun usedBy(gatewayId: String, list: GatewayList<AutomationRow>?, pick: 
 		GatewayList.NotServed -> UsedBy.Empty(ListEmpty.NotServed(listOf(gatewayId)))
 	}
 
-/** Names automations left behind. */
-internal fun removeSensorLine(uses: UsedBy): String = when (val watched = (uses as? UsedBy.Rows)?.rows?.size ?: 0) {
-	0 -> "Switchboard stops reading it."
-	1 -> "Switchboard stops reading it. 1 automation watches it and will stop working."
-	else -> "Switchboard stops reading it. $watched automations watch it and will stop working."
+/** Names automations left behind; an unread list gives no count. */
+internal fun removeSensorLine(uses: UsedBy): String = when {
+	uses is UsedBy.Rows && uses.rows.size == 1 -> "Switchboard stops reading it. 1 automation watches it and will stop working."
+	uses is UsedBy.Rows -> "Switchboard stops reading it. ${uses.rows.size} automations watch it and will stop working."
+	uses == UsedBy.Empty(ListEmpty.None) -> "Switchboard stops reading it."
+	else -> "Switchboard stops reading it. Any automation watching it will stop working."
 }
 
 /** A sensor's empty list; null while reading. */
