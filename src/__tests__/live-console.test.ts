@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ConsoleError } from "../gateway/liveConsole/builtins.js";
-import { evaluateConsole } from "../gateway/liveConsole/evaluate.js";
+import { type ConsoleResult, type ConsoleStatementResult, evaluateConsole } from "../gateway/liveConsole/evaluate.js";
 import { type ConsoleEntity, createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { renderConsoleIssue, renderConsoleValue } from "../gateway/liveConsole/render.js";
 import { CONSOLE_SOURCE_MAX, parseConsole } from "../shared/live-console-grammar.js";
+import { ConsoleVariablesSchema } from "../shared/schemasLiveConsole.js";
 import { REMINDER_TAG } from "../shared/system-reminder.js";
 
 const NOW = Date.UTC(2026, 10, 14, 22, 40, 0);
@@ -45,7 +46,14 @@ const secrets: ConsoleEntity = {
 	members: { all: { kind: "property", description: "Nothing.", type: "List", get: () => [] } },
 };
 const registry = createConsoleRegistry([sensors, secrets]);
-const run = (source: string, stepsMax?: number) => evaluateConsole(source, registry, "host", stepsMax);
+/** One statement's answer, without its span. */
+const single = (result: ConsoleResult) => {
+	if (!result.ok || result.results.length !== 1) return result;
+	const [{ start: _start, end: _end, ...only }] = result.results as [ConsoleStatementResult];
+	return { ok: true as const, ...only };
+};
+const run = async (source: string, stepsMax?: number) =>
+	single(await evaluateConsole(source, registry, "host", stepsMax === undefined ? {} : { stepsMax }));
 
 describe("live console grammar", () => {
 	it("reads a minus as an operator, keeps precedence, and refuses assignment where it sits", async () => {
@@ -53,14 +61,15 @@ describe("live console grammar", () => {
 		expect(await run("2+3*4")).toEqual({ ok: true, value: 14 });
 		expect(await run("-(2-5)")).toEqual({ ok: true, value: 3 });
 		expect(await run('"a" + "b" == "ab"')).toEqual({ ok: true, value: true });
-		expect(await run("sensors = 1")).toMatchObject({ ok: false, issue: { code: "assignment", start: 8, end: 9 } });
+		expect(await run("1 = 2")).toMatchObject({ ok: false, issue: { code: "assignment", start: 2, end: 3 } });
+		expect(await run("sensors.list = 2")).toMatchObject({ ok: false, issue: { code: "assignment" } });
 	});
 
 	it("keeps partial input in the tree, flagged, and refuses it at evaluation", async () => {
 		const open = parseConsole('sensors.read("Free');
-		expect(open.node).toMatchObject({ kind: "call", closed: false });
+		expect(open.statements[0]?.node).toMatchObject({ kind: "call", closed: false });
 		expect(open.issues.map((issue) => issue.code)).toContain("incomplete");
-		expect(parseConsole("sensors.").node).toMatchObject({ kind: "member", name: "", closed: false });
+		expect(parseConsole("sensors.").statements[0]?.node).toMatchObject({ kind: "member", name: "", closed: false });
 		expect(await run("sensors.read(")).toMatchObject({ ok: false, issue: { code: "incomplete" } });
 		expect(parseConsole("x".repeat(CONSOLE_SOURCE_MAX + 1)).issues[0]?.code).toBe("too_big");
 	});
@@ -71,7 +80,15 @@ describe("live console evaluation", () => {
 		expect(await run('sensors.read("Freezer").readings[0].value')).toEqual({ ok: true, value: -18.2 });
 		expect(await run("sensors.list.count()")).toEqual({ ok: true, value: 2 });
 		expect(await run('sensors.list.where("name", "Fridge").first().name')).toEqual({ ok: true, value: "Fridge" });
-		expect(await run("sensors.range(5).skip(1).take(2)")).toEqual({ ok: true, value: [1, 2] });
+		expect(await run("sensors.range(5).skip(1).take(2)")).toEqual({
+			ok: true,
+			value: [1, 2],
+			type: "List<Number>",
+		});
+		expect(await run('sensors.list.where("name", "Fridge").first()')).toMatchObject({ type: "Sensor" });
+		expect(await run("sensors.list[1]")).toMatchObject({ type: "Sensor" });
+		expect(await run('sensors.read("Freezer")')).toMatchObject({ type: "Sensor" });
+		expect(await run('sensors.read("Freezer").readings')).not.toHaveProperty("type");
 		expect(await run("sensors.range()[-1]")).toEqual({ ok: true, value: 2 });
 		expect(await run('sensors.read("Freezer").keys()')).toEqual({
 			ok: true,
@@ -111,15 +128,69 @@ describe("live console evaluation", () => {
 
 	it("hides an entity from an audience it does not serve, in reads and in describe", async () => {
 		expect(await run("Secret.all")).toMatchObject({ ok: false, issue: { code: "unknown_name" } });
-		expect(await evaluateConsole("Secret.all", registry, "owner")).toEqual({ ok: true, value: [] });
+		expect(single(await evaluateConsole("Secret.all", registry, "owner"))).toEqual({
+			ok: true,
+			value: [],
+			type: "List",
+		});
 		expect(registry.describe("host")).not.toContain("Secret");
 		expect(registry.describe("owner")).toContain("Secret.all -> List");
 		expect(registry.hash("host")).not.toBe(registry.hash("owner"));
 	});
 
+	it("saves a result under a name for the call, and reads one a caller saved earlier with its type", async () => {
+		const owner = async (source: string, variables = {}) =>
+			single(await evaluateConsole(source, registry, "owner", { variables }));
+		expect(await owner('cold = sensors.read("Freezer")')).toMatchObject({
+			ok: true,
+			assigned: "cold",
+			type: "Sensor",
+		});
+		const saved = { cold: { value: held, type: "Sensor" }, n: { value: 4 }, sensors: { value: 1 } };
+		expect(await owner("cold.name", saved)).toEqual({ ok: true, value: "Freezer" });
+		expect(await owner("cold", saved)).toMatchObject({ type: "Sensor" });
+		expect(await owner("n * 2 + sensors.list.count()", saved)).toEqual({ ok: true, value: 10 });
+		expect(await owner("sensors = 1")).toMatchObject({
+			ok: false,
+			issue: { code: "name_taken", start: 0, end: 7 },
+		});
+		expect(await owner("whole = sensors")).toMatchObject({ ok: false, issue: { code: "is_entity" } });
+		expect(await owner("missing.name", saved)).toMatchObject({ ok: false, issue: { code: "unknown_name" } });
+		expect(await owner(`${"n".repeat(33)} = 1`)).toMatchObject({ ok: false, issue: { code: "bad_name" } });
+		expect(await owner("__proto__ = 1")).toMatchObject({ ok: false, issue: { code: "bad_name" } });
+		expect(ConsoleVariablesSchema.safeParse({ true: { value: 1 } }).success).toBe(false);
+		expect(ConsoleVariablesSchema.safeParse({ cold: { value: 1 } }).success).toBe(true);
+	});
+
+	it("runs statements split by semicolons in order, a save lasting the call", async () => {
+		const result = await evaluateConsole(
+			'cold = sensors.read("Freezer"); cold.name;\n cold.readings.count() + 1;',
+			registry,
+			"host",
+		);
+		expect(result).toMatchObject({
+			ok: true,
+			results: [{ assigned: "cold", type: "Sensor" }, { value: "Freezer" }, { value: 2 }],
+		});
+		expect(await run("a = 1; a.nope")).toMatchObject({
+			ok: false,
+			issue: { code: "wrong_type", start: 7, end: 13 },
+		});
+		expect(await run("1 2")).toMatchObject({ ok: false, issue: { code: "unexpected", start: 2, end: 3 } });
+		expect(await run(";;")).toMatchObject({ ok: false, issue: { code: "empty" } });
+		expect(await run(Array.from({ length: 17 }, () => "1").join(";"))).toMatchObject({
+			ok: false,
+			issue: { code: "too_big" },
+		});
+		expect(await run("sensors.range(5).count(); sensors.range(5).count()", 6)).toMatchObject({
+			ok: false,
+			issue: { code: "too_big" },
+		});
+	});
+
 	it("hands back a copy, never the live object", async () => {
 		const result = await run('sensors.read("Freezer")');
-		if (!result.ok) throw new Error("read expected");
+		if (!result.ok || !("value" in result)) throw new Error("read expected");
 		(result.value as { name: string }).name = "changed";
 		expect(await run('sensors.read("Freezer").name')).toEqual({ ok: true, value: "Freezer" });
 	});

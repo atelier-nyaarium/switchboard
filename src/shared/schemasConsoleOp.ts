@@ -2,12 +2,14 @@ import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
 import { LAUNCH_ROWS } from "./launch-notice.js";
+import { CONSOLE_SOURCE_MAX } from "./live-console-grammar.js";
 import { TemperatureUnitSchema } from "./schemasAssistant.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { DEVICE_CONSOLE_OP_KINDS, DEVICE_CONSOLE_REQUESTS } from "./schemasDevices.js";
+import { CONSOLE_LIMIT_MAX, ConsoleVariablesSchema } from "./schemasLiveConsole.js";
 import { PhoneCapabilityAnswerSchema } from "./schemasPhoneCapabilities.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
@@ -318,6 +320,15 @@ export const ConsoleOpSchema = z
 			baseRevision: z.number().int().positive(),
 		}),
 		...DEVICE_CONSOLE_REQUESTS,
+		z.object({ kind: z.literal("console_describe") }),
+		z.object({ kind: z.literal("console_ids") }),
+		z.object({
+			kind: z.literal("console_eval"),
+			expr: z.string().min(1).max(CONSOLE_SOURCE_MAX),
+			limit: z.number().int().min(1).max(CONSOLE_LIMIT_MAX).optional(),
+			/** Saved results the expression names. */
+			variables: ConsoleVariablesSchema.optional(),
+		}),
 		z.object({ kind: z.literal("assistant_state") }),
 		/** The whole set, never a patch. */
 		z.object({
@@ -450,6 +461,9 @@ export const VALUE_OP_KINDS = new Set([
 	"policy_delete",
 	"policy_enable",
 	...DEVICE_CONSOLE_OP_KINDS,
+	"console_describe",
+	"console_ids",
+	"console_eval",
 	"assistant_state",
 	"assistant_watcher_grants",
 	"assistant_rule_put",

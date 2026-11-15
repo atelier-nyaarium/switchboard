@@ -1,5 +1,10 @@
-import { createHash } from "node:crypto";
 import type { z } from "zod";
+import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
+import type {
+	ConsoleCompletes,
+	ConsoleDescription,
+	ConsoleEntityDescription,
+} from "../../shared/schemasLiveConsole.js";
 import { BUILTINS } from "./builtins.js";
 
 export type ConsoleAudience = "host" | "owner";
@@ -7,10 +12,10 @@ export type ConsoleAudience = "host" | "owner";
 export interface ConsoleParam {
 	name: string;
 	schema: z.ZodType;
-	/** Signature type label. */
 	type: string;
 	description: string;
 	optional?: boolean;
+	completes?: ConsoleCompletes;
 }
 
 export type ConsoleMember =
@@ -20,16 +25,15 @@ export type ConsoleMember =
 			description: string;
 			params: readonly ConsoleParam[];
 			returns: string;
-			/** One slow read per expression. */
+			/** One slow read per request. */
 			slow?: boolean;
 			call: (args: unknown[]) => unknown;
 	  };
 
-/** Handlers must be read-only. */
+/** Handlers are read-only. */
 export interface ConsoleEntity {
 	name: string;
 	description: string;
-	/** Marks a type catalogue. */
 	catalogue?: boolean;
 	audiences: readonly ConsoleAudience[];
 	members: Readonly<Record<string, ConsoleMember>>;
@@ -56,33 +60,78 @@ function check(entity: ConsoleEntity): void {
 	}
 }
 
-export function signatureOf(entity: string, name: string, member: ConsoleMember): string {
-	if (member.kind === "property") return `${entity}.${name} -> ${member.type}`;
-	const params = member.params.map((param) => `${param.name}${param.optional ? "?" : ""}: ${param.type}`).join(", ");
-	return `${entity}.${name}(${params}) -> ${member.returns}`;
+export function describeEntity(entity: ConsoleEntity): ConsoleEntityDescription {
+	return {
+		name: entity.name,
+		description: entity.description,
+		catalogue: entity.catalogue === true,
+		members: Object.entries(entity.members).map(([name, member]) => ({
+			name,
+			kind: member.kind,
+			returns: member.kind === "property" ? member.type : member.returns,
+			description: member.description,
+			params:
+				member.kind === "property"
+					? []
+					: member.params.map((param) => ({
+							name: param.name,
+							type: param.type,
+							description: param.description,
+							optional: param.optional === true,
+							...(param.completes ? { completes: param.completes } : {}),
+						})),
+			slow: member.kind === "method" && member.slow === true,
+		})),
+	};
 }
+
+const BUILTIN_DESCRIPTIONS: ConsoleDescription["builtins"] = BUILTINS.map((builtin) => ({
+	name: builtin.name,
+	receiver: builtin.receiver,
+	params: builtin.params.map((param) => ({ name: param.name, type: param.type })),
+	returns: builtin.returns,
+	description: builtin.description,
+}));
 
 const RECEIVERS = { list: "List", object: "Record", collection: "List or Record" } as const;
 
-const GRAMMAR_LINES = [
-	"Read-only expressions over this Gateway.",
-	'Grammar: paths and calls (sensors.read("Freezer")), indexing (x[0], x["key"]), == != ! + - * /, lists [a, b] and dicts {k: v}. No assignment.',
-	"Builtins on values:",
-	...BUILTINS.map(
-		(builtin) =>
-			`  ${RECEIVERS[builtin.receiver]}.${builtin.name}(${builtin.params.map((param) => `${param.name}: ${param.type}`).join(", ")}) -> ${builtin.returns}  ${builtin.description}`,
-	),
-	"Type an entity's name alone to list its members.",
-];
+const params = (list: readonly { name: string; type: string; optional?: boolean }[]) =>
+	list.map((param) => `${param.name}${param.optional ? "?" : ""}: ${param.type}`).join(", ");
 
-export function entityText(entity: ConsoleEntity): string[] {
+export function entityText(entity: ConsoleEntityDescription): string[] {
 	const lines = [`${entity.name}: ${entity.description}`];
-	for (const [name, member] of Object.entries(entity.members)) {
-		lines.push(`  ${signatureOf(entity.name, name, member)}  ${member.description}`);
-		if (member.kind === "method")
-			for (const param of member.params) lines.push(`    ${param.name}: ${param.description}`);
+	for (const member of entity.members) {
+		const call = member.kind === "method" ? `(${params(member.params)})` : "";
+		lines.push(`  ${entity.name}.${member.name}${call} -> ${member.returns}  ${member.description}`);
+		for (const param of member.params) lines.push(`    ${param.name}: ${param.description}`);
 	}
 	return lines;
+}
+
+function descriptionText(description: ConsoleDescription): string {
+	const section = (title: string, list: ConsoleEntityDescription[]) =>
+		list.length === 0 ? [] : [title, ...list.flatMap(entityText), ""];
+	return [
+		"Read-only expressions over this Gateway.",
+		'Grammar: paths and calls (sensors.read("Freezer")), indexing (x[0], x["key"]), == != ! + - * /, lists [a, b] and dicts {k: v}. No assignment.',
+		"Builtins on values:",
+		...description.builtins.map(
+			(builtin) =>
+				`  ${RECEIVERS[builtin.receiver]}.${builtin.name}(${params(builtin.params)}) -> ${builtin.returns}  ${builtin.description}`,
+		),
+		"Type an entity's name alone to list its members.",
+		"",
+		...section(
+			"Types:",
+			description.entities.filter((entity) => entity.catalogue),
+		),
+		...section(
+			"Services:",
+			description.entities.filter((entity) => !entity.catalogue),
+		),
+	]
+		.join("\n")
+		.trimEnd();
 }
 
 export function createConsoleRegistry(entities: readonly ConsoleEntity[]) {
@@ -96,25 +145,10 @@ export function createConsoleRegistry(entities: readonly ConsoleEntity[]) {
 	const served = (audience: ConsoleAudience) =>
 		[...byName.values()].filter((entity) => entity.audiences.includes(audience));
 
-	const describe = (audience: ConsoleAudience): string => {
-		const all = served(audience);
-		const section = (title: string, list: ConsoleEntity[]) =>
-			list.length === 0 ? [] : [title, ...list.flatMap((entity) => entityText(entity)), ""];
-		return [
-			...GRAMMAR_LINES,
-			"",
-			...section(
-				"Types:",
-				all.filter((entity) => entity.catalogue),
-			),
-			...section(
-				"Services:",
-				all.filter((entity) => !entity.catalogue),
-			),
-		]
-			.join("\n")
-			.trimEnd();
-	};
+	const projection = (audience: ConsoleAudience): ConsoleDescription => ({
+		builtins: BUILTIN_DESCRIPTIONS,
+		entities: served(audience).map(describeEntity),
+	});
 
 	return {
 		get(name: string, audience: ConsoleAudience): ConsoleEntity | null {
@@ -122,8 +156,9 @@ export function createConsoleRegistry(entities: readonly ConsoleEntity[]) {
 			return entity?.audiences.includes(audience) ? entity : null;
 		},
 		names: (audience: ConsoleAudience) => served(audience).map((entity) => entity.name),
-		describe,
-		hash: (audience: ConsoleAudience) => createHash("sha256").update(describe(audience)).digest("hex").slice(0, 12),
+		projection,
+		describe: (audience: ConsoleAudience) => descriptionText(projection(audience)),
+		hash: (audience: ConsoleAudience) => sha256Hex(canonicalJson(projection(audience))).slice(0, 16),
 	};
 }
 

@@ -17,6 +17,7 @@
 		"gateway-bootstrap",
 		"kasa-codec",
 		"limit-notice",
+		"live-console-tokens",
 		"owner-id",
 		"owner-op",
 		"pane-trim",

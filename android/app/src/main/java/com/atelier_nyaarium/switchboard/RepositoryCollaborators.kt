@@ -173,6 +173,23 @@ internal class ChatRepositoryRoutineHost(private val repo: ChatRepository) : Rou
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleRoutineGateway)
 }
 
+/** The port over the console client's live console calls. */
+internal class ConsoleLiveConsoleGateway(private val client: ConsoleClient) : LiveConsoleGateway {
+	override suspend fun describe(gatewayId: String) = client.consoleDescribe(gatewayId)
+
+	override suspend fun ids(gatewayId: String) = client.consoleIds(gatewayId)
+
+	override suspend fun eval(gatewayId: String, expr: String, variables: kotlinx.serialization.json.JsonObject?) =
+		client.consoleEval(gatewayId, expr, variables)
+}
+
+internal class ChatRepositoryLiveConsoleHost(private val repo: ChatRepository) : LiveConsoleHost {
+	private val sandbox by lazy { SandboxLiveConsoleGateway() }
+
+	override val gateway: LiveConsoleGateway? get() =
+		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleLiveConsoleGateway)
+}
+
 /** The port over the console client's policy calls. */
 internal class ConsolePolicyGateway(private val client: ConsoleClient) : PolicyGateway {
 	override suspend fun list(gatewayId: String) = client.policyList(gatewayId)

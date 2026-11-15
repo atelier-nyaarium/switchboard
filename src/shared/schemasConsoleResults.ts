@@ -7,6 +7,7 @@ import { BoardEntrySchema } from "./schemasBoard.js";
 import { CrossDomainShareTargetSchema, MailboxEntrySchema } from "./schemasConsoleOp.js";
 import { DomainStatusSchema } from "./schemasCore.js";
 import { DEVICE_CONSOLE_RESULTS } from "./schemasDevices.js";
+import { ConsoleDescribeResultSchema, ConsoleEvalResultSchema, ConsoleIdsSchema } from "./schemasLiveConsole.js";
 import {
 	ConsolePolicyDeleteResultSchema,
 	ConsolePolicyListResultSchema,
@@ -398,6 +399,9 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleSessionCutPlanResultSchema,
 	ConsoleSessionCutStartResultSchema,
 	...Object.values(DEVICE_CONSOLE_RESULTS),
+	ConsoleDescribeResultSchema,
+	ConsoleIdsSchema,
+	ConsoleEvalResultSchema,
 	ConsoleAssistantStateResultSchema,
 	ConsoleAssistantRulesResultSchema,
 	ConsoleAssistantPreviewResultSchema,

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONSOLE_SOURCE_MAX } from "./live-console-grammar.js";
+import { CONSOLE_SOURCE_MAX, isConsoleVariableName } from "./live-console-grammar.js";
 
 export const CONSOLE_LIMIT_MAX = 500;
 
@@ -25,19 +25,138 @@ export const LiveConsoleRequestShape = {
 		.describe("How many items of a list to show. Default 50."),
 };
 
-const IssueSchema = z.object({
-	code: z.string(),
-	start: z.number().int(),
-	end: z.number().int(),
-	message: z.string(),
-});
+/** Readings follow the first device. */
+export const CONSOLE_COMPLETES = ["devices", "readings", "fields", "automations", "sources", "definitions"] as const;
+export type ConsoleCompletes = (typeof CONSOLE_COMPLETES)[number];
+
+export const ConsoleParamDescriptionSchema = z
+	.object({
+		name: z.string(),
+		type: z.string(),
+		description: z.string(),
+		optional: z.boolean(),
+		completes: z.enum(CONSOLE_COMPLETES).optional(),
+	})
+	.meta({ id: "ConsoleParamDescription" });
+
+export const ConsoleMemberDescriptionSchema = z
+	.object({
+		name: z.string(),
+		kind: z.enum(["property", "method"]),
+		returns: z.string(),
+		description: z.string(),
+		params: z.array(ConsoleParamDescriptionSchema),
+		/** One slow read per request. */
+		slow: z.boolean(),
+	})
+	.meta({ id: "ConsoleMemberDescription" });
+
+export const ConsoleEntityDescriptionSchema = z
+	.object({
+		name: z.string(),
+		description: z.string(),
+		catalogue: z.boolean(),
+		members: z.array(ConsoleMemberDescriptionSchema),
+	})
+	.meta({ id: "ConsoleEntityDescription" });
+
+export const ConsoleBuiltinDescriptionSchema = z
+	.object({
+		name: z.string(),
+		receiver: z.enum(["list", "object", "collection"]),
+		params: z.array(z.object({ name: z.string(), type: z.string() }).meta({ id: "ConsoleBuiltinParam" })),
+		returns: z.string(),
+		description: z.string(),
+	})
+	.meta({ id: "ConsoleBuiltinDescription" });
+
+export const ConsoleDescriptionSchema = z
+	.object({
+		builtins: z.array(ConsoleBuiltinDescriptionSchema),
+		entities: z.array(ConsoleEntityDescriptionSchema),
+	})
+	.meta({ id: "ConsoleDescription" });
+
+const LabelledIdSchema = z.object({ id: z.string(), label: z.string() }).meta({ id: "ConsoleLabelledId" });
+
+/** Never cached; ids move. */
+export const ConsoleIdsSchema = z
+	.object({
+		devices: z.array(
+			z
+				.object({
+					id: z.string(),
+					name: z.string(),
+					readings: z.array(z.string()),
+				})
+				.meta({ id: "ConsoleDeviceIds" }),
+		),
+		fields: z.array(LabelledIdSchema),
+		automations: z.array(LabelledIdSchema),
+		sources: z.array(LabelledIdSchema),
+		definitions: z.array(z.string()),
+	})
+	.meta({ id: "ConsoleIds" });
+
+export type ConsoleIds = z.infer<typeof ConsoleIdsSchema>;
+export type ConsoleEntityDescription = z.infer<typeof ConsoleEntityDescriptionSchema>;
+export type ConsoleDescription = z.infer<typeof ConsoleDescriptionSchema>;
+
+const IssueSchema = z
+	.object({
+		code: z.string(),
+		start: z.number().int(),
+		end: z.number().int(),
+		message: z.string(),
+	})
+	.meta({ id: "ConsoleIssue" });
+
+const CutSchema = z.object({ shown: z.number().int(), total: z.number().int() }).meta({ id: "ConsoleCut" });
+
+/** Shared protocol byte cap. */
+export const CONSOLE_VALUE_BYTES = 64_000;
+export const CONSOLE_VARIABLES_MAX = 16;
+
+/** The client resends saved values. */
+export const ConsoleVariableSchema = z
+	.object({ value: z.unknown(), type: z.string().max(64).optional() })
+	.meta({ id: "ConsoleVariable" });
+
+export const ConsoleVariablesSchema = z
+	.record(z.string().refine(isConsoleVariableName, "not a variable name"), ConsoleVariableSchema)
+	.refine((held) => Object.keys(held).length <= CONSOLE_VARIABLES_MAX, "too many variables");
+
+export const ConsoleDescribeResultSchema = z
+	.object({ description: ConsoleDescriptionSchema, registryHash: z.string() })
+	.meta({ id: "ConsoleDescribeResult" });
+
+export const ConsoleResultItemSchema = z
+	.object({
+		value: z.unknown(),
+		type: z.string().optional(),
+		entity: z.string().optional(),
+		assigned: z.string().optional(),
+		cut: CutSchema.optional(),
+	})
+	.meta({ id: "ConsoleResultItem" });
+
+export const ConsoleEvalResultSchema = z
+	.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("ok"), results: z.array(ConsoleResultItemSchema), registryHash: z.string() }),
+		z.object({ kind: z.literal("error"), issue: IssueSchema, registryHash: z.string() }),
+	])
+	.meta({ id: "ConsoleEvalResult" });
+
+export type ConsoleResultItem = z.infer<typeof ConsoleResultItemSchema>;
+export type ConsoleDescribeResult = z.infer<typeof ConsoleDescribeResultSchema>;
+export type ConsoleEvalResult = z.infer<typeof ConsoleEvalResultSchema>;
 
 export const LiveConsoleAnswerSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("ok"),
 		text: z.string(),
 		registryHash: z.string(),
-		cut: z.object({ shown: z.number().int(), total: z.number().int() }).optional(),
+		cut: CutSchema.optional(),
 	}),
 	z.object({ kind: z.literal("error"), text: z.string(), issue: IssueSchema }),
 	z.object({ kind: z.literal("unauthenticated") }),

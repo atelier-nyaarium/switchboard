@@ -22,6 +22,7 @@ import com.atelier_nyaarium.switchboard.board.BoardDrop
 import com.atelier_nyaarium.switchboard.board.BoardRow
 import com.atelier_nyaarium.switchboard.board.BoardScreen
 import com.atelier_nyaarium.switchboard.board.BoardSessionList
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleScreen
 import com.atelier_nyaarium.switchboard.policies.PoliciesScreen
 import com.atelier_nyaarium.switchboard.routines.RoutinesScreen
 import com.atelier_nyaarium.switchboard.runbooks.RunbooksScreen
@@ -89,6 +90,7 @@ internal fun ScopedViewBody(
 			modifier = modifier,
 			scope = scope,
 		)
+		ScopedView.CONSOLE -> ConsoleScreen(repo, state, modifier, scope)
 	}
 }
 
@@ -124,7 +126,7 @@ internal fun ScopeRow(view: ScopedView, team: String, onWhole: () -> Unit) {
 }
 
 private fun scopeChip(view: ScopedView, address: com.atelier_nyaarium.switchboard.proto.Address?): String? = when (view) {
-	ScopedView.RUNBOOKS, ScopedView.POLICIES -> address?.gateway
+	ScopedView.RUNBOOKS, ScopedView.POLICIES, ScopedView.CONSOLE -> address?.gateway
 	ScopedView.ROUTINES -> address?.spawn
 	ScopedView.BACKLOG, ScopedView.VAULT -> null
 }
@@ -133,12 +135,12 @@ private fun scopeLine(view: ScopedView): String = when (view) {
 	ScopedView.BACKLOG -> "This session's tasks"
 	ScopedView.RUNBOOKS -> "Fires into this session"
 	ScopedView.ROUTINES -> "Starts on this spawn point"
-	ScopedView.POLICIES -> "This Gateway"
+	ScopedView.POLICIES, ScopedView.CONSOLE -> "This Gateway"
 	ScopedView.VAULT -> "This session's requests and grants"
 }
 
 private fun wholeLabel(view: ScopedView): String = when (view) {
 	ScopedView.BACKLOG -> "Backlog"
 	ScopedView.VAULT -> "All entries"
-	ScopedView.RUNBOOKS, ScopedView.ROUTINES, ScopedView.POLICIES -> "All Gateways"
+	ScopedView.RUNBOOKS, ScopedView.ROUTINES, ScopedView.POLICIES, ScopedView.CONSOLE -> "All Gateways"
 }

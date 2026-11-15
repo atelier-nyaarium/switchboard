@@ -412,6 +412,108 @@ Recommended: closes the last scripting gap of the 2.6d walk, and verifies a new 
 
 > a. 30 is too short. you seen what happened with these sensors. do like 2 minutes.
 
+## Question 30 - Which verbs name the console's members?
+
+Raised on the Console page mockup, when the owner asked to agree on terminology and activities.
+
+Q: `list` for all, `get(x)` for one record as stored, `read(x)` only for a live measurement, every name lowercase (A); keep today's names (B); or `get` everywhere (C)?
+A: A. `thresholds.of` becomes `thresholds.get`; `Definition` becomes `definitions`, still listed as a catalogue.
+
+Recommended: get versus read tells stored setup from a live reading, the distinction debugging turns on, and lowercase removes the one oddity.
+
+> A it is. And get live value means value at the time? or living service that you need to .read from?
+
+A value at the time: `read(x)` answers the reading as of the moment it runs, a copy, and running it again reads again. Nothing the console answers is a living handle; a refreshing card would rerun its expression.
+
+## Question 31 - How does that rule land on each entity?
+
+Q: Fetches are `list`, `get` and `read`, narrower views are nouns, computing verbs stay verbs, and the overlapping members merge (A); rename verbs only (B); or another mapping (C)?
+A: A. `devices`: `list`, `get(device)`. `sensors`: `list`, `read(device)` (thresholds move out), `payloads(device)`, `extremes(device, key)`. `thresholds`: `list`, `get(device)`. `fields`: `list`, `get(id)` (record and invalid reason), `read(id)` (value or unknown reason, recent transitions). `automations`: `list`, `get(id)`, `read(id)` (checkpoint), `runs`, `queue`. `watchers`: `list`, `get(id)` (setup, rules, actions), `read(id)` (health), `test(id, fields)`. `bluetooth`: `listen(seconds)`. `definitions` (catalogue): `list`, `get(key)`, `match(advert)`, `decode(key, advert)`. `gateway` unchanged.
+
+Recommended: each entity answers at most two questions, what was set up and what it is doing now, and the phone's completion lists shrink.
+
+> A. Looks good.
+
+## Question 32 - Do watchers and automations stay, or does a layered vocabulary replace them?
+
+Today a watcher polls an outside source and routes each event to wake or inbox by its rules; an automation reacts to a computed field crossing and tells the assistant through a queue the Sensors watcher reads. Neither models a continuous feed such as a camera's video.
+
+Q: Layered: sources (devices and services) produce values (fields) and events, automations turn events into actions (tell the assistant: wake or inbox, switch a device, notify the phone), feeds are streams a step can sample, and "watcher" retires (A); keep both words, sharper (B); or leave it for a later plan (C)?
+A: A, and the watchers are rebuilt in this deployment rather than a later plan. Their configuration may be purged and re-entered through the new pages, which proves the pages.
+
+Recommended: "automation" is the standard word for trigger plus action; "watcher" did two jobs (polling a service, routing into the inbox), the Sensors watcher was only the automations' outbox, and beside cameras the word reads as a camera.
+
+> A it is. Feel free to purge my current watchers to over remote control and then rebuild them, as you do the update deployment. Then input my watchers manually yourself, proving the UX works.
+
+The purge is permission, not a goal: stored configuration carries over where the format allows, and a clean break with re-entry is allowed only where it does not.
+
+> ohh well the point of it was a clean break, if you needed to change the storage format. you don't need to purge them all if it cleanly updates
+
+## Question 33 - What happens when several automations match one event?
+
+Q: An ordered list per source, first match decides (A); every match fires, wake wins (B); or A for the assistant and B for other actions (C)?
+A: B, in one form: every matching automation fires, with no order and no first match; an event that several automations wake about wakes once. The assistant action is "tell the assistant" with a `when` of now or quietly. A source that lists its own events (GitHub) needs no quiet automation, since its list is the inbox; a crossing or a timed reading has no list of its own, so quietly leaves it in the inbox. Exceptions that order used to express become an `is not` condition on the automation.
+
+C was withdrawn: it keeps an ordered router for one action kind and a fan-out for the rest, which is two systems.
+
+> I think C means 2 segregated systems? Maybe B.
+
+## Question 34 - What is a threshold in the new system?
+
+Q: One of three trigger kinds on an automation, an event arrives, a value crosses a line, a time comes (A); a separate sensor feature that emits events (B); or hardcoded as today with scheduled reads in Routines (C)?
+A: A. A threshold becomes the value trigger, with its dead zone and cool-down; the sensor page's Alerts rows stay as a shortcut that writes such an automation. A time trigger covers "every hour, read the thermometer and pass it on": its action reads the value when it fires. Routines stay for starting a session on a schedule; whether a routine becomes an automation whose action starts a session is a later question.
+
+> Will we still be able to do like, "Every hour, read the thermometer and pass it to blah"
+
+## Question 35 - How are actions modelled?
+
+Q: One catalogue of actions with typed parameters, shared by automations, the assistant and the console (A); hardcode each kind into automations (B); or automations only tell the assistant, which does the rest (C)?
+A: A. An action is a catalogue row: its name, its parameters as typed fields, where it runs, whether it is dangerous. An automation holds a list of actions with parameter values, fixed or filled from the trigger. "Tell the assistant" is one action with a message and a `when`. Saving the automation is the consent; a dangerous action asks once at save.
+
+Recommended: C puts a model in the loop for "turn on the plug at 2 C", which should be instant and never depend on the assistant being awake.
+
+> A.
+
+## Question 36 - How do values get into an action's text?
+
+Raised by the owner: a thermometer's temperature told to the assistant would arrive as a bare "24.3".
+
+Q: Text with holes, each hole an expression in the console's language (A); a `format()` function with every parameter a whole expression (B); or named placeholders picked from a list the trigger offers (C)?
+A: A, with single braces. Any text parameter may hold `{expression}`; the trigger adds its own names (`value` and `device` for a crossing, `event.reason` for a GitHub event); a value prints as the app shows it, with its unit in the owner's unit; the editor previews the finished text. A literal brace is written `\{` or `\}`. Builtins (`round`, comparisons, `if`) are rows in the console's one builtin table, so the Console and automations gain them together, and a trigger's condition can be the same kind of expression answering yes or no.
+
+Recommended: plain text stays plain, the Console's input with its completions is reused, and a read tested in the Console pastes into an automation.
+
+> looks good. now would you simplify it to single instead of double? if they want it escapes, we build the language parser to recognize a /{{foo}\}
+
+## Question 37 - Do runbooks take single braces too?
+
+Q: Automations use single braces and runbooks stay on `{{name}}` (A); both go single, stored runbooks rewritten (B); or both accept either (C)?
+A: A. A runbook body is a prompt and often carries code and JSON, where bare braces are everywhere. Runbooks follow when their machinery is upgraded.
+
+> yeah Runbooks follow later. Finish up before we upgrade the runbook machinery.
+
+Settled without asking, each with its reason, and told to the owner:
+
+- **Console variables live on the phone** (recommended twice, then confirmed): snapshots sent with each read, capped. They belong to whoever evaluates: on the phone, to that console session, and they die with the app. An MCP call is one expression, so a variable there would live for one call; the agent's door keeps refusing `=` until a call can hold several statements.
+
+> yeah variables are local to the thing that is evaluating it. So if I do it from phone, it's for me, for that consoles session. Killing the app will kill the vars. Same for you in MCP. bit I guess the session is literally just 1 call, so it's a short lifetime.
+- **Event conditions keep today's picker** (field, `is` / `is not` / `contains`, value): built, pinned on both runtimes by `assistant-rules/vectors.json`, and easier on a phone than typing. Expression conditions arrive with the comparison builtins.
+- **One vault holder for services**, GitHub and IFTTT alike, keyed by the service: the `watcher` holder rows are translated at restore, never dropped, since one unreadable row resets every grant.
+- **The inbox stays a live listing** of every source plus what automations left quietly.
+- **GitHub keeps the id `github`**, so a wake's member key is unchanged and nothing delivered wakes again.
+- **Several instances per kind** (`plans/watcher-instances.md`) come after, rewritten on this vocabulary.
+
+## Question 38 - Can one call hold several statements?
+
+Raised when the owner learned the agent's tool took a single expression.
+
+Q: Add several statements per call now, in 2.6f (A), or later with the automation holes (B)?
+A: A, delimited by semicolons. `name = expression` saves for the rest of that call on either door; on the phone the value is also kept for the console session. Every statement that is not a save prints, in order. The limits (steps, answer size, one slow read) cover the whole call. A new line stays whitespace, so an expression still wraps.
+
+Recommended: small while the grammar is open, and it gives the agent's door variables under the owner's rule, local to whoever evaluates and living for that call.
+
+> sounds good. semicolon delimited language for multi statement commands
+
 ## Design rulings, mocked in the Designer dock
 
 - **Pair with** (a dialogue over the family's entry page after Scan): Found rows merged across every radio with signal bars from the strongest, untested rows marked "Not tested" (a known format) or "Not tested · raw only"; Paired rows below with their live value. The dialogue lists the Gateways that heard the device, strongest first, then This Phone last, each with a chip: "Assistant" (home, and This Phone) or "App only". Owner: "looks good".
@@ -594,12 +696,53 @@ Slices:
 ## Phase 2.6f - The live console, human door
 
 - A describe op (`console_describe`) and an eval op (`console_eval`) through the same engine; the Gateway ships before the phone. Compose `liveConsole` before `routerFrames` and hand the console dispatcher one port, `answer("owner", expr?, limit?)`, so the ops cannot grow a second registry or evaluator.
-- The engine answers structured values, not only text: the evaluated value, and a describe projection (entities, members, parameter descriptions, normalized schemas, returns, builtins). The MCP door renders them to text as now; the owner op gets the value under render's size cap with owner-named strings through `oneLine` and `neutralizeMarkup`.
-- `registryHash` hashes that canonical describe projection, so a schema change moves it. Live ids (devices, fields, watchers) are not in it: completions read them from a separate uncached op, so a cached describe never holds stale ids.
+- The engine answers structured values, not only text: one result per statement, and a describe projection (entities, members, parameter descriptions, returns, builtins). The MCP door renders them to text as now; the owner op gets the values under one byte cap. Phone-bound text is never neutralized on the Gateway; the phone collapses a value or a key to one line where it draws it.
+- `registryHash` hashes that canonical describe projection. The projection carries type labels and parameter descriptions, not schemas: the hash covers what the phone draws, and a constraint the phone never shows cannot go stale on it. Live ids (devices, fields, sources) are not in it: completions read them from a separate uncached op, refreshed after every read.
 - Owner evals cannot outlast the phone's answer wait: `bluetooth.listen` stays host-only unless the phone, the Router and the Gateway agree a long-wait contract for it.
 - The phone's tokenizer twin, pinned by vectors generated from `grammar.ts`, for highlighting and the cursor's context; completions and hints come from the describe answer and the live-id op.
-- Shared helpers the describe and cards need, so they are not third copies: one JSON Schema root-inline helper (`zodToCleanJsonSchema` and `paramsJsonSchema` each do it), `typeOf(spec)` moved to shared, one reading-in-the-display-unit helper (`deviceTool.ts` and the console's `readingOf` each convert; `bandToDisplay` already serves thresholds), and `formatFieldValue` covering a number with no `decimals`. Booleans only end to end: `sensorReadings` drops a boolean, `DeviceReadingSchema.value` holds none, and `definitionRefusal` never checks a reading's result type against its spec, so either carry booleans through that whole chain or refuse a mismatched definition at load.
+- Shared helpers the describe and cards need, so they are not third copies: one JSON Schema root-inline helper (`zodToCleanJsonSchema` and `paramsJsonSchema` each do it), `typeOf(spec)` moved to shared, one reading-in-the-display-unit helper (`deviceTool.ts` and the console's `readingOf` each convert; `bandToDisplay` already serves thresholds), and `formatFieldValue` covering a number with no `decimals`. As built: `readingInDisplay` and `bandToDisplay` are the shared helpers; the JSON Schema helper, `typeOf` and the `formatFieldValue` change were not needed, since the projection carries labels and field values render raw. `definitionRefusal` refuses a reading whose expression's type is not its spec's, so a boolean reading can no longer vanish at read time.
 - The Console page: input with completions and parameter hints, results as cards (a schema card per entity, a reading card in the owner's unit), session variables (assignment returns here), history. Mocked in the Designer dock first.
+- **The registry in the agreed words (Q30, Q31, Q32):** `list`, `get` and `read`; `thresholds.get`; `fields.read` merging value and state, `fields.get` carrying the invalid reason; `automations.get` and `automations.read`; `sources` (was `watchers`) with `get` holding setup and rules and `read` holding health; `definitions` (was `Definition`) with `list`.
+- **Variables live on the phone:** `name = expression` saves the answered value; a saved value is sent with each read and capped.
+- **Several statements per call (Q38):** `;` separates statements on both doors; a save lasts the call, every other statement prints in order, and the caps cover the whole call.
+
+### Bug Classes
+
+- **`consoleAssist`'s replace range (`ConsoleAssist.kt`):** the range a completion replaces is worked out from the tokens before the cursor, and each round found another cursor position it got wrong. Round one: the cursor inside a name or a string left the token's tail behind. Round two: the cursor at the very start of a name duplicated it, and a typed prefix of a shared device name hid the choices. The range wants one definition, "the token the cursor touches, on either side", rather than a prefix and a following special case.
+- **`variablesFor`'s reading of which names are references (`ConsoleRules.kt`):** it re-derives from tokens what the Gateway's parser already knows. Round one: members, dict keys and save targets were sent as references. Round two: a name an earlier statement saves was still sent. A statement-aware walk patched both; the durable answer is one shared notion of "free names of a program", generated or twinned from the grammar, as the tokenizer is.
+
+## Phase 2.7a - Foundations for sources and automations, nothing visible (Q32)
+
+- **The vault first.** A `service` holder kind beside `watcher`; stored `watcher` rows translate at restore (GitHub and IFTTT alike) and write back only after the whole file parses. A fixture of a mixed decisions file (session, routine, GitHub, IFTTT) proves no grant is lost.
+- **The plugin reads both vocabularies** (it deploys apart and first): `watcher/` and `source/` action ids, `sources` or `watchers` in the baseline, an inbox header of `source:` or `watcher:`, an unknown `decision` rendered as text.
+- **Gateway internals renamed** to Source and SourceEvent; data files renamed on first boot. The Sensors bridge becomes an explicit outbox port feeding the same lane.
+
+## Phase 2.7b - Sources and automations on the wire and the phone, same behaviour (Q32, Q33)
+
+- **Wire:** `sources` and `automations` replace `watchers` in the assistant state; `assistant_source_*` ops; automation list, put, delete and preview ops; `source/github_done`, with `watcher/*` parsed through a dated skew window.
+- **One automation record** with a trigger and a list of actions. This phase ships the event trigger (a source plus today's conditions) and the action "tell the assistant" with `when` now or quietly. Every match fires; an event several automations wake about wakes once.
+- **Storage carries over:** each GitHub rule becomes an automation (a rule that woke becomes `when: now`); the `otherwise` setting and rule order go. The Sensors rules are empty and are dropped.
+- **Phone:** a Sources page (health, secret, enabled, commands), an Automations list and editor retargeted from `RuleDraft`, Integrations and the inbox strip renamed. Mocked in the Designer dock first.
+- **Home move:** the carried payload holds sources and their event automations; an old sealed payload decodes through a one-shot reader.
+
+Configuration held before the rebuild (2026-11-15), which the carry-over must reproduce:
+
+- **GitHub notifications** (`github`): enabled; reads the vault entry "GitHub PAT - Development"; wakes when `reason` is `approval_requested`, `security_alert` or `mention`, or `type` is `PullRequest`; everything else to the inbox; offers Mark done.
+- **Sensors** (`sensors`): enabled; no rules, everything to the inbox; offers Clear events.
+- **Automations:** "Outside thermometer temperature below 2.0 C" tells the assistant; its "above" side is off.
+
+## Phase 2.7c - Triggers and the action catalogue (Q34, Q35, Q36)
+
+- **Value trigger:** a threshold becomes an automation whose trigger is "a value crosses a line", with its dead zone and cool-down; the sensor page's Alerts rows write such automations. The Sensors queue becomes the automations' outbox, listed in the inbox as its own section.
+- **Time trigger:** an interval or a time of day in a recorded zone, on the routine recurrence calculator.
+- **Action catalogue:** one table of actions with typed parameters, where each runs and whether it is dangerous; automations, the assistant's `run_action` and later the console read it. First rows: tell the assistant, switch a plug, send to IFTTT. A dangerous action asks once at save.
+- **Holes:** a text parameter takes `{expression}` in the console's language, the trigger's names in scope, values printed with their unit; `\{` writes a brace. An invalid hole is refused at save with its span. The editor previews the finished text.
+- **Builtins:** `round`, comparisons, `if`, as rows in the console's builtin table.
+
+## Phase 2.7d - Walk-through and cleanup
+
+- With the owner: the Sources and Automations pages on the phone, GitHub's four wake automations checked or re-entered, one added and one edited, a real notification and a sensor crossing reaching the assistant.
+- Remove the dated legacy readers; rewrite `plans/watcher-instances.md` on the new vocabulary; docs.
 
 ## Painpoints
 

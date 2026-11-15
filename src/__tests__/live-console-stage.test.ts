@@ -10,9 +10,11 @@ import { thresholdIds } from "../gateway/computed/thresholds.js";
 import { createSensorThresholds, type SensorThresholds } from "../gateway/devices/sensorThresholds.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { type ConsoleReaders, consoleEntities } from "../gateway/liveConsole/entities.js";
+import { CONSOLE_TEXT_BYTES } from "../gateway/liveConsole/render.js";
 import { openDurable } from "../shared/durable-store.js";
 import type { HostOpResult } from "../shared/host-op.js";
 import type { ConsoleAssistantStateResult, TemperatureUnit } from "../shared/schemasAssistant.js";
+import { CONSOLE_VALUE_BYTES } from "../shared/schemasLiveConsole.js";
 import { SESSION_COMMANDS } from "../shared/session-commands.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -41,9 +43,12 @@ const H5110 = {
 const KETTLE = { mac: "aa:bb:cc:dd:ee:ff", signal: -80, data: { "76": "0102" }, services: [] };
 
 const FIELD_ID = "threshold-ce1c443c5d-temperature";
+const FIELD = { id: FIELD_ID, revision: 1, body: { label: "Freezer temperature", nodes: [] } };
 const FIELDS = {
-	list: () => [{ id: FIELD_ID, revision: 1, body: { label: "Freezer temperature", nodes: [] } }],
+	list: () => [FIELD],
+	get: (id: string) => (id === FIELD_ID ? FIELD : undefined),
 	value: () => ({ known: false, reason: "not heard for 31 minutes" }),
+	stateOf: () => ({ seq: 4, transitions: [] }),
 	invalidOf: () => null,
 } as unknown as ComputedFields;
 const AUTOMATIONS = {
@@ -146,6 +151,7 @@ function world(
 		as: (next: ConsoleCaller) => {
 			caller = next;
 		},
+		owner: stage.console,
 		close: () => devices.close(),
 	};
 }
@@ -178,8 +184,18 @@ describe("live console stage", () => {
 				issue: { code: "too_slow" },
 			});
 			expect((await gateway.ask("sensors.list")).text).toContain("main: Temperature 75.9 °F");
+			expect((await gateway.ask('a = sensors.read("freezer"); a.name; sensors.list.count()')).text).toBe(
+				"> a.name\nFreezer\n\n> sensors.list.count()\n1",
+			);
+			expect((await gateway.ask('a = sensors.read("freezer")')).text).toBe("saved for this call: a");
+			expect((await gateway.ask('("ok"); 1')).text).toBe('> ("ok")\nok\n\n> 1\n1');
+			const many = await gateway.ask(
+				Array.from({ length: 16 }, () => 'definitions.get("govee-h5110")').join("; "),
+			);
+			expect(Buffer.byteLength(many.text, "utf8")).toBeLessThanOrEqual(CONSOLE_TEXT_BYTES);
+			expect(many.text.match(/^> /gm)).toHaveLength(16);
 			const decoded = await gateway.ask(
-				'Definition.decode("govee-h5110", sensors.payloads("Freezer")[0]).temperature',
+				'definitions.decode("govee-h5110", sensors.payloads("Freezer")[0]).temperature',
 			);
 			expect(decoded).toMatchObject({ kind: "ok", text: "24.4" });
 		} finally {
@@ -211,22 +227,112 @@ describe("live console stage", () => {
 		}
 	});
 
-	it("lists fields with their unknown reason, runs newest first by label, and watchers' health", async () => {
+	it("lists fields with their unknown reason, runs newest first by label, and each source's health", async () => {
 		const gateway = world("C", undefined, true);
 		try {
 			expect((await gateway.ask("fields.list")).text).toContain("value:\n    unknown: not heard for 31 minutes");
 			const runs = await gateway.ask("automations.runs.first()");
 			expect(runs.text).toContain("outcome: suppressed");
 			expect(runs.text).toContain("label: Freezer temperature below 21.0 °C");
-			expect((await gateway.ask('watchers.list.where("id", "sensors").first().unread')).text).toBe("2");
-			const full = (await gateway.ask('watchers.get("sensors")')).text;
+			expect((await gateway.ask('sources.list.where("id", "sensors").first().unread')).text).toBe("2");
+			expect((await gateway.ask('sources.read("sensors").unread')).text).toBe("2");
+			const full = (await gateway.ask('sources.get("sensors")')).text;
 			expect(full).not.toContain("GitHub token");
 			expect(full).not.toContain("entry-1");
 			const decided = await gateway.ask(
-				'watchers.test("sensors", {automation: "Freezer temperature below 21.0 °C"})',
+				'sources.test("sensors", {automation: "Freezer temperature below 21.0 °C"})',
 			);
 			expect(decided.text).toBe("rule: wake-freezer\naction: wake");
-			expect((await gateway.ask(`fields.value("${FIELD_ID}")`)).text).toBe("unknown: not heard for 31 minutes");
+			expect((await gateway.ask(`fields.read("${FIELD_ID}").value`)).text).toBe(
+				"unknown: not heard for 31 minutes",
+			);
+			expect(await gateway.ask('fields.read("nope")')).toMatchObject({ issue: { code: "not_found" } });
+		} finally {
+			await gateway.close();
+		}
+	});
+
+	it("answers the owner with values, the registry's type, and a cut at the value cap", async () => {
+		const gateway = world("F", undefined, true);
+		try {
+			const described = gateway.owner.describe();
+			expect(described.description.entities.map((entity) => entity.name)).not.toContain("bluetooth");
+			expect(gateway.owner.describe().registryHash).toBe(described.registryHash);
+			expect(gateway.owner.ids()).toMatchObject({
+				devices: [{ id: MAC, name: "Freezer", readings: ["temperature", "humidity", "battery"] }],
+				fields: [{ id: FIELD_ID }],
+				sources: [{ id: "sensors" }],
+			});
+			expect(await gateway.owner.evaluate('sensors.read("Freezer")')).toMatchObject({
+				kind: "ok",
+				results: [
+					{
+						type: "Sensor",
+						value: {
+							name: "Freezer",
+							readings: expect.arrayContaining([
+								expect.objectContaining({ key: "temperature", shown: "75.9 °F" }),
+							]),
+						},
+					},
+				],
+			});
+			expect(await gateway.owner.evaluate("devices")).toMatchObject({
+				kind: "ok",
+				results: [{ entity: "devices", value: null }],
+			});
+			const saved = await gateway.owner.evaluate('cold = sensors.read("Freezer"); cold.readings.count()');
+			expect(saved).toMatchObject({
+				kind: "ok",
+				results: [{ assigned: "cold", type: "Sensor" }, { value: 3 }],
+			});
+			if (saved.kind !== "ok") throw new Error("a value expected");
+			expect(
+				await gateway.owner.evaluate("cold.readings.count()", undefined, {
+					cold: { value: saved.results[0]?.value, type: "Sensor" },
+				}),
+			).toMatchObject({ kind: "ok", results: [{ value: 3 }] });
+			expect(
+				await gateway.owner.evaluate("big", undefined, { big: { value: "x".repeat(CONSOLE_VALUE_BYTES * 4) } }),
+			).toMatchObject({ kind: "error", issue: { code: "too_big" }, registryHash: described.registryHash });
+			expect(await gateway.owner.evaluate("bluetooth.listen(1)")).toMatchObject({
+				kind: "error",
+				issue: { code: "unknown_name" },
+			});
+			const crowded = composeLiveConsole({
+				ambient: fakeAmbient({ now: () => 1_794_695_000_000 }),
+				readers: {
+					gateway: () => ({ id: "sakura", version: "1.0.0", router: null }),
+					devices: () => undefined,
+					fields: () => undefined,
+					automations: () => undefined,
+					thresholds: () => undefined,
+					assistant: () =>
+						({
+							watchers: Array.from({ length: 100 }, (_, at) => ({
+								...WATCHER,
+								id: `w${at}`,
+								label: "x".repeat(1_000),
+							})),
+						}) as unknown as ConsoleAssistantStateResult,
+					temperatureUnit: () => "C",
+					bluetoothListen: async () => ({ ok: false, error: "unused" }),
+				},
+				callerOf: () => "host",
+			});
+			const wide = await crowded.console.evaluate("sources.list", 100);
+			expect(wide).toMatchObject({ kind: "ok", results: [{ type: "List<SourceSummary>", cut: { total: 100 } }] });
+			expect(JSON.stringify(wide).length).toBeLessThan(CONSOLE_VALUE_BYTES + 200);
+			expect(await crowded.console.evaluate("sources.list", 3)).toMatchObject({
+				results: [{ cut: { shown: 3, total: 100 } }],
+			});
+			expect(await crowded.console.evaluate("all = sources.list")).toMatchObject({
+				kind: "error",
+				issue: { code: "too_big", message: expect.stringContaining("all is too large to save") },
+			});
+			const shared = await crowded.console.evaluate("sources.list.take(40); sources.list.take(40)", 40);
+			expect(shared).toMatchObject({ kind: "ok", results: [{}, { cut: { total: 40 } }] });
+			expect(JSON.stringify(shared).length).toBeLessThan(CONSOLE_VALUE_BYTES + 400);
 		} finally {
 			await gateway.close();
 		}
@@ -273,26 +379,24 @@ const EVERY_MEMBER: Record<string, string> = {
 	"sensors.payloads": 'sensors.payloads("Freezer")',
 	"sensors.extremes": 'sensors.extremes("Freezer", "temperature")',
 	"thresholds.list": "thresholds.list",
-	"thresholds.of": 'thresholds.of("Freezer")',
+	"thresholds.get": 'thresholds.get("Freezer")',
 	"fields.list": "fields.list",
 	"fields.get": `fields.get("${IDS.field}")`,
-	"fields.value": `fields.value("${IDS.field}")`,
-	"fields.invalid": `fields.invalid("${IDS.field}")`,
-	"fields.state": `fields.state("${IDS.field}")`,
+	"fields.read": `fields.read("${IDS.field}")`,
 	"automations.list": "automations.list",
 	"automations.runs": "automations.runs",
 	"automations.queue": "automations.queue",
-	"automations.invalid": `automations.invalid("${IDS.low}")`,
-	"automations.checkpoint": `automations.checkpoint("${IDS.low}")`,
-	"watchers.list": "watchers.list",
-	"watchers.get": 'watchers.get("sensors")',
-	"watchers.rules": 'watchers.rules("sensors")',
-	"watchers.test": 'watchers.test("sensors", {automation: "Freezer"})',
+	"automations.get": `automations.get("${IDS.low}")`,
+	"automations.read": `automations.read("${IDS.low}")`,
+	"sources.list": "sources.list",
+	"sources.get": 'sources.get("sensors")',
+	"sources.read": 'sources.read("sensors")',
+	"sources.test": 'sources.test("sensors", {automation: "Freezer"})',
 	"bluetooth.listen": "bluetooth.listen(1)",
-	"Definition.all": "Definition.all",
-	"Definition.get": 'Definition.get("govee-h5110")',
-	"Definition.match": 'Definition.match(sensors.payloads("Freezer")[0])',
-	"Definition.decode": 'Definition.decode("govee-h5110", sensors.payloads("Freezer")[0])',
+	"definitions.list": "definitions.list",
+	"definitions.get": 'definitions.get("govee-h5110")',
+	"definitions.match": 'definitions.match(sensors.payloads("Freezer")[0])',
+	"definitions.decode": 'definitions.decode("govee-h5110", sensors.payloads("Freezer")[0])',
 };
 
 function filesOf(dir: string): Record<string, string> {
@@ -428,6 +532,8 @@ describe("live console read-only fence", () => {
 				const answer = await stage.answer("host", expr);
 				expect({ member, kind: answer.kind }).toEqual({ member, kind: "ok" });
 			}
+			expect(stage.console.ids().devices).toHaveLength(1);
+			stage.console.describe();
 			devices.flushReadings();
 			expect({ files: filesOf(dataDir), snapshot }).toEqual(before);
 			expect(hostOps).toEqual(["bleListen"]);

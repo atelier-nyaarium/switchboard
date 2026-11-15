@@ -1,4 +1,9 @@
-import { type ConsoleIssue, type ConsoleNode, parseConsole } from "../../shared/live-console-grammar.js";
+import {
+	type ConsoleIssue,
+	type ConsoleNode,
+	isConsoleVariableName,
+	parseConsole,
+} from "../../shared/live-console-grammar.js";
 import { ConsoleError, runBuiltin, sameValue } from "./builtins.js";
 import type { ConsoleAudience, ConsoleEntity, ConsoleRegistry } from "./registry.js";
 
@@ -9,7 +14,30 @@ export class EntityRef {
 	constructor(readonly entity: ConsoleEntity) {}
 }
 
-export type ConsoleResult = { ok: true; value: unknown } | { ok: false; issue: ConsoleIssue };
+export interface ConsoleStatementResult {
+	value: unknown;
+	type?: string;
+	assigned?: string;
+	start: number;
+	end: number;
+}
+
+export type ConsoleResult = { ok: true; results: ConsoleStatementResult[] } | { ok: false; issue: ConsoleIssue };
+
+export interface ConsoleVariable {
+	value: unknown;
+	type?: string;
+}
+
+export interface ConsoleEvalOptions {
+	stepsMax?: number;
+	/** Cross-call saved values. */
+	variables?: Readonly<Record<string, ConsoleVariable>>;
+}
+
+/** Type-preserving builtins. */
+const KEEPS_TYPE = new Set(["take", "skip", "where"]);
+const elementOf = (type: string | undefined) => type?.match(/^List<(.+)>$/)?.[1];
 
 class Located extends ConsoleError {
 	constructor(
@@ -50,14 +78,24 @@ export async function evaluateConsole(
 	source: string,
 	registry: ConsoleRegistry,
 	audience: ConsoleAudience,
-	stepsMax = CONSOLE_STEPS_MAX,
+	options: ConsoleEvalOptions = {},
 ): Promise<ConsoleResult> {
+	const stepsMax = options.stepsMax ?? CONSOLE_STEPS_MAX;
 	const parsed = parseConsole(source);
 	const first = parsed.issues[0];
 	if (first) return { ok: false, issue: first };
-	if (!parsed.node) return { ok: false, issue: { code: "empty", start: 0, end: 0, message: "nothing to read" } };
+	if (parsed.statements.length === 0)
+		return { ok: false, issue: { code: "empty", start: 0, end: 0, message: "nothing to read" } };
+	// Saves feed later statements.
+	const variables = new Map<string, ConsoleVariable>(Object.entries(options.variables ?? {}));
 	let steps = 0;
 	let slow = 0;
+	const types = new WeakMap<object, string>();
+	const typed = (value: unknown, type: string | undefined): unknown => {
+		if (type && typeof value === "object" && value !== null) types.set(value, type);
+		return value;
+	};
+	const typeOf = (value: unknown) => (typeof value === "object" && value !== null ? types.get(value) : undefined);
 	const step = (count = 1) => {
 		steps += count;
 		if (steps > stepsMax) throw new ConsoleError("too_big", `ran past ${stepsMax} steps`);
@@ -76,7 +114,7 @@ export async function evaluateConsole(
 			if (!found) fail(node, "no_member", `${target.entity.name} has no ${node.name}`);
 			if (found?.kind === "method")
 				fail(node, "is_method", `${target.entity.name}.${node.name} is a method; call it with ()`);
-			return found?.kind === "property" ? settle(found.get()) : null;
+			return found?.kind === "property" ? typed(await settle(found.get()), found.type) : null;
 		}
 		if (isRecord(target)) {
 			if (!Object.hasOwn(target, node.name)) fail(node, "no_member", `no field ${node.name}`);
@@ -118,7 +156,7 @@ export async function evaluateConsole(
 			}
 			if (found.slow && ++slow > 1) return fail(node, "too_slow", "one slow read per expression");
 			try {
-				return await settle(found.call(args));
+				return typed(await settle(found.call(args)), found.returns);
 			} catch (error) {
 				if (error instanceof ConsoleError && !(error instanceof Located))
 					return fail(node, error.code, error.message);
@@ -126,7 +164,9 @@ export async function evaluateConsole(
 			}
 		}
 		try {
-			return runBuiltin(name, owner, args, step);
+			const result = runBuiltin(name, owner, args, step);
+			const held = typeOf(owner);
+			return typed(result, KEEPS_TYPE.has(name) ? held : name === "first" ? elementOf(held) : undefined);
 		} catch (error) {
 			if (error instanceof ConsoleError) return fail(node, error.code, error.message);
 			throw error;
@@ -141,7 +181,7 @@ export async function evaluateConsole(
 			const at = (key as number) < 0 ? target.length + (key as number) : (key as number);
 			if (at < 0 || at >= target.length)
 				return fail(node, "out_of_range", `index ${key} is outside ${target.length} items`);
-			return target[at];
+			return typed(target[at], elementOf(typeOf(target)));
 		}
 		if (isRecord(target)) {
 			if (typeof key !== "string") return fail(node, "wrong_type", "a record is indexed by text");
@@ -165,8 +205,14 @@ export async function evaluateConsole(
 			case "literal":
 				return node.value;
 			case "ident": {
+				// Entities shadow saved names.
 				const entity = registry.get(node.name, audience);
-				return entity ? new EntityRef(entity) : fail(node, "unknown_name", `no entity ${node.name}`);
+				if (entity) return new EntityRef(entity);
+				const held = variables.get(node.name);
+				// Nothing here mutates a value.
+				return held
+					? typed(held.value, held.type)
+					: fail(node, "unknown_name", `no entity or variable ${node.name}`);
 			}
 			case "member":
 				return member(node);
@@ -224,7 +270,31 @@ export async function evaluateConsole(
 	};
 
 	try {
-		return { ok: true, value: await walk(parsed.node) };
+		const results: ConsoleStatementResult[] = [];
+		for (const { node, assign, start, end } of parsed.statements) {
+			if (assign && !isConsoleVariableName(assign.name))
+				throw new Located(
+					"bad_name",
+					"a saved name is at most 32 letters, digits or _",
+					assign.start,
+					assign.end,
+				);
+			if (assign && registry.get(assign.name, audience))
+				throw new Located("name_taken", `${assign.name} is an entity`, assign.start, assign.end);
+			const value = await walk(node);
+			if (assign && value instanceof EntityRef)
+				fail(node, "is_entity", "an entity cannot be saved; pick a member");
+			const type = typeOf(value);
+			if (assign) variables.set(assign.name, { value, ...(type ? { type } : {}) });
+			results.push({
+				value,
+				...(type ? { type } : {}),
+				...(assign ? { assigned: assign.name } : {}),
+				start,
+				end,
+			});
+		}
+		return { ok: true, results };
 	} catch (error) {
 		if (error instanceof Located) {
 			return {

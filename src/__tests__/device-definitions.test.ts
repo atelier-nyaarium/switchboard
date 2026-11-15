@@ -45,6 +45,13 @@ describe("device definitions", () => {
 		for (const raw of [apple, stranger, wrong, unread, addressed, named, marked, huge]) {
 			expect(definitionRefusal(raw)).not.toBeNull();
 		}
+		const [first, ...rest] = goveeH5110.readings;
+		const mistyped = {
+			...goveeH5110,
+			examples: [],
+			readings: [{ ...first, spec: { kind: "text", field: first.spec.field, label: first.spec.label } }, ...rest],
+		};
+		expect(definitionRefusal(mistyped)).toBe(`${first.key}: reads number, but is declared text`);
 	});
 });
 

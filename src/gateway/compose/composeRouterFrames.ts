@@ -63,6 +63,7 @@ export interface RouterFramesStageDeps {
 	sessionClosed: (team: string) => void;
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 	devices: Pick<DeviceStage, "console">;
+	liveConsole: Pick<import("./composeLiveConsole.js").LiveConsoleStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
 	sessionControl: Pick<import("../sessionControlPlane.js").SessionControlPlane, "ask">;
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve" | "launches">;
@@ -201,6 +202,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			onSessionEnded,
 			forgetRefusal: deps.assistant.forgetRefusal,
 			assistant: deps.assistant.console,
+			liveConsole: deps.liveConsole.console,
 		});
 
 		// A busy assistant is not woken; the lane polls again from its checkpoint.

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Key
@@ -266,6 +267,7 @@ private fun iconOf(view: ScopedView): ImageVector = when (view) {
 	ScopedView.ROUTINES -> Icons.Default.Schedule
 	ScopedView.POLICIES -> Icons.Default.Policy
 	ScopedView.VAULT -> Icons.Default.Key
+	ScopedView.CONSOLE -> Icons.Default.Code
 }
 
 private val DRAWER_WIDTH = 304.dp

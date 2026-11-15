@@ -14,7 +14,10 @@ class DrawerNavTest {
 	fun `a view whose plugin is off is not offered, and a held one falls back to the first`() {
 		val offered = rootViews(DrawerFeatures(board = false, vault = false))
 
-		assertEquals(listOf(RootView.SESSIONS, RootView.ASSISTANT, RootView.RUNBOOKS, RootView.ROUTINES), offered)
+		assertEquals(
+			listOf(RootView.SESSIONS, RootView.ASSISTANT, RootView.RUNBOOKS, RootView.ROUTINES, RootView.CONSOLE),
+			offered,
+		)
 		assertEquals(RootView.SESSIONS, shownView(offered, RootView.VAULT))
 		assertEquals(RootView.ROUTINES, shownView(offered, RootView.ROUTINES))
 	}

@@ -93,11 +93,13 @@ export const BUILTINS: readonly Builtin[] = [
 		run: (receiver, [name, value], step) => {
 			const list = receiver as unknown[];
 			step(list.length);
-			return list.filter(
-				(item) =>
-					isRecord(item) &&
-					sameValue(Object.hasOwn(item, name as string) ? item[name as string] : null, value),
-			);
+			// Serialized once, not per item.
+			const wanted = canonicalJson(value ?? null);
+			return list.filter((item) => {
+				if (!isRecord(item)) return false;
+				const held = Object.hasOwn(item, name as string) ? item[name as string] : null;
+				return held === value || canonicalJson(held ?? null) === wanted;
+			});
 		},
 	},
 ];

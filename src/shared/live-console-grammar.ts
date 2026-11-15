@@ -1,5 +1,13 @@
 export const CONSOLE_SOURCE_MAX = 2_000;
 export const CONSOLE_NODES_MAX = 256;
+export const CONSOLE_STATEMENTS_MAX = 16;
+
+const KEYWORDS = new Set(["true", "false", "null"]);
+const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+
+/** Record parsing drops `__proto__`. */
+export const isConsoleVariableName = (name: string): boolean =>
+	VARIABLE_NAME.test(name) && name !== "__proto__" && !KEYWORDS.has(name);
 
 /** UTF-16 offsets, end-exclusive. */
 export interface ConsoleIssue {
@@ -17,12 +25,10 @@ export interface ConsoleToken {
 	start: number;
 	end: number;
 	closed?: boolean;
-	/** Decoded string value. */
 	value?: string;
 }
 
-const KEYWORDS = new Set(["true", "false", "null"]);
-const PUNCT = new Set([".", "(", ")", "[", "]", "{", "}", ",", ":"]);
+const PUNCT = new Set([".", "(", ")", "[", "]", "{", "}", ",", ":", ";"]);
 const TWO_CHAR_OPS = new Set(["==", "!="]);
 const ONE_CHAR_OPS = new Set(["!", "+", "-", "*", "/", "="]);
 const ESCAPES: Record<string, string> = { n: "\n", t: "\t", "\\": "\\", '"': '"', "'": "'" };
@@ -112,9 +118,16 @@ export type ConsoleNode = Span &
 		| { kind: "dict"; entries: { key: string; value: ConsoleNode }[]; closed: boolean }
 	);
 
+export interface ConsoleStatement extends Span {
+	node: ConsoleNode;
+	/** Statement-leading names may save. */
+	assign?: Span & { name: string };
+}
+
 export interface ConsoleParse {
-	node: ConsoleNode | null;
-	/** Partial input still parses. */
+	/** Semicolon-separated statements. */
+	statements: ConsoleStatement[];
+	/** Partial input parses. */
 	issues: ConsoleIssue[];
 }
 
@@ -157,15 +170,41 @@ class Parser {
 		return this.peek()?.start ?? this.length;
 	}
 
-	parse(): ConsoleNode | null {
-		if (this.tokens.length === 0) return null;
-		const node = this.expression();
-		const rest = this.peek();
-		if (rest) {
-			const message = rest.text === "=" ? "assignment is not supported" : `unexpected ${rest.text}`;
-			this.issue(rest.text === "=" ? "assignment" : "unexpected", rest.start, rest.end, message);
+	parse(): ConsoleStatement[] {
+		const statements: ConsoleStatement[] = [];
+		while (this.peek()) {
+			if (this.is(";")) {
+				this.take();
+				continue;
+			}
+			const first = this.peek() as ConsoleToken;
+			if (statements.length === CONSOLE_STATEMENTS_MAX) {
+				this.issue("too_big", first.start, this.length, `more than ${CONSOLE_STATEMENTS_MAX} statements`);
+				break;
+			}
+			const equals = this.peek(1);
+			let assign: ConsoleStatement["assign"];
+			if (first.kind === "ident" && equals?.kind === "op" && equals.text === "=") {
+				assign = { name: first.text, start: first.start, end: first.end };
+				this.at += 2;
+			}
+			const node = this.expression();
+			// A closing bracket belongs to it.
+			const end = Math.max(node.end, this.tokens[this.at - 1]?.end ?? node.end);
+			statements.push({ node, start: first.start, end, ...(assign ? { assign } : {}) });
+			const rest = this.peek();
+			if (rest && !this.is(";")) {
+				const saving = rest.text === "=";
+				this.issue(
+					saving ? "assignment" : "unexpected",
+					rest.start,
+					rest.end,
+					saving ? "only a name at the start of a statement can be saved" : `unexpected ${rest.text}`,
+				);
+				break;
+			}
 		}
-		return node;
+		return statements;
 	}
 
 	private expression(): ConsoleNode {
@@ -355,8 +394,13 @@ class Parser {
 			const closed = this.closeWith("}", token.start);
 			return this.node({ kind: "dict", entries, closed, start: token.start, end: this.closedEnd(closed) });
 		}
-		const message = token.text === "=" ? "assignment is not supported" : `unexpected ${token.text}`;
-		this.issue(token.text === "=" ? "assignment" : "unexpected", token.start, token.end, message);
+		const saving = token.text === "=";
+		this.issue(
+			saving ? "assignment" : "unexpected",
+			token.start,
+			token.end,
+			saving ? "only a name at the start of a statement can be saved" : `unexpected ${token.text}`,
+		);
 		return this.node({ kind: "literal", value: null, start: token.start, end: token.end });
 	}
 }
@@ -364,7 +408,7 @@ class Parser {
 export function parseConsole(source: string): ConsoleParse {
 	if (source.length > CONSOLE_SOURCE_MAX) {
 		return {
-			node: null,
+			statements: [],
 			issues: [
 				{
 					code: "too_big",
@@ -376,6 +420,6 @@ export function parseConsole(source: string): ConsoleParse {
 		};
 	}
 	const parser = new Parser(lexConsole(source), source.length);
-	const node = parser.parse();
-	return { node, issues: parser.issues };
+	const statements = parser.parse();
+	return { statements, issues: parser.issues };
 }

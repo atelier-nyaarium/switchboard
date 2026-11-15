@@ -1,7 +1,7 @@
 import type { ConsoleIssue } from "../../shared/live-console-grammar.js";
 import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
 import { EntityRef } from "./evaluate.js";
-import { entityText } from "./registry.js";
+import { describeEntity, entityText } from "./registry.js";
 
 export const CONSOLE_TEXT_BYTES = 16 * 1024;
 export const CONSOLE_TEXT_BYTES_MAX = 64_000;
@@ -117,7 +117,7 @@ export function renderConsoleValue(value: unknown, options: RenderOptions): Rend
 	const now = options.now;
 	const maxBytes = Math.min(options.maxBytes ?? CONSOLE_TEXT_BYTES, CONSOLE_TEXT_BYTES_MAX);
 	const budget = maxBytes - FOOTER_BYTES;
-	if (value instanceof EntityRef) return { text: entityText(value.entity).join("\n") };
+	if (value instanceof EntityRef) return { text: entityText(describeEntity(value.entity)).join("\n") };
 	if (!Array.isArray(value)) {
 		const fitted = fitLines(block(value, 0, now, ""), budget);
 		return {

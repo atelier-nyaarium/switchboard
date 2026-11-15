@@ -68,6 +68,7 @@ enum class ScopedView(val title: String) {
 	ROUTINES("Routines"),
 	POLICIES("Policies"),
 	VAULT("Vault"),
+	CONSOLE("Console"),
 }
 
 enum class RootView(val title: String, val scoped: ScopedView?) {
@@ -78,6 +79,7 @@ enum class RootView(val title: String, val scoped: ScopedView?) {
 	ROUTINES("Routines", ScopedView.ROUTINES),
 	POLICIES("Policies", ScopedView.POLICIES),
 	VAULT("Vault", ScopedView.VAULT),
+	CONSOLE("Console", ScopedView.CONSOLE),
 	;
 
 	companion object {
@@ -94,6 +96,7 @@ enum class ConversationView(val title: String, val scoped: ScopedView?) {
 	ROUTINES("Routines", ScopedView.ROUTINES),
 	POLICIES("Policies", ScopedView.POLICIES),
 	VAULT("Vault", ScopedView.VAULT),
+	CONSOLE("Console", ScopedView.CONSOLE),
 }
 
 internal data class DrawerFeatures(val board: Boolean, val vault: Boolean)
@@ -101,7 +104,7 @@ internal data class DrawerFeatures(val board: Boolean, val vault: Boolean)
 private fun ScopedView.offeredWith(features: DrawerFeatures): Boolean = when (this) {
 	ScopedView.BACKLOG -> features.board
 	ScopedView.POLICIES, ScopedView.VAULT -> features.vault
-	ScopedView.RUNBOOKS, ScopedView.ROUTINES -> true
+	ScopedView.RUNBOOKS, ScopedView.ROUTINES, ScopedView.CONSOLE -> true
 }
 
 internal fun rootViews(features: DrawerFeatures): List<RootView> =
@@ -168,7 +171,8 @@ internal fun conversationMark(view: ConversationView, facts: ConversationFacts):
 	ConversationView.CHAT, ConversationView.TERMINAL -> null
 	ConversationView.FILES -> windowsDetail(facts.openWindows)
 	ConversationView.BACKLOG -> facts.undoneTasks.takeIf { it > 0 }?.let { DrawerMark.Detail("$it open") }
-	ConversationView.RUNBOOKS, ConversationView.POLICIES -> addressOf(facts.team)?.let { DrawerMark.Detail(it.gateway) }
+	ConversationView.RUNBOOKS, ConversationView.POLICIES, ConversationView.CONSOLE ->
+		addressOf(facts.team)?.let { DrawerMark.Detail(it.gateway) }
 	ConversationView.ROUTINES -> addressOf(facts.team)?.let { DrawerMark.Detail(it.spawn) }
 	ConversationView.VAULT -> facts.pendingRequests.takeIf { it > 0 }?.let { DrawerMark.Badge(it) }
 }

@@ -48,6 +48,7 @@ import type { SessionHarness } from "../../shared/session-harness.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import type { WorkspaceOp, WorkspaceOpResult } from "../../shared/workspace-op.js";
+import type { LiveConsoleOwner } from "../compose/composeLiveConsole.js";
 import type { DeliverToOwner } from "../consolePushOps.js";
 import type { RoutineRun } from "../launchRecords.js";
 import type { SessionCuts } from "../sessionCuts.js";
@@ -158,6 +159,7 @@ export interface ConsoleHandlerDeps {
 	forgetRefusal?: (team: string) => string | null;
 	assistant?: AssistantConsoleHandlers;
 	devices?: DeviceConsole;
+	liveConsole?: LiveConsoleOwner;
 }
 
 export type DeviceConsole = <Op extends DeviceConsoleOp>(op: Op) => Promise<DeviceConsoleResult<Op["kind"]>>;

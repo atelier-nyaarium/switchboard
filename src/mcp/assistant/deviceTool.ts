@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { bandToDisplay, toDisplay } from "../../shared/field-types.js";
-import { formatFieldValue } from "../../shared/field-values.js";
+import { bandToDisplay } from "../../shared/field-types.js";
+import { readingInDisplay } from "../../shared/field-values.js";
 import { ACTION_FRONT_ROUTES, type ActionRunResult, ActionRunResultSchema } from "../../shared/schemasActionFront.js";
 import {
 	DEVICE_TOOL,
@@ -20,26 +20,13 @@ export function deviceText(op: DeviceToolOp, result: ActionRunResult): ToolText 
 		const display = answer.temperatureUnit ?? "C";
 		const { temperatureUnit: _temperatureUnit, ...sensor } = answer;
 		const readings = sensor.readings.map((reading) => {
-			const shownUnit =
-				reading.spec.kind === "number" && reading.spec.unit
-					? toDisplay(0, reading.spec.unit, display).unit
-					: undefined;
-			const spec =
-				reading.spec.kind === "number" && shownUnit !== undefined && shownUnit !== reading.spec.unit
-					? { ...reading.spec, unit: shownUnit }
-					: reading.spec;
+			const shown = readingInDisplay(reading, display);
 			return {
 				...reading,
-				spec,
-				...(reading.value === undefined
-					? {}
-					: { value: formatFieldValue(reading.spec, reading.value, display) }),
-				...(reading.low
-					? { low: { ...reading.low, value: formatFieldValue(reading.spec, reading.low.value, display) } }
-					: {}),
-				...(reading.high
-					? { high: { ...reading.high, value: formatFieldValue(reading.spec, reading.high.value, display) } }
-					: {}),
+				spec: shown.spec,
+				...(shown.shown === undefined ? {} : { value: shown.shown }),
+				...(reading.low && shown.low ? { low: { ...reading.low, value: shown.low.shown } } : {}),
+				...(reading.high && shown.high ? { high: { ...reading.high, value: shown.high.shown } } : {}),
 			};
 		});
 		const thresholds = sensor.thresholds?.map((threshold) => {

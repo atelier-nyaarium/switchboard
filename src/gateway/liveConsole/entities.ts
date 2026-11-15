@@ -12,12 +12,12 @@ import {
 } from "../../shared/device-definitions/index.js";
 import type { Value } from "../../shared/expressions.js";
 import { bandToDisplay, toDisplay } from "../../shared/field-types.js";
-import { formatFieldValue } from "../../shared/field-values.js";
+import { readingInDisplay } from "../../shared/field-values.js";
 import { HostBleScanResultSchema, type HostOpResult } from "../../shared/host-op.js";
 import type { ConsoleAssistantStateResult, TemperatureUnit } from "../../shared/schemasAssistant.js";
 import { decideEvent, firstMatch } from "../../shared/schemasAssistantRules.js";
 import type { DeviceReadingSchema, DeviceRecord } from "../../shared/schemasDevices.js";
-import { CONSOLE_LISTEN_DEFAULT_S, CONSOLE_LISTEN_MAX_S } from "../../shared/schemasLiveConsole.js";
+import { CONSOLE_LISTEN_DEFAULT_S, CONSOLE_LISTEN_MAX_S, type ConsoleIds } from "../../shared/schemasLiveConsole.js";
 import type { DeviceStage } from "../compose/composeDevices.js";
 import type { Automations } from "../computed/automations.js";
 import type { ComputedFields } from "../computed/computedFields.js";
@@ -39,19 +39,35 @@ export interface ConsoleReaders {
 	thresholds: () => Pick<SensorThresholds, "list"> | undefined;
 	assistant: () => ConsoleAssistantStateResult;
 	temperatureUnit: () => TemperatureUnit;
-	/** Read-only daemon listen. */
+	/** Scan without changing daemon state. */
 	bluetoothListen: (windowMs: number) => Promise<HostOpResult>;
 }
 
 const AUDIENCE: readonly ConsoleAudience[] = ["host", "owner"];
 
-const deviceParam: ConsoleParam = { name: "device", schema: z.string(), type: "Text", description: "Id or name." };
-const idParam: ConsoleParam = { name: "id", schema: z.string(), type: "Text", description: "Record id." };
-const watcherParam: ConsoleParam = {
+const deviceParam: ConsoleParam = {
+	name: "device",
+	schema: z.string(),
+	type: "Text",
+	description: "Id or name.",
+	completes: "devices",
+};
+const idOf = (completes: NonNullable<ConsoleParam["completes"]>, description: string): ConsoleParam => ({
 	name: "id",
 	schema: z.string(),
 	type: "Text",
-	description: "Watcher id, as watchers.list shows it.",
+	description,
+	completes,
+});
+const fieldParam = idOf("fields", "Field id, as fields.list shows it.");
+const automationParam = idOf("automations", "Automation id, as automations.list shows it.");
+const sourceParam = idOf("sources", "Source id, as sources.list shows it.");
+const definitionParam: ConsoleParam = {
+	name: "key",
+	schema: z.string(),
+	type: "Text",
+	description: "Definition key.",
+	completes: "definitions",
 };
 const AdvertSchema = z.object({
 	name: z.string().optional(),
@@ -66,6 +82,24 @@ const advertParam: ConsoleParam = {
 };
 
 const plainOf = (value: Value) => (value.known ? value.value : { unknown: value.reason });
+
+export function consoleIds(readers: ConsoleReaders): ConsoleIds {
+	const devices = readers.devices();
+	return {
+		devices: (devices?.records() ?? []).map((record) => ({
+			id: record.id,
+			name: record.name,
+			readings: devices?.sensorRead(record.id)?.readings.map((reading) => reading.spec.field) ?? [],
+		})),
+		fields: (readers.fields()?.list() ?? []).map((record) => ({ id: record.id, label: record.body.label })),
+		automations: (readers.automations()?.list() ?? []).map((record) => ({
+			id: record.id,
+			label: record.body.label,
+		})),
+		sources: readers.assistant().watchers.map((entry) => ({ id: entry.id, label: entry.label })),
+		definitions: SHIPPED_DEFINITIONS.map((definition) => definition.key),
+	};
+}
 
 export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 	const stage = (): Pick<DeviceStage, "records" | "sensorRead"> => {
@@ -92,20 +126,14 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 	};
 
 	const readingOf = (reading: DeviceReading) => {
-		const unit = readers.temperatureUnit();
-		const { spec } = reading;
-		const shown = (value: string | number) => formatFieldValue(spec, value, unit);
-		const display = (value: string | number) =>
-			typeof value === "number" && spec.kind === "number" && spec.unit
-				? toDisplay(value, spec.unit, unit).value
-				: value;
+		const shown = readingInDisplay(reading, readers.temperatureUnit());
 		return {
-			label: spec.label,
-			key: spec.field,
-			value: reading.value === undefined ? null : display(reading.value),
-			...(reading.value === undefined ? {} : { shown: shown(reading.value) }),
-			...(reading.low ? { low: { shown: shown(reading.low.value), at: reading.low.at } } : {}),
-			...(reading.high ? { high: { shown: shown(reading.high.value), at: reading.high.at } } : {}),
+			label: reading.spec.label,
+			key: reading.spec.field,
+			value: shown.value ?? null,
+			...(shown.shown === undefined ? {} : { shown: shown.shown }),
+			...(shown.low ? { low: { shown: shown.low.shown, at: shown.low.at } } : {}),
+			...(shown.high ? { high: { shown: shown.high.shown, at: shown.high.at } } : {}),
 			...(reading.alerts ? { alerts: reading.alerts } : {}),
 		};
 	};
@@ -120,13 +148,18 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 			heardAt: answer.heardAt ?? null,
 			stale: answer.stale ?? null,
 			readings: answer.readings.map(readingOf),
-			thresholds: (answer.thresholds ?? []).map((threshold) => {
-				const spec = answer.readings.find((reading) => reading.spec.field === threshold.measure)?.spec;
-				if (spec?.kind !== "number" || !spec.unit) return threshold;
-				const unit = readers.temperatureUnit();
-				return { ...bandToDisplay(threshold, spec.unit, unit), unit: toDisplay(0, spec.unit, unit).unit };
-			}),
 		};
+	};
+
+	const thresholdsOf = (device: string) => {
+		const { record, answer } = sensorOf(device);
+		return (answer.thresholds ?? []).map((threshold) => {
+			const spec = answer.readings.find((reading) => reading.spec.field === threshold.measure)?.spec;
+			const named = { device: record.name, ...threshold };
+			if (spec?.kind !== "number" || !spec.unit) return named;
+			const unit = readers.temperatureUnit();
+			return { ...bandToDisplay(named, spec.unit, unit), unit: toDisplay(0, spec.unit, unit).unit };
+		});
 	};
 
 	const fields = () => {
@@ -139,9 +172,16 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		if (!held) throw new ConsoleError("not_ready", "automations are not loaded yet");
 		return held;
 	};
-	const watcher = (id: string) => {
+	const source = (id: string) => {
 		const found = readers.assistant().watchers.find((entry) => entry.id === id);
-		if (!found) throw new ConsoleError("not_found", `no watcher ${id}`);
+		if (!found) throw new ConsoleError("not_found", `no source ${id}`);
+		return found;
+	};
+	const automation = (id: string) => {
+		const found = automations()
+			.list()
+			.find((record) => record.id === id);
+		if (!found) throw new ConsoleError("not_found", `no automation ${id}`);
 		return found;
 	};
 	const definition = (key: string) => {
@@ -209,7 +249,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				list: {
 					kind: "property",
 					description: "Every sensor, its main reading and when heard.",
-					type: "List<Sensor>",
+					type: "List<SensorSummary>",
 					get: () =>
 						stage()
 							.records()
@@ -230,7 +270,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				},
 				read: {
 					kind: "method",
-					description: "Readings with 24-hour lows and highs, and thresholds.",
+					description: "Readings now, with 24-hour lows and highs.",
 					params: [deviceParam],
 					returns: "Sensor",
 					call: ([device]) => sensorView(device as string),
@@ -247,7 +287,13 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					description: "A reading's 24-hour low and high.",
 					params: [
 						deviceParam,
-						{ name: "key", schema: z.string(), type: "Text", description: "Reading key." },
+						{
+							name: "key",
+							schema: z.string(),
+							type: "Text",
+							description: "Reading key.",
+							completes: "readings",
+						},
 					],
 					returns: "{low, high}",
 					call: ([device, key]) => {
@@ -260,31 +306,25 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		},
 		{
 			name: "thresholds",
-			description: "Sensor alerts as stored, in each reading's own unit.",
+			description: "Sensor alerts as set, in the owner's unit.",
 			audiences: AUDIENCE,
 			members: {
 				list: {
 					kind: "property",
-					description: "Every stored threshold.",
+					description: "Every sensor's thresholds.",
 					type: "List<Threshold>",
-					get: () => {
-						const names = new Map(
-							stage()
-								.records()
-								.map((record) => [record.id, record.name]),
-						);
-						return (readers.thresholds()?.list() ?? []).map((entry) => ({
-							...entry,
-							device: names.get(entry.device) ?? entry.device,
-						}));
-					},
+					get: () =>
+						stage()
+							.records()
+							.filter((record) => record.kind === "sensor")
+							.flatMap((record) => thresholdsOf(record.id)),
 				},
-				of: {
+				get: {
 					kind: "method",
 					description: "One sensor's thresholds.",
 					params: [deviceParam],
 					returns: "List<Threshold>",
-					call: ([device]) => sensorOf(device as string).answer.thresholds ?? [],
+					call: ([device]) => thresholdsOf(device as string),
 				},
 			},
 		},
@@ -309,41 +349,30 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				},
 				get: {
 					kind: "method",
-					description: "One field's record.",
-					params: [idParam],
+					description: "One field as set, and why invalid.",
+					params: [fieldParam],
 					returns: "Field",
 					call: ([id]) => {
 						const record = fields().get(id as string);
 						if (!record) throw new ConsoleError("not_found", `no field ${id}`);
-						return record;
+						return { ...record, invalid: fields().invalidOf(record.id) };
 					},
 				},
-				value: {
+				read: {
 					kind: "method",
-					description: "Its value, or why unknown.",
-					params: [idParam],
-					returns: "Value",
-					call: ([id]) => plainOf(fields().value(id as string)),
-				},
-				invalid: {
-					kind: "method",
-					description: "Why it is invalid, or none.",
-					params: [idParam],
-					returns: "Text or none",
-					call: ([id]) => fields().invalidOf(id as string),
-				},
-				state: {
-					kind: "method",
-					description: "Its epoch, seq, value and last transitions.",
-					params: [idParam],
-					returns: "FieldState",
-					call: ([id]) => fields().stateOf(id as string),
+					description: "Its value now, or why unknown, with its last transitions.",
+					params: [fieldParam],
+					returns: "FieldReading",
+					call: ([id]) => {
+						if (!fields().get(id as string)) throw new ConsoleError("not_found", `no field ${id}`);
+						return { ...fields().stateOf(id as string), value: plainOf(fields().value(id as string)) };
+					},
 				},
 			},
 		},
 		{
 			name: "automations",
-			description: "Automations, their checkpoints, runs and the sensors queue.",
+			description: "Automations, where each stands, their runs and what they queued.",
 			audiences: AUDIENCE,
 			members: {
 				list: {
@@ -368,35 +397,38 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				},
 				queue: {
 					kind: "property",
-					description: "Events waiting for the sensors watcher, newest first.",
+					description: "Events waiting for the assistant, newest first.",
 					type: "List<Event>",
 					get: () => [...automations().queued().events].reverse(),
 				},
-				invalid: {
+				get: {
 					kind: "method",
-					description: "Why it is invalid, or none.",
-					params: [idParam],
-					returns: "Text or none",
-					call: ([id]) => automations().invalidOf(id as string),
+					description: "One automation as set, and why invalid.",
+					params: [automationParam],
+					returns: "Automation",
+					call: ([id]) => {
+						const record = automation(id as string);
+						return { id: record.id, ...record.body, invalid: automations().invalidOf(record.id) };
+					},
 				},
-				checkpoint: {
+				read: {
 					kind: "method",
-					description: "Its revision, field epoch and handled seq.",
-					params: [idParam],
+					description: "Where it stands: its revision, field epoch and handled seq.",
+					params: [automationParam],
 					returns: "Checkpoint",
-					call: ([id]) => automations().checkpoint(id as string),
+					call: ([id]) => automations().checkpoint(automation(id as string).id),
 				},
 			},
 		},
 		{
-			name: "watchers",
-			description: "The assistant's watchers.",
+			name: "sources",
+			description: "Where the assistant's events come from.",
 			audiences: AUDIENCE,
 			members: {
 				list: {
 					kind: "property",
-					description: "Every watcher's health.",
-					type: "List<Watcher>",
+					description: "Every source and its health.",
+					type: "List<SourceSummary>",
 					get: () =>
 						readers.assistant().watchers.map((entry) => ({
 							id: entry.id,
@@ -410,44 +442,49 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				},
 				get: {
 					kind: "method",
-					description: "One watcher, without its setup text or grants.",
-					params: [watcherParam],
-					returns: "Watcher",
+					description: "One source as set: its fields, rules and commands. Never its secret.",
+					params: [sourceParam],
+					returns: "Source",
 					call: ([id]) => {
-						const found = watcher(id as string);
+						const found = source(id as string);
 						return {
 							id: found.id,
 							label: found.label,
 							enabled: found.enabled ?? null,
+							fieldSpecs: found.fieldSpecs ?? [],
+							rules: found.rules
+								? [...found.rules.rules, { id: "otherwise", action: found.rules.otherwise.action }]
+								: [],
+							invalid: found.invalid ?? [],
+							actions: found.actions ?? [],
+						};
+					},
+				},
+				read: {
+					kind: "method",
+					description: "Its health now: unread, polls, backoff, and values it did not expect.",
+					params: [sourceParam],
+					returns: "SourceHealth",
+					call: ([id]) => {
+						const found = source(id as string);
+						return {
+							id: found.id,
+							label: found.label,
 							unread: found.unread,
 							capped: found.capped ?? null,
 							lastSuccessAt: found.lastSuccessAt ?? null,
 							nextPollAt: found.nextPollAt ?? null,
 							backoff: found.backoff ?? null,
 							stopped: found.stopped ?? null,
-							fieldSpecs: found.fieldSpecs ?? [],
-							rules: found.rules ?? null,
-							invalid: found.invalid ?? [],
 							unexpected: found.unexpected ?? null,
-							actions: found.actions ?? [],
 						};
-					},
-				},
-				rules: {
-					kind: "method",
-					description: "Its rules, first match wins.",
-					params: [watcherParam],
-					returns: "Rules",
-					call: ([id]) => {
-						const rules = watcher(id as string).rules;
-						return rules ? [...rules.rules, { id: "otherwise", action: rules.otherwise.action }] : [];
 					},
 				},
 				test: {
 					kind: "method",
 					description: "Which rule an event with these fields meets, and its action.",
 					params: [
-						watcherParam,
+						sourceParam,
 						{
 							name: "fields",
 							schema: z.record(z.string(), z.string()),
@@ -457,7 +494,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					],
 					returns: "{rule, action}",
 					call: ([id, fields]) => {
-						const found = watcher(id as string);
+						const found = source(id as string);
 						if (!found.rules) throw new ConsoleError("not_found", `${id} has no rules`);
 						const specs = found.fieldSpecs ?? [];
 						const given = fields as Record<string, string>;
@@ -472,7 +509,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		{
 			name: "bluetooth",
 			description: "The host's radio.",
-			// Phone wait is shorter.
+			// Host wait exceeds the phone cap.
 			audiences: ["host"],
 			members: {
 				listen: {
@@ -534,12 +571,12 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 			},
 		},
 		{
-			name: "Definition",
+			name: "definitions",
 			description: "Device definitions shipped with this build.",
 			catalogue: true,
 			audiences: AUDIENCE,
 			members: {
-				all: {
+				list: {
 					kind: "property",
 					description: "Every definition.",
 					type: "List<Definition>",
@@ -555,7 +592,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				get: {
 					kind: "method",
 					description: "One definition in full.",
-					params: [{ name: "key", schema: z.string(), type: "Text", description: "Definition key." }],
+					params: [definitionParam],
 					returns: "Definition",
 					call: ([key]) => definition(key as string),
 				},
@@ -572,10 +609,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				decode: {
 					kind: "method",
 					description: "An advert read through one definition.",
-					params: [
-						{ name: "key", schema: z.string(), type: "Text", description: "Definition key." },
-						advertParam,
-					],
+					params: [definitionParam, advertParam],
 					returns: "Readings",
 					call: ([key, advert]) => {
 						const found = definition(key as string);

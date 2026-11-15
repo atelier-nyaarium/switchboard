@@ -617,33 +617,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return record ? sessions.sessionStore.teamOf(record) : null;
 		},
 	});
-	routerFrames = composeRouterFrames({
-		localGatewayId: bootstrap.localGatewayId,
-		wakeTimeoutMs: config.wakeTimeoutMs,
-		ambient: bootstrap.ambient,
-		context,
-		stores,
-		sessions,
-		sessionEnd,
-		host,
-		routes: requireRoutes,
-		vault,
-		runbooks,
-		routines,
-		policies,
-		cuts: sessionCut.cuts,
-		sessionClosed,
-		devices: requireDevices(),
-		workspacePlane: websockets.workspacePlane,
-		sessionControl: websockets.sessionControl,
-		awareness,
-		assistant,
-		workflows,
-	});
-
-	if (bootstrap.gatewayBoot.kind === "arming") enrollment.resume();
-	if (bootstrap.gatewayBoot.kind === "active") context.activate(bootstrap.gatewayBoot.boot);
-
 	const liveConsole = composeLiveConsole({
 		ambient: bootstrap.ambient,
 		readers: {
@@ -676,6 +649,34 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return isHostSpawn(record.spawn) ? "host" : "not_served";
 		},
 	});
+	routerFrames = composeRouterFrames({
+		localGatewayId: bootstrap.localGatewayId,
+		wakeTimeoutMs: config.wakeTimeoutMs,
+		ambient: bootstrap.ambient,
+		context,
+		stores,
+		sessions,
+		sessionEnd,
+		host,
+		routes: requireRoutes,
+		vault,
+		runbooks,
+		routines,
+		policies,
+		cuts: sessionCut.cuts,
+		sessionClosed,
+		devices: requireDevices(),
+		liveConsole,
+		workspacePlane: websockets.workspacePlane,
+		sessionControl: websockets.sessionControl,
+		awareness,
+		assistant,
+		workflows,
+	});
+
+	if (bootstrap.gatewayBoot.kind === "arming") enrollment.resume();
+	if (bootstrap.gatewayBoot.kind === "active") context.activate(bootstrap.gatewayBoot.boot);
+
 	const listener = composeListener({
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,

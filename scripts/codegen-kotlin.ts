@@ -234,6 +234,13 @@ import {
 	type IntegrationNeed,
 } from "../src/shared/schemasIntegrations.js";
 import {
+	CONSOLE_VALUE_BYTES,
+	CONSOLE_VARIABLES_MAX,
+	ConsoleDescribeResultSchema,
+	ConsoleEvalResultSchema,
+	ConsoleIdsSchema,
+} from "../src/shared/schemasLiveConsole.js";
+import {
 	AssistantActRequestSchema,
 	CapabilityGuardSchema,
 	PHONE_CAPABILITIES,
@@ -524,6 +531,9 @@ const ROOTS: z.ZodType[] = [
 	DeviceLandedSchema,
 	DeviceRefusalSchema,
 	...Object.values(DEVICE_CONSOLE_RESULTS),
+	ConsoleDescribeResultSchema,
+	ConsoleIdsSchema,
+	ConsoleEvalResultSchema,
 	AssistantWatcherSchema,
 	ConsoleAssistantStateResultSchema,
 	AssistantHomeCarriedWatcherSchema,
@@ -721,6 +731,7 @@ const SEALED_ROOTS = new Map<string, DecodePolicy>([
 		"WorkspaceFacet",
 		"WorkspaceFacetAnswer",
 		"PhoneCapabilityAnswer",
+		"ConsoleEvalResult",
 	]),
 	["AssistantFieldSpec", "preserve"],
 	["ConsoleDeviceReadResult", "preserve"],
@@ -1241,6 +1252,8 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["PHONE_HOLD_PLANE", PHONE_HOLD_PLANE],
 	["PHONE_HOLD_WINDOW_MS", PHONE_HOLD_WINDOW_MS],
 	["PHONE_CAPABILITY_WAIT_MS", PHONE_CAPABILITY_WAIT_MS],
+	["CONSOLE_VARIABLES_MAX", CONSOLE_VARIABLES_MAX],
+	["CONSOLE_VALUE_BYTES", CONSOLE_VALUE_BYTES],
 ];
 const wireConstantBlock = wireConstants
 	.map(

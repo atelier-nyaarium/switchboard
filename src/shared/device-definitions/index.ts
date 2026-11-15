@@ -164,6 +164,10 @@ export function definitionRefusal(raw: unknown): string | null {
 			ref.source === "input" && inputKeys.has(ref.key) ? { type: "bytes" } : null,
 		);
 		if (!check.ok) return `${reading.key}: ${check.issue.message}`;
+		// Booleans cannot be readings.
+		const kind = reading.spec.kind === "enumeration" ? "text" : reading.spec.kind;
+		const got = check.type.type === "choice" ? "text" : check.type.type;
+		if (got !== "unknown" && got !== kind) return `${reading.key}: reads ${got}, but is declared ${kind}`;
 	}
 	for (const [index, example] of definition.examples.entries()) {
 		const got = readingsOf(definition, example.inputs);

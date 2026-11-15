@@ -143,6 +143,8 @@ object Protocol {
 		const val PHONE_HOLD_PLANE: String = "phoneHold"
 		const val PHONE_HOLD_WINDOW_MS: Int = 600000
 		const val PHONE_CAPABILITY_WAIT_MS: Int = 120000
+		const val CONSOLE_VARIABLES_MAX: Int = 16
+		const val CONSOLE_VALUE_BYTES: Int = 64000
 
 		object ConsoleOpKind {
 			const val SEND: String = "send"
@@ -213,6 +215,9 @@ object Protocol {
 			const val DEVICE_SET: String = "device_set"
 			const val DEVICE_SCHEDULE_PUT: String = "device_schedule_put"
 			const val DEVICE_SETTING_PUT: String = "device_setting_put"
+			const val CONSOLE_DESCRIBE: String = "console_describe"
+			const val CONSOLE_IDS: String = "console_ids"
+			const val CONSOLE_EVAL: String = "console_eval"
 			const val ASSISTANT_STATE: String = "assistant_state"
 			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
 			const val ASSISTANT_RULE_PUT: String = "assistant_rule_put"
@@ -1197,6 +1202,22 @@ sealed class ConsoleOp {
 	) : ConsoleOp()
 
 	@Serializable
+	@SerialName("console_describe")
+	data object ConsoleDescribe : ConsoleOp()
+
+	@Serializable
+	@SerialName("console_ids")
+	data object ConsoleIds : ConsoleOp()
+
+	@Serializable
+	@SerialName("console_eval")
+	data class ConsoleEval(
+		val expr: String,
+		val limit: Long? = null,
+		val variables: JsonObject? = null,
+	) : ConsoleOp()
+
+	@Serializable
 	@SerialName("assistant_state")
 	data object AssistantState : ConsoleOp()
 
@@ -2062,6 +2083,40 @@ sealed class ConsoleDeviceSettingPutResult {
 	data class Refused(
 		val refusal: DeviceRefusal,
 	) : ConsoleDeviceSettingPutResult()
+}
+
+@Serializable
+data class ConsoleDescribeResult(
+	val description: ConsoleDescription,
+	val registryHash: String,
+)
+
+@Serializable
+data class ConsoleIds(
+	val devices: List<ConsoleDeviceIds>,
+	val fields: List<ConsoleLabelledId>,
+	val automations: List<ConsoleLabelledId>,
+	val sources: List<ConsoleLabelledId>,
+	val definitions: List<String>,
+)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class ConsoleEvalResult {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val results: List<ConsoleResultItem>,
+		val registryHash: String,
+	) : ConsoleEvalResult()
+
+	@Serializable
+	@SerialName("error")
+	data class Error(
+		val issue: ConsoleIssue,
+		val registryHash: String,
+	) : ConsoleEvalResult()
 }
 
 @Serializable
@@ -4013,6 +4068,12 @@ data class DeviceAdvert(
 )
 
 @Serializable
+data class ConsoleVariable(
+	val value: JsonElement,
+	val type: String? = null,
+)
+
+@Serializable
 data class DomainSnapshot(
 	val ownerSignPub: String,
 	val admissions: List<SignedAdmission>,
@@ -4170,6 +4231,90 @@ data class DeviceNearby(
 	val signal: Long,
 	val data: JsonObject,
 	val services: List<String>? = null,
+)
+
+@Serializable
+data class ConsoleDescription(
+	val builtins: List<ConsoleBuiltinDescription>,
+	val entities: List<ConsoleEntityDescription>,
+)
+
+@Serializable
+data class ConsoleBuiltinDescription(
+	val name: String,
+	val receiver: String,
+	val params: List<ConsoleBuiltinParam>,
+	val returns: String,
+	val description: String,
+)
+
+@Serializable
+data class ConsoleBuiltinParam(
+	val name: String,
+	val type: String,
+)
+
+@Serializable
+data class ConsoleEntityDescription(
+	val name: String,
+	val description: String,
+	val catalogue: Boolean,
+	val members: List<ConsoleMemberDescription>,
+)
+
+@Serializable
+data class ConsoleMemberDescription(
+	val name: String,
+	val kind: String,
+	val returns: String,
+	val description: String,
+	val params: List<ConsoleParamDescription>,
+	val slow: Boolean,
+)
+
+@Serializable
+data class ConsoleParamDescription(
+	val name: String,
+	val type: String,
+	val description: String,
+	val optional: Boolean,
+	val completes: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceIds(
+	val id: String,
+	val name: String,
+	val readings: List<String>,
+)
+
+@Serializable
+data class ConsoleLabelledId(
+	val id: String,
+	val label: String,
+)
+
+@Serializable
+data class ConsoleResultItem(
+	val value: JsonElement,
+	val type: String? = null,
+	val entity: String? = null,
+	val assigned: String? = null,
+	val cut: ConsoleCut? = null,
+)
+
+@Serializable
+data class ConsoleCut(
+	val shown: Long,
+	val total: Long,
+)
+
+@Serializable
+data class ConsoleIssue(
+	val code: String,
+	val start: Long,
+	val end: Long,
+	val message: String,
 )
 
 @Serializable

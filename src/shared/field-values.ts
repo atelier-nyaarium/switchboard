@@ -77,6 +77,53 @@ export function bytesText(hex: string): string {
 	return rows.join(" | ");
 }
 
+interface HeldExtreme {
+	value: number;
+	at: number;
+}
+
+interface HeldReading {
+	spec: AssistantFieldSpec;
+	value?: FieldValue;
+	low?: HeldExtreme;
+	high?: HeldExtreme;
+}
+
+export interface ShownReading {
+	/** Spec uses display units. */
+	spec: AssistantFieldSpec;
+	value?: FieldValue;
+	shown?: string;
+	low?: HeldExtreme & { shown: string };
+	high?: HeldExtreme & { shown: string };
+}
+
+export function readingInDisplay(reading: HeldReading, display: string): ShownReading {
+	const { spec } = reading;
+	const converted = (value: number) =>
+		spec.kind === "number" && spec.unit ? toDisplay(value, spec.unit, display) : null;
+	const unit = spec.kind === "number" ? converted(0)?.unit : undefined;
+	const extreme = (held: HeldExtreme) => ({
+		value: converted(held.value)?.value ?? held.value,
+		at: held.at,
+		shown: formatFieldValue(spec, held.value, display),
+	});
+	return {
+		spec: spec.kind === "number" && unit !== undefined && unit !== spec.unit ? { ...spec, unit } : spec,
+		...(reading.value === undefined
+			? {}
+			: {
+					value:
+						typeof reading.value === "number"
+							? (converted(reading.value)?.value ?? reading.value)
+							: reading.value,
+					shown: formatFieldValue(spec, reading.value, display),
+				}),
+		...(reading.low ? { low: extreme(reading.low) } : {}),
+		...(reading.high ? { high: extreme(reading.high) } : {}),
+	};
+}
+
 export function formatFieldValue(spec: AssistantFieldSpec, value: FieldValue, display?: string): string {
 	switch (spec.kind) {
 		case "number": {

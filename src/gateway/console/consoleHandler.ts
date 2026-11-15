@@ -78,6 +78,7 @@ export function createConsoleDispatcher({
 	onSessionEnded,
 	forgetRefusal,
 	assistant,
+	liveConsole,
 	installedAt,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
@@ -470,6 +471,15 @@ export function createConsoleDispatcher({
 			case "routine_dismiss":
 				return requireRoutines().dismiss(op.routineId, op.occurrenceId);
 
+			case "console_describe":
+				return requireLiveConsole().describe();
+
+			case "console_ids":
+				return requireLiveConsole().ids();
+
+			case "console_eval":
+				return requireLiveConsole().evaluate(op.expr, op.limit, op.variables);
+
 			case "policy_list":
 				return requirePolicies().list();
 
@@ -556,6 +566,11 @@ export function createConsoleDispatcher({
 	function requireDevices() {
 		if (!devices) throw new Error("devices are not available on this Gateway");
 		return devices;
+	}
+
+	function requireLiveConsole() {
+		if (!liveConsole) throw new Error("the live console is not available on this Gateway");
+		return liveConsole;
 	}
 
 	function requireAssistant() {
