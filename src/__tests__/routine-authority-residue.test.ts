@@ -42,6 +42,7 @@ describe("what holds a routine's authority", () => {
 			.map((file) => path.relative(ROOT, file));
 
 		expect(callers.sort()).toEqual([
+			"src/gateway/computed/automationClock.ts",
 			"src/gateway/routines/runner.ts",
 			"src/shared/routine-recurrence.ts",
 			"src/shared/schemasRoutine.ts",

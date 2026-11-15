@@ -244,6 +244,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			devices?.flushReadings();
 			fields?.inputsChanged(devices?.sensorInputKeys() ?? []);
 			sensorThresholds?.tick();
+			automations?.tick();
 		},
 	});
 	const host = composeHost({
@@ -623,6 +624,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				reading: devices!.watchedReading,
 				actions: automationActions({ devices: () => devices, ifttt: assistant.iftttTrigger }),
 				holes: () => liveConsole.holes,
+				timers: bootstrap.ambient,
 			}),
 		),
 	);
@@ -737,6 +739,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				await capture(() => enrollment.stop());
 				await capture(() => sessions.purgeQueue.stop());
 				await capture(() => devices?.close());
+				await capture(() => automations?.stop());
 				await capture(() => federation?.drainInboxPump());
 				await capture(() => routines.stop());
 				await capture(() => sessionCut?.cuts.stop());

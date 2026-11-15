@@ -14,6 +14,8 @@ import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "./wire-vocab
 export const AUTOMATIONS_MAX = 64;
 export const AUTOMATION_ACTIONS_MAX = 8;
 export const AUTOMATION_MESSAGE_MAX = 1_000;
+/** A week. */
+export const AUTOMATION_INTERVAL_MAX_MIN = 10_080;
 
 export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -53,6 +55,20 @@ export const AutomationTriggerSchema = z
 			deadZone: z.number().nonnegative(),
 			coolDownSec: z.number().int().min(0).max(86_400),
 		}),
+		/** A local time on its weekdays. */
+		z.strictObject({
+			kind: z.literal("time"),
+			/** HH:MM, read in `zone`. */
+			time: z.string().regex(/^\d{2}:\d{2}$/),
+			/** ISO weekdays; Monday is 1. */
+			weekdays: z.array(z.number().int().min(1).max(7)).min(1).max(7),
+			zone: z.string().min(1).max(64),
+		}),
+		/** Counted from when it last came round. */
+		z.strictObject({
+			kind: z.literal("interval"),
+			everyMin: z.number().int().min(1).max(AUTOMATION_INTERVAL_MAX_MIN),
+		}),
 	])
 	.meta({ id: "AutomationTrigger" });
 
@@ -61,6 +77,7 @@ export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
 export type EventTrigger = Extract<AutomationTrigger, { kind: "event" }>;
 export type ValueTrigger = Extract<AutomationTrigger, { kind: "value" }>;
 export type CrossingTrigger = Extract<AutomationTrigger, { kind: "crossing" }>;
+export type ClockTrigger = Extract<AutomationTrigger, { kind: "time" | "interval" }>;
 
 export const AutomationActionSchema = z
 	.discriminatedUnion("kind", [
@@ -100,6 +117,8 @@ export const AUTOMATION_TRIGGER_NAMES = {
 	event: ["event", "source"],
 	value: ["value", "field"],
 	crossing: ["value", "device", "measure", "threshold"],
+	time: ["time"],
+	interval: ["time"],
 } as const satisfies Record<AutomationTrigger["kind"], readonly string[]>;
 
 export const dangerousActions = (automation: { actions: readonly AutomationAction[] }): AutomationAction[] =>
@@ -183,6 +202,8 @@ export const AutomationRowSchema = z
 		/** Why it cannot run. */
 		invalid: z.string().optional(),
 		lastRanAt: z.number().int().optional(),
+		/** A time or interval trigger's next slot. */
+		nextRunAt: z.number().int().optional(),
 		/** The device whose Alerts row wrote it. */
 		device: z.string().optional(),
 	})

@@ -2505,6 +2505,20 @@ sealed class AutomationTrigger {
 		val coolDownSec: Long,
 	) : AutomationTrigger()
 
+	@Serializable
+	@SerialName("time")
+	data class Time(
+		val time: String,
+		val weekdays: List<Long>,
+		val zone: String,
+	) : AutomationTrigger()
+
+	@Serializable
+	@SerialName("interval")
+	data class Interval(
+		val everyMin: Long,
+	) : AutomationTrigger()
+
 	/** Unknown member, preserved as sent. */
 	data class Unknown(val kind: String, val raw: JsonObject) : AutomationTrigger()
 }
@@ -2520,6 +2534,8 @@ object AutomationTriggerSerializer : KSerializer<AutomationTrigger> {
 			"event" -> input.json.decodeFromJsonElement(AutomationTrigger.Event.serializer(), body)
 			"value" -> input.json.decodeFromJsonElement(AutomationTrigger.Value.serializer(), body)
 			"crossing" -> input.json.decodeFromJsonElement(AutomationTrigger.Crossing.serializer(), body)
+			"time" -> input.json.decodeFromJsonElement(AutomationTrigger.Time.serializer(), body)
+			"interval" -> input.json.decodeFromJsonElement(AutomationTrigger.Interval.serializer(), body)
 			else -> AutomationTrigger.Unknown(kind ?: "", raw)
 		}
 	}
@@ -2530,6 +2546,8 @@ object AutomationTriggerSerializer : KSerializer<AutomationTrigger> {
 			is AutomationTrigger.Event -> tagged("event", output.json.encodeToJsonElement(AutomationTrigger.Event.serializer(), value))
 			is AutomationTrigger.Value -> tagged("value", output.json.encodeToJsonElement(AutomationTrigger.Value.serializer(), value))
 			is AutomationTrigger.Crossing -> tagged("crossing", output.json.encodeToJsonElement(AutomationTrigger.Crossing.serializer(), value))
+			is AutomationTrigger.Time -> tagged("time", output.json.encodeToJsonElement(AutomationTrigger.Time.serializer(), value))
+			is AutomationTrigger.Interval -> tagged("interval", output.json.encodeToJsonElement(AutomationTrigger.Interval.serializer(), value))
 			is AutomationTrigger.Unknown -> value.raw
 		}
 		output.encodeJsonElement(element)
@@ -2627,6 +2645,8 @@ data class AutomationRow(
 	val invalid: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastRanAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val nextRunAt: Long? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val device: String? = null,
 )

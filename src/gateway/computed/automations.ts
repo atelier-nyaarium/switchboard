@@ -1,7 +1,9 @@
 // Queue and checkpoint, atomically.
 
 import { z } from "zod";
+import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
+import { chainedTimer } from "../../shared/chained-timer.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import {
 	AUTOMATION_TRIGGER_NAMES,
@@ -17,6 +19,7 @@ import {
 } from "../../shared/schemasAutomation.js";
 import { hasHoles, unescapedText } from "../../shared/text-holes.js";
 import { createOwnerRecords, type OwnerIssue, type OwnerRecord } from "../ownerRecords.js";
+import { CLOCK_GRACE_MS, clockIssue, clockSentence, clockShown, isClock, nextSlot } from "./automationClock.js";
 import {
 	AUTOMATION_KIND,
 	type AutomationIntent,
@@ -41,6 +44,8 @@ const own = <T>(held: Record<string, T>, id: string): T | undefined => (Object.h
 export const QUEUE_MAX_EVENTS = 256;
 export const QUEUE_MAX_BYTES = 64 * 1024;
 const LOG_MAX = 64;
+/** Slots a clock catches up on in one pass. */
+const CLOCK_STEPS_MAX = 2_000;
 /** A bounded told field. */
 const TOLD_FIELD_MAX = 1_000;
 /** A filled effect parameter. */
@@ -125,6 +130,15 @@ const FireSchema = z.strictObject({
 type Fire = z.infer<typeof FireSchema>;
 type FireNames = NonNullable<Fire["names"]>;
 
+const SlotSchema = z.object({
+	revision: z.number().int().positive(),
+	incarnation: z.string(),
+	/** The last slot handled, or when it was saved. */
+	at: z.number(),
+	firedAt: z.number().optional(),
+});
+type Slot = z.infer<typeof SlotSchema>;
+
 const CheckpointSchema = z.object({
 	/** Tracks the record revision. */
 	revision: z.number().int().positive(),
@@ -147,9 +161,19 @@ interface State {
 	fires: Fire[];
 	/** Members of event fires already taken. */
 	fired: string[];
+	/** Each clock's last slot handled. */
+	slots: Record<string, Slot>;
 }
 
-const EMPTY: State = { automations: {}, queue: { lastAt: 0, events: [] }, log: [], ran: {}, fires: [], fired: [] };
+const EMPTY: State = {
+	automations: {},
+	queue: { lastAt: 0, events: [] },
+	log: [],
+	ran: {},
+	fires: [],
+	fired: [],
+	slots: {},
+};
 
 /** Invalid log/baseline rows drop. */
 const LooseStateSchema = z.object({
@@ -159,6 +183,7 @@ const LooseStateSchema = z.object({
 	ran: z.record(z.string(), z.number()).catch({}),
 	fires: z.array(z.unknown()).catch([]),
 	fired: z.array(z.string()).catch([]),
+	slots: z.record(z.string(), z.unknown()).catch({}),
 });
 
 function restore(raw: unknown): State {
@@ -183,6 +208,12 @@ function restore(raw: unknown): State {
 		ran: loose.ran,
 		fires: pick(loose.fires, FireSchema).slice(-FIRES_MAX),
 		fired: loose.fired.slice(-FIRED_MAX),
+		slots: Object.fromEntries(
+			Object.entries(loose.slots).flatMap(([id, row]) => {
+				const parsed = SlotSchema.safeParse(row);
+				return parsed.success ? [[id, parsed.data]] : [];
+			}),
+		),
 	};
 }
 
@@ -225,6 +256,8 @@ export interface AutomationsDeps {
 	actions?: AutomationActionPorts;
 	/** Undefined until the console is composed. */
 	holes?: () => AutomationHoles | undefined;
+	/** Without it a clock moves only on `tick`. */
+	timers?: Pick<Ambient, "setTimer" | "clearTimer">;
 }
 
 const queueBytes = (events: readonly QueueEntry[]) => Buffer.byteLength(JSON.stringify(events));
@@ -254,6 +287,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			if (!deps.reading?.(device, measure)) return "no such number on this Gateway";
 			return deps.fields.check(crossingField(body.trigger));
 		}
+		if (isClock(body.trigger)) return clockIssue(body.trigger);
 		const { field, becomes } = body.trigger;
 		const type = deps.fields.typeOf(field);
 		if (!type) return deps.fields.invalidOf(field) ?? "no such field";
@@ -300,6 +334,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			const reading = deps.reading?.(device, measure);
 			return `${reading?.label ?? `${device} ${measure}`} goes ${direction} ${reading?.shown(threshold) ?? threshold}`;
 		}
+		if (isClock(body.trigger)) return clockSentence(body.trigger);
 		const field = deps.fields.get(body.trigger.field)?.body.label ?? body.trigger.field;
 		return `${field} becomes ${String(body.trigger.becomes)}`;
 	};
@@ -377,12 +412,67 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Baselines whose write has not landed. */
 	let unsaved: State["automations"] = {};
 
+	/** What one pass will commit. */
+	interface Work {
+		queue: State["queue"];
+		log: AutomationRun[];
+		fires: Fire[];
+		queued: boolean;
+	}
+
+	const workOf = (): Work => ({ queue: state.queue, log: state.log, fires: [...state.fires], queued: false });
+
+	/** Tells or queues a run; `blocked` when the outbox has no room. */
+	const fire = (
+		work: Work,
+		record: OwnerRecord<Automation>,
+		at: { member: string; seq: number; at: number; now: number },
+		names: FireNames,
+		fields: Record<string, string>,
+	): "fired" | "idle" | "blocked" => {
+		const plan = tellPlan(record.body);
+		// A message with holes is told by the run.
+		const runs = plan.filling || record.body.actions.some(isEffect);
+		const run = (outcome: AutomationRun["outcome"], reason?: string): AutomationRun => ({
+			automation: record.id,
+			seq: at.seq,
+			at: at.at,
+			outcome,
+			...(reason ? { reason } : {}),
+		});
+		let fired = false;
+		if (plan.when !== null && !plan.filling && !deps.isHome()) {
+			work.log = logged(work.log, run("refused", NOT_HOME));
+		} else if (plan.when !== null && !plan.filling) {
+			const sent: Record<string, string> = { ...fields };
+			if (plan.messages.length > 0) sent.message = plan.messages.map(unescapedText).join("\n");
+			const entry = { member: at.member, when: plan.when, fields: sent };
+			const next = told(work.queue, entry, sentenceOf(record.body), at.now);
+			if (!next) return "blocked";
+			work.queue = next;
+			work.log = logged(work.log, run("ran"));
+			work.queued = true;
+			fired = true;
+		}
+		if (runs && work.fires.length >= FIRES_MAX) {
+			work.log = logged(work.log, run("refused", "too many runs are waiting"));
+		} else if (runs) {
+			work.fires.push({
+				member: at.member,
+				automation: record.id,
+				incarnation: record.incarnation,
+				at: at.at,
+				names,
+			});
+			fired = true;
+		}
+		return fired ? "fired" : "idle";
+	};
+
 	/** Replays transitions idempotently. */
 	function drain(): boolean {
 		const now = deps.now();
-		let { queue, log } = state;
-		const fires = [...state.fires];
-		let queued = false;
+		const work = workOf();
 		const checkpoints: State["automations"] = {};
 		for (const record of records.list()) {
 			// The lane runs event triggers.
@@ -437,7 +527,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			const oldest = pending[0]?.seq ?? current.seq + 1;
 			if (current.seq > at.handledSeq && oldest > at.handledSeq + 1) {
 				const missed = oldest - at.handledSeq - 1;
-				log = logged(log, run(oldest - 1, now, "uncertain", `missed ${missed} changes`));
+				work.log = logged(work.log, run(oldest - 1, now, "uncertain", `missed ${missed} changes`));
 				at = { ...at, handledSeq: oldest - 1, blockedSeq: undefined };
 			}
 			for (const row of pending) {
@@ -448,54 +538,116 @@ export function createAutomations(deps: AutomationsDeps) {
 					continue;
 				}
 				if (at.firedAt !== undefined && row.at - at.firedAt < trigger.coolDownSec * 1000) {
-					log = logged(log, run(row.seq, row.at, "suppressed", "cooling down"));
+					work.log = logged(work.log, run(row.seq, row.at, "suppressed", "cooling down"));
 					at = handled;
 					continue;
 				}
 				const member = `automation:${record.id}:${record.incarnation}:${current.epoch}:${row.seq}`;
-				const plan = tellPlan(record.body);
 				const names = namesOf(record, row.value, trigger.label);
-				// A message with holes is told by the run.
-				const runs = plan.filling || record.body.actions.some(isEffect);
-				let fired = false;
-				if (plan.when !== null && !plan.filling && !deps.isHome()) {
-					log = logged(log, run(row.seq, row.at, "refused", NOT_HOME));
-				} else if (plan.when !== null && !plan.filling) {
-					const fields = {
-						field: trigger.label,
-						value: names.value?.shown ?? String(row.value),
-						...(plan.messages.length > 0 ? { message: plan.messages.map(unescapedText).join("\n") } : {}),
-					};
-					const next = told(queue, { member, when: plan.when, fields }, sentenceOf(record.body), now);
-					if (!next) {
-						if (at.blockedSeq !== row.seq) log = logged(log, run(row.seq, row.at, "refused", QUEUE_FULL));
-						at = { ...at, blockedSeq: row.seq };
-						break;
-					}
-					queue = next;
-					log = logged(log, run(row.seq, row.at, "ran"));
-					fired = true;
-					queued = true;
+				const fields = { field: trigger.label, value: names.value?.shown ?? String(row.value) };
+				const outcome = fire(work, record, { member, seq: row.seq, at: row.at, now }, names, fields);
+				if (outcome === "blocked") {
+					if (at.blockedSeq !== row.seq)
+						work.log = logged(work.log, run(row.seq, row.at, "refused", QUEUE_FULL));
+					at = { ...at, blockedSeq: row.seq };
+					break;
 				}
-				if (runs && fires.length >= FIRES_MAX) {
-					log = logged(log, run(row.seq, row.at, "refused", "too many runs are waiting"));
-				} else if (runs) {
-					fires.push({ member, automation: record.id, incarnation: record.incarnation, at: row.at, names });
-					fired = true;
-				}
-				at = fired ? { ...handled, firedAt: row.at } : handled;
+				at = outcome === "fired" ? { ...handled, firedAt: row.at } : handled;
 			}
 			checkpoints[record.id] = at;
 		}
-		const next: State = { ...state, automations: checkpoints, queue, log, fires };
+		const next: State = { ...state, automations: checkpoints, queue: work.queue, log: work.log, fires: work.fires };
 		if (canonicalJson(next) === canonicalJson(state)) {
 			pump();
 			return true;
 		}
 		const landed = commit(next);
 		unsaved = landed ? {} : checkpoints;
-		if (landed && queued) deps.onQueued?.();
+		if (landed && work.queued) deps.onQueued?.();
 		pump();
+		return landed;
+	}
+
+	let clock: { handle: () => TimerHandle } | null = null;
+	let stopped = false;
+
+	/** The next slot of every armed clock, from the walk's own `now`. */
+	const rearm = (now: number): void => {
+		if (clock) deps.timers?.clearTimer(clock.handle());
+		clock = null;
+		if (!deps.timers || stopped) return;
+		const nexts = records.list().flatMap((record) => {
+			const { trigger } = record.body;
+			if (!isClock(trigger) || !armed(record)) return [];
+			const next = nextSlot(trigger, own(state.slots, record.id)?.at ?? now);
+			return next === null ? [] : [next];
+		});
+		if (nexts.length === 0) return;
+		clock = chainedTimer(deps.timers, Math.max(0, Math.min(...nexts) - now), () => {
+			clock = null;
+			tick();
+		});
+	};
+
+	/** Fires every slot that came round; a slot past its grace is only counted. */
+	function tick(): boolean {
+		const now = deps.now();
+		const work = workOf();
+		const slots: State["slots"] = {};
+		for (const record of records.list()) {
+			const { trigger } = record.body;
+			if (!isClock(trigger) || !armed(record)) continue;
+			const held = own(state.slots, record.id);
+			if (!held || held.revision !== record.revision || held.incarnation !== record.incarnation) {
+				// A saved clock starts from now.
+				slots[record.id] = { revision: record.revision, incarnation: record.incarnation, at: now };
+				continue;
+			}
+			let { at, firedAt } = held;
+			let missed = 0;
+			let steps = 0;
+			for (let next = nextSlot(trigger, at); next !== null && next <= now; next = nextSlot(trigger, at)) {
+				at = next;
+				if (++steps > CLOCK_STEPS_MAX) {
+					// Too far behind to count.
+					at = now;
+					break;
+				}
+				if (now - next > CLOCK_GRACE_MS) {
+					missed += 1;
+					continue;
+				}
+				const member = `automation:${record.id}:${record.incarnation}:slot:${next}`;
+				const shown = clockShown(trigger, next);
+				const outcome = fire(
+					work,
+					record,
+					{ member, seq: 0, at: next, now },
+					{ time: { value: next, shown } },
+					{ time: shown },
+				);
+				if (outcome === "blocked") {
+					work.log = logged(work.log, {
+						automation: record.id,
+						seq: 0,
+						at: next,
+						outcome: "refused",
+						reason: QUEUE_FULL,
+					});
+				}
+				if (outcome === "fired") firedAt = next;
+			}
+			if (missed > 0) {
+				const reason = `missed ${missed} slot${missed === 1 ? "" : "s"}`;
+				work.log = logged(work.log, { automation: record.id, seq: 0, at: now, outcome: "uncertain", reason });
+			}
+			slots[record.id] = { ...held, at, ...(firedAt === undefined ? {} : { firedAt }) };
+		}
+		const next: State = { ...state, slots, queue: work.queue, log: work.log, fires: work.fires };
+		const landed = canonicalJson(next) === canonicalJson(state) || commit(next);
+		if (landed && work.queued) deps.onQueued?.();
+		pump();
+		rearm(now);
 		return landed;
 	}
 
@@ -631,8 +783,11 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const rowOf = (record: OwnerRecord<Automation>): AutomationRow => {
 		const invalid = records.invalidOf(record.id);
-		const lastRanAt = own(state.automations, record.id)?.firedAt ?? own(state.ran, record.id);
+		const slot = own(state.slots, record.id);
+		const lastRanAt = own(state.automations, record.id)?.firedAt ?? slot?.firedAt ?? own(state.ran, record.id);
 		const device = deviceOf(record);
+		const { trigger } = record.body;
+		const nextRunAt = isClock(trigger) && slot && armed(record) ? nextSlot(trigger, slot.at) : null;
 		return {
 			id: record.id,
 			revision: record.revision,
@@ -641,6 +796,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			...(invalid === null ? {} : { invalid }),
 			...(lastRanAt === undefined ? {} : { lastRanAt }),
 			...(device === undefined ? {} : { device }),
+			...(nextRunAt === null ? {} : { nextRunAt }),
 		};
 	};
 
@@ -680,6 +836,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		// Bands follow their crossings.
 		deps.fields.derivedChanged();
 		drain();
+		tick();
 		return { written: true, records: result.records, dropped: verdict.dropped };
 	}
 
@@ -696,6 +853,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	}
 
 	drain();
+	tick();
 
 	return {
 		list: () => records.list(),
@@ -756,6 +914,16 @@ export function createAutomations(deps: AutomationsDeps) {
 		/** Field commit callback. */
 		drain: (): void => {
 			drain();
+		},
+		/** Clocks that a timer missed. */
+		tick: (): void => {
+			tick();
+		},
+		/** No clock fires after this. */
+		stop: (): void => {
+			stopped = true;
+			if (clock) deps.timers?.clearTimer(clock.handle());
+			clock = null;
 		},
 		/** Clear events, then drain; a repeat retries. */
 		clear(members: readonly string[]): boolean {
