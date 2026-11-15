@@ -205,14 +205,27 @@ function conditionIssue(condition: AssistantRuleCondition, specs: readonly Assis
 
 export type RuleParse = { ok: true; rule: AssistantRule } | { ok: false; reason: string };
 
+/** Trimmed, as a condition is stored and read. */
+export const canonicalConditions = (conditions: readonly AssistantRuleCondition[]): AssistantRuleCondition[] =>
+	conditions.map((condition) => ({ ...condition, value: trimRuleValue(condition.value) }));
+
+/** Why canonical conditions do not fit a source's fields. */
+export function conditionsIssue(
+	conditions: readonly AssistantRuleCondition[],
+	specs: readonly AssistantFieldSpec[],
+): string | null {
+	for (const condition of conditions) {
+		const issue = conditionIssue(condition, specs);
+		if (issue) return issue;
+	}
+	return null;
+}
+
 /** Put, preview, and match share validation. */
 export function parseRuleForFields(rule: AssistantRule, specs: readonly AssistantFieldSpec[]): RuleParse {
 	const canonical = canonicalRule(rule);
-	for (const condition of canonical.conditions) {
-		const issue = conditionIssue(condition, specs);
-		if (issue) return { ok: false, reason: issue };
-	}
-	return { ok: true, rule: canonical };
+	const issue = conditionsIssue(canonical.conditions, specs);
+	return issue ? { ok: false, reason: issue } : { ok: true, rule: canonical };
 }
 
 export function invalidRules(
@@ -238,19 +251,28 @@ function holds(condition: AssistantRuleCondition, spec: AssistantFieldSpec, fiel
 	return seen.includes(wanted);
 }
 
+/** Every condition holds; conditions that do not fit never match. */
+export function conditionsMatch(
+	conditions: readonly AssistantRuleCondition[],
+	specs: readonly AssistantFieldSpec[],
+	fields: Readonly<Record<string, string>>,
+): boolean {
+	// The canonical form, so what parses is what matches.
+	const canonical = canonicalConditions(conditions);
+	if (conditionsIssue(canonical, specs) !== null) return false;
+	return canonical.every((condition) => {
+		const spec = specOf(specs, condition.field);
+		return spec !== undefined && holds(condition, spec, fields);
+	});
+}
+
 /** Invalid rules never match. */
 export function ruleMatches(
 	rule: AssistantRule,
 	specs: readonly AssistantFieldSpec[],
 	fields: Readonly<Record<string, string>>,
 ): boolean {
-	const parsed = parseRuleForFields(rule, specs);
-	if (!parsed.ok) return false;
-	// The canonical form, so a rule that parses is the one that matches.
-	return parsed.rule.conditions.every((condition) => {
-		const spec = specOf(specs, condition.field);
-		return spec !== undefined && holds(condition, spec, fields);
-	});
+	return conditionsMatch(rule.conditions, specs, fields);
 }
 
 /** The one reading of which rule decides an event; the sort, the listing and the preview take it. */
