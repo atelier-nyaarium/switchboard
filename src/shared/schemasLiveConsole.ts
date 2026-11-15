@@ -116,6 +116,8 @@ const CutSchema = z.object({ shown: z.number().int(), total: z.number().int() })
 /** Shared protocol byte cap. */
 export const CONSOLE_VALUE_BYTES = 64_000;
 export const CONSOLE_VARIABLES_MAX = 16;
+/** What one read may carry. */
+export const CONSOLE_VARIABLES_BYTES = CONSOLE_VALUE_BYTES * 4;
 
 /** The client resends saved values. */
 export const ConsoleVariableSchema = z

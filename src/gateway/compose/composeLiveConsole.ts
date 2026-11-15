@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
 import {
 	CONSOLE_VALUE_BYTES,
+	CONSOLE_VARIABLES_BYTES,
 	type ConsoleDescribeResult,
 	type ConsoleEvalResult,
 	type ConsoleIds,
@@ -115,7 +116,7 @@ export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage
 				issue: { code: "too_big", start: 0, end: expr.length, message },
 				registryHash,
 			});
-			if (bytesOf(variables) > CONSOLE_VALUE_BYTES * 4) return tooBig("the saved values sent are too large");
+			if (bytesOf(variables) > CONSOLE_VARIABLES_BYTES) return tooBig("the saved values sent are too large");
 			const result = await evaluateConsole(expr, registry, "owner", { variables });
 			if (!result.ok) return { kind: "error", issue: result.issue, registryHash };
 			const results: ConsoleResultItem[] = [];

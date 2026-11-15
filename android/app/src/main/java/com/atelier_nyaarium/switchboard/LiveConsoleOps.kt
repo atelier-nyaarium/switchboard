@@ -71,15 +71,29 @@ internal data class LiveConsoleView(
 internal const val CONSOLE_HISTORY_MAX = 100
 
 /** Answers survive screen removal. */
-internal class LiveConsoleOps(private val host: LiveConsoleHost) {
+internal class LiveConsoleOps(private val host: LiveConsoleHost) : ClearsOnReprovision {
 	private val views = MutableStateFlow<Map<String, LiveConsoleView>>(emptyMap())
 	val state: StateFlow<Map<String, LiveConsoleView>> = views.asStateFlow()
 
 	private val reads = GatewayReadFence()
 	private val entryIds = AtomicLong(0)
+	private val owner = AtomicLong(0)
 
 	private fun change(gatewayId: String, transform: (LiveConsoleView) -> LiveConsoleView) {
 		views.update { held -> held + (gatewayId to transform(held[gatewayId] ?: LiveConsoleView())) }
+	}
+
+	/** An answer begun under another owner lands nothing. */
+	private fun land(began: Long, gatewayId: String, transform: (LiveConsoleView) -> LiveConsoleView) {
+		views.update { held ->
+			if (owner.get() != began) held else held + (gatewayId to transform(held[gatewayId] ?: LiveConsoleView()))
+		}
+	}
+
+	override suspend fun clearInMemory() {
+		// Bump before the wipe.
+		owner.incrementAndGet()
+		views.value = emptyMap()
 	}
 
 	fun viewOf(gatewayId: String): LiveConsoleView = views.value[gatewayId] ?: LiveConsoleView()
@@ -101,16 +115,18 @@ internal class LiveConsoleOps(private val host: LiveConsoleHost) {
 
 	suspend fun refreshIds(gatewayId: String) {
 		val client = host.gateway ?: return
+		val began = owner.get()
 		val read = reads.read("$gatewayId/ids") { attempt { client.ids(gatewayId) } }
 		val ids = ((read as? GatewayRead.Fresh)?.value as? ConsoleCall.Answered)?.value ?: return
-		change(gatewayId) { it.copy(ids = ids) }
+		land(began, gatewayId) { it.copy(ids = ids) }
 	}
 
 	private suspend fun describe(gatewayId: String) {
 		val client = host.gateway
+		val began = owner.get()
 		val read = reads.read("$gatewayId/describe") { client?.let { attempt { it.describe(gatewayId) } } }
 		if (read !is GatewayRead.Fresh) return
-		change(gatewayId) { view ->
+		land(began, gatewayId) { view ->
 			when (val answer = read.value) {
 				is ConsoleCall.Answered ->
 					view.copy(
@@ -132,6 +148,7 @@ internal class LiveConsoleOps(private val host: LiveConsoleHost) {
 		val text = expr.trim()
 		if (text.isEmpty()) return
 		val id = entryIds.incrementAndGet()
+		val began = owner.get()
 		change(gatewayId) {
 			it.copy(entries = (it.entries + ConsoleEntry(id, text, ConsoleEntryState.Running)).takeLast(CONSOLE_HISTORY_MAX), draft = "")
 		}
@@ -147,7 +164,7 @@ internal class LiveConsoleOps(private val host: LiveConsoleHost) {
 		val saved = (result as? ConsoleEvalResult.Ok)?.results.orEmpty().mapNotNull { item ->
 			item.assigned?.let { it to ConsoleVariable(item.value, item.type) }
 		}
-		change(gatewayId) { view ->
+		land(began, gatewayId) { view ->
 			// Newer saves win.
 			val fresh = saved.filter { (name, _) -> (view.savedBy[name] ?: 0) < id }
 			view.copy(
@@ -162,6 +179,7 @@ internal class LiveConsoleOps(private val host: LiveConsoleHost) {
 				is ConsoleEvalResult.Error -> result.registryHash
 				null -> null
 			}
+		if (owner.get() != began) return
 		if (hash != null && hash != viewOf(gatewayId).registryHash) describe(gatewayId)
 		if (result != null) refreshIds(gatewayId)
 	}

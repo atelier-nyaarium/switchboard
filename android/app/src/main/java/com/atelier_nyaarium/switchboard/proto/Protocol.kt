@@ -145,6 +145,7 @@ object Protocol {
 		const val PHONE_CAPABILITY_WAIT_MS: Int = 120000
 		const val CONSOLE_VARIABLES_MAX: Int = 16
 		const val CONSOLE_VALUE_BYTES: Int = 64000
+		const val CONSOLE_VARIABLES_BYTES: Int = 256000
 
 		object ConsoleOpKind {
 			const val SEND: String = "send"

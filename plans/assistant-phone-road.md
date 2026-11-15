@@ -514,12 +514,27 @@ Recommended: small while the grammar is open, and it gives the agent's door vari
 
 > sounds good. semicolon delimited language for multi statement commands
 
+## Question 39 - Does an automation get a name the owner types?
+
+Q: No name, the row written from the trigger (A), or an optional name shown instead of the sentence (B)?
+A: A, as drawn. "GitHub: reason is review requested", "Outside thermometer temperature goes below 2.0 C".
+
+Recommended: the row always says what the automation does and follows a rename of the device, one field fewer in the editor, and the thermometer alerts already read this way.
+
+> And looks good. Lock it in and implement while the Lunas are out
+
 ## Design rulings, mocked in the Designer dock
 
 - **Pair with** (a dialogue over the family's entry page after Scan): Found rows merged across every radio with signal bars from the strongest, untested rows marked "Not tested" (a known format) or "Not tested · raw only"; Paired rows below with their live value. The dialogue lists the Gateways that heard the device, strongest first, then This Phone last, each with a chip: "Assistant" (home, and This Phone) or "App only". Owner: "looks good".
 - **The sensor page:** the name; brand, holding Gateway and the reading's age under it (a trouble line instead when stale); Readings, one row per declared field with value, unit and the 24-hour low and high with times; Alerts, one row per threshold with its value in the owner's unit and a switch, then the dead zone, with "Alerts go to the assistant's inbox"; Name with Rename. Remove device lives in the top-right menu, on every device page, the plug page included. Owner: "Move remove into the menu top right. most people aren't going to this page to remove."
 - **An untested device:** Raw: the last distinct payloads, each with time and radio, bytes as hex with offsets under them, bytes that differ highlighted; Name. A known-format model shows the sensor page as any sensor. Owner: "looks good".
 - **Integrations by Gateway:** one group per Gateway that offers devices; the home's group carries the "Assistant" chip, others carry none. Rows as in 2.5d (name, brand, a trouble line only when there is trouble); a plug keeps its switch, a sensor shows its main value, greyed when stale; a This Phone device sits in the home group with "This Phone" in its brand line. Services stay below. Owner: "remove the app only chip here."
+- **Sources** (replaces Integrations and Watchers): per Gateway, Devices then Services, the temperature unit below. A service's row carries its health and inbox count.
+- **A service source:** Enabled with its health line; Secret with Assign secret; Produces (the event and its fields); Inbox with its count; Commands; "N use this source", opening its automations. Rules leave this page. Owner: "4 uses this source is fine."
+- **Automations:** one group per Gateway, each row the sentence written from its trigger, what it does, when it last ran or next runs, and the only on and off switch.
+- **The automation editor:** When, with "Event arrives", "Value crosses", "Time comes" (owner: "Get rid of a/an for space"); an event takes a source and conditions; "Would have matched N of the last M" is a fold that opens to a list (owner: "make that a collapsible and when you open it, list of them instead of comma"); a crossing takes a value, a direction, a "Threshold" (owner: "Line > Threshold"), a dead zone and a cool-down. Do, a list of actions; "Tell the assistant" takes Now or Quietly and a "Message", words the assistant receives with the event, with its filled-in form in a box labelled "Preview"; a dangerous action says it asks once when saved. Owner: "kinda crowded, but I'll take it for now. figure out placement later."
+- **Text with holes is a console surface.** Owner: "any system like this should fully support coloring like NyaaDot console. Full syntax highlight and cards to teach the user. That probably means we need to make the Message box switch to a full screen advanced editor when tapped, and a back arrow to get back here." The full-screen message editor: the text highlighted, its preview, a "Names here" card (the trigger's names with what they hold now, then the Console's entities), the parameter hint and completions above the keyboard. Its back arrow returns to the automation with the text kept.
+- **Leaving an edit page.** Owner: "A back button on these types of edit pages should always prompt a Leave and discord changes dialogue with a Discard/Stay in case you double back by accedent". The dialogue reads "Leave and discard changes?" and "Changes have not been saved.", with Discard and Stay. It appears only when something changed. The rule covers every edit page; the existing editors are a board item outside this phase.
 - **"Not tested" shows only where a device is added** (the Found rows and the Pair with dialogue), never on Integrations or a device page. Owner: "actually get rid of not tested from the devices view. that's going to get annoying. ot only needs to be on the device additscreen".
 
 # Plan
@@ -708,8 +723,8 @@ Slices:
 
 ### Bug Classes
 
-- **`consoleAssist`'s replace range (`ConsoleAssist.kt`):** the range a completion replaces is worked out from the tokens before the cursor, and each round found another cursor position it got wrong. Round one: the cursor inside a name or a string left the token's tail behind. Round two: the cursor at the very start of a name duplicated it, and a typed prefix of a shared device name hid the choices. The range wants one definition, "the token the cursor touches, on either side", rather than a prefix and a following special case.
-- **`variablesFor`'s reading of which names are references (`ConsoleRules.kt`):** it re-derives from tokens what the Gateway's parser already knows. Round one: members, dict keys and save targets were sent as references. Round two: a name an earlier statement saves was still sent. A statement-aware walk patched both; the durable answer is one shared notion of "free names of a program", generated or twinned from the grammar, as the tokenizer is.
+- **`consoleAssist`'s replace range (`ConsoleAssist.kt`):** the range a completion replaces is worked out from the tokens before the cursor, and each round found another cursor position it got wrong. Round one: the cursor inside a name or a string left the token's tail behind. Round two: the cursor at the very start of a name duplicated it, and a typed prefix of a shared device name hid the choices. The range wants one definition, "the token the cursor touches, on either side", rather than a prefix and a following special case. Round three (architecture) found three more of the class: a method completed inside `count(1)` doubled the bracket, a completion just before an existing string left the old one behind, and `x = x.` read the statement being typed as an earlier save. Resolved by design: `slotAt` answers one slot, every branch replaces exactly it and only chooses candidates, and the context is the tokens before the slot.
+- **`variablesFor`'s reading of which names are references (`ConsoleRules.kt`):** it re-derives from tokens what the Gateway's parser already knows. Round one: members, dict keys and save targets were sent as references. Round two: a name an earlier statement saves was still sent. A statement-aware walk patched both. Resolved by design (architecture): the phone no longer reads references at all. It sends every held value whose name appears as a name token, a superset the Gateway narrows, so a wrong guess can only cost bytes; a parser twin was rejected as about 300 lines kept in step to save a few kilobytes. `CONSOLE_VARIABLES_BYTES` is the one cap both sides read.
 
 ## Phase 2.7a - Foundations for sources and automations, nothing visible (Q32)
 
@@ -724,6 +739,7 @@ Slices:
 - **Storage carries over:** each GitHub rule becomes an automation (a rule that woke becomes `when: now`); the `otherwise` setting and rule order go. The Sensors rules are empty and are dropped.
 - **Phone:** a Sources page (health, secret, enabled, commands), an Automations list and editor retargeted from `RuleDraft`, Integrations and the inbox strip renamed. Mocked in the Designer dock first.
 - **Home move:** the carried payload holds sources and their event automations; an old sealed payload decodes through a one-shot reader.
+- **As mocked:** the Sources, service source, Automations, editor, message editor and leave dialogue rulings under "Design rulings" above, and Question 39.
 
 Configuration held before the rebuild (2026-11-15), which the carry-over must reproduce:
 

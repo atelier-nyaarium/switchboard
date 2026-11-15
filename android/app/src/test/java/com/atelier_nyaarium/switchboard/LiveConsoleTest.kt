@@ -3,7 +3,6 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleCard
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleDrawn
 import com.atelier_nyaarium.switchboard.liveconsole.oneLine
-import com.atelier_nyaarium.switchboard.liveconsole.variablesFor
 import com.atelier_nyaarium.switchboard.liveconsole.withVariable
 import com.atelier_nyaarium.switchboard.liveconsole.cardsOf
 import com.atelier_nyaarium.switchboard.liveconsole.vocabularyLine
@@ -174,6 +173,22 @@ class LiveConsoleTest {
 	}
 
 	@Test
+	fun aReadBegunBeforeAReprovisionLandsNothingAfterIt() = runBlocking {
+		val gateway = FakeGateway()
+		val ops = LiveConsoleOps(object : LiveConsoleHost {
+			override val gateway: LiveConsoleGateway = gateway
+		})
+		ops.run("sakura", "cold = 1")
+		val slow = async { ops.run("sakura", "slow") }
+		while (ops.viewOf("sakura").entries.size < 2) kotlinx.coroutines.yield()
+		ops.clearInMemory()
+		gateway.held.complete(ConsoleEvalResult.Ok(listOf(ConsoleResultItem(value = JsonPrimitive(7), assigned = "theirs")), "h1"))
+		slow.await()
+		assertEquals(LiveConsoleView(), ops.viewOf("sakura"))
+		assertEquals(emptyMap<String, LiveConsoleView>(), ops.state.value)
+	}
+
+	@Test
 	fun aGatewaysRefusalIsShownAsItsOwnWordNotAsSilence() = runBlocking {
 		val gateway = FakeGateway().apply { refuses = "unknown op console_describe" }
 		val ops = LiveConsoleOps(object : LiveConsoleHost {
@@ -189,7 +204,7 @@ class LiveConsoleTest {
 	}
 
 	@Test
-	fun aSavedResultIsKeptAndTravelsOnlyWithAnExpressionThatNamesIt() = runBlocking {
+	fun aSavedResultIsKeptAndTravelsWithAnyReadThatNamesIt() = runBlocking {
 		val gateway = FakeGateway()
 		val ops = LiveConsoleOps(object : LiveConsoleHost {
 			override val gateway: LiveConsoleGateway = gateway
@@ -199,17 +214,13 @@ class LiveConsoleTest {
 		assertEquals("Number", variableLabel(ops.viewOf("sakura").variables.getValue("cold")))
 		ops.run("sakura", "devices")
 		ops.run("sakura", "cold + 1")
-		ops.run("sakura", "x.cold; {cold: 1}; cold = 2")
-		assertEquals(listOf(emptySet(), emptySet(), setOf("cold"), emptySet()), gateway.sent)
+		assertEquals(listOf(emptySet(), emptySet(), setOf("cold")), gateway.sent)
 		ops.dropVariable("sakura", "cold")
 		assertEquals(emptyMap<String, ConsoleVariable>(), ops.viewOf("sakura").variables)
 	}
 
 	@Test
-	fun onlyAHeldValueThisReadNeedsTravelsAndTheHeldSetStaysUnderOneReadsSize() {
-		val held = mapOf("cold" to ConsoleVariable(JsonPrimitive(1), null), "warm" to ConsoleVariable(JsonPrimitive(2), null))
-		assertEquals(setOf("warm"), variablesFor("cold = 1; cold + warm", held)?.keys)
-		assertEquals(setOf("cold"), variablesFor("cold = cold + 1", held)?.keys)
+	fun theHeldSetStaysUnderWhatOneReadMayCarry() {
 		val big = { ConsoleVariable(JsonPrimitive("x".repeat(80_000)), null) }
 		val kept = listOf("a", "b", "c").fold(emptyMap<String, ConsoleVariable>()) { all, name -> withVariable(all, name, big()) }
 		assertEquals(listOf("b", "c"), kept.keys.toList())

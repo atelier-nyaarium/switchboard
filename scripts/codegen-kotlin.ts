@@ -235,6 +235,7 @@ import {
 } from "../src/shared/schemasIntegrations.js";
 import {
 	CONSOLE_VALUE_BYTES,
+	CONSOLE_VARIABLES_BYTES,
 	CONSOLE_VARIABLES_MAX,
 	ConsoleDescribeResultSchema,
 	ConsoleEvalResultSchema,
@@ -1254,6 +1255,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["PHONE_CAPABILITY_WAIT_MS", PHONE_CAPABILITY_WAIT_MS],
 	["CONSOLE_VARIABLES_MAX", CONSOLE_VARIABLES_MAX],
 	["CONSOLE_VALUE_BYTES", CONSOLE_VALUE_BYTES],
+	["CONSOLE_VARIABLES_BYTES", CONSOLE_VARIABLES_BYTES],
 ];
 const wireConstantBlock = wireConstants
 	.map(

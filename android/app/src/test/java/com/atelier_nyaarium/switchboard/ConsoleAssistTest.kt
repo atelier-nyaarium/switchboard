@@ -121,16 +121,31 @@ class ConsoleAssistTest {
 		assertEquals("take", at("sensors.list.take(").hint?.name)
 	}
 
+	/** `|` marks the cursor. */
+	private fun picked(marked: String, label: String): String {
+		val cursor = marked.indexOf('|')
+		val source = marked.removeRange(cursor, cursor + 1)
+		val (text, at) = at(source, cursor = cursor).completions.first { it.label == label }.applyTo(source)
+		return text.substring(0, at) + "|" + text.substring(at)
+	}
+
 	@Test
-	fun aCompletionInsideATokenReplacesTheWholeToken() {
-		val member = at("sensors.list", cursor = 10).completions.single()
-		assertEquals("sensors.list" to 12, member.applyTo("sensors.list"))
-		val source = "sensors.read(\"Freezer\")"
-		val named = at(source, cursor = 18).completions.single { it.label == "Freezer" }
-		assertEquals(source to 22, named.applyTo(source))
-		assertEquals("sensors.list" to 12, at("sensors.list", cursor = 8).completions.first().applyTo("sensors.list"))
-		val open = "sensors.read(\"Fr); x"
-		assertEquals("sensors.read(\"Freezer\"); x" to 22, at(open, cursor = 16).completions.first().applyTo(open))
+	fun aCompletionReplacesTheTokenTheCursorTouches() {
+		val rows =
+			listOf(
+				Triple("sen|", "sensors", "sensors|"),
+				Triple("sensors.li|st", "list", "sensors.list|"),
+				Triple("sensors.|list", "read", "sensors.read(|"),
+				Triple("sensors.re|ad(\"x\")", "read", "sensors.read(|\"x\")"),
+				Triple("sensors.|(\"x\")", "read", "sensors.read(|\"x\")"),
+				Triple("sensors.read(\"Free|zer\")", "Freezer", "sensors.read(\"Freezer\"|)"),
+				Triple("sensors.read(|\"Fr\")", "Freezer", "sensors.read(\"Freezer\"|)"),
+				Triple("sensors.read(|x)", "Fridge", "sensors.read(\"Fridge\"|)"),
+				// An open string swallowed the rest.
+				Triple("sensors.read(\"Fr|); x", "Freezer", "sensors.read(\"Freezer\"|); x"),
+				Triple("x; sensors.re|", "read", "x; sensors.read(|"),
+			)
+		for ((marked, label, result) in rows) assertEquals(marked, result, picked(marked, label))
 	}
 
 	@Test
@@ -139,6 +154,8 @@ class ConsoleAssistTest {
 		assertEquals(listOf("list", "read", "extremes"), labels("cold = 1; sensors."))
 		assertEquals("sensors.read", at("x = [1, 2]; sensors.read(").hint?.name)
 		assertEquals(listOf("take", "first"), labels("cold = sensors.list; cold."))
+		assertEquals(listOf("name", "readings"), labels("outside = outside.", saved))
+		assertEquals(listOf("n", "outside", "runs", "sensors", "definitions"), labels("fresh = ", saved))
 	}
 
 	@Test
@@ -157,6 +174,7 @@ class ConsoleAssistTest {
 		assertNull(closed.hint)
 		assertEquals(emptyList<ConsoleCompletion>(), closed.completions)
 		assertEquals(emptyList<ConsoleCompletion>(), at("sensors.list ").completions)
+		assertEquals(emptyList<ConsoleCompletion>(), at("1 == 2", cursor = 3).completions)
 		assertEquals(emptyList<ConsoleCompletion>(), consoleAssist("sen", 3, null, ids, emptyMap()).completions)
 	}
 }

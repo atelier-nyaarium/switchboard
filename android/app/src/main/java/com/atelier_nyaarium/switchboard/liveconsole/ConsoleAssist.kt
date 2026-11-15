@@ -29,11 +29,11 @@ private fun openCall(tokens: List<ConsoleToken>): OpenCall? {
 	val paren = stack.lastOrNull { it.open == '(' } ?: return null
 	if (stack.last() !== paren) return null
 	val name = tokens.getOrNull(paren.at - 1)?.takeIf { it.kind == ConsoleTokenKind.IDENT } ?: return null
-	val dot = tokens.getOrNull(paren.at - 2)?.takeIf { it.kind == ConsoleTokenKind.PUNCT && it.text == "." } ?: return null
+	if (!isPunct(tokens.getOrNull(paren.at - 2), ".")) return null
 	val target = tokens.getOrNull(paren.at - 3)
 	val owner =
 		target?.takeIf {
-			it.kind == ConsoleTokenKind.IDENT && tokens.getOrNull(paren.at - 4)?.text != "."
+			it.kind == ConsoleTokenKind.IDENT && !isPunct(tokens.getOrNull(paren.at - 4), ".")
 		}?.text
 	var depth = 0
 	var commas = 0
@@ -48,7 +48,7 @@ private fun openCall(tokens: List<ConsoleToken>): OpenCall? {
 			args[args.lastIndex] = token.value
 		}
 	}
-	return OpenCall(owner, name.text, commas, args).takeIf { dot.end <= name.start }
+	return OpenCall(owner, name.text, commas, args)
 }
 
 private fun hintOf(call: OpenCall, description: ConsoleDescription): ConsoleHint? {
@@ -105,12 +105,65 @@ private fun argumentChoices(call: OpenCall, description: ConsoleDescription, ids
 
 private fun isPunct(token: ConsoleToken?, text: String) = token?.kind == ConsoleTokenKind.PUNCT && token.text == text
 
-private fun savedEarlier(tokens: List<ConsoleToken>): Set<String> =
-	tokens.filterIndexed { at, token ->
-		val opens = at == 0 || isPunct(tokens[at - 1], ";")
-		val equals = tokens.getOrNull(at + 1)
+private fun savedBy(statements: List<ConsoleToken>): Set<String> =
+	statements.filterIndexed { at, token ->
+		val opens = at == 0 || isPunct(statements[at - 1], ";")
+		val equals = statements.getOrNull(at + 1)
 		opens && token.kind == ConsoleTokenKind.IDENT && equals?.kind == ConsoleTokenKind.OP && equals.text == "="
 	}.map { it.text }.toSet()
+
+private enum class SlotKind { NAME, STRING, EMPTY, NONE }
+
+/** What a completion replaces. */
+private data class Slot(val kind: SlotKind, val start: Int, val end: Int, val typed: String)
+
+private fun slotOf(source: String, token: ConsoleToken, cursor: Int): Slot? {
+	if (token.kind == ConsoleTokenKind.IDENT || token.kind == ConsoleTokenKind.KEYWORD) {
+		return Slot(SlotKind.NAME, token.start, token.end, source.substring(token.start, cursor))
+	}
+	if (token.kind != ConsoleTokenKind.STRING) return null
+	val typed = source.substring((token.start + 1).coerceAtMost(cursor), cursor)
+	return when {
+		// An open string swallowed what follows.
+		token.closed != true -> Slot(SlotKind.STRING, token.start, cursor, typed)
+		cursor < token.end -> Slot(SlotKind.STRING, token.start, token.end, typed)
+		else -> null
+	}
+}
+
+/** The token the cursor touches, either side. */
+private fun slotAt(source: String, tokens: List<ConsoleToken>, cursor: Int): Slot {
+	val left = tokens.lastOrNull { it.start < cursor && cursor <= it.end }
+	val right = tokens.firstOrNull { it.start == cursor }
+	val inside = left != null && cursor < left.end
+	return left?.let { slotOf(source, it, cursor) }
+		?: right?.let { slotOf(source, it, cursor) }
+		?: Slot(if (inside) SlotKind.NONE else SlotKind.EMPTY, cursor, cursor, "")
+}
+
+private fun memberNames(
+	tokens: List<ConsoleToken>,
+	description: ConsoleDescription,
+	variables: Map<String, VariableShape?>,
+	local: Set<String>,
+): List<Pair<String, String>> {
+	val owner = tokens.getOrNull(tokens.size - 2)
+	val bare = owner?.kind == ConsoleTokenKind.IDENT && !isPunct(tokens.getOrNull(tokens.size - 3), ".")
+	val entity = description.entities.firstOrNull { bare && it.name == owner?.text }
+	if (entity != null) return entity.members.map { it.name to if (it.kind == "method") "${it.name}(" else it.name }
+	val saved = owner?.text?.takeIf { bare && it in variables && it !in local }
+	val shape = saved?.let { variables[it] }
+	// Scalars offer no members.
+	val receivers =
+		when {
+			saved == null -> setOf("list", "object", "collection")
+			shape == null -> emptySet()
+			shape.list -> setOf("list", "collection")
+			else -> setOf("object", "collection")
+		}
+	return shape?.fields.orEmpty().map { it to it } +
+		description.builtins.filter { it.receiver in receivers }.map { it.name to "${it.name}(" }
+}
 
 fun consoleAssist(
 	source: String,
@@ -121,73 +174,49 @@ fun consoleAssist(
 ): ConsoleAssist {
 	if (description == null) return ConsoleAssist(null, emptyList())
 	val all = lexConsole(source)
-	val before = all.filter { it.start < cursor }
+	val slot = slotAt(source, all, cursor)
+	val before = all.filter { it.start < slot.start }
 	// Complete only the statement under the cursor.
-	val tokens = before.drop(before.indexOfLast { isPunct(it, ";") } + 1)
-	val local = savedEarlier(before)
+	val cut = before.indexOfLast { isPunct(it, ";") } + 1
+	val tokens = before.drop(cut)
+	val local = savedBy(before.take(cut))
 	val call = openCall(tokens)
 	val hint = call?.let { hintOf(it, description) }
-	val touching = tokens.lastOrNull()?.takeIf { it.end >= cursor }
+	val prior = tokens.lastOrNull()
+	val arguments = { call?.let { argumentChoices(it, description, ids) }.orEmpty() }
 
-	val inString = touching?.kind == ConsoleTokenKind.STRING && (touching.closed != true || cursor < touching.end)
-	if (touching != null && inString && call != null) {
-		val typed = source.substring(touching.start + 1, cursor)
-		// Open strings end at the cursor.
-		val end = if (touching.closed == true) touching.end else cursor
-		val choices =
-			argumentChoices(call, description, ids).filter {
-				it.value.startsWith(typed, ignoreCase = true) || it.label.startsWith(typed, ignoreCase = true)
+	val offered: List<Pair<String, String>> =
+		when {
+			slot.kind == SlotKind.NONE -> emptyList()
+			slot.kind == SlotKind.STRING ->
+				arguments()
+					.filter { it.value.startsWith(slot.typed, ignoreCase = true) || it.label.startsWith(slot.typed, ignoreCase = true) }
+					.map { it.label to quoted(it.value) }
+			slot.typed.isEmpty() && call != null && (isPunct(prior, "(") || isPunct(prior, ",")) ->
+				arguments().map { it.label to quoted(it.value) }
+			else -> {
+				val names =
+					if (isPunct(prior, ".")) {
+						memberNames(tokens, description, variables, local)
+					} else if (prior == null || prior.kind == ConsoleTokenKind.OP ||
+						(prior.kind == ConsoleTokenKind.PUNCT && prior.text in EXPRESSION_OPENERS)
+					) {
+						((variables.keys + local).sorted() + description.entities.map { it.name }).map { it to it }
+					} else {
+						emptyList()
+					}
+				names.filter { (name, _) -> name.startsWith(slot.typed) && name != slot.typed }
 			}
-		return ConsoleAssist(
-			hint,
-			choices.take(COMPLETIONS_MAX).map { ConsoleCompletion(it.label, quoted(it.value), touching.start, end) },
-		)
-	}
-
-	val prefix = touching?.takeIf { it.kind == ConsoleTokenKind.IDENT || it.kind == ConsoleTokenKind.KEYWORD }
-	// A name starting at the cursor is replaced too.
-	val following = all.firstOrNull { it.start == cursor && it.kind == ConsoleTokenKind.IDENT }
-	val start = prefix?.start ?: cursor
-	val end = prefix?.end ?: following?.end ?: cursor
-	val typed = prefix?.text?.substring(0, cursor - prefix.start).orEmpty()
-	val priorAt = tokens.size - (if (prefix != null) 2 else 1)
-	val prior = tokens.getOrNull(priorAt)
-	val argumentStart = prefix == null && (isPunct(prior, "(") || isPunct(prior, ","))
-
-	if (argumentStart && call != null) {
-		val choices = argumentChoices(call, description, ids)
-		return ConsoleAssist(
-			hint,
-			choices.take(COMPLETIONS_MAX).map { ConsoleCompletion(it.label, quoted(it.value), cursor, cursor) },
-		)
-	}
-	val names: List<Pair<String, String>> =
-		if (isPunct(prior, ".")) {
-			val owner = tokens.getOrNull(priorAt - 1)
-			val bare = owner?.kind == ConsoleTokenKind.IDENT && !isPunct(tokens.getOrNull(priorAt - 2), ".")
-			val entity = description.entities.firstOrNull { bare && it.name == owner?.text }
-			val saved = owner?.text?.takeIf { bare && it in variables && it !in local }
-			val shape = saved?.let { variables[it] }
-			// Scalars offer no members.
-			val receivers =
-				when {
-					saved == null -> setOf("list", "object", "collection")
-					shape == null -> emptySet()
-					shape.list -> setOf("list", "collection")
-					else -> setOf("object", "collection")
-				}
-			entity?.members?.map { it.name to if (it.kind == "method") "${it.name}(" else it.name }
-				?: (shape?.fields.orEmpty().map { it to it } +
-					description.builtins.filter { it.receiver in receivers }.map { it.name to "${it.name}(" })
-		} else if (prior == null || prior.kind == ConsoleTokenKind.OP ||
-			(prior.kind == ConsoleTokenKind.PUNCT && prior.text in EXPRESSION_OPENERS)
-		) {
-			((variables.keys + local).sorted() + description.entities.map { it.name }).map { it to it }
-		} else {
-			emptyList()
 		}
-	val offered = names.filter { (name, _) -> name.startsWith(typed) && name != typed }.take(COMPLETIONS_MAX)
-	return ConsoleAssist(hint, offered.map { (name, insert) -> ConsoleCompletion(name, insert, start, end) })
+	val next = all.firstOrNull { it.start >= slot.end }
+	return ConsoleAssist(
+		hint,
+		offered.take(COMPLETIONS_MAX).map { (label, insert) ->
+			// An existing bracket is reused.
+			val end = if (next != null && insert.endsWith("(") && isPunct(next, "(")) next.end else slot.end
+			ConsoleCompletion(label, insert, slot.start, end)
+		},
+	)
 }
 
 fun ConsoleCompletion.applyTo(source: String): Pair<String, Int> {

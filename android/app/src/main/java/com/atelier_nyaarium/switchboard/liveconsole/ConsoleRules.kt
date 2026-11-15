@@ -51,33 +51,9 @@ internal fun consolePaint(source: String, entities: Set<String>, variables: Set<
 
 data class ConsoleVariable(val value: JsonElement, val type: String?)
 
-
-/** Send referenced variables only. */
+/** A superset; the Gateway decides references. */
 fun variablesFor(expr: String, held: Map<String, ConsoleVariable>): JsonObject? {
-	val tokens = lexConsole(expr)
-	val named = mutableSetOf<String>()
-	// A save hides the held value from later statements.
-	val saved = mutableSetOf<String>()
-	var target: String? = null
-	tokens.forEachIndexed { at, token ->
-		val before = tokens.getOrNull(at - 1)
-		val after = tokens.getOrNull(at + 1)
-		if (token.kind == ConsoleTokenKind.PUNCT && token.text == ";") {
-			target?.let { saved += it }
-			target = null
-			return@forEachIndexed
-		}
-		if (token.kind != ConsoleTokenKind.IDENT) return@forEachIndexed
-		val opens = before == null || (before.kind == ConsoleTokenKind.PUNCT && before.text == ";")
-		if (opens && after?.kind == ConsoleTokenKind.OP && after.text == "=") {
-			target = token.text
-			return@forEachIndexed
-		}
-		// Skip keys and member refs.
-		val member = before?.kind == ConsoleTokenKind.PUNCT && before.text == "."
-		val key = after?.kind == ConsoleTokenKind.PUNCT && after.text == ":"
-		if (!member && !key && token.text !in saved) named += token.text
-	}
+	val named = lexConsole(expr).filter { it.kind == ConsoleTokenKind.IDENT }.map { it.text }.toSet()
 	val sent = held.filterKeys { it in named }
 	if (sent.isEmpty()) return null
 	return buildJsonObject {
@@ -93,8 +69,8 @@ fun variablesFor(expr: String, held: Map<String, ConsoleVariable>): JsonObject? 
 	}
 }
 
-/** Under what one read may send. */
-private const val VARIABLES_BYTES = Protocol.Wire.CONSOLE_VALUE_BYTES * 3
+/** Margin under the Gateway's cap. */
+private const val VARIABLES_BYTES = Protocol.Wire.CONSOLE_VARIABLES_BYTES / 4 * 3
 
 private fun sizeOf(variable: ConsoleVariable): Int = variable.value.toString().toByteArray(Charsets.UTF_8).size
 
