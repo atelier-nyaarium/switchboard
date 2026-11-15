@@ -10,6 +10,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationActionOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationActionOption
 import com.atelier_nyaarium.switchboard.proto.AutomationActionParam
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationNumberOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewHole
@@ -22,6 +23,8 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 
 private const val AUTOMATION_ROUND_TRIP_MS = 400L
 private const val OLDER_GATEWAY = "unknown op automation_put"
@@ -199,6 +202,7 @@ internal class SandboxAutomationGateway(
 		if (asks.isNotEmpty() && !confirmed) {
 			return ConsoleAutomationPutResult(false, revision, held, "confirm what it does without asking", confirm = asks)
 		}
+		unreadHole(automation)?.let { (span, reason) -> return ConsoleAutomationPutResult(false, revision, held, reason, hole = span) }
 		val clocked = automation.trigger is AutomationTrigger.Time || automation.trigger is AutomationTrigger.Interval
 		val row = AutomationRow(
 			automationId,
@@ -234,6 +238,19 @@ internal class SandboxAutomationGateway(
 		)
 		is AutomationTrigger.Time, is AutomationTrigger.Interval -> listOf(AutomationPreviewName("time", "18:00"))
 		is AutomationTrigger.Value, is AutomationTrigger.Unknown -> emptyList()
+	}
+
+	/** The first hole that is not one of the trigger's names. */
+	private fun unreadHole(automation: Automation): Pair<AutomationHoleSpan, String>? {
+		val names = namesOf(automation.trigger).map { it.name }
+		automation.actions.forEachIndexed { at, action ->
+			for ((param, held) in wireJson.encodeToJsonElement(AutomationAction.serializer(), action).jsonObject) {
+				val text = (held as? JsonPrimitive)?.takeIf { it.isString && param != "kind" }?.content ?: continue
+				val hole = scanHoles(text).filterIsInstance<HolePart.Hole>().firstOrNull { !it.closed || it.source.trim() !in names } ?: continue
+				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong()) to "no name ${hole.source.trim()} here"
+			}
+		}
+		return null
 	}
 
 	/** Matches titles by each value; a text fills only a hole that is one name. */

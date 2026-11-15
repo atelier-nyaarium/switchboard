@@ -295,6 +295,6 @@ internal fun confirmBody(labels: List<String>): String {
 	return "Each time it runs it will $does, without asking you."
 }
 
-/** The hole a save refused, when it is this text's. */
-internal fun refusedHole(said: AutomationSaid?, action: Int, param: String): AutomationSaid.Hole? =
-	(said as? AutomationSaid.Hole)?.takeIf { it.action == action && it.param == param }
+/** The refused hole, while its text stands. */
+internal fun refusedHole(said: AutomationSaid?, action: Int, param: String, text: String): AutomationSaid.Hole? =
+	(said as? AutomationSaid.Hole)?.takeIf { it.action == action && it.param == param && it.text == text }

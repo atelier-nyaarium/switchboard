@@ -139,7 +139,7 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 		ConfirmDialog(
 			title = "Remove ${record.name}?",
 			body = if (record.isSensor()) {
-				"Switchboard stops reading it."
+				removeSensorLine(usedBy(gatewayId, state.gateways.entry(gatewayId)?.automations) { watching(record.id, it) })
 			} else {
 				"Switchboard stops controlling it. Its own schedule stays on the device."
 			},

@@ -51,5 +51,9 @@ class SourceAutomationsTest {
 			).map { (it as UsedBy.Empty).why },
 		)
 		assertEquals(listOf(true, false, false), listOf(ListEmpty.Reading, ListEmpty.None, ListEmpty.Unreachable).map { watchingEmptyLine(it) == null })
+		assertEquals(
+			listOf(false, false, true),
+			listOf(UsedBy.Empty(ListEmpty.Reading), UsedBy.Empty(ListEmpty.None), UsedBy.Rows(rows)).map { removeSensorLine(it).contains("automation") },
+		)
 	}
 }

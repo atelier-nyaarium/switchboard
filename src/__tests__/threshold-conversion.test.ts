@@ -48,7 +48,10 @@ function storedAlert(device: string, sides: { low?: number; high?: number }) {
 	return {
 		entry: { device, measure: "temperature", ...sides, deadZone: 1, coolDownSec: 3_600, revision: 1 },
 		field: { id: bandId(device), revision: 1, incarnation: `f-${device}`, kind: "computed_field", body: band },
-		alerts: (["low", "high"] as const).filter((side) => sides[side] !== undefined).map(alert),
+		alerts: (["low", "high"] as const).map((side) => {
+			const row = alert(side);
+			return { ...row, body: { ...row.body, enabled: sides[side] !== undefined } };
+		}),
 	};
 }
 
@@ -255,7 +258,7 @@ describe("a sensor's stored thresholds", () => {
 			const again = world.conversion.pending();
 			world.conversion.run();
 
-			expect(held).toEqual(["value", [bandId(MAC), low], [MAC]]);
+			expect(held).toEqual(["value", [bandId(MAC), alertId(MAC, "temperature", "high"), low], [MAC]]);
 			expect(again).toEqual([MAC]);
 			expect([triggerOf(world, low)?.kind, alertRows(world), world.conversion.pending()]).toEqual([
 				"crossing",
@@ -304,6 +307,67 @@ describe("a sensor's stored thresholds", () => {
 			expect(alertRows(world, GONE)).toEqual([plain.id]);
 			expect(alertRows(world)).toEqual([alertId(MAC, "temperature", "low")]);
 			expect(world.conversion.pending()).toEqual([]);
+		} finally {
+			await world.devices.close();
+		}
+	});
+
+	it("keep a band another automation still watches, and sweep a sensor left unswept", async () => {
+		const freezer = storedAlert(MAC, { low: 10 });
+		const gone = storedAlert(GONE, { high: 25 });
+		const watcher = {
+			id: "mine",
+			revision: 1,
+			incarnation: "w0",
+			kind: "automation",
+			body: {
+				enabled: true,
+				trigger: { kind: "value", field: bandId(MAC), becomes: "low", coolDownSec: 0 },
+				actions: tells,
+			},
+		};
+		const world = fixture({
+			thresholds: [freezer.entry],
+			unswept: [GONE],
+			fields: [freezer.field, gone.field],
+			automations: [...freezer.alerts, ...gone.alerts, watcher],
+		});
+		try {
+			expect(alertRows(world)).toEqual([bandId(MAC), alertId(MAC, "temperature", "low")]);
+			expect(alertRows(world, GONE)).toEqual([]);
+			expect(world.automations.list().map((record) => record.id)).toContain("mine");
+		} finally {
+			await world.devices.close();
+		}
+	});
+
+	it("leave a crossing invalid once its sensor is removed, and valid again once it is paired", async () => {
+		const world = fixture();
+		try {
+			const invalid = () => world.automations.rows().map((row) => typeof row.invalid);
+			world.automations.ownerPut(
+				"watch",
+				{
+					enabled: true,
+					trigger: {
+						kind: "crossing",
+						device: MAC,
+						measure: "temperature",
+						direction: "below",
+						threshold: 10,
+						deadZone: 1,
+						coolDownSec: 0,
+					},
+					actions: tells,
+				},
+				0,
+			);
+			const held = invalid();
+			await world.devices.console({ kind: "device_remove", id: MAC, revision: 1 });
+			const removed = invalid();
+			await world.devices.console({ kind: "device_add", mac: MAC, name: "Freezer", radio: "gateway" });
+
+			expect([held, removed, invalid()]).toEqual([["undefined"], ["string"], ["undefined"]]);
 		} finally {
 			await world.devices.close();
 		}

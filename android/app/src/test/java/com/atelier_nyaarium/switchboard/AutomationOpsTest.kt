@@ -143,7 +143,10 @@ class AutomationOpsTest {
 			ops.save("sakura", "late", automation(), 0L),
 			ops.setEnabled("sakura", automationRow(), true),
 			ops.delete("sakura", "review", 2L),
+			ops.save("sakura", "review", hourly, 2L),
 		)
+		val sent = fake.deletes
+		val missing = ops.delete("sakura", "nope", 1L) to fake.deletes - sent
 		val stays = listOf(
 			ops.save("sakura", "hourly", hourly, 0L),
 			ops.setEnabled("sakura", automationRow("hourly", 1L, hourly), false),
@@ -151,7 +154,8 @@ class AutomationOpsTest {
 		)
 
 		assertEquals(3, host.writes)
-		assertEquals(List(3) { AutomationSaved.Refused(HOME_MOVED) }, moved)
+		assertEquals(List(4) { AutomationSaved.Refused(HOME_MOVED) }, moved)
+		assertEquals(AutomationSaved.Refused("stale") to 1, missing)
 		assertEquals(listOf(true, true, true), stays.map { it is AutomationSaved.Stored })
 	}
 

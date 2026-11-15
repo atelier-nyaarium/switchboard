@@ -134,7 +134,6 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 			...(shown.shown === undefined ? {} : { shown: shown.shown }),
 			...(shown.low ? { low: { shown: shown.low.shown, at: shown.low.at } } : {}),
 			...(shown.high ? { high: { shown: shown.high.shown, at: shown.high.at } } : {}),
-			...(reading.alerts ? { alerts: reading.alerts } : {}),
 		};
 	};
 

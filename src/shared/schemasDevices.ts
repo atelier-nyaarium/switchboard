@@ -228,10 +228,6 @@ export const DeviceReadingSchema = z
 	.object({
 		spec: AssistantFieldSpecSchema,
 		value: z.union([z.number(), z.string()]).optional(),
-		alerts: z
-			.array(z.enum(["low", "high"]))
-			.max(2)
-			.optional(),
 		low: DeviceExtremeSchema.optional(),
 		high: DeviceExtremeSchema.optional(),
 	})

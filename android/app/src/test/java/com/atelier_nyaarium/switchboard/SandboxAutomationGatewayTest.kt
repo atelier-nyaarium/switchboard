@@ -86,4 +86,16 @@ class SandboxAutomationGatewayTest {
 		assertEquals("It is 18:00.", filled?.filled)
 		assertEquals(listOf(6L, 13L), listOf(refused?.hole?.start, refused?.hole?.end))
 	}
+
+	@Test
+	fun aSaveWhoseTextNamesNothingHereIsRefusedAtItsHoleAndStoresNothing() = runBlocking {
+		val gateway = gateway()
+		val told = { message: String -> mention().copy(actions = listOf(AutomationAction.TellAssistant("now"), AutomationAction.TellAssistant("now", message))) }
+
+		val refused = gateway.put("sandbox", "told", told("It is {nope}."), 0L)
+		val kept = gateway.put("sandbox", "told", told("About {event}."), 0L)
+
+		assertEquals(listOf(false, 1L, "message", 6L, 12L), listOf(refused.stored, refused.hole?.action, refused.hole?.param, refused.hole?.start, refused.hole?.end))
+		assertEquals(listOf(true, 1L), listOf(kept.stored, kept.revision))
+	}
 }

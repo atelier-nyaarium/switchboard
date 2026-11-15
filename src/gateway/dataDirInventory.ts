@@ -45,6 +45,7 @@ export const DATA_DIR_ENTRIES: ReadonlySet<string> = new Set([
 	"runbooks.json",
 	"session-resume.json",
 	"sensor-readings.json",
+	// Remove 2027-01-15 with the conversion.
 	"sensor-thresholds.json",
 	"sensor-thresholds-converted.json",
 	"vault-decisions.json",

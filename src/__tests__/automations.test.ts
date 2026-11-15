@@ -56,6 +56,7 @@ function world(dir: string, home = true) {
 	let failing = 0;
 	const effects: string[] = [];
 	let switches = ["plug"];
+	let readable = true;
 	/** Effects wait on it. */
 	let gate: Promise<void> = Promise.resolve();
 	const open = () => {
@@ -91,10 +92,13 @@ function world(dir: string, home = true) {
 					isHome: () => home,
 					onQueued: () => pokes++,
 					eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
-					holes: () => ({
-						issue: (text, names) => holeIssue(text, names, REGISTRY),
-						fill: (text, names) => fillHoles(text, names, REGISTRY),
-					}),
+					holes: () =>
+						readable
+							? {
+									issue: (text, names) => holeIssue(text, names, REGISTRY),
+									fill: (text, names) => fillHoles(text, names, REGISTRY),
+								}
+							: undefined,
 					actions: {
 						switchName: (device) => (switches.includes(device) ? "Heater" : null),
 						deviceSet: async (device, verb) => {
@@ -152,7 +156,11 @@ function world(dir: string, home = true) {
 	const unplug = () => {
 		switches = [];
 	};
-	return { open, read, missed, unheard, failWrites, pokes: () => pokes, effects, holdEffects, unplug };
+	/** No hole reader. */
+	const unreadable = () => {
+		readable = false;
+	};
+	return { open, read, missed, unheard, failWrites, pokes: () => pokes, effects, holdEffects, unplug, unreadable };
 }
 
 /** Through the lane's own parse. */
@@ -602,6 +610,28 @@ describe("automations", () => {
 		expect(await queued(automations)).toEqual([]);
 	});
 
+	it("away from the home, switches its plug and refuses unsent an action that needs the home", async () => {
+		const w = world(fresh(), false);
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const heat: Automation = {
+			...iceBucket(),
+			actions: [
+				{ kind: "ifttt_trigger", event: "freezer" },
+				{ kind: "device_set", device: "plug", verb: "on" },
+			],
+		};
+		automations.ownerPut("heat", heat, 0, true);
+		w.read(fields, -5);
+		await automations.settled();
+
+		expect(w.effects).toEqual(["plug:on"]);
+		expect(automations.runs().map((run) => [run.action, run.outcome])).toEqual([
+			["ifttt_trigger", "refused"],
+			["device_set", "ran"],
+		]);
+	});
+
 	it("never reruns a fire a restart found claimed, and logs it uncertain", async () => {
 		const w = world(fresh());
 		const before = w.open();
@@ -640,6 +670,30 @@ describe("automations", () => {
 		expect(w.effects).toEqual(["plug:toggle", "plug:toggle"]);
 		expect(refused.stored).toBe(false);
 		expect(automations.rows().map((row) => [row.id, row.invalid !== undefined])).toEqual([["flash", true]]);
+	});
+
+	it("reads a text with holes as invalid while no hole reader is composed, and fires nothing", async () => {
+		const w = world(fresh());
+		const { automations } = w.open();
+		automations.ownerPut(
+			"messaged",
+			{
+				enabled: true,
+				trigger: { kind: "event", source: "github", conditions: [] },
+				actions: [{ kind: "tell_assistant", when: "now", message: "{event} on {source}" }],
+			},
+			0,
+		);
+		const held = automations.rows().map((row) => typeof row.invalid);
+		w.unreadable();
+
+		automations.fireEvents([{ automation: "messaged", key: "event:github:7", names: {} }], 5_000);
+		await automations.settled();
+		const answer = await polled(automations);
+
+		expect([held, automations.rows().map((row) => typeof row.invalid)]).toEqual([["undefined"], ["string"]]);
+		expect(answer.kind === "events" ? answer.events : []).toEqual([]);
+		expect(automations.runs()).toEqual([]);
 	});
 
 	it("tells an event's message through the outbox with the event's names, and leaves only a tell with no message to the source's lane", async () => {

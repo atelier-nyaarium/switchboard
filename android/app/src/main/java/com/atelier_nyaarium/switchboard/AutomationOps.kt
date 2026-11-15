@@ -99,7 +99,11 @@ internal class AutomationOps(
 
 	/** Null while its list is unread. */
 	private fun heldMoves(gatewayId: String, id: String): Boolean? =
-		state.value.gateways.automationOn(gatewayId, id).found()?.automation?.let(::movesWithHome)
+		when (val held = state.value.gateways.automationOn(gatewayId, id)) {
+			is Lookup.Found -> movesWithHome(held.row.automation)
+			Lookup.Gone -> false
+			Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> null
+		}
 
 	/** Stored row or its draft moves with the home. */
 	fun editsEvent(key: AutomationDraftKey): Boolean {

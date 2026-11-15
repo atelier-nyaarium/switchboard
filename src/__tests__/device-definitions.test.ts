@@ -81,11 +81,6 @@ describe("sensor readings", () => {
 			heardAt: 9_000,
 			readings: [{ value: 24.4 }, { value: 42.4 }, { value: 100 }],
 		});
-		expect(
-			world(9_000)
-				.read(record)
-				.readings.map((reading) => reading.alerts),
-		).toEqual([["low", "high"], ["low"], ["low"]]);
 		expect(world(9_000).read(record).stale).toBeUndefined();
 		expect(world(1_000).read(record)).toMatchObject({ stale: expect.stringContaining("not heard for") });
 		expect(world(1_000).read({ ...record, radio: "phones" }).stale).toBeUndefined();

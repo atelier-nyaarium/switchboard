@@ -4925,8 +4925,6 @@ data class DeviceReading(
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val value: JsonElement? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val alerts: List<String>? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val low: DeviceExtreme? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val high: DeviceExtreme? = null,

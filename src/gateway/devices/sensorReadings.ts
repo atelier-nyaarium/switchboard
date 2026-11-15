@@ -61,7 +61,6 @@ export function createSensorReadings(deps: SensorReadingsDeps): SensorReads & {
 			const held = value?.known && typeof value.value !== "boolean" ? { value: value.value } : {};
 			return {
 				spec: reading.spec,
-				...(reading.alerts ? { alerts: reading.alerts } : {}),
 				...held,
 				...(deps.extremes?.(record.id, reading.key) ?? {}),
 			};

@@ -7,9 +7,11 @@ import { canonicalJson } from "../../shared/canonical-json.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import {
+	AUTOMATION_ACTIONS,
 	AUTOMATION_TRIGGER_NAMES,
 	AUTOMATIONS_MAX,
 	type Automation,
+	type AutomationActionParam,
 	type AutomationRow,
 	AutomationSchema,
 	type AutomationTrigger,
@@ -736,9 +738,16 @@ export function createAutomations(deps: AutomationsDeps) {
 			const ports = deps.actions;
 			for (const action of step.record.body.actions) {
 				if (!isEffect(action)) continue;
+				const row = AUTOMATION_ACTIONS[action.kind];
+				if (row.home && !deps.isHome()) {
+					runs.push(fireRun(fire, "refused", NOT_HOME, action.kind));
+					continue;
+				}
 				const texts: Record<string, string> = {};
 				for (const { param, text } of holeTexts({ actions: [action] })) {
-					texts[param] = (await filled(text, action.kind)).slice(0, EFFECT_TEXT_MAX);
+					const params: readonly AutomationActionParam[] = row.params;
+					const max = params.find((held) => held.name === param)?.max ?? EFFECT_TEXT_MAX;
+					texts[param] = (await filled(text, action.kind)).slice(0, max);
 				}
 				const done = ports
 					? await runEffect({ ...action, ...texts }, ports)

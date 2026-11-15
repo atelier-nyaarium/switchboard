@@ -1,6 +1,10 @@
 // Actions outside the outbox.
 
-import type { AutomationAction } from "../../shared/schemasAutomation.js";
+import {
+	AUTOMATION_ACTIONS,
+	type AutomationAction,
+	type AutomationActionParam,
+} from "../../shared/schemasAutomation.js";
 import type { DeviceVerb } from "../devices/driver.js";
 
 /** `uncertain` may have landed. */
@@ -48,7 +52,8 @@ export async function runEffect(action: AutomationEffect, ports: AutomationActio
 /** Why this Gateway cannot run it. */
 export function effectIssue(action: AutomationEffect, ports: AutomationActionPorts | undefined): string | null {
 	if (!ports) return "this Gateway runs no such action";
-	if (action.kind === "device_set" && ports.switchName(action.device) === null)
-		return "no such switch on this Gateway";
-	return null;
+	const params: readonly AutomationActionParam[] = AUTOMATION_ACTIONS[action.kind].params;
+	const held: Record<string, unknown> = action;
+	const gone = params.some((param) => param.kind === "switch" && ports.switchName(String(held[param.name])) === null);
+	return gone ? "no such switch on this Gateway" : null;
 }

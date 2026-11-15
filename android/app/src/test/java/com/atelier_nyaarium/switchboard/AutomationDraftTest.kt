@@ -36,6 +36,7 @@ import com.atelier_nyaarium.switchboard.assistant.coolDownTyped
 import com.atelier_nyaarium.switchboard.assistant.doesText
 import com.atelier_nyaarium.switchboard.assistant.editable
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
+import com.atelier_nyaarium.switchboard.assistant.freshAction
 import com.atelier_nyaarium.switchboard.assistant.freshTrigger
 import com.atelier_nyaarium.switchboard.assistant.holeLine
 import com.atelier_nyaarium.switchboard.assistant.newAutomationDraft
@@ -260,7 +261,7 @@ class AutomationDraftTest {
 			outcomeOf(AutomationSaved.Refused("same", row("a", event(), revision = 2L)), draft),
 		)
 		assertEquals(AutomationOutcome.Said(AutomationSaid.Confirm(listOf("Send to IFTTT"))), asks)
-		assertEquals(AutomationOutcome.Said(AutomationSaid.Hole(0, "message", 3, 6, "no name x here")), hole)
+		assertEquals(AutomationOutcome.Said(AutomationSaid.Hole(0, "message", 3, 6, "no name x here", "")), hole)
 	}
 
 	@Test
@@ -553,6 +554,20 @@ class AutomationPartsTest {
 		assertEquals(listOf(false, true, true, true), listOf(kept(lamp, FULL), kept(lamp, dialled), kept(lamp, retired), kept(messaged, AutomationOffer())))
 		assertEquals(messaged, actionOf(actionDraftOf(messaged, AutomationOffer()), AutomationOffer()))
 		assertEquals(listOf("tell_assistant", "ifttt_trigger"), addableActions(dialled, emptyList()).map { it.kind })
+		val voiced = FULL.copy(
+			actions = FULL.actions.map { row -> if (row.kind == "tell_assistant") row.copy(params = row.params + ParamOffer("voice", "Voice", "word")) else row },
+		)
+		val chime = ActionOffer("chime", "Ring a chime", danger = false, params = listOf(ParamOffer("tone", "Tone", "word")))
+		val ringing = FULL.copy(actions = FULL.actions + chime)
+		val sent = { action: AutomationAction? -> wireJson.encodeToJsonElement(AutomationAction.serializer(), action!!).toString() }
+		assertEquals(
+			"""{"kind":"tell_assistant","when":"now","voice":"calm"}""",
+			sent(actionOf(withValue(toldDraft("now", ""), "voice", "calm"), voiced)),
+		)
+		assertEquals(
+			"""{"kind":"chime","tone":"low"}""",
+			sent(actionOf(withValue(freshAction("chime", ringing)!!, "tone", "low"), ringing)),
+		)
 		assertNotNull(actionIssue(plugDraft(PLUG, "on"), retired))
 		assertNull(actionOf(plugDraft(PLUG, "on"), retired))
 		assertEquals(lamp, automationDraftOf(row("a", event().copy(actions = listOf(lamp))), retired)!!.toAutomation(retired)!!.actions.single())
@@ -578,8 +593,12 @@ class AutomationPartsTest {
 		assertEquals("{valu}: no name valu here", holeLine(text, "no name valu here", 6, 12))
 		assertEquals("missing }", holeLine(text, "missing }", 40, 50))
 		assertEquals(listOf("{value}", "It is {value}", "It is {value}"), listOf("", "It is", "It is ").map { withHole(it, "value") })
-		val refused = AutomationSaid.Hole(1, "value2", 0, 4, "no")
-		assertEquals(listOf(refused, null, null), listOf(1 to "value2", 0 to "value2", 1 to "value1").map { (at, param) -> refusedHole(refused, at, param) })
+		val refused = AutomationSaid.Hole(1, "value2", 0, 4, "no", "{x} here")
+		assertEquals(
+			listOf(refused, null, null, null),
+			listOf(Triple(1, "value2", "{x} here"), Triple(0, "value2", "{x} here"), Triple(1, "value1", "{x} here"), Triple(1, "value2", "{y} here"))
+				.map { (at, param, text) -> refusedHole(refused, at, param, text) },
+		)
 	}
 
 	@Test

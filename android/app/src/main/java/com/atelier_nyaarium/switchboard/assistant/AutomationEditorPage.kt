@@ -118,7 +118,7 @@ internal fun AutomationEditorPage(
 			max = textOf.max ?: Int.MAX_VALUE,
 			names = names,
 			preview = textPreviewOf(shownText, trigger != null, previewRead(ops, gatewayId, trigger.takeIf { hasHole(shownText) }, previewText(shownText))),
-			refused = refusedHole(session.said, ref.action, ref.param),
+			refused = refusedHole(session.said, ref.action, ref.param, shownText),
 			description = console?.description,
 			ids = console?.ids,
 			shapes = nameShapes(names, fields.fields),

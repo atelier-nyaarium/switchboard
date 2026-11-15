@@ -48,7 +48,8 @@ internal data class ActionOffer(
 	fun param(name: String): ParamOffer? = params.find { it.name == name }
 }
 
-/** What a Gateway that names no kinds holds: a tell with no message. */
+// Remove 2026-11-29: a Gateway that names no kinds.
+/** A tell with no message. */
 internal val DEFAULT_TELL = ActionOffer(
 	kind = ACTION_TELL,
 	label = "Tell the assistant",
@@ -137,7 +138,9 @@ internal fun actionOf(action: ActionDraft, offer: AutomationOffer): AutomationAc
 				if (!(param.optional && value.isBlank())) put(param.name, value)
 			}
 		}
-		runIsolated { wireJson.decodeFromJsonElement(AutomationAction.serializer(), json) }.getOrNull()
+		val built = runIsolated { wireJson.decodeFromJsonElement(AutomationAction.serializer(), json) }.getOrNull()
+		// A parameter this build lacks goes raw.
+		built?.let { if (jsonOf(it).keys == json.keys) it else AutomationAction.Unknown(action.kind, json) }
 	}
 }
 

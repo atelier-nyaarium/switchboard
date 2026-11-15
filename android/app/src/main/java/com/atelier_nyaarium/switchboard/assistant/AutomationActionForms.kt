@@ -77,7 +77,7 @@ internal fun ActionsSection(
 									multiline = param.lines,
 									enabled = enabled,
 									preview = textPreviewOf(value, asked, textRead(previewText(value).takeIf { asked })),
-									refused = refusedHole(said, index, param.name),
+									refused = refusedHole(said, index, param.name, value),
 									onOpen = { edit { it.copy(text = TextRef(index, param.name)) } },
 								)
 								else -> OutlinedTextField(

@@ -377,7 +377,15 @@ internal sealed interface AutomationSaid {
 	}
 
 	/** A text's hole the Gateway cannot keep. */
-	data class Hole(val action: Int, val param: String, val start: Int, val end: Int, override val line: String) : AutomationSaid
+	data class Hole(
+		val action: Int,
+		val param: String,
+		val start: Int,
+		val end: Int,
+		override val line: String,
+		/** As it was sent. */
+		val text: String,
+	) : AutomationSaid
 }
 
 internal sealed interface AutomationOutcome {
@@ -403,7 +411,14 @@ internal fun outcomeOf(
 			when {
 				saved.confirm.isNotEmpty() -> AutomationOutcome.Said(AutomationSaid.Confirm(saved.confirm))
 				hole != null -> AutomationOutcome.Said(
-					AutomationSaid.Hole(hole.action.toInt(), hole.param, hole.start.toInt(), hole.end.toInt(), saved.reason),
+					AutomationSaid.Hole(
+						hole.action.toInt(),
+						hole.param,
+						hole.start.toInt(),
+						hole.end.toInt(),
+						saved.reason,
+						(draft.actions.getOrNull(hole.action.toInt()) as? ActionDraft.Filled)?.values?.get(hole.param).orEmpty(),
+					),
 				)
 				held == null -> AutomationOutcome.Said(saved.reason)
 				deleting -> AutomationOutcome.Offer(

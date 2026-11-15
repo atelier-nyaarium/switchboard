@@ -110,6 +110,7 @@ private fun WatchingSection(repo: ChatRepository, state: ChatState, gatewayId: S
 			) {
 				Text(row.sentence, style = MaterialTheme.typography.bodyLarge, color = if (on) Color.Unspecified else dim)
 				Text(doesText(row.automation, offer), style = MaterialTheme.typography.bodySmall, color = dim)
+				row.invalid?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 			}
 		}
 	}

@@ -124,7 +124,7 @@ class HoleTextRulesTest {
 
 	@Test
 	fun theMarkedSpanIsThePreviewsElseTheSavesAndStaysInsideTheText() {
-		val saved = AutomationSaid.Hole(0, "message", 6, 13, "no")
+		val saved = AutomationSaid.Hole(0, "message", 6, 13, "no", text)
 
 		assertEquals(6 until 13, refusedSpan(text, TextPreview.Plain, saved))
 		assertEquals(17 until 24, refusedSpan(text, TextPreview.Refused("missing }", 17, 90), saved))

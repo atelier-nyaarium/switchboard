@@ -76,9 +76,9 @@ Router's record names. That Gateway feeds it events. The session decides what to
       Each row shows the Gateway's sentence, what it does, when it last ran or why it is invalid,
       and the only on and off switch; a clock's row says when it runs next. New opens the editor on
       a Gateway a new automation can start on, asking which when there are several
-      (`newAutomationGateways`). A row opens the editor where its Gateway holds its trigger and
-      this build reads every action; an event automation's only in the home's group
-      (`AutomationGroup.edits`).
+      (`newAutomationGateways`). A row opens the editor where its Gateway holds its trigger, and an
+      action this build cannot draw is kept as sent; an event automation's opens only in the home's
+      group (`AutomationGroup.edits`).
     - **The editor:** When shows "Event arrives", "Value crosses" and "Time comes", each selectable
       where the Gateway offers it (`offersChoice`). An event takes a Source, the conditions, and
       "Would have matched N of the last M" from `automation_preview`, a fold that opens to the
@@ -107,8 +107,9 @@ Router's record names. That Gateway feeds it events. The session decides what to
       answers `watchers` and no `sources` (`servesSources`): its sources draw no uses line and its
       source ops go as the `assistant_watcher_*` kinds; one that answers no `serves` holds an event
       and a tell alone. `AutomationDraft.kt` holds the draft, its `outcomeOf`, `fittingAutomation`
-      and the lines each row shows; `AutomationParts.kt` holds a trigger and an action as the
-      editor holds them, the offer and a text's preview.
+      and the lines each row shows; `AutomationParts.kt` holds a trigger as the editor holds it, the
+      offer and a text's preview; `AutomationActions.kt` holds an action, drawn from its Gateway's
+      row.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
     its fresh `assistant_state` and its event automations (`carriedOf`), or an older Gateway's rules
     when it refuses `automation_list`; a list it cannot read, or one a current Gateway refuses,
@@ -437,8 +438,9 @@ automations answer the outbox in their own words (`AutomationOutbox` in
 `src/gateway/computed/automations.ts`), and `createOutboxSource` in
 `src/gateway/assistant/outboxSource.ts` is the source that lists it in the assistant's lane. A
 crossing is the owner's automation saying a computed field became the value it named, never a raw
-reading. The queue, the edge engine and the cool-down live in `docs/fields.md`. A crossing on a
-Gateway that is not the assistant's home logs `refused` and wakes nothing.
+reading. The outbox, the edge engine and the cool-down live in `docs/fields.md`. On a Gateway
+that is not the assistant's home a tell, and any action whose row needs the home, logs `refused`;
+its other actions still run.
 
 ### GitHub notifications
 
@@ -530,8 +532,9 @@ cannot rewrite what sorts its own events.
 - **Before a save:** `automation_preview` answers an event trigger's matches as before, and for any
   trigger its names as they stand now (`names`; an event's are its newest match's). Sent a `text`,
   it answers the text filled from those names (`filled`) or the hole that cannot be kept (`hole`).
-  `automation_list` answers `serves`, the trigger kinds and the actions (kind, label, dangerous)
-  this Gateway's automations can hold, which the phone's editor offers.
+  `automation_list` answers `serves`: the trigger kinds, each action's catalogue row (kind, label,
+  `danger`, `home` and its parameters), the numbers its sensors read and its switches. The phone's
+  editor offers and draws exactly that.
 - **`lastRanAt`:** a value automation's last fire, the last time an effect of it ran, or the last time an event automation's wake
   landed. The lane reports the events whose wake committed (`woke`), and `noteEvents` stamps each
   automation that woke for them.
