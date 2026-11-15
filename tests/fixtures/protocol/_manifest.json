@@ -110,6 +110,16 @@
 		{ "file": "automation-trigger-time.json", "schema": "AutomationTrigger", "expect": "pass" },
 		{ "file": "automation-trigger-interval.json", "schema": "AutomationTrigger", "expect": "pass" },
 		{ "file": "console-op-automation-put-actions.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "console-op-automation-preview-text.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "automation-list-result-serves.json", "schema": "ConsoleAutomationListResult", "expect": "pass" },
+		{ "file": "automation-put-result-confirm.json", "schema": "ConsoleAutomationPutResult", "expect": "pass" },
+		{ "file": "automation-put-result-hole.json", "schema": "ConsoleAutomationPutResult", "expect": "pass" },
+		{
+			"file": "automation-preview-result-filled.json",
+			"schema": "ConsoleAutomationPreviewResult",
+			"expect": "pass"
+		},
+		{ "file": "automation-preview-result-hole.json", "schema": "ConsoleAutomationPreviewResult", "expect": "pass" },
 		{
 			"file": "automation-trigger-future-kind.json",
 			"schema": "AutomationTrigger",

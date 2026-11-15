@@ -51,58 +51,44 @@ internal fun ActionsSection(
 					}
 				}
 				Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-					val change: ((ActionDraft) -> ActionDraft) -> Unit = { to -> edit { it.withAction(index, to) } }
-					val text: @Composable (String, String, String, Boolean) -> Unit = { param, label, value, lines ->
-						HoleField(
-							label = label,
-							value = value,
-							multiline = lines,
-							enabled = enabled,
-							preview = textPreviewOf(value, asked, textRead(previewText(value).takeIf { asked })),
-							refused = refusedHole(said, index, param),
-							onOpen = { edit { it.copy(text = TextRef(index, param)) } },
-						)
-					}
+					val set: (String, String) -> Unit = { param, value -> edit { it.withAction(index) { held -> withValue(held, param, value) } } }
 					when (action) {
-						is ActionDraft.Tell -> {
-							ChoiceRow(
-								choices = TELLS,
-								picked = TELLS.find { it.first == action.told },
-								labelOf = { it.second },
-								enabledOf = { enabled },
-								onPick = { picked -> change { held -> (held as? ActionDraft.Tell)?.copy(told = picked.first) ?: held } },
-							)
-							text(PARAM_MESSAGE, "Message", action.message, true)
-						}
-						is ActionDraft.DeviceSet -> {
-							PickMenu(
-								label = "Plug",
-								choices = offer.switches,
-								picked = offer.switches.find { it.device == action.device },
-								labelOf = { it.name },
-								onPick = { picked -> change { held -> (held as? ActionDraft.DeviceSet)?.copy(device = picked.device) ?: held } },
-								enabled = enabled,
-							)
-							ChoiceRow(
-								choices = VERBS,
-								picked = VERBS.find { it.first == action.verb },
-								labelOf = { it.second },
-								enabledOf = { enabled },
-								onPick = { picked -> change { held -> (held as? ActionDraft.DeviceSet)?.copy(verb = picked.first) ?: held } },
-							)
-						}
-						is ActionDraft.Ifttt -> {
-							OutlinedTextField(
-								value = action.event,
-								onValueChange = { typed -> change { held -> (held as? ActionDraft.Ifttt)?.copy(event = typed) ?: held } },
-								label = { Text("Event name") },
-								singleLine = true,
-								enabled = enabled,
-								modifier = Modifier.fillMaxWidth(),
-							)
-							text(PARAM_VALUE1, "Value 1", action.value1, false)
-							text(PARAM_VALUE2, "Value 2", action.value2, false)
-							text(PARAM_VALUE3, "Value 3", action.value3, false)
+						is ActionDraft.Filled -> for (param in offer.action(action.kind)?.params.orEmpty()) {
+							val value = action.values[param.name].orEmpty()
+							when (param.kind) {
+								PARAM_CHOICE -> ChoiceRow(
+									choices = param.options,
+									picked = param.options.find { it.value == value },
+									labelOf = { it.label },
+									enabledOf = { enabled },
+									onPick = { picked -> set(param.name, picked.value) },
+								)
+								PARAM_SWITCH -> PickMenu(
+									label = param.label,
+									choices = offer.switches,
+									picked = offer.switches.find { it.device == value },
+									labelOf = { it.name },
+									onPick = { picked -> set(param.name, picked.device) },
+									enabled = enabled,
+								)
+								PARAM_TEXT -> HoleField(
+									label = param.label,
+									value = value,
+									multiline = param.lines,
+									enabled = enabled,
+									preview = textPreviewOf(value, asked, textRead(previewText(value).takeIf { asked })),
+									refused = refusedHole(said, index, param.name),
+									onOpen = { edit { it.copy(text = TextRef(index, param.name)) } },
+								)
+								else -> OutlinedTextField(
+									value = value,
+									onValueChange = { typed -> set(param.name, typed) },
+									label = { Text(param.label) },
+									singleLine = true,
+									enabled = enabled,
+									modifier = Modifier.fillMaxWidth(),
+								)
+							}
 						}
 						is ActionDraft.Kept -> Text(
 							"This app cannot edit this action. It is kept as it is.",

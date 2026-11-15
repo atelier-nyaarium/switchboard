@@ -1,0 +1,13 @@
+{
+	"kind": "automation_preview",
+	"trigger": {
+		"kind": "crossing",
+		"device": "ce:1c:44:06:3c:5d",
+		"measure": "temperature",
+		"direction": "below",
+		"threshold": 2,
+		"deadZone": 0.5,
+		"coolDownSec": 90
+	},
+	"text": "It is {value} at {device}."
+}

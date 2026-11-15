@@ -315,7 +315,10 @@ describe("holes in an automation's text", () => {
 		expect(at("It is {shout(value)} now")).toBe("shout");
 		expect(at("It is {radio.listen()} now")).toBe("radio.listen()");
 		expect(at("It is {} now")).toBe("{}");
-		expect(at("It is {sensors} now")).toBe("{sensors}");
+		expect(at("It is {sensors} now")).toBe("sensors");
+		expect(at("It is {sensors + 1} now")).toBe("sensors");
+		expect(at("It is {round()} now")).toBe("round()");
+		expect(at("It is {round(value, 1, 2)} now")).toBe("round(value, 1, 2)");
 		expect(at("It is {sensors.read} now")).toBe("sensors.read");
 		expect(at("It is {sensors.nothing} now")).toBe("sensors.nothing");
 		expect(at("It is {value.round(1)} now")).toBe("value.round");

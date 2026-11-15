@@ -256,7 +256,6 @@ data class GatewayRegistry(
 	fun automationOn(gatewayId: String, automationId: String): Lookup<AutomationRow> =
 		lookup(gatewayId, { it.automations }) { it.id == automationId }
 
-	/** Its sources and Safety; placement is the Router's. */
 	/** Unread kept apart from refused. */
 	fun assistantRead(gatewayId: String): AssistantRead = when (val word = entry(gatewayId)?.assistant) {
 		is AssistantWord.Answered -> AssistantRead.Answered(word.state)
@@ -264,6 +263,7 @@ data class GatewayRegistry(
 		null -> AssistantRead.Reading
 	}
 
+	/** Its sources and Safety; placement is the Router's. */
 	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? =
 		(entry(gatewayId)?.assistant as? AssistantWord.Answered)?.state
 

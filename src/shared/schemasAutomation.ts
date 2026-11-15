@@ -14,6 +14,9 @@ export const AUTOMATIONS_MAX = 64;
 export const AUTOMATION_ACTIONS_MAX = 8;
 export const AUTOMATION_MESSAGE_MAX = 1_000;
 const IFTTT_VALUE_MAX = 500;
+const IFTTT_EVENT_MAX = 80;
+/** A `word` parameter. */
+export const ACTION_WORD_RE = /^[A-Za-z0-9_-]+$/;
 /** A week. */
 export const AUTOMATION_INTERVAL_MAX_MIN = 10_080;
 
@@ -93,11 +96,7 @@ export const AutomationActionSchema = z
 		/** Its own shape, so tightening the live request leaves a stored row readable. */
 		z.strictObject({
 			kind: z.literal("ifttt_trigger"),
-			event: z
-				.string()
-				.min(1)
-				.max(80)
-				.regex(/^[A-Za-z0-9_-]+$/),
+			event: z.string().min(1).max(IFTTT_EVENT_MAX).regex(ACTION_WORD_RE),
 			value1: z.string().max(IFTTT_VALUE_MAX).optional(),
 			value2: z.string().max(IFTTT_VALUE_MAX).optional(),
 			value3: z.string().max(IFTTT_VALUE_MAX).optional(),
@@ -108,20 +107,95 @@ export const AutomationActionSchema = z
 export type AutomationAction = z.infer<typeof AutomationActionSchema>;
 export type AutomationActionKind = AutomationAction["kind"];
 
+/** How a parameter is filled in. */
+export const ACTION_PARAM_KINDS = ["text", "word", "switch", "choice"] as const;
+export type ActionParamKind = (typeof ACTION_PARAM_KINDS)[number];
+
+export interface AutomationActionParam {
+	/** The action's own key. */
+	name: string;
+	label: string;
+	kind: ActionParamKind;
+	/** A text's or a word's longest. */
+	max?: number;
+	/** A text that takes several lines. */
+	lines?: boolean;
+	optional?: boolean;
+	options?: readonly { value: string; label: string }[];
+}
+
 export interface AutomationActionRow {
 	label: string;
 	/** Where its effect happens. */
 	runs: "assistant" | "gateway";
 	/** A save adding one is confirmed. */
 	danger: boolean;
+	/** Needs the assistant's home. */
+	home: boolean;
+	/** In the order an editor draws them. */
+	params: readonly AutomationActionParam[];
 }
+
+const optionsOf = (values: readonly string[]) =>
+	values.map((value) => ({ value, label: value.replace(/^./, (first) => first.toUpperCase()) }));
+
+const iftttValue = (at: number): AutomationActionParam => ({
+	name: `value${at}`,
+	label: `Value ${at}`,
+	kind: "text",
+	max: IFTTT_VALUE_MAX,
+	optional: true,
+});
 
 /** Every action an automation can run. */
 export const AUTOMATION_ACTIONS = {
-	tell_assistant: { label: "Tell the assistant", runs: "assistant", danger: false },
-	device_set: { label: "Switch a plug", runs: "gateway", danger: false },
-	ifttt_trigger: { label: "Send to IFTTT", runs: "gateway", danger: true },
+	tell_assistant: {
+		label: "Tell the assistant",
+		runs: "assistant",
+		danger: false,
+		home: true,
+		params: [
+			{ name: "when", label: "When", kind: "choice", options: optionsOf(TELL_WHEN) },
+			{
+				name: "message",
+				label: "Message",
+				kind: "text",
+				max: AUTOMATION_MESSAGE_MAX,
+				lines: true,
+				optional: true,
+			},
+		],
+	},
+	device_set: {
+		label: "Switch a plug",
+		runs: "gateway",
+		danger: false,
+		home: false,
+		params: [
+			{ name: "device", label: "Plug", kind: "switch" },
+			{ name: "verb", label: "Set", kind: "choice", options: optionsOf(DeviceVerbSchema.options) },
+		],
+	},
+	ifttt_trigger: {
+		label: "Send to IFTTT",
+		runs: "gateway",
+		danger: true,
+		home: true,
+		params: [
+			{ name: "event", label: "Event name", kind: "word", max: IFTTT_EVENT_MAX },
+			iftttValue(1),
+			iftttValue(2),
+			iftttValue(3),
+		],
+	},
 } as const satisfies Record<AutomationActionKind, AutomationActionRow>;
+
+/** An action's texts that may hold holes, by parameter. */
+export const actionTexts = (action: AutomationAction): { param: string; text: string }[] =>
+	AUTOMATION_ACTIONS[action.kind].params.flatMap((param) => {
+		const held = param.kind === "text" ? (action as Record<string, unknown>)[param.name] : undefined;
+		return typeof held === "string" ? [{ param: param.name, text: held }] : [];
+	});
 
 /** Names a trigger offers a hole. */
 export const AUTOMATION_TRIGGER_NAMES = {
@@ -137,7 +211,7 @@ export const dangerousActions = (automation: { actions: readonly AutomationActio
 
 export const AutomationSchema = z
 	.strictObject({
-		/** A projection's own sentence; a sealed payload holds null. */
+		/** Replaces the row's sentence; a sealed payload holds null. */
 		label: z.string().min(1).max(80).nullish(),
 		enabled: z.boolean(),
 		trigger: AutomationTriggerSchema,
@@ -225,8 +299,38 @@ export type AutomationRow = z.infer<typeof AutomationRowSchema>;
 /** The kinds this Gateway's automations can hold. */
 export const AUTOMATION_SERVES = {
 	triggers: Object.keys(AUTOMATION_TRIGGER_NAMES),
-	actions: Object.entries(AUTOMATION_ACTIONS).map(([kind, row]) => ({ kind, label: row.label, danger: row.danger })),
+	actions: Object.entries(AUTOMATION_ACTIONS).map(([kind, row]) => ({
+		kind,
+		label: row.label,
+		danger: row.danger,
+		home: row.home,
+		params: (row.params as readonly AutomationActionParam[]).map(({ options, ...param }) => ({
+			...param,
+			...(options ? { options: [...options] } : {}),
+		})),
+	})),
 };
+
+/** One of an action's parameters, as an editor draws it. */
+export const AutomationActionParamSchema = z
+	.object({
+		name: z.string().max(32),
+		label: z.string().max(40),
+		/** A kind an editor does not know leaves its action read-only. */
+		kind: z.string().max(16),
+		max: z.number().int().positive().optional(),
+		lines: z.boolean().optional(),
+		optional: z.boolean().optional(),
+		options: z
+			.array(
+				z
+					.object({ value: z.string().max(32), label: z.string().max(40) })
+					.meta({ id: "AutomationActionOption" }),
+			)
+			.max(8)
+			.optional(),
+	})
+	.meta({ id: "AutomationActionParam" });
 
 const OFFERED_MAX = 256;
 
@@ -253,6 +357,7 @@ export type AutomationSwitchOffer = z.infer<typeof AutomationSwitchOfferSchema>;
 export const ConsoleAutomationListResultSchema = z
 	.object({
 		automations: z.array(AutomationRowSchema),
+		// Required from 2026-11-29.
 		/** Absent from a build that holds an event trigger and a tell alone. */
 		serves: z
 			.object({
@@ -260,7 +365,13 @@ export const ConsoleAutomationListResultSchema = z
 				actions: z
 					.array(
 						z
-							.object({ kind: z.string().max(32), label: z.string().max(80), danger: z.boolean() })
+							.object({
+								kind: z.string().max(32),
+								label: z.string().max(80),
+								danger: z.boolean(),
+								home: z.boolean(),
+								params: z.array(AutomationActionParamSchema).max(16),
+							})
 							.meta({ id: "AutomationActionOffer" }),
 					)
 					.max(16),

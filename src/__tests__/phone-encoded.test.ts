@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
+import { ConsoleOpSchema } from "../shared/schemas.js";
 import { AssistantHomeSealedSchema, readableSealed } from "../shared/schemasAssistantHome.js";
 import { AssistantWatcherRulesSchema } from "../shared/schemasAssistantRules.js";
 import { AutomationSchema, canonicalAutomation } from "../shared/schemasAutomation.js";
@@ -17,6 +18,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	PhoneStatusAnswer: PHONE_CAPABILITIES.status.answer,
 	AppOpenAnswer: PHONE_CAPABILITIES.app_open.answer,
 	Automation: AutomationSchema,
+	ConsoleOp: ConsoleOpSchema,
 };
 
 const sealed = corpus.cases.filter((entry) => entry.schema === "AssistantHomeSealed").map((entry) => entry.value);

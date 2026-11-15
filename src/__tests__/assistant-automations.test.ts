@@ -21,7 +21,12 @@ import {
 	type AssistantRule,
 	conditionsMatch,
 } from "../shared/schemasAssistantRules.js";
-import { type Automation, type AutomationCondition, automationsOfRules } from "../shared/schemasAutomation.js";
+import {
+	AUTOMATIONS_MAX,
+	type Automation,
+	type AutomationCondition,
+	automationsOfRules,
+} from "../shared/schemasAutomation.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { SessionStore } from "../shared/session-store.js";
 import { bandField, boundAutomations, eventAutomation } from "../testing/assistantAutomations.js";
@@ -91,11 +96,19 @@ function listing(held: SourceEvent[] = [], fieldSpecs = CHOICES): Source {
 
 const SELF_TOLD: Source = { ...listing([], SPECS), id: "sensors", label: "Sensors", selfTold: true };
 
-function bindHome(assistant: AssistantStage, store: SessionStore, carried: AssistantHomeSealed["carried"] = null) {
+function bindHome(
+	assistant: AssistantStage,
+	store: SessionStore,
+	carried: AssistantHomeSealed["carried"] = null,
+	reports: string[] = [],
+) {
 	const sealed: AssistantHomeSealed = { workdirPath: "~/notes", carried };
 	assistant.bindHome({
 		open: () => ({ kind: "ok", sealed }),
-		report: async () => "accepted",
+		report: async (mark) => {
+			reports.push(mark.outcome);
+			return "accepted";
+		},
 		endSession: async () => {
 			store.forget(ASSISTANT_TEAM);
 		},
@@ -141,7 +154,8 @@ function stage(
 		sources,
 	});
 	const automations = boundAutomations(assistant, dataDir, () => ambient.now(), fields);
-	return { assistant, automations, followHome: bindHome(assistant, store, carried) };
+	const reports: string[] = [];
+	return { assistant, automations, grants, reports, followHome: bindHome(assistant, store, carried, reports) };
 }
 
 /** Placed, with its lanes running. */
@@ -277,6 +291,26 @@ describe("an event automation", () => {
 			["sealed", true],
 		]);
 		expect(rows.get("sealed")?.automation).toEqual(eventAutomation("github", reason("mention")));
+	});
+
+	it("refuses a move whose automations do not fit before anything of the old placement is touched", async () => {
+		const many = Array.from({ length: AUTOMATIONS_MAX + 1 }, (_, at) => ({
+			id: `e${at}`,
+			automation: eventAutomation("github", []),
+		}));
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const test = stage(freshDir(), [listing()], ambient, {
+			approveEverySend: true,
+			watchers: [],
+			automations: many,
+		});
+		test.grants.set("github", ["pat"]);
+
+		await test.followHome();
+
+		expect(test.reports).toEqual(["refused"]);
+		expect(test.grants.get("github")).toEqual(["pat"]);
+		expect(test.automations.rows()).toEqual([]);
 	});
 
 	it("starts unrun again once a move replaced it, and a move spares a sensor's alert that no owner write may touch", async () => {

@@ -21,6 +21,8 @@ import {
 	AutomationActionSchema,
 	AutomationTriggerSchema,
 	ConsoleAutomationListResultSchema,
+	ConsoleAutomationPreviewResultSchema,
+	ConsoleAutomationPutResultSchema,
 } from "../shared/schemasAutomation.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
@@ -69,6 +71,8 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	AutomationTrigger: AutomationTriggerSchema,
 	AutomationAction: AutomationActionSchema,
 	ConsoleAutomationListResult: ConsoleAutomationListResultSchema,
+	ConsoleAutomationPutResult: ConsoleAutomationPutResultSchema,
+	ConsoleAutomationPreviewResult: ConsoleAutomationPreviewResultSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
 	WorkspaceFileStateAnswer: FileStateAnswerSchema,

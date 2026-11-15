@@ -1,6 +1,12 @@
 // An automation's texts with holes, and how its tells are told.
 
-import { type Automation, type AutomationAction, type TellWhen, tellWhen } from "../../shared/schemasAutomation.js";
+import {
+	type Automation,
+	type AutomationAction,
+	actionTexts,
+	type TellWhen,
+	tellWhen,
+} from "../../shared/schemasAutomation.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue } from "../ownerRecords.js";
 
@@ -11,19 +17,8 @@ type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 
 export const isTell = (action: AutomationAction): action is Tell => action.kind === "tell_assistant";
 
-/** Texts that may hold holes. */
 export function holeTexts(body: Pick<Automation, "actions">): { action: number; param: string; text: string }[] {
-	return body.actions.flatMap((action, at) => {
-		const texts: Record<string, string | undefined> =
-			action.kind === "tell_assistant"
-				? { message: action.message }
-				: action.kind === "ifttt_trigger"
-					? { value1: action.value1, value2: action.value2, value3: action.value3 }
-					: {};
-		return Object.entries(texts).flatMap(([param, text]) =>
-			text === undefined ? [] : [{ action: at, param, text }],
-		);
-	});
+	return body.actions.flatMap((action, at) => actionTexts(action).map((held) => ({ action: at, ...held })));
 }
 
 /** Path: actions, index, parameter, start, end. */

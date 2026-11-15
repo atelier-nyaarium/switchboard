@@ -147,6 +147,20 @@ describe("an automation's clock", () => {
 		expect(await told()).toEqual([["Every hour", "19:00 UTC"]]);
 	});
 
+	it("keeps an interval on its grid however far behind it finds itself, and counts every slot it missed", async () => {
+		const dir = fresh();
+		open(dir, fakeAmbient({ drive: "manual", now: () => T0 })).automations.ownerPut("hourly", tells(hourly), 0);
+		const late = T0 + 3_000 * HOUR + 2 * MINUTE;
+
+		const after = open(dir, fakeAmbient({ drive: "manual", now: () => late }));
+
+		expect(after.automations.runs().map((run) => [run.outcome, run.reason])).toEqual([
+			["uncertain", "missed 2999 slots"],
+			["ran", undefined],
+		]);
+		expect(after.automations.rows()[0]?.nextRunAt).toBe(T0 + 3_001 * HOUR);
+	});
+
 	it("starts over from now when it is edited or switched back on, so an edit never fires", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { automations, told } = open(fresh(), ambient);

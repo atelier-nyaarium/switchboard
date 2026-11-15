@@ -77,8 +77,8 @@ Send at most ${GITHUB_DONE_IDS_MAX} ids per call; each id takes three GitHub req
 	sensors_clear: {
 		sourceId: SENSORS_SOURCE_ID,
 		label: "Clear events",
-		description: "Removes selected sensor threshold events from your inbox.",
-		usage: `Clear sensor threshold events by their event ids.`,
+		description: "Removes selected automation events from your inbox.",
+		usage: `Clear automation events by their event ids.`,
 		params: {
 			members: z
 				.array(z.string().min(1).max(256))
@@ -86,7 +86,7 @@ Send at most ${GITHUB_DONE_IDS_MAX} ids per call; each id takes three GitHub req
 				.max(RECORD_THREADS_MAX)
 				.refine((members) => new Set(members).size === members.length, "each event once")
 				.meta({ uniqueItems: true })
-				.describe("Event ids from the Sensors inbox."),
+				.describe("Event ids from the Automations inbox."),
 			summary: SummarySchema.optional(),
 		},
 		answer: ActionAnswerSchema,

@@ -68,6 +68,15 @@ export function scanHoles(text: string): HolePart[] {
 
 export const hasHoles = (text: string): boolean => scanHoles(text).some((part) => part.kind === "hole");
 
+/** What a hole that could not be read prints. */
+export const HOLE_FAILED = "{?}";
+
+/** The text with every hole marked unread. */
+export const unreadText = (text: string): string =>
+	scanHoles(text)
+		.map((part) => (part.kind === "text" ? part.text : HOLE_FAILED))
+		.join("");
+
 export const unescapedText = (text: string): string =>
 	scanHoles(text)
 		.map((part) => (part.kind === "text" ? part.text : text.slice(part.start, part.end)))

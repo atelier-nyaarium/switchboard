@@ -11,9 +11,11 @@ data class ConsoleHint(val name: String, val params: List<String>, val active: I
 
 data class ConsoleAssist(val hint: ConsoleHint?, val completions: List<ConsoleCompletion>)
 
-private data class OpenCall(val owner: String?, val method: String, val commas: Int, val args: List<String?>)
+/** `free`: called with no receiver. */
+private data class OpenCall(val owner: String?, val method: String, val commas: Int, val args: List<String?>, val free: Boolean)
 
 private const val COMPLETIONS_MAX = 12
+private const val NO_RECEIVER = "none"
 private val EXPRESSION_OPENERS = setOf("(", "[", "{", ",", ":")
 
 private fun quoted(text: String) = "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -31,11 +33,11 @@ private fun openCall(tokens: List<ConsoleToken>): OpenCall? {
 	val paren = stack.lastOrNull { it.open == '(' } ?: return null
 	if (stack.last() !== paren) return null
 	val name = tokens.getOrNull(paren.at - 1)?.takeIf { it.kind == ConsoleTokenKind.IDENT } ?: return null
-	if (!isPunct(tokens.getOrNull(paren.at - 2), ".")) return null
+	val free = !isPunct(tokens.getOrNull(paren.at - 2), ".")
 	val target = tokens.getOrNull(paren.at - 3)
 	val owner =
 		target?.takeIf {
-			it.kind == ConsoleTokenKind.IDENT && !isPunct(tokens.getOrNull(paren.at - 4), ".")
+			!free && it.kind == ConsoleTokenKind.IDENT && !isPunct(tokens.getOrNull(paren.at - 4), ".")
 		}?.text
 	var depth = 0
 	var commas = 0
@@ -50,11 +52,11 @@ private fun openCall(tokens: List<ConsoleToken>): OpenCall? {
 			args[args.lastIndex] = token.value
 		}
 	}
-	return OpenCall(owner, name.text, commas, args)
+	return OpenCall(owner, name.text, commas, args, free)
 }
 
 private fun hintOf(call: OpenCall, description: ConsoleDescription): ConsoleHint? {
-	val entity = description.entities.firstOrNull { it.name == call.owner }
+	val entity = description.entities.firstOrNull { !call.free && it.name == call.owner }
 	val member = entity?.members?.firstOrNull { it.name == call.method && it.kind == "method" }
 	if (member != null) {
 		val params = member.params.map { "${it.name}${if (it.optional) "?" else ""}: ${it.type}" }
@@ -62,10 +64,10 @@ private fun hintOf(call: OpenCall, description: ConsoleDescription): ConsoleHint
 		val note = member.params.getOrNull(active)?.let { "${it.name}: ${it.description}" }
 		return ConsoleHint("${entity.name}.${member.name}", params, active, member.returns, note)
 	}
-	val builtin = description.builtins.firstOrNull { it.name == call.method } ?: return null
+	val builtin = description.builtins.firstOrNull { it.name == call.method && (it.receiver == NO_RECEIVER) == call.free } ?: return null
 	return ConsoleHint(
 		builtin.name,
-		builtin.params.map { "${it.name}: ${it.type}" },
+		builtin.params.map { "${it.name}${if (it.optional == true) "?" else ""}: ${it.type}" },
 		call.commas.coerceAtMost((builtin.params.size - 1).coerceAtLeast(0)),
 		builtin.returns,
 		builtin.description,
@@ -156,11 +158,14 @@ private fun memberNames(
 	description: ConsoleDescription,
 	variables: Map<String, VariableShape?>,
 	local: Set<String>,
+	noSlow: Boolean,
 ): List<Pair<String, String>> {
 	val owner = tokens.getOrNull(tokens.size - 2)
 	val bare = owner?.kind == ConsoleTokenKind.IDENT && !isPunct(tokens.getOrNull(tokens.size - 3), ".")
 	val entity = description.entities.firstOrNull { bare && it.name == owner?.text }
-	if (entity != null) return entity.members.map { it.name to if (it.kind == "method") "${it.name}(" else it.name }
+	if (entity != null) {
+		return entity.members.filterNot { noSlow && it.slow }.map { it.name to if (it.kind == "method") "${it.name}(" else it.name }
+	}
 	val saved = owner?.text?.takeIf { bare && it in variables && it !in local }
 	val shape = saved?.let { variables[it] }
 	// Scalars offer no members.
@@ -175,12 +180,14 @@ private fun memberNames(
 		description.builtins.filter { it.receiver in receivers }.map { it.name to "${it.name}(" }
 }
 
+/** `noSlow`: where a slow member is refused. */
 fun consoleAssist(
 	source: String,
 	cursor: Int,
 	description: ConsoleDescription?,
 	ids: ConsoleIds?,
 	variables: Map<String, VariableShape?>,
+	noSlow: Boolean = false,
 ): ConsoleAssist {
 	if (description == null) return ConsoleAssist(null, emptyList())
 	val all = lexConsole(source)
@@ -202,16 +209,17 @@ fun consoleAssist(
 				arguments()
 					.filter { it.value.startsWith(slot.typed, ignoreCase = true) || it.label.startsWith(slot.typed, ignoreCase = true) }
 					.map { it.label to quoted(it.value) }
-			slot.typed.isEmpty() && call != null && (isPunct(prior, "(") || isPunct(prior, ",")) ->
+			slot.typed.isEmpty() && (isPunct(prior, "(") || isPunct(prior, ",")) && arguments().isNotEmpty() ->
 				arguments().map { it.label to quoted(it.value) }
 			else -> {
 				val names =
 					if (isPunct(prior, ".")) {
-						memberNames(tokens, description, variables, local)
+						memberNames(tokens, description, variables, local, noSlow)
 					} else if (prior == null || prior.kind == ConsoleTokenKind.OP ||
 						(prior.kind == ConsoleTokenKind.PUNCT && prior.text in EXPRESSION_OPENERS)
 					) {
-						((variables.keys + local).sorted() + description.entities.map { it.name }).map { it to it }
+						((variables.keys + local).sorted() + description.entities.map { it.name }).map { it to it } +
+							description.builtins.filter { it.receiver == NO_RECEIVER }.map { it.name to "${it.name}(" }
 					} else {
 						emptyList()
 					}

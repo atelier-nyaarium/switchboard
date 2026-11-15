@@ -122,7 +122,7 @@ export interface AssistantVault {
 	usableHere: (entryId: string) => Promise<boolean>;
 }
 
-export type AssistantAutomations = Pick<Automations, "eventsOf" | "write" | "noteEvents" | "fireEvents">;
+export type AssistantAutomations = Pick<Automations, "eventsOf" | "write" | "refusalOf" | "noteEvents" | "fireEvents">;
 
 const inSentence = (label: string) => (/^[A-Z][a-z]/.test(label) ? label[0]?.toLowerCase() + label.slice(1) : label);
 
@@ -725,6 +725,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const { workdirPath, carried } = opened.sealed;
 		const refused = placeRefusal(workdirPath, sessions);
 		if (refused) return refused;
+		// Refuse the move before anything is written.
+		const unfit = automations?.refusalOf({ kind: "carry", rows: carriedEvents(carried) });
+		if (unfit) return `the automations could not be saved: ${unfit.reason}`;
 		marker.ended();
 		for (const id of grantTargets()) deps.vault.setServiceGrants(id, []);
 		if (!grantTargets().every((id) => grantsLanded(id, [])))

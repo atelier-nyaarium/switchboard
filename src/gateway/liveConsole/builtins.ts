@@ -164,11 +164,14 @@ const arity = ({ name, params }: Builtin): string => {
 	return `${name}() takes ${range} argument${params.length === 1 ? "" : "s"}`;
 };
 
-export function checkArgs(builtin: Builtin, args: readonly unknown[]): void {
+export function arityIssue(builtin: Builtin, count: number): string | null {
 	const required = builtin.params.filter((param) => !param.optional).length;
-	if (args.length < required || args.length > builtin.params.length) {
-		throw new ConsoleError("wrong_args", arity(builtin));
-	}
+	return count < required || count > builtin.params.length ? arity(builtin) : null;
+}
+
+export function checkArgs(builtin: Builtin, args: readonly unknown[]): void {
+	const wrong = arityIssue(builtin, args.length);
+	if (wrong) throw new ConsoleError("wrong_args", wrong);
 	args.forEach((arg, at) => {
 		const param = builtin.params[at];
 		if (param && !param.check(arg))

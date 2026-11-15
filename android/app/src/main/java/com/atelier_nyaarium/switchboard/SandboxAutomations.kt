@@ -7,6 +7,8 @@ import com.atelier_nyaarium.switchboard.liveconsole.HolePart
 import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationActionOffer
+import com.atelier_nyaarium.switchboard.proto.AutomationActionOption
+import com.atelier_nyaarium.switchboard.proto.AutomationActionParam
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationNumberOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
@@ -29,13 +31,41 @@ private const val HOUR_MS = 60 * MINUTE_MS
 internal const val SANDBOX_SENSOR = "ce:1c:44:06:3c:5d"
 internal const val SANDBOX_SWITCH = "aa:bb:cc:dd:ee:01"
 
+private fun choice(name: String, label: String, vararg options: Pair<String, String>) =
+	AutomationActionParam(name, label, "choice", options = options.map { (value, shown) -> AutomationActionOption(value, shown) })
+
 /** What the full sandbox Gateway says it holds. */
 internal val SANDBOX_SERVES = AutomationServes(
 	triggers = listOf("event", "value", "crossing", "time", "interval"),
 	actions = listOf(
-		AutomationActionOffer("tell_assistant", "Tell the assistant", false),
-		AutomationActionOffer("device_set", "Switch a plug", false),
-		AutomationActionOffer("ifttt_trigger", "Send to IFTTT", true),
+		AutomationActionOffer(
+			"tell_assistant",
+			"Tell the assistant",
+			danger = false,
+			home = true,
+			params = listOf(
+				choice("when", "When", "now" to "Now", "quietly" to "Quietly"),
+				AutomationActionParam("message", "Message", "text", max = 1_000L, lines = true, optional = true),
+			),
+		),
+		AutomationActionOffer(
+			"device_set",
+			"Switch a plug",
+			danger = false,
+			home = false,
+			params = listOf(
+				AutomationActionParam("device", "Plug", "switch"),
+				choice("verb", "Set", "on" to "On", "off" to "Off", "toggle" to "Toggle"),
+			),
+		),
+		AutomationActionOffer(
+			"ifttt_trigger",
+			"Send to IFTTT",
+			danger = true,
+			home = true,
+			params = listOf(AutomationActionParam("event", "Event name", "word", max = 80L)) +
+				(1..3).map { AutomationActionParam("value$it", "Value $it", "text", max = 500L, optional = true) },
+		),
 	),
 	numbers = listOf(
 		AutomationNumberOffer(SANDBOX_SENSOR, "temperature", "Outside thermometer temperature", "C", 1L),

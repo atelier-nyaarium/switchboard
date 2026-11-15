@@ -122,8 +122,38 @@ class ConsoleAssistTest {
 			consoleAssist("sensors.read(", 13, description, plugged, emptyMap()).completions.map { it.label },
 		)
 		assertEquals(listOf("govee-h5110"), labels("definitions.get("))
-		assertEquals(emptyList<String>(), labels("definitions.match("))
+		assertEquals(listOf("sensors", "definitions"), labels("definitions.match("))
 		assertEquals("take", at("sensors.list.take(").hint?.name)
+	}
+
+	@Test
+	fun aFreeBuiltinIsOfferedWhereAnExpressionStartsAndHintsItsParameters() {
+		val free =
+			description.copy(
+				builtins =
+					description.builtins +
+						listOf(
+							ConsoleBuiltinDescription(
+								"round",
+								"none",
+								listOf(ConsoleBuiltinParam("x", "Number"), ConsoleBuiltinParam("digits", "Number", optional = true)),
+								"Number",
+								"Rounds x.",
+							),
+							ConsoleBuiltinDescription("if", "none", listOf(ConsoleBuiltinParam("when", "Any")), "Any", "Picks one."),
+						),
+			)
+		val assist = { source: String -> consoleAssist(source, source.length, free, ids, saved) }
+		val names = listOf("n", "outside", "runs", "sensors", "definitions", "round", "if")
+
+		assertEquals(names, assist("").completions.map { it.label })
+		assertEquals(names, assist("round(").completions.map { it.label })
+		assertEquals("1 + round(" to 10, assist("1 + ro").completions.single().applyTo("1 + ro"))
+		assertEquals(listOf("take", "first"), assist("runs.").completions.map { it.label })
+		val open = assist("round(n, ")
+		assertEquals(Triple("round", listOf("x: Number", "digits?: Number"), 1), Triple(open.hint?.name, open.hint?.params, open.hint?.active))
+		assertNull(assist("runs.round(").hint)
+		assertNull(assist("take(").hint)
 	}
 
 	/** `|` marks the cursor. */

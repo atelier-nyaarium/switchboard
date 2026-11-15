@@ -79,7 +79,7 @@ private val SANDBOX_IDS =
 				ConsoleDeviceIds("ce:1c:44:06:3c:5d", "Outside thermometer", listOf("temperature", "humidity", "battery")),
 				ConsoleDeviceIds("d5:9f:c0:86:0b:32", "My room thermometer", listOf("temperature", "humidity", "battery")),
 			),
-		fields = listOf(ConsoleLabelledId("threshold-ce1c44063c5d-temperature", "Outside thermometer temperature")),
+		fields = emptyList(),
 		automations = listOf(ConsoleLabelledId("threshold-ce1c44063c5d-temperature-low", "Outside thermometer temperature below 2.0 °C")),
 		sources = listOf(ConsoleLabelledId("github", "GitHub notifications")),
 		definitions = listOf("govee-h5110"),

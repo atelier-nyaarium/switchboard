@@ -1,0 +1,147 @@
+{
+	"automations": [
+		{
+			"id": "frost",
+			"revision": 3,
+			"automation": {
+				"enabled": true,
+				"trigger": {
+					"kind": "crossing",
+					"device": "ce:1c:44:06:3c:5d",
+					"measure": "temperature",
+					"direction": "below",
+					"threshold": 2,
+					"deadZone": 0.5,
+					"coolDownSec": 90
+				},
+				"actions": [
+					{
+						"kind": "tell_assistant",
+						"when": "quietly",
+						"message": "It is {value} at {device}."
+					}
+				]
+			},
+			"sentence": "Outside thermometer temperature goes below 2.0 C",
+			"nextRunAt": 1763000000000
+		}
+	],
+	"serves": {
+		"triggers": ["event", "value", "crossing", "time", "interval"],
+		"actions": [
+			{
+				"kind": "tell_assistant",
+				"label": "Tell the assistant",
+				"danger": false,
+				"home": true,
+				"params": [
+					{
+						"name": "when",
+						"label": "When",
+						"kind": "choice",
+						"options": [
+							{
+								"value": "now",
+								"label": "Now"
+							},
+							{
+								"value": "quietly",
+								"label": "Quietly"
+							}
+						]
+					},
+					{
+						"name": "message",
+						"label": "Message",
+						"kind": "text",
+						"max": 1000,
+						"lines": true,
+						"optional": true
+					}
+				]
+			},
+			{
+				"kind": "device_set",
+				"label": "Switch a plug",
+				"danger": false,
+				"home": false,
+				"params": [
+					{
+						"name": "device",
+						"label": "Plug",
+						"kind": "switch"
+					},
+					{
+						"name": "verb",
+						"label": "Set",
+						"kind": "choice",
+						"options": [
+							{
+								"value": "on",
+								"label": "On"
+							},
+							{
+								"value": "off",
+								"label": "Off"
+							},
+							{
+								"value": "toggle",
+								"label": "Toggle"
+							}
+						]
+					}
+				]
+			},
+			{
+				"kind": "ifttt_trigger",
+				"label": "Send to IFTTT",
+				"danger": true,
+				"home": true,
+				"params": [
+					{
+						"name": "event",
+						"label": "Event name",
+						"kind": "word",
+						"max": 80
+					},
+					{
+						"name": "value1",
+						"label": "Value 1",
+						"kind": "text",
+						"max": 500,
+						"optional": true
+					},
+					{
+						"name": "value2",
+						"label": "Value 2",
+						"kind": "text",
+						"max": 500,
+						"optional": true
+					},
+					{
+						"name": "value3",
+						"label": "Value 3",
+						"kind": "text",
+						"max": 500,
+						"optional": true
+					}
+				]
+			}
+		],
+		"numbers": [
+			{
+				"device": "ce:1c:44:06:3c:5d",
+				"measure": "temperature",
+				"label": "Outside thermometer temperature",
+				"unit": "C",
+				"decimals": 1
+			}
+		],
+		"switches": [
+			{
+				"device": "aa:bb:cc:dd:ee:ff",
+				"name": "Desk lamp"
+			}
+		]
+	}
+}

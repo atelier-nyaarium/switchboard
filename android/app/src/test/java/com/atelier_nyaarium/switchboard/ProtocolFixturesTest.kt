@@ -4,6 +4,8 @@ import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
@@ -74,6 +76,8 @@ class ProtocolFixturesTest {
 			"AutomationTrigger" -> wireJson.decodeFromString<AutomationTrigger>(body)
 			"AutomationAction" -> wireJson.decodeFromString<AutomationAction>(body)
 			"ConsoleAutomationListResult" -> wireJson.decodeFromString<ConsoleAutomationListResult>(body)
+			"ConsoleAutomationPutResult" -> wireJson.decodeFromString<ConsoleAutomationPutResult>(body)
+			"ConsoleAutomationPreviewResult" -> wireJson.decodeFromString<ConsoleAutomationPreviewResult>(body)
 			"WorkspaceSaveSpanAnswer" -> wireJson.decodeFromString<WorkspaceSaveSpanAnswer>(body)
 			"WorkspaceFileMutationAnswer" -> wireJson.decodeFromString<WorkspaceFileMutationAnswer>(body)
 			"WorkspaceFileStateAnswer" -> wireJson.decodeFromString<WorkspaceFileStateAnswer>(body)

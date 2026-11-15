@@ -105,16 +105,17 @@ internal fun AutomationEditorPage(
 	val edit: ((AutomationDraft) -> AutomationDraft) -> Unit = { change -> draft = change(draft) }
 
 	val ref = draft.text
-	val shownText = ref?.let { textAt(draft, it) }
-	if (ref != null && shownText != null) {
+	val textOf = ref?.let { textParam(draft, it, offer) }
+	val shownText = ref?.let { textAt(draft, it, offer) }
+	if (ref != null && textOf != null && shownText != null) {
 		val consoles by repo.liveConsoleOps.state.collectAsState()
 		val console = consoles[gatewayId]
 		LaunchedEffect(gatewayId) { repo.command { liveConsoleOps.open(gatewayId) } }
 		val names = triggerRead.answer?.names.orEmpty()
 		HoleTextEditor(
-			title = textLabel(ref),
+			title = textOf.label,
 			value = shownText,
-			max = textMax(ref),
+			max = textOf.max ?: Int.MAX_VALUE,
 			names = names,
 			preview = textPreviewOf(shownText, trigger != null, previewRead(ops, gatewayId, trigger.takeIf { hasHole(shownText) }, previewText(shownText))),
 			refused = refusedHole(session.said, ref.action, ref.param),
@@ -122,7 +123,7 @@ internal fun AutomationEditorPage(
 			ids = console?.ids,
 			shapes = nameShapes(names, fields.fields),
 			enabled = can.edit,
-			onChange = { text -> edit { it.withAction(ref.action) { held -> withText(held, ref.param, text) } } },
+			onChange = { text -> edit { it.withAction(ref.action) { held -> withValue(held, ref.param, text) } } },
 			onBack = { edit { it.copy(text = null) } },
 		)
 		return
@@ -163,7 +164,7 @@ internal fun AutomationEditorPage(
 			confirmText = "Delete",
 			onConfirm = {
 				confirmingDelete = false
-				send(deleting = true) { sent -> ops.delete(gatewayId, sent.id, sent.revision, moves = sent.trigger is TriggerDraft.Event) }
+				send(deleting = true) { sent -> ops.delete(gatewayId, sent.id, sent.revision) }
 			},
 			onDismiss = { confirmingDelete = false },
 		)

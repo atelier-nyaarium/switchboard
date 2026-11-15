@@ -8,7 +8,6 @@ import com.atelier_nyaarium.switchboard.liveconsole.HolePart
 import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
 import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.Automation
-import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
@@ -22,34 +21,26 @@ internal const val TRIGGER_EVENT = "event"
 internal const val TRIGGER_CROSSING = "crossing"
 internal const val TRIGGER_TIME = "time"
 internal const val TRIGGER_INTERVAL = "interval"
-internal const val ACTION_TELL = "tell_assistant"
-internal const val ACTION_DEVICE_SET = "device_set"
-internal const val ACTION_IFTTT = "ifttt_trigger"
-
-internal const val MAX_ACTIONS = 8
-internal const val MAX_MESSAGE_LEN = 1_000
-internal const val MAX_IFTTT_VALUE_LEN = 500
 private const val MAX_COOL_DOWN_MIN = 1_440L
+private const val MINUTE_SEC = 60L
+private const val COOL_DOWN_DECIMALS = 2
 private const val MAX_INTERVAL_MIN = 10_080L
 private val CLOCK = Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")
-private val IFTTT_EVENT = Regex("^[A-Za-z0-9_-]{1,80}$")
 
-internal data class ActionOffer(val kind: String, val label: String, val danger: Boolean)
-
-/** A sensor's number a crossing can watch. */
 internal data class NumberOffer(val device: String, val measure: String, val label: String, val unit: String?, val decimals: Int)
 
 internal data class SwitchOffer(val device: String, val name: String)
 
-/** What one Gateway's editor may hold. */
 internal data class AutomationOffer(
 	val triggers: Set<String> = setOf(TRIGGER_EVENT),
-	val actions: List<ActionOffer> = listOf(ActionOffer(ACTION_TELL, "Tell the assistant", false)),
+	val actions: List<ActionOffer> = listOf(DEFAULT_TELL),
 	val numbers: List<NumberOffer> = emptyList(),
 	val switches: List<SwitchOffer> = emptyList(),
-	/** Not the home: no events, tells or IFTTT key. */
+	/** Not the assistant's home: no event arrives, and an action that needs the home does nothing. */
 	val away: Boolean = false,
 ) {
+	fun action(kind: String): ActionOffer? = actions.find { it.kind == kind }
+
 	fun number(device: String, measure: String): NumberOffer? = numbers.find { it.device == device && it.measure == measure }
 
 	fun dangerous(kind: String): Boolean = actions.any { it.kind == kind && it.danger }
@@ -62,16 +53,14 @@ internal fun offerOf(serves: AutomationServes?, away: Boolean = false): Automati
 	if (serves == null) AutomationOffer(away = away)
 	else AutomationOffer(
 		triggers = serves.triggers.toSet(),
-		actions = serves.actions.map { ActionOffer(it.kind, it.label, it.danger) },
+		actions = serves.actions.map(::actionOfferOf),
 		numbers = serves.numbers.map { NumberOffer(it.device, it.measure, it.label, it.unit, it.decimals.toInt()) },
 		switches = serves.switches.map { SwitchOffer(it.device, it.name) },
 		away = away,
 	)
 
-/** What an entry's last listing said it holds. */
 internal fun offerOn(entry: GatewayEntry?, away: Boolean = false): AutomationOffer = offerOf(entry?.automationServes, away)
 
-/** Leaves and arrives with the assistant. */
 internal fun movesWithHome(automation: Automation): Boolean = automation.trigger is AutomationTrigger.Event
 
 internal enum class IntervalUnit(val minutes: Long, val label: String) {
@@ -108,7 +97,6 @@ internal sealed interface TriggerDraft {
 	}
 }
 
-/** The editor's three choices; a time and an interval share one. */
 internal enum class TriggerChoice(val label: String, val kinds: Set<String>) {
 	EVENT("Event arrives", setOf(TRIGGER_EVENT)),
 	CROSSING("Value crosses", setOf(TRIGGER_CROSSING)),
@@ -126,14 +114,12 @@ internal fun offersChoice(offer: AutomationOffer, choice: TriggerChoice, sources
 /** The clock kinds a Gateway holds, a time first. */
 internal fun clockKinds(offer: AutomationOffer): List<String> = listOf(TRIGGER_TIME, TRIGGER_INTERVAL).filter { it in offer.triggers }
 
-/** A number's unit as the owner reads it. */
 internal fun numberSuffix(number: NumberOffer?, display: String?): String =
 	number?.unit?.let { suffixOf(displayedUnit(it, display)) }.orEmpty()
 
 private fun scaleOf(unit: String?, display: String?): Double =
 	FieldTypes.UNIT_DISPLAYS.find { it.unit == unit && it.display == display }?.scale ?: 1.0
 
-/** A stored number as the owner types it. */
 private fun typedOf(value: Double, number: NumberOffer?, display: String?): String {
 	val unit = number?.unit
 	val shown = if (unit != null && display != null) toDisplay(value, unit, display).value else value
@@ -143,6 +129,17 @@ private fun typedOf(value: Double, number: NumberOffer?, display: String?): Stri
 /** A width scales without the unit's offset. */
 private fun typedWidthOf(value: Double, number: NumberOffer?, display: String?): String =
 	formatDecimal(value * scaleOf(number?.unit, display), number?.decimals ?: 1)
+
+/** Whole minutes plain, else to two places, which reads back to the same second. */
+internal fun coolDownTyped(seconds: Long): String =
+	if (seconds % MINUTE_SEC == 0L) (seconds / MINUTE_SEC).toString()
+	else formatDecimal(seconds.toDouble() / MINUTE_SEC, COOL_DOWN_DECIMALS).trimEnd('0')
+
+/** Null outside 0 to a day. */
+internal fun coolDownSecOf(typed: String): Long? {
+	val minutes = parseDecimal(typed.trim())?.takeIf { it in 0.0..MAX_COOL_DOWN_MIN.toDouble() } ?: return null
+	return Math.round(minutes * MINUTE_SEC)
+}
 
 /** Null for a kind the editor does not draw. */
 internal fun triggerDraftOf(trigger: AutomationTrigger, offer: AutomationOffer, display: String?): TriggerDraft? = when (trigger) {
@@ -155,7 +152,7 @@ internal fun triggerDraftOf(trigger: AutomationTrigger, offer: AutomationOffer, 
 			direction = trigger.direction,
 			threshold = typedOf(trigger.threshold, number, display),
 			deadZone = typedWidthOf(trigger.deadZone, number, display),
-			coolDownMin = (trigger.coolDownSec / 60).toString(),
+			coolDownMin = coolDownTyped(trigger.coolDownSec),
 		)
 	}
 	is AutomationTrigger.Time -> TriggerDraft.Time(trigger.time, trigger.weekdays.map { it.toInt() }.toSet(), trigger.zone)
@@ -166,7 +163,6 @@ internal fun triggerDraftOf(trigger: AutomationTrigger, offer: AutomationOffer, 
 	is AutomationTrigger.Value, is AutomationTrigger.Unknown -> null
 }
 
-/** Why a typed trigger cannot be saved; null when it can. */
 internal fun triggerIssue(trigger: TriggerDraft, offer: AutomationOffer): String? = when (trigger) {
 	is TriggerDraft.Event -> when {
 		trigger.source.isBlank() -> "Pick a source"
@@ -177,7 +173,7 @@ internal fun triggerIssue(trigger: TriggerDraft, offer: AutomationOffer): String
 		offer.number(trigger.device, trigger.measure) == null -> "Pick a value"
 		parseDecimal(trigger.threshold.trim()) == null -> "The threshold is not a number"
 		(parseDecimal(trigger.deadZone.trim()) ?: -1.0) < 0 -> "The dead zone is zero or more"
-		(trigger.coolDownMin.trim().toLongOrNull() ?: -1L) !in 0..MAX_COOL_DOWN_MIN -> "The cool-down is 0 to $MAX_COOL_DOWN_MIN minutes"
+		coolDownSecOf(trigger.coolDownMin) == null -> "The cool-down is 0 to $MAX_COOL_DOWN_MIN minutes"
 		else -> null
 	}
 	is TriggerDraft.Time -> when {
@@ -218,7 +214,7 @@ internal fun triggerOf(trigger: TriggerDraft, offer: AutomationOffer, display: S
 				direction = trigger.direction,
 				threshold = if (unit != null && display != null) fromDisplay(typed, unit, display) else typed,
 				deadZone = roundTo(width / scaleOf(unit, display), FieldTypes.CONVERTED_DECIMALS),
-				coolDownSec = (trigger.coolDownMin.trim().toLongOrNull() ?: return null) * 60,
+				coolDownSec = coolDownSecOf(trigger.coolDownMin) ?: return null,
 			)
 		}
 		is TriggerDraft.Time -> AutomationTrigger.Time(trigger.time, trigger.weekdays.sorted().map { it.toLong() }, trigger.zone)
@@ -235,100 +231,11 @@ internal fun freshTrigger(choice: TriggerChoice, offer: AutomationOffer, firstSo
 	TriggerChoice.TIME -> clockKinds(offer).firstNotNullOfOrNull { freshClock(it, zone) }
 }
 
-/** An action as the editor holds it. */
-internal sealed interface ActionDraft {
-	val kind: String
-
-	data class Tell(val told: String, val message: String) : ActionDraft {
-		override val kind get() = ACTION_TELL
-	}
-
-	data class DeviceSet(val device: String, val verb: String) : ActionDraft {
-		override val kind get() = ACTION_DEVICE_SET
-	}
-
-	data class Ifttt(val event: String, val value1: String, val value2: String, val value3: String) : ActionDraft {
-		override val kind get() = ACTION_IFTTT
-	}
-
-	/** A kind this build cannot draw, kept as sent. */
-	data class Kept(val action: AutomationAction.Unknown) : ActionDraft {
-		override val kind get() = action.kind
-	}
-}
-
-internal fun actionDraftOf(action: AutomationAction): ActionDraft = when (action) {
-	is AutomationAction.TellAssistant -> ActionDraft.Tell(action.`when`, action.message.orEmpty())
-	is AutomationAction.DeviceSet -> ActionDraft.DeviceSet(action.device, action.verb)
-	is AutomationAction.IftttTrigger ->
-		ActionDraft.Ifttt(action.event, action.value1.orEmpty(), action.value2.orEmpty(), action.value3.orEmpty())
-	is AutomationAction.Unknown -> ActionDraft.Kept(action)
-}
-
-internal fun actionIssue(action: ActionDraft, offer: AutomationOffer): String? = when (action) {
-	is ActionDraft.Tell -> "At most $MAX_MESSAGE_LEN characters".takeIf { action.message.length > MAX_MESSAGE_LEN }
-	is ActionDraft.DeviceSet -> "Pick a plug".takeIf { offer.switches.none { it.device == action.device } }
-	is ActionDraft.Ifttt -> when {
-		!IFTTT_EVENT.matches(action.event) -> "An event name is letters, digits, - and _"
-		listOf(action.value1, action.value2, action.value3).any { it.length > MAX_IFTTT_VALUE_LEN } ->
-			"At most $MAX_IFTTT_VALUE_LEN characters a value"
-		else -> null
-	}
-	is ActionDraft.Kept -> null
-}
-
-/** Silent while an IFTTT event is still blank. */
-internal fun actionHint(action: ActionDraft, offer: AutomationOffer): String? =
-	if (action is ActionDraft.Ifttt && action.event.isBlank()) null else actionIssue(action, offer)
-
-/** Blank text is left out. */
-internal fun actionOf(action: ActionDraft): AutomationAction = when (action) {
-	is ActionDraft.Tell -> AutomationAction.TellAssistant(`when` = action.told, message = action.message.ifBlank { null })
-	is ActionDraft.DeviceSet -> AutomationAction.DeviceSet(action.device, action.verb)
-	is ActionDraft.Ifttt -> AutomationAction.IftttTrigger(
-		event = action.event,
-		value1 = action.value1.ifBlank { null },
-		value2 = action.value2.ifBlank { null },
-		value3 = action.value3.ifBlank { null },
-	)
-	is ActionDraft.Kept -> action.action
-}
-
-/** Null when this Gateway offers no such action or holds nothing it could act on. */
-internal fun freshAction(kind: String, offer: AutomationOffer): ActionDraft? = when (kind) {
-	ACTION_TELL -> ActionDraft.Tell("now", "").takeUnless { offer.away }
-	ACTION_DEVICE_SET -> offer.switches.firstOrNull()?.let { ActionDraft.DeviceSet(it.device, "on") }
-	ACTION_IFTTT -> ActionDraft.Ifttt("", "", "", "").takeUnless { offer.away }
-	else -> null
-}
-
-/** Actions the Add menu lists. */
-internal fun addableActions(offer: AutomationOffer, held: List<ActionDraft>): List<ActionOffer> =
-	if (held.size >= MAX_ACTIONS) emptyList()
-	else offer.actions.filter { freshAction(it.kind, offer) != null }
-
-internal fun actionLine(action: AutomationAction, offer: AutomationOffer = AutomationOffer()): String = when (action) {
-	is AutomationAction.TellAssistant -> if (action.`when` == "quietly") "Tell the assistant quietly" else "Tell the assistant now"
-	is AutomationAction.DeviceSet -> {
-		val name = offer.switches.find { it.device == action.device }?.name ?: "a plug"
-		when (action.verb) {
-			"on" -> "Switch $name on"
-			"off" -> "Switch $name off"
-			else -> "Toggle $name"
-		}
-	}
-	is AutomationAction.IftttTrigger -> "Send ${action.event} to IFTTT"
-	is AutomationAction.Unknown -> action.kind
-}
-
 internal val WEEKDAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 internal val DIRECTIONS = listOf("below" to "Goes below", "above" to "Goes above")
-internal val VERBS = listOf("on" to "On", "off" to "Off", "toggle" to "Toggle")
-internal val TELLS = listOf("now" to "Now", "quietly" to "Quietly")
 internal val CLOCK_KINDS = mapOf(TRIGGER_TIME to "At a time", TRIGGER_INTERVAL to "Every")
 
-/** What a Gateway says of a text with holes. */
 internal sealed interface TextPreview {
 	/** Nothing to fill, or no trigger to fill from. */
 	data object Plain : TextPreview
@@ -347,7 +254,6 @@ internal fun hasHole(text: String): Boolean = scanHoles(text).any { it is HolePa
 /** The text a preview asks about; null when it holds no hole. */
 internal fun previewText(text: String): String? = text.takeIf(::hasHole)
 
-/** One Gateway read of a preview. */
 internal data class PreviewRead(val answer: ConsoleAutomationPreviewResult? = null, val failed: Boolean = false)
 
 internal fun textPreviewOf(text: String, asked: Boolean, read: PreviewRead): TextPreview {
@@ -364,24 +270,6 @@ internal fun textPreviewOf(text: String, asked: Boolean, read: PreviewRead): Tex
 	}
 }
 
-internal const val PARAM_MESSAGE = "message"
-internal const val PARAM_VALUE1 = "value1"
-internal const val PARAM_VALUE2 = "value2"
-internal const val PARAM_VALUE3 = "value3"
-
-/** An action with one of its texts replaced; the wire's parameter names. */
-internal fun withText(action: ActionDraft, param: String, text: String): ActionDraft = when (action) {
-	is ActionDraft.Tell -> if (param == PARAM_MESSAGE) action.copy(message = text) else action
-	is ActionDraft.Ifttt -> when (param) {
-		PARAM_VALUE1 -> action.copy(value1 = text)
-		PARAM_VALUE2 -> action.copy(value2 = text)
-		PARAM_VALUE3 -> action.copy(value3 = text)
-		else -> action
-	}
-	is ActionDraft.DeviceSet, is ActionDraft.Kept -> action
-}
-
-/** A name's hole at the end of a text. */
 internal fun withHole(text: String, name: String): String {
 	val gap = if (text.isEmpty() || text.last().isWhitespace()) "" else " "
 	return "$text$gap{$name}"

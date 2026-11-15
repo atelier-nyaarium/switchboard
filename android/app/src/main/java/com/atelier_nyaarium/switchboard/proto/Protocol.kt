@@ -5133,6 +5133,29 @@ data class AutomationActionOffer(
 	val kind: String,
 	val label: String,
 	val danger: Boolean,
+	val home: Boolean,
+	val params: List<AutomationActionParam>,
+)
+
+@Serializable
+data class AutomationActionParam(
+	val name: String,
+	val label: String,
+	val kind: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val max: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val lines: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val optional: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val options: List<AutomationActionOption>? = null,
+)
+
+@Serializable
+data class AutomationActionOption(
+	val value: String,
+	val label: String,
 )
 
 @Serializable

@@ -368,7 +368,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 		),
 		AssistantSource(
 			id = "sensors",
-			label = "Sensors",
+			label = "Automations",
 			grants = emptyList(),
 			unread = 1L,
 			lastSuccessAt = day(-30_000L),

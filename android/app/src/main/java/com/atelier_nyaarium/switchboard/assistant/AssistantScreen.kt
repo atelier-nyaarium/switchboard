@@ -173,7 +173,7 @@ internal fun AssistantPageHost(
 				LaunchedEffect(page.gatewayId) { repo.automationOps.refresh(page.gatewayId) }
 				SourceAutomationsPage(
 					source.label,
-					state.gateways.entry(page.gatewayId)?.automations?.listedRows()?.let { triggeredBy(source.id, it) },
+					usedBy(page.gatewayId, state.gateways.entry(page.gatewayId)?.automations) { triggeredBy(source.id, it) },
 					onBack,
 				)
 			}

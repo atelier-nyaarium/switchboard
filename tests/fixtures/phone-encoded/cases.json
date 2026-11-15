@@ -342,6 +342,85 @@
 					}
 				]
 			}
+		},
+		{
+			"name": "a save the owner agreed to",
+			"schema": "ConsoleOp",
+			"value": {
+				"kind": "automation_put",
+				"automationId": "door",
+				"automation": {
+					"enabled": true,
+					"trigger": {
+						"kind": "time",
+						"time": "18:30",
+						"weekdays": [
+							1,
+							5
+						],
+						"zone": "America/Los_Angeles"
+					},
+					"actions": [
+						{
+							"kind": "ifttt_trigger",
+							"event": "door_open",
+							"value1": "Lamp at {time}"
+						}
+					]
+				},
+				"baseRevision": 2,
+				"confirmed": true
+			}
+		},
+		{
+			"name": "a save that needs no go-ahead",
+			"schema": "ConsoleOp",
+			"value": {
+				"kind": "automation_put",
+				"automationId": "hourly",
+				"automation": {
+					"enabled": true,
+					"trigger": {
+						"kind": "interval",
+						"everyMin": 120
+					},
+					"actions": [
+						{
+							"kind": "tell_assistant",
+							"when": "now"
+						}
+					]
+				},
+				"baseRevision": 0
+			}
+		},
+		{
+			"name": "a preview of a text with holes",
+			"schema": "ConsoleOp",
+			"value": {
+				"kind": "automation_preview",
+				"trigger": {
+					"kind": "crossing",
+					"device": "ce:1c:44:06:3c:5d",
+					"measure": "temperature",
+					"direction": "below",
+					"threshold": 2.0,
+					"deadZone": 0.5,
+					"coolDownSec": 600
+				},
+				"text": "It is {value} at {device}."
+			}
+		},
+		{
+			"name": "a preview of a trigger alone",
+			"schema": "ConsoleOp",
+			"value": {
+				"kind": "automation_preview",
+				"trigger": {
+					"kind": "interval",
+					"everyMin": 120
+				}
+			}
 		}
 	]
 }

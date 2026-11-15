@@ -97,12 +97,14 @@ internal class AutomationOps(
 
 	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
 
-	/** An edit of what moves with the home: its draft, else the row it would open. */
+	/** Null while its list is unread. */
+	private fun heldMoves(gatewayId: String, id: String): Boolean? =
+		state.value.gateways.automationOn(gatewayId, id).found()?.automation?.let(::movesWithHome)
+
+	/** Stored row or its draft moves with the home. */
 	fun editsEvent(key: AutomationDraftKey): Boolean {
-		val draft = edits.state.value.held[key]?.draft
-		if (draft != null) return draft.trigger is TriggerDraft.Event
-		val held = (key.slot as? AutomationSlot.Held)?.let { state.value.gateways.automationOn(key.gatewayId, it.id).found() }
-		return held?.automation?.let(::movesWithHome) ?: false
+		val held = (key.slot as? AutomationSlot.Held)?.let { heldMoves(key.gatewayId, it.id) }
+		return held == true || edits.state.value.held[key]?.draft?.trigger is TriggerDraft.Event
 	}
 
 	override suspend fun clearInMemory() {
@@ -158,7 +160,7 @@ internal class AutomationOps(
 		}
 	}
 
-	/** Only what moves with the home takes the move lock. */
+	/** Stored or sent row that moves takes the lock. */
 	private suspend fun <T : Any> write(gatewayId: String, moves: Boolean, call: suspend (AutomationGateway) -> T): Written<T> {
 		if (gatewayId.isBlank()) return Written.Unreachable
 		var answer: T? = null
@@ -168,7 +170,7 @@ internal class AutomationOps(
 	}
 
 	private suspend fun put(gatewayId: String, id: String, automation: Automation, base: Long, confirmed: Boolean): AutomationSaved =
-		when (val written = write(gatewayId, movesWithHome(automation)) { it.put(gatewayId, id, automation, base, confirmed) }) {
+		when (val written = write(gatewayId, movesWithHome(automation) || heldMoves(gatewayId, id) == true) { it.put(gatewayId, id, automation, base, confirmed) }) {
 			Written.Moved -> AutomationSaved.Refused(HOME_MOVED)
 			Written.Unreachable -> AutomationSaved.Unreachable
 			is Written.Answered -> {
@@ -185,9 +187,9 @@ internal class AutomationOps(
 		confirmed: Boolean = false,
 	): AutomationSaved = put(gatewayId, id, automation, base, confirmed)
 
-	/** `moves` is what the deleted automation did; a refusal names the row as re-read. */
-	suspend fun delete(gatewayId: String, id: String, base: Long, moves: Boolean): AutomationSaved =
-		when (val written = write(gatewayId, moves) { it.delete(gatewayId, id, base) }) {
+	/** Unread row is taken to move. */
+	suspend fun delete(gatewayId: String, id: String, base: Long): AutomationSaved =
+		when (val written = write(gatewayId, heldMoves(gatewayId, id) ?: true) { it.delete(gatewayId, id, base) }) {
 			Written.Moved -> AutomationSaved.Refused(HOME_MOVED)
 			Written.Unreachable -> AutomationSaved.Unreachable
 			is Written.Answered -> {

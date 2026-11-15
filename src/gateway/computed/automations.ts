@@ -20,9 +20,9 @@ import {
 	TELL_WHEN,
 	type TellWhen,
 } from "../../shared/schemasAutomation.js";
-import { hasHoles, unescapedText } from "../../shared/text-holes.js";
+import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
 import { createOwnerRecords, type OwnerIssue, type OwnerRecord } from "../ownerRecords.js";
-import { CLOCK_GRACE_MS, clockIssue, clockSentence, clockShown, isClock, nextSlot } from "./automationClock.js";
+import { clockIssue, clockSentence, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
 import {
 	AUTOMATION_KIND,
 	type AutomationIntent,
@@ -49,8 +49,6 @@ export const QUEUE_MAX_BYTES = 64 * 1024;
 const LOG_MAX = 64;
 /** A told title or field. */
 const TOLD_FIELD_MAX = 1_000;
-/** Slots a clock catches up on in one pass. */
-const CLOCK_STEPS_MAX = 2_000;
 /** A filled effect parameter. */
 const EFFECT_TEXT_MAX = 500;
 /** Runs waiting on their effects. */
@@ -438,7 +436,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		return { lastAt: at, events };
 	};
 
-	const QUEUE_FULL = "the sensors queue is full";
+	const QUEUE_FULL = "the automations outbox is full";
 
 	const commit = (next: State): boolean =>
 		commitChecked(
@@ -663,34 +661,18 @@ export function createAutomations(deps: AutomationsDeps) {
 				slots[record.id] = { revision: record.revision, incarnation: record.incarnation, at: now };
 				continue;
 			}
-			let { at } = held;
-			let missed = 0;
-			let steps = 0;
-			let behind = false;
-			for (let next = nextSlot(trigger, at); next !== null && next <= now; next = nextSlot(trigger, at)) {
-				at = next;
-				if (++steps > CLOCK_STEPS_MAX) {
-					// Too far behind to count.
-					at = now;
-					behind = true;
-					break;
-				}
-				if (now - next > CLOCK_GRACE_MS) {
-					missed += 1;
-					continue;
-				}
+			const walk = walkSlots(trigger, held.at, now);
+			for (const next of walk.due) {
 				const member = memberOf(record.id, record.incarnation, "slot", next);
 				const shown = clockShown(trigger, next);
 				fire(work, record, { member, seq: 0, at: next }, { time: { value: next, shown } }, { time: shown });
 			}
-			if (missed > 0) {
-				const count = behind
-					? `more than ${CLOCK_STEPS_MAX} slots`
-					: `${missed} slot${missed === 1 ? "" : "s"}`;
+			if (walk.missed > 0) {
 				const gap = { automation: record.id, seq: 0, at: now };
-				work.log = logged(work.log, fireRun(gap, "uncertain", `missed ${count}`));
+				const reason = `missed ${walk.missed} slot${walk.missed === 1 ? "" : "s"}`;
+				work.log = logged(work.log, fireRun(gap, "uncertain", reason));
 			}
-			slots[record.id] = { ...held, at };
+			slots[record.id] = { ...held, at: walk.at };
 		}
 		const next: State = { ...state, slots, log: work.log, fires: work.fires };
 		const landed = canonicalJson(next) === canonicalJson(state) || commit(next);
@@ -737,7 +719,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		const runs: AutomationRun[] = [];
 		/** Failed hole prints a mark, logs once. */
 		const filled = async (text: string, action: string): Promise<string> => {
-			if (!holes || !hasHoles(text)) return unescapedText(text);
+			if (!hasHoles(text)) return unescapedText(text);
+			if (!holes) {
+				runs.push(fireRun(fire, "uncertain", "its holes cannot be read yet", action));
+				return unreadText(text);
+			}
 			const read = await holes.fill(text, names);
 			if (read.failed > 0) {
 				runs.push(fireRun(fire, "uncertain", `${read.failed} of its holes could not be read`, action));
@@ -870,7 +856,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		const lastRanAt = own(state.ran, record.id);
 		const device = deviceOf(record);
 		const { trigger } = record.body;
-		const nextRunAt = isClock(trigger) && slot && armed(record) ? nextSlot(trigger, slot.at) : null;
+		const current = slot?.revision === record.revision ? slot : undefined;
+		const nextRunAt = isClock(trigger) && current && armed(record) ? nextSlot(trigger, current.at) : null;
 		return {
 			id: record.id,
 			revision: record.revision,

@@ -222,7 +222,7 @@ private fun CrossingForm(
 		suffix = { Text("min") },
 		singleLine = true,
 		enabled = enabled,
-		keyboardOptions = COUNT_KEYS,
+		keyboardOptions = NUMBER_KEYS,
 		modifier = Modifier.fillMaxWidth(),
 	)
 }

@@ -41,6 +41,7 @@ internal fun consolePaint(source: String, entities: Set<String>, variables: Set<
 	val tokens = lexConsole(source)
 	return tokens.mapIndexed { at, token ->
 		val afterDot = tokens.getOrNull(at - 1)?.let { it.kind == ConsoleTokenKind.PUNCT && it.text == "." } == true
+		val called = tokens.getOrNull(at + 1)?.let { it.kind == ConsoleTokenKind.PUNCT && it.text == "(" } == true
 		val paint =
 			when (token.kind) {
 				ConsoleTokenKind.IDENT ->
@@ -49,6 +50,7 @@ internal fun consolePaint(source: String, entities: Set<String>, variables: Set<
 						// An entity outranks a saved name.
 						token.text in entities -> CodeToken.TYPE
 						token.text in variables -> CodeToken.VARIABLE
+						called -> CodeToken.FUNCTION
 						else -> CodeToken.PROPERTY
 					}
 				ConsoleTokenKind.NUMBER -> CodeToken.NUMBER

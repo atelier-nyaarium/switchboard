@@ -30,6 +30,39 @@ export function nextSlot(trigger: ClockTrigger, after: number): number | null {
 	);
 }
 
+const WALK_MAX = 2_000;
+
+export interface SlotWalk {
+	/** The last slot at or before `now`; `from` when none came round. */
+	at: number;
+	due: number[];
+	missed: number;
+}
+
+/** An interval is counted, never stepped, to stay on its grid. */
+export function walkSlots(trigger: ClockTrigger, from: number, now: number): SlotWalk {
+	if (trigger.kind === "interval") {
+		const step = trigger.everyMin * MINUTE_MS;
+		const count = Math.max(0, Math.floor((now - from) / step));
+		const first = Math.max(1, Math.ceil((now - CLOCK_GRACE_MS - from) / step));
+		const due = Array.from({ length: Math.max(0, count - first + 1) }, (_, at) => from + (first + at) * step);
+		return { at: from + count * step, due, missed: count - due.length };
+	}
+	const walk: SlotWalk = { at: from, due: [], missed: 0 };
+	let steps = 0;
+	for (
+		let next = nextSlot(trigger, from);
+		next !== null && next <= now && steps < WALK_MAX;
+		next = nextSlot(trigger, next)
+	) {
+		walk.at = next;
+		steps += 1;
+		if (now - next > CLOCK_GRACE_MS) walk.missed += 1;
+		else walk.due.push(next);
+	}
+	return walk;
+}
+
 const knownZone = (zone: string): boolean => {
 	try {
 		new Intl.DateTimeFormat("en-US", { timeZone: zone });

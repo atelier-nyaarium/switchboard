@@ -19,28 +19,17 @@ private val ESCAPED = setOf('{', '}', '\\')
 private const val EVENT_NAME = "event"
 private val EVENT_OWN = listOf("id", "title", "url")
 
-/** Null once the action is gone. */
-internal fun textAt(draft: AutomationDraft, ref: TextRef): String? = when (val action = draft.actions.getOrNull(ref.action)) {
-	is ActionDraft.Tell -> action.message.takeIf { ref.param == PARAM_MESSAGE }
-	is ActionDraft.Ifttt -> when (ref.param) {
-		PARAM_VALUE1 -> action.value1
-		PARAM_VALUE2 -> action.value2
-		PARAM_VALUE3 -> action.value3
-		else -> null
-	}
-	is ActionDraft.DeviceSet, is ActionDraft.Kept, null -> null
+/** Null when the action or text is gone. */
+internal fun textParam(draft: AutomationDraft, ref: TextRef, offer: AutomationOffer): ParamOffer? {
+	val action = draft.actions.getOrNull(ref.action) as? ActionDraft.Filled ?: return null
+	return offer.action(action.kind)?.param(ref.param)?.takeIf { it.kind == PARAM_TEXT }
 }
 
-internal fun textLabel(ref: TextRef): String = when (ref.param) {
-	PARAM_MESSAGE -> "Message"
-	PARAM_VALUE1 -> "Value 1"
-	PARAM_VALUE2 -> "Value 2"
-	PARAM_VALUE3 -> "Value 3"
-	else -> "Text"
+/** Null where `textParam` is. */
+internal fun textAt(draft: AutomationDraft, ref: TextRef, offer: AutomationOffer): String? {
+	val action = draft.actions.getOrNull(ref.action) as? ActionDraft.Filled ?: return null
+	return textParam(draft, ref, offer)?.let { action.values[it.name].orEmpty() }
 }
-
-/** Wire cap. */
-internal fun textMax(ref: TextRef): Int = if (ref.param == PARAM_MESSAGE) MAX_MESSAGE_LEN else MAX_IFTTT_VALUE_LEN
 
 /** Unclosed hole runs to the end. */
 internal fun holeAt(text: String, cursor: Int): HolePart.Hole? =
@@ -90,7 +79,7 @@ internal fun holeAssist(
 ): ConsoleAssist {
 	val hole = holeAt(text, cursor) ?: return ConsoleAssist(null, emptyList())
 	val inner = hole.start + 1
-	val assist = consoleAssist(hole.source, cursor - inner, description, ids, names)
+	val assist = consoleAssist(hole.source, cursor - inner, description, ids, names, noSlow = true)
 	return assist.copy(completions = assist.completions.map { it.copy(start = it.start + inner, end = it.end + inner) })
 }
 

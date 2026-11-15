@@ -1,0 +1,20 @@
+{
+	"matched": 0,
+	"of": 0,
+	"matches": [],
+	"names": [
+		{
+			"name": "value",
+			"shown": "1.8 C"
+		},
+		{
+			"name": "device",
+			"shown": "Outside thermometer"
+		},
+		{
+			"name": "time",
+			"shown": "2026-11-15 18:30"
+		}
+	],
+	"filled": "It is 1.8 C at Outside thermometer."
+}

@@ -13,7 +13,6 @@ import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
-import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
@@ -181,7 +180,8 @@ internal data class AutomationDraft(
 	fun toAutomation(offer: AutomationOffer = AutomationOffer(), display: String? = null): Automation? {
 		val built = builtTrigger(offer, display) ?: return null
 		if (actions.isEmpty() || actions.any { actionIssue(it, offer) != null }) return null
-		return Automation(label = original?.label, enabled = enabled, trigger = built, actions = actions.map(::actionOf))
+		val written = actions.map { actionOf(it, offer) ?: return null }
+		return Automation(label = original?.label, enabled = enabled, trigger = built, actions = written)
 	}
 
 	fun changedFrom(opened: AutomationDraft): Boolean =
@@ -229,7 +229,6 @@ internal fun automationStanding(registry: GatewayRegistry, gatewayId: String, ho
 	}
 }
 
-/** Gateways a new automation can start on. */
 internal fun newAutomationGateways(registry: GatewayRegistry, reachable: List<String>, home: String?): List<String> =
 	reachable.filter { id ->
 		newAutomationDraft(editorSources(registry, id, home), offerOn(registry.entry(id), away = id != home)) != null
@@ -241,14 +240,13 @@ internal fun automationDraftOf(row: AutomationRow, offer: AutomationOffer = Auto
 	return AutomationDraft(
 		id = row.id,
 		trigger = trigger,
-		actions = row.automation.actions.map(::actionDraftOf),
+		actions = row.automation.actions.map { actionDraftOf(it, offer) },
 		enabled = row.automation.enabled,
 		revision = row.revision,
 		original = row.automation,
 	)
 }
 
-/** Shared save and preview validation. */
 internal fun fittingAutomation(
 	draft: AutomationDraft,
 	fields: SourceFields,
@@ -269,7 +267,6 @@ internal fun askedTrigger(
 		triggerOffered(draft, sources, offer) && draft.conditions.all { condition -> fields.issueOf(condition) == null }
 	}
 
-/** What the editor opens with. */
 internal fun openedDraft(
 	slot: AutomationSlot,
 	row: AutomationRow?,
@@ -328,7 +325,6 @@ internal data class AutomationGroup(
 		editable(row, offer) && (assistant || row.automation.trigger !is AutomationTrigger.Event)
 }
 
-/** Gateways that list any, the home first. */
 internal fun automationGroups(registry: GatewayRegistry, home: String?): List<AutomationGroup> =
 	registry.gateways
 		.listedGroups { it.automations }
@@ -350,14 +346,12 @@ internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmp
 	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else listEmpty(registry, registry.gateways, read)
 }
 
-/** A sensor's alert is its sensor page's; the rest must be drawn whole. */
+/** A sensor's alert is its sensor page's; any other needs a trigger its Gateway holds. An action the editor cannot draw is kept. */
 internal fun editable(row: AutomationRow, offer: AutomationOffer = AutomationOffer()): Boolean {
 	val trigger = triggerDraftOf(row.automation.trigger, offer, null) ?: return false
-	return row.device == null && trigger.kind in offer.triggers &&
-		row.automation.actions.none { it is AutomationAction.Unknown }
+	return row.device == null && trigger.kind in offer.triggers
 }
 
-/** What a send left for the editor to draw. */
 internal sealed interface AutomationSaid {
 	val line: String
 
@@ -428,6 +422,4 @@ internal fun producesText(specs: List<AssistantFieldSpec>): String =
 internal fun previewHead(preview: ConsoleAutomationPreviewResult): String? =
 	if (preview.of == 0L) null else "Would have matched ${preview.matched} of the last ${preview.of}"
 
-internal fun usesOf(sourceId: String, rows: List<AutomationRow>): Int = rows.count { row ->
-	(row.automation.trigger as? AutomationTrigger.Event)?.source == sourceId
-}
+internal fun usesOf(sourceId: String, rows: List<AutomationRow>): Int = triggeredBy(sourceId, rows).size

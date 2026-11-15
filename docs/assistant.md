@@ -24,8 +24,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
   once and a restart never re-applies over an owner's edit.
   - **Named:** with its sources stopped, it places the session record in the sealed folder, resets
     poll state and grants, replaces this Gateway's event automations with the carried ones (none
-    when nothing was carried) in one write, drops one it cannot run, refuses the placement when the
-    set does not fit under the cap, takes the carried Safety (fresh when
+    when nothing was carried) in one write, keeps one it cannot run as it is, read invalid, refuses
+    the placement before anything is written when the set does not fit under the cap, takes the carried Safety (fresh when
     nothing was carried), sets each source's Enabled from what was carried (off when fresh, on for a
     carried source an older record names without the flag), keeps a carried grant only when this
     Gateway may use its entry, then starts its sources and reports. Until 2026-11-28 a payload from
@@ -483,10 +483,10 @@ cannot rewrite what sorts its own events.
 
 - **A record:** a phone-minted id, `enabled`, a `trigger` and one to 8 `actions`, at most 64 per
   Gateway. An `event` trigger names a source and up to 8 conditions, all of which must hold; none
-  takes every event. A `value` trigger is a choice or boolean computed field becoming a value, with
-  a cool-down, which a sensor's Alerts rows write (`docs/fields.md`). The one action is
-  `tell_assistant` with `when`: `now` wakes, `quietly` leaves the event in the inbox. A condition is
-  a field the source declares, a test and a value.
+  takes every event. The other triggers and the actions are in `docs/fields.md`. `tell_assistant`
+  takes `when`: `now` wakes, `quietly` leaves the event in the inbox. A tell with a `message` is
+  told through the automations' outbox as its own event, so the lane decides a wake only from tells
+  with none. A condition is a field the source declares, a test and a value.
 - **Every match fires:** an event that does not say how it tells asks its source's armed event
   automations, enabled and valid, through `conditionsMatch`. Any match that tells `now` wakes, and
   an event several automations wake about wakes once. There is no order and no first match. An
@@ -509,8 +509,7 @@ cannot rewrite what sorts its own events.
   `tests/fixtures/assistant-rules/vectors.json` pins it to `conditionsIssue` on both runtimes.
 - **The Gateway writes each row's sentence:** from the trigger, the source's `brief` then each
   condition as field label, test and option label ("GitHub: reason is review requested"), or
-  "every event" when there are none (`eventSentence`). Nothing stores it. A sensor alert's row
-  carries its own `label`.
+  "every event" when there are none (`eventSentence`). Nothing stores it.
 - **Values off the list are reported:** every poll checks its events against the declarations,
   the priming poll included, and keeps each value outside its field's list once, up to 32, with an
   overflow flag. An entry leaves once the declaration lists it. The phone shows them on the

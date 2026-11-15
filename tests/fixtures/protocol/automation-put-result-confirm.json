@@ -1,0 +1,31 @@
+{
+	"stored": false,
+	"revision": 3,
+	"row": {
+		"id": "frost",
+		"revision": 3,
+		"automation": {
+			"enabled": true,
+			"trigger": {
+				"kind": "crossing",
+				"device": "ce:1c:44:06:3c:5d",
+				"measure": "temperature",
+				"direction": "below",
+				"threshold": 2,
+				"deadZone": 0.5,
+				"coolDownSec": 90
+			},
+			"actions": [
+				{
+					"kind": "tell_assistant",
+					"when": "quietly",
+					"message": "It is {value} at {device}."
+				}
+			]
+		},
+		"sentence": "Outside thermometer temperature goes below 2.0 C",
+		"nextRunAt": 1763000000000
+	},
+	"reason": "confirm what it does without asking",
+	"confirm": ["Send to IFTTT"]
+}

@@ -20,6 +20,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusAnswer
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusKey
 import java.io.File
@@ -115,16 +116,16 @@ class PhoneEncodedFixtureTest {
 	private val edited = listOf(
 		"a crossing that switches a plug and tells with a message" to draft(
 			TriggerDraft.Crossing(SANDBOX_SENSOR, "temperature", "below", "35.6", "0.9", "10"),
-			ActionDraft.DeviceSet(SANDBOX_SWITCH, "on"),
-			ActionDraft.Tell("quietly", "It is {value} at {device}."),
+			plugDraft(SANDBOX_SWITCH, "on"),
+			toldDraft("quietly", "It is {value} at {device}."),
 		),
 		"a time of day that sends to IFTTT with one value" to draft(
 			TriggerDraft.Time("18:30", setOf(1, 5), "America/Los_Angeles"),
-			ActionDraft.Ifttt("door_open", "Lamp at {time}", "", ""),
+			iftttDraft("door_open", "Lamp at {time}"),
 		),
 		"an interval that tells with no message" to draft(
 			TriggerDraft.Interval("2", IntervalUnit.HOURS),
-			ActionDraft.Tell("now", ""),
+			toldDraft("now", ""),
 		),
 	)
 
@@ -157,7 +158,14 @@ class PhoneEncodedFixtureTest {
 			),
 		).map { case("a status held by ${it.holder ?: "nobody"}", PhoneStatusAnswer.serializer(), it) } +
 		case("an app opened with nothing else to say", AppOpenAnswer.serializer(), AppOpenAnswer(opened = true)) +
-		edited.map { (name, draft) -> case(name, Automation.serializer(), draft.toAutomation(offer, "F")!!) }
+		edited.map { (name, draft) -> case(name, Automation.serializer(), draft.toAutomation(offer, "F")!!) } +
+		listOf(
+			"a save the owner agreed to" to ConsoleOp.AutomationPut("door", edited[1].second.toAutomation(offer, "F")!!, 2L, confirmed = true),
+			"a save that needs no go-ahead" to ConsoleOp.AutomationPut("hourly", edited[2].second.toAutomation(offer, "F")!!, 0L),
+			"a preview of a text with holes" to
+				ConsoleOp.AutomationPreview(edited[0].second.toAutomation(offer, "F")!!.trigger, text = "It is {value} at {device}."),
+			"a preview of a trigger alone" to ConsoleOp.AutomationPreview(edited[2].second.toAutomation(offer, "F")!!.trigger),
+		).map { (name, op) -> case(name, ConsoleOp.serializer(), op) }
 
 	private class Case(val name: String, val schema: String, val value: JsonElement)
 

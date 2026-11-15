@@ -1,7 +1,7 @@
 import { type ConsoleNode, parseConsole } from "../../shared/live-console-grammar.js";
 import { oneLine } from "../../shared/system-reminder.js";
-import { scanHoles } from "../../shared/text-holes.js";
-import { freeBuiltin, valueBuiltin } from "./builtins.js";
+import { HOLE_FAILED, scanHoles } from "../../shared/text-holes.js";
+import { arityIssue, freeBuiltin, valueBuiltin } from "./builtins.js";
 import { evaluateConsole } from "./evaluate.js";
 import type { ConsoleAudience, ConsoleRegistry } from "./registry.js";
 import { numberText } from "./render.js";
@@ -9,7 +9,6 @@ import { numberText } from "./render.js";
 /** Host audience; slow members barred. */
 const AUDIENCE: ConsoleAudience = "host";
 const HOLE_STEPS_MAX = 2_000;
-export const HOLE_FAILED = "{?}";
 
 /** UTF-16 offsets, end-exclusive. */
 export interface HoleIssue {
@@ -34,10 +33,13 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 	switch (node.kind) {
 		case "literal":
 			return null;
-		case "ident":
-			return names.has(node.name) || registry.get(node.name, AUDIENCE)
-				? null
-				: { start: node.start, end: node.end, message: `no name ${node.name} here` };
+		case "ident": {
+			if (names.has(node.name)) return null;
+			const message = registry.get(node.name, AUDIENCE)
+				? `name what to read of ${node.name}`
+				: `no name ${node.name} here`;
+			return { start: node.start, end: node.end, message };
+		}
 		case "member": {
 			const entity = entityOf(node.target);
 			if (!entity) return walk(node.target);
@@ -50,9 +52,10 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 		case "call": {
 			const { target } = node;
 			if (target.kind === "ident") {
-				if (!freeBuiltin(target.name)) {
-					return { start: target.start, end: target.end, message: `no function ${target.name}()` };
-				}
+				const builtin = freeBuiltin(target.name);
+				if (!builtin) return { start: target.start, end: target.end, message: `no function ${target.name}()` };
+				const wrong = arityIssue(builtin, node.args.length);
+				if (wrong) return { start: node.start, end: node.end, message: wrong };
 			} else if (target.kind === "member") {
 				const entity = entityOf(target.target);
 				const found =
@@ -95,10 +98,6 @@ export function holeIssue(text: string, names: readonly string[], registry: Cons
 		const [statement, second] = parsed.statements;
 		if (!statement) return { ...whole, message: "a hole needs an expression" };
 		if (second || statement.assign) return { ...whole, message: "a hole holds one expression" };
-		const { node } = statement;
-		if (node.kind === "ident" && !scope.has(node.name) && registry.get(node.name, AUDIENCE)) {
-			return { ...whole, message: `name what to read of ${node.name}` };
-		}
 		const found = unreadable(statement.node, scope, registry);
 		if (found) return { start: inner + found.start, end: inner + found.end, message: found.message };
 	}
