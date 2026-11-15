@@ -1395,6 +1395,8 @@ sealed class ConsoleOp {
 	@SerialName("automation_preview")
 	data class AutomationPreview(
 		val trigger: AutomationTrigger,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val text: String? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2654,6 +2656,8 @@ data class AutomationRow(
 @Serializable
 data class ConsoleAutomationListResult(
 	val automations: List<AutomationRow>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val serves: AutomationServes? = null,
 )
 
 @Serializable
@@ -2682,6 +2686,12 @@ data class ConsoleAutomationPreviewResult(
 	val matched: Long,
 	val of: Long,
 	val matches: List<AutomationPreviewMatch>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val names: List<AutomationPreviewName>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val filled: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val hole: AutomationPreviewHole? = null,
 )
 
 @Serializable
@@ -5111,6 +5121,19 @@ data class AssistantIntegration(
 )
 
 @Serializable
+data class AutomationServes(
+	val triggers: List<String>,
+	val actions: List<AutomationActionOffer>,
+)
+
+@Serializable
+data class AutomationActionOffer(
+	val kind: String,
+	val label: String,
+	val danger: Boolean,
+)
+
+@Serializable
 data class AutomationHoleSpan(
 	val action: Long,
 	val param: String,
@@ -5122,6 +5145,19 @@ data class AutomationHoleSpan(
 data class AutomationPreviewMatch(
 	val title: String,
 	val at: Long,
+)
+
+@Serializable
+data class AutomationPreviewName(
+	val name: String,
+	val shown: String,
+)
+
+@Serializable
+data class AutomationPreviewHole(
+	val start: Long,
+	val end: Long,
+	val message: String,
 )
 
 @Serializable

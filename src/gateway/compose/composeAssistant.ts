@@ -185,6 +185,11 @@ export interface AssistantStage {
 	eventSentence: (trigger: EventTrigger) => string;
 	/** Over the live first page. */
 	previewTrigger: (trigger: AutomationTrigger) => Promise<ConsoleAutomationPreviewResult>;
+	/** The matches, and the newest one's names for a text's holes. */
+	previewEvent: (trigger: EventTrigger) => Promise<{
+		preview: ConsoleAutomationPreviewResult;
+		names: Record<string, { value: unknown; shown?: string }> | null;
+	}>;
 	/** Bound on federation activation. */
 	bindWake: (wake: AssistantWake) => void;
 	/** Check-now road. */
@@ -261,20 +266,20 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	/** Every match fires; one waking match wakes. */
 	const decide = (sourceId: string, event: SourceEvent): RuleAction =>
 		told(event) ?? (wakers(sourceId, event).length > 0 ? "wake" : "inbox");
+	/** What a text's holes read of an event. */
+	const eventNames = (sourceId: string, { id, title, url, fields }: SourceEvent) => ({
+		event: { value: { ...fields, id, title, ...(url ? { url } : {}) }, shown: title },
+		source: { value: sources.find((source) => source.id === sourceId)?.label ?? sourceId },
+	});
 	/** Each match runs its effects once per event. */
 	const arrived = (sourceId: string, events: readonly SourceEvent[]): void => {
 		const specs = specsOf(sourceId) ?? [];
 		const armed = automations?.eventsOf(sourceId) ?? [];
-		const label = sources.find((source) => source.id === sourceId)?.label ?? sourceId;
 		const matched = events.flatMap((event) => {
-			const { id, title, url, fields } = event;
-			const names = {
-				event: { value: { ...fields, id, title, ...(url ? { url } : {}) }, shown: title },
-				source: { value: label },
-			};
+			const names = eventNames(sourceId, event);
 			return armed
-				.filter(({ trigger }) => conditionsMatch(trigger.conditions, specs, fields))
-				.map((held) => ({ automation: held.id, key: `event:${sourceId}:${id}`, names }));
+				.filter(({ trigger }) => conditionsMatch(trigger.conditions, specs, event.fields))
+				.map((held) => ({ automation: held.id, key: `event:${sourceId}:${event.id}`, names }));
 		});
 		automations?.fireEvents(matched, ambient.now());
 	};
@@ -802,6 +807,33 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 	});
 
+	/** Throws what a put would refuse. */
+	const previewEvent = async (trigger: EventTrigger) => {
+		const issue = eventIssue(trigger);
+		if (issue !== null) throw new Error(issue);
+		const recent = (
+			await livePage(
+				trigger.source,
+				() => ({ scope: "all" }),
+				ASSISTANT_WAITS.preview,
+				(page) => page.events,
+			)
+		)
+			.sort((a, b) => b.at - a.at)
+			.slice(0, AUTOMATION_PREVIEW_EVENTS);
+		const specs = specsOf(trigger.source) ?? [];
+		const matches = recent.filter((event) => conditionsMatch(trigger.conditions, specs, event.fields));
+		const [newest] = matches;
+		return {
+			preview: {
+				matched: matches.length,
+				of: recent.length,
+				matches: matches.slice(0, AUTOMATION_PREVIEW_SHOWN).map(({ title, at }) => ({ title, at })),
+			},
+			names: newest ? eventNames(trigger.source, newest) : null,
+		};
+	};
+
 	return {
 		temperatureUnit: temperature.temperatureUnit,
 		reserves: isAssistant,
@@ -858,26 +890,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		iftttTrigger: (params) => ifttt.trigger(params),
 		previewTrigger: async (trigger) => {
 			if (trigger.kind !== "event") throw new Error("only an event trigger previews");
-			const issue = eventIssue(trigger);
-			if (issue !== null) throw new Error(issue);
-			const recent = (
-				await livePage(
-					trigger.source,
-					() => ({ scope: "all" }),
-					ASSISTANT_WAITS.preview,
-					(page) => page.events,
-				)
-			)
-				.sort((a, b) => b.at - a.at)
-				.slice(0, AUTOMATION_PREVIEW_EVENTS);
-			const specs = specsOf(trigger.source) ?? [];
-			const matches = recent.filter((event) => conditionsMatch(trigger.conditions, specs, event.fields));
-			return {
-				matched: matches.length,
-				of: recent.length,
-				matches: matches.slice(0, AUTOMATION_PREVIEW_SHOWN).map(({ title, at }) => ({ title, at })),
-			};
+			return (await previewEvent(trigger)).preview;
 		},
+		previewEvent,
 		bindWake: (bound) => {
 			wake = bound;
 		},

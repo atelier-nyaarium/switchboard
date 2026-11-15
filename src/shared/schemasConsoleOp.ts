@@ -7,7 +7,7 @@ import { TemperatureUnitSchema } from "./schemasAssistant.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
-import { AutomationSchema, AutomationTriggerSchema } from "./schemasAutomation.js";
+import { AUTOMATION_MESSAGE_MAX, AutomationSchema, AutomationTriggerSchema } from "./schemasAutomation.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { DEVICE_CONSOLE_OP_KINDS, DEVICE_CONSOLE_REQUESTS } from "./schemasDevices.js";
 import { CONSOLE_LIMIT_MAX, ConsoleVariablesSchema } from "./schemasLiveConsole.js";
@@ -360,7 +360,12 @@ export const ConsoleOpSchema = z
 			baseRevision: z.number().int().positive(),
 		}),
 		/** Over the source's live first page. */
-		z.object({ kind: z.literal("automation_preview"), trigger: AutomationTriggerSchema }),
+		z.object({
+			kind: z.literal("automation_preview"),
+			trigger: AutomationTriggerSchema,
+			/** A text whose holes to fill. */
+			text: z.string().max(AUTOMATION_MESSAGE_MAX).optional(),
+		}),
 		/** Gateway-local; survives release. */
 		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
 		z.object({ kind: z.literal("assistant_temperature_unit"), temperatureUnit: TemperatureUnitSchema }),

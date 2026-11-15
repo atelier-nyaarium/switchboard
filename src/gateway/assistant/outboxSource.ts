@@ -11,7 +11,7 @@ const eventOf = ({ when, ...event }: OutboxEvent): SourceEvent => ({ ...event, t
 export function createOutboxSource(outbox: AutomationOutbox): Source {
 	return {
 		id: SENSORS_SOURCE_ID,
-		label: "Sensors",
+		label: "Automations",
 		selfTold: true,
 		fieldSpecs: [
 			{ kind: "text", field: "automation", label: "Automation" },

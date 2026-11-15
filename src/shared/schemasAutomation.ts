@@ -211,8 +211,30 @@ export const AutomationRowSchema = z
 
 export type AutomationRow = z.infer<typeof AutomationRowSchema>;
 
+/** The kinds this Gateway's automations can hold. */
+export const AUTOMATION_SERVES = {
+	triggers: Object.keys(AUTOMATION_TRIGGER_NAMES),
+	actions: Object.entries(AUTOMATION_ACTIONS).map(([kind, row]) => ({ kind, label: row.label, danger: row.danger })),
+};
+
 export const ConsoleAutomationListResultSchema = z
-	.object({ automations: z.array(AutomationRowSchema) })
+	.object({
+		automations: z.array(AutomationRowSchema),
+		/** Absent from a build that holds an event trigger and a tell alone. */
+		serves: z
+			.object({
+				triggers: z.array(z.string().max(32)).max(16),
+				actions: z
+					.array(
+						z
+							.object({ kind: z.string().max(32), label: z.string().max(80), danger: z.boolean() })
+							.meta({ id: "AutomationActionOffer" }),
+					)
+					.max(16),
+			})
+			.meta({ id: "AutomationServes" })
+			.optional(),
+	})
 	.meta({ id: "ConsoleAutomationListResult" });
 
 export const ConsoleAutomationPutResultSchema = z
@@ -254,6 +276,26 @@ export const ConsoleAutomationPreviewResultSchema = z
 		matches: z
 			.array(z.object({ title: z.string(), at: z.number().int() }).meta({ id: "AutomationPreviewMatch" }))
 			.max(AUTOMATION_PREVIEW_SHOWN),
+		/** The trigger's names as they stand now; an event's are its newest match's. */
+		names: z
+			.array(
+				z
+					.object({ name: z.string().max(32), shown: z.string().max(200) })
+					.meta({ id: "AutomationPreviewName" }),
+			)
+			.max(16)
+			.optional(),
+		/** The text sent, with its holes filled from `names`. */
+		filled: z.string().max(4_000).optional(),
+		/** Why the text cannot be saved, and where. */
+		hole: z
+			.object({
+				start: z.number().int().nonnegative(),
+				end: z.number().int().nonnegative(),
+				message: z.string().max(200),
+			})
+			.meta({ id: "AutomationPreviewHole" })
+			.optional(),
 	})
 	.meta({ id: "ConsoleAutomationPreviewResult" });
 

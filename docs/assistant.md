@@ -369,7 +369,7 @@ active, and stops before the shutdown flush.
 ### Sources
 
 A source is plain Gateway code, never a model: it polls a service and lists its events. GitHub
-notifications reads GitHub; the Sensors source lists the automations' outbox.
+notifications reads GitHub; the Automations source, whose id stays `sensors`, lists the automations' outbox.
 
 - **A source names itself:** `Source.label` is what a wake, a listing, the phone and the baseline
   show, and the source lanes refuse a blank one, so no source appears by its id. `Source.brief` is
@@ -402,16 +402,18 @@ notifications reads GitHub; the Sensors source lists the automations' outbox.
   session. The op answers once the nudge lands or `SEND_BOUND_MS` passes; a disabled source is
   refused. The delivery id is the op's, so a retried op nudges once.
 - **What can trigger:** a source's events can trigger event automations unless its events say how
-  they tell (`Source.selfTold`, the wire's `triggers` false). The Sensors source is one, and an event
+  they tell (`Source.selfTold`, the wire's `triggers` false). The Automations source is one, and an event
   automation over it is refused.
 - **On the wire:** `assistant_state` answers `sources` (`AssistantSource`). Until 2026-11-28 it also
   answers `watchers`, the same rows with empty rules, and the `assistant_watcher_*` ops still run,
   for an older phone.
 
-### Sensors
+### Automations
 
-The `sensors` source lists the automations' outbox: one event per value automation crossing, with
-the text fields automation, field and value. Each event carries the `when` of the automation that
+The `sensors` source, labelled "Automations", lists the automations' outbox: one event for each
+thing an automation told, a crossing, a time that came round, or a message about another source's
+event. Its text fields are automation, field, value and message, and an event carries the names
+its trigger read. Each event carries the `when` of the automation that
 wrote it, so it decides itself: `now` wakes and `quietly` leaves it in the inbox. The
 automations answer the outbox in their own words (`AutomationOutbox` in
 `src/gateway/computed/automations.ts`), and `createOutboxSource` in
@@ -508,6 +510,11 @@ cannot rewrite what sorts its own events.
   records a fire for every armed automation of the source whose conditions match and that holds an
   action other than a tell (`docs/fields.md`). A crash between the commit and the fire loses the
   effect rather than repeating it.
+- **Before a save:** `automation_preview` answers an event trigger's matches as before, and for any
+  trigger its names as they stand now (`names`; an event's are its newest match's). Sent a `text`,
+  it answers the text filled from those names (`filled`) or the hole that cannot be kept (`hole`).
+  `automation_list` answers `serves`, the trigger kinds and the actions (kind, label, dangerous)
+  this Gateway's automations can hold, which the phone's editor offers.
 - **`lastRanAt`:** a value automation's last fire, the last time an effect of it ran, or the last time an event automation's wake
   landed. The lane reports the events whose wake committed (`woke`), and `noteEvents` stamps each
   automation that woke for them.

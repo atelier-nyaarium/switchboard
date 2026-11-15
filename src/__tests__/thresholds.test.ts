@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
-import { createAutomations } from "../gateway/computed/automations.js";
+import { previewAutomation } from "../gateway/computed/automationPreview.js";
+import { type AutomationHoles, createAutomations } from "../gateway/computed/automations.js";
 import { createComputedFields } from "../gateway/computed/computedFields.js";
 import { thresholdAutomations, thresholdIds } from "../gateway/computed/thresholds.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
@@ -19,6 +20,10 @@ afterEach(() => {
 
 const FREEZER = "ce:1c:44:06:3c:5d";
 const REGISTRY = createConsoleRegistry([]);
+const HOLES: AutomationHoles = {
+	issue: (text, names) => holeIssue(text, names, REGISTRY),
+	fill: (text, names) => fillHoles(text, names, REGISTRY),
+};
 const TEMP = refKey({ source: "device", device: FREEZER, key: "temperature" });
 
 function world() {
@@ -53,10 +58,7 @@ function world() {
 				newIncarnation: () => `a${++n}`,
 				now: () => clock,
 				isHome: () => true,
-				holes: () => ({
-					issue: (text, names) => holeIssue(text, names, REGISTRY),
-					fill: (text, names) => fillHoles(text, names, REGISTRY),
-				}),
+				holes: () => HOLES,
 				reading: (device, measure) =>
 					device === FREEZER && measure === "temperature"
 						? {
@@ -171,6 +173,39 @@ describe("a crossing", () => {
 
 		expect(refused).toMatchObject({ stored: false, hole: { action: 0, param: "message", start: 7, end: 18 } });
 		expect(message.slice(7, 18)).toBe("temperature");
+	});
+
+	it("previews a text over the number as it stands, lists the names a hole may read, and marks a hole it cannot keep", async () => {
+		const { automations } = world();
+		const { trigger } = above();
+		const deps = {
+			event: async () => {
+				throw new Error("no source here");
+			},
+			namesNow: automations.namesNow,
+			holes: () => HOLES,
+		};
+
+		const shown = await previewAutomation(deps, trigger, "It is {value}, past {threshold}");
+		const marked = await previewAutomation(deps, trigger, "It is {temp}");
+		const elsewhere = previewAutomation(deps, {
+			...trigger,
+			kind: "crossing",
+			device: "nowhere",
+		} as typeof trigger);
+
+		expect(shown).toMatchObject({
+			names: [
+				{ name: "value", shown: "-18 C" },
+				{ name: "device", shown: "Freezer" },
+				{ name: "measure", shown: "Temperature" },
+				{ name: "threshold", shown: "-10 C" },
+			],
+			filled: "It is -18 C, past -10 C",
+		});
+		expect(marked).toMatchObject({ hole: { start: 7, end: 11 } });
+		expect(marked.filled).toBeUndefined();
+		await expect(elsewhere).rejects.toThrow();
 	});
 
 	it("refuses a number no sensor reads here, and names its sensor only under an alert's id", () => {

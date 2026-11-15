@@ -11,8 +11,10 @@ import {
 	type Automation,
 	type AutomationRow,
 	AutomationSchema,
+	type AutomationTrigger,
 	type ConsoleAutomationDeleteResult,
 	type ConsoleAutomationPutResult,
+	type CrossingTrigger,
 	type EventTrigger,
 	TELL_WHEN,
 	type TellWhen,
@@ -357,8 +359,14 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Names a fired trigger read. */
 	const namesOf = (record: OwnerRecord<Automation>, value: string | number | boolean, label: string): FireNames => {
 		const { trigger } = record.body;
-		const reading = trigger.kind === "crossing" ? deps.reading?.(trigger.device, trigger.measure) : null;
-		if (trigger.kind !== "crossing" || !reading) return { value: { value }, field: { value: label } };
+		const names = trigger.kind === "crossing" ? crossingNames(trigger) : null;
+		return names && Object.keys(names).length > 0 ? names : { value: { value }, field: { value: label } };
+	};
+
+	/** Empty when no sensor reads it. */
+	const crossingNames = (trigger: CrossingTrigger): FireNames => {
+		const reading = deps.reading?.(trigger.device, trigger.measure);
+		if (!reading) return {};
 		const now = reading.now();
 		return {
 			value:
@@ -911,6 +919,24 @@ export function createAutomations(deps: AutomationsDeps) {
 		},
 		/** Read-time validity; never stored. */
 		invalidOf: (id: string): string | null => records.invalidOf(id),
+		/** A trigger's names as they stand now; throws what a put would refuse. */
+		namesNow(trigger: Exclude<AutomationTrigger, EventTrigger>): FireNames {
+			const probe: Automation = {
+				enabled: true,
+				trigger,
+				actions: [{ kind: "tell_assistant", when: "quietly" }],
+			};
+			const issue = triggerIssue(probe);
+			if (issue !== null) throw new Error(issue);
+			if (isClock(trigger)) {
+				const now = deps.now();
+				return { time: { value: now, shown: clockShown(trigger, now) } };
+			}
+			if (trigger.kind === "crossing") return crossingNames(trigger);
+			const label = deps.fields.get(trigger.field)?.body.label ?? trigger.field;
+			const held = deps.fields.value(trigger.field);
+			return { value: { value: held.known ? held.value : null }, field: { value: label } };
+		},
 		/** Field commit callback. */
 		drain: (): void => {
 			drain();

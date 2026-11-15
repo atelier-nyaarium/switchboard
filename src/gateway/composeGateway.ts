@@ -7,6 +7,7 @@ import { ASSISTANT_TEAM, isAssistantRecord } from "../shared/assistant-session.j
 import { openDurable } from "../shared/durable-store.js";
 import { HOST_SPAWN, hostSpawnPoint, isHostSpawn } from "../shared/host-spawn.js";
 import { SENSORS_SOURCE_ID } from "../shared/schemasAssistantActions.js";
+import { AUTOMATION_SERVES } from "../shared/schemasAutomation.js";
 import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import { createOutboxSource } from "./assistant/outboxSource.js";
@@ -43,6 +44,7 @@ import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSoc
 import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflows.js";
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
+import { previewAutomation } from "./computed/automationPreview.js";
 import { type Automations, createAutomations } from "./computed/automations.js";
 import { type ComputedFields, createComputedFields } from "./computed/computedFields.js";
 import { createSensorThresholds, type SensorThresholds } from "./devices/sensorThresholds.js";
@@ -676,7 +678,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		routines,
 		policies,
 		automations: {
-			list: () => ({ automations: automations?.rows() ?? [] }),
+			list: () => ({ automations: automations?.rows() ?? [], serves: AUTOMATION_SERVES }),
 			put: (id, automation, base, confirmed) =>
 				automations?.ownerPut(id, automation, base, confirmed) ?? {
 					stored: false,
@@ -684,7 +686,19 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 					reason: "not loaded yet",
 				},
 			remove: (id, base) => automations?.ownerRemove(id, base) ?? { deleted: false, reason: "not loaded yet" },
-			preview: (trigger) => assistant.previewTrigger(trigger),
+			preview: (trigger, text) =>
+				previewAutomation(
+					{
+						event: assistant.previewEvent,
+						namesNow: (clocked) => {
+							if (!automations) throw new Error("not loaded yet");
+							return automations.namesNow(clocked);
+						},
+						holes: () => liveConsole.holes,
+					},
+					trigger,
+					text,
+				),
 		},
 		cuts: sessionCut.cuts,
 		sessionClosed,

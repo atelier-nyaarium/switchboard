@@ -194,7 +194,8 @@ export interface AutomationConsoleHandlers {
 	list: () => ConsoleAutomationListResult;
 	put: (automationId: string, automation: Automation, base: number, confirmed: boolean) => ConsoleAutomationPutResult;
 	remove: (automationId: string, base: number) => ConsoleAutomationDeleteResult;
-	preview: (trigger: AutomationTrigger) => Promise<ConsoleAutomationPreviewResult>;
+	/** `text` is a message whose holes to fill. */
+	preview: (trigger: AutomationTrigger, text?: string) => Promise<ConsoleAutomationPreviewResult>;
 }
 
 export interface PolicyConsoleHandlers {
