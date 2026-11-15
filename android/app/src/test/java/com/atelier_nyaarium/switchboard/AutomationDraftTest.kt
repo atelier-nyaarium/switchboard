@@ -59,6 +59,7 @@ import com.atelier_nyaarium.switchboard.assistant.triggerDraftOf
 import com.atelier_nyaarium.switchboard.assistant.triggerHint
 import com.atelier_nyaarium.switchboard.assistant.triggerIssue
 import com.atelier_nyaarium.switchboard.assistant.triggerOf
+import com.atelier_nyaarium.switchboard.assistant.unopenedLine
 import com.atelier_nyaarium.switchboard.assistant.usesOf
 import com.atelier_nyaarium.switchboard.assistant.usesText
 import com.atelier_nyaarium.switchboard.assistant.withHole
@@ -499,7 +500,7 @@ class AutomationPartsTest {
 	}
 
 	@Test
-	fun anEditorWaitsUntilItsGatewayAndTheHomesWordHaveAnswered() {
+	fun anEditorWaitsOnItsGatewaysListAndANewOneAtTheHomeOnItsWordAndSaysWhatItWaitsOn() {
 		fun registry(list: GatewayList<AutomationRow>, word: AssistantWord?) = GatewayRegistry(
 			provenance = RegistryProvenance.Current,
 			gateways = listOf(GatewayEntry("sakura", connected = true, incarnation = 1L, lastRegisteredAt = 1L, automations = list, assistant = word)),
@@ -516,14 +517,11 @@ class AutomationPartsTest {
 		assertEquals(EditStanding.READY, standing(listed, AssistantWord.Refused, "sakura"))
 		assertEquals(EditStanding.READY, standing(listed, null, "mikan"))
 		assertEquals(EditStanding.GONE, automationStanding(registry(listed, null), "sakura", "sakura", held = Lookup.Gone))
-		val elsewhere = registry(listed, null).copy(
-			gateways = registry(listed, null).gateways + GatewayEntry("mikan", connected = true, incarnation = 1L, lastRegisteredAt = 1L, automations = listed),
-		)
-		val onMikan = { registry: GatewayRegistry, held: Lookup<AutomationRow>? -> automationStanding(registry, "mikan", "sakura", held) }
-		assertEquals(EditStanding.READING, onMikan(elsewhere, null))
-		assertEquals(EditStanding.READING, onMikan(elsewhere, Lookup.Found(row("a", event()))))
-		assertEquals(EditStanding.READY, onMikan(elsewhere.withEntry("sakura") { it.copy(assistant = AssistantWord.Refused) }, null))
-		assertEquals(EditStanding.READY, onMikan(elsewhere.withEntry("sakura") { it.copy(connected = false) }, Lookup.Found(row("a", event()))))
+		assertEquals(EditStanding.READY, automationStanding(registry(listed, null), "sakura", "sakura", held = Lookup.Found(row("a", event()))))
+		val said = { slot: AutomationSlot, standing: EditStanding -> unopenedLine(slot, standing) }
+		assertEquals(listOf(null, null), listOf(AutomationSlot.New(), AutomationSlot.Held("a")).map { said(it, EditStanding.READING) })
+		assertEquals(waitingLine(EditStanding.UNREACHABLE), said(AutomationSlot.New(), EditStanding.UNREACHABLE))
+		assertEquals(false, said(AutomationSlot.New(), EditStanding.READY) == said(AutomationSlot.Held("a"), EditStanding.READY))
 	}
 
 	@Test

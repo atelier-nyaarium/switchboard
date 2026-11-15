@@ -81,7 +81,7 @@ internal fun SensorBody(repo: ChatRepository, state: ChatState, gatewayId: Strin
 
 @Composable
 private fun WatchingSection(repo: ChatRepository, state: ChatState, gatewayId: String, deviceId: String) {
-	LaunchedEffect(gatewayId) { repo.automationOps.refresh(gatewayId) }
+	LaunchedEffect(gatewayId, state.gateways.entry(gatewayId)?.incarnation) { repo.automationOps.refresh(gatewayId) }
 	val home = assistantGateway(state)
 	val entry = state.gateways.entry(gatewayId)
 	val offer = offerOn(entry, away = gatewayId != home)

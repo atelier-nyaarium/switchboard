@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { PollAnswerSchema, told } from "../gateway/assistant/source.js";
 import { memberKey } from "../gateway/assistant/sourceLane.js";
-import { createAutomations } from "../gateway/computed/automations.js";
+import { createAutomations, READY_GRACE_MS } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
@@ -169,7 +169,11 @@ function world(dir: string, home = true) {
 	const setIftttReady = (ready: boolean) => {
 		iftttReady = ready;
 	};
+	const advance = (ms: number) => {
+		clock += ms;
+	};
 	return {
+		advance,
 		open,
 		read,
 		missed,
@@ -710,6 +714,62 @@ describe("automations", () => {
 
 		expect(unready).toEqual([["plug:on"], ["heat"]]);
 		expect(w.effects).toEqual(["plug:on", "ifttt:freezer"]);
+	});
+
+	it("attempts an unready effect once the start's grace has passed, and holds a fire's plug and tell no longer than that", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const bell: Automation = {
+			...iceBucket(),
+			actions: [
+				{ kind: "device_set", device: "plug", verb: "on" },
+				{ kind: "ifttt_trigger", event: "freezer" },
+				{ kind: "tell_assistant", when: "now" },
+			],
+		};
+		automations.ownerPut("bell", bell, 0, true);
+		w.setIftttReady(false);
+		w.read(fields, -5);
+		await automations.settled();
+		const held = [[...w.effects], (await queued(automations)).length];
+		w.advance(READY_GRACE_MS);
+		automations.tick();
+		await automations.settled();
+
+		expect(held).toEqual([[], 0]);
+		expect(w.effects).toEqual(["plug:on", "ifttt:freezer"]);
+		expect(await queued(automations)).toHaveLength(1);
+	});
+
+	it("runs the effect of every event one poll brings, and of each that arrives behind a busy run", async () => {
+		const w = world(fresh());
+		const { automations } = w.open();
+		automations.ownerPut(
+			"flash",
+			{
+				enabled: true,
+				trigger: { kind: "event", source: "github", conditions: [] },
+				actions: [{ kind: "device_set", device: "plug", verb: "toggle" }],
+			},
+			0,
+		);
+		const event = (at: number) => ({
+			automation: "flash",
+			key: memberKey("github", { id: String(at), at }),
+			names: {},
+		});
+
+		automations.fireEvents([event(1), event(2)], 5_000);
+		await automations.settled();
+		const batch = w.effects.length;
+		const release = w.holdEffects();
+		for (const at of [3, 4, 5]) automations.fireEvents([event(at)], 6_000 + at);
+		release();
+		await automations.settled();
+
+		expect([batch, w.effects.length]).toEqual([2, 5]);
+		expect(automations.runs().filter((run) => run.outcome === "suppressed")).toEqual([]);
 	});
 
 	it("away from the home, switches its plug, refuses unsent an action that needs the home, and logs each standing refusal once", async () => {

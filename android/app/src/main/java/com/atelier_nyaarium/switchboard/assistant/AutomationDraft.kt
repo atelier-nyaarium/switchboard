@@ -1,8 +1,8 @@
 package com.atelier_nyaarium.switchboard.assistant
 
-import com.atelier_nyaarium.switchboard.AssistantRead
 import com.atelier_nyaarium.switchboard.AutomationSaved
 import com.atelier_nyaarium.switchboard.EditStanding
+import com.atelier_nyaarium.switchboard.waitingLine
 import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.GatewayEntry
@@ -231,22 +231,29 @@ internal fun newAutomationDraft(
 internal fun editorSources(registry: GatewayRegistry, gatewayId: String, home: String?): List<AssistantSource> =
 	registry.assistantOn(gatewayId)?.takeIf { gatewayId == home }?.let(::sourcesOf).orEmpty()
 
-/** Whether the Gateway's lists, and the home's word with its unit, are read. */
+/** Whether lists and the home's word are read. */
 internal fun automationStanding(registry: GatewayRegistry, gatewayId: String, home: String?, held: Lookup<AutomationRow>?): EditStanding {
-	val listed = when (registry.entry(gatewayId)?.automations) {
+	val entry = registry.entry(gatewayId)
+	val listed = when (entry?.automations) {
 		is GatewayList.Listed -> EditStanding.READY
 		GatewayList.Unread, null -> EditStanding.READING
 		GatewayList.Unreachable -> EditStanding.UNREACHABLE
 		GatewayList.NotServed -> EditStanding.NOT_SERVED
 	}
-	// A home offline or off the roster cannot answer.
-	val wordUnread = home != null && registry.connected(home) == true && registry.assistantRead(home) == AssistantRead.Reading
-	val word = if (wordUnread) EditStanding.READING else EditStanding.READY
 	return when {
-		held != null -> editStanding(held).takeUnless { it == EditStanding.READY } ?: word
+		held != null -> editStanding(held)
 		listed != EditStanding.READY -> listed
-		else -> word
+		// New at home needs sources.
+		gatewayId == home && entry?.assistant == null -> EditStanding.READING
+		else -> EditStanding.READY
 	}
+}
+
+/** Null draws a spinner. */
+internal fun unopenedLine(slot: AutomationSlot, standing: EditStanding): String? = when {
+	standing != EditStanding.READY -> waitingLine(standing)
+	slot is AutomationSlot.New -> "This Gateway has nothing an automation could start from."
+	else -> "This automation is not edited here."
 }
 
 internal fun newAutomationGateways(registry: GatewayRegistry, reachable: List<String>, home: String?): List<String> =

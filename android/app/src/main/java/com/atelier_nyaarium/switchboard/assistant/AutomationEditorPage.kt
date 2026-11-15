@@ -17,7 +17,6 @@ import com.atelier_nyaarium.switchboard.AutomationSaved
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
-import com.atelier_nyaarium.switchboard.EditStanding
 import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.MirroredDraft
@@ -26,7 +25,6 @@ import com.atelier_nyaarium.switchboard.assistantGateway
 import com.atelier_nyaarium.switchboard.displayUnitOf
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.rememberEdit
-import com.atelier_nyaarium.switchboard.waitingLine
 import kotlinx.coroutines.delay
 
 private const val PREVIEW_DEBOUNCE_MS = 400L
@@ -66,15 +64,12 @@ internal fun AutomationEditorPage(
 	val row = lookup?.found()
 	// Unit read at mint only.
 	val opened = remember(key, row, sources.isEmpty(), offer, display) { openedDraft(slot, row, sources, offer, display, zone) }
-	LaunchedEffect(gatewayId) { ops.refresh(gatewayId) }
+	// Restart drops served state.
+	LaunchedEffect(gatewayId, state.gateways.entry(gatewayId)?.incarnation) { ops.refresh(gatewayId) }
+	LaunchedEffect(home) { home?.let { repo.assistantOps.refresh(it) } }
 	val open = rememberEdit(ops.edits, key, automationStanding(state.gateways, gatewayId, home, lookup), opened) { standing ->
 		AssistantPageScaffold("Automation", onBack) {
-			val line = when {
-				slot is AutomationSlot.New -> "This Gateway has nothing an automation could start from."
-				standing == EditStanding.READY -> "This automation is not edited here."
-				else -> waitingLine(standing)
-			}
-			line?.let { Text(it, style = MaterialTheme.typography.bodyLarge) } ?: CircularProgressIndicator()
+			unopenedLine(slot, standing)?.let { Text(it, style = MaterialTheme.typography.bodyLarge) } ?: CircularProgressIndicator()
 		}
 	} ?: return
 	val session = open.session

@@ -57,6 +57,9 @@ const EFFECT_TEXT_MAX = 500;
 export const FIRES_MAX = 64;
 /** Event fires remembered against a repeat. */
 const FIRED_MAX = 256;
+/** Effect readiness wait. */
+export const READY_GRACE_MS = 120_000;
+const REPLACED = "a newer run replaced it";
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /** A walk whose write failed is retried after this. */
 const CLOCK_RETRY_MS = 30_000;
@@ -300,6 +303,7 @@ const queueBytes = (events: readonly QueueEntry[]) => Buffer.byteLength(JSON.str
 
 export function createAutomations(deps: AutomationsDeps) {
 	let state: State = restore(deps.state.load());
+	const startedAt = deps.now();
 
 	const store = createOwnerRecords<Automation>({
 		store: deps.records,
@@ -468,7 +472,8 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Refusal logged once per action. */
 	const logged = (log: readonly AutomationRun[], run: AutomationRun): AutomationRun[] => {
 		const last = log.findLast((held) => held.automation === run.automation && held.action === run.action);
-		const standing = run.outcome === "refused" && last?.outcome === "refused" && last.reason === run.reason;
+		const stands = run.outcome === "refused" || run.reason === REPLACED;
+		const standing = stands && last?.outcome === run.outcome && last.reason === run.reason;
 		return standing ? [...log] : [...log, run].slice(-LOG_MAX);
 	};
 
@@ -520,25 +525,26 @@ export function createAutomations(deps: AutomationsDeps) {
 			}),
 		);
 
-	/** One unstarted effects fire per automation. */
+	/** Backlog keeps newest unstarted fire. */
 	const replaceUnstarted = (work: Work, fire: Fire): void => {
 		const older = work.fires.findIndex(
 			(held) =>
 				held.automation === fire.automation &&
 				held.effects === undefined &&
 				held.member !== running?.member &&
-				held.member !== fire.member,
+				held.member !== fire.member &&
+				state.fires.some((stored) => stored.member === held.member),
 		);
 		const held = work.fires[older];
 		if (!held) return;
-		work.log = logged(work.log, fireRun(held, "suppressed", "a newer run replaced it"));
+		work.log = logged(work.log, fireRun(held, "suppressed", REPLACED));
 		if (held.tell) work.fires[older] = { ...held, effects: "done" };
 		else work.fires.splice(older, 1);
 	};
 
 	/** A fire waiting only on the outbox gives up its place. */
-	const admit = (work: Work, fire: Fire, effects: boolean): boolean => {
-		if (effects) replaceUnstarted(work, fire);
+	const admit = (work: Work, fire: Fire, collapses: boolean): boolean => {
+		if (collapses) replaceUnstarted(work, fire);
 		if (work.fires.length >= FIRES_MAX) {
 			const waiting = work.fires.findIndex((held) => held.waiting);
 			if (waiting === -1) {
@@ -580,7 +586,8 @@ export function createAutomations(deps: AutomationsDeps) {
 			names,
 			...(tell ? { tell } : {}),
 		};
-		return admit(work, recorded, effects);
+		// Events never collapse.
+		return admit(work, recorded, effects && record.body.trigger.kind !== "event");
 	};
 
 	/** Replays transitions idempotently. */
@@ -816,8 +823,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		ran: runs.some((run) => run.outcome === "ran") ? { ...held.ran, [fire.automation]: fire.at } : held.ran,
 	});
 
-	/** Unready effects wait unclaimed. */
+	/** Unready effects wait, within the start grace. */
 	const effectsReady = (body: Automation): boolean =>
+		deps.now() - startedAt >= READY_GRACE_MS ||
 		body.actions.every(
 			(action) =>
 				!isEffect(action) ||
