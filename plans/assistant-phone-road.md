@@ -751,6 +751,18 @@ Slices, in deploy order (a reader ships before what it reads):
 4. **The Gateway sends the new words.** `sources` and `automations` in the state (`watchers` stays through a dated window for an older phone), `assistant_source_*` and `automation_list`, `automation_put`, `automation_delete`, `automation_preview` ops with the `assistant_watcher_*` kinds parsed through the same window, `source/` action ids, `sources` in the baseline, `source:` in the inbox header, the baseline's overdue `evicted` dropped.
 5. **Home move.** The carried payload holds each source's `enabled` and grant and the event automations; an older sealed payload's rules convert through the same reader as slice 2.
 
+As built so far: slice 1 is in (`schemasAutomation.ts`, `createAutomations` with `eventsOf`, `sentenceOf`, the outbox's `when`, legacy bodies read and rewritten at open). The wire rows and results (`AutomationRow`, list, put, delete, preview) are defined and not yet served.
+
+Design held for slices 2 and 4, the Gateway half, decided while reading `composeAssistant`:
+
+- **The lane's sort:** a source event that says how it tells (`tell`, set by the outbox source from the entry's `when`) decides itself; any other asks the automations: wake when an armed event automation of that source matches and tells `now`, else inbox. `conditionsMatch` is the one matcher.
+- **The automations stage gets two late ports from the assistant:** `eventIssue` (the source is one this Gateway holds and the conditions fit its field specs, through `conditionsIssue`) and `eventSentence` (the source's label, then each condition as field label, test and option label; "every event" for none).
+- **Automations do not sit in the assistant state.** They are per Gateway, like routines and policies, so the phone reads `automation_list` from each Gateway and counts a source's automations itself. The state gains `sources` only.
+- **Ops:** `automation_list`, `automation_put` (id, automation, baseRevision), `automation_delete`, `automation_preview` (the event trigger over the source's live first page: matched, of, the newest matches with their times). A threshold's automation is listed with its `device` and refuses a put or delete here, since its sensor page owns it until 2.7c. `assistant_source_grants`, `assistant_source_enabled`, `assistant_source_check` take `sourceId`; the `assistant_watcher_*` kinds keep parsing through the window, and the four rule ops answer a refusal that says to update the app.
+- **Rules to automations:** after the automations store opens, each stored rule that woke becomes an automation under the rule's own id; then `assistant-rules.json` is moved aside. Nothing converts twice, since an id already held is skipped.
+- **Home move:** apply replaces this Gateway's event automations with the carried ones before the lanes start, and let-go removes them, where the rules store did both.
+- **Inbox item:** `decision` is `now` when an automation tells now and is left out otherwise.
+
 Configuration held before the rebuild (2026-11-15), which the carry-over must reproduce:
 
 - **GitHub notifications** (`github`): enabled; reads the vault entry "GitHub PAT - Development"; wakes when `reason` is `approval_requested`, `security_alert` or `mention`, or `type` is `PullRequest`; everything else to the inbox; offers Mark done.
