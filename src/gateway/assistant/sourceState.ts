@@ -46,20 +46,13 @@ const SourceStateSchema = z.strictObject({
 
 export type SourceState = z.infer<typeof SourceStateSchema>;
 
+/** The stored key keeps its word, so the build before sources reads it. */
 const SnapshotSchema = z.strictObject({
 	v: z.literal(1),
-	sources: z.record(z.string(), SourceStateSchema),
+	watchers: z.record(z.string(), SourceStateSchema),
 });
 
 type Snapshot = z.infer<typeof SnapshotSchema>;
-
-// Remove 2026-11-28: the file's key before sources.
-const LegacySnapshotSchema = z.strictObject({ v: z.literal(1), watchers: z.record(z.string(), SourceStateSchema) });
-
-function restored(loaded: unknown): Snapshot {
-	const legacy = LegacySnapshotSchema.safeParse(loaded);
-	return legacy.success ? { v: 1, sources: legacy.data.watchers } : SnapshotSchema.parse(loaded);
-}
 
 export const FRESH_STATE: SourceState = { cursor: null, newest: 0, primed: false, unread: 0, capped: false };
 
@@ -148,12 +141,12 @@ export interface SourceStateStore {
 
 export function createSourceStateStore(store: DurableStore): SourceStateStore {
 	const loaded = store.load();
-	let state: Snapshot = loaded === null ? { v: 1, sources: {} } : restored(loaded);
-	const held = (sourceId: string) => (Object.hasOwn(state.sources, sourceId) ? state.sources[sourceId] : undefined);
+	let state: Snapshot = loaded === null ? { v: 1, watchers: {} } : SnapshotSchema.parse(loaded);
+	const held = (sourceId: string) => (Object.hasOwn(state.watchers, sourceId) ? state.watchers[sourceId] : undefined);
 	return {
 		get: (sourceId) => structuredClone(held(sourceId) ?? FRESH_STATE),
 		put(sourceId, next) {
-			const sources = { ...state.sources };
+			const sources = { ...state.watchers };
 			// A source id stays a plain key.
 			Object.defineProperty(sources, sourceId, {
 				value: SourceStateSchema.parse(next),
@@ -161,7 +154,7 @@ export function createSourceStateStore(store: DurableStore): SourceStateStore {
 				writable: true,
 				configurable: true,
 			});
-			const written: Snapshot = { v: 1, sources };
+			const written: Snapshot = { v: 1, watchers: sources };
 			return commitChecked(
 				store,
 				written,

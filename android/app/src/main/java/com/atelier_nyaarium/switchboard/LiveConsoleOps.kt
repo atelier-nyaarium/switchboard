@@ -66,7 +66,7 @@ internal data class LiveConsoleView(
 	val draft: String = "",
 	val variables: Map<String, ConsoleVariable> = emptyMap(),
 	val savedBy: Map<String, Long> = emptyMap(),
-	/** The newest entry id. */
+	/** Newest issued entry ID. */
 	val minted: Long = 0,
 )
 
@@ -106,7 +106,7 @@ internal sealed interface ConsoleSlot<S> : Slot<LiveConsoleView, S> {
 		override fun write(view: LiveConsoleView, part: ConsoleIds?) = view.copy(ids = part)
 	}
 
-	/** One run, from its row to its answer. */
+	/** Per-run row and answer. */
 	class Run : ConsoleSlot<ConsoleRunPart> {
 		override fun read(view: LiveConsoleView) =
 			ConsoleRunPart(
@@ -150,7 +150,7 @@ internal fun vocabularyAfter(
 				held.variables.filterKeys { it !in entities },
 			)
 		}
-		// Retain vocabulary after failure.
+		// Preserve loaded vocabulary on failure.
 		is ConsoleCall.Refused ->
 			if (held.description == null) held.copy(vocabulary = ConsoleVocabulary.Refused(answer.reason)) else held
 		ConsoleCall.Unreachable ->
@@ -221,7 +221,7 @@ internal class LiveConsoleOps(private val host: LiveConsoleHost) : ClearsOnRepro
 		slots.land(ticket) { vocabularyAfter(it, answer) }
 	}
 
-	/** A changed hash reads the vocabulary again. */
+	/** Changed hashes refresh vocabulary. */
 	suspend fun run(gatewayId: String, expr: String) {
 		val text = expr.trim()
 		if (text.isEmpty()) return

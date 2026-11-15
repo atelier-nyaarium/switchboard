@@ -1,5 +1,3 @@
-// The assistant's inbox tool.
-
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { eventLines, type InboxListAnswer, type InboxScope } from "../../shared/schemasAssistantInbox.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";

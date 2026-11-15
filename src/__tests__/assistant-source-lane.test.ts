@@ -22,7 +22,7 @@ import {
 	unexpectedAfter,
 } from "../gateway/assistant/sourceState.js";
 import { ChannelDeliveryCoordinator } from "../gateway/channelDelivery.js";
-import { DurableStore, renameDurable } from "../shared/durable-store.js";
+import { DurableStore } from "../shared/durable-store.js";
 import { type EventMember, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
 import type { RuleAction } from "../shared/schemasAssistantRules.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
@@ -54,7 +54,7 @@ function stateDir(): string {
 	return dir;
 }
 
-const stateIn = (dir: string): SourceStateStore => createSourceStateStore(new DurableStore(dir, "assistant-sources"));
+const stateIn = (dir: string): SourceStateStore => createSourceStateStore(new DurableStore(dir, "assistant-watchers"));
 
 const thread = (id: string, at: number, reason = "mention"): SourceEvent => ({
 	id,
@@ -180,21 +180,14 @@ async function stopped(lane: SourceLanes, ambient: FakeAmbient): Promise<void> {
 }
 
 describe("a source's lane", () => {
-	it("keeps the state a file from before sources held, under its new name and key", () => {
+	it("writes its state as the build before sources reads it", () => {
 		const dir = stateDir();
-		const earlier = path.join(dir, "assistant-watchers.json");
-		const held = { ...FRESH_STATE, unread: 4 };
-		fs.writeFileSync(earlier, JSON.stringify({ v: 1, watchers: { github: held } }));
-
-		renameDurable(dir, "assistant-watchers", "assistant-sources");
 		const state = stateIn(dir);
-		expect(state.get("github")).toEqual(held);
-		state.put("github", { ...held, unread: 5 });
+		state.put("github", { ...FRESH_STATE, unread: 5 });
 
-		expect(fs.existsSync(earlier)).toBe(false);
-		expect(JSON.parse(fs.readFileSync(path.join(dir, "assistant-sources.json"), "utf8"))).toEqual({
+		expect(JSON.parse(fs.readFileSync(path.join(dir, "assistant-watchers.json"), "utf8"))).toEqual({
 			v: 1,
-			sources: { github: { ...held, unread: 5 } },
+			watchers: { github: { ...FRESH_STATE, unread: 5 } },
 		});
 	});
 

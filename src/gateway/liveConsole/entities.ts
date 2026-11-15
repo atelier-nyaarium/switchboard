@@ -41,7 +41,7 @@ export interface ConsoleReaders {
 	thresholds: () => Pick<SensorThresholds, "list"> | undefined;
 	assistant: () => ConsoleAssistantStateResult;
 	temperatureUnit: () => TemperatureUnit;
-	/** Scan without changing daemon state. */
+	/** Read-only daemon scan. */
 	bluetoothListen: (windowMs: number) => Promise<HostOpResult>;
 }
 
@@ -514,7 +514,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		{
 			name: "bluetooth",
 			description: "The host's radio.",
-			// Host wait exceeds the phone cap.
+			// Exceeds phone wait cap.
 			audiences: ["host"],
 			members: {
 				listen: {

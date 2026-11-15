@@ -141,7 +141,7 @@ class ConsoleAssistTest {
 				Triple("sensors.read(\"Free|zer\")", "Freezer", "sensors.read(\"Freezer\"|)"),
 				Triple("sensors.read(|\"Fr\")", "Freezer", "sensors.read(\"Freezer\"|)"),
 				Triple("sensors.read(|x)", "Fridge", "sensors.read(\"Fridge\"|)"),
-				// An open string swallowed the rest.
+				// Open strings consume the remainder.
 				Triple("sensors.read(\"Fr|); x", "Freezer", "sensors.read(\"Freezer\"|); x"),
 				Triple("x; sensors.re|", "read", "x; sensors.read(|"),
 			)

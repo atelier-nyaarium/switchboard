@@ -124,10 +124,10 @@ private fun slotOf(source: String, token: ConsoleToken, cursor: Int): Slot? {
 		return Slot(SlotKind.NAME, token.start, token.end, source.substring(token.start, cursor))
 	}
 	if (token.kind != ConsoleTokenKind.STRING) return null
-	// The lexer's decoding, as a choice holds it.
+	// Decode typed strings with the lexer.
 	val typed = lexConsole(source.substring(token.start, cursor)).firstOrNull()?.value.orEmpty()
 	return when {
-		// An open string swallowed what follows.
+		// Open strings consume the remainder.
 		token.closed != true -> Slot(SlotKind.STRING, token.start, cursor, typed)
 		cursor < token.end -> Slot(SlotKind.STRING, token.start, token.end, typed)
 		else -> null

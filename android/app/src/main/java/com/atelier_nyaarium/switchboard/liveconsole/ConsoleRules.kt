@@ -56,7 +56,7 @@ internal fun consolePaint(source: String, entities: Set<String>, variables: Set<
 
 data class ConsoleVariable(val value: JsonElement, val type: String?)
 
-/** A superset; the Gateway decides references. */
+/** Send candidates; Gateway resolves references. */
 fun variablesFor(expr: String, held: Map<String, ConsoleVariable>): JsonObject? {
 	val named = lexConsole(expr).filter { it.kind == ConsoleTokenKind.IDENT }.map { it.text }.toSet()
 	val sent = held.filterKeys { it in named }
@@ -79,7 +79,7 @@ private const val VARIABLES_BYTES = Protocol.Wire.CONSOLE_VARIABLES_BYTES / 4 * 
 
 private fun sizeOf(variable: ConsoleVariable): Int = variable.value.toString().toByteArray(Charsets.UTF_8).size
 
-/** Newest saves evict oldest, by count and by size. */
+/** Evict oldest by count and size. */
 fun withVariable(held: Map<String, ConsoleVariable>, name: String, variable: ConsoleVariable): Map<String, ConsoleVariable> {
 	val kept = ((held - name) + (name to variable)).entries.toList().takeLast(Protocol.Wire.CONSOLE_VARIABLES_MAX).toMutableList()
 	while (kept.size > 1 && kept.sumOf { sizeOf(it.value) } > VARIABLES_BYTES) kept.removeAt(0)
@@ -121,7 +121,7 @@ private fun isName(key: String): Boolean =
 
 internal const val CONSOLE_RECALL_SHOWN = 20
 
-/** The picker shows only for the whole view. */
+/** Whole-view scope only. */
 internal fun picksGateway(scope: ViewScope, roster: GatewayRegistry): Boolean =
 	scope == ViewScope.Everything && roster.ids().size > 1
 
@@ -129,7 +129,6 @@ internal fun noGatewayLine(roster: GatewayRegistry): String = if (roster.loaded)
 
 internal fun canRun(draft: String): Boolean = draft.isNotBlank()
 
-/** What one history row draws under its input. */
 internal sealed interface EntryDrawn {
 	data object Running : EntryDrawn
 
@@ -157,7 +156,6 @@ internal fun memberSignature(member: ConsoleMemberDescription): String {
 	return "${member.name}${if (isMethod(member)) "($params)" else ""} -> ${member.returns}"
 }
 
-/** What a tap on a member types. */
 internal fun memberInsert(entity: ConsoleEntityDescription, member: ConsoleMemberDescription): String =
 	"${entity.name}.${member.name}${if (isMethod(member)) "(" else ""}"
 

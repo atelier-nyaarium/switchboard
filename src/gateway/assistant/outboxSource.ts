@@ -1,10 +1,12 @@
 // The automations' outbox, listed in the assistant's lane.
 
 import { SENSORS_SOURCE_ID } from "../../shared/schemasAssistantActions.js";
-import type { AutomationOutbox } from "../computed/automations.js";
-import type { ListPage, ListQuery, PollAnswer, Source } from "./source.js";
+import type { AutomationOutbox, OutboxEvent } from "../computed/automations.js";
+import type { ListPage, ListQuery, PollAnswer, Source, SourceEvent } from "./source.js";
 
 const FALLBACK_POLL_MS = 10 * 60 * 1000;
+
+const eventOf = ({ when, ...event }: OutboxEvent): SourceEvent => ({ ...event, tell: when });
 
 export function createOutboxSource(outbox: AutomationOutbox): Source {
 	return {
@@ -20,7 +22,7 @@ export function createOutboxSource(outbox: AutomationOutbox): Source {
 			if (cursor === revision) return { kind: "unchanged", nextPollMs: FALLBACK_POLL_MS };
 			return {
 				kind: "events",
-				events: outbox.events(),
+				events: outbox.events().map(eventOf),
 				cursor: revision,
 				capped: false,
 				nextPollMs: FALLBACK_POLL_MS,
@@ -31,6 +33,7 @@ export function createOutboxSource(outbox: AutomationOutbox): Source {
 			const shown = outbox
 				.events()
 				.filter((event) => event.at > since)
+				.map(eventOf)
 				.reverse();
 			return { events: shown, here: "p0", ...(query.scope === "new" ? { mark: outbox.revision() } : {}) };
 		},

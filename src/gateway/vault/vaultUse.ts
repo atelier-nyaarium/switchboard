@@ -1,5 +1,4 @@
-// The one road a vault value leaves by. The entry and this Gateway's allowance are read again at
-// release, never from a snapshot taken when it was asked for.
+// Recheck the entry and grant at release.
 
 import type { Ambient } from "../../shared/ambient.js";
 import type { VaultClient, VaultEntryView } from "../router/vaultClient.js";
@@ -12,7 +11,7 @@ export type VaultRelease =
 	| { kind: "released"; value: string }
 	| VaultUnready
 	| VaultUnusable
-	/** A key that has not arrived is as transient as a Router that has not. */
+	/** A missing key may arrive after refresh. */
 	| { kind: "unopened" };
 
 export interface VaultUseDeps {
@@ -43,7 +42,7 @@ export function createVaultUse(deps: VaultUseDeps) {
 		return { kind: "usable", entry, value: () => client.openValue(stored) };
 	}
 
-	/** `granted` is read after the refresh, so a grant gone during the wait releases nothing. */
+	/** Recheck grants after refresh. */
 	async function release(entryId: string, granted: () => VaultUnusable | null = () => null): Promise<VaultRelease> {
 		const answer = await ready();
 		if (answer.kind !== "ready") return answer;
@@ -55,7 +54,7 @@ export function createVaultUse(deps: VaultUseDeps) {
 		return value === null ? { kind: "unopened" } : { kind: "released", value };
 	}
 
-	/** Standing grant only; a service never opens a request. */
+	/** Services use standing grants only. */
 	function readForService(serviceId: string, entryId: string): Promise<VaultRelease> {
 		return release(entryId, () =>
 			deps.decisions.covers({ serviceId, entryId }, deps.ambient.now())

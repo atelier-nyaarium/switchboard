@@ -60,7 +60,7 @@ export function createActionDispatch(
 				return value;
 			});
 			if (ran.kind === "not_started") {
-				const why = ran.end === "stopping" ? "the assistant is stopping" : "the source stayed busy";
+				const why = ran.end === "stopping" ? "the assistant is stopping" : "the watcher stayed busy";
 				return { kind: "refused", reason: `${why}; nothing was sent` };
 			}
 			answer = declaration.answer.parse(ran.value);

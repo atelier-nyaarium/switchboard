@@ -10,7 +10,7 @@ import {
 	isAssistantRecord,
 } from "../../shared/assistant-session.js";
 import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
-import { openDurable, renameDurable } from "../../shared/durable-store.js";
+import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
@@ -31,6 +31,7 @@ import {
 	fieldsOf,
 	firstMatch,
 	invalidRules,
+	type RuleAction,
 	ruleMatches,
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
@@ -56,7 +57,7 @@ import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } fro
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
 import { SensorsClear } from "../assistant/sensorsClear.js";
-import type { ListPage, ListQuery, Source, SourceEvent } from "../assistant/source.js";
+import { type ListPage, type ListQuery, type Source, type SourceEvent, told } from "../assistant/source.js";
 import type { SourceActions } from "../assistant/sourceAction.js";
 import { createSourceEnabledStore } from "../assistant/sourceEnabled.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
@@ -215,15 +216,15 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		sensors_clear: new SensorsClear((members) => deps.clearSensorEvents?.(members) ?? false),
 	};
 
-	// Remove 2026-11-28: names from before sources.
-	renameDurable(deps.dataDir, "assistant-watchers", "assistant-sources");
-	renameDurable(deps.dataDir, "assistant-watcher-enabled", "assistant-source-enabled");
-	const sourceState = openDurable(deps.dataDir, "assistant-sources", (store) => createSourceStateStore(store));
-	const enabled = openDurable(deps.dataDir, "assistant-source-enabled", (store) => createSourceEnabledStore(store));
+	// The files keep their names, so the build before sources still reads them.
+	const sourceState = openDurable(deps.dataDir, "assistant-watchers", (store) => createSourceStateStore(store));
+	const enabled = openDurable(deps.dataDir, "assistant-watcher-enabled", (store) => createSourceEnabledStore(store));
 	// Unknown source returns undefined.
 	const specsOf = (sourceId: string) => sources.find((candidate) => candidate.id === sourceId)?.fieldSpecs;
 	const rules = openDurable(deps.dataDir, "assistant-rules", (store) => createRulesStore({ store, specsOf }));
 	const render = (source: Source, event: SourceEvent) => eventLines({ label: source.label, ...event }).join("\n");
+	const decide = (sourceId: string, event: SourceEvent): RuleAction =>
+		told(event) ?? decideEvent(rules.get(sourceId), specsOf(sourceId) ?? [], event.fields);
 
 	let lanes: SourceLanes | null = null;
 	let wake: AssistantWake | null = null;
@@ -261,7 +262,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			state: sourceState,
 			sources,
 			enabled: (sourceId) => enabled.enabled(sourceId),
-			sort: (sourceId, event) => decideEvent(rules.get(sourceId), specsOf(sourceId) ?? [], event.fields),
+			sort: decide,
 			wake: () => wake,
 			to: ASSISTANT_TEAM,
 			holdLine: () => renderPhoneHold(phoneHold.answer()).line,
@@ -297,7 +298,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		sources,
 		enabled: (sourceId) => enabled.enabled(sourceId),
 		state: sourceState,
-		rulesFor: (sourceId) => rules.get(sourceId),
+		decide,
 		ambient,
 		livePage,
 	});

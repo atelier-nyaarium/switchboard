@@ -204,7 +204,6 @@ export async function evaluateConsole(
 				const entity = registry.get(node.name, audience);
 				if (entity) return new EntityRef(entity);
 				const held = variables.get(node.name);
-				// Nothing here mutates a value.
 				return held
 					? typed(held.value, held.type)
 					: fail(node, "unknown_name", `no entity or variable ${node.name}`);

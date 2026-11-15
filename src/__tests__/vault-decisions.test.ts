@@ -92,32 +92,28 @@ describe("vault decisions", () => {
 		const decisions = withRoutine(fresh(), () => working);
 		decisions.setRoutineGrants("triage", ["deploy"]);
 
-		// Nothing is running, so a session holding the name reaches nothing.
 		expect(decisions.covers(scope("ssh deploy@prod", "host.routine-triage"), 1_000)).toBeUndefined();
 
 		working = "triage";
 		expect(decisions.covers(scope("curl anywhere", "host.routine-triage"), 1_000)?.tier).toBe("standing");
-		// Another routine's work in that session is not this routine's authority.
+		// Another routine cannot use this grant.
 		working = "nightly";
 		expect(decisions.covers(scope("curl anywhere", "host.routine-triage"), 1_000)).toBeUndefined();
 	});
 
-	// A grant that silently covers more than it says is the failure that looks exactly like success,
-	// so each way of refusing gets said out loud rather than left to the one happy path.
 	it("refuses a grant asked for from anywhere but where it was given", () => {
 		const dataDir = fresh();
 		const decisions = withRoutine(dataDir, (target) => (target === "host.routine-triage" ? "triage" : null));
 		decisions.grant("session", scope("ssh deploy@prod", "host.alice"), 1_000);
 		decisions.setRoutineGrants("triage", ["deploy"]);
 
-		// A session grant belongs to one session, however alike another one looks.
+		// Session grants stay session-bound.
 		expect(decisions.covers(scope("ssh deploy@prod", "host.bob"), 1_000)).toBeUndefined();
-		// A routine's authority follows the session it reserved, not the routine's name elsewhere.
+		// Routine access follows its reserved session.
 		expect(decisions.covers(scope("ssh deploy@prod", "host.alice"), 1_000)?.tier).toBe("session");
 		expect(decisions.covers(scope("x", "host.bob", "deploy"), 1_000)).toBeUndefined();
-		// Its own session still reaches it, so the refusals above are not simply everything failing.
 		expect(decisions.covers(scope("x", "host.routine-triage", "deploy"), 1_000)?.tier).toBe("standing");
-		// Another entry is another decision, whoever is asking.
+		// Grants stay entry-bound.
 		expect(decisions.covers(scope("x", "host.routine-triage", "npm"), 1_000)).toBeUndefined();
 	});
 
@@ -152,13 +148,12 @@ describe("vault decisions", () => {
 		decisions.setRoutineGrants("triage", ["deploy", "npm"]);
 		expect(decisions.setRoutineGrants("triage", ["deploy"]).map((g) => g.entryId)).toEqual(["deploy"]);
 
-		// Unlinked, so it is gone rather than expiring on a clock.
+		// Unlinking revokes immediately.
 		expect(decisions.covers(scope("x", "host.routine-triage", "npm"), 1_000)).toBeUndefined();
 		expect(decisions.covers(scope("x", "host.routine-triage", "deploy"), 1_000)?.tier).toBe("standing");
 
 		decisions.routineEnded("triage");
 		expect(decisions.covers(scope("x", "host.routine-triage", "deploy"), 1_000)).toBeUndefined();
-		// Durable, so a reopen finds nothing either.
 		expect(withRoutine(dataDir, () => "triage").list(1_000)).toEqual([]);
 	});
 
@@ -176,7 +171,6 @@ describe("vault decisions", () => {
 		const decisions = withRoutine(fresh(), () => "triage");
 		decisions.setRoutineGrants("triage", ["deploy", "npm"]);
 
-		// What a restart or a re-provision reads: no snapshot to compare against, so the list decides.
 		decisions.entriesListed(["deploy"]);
 
 		expect(decisions.list(2_000).map((grant) => grant.entryId)).toEqual(["deploy"]);
@@ -227,7 +221,7 @@ describe("vault decisions", () => {
 		expect(decisions.covers(through("ssh deploy@prod", 2), 2_000)).toBeUndefined();
 		expect(decisions.covers(through("ssh deploy@prod", 1, "host.alice", "other"), 2_000)).toBeUndefined();
 
-		// A window under a policy covers the one key it was given for, whatever else the line ran.
+		// Policy windows cover only the selected shape.
 		const compound = decisions.grant(
 			"window",
 			through("ssh deploy@prod uptime; curl https://evil", 1, "host.bob"),
@@ -267,7 +261,7 @@ describe("vault decisions", () => {
 		decisions.grant("window", through("ssh deploy@prod", 1), 1_000);
 		decisions.policyMoved("apt", policy(1));
 		expect(shown().sort()).toEqual(["session", "standing", "window"]);
-		// Re-enabled is another revision.
+		// Re-enabling advances the revision.
 		decisions.policyMoved("apt", policy(2));
 		expect(shown().sort()).toEqual(["session", "standing"]);
 	});
@@ -353,19 +347,22 @@ describe("vault decisions", () => {
 		expect(decisions.covers({ serviceId: "github", entryId: "pat" }, 1_000)?.grantId).toBe("github");
 		expect(decisions.covers({ serviceId: "ifttt", entryId: "key" }, 1_000)?.grantId).toBe("ifttt");
 		expect(decisions.list(1_000).map((grant) => grant.grantId)).toEqual(["session", "routine", "github", "ifttt"]);
-		expect(fs.readFileSync(file, "utf8")).not.toContain("watcher");
-		expect(
-			open(dataDir)
-				.list(1_000)
-				.map((grant) => grant.holder),
-		).toEqual([
+
+		// The build before services still reads what this one writes.
+		decisions.setServiceGrants("gmail", ["mail"]);
+		expect(decisions.revoke("ifttt")).toBe(true);
+		const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as { grantId: string; holder: unknown }[];
+		expect(onDisk.map((grant) => grant.holder)).toEqual([
 			session.holder,
 			routine.holder,
-			{ kind: "service", serviceId: "github" },
-			{ kind: "service", serviceId: "ifttt" },
+			{ kind: "watcher", watcherId: "github" },
+			{ kind: "watcher", watcherId: "gmail" },
 		]);
+		const reopened = open(dataDir);
+		expect(reopened.covers({ serviceId: "gmail", entryId: "mail" }, 1_000)).toBeDefined();
+		expect(reopened.covers({ serviceId: "ifttt", entryId: "key" }, 1_000)).toBeUndefined();
 
-		// A file that does not parse whole is left as it was.
+		// Invalid files remain unchanged.
 		const broken = [stored("github", "github", "pat"), { grantId: "bad", tier: "standing" }];
 		recorded(dataDir, broken);
 		expect(open(dataDir).list(1_000)).toEqual([]);

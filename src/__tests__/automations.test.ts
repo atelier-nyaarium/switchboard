@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
+import { PollAnswerSchema, told } from "../gateway/assistant/source.js";
 import { createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { openDurable } from "../shared/durable-store.js";
@@ -123,8 +124,12 @@ function world(dir: string, home = true) {
 	return { open, read, missed, unheard, failWrites, pokes: () => pokes };
 }
 
+/** Through the lane's own parse. */
+const polled = async (automations: ReturnType<typeof createAutomations>) =>
+	PollAnswerSchema.parse(await createOutboxSource(automations.outbox).poll(null, new AbortController().signal));
+
 const queued = async (automations: ReturnType<typeof createAutomations>) => {
-	const answer = await createOutboxSource(automations.outbox).poll(null, new AbortController().signal);
+	const answer = await polled(automations);
 	return answer.kind === "events" ? answer.events.map((event) => event.fields.value) : [];
 };
 
@@ -191,6 +196,11 @@ describe("automations", () => {
 		expect(automations.outbox.events().map(({ title, when }) => [title, when])).toEqual([
 			["Throw ice bucket!", "now"],
 		]);
+		const answer = await polled(automations);
+		const events = answer.kind === "events" ? answer.events : [];
+		expect(events.map((event) => told(event))).toEqual(["wake"]);
+		expect(told({ tell: "quietly" })).toBe("inbox");
+		expect(told({})).toBeNull();
 	});
 
 	it("fires once per change into its value, queues for the sensors watcher, and pokes the lane", async () => {

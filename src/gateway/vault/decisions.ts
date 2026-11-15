@@ -1,4 +1,4 @@
-// Grants are gateway-local, and each names the holder it was given to.
+// Grants are Gateway-local and holder-bound.
 
 import { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
@@ -17,18 +17,14 @@ import { selectorKey } from "../../shared/selector-key.js";
 import { coveredBy } from "./operationSet.js";
 
 export interface VaultDecisionsDeps {
-	/** Opened through `openDurable`, so a poisoned file starts this store fresh. */
+	/** Poisoned stores start fresh. */
 	store: DurableStore;
 	ambient: Pick<Ambient, "newId">;
 	sessionCapMs?: number;
-	/**
-	 * The routine whose occurrence is live in this session right now, verified by provenance rather
-	 * than by the session's name. Absent means no standing grant covers anything.
-	 */
+	/** Provenance-verified live routine; null grants no standing access. */
 	routineHolding?: (sessionTarget: string) => string | null;
 }
 
-/** Grant scope. */
 export interface GrantScope {
 	entryId: string;
 	displayShape: string;
@@ -58,6 +54,12 @@ const GrantsSchema = z.array(VaultGrantSchema);
 const asService = (grant: VaultGrant): VaultGrant =>
 	grant.holder.kind === "watcher"
 		? { ...grant, holder: { kind: "service", serviceId: grant.holder.watcherId } }
+		: grant;
+
+/** Stored and answered as `watcher` until 2026-11-28, so the build before services reads it. */
+export const legacyHolder = (grant: VaultGrant): VaultGrant =>
+	grant.holder.kind === "service"
+		? { ...grant, holder: { kind: "watcher", watcherId: grant.holder.serviceId } }
 		: grant;
 
 /** Why a policy stopped answering. */
@@ -98,23 +100,21 @@ export function displayShape(operation: string): string {
 export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	const { store } = deps;
 	const sessionCapMs = deps.sessionCapMs ?? VAULT_SESSION_GRANT_CAP_MS;
-	const stored = GrantsSchema.parse(store.load() ?? []);
-	let grants: VaultGrant[] = stored.map(asService);
-	// Written back only once the whole file parsed.
-	if (grants.some((grant, at) => grant !== stored[at])) store.save(grants);
+	let grants: VaultGrant[] = GrantsSchema.parse(store.load() ?? []).map(asService);
 
-	/** A revocation lands on disk before it is reported; the rest is best effort. */
+	/** Persist revocations before reporting. */
 	const commit = (next: VaultGrant[], checked: boolean): boolean => {
+		const stored = next.map(legacyHolder);
 		if (!checked) {
 			grants = next;
-			store.save(grants);
+			store.save(stored);
 			return true;
 		}
 		return commitChecked(
 			store,
-			next,
-			(landed) => {
-				grants = landed;
+			stored,
+			() => {
+				grants = next;
 			},
 			{ label: "vault grant" },
 		).landed;
@@ -124,11 +124,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		if (kept.length !== grants.length) commit(kept, false);
 	};
 
-	/**
-	 * Session and standing grants cover every shape; a window grant covers a request whose programs
-	 * it all named. A routine's standing grant covers only while the routine is live in the asking
-	 * session, and a service's grant only that service's read.
-	 */
+	/** Sessions cover all shapes; windows cover named programs. Standing grants require their holder. */
 	const covers = (scope: GrantScope | ServiceScope, now: number): VaultGrant | undefined => {
 		sweep(now);
 		if ("serviceId" in scope) {
@@ -140,8 +136,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 			if (grant.entryId !== scope.entryId) return false;
 			if (grant.tier === "standing")
 				return live !== null && grant.holder.kind === "routine" && grant.holder.routineId === live;
-			// A policy grant covers only what that policy, at that revision, resolved, and a window
-			// under it only the one key it was given for.
+			// Policy grants are revision-scoped; windows stay shape-scoped.
 			if (grant.policy !== undefined) {
 				if (
 					grant.policy.policyId !== scope.policy?.policyId ||
@@ -185,10 +180,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		return granted;
 	};
 
-	/**
-	 * What a routine or a service is authorized to reach, made to match the owner's picks exactly.
-	 * Only owner ops reach this, so nothing inside a session can widen it.
-	 */
+	/** Owner ops alone set standing grant entries. */
 	const setStandingGrants = (holder: StandingHolder, entryIds: string[]): VaultGrant[] => {
 		const mine = (grant: VaultGrant) => sameHolder(grant.holder, holder);
 		const wanted = new Set(entryIds);
@@ -207,29 +199,23 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	const setServiceGrants = (serviceId: string, entryIds: string[]): VaultGrant[] =>
 		setStandingGrants({ kind: "service", serviceId }, entryIds);
 
-	/** Everything a routine held, when the routine itself goes. */
 	const routineEnded = (routineId: string): void => {
 		setRoutineGrants(routineId, []);
 	};
 
-	/** Every holder loses a grant on an entry that no longer exists. */
 	const entryDeleted = (entryId: string): void => {
 		const kept = grants.filter((grant) => grant.entryId !== entryId);
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
-	/**
-	 * What the vault actually holds, whole. A delta says which entries went, but a full list is the
-	 * only thing that catches an entry that went while nobody was listening, which is what a restart
-	 * and a re-provision both are.
-	 */
+	/** Full lists reconcile entries missed while offline. */
 	const entriesListed = (entryIds: string[]): void => {
 		const live = new Set(entryIds);
 		const kept = grants.filter((grant) => live.has(grant.entryId));
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
-	/** The policy store already holds the move; the grants it qualified follow. */
+	/** Prune grants against the committed policy. */
 	const policyMoved = (policyId: string, current: AuthorizationPolicy | null): void => {
 		const kept = grants.filter((grant) => policyOf(grant)?.policyId !== policyId || !disqualified(grant, current));
 		if (kept.length !== grants.length) commit(kept, true);

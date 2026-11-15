@@ -17,7 +17,7 @@ export interface Builtin {
 	params: readonly { name: string; check: (value: unknown) => boolean; type: string }[];
 	returns: string;
 	description: string;
-	/** The result's label, from the receiver's. */
+	/** Receiver sets result type. */
 	type: (receiver: string | undefined) => string | undefined;
 	/** Charge steps for work. */
 	run: (receiver: unknown, args: unknown[], step: (count: number) => void) => unknown;
@@ -103,7 +103,6 @@ export const BUILTINS: readonly Builtin[] = [
 		run: (receiver, [name, value], step) => {
 			const list = receiver as unknown[];
 			step(list.length);
-			// Serialized once, not per item.
 			const wanted = canonicalJson(value ?? null);
 			return list.filter((item) => {
 				if (!isRecord(item)) return false;
@@ -123,7 +122,6 @@ const fits = (receiver: Receiver, value: unknown) =>
 			? isRecord(value)
 			: Array.isArray(value) || isRecord(value);
 
-/** The result with its label. */
 export function runBuiltin(
 	name: string,
 	receiver: unknown,

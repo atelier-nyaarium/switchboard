@@ -76,9 +76,10 @@ and the delta list are in `docs/federation.md` under Owner state.
   owner picks the entries, and `setStandingGrants` makes the held set match them exactly. A
   routine's grant covers only while its occurrence is live in the asking session. A service's grant
   covers only that service's own read, never a session, and a service never opens a request. A
-  service is something the Gateway reads for itself, GitHub or IFTTT. A grant stored under the
-  earlier `watcher` holder is rewritten as its service's when the store opens, once the whole file
-  has parsed, so this build is the rollback floor for `vault-decisions.json`.
+  service is something the Gateway reads for itself, GitHub or IFTTT. In memory its holder is
+  `service`. On disk and in the `vault_grants` answer it stays `watcher` until 2026-11-28
+  (`legacyHolder`), so the build before services, Gateway or phone, still reads both; a rollback
+  loses no grant.
 - The store opens through `openDurable`, so a poisoned file starts fresh. A revocation or a
   session-end drop is written through `commitChecked` and reported once the snapshot is installed.
   Grants and expiry sweeps are best effort.

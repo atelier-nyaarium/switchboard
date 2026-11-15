@@ -113,7 +113,7 @@ const IssueSchema = z
 
 const CutSchema = z.object({ shown: z.number().int(), total: z.number().int() }).meta({ id: "ConsoleCut" });
 
-/** A whole number under one of these keys draws as an age. */
+/** Listed numeric keys render as ages. */
 export const CONSOLE_INSTANT_KEYS = [
 	"at",
 	"heardAt",
@@ -131,10 +131,10 @@ export const CONSOLE_INSTANT_CEILING = 8.64e15;
 /** Shared protocol byte cap. */
 export const CONSOLE_VALUE_BYTES = 64_000;
 export const CONSOLE_VARIABLES_MAX = 16;
-/** What one read may carry. */
+/** Total saved value byte cap. */
 export const CONSOLE_VARIABLES_BYTES = CONSOLE_VALUE_BYTES * 4;
 
-/** The client resends saved values. */
+/** Client resends saved values. */
 export const ConsoleVariableSchema = z
 	.object({ value: z.unknown(), type: z.string().max(64).optional() })
 	.meta({ id: "ConsoleVariable" });

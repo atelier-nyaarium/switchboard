@@ -4,8 +4,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
 import type { InboxItem, InboxList, InboxScope } from "../../shared/schemasAssistantInbox.js";
-import { type AssistantWatcherRules, decideEvent } from "../../shared/schemasAssistantRules.js";
-import type { ListPage, ListQuery, Source } from "./source.js";
+import type { RuleAction } from "../../shared/schemasAssistantRules.js";
+import type { ListPage, ListQuery, Source, SourceEvent } from "./source.js";
 import { isGone, type SourceStateStore } from "./sourceState.js";
 import { ASSISTANT_WAITS } from "./waits.js";
 
@@ -17,7 +17,7 @@ export interface InboxListingDeps {
 	/** Disabled lists nothing. */
 	enabled: (sourceId: string) => boolean;
 	state: Pick<SourceStateStore, "get" | "put">;
-	rulesFor: (sourceId: string) => AssistantWatcherRules;
+	decide: (sourceId: string, event: SourceEvent) => RuleAction;
 	ambient: Pick<Ambient, "randomBytes">;
 	/** One page read in the source's lane; the query is built there, so it reads the lane's mark. */
 	livePage: <T>(
@@ -77,7 +77,6 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 		};
 		return deps
 			.livePage(source.id, query, ASSISTANT_WAITS.list, (read) => {
-				const decided = deps.rulesFor(source.id);
 				const listed = read.events.filter((event) => !isGone(state.get(source.id), event));
 				const shown: InboxItem[] = listed.slice(at.skip).map((event) => {
 					const { title: _title, ...fields } = event.fields;
@@ -87,7 +86,7 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 						...(event.url === undefined ? {} : { url: event.url }),
 						fields,
 						at: event.at,
-						decision: decideEvent(decided, source.fieldSpecs, event.fields),
+						decision: deps.decide(source.id, event),
 					};
 				});
 				const items = withinBytes(shown, MAX_LIST_BYTES);

@@ -38,7 +38,7 @@ export const VaultEntryClearSchema = z
 		id: entryId,
 		revision: z.number().int().positive(),
 		tombstone: z.boolean(),
-		// The vault revision of the write; delta lists key on it.
+		// Delta lists key on write revision.
 		changedAt: revision,
 		createdBy: VaultCreatedBySchema,
 		createdAt: z.number().int().nonnegative(),
@@ -64,13 +64,13 @@ export const VaultStoredEntrySchema = z
 export const titled = (sealed: VaultEntrySealed): boolean =>
 	sealed.publicTitle !== undefined || sealed.privateTitle !== undefined;
 
-/** 0 creates; otherwise the revision read against, a tombstone's to revive. */
+/** 0 creates; other revisions guard updates and restores. */
 export const VaultPutSchema = z
 	.object({ id: entryId, expectedRevision: revision, sealed: VaultEntrySealedSchema })
 	.refine((put) => titled(put.sealed), "a vault entry needs a title")
 	.meta({ id: "VaultPut" });
 
-/** `revision` is the vault's; `entry` is the applied entry, or the winner on a conflict. */
+/** Revision after write; entry is applied or winning row. */
 export const VaultWriteResultSchema = z
 	.object({
 		outcome: z.enum(["applied", "conflict", "refused"]).meta({ id: "VaultWriteOutcome", catalog: "outcome" }),
@@ -80,7 +80,7 @@ export const VaultWriteResultSchema = z
 	})
 	.meta({ id: "VaultWriteResult" });
 
-/** `since` is the revision the delta starts after; 0 is a full list, and an entry absent from it is gone. */
+/** Lists after `since`; zero means full, missing entries are gone. */
 export const VaultListResultSchema = z
 	.object({ revision, since: revision, entries: z.array(VaultStoredEntrySchema) })
 	.meta({ id: "VaultListResult" });
@@ -103,29 +103,29 @@ export const VaultCreateParamsSchema = z
 	.object({ incarnation: z.number().int().nonnegative(), put: VaultPutSchema })
 	.meta({ id: "VaultCreateParams" });
 
-/** `window` covers program plus target for 30 minutes; `session` until the session ends. */
+/** Window covers its shape for 30 minutes; session lasts until end. */
 export const VaultDecisionSchema = z
 	.enum(["once", "window", "session", "deny"])
 	.meta({ id: "VaultDecision", catalog: "decision" });
 
-/** An operation's longest spelling, shown whole on the phone. */
+/** Maximum displayed operation length. */
 export const VAULT_OPERATION_MAX = 4096;
 
 const operation = z.string().trim().min(1).max(VAULT_OPERATION_MAX);
 
-/** One run of the program asking: the helper's parent pid and start ticks. A second ask under the same asker is a rejected value. */
+/** Parent PID and start ticks reject repeated asks. */
 const asker = z.string().min(1).max(128).optional();
 
-/** A line naming more programs than this is its own single shape. */
+/** Above the cap, a line stays one shape. */
 export const VAULT_SHAPES_MAX = 64;
 
-/** Every program the operation names, each as its shape; a window grant covers exactly this set. */
+/** Window grants cover every named program. */
 const shapes = z.array(z.string().min(1).max(VAULT_OPERATION_MAX)).min(1).max(VAULT_SHAPES_MAX);
 
 /** Flag-led, it spells the whole line. */
 const displayShape = z.string().min(1).max(VAULT_OPERATION_MAX);
 
-/** The policy a request or grant was resolved through, at the one revision that answered. */
+/** Policy identity and revision used to resolve a request. */
 export const VaultPolicyRefSchema = z
 	.object({
 		policyId: z.string().min(1).max(MAX_POLICY_ID_LEN),
@@ -146,7 +146,7 @@ const requestFields = {
 	asker,
 };
 
-/** The `vault:request` payload a phone renders; `typed` asks the owner for a value. */
+/** Phone prompt; `typed` requests a value. */
 export const VaultRequestSchema = z
 	.discriminatedUnion("kind", [
 		z.object({ kind: z.literal("entry"), entryId, ...requestFields, policy: VaultPolicyRefSchema.optional() }),
@@ -154,10 +154,10 @@ export const VaultRequestSchema = z
 	])
 	.meta({ id: "VaultRequest" });
 
-/** The `vault:retract` payload: the request settled elsewhere, so the phone drops it. */
+/** Retracts a request settled elsewhere. */
 export const VaultRetractSchema = z.object({ requestId }).meta({ id: "VaultRetract" });
 
-/** Who a grant is for: a session, a routine, or a service the Gateway reads for itself. */
+/** Grant holder: session, routine, or Gateway service. */
 export const VaultHolderSchema = z
 	.discriminatedUnion("kind", [
 		z.strictObject({ kind: z.literal("session"), sessionTarget: z.string().min(1).max(128) }),
@@ -175,7 +175,7 @@ const expiresAt = z.number().int().nonnegative();
 /** An entry-wide grant carries none. */
 const policy = VaultPolicyRefSchema.optional();
 
-/** Strict: a field of another tier is a refused row. */
+/** Reject fields that do not match the tier. */
 const VaultGrantRecordSchema = z.discriminatedUnion("tier", [
 	z.strictObject({
 		tier: z.literal("window"),
@@ -192,7 +192,7 @@ const VaultGrantRecordSchema = z.discriminatedUnion("tier", [
 
 type VaultGrantRecord = z.infer<typeof VaultGrantRecordSchema>;
 
-/** A session holds a window or session grant; a routine or a service holds a standing one. */
+/** Sessions hold expiring grants; routines and services hold standing grants. */
 function holderFitsTier(grant: VaultGrantRecord): boolean {
 	return (grant.tier === "standing") === (grant.holder.kind !== "session");
 }
@@ -241,7 +241,7 @@ export const VaultCaptureRequestSchema = z.object({
 /** `asker` is absent when the helper cannot read its parent. */
 export const VaultAskpassRequestSchema = z.object({ cmdline: operation, waitMs, asker });
 export const VaultApprovedDecisionSchema = z.enum(["once", "window", "session", "standing"]);
-/** What use, collect, and askpass answer: pending hands back the request; deny and timeout both refuse. */
+/** Pending returns the request; deny and timeout refuse. */
 export const VaultValueAnswerSchema = z.discriminatedUnion("outcome", [
 	z.object({ outcome: z.literal("approved"), decision: VaultApprovedDecisionSchema, value: z.string() }),
 	z.object({ outcome: z.literal("refused"), reason: z.string(), note: z.string().max(2048).optional() }),

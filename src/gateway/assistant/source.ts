@@ -1,7 +1,8 @@
 // A source is plain code. Its source holds the only copy.
 
 import { z } from "zod";
-import type { AssistantFieldSpec } from "../../shared/schemasAssistantRules.js";
+import type { AssistantFieldSpec, RuleAction } from "../../shared/schemasAssistantRules.js";
+import { TELL_WHEN } from "../../shared/schemasAutomation.js";
 
 export { SOURCE_ID_RE } from "../../shared/schemasAutomation.js";
 
@@ -20,9 +21,15 @@ export const SourceEventSchema = z.strictObject({
 		.record(z.string().max(64), z.string().max(1_000))
 		.refine((fields) => Object.keys(fields).length <= MAX_FIELDS, `at most ${MAX_FIELDS} fields`),
 	url: z.string().max(2_000).optional(),
+	/** Set by a source that decides for itself. */
+	tell: z.enum(TELL_WHEN).optional(),
 });
 
 export type SourceEvent = z.infer<typeof SourceEventSchema>;
+
+/** Null leaves the decision to the owner's rules. */
+export const told = (event: Pick<SourceEvent, "tell">): RuleAction | null =>
+	event.tell === undefined ? null : event.tell === "now" ? "wake" : "inbox";
 
 const delay = z
 	.number()

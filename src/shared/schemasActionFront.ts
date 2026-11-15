@@ -43,7 +43,6 @@ export const ACTION_IDS: readonly ActionId[] = [
 	...ASSISTANT_ACTION_KEYS.map((key): WatcherActionId => `watcher/${key}`),
 ];
 
-// The family's coming word. Read from 2026-11-14; sent once every plugin reads it.
 const SOURCE_PREFIX = "source/";
 
 /** An id under the family word this build lists. */

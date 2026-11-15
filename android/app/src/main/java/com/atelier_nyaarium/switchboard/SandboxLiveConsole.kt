@@ -100,7 +100,7 @@ private fun runsJson(at: Long) =
 	{"label":"Random thermometer temperature below 25.0 °C","automation":"b","seq":8,"at":${at - 7_200_000},"outcome":"ran"},
 	{"label":"Random thermometer temperature below 25.0 °C","automation":"b","seq":7,"at":${at - 7_300_000},"outcome":"suppressed"}]"""
 
-/** Canned answers by exact text; nothing is evaluated. */
+/** Exact-match answers; no evaluation. */
 private fun cannedItem(expr: String, at: Long): ConsoleResultItem? =
 	when (expr) {
 		OUTSIDE -> ConsoleResultItem(value = Json.parseToJsonElement(sensorJson(at)), type = "Sensor")
@@ -110,7 +110,6 @@ private fun cannedItem(expr: String, at: Long): ConsoleResultItem? =
 		else -> SANDBOX_DESCRIPTION.entities.firstOrNull { it.name == expr }?.let { ConsoleResultItem(value = JsonNull, entity = it.name) }
 	}
 
-/** One Gateway answers, one is older, one is never reached. */
 internal class SandboxLiveConsoleGateway(
 	private val now: () -> Long = System::currentTimeMillis,
 	private val pause: suspend () -> Unit = { delay(CONSOLE_ROUND_TRIP_MS) },

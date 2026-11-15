@@ -9,7 +9,7 @@ import { type Address, storeKey } from "../../shared/session-id.js";
 import type { VaultConsoleHandlers } from "../console/consoleTypes.js";
 import type { PolicyStore } from "../policies/store.js";
 import { createAddressing } from "../routes/addressing.js";
-import { createVaultDecisions, qualificationRefusal } from "../vault/decisions.js";
+import { createVaultDecisions, legacyHolder, qualificationRefusal } from "../vault/decisions.js";
 import { createVaultRequests } from "../vault/requests.js";
 import { createVaultRoutes } from "../vault/vaultRoutes.js";
 import { createVaultUse, type VaultRelease } from "../vault/vaultUse.js";
@@ -24,11 +24,11 @@ export interface VaultStageDeps {
 	context: FederationContext;
 	routes: () => Pick<GatewayRoutes, "deliverToOwner">;
 	sessions: Pick<SessionsStage, "sessionAuthority" | "sessionStore">;
-	/** Read late, since the routine stage is composed after this one. */
+	/** Resolve after routine stage composition. */
 	workingRoutine: (sessionTarget: string) => string | null;
-	/** A secret nobody answered for, recorded against whatever occurrence wanted it. */
+	/** Record unanswered secrets for their occurrence. */
 	secretUnanswered: (sessionTarget: string, entryId: string) => void;
-	/** Read late. */
+	/** Resolve the policy store on each use. */
 	policies: () => Pick<PolicyStore, "get" | "byKey">;
 }
 
@@ -38,17 +38,17 @@ export interface VaultStage {
 	sessionEnded: (team: string) => void;
 	entryDeleted: (entryId: string) => void;
 	entriesListed: (entryIds: string[]) => void;
-	/** Deleted is a move to nothing. */
+	/** Null policy means deletion. */
 	policyMoved: (policyId: string) => void;
 	policiesListed: (policies: AuthorizationPolicy[]) => void;
-	/** The one road to a routine's grants, reached from a routine save and from nowhere else. */
+	/** Called only by routine saves. */
 	setRoutineGrants: (routineId: string, entryIds: string[]) => void;
-	/** The one road to a service's grants, reached from an owner op and from nowhere else. */
+	/** Called only by owner ops. */
 	setServiceGrants: (serviceId: string, entryIds: string[]) => void;
 	/** The entries a service's standing grants name. */
 	serviceGrants: (serviceId: string) => string[];
 	readForService: (serviceId: string, entryId: string) => Promise<VaultRelease>;
-	/** Whether this Gateway may use the entry's value, after a refresh. */
+	/** Whether this Gateway may use the entry, after a refresh. */
 	usableHere: (entryId: string) => Promise<boolean>;
 	/** Retracts stale cards when routable. */
 	retractStale: () => void;
@@ -182,7 +182,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		routes,
 		console: {
 			answer: (requestId, decision, value, note) => requests.answer(requestId, decision, value, note),
-			grants: () => ({ grants: decisions.list(ambient.now()) }),
+			grants: () => ({ grants: decisions.list(ambient.now()).map(legacyHolder) }),
 			revoke: (grantId) => ({ revoked: decisions.revoke(grantId) }),
 		},
 		sessionEnded: (team) => {
@@ -191,7 +191,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		},
 		entryDeleted: (entryId) => decisions.entryDeleted(entryId),
 		entriesListed: (entryIds) => decisions.entriesListed(entryIds),
-		// Policy first, then prune: the store has committed before it says so.
+		// Prune only after policy commit.
 		policyMoved: (policyId) => {
 			decisions.policyMoved(policyId, deps.policies().get(policyId));
 			requests.policyMoved(policyId);

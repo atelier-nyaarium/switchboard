@@ -120,7 +120,7 @@ export type ConsoleNode = Span &
 
 export interface ConsoleStatement extends Span {
 	node: ConsoleNode;
-	/** Statement-leading names may save. */
+	/** Leading names may save. */
 	assign?: Span & { name: string };
 }
 
@@ -189,7 +189,7 @@ class Parser {
 				this.at += 2;
 			}
 			const node = this.expression();
-			// A closing bracket belongs to it.
+			// Include the closing bracket.
 			const end = Math.max(node.end, this.tokens[this.at - 1]?.end ?? node.end);
 			statements.push({ node, start: first.start, end, ...(assign ? { assign } : {}) });
 			const rest = this.peek();

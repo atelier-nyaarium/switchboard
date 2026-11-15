@@ -98,7 +98,6 @@ export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage
 			const block = render(only.value, CONSOLE_TEXT_BYTES);
 			return { kind: "ok", text: block.text, registryHash, ...(block.cut ? { cut: block.cut } : {}) };
 		}
-		// Prefix results with source statements.
 		const headings = printed.map((item) => `> ${neutralizeMarkup(oneLine(expr.slice(item.start, item.end)))}`);
 		const overhead = headings.reduce((sum, heading) => sum + Buffer.byteLength(heading, "utf8") + 3, 0);
 		const share = Math.floor((CONSOLE_TEXT_BYTES - overhead) / printed.length);
@@ -126,7 +125,7 @@ export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage
 					results.push({ value: null, entity: item.value.entity.name });
 					continue;
 				}
-				// Saved results cannot be cut.
+				// Saved results stay whole.
 				const kept = fitted(item.value, item.assigned ? Number.POSITIVE_INFINITY : limit, budget);
 				if (!kept || (item.assigned && kept.cut)) {
 					return tooBig(

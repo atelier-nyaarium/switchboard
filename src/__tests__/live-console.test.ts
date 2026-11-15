@@ -46,7 +46,7 @@ const secrets: ConsoleEntity = {
 	members: { all: { kind: "property", description: "Nothing.", type: "List", get: () => [] } },
 };
 const registry = createConsoleRegistry([sensors, secrets]);
-/** One statement's answer, without its span. */
+/** Single answer without span. */
 const single = (result: ConsoleResult) => {
 	if (!result.ok || result.results.length !== 1) return result;
 	const [{ start: _start, end: _end, ...only }] = result.results as [ConsoleStatementResult];

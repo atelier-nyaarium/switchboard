@@ -9,7 +9,7 @@ import { neutralizeMarkup, oneLine, reminderBlock } from "./system-reminder.js";
 
 export const SESSION_BASELINE_PATH = "/session/baseline";
 
-/** The whole block, under Claude Code's 10,000 for hook context. */
+/** Keep below Claude's 10,000-character hook limit. */
 export const MAX_BASELINE_CHARS = 9_000;
 
 ////////////////////////////////
@@ -25,7 +25,7 @@ const BaselineSourceSchema = z.object({
 	unread: z.number().int().nonnegative(),
 	/** More unread than a poll reads. */
 	capped: z.boolean().optional(),
-	/** False until a poll has read the count; absent from an older Gateway. */
+	/** False until checked; optional on older Gateways. */
 	checked: z.boolean().optional(),
 	// Sent as 0 for older plugins; remove 2026-11-02.
 	evicted: z.number().int().nonnegative().optional(),
