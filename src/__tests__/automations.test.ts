@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { PollAnswerSchema, told } from "../gateway/assistant/source.js";
+import { memberKey } from "../gateway/assistant/sourceLane.js";
 import { createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
@@ -279,7 +280,7 @@ describe("automations", () => {
 		expect(await queued(automations)).toEqual(["high"]);
 	});
 
-	it("suppresses inside the cool-down and refuses on a Gateway that is not home, logging both", async () => {
+	it("suppresses inside the cool-down and refuses on a Gateway that is not home, logging a standing refusal once", async () => {
 		const cool = world(fresh());
 		const a = cool.open();
 		a.fields.put("band", hotBand, 0);
@@ -294,6 +295,8 @@ describe("automations", () => {
 		const b = away.open();
 		b.fields.put("band", hotBand, 0);
 		b.automations.ownerPut("bucket", iceBucket(), 0);
+		away.read(b.fields, -5);
+		away.read(b.fields, -15);
 		away.read(b.fields, -5);
 		expect(b.automations.runs()).toMatchObject([
 			{ outcome: "refused", reason: expect.stringContaining("assistant") },
@@ -363,6 +366,68 @@ describe("automations", () => {
 		expect(automations.runs().map((run) => run.outcome)).toEqual(["refused", "ran"]);
 	});
 
+	it("runs a fire's effects whatever the outbox holds, and tells it within the lane's bounds once there is room", async () => {
+		const dir = fresh();
+		const old = fullQueue(dir);
+		const w = world(dir);
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const long = "x".repeat(600);
+		const heat: Automation = {
+			...iceBucket(),
+			actions: [
+				{ kind: "device_set", device: "plug", verb: "on" },
+				{ kind: "tell_assistant", when: "now", message: `${long} {value}` },
+				{ kind: "tell_assistant", when: "quietly", message: long },
+			],
+		};
+		automations.ownerPut("heat", heat, 0);
+
+		w.read(fields, -5);
+		await automations.settled();
+		const waiting = automations.runs().map((run) => [run.action, run.outcome]);
+		automations.clear(old);
+		await automations.settled();
+		const answer = await polled(automations);
+		const told = answer.kind === "events" ? answer.events : [];
+
+		expect(w.effects).toEqual(["plug:on"]);
+		expect(waiting).toEqual([
+			["device_set", "ran"],
+			["tell_assistant", "refused"],
+		]);
+		expect(told.map((event) => [event.fields.value, event.fields.message?.length, event.tell])).toEqual([
+			["high", 1_000, "now"],
+		]);
+	});
+
+	it("drops a waiting fire once its automation is edited, and starts no run after a stop", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const heat = { ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] };
+		automations.ownerPut("heat", heat, 0);
+		w.holdEffects();
+		w.read(fields, -5);
+		w.read(fields, -15);
+		w.read(fields, -5);
+		automations.ownerPut("heat", { ...heat, enabled: false }, 1);
+		const edited = automations.runs().map((run) => [run.outcome, run.reason]);
+
+		const stopped = world(fresh());
+		const later = stopped.open();
+		later.fields.put("band", hotBand, 0);
+		later.automations.ownerPut("heat", heat, 0);
+		await later.automations.stop();
+		stopped.read(later.fields, -5);
+		const idle = [...stopped.effects];
+		await stopped.open().automations.settled();
+
+		expect(w.effects).toEqual(["plug:on"]);
+		expect(edited).toEqual([["suppressed", "the automation changed"]]);
+		expect([idle, stopped.effects]).toEqual([[], ["plug:on"]]);
+	});
+
 	it("fires a crossing a crash left between two changes exactly once, however often it is drained", async () => {
 		const dir = fresh();
 		const w = world(dir);
@@ -379,17 +444,16 @@ describe("automations", () => {
 	});
 
 	it("logs changes it missed past the kept transitions as uncertain, and still fires the later ones", async () => {
-		const dir = fresh();
-		const old = fullQueue(dir);
-		const w = world(dir);
-		const { fields, automations } = w.open();
-		fields.put("band", hotBand, 0);
-		automations.ownerPut("bucket", iceBucket(), 0);
+		const w = world(fresh());
+		const before = w.open();
+		before.fields.put("band", hotBand, 0);
+		before.automations.ownerPut("bucket", iceBucket(), 0);
 		for (let i = 0; i < 12; i++) {
-			w.read(fields, -5);
-			w.read(fields, -15);
+			w.unheard(-5);
+			w.unheard(-15);
 		}
-		automations.clear(old);
+
+		const { automations } = w.open();
 
 		const outcomes = automations.runs().map((run) => run.outcome);
 		expect(outcomes).toContain("uncertain");
@@ -452,7 +516,7 @@ describe("automations", () => {
 		expect(held.queue.events).toEqual([future]);
 	});
 
-	it("moves the home's event automations as one set: refused whole when it does not fit or takes a held id, dropping only what cannot run here", () => {
+	it("moves the home's event automations as one set: refused whole when it does not fit or takes a held id, keeping one it cannot run as invalid", () => {
 		const { fields, automations } = world(fresh()).open();
 		fields.put("band", hotBand, 0);
 		const event = (source = "github"): Automation => ({
@@ -471,16 +535,18 @@ describe("automations", () => {
 		const fits = automations.write({
 			kind: "carry",
 			rows: [
-				...many.slice(1),
-				{ id: "lost", automation: event("gmail") },
+				...many.slice(2),
+				{ id: "elsewhere", automation: event("gmail") },
 				{ id: "local", automation: iceBucket() },
 			],
 		});
 
 		expect([over.written, taken.written]).toEqual([false, false]);
 		expect(kept).toEqual(["bucket", "old"]);
-		expect(fits).toMatchObject({ written: true, dropped: [{ id: "lost" }, { id: "local" }] });
-		expect(ids()).toEqual(["bucket", ...many.slice(1).map((row) => row.id)]);
+		expect(fits).toMatchObject({ written: true, dropped: [{ id: "local" }] });
+		expect(ids()).toEqual(["bucket", ...many.slice(2).map((row) => row.id), "elsewhere"]);
+		expect(automations.invalidOf("elsewhere")).not.toBeNull();
+		expect(automations.eventsOf("gmail")).toEqual([]);
 	});
 
 	it("keeps a sensor's alert ids to that sensor, and an event automation to the home", () => {
@@ -550,7 +616,7 @@ describe("automations", () => {
 		expect(after.automations.runs().map((run) => run.outcome)).toEqual(["uncertain"]);
 	});
 
-	it("runs an event's effects once per member, and refuses an action whose switch this Gateway lacks", async () => {
+	it("runs an event's effects once per member, again for later activity on it, and refuses an action whose switch this Gateway lacks", async () => {
 		const w = world(fresh());
 		const { automations } = w.open();
 		const onMention: Automation = {
@@ -560,15 +626,16 @@ describe("automations", () => {
 		};
 		const elsewhere = { ...onMention, actions: [{ kind: "device_set", device: "lamp", verb: "on" }] };
 		automations.ownerPut("flash", onMention, 0);
-		const matched = [{ automation: "flash", key: "event:github:1", names: {} }];
+		const matched = (at: number) => [{ automation: "flash", key: memberKey("github", { id: "1", at }), names: {} }];
 
-		automations.fireEvents(matched, 5_000);
-		automations.fireEvents(matched, 6_000);
+		automations.fireEvents(matched(1), 5_000);
+		automations.fireEvents(matched(1), 6_000);
+		automations.fireEvents(matched(2), 7_000);
 		await automations.settled();
 		const refused = automations.ownerPut("lamp", elsewhere, 0);
 		w.unplug();
 
-		expect(w.effects).toEqual(["plug:toggle"]);
+		expect(w.effects).toEqual(["plug:toggle", "plug:toggle"]);
 		expect(refused.stored).toBe(false);
 		expect(automations.rows().map((row) => [row.id, row.invalid !== undefined])).toEqual([["flash", true]]);
 	});

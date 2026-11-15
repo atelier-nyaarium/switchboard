@@ -12,6 +12,7 @@ import { createSensorThresholds, type SensorThresholds } from "../gateway/device
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { openDurable } from "../shared/durable-store.js";
 import { known } from "../shared/expressions.js";
+import { AUTOMATIONS_MAX, type Automation } from "../shared/schemasAutomation.js";
 import { VALUE_OP_KINDS } from "../shared/schemasConsoleOp.js";
 import { DEVICE_TOOL_OFFERS } from "../shared/schemasDeviceTool.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -41,9 +42,12 @@ interface ThresholdSeed {
 	revision: number;
 }
 
-function fixture(home = true, seededThresholds: ThresholdSeed[] = []) {
+function fixture(home = true, seededThresholds: ThresholdSeed[] = [], stored: Record<string, unknown> = {}) {
 	const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "sensor-thresholds-"));
 	roots.push(dataDir);
+	for (const [name, held] of Object.entries(stored)) {
+		fs.writeFileSync(path.join(dataDir, `${name}.json`), JSON.stringify(held));
+	}
 	let clock = 1_000;
 	const ambient = fakeAmbient({ now: () => clock, drive: "manual" });
 	const faults: Faults = { automationWrites: 0, thresholdSaves: true };
@@ -491,6 +495,65 @@ describe("sensor threshold composition", () => {
 			expect(rowsOf(world)).not.toEqual([]);
 			await world.restart();
 			expect(rowsOf(world)).toEqual([]);
+		} finally {
+			await world.devices.close();
+		}
+	});
+
+	it("keeps an alert's cool-down and last run when a stored band becomes a crossing, and says why a full Gateway takes no alert", async () => {
+		const ids = thresholdIds(MAC, "temperature");
+		const tells: Automation["actions"] = [{ kind: "tell_assistant", when: "quietly" }];
+		const band = {
+			label: "Freezer temperature",
+			nodes: [
+				{ kind: "field", ref: { source: "device", device: MAC, key: "temperature" } },
+				{ kind: "band", input: 0, low: 10, deadZone: 1 },
+			],
+		};
+		const alert = {
+			enabled: true,
+			trigger: { kind: "value", field: ids.field, becomes: "low", coolDownSec: 3_600 },
+			actions: tells,
+		};
+		const clocks = Array.from({ length: AUTOMATIONS_MAX - 1 }, (_, at) => ({
+			id: `clock${at}`,
+			revision: 1,
+			incarnation: `c${at}`,
+			kind: "automation",
+			body: { enabled: false, trigger: { kind: "interval", everyMin: 60 }, actions: tells },
+		}));
+		const world = fixture(
+			true,
+			[{ device: MAC, measure: "temperature", low: 10, deadZone: 1, coolDownSec: 3_600, revision: 1 }],
+			{
+				"computed-fields": [
+					{ id: ids.field, revision: 1, incarnation: "f0", kind: "computed_field", body: band },
+				],
+				automations: [
+					{ id: ids.low, revision: 1, incarnation: "a0", kind: "automation", body: alert },
+					...clocks,
+				],
+				"automation-state": {
+					automations: {
+						[ids.low]: { revision: 1, incarnation: "a0", fieldEpoch: "e0", handledSeq: 0, firedAt: 900 },
+					},
+					queue: { lastAt: 0, events: [] },
+					log: [],
+				},
+			},
+		);
+		try {
+			world.devices.ingestGatewayAdvert(MAC, warm, world.now);
+			world.devices.ingestGatewayAdvert(MAC, cold, world.now + 1_000);
+			const second = await world.devices.console({ ...put(0, 10), measure: "humidity" });
+
+			expect(rowsOf(world)).toEqual([ids.low]);
+			expect(world.automations.rows().find((row) => row.id === ids.low)).toMatchObject({ lastRanAt: 900 });
+			expect(world.automations.runs().map((run) => run.outcome)).toEqual(["suppressed"]);
+			expect(second).toMatchObject({ kind: "refused", refusal: { code: "full" } });
+			expect(await world.devices.console({ kind: "device_read", id: MAC })).toMatchObject({
+				thresholds: [{ measure: "temperature" }],
+			});
 		} finally {
 			await world.devices.close();
 		}

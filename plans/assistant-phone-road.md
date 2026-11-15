@@ -1019,6 +1019,31 @@ Slices:
 
 6. **What the editor asks the Gateway.** ✅ `automation_preview` takes any trigger and an optional `text`: it answers the trigger's names as they stand now (an event's newest match, a crossing's current number, a clock's time), the text filled from them, or the hole a save would refuse. `automation_list` answers `serves`: the trigger kinds and the actions with their labels and danger flags. The outbox source's label is "Automations"; its id stays `sensors`. The plugin needs no change: a message is a field of the outbox event, which a wake and a listing already print.
 
+Audit of slices 1 to 6 (six adversarial reads of the Gateway range, then one synthesis; `audit-27c-synthesis.md` in the session scratchpad). 24 findings confirmed, two high, all dormant on Sakura because the phone on 8.14.82 cannot write a message, an effect, a clock or a crossing. What changed:
+
+- **One fire road.** `fire()` no longer tells; it only records a fire, which now holds the record's revision, the fields it tells and its tell. `pump` is the one reader: it retires a fire whose automation changed or cannot run, runs effects after the claim, fills a message's holes and queues every ready tell in one write. A full outbox holds the tell and never the effects; a waiting fire gives up its place once 64 are held. `blockedSeq` is gone, so a transition is always handled in the commit that saw it, and a crossing's told number is the one it crossed on. The log dedupes a refusal that stands.
+- **The outbox keeps its reader's bounds.** Title and fields are clipped to 1,000, a member past 256 is digested, and the reader hides an entry outside them. Two 600-character messages used to stall the lane for the queue's seven days.
+- **A carry keeps what this Gateway cannot run.** The row is stored as it is and reads invalid, where it used to be dropped and then removed from the old home by its let-go. The record store takes an `unfit` put for it.
+- **An event's fire is keyed by the lane's own member key**, so later activity on a thread fires again.
+- **A queued fire is retired once its automation is edited, switched off or invalid.**
+- **`stop()` waits out the run in flight and nothing starts after it**; `close` stops automations before the devices.
+- **A clock walk whose write failed is retried in thirty seconds**, where it re-armed at zero.
+- **Alerts:** the projection lands before the old band field is removed, so the first start keeps each alert's cool-down, and `lastRanAt` is read from one place that a restore folds old run times into. A threshold save asks the judge first (`refusalOf`) and answers `full` or `invalid`, where it counted by hand and answered ok for a projection that could not land. A band field another automation watches stays while its sensor does.
+- **Smaller:** `round` past the scale's range answers the number; a hole's string is one line; the preview's hole message and filled text are clipped to their schema; the save check refuses a bare entity, an uncalled method, a method no value takes and an unknown member; an IFTTT key read that times out is `not_ready`, since nothing was sent; the stored `ifttt_trigger` has its own shape; a clock that fell more than 2,000 slots behind says so.
+
+Not changed, each with its reason: validity does not read the IFTTT grant, which can change at run time, so a run without it logs refused; a disable restarts an alert's cool-down, as an owner's act; an event's effects still wait on the poll's commit (decided in slice 3).
+
+Rollback note: a build before this drops `fires`, `fired` and `slots` from the automation state at its first write, so a waiting fire is lost and a clock starts over.
+
+Left on the board: a refused carry still places the session before it is judged (with Question 44); an older phone that edits an action drops a parameter added to that kind later; wire fixtures for the shapes the phone re-encodes land with the phone slice.
+
+### Bug Classes
+
+- **One fire, several tell roads** (`fire`, `runFire`, `tick` in `automations.ts`): four findings, each a different outbox-full or field rule per road. Closed by the one road above, not by patching each.
+- **A stop that covers the timer only** (`stop` in `automations.ts`): two instances, `pump` and `tick`. Closed by one `stopped` flag both read.
+- **A run time kept in three places** (`checkpoint.firedAt`, `slot.firedAt`, `ran`): an edit, a move to a crossing and a clock edit each lost it differently. Closed by `ran` as the one place.
+- **A writer that does not hold its reader's bounds** (the outbox against `SourceEventSchema`): one instance found, with two more on the same road. Closed in `told` and in the reader.
+
 Design held for the rest of the phase, decided from five maps of the code (saved as `map-27c-*.md` in the session scratchpad; the facts that matter are restated here):
 
 - **Deploy order is plugin, Gateway, phone.** The Gateway's unions are strict, so it must parse a kind before a phone emits it. The deployed phone decodes a kind it does not know as `Unknown`, keeps its raw form, and draws the row read-only with the Gateway's sentence, so a Gateway may hold the new kinds first. The phone's editor offers only what the Gateway says it serves, as `offered` does for integrations, so nothing is sent to a Gateway that would refuse it. A message on `tell_assistant` is a field on a known kind, which the phone on 8.14.82 would drop on a toggle; that phone cannot write one, and the new phone ships before any automation holds one.

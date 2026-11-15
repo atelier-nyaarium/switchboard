@@ -153,6 +153,11 @@ const FREE = new Map(
 
 export const freeBuiltin = (name: string): Builtin | undefined => FREE.get(name);
 
+const ON_VALUES = new Set(BUILTINS.filter((builtin) => builtin.receiver !== "none").map((builtin) => builtin.name));
+
+/** A method some value takes. */
+export const valueBuiltin = (name: string): boolean => ON_VALUES.has(name);
+
 const arity = ({ name, params }: Builtin): string => {
 	const required = params.filter((param) => !param.optional).length;
 	const range = required === params.length ? `${required}` : `${required} to ${params.length}`;

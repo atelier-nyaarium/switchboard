@@ -299,7 +299,7 @@ describe("holes in an automation's text", () => {
 	const scope = createConsoleRegistry([sensors, slow]);
 	const names = { value: { value: 1.84, shown: "1.8 C" }, device: { value: "Outside" } };
 
-	it("refuses at save a hole that is open, does not parse, holds two statements, names nothing here or reads a slow member, with its span", () => {
+	it("refuses at save a hole that is open, does not parse, holds two statements, names nothing here, prints no value or reads a slow member, with its span", () => {
 		const at = (text: string) => {
 			const issue = holeIssue(text, ["value", "device"], scope);
 			return issue && text.slice(issue.start, issue.end);
@@ -315,6 +315,11 @@ describe("holes in an automation's text", () => {
 		expect(at("It is {shout(value)} now")).toBe("shout");
 		expect(at("It is {radio.listen()} now")).toBe("radio.listen()");
 		expect(at("It is {} now")).toBe("{}");
+		expect(at("It is {sensors} now")).toBe("{sensors}");
+		expect(at("It is {sensors.read} now")).toBe("sensors.read");
+		expect(at("It is {sensors.nothing} now")).toBe("sensors.nothing");
+		expect(at("It is {value.round(1)} now")).toBe("value.round");
+		expect(at("It is {if(true, radio, 0).listen()} now")).toBe("if(true, radio, 0).listen");
 	});
 
 	it("fills a name alone with its shown form, any other expression as one line, and a hole that fails with {?}", async () => {

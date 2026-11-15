@@ -5124,6 +5124,8 @@ data class AssistantIntegration(
 data class AutomationServes(
 	val triggers: List<String>,
 	val actions: List<AutomationActionOffer>,
+	val numbers: List<AutomationNumberOffer>,
+	val switches: List<AutomationSwitchOffer>,
 )
 
 @Serializable
@@ -5131,6 +5133,22 @@ data class AutomationActionOffer(
 	val kind: String,
 	val label: String,
 	val danger: Boolean,
+)
+
+@Serializable
+data class AutomationNumberOffer(
+	val device: String,
+	val measure: String,
+	val label: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val unit: String? = null,
+	val decimals: Long,
+)
+
+@Serializable
+data class AutomationSwitchOffer(
+	val device: String,
+	val name: String,
 )
 
 @Serializable

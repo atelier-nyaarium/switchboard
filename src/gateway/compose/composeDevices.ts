@@ -5,6 +5,7 @@ import { type FieldRef, refKey } from "../../shared/expressions.js";
 import { toDisplay } from "../../shared/field-types.js";
 import { formatFieldValue } from "../../shared/field-values.js";
 import type { TemperatureUnit } from "../../shared/schemasAssistant.js";
+import type { AutomationNumberOffer, AutomationSwitchOffer } from "../../shared/schemasAutomation.js";
 import { type DeviceWatchEntry, DeviceWatchFrameSchema } from "../../shared/schemasDeviceBluetooth.js";
 import {
 	type DeviceConsoleOp,
@@ -87,6 +88,8 @@ export interface DeviceStage {
 	sensorInputKeys: () => string[];
 	/** Null unless a sensor reads that number. */
 	watchedReading: (device: string, measure: string) => WatchedReading | null;
+	/** What an automation may watch and set here. */
+	automationOffers: () => { numbers: AutomationNumberOffer[]; switches: AutomationSwitchOffer[] };
 	sensorRead: (id: string) => SensorAnswer | null;
 	ingestGatewayAdvert: (mac: string, advert: Advert, at: number) => string[];
 	flushReadings: () => boolean;
@@ -180,6 +183,29 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				return held?.known && typeof held.value === "number" ? held.value : null;
 			},
 		};
+	};
+	const automationOffers = () => {
+		const { records } = road.reads.list();
+		const numbers = records.flatMap((record) => {
+			if (record.kind !== "sensor" || !record.definition) return [];
+			return (definitionOf(record.definition)?.readings ?? []).flatMap(({ key, spec }) =>
+				spec.kind !== "number"
+					? []
+					: [
+							{
+								device: record.id,
+								measure: key,
+								label: `${record.name} ${spec.label.toLowerCase()}`,
+								...(spec.unit ? { unit: spec.unit } : {}),
+								decimals: spec.decimals ?? 0,
+							},
+						],
+			);
+		});
+		const switches = records.flatMap((record) =>
+			record.kind === "switch" ? [{ device: record.id, name: record.name }] : [],
+		);
+		return { numbers, switches };
 	};
 	const ingestGatewayAdvert = (mac: string, advert: Advert, at: number): string[] => {
 		const record = road.reads.get(mac);
@@ -497,6 +523,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		deviceWatch,
 		sensorInput,
 		watchedReading,
+		automationOffers,
 		sensorInputKeys,
 		ingestGatewayAdvert,
 		flushReadings: road.flushReadings,

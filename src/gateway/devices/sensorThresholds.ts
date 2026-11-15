@@ -5,7 +5,7 @@ import { canonicalJson } from "../../shared/canonical-json.js";
 import { type Definition, definitionOf } from "../../shared/device-definitions/index.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { checkExpression } from "../../shared/expressions.js";
-import { AUTOMATIONS_MAX, type Automation } from "../../shared/schemasAutomation.js";
+import type { Automation } from "../../shared/schemasAutomation.js";
 import type {
 	DeviceRecord,
 	DeviceSensorThreshold,
@@ -95,11 +95,15 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 			{ label: "sensor thresholds" },
 		).landed;
 
-	const storedEntryOf = (device: string, measure: string) =>
-		snapshot.thresholds.find((entry) => entry.device === device && entry.measure === measure);
+	const storedEntryOf = (device: string, measure: string, thresholds: readonly Entry[] = snapshot.thresholds) =>
+		thresholds.find((entry) => entry.device === device && entry.measure === measure);
 
-	const entryOf = (record: DeviceRecord, reading: Definition["readings"][number]) => {
-		const entry = storedEntryOf(record.id, reading.key);
+	const entryOf = (
+		record: DeviceRecord,
+		reading: Definition["readings"][number],
+		thresholds: readonly Entry[] = snapshot.thresholds,
+	) => {
+		const entry = storedEntryOf(record.id, reading.key, thresholds);
 		if (!entry) return undefined;
 		const { low, high, ...rest } = entry;
 		return {
@@ -118,11 +122,11 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 		};
 	};
 
-	const desiredOf = (record: DeviceRecord | null) => {
+	const desiredOf = (record: DeviceRecord | null, thresholds: readonly Entry[] = snapshot.thresholds) => {
 		const automations = new Map<string, Automation>();
 		if (!record) return automations;
 		for (const reading of numericReadings(record)) {
-			const entry = entryOf(record, reading);
+			const entry = entryOf(record, reading, thresholds);
 			if (!entry || !banded(entry)) continue;
 			const threshold: Threshold = { device: record.id, measure: reading.key, ...contentOf(entry) };
 			const ids = thresholdIds(record.id, reading.key);
@@ -138,9 +142,20 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 		const unswept = snapshot.unswept.includes(device);
 		// Preserve unread rows.
 		if (!record && !unswept) return true;
-		let ok = true;
-		for (const row of heldRows(device).fields) ok = deps.fields.remove(row.id, row.revision).removed && ok;
-		ok = deps.automations.write({ kind: "projection", device, rows: desiredOf(record) }).written && ok;
+		// Alerts first: a crossing put over its old row keeps that row's cool-down.
+		let ok = deps.automations.write({ kind: "projection", device, rows: desiredOf(record) }).written;
+		if (ok) {
+			// A field another automation watches stays while its sensor does.
+			const watched = new Set(
+				deps.automations
+					.list()
+					.flatMap(({ body }) => (body.trigger.kind === "value" ? [body.trigger.field] : [])),
+			);
+			for (const row of heldRows(device).fields) {
+				if (record && watched.has(row.id)) continue;
+				ok = deps.fields.remove(row.id, row.revision).removed && ok;
+			}
+		}
 		if (ok && unswept) write({ ...snapshot, unswept: snapshot.unswept.filter((id) => id !== device) });
 		if (ok) dirty.delete(device);
 		else dirty.add(device);
@@ -152,15 +167,6 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 			const entry = entryOf(record, reading);
 			return entry && banded(entry) ? [viewOf(entry)] : [];
 		});
-
-	const roomFor = (device: string, measure: string): ThresholdRefusal | null => {
-		const ids = thresholdIds(device, measure);
-		const automationIds = new Set(deps.automations.list().map((row) => row.id));
-		const needed = [ids.low, ids.high].filter((id) => !automationIds.has(id)).length;
-		if (automationIds.size + needed > AUTOMATIONS_MAX)
-			return { kind: "refused", code: "full", text: "this Gateway holds too many automations" };
-		return null;
-	};
 
 	const put = (record: DeviceRecord, op: PutRequest): SensorThresholdPutAnswer => {
 		if (record.kind !== "sensor") return { kind: "refused", code: "not_supported" };
@@ -205,8 +211,6 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 				() => null,
 			);
 			if (!band.ok) return { kind: "refused", code: "invalid", text: band.issue.message };
-			const full = roomFor(record.id, op.measure);
-			if (full) return full;
 		}
 		const entry: Entry = {
 			device: record.id,
@@ -214,8 +218,15 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 			...content,
 			revision: (held?.revision ?? 0) + 1,
 		};
-		const others = snapshot.thresholds.filter((item) => item !== stored);
-		if (!write({ ...snapshot, thresholds: [...others, entry] })) return { kind: "refused", code: "write_failed" };
+		const thresholds = [...snapshot.thresholds.filter((item) => item !== stored), entry];
+		// The alerts it would project, asked of their one judge.
+		const alerts = deps.automations.refusalOf({
+			kind: "projection",
+			device: record.id,
+			rows: desiredOf(record, thresholds),
+		});
+		if (alerts) return { kind: "refused", code: alerts.full ? "full" : "invalid", text: alerts.reason };
+		if (!write({ ...snapshot, thresholds })) return { kind: "refused", code: "write_failed" };
 		reconcile(record.id);
 		return { kind: "ok", threshold: clearing ? null : viewOf(entry) };
 	};

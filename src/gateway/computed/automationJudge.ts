@@ -52,13 +52,14 @@ export const movesWithHome = (body: Automation): boolean => body.trigger.kind ==
 
 const refused = (reason: string): AutomationVerdict => ({ kind: "refused", reason });
 
-const put = (id: string, body: unknown, base: number, revive = false): OwnerWrite => ({
+const put = (id: string, body: unknown, base: number, revive = false, unfit = false): OwnerWrite => ({
 	op: "put",
 	kind: AUTOMATION_KIND,
 	id,
 	body,
 	base,
 	...(revive ? { revive } : {}),
+	...(unfit ? { unfit } : {}),
 });
 
 const remove = ({ id, revision }: OwnerRecord<Automation>): OwnerWrite => ({ op: "remove", id, base: revision });
@@ -76,8 +77,8 @@ function unconfirmed(next: Automation, held: Automation | undefined): string[] {
 	return [...new Set(asks.map((action) => AUTOMATION_ACTIONS[action.kind].label))];
 }
 
-/** The rows this Gateway can run, last of an id winning. */
-function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView) {
+/** The rows that may arrive, last of an id winning; `runnable` drops what this Gateway cannot run. */
+function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView, runnable: boolean) {
 	const wanted = new Map<string, Automation>();
 	const dropped: DroppedAutomation[] = [];
 	for (const { id, automation } of rows) {
@@ -85,7 +86,9 @@ function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView) 
 			? "an alert's id is its sensor's"
 			: !movesWithHome(automation)
 				? "not an event automation"
-				: view.issue(automation);
+				: runnable
+					? view.issue(automation)
+					: null;
 		if (reason === null) wanted.set(id, canonicalAutomation(automation));
 		else dropped.push({ id, reason });
 	}
@@ -112,7 +115,8 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 			return { kind: "writes", writes: [{ op: "remove", id: intent.id, base: intent.base }], dropped: [] };
 		}
 		case "carry": {
-			const { wanted, dropped } = fitting(intent.rows, view);
+			// One it cannot run is kept and reads invalid, so a move loses nothing the owner wrote.
+			const { wanted, dropped } = fitting(intent.rows, view, false);
 			const leaving = view.held.filter((record) => movesWithHome(record.body) && !wanted.has(record.id));
 			const puts: OwnerWrite[] = [];
 			let created = 0;
@@ -120,7 +124,7 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 				const current = heldAt(id);
 				if (current && !movesWithHome(current.body)) return refused(`another automation holds the id ${id}`);
 				if (!current) created += 1;
-				puts.push(put(id, automation, current?.revision ?? 0, true));
+				puts.push(put(id, automation, current?.revision ?? 0, true, true));
 			}
 			const staying = view.count - leaving.length;
 			const over = staying + created - view.max;
@@ -132,7 +136,7 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 			return { kind: "writes", writes: [...leaving.map(remove), ...puts], dropped };
 		}
 		case "adoption": {
-			const { wanted, dropped } = fitting(intent.rows, view);
+			const { wanted, dropped } = fitting(intent.rows, view, true);
 			// Rules were stored at the home.
 			const puts = [...wanted].flatMap(([id, automation]) => (heldAt(id) ? [] : [put(id, automation, 0, true)]));
 			return { kind: "writes", writes: puts, dropped };

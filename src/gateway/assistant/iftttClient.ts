@@ -36,8 +36,8 @@ export function createIftttClient(deps: IftttClientDeps) {
 				let grant: VaultRelease;
 				try {
 					grant = await bounded(deps.vault.readForService(INTEGRATION_ID, entryId), action);
-				} catch (error) {
-					if (error instanceof GatewayCapabilityRefusal) throw error;
+				} catch {
+					// Nothing was sent.
 					throw new GatewayCapabilityRefusal("not_ready");
 				}
 				if (grant.kind === "unusable") {

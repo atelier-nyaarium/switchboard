@@ -75,7 +75,7 @@ import { SensorsClear } from "../assistant/sensorsClear.js";
 import { type ListPage, type ListQuery, type Source, type SourceEvent, told } from "../assistant/source.js";
 import type { SourceActions } from "../assistant/sourceAction.js";
 import { createSourceEnabledStore } from "../assistant/sourceEnabled.js";
-import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
+import { type AssistantWake, createSourceLanes, memberKey, type SourceLanes } from "../assistant/sourceLane.js";
 import { createSourceStateStore, FRESH_STATE, goneAdded, unexpectedNow } from "../assistant/sourceState.js";
 import { createStatusMemo } from "../assistant/statusMemo.js";
 import { createTemperatureUnitStore } from "../assistant/temperatureUnit.js";
@@ -271,7 +271,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		event: { value: { ...fields, id, title, ...(url ? { url } : {}) }, shown: title },
 		source: { value: sources.find((source) => source.id === sourceId)?.label ?? sourceId },
 	});
-	/** Each match runs its effects once per event. */
+	/** Each match fires once per member, as the lane counts one. */
 	const arrived = (sourceId: string, events: readonly SourceEvent[]): void => {
 		const specs = specsOf(sourceId) ?? [];
 		const armed = automations?.eventsOf(sourceId) ?? [];
@@ -279,7 +279,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			const names = eventNames(sourceId, event);
 			return armed
 				.filter(({ trigger }) => conditionsMatch(trigger.conditions, specs, event.fields))
-				.map((held) => ({ automation: held.id, key: `event:${sourceId}:${event.id}`, names }));
+				.map((held) => ({ automation: held.id, key: memberKey(sourceId, event), names }));
 		});
 		automations?.fireEvents(matched, ambient.now());
 	};

@@ -64,6 +64,8 @@ export function inRange(value: number, decimals: number): boolean {
 /** Half-up aligns runtimes. */
 export function roundTo(value: number, decimals: number): number {
 	const scale = 10 ** decimals;
+	// Past the scale's range a number is whole already.
+	if (!Number.isFinite(value * scale)) return value;
 	const rounded = Math.round(value * scale) / scale;
 	return Object.is(rounded, -0) ? 0 : rounded;
 }

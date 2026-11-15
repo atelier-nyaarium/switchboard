@@ -258,7 +258,7 @@ describe("an event automation", () => {
 		expect(armed).toEqual([]);
 	});
 
-	it("takes the carried automations it can run, each stored without the null a phone sealed for its label", async () => {
+	it("takes every carried automation, one it cannot run listed invalid, each stored without the null a phone sealed for its label", async () => {
 		const { automations, stop } = await placed([listing()], freshDir(), {
 			approveEverySend: true,
 			watchers: [],
@@ -271,7 +271,11 @@ describe("an event automation", () => {
 		const rows = new Map(automations.rows().map((row) => [row.id, row]));
 		await stop();
 
-		expect([...rows.keys()]).toEqual(["sealed"]);
+		expect([...rows].map(([id, row]) => [id, row.invalid === undefined])).toEqual([
+			["unfit", false],
+			["lost", false],
+			["sealed", true],
+		]);
 		expect(rows.get("sealed")?.automation).toEqual(eventAutomation("github", reason("mention")));
 	});
 

@@ -26,6 +26,8 @@ private const val MAX_SAFE_INTEGER = 9007199254740991.0
 /** Matches JS Math.round. */
 internal fun roundTo(value: Double, decimals: Int): Double {
 	val scale = 10.0.pow(decimals)
+	// Past the scale's range a number is whole already.
+	if (!(value * scale).isFinite()) return value
 	val rounded = Math.round(value * scale) / scale
 	return if (rounded == 0.0) 0.0 else rounded
 }

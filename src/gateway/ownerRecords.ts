@@ -44,13 +44,14 @@ export type OwnerPutResult<T> =
 export type OwnerRemoveResult = { removed: true } | { removed: false; reason: string };
 
 export type OwnerWrite =
-	| { op: "put"; kind: string; id: string; body: unknown; base: number; revive?: boolean }
+	/** `unfit` lands a body `refusal` turns down; its validity is then read. */
+	| { op: "put"; kind: string; id: string; body: unknown; base: number; revive?: boolean; unfit?: boolean }
 	| { op: "remove"; id: string; base: number };
 
-/** `records` holds null for a remove. */
+/** `records` holds null for a remove; `full` when the cap refused. */
 export type OwnerBatchResult<T> =
 	| { stored: true; records: (OwnerRecord<T> | null)[] }
-	| { stored: false; at: number; reason: string; issue?: OwnerIssue; record?: OwnerRecord<T> };
+	| { stored: false; at: number; reason: string; issue?: OwnerIssue; record?: OwnerRecord<T>; full?: true };
 
 const EnvelopeSchema = z.strictObject({
 	id: z.string().regex(RULE_ID_RE),
@@ -117,7 +118,7 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 
 	type Planned =
 		| { ok: true; record: OwnerRecord<T> | null }
-		| { ok: false; reason: string; issue?: OwnerIssue; record?: OwnerRecord<T> };
+		| { ok: false; reason: string; issue?: OwnerIssue; record?: OwnerRecord<T>; full?: true };
 
 	const draftOf = (): Draft => ({ rows: held, bury: new Map(), changed: new Set() });
 
@@ -156,7 +157,8 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 		} else {
 			if (base !== 0) return { ok: false, reason: "not stored; it may have been removed" };
 			if (buriedAt(draft, id) !== undefined && !write.revive) return { ok: false, reason: "removed" };
-			if (draft.rows.length >= deps.max) return { ok: false, reason: `this Gateway holds ${deps.max} already` };
+			if (draft.rows.length >= deps.max)
+				return { ok: false, reason: `this Gateway holds ${deps.max} already`, full: true };
 		}
 		const record: OwnerRecord<T> = {
 			id,
@@ -166,7 +168,7 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 			incarnation: current?.incarnation ?? deps.newIncarnation(),
 			body: parsed.data,
 		};
-		const refused = issueOf(record, draft.rows);
+		const refused = write.unfit ? null : issueOf(record, draft.rows);
 		if (refused) {
 			const issue = typeof refused === "string" ? {} : { issue: refused };
 			const reason = typeof refused === "string" ? refused : refused.message;
@@ -218,6 +220,24 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 
 	const NOT_SAVED = "not saved; try again";
 
+	const plan = (
+		writes: readonly OwnerWrite[],
+	):
+		| { stored: true; draft: Draft; records: (OwnerRecord<T> | null)[] }
+		| Extract<OwnerBatchResult<T>, { stored: false }> => {
+		const draft = draftOf();
+		const records: (OwnerRecord<T> | null)[] = [];
+		for (const [at, write] of writes.entries()) {
+			const planned = write.op === "put" ? planPut(draft, write) : planRemove(draft, write);
+			if (!planned.ok) {
+				const { ok: _ok, ...refusal } = planned;
+				return { stored: false, at, ...refusal };
+			}
+			records.push(planned.record);
+		}
+		return { stored: true, draft, records };
+	};
+
 	return {
 		list: readable,
 
@@ -262,17 +282,17 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 
 		/** Every write lands, or none. */
 		batch(writes: readonly OwnerWrite[]): OwnerBatchResult<T> {
-			const draft = draftOf();
-			const records: (OwnerRecord<T> | null)[] = [];
-			for (const [at, write] of writes.entries()) {
-				const planned = write.op === "put" ? planPut(draft, write) : planRemove(draft, write);
-				if (!planned.ok) {
-					const { ok: _ok, ...refusal } = planned;
-					return { stored: false, at, ...refusal };
-				}
-				records.push(planned.record);
-			}
-			return land(draft) ? { stored: true, records } : { stored: false, at: 0, reason: NOT_SAVED };
+			const planned = plan(writes);
+			if (!planned.stored) return planned;
+			return land(planned.draft)
+				? { stored: true, records: planned.records }
+				: { stored: false, at: 0, reason: NOT_SAVED };
+		},
+
+		/** What `batch` would refuse; writes nothing. */
+		refusalOf(writes: readonly OwnerWrite[]): Extract<OwnerBatchResult<T>, { stored: false }> | null {
+			const planned = plan(writes);
+			return planned.stored ? null : planned;
 		},
 	};
 }

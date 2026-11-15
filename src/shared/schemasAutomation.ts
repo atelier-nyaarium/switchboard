@@ -8,12 +8,12 @@ import {
 	RULE_ID_RE,
 } from "./schemasAssistantRules.js";
 import { DeviceVerbSchema } from "./schemasDevices.js";
-import { PHONE_CAPABILITIES } from "./schemasPhoneCapabilities.js";
 import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
 
 export const AUTOMATIONS_MAX = 64;
 export const AUTOMATION_ACTIONS_MAX = 8;
 export const AUTOMATION_MESSAGE_MAX = 1_000;
+const IFTTT_VALUE_MAX = 500;
 /** A week. */
 export const AUTOMATION_INTERVAL_MAX_MIN = 10_080;
 
@@ -90,7 +90,18 @@ export const AutomationActionSchema = z
 		}),
 		/** A switch this Gateway holds. */
 		z.strictObject({ kind: z.literal("device_set"), device: z.string().min(1).max(64), verb: DeviceVerbSchema }),
-		z.strictObject({ kind: z.literal("ifttt_trigger"), ...PHONE_CAPABILITIES.ifttt_trigger.request.shape }),
+		/** Its own shape, so tightening the live request leaves a stored row readable. */
+		z.strictObject({
+			kind: z.literal("ifttt_trigger"),
+			event: z
+				.string()
+				.min(1)
+				.max(80)
+				.regex(/^[A-Za-z0-9_-]+$/),
+			value1: z.string().max(IFTTT_VALUE_MAX).optional(),
+			value2: z.string().max(IFTTT_VALUE_MAX).optional(),
+			value3: z.string().max(IFTTT_VALUE_MAX).optional(),
+		}),
 	])
 	.meta({ id: "AutomationAction" });
 
@@ -217,6 +228,28 @@ export const AUTOMATION_SERVES = {
 	actions: Object.entries(AUTOMATION_ACTIONS).map(([kind, row]) => ({ kind, label: row.label, danger: row.danger })),
 };
 
+const OFFERED_MAX = 256;
+
+/** A sensor's number a crossing can watch. */
+export const AutomationNumberOfferSchema = z
+	.object({
+		device: z.string().max(64),
+		measure: z.string().max(64),
+		/** The device's name, then the measure's. */
+		label: z.string().max(160),
+		/** As stored; absent for a bare number. */
+		unit: z.string().max(16).optional(),
+		decimals: z.number().int().nonnegative().max(6),
+	})
+	.meta({ id: "AutomationNumberOffer" });
+export type AutomationNumberOffer = z.infer<typeof AutomationNumberOfferSchema>;
+
+/** A switch an action can set. */
+export const AutomationSwitchOfferSchema = z
+	.object({ device: z.string().max(64), name: z.string().max(80) })
+	.meta({ id: "AutomationSwitchOffer" });
+export type AutomationSwitchOffer = z.infer<typeof AutomationSwitchOfferSchema>;
+
 export const ConsoleAutomationListResultSchema = z
 	.object({
 		automations: z.array(AutomationRowSchema),
@@ -231,6 +264,9 @@ export const ConsoleAutomationListResultSchema = z
 							.meta({ id: "AutomationActionOffer" }),
 					)
 					.max(16),
+				/** What this Gateway's devices offer a trigger and an action. */
+				numbers: z.array(AutomationNumberOfferSchema).max(OFFERED_MAX),
+				switches: z.array(AutomationSwitchOfferSchema).max(OFFERED_MAX),
 			})
 			.meta({ id: "AutomationServes" })
 			.optional(),

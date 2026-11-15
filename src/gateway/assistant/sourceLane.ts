@@ -126,7 +126,7 @@ async function answerOf(
 }
 
 /** New activity is a new member. */
-const memberKey = (sourceId: string, event: Pick<SourceEvent, "id" | "at">) =>
+export const memberKey = (sourceId: string, event: Pick<SourceEvent, "id" | "at">) =>
 	JSON.stringify([sourceId, event.id, event.at]);
 
 /** Stable, so a retry builds the same batches. */

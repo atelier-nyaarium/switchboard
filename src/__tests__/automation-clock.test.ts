@@ -40,10 +40,16 @@ const tells = (trigger: ClockTrigger): Automation => ({
 });
 const hourly: ClockTrigger = { kind: "interval", everyMin: 60 };
 
-function open(dir: string, ambient: FakeAmbient) {
+function open(dir: string, ambient: FakeAmbient, disk = { failing: false, writes: 0 }) {
 	const automations = openDurable(dir, "automations", (records) =>
-		openDurable(dir, "automation-state", (state) =>
-			createAutomations({
+		openDurable(dir, "automation-state", (state) => {
+			const save = state.saveChecked.bind(state);
+			state.saveChecked = (value: unknown) => {
+				disk.writes += 1;
+				if (disk.failing) throw new Error("disk full");
+				save(value);
+			};
+			return createAutomations({
 				records,
 				state,
 				fields: NO_FIELDS,
@@ -51,8 +57,8 @@ function open(dir: string, ambient: FakeAmbient) {
 				now: () => ambient.now(),
 				isHome: () => true,
 				timers: ambient,
-			}),
-		),
+			});
+		}),
 	);
 	const told = async () => {
 		const poll = await createOutboxSource(automations.outbox).poll(null, new AbortController().signal);
@@ -117,9 +123,28 @@ describe("an automation's clock", () => {
 
 		expect(await after.told()).toEqual([["Every hour", "21:00 UTC"]]);
 		expect(after.automations.runs().map((run) => [run.outcome, run.reason])).toEqual([
-			["ran", undefined],
 			["uncertain", "missed 2 slots"],
+			["ran", undefined],
 		]);
+	});
+
+	it("retries a walk whose write failed half a minute on, and writes nothing in between", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const disk = { failing: false, writes: 0 };
+		const { automations, told } = open(fresh(), ambient, disk);
+		automations.ownerPut("hourly", tells(hourly), 0);
+
+		disk.failing = true;
+		await ambient.advance(HOUR);
+		const failed = disk.writes;
+		await ambient.advance(29_000);
+		const waited = disk.writes;
+		disk.failing = false;
+		await ambient.advance(1_000);
+		await automations.stop();
+
+		expect(waited).toBe(failed);
+		expect(await told()).toEqual([["Every hour", "19:00 UTC"]]);
 	});
 
 	it("starts over from now when it is edited or switched back on, so an edit never fires", async () => {

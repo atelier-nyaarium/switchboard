@@ -20,6 +20,8 @@ export interface AutomationPreviewDeps {
 }
 
 const NAME_SHOWN_MAX = 200;
+const ISSUE_MAX = 200;
+const FILLED_MAX = 4_000;
 
 const shownOf = (held: Names[string]): string => {
 	const text = held.shown ?? (typeof held.value === "object" ? "a record" : String(held.value ?? "none"));
@@ -40,8 +42,9 @@ export async function previewAutomation(
 	});
 	if (text === undefined) return { ...preview, names: listed };
 	const holes = deps.holes();
-	const hole = holes?.issue(text, AUTOMATION_TRIGGER_NAMES[trigger.kind]) ?? null;
+	const found = holes?.issue(text, AUTOMATION_TRIGGER_NAMES[trigger.kind]) ?? null;
+	const hole = found ? { ...found, message: oneLine(found.message).slice(0, ISSUE_MAX) } : null;
 	if (!holes || hole) return { ...preview, names: listed, ...(hole ? { hole } : {}) };
 	const filled = await holes.fill(text, names ?? {});
-	return { ...preview, names: listed, filled: filled.text };
+	return { ...preview, names: listed, filled: filled.text.slice(0, FILLED_MAX) };
 }

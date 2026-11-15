@@ -678,7 +678,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		routines,
 		policies,
 		automations: {
-			list: () => ({ automations: automations?.rows() ?? [], serves: AUTOMATION_SERVES }),
+			list: () => ({
+				automations: automations?.rows() ?? [],
+				serves: { ...AUTOMATION_SERVES, ...(devices?.automationOffers() ?? { numbers: [], switches: [] }) },
+			}),
 			put: (id, automation, base, confirmed) =>
 				automations?.ownerPut(id, automation, base, confirmed) ?? {
 					stored: false,
@@ -752,8 +755,9 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			try {
 				await capture(() => enrollment.stop());
 				await capture(() => sessions.purgeQueue.stop());
-				await capture(() => devices?.close());
+				// A run in flight ends on an open device road.
 				await capture(() => automations?.stop());
+				await capture(() => devices?.close());
 				await capture(() => federation?.drainInboxPump());
 				await capture(() => routines.stop());
 				await capture(() => sessionCut?.cuts.stop());

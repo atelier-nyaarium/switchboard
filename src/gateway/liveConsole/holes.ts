@@ -1,6 +1,7 @@
 import { type ConsoleNode, parseConsole } from "../../shared/live-console-grammar.js";
+import { oneLine } from "../../shared/system-reminder.js";
 import { scanHoles } from "../../shared/text-holes.js";
-import { freeBuiltin } from "./builtins.js";
+import { freeBuiltin, valueBuiltin } from "./builtins.js";
 import { evaluateConsole } from "./evaluate.js";
 import type { ConsoleAudience, ConsoleRegistry } from "./registry.js";
 import { numberText } from "./render.js";
@@ -27,11 +28,9 @@ type Found = { start: number; end: number; message: string } | null;
 
 function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: ConsoleRegistry): Found {
 	const walk = (child: ConsoleNode | null): Found => (child ? unreadable(child, names, registry) : null);
-	const slow = (target: ConsoleNode, name: string): boolean => {
-		if (target.kind !== "ident") return false;
-		const found = registry.get(target.name, AUDIENCE)?.members[name];
-		return found?.kind === "method" && found.slow === true;
-	};
+	/** A trigger's name shadows no entity. */
+	const entityOf = (target: ConsoleNode) =>
+		target.kind === "ident" && !names.has(target.name) ? registry.get(target.name, AUDIENCE) : null;
 	switch (node.kind) {
 		case "literal":
 			return null;
@@ -39,8 +38,15 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 			return names.has(node.name) || registry.get(node.name, AUDIENCE)
 				? null
 				: { start: node.start, end: node.end, message: `no name ${node.name} here` };
-		case "member":
-			return walk(node.target);
+		case "member": {
+			const entity = entityOf(node.target);
+			if (!entity) return walk(node.target);
+			const found = Object.hasOwn(entity.members, node.name) ? entity.members[node.name] : undefined;
+			if (!found) return { start: node.start, end: node.end, message: `${entity.name} has no ${node.name}` };
+			return found.kind === "method"
+				? { start: node.start, end: node.end, message: `call it: ${node.name}()` }
+				: null;
+		}
 		case "call": {
 			const { target } = node;
 			if (target.kind === "ident") {
@@ -48,10 +54,17 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 					return { start: target.start, end: target.end, message: `no function ${target.name}()` };
 				}
 			} else if (target.kind === "member") {
-				if (slow(target.target, target.name)) {
+				const entity = entityOf(target.target);
+				const found =
+					entity && Object.hasOwn(entity.members, target.name) ? entity.members[target.name] : undefined;
+				if (found?.kind === "method" && found.slow) {
 					return { start: node.start, end: node.end, message: "too slow for an automation" };
 				}
-				const inner = walk(target.target);
+				// Off an entity, only a value's own methods.
+				if (entity ? found?.kind !== "method" : !valueBuiltin(target.name)) {
+					return { start: target.start, end: target.end, message: `no method ${target.name}()` };
+				}
+				const inner = entity ? null : walk(target.target);
 				if (inner) return inner;
 			}
 			return node.args.map(walk).find((issue) => issue !== null) ?? null;
@@ -82,6 +95,10 @@ export function holeIssue(text: string, names: readonly string[], registry: Cons
 		const [statement, second] = parsed.statements;
 		if (!statement) return { ...whole, message: "a hole needs an expression" };
 		if (second || statement.assign) return { ...whole, message: "a hole holds one expression" };
+		const { node } = statement;
+		if (node.kind === "ident" && !scope.has(node.name) && registry.get(node.name, AUDIENCE)) {
+			return { ...whole, message: `name what to read of ${node.name}` };
+		}
 		const found = unreadable(statement.node, scope, registry);
 		if (found) return { start: inner + found.start, end: inner + found.end, message: found.message };
 	}
@@ -91,10 +108,10 @@ export function holeIssue(text: string, names: readonly string[], registry: Cons
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Null when multiline. */
+/** One line; null for what has no short form. */
 function holeText(value: unknown): string | null {
 	if (value === null || value === undefined) return "none";
-	if (typeof value === "string") return value;
+	if (typeof value === "string") return oneLine(value);
 	if (typeof value === "number") return numberText(value);
 	if (typeof value === "boolean") return value ? "yes" : "no";
 	return isRecord(value) && typeof value.shown === "string" ? value.shown : null;
