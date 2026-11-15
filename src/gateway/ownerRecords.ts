@@ -32,6 +32,8 @@ export interface OwnerRecordsDeps<T> {
 	refusal?: (candidate: OwnerRecord<T>, others: readonly OwnerRecord<T>[]) => OwnerIssue | string | null;
 	/** After each landed write. */
 	onChanged?: (id: string) => void;
+	/** A body its schema rewrites is stored as read. */
+	settle?: boolean;
 	label: string;
 }
 
@@ -60,6 +62,19 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 	let held: Row[] = rows;
 	/** Memory-only deleted-ID retries. */
 	const buried = new Map<string, number>();
+
+	if (deps.settle) {
+		const settled = rows.map((row) => {
+			const body = deps.kinds[row.kind]?.safeParse(row.body);
+			return body?.success && canonicalJson(body.data) !== canonicalJson(row.body)
+				? { ...row, body: body.data }
+				: row;
+		});
+		if (settled.some((row, at) => row !== rows[at])) {
+			held = settled;
+			deps.store.save(settled);
+		}
+	}
 
 	const read = (row: Row): OwnerRecord<T> | null => {
 		const schema = deps.kinds[row.kind];

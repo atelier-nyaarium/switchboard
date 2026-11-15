@@ -154,6 +154,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		max: AUTOMATIONS_MAX,
 		newIncarnation: deps.newIncarnation,
 		refusal: (candidate) => triggerIssue(candidate.body),
+		// Remove 2026-11-28 with the legacy body.
+		settle: true,
 		label: "automations",
 	});
 
