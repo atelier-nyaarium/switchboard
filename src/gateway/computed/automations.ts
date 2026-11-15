@@ -86,8 +86,11 @@ function restore(raw: unknown): State {
 		});
 	return {
 		automations,
-		queue: { lastAt: loose.queue.lastAt, events: pick(loose.queue.events, QueueEntrySchema) },
-		log: pick(loose.log, RunSchema),
+		queue: {
+			lastAt: loose.queue.lastAt,
+			events: pick(loose.queue.events, QueueEntrySchema).slice(-QUEUE_MAX_EVENTS),
+		},
+		log: pick(loose.log, RunSchema).slice(-LOG_MAX),
 	};
 }
 
@@ -323,6 +326,8 @@ export function createAutomations(deps: AutomationsDeps) {
 			return drain();
 		},
 		runs: (): readonly AutomationRun[] => state.log,
+		checkpoint: (id: string) => state.automations[id] ?? null,
+		queued: () => state.queue,
 		watcher,
 	};
 }

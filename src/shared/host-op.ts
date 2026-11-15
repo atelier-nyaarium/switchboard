@@ -80,6 +80,8 @@ export type HostOp =
 	| { kind: "peek"; target: TmuxTarget }
 	| { kind: "kasaScan" }
 	| { kind: "bleScan" }
+	/** Read-only, daemon-bounded. */
+	| { kind: "bleListen"; windowMs: number }
 	| { kind: "wifiNetwork" }
 	| { kind: "typeIntoPane"; target: TmuxTarget; text: string; dedupKey?: string }
 	// Mutations replay by dedupKey.

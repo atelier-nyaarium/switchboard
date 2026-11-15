@@ -3,6 +3,7 @@
 
 import type { z } from "zod";
 import { InboxListAnswerSchema, InboxListRequestShape } from "./schemasAssistantInbox.js";
+import { LiveConsoleAnswerSchema, LiveConsoleRequestShape } from "./schemasLiveConsole.js";
 import {
 	SessionReportAnswerSchema,
 	SessionReportRequestShape,
@@ -44,6 +45,12 @@ export const SESSION_COMMANDS = {
 		path: "/session/cut/summary",
 		request: SessionCutSummaryRequestShape,
 		answer: SessionCutSummaryAnswerSchema,
+	},
+	console: {
+		tool: "console",
+		path: "/console/eval",
+		request: LiveConsoleRequestShape,
+		answer: LiveConsoleAnswerSchema,
 	},
 } as const satisfies Record<string, SessionCommand>;
 

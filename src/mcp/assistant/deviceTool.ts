@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { toDisplay, UNIT_DISPLAYS } from "../../shared/field-types.js";
+import { bandToDisplay, toDisplay } from "../../shared/field-types.js";
 import { formatFieldValue } from "../../shared/field-values.js";
 import { ACTION_FRONT_ROUTES, type ActionRunResult, ActionRunResultSchema } from "../../shared/schemasActionFront.js";
 import {
@@ -45,15 +45,7 @@ export function deviceText(op: DeviceToolOp, result: ActionRunResult): ToolText 
 		const thresholds = sensor.thresholds?.map((threshold) => {
 			const reading = sensor.readings.find((item) => item.spec.field === threshold.measure);
 			if (reading?.spec.kind !== "number" || !reading.spec.unit) return threshold;
-			const unit = reading.spec.unit;
-			const conversion = UNIT_DISPLAYS.find((row) => row.unit === unit && row.display === display);
-			if (!conversion) return threshold;
-			return {
-				...threshold,
-				...(threshold.low === undefined ? {} : { low: toDisplay(threshold.low, unit, display).value }),
-				...(threshold.high === undefined ? {} : { high: toDisplay(threshold.high, unit, display).value }),
-				deadZone: threshold.deadZone * conversion.scale,
-			};
+			return bandToDisplay(threshold, reading.spec.unit, display);
 		});
 		return text(
 			phoneText(result, { ...sensor, readings, ...(thresholds === undefined ? {} : { thresholds }) }),

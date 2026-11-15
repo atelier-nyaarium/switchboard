@@ -316,6 +316,37 @@ describe("BlueZ coordinator", () => {
 		coordinator.close();
 	});
 
+	it("listens only to its own window, never the cache, for longer than a scan may", async () => {
+		const { clock, buses, coordinator } = setup();
+		const hold = coordinator.hold();
+		expect(await ready(hold)).toBe("discovering");
+		const listen = coordinator.listen(60_000);
+		await settle();
+		await clock.advance(30_000);
+		const address = "aa:bb:cc:dd:ee:01";
+		buses[0].signal({
+			path: "/",
+			interface: "org.freedesktop.DBus.ObjectManager",
+			member: "InterfacesAdded",
+			bodySignature: "oa{sa{sv}}",
+			body: [
+				`/org/bluez/hci0/dev_${address.replaceAll(":", "_").toUpperCase()}`,
+				new Map([["org.bluez.Device1", props(address, -70)]]),
+			],
+		});
+		await clock.advance(30_000);
+		expect(await listen).toEqual({
+			devices: [expect.objectContaining({ mac: address, signal: -70 })],
+		});
+		expect(buses[0].filters.map((filter) => filter.get("DuplicateData"))).toContainEqual(variant("b", true));
+		hold.release();
+		await settle();
+		const cut = coordinator.listen(60_000);
+		await settle();
+		coordinator.close();
+		expect(await cut).toEqual({ reason: "scan_failed" });
+	});
+
 	it("merges added and changed advertisements for one address", async () => {
 		const { buses, coordinator } = setup({ devices: 0 });
 		const hold = coordinator.hold();

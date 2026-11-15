@@ -283,7 +283,9 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 		for (const device of [...dirty]) reconcile(device);
 	};
 
-	return { read, put, forget, start, tick, recordsChanged };
+	const list = () => snapshot.thresholds;
+
+	return { read, put, forget, start, tick, recordsChanged, list };
 }
 
 export type SensorThresholds = ReturnType<typeof createSensorThresholds>;

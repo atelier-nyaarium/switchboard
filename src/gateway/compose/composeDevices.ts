@@ -64,6 +64,8 @@ export interface DeviceStageDeps {
 	};
 }
 
+export type SensorAnswer = Extract<DeviceConsoleResult<"device_read">, { kind: "sensor" }>;
+
 /** A danger act needs `approved`. */
 export type DeviceAssistant = <Op extends DeviceToolOp>(
 	op: Op,
@@ -80,6 +82,7 @@ export interface DeviceStage {
 	deviceWatch: () => DeviceWatchEntry[];
 	sensorInput: (ref: FieldRef) => FieldInput | null;
 	sensorInputKeys: () => string[];
+	sensorRead: (id: string) => SensorAnswer | null;
 	ingestGatewayAdvert: (mac: string, advert: Advert, at: number) => string[];
 	flushReadings: () => boolean;
 	close: () => Promise<void>;
@@ -128,6 +131,23 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 						: false,
 				})),
 		}).watch;
+	const sensorAnswer = (record: DeviceRecord) => {
+		const model = record.definition ? definitionOf(record.definition)?.models[0] : undefined;
+		return {
+			kind: "sensor" as const,
+			...(model ? { model } : {}),
+			...sensors.read(record),
+			payloads: road.readings.payloads(record.id).map(({ advert, at, radio }) => ({
+				...advert,
+				data: { ...advert.data },
+				services: [...advert.services],
+				at,
+				radio,
+			})),
+			...(deps.thresholds ? { thresholds: deps.thresholds.read(record) } : {}),
+		};
+	};
+
 	const sensorInputKeys = (): string[] =>
 		road.reads.list().records.flatMap((record) => {
 			if (record.kind !== "sensor" || !record.definition) return [];
@@ -224,23 +244,10 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				surface,
 				shape,
 				op.id,
-				async (slot) => {
-					const model = slot.record.definition ? definitionOf(slot.record.definition)?.models[0] : undefined;
-					return {
-						kind: "sensor",
-						...(model ? { model } : {}),
-						...sensors.read(slot.record),
-						payloads: road.readings.payloads(slot.record.id).map(({ advert, at, radio }) => ({
-							...advert,
-							data: { ...advert.data },
-							services: [...advert.services],
-							at,
-							radio,
-						})),
-						...(surface === "assistant" ? { temperatureUnit: deps.temperatureUnit?.() ?? "C" } : {}),
-						...(deps.thresholds ? { thresholds: deps.thresholds.read(slot.record) } : {}),
-					};
-				},
+				async (slot) => ({
+					...sensorAnswer(slot.record),
+					...(surface === "assistant" ? { temperatureUnit: deps.temperatureUnit?.() ?? "C" } : {}),
+				}),
 				async (plug) => {
 					const read = await plug.drive((ctx) => plug.driver.read(plug.record, ctx), "confirms-relay");
 					// Settings fail alone.
@@ -460,6 +467,10 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		record: (id) => road.reads.get(id),
 		records: () => road.reads.list().records,
 		holds: (id) => road.reads.holds(id),
+		sensorRead: (id) => {
+			const record = road.reads.get(id);
+			return record?.kind === "sensor" ? sensorAnswer(record) : null;
+		},
 		deviceWatch,
 		sensorInput,
 		sensorInputKeys,

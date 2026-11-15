@@ -208,7 +208,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		},
 		watcherGrants: (watcherId) =>
 			decisions
-				.list(ambient.now())
+				.standing()
 				.filter((grant) => grant.holder.kind === "watcher" && grant.holder.watcherId === watcherId)
 				.map((grant) => grant.entryId),
 		readForWatcher: (watcherId, entryId) => use.readForWatcher(watcherId, entryId),

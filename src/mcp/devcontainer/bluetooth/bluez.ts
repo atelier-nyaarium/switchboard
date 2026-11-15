@@ -1,5 +1,6 @@
 import type { Advert } from "../../../shared/ble-recognition.js";
 import { HOST_BLE_SCAN_MAX_DEVICES, type HostBleScanResult, HostBleScanResultSchema } from "../../../shared/host-op.js";
+import { CONSOLE_LISTEN_MAX_S } from "../../../shared/schemasLiveConsole.js";
 import type { DbusClient } from "./dbusClient.js";
 import { createSystemBusClient, DbusCallError, DbusConnectionError } from "./dbusClient.js";
 import type { DbusMessage, DbusValue, DbusVariant } from "./dbusWire.js";
@@ -13,6 +14,7 @@ const DEVICE = "org.bluez.Device1";
 const PROPERTIES = "org.freedesktop.DBus.Properties";
 const DEFAULT_SCAN_WINDOW_MS = 8_000;
 const MAX_SCAN_WINDOW_MS = 8_000;
+const MAX_LISTEN_WINDOW_MS = CONSOLE_LISTEN_MAX_S * 1000;
 const SCAN_READY_TIMEOUT_MS = 2_000;
 const STABLE_MS = 5_000;
 const MAX_ADDRESSES = HOST_BLE_SCAN_MAX_DEVICES;
@@ -96,6 +98,8 @@ export interface BluezCoordinator {
 	hold(filter?: DiscoveryFilter): DiscoveryHold;
 	onObservation(listener: (observation: BluezObservation) => void): () => void;
 	scan(windowMs?: number): Promise<HostBleScanResult>;
+	/** Fresh observations only. */
+	listen(windowMs: number): Promise<HostBleScanResult>;
 	close(): void;
 }
 
@@ -753,6 +757,7 @@ export function createBluezCoordinator(options: BluezCoordinatorOptions = {}): B
 				await call(active, "SetDiscoveryFilter", snapshot.adapter, ADAPTER, "a{sv}", [desired]);
 				if (link !== snapshot || isClosed()) return;
 				link = { ...snapshot, filter: desiredKey };
+				settleReady();
 				markDirty();
 			} catch (error) {
 				failedOperation(snapshot, error, false, true);
@@ -836,10 +841,16 @@ export function createBluezCoordinator(options: BluezCoordinatorOptions = {}): B
 		};
 	}
 
-	async function scan(windowMs = DEFAULT_SCAN_WINDOW_MS): Promise<HostBleScanResult> {
-		const discovery = hold();
+	const scan = (windowMs = DEFAULT_SCAN_WINDOW_MS) => collect(Math.min(MAX_SCAN_WINDOW_MS, windowMs), true);
+	const listen = (windowMs: number) => collect(Math.min(MAX_LISTEN_WINDOW_MS, windowMs), false);
+
+	const windows = new Set<() => void>();
+
+	async function collect(windowMs: number, seedCache: boolean): Promise<HostBleScanResult> {
+		// Listen needs duplicate adverts.
+		const discovery = hold(seedCache ? {} : { DuplicateData: variant("b", true) });
 		const ready = await discovery.ready(SCAN_READY_TIMEOUT_MS);
-		if (ready !== "discovering") {
+		if (ready !== "discovering" || isClosed()) {
 			discovery.release();
 			return HostBleScanResultSchema.parse({ reason: ready === "no_radio" ? "no_radio" : "scan_failed" });
 		}
@@ -849,17 +860,25 @@ export function createBluezCoordinator(options: BluezCoordinatorOptions = {}): B
 			if (observation.at >= startedAt) combineHeard(heard, observation);
 		};
 		observationListeners.add(onObservation);
-		if (link.phase === "up") {
+		if (seedCache && link.phase === "up") {
 			for (const [path, properties] of link.devices) {
 				const observation = observationFor(path, properties);
 				if (observation) combineHeard(heard, observation);
 			}
 		}
-		await new Promise<void>((resolve) =>
-			clock.schedule(Math.min(MAX_SCAN_WINDOW_MS, Math.max(1, windowMs)), resolve),
-		);
+		await new Promise<void>((resolve) => {
+			let cancel = () => {};
+			const finish = () => {
+				cancel();
+				windows.delete(finish);
+				resolve();
+			};
+			windows.add(finish);
+			cancel = clock.schedule(Math.max(1, windowMs), finish);
+		});
 		discovery.release();
 		observationListeners.delete(onObservation);
+		if (isClosed()) return HostBleScanResultSchema.parse({ reason: "scan_failed" });
 		const devices = [...heard.values()].map((device) => ({
 			mac: device.mac,
 			...(device.name ? { name: device.name } : {}),
@@ -880,6 +899,7 @@ export function createBluezCoordinator(options: BluezCoordinatorOptions = {}): B
 		if (active) removeClient(active, true);
 		holds.clear();
 		observationListeners.clear();
+		for (const finish of [...windows]) finish();
 	}
 
 	return {
@@ -889,6 +909,7 @@ export function createBluezCoordinator(options: BluezCoordinatorOptions = {}): B
 			return () => observationListeners.delete(listener);
 		},
 		scan,
+		listen,
 		close,
 	};
 }

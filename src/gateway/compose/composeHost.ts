@@ -5,6 +5,7 @@ import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import { type HostSpawnState, hostSpawnPoint } from "../../shared/host-spawn.js";
 import { type DeviceWatchEntry, DeviceWatchFrameSchema } from "../../shared/schemasDeviceBluetooth.js";
+import { CONSOLE_LISTEN_MARGIN_MS, CONSOLE_LISTEN_MAX_S } from "../../shared/schemasLiveConsole.js";
 import { SESSION_HARNESSES, type SessionHarness } from "../../shared/session-harness.js";
 import type { HostLivenessReader } from "../hostLiveness.js";
 import { HostOpCoordinator } from "../hostOpCoordinator.js";
@@ -24,6 +25,7 @@ const SLOW_HOST_OP_MS: Partial<Record<HostOp["kind"], number>> = {
 	threads: 150_000,
 	// Reads and writes a whole session file.
 	sessionCut: 150_000,
+	bleListen: CONSOLE_LISTEN_MAX_S * 1000 + CONSOLE_LISTEN_MARGIN_MS,
 };
 export const PRESENCE_PEEK_MS = 2_000;
 const WATCH_PUSH_MS = 2_000;

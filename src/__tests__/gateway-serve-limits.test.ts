@@ -17,6 +17,7 @@ import {
 } from "../shared/console-protocol.js";
 import { GATEWAY_LONG_WAIT_ROUTES, isGatewayLongWaitRoute } from "../shared/gateway-long-waits.js";
 import { SEND_ROUTE_WAIT_CAP_MS } from "../shared/schemasAssistantSend.js";
+import { CONSOLE_LISTEN_MARGIN_MS, CONSOLE_LISTEN_MAX_S } from "../shared/schemasLiveConsole.js";
 import { VAULT_ROUTE_WAIT_CAP_MS } from "../shared/schemasVault.js";
 
 const VAULT_REFRESH_BOUND_MS = VAULT_REFRESH_MAX_CALLS * TOOL_CALL_TIMEOUT_MS;
@@ -45,6 +46,8 @@ const ROUTE_WAIT_MS = new Map<string, number>([
 	// Unasked sends wake targets.
 	["/assistant/send", Math.max(SEND_ROUTE_WAIT_CAP_MS, DEFAULT_WAKE_TIMEOUT_MS + POST_WAKE_SETTLE_MS)],
 	["/assistant/send/collect", SEND_ROUTE_WAIT_CAP_MS],
+	// A listen holds the radio for its window.
+	["/console/eval", CONSOLE_LISTEN_MAX_S * 1000 + CONSOLE_LISTEN_MARGIN_MS],
 	...AGENT_BACKENDS.map(({ id, waitBudgetMs }) => [agentHttpPath(id), waitBudgetMs] as const),
 ]);
 
@@ -116,6 +119,7 @@ describe("gateway long waits", () => {
 			"deps.sessionCut.routes",
 			"deps.baseline.routes",
 			"deps.assistant.routes",
+			"deps.liveConsole.routes",
 		]);
 
 		const httpRouter = fs.readFileSync("src/gateway/httpRouter.ts", "utf8");
@@ -152,6 +156,7 @@ describe("gateway long waits", () => {
 		expect(mapKeys(routineRoutes)).toEqual(["COMMAND.path", "REPORT.path"]);
 		expect(mapKeys(baselineRoutes)).toEqual(["SESSION_BASELINE_PATH"]);
 		expect(mapKeys(fs.readFileSync("src/gateway/compose/composeSessionCut.ts", "utf8"))).toEqual(["COMMAND.path"]);
+		expect(mapKeys(fs.readFileSync("src/gateway/compose/composeLiveConsole.ts", "utf8"))).toEqual(["COMMAND.path"]);
 
 		const loopbackPaths = [
 			...quotedPaths(vaultRoutes),

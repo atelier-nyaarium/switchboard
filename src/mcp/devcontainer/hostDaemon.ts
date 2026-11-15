@@ -685,6 +685,7 @@ const claudeRunner = createClaudeRunner({ send: (frame) => safeSend({ ...frame }
 const hostOpRunner = createHostOpRunner({
 	kasaScan: createKasaScanner(),
 	bleScan: () => bluetoothCoordinator.scan(),
+	bleListen: (windowMs) => bluetoothCoordinator.listen(windowMs),
 	wifiNetwork: createWifiNetworkReader(),
 	typeIntoPane,
 	// Internal callers use peekPane for its reject-on-absent.

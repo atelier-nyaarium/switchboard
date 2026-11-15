@@ -240,6 +240,9 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		return [...grants];
 	};
 
+	/** Standing grants never expire. */
+	const standing = (): VaultGrant[] => grants.filter((grant) => grant.tier === "standing");
+
 	const revoke = (grantId: string): boolean => {
 		const kept = grants.filter((grant) => grant.grantId !== grantId);
 		return kept.length !== grants.length && commit(kept, true);
@@ -256,6 +259,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		covers,
 		grant,
 		list,
+		standing,
 		revoke,
 		sessionEnded,
 		setRoutineGrants,

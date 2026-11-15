@@ -1,10 +1,11 @@
 // The whole gateway graph, one stage at a time.
 
+import packageJson from "../../package.json";
 import { AGENT_AGE_PASS_MS } from "../shared/agent-collect.js";
 import type { AgentExecutionTarget } from "../shared/agent-execution-target.js";
-import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { ASSISTANT_TEAM, isAssistantRecord } from "../shared/assistant-session.js";
 import { openDurable } from "../shared/durable-store.js";
-import { HOST_SPAWN, hostSpawnPoint } from "../shared/host-spawn.js";
+import { HOST_SPAWN, hostSpawnPoint, isHostSpawn } from "../shared/host-spawn.js";
 import { SENSORS_WATCHER_ID } from "../shared/schemasAssistantActions.js";
 import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
@@ -20,6 +21,7 @@ import { composeFaults } from "./compose/composeFaults.js";
 import { composeFederation, type FederationStage } from "./compose/composeFederation.js";
 import { composeHost } from "./compose/composeHost.js";
 import { composeListener } from "./compose/composeListener.js";
+import { composeLiveConsole } from "./compose/composeLiveConsole.js";
 import { composePersistence } from "./compose/composePersistence.js";
 import { composePolicies } from "./compose/composePolicies.js";
 import { composeRouterFrames, type RouterFramesBuild, type RouterFramesStage } from "./compose/composeRouterFrames.js";
@@ -642,6 +644,38 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	if (bootstrap.gatewayBoot.kind === "arming") enrollment.resume();
 	if (bootstrap.gatewayBoot.kind === "active") context.activate(bootstrap.gatewayBoot.boot);
 
+	const liveConsole = composeLiveConsole({
+		ambient: bootstrap.ambient,
+		readers: {
+			gateway: () => {
+				const client = context.slice()?.routerClient;
+				return {
+					id: bootstrap.localGatewayId,
+					version: packageJson.version,
+					router: client
+						? {
+								connected: client.isConnected(),
+								registered: client.isRegistered(),
+								incarnation: client.incarnation(),
+							}
+						: null,
+				};
+			},
+			devices: () => devices,
+			fields: () => fields,
+			automations: () => automations,
+			thresholds: () => sensorThresholds,
+			assistant: () => assistant.console.state(),
+			temperatureUnit: () => assistant.temperatureUnit(),
+			bluetoothListen: (windowMs) => host.relayToHost({ kind: "bleListen", windowMs }),
+		},
+		callerOf: (req) => {
+			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
+			if (!record) return "unauthenticated";
+			if (isAssistantRecord(record)) return "not_served";
+			return isHostSpawn(record.spawn) ? "host" : "not_served";
+		},
+	});
 	const listener = composeListener({
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
@@ -660,6 +694,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		vault,
 		baseline,
 		assistant,
+		liveConsole,
 	});
 	const close = (): Promise<void> => {
 		if (closePromise) return closePromise;

@@ -21,6 +21,7 @@ import { registerDesignerTools } from "./designer/designerTools.js";
 import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
 import { registerSetEffortLevel } from "./devcontainer/setEffortLevel.js";
+import { registerConsoleTool } from "./liveConsole/consoleTool.js";
 import { registerRoutineTools } from "./routines/routineTools.js";
 import { registerVaultTools } from "./vault/vaultTools.js";
 import { registerWorkflowTools } from "./workflows/workflowTools.js";
@@ -38,6 +39,7 @@ export const EVERY_TOOL_REGISTRAR = [
 	"registerBoardTools",
 	"registerVaultTools",
 	"registerRoutineTools",
+	"registerConsoleTool",
 	"registerCutTools",
 	"registerWorkflowTools",
 	"registerInboxTool",
@@ -65,6 +67,7 @@ export function registerEveryTool(server: McpServer): void {
 	registerBoardTools(server);
 	registerVaultTools(server);
 	registerRoutineTools(server);
+	registerConsoleTool(server);
 	registerCutTools(server);
 	registerWorkflowTools(
 		server,

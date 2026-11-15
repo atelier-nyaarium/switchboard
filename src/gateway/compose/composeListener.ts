@@ -8,6 +8,7 @@ import type { AgentsStage } from "./composeAgents.js";
 import type { AssistantStage } from "./composeAssistant.js";
 import type { BaselineStage } from "./composeBaseline.js";
 import type { EnrollmentStage } from "./composeEnrollment.js";
+import type { LiveConsoleStage } from "./composeLiveConsole.js";
 import type { RoutesStage } from "./composeRoutes.js";
 import type { RoutineStage } from "./composeRoutines.js";
 import type { SessionCutStage } from "./composeSessionCut.js";
@@ -35,6 +36,7 @@ export interface ListenerStageDeps {
 	vault: Pick<VaultStage, "routes">;
 	baseline: Pick<BaselineStage, "routes">;
 	assistant: Pick<AssistantStage, "routes">;
+	liveConsole: Pick<LiveConsoleStage, "routes">;
 }
 
 export interface ListenerStage {
@@ -102,6 +104,7 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 			...deps.sessionCut.routes,
 			...deps.baseline.routes,
 			...deps.assistant.routes,
+			...deps.liveConsole.routes,
 		]),
 		routes: routes.current,
 		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId),

@@ -89,6 +89,22 @@ export function toDisplay(value: number, unit: string, display: string): { value
 	return row ? { value: value * row.scale + row.offset, unit: display } : { value, unit };
 }
 
+/** Dead zones omit offsets. */
+export function bandToDisplay<T extends { low?: number; high?: number; deadZone: number }>(
+	band: T,
+	unit: string,
+	display: string,
+): T {
+	const row = displayOf(unit, display);
+	if (!row) return band;
+	return {
+		...band,
+		...(band.low === undefined ? {} : { low: band.low * row.scale + row.offset }),
+		...(band.high === undefined ? {} : { high: band.high * row.scale + row.offset }),
+		deadZone: band.deadZone * row.scale,
+	};
+}
+
 /** Round to converted precision. */
 export function fromDisplay(value: number, unit: string, display: string): number {
 	const row = displayOf(unit, display);

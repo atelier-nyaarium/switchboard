@@ -44,6 +44,7 @@ import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
 import { registerSetEffortLevel } from "./devcontainer/setEffortLevel.js";
 import { askGateway } from "./hookGateway.js";
 import { bringUpLine, readResumeArg } from "./launchFacts.js";
+import { registerConsoleTool } from "./liveConsole/consoleTool.js";
 import type { LocalAgentBackend } from "./local/localAgentHost.js";
 import { createLocalAgentBackend } from "./local/localAgentHost.js";
 import { readServerFile } from "./opencode/client.js";
@@ -252,6 +253,8 @@ export async function startMcp(): Promise<void> {
 	// Behind no capability: a session a routine reserved must be able to read what it was asked,
 	// and the owner never opts that session into anything.
 	if (process.env.SWITCHBOARD_SESSION_TOKEN) registerRoutineTools(mcpServer);
+	// Host sessions only.
+	if (!isAssistant && !isInsideContainer() && process.env.SWITCHBOARD_SESSION_TOKEN) registerConsoleTool(mcpServer);
 	if (!isAssistant && process.env.SWITCHBOARD_SESSION_TOKEN && profile.cuts) registerCutTools(mcpServer);
 	// The Gateway checks the token is the assistant's too; this only keeps it off other sessions.
 	if (isAssistant) {

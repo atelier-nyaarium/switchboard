@@ -325,6 +325,29 @@ describe("vault decisions", () => {
 		expect(open(dataDir).list(1_000)).toEqual([]);
 	});
 
+	it("reads standing grants without sweeping an expired one off disk", () => {
+		const dataDir = fresh();
+		const watcher = { kind: "watcher", watcherId: "github" };
+		const held = [
+			{ grantId: "standing", tier: "standing", entryId: "deploy", holder: watcher },
+			{
+				grantId: "lapsed",
+				tier: "session",
+				entryId: "deploy",
+				holder: { kind: "session", sessionTarget: "host.alice" },
+				expiresAt: 1,
+			},
+		];
+		recorded(dataDir, held);
+		const file = fs.readFileSync(path.join(dataDir, "vault-decisions.json"), "utf8");
+		expect(
+			open(dataDir)
+				.standing()
+				.map((grant) => grant.grantId),
+		).toEqual(["standing"]);
+		expect(fs.readFileSync(path.join(dataDir, "vault-decisions.json"), "utf8")).toBe(file);
+	});
+
 	it("a poisoned file starts the store fresh, and the next grant heals it", () => {
 		const dataDir = fresh();
 		fs.writeFileSync(path.join(dataDir, "vault-decisions.json"), JSON.stringify({ nope: 1 }));

@@ -52,6 +52,7 @@ export interface TmuxOps {
 	readSkill: (target: AgentExecutionTarget, path: string) => Promise<HostReadSkillResult>;
 	kasaScan: () => Promise<HostKasaScanResult>;
 	bleScan?: () => Promise<HostBleScanResult>;
+	bleListen?: (windowMs: number) => Promise<HostBleScanResult>;
 	wifiNetwork: () => Promise<HostWifiNetworkResult>;
 	typeIntoPane: (target: TmuxTarget, text: string) => Promise<TypeIntoPaneResult>;
 	agentModels?: (backend: AgentBackendId, target: AgentExecutionTarget) => Promise<HostAgentModelsResult>;
@@ -152,6 +153,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		if (op.kind === "peek") return runPeek(op.target);
 		if (op.kind === "kasaScan") return ops.kasaScan();
 		if (op.kind === "bleScan") return ops.bleScan ? ops.bleScan() : { reason: "no_radio" };
+		if (op.kind === "bleListen") return ops.bleListen ? ops.bleListen(op.windowMs) : { reason: "no_radio" };
 		if (op.kind === "wifiNetwork") return ops.wifiNetwork();
 		if (op.kind === "typeIntoPane") return runTyping(op);
 		if (op.kind === "sendText" || op.kind === "sendKey") return runSend(op);
