@@ -65,8 +65,14 @@ describe("threshold template", () => {
 		const field = thresholdField(threshold);
 		expect(field && fields.put(ids.field, field, 0)).toMatchObject({ stored: true });
 		const sides = thresholdAutomations(threshold);
-		automations.put(ids.high, sides.high, 0);
-		automations.put(ids.low, sides.low, 0);
+		automations.write({
+			kind: "projection",
+			device: FREEZER,
+			rows: new Map([
+				[ids.high, sides.high],
+				[ids.low, sides.low],
+			]),
+		});
 		const read = (value: number) => {
 			clock += 1_000;
 			readings.set(TEMP, known(value));

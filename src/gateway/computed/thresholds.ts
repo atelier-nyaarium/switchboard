@@ -18,9 +18,12 @@ export interface Threshold {
 	coolDownSec: number;
 }
 
+/** Ids a sensor's alerts take. */
+export const ALERT_ID_PREFIX = "threshold-";
+
 /** Template-owned record ids. */
 export function thresholdIds(device: string, measure: string) {
-	const base = `threshold-${device.replaceAll(":", "")}-${measure}`;
+	const base = `${ALERT_ID_PREFIX}${device.replaceAll(":", "")}-${measure}`;
 	return { field: base, low: `${base}-low`, high: `${base}-high` };
 }
 

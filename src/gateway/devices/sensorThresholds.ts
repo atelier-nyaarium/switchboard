@@ -6,7 +6,7 @@ import { type Definition, definitionOf } from "../../shared/device-definitions/i
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { checkExpression } from "../../shared/expressions.js";
 import { formatFieldValue } from "../../shared/field-values.js";
-import { AUTOMATIONS_MAX } from "../../shared/schemasAutomation.js";
+import { AUTOMATIONS_MAX, type Automation } from "../../shared/schemasAutomation.js";
 import type {
 	DeviceRecord,
 	DeviceSensorThreshold,
@@ -120,7 +120,7 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 
 	const desiredOf = (record: DeviceRecord | null) => {
 		const fields = new Map<string, unknown>();
-		const automations = new Map<string, unknown>();
+		const automations = new Map<string, Automation>();
 		if (!record) return { fields, automations };
 		for (const reading of numericReadings(record)) {
 			const entry = entryOf(record, reading);
@@ -149,9 +149,6 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 		const desired = desiredOf(record);
 		const held = heldRows(device);
 		let ok = true;
-		for (const row of held.automations) {
-			if (!desired.automations.has(row.id)) ok = deps.automations.remove(row.id, row.revision).removed && ok;
-		}
 		for (const row of held.fields) {
 			if (!desired.fields.has(row.id)) ok = deps.fields.remove(row.id, row.revision).removed && ok;
 		}
@@ -160,11 +157,7 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 			if (current && canonicalJson(current.body) === canonicalJson(body)) continue;
 			ok = deps.fields.put(id, body, current?.revision ?? 0, { revive: true }).stored && ok;
 		}
-		for (const [id, body] of desired.automations) {
-			const current = held.automations.find((row) => row.id === id);
-			if (current && canonicalJson(current.body) === canonicalJson(body)) continue;
-			ok = deps.automations.put(id, body, current?.revision ?? 0, { revive: true }).stored && ok;
-		}
+		ok = deps.automations.write({ kind: "projection", device, rows: desired.automations }).written && ok;
 		if (ok && unswept) write({ ...snapshot, unswept: snapshot.unswept.filter((id) => id !== device) });
 		if (ok) dirty.delete(device);
 		else dirty.add(device);

@@ -8,24 +8,33 @@ import {
 	type Automation,
 	type AutomationRow,
 	AutomationSchema,
-	type CarriedAutomation,
 	type ConsoleAutomationDeleteResult,
 	type ConsoleAutomationPutResult,
-	canonicalAutomation,
 	type EventTrigger,
 	TELL_WHEN,
 	type TellWhen,
 	tellWhen,
 } from "../../shared/schemasAutomation.js";
 import { createOwnerRecords, type OwnerRecord } from "../ownerRecords.js";
+import {
+	AUTOMATION_KIND,
+	type AutomationIntent,
+	type DroppedAutomation,
+	judgeAutomationWrite,
+	NOT_HOME,
+} from "./automationJudge.js";
 import type { ComputedFields } from "./computedFields.js";
+import { ALERT_ID_PREFIX } from "./thresholds.js";
 
-export const AUTOMATION_KIND = "automation";
+export { AUTOMATION_KIND };
+
+export type AutomationWritten =
+	/** `records` holds null for a remove. */
+	| { written: true; records: (OwnerRecord<Automation> | null)[]; dropped: readonly DroppedAutomation[] }
+	| { written: false; reason: string; record?: OwnerRecord<Automation> };
 
 /** An id may spell a prototype key. */
 const own = <T>(held: Record<string, T>, id: string): T | undefined => (Object.hasOwn(held, id) ? held[id] : undefined);
-/** Ids a sensor's alerts take. */
-const THRESHOLD_PREFIX = "threshold-";
 export const QUEUE_MAX_EVENTS = 256;
 export const QUEUE_MAX_BYTES = 64 * 1024;
 const LOG_MAX = 64;
@@ -162,7 +171,7 @@ const queueBytes = (events: readonly QueueEntry[]) => Buffer.byteLength(JSON.str
 export function createAutomations(deps: AutomationsDeps) {
 	let state: State = restore(deps.state.load());
 
-	const records = createOwnerRecords<Automation>({
+	const store = createOwnerRecords<Automation>({
 		store: deps.records,
 		kinds: { [AUTOMATION_KIND]: StoredAutomationSchema },
 		max: AUTOMATIONS_MAX,
@@ -172,6 +181,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		settle: true,
 		label: "automations",
 	});
+	/** Reads; `write` alone commits. */
+	const records: Pick<typeof store, "list" | "get" | "invalidOf" | "count"> = store;
 
 	function triggerIssue(body: Automation): string | null {
 		if (body.trigger.kind === "event") {
@@ -289,7 +300,7 @@ export function createAutomations(deps: AutomationsDeps) {
 					continue;
 				}
 				if (!deps.isHome()) {
-					log = logged(log, run(row.seq, row.at, "refused", "the assistant does not live on this Gateway"));
+					log = logged(log, run(row.seq, row.at, "refused", NOT_HOME));
 					at = handled;
 					continue;
 				}
@@ -345,7 +356,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** The device whose Alerts row wrote it. */
 	const deviceOf = (record: OwnerRecord<Automation>): string | undefined => {
 		const { trigger } = record.body;
-		if (trigger.kind !== "value" || !record.id.startsWith(THRESHOLD_PREFIX)) return undefined;
+		if (trigger.kind !== "value" || !record.id.startsWith(ALERT_ID_PREFIX)) return undefined;
 		const read = deps.fields.get(trigger.field)?.body.nodes[0];
 		return read?.kind === "field" && read.ref.source === "device" ? read.ref.device : undefined;
 	};
@@ -365,89 +376,56 @@ export function createAutomations(deps: AutomationsDeps) {
 		};
 	};
 
-	const isEvent = (record: OwnerRecord<Automation>) => record.body.trigger.kind === "event";
-
 	/** A revived id starts unrun. */
 	const forgetRan = (ids: readonly string[]): void => {
 		if (!ids.some((id) => Object.hasOwn(state.ran, id))) return;
 		commit({ ...state, ran: Object.fromEntries(Object.entries(state.ran).filter(([id]) => !ids.includes(id))) });
 	};
 
+	/** Every row lands, or none. */
+	function write(intent: AutomationIntent): AutomationWritten {
+		const held = records.list();
+		const verdict = judgeAutomationWrite(intent, {
+			held,
+			count: records.count(),
+			max: AUTOMATIONS_MAX,
+			isHome: deps.isHome(),
+			issue: triggerIssue,
+		});
+		if (verdict.kind === "refused") return { written: false, reason: verdict.reason };
+		for (const { id, reason } of verdict.dropped) {
+			console.warn(`[automations] ${intent.kind}: ${id} dropped: ${reason}`);
+		}
+		const result = store.batch(verdict.writes);
+		if (!result.stored) {
+			return { written: false, reason: result.reason, ...(result.record ? { record: result.record } : {}) };
+		}
+		const known = new Set(held.map((record) => record.id));
+		forgetRan(verdict.writes.filter((row) => row.op === "remove" || !known.has(row.id)).map((row) => row.id));
+		drain();
+		return { written: true, records: result.records, dropped: verdict.dropped };
+	}
+
 	drain();
 
 	return {
 		list: () => records.list(),
 		rows: (): AutomationRow[] => records.list().map(rowOf),
-		/** Alert rows belong to sensors. */
+		write,
 		ownerPut(id: string, body: unknown, base: number): ConsoleAutomationPutResult {
-			const held = records.get(id);
-			if (held && deviceOf(held) !== undefined) {
-				return { stored: false, revision: held.revision, reason: "its sensor page sets this alert" };
-			}
-			const revision = held?.revision ?? 0;
-			if (id.startsWith(THRESHOLD_PREFIX)) return { stored: false, revision, reason: "not an id an owner names" };
-			const parsed = AutomationSchema.safeParse(body);
-			if (parsed.success && parsed.data.trigger.kind === "event" && !deps.isHome()) {
-				return { stored: false, revision, reason: "the assistant does not live on this Gateway" };
-			}
-			const result = records.put(
-				AUTOMATION_KIND,
-				id,
-				parsed.success ? canonicalAutomation(parsed.data) : body,
-				base,
-			);
-			if (result.stored) {
-				drain();
-				return { stored: true, revision: result.record.revision, row: rowOf(result.record) };
-			}
-			const current = result.record ?? records.get(id);
+			const result = write({ kind: "owner_put", id, body, base });
+			const record = result.written ? result.records[0] : (result.record ?? records.get(id));
+			if (result.written && record) return { stored: true, revision: record.revision, row: rowOf(record) };
 			return {
 				stored: false,
-				revision: current?.revision ?? 0,
-				reason: result.reason,
-				...(current ? { row: rowOf(current) } : {}),
+				revision: record?.revision ?? 0,
+				reason: result.written ? "not saved; try again" : result.reason,
+				...(record ? { row: rowOf(record) } : {}),
 			};
 		},
 		ownerRemove(id: string, base: number): ConsoleAutomationDeleteResult {
-			const held = records.get(id);
-			if (held && deviceOf(held) !== undefined)
-				return { deleted: false, reason: "its sensor page sets this alert" };
-			if (id.startsWith(THRESHOLD_PREFIX)) return { deleted: false, reason: "not an id an owner names" };
-			const result = records.remove(id, base);
-			if (!result.removed) return { deleted: false, reason: result.reason };
-			forgetRan([id]);
-			drain();
-			return { deleted: true };
-		},
-		/** Makes `carried` the sources' events. */
-		replaceEvents(carried: readonly CarriedAutomation[]): boolean {
-			// An alert's id is its sensor's.
-			const named = carried.filter((row) => !row.id.startsWith(THRESHOLD_PREFIX));
-			const wanted = new Map(named.map((row) => [row.id, canonicalAutomation(row.automation)]));
-			const fresh: string[] = [];
-			let ok = true;
-			for (const record of records.list()) {
-				if (!isEvent(record) || wanted.has(record.id)) continue;
-				ok = records.remove(record.id, record.revision).removed && ok;
-				fresh.push(record.id);
-			}
-			for (const [id, automation] of wanted) {
-				const current = records.get(id);
-				// Another automation holds the id.
-				if (current && !isEvent(current)) ok = false;
-				else
-					ok =
-						records.put(AUTOMATION_KIND, id, automation, current?.revision ?? 0, { revive: true }).stored &&
-						ok;
-				if (!current) fresh.push(id);
-			}
-			forgetRan(fresh);
-			return ok;
-		},
-		/** True once held under its id. */
-		adoptEvent({ id, automation }: CarriedAutomation): boolean {
-			if (records.get(id) !== null) return true;
-			return records.put(AUTOMATION_KIND, id, canonicalAutomation(automation), 0, { revive: true }).stored;
+			const result = write({ kind: "owner_remove", id, base });
+			return result.written ? { deleted: true } : { deleted: false, reason: result.reason };
 		},
 		/** Event automations that woke the assistant. */
 		noteEvents(ids: readonly string[], at: number): void {
@@ -459,16 +437,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		},
 		/** Read-time validity; never stored. */
 		invalidOf: (id: string): string | null => records.invalidOf(id),
-		put(id: string, body: unknown, base: number, options?: { revive?: boolean }) {
-			const result = records.put(AUTOMATION_KIND, id, body, base, options);
-			if (result.stored) drain();
-			return result;
-		},
-		remove(id: string, base: number) {
-			const result = records.remove(id, base);
-			if (result.removed) drain();
-			return result;
-		},
 		/** Field commit callback. */
 		drain: (): void => {
 			drain();

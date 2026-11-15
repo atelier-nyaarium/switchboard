@@ -82,10 +82,8 @@ export interface RulesAdoptionDeps {
 	/** Written once the rules are adopted. */
 	mark: DurableStore;
 	now: () => number;
-	/** Why this Gateway cannot run it, or null. */
-	issue: (carried: CarriedAutomation) => string | null;
-	/** True once held under its id. */
-	adopt: (carried: CarriedAutomation) => boolean;
+	/** How many are held; null when unsaved. */
+	adopt: (rows: readonly CarriedAutomation[]) => number | null;
 }
 
 /** Runs until every rule that woke is an automation; then never again. */
@@ -96,7 +94,7 @@ export function adoptStoredRules(deps: RulesAdoptionDeps): void {
 		console.warn("[assistant] stored rules are unreadable; none became an automation");
 		return;
 	}
-	let adopted = 0;
+	const rows: CarriedAutomation[] = [];
 	for (const [sourceId, rules] of Object.entries(held)) {
 		// Order does not except.
 		const lastWake = rules.rules.map((rule) => rule.action).lastIndexOf("wake");
@@ -106,18 +104,10 @@ export function adoptStoredRules(deps: RulesAdoptionDeps): void {
 		if (excepting.length > 0) {
 			console.warn(`[assistant] ${sourceId}: ${excepting.length} inbox rule(s) no longer except a wake`);
 		}
-		for (const carried of automationsOfRules(sourceId, rules)) {
-			const issue = deps.issue(carried);
-			if (issue !== null) {
-				console.warn(`[assistant] ${sourceId}: rule ${carried.id} not carried: ${issue}`);
-				continue;
-			}
-			if (!deps.adopt(carried)) {
-				console.warn(`[assistant] ${sourceId}: rule ${carried.id} not saved; adopting again at the next start`);
-				return;
-			}
-			adopted += 1;
-		}
+		rows.push(...automationsOfRules(sourceId, rules));
 	}
+	const adopted = deps.adopt(rows);
+	// Adopts again next start.
+	if (adopted === null) return;
 	writeChecked(deps.mark, { v: 1, at: deps.now(), adopted }, "assistant rules mark");
 }

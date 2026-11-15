@@ -118,7 +118,7 @@ export interface AssistantVault {
 	usableHere: (entryId: string) => Promise<boolean>;
 }
 
-export type AssistantAutomations = Pick<Automations, "eventsOf" | "replaceEvents" | "noteEvents" | "adoptEvent">;
+export type AssistantAutomations = Pick<Automations, "eventsOf" | "write" | "noteEvents">;
 
 const inSentence = (label: string) => (/^[A-Z][a-z]/.test(label) ? label[0]?.toLowerCase() + label.slice(1) : label);
 
@@ -680,18 +680,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		});
 	let homePort: AssistantHomePort | null = null;
 
-	/** Only automations this Gateway can run. */
 	const carriedEvents = (carried: AssistantHomeSealed["carried"]): CarriedAutomation[] => {
 		// Remove 2026-11-28: an older phone carries rules.
 		const fromRules = (carried?.watchers ?? []).flatMap((source) =>
 			source.rules ? automationsOfRules(source.id, source.rules) : [],
 		);
-		return (carried?.automations ?? fromRules).filter(({ id, automation }) => {
-			const { trigger } = automation;
-			const issue = trigger.kind === "event" ? eventIssue(trigger) : "not an event automation";
-			if (issue !== null) console.warn(`[assistant] carried automation ${id} dropped: ${issue}`);
-			return issue === null;
-		});
+		return carried?.automations ?? fromRules;
 	};
 
 	/** With lanes stopped, the carried settings land; lanes start only once all of it is saved. */
@@ -717,7 +711,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			throw error;
 		}
 		const byId = new Map((carried?.watchers ?? []).map((source) => [source.id, source]));
-		if (!automations?.replaceEvents(carriedEvents(carried))) return "the automations could not be saved";
+		const moved = automations?.write({ kind: "carry", rows: carriedEvents(carried) });
+		if (!moved?.written) return `the automations could not be saved${moved ? `: ${moved.reason}` : ""}`;
 		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
 		if (!temperature.set(carried?.temperatureUnit ?? "C")) return "the temperature unit could not be saved";
 		// Fresh is off; unflagged carried is on.
@@ -761,7 +756,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}
 		if (!grantTargets().every((id) => grantsLanded(id, []))) return false;
 		const ids = sources.map((source) => source.id);
-		if (automations && !automations.replaceEvents([])) return false;
+		if (automations && !automations.write({ kind: "carry", rows: [] }).written) return false;
 		if (!openDurable(deps.dataDir, "assistant-rules", clearStoredRules)) return false;
 		if (!safety.approveEverySend() && !safety.set(true)) return false;
 		if (ids.some((sourceId) => !enabled.enabled(sourceId)) && !enabled.replaceOff([])) return false;
@@ -824,9 +819,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 						rules,
 						mark,
 						now: () => ambient.now(),
-						issue: ({ automation: { trigger } }) =>
-							trigger.kind === "event" ? eventIssue(trigger) : "not an event automation",
-						adopt: (carried) => bound.adoptEvent(carried),
+						adopt: (rows) => {
+							const adopted = bound.write({ kind: "adoption", rows });
+							if (adopted.written) return rows.length - adopted.dropped.length;
+							console.warn(`[assistant] stored rules not adopted: ${adopted.reason}`);
+							return null;
+						},
 					}),
 				),
 			);

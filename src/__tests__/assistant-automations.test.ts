@@ -21,7 +21,7 @@ import {
 	type AssistantRule,
 	conditionsMatch,
 } from "../shared/schemasAssistantRules.js";
-import { type AutomationCondition, automationsOfRules } from "../shared/schemasAutomation.js";
+import { type Automation, type AutomationCondition, automationsOfRules } from "../shared/schemasAutomation.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { SessionStore } from "../shared/session-store.js";
 import { bandField, boundAutomations, eventAutomation } from "../testing/assistantAutomations.js";
@@ -278,18 +278,18 @@ describe("an event automation", () => {
 	it("starts unrun again once a move replaced it, and a move spares a sensor's alert that no owner write may touch", async () => {
 		const { automations, stop } = await placed([listing()], freshDir(), null, bandField("threshold-a", "ce:1c"));
 		const all = { id: "a", automation: eventAutomation("github", []) };
-		const alert = {
+		const alert: Automation = {
 			enabled: true,
 			trigger: { kind: "value", field: "threshold-a", becomes: "low", coolDownSec: 0 },
 			actions: [{ kind: "tell_assistant", when: "quietly" }],
 		};
-		automations.put("threshold-a-low", alert, 0);
+		automations.write({ kind: "projection", device: "a", rows: new Map([["threshold-a-low", alert]]) });
 		automations.ownerPut("a", all.automation, 0);
 		automations.noteEvents(["a"], T0);
 		const ran = automations.rows().find((row) => row.id === "a")?.lastRanAt;
 
-		automations.replaceEvents([]);
-		automations.replaceEvents([all, { id: "threshold-carried", automation: all.automation }]);
+		automations.write({ kind: "carry", rows: [] });
+		automations.write({ kind: "carry", rows: [all, { id: "threshold-carried", automation: all.automation }] });
 		automations.ownerPut("toString", all.automation, 0);
 		const named = automations.ownerPut("threshold-b", all.automation, 0);
 		const edited = automations.ownerPut("threshold-a-low", { ...alert, enabled: false }, 1);

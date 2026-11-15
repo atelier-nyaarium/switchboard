@@ -24,7 +24,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
   once and a restart never re-applies over an owner's edit.
   - **Named:** with its sources stopped, it places the session record in the sealed folder, resets
     poll state and grants, replaces this Gateway's event automations with the carried ones (none
-    when nothing was carried) and drops one it cannot run, takes the carried Safety (fresh when
+    when nothing was carried) in one write, drops one it cannot run, refuses the placement when the
+    set does not fit under the cap, takes the carried Safety (fresh when
     nothing was carried), sets each source's Enabled from what was carried (off when fresh, on for a
     carried source an older record names without the flag), keeps a carried grant only when this
     Gateway may use its entry, then starts its sources and reports. Until 2026-11-28 a payload from

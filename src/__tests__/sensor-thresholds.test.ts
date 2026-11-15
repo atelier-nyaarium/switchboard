@@ -7,7 +7,7 @@ import { SensorsClear } from "../gateway/assistant/sensorsClear.js";
 import { composeDevices } from "../gateway/compose/composeDevices.js";
 import { type Automations, createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedFields, createComputedFields } from "../gateway/computed/computedFields.js";
-import { thresholdAutomations, thresholdIds } from "../gateway/computed/thresholds.js";
+import { thresholdIds } from "../gateway/computed/thresholds.js";
 import { createSensorThresholds, type SensorThresholds } from "../gateway/devices/sensorThresholds.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { openDurable } from "../shared/durable-store.js";
@@ -27,7 +27,7 @@ afterEach(() => {
 
 interface Faults {
 	/** Automation puts to refuse. */
-	automationPuts: number;
+	automationWrites: number;
 	thresholdSaves: boolean;
 }
 
@@ -46,7 +46,7 @@ function fixture(home = true, seededThresholds: ThresholdSeed[] = []) {
 	roots.push(dataDir);
 	let clock = 1_000;
 	const ambient = fakeAmbient({ now: () => clock, drive: "manual" });
-	const faults: Faults = { automationPuts: 0, thresholdSaves: true };
+	const faults: Faults = { automationWrites: 0, thresholdSaves: true };
 	let snapshot: unknown = null;
 	const deviceState = {
 		load: () => snapshot,
@@ -105,10 +105,10 @@ function fixture(home = true, seededThresholds: ThresholdSeed[] = []) {
 		const held = automations;
 		const flaky: Automations = {
 			...held,
-			put: (id, body, base, options) => {
-				if (faults.automationPuts === 0) return held.put(id, body, base, options);
-				faults.automationPuts -= 1;
-				return { stored: false, reason: "not saved; try again" };
+			write: (intent) => {
+				if (faults.automationWrites === 0) return held.write(intent);
+				faults.automationWrites -= 1;
+				return { written: false, reason: "not saved; try again" };
 			},
 		};
 		thresholds = openDurable(dataDir, "sensor-thresholds", (store) =>
@@ -502,29 +502,15 @@ describe("sensor threshold composition", () => {
 		const world = fixture();
 		try {
 			const ids = thresholdIds(MAC, "temperature");
-			world.faults.automationPuts = 1;
+			world.faults.automationWrites = 1;
 			expect(await world.devices.console(put(0, 10))).toMatchObject({ kind: "ok", threshold: { revision: 1 } });
-			expect(rowsOf(world)).toEqual([ids.field, ids.high].sort());
+			expect(rowsOf(world)).toEqual([ids.field]);
 			world.thresholds.tick();
 			expect(rowsOf(world)).toEqual([ids.field, ids.high, ids.low].sort());
-			const low = world.automations.list().find(({ id }) => id === ids.low);
-			if (!low) throw new Error("low alert expected");
-			world.automations.remove(ids.low, low.revision);
-			const stray = thresholdIds(MAC, "humidity").low;
-			world.automations.put(
-				stray,
-				{
-					...thresholdAutomations({
-						device: MAC,
-						measure: "humidity",
-						label: "Humidity",
-						high: 80,
-						deadZone: 1,
-						coolDownSec: 0,
-					}).high,
-				},
-				0,
-			);
+			const high = world.automations.list().find(({ id }) => id === ids.high);
+			if (!high) throw new Error("high alert expected");
+			world.automations.write({ kind: "projection", device: MAC, rows: new Map([[ids.high, high.body]]) });
+			expect(rowsOf(world)).toEqual([ids.field, ids.high].sort());
 			await world.restart();
 			expect(rowsOf(world)).toEqual([ids.field, ids.high, ids.low].sort());
 			expect(await world.devices.console({ kind: "device_read", id: MAC })).toMatchObject({

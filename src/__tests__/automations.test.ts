@@ -8,7 +8,7 @@ import { createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { openDurable } from "../shared/durable-store.js";
 import { type FieldRef, known, refKey, unknown, type Value } from "../shared/expressions.js";
-import type { Automation, ValueTrigger } from "../shared/schemasAutomation.js";
+import { AUTOMATIONS_MAX, type Automation, type ValueTrigger } from "../shared/schemasAutomation.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -145,7 +145,7 @@ describe("automations", () => {
 			coolDownSec: 30,
 		};
 
-		expect(automations.put("bucket", earlier, 0).stored).toBe(true);
+		expect(automations.ownerPut("bucket", earlier, 0).stored).toBe(true);
 		expect(automations.list()[0]?.body).toEqual(iceBucket({ coolDownSec: 30 }));
 	});
 
@@ -183,11 +183,11 @@ describe("automations", () => {
 			actions: [{ kind: "tell_assistant", when: "now" }],
 			...over,
 		});
-		automations.put("review", review(), 0);
-		automations.put("off", review({ enabled: false }), 0);
+		automations.ownerPut("review", review(), 0);
+		automations.ownerPut("off", review({ enabled: false }), 0);
 		const elsewhere = review({ trigger: { kind: "event", source: "gmail", conditions: [] } });
-		expect(automations.put("elsewhere", elsewhere, 0).stored).toBe(false);
-		automations.put("bucket", { ...iceBucket(), actions: [{ kind: "tell_assistant", when: "now" }] }, 0);
+		expect(automations.ownerPut("elsewhere", elsewhere, 0).stored).toBe(false);
+		automations.ownerPut("bucket", { ...iceBucket(), actions: [{ kind: "tell_assistant", when: "now" }] }, 0);
 
 		expect(automations.eventsOf("github").map(({ id, when }) => [id, when])).toEqual([["review", "now"]]);
 		expect(automations.eventsOf("sensors")).toEqual([]);
@@ -207,7 +207,7 @@ describe("automations", () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
-		automations.put("bucket", iceBucket(), 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
 
 		w.read(fields, -5);
 		w.read(fields, -4);
@@ -229,8 +229,8 @@ describe("automations", () => {
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
 		w.read(fields, -5);
-		automations.put("bucket", iceBucket(), 0);
-		automations.put("bucket", iceBucket({ label: "Renamed" }), 1);
+		automations.ownerPut("bucket", iceBucket(), 0);
+		automations.ownerPut("bucket", iceBucket({ label: "Renamed" }), 1);
 		w.read(fields, -4);
 		expect(await queued(automations)).toEqual([]);
 
@@ -253,9 +253,9 @@ describe("automations", () => {
 		const cool = world(fresh());
 		const a = cool.open();
 		a.fields.put("band", hotBand, 0);
-		a.automations.put("bucket", iceBucket({ coolDownSec: 60 }), 0);
+		a.automations.ownerPut("bucket", iceBucket({ coolDownSec: 60 }), 0);
 		cool.read(a.fields, -5);
-		a.automations.put("bucket", iceBucket({ coolDownSec: 60 }), 0);
+		a.automations.ownerPut("bucket", iceBucket({ coolDownSec: 60 }), 0);
 		cool.read(a.fields, -15);
 		cool.read(a.fields, -5);
 		expect(a.automations.runs().map((run) => run.outcome)).toEqual(["ran", "suppressed"]);
@@ -263,7 +263,7 @@ describe("automations", () => {
 		const away = world(fresh(), false);
 		const b = away.open();
 		b.fields.put("band", hotBand, 0);
-		b.automations.put("bucket", iceBucket(), 0);
+		b.automations.ownerPut("bucket", iceBucket(), 0);
 		away.read(b.fields, -5);
 		expect(b.automations.runs()).toMatchObject([
 			{ outcome: "refused", reason: expect.stringContaining("assistant") },
@@ -276,7 +276,7 @@ describe("automations", () => {
 		const w = world(dir);
 		const before = w.open();
 		before.fields.put("band", hotBand, 0);
-		before.automations.put("bucket", iceBucket(), 0);
+		before.automations.ownerPut("bucket", iceBucket(), 0);
 
 		w.missed(-5);
 		const after = w.open();
@@ -296,7 +296,7 @@ describe("automations", () => {
 		const w = world(dir);
 		const before = w.open();
 		before.fields.put("band", hotBand, 0);
-		before.automations.put("bucket", iceBucket(), 0);
+		before.automations.ownerPut("bucket", iceBucket(), 0);
 		w.read(before.fields, -5);
 		w.read(before.fields, -15);
 		fs.rmSync(path.join(dir, "computed-state.json"));
@@ -323,7 +323,7 @@ describe("automations", () => {
 		const w = world(dir);
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
-		automations.put("bucket", iceBucket(), 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
 		w.read(fields, -5);
 		w.read(fields, -15);
 		expect(automations.runs().map((run) => run.outcome)).toEqual(["refused"]);
@@ -338,7 +338,7 @@ describe("automations", () => {
 		const w = world(dir);
 		const before = w.open();
 		before.fields.put("band", hotBand, 0);
-		before.automations.put("bucket", iceBucket(), 0);
+		before.automations.ownerPut("bucket", iceBucket(), 0);
 		w.unheard(-5);
 		w.unheard(-15);
 
@@ -354,7 +354,7 @@ describe("automations", () => {
 		const w = world(dir);
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
-		automations.put("bucket", iceBucket(), 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
 		for (let i = 0; i < 12; i++) {
 			w.read(fields, -5);
 			w.read(fields, -15);
@@ -372,7 +372,7 @@ describe("automations", () => {
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
 		w.failWrites(1);
-		automations.put("bucket", iceBucket(), 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
 		w.read(fields, -5);
 		expect(await queued(automations)).toEqual(["high"]);
 
@@ -388,7 +388,7 @@ describe("automations", () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
-		automations.put("bucket", iceBucket(), 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
 		w.read(fields, -5);
 		w.read(fields, -15);
 		fields.put("band", { ...hotBand, decimals: 1 }, 1);
@@ -409,7 +409,7 @@ describe("automations", () => {
 		const w = world(dir);
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
-		automations.put("bucket", iceBucket(), 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
 		w.read(fields, -5);
 
 		expect(await queued(automations)).toEqual(["high"]);
@@ -422,17 +422,71 @@ describe("automations", () => {
 		expect(held.queue.events).toEqual([future]);
 	});
 
+	it("moves the home's event automations as one set: refused whole when it does not fit or takes a held id, dropping only what cannot run here", () => {
+		const { fields, automations } = world(fresh()).open();
+		fields.put("band", hotBand, 0);
+		const event = (source = "github"): Automation => ({
+			enabled: true,
+			trigger: { kind: "event", source, conditions: [] },
+			actions: [{ kind: "tell_assistant", when: "now" }],
+		});
+		const ids = () => automations.list().map((record) => record.id);
+		automations.ownerPut("bucket", iceBucket(), 0);
+		automations.write({ kind: "carry", rows: [{ id: "old", automation: event() }] });
+		const many = Array.from({ length: AUTOMATIONS_MAX }, (_, at) => ({ id: `e${at}`, automation: event() }));
+
+		const over = automations.write({ kind: "carry", rows: many });
+		const taken = automations.write({ kind: "carry", rows: [{ id: "bucket", automation: event() }] });
+		const kept = ids();
+		const fits = automations.write({
+			kind: "carry",
+			rows: [
+				...many.slice(1),
+				{ id: "lost", automation: event("gmail") },
+				{ id: "local", automation: iceBucket() },
+			],
+		});
+
+		expect([over.written, taken.written]).toEqual([false, false]);
+		expect(kept).toEqual(["bucket", "old"]);
+		expect(fits).toMatchObject({ written: true, dropped: [{ id: "lost" }, { id: "local" }] });
+		expect(ids()).toEqual(["bucket", ...many.slice(1).map((row) => row.id)]);
+	});
+
+	it("keeps a sensor's alert ids to that sensor, and an event automation to the home", () => {
+		const home = world(fresh()).open();
+		home.fields.put("band", hotBand, 0);
+		const away = world(fresh(), false).open();
+		away.fields.put("band", hotBand, 0);
+		const event: Automation = {
+			enabled: true,
+			trigger: { kind: "event", source: "github", conditions: [] },
+			actions: [{ kind: "tell_assistant", when: "now" }],
+		};
+		const alert = (id: string) => new Map([[id, iceBucket()]]);
+
+		const mine = home.automations.write({ kind: "projection", device: "aa", rows: alert("threshold-aa-t-high") });
+		const other = home.automations.write({ kind: "projection", device: "aa", rows: alert("threshold-bb-t-high") });
+		const named = home.automations.write({ kind: "projection", device: "aa", rows: alert("bucket") });
+		const swept = home.automations.write({ kind: "projection", device: "bb", rows: new Map() });
+
+		expect([mine.written, other.written, named.written, swept.written]).toEqual([true, false, false, true]);
+		expect(home.automations.list().map((record) => record.id)).toEqual(["threshold-aa-t-high"]);
+		expect(away.automations.ownerPut("review", event, 0).stored).toBe(false);
+		expect(away.automations.ownerPut("bucket", iceBucket(), 0).stored).toBe(true);
+	});
+
 	it("refuses a trigger value the field cannot take, and reads a stored one invalid once its field changes", () => {
 		const { fields, automations } = world(fresh()).open();
 		fields.put("band", hotBand, 0);
 
-		expect(automations.put("bucket", iceBucket({ becomes: "Hot!" }), 0)).toMatchObject({
+		expect(automations.ownerPut("bucket", iceBucket({ becomes: "Hot!" }), 0)).toMatchObject({
 			stored: false,
 		});
-		expect(automations.put("bucket", iceBucket({ field: "nowhere" }), 0)).toMatchObject({
+		expect(automations.ownerPut("bucket", iceBucket({ field: "nowhere" }), 0)).toMatchObject({
 			stored: false,
 		});
-		automations.put("bucket", iceBucket(), 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
 		expect(automations.invalidOf("bucket")).toBeNull();
 		fields.put(
 			"band",

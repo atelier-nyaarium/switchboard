@@ -78,6 +78,43 @@ describe("owner records", () => {
 		expect(again.stored && again.record.incarnation).not.toBe(records.get("a")?.incarnation ?? "gone");
 	});
 
+	it("lands a batch whole or not at all, counting its removals toward the cap and reviving an id it removed", () => {
+		const dir = fresh();
+		const changed: string[] = [];
+		const records = open(dir, changed, 3);
+		records.put("note", "a", { text: "one" }, 0);
+		records.put("note", "b", { text: "two" }, 0);
+		changed.length = 0;
+
+		const refused = records.batch([
+			{ op: "remove", id: "a", base: 1 },
+			{ op: "put", kind: "note", id: "c", body: { text: "refused" }, base: 0 },
+		]);
+		const untouched = records.list().map((record) => record.id);
+		const heard = [...changed];
+		const landed = records.batch([
+			{ op: "remove", id: "a", base: 1 },
+			{ op: "remove", id: "b", base: 1 },
+			{ op: "put", kind: "note", id: "c", body: { text: "three" }, base: 0 },
+			{ op: "put", kind: "note", id: "d", body: { text: "four" }, base: 0 },
+			{ op: "put", kind: "note", id: "a", body: { text: "again" }, base: 0, revive: true },
+		]);
+
+		expect(refused).toMatchObject({ stored: false, at: 1 });
+		expect([untouched, heard]).toEqual([["a", "b"], []]);
+		expect(landed.stored).toBe(true);
+		expect(
+			open(dir)
+				.list()
+				.map(({ id, revision }) => [id, revision]),
+		).toEqual([
+			["c", 1],
+			["d", 1],
+			["a", 2],
+		]);
+		expect(changed.sort()).toEqual(["a", "b", "c", "d"]);
+	});
+
 	it("holds a row this build cannot read, writes it back on every commit, and reserves its id and its place in the cap", () => {
 		const dir = fresh();
 		const future = { id: "f", revision: 4, incarnation: "x", kind: "note", body: { text: "hi", added: 1 } };

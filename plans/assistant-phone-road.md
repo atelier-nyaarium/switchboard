@@ -1005,6 +1005,14 @@ For the owner: the vault's request overlay (`VaultPrompt`) draws over the app's 
 - **First slice, before any new write road** (from the 2.7b architecture review, class "a store rule enforced at one door"): the guards move out of `composeAssistant.ts` into their own file, then every automation write passes one judge with typed intents (owner, carry, adoption, projection) and commits its rows in one write, so the cap, the alert prefix, validity and the home rule cannot be skipped by a new road. Whether a carry over the cap is dropped or refused is asked first.
 - **First phone slice, before the page stack** (from the 2.7m architecture review, class "a field whose meaning moved"): `ShellNav` gets a private constructor with every transition a member, `over` inside the conversation, and one `Drawn` value that the render, Back and the effects read; then `pages` as a stack with push and pop, which retires `assistantPageBack`, and "N use this source" pushes onto it. `AssistantWord` gets three answers. Each new editor is an `Editors` kind opened through `rememberEdit`, never a stack frame or a shell variable; each count, lookup and empty sentence takes a typed list read; each new write on the repository's scope lands through `ProvisionFence`; each new sheet is drawn by `ShellOverlays`.
 
+Slices:
+
+1. **One judge for every automation write.** ✅ `judgeAutomationWrite` in `automationJudge.ts` takes an intent (`owner_put`, `owner_remove`, `carry`, `adoption`, `projection`) and answers rows or a refusal, and `createAutomations.write` commits them through `createOwnerRecords.batch`, one write or none. `replaceEvents`, `adoptEvent` and the store's raw `put` and `remove` are gone; the carried filter and the adoption's issue check left `composeAssistant.ts`. A carry that is refused or whose write fails now leaves the store as it was, where it used to stop part way. A projection writes its sensor's fields first and then its whole alert set, so one failed alert write lands none of that sensor's alerts until the tick retries. Adoption takes no home rule, since the rules file exists only where the assistant lived, and it goes on 2026-11-28. Tested, not deployed.
+
+Asked, unanswered:
+
+- **Question 44 - A carry over the cap.** The cap of 64 is shared by the event automations a move carries and the alerts and value automations that stay on a Gateway. Built for now: the move is refused whole with the numbers, nothing is written, and the home record keeps the sealed payload, which the phone carries onward at the next move. The other answers: drop what does not fit and place the assistant anyway, or count moved and local automations apart so a carry always fits.
+
 ## Phase 2.7d - Walk-through and cleanup
 
 - With the owner: the Sources and Automations pages on the phone, GitHub's four wake automations checked or re-entered, one added and one edited, a real notification and a sensor crossing reaching the assistant.
