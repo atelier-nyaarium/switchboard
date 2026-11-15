@@ -763,7 +763,9 @@ internal class ServiceNotifications(private val context: Context) {
 				val assistantAct = id >= ASSISTANT_ACT_ID_RANGE_START && id < ASSISTANT_ACT_ID_RANGE_START + ASSISTANT_ACT_ID_RANGE_SIZE
 				val trace = id >= ASSISTANT_TRACE_ID_RANGE_START && id < ASSISTANT_TRACE_ID_RANGE_START + ASSISTANT_TRACE_ID_RANGE_SIZE
 				val launch = id >= LAUNCH_FAILED_ID_RANGE_START && id < LAUNCH_FAILED_ID_RANGE_START + LAUNCH_FAILED_ID_RANGE_SIZE
-				if (message || failed || vault || assistant || assistantAct || trace || launch) nmc.cancel(id)
+				val routine = id >= ROUTINE_ID_RANGE_START && id < ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE
+				val prompt = id >= SESSION_PROMPT_ID_RANGE_START && id < SESSION_PROMPT_ID_RANGE_START + SESSION_PROMPT_ID_RANGE_SIZE
+				if (message || failed || vault || assistant || assistantAct || trace || launch || routine || prompt) nmc.cancel(id)
 			}
 		}
 	}

@@ -52,6 +52,9 @@ class ChatRepository(
 
 	/** One re-provision at a time. */
 	internal val wipes = kotlinx.coroutines.sync.Mutex()
+
+	/** Runs on the main thread. */
+	@Volatile internal var onWiped: (() -> Unit)? = null
 	internal val bootState: StateFlow<BootState> get() = identity.bootState
 	private var ownerOpsBoot: PhoneBootstrap? = null
 	private var ownerOpsValue: OwnerOps? = null

@@ -593,7 +593,12 @@ no TTL.
   lands while it wipes and nothing begun before or during the wipe lands after it. Every workspace ops class reads it, so work begun under the previous owner lands
   nothing after it and an op still waiting for its lock is not sent. A write already on the wire lands on
   disk regardless. Saves that outlive their page, scheduled sends and a pending untrust land through
-  the same fence.
+  the same fence. Forget and Delete run on the repository's scope, and what follows the wipe runs
+  with it, since the Settings section that asked leaves composition before the wipe answers and
+  the window can be gone: `clearAll` calls `onWiped` (the plugins' wipe handlers and the
+  notification sweep, for every range including routines and session prompts), and `App` resets
+  the shell when `provisioned` falls. A delete that could not confirm its purge says so from the
+  app state, so the warning survives the screen that asked.
 - **Held edits** (`HeldEdits`): windows and raw files are held the same way. `apply` is the one road for
   a change to the set or an edit made without waiting, and hands a transform what is held NOW. An edit
   carries an incarnation minted at open, since a symbol id or a path names which text and not which

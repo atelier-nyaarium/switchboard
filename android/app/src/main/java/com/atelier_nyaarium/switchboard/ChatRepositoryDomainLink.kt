@@ -161,6 +161,7 @@ suspend fun ChatRepository.clearAll() = withContext(Dispatchers.IO + NonCancella
 			// Purge attachment files.
 			Attachments.purgeAll(filesDir)
 			_state.update { ChatState(provisioned = false) }
+			onWiped?.let { wiped -> withContext(Dispatchers.Main) { wiped() } }
 			// Again: a write still out when the identity went may have put a key back.
 			identity.clear()
 		} finally {

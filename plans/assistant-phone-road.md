@@ -967,6 +967,16 @@ Left as it is: a keeper that re-shows a view inside a wipe keeps its initial vie
 
 No further round: each one now finds defects in the code the round before added.
 
+**Compliance review** (four angles on Opus and Sonnet, Opus synthesis), judged against the system's own rules for a one-owner deployment. Fixed:
+
+- After Forget or Delete, the clean-up that follows the wipe never ran: the Settings section that asked left composition as `provisioned` fell, which cancelled its coroutine before it could call back. The Designer's canvases stayed on disk, the previous owner's notifications stayed in the shade, and the "could not confirm the purge" warning never showed. Both now run on the repository's scope; the plugins' wipe handlers and the notification sweep run inside the wipe itself (`onWiped`), so a window swiped away mid-wipe skips nothing; the shell resets when `provisioned` falls; and the warning is held in the app state. Older than this phase; the rework had widened it. A delete that throws no longer leaves its dialogue stuck, and a second tap starts nothing.
+- The notification sweep at a wipe skipped routine and session-prompt notifications. This phase had made the routine plan cancel only what an answered Gateway owns, so nothing else removed them.
+- `TrustOps` did not clear its read fence at a re-provision.
+
+Deferred: pruning a kept draft when its Gateway leaves or its record is deleted (memory only, and it goes at Forget); runbook and routine deletes carry no base revision, which is a wire change, Gateway first.
+
+Rejected, with reasons in the review: the hold claimed from pages over the assistant's conversation (intended), a refused automation save rebasing the draft (an owner tap follows), raw Gateway refusal text on the owner's own screen, a Domain id in a debug log line.
+
 Left for 2.7c's first phone slice, before the page stack:
 
 - **`ShellNav` behind derived reads.** Fifteen raw reads of `root`, `over`, `conversation` and `assistantPage` sit outside `ShellNav.kt`, `root` doubles as the assistant's tag, and `assistantPageBack` is a table that is wrong for an Entry opened from Sources. The shape: a private constructor, every transition a member, `over` inside the conversation, one `Drawn` value the render, Back and the effects read, then `pages` as a stack with push and pop. No editor is a stack frame.

@@ -64,6 +64,7 @@ internal class TrustOps(
 	fun pairing(): Pairing? = pairing
 
 	override suspend fun clearInMemory() {
+		reads.clear()
 		pairing = null
 		_pendingUntrust.value = emptySet()
 	}

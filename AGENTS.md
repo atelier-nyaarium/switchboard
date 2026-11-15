@@ -419,8 +419,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     and a vault answer's record land through it. The board and vault managers keep their own
     generation, which a lineage change also moves, take it as a required argument captured before
     the await, and land nothing while the fence is closed. A holder that re-bases itself inside the
-    wipe, or a showing minted inside it, takes `upcoming`. `reprovision-fence-residue.test.ts` holds the order in `clearAll`, the one
-    mover, the one fence and the undefaulted generation.
+    wipe, or a showing minted inside it, takes `upcoming`. `reprovision-fence-residue.test.ts`
+    holds the order in `clearAll`, the one mover, the one fence and the undefaulted generation.
+  - **What follows a wipe runs with the wipe, never from the screen that asked:** that screen
+    leaves composition as `provisioned` falls, before the wipe answers, and the window itself can
+    be gone. Forget and Delete run on the repository's scope; `clearAll` calls `onWiped`, which
+    `Repo` installs, for the plugins' wipe handlers and the notification sweep; `App` resets the
+    shell when `provisioned` falls; and a Domain delete that could not confirm its purge says so
+    in `ChatState.wipeUnconfirmed`, which the overlay host draws.
 - `android/.../ChatPersistence.kt` - JSON codec between repository state and AppStateStore
   - **A slot is written from the live state, never a caller's snapshot:** every `persist*` but the
     assistant home takes no argument and reads `live` under one lock, so a write that lands late

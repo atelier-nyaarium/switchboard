@@ -146,7 +146,6 @@ internal fun NetworksSettings(
 	onManage: () -> Unit,
 	onYourDevices: () -> Unit,
 	onUsers: () -> Unit,
-	onClear: () -> Unit,
 	onFederationScreen: () -> Unit,
 ) {
 	Text("Your Domain", style = MaterialTheme.typography.titleSmall)
@@ -161,17 +160,16 @@ internal fun NetworksSettings(
 	Text("Infrastructure", style = MaterialTheme.typography.titleSmall)
 	Button(onClick = hapticClick(onFederationScreen), modifier = Modifier.fillMaxWidth()) { Text("Federation") }
 	HorizontalDivider()
-	DomainDangerSection(repo, onClear)
+	DomainDangerSection(repo)
 }
 
 @Composable
-internal fun DomainDangerSection(repo: ChatRepository, onClear: () -> Unit) {
+internal fun DomainDangerSection(repo: ChatRepository) {
 	val scope = rememberCoroutineScope()
 	val activity = hostActivity()
 	var confirmDelete by remember { mutableStateOf(false) }
 	var deleting by remember { mutableStateOf(false) }
 	var deleteError by remember { mutableStateOf<String?>(null) }
-	var wipedUnconfirmed by remember { mutableStateOf(false) }
 	var confirmForget by remember { mutableStateOf(false) }
 	var forgetting by remember { mutableStateOf(false) }
 	var forgetError by remember { mutableStateOf<String?>(null) }
@@ -220,20 +218,21 @@ internal fun DomainDangerSection(repo: ChatRepository, onClear: () -> Unit) {
 				TextButton(
 					enabled = !forgetting,
 					onClick = hapticClick {
+						// Blocks a second tap.
+						forgetting = true
 						scope.launch {
-							if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) return@launch
-							forgetting = true
+							if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) {
+								forgetting = false
+								return@launch
+							}
 							forgetError = null
-							runCatchingCancellable { repo.domainAdmin.forgetDomain() }
-								.onSuccess {
-									forgetting = false
-									confirmForget = false
-									onClear()
-								}
-								.onFailure {
+							// Outlives this section.
+							repo.command {
+								runCatchingCancellable { domainAdmin.forgetDomain() }.onFailure {
 									forgetting = false
 									forgetError = it.message ?: "Could not wipe this phone."
 								}
+							}
 						}
 					},
 				) { Text("Forget") }
@@ -272,22 +271,19 @@ internal fun DomainDangerSection(repo: ChatRepository, onClear: () -> Unit) {
 				TextButton(
 					enabled = !deleting,
 					onClick = hapticClick {
+						deleting = true
 						scope.launch {
-							if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) return@launch
-							deleting = true
+							if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) {
+								deleting = false
+								return@launch
+							}
 							deleteError = null
-							when (val outcome = repo.domainAdmin.deleteDomain()) {
-								DeleteDomainOutcome.Deleted -> {
-									confirmDelete = false
-									onClear()
-								}
-								DeleteDomainOutcome.WipedUnconfirmed -> {
-									confirmDelete = false
-									wipedUnconfirmed = true
-								}
-								is DeleteDomainOutcome.Rejected -> {
+							repo.command {
+								val refused = runCatchingCancellable { domainAdmin.deleteDomain() }
+									.fold({ (it as? DeleteDomainOutcome.Rejected)?.error }, { it.message ?: "Could not delete the Domain." })
+								if (refused != null) {
 									deleting = false
-									deleteError = outcome.error
+									deleteError = refused
 								}
 							}
 						}
@@ -295,14 +291,6 @@ internal fun DomainDangerSection(repo: ChatRepository, onClear: () -> Unit) {
 				) { Text("Delete Domain") }
 			},
 			dismissButton = { TextButton(enabled = !deleting, onClick = hapticClick { confirmDelete = false }) { Text("Cancel") } },
-		)
-	}
-	if (wipedUnconfirmed) {
-		AlertDialog(
-			onDismissRequest = { wipedUnconfirmed = false; onClear() },
-			title = { Text("Couldn't reach the servers") },
-			text = { Text("This device was wiped, but we couldn't confirm the purge. Ask the admin to purge it if it survived.") },
-			confirmButton = { TextButton(onClick = hapticClick { wipedUnconfirmed = false; onClear() }) { Text("OK") } },
 		)
 	}
 }

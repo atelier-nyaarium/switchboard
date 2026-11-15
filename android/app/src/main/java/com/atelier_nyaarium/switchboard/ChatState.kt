@@ -56,6 +56,8 @@ data class ChatState(
 	val firstRooted: Boolean = false,
 	/** Snackbar messages do not drive sticky health state. */
 	val transientMessages: List<String> = emptyList(),
+	/** Wiped without a confirmed purge. */
+	val wipeUnconfirmed: Boolean = false,
 	/** At most one scheduled send belongs to each team. */
 	val scheduledSends: Map<String, ScheduledSend> = emptyMap(),
 	/** At most one armed goal belongs to each team. */

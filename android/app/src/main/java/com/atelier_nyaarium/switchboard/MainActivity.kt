@@ -43,7 +43,14 @@ object Repo {
 				contentResolver = app.contentResolver,
 				applicationContext = app,
 				sttsCatalog = loadSttsCatalog(app),
-			).also { instance = it }
+			).also { built ->
+				// Runs whatever screen is up.
+				built.onWiped = {
+					Plugins.get(app).host.accountWipeHandlers.forEachCaught(onError = ::logPluginThrow) { it.onWipe(app) }
+					ServiceNotifications.cancelProvisioningNotifications(app)
+				}
+				instance = built
+			}
 		}
 		repo.phoneCapabilityOps.start()
 		return repo
@@ -321,6 +328,16 @@ fun App(
 		modals = Modals()
 		overlayRequests.close()
 	}
+	// Leaves before wipe answers.
+	val provisioned = state.provisioned
+	var wasProvisioned by rememberSaveable { mutableStateOf(provisioned) }
+	LaunchedEffect(provisioned) {
+		if (wasProvisioned && !provisioned) {
+			dismissForArrival()
+			nav = ShellNav()
+		}
+		wasProvisioned = provisioned
+	}
 	// The one arrival road.
 	val arriveAt = { team: String, arrival: Arrival, place: WorkspacePlace? ->
 		val assistant = isAssistant(state, team)
@@ -529,13 +546,6 @@ fun App(
 				onFederation = { openOverlay(Overlay.Users) },
 				// Close Settings first.
 				onAssistant = { nav = nav.closeSettings().openAssistantPage(AssistantPage.Settings) },
-				onClear = {
-					// Wipe plugins and notifications after local wipe.
-					pluginManager.host.accountWipeHandlers.forEachCaught(onError = ::logPluginThrow) { it.onWipe(context) }
-					ServiceNotifications.cancelProvisioningNotifications(context)
-					dismissForArrival()
-					nav = ShellNav()
-				},
 				onCloseSettings = { nav = nav.closeSettings() },
 				drawerSide = drawerSide,
 				onDrawerSide = {

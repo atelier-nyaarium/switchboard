@@ -1,5 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import com.atelier_nyaarium.switchboard.assistant.AssistantActSheet
@@ -82,6 +85,15 @@ internal fun ShellOverlays(
 	claimsOf: (team: String, rows: List<Message>, left: List<Message>) -> List<CutClaim>,
 ) {
 	if (locked) return
+	if (state.wipeUnconfirmed) {
+		val close = { repo.domainAdmin.wipeNoticed() }
+		AlertDialog(
+			onDismissRequest = close,
+			title = { Text("Couldn't reach the servers") },
+			text = { Text("This device was wiped, but we couldn't confirm the purge. Ask the admin to purge it if it survived.") },
+			confirmButton = { TextButton(onClick = hapticClick(close)) { Text("OK") } },
+		)
+	}
 	QueueOverlay(repo, requests.queue, requests.revealAt, requests.openTeam)
 	AttachmentViewerOverlay(requests.viewer, rendererPool)
 	LinkMenuDialog(requests.linkMenu, requests.linkMenuNote)

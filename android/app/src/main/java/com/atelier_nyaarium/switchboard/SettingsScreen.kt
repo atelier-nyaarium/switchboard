@@ -66,7 +66,6 @@ fun SettingsScreen(
 	onYourDevices: () -> Unit,
 	onFederation: () -> Unit,
 	onAssistant: () -> Unit,
-	onClear: () -> Unit,
 	onCloseSettings: () -> Unit,
 	drawerSide: DrawerSide,
 	onDrawerSide: (DrawerSide) -> Unit,
@@ -104,7 +103,7 @@ fun SettingsScreen(
 				SettingsRoute.PROFILE -> ProfileSettings(state, repo, onSetDeviceName)
 				SettingsRoute.VOICE -> SttsVoiceSection(repo)
 				SettingsRoute.NETWORKS ->
-					NetworksSettings(repo, onManage, onYourDevices, onFederation, onClear) { onRoute(SettingsRoute.FEDERATION) }
+					NetworksSettings(repo, onManage, onYourDevices, onFederation) { onRoute(SettingsRoute.FEDERATION) }
 				SettingsRoute.FEDERATION -> FederationSettings(repo)
 				SettingsRoute.SECURITY -> SecuritySettings(state, repo, onToggleBiometric)
 				SettingsRoute.PLUGINS -> PluginsSettings(plugins, repo)

@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -28,9 +29,27 @@ class DomainAdminOpsTest {
 		assertEquals("test-token", first.getString("appToken"))
 	}
 
-	private class TestDomainCollaborators : DomainAdminOpsCollaborators {
+	@Test
+	fun aDeleteThatCannotNameItsDomainWipesAndSaysThePurgeIsUnconfirmedUntilNoticed() = runBlocking {
+		val state = MutableStateFlow(ChatState(provisioned = true))
+		val store = testStore()
+		val collaborators = TestDomainCollaborators(state)
+		val ops = DomainAdminOps(state, store, TestIdentityPort(store), FailingClientPort, collaborators)
+
+		val outcome = ops.deleteDomain()
+
+		assertEquals(DeleteDomainOutcome.WipedUnconfirmed, outcome)
+		assertEquals(1, collaborators.wipes)
+		// Survives the wipe reset.
+		assertEquals(ChatState(provisioned = false, wipeUnconfirmed = true), state.value)
+		ops.wipeNoticed()
+		assertEquals(ChatState(provisioned = false), state.value)
+	}
+
+	private class TestDomainCollaborators(private val state: MutableStateFlow<ChatState>? = null) : DomainAdminOpsCollaborators {
 		private val invites = mutableMapOf<String, EnrollInvite>()
 		private var minted = 0
+		var wipes = 0
 		override fun enrollInvites() = invites
 		override fun ownerBoxPub() = "box"
 		override fun freshHandshakeId() = "handshake-${invites.size + 1}"
@@ -40,6 +59,9 @@ class DomainAdminOpsTest {
 		override fun signDeleteDomain(domainId: String, nowMs: Long) = error("unused")
 		override fun signProvisionTenant(domainId: String, name: String, nowMs: Long) = error("unused")
 		override fun signRemoveTenant(domainId: String, nowMs: Long) = error("unused")
-		override suspend fun clearAll() = Unit
+		override suspend fun clearAll() {
+			wipes++
+			state?.update { ChatState(provisioned = false) }
+		}
 	}
 }

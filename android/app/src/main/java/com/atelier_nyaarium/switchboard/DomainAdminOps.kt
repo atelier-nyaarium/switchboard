@@ -7,6 +7,7 @@ import com.atelier_nyaarium.switchboard.proto.SignedSetDisplayName
 import com.atelier_nyaarium.switchboard.proto.EnrollOp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -48,10 +49,7 @@ internal class DomainAdminOps(
 	suspend fun deleteDomain(): DeleteDomainOutcome = withContext(Dispatchers.IO) {
 		val domainId = identity.readyOrNull()?.domainId
 			?: runCatchingCancellable { store.load()?.let { ConsoleCredentials.parse(it, store).pendingTenant?.domainId } }.getOrNull()
-		if (domainId.isNullOrEmpty()) {
-			collaborators.clearAll()
-			return@withContext DeleteDomainOutcome.WipedUnconfirmed
-		}
+		if (domainId.isNullOrEmpty()) return@withContext wipedUnconfirmed()
 		val signed = collaborators.signDeleteDomain(domainId, System.currentTimeMillis())
 		val attempt = runCatchingCancellable { client.client().enroll(EnrollOp.DeleteDomain(signed)) }
 		val result = attempt.getOrNull()
@@ -62,12 +60,18 @@ internal class DomainAdminOps(
 				DeleteDomainOutcome.Deleted
 			}
 			attempt.isSuccess -> DeleteDomainOutcome.Rejected(result?.error ?: "delete rejected")
-			else -> {
-				collaborators.clearAll()
-				DeleteDomainOutcome.WipedUnconfirmed
-			}
+			else -> wipedUnconfirmed()
 		}
 	}
+
+	/** Outlives the asking screen. */
+	private suspend fun wipedUnconfirmed(): DeleteDomainOutcome {
+		collaborators.clearAll()
+		state.update { it.copy(wipeUnconfirmed = true) }
+		return DeleteDomainOutcome.WipedUnconfirmed
+	}
+
+	fun wipeNoticed() = state.update { it.copy(wipeUnconfirmed = false) }
 
 	// Forget is local-only and sends no Router operation.
 		suspend fun forgetDomain() = withContext(Dispatchers.IO) { collaborators.clearAll() }
