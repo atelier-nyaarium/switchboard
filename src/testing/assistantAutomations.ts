@@ -14,6 +14,8 @@ const NO_FIELDS = {
 	invalidOf: () => null,
 	get: () => null,
 	stateOf: () => null,
+	derivedChanged: () => {},
+	check: () => null,
 } as unknown as ComputedFields;
 
 /** One device's band, for its sensor's alert. */

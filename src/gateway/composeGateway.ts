@@ -565,6 +565,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				newIncarnation: () => bootstrap.ambient.newId(),
 				now: () => bootstrap.ambient.now(),
 				input: devices!.sensorInput,
+				derived: () => automations?.derivedFields() ?? [],
 				// Flush readings before events.
 				onCommit: () => {
 					devices?.flushReadings();
@@ -585,6 +586,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				onQueued: () => assistant.pokeSource(SENSORS_SOURCE_ID),
 				eventIssue: assistant.eventIssue,
 				eventSentence: assistant.eventSentence,
+				reading: devices!.watchedReading,
 			}),
 		),
 	);

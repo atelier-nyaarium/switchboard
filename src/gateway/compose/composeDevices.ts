@@ -2,6 +2,7 @@ import type { Ambient } from "../../shared/ambient.js";
 import { type Advert, familyOf, unsupported } from "../../shared/ble-recognition.js";
 import { definitionOf, identifies, SHIPPED_DEFINITIONS } from "../../shared/device-definitions/index.js";
 import { type FieldRef, refKey } from "../../shared/expressions.js";
+import { formatFieldValue } from "../../shared/field-values.js";
 import type { TemperatureUnit } from "../../shared/schemasAssistant.js";
 import { type DeviceWatchEntry, DeviceWatchFrameSchema } from "../../shared/schemasDeviceBluetooth.js";
 import {
@@ -24,6 +25,7 @@ import {
 	dangerActOf,
 } from "../../shared/schemasDeviceTool.js";
 import { deviceCapabilitiesOf } from "../../shared/schemasIntegrations.js";
+import type { WatchedReading } from "../computed/automations.js";
 import type { FieldInput } from "../computed/computedFields.js";
 import type { DeviceConsole } from "../console/consoleTypes.js";
 import type { DeviceVerb, SensorReads } from "../devices/driver.js";
@@ -82,6 +84,8 @@ export interface DeviceStage {
 	deviceWatch: () => DeviceWatchEntry[];
 	sensorInput: (ref: FieldRef) => FieldInput | null;
 	sensorInputKeys: () => string[];
+	/** Null unless a sensor reads that number. */
+	watchedReading: (device: string, measure: string) => WatchedReading | null;
 	sensorRead: (id: string) => SensorAnswer | null;
 	ingestGatewayAdvert: (mac: string, advert: Advert, at: number) => string[];
 	flushReadings: () => boolean;
@@ -158,6 +162,20 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				) ?? []
 			);
 		});
+	const watchedReading = (device: string, measure: string): WatchedReading | null => {
+		const record = road.reads.get(device);
+		if (record?.kind !== "sensor" || !record.definition) return null;
+		const spec = definitionOf(record.definition)?.readings.find((reading) => reading.key === measure)?.spec;
+		if (spec?.kind !== "number") return null;
+		return {
+			label: `${record.name} ${spec.label.toLowerCase()}`,
+			shown: (value) => formatFieldValue(spec, value, deps.temperatureUnit?.() ?? "C"),
+			now: () => {
+				const held = sensorInput({ source: "device", device, key: measure })?.value;
+				return held?.known && typeof held.value === "number" ? held.value : null;
+			},
+		};
+	};
 	const ingestGatewayAdvert = (mac: string, advert: Advert, at: number): string[] => {
 		const record = road.reads.get(mac);
 		return record?.kind === "sensor" && record.radio === "gateway"
@@ -473,6 +491,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		},
 		deviceWatch,
 		sensorInput,
+		watchedReading,
 		sensorInputKeys,
 		ingestGatewayAdvert,
 		flushReadings: road.flushReadings,

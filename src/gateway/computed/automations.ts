@@ -23,8 +23,8 @@ import {
 	judgeAutomationWrite,
 	NOT_HOME,
 } from "./automationJudge.js";
-import type { ComputedFields } from "./computedFields.js";
-import { ALERT_ID_PREFIX } from "./thresholds.js";
+import type { ComputedFields, DerivedField } from "./computedFields.js";
+import { ALERT_ID_PREFIX, crossingField, crossingFieldId, crossingSide } from "./thresholds.js";
 
 export { AUTOMATION_KIND };
 
@@ -151,6 +151,14 @@ function restore(raw: unknown): State {
 	};
 }
 
+/** A device's number, in words. */
+export interface WatchedReading {
+	label: string;
+	shown: (value: number) => string;
+	/** Null while unread. */
+	now: () => number | null;
+}
+
 export interface AutomationsDeps {
 	records: DurableStore;
 	state: DurableStore;
@@ -164,6 +172,8 @@ export interface AutomationsDeps {
 	eventIssue?: (trigger: EventTrigger) => string | null;
 	/** An event trigger in words. */
 	eventSentence?: (trigger: EventTrigger) => string;
+	/** Null when no number is read there. */
+	reading?: (device: string, measure: string) => WatchedReading | null;
 }
 
 const queueBytes = (events: readonly QueueEntry[]) => Buffer.byteLength(JSON.stringify(events));
@@ -188,6 +198,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (body.trigger.kind === "event") {
 			return deps.eventIssue ? deps.eventIssue(body.trigger) : "this Gateway holds no sources";
 		}
+		if (body.trigger.kind === "crossing") {
+			const { device, measure } = body.trigger;
+			if (!deps.reading?.(device, measure)) return "no such number on this Gateway";
+			return deps.fields.check(crossingField(body.trigger));
+		}
 		const { field, becomes } = body.trigger;
 		const type = deps.fields.typeOf(field);
 		if (!type) return deps.fields.invalidOf(field) ?? "no such field";
@@ -204,8 +219,37 @@ export function createAutomations(deps: AutomationsDeps) {
 	const sentenceOf = (body: Automation): string => {
 		if (body.label) return body.label;
 		if (body.trigger.kind === "event") return deps.eventSentence?.(body.trigger) ?? `${body.trigger.source} event`;
+		if (body.trigger.kind === "crossing") {
+			const { device, measure, direction, threshold } = body.trigger;
+			const reading = deps.reading?.(device, measure);
+			return `${reading?.label ?? `${device} ${measure}`} goes ${direction} ${reading?.shown(threshold) ?? threshold}`;
+		}
 		const field = deps.fields.get(body.trigger.field)?.body.label ?? body.trigger.field;
 		return `${field} becomes ${String(body.trigger.becomes)}`;
+	};
+
+	/** The field a trigger watches, and the value that fires it. */
+	const watched = (record: OwnerRecord<Automation>) => {
+		const { trigger } = record.body;
+		if (trigger.kind === "value") {
+			return { ...trigger, label: deps.fields.get(trigger.field)?.body.label ?? trigger.field };
+		}
+		if (trigger.kind !== "crossing") return null;
+		return {
+			field: crossingFieldId(record.id),
+			becomes: crossingSide(trigger),
+			coolDownSec: trigger.coolDownSec,
+			label: deps.reading?.(trigger.device, trigger.measure)?.label ?? `${trigger.device} ${trigger.measure}`,
+		};
+	};
+
+	/** What a fired trigger read. */
+	const readOf = (record: OwnerRecord<Automation>, fallback: string): string => {
+		const { trigger } = record.body;
+		if (trigger.kind !== "crossing") return fallback;
+		const reading = deps.reading?.(trigger.device, trigger.measure);
+		const now = reading?.now() ?? null;
+		return reading && now !== null ? reading.shown(now) : fallback;
 	};
 
 	const commit = (next: State): boolean =>
@@ -232,9 +276,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		let queued = false;
 		const checkpoints: State["automations"] = {};
 		for (const record of records.list()) {
-			const { trigger } = record.body;
 			// The lane runs event triggers.
-			if (trigger.kind !== "value" || !armed(record)) continue;
+			const trigger = watched(record);
+			if (!trigger || !armed(record)) continue;
 			const { field, becomes } = trigger;
 			const saved = own(state.automations, record.id);
 			const held = unsaved[record.id];
@@ -314,8 +358,8 @@ export function createAutomations(deps: AutomationsDeps) {
 						...(tellWhen(record.body) === "now" ? { when: "now" } : {}),
 						fields: {
 							automation: sentence,
-							field: deps.fields.get(field)?.body.label ?? field,
-							value: String(row.value),
+							field: trigger.label,
+							value: readOf(record, String(row.value)),
 						},
 					},
 				};
@@ -356,10 +400,20 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** The device whose Alerts row wrote it. */
 	const deviceOf = (record: OwnerRecord<Automation>): string | undefined => {
 		const { trigger } = record.body;
-		if (trigger.kind !== "value" || !record.id.startsWith(ALERT_ID_PREFIX)) return undefined;
+		if (!record.id.startsWith(ALERT_ID_PREFIX)) return undefined;
+		if (trigger.kind === "crossing") return trigger.device;
+		if (trigger.kind !== "value") return undefined;
 		const read = deps.fields.get(trigger.field)?.body.nodes[0];
 		return read?.kind === "field" && read.ref.source === "device" ? read.ref.device : undefined;
 	};
+
+	/** One band per crossing. */
+	const derivedFields = (): DerivedField[] =>
+		records.list().flatMap((record) => {
+			const { trigger } = record.body;
+			if (trigger.kind !== "crossing") return [];
+			return [{ id: crossingFieldId(record.id), incarnation: record.incarnation, body: crossingField(trigger) }];
+		});
 
 	const rowOf = (record: OwnerRecord<Automation>): AutomationRow => {
 		const invalid = records.invalidOf(record.id);
@@ -402,6 +456,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		}
 		const known = new Set(held.map((record) => record.id));
 		forgetRan(verdict.writes.filter((row) => row.op === "remove" || !known.has(row.id)).map((row) => row.id));
+		// Bands follow their crossings.
+		deps.fields.derivedChanged();
 		drain();
 		return { written: true, records: result.records, dropped: verdict.dropped };
 	}
@@ -412,6 +468,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		list: () => records.list(),
 		rows: (): AutomationRow[] => records.list().map(rowOf),
 		write,
+		derivedFields,
 		ownerPut(id: string, body: unknown, base: number): ConsoleAutomationPutResult {
 			const result = write({ kind: "owner_put", id, body, base });
 			const record = result.written ? result.records[0] : (result.record ?? records.get(id));

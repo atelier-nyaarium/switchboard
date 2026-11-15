@@ -7,7 +7,7 @@ import { SensorsClear } from "../gateway/assistant/sensorsClear.js";
 import { composeDevices } from "../gateway/compose/composeDevices.js";
 import { type Automations, createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedFields, createComputedFields } from "../gateway/computed/computedFields.js";
-import { thresholdIds } from "../gateway/computed/thresholds.js";
+import { crossingFieldId, thresholdIds } from "../gateway/computed/thresholds.js";
 import { createSensorThresholds, type SensorThresholds } from "../gateway/devices/sensorThresholds.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { openDurable } from "../shared/durable-store.js";
@@ -86,6 +86,7 @@ function fixture(home = true, seededThresholds: ThresholdSeed[] = []) {
 					newIncarnation: () => ambient.newId(),
 					now: () => ambient.now(),
 					input: devices.sensorInput,
+					derived: () => automations?.derivedFields() ?? [],
 					onCommit: () => automations?.drain(),
 				}),
 			),
@@ -99,6 +100,7 @@ function fixture(home = true, seededThresholds: ThresholdSeed[] = []) {
 					newIncarnation: () => ambient.newId(),
 					now: () => ambient.now(),
 					isHome: () => home,
+					reading: devices.watchedReading,
 				}),
 			),
 		);
@@ -210,7 +212,7 @@ describe("sensor threshold composition", () => {
 			expect(page.events[0]?.fields).toEqual({
 				automation: expect.any(String),
 				field: "Freezer temperature",
-				value: "low",
+				value: "-5.3 °C",
 			});
 			const member = page.events[0]?.id;
 			if (!member) throw new Error("expected a sensor event");
@@ -254,16 +256,12 @@ describe("sensor threshold composition", () => {
 		const world = fixture();
 		try {
 			await world.devices.console(put(0, 10));
-			const labels = () =>
-				world.automations
-					.list()
-					.map(({ body }) => body.label)
-					.sort();
-			expect(labels()).toEqual(["Freezer temperature above", "Freezer temperature below 10.0 °C"]);
+			const sentences = () => world.automations.rows().map((row) => row.sentence);
+			expect(sentences()).toEqual(["Freezer temperature goes below 10.0 °C"]);
 			const listed = await world.devices.console({ kind: "device_list" });
 			const revision = listed.kind === "ok" ? (listed.records.find(({ id }) => id === MAC)?.revision ?? 0) : 0;
 			await world.devices.console({ kind: "device_rename", id: MAC, name: "Chest freezer", revision });
-			expect(labels()).toEqual(["Chest freezer temperature above", "Chest freezer temperature below 10.0 °C"]);
+			expect(sentences()).toEqual(["Chest freezer temperature goes below 10.0 °C"]);
 		} finally {
 			await world.devices.close();
 		}
@@ -297,7 +295,7 @@ describe("sensor threshold composition", () => {
 		]);
 		try {
 			const highId = thresholdIds(MAC, "humidity").high;
-			expect(world.automations.list().find((row) => row.id === highId)?.body.enabled).toBe(false);
+			expect(world.automations.list().find((row) => row.id === highId)).toBeUndefined();
 			const original = openDurable(world.dataDir, "sensor-thresholds", (store) => store.load()) as {
 				thresholds: ThresholdSeed[];
 			};
@@ -428,7 +426,7 @@ describe("sensor threshold composition", () => {
 			world.devices.ingestGatewayAdvert(MAC, warm, world.now);
 			world.devices.ingestGatewayAdvert(MAC, cold, world.now + 1_000);
 			const ids = thresholdIds(MAC, "temperature");
-			expect(world.fields.value(ids.field)).toEqual(known("low"));
+			expect(world.fields.value(crossingFieldId(ids.low))).toEqual(known("low"));
 			expect(world.automations.runs().map((run) => run.outcome)).toEqual(["refused"]);
 			expect(
 				(
@@ -441,9 +439,9 @@ describe("sensor threshold composition", () => {
 			world.now = 16 * 60_000;
 			world.devices.flushReadings();
 			world.fields.inputsChanged(world.devices.sensorInputKeys());
-			expect(world.fields.value(ids.field).known).toBe(false);
+			expect(world.fields.value(crossingFieldId(ids.low)).known).toBe(false);
 			world.devices.ingestGatewayAdvert(MAC, cold, world.now);
-			expect(world.fields.value(ids.field)).toEqual(known("low"));
+			expect(world.fields.value(crossingFieldId(ids.low))).toEqual(known("low"));
 			expect(world.automations.runs().map((run) => run.outcome)).toEqual(["refused"]);
 			expect(
 				(
@@ -504,15 +502,13 @@ describe("sensor threshold composition", () => {
 			const ids = thresholdIds(MAC, "temperature");
 			world.faults.automationWrites = 1;
 			expect(await world.devices.console(put(0, 10))).toMatchObject({ kind: "ok", threshold: { revision: 1 } });
-			expect(rowsOf(world)).toEqual([ids.field]);
+			expect(rowsOf(world)).toEqual([]);
 			world.thresholds.tick();
-			expect(rowsOf(world)).toEqual([ids.field, ids.high, ids.low].sort());
-			const high = world.automations.list().find(({ id }) => id === ids.high);
-			if (!high) throw new Error("high alert expected");
-			world.automations.write({ kind: "projection", device: MAC, rows: new Map([[ids.high, high.body]]) });
-			expect(rowsOf(world)).toEqual([ids.field, ids.high].sort());
+			expect(rowsOf(world)).toEqual([ids.low]);
+			world.automations.write({ kind: "projection", device: MAC, rows: new Map() });
+			expect(rowsOf(world)).toEqual([]);
 			await world.restart();
-			expect(rowsOf(world)).toEqual([ids.field, ids.high, ids.low].sort());
+			expect(rowsOf(world)).toEqual([ids.low]);
 			expect(await world.devices.console({ kind: "device_read", id: MAC })).toMatchObject({
 				thresholds: [{ low: 10, revision: 1 }],
 			});

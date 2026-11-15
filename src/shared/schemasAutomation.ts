@@ -17,6 +17,9 @@ export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const TELL_WHEN = ["now", "quietly"] as const;
 export type TellWhen = (typeof TELL_WHEN)[number];
 
+export const CROSSING_DIRECTIONS = ["above", "below"] as const;
+export type CrossingDirection = (typeof CROSSING_DIRECTIONS)[number];
+
 export const AutomationConditionSchema = z
 	.strictObject(AssistantRuleConditionSchema.shape)
 	.meta({ id: "AutomationCondition" });
@@ -36,6 +39,17 @@ export const AutomationTriggerSchema = z
 			becomes: z.union([z.string().min(1).max(256), z.boolean()]),
 			coolDownSec: z.number().int().min(0).max(86_400),
 		}),
+		/** A device's number crosses a threshold. */
+		z.strictObject({
+			kind: z.literal("crossing"),
+			device: z.string().min(1).max(64),
+			measure: z.string().min(1).max(64),
+			direction: z.enum(CROSSING_DIRECTIONS),
+			threshold: z.number(),
+			/** Clears this far back. */
+			deadZone: z.number().nonnegative(),
+			coolDownSec: z.number().int().min(0).max(86_400),
+		}),
 	])
 	.meta({ id: "AutomationTrigger" });
 
@@ -43,6 +57,7 @@ export type AutomationCondition = z.infer<typeof AutomationConditionSchema>;
 export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
 export type EventTrigger = Extract<AutomationTrigger, { kind: "event" }>;
 export type ValueTrigger = Extract<AutomationTrigger, { kind: "value" }>;
+export type CrossingTrigger = Extract<AutomationTrigger, { kind: "crossing" }>;
 
 export const AutomationActionSchema = z
 	.discriminatedUnion("kind", [

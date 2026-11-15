@@ -73,6 +73,13 @@ export interface FieldInput {
 	basis?: string;
 }
 
+/** Evaluated like a record; never stored. */
+export interface DerivedField {
+	id: string;
+	incarnation: string;
+	body: ComputedField;
+}
+
 export interface ComputedFieldsDeps {
 	records: DurableStore;
 	state: DurableStore;
@@ -82,6 +89,8 @@ export interface ComputedFieldsDeps {
 	input: (ref: FieldRef) => FieldInput | null;
 	/** Wake after writes land. */
 	onCommit?: () => void;
+	/** Ids no record can take. */
+	derived?: () => readonly DerivedField[];
 }
 
 const computedRefs = (field: ComputedField) =>
@@ -167,6 +176,11 @@ export function createComputedFields(deps: ComputedFieldsDeps) {
 		label: "computed fields",
 	});
 
+	const everyField = (): OwnerRecord<ComputedField>[] => [
+		...records.list(),
+		...(deps.derived?.() ?? []).map((field) => ({ ...field, revision: 1, kind: COMPUTED_KIND })),
+	];
+
 	let snapshot = resolve(records.list(), reader());
 
 	const current = (id: string): Value => {
@@ -200,7 +214,7 @@ export function createComputedFields(deps: ComputedFieldsDeps) {
 
 	/** Persist, then wake. */
 	function evaluateAll(changedKeys?: ReadonlySet<string>): void {
-		const all = records.list();
+		const all = everyField();
 		const read = reader();
 		const check = resolve(all, read);
 		snapshot = check;
@@ -309,6 +323,15 @@ export function createComputedFields(deps: ComputedFieldsDeps) {
 		},
 		inputsChanged(keys: readonly string[]): void {
 			evaluateAll(new Set(keys));
+		},
+		derivedChanged: () => evaluateAll(new Set()),
+		/** Why a field cannot be read here. */
+		check(field: ComputedField): string | null {
+			const read = reader();
+			const checked = checkExpression(field.nodes, (ref) =>
+				ref.source === "computed" ? (snapshot.types.get(ref.id) ?? null) : (read(ref)?.type ?? null),
+			);
+			return checked.ok ? null : checked.issue.message;
 		},
 		/** Type changes rebaseline values. */
 		typesChanged: () => evaluateAll(),

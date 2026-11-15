@@ -106,6 +106,7 @@
 		{ "file": "console-op-automation-put.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "automation-list-result.json", "schema": "ConsoleAutomationListResult", "expect": "pass" },
 		{ "file": "automation-trigger-event.json", "schema": "AutomationTrigger", "expect": "pass" },
+		{ "file": "automation-trigger-crossing.json", "schema": "AutomationTrigger", "expect": "pass" },
 		{
 			"file": "automation-trigger-future-kind.json",
 			"schema": "AutomationTrigger",

@@ -2492,6 +2492,17 @@ sealed class AutomationTrigger {
 		val coolDownSec: Long,
 	) : AutomationTrigger()
 
+	@Serializable
+	@SerialName("crossing")
+	data class Crossing(
+		val device: String,
+		val measure: String,
+		val direction: String,
+		val threshold: Double,
+		val deadZone: Double,
+		val coolDownSec: Long,
+	) : AutomationTrigger()
+
 	/** Unknown member, preserved as sent. */
 	data class Unknown(val kind: String, val raw: JsonObject) : AutomationTrigger()
 }
@@ -2506,6 +2517,7 @@ object AutomationTriggerSerializer : KSerializer<AutomationTrigger> {
 		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
 			"event" -> input.json.decodeFromJsonElement(AutomationTrigger.Event.serializer(), body)
 			"value" -> input.json.decodeFromJsonElement(AutomationTrigger.Value.serializer(), body)
+			"crossing" -> input.json.decodeFromJsonElement(AutomationTrigger.Crossing.serializer(), body)
 			else -> AutomationTrigger.Unknown(kind ?: "", raw)
 		}
 	}
@@ -2515,6 +2527,7 @@ object AutomationTriggerSerializer : KSerializer<AutomationTrigger> {
 		val element = when (value) {
 			is AutomationTrigger.Event -> tagged("event", output.json.encodeToJsonElement(AutomationTrigger.Event.serializer(), value))
 			is AutomationTrigger.Value -> tagged("value", output.json.encodeToJsonElement(AutomationTrigger.Value.serializer(), value))
+			is AutomationTrigger.Crossing -> tagged("crossing", output.json.encodeToJsonElement(AutomationTrigger.Crossing.serializer(), value))
 			is AutomationTrigger.Unknown -> value.raw
 		}
 		output.encodeJsonElement(element)

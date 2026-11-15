@@ -1,11 +1,10 @@
-// Stored thresholds drive projections.
+// Stored thresholds project crossing automations.
 
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { type Definition, definitionOf } from "../../shared/device-definitions/index.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { checkExpression } from "../../shared/expressions.js";
-import { formatFieldValue } from "../../shared/field-values.js";
 import { AUTOMATIONS_MAX, type Automation } from "../../shared/schemasAutomation.js";
 import type {
 	DeviceRecord,
@@ -13,8 +12,8 @@ import type {
 	DeviceSensorThresholdPutRequest,
 } from "../../shared/schemasDevices.js";
 import type { Automations } from "../computed/automations.js";
-import { COMPUTED_FIELDS_MAX, type ComputedFields } from "../computed/computedFields.js";
-import { type Threshold, thresholdAutomations, thresholdField, thresholdIds } from "../computed/thresholds.js";
+import type { ComputedFields } from "../computed/computedFields.js";
+import { type Threshold, thresholdAutomations, thresholdIds } from "../computed/thresholds.js";
 
 type PutRequest = DeviceSensorThresholdPutRequest;
 type ThresholdView = DeviceSensorThreshold;
@@ -113,32 +112,25 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 	const heldRows = (device: string) => {
 		const prefix = rowPrefix(device);
 		return {
+			// Remove 2027-01-15: band fields stored before crossings.
 			fields: deps.fields.list().filter((row) => row.id.startsWith(prefix)),
 			automations: deps.automations.list().filter((row) => row.id.startsWith(prefix)),
 		};
 	};
 
 	const desiredOf = (record: DeviceRecord | null) => {
-		const fields = new Map<string, unknown>();
 		const automations = new Map<string, Automation>();
-		if (!record) return { fields, automations };
+		if (!record) return automations;
 		for (const reading of numericReadings(record)) {
 			const entry = entryOf(record, reading);
 			if (!entry || !banded(entry)) continue;
-			const threshold: Threshold = {
-				device: record.id,
-				measure: reading.key,
-				label: `${record.name} ${reading.spec.label.toLowerCase()}`,
-				...contentOf(entry),
-			};
+			const threshold: Threshold = { device: record.id, measure: reading.key, ...contentOf(entry) };
 			const ids = thresholdIds(record.id, reading.key);
-			const field = thresholdField(threshold);
-			if (field) fields.set(ids.field, field);
-			const sides = thresholdAutomations(threshold, (value) => formatFieldValue(reading.spec, value));
-			automations.set(ids.low, sides.low);
-			automations.set(ids.high, sides.high);
+			const sides = thresholdAutomations(threshold);
+			if (sides.low) automations.set(ids.low, sides.low);
+			if (sides.high) automations.set(ids.high, sides.high);
 		}
-		return { fields, automations };
+		return automations;
 	};
 
 	const reconcile = (device: string): boolean => {
@@ -146,18 +138,9 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 		const unswept = snapshot.unswept.includes(device);
 		// Preserve unread rows.
 		if (!record && !unswept) return true;
-		const desired = desiredOf(record);
-		const held = heldRows(device);
 		let ok = true;
-		for (const row of held.fields) {
-			if (!desired.fields.has(row.id)) ok = deps.fields.remove(row.id, row.revision).removed && ok;
-		}
-		for (const [id, body] of desired.fields) {
-			const current = held.fields.find((row) => row.id === id);
-			if (current && canonicalJson(current.body) === canonicalJson(body)) continue;
-			ok = deps.fields.put(id, body, current?.revision ?? 0, { revive: true }).stored && ok;
-		}
-		ok = deps.automations.write({ kind: "projection", device, rows: desired.automations }).written && ok;
+		for (const row of heldRows(device).fields) ok = deps.fields.remove(row.id, row.revision).removed && ok;
+		ok = deps.automations.write({ kind: "projection", device, rows: desiredOf(record) }).written && ok;
 		if (ok && unswept) write({ ...snapshot, unswept: snapshot.unswept.filter((id) => id !== device) });
 		if (ok) dirty.delete(device);
 		else dirty.add(device);
@@ -172,10 +155,7 @@ export function createSensorThresholds(deps: SensorThresholdsDeps) {
 
 	const roomFor = (device: string, measure: string): ThresholdRefusal | null => {
 		const ids = thresholdIds(device, measure);
-		const fieldIds = new Set(deps.fields.list().map((row) => row.id));
 		const automationIds = new Set(deps.automations.list().map((row) => row.id));
-		if (!fieldIds.has(ids.field) && fieldIds.size + 1 > COMPUTED_FIELDS_MAX)
-			return { kind: "refused", code: "full", text: "this Gateway holds too many fields" };
 		const needed = [ids.low, ids.high].filter((id) => !automationIds.has(id)).length;
 		if (automationIds.size + needed > AUTOMATIONS_MAX)
 			return { kind: "refused", code: "full", text: "this Gateway holds too many automations" };

@@ -372,6 +372,7 @@ describe("live console stage", () => {
 
 const cold = { name: "GVH5110_3C5D", data: { "1": "010180d16c5a" }, services: ["ec88"] };
 const IDS = thresholdIds(MAC, "temperature");
+const STORED_FIELD = "freezer-band";
 
 const EVERY_MEMBER: Record<string, string> = {
 	"gateway.id": "gateway.id",
@@ -387,8 +388,8 @@ const EVERY_MEMBER: Record<string, string> = {
 	"thresholds.list": "thresholds.list",
 	"thresholds.get": 'thresholds.get("Freezer")',
 	"fields.list": "fields.list",
-	"fields.get": `fields.get("${IDS.field}")`,
-	"fields.read": `fields.read("${IDS.field}")`,
+	"fields.get": `fields.get("${STORED_FIELD}")`,
+	"fields.read": `fields.read("${STORED_FIELD}")`,
 	"automations.list": "automations.list",
 	"automations.runs": "automations.runs",
 	"automations.queue": "automations.queue",
@@ -480,6 +481,7 @@ describe("live console read-only fence", () => {
 					newIncarnation: () => ambient.newId(),
 					now: () => ambient.now(),
 					input: devices.sensorInput,
+					derived: () => automations?.derivedFields() ?? [],
 					onCommit: () => automations?.drain(),
 				}),
 			),
@@ -493,6 +495,7 @@ describe("live console read-only fence", () => {
 					newIncarnation: () => ambient.newId(),
 					now: () => ambient.now(),
 					isHome: () => true,
+					reading: devices.watchedReading,
 				}),
 			),
 		);
@@ -508,6 +511,17 @@ describe("live console read-only fence", () => {
 		);
 		thresholds.start();
 		fields.start();
+		fields.put(
+			STORED_FIELD,
+			{
+				label: "Freezer band",
+				nodes: [
+					{ kind: "field", ref: { source: "device", device: MAC, key: "temperature" } },
+					{ kind: "band", input: 0, low: 10, deadZone: 1 },
+				],
+			},
+			0,
+		);
 		devices.ingestGatewayAdvert(MAC, warm, clock);
 		clock += 60_000;
 		devices.ingestGatewayAdvert(MAC, cold, clock);
