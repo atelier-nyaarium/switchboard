@@ -12,7 +12,7 @@ interface IftttClientDeps {
 	fetch: (url: string, init: RequestInit) => Promise<Response>;
 	vault: {
 		entryId: () => string | undefined;
-		readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+		readForService: (watcherId: string, entryId: string) => Promise<VaultRelease>;
 	};
 	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
 }
@@ -35,7 +35,7 @@ export function createIftttClient(deps: IftttClientDeps) {
 				if (entryId === undefined) throw new GatewayCapabilityRefusal("not_granted");
 				let grant: VaultRelease;
 				try {
-					grant = await bounded(deps.vault.readForWatcher(INTEGRATION_ID, entryId), action);
+					grant = await bounded(deps.vault.readForService(INTEGRATION_ID, entryId), action);
 				} catch (error) {
 					if (error instanceof GatewayCapabilityRefusal) throw error;
 					throw new GatewayCapabilityRefusal("not_ready");

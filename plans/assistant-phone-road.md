@@ -728,8 +728,8 @@ Slices:
 
 ## Phase 2.7a - Foundations for sources and automations, nothing visible (Q32)
 
-- **The vault first.** A `service` holder kind beside `watcher`; stored `watcher` rows translate at restore (GitHub and IFTTT alike) and write back only after the whole file parses. A fixture of a mixed decisions file (session, routine, GitHub, IFTTT) proves no grant is lost.
-- **The plugin reads both vocabularies** (it deploys apart and first): `watcher/` and `source/` action ids, `sources` or `watchers` in the baseline, an inbox header of `source:` or `watcher:`, an unknown `decision` rendered as text.
+- ✅ **The vault first.** A `service` holder kind beside `watcher`; stored `watcher` rows translate at restore (GitHub and IFTTT alike) and write back only after the whole file parses. A fixture of a mixed decisions file (session, routine, GitHub, IFTTT) proves no grant is lost. As built: `VaultHolderSchema` keeps `watcher` as a dated member (remove 2026-11-28) and `createVaultDecisions` rewrites those rows as `service`; the phone labels both. Deploy the phone before the Gateway, since its holder decode is strict. This build is the rollback floor for `vault-decisions.json`.
+- ✅ **The plugin reads both vocabularies** (it deploys apart and first): `watcher/` and `source/` action ids, `sources` or `watchers` in the baseline, an inbox header of `source:` or `watcher:`, an unknown `decision` rendered as text. As built: `ActionIdSchema` reads `source/<key>` as `watcher/<key>`, which the Gateway still lists until 2.7b; the baseline takes `sources` beside an optional `watchers`; an inbox item is no longer strict and its `decision` is any short text or absent. The baseline's overdue `evicted` field goes with the 2.7b wire.
 - **Gateway internals renamed** to Source and SourceEvent; data files renamed on first boot. The Sensors bridge becomes an explicit outbox port feeding the same lane.
 
 ## Phase 2.7b - Sources and automations on the wire and the phone, same behaviour (Q32, Q33)

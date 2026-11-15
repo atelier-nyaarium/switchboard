@@ -74,16 +74,16 @@ describe("vault routes", () => {
 	it("serves a watcher only through its own standing grant, read again at release, and never asks", async () => {
 		const { vault, use, decisions, delivered } = bench();
 
-		const ungranted = await use.readForWatcher("github", "deploy");
-		decisions.setWatcherGrants("github", ["deploy"]);
-		const granted = await use.readForWatcher("github", "deploy");
-		const other = await use.readForWatcher("gmail", "deploy");
-		vault.duringRefresh = () => void decisions.setWatcherGrants("github", []);
-		const revokedMidway = await use.readForWatcher("github", "deploy");
+		const ungranted = await use.readForService("github", "deploy");
+		decisions.setServiceGrants("github", ["deploy"]);
+		const granted = await use.readForService("github", "deploy");
+		const other = await use.readForService("gmail", "deploy");
+		vault.duringRefresh = () => void decisions.setServiceGrants("github", []);
+		const revokedMidway = await use.readForService("github", "deploy");
 		vault.duringRefresh = () => {};
-		decisions.setWatcherGrants("github", ["deploy"]);
+		decisions.setServiceGrants("github", ["deploy"]);
 		vault.allowed = false;
-		const disallowed = await use.readForWatcher("github", "deploy");
+		const disallowed = await use.readForService("github", "deploy");
 
 		expect(ungranted.kind).toBe("unusable");
 		expect(granted).toEqual({ kind: "released", value: "hunter2" });
@@ -112,7 +112,7 @@ describe("vault routes", () => {
 
 	it("never lets a watcher's grant cover a session", async () => {
 		const { decisions, call } = bench();
-		decisions.setWatcherGrants("github", ["deploy"]);
+		decisions.setServiceGrants("github", ["deploy"]);
 
 		const asked = call("/vault/use", { entryId: "deploy", operation: "ssh deploy@prod", waitMs: 50 });
 

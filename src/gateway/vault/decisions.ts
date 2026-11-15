@@ -37,10 +37,10 @@ export interface GrantScope {
 	policy?: PolicyRef;
 }
 
-/** A watcher reads on the Gateway's own behalf, through its standing grant alone. */
-export interface WatcherScope {
+/** A service reads on the Gateway's own behalf, through its standing grant alone. */
+export interface ServiceScope {
 	entryId: string;
-	watcherId: string;
+	serviceId: string;
 }
 
 /** Current record, read late. */
@@ -50,9 +50,15 @@ type StandingHolder = Exclude<VaultHolder, { kind: "session" }>;
 
 const sameHolder = (a: VaultHolder, b: StandingHolder): boolean =>
 	(a.kind === "routine" && b.kind === "routine" && a.routineId === b.routineId) ||
-	(a.kind === "watcher" && b.kind === "watcher" && a.watcherId === b.watcherId);
+	(a.kind === "service" && b.kind === "service" && a.serviceId === b.serviceId);
 
 const GrantsSchema = z.array(VaultGrantSchema);
+
+// Remove 2026-11-28: watcher rows predate services.
+const asService = (grant: VaultGrant): VaultGrant =>
+	grant.holder.kind === "watcher"
+		? { ...grant, holder: { kind: "service", serviceId: grant.holder.watcherId } }
+		: grant;
 
 /** Why a policy stopped answering. */
 export function qualificationRefusal(
@@ -92,7 +98,10 @@ export function displayShape(operation: string): string {
 export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	const { store } = deps;
 	const sessionCapMs = deps.sessionCapMs ?? VAULT_SESSION_GRANT_CAP_MS;
-	let grants: VaultGrant[] = GrantsSchema.parse(store.load() ?? []);
+	const stored = GrantsSchema.parse(store.load() ?? []);
+	let grants: VaultGrant[] = stored.map(asService);
+	// Written back only once the whole file parsed.
+	if (grants.some((grant, at) => grant !== stored[at])) store.save(grants);
 
 	/** A revocation lands on disk before it is reported; the rest is best effort. */
 	const commit = (next: VaultGrant[], checked: boolean): boolean => {
@@ -118,13 +127,13 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	/**
 	 * Session and standing grants cover every shape; a window grant covers a request whose programs
 	 * it all named. A routine's standing grant covers only while the routine is live in the asking
-	 * session, and a watcher's grant only that watcher's read.
+	 * session, and a service's grant only that service's read.
 	 */
-	const covers = (scope: GrantScope | WatcherScope, now: number): VaultGrant | undefined => {
+	const covers = (scope: GrantScope | ServiceScope, now: number): VaultGrant | undefined => {
 		sweep(now);
-		if ("watcherId" in scope) {
-			const watcher: StandingHolder = { kind: "watcher", watcherId: scope.watcherId };
-			return grants.find((grant) => grant.entryId === scope.entryId && sameHolder(grant.holder, watcher));
+		if ("serviceId" in scope) {
+			const service: StandingHolder = { kind: "service", serviceId: scope.serviceId };
+			return grants.find((grant) => grant.entryId === scope.entryId && sameHolder(grant.holder, service));
 		}
 		const live = deps.routineHolding?.(scope.sessionTarget) ?? null;
 		return grants.find((grant) => {
@@ -177,7 +186,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	};
 
 	/**
-	 * What a routine or a watcher is authorized to reach, made to match the owner's picks exactly.
+	 * What a routine or a service is authorized to reach, made to match the owner's picks exactly.
 	 * Only owner ops reach this, so nothing inside a session can widen it.
 	 */
 	const setStandingGrants = (holder: StandingHolder, entryIds: string[]): VaultGrant[] => {
@@ -195,8 +204,8 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	const setRoutineGrants = (routineId: string, entryIds: string[]): VaultGrant[] =>
 		setStandingGrants({ kind: "routine", routineId }, entryIds);
 
-	const setWatcherGrants = (watcherId: string, entryIds: string[]): VaultGrant[] =>
-		setStandingGrants({ kind: "watcher", watcherId }, entryIds);
+	const setServiceGrants = (serviceId: string, entryIds: string[]): VaultGrant[] =>
+		setStandingGrants({ kind: "service", serviceId }, entryIds);
 
 	/** Everything a routine held, when the routine itself goes. */
 	const routineEnded = (routineId: string): void => {
@@ -263,7 +272,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		revoke,
 		sessionEnded,
 		setRoutineGrants,
-		setWatcherGrants,
+		setServiceGrants,
 		routineEnded,
 		entryDeleted,
 		entriesListed,

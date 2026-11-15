@@ -68,9 +68,9 @@ function vault(
 ) {
 	const grants = new Map(Object.entries(initial));
 	const held: AssistantVault = {
-		watcherGrants: (watcherId) => grants.get(watcherId) ?? [],
-		setWatcherGrants: (watcherId, entryIds) => void grants.set(watcherId, entryIds),
-		readForWatcher: async () => ({ kind: "released", value: "token" }),
+		serviceGrants: (watcherId) => grants.get(watcherId) ?? [],
+		setServiceGrants: (watcherId, entryIds) => void grants.set(watcherId, entryIds),
+		readForService: async () => ({ kind: "released", value: "token" }),
 		usableHere: usable,
 	};
 	return held;
@@ -310,7 +310,7 @@ describe("the assistant's session", () => {
 		await test.followHome(1, LOCAL_GATEWAY, movedHome());
 		await ambient.advance(0);
 		const placed = watcher.polls;
-		await test.assistant.console.setWatcherGrants("github", ["gh-token"]);
+		await test.assistant.console.setServiceGrants("github", ["gh-token"]);
 		await ambient.advance(0);
 		await ambient.advance(60_000);
 		const polling = watcher.polls;
@@ -328,7 +328,7 @@ describe("the assistant's session", () => {
 		expect(released).toMatchObject({ workdir: null, team: null });
 		expect(released.watchers[0]?.grants).toEqual([]);
 		expect(test.assistant.placed()).toBe(false);
-		await expect(test.assistant.console.setWatcherGrants("github", ["gh-token"])).rejects.toThrow();
+		await expect(test.assistant.console.setServiceGrants("github", ["gh-token"])).rejects.toThrow();
 	});
 
 	it("starts a fresh home's watchers off, a carried one as it was, and polls only while enabled", async () => {
@@ -337,7 +337,7 @@ describe("the assistant's session", () => {
 		const test = stage({ ambient, watchers: [watcher] });
 		test.assistant.start();
 		await test.followHome();
-		await test.assistant.console.setWatcherGrants("github", ["gh-token"]);
+		await test.assistant.console.setServiceGrants("github", ["gh-token"]);
 		await ambient.advance(60_000);
 		const fresh = { enabled: test.assistant.console.state().watchers[0]?.enabled, polls: watcher.polls };
 
@@ -448,7 +448,7 @@ describe("the assistant's session", () => {
 		const test = stage({ ambient });
 		test.assistant.start();
 		await test.followHome();
-		await test.assistant.console.setWatcherGrants("ifttt", ["hook-key"]);
+		await test.assistant.console.setServiceGrants("ifttt", ["hook-key"]);
 		const granted = test.assistant.console.state().integrations;
 
 		await test.followHome(2, LOCAL_GATEWAY, {
@@ -484,7 +484,7 @@ describe("the assistant's session", () => {
 		await ambient.advance(0);
 		const ungranted = test.assistant.console.state().watchers[0]?.stopped;
 
-		await test.assistant.console.setWatcherGrants("github", ["gh-token"]);
+		await test.assistant.console.setServiceGrants("github", ["gh-token"]);
 		await ambient.advance(0);
 		await stopped(test.assistant, ambient);
 
@@ -509,7 +509,7 @@ describe("the assistant's session", () => {
 			sealed: sealedHome(NOTES, carriedSettings({ approveEverySend: false, rules: [rule("carried")] })),
 		});
 		await ambient.advance(0);
-		await assistant.console.setWatcherGrants("github", ["gh-token"]);
+		await assistant.console.setServiceGrants("github", ["gh-token"]);
 		await assistant.console.putRule("github", rule("local", "inbox"));
 		await assistant.console.setSafety(false);
 		test.rememberAssistant();

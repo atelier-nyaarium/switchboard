@@ -99,9 +99,9 @@ Reply only if something needs the owner.
 
 /** What the assistant reaches in the vault, read late. */
 export interface AssistantVault {
-	watcherGrants: (watcherId: string) => string[];
-	setWatcherGrants: (watcherId: string, entryIds: string[]) => void;
-	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+	serviceGrants: (watcherId: string) => string[];
+	setServiceGrants: (watcherId: string, entryIds: string[]) => void;
+	readForService: (watcherId: string, entryId: string) => Promise<VaultRelease>;
 	/** Whether this Gateway may use the entry's value. */
 	usableHere: (entryId: string) => Promise<boolean>;
 }
@@ -200,9 +200,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const acting = (record: Parameters<typeof isAssistantRecord>[0]) => isAssistantRecord(record) && home.allowsLanes();
 
 	const tokenFor = (watcherId: string) => async (): Promise<TokenRead> => {
-		const entryId = deps.vault.watcherGrants(watcherId)[0];
+		const entryId = deps.vault.serviceGrants(watcherId)[0];
 		if (entryId === undefined) return { kind: "stopped", reason: NEEDS_SECRET };
-		return tokenOf(await deps.vault.readForWatcher(watcherId, entryId), entryId);
+		return tokenOf(await deps.vault.readForService(watcherId, entryId), entryId);
 	};
 	const github = createGithubClient({
 		fetch: deps.fetch,
@@ -337,7 +337,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		});
 	/** A write that did not land answers as a refusal, never as the state it meant. */
 	const grantsLanded = (watcherId: string, entryIds: readonly string[]) => {
-		const held = deps.vault.watcherGrants(watcherId);
+		const held = deps.vault.serviceGrants(watcherId);
 		return held.length === entryIds.length && entryIds.every((entryId) => held.includes(entryId));
 	};
 	const grantTargets = () => [...watchers.map((watcher) => watcher.id), ...INTEGRATION_IDS];
@@ -349,7 +349,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		return {
 			id: watcher.id,
 			label: watcher.label,
-			grants: deps.vault.watcherGrants(watcher.id),
+			grants: deps.vault.serviceGrants(watcher.id),
 			unread: state.unread,
 			capped: state.capped,
 			evicted: 0,
@@ -547,8 +547,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const ifttt = createIftttClient({
 		fetch: deps.fetch,
 		vault: {
-			entryId: () => deps.vault.watcherGrants(IFTTT_INTEGRATION_ID)[0],
-			readForWatcher: (watcherId, entryId) => deps.vault.readForWatcher(watcherId, entryId),
+			entryId: () => deps.vault.serviceGrants(IFTTT_INTEGRATION_ID)[0],
+			readForService: (watcherId, entryId) => deps.vault.readForService(watcherId, entryId),
 		},
 		ambient,
 	});
@@ -602,7 +602,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			integrations: INTEGRATION_IDS.map((id) => ({
 				id,
 				label: integrationLabel(id),
-				grants: deps.vault.watcherGrants(id),
+				grants: deps.vault.serviceGrants(id),
 			})),
 			offered: INTEGRATION_KEYS,
 			approveEverySend: safety.approveEverySend(),
@@ -628,7 +628,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const refused = placeRefusal(workdirPath, sessions);
 		if (refused) return refused;
 		marker.ended();
-		for (const id of grantTargets()) deps.vault.setWatcherGrants(id, []);
+		for (const id of grantTargets()) deps.vault.setServiceGrants(id, []);
 		if (!grantTargets().every((id) => grantsLanded(id, [])))
 			return "a grant left from an earlier placement could not be dropped";
 		// First poll primes again.
@@ -656,14 +656,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		// Unusable grants drop.
 		for (const watcher of watchers) {
 			const grant = byId.get(watcher.id)?.grant;
-			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setWatcherGrants(watcher.id, [grant]);
+			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setServiceGrants(watcher.id, [grant]);
 		}
 		const carriedIntegrations = new Map(
 			(carried?.integrations ?? []).map((integration) => [integration.id, integration.grant]),
 		);
 		for (const id of INTEGRATION_IDS) {
 			const grant = carriedIntegrations.get(id);
-			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setWatcherGrants(id, [grant]);
+			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setServiceGrants(id, [grant]);
 		}
 		return null;
 	};
@@ -684,7 +684,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}
 		marker.ended();
 		for (const id of grantTargets()) {
-			if (deps.vault.watcherGrants(id).length > 0) deps.vault.setWatcherGrants(id, []);
+			if (deps.vault.serviceGrants(id).length > 0) deps.vault.setServiceGrants(id, []);
 		}
 		if (!grantTargets().every((id) => grantsLanded(id, []))) return false;
 		const ids = watchers.map((watcher) => watcher.id);
@@ -756,14 +756,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		console: {
 			state,
 			/** Also the retry: the same set polls a stopped watcher again. */
-			setWatcherGrants: (watcherId, entryIds) =>
+			setServiceGrants: (watcherId, entryIds) =>
 				settled(() => {
 					const watcher = watchers.find((candidate) => candidate.id === watcherId);
 					const integration = INTEGRATION_IDS.find((id) => id === watcherId);
 					if (!watcher && !integration) throw new Error(`no watcher "${watcherId}"`);
 					if (entryIds.length > 1) throw new Error("a watcher takes one secret");
 					if (!held()) throw new Error(NOT_HERE);
-					deps.vault.setWatcherGrants(watcherId, entryIds);
+					deps.vault.setServiceGrants(watcherId, entryIds);
 					if (!grantsLanded(watcherId, entryIds)) throw new Error("the grant could not be saved");
 					if (watcher) {
 						if (lanes) lanes.poke(watcherId);

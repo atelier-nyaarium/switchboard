@@ -11,7 +11,7 @@ const INBOX = ASSISTANT_COMMANDS.inbox;
 const DESCRIPTION = `
 # Inbox
 
-List each watcher's source live, newest first, 50 a page. Marks nothing.
+List each source live, newest first, 50 a page. Marks nothing.
 
 - \`scope: "new"\`: unread, updated since your last \`new\` read that reached its last page.
 - \`scope: "all"\`: everything unread.
@@ -31,7 +31,8 @@ export function inboxText(answer: InboxListAnswer, scope: InboxScope): string {
 		if (list.error !== undefined) lines.push(`Could not list: ${oneLine(list.error)}`, "");
 		for (const item of list.items) {
 			const [, ...rest] = eventLines({ label: list.label, ...item });
-			rest.push(`updated: ${isoOf(item.at)}`, `rule: ${item.decision}`);
+			rest.push(`updated: ${isoOf(item.at)}`);
+			if (item.decision !== undefined) rest.push(`rule: ${oneLine(item.decision)}`);
 			lines.push(...rest.map((line, index) => (index === 0 ? `- ${line}` : `  ${line}`)));
 		}
 		if (list.cut !== undefined) lines.push("", `${list.cut} more did not fit; the next page continues from them.`);
@@ -39,7 +40,7 @@ export function inboxText(answer: InboxListAnswer, scope: InboxScope): string {
 			lines.push("", `Next page: ${INBOX.tool}({ scope: "${scope}", page: "${list.next}" })`);
 		lines.push("");
 	}
-	if (answer.lists.length === 0) lines.push("No watcher lists anything.");
+	if (answer.lists.length === 0) lines.push("No source lists anything.");
 	return lines.join("\n").trim();
 }
 

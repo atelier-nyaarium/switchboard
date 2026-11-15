@@ -12,6 +12,7 @@ import {
 	type ActionRunResult,
 	ActionRunResultSchema,
 	actionRefOf,
+	isSourceFamily,
 } from "../../shared/schemasActionFront.js";
 import { type ActionAnswer, ASSISTANT_ACTIONS } from "../../shared/schemasAssistantActions.js";
 import { PHONE_CAPABILITIES } from "../../shared/schemasPhoneCapabilities.js";
@@ -45,7 +46,7 @@ const SESSION_TEXT: Record<"not_assistant" | "unauthenticated", string> = {
 };
 
 function availabilityText(action: ActionListing): string {
-	if (action.family === "watcher") return "";
+	if (isSourceFamily(action.family)) return "";
 	if (action.family === "gateway" || action.where === "gateway") return "; runs on the Gateway";
 	if (action.available === null) return `; availability unknown, ${STATUS_ID} learns it`;
 	return action.available
@@ -166,7 +167,7 @@ Read it before a \`${RUN}\`. \`${STATUS_ID}\` refreshes what the holding phone s
 
 Run one action by \`id\` from \`${LIST}\`, with \`params\` in its schema.
 
-A \`phone/\` id runs on the holding phone; a \`gateway/\` or \`watcher/\` id runs on the Gateway. Only this tool's transport retries share a call.
+A \`phone/\` id runs on the holding phone; every other id runs on the Gateway. Only this tool's transport retries share a call.
 			`.trim(),
 			inputSchema: {
 				id: z.string().describe(`An id from \`${LIST}\`, such as \`${STATUS_ID}\`.`),

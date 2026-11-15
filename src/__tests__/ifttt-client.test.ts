@@ -14,14 +14,14 @@ const params: IftttTriggerRequest = { event: "owner_event", value1: "one", value
 function client(options: {
 	ambient?: ReturnType<typeof fakeAmbient>;
 	entryId?: string;
-	readForWatcher?: () => Promise<VaultRelease>;
+	readForService?: () => Promise<VaultRelease>;
 	fetch: (url: string, init: RequestInit) => Promise<Response>;
 }) {
 	return createIftttClient({
 		fetch: options.fetch,
 		vault: {
 			entryId: () => options.entryId,
-			readForWatcher: options.readForWatcher ?? (async () => ({ kind: "released", value: "webhook-key" })),
+			readForService: options.readForService ?? (async () => ({ kind: "released", value: "webhook-key" })),
 		},
 		ambient: options.ambient ?? fakeAmbient({ drive: "manual" }),
 	});
@@ -107,7 +107,7 @@ describe("IFTTT trigger client", () => {
 		let posts = 0;
 		const trigger = client({
 			entryId: "webhook-entry",
-			readForWatcher: async () => {
+			readForService: async () => {
 				reads += 1;
 				return { kind: "unusable", reason: "no grant", status: 403 };
 			},
@@ -128,7 +128,7 @@ describe("IFTTT trigger client", () => {
 	it.each(["unready", "unopened"] as const)("answers vault %s as not ready", async (kind) => {
 		const trigger = client({
 			entryId: "webhook-entry",
-			readForWatcher: async () =>
+			readForService: async () =>
 				kind === "unready" ? { kind: "unready", reason: "Router unavailable" } : { kind: "unopened" },
 			fetch: async () => {
 				throw new Error("unexpected post");

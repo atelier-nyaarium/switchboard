@@ -1,7 +1,6 @@
-// The assistant's inbox: each watcher's source, listed live.
+// The assistant's inbox: each source, listed live.
 
 import { z } from "zod";
-import { RULE_ACTIONS } from "./schemasAssistantRules.js";
 import { oneLine } from "./system-reminder.js";
 
 export const INBOX_SCOPES = ["new", "all"] as const;
@@ -14,7 +13,8 @@ export const InboxListRequestShape = {
 	page: z.string().min(1).max(8_192).optional(),
 };
 
-const InboxItemSchema = z.strictObject({
+/** A reader keeps an item whose words it does not know. */
+const InboxItemSchema = z.object({
 	/** The source's id, as its actions take it. */
 	id: z.string(),
 	title: z.string(),
@@ -22,12 +22,13 @@ const InboxItemSchema = z.strictObject({
 	fields: z.record(z.string(), z.string()),
 	/** Source update time. */
 	at: z.number(),
-	decision: z.enum(RULE_ACTIONS),
+	/** What was decided about it. */
+	decision: z.string().max(64).optional(),
 });
 
 export type InboxItem = z.infer<typeof InboxItemSchema>;
 
-const InboxListSchema = z.strictObject({
+const InboxListSchema = z.object({
 	label: z.string(),
 	items: z.array(InboxItemSchema),
 	/** The next page's token. */

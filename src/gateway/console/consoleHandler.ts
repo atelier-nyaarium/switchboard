@@ -496,7 +496,7 @@ export function createConsoleDispatcher({
 				return requireAssistant().state();
 
 			case "assistant_watcher_grants":
-				return requireAssistant().setWatcherGrants(op.watcherId, op.entryIds);
+				return requireAssistant().setServiceGrants(op.watcherId, op.entryIds);
 
 			case "assistant_rule_put":
 				return requireAssistant().putRule(op.watcherId, op.rule);

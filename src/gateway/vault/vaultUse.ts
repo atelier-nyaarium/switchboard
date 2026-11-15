@@ -55,16 +55,16 @@ export function createVaultUse(deps: VaultUseDeps) {
 		return value === null ? { kind: "unopened" } : { kind: "released", value };
 	}
 
-	/** Standing grant only; a watcher never opens a request. */
-	function readForWatcher(watcherId: string, entryId: string): Promise<VaultRelease> {
+	/** Standing grant only; a service never opens a request. */
+	function readForService(serviceId: string, entryId: string): Promise<VaultRelease> {
 		return release(entryId, () =>
-			deps.decisions.covers({ watcherId, entryId }, deps.ambient.now())
+			deps.decisions.covers({ serviceId, entryId }, deps.ambient.now())
 				? null
-				: { kind: "unusable", reason: "no grant covers this watcher", status: 403 },
+				: { kind: "unusable", reason: "no grant covers this service", status: 403 },
 		);
 	}
 
-	return { ready, usable, release, readForWatcher };
+	return { ready, usable, release, readForService };
 }
 
 export type VaultUse = ReturnType<typeof createVaultUse>;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createAssistantRoutes } from "../gateway/assistant/assistantRoutes.js";
 import { createStatusMemo } from "../gateway/assistant/statusMemo.js";
 import { listingText, phoneText } from "../mcp/assistant/actionFront.js";
+import { inboxText } from "../mcp/assistant/inboxTool.js";
 import type { HoldAnswer } from "../shared/assistant-hold.js";
 import {
 	ACTION_FRONT_LEGACY_ROUTES,
@@ -10,7 +11,9 @@ import {
 	actionListings,
 } from "../shared/schemasActionFront.js";
 import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
+import { InboxListAnswerSchema } from "../shared/schemasAssistantInbox.js";
 import { PHONE_CAPABILITIES, PHONE_CAPABILITY_KEYS } from "../shared/schemasPhoneCapabilities.js";
+import { baselineLines, SessionBaselineSchema } from "../shared/session-baseline.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 describe("action listings", () => {
@@ -101,6 +104,12 @@ describe("action routes", () => {
 		});
 		expect(await watcher.json()).toEqual({ kind: "ok", answer: { threads: [] }, recorded: true });
 		expect(dispatched).toEqual([{ action: "github_done", callId: "watcher-call-1", params: { ids: ["1"] } }]);
+		await invoke(ACTION_FRONT_ROUTES.run, {
+			id: "source/github_done",
+			callId: "source-call-1",
+			params: { ids: ["2"] },
+		});
+		expect(dispatched[1]).toEqual({ action: "github_done", callId: "source-call-1", params: { ids: ["2"] } });
 
 		const phone = await invoke(ACTION_FRONT_ROUTES.run, {
 			id: "phone/torch",
@@ -154,7 +163,7 @@ describe("action routes", () => {
 			params: {},
 		});
 		expect(await oldPhone.json()).toMatchObject({ kind: "ok" });
-		expect(dispatched).toHaveLength(2);
+		expect(dispatched).toHaveLength(3);
 		expect(phoneCalls).toHaveLength(2);
 	});
 });
@@ -210,5 +219,35 @@ describe("action text", () => {
 		);
 		expect(denied.split("\n")).toHaveLength(1);
 		for (const part of ["not_granted", "contacts", "Allow contacts"]) expect(denied).toContain(part);
+	});
+});
+
+describe("the plugin reads a Gateway that says source", () => {
+	it("draws a source action as it draws a watcher's", () => {
+		const [done] = actionListings(null).filter((action) => action.family === "watcher");
+		const renamed = { ...done, id: "source/github_done", family: "source" };
+		expect(listingText([renamed]).split("\n")[1]).toBe(listingText([done]).split("\n")[1]);
+	});
+
+	it("lists a baseline's sources beside an older Gateway's watchers", () => {
+		const row = { label: "GitHub notifications", unread: 3 };
+		const baseline = (assistant: Record<string, unknown>) =>
+			baselineLines(
+				SessionBaselineSchema.parse({ conversations: [], routines: [], agents: [], board: [], assistant }),
+			);
+		expect(baseline({ sources: [row] })).toContain("source: GitHub notifications 3 unread");
+		expect(baseline({ watchers: [row] })).toContain("watcher: GitHub notifications 3 unread");
+		expect(baseline({})).toEqual([]);
+	});
+
+	it("keeps an inbox item whose decision and fields it does not know", () => {
+		const item = { id: "1", title: "Split the pane reader", fields: {}, at: 0 };
+		const answer = InboxListAnswerSchema.parse({
+			kind: "listed",
+			lists: [{ label: "GitHub", items: [{ ...item, decision: "quietly", automation: "a1" }, item] }],
+		});
+		const text = inboxText(answer, "all");
+		expect(text.split("\n").filter((line) => line.includes("rule:"))).toEqual(["  rule: quietly"]);
+		expect(text.match(/Split the pane reader/g)).toHaveLength(2);
 	});
 });

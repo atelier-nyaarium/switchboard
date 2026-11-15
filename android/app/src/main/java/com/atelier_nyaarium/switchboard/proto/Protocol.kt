@@ -3521,6 +3521,12 @@ sealed class VaultHolder {
 	) : VaultHolder()
 
 	@Serializable
+	@SerialName("service")
+	data class Service(
+		val serviceId: String,
+	) : VaultHolder()
+
+	@Serializable
 	@SerialName("watcher")
 	data class Watcher(
 		val watcherId: String,

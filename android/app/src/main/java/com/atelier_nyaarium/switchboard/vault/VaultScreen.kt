@@ -260,7 +260,9 @@ private fun GrantRow(
 private fun holderName(state: ChatState, gatewayId: String, grant: VaultGrant): String =
 	when (val holder = grant.holder) {
 		is VaultHolder.Routine -> "Routine ${holder.routineId}"
-		is VaultHolder.Watcher -> "Assistant watcher ${holder.watcherId}"
+		is VaultHolder.Service -> "Service ${holder.serviceId}"
+		// Remove 2026-11-28 with the wire member.
+		is VaultHolder.Watcher -> "Service ${holder.watcherId}"
 		is VaultHolder.Session -> sessionName(state, gatewayId, holder.sessionTarget)
 	}
 

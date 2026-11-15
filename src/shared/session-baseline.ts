@@ -20,6 +20,19 @@ const PeerSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("session"), name: z.string() }),
 ]);
 
+const BaselineSourceSchema = z.object({
+	label: z.string(),
+	unread: z.number().int().nonnegative(),
+	/** More unread than a poll reads. */
+	capped: z.boolean().optional(),
+	/** False until a poll has read the count; absent from an older Gateway. */
+	checked: z.boolean().optional(),
+	// Sent as 0 for older plugins; remove 2026-11-02.
+	evicted: z.number().int().nonnegative().optional(),
+	stopped: z.string().optional(),
+	waiting: z.string().optional(),
+});
+
 export const SessionBaselineSchema = z.object({
 	/** Addressed to this session, newest first. */
 	conversations: z.array(z.object({ sessionId: z.string(), peer: PeerSchema })),
@@ -62,20 +75,9 @@ export const SessionBaselineSchema = z.object({
 					z.object({ kind: z.literal("none") }),
 				])
 				.optional(),
-			watchers: z.array(
-				z.object({
-					label: z.string(),
-					unread: z.number().int().nonnegative(),
-					/** More unread than a poll reads. */
-					capped: z.boolean().optional(),
-					/** False until a poll has read the count; absent from an older Gateway. */
-					checked: z.boolean().optional(),
-					// Sent as 0 for older plugins; remove 2026-11-02.
-					evicted: z.number().int().nonnegative().optional(),
-					stopped: z.string().optional(),
-					waiting: z.string().optional(),
-				}),
-			),
+			// Remove 2026-11-28: the Gateway then sends `sources`.
+			watchers: z.array(BaselineSourceSchema).optional(),
+			sources: z.array(BaselineSourceSchema).optional(),
 		})
 		.optional(),
 });
@@ -90,6 +92,14 @@ export function holdLine(hold: BaselineHold): string {
 	if (hold.kind === "lapsed") return `phone hold: lapsed ${hold.lapsedMs}ms ago, last held by ${oneLine(hold.label)}`;
 	return "phone hold: none";
 }
+
+const sourceLines = (word: string, rows: readonly z.infer<typeof BaselineSourceSchema>[]): string[] =>
+	rows.map(
+		({ label, unread, capped, checked, stopped, waiting }) =>
+			`${word}: ${oneLine(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +
+			(stopped === undefined ? "" : `, stopped: ${oneLine(stopped)}`) +
+			(waiting === undefined ? "" : `, waiting: ${oneLine(waiting)}`),
+	);
 
 const WRAPPER_CHARS = reminderBlock(["-"]).length - 1;
 
@@ -107,12 +117,8 @@ function linesOf(baseline: SessionBaseline): string[] {
 		),
 		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
 		...(baseline.assistant?.hold === undefined ? [] : [holdLine(baseline.assistant.hold)]),
-		...(baseline.assistant?.watchers ?? []).map(
-			({ label, unread, capped, checked, stopped, waiting }) =>
-				`watcher: ${oneLine(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +
-				(stopped === undefined ? "" : `, stopped: ${oneLine(stopped)}`) +
-				(waiting === undefined ? "" : `, waiting: ${oneLine(waiting)}`),
-		),
+		...sourceLines("watcher", baseline.assistant?.watchers ?? []),
+		...sourceLines("source", baseline.assistant?.sources ?? []),
 		...(baseline.board === null
 			? ["board: unavailable"]
 			: baseline.board.map(

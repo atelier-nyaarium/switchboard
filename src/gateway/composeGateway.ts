@@ -196,14 +196,14 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		saveSessions: () => sessions.saveSessionsChecked(),
 		// Read late; composed below.
 		vault: {
-			watcherGrants: (watcherId) => vault?.watcherGrants(watcherId) ?? [],
-			setWatcherGrants: (watcherId, entryIds) => {
+			serviceGrants: (serviceId) => vault?.serviceGrants(serviceId) ?? [],
+			setServiceGrants: (serviceId, entryIds) => {
 				if (!vault) throw new Error("the vault is not composed yet");
-				vault.setWatcherGrants(watcherId, entryIds);
+				vault.setServiceGrants(serviceId, entryIds);
 			},
-			readForWatcher: async (watcherId, entryId) =>
+			readForService: async (serviceId, entryId) =>
 				vault
-					? vault.readForWatcher(watcherId, entryId)
+					? vault.readForService(serviceId, entryId)
 					: { kind: "unready", reason: "the vault is not composed yet" },
 			usableHere: async (entryId) => (vault ? vault.usableHere(entryId) : false),
 		},

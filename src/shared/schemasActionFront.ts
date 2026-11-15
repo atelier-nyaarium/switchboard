@@ -43,7 +43,17 @@ export const ACTION_IDS: readonly ActionId[] = [
 	...ASSISTANT_ACTION_KEYS.map((key): WatcherActionId => `watcher/${key}`),
 ];
 
-export const ActionIdSchema = z.enum(ACTION_IDS as [ActionId, ...ActionId[]]);
+// The family's coming word. Read from 2026-11-14; sent once every plugin reads it.
+const SOURCE_PREFIX = "source/";
+
+/** An id under the family word this build lists. */
+export const listedActionId = (id: unknown): unknown =>
+	typeof id === "string" && id.startsWith(SOURCE_PREFIX) ? `watcher/${id.slice(SOURCE_PREFIX.length)}` : id;
+
+export const ActionIdSchema = z.preprocess(listedActionId, z.enum(ACTION_IDS as [ActionId, ...ActionId[]]));
+
+/** A listing's family word, either spelling. */
+export const isSourceFamily = (family: string): boolean => family === "watcher" || family === "source";
 
 export type ActionRef =
 	| { family: "phone" | "gateway"; key: PhoneCapabilityKey }

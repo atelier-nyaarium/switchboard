@@ -118,9 +118,9 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 	const store = new SessionStore({ ambient: processAmbient() });
 	const grants = new Map<string, string[]>();
 	const vault: AssistantVault = {
-		watcherGrants: (id) => grants.get(id) ?? [],
-		setWatcherGrants: (id, entryIds) => void grants.set(id, entryIds),
-		readForWatcher: async () => ({ kind: "released", value: "token" }),
+		serviceGrants: (id) => grants.get(id) ?? [],
+		setServiceGrants: (id, entryIds) => void grants.set(id, entryIds),
+		readForService: async () => ({ kind: "released", value: "token" }),
 		usableHere: async () => true,
 	};
 	const assistant = composeAssistant({

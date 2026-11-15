@@ -43,11 +43,11 @@ export interface VaultStage {
 	policiesListed: (policies: AuthorizationPolicy[]) => void;
 	/** The one road to a routine's grants, reached from a routine save and from nowhere else. */
 	setRoutineGrants: (routineId: string, entryIds: string[]) => void;
-	/** The one road to a watcher's grants, reached from an owner op and from nowhere else. */
-	setWatcherGrants: (watcherId: string, entryIds: string[]) => void;
-	/** The entries a watcher's standing grants name. */
-	watcherGrants: (watcherId: string) => string[];
-	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+	/** The one road to a service's grants, reached from an owner op and from nowhere else. */
+	setServiceGrants: (serviceId: string, entryIds: string[]) => void;
+	/** The entries a service's standing grants name. */
+	serviceGrants: (serviceId: string) => string[];
+	readForService: (serviceId: string, entryId: string) => Promise<VaultRelease>;
 	/** Whether this Gateway may use the entry's value, after a refresh. */
 	usableHere: (entryId: string) => Promise<boolean>;
 	/** Retracts stale cards when routable. */
@@ -203,15 +203,15 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		setRoutineGrants: (routineId, entryIds) => {
 			decisions.setRoutineGrants(routineId, entryIds);
 		},
-		setWatcherGrants: (watcherId, entryIds) => {
-			decisions.setWatcherGrants(watcherId, entryIds);
+		setServiceGrants: (serviceId, entryIds) => {
+			decisions.setServiceGrants(serviceId, entryIds);
 		},
-		watcherGrants: (watcherId) =>
+		serviceGrants: (serviceId) =>
 			decisions
 				.standing()
-				.filter((grant) => grant.holder.kind === "watcher" && grant.holder.watcherId === watcherId)
+				.filter((grant) => grant.holder.kind === "service" && grant.holder.serviceId === serviceId)
 				.map((grant) => grant.entryId),
-		readForWatcher: (watcherId, entryId) => use.readForWatcher(watcherId, entryId),
+		readForService: (serviceId, entryId) => use.readForService(serviceId, entryId),
 		usableHere: async (entryId) => {
 			const answer = await use.ready();
 			return answer.kind === "ready" && use.usable(answer.client, entryId).kind === "usable";

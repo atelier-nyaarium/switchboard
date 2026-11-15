@@ -167,7 +167,7 @@ export type DeviceConsole = <Op extends DeviceConsoleOp>(op: Op) => Promise<Devi
 /** A rule op answers a refusal with the held rules; others throw. */
 export interface AssistantConsoleHandlers {
 	state: () => ConsoleAssistantStateResult;
-	setWatcherGrants: (watcherId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
+	setServiceGrants: (watcherId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
 	putRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantRulesResult>;
 	deleteRule: (watcherId: string, ruleId: string, base: number) => Promise<ConsoleAssistantRulesResult>;
 	moveRule: (

@@ -72,10 +72,13 @@ and the delta list are in `docs/federation.md` under Owner state.
   the selector, or at another revision. `policyMoved` prunes the grants that policy qualified, and
   `policiesListed` does the same at startup over the store's whole list. `vault_grants` shows what
   is stored, so a prune that failed to write is visible rather than hidden.
-- **A standing grant is entry-wide, and only a routine or an assistant watcher holds one:** the
+- **A standing grant is entry-wide, and only a routine or a service holds one:** the
   owner picks the entries, and `setStandingGrants` makes the held set match them exactly. A
-  routine's grant covers only while its occurrence is live in the asking session. A watcher's grant
-  covers only that watcher's own read, never a session, and a watcher never opens a request.
+  routine's grant covers only while its occurrence is live in the asking session. A service's grant
+  covers only that service's own read, never a session, and a service never opens a request. A
+  service is something the Gateway reads for itself, GitHub or IFTTT. A grant stored under the
+  earlier `watcher` holder is rewritten as its service's when the store opens, once the whole file
+  has parsed, so this build is the rollback floor for `vault-decisions.json`.
 - The store opens through `openDurable`, so a poisoned file starts fresh. A revocation or a
   session-end drop is written through `commitChecked` and reported once the snapshot is installed.
   Grants and expiry sweeps are best effort.
@@ -115,7 +118,7 @@ which the assistant's send guard shares.
   in `gateway/vault/vaultUse.ts` runs `usable` again at settlement on every road, so an entry
   rotated, emptied, or closed to this Gateway while the request waited answers with the current
   value or a refusal. A covering grant is read again after the refresh, on the session road and in
-  `readForWatcher` alike, so a grant revoked during the wait releases nothing.
+  `readForService` alike, so a grant revoked during the wait releases nothing.
 - A session's end refuses its open requests and drops its grants.
 - **Every settlement sends a `retract` row:** an answer, a denial, the deadline, a withdraw, or a
   session's end. The phone drops the request and its notification on it, so a second console never
@@ -296,7 +299,7 @@ session holds a binding token. `vaultRun.ts` is the child run.
 - `src/gateway/compose/composeVault.ts` - the stage: stores, request delivery, routes, console handlers.
 - `src/gateway/router/vaultClient.ts` - sealing, opening, the delta copy, the create.
 - `src/gateway/vault/decisions.ts`, `requests.ts`, `vaultRoutes.ts` - grants, requests, routes.
-- `src/gateway/vault/vaultUse.ts` - the one release a value leaves by, for the routes and a watcher.
+- `src/gateway/vault/vaultUse.ts` - the one release a value leaves by, for the routes and a service.
 - `src/gateway/vault/operationSet.ts` - the set a window grant covers.
 - `src/shared/command-wrappers.ts` - the wrapper table and `peelWrappers`, which a policy's key reads too.
 - `src/mcp/vault/vaultTools.ts`, `vaultRun.ts` - the session's tools and the scrubbed child run.

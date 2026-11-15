@@ -157,11 +157,13 @@ export const VaultRequestSchema = z
 /** The `vault:retract` payload: the request settled elsewhere, so the phone drops it. */
 export const VaultRetractSchema = z.object({ requestId }).meta({ id: "VaultRetract" });
 
-/** Who a grant is for: a session, a routine, or an assistant watcher on the Gateway itself. */
+/** Who a grant is for: a session, a routine, or a service the Gateway reads for itself. */
 export const VaultHolderSchema = z
 	.discriminatedUnion("kind", [
 		z.strictObject({ kind: z.literal("session"), sessionTarget: z.string().min(1).max(128) }),
 		z.strictObject({ kind: z.literal("routine"), routineId: z.string().min(1).max(64) }),
+		z.strictObject({ kind: z.literal("service"), serviceId: z.string().min(1).max(64) }),
+		// Remove 2026-11-28: a stored row from before services.
 		z.strictObject({ kind: z.literal("watcher"), watcherId: z.string().min(1).max(64) }),
 	])
 	.meta({ id: "VaultHolder" });
@@ -184,13 +186,13 @@ const VaultGrantRecordSchema = z.discriminatedUnion("tier", [
 		policy,
 	}),
 	z.strictObject({ tier: z.literal("session"), ...grantFields, expiresAt, policy }),
-	/** Entry-wide; ends with its routine or watcher. */
+	/** Entry-wide; ends with its routine or service. */
 	z.strictObject({ tier: z.literal("standing"), ...grantFields }),
 ]);
 
 type VaultGrantRecord = z.infer<typeof VaultGrantRecordSchema>;
 
-/** A session holds a window or session grant; a routine or a watcher holds a standing one. */
+/** A session holds a window or session grant; a routine or a service holds a standing one. */
 function holderFitsTier(grant: VaultGrantRecord): boolean {
 	return (grant.tier === "standing") === (grant.holder.kind !== "session");
 }

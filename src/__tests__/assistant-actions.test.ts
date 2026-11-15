@@ -112,9 +112,9 @@ async function placed(listed: string[] = []) {
 	const store = new SessionStore({ ambient: processAmbient() });
 	const grants = new Map<string, string[]>();
 	const vault: AssistantVault = {
-		watcherGrants: (watcherId) => grants.get(watcherId) ?? [],
-		setWatcherGrants: (watcherId, entryIds) => void grants.set(watcherId, entryIds),
-		readForWatcher: async () => ({ kind: "released", value: "ghp_test" }),
+		serviceGrants: (watcherId) => grants.get(watcherId) ?? [],
+		setServiceGrants: (watcherId, entryIds) => void grants.set(watcherId, entryIds),
+		readForService: async () => ({ kind: "released", value: "ghp_test" }),
 		usableHere: async () => true,
 	};
 	const delivered: DeliverToOwnerOptions[] = [];
@@ -157,7 +157,7 @@ async function placed(listed: string[] = []) {
 	const home = bindHome(assistant, store);
 	assistant.start();
 	await home.follow();
-	await assistant.console.setWatcherGrants("github", ["gh"]);
+	await assistant.console.setServiceGrants("github", ["gh"]);
 	const route = assistant.routes.get(ACTION_FRONT_ROUTES.run);
 	if (!route) throw new Error("no action route");
 	const call = async (body: unknown, caller = "assistant"): Promise<ActionRunResult> => {
@@ -353,7 +353,7 @@ describe("an assistant action", () => {
 		const stranger = await call(done("call-0003", ["1"]), "someone");
 		const unbound = await call(done("call-0004", ["1"]), "");
 		const malformed = await call(done("call-0005", ["not-a-thread"]));
-		await assistant.console.setWatcherGrants("github", []);
+		await assistant.console.setServiceGrants("github", []);
 		const ungranted = await call(done("call-0006", ["1"]));
 		await assistant.stop();
 
