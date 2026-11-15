@@ -54,10 +54,7 @@ data class GoalState(
 data class TerminalState(
 	/** Only the host-agent and devcontainers have a daemon-drivable pane. */
 	val eligible: Boolean,
-	/** What this session's own Gateway reports AND what that report is worth. Null when no row is
-	 * held for it at all. Replaces the bare status string this used to carry: the terminal decides
-	 * whether to peek from it, and that decision is wrong for two thirds of the owner's machines
-	 * unless it can tell a pushed row from one pulled up to 30s ago. See Presence.kt. */
+	/** The Gateway's report and its freshness; null with no row held. See Presence.kt. */
 	val presence: Presence?,
 	/** Daemon-derived (presence plane), true independent of the status: the one signal at tap
 	 * time that separates a stuck boot from a plain one still in progress. */
@@ -95,10 +92,10 @@ internal fun threadChrome(
 	assistant: Boolean,
 	label: String,
 	tabs: List<String>,
-	watchers: List<com.atelier_nyaarium.switchboard.proto.AssistantWatcher>,
+	sources: List<com.atelier_nyaarium.switchboard.proto.AssistantSource>,
 ): ThreadChrome =
 	if (assistant) {
-		ThreadChrome(RootView.ASSISTANT.title, monospace = false, tabRow = false, sessionMenu = false, inbox = inboxRows(watchers))
+		ThreadChrome(RootView.ASSISTANT.title, monospace = false, tabRow = false, sessionMenu = false, inbox = inboxRows(sources))
 	} else {
 		ThreadChrome(label, monospace = true, tabRow = tabs.size > 1, sessionMenu = true, inbox = emptyList())
 	}

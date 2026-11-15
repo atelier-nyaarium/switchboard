@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ContainerState
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
@@ -71,6 +72,8 @@ data class GatewayEntry(
 	val routines: List<RoutineState>? = null,
 	val runbooks: List<Runbook>? = null,
 	val policies: List<AuthorizationPolicy>? = null,
+	/** Null from a Gateway that lists none. */
+	val automations: List<AutomationRow>? = null,
 	val peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>? = null,
 	val assistant: AssistantWord? = null,
 ) {
@@ -162,11 +165,16 @@ data class GatewayRegistry(
 	fun policyOn(gatewayId: String, policyId: String): AuthorizationPolicy? =
 		policiesOn(gatewayId).find { it.id == policyId }
 
+	fun automationsOn(gatewayId: String): List<AutomationRow> = entry(gatewayId)?.automations.orEmpty()
+
+	fun automationOn(gatewayId: String, automationId: String): AutomationRow? =
+		automationsOn(gatewayId).find { it.id == automationId }
+
 	fun peersOn(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = entry(gatewayId)?.peers.orEmpty()
 
 	fun hasPeer(gatewayId: String, domainId: String): Boolean = entry(gatewayId)?.peers?.any { it.domainId == domainId } == true
 
-	/** Its watchers, rules and Safety; placement is the Router's. */
+	/** Its sources and Safety; placement is the Router's. */
 	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? =
 		(entry(gatewayId)?.assistant as? AssistantWord.Answered)?.state
 
@@ -205,6 +213,7 @@ data class GatewayRegistry(
 						routines = prior?.routines,
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),
 						policies = prior?.policies,
+						automations = prior?.automations,
 						peers = prior?.peers,
 						assistant = prior?.assistant,
 					)

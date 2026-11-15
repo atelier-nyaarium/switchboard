@@ -22,7 +22,7 @@ const InboxItemSchema = z.object({
 	fields: z.record(z.string(), z.string()),
 	/** Source update time. */
 	at: z.number(),
-	/** What was decided about it. */
+	/** `now` when an automation wakes for it. */
 	decision: z.string().max(64).optional(),
 });
 
@@ -57,7 +57,7 @@ export function eventLines(event: {
 	fields: Readonly<Record<string, string>>;
 }): string[] {
 	return [
-		`watcher: ${oneLine(event.label)}`,
+		`source: ${oneLine(event.label)}`,
 		`id: ${oneLine(event.id)}`,
 		`title: ${oneLine(event.title)}`,
 		...(event.url === undefined ? [] : [`url: ${oneLine(event.url)}`]),

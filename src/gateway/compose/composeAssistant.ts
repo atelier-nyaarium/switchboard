@@ -11,12 +11,14 @@ import {
 } from "../../shared/assistant-session.js";
 import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
 import { openDurable } from "../../shared/durable-store.js";
+import { TEST_LABELS } from "../../shared/field-types.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
 import type { PendingDelivery } from "../../shared/pending-delivery-store.js";
 import { actionListings } from "../../shared/schemasActionFront.js";
 import {
+	type AssistantSource,
 	type AssistantWatcher,
 	type ConsoleAssistantStateResult,
 	INTEGRATION_IDS,
@@ -26,15 +28,24 @@ import { actionsOf, GITHUB_SOURCE_ID } from "../../shared/schemasAssistantAction
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../../shared/schemasAssistantHome.js";
 import { eventLines } from "../../shared/schemasAssistantInbox.js";
 import {
-	canonicalRule,
-	decideEvent,
+	canonicalConditions,
+	conditionsIssue,
+	conditionsMatch,
+	DEFAULT_RULES,
 	fieldsOf,
-	firstMatch,
-	invalidRules,
 	type RuleAction,
-	ruleMatches,
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
+import {
+	AUTOMATION_PREVIEW_EVENTS,
+	AUTOMATION_PREVIEW_SHOWN,
+	type AutomationTrigger,
+	automationsOfRules,
+	type CarriedAutomation,
+	type ConsoleAutomationPreviewResult,
+	type EventTrigger,
+	rulesOfAutomations,
+} from "../../shared/schemasAutomation.js";
 import { IFTTT_INTEGRATION_ID, INTEGRATION_KEYS, integrationLabel } from "../../shared/schemasIntegrations.js";
 import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilities.js";
 import type { PhoneHoldPlane } from "../../shared/schemasPhoneHold.js";
@@ -54,7 +65,7 @@ import { createIftttClient } from "../assistant/iftttClient.js";
 import { createInboxListing } from "../assistant/inboxListing.js";
 import { createPhoneDispatch, holdRefusal } from "../assistant/phoneDispatch.js";
 import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } from "../assistant/phoneRequests.js";
-import { createRulesStore } from "../assistant/rulesStore.js";
+import { adoptStoredRules } from "../assistant/rulesAdoption.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
 import { SensorsClear } from "../assistant/sensorsClear.js";
 import { type ListPage, type ListQuery, type Source, type SourceEvent, told } from "../assistant/source.js";
@@ -65,6 +76,7 @@ import { createSourceStateStore, FRESH_STATE, goneAdded, unexpectedNow } from ".
 import { createStatusMemo } from "../assistant/statusMemo.js";
 import { createTemperatureUnitStore } from "../assistant/temperatureUnit.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
+import type { Automations } from "../computed/automations.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
 import { createHoldFollow } from "../phone/holdFollow.js";
 import { presentedByRequest } from "../sessionAuthority.js";
@@ -76,7 +88,6 @@ import type { SessionsStage } from "./composeSessions.js";
 const NEEDS_SECRET = "needs a secret";
 const NOT_HERE = "the assistant does not live on this Gateway";
 const STOP_WAIT_MS = 5_000;
-const PREVIEW_EVENTS = 50;
 const MOVING_HERE = "the assistant is still moving here; try again shortly";
 export function renderPhoneHold(answer: HoldAnswer): { baseline: BaselineHold; line: string } {
 	const baseline: BaselineHold =
@@ -106,6 +117,10 @@ export interface AssistantVault {
 	/** Whether this Gateway may use the entry's value. */
 	usableHere: (entryId: string) => Promise<boolean>;
 }
+
+export type AssistantAutomations = Pick<Automations, "eventsOf" | "replaceEvents" | "noteEvents" | "adoptEvent">;
+
+const inSentence = (label: string) => (/^[A-Z][a-z]/.test(label) ? label[0]?.toLowerCase() + label.slice(1) : label);
 
 /** The federation's half of following the home, bound on each activation. */
 export interface AssistantHomePort {
@@ -157,9 +172,16 @@ export interface AssistantStage {
 	/** Assistant-only loopback routes. */
 	routes: Map<string, Handler>;
 	baselineFor: (team: string) => SessionBaseline["assistant"];
+	/** Bound once automations open. */
+	bindAutomations: (automations: AssistantAutomations) => void;
+	/** Null when the trigger can run. */
+	eventIssue: (trigger: EventTrigger) => string | null;
+	eventSentence: (trigger: EventTrigger) => string;
+	/** Over the live first page. */
+	previewTrigger: (trigger: AutomationTrigger) => Promise<ConsoleAutomationPreviewResult>;
 	/** Bound on federation activation. */
 	bindWake: (wake: AssistantWake) => void;
-	/** Check now's road. */
+	/** Check-now road. */
 	bindNudge: (nudge: AssistantNudge) => void;
 	/** Register before start. */
 	registerSource: (source: Source) => void;
@@ -221,10 +243,37 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const enabled = openDurable(deps.dataDir, "assistant-watcher-enabled", (store) => createSourceEnabledStore(store));
 	// Unknown source returns undefined.
 	const specsOf = (sourceId: string) => sources.find((candidate) => candidate.id === sourceId)?.fieldSpecs;
-	const rules = openDurable(deps.dataDir, "assistant-rules", (store) => createRulesStore({ store, specsOf }));
 	const render = (source: Source, event: SourceEvent) => eventLines({ label: source.label, ...event }).join("\n");
+	let automations: AssistantAutomations | null = null;
+	/** Automations that wake for it. */
+	const wakers = (sourceId: string, event: SourceEvent): string[] => {
+		const specs = specsOf(sourceId) ?? [];
+		return (automations?.eventsOf(sourceId) ?? [])
+			.filter(({ trigger, when }) => when === "now" && conditionsMatch(trigger.conditions, specs, event.fields))
+			.map(({ id }) => id);
+	};
+	/** Every match fires; one waking match wakes. */
 	const decide = (sourceId: string, event: SourceEvent): RuleAction =>
-		told(event) ?? decideEvent(rules.get(sourceId), specsOf(sourceId) ?? [], event.fields);
+		told(event) ?? (wakers(sourceId, event).length > 0 ? "wake" : "inbox");
+	const eventIssue = (trigger: EventTrigger): string | null => {
+		const source = sources.find((candidate) => candidate.id === trigger.source);
+		if (!source) return `this Gateway holds no source "${trigger.source}"`;
+		if (source.selfTold) return `${source.label} events are told by their own automations`;
+		return conditionsIssue(canonicalConditions(trigger.conditions), source.fieldSpecs);
+	};
+	const eventSentence = (trigger: EventTrigger): string => {
+		const source = sources.find((candidate) => candidate.id === trigger.source);
+		const said = trigger.conditions.map((condition) => {
+			const spec = source?.fieldSpecs.find((candidate) => candidate.field === condition.field);
+			const option =
+				spec?.kind === "enumeration"
+					? spec.options.find((candidate) => candidate.value === condition.value)
+					: null;
+			const value = option ? inSentence(option.label) : condition.value;
+			return `${inSentence(spec?.label ?? condition.field)} ${TEST_LABELS[condition.test]} ${value}`;
+		});
+		return `${source?.brief ?? source?.label ?? trigger.source}: ${said.length > 0 ? said.join(" and ") : "every event"}`;
+	};
 
 	let lanes: SourceLanes | null = null;
 	let wake: AssistantWake | null = null;
@@ -243,7 +292,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					kind: "plugin_action",
 					session_id: sessionId,
 					pluginId: "assistant",
-					// The phone reads this word.
+					// Becomes `sources-changed` 2026-11-28; every phone then reads both.
 					actionType: "watchers-changed",
 					payload: { watcherId: sourceId },
 				},
@@ -268,6 +317,11 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			holdLine: () => renderPhoneHold(phoneHold.answer()).line,
 			render,
 			changed: sourcesChanged,
+			woke: (sourceId, events) =>
+				automations?.noteEvents(
+					[...new Set(events.flatMap((event) => wakers(sourceId, event)))],
+					ambient.now(),
+				),
 		});
 		lanes.start();
 	};
@@ -345,30 +399,32 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	};
 	const grantTargets = () => [...sources.map((source) => source.id), ...INTEGRATION_IDS];
 
-	const sourceOf = (source: Source): AssistantWatcher => {
+	const sourceOf = (source: Source): AssistantSource => {
 		const state = sourceState.get(source.id);
 		const specs = source.fieldSpecs;
-		const held = rules.get(source.id);
 		return {
 			id: source.id,
 			label: source.label,
 			grants: deps.vault.serviceGrants(source.id),
 			unread: state.unread,
 			capped: state.capped,
-			evicted: 0,
 			...(state.lastSuccessAt !== undefined ? { lastSuccessAt: state.lastSuccessAt } : {}),
 			...(state.nextPollAt !== undefined ? { nextPollAt: state.nextPollAt } : {}),
 			...(state.backoff ? { backoff: state.backoff } : {}),
 			...(state.stopped !== undefined ? { stopped: state.stopped } : {}),
-			fields: fieldsOf(specs),
 			fieldSpecs: [...specs],
-			rules: held,
-			invalid: invalidRules(held.rules, specs),
 			unexpected: unexpectedNow(state, specs),
 			...(source.secret === undefined ? {} : { secret: source.secret }),
 			actions: actionsOf(source.id),
 			enabled: enabled.enabled(source.id),
+			triggers: source.selfTold !== true,
 		};
+	};
+	// Remove 2026-11-28: an older phone's row; it carries these rules on a move.
+	const watcherOf = (source: AssistantSource): AssistantWatcher => {
+		const { triggers: _triggers, ...row } = source;
+		const rules = automations ? rulesOfAutomations(automations.eventsOf(source.id)) : DEFAULT_RULES;
+		return { ...row, evicted: 0, fields: fieldsOf(source.fieldSpecs), rules, invalid: [] };
 	};
 	const sourceNamed = (sourceId: string) => {
 		const found = sources.find((source) => source.id === sourceId);
@@ -598,10 +654,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	});
 	const state = (): ConsoleAssistantStateResult => {
 		const record = held();
+		const rows = sources.map(sourceOf);
 		return {
 			workdir: record?.workdirPath ?? null,
 			team: record ? ASSISTANT_TEAM : null,
-			watchers: sources.map(sourceOf),
+			sources: rows,
+			watchers: rows.map(watcherOf),
 			integrations: INTEGRATION_IDS.map((id) => ({
 				id,
 				label: integrationLabel(id),
@@ -621,6 +679,20 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			return work();
 		});
 	let homePort: AssistantHomePort | null = null;
+
+	/** Only automations this Gateway can run. */
+	const carriedEvents = (carried: AssistantHomeSealed["carried"]): CarriedAutomation[] => {
+		// Remove 2026-11-28: an older phone carries rules.
+		const fromRules = (carried?.watchers ?? []).flatMap((source) =>
+			source.rules ? automationsOfRules(source.id, source.rules) : [],
+		);
+		return (carried?.automations ?? fromRules).filter(({ id, automation }) => {
+			const { trigger } = automation;
+			const issue = trigger.kind === "event" ? eventIssue(trigger) : "not an event automation";
+			if (issue !== null) console.warn(`[assistant] carried automation ${id} dropped: ${issue}`);
+			return issue === null;
+		});
+	};
 
 	/** With lanes stopped, the carried settings land; lanes start only once all of it is saved. */
 	const apply = async (record: AssistantHomeRecord): Promise<string | null> => {
@@ -646,8 +718,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}
 		const byId = new Map((carried?.watchers ?? []).map((source) => [source.id, source]));
 		const ids = sources.map((source) => source.id);
-		if (!rules.replaceAll(ids, (sourceId) => byId.get(sourceId)?.rules ?? null))
-			return "the rules could not be saved";
+		if (!automations?.replaceEvents(ids, carriedEvents(carried))) return "the automations could not be saved";
 		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
 		if (!temperature.set(carried?.temperatureUnit ?? "C")) return "the temperature unit could not be saved";
 		// Fresh is off; unflagged carried is on.
@@ -691,11 +762,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}
 		if (!grantTargets().every((id) => grantsLanded(id, []))) return false;
 		const ids = sources.map((source) => source.id);
-		const residue = ids.some((sourceId) => {
-			const held = rules.get(sourceId);
-			return held.rules.length > 0 || held.revision > 0;
-		});
-		if (residue && !rules.replaceAll(ids, () => null)) return false;
+		if (automations && !automations.replaceEvents(ids, [])) return false;
 		if (!safety.approveEverySend() && !safety.set(true)) return false;
 		if (ids.some((sourceId) => !enabled.enabled(sourceId)) && !enabled.replaceOff([])) return false;
 		return true;
@@ -734,8 +801,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			const { baseline: hold } = renderPhoneHold(phoneHold.answer());
 			return {
 				hold,
-				// Older plugins read `watchers`.
-				watchers: sources
+				sources: sources
 					.filter((source) => enabled.enabled(source.id))
 					.map((source) => {
 						const health = sourceState.get(source.id);
@@ -744,11 +810,49 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 							unread: health.unread,
 							capped: health.capped,
 							checked: health.lastSuccessAt !== undefined,
-							evicted: 0,
 							...(health.stopped !== undefined ? { stopped: health.stopped } : {}),
 							...(health.backoff ? { waiting: health.backoff.reason } : {}),
 						};
 					}),
+			};
+		},
+		bindAutomations: (bound) => {
+			automations = bound;
+			openDurable(deps.dataDir, "assistant-rules", (rules) =>
+				openDurable(deps.dataDir, "assistant-rules-adopted", (mark) =>
+					adoptStoredRules({
+						rules,
+						mark,
+						now: () => ambient.now(),
+						issue: ({ automation: { trigger } }) =>
+							trigger.kind === "event" ? eventIssue(trigger) : "not an event automation",
+						adopt: (carried) => bound.adoptEvent(carried),
+					}),
+				),
+			);
+		},
+		eventIssue,
+		eventSentence,
+		previewTrigger: async (trigger) => {
+			if (trigger.kind !== "event") throw new Error("only an event trigger previews");
+			const issue = eventIssue(trigger);
+			if (issue !== null) throw new Error(issue);
+			const recent = (
+				await livePage(
+					trigger.source,
+					() => ({ scope: "all" }),
+					ASSISTANT_WAITS.preview,
+					(page) => page.events,
+				)
+			)
+				.sort((a, b) => b.at - a.at)
+				.slice(0, AUTOMATION_PREVIEW_EVENTS);
+			const specs = specsOf(trigger.source) ?? [];
+			const matches = recent.filter((event) => conditionsMatch(trigger.conditions, specs, event.fields));
+			return {
+				matched: matches.length,
+				of: recent.length,
+				matches: matches.slice(0, AUTOMATION_PREVIEW_SHOWN).map(({ title, at }) => ({ title, at })),
 			};
 		},
 		bindWake: (bound) => {
@@ -775,12 +879,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					}
 					return state();
 				}),
-			// Only owner ops reach these, so no event text can rewrite what sorts later events.
-			putRule: (sourceId, rule) => settled(() => rules.putRule(sourceId, rule)),
-			deleteRule: (sourceId, ruleId, base) => settled(() => rules.deleteRule(sourceId, ruleId, base)),
-			moveRule: (sourceId, ruleId, beforeId, base) =>
-				settled(() => rules.moveRule(sourceId, ruleId, beforeId, base)),
-			putOtherwise: (sourceId, otherwise) => settled(() => rules.putOtherwise(sourceId, otherwise)),
 			// A move carries it; a let-go resets it.
 			setSafety: (approveEverySend) =>
 				settled(() => {
@@ -836,36 +934,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			answerSend: (requestId, decision, note) => guard.answer(requestId, decision, note),
 			answerPhone: (requestId, answer, signer) => phoneRequests.answer(requestId, answer, signer),
 			answerAct: (requestId, decision, note) => actGuard.answer(requestId, decision, note),
-			/** Over the live first page, from the rule's place. */
-			previewRule: async (sourceId, rule) => {
-				const refusal = rules.refusalOf(sourceId, rule);
-				if (refusal) throw new Error(refusal);
-				// Read as a save would store it.
-				const asStored = canonicalRule(rule);
-				const held = rules.get(sourceId).rules;
-				const placed = held.some((existing) => existing.id === asStored.id)
-					? held.map((existing) => (existing.id === asStored.id ? asStored : existing))
-					: [...held, asStored];
-				const recent = (
-					await livePage(
-						sourceId,
-						() => ({ scope: "all" }),
-						ASSISTANT_WAITS.preview,
-						(page) => page.events,
-					)
-				)
-					.sort((a, b) => b.at - a.at)
-					.slice(0, PREVIEW_EVENTS);
-				const specs = specsOf(sourceId) ?? [];
-				const matched = recent.filter((event) => ruleMatches(asStored, specs, event.fields));
-				const decided = matched.filter((event) => firstMatch(placed, specs, event.fields)?.id === asStored.id);
-				return {
-					decided: decided.length,
-					shadowed: matched.length - decided.length,
-					of: recent.length,
-					titles: decided.slice(0, 3).map((event) => event.title),
-				};
-			},
 		},
 		registerSource: (source) => {
 			if (deps.sources) return;

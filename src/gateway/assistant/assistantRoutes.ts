@@ -86,7 +86,7 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		if ("device" in parsed.data) return json(await runDevice(parsed.data), 200);
 		const { callId, params } = parsed.data;
 		const ref = actionRef(parsed.data.id);
-		if (ref.family === "watcher") return json(await runSource({ action: ref.key, callId, params }), 200);
+		if (ref.family === "source") return json(await runSource({ action: ref.key, callId, params }), 200);
 		return json(await runPhone({ key: ref.key, callId, params }), 200);
 	};
 

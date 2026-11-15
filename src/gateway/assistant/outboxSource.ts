@@ -12,6 +12,7 @@ export function createOutboxSource(outbox: AutomationOutbox): Source {
 	return {
 		id: SENSORS_SOURCE_ID,
 		label: "Sensors",
+		selfTold: true,
 		fieldSpecs: [
 			{ kind: "text", field: "automation", label: "Automation" },
 			{ kind: "text", field: "field", label: "Field" },

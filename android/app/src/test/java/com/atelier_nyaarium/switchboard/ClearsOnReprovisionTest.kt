@@ -52,6 +52,7 @@ class ClearsOnReprovisionTest {
 				"phoneCapabilityOps",
 				"deviceOps",
 				"liveConsoleOps",
+				"automationOps",
 				"workspaceHost",
 				"composedRequests",
 				"windowOps",

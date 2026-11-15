@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { INTEGRATION_IDS, TemperatureUnitSchema } from "./schemasAssistant.js";
 import { AssistantWatcherRulesSchema } from "./schemasAssistantRules.js";
+import { AUTOMATIONS_MAX, CarriedAutomationSchema } from "./schemasAutomation.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 
 export const ASSISTANT_HOME_SEALED_MAX_BYTES = 65_536;
@@ -15,11 +16,12 @@ const version = z.number().int().positive();
 export const AssistantHomeCarriedWatcherSchema = z
 	.object({
 		id: z.string().min(1).max(64),
-		rules: AssistantWatcherRulesSchema,
+		// Remove 2026-11-28: an older Gateway reads rules.
+		rules: AssistantWatcherRulesSchema.nullish(),
 		/** Its standing grant's entry. */
 		grant: z.string().min(1).max(64).nullable(),
 		/** Absent means on. */
-		enabled: z.boolean().optional(),
+		enabled: z.boolean().nullish(),
 	})
 	.meta({ id: "AssistantHomeCarriedWatcher" });
 
@@ -30,13 +32,18 @@ export const AssistantHomeCarriedIntegrationSchema = z
 	})
 	.meta({ id: "AssistantHomeCarriedIntegration" });
 
-/** What a move carries from the old home; null starts fresh. */
+/**
+ * What a move carries from the old home; null starts fresh. The phone seals an unset field as
+ * null, so nothing optional here may refuse one.
+ */
 export const AssistantHomeCarriedSchema = z
 	.object({
 		approveEverySend: z.boolean(),
 		// Required starting 2026-11-27.
-		temperatureUnit: TemperatureUnitSchema.optional(),
+		temperatureUnit: TemperatureUnitSchema.nullish(),
 		watchers: z.array(AssistantHomeCarriedWatcherSchema).max(WATCHERS_MAX),
+		/** The sources' event automations; unset from an older phone or home. */
+		automations: z.array(CarriedAutomationSchema).max(AUTOMATIONS_MAX).nullish(),
 		// Required starting 2026-11-15. Null from a phone that read an older Gateway.
 		integrations: z.array(AssistantHomeCarriedIntegrationSchema).nullish(),
 	})
@@ -49,6 +56,27 @@ export const AssistantHomeSealedSchema = z
 		carried: AssistantHomeCarriedSchema.nullable(),
 	})
 	.meta({ id: "AssistantHomeSealed" });
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** Drops each carried member this build cannot read, never the move. */
+export function readableSealed(raw: unknown): { sealed: unknown; dropped: number } {
+	if (!isRecord(raw) || !isRecord(raw.carried)) return { sealed: raw, dropped: 0 };
+	let dropped = 0;
+	const kept = (items: unknown, schema: z.ZodType): unknown => {
+		if (!Array.isArray(items)) return items;
+		const readable = items.filter((item) => schema.safeParse(item).success);
+		dropped += items.length - readable.length;
+		return readable;
+	};
+	const carried = {
+		...raw.carried,
+		automations: kept(raw.carried.automations, CarriedAutomationSchema),
+		integrations: kept(raw.carried.integrations, AssistantHomeCarriedIntegrationSchema),
+	};
+	return { sealed: { ...raw, carried }, dropped };
+}
 
 /** `gatewayId` null is nobody, and seals nothing. */
 export const AssistantHomeRecordSchema = z

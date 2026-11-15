@@ -86,7 +86,7 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 						...(event.url === undefined ? {} : { url: event.url }),
 						fields,
 						at: event.at,
-						decision: deps.decide(source.id, event),
+						...(deps.decide(source.id, event) === "wake" ? { decision: "now" } : {}),
 					};
 				});
 				const items = withinBytes(shown, MAX_LIST_BYTES);

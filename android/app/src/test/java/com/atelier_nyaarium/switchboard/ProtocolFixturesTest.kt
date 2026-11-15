@@ -1,6 +1,9 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
+import com.atelier_nyaarium.switchboard.proto.AutomationAction
+import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
@@ -68,6 +71,9 @@ class ProtocolFixturesTest {
 			"ConsoleDeviceSensorThresholdPutResult" -> wireJson.decodeFromString<ConsoleDeviceSensorThresholdPutResult>(body)
 			"ConsoleAssistantStateResult" -> wireJson.decodeFromString<ConsoleAssistantStateResult>(body)
 			"AssistantFieldSpec" -> wireJson.decodeFromString<AssistantFieldSpec>(body)
+			"AutomationTrigger" -> wireJson.decodeFromString<AutomationTrigger>(body)
+			"AutomationAction" -> wireJson.decodeFromString<AutomationAction>(body)
+			"ConsoleAutomationListResult" -> wireJson.decodeFromString<ConsoleAutomationListResult>(body)
 			"WorkspaceSaveSpanAnswer" -> wireJson.decodeFromString<WorkspaceSaveSpanAnswer>(body)
 			"WorkspaceFileMutationAnswer" -> wireJson.decodeFromString<WorkspaceFileMutationAnswer>(body)
 			"WorkspaceFileStateAnswer" -> wireJson.decodeFromString<WorkspaceFileStateAnswer>(body)
@@ -101,6 +107,8 @@ class ProtocolFixturesTest {
 	private fun unknownKindOf(value: Any): String? =
 		when (value) {
 			is AssistantFieldSpec.Unknown -> value.kind
+			is AutomationTrigger.Unknown -> value.kind
+			is AutomationAction.Unknown -> value.kind
 			is ConsoleDeviceReadResult.Unknown -> value.kind
 			else -> null
 		}

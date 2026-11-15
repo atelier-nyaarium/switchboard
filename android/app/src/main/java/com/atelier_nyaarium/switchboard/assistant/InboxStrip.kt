@@ -99,10 +99,10 @@ private fun InboxStripRow(row: InboxRow, work: PageWork, onCheck: (String) -> Un
 					if (work.busy) {
 						CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
 					} else {
-						Button(onClick = hapticClick { onCheck(row.watcherId) }) { Text("Check now") }
+						Button(onClick = hapticClick { onCheck(row.sourceId) }) { Text("Check now") }
 					}
 				}
-				is InboxRow.Problem -> OutlinedButton(onClick = hapticClick { onSettings(row.watcherId) }) { Text("Settings") }
+				is InboxRow.Problem -> OutlinedButton(onClick = hapticClick { onSettings(row.sourceId) }) { Text("Settings") }
 			}
 		}
 		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }

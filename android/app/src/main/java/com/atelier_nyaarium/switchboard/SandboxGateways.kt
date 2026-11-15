@@ -1,10 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.crypto.sha256Hex
-import com.atelier_nyaarium.switchboard.assistant.RuleDraft
-import com.atelier_nyaarium.switchboard.assistant.WatcherRules
-import com.atelier_nyaarium.switchboard.assistant.field
-import com.atelier_nyaarium.switchboard.assistant.fittingRule
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
@@ -16,14 +12,9 @@ import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleInvalid
 import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
-import com.atelier_nyaarium.switchboard.proto.AssistantRule
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
@@ -338,7 +329,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 private fun choices(vararg pairs: Pair<String, String>) = pairs.map { (value, label) -> AssistantFieldOption(value, label) }
 
 /** GitHub field subset. */
-private val SANDBOX_FIELD_SPECS = listOf(
+internal val SANDBOX_FIELD_SPECS = listOf(
 	AssistantFieldSpec.Enumeration(
 		"reason",
 		"Reason",
@@ -358,90 +349,57 @@ internal class SandboxAssistantGateway : AssistantGateway {
 	private var temperatureUnit = "F"
 	private val grants = mutableMapOf<String, List<String>>()
 	private val off = mutableSetOf<String>()
-	/** Exercises unlisted choices. */
-	private var rules = AssistantWatcherRules(
-		rules = listOf(
-			AssistantRule("reviews", listOf(AssistantRuleCondition("reason", "is", "review_requested")), action = "wake", revision = 1L),
-			AssistantRule("subscribed", listOf(AssistantRuleCondition("reason", "is", "subscribed")), action = "inbox", revision = 1L),
-			AssistantRule("retired", listOf(AssistantRuleCondition("reason", "is", "retired_reason")), action = "inbox", revision = 1L),
-		),
-		otherwise = AssistantRuleOtherwise(action = "inbox", revision = 0L),
-		revision = 3L,
-	)
-
-	/** Mirrors Gateway's read validation. */
-	private fun invalidOf(held: AssistantWatcherRules) = WatcherRules(SANDBOX_FIELD_SPECS, held).let { declared ->
-		held.rules.mapNotNull { rule ->
-			rule.conditions.firstNotNullOfOrNull(declared::issueOf)?.let { AssistantRuleInvalid(rule.id, it) }
-		}
-	}
-
-	/** A stale revision refuses with what is held, as the Gateway does. */
-	override suspend fun rules(gatewayId: String, op: ConsoleOp): RuleSaved {
-		if (gatewayId == SANDBOX_NEVER_REGISTERED) return RuleSaved.Unreachable
-		val held = rules.rules
-		val next = when (op) {
-			is ConsoleOp.AssistantRulePut -> {
-				val current = held.find { it.id == op.rule.id }
-				if ((current?.revision ?: 0L) != op.rule.revision) return RuleSaved.Refused("revision ${current?.revision} is stored", rules)
-				val fitted = fittingRule(RuleDraft.draftOf(op.rule), WatcherRules(SANDBOX_FIELD_SPECS, rules))
-					?: return RuleSaved.Refused("the rule does not fit its fields", rules)
-				val rule = fitted.copy(revision = op.rule.revision + 1)
-				if (current == null) held + rule else held.map { if (it.id == rule.id) rule else it }
-			}
-			is ConsoleOp.AssistantRuleDelete -> held.filterNot { it.id == op.ruleId }
-			is ConsoleOp.AssistantRuleMove -> {
-				val moving = held.find { it.id == op.ruleId } ?: return RuleSaved.Refused("this rule was deleted", rules)
-				val rest = held - moving
-				val at = op.beforeId?.let { before -> rest.indexOfFirst { it.id == before } } ?: rest.size
-				rest.take(at) + moving + rest.drop(at)
-			}
-			is ConsoleOp.AssistantOtherwisePut -> {
-				rules = rules.copy(otherwise = op.otherwise.copy(revision = op.otherwise.revision + 1), revision = rules.revision + 1)
-				return RuleSaved.Stored(rules)
-			}
-			else -> return RuleSaved.Refused("not a rule op", rules)
-		}
-		rules = rules.copy(rules = next, revision = rules.revision + 1)
-		return RuleSaved.Stored(rules)
-	}
-
 	/** Ungranted at first, so the problem row is reachable. */
-	private fun watchers() = listOf(
-		AssistantWatcher(
+	private fun sources() = listOf(
+		AssistantSource(
 			id = "github",
 			label = "GitHub notifications",
 			grants = grants["github"].orEmpty(),
-			unread = 3L,
+			unread = 14L,
 			capped = false,
 			lastSuccessAt = day(-120_000L),
 			nextPollAt = day(60_000L),
-			fields = SANDBOX_FIELD_SPECS.map { it.field },
 			fieldSpecs = SANDBOX_FIELD_SPECS,
-			rules = rules,
-			invalid = invalidOf(rules),
 			unexpected = AssistantUnexpectedValues(listOf(AssistantFieldValue("type", "WorkflowRun")), capped = false),
 			secret = "GitHub PAT (Classic) with scope:\n- Notifications",
 			actions = listOf(AssistantActionDescriptor("github_done", "Mark done", "Clears threads from your GitHub inbox.")),
 			enabled = "github" !in off,
+			triggers = true,
+		),
+		AssistantSource(
+			id = "sensors",
+			label = "Sensors",
+			grants = emptyList(),
+			unread = 1L,
+			lastSuccessAt = day(-30_000L),
+			fieldSpecs = listOf(AssistantFieldSpec.Text("automation", "Automation")),
+			actions = listOf(AssistantActionDescriptor("sensors_clear", "Clear events", "Clears events the assistant has handled.")),
+			enabled = "sensors" !in off,
+			triggers = false,
 		),
 	)
 
-	/** Tests titles only. */
-	override suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview): ConsoleAssistantPreviewResult? {
-		if (gatewayId == SANDBOX_NEVER_REGISTERED) return null
-		val wanted = op.rule.conditions.first().value
-		val titles = listOf("Review requested: #812 baseline hook", "CI failed on main", "Dependabot bumped vitest")
-		val matched = titles.filter { it.contains(wanted, ignoreCase = true) }
-		// An added rule loses one to an earlier rule, so that line is reachable.
-		val shadowed = if (rules.rules.none { it.id == op.rule.id } && rules.rules.isNotEmpty()) 1L else 0L
-		return ConsoleAssistantPreviewResult(decided = matched.size.toLong(), shadowed = shadowed, of = 50L, titles = matched)
+	/** The second Gateway answers as an older build. */
+	private fun watchers() = sources().map { source ->
+		AssistantWatcher(
+			id = source.id,
+			label = source.label,
+			grants = source.grants,
+			unread = source.unread,
+			fieldSpecs = source.fieldSpecs,
+			secret = source.secret,
+			actions = source.actions,
+			enabled = source.enabled,
+		)
 	}
+
+	override suspend fun automations(gatewayId: String) = sandboxAutomations.list(gatewayId)
 
 	private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
 		workdir = workdir.takeIf { gatewayId == home },
 		team = "host.assistant".takeIf { gatewayId == home },
-		watchers = watchers(),
+		sources = sources().takeIf { gatewayId != SECOND_GATEWAY },
+		watchers = watchers().takeIf { gatewayId == SECOND_GATEWAY },
 		approveEverySend = approveEverySend,
 		temperatureUnit = temperatureUnit,
 		checkIns = true,
@@ -456,8 +414,8 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			claimed = true
 		}
 		return when (op) {
-			is ConsoleOp.AssistantWatcherGrants -> {
-				grants[op.watcherId] = op.entryIds
+			is ConsoleOp.AssistantSourceGrants -> {
+				grants[op.sourceId] = op.entryIds
 				AssistantAnswer.State(stateOf(gatewayId))
 			}
 			is ConsoleOp.AssistantSafety -> {
@@ -468,12 +426,12 @@ internal class SandboxAssistantGateway : AssistantGateway {
 				temperatureUnit = op.temperatureUnit
 				AssistantAnswer.State(stateOf(gatewayId))
 			}
-			is ConsoleOp.AssistantWatcherEnabled -> {
-				if (op.enabled) off -= op.watcherId else off += op.watcherId
+			is ConsoleOp.AssistantSourceEnabled -> {
+				if (op.enabled) off -= op.sourceId else off += op.sourceId
 				AssistantAnswer.State(stateOf(gatewayId))
 			}
-			is ConsoleOp.AssistantWatcherCheck ->
-				if (op.watcherId in off) AssistantAnswer.Refused("${op.watcherId} is disabled") else AssistantAnswer.State(stateOf(gatewayId))
+			is ConsoleOp.AssistantSourceCheck ->
+				if (op.sourceId in off) AssistantAnswer.Refused("${op.sourceId} is disabled") else AssistantAnswer.State(stateOf(gatewayId))
 			else -> AssistantAnswer.State(stateOf(gatewayId))
 		}
 	}

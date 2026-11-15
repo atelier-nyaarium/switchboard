@@ -22,14 +22,14 @@ describe("action listings", () => {
 
 		expect(actions.map(({ id }) => id)).toEqual([
 			...PHONE_CAPABILITY_KEYS.map((key) => `${PHONE_CAPABILITIES[key].where}/${key}`),
-			...ASSISTANT_ACTION_KEYS.map((key) => `watcher/${key}`),
+			...ASSISTANT_ACTION_KEYS.map((key) => `source/${key}`),
 		]);
 		expect(actions.map(({ id }) => id)).not.toContain("phone/ifttt_trigger");
 		for (const action of actions) {
 			expect(action.params).toMatchObject({ type: "object" });
 			expect(action.params.$ref).toBeUndefined();
 		}
-		expect(actions.find(({ id }) => id === "watcher/github_done")?.params).toMatchObject({
+		expect(actions.find(({ id }) => id === "source/github_done")?.params).toMatchObject({
 			type: "object",
 			required: ["ids"],
 		});
@@ -222,11 +222,11 @@ describe("action text", () => {
 	});
 });
 
-describe("the plugin reads a Gateway that says source", () => {
-	it("draws a source action as it draws a watcher's", () => {
-		const [done] = actionListings(null).filter((action) => action.family === "watcher");
-		const renamed = { ...done, id: "source/github_done", family: "source" };
-		expect(listingText([renamed]).split("\n")[1]).toBe(listingText([done]).split("\n")[1]);
+describe("the plugin reads a Gateway that says watcher", () => {
+	it("draws an older Gateway's watcher action as it draws a source's", () => {
+		const [done] = actionListings(null).filter((action) => action.family === "source");
+		const older = { ...done, id: "watcher/github_done", family: "watcher" };
+		expect(listingText([older]).split("\n")[1]).toBe(listingText([done]).split("\n")[1]);
 	});
 
 	it("lists a baseline's sources beside an older Gateway's watchers", () => {
@@ -247,7 +247,30 @@ describe("the plugin reads a Gateway that says source", () => {
 			lists: [{ label: "GitHub", items: [{ ...item, decision: "quietly", automation: "a1" }, item] }],
 		});
 		const text = inboxText(answer, "all");
-		expect(text.split("\n").filter((line) => line.includes("rule:"))).toEqual(["  rule: quietly"]);
+		expect(text.split("\n").filter((line) => line.includes("tell:"))).toEqual(["  tell: quietly"]);
 		expect(text.match(/Split the pane reader/g)).toHaveLength(2);
+	});
+
+	// Remove 2026-11-28 with the older Gateway's words.
+	it("reads an older Gateway's wake as now and its inbox as nothing to tell", () => {
+		const item = { id: "1", title: "Split the pane reader", fields: {}, at: 0 };
+		const answer = InboxListAnswerSchema.parse({
+			kind: "listed",
+			lists: [
+				{
+					label: "GitHub",
+					items: [
+						{ ...item, decision: "wake" },
+						{ ...item, id: "2", decision: "inbox" },
+					],
+				},
+			],
+		});
+
+		const told = inboxText(answer, "all")
+			.split("\n")
+			.filter((line) => line.includes("tell:"));
+
+		expect(told).toEqual(["  tell: now"]);
 	});
 });

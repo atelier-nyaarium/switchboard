@@ -6,7 +6,7 @@ The Gateway reads typed values (a sensor's temperature, a frame of bytes), deriv
 
 `src/shared/field-types.ts` holds the kinds and their rules once; codegen writes the same data into `Protocol.kt` as `FieldTypes`, and `kotlin-gate.sh` diffs it.
 
-- **Kinds:** `enumeration` (Choice), `text`, `number`, `bytes`. Choice and text take rule tests; number and bytes take none, and `parseRuleForFields` refuses a rule over them.
+- **Kinds:** `enumeration` (Choice), `text`, `number`, `bytes`. Choice and text take condition tests; number and bytes take none, and `conditionsIssue` refuses a condition over them.
 - **Units:** a number is stored in a stored unit (`C`, `%`); `F` is a display unit only. `toDisplay` and `fromDisplay` convert, a converted value storing at 0.01 so it reads back as typed.
 - **Range:** `inRange` keeps `|value| x 10^decimals` within 2^53, so both runtimes format it the same.
 - **Bytes:** lower-case hex, at most 64 bytes, shown as offset rows of eight (`bytesText`).
@@ -35,13 +35,13 @@ The Gateway reads typed values (a sensor's temperature, a frame of bytes), deriv
 
 ## Automations
 
-`src/gateway/computed/automations.ts`, `createAutomations`. An automation is a label, `enabled`, a trigger (a Choice or boolean computed field and the value it `becomes`), the one action `tell_assistant`, and `coolDownSec`.
+`src/gateway/computed/automations.ts`, `createAutomations`, over the record in `src/shared/schemasAutomation.ts`. An automation is `enabled`, a trigger, a list of actions, and an optional `label` a projection names itself by. A trigger is `event` (a source and its conditions, decided in the assistant's lane; `docs/assistant.md`) or `value` (a Choice or boolean computed field, the value it `becomes`, and `coolDownSec`). The one action is `tell_assistant` with `when`: `now` or `quietly`. A sensor's thresholds write `value` automations that tell quietly.
 
-- **One reader:** `drain()` is the only place a transition becomes a fire. It runs at construction, after a put, a remove and a clear, and on each field commit. Repeating it changes nothing.
+- **One reader:** `drain()` is the only place a `value` transition becomes a fire. It runs at construction, after a put, a remove and a clear, and on each field commit. Repeating it changes nothing.
 - **Checkpoint:** per automation, the record revision, incarnation, field epoch and `handledSeq`. A revision change (create, edit, re-enable) baselines at the field's current `seq`; an epoch change at that epoch's seq 0. A baseline whose write failed is held in memory for the next drain.
 - **Crossing:** a stored transition above `handledSeq` with `value === becomes && previous !== becomes`. Transitions lost past the 16 kept log one `uncertain` run. Cool-down reads the transition's own time. Off the assistant's home, a crossing logs `refused`. An invalid or disabled automation never fires.
-- **The sensors queue:** a crossing appends an event in the same commit as its checkpoint, at most 256 events or 64 KiB. A full queue logs `refused` once and holds the transition (`blockedSeq`) until a clear makes room. An event's id is `automation:<id>:<incarnation>:<epoch>:<seq>`, and its `at` is its append time, strictly increasing. An event body this build cannot read stays queued and unlisted. Entries leave by `clear`, which drains again, so a repeated clear retries.
-- **The watcher:** `watcher` (id `sensors`, text fields automation, field and value) lists the queue for the source lane.
+- **The sensors queue:** a crossing appends an event in the same commit as its checkpoint, at most 256 events or 64 KiB. The event carries its automation's `when`, absent for `quietly`, and an older entry without one reads as `quietly`. A full queue logs `refused` once and holds the transition (`blockedSeq`) until a clear makes room. An event's id is `automation:<id>:<incarnation>:<epoch>:<seq>`, and its `at` is its append time, strictly increasing. An event body this build cannot read stays queued and unlisted. Entries leave by `clear`, which drains again, so a repeated clear retries.
+- **The source:** the `sensors` source (text fields automation, field and value) lists the queue for the source lane. Its events say how they tell, so no event automation triggers on them.
 - **Composition order:** read the home, build computed fields, build automations (it drains at construction, so it must see the home), then `start()`.
 
 ## Device definitions

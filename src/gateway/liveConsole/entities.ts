@@ -15,7 +15,7 @@ import { bandToDisplay, toDisplay } from "../../shared/field-types.js";
 import { readingInDisplay } from "../../shared/field-values.js";
 import { HostBleScanResultSchema, type HostOpResult } from "../../shared/host-op.js";
 import type { ConsoleAssistantStateResult, TemperatureUnit } from "../../shared/schemasAssistant.js";
-import { decideEvent, firstMatch } from "../../shared/schemasAssistantRules.js";
+import { conditionsMatch } from "../../shared/schemasAssistantRules.js";
 import type { DeviceReadingSchema, DeviceRecord } from "../../shared/schemasDevices.js";
 import { CONSOLE_LISTEN_DEFAULT_S, CONSOLE_LISTEN_MAX_S, type ConsoleIds } from "../../shared/schemasLiveConsole.js";
 import type { DeviceStage } from "../compose/composeDevices.js";
@@ -36,7 +36,7 @@ export interface ConsoleReaders {
 	devices: () => Pick<DeviceStage, "records" | "sensorRead"> | undefined;
 	fields: () => Pick<ComputedFields, "list" | "get" | "value" | "stateOf" | "invalidOf"> | undefined;
 	automations: () =>
-		| Pick<Automations, "list" | "runs" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf">
+		| Pick<Automations, "list" | "runs" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf" | "eventsOf">
 		| undefined;
 	thresholds: () => Pick<SensorThresholds, "list"> | undefined;
 	assistant: () => ConsoleAssistantStateResult;
@@ -99,7 +99,7 @@ export function consoleIds(readers: ConsoleReaders): ConsoleIds {
 			id: record.id,
 			label: readers.automations()?.sentenceOf(record.id) ?? record.id,
 		})),
-		sources: readers.assistant().watchers.map((entry) => ({ id: entry.id, label: entry.label })),
+		sources: (readers.assistant().sources ?? []).map((entry) => ({ id: entry.id, label: entry.label })),
 		definitions: SHIPPED_DEFINITIONS.map((definition) => definition.key),
 	};
 }
@@ -176,7 +176,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		return held;
 	};
 	const source = (id: string) => {
-		const found = readers.assistant().watchers.find((entry) => entry.id === id);
+		const found = readers.assistant().sources?.find((entry) => entry.id === id);
 		if (!found) throw new ConsoleError("not_found", `no source ${id}`);
 		return found;
 	};
@@ -436,7 +436,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					description: "Every source and its health.",
 					type: "List<SourceSummary>",
 					get: () =>
-						readers.assistant().watchers.map((entry) => ({
+						(readers.assistant().sources ?? []).map((entry) => ({
 							id: entry.id,
 							label: entry.label,
 							enabled: entry.enabled,
@@ -448,7 +448,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				},
 				get: {
 					kind: "method",
-					description: "One source as set: its fields, rules and commands. Never its secret.",
+					description: "One source as set: its fields and commands. Never its secret.",
 					params: [sourceParam],
 					returns: "Source",
 					call: ([id]) => {
@@ -456,13 +456,10 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 						return {
 							id: found.id,
 							label: found.label,
-							enabled: found.enabled ?? null,
-							fieldSpecs: found.fieldSpecs ?? [],
-							rules: found.rules
-								? [...found.rules.rules, { id: "otherwise", action: found.rules.otherwise.action }]
-								: [],
-							invalid: found.invalid ?? [],
-							actions: found.actions ?? [],
+							enabled: found.enabled,
+							triggers: found.triggers,
+							fieldSpecs: found.fieldSpecs,
+							actions: found.actions,
 						};
 					},
 				},
@@ -488,7 +485,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				},
 				test: {
 					kind: "method",
-					description: "Which rule an event with these fields meets, and its action.",
+					description: "Which automations an event with these fields meets, and whether it wakes.",
 					params: [
 						sourceParam,
 						{
@@ -498,16 +495,17 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 							description: "The event's fields.",
 						},
 					],
-					returns: "{rule, action}",
+					returns: "{matched, wakes}",
 					call: ([id, fields]) => {
 						const found = source(id as string);
-						if (!found.rules) throw new ConsoleError("not_found", `${id} has no rules`);
-						const specs = found.fieldSpecs ?? [];
+						if (!found.triggers)
+							throw new ConsoleError("refused", `${found.label} events tell for themselves`);
 						const given = fields as Record<string, string>;
-						return {
-							rule: firstMatch(found.rules.rules, specs, given)?.id ?? "otherwise",
-							action: decideEvent(found.rules, specs, given),
-						};
+						const matched = automations()
+							.eventsOf(found.id)
+							.filter(({ trigger }) => conditionsMatch(trigger.conditions, found.fieldSpecs, given))
+							.map(({ id: automation, when }) => ({ id: automation, label: labelOf(automation), when }));
+						return { matched, wakes: matched.some(({ when }) => when === "now") };
 					},
 				},
 			},

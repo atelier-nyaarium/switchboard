@@ -1,14 +1,13 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.RuleDraft
-import com.atelier_nyaarium.switchboard.assistant.WatcherRules
-import com.atelier_nyaarium.switchboard.assistant.fittingRule
+import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
+import com.atelier_nyaarium.switchboard.assistant.SourceFields
+import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.trimRuleValue
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
+import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -45,17 +44,15 @@ class AssistantRuleVectorsTest {
 
 	@Test
 	fun theSaveGateFitsWhatTheGatewayParseAccepts() {
-		val rules = WatcherRules(
-			specs = corpus["specs"]!!.jsonArray.map { specOf(it.jsonObject) },
-			held = AssistantWatcherRules(rules = emptyList(), otherwise = AssistantRuleOtherwise(action = "inbox", revision = 0L), revision = 0L),
-		)
+		val rules = SourceFields(corpus["specs"]!!.jsonArray.map { specOf(it.jsonObject) })
 		val cases = corpus["cases"]!!.jsonArray
 		assertEquals(true, cases.isNotEmpty())
 		for (case in cases) {
 			val o = case.jsonObject
 			val name = o["name"]!!.jsonPrimitive.content
-			val condition = AssistantRuleCondition(o["field"]!!.jsonPrimitive.content, o["test"]!!.jsonPrimitive.content, valueOf(o))
-			val fitted = fittingRule(RuleDraft("r", listOf(condition), "inbox", 0L), rules)
+			val condition = AutomationCondition(o["field"]!!.jsonPrimitive.content, o["test"]!!.jsonPrimitive.content, valueOf(o))
+			val draft = AutomationDraft("a", "github", listOf(condition), tell = "now", enabled = true, revision = 0L)
+			val fitted = fittingAutomation(draft, rules)?.trigger as? AutomationTrigger.Event
 			assertEquals(name, o["fits"]!!.jsonPrimitive.boolean, fitted != null)
 			o["canonical"]?.let { assertEquals(name, it.jsonPrimitive.content, fitted?.conditions?.single()?.value) }
 			// A blocked Save says why, unless the value is blank.

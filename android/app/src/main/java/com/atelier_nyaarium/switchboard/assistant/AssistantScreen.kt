@@ -66,14 +66,13 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.homeRefusal
 import com.atelier_nyaarium.switchboard.locationAction
 import com.atelier_nyaarium.switchboard.moveErrorText
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.sourcesOf
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.runIsolated
 
 private const val DEFAULT_FOLDER = "~/"
 
-/** Root without a conversation; the shell enters Placed. */
+/** Root without a conversation. */
 @Composable
 internal fun AssistantRootScreen(
 	root: AssistantRoot,
@@ -123,16 +122,17 @@ internal fun AssistantPageHost(
 		AssistantPage.Location -> AssistantLocationPage(repo, state, home, onListDirs, onBack)
 		AssistantPage.Features -> AssistantFeaturesPage(repo, onBack)
 		AssistantPage.Safety -> AssistantSafetyPage(repo, state, home, onBack)
-		AssistantPage.Watchers ->
-			AssistantWatchersPage(state, home, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
-		AssistantPage.Integrations ->
-			AssistantIntegrationsPage(
+		AssistantPage.Automations ->
+			AutomationsPage(repo, state, home, onEdit = { g, slot -> onPage(AssistantPage.AutomationEditor(g, slot)) }, onBack)
+		AssistantPage.Sources ->
+			AssistantSourcesPage(
 				repo,
 				state,
 				home,
 				onAdd = { onPage(AssistantPage.Add) },
 				onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) },
 				onService = { g, s -> onPage(AssistantPage.Entry(g, s)) },
+				onSource = { g, s -> onPage(AssistantPage.Source(g, s)) },
 				onBack,
 			)
 		AssistantPage.Add ->
@@ -149,36 +149,30 @@ internal fun AssistantPageHost(
 				page.integrationId,
 				onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) },
 				onSetup = { onPage(AssistantPage.Setup(page.gatewayId, page.integrationId)) },
-				onAdded = { onPage(AssistantPage.Integrations) },
+				onAdded = { onPage(AssistantPage.Sources) },
 				onBack,
 			)
 		is AssistantPage.Setup ->
 			PlugSetupPage(repo, page.gatewayId, onDevice = { onPage(AssistantPage.Device(page.gatewayId, it)) }, onBack)
 		is AssistantPage.Device -> AssistantDevicePage(repo, page.gatewayId, page.deviceId, onBack)
-		is AssistantPage.Watcher -> {
-			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
-			if (watcher == null) {
-				UnreadPage("Watcher", repo, state, page.gatewayId, onBack)
+		is AssistantPage.Source -> {
+			val source = state.gateways.assistantOn(page.gatewayId)?.let(::sourcesOf)?.find { it.id == page.sourceId }
+			if (source == null) {
+				UnreadPage("Source", repo, state, page.gatewayId, onBack)
 			} else {
-				AssistantWatcherPage(repo, page.gatewayId, watcher, { onPage(AssistantPage.Rules(page.gatewayId, page.watcherId)) }, onBack)
+				LaunchedEffect(page.gatewayId) { repo.automationOps.refresh(page.gatewayId) }
+				AssistantSourcePage(
+					repo,
+					page.gatewayId,
+					source,
+					uses = state.gateways.entry(page.gatewayId)?.automations?.let { usesOf(source.id, it) },
+					onAutomations = { onPage(AssistantPage.Automations) },
+					onBack,
+				)
 			}
 		}
-		is AssistantPage.Rules -> {
-			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
-			if (watcher == null) {
-				UnreadPage("Rules", repo, state, page.gatewayId, onBack)
-			} else {
-				WatcherRulesPage(repo, page.gatewayId, watcher, { onPage(AssistantPage.Editor(page.gatewayId, page.watcherId, it)) }, onBack)
-			}
-		}
-		is AssistantPage.Editor -> {
-			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
-			if (watcher == null) {
-				UnreadPage("Rule", repo, state, page.gatewayId, onBack)
-			} else {
-				RuleEditorPage(repo, page.gatewayId, watcher, page.slot) { onPage(AssistantPage.Rules(page.gatewayId, page.watcherId)) }
-			}
-		}
+		is AssistantPage.AutomationEditor ->
+			AutomationEditorPage(repo, state, page.gatewayId, page.slot, onClose = { onPage(AssistantPage.Automations) }, onBack)
 	}
 }
 
@@ -194,9 +188,6 @@ private fun UnreadPage(title: String, repo: ChatRepository, state: ChatState, ga
 		}
 	}
 }
-
-private fun watcherIn(placed: ConsoleAssistantStateResult?, watcherId: String): AssistantWatcher? =
-	placed?.watchers?.find { it.id == watcherId }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -311,7 +302,6 @@ private fun AssistantLocationPage(
 									abandoning = pending
 								} else {
 									val workdir = folderOf(folder.text)
-									// The failure shows from state.
 									settings { moveAssistant(pending.target, workdir); null }
 								}
 							},
@@ -373,6 +363,7 @@ private fun AssistantSettingsIndex(
 		home?.let { gatewayId ->
 			repo.command { assistantOps.refresh(gatewayId) }
 			repo.command { deviceOps.relist(gatewayId) }
+			repo.command { automationOps.refresh(gatewayId) }
 		}
 	}
 
@@ -388,11 +379,14 @@ private fun AssistantSettingsIndex(
 					SettingsRow("Features", featureLines(phoneSettings.assistantOn, phoneSettings.screenData, features)) { onPage(AssistantPage.Features) }
 				AssistantSection.SAFETY ->
 					SettingsRow("Safety", safetyLines(homeState?.approveEverySend)) { onPage(AssistantPage.Safety) }
-				AssistantSection.WATCHERS ->
-					SettingsRow("Watchers", watcherLines(homeState?.watchers.orEmpty())) { onPage(AssistantPage.Watchers) }
-				AssistantSection.INTEGRATIONS ->
-					SettingsRow("Integrations", integrationLines(home, home?.let { deviceViews[it]?.list }, homeState?.integrations)) {
-						onPage(AssistantPage.Integrations)
+				AssistantSection.SOURCES ->
+					SettingsRow(
+						"Sources",
+						sourceLines(home, home?.let { deviceViews[it]?.list }, homeState?.integrations, homeState?.let(::sourcesOf).orEmpty()),
+					) { onPage(AssistantPage.Sources) }
+				AssistantSection.AUTOMATIONS ->
+					SettingsRow("Automations", automationLines(home?.let { state.gateways.automationsOn(it).size } ?: 0)) {
+						onPage(AssistantPage.Automations)
 					}
 				AssistantSection.REMOVE -> SettingsRow("Remove assistant", SettingsLines(line = REMOVE_LINE)) { removing = true }
 			}

@@ -3,6 +3,12 @@ import { DomainSnapshotSchema } from "./admission.js";
 import { ConsoleAssistantStateResultSchema } from "./schemasAssistant.js";
 import { ConsoleAssistantPreviewResultSchema, ConsoleAssistantRulesResultSchema } from "./schemasAssistantRules.js";
 import { ConsoleAssistantSendAnswerResultSchema } from "./schemasAssistantSend.js";
+import {
+	ConsoleAutomationDeleteResultSchema,
+	ConsoleAutomationListResultSchema,
+	ConsoleAutomationPreviewResultSchema,
+	ConsoleAutomationPutResultSchema,
+} from "./schemasAutomation.js";
 import { BoardEntrySchema } from "./schemasBoard.js";
 import { CrossDomainShareTargetSchema, MailboxEntrySchema } from "./schemasConsoleOp.js";
 import { DomainStatusSchema } from "./schemasCore.js";
@@ -406,6 +412,10 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleAssistantRulesResultSchema,
 	ConsoleAssistantPreviewResultSchema,
 	ConsoleAssistantSendAnswerResultSchema,
+	ConsoleAutomationListResultSchema,
+	ConsoleAutomationPutResultSchema,
+	ConsoleAutomationDeleteResultSchema,
+	ConsoleAutomationPreviewResultSchema,
 ]);
 
 ////////////////////////////////

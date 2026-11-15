@@ -117,7 +117,7 @@ private class ConsoleHighlight(private val names: Names) : VisualTransformation 
 
 /** Code is typed as written. */
 private val CODE_KEYBOARD =
-	KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii)
+	KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Password)
 
 @Composable
 internal fun ConsoleScreen(

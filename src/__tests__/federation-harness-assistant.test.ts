@@ -3,10 +3,15 @@ import type { Source, SourceEvent } from "../gateway/assistant/source.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
 import type { AssistantHomeCarried } from "../shared/schemasAssistantHome.js";
-import { DEFAULT_RULES } from "../shared/schemasAssistantRules.js";
+import type {
+	ConsoleAutomationDeleteResult,
+	ConsoleAutomationListResult,
+	ConsoleAutomationPutResult,
+} from "../shared/schemasAutomation.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { composeSessionName } from "../shared/session-id.js";
 import type { TeamInfo } from "../shared/types.js";
+import { eventAutomation } from "../testing/assistantAutomations.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
@@ -88,55 +93,104 @@ describe("the assistant's session through the console", () => {
 		expect(before).toMatchObject({ workdir: null, team: null });
 		expect(refused).toMatchObject({ workdir: null, team: null });
 		expect(placed).toMatchObject({ workdir: "~/projects/notes", team: ASSISTANT_TEAM });
-		expect(placed.watchers.map((watcher) => watcher.id)).toEqual(["github", "sensors"]);
-		expect(placed.watchers[0]?.secret).toBeTruthy();
+		expect(placed.sources?.map((source) => [source.id, source.triggers])).toEqual([
+			["github", true],
+			["sensors", false],
+		]);
+		expect(placed.sources?.[0]?.secret).toBeTruthy();
+		expect(placed.watchers?.map((watcher) => [watcher.id, watcher.rules?.rules])).toEqual([
+			["github", []],
+			["sensors", []],
+		]);
 		expect(forgot.ok, JSON.stringify(forgot)).toBe(false);
 		expect(h.host.ops.length).toBe(opsBefore);
 	});
 
-	it("moves to itself with its carried rules", async () => {
-		await assistant({
-			kind: "assistant_rule_put",
-			watcherId: "github",
-			rule: {
-				id: "carried-rule",
-				conditions: [{ field: "repository", test: "is", value: "atelier/switchboard" }],
-				action: "wake",
-				revision: 0,
-			},
-		});
+	it("moves to itself with its automations, and answers an older app's rule write as retired", async () => {
+		const condition = { field: "repository", test: "is", value: " atelier/switchboard " } as const;
+		const put = (
+			await h.phone.value({
+				kind: "automation_put",
+				automationId: "carried",
+				automation: eventAutomation("github", [condition]),
+				baseRevision: 0,
+			})
+		).result as ConsoleAutomationPutResult;
+		const sensors = (
+			await h.phone.value({
+				kind: "automation_put",
+				automationId: "sensors",
+				automation: eventAutomation("sensors", []),
+				baseRevision: 0,
+			})
+		).result as ConsoleAutomationPutResult;
+		const retired = (
+			await h.phone.value({
+				kind: "assistant_rule_put",
+				watcherId: "github",
+				rule: { id: "old", conditions: [condition], action: "wake", revision: 0 },
+			})
+		).result;
 		const before = await assistant({ kind: "assistant_state" });
 		if (!before.workdir) throw new Error("the assistant has no workdir to carry");
+		const listed = (await h.phone.value({ kind: "automation_list" })).result as ConsoleAutomationListResult;
 		const carried: AssistantHomeCarried = {
 			approveEverySend: before.approveEverySend ?? true,
-			watchers: before.watchers.map((watcher) => ({
-				id: watcher.id,
-				rules: watcher.rules ?? DEFAULT_RULES,
-				grant: watcher.grants[0] ?? null,
-			})),
+			watchers: (before.sources ?? []).map((source) => ({ id: source.id, grant: source.grants[0] ?? null })),
+			automations: listed.automations.map(({ id, automation }) => ({ id, automation })),
 		};
 		const moved = await putHome(h, h.set.gateway.id, before.workdir, carried);
 		if (!moved.record) throw new Error("the Router did not hold the moved home");
 		await waitHomeReport(h, moved.record.version, "placed");
-		const after = await assistant({ kind: "assistant_state" });
+		const after = (await h.phone.value({ kind: "automation_list" })).result as ConsoleAutomationListResult;
 
-		expect(after.watchers.find((watcher) => watcher.id === "github")?.rules?.rules).toContainEqual(
-			expect.objectContaining({ id: "carried-rule", action: "wake" }),
-		);
+		expect(put).toMatchObject({
+			stored: true,
+			row: {
+				sentence: "GitHub: repository is atelier/switchboard",
+				automation: { trigger: { conditions: [{ value: "atelier/switchboard" }] } },
+			},
+		});
+		expect(sensors.stored).toBe(false);
+		expect(retired).toMatchObject({ stored: false, reason: expect.stringContaining("update the app") });
+		expect(listed.automations.map((row) => row.id)).toEqual(["carried"]);
+		expect(after.automations).toEqual(listed.automations);
 	});
 
-	it("grants a watcher its entries, and refuses a watcher it does not know", async () => {
+	it("grants a source its entries, by either app's op, and refuses a source it does not know", async () => {
 		const granted = await assistant({
-			kind: "assistant_watcher_grants",
-			watcherId: "github",
+			kind: "assistant_source_grants",
+			sourceId: "github",
 			entryIds: ["gh-token"],
 		});
-		await assistant({ kind: "assistant_watcher_grants", watcherId: "gmail", entryIds: ["x"] });
-		await assistant({ kind: "assistant_watcher_grants", watcherId: "github", entryIds: ["a", "b"] });
+		await assistant({ kind: "assistant_source_grants", sourceId: "gmail", entryIds: ["x"] });
+		await assistant({ kind: "assistant_source_grants", sourceId: "github", entryIds: ["a", "b"] });
+		const older = await assistant({ kind: "assistant_watcher_grants", watcherId: "github", entryIds: ["older"] });
 		const after = await assistant({ kind: "assistant_state" });
 
-		expect(granted.watchers[0]?.grants).toEqual(["gh-token"]);
-		expect(after.watchers.map((watcher) => watcher.id)).toEqual(["github", "sensors"]);
+		expect(granted.sources?.[0]?.grants).toEqual(["gh-token"]);
+		expect(older.sources?.[0]?.grants).toEqual(["older"]);
+		expect(after.sources?.map((source) => source.id)).toEqual(["github", "sensors"]);
+	});
+
+	it("switches a source off and on by either app's op, refuses a check of one that is off, and deletes an automation at the revision it read", async () => {
+		const off = await assistant({ kind: "assistant_source_enabled", sourceId: "github", enabled: false });
+		const checked = await h.phone.value({ kind: "assistant_source_check", sourceId: "github" });
+		const older = await h.phone.value({ kind: "assistant_watcher_check", watcherId: "github" });
+		const on = await assistant({ kind: "assistant_watcher_enabled", watcherId: "github", enabled: true });
+		const listed = (await h.phone.value({ kind: "automation_list" })).result as ConsoleAutomationListResult;
+		const revision = listed.automations.find((row) => row.id === "carried")?.revision ?? 0;
+		const remove = async (baseRevision: number) =>
+			(await h.phone.value({ kind: "automation_delete", automationId: "carried", baseRevision }))
+				.result as ConsoleAutomationDeleteResult;
+		const stale = await remove(revision + 1);
+		const deleted = await remove(revision);
+		const after = (await h.phone.value({ kind: "automation_list" })).result as ConsoleAutomationListResult;
+
+		expect([off.sources?.[0]?.enabled, on.sources?.[0]?.enabled]).toEqual([false, true]);
+		expect([checked, older].map((answer) => JSON.stringify(answer).includes("is disabled"))).toEqual([true, true]);
+		expect([stale.deleted, deleted.deleted]).toEqual([false, true]);
+		expect(after.automations).toEqual([]);
 	});
 
 	it("outlives the session sweep that takes an ordinary idle session", async () => {
@@ -173,7 +227,7 @@ describe("the assistant's session through the console", () => {
 	});
 });
 
-describe("a watcher event reaching the assistant", () => {
+describe("a source event reaching the assistant", () => {
 	let h: FederationHarness;
 	const attached = new Map<string, FakeSession>();
 	const event = (id: string, kind: string, at: number): SourceEvent => ({
@@ -235,22 +289,17 @@ describe("a watcher event reaching the assistant", () => {
 		if (h) await h.close();
 	});
 
-	it("wakes for no backlog, retries a wake that did not land, and wakes once with the new thread as data", async () => {
-		const poke = () => h.phone.value({ kind: "assistant_watcher_grants", watcherId: "fake", entryIds: [] });
-		const ruleResult = await h.phone.value({
-			kind: "assistant_rule_put",
-			watcherId: "fake",
-			rule: {
-				id: "mentions",
-				conditions: [{ field: "kind", test: "is", value: "mention" }],
-				action: "wake",
-				revision: 0,
-			},
-		});
-		const rules = (ruleResult.result as { rules: ConsoleAssistantStateResult["watchers"][number]["rules"] }).rules;
+	it("wakes for no backlog, retries a wake that did not land, and wakes once for an event two automations tell now", async () => {
+		const poke = () => h.phone.value({ kind: "assistant_source_grants", sourceId: "fake", entryIds: [] });
+		const mention = { field: "kind", test: "is", value: "mention" } as const;
 		const placement = await putHome(h, h.set.gateway.id, "~/projects/notes", {
 			approveEverySend: true,
-			watchers: [{ id: "fake", rules: rules ?? DEFAULT_RULES, grant: null }],
+			watchers: [{ id: "fake", grant: null }],
+			automations: [
+				{ id: "mentions", automation: eventAutomation("fake", [mention]) },
+				{ id: "every-mention", automation: eventAutomation("fake", [mention]) },
+				{ id: "reviews", automation: eventAutomation("fake", [{ ...mention, value: "review" }], "quietly") },
+			],
 		});
 		if (!placement.record) throw new Error("the Router did not hold the home choice");
 		await waitHomeReport(h, placement.record.version, "placed");
@@ -267,6 +316,8 @@ describe("a watcher event reaching the assistant", () => {
 		await poke();
 		await h.waitFor(() => polls > settled, "a poll after the wake landed");
 		const state = (await h.phone.value({ kind: "assistant_state" })).result as ConsoleAssistantStateResult;
+		const { automations } = (await h.phone.value({ kind: "automation_list" }))
+			.result as ConsoleAutomationListResult;
 		const signaled = await h.waitFor(
 			async () =>
 				h.phone
@@ -287,10 +338,15 @@ describe("a watcher event reaching the assistant", () => {
 		expect(woken.body).not.toContain("e0");
 		expect(woken.body).not.toContain("review e2");
 		expect(attached.get(ASSISTANT_TEAM)?.inbound.filter((frame) => frame.event === true)).toHaveLength(1);
-		expect(state.watchers[0]).toMatchObject({ id: "fake", label: "Fake source", unread: 3 });
+		expect(state.sources?.[0]).toMatchObject({ id: "fake", label: "Fake source", unread: 3 });
+		expect(automations.map((row) => [row.id, row.sentence, row.lastRanAt !== undefined])).toEqual([
+			["mentions", "Fake source: kind is mention", true],
+			["every-mention", "Fake source: kind is mention", true],
+			["reviews", "Fake source: kind is review", false],
+		]);
 	});
 
-	it("lists live, sorted by the rules, and moves the new mark only once a read reaches its last page", async () => {
+	it("lists live, marks what an automation wakes for, and moves the new mark only once a read reaches its last page", async () => {
 		const session = attached.get(ASSISTANT_TEAM);
 		type Listed = { lists: { label: string; items: { id: string; decision: string }[]; next?: string }[] };
 		const list = async (body: Record<string, unknown>) =>
@@ -312,7 +368,7 @@ describe("a watcher event reaching the assistant", () => {
 			[],
 			["e3"],
 		]);
-		expect(first.lists[0]?.items.map((item) => item.decision)).toEqual(["wake", "inbox"]);
+		expect(first.lists[0]?.items.map((item) => item.decision)).toEqual(["now", undefined]);
 		expect(first.lists[0]?.label).toBe("Fake source");
 		expect(all.lists[0]?.next).toBeDefined();
 	});

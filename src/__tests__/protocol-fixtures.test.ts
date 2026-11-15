@@ -17,6 +17,11 @@ import {
 } from "../shared/schemas.js";
 import { ConsoleAssistantStateResultSchema } from "../shared/schemasAssistant.js";
 import { AssistantFieldSpecSchema } from "../shared/schemasAssistantRules.js";
+import {
+	AutomationActionSchema,
+	AutomationTriggerSchema,
+	ConsoleAutomationListResultSchema,
+} from "../shared/schemasAutomation.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
 	ConsoleDeviceListResultSchema,
@@ -61,6 +66,9 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsoleDeviceScanResult: ConsoleDeviceScanResultSchema,
 	ConsoleDeviceSchedulePutResult: ConsoleDeviceSchedulePutResultSchema,
 	AssistantFieldSpec: AssistantFieldSpecSchema,
+	AutomationTrigger: AutomationTriggerSchema,
+	AutomationAction: AutomationActionSchema,
+	ConsoleAutomationListResult: ConsoleAutomationListResultSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
 	WorkspaceFileStateAnswer: FileStateAnswerSchema,

@@ -27,7 +27,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -58,19 +61,26 @@ import com.atelier_nyaarium.switchboard.saidOf
 import com.atelier_nyaarium.switchboard.sensorOf
 import com.atelier_nyaarium.switchboard.sensorTrouble
 import com.atelier_nyaarium.switchboard.serviceRows
+import com.atelier_nyaarium.switchboard.sourceHealth
+import com.atelier_nyaarium.switchboard.sourceTroubled
+import com.atelier_nyaarium.switchboard.sourcesOf
 import com.atelier_nyaarium.switchboard.troubleLine
 
+/** Devices by Gateway, then the home's services. */
 @Composable
-internal fun AssistantIntegrationsPage(
+internal fun AssistantSourcesPage(
 	repo: ChatRepository,
 	state: ChatState,
 	home: String?,
 	onAdd: () -> Unit,
 	onDevice: (String, String) -> Unit,
 	onService: (String, String) -> Unit,
+	onSource: (String, String) -> Unit,
 	onBack: () -> Unit,
 ) {
 	val holding = home?.let { state.gateways.assistantOn(it) }
+	val (on, off) = remember(holding) { holding?.let(::sourcesOf).orEmpty().partition { it.enabled } }
+	var showDisabled by rememberSaveable { mutableStateOf(false) }
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
 	val services = remember(holding?.integrations, entries) { serviceRows(holding?.integrations, entries) }
@@ -87,7 +97,7 @@ internal fun AssistantIntegrationsPage(
 	val now = System.currentTimeMillis()
 
 	AssistantPageScaffold(
-		"Integrations",
+		"Sources",
 		onBack,
 		actions = { if (home != null) Button(onClick = hapticClick(onAdd)) { Text("Add") } },
 	) {
@@ -96,13 +106,29 @@ internal fun AssistantIntegrationsPage(
 			return@AssistantPageScaffold
 		}
 		val groups = deviceGroups(roster, home, views)
+		val hasServices = on.isNotEmpty() || off.isNotEmpty() || services.isNotEmpty()
+		val serviceRows: @Composable () -> Unit = {
+			SubLabel("Services")
+			for (source in on) {
+				SourceRow(source.label, sourceHealth(source, ::agoText), sourceTroubled(source)) { onSource(home, source.id) }
+			}
+			for (service in services) ServiceRowView(service) { onService(home, service.id) }
+			if (off.isNotEmpty()) {
+				FoldRow("Disabled", showDisabled) { showDisabled = !showDisabled }
+				if (showDisabled) for (source in off) SourceRow(source.label, null, false) { onSource(home, source.id) }
+			}
+		}
 		if (devicesPending(roster, views)) CircularProgressIndicator(Modifier.size(24.dp))
+		// A home with no devices.
+		if (hasServices && groups.none { it.assistant }) {
+			GatewayHeader(home, assistant = true)
+			serviceRows()
+		}
 		for (group in groups) {
 			val devices = views[group.gatewayId] ?: DevicesView()
-			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				Text(group.gatewayId, style = MaterialTheme.typography.labelLarge)
-				if (group.assistant) AssistantChip()
-			}
+			val withServices = group.assistant && hasServices
+			GatewayHeader(group.gatewayId, group.assistant)
+			if (withServices) SubLabel("Devices")
 			for (record in group.records) {
 				if (record.isSensor()) {
 					SensorRow(
@@ -123,11 +149,7 @@ internal fun AssistantIntegrationsPage(
 					)
 				}
 			}
-		}
-		if (services.isNotEmpty()) {
-			if (groups.isNotEmpty()) HorizontalDivider()
-			Text("Services", style = MaterialTheme.typography.labelLarge)
-			for (service in services) ServiceRowView(service) { onService(home, service.id) }
+			if (withServices) serviceRows()
 		}
 		holding?.temperatureUnit?.let { unit ->
 			HorizontalDivider()
@@ -160,7 +182,20 @@ private fun UnitRow(unit: String, busy: Boolean, onPick: (String) -> Unit) {
 }
 
 @Composable
-private fun AssistantChip() {
+private fun GatewayHeader(gatewayId: String, assistant: Boolean) {
+	Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		Text(gatewayId, style = MaterialTheme.typography.labelLarge)
+		if (assistant) AssistantChip()
+	}
+}
+
+@Composable
+private fun SubLabel(text: String) {
+	Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+internal fun AssistantChip() {
 	Text(
 		"Assistant",
 		style = MaterialTheme.typography.labelSmall,

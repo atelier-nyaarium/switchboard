@@ -4,10 +4,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
 	AssistantFieldSpecSchema,
-	AssistantRuleSchema,
-	parseRuleForFields,
+	canonicalConditions,
+	conditionsIssue,
 	trimRuleValue,
 } from "../shared/schemasAssistantRules.js";
+import { AutomationTriggerSchema } from "../shared/schemasAutomation.js";
 
 type Vector = {
 	name: string;
@@ -34,21 +35,20 @@ const typed = (vector: Vector) => {
 	return `${vector.around ?? ""}${base}${vector.around ?? ""}`;
 };
 
-describe("rule fit, against the shared corpus", () => {
+describe("condition fit, against the shared corpus", () => {
 	for (const vector of corpus.cases) {
 		it(vector.name, () => {
-			const rule = AssistantRuleSchema.safeParse({
-				id: "r",
+			const trigger = AutomationTriggerSchema.safeParse({
+				kind: "event",
+				source: "github",
 				// The phone sends it trimmed.
 				conditions: [{ field: vector.field, test: vector.test, value: trimRuleValue(typed(vector)) }],
-				action: "inbox",
-				revision: 0,
 			});
-			const parsed = rule.success ? parseRuleForFields(rule.data, specs) : null;
-			expect(parsed?.ok ?? false).toBe(vector.fits);
-			if (parsed?.ok && vector.canonical !== undefined) {
-				expect(parsed.rule.conditions[0]?.value).toBe(vector.canonical);
-			}
+			const conditions =
+				trigger.success && trigger.data.kind === "event" ? canonicalConditions(trigger.data.conditions) : null;
+			const fits = conditions !== null && conditionsIssue(conditions, specs) === null;
+			expect(fits).toBe(vector.fits);
+			if (fits && vector.canonical !== undefined) expect(conditions?.[0]?.value).toBe(vector.canonical);
 		});
 	}
 });

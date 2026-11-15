@@ -16,10 +16,12 @@ import { ASSISTANT_RESERVE_KEY, ASSISTANT_SESSION_NAME, ASSISTANT_TEAM } from ".
 import { ACTION_FRONT_ROUTES } from "../shared/schemasActionFront.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { AssistantFieldSpec, AssistantRule, AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
+import type { AutomationCondition } from "../shared/schemasAutomation.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { HolderKeySchema } from "../shared/schemasPhoneHold.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { SessionStore } from "../shared/session-store.js";
+import { boundAutomations, eventAutomation } from "../testing/assistantAutomations.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
 const NOTES = "~/projects/notes";
@@ -106,6 +108,8 @@ function rule(id: string, action: AssistantRule["action"] = "wake"): AssistantRu
 	};
 }
 
+const MENTION: AutomationCondition[] = [{ field: "reason", test: "is", value: "mention" }];
+
 function carriedSettings(
 	options: { approveEverySend?: boolean; rules?: AssistantRule[]; grant?: string | null; enabled?: boolean } = {},
 ) {
@@ -160,6 +164,7 @@ function stage(options: StageOptions = {}) {
 		fetch: options.fetch ?? (async () => new Response(null, { status: 304 })),
 		...(options.watchers ? { sources: options.watchers } : {}),
 	});
+	const automations = boundAutomations(assistant, dataDir, () => (options.ambient ?? processAmbient()).now());
 	const opened = new Map<number, HomeOpen>();
 	const reports: HomeReport[] = [];
 	assistant.bindHome({
@@ -190,6 +195,7 @@ function stage(options: StageOptions = {}) {
 	) => followRecord(homeRecord(version, gatewayId), { open: openedResult, registered });
 	return {
 		assistant,
+		automations,
 		store,
 		dataDir,
 		reports,
@@ -234,7 +240,7 @@ describe("the assistant's session", () => {
 		assistant.start();
 		await followHome();
 
-		expect(assistant.console.state().watchers.map((watcher) => watcher.id)).toEqual(["github", "sensors"]);
+		expect(assistant.console.state().sources?.map((source) => source.id)).toEqual(["github", "sensors"]);
 		expect(() => assistant.registerSource({ ...sensors, id: "late" })).toThrow();
 	});
 
@@ -326,7 +332,7 @@ describe("the assistant's session", () => {
 		expect(watcher.polls).toBe(polling);
 		expect(test.store.getByTeam(ASSISTANT_TEAM)).toBeUndefined();
 		expect(released).toMatchObject({ workdir: null, team: null });
-		expect(released.watchers[0]?.grants).toEqual([]);
+		expect(released.sources?.[0]?.grants).toEqual([]);
 		expect(test.assistant.placed()).toBe(false);
 		await expect(test.assistant.console.setServiceGrants("github", ["gh-token"])).rejects.toThrow();
 	});
@@ -339,7 +345,7 @@ describe("the assistant's session", () => {
 		await test.followHome();
 		await test.assistant.console.setServiceGrants("github", ["gh-token"]);
 		await ambient.advance(60_000);
-		const fresh = { enabled: test.assistant.console.state().watchers[0]?.enabled, polls: watcher.polls };
+		const fresh = { enabled: test.assistant.console.state().sources?.[0]?.enabled, polls: watcher.polls };
 
 		await test.assistant.console.setSourceEnabled("github", true);
 		await ambient.advance(0);
@@ -349,10 +355,10 @@ describe("the assistant's session", () => {
 		const off = watcher.polls;
 
 		await test.followHome(2, LOCAL_GATEWAY, { kind: "ok", sealed: sealedHome(NOTES, carriedSettings()) });
-		const olderRecord = test.assistant.console.state().watchers[0]?.enabled;
+		const olderRecord = test.assistant.console.state().sources?.[0]?.enabled;
 		const carriedOff = sealedHome(NOTES, carriedSettings({ enabled: false }));
 		await test.followHome(3, LOCAL_GATEWAY, { kind: "ok", sealed: carriedOff });
-		const movedOff = test.assistant.console.state().watchers[0]?.enabled;
+		const movedOff = test.assistant.console.state().sources?.[0]?.enabled;
 		await stopped(test.assistant, ambient);
 
 		expect(fresh).toEqual({ enabled: false, polls: 0 });
@@ -440,7 +446,7 @@ describe("the assistant's session", () => {
 
 		await test.followHome();
 
-		expect(test.assistant.console.state().watchers[0]?.grants).toEqual([]);
+		expect(test.assistant.console.state().sources?.[0]?.grants).toEqual([]);
 	});
 
 	it("accepts IFTTT grants and carries them across a home move", async () => {
@@ -482,7 +488,7 @@ describe("the assistant's session", () => {
 		test.assistant.start();
 		await test.followHome(1, LOCAL_GATEWAY, movedHome());
 		await ambient.advance(0);
-		const ungranted = test.assistant.console.state().watchers[0]?.stopped;
+		const ungranted = test.assistant.console.state().sources?.[0]?.stopped;
 
 		await test.assistant.console.setServiceGrants("github", ["gh-token"]);
 		await ambient.advance(0);
@@ -510,8 +516,9 @@ describe("the assistant's session", () => {
 		});
 		await ambient.advance(0);
 		await assistant.console.setServiceGrants("github", ["gh-token"]);
-		await assistant.console.putRule("github", rule("local", "inbox"));
+		test.automations.ownerPut("local", eventAutomation("github", MENTION), 0);
 		await assistant.console.setSafety(false);
+		const carriedIn = test.automations.rows().map((row) => row.id);
 		test.rememberAssistant();
 		const polls = watcher.polls;
 
@@ -520,7 +527,7 @@ describe("the assistant's session", () => {
 		const action = assistant.routes.get(ACTION_FRONT_ROUTES.run);
 		if (!action) throw new Error("no action route");
 		const answer = await action(new Request("http://gateway/", { headers: { "x-caller": "assistant" } }), {
-			id: "watcher/github_done",
+			id: "source/github_done",
 			callId: "old-session",
 			params: { ids: ["1"] },
 		}).then((response) => response.json());
@@ -528,9 +535,9 @@ describe("the assistant's session", () => {
 		await stopped(assistant, ambient);
 
 		expect(test.store.getByTeam(ASSISTANT_TEAM)).toBeUndefined();
-		expect(state.watchers[0]?.grants).toEqual([]);
-		expect(state.watchers[0]?.rules?.rules).toEqual([]);
-		expect(state.watchers[0]?.rules?.otherwise.action).toBe("inbox");
+		expect(state.sources?.[0]?.grants).toEqual([]);
+		expect(carriedIn).toEqual(["carried", "local"]);
+		expect(test.automations.rows()).toEqual([]);
 		expect(state.approveEverySend).toBe(true);
 		expect(answer).toEqual({ kind: "not_assistant" });
 		expect(assistant.placed()).toBe(false);
@@ -585,42 +592,40 @@ describe("the assistant's session", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
 		const first = stage({ ambient, store });
 		await first.followHome();
-		await first.assistant.console.putRule("github", rule("edited", "wake"));
-		const edited = first.assistant.console.state().watchers[0]?.rules;
+		const put = first.automations.ownerPut("edited", eventAutomation("github", MENTION), 0);
+		const edited = first.automations.rows();
 
 		await first.followHome();
-		const repeated = first.assistant.console.state().watchers[0]?.rules;
+		const repeated = first.automations.rows();
 		const restarted = stage({ dataDir: first.dataDir, store, ambient });
 		restarted.assistant.start();
 		await restarted.followHome();
-		const afterRestart = restarted.assistant.console.state().watchers[0]?.rules;
+		const afterRestart = restarted.automations.rows();
 		await stopped(restarted.assistant, ambient);
 
+		expect(put.stored).toBe(true);
 		expect(repeated).toEqual(edited);
 		expect(afterRestart).toEqual(edited);
 	});
 
-	it("lands carried rules before the first poll", async () => {
+	it("lands an older phone's carried rules as automations before the first poll, the ones that woke", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-		let assistant: StageAssistant;
-		let firstRules: AssistantWatcherRules | undefined;
+		let firstRows: string[] | undefined;
 		const watcher = counting({
 			onPoll: () => {
-				firstRules = assistant.console.state().watchers[0]?.rules;
+				firstRows = test.automations.rows().map((row) => row.sentence);
 			},
 		});
 		const test = stage({ ambient, watchers: [watcher] });
-		assistant = test.assistant;
-		assistant.start();
-		const carried = rule("carried", "wake");
+		test.assistant.start();
 		await test.followHome(1, LOCAL_GATEWAY, {
 			kind: "ok",
-			sealed: sealedHome(NOTES, carriedSettings({ rules: [carried] })),
+			sealed: sealedHome(NOTES, carriedSettings({ rules: [rule("quiet", "inbox"), rule("carried", "wake")] })),
 		});
 		await ambient.advance(0);
-		await stopped(assistant, ambient);
+		await stopped(test.assistant, ambient);
 
-		expect(firstRules?.rules.map((item) => item.id)).toEqual(["carried"]);
+		expect(firstRows).toEqual(["GitHub: reason is mention"]);
 	});
 
 	it("retries a forget refused while the session wakes", async () => {
@@ -711,7 +716,7 @@ describe("the assistant's session", () => {
 			sealed: sealedHome(NOTES, carriedSettings({ grant: "remote-entry" })),
 		});
 
-		expect(test.assistant.console.state().watchers[0]?.grants).toEqual([]);
+		expect(test.assistant.console.state().sources?.[0]?.grants).toEqual([]);
 		expect(test.reports[0]).toMatchObject({ version: 1, outcome: "placed" });
 	});
 

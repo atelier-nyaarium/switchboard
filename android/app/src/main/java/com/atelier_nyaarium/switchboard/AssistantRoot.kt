@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.RuleSlot
-import com.atelier_nyaarium.switchboard.assistant.rulesOf
+import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -114,9 +113,9 @@ internal sealed interface AssistantPage {
 
 	data object Safety : AssistantPage
 
-	data object Watchers : AssistantPage
+	data object Sources : AssistantPage
 
-	data object Integrations : AssistantPage
+	data object Automations : AssistantPage
 
 	/** The catalogue. */
 	data object Add : AssistantPage
@@ -129,57 +128,54 @@ internal sealed interface AssistantPage {
 
 	data class Device(val gatewayId: String, val deviceId: String) : AssistantPage
 
-	data class Watcher(val gatewayId: String, val watcherId: String) : AssistantPage
+	data class Source(val gatewayId: String, val sourceId: String) : AssistantPage
 
-	data class Rules(val gatewayId: String, val watcherId: String) : AssistantPage
-
-	data class Editor(val gatewayId: String, val watcherId: String, val slot: RuleSlot) : AssistantPage
+	data class AutomationEditor(val gatewayId: String, val slot: AutomationSlot) : AssistantPage
 }
 
 internal fun assistantPageBack(page: AssistantPage): AssistantPage? = when (page) {
 	AssistantPage.Settings -> null
-	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Watchers, AssistantPage.Integrations ->
+	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Sources, AssistantPage.Automations ->
 		AssistantPage.Settings
-	AssistantPage.Add -> AssistantPage.Integrations
+	AssistantPage.Add -> AssistantPage.Sources
 	is AssistantPage.Entry -> AssistantPage.Add
 	is AssistantPage.Setup -> AssistantPage.Entry(page.gatewayId, page.integrationId)
-	is AssistantPage.Device -> AssistantPage.Integrations
-	is AssistantPage.Watcher -> AssistantPage.Watchers
-	is AssistantPage.Rules -> AssistantPage.Watcher(page.gatewayId, page.watcherId)
-	is AssistantPage.Editor -> AssistantPage.Rules(page.gatewayId, page.watcherId)
+	is AssistantPage.Device -> AssistantPage.Sources
+	is AssistantPage.Source -> AssistantPage.Sources
+	is AssistantPage.AutomationEditor -> AssistantPage.Automations
 }
 
 /** Only answers unwind pages. */
-internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> DeviceListView? = { null }): AssistantPage {
-	val (gatewayId, watcherId) = when (this) {
-		AssistantPage.Settings, AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Watchers,
-		AssistantPage.Integrations, AssistantPage.Add -> return this
-		is AssistantPage.Entry -> return when {
-			assistantLeft(state, gatewayId) -> AssistantPage.Integrations
-			catalogued(integrationId) == null -> AssistantPage.Add
-			state.gateways.assistantOn(gatewayId)?.offered?.let { integrationId !in it } == true -> AssistantPage.Add
-			else -> this
-		}
-		is AssistantPage.Setup -> return when {
-			assistantLeft(state, gatewayId) -> AssistantPage.Integrations
-			catalogued(integrationId)?.setup == null -> AssistantPage.Add
-			else -> this
-		}
-		is AssistantPage.Device -> return deviceResolved(state, devices(gatewayId))
-		is AssistantPage.Watcher -> gatewayId to watcherId
-		is AssistantPage.Rules -> gatewayId to watcherId
-		is AssistantPage.Editor -> gatewayId to watcherId
+internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> DeviceListView? = { null }): AssistantPage = when (this) {
+	AssistantPage.Settings, AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Sources,
+	AssistantPage.Automations, AssistantPage.Add -> this
+	is AssistantPage.Entry -> when {
+		assistantLeft(state, gatewayId) -> AssistantPage.Sources
+		catalogued(integrationId) == null -> AssistantPage.Add
+		state.gateways.assistantOn(gatewayId)?.offered?.let { integrationId !in it } == true -> AssistantPage.Add
+		else -> this
 	}
-	if (assistantLeft(state, gatewayId)) return AssistantPage.Settings
-	val answered = state.gateways.assistantOn(gatewayId) ?: return this
-	val watcher = answered.watchers.find { it.id == watcherId } ?: return AssistantPage.Settings
-	return if (this is AssistantPage.Watcher || rulesOf(watcher) != null) this else AssistantPage.Watcher(gatewayId, watcherId)
+	is AssistantPage.Setup -> when {
+		assistantLeft(state, gatewayId) -> AssistantPage.Sources
+		catalogued(integrationId)?.setup == null -> AssistantPage.Add
+		else -> this
+	}
+	is AssistantPage.Device -> deviceResolved(state, devices(gatewayId))
+	is AssistantPage.Source -> {
+		val answered = state.gateways.assistantOn(gatewayId)
+		when {
+			assistantLeft(state, gatewayId) -> AssistantPage.Settings
+			answered != null && sourcesOf(answered).none { it.id == sourceId } -> AssistantPage.Sources
+			else -> this
+		}
+	}
+	is AssistantPage.AutomationEditor -> if (assistantLeft(state, gatewayId)) AssistantPage.Settings else this
 }
 
 /** Home moves keep it. */
 private fun AssistantPage.Device.deviceResolved(state: ChatState, list: DeviceListView?): AssistantPage = when {
-	state.gateways.loaded && !state.gateways.has(gatewayId) -> AssistantPage.Integrations
-	list is DeviceListView.Listed && list.records.none { it.id == deviceId } -> AssistantPage.Integrations
+	state.gateways.loaded && !state.gateways.has(gatewayId) -> AssistantPage.Sources
+	list is DeviceListView.Listed && list.records.none { it.id == deviceId } -> AssistantPage.Sources
 	else -> this
 }
 
@@ -194,36 +190,34 @@ internal fun pageWords(page: AssistantPage): List<String> = when (page) {
 	AssistantPage.Location -> listOf(PAGE_LOCATION)
 	AssistantPage.Features -> listOf(PAGE_FEATURES)
 	AssistantPage.Safety -> listOf(PAGE_SAFETY)
-	AssistantPage.Watchers -> listOf(PAGE_WATCHERS)
-	AssistantPage.Integrations -> listOf(PAGE_INTEGRATIONS)
+	AssistantPage.Sources -> listOf(PAGE_SOURCES)
+	AssistantPage.Automations -> listOf(PAGE_AUTOMATIONS)
 	AssistantPage.Add -> listOf(PAGE_ADD)
 	is AssistantPage.Entry -> listOf(PAGE_ENTRY, page.gatewayId, page.integrationId)
 	is AssistantPage.Setup -> listOf(PAGE_SETUP, page.gatewayId, page.integrationId)
 	is AssistantPage.Device -> listOf(PAGE_DEVICE, page.gatewayId, page.deviceId)
-	is AssistantPage.Watcher -> listOf(PAGE_WATCHER, page.gatewayId, page.watcherId)
-	is AssistantPage.Rules -> listOf(PAGE_RULES, page.gatewayId, page.watcherId)
-	is AssistantPage.Editor -> listOf(PAGE_EDITOR, page.gatewayId, page.watcherId) + slotWords(page.slot)
+	is AssistantPage.Source -> listOf(PAGE_SOURCE, page.gatewayId, page.sourceId)
+	is AssistantPage.AutomationEditor -> listOf(PAGE_AUTOMATION, page.gatewayId) + slotWords(page.slot)
 }
 
 internal fun pageOf(words: List<String>): AssistantPage? {
 	val gatewayId = words.getOrNull(1)
-	val watcherId = words.getOrNull(2)
+	val named = words.getOrNull(2)
 	return when (words.firstOrNull()) {
 		PAGE_SETTINGS -> AssistantPage.Settings
 		PAGE_LOCATION -> AssistantPage.Location
 		PAGE_FEATURES -> AssistantPage.Features
 		PAGE_SAFETY -> AssistantPage.Safety
-		PAGE_WATCHERS -> AssistantPage.Watchers
-		PAGE_INTEGRATIONS -> AssistantPage.Integrations
+		PAGE_SOURCES -> AssistantPage.Sources
+		PAGE_AUTOMATIONS -> AssistantPage.Automations
 		PAGE_ADD -> AssistantPage.Add
-		PAGE_ENTRY -> if (gatewayId != null && watcherId != null) AssistantPage.Entry(gatewayId, watcherId) else null
-		PAGE_SETUP -> if (gatewayId != null && watcherId != null) AssistantPage.Setup(gatewayId, watcherId) else null
-		PAGE_DEVICE -> if (gatewayId != null && watcherId != null) AssistantPage.Device(gatewayId, watcherId) else null
-		PAGE_WATCHER -> if (gatewayId != null && watcherId != null) AssistantPage.Watcher(gatewayId, watcherId) else null
-		PAGE_RULES -> if (gatewayId != null && watcherId != null) AssistantPage.Rules(gatewayId, watcherId) else null
-		PAGE_EDITOR -> {
-			val slot = slotOf(words.drop(3))
-			if (gatewayId != null && watcherId != null && slot != null) AssistantPage.Editor(gatewayId, watcherId, slot) else null
+		PAGE_ENTRY -> if (gatewayId != null && named != null) AssistantPage.Entry(gatewayId, named) else null
+		PAGE_SETUP -> if (gatewayId != null && named != null) AssistantPage.Setup(gatewayId, named) else null
+		PAGE_DEVICE -> if (gatewayId != null && named != null) AssistantPage.Device(gatewayId, named) else null
+		PAGE_SOURCE -> if (gatewayId != null && named != null) AssistantPage.Source(gatewayId, named) else null
+		PAGE_AUTOMATION -> {
+			val slot = slotOf(words.drop(2))
+			if (gatewayId != null && slot != null) AssistantPage.AutomationEditor(gatewayId, slot) else null
 		}
 		else -> null
 	}
@@ -232,16 +226,14 @@ internal fun pageOf(words: List<String>): AssistantPage? {
 /** Page keys stay unique. */
 internal fun pageKey(page: AssistantPage): String = pageWords(page).joinToString(Char(0x1e).toString())
 
-private fun slotWords(slot: RuleSlot): List<String> = when (slot) {
-	is RuleSlot.Held -> listOf(SLOT_HELD, slot.id)
-	RuleSlot.New -> listOf(SLOT_NEW)
-	RuleSlot.Otherwise -> listOf(SLOT_OTHERWISE)
+private fun slotWords(slot: AutomationSlot): List<String> = when (slot) {
+	is AutomationSlot.Held -> listOf(SLOT_HELD, slot.id)
+	AutomationSlot.New -> listOf(SLOT_NEW)
 }
 
-private fun slotOf(words: List<String>): RuleSlot? = when (words.firstOrNull()) {
-	SLOT_HELD -> words.getOrNull(1)?.let { RuleSlot.Held(it) }
-	SLOT_NEW -> RuleSlot.New
-	SLOT_OTHERWISE -> RuleSlot.Otherwise
+private fun slotOf(words: List<String>): AutomationSlot? = when (words.firstOrNull()) {
+	SLOT_HELD -> words.getOrNull(1)?.let { AutomationSlot.Held(it) }
+	SLOT_NEW -> AutomationSlot.New
 	else -> null
 }
 
@@ -249,18 +241,16 @@ private const val PAGE_SETTINGS = "settings"
 private const val PAGE_LOCATION = "location"
 private const val PAGE_FEATURES = "features"
 private const val PAGE_SAFETY = "safety"
-private const val PAGE_WATCHERS = "watchers"
-private const val PAGE_INTEGRATIONS = "integrations"
+private const val PAGE_SOURCES = "sources"
+private const val PAGE_AUTOMATIONS = "automations"
 private const val PAGE_ADD = "add"
 private const val PAGE_ENTRY = "entry"
 private const val PAGE_SETUP = "setup"
 private const val PAGE_DEVICE = "device"
-private const val PAGE_WATCHER = "watcher"
-private const val PAGE_RULES = "rules"
-private const val PAGE_EDITOR = "editor"
+private const val PAGE_SOURCE = "source"
+private const val PAGE_AUTOMATION = "automation"
 private const val SLOT_HELD = "held"
 private const val SLOT_NEW = "new"
-private const val SLOT_OTHERWISE = "otherwise"
 
 /** Moves retarget; a home elsewhere, nobody, or a refusal leaves. */
 internal fun ShellNav.followAssistant(root: AssistantRoot, state: ChatState): ShellNav {

@@ -10,6 +10,7 @@ import {
 import { launchPlaceOf } from "../../shared/host-spawn.js";
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
+import { type ConsoleAssistantRulesResult, DEFAULT_RULES } from "../../shared/schemasAssistantRules.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { isDeviceConsoleOp } from "../../shared/schemasDevices.js";
 import { type HolderKey, HolderKeySchema } from "../../shared/schemasPhoneHold.js";
@@ -40,6 +41,8 @@ export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
 
 /** Host kill dedupe key. */
 const ASSISTANT_HOME_CONVERSATION = "assistant-home";
+// Remove 2026-11-28 with the rule ops.
+const RULES_RETIRED = "rules became automations; update the app";
 
 export function createConsoleDispatcher({
 	routes,
@@ -78,6 +81,7 @@ export function createConsoleDispatcher({
 	onSessionEnded,
 	forgetRefusal,
 	assistant,
+	automations,
 	liveConsole,
 	installedAt,
 }: ConsoleHandlerDeps) {
@@ -495,23 +499,26 @@ export function createConsoleDispatcher({
 			case "assistant_state":
 				return requireAssistant().state();
 
-			case "assistant_watcher_grants":
-				return requireAssistant().setServiceGrants(op.watcherId, op.entryIds);
+			case "assistant_source_grants":
+				return requireAssistant().setServiceGrants(op.sourceId, op.entryIds);
 
-			case "assistant_rule_put":
-				return requireAssistant().putRule(op.watcherId, op.rule);
+			case "assistant_source_enabled":
+				return requireAssistant().setSourceEnabled(op.sourceId, op.enabled);
 
-			case "assistant_rule_delete":
-				return requireAssistant().deleteRule(op.watcherId, op.ruleId, op.baseRevision);
+			case "assistant_source_check":
+				return requireAssistant().checkSource(op.sourceId, device, opId);
 
-			case "assistant_rule_move":
-				return requireAssistant().moveRule(op.watcherId, op.ruleId, op.beforeId, op.baseRevision);
+			case "automation_list":
+				return requireAutomations().list();
 
-			case "assistant_otherwise_put":
-				return requireAssistant().putOtherwise(op.watcherId, op.otherwise);
+			case "automation_put":
+				return requireAutomations().put(op.automationId, op.automation, op.baseRevision);
 
-			case "assistant_rules_preview":
-				return requireAssistant().previewRule(op.watcherId, op.rule);
+			case "automation_delete":
+				return requireAutomations().remove(op.automationId, op.baseRevision);
+
+			case "automation_preview":
+				return requireAutomations().preview(op.trigger);
 
 			case "assistant_safety":
 				return requireAssistant().setSafety(op.approveEverySend);
@@ -519,11 +526,30 @@ export function createConsoleDispatcher({
 			case "assistant_temperature_unit":
 				return requireAssistant().setTemperatureUnit(op.temperatureUnit);
 
+			case "assistant_watcher_grants":
+				return requireAssistant().setServiceGrants(op.watcherId, op.entryIds);
+
 			case "assistant_watcher_enabled":
 				return requireAssistant().setSourceEnabled(op.watcherId, op.enabled);
 
 			case "assistant_watcher_check":
 				return requireAssistant().checkSource(op.watcherId, device, opId);
+
+			case "assistant_rule_put":
+			case "assistant_rule_delete":
+			case "assistant_rule_move":
+			case "assistant_otherwise_put":
+				return {
+					stored: false,
+					rules:
+						requireAssistant()
+							.state()
+							.watchers?.find((watcher) => watcher.id === op.watcherId)?.rules ?? DEFAULT_RULES,
+					reason: RULES_RETIRED,
+				} satisfies ConsoleAssistantRulesResult;
+
+			case "assistant_rules_preview":
+				throw new Error(RULES_RETIRED);
 
 			case "assistant_send_answer":
 				return requireAssistant().answerSend(op.requestId, op.decision, op.note);
@@ -571,6 +597,11 @@ export function createConsoleDispatcher({
 	function requireLiveConsole() {
 		if (!liveConsole) throw new Error("the live console is not available on this Gateway");
 		return liveConsole;
+	}
+
+	function requireAutomations() {
+		if (!automations) throw new Error("automations are not available on this Gateway");
+		return automations;
 	}
 
 	function requireAssistant() {

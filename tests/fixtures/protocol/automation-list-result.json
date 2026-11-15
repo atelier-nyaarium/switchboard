@@ -1,0 +1,36 @@
+{
+	"automations": [
+		{
+			"id": "r1",
+			"revision": 2,
+			"automation": {
+				"enabled": true,
+				"trigger": {
+					"kind": "event",
+					"source": "github",
+					"conditions": [{ "field": "reason", "test": "is", "value": "mention" }]
+				},
+				"actions": [{ "kind": "tell_assistant", "when": "now" }]
+			},
+			"sentence": "GitHub: reason is mention",
+			"lastRanAt": 1763000000000
+		},
+		{
+			"id": "threshold-ce1c44063c5d-temperature-low",
+			"revision": 4,
+			"automation": {
+				"label": "Outside thermometer temperature below 2.0 C",
+				"enabled": true,
+				"trigger": {
+					"kind": "value",
+					"field": "threshold-ce1c44063c5d-temperature",
+					"becomes": "low",
+					"coolDownSec": 0
+				},
+				"actions": [{ "kind": "tell_assistant", "when": "quietly" }]
+			},
+			"sentence": "Outside thermometer temperature below 2.0 C",
+			"device": "ce:1c:44:06:3c:5d"
+		}
+	]
+}

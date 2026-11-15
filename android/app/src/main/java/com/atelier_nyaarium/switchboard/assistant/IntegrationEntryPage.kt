@@ -39,6 +39,7 @@ import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.DevicesView
 import com.atelier_nyaarium.switchboard.PageWork
+import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.ScanView
 import com.atelier_nyaarium.switchboard.WorkKey
 import com.atelier_nyaarium.switchboard.addable
@@ -57,7 +58,7 @@ import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.saidOf
 import com.atelier_nyaarium.switchboard.serviceEntry
 
-/** One catalogue entry: discovery decides the page. */
+/** One catalogue entry. */
 @Composable
 internal fun IntegrationEntryPage(
 	repo: ChatRepository,
@@ -208,7 +209,7 @@ private fun AddDeviceDialog(
 	)
 }
 
-/** A service: what it needs, granted from the vault; the first grant adds it. */
+/** A service granted from the vault. */
 @Composable
 private fun NeedsEntryPage(
 	repo: ChatRepository,
@@ -225,7 +226,7 @@ private fun NeedsEntryPage(
 		serviceEntry(integration, holding?.integrations, entries, gatewayId)
 	}
 	val works by repo.assistantOps.work.collectAsState()
-	val key = WorkKey.Watcher(gatewayId, integration.id)
+	val key = WorkKey.Source(gatewayId, integration.id)
 	val work = works[key] ?: PageWork()
 	var choosing by rememberSaveable(integration.id) { mutableStateOf(false) }
 	var removing by remember { mutableStateOf(false) }
@@ -237,7 +238,11 @@ private fun NeedsEntryPage(
 		if (baseline == null) baseline = added else if (added && baseline == false) onAdded()
 	}
 
-	AssistantPageScaffold(integration.label, onBack) {
+	AssistantPageScaffold(
+		integration.label,
+		onBack,
+		actions = { if (added) RemoveMenu("Remove service", enabled = !work.busy) { removing = true } },
+	) {
 		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 		if (service == null) return@AssistantPageScaffold
 		for (need in integration.needs) {
@@ -256,14 +261,6 @@ private fun NeedsEntryPage(
 					}
 				}
 			}
-		}
-		if (added) {
-			HorizontalDivider()
-			OutlinedButton(
-				onClick = hapticClick { removing = true },
-				enabled = !work.busy,
-				colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-			) { Text("Remove service") }
 		}
 	}
 

@@ -27,7 +27,7 @@ export const SourceEventSchema = z.strictObject({
 
 export type SourceEvent = z.infer<typeof SourceEventSchema>;
 
-/** Null leaves the decision to the owner's rules. */
+/** Null leaves the decision to the owner's automations. */
 export const told = (event: Pick<SourceEvent, "tell">): RuleAction | null =>
 	event.tell === undefined ? null : event.tell === "now" ? "wake" : "inbox";
 
@@ -80,6 +80,10 @@ export interface Source {
 	readonly label: string;
 	/** Specs define testable fields; wire fields derive from them. */
 	readonly fieldSpecs: readonly AssistantFieldSpec[];
+	/** Name inside a sentence. */
+	readonly brief?: string;
+	/** Events tell themselves; no automation triggers. */
+	readonly selfTold?: boolean;
 	/** The secret it needs, shown to the owner. */
 	readonly secret?: string;
 	/** Settles once `signal` aborts. */

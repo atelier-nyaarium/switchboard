@@ -1,7 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import androidx.compose.runtime.saveable.SaverScope
-import com.atelier_nyaarium.switchboard.assistant.RuleSlot
+import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -35,8 +35,8 @@ class ShellNavTest {
 	}
 
 	@Test
-	fun `the Assistant pages draw over the conversation, Back walks Editor, Rules, Watcher, Watchers, Settings, then beneath, and an arrival clears them`() {
-		val editor = AssistantPage.Editor("sakura", "github", RuleSlot.Held("reviews"))
+	fun `the Assistant pages draw over the conversation, Back walks Editor, Automations, Settings, then beneath, and an arrival clears them`() {
+		val editor = AssistantPage.AutomationEditor("sakura", AutomationSlot.Held("reviews"))
 		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts).openAssistantPage(editor)
 		val walked = generateSequence(open) { nav ->
 			backLayer(nav, backFacts())?.takeIf { it == BackLayer.ASSISTANT_PAGE }?.let { nav.back(it, backFacts(), provisioned = true) }
@@ -45,13 +45,12 @@ class ShellNavTest {
 		assertEquals(ShellScreen.ASSISTANT_PAGE, shellScreen(open, locked = false, overlayOpen = false, booted = true))
 		val pages = listOf(
 			editor,
-			AssistantPage.Rules("sakura", "github"),
-			AssistantPage.Watcher("sakura", "github"),
-			AssistantPage.Watchers,
+			AssistantPage.Automations,
 			AssistantPage.Settings,
 		)
 		assertEquals(pages + null, walked)
-		assertEquals(List(5) { BackLayer.ASSISTANT_PAGE } + BackLayer.CONVERSATION, backAll(open))
+		assertEquals(List(3) { BackLayer.ASSISTANT_PAGE } + BackLayer.CONVERSATION, backAll(open))
+		assertEquals(AssistantPage.Sources, assistantPageBack(AssistantPage.Source("sakura", "github")))
 		assertTrue(open.showsAssistant(assistantOpen = false, screen = ShellScreen.ASSISTANT_PAGE))
 		assertFalse(open.showsAssistant(assistantOpen = false, screen = ShellScreen.LOCK))
 		val left = open.arrive(b, Arrival.OUTSIDE, facts)
@@ -66,13 +65,11 @@ class ShellNavTest {
 			AssistantPage.Location,
 			AssistantPage.Features,
 			AssistantPage.Safety,
-			AssistantPage.Watchers,
-			AssistantPage.Watcher("sakura", "github"),
-			AssistantPage.Rules("sakura", "github"),
-			AssistantPage.Editor("sakura", "github", RuleSlot.Held("reviews")),
-			AssistantPage.Editor("sakura", "github", RuleSlot.New),
-			AssistantPage.Editor("sakura", "github", RuleSlot.Otherwise),
-			AssistantPage.Integrations,
+			AssistantPage.Sources,
+			AssistantPage.Source("sakura", "github"),
+			AssistantPage.Automations,
+			AssistantPage.AutomationEditor("sakura", AutomationSlot.Held("reviews")),
+			AssistantPage.AutomationEditor("sakura", AutomationSlot.New),
 			AssistantPage.Add,
 			AssistantPage.Entry("sakura", "kasa"),
 			AssistantPage.Device("sakura", "aa:bb:cc:dd:ee:01"),

@@ -34,11 +34,11 @@ A read-only expression language over Gateway state. A session inspects live stat
 | `thresholds` | `list`, `get(device)`, as the owner set them, in the owner's unit with a `unit` |
 | `fields` | `list`, `get(id)` (the record and why invalid), `read(id)` (its value or why unknown, its seq and last transitions) |
 | `automations` | `list`, `get(id)` (the record and why invalid), `read(id)` (its checkpoint), `runs`, `queue` |
-| `sources` | `list`, `get(id)` (fields, rules with the catch-all last, commands; never its setup text or vault entry ids), `read(id)` (unread, polls, backoff, unexpected values), `test(id, fields)` (the rule an event meets and its action) |
+| `sources` | `list`, `get(id)` (fields, whether its events can trigger an automation, commands; never its setup text or vault entry ids), `read(id)` (unread, polls, backoff, unexpected values), `test(id, fields)` (the armed event automations an event with those fields meets, each with its `when`, and whether it wakes) |
 | `bluetooth` | `listen(seconds?)`: host radio sightings for the window, loudest first, at most 256 addresses. Each row names its family, and `unsupported: yes` marks a device never paired. Host sessions only, since a listen outlasts the phone's answer wait. |
 | `definitions` | `list`, `get(key)`, `match(advert)`, `decode(key, advert)` |
 
-**Verbs:** `list` answers all, `get(x)` one record as set, `read(x)` what it is doing now, as a copy at that moment. A narrower view is a noun (`payloads`, `runs`); a member that computes keeps its verb (`test`, `decode`, `listen`). `sources` reads today's watchers under the word that replaces them.
+**Verbs:** `list` answers all, `get(x)` one record as set, `read(x)` what it is doing now, as a copy at that moment. A narrower view is a noun (`payloads`, `runs`); a member that computes keeps its verb (`test`, `decode`, `listen`).
 
 A device is named by id or by name. `definitions` is a catalogue listed under Types in `describe`. The other entities are live services. A parameter may declare which live ids complete it (`completes`), so the phone offers them without knowing any entity's name.
 
@@ -62,4 +62,4 @@ The phone (`android/.../liveconsole/`): `ConsoleTokens.kt` is the tokenizer's tw
 
 **Read-only is fenced by a test:** the stage test reads every registered member over real device, field, automation and threshold stores and asserts the data directory, the device snapshot and the host ops are untouched. A member added without a row in its table fails it.
 
-**Never readable:** vault values and private text, session credentials and raw session records, the host token, keys and enrollment material, watcher credentials, the inbox page-token key, the assistant home's sealed parts, pane text. The stage receives read seams only. A read that sweeps is a write, so watcher grants come from the vault's non-sweeping `standing()`.
+**Never readable:** vault values and private text, session credentials and raw session records, the host token, keys and enrollment material, source credentials, the inbox page-token key, the assistant home's sealed parts, pane text. The stage receives read seams only. A read that sweeps is a write, so source grants come from the vault's non-sweeping `standing()`.

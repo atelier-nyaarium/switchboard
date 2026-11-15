@@ -51,6 +51,8 @@ export interface SourceLanesDeps {
 	render: (source: Source, event: SourceEvent) => string;
 	/** After a landed settle the phone would draw differently. */
 	changed: (sourceId: string) => void;
+	/** Committed wakes. */
+	woke?: (sourceId: string, events: readonly SourceEvent[]) => void;
 }
 
 export type LaneEnd = "past_deadline" | "stopping";
@@ -314,7 +316,9 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const next = now + answer.nextPollMs;
 		const { wakeRetryMs: _retry, ...rest } = pruned;
 		const advanced = { ...rest, ...read, cursor: answer.cursor, newest, primed: true, nextPollAt: next };
-		if (settle(source, advanced, next) && whole) recounts.delete(source.id);
+		if (!settle(source, advanced, next)) return;
+		if (whole) recounts.delete(source.id);
+		if (wakes.length > 0) deps.woke?.(source.id, wakes);
 	};
 
 	const schedule = (source: Source): void => {

@@ -1,4 +1,4 @@
-// Source rules: ordered, first match wins.
+// A source's fields, and the conditions tested against them.
 
 import { z } from "zod";
 import { FIELD_TYPES, RULE_TESTS, type RuleTest, UNIT_CODES } from "./field-types.js";
@@ -169,27 +169,6 @@ export const ConsoleAssistantPreviewResultSchema = z
 
 export type ConsoleAssistantPreviewResult = z.infer<typeof ConsoleAssistantPreviewResultSchema>;
 
-/** Values trimmed; a rule is stored as it will be read. */
-export function canonicalRule<T extends AssistantRule>(rule: T): T {
-	return {
-		...rule,
-		conditions: rule.conditions.map((condition) => ({ ...condition, value: trimRuleValue(condition.value) })),
-	};
-}
-
-type RuleContent = Pick<AssistantRule, "action"> & { conditions?: AssistantRule["conditions"] };
-
-const contentKey = (rule: RuleContent) =>
-	JSON.stringify([
-		rule.action,
-		(rule.conditions ?? []).map((condition) => [condition.field, condition.test, condition.value]),
-	]);
-
-/** What a rule says, apart from its id and revision. */
-export function sameContent(a: RuleContent, b: RuleContent): boolean {
-	return contentKey(a) === contentKey(b);
-}
-
 const specOf = (specs: readonly AssistantFieldSpec[], field: string) => specs.find((spec) => spec.field === field);
 
 function conditionIssue(condition: AssistantRuleCondition, specs: readonly AssistantFieldSpec[]): string | null {
@@ -202,8 +181,6 @@ function conditionIssue(condition: AssistantRuleCondition, specs: readonly Assis
 	}
 	return null;
 }
-
-export type RuleParse = { ok: true; rule: AssistantRule } | { ok: false; reason: string };
 
 /** Trimmed, as a condition is stored and read. */
 export const canonicalConditions = (conditions: readonly AssistantRuleCondition[]): AssistantRuleCondition[] =>
@@ -219,23 +196,6 @@ export function conditionsIssue(
 		if (issue) return issue;
 	}
 	return null;
-}
-
-/** Put, preview, and match share validation. */
-export function parseRuleForFields(rule: AssistantRule, specs: readonly AssistantFieldSpec[]): RuleParse {
-	const canonical = canonicalRule(rule);
-	const issue = conditionsIssue(canonical.conditions, specs);
-	return issue ? { ok: false, reason: issue } : { ok: true, rule: canonical };
-}
-
-export function invalidRules(
-	rules: readonly AssistantRule[],
-	specs: readonly AssistantFieldSpec[],
-): AssistantRuleInvalid[] {
-	return rules.flatMap((rule) => {
-		const parsed = parseRuleForFields(rule, specs);
-		return parsed.ok ? [] : [{ id: rule.id, reason: parsed.reason }];
-	});
 }
 
 /** Missing fields fail even `is_not`. */
@@ -264,31 +224,4 @@ export function conditionsMatch(
 		const spec = specOf(specs, condition.field);
 		return spec !== undefined && holds(condition, spec, fields);
 	});
-}
-
-/** Invalid rules never match. */
-export function ruleMatches(
-	rule: AssistantRule,
-	specs: readonly AssistantFieldSpec[],
-	fields: Readonly<Record<string, string>>,
-): boolean {
-	return conditionsMatch(rule.conditions, specs, fields);
-}
-
-/** The one reading of which rule decides an event; the sort, the listing and the preview take it. */
-export function firstMatch<T extends AssistantRule>(
-	rules: readonly T[],
-	specs: readonly AssistantFieldSpec[],
-	fields: Readonly<Record<string, string>>,
-): T | undefined {
-	return rules.find((rule) => ruleMatches(rule, specs, fields));
-}
-
-/** Nothing matching takes `otherwise`. */
-export function decideEvent(
-	rules: AssistantWatcherRules,
-	specs: readonly AssistantFieldSpec[],
-	fields: Readonly<Record<string, string>>,
-): RuleAction {
-	return (firstMatch(rules.rules, specs, fields) ?? rules.otherwise).action;
 }

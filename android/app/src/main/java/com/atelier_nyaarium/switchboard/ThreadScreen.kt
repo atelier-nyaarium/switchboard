@@ -133,8 +133,8 @@ internal fun ThreadScreen(
 	onSettings: () -> Unit = {},
 	/** Inbox strip, by watcher id. */
 	inboxWork: (InboxRow) -> PageWork = { PageWork() },
-	onCheckWatcher: (String) -> Unit = {},
-	onWatcherPage: (String) -> Unit = {},
+	onCheckSource: (String) -> Unit = {},
+	onSourcePage: (String) -> Unit = {},
 	// The four assembled subjects (see ThreadScreenState.kt): distinct types are what make handing
 	// one cluster's fact to another's slot a compile error instead of a plausible call.
 	composer: ComposerState,
@@ -178,14 +178,8 @@ internal fun ThreadScreen(
 	// tap's own cleanup already clears it before the second tap's handler reads it.
 	var scheduleSubmitting by remember { mutableStateOf(false) }
 	val scheduleScope = rememberCoroutineScope()
-	// Bumped every time a NEW Schedule Send dialog session opens (a fresh schedule via the menu, or a
-	// dock edit) - never on a bare dismiss. scheduleSubmitting/scheduleScope are ThreadScreen-scoped,
-	// so a launched onConfirm continuation OUTLIVES the dialog: if the user dismisses while it is
-	// still in flight and then reopens a NEW session before it resolves, the stale continuation must
-	// recognize a newer session has taken over and skip its close-dialog/clear-composer side effects
-	// - otherwise it closes whatever dialog is now open and can wipe a second attempt's freshly-typed
-	// draft, exactly the generation-token shape Phase 1's DurableOpStore uses for the identical "a
-	// stale attempt must not act after a newer one has taken over" problem.
+	// Bumped per opened dialog session, never on a bare dismiss. A stale onConfirm continuation
+	// outlives its dialog and must not close or clear a newer session's.
 	var scheduleDialogGeneration by remember { mutableStateOf(0) }
 	// The Goal dialog's own three, for the same reasons as the Schedule Send trio above.
 	var goalDialogOpen by rememberSaveable { mutableStateOf(false) }
@@ -418,7 +412,7 @@ internal fun ThreadScreen(
 				ReorderableTabRow(tabs = tabs, selected = team, tabLabel = tabLabel, onSelect = onGateway, onReorder = onReorderTabs)
 			}
 			if (view == ConversationView.CHAT) {
-				com.atelier_nyaarium.switchboard.assistant.InboxStrip(chrome.inbox, inboxWork, onCheckWatcher, onWatcherPage)
+				com.atelier_nyaarium.switchboard.assistant.InboxStrip(chrome.inbox, inboxWork, onCheckSource, onSourcePage)
 			}
 			// Below the tab row, not above it. The strip is the open tab's own entries and its height
 			// changes as they do, which walked the tab row up and down the screen under it.

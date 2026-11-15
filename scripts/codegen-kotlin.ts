@@ -126,7 +126,11 @@ import {
 	RowOriginSchema,
 	TeamInfoSchema,
 } from "../src/shared/schemas.js";
-import { AssistantWatcherSchema, ConsoleAssistantStateResultSchema } from "../src/shared/schemasAssistant.js";
+import {
+	AssistantSourceSchema,
+	AssistantWatcherSchema,
+	ConsoleAssistantStateResultSchema,
+} from "../src/shared/schemasAssistant.js";
 import {
 	AssistantHomeCarriedSchema,
 	AssistantHomeCarriedWatcherSchema,
@@ -160,6 +164,18 @@ import {
 	AssistantSendRetractSchema,
 	ConsoleAssistantSendAnswerResultSchema,
 } from "../src/shared/schemasAssistantSend.js";
+import {
+	AutomationActionSchema,
+	AutomationConditionSchema,
+	AutomationRowSchema,
+	AutomationSchema,
+	AutomationTriggerSchema,
+	CarriedAutomationSchema,
+	ConsoleAutomationDeleteResultSchema,
+	ConsoleAutomationListResultSchema,
+	ConsoleAutomationPreviewResultSchema,
+	ConsoleAutomationPutResultSchema,
+} from "../src/shared/schemasAutomation.js";
 import {
 	BoardActorSchema,
 	BoardObservationRowSchema,
@@ -540,7 +556,18 @@ const ROOTS: z.ZodType[] = [
 	ConsoleIdsSchema,
 	ConsoleEvalResultSchema,
 	AssistantWatcherSchema,
+	AssistantSourceSchema,
 	ConsoleAssistantStateResultSchema,
+	AutomationConditionSchema,
+	AutomationTriggerSchema,
+	AutomationActionSchema,
+	AutomationSchema,
+	CarriedAutomationSchema,
+	AutomationRowSchema,
+	ConsoleAutomationListResultSchema,
+	ConsoleAutomationPutResultSchema,
+	ConsoleAutomationDeleteResultSchema,
+	ConsoleAutomationPreviewResultSchema,
 	AssistantHomeCarriedWatcherSchema,
 	AssistantHomeCarriedSchema,
 	AssistantHomeSealedSchema,
@@ -739,6 +766,8 @@ const SEALED_ROOTS = new Map<string, DecodePolicy>([
 		"ConsoleEvalResult",
 	]),
 	["AssistantFieldSpec", "preserve"],
+	["AutomationTrigger", "preserve"],
+	["AutomationAction", "preserve"],
 	["ConsoleDeviceReadResult", "preserve"],
 ]);
 

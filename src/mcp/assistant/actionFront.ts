@@ -97,7 +97,7 @@ export function phoneText(result: ActionRunResult, answer: unknown): string {
 }
 
 function render(ref: ActionRef | null, result: ActionRunResult, params: Record<string, unknown>): ToolText {
-	if (ref?.family === "watcher") {
+	if (ref?.family === "source") {
 		const answer =
 			result.kind === "ok" ? (ASSISTANT_ACTIONS[ref.key].answer.safeParse(result.answer).data ?? null) : null;
 		const failed =
@@ -122,7 +122,7 @@ function unreachable(ref: ActionRef | null, error: unknown): ToolText {
 	if (status === 404) return text(NOT_SERVED, true);
 	if (status === 400) return text(`Not an action this Gateway knows; read \`${LIST}\`.`, true);
 	const why =
-		ref?.family === "watcher" && status !== null && refusedOutright(status)
+		ref?.family === "source" && status !== null && refusedOutright(status)
 			? "The Gateway did not run it"
 			: `Could not reach the Gateway${status === null ? "" : ` (HTTP ${status})`}; it may still have run, so read \`${INBOX}\` or ${STATUS_ID} before sending it again`;
 	return text(`${why}: ${(error as Error).message}`, true);

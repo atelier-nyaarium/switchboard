@@ -523,6 +523,43 @@ Recommended: the row always says what the automation does and follows a rename o
 
 > And looks good. Lock it in and implement while the Lunas are out
 
+## Question 40 - What does the menu icon open?
+
+Raised by the owner while 2.7b was audited: the root menu and a session's menu are two lists behind one icon, the assistant's own menu is Chat and Terminal with everything else behind a gear, and Sources and Automations sit under the assistant's settings.
+
+> the overall menu being split so weird. Or that everything we are doing is buried in under Assistant > Integration or adjacent or whatever.
+
+Q: One menu, the same everywhere, with a session's Chat, Terminal and Files moved into its top bar and a pick made inside a session arriving filtered to it (A); one menu in two parts, "This session" above the full list (B); or keep both menus and only move Sources and Automations to the root list (C)?
+A: A, firmed by Question 42. The list: Sessions, Assistant, Backlog; Sources, Automations, Routines, Runbooks; Vault, Policies, Console; Settings. The assistant's gear keeps Location, Features, Safety and Remove.
+
+Recommended: a menu answers where to go and Chat, Terminal and Files answer how this session is shown; splitting them ends one icon opening two menus, and Sources and Automations are a Gateway's records as Runbooks, Routines and Policies are.
+
+> maybe menu everywhere
+
+Mocked in the Designer dock under "Menu arrangement". Its own phase, after 2.7b.
+
+## Question 41 - Do Routines and Automations stay two lists?
+
+Left open by Question 34. With one menu they sit side by side, and a time trigger lets both say "every day at 08:00".
+
+Q: Two lists, told apart by what they make (A); one list, a routine becoming an automation whose action runs a runbook in a session (B); or two engines shown as one list (C)?
+A: A. A routine starts a session on a schedule: an agent works, files a report, may hold secrets, and a missed run is tracked. An automation reacts at once. Revisit once the action catalogue exists, since starting a session could then be one more action.
+
+Recommended: the two differ in what they leave behind, and B moves the routine engine's run history, missed-run recovery and granted secrets for a tidier menu.
+
+> A
+
+## Question 42 - When is the one menu built?
+
+Q: Right after 2.7b ships and before 2.7c (A); after 2.7c and before the 2.7d walk-through (B); or after 2.7d as its own plan (C)?
+A: A. It is phone-only, so 2.7c's pages are built into the arrangement that stays, and the walk-through happens in it.
+
+Recommended: the smallest of the three pieces, it decides where every later page lives, and only the phone moves.
+
+> interesting. A it is.
+
+Taken with it, told to the owner and not objected to: Sources and Automations do not filter by session, since they are a Gateway's, and open whole with the session's Gateway group first.
+
 ## Design rulings, mocked in the Designer dock
 
 - **Pair with** (a dialogue over the family's entry page after Scan): Found rows merged across every radio with signal bars from the strongest, untested rows marked "Not tested" (a known format) or "Not tested · raw only"; Paired rows below with their live value. The dialogue lists the Gateways that heard the device, strongest first, then This Phone last, each with a chip: "Assistant" (home, and This Phone) or "App only". Owner: "looks good".
@@ -766,16 +803,68 @@ Design held for slices 2 and 4, the Gateway half, decided while reading `compose
 - **The automations stage gets two late ports from the assistant:** `eventIssue` (the source is one this Gateway holds and the conditions fit its field specs, through `conditionsIssue`) and `eventSentence` (the source's label, then each condition as field label, test and option label; "every event" for none).
 - **Automations do not sit in the assistant state.** They are per Gateway, like routines and policies, so the phone reads `automation_list` from each Gateway and counts a source's automations itself. The state gains `sources` only.
 - **Ops:** `automation_list`, `automation_put` (id, automation, baseRevision), `automation_delete`, `automation_preview` (the event trigger over the source's live first page: matched, of, the newest matches with their times). A threshold's automation is listed with its `device` and refuses a put or delete here, since its sensor page owns it until 2.7c. `assistant_source_grants`, `assistant_source_enabled`, `assistant_source_check` take `sourceId`; the `assistant_watcher_*` kinds keep parsing through the window, and the four rule ops answer a refusal that says to update the app.
-- **Rollback:** an automation body is stored in its new shape from slice 1 on (rewritten at open), which the build before cannot read: rolled back, it holds those rows as unread and its threshold alerts stop until it is redeployed. Nothing is lost, and the vault and the source files are untouched.
+- **Rollback:** an automation body is stored in its new shape from slice 1 on (rewritten at open), which the build before cannot read: rolled back, it holds those rows as unread and its threshold alerts stop until it is redeployed. No byte is lost, and the vault and the source files are untouched; what wakes is then what `assistant-rules.json` held before the upgrade.
 - **Rules to automations:** after the automations store opens, each stored rule that woke becomes an automation under the rule's own id; then `assistant-rules.json` is moved aside. Nothing converts twice, since an id already held is skipped.
 - **Home move:** apply replaces this Gateway's event automations with the carried ones before the lanes start, and let-go removes them, where the rules store did both.
 - **Inbox item:** `decision` is `now` when an automation tells now and is left out otherwise.
+
+As built, the Gateway half (slices 2, 4 and the Gateway side of 5), tested and not yet committed or deployed:
+
+- **The lane:** `composeAssistant`'s `decide` is `told(event)`, else wake when an armed event automation of the source matches and tells `now`. The lane reports the events whose wake landed (`woke`), and `noteEvents` stamps each waking automation, which the row answers as `lastRanAt`.
+- **Rules to automations:** `src/gateway/assistant/rulesAdoption.ts` replaces `rulesStore.ts`. `assistant-rules.json` stays where it is, untouched, for a rollback; `assistant-rules-adopted.json` marks the conversion done, so an automation the owner deletes is not brought back. A fallback that woke becomes an automation for every event (`every-<source>`); a rule its source's fields no longer take is logged and dropped.
+- **Sources:** the state answers `sources` (`AssistantSource`, with `triggers`) beside `watchers`, which an older phone reads with empty rules until 2026-11-28. A source whose events tell themselves (`selfTold`, the Sensors queue) refuses an event automation.
+- **Ops:** `assistant_source_grants`, `assistant_source_enabled`, `assistant_source_check`, `automation_list`, `automation_put`, `automation_delete`, `automation_preview`. The `assistant_watcher_*` kinds still run; the four rule writes answer `stored: false` with "rules became automations; update the app", and the rule preview throws the same. An event automation is refused while the assistant lives elsewhere; a threshold's row refuses a put or delete.
+- **Words:** action ids are `source/<key>` (a `watcher/` id still runs), the event header is `source:`, the baseline lists `sources` only, an inbox item's `decision` is `now` or absent and the plugin prints it as `tell:`. The quiet push is still `watchers-changed` with `watcherId`; the phone claims `sources-changed` too, and the Gateway flips in 2.7d.
+- **Home move:** the carried payload takes `automations`; `rules` on a carried watcher is optional and converts through `automationsOfRules` when no automations are carried. A move made from an older phone carries empty rules and so drops the event automations. A carried automation this Gateway cannot run is dropped with a log, since a put takes no unfit body; one becomes `invalid` only when its source's fields change under it.
+- **Codegen:** `AutomationTrigger` and `AutomationAction` are `preserve` roots with future-kind fixtures; `AutomationCondition` is its own strict class.
+
+As built, the phone half (slice 3 and the phone side of 5), tested and not yet committed or installed. A Luna agent started it on a written brief and ran out of quota after the draft model and the ops skeleton; the rest was written here.
+
+- **Sources:** `sourcesOf` in `AssistantOps.kt` is the one reader: `sources`, else an older Gateway's `watchers` converted. The watcher helpers, `WorkKey` and the inbox strip speak sources; the rule ops, drafts and pages are gone.
+- **`AutomationOps`** on the `PolicyOps` model: per-Gateway list in `GatewayEntry.automations`, typed answers, the toggle fence, and the editor's held drafts with their `opening`. Every put and delete holds the move lock. Other Gateways in this Domain run older builds: one is told by its state answering no `sources` (`servesSources`), is drawn with no Automations row and no uses line, and is sent the `assistant_watcher_*` kinds.
+- **Pages:** `AssistantPage.Sources`, `Source`, `Automations`, `AutomationEditor`. Sources is the Integrations page plus the home's service sources; a service source's page shows Produces, Inbox, Commands and "N use this source"; Automations lists per Gateway with the only switch; the editor shows the three trigger kinds with only "Event arrives" selectable, the preview fold, and Now or Quietly. An alert's row is read-only on the Automations list and opens nothing, since the page stack has one parent per page.
+- **Leaving the editor:** `leaveAsks` and `AutomationOps.askLeave`; the shell's `leaveAssistantPage` serves both the system Back and the top-bar arrow, and the editor draws the dialogue from `leaving`.
+- **Home move:** `carriedOf(state, automations)` carries the old home's event automations, or an older Gateway's rules when it refuses the list; an unreadable list, or one a current Gateway refuses, refuses the move, and a seed reads the list the same way. Until 2026-11-28 the payload also names rules for every source (`rulesOf`), which a Gateway on an older build requires; a round trip through one keeps only what wakes now, so a disabled or quiet automation is lost there.
+- **Removal:** every record page removes from its top bar's menu (`RemoveMenu`, then `ConfirmDialog`): the automation, runbook, routine and policy editors, a device's page and a service's entry.
+- **Sandbox:** `SandboxAutomations.kt`: the home lists four GitHub automations and one alert row and checks revisions after a round trip; the second Gateway refuses as an older build; the third lists none.
+- **Console keyboard:** the field takes the password keyboard type so Gboard draws no suggestion strip.
+
+Seen on the emulator's sandbox build (2026-11-15): the inbox strip, the settings index with Sources and Automations, the Sources page with the home's Devices and Services, a service source's page, the Automations list and its switch, the editor (preview fold with its list, Add condition, Now or Quietly, Save landing back on the list, New), the leave dialogue from the system Back and from the top-bar arrow with Stay and Discard, Delete from the top bar's menu with its confirmation (Cancel keeps the editor, Delete lands on the list without the row), the same menu on the runbook, routine and policy editors and a device's page, Discard left of Stay on the leave dialogue, "1 in its inbox" on a service's row, and the Console field without Gboard's suggestion strip. Not walked: a Gateway on an older build beside a real home. Delete first went through with no confirmation, unlike the runbook, routine and policy editors; it now asks. The first walk put the services after every Gateway's devices; they now sit inside the home's group, as mocked. The emulator needed `sudo -A setfacl -m u:nyaarium:rw /dev/kvm`, since KVM is granted to the seat's user and nobody was logged in at the desk.
+
+Seen on the phone after 8.14.80 and `8e098817`: the Console opens on Sakura, a tap on an entity opens the keyboard, member and sensor completions are right, a refusal draws in one line. Gboard's suggestion strip still shows; the brief switches the field to the password keyboard type.
+
+Alignment audit, lap 1 (eight angles on Opus and Sonnet, Opus synthesis, since Luna and OpenCode were out of quota). Fixed: the sealed payload's explicit nulls, which every Gateway refused; rules absent for an older destination; the source ops sent only in their new kinds; a seed that carried no automations; automation writes outside the move lock; a refused list read as empty; a refused save re-sending a stale `enabled`; a revived id showing its earlier run time; the leave dialogue's button order; "N in its inbox"; the baseline's overdue `evicted`; stale doc names; `parseRuleForFields`, which no production code called. Left as they are: "N use this source" opens every automation and Back skips the source page; the editor's preview is held in the page; Sensors is listed under Services; Produces reads "Events"; a partial rules adoption that fails a write and then loses a race with an owner delete.
+
+Red-team audit, lap 1 (eight angles on Opus and Sonnet, Opus synthesis). Fixed: the leave dialogue outliving its opening; Discard during a save in flight; a refused delete leaving Back asking about changes nobody made; a phone on the build before being answered blank rules, which a move from it then carried; one unreadable carried automation or service refusing the whole move; a save queued behind a move landing on the old home; a carried id shaped like a sensor alert; an id spelling a prototype key; a null temperature unit in the payload; the plugin's reading of an older Gateway's `wake` and `inbox`. Left as they are, each for a reason:
+
+- **A Gateway rolled back to the build before** decides from `assistant-rules.json` as it was before the upgrade, so edits made since do not wake, and one that became home only on this build wakes nothing there. The file stays read-only; writing it back would make this build a second writer of a file it retires.
+- **A phone older than its Gateway drops fields it does not know** when it toggles, saves or carries a whole record. 2.7c ships its phone first, and a field added to a known kind needs a reader release.
+- **The cap of 64 is shared with sensor alerts** and is checked late in an apply; a move to the same Gateway drops an automation its fields no longer take; a throw inside adoption would write the mark. None is reachable with the owner's configuration.
+- **A preview reads a source that is off.** It is the owner's read; off gates what reaches the assistant.
+
+### Bug Classes
+
+- **Editor state keyed to a slot, not an opening.** Mechanism: `AutomationOps.leaving`, `discard` and `opened`. First round: the ask now names its opening, a Back during a send leaves without discarding, and a delete's offer rebases `opened`.
+- **A store rule enforced at one door.** Mechanism: `automations.ts` and `composeAssistant.ts`: the alert prefix, the cap, validity and `enabled` are each checked on some write or read roads and not on `replaceEvents`, `adoptEvent`, `carriedEvents` or `livePage`. First round patched the prefix on `replaceEvents` and `ownerRemove`; the rest are listed above.
+- **An explicit null against an optional field, in the sealed home payload.** Mechanism: `sealedJson` (`encodeDefaults = true`) feeding hand-written `.optional()` fields in `schemasAssistantHome.ts`. Third occurrence: `integrations` was patched to `.nullish()` earlier, then `rules`, `automations`, `enabled`, `temperatureUnit` and a carried automation's `label` here. This round's patch is `.nullish()` on each plus `canonicalAutomation` dropping a null label. The gate that was missing now exists: `AssistantHomeSealedFixtureTest.kt` writes the phone's own encoding and `assistant-home-sealed.test.ts` parses it. The design fix, not done: codegen marking each field required-nullable or optional (`@EncodeDefault`), so no encoder setting decides it.
+- **A skew window opened for the reader and not the writer.** Mechanism: each new shape got a tolerant reader while its writer went out at once: the phone's `assistant_source_*` ops, the carried payload without `rules`, the phone's `watchers-changed` claim dated before the Gateway's flip. Patched per site, with `servesSources` as the phone's one reading of a Gateway's build. Second round, from the red team: the Gateway's `watchers` view answered an older phone blank rules, now projected by `rulesOfAutomations`; the plugin read only the new `tell` word.
+- **Refused read as empty or as older.** Mechanism: a nullable list flattened by `orEmpty()` (`automationsOn`), and `carriedFrom` reading any refusal as an older build. Patched by reading the build off the state instead of off the refusal.
 
 Configuration held before the rebuild (2026-11-15), which the carry-over must reproduce:
 
 - **GitHub notifications** (`github`): enabled; reads the vault entry "GitHub PAT - Development"; wakes when `reason` is `approval_requested`, `security_alert` or `mention`, or `type` is `PullRequest`; everything else to the inbox; offers Mark done.
 - **Sensors** (`sensors`): enabled; no rules, everything to the inbox; offers Clear events.
 - **Automations:** "Outside thermometer temperature below 2.0 C" tells the assistant; its "above" side is off.
+
+## Phase 2.7m - One menu (Q40, Q41, Q42)
+
+Runs after 2.7b ships and before 2.7c. Phone only.
+
+- **One menu:** the root list everywhere, in the order of Question 40, with Sources and Automations as root views. The session's menu and the assistant's two-item menu go.
+- **A session's bar:** the Terminal button becomes a three-way switch for Chat, Terminal and Files; the assistant's bar gets Chat and Terminal. Back, the name, the three dots and the tab row stay.
+- **A pick made inside a session** arrives filtered to it, as the session's menu filtered it, with a chip that clears the filter and Back returning to the session. Sources and Automations open whole.
+- **The assistant's gear** keeps Location, Features, Safety and Remove.
+- **As mocked** in the Designer dock under "Menu arrangement": "Menu today", "A: one menu everywhere", "A: inside a session".
 
 ## Phase 2.7c - Triggers and the action catalogue (Q34, Q35, Q36)
 

@@ -461,24 +461,35 @@ no TTL.
 - **Designer plugin** (`plugins/designer/`): owns design cards, live content-keyed rendering, and
   per-team `DesignStore`.
 - **The Assistant view** (`AssistantOps.kt`, `AssistantHomeFence.kt`, `AssistantRoot.kt`,
-  `assistant/AssistantScreen.kt`, `assistant/WatcherRulesPage.kt`): the landing fold over the
-  Router's home record and the rules that enter, follow and leave the assistant's conversation, and
-  the root with no conversation (`AssistantRootScreen`). The conversation is the usual thread
-  screen, drawn from `ThreadChrome`. Every write to the home lands through `AssistantHomeFence`.
-  - **Its pages are one route on `ShellNav`:** `assistantPage` holds Settings, a watcher's page, its
-    Rules, or the rule Editor, drawn in their own `ShellScreen` slot above the conversation, with
-    their own `BackLayer`. Back walks Editor, Rules, the watcher, Settings, then what lies beneath;
-    `arrive` clears them. `AssistantPage.resolved` unwinds any of them to Settings when the home
-    moved or an answer no longer holds that watcher, and Rules or the Editor to the watcher's page
-    when its Gateway answers no rules, never on a missing answer. The inbox strip's Settings opens
-    the watcher's page directly.
-  - **A page reads its op's result from `AssistantOps`, never from its own coroutine:** `runWork`
-    holds each page's busy flag and line under a `WorkKey`, and a rule save lands in
-    `ruleDrafts` and `ruleLanded`, so Back never loses a result. The editor holds its draft's
-    opening before it sends (`holdRule`) and closes when that opening lands (`editorLanded`).
-  - **Each edit is one rule op:** `RuleDraft.kt` holds the draft, `ruleEditing`, and `outcomeOf`,
-    which reads the op's answer, never the drawn copy: done, an offer to go over a newer revision on
-    a second tap, or the reason. `docs/assistant.md` holds the design.
+  `AutomationOps.kt`, `assistant/AssistantScreen.kt`, `assistant/AssistantSourcesPage.kt`,
+  `assistant/AssistantSourcePage.kt`, `assistant/AutomationsPage.kt`,
+  `assistant/AutomationDraft.kt`): the landing fold over the Router's home record and the rules that
+  enter, follow and leave the assistant's conversation, and the root with no conversation
+  (`AssistantRootScreen`). The conversation is the usual thread screen, drawn from `ThreadChrome`.
+  Every write to the home lands through `AssistantHomeFence`. `sourcesOf` is the one reader of a
+  Gateway's sources: `sources`, else an older Gateway's `watchers`, until 2026-11-28.
+  - **Its pages are one route on `ShellNav`:** `assistantPage` holds Settings, its index pages
+    (Location, Features, Safety, Sources, Automations), and below them Add, an Entry, a Setup, a
+    Device, a Source or the AutomationEditor, drawn in their own `ShellScreen` slot above the
+    conversation, with their own `BackLayer`. Back walks `assistantPageBack`: the editor to
+    Automations, a Device, a Source and Add to Sources, a Setup to its Entry, an Entry to Add, an
+    index page to Settings, then what lies beneath; `arrive` clears them. `AssistantPage.resolved`
+    unwinds only on an answer, never on a missing one: a Source or the editor to Settings when the
+    assistant left its Gateway, a Source to Sources when its Gateway no longer lists it, and a
+    Device, an Entry or a Setup to Sources or Add. The inbox strip's Settings opens the source's page
+    directly.
+  - **Leaving an edit page asks first:** the system Back and the top bar's arrow both call the
+    shell's `leaveAssistantPage`, under its one `BackHandler`. On the automation editor with a
+    changed draft (`leaveAsks`), `AutomationOps.askLeave` holds the leave instead, and the editor
+    draws "Leave and discard changes?" from `leaving`, with Discard and Stay. An unchanged draft
+    leaves at once.
+  - **A page reads its op's result from its ops class, never from its own coroutine:** `runWork`
+    holds each page's busy flag and line under a `WorkKey`, and an automation save lands in
+    `AutomationOps.drafts` and `landed`, so Back never loses a result. The editor holds its draft's
+    opening before it sends (`hold`) and closes when that opening lands (`editorLanded`).
+  - **Each edit is one automation op:** `AutomationDraft.kt` holds the draft and `outcomeOf`, which
+    reads the op's answer, never the drawn copy: done, an offer to go over a newer revision on a
+    second tap, or the reason. `docs/assistant.md` holds the design.
 - **The shell and its drawers** (`ShellNav.kt`, `DrawerNav.kt`, `ViewScope.kt`, `SideDrawer.kt`,
   `ScopedViews.kt`): the root shows one global view (Sessions, Assistant, Backlog, Runbooks, Routines,
   Policies, Vault) and a conversation shows Chat, Terminal, Files or one of those views filtered to it, each

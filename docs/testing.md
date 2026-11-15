@@ -44,7 +44,7 @@ and the sessions are fake sockets at the gateway's own WebSocket handlers (`fake
 when a test needs one.
 `restartGateway` recomposes over the retained directories. `restartHost`
 reconnects the daemon, and with `newDaemon` as a fresh process. The harness reaches no network:
-`assistantWatchers` replaces the built-in watchers with a scenario's own.
+`assistantSources` replaces the built-in sources with a scenario's own.
 
 `src/testing/fakeKasaPlug.ts` is a Kasa plug on a loopback TCP port speaking the XOR protocol, with a behaviour per request: `hold` applies the command and withholds only the reply, and one `waitForHeldReply` takes one hold; `disconnect`, `error` with an `err_code`, `differentMac`, `changeMacAfter` and `changeRelayStateAfter`. The harness takes a `kasaPort` and builds the transport; the stage tests pass a transport directly.
 

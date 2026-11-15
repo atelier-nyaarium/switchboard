@@ -30,6 +30,7 @@ import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemas
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { SessionStore } from "../shared/session-store.js";
+import { boundAutomations } from "../testing/assistantAutomations.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 const T0 = 1_800_000_000_000;
@@ -154,6 +155,7 @@ async function placed(listed: string[] = []) {
 		lastDeliverySeq: () => 0,
 		fetch: source.fetch,
 	});
+	boundAutomations(assistant, dataDir, () => ambient.now());
 	const home = bindHome(assistant, store);
 	assistant.start();
 	await home.follow();
@@ -210,7 +212,7 @@ describe("an assistant action", () => {
 			body: "The release is out.",
 		});
 		expect(ConsolePushEntrySchema.safeParse(record?.entry).success).toBe(true);
-		expect(assistant.console.state().watchers[0]?.actions).toEqual([
+		expect(assistant.console.state().sources?.[0]?.actions).toEqual([
 			{
 				key: "github_done",
 				label: ASSISTANT_ACTIONS.github_done.label,
@@ -294,7 +296,7 @@ describe("an assistant action", () => {
 
 	it("recounts the inbox once an action reaches GitHub, though GitHub answers 304 to a validated read", async () => {
 		const { assistant, call, ambient } = await placed(["7", "8"]);
-		const watcher = () => assistant.console.state().watchers[0];
+		const watcher = () => assistant.console.state().sources?.[0];
 		const counted = async (unread: number) => {
 			for (let turn = 0; turn < 50 && watcher()?.unread !== unread; turn += 1) await ambient.advance(0);
 			return watcher();
@@ -302,7 +304,7 @@ describe("an assistant action", () => {
 
 		await assistant.console.setSourceEnabled("github", true);
 		const before = await counted(2);
-		await call({ id: "watcher/github_done", callId: "call-0008", params: { ids: ["7"] } });
+		await call({ id: "source/github_done", callId: "call-0008", params: { ids: ["7"] } });
 		const after = await counted(1);
 		await assistant.stop();
 
@@ -314,7 +316,7 @@ describe("an assistant action", () => {
 
 	it("drops a thread GitHub still lists but answers not found for from the count and from inbox all", async () => {
 		const { assistant, call, inboxIds, ambient } = await placed(["404", "8"]);
-		const watcher = () => assistant.console.state().watchers[0];
+		const watcher = () => assistant.console.state().sources?.[0];
 		const counted = async (unread: number) => {
 			for (let turn = 0; turn < 50 && watcher()?.unread !== unread; turn += 1) await ambient.advance(0);
 			return watcher()?.unread;
@@ -322,7 +324,7 @@ describe("an assistant action", () => {
 
 		await assistant.console.setSourceEnabled("github", true);
 		const before = await counted(2);
-		const result = await call({ id: "watcher/github_done", callId: "call-0009", params: { ids: ["404"] } });
+		const result = await call({ id: "source/github_done", callId: "call-0009", params: { ids: ["404"] } });
 		const after = await counted(1);
 		const all = await inboxIds("all");
 		await assistant.stop();
@@ -334,7 +336,7 @@ describe("an assistant action", () => {
 
 	it("joins a repeated call id, so a retry sends nothing twice, and clears quietly without a summary", async () => {
 		const { assistant, call, delivered, asked } = await placed();
-		const body = { id: "watcher/github_done", callId: "call-0002", params: { ids: ["8"] } };
+		const body = { id: "source/github_done", callId: "call-0002", params: { ids: ["8"] } };
 
 		const [first, retried] = await Promise.all([call(body), call(body)]);
 		await assistant.stop();
@@ -348,7 +350,7 @@ describe("an assistant action", () => {
 
 	it("answers only the assistant, refuses what its declaration refuses, and records nothing that never reached GitHub", async () => {
 		const { assistant, call, delivered } = await placed();
-		const done = (callId: string, ids: string[]) => ({ id: "watcher/github_done", callId, params: { ids } });
+		const done = (callId: string, ids: string[]) => ({ id: "source/github_done", callId, params: { ids } });
 
 		const stranger = await call(done("call-0003", ["1"]), "someone");
 		const unbound = await call(done("call-0004", ["1"]), "");

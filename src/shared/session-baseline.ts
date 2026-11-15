@@ -27,8 +27,6 @@ const BaselineSourceSchema = z.object({
 	capped: z.boolean().optional(),
 	/** False until checked; optional on older Gateways. */
 	checked: z.boolean().optional(),
-	// Sent as 0 for older plugins; remove 2026-11-02.
-	evicted: z.number().int().nonnegative().optional(),
 	stopped: z.string().optional(),
 	waiting: z.string().optional(),
 });

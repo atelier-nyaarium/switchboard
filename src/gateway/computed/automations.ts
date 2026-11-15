@@ -6,7 +6,12 @@ import { commitChecked, type DurableStore } from "../../shared/durable-store.js"
 import {
 	AUTOMATIONS_MAX,
 	type Automation,
+	type AutomationRow,
 	AutomationSchema,
+	type CarriedAutomation,
+	type ConsoleAutomationDeleteResult,
+	type ConsoleAutomationPutResult,
+	canonicalAutomation,
 	type EventTrigger,
 	TELL_WHEN,
 	type TellWhen,
@@ -16,6 +21,11 @@ import { createOwnerRecords, type OwnerRecord } from "../ownerRecords.js";
 import type { ComputedFields } from "./computedFields.js";
 
 export const AUTOMATION_KIND = "automation";
+
+/** An id may spell a prototype key. */
+const own = <T>(held: Record<string, T>, id: string): T | undefined => (Object.hasOwn(held, id) ? held[id] : undefined);
+/** Ids a sensor's alerts take. */
+const THRESHOLD_PREFIX = "threshold-";
 export const QUEUE_MAX_EVENTS = 256;
 export const QUEUE_MAX_BYTES = 64 * 1024;
 const LOG_MAX = 64;
@@ -48,7 +58,7 @@ type QueueEntry = z.infer<typeof QueueEntrySchema>;
 const EventBodySchema = z.strictObject({
 	title: z.string(),
 	fields: z.record(z.string(), z.string()),
-	/** Absent in an older entry: quietly. */
+	/** Absent: quietly. */
 	when: z.enum(TELL_WHEN).optional(),
 });
 
@@ -95,15 +105,18 @@ interface State {
 	automations: Record<string, Checkpoint>;
 	queue: { lastAt: number; events: QueueEntry[] };
 	log: AutomationRun[];
+	/** When each event automation last woke. */
+	ran: Record<string, number>;
 }
 
-const EMPTY: State = { automations: {}, queue: { lastAt: 0, events: [] }, log: [] };
+const EMPTY: State = { automations: {}, queue: { lastAt: 0, events: [] }, log: [], ran: {} };
 
 /** Invalid log/baseline rows drop. */
 const LooseStateSchema = z.object({
 	automations: z.record(z.string(), z.unknown()).catch({}),
 	queue: z.object({ lastAt: z.number().int(), events: z.array(z.unknown()) }).catch(EMPTY.queue),
 	log: z.array(z.unknown()).catch([]),
+	ran: z.record(z.string(), z.number()).catch({}),
 });
 
 function restore(raw: unknown): State {
@@ -125,6 +138,7 @@ function restore(raw: unknown): State {
 			events: pick(loose.queue.events, QueueEntrySchema).slice(-QUEUE_MAX_EVENTS),
 		},
 		log: pick(loose.log, RunSchema).slice(-LOG_MAX),
+		ran: loose.ran,
 	};
 }
 
@@ -177,7 +191,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** What the row and its events are called. */
 	const sentenceOf = (body: Automation): string => {
-		if (body.label !== undefined) return body.label;
+		if (body.label) return body.label;
 		if (body.trigger.kind === "event") return deps.eventSentence?.(body.trigger) ?? `${body.trigger.source} event`;
 		const field = deps.fields.get(body.trigger.field)?.body.label ?? body.trigger.field;
 		return `${field} becomes ${String(body.trigger.becomes)}`;
@@ -211,7 +225,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			// The lane runs event triggers.
 			if (trigger.kind !== "value" || !armed(record)) continue;
 			const { field, becomes } = trigger;
-			const saved = state.automations[record.id];
+			const saved = own(state.automations, record.id);
 			const held = unsaved[record.id];
 			const was = held?.revision === record.revision && saved?.revision !== record.revision ? held : saved;
 			const current = deps.fields.stateOf(field);
@@ -308,7 +322,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			}
 			checkpoints[record.id] = at;
 		}
-		const next: State = { automations: checkpoints, queue, log };
+		const next: State = { automations: checkpoints, queue, log, ran: state.ran };
 		if (canonicalJson(next) === canonicalJson(state)) return true;
 		const landed = commit(next);
 		unsaved = landed ? {} : checkpoints;
@@ -328,10 +342,122 @@ export function createAutomations(deps: AutomationsDeps) {
 			}),
 	};
 
+	/** The device whose Alerts row wrote it. */
+	const deviceOf = (record: OwnerRecord<Automation>): string | undefined => {
+		const { trigger } = record.body;
+		if (trigger.kind !== "value" || !record.id.startsWith(THRESHOLD_PREFIX)) return undefined;
+		const read = deps.fields.get(trigger.field)?.body.nodes[0];
+		return read?.kind === "field" && read.ref.source === "device" ? read.ref.device : undefined;
+	};
+
+	const rowOf = (record: OwnerRecord<Automation>): AutomationRow => {
+		const invalid = records.invalidOf(record.id);
+		const lastRanAt = own(state.automations, record.id)?.firedAt ?? own(state.ran, record.id);
+		const device = deviceOf(record);
+		return {
+			id: record.id,
+			revision: record.revision,
+			automation: record.body,
+			sentence: sentenceOf(record.body),
+			...(invalid === null ? {} : { invalid }),
+			...(lastRanAt === undefined ? {} : { lastRanAt }),
+			...(device === undefined ? {} : { device }),
+		};
+	};
+
+	const isEvent = (record: OwnerRecord<Automation>, sourceIds: readonly string[]) =>
+		record.body.trigger.kind === "event" && sourceIds.includes(record.body.trigger.source);
+
+	/** A revived id starts unrun. */
+	const forgetRan = (ids: readonly string[]): void => {
+		if (!ids.some((id) => Object.hasOwn(state.ran, id))) return;
+		commit({ ...state, ran: Object.fromEntries(Object.entries(state.ran).filter(([id]) => !ids.includes(id))) });
+	};
+
 	drain();
 
 	return {
 		list: () => records.list(),
+		rows: (): AutomationRow[] => records.list().map(rowOf),
+		/** Alert rows belong to sensors. */
+		ownerPut(id: string, body: unknown, base: number): ConsoleAutomationPutResult {
+			const held = records.get(id);
+			if (held && deviceOf(held) !== undefined) {
+				return { stored: false, revision: held.revision, reason: "its sensor page sets this alert" };
+			}
+			const revision = held?.revision ?? 0;
+			if (id.startsWith(THRESHOLD_PREFIX)) return { stored: false, revision, reason: "not an id an owner names" };
+			const parsed = AutomationSchema.safeParse(body);
+			if (parsed.success && parsed.data.trigger.kind === "event" && !deps.isHome()) {
+				return { stored: false, revision, reason: "the assistant does not live on this Gateway" };
+			}
+			const result = records.put(
+				AUTOMATION_KIND,
+				id,
+				parsed.success ? canonicalAutomation(parsed.data) : body,
+				base,
+			);
+			if (result.stored) {
+				drain();
+				return { stored: true, revision: result.record.revision, row: rowOf(result.record) };
+			}
+			const current = result.record ?? records.get(id);
+			return {
+				stored: false,
+				revision: current?.revision ?? 0,
+				reason: result.reason,
+				...(current ? { row: rowOf(current) } : {}),
+			};
+		},
+		ownerRemove(id: string, base: number): ConsoleAutomationDeleteResult {
+			const held = records.get(id);
+			if (held && deviceOf(held) !== undefined)
+				return { deleted: false, reason: "its sensor page sets this alert" };
+			if (id.startsWith(THRESHOLD_PREFIX)) return { deleted: false, reason: "not an id an owner names" };
+			const result = records.remove(id, base);
+			if (!result.removed) return { deleted: false, reason: result.reason };
+			forgetRan([id]);
+			drain();
+			return { deleted: true };
+		},
+		/** Makes `carried` the sources' events. */
+		replaceEvents(sourceIds: readonly string[], carried: readonly CarriedAutomation[]): boolean {
+			// An alert's id is its sensor's.
+			const named = carried.filter((row) => !row.id.startsWith(THRESHOLD_PREFIX));
+			const wanted = new Map(named.map((row) => [row.id, canonicalAutomation(row.automation)]));
+			const fresh: string[] = [];
+			let ok = true;
+			for (const record of records.list()) {
+				if (!isEvent(record, sourceIds) || wanted.has(record.id)) continue;
+				ok = records.remove(record.id, record.revision).removed && ok;
+				fresh.push(record.id);
+			}
+			for (const [id, automation] of wanted) {
+				const current = records.get(id);
+				// Another automation holds the id.
+				if (current && !isEvent(current, sourceIds)) ok = false;
+				else
+					ok =
+						records.put(AUTOMATION_KIND, id, automation, current?.revision ?? 0, { revive: true }).stored &&
+						ok;
+				if (!current) fresh.push(id);
+			}
+			forgetRan(fresh);
+			return ok;
+		},
+		/** True once held under its id. */
+		adoptEvent({ id, automation }: CarriedAutomation): boolean {
+			if (records.get(id) !== null) return true;
+			return records.put(AUTOMATION_KIND, id, canonicalAutomation(automation), 0, { revive: true }).stored;
+		},
+		/** Event automations that woke the assistant. */
+		noteEvents(ids: readonly string[], at: number): void {
+			if (ids.length === 0) return;
+			const live = new Set(records.list().map((record) => record.id));
+			const ran = Object.fromEntries(Object.entries(state.ran).filter(([id]) => live.has(id)));
+			for (const id of ids) if (live.has(id)) ran[id] = at;
+			commit({ ...state, ran });
+		},
 		/** Read-time validity; never stored. */
 		invalidOf: (id: string): string | null => records.invalidOf(id),
 		put(id: string, body: unknown, base: number, options?: { revive?: boolean }) {
@@ -372,7 +498,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			});
 		},
 		runs: (): readonly AutomationRun[] => state.log,
-		checkpoint: (id: string) => state.automations[id] ?? null,
+		checkpoint: (id: string) => own(state.automations, id) ?? null,
 		queued: () => state.queue,
 		outbox,
 	};

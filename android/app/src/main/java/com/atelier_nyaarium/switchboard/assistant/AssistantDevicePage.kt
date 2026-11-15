@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -11,13 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -49,6 +45,7 @@ import com.atelier_nyaarium.switchboard.DAY_INITIALS
 import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.DevicesView
 import com.atelier_nyaarium.switchboard.GATEWAY_DECLINED
+import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.ScheduleDraft
 import com.atelier_nyaarium.switchboard.actOffered
 import com.atelier_nyaarium.switchboard.alert
@@ -90,7 +87,7 @@ private val SCHEDULE_ACTIONS = listOf(
 	Protocol.Wire.DeviceScheduleAction.OFF to "Off",
 )
 
-/** One device: the generic top, then its brand's section. */
+/** One device page. */
 @Composable
 internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, deviceId: String, onBack: () -> Unit) {
 	val views by repo.deviceOps.views.collectAsState()
@@ -100,7 +97,6 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 	val open = { repo.command { deviceOps.open(gatewayId, deviceId) } }
 	val reach = state.gateways.entry(gatewayId)?.let { state.gateways.reachable(gatewayId) to it.incarnation }
 	LaunchedEffect(gatewayId, deviceId, reach) { open() }
-	var menu by remember { mutableStateOf(false) }
 	var removing by remember { mutableStateOf(false) }
 	val display = displayUnitOf(assistantGateway(state)?.let { state.gateways.assistantOn(it) })
 
@@ -110,19 +106,7 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 		actions = {
 			IconButton(onClick = hapticClick { open() }) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }
 			if (record != null) {
-				Box {
-					IconButton(onClick = hapticClick { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
-					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-						DropdownMenuItem(
-							text = { Text("Remove device", color = MaterialTheme.colorScheme.error) },
-							enabled = !view.busy(record.id),
-							onClick = {
-								menu = false
-								removing = true
-							},
-						)
-					}
-				}
+				RemoveMenu("Remove device", enabled = !view.busy(record.id)) { removing = true }
 			}
 		},
 	) {
@@ -345,7 +329,7 @@ private fun ScheduleSection(
 	}
 }
 
-/** The brand's section: one renderer per declared capability. */
+/** Brand section per capability. */
 @Composable
 private fun ProviderSection(
 	title: String,

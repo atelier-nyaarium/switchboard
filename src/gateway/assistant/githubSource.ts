@@ -181,6 +181,7 @@ export function createGithubSource(client: GithubClient): Source {
 	return {
 		id: GITHUB_SOURCE_ID,
 		label: "GitHub notifications",
+		brief: "GitHub",
 		fieldSpecs: GITHUB_FIELD_SPECS,
 		secret: GITHUB_SECRET,
 		async poll(cursor, signal) {

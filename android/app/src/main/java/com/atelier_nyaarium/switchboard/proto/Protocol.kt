@@ -234,14 +234,21 @@ object Protocol {
 			const val CONSOLE_IDS: String = "console_ids"
 			const val CONSOLE_EVAL: String = "console_eval"
 			const val ASSISTANT_STATE: String = "assistant_state"
+			const val ASSISTANT_SOURCE_GRANTS: String = "assistant_source_grants"
+			const val ASSISTANT_SOURCE_ENABLED: String = "assistant_source_enabled"
+			const val ASSISTANT_SOURCE_CHECK: String = "assistant_source_check"
+			const val AUTOMATION_LIST: String = "automation_list"
+			const val AUTOMATION_PUT: String = "automation_put"
+			const val AUTOMATION_DELETE: String = "automation_delete"
+			const val AUTOMATION_PREVIEW: String = "automation_preview"
+			const val ASSISTANT_SAFETY: String = "assistant_safety"
+			const val ASSISTANT_TEMPERATURE_UNIT: String = "assistant_temperature_unit"
 			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
 			const val ASSISTANT_RULE_PUT: String = "assistant_rule_put"
 			const val ASSISTANT_RULE_DELETE: String = "assistant_rule_delete"
 			const val ASSISTANT_RULE_MOVE: String = "assistant_rule_move"
 			const val ASSISTANT_OTHERWISE_PUT: String = "assistant_otherwise_put"
 			const val ASSISTANT_RULES_PREVIEW: String = "assistant_rules_preview"
-			const val ASSISTANT_SAFETY: String = "assistant_safety"
-			const val ASSISTANT_TEMPERATURE_UNIT: String = "assistant_temperature_unit"
 			const val ASSISTANT_WATCHER_ENABLED: String = "assistant_watcher_enabled"
 			const val ASSISTANT_WATCHER_CHECK: String = "assistant_watcher_check"
 			const val ASSISTANT_SEND_ANSWER: String = "assistant_send_answer"
@@ -1237,6 +1244,63 @@ sealed class ConsoleOp {
 	data object AssistantState : ConsoleOp()
 
 	@Serializable
+	@SerialName("assistant_source_grants")
+	data class AssistantSourceGrants(
+		val sourceId: String,
+		val entryIds: List<String>,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_source_enabled")
+	data class AssistantSourceEnabled(
+		val sourceId: String,
+		val enabled: Boolean,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_source_check")
+	data class AssistantSourceCheck(
+		val sourceId: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("automation_list")
+	data object AutomationList : ConsoleOp()
+
+	@Serializable
+	@SerialName("automation_put")
+	data class AutomationPut(
+		val automationId: String,
+		val automation: Automation,
+		val baseRevision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("automation_delete")
+	data class AutomationDelete(
+		val automationId: String,
+		val baseRevision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("automation_preview")
+	data class AutomationPreview(
+		val trigger: AutomationTrigger,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_safety")
+	data class AssistantSafety(
+		val approveEverySend: Boolean,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_temperature_unit")
+	data class AssistantTemperatureUnit(
+		val temperatureUnit: String,
+	) : ConsoleOp()
+
+	@Serializable
 	@SerialName("assistant_watcher_grants")
 	data class AssistantWatcherGrants(
 		val watcherId: String,
@@ -1279,18 +1343,6 @@ sealed class ConsoleOp {
 	data class AssistantRulesPreview(
 		val watcherId: String,
 		val rule: AssistantRule,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_safety")
-	data class AssistantSafety(
-		val approveEverySend: Boolean,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_temperature_unit")
-	data class AssistantTemperatureUnit(
-		val temperatureUnit: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2157,10 +2209,30 @@ data class AssistantWatcher(
 )
 
 @Serializable
+data class AssistantSource(
+	val id: String,
+	val label: String,
+	val grants: List<String>,
+	val unread: Long,
+	val capped: Boolean? = null,
+	val lastSuccessAt: Long? = null,
+	val nextPollAt: Long? = null,
+	val backoff: AssistantWatcherBackoff? = null,
+	val stopped: String? = null,
+	val fieldSpecs: List<AssistantFieldSpec>,
+	val unexpected: AssistantUnexpectedValues? = null,
+	val secret: String? = null,
+	val actions: List<AssistantActionDescriptor>,
+	val enabled: Boolean,
+	val triggers: Boolean,
+)
+
+@Serializable
 data class ConsoleAssistantStateResult(
 	val workdir: String? = null,
 	val team: String? = null,
-	val watchers: List<AssistantWatcher>,
+	val watchers: List<AssistantWatcher>? = null,
+	val sources: List<AssistantSource>? = null,
 	val approveEverySend: Boolean? = null,
 	val temperatureUnit: String? = null,
 	val checkIns: Boolean? = null,
@@ -2169,9 +2241,154 @@ data class ConsoleAssistantStateResult(
 )
 
 @Serializable
+data class AutomationCondition(
+	val field: String,
+	val test: String,
+	val value: String,
+)
+
+@Serializable(with = AutomationTriggerSerializer::class)
+sealed class AutomationTrigger {
+	@Serializable
+	@SerialName("event")
+	data class Event(
+		val source: String,
+		val conditions: List<AutomationCondition>,
+	) : AutomationTrigger()
+
+	@Serializable
+	@SerialName("value")
+	data class Value(
+		val field: String,
+		val becomes: JsonElement,
+		val coolDownSec: Long,
+	) : AutomationTrigger()
+
+	/** Unknown member, preserved as sent. */
+	data class Unknown(val kind: String, val raw: JsonObject) : AutomationTrigger()
+}
+
+object AutomationTriggerSerializer : KSerializer<AutomationTrigger> {
+	override val descriptor: SerialDescriptor = buildClassSerialDescriptor("AutomationTrigger")
+
+	override fun deserialize(decoder: Decoder): AutomationTrigger {
+		val input = decoder as? JsonDecoder ?: throw SerializationException("AutomationTrigger reads JSON only")
+		val raw = input.decodeJsonElement().jsonObject
+		val body = JsonObject(raw - "kind")
+		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
+			"event" -> input.json.decodeFromJsonElement(AutomationTrigger.Event.serializer(), body)
+			"value" -> input.json.decodeFromJsonElement(AutomationTrigger.Value.serializer(), body)
+			else -> AutomationTrigger.Unknown(kind ?: "", raw)
+		}
+	}
+
+	override fun serialize(encoder: Encoder, value: AutomationTrigger) {
+		val output = encoder as? JsonEncoder ?: throw SerializationException("AutomationTrigger writes JSON only")
+		val element = when (value) {
+			is AutomationTrigger.Event -> tagged("event", output.json.encodeToJsonElement(AutomationTrigger.Event.serializer(), value))
+			is AutomationTrigger.Value -> tagged("value", output.json.encodeToJsonElement(AutomationTrigger.Value.serializer(), value))
+			is AutomationTrigger.Unknown -> value.raw
+		}
+		output.encodeJsonElement(element)
+	}
+
+	private fun tagged(kind: String, body: JsonElement): JsonObject =
+		JsonObject(mapOf("kind" to JsonPrimitive(kind)) + body.jsonObject)
+}
+
+@Serializable(with = AutomationActionSerializer::class)
+sealed class AutomationAction {
+	@Serializable
+	@SerialName("tell_assistant")
+	data class TellAssistant(
+		val `when`: String,
+	) : AutomationAction()
+
+	/** Unknown member, preserved as sent. */
+	data class Unknown(val kind: String, val raw: JsonObject) : AutomationAction()
+}
+
+object AutomationActionSerializer : KSerializer<AutomationAction> {
+	override val descriptor: SerialDescriptor = buildClassSerialDescriptor("AutomationAction")
+
+	override fun deserialize(decoder: Decoder): AutomationAction {
+		val input = decoder as? JsonDecoder ?: throw SerializationException("AutomationAction reads JSON only")
+		val raw = input.decodeJsonElement().jsonObject
+		val body = JsonObject(raw - "kind")
+		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
+			"tell_assistant" -> input.json.decodeFromJsonElement(AutomationAction.TellAssistant.serializer(), body)
+			else -> AutomationAction.Unknown(kind ?: "", raw)
+		}
+	}
+
+	override fun serialize(encoder: Encoder, value: AutomationAction) {
+		val output = encoder as? JsonEncoder ?: throw SerializationException("AutomationAction writes JSON only")
+		val element = when (value) {
+			is AutomationAction.TellAssistant -> tagged("tell_assistant", output.json.encodeToJsonElement(AutomationAction.TellAssistant.serializer(), value))
+			is AutomationAction.Unknown -> value.raw
+		}
+		output.encodeJsonElement(element)
+	}
+
+	private fun tagged(kind: String, body: JsonElement): JsonObject =
+		JsonObject(mapOf("kind" to JsonPrimitive(kind)) + body.jsonObject)
+}
+
+@Serializable
+data class Automation(
+	val label: String? = null,
+	val enabled: Boolean,
+	val trigger: AutomationTrigger,
+	val actions: List<AutomationAction>,
+)
+
+@Serializable
+data class CarriedAutomation(
+	val id: String,
+	val automation: Automation,
+)
+
+@Serializable
+data class AutomationRow(
+	val id: String,
+	val revision: Long,
+	val automation: Automation,
+	val sentence: String,
+	val invalid: String? = null,
+	val lastRanAt: Long? = null,
+	val device: String? = null,
+)
+
+@Serializable
+data class ConsoleAutomationListResult(
+	val automations: List<AutomationRow>,
+)
+
+@Serializable
+data class ConsoleAutomationPutResult(
+	val stored: Boolean,
+	val revision: Long,
+	val row: AutomationRow? = null,
+	val reason: String? = null,
+)
+
+@Serializable
+data class ConsoleAutomationDeleteResult(
+	val deleted: Boolean,
+	val reason: String? = null,
+)
+
+@Serializable
+data class ConsoleAutomationPreviewResult(
+	val matched: Long,
+	val of: Long,
+	val matches: List<AutomationPreviewMatch>,
+)
+
+@Serializable
 data class AssistantHomeCarriedWatcher(
 	val id: String,
-	val rules: AssistantWatcherRules,
+	val rules: AssistantWatcherRules? = null,
 	val grant: String? = null,
 	val enabled: Boolean? = null,
 )
@@ -2181,6 +2398,7 @@ data class AssistantHomeCarried(
 	val approveEverySend: Boolean,
 	val temperatureUnit: String? = null,
 	val watchers: List<AssistantHomeCarriedWatcher>,
+	val automations: List<CarriedAutomation>? = null,
 	val integrations: List<AssistantHomeCarriedIntegration>? = null,
 )
 
@@ -4356,6 +4574,12 @@ data class AssistantIntegration(
 	val id: String,
 	val label: String,
 	val grants: List<String>,
+)
+
+@Serializable
+data class AutomationPreviewMatch(
+	val title: String,
+	val at: Long,
 )
 
 @Serializable

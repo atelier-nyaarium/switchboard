@@ -1,6 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.RuleSlot
+import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
@@ -228,7 +228,7 @@ class AssistantRootTest {
 	@Test
 	fun settingsStayOverAMoveAndBackLandsOnTheRetargetedConversation() {
 		val rules = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
-			.openAssistantPage(AssistantPage.Rules("sakura", "github"))
+			.openAssistantPage(AssistantPage.Source("sakura", "github"))
 		val moved = placedOn("mikan", "sakura").withWord("sakura", holdsNone)
 		val mikan = "dom.mikan.host.assistant"
 
@@ -244,7 +244,7 @@ class AssistantRootTest {
 	@Test
 	fun settingsStayOverRemoveAndBackLandsOnTheRoot() {
 		val editor = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
-			.openAssistantPage(AssistantPage.Editor("sakura", "github", RuleSlot.New))
+			.openAssistantPage(AssistantPage.AutomationEditor("sakura", AutomationSlot.New))
 		val removed = homeAt("sakura").copy(
 			assistantHome = AssistantHome.Read(AssistantHomeRecord(2L, null), null),
 		)
@@ -270,36 +270,36 @@ class AssistantRootTest {
 		assertEquals(entry, entry.resolved(placed.withWord("sakura", null)))
 		assertEquals(AssistantPage.Add, entry.resolved(offersIfttt))
 		assertEquals(AssistantPage.Add, AssistantPage.Entry("sakura", "zigbee").resolved(placed))
-		assertEquals(AssistantPage.Integrations, entry.resolved(placedOn("mikan", "sakura")))
+		assertEquals(AssistantPage.Sources, entry.resolved(placedOn("mikan", "sakura")))
 		assertEquals(AssistantPage.Add, assistantPageBack(entry))
-		assertEquals(AssistantPage.Integrations, assistantPageBack(AssistantPage.Add))
+		assertEquals(AssistantPage.Sources, assistantPageBack(AssistantPage.Add))
 	}
 
 	@Test
-	fun aWatcherPageStaysWhileItsGatewayIsUnansweredAndUnwindsWhenTheWatcherIsGone() {
-		val rules = AssistantPage.Rules("sakura", "github")
+	fun aSourcePageStaysWhileItsGatewayIsUnansweredAndUnwindsWhenTheSourceIsGone() {
+		val source = AssistantPage.Source("sakura", "github")
 		val placed = placedOn("sakura")
-		val noWatcher = placed.withWord(
+		val noSource = placed.withWord(
 			"sakura",
-			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = emptyList())),
+			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", sources = emptyList())),
 		)
 
-		assertEquals(rules, rules.resolved(placed))
-		assertEquals(rules, rules.resolved(placed.withWord("sakura", null)))
-		assertEquals(rules, rules.resolved(placed.withWord("sakura", AssistantWord.Refused)))
-		assertEquals(AssistantPage.Settings, rules.resolved(noWatcher))
-		assertEquals(AssistantPage.Settings, rules.resolved(placedOn("mikan", "sakura")))
+		assertEquals(source, source.resolved(placed))
+		assertEquals(source, source.resolved(placed.withWord("sakura", null)))
+		assertEquals(source, source.resolved(placed.withWord("sakura", AssistantWord.Refused)))
+		assertEquals(AssistantPage.Sources, source.resolved(noSource))
+		assertEquals(AssistantPage.Settings, source.resolved(placedOn("mikan", "sakura")))
 
-		val watcherPage = AssistantPage.Watcher("sakura", "github")
-		assertEquals(watcherPage, watcherPage.resolved(placed))
-		assertEquals(AssistantPage.Settings, watcherPage.resolved(noWatcher))
+		val editor = AssistantPage.AutomationEditor("sakura", AutomationSlot.New)
+		assertEquals(editor, editor.resolved(noSource))
+		assertEquals(AssistantPage.Settings, editor.resolved(placedOn("mikan", "sakura")))
 
-		val editor = AssistantPage.Editor("sakura", "github", RuleSlot.New)
-		for (older in listOf(github.copy(fields = null), github.copy(rules = null))) {
-			val answer = ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(older))
-			val olderGateway = placed.withWord("sakura", AssistantWord.Answered(answer))
-			assertEquals(listOf(watcherPage, watcherPage), listOf(rules, editor).map { it.resolved(olderGateway) })
-		}
+		// An older Gateway's watchers read as sources.
+		val older = placed.withWord(
+			"sakura",
+			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),
+		)
+		assertEquals(source, source.resolved(older))
 	}
 
 	@Test
@@ -331,16 +331,20 @@ class AssistantRootTest {
 
 	@Test
 	fun theAssistantShowsItsTitleInboxAndGearWithNoTabs() {
-		val watcher = com.atelier_nyaarium.switchboard.proto.AssistantWatcher(
+		val watcher = com.atelier_nyaarium.switchboard.proto.AssistantSource(
 			id = "github",
 			label = "GitHub",
 			grants = listOf("gh-token"),
 			unread = 3L,
 			lastSuccessAt = 1L,
+			fieldSpecs = emptyList(),
+			actions = emptyList(),
+			enabled = true,
+			triggers = true,
 		)
 		val tabs = listOf(session, "dom.mikan.app.dev")
-		val chrome = threadChrome(assistant = true, label = "assistant", tabs = tabs, watchers = listOf(watcher))
-		val sessionChrome = threadChrome(assistant = false, label = "dev", tabs = tabs, watchers = listOf(watcher))
+		val chrome = threadChrome(assistant = true, label = "assistant", tabs = tabs, sources = listOf(watcher))
+		val sessionChrome = threadChrome(assistant = false, label = "dev", tabs = tabs, sources = listOf(watcher))
 
 		assertEquals(Triple("Assistant", false, false), Triple(chrome.title, chrome.tabRow, chrome.sessionMenu))
 		assertEquals(listOf(InboxRow.Waiting("github", "GitHub", "3 new")), chrome.inbox)

@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { formatDecimal, fromDisplay, inRange, parseDecimal, toDisplay } from "../shared/field-types.js";
 import { formatFieldValue, parseFieldValue } from "../shared/field-values.js";
-import { type AssistantFieldSpec, parseRuleForFields } from "../shared/schemasAssistantRules.js";
+import { type AssistantFieldSpec, conditionsIssue } from "../shared/schemasAssistantRules.js";
 
 interface Vectors {
 	decimal: Array<{ text: string; value: number | null }>;
@@ -57,13 +57,9 @@ describe("field types", () => {
 		expect(parseFieldValue(frame, "00".repeat(65)).ok).toBe(false);
 	});
 
-	it("refuses a rule over a number or bytes field", () => {
-		const rule = {
-			id: "r",
-			conditions: [{ field: "temperature", test: "is" as const, value: "30" }],
-			action: "wake" as const,
-			revision: 0,
-		};
-		expect(parseRuleForFields(rule, [temperature]).ok).toBe(false);
+	it("refuses a condition over a number or bytes field", () => {
+		const condition = { field: "temperature", test: "is" as const, value: "30" };
+
+		expect(conditionsIssue([condition], [temperature])).not.toBeNull();
 	});
 });

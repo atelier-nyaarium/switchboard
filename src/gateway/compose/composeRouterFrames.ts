@@ -11,6 +11,7 @@ import {
 	type AssistantHomeRecord,
 	AssistantHomeRecordSchema,
 	AssistantHomeSealedSchema,
+	readableSealed,
 } from "../../shared/schemasAssistantHome.js";
 import { ConsoleOpSchema } from "../../shared/schemasConsoleOp.js";
 import { ContentEnvelopeSchema } from "../../shared/schemasContentKey.js";
@@ -62,6 +63,7 @@ export interface RouterFramesStageDeps {
 	/** What a close ends, the one list. */
 	sessionClosed: (team: string) => void;
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
+	automations: import("../console/consoleTypes.js").AutomationConsoleHandlers;
 	devices: Pick<DeviceStage, "console">;
 	liveConsole: Pick<import("./composeLiveConsole.js").LiveConsoleStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
@@ -202,6 +204,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			onSessionEnded,
 			forgetRefusal: deps.assistant.forgetRefusal,
 			assistant: deps.assistant.console,
+			automations: deps.automations,
 			liveConsole: deps.liveConsole.console,
 		});
 
@@ -242,7 +245,10 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			if (opened.kind !== "ok") return { kind: "refused" as const, reason: "the record could not be opened" };
 			let parsed: ReturnType<typeof AssistantHomeSealedSchema.safeParse>;
 			try {
-				parsed = AssistantHomeSealedSchema.safeParse(JSON.parse(opened.plaintext.toString("utf8")));
+				const { sealed, dropped } = readableSealed(JSON.parse(opened.plaintext.toString("utf8")));
+				if (dropped > 0)
+					console.warn(`[assistant] ${dropped} carried entries this build cannot read were dropped`);
+				parsed = AssistantHomeSealedSchema.safeParse(sealed);
 			} catch {
 				return { kind: "refused" as const, reason: "the record did not parse" };
 			}

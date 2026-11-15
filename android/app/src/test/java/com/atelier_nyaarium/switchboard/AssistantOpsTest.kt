@@ -1,11 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.RuleDraft
-import com.atelier_nyaarium.switchboard.assistant.RuleEdit
-import com.atelier_nyaarium.switchboard.assistant.RuleSlot
-import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
-import com.atelier_nyaarium.switchboard.assistant.editorLanded
-import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
@@ -17,13 +11,19 @@ import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
-import com.atelier_nyaarium.switchboard.proto.AssistantRule
+import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
+import com.atelier_nyaarium.switchboard.proto.Automation
+import com.atelier_nyaarium.switchboard.proto.AutomationAction
+import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationRow
+import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherBackoff
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
@@ -34,32 +34,67 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private const val UNCERTAIN = "durability_uncertain"
 
-private fun watcher(
+private fun source(
 	grants: List<String> = listOf("gh-token"),
 	unread: Long = 2L,
 	capped: Boolean? = null,
-	evicted: Long? = null,
 	lastSuccessAt: Long? = null,
 	backoff: AssistantWatcherBackoff? = null,
 	stopped: String? = null,
 	secret: String? = null,
-) = AssistantWatcher(
+) = AssistantSource(
 	id = "github",
 	label = "GitHub notifications",
 	grants = grants,
 	unread = unread,
 	capped = capped,
-	evicted = evicted,
 	lastSuccessAt = lastSuccessAt,
 	backoff = backoff,
 	stopped = stopped,
+	fieldSpecs = emptyList(),
 	secret = secret,
+	actions = emptyList(),
+	enabled = true,
+	triggers = true,
+)
+
+/** An older Gateway's row. */
+private fun watcher(grants: List<String> = listOf("gh-token"), rules: AssistantWatcherRules? = null) = AssistantWatcher(
+	id = "github",
+	label = "GitHub notifications",
+	grants = grants,
+	unread = 2L,
+	rules = rules,
+)
+
+private fun eventRow(id: String) = AutomationRow(
+	id,
+	2L,
+	Automation(
+		enabled = true,
+		trigger = AutomationTrigger.Event("github", emptyList()),
+		actions = listOf(AutomationAction.TellAssistant("now")),
+	),
+	sentence = id,
+)
+
+private val alertRow = AutomationRow(
+	"threshold-a-low",
+	1L,
+	Automation(
+		enabled = true,
+		trigger = AutomationTrigger.Value("threshold-a", kotlinx.serialization.json.JsonPrimitive("low"), 0L),
+		actions = listOf(AutomationAction.TellAssistant("quietly")),
+	),
+	sentence = "alert",
+	device = "ce:1c",
 )
 
 class AssistantOpsTest {
@@ -123,23 +158,18 @@ class AssistantOpsTest {
 		val calls = mutableListOf<Pair<String, String>>()
 		val states = mutableMapOf<String, ConsoleAssistantStateResult>()
 		var approveEverySend: Boolean? = null
-		var rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise(action = "inbox", revision = 0L), revision = 0L)
+		val listed = mutableMapOf<String, AutomationListAnswer>()
 		var gate: CompletableDeferred<Unit>? = null
 
 		private fun stateOf(gatewayId: String) = states[gatewayId] ?: ConsoleAssistantStateResult(
 			workdir = "~/notes".takeIf { gatewayId == home },
 			team = "host.assistant".takeIf { gatewayId == home },
-			watchers = listOf(watcher().copy(fields = listOf("reason"), rules = rules)),
+			sources = listOf(source()),
 			approveEverySend = approveEverySend,
 		)
 
-		override suspend fun rules(gatewayId: String, op: ConsoleOp): RuleSaved {
-			if (gatewayId in deaf) return RuleSaved.Unreachable
-			val put = op as ConsoleOp.AssistantOtherwisePut
-			if (put.otherwise.revision != rules.otherwise.revision) return RuleSaved.Refused("revision is stored", rules)
-			rules = rules.copy(otherwise = put.otherwise.copy(revision = put.otherwise.revision + 1), revision = rules.revision + 1)
-			return RuleSaved.Stored(rules)
-		}
+		override suspend fun automations(gatewayId: String): AutomationListAnswer =
+			if (gatewayId in deaf) AutomationListAnswer.Unreachable else listed[gatewayId] ?: AutomationListAnswer.Listed(emptyList())
 
 		override suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer {
 			calls += gatewayId to op::class.simpleName.orEmpty()
@@ -155,8 +185,6 @@ class AssistantOpsTest {
 				else -> AssistantAnswer.State(stateOf(gatewayId))
 			}
 		}
-
-		override suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview): ConsoleAssistantPreviewResult? = null
 	}
 
 	private class Host(
@@ -184,10 +212,12 @@ class AssistantOpsTest {
 	private fun assistantState(
 		workdir: String? = null,
 		approveEverySend: Boolean? = null,
-		watchers: List<AssistantWatcher> = emptyList(),
+		sources: List<AssistantSource>? = emptyList(),
 		integrations: List<AssistantIntegration>? = null,
+		watchers: List<AssistantWatcher>? = null,
 	) = ConsoleAssistantStateResult(
 		workdir = workdir,
+		sources = sources,
 		watchers = watchers,
 		approveEverySend = approveEverySend,
 		integrations = integrations,
@@ -210,21 +240,15 @@ class AssistantOpsTest {
 
 	@Test
 	fun aMoveCarriesFreshHomeSettingsAtTheHeldVersion() = runBlocking {
-		val rules = AssistantWatcherRules(
-			rules = listOf(AssistantRule("urgent", emptyList(), "notify", 3L)),
-			otherwise = AssistantRuleOtherwise("inbox", 4L),
-			revision = 5L,
-		)
 		val fresh = assistantState(
 			workdir = "~/old",
 			approveEverySend = false,
-			watchers = listOf(
-				watcher(grants = listOf("current-grant", "unused-grant")).copy(rules = rules),
-				watcher(grants = listOf("no-rules")).copy(id = "other", rules = null),
-			),
+			sources = listOf(source(grants = listOf("current-grant", "unused-grant")), source(grants = emptyList()).copy(id = "other")),
 		)
+		val rows = listOf(eventRow("urgent"), alertRow)
 		val fake = FakeGateway(home = "sakura").apply {
 			states["sakura"] = fresh
+			listed["sakura"] = AutomationListAnswer.Listed(rows)
 		}
 		val router = FakeHomeRouter(placedAt(7L, "sakura"))
 		val (ops, state) = stateWithHome(fake, router, listOf("sakura", "mikan"))
@@ -243,10 +267,11 @@ class AssistantOpsTest {
 		assertEquals("mikan", router.seals.single().gatewayId)
 		assertEquals(8L, router.seals.single().version)
 		assertEquals("~/new", router.seals.single().sealed.workdirPath)
-		assertEquals(carriedOf(fresh), router.seals.single().sealed.carried)
+		assertEquals(carriedOf(fresh, rows), router.seals.single().sealed.carried)
+		assertEquals(listOf("urgent"), router.seals.single().sealed.carried?.automations?.map { it.id })
 		assertEquals("mikan", assistantGateway(state.value))
 		assertEquals(listOf("sakura" to "AssistantState"), fake.calls)
-		// The old home's answer predates the choice.
+		// Stale home answer.
 		assertNull(state.value.gateways.assistantOn("sakura"))
 	}
 
@@ -283,7 +308,7 @@ class AssistantOpsTest {
 		assertNull(ops.moveAssistant("yuzu", "~/new"))
 
 		assertEquals(AssistantHomeSealed(workdirPath = "~/new", carried = carried), router.seals.single().sealed)
-		// Its own answer may predate the apply.
+		// Answer may predate apply.
 		assertTrue(fake.calls.isEmpty())
 	}
 
@@ -520,7 +545,8 @@ class AssistantOpsTest {
 		val holder = assistantState(
 			workdir = "~/holder",
 			approveEverySend = false,
-			watchers = listOf(watcher(grants = listOf("holder-grant")).copy(rules = rules)),
+			sources = null,
+			watchers = listOf(watcher(grants = listOf("holder-grant"), rules = rules)),
 		)
 		fake.states["alpha"] = holder
 		fake.states["beta"] = assistantState()
@@ -542,7 +568,7 @@ class AssistantOpsTest {
 		assertEquals(0L, router.puts.single().baseVersion)
 		assertEquals("alpha", router.puts.single().gatewayId)
 		assertEquals("~/holder", router.seals.single().sealed.workdirPath)
-		assertEquals(carriedOf(holder), router.seals.single().sealed.carried)
+		assertEquals(carriedOf(holder, emptyList()), router.seals.single().sealed.carried)
 		assertEquals(setOf("alpha", "beta"), fake.calls.map { it.first }.toSet())
 		assertFalse(fake.calls.any { it.first == "never" })
 	}
@@ -592,31 +618,163 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun carriedOfKeepsSafetyRulesAndStandingGrants() {
-		val rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 1L), 2L)
+	fun carriedOfKeepsSafetyGrantsAndTheEventAutomationsOrAnOlderGatewaysRules() {
 		val state = assistantState(
 			approveEverySend = false,
-			watchers = listOf(
-				watcher(grants = listOf("first-grant", "second-grant")).copy(rules = rules),
-				watcher().copy(id = "off", rules = rules, enabled = false),
-				watcher().copy(id = "unconfigured", rules = null),
+			sources = listOf(
+				source(grants = listOf("first-grant", "second-grant")),
+				source().copy(id = "off", enabled = false),
 			),
 			integrations = listOf(
 				AssistantIntegration(id = "ifttt", label = "IFTTT webhook", grants = listOf("hook-key")),
 			),
 		)
+		val rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 1L), 2L)
+		val older = assistantState(sources = null, watchers = listOf(watcher(rules = rules)))
+		// An older Gateway reads these.
+		val wakesAll = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("wake", 0L), 0L)
+		val wakesNone = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 0L), 0L)
 
 		assertEquals(
 			AssistantHomeCarried(
 				approveEverySend = false,
+				temperatureUnit = "C",
 				watchers = listOf(
-					AssistantHomeCarriedWatcher("github", rules, "first-grant", enabled = true),
-					AssistantHomeCarriedWatcher("off", rules, "gh-token", enabled = false),
+					AssistantHomeCarriedWatcher("github", wakesAll, "first-grant", enabled = true),
+					AssistantHomeCarriedWatcher("off", wakesNone, "gh-token", enabled = false),
 				),
+				automations = listOf(CarriedAutomation("urgent", eventRow("urgent").automation)),
 				integrations = listOf(AssistantHomeCarriedIntegration("ifttt", "hook-key")),
 			),
-			carriedOf(state),
+			carriedOf(state, listOf(eventRow("urgent"), alertRow)),
 		)
+		assertEquals(
+			listOf(AssistantHomeCarriedWatcher("github", rules, "gh-token", enabled = true)),
+			carriedOf(older, null).watchers,
+		)
+		assertNull(carriedOf(older, null).automations)
+	}
+
+	@Test
+	fun onlyWhatWakesNowBecomesAnOlderGatewaysRules() {
+		val mention = AutomationCondition("reason", "is", "mention")
+		fun row(id: String, conditions: List<AutomationCondition>, tell: String = "now", enabled: Boolean = true, invalid: String? = null) =
+			eventRow(id).let {
+				val automation = it.automation.copy(
+					enabled = enabled,
+					trigger = AutomationTrigger.Event("github", conditions),
+					actions = listOf(AutomationAction.TellAssistant(tell)),
+				)
+				it.copy(automation = automation, invalid = invalid)
+			}
+		val rows = listOf(
+			row("mentions", listOf(mention)),
+			row("quiet", listOf(mention), tell = "quietly"),
+			row("off", listOf(mention), enabled = false),
+			row("unfit", listOf(mention), invalid = "reason takes no such value"),
+			row("elsewhere", listOf(mention)).let {
+				it.copy(automation = it.automation.copy(trigger = AutomationTrigger.Event("mail", listOf(mention))))
+			},
+		)
+
+		val conditioned = rulesOf("github", rows)
+		val everything = rulesOf("github", rows + row("all", emptyList()))
+
+		assertEquals(listOf("mentions"), conditioned.rules.map { it.id })
+		assertEquals(listOf("wake" to "inbox"), conditioned.rules.map { it.action to conditioned.otherwise.action })
+		assertEquals(listOf(AssistantRuleCondition("reason", "is", "mention")), conditioned.rules.single().conditions)
+		assertEquals("wake", everything.otherwise.action)
+	}
+
+	@Test
+	fun aSeedCarriesTheHoldersEventAutomationsAndWaitsForAnUnreadList() = runBlocking {
+		val holder = assistantState(workdir = "~/holder", sources = listOf(source()))
+		val fake = FakeGateway(home = null).apply {
+			states["alpha"] = holder
+			listed["alpha"] = AutomationListAnswer.Unreachable
+		}
+		val router = FakeHomeRouter()
+		val state = MutableStateFlow(ChatState(gateways = testRegistry("alpha")))
+		val ops = AssistantOps(state, Host(fake, router))
+
+		assertTrue(ops.readHome())
+		val unread = router.puts.size
+		fake.listed["alpha"] = AutomationListAnswer.Listed(listOf(eventRow("urgent"), alertRow))
+		assertTrue(ops.readHome())
+
+		assertEquals(0, unread)
+		assertEquals(listOf("urgent"), router.seals.single().sealed.carried?.automations?.map { it.id })
+	}
+
+	@Test
+	fun aMoveIsRefusedWhenAGatewayThatHoldsAutomationsRefusesToListThem() = runBlocking {
+		val fake = FakeGateway(home = "sakura").apply { listed["sakura"] = AutomationListAnswer.Refused }
+		val router = FakeHomeRouter(placedAt(7L, "sakura"))
+		val (ops, _) = stateWithHome(fake, router, listOf("sakura", "mikan"))
+
+		assertNotNull(ops.moveAssistant("mikan", "~/new"))
+		assertEquals(emptyList<Any>(), router.puts)
+	}
+
+	@Test
+	fun anAutomationWriteWaitsForAMoveAndIsRefusedOnceItsGatewayIsNoLongerHome() = runBlocking {
+		val fake = FakeGateway(home = "sakura").apply { gate = CompletableDeferred() }
+		val router = FakeHomeRouter(placedAt(7L, "sakura"))
+		val (ops, _) = stateWithHome(fake, router, listOf("sakura", "mikan"))
+		var wrote = 0
+
+		val move = async { ops.moveAssistant("mikan", "~/new") }
+		val queued = async { ops.carriedWrite("sakura") { wrote += 1 } }
+		yield()
+		val during = wrote
+		fake.gate?.complete(Unit)
+		move.await()
+		val old = queued.await()
+		val home = ops.carriedWrite("mikan") { wrote += 1 }
+
+		assertEquals(listOf(0, 1), listOf(during, wrote))
+		assertEquals(listOf(false, true), listOf(old, home))
+	}
+
+	@Test
+	fun aGatewayOnAnOlderBuildIsSentTheKindsItKnows() = runBlocking {
+		val older = assistantState(sources = null, watchers = listOf(watcher()))
+		val fake = FakeGateway(home = "sakura").apply { states["mikan"] = older }
+		val (ops, state) = ops(fake, "sakura", "mikan")
+		state.value = state.value.copy(
+			gateways = state.value.gateways
+				.withEntry("sakura") { it.copy(assistant = AssistantWord.Answered(assistantState(sources = listOf(source())))) }
+				.withEntry("mikan") { it.copy(assistant = AssistantWord.Answered(older)) },
+		)
+
+		ops.setEnabled("sakura", "github", false)
+		ops.setGrants("sakura", "github", emptyList())
+		ops.checkNow("sakura", "github")
+		ops.setEnabled("mikan", "github", false)
+		ops.setGrants("mikan", "github", emptyList())
+		ops.checkNow("mikan", "github")
+
+		assertEquals(
+			listOf(
+				"sakura" to "AssistantSourceEnabled",
+				"sakura" to "AssistantSourceGrants",
+				"sakura" to "AssistantSourceCheck",
+				"mikan" to "AssistantWatcherEnabled",
+				"mikan" to "AssistantWatcherGrants",
+				"mikan" to "AssistantWatcherCheck",
+			),
+			fake.calls,
+		)
+	}
+
+	@Test
+	fun aMoveFromAnUnreadableAutomationListIsRefusedRatherThanCarryingNone() = runBlocking {
+		val fake = FakeGateway(home = "sakura").apply { listed["sakura"] = AutomationListAnswer.Unreachable }
+		val router = FakeHomeRouter(placedAt(7L, "sakura"))
+		val (ops, _) = stateWithHome(fake, router, listOf("sakura", "mikan"))
+
+		assertNotNull(ops.moveAssistant("mikan", "~/new"))
+		assertEquals(emptyList<Any>(), router.puts)
 	}
 
 	@Test
@@ -633,20 +791,6 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun aStaleSaveIsRefusedWithWhatIsHeldAndRedrawsIt() = runBlocking {
-		val fake = FakeGateway(home = "sakura")
-		val (ops, state) = ops(fake, "sakura")
-		ops.refresh("sakura")
-		val drawn = { state.value.gateways.assistantOn("sakura")!!.watchers.single().rules!!.otherwise.revision }
-		fake.rules = fake.rules.copy(otherwise = AssistantRuleOtherwise(action = "wake", revision = 1L))
-
-		val answer = ops.saveOtherwise("sakura", "github", AssistantRuleOtherwise(action = "inbox", revision = 0L))
-
-		assertEquals(1L, (answer as RuleSaved.Refused).held?.otherwise?.revision)
-		assertEquals(1L, drawn())
-	}
-
-	@Test
 	fun aGatewayAnswerStaysWhenItsNextReadCannotReachIt() = runBlocking {
 		val fake = FakeGateway(home = "sakura")
 		val (ops, state) = ops(fake, "sakura")
@@ -658,24 +802,24 @@ class AssistantOpsTest {
 		assertEquals(assistantState(approveEverySend = null).copy(
 			workdir = "~/notes",
 			team = "host.assistant",
-			watchers = listOf(watcher().copy(fields = listOf("reason"), rules = fake.rules)),
+			sources = listOf(source()),
 		), state.value.gateways.assistantOn("sakura"))
 	}
 
 	@Test
-	fun theInboxStripShowsAnEnabledWatcherOnlyWithSomethingToProcessOrAProblem() {
-		val unset = watcher(grants = emptyList(), secret = "A GitHub token", lastSuccessAt = 1L)
+	fun theInboxStripShowsAnEnabledSourceOnlyWithSomethingToProcessOrAProblem() {
+		val unset = source(grants = emptyList(), secret = "A GitHub token", lastSuccessAt = 1L)
 		val problem = listOf(InboxRow.Problem("github", "GitHub notifications"))
-		val rows = { watcher: AssistantWatcher -> inboxRows(listOf(watcher)) }
+		val rows = { source: AssistantSource -> inboxRows(listOf(source)) }
 
 		assertEquals(problem, rows(unset))
-		assertEquals(problem, rows(watcher(stopped = "GitHub refused the token")))
-		assertEquals(listOf(InboxRow.Waiting("github", "GitHub notifications", "2 new")), rows(watcher(lastSuccessAt = 1L)))
+		assertEquals(problem, rows(source(stopped = "GitHub refused the token")))
+		assertEquals(listOf(InboxRow.Waiting("github", "GitHub notifications", "2 new")), rows(source(lastSuccessAt = 1L)))
 		assertEquals(
 			listOf(InboxRow.Waiting("github", "GitHub notifications", "500+ new")),
-			rows(watcher(unread = 500L, capped = true, lastSuccessAt = 1L)),
+			rows(source(unread = 500L, capped = true, lastSuccessAt = 1L)),
 		)
-		val quiet = listOf(watcher(), watcher(unread = 0L, lastSuccessAt = 1L), unset.copy(enabled = false))
+		val quiet = listOf(source(), source(unread = 0L, lastSuccessAt = 1L), unset.copy(enabled = false))
 		assertEquals(emptyList<InboxRow>(), inboxRows(quiet))
 	}
 
@@ -685,38 +829,37 @@ class AssistantOpsTest {
 
 		assertEquals(
 			"Needs a secret",
-			watcherHealth(watcher(grants = emptyList(), secret = "A GitHub token", lastSuccessAt = 1L, stopped = "no token"), ago),
+			sourceHealth(source(grants = emptyList(), secret = "A GitHub token", lastSuccessAt = 1L, stopped = "no token"), ago),
 		)
-		assertEquals("Stopped: needs a secret", watcherHealth(watcher(stopped = "needs a secret", lastSuccessAt = 1L), ago))
+		assertEquals("Stopped: needs a secret", sourceHealth(source(stopped = "needs a secret", lastSuccessAt = 1L), ago))
 		assertEquals(
-			"Waiting: GitHub rate limit · 2 unread",
-			watcherHealth(watcher(lastSuccessAt = 1L, backoff = AssistantWatcherBackoff(1L, "GitHub rate limit")), ago),
+			"Waiting: GitHub rate limit · 2 in its inbox",
+			sourceHealth(source(lastSuccessAt = 1L, backoff = AssistantWatcherBackoff(1L, "GitHub rate limit")), ago),
 		)
-		assertEquals("Checked 5m ago · 2 unread", watcherHealth(watcher(lastSuccessAt = 1L, evicted = 3L), ago))
-		assertEquals("Not checked yet", watcherHealth(watcher(), ago))
+		assertEquals("Checked 5m ago · 2 in its inbox", sourceHealth(source(lastSuccessAt = 1L), ago))
+		assertEquals("Not checked yet", sourceHealth(source(), ago))
 	}
 
 	@Test
-	fun settingsNameValuesOutsideTheListsByLabelAndCountInvalidRules() {
+	fun settingsNameValuesOutsideTheListsByLabel() {
 		val specs = listOf(AssistantFieldSpec.Text("type", "Type"))
 		val seen = AssistantUnexpectedValues(listOf(AssistantFieldValue("type", "WorkflowRun"), AssistantFieldValue("odd", "x")), capped = true)
 
-		assertEquals(listOf("Type: WorkflowRun", "Odd: x", "and more"), unexpectedLines(watcher().copy(fieldSpecs = specs, unexpected = seen)))
-		assertEquals(emptyList<String>(), unexpectedLines(watcher()))
-		assertEquals(listOf("4 rules · 1 invalid", "1 rule"), listOf(rulesCountText(4, 1), rulesCountText(1, 0)))
+		assertEquals(listOf("Type: WorkflowRun", "Odd: x", "and more"), unexpectedLines(source().copy(fieldSpecs = specs, unexpected = seen)))
+		assertEquals(emptyList<String>(), unexpectedLines(source()))
 	}
 
 	@Test
 	fun settingsShowHomeSections() {
-		val placed = ConsoleAssistantStateResult(workdir = "~/notes", watchers = emptyList())
+		val placed = ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList())
 		val safe = placed.copy(approveEverySend = true)
 
-		val unplaced = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.INTEGRATIONS)
+		val unplaced = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES, AssistantSection.SOURCES)
 		val placedSections = listOf(
 			AssistantSection.LOCATION,
 			AssistantSection.FEATURES,
-			AssistantSection.WATCHERS,
-			AssistantSection.INTEGRATIONS,
+			AssistantSection.SOURCES,
+			AssistantSection.AUTOMATIONS,
 			AssistantSection.REMOVE,
 		)
 
@@ -727,8 +870,8 @@ class AssistantOpsTest {
 				AssistantSection.LOCATION,
 				AssistantSection.FEATURES,
 				AssistantSection.SAFETY,
-				AssistantSection.WATCHERS,
-				AssistantSection.INTEGRATIONS,
+				AssistantSection.SOURCES,
+				AssistantSection.AUTOMATIONS,
 				AssistantSection.REMOVE,
 			),
 			assistantSections("sakura", safe),
@@ -748,62 +891,9 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun aRuleDraftStaysUntilItLandsOrIsCancelled() = runBlocking {
-		val fake = FakeGateway(home = "sakura")
-		val (ops, _) = ops(fake, "sakura")
-		val key = RuleDraftKey("sakura", "github", RuleSlot.Otherwise)
-		val stale = RuleDraft("otherwise", emptyList(), "wake", 5L)
-		val save: suspend (RuleDraft) -> RuleSaved = { ops.saveOtherwise("sakura", "github", it.toOtherwise()) }
-		ops.editRule(key, stale)
-
-		assertTrue(ops.sendRule(key, stale, RuleEdit.SAVE, save) is SaveOutcome.Offer)
-		val offered = ops.ruleDrafts.value[key]!!
-		assertEquals(Pair(0L, "wake"), offered.draft.revision to offered.draft.action)
-		assertEquals(SaveOutcome.Done, ops.sendRule(key, offered.draft, RuleEdit.SAVE, save))
-		assertNull(ops.ruleDrafts.value[key])
-		assertTrue(editorLanded(offered.opening, ops.ruleLanded.value[key]))
-
-		ops.editRule(key, stale)
-		ops.cancelRule(key)
-		assertNull(ops.ruleDrafts.value[key])
-
-		val answer = CompletableDeferred<RuleSaved>()
-		val pending = async { ops.sendRule(key, stale, RuleEdit.SAVE) { answer.await() } }
-		yield()
-		ops.cancelRule(key)
-		answer.complete(RuleSaved.Unreachable)
-		pending.await()
-		assertNull(ops.ruleDrafts.value[key])
-
-		val late = CompletableDeferred<RuleSaved>()
-		val first = async { ops.sendRule(key, stale, RuleEdit.SAVE) { late.await() } }
-		yield()
-		ops.cancelRule(key)
-		val reopened = stale.copy(action = "inbox")
-		ops.editRule(key, reopened)
-		late.complete(RuleSaved.Stored(fake.rules))
-		first.await()
-		val kept = ops.ruleDrafts.value[key]!!
-		assertEquals(HeldRuleDraft(reopened, kept.opening), kept)
-		assertFalse(editorLanded(kept.opening, ops.ruleLanded.value[key]))
-	}
-
-	@Test
-	fun anUneditedSaveLandsTheOpeningItsEditorHeld() = runBlocking {
-		val (ops, _) = ops(FakeGateway(home = "sakura"), "sakura")
-		val key = RuleDraftKey("sakura", "github", RuleSlot.Otherwise)
-		val untouched = RuleDraft("otherwise", emptyList(), "inbox", 0L)
-
-		val shown = ops.holdRule(key, untouched)
-		ops.sendRule(key, untouched, RuleEdit.SAVE) { ops.saveOtherwise("sakura", "github", it.toOtherwise()) }
-
-		assertTrue(editorLanded(shown, ops.ruleLanded.value[key]))
-	}
-
-	@Test
 	fun aPagesResultStaysUnderItsKeyAndASecondOpWhileBusyIsDropped() = runBlocking {
 		val (ops, _) = ops(FakeGateway(home = "sakura"), "sakura")
-		val list = WorkKey.RuleList("sakura", "github")
+		val list = WorkKey.Source("sakura", "github")
 		val gate = CompletableDeferred<String?>()
 		var second = false
 
@@ -820,19 +910,11 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun settingsListWhatTheAssistantMayDoAndNothingFromAnOlderGateway() {
-		val done = AssistantActionDescriptor("github_done", "Mark done", "Clears threads from your GitHub inbox.")
-
-		assertEquals(listOf(done), watcherActions(watcher().copy(actions = listOf(done))))
-		assertEquals(emptyList<AssistantActionDescriptor>(), watcherActions(watcher()))
-	}
-
-	@Test
-	fun onlyAStoppedWatcherHoldingItsSecretOffersRetry() {
-		assertTrue(canRetry(watcher(stopped = "GitHub refused the token")))
-		assertFalse(canRetry(watcher(grants = emptyList(), stopped = "needs a secret")))
-		assertFalse(canRetry(watcher()))
-		assertFalse(canRetry(watcher(stopped = "GitHub refused the token").copy(enabled = false)))
+	fun onlyAStoppedSourceHoldingItsSecretOffersRetry() {
+		assertTrue(canRetry(source(stopped = "GitHub refused the token")))
+		assertFalse(canRetry(source(grants = emptyList(), stopped = "needs a secret")))
+		assertFalse(canRetry(source()))
+		assertFalse(canRetry(source(stopped = "GitHub refused the token").copy(enabled = false)))
 	}
 
 	@Test

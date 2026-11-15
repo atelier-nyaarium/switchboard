@@ -2,6 +2,8 @@ package com.atelier_nyaarium.switchboard
 
 import android.net.Uri
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.proto.Automation
+import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
 import com.atelier_nyaarium.switchboard.proto.Routine
@@ -251,9 +253,27 @@ internal class ChatRepositoryDeviceHost(
 internal class ConsoleAssistantGateway(private val client: ConsoleClient) : AssistantGateway {
 	override suspend fun call(gatewayId: String, op: ConsoleOp) = client.assistantOp(gatewayId, op)
 
-	override suspend fun rules(gatewayId: String, op: ConsoleOp) = client.assistantRules(gatewayId, op)
+	override suspend fun automations(gatewayId: String) = client.automationList(gatewayId)
+}
 
-	override suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview) = client.assistantPreview(gatewayId, op)
+internal class ConsoleAutomationGateway(private val client: ConsoleClient) : AutomationGateway {
+	override suspend fun list(gatewayId: String) = client.automationList(gatewayId)
+
+	override suspend fun put(gatewayId: String, automationId: String, automation: Automation, baseRevision: Long) =
+		client.automationPut(gatewayId, automationId, automation, baseRevision)
+
+	override suspend fun delete(gatewayId: String, automationId: String, baseRevision: Long) =
+		client.automationDelete(gatewayId, automationId, baseRevision)
+
+	override suspend fun preview(gatewayId: String, trigger: AutomationTrigger) = client.automationPreview(gatewayId, trigger)
+}
+
+internal class ChatRepositoryAutomationHost(private val repo: ChatRepository) : AutomationHost {
+	override val gateway: AutomationGateway? get() =
+		if (isSandbox) sandboxAutomations else repo.clientOrNull()?.let(::ConsoleAutomationGateway)
+
+	override suspend fun carried(gatewayId: String, write: suspend () -> Unit): Boolean =
+		repo.assistantOps.carriedWrite(gatewayId, write)
 }
 
 internal class ChatRepositoryAssistantHost(private val repo: ChatRepository) : AssistantHost {

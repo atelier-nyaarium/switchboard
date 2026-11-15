@@ -64,8 +64,8 @@ internal const val PUT_CONFLICT = "conflict"
 /** The intake's answer, not the home's. */
 private fun intakeAnswer(answer: JsonElement): JsonObject? = (answer as? JsonObject)?.takeIf { "opKey" in it || "malformed" in it }
 
-/** Explicit nulls; the Gateway's schema needs them. */
-private val sealedJson = Json(wireJson) { encodeDefaults = true }
+/** Every unset field is sealed as null, so the Gateway's schema must take one wherever a field is optional. */
+internal val sealedJson = Json(wireJson) { encodeDefaults = true }
 
 /** Sole sealer, bound to Gateway and version. */
 internal class AssistantHomeSealing(boot: PhoneBootstrap, ambient: PhoneAmbient, onMissingEpoch: (Int) -> Unit) :

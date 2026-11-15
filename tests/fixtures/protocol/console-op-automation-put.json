@@ -1,0 +1,10 @@
+{
+	"kind": "automation_put",
+	"automationId": "r1",
+	"automation": {
+		"enabled": true,
+		"trigger": { "kind": "event", "source": "github", "conditions": [] },
+		"actions": [{ "kind": "tell_assistant", "when": "now" }]
+	},
+	"baseRevision": 0
+}

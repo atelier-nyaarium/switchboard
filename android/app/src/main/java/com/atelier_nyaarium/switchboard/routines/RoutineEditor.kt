@@ -30,7 +30,9 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.CliToggles
 import com.atelier_nyaarium.switchboard.ClockPickerDialog
 import com.atelier_nyaarium.switchboard.cliChoices
+import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.RoutineSaved
 import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -132,6 +134,7 @@ fun RoutineEditor(
 		title = if (held == null) "New routine" else "Edit routine",
 		saving = saving,
 		canSave = draft.refusal(here) == null,
+		menu = { if (held != null) RemoveMenu("Delete routine") { confirmingDelete = true } },
 		onCancel = close,
 		onSave = { if (ruleMoved(held, draft)) confirming = true else commit() },
 	) {
@@ -276,10 +279,6 @@ fun RoutineEditor(
 					}
 				}
 			}
-
-			if (held != null) {
-				TextButton(onClick = hapticClick { confirmingDelete = true }) { Text("Delete routine") }
-		}
 	}
 
 	if (pickingTime) {
@@ -345,25 +344,21 @@ fun RoutineEditor(
 	}
 
 	if (confirmingDelete) {
-		AlertDialog(
-			onDismissRequest = { confirmingDelete = false },
-			title = { Text("Delete this routine") },
-			text = { Text("$DELETE_EXPLAINS $VERBS_EXPLAIN") },
-			confirmButton = {
-				TextButton(
-					onClick = hapticClick {
-						confirmingDelete = false
-						scope.launch {
-							if (repo.routineOps.delete(draft.id, gatewayId)) {
-								close()
-							} else {
-								refused = "This Gateway still runs it; it was not reached"
-							}
-						}
-					},
-				) { Text("Delete") }
+		ConfirmDialog(
+			title = "Delete this routine?",
+			body = "$DELETE_EXPLAINS $VERBS_EXPLAIN",
+			confirmText = "Delete",
+			onConfirm = {
+				confirmingDelete = false
+				scope.launch {
+					if (repo.routineOps.delete(draft.id, gatewayId)) {
+						close()
+					} else {
+						refused = "This Gateway still runs it; it was not reached"
+					}
+				}
 			},
-			dismissButton = { TextButton(onClick = hapticClick { confirmingDelete = false }) { Text("Cancel") } },
+			onDismiss = { confirmingDelete = false },
 		)
 	}
 }

@@ -466,8 +466,8 @@ fun App(
 	LaunchedEffect(assistantShown) {
 		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
 	}
-	val watchersMoved by repo.assistantOps.watchersMoved.collectAsState()
-	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.router.settled, assistantShown, watchersMoved) {
+	val sourcesMoved by repo.assistantOps.sourcesMoved.collectAsState()
+	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.router.settled, assistantShown, sourcesMoved) {
 		if (!assistantShown) return@LaunchedEffect
 		// Covers a screen before the first drain.
 		repo.assistantOps.refreshShown()
@@ -509,8 +509,16 @@ fun App(
 		assistantOpen = assistantOpen,
 	)
 	val layer = backLayer(nav, backFacts)
+	// A changed automation draft asks first.
+	val leaveAssistantPage = {
+		val editor = nav.assistantPage as? AssistantPage.AutomationEditor
+		if (editor == null || repo.automationOps.askLeave(AutomationDraftKey(editor.gatewayId, editor.slot))) {
+			nav = nav.back(BackLayer.ASSISTANT_PAGE, backFacts, state.provisioned)
+		}
+	}
 	BackHandler(enabled = layer != null) {
 		when (layer) {
+			BackLayer.ASSISTANT_PAGE -> leaveAssistantPage()
 			BackLayer.EDITOR -> when {
 				editPolicy != null -> editPolicy = null
 				editRoutine != null -> editRoutine = null
@@ -575,7 +583,7 @@ fun App(
 					home = assistantGateway(state),
 					onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
 					onPage = { nav = nav.openAssistantPage(it) },
-					onBack = { nav = nav.back(BackLayer.ASSISTANT_PAGE, backFacts, state.provisioned) },
+					onBack = leaveAssistantPage,
 				)
 			}
 		}
@@ -652,7 +660,7 @@ fun App(
 				assistant = assistantOpen,
 				label = tabLabelFor(state, team),
 				tabs = state.openTabs,
-				watchers = state.gateways.assistantOn(gatewayOf(team))?.watchers.orEmpty(),
+				sources = state.gateways.assistantOn(gatewayOf(team))?.let(::sourcesOf).orEmpty(),
 			)
 			SideDrawer(
 				drawers = conversationDrawer,
@@ -722,14 +730,14 @@ fun App(
 				},
 				onSessions = { nav = nav.up(backFacts) },
 				onSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) },
-				inboxWork = { row -> assistantWork[WorkKey.Check(gatewayOf(team), row.watcherId)] ?: PageWork() },
-				onCheckWatcher = { watcherId ->
+				inboxWork = { row -> assistantWork[WorkKey.Check(gatewayOf(team), row.sourceId)] ?: PageWork() },
+				onCheckSource = { sourceId ->
 					val gatewayId = gatewayOf(team)
 					repo.command {
-						assistantOps.runWork(WorkKey.Check(gatewayId, watcherId)) { answerText(checkNow(gatewayId, watcherId)) }
+						assistantOps.runWork(WorkKey.Check(gatewayId, sourceId)) { answerText(checkNow(gatewayId, sourceId)) }
 					}
 				},
-				onWatcherPage = { watcherId -> nav = nav.openAssistantPage(AssistantPage.Watcher(gatewayOf(team), watcherId)) },
+				onSourcePage = { sourceId -> nav = nav.openAssistantPage(AssistantPage.Source(gatewayOf(team), sourceId)) },
 				composer = ComposerState(
 					draft = state.drafts[openTeam!!] ?: Draft(),
 					sendAwaitingWake = state.awaitingWake(openTeam!!),

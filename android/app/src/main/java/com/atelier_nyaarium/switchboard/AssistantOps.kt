@@ -1,23 +1,24 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.RuleDraft
-import com.atelier_nyaarium.switchboard.assistant.RuleEdit
-import com.atelier_nyaarium.switchboard.assistant.RuleSlot
-import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
 import com.atelier_nyaarium.switchboard.assistant.field
 import com.atelier_nyaarium.switchboard.assistant.fieldLabel
 import com.atelier_nyaarium.switchboard.assistant.label
-import com.atelier_nyaarium.switchboard.assistant.outcomeOf
-import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
+import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
+import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
+import com.atelier_nyaarium.switchboard.proto.AutomationAction
+import com.atelier_nyaarium.switchboard.proto.AutomationRow
+import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -29,7 +30,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -44,10 +44,8 @@ private const val UNROUTABLE = "unroutable"
 internal interface AssistantGateway {
 	suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer
 
-	suspend fun rules(gatewayId: String, op: ConsoleOp): RuleSaved
-
-	/** Null if unanswered. */
-	suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview): ConsoleAssistantPreviewResult?
+	/** Old home's list. */
+	suspend fun automations(gatewayId: String): AutomationListAnswer
 }
 
 internal interface AssistantHost {
@@ -58,19 +56,75 @@ internal interface AssistantHost {
 	fun persistHome(home: AssistantHome.Read)
 }
 
-/** Settings a move carries. */
-internal fun carriedOf(state: ConsoleAssistantStateResult): AssistantHomeCarried = AssistantHomeCarried(
-	approveEverySend = state.approveEverySend ?: true,
-	temperatureUnit = state.temperatureUnit,
-	watchers = state.watchers.mapNotNull { watcher ->
-		watcher.rules?.let {
-			AssistantHomeCarriedWatcher(id = watcher.id, rules = it, grant = watcher.grants.firstOrNull(), enabled = watcherOn(watcher))
-		}
-	},
-	integrations = state.integrations?.map { integration ->
-		AssistantHomeCarriedIntegration(id = integration.id, grant = integration.grants.firstOrNull())
-	},
+/** The one reader of a Gateway's sources. */
+internal fun sourcesOf(state: ConsoleAssistantStateResult): List<AssistantSource> =
+	state.sources ?: state.watchers.orEmpty().map { it.toSource() }
+
+// Remove 2026-11-28: an older Gateway's watchers.
+private fun AssistantWatcher.toSource(): AssistantSource = AssistantSource(
+	id = id,
+	label = label,
+	grants = grants,
+	unread = unread,
+	capped = capped,
+	lastSuccessAt = lastSuccessAt,
+	nextPollAt = nextPollAt,
+	backoff = backoff,
+	stopped = stopped,
+	fieldSpecs = fieldSpecs?.takeIf { it.isNotEmpty() }
+		?: fields.orEmpty().map { AssistantFieldSpec.Text(field = it, label = fieldLabel(it)) },
+	unexpected = unexpected,
+	secret = secret,
+	actions = actions.orEmpty(),
+	enabled = enabled != false,
+	triggers = id != "sensors",
 )
+
+/** An older build answers `watchers` alone. */
+internal fun servesSources(state: ConsoleAssistantStateResult?): Boolean = state?.sources != null
+
+private val NO_RULES = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 0L), 0L)
+
+// Remove 2026-11-28: an older Gateway reads rules.
+/** Unconditioned automation is the fallback. */
+internal fun rulesOf(sourceId: String, events: List<AutomationRow>): AssistantWatcherRules {
+	val waking = events.mapNotNull { row ->
+		val trigger = row.automation.trigger as? AutomationTrigger.Event
+		val wakes = row.automation.enabled && row.invalid == null &&
+			row.automation.actions.any { it is AutomationAction.TellAssistant && it.`when` == "now" }
+		trigger?.takeIf { it.source == sourceId && wakes }?.let { row.id to it.conditions }
+	}
+	val rules = waking.filter { it.second.isNotEmpty() }.take(Protocol.Wire.ASSISTANT_RULES_MAX).map { (id, conditions) ->
+		AssistantRule(id, conditions.map { AssistantRuleCondition(it.field, it.test, it.value) }, "wake", 0L)
+	}
+	val otherwise = if (waking.any { it.second.isEmpty() }) "wake" else "inbox"
+	return AssistantWatcherRules(rules, AssistantRuleOtherwise(otherwise, 0L), 0L)
+}
+
+/** Settings a move carries; `automations` null is a Gateway that lists none. */
+internal fun carriedOf(state: ConsoleAssistantStateResult, automations: List<AutomationRow>?): AssistantHomeCarried {
+	val events = automations?.filter { it.automation.trigger is AutomationTrigger.Event }
+	// Remove 2026-11-28: an older Gateway's rules.
+	val held = state.watchers.orEmpty().associate { it.id to it.rules }
+	return AssistantHomeCarried(
+		approveEverySend = state.approveEverySend ?: true,
+		// An older Gateway refuses null.
+		temperatureUnit = state.temperatureUnit ?: "C",
+		watchers = sourcesOf(state).map { source ->
+			AssistantHomeCarriedWatcher(
+				id = source.id,
+				// Never null: an older Gateway refuses one.
+				rules = events?.let { rulesOf(source.id, it) } ?: held[source.id] ?: NO_RULES,
+				grant = source.grants.firstOrNull(),
+				enabled = source.enabled,
+			)
+		},
+		automations = events?.map { CarriedAutomation(it.id, it.automation) },
+		integrations = state.integrations?.map { integration ->
+			AssistantHomeCarriedIntegration(id = integration.id, grant = integration.grants.firstOrNull())
+		},
+	)
+}
 
 /** Sole holder, for seeding. */
 internal data class SeedChoice(val gatewayId: String, val workdir: String, val state: ConsoleAssistantStateResult)
@@ -143,78 +197,79 @@ internal fun answerText(answer: AssistantAnswer): String? = when (answer) {
 	AssistantAnswer.Unreachable -> "That Gateway could not be reached"
 }
 
-/** Older Gateways run every watcher. */
-internal fun watcherOn(watcher: AssistantWatcher): Boolean = watcher.enabled != false
+internal fun sourceOn(source: AssistantSource): Boolean = source.enabled
 
 /** Inbox strip row. */
 internal sealed interface InboxRow {
-	val watcherId: String
+	val sourceId: String
 	val label: String
 
 	/** Check now nudges. */
-	data class Waiting(override val watcherId: String, override val label: String, val badge: String) : InboxRow
+	data class Waiting(override val sourceId: String, override val label: String, val badge: String) : InboxRow
 
 	/** Settings opens its page. */
-	data class Problem(override val watcherId: String, override val label: String) : InboxRow
+	data class Problem(override val sourceId: String, override val label: String) : InboxRow
 }
 
-/** Enabled watchers needing attention. */
-internal fun inboxRows(watchers: List<AssistantWatcher>): List<InboxRow> = watchers.filter(::watcherOn).mapNotNull { watcher ->
-	when (val status = watcherStatus(watcher)) {
-		WatcherStatus.NeedsSecret, is WatcherStatus.Stopped -> InboxRow.Problem(watcher.id, watcher.label)
-		WatcherStatus.NotChecked -> null
-		is WatcherStatus.Waiting -> if (status.checkedAt != null && watcher.unread > 0) waiting(watcher) else null
-		is WatcherStatus.Checked -> if (watcher.unread > 0) waiting(watcher) else null
+/** Enabled sources needing attention. */
+internal fun inboxRows(sources: List<AssistantSource>): List<InboxRow> = sources.filter(::sourceOn).mapNotNull { source ->
+	when (val status = sourceStatus(source)) {
+		SourceStatus.NeedsSecret, is SourceStatus.Stopped -> InboxRow.Problem(source.id, source.label)
+		SourceStatus.NotChecked -> null
+		is SourceStatus.Waiting -> if (status.checkedAt != null && source.unread > 0) waiting(source) else null
+		is SourceStatus.Checked -> if (source.unread > 0) waiting(source) else null
 	}
 }
 
-private fun waiting(watcher: AssistantWatcher) = InboxRow.Waiting(watcher.id, watcher.label, "${countText(watcher)} new")
+private fun waiting(source: AssistantSource) = InboxRow.Waiting(source.id, source.label, "${countText(source)} new")
 
 /** "+" when capped. */
-private fun countText(watcher: AssistantWatcher): String = "${watcher.unread}${if (watcher.capped == true) "+" else ""}"
+private fun countText(source: AssistantSource): String = "${source.unread}${if (source.capped == true) "+" else ""}"
 
-internal fun unreadText(watcher: AssistantWatcher): String = "${countText(watcher)} unread"
+internal fun unreadText(source: AssistantSource): String = "${countText(source)} in its inbox"
+
+/** "14", or "500+" when capped. */
+internal fun inboxCount(source: AssistantSource): String = countText(source)
 
 /** Needs a secret or stopped. */
-internal fun watcherTroubled(watcher: AssistantWatcher): Boolean =
-	watcherStatus(watcher).let { it == WatcherStatus.NeedsSecret || it is WatcherStatus.Stopped }
+internal fun sourceTroubled(source: AssistantSource): Boolean =
+	sourceStatus(source).let { it == SourceStatus.NeedsSecret || it is SourceStatus.Stopped }
 
 /** Chip and health agree. */
-internal sealed interface WatcherStatus {
+internal sealed interface SourceStatus {
 	/** Hides time and unread. */
-	data object NeedsSecret : WatcherStatus
+	data object NeedsSecret : SourceStatus
 
-	data class Stopped(val reason: String) : WatcherStatus
+	data class Stopped(val reason: String) : SourceStatus
 
-	data class Waiting(val reason: String, val checkedAt: Long?) : WatcherStatus
+	data class Waiting(val reason: String, val checkedAt: Long?) : SourceStatus
 
-	data object NotChecked : WatcherStatus
+	data object NotChecked : SourceStatus
 
-	data class Checked(val at: Long) : WatcherStatus
+	data class Checked(val at: Long) : SourceStatus
 }
 
-internal fun watcherStatus(watcher: AssistantWatcher): WatcherStatus = when {
-	watcher.secret != null && watcher.grants.isEmpty() -> WatcherStatus.NeedsSecret
-	watcher.stopped != null -> WatcherStatus.Stopped(watcher.stopped)
-	watcher.backoff != null -> WatcherStatus.Waiting(watcher.backoff.reason, watcher.lastSuccessAt)
-	watcher.lastSuccessAt == null -> WatcherStatus.NotChecked
-	else -> WatcherStatus.Checked(watcher.lastSuccessAt)
+internal fun sourceStatus(source: AssistantSource): SourceStatus = when {
+	source.secret != null && source.grants.isEmpty() -> SourceStatus.NeedsSecret
+	source.stopped != null -> SourceStatus.Stopped(source.stopped)
+	source.backoff != null -> SourceStatus.Waiting(source.backoff.reason, source.lastSuccessAt)
+	source.lastSuccessAt == null -> SourceStatus.NotChecked
+	else -> SourceStatus.Checked(source.lastSuccessAt)
 }
 
-/** A watcher's settings row. */
-internal fun watcherHealth(watcher: AssistantWatcher, ago: (Long) -> String): String = when (val status = watcherStatus(watcher)) {
-	WatcherStatus.NeedsSecret -> "Needs a secret"
-	is WatcherStatus.Stopped -> "Stopped: ${status.reason}"
-	is WatcherStatus.Waiting ->
-		"Waiting: ${status.reason}" + if (status.checkedAt != null) " · ${unreadText(watcher)}" else ""
-	WatcherStatus.NotChecked -> "Not checked yet"
-	is WatcherStatus.Checked -> "Checked ${ago(status.at)} · ${unreadText(watcher)}"
+internal fun sourceHealth(source: AssistantSource, ago: (Long) -> String): String = when (val status = sourceStatus(source)) {
+	SourceStatus.NeedsSecret -> "Needs a secret"
+	is SourceStatus.Stopped -> "Stopped: ${status.reason}"
+	is SourceStatus.Waiting ->
+		"Waiting: ${status.reason}" + if (status.checkedAt != null) " · ${unreadText(source)}" else ""
+	SourceStatus.NotChecked -> "Not checked yet"
+	is SourceStatus.Checked -> "Checked ${ago(status.at)} · ${unreadText(source)}"
 }
 
 /** Show unlisted event values individually as specs grow. */
-internal fun unexpectedLines(watcher: AssistantWatcher): List<String> {
-	val seen = watcher.unexpected ?: return emptyList()
-	val specs = watcher.fieldSpecs.orEmpty()
+internal fun unexpectedLines(source: AssistantSource): List<String> {
+	val seen = source.unexpected ?: return emptyList()
+	val specs = source.fieldSpecs
 	val named = seen.values.map { entry ->
 		val field = specs.find { it.field == entry.field }?.label ?: fieldLabel(entry.field)
 		"$field: ${entry.value}"
@@ -222,23 +277,16 @@ internal fun unexpectedLines(watcher: AssistantWatcher): List<String> {
 	return if (seen.capped) named + "and more" else named
 }
 
-/** "4 rules · 1 invalid". */
-internal fun rulesCountText(rules: Int, invalid: Int): String {
-	val count = if (rules == 1) "1 rule" else "$rules rules"
-	return if (invalid == 0) count else "$count · $invalid invalid"
-}
+internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, SOURCES, AUTOMATIONS, REMOVE }
 
-/** Location comes first. */
-internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, WATCHERS, INTEGRATIONS, REMOVE }
-
-/** Safety, watchers and remove are the home's. */
+/** Safety, automations and remove are the home's. */
 internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResult?): List<AssistantSection> =
 	listOfNotNull(
 		AssistantSection.LOCATION,
 		AssistantSection.FEATURES,
 		AssistantSection.SAFETY.takeIf { home != null && placed?.approveEverySend != null },
-		AssistantSection.WATCHERS.takeIf { home != null && placed != null },
-		AssistantSection.INTEGRATIONS,
+		AssistantSection.SOURCES,
+		AssistantSection.AUTOMATIONS.takeIf { home != null && servesSources(placed) },
 		AssistantSection.REMOVE.takeIf { home != null },
 	)
 
@@ -255,25 +303,15 @@ internal sealed interface WorkKey {
 
 	data object Units : WorkKey
 
-	data class Watcher(val gatewayId: String, val watcherId: String) : WorkKey
+	data class Source(val gatewayId: String, val sourceId: String) : WorkKey
 
 	/** The strip's Check now. */
-	data class Check(val gatewayId: String, val watcherId: String) : WorkKey
-
-	data class RuleList(val gatewayId: String, val watcherId: String) : WorkKey
+	data class Check(val gatewayId: String, val sourceId: String) : WorkKey
 }
 
-internal data class RuleDraftKey(val gatewayId: String, val watcherId: String, val slot: RuleSlot)
-
-/** Opening fences draft settlement. */
-internal data class HeldRuleDraft(val draft: RuleDraft, val opening: Long, val said: String? = null, val busy: Boolean = false)
-
-/** Older Gateways name none. */
-internal fun watcherActions(watcher: AssistantWatcher): List<AssistantActionDescriptor> = watcher.actions.orEmpty()
-
-/** A stopped watcher that holds its secret can be asked again, as after a rotated key. */
-internal fun canRetry(watcher: AssistantWatcher): Boolean =
-	watcherOn(watcher) && watcher.stopped != null && watcher.grants.isNotEmpty()
+/** A stopped source that holds its secret can be asked again, as after a rotated key. */
+internal fun canRetry(source: AssistantSource): Boolean =
+	source.enabled && source.stopped != null && source.grants.isNotEmpty()
 
 /** The home record is held; a Gateway's answer replaces what it last said. */
 internal class AssistantOps(
@@ -292,20 +330,14 @@ internal class AssistantOps(
 	/** Page results survive Back. */
 	val work = MutableStateFlow<Map<WorkKey, PageWork>>(emptyMap())
 
-	/** Success or Cancel clears. */
-	val ruleDrafts = MutableStateFlow<Map<RuleDraftKey, HeldRuleDraft>>(emptyMap())
-
-	/** Landed opening per key. */
-	val ruleLanded = MutableStateFlow<Map<RuleDraftKey, Long>>(emptyMap())
-
-	private val watchersMovedFlow = MutableStateFlow(0L)
+	private val sourcesMovedFlow = MutableStateFlow(0L)
 
 	/** A shown Assistant re-reads on each bump. */
-	val watchersMoved: StateFlow<Long> = watchersMovedFlow
+	val sourcesMoved: StateFlow<Long> = sourcesMovedFlow
 
 	/** The Gateway's quiet row. */
-	fun watchersChanged() {
-		watchersMovedFlow.update { it + 1 }
+	fun sourcesChanged() {
+		sourcesMovedFlow.update { it + 1 }
 	}
 
 	/** Per-key busy calls drop. */
@@ -318,58 +350,6 @@ internal class AssistantOps(
 		} finally {
 			work.update { it + (key to PageWork(said = said)) }
 		}
-	}
-
-	private val openings = java.util.concurrent.atomic.AtomicLong()
-
-	/** No edits while its op is out. */
-	fun editRule(key: RuleDraftKey, draft: RuleDraft) {
-		ruleDrafts.update { held ->
-			val now = held[key]
-			if (now?.busy == true) held else held + (key to (now?.copy(draft = draft) ?: HeldRuleDraft(draft, openings.incrementAndGet())))
-		}
-	}
-
-	/** The opening a send will settle. */
-	fun holdRule(key: RuleDraftKey, draft: RuleDraft): Long {
-		val minted = openings.incrementAndGet()
-		return ruleDrafts.updateAndGet { held -> if (key in held) held else held + (key to HeldRuleDraft(draft, minted)) }
-			.getValue(key).opening
-	}
-
-	fun cancelRule(key: RuleDraftKey) {
-		ruleDrafts.update { it - key }
-	}
-
-	/** Busy returns null; sends held or `opened`; `opening` fences settlement. */
-	suspend fun sendRule(key: RuleDraftKey, opened: RuleDraft, edit: RuleEdit, op: suspend (RuleDraft) -> RuleSaved): SaveOutcome? {
-		val minted = openings.incrementAndGet()
-		val before = ruleDrafts.getAndUpdate { held ->
-			val now = held[key]
-			if (now?.busy == true) held
-			else held + (key to HeldRuleDraft(now?.draft ?: opened, now?.opening ?: minted, now?.said, busy = true))
-		}
-		if (before[key]?.busy == true) return null
-		val opening = before[key]?.opening ?: minted
-		val draft = before[key]?.draft ?: opened
-		var outcome: SaveOutcome? = null
-		try {
-			outcome = outcomeOf(op(draft), draft, key.slot, edit)
-		} finally {
-			var settled = false
-			ruleDrafts.update { held ->
-				settled = held[key]?.opening == opening
-				if (!settled) return@update held
-				when (val landed = outcome) {
-					SaveOutcome.Done -> held - key
-					is SaveOutcome.Offer -> held + (key to HeldRuleDraft(landed.draft, opening, landed.line))
-					is SaveOutcome.Said -> held + (key to HeldRuleDraft(draft, opening, landed.reason))
-					null -> held + (key to HeldRuleDraft(draft, opening))
-				}
-			}
-			if (settled && outcome == SaveOutcome.Done) ruleLanded.update { it + (key to opening) }
-		}
-		return outcome
 	}
 
 	/** True once read; an unwritten home may seed. */
@@ -496,8 +476,20 @@ internal class AssistantOps(
 		val client = host.gateway ?: return null
 		val answer = attempt { client.call(gatewayId, ConsoleOp.AssistantState) } as? AssistantAnswer.State ?: return null
 		fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Answered(answer.state)))
-		return carriedOf(answer.state)
+		val listed = eventRows(client, gatewayId, answer.state) ?: return null
+		return carriedOf(answer.state, listed.rows)
 	}
+
+	/** `rows` null from a build that lists none. */
+	private class EventRows(val rows: List<AutomationRow>?)
+
+	/** Null when unread; a refusal counts only from an older build. */
+	private suspend fun eventRows(client: AssistantGateway, gatewayId: String, held: ConsoleAssistantStateResult): EventRows? =
+		when (val listed = attempt { client.automations(gatewayId) }) {
+			is AutomationListAnswer.Listed -> EventRows(listed.automations)
+			AutomationListAnswer.Refused -> EventRows(null).takeUnless { servesSources(held) }
+			AutomationListAnswer.Unreachable, null -> null
+		}
 
 	/** Fresh answers from the roster as asked; an owner choice wins. */
 	private suspend fun seed() {
@@ -512,10 +504,12 @@ internal class AssistantOps(
 				asked.map { (id, _) -> async { id to attempt { client.call(id, ConsoleOp.AssistantState) } } }.awaitAll()
 			}
 			val choice = seedFrom(answers) ?: return
+			val listed = eventRows(client, choice.gatewayId, choice.state) ?: return
 			writes.withLock {
 				val now = state.value.gateways
 				if (!fence.current(ticket) || !now.current || seenAt(now) != asked) return@withLock
-				put(ticket, 0L, choice.gatewayId, AssistantHomeSealed(workdirPath = choice.workdir, carried = carriedOf(choice.state)))
+				val carried = carriedOf(choice.state, listed.rows)
+				put(ticket, 0L, choice.gatewayId, AssistantHomeSealed(workdirPath = choice.workdir, carried = carried))
 			}
 		} finally {
 			seeding.set(false)
@@ -532,54 +526,49 @@ internal class AssistantOps(
 	suspend fun setTemperatureUnit(gatewayId: String, unit: String): AssistantAnswer =
 		carriedSetting(gatewayId, ConsoleOp.AssistantTemperatureUnit(unit))
 
-	suspend fun setGrants(gatewayId: String, watcherId: String, entryIds: List<String>): AssistantAnswer =
-		carriedSetting(gatewayId, ConsoleOp.AssistantWatcherGrants(watcherId = watcherId, entryIds = entryIds))
+	// Remove 2026-11-28: an older build knows the watcher kinds alone.
+	private fun sourceOp(gatewayId: String, source: ConsoleOp, watcher: ConsoleOp): ConsoleOp =
+		if (servesSources(state.value.gateways.assistantOn(gatewayId))) source else watcher
+
+	suspend fun setGrants(gatewayId: String, sourceId: String, entryIds: List<String>): AssistantAnswer = carriedSetting(
+		gatewayId,
+		sourceOp(
+			gatewayId,
+			ConsoleOp.AssistantSourceGrants(sourceId = sourceId, entryIds = entryIds),
+			ConsoleOp.AssistantWatcherGrants(watcherId = sourceId, entryIds = entryIds),
+		),
+	)
 
 	/** The same set again, which the Gateway reads as a poll now. */
-	suspend fun retry(gatewayId: String, watcher: AssistantWatcher): AssistantAnswer =
-		setGrants(gatewayId, watcher.id, watcher.grants)
+	suspend fun retry(gatewayId: String, source: AssistantSource): AssistantAnswer =
+		setGrants(gatewayId, source.id, source.grants)
 
-	suspend fun setEnabled(gatewayId: String, watcherId: String, enabled: Boolean): AssistantAnswer =
-		carriedSetting(gatewayId, ConsoleOp.AssistantWatcherEnabled(watcherId = watcherId, enabled = enabled))
+	suspend fun setEnabled(gatewayId: String, sourceId: String, enabled: Boolean): AssistantAnswer = carriedSetting(
+		gatewayId,
+		sourceOp(
+			gatewayId,
+			ConsoleOp.AssistantSourceEnabled(sourceId = sourceId, enabled = enabled),
+			ConsoleOp.AssistantWatcherEnabled(watcherId = sourceId, enabled = enabled),
+		),
+	)
 
 	/** Under `writes`, so a move seals it or the old home refuses it. */
 	private suspend fun carriedSetting(gatewayId: String, op: ConsoleOp): AssistantAnswer =
 		writes.withLock { landed(gatewayId, op) }
 
-	/** Nudges the assistant now. */
-	suspend fun checkNow(gatewayId: String, watcherId: String): AssistantAnswer =
-		landed(gatewayId, ConsoleOp.AssistantWatcherCheck(watcherId = watcherId))
+	/** Under `writes`; false once the home left. */
+	suspend fun carriedWrite(gatewayId: String, write: suspend () -> Unit): Boolean = writes.withLock {
+		val home = assistantGateway(state.value)
+		if (home != null && home != gatewayId) return@withLock false
+		write()
+		true
+	}
 
-	/** 0 adds the rule. */
-	suspend fun saveRule(gatewayId: String, watcherId: String, rule: AssistantRule): RuleSaved =
-		ruleOp(gatewayId, ConsoleOp.AssistantRulePut(watcherId = watcherId, rule = rule))
-
-	suspend fun deleteRule(gatewayId: String, watcherId: String, ruleId: String, base: Long): RuleSaved =
-		ruleOp(gatewayId, ConsoleOp.AssistantRuleDelete(watcherId = watcherId, ruleId = ruleId, baseRevision = base))
-
-	/** Over the list revision drawn; null moves it last. */
-	suspend fun moveRule(gatewayId: String, watcherId: String, ruleId: String, beforeId: String?, base: Long): RuleSaved =
-		ruleOp(
+	suspend fun checkNow(gatewayId: String, sourceId: String): AssistantAnswer =
+		landed(
 			gatewayId,
-			ConsoleOp.AssistantRuleMove(watcherId = watcherId, ruleId = ruleId, beforeId = beforeId, baseRevision = base),
+			sourceOp(gatewayId, ConsoleOp.AssistantSourceCheck(sourceId = sourceId), ConsoleOp.AssistantWatcherCheck(watcherId = sourceId)),
 		)
-
-	suspend fun saveOtherwise(gatewayId: String, watcherId: String, otherwise: AssistantRuleOtherwise): RuleSaved =
-		ruleOp(gatewayId, ConsoleOp.AssistantOtherwisePut(watcherId = watcherId, otherwise = otherwise))
-
-	/** At the held rule's place by id, else last. */
-	suspend fun preview(gatewayId: String, watcherId: String, rule: AssistantRule): ConsoleAssistantPreviewResult? {
-		val client = host.gateway ?: return null
-		return attempt { client.preview(gatewayId, ConsoleOp.AssistantRulesPreview(watcherId = watcherId, rule = rule)) }
-	}
-
-	/** A caller decides from the answer; the fenced read after it only draws. */
-	private suspend fun ruleOp(gatewayId: String, op: ConsoleOp): RuleSaved {
-		val client = host.gateway ?: return RuleSaved.Unreachable
-		val answer = attempt { client.rules(gatewayId, op) } ?: RuleSaved.Unreachable
-		if (answer !is RuleSaved.Unreachable) refresh(gatewayId)
-		return answer
-	}
 
 	/** Fenced draw; a refusal re-reads. */
 	private suspend fun landed(gatewayId: String, op: ConsoleOp): AssistantAnswer {

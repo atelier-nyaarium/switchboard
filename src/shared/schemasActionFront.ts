@@ -29,40 +29,42 @@ export const ACTION_FRONT_LEGACY_ROUTES = { action: "/assistant/action", phone: 
 export const ACTION_FRONT_TOOLS = { list: "list_actions", run: "run_action" } as const;
 
 /** Where it runs. */
-export const ACTION_FAMILIES = ["phone", "gateway", "watcher"] as const;
+export const ACTION_FAMILIES = ["phone", "gateway", "source"] as const;
 
 export type ActionFamily = (typeof ACTION_FAMILIES)[number];
 
 export type PhoneActionId = `phone/${PhoneSideCapabilityKey}`;
 export type GatewayActionId = `gateway/${GatewayCapabilityKey}`;
-export type WatcherActionId = `watcher/${AssistantActionKey}`;
-export type ActionId = PhoneActionId | GatewayActionId | WatcherActionId;
+export type SourceActionId = `source/${AssistantActionKey}`;
+export type ActionId = PhoneActionId | GatewayActionId | SourceActionId;
 
 export const ACTION_IDS: readonly ActionId[] = [
 	...PHONE_CAPABILITY_KEYS.map((key) => `${PHONE_CAPABILITIES[key].where}/${key}` as PhoneActionId | GatewayActionId),
-	...ASSISTANT_ACTION_KEYS.map((key): WatcherActionId => `watcher/${key}`),
+	...ASSISTANT_ACTION_KEYS.map((key): SourceActionId => `source/${key}`),
 ];
 
-const SOURCE_PREFIX = "source/";
+// Remove 2026-11-28: an older plugin's family word.
+const LEGACY_PREFIX = "watcher/";
 
 /** An id under the family word this build lists. */
 export const listedActionId = (id: unknown): unknown =>
-	typeof id === "string" && id.startsWith(SOURCE_PREFIX) ? `watcher/${id.slice(SOURCE_PREFIX.length)}` : id;
+	typeof id === "string" && id.startsWith(LEGACY_PREFIX) ? `source/${id.slice(LEGACY_PREFIX.length)}` : id;
 
 export const ActionIdSchema = z.preprocess(listedActionId, z.enum(ACTION_IDS as [ActionId, ...ActionId[]]));
 
+// Remove 2026-11-28: `watcher` from an older Gateway.
 /** A listing's family word, either spelling. */
 export const isSourceFamily = (family: string): boolean => family === "watcher" || family === "source";
 
 export type ActionRef =
 	| { family: "phone" | "gateway"; key: PhoneCapabilityKey }
-	| { family: "watcher"; key: AssistantActionKey };
+	| { family: "source"; key: AssistantActionKey };
 
 export function actionRef(id: ActionId): ActionRef {
 	const slash = id.indexOf("/");
 	const family = id.slice(0, slash) as ActionFamily;
 	const key = id.slice(slash + 1);
-	return family === "watcher"
+	return family === "source"
 		? { family, key: key as AssistantActionKey }
 		: { family, key: key as PhoneCapabilityKey };
 }
@@ -76,7 +78,7 @@ export function actionRefOf(id: string): ActionRef | null {
 /** Shared parse and listing schema. */
 export function actionParamsSchema(id: ActionId): z.ZodType {
 	const ref = actionRef(id);
-	return ref.family === "watcher" ? sourceParamsSchema(ref.key) : PHONE_CAPABILITIES[ref.key].request;
+	return ref.family === "source" ? sourceParamsSchema(ref.key) : PHONE_CAPABILITIES[ref.key].request;
 }
 
 /** Last status, per key. */
@@ -128,11 +130,11 @@ export function actionListings(status: ReadonlyMap<string, KeyAvailability> | nu
 	return ACTION_IDS.map((id) => {
 		const ref = actionRef(id);
 		const params = paramsJsonSchema(id);
-		if (ref.family === "watcher") {
+		if (ref.family === "source") {
 			const declaration = ASSISTANT_ACTIONS[ref.key];
 			return {
 				id,
-				family: "watcher",
+				family: "source",
 				label: declaration.label,
 				usage: declaration.usage,
 				kind: "act",

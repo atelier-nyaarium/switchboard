@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -35,7 +34,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
 import com.atelier_nyaarium.switchboard.PolicyDeleted
 import com.atelier_nyaarium.switchboard.PolicySaved
@@ -110,6 +111,7 @@ fun PolicyEditor(
 		title = if (held == null) "New policy" else "Edit policy",
 		saving = saving,
 		canSave = draft.toPolicy() != null,
+		menu = { if (held != null) RemoveMenu("Delete policy") { confirmingDelete = true } },
 		onCancel = close,
 		onSave = commit,
 	) {
@@ -199,32 +201,24 @@ fun PolicyEditor(
 					)
 				}
 			}
-
-			if (held != null) {
-				TextButton(onClick = hapticClick { confirmingDelete = true }) { Text("Delete policy") }
-		}
 	}
 
 	if (confirmingDelete) {
-		AlertDialog(
-			onDismissRequest = { confirmingDelete = false },
-			title = { Text("Delete this policy") },
-			text = { Text("Approvals it answered end with it. The secret stays.") },
-			confirmButton = {
-				TextButton(
-					onClick = hapticClick {
-						confirmingDelete = false
-						scope.launch {
-							when (val deleted = repo.policyOps.delete(draft.id, draft.revision, gatewayId)) {
-								PolicyDeleted.Deleted -> close()
-								is PolicyDeleted.Refused -> refused = deleted.reason
-								PolicyDeleted.Unreachable -> refused = GATEWAY_UNREACHABLE
-							}
-						}
-					},
-				) { Text("Delete") }
+		ConfirmDialog(
+			title = "Delete this policy?",
+			body = "Approvals it answered end with it. The secret stays.",
+			confirmText = "Delete",
+			onConfirm = {
+				confirmingDelete = false
+				scope.launch {
+					when (val deleted = repo.policyOps.delete(draft.id, draft.revision, gatewayId)) {
+						PolicyDeleted.Deleted -> close()
+						is PolicyDeleted.Refused -> refused = deleted.reason
+						PolicyDeleted.Unreachable -> refused = GATEWAY_UNREACHABLE
+					}
+				}
 			},
-			dismissButton = { TextButton(onClick = hapticClick { confirmingDelete = false }) { Text("Cancel") } },
+			onDismiss = { confirmingDelete = false },
 		)
 	}
 }

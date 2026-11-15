@@ -583,10 +583,13 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				now: () => bootstrap.ambient.now(),
 				isHome: () => assistant.placed(),
 				onQueued: () => assistant.pokeSource(SENSORS_SOURCE_ID),
+				eventIssue: assistant.eventIssue,
+				eventSentence: assistant.eventSentence,
 			}),
 		),
 	);
 	assistant.registerSource(createOutboxSource(automations.outbox));
+	assistant.bindAutomations(automations);
 	sensorThresholds = openDurable(bootstrap.dataDir, "sensor-thresholds", (store) =>
 		createSensorThresholds({
 			store,
@@ -664,6 +667,13 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		runbooks,
 		routines,
 		policies,
+		automations: {
+			list: () => ({ automations: automations?.rows() ?? [] }),
+			put: (id, automation, base) =>
+				automations?.ownerPut(id, automation, base) ?? { stored: false, revision: 0, reason: "not loaded yet" },
+			remove: (id, base) => automations?.ownerRemove(id, base) ?? { deleted: false, reason: "not loaded yet" },
+			preview: (trigger) => assistant.previewTrigger(trigger),
+		},
 		cuts: sessionCut.cuts,
 		sessionClosed,
 		devices: requireDevices(),

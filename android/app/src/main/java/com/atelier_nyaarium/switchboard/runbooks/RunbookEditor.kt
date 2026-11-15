@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,7 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.EditorScaffold
+import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.SaveRefusal
 import com.atelier_nyaarium.switchboard.RunbookSaved
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -71,6 +72,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 		title = if (existing == null) "New runbook" else "Edit runbook",
 		saving = saving,
 		canSave = draft.refusal() == null,
+		menu = { if (existing != null) RemoveMenu("Delete runbook") { deleting = true } },
 		onCancel = {
 			repo.runbookOps.dropDraft(gatewayId, draftKey)
 			onClose()
@@ -142,10 +144,6 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 					}
 				}
 			}
-
-			if (existing != null) {
-				TextButton(onClick = hapticClick { deleting = true }) { Text("Delete runbook") }
-		}
 		Spacer(Modifier.height(24.dp))
 	}
 
@@ -156,37 +154,28 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 		val pinning = repo.state.value.gateways.routinesOn(gatewayId)
 			.filter { it.routine.runbookId == draft.id }
 			.map { it.routine.name }
-		AlertDialog(
-			onDismissRequest = { deleting = false },
-			title = { Text("Delete this runbook") },
-			text = {
-				Text(
-					if (pinning.isEmpty()) {
-						"It goes from this Gateway and from this phone."
+		ConfirmDialog(
+			title = "Delete this runbook?",
+			body = if (pinning.isEmpty()) {
+				"It goes from this Gateway and from this phone."
+			} else {
+				"It goes, and these routines stop running until you give them another: " + pinning.joinToString(", ")
+			},
+			confirmText = "Delete",
+			onConfirm = {
+				deleting = false
+				scope.launch {
+					// Closing on a delete this Gateway never took would say gone about a copy
+					// it still holds.
+					if (repo.runbookOps.delete(draft.id, gatewayId)) {
+						repo.runbookOps.dropDraft(gatewayId, draftKey)
+						onClose()
 					} else {
-						"It goes, and these routines stop running until you give them another: " +
-							pinning.joinToString(", ")
-					},
-				)
+						refused = SaveRefusal("This Gateway still holds it; it was not reached", 0L)
+					}
+				}
 			},
-			confirmButton = {
-				TextButton(
-					onClick = hapticClick {
-						deleting = false
-						scope.launch {
-							// Closing on a delete this Gateway never took would say gone about a copy
-							// it still holds.
-							if (repo.runbookOps.delete(draft.id, gatewayId)) {
-								repo.runbookOps.dropDraft(gatewayId, draftKey)
-								onClose()
-							} else {
-								refused = SaveRefusal("This Gateway still holds it; it was not reached", 0L)
-							}
-						}
-					},
-				) { Text("Delete") }
-			},
-			dismissButton = { TextButton(onClick = hapticClick { deleting = false }) { Text("Cancel") } },
+			onDismiss = { deleting = false },
 		)
 	}
 }

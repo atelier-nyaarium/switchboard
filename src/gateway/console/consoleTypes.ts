@@ -14,13 +14,15 @@ import type { SignedXDomainLink } from "../../shared/federation-protocol.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import type { LaunchFailure } from "../../shared/launch-notice.js";
 import type { ConsoleAssistantStateResult, TemperatureUnit } from "../../shared/schemasAssistant.js";
-import type {
-	AssistantRule,
-	AssistantRuleOtherwise,
-	ConsoleAssistantPreviewResult,
-	ConsoleAssistantRulesResult,
-} from "../../shared/schemasAssistantRules.js";
 import type { ConsoleAssistantSendAnswerResult } from "../../shared/schemasAssistantSend.js";
+import type {
+	Automation,
+	AutomationTrigger,
+	ConsoleAutomationDeleteResult,
+	ConsoleAutomationListResult,
+	ConsoleAutomationPreviewResult,
+	ConsoleAutomationPutResult,
+} from "../../shared/schemasAutomation.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type { DeviceConsoleOp, DeviceConsoleResult } from "../../shared/schemasDevices.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
@@ -158,26 +160,17 @@ export interface ConsoleHandlerDeps {
 	/** The refusal reason, or null. */
 	forgetRefusal?: (team: string) => string | null;
 	assistant?: AssistantConsoleHandlers;
+	automations?: AutomationConsoleHandlers;
 	devices?: DeviceConsole;
 	liveConsole?: LiveConsoleOwner;
 }
 
 export type DeviceConsole = <Op extends DeviceConsoleOp>(op: Op) => Promise<DeviceConsoleResult<Op["kind"]>>;
 
-/** A rule op answers a refusal with the held rules; others throw. */
+/** A refusal throws. */
 export interface AssistantConsoleHandlers {
 	state: () => ConsoleAssistantStateResult;
 	setServiceGrants: (sourceId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
-	putRule: (sourceId: string, rule: AssistantRule) => Promise<ConsoleAssistantRulesResult>;
-	deleteRule: (sourceId: string, ruleId: string, base: number) => Promise<ConsoleAssistantRulesResult>;
-	moveRule: (
-		sourceId: string,
-		ruleId: string,
-		beforeId: string | undefined,
-		base: number,
-	) => Promise<ConsoleAssistantRulesResult>;
-	putOtherwise: (sourceId: string, otherwise: AssistantRuleOtherwise) => Promise<ConsoleAssistantRulesResult>;
-	previewRule: (sourceId: string, rule: AssistantRule) => Promise<ConsoleAssistantPreviewResult>;
 	setSafety: (approveEverySend: boolean) => Promise<ConsoleAssistantStateResult>;
 	setTemperatureUnit: (temperatureUnit: TemperatureUnit) => Promise<ConsoleAssistantStateResult>;
 	setSourceEnabled: (sourceId: string, enabled: boolean) => Promise<ConsoleAssistantStateResult>;
@@ -191,6 +184,14 @@ export interface AssistantConsoleHandlers {
 		signer: HolderKey,
 	) => Promise<{ ok: boolean; reason?: string }>;
 	answerAct: (requestId: string, decision: "approve" | "deny", note?: string) => { ok: boolean; reason?: string };
+}
+
+/** A put or delete answers its refusal; a preview throws. */
+export interface AutomationConsoleHandlers {
+	list: () => ConsoleAutomationListResult;
+	put: (automationId: string, automation: Automation, base: number) => ConsoleAutomationPutResult;
+	remove: (automationId: string, base: number) => ConsoleAutomationDeleteResult;
+	preview: (trigger: AutomationTrigger) => Promise<ConsoleAutomationPreviewResult>;
 }
 
 export interface PolicyConsoleHandlers {

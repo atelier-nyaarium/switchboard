@@ -7,6 +7,7 @@ import { TemperatureUnitSchema } from "./schemasAssistant.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
+import { AutomationSchema, AutomationTriggerSchema } from "./schemasAutomation.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { DEVICE_CONSOLE_OP_KINDS, DEVICE_CONSOLE_REQUESTS } from "./schemasDevices.js";
 import { CONSOLE_LIMIT_MAX, ConsoleVariablesSchema } from "./schemasLiveConsole.js";
@@ -332,6 +333,37 @@ export const ConsoleOpSchema = z
 		z.object({ kind: z.literal("assistant_state") }),
 		/** The whole set, never a patch. */
 		z.object({
+			kind: z.literal("assistant_source_grants"),
+			sourceId: z.string().min(1).max(64),
+			entryIds: z.array(z.string().min(1).max(128)).max(16),
+		}),
+		z.object({
+			kind: z.literal("assistant_source_enabled"),
+			sourceId: z.string().min(1).max(64),
+			enabled: z.boolean(),
+		}),
+		/** The Check now nudge. */
+		z.object({ kind: z.literal("assistant_source_check"), sourceId: z.string().min(1).max(64) }),
+		z.object({ kind: z.literal("automation_list") }),
+		/** The whole record at the revision it read; 0 adds. */
+		z.object({
+			kind: z.literal("automation_put"),
+			automationId: z.string().regex(RULE_ID_RE),
+			automation: AutomationSchema,
+			baseRevision: z.number().int().nonnegative(),
+		}),
+		z.object({
+			kind: z.literal("automation_delete"),
+			automationId: z.string().regex(RULE_ID_RE),
+			baseRevision: z.number().int().positive(),
+		}),
+		/** Over the source's live first page. */
+		z.object({ kind: z.literal("automation_preview"), trigger: AutomationTriggerSchema }),
+		/** Gateway-local; survives release. */
+		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
+		z.object({ kind: z.literal("assistant_temperature_unit"), temperatureUnit: TemperatureUnitSchema }),
+		// Remove 2026-11-28: an older phone's kinds, through `assistant_watcher_check`.
+		z.object({
 			kind: z.literal("assistant_watcher_grants"),
 			watcherId: z.string().min(1).max(64),
 			entryIds: z.array(z.string().min(1).max(128)).max(16),
@@ -367,15 +399,11 @@ export const ConsoleOpSchema = z
 			watcherId: z.string().min(1).max(64),
 			rule: AssistantRuleSchema,
 		}),
-		/** Gateway-local; survives release. */
-		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
-		z.object({ kind: z.literal("assistant_temperature_unit"), temperatureUnit: TemperatureUnitSchema }),
 		z.object({
 			kind: z.literal("assistant_watcher_enabled"),
 			watcherId: z.string().min(1).max(64),
 			enabled: z.boolean(),
 		}),
-		/** The Check now nudge. */
 		z.object({ kind: z.literal("assistant_watcher_check"), watcherId: z.string().min(1).max(64) }),
 		/** Delivers the bound send once. */
 		z.object({
@@ -465,6 +493,13 @@ export const VALUE_OP_KINDS = new Set([
 	"console_ids",
 	"console_eval",
 	"assistant_state",
+	"assistant_source_grants",
+	"assistant_source_enabled",
+	"assistant_source_check",
+	"automation_list",
+	"automation_put",
+	"automation_delete",
+	"automation_preview",
 	"assistant_watcher_grants",
 	"assistant_rule_put",
 	"assistant_rule_delete",

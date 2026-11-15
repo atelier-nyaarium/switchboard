@@ -3,15 +3,14 @@ package com.atelier_nyaarium.switchboard.assistant
 import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.integrationCountLine
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
-import com.atelier_nyaarium.switchboard.watcherOn
-import com.atelier_nyaarium.switchboard.watcherTroubled
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
+import com.atelier_nyaarium.switchboard.sourceTroubled
 
 internal data class SettingsLines(val warning: String? = null, val line: String? = null)
 
 internal const val NOT_PLACED = "Not placed"
 
-internal const val WATCHER_NEEDS_CONFIGURATION = "Watcher needs configuration"
+internal const val SOURCE_NEEDS_CONFIGURATION = "A source needs configuration"
 
 internal const val REMOVE_LINE = "Permanently removes Switchboard Assistant for your Domain."
 
@@ -35,10 +34,16 @@ internal fun integrationLines(home: String?, devices: DeviceListView?, services:
 	else -> SettingsLines()
 }
 
-internal fun watcherLines(watchers: List<AssistantWatcher>): SettingsLines {
-	val on = watchers.filter(::watcherOn)
-	return SettingsLines(
-		warning = WATCHER_NEEDS_CONFIGURATION.takeIf { on.any(::watcherTroubled) },
-		line = "Enabled: ${on.map { it.label }.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "none"}",
-	)
+/** A troubled service first, then counts per type. */
+internal fun sourceLines(
+	home: String?,
+	devices: DeviceListView?,
+	services: List<AssistantIntegration>?,
+	sources: List<AssistantSource>,
+): SettingsLines {
+	val counted = integrationLines(home, devices, services)
+	val troubled = sources.any { it.enabled && sourceTroubled(it) }
+	return if (troubled) counted.copy(warning = counted.warning ?: SOURCE_NEEDS_CONFIGURATION) else counted
 }
+
+internal fun automationLines(count: Int): SettingsLines = SettingsLines(line = automationCountLine(count))

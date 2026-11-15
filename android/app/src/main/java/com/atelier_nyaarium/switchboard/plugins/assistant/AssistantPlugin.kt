@@ -50,8 +50,12 @@ class AssistantPlugin : PluginEntry {
 			val gatewayId = runIsolated { gatewayOf(action.team) }.getOrNull() ?: return@PluginActionHandler
 			repo.assistantActOps.onRetract(gatewayId, retract.requestId)
 		})
+		// Remove 2026-12-12: the word before the Gateway's 2026-11-28 flip.
 		host.pluginActions.claim("assistant:watchers-changed", PluginActionHandler {
-			repo.assistantOps.watchersChanged()
+			repo.assistantOps.sourcesChanged()
+		})
+		host.pluginActions.claim("assistant:sources-changed", PluginActionHandler {
+			repo.assistantOps.sourcesChanged()
 		})
 		host.threadForgetHandlers.claim("assistant:send-forget", ThreadForgetHandler { _, team ->
 			repo.assistantSendOps.forgetTeam(team)

@@ -61,26 +61,28 @@ const AUTOMATIONS = {
 		{ automation: "threshold-low", seq: 2, at: 1_794_694_500_000, outcome: "suppressed" },
 	],
 	invalidOf: () => null,
+	eventsOf: () => [
+		{
+			id: "wake-freezer",
+			trigger: {
+				kind: "event",
+				source: "sensors",
+				conditions: [{ field: "automation", test: "contains", value: "Freezer" }],
+			},
+			when: "now",
+		},
+	],
 } as unknown as Automations;
-const WATCHER = {
+const SOURCE = {
 	id: "sensors",
 	label: "Sensors",
 	enabled: true,
+	triggers: true,
 	unread: 2,
 	grants: ["entry-1"],
 	secret: "A GitHub token",
 	fieldSpecs: [{ kind: "text", field: "automation", label: "Automation" }],
-	rules: {
-		rules: [
-			{
-				id: "wake-freezer",
-				conditions: [{ field: "automation", test: "contains", value: "Freezer" }],
-				action: "wake",
-				revision: 1,
-			},
-		],
-		otherwise: { action: "inbox" },
-	},
+	actions: [],
 };
 
 function world(
@@ -126,7 +128,7 @@ function world(
 			fields: () => (loaded ? FIELDS : undefined),
 			automations: () => (loaded ? AUTOMATIONS : undefined),
 			thresholds: () => undefined,
-			assistant: () => ({ watchers: loaded ? [WATCHER] : [] }) as unknown as ConsoleAssistantStateResult,
+			assistant: () => ({ sources: loaded ? [SOURCE] : [] }) as unknown as ConsoleAssistantStateResult,
 			temperatureUnit: () => unit,
 			bluetoothListen: async (windowMs) => {
 				windows.push(windowMs);
@@ -243,7 +245,10 @@ describe("live console stage", () => {
 			const decided = await gateway.ask(
 				'sources.test("sensors", {automation: "Freezer temperature below 21.0 °C"})',
 			);
-			expect(decided.text).toBe("rule: wake-freezer\naction: wake");
+			expect(decided.text).toContain("id: wake-freezer");
+			expect(decided.text).toContain("wakes: yes");
+			const missed = await gateway.ask('sources.test("sensors", {automation: "Pantry"})');
+			expect(missed.text).toContain("wakes: no");
 			expect((await gateway.ask(`fields.read("${FIELD_ID}").value`)).text).toBe(
 				"unknown: not heard for 31 minutes",
 			);
@@ -310,8 +315,8 @@ describe("live console stage", () => {
 					thresholds: () => undefined,
 					assistant: () =>
 						({
-							watchers: Array.from({ length: 100 }, (_, at) => ({
-								...WATCHER,
+							sources: Array.from({ length: 100 }, (_, at) => ({
+								...SOURCE,
 								id: `w${at}`,
 								label: "x".repeat(1_000),
 							})),
@@ -513,7 +518,7 @@ describe("live console read-only fence", () => {
 			fields: () => fields,
 			automations: () => automations,
 			thresholds: () => thresholds,
-			assistant: () => ({ watchers: [WATCHER] }) as unknown as ConsoleAssistantStateResult,
+			assistant: () => ({ sources: [SOURCE] }) as unknown as ConsoleAssistantStateResult,
 			temperatureUnit: () => "F",
 			bluetoothListen: async () => {
 				hostOps.push("bleListen");

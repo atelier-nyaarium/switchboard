@@ -1,0 +1,246 @@
+{
+	"description": "The assistant home's sealed plaintext, as the Kotlin phone encodes it.",
+	"cases": [
+		{
+			"name": "a home that lists automations",
+			"sealed": {
+				"workdirPath": "~/notes",
+				"carried": {
+					"approveEverySend": false,
+					"temperatureUnit": "F",
+					"watchers": [
+						{
+							"id": "github",
+							"rules": {
+								"rules": [
+									{
+										"id": "mentions",
+										"conditions": [
+											{
+												"field": "reason",
+												"test": "is",
+												"value": "mention"
+											}
+										],
+										"action": "wake",
+										"revision": 0
+									}
+								],
+								"otherwise": {
+									"action": "wake",
+									"revision": 0
+								},
+								"revision": 0
+							},
+							"grant": "pat",
+							"enabled": true
+						},
+						{
+							"id": "sensors",
+							"rules": {
+								"rules": [],
+								"otherwise": {
+									"action": "inbox",
+									"revision": 0
+								},
+								"revision": 0
+							},
+							"grant": null,
+							"enabled": false
+						}
+					],
+					"automations": [
+						{
+							"id": "mentions",
+							"automation": {
+								"label": null,
+								"enabled": true,
+								"trigger": {
+									"kind": "event",
+									"source": "github",
+									"conditions": [
+										{
+											"field": "reason",
+											"test": "is",
+											"value": "mention"
+										}
+									]
+								},
+								"actions": [
+									{
+										"kind": "tell_assistant",
+										"when": "now"
+									}
+								]
+							}
+						},
+						{
+							"id": "everything",
+							"automation": {
+								"label": null,
+								"enabled": true,
+								"trigger": {
+									"kind": "event",
+									"source": "github",
+									"conditions": []
+								},
+								"actions": [
+									{
+										"kind": "tell_assistant",
+										"when": "now"
+									}
+								]
+							}
+						},
+						{
+							"id": "quiet",
+							"automation": {
+								"label": null,
+								"enabled": true,
+								"trigger": {
+									"kind": "event",
+									"source": "github",
+									"conditions": [
+										{
+											"field": "reason",
+											"test": "is",
+											"value": "mention"
+										}
+									]
+								},
+								"actions": [
+									{
+										"kind": "tell_assistant",
+										"when": "quietly"
+									}
+								]
+							}
+						},
+						{
+							"id": "off",
+							"automation": {
+								"label": null,
+								"enabled": false,
+								"trigger": {
+									"kind": "event",
+									"source": "github",
+									"conditions": [
+										{
+											"field": "reason",
+											"test": "is",
+											"value": "mention"
+										}
+									]
+								},
+								"actions": [
+									{
+										"kind": "tell_assistant",
+										"when": "now"
+									}
+								]
+							}
+						}
+					],
+					"integrations": [
+						{
+							"id": "ifttt",
+							"grant": null
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "a home with no automations",
+			"sealed": {
+				"workdirPath": "~/notes",
+				"carried": {
+					"approveEverySend": false,
+					"temperatureUnit": "F",
+					"watchers": [
+						{
+							"id": "github",
+							"rules": {
+								"rules": [],
+								"otherwise": {
+									"action": "inbox",
+									"revision": 0
+								},
+								"revision": 0
+							},
+							"grant": "pat",
+							"enabled": true
+						},
+						{
+							"id": "sensors",
+							"rules": {
+								"rules": [],
+								"otherwise": {
+									"action": "inbox",
+									"revision": 0
+								},
+								"revision": 0
+							},
+							"grant": null,
+							"enabled": false
+						}
+					],
+					"automations": [],
+					"integrations": [
+						{
+							"id": "ifttt",
+							"grant": null
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "a home on an older build",
+			"sealed": {
+				"workdirPath": "~/notes",
+				"carried": {
+					"approveEverySend": true,
+					"temperatureUnit": "C",
+					"watchers": [
+						{
+							"id": "github",
+							"rules": {
+								"rules": [
+									{
+										"id": "mentions",
+										"conditions": [
+											{
+												"field": "reason",
+												"test": "is",
+												"value": "mention"
+											}
+										],
+										"action": "wake",
+										"revision": 4
+									}
+								],
+								"otherwise": {
+									"action": "inbox",
+									"revision": 1
+								},
+								"revision": 5
+							},
+							"grant": null,
+							"enabled": true
+						}
+					],
+					"automations": null,
+					"integrations": null
+				}
+			}
+		},
+		{
+			"name": "nothing carried",
+			"sealed": {
+				"workdirPath": "~/fresh",
+				"carried": null
+			}
+		}
+	]
+}

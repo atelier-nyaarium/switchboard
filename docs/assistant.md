@@ -12,8 +12,9 @@ Router's record names. That Gateway feeds it events. The session decides what to
 - **Where it lives is the Router's record:** one per Domain owner (`assistantHomeService.ts`). The
   phone writes it as a compare-and-swap (`assistant_home_put`) and reads it with
   `assistant_home_read`. It names a Gateway or nobody, and seals the folder and what a move carries
-  (each watcher's rules and grant, and Safety) under `assistantHomeAadKind`, bound to the Gateway and
-  the version, so a replayed or swapped record does not open. A put naming a Gateway that is not
+  (each source's grant and Enabled, the event automations, and Safety) under
+  `assistantHomeAadKind`, bound to the Gateway and the version, so a replayed or swapped record does
+  not open. A put naming a Gateway that is not
   connected now is refused, and nobody is a stored row, never a delete. The named Gateway files one
   report per version, placed or refused with a reason, which the Router keeps in its own row and
   shows only beside the choice it answers. The `assistantHome` plane tells the phone either moved.
@@ -21,16 +22,19 @@ Router's record names. That Gateway feeds it events. The session decides what to
   (`createRegistrationRead`) and takes each pushed change. A durable mark (`homeMark.ts`, scoped to
   the active Domain) holds the newest version and lands before anything else, so a version applies
   once and a restart never re-applies over an owner's edit.
-  - **Named:** with its watchers stopped, it places the session record in the sealed folder, resets
-    poll state and grants, takes the carried rules and Safety (fresh when nothing was carried), sets
-    each watcher's Enabled from what was carried (off when fresh, on for a carried watcher an older
-    record names without the flag), keeps a carried grant only when this Gateway may use its entry,
-    then starts its watchers and reports.
+  - **Named:** with its sources stopped, it places the session record in the sealed folder, resets
+    poll state and grants, replaces this Gateway's event automations with the carried ones (none
+    when nothing was carried) and drops one it cannot run, takes the carried Safety (fresh when
+    nothing was carried), sets each source's Enabled from what was carried (off when fresh, on for a
+    carried source an older record names without the flag), keeps a carried grant only when this
+    Gateway may use its entry, then starts its sources and reports. Until 2026-11-28 a payload from
+    an older phone carries rules instead, which convert as stored rules do (Automations).
     The first wake launches the session; the host daemon creates the folder with its parents when it
     is missing (`ensureAssistantWorkdir`), never home or a folder above it.
-  - **Not named, or nobody:** it ends waiting sends, stops its watchers, forgets the session (retried
-    while it wakes), and drops its grants, rules and Safety. Its routes answer `not_assistant` from
-    the moment its mark says so, and a late wake cannot register once the record is gone.
+  - **Not named, or nobody:** it ends waiting sends, stops its sources, forgets the session (retried
+    while it wakes), and drops its grants, event automations and Safety. Its routes answer
+    `not_assistant` from the moment its mark says so, and a late wake cannot register once the
+    record is gone.
   - **Never written:** a Gateway's own session record stays in charge.
   - **Cut off from the Router:** it keeps running on its mark. A mark write that fails stops it
     acting until one lands.
@@ -45,27 +49,59 @@ Router's record names. That Gateway feeds it events. The session decides what to
     usual thread screen, titled "Assistant" on one line, with a gear for Assistant settings in place
     of the session menu, and no tab row (`threadChrome`). Back goes Terminal, Chat, Sessions.
   - **The inbox strip** (`InboxStrip.kt`) docks under the top bar on Chat, collapsible, and draws only
-    while an enabled watcher has a problem or new items (`inboxRows`). A problem row shows Settings,
-    which opens that watcher's page, where the problem is named. A row with new items shows the
+    while an enabled source has a problem or new items (`inboxRows`). A problem row shows Settings,
+    which opens that source's page, where the problem is named. A row with new items shows the
     count as a badge ("4 new") and Check now. When a landed poll moves the count or the health the
     phone draws, the Gateway sends a quiet `plugin_action` row, `assistant` `watchers-changed`, and a
-    shown Assistant re-reads its state. A poll that moved only its timestamps sends nothing.
+    shown Assistant re-reads its state; the phone claims `sources-changed` the same way. A poll that
+    moved only its timestamps sends nothing.
   - The gear opens Assistant settings, also reachable from the app's Settings page: an index with a
     status line per page (`AssistantSettingsLines.kt`), refreshed on open. Session data location (the
     Gateway, the folder, Move here or Set up here), Features (below), Safety (Approve every send),
-    Watchers (one row per enabled watcher with its health line, `WatcherStatus`, red when it needs a
-    secret or stopped, and a collapsible Disabled group), Integrations (the home Gateway's devices
-    by kind and its added services, with Add opening the catalogue; `docs/devices.md`), Remove
-    assistant. A watcher
-    row opens its page: Enabled, its health, secret, grants, actions, a Rules page with its count,
-    and Retry when stopped. Rules opens a rule's Editor page. Each page shows its own failure under
-    its `WorkKey`.
+    Sources, Automations, Remove assistant. Each page shows its own failure under its `WorkKey`.
     `docs/console.md` holds how the pages route.
+    - **Sources:** devices by Gateway, then the home's service sources (one row each with its health
+      line, `SourceStatus`, red when it needs a secret or stopped, and a collapsible Disabled group)
+      and its integration services, then the temperature unit. Add opens the catalogue
+      (`docs/devices.md`). Its status line warns "A source needs configuration" when an enabled
+      source needs a secret or stopped.
+    - **A service source's page:** Enabled with its health line; Secret with Assign secret; Produces,
+      the event and its fields; Inbox with its count; Commands, its actions; "N use this source",
+      which opens Automations, for a source whose events can trigger one; the values seen outside
+      its lists; and Retry when stopped.
+    - **Automations:** one group per Gateway that lists any, the home first with its Assistant chip.
+      Each row shows the Gateway's sentence, what it does, when it last ran or why it is invalid,
+      and the only on and off switch. New opens the editor on the home. Only an event automation's
+      row in the home's group opens the editor or takes the switch (`AutomationGroup.edits`); a
+      sensor alert's row is read-only here.
+    - **The editor:** When shows the three trigger kinds, "Event arrives", "Value crosses" and "Time
+      comes", with only "Event arrives" selectable; then Source, the conditions, and "Would have
+      matched N of the last M" from `automation_preview`, a fold that opens to the matches. Do holds
+      "Tell the assistant" with Now or Quietly. Delete sits in the top bar's menu and asks first, as
+      every record page's removal does (`RemoveMenu`). Back on a changed draft asks "Leave and
+      discard changes?" with Discard and Stay.
+    - **`AutomationOps`** follows `PolicyOps`: the list per Gateway, nothing durable on the phone, a
+      fenced toggle per row, and the editor's held drafts, so Back loses no result. Every put and
+      delete holds the lock a move holds (`AssistantOps.carriedWrite`) and is refused, unsent, once
+      the home has left its Gateway. The leave dialogue belongs to the opening Back was pressed on,
+      and a Back during a save leaves at once while the answer still lands. A Gateway on an older build
+      answers `watchers` and no `sources` (`servesSources`): it is drawn with no Automations row and
+      no uses line, and its source ops go as the `assistant_watcher_*` kinds. `AutomationDraft.kt`
+      holds the draft, its `outcomeOf`, `fittingAutomation` and the lines each row shows.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
-    its fresh `assistant_state`; an unplaced one carries what the record sealed; a placed home that
-    cannot be reached carries nothing, only once the owner confirms abandoning it. Remove puts
-    nobody. A conflict adopts the winner, and an unknown outcome is read back. A record never written
-    seeds from the one registered Gateway that answers holding it, unless the owner chose first.
+    its fresh `assistant_state` and its event automations (`carriedOf`), or an older Gateway's rules
+    when it refuses `automation_list`; a list it cannot read, or one a current Gateway refuses,
+    refuses the move. Until 2026-11-28 the payload also names rules for every source (`rulesOf`:
+    each enabled automation that tells now, an unconditioned one as the fallback), which a Gateway
+    on an older build requires; a current one reads the automations and ignores them. The phone
+    seals every unset field as null, so the Gateway's schema takes null wherever a carried field is
+    optional, and `tests/fixtures/assistant-home/sealed.json` holds the phone's own encoding for the
+    Gateway's schema to parse. A carried automation or service the destination cannot read is
+    dropped with a log (`readableSealed`), never the move. An unplaced home
+    carries what the record sealed; a placed home that cannot be reached carries nothing, only once
+    the owner confirms abandoning it. Remove puts nobody. A conflict adopts the winner, and an unknown outcome is read back. A record never written
+    seeds from the one registered Gateway that answers holding it, with its event automations as a
+    move carries them, unless the owner chose first.
   - **One writer** (`AssistantHomeFence`): the record, its failure, each Gateway's answer, the stored
     copy and the role stamp land only through it, against the ticket their work began under, so a
     late answer or a re-provision never repaints a newer choice.
@@ -99,8 +135,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
 ## Notes
 
 The folder chosen at Set up is the session's working directory and its durable memory. Nothing else
-lands in it: the host only creates it, the launch's settings are inline, and the Gateway keeps rules,
-Safety and Enabled on its own disk.
+lands in it: the host only creates it, the launch's settings are inline, and the Gateway keeps
+automations, Safety and Enabled on its own disk.
 
 - `AGENTS.md` at its root is the owner's standing instructions, which the assistant writes and keeps
   current in its own words. Claude Code loads it at every start and after a compaction. A copy below
@@ -108,14 +144,14 @@ Safety and Enabled on its own disk.
 - The note files sit beside it: open threads, pending asks, decisions and commitments. The
   assistant creates and updates them as it works, so their contents survive compaction. The
   standing rules ship with the plugin, so nothing is seeded.
-- No watcher rules live here. The Gateway holds them, and only owner ops write them.
+- No automations live here. The Gateway holds them, and only owner ops write them.
 
 ## The gate
 
-- **Watcher actions run at once:** setting up a watcher is the owner's permission to use its
+- **Source actions run at once:** setting up a source is the owner's permission to use its
   actions, so none asks first. Every one is recorded in the conversation.
 - **Always refused:** writes to `CLAUDE.md`, an `AGENTS.md` below the notes root, session settings
-  or hooks, and paths outside notes. The watcher rules have no path from the session at all.
+  or hooks, and paths outside notes. The automations have no path from the session at all.
 - **Locked while the owner is away:** its root `AGENTS.md` (the hold, below).
 
 **The boundary** is Claude Code's own permission engine, with Switchboard's layers around it.
@@ -215,7 +251,7 @@ guard; `docs/vault.md` holds the request lifecycle it shares with the vault.
   approved card, or unasked when the setting is off. The session gets a minted id, never the typed
   name, and the `sent` answer's `target` names it. Another Gateway's host is not reached this way.
 - **Approve every send:** an owner setting per Gateway, on by default, read at every send; a failed
-  read asks. Off, a send goes without asking only while the owner spoke last, and a watcher event
+  read asks. Off, a send goes without asking only while the owner spoke last, and a source event
   speaks as the owner: `createOriginMarker` holds the origin of the newest row it saw in acceptance
   order. An owner row or an event counts once acknowledged; any other row counts as soon as it is
   offered; a reply counts as it is pushed. Every channel row reaches the session through the
@@ -241,30 +277,31 @@ guard; `docs/vault.md` holds the request lifecycle it shares with the vault.
 
 ## Actions
 
-A watcher declares what the assistant may do with its source. Setting the watcher up is the
-permission, so an action runs at once. `list_actions` discovers phone capabilities and watcher
-actions; `run_action` runs a listed id.
+A source declares what the assistant may do with it. Setting the source up is the permission, so
+an action runs at once. `list_actions` discovers phone capabilities and source actions;
+`run_action` runs a listed id.
 
-- **Discovery:** `list_actions` returns each id (`phone/<key>`, `gateway/<key>` or `watcher/<key>`),
+- **Discovery:** `list_actions` returns each id (`phone/<key>`, `gateway/<key>` or `source/<key>`),
   its kind, needs, usage and parameter JSON Schema. The family names where it runs: a capability
   declared `where: "gateway"` (`ifttt_trigger`) lists as `gateway/`. For a phone id, `available` and
   `reason` reflect the holder's last `status` answer, and any later result for that key, during the
   hold window; availability is `null` until that answer, and `statusMemo.ts` clears it on
-  `no_holder`. A gateway id and a watcher id have no availability.
+  `no_holder`. A gateway id and a source id have no availability. Until 2026-11-28 a `watcher/`
+  id from an older plugin still parses and runs as its `source/` id.
 - **One params schema:** `actionParamsSchema` in `src/shared/schemasActionFront.ts` selects the Zod
   params object for each id. The listing renders that object as JSON Schema, and the Gateway parses
   `run_action` params with it.
-- **The watcher registry:** `ASSISTANT_ACTIONS` in `src/shared/schemasAssistantActions.ts` holds, per
-  action, its key, watcher, label, owner description, model usage, and Zod schemas for params and
-  answer. Every watcher action takes an optional `summary`. The registry holds data and schemas only,
-  so the plugin imports no Gateway code, and `assistant_state` carries each watcher's descriptors
+- **The source registry:** `ASSISTANT_ACTIONS` in `src/shared/schemasAssistantActions.ts` holds, per
+  action, its key, source, label, owner description, model usage, and Zod schemas for params and
+  answer. Every source action takes an optional `summary`. The registry holds data and schemas only,
+  so the plugin imports no Gateway code, and `assistant_state` carries each source's descriptors
   (`actionsOf`).
 - **One class per action on the Gateway:** `SourceAction<K>` (`sourceAction.ts`), with its `key`,
   its `declaration` and a typed `run(params, ctx)`. The instances sit in a map typed by the
   registry's keys, so a declared action with no class does not compile.
 - **Two routes:** `POST /assistant/actions` lists the actions for the assistant's own token.
   `POST /assistant/run` takes `{ id, callId, params }`, validates the params and hands the call to
-  the matching family dispatcher (`assistantRoutes.ts`). Watcher ids run in their watcher's lane;
+  the matching family dispatcher (`assistantRoutes.ts`). Source ids run in their source's lane;
   phone ids wait on the holder. The `device` tool posts `{ device, callId }` to the same route, and
   `deviceDispatch.ts` parses the op; `docs/devices.md` holds that tool.
 - **Run answers:** `ok` returns the family's answer and a `recorded` flag. `refused` means the
@@ -277,7 +314,7 @@ actions; `run_action` runs a listed id.
   listing, a preview) frees the lane at its deadline and commits nothing that lands after it; a
   `write` (an action) holds the lane until it settles, and its signal ends at the deadline with a
   typed reason (`laneEnd`) the action reads. Stop ends queued and running work at once.
-- **A watcher action's deadline is 60 seconds:** one its lane has not started by then is refused with
+- **A source action's deadline is 60 seconds:** one its lane has not started by then is refused with
   nothing sent. No request starts past it, and one in flight is cut there or at 15 seconds. An id
   never sent answers `not_attempted`; a `DELETE` cut before its answer answers `uncertain`. The
   caller-facing waits live in one table (`ASSISTANT_WAITS`, `waits.ts`), and a test pins their
@@ -287,22 +324,22 @@ actions; `run_action` runs a listed id.
   sent, so it answers `not_attempted`, and the note names the wait.
 - **A call id makes a retry safe:** `run_action` mints one per call and repeats it on a retried post.
   Each family dispatcher joins a repeated id to the first call's answer through `createOpDedupe`,
-  holding a settled answer ten minutes, so the request does not repeat. A watcher action keys its
+  holding a settled answer ten minutes, so the request does not repeat. A source action keys its
   record row by the id too; a phone action records nothing.
 - **One GitHub client:** `githubClient.ts` owns the token read, the headers, the refusals and the
   shared rate limit, so polls, listings and actions cannot disagree.
 - **Gateway-side capability:** `iftttClient.ts` reads the webhook key at each post through the fixed
-  `ifttt` standing grant. The phone manages that grant under Integrations. The key appears only in
+  `ifttt` standing grant. The phone manages that grant from the service's row under Sources. The key appears only in
   the URL passed to fetch and never in logs or answers. A `status` of 0 means no response reached
   the Gateway, so the event may have fired.
 - **The action tools are fixed:** `ASSISTANT_SWITCHBOARD_TOOLS` names `list_actions` and `run_action`
   for actions and `device` for devices. A new key, or a new device op, needs a registry entry and
   handler, with no allowlist change.
-- **`watcher/github_done` params (`{ ids, summary? }`):** up to 25 unique digit-string thread ids,
+- **`source/github_done` params (`{ ids, summary? }`):** up to 25 unique digit-string thread ids,
   and an optional summary of up to 300 characters. Per id it reads the thread for its title and link,
   marks it read (`PATCH`, 205, or 304 when already read), then done (`DELETE`, 204). Read comes
   first because a read after done puts the thread back in GitHub's own inbox as read. Unread is the
-  watcher's inbox, since GitHub keeps listing a done thread under `all=true`.
+  source's inbox, since GitHub keeps listing a done thread under `all=true`.
   Each id answers one shared outcome: `done`, `not_found`, `rate_limited`, `uncertain` or
   `not_attempted`. A rate limit stops the batch, and the ids after it answer `not_attempted`; so does
   a refused token. A thread whose done step failed answers `uncertain` with a note that it is read
@@ -310,7 +347,7 @@ actions; `run_action` runs a listed id.
   answers success again.
 - **`not_found` leaves the inbox here:** GitHub keeps listing a thread whose subject was deleted, a
   release recreated under the same tag for one, while every thread endpoint answers 404. The
-  dispatcher records each `not_found` id with the time, inside the watcher's lane so no poll
+  dispatcher records each `not_found` id with the time, inside the source's lane so no poll
   overwrites it. Polls, counts, wakes and both listings skip it until GitHub updates it past that
   time. A whole poll that no longer lists it drops the record; at most 256 are held, newest kept.
 - **The record:** an action that reached the source is recorded in the assistant's conversation
@@ -321,48 +358,57 @@ Devices are not actions: the `device` tool's ops are the device op table, answer
 ## Events
 
 The source is the only copy. The Gateway stores nothing about a GitHub thread but the ids it hides:
-per watcher it keeps its poll validator, the newest update time seen, the agent's fetch mark,
+per source it keeps its poll validator, the newest update time seen, the agent's fetch mark,
 GitHub's unread count, health, and the `not_found` ids above. An assistant stage polls only while the assistant lives on this Gateway and federation is
 active, and stops before the shutdown flush.
 
-### Watchers
+### Sources
 
-A watcher is plain Gateway code, never a model.
+A source is plain Gateway code, never a model: it polls a service and lists its events. GitHub
+notifications reads GitHub; the Sensors source lists the automations' outbox.
 
-- **A watcher names itself:** `Watcher.label` is what a wake, a listing, the phone and the
-  baseline show, and the source lanes refuse a blank one, so no watcher appears by its id.
-- **One source lane per watcher:** it runs the watcher's source calls one at a time: polls, the live listing and
-  actions. A poll that read a thread cannot wake it after a `done` landed.
+- **A source names itself:** `Source.label` is what a wake, a listing, the phone and the baseline
+  show, and the source lanes refuse a blank one, so no source appears by its id. `Source.brief` is
+  its name inside a sentence ("GitHub").
+- **One source lane per source:** it runs the source's calls one at a time: polls, the live listing
+  and actions. A poll that read a thread cannot wake it after a `done` landed.
 - **A poll answers one of four:** the unread list with its next validator, unchanged, backoff until a
   time, or stopped with a reason.
 - **Health survives a restart:** last success, next poll, backoff and stopped state.
-- **Secrets come from the vault:** the owner picks a watcher's one entry in Assistant settings,
-  through the Grant secrets sheet a routine uses, and `assistant_watcher_grants` makes it the
-  watcher's standing grant. Each watcher declares the secret it needs (`Watcher.secret`, GitHub's a
-  classic token with the notifications scope), shown on its row and in the picker. The grant covers
-  the entry, so a rotated key is a vault edit. A watcher
-  without one stops and says it needs a secret. Setting the grant, or Retry, which sets the same
-  one again, polls it now, or once a poll in flight lands. The Gateway reads the value each poll through `readForWatcher`, which
-  checks the grant after the vault refresh and takes the same release a session's use does. A
-  missing or refused grant stops the watcher, and an unreachable vault backs it off. A Gmail
-  watcher needs its own OAuth token in the vault, since a watcher cannot use Claude's connectors.
-- **Enabled** (`sourceEnabled.ts`, `assistant_watcher_enabled`): a disabled watcher polls, wakes
-  and lists nothing for the assistant, and the baseline leaves it out; its grant and rules stay, and
-  an owner's rule preview still reads it. The store holds the off set, so a Gateway that predates it
-  runs every watcher. A switch calls the lane's `switched`, which voids a poll in flight: it commits
-  and wakes nothing. Enabling resets `primed` in the same tick, so what arrived while it was off
-  wakes nothing, then polls it now. A move carries the flag. On the phone, Safety, grants and
+- **Secrets come from the vault:** the owner picks a source's one entry on its page, through the
+  Grant secrets sheet a routine uses, and `assistant_source_grants` makes it the source's standing
+  grant. Each source declares the secret it needs (`Source.secret`, GitHub's a classic token with
+  the notifications scope), shown on its page and in the picker. The grant covers the entry, so a
+  rotated key is a vault edit. A source without one stops and says it needs a secret. Setting the
+  grant, or Retry, which sets the same one again, polls it now, or once a poll in flight lands. The
+  Gateway reads the value each poll through `readForService`, which checks the grant after the vault
+  refresh and takes the same release a session's use does. A missing or refused grant stops the
+  source, and an unreachable vault backs it off. A Gmail source needs its own OAuth token in the
+  vault, since a source cannot use Claude's connectors.
+- **Enabled** (`sourceEnabled.ts`, `assistant_source_enabled`): a disabled source polls, wakes and
+  lists nothing for the assistant, and the baseline leaves it out; its grant and automations stay,
+  and an automation preview still reads it. The store holds the off set, so a Gateway that predates
+  it runs every source. A switch calls the lane's `switched`, which voids a poll in flight: it
+  commits and wakes nothing. Enabling resets `primed` in the same tick, so what arrived while it was
+  off wakes nothing, then polls it now. A move carries the flag. On the phone, Safety, grants and
   Enabled are written under the same mutex a move takes, so a move seals the setting or the old
   home refuses it.
-- **Check now** (`assistant_watcher_check`): an owner nudge into the assistant's session naming the
+- **Check now** (`assistant_source_check`): an owner nudge into the assistant's session naming the
   `inbox` command, sent like a check-in through `sendFromOwner` with `channelOnly`, so it wakes a sleeping
-  session. The op answers once the nudge lands or `SEND_BOUND_MS` passes; a disabled watcher is
+  session. The op answers once the nudge lands or `SEND_BOUND_MS` passes; a disabled source is
   refused. The delivery id is the op's, so a retried op nudges once.
+- **What can trigger:** a source's events can trigger event automations unless its events say how
+  they tell (`Source.selfTold`, the wire's `triggers` false). The Sensors source is one, and an event
+  automation over it is refused.
+- **On the wire:** `assistant_state` answers `sources` (`AssistantSource`). Until 2026-11-28 it also
+  answers `watchers`, the same rows with empty rules, and the `assistant_watcher_*` ops still run,
+  for an older phone.
 
 ### Sensors
 
-The `sensors` watcher lists the automations' outbox: one event per automation crossing, with the
-text fields automation, field and value, so the owner's rules match on them as on any watcher. The
+The `sensors` source lists the automations' outbox: one event per value automation crossing, with
+the text fields automation, field and value. Each event carries the `when` of the automation that
+wrote it, so it decides itself: `now` wakes and `quietly` leaves it in the inbox. The
 automations answer the outbox in their own words (`AutomationOutbox` in
 `src/gateway/computed/automations.ts`), and `createOutboxSource` in
 `src/gateway/assistant/outboxSource.ts` is the source that lists it in the assistant's lane. A
@@ -389,74 +435,83 @@ Gateway that is not the assistant's home logs `refused` and wakes nothing.
 - **The validator belongs to its grant:** the cursor names the granted entry, so a new grant reads in
   full rather than sending another account's `Last-Modified`. A thread a shifted page repeats is kept
   once.
-- **No error carries the token:** a value that is not visible ASCII stops the watcher before any
-  request. A rate limit holds for polls and the rules preview alike.
-- Its one action id is `watcher/github_done`.
+- **No error carries the token:** a value that is not visible ASCII stops the source before any
+  request. A rate limit holds for polls and the automation preview alike.
+- Its one action id is `source/github_done`.
 - **Its fields:** `reason`, a list of GitHub's 16 reasons; `type`, a list of the subject types seen;
   `repository` and `title`, text. `GITHUB_FIELD_SPECS` holds them.
 - Reads a classic token from its granted vault entry. The notification endpoints take no
   fine-grained token. Without a grant, on a 401, on a 404 (GitHub hides what a token may not see),
-  or on a 403 that is not a rate limit, the watcher stops with that reason.
+  or on a 403 that is not a rate limit, the source stops with that reason.
 - **A scope check on every answer:** a classic token names its scopes in `X-OAuth-Scopes`. One
-  without `notifications` stops the watcher and its actions, since GitHub lists and reads threads
+  without `notifications` stops the source and its actions, since GitHub lists and reads threads
   under `repo` alone and answers a done with 204 that changes nothing. A 403 carrying
   `X-GitHub-SSO: required` stops it as an organization SSO refusal. `createGithubSource` in
   `src/gateway/assistant/githubSource.ts`, over the shared client.
 
-### Rules
+### Automations
 
-Each watcher carries an ordered rule list, first match wins, kept by the Gateway like routines and
-policies. The owner edits it on the phone in Assistant settings; only owner ops write it, so the
-assistant cannot rewrite what sorts its own events.
+An automation is one owner record, kept per Gateway like routines and policies:
+`src/shared/schemasAutomation.ts` is its wire, and `createAutomations` in
+`src/gateway/computed/automations.ts` stores it as an owner record (`docs/fields.md`). The owner
+edits it on the phone; only owner ops and what a home move carries write it, so the assistant
+cannot rewrite what sorts its own events.
 
-- **A rule:** a phone-minted id, one to 8 conditions, all of which must hold, and an action: `wake`
-  or `inbox`. A condition is a field the watcher declares, a test and a value. At most 50 rules
-  (`ASSISTANT_RULES_MAX` in `wire-vocabulary.ts`); `otherwise` takes anything none matched.
-- **A field is a choice list or text:** each watcher declares its fields (`Watcher.fieldSpecs`). A
+- **A record:** a phone-minted id, `enabled`, a `trigger` and one to 8 `actions`, at most 64 per
+  Gateway. An `event` trigger names a source and up to 8 conditions, all of which must hold; none
+  takes every event. A `value` trigger is a choice or boolean computed field becoming a value, with
+  a cool-down, which a sensor's Alerts rows write (`docs/fields.md`). The one action is
+  `tell_assistant` with `when`: `now` wakes, `quietly` leaves the event in the inbox. A condition is
+  a field the source declares, a test and a value.
+- **Every match fires:** an event that does not say how it tells asks its source's armed event
+  automations, enabled and valid, through `conditionsMatch`. Any match that tells `now` wakes, and
+  an event several automations wake about wakes once. There is no order and no first match. An
+  event that no waking automation matches stays in the source's own list, which is the inbox.
+  `decide` in `composeAssistant.ts` is the one reading, and the lane and the listing take it.
+- **A field is a choice list or text:** each source declares its fields (`Source.fieldSpecs`). A
   choice list (`enumeration`) carries value and label pairs, takes `is` and `is_not`, and compares
   the exact value; labels are display only. Text takes `is`, `is_not` and `contains`, case
   ignored. A missing field fails every test on it, `is_not` included. A value is stored trimmed of
   ASCII whitespace at its edges, `trimRuleValue`, and nothing else. A number or bytes field takes
   no tests, and a kind the phone does not know is shown but never offered (`docs/fields.md`).
-- **One parse, one match:** `parseRuleForFields` in `schemasAssistantRules.ts` refuses an undeclared
-  field, a value off its list, a test its kind does not take and a blank value. `firstMatch`, the
-  one reading of which rule decides a thread, skips a rule that does not parse; `decideEvent`, the
-  listing and the preview all take it.
-- **A rule that no longer fits is kept:** validity is read against the current declarations on
-  every read and never stored, so a declaration change moves no revision. An unfit rule matches
-  nothing and rides in `invalid` with its reason; the phone strikes it through and blocks Save
-  until it fits, and a put repairs it in place.
-- **The phone's Save gate is the Gateway's parse:** `fittingRule` in `RuleDraft.kt` decides Save and
-  the preview, and the Save sends what it answers. `tests/fixtures/assistant-rules/vectors.json`
-  pins it to `parseRuleForFields` on both runtimes.
+- **One check:** `conditionsIssue` in `schemasAssistantRules.ts` refuses an undeclared field, a
+  value off its list, a test its kind does not take and a blank value. `eventIssue` adds that this
+  Gateway holds the source and that the source does not tell its own events.
+- **An automation that no longer fits is kept:** validity is read against the source's current
+  declarations on every read and never stored, so a declaration change moves no revision. An unfit
+  automation arms nothing and is listed with `invalid` and its reason.
+- **The phone's Save gate is the Gateway's parse:** `fittingAutomation` in `AutomationDraft.kt`
+  decides Save and the preview, and the Save sends what it answers.
+  `tests/fixtures/assistant-rules/vectors.json` pins it to `conditionsIssue` on both runtimes.
+- **The Gateway writes each row's sentence:** from the trigger, the source's `brief` then each
+  condition as field label, test and option label ("GitHub: reason is review requested"), or
+  "every event" when there are none (`eventSentence`). Nothing stores it. A sensor alert's row
+  carries its own `label`.
 - **Values off the list are reported:** every poll checks its events against the declarations,
   the priming poll included, and keeps each value outside its field's list once, up to 32, with an
-  overflow flag. An entry leaves once the declaration lists it. The phone shows them under the
-  watcher's Rules row, so a new GitHub value is seen before a rule needs it.
-- **No drop, no ping:** GitHub threads are cleared at GitHub through `watcher/github_done`, and the agent
-  alone decides what is worth telling the owner. The rules file is read through a decoder that
-  runs before the schema parse: it removes `drop` rules, maps an `otherwise` of `drop` to `inbox`
-  and strips `ping`, keeping the rest's order and revisions.
-- **The store:** `createRulesStore`, sole writer of `assistant-rules.json`, on the policy store's
-  model. The file parses strictly, so an unknown key quarantines it. Each rule and `otherwise`
-  carry their own revision, which the store names; the list's revision moves with every write and
-  is what a sort names. A put carries the revision it read, 0
-  for a new rule. A stale one is refused; the same content at the held revision or the one before it
-  answers as stored without a write, since its first answer was lost. A deleted id stays buried in
-  memory, up to 256, so a retried create cannot bring it back within one Gateway run; a delete of an id already gone answers done. A move places a
-  rule before another by id over the list revision drawn; a repeat finds it in place, and a stale
-  one is refused. A file naming one id twice starts fresh.
-- **Ops:** `assistant_rule_put`, `assistant_rule_delete`, `assistant_rule_move` and
-  `assistant_otherwise_put`, each answering `ConsoleAssistantRulesResult`: stored or not, with the
-  held rules either way, so the phone decides from the answer and the fenced read after it only
-  draws. `assistant_rules_preview` tests a rule at its place by id (else last) against the live
-  first page of the watcher's `all` listing, counting what it decides apart from what an earlier
-  rule takes, and refuses what a put refuses. The rules, the declarations, the unfit rules and the
-  values off the list ride in `assistant_state`.
-- **Per Gateway:** rules stay with the Gateway that holds them. A move starts the new home on its
-  own rules, and moving back finds the old ones.
-- **Applied as read:** a poll sorts its new threads as they arrive, and the listing applies the
-  rules as it lists, so a rule edit takes effect on the next read.
+  overflow flag. An entry leaves once the declaration lists it. The phone shows them on the
+  source's page, so a new GitHub value is seen before an automation needs it.
+- **No drop, no ping:** GitHub threads are cleared at GitHub through `source/github_done`, and the
+  agent alone decides what is worth telling the owner.
+- **Ops:** `automation_list` answers each row with its revision, sentence, `invalid`, `lastRanAt`
+  and, for a sensor alert, its `device`. `automation_put` carries the whole record at the revision
+  it read, 0 to add, and answers a refusal with the held row; `automation_delete` carries the
+  revision it read. `automation_preview` runs an event trigger over the source's live first page: how
+  many of the newest 50 it matches, with up to 10 of them. A sensor alert's row refuses a put or a
+  delete here, since its sensor page sets it, and an event automation is refused while the
+  assistant lives on another Gateway.
+- **`lastRanAt`:** a value automation's last fire, or the last time an event automation's wake
+  landed. The lane reports the events whose wake committed (`woke`), and `noteEvents` stamps each
+  automation that woke for them.
+- **Per Gateway:** automations stay with the Gateway that holds them. A move replaces the new
+  home's event automations with the carried ones, and a let-go removes them.
+- **Applied as read:** a poll sorts its new events as they arrive, and the listing asks the
+  automations as it lists, so an edit takes effect on the next read.
+- **Stored rules convert once, until 2026-11-28:** at boot `rulesAdoption.ts` turns each stored
+  watcher rule that woke into an event automation under the rule's id, and a fallback that woke
+  into one for every event (`every-<source>`). `assistant-rules.json` is never written again, and
+  `assistant-rules-adopted.json` marks the conversion, so an automation the owner deletes is not
+  brought back. The older rule ops answer that rules became automations.
 
 ### Limits
 
@@ -466,19 +521,20 @@ settle once its signal aborts.
 
 **Stop:** on release and on shutdown, it cancels the lane's retry, aborts its GitHub requests and
 fences its commits, so nothing lands after stop. It settles within the 5 seconds the stage has
-before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the watcher type
-(`Watcher`), the per-watcher state and the source lane.
+before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the source type
+(`Source`), the per-source state and the source lane.
 
 ## Delivery
 
-- **Wake:** a poll's new wake-sorted threads go to `host.assistant` through `deliverEvent` in
+- **Wake:** a poll's new events that an automation wakes for, or that tell `now` themselves, go to
+  `host.assistant` through `deliverEvent` in
   `routesSend.ts`, which shares `reach` (target resolution and `tryWakeTeam`) and the
   `ChannelDeliveryCoordinator` with an ordinary send but names no sender. A push carries up to 20,
   each with its thread id, composed once the session is reached. A push the lane gave up on
   composes nothing if its launch finishes later. The queued row is an `EventDelivery`, which holds
   no sender or reply route; the queue refuses an id a message already holds, and an acknowledgment
   retires only a row held for the acknowledging session.
-- **Each thread wakes once per update:** a member is keyed by watcher, thread id and update time.
+- **Each thread wakes once per update:** a member is keyed by source, thread id and update time.
   `acceptEvent` drops a member the queue holds or emitted within its 30-day TTL and answers `seen`
   when none is left, so a retried or restarted push wakes nothing twice. An acknowledgment records
   its row's members as emitted in the same write that retires the row (`PendingDeliveryStore`).
@@ -498,7 +554,8 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
   `Link` is bound to the grant, the scope and the read's `since` and mark. A list that changes
   between pages may repeat or skip. Each item carries its thread id, title, repository, reason,
   type, a link built from the validated repository and subject (omitted when the repository fails
-  validation), and its rule decision. A thread id
+  validation), and `decision` `now` when an automation wakes for it, absent otherwise, which the
+  tool prints as `tell: now`. A thread id
   that is not digits is dropped, and every text value is one line and capped. Past 64 KB a page is
   cut, and its next token continues from the first item not shown. It marks nothing.
 - **Who reads it:** the `inbox` tool and the action tools are registered only for `host.assistant`.
@@ -521,9 +578,8 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
   GitHub confirms a clear but before its row is queued leaves that clear without a row.
 - **Counts:** the strip's badge ("4 new"), the health line and the baseline show GitHub's unread
   count from the last poll that read it, "not checked yet" before one has, and "+" past the 500 a
-  poll reads (`inboxRows` and `unreadText` in `AssistantOps.kt`, `renderBaseline`). A watcher's page
-  lists its actions under its secret, from `assistant_state` (`watcherActions`); an older Gateway
-  names none.
+  poll reads (`inboxRows` and `unreadText` in `AssistantOps.kt`, `renderBaseline`). A source's page
+  lists its actions under Commands, from `assistant_state`.
 
 ## The locked phone
 
@@ -598,7 +654,7 @@ The assistant reaches the holding phone through the capability registry (`PHONE_
 `timer_set`, `sms` and `call`, exposed as `phone/<key>` ids by `list_actions`.
 A `run_action` call with a phone id lands on the holder as a
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
-request id. A phone action adds no record row; a watcher clear does, quiet when it carries no
+request id. A phone action adds no record row; a source clear does, quiet when it carries no
 summary.
 
 Launch acts answer `not_showing` unless the phone is interactive, unlocked and the app is shown.
@@ -697,7 +753,7 @@ than reserving one. `docs/routines.md` holds the routine side; this is the assis
   assistant is not placed stops for review with `assistant_unplaced`. No routine reserves or forgets
   the assistant's session.
 - **What to read:** the runbook says `new` or `all`. A `new` read moves the assistant's one mark per
-  watcher, as any read does.
+  source, as any read does.
 - **The phone:** the routine editor offers Assistant beside the spawn points only where that
   Gateway's assistant answer is placed and carries `checkIns`; an older Gateway would drop the kind
   and store a spawn routine.
@@ -716,11 +772,13 @@ than reserving one. `docs/routines.md` holds the routine side; this is the assis
   something a restart would add.
 - **Events:** a channel message with `event="true"` and no sender, `session_id` or
   `meta.instructions`. `CHANNEL_INSTRUCTIONS` says it is data and owes no `channel_reply`. Its body
-  is each event's data lines (`eventLines`), thread id included, every value collapsed to one line
-  by `oneLine` so a title cannot forge another line, then neutralized like any message body.
+  is each event's data lines (`eventLines`), the first `source:`, thread id included, every value
+  collapsed to one line by `oneLine` so a title cannot forge another line, then neutralized like any
+  message body.
 - **What it does with one:** the instructions say to decide whether an event is worth bringing up,
-  and to run `watcher/github_done` through `run_action` with a summary if so, or without one to clear
+  and to run `source/github_done` through `run_action` with a summary if so, or without one to clear
   it quietly.
-- **After a compaction:** the SessionStart `compact` hook adds one line per watcher, with GitHub's
-  unread count and any stopped or waiting reason, beside the session's conversations, routine runs,
-  agents and board entries. The watcher lines come before the board, the part a full baseline cuts.
+- **After a compaction:** the SessionStart `compact` hook adds one line per enabled source from the
+  baseline's `sources`, with GitHub's unread count and any stopped or waiting reason, beside the
+  session's conversations, routine runs, agents and board entries. The source lines come before the
+  board, the part a full baseline cuts.

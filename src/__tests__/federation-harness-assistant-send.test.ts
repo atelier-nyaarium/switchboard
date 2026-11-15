@@ -3,9 +3,9 @@ import type { Source, SourceEvent } from "../gateway/assistant/source.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { blobIdFor } from "../shared/blob-store.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
-import type { AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
 import { type AssistantSendRequest, AssistantSendRequestSchema } from "../shared/schemasAssistantSend.js";
 import { composeSessionName } from "../shared/session-id.js";
+import { eventAutomation } from "../testing/assistantAutomations.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
@@ -111,22 +111,16 @@ describe("the assistant's guarded sends", () => {
 		h.host.handlers.onCreateSession = (op) =>
 			void attach(composeSessionName(op.target.name, op.target.sessionName), op.sessionToken);
 		h.host.handlers.onWake = (frame) => void attach(String(frame.team), frame.sessionToken as string | undefined);
-		const ruleResult = await h.phone.value({
-			kind: "assistant_rule_put",
-			watcherId: "fake",
-			rule: {
-				id: "mentions",
-				conditions: [{ field: "kind", test: "is", value: "mention" }],
-				action: "wake",
-				revision: 0,
-			},
-		});
-		const rules = (ruleResult.result as { rules: AssistantWatcherRules }).rules;
+		const mentions = eventAutomation("fake", [{ field: "kind", test: "is", value: "mention" }]);
 		const current = await h.phone.homeRead();
 		const placement = await h.phone.homePut({
 			gatewayId: h.set.gateway.id,
 			workdirPath: "~/projects/notes",
-			carried: { approveEverySend: true, watchers: [{ id: "fake", rules, grant: null }] },
+			carried: {
+				approveEverySend: true,
+				watchers: [{ id: "fake", grant: null }],
+				automations: [{ id: "mentions", automation: mentions }],
+			},
 			baseVersion: current.record?.version ?? 0,
 		});
 		if (!placement.record) throw new Error("the Router did not hold the home choice");
@@ -307,7 +301,7 @@ describe("the assistant's guarded sends", () => {
 		expect(await records("while asleep")).toHaveLength(2);
 	});
 
-	it("with approval off, sends unasked only while the owner or a watcher spoke last", async () => {
+	it("with approval off, sends unasked only while the owner or a source spoke last", async () => {
 		const off = await safety(false);
 		await ownerSays("go ahead");
 		const afterOwner = await send(worker.team, "unasked one");
@@ -324,8 +318,8 @@ describe("the assistant's guarded sends", () => {
 		await post("/assistant/send/withdraw", { requestId: afterReply.json.requestId });
 
 		events.push({ id: "e1", at: 10, title: "mention e1", fields: { kind: "mention" } });
-		await h.phone.value({ kind: "assistant_watcher_grants", watcherId: "fake", entryIds: [] });
-		await h.waitFor(() => assistant().inbound.find((frame) => frame.event === true), "the watcher's event");
+		await h.phone.value({ kind: "assistant_source_grants", sourceId: "fake", entryIds: [] });
+		await h.waitFor(() => assistant().inbound.find((frame) => frame.event === true), "the source's event");
 		const afterEvent = await send(worker.team, "unasked two");
 		// Mirrors use outbox delivery.
 		const unasked = await h.waitFor(async () => {

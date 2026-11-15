@@ -1,0 +1,18 @@
+{
+	"workdir": "~/assistant",
+	"team": "host.assistant",
+	"sources": [
+		{
+			"id": "github",
+			"label": "GitHub notifications",
+			"grants": ["entry-1"],
+			"unread": 14,
+			"lastSuccessAt": 1763000000000,
+			"fieldSpecs": [{ "kind": "text", "field": "repository", "label": "Repository" }],
+			"actions": [],
+			"enabled": true,
+			"triggers": true
+		}
+	],
+	"temperatureUnit": "C"
+}
