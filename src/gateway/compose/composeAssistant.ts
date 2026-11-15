@@ -47,7 +47,11 @@ import {
 	rulesOfAutomations,
 } from "../../shared/schemasAutomation.js";
 import { IFTTT_INTEGRATION_ID, INTEGRATION_KEYS, integrationLabel } from "../../shared/schemasIntegrations.js";
-import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilities.js";
+import type {
+	GatewayCapabilityRuns,
+	IftttTriggerAnswer,
+	IftttTriggerRequest,
+} from "../../shared/schemasPhoneCapabilities.js";
 import type { PhoneHoldPlane } from "../../shared/schemasPhoneHold.js";
 import { type BaselineHold, holdLine, type SessionBaseline } from "../../shared/session-baseline.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
@@ -118,7 +122,7 @@ export interface AssistantVault {
 	usableHere: (entryId: string) => Promise<boolean>;
 }
 
-export type AssistantAutomations = Pick<Automations, "eventsOf" | "write" | "noteEvents">;
+export type AssistantAutomations = Pick<Automations, "eventsOf" | "write" | "noteEvents" | "fireEvents">;
 
 const inSentence = (label: string) => (/^[A-Z][a-z]/.test(label) ? label[0]?.toLowerCase() + label.slice(1) : label);
 
@@ -157,6 +161,8 @@ export interface AssistantStageDeps {
 
 export interface AssistantStage {
 	temperatureUnit: () => TemperatureUnit;
+	/** Refuses when no key is granted. */
+	iftttTrigger: (params: IftttTriggerRequest) => Promise<IftttTriggerAnswer>;
 	/** Identifies sweep-exempt sessions. */
 	reserves: (team: string) => boolean;
 	/** Check-ins use this session. */
@@ -255,6 +261,17 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	/** Every match fires; one waking match wakes. */
 	const decide = (sourceId: string, event: SourceEvent): RuleAction =>
 		told(event) ?? (wakers(sourceId, event).length > 0 ? "wake" : "inbox");
+	/** Each match runs its effects once per event. */
+	const arrived = (sourceId: string, events: readonly SourceEvent[]): void => {
+		const specs = specsOf(sourceId) ?? [];
+		const armed = automations?.eventsOf(sourceId) ?? [];
+		const matched = events.flatMap((event) =>
+			armed
+				.filter(({ trigger }) => conditionsMatch(trigger.conditions, specs, event.fields))
+				.map(({ id }) => ({ automation: id, member: `event:${sourceId}:${event.id}:${id}` })),
+		);
+		automations?.fireEvents(matched, ambient.now());
+	};
 	const eventIssue = (trigger: EventTrigger): string | null => {
 		const source = sources.find((candidate) => candidate.id === trigger.source);
 		if (!source) return `this Gateway holds no source "${trigger.source}"`;
@@ -322,6 +339,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					[...new Set(events.flatMap((event) => wakers(sourceId, event)))],
 					ambient.now(),
 				),
+			arrived,
 		});
 		lanes.start();
 	};
@@ -831,6 +849,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		eventIssue,
 		eventSentence,
+		iftttTrigger: (params) => ifttt.trigger(params),
 		previewTrigger: async (trigger) => {
 			if (trigger.kind !== "event") throw new Error("only an event trigger previews");
 			const issue = eventIssue(trigger);

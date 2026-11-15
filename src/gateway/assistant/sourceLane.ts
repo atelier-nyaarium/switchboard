@@ -53,6 +53,8 @@ export interface SourceLanesDeps {
 	changed: (sourceId: string) => void;
 	/** Committed wakes. */
 	woke?: (sourceId: string, events: readonly SourceEvent[]) => void;
+	/** Fresh events, once their poll committed. */
+	arrived?: (sourceId: string, events: readonly SourceEvent[]) => void;
 }
 
 export type LaneEnd = "past_deadline" | "stopping";
@@ -319,6 +321,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		if (!settle(source, advanced, next)) return;
 		if (whole) recounts.delete(source.id);
 		if (wakes.length > 0) deps.woke?.(source.id, wakes);
+		if (fresh.length > 0) deps.arrived?.(source.id, fresh);
 	};
 
 	const schedule = (source: Source): void => {

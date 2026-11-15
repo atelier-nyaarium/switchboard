@@ -1380,6 +1380,8 @@ sealed class ConsoleOp {
 		val automationId: String,
 		val automation: Automation,
 		val baseRevision: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val confirmed: Boolean? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2545,6 +2547,25 @@ sealed class AutomationAction {
 		val `when`: String,
 	) : AutomationAction()
 
+	@Serializable
+	@SerialName("device_set")
+	data class DeviceSet(
+		val device: String,
+		val verb: String,
+	) : AutomationAction()
+
+	@Serializable
+	@SerialName("ifttt_trigger")
+	data class IftttTrigger(
+		val event: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val value1: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val value2: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val value3: String? = null,
+	) : AutomationAction()
+
 	/** Unknown member, preserved as sent. */
 	data class Unknown(val kind: String, val raw: JsonObject) : AutomationAction()
 }
@@ -2558,6 +2579,8 @@ object AutomationActionSerializer : KSerializer<AutomationAction> {
 		val body = JsonObject(raw - "kind")
 		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
 			"tell_assistant" -> input.json.decodeFromJsonElement(AutomationAction.TellAssistant.serializer(), body)
+			"device_set" -> input.json.decodeFromJsonElement(AutomationAction.DeviceSet.serializer(), body)
+			"ifttt_trigger" -> input.json.decodeFromJsonElement(AutomationAction.IftttTrigger.serializer(), body)
 			else -> AutomationAction.Unknown(kind ?: "", raw)
 		}
 	}
@@ -2566,6 +2589,8 @@ object AutomationActionSerializer : KSerializer<AutomationAction> {
 		val output = encoder as? JsonEncoder ?: throw SerializationException("AutomationAction writes JSON only")
 		val element = when (value) {
 			is AutomationAction.TellAssistant -> tagged("tell_assistant", output.json.encodeToJsonElement(AutomationAction.TellAssistant.serializer(), value))
+			is AutomationAction.DeviceSet -> tagged("device_set", output.json.encodeToJsonElement(AutomationAction.DeviceSet.serializer(), value))
+			is AutomationAction.IftttTrigger -> tagged("ifttt_trigger", output.json.encodeToJsonElement(AutomationAction.IftttTrigger.serializer(), value))
 			is AutomationAction.Unknown -> value.raw
 		}
 		output.encodeJsonElement(element)
@@ -2617,6 +2642,8 @@ data class ConsoleAutomationPutResult(
 	val row: AutomationRow? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val confirm: List<String>? = null,
 )
 
 @Serializable

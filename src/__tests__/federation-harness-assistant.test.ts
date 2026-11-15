@@ -4,6 +4,7 @@ import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
 import type { AssistantHomeCarried } from "../shared/schemasAssistantHome.js";
 import type {
+	Automation,
 	ConsoleAutomationDeleteResult,
 	ConsoleAutomationListResult,
 	ConsoleAutomationPutResult,
@@ -13,6 +14,7 @@ import { composeSessionName } from "../shared/session-id.js";
 import type { TeamInfo } from "../shared/types.js";
 import { OP_REASON_NOT_SERVED } from "../shared/wire-vocabulary.js";
 import { eventAutomation } from "../testing/assistantAutomations.js";
+import { createFakeKasaPlug, type FakeKasaPlug } from "../testing/fakeKasaPlug.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
@@ -230,6 +232,8 @@ describe("the assistant's session through the console", () => {
 
 describe("a source event reaching the assistant", () => {
 	let h: FederationHarness;
+	let plug: FakeKasaPlug;
+	const PLUG = "aa:bb:cc:dd:ee:01";
 	const attached = new Map<string, FakeSession>();
 	const event = (id: string, kind: string, at: number): SourceEvent => ({
 		id,
@@ -268,7 +272,8 @@ describe("a source event reaching the assistant", () => {
 		(await (session ?? attachedless(h)).post(path, body)).json() as Promise<Record<string, unknown>>;
 
 	beforeAll(async () => {
-		h = await startFederationHarness({ assistantSources: [watcher], wakeTimeoutMs: 2_000 });
+		plug = await createFakeKasaPlug({ mac: PLUG });
+		h = await startFederationHarness({ assistantSources: [watcher], wakeTimeoutMs: 2_000, kasaPort: plug.port });
 		const attach = (team: string, sessionToken: string | undefined) => {
 			if (attached.has(team)) return;
 			const conversationId = `conv-${team.replaceAll(".", "-")}`;
@@ -288,11 +293,18 @@ describe("a source event reaching the assistant", () => {
 	afterAll(async () => {
 		for (const session of attached.values()) session.close();
 		if (h) await h.close();
+		await plug?.close();
 	});
 
-	it("wakes for no backlog, retries a wake that did not land, and wakes once for an event two automations tell now", async () => {
+	it("wakes for no backlog, retries a wake that did not land, wakes once for an event two automations tell now, and switches a plug for it", async () => {
 		const poke = () => h.phone.value({ kind: "assistant_source_grants", sourceId: "fake", entryIds: [] });
 		const mention = { field: "kind", test: "is", value: "mention" } as const;
+		await h.phone.value({ kind: "device_add", mac: PLUG, address: "127.0.0.1", name: "Desk lamp" });
+		const lamp: Automation = {
+			enabled: true,
+			trigger: { kind: "event", source: "fake", conditions: [mention] },
+			actions: [{ kind: "device_set", device: PLUG, verb: "on" }],
+		};
 		const placement = await putHome(h, h.set.gateway.id, "~/projects/notes", {
 			approveEverySend: true,
 			watchers: [{ id: "fake", grant: null }],
@@ -300,6 +312,7 @@ describe("a source event reaching the assistant", () => {
 				{ id: "mentions", automation: eventAutomation("fake", [mention]) },
 				{ id: "every-mention", automation: eventAutomation("fake", [mention]) },
 				{ id: "reviews", automation: eventAutomation("fake", [{ ...mention, value: "review" }], "quietly") },
+				{ id: "lamp", automation: lamp },
 			],
 		});
 		if (!placement.record) throw new Error("the Router did not hold the home choice");
@@ -316,6 +329,11 @@ describe("a source event reaching the assistant", () => {
 		const settled = polls;
 		await poke();
 		await h.waitFor(() => polls > settled, "a poll after the wake landed");
+		const switched = () => plug.received().filter((request) => request.command === "set_relay_state");
+		await h.waitFor(async () => {
+			const rows = (await h.phone.value({ kind: "automation_list" })).result as ConsoleAutomationListResult;
+			return rows.automations.find((row) => row.id === "lamp")?.lastRanAt !== undefined;
+		}, "the plug's run to be stamped");
 		const state = (await h.phone.value({ kind: "assistant_state" })).result as ConsoleAssistantStateResult;
 		const { automations } = (await h.phone.value({ kind: "automation_list" }))
 			.result as ConsoleAutomationListResult;
@@ -344,7 +362,9 @@ describe("a source event reaching the assistant", () => {
 			["mentions", "Fake source: kind is mention", true],
 			["every-mention", "Fake source: kind is mention", true],
 			["reviews", "Fake source: kind is review", false],
+			["lamp", "Fake source: kind is mention", true],
 		]);
+		expect(switched()).toHaveLength(1);
 	});
 
 	it("lists live, marks what an automation wakes for, and moves the new mark only once a read reaches its last page", async () => {

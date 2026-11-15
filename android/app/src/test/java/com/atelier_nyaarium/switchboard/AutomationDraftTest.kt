@@ -136,6 +136,7 @@ class AutomationDraftTest {
 		assertEquals(false, editable(row("a", event(), device = "ce:1c")))
 		assertEquals(false, editable(row("a", alert)))
 		assertEquals(false, editable(row("a", event().copy(actions = listOf(future)))))
+		assertEquals(false, editable(row("a", event().copy(actions = listOf(AutomationAction.DeviceSet("aa:bb", "on"))))))
 		assertEquals(false, editable(row("a", event().copy(trigger = AutomationTrigger.Unknown("time", buildJsonObject {})))))
 		assertNull(openedDraft(AutomationSlot.Held("a"), row("a", alert), listOf(source("github"))))
 		assertNotNull(openedDraft(AutomationSlot.Held("a"), row("a", event()), listOf(source("github"))))

@@ -1,10 +1,13 @@
 // Every automation write, judged once.
 
+import { canonicalJson } from "../../shared/canonical-json.js";
 import {
+	AUTOMATION_ACTIONS,
 	type Automation,
 	AutomationSchema,
 	type CarriedAutomation,
 	canonicalAutomation,
+	dangerousActions,
 } from "../../shared/schemasAutomation.js";
 import type { OwnerRecord, OwnerWrite } from "../ownerRecords.js";
 import { ALERT_ID_PREFIX, thresholdIds } from "./thresholds.js";
@@ -14,7 +17,7 @@ export const AUTOMATION_KIND = "automation";
 export const NOT_HOME = "the assistant does not live on this Gateway";
 
 export type AutomationIntent =
-	| { kind: "owner_put"; id: string; body: unknown; base: number }
+	| { kind: "owner_put"; id: string; body: unknown; base: number; confirmed?: boolean }
 	| { kind: "owner_remove"; id: string; base: number }
 	/** The home's whole moving set. */
 	| { kind: "carry"; rows: readonly CarriedAutomation[] }
@@ -40,7 +43,8 @@ export interface DroppedAutomation {
 }
 
 export type AutomationVerdict =
-	| { kind: "refused"; reason: string }
+	/** `confirm` names the actions a save must confirm. */
+	| { kind: "refused"; reason: string; confirm?: string[] }
 	| { kind: "writes"; writes: OwnerWrite[]; dropped: DroppedAutomation[] };
 
 /** Leaves and arrives with the assistant. */
@@ -64,6 +68,13 @@ const ownerRefusal = (id: string, held: OwnerRecord<Automation> | undefined): st
 	if (!id.startsWith(ALERT_ID_PREFIX)) return null;
 	return held ? "its sensor page sets this alert" : "not an id an owner names";
 };
+
+/** Dangerous actions the held record lacks. */
+function unconfirmed(next: Automation, held: Automation | undefined): string[] {
+	const known = new Set((held ? dangerousActions(held) : []).map((action) => canonicalJson(action)));
+	const asks = dangerousActions(next).filter((action) => !known.has(canonicalJson(action)));
+	return [...new Set(asks.map((action) => AUTOMATION_ACTIONS[action.kind].label))];
+}
 
 /** The rows this Gateway can run, last of an id winning. */
 function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView) {
@@ -89,6 +100,9 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 			if (named) return refused(named);
 			const parsed = AutomationSchema.safeParse(intent.body);
 			if (parsed.success && movesWithHome(parsed.data) && !view.isHome) return refused(NOT_HOME);
+			const confirm =
+				parsed.success && !intent.confirmed ? unconfirmed(parsed.data, heldAt(intent.id)?.body) : [];
+			if (confirm.length > 0) return { kind: "refused", reason: "confirm what it does without asking", confirm };
 			const body = parsed.success ? canonicalAutomation(parsed.data) : intent.body;
 			return { kind: "writes", writes: [put(intent.id, body, intent.base)], dropped: [] };
 		}

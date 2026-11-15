@@ -11,6 +11,7 @@ import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import { createOutboxSource } from "./assistant/outboxSource.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
+import { automationActions } from "./compose/automationActions.js";
 import { composeAgents } from "./compose/composeAgents.js";
 import { composeAssistant } from "./compose/composeAssistant.js";
 import { composeAwareness } from "./compose/composeAwareness.js";
@@ -587,6 +588,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				eventIssue: assistant.eventIssue,
 				eventSentence: assistant.eventSentence,
 				reading: devices!.watchedReading,
+				actions: automationActions({ devices: () => devices, ifttt: assistant.iftttTrigger }),
 			}),
 		),
 	);
@@ -671,8 +673,12 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		policies,
 		automations: {
 			list: () => ({ automations: automations?.rows() ?? [] }),
-			put: (id, automation, base) =>
-				automations?.ownerPut(id, automation, base) ?? { stored: false, revision: 0, reason: "not loaded yet" },
+			put: (id, automation, base, confirmed) =>
+				automations?.ownerPut(id, automation, base, confirmed) ?? {
+					stored: false,
+					revision: 0,
+					reason: "not loaded yet",
+				},
 			remove: (id, base) => automations?.ownerRemove(id, base) ?? { deleted: false, reason: "not loaded yet" },
 			preview: (trigger) => assistant.previewTrigger(trigger),
 		},

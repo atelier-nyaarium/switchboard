@@ -192,7 +192,7 @@ export interface AssistantConsoleHandlers {
 /** A put or delete answers its refusal; a preview throws. */
 export interface AutomationConsoleHandlers {
 	list: () => ConsoleAutomationListResult;
-	put: (automationId: string, automation: Automation, base: number) => ConsoleAutomationPutResult;
+	put: (automationId: string, automation: Automation, base: number, confirmed: boolean) => ConsoleAutomationPutResult;
 	remove: (automationId: string, base: number) => ConsoleAutomationDeleteResult;
 	preview: (trigger: AutomationTrigger) => Promise<ConsoleAutomationPreviewResult>;
 }

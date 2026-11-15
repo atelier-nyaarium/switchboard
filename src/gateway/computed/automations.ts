@@ -23,6 +23,7 @@ import {
 	judgeAutomationWrite,
 	NOT_HOME,
 } from "./automationJudge.js";
+import { type AutomationActionPorts, effectIssue, isEffect, runEffect } from "./automationRunner.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
 import { ALERT_ID_PREFIX, crossingField, crossingFieldId, crossingSide } from "./thresholds.js";
 
@@ -31,13 +32,17 @@ export { AUTOMATION_KIND };
 export type AutomationWritten =
 	/** `records` holds null for a remove. */
 	| { written: true; records: (OwnerRecord<Automation> | null)[]; dropped: readonly DroppedAutomation[] }
-	| { written: false; reason: string; record?: OwnerRecord<Automation> };
+	| { written: false; reason: string; record?: OwnerRecord<Automation>; confirm?: string[] };
 
 /** An id may spell a prototype key. */
 const own = <T>(held: Record<string, T>, id: string): T | undefined => (Object.hasOwn(held, id) ? held[id] : undefined);
 export const QUEUE_MAX_EVENTS = 256;
 export const QUEUE_MAX_BYTES = 64 * 1024;
 const LOG_MAX = 64;
+/** Runs waiting on their effects. */
+export const FIRES_MAX = 64;
+/** Event fires remembered against a repeat. */
+const FIRED_MAX = 256;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Remove 2026-11-28: a body stored before triggers had kinds.
@@ -95,8 +100,21 @@ const RunSchema = z.strictObject({
 	at: z.number().int(),
 	outcome: z.enum(RUN_OUTCOMES),
 	reason: z.string().optional(),
+	/** The action kind, for an effect. */
+	action: z.string().optional(),
 });
 export type AutomationRun = z.infer<typeof RunSchema>;
+
+/** A trigger that fired, waiting on its effects. */
+const FireSchema = z.strictObject({
+	member: z.string(),
+	automation: z.string(),
+	incarnation: z.string(),
+	at: z.number().int(),
+	/** Set before the first effect; never run again. */
+	claimed: z.boolean().optional(),
+});
+type Fire = z.infer<typeof FireSchema>;
 
 const CheckpointSchema = z.object({
 	/** Tracks the record revision. */
@@ -116,9 +134,13 @@ interface State {
 	log: AutomationRun[];
 	/** When each event automation last woke. */
 	ran: Record<string, number>;
+	/** Oldest first. */
+	fires: Fire[];
+	/** Members of event fires already taken. */
+	fired: string[];
 }
 
-const EMPTY: State = { automations: {}, queue: { lastAt: 0, events: [] }, log: [], ran: {} };
+const EMPTY: State = { automations: {}, queue: { lastAt: 0, events: [] }, log: [], ran: {}, fires: [], fired: [] };
 
 /** Invalid log/baseline rows drop. */
 const LooseStateSchema = z.object({
@@ -126,6 +148,8 @@ const LooseStateSchema = z.object({
 	queue: z.object({ lastAt: z.number().int(), events: z.array(z.unknown()) }).catch(EMPTY.queue),
 	log: z.array(z.unknown()).catch([]),
 	ran: z.record(z.string(), z.number()).catch({}),
+	fires: z.array(z.unknown()).catch([]),
+	fired: z.array(z.string()).catch([]),
 });
 
 function restore(raw: unknown): State {
@@ -148,10 +172,12 @@ function restore(raw: unknown): State {
 		},
 		log: pick(loose.log, RunSchema).slice(-LOG_MAX),
 		ran: loose.ran,
+		fires: pick(loose.fires, FireSchema).slice(-FIRES_MAX),
+		fired: loose.fired.slice(-FIRED_MAX),
 	};
 }
 
-/** A device's number, in words. */
+/** A device number, in words. */
 export interface WatchedReading {
 	label: string;
 	shown: (value: number) => string;
@@ -174,6 +200,8 @@ export interface AutomationsDeps {
 	eventSentence?: (trigger: EventTrigger) => string;
 	/** Null when no number is read there. */
 	reading?: (device: string, measure: string) => WatchedReading | null;
+	/** What runs an action's effect. */
+	actions?: AutomationActionPorts;
 }
 
 const queueBytes = (events: readonly QueueEntry[]) => Buffer.byteLength(JSON.stringify(events));
@@ -186,7 +214,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		kinds: { [AUTOMATION_KIND]: StoredAutomationSchema },
 		max: AUTOMATIONS_MAX,
 		newIncarnation: deps.newIncarnation,
-		refusal: (candidate) => triggerIssue(candidate.body),
+		refusal: (candidate) => automationIssue(candidate.body),
 		// Remove 2026-11-28 with the legacy body.
 		settle: true,
 		label: "automations",
@@ -213,6 +241,17 @@ export function createAutomations(deps: AutomationsDeps) {
 				: `${String(becomes)} is not one of its values`;
 		}
 		return "only a field of choices or true and false can trigger";
+	}
+
+	/** Why this Gateway cannot run it. */
+	function automationIssue(body: Automation): string | null {
+		const issue = triggerIssue(body);
+		if (issue !== null) return issue;
+		for (const action of body.actions) {
+			const refused = isEffect(action) ? effectIssue(action, deps.actions) : null;
+			if (refused !== null) return refused;
+		}
+		return null;
 	}
 
 	/** What the row and its events are called. */
@@ -264,7 +303,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const logged = (log: readonly AutomationRun[], run: AutomationRun) => [...log, run].slice(-LOG_MAX);
 
-	const armed = (record: OwnerRecord<Automation>) => record.body.enabled && triggerIssue(record.body) === null;
+	const armed = (record: OwnerRecord<Automation>) => record.body.enabled && automationIssue(record.body) === null;
 
 	/** Baselines whose write has not landed. */
 	let unsaved: State["automations"] = {};
@@ -273,6 +312,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	function drain(): boolean {
 		const now = deps.now();
 		let { queue, log } = state;
+		const fires = [...state.fires];
 		let queued = false;
 		const checkpoints: State["automations"] = {};
 		for (const record of records.list()) {
@@ -343,46 +383,120 @@ export function createAutomations(deps: AutomationsDeps) {
 					at = handled;
 					continue;
 				}
-				if (!deps.isHome()) {
+				const member = `automation:${record.id}:${record.incarnation}:${current.epoch}:${row.seq}`;
+				const tells = tellWhen(record.body);
+				const effects = record.body.actions.some(isEffect);
+				let fired = false;
+				if (tells !== null && !deps.isHome()) {
 					log = logged(log, run(row.seq, row.at, "refused", NOT_HOME));
-					at = handled;
-					continue;
-				}
-				const appendAt = Math.max(now, queue.lastAt + 1);
-				const sentence = sentenceOf(record.body);
-				const event: QueueEntry = {
-					member: `automation:${record.id}:${record.incarnation}:${current.epoch}:${row.seq}`,
-					at: appendAt,
-					body: {
-						title: sentence,
-						...(tellWhen(record.body) === "now" ? { when: "now" } : {}),
-						fields: {
-							automation: sentence,
-							field: trigger.label,
-							value: readOf(record, String(row.value)),
+				} else if (tells !== null) {
+					const appendAt = Math.max(now, queue.lastAt + 1);
+					const sentence = sentenceOf(record.body);
+					const event: QueueEntry = {
+						member,
+						at: appendAt,
+						body: {
+							title: sentence,
+							...(tells === "now" ? { when: "now" } : {}),
+							fields: {
+								automation: sentence,
+								field: trigger.label,
+								value: readOf(record, String(row.value)),
+							},
 						},
-					},
-				};
-				const events = [...queue.events.filter((entry) => now - entry.at < RETENTION_MS), event];
-				if (events.length > QUEUE_MAX_EVENTS || queueBytes(events) > QUEUE_MAX_BYTES) {
-					if (at.blockedSeq !== row.seq)
-						log = logged(log, run(row.seq, row.at, "refused", "the sensors queue is full"));
-					at = { ...at, blockedSeq: row.seq };
-					break;
+					};
+					const events = [...queue.events.filter((entry) => now - entry.at < RETENTION_MS), event];
+					if (events.length > QUEUE_MAX_EVENTS || queueBytes(events) > QUEUE_MAX_BYTES) {
+						if (at.blockedSeq !== row.seq)
+							log = logged(log, run(row.seq, row.at, "refused", "the sensors queue is full"));
+						at = { ...at, blockedSeq: row.seq };
+						break;
+					}
+					queue = { lastAt: appendAt, events };
+					log = logged(log, run(row.seq, row.at, "ran"));
+					fired = true;
+					queued = true;
 				}
-				queue = { lastAt: appendAt, events };
-				log = logged(log, run(row.seq, row.at, "ran"));
-				at = { ...handled, firedAt: row.at };
-				queued = true;
+				if (effects && fires.length >= FIRES_MAX) {
+					log = logged(log, run(row.seq, row.at, "refused", "too many runs are waiting"));
+				} else if (effects) {
+					fires.push({ member, automation: record.id, incarnation: record.incarnation, at: row.at });
+					fired = true;
+				}
+				at = fired ? { ...handled, firedAt: row.at } : handled;
 			}
 			checkpoints[record.id] = at;
 		}
-		const next: State = { automations: checkpoints, queue, log, ran: state.ran };
-		if (canonicalJson(next) === canonicalJson(state)) return true;
+		const next: State = { ...state, automations: checkpoints, queue, log, fires };
+		if (canonicalJson(next) === canonicalJson(state)) {
+			pump();
+			return true;
+		}
 		const landed = commit(next);
 		unsaved = landed ? {} : checkpoints;
 		if (landed && queued) deps.onQueued?.();
+		pump();
 		return landed;
+	}
+
+	let running: Promise<void> | null = null;
+
+	const effectRun = (
+		fire: Fire,
+		outcome: AutomationRun["outcome"],
+		reason?: string,
+		action?: string,
+	): AutomationRun => ({
+		automation: fire.automation,
+		seq: 0,
+		at: deps.now(),
+		outcome,
+		...(reason ? { reason } : {}),
+		...(action ? { action } : {}),
+	});
+
+	/** Retires a fire after its runs. */
+	const finish = (fire: Fire, runs: readonly AutomationRun[]): boolean =>
+		commit({
+			...state,
+			fires: state.fires.filter((held) => held.member !== fire.member),
+			log: runs.reduce(logged, state.log),
+			ran: runs.some((run) => run.outcome === "ran") ? { ...state.ran, [fire.automation]: fire.at } : state.ran,
+		});
+
+	/** False when nothing moved. */
+	async function runFire(fire: Fire): Promise<boolean> {
+		const ports = deps.actions;
+		const record = records.get(fire.automation);
+		if (!ports || !record || record.incarnation !== fire.incarnation) {
+			return finish(fire, [effectRun(fire, "uncertain", "the automation is gone")]);
+		}
+		// Claimed before any effect.
+		const claimed = state.fires.map((held) => (held.member === fire.member ? { ...held, claimed: true } : held));
+		if (!commit({ ...state, fires: claimed })) return false;
+		const runs: AutomationRun[] = [];
+		for (const action of record.body.actions) {
+			if (!isEffect(action)) continue;
+			const done = await runEffect(action, ports);
+			runs.push(effectRun(fire, done.outcome, done.outcome === "ran" ? undefined : done.reason, action.kind));
+		}
+		return finish(fire, runs);
+	}
+
+	/** One fire at a time, oldest first. */
+	function pump(): void {
+		if (running) return;
+		const fire = state.fires.find((held) => !held.claimed);
+		if (!fire) return;
+		running = runFire(fire)
+			.catch((error) => {
+				console.error("[automations] a run failed:", error);
+				return false;
+			})
+			.then((moved) => {
+				running = null;
+				if (moved) pump();
+			});
 	}
 
 	const outbox: AutomationOutbox = {
@@ -444,9 +558,11 @@ export function createAutomations(deps: AutomationsDeps) {
 			count: records.count(),
 			max: AUTOMATIONS_MAX,
 			isHome: deps.isHome(),
-			issue: triggerIssue,
+			issue: automationIssue,
 		});
-		if (verdict.kind === "refused") return { written: false, reason: verdict.reason };
+		if (verdict.kind === "refused") {
+			return { written: false, reason: verdict.reason, ...(verdict.confirm ? { confirm: verdict.confirm } : {}) };
+		}
 		for (const { id, reason } of verdict.dropped) {
 			console.warn(`[automations] ${intent.kind}: ${id} dropped: ${reason}`);
 		}
@@ -462,6 +578,18 @@ export function createAutomations(deps: AutomationsDeps) {
 		return { written: true, records: result.records, dropped: verdict.dropped };
 	}
 
+	// A claimed fire never runs again.
+	const interrupted = state.fires.filter((fire) => fire.claimed);
+	if (interrupted.length > 0) {
+		commit({
+			...state,
+			fires: state.fires.filter((fire) => !fire.claimed),
+			log: interrupted
+				.map((fire) => effectRun(fire, "uncertain", "interrupted mid-run"))
+				.reduce(logged, state.log),
+		});
+	}
+
 	drain();
 
 	return {
@@ -469,8 +597,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		rows: (): AutomationRow[] => records.list().map(rowOf),
 		write,
 		derivedFields,
-		ownerPut(id: string, body: unknown, base: number): ConsoleAutomationPutResult {
-			const result = write({ kind: "owner_put", id, body, base });
+		ownerPut(id: string, body: unknown, base: number, confirmed = false): ConsoleAutomationPutResult {
+			const result = write({ kind: "owner_put", id, body, base, confirmed });
 			const record = result.written ? result.records[0] : (result.record ?? records.get(id));
 			if (result.written && record) return { stored: true, revision: record.revision, row: rowOf(record) };
 			return {
@@ -478,11 +606,34 @@ export function createAutomations(deps: AutomationsDeps) {
 				revision: record?.revision ?? 0,
 				reason: result.written ? "not saved; try again" : result.reason,
 				...(record ? { row: rowOf(record) } : {}),
+				...(!result.written && result.confirm ? { confirm: result.confirm } : {}),
 			};
 		},
 		ownerRemove(id: string, base: number): ConsoleAutomationDeleteResult {
 			const result = write({ kind: "owner_remove", id, base });
 			return result.written ? { deleted: true } : { deleted: false, reason: result.reason };
+		},
+		/** Runs matching event effects. */
+		fireEvents(matched: readonly { automation: string; member: string }[], at: number): void {
+			const fires = [...state.fires];
+			const fired = [...state.fired];
+			let log = state.log;
+			for (const { automation, member } of matched) {
+				const record = records.get(automation);
+				if (!record || !armed(record) || !record.body.actions.some(isEffect) || fired.includes(member))
+					continue;
+				fired.push(member);
+				const fire: Fire = { member, automation, incarnation: record.incarnation, at };
+				if (fires.length >= FIRES_MAX)
+					log = logged(log, effectRun(fire, "refused", "too many runs are waiting"));
+				else fires.push(fire);
+			}
+			if (fired.length === state.fired.length) return;
+			if (commit({ ...state, fires, fired: fired.slice(-FIRED_MAX), log })) pump();
+		},
+		/** Resolves once no run is in flight. */
+		async settled(): Promise<void> {
+			while (running) await running;
 		},
 		/** Event automations that woke the assistant. */
 		noteEvents(ids: readonly string[], at: number): void {

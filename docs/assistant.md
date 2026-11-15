@@ -504,7 +504,11 @@ cannot rewrite what sorts its own events.
   many of the newest 50 it matches, with up to 10 of them. A sensor alert's row refuses a put or a
   delete here, since its sensor page sets it, and an event automation is refused while the
   assistant lives on another Gateway.
-- **`lastRanAt`:** a value automation's last fire, or the last time an event automation's wake
+- **Effects on an event:** once a poll commits, the lane hands its newer events to `arrived`, which
+  records a fire for every armed automation of the source whose conditions match and that holds an
+  action other than a tell (`docs/fields.md`). A crash between the commit and the fire loses the
+  effect rather than repeating it.
+- **`lastRanAt`:** a value automation's last fire, the last time an effect of it ran, or the last time an event automation's wake
   landed. The lane reports the events whose wake committed (`woke`), and `noteEvents` stamps each
   automation that woke for them.
 - **Per Gateway:** automations stay with the Gateway that holds them. A move replaces the new

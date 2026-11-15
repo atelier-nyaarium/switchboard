@@ -157,6 +157,7 @@ function lanes(
 	enabled: () => boolean = () => true,
 	holdLine: () => string = () => "",
 	changed: (watcherId: string) => void = () => undefined,
+	arrived: (events: readonly SourceEvent[]) => void = () => undefined,
 ): SourceLanes {
 	return createSourceLanes({
 		ambient,
@@ -169,6 +170,7 @@ function lanes(
 		holdLine,
 		render: (_watcher, event) => event.id,
 		changed,
+		arrived: (_watcherId, events) => arrived(events),
 	});
 }
 
@@ -326,13 +328,22 @@ describe("a source's lane", () => {
 		expect(state.get("github").cursor).toBe("c1");
 	});
 
-	it("sees the backlog at the first poll without waking, then wakes only what is newer than the newest seen", async () => {
+	it("sees the backlog at the first poll without waking, then wakes only what is newer and reports every newer event", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const source = scripted();
 		const state = stateIn(stateDir());
 		const pushes = wakes();
-		const lane = lanes(ambient, state, source.watcher, pushes.wake, (event) =>
-			event.fields.reason === "subscribed" ? "inbox" : "wake",
+		const arrived: string[][] = [];
+		const lane = lanes(
+			ambient,
+			state,
+			source.watcher,
+			pushes.wake,
+			(event) => (event.fields.reason === "subscribed" ? "inbox" : "wake"),
+			undefined,
+			undefined,
+			undefined,
+			(events) => arrived.push(events.map((event) => event.id)),
 		);
 
 		lane.start();
@@ -351,6 +362,7 @@ describe("a source's lane", () => {
 		await stopped(lane, ambient);
 
 		expect(pushes.pushed.map((push) => push.ids)).toEqual([["e"]]);
+		expect(arrived).toEqual([["d", "e"]]);
 		expect(source.cursors).toEqual([null, "c1", "c2", "c3"]);
 		expect(state.get("github").unread).toBe(2);
 	});
@@ -439,7 +451,18 @@ describe("a source's lane", () => {
 		const source = scripted();
 		const state = stateIn(stateDir());
 		const pushes = wakes(["the session is not reachable", "the session is not reachable", null]);
-		const lane = lanes(ambient, state, source.watcher, pushes.wake);
+		const arrived: string[][] = [];
+		const lane = lanes(
+			ambient,
+			state,
+			source.watcher,
+			pushes.wake,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			(events) => arrived.push(events.map((event) => event.id)),
+		);
 
 		lane.start();
 		await ambient.advance(0);
@@ -470,6 +493,7 @@ describe("a source's lane", () => {
 		expect(source.cursors).toEqual([null, "c1", "c1", "c1", "c3"]);
 		expect(new Set(pushes.pushed.map((push) => JSON.stringify(push.keys))).size).toBe(1);
 		expect(pushes.pushed).toHaveLength(3);
+		expect(arrived).toEqual([["b"]]);
 		expect(state.get("github").backoff).toBeUndefined();
 	});
 

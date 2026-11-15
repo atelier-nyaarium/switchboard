@@ -7,6 +7,8 @@ import {
 	canonicalConditions,
 	RULE_ID_RE,
 } from "./schemasAssistantRules.js";
+import { DeviceVerbSchema } from "./schemasDevices.js";
+import { PHONE_CAPABILITIES } from "./schemasPhoneCapabilities.js";
 import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
 
 export const AUTOMATIONS_MAX = 64;
@@ -63,10 +65,32 @@ export const AutomationActionSchema = z
 	.discriminatedUnion("kind", [
 		/** Now wakes; quietly waits in the inbox. */
 		z.strictObject({ kind: z.literal("tell_assistant"), when: z.enum(TELL_WHEN) }),
+		/** A switch this Gateway holds. */
+		z.strictObject({ kind: z.literal("device_set"), device: z.string().min(1).max(64), verb: DeviceVerbSchema }),
+		z.strictObject({ kind: z.literal("ifttt_trigger"), ...PHONE_CAPABILITIES.ifttt_trigger.request.shape }),
 	])
 	.meta({ id: "AutomationAction" });
 
 export type AutomationAction = z.infer<typeof AutomationActionSchema>;
+export type AutomationActionKind = AutomationAction["kind"];
+
+export interface AutomationActionRow {
+	label: string;
+	/** Where its effect happens. */
+	runs: "assistant" | "gateway";
+	/** A save adding one is confirmed. */
+	danger: boolean;
+}
+
+/** Every action an automation can run. */
+export const AUTOMATION_ACTIONS = {
+	tell_assistant: { label: "Tell the assistant", runs: "assistant", danger: false },
+	device_set: { label: "Switch a plug", runs: "gateway", danger: false },
+	ifttt_trigger: { label: "Send to IFTTT", runs: "gateway", danger: true },
+} as const satisfies Record<AutomationActionKind, AutomationActionRow>;
+
+export const dangerousActions = (automation: { actions: readonly AutomationAction[] }): AutomationAction[] =>
+	automation.actions.filter((action) => AUTOMATION_ACTIONS[action.kind].danger);
 
 export const AutomationSchema = z
 	.strictObject({
@@ -165,6 +189,8 @@ export const ConsoleAutomationPutResultSchema = z
 		/** Adopted by the phone. */
 		row: AutomationRowSchema.optional(),
 		reason: z.string().optional(),
+		/** Actions to confirm; send again with `confirmed`. */
+		confirm: z.array(z.string().max(80)).max(AUTOMATION_ACTIONS_MAX).optional(),
 	})
 	.meta({ id: "ConsoleAutomationPutResult" });
 

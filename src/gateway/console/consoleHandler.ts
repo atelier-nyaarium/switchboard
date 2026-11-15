@@ -518,7 +518,7 @@ export function createConsoleDispatcher({
 				return requireAutomations().list();
 
 			case "automation_put":
-				return requireAutomations().put(op.automationId, op.automation, op.baseRevision);
+				return requireAutomations().put(op.automationId, op.automation, op.baseRevision, op.confirmed === true);
 
 			case "automation_delete":
 				return requireAutomations().remove(op.automationId, op.baseRevision);

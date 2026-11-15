@@ -50,6 +50,10 @@ function world(dir: string, home = true) {
 	let n = 0;
 	let pokes = 0;
 	let failing = 0;
+	const effects: string[] = [];
+	let switches = ["plug"];
+	/** Effects wait on it. */
+	let gate: Promise<void> = Promise.resolve();
 	const open = () => {
 		let automations: ReturnType<typeof createAutomations> | undefined;
 		const fields = openDurable(dir, "computed-fields", (records) =>
@@ -83,6 +87,18 @@ function world(dir: string, home = true) {
 					isHome: () => home,
 					onQueued: () => pokes++,
 					eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
+					actions: {
+						switchName: (device) => (switches.includes(device) ? "Heater" : null),
+						deviceSet: async (device, verb) => {
+							effects.push(`${device}:${verb}`);
+							await gate;
+							return { outcome: "ran" };
+						},
+						iftttTrigger: async ({ event }) => {
+							effects.push(`ifttt:${event}`);
+							return { outcome: "refused", reason: "not_granted" };
+						},
+					},
 				});
 			}),
 		);
@@ -121,7 +137,14 @@ function world(dir: string, home = true) {
 	const failWrites = (count: number) => {
 		failing = count;
 	};
-	return { open, read, missed, unheard, failWrites, pokes: () => pokes };
+	/** Effects never finish. */
+	const holdEffects = () => {
+		gate = new Promise(() => {});
+	};
+	const unplug = () => {
+		switches = [];
+	};
+	return { open, read, missed, unheard, failWrites, pokes: () => pokes, effects, holdEffects, unplug };
 }
 
 /** Through the lane's own parse. */
@@ -474,6 +497,73 @@ describe("automations", () => {
 		expect(home.automations.list().map((record) => record.id)).toEqual(["threshold-aa-t-high"]);
 		expect(away.automations.ownerPut("review", event, 0).stored).toBe(false);
 		expect(away.automations.ownerPut("bucket", iceBucket(), 0).stored).toBe(true);
+	});
+
+	it("runs a crossing's effects in order once it fires, logs each, and asks before a save adds a dangerous one", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const heat: Automation = {
+			...iceBucket(),
+			actions: [
+				{ kind: "device_set", device: "plug", verb: "on" },
+				{ kind: "ifttt_trigger", event: "freezer" },
+			],
+		};
+
+		const asked = automations.ownerPut("heat", heat, 0);
+		const saved = automations.ownerPut("heat", heat, 0, true);
+		w.read(fields, -5);
+		await automations.settled();
+		const toggled = automations.ownerPut("heat", { ...heat, enabled: false }, 1);
+
+		expect(asked).toMatchObject({ stored: false, confirm: ["Send to IFTTT"] });
+		expect([saved.stored, toggled.stored]).toEqual([true, true]);
+		expect(w.effects).toEqual(["plug:on", "ifttt:freezer"]);
+		expect(automations.runs().map((run) => [run.action, run.outcome])).toEqual([
+			["device_set", "ran"],
+			["ifttt_trigger", "refused"],
+		]);
+		expect(await queued(automations)).toEqual([]);
+	});
+
+	it("never reruns a fire a restart found claimed, and logs it uncertain", async () => {
+		const w = world(fresh());
+		const before = w.open();
+		before.fields.put("band", hotBand, 0);
+		const heat = { ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] };
+		before.automations.ownerPut("heat", heat, 0);
+		w.holdEffects();
+		w.read(before.fields, -5);
+
+		const after = w.open();
+		await after.automations.settled();
+
+		expect(w.effects).toEqual(["plug:on"]);
+		expect(after.automations.runs().map((run) => run.outcome)).toEqual(["uncertain"]);
+	});
+
+	it("runs an event's effects once per member, and refuses an action whose switch this Gateway lacks", async () => {
+		const w = world(fresh());
+		const { automations } = w.open();
+		const onMention: Automation = {
+			enabled: true,
+			trigger: { kind: "event", source: "github", conditions: [] },
+			actions: [{ kind: "device_set", device: "plug", verb: "toggle" }],
+		};
+		const elsewhere = { ...onMention, actions: [{ kind: "device_set", device: "lamp", verb: "on" }] };
+		automations.ownerPut("flash", onMention, 0);
+		const matched = [{ automation: "flash", member: "event:github:1:flash" }];
+
+		automations.fireEvents(matched, 5_000);
+		automations.fireEvents(matched, 6_000);
+		await automations.settled();
+		const refused = automations.ownerPut("lamp", elsewhere, 0);
+		w.unplug();
+
+		expect(w.effects).toEqual(["plug:toggle"]);
+		expect(refused.stored).toBe(false);
+		expect(automations.rows().map((row) => [row.id, row.invalid !== undefined])).toEqual([["flash", true]]);
 	});
 
 	it("refuses a trigger value the field cannot take, and reads a stored one invalid once its field changes", () => {

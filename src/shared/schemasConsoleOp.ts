@@ -351,6 +351,8 @@ export const ConsoleOpSchema = z
 			automationId: z.string().regex(RULE_ID_RE),
 			automation: AutomationSchema,
 			baseRevision: z.number().int().nonnegative(),
+			/** The owner confirmed its dangerous actions. */
+			confirmed: z.boolean().optional(),
 		}),
 		z.object({
 			kind: z.literal("automation_delete"),

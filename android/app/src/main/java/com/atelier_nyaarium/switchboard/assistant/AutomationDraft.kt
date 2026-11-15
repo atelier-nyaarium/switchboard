@@ -239,9 +239,10 @@ internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmp
 	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else listEmpty(registry, registry.gateways, read)
 }
 
+/** The editor writes an event trigger and tells. */
 internal fun editable(row: AutomationRow): Boolean =
 	row.device == null && row.automation.trigger is AutomationTrigger.Event &&
-	row.automation.actions.none { it is AutomationAction.Unknown }
+	row.automation.actions.all { it is AutomationAction.TellAssistant }
 
 internal sealed interface AutomationOutcome {
 	data object Done : AutomationOutcome
@@ -272,6 +273,8 @@ internal fun outcomeOf(saved: AutomationSaved, draft: AutomationDraft, deleting:
 internal fun doesText(automation: Automation): String = automation.actions.joinToString(" · ") { action ->
 	when (action) {
 		is AutomationAction.TellAssistant -> if (action.`when` == "quietly") "Tell the assistant quietly" else "Tell the assistant now"
+		is AutomationAction.DeviceSet -> "Switch a plug ${action.verb}"
+		is AutomationAction.IftttTrigger -> "Send ${action.event} to IFTTT"
 		is AutomationAction.Unknown -> action.kind
 	}
 }
