@@ -6,8 +6,6 @@ import { composeDevices } from "../gateway/compose/composeDevices.js";
 import { type ConsoleCaller, composeLiveConsole } from "../gateway/compose/composeLiveConsole.js";
 import { type Automations, createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedFields, createComputedFields } from "../gateway/computed/computedFields.js";
-import { thresholdIds } from "../gateway/computed/thresholds.js";
-import { createSensorThresholds, type SensorThresholds } from "../gateway/devices/sensorThresholds.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { type ConsoleReaders, consoleEntities } from "../gateway/liveConsole/entities.js";
 import { CONSOLE_TEXT_BYTES } from "../gateway/liveConsole/render.js";
@@ -127,7 +125,6 @@ function world(
 			devices: () => devices,
 			fields: () => (loaded ? FIELDS : undefined),
 			automations: () => (loaded ? AUTOMATIONS : undefined),
-			thresholds: () => undefined,
 			assistant: () => ({ sources: loaded ? [SOURCE] : [] }) as unknown as ConsoleAssistantStateResult,
 			temperatureUnit: () => unit,
 			bluetoothListen: async (windowMs) => {
@@ -312,7 +309,6 @@ describe("live console stage", () => {
 					devices: () => undefined,
 					fields: () => undefined,
 					automations: () => undefined,
-					thresholds: () => undefined,
 					assistant: () =>
 						({
 							sources: Array.from({ length: 100 }, (_, at) => ({
@@ -371,7 +367,7 @@ describe("live console stage", () => {
 });
 
 const cold = { name: "GVH5110_3C5D", data: { "1": "010180d16c5a" }, services: ["ec88"] };
-const IDS = thresholdIds(MAC, "temperature");
+const WATCH = "freezer-low";
 const STORED_FIELD = "freezer-band";
 
 const EVERY_MEMBER: Record<string, string> = {
@@ -385,16 +381,14 @@ const EVERY_MEMBER: Record<string, string> = {
 	"sensors.read": 'sensors.read("Freezer")',
 	"sensors.payloads": 'sensors.payloads("Freezer")',
 	"sensors.extremes": 'sensors.extremes("Freezer", "temperature")',
-	"thresholds.list": "thresholds.list",
-	"thresholds.get": 'thresholds.get("Freezer")',
 	"fields.list": "fields.list",
 	"fields.get": `fields.get("${STORED_FIELD}")`,
 	"fields.read": `fields.read("${STORED_FIELD}")`,
 	"automations.list": "automations.list",
 	"automations.runs": "automations.runs",
 	"automations.queue": "automations.queue",
-	"automations.get": `automations.get("${IDS.low}")`,
-	"automations.read": `automations.read("${IDS.low}")`,
+	"automations.get": `automations.get("${WATCH}")`,
+	"automations.read": `automations.read("${WATCH}")`,
 	"sources.list": "sources.list",
 	"sources.get": 'sources.get("sensors")',
 	"sources.read": 'sources.read("sensors")',
@@ -427,7 +421,6 @@ describe("live console read-only fence", () => {
 		let snapshot: unknown = null;
 		let fields: ComputedFields | undefined;
 		let automations: Automations | undefined;
-		let thresholds: SensorThresholds | undefined;
 		const hostOps: string[] = [];
 		const deviceStore = createDeviceStore({
 			store: {
@@ -436,10 +429,7 @@ describe("live console read-only fence", () => {
 					snapshot = structuredClone(next);
 				},
 			},
-			onChanged: () => {
-				fields?.typesChanged();
-				thresholds?.recordsChanged();
-			},
+			onChanged: () => fields?.typesChanged(),
 		});
 		const added = deviceStore.addSensor({
 			mac: MAC,
@@ -458,21 +448,7 @@ describe("live console read-only fence", () => {
 				return { ok: false, errorKind: "daemon_away" } as never;
 			},
 			onIngested: (keys) => fields?.inputsChanged(keys),
-			thresholds: {
-				read: (record) => thresholds?.read(record) ?? [],
-				put: (record, op) => thresholds?.put(record, op) ?? { kind: "refused", code: "write_failed" },
-				forget: (device) => thresholds?.forget(device) ?? true,
-			},
 		});
-		openDurable(dataDir, "sensor-thresholds", (store) =>
-			store.saveChecked({
-				v: 1,
-				thresholds: [
-					{ device: MAC, measure: "temperature", low: 10, deadZone: 1, coolDownSec: 0, revision: 1 },
-				],
-				unswept: [],
-			}),
-		);
 		fields = openDurable(dataDir, "computed-fields", (records) =>
 			openDurable(dataDir, "computed-state", (state) =>
 				createComputedFields({
@@ -499,18 +475,24 @@ describe("live console read-only fence", () => {
 				}),
 			),
 		);
-		thresholds = openDurable(dataDir, "sensor-thresholds", (store) =>
-			createSensorThresholds({
-				store,
-				fields: fields as ComputedFields,
-				automations: automations as Automations,
-				record: (id) => devices.record(id),
-				records: () => devices.records(),
-				holds: (id) => devices.holds(id),
-			}),
-		);
-		thresholds.start();
 		fields.start();
+		automations.ownerPut(
+			WATCH,
+			{
+				enabled: true,
+				trigger: {
+					kind: "crossing",
+					device: MAC,
+					measure: "temperature",
+					direction: "below",
+					threshold: 10,
+					deadZone: 1,
+					coolDownSec: 0,
+				},
+				actions: [{ kind: "tell_assistant", when: "quietly" }],
+			},
+			0,
+		);
 		fields.put(
 			STORED_FIELD,
 			{
@@ -531,7 +513,6 @@ describe("live console read-only fence", () => {
 			devices: () => devices,
 			fields: () => fields,
 			automations: () => automations,
-			thresholds: () => thresholds,
 			assistant: () => ({ sources: [SOURCE] }) as unknown as ConsoleAssistantStateResult,
 			temperatureUnit: () => "F",
 			bluetoothListen: async () => {

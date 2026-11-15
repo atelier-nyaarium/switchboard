@@ -11,7 +11,6 @@ import {
 	SHIPPED_DEFINITIONS,
 } from "../../shared/device-definitions/index.js";
 import type { Value } from "../../shared/expressions.js";
-import { bandToDisplay, toDisplay } from "../../shared/field-types.js";
 import { readingInDisplay } from "../../shared/field-values.js";
 import { HostBleScanResultSchema, type HostOpResult } from "../../shared/host-op.js";
 import type { ConsoleAssistantStateResult, TemperatureUnit } from "../../shared/schemasAssistant.js";
@@ -21,7 +20,6 @@ import { CONSOLE_LISTEN_DEFAULT_S, CONSOLE_LISTEN_MAX_S, type ConsoleIds } from 
 import type { DeviceStage } from "../compose/composeDevices.js";
 import type { Automations } from "../computed/automations.js";
 import type { ComputedFields } from "../computed/computedFields.js";
-import type { SensorThresholds } from "../devices/sensorThresholds.js";
 import { ConsoleError } from "./builtins.js";
 import type { ConsoleAudience, ConsoleEntity, ConsoleParam } from "./registry.js";
 
@@ -38,7 +36,6 @@ export interface ConsoleReaders {
 	automations: () =>
 		| Pick<Automations, "list" | "runs" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf" | "eventsOf">
 		| undefined;
-	thresholds: () => Pick<SensorThresholds, "list"> | undefined;
 	assistant: () => ConsoleAssistantStateResult;
 	temperatureUnit: () => TemperatureUnit;
 	/** Read-only daemon scan. */
@@ -152,17 +149,6 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 			stale: answer.stale ?? null,
 			readings: answer.readings.map(readingOf),
 		};
-	};
-
-	const thresholdsOf = (device: string) => {
-		const { record, answer } = sensorOf(device);
-		return (answer.thresholds ?? []).map((threshold) => {
-			const spec = answer.readings.find((reading) => reading.spec.field === threshold.measure)?.spec;
-			const named = { device: record.name, ...threshold };
-			if (spec?.kind !== "number" || !spec.unit) return named;
-			const unit = readers.temperatureUnit();
-			return { ...bandToDisplay(named, spec.unit, unit), unit: toDisplay(0, spec.unit, unit).unit };
-		});
 	};
 
 	const fields = () => {
@@ -301,30 +287,6 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 						if (!reading) throw new ConsoleError("not_found", `no reading ${key}`);
 						return { low: reading.low ?? null, high: reading.high ?? null };
 					},
-				},
-			},
-		},
-		{
-			name: "thresholds",
-			description: "Sensor alerts as set, in the owner's unit.",
-			audiences: AUDIENCE,
-			members: {
-				list: {
-					kind: "property",
-					description: "Every sensor's thresholds.",
-					type: "List<Threshold>",
-					get: () =>
-						stage()
-							.records()
-							.filter((record) => record.kind === "sensor")
-							.flatMap((record) => thresholdsOf(record.id)),
-				},
-				get: {
-					kind: "method",
-					description: "One sensor's thresholds.",
-					params: [sensorParam],
-					returns: "List<Threshold>",
-					call: ([device]) => thresholdsOf(device as string),
 				},
 			},
 		},

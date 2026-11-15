@@ -32,7 +32,6 @@ import {
 	ConsoleDeviceRemoveResultSchema,
 	ConsoleDeviceScanResultSchema,
 	ConsoleDeviceSchedulePutResultSchema,
-	ConsoleDeviceSensorThresholdPutResultSchema,
 } from "../shared/schemasDevices.js";
 import {
 	FileHistoryAnswerSchema,
@@ -64,7 +63,6 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsoleDeviceRemoveResult: ConsoleDeviceRemoveResultSchema,
 	ConsoleDeviceReadResult: ConsoleDeviceReadResultSchema,
 	ConsoleDeviceReadingPostResult: ConsoleDeviceReadingPostResultSchema,
-	ConsoleDeviceSensorThresholdPutResult: ConsoleDeviceSensorThresholdPutResultSchema,
 	ConsoleDeviceScanResult: ConsoleDeviceScanResultSchema,
 	ConsoleDeviceSchedulePutResult: ConsoleDeviceSchedulePutResultSchema,
 	AssistantFieldSpec: AssistantFieldSpecSchema,

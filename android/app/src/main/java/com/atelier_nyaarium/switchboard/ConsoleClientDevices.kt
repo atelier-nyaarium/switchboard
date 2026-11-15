@@ -11,7 +11,6 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSettingPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
 import com.atelier_nyaarium.switchboard.proto.DeviceSchedule
@@ -66,9 +65,6 @@ internal class ConsoleDeviceGateway(private val client: ConsoleClient) : DeviceG
 			ConsoleOp.DeviceReadingPost(id = id, advert = advert, at = at),
 			ConsoleDeviceReadingPostResult.serializer(),
 		)
-
-	override suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut) =
-		client.deviceCall(gatewayId, put, ConsoleDeviceSensorThresholdPutResult.serializer())
 
 	override suspend fun rename(gatewayId: String, id: String, name: String, revision: Long) =
 		client.deviceCall(gatewayId, ConsoleOp.DeviceRename(id = id, name = name, revision = revision), ConsoleDeviceRenameResult.serializer())

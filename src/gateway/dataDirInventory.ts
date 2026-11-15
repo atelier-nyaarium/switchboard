@@ -46,6 +46,7 @@ export const DATA_DIR_ENTRIES: ReadonlySet<string> = new Set([
 	"session-resume.json",
 	"sensor-readings.json",
 	"sensor-thresholds.json",
+	"sensor-thresholds-converted.json",
 	"vault-decisions.json",
 	"vault-open-requests.json",
 	"workflows",

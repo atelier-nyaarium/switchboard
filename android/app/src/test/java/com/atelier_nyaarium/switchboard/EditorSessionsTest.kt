@@ -267,7 +267,7 @@ class EditorSessionsTest {
 		val policies = sessions()
 		val automations = EditorSessions<AutomationDraftKey, String, String>()
 		val editors = Editors(runbooks, routines, policies, automations)
-		val automation = AutomationDraftKey("sakura", AutomationSlot.New)
+		val automation = AutomationDraftKey("sakura", AutomationSlot.New())
 		fun shown() = shownEditorOf(runbooks.now.shown, routines.now.shown, policies.now.shown, automations.state.value.shown)
 
 		editors.show(ShownEditor.Runbook(key))
@@ -323,7 +323,7 @@ class EditorSessionsTest {
 	@Test
 	fun aPolicyEditorNeedsTheVaultAndAnEventAutomationsEditorItsHome() {
 		val policy = ShownEditor.Policy(key)
-		val automation = ShownEditor.Automation(AutomationDraftKey("sakura", AutomationSlot.New))
+		val automation = ShownEditor.Automation(AutomationDraftKey("sakura", AutomationSlot.New()))
 		val left: (String) -> Boolean = { it == "sakura" }
 		val stands = { editor: ShownEditor?, vaultOn: Boolean, moves: Boolean, gone: (String) -> Boolean ->
 			editorStands(editor, vaultOn, { moves }, gone)

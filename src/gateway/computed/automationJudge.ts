@@ -10,7 +10,6 @@ import {
 	dangerousActions,
 } from "../../shared/schemasAutomation.js";
 import type { OwnerRecord, OwnerWrite } from "../ownerRecords.js";
-import { ALERT_ID_PREFIX, thresholdIds } from "./thresholds.js";
 
 export const AUTOMATION_KIND = "automation";
 
@@ -23,8 +22,9 @@ export type AutomationIntent =
 	| { kind: "carry"; rows: readonly CarriedAutomation[] }
 	// Remove 2026-11-28 with the stored rules.
 	| { kind: "adoption"; rows: readonly CarriedAutomation[] }
-	/** One sensor's whole alert set. */
-	| { kind: "projection"; device: string; rows: ReadonlyMap<string, Automation> };
+	// Remove 2027-01-15 with the stored thresholds.
+	/** One sensor's stored alerts, as plain automations. */
+	| { kind: "conversion"; prefix: string; rows: ReadonlyMap<string, Automation> };
 
 export interface AutomationJudgeView {
 	/** Readable rows. */
@@ -64,12 +64,6 @@ const put = (id: string, body: unknown, base: number, revive = false, unfit = fa
 
 const remove = ({ id, revision }: OwnerRecord<Automation>): OwnerWrite => ({ op: "remove", id, base: revision });
 
-/** Alert ids are their sensor's. */
-const ownerRefusal = (id: string, held: OwnerRecord<Automation> | undefined): string | null => {
-	if (!id.startsWith(ALERT_ID_PREFIX)) return null;
-	return held ? "its sensor page sets this alert" : "not an id an owner names";
-};
-
 /** Dangerous actions the held record lacks. */
 function unconfirmed(next: Automation, held: Automation | undefined): string[] {
 	const known = new Set((held ? dangerousActions(held) : []).map((action) => canonicalJson(action)));
@@ -82,13 +76,11 @@ function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView, 
 	const wanted = new Map<string, Automation>();
 	const dropped: DroppedAutomation[] = [];
 	for (const { id, automation } of rows) {
-		const reason = id.startsWith(ALERT_ID_PREFIX)
-			? "an alert's id is its sensor's"
-			: !movesWithHome(automation)
-				? "not an event automation"
-				: runnable
-					? view.issue(automation)
-					: null;
+		const reason = !movesWithHome(automation)
+			? "not an event automation"
+			: runnable
+				? view.issue(automation)
+				: null;
 		if (reason === null) wanted.set(id, canonicalAutomation(automation));
 		else dropped.push({ id, reason });
 	}
@@ -99,8 +91,6 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 	const heldAt = (id: string) => view.held.find((record) => record.id === id);
 	switch (intent.kind) {
 		case "owner_put": {
-			const named = ownerRefusal(intent.id, heldAt(intent.id));
-			if (named) return refused(named);
 			const parsed = AutomationSchema.safeParse(intent.body);
 			if (parsed.success && movesWithHome(parsed.data) && !view.isHome) return refused(NOT_HOME);
 			const confirm =
@@ -109,11 +99,8 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 			const body = parsed.success ? canonicalAutomation(parsed.data) : intent.body;
 			return { kind: "writes", writes: [put(intent.id, body, intent.base)], dropped: [] };
 		}
-		case "owner_remove": {
-			const named = ownerRefusal(intent.id, heldAt(intent.id));
-			if (named) return refused(named);
+		case "owner_remove":
 			return { kind: "writes", writes: [{ op: "remove", id: intent.id, base: intent.base }], dropped: [] };
-		}
 		case "carry": {
 			// Kept and reads invalid, so a move loses nothing.
 			const { wanted, dropped } = fitting(intent.rows, view, false);
@@ -141,11 +128,18 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 			const puts = [...wanted].flatMap(([id, automation]) => (heldAt(id) ? [] : [put(id, automation, 0, true)]));
 			return { kind: "writes", writes: puts, dropped };
 		}
-		case "projection": {
-			const prefix = thresholdIds(intent.device, "").field;
-			if ([...intent.rows.keys()].some((id) => !id.startsWith(prefix))) return refused("not this sensor's alert");
-			const stale = view.held.filter((record) => record.id.startsWith(prefix) && !intent.rows.has(record.id));
-			const puts = [...intent.rows].map(([id, body]) => put(id, body, heldAt(id)?.revision ?? 0, true));
+		case "conversion": {
+			const { prefix, rows } = intent;
+			if ([...rows.keys()].some((id) => !id.startsWith(prefix))) return refused("not this sensor's alert");
+			/** As its sensor's page wrote it. */
+			const stored = ({ id, body }: OwnerRecord<Automation>) =>
+				id.startsWith(prefix) && body.trigger.kind === "value" && body.trigger.field.startsWith(prefix);
+			const stale = view.held.filter((record) => stored(record) && !rows.has(record.id));
+			// An owner's edit stands.
+			const puts = [...rows].flatMap(([id, body]) => {
+				const current = heldAt(id);
+				return current && !stored(current) ? [] : [put(id, body, current?.revision ?? 0, true)];
+			});
 			return { kind: "writes", writes: [...stale.map(remove), ...puts], dropped: [] };
 		}
 	}

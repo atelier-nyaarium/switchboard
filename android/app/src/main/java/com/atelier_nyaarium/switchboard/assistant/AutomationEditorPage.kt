@@ -69,7 +69,7 @@ internal fun AutomationEditorPage(
 	val open = rememberEdit(ops.edits, key, automationStanding(state.gateways, gatewayId, home, lookup), opened) { standing ->
 		AssistantPageScaffold("Automation", onBack) {
 			val line = when {
-				slot == AutomationSlot.New -> "This Gateway has nothing an automation could start from."
+				slot is AutomationSlot.New -> "This Gateway has nothing an automation could start from."
 				standing == EditStanding.READY -> "This automation is not edited here."
 				else -> waitingLine(standing)
 			}

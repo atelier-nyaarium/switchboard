@@ -6,7 +6,6 @@ import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { previewAutomation } from "../gateway/computed/automationPreview.js";
 import { type AutomationHoles, createAutomations } from "../gateway/computed/automations.js";
 import { createComputedFields } from "../gateway/computed/computedFields.js";
-import { thresholdAutomations, thresholdIds } from "../gateway/computed/thresholds.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { openDurable } from "../shared/durable-store.js";
@@ -208,32 +207,15 @@ describe("a crossing", () => {
 		await expect(elsewhere).rejects.toThrow();
 	});
 
-	it("refuses a number no sensor reads here, and names its sensor only under an alert's id", () => {
+	it("refuses a number no sensor reads here, under any id its owner names", () => {
 		const { automations } = world();
 		const elsewhere = above();
 		if (elsewhere.trigger.kind === "crossing") elsewhere.trigger.measure = "humidity";
-		const ids = thresholdIds(FREEZER, "temperature");
-		const sides = thresholdAutomations({
-			device: FREEZER,
-			measure: "temperature",
-			high: -10,
-			deadZone: 1,
-			coolDownSec: 0,
-		});
 
 		const unread = automations.ownerPut("damp", elsewhere, 0);
-		automations.ownerPut("warm", above(), 0);
-		automations.write({
-			kind: "projection",
-			device: FREEZER,
-			rows: new Map(Object.entries({ [ids.high]: above() })),
-		});
+		const named = automations.ownerPut("threshold-ce1c-temperature-high", above(), 0);
 
-		expect(unread.stored).toBe(false);
-		expect(Object.keys(sides)).toEqual(["high"]);
-		expect(automations.rows().map((row) => [row.id, row.device])).toEqual([
-			["warm", undefined],
-			[ids.high, FREEZER],
-		]);
+		expect([unread.stored, named.stored]).toEqual([false, true]);
+		expect(automations.rows().map((row) => row.id)).toEqual(["threshold-ce1c-temperature-high"]);
 	});
 });

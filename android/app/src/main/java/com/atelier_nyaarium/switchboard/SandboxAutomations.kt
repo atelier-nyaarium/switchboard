@@ -25,7 +25,6 @@ import kotlinx.coroutines.delay
 
 private const val AUTOMATION_ROUND_TRIP_MS = 400L
 private const val OLDER_GATEWAY = "unknown op automation_put"
-private const val ALERT_OWNED = "its sensor page sets this alert"
 private const val MINUTE_MS = 60_000L
 private const val HOUR_MS = 60 * MINUTE_MS
 internal const val SANDBOX_SENSOR = "ce:1c:44:06:3c:5d"
@@ -124,20 +123,13 @@ internal class SandboxAutomationGateway(
 		return AutomationRow(id, 1L, automation, sandboxSentence(automation), lastRanAt = ranAgoMs?.let { now() - it })
 	}
 
-	private fun alert(): AutomationRow {
+	private fun crossing(id: String, direction: String, threshold: Double, enabled: Boolean, ranAgoMs: Long?): AutomationRow {
 		val automation = Automation(
-			enabled = true,
-			trigger = AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "below", 2.0, 0.5, 600L),
+			enabled = enabled,
+			trigger = AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", direction, threshold, 0.5, 600L),
 			actions = listOf(AutomationAction.TellAssistant("quietly")),
 		)
-		return AutomationRow(
-			"threshold-ce1c44063c5d-temperature-low",
-			4L,
-			automation,
-			sandboxSentence(automation),
-			lastRanAt = now() - 26 * HOUR_MS,
-			device = SANDBOX_SENSOR,
-		)
+		return AutomationRow(id, 4L, automation, sandboxSentence(automation), lastRanAt = ranAgoMs?.let { now() - it })
 	}
 
 	private fun evening(): AutomationRow {
@@ -168,7 +160,8 @@ internal class SandboxAutomationGateway(
 				github("mentions", "reason", "mention", null),
 				github("subscribed", "reason", "subscribed", 26 * HOUR_MS),
 				github("pulls", "type", "PullRequest", 40 * MINUTE_MS),
-				alert(),
+				crossing("threshold-ce1c44063c5d-temperature-low", "below", 2.0, enabled = true, ranAgoMs = 26 * HOUR_MS),
+				crossing("outside-hot", "above", 30.0, enabled = false, ranAgoMs = null),
 				evening(),
 			)
 		}
@@ -201,7 +194,6 @@ internal class SandboxAutomationGateway(
 		if (gatewayId == SECOND_SANDBOX_GATEWAY) return ConsoleAutomationPutResult(stored = false, revision = 0L, reason = OLDER_GATEWAY)
 		val held = shelf(gatewayId).find { it.id == automationId }
 		val revision = held?.revision ?: 0L
-		if (held?.device != null) return ConsoleAutomationPutResult(false, revision, held, ALERT_OWNED)
 		if (revision != baseRevision) return ConsoleAutomationPutResult(false, revision, held, "revision $revision is stored")
 		val asks = unconfirmed(automation, held)
 		if (asks.isNotEmpty() && !confirmed) {
@@ -223,7 +215,6 @@ internal class SandboxAutomationGateway(
 	override suspend fun delete(gatewayId: String, automationId: String, baseRevision: Long): ConsoleAutomationDeleteResult {
 		pause()
 		val held = shelf(gatewayId).find { it.id == automationId } ?: return ConsoleAutomationDeleteResult(false, "not stored")
-		if (held.device != null) return ConsoleAutomationDeleteResult(false, ALERT_OWNED)
 		if (held.revision != baseRevision) return ConsoleAutomationDeleteResult(false, "revision ${held.revision} is stored")
 		shelves[gatewayId] = shelf(gatewayId) - held
 		return ConsoleAutomationDeleteResult(true)

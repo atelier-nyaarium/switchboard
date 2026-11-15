@@ -94,7 +94,6 @@ private val alertRow = AutomationRow(
 		actions = listOf(AutomationAction.TellAssistant("quietly")),
 	),
 	sentence = "alert",
-	device = "ce:1c",
 )
 
 class AssistantOpsTest {

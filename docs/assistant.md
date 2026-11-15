@@ -78,7 +78,7 @@ Router's record names. That Gateway feeds it events. The session decides what to
       a Gateway a new automation can start on, asking which when there are several
       (`newAutomationGateways`). A row opens the editor where its Gateway holds its trigger and
       this build reads every action; an event automation's only in the home's group
-      (`AutomationGroup.edits`), and a sensor alert's row is read-only here.
+      (`AutomationGroup.edits`).
     - **The editor:** When shows "Event arrives", "Value crosses" and "Time comes", each selectable
       where the Gateway offers it (`offersChoice`). An event takes a Source, the conditions, and
       "Would have matched N of the last M" from `automation_preview`, a fold that opens to the
@@ -517,12 +517,12 @@ cannot rewrite what sorts its own events.
 - **No drop, no ping:** GitHub threads are cleared at GitHub through `source/github_done`, and the
   agent alone decides what is worth telling the owner.
 - **Ops:** `automation_list` answers each row with its revision, sentence, `invalid`, `lastRanAt`
-  and, for a sensor alert, its `device`. `automation_put` carries the whole record at the revision
+  and a clock's `nextRunAt`, and `serves`, what this Gateway's automations can hold.
+  `automation_put` carries the whole record at the revision
   it read, 0 to add, and answers a refusal with the held row; `automation_delete` carries the
   revision it read. `automation_preview` runs an event trigger over the source's live first page: how
-  many of the newest 50 it matches, with up to 10 of them. A sensor alert's row refuses a put or a
-  delete here, since its sensor page sets it, and an event automation is refused while the
-  assistant lives on another Gateway.
+  many of the newest 50 it matches, with up to 10 of them. An event automation is refused while
+  the assistant lives on another Gateway.
 - **Effects on an event:** once a poll commits, the lane hands its newer events to `arrived`, which
   records a fire for every armed automation of the source whose conditions match and that holds an
   action other than a tell (`docs/fields.md`). A crash between the commit and the fire loses the

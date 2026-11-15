@@ -174,10 +174,6 @@ describe("the device tool's text", () => {
 							value: 42.4,
 						},
 					],
-					thresholds: [
-						{ measure: "temperature", high: 30, deadZone: 1, coolDownSec: 0, revision: 1 },
-						{ measure: "humidity", low: 30, deadZone: 1, coolDownSec: 0, revision: 1 },
-					],
 				},
 			},
 		);
@@ -185,12 +181,6 @@ describe("the device tool's text", () => {
 		expect(answer.content[0]?.text).toContain('"unit":"F"');
 		expect(answer.content[0]?.text).toContain('"value":"75.9 °F"');
 		expect(answer.content[0]?.text).toContain('"value":"22.5 °F"');
-		expect(answer.content[0]?.text).toContain('"high":86');
-		expect(answer.content[0]?.text).toContain('"deadZone":1.8');
 		expect(answer.content[0]?.text).not.toContain("temperatureUnit");
-		expect(JSON.parse(answer.content[0]?.text ?? "{}").thresholds).toEqual([
-			{ measure: "temperature", high: 86, deadZone: 1.8, coolDownSec: 0, revision: 1 },
-			{ measure: "humidity", low: 30, deadZone: 1, coolDownSec: 0, revision: 1 },
-		]);
 	});
 });

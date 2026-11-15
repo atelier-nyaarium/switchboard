@@ -856,7 +856,7 @@ fun App(
 							Button(onClick = hapticClick { nav = nav.push(ShellPage.Add) }) { Text("Add") }
 						view == RootView.AUTOMATIONS ->
 							NewOnGatewayButton(newAutomations, "New automation") { gatewayId ->
-								val slot = com.atelier_nyaarium.switchboard.assistant.AutomationSlot.New
+								val slot = com.atelier_nyaarium.switchboard.assistant.AutomationSlot.New()
 								repo.editors.show(ShownEditor.Automation(AutomationDraftKey(gatewayId, slot)))
 							}
 					}

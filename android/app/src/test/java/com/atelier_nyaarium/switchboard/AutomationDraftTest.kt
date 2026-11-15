@@ -43,6 +43,7 @@ import com.atelier_nyaarium.switchboard.assistant.newAutomationGateways
 import com.atelier_nyaarium.switchboard.assistant.numberSuffix
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.offersChoice
+import com.atelier_nyaarium.switchboard.assistant.offersWatch
 import com.atelier_nyaarium.switchboard.assistant.openedDraft
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.assistant.previewHead
@@ -134,10 +135,9 @@ private fun row(
 	id: String,
 	automation: Automation,
 	revision: Long = 1L,
-	device: String? = null,
 	lastRanAt: Long? = null,
 	nextRunAt: Long? = null,
-) = AutomationRow(id, revision, automation, sentence = id, lastRanAt = lastRanAt, nextRunAt = nextRunAt, device = device)
+) = AutomationRow(id, revision, automation, sentence = id, lastRanAt = lastRanAt, nextRunAt = nextRunAt)
 
 private val alert = Automation(
 	label = "Outside below 2",
@@ -204,7 +204,7 @@ class AutomationDraftTest {
 		val watched = event().copy(trigger = crossing)
 
 		assertEquals(true, editable(row("a", event())))
-		assertEquals(false, editable(row("a", event(), device = SENSOR)))
+		assertEquals(true, editable(row("threshold-ce1c-temperature-low", watched), FULL))
 		assertEquals(false, editable(row("a", alert)))
 		assertEquals(true, editable(row("a", event().copy(actions = listOf(future)))))
 		assertEquals(false, editable(row("a", event().copy(trigger = AutomationTrigger.Unknown("moon", buildJsonObject {})))))
@@ -227,7 +227,7 @@ class AutomationDraftTest {
 		assertEquals(AutomationEditing(edit = true, save = false, delete = true), can(held, valid, false, false, false))
 		assertEquals(AutomationEditing(edit = false, save = false, delete = false), can(held, valid, true, true, false))
 		assertEquals(AutomationEditing(edit = false, save = false, delete = false), can(held, valid, true, false, true))
-		assertEquals(AutomationEditing(edit = true, save = true, delete = false), can(AutomationSlot.New, valid, true, false, false))
+		assertEquals(AutomationEditing(edit = true, save = true, delete = false), can(AutomationSlot.New(), valid, true, false, false))
 	}
 
 	@Test
@@ -464,6 +464,20 @@ class AutomationPartsTest {
 		assertEquals(listOf("sakura", "mikan"), newAutomationGateways(registry, all, home = null))
 		assertEquals("crossing" to listOf("device_set"), there.trigger.kind to there.actions.map { it.kind })
 		assertNull(newAutomationDraft(emptyList(), AutomationOffer(away = true), ZONE))
+	}
+
+	@Test
+	fun aNewAutomationWatchingASensorStartsOnACrossingOfItsFirstNumberOrNotAtAll() {
+		val watched = newAutomationDraft(emptyList(), FULL, ZONE, watch = SENSOR)!!
+		val noCrossing = FULL.copy(triggers = setOf("event", "time"))
+		val otherSensor = FULL.copy(numbers = FULL.numbers.map { it.copy(device = "aa:00") })
+
+		assertEquals(freshTrigger(TriggerChoice.CROSSING, FULL, null, ZONE), watched.trigger)
+		assertEquals(SENSOR to "temperature", (watched.trigger as TriggerDraft.Crossing).let { it.device to it.measure })
+		assertEquals(watched.trigger, openedDraft(AutomationSlot.New(watch = SENSOR), null, emptyList(), FULL, zone = ZONE)?.trigger)
+		assertNull(newAutomationDraft(emptyList(), noCrossing, ZONE, watch = SENSOR))
+		assertNull(newAutomationDraft(emptyList(), otherSensor, ZONE, watch = SENSOR))
+		assertEquals(listOf(true, false, false), listOf(FULL, noCrossing, otherSensor).map { offersWatch(SENSOR, it) })
 	}
 
 	@Test

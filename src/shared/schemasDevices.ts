@@ -237,34 +237,6 @@ export const DeviceReadingSchema = z
 	})
 	.meta({ id: "DeviceReading" });
 
-export const DeviceSensorThresholdSchema = z
-	.strictObject({
-		measure: z.string().min(1).max(64),
-		low: z.number().optional(),
-		high: z.number().optional(),
-		deadZone: z.number().nonnegative(),
-		coolDownSec: z.number().int().min(0).max(86_400),
-		revision: z.number().int().nonnegative().max(REVISION_CEILING),
-	})
-	.meta({ id: "DeviceSensorThreshold" });
-export type DeviceSensorThreshold = z.infer<typeof DeviceSensorThresholdSchema>;
-
-export const DeviceSensorThresholdPutRequestSchema = z.strictObject({
-	kind: z.literal("sensor_threshold_put"),
-	id: DeviceIdSchema,
-	measure: z
-		.string()
-		.regex(/^[a-z0-9][a-z0-9-]*$/)
-		.max(64),
-	low: z.number().optional(),
-	high: z.number().optional(),
-	deadZone: z.number().nonnegative(),
-	coolDownSec: z.number().int().min(0).max(86_400),
-	/** Zero creates. */
-	revision: z.number().int().nonnegative().max(REVISION_CEILING),
-});
-export type DeviceSensorThresholdPutRequest = z.infer<typeof DeviceSensorThresholdPutRequestSchema>;
-
 export const DeviceCandidateSchema = z
 	.object({
 		mac: DeviceIdSchema,
@@ -386,7 +358,6 @@ export const ConsoleDeviceReadResultSchema = z
 			heardAt: z.number().int().nonnegative().optional(),
 			/** Why not current. */
 			stale: z.string().max(200).optional(),
-			thresholds: z.array(DeviceSensorThresholdSchema).max(16).optional(),
 			// Required starting 2026-11-28.
 			payloads: z.array(DeviceSensorPayloadSchema).max(DEVICE_SENSOR_PAYLOADS_MAX).optional(),
 		}),
@@ -397,13 +368,6 @@ export const ConsoleDeviceReadResultSchema = z
 export const ConsoleDeviceReadingPostResultSchema = z
 	.discriminatedUnion("kind", [z.object({ kind: z.literal("ok") }), RefusedAnswerSchema])
 	.meta({ id: "ConsoleDeviceReadingPostResult" });
-
-export const ConsoleDeviceSensorThresholdPutResultSchema = z
-	.discriminatedUnion("kind", [
-		z.object({ kind: z.literal("ok"), threshold: DeviceSensorThresholdSchema.nullable() }),
-		RefusedAnswerSchema,
-	])
-	.meta({ id: "ConsoleDeviceSensorThresholdPutResult" });
 
 export const ConsoleDeviceScanResultSchema = z
 	.discriminatedUnion("kind", [
@@ -464,7 +428,6 @@ export const DEVICE_CONSOLE_REQUESTS = [
 	DeviceListRequestSchema,
 	DeviceReadRequestSchema,
 	DeviceReadingPostRequestSchema,
-	DeviceSensorThresholdPutRequestSchema,
 	DeviceScanRequestSchema,
 	DeviceHomeNetworkRequestSchema,
 	DeviceAddRequestSchema,
@@ -482,7 +445,6 @@ export const DEVICE_CONSOLE_RESULTS = {
 	device_list: ConsoleDeviceListResultSchema,
 	device_read: ConsoleDeviceReadResultSchema,
 	device_reading_post: ConsoleDeviceReadingPostResultSchema,
-	sensor_threshold_put: ConsoleDeviceSensorThresholdPutResultSchema,
 	device_scan: ConsoleDeviceScanResultSchema,
 	device_home_network: ConsoleDeviceHomeNetworkResultSchema,
 	device_add: ConsoleDeviceAddResultSchema,

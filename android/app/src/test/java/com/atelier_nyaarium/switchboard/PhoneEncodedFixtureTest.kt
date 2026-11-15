@@ -74,7 +74,6 @@ class PhoneEncodedFixtureTest {
 			actions = listOf(AutomationAction.TellAssistant("quietly")),
 		),
 		sentence = "Outside below 2.0",
-		device = "ce:1c",
 	)
 
 	private val mention = AutomationCondition("reason", "is", "mention")

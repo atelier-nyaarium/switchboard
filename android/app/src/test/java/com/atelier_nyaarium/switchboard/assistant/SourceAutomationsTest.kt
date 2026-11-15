@@ -18,16 +18,20 @@ class SourceAutomationsTest {
 	)
 
 	@Test
-	fun `a source's page lists the rows its events trigger, the same rows its count counts`() {
+	fun `a source's page lists the rows its events trigger, and a sensor's the crossings of its numbers`() {
 		val rows = listOf(
 			row("github-a", AutomationTrigger.Event("github", emptyList())),
 			row("ifttt-a", AutomationTrigger.Event("ifttt", emptyList())),
-			row("alert", AutomationTrigger.Value("threshold-a", kotlinx.serialization.json.JsonPrimitive("low"), 0L)),
+			row("outside-cold", AutomationTrigger.Crossing("ce:1c", "temperature", "below", 2.0, 0.5, 600L)),
+			row("freezer-warm", AutomationTrigger.Crossing("aa:11", "temperature", "above", -12.0, 0.5, 600L)),
+			row("value", AutomationTrigger.Value("ce:1c", kotlinx.serialization.json.JsonPrimitive("low"), 0L)),
 			row("github-b", AutomationTrigger.Event("github", emptyList())),
+			row("outside-damp", AutomationTrigger.Crossing("ce:1c", "humidity", "above", 90.0, 2.0, 600L)),
 		)
 
 		assertEquals(listOf("github-a", "github-b"), triggeredBy("github", rows).map { it.id })
 		assertEquals(usesOf("github", rows), triggeredBy("github", rows).size)
+		assertEquals(listOf("outside-cold", "outside-damp"), watching("ce:1c", rows).map { it.id })
 	}
 
 	@Test
@@ -46,5 +50,6 @@ class SourceAutomationsTest {
 				read(GatewayList.NotServed, "github"),
 			).map { (it as UsedBy.Empty).why },
 		)
+		assertEquals(listOf(true, false, false), listOf(ListEmpty.Reading, ListEmpty.None, ListEmpty.Unreachable).map { watchingEmptyLine(it) == null })
 	}
 }

@@ -124,7 +124,7 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 					}
 				}
-				if (record.isSensor()) SensorBody(repo, gatewayId, record, view, display)
+				if (record.isSensor()) SensorBody(repo, state, gatewayId, record, view, display)
 				else DeviceBody(repo, gatewayId, record, view, onRetry = { open() })
 			}
 			list is DeviceListView.Unavailable -> {
@@ -139,7 +139,7 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 		ConfirmDialog(
 			title = "Remove ${record.name}?",
 			body = if (record.isSensor()) {
-				"Switchboard stops reading it, and its alerts go with it."
+				"Switchboard stops reading it."
 			} else {
 				"Switchboard stops controlling it. Its own schedule stays on the device."
 			},

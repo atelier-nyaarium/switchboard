@@ -9,9 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRenameResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceScanResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSettingPutResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
 import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
 import com.atelier_nyaarium.switchboard.proto.DeviceLanded
@@ -20,7 +18,6 @@ import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceRefusal
 import com.atelier_nyaarium.switchboard.proto.DeviceSchedule
 import com.atelier_nyaarium.switchboard.proto.DeviceScheduleRule
-import com.atelier_nyaarium.switchboard.proto.DeviceSensorThreshold
 import com.atelier_nyaarium.switchboard.proto.DeviceSettingPut
 import com.atelier_nyaarium.switchboard.proto.DeviceSettings
 import com.atelier_nyaarium.switchboard.proto.KasaClock
@@ -47,8 +44,7 @@ private const val FREEZER = "aa:bb:cc:dd:ee:11"
 private fun sensorRecord(id: String = FREEZER, name: String = "Freezer") =
 	DeviceRecord(id = id, name = name, kind = "sensor", driver = "govee", address = id, radio = "gateway", definition = "govee-h5110", revision = 1L)
 
-private fun sensorRead(vararg thresholds: DeviceSensorThreshold) =
-	ConsoleDeviceReadResult.Sensor(readings = emptyList(), heardAt = 5L, thresholds = thresholds.toList())
+private fun sensorRead(heardAt: Long = 5L) = ConsoleDeviceReadResult.Sensor(readings = emptyList(), heardAt = heardAt)
 
 private val schedule = DeviceSchedule(enabled = true, rules = emptyList())
 private val settings = DeviceSettings.Kasa(led = true, clock = KasaClock(time = "2026-11-02T18:00:00-08:00", zone = "PST8PDT"), cloud = "bound")
@@ -151,13 +147,6 @@ class DeviceOpsTest {
 
 		override suspend fun postReading(gatewayId: String, id: String, advert: DeviceAdvert, at: Long) =
 			reply<ConsoleDeviceReadingPostResult> { ConsoleDeviceReadingPostResult.Ok }
-
-		var thresholdPut: (ConsoleOp.SensorThresholdPut) -> Unit = {}
-
-		override suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut) = reply {
-			thresholdPut(put)
-			ConsoleDeviceSensorThresholdPutResult.Ok(null)
-		}
 	}
 
 	private class Host(override val gateway: DeviceGateway?) : DeviceHost {
@@ -179,7 +168,7 @@ class DeviceOpsTest {
 	}
 
 	@Test
-	fun `a sensor read lands on its sensor slot alone, and a threshold put reads it again`() = runBlocking {
+	fun `a sensor read lands on its sensor slot alone`() = runBlocking {
 		val gateway = FakeGateway().apply {
 			held = sensorRecord()
 			readAnswer = sensorRead()
@@ -190,11 +179,6 @@ class DeviceOpsTest {
 		assertEquals(sensorRead(), first.sensor.read)
 		assertNull(first.live)
 		assertNull(first.schedule.failed)
-		val set = DeviceSensorThreshold(measure = "temperature", low = -20.0, deadZone = 1.0, coolDownSec = 0, revision = 1)
-		gateway.thresholdPut = { gateway.readAnswer = sensorRead(set) }
-		val put = ConsoleOp.SensorThresholdPut(id = FREEZER, measure = "temperature", low = -20.0, deadZone = 1.0, coolDownSec = 0, revision = 0)
-		assertEquals(DeviceSaved.Stored(null), ops.putThreshold(GW, put))
-		assertEquals(listOf(set), ops.view(GW).devices.getValue(FREEZER).sensor.read?.thresholds)
 	}
 
 	@Test
@@ -207,7 +191,7 @@ class DeviceOpsTest {
 		ops.refresh(GW)
 		gateway.listAnswer = ConsoleDeviceListResult.Refused(refusal("daemon_away"))
 		ops.relist(GW)
-		val later = sensorRead(DeviceSensorThreshold(measure = "temperature", low = -20.0, deadZone = 1.0, coolDownSec = 0, revision = 1))
+		val later = sensorRead(heardAt = 9L)
 		gateway.readAnswer = later
 		ops.read(GW, FREEZER)
 		val held = ops.view(GW).devices.getValue(FREEZER)

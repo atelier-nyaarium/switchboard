@@ -32,7 +32,6 @@ A read-only expression language over Gateway state. A session inspects live stat
 | `gateway` | `id`, `version`, `router`, `temperatureUnit` |
 | `devices` | `list`, `get(device)` |
 | `sensors` | `list`, `read(device)` (each reading's `value` and `shown` in the owner's unit, its 24-hour low and high), `payloads(device)`, `extremes(device, key)` |
-| `thresholds` | `list`, `get(device)`, as the owner set them, in the owner's unit with a `unit` |
 | `fields` | `list`, `get(id)` (the record and why invalid), `read(id)` (its value or why unknown, its seq and last transitions) |
 | `automations` | `list`, `get(id)` (the record and why invalid), `read(id)` (its checkpoint), `runs`, `queue` |
 | `sources` | `list`, `get(id)` (fields, whether its events can trigger an automation, commands; never its setup text or vault entry ids), `read(id)` (unread, polls, backoff, unexpected values), `test(id, fields)` (the armed event automations an event with those fields meets, each with its `when`, and whether it wakes) |
@@ -61,6 +60,6 @@ The phone (`android/.../liveconsole/`): `ConsoleTokens.kt` is the tokenizer's tw
 
 `composeLiveConsole` answers `/console/eval` (`SESSION_COMMANDS.console`) for sessions, printing every statement that is not a save, each under its own source when there are several, and the console ops for the owner, whose audience is `owner`. The caller's session token selects the session. Host sessions are served. Assistant and container sessions return `not_served`. Each entity declares its audiences. The registry needs one row to serve the assistant and another to serve a container. The plugin registers the tool for a token-bound session outside a container. An older Gateway's 404 means not served yet.
 
-**Read-only is fenced by a test:** the stage test reads every registered member over real device, field, automation and threshold stores and asserts the data directory, the device snapshot and the host ops are untouched. A member added without a row in its table fails it.
+**Read-only is fenced by a test:** the stage test reads every registered member over real device, field and automation stores and asserts the data directory, the device snapshot and the host ops are untouched. A member added without a row in its table fails it.
 
 **Never readable:** vault values and private text, session credentials and raw session records, the host token, keys and enrollment material, source credentials, the inbox page-token key, the assistant home's sealed parts, pane text. The stage receives read seams only. A read that sweeps is a write, so source grants come from the vault's non-sweeping `standing()`.

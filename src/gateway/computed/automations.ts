@@ -33,7 +33,7 @@ import {
 import { type AutomationActionPorts, effectIssue, isEffect, runEffect } from "./automationRunner.js";
 import { holeOwnerIssue, holeSpanOf, holeTexts, laneTellWhen, tellPlan } from "./automationText.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
-import { ALERT_ID_PREFIX, crossingField, crossingFieldId, crossingSide } from "./thresholds.js";
+import { crossingField, crossingFieldId, crossingSide } from "./crossingBand.js";
 
 export { AUTOMATION_KIND };
 
@@ -832,16 +832,6 @@ export function createAutomations(deps: AutomationsDeps) {
 			}),
 	};
 
-	/** The device whose Alerts row wrote it. */
-	const deviceOf = (record: OwnerRecord<Automation>): string | undefined => {
-		const { trigger } = record.body;
-		if (!record.id.startsWith(ALERT_ID_PREFIX)) return undefined;
-		if (trigger.kind === "crossing") return trigger.device;
-		if (trigger.kind !== "value") return undefined;
-		const read = deps.fields.get(trigger.field)?.body.nodes[0];
-		return read?.kind === "field" && read.ref.source === "device" ? read.ref.device : undefined;
-	};
-
 	/** One band per crossing. */
 	const derivedFields = (): DerivedField[] =>
 		records.list().flatMap((record) => {
@@ -854,7 +844,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		const invalid = records.invalidOf(record.id);
 		const slot = own(state.slots, record.id);
 		const lastRanAt = own(state.ran, record.id);
-		const device = deviceOf(record);
 		const { trigger } = record.body;
 		const current = slot?.revision === record.revision ? slot : undefined;
 		const nextRunAt = isClock(trigger) && current && armed(record) ? nextSlot(trigger, current.at) : null;
@@ -865,7 +854,6 @@ export function createAutomations(deps: AutomationsDeps) {
 			sentence: sentenceOf(record.body),
 			...(invalid === null ? {} : { invalid }),
 			...(lastRanAt === undefined ? {} : { lastRanAt }),
-			...(device === undefined ? {} : { device }),
 			...(nextRunAt === null ? {} : { nextRunAt }),
 		};
 	};

@@ -11,8 +11,6 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSchedulePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSetResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSettingPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
 import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
@@ -59,8 +57,6 @@ internal interface DeviceGateway {
 	): DeviceAnswer<ConsoleDeviceAddResult>
 
 	suspend fun postReading(gatewayId: String, id: String, advert: DeviceAdvert, at: Long): DeviceAnswer<ConsoleDeviceReadingPostResult>
-
-	suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut): DeviceAnswer<ConsoleDeviceSensorThresholdPutResult>
 
 	suspend fun rename(gatewayId: String, id: String, name: String, revision: Long): DeviceAnswer<ConsoleDeviceRenameResult>
 
@@ -288,17 +284,6 @@ internal class DeviceOps(private val host: DeviceHost) : ClearsOnReprovision {
 				else -> relist(gatewayId)
 			}
 		}
-
-	/** Reads after threshold writes. */
-	suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut): DeviceSaved =
-		write(gatewayId, put.id, call = { client, _ ->
-			saved(invoke(client) { it.putThreshold(gatewayId, put) }) { value ->
-				when (value) {
-					is ConsoleDeviceSensorThresholdPutResult.Ok -> DeviceSaved.Stored(null)
-					is ConsoleDeviceSensorThresholdPutResult.Refused -> refused(value.refusal)
-				}
-			}
-		}) { result -> if (result != DeviceSaved.Busy) read(gatewayId, put.id) }
 
 	suspend fun rename(gatewayId: String, record: DeviceRecord, name: String): DeviceSaved =
 		write(gatewayId, record.id, call = { client, _ ->

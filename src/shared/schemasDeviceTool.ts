@@ -22,7 +22,6 @@ export const DEVICE_TOOL_OFFERS = {
 	device_list: true,
 	device_read: true,
 	device_reading_post: false,
-	sensor_threshold_put: false,
 	device_scan: false,
 	device_home_network: false,
 	device_add: false,

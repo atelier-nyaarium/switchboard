@@ -3,13 +3,10 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceAddResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.DeviceAdvert
 import com.atelier_nyaarium.switchboard.proto.DeviceExtreme
 import com.atelier_nyaarium.switchboard.proto.DeviceReading
 import com.atelier_nyaarium.switchboard.proto.DeviceSensorPayload
-import com.atelier_nyaarium.switchboard.proto.DeviceSensorThreshold
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceRemoveResult
@@ -74,14 +71,14 @@ private val FEEDS = mapOf(
 	FREEZER to SensorFeed(temperature = -18.2, humidity = 61.2, battery = 90.0, heardAgoMs = MINUTE),
 	KITCHEN to SensorFeed(temperature = 21.8, humidity = 44.0, battery = 70.0, heardAgoMs = 3 * MINUTE),
 	SHED to SensorFeed(temperature = 12.2, humidity = 80.5, battery = 15.0, heardAgoMs = 120 * MINUTE),
+	SANDBOX_SENSOR to SensorFeed(temperature = 3.4, humidity = 72.0, battery = 85.0, heardAgoMs = 2 * MINUTE),
 )
 
-private fun reading(spec: AssistantFieldSpec.Number, value: Double, now: Long, alerts: List<String>) = DeviceReading(
+private fun reading(spec: AssistantFieldSpec.Number, value: Double, now: Long) = DeviceReading(
 	spec = spec,
 	value = JsonPrimitive(value),
 	low = DeviceExtreme(value = value - 1.6, at = now - 9 * 60 * MINUTE),
 	high = DeviceExtreme(value = value + 3.9, at = now - 3 * 60 * MINUTE),
-	alerts = alerts,
 )
 
 private const val FOUND_TESTED = "02:00:00:00:00:21"
@@ -157,7 +154,6 @@ private class SandboxPlugs(seeded: Boolean) {
 		),
 	)
 	val settings = mutableMapOf<String, DeviceSettings.Kasa>()
-	val thresholds = mutableMapOf<Pair<String, String>, DeviceSensorThreshold>()
 }
 
 private fun SandboxPlugs.seedSensors(gatewayId: String) {
@@ -170,13 +166,10 @@ private fun SandboxPlugs.seedSensors(gatewayId: String) {
 		else -> listOf(
 			sensor(FREEZER, "Freezer", Protocol.Wire.DeviceRadio.GATEWAY, H5110),
 			sensor(KITCHEN, "Kitchen", Protocol.Wire.DeviceRadio.PHONES, H5110),
+			sensor(SANDBOX_SENSOR, "Outside thermometer", Protocol.Wire.DeviceRadio.GATEWAY, H5110),
 		)
 	}
 	for (record in held) records[record.id] = record
-	if (FREEZER in records) {
-		thresholds[FREEZER to "temperature"] =
-			DeviceSensorThreshold(measure = "temperature", low = -28.9, high = -12.2, deadZone = 1.1, coolDownSec = 0, revision = 1)
-	}
 }
 
 /** Canned plugs; mutations persist. */
@@ -203,14 +196,13 @@ internal class SandboxDeviceGateway(
 		val stale = if (feed.heardAgoMs > 15 * MINUTE) "not heard in 15 minutes" else null
 		return ConsoleDeviceReadResult.Sensor(
 			readings = listOf(
-				reading(TEMPERATURE, feed.temperature, now, listOf("low", "high")),
-				reading(HUMIDITY, feed.humidity, now, listOf("low")),
-				reading(BATTERY, feed.battery, now, listOf("low")),
+				reading(TEMPERATURE, feed.temperature, now),
+				reading(HUMIDITY, feed.humidity, now),
+				reading(BATTERY, feed.battery, now),
 			),
 			model = "H5110",
 			heardAt = now - feed.heardAgoMs,
 			stale = stale,
-			thresholds = thresholds.filterKeys { it.first == record.id }.values.sortedBy { it.measure },
 		)
 	}
 
@@ -310,33 +302,6 @@ internal class SandboxDeviceGateway(
 			return answered(ConsoleDeviceReadingPostResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.NOT_SUPPORTED)))
 		}
 		return answered(ConsoleDeviceReadingPostResult.Ok)
-	}
-
-	override suspend fun putThreshold(gatewayId: String, put: ConsoleOp.SensorThresholdPut): DeviceAnswer<ConsoleDeviceSensorThresholdPutResult> {
-		trip()
-		val plugs = plugs(gatewayId)
-		if (plugs.records[put.id]?.kind != Protocol.Wire.DeviceKind.SENSOR) {
-			return answered(ConsoleDeviceSensorThresholdPutResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.NOT_FOUND)))
-		}
-		val key = put.id to put.measure
-		val held = plugs.thresholds[key]
-		if ((held?.revision ?: 0L) != put.revision) {
-			return answered(ConsoleDeviceSensorThresholdPutResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.STALE)))
-		}
-		if (put.low == null && put.high == null) {
-			plugs.thresholds.remove(key)
-			return answered(ConsoleDeviceSensorThresholdPutResult.Ok(null))
-		}
-		val stored = DeviceSensorThreshold(
-			measure = put.measure,
-			low = put.low,
-			high = put.high,
-			deadZone = put.deadZone,
-			coolDownSec = put.coolDownSec,
-			revision = put.revision + 1,
-		)
-		plugs.thresholds[key] = stored
-		return answered(ConsoleDeviceSensorThresholdPutResult.Ok(stored))
 	}
 
 	override suspend fun rename(gatewayId: String, id: String, name: String, revision: Long): DeviceAnswer<ConsoleDeviceRenameResult> {

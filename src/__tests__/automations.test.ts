@@ -549,7 +549,7 @@ describe("automations", () => {
 		expect(automations.eventsOf("gmail")).toEqual([]);
 	});
 
-	it("keeps a sensor's alert ids to that sensor, and an event automation to the home", () => {
+	it("converts only a sensor's own stored alerts, and keeps an event automation to the home", () => {
 		const home = world(fresh()).open();
 		home.fields.put("band", hotBand, 0);
 		const away = world(fresh(), false).open();
@@ -560,11 +560,13 @@ describe("automations", () => {
 			actions: [{ kind: "tell_assistant", when: "now" }],
 		};
 		const alert = (id: string) => new Map([[id, iceBucket()]]);
+		const convert = (prefix: string, rows: Map<string, Automation>) =>
+			home.automations.write({ kind: "conversion", prefix, rows });
 
-		const mine = home.automations.write({ kind: "projection", device: "aa", rows: alert("threshold-aa-t-high") });
-		const other = home.automations.write({ kind: "projection", device: "aa", rows: alert("threshold-bb-t-high") });
-		const named = home.automations.write({ kind: "projection", device: "aa", rows: alert("bucket") });
-		const swept = home.automations.write({ kind: "projection", device: "bb", rows: new Map() });
+		const mine = convert("threshold-aa-", alert("threshold-aa-t-high"));
+		const other = convert("threshold-aa-", alert("threshold-bb-t-high"));
+		const named = convert("threshold-aa-", alert("bucket"));
+		const swept = convert("threshold-bb-", new Map());
 
 		expect([mine.written, other.written, named.written, swept.written]).toEqual([true, false, false, true]);
 		expect(home.automations.list().map((record) => record.id)).toEqual(["threshold-aa-t-high"]);

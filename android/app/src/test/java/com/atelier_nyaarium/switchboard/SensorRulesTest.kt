@@ -5,7 +5,6 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadResult
 import com.atelier_nyaarium.switchboard.proto.DeviceReading
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceSensorPayload
-import com.atelier_nyaarium.switchboard.proto.DeviceSensorThreshold
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -18,14 +17,13 @@ private const val HOUR = 3_600_000L
 private val temperature = AssistantFieldSpec.Number(field = "temperature", label = "Temperature", unit = "C", decimals = 1)
 private val humidity = AssistantFieldSpec.Number(field = "humidity", label = "Humidity", unit = "%", decimals = 1)
 
-private fun read(stale: String? = null, vararg thresholds: DeviceSensorThreshold) = ConsoleDeviceReadResult.Sensor(
+private fun read(stale: String? = null) = ConsoleDeviceReadResult.Sensor(
 	readings = listOf(
-		DeviceReading(spec = temperature, value = JsonPrimitive(-18.2), alerts = listOf("low", "high")),
-		DeviceReading(spec = humidity, value = JsonPrimitive(61.2), alerts = listOf("low")),
+		DeviceReading(spec = temperature, value = JsonPrimitive(-18.2)),
+		DeviceReading(spec = humidity, value = JsonPrimitive(61.2)),
 	),
 	heardAt = 0L,
 	stale = stale,
-	thresholds = thresholds.toList(),
 )
 
 private fun sensor(id: String, radio: String) =
@@ -81,41 +79,6 @@ class SensorRulesTest {
 		val answered = AssistantWord.Answered(com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes"))
 		assertEquals(listOf("", null, false), listOf(word(null), word(answered), word(AssistantWord.Refused).isNullOrEmpty()))
 		assertEquals("Govee · This Phone", rowBrandLine(sensor(MAC, "phones")))
-	}
-
-	@Test
-	fun `an alert typed in Fahrenheit is stored in Celsius and read back as typed`() {
-		val held = DeviceSensorThreshold(measure = "temperature", high = -12.2, deadZone = 1.1, coolDownSec = 30, revision = 4)
-		val blocks = alertBlocks(read(null, held), display = "F")
-		val low = blocks.first().rows.first { it.side == AlertSide.LOW }
-		assertEquals(listOf("Temperature below", "Temperature above"), blocks.first().rows.map { it.label })
-		assertEquals("Humidity below", blocks[1].rows.single().label)
-		assertEquals("10.0" to " °F", blocks.first().rows.first { it.side == AlertSide.HIGH }.let { it.value to it.suffix })
-		assertEquals("2.0 °F", blocks.first().deadZone)
-		val edit = sideEdit(MAC, read(null, held), low, "-20", display = "F") as ThresholdEdit.Put
-		assertEquals(-28.89, edit.put.low)
-		assertEquals(-12.2, edit.put.high)
-		assertEquals(4L, edit.put.revision)
-		assertEquals(30L, edit.put.coolDownSec)
-		assertEquals(ThresholdEdit.Issue("Below must be under above"), sideEdit(MAC, read(null, held), low, "15", display = "F"))
-		assertEquals(ThresholdEdit.Issue("Not a number"), sideEdit(MAC, read(null, held), low, "cold", display = "F"))
-		val near = DeviceSensorThreshold(measure = "temperature", low = 10.0, deadZone = 1.0, coolDownSec = 0, revision = 1)
-		val nearHigh = alertBlocks(read(null, near), display = null).first().rows.first { it.side == AlertSide.HIGH }
-		assertEquals(ThresholdEdit.Issue(TOO_NARROW), sideEdit(MAC, read(null, near), nearHigh, "11", display = null))
-		val wide = near.copy(high = 20.0)
-		assertEquals(ThresholdEdit.Issue(TOO_NARROW), deadZoneEdit(MAC, read(null, wide), "temperature", "5", display = null))
-	}
-
-	@Test
-	fun `a switch turned off clears one side, and the dead zone is a width`() {
-		val held = DeviceSensorThreshold(measure = "temperature", low = -28.9, high = -12.2, deadZone = 1.1, coolDownSec = 0, revision = 2)
-		val high = alertBlocks(read(null, held), display = null).first().rows.first { it.side == AlertSide.HIGH }
-		val cleared = sideCleared(MAC, read(null, held), high)
-		assertEquals(-28.9, cleared?.low)
-		assertNull(cleared?.high)
-		val widened = deadZoneEdit(MAC, read(null, held), "temperature", "3.6", display = "F") as ThresholdEdit.Put
-		assertEquals(2.0, widened.put.deadZone, 0.0)
-		assertEquals(ThresholdEdit.Issue("Set an alert first"), deadZoneEdit(MAC, read(), "temperature", "1", display = null))
 	}
 
 	@Test

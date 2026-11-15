@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { bandToDisplay } from "../../shared/field-types.js";
 import { readingInDisplay } from "../../shared/field-values.js";
 import { ACTION_FRONT_ROUTES, type ActionRunResult, ActionRunResultSchema } from "../../shared/schemasActionFront.js";
 import {
@@ -29,15 +28,7 @@ export function deviceText(op: DeviceToolOp, result: ActionRunResult): ToolText 
 				...(reading.high && shown.high ? { high: { ...reading.high, value: shown.high.shown } } : {}),
 			};
 		});
-		const thresholds = sensor.thresholds?.map((threshold) => {
-			const reading = sensor.readings.find((item) => item.spec.field === threshold.measure);
-			if (reading?.spec.kind !== "number" || !reading.spec.unit) return threshold;
-			return bandToDisplay(threshold, reading.spec.unit, display);
-		});
-		return text(
-			phoneText(result, { ...sensor, readings, ...(thresholds === undefined ? {} : { thresholds }) }),
-			failed,
-		);
+		return text(phoneText(result, { ...sensor, readings }), failed);
 	}
 	return text(phoneText(result, answer), failed);
 }

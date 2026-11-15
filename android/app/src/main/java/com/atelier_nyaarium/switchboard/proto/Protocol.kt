@@ -223,7 +223,6 @@ object Protocol {
 			const val DEVICE_LIST: String = "device_list"
 			const val DEVICE_READ: String = "device_read"
 			const val DEVICE_READING_POST: String = "device_reading_post"
-			const val SENSOR_THRESHOLD_PUT: String = "sensor_threshold_put"
 			const val DEVICE_SCAN: String = "device_scan"
 			const val DEVICE_HOME_NETWORK: String = "device_home_network"
 			const val DEVICE_ADD: String = "device_add"
@@ -1253,20 +1252,6 @@ sealed class ConsoleOp {
 	) : ConsoleOp()
 
 	@Serializable
-	@SerialName("sensor_threshold_put")
-	data class SensorThresholdPut(
-		val id: String,
-		val measure: String,
-		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val low: Double? = null,
-		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val high: Double? = null,
-		val deadZone: Double,
-		val coolDownSec: Long,
-		val revision: Long,
-	) : ConsoleOp()
-
-	@Serializable
 	@SerialName("device_scan")
 	data object DeviceScan : ConsoleOp()
 
@@ -2137,8 +2122,6 @@ sealed class ConsoleDeviceReadResult {
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val stale: String? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val thresholds: List<DeviceSensorThreshold>? = null,
-		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val payloads: List<DeviceSensorPayload>? = null,
 	) : ConsoleDeviceReadResult()
 
@@ -2195,24 +2178,6 @@ sealed class ConsoleDeviceReadingPostResult {
 	data class Refused(
 		val refusal: DeviceRefusal,
 	) : ConsoleDeviceReadingPostResult()
-}
-
-@Serializable
-@OptIn(ExperimentalSerializationApi::class)
-@JsonClassDiscriminator("kind")
-sealed class ConsoleDeviceSensorThresholdPutResult {
-	@Serializable
-	@SerialName("ok")
-	data class Ok(
-		@EncodeDefault(EncodeDefault.Mode.ALWAYS)
-		val threshold: DeviceSensorThreshold? = null,
-	) : ConsoleDeviceSensorThresholdPutResult()
-
-	@Serializable
-	@SerialName("refused")
-	data class Refused(
-		val refusal: DeviceRefusal,
-	) : ConsoleDeviceSensorThresholdPutResult()
 }
 
 @Serializable
@@ -2649,8 +2614,6 @@ data class AutomationRow(
 	val lastRanAt: Long? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val nextRunAt: Long? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val device: String? = null,
 )
 
 @Serializable
@@ -4973,18 +4936,6 @@ data class DeviceReading(
 data class DeviceExtreme(
 	val value: Double,
 	val at: Long,
-)
-
-@Serializable
-data class DeviceSensorThreshold(
-	val measure: String,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val low: Double? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val high: Double? = null,
-	val deadZone: Double,
-	val coolDownSec: Long,
-	val revision: Long,
 )
 
 @Serializable

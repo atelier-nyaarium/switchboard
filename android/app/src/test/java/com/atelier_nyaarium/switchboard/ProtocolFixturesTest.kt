@@ -9,7 +9,6 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceSensorThresholdPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleCloseSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleForgetResult
@@ -70,7 +69,6 @@ class ProtocolFixturesTest {
 			"ConsoleDeviceSchedulePutResult" -> wireJson.decodeFromString<ConsoleDeviceSchedulePutResult>(body)
 			"ConsoleDeviceListResult" -> wireJson.decodeFromString<ConsoleDeviceListResult>(body)
 			"ConsoleDeviceReadingPostResult" -> wireJson.decodeFromString<ConsoleDeviceReadingPostResult>(body)
-			"ConsoleDeviceSensorThresholdPutResult" -> wireJson.decodeFromString<ConsoleDeviceSensorThresholdPutResult>(body)
 			"ConsoleAssistantStateResult" -> wireJson.decodeFromString<ConsoleAssistantStateResult>(body)
 			"AssistantFieldSpec" -> wireJson.decodeFromString<AssistantFieldSpec>(body)
 			"AutomationTrigger" -> wireJson.decodeFromString<AutomationTrigger>(body)

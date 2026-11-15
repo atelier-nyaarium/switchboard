@@ -13,8 +13,6 @@ import {
 	type DeviceConsoleResult,
 	type DeviceRadio,
 	type DeviceRecord,
-	type DeviceSensorThreshold,
-	type DeviceSensorThresholdPutRequest,
 	DRIVER_KINDS,
 	type DriverOf,
 	deviceNameRefusal,
@@ -36,7 +34,6 @@ import type { KasaTransport } from "../devices/kasa/transport.js";
 import { createDeviceRoad, Decline, type Plug, type Shape, type Slot, type Surface, unwrap } from "../devices/road.js";
 import { createDeviceScan, type KasaScanRelay } from "../devices/scan.js";
 import { createSensorReadings } from "../devices/sensorReadings.js";
-import type { SensorThresholdPutAnswer } from "../devices/sensorThresholds.js";
 import { assistantShape, consoleShape } from "../devices/shapes.js";
 import type { DeviceStore } from "../devices/store.js";
 
@@ -60,12 +57,6 @@ export interface DeviceStageDeps {
 	temperatureUnit?: () => TemperatureUnit;
 	sensors?: SensorReads;
 	sightings?: (mac: string) => Advert | null;
-	thresholds?: {
-		read: (record: DeviceRecord) => DeviceSensorThreshold[];
-		put: (record: DeviceRecord, op: DeviceSensorThresholdPutRequest) => SensorThresholdPutAnswer;
-		/** False retries on tick. */
-		forget: (device: string) => boolean;
-	};
 }
 
 export type SensorAnswer = Extract<DeviceConsoleResult<"device_read">, { kind: "sensor" }>;
@@ -152,7 +143,6 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				at,
 				radio,
 			})),
-			...(deps.thresholds ? { thresholds: deps.thresholds.read(record) } : {}),
 		};
 	};
 
@@ -258,10 +248,6 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				});
 			}
 		}
-		// Pairing clears orphaned alerts.
-		if (!road.reads.holds(op.mac) && deps.thresholds && !deps.thresholds.forget(op.mac)) {
-			throw new Decline({ kind: "refused", code: "write_failed", text: "old alert settings were not cleared" });
-		}
 		// Bind a unique match.
 		const fits = SHIPPED_DEFINITIONS.filter((entry) => entry.family === family && identifies(entry, heard));
 		const definition = op.definition ?? (fits.length === 1 ? fits[0]?.key : undefined);
@@ -317,18 +303,6 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			if (ingest(op.id, op.advert, op.at, "phones") === null) return shape.decline({ kind: "notStarted" });
 			return { kind: "ok" };
 		},
-		sensor_threshold_put: (surface, shape, op) =>
-			road.onSlot(surface, shape, op.id, async (slot) => {
-				if (slot.record?.kind !== "sensor")
-					throw new Decline({ kind: "refused", code: slot.record ? "not_supported" : "not_found" });
-				const answer = deps.thresholds?.put(slot.record, op) ?? {
-					kind: "refused" as const,
-					code: "write_failed" as const,
-				};
-				if (answer.kind === "refused")
-					throw new Decline({ kind: "refused", code: answer.code, text: answer.text });
-				return answer;
-			}),
 		device_scan: (surface, shape) =>
 			road.operation(surface, shape, async (op) => {
 				const found = await op.race(runScan());
@@ -407,9 +381,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			),
 		device_remove: (surface, shape, op) =>
 			road.onSlot(surface, shape, op.id, async (slot) => {
-				const held = slot.record;
 				unwrap(slot.write.remove(op.revision));
-				if (held?.kind === "sensor") deps.thresholds?.forget(held.id);
 				return { kind: "ok" };
 			}),
 		device_set: (surface, shape, op) =>

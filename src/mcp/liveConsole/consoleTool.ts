@@ -17,11 +17,11 @@ Examples:
 - \`sensors.list\`
 - \`sensors.read("Outside thermometer").readings\`
 - \`automations.runs.take(5)\`
-- \`fields.read("threshold-ce1c44063c5d-temperature")\`
+- \`automations.list\`
 - \`definitions.decode("govee-h5110", sensors.payloads("Freezer")[0])\`
 
 Several statements: separate them with \`;\`. \`name = expression\` saves a result for the rest of the call, and every other statement prints in order:
-- \`out = sensors.read("Outside thermometer"); out.readings; thresholds.get("Outside thermometer")\`
+- \`out = sensors.read("Outside thermometer"); out.readings; sensors.extremes("Outside thermometer", "temperature")\`
 
 A list shows 50 items, and a cut says how to \`.skip(n)\` past them. An error points a caret at the part it means.
 `.trim();

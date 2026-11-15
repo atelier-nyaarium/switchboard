@@ -289,8 +289,6 @@ export const AutomationRowSchema = z
 		lastRanAt: z.number().int().optional(),
 		/** A time or interval trigger's next slot. */
 		nextRunAt: z.number().int().optional(),
-		/** The device whose Alerts row wrote it. */
-		device: z.string().optional(),
 	})
 	.meta({ id: "AutomationRow" });
 

@@ -47,12 +47,13 @@ class SandboxAutomationGatewayTest {
 	}
 
 	@Test
-	fun anAlertsRowRefusesAWriteHere() = runBlocking {
+	fun aSensorsCrossingTakesAWriteAndADeleteLikeAnyOther() = runBlocking {
 		val gateway = gateway()
-		val alert = gateway.rows("sandbox").first { it.device != null }
+		val crossing = gateway.rows("sandbox").first { (it.automation.trigger as? AutomationTrigger.Crossing)?.device == SANDBOX_SENSOR }
 
-		assertEquals(false, gateway.put("sandbox", alert.id, alert.automation.copy(enabled = false), alert.revision).stored)
-		assertEquals(false, gateway.delete("sandbox", alert.id, alert.revision).deleted)
+		val off = gateway.put("sandbox", crossing.id, crossing.automation.copy(enabled = false), crossing.revision)
+		assertEquals(true, off.stored)
+		assertEquals(true, gateway.delete("sandbox", crossing.id, off.revision).deleted)
 	}
 
 	@Test

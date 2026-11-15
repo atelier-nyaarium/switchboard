@@ -44,6 +44,20 @@ private val SANDBOX_DESCRIPTION =
 				ConsoleBuiltinDescription("count", "collection", emptyList(), "Number", "Items in a list, or fields in a record."),
 				ConsoleBuiltinDescription("first", "list", emptyList(), "Item or none", "The first item."),
 				ConsoleBuiltinDescription("take", "list", listOf(ConsoleBuiltinParam("n", "Number")), "List", "The first n items."),
+				ConsoleBuiltinDescription(
+					"round",
+					"none",
+					listOf(ConsoleBuiltinParam("x", "Number"), ConsoleBuiltinParam("places", "Number", optional = true)),
+					"Number",
+					"x to that many decimals, none when left out.",
+				),
+				ConsoleBuiltinDescription(
+					"if",
+					"none",
+					listOf(ConsoleBuiltinParam("when", "Yes/no"), ConsoleBuiltinParam("then", "Any"), ConsoleBuiltinParam("otherwise", "Any")),
+					"Any",
+					"then when it holds, else otherwise; only the one chosen is read.",
+				),
 			),
 		entities =
 			listOf(

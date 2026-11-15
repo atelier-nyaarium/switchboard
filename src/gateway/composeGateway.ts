@@ -47,7 +47,7 @@ import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
 import { previewAutomation } from "./computed/automationPreview.js";
 import { type Automations, createAutomations } from "./computed/automations.js";
 import { type ComputedFields, createComputedFields } from "./computed/computedFields.js";
-import { createSensorThresholds, type SensorThresholds } from "./devices/sensorThresholds.js";
+import { createThresholdConversion, type ThresholdConversion } from "./devices/thresholdConversion.js";
 import { fireAndForget } from "./fireAndForget.js";
 import { purgeHolds } from "./purgeHolds.js";
 import { createPurgeSweep, orphanedNames } from "./purgeSweep.js";
@@ -84,7 +84,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	let devices: DeviceStage | undefined;
 	let fields: ComputedFields | undefined;
 	let automations: Automations | undefined;
-	let sensorThresholds: SensorThresholds | undefined;
+	// Remove 2027-01-15 with the stored thresholds.
+	let thresholdConversion: ThresholdConversion | undefined;
 	const pendingKeys = new Set<string>();
 	let workflows: WorkflowsStage | undefined;
 	let reconcileStaleAgents = (): void => {};
@@ -245,7 +246,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			workflows?.engine.tick();
 			devices?.flushReadings();
 			fields?.inputsChanged(devices?.sensorInputKeys() ?? []);
-			sensorThresholds?.tick();
+			thresholdConversion?.run();
 			automations?.tick();
 		},
 	});
@@ -541,7 +542,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		onChanged: () => {
 			host.pushDeviceWatch();
 			fields?.typesChanged();
-			sensorThresholds?.recordsChanged();
 		},
 		onIngested: (keys) => {
 			// One evaluation per frame.
@@ -554,11 +554,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 					fields?.inputsChanged(batch);
 				});
 			}
-		},
-		thresholds: {
-			read: (record) => sensorThresholds?.read(record) ?? [],
-			put: (record, op) => sensorThresholds?.put(record, op) ?? { kind: "refused", code: "write_failed" },
-			forget: (device) => sensorThresholds?.forget(device) ?? true,
 		},
 	});
 	// Lazy readers permit early composing.
@@ -582,7 +577,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			devices: () => devices,
 			fields: () => fields,
 			automations: () => automations,
-			thresholds: () => sensorThresholds,
 			assistant: () => assistant.console.state(),
 			temperatureUnit: () => assistant.temperatureUnit(),
 			bluetoothListen: (windowMs) => host.relayToHost({ kind: "bleListen", windowMs }),
@@ -632,18 +626,20 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	);
 	assistant.registerSource(createOutboxSource(automations.outbox));
 	assistant.bindAutomations(automations);
-	sensorThresholds = openDurable(bootstrap.dataDir, "sensor-thresholds", (store) =>
-		createSensorThresholds({
-			store,
-			fields: fields!,
-			automations: automations!,
-			record: (id) => devices?.record(id) ?? null,
-			records: () => devices?.records() ?? [],
-			holds: (id) => devices?.holds(id) ?? true,
-		}),
+	thresholdConversion = openDurable(bootstrap.dataDir, "sensor-thresholds", (stored) =>
+		openDurable(bootstrap.dataDir, "sensor-thresholds-converted", (mark) =>
+			createThresholdConversion({
+				stored,
+				mark,
+				fields: fields!,
+				automations: automations!,
+				record: (id) => devices?.record(id) ?? null,
+				holds: (id) => devices?.holds(id) ?? true,
+			}),
+		),
 	);
-	// Repair projections before evaluating.
-	sensorThresholds.start();
+	// Before fields evaluate.
+	thresholdConversion.run();
 	fields.start();
 	const sessionClosed = (team: string): void => {
 		vault?.sessionEnded(team);

@@ -95,7 +95,9 @@ internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 
 internal sealed interface AutomationSlot {
 	data class Held(val id: String) : AutomationSlot
-	data object New : AutomationSlot
+
+	/** Device to cross. */
+	data class New(val watch: String? = null) : AutomationSlot
 }
 
 internal data class AutomationDraft(
@@ -188,16 +190,28 @@ internal data class AutomationDraft(
 		trigger != opened.trigger || actions != opened.actions || enabled != opened.enabled
 }
 
-/** The first trigger and the first action this Gateway offers; null when it offers neither. */
+/** A crossing of that device's first number; null when not offered. */
+private fun watchTrigger(device: String, offer: AutomationOffer, zone: String): TriggerDraft? {
+	val watched = offer.copy(numbers = offer.numbers.filter { it.device == device })
+	if (!offersChoice(watched, TriggerChoice.CROSSING, sources = false)) return null
+	return freshTrigger(TriggerChoice.CROSSING, watched, null, zone)
+}
+
+/** First offered trigger and action, or a crossing; null if none. */
 internal fun newAutomationDraft(
 	sources: List<AssistantSource>,
 	offer: AutomationOffer = AutomationOffer(),
 	zone: String = "",
+	watch: String? = null,
 ): AutomationDraft? {
 	val firstSource = sources.firstOrNull { it.triggers }?.id
-	val trigger = TriggerChoice.entries
-		.filter { offersChoice(offer, it, firstSource != null) }
-		.firstNotNullOfOrNull { freshTrigger(it, offer, firstSource, zone) } ?: return null
+	val trigger = if (watch != null) {
+		watchTrigger(watch, offer, zone)
+	} else {
+		TriggerChoice.entries
+			.filter { offersChoice(offer, it, firstSource != null) }
+			.firstNotNullOfOrNull { freshTrigger(it, offer, firstSource, zone) }
+	} ?: return null
 	val action = addableActions(offer, emptyList()).firstNotNullOfOrNull { freshAction(it.kind, offer) } ?: return null
 	return AutomationDraft(
 		id = "auto-${java.util.UUID.randomUUID()}",
@@ -276,7 +290,7 @@ internal fun openedDraft(
 	zone: String = "",
 ): AutomationDraft? = when (slot) {
 	is AutomationSlot.Held -> row?.takeIf { editable(it, offer) }?.let { automationDraftOf(it, offer, display) }
-	AutomationSlot.New -> newAutomationDraft(sources, offer, zone)
+	is AutomationSlot.New -> newAutomationDraft(sources, offer, zone, slot.watch)
 }
 
 /** Held source stays first. */
@@ -346,10 +360,10 @@ internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmp
 	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else listEmpty(registry, registry.gateways, read)
 }
 
-/** A sensor's alert is its sensor page's; any other needs a trigger its Gateway holds. An action the editor cannot draw is kept. */
+/** Needs a trigger the Gateway holds; undrawable actions are kept. */
 internal fun editable(row: AutomationRow, offer: AutomationOffer = AutomationOffer()): Boolean {
 	val trigger = triggerDraftOf(row.automation.trigger, offer, null) ?: return false
-	return row.device == null && trigger.kind in offer.triggers
+	return trigger.kind in offer.triggers
 }
 
 internal sealed interface AutomationSaid {

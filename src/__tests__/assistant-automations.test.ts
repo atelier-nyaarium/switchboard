@@ -313,33 +313,31 @@ describe("an event automation", () => {
 		expect(test.automations.rows()).toEqual([]);
 	});
 
-	it("starts unrun again once a move replaced it, and a move spares a sensor's alert that no owner write may touch", async () => {
-		const { automations, stop } = await placed([listing()], freshDir(), null, bandField("threshold-a", "ce:1c"));
+	it("starts unrun again once a move replaced it, and a move spares an automation that stays on its Gateway", async () => {
+		const { automations, stop } = await placed([listing()], freshDir(), null, bandField("band-a", "ce:1c"));
 		const all = { id: "a", automation: eventAutomation("github", []) };
-		const alert: Automation = {
+		const watch: Automation = {
 			enabled: true,
-			trigger: { kind: "value", field: "threshold-a", becomes: "low", coolDownSec: 0 },
+			trigger: { kind: "value", field: "band-a", becomes: "low", coolDownSec: 0 },
 			actions: [{ kind: "tell_assistant", when: "quietly" }],
 		};
-		automations.write({ kind: "projection", device: "a", rows: new Map([["threshold-a-low", alert]]) });
+		automations.ownerPut("watch", watch, 0);
 		automations.ownerPut("a", all.automation, 0);
 		automations.noteEvents(["a"], T0);
 		const ran = automations.rows().find((row) => row.id === "a")?.lastRanAt;
 
 		automations.write({ kind: "carry", rows: [] });
-		automations.write({ kind: "carry", rows: [all, { id: "threshold-carried", automation: all.automation }] });
+		automations.write({ kind: "carry", rows: [all] });
 		automations.ownerPut("toString", all.automation, 0);
-		const named = automations.ownerPut("threshold-b", all.automation, 0);
-		const edited = automations.ownerPut("threshold-a-low", { ...alert, enabled: false }, 1);
-		const removed = automations.ownerRemove("threshold-a-low", 1);
+		const edited = automations.ownerPut("watch", { ...watch, enabled: false }, 1);
 		const rows = new Map(automations.rows().map((row) => [row.id, row]));
 		await stop();
 
 		expect(ran).toBe(T0);
-		expect([...rows.keys()].sort()).toEqual(["a", "threshold-a-low", "toString"]);
+		expect([...rows.keys()].sort()).toEqual(["a", "toString", "watch"]);
 		expect([rows.get("a")?.lastRanAt, rows.get("toString")?.lastRanAt]).toEqual([undefined, undefined]);
-		expect(rows.get("threshold-a-low")).toMatchObject({ device: "ce:1c", automation: { enabled: true } });
-		expect([named.stored, edited.stored, removed.deleted]).toEqual([false, false, false]);
+		expect(rows.get("watch")).toMatchObject({ automation: { enabled: false } });
+		expect(edited.stored).toBe(true);
 	});
 
 	// Remove 2026-11-28 with the older phone's rules.
