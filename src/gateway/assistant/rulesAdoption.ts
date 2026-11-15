@@ -70,7 +70,7 @@ export function storedRules(store: DurableStore): Record<string, AssistantWatche
 	return parsed.success ? parsed.data.watchers : null;
 }
 
-/** A let-go leaves no rules, as it did before automations. */
+/** A let-go leaves no rules. */
 export function clearStoredRules(rules: DurableStore): boolean {
 	const held = storedRules(rules);
 	if (held !== null && Object.keys(held).length === 0) return true;
