@@ -15,16 +15,32 @@ class ShellNavTest {
 	private val a = "home.sakura.host.aaa"
 	private val b = "home.sakura.host.bbb"
 
-	private fun backFacts(
+	private fun shellFacts(
 		drawerOpen: Boolean = false,
 		editorOpen: Boolean = false,
 		overlayOpen: Boolean = false,
 		locked: Boolean = false,
 		booted: Boolean = true,
-	) = BackFacts(editorOpen, locked, overlayOpen, booted, drawerOpen, offered, views)
+		assistantOpen: Boolean = false,
+	) = ShellFacts(editorOpen, locked, overlayOpen, booted, drawerOpen, offered, views, assistantOpen)
+
+	private fun everyShellFacts(assistantOpen: Boolean): List<ShellFacts> {
+		val both = listOf(false, true)
+		return both.flatMap { drawer ->
+			both.flatMap { editor ->
+				both.flatMap { overlay ->
+					both.flatMap { locked -> both.map { booted -> shellFacts(drawer, editor, overlay, locked, booted, assistantOpen) } }
+				}
+			}
+		}
+	}
+
+	private fun drawn(nav: ShellNav, facts: ShellFacts = shellFacts()) = nav.drawn(facts)
+
+	private fun conversation(nav: ShellNav) = drawn(nav) as Drawn.Conversation
 
 	/** Drives Back until the system handles it, recording layers. */
-	private fun backAll(start: ShellNav, facts: BackFacts = backFacts()): List<BackLayer> {
+	private fun backAll(start: ShellNav, facts: ShellFacts = shellFacts()): List<BackLayer> {
 		var nav = start
 		val layers = mutableListOf<BackLayer>()
 		while (true) {
@@ -34,31 +50,31 @@ class ShellNavTest {
 		}
 	}
 
-	private fun screenOf(nav: ShellNav) = shellScreen(nav, locked = false, overlayOpen = false, booted = true)
-
 	@Test
-	fun `the Assistant pages draw over what opened them, Back walks Setup, Entry, Add, then beneath, and an arrival clears them`() {
-		val setup = AssistantPage.Setup("sakura", "kasa")
-		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts).openAssistantPage(setup)
+	fun `pages draw over what opened them, Back pops each to its opener, then beneath, and an arrival clears them`() {
+		val entry = ShellPage.Entry("sakura", "kasa")
+		val setup = ShellPage.Setup("sakura", "kasa")
+		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts).push(ShellPage.Add).push(entry).push(setup)
 		val walked = generateSequence(open) { nav ->
-			backLayer(nav, backFacts())?.takeIf { it == BackLayer.ASSISTANT_PAGE }?.let { nav.back(it, backFacts(), provisioned = true) }
-		}.map { it.assistantPage }.toList()
+			backLayer(nav, shellFacts())?.takeIf { it == BackLayer.PAGE }?.let { nav.back(it, shellFacts(), provisioned = true) }
+		}.map { (drawn(it) as? Drawn.Page)?.page }.toList()
 
-		assertEquals(ShellScreen.ASSISTANT_PAGE, screenOf(open))
-		assertEquals(listOf(setup, AssistantPage.Entry("sakura", "kasa"), AssistantPage.Add, null), walked)
-		assertEquals(List(3) { BackLayer.ASSISTANT_PAGE } + BackLayer.CONVERSATION, backAll(open))
-		assertEquals(AssistantPage.Settings, assistantPageBack(AssistantPage.Safety))
-		assertEquals(
-			listOf(null, null),
-			listOf(
-				AssistantPage.Source("sakura", "github"),
-				AssistantPage.Device("sakura", "aa:bb:cc:dd:ee:01"),
-			).map(::assistantPageBack),
-		)
-		assertFalse(open.showsAssistant(assistantOpen = false, screen = ShellScreen.LOCK))
+		assertEquals(listOf(setup, entry, ShellPage.Add, null), walked)
+		assertEquals(List(3) { BackLayer.PAGE } + BackLayer.CONVERSATION, backAll(open))
+		assertEquals(open, open.push(setup))
+
+		val device = ShellPage.Device("sakura", "aa:bb:cc:dd:ee:01")
+		val replaced = open.replaceTop(device)
+		assertEquals(Drawn.Page(device, overAssistant = false), drawn(replaced))
+		assertEquals(Drawn.Page(entry, overAssistant = false), drawn(replaced.back(BackLayer.PAGE, shellFacts(), provisioned = true)))
+
+		val fromSources = ShellNav().showRoot(RootView.SOURCES).push(entry)
+		assertEquals(Drawn.Root(RootView.SOURCES, null), drawn(fromSources.back(BackLayer.PAGE, shellFacts(), provisioned = true)))
+
+		assertFalse(showsAssistant(drawn(open, shellFacts(locked = true))))
 		val left = open.arrive(b, Arrival.OUTSIDE, facts)
-		assertNull(left.assistantPage)
-		assertFalse(left.showsAssistant(assistantOpen = false, screen = ShellScreen.CONVERSATION))
+		assertEquals(b, conversation(left).team)
+		assertFalse(showsAssistant(drawn(left)))
 	}
 
 	@Test
@@ -67,42 +83,72 @@ class ShellNavTest {
 		val picked = open.pick(RootView.RUNBOOKS, assistantOpen = false)
 		val cleared = picked.filter(false)
 
-		assertEquals(ShellScreen.CONVERSATION, screenOf(open))
-		assertEquals(RootView.SESSIONS, open.menuShown(offered, assistantOpen = false))
-		assertEquals(ShellScreen.ROOT, screenOf(picked))
-		assertEquals(OverNav(RootView.RUNBOOKS, filtered = true), picked.over)
-		assertEquals(RootView.RUNBOOKS, picked.rootShown(offered))
-		assertEquals(RootView.RUNBOOKS, picked.menuShown(offered, assistantOpen = false))
-		assertEquals(OverNav(RootView.RUNBOOKS, filtered = false), cleared.over)
-		assertEquals(picked.over, cleared.filter(true).over)
-		assertEquals(OverNav(RootView.POLICIES, filtered = true), cleared.pick(RootView.POLICIES, assistantOpen = false).over)
+		assertEquals(ShellScreen.CONVERSATION, drawn(open).kind)
+		assertEquals(RootView.SESSIONS, menuShown(drawn(open)))
+		assertEquals(Drawn.Root(RootView.RUNBOOKS, Over(a, filterable = true, ViewScope.Session(a))), drawn(picked))
+		assertEquals(RootView.RUNBOOKS, menuShown(drawn(picked)))
+		assertEquals(Drawn.Root(RootView.RUNBOOKS, Over(a, filterable = true, ViewScope.Everything)), drawn(cleared))
+		assertEquals(drawn(picked), drawn(cleared.filter(true)))
+		assertEquals(
+			Drawn.Root(RootView.POLICIES, Over(a, filterable = true, ViewScope.Session(a))),
+			drawn(cleared.pick(RootView.POLICIES, assistantOpen = false)),
+		)
 		assertEquals(listOf(BackLayer.OVER, BackLayer.VIEW, BackLayer.CONVERSATION), backAll(cleared))
-		assertEquals(open, cleared.back(BackLayer.OVER, backFacts(), provisioned = true))
-		assertEquals(BackLayer.DRAWER, backLayer(picked, backFacts(drawerOpen = true)))
+		assertEquals(open, cleared.back(BackLayer.OVER, shellFacts(), provisioned = true))
+		assertEquals(BackLayer.DRAWER, backLayer(picked, shellFacts(drawerOpen = true)))
+	}
+
+	@Test
+	fun `over a pick, what is drawn and Back do not depend on the root beneath`() {
+		for (beneath in RootView.entries) {
+			for (view in offered - RootView.SESSIONS - RootView.ASSISTANT) {
+				for (assistantOpen in listOf(false, true)) {
+					val base = ShellNav().arrive(a, Arrival.OUTSIDE, facts).pick(view, assistantOpen)
+					val other = ShellNav().showRoot(beneath).arrive(a, Arrival.OUTSIDE, facts).pick(view, assistantOpen)
+					for (f in everyShellFacts(assistantOpen)) {
+						assertEquals(base.drawn(f), other.drawn(f))
+						assertEquals(backLayer(base, f), backLayer(other, f))
+					}
+				}
+			}
+		}
+	}
+
+	@Test
+	fun `Back from a pick, then from the session, lands each view beneath`() {
+		for (beneath in RootView.entries) {
+			val picked = ShellNav().showRoot(beneath).arrive(a, Arrival.OUTSIDE, facts).pick(RootView.BACKLOG, assistantOpen = false)
+			val left = picked.back(BackLayer.OVER, shellFacts(), provisioned = true).back(BackLayer.CONVERSATION, shellFacts(), provisioned = true)
+
+			assertEquals(Drawn.Root(beneath, null), drawn(left))
+		}
 	}
 
 	@Test
 	fun `Sessions and Assistant leave the session, Sources and Automations take no filter, and the root keeps its own view`() {
 		val open = ShellNav().showRoot(RootView.BACKLOG).arrive(a, Arrival.OUTSIDE, facts)
+		val noFilter = Over(a, filterable = false, ViewScope.Everything)
 
-		assertEquals(ShellNav(root = RootView.SESSIONS, generation = 1), open.pick(RootView.SESSIONS, assistantOpen = false))
-		assertEquals(ShellNav(root = RootView.ASSISTANT, generation = 1), open.pick(RootView.ASSISTANT, assistantOpen = false))
-		assertEquals(OverNav(RootView.SOURCES, filtered = false), open.pick(RootView.SOURCES, assistantOpen = false).over)
-		assertEquals(OverNav(RootView.AUTOMATIONS, filtered = false), open.pick(RootView.AUTOMATIONS, assistantOpen = false).over)
-		assertEquals(RootView.BACKLOG, open.pick(RootView.VAULT, assistantOpen = false).root)
-		assertEquals(ShellNav(root = RootView.VAULT), ShellNav().pick(RootView.VAULT, assistantOpen = false))
+		assertEquals(Drawn.Root(RootView.SESSIONS, null), drawn(open.pick(RootView.SESSIONS, assistantOpen = false)))
+		assertEquals(Drawn.Root(RootView.ASSISTANT, null), drawn(open.pick(RootView.ASSISTANT, assistantOpen = false)))
+		assertNull(open.pick(RootView.ASSISTANT, assistantOpen = false).heldTeam)
+		assertEquals(Drawn.Root(RootView.SOURCES, noFilter), drawn(open.pick(RootView.SOURCES, assistantOpen = false)))
+		assertEquals(Drawn.Root(RootView.AUTOMATIONS, noFilter), drawn(open.pick(RootView.AUTOMATIONS, assistantOpen = false)))
+		assertEquals(Drawn.Root(RootView.BACKLOG, null), drawn(open.pick(RootView.VAULT, assistantOpen = false).leave()))
+		assertEquals(Drawn.Root(RootView.VAULT, null), drawn(ShellNav().pick(RootView.VAULT, assistantOpen = false)))
 	}
 
 	@Test
 	fun `the assistant's session filters nothing, and Assistant returns to its chat`() {
 		val open = ShellNav().arriveAt(a, assistant = true, Arrival.OUTSIDE, facts)
 		val picked = open.pick(RootView.BACKLOG, assistantOpen = true)
+		val f = shellFacts(assistantOpen = true)
 
-		assertEquals(RootView.ASSISTANT, open.menuShown(offered, assistantOpen = true))
-		assertEquals(OverNav(RootView.BACKLOG, filtered = false), picked.over)
-		assertFalse(picked.showsAssistant(assistantOpen = true, screen = screenOf(picked)))
+		assertEquals(RootView.ASSISTANT, menuShown(drawn(open, f)))
+		assertEquals(Drawn.Root(RootView.BACKLOG, Over(a, filterable = false, ViewScope.Everything)), drawn(picked, f))
+		assertFalse(showsAssistant(drawn(picked, f)))
 		assertEquals(open, picked.pick(RootView.ASSISTANT, assistantOpen = true))
-		assertEquals(ShellNav(root = RootView.SESSIONS, generation = 1), picked.pick(RootView.SESSIONS, assistantOpen = true))
+		assertEquals(Drawn.Root(RootView.SESSIONS, null), drawn(picked.pick(RootView.SESSIONS, assistantOpen = true), f))
 	}
 
 	@Test
@@ -110,72 +156,83 @@ class ShellNavTest {
 		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts)
 		val picked = open.pick(RootView.BACKLOG, assistantOpen = false)
 
-		assertNull(picked.arrive(b, Arrival.TAB, facts).over)
-		assertNull(picked.forgot(a).over)
+		assertEquals(ShellScreen.CONVERSATION, drawn(picked.arrive(b, Arrival.TAB, facts)).kind)
+		assertEquals(Drawn.Root(RootView.SESSIONS, null), drawn(picked.forgot(a)))
 		assertEquals(open, picked.offering(rootViews(DrawerFeatures(board = false, vault = true))))
 		assertEquals(picked, picked.offering(offered))
 		assertEquals(open, picked.boardSaved())
-		assertEquals(RootView.SESSIONS, ShellNav().showRoot(RootView.BACKLOG).boardSaved().root)
+		assertEquals(Drawn.Root(RootView.SESSIONS, null), drawn(ShellNav().showRoot(RootView.BACKLOG).boardSaved()))
 	}
 
 	@Test
-	fun `a page's exit to a root view closes it, over a session or at the root`() {
-		val source = AssistantPage.Source("sakura", "github")
-		val atRoot = ShellNav().showRoot(RootView.SOURCES).openAssistantPage(source)
-		val inSession = ShellNav().arrive(a, Arrival.OUTSIDE, facts).openAssistantPage(source)
+	fun `a page's exit to a root view closes the stack, over a session or at the root`() {
+		val source = ShellPage.Source("sakura", "github")
+		val atRoot = ShellNav().showRoot(RootView.SOURCES).push(ShellPage.Add).push(source)
+		val inSession = ShellNav().arrive(a, Arrival.OUTSIDE, facts).push(source)
 
-		assertEquals(ShellNav(root = RootView.AUTOMATIONS), atRoot.toRoot(RootView.AUTOMATIONS, assistantOpen = false))
+		assertEquals(Drawn.Root(RootView.AUTOMATIONS, null), drawn(atRoot.toRoot(RootView.AUTOMATIONS, assistantOpen = false)))
 		assertEquals(
-			OverNav(RootView.AUTOMATIONS, filtered = false),
-			inSession.toRoot(RootView.AUTOMATIONS, assistantOpen = false).also { assertNull(it.assistantPage) }.over,
+			Drawn.Root(RootView.AUTOMATIONS, Over(a, filterable = false, ViewScope.Everything)),
+			drawn(inSession.toRoot(RootView.AUTOMATIONS, assistantOpen = false)),
 		)
 	}
 
 	@Test
 	fun `only the assistant's own pages and a page over its chat count as the assistant shown, and every page reads the home`() {
-		val device = ShellNav().showRoot(RootView.SOURCES).openAssistantPage(AssistantPage.Device("sakura", "aa:bb:cc:dd:ee:01"))
-		val safety = ShellNav().openAssistantPage(AssistantPage.Safety)
+		val device = ShellNav().showRoot(RootView.SOURCES).push(ShellPage.Device("sakura", "aa:bb:cc:dd:ee:01"))
+		val safety = ShellNav().push(ShellPage.Safety)
 
-		assertFalse(device.showsAssistant(assistantOpen = false, screen = ShellScreen.ASSISTANT_PAGE))
-		assertTrue(device.showsAssistant(assistantOpen = true, screen = ShellScreen.ASSISTANT_PAGE))
-		assertTrue(safety.showsAssistant(assistantOpen = false, screen = ShellScreen.ASSISTANT_PAGE))
-		assertTrue(device.readsHome(assistantOpen = false, screen = ShellScreen.ASSISTANT_PAGE, offered = offered))
+		assertFalse(showsAssistant(drawn(device)))
+		assertTrue(showsAssistant(drawn(device, shellFacts(assistantOpen = true))))
+		assertTrue(showsAssistant(drawn(safety)))
+		assertTrue(readsHome(drawn(device)))
 	}
 
 	@Test
 	fun `Sources and Automations read the home as the assistant's own screens do`() {
 		val sources = ShellNav().showRoot(RootView.SOURCES)
 		val over = ShellNav().arrive(a, Arrival.OUTSIDE, facts).pick(RootView.AUTOMATIONS, assistantOpen = false)
+		val vault = ShellNav().showRoot(RootView.VAULT)
 
-		assertTrue(sources.readsHome(assistantOpen = false, screen = ShellScreen.ROOT, offered = offered))
-		assertFalse(sources.showsAssistant(assistantOpen = false, screen = ShellScreen.ROOT))
-		assertTrue(over.readsHome(assistantOpen = false, screen = screenOf(over), offered = offered))
-		assertFalse(ShellNav().showRoot(RootView.VAULT).readsHome(assistantOpen = false, screen = ShellScreen.ROOT, offered = offered))
-		assertTrue(ShellNav().showRoot(RootView.ASSISTANT).readsHome(assistantOpen = false, screen = ShellScreen.ROOT, offered = offered))
-		assertFalse(sources.readsHome(assistantOpen = false, screen = ShellScreen.SETTINGS, offered = offered))
+		assertTrue(readsHome(drawn(sources)))
+		assertFalse(showsAssistant(drawn(sources)))
+		assertTrue(readsHome(drawn(over)))
+		assertFalse(readsHome(drawn(vault)))
+		assertTrue(readsHome(drawn(ShellNav().showRoot(RootView.ASSISTANT))))
+		assertFalse(readsHome(drawn(sources.openSettings())))
+		assertEquals(ShellScreen.ROOT to RootView.SOURCES, homeReadKey(drawn(sources)))
+		assertNull(homeReadKey(drawn(vault)))
 	}
 
 	@Test
-	fun `every Assistant page survives recreation`() {
+	fun `the root, settings and every page survive recreation, an unreadable page is dropped, and the conversation is not kept`() {
 		val pages = listOf(
-			AssistantPage.Settings,
-			AssistantPage.Location,
-			AssistantPage.Features,
-			AssistantPage.Safety,
-			AssistantPage.Source("sakura", "github"),
-			AssistantPage.Add,
-			AssistantPage.Entry("sakura", "kasa"),
-			AssistantPage.Device("sakura", "aa:bb:cc:dd:ee:01"),
+			ShellPage.Settings,
+			ShellPage.Location,
+			ShellPage.Features,
+			ShellPage.Safety,
+			ShellPage.Source("sakura", "github"),
+			ShellPage.SourceAutomations("sakura", "github"),
+			ShellPage.Add,
+			ShellPage.Entry("sakura", "kasa"),
+			ShellPage.Setup("sakura", "kasa"),
+			ShellPage.Device("sakura", "aa:bb:cc:dd:ee:01"),
 		)
-
 		val scope = SaverScope { true }
-		val restored = pages.map { page ->
-			val nav = ShellNav(root = RootView.ASSISTANT, assistantPage = page)
-			ShellNavSaver.restore(with(ShellNavSaver) { scope.save(nav) }!!)
-		}
+		val roundTrip = { nav: ShellNav -> ShellNav.saver.restore(with(ShellNav.saver) { scope.save(nav) }!!)!! }
+		val stacked = pages.fold(ShellNav().showRoot(RootView.ASSISTANT)) { nav, page -> nav.push(page) }
 
-		assertEquals(pages.map { ShellNav(root = RootView.ASSISTANT, assistantPage = it) }, restored)
+		assertEquals(stacked, roundTrip(stacked))
+		assertEquals(Drawn.Settings(SettingsRoute.SECURITY), drawn(roundTrip(stacked.openSettings(SettingsRoute.SECURITY))))
 		assertEquals(pages.size, pages.map(::pageKey).toSet().size)
+
+		val saved = listOf(RootView.ASSISTANT.name, "", pageKey(ShellPage.Add), "nonsense", pageKey(ShellPage.Safety))
+		assertEquals(ShellNav().showRoot(RootView.ASSISTANT).push(ShellPage.Add).push(ShellPage.Safety), ShellNav.saver.restore(saved))
+
+		val inSession = ShellNav().arrive(a, Arrival.OUTSIDE, facts).push(ShellPage.Add)
+		val restored = roundTrip(inSession)
+		assertNull(restored.heldTeam)
+		assertEquals(listOf(BackLayer.PAGE), backAll(restored))
 	}
 
 	@Test
@@ -185,10 +242,10 @@ class ShellNavTest {
 		val closed = switched.arrive(a, Arrival.CLOSED_TAB, facts)
 		val reopened = closed.leave().arrive(b, Arrival.OUTSIDE, facts)
 
-		assertEquals(ConversationView.FILES, switched.conversation?.view)
-		assertEquals(ConversationView.FILES, closed.conversation?.view)
-		assertEquals(ConversationView.CHAT, reopened.conversation?.view)
-		assertEquals(listOf(1, 2, 2, 3), listOf(opened, switched, closed, reopened).map { it.generation })
+		assertEquals(ConversationView.FILES, conversation(switched).view)
+		assertEquals(ConversationView.FILES, conversation(closed).view)
+		assertEquals(ConversationView.CHAT, conversation(reopened).view)
+		assertEquals(listOf(1, 2, 2, 3), listOf(opened, switched, closed, reopened).map { conversation(it).openNonce })
 	}
 
 	@Test
@@ -197,8 +254,8 @@ class ShellNavTest {
 			.pushFiles(WorkspacePlace.Tree("src"))
 		val asked = browsing.arrive(a, Arrival.FILES_ASKED, facts, WorkspacePlace.Windows)
 
-		assertEquals(listOf(WORKSPACE_ROOT, WorkspacePlace.Windows), asked.conversation?.files)
-		assertEquals(0, asked.generation - browsing.generation)
+		assertEquals(listOf(WORKSPACE_ROOT, WorkspacePlace.Windows), conversation(asked).files)
+		assertEquals(conversation(browsing).openNonce, conversation(asked).openNonce)
 		assertEquals(
 			listOf(BackLayer.FILES, BackLayer.VIEW, BackLayer.CONVERSATION),
 			backAll(asked),
@@ -237,8 +294,8 @@ class ShellNavTest {
 	fun `another session's Files start at the root`() {
 		val deep = ShellNav().arrive(a, Arrival.OUTSIDE, facts).pushFiles(WorkspacePlace.Tree("src"))
 
-		assertEquals(listOf(WORKSPACE_ROOT), deep.arrive(b, Arrival.TAB, facts).conversation?.files)
-		assertEquals(listOf(WORKSPACE_ROOT, WorkspacePlace.Tree("src")), deep.arrive(a, Arrival.TAB, facts).conversation?.files)
+		assertEquals(listOf(WORKSPACE_ROOT), conversation(deep.arrive(b, Arrival.TAB, facts)).files)
+		assertEquals(listOf(WORKSPACE_ROOT, WorkspacePlace.Tree("src")), conversation(deep.arrive(a, Arrival.TAB, facts)).files)
 	}
 
 	@Test
@@ -246,21 +303,21 @@ class ShellNavTest {
 		val deep = ShellNav().arrive(a, Arrival.OUTSIDE, facts).showView(ConversationView.FILES)
 			.pushFiles(WorkspacePlace.Tree("src"))
 
-		assertEquals(BackLayer.EDITOR, backLayer(deep, backFacts(editorOpen = true, drawerOpen = true)))
-		assertEquals(BackLayer.OVERLAY, backLayer(deep, backFacts(overlayOpen = true, drawerOpen = true)))
-		assertEquals(BackLayer.SETTINGS, backLayer(deep.openSettings(), backFacts(drawerOpen = true)))
-		assertEquals(BackLayer.DRAWER, backLayer(deep, backFacts(drawerOpen = true)))
-		assertEquals(BackLayer.FILES, backLayer(deep, backFacts()))
+		assertEquals(BackLayer.EDITOR, backLayer(deep, shellFacts(editorOpen = true, drawerOpen = true)))
+		assertEquals(BackLayer.OVERLAY, backLayer(deep, shellFacts(overlayOpen = true, drawerOpen = true)))
+		assertEquals(BackLayer.SETTINGS, backLayer(deep.openSettings(), shellFacts(drawerOpen = true)))
+		assertEquals(BackLayer.DRAWER, backLayer(deep, shellFacts(drawerOpen = true)))
+		assertEquals(BackLayer.FILES, backLayer(deep, shellFacts()))
 	}
 
 	@Test
 	fun `nothing navigates behind the lock or before boot, and a root view steps back to sessions`() {
 		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts)
 
-		assertNull(backLayer(open, backFacts(locked = true)))
-		assertNull(backLayer(open, backFacts(locked = true, editorOpen = true)))
-		assertNull(backLayer(open, backFacts(booted = false)))
-		assertEquals(BackLayer.SETTINGS, backLayer(open.openSettings(), backFacts(booted = false)))
+		assertNull(backLayer(open, shellFacts(locked = true)))
+		assertNull(backLayer(open, shellFacts(locked = true, editorOpen = true)))
+		assertNull(backLayer(open, shellFacts(booted = false)))
+		assertEquals(BackLayer.SETTINGS, backLayer(open.openSettings(), shellFacts(booted = false)))
 		assertEquals(listOf(BackLayer.ROOT_VIEW), backAll(ShellNav().showRoot(RootView.VAULT)))
 	}
 
@@ -277,17 +334,17 @@ class ShellNavTest {
 		)
 	}
 
-	// The render and Back read this one order, so what Back closes is what is drawn.
+	// The render and Back read this one value, so what Back closes is what is drawn.
 	@Test
 	fun `the lock hides everything, an overlay hides settings, and settings open before boot`() {
 		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts).openSettings()
 
-		assertEquals(ShellScreen.LOCK, shellScreen(open, locked = true, overlayOpen = true, booted = true))
-		assertEquals(ShellScreen.OVERLAY, shellScreen(open, locked = false, overlayOpen = true, booted = true))
-		assertEquals(ShellScreen.SETTINGS, shellScreen(open, locked = false, overlayOpen = false, booted = false))
-		assertEquals(ShellScreen.BOOT, shellScreen(open.closeSettings(), locked = false, overlayOpen = false, booted = false))
-		assertEquals(ShellScreen.CONVERSATION, shellScreen(open.closeSettings(), locked = false, overlayOpen = false, booted = true))
-		assertEquals(ShellScreen.ROOT, shellScreen(open.closeSettings().leave(), locked = false, overlayOpen = false, booted = true))
+		assertEquals(Drawn.Lock, drawn(open, shellFacts(locked = true, overlayOpen = true)))
+		assertEquals(Drawn.Overlay, drawn(open, shellFacts(overlayOpen = true)))
+		assertEquals(Drawn.Settings(SettingsRoute.HUB), drawn(open, shellFacts(booted = false)))
+		assertEquals(Drawn.Boot, drawn(open.closeSettings(), shellFacts(booted = false)))
+		assertEquals(ShellScreen.CONVERSATION, drawn(open.closeSettings()).kind)
+		assertEquals(ShellScreen.ROOT, drawn(open.closeSettings().leave()).kind)
 	}
 
 	@Test
@@ -295,6 +352,6 @@ class ShellNavTest {
 		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts)
 
 		assertEquals(open, open.forgot(b))
-		assertNull(open.forgot(a).conversation)
+		assertNull(open.forgot(a).heldTeam)
 	}
 }

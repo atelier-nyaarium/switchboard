@@ -45,7 +45,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ASSISTANT_SPAWN
 import com.atelier_nyaarium.switchboard.AssistantOps
-import com.atelier_nyaarium.switchboard.AssistantPage
 import com.atelier_nyaarium.switchboard.AssistantRoot
 import com.atelier_nyaarium.switchboard.AssistantSection
 import com.atelier_nyaarium.switchboard.AssistantWord
@@ -59,6 +58,7 @@ import com.atelier_nyaarium.switchboard.PageWork
 import com.atelier_nyaarium.switchboard.PhoneCapabilities
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.RootView
+import com.atelier_nyaarium.switchboard.ShellPage
 import com.atelier_nyaarium.switchboard.WorkKey
 import com.atelier_nyaarium.switchboard.answerText
 import com.atelier_nyaarium.switchboard.assistantSections
@@ -113,40 +113,43 @@ private fun gatewayLine(before: String, gatewayId: String, after: String) = buil
 internal fun AssistantPageHost(
 	repo: ChatRepository,
 	state: ChatState,
-	page: AssistantPage,
+	page: ShellPage,
 	home: String?,
 	onListDirs: suspend (String, String, String) -> DirListing,
-	onPage: (AssistantPage) -> Unit,
+	/** Pushes a page. */
+	onPage: (ShellPage) -> Unit,
+	/** Replaces this page. */
+	onReplace: (ShellPage) -> Unit,
 	/** Closes the pages onto a root view. */
 	onRoot: (RootView) -> Unit,
 	onBack: () -> Unit,
 ) {
 	when (page) {
-		AssistantPage.Settings -> AssistantSettingsIndex(repo, state, home, onPage, onBack)
-		AssistantPage.Location -> AssistantLocationPage(repo, state, home, onListDirs, onBack)
-		AssistantPage.Features -> AssistantFeaturesPage(repo, onBack)
-		AssistantPage.Safety -> AssistantSafetyPage(repo, state, home, onBack)
-		AssistantPage.Add ->
+		ShellPage.Settings -> AssistantSettingsIndex(repo, state, home, onPage, onBack)
+		ShellPage.Location -> AssistantLocationPage(repo, state, home, onListDirs, onBack)
+		ShellPage.Features -> AssistantFeaturesPage(repo, onBack)
+		ShellPage.Safety -> AssistantSafetyPage(repo, state, home, onBack)
+		ShellPage.Add ->
 			if (home == null) {
 				AssistantPageScaffold("Add", onBack) { Text(PLACE_FIRST, style = MaterialTheme.typography.bodyLarge) }
 			} else {
-				IntegrationAddPage(state, home, onEntry = { g, id -> onPage(AssistantPage.Entry(g, id)) }, onBack)
+				IntegrationAddPage(state, home, onEntry = { g, id -> onPage(ShellPage.Entry(g, id)) }, onBack)
 			}
-		is AssistantPage.Entry ->
+		is ShellPage.Entry ->
 			IntegrationEntryPage(
 				repo,
 				state,
 				page.gatewayId,
 				page.integrationId,
-				onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) },
-				onSetup = { onPage(AssistantPage.Setup(page.gatewayId, page.integrationId)) },
+				onDevice = { g, d -> onPage(ShellPage.Device(g, d)) },
+				onSetup = { onPage(ShellPage.Setup(page.gatewayId, page.integrationId)) },
 				onAdded = { onRoot(RootView.SOURCES) },
 				onBack,
 			)
-		is AssistantPage.Setup ->
-			PlugSetupPage(repo, page.gatewayId, onDevice = { onPage(AssistantPage.Device(page.gatewayId, it)) }, onBack)
-		is AssistantPage.Device -> AssistantDevicePage(repo, page.gatewayId, page.deviceId, onBack)
-		is AssistantPage.Source -> {
+		is ShellPage.Setup ->
+			PlugSetupPage(repo, page.gatewayId, onDevice = { onReplace(ShellPage.Device(page.gatewayId, it)) }, onBack)
+		is ShellPage.Device -> AssistantDevicePage(repo, page.gatewayId, page.deviceId, onBack)
+		is ShellPage.Source -> {
 			val source = state.gateways.assistantOn(page.gatewayId)?.let(::sourcesOf)?.find { it.id == page.sourceId }
 			if (source == null) {
 				UnreadPage("Source", repo, state, page.gatewayId, onBack)
@@ -157,7 +160,20 @@ internal fun AssistantPageHost(
 					page.gatewayId,
 					source,
 					uses = state.gateways.entry(page.gatewayId)?.automations?.listedRows()?.let { usesOf(source.id, it) },
-					onAutomations = { onRoot(RootView.AUTOMATIONS) },
+					onAutomations = { onPage(ShellPage.SourceAutomations(page.gatewayId, page.sourceId)) },
+					onBack,
+				)
+			}
+		}
+		is ShellPage.SourceAutomations -> {
+			val source = state.gateways.assistantOn(page.gatewayId)?.let(::sourcesOf)?.find { it.id == page.sourceId }
+			if (source == null) {
+				UnreadPage("Automations", repo, state, page.gatewayId, onBack)
+			} else {
+				LaunchedEffect(page.gatewayId) { repo.automationOps.refresh(page.gatewayId) }
+				SourceAutomationsPage(
+					source.label,
+					state.gateways.entry(page.gatewayId)?.automations?.listedRows()?.let { triggeredBy(source.id, it) },
 					onBack,
 				)
 			}
@@ -327,7 +343,7 @@ private fun AssistantSettingsIndex(
 	repo: ChatRepository,
 	state: ChatState,
 	home: String?,
-	onPage: (AssistantPage) -> Unit,
+	onPage: (ShellPage) -> Unit,
 	onBack: () -> Unit,
 ) {
 	val works by repo.assistantOps.work.collectAsState()
@@ -355,11 +371,11 @@ private fun AssistantSettingsIndex(
 		for (section in assistantSections(home, homeState)) {
 			when (section) {
 				AssistantSection.LOCATION ->
-					SettingsRow("Session data location", locationLines(home, homeState?.workdir)) { onPage(AssistantPage.Location) }
+					SettingsRow("Session data location", locationLines(home, homeState?.workdir)) { onPage(ShellPage.Location) }
 				AssistantSection.FEATURES ->
-					SettingsRow("Features", featureLines(phoneSettings.assistantOn, phoneSettings.screenData, features)) { onPage(AssistantPage.Features) }
+					SettingsRow("Features", featureLines(phoneSettings.assistantOn, phoneSettings.screenData, features)) { onPage(ShellPage.Features) }
 				AssistantSection.SAFETY ->
-					SettingsRow("Safety", safetyLines(homeState?.approveEverySend)) { onPage(AssistantPage.Safety) }
+					SettingsRow("Safety", safetyLines(homeState?.approveEverySend)) { onPage(ShellPage.Safety) }
 				AssistantSection.REMOVE -> SettingsRow("Remove assistant", SettingsLines(line = REMOVE_LINE)) { removing = true }
 			}
 		}

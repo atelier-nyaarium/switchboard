@@ -106,31 +106,21 @@ internal fun lastAssistant(state: ChatState, preferred: String?): String? {
 	return onPreferred.maxByOrNull(newest) ?: known.maxByOrNull(newest)
 }
 
-internal fun ShellNav.summonedTo(landing: SummonLanding, facts: (String) -> ArrivalFacts): ShellNav = when (landing) {
-	is SummonLanding.At -> arriveAt(landing.team, assistant = true, Arrival.OUTSIDE, facts(landing.team))
-	SummonLanding.Root -> leave().copy(root = RootView.ASSISTANT, settings = null, assistantPage = null)
-	SummonLanding.Configure ->
-		leave().copy(root = RootView.ASSISTANT, settings = null, assistantPage = AssistantPage.Settings)
-}
-
 internal enum class SummonShown { ASSISTANT_CHAT, WAITING, ELSEWHERE }
 
 internal fun summonShown(
-	screen: ShellScreen,
-	nav: ShellNav,
-	assistantOpen: Boolean,
-	view: ConversationView?,
+	drawn: Drawn,
 	root: AssistantRoot,
 	/** Scheduled sends hide the composer. */
 	composerShown: Boolean,
 	/** A drawer still over the conversation. */
 	covered: Boolean,
 ): SummonShown = when {
-	screen == ShellScreen.LOCK || screen == ShellScreen.BOOT -> SummonShown.WAITING
-	screen == ShellScreen.CONVERSATION && covered -> SummonShown.WAITING
-	screen == ShellScreen.CONVERSATION && assistantOpen && view == ConversationView.CHAT && composerShown ->
+	drawn == Drawn.Lock || drawn == Drawn.Boot -> SummonShown.WAITING
+	drawn is Drawn.Conversation && covered -> SummonShown.WAITING
+	drawn is Drawn.Conversation && drawn.assistant && drawn.view == ConversationView.CHAT && composerShown ->
 		SummonShown.ASSISTANT_CHAT
-	screen == ShellScreen.ROOT && nav.over == null && nav.root == RootView.ASSISTANT &&
+	drawn is Drawn.Root && drawn.over == null && drawn.view == RootView.ASSISTANT &&
 		(root is AssistantRoot.Loading || root is AssistantRoot.Placed) -> SummonShown.WAITING
 	else -> SummonShown.ELSEWHERE
 }

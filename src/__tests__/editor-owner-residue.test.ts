@@ -52,10 +52,10 @@ function code(source: string): string {
 		.join("\n");
 }
 
-/** The declarations inside `sealed interface AssistantPage`. */
+/** The declarations inside `sealed interface ShellPage`. */
 function pageBody(source: string): string {
 	const lines = code(source).split("\n");
-	const start = lines.findIndex((line) => /^internal sealed interface AssistantPage\b/.test(line));
+	const start = lines.findIndex((line) => /^internal sealed interface ShellPage\b/.test(line));
 	if (start < 0) return "";
 	const end = lines.findIndex((line, at) => at > start && line.startsWith("}"));
 	return lines.slice(start, end < 0 ? undefined : end).join("\n");
@@ -103,7 +103,7 @@ describe("An editor's edit", () => {
 		expect(SHOW.test("repo.editors.show(ShownEditor.Runbook(key))")).toBe(false);
 		expect(
 			pageBody(
-				"internal sealed interface AssistantPage {\n\tdata class Source(val gatewayId: String) : AssistantPage\n}",
+				"internal sealed interface ShellPage {\n\tdata class Source(val gatewayId: String) : ShellPage\n}",
 			),
 		).toContain("Source");
 	});

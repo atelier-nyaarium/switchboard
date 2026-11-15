@@ -91,7 +91,7 @@ class DeviceRulesTest {
 
 	@Test
 	fun `a device page unwinds when its plug or its Gateway goes, and stays across a home move`() {
-		val page = AssistantPage.Device("sakura", lamp.id)
+		val page = ShellPage.Device("sakura", lamp.id)
 		val state = ChatState()
 		assertEquals(page, page.resolved(state) { DeviceListView.Listed(listOf(lamp), 1L) })
 		assertEquals(page, page.resolved(state) { DeviceListView.Loading })
@@ -106,7 +106,6 @@ class DeviceRulesTest {
 		val dropped = ChatState(gateways = GatewayRegistry(provenance = RegistryProvenance.Current, gateways = emptyList()))
 		assertNull(page.resolved(dropped) { DeviceListView.Listed(listOf(lamp), 1L) })
 		assertEquals(page, pageOf(pageWords(page)))
-		assertNull(assistantPageBack(page))
 	}
 
 	@Test

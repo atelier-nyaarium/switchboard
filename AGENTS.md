@@ -76,7 +76,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **An event is data, end to end:** `PendingDelivery` is a union of `MessageDelivery` and `EventDelivery`, and an event row holds no sender or reply route, so none can be read off it; the queue refuses an id held by the other arm. `ChannelPushPayload.event` carries it to the session, and `emitChannelNotification` gives it no sender, `session_id` or `meta.instructions`.
   - **The batch is composed where it is sent:** `deliverEvent` calls the wake's `compose` after `reach` and hands the result straight to the synchronous accept.
   - **The queue skips an event member it holds or emitted within the delivery TTL:** an event row carries its member keys, and `acknowledge` records them as emitted in the same write that retires it. `acceptEvent` drops a seen key and answers `seen` when nothing is left, so a retried or restarted push wakes nothing twice. A message duplicate is still offered again.
-- `android/.../AssistantOps.kt` / `AssistantHomeFence.kt` / `AssistantHomeRouter.kt` / `ConsoleClientAssistant.kt` / `AssistantRoot.kt` / `assistant/AssistantScreen.kt` / `assistant/AssistantFeaturesPage.kt` / `assistant/AssistantSourcePage.kt` / `assistant/InboxStrip.kt` / `assistant/IntegrationRows.kt` - the gateway calls, `sourcesOf`, the home's read, move, remove and seed, `inboxRows` and the health lines; the one writer of the home; the Router's home ops and their sealing; the landing fold, `isAssistant`, the enter, follow and leave rules, and the `AssistantPage` route; the root with no conversation, the settings index and its pages; the Features page; a service source's page; the conversation's inbox strip; the Sources view's service rows
+- `android/.../AssistantOps.kt` / `AssistantHomeFence.kt` / `AssistantHomeRouter.kt` / `ConsoleClientAssistant.kt` / `AssistantRoot.kt` / `assistant/AssistantScreen.kt` / `assistant/AssistantFeaturesPage.kt` / `assistant/AssistantSourcePage.kt` / `assistant/InboxStrip.kt` / `assistant/IntegrationRows.kt` - the gateway calls, `sourcesOf`, the home's read, move, remove and seed, `inboxRows` and the health lines; the one writer of the home; the Router's home ops and their sealing; the landing fold, `isAssistant`, and `ShellPage` with its resolve and keys; the root with no conversation, the settings index and its pages; the Features page; a service source's page; the conversation's inbox strip; the Sources view's service rows
   - **`sourcesOf` is the one reader of a Gateway's sources:** it takes `sources`, else an older Gateway's `watchers` converted. Only `carriedOf` reads `watchers` beside it, for an older Gateway's rules.
 - `src/shared/schemasIntegrations.ts` / `android/.../proto/IntegrationRegistry.kt` / `android/.../IntegrationRules.kt` / `assistant/IntegrationAddPage.kt` / `assistant/IntegrationEntryPage.kt` - the integrations catalogue: every brand, service and protocol declared once (group, discovery, needs, yields, capabilities, acts with a tier), its generated Kotlin twin, the phone's decisions over it, the Add page and an entry's page. `docs/devices.md` holds the design
   - **A catalogue entry the phone cannot draw does not compile:** the generated enums are closed, and each page's `when` over a group, a discovery mode, a need kind or a capability has no else branch. Device drivers and the grant-bearing service ids derive from the catalogue.
@@ -714,17 +714,24 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   `RootScreen.kt` / `ViewSwitch.kt` / `ShellOverlays.kt` - where the shell stands, the one menu, a
   session's view switch, a view filtered to a session, and what the shell draws over a screen
   (`Modals`, `OverlayRequests`). `docs/console.md` holds the whole of it
-  - **Where the shell stands is one `ShellNav` value, and every road through it is a transition:** the
-    open conversation, its view, its Files stack, a menu pick drawn over it, the root view, settings
-    and the thread's re-snap generation. `arrive` decides the view and the re-snap together from an
-    `Arrival`, so no road can land a conversation without deciding both.
+  - **Where the shell stands is one `ShellNav` value, read only through `drawn`:** a private
+    constructor, every transition a member (the assistant's enter and follow, the summon and the page
+    resolve included). It holds the root view beneath, the open conversation (its view, its Files
+    stack, whether it arrived as the assistant's, and a menu pick over it), settings, the page stack
+    and the re-snap generation. `drawn(ShellFacts)` answers one `Drawn` value, which the render, Back,
+    the summon, the menu and the home read take; `heldTeam` is the one raw read, for the facts
+    `drawn` needs. `arrive` decides the view and the re-snap together from an `Arrival`, so no road
+    can land a conversation without deciding both.
+  - **Pages are a stack, top last:** `push` ignores a repeat of the top, `replaceTop` swaps it, Back
+    pops, and an arrival or `toRoot` clears it. `resolvePages` resolves each page, drops the gone and
+    collapses adjacent repeats. No editor is a page.
   - **One menu, and `pick` is its one transition:** `MenuSheet` draws `RootView` in its order from
     every screen with a drawer. A session keeps only how it is shown (`ConversationView`: Chat,
     Terminal, Files), switched in its bar. A pick inside a session lands `over` it and Back returns
     to the session; Sessions and Assistant leave it.
   - **The menu's picks and its button run on the shell's scope:** a pick can swap the screen under
     the drawer, and a close launched by the screen that left would stop half way.
-  - **Back is ordered by what is drawn over what, never by when a handler composed:** `shellScreen` is
+  - **Back is ordered by what is drawn over what, never by when a handler composed:** `drawn` is
     the one order the render and `backLayer` both read, and `App` holds the only shell `BackHandler`.
     Nothing draws over the lock: `ShellOverlays` draws everything the shell composes over a screen
     (the queue, the viewer, the link, row and forget dialogues, the entry dialogues, the request
@@ -738,7 +745,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     drawer left open never reappears open.
   - **A filtered view is the root's view with a `ViewScope.Session`:** its Gateway for Runbooks and
     Policies, its spawn point for Routines, its own requests and grants for Vault. A pick over a
-    session arrives filtered and `FilterRow` clears it; Sources and Automations take no filter and
+    session arrives filtered and `FilterRow` clears it; `Over` is the one rule for whether it filters
+    and its scope. Sources, Automations and the assistant's session take no filter, and the first two
     list the session's Gateway first (`leading`). The filters are pure functions in `ViewScope.kt`,
     tested there; a screen takes the scope and asks.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state, and `deleteWhenDurable`, the one road a file is deleted by

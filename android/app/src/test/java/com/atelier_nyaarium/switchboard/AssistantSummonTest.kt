@@ -24,13 +24,26 @@ class AssistantSummonTest {
 		AssistantHomeReport(version = 1L, gatewayId = gatewayId, outcome = "placed"),
 	)
 
+	private fun drawn(nav: ShellNav) = nav.drawn(
+		ShellFacts(
+			editorOpen = false,
+			locked = false,
+			overlayOpen = false,
+			booted = true,
+			drawerOpen = false,
+			offeredRoot = rootViews(DrawerFeatures(board = true, vault = true)),
+			offeredConversation = nav.heldTeam?.let { facts(it).offered }.orEmpty(),
+			assistantOpen = nav.heldTeam == assistant,
+		),
+	)
+
 	private fun shown(
 		nav: ShellNav,
 		root: AssistantRoot,
-		screen: ShellScreen = shellScreen(nav, false, false, true),
+		screen: Drawn = drawn(nav),
 		composerShown: Boolean = true,
 		covered: Boolean = false,
-	) = summonShown(screen, nav, nav.conversation?.team == assistant, nav.conversation?.view, root, composerShown, covered)
+	) = summonShown(screen, root, composerShown, covered)
 
 	@Test
 	fun aRestoredOrFromHistoryLaunchReplaysNothing() {
@@ -109,10 +122,10 @@ class AssistantSummonTest {
 		val moving = state(AssistantHome.Read(AssistantHomeRecord(version = 2L, gatewayId = "sakura"), null))
 		assertEquals(SummonLanding.Root, summonLanding(moving, assistantRoot(moving), null))
 
-		val configure = ShellNav(root = RootView.SESSIONS).summonedTo(SummonLanding.Configure, facts)
-		assertEquals(RootView.ASSISTANT, configure.root)
-		assertEquals(AssistantPage.Settings, configure.assistantPage)
-		assertEquals(ConversationView.CHAT, ShellNav().summonedTo(SummonLanding.At(assistant), facts).conversation?.view)
+		val configure = ShellNav().summonedTo(SummonLanding.Configure, facts)
+		assertEquals(Drawn.Page(ShellPage.Settings, overAssistant = false), drawn(configure))
+		assertEquals(Drawn.Root(RootView.ASSISTANT, null), drawn(configure.pop()))
+		assertEquals(ConversationView.CHAT, (drawn(ShellNav().summonedTo(SummonLanding.At(assistant), facts)) as Drawn.Conversation).view)
 	}
 
 	@Test
@@ -128,7 +141,7 @@ class AssistantSummonTest {
 		val nav = ShellNav().summonedTo(SummonLanding.At(assistant), facts)
 		val chat = shown(nav, AssistantRoot.Placed(assistant))
 		assertEquals(SummonShown.ASSISTANT_CHAT, chat)
-		assertEquals(SummonShown.WAITING, shown(nav, AssistantRoot.Placed(assistant), ShellScreen.LOCK))
+		assertEquals(SummonShown.WAITING, shown(nav, AssistantRoot.Placed(assistant), Drawn.Lock))
 
 		assertEquals(FocusStep.WAIT, focusStep(routed, chat, windowFocused = true, resumed = true))
 		val armed = routed.dismissed()

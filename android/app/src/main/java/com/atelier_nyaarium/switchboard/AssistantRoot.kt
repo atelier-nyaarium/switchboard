@@ -104,114 +104,100 @@ internal fun homeUnsettled(state: ChatState): Boolean = (state.assistantHome as?
 internal fun assistantLeft(state: ChatState, gatewayId: String): Boolean =
 	state.assistantHome is AssistantHome.Read && assistantGateway(state) != gatewayId
 
-/** Placed entry preserves pages. */
-internal fun ShellNav.enterAssistant(root: AssistantRoot, facts: (String) -> ArrivalFacts): ShellNav {
-	if (this.root != RootView.ASSISTANT || conversation != null || settings != null) return this
-	val placed = root as? AssistantRoot.Placed ?: return this
-	return arriveAt(placed.team, assistant = true, Arrival.OUTSIDE, facts(placed.team)).copy(assistantPage = assistantPage)
-}
+/** A page over the shell, on its stack. */
+internal sealed interface ShellPage {
+	data object Settings : ShellPage
 
-/** Pages overlay the shell. */
-internal sealed interface AssistantPage {
-	data object Settings : AssistantPage
+	data object Location : ShellPage
 
-	data object Location : AssistantPage
+	data object Features : ShellPage
 
-	data object Features : AssistantPage
-
-	data object Safety : AssistantPage
+	data object Safety : ShellPage
 
 	/** The catalogue. */
-	data object Add : AssistantPage
+	data object Add : ShellPage
 
 	/** One catalogue entry on one Gateway. */
-	data class Entry(val gatewayId: String, val integrationId: String) : AssistantPage
+	data class Entry(val gatewayId: String, val integrationId: String) : ShellPage
 
 	/** A fresh device's setup, run by the phone. */
-	data class Setup(val gatewayId: String, val integrationId: String) : AssistantPage
+	data class Setup(val gatewayId: String, val integrationId: String) : ShellPage
 
-	data class Device(val gatewayId: String, val deviceId: String) : AssistantPage
+	data class Device(val gatewayId: String, val deviceId: String) : ShellPage
 
-	data class Source(val gatewayId: String, val sourceId: String) : AssistantPage
+	data class Source(val gatewayId: String, val sourceId: String) : ShellPage
+
+	/** The automations one source triggers. */
+	data class SourceAutomations(val gatewayId: String, val sourceId: String) : ShellPage
 }
 
 /** The assistant's own pages, not a Sources or Automations child. */
-internal val AssistantPage.own: Boolean
-	get() = this == AssistantPage.Settings || this == AssistantPage.Location || this == AssistantPage.Features ||
-		this == AssistantPage.Safety
+internal val ShellPage.own: Boolean
+	get() = this == ShellPage.Settings || this == ShellPage.Location || this == ShellPage.Features ||
+		this == ShellPage.Safety
 
-/** Null closes the pages onto the view beneath. */
-internal fun assistantPageBack(page: AssistantPage): AssistantPage? = when (page) {
-	AssistantPage.Settings, AssistantPage.Add -> null
-	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety -> AssistantPage.Settings
-	is AssistantPage.Entry -> AssistantPage.Add
-	is AssistantPage.Setup -> AssistantPage.Entry(page.gatewayId, page.integrationId)
-	is AssistantPage.Device, is AssistantPage.Source -> null
+/** Only answers unwind pages. Null closes it. */
+internal fun ShellPage.resolved(state: ChatState, devices: (String) -> DeviceListView? = { null }): ShellPage? = when (this) {
+	ShellPage.Settings, ShellPage.Location, ShellPage.Features, ShellPage.Safety, ShellPage.Add -> this
+	is ShellPage.Entry -> when {
+		assistantLeft(state, gatewayId) -> null
+		catalogued(integrationId) == null -> ShellPage.Add
+		state.gateways.assistantOn(gatewayId)?.offered?.let { integrationId !in it } == true -> ShellPage.Add
+		else -> this
+	}
+	is ShellPage.Setup -> when {
+		assistantLeft(state, gatewayId) -> null
+		catalogued(integrationId)?.setup == null -> ShellPage.Add
+		else -> this
+	}
+	is ShellPage.Device -> takeUnless { deviceGone(state, devices(gatewayId)) }
+	is ShellPage.Source -> takeUnless { sourceGone(state, gatewayId, sourceId) }
+	is ShellPage.SourceAutomations -> takeUnless { sourceGone(state, gatewayId, sourceId) }
 }
 
-/** Only answers unwind pages. Null closes them. */
-internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> DeviceListView? = { null }): AssistantPage? = when (this) {
-	AssistantPage.Settings, AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Add -> this
-	is AssistantPage.Entry -> when {
-		assistantLeft(state, gatewayId) -> null
-		catalogued(integrationId) == null -> AssistantPage.Add
-		state.gateways.assistantOn(gatewayId)?.offered?.let { integrationId !in it } == true -> AssistantPage.Add
-		else -> this
-	}
-	is AssistantPage.Setup -> when {
-		assistantLeft(state, gatewayId) -> null
-		catalogued(integrationId)?.setup == null -> AssistantPage.Add
-		else -> this
-	}
-	is AssistantPage.Device -> takeUnless { deviceGone(state, devices(gatewayId)) }
-	is AssistantPage.Source -> {
-		val answered = state.gateways.assistantOn(gatewayId)
-		takeUnless { assistantLeft(state, gatewayId) || (answered != null && sourcesOf(answered).none { it.id == sourceId }) }
-	}
+private fun sourceGone(state: ChatState, gatewayId: String, sourceId: String): Boolean {
+	val answered = state.gateways.assistantOn(gatewayId)
+	return assistantLeft(state, gatewayId) || (answered != null && sourcesOf(answered).none { it.id == sourceId })
 }
 
 /** Home moves keep it. */
-private fun AssistantPage.Device.deviceGone(state: ChatState, list: DeviceListView?): Boolean =
+private fun ShellPage.Device.deviceGone(state: ChatState, list: DeviceListView?): Boolean =
 	(state.gateways.current && !state.gateways.has(gatewayId)) ||
 		(list is DeviceListView.Listed && list.records.none { it.id == deviceId })
 
-internal fun ShellNav.resolvePage(state: ChatState, devices: (String) -> DeviceListView? = { null }): ShellNav {
-	val page = assistantPage ?: return this
-	val now = page.resolved(state, devices)
-	return if (now == page) this else copy(assistantPage = now)
+internal fun pageWords(page: ShellPage): List<String> = when (page) {
+	ShellPage.Settings -> listOf(PAGE_SETTINGS)
+	ShellPage.Location -> listOf(PAGE_LOCATION)
+	ShellPage.Features -> listOf(PAGE_FEATURES)
+	ShellPage.Safety -> listOf(PAGE_SAFETY)
+	ShellPage.Add -> listOf(PAGE_ADD)
+	is ShellPage.Entry -> listOf(PAGE_ENTRY, page.gatewayId, page.integrationId)
+	is ShellPage.Setup -> listOf(PAGE_SETUP, page.gatewayId, page.integrationId)
+	is ShellPage.Device -> listOf(PAGE_DEVICE, page.gatewayId, page.deviceId)
+	is ShellPage.Source -> listOf(PAGE_SOURCE, page.gatewayId, page.sourceId)
+	is ShellPage.SourceAutomations -> listOf(PAGE_SOURCE_AUTOMATIONS, page.gatewayId, page.sourceId)
 }
 
-internal fun pageWords(page: AssistantPage): List<String> = when (page) {
-	AssistantPage.Settings -> listOf(PAGE_SETTINGS)
-	AssistantPage.Location -> listOf(PAGE_LOCATION)
-	AssistantPage.Features -> listOf(PAGE_FEATURES)
-	AssistantPage.Safety -> listOf(PAGE_SAFETY)
-	AssistantPage.Add -> listOf(PAGE_ADD)
-	is AssistantPage.Entry -> listOf(PAGE_ENTRY, page.gatewayId, page.integrationId)
-	is AssistantPage.Setup -> listOf(PAGE_SETUP, page.gatewayId, page.integrationId)
-	is AssistantPage.Device -> listOf(PAGE_DEVICE, page.gatewayId, page.deviceId)
-	is AssistantPage.Source -> listOf(PAGE_SOURCE, page.gatewayId, page.sourceId)
-}
-
-internal fun pageOf(words: List<String>): AssistantPage? {
+internal fun pageOf(words: List<String>): ShellPage? {
 	val gatewayId = words.getOrNull(1)
 	val named = words.getOrNull(2)
 	return when (words.firstOrNull()) {
-		PAGE_SETTINGS -> AssistantPage.Settings
-		PAGE_LOCATION -> AssistantPage.Location
-		PAGE_FEATURES -> AssistantPage.Features
-		PAGE_SAFETY -> AssistantPage.Safety
-		PAGE_ADD -> AssistantPage.Add
-		PAGE_ENTRY -> if (gatewayId != null && named != null) AssistantPage.Entry(gatewayId, named) else null
-		PAGE_SETUP -> if (gatewayId != null && named != null) AssistantPage.Setup(gatewayId, named) else null
-		PAGE_DEVICE -> if (gatewayId != null && named != null) AssistantPage.Device(gatewayId, named) else null
-		PAGE_SOURCE -> if (gatewayId != null && named != null) AssistantPage.Source(gatewayId, named) else null
+		PAGE_SETTINGS -> ShellPage.Settings
+		PAGE_LOCATION -> ShellPage.Location
+		PAGE_FEATURES -> ShellPage.Features
+		PAGE_SAFETY -> ShellPage.Safety
+		PAGE_ADD -> ShellPage.Add
+		PAGE_ENTRY -> if (gatewayId != null && named != null) ShellPage.Entry(gatewayId, named) else null
+		PAGE_SETUP -> if (gatewayId != null && named != null) ShellPage.Setup(gatewayId, named) else null
+		PAGE_DEVICE -> if (gatewayId != null && named != null) ShellPage.Device(gatewayId, named) else null
+		PAGE_SOURCE -> if (gatewayId != null && named != null) ShellPage.Source(gatewayId, named) else null
+		PAGE_SOURCE_AUTOMATIONS -> if (gatewayId != null && named != null) ShellPage.SourceAutomations(gatewayId, named) else null
 		else -> null
 	}
 }
 
 /** Page keys stay unique. */
-internal fun pageKey(page: AssistantPage): String = pageWords(page).joinToString(Char(0x1e).toString())
+internal fun pageKey(page: ShellPage): String = pageWords(page).joinToString(Char(0x1e).toString())
 
 private const val PAGE_SETTINGS = "settings"
 private const val PAGE_LOCATION = "location"
@@ -222,16 +208,7 @@ private const val PAGE_ENTRY = "entry"
 private const val PAGE_SETUP = "setup"
 private const val PAGE_DEVICE = "device"
 private const val PAGE_SOURCE = "source"
-
-/** Moves retarget; a home elsewhere, nobody, or a refusal leaves. */
-internal fun ShellNav.followAssistant(root: AssistantRoot, state: ChatState): ShellNav {
-	val open = conversation?.takeIf { this.root == RootView.ASSISTANT } ?: return this
-	return when {
-		root is AssistantRoot.Placed -> if (root.team != open.team) retarget(root.team) else this
-		assistantLeft(state, gatewayOf(open.team)) || homeRefusal(state) != null -> leave()
-		else -> this
-	}
-}
+private const val PAGE_SOURCE_AUTOMATIONS = "source-automations"
 
 /** A thread found to be the assistant's leaves the tabs. */
 internal fun ChatState.withoutAssistantTabs(): ChatState {

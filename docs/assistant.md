@@ -69,7 +69,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
       (`docs/devices.md`).
     - **A service source's page:** Enabled with its health line; Secret with Assign secret; Produces,
       the event and its fields; Inbox with its count; Commands, its actions; "N use this source",
-      which opens Automations, for a source whose events can trigger one; the values seen outside
+      which opens a page listing those automations' sentences (`triggeredBy`), for a source whose
+      events can trigger one; the values seen outside
       its lists; and Retry when stopped.
     - **Automations:** one group per Gateway that lists any, the home first with its Assistant chip.
       Each row shows the Gateway's sentence, what it does, when it last ran or why it is invalid,

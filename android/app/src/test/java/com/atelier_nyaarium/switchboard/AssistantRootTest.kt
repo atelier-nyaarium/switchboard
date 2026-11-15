@@ -22,16 +22,22 @@ class AssistantRootTest {
 		)
 	}
 
-	private fun backFacts(nav: ShellNav) = BackFacts(
+	private fun shellFacts(nav: ShellNav) = ShellFacts(
 		editorOpen = false,
 		locked = false,
 		overlayOpen = false,
 		booted = true,
 		drawerOpen = false,
 		offeredRoot = rootViews(DrawerFeatures(true, true)),
-		offeredConversation = nav.conversation?.team?.let { facts(it).offered }.orEmpty(),
-		assistantOpen = nav.conversation?.team == assistant,
+		offeredConversation = nav.heldTeam?.let { facts(it).offered }.orEmpty(),
+		assistantOpen = nav.heldTeam == assistant,
 	)
+
+	private fun drawn(nav: ShellNav) = nav.drawn(shellFacts(nav))
+
+	/** The stack, top first. */
+	private fun pagesOf(nav: ShellNav): List<ShellPage> =
+		generateSequence(nav) { if (drawn(it) is Drawn.Page) it.pop() else null }.mapNotNull { (drawn(it) as? Drawn.Page)?.page }.toList()
 
 	private val github = AssistantWatcher(
 		id = "github",
@@ -64,20 +70,19 @@ class AssistantRootTest {
 
 	@Test
 	fun theAssistantArrivesUnderItsRootAndBackStepsTerminalChatSessions() {
-		val inTerminal = ShellNav(root = RootView.ROUTINES)
+		val inTerminal = ShellNav().showRoot(RootView.ROUTINES)
 			.arriveAt(assistant, assistant = true, Arrival.FILES_ASKED, facts(assistant), WorkspacePlace.Windows)
 			.showView(ConversationView.TERMINAL)
 
-		assertEquals(RootView.ASSISTANT, inTerminal.root)
-		assertEquals(listOf(WORKSPACE_ROOT), inTerminal.conversation?.files)
+		assertEquals(Drawn.Root(RootView.ASSISTANT, null), drawn(inTerminal.leave()))
+		assertEquals(listOf(WORKSPACE_ROOT), (drawn(inTerminal) as Drawn.Conversation).files)
 
-		val inChat = inTerminal.up(backFacts(inTerminal))
-		assertEquals(ConversationView.CHAT, inChat.conversation?.view)
+		val inChat = inTerminal.up(shellFacts(inTerminal))
+		assertEquals(ConversationView.CHAT, (drawn(inChat) as Drawn.Conversation).view)
 
-		val left = inChat.back(backLayer(inChat, backFacts(inChat))!!, backFacts(inChat), provisioned = true)
-		assertNull(left.conversation)
-		assertEquals(RootView.SESSIONS, left.root)
-		assertEquals(left, inChat.up(backFacts(inChat)))
+		val left = inChat.back(backLayer(inChat, shellFacts(inChat))!!, shellFacts(inChat), provisioned = true)
+		assertEquals(Drawn.Root(RootView.SESSIONS, null), drawn(left))
+		assertEquals(left, inChat.up(shellFacts(inChat)))
 	}
 
 	@Test
@@ -86,8 +91,8 @@ class AssistantRootTest {
 			.arriveAt(session, false, Arrival.OUTSIDE, facts(session))
 			.showView(ConversationView.TERMINAL)
 
-		assertEquals(RootView.SESSIONS, nav.root)
-		assertNull(nav.up(backFacts(nav)).conversation)
+		assertEquals(Drawn.Root(RootView.SESSIONS, null), drawn(nav.leave()))
+		assertNull(nav.up(shellFacts(nav)).heldTeam)
 	}
 
 	@Test
@@ -178,11 +183,10 @@ class AssistantRootTest {
 		val placed = homeAt("mikan", "sakura")
 		val moved = "dom.mikan.host.assistant"
 
-		assertEquals(moved, open.followAssistant(assistantRoot(placed), placed).conversation?.team)
+		assertEquals(moved, open.followAssistant(assistantRoot(placed), placed).heldTeam)
 
 		val elsewhere = open.followAssistant(AssistantRoot.HomeUnreachable("sakura"), placed)
-		assertNull(elsewhere.conversation)
-		assertEquals(RootView.ASSISTANT, elsewhere.root)
+		assertEquals(Drawn.Root(RootView.ASSISTANT, null), drawn(elsewhere))
 
 		// An unreachable home it still names keeps the thread.
 		assertEquals(open, open.followAssistant(AssistantRoot.HomeUnreachable("sakura"), homeAt("sakura")))
@@ -195,13 +199,12 @@ class AssistantRootTest {
 		)
 		val failed = assistantRoot(refused)
 		assertEquals(AssistantRoot.Failed("bad folder"), failed)
-		assertNull(open.followAssistant(failed, refused).conversation)
+		assertNull(open.followAssistant(failed, refused).heldTeam)
 		assertEquals(open, open.followAssistant(AssistantRoot.Failed("put failed"), homeAt("sakura")))
 
 		val nobody = placed.copy(assistantHome = AssistantHome.Read(AssistantHomeRecord(2L, null), null))
 		val left = open.followAssistant(AssistantRoot.SetUp, nobody)
-		assertNull(left.conversation)
-		assertEquals(RootView.ASSISTANT, left.root)
+		assertEquals(Drawn.Root(RootView.ASSISTANT, null), drawn(left))
 
 		val aSession = ShellNav().arriveAt(session, false, Arrival.OUTSIDE, facts(session))
 		assertEquals(aSession, aSession.followAssistant(AssistantRoot.Placed(moved), placed))
@@ -227,28 +230,42 @@ class AssistantRootTest {
 	@Test
 	fun aSourcePageClosesOverAMoveOntoTheRetargetedConversation() {
 		val rules = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
-			.openAssistantPage(AssistantPage.Source("sakura", "github"))
+			.push(ShellPage.Source("sakura", "github"))
 		val moved = placedOn("mikan", "sakura").withWord("sakura", holdsNone)
 
-		val after = rules.followAssistant(assistantRoot(moved), moved).resolvePage(moved)
+		val after = rules.followAssistant(assistantRoot(moved), moved).resolvePages(moved)
 
-		assertNull(after.assistantPage)
-		assertEquals("dom.mikan.host.assistant", after.conversation?.team)
+		assertEquals("dom.mikan.host.assistant", (drawn(after) as Drawn.Conversation).team)
 	}
 
 	@Test
 	fun aPageClosesOverRemoveOntoTheRoot() {
 		val editor = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
-			.openAssistantPage(AssistantPage.Source("sakura", "github"))
+			.push(ShellPage.Source("sakura", "github"))
 		val removed = homeAt("sakura").copy(
 			assistantHome = AssistantHome.Read(AssistantHomeRecord(2L, null), null),
 		)
 
-		val after = editor.followAssistant(assistantRoot(removed), removed).resolvePage(removed)
+		val after = editor.followAssistant(assistantRoot(removed), removed).resolvePages(removed)
 
-		assertNull(after.assistantPage)
-		assertEquals(ShellScreen.ROOT, shellScreen(after, locked = false, overlayOpen = false, booted = true))
-		assertEquals(RootView.ASSISTANT, after.root)
+		assertEquals(Drawn.Root(RootView.ASSISTANT, null), drawn(after))
+	}
+
+	@Test
+	fun resolvingPagesDropsTheGoneAndCollapsesAdjacentRepeats() {
+		val entry = ShellPage.Entry("sakura", "kasa")
+		val source = ShellPage.Source("sakura", "github")
+		val stack = ShellNav().showRoot(RootView.SOURCES).push(ShellPage.Add).push(entry).push(source)
+		val placed = placedOn("sakura")
+		val unoffered = placed.withWord(
+			"sakura",
+			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", sources = emptyList(), offered = listOf("ifttt"))),
+		)
+
+		assertEquals(stack, stack.resolvePages(placed))
+		assertEquals(listOf(ShellPage.Add), pagesOf(stack.resolvePages(unoffered)))
+		assertEquals(listOf(ShellPage.Add), pagesOf(stack.resolvePages(placedOn("mikan", "sakura"))))
+		assertEquals(listOf(source, entry, ShellPage.Add), pagesOf(stack))
 	}
 
 	@Test
@@ -259,7 +276,7 @@ class AssistantRootTest {
 
 	@Test
 	fun anEntryPageStaysWhileUnansweredAndUnwindsToAddOnceTheGatewayStopsOfferingIt() {
-		val entry = AssistantPage.Entry("sakura", "kasa")
+		val entry = ShellPage.Entry("sakura", "kasa")
 		val placed = placedOn("sakura")
 		val offersIfttt = placed.withWord(
 			"sakura",
@@ -268,16 +285,15 @@ class AssistantRootTest {
 
 		assertEquals(entry, entry.resolved(placed))
 		assertEquals(entry, entry.resolved(placed.withWord("sakura", null)))
-		assertEquals(AssistantPage.Add, entry.resolved(offersIfttt))
-		assertEquals(AssistantPage.Add, AssistantPage.Entry("sakura", "zigbee").resolved(placed))
+		assertEquals(ShellPage.Add, entry.resolved(offersIfttt))
+		assertEquals(ShellPage.Add, ShellPage.Entry("sakura", "zigbee").resolved(placed))
 		assertNull(entry.resolved(placedOn("mikan", "sakura")))
-		assertEquals(AssistantPage.Add, assistantPageBack(entry))
-		assertNull(assistantPageBack(AssistantPage.Add))
 	}
 
 	@Test
 	fun aSourcePageStaysWhileItsGatewayIsUnansweredAndUnwindsWhenTheSourceIsGone() {
-		val source = AssistantPage.Source("sakura", "github")
+		val source = ShellPage.Source("sakura", "github")
+		val itsAutomations = ShellPage.SourceAutomations("sakura", "github")
 		val placed = placedOn("sakura")
 		val noSource = placed.withWord(
 			"sakura",
@@ -289,6 +305,8 @@ class AssistantRootTest {
 		assertEquals(source, source.resolved(placed.withWord("sakura", AssistantWord.Refused)))
 		assertNull(source.resolved(noSource))
 		assertNull(source.resolved(placedOn("mikan", "sakura")))
+		assertEquals(itsAutomations, itsAutomations.resolved(placed))
+		assertNull(itsAutomations.resolved(noSource))
 
 		// An older Gateway's watchers read as sources.
 		val older = placed.withWord(
@@ -300,28 +318,28 @@ class AssistantRootTest {
 
 	@Test
 	fun placingFromConfigureEntersBeneathTheSettingsPage() {
-		val configuring = ShellNav(root = RootView.ASSISTANT).openAssistantPage(AssistantPage.Settings)
+		val configuring = ShellNav().showRoot(RootView.ASSISTANT).push(ShellPage.Settings)
 
 		val entered = configuring.enterAssistant(AssistantRoot.Placed(assistant), facts)
 
-		assertEquals(assistant, entered.conversation?.team)
-		assertEquals(AssistantPage.Settings, entered.assistantPage)
+		assertEquals(Drawn.Page(ShellPage.Settings, overAssistant = true), drawn(entered))
+		assertEquals(assistant, (drawn(entered.pop()) as Drawn.Conversation).team)
 	}
 
 	@Test
 	fun entryWaitsWhileSettingsIsOpen() {
-		val inSettings = ShellNav(root = RootView.ASSISTANT).openSettings()
+		val inSettings = ShellNav().showRoot(RootView.ASSISTANT).openSettings()
 
 		assertEquals(inSettings, inSettings.enterAssistant(AssistantRoot.Placed(assistant), facts))
 	}
 
 	@Test
 	fun theAssistantRootEntersOnceWithoutBouncingBackIn() {
-		val root = ShellNav(root = RootView.ASSISTANT)
+		val root = ShellNav().showRoot(RootView.ASSISTANT)
 		val entered = root.enterAssistant(AssistantRoot.Placed(assistant), facts)
-		assertEquals(assistant, entered.conversation?.team)
+		assertEquals(assistant, entered.heldTeam)
 
-		val left = entered.back(BackLayer.CONVERSATION, backFacts(entered), provisioned = true)
+		val left = entered.back(BackLayer.CONVERSATION, shellFacts(entered), provisioned = true)
 		assertEquals(left, left.enterAssistant(AssistantRoot.Placed(assistant), facts))
 	}
 

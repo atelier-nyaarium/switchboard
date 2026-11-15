@@ -463,21 +463,25 @@ no TTL.
 - **The Assistant view** (`AssistantOps.kt`, `AssistantHomeFence.kt`, `AssistantRoot.kt`,
   `AutomationOps.kt`, `assistant/AssistantScreen.kt`, `assistant/AssistantSourcesPage.kt`,
   `assistant/AssistantSourcePage.kt`, `assistant/AutomationsPage.kt`,
-  `assistant/AutomationDraft.kt`): the landing fold over the Router's home record and the rules that
-  enter, follow and leave the assistant's conversation, and the root with no conversation
+  `assistant/AutomationDraft.kt`): the landing fold over the Router's home record and the rules
+  `ShellNav.enterAssistant` and `followAssistant` read, and the root with no conversation
   (`AssistantRootScreen`). The conversation is the usual thread screen, drawn from `ThreadChrome`.
   Every write to the home lands through `AssistantHomeFence`. `sourcesOf` is the one reader of a
   Gateway's sources: `sources`, else an older Gateway's `watchers`, until 2026-11-28.
-  - **Its pages are one route on `ShellNav`:** `assistantPage` holds Settings and its index pages
-    (Location, Features, Safety), and the pages the Sources view opens: Add, an Entry, a Setup, a
-    Device and a Source. The automation editor is an editor, not a page. They draw in their own
-    `ShellScreen` slot above whatever opened them, with their own `BackLayer`. Back walks
-    `assistantPageBack`: a Setup to its Entry, an Entry to Add, an index page to Settings, and
-    every other page closes onto what lies beneath; `arrive` clears them. `AssistantPage.resolved`
-    unwinds only on an answer, never on a missing one: a Source, a Device or the editor closes when
-    its Gateway stops holding it, and an Entry or a Setup falls to Add or closes. The inbox strip's
-    Settings opens the source's page directly, and its Back returns to the conversation. A page's
-    exit to a root view (`toRoot`) closes the pages and picks that view.
+  - **Its pages are a stack on `ShellNav`, top last:** `ShellPage` covers Settings and its index
+    pages (Location, Features, Safety), and the pages the Sources view opens: Add, an Entry, a Setup,
+    a Device, a Source and a source's automations. The automation editor is an editor, not a page.
+    The top draws as `Drawn.Page` above whatever opened it, with its own `BackLayer`. A page opens
+    the next with `push`, which ignores a repeat of the top; a Setup's finished device replaces it
+    (`replaceTop`). Back pops, so every page returns to the one that opened it, and the last onto
+    what lies beneath; `arrive` clears the stack. `resolvePages` resolves each page through
+    `ShellPage.resolved`, drops the ones that answer null and collapses adjacent repeats. A page
+    unwinds only on an answer, never on a missing one: a Source, its automations or a Device closes
+    when its Gateway stops holding it, and an Entry or a Setup falls to Add or closes. The inbox
+    strip's Settings opens the source's page directly, and its Back returns to the conversation. A
+    source's "N use this source" pushes the page listing those automations. A page's exit to a root
+    view (`toRoot`) clears the stack and picks that view. The stack survives recreation, the
+    conversation does not, so a restored page lies over the root view.
   - **Leaving an edit page asks first** (`EditorSessions.kt`, `EditorScaffold.kt`): the runbook,
     routine, policy and automation editors each hold their edit in an `EditorSessions` on their ops
     class. The system Back and the automation editor's arrow call `askLeave` under the shell's one
@@ -516,16 +520,23 @@ no TTL.
   three groups: Sessions, Assistant, Backlog; Sources, Automations, Routines, Runbooks; Vault,
   Policies, Console; then Settings. A session shows Chat, Terminal or Files, switched in its bar
   (`ViewSwitch`); the assistant has no Files. `pick` is the menu's one transition: at the root it
-  shows the view; inside a session Sessions and Assistant leave it, and any other view lands `over`
-  the session, drawn by the root screen with a back arrow, and Back returns to the session.
+  shows the view; inside a session Sessions and Assistant leave it, and any other view lands over
+  the session, drawn by the root screen with a back arrow, and Back returns to the session. The pick
+  lives inside the conversation's record (`ConversationNav.over`), so a pick with no session cannot
+  be held, and `Drawn.Root` carries it as an `Over`: the session, whether the view takes it as a
+  filter, and the `ViewScope`.
   A swipe opens the drawer from the edge the swipe moves away from, and the menu button
   sits on, and opens from, the side `DrawerSide` names, left unless right was stored. `SideDrawers` is
   one anchored state over both edges (`drawerAnchors`), since Material's drawer drags from one edge and
   two nested ones swallow each other's swipe. A swipe claims it only past twice the touch slop and
   within about 22 degrees of horizontal (`swipeClaim`), so a scroll's drift stays a scroll, and a
-  release settles by `releasedSlot`. Where the shell stands is one `ShellNav` value,
-  and every road through it is a transition: `arrive` decides the view and whether the thread re-snaps
-  (`Arrival` names the road), and the conversation carries its own Files stack. Every road that lands
+  release settles by `releasedSlot`. Where the shell stands is one `ShellNav` value
+  with a private constructor, and every road through it is a member: `arrive` decides the view and
+  whether the thread re-snaps (`Arrival` names the road), and the conversation carries its own Files
+  stack. `drawn(ShellFacts)` is the one reading of what is on screen; nothing outside `ShellNav.kt`
+  reads a field but `heldTeam`, the session drawn or beneath a pick or a page. The assistant's
+  conversation is tagged when it arrives as the assistant's, and only a tagged conversation follows
+  the home (`followAssistant`). Every road that lands
   somewhere first clears what draws above the shell (`dismissForArrival`): the modals as one
   `Modals` value, the shown editor through `Editors.hideAll`, and the viewer, menus and queue
   through `OverlayRequests.close`. A vault request's sheet is the exception, since it opens over
@@ -533,10 +544,10 @@ no TTL.
   bus (`WorkspaceOpenBus`, `SummonBus`) is taken only by a resumed window, since a picker can leave a
   stopped `MainActivity` beneath a second one.
 
-  **Back is ordered by what is drawn over what.** `shellScreen` is the one order the render and
+  **Back is ordered by what is drawn over what.** `drawn` is the one order the render and
   `backLayer` both read; `App` holds the only shell `BackHandler` and dispatches the layer it names
-  (editor, overlay, settings, drawer, a pick over a session, Files stack, view, conversation, root
-  view). `back-handler-residue.test.ts` refuses a handler anywhere else but the two full screens it
+  (editor, overlay, settings, page, drawer, a pick over a session, Files stack, view, conversation,
+  root view). `back-handler-residue.test.ts` refuses a handler anywhere else but the two full screens it
   names, since a handler wins by when it composed rather than by what it closes. The drawer is one
   state: every arrival closes it (`dismissForArrival`), and so does a screen without it, so a
   drawer left open never reappears open. The menu's picks and its button run on the shell's scope,
