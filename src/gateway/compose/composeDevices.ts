@@ -2,6 +2,7 @@ import type { Ambient } from "../../shared/ambient.js";
 import { type Advert, familyOf, unsupported } from "../../shared/ble-recognition.js";
 import { definitionOf, identifies, SHIPPED_DEFINITIONS } from "../../shared/device-definitions/index.js";
 import { type FieldRef, refKey } from "../../shared/expressions.js";
+import { toDisplay } from "../../shared/field-types.js";
 import { formatFieldValue } from "../../shared/field-values.js";
 import type { TemperatureUnit } from "../../shared/schemasAssistant.js";
 import { type DeviceWatchEntry, DeviceWatchFrameSchema } from "../../shared/schemasDeviceBluetooth.js";
@@ -167,9 +168,13 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		if (record?.kind !== "sensor" || !record.definition) return null;
 		const spec = definitionOf(record.definition)?.readings.find((reading) => reading.key === measure)?.spec;
 		if (spec?.kind !== "number") return null;
+		const display = () => deps.temperatureUnit?.() ?? "C";
 		return {
 			label: `${record.name} ${spec.label.toLowerCase()}`,
-			shown: (value) => formatFieldValue(spec, value, deps.temperatureUnit?.() ?? "C"),
+			device: record.name,
+			measure: spec.label,
+			shown: (value) => formatFieldValue(spec, value, display()),
+			inUnit: (value) => (spec.unit ? toDisplay(value, spec.unit, display()).value : value),
 			now: () => {
 				const held = sensorInput({ source: "device", device, key: measure })?.value;
 				return held?.known && typeof held.value === "number" ? held.value : null;

@@ -6,6 +6,8 @@ import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { createAutomations } from "../gateway/computed/automations.js";
 import { createComputedFields } from "../gateway/computed/computedFields.js";
 import { thresholdAutomations, thresholdIds } from "../gateway/computed/thresholds.js";
+import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { openDurable } from "../shared/durable-store.js";
 import { known, refKey, type Value } from "../shared/expressions.js";
 import type { Automation } from "../shared/schemasAutomation.js";
@@ -16,6 +18,7 @@ afterEach(() => {
 });
 
 const FREEZER = "ce:1c:44:06:3c:5d";
+const REGISTRY = createConsoleRegistry([]);
 const TEMP = refKey({ source: "device", device: FREEZER, key: "temperature" });
 
 function world() {
@@ -50,11 +53,18 @@ function world() {
 				newIncarnation: () => `a${++n}`,
 				now: () => clock,
 				isHome: () => true,
+				holes: () => ({
+					issue: (text, names) => holeIssue(text, names, REGISTRY),
+					fill: (text, names) => fillHoles(text, names, REGISTRY),
+				}),
 				reading: (device, measure) =>
 					device === FREEZER && measure === "temperature"
 						? {
 								label: "Freezer temperature",
+								device: "Freezer",
+								measure: "Temperature",
 								shown: (value) => `${value} C`,
+								inUnit: (value) => value,
 								now: () => {
 									const held = readings.get(TEMP);
 									return held?.known && typeof held.value === "number" ? held.value : null;
@@ -71,11 +81,13 @@ function world() {
 		readings.set(TEMP, known(value));
 		fields.inputsChanged([TEMP]);
 	};
-	const told = async () => {
+	const polled = async () => {
 		const poll = await createOutboxSource(opened.outbox).poll(null, new AbortController().signal);
-		return poll.kind === "events" ? poll.events.map((event) => [event.title, event.fields.value]) : [];
+		return poll.kind === "events" ? poll.events : [];
 	};
-	return { automations: opened, fields, read, told };
+	const told = async () => (await polled()).map((event) => [event.title, event.fields.value]);
+	const messages = async () => (await polled()).map((event) => [event.fields.message, event.tell]);
+	return { automations: opened, fields, read, told, messages };
 }
 
 const above = (over: Partial<Automation> = {}, threshold = -10): Automation => ({
@@ -120,6 +132,45 @@ describe("a crossing", () => {
 		read(-3);
 
 		expect(await told()).toEqual([]);
+	});
+
+	it("tells its message with each hole filled from what fired, and a message with no hole in the firing's own write", async () => {
+		const { automations, read, messages } = world();
+		const filled = "It is {value} on {device}, past {threshold}: {round(value) < 0}";
+		automations.ownerPut(
+			"holes",
+			above({ actions: [{ kind: "tell_assistant", when: "now", message: filled }] }),
+			0,
+		);
+		automations.ownerPut(
+			"plain",
+			above({ actions: [{ kind: "tell_assistant", when: "quietly", message: "Check the freezer \\{door\\}" }] }),
+			0,
+		);
+
+		read(-5);
+		const atOnce = await messages();
+		await automations.settled();
+
+		expect(atOnce).toEqual([["Check the freezer {door}", "quietly"]]);
+		expect(await messages()).toEqual([
+			["Check the freezer {door}", "quietly"],
+			["It is -5 C on Freezer, past -10 C: yes", "now"],
+		]);
+	});
+
+	it("refuses at save a message whose hole names nothing here, with the span to mark", () => {
+		const { automations } = world();
+		const message = "It is {temperature} now";
+
+		const refused = automations.ownerPut(
+			"holes",
+			above({ actions: [{ kind: "tell_assistant", when: "now", message }] }),
+			0,
+		);
+
+		expect(refused).toMatchObject({ stored: false, hole: { action: 0, param: "message", start: 7, end: 18 } });
+		expect(message.slice(7, 18)).toBe("temperature");
 	});
 
 	it("refuses a number no sensor reads here, and names its sensor only under an alert's id", () => {

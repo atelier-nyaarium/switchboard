@@ -10,7 +10,6 @@ export class ConsoleError extends Error {
 	}
 }
 
-/** `none` is called by its name alone. */
 type Receiver = "list" | "object" | "collection" | "none";
 
 export interface Builtin {
@@ -19,7 +18,7 @@ export interface Builtin {
 	params: readonly { name: string; check: (value: unknown) => boolean; type: string; optional?: boolean }[];
 	returns: string;
 	description: string;
-	/** Reads only the arguments it needs. */
+	/** Evaluates arguments on demand. */
 	lazy?: boolean;
 	/** Receiver sets result type. */
 	type: (receiver: string | undefined) => string | undefined;
@@ -152,7 +151,6 @@ const FREE = new Map(
 	BUILTINS.filter((builtin) => builtin.receiver === "none").map((builtin) => [builtin.name, builtin]),
 );
 
-/** A builtin called by its name alone. */
 export const freeBuiltin = (name: string): Builtin | undefined => FREE.get(name);
 
 const arity = ({ name, params }: Builtin): string => {
@@ -161,7 +159,6 @@ const arity = ({ name, params }: Builtin): string => {
 	return `${name}() takes ${range} argument${params.length === 1 ? "" : "s"}`;
 };
 
-/** Argument count and kinds. */
 export function checkArgs(builtin: Builtin, args: readonly unknown[]): void {
 	const required = builtin.params.filter((param) => !param.optional).length;
 	if (args.length < required || args.length > builtin.params.length) {

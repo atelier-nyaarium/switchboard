@@ -265,11 +265,17 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const arrived = (sourceId: string, events: readonly SourceEvent[]): void => {
 		const specs = specsOf(sourceId) ?? [];
 		const armed = automations?.eventsOf(sourceId) ?? [];
-		const matched = events.flatMap((event) =>
-			armed
-				.filter(({ trigger }) => conditionsMatch(trigger.conditions, specs, event.fields))
-				.map(({ id }) => ({ automation: id, member: `event:${sourceId}:${event.id}:${id}` })),
-		);
+		const label = sources.find((source) => source.id === sourceId)?.label ?? sourceId;
+		const matched = events.flatMap((event) => {
+			const { id, title, url, fields } = event;
+			const names = {
+				event: { value: { ...fields, id, title, ...(url ? { url } : {}) }, shown: title },
+				source: { value: label },
+			};
+			return armed
+				.filter(({ trigger }) => conditionsMatch(trigger.conditions, specs, fields))
+				.map((held) => ({ automation: held.id, key: `event:${sourceId}:${id}`, names }));
+		});
 		automations?.fireEvents(matched, ambient.now());
 	};
 	const eventIssue = (trigger: EventTrigger): string | null => {

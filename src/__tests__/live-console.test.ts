@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ConsoleError } from "../gateway/liveConsole/builtins.js";
 import { type ConsoleResult, type ConsoleStatementResult, evaluateConsole } from "../gateway/liveConsole/evaluate.js";
+import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { type ConsoleEntity, createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { renderConsoleIssue, renderConsoleValue } from "../gateway/liveConsole/render.js";
 import { CONSOLE_SOURCE_MAX, parseConsole } from "../shared/live-console-grammar.js";
@@ -276,6 +277,59 @@ describe("live console evaluation", () => {
 			},
 		};
 		expect(() => createConsoleRegistry([broken])).toThrow();
+	});
+});
+
+describe("holes in an automation's text", () => {
+	const slow: ConsoleEntity = {
+		name: "radio",
+		description: "Slow reads.",
+		audiences: ["host", "owner"],
+		members: {
+			listen: {
+				kind: "method",
+				description: "Listens.",
+				params: [],
+				returns: "List",
+				slow: true,
+				call: () => [],
+			},
+		},
+	};
+	const scope = createConsoleRegistry([sensors, slow]);
+	const names = { value: { value: 1.84, shown: "1.8 C" }, device: { value: "Outside" } };
+
+	it("refuses at save a hole that is open, does not parse, holds two statements, names nothing here or reads a slow member, with its span", () => {
+		const at = (text: string) => {
+			const issue = holeIssue(text, ["value", "device"], scope);
+			return issue && text.slice(issue.start, issue.end);
+		};
+
+		expect(at("It is {value} at {device}, {round(value, 1)} and {sensors.list.count()}.")).toBeNull();
+		expect(at("a \\{not a hole\\} b")).toBeNull();
+		expect(at("It is {value")).toBe("{value");
+		expect(holeIssue("It is {value +} now", ["value"], scope)).toMatchObject({ start: 14, end: 14 });
+		expect(at("It is {a = 1} now")).toBe("{a = 1}");
+		expect(at("It is {value; device} now")).toBe("{value; device}");
+		expect(at("It is {temperature} now")).toBe("temperature");
+		expect(at("It is {shout(value)} now")).toBe("shout");
+		expect(at("It is {radio.listen()} now")).toBe("radio.listen()");
+		expect(at("It is {} now")).toBe("{}");
+	});
+
+	it("fills a name alone with its shown form, any other expression as one line, and a hole that fails with {?}", async () => {
+		const fill = async (text: string) => fillHoles(text, names, scope);
+
+		expect(await fill("It is {value} at {device}.")).toEqual({ text: "It is 1.8 C at Outside.", failed: 0 });
+		expect(await fill("{ value } is {round(value, 1)}; cold: {value < 2}")).toEqual({
+			text: "1.8 C is 1.8; cold: yes",
+			failed: 0,
+		});
+		expect(await fill('{sensors.read("Freezer").name} \\{kept\\}')).toEqual({ text: "Freezer {kept}", failed: 0 });
+		expect(await fill("{sensors.list} {missing} {radio.listen()} {value")).toEqual({
+			text: "{?} {?} {?} {?}",
+			failed: 4,
+		});
 	});
 });
 

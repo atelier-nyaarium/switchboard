@@ -30,6 +30,7 @@
 		"self-revocation",
 		"session-id",
 		"sync-cursor",
+		"text-holes",
 		"transport-request",
 		"versioned-list",
 		"versioned-slot",

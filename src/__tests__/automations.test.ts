@@ -6,10 +6,13 @@ import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { PollAnswerSchema, told } from "../gateway/assistant/source.js";
 import { createAutomations } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
+import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { openDurable } from "../shared/durable-store.js";
 import { type FieldRef, known, refKey, unknown, type Value } from "../shared/expressions.js";
 import { AUTOMATIONS_MAX, type Automation, type ValueTrigger } from "../shared/schemasAutomation.js";
 
+const REGISTRY = createConsoleRegistry([]);
 const roots: string[] = [];
 afterEach(() => {
 	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
@@ -87,6 +90,10 @@ function world(dir: string, home = true) {
 					isHome: () => home,
 					onQueued: () => pokes++,
 					eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
+					holes: () => ({
+						issue: (text, names) => holeIssue(text, names, REGISTRY),
+						fill: (text, names) => fillHoles(text, names, REGISTRY),
+					}),
 					actions: {
 						switchName: (device) => (switches.includes(device) ? "Heater" : null),
 						deviceSet: async (device, verb) => {
@@ -553,7 +560,7 @@ describe("automations", () => {
 		};
 		const elsewhere = { ...onMention, actions: [{ kind: "device_set", device: "lamp", verb: "on" }] };
 		automations.ownerPut("flash", onMention, 0);
-		const matched = [{ automation: "flash", member: "event:github:1:flash" }];
+		const matched = [{ automation: "flash", key: "event:github:1", names: {} }];
 
 		automations.fireEvents(matched, 5_000);
 		automations.fireEvents(matched, 6_000);
@@ -564,6 +571,40 @@ describe("automations", () => {
 		expect(w.effects).toEqual(["plug:toggle"]);
 		expect(refused.stored).toBe(false);
 		expect(automations.rows().map((row) => [row.id, row.invalid !== undefined])).toEqual([["flash", true]]);
+	});
+
+	it("tells an event's message through the outbox with the event's names, and leaves only a tell with no message to the source's lane", async () => {
+		const w = world(fresh());
+		const { automations } = w.open();
+		const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
+		const messaged: Automation = {
+			enabled: true,
+			trigger: event,
+			actions: [{ kind: "tell_assistant", when: "now", message: "{event.reason} on {source}: {event}" }],
+		};
+		const plain: Automation = { enabled: true, trigger: event, actions: [{ kind: "tell_assistant", when: "now" }] };
+		automations.ownerPut("messaged", messaged, 0);
+		automations.ownerPut("plain", plain, 0);
+		const names = {
+			event: { value: { reason: "mention", title: "Fix the build" }, shown: "Fix the build" },
+			source: { value: "GitHub" },
+		};
+
+		automations.fireEvents(
+			["messaged", "plain"].map((automation) => ({ automation, key: "event:github:7", names })),
+			5_000,
+		);
+		await automations.settled();
+		const answer = await polled(automations);
+		const events = answer.kind === "events" ? answer.events : [];
+
+		expect(automations.eventsOf("github").map(({ id, when }) => [id, when])).toEqual([
+			["messaged", null],
+			["plain", "now"],
+		]);
+		expect(events.map((told) => [told.fields.message, told.fields.event, told.tell])).toEqual([
+			["mention on GitHub: Fix the build", "Fix the build", "now"],
+		]);
 	});
 
 	it("refuses a trigger value the field cannot take, and reads a stored one invalid once its field changes", () => {

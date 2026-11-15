@@ -2545,6 +2545,8 @@ sealed class AutomationAction {
 	@SerialName("tell_assistant")
 	data class TellAssistant(
 		val `when`: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val message: String? = null,
 	) : AutomationAction()
 
 	@Serializable
@@ -2644,6 +2646,8 @@ data class ConsoleAutomationPutResult(
 	val reason: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val confirm: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val hole: AutomationHoleSpan? = null,
 )
 
 @Serializable
@@ -5084,6 +5088,14 @@ data class AssistantIntegration(
 	val id: String,
 	val label: String,
 	val grants: List<String>,
+)
+
+@Serializable
+data class AutomationHoleSpan(
+	val action: Long,
+	val param: String,
+	val start: Long,
+	val end: Long,
 )
 
 @Serializable

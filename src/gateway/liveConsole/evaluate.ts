@@ -33,6 +33,8 @@ export interface ConsoleEvalOptions {
 	stepsMax?: number;
 	/** Cross-call saved values. */
 	variables?: Readonly<Record<string, ConsoleVariable>>;
+	/** Refuses every slow member. */
+	noSlow?: boolean;
 }
 
 class Located extends ConsoleError {
@@ -119,7 +121,6 @@ export async function evaluateConsole(
 		return fail(node, "wrong_type", `${kindOf(target)} has no fields`);
 	};
 
-	/** A builtin called by its name alone. */
 	const free = async (node: ConsoleNode & { kind: "call" }, name: string): Promise<unknown> => {
 		if (registry.get(name, audience)) return fail(node, "is_entity", `${name} is an entity; pick a member`);
 		const builtin = freeBuiltin(name);
@@ -130,7 +131,6 @@ export async function evaluateConsole(
 				for (const arg of node.args) args.push(scalar(arg, await walk(arg)));
 				return runFree(builtin, args, step);
 			}
-			// Only the chosen branch is read.
 			const [when, ...branches] = node.args;
 			const held = when ? scalar(when, await walk(when)) : undefined;
 			checkArgs(builtin, [held, ...branches.map(() => null)]);
@@ -175,6 +175,7 @@ export async function evaluateConsole(
 				}
 				args[at] = checked.data;
 			}
+			if (found.slow && options.noSlow) return fail(node, "too_slow", "too slow to read here");
 			if (found.slow && ++slow > 1) return fail(node, "too_slow", "one slow read per expression");
 			try {
 				return typed(await settle(found.call(args)), found.returns);

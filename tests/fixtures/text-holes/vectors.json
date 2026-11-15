@@ -1,0 +1,244 @@
+{
+	"_comment": "Text with holes, as src/shared/text-holes.ts scans each input. The phone's twin replays these cases. Offsets are UTF-16 code units, end-exclusive. Regenerate with `bun scripts/gen-text-hole-vectors.ts`.",
+	"cases": [
+		{
+			"name": "plain text is one run",
+			"input": "It is cold outside.",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "It is cold outside.",
+					"start": 0,
+					"end": 19
+				}
+			]
+		},
+		{
+			"name": "a hole between two runs",
+			"input": "It is {value} outside.",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "It is ",
+					"start": 0,
+					"end": 6
+				},
+				{
+					"kind": "hole",
+					"source": "value",
+					"start": 6,
+					"end": 13,
+					"closed": true
+				},
+				{
+					"kind": "text",
+					"text": " outside.",
+					"start": 13,
+					"end": 22
+				}
+			]
+		},
+		{
+			"name": "a hole at each end",
+			"input": "{device}: {value}",
+			"parts": [
+				{
+					"kind": "hole",
+					"source": "device",
+					"start": 0,
+					"end": 8,
+					"closed": true
+				},
+				{
+					"kind": "text",
+					"text": ": ",
+					"start": 8,
+					"end": 10
+				},
+				{
+					"kind": "hole",
+					"source": "value",
+					"start": 10,
+					"end": 17,
+					"closed": true
+				}
+			]
+		},
+		{
+			"name": "escaped braces and a backslash are text",
+			"input": "Use \\{name\\} or \\\\ here",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "Use {name} or \\ here",
+					"start": 0,
+					"end": 23
+				}
+			]
+		},
+		{
+			"name": "a backslash before another letter stays",
+			"input": "C:\\temp {x}",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "C:\\temp ",
+					"start": 0,
+					"end": 8
+				},
+				{
+					"kind": "hole",
+					"source": "x",
+					"start": 8,
+					"end": 11,
+					"closed": true
+				}
+			]
+		},
+		{
+			"name": "a lone closing brace is text",
+			"input": "} then {x}",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "} then ",
+					"start": 0,
+					"end": 7
+				},
+				{
+					"kind": "hole",
+					"source": "x",
+					"start": 7,
+					"end": 10,
+					"closed": true
+				}
+			]
+		},
+		{
+			"name": "a dict inside a hole nests",
+			"input": "{ {k: 1}.k } after",
+			"parts": [
+				{
+					"kind": "hole",
+					"source": " {k: 1}.k ",
+					"start": 0,
+					"end": 12,
+					"closed": true
+				},
+				{
+					"kind": "text",
+					"text": " after",
+					"start": 12,
+					"end": 18
+				}
+			]
+		},
+		{
+			"name": "a quoted brace does not close a hole",
+			"input": "say {if(a, \"}\", '{')} done",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "say ",
+					"start": 0,
+					"end": 4
+				},
+				{
+					"kind": "hole",
+					"source": "if(a, \"}\", '{')",
+					"start": 4,
+					"end": 21,
+					"closed": true
+				},
+				{
+					"kind": "text",
+					"text": " done",
+					"start": 21,
+					"end": 26
+				}
+			]
+		},
+		{
+			"name": "an escaped quote stays inside its string",
+			"input": "{\"a\\\"}\"} tail",
+			"parts": [
+				{
+					"kind": "hole",
+					"source": "\"a\\\"}\"",
+					"start": 0,
+					"end": 8,
+					"closed": true
+				},
+				{
+					"kind": "text",
+					"text": " tail",
+					"start": 8,
+					"end": 13
+				}
+			]
+		},
+		{
+			"name": "an open hole runs to the end",
+			"input": "It is {value outside",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "It is ",
+					"start": 0,
+					"end": 6
+				},
+				{
+					"kind": "hole",
+					"source": "value outside",
+					"start": 6,
+					"end": 20,
+					"closed": false
+				}
+			]
+		},
+		{
+			"name": "an empty hole",
+			"input": "a {} b",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "a ",
+					"start": 0,
+					"end": 2
+				},
+				{
+					"kind": "hole",
+					"source": "",
+					"start": 2,
+					"end": 4,
+					"closed": true
+				},
+				{
+					"kind": "text",
+					"text": " b",
+					"start": 4,
+					"end": 6
+				}
+			]
+		},
+		{
+			"name": "a surrogate pair before a hole",
+			"input": "\ud83d\ude00 {x}",
+			"parts": [
+				{
+					"kind": "text",
+					"text": "\ud83d\ude00 ",
+					"start": 0,
+					"end": 3
+				},
+				{
+					"kind": "hole",
+					"source": "x",
+					"start": 3,
+					"end": 6,
+					"closed": true
+				}
+			]
+		}
+	]
+}

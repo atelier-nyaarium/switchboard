@@ -52,7 +52,7 @@ function ageText(at: number, now: number): string {
 	return `${now >= at ? `${span} ago` : `in ${span}`} (${when}Z)`;
 }
 
-function numberText(value: number): string {
+export function numberText(value: number): string {
 	if (!Number.isFinite(value)) return String(value);
 	return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
 }

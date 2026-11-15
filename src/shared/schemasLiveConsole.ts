@@ -71,7 +71,6 @@ export const ConsoleEntityDescriptionSchema = z
 export const ConsoleBuiltinDescriptionSchema = z
 	.object({
 		name: z.string(),
-		/** `none` is called by its name alone. */
 		receiver: z.enum(["list", "object", "collection", "none"]),
 		params: z.array(
 			z

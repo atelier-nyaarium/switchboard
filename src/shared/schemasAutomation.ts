@@ -13,6 +13,7 @@ import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "./wire-vocab
 
 export const AUTOMATIONS_MAX = 64;
 export const AUTOMATION_ACTIONS_MAX = 8;
+export const AUTOMATION_MESSAGE_MAX = 1_000;
 
 export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -64,7 +65,12 @@ export type CrossingTrigger = Extract<AutomationTrigger, { kind: "crossing" }>;
 export const AutomationActionSchema = z
 	.discriminatedUnion("kind", [
 		/** Now wakes; quietly waits in the inbox. */
-		z.strictObject({ kind: z.literal("tell_assistant"), when: z.enum(TELL_WHEN) }),
+		z.strictObject({
+			kind: z.literal("tell_assistant"),
+			when: z.enum(TELL_WHEN),
+			/** Text with `{expression}` holes. */
+			message: z.string().min(1).max(AUTOMATION_MESSAGE_MAX).optional(),
+		}),
 		/** A switch this Gateway holds. */
 		z.strictObject({ kind: z.literal("device_set"), device: z.string().min(1).max(64), verb: DeviceVerbSchema }),
 		z.strictObject({ kind: z.literal("ifttt_trigger"), ...PHONE_CAPABILITIES.ifttt_trigger.request.shape }),
@@ -88,6 +94,13 @@ export const AUTOMATION_ACTIONS = {
 	device_set: { label: "Switch a plug", runs: "gateway", danger: false },
 	ifttt_trigger: { label: "Send to IFTTT", runs: "gateway", danger: true },
 } as const satisfies Record<AutomationActionKind, AutomationActionRow>;
+
+/** Names a trigger offers a hole. */
+export const AUTOMATION_TRIGGER_NAMES = {
+	event: ["event", "source"],
+	value: ["value", "field"],
+	crossing: ["value", "device", "measure", "threshold"],
+} as const satisfies Record<AutomationTrigger["kind"], readonly string[]>;
 
 export const dangerousActions = (automation: { actions: readonly AutomationAction[] }): AutomationAction[] =>
 	automation.actions.filter((action) => AUTOMATION_ACTIONS[action.kind].danger);
@@ -191,6 +204,16 @@ export const ConsoleAutomationPutResultSchema = z
 		reason: z.string().optional(),
 		/** Actions to confirm; send again with `confirmed`. */
 		confirm: z.array(z.string().max(80)).max(AUTOMATION_ACTIONS_MAX).optional(),
+		/** Refused hole location. */
+		hole: z
+			.object({
+				action: z.number().int().nonnegative(),
+				param: z.string().max(32),
+				start: z.number().int().nonnegative(),
+				end: z.number().int().nonnegative(),
+			})
+			.meta({ id: "AutomationHoleSpan" })
+			.optional(),
 	})
 	.meta({ id: "ConsoleAutomationPutResult" });
 

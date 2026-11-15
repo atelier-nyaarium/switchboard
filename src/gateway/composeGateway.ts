@@ -558,6 +558,39 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			forget: (device) => sensorThresholds?.forget(device) ?? true,
 		},
 	});
+	// Lazy readers permit early composing.
+	const liveConsole = composeLiveConsole({
+		ambient: bootstrap.ambient,
+		readers: {
+			gateway: () => {
+				const client = context.slice()?.routerClient;
+				return {
+					id: bootstrap.localGatewayId,
+					version: packageJson.version,
+					router: client
+						? {
+								connected: client.isConnected(),
+								registered: client.isRegistered(),
+								incarnation: client.incarnation(),
+							}
+						: null,
+				};
+			},
+			devices: () => devices,
+			fields: () => fields,
+			automations: () => automations,
+			thresholds: () => sensorThresholds,
+			assistant: () => assistant.console.state(),
+			temperatureUnit: () => assistant.temperatureUnit(),
+			bluetoothListen: (windowMs) => host.relayToHost({ kind: "bleListen", windowMs }),
+		},
+		callerOf: (req) => {
+			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
+			if (!record) return "unauthenticated";
+			if (isAssistantRecord(record)) return "not_served";
+			return isHostSpawn(record.spawn) ? "host" : "not_served";
+		},
+	});
 	fields = openDurable(bootstrap.dataDir, "computed-fields", (records) =>
 		openDurable(bootstrap.dataDir, "computed-state", (state) =>
 			createComputedFields({
@@ -589,6 +622,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				eventSentence: assistant.eventSentence,
 				reading: devices!.watchedReading,
 				actions: automationActions({ devices: () => devices, ifttt: assistant.iftttTrigger }),
+				holes: () => liveConsole.holes,
 			}),
 		),
 	);
@@ -623,38 +657,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		resolveCaller: (req) => {
 			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
 			return record ? sessions.sessionStore.teamOf(record) : null;
-		},
-	});
-	const liveConsole = composeLiveConsole({
-		ambient: bootstrap.ambient,
-		readers: {
-			gateway: () => {
-				const client = context.slice()?.routerClient;
-				return {
-					id: bootstrap.localGatewayId,
-					version: packageJson.version,
-					router: client
-						? {
-								connected: client.isConnected(),
-								registered: client.isRegistered(),
-								incarnation: client.incarnation(),
-							}
-						: null,
-				};
-			},
-			devices: () => devices,
-			fields: () => fields,
-			automations: () => automations,
-			thresholds: () => sensorThresholds,
-			assistant: () => assistant.console.state(),
-			temperatureUnit: () => assistant.temperatureUnit(),
-			bluetoothListen: (windowMs) => host.relayToHost({ kind: "bleListen", windowMs }),
-		},
-		callerOf: (req) => {
-			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
-			if (!record) return "unauthenticated";
-			if (isAssistantRecord(record)) return "not_served";
-			return isHostSpawn(record.spawn) ? "host" : "not_served";
 		},
 	});
 	routerFrames = composeRouterFrames({
