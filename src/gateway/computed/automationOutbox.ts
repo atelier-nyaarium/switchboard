@@ -9,6 +9,8 @@ export const QUEUE_MAX_BYTES = 64 * 1024;
 /** A told title or field. */
 export const TOLD_FIELD_MAX = 1_000;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+/** Within retention. */
+export const retained = (entry: { at: number }, now: number): boolean => now - entry.at < RETENTION_MS;
 const MEMBER_MAX = 256;
 const FIELD_NAME_MAX = 64;
 const FIELDS_MAX = 32;
@@ -92,7 +94,7 @@ export function roomFor(
 	entry: QueueEntry,
 	now: number,
 ): { events: QueueEntry[]; dropped: Dropped } | null {
-	const kept = [...events.filter((held) => now - held.at < RETENTION_MS), entry];
+	const kept = [...events.filter((event) => retained(event, now)), entry];
 	const quiet = (held: QueueEntry) => {
 		const read = readEntry(held);
 		return read && read.when !== "now" ? { owner: ownerOf(held.member) } : null;
@@ -137,8 +139,8 @@ export const told = (
 	return room && { queue: { lastAt: at, events: room.events }, dropped: room.dropped };
 };
 
-export const outboxOf = (queue: () => QueueState): AutomationOutbox => ({
+export const outboxOf = (queue: () => QueueState, now: () => number): AutomationOutbox => ({
 	revision: () => queue().lastAt,
-	/** Unreadable entries stay hidden. */
-	events: () => queue().events.flatMap((event) => readEntry(event) ?? []),
+	/** Unreadable and expired entries stay hidden. */
+	events: () => queue().events.flatMap((event) => (retained(event, now()) ? (readEntry(event) ?? []) : [])),
 });

@@ -44,9 +44,7 @@ internal fun EditorScaffold(
 	canSave: Boolean,
 	onSave: () -> Unit,
 	/** The arrow; asks on a changed draft. */
-	onBack: (() -> Unit)? = null,
-	/** Discards at once. */
-	onCancel: (() -> Unit)? = null,
+	onBack: () -> Unit,
 	/** Non-null while Back asked. */
 	leaving: LeaveAsking? = null,
 	/** Drawn after Save. */
@@ -58,15 +56,11 @@ internal fun EditorScaffold(
 			TopAppBar(
 				title = { Text(title) },
 				navigationIcon = {
-					if (onBack != null) {
-						IconButton(onClick = hapticClick(onBack)) {
-							Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-						}
+					IconButton(onClick = hapticClick(onBack)) {
+						Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
 					}
 				},
 				actions = {
-					// A save out would be refused unheard.
-					if (onCancel != null) TextButton(enabled = !saving, onClick = hapticClick(onCancel)) { Text("Cancel") }
 					Button(
 						enabled = canSave && !saving,
 						onClick = hapticClick(onSave),
@@ -91,8 +85,6 @@ internal fun EditorScaffold(
 internal class OpenEdit<D, S>(
 	val opening: Long,
 	val session: EditSession<D, S>,
-	/** Discards and closes. */
-	val close: () -> Unit,
 	val leaving: LeaveAsking?,
 )
 
@@ -116,13 +108,13 @@ internal fun <K : Any, D : Any, S : Any> rememberEdit(
 		return null
 	}
 	val close = { edits.discard(key, session.opening) }
-	return OpenEdit(session.opening, session, close, LeaveAsking(edits::stay, close).takeIf { state.asks(key) })
+	return OpenEdit(session.opening, session, LeaveAsking(edits::stay, close).takeIf { state.asks(key) })
 }
 
 /** An editor whose record is unread or gone. */
 @Composable
-internal fun EditorWaiting(title: String, standing: EditStanding, onClose: () -> Unit) {
-	EditorScaffold(title = title, saving = false, canSave = false, onSave = {}, onCancel = onClose) {
+internal fun EditorWaiting(title: String, standing: EditStanding, onBack: () -> Unit) {
+	EditorScaffold(title = title, saving = false, canSave = false, onSave = {}, onBack = onBack) {
 		waitingLine(standing)?.let { Text(it, style = MaterialTheme.typography.bodyLarge) } ?: CircularProgressIndicator()
 	}
 }

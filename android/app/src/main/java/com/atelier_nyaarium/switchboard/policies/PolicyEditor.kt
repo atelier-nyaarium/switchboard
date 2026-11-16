@@ -68,7 +68,6 @@ fun PolicyEditor(
 	val open = rememberEdit(edits, key, standing, fresh) { EditorWaiting("Edit policy", it, edits::hide) } ?: return
 	val opening = open.opening
 	val session = open.session
-	val close = open.close
 	val typed = remember(key, opening) { MirroredDraft(session.draft) { next -> edits.edit(key, opening) { next } } }
 	var draft by typed
 	// Typed while its op was out.
@@ -99,7 +98,7 @@ fun PolicyEditor(
 		saving = saving,
 		canSave = draft.toPolicy() != null,
 		menu = { if (policyId != null) RemoveMenu("Delete policy", enabled = !saving) { confirmingDelete = true } },
-		onCancel = close,
+		onBack = { repo.editors.askLeave() },
 		onSave = { commit(draft) },
 		leaving = open.leaving,
 	) {

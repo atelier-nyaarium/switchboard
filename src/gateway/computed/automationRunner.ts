@@ -1,5 +1,6 @@
 // Actions outside the outbox.
 
+import { errorName } from "../../shared/error-name.js";
 import {
 	AUTOMATION_ACTIONS,
 	type AutomationAction,
@@ -38,7 +39,7 @@ const RUNNERS: Runners = {
 	ifttt_trigger: ({ kind: _kind, ...params }, ports) => ports.iftttTrigger(params),
 };
 
-/** Never throws; a throw is uncertain. */
+/** Never throws; a throw is uncertain, its message never kept. */
 export async function runEffect(action: AutomationEffect, ports: AutomationActionPorts): Promise<ActionOutcome> {
 	try {
 		const run = RUNNERS[action.kind] as (
@@ -47,7 +48,8 @@ export async function runEffect(action: AutomationEffect, ports: AutomationActio
 		) => Promise<ActionOutcome>;
 		return await run(action, ports);
 	} catch (error) {
-		return { outcome: "uncertain", reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) };
+		console.warn(`[automations] an action threw: ${errorName(error)}`);
+		return { outcome: "uncertain", reason: "the action failed unexpectedly" };
 	}
 }
 

@@ -571,6 +571,24 @@ A: No. The sensor page shows its readings and lists the automations that use it,
 
 > I think the sensor page will just show all reading. And it will list automations using it. so you can jump to it quick. Should work hand in hand with automations, not be a parity
 
+## Question 43 - What does Cancel do on an edit page?
+
+The runbook, routine and policy editors drew a Cancel button beside Save that discarded the edit at once, while Back asks before discarding (the leave rule above) and the automation editor has no Cancel.
+
+Q: Remove Cancel from those three so Back is the one way out and it asks, make Cancel ask too, or leave it?
+A: Remove it. Back is the one way out of every editor, and it asks.
+
+> A. yeah make editors all consistent and safe.
+
+## Question 44 - What does a home move do when its automations do not fit under the cap?
+
+A Gateway holds at most 64 automations (`AUTOMATIONS_MAX`), shared by the event automations a move carries and the crossings and clocks that stay on a Gateway.
+
+Q: Refuse the move with the numbers and write nothing, move anyway and drop what does not fit, or count moved and local automations apart?
+A: Refuse the move, as built.
+
+> ohh we have a soft cap? Sure I guess.
+
 ## Question 46 - What does a list view say when one Gateway has none and another has not answered?
 
 Raised by the red team on 2.7c's architecture step: the Routines, Runbooks, Policies and Automations views drew one whole-view "No routines" as soon as any Gateway answered with none, even while another in view was unread or unreachable.
@@ -579,6 +597,28 @@ Q: Only say "No routines" once every Gateway in view has answered, and otherwise
 A: Simpler. Each Gateway that answered keeps its own group and says "No routines" under its own name; no combined line. A Gateway that has not answered is not listed yet, as before, and the whole-view line stays for when none has answered.
 
 > Let's just show each gateway as it does now and no routines under each. no need for a special renderer
+
+## Question 47 - Does the vault approval card show over the app's own lock?
+
+The vault's request card (`VaultPrompt`) is a system overlay drawn over whatever is in front, the app's own lock screen included. The card shows the session, the command and the entry's public title, and Deny works there; approving an entry still asks for the owner's presence, and a typed value is the owner's own act.
+
+Q: Keep it, show a bare card until the app lock is passed, or draw no card while the app is locked?
+A: Keep it as it is.
+
+> A.
+
+## Question 48 - How late may an automation's action still run?
+
+An effect more than ten minutes after its trigger is refused unsent (`EFFECT_LATE_MS`), a number picked during the red team's fixes.
+
+Q: Ten minutes as built, five like a clock's own grace, or no limit?
+A: Neither fixed. The wait is set on the automation, ten minutes by default, and an automation gains a fallback: what to do when an action does not get done. The fallback's shape is asked next (Questions 49 on).
+
+> Configurable on the automation. Default to 10 min of waiting. Fallback action as an escape hatch. Like:
+> - turn on A
+> - then turn on B
+> - Oops B is not responding
+> - Either configure it to do an action like turn off A & B, or configure it to trigger another automation like the whole off flow.
 
 ## Design rulings, mocked in the Designer dock
 
@@ -895,13 +935,13 @@ Slices:
 1. **The Gateway says "not served".** ✅ `OP_REASON_NOT_SERVED` in `wire-vocabulary.ts`; `composeRouterFrames` answers it for a kind no schema names and for a stage guard's `NotServedError`.
 2. **One menu.** ✅ built, not walked. `RootView` holds the ten views in Question 40's order and `MenuSheet` draws it from the root and from a session. `ConversationView` keeps Chat, Terminal and Files, switched by `ViewSwitch` in the session's bar. `ShellNav.pick` is the menu's one transition: inside a session it lands `over` it (`OverNav`), filtered where the view takes a session, with `FilterRow`'s two chips and Back returning to the session. Sources and Automations are root views (`SourcesView`, `AutomationsView`) that list the session's Gateway first; `AssistantPage` lost Sources, Automations and the automation editor, and a Source, a Device and Add close onto what opened them. The settings index keeps Location, Features, Safety and Remove. Everything the shell draws over a screen goes through `ShellOverlays`, which returns first while the lock shows.
 3. **A Gateway's lists keep their answers apart.** ✅ `GatewayList` on `GatewayEntry` for routines, runbooks, policies, automations and peers: unread, listed, not served or unreachable, with rows on the listed answer alone. `ListAnswer`, `listAnswer`, `after`, `gatewayAttempt`, `refreshEach` and `ToggleFence` in `GatewayReads.kt`, with the four ops classes on them; `lookup`, `listedGroups`, `listEmpty` and `emptyLine` on the registry are what a reader takes. The phone reads the token now; a refusal in prose reads as not served only for automations, until 2026-11-29.
-4. **One model for an edit in progress.** ✅ built, not walked. `EditorSessions` holds one `EditState` per editor kind: its edits by their opening, the one that is shown, and a Back that asked. `Editors` shows one editor at a time across the four kinds and the shell draws the `ShownEditor` it derives, so nothing but the model says an editor is open. Saves and deletes run on the repository's scope, Back asks through `askLeave`, and `EditorScaffold` draws the leave dialogue. Cancel still discards at once, pending Question 43.
+4. **One model for an edit in progress.** ✅ built, not walked. `EditorSessions` holds one `EditState` per editor kind: its edits by their opening, the one that is shown, and a Back that asked. `Editors` shows one editor at a time across the four kinds and the shell draws the `ShownEditor` it derives, so nothing but the model says an editor is open. Saves and deletes run on the repository's scope, Back asks through `askLeave`, and `EditorScaffold` draws the leave dialogue. Cancel is gone (Question 43): every editor has a back arrow, and Back is the one way out.
 
 Dropped with the session's own menu: the "N windows" note beside Files and the "N open" note beside Backlog, and the settings index's count lines for Sources and Automations.
 
 Not verified: the emulator would not run without KVM, so no screen of this phase has been seen.
 
-Remaining, all waiting on the owner: the walk on a screen (the emulator needs the KVM grant, and the owner's phone is not unlocked by this session), Question 43 for Cancel, then the build and the deploy, phone first. The Gateway's `not served` token ships with that deploy and must be out before 2026-11-29.
+Remaining, all waiting on the owner: the walk on a screen (the emulator needs the KVM grant, and the owner's phone is not unlocked by this session), then the build and the deploy, phone first (Question 43 is answered and built, and the walks moved to the emulator). The Gateway's `not served` token ships with that deploy and must be out before 2026-11-29.
 
 **Alignment audit, lap 1** (eight angles on Opus and Sonnet, Opus synthesis). Fixed:
 
@@ -1005,7 +1045,7 @@ Left for 2.7c's first phone slice, before the page stack:
 - **`AssistantWord` with three answers.** `assistantOn` still flattens unread and refused to null, which reads as "No source can trigger an automation" and hides Services. ✅ Closed in 2.7c's architecture step: the entry holds an `AssistantRead` and `assistantOn` is gone.
 - **A fire the lock cuts off.** The fire sheet runs its fire on the composition's scope, so the lock cancels it after the request may have gone, and the sheet returns able to fire again as a new op. It needs the fire held per sheet opening in `RunbookOps`, as an edit is.
 
-For the owner: the vault's request overlay (`VaultPrompt`) draws over the app's own lock screen. It passes its own presence gate for an entry approval, so this may be intended.
+For the owner: the vault's request overlay (`VaultPrompt`) draws over the app's own lock screen. It passes its own presence gate for an entry approval, so this may be intended. ✅ Answered (Question 47): it stays.
 
 ### Bug Classes
 
@@ -1121,6 +1161,8 @@ Finished rather than regressed: a raw threshold cleared when another number is p
 
 **Third pass, on the second fix commit** (four angles, eight findings, none high; `reaudit2-27c-architecture-synthesis.md`). One regression: a port that flapped restarted an attempted effect's wait, so a sighting now carries `attempted` and only one that never had an attempt ends when its port says ready. One fix that did not hold: a Gateway whose read failed kept a stale peers list that named an untrusted friend again, so an owner pending untrust is never named. Also: a slot passed over after a step back is logged; a standing refusal is compared with rows that are not lost runs; an untrust that reached no Gateway drops nothing yet; a threshold whose number is absent keeps its stored precision. With Question 46 each list view speaks per Gateway (`groupedView`): one that answered with nothing says so under its own name, and the whole-view line never says none. The loop stops here, on the pass's own verdict; what is left is on the board.
 
+**Compliance review of the phase** (four angles, read only; `compliance-27c-synthesis.md`), judged for a one-owner deployment. Sound: only owner ops write or preview an automation; the IFTTT key leaves only in the fetch URL; an effect whose row says `home` is refused away from it; run rows hold fixed phrases, never filled text; friend Domains see no automation, outbox or sensor state; a purge wipes it all. Fixed: an untyped throw stored its raw message in the run log, and logs printed whole error objects; a queued tell outlived its automation's delete, the assistant's let-go, and its own seven-day retention on an idle Gateway. Noted in the docs: sensor adverts are unauthenticated. Asked of the owner: whether the assistant's own IFTTT posts (`gateway/ifttt_trigger`) want a trace or an approval, since granting the key is today the whole permission and automations share that grant. Left on the board: a dangerous action kept while its trigger widens asks nothing; holes and the console can read a device's address; host sessions can read the outbox through the console; the run log's one shared ring.
+
 Cut by the synthesis: a fire pump extracted with a substitution proof (the redesign rewrites it), a second residue test for the context, a nullable offer, serving bounds or generating forms.
 
 Audit of slices 1 to 6 (six adversarial reads of the Gateway range, then one synthesis; `audit-27c-synthesis.md` in the session scratchpad). 24 findings confirmed, two high, all dormant on Sakura because the phone on 8.14.82 cannot write a message, an effect, a clock or a crossing. What changed:
@@ -1187,7 +1229,7 @@ Slices from here, each ending green: (2) the crossing trigger and alerts as cros
 
 Asked, unanswered:
 
-- **Question 44 - A carry over the cap.** The cap of 64 is shared by the event automations a move carries and the crossings, clocks and value automations that stay on a Gateway. Built for now: the move is refused whole with the numbers before anything is written, and the home record keeps the sealed payload, which the phone carries onward at the next move. The other answers: drop what does not fit and place the assistant anyway, or count moved and local automations apart so a carry always fits.
+- **Question 44 - A carry over the cap.** ✅ Answered: the refusal stays. The cap of 64 is shared by the event automations a move carries and the crossings, clocks and value automations that stay on a Gateway. The move is refused whole with the numbers before anything is written, and the home record keeps the sealed payload, which the phone carries onward at the next move.
 
 ## Phase 2.7d - Walk-through and cleanup
 

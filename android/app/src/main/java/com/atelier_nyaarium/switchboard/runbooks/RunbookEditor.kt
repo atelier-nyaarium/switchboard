@@ -65,7 +65,6 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?) {
 	} ?: return
 	val opening = open.opening
 	val session = open.session
-	val close = open.close
 	val typed = remember(key, opening) { MirroredDraft(session.draft) { next -> edits.edit(key, opening) { next } } }
 	var draft by typed
 	// Typed while its op was out.
@@ -82,7 +81,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?) {
 		saving = saving,
 		canSave = draft.refusal() == null,
 		menu = { if (existing != null) RemoveMenu("Delete runbook", enabled = !saving) { deleting = true } },
-		onCancel = close,
+		onBack = { repo.editors.askLeave() },
 		// Sends what is typed now, on a scope that outlives this page.
 		onSave = {
 			val overwrite = overwriting

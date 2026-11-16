@@ -485,12 +485,11 @@ no TTL.
     conversation does not, so a restored page lies over the root view.
   - **Leaving an edit page asks first** (`EditorSessions.kt`, `EditorScaffold.kt`): the runbook,
     routine, policy and automation editors each hold their edit in an `EditorSessions` on their ops
-    class. The system Back and the automation editor's arrow call `askLeave` under the shell's one
-    `BackHandler`. A changed draft holds the leave, and `EditorScaffold` draws "Leave and discard
+    class. The system Back and every editor's back arrow call `askLeave` under the shell's one
+    `BackHandler`; no editor draws a Cancel. A changed draft holds the leave, and `EditorScaffold` draws "Leave and discard
     changes?" with Discard and Stay. An unchanged draft leaves at once. The ask names the opening
     it was made on (`LeaveAsk`, `EditState.asks`), so it never shows over a later one, and a Back
     while a save is in flight leaves at once with the draft held, so the answer still lands.
-    Cancel, on the runbook, routine and policy editors, discards at once.
   - **The edit model alone says which editor is open:** each kind's `EditorSessions` holds its
     edits and the one that is shown in one `EditState`, `Editors` shows one at a time across the
     kinds, and the shell draws the `ShownEditor` it derives from them. A page that leaves

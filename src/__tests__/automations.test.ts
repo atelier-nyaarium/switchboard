@@ -65,7 +65,8 @@ function world(dir: string, home = true) {
 	/** Fills wait on it. */
 	let fillGate: Promise<void> = Promise.resolve();
 	let iftttReady = true;
-	let iftttAnswer: ActionOutcome = { outcome: "refused", reason: "not_granted" };
+	/** An Error is thrown. */
+	let iftttAnswer: ActionOutcome | Error = { outcome: "refused", reason: "not_granted" };
 	/** Effects wait on it. */
 	let gate: Promise<void> = Promise.resolve();
 	/** Only this effect waits; null: all. */
@@ -124,6 +125,7 @@ function world(dir: string, home = true) {
 						},
 						iftttTrigger: async ({ event, value1 }) => {
 							effects.push(value1 === undefined ? `ifttt:${event}` : `ifttt:${event}:${value1}`);
+							if (iftttAnswer instanceof Error) throw iftttAnswer;
 							return iftttAnswer;
 						},
 					},
@@ -199,7 +201,7 @@ function world(dir: string, home = true) {
 	const setIftttReady = (ready: boolean) => {
 		iftttReady = ready;
 	};
-	const answerIfttt = (answer: ActionOutcome) => {
+	const answerIfttt = (answer: ActionOutcome | Error) => {
 		iftttAnswer = answer;
 	};
 	const advance = (ms: number) => {
@@ -713,6 +715,39 @@ describe("automations", () => {
 		expect(after?.items.map((item) => item.fields.value)).toEqual(["high"]);
 	});
 
+	it("drops a deleted automation's queued tells and keeps an edited one's", () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut("bucket", iceBucket(), 0);
+		automations.ownerPut("pail", { ...iceBucket(), label: "Pail" }, 0);
+		w.read(fields, -5);
+		const titles = () => automations.outbox.events().map((event) => event.title);
+		const both = titles();
+
+		automations.ownerPut("pail", { ...iceBucket(), label: "Pail", enabled: false }, 1);
+		automations.ownerRemove("bucket", 1);
+
+		expect(both).toEqual(["Throw ice bucket!", "Pail"]);
+		expect(titles()).toEqual(["Pail"]);
+	});
+
+	it("neither lists nor keeps a queued entry past its retention", () => {
+		const dir = fresh();
+		const old = { member: "automation:old:a0:1", at: 1_000, body: { title: "Old", fields: {} } };
+		const state = { automations: {}, queue: { lastAt: 1_000, events: [old] }, log: [] };
+		fs.writeFileSync(path.join(dir, "automation-state.json"), JSON.stringify(state));
+		const w = world(dir);
+		const first = w.open().automations;
+		const before = first.outbox.events().length;
+
+		w.advance(7 * 24 * 60 * 60_000);
+		const listed = first.outbox.events().length;
+		const restarted = w.open().automations;
+
+		expect([before, listed, restarted.queued().events.length]).toEqual([1, 0, 0]);
+	});
+
 	it("holds a queue entry this build cannot read, and lists and clears the rest", async () => {
 		const dir = fresh();
 		const future = { member: "later:1", at: 500, body: { shape: "later" } };
@@ -794,6 +829,20 @@ describe("automations", () => {
 		]);
 		expect(away.automations.ownerPut("review", event, 0).stored).toBe(false);
 		expect(away.automations.ownerPut("bucket", iceBucket(), 0).stored).toBe(true);
+	});
+
+	it("logs an effect that throws as uncertain, keeping none of the thrown message", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut("door", { ...iceBucket(), actions: [{ kind: "ifttt_trigger", event: "door" }] }, 0, true);
+		w.answerIfttt(new Error("POST https://maker.ifttt.com/trigger/door/with/key/sk-secret-0042 failed"));
+
+		w.read(fields, -5);
+		await automations.settled();
+
+		expect(automations.runs().map((run) => run.outcome)).toEqual(["uncertain"]);
+		expect(JSON.stringify(automations.runs())).not.toContain("sk-secret");
 	});
 
 	it("runs a crossing's effects in order once it fires, logs each, and asks before a save adds a dangerous one", async () => {

@@ -5,6 +5,7 @@ import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { errorName } from "../../shared/error-name.js";
 import {
 	AUTOMATION_ACTIONS,
 	AUTOMATION_TRIGGER_NAMES,
@@ -67,10 +68,12 @@ import {
 	type Dropped,
 	memberOf,
 	outboxOf,
+	ownerOf,
 	QUEUE_FULL,
 	QUEUE_MAX_EVENTS,
 	QueueEntrySchema,
 	type QueueState,
+	retained,
 	told,
 } from "./automationOutbox.js";
 import {
@@ -195,7 +198,7 @@ function restoreFires(rows: unknown[], pick: (rows: unknown[], schema: typeof Fi
 	return fires.slice(-FIRES_MAX);
 }
 
-function restore(raw: unknown): State {
+function restore(raw: unknown, now: number): State {
 	const loose = LooseStateSchema.parse(raw ?? EMPTY);
 	const automations: State["automations"] = {};
 	for (const [id, row] of Object.entries(loose.automations)) {
@@ -216,7 +219,9 @@ function restore(raw: unknown): State {
 		automations,
 		queue: {
 			lastAt: loose.queue.lastAt,
-			events: pick(loose.queue.events, QueueEntrySchema).slice(-QUEUE_MAX_EVENTS),
+			events: pick(loose.queue.events, QueueEntrySchema)
+				.filter((event) => retained(event, now))
+				.slice(-QUEUE_MAX_EVENTS),
 		},
 		log: pick(loose.log, RunSchema).slice(-LOG_MAX),
 		ran,
@@ -275,7 +280,7 @@ export interface AutomationsDeps {
 }
 
 export function createAutomations(deps: AutomationsDeps) {
-	let state: State = restore(deps.state.load());
+	let state: State = restore(deps.state.load(), deps.now());
 
 	const store = createOwnerRecords<Automation>({
 		store: deps.records,
@@ -797,7 +802,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		Promise.resolve()
 			.then(work)
 			.catch((error) => {
-				console.error("[automations] a run failed:", error);
+				console.error(`[automations] a run failed: ${errorName(error)}`);
 				return thrown;
 			})
 			.then((moved) => {
@@ -849,7 +854,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				read = await holes.fill(text, names);
 			} catch (error) {
 				// A thrown fill gives up.
-				console.error("[automations] a fill failed:", error);
+				console.error(`[automations] a fill failed: ${errorName(error)}`);
 				if (!threw) runs.push(fireRun(fire, "uncertain", "its holes could not be read", action));
 				threw = true;
 				return unreadText(text);
@@ -921,7 +926,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (canonicalJson(next) !== canonicalJson(state) && commit(next)) spent.clear();
 	};
 
-	const outbox = outboxOf(() => state.queue);
+	const outbox = outboxOf(() => state.queue, deps.now);
 
 	/** One band per crossing. */
 	const derivedFields = (): DerivedField[] =>
@@ -966,6 +971,22 @@ export function createAutomations(deps: AutomationsDeps) {
 			issue: automationIssue,
 		});
 
+	/** What removed automations left queued. */
+	const dropOwned = (ids: readonly string[]): void => {
+		if (ids.length === 0) return;
+		const gone = new Set(ids);
+		const owned = (member: string) => {
+			const owner = ownerOf(member);
+			return owner !== null && gone.has(owner);
+		};
+		const events = state.queue.events.filter((event) => !owned(event.member));
+		const fires = state.fires.map((held) => (gone.has(held.automation) ? untold(held) : held));
+		const next: State = { ...state, queue: { ...state.queue, events }, fires };
+		if (canonicalJson(next) !== canonicalJson(state) && !commit(next)) {
+			console.warn("[automations] a removed automation's queued events were not dropped");
+		}
+	};
+
 	/** Every row lands, or none. */
 	function write(intent: AutomationIntent): AutomationWritten {
 		const held = records.list();
@@ -987,6 +1008,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		}
 		const known = new Set(held.map((record) => record.id));
 		forgetRan(verdict.writes.filter((row) => row.op === "remove" || !known.has(row.id)).map((row) => row.id));
+		const live = new Set(records.list().map((record) => record.id));
+		dropOwned(held.filter((record) => !live.has(record.id)).map((record) => record.id));
 		// Bands follow their crossings.
 		deps.fields.derivedChanged();
 		drain();
@@ -1093,6 +1116,10 @@ export function createAutomations(deps: AutomationsDeps) {
 			landSpent();
 		},
 		/** Clear events, then drain; a repeat retries. */
+		/** False when the write did not land. */
+		emptyOutbox(): boolean {
+			return state.queue.events.length === 0 || commit({ ...state, queue: { ...state.queue, events: [] } });
+		},
 		clear(members: readonly string[]): boolean {
 			const events = state.queue.events.filter((event) => !members.includes(event.member));
 			if (

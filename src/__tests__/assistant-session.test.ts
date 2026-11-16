@@ -544,6 +544,28 @@ describe("the assistant's session", () => {
 		expect(watcher.polls).toBe(polls);
 	});
 
+	it("empties the automations' outbox when it lets go, keeping the automations that run here", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const test = stage({ ambient, watchers: [counting({ repeat: true })] });
+		test.assistant.start();
+		await test.followHome();
+		await ambient.advance(0);
+		const hourly = { kind: "interval", everyMin: 60 } as const;
+		const tells = [{ kind: "tell_assistant", when: "quietly" }] as const;
+		test.automations.ownerPut("hourly", { enabled: true, trigger: hourly, actions: [...tells] }, 0);
+		await ambient.advance(60 * 60_000);
+		test.automations.tick();
+		const queued = test.automations.queued().events.length;
+
+		await test.followHome(2, null);
+		await ambient.advance(120_000);
+		await stopped(test.assistant, ambient);
+
+		expect(queued).toBe(1);
+		expect(test.automations.queued().events).toEqual([]);
+		expect(test.automations.rows().map((row) => row.id)).toEqual(["hourly"]);
+	});
+
 	it("lets go when nobody is named", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const watcher = counting({ repeat: true });

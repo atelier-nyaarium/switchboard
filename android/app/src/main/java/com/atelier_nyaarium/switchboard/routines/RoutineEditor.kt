@@ -79,7 +79,6 @@ fun RoutineEditor(
 	val open = rememberEdit(edits, key, standing, fresh) { EditorWaiting("Edit routine", it, edits::hide) } ?: return
 	val opening = open.opening
 	val session = open.session
-	val close = open.close
 	// What this edit opened on; the list can go unread under it.
 	// Own copy: the list can go unread.
 	val base = session.opened.base
@@ -137,7 +136,7 @@ fun RoutineEditor(
 		saving = saving,
 		canSave = draft.refusal(here) == null,
 		menu = { if (routineId != null) RemoveMenu("Delete routine", enabled = !saving) { confirmingDelete = true } },
-		onCancel = close,
+		onBack = { repo.editors.askLeave() },
 		onSave = { if (ruleMoved(base, draft)) confirming = true else commit() },
 		leaving = open.leaving,
 	) {

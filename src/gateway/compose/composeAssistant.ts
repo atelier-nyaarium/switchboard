@@ -11,6 +11,7 @@ import {
 } from "../../shared/assistant-session.js";
 import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
 import { openDurable } from "../../shared/durable-store.js";
+import { errorName } from "../../shared/error-name.js";
 import { TEST_LABELS } from "../../shared/field-types.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
@@ -122,7 +123,10 @@ export interface AssistantVault {
 	usableHere: (entryId: string) => Promise<boolean>;
 }
 
-export type AssistantAutomations = Pick<Automations, "eventsOf" | "write" | "refusalOf" | "noteEvents" | "fireEvents">;
+export type AssistantAutomations = Pick<
+	Automations,
+	"eventsOf" | "write" | "refusalOf" | "noteEvents" | "fireEvents" | "emptyOutbox"
+>;
 
 const inSentence = (label: string) => (/^[A-Z][a-z]/.test(label) ? label[0]?.toLowerCase() + label.slice(1) : label);
 
@@ -329,7 +333,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				volatile: true,
 			});
 		} catch (error) {
-			console.warn(`[assistant] source change signal not sent: ${(error as Error).message}`);
+			console.warn(`[assistant] source change signal not sent: ${errorName(error)}`);
 		}
 	};
 	const startLanes = () => {
@@ -396,7 +400,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				routes.deliverToOwner({ entry, dedupeKey: `assistant-action:${callId}`, label: "assistant" }) === true
 			);
 		} catch (error) {
-			console.warn(`[assistant] record not posted: ${(error as Error).message}`);
+			console.warn(`[assistant] record not posted: ${errorName(error)}`);
 			return false;
 		}
 	};
@@ -786,7 +790,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			try {
 				await homePort?.endSession();
 			} catch (error) {
-				console.warn(`[assistant] let-go waits: ${(error as Error).message}`);
+				console.warn(`[assistant] let-go waits: ${errorName(error)}`);
 			}
 			if (held()) return false;
 		}
@@ -797,6 +801,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if (!grantTargets().every((id) => grantsLanded(id, []))) return false;
 		const ids = sources.map((source) => source.id);
 		if (automations && !automations.write({ kind: "carry", rows: [] }).written) return false;
+		if (automations && !automations.emptyOutbox()) return false;
 		if (!openDurable(deps.dataDir, "assistant-rules", clearStoredRules)) return false;
 		if (!safety.approveEverySend() && !safety.set(true)) return false;
 		if (ids.some((sourceId) => !enabled.enabled(sourceId)) && !enabled.replaceOff([])) return false;
