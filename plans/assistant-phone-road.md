@@ -779,6 +779,18 @@ Under the answer, "failed" means anything in the called run failed, handled by i
 
 Told with it, as a correction of the drafter's own detail and no question: "an automation may be run once per run" goes, since a reset at the start and the same automation again in a failure branch is a normal flow. The guard is that an automation cannot run itself, directly or through others, with a cap on how many one run may start.
 
+## Question 60 - How is "if this fails" spelled in script? (open)
+
+The owner asked whether `on failure` was real syntax. Answered: invented for the sketch, a proposal, nothing built; so was `when clock at 18:00`, and the audit advises keeping the trigger out of the script.
+
+Asked as: `on failure { ... }` after a call (recommended, since it matches the cards one to one and borrows no meaning); `try { ... } catch { ... }` around one or more calls (misleading, since JavaScript carries on after a catch and a failure branch here ends the run; its one advantage, one branch for several actions, could come later as a group block under its own word); or a spelling of the owner's.
+
+## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
+
+Asked as: install and walk what is built, then build flows (recommended); build flows in cards first and install together; or build everything, script and map included, then install. The reasons given: the app on the phone (8.14.82) strips a message from an automation on a toggle, so the newer app must be installed before a flow can be stored safely; what exists gets used and corrected before more sits on it; real use finds what an audit does not.
+
+Told with it, as defaults the owner may change: an automation that triggers again while running waits its turn; Run pressed on a switched-off automation runs it once while a call still respects off; an edit in the middle of a run stops that run and the row says what did not run; a script writes a device by its name when unique and by its id otherwise; an If keeps the unit its condition was typed in.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
