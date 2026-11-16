@@ -830,6 +830,12 @@ Asked: the classic form with `e`, its traditional meaning and a `stop` (recommen
 
 What follows from it, told to the owner: a failure slot on one action in cards is a try around that action, and a try around several is a group card; a condition that cannot be read is a failure, so inside a try it jumps to the catch; a called automation reports failed when a failure in it went uncaught, which narrows what Question 59 was told ("handled or not").
 
+## Question 62 - What else belongs in the script's first version? (open)
+
+The language as it stood when asked: a statement is one doing call, an `if (cond) { } else if (cond) { } else { }`, a `try { } catch (e) { }`, or `stop`. Conditions are the console's reading language with `and`, `or` and `sensors.value`. Text takes `{ }` holes. `e.word` is refused, unreachable or no answer, and a bare `{e}` prints a sentence.
+
+Asked as a pick of any: names held across statements (`cold = ...`, then `if (cold)`), a `wait(...)` between steps, comments (which need a place in the stored steps), `throw`, a `parallel` block, loops, the owner's own functions. Recommended: names and `wait` now, the rest when use asks for them.
+
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
 Asked as: install and walk what is built, then build flows (recommended); build flows in cards first and install together; or build everything, script and map included, then install. The reasons given: the app on the phone (8.14.82) strips a message from an automation on a toggle, so the newer app must be installed before a flow can be stored safely; what exists gets used and corrected before more sits on it; real use finds what an audit does not.
