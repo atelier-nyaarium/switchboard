@@ -844,11 +844,40 @@ Put back to the owner:
 - **`e.code` and `e.message`.** "Word" was the drafter's own term. `e.code` is the short fixed value to branch on (`refused`, `unreachable`, `no_answer`, and `unread` for a condition); `e.message` is a sentence for people, and a bare `{e}` prints it.
 - **In cards,** a Try card beside the If card, each with two slots, and no failure slot per action.
 
-## Question 62 - What else belongs in the script's first version? (open)
+## Question 62 - What else belongs in the script's first version?
 
 The language as it stood when asked: a statement is one doing call, an `if (cond) { } else if (cond) { } else { }`, a `try { } catch (e) { }`, or `stop`. Conditions are the console's reading language with `and`, `or` and `sensors.value`. Text takes `{ }` holes. `e.word` is refused, unreachable or no answer, and a bare `{e}` prints a sentence.
 
 Asked as a pick of any: names held across statements (`cold = ...`, then `if (cold)`), a `wait(...)` between steps, comments (which need a place in the stored steps), `throw`, a `parallel` block, loops, the owner's own functions. Recommended: names and `wait` now, the rest when use asks for them.
+
+A: Variables, typed as NyaaDot's are, so highlighting, completions and hint cards follow a variable into its members. `wait`. Comments. `throw` (the owner wrote "catch yep" under the `throw` example; read as yes to `throw`, and told so). Parallel work comes as built-ins on a first-party manager, designed next (Question 64). Loops and functions were not picked.
+
+> Names? you mean like Variables?
+> If we do it, it's got to be like NyaaDot where the variable understands it's types. So you get syntax and cards even down the body.
+>
+> wait is good.
+>
+> Yeah comments
+>
+> catch yep
+>
+> Parallel will have to come as a few built-ins.
+> Let's think. Node provides Promises as a manager object. should we build ours in first party?
+> Promise has all(), some() I think, and some other things. What would we need for parallel handling?
+
+## Question 64 - Which parallel built-ins? (open)
+
+Put to the owner. JavaScript's `Promise` holds `all`, `allSettled`, `any` and `race` (no `some`). Ours is first party by necessity, since the language has no functions to build one from, and simpler: every line already waits, so no promise value has to exist. A built-in takes calls unevaluated, as the lazy `if(...)` does today, and starts them together. Each argument is one call; a sequence run beside another goes in an automation and is run by it.
+
+- `parallel.all(a, b, c)`: start together, wait for every one to finish, then fail if any failed. It does not bail at the first failure as JavaScript's does, since a command already sent cannot be unsent. Hands back the results in order.
+- `parallel.settled(a, b, c)`: the same, never fails, hands back each result to inspect.
+- `parallel.any(a, b)`: done once one succeeds, failed only when all fail.
+- No `race`: a device command cannot be cancelled, so dropping the losers would be a lie.
+- Possibly `parallel.start(a)`: start and do not wait.
+
+What it needs. Language: a doing call hands back a typed result; built-ins that take calls unevaluated; an `e` that can hold several failures (`e.errors`). Engine: several steps in flight in one run and several effects at once on the Gateway, under a cap; each branch with its own wait, outcome, log line and place on the map; two calls to one device in a group run in listed order; each branch claimed alone, so a restart resends nothing.
+
+Asked: `all` and `settled` (recommended, built after the one-at-a-time core works, with the stored shape and the types allowing for it from the start); those plus `any`; or real task values, started now and joined later.
 
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
