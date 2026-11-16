@@ -1419,7 +1419,7 @@ Asked, unanswered:
 
 ## Phase 2.7e - Flows: ordered steps, branches, calls, a script and a map (Q48 to Q57)
 
-Draft. Not audited. Waits on Question 56 and on whether a caller waits for the automation it runs. Sized from two reads of the code (`tree-impact-gateway.md`, `tree-impact-phone.md` in the session scratchpad).
+Draft. Audit running. Waits on whether a caller waits for the automation it runs. Sized from two reads of the code (`tree-impact-gateway.md`, `tree-impact-phone.md` in the session scratchpad).
 
 Design held for the phase:
 
@@ -1442,7 +1442,7 @@ Design held for the phase:
 - **Outside reach** is asked through the judge's `confirm`, derived with no stored flag: the held record has no action beyond telling the assistant, the candidate has one, and the trigger is an event.
 - **`admit` never evicts a fire with a recorded outcome.**
 - **What the map reads:** `lastRuns`, per automation the last run's time, revision and outcome per step path, written in the commit that lands each step and served on the row.
-- **Script:** the Gateway prints and parses; the phone holds no parser. `parse(print(tree))` equals the tree for every tree the schema admits, pinned by a corpus. A kind the printer does not know prints as a raw block that parses back byte-identical. One statement per action kind is generated from the action table. The script entry is its own function, never reached by the console's eval.
+- **Script:** the Gateway prints and parses; the phone holds no parser. `parse(print(tree))` equals the tree for every tree the schema admits, pinned by a corpus. A kind the printer does not know prints as a raw block that parses back byte-identical. An action is a call in the console's own grammar (Q58): each action kind is one registered method built from its row in the action table, with typed parameters, a description and its nature, so completions, hints and the save check cover it as they cover a read. The new grammar is `if`, `else` and `on failure` alone. A doing method is served to an automation's script and to nothing else: the console's eval, the agents' door and a message hole refuse it, and the read-only fence test holds that. Every call's arguments are checked against its schema at save, and a condition must be a truth.
 - **Cards draw one level:** a list, an If with two sides, a failure branch, all inline. `cardsDraw` is a pure rule over the whole automation; past one level the editor is read-only with "Edit as script". A node of a kind this build does not know is kept and saved raw, as an action is today.
 
 Slices, each ending green, the Gateway's part deployed before the phone's:
@@ -1452,12 +1452,14 @@ Slices, each ending green, the Gateway's part deployed before the phone's:
 3. **The tree** (Gateway L, phone L). Engine: the cursor walk, the failure branch, If with `and`, `or` and `sensors.value`, a tell per step, the lane's narrowed decision, `lastRuns`, outside reach and the cool-down. Phone: the step model addressed by path, `cardsDraw`, the If card and failure slot, the condition in the full-screen editor's expression mode with "true right now" from the Gateway, the nature line, Keep trying for, an event's cool-down.
 4. **Called runs** (Gateway M, phone S). The run, its guards, the graph module, a Run op; the target picker, the "Only when another automation runs it" choice, the Run button.
 5. **Script, read-only** (Gateway S to M, phone S to M). The printer, a print op answering text and spans, raw blocks; the phone's script page.
-6. **Script editing** (Gateway M to L, phone M to L). The statement grammar, the parser, a parse op answering the tree or an issue span; the script keywords generated into both tokenizers and pinned by the token vectors, so the phone paints as it types; a third editor mode through `EditorSessions`.
+6. **Script editing** (Gateway M to L, phone M to L). The block grammar, the action methods in the registry under their own audience, the parser, a parse op answering the tree or an issue span; the script keywords generated into both tokenizers and pinned by the token vectors, so the phone paints as it types; a third editor mode through `EditorSessions`.
 7. **The flow map** (phone L). `flowLayout`, `edgeStyle` and `replayFrames` as pure rules, the Map and List toggle, replay per automation.
 
 Size: about 3,000 to 4,000 lines over both sides with tests. Slices 1 to 4 are the cards path; 5 to 7 stand on it and on each other only as numbered.
 
-Asked, unanswered: Question 56; whether "Run an automation" waits for the automation it runs.
+Asked, unanswered: whether "Run an automation" waits for the automation it runs.
+
+Later, on the same footing: a name held across steps (a new step kind), a state written as an assignment, the owner running a doing call from the Console page, the assistant's own actions read from the action table.
 
 ## Phase 2.7d - Walk-through and cleanup
 
