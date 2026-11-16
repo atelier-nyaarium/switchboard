@@ -620,6 +620,21 @@ A: Neither fixed. The wait is set on the automation, ten minutes by default, and
 > - Oops B is not responding
 > - Either configure it to do an action like turn off A & B, or configure it to trigger another automation like the whole off flow.
 
+## Question 49 - Where does the fallback live?
+
+Asked twice: first as one "If it fails" list per automation against a fallback per action, then, after the research, as "run another automation" against a list of its own actions.
+
+Q: What does the fallback hang on, and what can it do?
+A: The owner's own shape: each action has an optional failure branch that holds one or more actions, and "Run an automation" is an action, in a branch or in the main list. Whether a branch may nest is asked next (recommended: one level).
+
+> So with the whole language parsing system, we really have turned automations into a language right?
+>
+> I'm thinking Actions have an optional failure branch. You can slot in an action or more. An action could be an automation.
+
+Before it, on loops and an orchestrator:
+
+> So triggering another automation is not something we had before. there exists the risk of circular triggers. Also makes us ask the question, wouldn't it be cool to also have a Action for the happy path to trigger an automation based on conditions anyways? Like an Orchastrator automation rather than a micromanaged automation.
+
 ## Design rulings, mocked in the Designer dock
 
 - **Pair with** (a dialogue over the family's entry page after Scan): Found rows merged across every radio with signal bars from the strongest, untested rows marked "Not tested" (a known format) or "Not tested · raw only"; Paired rows below with their live value. The dialogue lists the Gateways that heard the device, strongest first, then This Phone last, each with a chip: "Assistant" (home, and This Phone) or "App only". Owner: "looks good".
@@ -1094,7 +1109,7 @@ Slices:
     - Validity is read from an automation's body alone (`automationIssue`, `armed`, `retireOf`); only the save's `refusal` sees the other automations.
     - The phone caps actions at eight in its own constant, so the cap cannot rise without a phone build.
 
-    The shape recommended to the owner, pending their answers: a trigger kind "when another automation runs it"; an action `run_automation` with an optional "only if" (one expression); an action "if not done within N minutes, run ..." as the fallback, carrying the wait; a save check that refuses a cycle across the whole graph on every intent, with a depth cap of three and once-per-origin at run time; child fires charged to their target's share and timed from the origin's trigger. A fallback with its own inline actions, conditions on other actions and a wait field on the record are left for later.
+    Decided so far (Question 49): a failure branch on each action, holding one or more actions, with "Run an automation" as an action. The branch must be stored where no phone build can drop it (a field on a known kind would be dropped), so it wants a shape of its own. Still to ask: whether branches nest (recommended: one level), how an automation that only runs when called is made (recommended: a trigger kind "when another automation runs it"), where a condition lives (recommended: an optional "only if" on `run_automation`, one expression), what counts as not done, and where the wait is set. From the research, whatever the answers: a save check that refuses a cycle across the whole graph on every intent, with a depth cap of three and once-per-origin at run time; child fires charged to their target's share and timed from the origin's trigger. A fallback with its own inline actions, conditions on other actions and a wait field on the record are left for later.
 
 Second alignment audit, over the first audit's fixes and slice 9 (six reads, one synthesis; `align-27c-relap-synthesis.md` in the session scratchpad). Eleven findings, none high. Changed:
 
