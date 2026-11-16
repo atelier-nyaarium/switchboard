@@ -766,6 +766,12 @@ Put to the owner: write a script's actions as calls in the grammar that exists, 
 
 Asked: calls (recommended); a word per action (`set "Desk lamp" on`); or calls plus an assignment for whatever sets a state (`devices.get("Desk lamp").on = true`).
 
+## Question 59 - When an automation runs another, does it wait? (open)
+
+Asked as: it waits and a failure comes back (recommended), or it starts the other and moves on. Under the first, "failed" means anything in the called run failed, handled by its own branch or not; a target gone, switched off or edited while the caller waits is a failure too; and the caller is held for as long as the other runs.
+
+Told with it, as a correction of the drafter's own detail and no question: "an automation may be run once per run" goes, since a reset at the start and the same automation again in a failure branch is a normal flow. The guard is that an automation cannot run itself, directly or through others, with a cap on how many one run may start.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
