@@ -865,9 +865,14 @@ A: Variables, typed as NyaaDot's are, so highlighting, completions and hint card
 > Let's think. Node provides Promises as a manager object. should we build ours in first party?
 > Promise has all(), some() I think, and some other things. What would we need for parallel handling?
 
-## Question 64 - Which parallel built-ins? (open)
+## Question 64 - How is parallel work written?
 
-Put to the owner. JavaScript's `Promise` holds `all`, `allSettled`, `any` and `race` (no `some`). Ours is first party by necessity, since the language has no functions to build one from, and simpler: every line already waits, so no promise value has to exist. A built-in takes calls unevaluated, as the lazy `if(...)` does today, and starts them together. Each argument is one call; a sequence run beside another goes in an automation and is run by it.
+Q: Tasks with `start`, `await`, `all` and `any` plus a `parallel { }` block as the short form; the block alone; or built-ins on a manager?
+A: Tasks, with the block as the short form. Built in two steps after the one-at-a-time core works: the block first, since it is the subset and what cards draw, then tasks. The answer came on the second take, below.
+
+> A
+
+First take, put to the owner. JavaScript's `Promise` holds `all`, `allSettled`, `any` and `race` (no `some`). Ours is first party by necessity, since the language has no functions to build one from, and simpler: every line already waits, so no promise value has to exist. A built-in takes calls unevaluated, as the lazy `if(...)` does today, and starts them together. Each argument is one call; a sequence run beside another goes in an automation and is run by it.
 
 - `parallel.all(a, b, c)`: start together, wait for every one to finish, then fail if any failed. It does not bail at the first failure as JavaScript's does, since a command already sent cannot be unsent. Hands back the results in order.
 - `parallel.settled(a, b, c)`: the same, never fails, hands back each result to inspect.
@@ -893,7 +898,11 @@ Second take, from languages built with parallelism (Go's `go` and wait groups, C
 - A time limit falls out: start the slow thing and a `wait`, await `any` of the two, and test which came first.
 - `parallel { ... }` as the short form: start each line and await all. It is what cards draw, as a card beside If and Try.
 
-Asked: tasks with `start`, `await`, `all` and `any`, plus the block as short form (recommended, the block built first since it is the subset); the block alone; or the manager built-ins of the first take.
+Asked: tasks with `start`, `await`, `all` and `any`, plus the block as short form (recommended, the block built first since it is the subset); the block alone; or the manager built-ins of the first take. The owner took the first.
+
+## Question 65 - Is the trigger written in the script? (open)
+
+Asked as: the trigger stays a form above the script, which holds the steps alone (recommended for the first version, and it closes nothing later); or the trigger is the script's opening line, so a whole automation is one piece of text.
 
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
