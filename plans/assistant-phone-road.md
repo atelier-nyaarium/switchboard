@@ -637,6 +637,18 @@ Before it, on loops and an orchestrator:
 
 > So triggering another automation is not something we had before. there exists the risk of circular triggers. Also makes us ask the question, wouldn't it be cool to also have a Action for the happy path to trigger an automation based on conditions anyways? Like an Orchastrator automation rather than a micromanaged automation.
 
+## Question 51 - What can "Run an automation" point at?
+
+Q: Any automation on the same Gateway (its own trigger and cool-down skipped, a switched-off one not run, and a helper made with a new When, "Only when another automation runs it"), helpers only, or any automation with off stopping only its own trigger?
+A: Any automation on the same Gateway, off means off, and the new When for a helper. The limit proposed with it, that an event-triggered automation cannot be a target, is not accepted as stated: the owner wants the kinds of automation identified and reduced first.
+
+> Sure, A.
+> But lets talk about that.
+> > GitHub-triggered automation cannot be a target
+> Let's identity the different kinds of automations. And then reduce them.
+>
+> Some automations are sourced from us, and some external like GitHub. What does that mean for us?
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
