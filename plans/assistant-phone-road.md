@@ -722,7 +722,16 @@ A side was first put as one level deep, like a failure branch. The owner reopene
 
 Asked as: neither side runs, it is logged as a failure and the list carries on (recommended); treat it as false; or stop the run. Not answered yet: the owner turned to depth first.
 
-## Question 57 - How deep may blocks nest, and how do cards and script relate? (open)
+## Question 57 - How deep may blocks nest, and how do cards and script relate?
+
+Q: One model with two views, cards only at any depth, or flat cards with every branch in script alone?
+A: One model, two views, built in three steps: the tree model and engine with cards, script as a read-only view, script editing.
+
+> A.
+>
+> What's the scripting language look like for the current language parser in the description blocks and such?
+
+Shown to the owner in answer: the console's expression language as it stands (paths and calls, the comparison and arithmetic operators, literals, the list methods, `round` and `if`, `;` and a saved name) and a text's `{expression}` holes with each trigger's names. Corrected with it: the earlier sketches wrote `sensors.outside.temperature`, which is not the language. A reading today is `sensors.read("Outside").readings.where("key", "temperature").first().value`, too long for a condition typed on a phone, so a short read such as `sensors.value(device, key)` is added with this work.
 
 > hmm. what if we DID allow them to do any level deep?
 >
