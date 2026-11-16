@@ -750,6 +750,16 @@ What was put back to the owner:
 
 Asked: one model with two views in those steps (recommended); cards only, at any depth, a nested block opening as a page; or flat cards with every branch in script alone.
 
+## Question 58 - How are actions written in script? (open)
+
+> look at the scripting language on NyaaDot side. does it have more on the doing side?
+
+Read from NyaaDot's console doc and evaluator: the same grammar family, with a doing side this console lacks. A method call may change things (`configs.set("key", "value")`), a property may be written (`player.gold = 100`, checked by its schema), each method declares `read_only` or counts as doing, and a line that does something runs in a transaction that rolls back on an error. It has no `if`, no blocks, no loops and no functions: a line is one assignment or one expression.
+
+Put to the owner: write a script's actions as calls in the grammar that exists, one registered method per action kind from the action table (`devices.set("Desk lamp", "on")`, `assistant.tell("...")`, `ifttt.trigger(...)`, `automations.run("Heat on")`), each declaring its nature as NyaaDot declares `read_only`. Completions, hints and cards then cover actions with no new work, and the only new grammar is `if` and `else` and `on failure`. Not carried over: rollback, since a plug cannot be unswitched and the failure branch stands in its place; and doing from the Console page, since the agents' door reads the same registry and stays read-only by its test, so an action call is served to an automation's script alone.
+
+Asked: calls (recommended); a word per action (`set "Desk lamp" on`); or calls plus an assignment for whatever sets a state (`devices.get("Desk lamp").on = true`).
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
