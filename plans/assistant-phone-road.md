@@ -779,7 +779,14 @@ Under the answer, "failed" means anything in the called run failed, handled by i
 
 Told with it, as a correction of the drafter's own detail and no question: "an automation may be run once per run" goes, since a reset at the start and the same automation again in a failure branch is a normal flow. The guard is that an automation cannot run itself, directly or through others, with a cap on how many one run may start.
 
-## Question 60 - How is "if this fails" spelled in script? (open)
+## Question 60 - How is a failure handled in script?
+
+Q: Which form: the classic try and catch, a whole-script catch alone, or undo as you go?
+A: Classic. `try { ... } catch (e) { ... }` in its traditional meaning: the first failure inside the try jumps to the catch and the rest of the try is skipped, `e` names what failed and how, and after the catch the script carries on. A `stop` statement ends the run. This refines Question 53: ending the run after a failure is written, not implied, and cards write it by default. A failure outside any try is still noted and the run carries on. The answer came after three takes, recorded below.
+
+> A
+
+The takes that led there:
 
 The owner asked whether `on failure` was real syntax. Answered: invented for the sketch, a proposal, nothing built; so was `when clock at 18:00`, and the audit advises keeping the trigger out of the script.
 
@@ -819,7 +826,9 @@ Variants shown, each as a sketch in this language:
 
 Two places where the earlier answers part from tradition, named to the owner: Question 53 ends the run after a failure branch, where a traditional catch carries on (a written `stop` covers it); and a failure outside any try is logged and the run carries on, where JavaScript would abort.
 
-Asked: the classic form with `e`, its traditional meaning and a `stop` (recommended; 2 and 3 fit it later, 5 is a script whose whole body is one try); the whole-script catch alone; or undo as you go.
+Asked: the classic form with `e`, its traditional meaning and a `stop` (recommended; 2 and 3 fit it later, 5 is a script whose whole body is one try); the whole-script catch alone; or undo as you go. The owner took the first.
+
+What follows from it, told to the owner: a failure slot on one action in cards is a try around that action, and a try around several is a group card; a condition that cannot be read is a failure, so inside a try it jumps to the catch; a called automation reports failed when a failure in it went uncaught, which narrows what Question 59 was told ("handled or not").
 
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
