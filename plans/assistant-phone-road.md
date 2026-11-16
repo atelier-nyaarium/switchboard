@@ -804,6 +804,23 @@ The owner's reply, which keeps the language open and asks for a slower pace:
 
 Settled by it: an If is written `if (cond) { ... } else { ... }`, the condition in parentheses. Each side is a list of statements run top to bottom, as the tree already holds; the sketches had shown one statement per side. Still open: how a failure is written, now between a method on the call taking a block, a plain `if` over the call's result, and the floating words. The script phase, and with it the stored shape of a step, waits on the language.
 
+Put back as a method on the call taking a block (`devices.set(...).failure { ... }`, recommended), a plain `if` over the call's result, or the floating words. The owner declined all three and asked for the try and catch family:
+
+> hmm. I don't like that either. What about a try catch style? think about multiple languages and see what variants you can think of
+
+Variants shown, each as a sketch in this language:
+
+1. **Classic** (JavaScript, Java, C#): `try { ... } catch (e) { ... }`. The first failure inside jumps to the catch and the rest of the try is skipped. `e` names what failed and its word. After the catch the script carries on; a `stop` statement ends the run.
+2. **Catch by kind** (Java, Python): `catch (unreachable) { ... } catch (refused) { ... }`, the four words as the kinds.
+3. **With `else` and `finally`** (Python): a block for "nothing failed" and one that runs either way.
+4. **Mark the calls that matter** (Swift's `try x`, Rust's `x?`): inside a block, only a marked call jumps to the catch.
+5. **One handler for the whole script** (shell `trap`, Visual Basic `On Error`, Ruby's method `rescue`): a trailing `catch (e) { ... }` with the whole script as the try. This is the fallback on the automation the owner first described in Question 48.
+6. **Undo as you go** (Zig's `errdefer`, Go's `defer`): `undo { ... }` after a step; when something later fails, the undos registered so far run, newest first. Rollback for what cannot roll itself back, in the spirit of NyaaDot's transactions.
+
+Two places where the earlier answers part from tradition, named to the owner: Question 53 ends the run after a failure branch, where a traditional catch carries on (a written `stop` covers it); and a failure outside any try is logged and the run carries on, where JavaScript would abort.
+
+Asked: the classic form with `e`, its traditional meaning and a `stop` (recommended; 2 and 3 fit it later, 5 is a script whose whole body is one try); the whole-script catch alone; or undo as you go.
+
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
 Asked as: install and walk what is built, then build flows (recommended); build flows in cards first and install together; or build everything, script and map included, then install. The reasons given: the app on the phone (8.14.82) strips a message from an automation on a toggle, so the newer app must be installed before a flow can be stored safely; what exists gets used and corrected before more sits on it; real use finds what an audit does not.
