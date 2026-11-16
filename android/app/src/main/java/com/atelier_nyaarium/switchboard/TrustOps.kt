@@ -275,6 +275,8 @@ internal class TrustOps(
 			} && fresh.containsAll(entries.map { it.id })
 			markPending(began, peerOwnerSignPub, !told, untrust = true)
 			refreshPeers()
+			val domains = peers.map { it.second.domainId }.toSet()
+			provision.land(began) { state.update { withoutOwner(it, peerOwnerSignPub, domains) } }
 			presence.refreshAfterAction()
 			Unit
 		}
@@ -439,6 +441,15 @@ internal fun linkedOwners(lists: List<GatewayList<com.atelier_nyaarium.switchboa
 	val conflicted = named.filterValues { it.distinct().size > 1 }.keys
 	for (domain in conflicted) DebugLog.log("Trust", "conflicting peer owner for $domain")
 	return named.mapValues { it.value.first() } - conflicted
+}
+
+/** An untrusted owner's Domains and their sessions. */
+internal fun withoutOwner(state: ChatState, owner: String, domains: Set<String>): ChatState {
+	val gone = domains + state.linkedPeerOwners.filterValues { it == owner }.keys
+	return state.copy(
+		linkedPeerOwners = state.linkedPeerOwners - gone,
+		crossDomainPeerSessions = state.crossDomainPeerSessions - gone,
+	)
 }
 
 /** A held Domain goes only once every Gateway answered without it. */

@@ -5,8 +5,9 @@ import { z } from "zod";
 export const LOG_MAX = 64;
 export const REPLACED = "a newer run replaced it";
 export const CROWDED = "dropped for room";
-/** Beside every refusal, logged once while they stand. */
-const STANDING_REASONS: ReadonlySet<string> = new Set([REPLACED, CROWDED]);
+export const TOO_MANY = "too many runs are waiting";
+/** Standing; logged again after an intervening run. */
+const LOST_RUNS: ReadonlySet<string> = new Set([REPLACED, CROWDED, TOO_MANY]);
 
 export const RUN_OUTCOMES = ["ran", "refused", "uncertain", "suppressed"] as const;
 
@@ -21,12 +22,11 @@ export const RunSchema = z.strictObject({
 });
 export type AutomationRun = z.infer<typeof RunSchema>;
 
-/** A standing reason is logged once per automation and action. */
+/** Standing rows log once per automation and action. */
 export const logged = (log: readonly AutomationRun[], run: AutomationRun): AutomationRun[] => {
-	const last = log.findLast(
-		(held) => held.automation === run.automation && (run.action === undefined || held.action === run.action),
-	);
-	const stands = run.outcome === "refused" || (run.reason !== undefined && STANDING_REASONS.has(run.reason));
+	const lost = run.reason !== undefined && LOST_RUNS.has(run.reason);
+	const last = log.findLast((held) => held.automation === run.automation && (lost || held.action === run.action));
+	const stands = run.outcome === "refused" || lost;
 	const standing = stands && last?.outcome === run.outcome && last.reason === run.reason;
 	return standing ? [...log] : [...log, run].slice(-LOG_MAX);
 };

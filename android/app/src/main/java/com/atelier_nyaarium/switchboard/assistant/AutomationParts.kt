@@ -24,6 +24,7 @@ private const val MAX_COOL_DOWN_MIN = 1_440L
 private const val MINUTE_SEC = 60L
 private const val COOL_DOWN_DECIMALS = 2
 private const val MAX_INTERVAL_MIN = 10_080L
+private const val FRESH_DEAD_ZONE = "0.5"
 private val CLOCK = Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 internal data class NumberOffer(val device: String, val measure: String, val label: String, val unit: String?, val decimals: Int)
@@ -59,10 +60,15 @@ internal fun offerOf(serves: AutomationServes?, away: Boolean): AutomationOffer 
 		away = away,
 	)
 
-/** Its own number returning converts the stored texts. */
-internal fun TriggerDraft.Crossing.picked(number: NumberOffer, display: String?): TriggerDraft.Crossing {
+/** Stored text, minted while its unit was unknown. */
+private fun TriggerDraft.Crossing.raw(offer: AutomationOffer): Boolean =
+	unit == null && offer.number(device, measure).let { it == null || it.unit != null }
+
+/** Raw text converts for its own number and clears for another. */
+internal fun TriggerDraft.Crossing.picked(number: NumberOffer, offer: AutomationOffer, display: String?): TriggerDraft.Crossing {
 	val picked = copy(device = number.device, measure = number.measure, unit = number.unit)
-	if (unit != null || number.unit == null || number.device != device || number.measure != measure) return picked
+	if (!raw(offer)) return picked
+	if (number.device != device || number.measure != measure) return picked.copy(threshold = "", deadZone = FRESH_DEAD_ZONE)
 	val stored = parseDecimal(threshold.trim())
 	val width = parseDecimal(deadZone.trim())
 	return picked.copy(
@@ -128,6 +134,10 @@ internal fun clockKinds(offer: AutomationOffer): List<String> = listOf(TRIGGER_T
 
 internal fun numberSuffix(unit: String?, display: String?): String =
 	unit?.let { suffixOf(displayedUnit(it, display)) }.orEmpty()
+
+/** Raw text reads in its stored unit. */
+internal fun crossingSuffix(unit: String?, offered: String?, display: String?): String =
+	if (unit != null) numberSuffix(unit, display) else numberSuffix(offered, null)
 
 private fun scaleOf(unit: String?, display: String?): Double =
 	FieldTypes.UNIT_DISPLAYS.find { it.unit == unit && it.display == display }?.scale ?: 1.0
@@ -238,7 +248,7 @@ internal fun triggerOf(trigger: TriggerDraft, offer: AutomationOffer, display: S
 internal fun freshTrigger(choice: TriggerChoice, offer: AutomationOffer, firstSource: String?, zone: String): TriggerDraft? = when (choice) {
 	TriggerChoice.EVENT -> firstSource?.let { TriggerDraft.Event(it, emptyList()) }
 	TriggerChoice.CROSSING -> offer.numbers.firstOrNull()?.let {
-		TriggerDraft.Crossing(it.device, it.measure, "below", "", "0.5", "10", it.unit)
+		TriggerDraft.Crossing(it.device, it.measure, "below", "", FRESH_DEAD_ZONE, "10", it.unit)
 	}
 	TriggerChoice.TIME -> clockKinds(offer).firstNotNullOfOrNull { freshClock(it, zone) }
 }

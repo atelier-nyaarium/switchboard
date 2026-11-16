@@ -136,6 +136,8 @@ const SlotSchema = z.object({
 	incarnation: z.string(),
 	/** The last slot handled, or when it was saved. */
 	at: z.number(),
+	/** Handled before the clock stepped back. */
+	skip: z.number().optional(),
 });
 type Slot = z.infer<typeof SlotSchema>;
 
@@ -589,17 +591,17 @@ export function createAutomations(deps: AutomationsDeps) {
 			const { trigger } = record.body;
 			if (!isClock(trigger) || !armed(record)) continue;
 			const held = own(state.slots, record.id);
-			const restarts =
-				!held ||
-				held.revision !== record.revision ||
-				held.incarnation !== record.incarnation ||
-				held.at > now + CLOCK_GRACE_MS;
-			if (restarts) {
-				// A saved or stepped-back clock starts from now.
+			if (!held || held.revision !== record.revision || held.incarnation !== record.incarnation) {
+				// A saved clock starts from now.
 				slots[record.id] = { revision: record.revision, incarnation: record.incarnation, at: now };
 				continue;
 			}
-			const walk = walkSlots(trigger, held.at, now);
+			if (held.at > now + CLOCK_GRACE_MS) {
+				// Stepped back: restart from now.
+				slots[record.id] = { ...held, at: now, skip: Math.max(held.at, held.skip ?? held.at) };
+				continue;
+			}
+			const walk = walkSlots(trigger, held.at, now, held.skip);
 			for (const next of walk.due) {
 				const member = memberOf(record.id, record.incarnation, "slot", next);
 				const shown = clockShown(trigger, next);
@@ -610,7 +612,8 @@ export function createAutomations(deps: AutomationsDeps) {
 				const reason = `missed ${walk.missed} slot${walk.missed === 1 ? "" : "s"}`;
 				work.log = logged(work.log, fireRun(gap, "uncertain", reason));
 			}
-			slots[record.id] = { ...held, at: walk.at };
+			const { skip, ...kept } = held;
+			slots[record.id] = { ...kept, at: walk.at, ...(skip !== undefined && walk.at < skip ? { skip } : {}) };
 		}
 		const next: State = { ...state, slots, log: work.log, fires: work.fires };
 		const landed = canonicalJson(next) === canonicalJson(state) || commit(next);
@@ -677,7 +680,10 @@ export function createAutomations(deps: AutomationsDeps) {
 			sightings.set(key, sighted(seen, now, NOT_READY));
 			return "wait";
 		}
-		return seen && !retryDue(seen, now) ? "wait" : "go";
+		// Never attempted: a later wait starts at its first attempt.
+		if (seen?.reason === NOT_READY) sightings.delete(key);
+		else if (seen && !retryDue(seen, now)) return "wait";
+		return "go";
 	};
 
 	const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
@@ -826,13 +832,23 @@ export function createAutomations(deps: AutomationsDeps) {
 	const fillerOf = (fire: Fire, runs: AutomationRun[]) => {
 		const names = fire.names ?? {};
 		const holes = deps.holes?.();
+		let threw = false;
 		return async (text: string, action: string): Promise<string> => {
 			if (!hasHoles(text)) return unescapedText(text);
 			if (!holes) {
 				runs.push(fireRun(fire, "uncertain", "its holes cannot be read yet", action));
 				return unreadText(text);
 			}
-			const read = await holes.fill(text, names);
+			let read: Awaited<ReturnType<AutomationHoles["fill"]>>;
+			try {
+				read = await holes.fill(text, names);
+			} catch (error) {
+				// A thrown fill gives up.
+				console.error("[automations] a fill failed:", error);
+				if (!threw) runs.push(fireRun(fire, "uncertain", "its holes could not be read", action));
+				threw = true;
+				return unreadText(text);
+			}
 			if (read.failed > 0) {
 				runs.push(fireRun(fire, "uncertain", `${read.failed} of its holes could not be read`, action));
 			}
@@ -875,21 +891,17 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** A message's holes; false when nothing moved. */
 	async function fill(fire: Fire, record: OwnerRecord<Automation>): Promise<boolean> {
-		let runs: AutomationRun[] = [];
+		const runs: AutomationRun[] = [];
 		const filled = fillerOf(fire, runs);
 		const written = tellPlan(record.body).messages;
-		let messages: string[] = [];
-		try {
-			for (const message of written) messages.push(await filled(message, "tell_assistant"));
-		} catch (error) {
-			// A thrown fill gives up.
-			console.error("[automations] a fill failed:", error);
-			messages = written.map(unreadText);
-			runs = [fireRun(fire, "uncertain", "its holes could not be read", "tell_assistant")];
-		}
-		if (!fire.tell) return false;
-		const tell = { when: fire.tell.when, fields: withMessage(fire.tell.fields, messages, written) };
-		return commit({ ...state, fires: patched(fire.member, { tell }), log: runs.reduce(logged, state.log) });
+		const messages: string[] = [];
+		for (const message of written) messages.push(await filled(message, "tell_assistant"));
+		const log = runs.reduce(logged, state.log);
+		// The pump may have withdrawn it.
+		const held = state.fires.find((stored) => stored.member === fire.member)?.tell;
+		if (!held?.fill) return runs.length > 0 && commit({ ...state, log });
+		const tell = { when: held.when, fields: withMessage(held.fields, messages, written) };
+		return commit({ ...state, fires: patched(fire.member, { tell }), log });
 	}
 
 	/** Outcomes in one write. */
@@ -920,7 +932,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		const lastRanAt = own(state.ran, record.id);
 		const { trigger } = record.body;
 		const current = slot?.revision === record.revision ? slot : undefined;
-		const nextRunAt = isClock(trigger) && current && armed(record) ? nextSlot(trigger, current.at) : null;
+		const coming = isClock(trigger) && current && armed(record) ? nextSlot(trigger, current.at) : null;
+		const nextRunAt =
+			coming !== null && coming === current?.skip && isClock(trigger) ? nextSlot(trigger, coming) : coming;
 		return {
 			id: record.id,
 			revision: record.revision,

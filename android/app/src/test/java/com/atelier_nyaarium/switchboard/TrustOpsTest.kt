@@ -230,6 +230,34 @@ class TrustOpsTest {
 		assertEquals(listOf("revoke:friend-domain"), fake.log.filter { it.startsWith("revoke:") })
 	}
 
+	@Test
+	fun anUntrustWhoseRevokesLandedDropsTheFriendWhileAGatewayIsUnread() = runBlocking {
+		val sessions = mapOf(
+			"friend-domain" to com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry(
+				"friend-domain", null, com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceVersion(1L, 1L), emptyList(), 0L,
+			),
+		)
+		suspend fun untrusted(revokes: Boolean): Pair<Set<String>, Set<String>> {
+			val state = MutableStateFlow(
+				ChatState(
+					gateways = testRegistry("gw-a", "gw-b"),
+					linkedPeerOwners = mapOf("friend-domain" to "friend-owner"),
+					crossDomainPeerSessions = sessions,
+				),
+			)
+			val identity = identity().also { it.federation.addTrustedOwner("friend-owner") }
+			val answers = untrustAnswers(mapOf("gw-a" to peerJson("friend-domain", "friend-owner")))
+			val ops = ops("untrust-drops-$revokes", state, Fake(revokes = revokes), identity) { op ->
+				if (op.op["gatewayId"]?.jsonPrimitive?.content == "gw-b") null else answers(op)
+			}
+			ops.untrustOwner("friend-owner")
+			return state.value.linkedPeerOwners.keys to state.value.crossDomainPeerSessions.keys
+		}
+
+		assertEquals(emptySet<String>() to emptySet<String>(), untrusted(true))
+		assertEquals(setOf("friend-domain") to setOf("friend-domain"), untrusted(false))
+	}
+
 	private fun untrustAnswers(peersOf: Map<String, String>): (OwnerOp) -> String? {
 		val asked = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 		return { op ->

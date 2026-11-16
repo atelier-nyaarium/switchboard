@@ -62,6 +62,8 @@ function world(dir: string, home = true) {
 	let switches = ["plug"];
 	let readable = true;
 	let broken = false;
+	/** Fills wait on it. */
+	let fillGate: Promise<void> = Promise.resolve();
 	let iftttReady = true;
 	let iftttAnswer: ActionOutcome = { outcome: "refused", reason: "not_granted" };
 	/** Effects wait on it. */
@@ -106,6 +108,7 @@ function world(dir: string, home = true) {
 							? {
 									issue: (text, names) => holeIssue(text, names, REGISTRY),
 									fill: async (text, names) => {
+										await fillGate;
 										if (broken) throw new Error("fill broke");
 										return fillHoles(text, names, REGISTRY);
 									},
@@ -119,8 +122,8 @@ function world(dir: string, home = true) {
 							if (gated === null || gated === `${device}:${verb}`) await gate;
 							return { outcome: "ran" };
 						},
-						iftttTrigger: async ({ event }) => {
-							effects.push(`ifttt:${event}`);
+						iftttTrigger: async ({ event, value1 }) => {
+							effects.push(value1 === undefined ? `ifttt:${event}` : `ifttt:${event}:${value1}`);
 							return iftttAnswer;
 						},
 					},
@@ -182,6 +185,17 @@ function world(dir: string, home = true) {
 	const breakFills = () => {
 		broken = true;
 	};
+	/** Fills wait until released. */
+	const holdFills = () => {
+		let release = () => {};
+		fillGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		return () => release();
+	};
+	const setHome = (next: boolean) => {
+		home = next;
+	};
 	const setIftttReady = (ready: boolean) => {
 		iftttReady = ready;
 	};
@@ -204,6 +218,8 @@ function world(dir: string, home = true) {
 		unplug,
 		unreadable,
 		breakFills,
+		holdFills,
+		setHome,
 		setIftttReady,
 		answerIfttt,
 	};
@@ -922,24 +938,36 @@ describe("automations", () => {
 		automations.tick();
 		await automations.settled();
 
-		const queues = world(fresh());
-		const b = queues.open();
-		b.fields.put("band", hotBand, 0);
-		b.automations.ownerPut("bell", bell, 0, true);
-		queues.setIftttReady(false);
-		queues.answerIfttt({ outcome: "ran" });
-		const release = queues.holdEffects();
-		queues.read(b.fields, -5);
-		queues.setIftttReady(true);
-		queues.advance(EFFECT_WAIT_MS + 1);
-		b.automations.tick();
-		release();
-		await b.automations.settled();
+		/** Unready once, then past the wait. */
+		const afterQueue = async (first: ActionOutcome) => {
+			const queues = world(fresh());
+			const b = queues.open();
+			b.fields.put("band", hotBand, 0);
+			b.automations.ownerPut("bell", bell, 0, true);
+			queues.setIftttReady(false);
+			queues.answerIfttt(first);
+			const release = queues.holdEffects();
+			queues.read(b.fields, -5);
+			queues.setIftttReady(true);
+			queues.advance(EFFECT_WAIT_MS + 1);
+			b.automations.tick();
+			release();
+			await b.automations.settled();
+			queues.answerIfttt({ outcome: "ran" });
+			queues.advance(EFFECT_RETRY_MS);
+			b.automations.tick();
+			await b.automations.settled();
+			return [queues.effects, ifttt(b.automations)];
+		};
 
 		expect(held).toEqual([["plug:on"], 1, []]);
 		expect(w.effects).toEqual(["plug:on"]);
 		expect(ifttt(automations)).toEqual(["refused"]);
-		expect([queues.effects, ifttt(b.automations)]).toEqual([["plug:on", "ifttt:freezer"], ["ran"]]);
+		expect(await afterQueue({ outcome: "ran" })).toEqual([["plug:on", "ifttt:freezer"], ["ran"]]);
+		expect(await afterQueue({ outcome: "not_started", reason: "not_ready" })).toEqual([
+			["plug:on", "ifttt:freezer", "ifttt:freezer"],
+			["ran"],
+		]);
 	});
 
 	it("retries an effect that sent nothing while its plug and tell go ahead, holds no retry for a clock stepped back, and refuses it once the wait has passed", async () => {
@@ -1158,7 +1186,7 @@ describe("automations", () => {
 		expect(automations.runs()).toEqual([]);
 	});
 
-	it("gives up a fill that throws: tells the message with its holes marked, logs it uncertain, and runs the rest", async () => {
+	it("gives up a fill that throws: tells the message and sends the effect with their holes marked, logging each uncertain", async () => {
 		const w = world(fresh());
 		const { automations } = w.open();
 		const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
@@ -1170,9 +1198,11 @@ describe("automations", () => {
 		);
 		automations.ownerPut(
 			"flash",
-			{ enabled: true, trigger: event, actions: [{ kind: "device_set", device: "plug", verb: "toggle" }] },
+			{ enabled: true, trigger: event, actions: [{ kind: "ifttt_trigger", event: "door", value1: message }] },
 			0,
+			true,
 		);
+		w.answerIfttt({ outcome: "ran" });
 		w.breakFills();
 
 		const key = memberKey("github", { id: "7", at: 7 });
@@ -1189,13 +1219,13 @@ describe("automations", () => {
 		expect(answer.kind === "events" ? answer.events.map((told) => told.fields.message) : []).toEqual([
 			unreadText(message),
 		]);
-		expect(w.effects).toEqual(["plug:toggle"]);
+		expect(w.effects).toEqual([`ifttt:door:${unreadText(message)}`]);
 		expect(
 			automations
 				.runs()
 				.map((run) => `${run.automation} ${run.outcome}`)
 				.toSorted(),
-		).toEqual(["flash ran", "messaged ran", "messaged uncertain"]);
+		).toEqual(["flash ran", "flash uncertain", "messaged ran", "messaged uncertain"]);
 	});
 
 	it("fills and tells a message while another automation's effect is in flight", async () => {
@@ -1232,6 +1262,39 @@ describe("automations", () => {
 
 		expect(during).toEqual(["messaged"]);
 		expect(w.effects).toEqual(["plug:toggle"]);
+	});
+
+	it("never puts back a tell the home's leaving withdrew while its fill was in flight", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		const heat: Automation = {
+			...iceBucket(),
+			actions: [
+				{ kind: "device_set", device: "plug", verb: "on" },
+				{ kind: "tell_assistant", when: "now", message: "It reads {value}" },
+			],
+		};
+		automations.ownerPut("heat", heat, 0);
+		const releasePlug = w.holdEffects();
+		const releaseFill = w.holdFills();
+
+		w.read(fields, -5);
+		w.setHome(false);
+		automations.tick();
+		w.setHome(true);
+		releaseFill();
+		await new Promise((resolve) => setImmediate(resolve));
+		releasePlug();
+		await automations.settled();
+
+		expect(await queued(automations)).toEqual([]);
+		expect(
+			automations
+				.runs()
+				.filter((run) => run.action === "tell_assistant")
+				.map((run) => run.outcome),
+		).toEqual(["refused"]);
 	});
 
 	it("tells an event's message through the outbox with the event's names, and leaves only a tell with no message to the source's lane", async () => {

@@ -116,12 +116,11 @@ private fun unnamed(action: ActionDraft.Filled, row: ActionOffer): Boolean =
 	action.values.any { (key, value) -> value.isNotBlank() && row.param(key) == null }
 
 private fun issueOf(action: ActionDraft, offer: AutomationOffer, blanks: Boolean): String? = when (action) {
-	is ActionDraft.Kept -> if (offer.action(kindOf(action.action))?.home == true && offer.away) HOME_ONLY else null
+	is ActionDraft.Kept -> null
 	is ActionDraft.Filled -> {
 		val row = offer.action(action.kind)
 		when {
 			row == null -> "This Gateway no longer offers it"
-			row.home && offer.away -> HOME_ONLY
 			unnamed(action, row) -> "This Gateway no longer offers part of it"
 			else -> row.params.firstNotNullOfOrNull { param ->
 				val value = action.values[param.name].orEmpty()
@@ -135,6 +134,18 @@ internal fun actionIssue(action: ActionDraft, offer: AutomationOffer): String? =
 
 /** Silent about a parameter that is still blank. */
 internal fun actionHint(action: ActionDraft, offer: AutomationOffer): String? = issueOf(action, offer, blanks = false)
+
+/** Does nothing here: needs the home. */
+internal fun homeOnly(kind: String, offer: AutomationOffer): Boolean = offer.away && offer.action(kind)?.home == true
+
+/** Warns; never blocks a save. */
+internal fun actionWarning(action: ActionDraft, offer: AutomationOffer): String? {
+	val kind = when (action) {
+		is ActionDraft.Filled -> action.kind
+		is ActionDraft.Kept -> kindOf(action.action)
+	}
+	return HOME_ONLY.takeIf { homeOnly(kind, offer) }
+}
 
 /** A blank optional parameter is left out; null when the action does not read back or would drop a value. */
 internal fun actionOf(action: ActionDraft, offer: AutomationOffer): AutomationAction? = when (action) {

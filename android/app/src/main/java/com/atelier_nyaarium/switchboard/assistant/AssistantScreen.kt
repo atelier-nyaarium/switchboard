@@ -64,6 +64,7 @@ import com.atelier_nyaarium.switchboard.WorkKey
 import com.atelier_nyaarium.switchboard.answerText
 import com.atelier_nyaarium.switchboard.workdirOf
 import com.atelier_nyaarium.switchboard.assistantSections
+import com.atelier_nyaarium.switchboard.folderAfter
 import com.atelier_nyaarium.switchboard.folderOf
 import com.atelier_nyaarium.switchboard.folderShown
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -255,9 +256,9 @@ private fun AssistantLocationPage(
 		mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length)))
 	}
 	var touched by rememberSaveable(home) { mutableStateOf(false) }
-	// Untouched follows the answer.
 	LaunchedEffect(folderText) {
-		if (!touched) folder = TextFieldValue(folderText, TextRange(folderText.length))
+		val next = folderAfter(folder.text, touched, folderText)
+		if (next != folder.text) folder = TextFieldValue(next, TextRange(next.length))
 	}
 	// Leaving closes the dialog.
 	var abandoning by remember { mutableStateOf<LocationAction.Move?>(null) }

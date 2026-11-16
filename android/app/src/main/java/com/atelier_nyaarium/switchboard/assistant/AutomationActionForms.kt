@@ -104,6 +104,7 @@ internal fun ActionsSection(
 						)
 					}
 					IssueLine(actionHint(action, offer))
+					IssueLine(actionWarning(action, offer))
 				}
 			}
 		}

@@ -11,7 +11,7 @@ const DESCRIPTION = `
 
 List each source live, newest first, 50 a page. Marks nothing.
 
-- \`scope: "new"\`: unread, updated since your last \`new\` read that reached its last page.
+- \`scope: "new"\`: unread, updated since your last \`new\` read that reached its last page. A read whose pages span an action on that source keeps its mark, so threads you left open are listed again.
 - \`scope: "all"\`: everything unread.
 - \`page\`: the token an answer gave. A list that changes between pages may repeat or skip an item.
 

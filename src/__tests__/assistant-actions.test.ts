@@ -27,6 +27,7 @@ import { ConsolePushEntrySchema } from "../shared/federation-protocol.js";
 import { ACTION_FRONT_ROUTES, type ActionRunResult } from "../shared/schemasActionFront.js";
 import { ASSISTANT_ACTIONS } from "../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
+import type { InboxList } from "../shared/schemasAssistantInbox.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { SessionStore } from "../shared/session-store.js";
@@ -82,8 +83,8 @@ function bindHome(assistant: AssistantStage, store: SessionStore) {
 	};
 }
 
-/** `404` means missing. A validated list read answers 304, as done threads leave `Last-Modified`. */
-function github(listed: string[] = []) {
+/** Fake GitHub: 404 missing, 304 validated, offset pages. */
+function github(listed: string[] = [], pageSize = 50) {
 	const asked: string[] = [];
 	const unread = new Set(listed);
 	const fetch = async (url: string, init: RequestInit) => {
@@ -91,8 +92,14 @@ function github(listed: string[] = []) {
 		const at = url.replace(API, "");
 		if (at.startsWith("/notifications?")) {
 			if (new Headers(init.headers).has("if-modified-since")) return new Response(null, { status: 304 });
-			const headers = { "last-modified": "Sun, 18 Oct 2026 10:00:00 GMT" };
-			return Response.json([...unread].map(thread), { headers });
+			const page = Number(new URL(url).searchParams.get("page") ?? "1");
+			const all = [...unread];
+			const next = `<${API}/notifications?per_page=${pageSize}&page=${page + 1}>; rel="next"`;
+			const headers = {
+				"last-modified": "Sun, 18 Oct 2026 10:00:00 GMT",
+				...(page * pageSize < all.length ? { link: next } : {}),
+			};
+			return Response.json(all.slice((page - 1) * pageSize, page * pageSize).map(thread), { headers });
 		}
 		asked.push(`${method} ${at}`);
 		const id = at.match(/threads\/(\d+)$/)?.[1] ?? "";
@@ -107,7 +114,7 @@ function github(listed: string[] = []) {
 	return { fetch, asked };
 }
 
-async function placed(listed: string[] = []) {
+async function placed(listed: string[] = [], pageSize = 50) {
 	const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-actions-"));
 	dirs.push(dataDir);
 	const store = new SessionStore({ ambient: processAmbient() });
@@ -127,7 +134,7 @@ async function placed(listed: string[] = []) {
 		delivered.push(options);
 		return options.completion ? { queued: false } : true;
 	}
-	const source = github(listed);
+	const source = github(listed, pageSize);
 	const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 	const authority = {
 		resolveConfirmedManagedSession: (req: Request) => {
@@ -168,12 +175,14 @@ async function placed(listed: string[] = []) {
 	};
 	const inbox = assistant.routes.get(ASSISTANT_COMMANDS.inbox.path);
 	if (!inbox) throw new Error("no inbox route");
-	const inboxIds = async (scope: "new" | "all") => {
+	const inboxLists = async (scope: "new" | "all", page?: string): Promise<InboxList[]> => {
 		const headers = { "x-caller": "assistant" };
-		const answer = await (await inbox(new Request("http://gateway/", { headers }), { scope })).json();
-		return answer.lists.flatMap((list: { items: { id: string }[] }) => list.items.map((item) => item.id));
+		const body = { scope, ...(page ? { page } : {}) };
+		return (await (await inbox(new Request("http://gateway/", { headers }), body)).json()).lists;
 	};
-	return { assistant, call, inboxIds, delivered, asked: source.asked, ambient };
+	const inboxIds = async (scope: "new" | "all") =>
+		(await inboxLists(scope)).flatMap((list) => list.items.map((item) => item.id));
+	return { assistant, call, inboxLists, inboxIds, delivered, asked: source.asked, ambient };
 }
 
 describe("an assistant action", () => {
@@ -332,6 +341,21 @@ describe("an assistant action", () => {
 		expect(result).toMatchObject({ answer: { threads: [{ threadId: "404", outcome: "not_found" }] } });
 		expect([before, after]).toEqual([2, 1]);
 		expect(all).toEqual(["8"]);
+	});
+
+	it("moves no new mark past pages an action spanned, so the next new read lists the threads it shifted", async () => {
+		const { assistant, call, inboxLists, inboxIds } = await placed(["1", "2", "3", "4", "5"], 2);
+		const ids = (list: InboxList | undefined) => list?.items.map((item) => item.id);
+
+		await assistant.console.setSourceEnabled("github", true);
+		const first = (await inboxLists("new")).find((list) => list.next !== undefined);
+		await call({ id: "source/github_done", callId: "call-0010", params: { ids: ids(first) } });
+		const [last] = await inboxLists("new", first?.next);
+		const again = await inboxIds("new");
+		await assistant.stop();
+
+		expect([ids(first), ids(last), last?.next]).toEqual([["1", "2"], ["5"], undefined]);
+		expect(again).toEqual(["3", "4"]);
 	});
 
 	it("joins a repeated call id, so a retry sends nothing twice, and clears quietly without a summary", async () => {

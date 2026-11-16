@@ -186,6 +186,25 @@ describe("an automation's clock", () => {
 		]);
 	});
 
+	it("never refires the slot it handled when the clock steps back past the grace, and fires the next one", async () => {
+		let shift = 0;
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 + shift });
+		const { automations, told } = open(fresh(), ambient);
+		const daily: ClockTrigger = { kind: "time", time: "18:05", weekdays: [1, 2, 3, 4, 5, 6, 7], zone: "UTC" };
+		automations.ownerPut("daily", tells(daily), 0);
+
+		await ambient.advance(5 * MINUTE);
+		shift -= 9 * MINUTE;
+		automations.tick();
+		await ambient.advance(10 * MINUTE);
+		const once = await told();
+		await ambient.advance(24 * HOUR);
+		automations.stop();
+
+		expect(once).toEqual([["Every day at 18:05", "18:05"]]);
+		expect((await told()).map(([, time]) => time)).toEqual(["18:05", "18:05"]);
+	});
+
 	it("starts over from now when it is edited or switched back on, so an edit never fires", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { automations, told } = open(fresh(), ambient);

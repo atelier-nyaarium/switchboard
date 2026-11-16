@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { type AutomationAction, TELL_WHEN } from "../../shared/schemasAutomation.js";
-import { CROWDED, REPLACED } from "./automationLog.js";
+import { CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
 import { isEffect } from "./automationRunner.js";
 
 /** Runs waiting on their effects. */
@@ -112,8 +112,6 @@ export function nextEffect(fires: readonly Fire[], goes: (ref: EffectRef) => boo
 	}
 	return null;
 }
-
-const TOO_MANY = "too many runs are waiting";
 
 export interface Admitted {
 	fires: Fire[];

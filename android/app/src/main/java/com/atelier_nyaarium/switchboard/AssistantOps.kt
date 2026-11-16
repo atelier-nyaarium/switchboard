@@ -205,6 +205,9 @@ internal fun folderShown(base: LocationBase, target: String?): Boolean = when (b
 	is LocationBase.Known -> true
 }
 
+/** Untouched follows the answer. */
+internal fun folderAfter(held: String, touched: Boolean, answered: String): String = if (touched) held else answered
+
 /** What the location button does. */
 internal sealed interface LocationAction {
 	/** Grey: incomplete or unchanged. */

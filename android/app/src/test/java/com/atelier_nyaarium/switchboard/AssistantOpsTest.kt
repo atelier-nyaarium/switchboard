@@ -959,6 +959,8 @@ class AssistantOpsTest {
 		assertEquals(LocationBase.Unread("sakura", AssistantRead.Refused), locationBase("sakura", AssistantRead.Refused))
 		assertEquals(LocationBase.Known("~/notes"), locationBase("sakura", placed))
 		assertFalse(placementMoves("sakura", "sakura", "~/notes", (locationBase("sakura", placed) as LocationBase.Known).workdir))
+		assertEquals("~/notes", folderAfter("~/", touched = false, answered = "~/notes"))
+		assertEquals("~/journal", folderAfter("~/journal", touched = true, answered = "~/notes"))
 	}
 
 	@Test

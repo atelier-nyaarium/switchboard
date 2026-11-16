@@ -68,4 +68,11 @@ describe("the run log", () => {
 		expect(between.reduce(logged, [])).toHaveLength(3);
 		expect(repeated.reduce(logged, [])).toHaveLength(1);
 	});
+
+	it("logs a standing refusal of no action once, whatever effect rows land between", () => {
+		const refusal = run("refused", "not home");
+		const fires = [refusal, run("ran", undefined, "device_set"), refusal];
+
+		expect(fires.reduce(logged, []).filter((row) => row.outcome === "refused")).toHaveLength(1);
+	});
 });

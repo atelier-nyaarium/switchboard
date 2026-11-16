@@ -27,6 +27,7 @@ import com.atelier_nyaarium.switchboard.assistant.actionIssue
 import com.atelier_nyaarium.switchboard.assistant.actionLine
 import com.atelier_nyaarium.switchboard.assistant.actionOf
 import com.atelier_nyaarium.switchboard.assistant.actionOfferOf
+import com.atelier_nyaarium.switchboard.assistant.actionWarning
 import com.atelier_nyaarium.switchboard.assistant.addableActions
 import com.atelier_nyaarium.switchboard.assistant.askedTrigger
 import com.atelier_nyaarium.switchboard.assistant.automationContext
@@ -38,6 +39,7 @@ import com.atelier_nyaarium.switchboard.assistant.automationsEmpty
 import com.atelier_nyaarium.switchboard.assistant.confirmBody
 import com.atelier_nyaarium.switchboard.assistant.coolDownSecOf
 import com.atelier_nyaarium.switchboard.assistant.coolDownTyped
+import com.atelier_nyaarium.switchboard.assistant.crossingSuffix
 import com.atelier_nyaarium.switchboard.assistant.doesText
 import com.atelier_nyaarium.switchboard.assistant.editable
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
@@ -398,7 +400,7 @@ class AutomationPartsTest {
 			numberSuffix("C", null),
 			numberSuffix("%", "F"),
 		).map(String::trim))
-		val picked = humid.picked(FULL.number(SENSOR, "temperature")!!, "F")
+		val picked = humid.picked(FULL.number(SENSOR, "temperature")!!, FULL, "F")
 		assertEquals("°F", numberSuffix(picked.unit, "F").trim())
 		assertEquals("70" to "2", picked.threshold to picked.deadZone)
 	}
@@ -410,10 +412,23 @@ class AutomationPartsTest {
 
 		assertEquals(null, triggerOf(opened, missing, "F"))
 		assertEquals(crossing, triggerOf(opened, FULL, "F"))
-		assertEquals("", numberSuffix(opened.unit, "F"))
-		val repicked = opened.picked(FULL.number(SENSOR, "temperature")!!, "F")
+		val temperature = FULL.number(SENSOR, "temperature")!!
+		val repicked = opened.picked(temperature, FULL, "F")
 		assertEquals(crossing, triggerOf(repicked, FULL, "F"))
-		assertEquals(crossing, triggerOf(repicked.picked(FULL.number(SENSOR, "temperature")!!, "F"), FULL, "F"))
+		assertEquals(crossing, triggerOf(repicked.picked(temperature, FULL, "F"), FULL, "F"))
+		// Detour loses raw text
+		val detour = opened.picked(FULL.number(SENSOR, "humidity")!!, FULL, "F").picked(temperature, FULL, "F")
+		assertEquals("", detour.threshold)
+		assertEquals(null, triggerOf(detour, FULL, "F"))
+		assertEquals(2.0, (triggerOf(detour.copy(threshold = "35.6"), FULL, "F") as AutomationTrigger.Crossing).threshold, 0.01)
+		assertEquals(
+			listOf("°F", "°C", ""),
+			listOf(
+				crossingSuffix("C", "C", "F"),
+				crossingSuffix(opened.unit, "C", "F"),
+				crossingSuffix(opened.unit, null, "F"),
+			).map(String::trim),
+		)
 	}
 
 	@Test
@@ -498,8 +513,15 @@ class AutomationPartsTest {
 		assertEquals(listOf("device_set"), kinds(away))
 		assertEquals(listOf("tell_assistant", "ifttt_trigger"), kinds(FULL.copy(switches = emptyList())))
 		val held = listOf(toldDraft("now"), iftttDraft("door", "open"), ActionDraft.Kept(AutomationAction.TellAssistant("now")), plugDraft(PLUG, "on"))
-		assertEquals(listOf(true, true, true, false), held.map { actionIssue(it, away) != null })
-		assertEquals(listOf(false, false, false, false), held.map { actionIssue(it, FULL) != null })
+		assertEquals(listOf(true, true, true, false), held.map { actionWarning(it, away) != null })
+		assertEquals(listOf(false, false, false, false), held.map { actionWarning(it, FULL) != null || actionIssue(it, away) != null })
+		val leftBehind = Automation(enabled = true, trigger = crossing, actions = listOf(AutomationAction.DeviceSet(PLUG, "on"), AutomationAction.TellAssistant("now")))
+		assertEquals(leftBehind, automationDraftOf(row("a", leftBehind), EditContext(away, emptyList()))!!.toAutomation(away))
+		assertEquals(
+			listOf("Switch a plug: Desk lamp, On", "Tell the assistant: Now (only where the assistant lives)"),
+			doesText(leftBehind, Served.Known(away)).split(" · "),
+		)
+		assertEquals("Switch a plug: Desk lamp, On · Tell the assistant: Now", doesText(leftBehind, Served.Known(FULL)))
 		assertEquals(emptyList<ActionOffer>(), addableActions(FULL, List(8) { toldDraft("now") }))
 	}
 
