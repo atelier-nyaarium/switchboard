@@ -136,6 +136,15 @@ fun <T> listEmpty(registry: GatewayRegistry, entries: List<GatewayEntry>, of: (G
 	}
 }
 
+/** `empty` only while nothing is listed; named with several in scope. */
+data class GroupedView(val empty: ListEmpty?, val named: Boolean)
+
+fun <T> groupedView(registry: GatewayRegistry, entries: List<GatewayEntry>, of: (GatewayEntry) -> GatewayList<T>): GroupedView =
+	GroupedView(
+		empty = if (entries.any { listed(of(it)) }) null else listEmpty(registry, entries, of),
+		named = entries.size > 1,
+	)
+
 fun emptyLine(empty: ListEmpty, noun: String): String = when (empty) {
 	ListEmpty.NoRoster -> "No roster yet"
 	ListEmpty.Reading -> "Reading $noun"

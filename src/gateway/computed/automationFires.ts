@@ -19,13 +19,22 @@ export interface Sighting {
 	since: number;
 	reason: string;
 	retryAt: number;
+	/** An attempt sent nothing. */
+	attempted?: true;
 }
 
 /** A clock stepped back restarts the wait. */
-export const sighted = (held: Sighting | undefined, now: number, reason: string, retryAt = now): Sighting => ({
+export const sighted = (
+	held: Sighting | undefined,
+	now: number,
+	reason: string,
+	retryAt = now,
+	attempted = false,
+): Sighting => ({
 	since: Math.min(held?.since ?? now, now),
 	reason,
 	retryAt,
+	...(attempted || held?.attempted ? { attempted: true } : {}),
 });
 
 export const mayWait = (seen: Sighting, now: number): boolean => now - seen.since < EFFECT_WAIT_MS;

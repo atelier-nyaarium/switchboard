@@ -8,7 +8,7 @@ import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.GatewayRegistry
 import com.atelier_nyaarium.switchboard.ListEmpty
-import com.atelier_nyaarium.switchboard.listEmpty
+import com.atelier_nyaarium.switchboard.groupedView
 import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.openingDraft
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
@@ -322,7 +322,6 @@ internal data class AutomationGroup(
 internal fun automationGroups(registry: GatewayRegistry, home: AssistantHome): List<AutomationGroup> =
 	registry.gateways
 		.listedGroups { it.automations }
-		.filter { it.rows.isNotEmpty() }
 		.map {
 			val context = automationContext(registry, home, it.gatewayId)
 			AutomationGroup(it.gatewayId, placedOn(home) == it.gatewayId, it.rows, context)
@@ -334,10 +333,11 @@ private fun placedOn(home: AssistantHome): String? = when (home) {
 	is AssistantHome.Read -> home.record?.gatewayId
 }
 
-/** Home build outranks the rest. */
-internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmpty {
+/** Null while a group is drawn; the home's build outranks the rest. */
+internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmpty? {
+	val empty = groupedView(registry, registry.gateways) { it.automations }.empty ?: return null
 	val notServed = home != null && registry.entry(home)?.automations == GatewayList.NotServed
-	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else listEmpty(registry, registry.gateways) { it.automations }
+	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else empty
 }
 
 /** Needs a trigger the Gateway holds; undrawable actions are kept. */

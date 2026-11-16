@@ -329,7 +329,7 @@ class AutomationDraftTest {
 	}
 
 	@Test
-	fun groupsListOnlyGatewaysWithAutomationsTheHomeFirstAndOnlyTheHomesRowsEdit() {
+	fun groupsListEveryListedGatewayTheHomeFirstAndOnlyTheHomesRowsEdit() {
 		fun entry(id: String, rows: List<AutomationRow>?) =
 			GatewayEntry(
 				id,
@@ -350,7 +350,7 @@ class AutomationDraftTest {
 
 		val groups = automationGroups(registry, placed("sakura"))
 
-		assertEquals(listOf("sakura" to true, "mikan" to false), groups.map { it.gatewayId to it.assistant })
+		assertEquals(listOf("sakura" to true, "mikan" to false, "idle" to false), groups.map { it.gatewayId to it.assistant })
 		assertEquals(listOf(true, false, false), groups.flatMap { group -> group.rows.map { opensIn(it, group.context) } })
 		// Away unknown: nothing opens.
 		val unplaced = automationGroups(registry, AssistantHome.Unread)
@@ -375,8 +375,10 @@ class AutomationDraftTest {
 		// Classified at landing.
 		val refusedOnce = registry("sakura" to GatewayList.NotServed).withEntry("sakura") { it.copy(assistant = serving) }
 		assertEquals(ListEmpty.NotServed(listOf("sakura")), automationsEmpty(refusedOnce, "sakura"))
-		assertEquals(ListEmpty.None, automationsEmpty(registry("sakura" to listed, "older" to GatewayList.NotServed), "sakura"))
-		assertEquals(ListEmpty.None, automationsEmpty(registry("sakura" to listed), null))
+		// A listed Gateway draws its own group.
+		assertEquals(null, automationsEmpty(registry("sakura" to listed, "older" to GatewayList.NotServed), "sakura"))
+		assertEquals(null, automationsEmpty(registry("older" to GatewayList.NotServed, "sakura" to listed), "older"))
+		assertEquals(null, automationsEmpty(registry("sakura" to listed), null))
 		val cached = registry("sakura" to GatewayList.Unread).copy(provenance = RegistryProvenance.Cached)
 		assertEquals(ListEmpty.Reading, automationsEmpty(cached, "sakura"))
 	}
@@ -416,6 +418,10 @@ class AutomationPartsTest {
 		val repicked = opened.picked(temperature, FULL, "F")
 		assertEquals(crossing, triggerOf(repicked, FULL, "F"))
 		assertEquals(crossing, triggerOf(repicked.picked(temperature, FULL, "F"), FULL, "F"))
+		val fine = crossing.copy(threshold = 1.67, deadZone = 0.28)
+		val fineOpened = triggerDraftOf(fine, missing, "F") as TriggerDraft.Crossing
+		assertEquals(fine, triggerOf(fineOpened, FULL, "F"))
+		assertEquals(fine, triggerOf(fineOpened.picked(temperature, FULL, "F"), FULL, "F"))
 		// Detour loses raw text
 		val detour = opened.picked(FULL.number(SENSOR, "humidity")!!, FULL, "F").picked(temperature, FULL, "F")
 		assertEquals("", detour.threshold)

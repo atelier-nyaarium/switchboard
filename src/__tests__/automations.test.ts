@@ -970,6 +970,32 @@ describe("automations", () => {
 		]);
 	});
 
+	it("keeps an attempted effect's wait and retry gap while its port flaps, and refuses it once the wait has passed since its first attempt", async () => {
+		const w = world(fresh());
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut("door", { ...iceBucket(), actions: [{ kind: "ifttt_trigger", event: "door" }] }, 0, true);
+		w.answerIfttt({ outcome: "not_started", reason: "not_ready" });
+		w.read(fields, -5);
+		await automations.settled();
+		const flap = async (ms: number) => {
+			w.setIftttReady(false);
+			w.advance(1);
+			automations.tick();
+			await automations.settled();
+			w.setIftttReady(true);
+			w.advance(ms - 1);
+			automations.tick();
+			await automations.settled();
+			return w.effects.length;
+		};
+
+		const attempts = [await flap(1_000), await flap(EFFECT_RETRY_MS), await flap(EFFECT_WAIT_MS)];
+
+		expect(attempts).toEqual([1, 2, 3]);
+		expect(ifttt(automations)).toEqual(["refused"]);
+	});
+
 	it("retries an effect that sent nothing while its plug and tell go ahead, holds no retry for a clock stepped back, and refuses it once the wait has passed", async () => {
 		const sends = world(fresh());
 		const a = sends.open();

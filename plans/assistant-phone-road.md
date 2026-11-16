@@ -571,6 +571,15 @@ A: No. The sensor page shows its readings and lists the automations that use it,
 
 > I think the sensor page will just show all reading. And it will list automations using it. so you can jump to it quick. Should work hand in hand with automations, not be a parity
 
+## Question 46 - What does a list view say when one Gateway has none and another has not answered?
+
+Raised by the red team on 2.7c's architecture step: the Routines, Runbooks, Policies and Automations views drew one whole-view "No routines" as soon as any Gateway answered with none, even while another in view was unread or unreachable.
+
+Q: Only say "No routines" once every Gateway in view has answered, and otherwise name the ones still out?
+A: Simpler. Each Gateway that answered keeps its own group and says "No routines" under its own name; no combined line. A Gateway that has not answered is not listed yet, as before, and the whole-view line stays for when none has answered.
+
+> Let's just show each gateway as it does now and no routines under each. no need for a special renderer
+
 ## Design rulings, mocked in the Designer dock
 
 - **Pair with** (a dialogue over the family's entry page after Scan): Found rows merged across every radio with signal bars from the strongest, untested rows marked "Not tested" (a known format) or "Not tested · raw only"; Paired rows below with their live value. The dialogue lists the Gateways that heard the device, strongest first, then This Phone last, each with a chip: "Assistant" (home, and This Phone) or "App only". Owner: "looks good".
@@ -1109,6 +1118,8 @@ Judged not real: an IFTTT read finishing exactly at its deadline (the race settl
 - A fill in flight put back a tell the pump had withdrawn; it patches only a tell still waiting on it.
 
 Finished rather than regressed: a raw threshold cleared when another number is picked and drawn with its stored unit; one catch in `fillerOf` for a tell's and an effect's texts; a not-ready sighting ends when its port says ready; the folder reseed as a rule (`folderAfter`); a test that reaches the `acted` wiring; a sentence in the inbox tool's description. Left on the board with the rest: the late bound under a forward clock step, the prose shim for an older Gateway that is not the home (it ends 2026-11-29), and a second pass on the source gate (two casts it cannot see, `LocationBase` and `AssistantHome` as read types).
+
+**Third pass, on the second fix commit** (four angles, eight findings, none high; `reaudit2-27c-architecture-synthesis.md`). One regression: a port that flapped restarted an attempted effect's wait, so a sighting now carries `attempted` and only one that never had an attempt ends when its port says ready. One fix that did not hold: a Gateway whose read failed kept a stale peers list that named an untrusted friend again, so an owner pending untrust is never named. Also: a slot passed over after a step back is logged; a standing refusal is compared with rows that are not lost runs; an untrust that reached no Gateway drops nothing yet; a threshold whose number is absent keeps its stored precision. With Question 46 each list view speaks per Gateway (`groupedView`): one that answered with nothing says so under its own name, and the whole-view line never says none. The loop stops here, on the pass's own verdict; what is left is on the board.
 
 Cut by the synthesis: a fire pump extracted with a substitution proof (the redesign rewrites it), a second residue test for the context, a nullable offer, serving bounds or generating forms.
 

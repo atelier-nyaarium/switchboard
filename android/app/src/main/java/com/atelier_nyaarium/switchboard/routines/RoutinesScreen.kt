@@ -27,11 +27,12 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
+import com.atelier_nyaarium.switchboard.NoneLine
 import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.emptyLine
+import com.atelier_nyaarium.switchboard.groupedView
 import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.listEmpty
 import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.routinesOf
@@ -52,17 +53,17 @@ internal fun RoutinesScreen(
 	val launcher = rememberCoroutineScope()
 	val scoped = scope.groupsOf(state.gateways.gateways)
 	val groups = scoped.listedGroups { it.routines }.map { it.copy(rows = scope.routinesOf(it.rows)) }
-	val named = groups.size > 1
+	val view = groupedView(state.gateways, scoped) { it.routines }
 	val toggleRefusals by repo.routineOps.toggles.refusals
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.rows.isEmpty() }) {
+		if (view.empty != null) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				Text(emptyLine(listEmpty(state.gateways, scoped) { it.routines }, "routines"), style = MaterialTheme.typography.titleMedium)
+				Text(emptyLine(view.empty, "routines"), style = MaterialTheme.typography.titleMedium)
 			}
 		} else {
 			LazyColumn(
@@ -71,8 +72,7 @@ internal fun RoutinesScreen(
 				contentPadding = PaddingValues(top = 12.dp, bottom = 88.dp),
 			) {
 				for (group in groups) {
-					// Named only when there is more than one, so a single-gateway phone gains no words.
-					if (named) {
+					if (view.named) {
 						item(key = "gateway:${group.gatewayId}") {
 							Text(
 								group.gatewayId,
@@ -80,6 +80,9 @@ internal fun RoutinesScreen(
 								modifier = Modifier.padding(top = 6.dp),
 							)
 						}
+					}
+					if (group.rows.isEmpty()) {
+						item(key = "none:${group.gatewayId}") { NoneLine("routines") }
 					}
 					for (row in group.rows) {
 						item(key = "routine:${group.gatewayId}:${row.routine.id}") {

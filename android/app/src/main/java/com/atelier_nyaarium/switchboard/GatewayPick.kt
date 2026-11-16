@@ -27,6 +27,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
+/** Listed, holds none. */
+@Composable
+internal fun NoneLine(noun: String) {
+	Text(
+		emptyLine(ListEmpty.None, noun),
+		style = MaterialTheme.typography.bodyMedium,
+		color = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
+}
+
 /** One Gateway is taken, several are asked, none draws nothing. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

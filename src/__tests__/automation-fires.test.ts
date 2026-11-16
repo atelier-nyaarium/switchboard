@@ -75,4 +75,10 @@ describe("the run log", () => {
 
 		expect(fires.reduce(logged, []).filter((row) => row.outcome === "refused")).toHaveLength(1);
 	});
+
+	it("logs a standing refusal and a replaced run once each while they alternate", () => {
+		const pair = [run("refused", "not home"), run("suppressed", REPLACED)];
+
+		expect([...pair, ...pair, ...pair, ...pair].reduce(logged, [])).toHaveLength(2);
+	});
 });

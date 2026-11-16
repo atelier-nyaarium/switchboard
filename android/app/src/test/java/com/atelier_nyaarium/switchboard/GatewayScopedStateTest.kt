@@ -139,6 +139,24 @@ class GatewayScopedStateTest {
 	}
 
 	@Test
+	fun aGroupedViewSaysNothingWholeOnceAGatewayListsAndNamesGroupsWithSeveralInScope() {
+		fun registry(vararg lists: GatewayList<Runbook>) = GatewayRegistry(
+			provenance = RegistryProvenance.Current,
+			gateways = lists.mapIndexed { at, list -> GatewayEntry("g$at", connected = true, incarnation = 1, lastRegisteredAt = 1, runbooks = list) },
+		)
+		fun drawn(registry: GatewayRegistry) =
+			groupedView(registry, registry.gateways) { it.runbooks } to registry.gateways.listedGroups { it.runbooks }.map { it.gatewayId to it.rows.size }
+		val none = GatewayList.Listed(emptyList<Runbook>())
+		val some = GatewayList.Listed(listOf(book("a", "A")))
+
+		assertEquals(GroupedView(null, true) to listOf("g0" to 0), drawn(registry(none, GatewayList.Unread)))
+		assertEquals(GroupedView(null, true) to listOf("g0" to 0), drawn(registry(none, GatewayList.Unreachable)))
+		assertEquals(GroupedView(ListEmpty.Reading, true) to emptyList<Pair<String, Int>>(), drawn(registry(GatewayList.Unread, GatewayList.Unread)))
+		assertEquals(GroupedView(null, false) to listOf("g0" to 0), drawn(registry(none)))
+		assertEquals(GroupedView(null, true) to listOf("g0" to 1, "g1" to 0), drawn(registry(some, none)))
+	}
+
+	@Test
 	fun thePhoneWakesForTheSoonestRunOnAnyGateway() {
 		assertEquals(300L, state.soonestRoutineAt())
 		// Nothing scheduled: no wake.

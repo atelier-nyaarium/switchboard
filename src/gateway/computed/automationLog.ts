@@ -24,8 +24,11 @@ export type AutomationRun = z.infer<typeof RunSchema>;
 
 /** Standing rows log once per automation and action. */
 export const logged = (log: readonly AutomationRun[], run: AutomationRun): AutomationRun[] => {
-	const lost = run.reason !== undefined && LOST_RUNS.has(run.reason);
-	const last = log.findLast((held) => held.automation === run.automation && (lost || held.action === run.action));
+	const isLost = (held: AutomationRun) => held.reason !== undefined && LOST_RUNS.has(held.reason);
+	const lost = isLost(run);
+	const last = log.findLast(
+		(held) => held.automation === run.automation && (lost || (held.action === run.action && !isLost(held))),
+	);
 	const stands = run.outcome === "refused" || lost;
 	const standing = stands && last?.outcome === run.outcome && last.reason === run.reason;
 	return standing ? [...log] : [...log, run].slice(-LOG_MAX);

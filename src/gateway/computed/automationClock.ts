@@ -37,6 +37,8 @@ export interface SlotWalk {
 	at: number;
 	due: number[];
 	missed: number;
+	/** It passed `skip`. */
+	skipped: boolean;
 }
 
 /** Counted, never stepped, to stay on grid. */
@@ -48,10 +50,11 @@ export function walkSlots(trigger: ClockTrigger, from: number, now: number, skip
 		const slots = Array.from({ length: Math.max(0, count - first + 1) }, (_, at) => from + (first + at) * step);
 		const due = slots.filter((slot) => slot !== skip);
 		const nth = skip === undefined ? 0 : (skip - from) / step;
-		const skipped = Number.isInteger(nth) && nth >= 1 && nth < first && nth <= count;
-		return { at: from + count * step, due, missed: count - slots.length - (skipped ? 1 : 0) };
+		const missedSkip = Number.isInteger(nth) && nth >= 1 && nth < first && nth <= count;
+		const skipped = missedSkip || due.length < slots.length;
+		return { at: from + count * step, due, missed: count - slots.length - (missedSkip ? 1 : 0), skipped };
 	}
-	const walk: SlotWalk = { at: from, due: [], missed: 0 };
+	const walk: SlotWalk = { at: from, due: [], missed: 0, skipped: false };
 	let steps = 0;
 	for (
 		let next = nextSlot(trigger, from);
@@ -60,7 +63,10 @@ export function walkSlots(trigger: ClockTrigger, from: number, now: number, skip
 	) {
 		walk.at = next;
 		steps += 1;
-		if (next === skip) continue;
+		if (next === skip) {
+			walk.skipped = true;
+			continue;
+		}
 		if (now - next > CLOCK_GRACE_MS) walk.missed += 1;
 		else walk.due.push(next);
 	}

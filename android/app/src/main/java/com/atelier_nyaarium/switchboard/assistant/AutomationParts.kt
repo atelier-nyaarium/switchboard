@@ -147,6 +147,10 @@ private fun typedOf(value: Double, unit: String?, decimals: Int, display: String
 	return formatDecimal(shown, decimals)
 }
 
+/** Stored precision, trimmed. */
+private fun rawTyped(value: Double): String =
+	formatDecimal(value, FieldTypes.CONVERTED_DECIMALS).trimEnd('0').trimEnd('.')
+
 /** A width scales without the unit's offset. */
 private fun typedWidthOf(value: Double, unit: String?, decimals: Int, display: String?): String =
 	formatDecimal(value * scaleOf(unit, display), decimals)
@@ -172,8 +176,8 @@ internal fun triggerDraftOf(trigger: AutomationTrigger, offer: AutomationOffer, 
 			device = trigger.device,
 			measure = trigger.measure,
 			direction = trigger.direction,
-			threshold = typedOf(trigger.threshold, number?.unit, decimals, display),
-			deadZone = typedWidthOf(trigger.deadZone, number?.unit, decimals, display),
+			threshold = if (number == null) rawTyped(trigger.threshold) else typedOf(trigger.threshold, number.unit, decimals, display),
+			deadZone = if (number == null) rawTyped(trigger.deadZone) else typedWidthOf(trigger.deadZone, number.unit, decimals, display),
 			coolDownMin = coolDownTyped(trigger.coolDownSec),
 			unit = number?.unit,
 		)

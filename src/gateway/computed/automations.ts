@@ -613,6 +613,10 @@ export function createAutomations(deps: AutomationsDeps) {
 				work.log = logged(work.log, fireRun(gap, "uncertain", reason));
 			}
 			const { skip, ...kept } = held;
+			if (walk.skipped && skip !== undefined) {
+				const before = { automation: record.id, seq: 0, at: skip };
+				work.log = logged(work.log, fireRun(before, "suppressed", "it ran before the clock stepped back"));
+			}
 			slots[record.id] = { ...kept, at: walk.at, ...(skip !== undefined && walk.at < skip ? { skip } : {}) };
 		}
 		const next: State = { ...state, slots, log: work.log, fires: work.fires };
@@ -659,7 +663,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				const seen = sightings.get(key);
 				if (seen && !mayWait(seen, now)) runs = [fireRun(fire, "refused", outcome.unsent, kind)];
 				else {
-					sightings.set(key, sighted(seen, now, outcome.unsent, now + EFFECT_RETRY_MS));
+					sightings.set(key, sighted(seen, now, outcome.unsent, now + EFFECT_RETRY_MS, true));
 					landed = withEffect(landed, action, "pending");
 					continue;
 				}
@@ -677,11 +681,12 @@ export function createAutomations(deps: AutomationsDeps) {
 		const seen = sightings.get(key);
 		if (!(deps.actions?.ready(effect) ?? true)) {
 			if (seen && !mayWait(seen, now)) return { refused: NOT_READY };
-			sightings.set(key, sighted(seen, now, NOT_READY));
+			// Attempted keeps its retry gap.
+			if (!seen?.attempted) sightings.set(key, sighted(seen, now, NOT_READY));
 			return "wait";
 		}
 		// Never attempted: a later wait starts at its first attempt.
-		if (seen?.reason === NOT_READY) sightings.delete(key);
+		if (seen && !seen.attempted) sightings.delete(key);
 		else if (seen && !retryDue(seen, now)) return "wait";
 		return "go";
 	};

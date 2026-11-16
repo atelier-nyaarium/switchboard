@@ -572,9 +572,12 @@ no TTL.
   unreachable, and one fold (`after`) lands it: rows replace, not served says so, silence keeps
   what was drawn, and a first read that fails is unreachable rather than still unread. A reader
   takes a typed read: `lookup` for one record (found, gone, reading, unreachable or not served),
-  `listedGroups` for what a view draws, `listEmpty` for why a view has no row (no roster, no
-  Gateway, reading, unreachable, not served, none), or a `when` over the four answers, so a list
-  nobody read never passes for an empty one. A runbook's delete says when its Gateway's routines
+  `listedGroups` for what a view draws, `groupedView` for a view's whole line (no roster, no
+  Gateway, reading, unreachable, not served), or a `when` over the four answers, so a list
+  nobody read never passes for an empty one. A view speaks per Gateway: each one that answered is
+  a group, one with nothing says "No routines" under its own name, and the whole line is drawn
+  only while none has answered, so it never says none for a Gateway it has not heard. Groups are
+  named whenever more than one Gateway is in the view's scope. A runbook's delete says when its Gateway's routines
   are unread. A Gateway's peers alone outlive its restart on the entry, so its linked Domains stay
   until it answers again. Refresh re-reads the view that is drawn. The `not_served` token always reads as
   not served. A refusal in prose is a fault for routines, runbooks and policies, so what was drawn

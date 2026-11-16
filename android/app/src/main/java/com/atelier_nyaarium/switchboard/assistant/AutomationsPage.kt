@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.NoneLine
 import com.atelier_nyaarium.switchboard.emptyLine
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.leading
@@ -37,9 +38,9 @@ internal fun AutomationsView(
 	val toggleRefusals by repo.automationOps.toggles.refusals
 
 	PageColumn(modifier) {
-		if (groups.isEmpty()) {
+		automationsEmpty(state.gateways, home)?.let { empty ->
 			Text(
-				emptyLine(automationsEmpty(state.gateways, home), "automations"),
+				emptyLine(empty, "automations"),
 				style = MaterialTheme.typography.bodyLarge,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
@@ -49,6 +50,7 @@ internal fun AutomationsView(
 				Text(group.gatewayId, style = MaterialTheme.typography.labelLarge)
 				if (group.assistant) AssistantChip()
 			}
+			if (group.rows.isEmpty()) NoneLine("automations")
 			for (row in group.rows) {
 				AutomationRowView(
 					row = row,

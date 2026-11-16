@@ -26,11 +26,12 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
+import com.atelier_nyaarium.switchboard.NoneLine
 import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.emptyLine
+import com.atelier_nyaarium.switchboard.groupedView
 import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.listEmpty
 import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.proto.Runbook
 
@@ -46,16 +47,16 @@ internal fun RunbooksScreen(
 	LaunchedEffect(state.gateways.incarnations()) { repo.runbookOps.refreshAll() }
 	val scoped = scope.groupsOf(state.gateways.gateways)
 	val groups = scoped.listedGroups { it.runbooks }
-	val named = groups.size > 1
+	val view = groupedView(state.gateways, scoped) { it.runbooks }
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.rows.isEmpty() }) {
+		if (view.empty != null) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				Text(emptyLine(listEmpty(state.gateways, scoped) { it.runbooks }, "runbooks"), style = MaterialTheme.typography.titleMedium)
+				Text(emptyLine(view.empty, "runbooks"), style = MaterialTheme.typography.titleMedium)
 			}
 		} else {
 			LazyColumn(
@@ -64,8 +65,7 @@ internal fun RunbooksScreen(
 				contentPadding = PaddingValues(top = 12.dp, bottom = 88.dp),
 			) {
 				for (group in groups) {
-					// Named only when there is more than one, so a single-gateway phone gains no words.
-					if (named) {
+					if (view.named) {
 						item(key = "gateway:${group.gatewayId}") {
 							Text(
 								group.gatewayId,
@@ -73,6 +73,9 @@ internal fun RunbooksScreen(
 								modifier = Modifier.padding(top = 6.dp),
 							)
 						}
+					}
+					if (group.rows.isEmpty()) {
+						item(key = "none:${group.gatewayId}") { NoneLine("runbooks") }
 					}
 					for (runbook in group.rows) {
 						item(key = "runbook:${group.gatewayId}:${runbook.id}") {

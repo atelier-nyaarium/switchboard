@@ -269,14 +269,15 @@ internal class TrustOps(
 				markPending(began, peerOwnerSignPub, true)
 				error("The Router did not take the revocation; the untrust is pending")
 			}
-			// A Gateway read this round and told is done; one read earlier may hold a pairing this round missed.
+			// An earlier read may hold a missed pairing.
 			val told = peers.map { it.first }.toSet().all { gatewayId ->
 				runCatchingCancellable { clientPort.client().crossDomainUntrust(gatewayId, peerOwnerSignPub) }.isSuccess
 			} && fresh.containsAll(entries.map { it.id })
 			markPending(began, peerOwnerSignPub, !told, untrust = true)
 			refreshPeers()
 			val domains = peers.map { it.second.domainId }.toSet()
-			provision.land(began) { state.update { withoutOwner(it, peerOwnerSignPub, domains) } }
+			// Nothing revoked yet.
+			if (domains.isNotEmpty()) provision.land(began) { state.update { withoutOwner(it, peerOwnerSignPub, domains) } }
 			presence.refreshAfterAction()
 			Unit
 		}
@@ -388,7 +389,7 @@ internal class TrustOps(
 			state.update { it.copy(gateways = it.gateways.withEntry(gatewayId) { e -> e.copy(peers = GatewayList.Listed(answer.peers)) }) }
 			gatewayId
 		} }.awaitAll().filterNotNull().toSet()
-		state.update(::peersLanded)
+		state.update { peersLanded(it, pendingUntrust.value) }
 		fresh
 	}
 
@@ -452,10 +453,10 @@ internal fun withoutOwner(state: ChatState, owner: String, domains: Set<String>)
 	)
 }
 
-/** A held Domain goes only once every Gateway answered without it. */
-internal fun peersLanded(state: ChatState): ChatState {
+/** Held Domains go once all answered; untrusting owners are never named. */
+internal fun peersLanded(state: ChatState, untrusting: Set<String> = emptySet()): ChatState {
 	val lists = state.gateways.gateways.map { it.peers }
-	val named = linkedOwners(lists)
+	val named = linkedOwners(lists).filterValues { it !in untrusting }
 	val answered = lists.all { list ->
 		when (list) {
 			is GatewayList.Listed, GatewayList.NotServed -> true

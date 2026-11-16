@@ -28,11 +28,12 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
+import com.atelier_nyaarium.switchboard.NoneLine
 import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.emptyLine
+import com.atelier_nyaarium.switchboard.groupedView
 import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.listEmpty
 import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.vault.VaultEntryView
@@ -50,19 +51,19 @@ internal fun PoliciesScreen(
 	val launcher = rememberCoroutineScope()
 	val scoped = scope.groupsOf(state.gateways.gateways)
 	val groups = scoped.listedGroups { it.policies }
-	val named = groups.size > 1
+	val view = groupedView(state.gateways, scoped) { it.policies }
 	val toggleRefusals by repo.policyOps.toggles.refusals
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.rows.isEmpty() }) {
+		if (view.empty != null) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				Text(emptyLine(listEmpty(state.gateways, scoped) { it.policies }, "policies"), style = MaterialTheme.typography.titleMedium)
+				Text(emptyLine(view.empty, "policies"), style = MaterialTheme.typography.titleMedium)
 			}
 		} else {
 			LazyColumn(
@@ -71,8 +72,7 @@ internal fun PoliciesScreen(
 				contentPadding = PaddingValues(top = 12.dp, bottom = 88.dp),
 			) {
 				for (group in groups) {
-					// Named only with several gateways.
-					if (named) {
+					if (view.named) {
 						item(key = "gateway:${group.gatewayId}") {
 							Text(
 								group.gatewayId,
@@ -80,6 +80,9 @@ internal fun PoliciesScreen(
 								modifier = Modifier.padding(top = 6.dp),
 							)
 						}
+					}
+					if (group.rows.isEmpty()) {
+						item(key = "none:${group.gatewayId}") { NoneLine("policies") }
 					}
 					for (policy in group.rows) {
 						item(key = "policy:${group.gatewayId}:${policy.id}") {
