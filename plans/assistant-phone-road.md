@@ -649,20 +649,24 @@ A: Any automation on the same Gateway, off means off, and the new When for a hel
 >
 > Some automations are sourced from us, and some external like GitHub. What does that mean for us?
 
-## Question 52 - Which kinds of automation are there, and what does "outside" change? (open)
+## Question 52 - Which kinds of automation are there, and what does "outside" change?
 
 Asked as: three families and a helper with one rule about texts and a guard for outside triggers; everything is a source; or the plain ban. The owner asked for the first to be thought through and for "trust" to be defined before answering.
 
 > Think about answer A and refine more. then describe it in detail. what does trust even mean?
 
-What was put to the owner, pending their answer:
+A: The first, as refined below, and the save asks once when an outside-triggered automation gains an action beyond telling the assistant. Once only: it does not ask again when the list of actions grows. Read as once per automation unless the owner says once ever.
+
+> A. And just once. they probably realized what they are doing after the first notice
+
+What was put to the owner and accepted:
 
 - **Trust** is how much of what an automation does is decided by someone other than the owner: when it runs and how often, what words pass through it, and where those words end up. The clock is decided by nobody, a sensor by the room it sits in, an outside source by anyone who can make it notify the owner, with words they chose. "Outside" means someone else decides the first two.
 - **Four ways to start,** each giving the actions only its names: Outside ("Event arrives": the event and its source), Ours ("Value crosses" with its sibling "value becomes": value, device, measure, threshold), Clock ("Time comes": the time), Called ("Only when another automation runs it": nothing). After the start every automation is the same list of actions with optional failure branches.
 - **Run an automation:** the target runs as if its own trigger fired at that moment. Names readable at any moment still work (a sensor's value, the time); names that only exist when something arrives do not. So any automation can be a target unless one of its texts uses a name that would not exist, and the save points at that hole. It skips the target's trigger and cool-down and respects its off switch. The caller's words never pass to the target.
 - **Rate:** an outside trigger gets the cool-down field the others have, zero by default.
 - **Words:** a hole reading outside words inside something that leaves the machine is named at save.
-- **Reach:** an outside-triggered automation that gains an action beyond telling the assistant (a plug, IFTTT, a run) asks once at save, listing what it would do, and again only when that list grows or the trigger becomes an outside one. The question asked: this, only when outside words leave the machine, or never.
+- **Reach:** an outside-triggered automation that gains an action beyond telling the assistant (a plug, IFTTT, a run) asks once at save, listing what it would do, once and not again (the owner: "just once").
 - A Run button on an automation follows from it: the owner as the caller.
 
 ## Question 50 - Where does the flow map live?
