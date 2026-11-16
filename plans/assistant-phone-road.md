@@ -678,7 +678,7 @@ A: Top to bottom, one at a time. An action waits for the one above it. An action
 
 > A.
 
-## Question 54 - What does the wait measure, and what is a failure? (open on the clock's scope)
+## Question 54 - What does the wait measure, and what is a failure?
 
 Asked as: one "Keep trying for" setting per automation with each action getting that long, one clock for the whole run, or a setting per action; with On and Off retried and a Toggle or an IFTTT post retried only while nothing was sent. The owner moved the retry rule to where the action is defined.
 
@@ -688,7 +688,7 @@ Asked as: one "Keep trying for" setting per automation with each action getting 
 > - In all cases, failure to reach the devices should obviously count as a failure.
 > - toggle for sure is not a retry able thing. Shaped by first point.
 
-What was put back to the owner:
+What was put back to the owner and accepted:
 
 - An action declares its nature where it is defined (the device catalogue for a device's verbs, the action table for the rest), and the editor reads it:
   - **sets** a state (On, Off, set temperature, turn to 87 degrees): means the same whenever it lands, harmless to repeat, checkable by asking the device. Kept trying until it holds or time is up.
@@ -699,7 +699,9 @@ What was put back to the owner:
 - How long to keep trying is the automation's setting (ten minutes by default). Not reaching the device is always a failure in the end; the nature only decides whether it is tried again first.
 - The log and the map use the same four words.
 
-Still asked: whether the ten minutes times each action (recommended) or the whole run from its trigger.
+A: The model below, with one "Keep trying for" setting on the automation, ten minutes by default, and each action given its own ten minutes.
+
+> A.
 
 ## Question 50 - Where does the flow map live?
 
