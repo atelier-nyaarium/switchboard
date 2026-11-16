@@ -785,6 +785,25 @@ The owner asked whether `on failure` was real syntax. Answered: invented for the
 
 Asked as: `on failure { ... }` after a call (recommended, since it matches the cards one to one and borrows no meaning); `try { ... } catch { ... }` around one or more calls (misleading, since JavaScript carries on after a catch and a failure branch here ends the run; its one advantage, one branch for several actions, could come later as a group block under its own word); or a spelling of the owner's.
 
+The owner's reply, which keeps the language open and asks for a slower pace:
+
+> hmm. I kinda want it more traditional styled.
+>
+> if (cond) {
+>   true part
+> } else {
+>   false part
+> }
+>
+> which would make sense for NyaaDot and I think here too. You only have then and otherwise as a singular action. Can't we have multiple things happening back to back?
+>
+> what does the floating ` on failure ` modify? a scope? a automation specific call?
+> Should we make it an event dot method? `.failure(...)` ?
+>
+> we aren't done with languages yet so don't run off too far too fast
+
+Settled by it: an If is written `if (cond) { ... } else { ... }`, the condition in parentheses. Each side is a list of statements run top to bottom, as the tree already holds; the sketches had shown one statement per side. Still open: how a failure is written, now between a method on the call taking a block, a plain `if` over the call's result, and the floating words. The script phase, and with it the stored shape of a step, waits on the language.
+
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
 Asked as: install and walk what is built, then build flows (recommended); build flows in cards first and install together; or build everything, script and map included, then install. The reasons given: the app on the phone (8.14.82) strips a message from an automation on a toggle, so the newer app must be installed before a flow can be stored safely; what exists gets used and corrected before more sits on it; real use finds what an audit does not.
