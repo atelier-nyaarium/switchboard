@@ -830,6 +830,20 @@ Asked: the classic form with `e`, its traditional meaning and a `stop` (recommen
 
 What follows from it, told to the owner: a failure slot on one action in cards is a try around that action, and a try around several is a group card; a condition that cannot be read is a failure, so inside a try it jumps to the catch; a called automation reports failed when a failure in it went uncaught, which narrows what Question 59 was told ("handled or not").
 
+## Question 63 - Is a `stop` needed, and what does `e` hold? (open on the owner's confirmation)
+
+> Do we even need a stop when the language becomes centered around braces like if statements?
+> Maybe an exit for an early bail in deeper code?
+>
+> e.word? singular? like a .code? or a .message?
+
+Put back to the owner:
+
+- **No `stop` in the core.** What should not run after a failure goes inside the `try`, as in any brace language, so the catch needs no word to end the run. This drops the "then stop" default told under Question 60, and Question 53's "the branch ends the run" becomes a matter of where the lines sit.
+- **`exit` as the early bail,** the owner's word: it ends this automation's run from any depth, without failure, and a caller carries on.
+- **`e.code` and `e.message`.** "Word" was the drafter's own term. `e.code` is the short fixed value to branch on (`refused`, `unreachable`, `no_answer`, and `unread` for a condition); `e.message` is a sentence for people, and a bare `{e}` prints it.
+- **In cards,** a Try card beside the If card, each with two slots, and no failure slot per action.
+
 ## Question 62 - What else belongs in the script's first version? (open)
 
 The language as it stood when asked: a statement is one doing call, an `if (cond) { } else if (cond) { } else { }`, a `try { } catch (e) { }`, or `stop`. Conditions are the console's reading language with `and`, `or` and `sensors.value`. Text takes `{ }` holes. `e.word` is refused, unreachable or no answer, and a bare `{e}` prints a sentence.
