@@ -766,9 +766,16 @@ Put to the owner: write a script's actions as calls in the grammar that exists, 
 
 Asked: calls (recommended); a word per action (`set "Desk lamp" on`); or calls plus an assignment for whatever sets a state (`devices.get("Desk lamp").on = true`).
 
-## Question 59 - When an automation runs another, does it wait? (open)
+## Question 59 - When an automation runs another, does it wait?
 
-Asked as: it waits and a failure comes back (recommended), or it starts the other and moves on. Under the first, "failed" means anything in the called run failed, handled by its own branch or not; a target gone, switched off or edited while the caller waits is a failure too; and the caller is held for as long as the other runs.
+Q: Does it wait with a failure coming back, or start the other and move on?
+A: It waits. Running things side by side would be a block of its own, later.
+
+> Waits. unless we add some sort of Parallel block.
+>
+> is `on failure` a syntax you made? or a pseudo code just for illustration?
+
+Under the answer, "failed" means anything in the called run failed, handled by its own branch or not; a target gone, switched off or edited while the caller waits is a failure too; and the caller is held for as long as the other runs.
 
 Told with it, as a correction of the drafter's own detail and no question: "an automation may be run once per run" goes, since a reset at the start and the same automation again in a failure branch is a normal flow. The guard is that an automation cannot run itself, directly or through others, with a cap on how many one run may start.
 
