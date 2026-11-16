@@ -669,6 +669,15 @@ What was put to the owner and accepted:
 - **Reach:** an outside-triggered automation that gains an action beyond telling the assistant (a plug, IFTTT, a run) asks once at save, listing what it would do, once and not again (the owner: "just once").
 - A Run button on an automation follows from it: the owner as the caller.
 
+## Question 53 - Do actions run in order, and what does a failure do to the rest?
+
+Today the effects of one run are independent: a stuck one lets the next go ahead, and a failure stops nothing.
+
+Q: Top to bottom with a failure branch as the new ending, top to bottom with the run always continuing, or as today?
+A: Top to bottom, one at a time. An action waits for the one above it. An action that fails and has a failure branch runs the branch and the run stops there; one with no branch is logged and the run carries on.
+
+> A.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
