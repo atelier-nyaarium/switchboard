@@ -879,6 +879,22 @@ What it needs. Language: a doing call hands back a typed result; built-ins that 
 
 Asked: `all` and `settled` (recommended, built after the one-at-a-time core works, with the stored shape and the types allowing for it from the start); those plus `any`; or real task values, started now and joined later.
 
+The owner set JavaScript aside as the model:
+
+> I suppose it's also bad to look at JavaScript and might be more appropriate to compare to other languages that came with parallelism. Tasks, await all, awaiting at least one, etc. Propose another style
+
+Second take, from languages built with parallelism (Go's `go` and wait groups, C#'s tasks with `WhenAll` and `WhenAny`, Swift's `async let`, Kotlin's `async` and `awaitAll`, Occam's `PAR`, SystemVerilog's `fork` and `join`, Home Assistant's `parallel`):
+
+- Everything still waits by default. `start` begins a call or a block and moves on, handing back a task. `await` waits for a task and hands back its result.
+- `all(a, b)` is a task done when every one is; `any(a, b)` is a task done with the first, and awaiting it hands back that first task. The rest keep running, since a device command cannot be cancelled.
+- A task is a typed value: `done`, `failed`, `result`, `error`, with completions and hint cards.
+- **Nothing is left behind** (Kotlin, Swift, Python's trio): a script does not end, at its last line or at `exit`, while something it started still runs.
+- A failure surfaces where the task is awaited and follows the ordinary rule there: inside a `try` it jumps to the catch, outside it is noted. `all` waits for every task before failing, with `e.errors`. A failed task nobody awaited is noted.
+- A time limit falls out: start the slow thing and a `wait`, await `any` of the two, and test which came first.
+- `parallel { ... }` as the short form: start each line and await all. It is what cards draw, as a card beside If and Try.
+
+Asked: tasks with `start`, `await`, `all` and `any`, plus the block as short form (recommended, the block built first since it is the subset); the block alone; or the manager built-ins of the first take.
+
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
 Asked as: install and walk what is built, then build flows (recommended); build flows in cards first and install together; or build everything, script and map included, then install. The reasons given: the app on the phone (8.14.82) strips a message from an automation on a toggle, so the newer app must be installed before a flow can be stored safely; what exists gets used and corrected before more sits on it; real use finds what an audit does not.
