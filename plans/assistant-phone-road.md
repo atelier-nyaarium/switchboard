@@ -1401,6 +1401,48 @@ Asked, unanswered:
 
 - **Question 44 - A carry over the cap.** ✅ Answered: the refusal stays. The cap of 64 is shared by the event automations a move carries and the crossings, clocks and value automations that stay on a Gateway. The move is refused whole with the numbers before anything is written, and the home record keeps the sealed payload, which the phone carries onward at the next move.
 
+## Phase 2.7e - Flows: ordered steps, branches, calls, a script and a map (Q48 to Q57)
+
+Draft. Not audited. Waits on Question 56 and on whether a caller waits for the automation it runs. Sized from two reads of the code (`tree-impact-gateway.md`, `tree-impact-phone.md` in the session scratchpad).
+
+Design held for the phase:
+
+- **One wire rule:** anything an older build cannot hold lives inside a kind it does not know. No new key on an existing kind or on the record, ever. The deployed phone keeps an unknown kind raw at any depth and drops an unknown key on a toggle, an edit and a carry; an older Gateway refuses a put naming a new kind and keeps a stored row it cannot parse unread, not run.
+- **Shape:** the record keeps `label`, `enabled`, `trigger`, `actions`.
+  - Trigger kind `called`, no fields, no names.
+  - Action kind `run_automation { automation }`.
+  - Action kind `flow { keepTryingMin?, coolDownSec?, steps }`, the record's only action when used. It holds what the flat list cannot: branches, the wait, an outside trigger's cool-down.
+  - Preserve root `AutomationStep`: `do { action, keepTryingMin?, onFailure? }` and `if { when, then?, else? }`. A later step feature is a new step kind with its own future-kind fixture. `keepTryingMin` on `do` is reserved on the wire for the script; cards write the automation's alone.
+  - The flat list stays the write whenever the steps are a top-level list of plain actions with the default wait and no cool-down, so an older phone still edits it. The engine reads both shapes through one `stepsOf`.
+  - Caps: a step cap for the whole tree, generated; `flow` counts as one action.
+- **Order:** a fire holds a cursor (a step path) and each step's outcome. One step per fire runs at a time, the cursor's. The single Gateway-wide runner stays.
+- **Four words** from the part that talks to the device: `done`, `refused`, `unreachable`, `no_answer`; a step also ends `skipped`. The device road and the IFTTT client already tell them apart; the map from their answers gets finer.
+- **Natures:** `sets`, `sends`, `nudges`, declared beside the device verbs (the road's `DeviceEffect` derives from it) and on the action row, served on the row and on each verb option. One pure table, nature against word, answers retry, ended well or ended failed, and what a claim found at a start means: `sets` goes back to pending, `sends` and `nudges` take `no_answer`. `nudges` is one attempt whatever the word, by the owner's rule.
+- **Keep trying for:** 10 minutes by default, each step its own, from a start stored on the fire. A run bound stays beside it: a step starts no later than the fire's time plus the waits of the steps above it, so a day's downtime runs nothing a day late.
+- **A failure branch** runs when its action ends failed, and the run ends at the branch's end. Without one the failure is logged and the run carries on. An edit mid-run retires the fire and logs it; no branch runs.
+- **A tell is a step.** It waits its turn, so one below a stuck action waits with it. Each reached tell is its own outbox entry keyed by its path; the merged tell goes. The lane's wake decision counts only an event automation's top-level tells with no message; a tell in a branch goes through the outbox. `AGENTS.md`'s "a tell never waits behind an effect" is rewritten to this.
+- **If:** read in the async slot beside the fill, its answer stored on the fire before the cursor moves, so a restart reads nothing twice. Exactly true takes `then`, exactly false takes `else`. `and(a, b)`, `or(a, b)` and `sensors.value(device, key)` join the console.
+- **Run an automation:** refused at run when the target is gone, off, unfit, past the depth cap or already run under this origin. Save-time checks go in one pure graph module called from the record store's `refusal`, so a carry and an adoption pass it too: a cycle is refused, and a target fits when its trigger is `called` or every hole of its steps names only names readable when called (`whenCalled` on each trigger name) or entities. A carry that brings a cycle lands the rows unfit rather than blocking the move. Validity stays body-only.
+- **Outside reach** is asked through the judge's `confirm`, derived with no stored flag: the held record has no action beyond telling the assistant, the candidate has one, and the trigger is an event.
+- **`admit` never evicts a fire with a recorded outcome.**
+- **What the map reads:** `lastRuns`, per automation the last run's time, revision and outcome per step path, written in the commit that lands each step and served on the row.
+- **Script:** the Gateway prints and parses; the phone holds no parser. `parse(print(tree))` equals the tree for every tree the schema admits, pinned by a corpus. A kind the printer does not know prints as a raw block that parses back byte-identical. One statement per action kind is generated from the action table. The script entry is its own function, never reached by the console's eval.
+- **Cards draw one level:** a list, an If with two sides, a failure branch, all inline. `cardsDraw` is a pure rule over the whole automation; past one level the editor is read-only with "Edit as script". A node of a kind this build does not know is kept and saved raw, as an action is today.
+
+Slices, each ending green, the Gateway's part deployed before the phone's:
+
+1. **Engine prep, no wire** (Gateway, M). The four words, an outcome kept per step, the nature table and the verb natures, the restart rule by nature, `admit` sparing a started fire, a backoff with a short bound per attempt, the default wait with the run bound, strict order for a flat list's effects. Ships alone: a plug set On or Off is retried, and effects run in order.
+2. **The wire** (Gateway M, phone S). `flow`, `AutomationStep`, `run_automation`, `called`, natures and `whenCalled` in what a Gateway serves, recursive validity and hole texts with a step path on a hole's span, the step cap, codegen with the future-kind fixtures. Not offered until slice 3. The phone adopts the types and draws the new kinds as kept.
+3. **The tree** (Gateway L, phone L). Engine: the cursor walk, the failure branch, If with `and`, `or` and `sensors.value`, a tell per step, the lane's narrowed decision, `lastRuns`, outside reach and the cool-down. Phone: the step model addressed by path, `cardsDraw`, the If card and failure slot, the condition in the full-screen editor's expression mode with "true right now" from the Gateway, the nature line, Keep trying for, an event's cool-down.
+4. **Called runs** (Gateway M, phone S). The run, its guards, the graph module, a Run op; the target picker, the "Only when another automation runs it" choice, the Run button.
+5. **Script, read-only** (Gateway S to M, phone S to M). The printer, a print op answering text and spans, raw blocks; the phone's script page.
+6. **Script editing** (Gateway M to L, phone M to L). The statement grammar, the parser, a parse op answering the tree or an issue span; the script keywords generated into both tokenizers and pinned by the token vectors, so the phone paints as it types; a third editor mode through `EditorSessions`.
+7. **The flow map** (phone L). `flowLayout`, `edgeStyle` and `replayFrames` as pure rules, the Map and List toggle, replay per automation.
+
+Size: about 3,000 to 4,000 lines over both sides with tests. Slices 1 to 4 are the cards path; 5 to 7 stand on it and on each other only as numbered.
+
+Asked, unanswered: Question 56; whether "Run an automation" waits for the automation it runs.
+
 ## Phase 2.7d - Walk-through and cleanup
 
 - With the owner: the Sources and Automations pages on the phone, GitHub's four wake automations checked or re-entered, one added and one edited, a real notification and a sensor crossing reaching the assistant.
