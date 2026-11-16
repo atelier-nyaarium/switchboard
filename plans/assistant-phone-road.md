@@ -678,6 +678,29 @@ A: Top to bottom, one at a time. An action waits for the one above it. An action
 
 > A.
 
+## Question 54 - What does the wait measure, and what is a failure? (open on the clock's scope)
+
+Asked as: one "Keep trying for" setting per automation with each action getting that long, one clock for the whole run, or a setting per action; with On and Off retried and a Toggle or an IFTTT post retried only while nothing was sent. The owner moved the retry rule to where the action is defined.
+
+> let's think about the implications of this and assign the "wheres" it handled properly.
+>
+> - Actionable things like On, Off, Toggle, Turn to 87 degree rotation, Set temperature. Most things are idempotent and some are not. Perhaps that itself must define if it is retry able and what a failure is shaped as.
+> - In all cases, failure to reach the devices should obviously count as a failure.
+> - toggle for sure is not a retry able thing. Shaped by first point.
+
+What was put back to the owner:
+
+- An action declares its nature where it is defined (the device catalogue for a device's verbs, the action table for the rest), and the editor reads it:
+  - **sets** a state (On, Off, set temperature, turn to 87 degrees): means the same whenever it lands, harmless to repeat, checkable by asking the device. Kept trying until it holds or time is up.
+  - **sends** something out once (an IFTTT event): waits until it can be sent; once it has left, never again.
+  - **nudges** from where it is now (Toggle, five degrees warmer): only meaningful now. One attempt, never resent, since a late toggle flips whatever state it then finds.
+- One attempt answers one of four words, from the part that talks to the device: done, refused, unreachable (never got through), no answer (it left, nobody can say).
+- The engine holds one table, nature against outcome, with no action names: sets retry while unreachable or no answer; sends retry while unreachable and are final once they left; nudges end on the first unreachable or no answer; refused ends any of them.
+- How long to keep trying is the automation's setting (ten minutes by default). Not reaching the device is always a failure in the end; the nature only decides whether it is tried again first.
+- The log and the map use the same four words.
+
+Still asked: whether the ten minutes times each action (recommended) or the whole run from its trigger.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
