@@ -703,6 +703,21 @@ A: The model below, with one "Keep trying for" setting on the automation, ten mi
 
 > A.
 
+## Question 55 - Where does a condition live?
+
+Asked as an optional "Only if" on any action, only on "Run an automation", or a step that gates what is below it; then, after the owner asked what "only if" is, as an `if` on one action against a real block around several.
+
+Q: What shape does the condition take?
+A: It is called "If" and nothing else. It is a block of its own with a true side and a false side, each optional, and at least one of them filled. (Whether a condition that cannot be read runs neither side is asked next.)
+
+> what's an only if? is it just an if block? if ( blah true )?
+
+> just have it called if. Don't want to over complicate with an If and an Only If.
+>
+> should If block have an optional true and false component? meaning you must slot on at least 1 branch?
+
+Following from the earlier answers: the sides of an If hold plain actions, one level deep, like a failure branch (no If inside an If, no failure branch inside a side; "Run an automation" is how a flow goes deeper). The condition is one expression in the console's language, read when the If's turn comes. `and(a, b)` and `or(a, b)` are added as builtins, since the language has no `&&` or `||`.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
