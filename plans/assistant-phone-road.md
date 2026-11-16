@@ -900,9 +900,29 @@ Second take, from languages built with parallelism (Go's `go` and wait groups, C
 
 Asked: tasks with `start`, `await`, `all` and `any`, plus the block as short form (recommended, the block built first since it is the subset); the block alone; or the manager built-ins of the first take. The owner took the first.
 
-## Question 65 - Is the trigger written in the script? (open)
+## Question 65 - Is the trigger written in the script?
 
-Asked as: the trigger stays a form above the script, which holds the steps alone (recommended for the first version, and it closes nothing later); or the trigger is the script's opening line, so a whole automation is one piece of text.
+Q: Does the trigger stay a form above the script, or is it the script's opening line?
+A: It stays outside, and for a reason of its own: an automation is a function, the trigger is its signature, and the script is its body. The trigger decides which parameters the body gets and their types, so the editor's hints follow from it.
+
+> Think about an automation as a function. We never wrote the parameters though. So the trigger is outside, and initializes what types and language hints we even get for parameters. Then we can write the body.
+>
+> Thoughts?
+
+Put back to the owner, as what the framing settles and opens:
+
+- It is half built already: each trigger kind offers names to a message's holes (`event` and `source`; `value`, `device`, `measure`, `threshold`; `time`). Those are the parameters. The script gives each a type: `event` a record typed from its source's declared fields, `value` a number with its unit, `time` a time.
+- The "only when another automation runs it" trigger is the signature the owner writes: its parameters, each with a name and a type. "Your own functions" stops being a separate feature and becomes a called automation with parameters.
+- The call rule restated: a call supplies every parameter that has no value of its own. A crossing's or a clock's parameters can be read at the moment of the call; an event's cannot, so its caller passes one or cannot call it. This replaces "the caller's words never pass": passing is explicit and typed, and outside text passed along falls under the same outside-words warning.
+- The Run button asks for the parameters, as a runbook's fire sheet does.
+- The script page heads with the signature, shown and not typed.
+- Still open inside it: whether a called automation hands a value back.
+
+Asked next: whether called automations take declared parameters from the first version of calls or after it (Question 66).
+
+## Question 66 - Do called automations take parameters from the start? (open)
+
+Asked as: the "called" trigger holds a parameter list from the start and parameters are built with calls (recommended); or calls ship with no arguments first and parameters follow.
 
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
