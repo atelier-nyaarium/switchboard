@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.atelier_nyaarium.switchboard.AutomationDraftKey
 import com.atelier_nyaarium.switchboard.AutomationOps
-import com.atelier_nyaarium.switchboard.AutomationSaved
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
@@ -81,7 +80,7 @@ internal fun AutomationEditorPage(
 	val offer = heard.offer
 	val sources = heard.sources
 
-	val fields = SourceFields(sources.find { it.id == draft.source }?.fieldSpecs.orEmpty())
+	val fields = fieldsOf(draft, sources)
 	val gone = lookup == Lookup.Gone
 	val busy = session.busy
 	val can = automationEditing(slot, draft, fields, triggerOffered(draft, sources, offer), busy, gone, offer)
@@ -91,14 +90,7 @@ internal fun AutomationEditorPage(
 	var asking by remember(key) { mutableStateOf<AutomationSaid.Confirm?>(null) }
 	LaunchedEffect(busy, session.said) { asking = (session.said as? AutomationSaid.Confirm)?.takeUnless { busy } }
 
-	fun send(deleting: Boolean, op: suspend (AutomationDraft) -> AutomationSaved) {
-		repo.command { automationOps.send(key, open.opening, deleting, op) }
-	}
-
-	fun save(confirmed: Boolean) = send(deleting = false) { sent ->
-		fittingAutomation(sent, fields, offer)?.let { ops.save(gatewayId, sent.id, it, sent.revision, sent.original, confirmed) }
-			?: AutomationSaved.Refused("Not a complete automation")
-	}
+	fun save(confirmed: Boolean) = repo.command { automationOps.commit(key, open.opening, confirmed) }
 
 	val edit: ((AutomationDraft) -> AutomationDraft) -> Unit = { change -> draft = change(draft) }
 
@@ -109,7 +101,7 @@ internal fun AutomationEditorPage(
 		val consoles by repo.liveConsoleOps.state.collectAsState()
 		val console = consoles[gatewayId]
 		LaunchedEffect(gatewayId) { repo.command { liveConsoleOps.open(gatewayId) } }
-		val names = triggerRead.answer?.names.orEmpty()
+		val names = namesHere(offer, draft.trigger.kind, triggerRead.answer?.names)
 		HoleTextEditor(
 			title = textOf.label,
 			value = shownText,
@@ -162,9 +154,7 @@ internal fun AutomationEditorPage(
 			confirmText = "Delete",
 			onConfirm = {
 				confirmingDelete = false
-				send(deleting = true) { sent ->
-					sent.original?.let { ops.delete(gatewayId, sent.id, sent.revision, it) } ?: AutomationSaved.Refused("Not a stored automation")
-				}
+				repo.command { automationOps.remove(key, open.opening) }
 			},
 			onDismiss = { confirmingDelete = false },
 		)

@@ -252,6 +252,10 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 	)
 }
 
+/** The draft's source's fields. */
+internal fun fieldsOf(draft: AutomationDraft, sources: List<AssistantSource>): SourceFields =
+	SourceFields(sources.find { it.id == draft.source }?.fieldSpecs.orEmpty())
+
 internal fun fittingAutomation(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): Automation? =
 	draft.toAutomation(offer)?.takeIf { draft.conditions.all { condition -> fields.issueOf(condition) == null } }
 
@@ -308,7 +312,7 @@ internal fun automationEditing(
 internal fun triggerOffered(draft: AutomationDraft, sources: List<AssistantSource>, offer: AutomationOffer): Boolean =
 	when (val trigger = draft.trigger) {
 		is TriggerDraft.Event -> sources.any { it.id == trigger.source && it.triggers }
-		else -> trigger.kind in offer.triggers
+		else -> offer.holds(trigger.kind)
 	}
 
 
@@ -343,7 +347,7 @@ internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmp
 /** Needs a trigger the Gateway holds; undrawable actions are kept. */
 internal fun editable(row: AutomationRow, offer: AutomationOffer): Boolean {
 	val trigger = triggerDraftOf(row.automation.trigger, offer, null) ?: return false
-	return trigger.kind in offer.triggers
+	return offer.holds(trigger.kind)
 }
 
 internal sealed interface AutomationSaid {

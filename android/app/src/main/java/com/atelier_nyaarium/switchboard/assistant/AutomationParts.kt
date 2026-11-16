@@ -10,8 +10,11 @@ import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.AutomationTriggerName
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
+import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.CrossingDirection
 import com.atelier_nyaarium.switchboard.roundTo
 import com.atelier_nyaarium.switchboard.suffixOf
 import com.atelier_nyaarium.switchboard.toDisplay
@@ -20,10 +23,10 @@ internal const val TRIGGER_EVENT = "event"
 internal const val TRIGGER_CROSSING = "crossing"
 internal const val TRIGGER_TIME = "time"
 internal const val TRIGGER_INTERVAL = "interval"
-private const val MAX_COOL_DOWN_MIN = 1_440L
+private const val MAX_COOL_DOWN_MIN = Protocol.Wire.AUTOMATION_COOL_DOWN_MAX_SEC / 60L
 private const val MINUTE_SEC = 60L
 private const val COOL_DOWN_DECIMALS = 2
-private const val MAX_INTERVAL_MIN = 10_080L
+private val MAX_INTERVAL_MIN = Protocol.Wire.AUTOMATION_INTERVAL_MAX_MIN.toLong()
 private const val FRESH_DEAD_ZONE = "0.5"
 private val CLOCK = Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
@@ -31,8 +34,11 @@ internal data class NumberOffer(val device: String, val measure: String, val lab
 
 internal data class SwitchOffer(val device: String, val name: String)
 
+/** A trigger kind and the names its texts may use. */
+internal data class TriggerOffer(val kind: String, val names: List<AutomationTriggerName>)
+
 internal data class AutomationOffer(
-	val triggers: Set<String>,
+	val triggers: List<TriggerOffer>,
 	val actions: List<ActionOffer>,
 	val numbers: List<NumberOffer> = emptyList(),
 	val switches: List<SwitchOffer> = emptyList(),
@@ -40,6 +46,10 @@ internal data class AutomationOffer(
 	val away: Boolean,
 ) {
 	fun action(kind: String): ActionOffer? = actions.find { it.kind == kind }
+
+	fun holds(kind: String): Boolean = triggers.any { it.kind == kind }
+
+	fun names(kind: String): List<AutomationTriggerName> = triggers.find { it.kind == kind }?.names.orEmpty()
 
 	fun number(device: String, measure: String): NumberOffer? = numbers.find { it.device == device && it.measure == measure }
 
@@ -49,11 +59,18 @@ internal data class AutomationOffer(
 }
 
 // Remove 2026-11-29: every listing names what it serves.
+/** The event row a listing with no `serves` holds. */
+private val LEGACY_EVENT = TriggerOffer(
+	TRIGGER_EVENT,
+	listOf(AutomationTriggerName("event", "The event; its fields by name"), AutomationTriggerName("source", "The source's name")),
+)
+
+// Remove 2026-11-29: every listing names what it serves.
 /** A listing with no `serves` holds an event and a bare tell. */
 internal fun offerOf(serves: AutomationServes?, away: Boolean): AutomationOffer =
-	if (serves == null) AutomationOffer(triggers = setOf(TRIGGER_EVENT), actions = listOf(DEFAULT_TELL), away = away)
+	if (serves == null) AutomationOffer(triggers = listOf(LEGACY_EVENT), actions = listOf(DEFAULT_TELL), away = away)
 	else AutomationOffer(
-		triggers = serves.triggers.toSet(),
+		triggers = serves.triggers.map { TriggerOffer(it.kind, it.names) },
 		actions = serves.actions.map(::actionOfferOf),
 		numbers = serves.numbers.map { NumberOffer(it.device, it.measure, it.label, it.unit, it.decimals.toInt()) },
 		switches = serves.switches.map { SwitchOffer(it.device, it.name) },
@@ -124,13 +141,13 @@ internal enum class TriggerChoice(val label: String, val kinds: Set<String>) {
 internal fun choiceOf(trigger: TriggerDraft): TriggerChoice = TriggerChoice.entries.first { trigger.kind in it.kinds }
 
 internal fun offersChoice(offer: AutomationOffer, choice: TriggerChoice, sources: Boolean): Boolean = when (choice) {
-	TriggerChoice.EVENT -> TRIGGER_EVENT in offer.triggers && sources && !offer.away
-	TriggerChoice.CROSSING -> TRIGGER_CROSSING in offer.triggers && offer.numbers.isNotEmpty()
-	TriggerChoice.TIME -> offer.triggers.any { it in choice.kinds }
+	TriggerChoice.EVENT -> offer.holds(TRIGGER_EVENT) && sources && !offer.away
+	TriggerChoice.CROSSING -> offer.holds(TRIGGER_CROSSING) && offer.numbers.isNotEmpty()
+	TriggerChoice.TIME -> choice.kinds.any(offer::holds)
 }
 
 /** The clock kinds a Gateway holds, a time first. */
-internal fun clockKinds(offer: AutomationOffer): List<String> = listOf(TRIGGER_TIME, TRIGGER_INTERVAL).filter { it in offer.triggers }
+internal fun clockKinds(offer: AutomationOffer): List<String> = listOf(TRIGGER_TIME, TRIGGER_INTERVAL).filter(offer::holds)
 
 internal fun numberSuffix(unit: String?, display: String?): String =
 	unit?.let { suffixOf(displayedUnit(it, display)) }.orEmpty()
@@ -259,7 +276,12 @@ internal fun freshTrigger(choice: TriggerChoice, offer: AutomationOffer, firstSo
 
 internal val WEEKDAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
-internal val DIRECTIONS = listOf("below" to "Goes below", "above" to "Goes above")
+private fun directionLabel(direction: CrossingDirection): String = when (direction) {
+	CrossingDirection.ABOVE -> "Goes above"
+	CrossingDirection.BELOW -> "Goes below"
+}
+
+internal val DIRECTIONS = listOf(CrossingDirection.BELOW, CrossingDirection.ABOVE).map { it.wire to directionLabel(it) }
 internal val CLOCK_KINDS = mapOf(TRIGGER_TIME to "At a time", TRIGGER_INTERVAL to "Every")
 
 internal sealed interface TextPreview {

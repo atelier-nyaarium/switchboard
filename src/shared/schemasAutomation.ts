@@ -19,6 +19,7 @@ const IFTTT_EVENT_MAX = 80;
 export const ACTION_WORD_RE = /^[A-Za-z0-9_-]+$/;
 /** A week. */
 export const AUTOMATION_INTERVAL_MAX_MIN = 10_080;
+export const AUTOMATION_COOL_DOWN_MAX_SEC = 86_400;
 
 export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -45,7 +46,7 @@ export const AutomationTriggerSchema = z
 			kind: z.literal("value"),
 			field: z.string().regex(RULE_ID_RE),
 			becomes: z.union([z.string().min(1).max(256), z.boolean()]),
-			coolDownSec: z.number().int().min(0).max(86_400),
+			coolDownSec: z.number().int().min(0).max(AUTOMATION_COOL_DOWN_MAX_SEC),
 		}),
 		/** A device's number crosses a threshold. */
 		z.strictObject({
@@ -56,7 +57,7 @@ export const AutomationTriggerSchema = z
 			threshold: z.number(),
 			/** Clears this far back. */
 			deadZone: z.number().nonnegative(),
-			coolDownSec: z.number().int().min(0).max(86_400),
+			coolDownSec: z.number().int().min(0).max(AUTOMATION_COOL_DOWN_MAX_SEC),
 		}),
 		/** A local time on its weekdays. */
 		z.strictObject({
@@ -197,14 +198,53 @@ export const actionTexts = (action: AutomationAction): { param: string; text: st
 		return typeof held === "string" ? [{ param: param.name, text: held }] : [];
 	});
 
+export type AutomationTriggerKind = AutomationTrigger["kind"];
+
+/** A name a trigger offers a hole. */
+export interface AutomationTriggerName {
+	name: string;
+	/** As an editor lists it. */
+	description: string;
+}
+
+const TIME_NAMES = [{ name: "time", description: "The time it came round" }];
+
+export const AUTOMATION_TRIGGERS = {
+	event: {
+		names: [
+			{ name: "event", description: "The event; its fields by name" },
+			{ name: "source", description: "The source's name" },
+		],
+	},
+	value: {
+		names: [
+			{ name: "value", description: "The value it became" },
+			{ name: "field", description: "The field's name" },
+		],
+	},
+	crossing: {
+		names: [
+			{ name: "value", description: "The reading now" },
+			{ name: "device", description: "The device's name" },
+			{ name: "measure", description: "What it measures" },
+			{ name: "threshold", description: "The threshold" },
+		],
+	},
+	time: { names: TIME_NAMES },
+	interval: { names: TIME_NAMES },
+} as const satisfies Record<AutomationTriggerKind, { names: readonly AutomationTriggerName[] }>;
+
+const triggerNames = (kind: AutomationTriggerKind): readonly string[] =>
+	AUTOMATION_TRIGGERS[kind].names.map((held) => held.name);
+
 /** Names a trigger offers a hole. */
-export const AUTOMATION_TRIGGER_NAMES = {
-	event: ["event", "source"],
-	value: ["value", "field"],
-	crossing: ["value", "device", "measure", "threshold"],
-	time: ["time"],
-	interval: ["time"],
-} as const satisfies Record<AutomationTrigger["kind"], readonly string[]>;
+export const AUTOMATION_TRIGGER_NAMES: Readonly<Record<AutomationTriggerKind, readonly string[]>> = {
+	event: triggerNames("event"),
+	value: triggerNames("value"),
+	crossing: triggerNames("crossing"),
+	time: triggerNames("time"),
+	interval: triggerNames("interval"),
+};
 
 export const dangerousActions = (automation: { actions: readonly AutomationAction[] }): AutomationAction[] =>
 	automation.actions.filter((action) => AUTOMATION_ACTIONS[action.kind].danger);
@@ -296,7 +336,10 @@ export type AutomationRow = z.infer<typeof AutomationRowSchema>;
 
 /** The kinds this Gateway's automations can hold. */
 export const AUTOMATION_SERVES = {
-	triggers: Object.keys(AUTOMATION_TRIGGER_NAMES),
+	triggers: Object.entries(AUTOMATION_TRIGGERS).map(([kind, row]) => ({
+		kind,
+		names: row.names.map((held) => ({ ...held })),
+	})),
 	actions: Object.entries(AUTOMATION_ACTIONS).map(([kind, row]) => ({
 		kind,
 		label: row.label,
@@ -332,6 +375,21 @@ export const AutomationActionParamSchema = z
 
 const OFFERED_MAX = 256;
 
+/** A trigger kind an editor may start, with the names a text's holes may use. */
+export const AutomationTriggerOfferSchema = z
+	.object({
+		kind: z.string().max(32),
+		names: z
+			.array(
+				z
+					.object({ name: z.string().max(32), description: z.string().max(80) })
+					.meta({ id: "AutomationTriggerName" }),
+			)
+			.max(16),
+	})
+	.meta({ id: "AutomationTriggerOffer" });
+export type AutomationTriggerOffer = z.infer<typeof AutomationTriggerOfferSchema>;
+
 /** A sensor's number a crossing can watch. */
 export const AutomationNumberOfferSchema = z
 	.object({
@@ -359,7 +417,7 @@ export const ConsoleAutomationListResultSchema = z
 		/** Absent from a build that holds an event trigger and a tell alone. */
 		serves: z
 			.object({
-				triggers: z.array(z.string().max(32)).max(16),
+				triggers: z.array(AutomationTriggerOfferSchema).max(16),
 				actions: z
 					.array(
 						z

@@ -45,6 +45,7 @@ import {
 	UNIT_DISPLAYS,
 	UNITS,
 } from "../src/shared/field-types.js";
+import { unescapedBrace } from "../src/shared/icu-pattern.js";
 import {
 	BLOB_CHUNK_BYTES,
 	FEDERATION_PROTOCOL_FLOOR,
@@ -165,6 +166,10 @@ import {
 	ConsoleAssistantSendAnswerResultSchema,
 } from "../src/shared/schemasAssistantSend.js";
 import {
+	ACTION_PARAM_KINDS,
+	AUTOMATION_ACTIONS_MAX,
+	AUTOMATION_COOL_DOWN_MAX_SEC,
+	AUTOMATION_INTERVAL_MAX_MIN,
 	AutomationActionSchema,
 	AutomationConditionSchema,
 	AutomationRowSchema,
@@ -175,6 +180,7 @@ import {
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
+	CROSSING_DIRECTIONS,
 } from "../src/shared/schemasAutomation.js";
 import {
 	BoardActorSchema,
@@ -1296,6 +1302,9 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["CONSOLE_VARIABLES_BYTES", CONSOLE_VARIABLES_BYTES],
 	["CONSOLE_INSTANT_FLOOR", CONSOLE_INSTANT_FLOOR],
 	["CONSOLE_INSTANT_CEILING", CONSOLE_INSTANT_CEILING],
+	["AUTOMATION_ACTIONS_MAX", AUTOMATION_ACTIONS_MAX],
+	["AUTOMATION_INTERVAL_MAX_MIN", AUTOMATION_INTERVAL_MAX_MIN],
+	["AUTOMATION_COOL_DOWN_MAX_SEC", AUTOMATION_COOL_DOWN_MAX_SEC],
 ];
 const KOTLIN_INT_MAX = 2_147_483_647;
 const kotlinConstType = (value: string | number) =>
@@ -1732,6 +1741,10 @@ ${wireSetBlock("CONSOLE_INSTANT_KEYS", CONSOLE_INSTANT_KEYS)}
 
 ${wireEnumBlock("ConsoleCompletes", CONSOLE_COMPLETES)}
 
+${wireEnumBlock("ActionParamKind", ACTION_PARAM_KINDS)}
+
+${wireEnumBlock("CrossingDirection", CROSSING_DIRECTIONS)}
+
 ${schemaConstantBlock("ConsoleOpKind", consoleOpKinds)}
 
 ${schemaConstantBlock("SocketFrame", socketFrameTypes)}
@@ -1835,6 +1848,28 @@ const phoneCapabilityRegistryOutput = emitPhoneCapabilityRegistry();
 const integrationRegistryOutput = emitIntegrationRegistry();
 const deviceDefinitionsOutput = emitDeviceDefinitions();
 const harnessRegistryOutput = emitHarnessRegistry();
+
+function refusedPatterns(...sources: string[]): string[] {
+	const found: string[] = [];
+	for (const source of sources) {
+		for (const [, name, literal] of source.matchAll(/const val (\w+_PATTERN): String = ("(?:[^"\\]|\\.)*")/g)) {
+			const pattern: string = JSON.parse(literal.replace(/\\\$/g, "$"));
+			if (unescapedBrace(pattern)) found.push(name);
+		}
+	}
+	return found;
+}
+
+const refused = refusedPatterns(
+	output,
+	phoneCapabilityRegistryOutput,
+	integrationRegistryOutput,
+	deviceDefinitionsOutput,
+	harnessRegistryOutput,
+);
+if (refused.length > 0) {
+	throw new Error(`Android's regex engine refuses a bare } in ${refused.join(", ")}; escape it as \\}.`);
+}
 
 mkdirSync(dirname(OUT_PATH), { recursive: true });
 writeFileSync(OUT_PATH, output);

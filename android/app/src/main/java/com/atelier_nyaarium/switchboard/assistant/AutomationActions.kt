@@ -2,6 +2,8 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationActionOffer
+import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.ActionParamKind
 import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.serialization.json.JsonObject
@@ -12,13 +14,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 internal const val ACTION_TELL = "tell_assistant"
-internal const val MAX_ACTIONS = 8
+internal const val MAX_ACTIONS = Protocol.Wire.AUTOMATION_ACTIONS_MAX
 
-internal const val PARAM_TEXT = "text"
-internal const val PARAM_WORD = "word"
-internal const val PARAM_SWITCH = "switch"
-internal const val PARAM_CHOICE = "choice"
-private val PARAM_KINDS = setOf(PARAM_TEXT, PARAM_WORD, PARAM_SWITCH, PARAM_CHOICE)
+internal val PARAM_TEXT = ActionParamKind.TEXT.wire
+internal val PARAM_WORD = ActionParamKind.WORD.wire
+internal val PARAM_SWITCH = ActionParamKind.SWITCH.wire
+internal val PARAM_CHOICE = ActionParamKind.CHOICE.wire
 private val WORD = Regex("^[A-Za-z0-9_-]+$")
 private const val KIND = "kind"
 private const val HOME_ONLY = "Runs only where the assistant lives"
@@ -35,6 +36,9 @@ internal data class ParamOffer(
 	val options: List<ParamOption> = emptyList(),
 )
 
+/** Null for a kind this build cannot draw. */
+internal val ParamOffer.paramKind: ActionParamKind? get() = ActionParamKind.entries.find { it.wire == kind }
+
 internal data class ActionOffer(
 	val kind: String,
 	val label: String,
@@ -44,7 +48,7 @@ internal data class ActionOffer(
 	val params: List<ParamOffer> = emptyList(),
 ) {
 	/** False once a parameter is of a kind this build cannot draw. */
-	val drawable: Boolean get() = params.all { it.kind in PARAM_KINDS }
+	val drawable: Boolean get() = params.all { it.paramKind != null }
 
 	fun param(name: String): ParamOffer? = params.find { it.name == name }
 }
@@ -135,6 +139,28 @@ internal fun actionIssue(action: ActionDraft, offer: AutomationOffer): String? =
 /** Silent about a parameter that is still blank. */
 internal fun actionHint(action: ActionDraft, offer: AutomationOffer): String? = issueOf(action, offer, blanks = false)
 
+/** One field an action draws; `param` null is a value its row no longer names. */
+internal data class ParamView(val param: ParamOffer?, val name: String, val value: String)
+
+/** The row's parameters, then each stray value. */
+internal fun actionFields(action: ActionDraft.Filled, offer: AutomationOffer): List<ParamView> {
+	val row = offer.action(action.kind)
+	val named = row?.params.orEmpty().map { ParamView(it, it.name, action.values[it.name].orEmpty()) }
+	val stray = action.values.filter { (key, value) -> value.isNotBlank() && row?.param(key) == null }
+	return named + stray.map { (key, value) -> ParamView(null, key, value) }
+}
+
+internal fun withoutValue(action: ActionDraft, name: String): ActionDraft = when (action) {
+	is ActionDraft.Filled -> action.copy(values = action.values - name)
+	is ActionDraft.Kept -> action
+}
+
+/** The last action stays until its kind is gone. */
+internal fun canRemove(draft: AutomationDraft, at: Int, offer: AutomationOffer): Boolean {
+	val action = draft.actions.getOrNull(at) ?: return false
+	return draft.actions.size > 1 || offer.action(action.kind) == null
+}
+
 /** Does nothing here: needs the home. */
 internal fun homeOnly(kind: String, offer: AutomationOffer): Boolean = offer.away && offer.action(kind)?.home == true
 
@@ -168,10 +194,10 @@ internal fun actionOf(action: ActionDraft, offer: AutomationOffer): AutomationAc
 internal fun freshAction(kind: String, offer: AutomationOffer): ActionDraft? {
 	val row = offer.action(kind)?.takeIf { it.drawable && !(it.home && offer.away) } ?: return null
 	val values = row.params.associate { param ->
-		param.name to when (param.kind) {
-			PARAM_CHOICE -> param.options.firstOrNull()?.value.orEmpty()
-			PARAM_SWITCH -> offer.switches.firstOrNull()?.device ?: return null
-			else -> ""
+		param.name to when (param.paramKind) {
+			ActionParamKind.CHOICE -> param.options.firstOrNull()?.value.orEmpty()
+			ActionParamKind.SWITCH -> offer.switches.firstOrNull()?.device ?: return null
+			ActionParamKind.TEXT, ActionParamKind.WORD, null -> ""
 		}
 	}
 	return ActionDraft.Filled(kind, values)
@@ -191,11 +217,11 @@ internal fun actionLine(action: AutomationAction, offer: AutomationOffer): Strin
 	val row = offer.action(draft.kind) ?: return draft.kind
 	val set = row.params.mapNotNull { param ->
 		val value = draft.values[param.name].orEmpty()
-		when (param.kind) {
-			PARAM_CHOICE -> param.options.find { it.value == value }?.label
-			PARAM_SWITCH -> offer.switches.find { it.device == value }?.name
-			PARAM_WORD -> value.takeIf { it.isNotBlank() }
-			else -> null
+		when (param.paramKind) {
+			ActionParamKind.CHOICE -> param.options.find { it.value == value }?.label
+			ActionParamKind.SWITCH -> offer.switches.find { it.device == value }?.name
+			ActionParamKind.WORD -> value.takeIf { it.isNotBlank() }
+			ActionParamKind.TEXT, null -> null
 		}
 	}
 	return if (set.isEmpty()) row.label else "${row.label}: ${set.joinToString(", ")}"

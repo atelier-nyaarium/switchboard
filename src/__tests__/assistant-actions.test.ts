@@ -28,6 +28,7 @@ import { ACTION_FRONT_ROUTES, type ActionRunResult } from "../shared/schemasActi
 import { ASSISTANT_ACTIONS } from "../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { InboxList } from "../shared/schemasAssistantInbox.js";
+import { AUTOMATION_TRIGGER_NAMES } from "../shared/schemasAutomation.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { SessionStore } from "../shared/session-store.js";
@@ -356,6 +357,16 @@ describe("an assistant action", () => {
 
 		expect([ids(first), ids(last), last?.next]).toEqual([["1", "2"], ["5"], undefined]);
 		expect(again).toEqual(["3", "4"]);
+	});
+
+	it("previews an event with exactly the names an event automation's fire fills", async () => {
+		const { assistant } = await placed(["7"]);
+
+		await assistant.console.setSourceEnabled("github", true);
+		const { names } = await assistant.previewEvent({ kind: "event", source: "github", conditions: [] });
+		await assistant.stop();
+
+		expect(Object.keys(names ?? {})).toEqual([...AUTOMATION_TRIGGER_NAMES.event]);
 	});
 
 	it("joins a repeated call id, so a retry sends nothing twice, and clears quietly without a summary", async () => {

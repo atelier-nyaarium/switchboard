@@ -63,8 +63,17 @@ private fun escapes(text: String, from: Int, to: Int): List<PaintSpan> {
 	return spans
 }
 
+/** A name a text may use; `shown` once the preview answers. */
+internal data class NameHere(val name: String, val description: String, val shown: String?) {
+	val says: String get() = listOfNotNull(description, shown).joinToString(" · ")
+}
+
+/** The served row's names for the trigger kind, with what each holds once answered. */
+internal fun namesHere(offer: AutomationOffer, kind: String, answered: List<AutomationPreviewName>?): List<NameHere> =
+	offer.names(kind).map { served -> NameHere(served.name, served.description, answered?.find { it.name == served.name }?.shown) }
+
 /** Names a hole may use. */
-internal fun nameShapes(names: List<AutomationPreviewName>, eventFields: List<String>): Map<String, VariableShape?> =
+internal fun nameShapes(names: List<NameHere>, eventFields: List<String>): Map<String, VariableShape?> =
 	names.associate { name ->
 		name.name to VariableShape((eventFields + EVENT_OWN).distinct(), list = false).takeIf { name.name == EVENT_NAME }
 	}

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { unescapedBrace } from "../shared/icu-pattern.js";
 
 const ANDROID_MAIN = path.join(
 	import.meta.dirname,
@@ -16,10 +17,7 @@ const ANDROID_MAIN = path.join(
 	"switchboard",
 );
 
-// Android compiles patterns with ICU, which refuses a bare `}` that OpenJDK takes as a literal.
-// `testDebugUnitTest` runs on OpenJDK and there is no androidTest source set, so no gate here sees
-// it: a pattern that crashes on the phone passes every check. A quantifier brace is not a literal.
-const QUANTIFIER = /^\d+(?:,\d*)?\}/;
+// OpenJDK tests cannot see an ICU refusal.
 
 /** Regex literals, raw and quoted, with their patterns. */
 function patternsIn(source: string): string[] {
@@ -27,22 +25,6 @@ function patternsIn(source: string): string[] {
 	for (const [, raw] of source.matchAll(/Regex\(\s*"""([\s\S]*?)"""/g)) found.push(raw);
 	for (const [, quoted] of source.matchAll(/Regex\(\s*"((?:[^"\\\n]|\\.)*)"/g)) found.push(quoted);
 	return found;
-}
-
-function unescapedBrace(pattern: string): boolean {
-	for (let i = 0; i < pattern.length; i++) {
-		const ch = pattern[i];
-		if (ch === "\\") {
-			i++;
-			continue;
-		}
-		if (ch === "{" && QUANTIFIER.test(pattern.slice(i + 1))) {
-			i += pattern.slice(i + 1).indexOf("}") + 1;
-			continue;
-		}
-		if (ch === "}") return true;
-	}
-	return false;
 }
 
 function kotlinFiles(dir: string, acc: string[] = []): string[] {

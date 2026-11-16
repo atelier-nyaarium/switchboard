@@ -7,8 +7,14 @@ import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { PollAnswerSchema, told } from "../gateway/assistant/source.js";
 import { memberKey } from "../gateway/assistant/sourceLane.js";
 import { FRESH_STATE, type SourceState } from "../gateway/assistant/sourceState.js";
+import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import type { ActionOutcome } from "../gateway/computed/automationRunner.js";
-import { createAutomations, EFFECT_LATE_MS, EFFECT_RETRY_MS, EFFECT_WAIT_MS } from "../gateway/computed/automations.js";
+import {
+	type createAutomations,
+	EFFECT_LATE_MS,
+	EFFECT_RETRY_MS,
+	EFFECT_WAIT_MS,
+} from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
@@ -72,21 +78,13 @@ function world(dir: string, home = true) {
 	/** Only this effect waits; null: all. */
 	let gated: string | null = null;
 	const open = () => {
-		let automations: ReturnType<typeof createAutomations> | undefined;
-		const fields = openDurable(dir, "computed-fields", (records) =>
-			openDurable(dir, "computed-state", (state) =>
-				createComputedFields({
-					records,
-					state,
-					newIncarnation: () => `f${++n}`,
-					now: () => clock,
-					input: (ref) => ({ type: NUMBER, value: readings.get(refKey(ref)) ?? unknown("not heard") }),
-					onCommit: () => automations?.drain(),
-				}),
-			),
-		);
-		const opened = openDurable(dir, "automations", (records) =>
-			openDurable(dir, "automation-state", (state) => {
+		const pair = openAutomationPair({
+			dataDir: dir,
+			newIncarnation: () => `a${++n}`,
+			now: () => clock,
+			input: (ref) => ({ type: NUMBER, value: readings.get(refKey(ref)) ?? unknown("not heard") }),
+			opened: (name, state) => {
+				if (name !== "automation-state") return;
 				const save = state.saveChecked.bind(state);
 				state.saveChecked = (value: unknown) => {
 					if (failing > 0) {
@@ -95,46 +93,40 @@ function world(dir: string, home = true) {
 					}
 					save(value);
 				};
-				return createAutomations({
-					records,
-					state,
-					fields,
-					newIncarnation: () => `a${++n}`,
-					now: () => clock,
-					isHome: () => home,
-					onQueued: () => pokes++,
-					eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
-					holes: () =>
-						readable
-							? {
-									issue: (text, names) => holeIssue(text, names, REGISTRY),
-									fill: async (text, names) => {
-										await fillGate;
-										if (broken) throw new Error("fill broke");
-										return fillHoles(text, names, REGISTRY);
-									},
-								}
-							: undefined,
-					actions: {
-						ready: (action) => action.kind !== "ifttt_trigger" || iftttReady,
-						switchName: (device) => (switches.includes(device) ? "Heater" : null),
-						deviceSet: async (device, verb) => {
-							effects.push(`${device}:${verb}`);
-							if (gated === null || gated === `${device}:${verb}`) await gate;
-							return { outcome: "ran" };
-						},
-						iftttTrigger: async ({ event, value1 }) => {
-							effects.push(value1 === undefined ? `ifttt:${event}` : `ifttt:${event}:${value1}`);
-							if (iftttAnswer instanceof Error) throw iftttAnswer;
-							return iftttAnswer;
-						},
+			},
+			automations: {
+				isHome: () => home,
+				onQueued: () => pokes++,
+				eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
+				holes: () =>
+					readable
+						? {
+								issue: (text, names) => holeIssue(text, names, REGISTRY),
+								fill: async (text, names) => {
+									await fillGate;
+									if (broken) throw new Error("fill broke");
+									return fillHoles(text, names, REGISTRY);
+								},
+							}
+						: undefined,
+				actions: {
+					ready: (action) => action.kind !== "ifttt_trigger" || iftttReady,
+					switchName: (device) => (switches.includes(device) ? "Heater" : null),
+					deviceSet: async (device, verb) => {
+						effects.push(`${device}:${verb}`);
+						if (gated === null || gated === `${device}:${verb}`) await gate;
+						return { outcome: "ran" };
 					},
-				});
-			}),
-		);
-		automations = opened;
-		fields.start();
-		return { fields, automations: opened };
+					iftttTrigger: async ({ event, value1 }) => {
+						effects.push(value1 === undefined ? `ifttt:${event}` : `ifttt:${event}:${value1}`);
+						if (iftttAnswer instanceof Error) throw iftttAnswer;
+						return iftttAnswer;
+					},
+				},
+			},
+		});
+		pair.fields.start();
+		return pair;
 	};
 	const read = (fields: ReturnType<typeof open>["fields"], value: number) => {
 		clock += 1_000;

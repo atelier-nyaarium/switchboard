@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.ActionParamKind
 
 @Composable
 internal fun ActionsSection(
@@ -46,24 +47,29 @@ internal fun ActionsSection(
 			Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					Text(offer.labelOf(action.kind), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-					IconButton(onClick = hapticClick { edit { it.minusAction(index) } }, enabled = enabled && draft.actions.size > 1) {
+					IconButton(onClick = hapticClick { edit { it.minusAction(index) } }, enabled = enabled && canRemove(draft, index, offer)) {
 						Icon(Icons.Default.Close, contentDescription = "Remove action")
 					}
 				}
 				Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					val set: (String, String) -> Unit = { param, value -> edit { it.withAction(index) { held -> withValue(held, param, value) } } }
 					when (action) {
-						is ActionDraft.Filled -> for (param in offer.action(action.kind)?.params.orEmpty()) {
-							val value = action.values[param.name].orEmpty()
-							when (param.kind) {
-								PARAM_CHOICE -> ChoiceRow(
+						is ActionDraft.Filled -> for (field in actionFields(action, offer)) {
+							val param = field.param
+							val value = field.value
+							if (param == null) {
+								StrayValue(field, enabled) { edit { it.withAction(index) { held -> withoutValue(held, field.name) } } }
+								continue
+							}
+							when (param.paramKind) {
+								ActionParamKind.CHOICE -> ChoiceRow(
 									choices = param.options,
 									picked = param.options.find { it.value == value },
 									labelOf = { it.label },
 									enabledOf = { enabled },
 									onPick = { picked -> set(param.name, picked.value) },
 								)
-								PARAM_SWITCH -> PickMenu(
+								ActionParamKind.SWITCH -> PickMenu(
 									label = param.label,
 									choices = offer.switches,
 									picked = offer.switches.find { it.device == value },
@@ -71,7 +77,7 @@ internal fun ActionsSection(
 									onPick = { picked -> set(param.name, picked.device) },
 									enabled = enabled,
 								)
-								PARAM_TEXT -> HoleField(
+								ActionParamKind.TEXT -> HoleField(
 									label = param.label,
 									value = value,
 									multiline = param.lines,
@@ -80,7 +86,7 @@ internal fun ActionsSection(
 									refused = refusedHole(said, index, param.name, value),
 									onOpen = { edit { it.copy(text = TextRef(index, param.name)) } },
 								)
-								else -> OutlinedTextField(
+								ActionParamKind.WORD -> OutlinedTextField(
 									value = value,
 									onValueChange = { typed -> set(param.name, typed) },
 									label = { Text(param.label) },
@@ -88,6 +94,7 @@ internal fun ActionsSection(
 									enabled = enabled,
 									modifier = Modifier.fillMaxWidth(),
 								)
+								null -> Unit
 							}
 						}
 						is ActionDraft.Kept -> Text(
@@ -111,6 +118,18 @@ internal fun ActionsSection(
 	}
 	AddAction(addableActions(offer, draft.actions), enabled) { kind ->
 		edit { held -> freshAction(kind, offer)?.let(held::plusAction) ?: held }
+	}
+}
+
+/** A value its row no longer names. */
+@Composable
+private fun StrayValue(field: ParamView, enabled: Boolean, onClear: () -> Unit) {
+	Row(verticalAlignment = Alignment.CenterVertically) {
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+			Text("${field.name}: ${field.value}", style = MaterialTheme.typography.bodyMedium)
+			Text("No longer offered", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+		}
+		TextButton(onClick = hapticClick(onClear), enabled = enabled) { Text("Clear") }
 	}
 }
 

@@ -45,7 +45,7 @@ private fun automationRow(
 ) = AutomationRow(id = id, revision = revision, automation = automation, sentence = sentence)
 
 private val SERVES = AutomationServes(
-	triggers = listOf("event", "interval"),
+	triggers = SANDBOX_SERVES.triggers.filter { it.kind in setOf("event", "interval") },
 	actions = SANDBOX_SERVES.actions.filter { it.kind == "tell_assistant" },
 	numbers = emptyList(),
 	switches = emptyList(),
@@ -59,6 +59,7 @@ class AutomationOpsTest {
 		val shelves = mutableMapOf<String, List<AutomationRow>>()
 		val refusing = mutableSetOf<String>()
 		val prosing = mutableSetOf<String>()
+		var serves = SERVES
 		val unreachable = mutableSetOf<String>()
 		val holds = mutableMapOf<String, TestHold>()
 		val putHolds = mutableMapOf<String, TestHold>()
@@ -74,7 +75,7 @@ class AutomationOpsTest {
 			if (gatewayId in refusing) return AutomationListing(ListAnswer.NotServed)
 			if (gatewayId in prosing) return AutomationListing(ListAnswer.NotServed, prose = true)
 			if (gatewayId in unreachable) throw IllegalStateException("unreachable")
-			return AutomationListing(ListAnswer.Listed(listed), SERVES)
+			return AutomationListing(ListAnswer.Listed(listed), serves)
 		}
 
 		override suspend fun put(
@@ -199,18 +200,21 @@ class AutomationOpsTest {
 
 	@Test
 	fun aGoAheadIsDroppedOnceTheDraftChangesAndAPlainRefusalStays() = runBlocking {
-		val ops = AutomationOps(admitting("sakura"), Host(FakeGateway()))
+		val fake = FakeGateway()
+		val ops = AutomationOps(admitting("sakura"), Host(fake))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, automationDraftOf(automationRow(), HERE)!!)!!
 		val said = { ops.edits.state.value.held.getValue(key).said }
 
-		ops.send(key, shown, deleting = false) { AutomationSaved.Refused("confirm", confirm = listOf("Send to IFTTT")) }
+		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "confirm", confirm = listOf("Send to IFTTT"))
+		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "no")
+		ops.commit(key, shown, confirmed = false)
 		ops.edits.edit(key, shown) { it.copy(text = TextRef(0, "message")) }
 		val kept = said()
 		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("quietly") } }
 		val dropped = said()
-		ops.send(key, shown, deleting = false) { AutomationSaved.Refused("no") }
+		ops.commit(key, shown, confirmed = false)
 		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("now") } }
 
 		assertEquals(AutomationSaid.Confirm(listOf("Send to IFTTT")), kept)
@@ -405,15 +409,32 @@ class AutomationOpsTest {
 		val ops = AutomationOps(admitting("sakura"), Host(fake))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		val stale = automationDraftOf(automationRow(revision = 2L), HERE)!!.withAction(0) { toldDraft("quietly") }
-		val save: suspend (AutomationDraft) -> AutomationSaved = { ops.save("sakura", it.id, it.toAutomation(HERE.offer)!!, it.revision, it.original) }
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, stale)!!
 
-		assertTrue(ops.send(key, shown, deleting = false, save) is EditOutcome.Stays)
+		assertTrue(ops.commit(key, shown, confirmed = false) is EditOutcome.Stays)
 		val offered = ops.edits.state.value.held.getValue(key)
 		assertEquals(5L to listOf<Any>(toldDraft("quietly")), offered.draft.revision to offered.draft.actions)
-		assertEquals(EditOutcome.Done, ops.send(key, shown, deleting = false, save))
+		assertEquals(EditOutcome.Done, ops.commit(key, shown, confirmed = false))
 		assertEquals(EditState<AutomationDraftKey, AutomationDraft, AutomationSaid>(), ops.edits.state.value)
+	}
+
+	@Test
+	fun oneSendReadsOneContextForItsBodyAndItsAnswer() = runBlocking {
+		val fake = FakeGateway()
+		fake.shelves["sakura"] = listOf(automationRow(revision = 5L))
+		val ops = AutomationOps(admitting("sakura"), Host(fake))
+		ops.refresh("sakura")
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val shown = ops.edits.open(key, automationDraftOf(automationRow(revision = 2L), HERE)!!)!!
+		// Refresh drops event.
+		fake.serves = SERVES.copy(triggers = SERVES.triggers.filter { it.kind == "interval" })
+
+		val outcome = ops.commit(key, shown, confirmed = false)
+
+		assertTrue(outcome is EditOutcome.Stays)
+		assertEquals(5L, ops.edits.state.value.held.getValue(key).draft.revision)
 	}
 
 	@Test
@@ -425,7 +446,7 @@ class AutomationOpsTest {
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, automationDraftOf(automationRow(revision = 2L), HERE)!!)!!
 
-		val outcome = ops.send(key, shown, deleting = true) { ops.delete("sakura", it.id, it.revision, it.original!!) }
+		val outcome = ops.remove(key, shown)
 
 		assertTrue(outcome is EditOutcome.Stays)
 		assertEquals(5L, ops.edits.state.value.held.getValue(key).draft.revision)

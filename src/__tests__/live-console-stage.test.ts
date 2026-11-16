@@ -2,14 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { composeDevices } from "../gateway/compose/composeDevices.js";
 import { type ConsoleCaller, composeLiveConsole } from "../gateway/compose/composeLiveConsole.js";
-import { type Automations, createAutomations } from "../gateway/computed/automations.js";
-import { type ComputedFields, createComputedFields } from "../gateway/computed/computedFields.js";
+import type { Automations } from "../gateway/computed/automations.js";
+import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { type ConsoleReaders, consoleEntities } from "../gateway/liveConsole/entities.js";
 import { CONSOLE_TEXT_BYTES } from "../gateway/liveConsole/render.js";
-import { openDurable } from "../shared/durable-store.js";
 import type { HostOpResult } from "../shared/host-op.js";
 import type { ConsoleAssistantStateResult, TemperatureUnit } from "../shared/schemasAssistant.js";
 import { CONSOLE_VALUE_BYTES } from "../shared/schemasLiveConsole.js";
@@ -449,32 +449,16 @@ describe("live console read-only fence", () => {
 			},
 			onIngested: (keys) => fields?.inputsChanged(keys),
 		});
-		fields = openDurable(dataDir, "computed-fields", (records) =>
-			openDurable(dataDir, "computed-state", (state) =>
-				createComputedFields({
-					records,
-					state,
-					newIncarnation: () => ambient.newId(),
-					now: () => ambient.now(),
-					input: devices.sensorInput,
-					derived: () => automations?.derivedFields() ?? [],
-					onCommit: () => automations?.drain(),
-				}),
-			),
-		);
-		automations = openDurable(dataDir, "automations", (records) =>
-			openDurable(dataDir, "automation-state", (state) =>
-				createAutomations({
-					records,
-					state,
-					fields: fields as ComputedFields,
-					newIncarnation: () => ambient.newId(),
-					now: () => ambient.now(),
-					isHome: () => true,
-					reading: devices.watchedReading,
-				}),
-			),
-		);
+		const pair = openAutomationPair({
+			dataDir,
+			newIncarnation: () => ambient.newId(),
+			now: () => ambient.now(),
+			input: devices.sensorInput,
+			beforeDrain: () => devices.flushReadings(),
+			automations: { isHome: () => true, reading: devices.watchedReading },
+		});
+		fields = pair.fields;
+		automations = pair.automations;
 		fields.start();
 		automations.ownerPut(
 			WATCH,

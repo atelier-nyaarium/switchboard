@@ -19,6 +19,8 @@ import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.AutomationTriggerName
+import com.atelier_nyaarium.switchboard.proto.AutomationTriggerOffer
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
@@ -36,9 +38,24 @@ internal const val SANDBOX_SWITCH = "aa:bb:cc:dd:ee:01"
 private fun choice(name: String, label: String, vararg options: Pair<String, String>) =
 	AutomationActionParam(name, label, "choice", options = options.map { (value, shown) -> AutomationActionOption(value, shown) })
 
+private fun trigger(kind: String, vararg names: Pair<String, String>) =
+	AutomationTriggerOffer(kind, names.map { (name, description) -> AutomationTriggerName(name, description) })
+
 /** What the full sandbox Gateway says it holds. */
 internal val SANDBOX_SERVES = AutomationServes(
-	triggers = listOf("event", "value", "crossing", "time", "interval"),
+	triggers = listOf(
+		trigger("event", "event" to "The event; its fields by name", "source" to "The source's name"),
+		trigger("value", "value" to "The value it became", "field" to "The field's name"),
+		trigger(
+			"crossing",
+			"value" to "The reading now",
+			"device" to "The device's name",
+			"measure" to "What it measures",
+			"threshold" to "The threshold",
+		),
+		trigger("time", "time" to "The time it came round"),
+		trigger("interval", "time" to "The time it came round"),
+	),
 	actions = listOf(
 		AutomationActionOffer(
 			"tell_assistant",

@@ -4,6 +4,9 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
+import com.atelier_nyaarium.switchboard.assistant.EditContext
+import com.atelier_nyaarium.switchboard.assistant.fieldsOf
+import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.movesWithHome
 import com.atelier_nyaarium.switchboard.assistant.automationContext
 import com.atelier_nyaarium.switchboard.assistant.over
@@ -126,16 +129,28 @@ internal class AutomationOps(
 		edits.clear()
 	}
 
-	/** A delete's offer is the held row, not an edit. */
-	suspend fun send(
+	suspend fun commit(key: AutomationDraftKey, opening: Long, confirmed: Boolean): EditOutcome<AutomationDraft, AutomationSaid>? =
+		send(key, opening, deleting = false) { sent, heard ->
+			fittingAutomation(sent, fieldsOf(sent, heard.sources), heard.offer)
+				?.let { save(key.gatewayId, sent.id, it, sent.revision, sent.original, confirmed) }
+				?: AutomationSaved.Refused("Not a complete automation")
+		}
+
+	suspend fun remove(key: AutomationDraftKey, opening: Long): EditOutcome<AutomationDraft, AutomationSaid>? =
+		send(key, opening, deleting = true) { sent, _ ->
+			sent.original?.let { delete(key.gatewayId, sent.id, sent.revision, it) } ?: AutomationSaved.Refused("Not a stored automation")
+		}
+
+	/** A delete offers the held row. */
+	private suspend fun send(
 		key: AutomationDraftKey,
 		opening: Long,
 		deleting: Boolean,
-		op: suspend (AutomationDraft) -> AutomationSaved,
+		op: suspend (AutomationDraft, EditContext) -> AutomationSaved,
 	): EditOutcome<AutomationDraft, AutomationSaid>? = edits.send(key, opening) { sent ->
 		val held = state.value
 		val heard = automationContext(held.gateways, held.assistantHome, key.gatewayId).over(sent.context)
-		when (val outcome = outcomeOf(op(sent), sent, deleting, heard)) {
+		when (val outcome = outcomeOf(op(sent, heard), sent, deleting, heard)) {
 			AutomationOutcome.Done -> EditOutcome.Done
 			is AutomationOutcome.Offer -> EditOutcome.Stays(AutomationSaid.Line(outcome.line), outcome.draft, reopened = deleting)
 			is AutomationOutcome.Said -> EditOutcome.Stays(outcome.said)

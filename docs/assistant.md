@@ -90,8 +90,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
       Quietly and a Message; "Switch a plug" with the plug and On, Off or Toggle; "Send to IFTTT"
       with an event name and three values. A Message or an IFTTT value opens on its own page
       when tapped (`HoleTextEditor`): the text with each hole coloured as the Console colours an
-      expression, a count against its cap, "Names here" with the trigger's names and what they
-      hold now and then the Console's entities, and the Console's hint and completions above the
+      expression, a count against its cap, "Names here" with the trigger's names from its Gateway's row, each with its description and,
+      once the preview has answered, what it holds now (`namesHere`), and then the Console's entities, and the Console's hint and completions above the
       keyboard for the hole under the cursor. Its back arrow returns to the automation with the
       text kept. Any text that holds a hole shows the Gateway's filled form in a box labelled
       Preview, or the hole it refused, on both pages. A dangerous action says "Asks once when saved", and the save asks "Run

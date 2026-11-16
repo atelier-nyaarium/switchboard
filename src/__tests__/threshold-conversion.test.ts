@@ -2,9 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { composeDevices } from "../gateway/compose/composeDevices.js";
-import { type Automations, createAutomations } from "../gateway/computed/automations.js";
-import { type ComputedFields, createComputedFields } from "../gateway/computed/computedFields.js";
+import type { Automations } from "../gateway/computed/automations.js";
+import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { alertId, alertPrefix, createThresholdConversion } from "../gateway/devices/thresholdConversion.js";
 import { openDurable } from "../shared/durable-store.js";
@@ -88,7 +89,6 @@ function fixture(seed: Seed = {}, failWrites = 0) {
 	};
 	const build = () => {
 		let fields: ComputedFields | undefined;
-		let automations: Automations | undefined;
 		const devices = composeDevices({
 			dataDir,
 			ambient,
@@ -97,33 +97,16 @@ function fixture(seed: Seed = {}, failWrites = 0) {
 			onIngested: (keys) => fields?.inputsChanged(keys),
 			sightings: () => warm,
 		});
-		fields = openDurable(dataDir, "computed-fields", (records) =>
-			openDurable(dataDir, "computed-state", (state) =>
-				createComputedFields({
-					records,
-					state,
-					newIncarnation: () => ambient.newId(),
-					now: () => ambient.now(),
-					input: devices.sensorInput,
-					derived: () => automations?.derivedFields() ?? [],
-					onCommit: () => automations?.drain(),
-				}),
-			),
-		);
-		automations = openDurable(dataDir, "automations", (records) =>
-			openDurable(dataDir, "automation-state", (state) =>
-				createAutomations({
-					records,
-					state,
-					fields: fields as ComputedFields,
-					newIncarnation: () => ambient.newId(),
-					now: () => ambient.now(),
-					isHome: () => true,
-					reading: devices.watchedReading,
-				}),
-			),
-		);
-		const held = automations;
+		const pair = openAutomationPair({
+			dataDir,
+			newIncarnation: () => ambient.newId(),
+			now: () => ambient.now(),
+			input: devices.sensorInput,
+			beforeDrain: () => devices.flushReadings(),
+			automations: { isHome: () => true, reading: devices.watchedReading },
+		});
+		fields = pair.fields;
+		const held = pair.automations;
 		const conversion = openDurable(dataDir, "sensor-thresholds", (stored) =>
 			openDurable(dataDir, "sensor-thresholds-converted", (mark) =>
 				createThresholdConversion({

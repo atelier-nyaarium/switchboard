@@ -3,14 +3,20 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
+import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { previewAutomation } from "../gateway/computed/automationPreview.js";
-import { type AutomationHoles, createAutomations } from "../gateway/computed/automations.js";
-import { createComputedFields } from "../gateway/computed/computedFields.js";
+import type { AutomationHoles } from "../gateway/computed/automations.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
-import { openDurable } from "../shared/durable-store.js";
 import { known, refKey, type Value } from "../shared/expressions.js";
-import type { Automation } from "../shared/schemasAutomation.js";
+import {
+	AUTOMATION_SERVES,
+	AUTOMATION_TRIGGER_NAMES,
+	AUTOMATION_TRIGGERS,
+	type Automation,
+	AutomationTriggerSchema,
+	ConsoleAutomationListResultSchema,
+} from "../shared/schemasAutomation.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -31,51 +37,33 @@ function world() {
 	const readings = new Map<string, Value>([[TEMP, known(-18)]]);
 	let clock = 1_000;
 	let n = 0;
-	let automations: ReturnType<typeof createAutomations> | undefined;
-	const fields = openDurable(dir, "fields", (records) =>
-		openDurable(dir, "field-state", (state) =>
-			createComputedFields({
-				records,
-				state,
-				newIncarnation: () => `f${++n}`,
-				now: () => clock,
-				input: (ref) =>
-					refKey(ref) === TEMP
-						? { type: { type: "number", integral: false }, value: readings.get(TEMP) ?? known(0) }
-						: null,
-				derived: () => automations?.derivedFields() ?? [],
-				onCommit: () => automations?.drain(),
-			}),
-		),
-	);
-	const opened = openDurable(dir, "automations", (records) =>
-		openDurable(dir, "automation-state", (state) =>
-			createAutomations({
-				records,
-				state,
-				fields,
-				newIncarnation: () => `a${++n}`,
-				now: () => clock,
-				isHome: () => true,
-				holes: () => HOLES,
-				reading: (device, measure) =>
-					device === FREEZER && measure === "temperature"
-						? {
-								label: "Freezer temperature",
-								device: "Freezer",
-								measure: "Temperature",
-								shown: (value) => `${value} C`,
-								inUnit: (value) => value,
-								now: () => {
-									const held = readings.get(TEMP);
-									return held?.known && typeof held.value === "number" ? held.value : null;
-								},
-							}
-						: null,
-			}),
-		),
-	);
-	automations = opened;
+	const { fields, automations: opened } = openAutomationPair({
+		dataDir: dir,
+		newIncarnation: () => `a${++n}`,
+		now: () => clock,
+		input: (ref) =>
+			refKey(ref) === TEMP
+				? { type: { type: "number", integral: false }, value: readings.get(TEMP) ?? known(0) }
+				: null,
+		automations: {
+			isHome: () => true,
+			holes: () => HOLES,
+			reading: (device, measure) =>
+				device === FREEZER && measure === "temperature"
+					? {
+							label: "Freezer temperature",
+							device: "Freezer",
+							measure: "Temperature",
+							shown: (value) => `${value} C`,
+							inUnit: (value) => value,
+							now: () => {
+								const held = readings.get(TEMP);
+								return held?.known && typeof held.value === "number" ? held.value : null;
+							},
+						}
+					: null,
+		},
+	});
 	fields.start();
 	const read = (value: number) => {
 		clock += 1_000;
@@ -217,5 +205,49 @@ describe("a crossing", () => {
 
 		expect([unread.stored, named.stored]).toEqual([false, true]);
 		expect(automations.rows().map((row) => row.id)).toEqual(["threshold-ce1c-temperature-high"]);
+	});
+});
+
+describe("the trigger catalogue", () => {
+	it("names one row per trigger kind, in the union's order, and serves them whole", () => {
+		const kinds = AutomationTriggerSchema.options.map((option) => option.shape.kind.value);
+		const listed = ConsoleAutomationListResultSchema.parse({
+			automations: [],
+			serves: { ...AUTOMATION_SERVES, numbers: [], switches: [] },
+		});
+
+		expect(Object.keys(AUTOMATION_TRIGGERS)).toEqual(kinds);
+		expect(listed.serves?.triggers.map((row) => [row.kind, row.names.map((held) => held.name)])).toEqual(
+			kinds.map((kind) => [kind, [...AUTOMATION_TRIGGER_NAMES[kind]]]),
+		);
+	});
+
+	it("lists exactly the names a fire of each kind fills", () => {
+		const { automations, fields } = world();
+		fields.put(
+			"band",
+			{
+				label: "Freezer band",
+				nodes: [
+					{ kind: "field", ref: { source: "device", device: FREEZER, key: "temperature" } },
+					{ kind: "band", input: 0, high: -10, deadZone: 1 },
+				],
+			},
+			0,
+		);
+		const zone = "UTC";
+		const triggers = [
+			{ kind: "value", field: "band", becomes: "high", coolDownSec: 0 },
+			above().trigger,
+			{ kind: "time", time: "09:00", weekdays: [1], zone },
+			{ kind: "interval", everyMin: 60 },
+		] as const;
+
+		const filled = triggers.map((trigger) => [
+			trigger.kind,
+			Object.keys(automations.namesNow(trigger as Parameters<typeof automations.namesNow>[0])),
+		]);
+
+		expect(filled).toEqual(triggers.map((trigger) => [trigger.kind, [...AUTOMATION_TRIGGER_NAMES[trigger.kind]]]));
 	});
 });

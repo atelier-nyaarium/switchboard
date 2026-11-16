@@ -7,7 +7,6 @@ import { ASSISTANT_TEAM, isAssistantRecord } from "../shared/assistant-session.j
 import { openDurable } from "../shared/durable-store.js";
 import { HOST_SPAWN, hostSpawnPoint, isHostSpawn } from "../shared/host-spawn.js";
 import { SENSORS_SOURCE_ID } from "../shared/schemasAssistantActions.js";
-import { AUTOMATION_SERVES } from "../shared/schemasAutomation.js";
 import { formatInboxAddress, parseInboxAddress } from "../shared/schemasInbox.js";
 import { createAssistantRestart } from "./assistant/assistantRestart.js";
 import { createOutboxSource } from "./assistant/outboxSource.js";
@@ -15,6 +14,7 @@ import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { automationActions } from "./compose/automationActions.js";
 import { composeAgents } from "./compose/composeAgents.js";
 import { composeAssistant } from "./compose/composeAssistant.js";
+import { composeAutomations } from "./compose/composeAutomations.js";
 import { composeAwareness } from "./compose/composeAwareness.js";
 import { composeBaseline } from "./compose/composeBaseline.js";
 import { composeBootstrap } from "./compose/composeBootstrap.js";
@@ -44,9 +44,8 @@ import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSoc
 import { composeWorkflows, type WorkflowsStage } from "./compose/composeWorkflows.js";
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
-import { previewAutomation } from "./computed/automationPreview.js";
-import { type Automations, createAutomations } from "./computed/automations.js";
-import { type ComputedFields, createComputedFields } from "./computed/computedFields.js";
+import type { Automations } from "./computed/automations.js";
+import type { ComputedFields } from "./computed/computedFields.js";
 import { createThresholdConversion, type ThresholdConversion } from "./devices/thresholdConversion.js";
 import { fireAndForget } from "./fireAndForget.js";
 import { purgeHolds } from "./purgeHolds.js";
@@ -588,46 +587,32 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return isHostSpawn(record.spawn) ? "host" : "not_served";
 		},
 	});
-	fields = openDurable(bootstrap.dataDir, "computed-fields", (records) =>
-		openDurable(bootstrap.dataDir, "computed-state", (state) =>
-			createComputedFields({
-				records,
-				state,
-				newIncarnation: () => bootstrap.ambient.newId(),
-				now: () => bootstrap.ambient.now(),
-				input: devices!.sensorInput,
-				derived: () => automations?.derivedFields() ?? [],
-				// Flush readings before events.
-				onCommit: () => {
-					devices?.flushReadings();
-					automations?.drain();
-				},
+	const automationStage = composeAutomations({
+		dataDir: bootstrap.dataDir,
+		newIncarnation: () => bootstrap.ambient.newId(),
+		now: () => bootstrap.ambient.now(),
+		input: devices!.sensorInput,
+		// Flush readings before events.
+		beforeDrain: () => devices?.flushReadings(),
+		automations: {
+			isHome: () => assistant.placed(),
+			onQueued: () => assistant.pokeSource(SENSORS_SOURCE_ID),
+			eventIssue: assistant.eventIssue,
+			eventSentence: assistant.eventSentence,
+			reading: devices!.watchedReading,
+			actions: automationActions({
+				devices: () => devices,
+				ifttt: assistant.iftttTrigger,
+				vaultReady: () => vault?.canRead() ?? false,
 			}),
-		),
-	);
-	automations = openDurable(bootstrap.dataDir, "automations", (records) =>
-		openDurable(bootstrap.dataDir, "automation-state", (state) =>
-			createAutomations({
-				records,
-				state,
-				fields: fields!,
-				newIncarnation: () => bootstrap.ambient.newId(),
-				now: () => bootstrap.ambient.now(),
-				isHome: () => assistant.placed(),
-				onQueued: () => assistant.pokeSource(SENSORS_SOURCE_ID),
-				eventIssue: assistant.eventIssue,
-				eventSentence: assistant.eventSentence,
-				reading: devices!.watchedReading,
-				actions: automationActions({
-					devices: () => devices,
-					ifttt: assistant.iftttTrigger,
-					vaultReady: () => vault?.canRead() ?? false,
-				}),
-				holes: () => liveConsole.holes,
-				timers: bootstrap.ambient,
-			}),
-		),
-	);
+			holes: () => liveConsole.holes,
+			timers: bootstrap.ambient,
+		},
+		offers: () => devices?.automationOffers() ?? { numbers: [], switches: [] },
+		previewEvent: assistant.previewEvent,
+	});
+	fields = automationStage.fields;
+	automations = automationStage.automations;
 	assistant.registerSource(createOutboxSource(automations.outbox));
 	assistant.bindAutomations(automations);
 	thresholdConversion = openDurable(bootstrap.dataDir, "sensor-thresholds", (stored) =>
@@ -677,32 +662,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		runbooks,
 		routines,
 		policies,
-		automations: {
-			list: () => ({
-				automations: automations?.rows() ?? [],
-				serves: { ...AUTOMATION_SERVES, ...(devices?.automationOffers() ?? { numbers: [], switches: [] }) },
-			}),
-			put: (id, automation, base, confirmed) =>
-				automations?.ownerPut(id, automation, base, confirmed) ?? {
-					stored: false,
-					revision: 0,
-					reason: "not loaded yet",
-				},
-			remove: (id, base) => automations?.ownerRemove(id, base) ?? { deleted: false, reason: "not loaded yet" },
-			preview: (trigger, text) =>
-				previewAutomation(
-					{
-						event: assistant.previewEvent,
-						namesNow: (clocked) => {
-							if (!automations) throw new Error("not loaded yet");
-							return automations.namesNow(clocked);
-						},
-						holes: () => liveConsole.holes,
-					},
-					trigger,
-					text,
-				),
-		},
+		automations: automationStage.console,
 		cuts: sessionCut.cuts,
 		sessionClosed,
 		devices: requireDevices(),

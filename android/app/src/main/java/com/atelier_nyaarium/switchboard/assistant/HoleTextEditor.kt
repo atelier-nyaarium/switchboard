@@ -56,7 +56,6 @@ import com.atelier_nyaarium.switchboard.liveconsole.CODE
 import com.atelier_nyaarium.switchboard.liveconsole.VariableShape
 import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.paintedCode
-import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
 
@@ -79,7 +78,7 @@ internal fun HoleTextEditor(
 	title: String,
 	value: String,
 	max: Int,
-	names: List<AutomationPreviewName>,
+	names: List<NameHere>,
 	preview: TextPreview,
 	refused: AutomationSaid.Hole?,
 	description: ConsoleDescription?,
@@ -169,7 +168,7 @@ internal fun HoleTextEditor(
 /** Trigger names, then Console entities. */
 @Composable
 private fun NamesCard(
-	names: List<AutomationPreviewName>,
+	names: List<NameHere>,
 	description: ConsoleDescription?,
 	enabled: Boolean,
 	onName: (String) -> Unit,
@@ -182,7 +181,7 @@ private fun NamesCard(
 		Column(Modifier.padding(vertical = 12.dp)) {
 			Text("Names here", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp))
 			for (name in names) {
-				NameRow("{${name.name}}", name.shown, enabled) { onName(name.name) }
+				NameRow("{${name.name}}", name.says, enabled) { onName(name.name) }
 			}
 			if (entities.isNotEmpty()) {
 				Text(

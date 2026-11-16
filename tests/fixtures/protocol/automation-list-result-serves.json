@@ -27,7 +27,39 @@
 		}
 	],
 	"serves": {
-		"triggers": ["event", "value", "crossing", "time", "interval"],
+		"triggers": [
+			{
+				"kind": "event",
+				"names": [
+					{ "name": "event", "description": "The event; its fields by name" },
+					{ "name": "source", "description": "The source's name" }
+				]
+			},
+			{
+				"kind": "value",
+				"names": [
+					{ "name": "value", "description": "The value it became" },
+					{ "name": "field", "description": "The field's name" }
+				]
+			},
+			{
+				"kind": "crossing",
+				"names": [
+					{ "name": "value", "description": "The reading now" },
+					{ "name": "device", "description": "The device's name" },
+					{ "name": "measure", "description": "What it measures" },
+					{ "name": "threshold", "description": "The threshold" }
+				]
+			},
+			{
+				"kind": "time",
+				"names": [{ "name": "time", "description": "The time it came round" }]
+			},
+			{
+				"kind": "interval",
+				"names": [{ "name": "time", "description": "The time it came round" }]
+			}
+		],
 		"actions": [
 			{
 				"kind": "tell_assistant",

@@ -8,7 +8,6 @@ import { commitChecked, type DurableStore } from "../../shared/durable-store.js"
 import { errorName } from "../../shared/error-name.js";
 import {
 	AUTOMATION_ACTIONS,
-	AUTOMATION_TRIGGER_NAMES,
 	AUTOMATIONS_MAX,
 	type Automation,
 	type AutomationActionParam,
@@ -17,21 +16,12 @@ import {
 	type AutomationTrigger,
 	type ConsoleAutomationDeleteResult,
 	type ConsoleAutomationPutResult,
-	type CrossingTrigger,
 	type EventTrigger,
 	type TellWhen,
 } from "../../shared/schemasAutomation.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
 import { createOwnerRecords, type OwnerIssue, type OwnerRecord } from "../ownerRecords.js";
-import {
-	CLOCK_GRACE_MS,
-	clockIssue,
-	clockSentence,
-	clockShown,
-	isClock,
-	nextSlot,
-	walkSlots,
-} from "./automationClock.js";
+import { CLOCK_GRACE_MS, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
 import {
 	admit,
 	claim,
@@ -40,10 +30,8 @@ import {
 	type EffectRef,
 	effectKey,
 	effectsIn,
-	FIRES_MAX,
 	type Fire,
 	type FireNames,
-	FireSchema,
 	finished,
 	holdsClaim,
 	mayWait,
@@ -62,30 +50,15 @@ import {
 	judgeAutomationWrite,
 	NOT_HOME,
 } from "./automationJudge.js";
-import { type AutomationRun, fireRun, LOG_MAX, logged, RunSchema } from "./automationLog.js";
-import {
-	clip,
-	type Dropped,
-	memberOf,
-	outboxOf,
-	ownerOf,
-	QUEUE_FULL,
-	QUEUE_MAX_EVENTS,
-	QueueEntrySchema,
-	type QueueState,
-	retained,
-	told,
-} from "./automationOutbox.js";
-import {
-	type AutomationActionPorts,
-	type AutomationEffect,
-	effectIssue,
-	isEffect,
-	runEffect,
-} from "./automationRunner.js";
-import { holeOwnerIssue, holeSpanOf, holeTexts, laneTellWhen, tellPlan } from "./automationText.js";
+import { type AutomationRun, fireRun, logged } from "./automationLog.js";
+import { clip, type Dropped, memberOf, outboxOf, ownerOf, QUEUE_FULL, told } from "./automationOutbox.js";
+import { type AutomationActionPorts, type AutomationEffect, isEffect, runEffect } from "./automationRunner.js";
+import { type Checkpoint, FIRED_MAX, own, restore, type State } from "./automationState.js";
+import { holeSpanOf, holeTexts, laneTellWhen, tellPlan } from "./automationText.js";
+import { createAutomationValidity } from "./automationValidity.js";
+import { createAutomationWords, fieldsOf, type WatchedReading } from "./automationWords.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
-import { crossingField, crossingFieldId, crossingSide } from "./crossingBand.js";
+import { crossingField, crossingFieldId } from "./crossingBand.js";
 
 export { EFFECT_LATE_MS, EFFECT_RETRY_MS, EFFECT_WAIT_MS, FIRES_MAX } from "./automationFires.js";
 export { type AutomationRun, RUN_OUTCOMES } from "./automationLog.js";
@@ -95,6 +68,7 @@ export {
 	QUEUE_MAX_BYTES,
 	QUEUE_MAX_EVENTS,
 } from "./automationOutbox.js";
+export type { WatchedReading } from "./automationWords.js";
 export { AUTOMATION_KIND };
 
 export type AutomationWritten =
@@ -102,12 +76,8 @@ export type AutomationWritten =
 	| { written: true; records: (OwnerRecord<Automation> | null)[]; dropped: readonly DroppedAutomation[] }
 	| { written: false; reason: string; record?: OwnerRecord<Automation>; confirm?: string[]; issue?: OwnerIssue };
 
-/** An id may spell a prototype key. */
-const own = <T>(held: Record<string, T>, id: string): T | undefined => (Object.hasOwn(held, id) ? held[id] : undefined);
 /** A filled effect parameter. */
 const EFFECT_TEXT_MAX = 500;
-/** Event fires remembered against a repeat. */
-const FIRED_MAX = 256;
 const NOT_READY = "its service was not ready";
 const TOO_LATE = "too late after its trigger";
 /** A walk whose write failed is retried after this. */
@@ -133,121 +103,6 @@ const StoredAutomationSchema = z.preprocess((body) => {
 		actions: [{ kind: "tell_assistant", when: "quietly" }],
 	};
 }, AutomationSchema);
-
-const SlotSchema = z.object({
-	revision: z.number().int().positive(),
-	incarnation: z.string(),
-	/** The last slot handled, or when it was saved. */
-	at: z.number(),
-	/** Handled before the clock stepped back. */
-	skip: z.number().optional(),
-});
-type Slot = z.infer<typeof SlotSchema>;
-
-const CheckpointSchema = z.object({
-	/** Tracks the record revision. */
-	revision: z.number().int().positive(),
-	incarnation: z.string(),
-	fieldEpoch: z.string(),
-	handledSeq: z.number().int().nonnegative(),
-	/** The cool-down's clock. */
-	firedAt: z.number().optional(),
-});
-type Checkpoint = z.infer<typeof CheckpointSchema>;
-
-interface State {
-	automations: Record<string, Checkpoint>;
-	queue: QueueState;
-	log: AutomationRun[];
-	/** When each automation last ran. */
-	ran: Record<string, number>;
-	/** Oldest first. */
-	fires: Fire[];
-	/** Members of event fires already taken. */
-	fired: string[];
-	/** Each clock's last slot handled. */
-	slots: Record<string, Slot>;
-}
-
-const EMPTY: State = {
-	automations: {},
-	queue: { lastAt: 0, events: [] },
-	log: [],
-	ran: {},
-	fires: [],
-	fired: [],
-	slots: {},
-};
-
-/** Invalid log/baseline rows drop. */
-const LooseStateSchema = z.object({
-	automations: z.record(z.string(), z.unknown()).catch({}),
-	queue: z.object({ lastAt: z.number().int(), events: z.array(z.unknown()) }).catch(EMPTY.queue),
-	log: z.array(z.unknown()).catch([]),
-	ran: z.record(z.string(), z.number()).catch({}),
-	fires: z.array(z.unknown()).catch([]),
-	fired: z.array(z.string()).catch([]),
-	slots: z.record(z.string(), z.unknown()).catch({}),
-});
-
-/** A fire of another shape never runs. */
-function restoreFires(rows: unknown[], pick: (rows: unknown[], schema: typeof FireSchema) => Fire[]): Fire[] {
-	const fires = pick(rows, FireSchema);
-	const lost = rows.length - fires.length;
-	if (lost > 0) console.warn(`[automations] ${lost} stored runs of another shape were dropped and will not run`);
-	return fires.slice(-FIRES_MAX);
-}
-
-function restore(raw: unknown, now: number): State {
-	const loose = LooseStateSchema.parse(raw ?? EMPTY);
-	const automations: State["automations"] = {};
-	for (const [id, row] of Object.entries(loose.automations)) {
-		const parsed = CheckpointSchema.safeParse(row);
-		if (parsed.success) automations[id] = parsed.data;
-	}
-	const pick = <T>(rows: unknown[], schema: z.ZodType<T>): T[] =>
-		rows.flatMap((row) => {
-			const parsed = schema.safeParse(row);
-			return parsed.success ? [parsed.data] : [];
-		});
-	// Remove 2027-01-15: a run time kept on its checkpoint alone.
-	const ran = { ...loose.ran };
-	for (const [id, row] of Object.entries(automations)) {
-		if (row.firedAt !== undefined) ran[id] = Math.max(ran[id] ?? 0, row.firedAt);
-	}
-	return {
-		automations,
-		queue: {
-			lastAt: loose.queue.lastAt,
-			events: pick(loose.queue.events, QueueEntrySchema)
-				.filter((event) => retained(event, now))
-				.slice(-QUEUE_MAX_EVENTS),
-		},
-		log: pick(loose.log, RunSchema).slice(-LOG_MAX),
-		ran,
-		fires: restoreFires(loose.fires, pick),
-		fired: loose.fired.slice(-FIRED_MAX),
-		slots: Object.fromEntries(
-			Object.entries(loose.slots).flatMap(([id, row]) => {
-				const parsed = SlotSchema.safeParse(row);
-				return parsed.success ? [[id, parsed.data]] : [];
-			}),
-		),
-	};
-}
-
-/** A device number, in words. */
-export interface WatchedReading {
-	/** The device's name, then the measure's. */
-	label: string;
-	device: string;
-	measure: string;
-	shown: (value: number) => string;
-	/** In the owner's unit. */
-	inUnit: (value: number) => number;
-	/** Null while unread. */
-	now: () => number | null;
-}
 
 /** Holes in a text, checked and filled. */
 export interface AutomationHoles {
@@ -281,6 +136,8 @@ export interface AutomationsDeps {
 
 export function createAutomations(deps: AutomationsDeps) {
 	let state: State = restore(deps.state.load(), deps.now());
+	const { triggerIssue, holesIssue, automationIssue, armed } = createAutomationValidity(deps);
+	const { sentenceOf, watched, namesOf, crossingNames } = createAutomationWords(deps);
 
 	const store = createOwnerRecords<Automation>({
 		store: deps.records,
@@ -295,105 +152,6 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Reads; `write` alone commits. */
 	const records: Pick<typeof store, "list" | "get" | "invalidOf" | "count"> = store;
 
-	function triggerIssue(body: Automation): string | null {
-		if (body.trigger.kind === "event") {
-			return deps.eventIssue ? deps.eventIssue(body.trigger) : "this Gateway holds no sources";
-		}
-		if (body.trigger.kind === "crossing") {
-			const { device, measure } = body.trigger;
-			if (!deps.reading?.(device, measure)) return "no such number on this Gateway";
-			return deps.fields.check(crossingField(body.trigger));
-		}
-		if (isClock(body.trigger)) return clockIssue(body.trigger);
-		const { field, becomes } = body.trigger;
-		const type = deps.fields.typeOf(field);
-		if (!type) return deps.fields.invalidOf(field) ?? "no such field";
-		if (type.type === "boolean") return typeof becomes === "boolean" ? null : "this field is true or false";
-		if (type.type === "choice") {
-			return typeof becomes === "string" && type.members.includes(becomes)
-				? null
-				: `${String(becomes)} is not one of its values`;
-		}
-		return "only a field of choices or true and false can trigger";
-	}
-
-	/** First refused hole and span. */
-	function holesIssue(body: Automation): OwnerIssue | null {
-		const holes = deps.holes?.();
-		const names = AUTOMATION_TRIGGER_NAMES[body.trigger.kind];
-		for (const at of holeTexts(body)) {
-			if (!hasHoles(at.text)) continue;
-			if (!holes)
-				return holeOwnerIssue(at, { start: 0, end: at.text.length, message: "holes cannot be read yet" });
-			const issue = holes.issue(at.text, names);
-			if (issue) return holeOwnerIssue(at, issue);
-		}
-		return null;
-	}
-
-	/** Why this Gateway cannot run it. */
-	function automationIssue(body: Automation): string | null {
-		const issue = triggerIssue(body);
-		if (issue !== null) return issue;
-		for (const action of body.actions) {
-			const refused = isEffect(action) ? effectIssue(action, deps.actions) : null;
-			if (refused !== null) return refused;
-		}
-		return holesIssue(body)?.message ?? null;
-	}
-
-	/** What the row and its events are called. */
-	const sentenceOf = (body: Automation): string => {
-		if (body.label) return body.label;
-		if (body.trigger.kind === "event") return deps.eventSentence?.(body.trigger) ?? `${body.trigger.source} event`;
-		if (body.trigger.kind === "crossing") {
-			const { device, measure, direction, threshold } = body.trigger;
-			const reading = deps.reading?.(device, measure);
-			return `${reading?.label ?? `${device} ${measure}`} goes ${direction} ${reading?.shown(threshold) ?? threshold}`;
-		}
-		if (isClock(body.trigger)) return clockSentence(body.trigger);
-		const field = deps.fields.get(body.trigger.field)?.body.label ?? body.trigger.field;
-		return `${field} becomes ${String(body.trigger.becomes)}`;
-	};
-
-	/** The field a trigger watches, and the value that fires it. */
-	const watched = (record: OwnerRecord<Automation>) => {
-		const { trigger } = record.body;
-		if (trigger.kind === "value") {
-			return { ...trigger, label: deps.fields.get(trigger.field)?.body.label ?? trigger.field };
-		}
-		if (trigger.kind !== "crossing") return null;
-		return {
-			field: crossingFieldId(record.id),
-			becomes: crossingSide(trigger),
-			coolDownSec: trigger.coolDownSec,
-			label: deps.reading?.(trigger.device, trigger.measure)?.label ?? `${trigger.device} ${trigger.measure}`,
-		};
-	};
-
-	/** Names a fired trigger read. */
-	const namesOf = (record: OwnerRecord<Automation>, value: string | number | boolean, label: string): FireNames => {
-		const { trigger } = record.body;
-		const names = trigger.kind === "crossing" ? crossingNames(trigger) : null;
-		return names && Object.keys(names).length > 0 ? names : { value: { value }, field: { value: label } };
-	};
-
-	/** Empty when no sensor reads it. */
-	const crossingNames = (trigger: CrossingTrigger): FireNames => {
-		const reading = deps.reading?.(trigger.device, trigger.measure);
-		if (!reading) return {};
-		const now = reading.now();
-		return {
-			value:
-				now === null
-					? { value: null, shown: "unread" }
-					: { value: reading.inUnit(now), shown: reading.shown(now) },
-			device: { value: reading.device },
-			measure: { value: reading.measure },
-			threshold: { value: reading.inUnit(trigger.threshold), shown: reading.shown(trigger.threshold) },
-		};
-	};
-
 	const commit = (next: State): boolean =>
 		commitChecked(
 			deps.state,
@@ -403,8 +161,6 @@ export function createAutomations(deps: AutomationsDeps) {
 			},
 			{ label: "automation state" },
 		).landed;
-
-	const armed = (record: OwnerRecord<Automation>) => record.body.enabled && automationIssue(record.body) === null;
 
 	/** Baselines whose write has not landed. */
 	let unsaved: State["automations"] = {};
@@ -428,15 +184,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (notes.length > 0) told.note = clip(notes.join("\n"));
 		return told;
 	};
-
-	/** A name's shown form, by name. */
-	const fieldsOf = (names: FireNames): Record<string, string> =>
-		Object.fromEntries(
-			Object.entries(names).flatMap(([name, held]) => {
-				const shown = held.shown ?? (typeof held.value === "string" ? held.value : undefined);
-				return shown === undefined ? [] : [[name, shown]];
-			}),
-		);
 
 	/** Records a fire for the run; false when nothing will run. */
 	const fire = (

@@ -150,6 +150,9 @@ object Protocol {
 		const val CONSOLE_VARIABLES_BYTES: Int = 256000
 		const val CONSOLE_INSTANT_FLOOR: Long = 1000000000000L
 		const val CONSOLE_INSTANT_CEILING: Long = 8640000000000000L
+		const val AUTOMATION_ACTIONS_MAX: Int = 8
+		const val AUTOMATION_INTERVAL_MAX_MIN: Int = 10080
+		const val AUTOMATION_COOL_DOWN_MAX_SEC: Int = 86400
 
 		val CONSOLE_INSTANT_KEYS: Set<String> = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
 
@@ -161,6 +164,18 @@ object Protocol {
 			AUTOMATIONS("automations"),
 			SOURCES("sources"),
 			DEFINITIONS("definitions"),
+		}
+
+		enum class ActionParamKind(val wire: String) {
+			TEXT("text"),
+			WORD("word"),
+			SWITCH("switch"),
+			CHOICE("choice"),
+		}
+
+		enum class CrossingDirection(val wire: String) {
+			ABOVE("above"),
+			BELOW("below"),
 		}
 
 		object ConsoleOpKind {
@@ -5071,10 +5086,22 @@ data class AssistantIntegration(
 
 @Serializable
 data class AutomationServes(
-	val triggers: List<String>,
+	val triggers: List<AutomationTriggerOffer>,
 	val actions: List<AutomationActionOffer>,
 	val numbers: List<AutomationNumberOffer>,
 	val switches: List<AutomationSwitchOffer>,
+)
+
+@Serializable
+data class AutomationTriggerOffer(
+	val kind: String,
+	val names: List<AutomationTriggerName>,
+)
+
+@Serializable
+data class AutomationTriggerName(
+	val name: String,
+	val description: String,
 )
 
 @Serializable

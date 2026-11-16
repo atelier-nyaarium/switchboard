@@ -21,6 +21,7 @@ import com.atelier_nyaarium.switchboard.assistant.TextPreview
 import com.atelier_nyaarium.switchboard.assistant.TriggerChoice
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.assistant.actionDraftOf
+import com.atelier_nyaarium.switchboard.assistant.actionFields
 import com.atelier_nyaarium.switchboard.assistant.ParamOffer
 import com.atelier_nyaarium.switchboard.assistant.actionHint
 import com.atelier_nyaarium.switchboard.assistant.actionIssue
@@ -36,6 +37,8 @@ import com.atelier_nyaarium.switchboard.assistant.automationEditing
 import com.atelier_nyaarium.switchboard.assistant.automationGroups
 import com.atelier_nyaarium.switchboard.assistant.automationStanding
 import com.atelier_nyaarium.switchboard.assistant.automationsEmpty
+import com.atelier_nyaarium.switchboard.assistant.withoutValue
+import com.atelier_nyaarium.switchboard.assistant.canRemove
 import com.atelier_nyaarium.switchboard.assistant.confirmBody
 import com.atelier_nyaarium.switchboard.assistant.coolDownSecOf
 import com.atelier_nyaarium.switchboard.assistant.coolDownTyped
@@ -112,7 +115,7 @@ private const val PLUG = "aa:bb"
 private const val ZONE = "America/Los_Angeles"
 
 private val FULL = AutomationOffer(
-	triggers = setOf("event", "crossing", "time", "interval"),
+	triggers = offerOf(SANDBOX_SERVES, away = false).triggers.filter { it.kind != "value" },
 	actions = SANDBOX_SERVES.actions.map(::actionOfferOf),
 	numbers = listOf(
 		NumberOffer(SENSOR, "temperature", "Outside temperature", "C", 1),
@@ -563,7 +566,7 @@ class AutomationPartsTest {
 	@Test
 	fun aNewAutomationWatchingASensorStartsOnACrossingOfItsFirstNumberOrNotAtAll() {
 		val watched = newAutomationDraft(FULL_HERE, ZONE, watch = SENSOR)!!
-		val noCrossing = FULL.copy(triggers = setOf("event", "time"))
+		val noCrossing = FULL.copy(triggers = FULL.triggers.filter { it.kind in setOf("event", "time") })
 		val otherSensor = FULL.copy(numbers = FULL.numbers.map { it.copy(device = "aa:00") })
 
 		assertEquals(freshTrigger(TriggerChoice.CROSSING, FULL, null, ZONE), watched.trigger)
@@ -688,6 +691,8 @@ class AutomationPartsTest {
 		assertEquals(listOf(true, true, true), drafts.map { it is ActionDraft.Filled })
 		assertEquals(stored, drafts.map { actionOf(it, offer) })
 		assertEquals(SANDBOX_SERVES.actions, served?.actions)
+		assertEquals(SANDBOX_SERVES.triggers, served?.triggers)
+		assertEquals(offer.names("event"), offerOf(null, away = false).names("event"))
 	}
 
 	@Test
@@ -724,6 +729,22 @@ class AutomationPartsTest {
 		assertNull(actionOf(toldDraft("now", "Hi"), LEGACY))
 		assertEquals(AutomationAction.TellAssistant("now"), actionOf(toldDraft("now", " "), LEGACY))
 		assertEquals(lamp, automationDraftOf(row("a", event().copy(actions = listOf(lamp))), EditContext(retired, emptyList()))!!.toAutomation(retired)!!.actions.single())
+	}
+
+	@Test
+	fun aValueItsRowNoLongerNamesIsDrawnStrayAndClearedInPlace() {
+		val told = toldDraft("now", "Hi")
+		val draft = eventDraft().withAction(0) { told }
+		val cleared = draft.withAction(0) { withoutValue(it, "message") }
+		val retired = FULL.copy(actions = FULL.actions.filter { it.kind != "tell_assistant" })
+
+		assertEquals(listOf("when" to true, "message" to false), actionFields(told, LEGACY).map { it.name to (it.param != null) })
+		assertEquals(null, draft.toAutomation(LEGACY))
+		assertEquals(null, actionIssue(cleared.actions.single(), LEGACY))
+		assertEquals(AutomationAction.TellAssistant("now"), cleared.toAutomation(LEGACY)?.actions?.single())
+		assertEquals(true, actionFields(told, FULL).all { it.param != null })
+		assertEquals(told, withoutValue(told, "voice"))
+		assertEquals(listOf(false, true, true), listOf(canRemove(draft, 0, FULL), canRemove(draft, 0, retired), canRemove(draft.plusAction(told), 0, FULL)))
 	}
 
 	@Test

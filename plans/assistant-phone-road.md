@@ -637,7 +637,30 @@ Before it, on loops and an orchestrator:
 
 > So triggering another automation is not something we had before. there exists the risk of circular triggers. Also makes us ask the question, wouldn't it be cool to also have a Action for the happy path to trigger an automation based on conditions anyways? Like an Orchastrator automation rather than a micromanaged automation.
 
-## Requested, not yet shaped: a flow map over the automations
+## Question 50 - Where does the flow map live?
+
+Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
+A: The toggle on Automations. No replay of a whole day; a replay belongs to one automation and plays back its last run. Every styling choice must carry one meaning and feel like it.
+
+> we don't need a replay day. Probably only replay automations really.
+>
+> A.
+> And be sure observe how you choose colors,  solid/dotted/thick, and any other styling choice. Everything has a meaning. And the meaning should feel the vibes of the style.
+
+The styling rules proposed to the owner, one meaning per channel (mocked as `automations-flow-map.html` in the Designer dock):
+
+- Colour is how it ended: cool grey fine, amber held up, red not done, faint grey nothing there.
+- Line pattern is whether it happened: solid ran, dashed still in progress (held or retried), sparse dots nothing flowing (off or never ran).
+- Thickness is whether it wants the owner: thin normal, thick with a soft glow a failure.
+- A diamond at a line's start is why it runs (only on failure); the line keeps its own colour and pattern.
+- Shape is what it is: a dot is something outside (a source above, a device or the assistant below), a rounded pill is an automation.
+- The primary colour is selection only. A pill on a line is the newest thing that happened on it, shown only where there is something to say.
+- Motion is now: only something happening this moment moves (a waiting line, a replay pulse).
+- Top to bottom is cause: when, the automation, what it acts on.
+
+The reference screen (the owner's Current project) places sixteen fixed systems by hand and draws each line as one quadratic curve bowing away from the hub, with the pill at the curve's midpoint. Automations change, so this map lays out three rows from the Gateway's list instead; the curve, the trim to a node's edge, the arrowhead and the pill midpoint are plain geometry and carry over (`graph-scout-report.md` in the session scratchpad).
+
+## Requested: a flow map over the automations
 
 The owner sent a screenshot of an integrations map from another of their projects (systems as nodes, curved lines coloured by status with pill labels, a one-line summary, a replay, a legend, a Map and List toggle) and asked for the same kind of view here. A scout is reading how that screen is built; the shape for Switchboard is asked after it reports.
 

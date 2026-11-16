@@ -10,6 +10,7 @@ import com.atelier_nyaarium.switchboard.assistant.holeAssist
 import com.atelier_nyaarium.switchboard.assistant.holeAt
 import com.atelier_nyaarium.switchboard.assistant.holePaint
 import com.atelier_nyaarium.switchboard.assistant.nameShapes
+import com.atelier_nyaarium.switchboard.assistant.namesHere
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.refusedSpan
 import com.atelier_nyaarium.switchboard.assistant.textAt
@@ -46,7 +47,26 @@ class HoleTextRulesTest {
 		),
 	)
 
-	private val names = listOf(AutomationPreviewName("event", "Fix the build"), AutomationPreviewName("source", "GitHub"))
+	private val names = namesHere(
+		offerOf(SANDBOX_SERVES, away = false),
+		"event",
+		listOf(AutomationPreviewName("event", "Fix the build"), AutomationPreviewName("source", "GitHub")),
+	)
+
+	@Test
+	fun aTextMayUseTheServedRowsNamesBeforeItsTriggerIsCompleteAndTheirValuesOnceAnswered() {
+		val offer = offerOf(SANDBOX_SERVES, away = false)
+		val crossing = listOf("value", "device", "measure", "threshold")
+		val untyped = namesHere(offer, "crossing", null)
+		val answered = namesHere(offer, "crossing", listOf(AutomationPreviewName("value", "1.8 °C"), AutomationPreviewName("wind", "calm")))
+
+		assertEquals(crossing, untyped.map { it.name })
+		assertEquals(listOf(true, true, true, true), untyped.map { it.description.isNotEmpty() && it.shown == null })
+		assertEquals(crossing, answered.map { it.name })
+		assertEquals(listOf("1.8 °C", null, null, null), answered.map { it.shown })
+		assertEquals(listOf("time"), namesHere(offer, "time", null).map { it.name })
+		assertEquals(emptyList<Any>(), namesHere(offer.copy(triggers = emptyList()), "crossing", null))
+	}
 
 	@Test
 	fun theCursorIsInAHoleOnlyBetweenItsBracesAndAnOpenOneRunsToTheEnd() {
