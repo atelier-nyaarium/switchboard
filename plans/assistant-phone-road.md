@@ -718,9 +718,10 @@ A: It is called "If" and nothing else. It is a block of its own with a true side
 
 A side was first put as one level deep, like a failure branch. The owner reopened depth in Question 57. The condition is one expression in the console's language, read when the If's turn comes. `and(a, b)` and `or(a, b)` are added as builtins, since the language has no `&&` or `||`.
 
-## Question 56 - What happens when an If's condition cannot be read? (open)
+## Question 56 - What happens when an If's condition cannot be read?
 
-Asked as: neither side runs, it is logged as a failure and the list carries on (recommended); treat it as false; or stop the run. Not answered yet: the owner turned to depth first.
+Q: Neither side runs and it is logged as a failure with the list carrying on; treat it as false; or stop the run?
+A: Neither side runs, logged as a failure, the list carries on. Taken as the default after four asks went unanswered while the owner settled depth and the script; the owner was told and may overrule it.
 
 ## Question 57 - How deep may blocks nest, and how do cards and script relate?
 
@@ -750,9 +751,14 @@ What was put back to the owner:
 
 Asked: one model with two views in those steps (recommended); cards only, at any depth, a nested block opening as a page; or flat cards with every branch in script alone.
 
-## Question 58 - How are actions written in script? (open)
+## Question 58 - How are actions written in script?
+
+Q: As calls in the grammar that exists, as a word per action, or as calls plus an assignment for whatever sets a state?
+A: As calls. The script continues NyaaDot's console language in spirit: the same style, everything declared by schema, and taken further than NyaaDot got.
 
 > look at the scripting language on NyaaDot side. does it have more on the doing side?
+
+> A.  I never did finish that one in NyaaDot either. But I would like you to continue it in spirit. Similar language style. Similar benefits of the schemaness of everything. But you will push it further.
 
 Read from NyaaDot's console doc and evaluator: the same grammar family, with a doing side this console lacks. A method call may change things (`configs.set("key", "value")`), a property may be written (`player.gold = 100`, checked by its schema), each method declares `read_only` or counts as doing, and a line that does something runs in a transaction that rolls back on an error. It has no `if`, no blocks, no loops and no functions: a line is one assignment or one expression.
 
