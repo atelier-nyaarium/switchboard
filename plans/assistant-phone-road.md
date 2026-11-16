@@ -716,7 +716,30 @@ A: It is called "If" and nothing else. It is a block of its own with a true side
 >
 > should If block have an optional true and false component? meaning you must slot on at least 1 branch?
 
-Following from the earlier answers: the sides of an If hold plain actions, one level deep, like a failure branch (no If inside an If, no failure branch inside a side; "Run an automation" is how a flow goes deeper). The condition is one expression in the console's language, read when the If's turn comes. `and(a, b)` and `or(a, b)` are added as builtins, since the language has no `&&` or `||`.
+A side was first put as one level deep, like a failure branch. The owner reopened depth in Question 57. The condition is one expression in the console's language, read when the If's turn comes. `and(a, b)` and `or(a, b)` are added as builtins, since the language has no `&&` or `||`.
+
+## Question 56 - What happens when an If's condition cannot be read? (open)
+
+Asked as: neither side runs, it is logged as a failure and the list carries on (recommended); treat it as false; or stop the run. Not answered yet: the owner turned to depth first.
+
+## Question 57 - How deep may blocks nest, and how do cards and script relate? (open)
+
+> hmm. what if we DID allow them to do any level deep?
+>
+> You said 1 levels deep as a stopper for recursive automations. But this isn't about triggering in a cycle anymore. It's just a programming language of their design.
+>
+> Which raises the question, can the UX support what we want to do? or would you promote the experience from basic UX to the scripting language already there?
+>
+> Like the UX is only capable of basic levels of automation. but if you want more, you have to switch to power user mode, and you just get the automations converted to the scripting language. Adjust as you need from there.
+
+What was put back to the owner:
+
+- **Depth and loops are separate.** Nested blocks form a tree and always end. Only "Run an automation" can go in a circle, and that is refused at save and capped at run. The one-level limit protected nothing in the engine; it was about what a phone screen shows.
+- **One model, two views.** The stored model is a tree with no depth limit, and the engine runs it. Cards draw a list, an If with its two sides and a failure branch, one level. Script shows any automation as text and is the only editor for one deeper than cards draw. No stored mode: Cards is offered whenever the automation fits it, Script always, and nothing is converted one way.
+- **The language there today is read-only expressions:** no blocks, no statements, and a test proves it changes nothing. A condition uses it as it is. Script needs a statement layer above it (`if` and `else`, `on failure`, one statement per action kind from the action table), a parser and a printer on the Gateway, and keyword paint on the phone. The console stays read-only.
+- **Build order put:** the tree model and engine with cards; script as a read-only view; script editing.
+
+Asked: one model with two views in those steps (recommended); cards only, at any depth, a nested block opening as a page; or flat cards with every branch in script alone.
 
 ## Question 50 - Where does the flow map live?
 
