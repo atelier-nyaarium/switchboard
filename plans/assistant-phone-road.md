@@ -830,7 +830,9 @@ Asked: the classic form with `e`, its traditional meaning and a `stop` (recommen
 
 What follows from it, told to the owner: a failure slot on one action in cards is a try around that action, and a try around several is a group card; a condition that cannot be read is a failure, so inside a try it jumps to the catch; a called automation reports failed when a failure in it went uncaught, which narrows what Question 59 was told ("handled or not").
 
-## Question 63 - Is a `stop` needed, and what does `e` hold? (open on the owner's confirmation)
+## Question 63 - Is a `stop` needed, and what does `e` hold?
+
+Taken as settled on 2026-11-18 and told to the owner, since the words were theirs and nine later answers built on it: no `stop`, `exit` bails out, `e.code` and `e.message`, a Try card, and a `throw` outside any `try` ends that function as failed. Theirs to change.
 
 > Do we even need a stop when the language becomes centered around braces like if statements?
 > Maybe an exit for an early bail in deeper code?
@@ -1026,6 +1028,24 @@ A: The three small ones today, then the sensor notice as its own update. The own
 > all fixes sound good
 
 Told with it, as defaults the owner may change: an automation that triggers again while running waits its turn; Run pressed on a switched-off automation runs it once while a call still respects off; an edit in the middle of a run stops that run and the row says what did not run; a script writes a device by its name when unique and by its id otherwise; an If keeps the unit its condition was typed in.
+
+## Question 72 - How does OpenCode work again on a version other than the pinned one?
+
+Q: The host holds OpenCode 2.3.0 and the build accepted 2.2.5 alone, so every OpenCode session and agent was refused. Move the pin, accept a range, or drop the check?
+A: Drop the check. OpenCode runs on whatever version is installed. The pin stays as the version this build was tested with, which setup installs, and a real failure on another version names both versions.
+
+> cut out the exactness check. Just have a warning if a feature provably errors out.
+
+Told with it: 2.3 runs subagents in the background, which may misbehave against one turn per prompt without any error, so no warning would show. The version pin on a Claude session's cut is left as it is, since it guards a file rewrite.
+
+## Question 73 - What happens to a run that is in the middle of a function when the function is edited?
+
+Q: The run finishes on the version it started with, or it stops at the save with its row saying what did not run?
+A: It finishes on the version it started with. New runs use the new version. A run is stopped by switching its automation off.
+
+> A
+
+Recommended: most bodies that wait are "on, wait, off", and stopping halfway leaves the device on. It costs keeping the steps a run started with until it ends. This replaces the default told with Question 71, that an edit in the middle of a run stops it.
 
 ## Question 50 - Where does the flow map live?
 
@@ -1733,8 +1753,8 @@ Design held for the phase:
 - **Graph checks** (a call closing a loop, a pointer to a function that is gone, a change that stops a user fitting) live in the judge, for an owner's put alone, as a change against the held rows. A toggle never asks. A carry never refuses on the graph; what did not come with it lands unfit with its own line.
 - **A carry** takes functions by value: each function whose users all move, and a fresh copy with a new id for one whose users also stay, the pointers rewritten. The destination remaps an id it already holds, the same way on a rerun. Before a move the phone checks that the destination serves functions and every step kind carried, and refuses otherwise.
 - **A function write holds the move lock** when any of its users moves with the home.
-- **The engine:** a run holds frames keyed by step path, each with the function, incarnation and revision it runs, its variables, its first uncaught failure, and per step the word, the verdict, the attempts, the time and the side an If took; and a set of active steps, one in this phase, so side-by-side work later needs no new shape. A run is started once a step has landed or a wait or an attempt has begun; a started run is never evicted, at most one per automation is started, and waiting event fires are capped per automation. Frames, variables and step records are bounded per run.
-- **An edit and the runs in flight:** asked of the owner (below). Whatever the answer, what did not run is computed from the held rows before the write lands and stored on a run row.
+- **The engine:** a run holds frames keyed by step path, each with the function, incarnation and revision it runs and the steps of that revision, its variables, its first uncaught failure, and per step the word, the verdict, the attempts, the time and the side an If took; and a set of active steps, one in this phase, so side-by-side work later needs no new shape. A run is started once a step has landed or a wait or an attempt has begun; a started run is never evicted, at most one per automation is started, and waiting event fires are capped per automation. Frames, variables and step records are bounded per run.
+- **An edit and the runs in flight** (Q73): a run finishes on the version it started with. Each frame holds the steps it entered with, so an edit, a repoint or a delete of a function changes nothing under a run, and a frame entered after the save reads the new version. Switching the automation off stops its run, and the row then says what did not run, computed from the frames the run holds.
 - **An attempt** has its own short bound, retries back off, and the runner takes a first attempt before a due retry. The device answers map to the words by one table keyed on the refusal code and the effect, with a vector per code; a hold that is no attempt sits beside them.
 - **A tell is a step.** The lane tells only an event automation's leading tells with no message, for a run the lane caused. Every other tell goes through the outbox under a member built from the automation, its incarnation, the key and the call-site path of every frame, so one function called twice tells twice. A tell with no room counts against "Keep trying for" and then fails `timeout`.
 - **Loops:** a function may not call itself, directly or through others: refused at the save, held at the run by the chain every frame carries (`loop`), with a generated budget of calls per run.
@@ -1761,8 +1781,7 @@ Decided here and told to the owner, theirs to change: an automation that fires a
 
 Asked, unanswered:
 
-- Whether a step may run another automation, with the values set on it and respecting its switch, as well as call a function.
-- What an edit of a shared function does to the automations using it and to their runs in flight.
+- Whether a step may run another automation, with the values set on it and respecting its switch, as well as call a function (Question 74).
 
 ## Phase 2.7f - The script (Q57, Q58, Q60 to Q63, Q65)
 
