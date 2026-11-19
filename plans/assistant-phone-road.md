@@ -904,11 +904,24 @@ A: Yes. Each value the function takes shows its source in the "Runs" block: from
 
 Following from the two answers, the picker's "Incompatible triggers" group has nothing left to list: a value the trigger does not give is set on the automation, and a function bound to another source is hidden. The group leaves the card and would return only for a value that can be neither given nor written. Mocked: the picker and the editor updated, and `functions-runs-block.html` showing the block with every value from the trigger, with values set on the automation (one still to set, which Save waits for), and one function shared by two thermometers with a room each.
 
-## Question 70 - What happens to the rest of a run the Gateway's downtime interrupted? (open)
+## Question 70 - What happens to the rest of a run the Gateway's downtime interrupted?
 
 Set apart from "Keep trying for", which is about a device that does not answer and is settled. The case put: fan on, `wait(10)`, fan off, and the machine goes down for three hours during the wait.
 
 Asked as: resume everything however late; late means failed, jumping to a `catch` inside a `try` and skipped outside one; or by what the action is (recommended): an action that sets a state still runs late, a one-shot action (a toggle, an IFTTT event, a message to the assistant) fails with `e.code == "late"`, and a `catch` runs however late under the same two rules. A trigger that should have fired while the Gateway was down is a separate matter and still does not fire.
+
+A: Part resume, part by the action's nature, judged on the step that was in progress when the Gateway went down. A step that is not idempotent is an error, thrown from that action, so a `catch` around it takes it. An idempotent step resumes while it is still inside its "Keep trying for"; past that it fails too, as a Gateway timeout.
+
+> Part A/C.
+> If the step in progress is not idempotent, it issues an error case. If there was a catch, it be thrown from that action or w/e.
+> If good to resume, will just resumes assuming within the timeout period for that action. Else issues a fail as well for some sort of Gateway timeout.
+
+Read as, and told to the owner:
+
+- The codes: an interrupted one-shot step ends `no_answer`, the code a sent command with no word back already has, since nobody can say whether it happened. An idempotent step past its wait ends `timeout`.
+- After that step the run goes on by the ordinary rules: a caught failure carries on after its `catch`, an uncaught one is noted and the run carries on.
+- A step that had not started is not judged. It starts when its turn comes, with its own wait, however late that is.
+- A `wait` whose time passed while the Gateway was down is over, and the run carries on from it. Taken as the default; the owner may say otherwise.
 
 ## Question 62 - What else belongs in the script's first version?
 
