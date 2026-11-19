@@ -844,6 +844,12 @@ Put back to the owner:
 - **`e.code` and `e.message`.** "Word" was the drafter's own term. `e.code` is the short fixed value to branch on (`refused`, `unreachable`, `no_answer`, and `unread` for a condition); `e.message` is a sentence for people, and a bare `{e}` prints it.
 - **In cards,** a Try card beside the If card, each with two slots, and no failure slot per action.
 
+## Question 67 - What happens to called functions when the assistant moves Gateways? (open)
+
+An outside-event automation lives where the assistant lives and moves with it; a sensor or clock automation stays with its Gateway; a called automation has no trigger tying it anywhere, and a call works only when both sit on one Gateway.
+
+Asked as: functions follow what calls them, and one that something staying also calls stops the move first and names it (recommended); a copy lands on the new Gateway when both sides call it; or nothing follows and a call that lost its function is marked broken. Under every answer a call that lost its function reads broken on its row and is never bound to another automation holding that id.
+
 ## Question 62 - What else belongs in the script's first version?
 
 The language as it stood when asked: a statement is one doing call, an `if (cond) { } else if (cond) { } else { }`, a `try { } catch (e) { }`, or `stop`. Conditions are the console's reading language with `and`, `or` and `sensors.value`. Text takes `{ }` holes. `e.word` is refused, unreachable or no answer, and a bare `{e}` prints a sentence.
