@@ -868,7 +868,33 @@ Read as, and mocked in the Designer dock (`functions-automations-list.html`, `fu
 - The editor's "Runs" block names the function, shows "Used by N", lists who else an edit reaches, and offers "Make unique". Its arrow points the automation at another function, from a list split into what fits and what does not, with the reason.
 - The Automations list shows each row's function and its user count when above one.
 - The "only when another automation runs it" trigger of Question 51 falls away: a function used only by callers is simply a function.
-- On a move, a function goes with its users that move; where users stay too, the mover takes a copy. To be confirmed with the owner.
+- On a move, a function goes with its users that move; where users stay too, the mover takes a copy.
+
+## Question 68 - On a move, what of a function with users on both sides?
+
+Q: Do the automations that move take a copy, or does the move stop and ask?
+A: They take a copy, as "Make unique" would give them. Nothing blocks.
+
+> Compare a blink and GitHub trigger side by side.
+>
+> and A.
+
+The picker card, as the owner reworded it: no "Fits this trigger" label; the second group reads "Incompatible triggers"; a reason reads "Requires event." or "Requires lamp, times."; nothing more is said on the row.
+
+> get rid of label "Fits this trigger"
+>
+> And change the other one:
+> - to "Incompatible triggers"
+> - "This trigger gives none." remove it
+> - "Needs" -> "Requires"
+>
+> Explain "Only another function can pass those." in programming terms. like TypeScript
+
+Explained to the owner as structural typing: a trigger is a call site nobody writes, passing one fixed object type, and a function fits when that type is assignable to its parameters. Compared side by side on request: a function taking a GitHub `event` takes a value that can only be received, from a GitHub trigger or from a caller that was itself given one; a function taking `lamp` and `times` takes values no trigger gives but any code can write. Asked from it: whether an automation may fill a function's remaining values itself, so a device can point at such a function (Question 69).
+
+## Question 69 - May an automation fill a function's values itself? (open)
+
+Asked as: the "Runs" block lists each value the function takes with its source, "from the trigger" or a value the owner sets there, so any function whose leftover values can be written is pointable (recommended; routines already keep a runbook's answers this way, and the Run button asks for the same values); or a trigger only ever passes what it gives, and such functions are reached by calls alone.
 
 ## Question 62 - What else belongs in the script's first version?
 
