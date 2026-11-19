@@ -43,8 +43,8 @@ and the sessions are fake sockets at the gateway's own WebSocket handlers (`fake
 (`phoneDriver.ts`), and `consoleSocket.ts` opens a console socket against the Router's TLS listener
 when a test needs one.
 `restartGateway` recomposes over the retained directories. `restartHost`
-reconnects the daemon, and with `newDaemon` as a fresh process. The harness reaches no network:
-`assistantSources` replaces the built-in sources with a scenario's own.
+reconnects the daemon, and with `newDaemon` as a fresh process. The harness reaches no network unless a scenario hands
+`startFederationHarness` a `fetch`, which the Gateway then uses for its outbound requests (an IFTTT post): `assistantSources` replaces the built-in sources with a scenario's own.
 
 `src/testing/fakeKasaPlug.ts` is a Kasa plug on a loopback TCP port speaking the XOR protocol, with a behaviour per request: `hold` applies the command and withholds only the reply, and one `waitForHeldReply` takes one hold; `disconnect`, `error` with an `err_code`, `differentMac`, `changeMacAfter` and `changeRelayStateAfter`. The harness takes a `kasaPort` and builds the transport; the stage tests pass a transport directly.
 
@@ -183,6 +183,18 @@ manifest entry on both sides. The n-th random draw of a case is the first N byte
 `tests/fixtures/protocol/_manifest.json` names each fixture's schema and whether it parses. An
 `expect` of `{ ts, kotlin }` sets each runtime apart: a future-kind fixture of a `preserve` root is
 refused by the TS schema and decodes to `Unknown` on the phone (`docs/fields.md`).
+
+## What an automation's state and walk are pinned by
+
+`tests/fixtures/automation-state/` holds two stored states, `flat-8.14.87` in the shape a flat-only
+build wrote and `functions` in the shape this build writes (frames, `functionVersions`,
+`unusedFunctions`), and `automation-restore.test.ts` restores each with nothing dropped and asserts
+that the second holds every key a flat-only reader needs, unchanged. The older build's own read of it
+is not run in this repository. The walk, the fit rule and the carry's choice
+of functions each have a vector file both runtimes replay: `automation-walk/vectors.json`
+(`AutomationWalkVectorsTest`), `automation-fit/vectors.json` (`FunctionFitVectorsTest`) and
+`automation-carry/vectors.json` (`FunctionCarryTest`), and `automation-walk-residue.test.ts` refuses a
+second reader of an automation's actions.
 
 ## What the phone encodes
 

@@ -24,7 +24,9 @@ Router's record names. That Gateway feeds it events. The session decides what to
   once and a restart never re-applies over an owner's edit.
   - **Named:** with its sources stopped, it places the session record in the sealed folder, resets
     poll state and grants, replaces this Gateway's event automations with the carried ones (none
-    when nothing was carried) in one write, keeps one it cannot run as it is, read invalid, refuses
+    when nothing was carried) in one write beside the functions they run, which land under their own id
+    unless an automation holds it or a staying automation runs it (`docs/fields.md`, Functions),
+    keeps one it cannot run as it is, read invalid, refuses
     the placement before anything is written when the set does not fit under the cap, takes the carried Safety (fresh when
     nothing was carried), sets each source's Enabled from what was carried (off when fresh, on for a
     carried source an older record names without the flag), keeps a carried grant only when this
@@ -86,7 +88,9 @@ Router's record names. That Gateway feeds it events. The session decides what to
       or "Goes above", a Threshold and a Dead zone in the owner's unit, and a Cool-down in minutes.
       A clock is "At a time" (a time picked on a clock, in the phone's zone, and the weekdays) or
       "Every" (a count of minutes, hours or days). Do is a list of actions, each in a card with its
-      remove, and "+ Add action" listing what the Gateway offers: "Tell the assistant" with Now or
+      remove, and "+ Add action" listing what the Gateway offers (where it serves functions, the
+      Runs block, `runsView`, also offers "Run a function" and draws a pointer with its values, who
+      else runs it and what an edit reaches; `docs/fields.md`, Functions): "Tell the assistant" with Now or
       Quietly and a Message; "Switch a plug" with the plug and On, Off or Toggle; "Send to IFTTT"
       with an event name and three values. A Message or an IFTTT value opens on its own page
       when tapped (`HoleTextEditor`): the text with each hole coloured as the Console colours an
@@ -111,7 +115,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
       offer and a text's preview; `AutomationActions.kt` holds an action, drawn from its Gateway's
       row.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
-    its fresh `assistant_state` and its event automations (`carriedOf`), or an older Gateway's rules
+    its fresh `assistant_state`, its event automations and the functions they run (`carriedOf`,
+    `carriedFunctionsOf`), or an older Gateway's rules
     when it refuses `automation_list`; a list it cannot read, or one a current Gateway refuses,
     refuses the move. Until 2026-11-28 the payload also names rules for every source (`rulesOf`:
     each enabled automation that tells now, an unconditioned one as the fallback), which a Gateway
@@ -119,7 +124,7 @@ Router's record names. That Gateway feeds it events. The session decides what to
     generated Kotlin field states whether its null is written, so the payload is sealed with the
     phone's one encoder, and `tests/fixtures/phone-encoded/cases.json` holds the phone's own
     encoding for the Gateway's schemas to parse. The carried fields still take null, which a phone
-    on 8.14.81 sealed. A carried automation or service the destination cannot read is
+    on 8.14.81 sealed. A carried automation, function or service the destination cannot read is
     dropped with a log (`readableSealed`), never the move. An unplaced home
     carries what the record sealed; a placed home that cannot be reached carries nothing, only once
     the owner confirms abandoning it. Remove puts nobody. A conflict adopts the winner, and an unknown outcome is read back. A record never written

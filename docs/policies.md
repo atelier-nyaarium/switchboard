@@ -165,8 +165,8 @@ committed policies, after each policy write (and its grant prune) and on every p
   the held vault copy does not call unusable (with no copy, nothing is known, and it goes on), so a
   request that cannot be taken over costs no vault read on any tick. Any vault read landing elsewhere
   (`onRefreshed` on `use.ready()`) runs the reconcile again, so an entry that became usable is seen;
-  its own read triggers nothing. Then after `use.ready()`, one pass at a
-  time: a request whose key `byKey` answers, with a `usable` entry, is taken over (`takeOver`). A
+  its own read triggers nothing. The pass runs one at a time, after
+  `use.ready()`: a request whose key `byKey` answers, with a `usable` entry, is taken over (`takeOver`). A
   vault read is bounded (each Router call times out at 120 s, two calls at most), so a pass always
   ends. A grant that covers the
   policy resolves answers it at once, from the entry, and the grant is read again as the value
