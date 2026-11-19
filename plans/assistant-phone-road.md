@@ -920,9 +920,12 @@ Put back to the owner, as what the framing settles and opens:
 
 Asked next: whether called automations take declared parameters from the first version of calls or after it (Question 66).
 
-## Question 66 - Do called automations take parameters from the start? (open)
+## Question 66 - Do called automations take parameters from the start?
 
-Asked as: the "called" trigger holds a parameter list from the start and parameters are built with calls (recommended); or calls ship with no arguments first and parameters follow.
+Q: Does the "called" trigger hold a parameter list from the start, with parameters built together with calls, or do calls ship with no arguments first?
+A: From the start. The "only when another automation runs it" trigger holds declared parameters, each a name and a type, and they are built with calls.
+
+> A
 
 ## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
 
