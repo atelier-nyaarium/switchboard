@@ -5,12 +5,15 @@
 # uncaughtException, so an exit means "restart from a clean process". A daemon that exits fast and
 # repeatedly is hard-down (a deterministic startup crash), not transient: after a few rapid failures
 # stop and drop to an interactive shell so the tmux session stays inspectable instead of hot-looping
-# forever. A healthy run (>= HEALTHY_SECS uptime) resets the backoff. HOST_WS_TOKEN is inherited
-# from the environment start-host-daemon.sh exports before launching this. bun is looked up rather
-# than inherited, see scripts/resolve-bun.sh.
+# forever. A healthy run (>= HEALTHY_SECS uptime) resets the backoff. HOST_WS_TOKEN is read from
+# .env below. bun is looked up rather than inherited, see scripts/resolve-bun.sh.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
+
+# Read here, never passed on a command line.
+HOST_WS_TOKEN="$(sed -n 's/^HOST_WS_TOKEN=//p' "$SCRIPT_DIR/.env" 2>/dev/null | head -1)"
+export HOST_WS_TOKEN
 
 . "$SCRIPT_DIR/scripts/resolve-bun.sh"
 

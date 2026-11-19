@@ -22,16 +22,13 @@ if tmux has-session -t "=$TMUX_SESSION" 2>/dev/null; then
 	tmux kill-session -t "=$TMUX_SESSION" 2>/dev/null || true
 fi
 
-# Daemon settings from .env, passed explicitly into the tmux env because a pre-existing tmux server
-# would not inherit this shell's environment.
-HOST_WS_TOKEN="$(sed -n 's/^HOST_WS_TOKEN=//p' "${SCRIPT_DIR}/.env" 2>/dev/null | head -1)"
-
 echo "Starting host daemon..."
 # run-host-daemon.sh is the supervisor: bounded-backoff restarts, then an inspectable shell after
 # repeated fast crashes. It resolves bun ITSELF (~/.bashrc is still sourced for everything else, but
 # a non-interactive shell returns early from the stock one, so bun's PATH export below that guard
-# never runs - see run-host-daemon.sh).
-tmux new-session -d -s "$TMUX_SESSION" "bash -c 'cd ${SCRIPT_DIR} && source ~/.bashrc && export HOST_WS_TOKEN=${HOST_WS_TOKEN} && exec ./run-host-daemon.sh'"
+# never runs - see run-host-daemon.sh). It also reads HOST_WS_TOKEN from .env itself: a value on
+# this command line would show in the process list.
+tmux new-session -d -s "$TMUX_SESSION" "bash -c 'cd ${SCRIPT_DIR} && source ~/.bashrc && exec ./run-host-daemon.sh'"
 
 if tmux has-session -t "=$TMUX_SESSION" 2>/dev/null; then
 	echo "Host daemon running in background."
