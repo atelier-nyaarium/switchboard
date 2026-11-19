@@ -44,25 +44,31 @@ internal class OwnerFacts(private val repo: ChatRepository) {
 	suspend fun importOwnerBackup(blob: String, passphrase: String): OwnerRestoreResult =
 		withContext(Dispatchers.IO) { repo.identity.importOwnerBackup(blob, passphrase) }
 
-	// Merge locally after Router acceptance while preserving cancellation.
+	/** Null once merged. */
 	internal suspend fun <T> submitOwnerFact(
 		signed: T,
 		submit: suspend (T) -> EnrollResult,
 		merge: (T) -> Unit,
-		failLabel: String,
-	): Boolean {
+		act: Act,
+	): String? {
+		val doing = act.doing
 		val result = runCatchingCancellable { submit(signed) }.getOrElse {
-			DebugLog.log("Enroll", "$failLabel: submit threw ${it.javaClass.simpleName}: ${it.message?.take(140)}")
-			EnrollResult(ok = false, error = it.message)
+			DebugLog.log("Enroll", "$doing: submit threw ${it.javaClass.simpleName}: ${it.message?.take(140)}")
+			return thrownSentence(act, it)
 		}
 		if (!result.ok) {
-			DebugLog.log("Enroll", "$failLabel: Router rejected: ${result.error?.take(140) ?: "unknown"}")
-			repo._state.update { it.copy(error = "$failLabel: ${result.error?.take(120) ?: "unknown"}") }
-			return false
+			DebugLog.log("Enroll", "$doing: Router rejected: ${result.error?.take(140) ?: "unknown"}")
+			return reasonSentence(act, result.error?.take(120))
 		}
 		merge(signed)
 		runCatchingCancellable { repo.presence.refreshAfterAction() }
-		return true
+		return null
+	}
+
+	/** True once merged. */
+	private fun noticed(failure: String?): Boolean {
+		failure?.let { line -> repo._state.update { it.withNotice(line) } }
+		return failure == null
 	}
 
 	/** Submits this console's own admission, once. */
@@ -85,29 +91,30 @@ internal class OwnerFacts(private val repo: ChatRepository) {
 		return StepResult.Done
 	}
 
-	suspend fun admitGateway(gatewayId: String, signPub: String, boxPub: String): SignedAdmission? =
+	suspend fun admitGateway(gatewayId: String, signPub: String, boxPub: String): Result<SignedAdmission> =
 		withContext(Dispatchers.IO) {
 			val signed = repo.federation.admitGateway(gatewayId, signPub, boxPub, System.currentTimeMillis())
-			if (!submitOwnerFact(signed, { repo.client().enroll(EnrollOp.SubmitAdmission(it)) }, repo.identity::mergeAdmission, "Admit failed")) {
-				return@withContext null
-			}
-			signed
+			submitOwnerFact(signed, { repo.client().enroll(EnrollOp.SubmitAdmission(it)) }, repo.identity::mergeAdmission, Act.ADDING_GATEWAY)
+				?.let { line -> Result.failure(IllegalStateException(line)) }
+				?: Result.success(signed)
 		}
 
 	suspend fun revokeMember(signPub: String) = withContext(Dispatchers.IO) {
 		val signed = repo.federation.revoke(signPub, System.currentTimeMillis())
-		submitOwnerFact(signed, { repo.client().enroll(EnrollOp.SubmitRevocation(it)) }, repo.identity::mergeRevocation, "Revoke failed")
+		noticed(submitOwnerFact(signed, { repo.client().enroll(EnrollOp.SubmitRevocation(it)) }, repo.identity::mergeRevocation, Act.REVOKING))
 	}
 
+	/** The pairing page shows refusals. */
 	suspend fun submitXdomainLink(srcDomainId: String, dstDomainId: String, edgeNonce: String? = null): Boolean =
 		withContext(Dispatchers.IO) {
 			val signed = repo.federation.signXdomainLinkEdge(srcDomainId, dstDomainId, System.currentTimeMillis(), edgeNonce)
-			submitOwnerFact(signed, { repo.client().enroll(EnrollOp.SubmitXdomainLink(it)) }, {}, "Link failed")
+			submitOwnerFact(signed, { repo.client().enroll(EnrollOp.SubmitXdomainLink(it)) }, {}, Act.LINKING) == null
 		}
 
+	/** The untrust flow shows refusals. */
 	suspend fun revokeXdomainLink(srcDomainId: String, dstDomainId: String): Boolean = withContext(Dispatchers.IO) {
 		val signed = repo.federation.signXdomainLinkRevocation(srcDomainId, dstDomainId, System.currentTimeMillis())
-		submitOwnerFact(signed, { repo.client().enroll(EnrollOp.RevokeXdomainLink(it)) }, {}, "Unlink failed")
+		submitOwnerFact(signed, { repo.client().enroll(EnrollOp.RevokeXdomainLink(it)) }, {}, Act.UNLINKING) == null
 	}
 
 	fun admittedMembers(): List<MemberInfo> = repo.federation.members()

@@ -47,7 +47,6 @@ class DeviceApprovalOpsTest {
 			domainId: String?,
 		) = true
 		override fun invalidateClients() = Unit
-		override suspend fun submitOwnerAdmission(signed: SignedAdmission) = true
-		override fun reportError() = null
+		override suspend fun submitOwnerAdmission(signed: SignedAdmission): String? = null
 	}
 }

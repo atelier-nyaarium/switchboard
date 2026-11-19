@@ -346,6 +346,7 @@ internal fun RouterEndpointCard(repo: ChatRepository) {
 	var port by remember { mutableStateOf((stored?.port ?: DEFAULT_ROUTER_PORT).toString()) }
 	var certFp by remember { mutableStateOf(stored?.certFp ?: "") }
 	var busy by remember { mutableStateOf(false) }
+	var refused by remember { mutableStateOf<String?>(null) }
 
 	Text("Federation Router", style = MaterialTheme.typography.titleSmall)
 	Text(
@@ -392,12 +393,13 @@ internal fun RouterEndpointCard(repo: ChatRepository) {
 		onClick = hapticClick {
 			busy = true
 			scope.launch {
-				repo.setEndpoint(host, port.toIntOrNull() ?: DEFAULT_ROUTER_PORT, certFp)
+				refused = repo.setEndpoint(host, port.toIntOrNull() ?: DEFAULT_ROUTER_PORT, certFp)
 				busy = false
 			}
 		},
 		modifier = Modifier.fillMaxWidth(),
 	) { Text(if (busy) "Saving..." else "Change Federation Router") }
+	refused?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 	HorizontalDivider()
 }
 

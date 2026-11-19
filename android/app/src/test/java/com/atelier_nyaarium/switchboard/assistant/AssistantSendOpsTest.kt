@@ -42,7 +42,7 @@ class AssistantSendOpsTest {
 		val pending = ops.request("gateway-a", request.requestId)!!
 
 		assertEquals(AssistantSendAnswer.Refused("send disabled"), ops.answer(pending, "approve"))
-		assertEquals("Assistant: send disabled", state.value.error)
+		assertTrue(state.value.notices.single().text.contains("send disabled"))
 		assertTrue(ops.pending.value.isEmpty())
 	}
 

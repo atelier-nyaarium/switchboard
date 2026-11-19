@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.crypto.opResultAadKind
 import com.atelier_nyaarium.switchboard.crypto.scheduledBodyAadKind
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
+import com.atelier_nyaarium.switchboard.proto.OpResultEnvelope
 import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.ReadAnchorsResult
@@ -93,6 +94,19 @@ private suspend fun ChatRepository.dispatchKeyRows(rows: List<com.atelier_nyaari
 	}
 }
 
+/** The Router's own result row, in the answer shape a waiter reads. */
+internal fun clearOpAnswer(body: JsonElement): JsonElement? {
+	val envelope = runIsolated { wireJson.decodeFromJsonElement(OpResultEnvelope.serializer(), body) }.getOrNull() ?: return null
+	val ok = envelope.outcome == Protocol.Wire.OP_OUTCOME_ACCEPTED
+	val answer = OwnerOpAnswer(
+		ok = ok,
+		result = envelope.result,
+		error = if (ok) null else envelope.reason ?: envelope.outcome,
+		outcome = envelope.outcome,
+	)
+	return wireJson.encodeToJsonElement(OwnerOpAnswer.serializer(), answer)
+}
+
 private fun unavailableEntry(row: com.atelier_nyaarium.switchboard.proto.InboxRow): MailboxEntry =
 	MailboxEntry(
 		seq = row.seq,
@@ -133,7 +147,7 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 			continue
 		}
 		if (row.envelope.kind == Protocol.Wire.OWNER_OP_OP_RESULT) {
-			val result = runIsolated {
+			val result = if (epochText == "clear") clearOpAnswer(row.body) else runIsolated {
 				val body = wireJson.decodeFromJsonElement(
 					ContentEnvelope.serializer(),
 					row.body,

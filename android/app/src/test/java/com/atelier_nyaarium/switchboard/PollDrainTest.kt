@@ -24,6 +24,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonElement
@@ -440,7 +441,28 @@ class PollDrainTest {
 
 		// Setup owed in pass one, a poll that threw in two, a clean pass in three.
 		assertEquals(listOf(true, true, false), synchronized(host.pacedAsFailed) { host.pacedAsFailed.take(3) })
-		assertTrue(host.state.value.error!!.contains("poll failed"))
+	}
+
+	@Test
+	fun aFailedPassRaisesOneNoticeAndACleanPassClearsIt() = runBlocking {
+		val host = FakeHost(emptyMap()).apply {
+			linkNow = ConsoleLink.POLL
+			planned = ConsoleTransportPlan(PollWait.Delay(5L))
+			polled = TickOutcome(0, 0, false, emptyMap())
+			pollThrows += listOf(IllegalStateException("poll failed"), IllegalStateException("poll failed"))
+		}
+		val drain = PollDrain(host, IdlePresencePort)
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
+		try {
+			drain.start(scope)
+			val raised = withTimeout(5_000L) { host.state.first { it.notices.isNotEmpty() } }
+			assertTrue(raised.notices.single().text.contains("poll failed"))
+			withTimeout(5_000L) { host.state.first { it.notices.isEmpty() } }
+			Unit
+		} finally {
+			drain.stopAndJoin()
+			scope.cancel()
+		}
 	}
 
 	@Test

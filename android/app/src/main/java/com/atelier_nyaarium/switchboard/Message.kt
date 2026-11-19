@@ -44,6 +44,7 @@ data class Message(
 	val record: ActionRecord? = null,
 	/** Visible, silent, and unalerted. */
 	val quiet: Boolean = false,
+	val failReason: String? = null,
 )
 
 /** Per-item outcomes; summary stays in Message.text. */

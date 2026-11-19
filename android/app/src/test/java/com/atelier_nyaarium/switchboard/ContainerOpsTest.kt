@@ -123,8 +123,23 @@ class ContainerOpsTest {
 
 		ContainerOps(host).stop(target)
 
-		assertEquals(listOf("container_stop failed: no daemon"), host.state.value.transientMessages)
+		assertEquals(1, host.state.value.notices.size)
 		assertTrue(host.state.value.containerOpsInFlight.isEmpty())
+	}
+
+	@Test
+	fun aLaterStartClearsTheRefusal() {
+		val gateway = FakeGateway().apply {
+			answer.complete(Unit)
+			refusal = "container_stop failed: no daemon"
+		}
+		val host = FakeHost(gateway)
+		ContainerOps(host).stop(target)
+
+		gateway.refusal = null
+		ContainerOps(host).start(target)
+
+		assertTrue(host.state.value.notices.isEmpty())
 	}
 
 	@Test
@@ -133,7 +148,7 @@ class ContainerOpsTest {
 
 		ContainerOps(host).start(target)
 
-		assertEquals(1, host.state.value.transientMessages.size)
+		assertEquals(1, host.state.value.notices.size)
 		assertTrue(host.state.value.containerOpsInFlight.isEmpty())
 	}
 }

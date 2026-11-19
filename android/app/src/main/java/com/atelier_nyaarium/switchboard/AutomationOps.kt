@@ -110,7 +110,7 @@ internal class AutomationOps(
 		clears = { said -> said is AutomationSaid.Confirm },
 	)
 
-	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
+	private fun tell(message: String) = state.update { it.withNotice(message) }
 
 	/** What is stored moves with the home, never what is typed. */
 	fun editsEvent(key: AutomationDraftKey): Boolean {

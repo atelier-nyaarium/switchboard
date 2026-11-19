@@ -26,6 +26,29 @@ data class ScheduledSend(
 	val draftTaken: Boolean = false,
 )
 
+/** What a scheduled send's dock says; `acts` gates its edit and its X. */
+internal data class ScheduledDockText(val headline: String, val detail: String, val acts: Boolean)
+
+internal fun scheduledDockText(rec: ScheduledSend, now: Long, zone: java.time.ZoneId): ScheduledDockText = when {
+	rec.cancelRequested -> ScheduledDockText("Cancelling", "Waiting for the Router", acts = false)
+	scheduledSending(rec, now) -> ScheduledDockText("Sending", "Waiting for the Router to confirm", acts = false)
+	rec.routerVersion == null -> ScheduledDockText("Waiting for the Router", "Edit or cancel anytime", acts = true)
+	else -> ScheduledDockText("Sending at ${absoluteTimeText(rec.fireAtMillis, zone)}", countdownText(rec.fireAtMillis - now), acts = true)
+}
+
+/** Why the schedule dialog cannot take this pick, or null. */
+internal fun scheduleBlocker(pickedMillis: Long?, now: Long, fileCount: Int): String? = when {
+	fileCount > com.atelier_nyaarium.switchboard.proto.Protocol.CHANNEL_FILES_MAX ->
+		scheduleFilesLine(com.atelier_nyaarium.switchboard.proto.Protocol.CHANNEL_FILES_MAX)
+	pickedMillis == null || pickedMillis <= now + 60_000 -> Line.PICK_LATER.text
+	pickedMillis - now > ChatRepository.SCHEDULED_SEND_MAX_HORIZON_MS -> Line.PICK_SOONER.text
+	else -> null
+}
+
+/** A minute, or sooner when the fire time comes first. */
+internal fun nextDockTick(rec: ScheduledSend, now: Long): Long =
+	(rec.fireAtMillis - now).takeIf { it > 0 }?.coerceAtMost(60_000L) ?: 60_000L
+
 /** A data-plane consumer of new inbound messages, invoked once per message at the drain gate. */
 fun interface InboundSubscriber {
 	fun onMessage(team: String, msg: Message)

@@ -1,6 +1,9 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.Act
 import com.atelier_nyaarium.switchboard.ClearsOnReprovision
+import com.atelier_nyaarium.switchboard.reasonSentence
+import com.atelier_nyaarium.switchboard.withNotice
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConsoleClient
 import com.atelier_nyaarium.switchboard.DebugLog
@@ -162,7 +165,7 @@ internal class AssistantSendOps(
 		if (!answerDeliverySettled(answer)) return AssistantSendAnswer.Unreachable
 		manager.settleRequest(pending.gatewayId, pending.request.requestId)
 		if (answer is ConsoleClient.ValueAnswer.Refused) {
-			state.update { it.copy(error = "Assistant: ${answer.reason}") }
+			state.update { it.withNotice(reasonSentence(Act.ASSISTANT_SEND, answer.reason)) }
 			return AssistantSendAnswer.Refused(answer.reason)
 		}
 		if (answer !is ConsoleClient.ValueAnswer.Answered) return AssistantSendAnswer.Unreachable
@@ -171,7 +174,7 @@ internal class AssistantSendOps(
 		}.getOrNull() ?: return AssistantSendAnswer.Unreachable
 		if (result.ok) return AssistantSendAnswer.Answered
 		val reason = result.reason ?: "The answer was refused"
-		state.update { it.copy(error = "Assistant: $reason") }
+		state.update { it.withNotice(reasonSentence(Act.ASSISTANT_SEND, reason)) }
 		return AssistantSendAnswer.Refused(reason)
 	}
 }

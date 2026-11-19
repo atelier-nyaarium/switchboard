@@ -82,7 +82,10 @@ internal fun ThreadScreen(
 	// state.openTabs wholesale via ChatRepository.reorderTabs.
 	onReorderTabs: (List<String>) -> Unit,
 	messages: List<Message>,
-	error: String?,
+	banner: String?,
+	notices: List<NoticeLine>,
+	onDismissNotice: (Long) -> Unit,
+	onClearNotices: () -> Unit,
 	rendererPool: ThreadRendererPool,
 	canRename: Boolean,
 	// Bumped by the caller on every genuine open gesture (see MainActivity's own doc on the
@@ -165,11 +168,7 @@ internal fun ThreadScreen(
 	// Null: no dialog. Non-null: the seed instant it opens the picker at - a fresh Schedule Send
 	// seeds 5 minutes out, a dock edit seeds the record's own current fire time. Two distinct
 	// booleans would let a stray recomposition show the dialog with a stale seed from the other path.
-	// rememberSaveable: no android:configChanges is declared anywhere in this app, so a rotation,
-	// theme, or font-scale change destroys and recreates the Activity - a plain remember here
-	// silently closed an in-progress Schedule Send dialog on that recreation (the seed is just a
-	// Long, trivially saveable, and the dialog's own dateState/timeState already survive via their
-	// own internal Saver - only this flag was the gap).
+	// Saveable: a config change recreates the Activity.
 	var scheduleDialogSeed by rememberSaveable { mutableStateOf<Long?>(null) }
 	// Disables the Schedule button once tapped until the async call resolves - otherwise a double
 	// tap (or a bounced/ghost touch, a documented real touchscreen artifact) can launch two
@@ -253,6 +252,7 @@ internal fun ThreadScreen(
 		ScheduleSendDialog(
 			initialAtMillis = seed,
 			submitting = scheduleSubmitting,
+			fileCount = scheduled.record?.fileRefs?.size ?: composer.draft.files.size,
 			onConfirm = { at ->
 				// Snapshot now: the async call below must bank exactly what was on screen at the
 				// moment of the tap, not whatever the draft happens to hold once it resolves.
@@ -264,28 +264,10 @@ internal fun ThreadScreen(
 				scheduleScope.launch {
 					var ok = false
 					try {
-						// The picker's own isFarEnoughOut gate is evaluated once per recomposition and
-						// never re-checked against a live clock while the user idles on the dialog - the
-						// repo-side call below is the authoritative, freshly-evaluated check, and it can
-						// fail (a stale pick, or - unlikely but real - a device clock jump). Only clear the
-						// composer once that call reports genuine success, never optimistically on tap:
-						// clearing first and finding out later would destroy the user's message on any
-						// failure, with no way to recover it.
+						// Clear the composer only on success; the repo check is authoritative.
 						ok = if (editingExisting) scheduled.onReschedule(at) else scheduled.onSchedule(text, files, at)
 					} finally {
-						// try/finally, not a bare sequential call: makes the re-enable explicit rather than
-						// incidental on today's callees happening not to throw (both already runCatching
-						// their own IO internally) - a future edit that lets either genuinely throw must
-						// not leave the Schedule button stuck disabled forever.
-						//
-						// This continuation can outlive the dialog (scheduleSubmitting/scheduleScope are
-						// ThreadScreen-scoped, not dialog-scoped): if the user dismissed while this was in
-						// flight and reopened a NEW session before it resolved, scheduleDialogGeneration
-						// has since moved on - committing this stale attempt's side effects would close
-						// the freshly-reopened dialog and, on success, wipe whatever the second attempt
-						// had already typed. A bare dismiss with no reopen does not bump the generation,
-						// so a late success still clears the composer in that (milder, non-destructive)
-						// case.
+						// Re-enable on throw; skip if the dialog reopened.
 						if (scheduleDialogGeneration == myGeneration) {
 							scheduleSubmitting = false
 							scheduleDialogSeed = null
@@ -555,7 +537,8 @@ internal fun ThreadScreen(
 				)
 			}
 			goal.record?.let { rec -> GoalDock(rec = rec, onCancel = goal.onCancel) }
-			if (error != null) Text(error, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error)
+			NoticeStack(notices, onDismissNotice, onClearNotices)
+			if (banner != null) Text(banner, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error)
 			// Hidden entirely while something is scheduled - the dock above is the sole surface then;
 			// letting the text field survive alongside it would let the user keep typing into a
 			// message that no longer has anywhere to go until the dock is cancelled or fires.

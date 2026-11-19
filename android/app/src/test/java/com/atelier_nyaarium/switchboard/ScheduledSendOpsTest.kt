@@ -102,7 +102,7 @@ class ScheduledSendOpsTest {
 		ops.drainPending()
 		assertTrue(state.value.scheduledSends.isEmpty())
 		assertEquals("text", fake.drafts.single().first)
-		assertTrue(state.value.error!!.contains("spawn point"))
+		assertEquals(team, state.value.notices.single().team)
 	}
 
 	@Test
@@ -156,20 +156,85 @@ class ScheduledSendOpsTest {
 	}
 
 	@Test
-	fun aCancelTheRouterCallsSettledLeavesTheRecordWaitingForItsSentResult() = runBlocking {
+	fun aCancelOverAFinishedSendSaysHowItFinishedKeyedToTheSend() = runBlocking {
+		for ((settled, said) in listOf(null to Line.ALREADY_SENT, "fired" to Line.ALREADY_SENT, "cancelled" to Line.ALREADY_CANCELLED, "error" to Line.ALREADY_FAILED)) {
+			val (state, fake, ops) = world(record(routerVersion = 4))
+			fake.answers = {
+				buildJsonObject {
+					put("outcome", Protocol.Wire.SocketFrame.REFUSED)
+					put("reason", "settled")
+					settled?.let { put("state", it) }
+				}
+			}
+			ops.cancelNow(team, edit = false)
+			assertTrue(state.value.scheduledSends.isEmpty())
+			assertEquals(said.text, state.value.notices.single().text)
+			assertEquals(scheduledNoticeKey(team), state.value.notices.single().key)
+		}
+	}
+
+	@Test
+	fun aCancelAtTheMomentOfFiringKeepsTheSendWaitingForItsResult() = runBlocking {
 		val (state, fake, ops) = world(record(routerVersion = 4))
-		fake.answers = { buildJsonObject { put("outcome", Protocol.Wire.SocketFrame.REFUSED); put("reason", "settled") } }
+		fake.answers = { buildJsonObject { put("outcome", "conflict") } }
 		ops.cancelNow(team, edit = false)
-		val held = state.value.scheduledSends.getValue(team)
-		assertEquals(4L, held.routerVersion)
-		assertTrue(!held.cancelRequested)
+		assertTrue(!state.value.scheduledSends.getValue(team).cancelRequested)
+		assertEquals(Line.SENDING_NOW.text, state.value.notices.single().text)
+	}
+
+	@Test
+	fun aRescheduleOverAFiredSendSaysAlreadySentAndLetsTheSentResultEchoIt() = runBlocking {
+		val (state, fake, ops) = world(record().copy(replacesVersion = 4))
+		fake.answers = { buildJsonObject { put("outcome", "refused"); put("reason", "settled"); put("state", "fired") } }
+		ops.drainPending()
+		assertTrue(state.value.scheduledSends.isEmpty())
+		assertTrue(fake.drafts.isEmpty())
+		assertEquals(Line.ALREADY_SENT.text, state.value.notices.single().text)
+	}
+
+	@Test
+	fun aCancelThatCannotReachTheRouterIsToldAndALaterAnswerClearsIt() = runBlocking {
+		val (state, fake, ops) = world(record(routerVersion = 4))
+		fake.answers = { throw java.io.IOException("down") }
+		ops.cancelNow(team, edit = false)
+		assertTrue(state.value.scheduledSends.getValue(team).cancelRequested)
+		assertEquals(scheduledNoticeKey(team), state.value.notices.single().key)
+
+		fake.answers = { buildJsonObject { put("outcome", "accepted") } }
+		ops.drainPending()
+		assertTrue(state.value.scheduledSends.isEmpty())
+		assertTrue(state.value.notices.isEmpty())
+	}
+
+	@Test
+	fun moreFilesThanASendCarriesAreRefusedBeforeTheyPost() = runBlocking {
+		val (state, fake, ops) = world()
+		val files = (0..Protocol.CHANNEL_FILES_MAX).map { MessageFile("f$it.png", "image/png", src = "/tmp/f$it.png") }
+		val now = System.currentTimeMillis()
+
+		assertTrue(!ops.scheduleSend(team, "text", files, now + 90_000))
+		assertTrue(fake.posted.isEmpty())
+		assertEquals(team, state.value.notices.single().team)
+		assertEquals(scheduleFilesLine(Protocol.CHANNEL_FILES_MAX), scheduleBlocker(now + 90_000, now, files.size))
+		assertEquals(null, scheduleBlocker(now + 90_000, now, Protocol.CHANNEL_FILES_MAX))
+		assertEquals(Line.PICK_LATER.text, scheduleBlocker(now + 30_000, now, 0))
+	}
+
+	@Test
+	fun aDockPastItsTimeReadsAsSendingAndOffersNoEdit() {
+		val rec = record(routerVersion = 4)
+		val zone = java.time.ZoneOffset.UTC
+		assertTrue(scheduledDockText(rec, rec.fireAtMillis - 1, zone).acts)
+		val past = scheduledDockText(rec, rec.fireAtMillis, zone)
+		assertEquals("Sending", past.headline)
+		assertTrue(!past.acts)
 	}
 
 	@Test
 	fun aSentResultEchoesTheMessageAndClearsTheRecord() = runBlocking {
 		val file = MessageFile("a.png", "image/png", src = "/tmp/a.png", blobId = "sha256-a")
 		val (state, fake, ops) = world(record(routerVersion = 4, files = listOf(file)))
-		ops.applyRouterResult(ScheduledResultRow("op", "sent", 9, envelope), ReadAnchor(1, 1, 1))
+		ops.applyRouterResult(ScheduledResultRow("op", "sent", 9, body = envelope), ReadAnchor(1, 1, 1))
 		val echo = fake.appended.single()
 		assertEquals("op", echo.opId)
 		assertEquals(listOf(file), echo.files)
@@ -178,15 +243,44 @@ class ScheduledSendOpsTest {
 	}
 
 	@Test
-	fun aFailedResultClearsTheRecordAndReportsIt() = runBlocking {
-		val (state, _, ops) = world(record(routerVersion = 4))
+	fun aFailedResultForAHeldSendHandsItsTextBackAndSaysSo() = runBlocking {
+		val (state, fake, ops) = world(record(routerVersion = 4))
 		val failed = mutableListOf<String>()
 		val position = ReadAnchor(3, 8, 900)
 		ops.onScheduledSendFailed = { _, opId -> failed += opId }
-		ops.applyRouterResult(ScheduledResultRow("op", "failed", null, envelope), position)
+		ops.applyRouterResult(ScheduledResultRow("op", "failed", null, "target_mismatch", envelope), position)
 		assertEquals(listOf("op"), failed)
 		assertTrue(state.value.scheduledSends.isEmpty())
+		assertEquals("text", fake.drafts.single().first)
+		assertEquals(team, state.value.notices.single().team)
 		assertEquals(position, ops.takeFailurePosition("op"))
+	}
+
+	@Test
+	fun aFailedResultForAnEchoedSendMarksTheMessageWithItsReason() = runBlocking {
+		val echo = Message(true, "text", 1, opId = "op")
+		val (state, fake, ops) = world(threads = mapOf(team to listOf(echo)))
+		ops.applyRouterResult(ScheduledResultRow("op", "failed", null, "target_mismatch", envelope), ReadAnchor(3, 8, 900))
+		val row = state.value.threads.getValue(team).single()
+		assertEquals("error", row.status)
+		assertEquals(reasonSentence(Act.SENDING_SCHEDULED, "target_mismatch"), row.failReason)
+		assertTrue(row.opId != "op")
+		assertTrue(fake.drafts.isEmpty())
+		assertTrue(state.value.notices.isEmpty())
+	}
+
+	@Test
+	fun theSameFailedResultTwiceMarksOnce() = runBlocking {
+		val echo = Message(true, "text", 1, opId = "op")
+		val (state, _, ops) = world(threads = mapOf(team to listOf(echo)))
+		val failed = mutableListOf<String>()
+		ops.onScheduledSendFailed = { _, opId -> failed += opId }
+		val row = ScheduledResultRow("op", "failed", null, "delivery_failed", envelope)
+		ops.applyRouterResult(row, ReadAnchor(3, 8, 900))
+		val marked = state.value.threads.getValue(team).single()
+		ops.applyRouterResult(row, ReadAnchor(3, 8, 900))
+		assertEquals(marked, state.value.threads.getValue(team).single())
+		assertEquals(listOf("op"), failed)
 	}
 
 	@Test
@@ -234,7 +328,7 @@ class ScheduledSendOpsTest {
 		ops.drainPending()
 		assertEquals("old", state.value.scheduledSends.getValue(team).opId)
 		assertEquals("text", fake.drafts.single().first)
-		assertTrue(state.value.error!!.contains("another send is already scheduled"))
+		assertEquals(team, state.value.notices.single().team)
 	}
 
 	@Test
@@ -250,7 +344,7 @@ class ScheduledSendOpsTest {
 		ops.drainPending()
 		assertTrue(state.value.scheduledSends.isEmpty())
 		assertEquals("text", fake.drafts.single().first)
-		assertTrue(state.value.error!!.contains("conflict"))
+		assertEquals(team, state.value.notices.single().team)
 	}
 
 	@Test
@@ -269,7 +363,7 @@ class ScheduledSendOpsTest {
 		ops.drainPending()
 		assertTrue(state.value.scheduledSends.isEmpty())
 		assertEquals("text", fake.drafts.single().first)
-		assertTrue(state.value.error!!.contains("cancelled"))
+		assertEquals(team, state.value.notices.single().team)
 	}
 
 	@Test
@@ -309,7 +403,7 @@ class ScheduledSendOpsTest {
 			if (kind == Protocol.Wire.OWNER_OP_SCHEDULE_LIST) JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), wire))) else null
 		}
 		fake.plaintext = """{"text":"later","messageId":"op9","files":[{"name":"a.png","mime":"image/png"}]}""".toByteArray()
-		ops.applyRouterResult(ScheduledResultRow("op9", "pending", null, envelope), ReadAnchor(1, 1, 1))
+		ops.applyRouterResult(ScheduledResultRow("op9", "pending", null, body = envelope), ReadAnchor(1, 1, 1))
 		val mirrored = state.value.scheduledSends.getValue(team)
 		assertEquals("later", mirrored.text)
 		assertEquals(11L, mirrored.routerVersion)
@@ -326,7 +420,7 @@ class ScheduledSendOpsTest {
 			if (kind == Protocol.Wire.OWNER_OP_SCHEDULE_LIST) JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), wire))) else null
 		}
 		fake.plaintext = """{"text":"later","messageId":"op9","files":[{"name":"a.png","mime":"image/png"}]}""".toByteArray()
-		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, envelope), ReadAnchor(1, 1, 1))
+		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, body = envelope), ReadAnchor(1, 1, 1))
 		assertEquals(listOf(team), fake.appendedTeams)
 		assertEquals("op9", fake.appended.single().opId)
 		assertEquals("sha256-a", fake.appended.single().files.single().blobId)
@@ -340,7 +434,7 @@ class ScheduledSendOpsTest {
 		fake.answers = { kind ->
 			if (kind == Protocol.Wire.OWNER_OP_SCHEDULE_LIST) JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), wire))) else null
 		}
-		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, envelope), ReadAnchor(1, 1, 1))
+		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, body = envelope), ReadAnchor(1, 1, 1))
 		assertTrue(fake.appended.isEmpty())
 	}
 }

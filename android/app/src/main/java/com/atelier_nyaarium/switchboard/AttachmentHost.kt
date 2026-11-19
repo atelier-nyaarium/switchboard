@@ -15,7 +15,7 @@ internal interface AttachmentHost {
 internal fun AttachmentHost.clientOrReject(files: List<OutgoingFile>): ConsoleClient? {
 	client?.let { return it }
 	cleanup(files)
-	report("Connect before adding attachments")
+	report(Line.CONNECT_FIRST.text)
 	return null
 }
 
@@ -23,5 +23,5 @@ internal class ChatRepositoryAttachmentHost(private val repo: ChatRepository) : 
 	override val client: ConsoleClient? get() = repo.clientOrNull()
 	override fun admit(uri: Uri, destination: File): Admission = OutgoingFiles.admit(repo.contentResolver, uri, destination)
 	override fun cleanup(files: List<OutgoingFile>) = files.forEach { it.source.delete() }
-	override fun report(message: String) { repo._state.update { it.copy(error = message) } }
+	override fun report(message: String) { repo._state.update { it.withNotice(message) } }
 }

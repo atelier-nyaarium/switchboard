@@ -52,7 +52,7 @@ internal class CursorTranslationOps(
 		val translation = runIsolated { answer.jsonObject["translation"]?.jsonObject }.getOrNull()
 		val kind = translation?.get("kind")?.jsonPrimitive?.content
 		if (kind != "translated") {
-			if (kind == "unmapped") reportError("Cursor translation is unavailable for epoch $fromEpoch")
+			if (kind == "unmapped") reportError(cursorLine(fromEpoch))
 			return
 		}
 		val toEpoch = translation["cursor"]?.jsonObject?.get("epoch")?.jsonPrimitive?.longOrNull ?: return

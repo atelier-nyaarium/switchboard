@@ -23,8 +23,8 @@ internal interface DeviceApprovalOpsCollaborators {
 		domainId: String?,
 	): Boolean
 	fun invalidateClients()
-	suspend fun submitOwnerAdmission(signed: SignedAdmission): Boolean
-	fun reportError(): String?
+	/** Null on success; else the reason. */
+	suspend fun submitOwnerAdmission(signed: SignedAdmission): String?
 }
 
 /** The unsealed join bundle, refused unless its version is the one this build reads. */
@@ -109,9 +109,7 @@ internal class DeviceApprovalOps(
 			val plain = wireJson.encodeToString(ConsoleTransport.serializer(), transport).toByteArray(Charsets.UTF_8)
 			val sealed = identity.federation.sealConsoleTransport(join.newBoxPub, plain)
 			val signed = identity.federation.admitConsole(join.newSignPub, join.newBoxPub, System.currentTimeMillis())
-			if (!collaborators.submitOwnerAdmission(signed)) {
-				error(collaborators.reportError() ?: "The server rejected the new device.")
-			}
+			collaborators.submitOwnerAdmission(signed)?.let { error(it) }
 			val result = client.client().postConsoleApproval(ConsoleApprovalOp.Approve(approvalId = approvalId, sealed = sealed))
 			if (!result.ok) error(result.error ?: "Couldn't deliver the sealed transport.")
 			Unit
@@ -204,7 +202,7 @@ internal class DeviceApprovalOps(
 		val contentMerge = classifyContentKeys(transport)
 		val contentKeys = when (contentMerge) {
 			is ContentKeyring.Merge.Refused -> {
-				state.update { it.copy(error = "content key installation refused", provisioned = false) }
+				state.update { it.withNotice(Line.KEYS_REFUSED.text).copy(provisioned = false) }
 				error("content key installation refused")
 			}
 			ContentKeyring.Merge.Unchanged -> heldContentKeys()
@@ -230,7 +228,7 @@ internal class DeviceApprovalOps(
 				"keyring=${if (transport.domain != null) "adopted" else "absent"}",
 		)
 		val parsed = ConsoleCredentials.parse(blob, store)
-		state.update { it.copy(provisioned = true, error = null, deviceName = parsed.device, firstRooted = true) }
+		state.update { it.copy(provisioned = true, deviceName = parsed.device, firstRooted = true) }
 	}
 
 	private fun classifyContentKeys(transport: ConsoleTransport): ContentKeyring.Merge {

@@ -88,7 +88,7 @@ internal suspend fun ChatRepository.cutPlan(team: String, mode: CutMode, row: Cu
 internal suspend fun ChatRepository.startCut(team: String, mode: CutMode, row: CutRow): Boolean {
 	val line = runCatchingCancellable { clientOrNull()?.sessionCutStart(team, mode.wire, row) }
 		.fold(::cutStartLine) { "Cannot compact. ${it.message ?: "The Gateway refused."}" }
-	line?.let { refused -> _state.update { it.copy(error = refused) } }
+	line?.let { refused -> _state.update { it.withNotice(refused, team = team) } }
 	return line == null
 }
 

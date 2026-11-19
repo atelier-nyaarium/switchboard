@@ -90,8 +90,7 @@ fun DomainConnectingScreen(onSettings: () -> Unit) {
 @Composable
 fun ProvisionScreen(
 	repo: ChatRepository,
-	state: ChatState,
-	onProvision: (String) -> Unit,
+	onProvision: (String, (String) -> Unit) -> Unit,
 	onSettings: () -> Unit,
 	// Federation health is reachable before any provisioning blob.
 	onFederation: () -> Unit = onSettings,
@@ -101,8 +100,6 @@ fun ProvisionScreen(
 	var scanning by remember { mutableStateOf(false) }
 	var showHostHelp by remember { mutableStateOf(false) }
 	var addDevice by remember { mutableStateOf(false) }
-	// Preserve strict parse errors instead of leaving the screen in a spinner.
-	var provisionAttempted by remember { mutableStateOf(false) }
 	// Ensure the owner key exists before first-root without crashing startup.
 	LaunchedEffect(Unit) { repo.ownerFacts.ownerKeysForDisplay() }
 
@@ -110,10 +107,8 @@ fun ProvisionScreen(
 		val s = text?.trim().orEmpty()
 		if (looksProvisionable(s)) {
 			status = "Connecting..."
-			provisionAttempted = true
-			onProvision(s)
+			onProvision(s) { refused -> status = refused }
 		} else {
-			provisionAttempted = false
 			status = "No setup code in that $source. Check it, or ask whoever sent it."
 		}
 	}
@@ -180,16 +175,9 @@ fun ProvisionScreen(
 					modifier = Modifier.weight(1f),
 				) { Text("Open file") }
 			}
-			val parseError = state.error?.takeIf { provisionAttempted && it.isNotBlank() }
-			val shown = parseError ?: status
-			if (shown.isNotEmpty()) {
-				val color =
-					if (parseError == null && status.startsWith("Connecting")) {
-						MaterialTheme.colorScheme.primary
-					} else {
-						MaterialTheme.colorScheme.error
-					}
-				Text(shown, color = color)
+			if (status.isNotEmpty()) {
+				val color = if (status.startsWith("Connecting")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+				Text(status, color = color)
 			}
 			Spacer(Modifier.height(8.dp))
 			HorizontalDivider()

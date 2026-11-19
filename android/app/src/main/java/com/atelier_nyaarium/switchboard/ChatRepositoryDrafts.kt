@@ -38,7 +38,7 @@ suspend fun ChatRepository.addDraftFiles(team: String, uris: List<Uri>) = withCo
 	// same admission bound applies here too.
 	val (picked, refused) = admitPicked(uris, "pick-${UUID.randomUUID()}")
 	if (refused != null) {
-		_state.update { it.copy(error = refused.message()) }
+		_state.update { it.withNotice(refused.message(), team = team) }
 		return@withContext
 	}
 	if (picked.isEmpty()) return@withContext

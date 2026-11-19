@@ -11,7 +11,7 @@
 //   thread.revealFirstUnread(idOrNull, regionIds)   re-snap/hold an already-rendered transcript
 //   thread.revealMessage(id)                        scroll to one row, no unread divider
 //   thread.flushReadUpTo()                          flush any pending debounced read receipt now
-// Message shape: {id, role: "user"|"agent", from, at, body, status?, counts?, ownSend?,
+// Message shape: {id, role: "user"|"agent", from, at, body, status?, reason?, counts?, ownSend?,
 //   arrivedVisible?, record?, through?, files?: [{name, mime, src?, size?, modifiedAt?, previewable,
 //   label, decoration?: {title, kind}}]}
 // `through`: {id, at} a press clears through.
@@ -273,10 +273,19 @@
 			row.appendChild(buildFiles(m.files));
 		}
 		if (m.status === "error" && m.role === "user" && m.id !== undefined && m.id !== null) {
+			if (m.reason) {
+				const reason = document.createElement("div");
+				reason.className = "failed-reason";
+				reason.textContent = m.reason;
+				row.appendChild(reason);
+			}
 			row.appendChild(buildFailedActions(String(m.id)));
 		}
 		return row;
 	}
+
+	/** A status as a person reads it. */
+	const STATUS_WORDS = { error: "Not delivered", pending: "Sending", running: "Working" };
 
 	function buildMeta(m) {
 		const meta = document.createElement("div");
@@ -289,10 +298,11 @@
 		at.className = "at";
 		at.textContent = formatTime(m.at);
 		meta.appendChild(at);
-		if (m.status && m.status !== "completed") {
+		const word = STATUS_WORDS[m.status];
+		if (word) {
 			const status = document.createElement("span");
 			status.className = "status " + (m.status === "error" ? "error" : "running");
-			status.textContent = m.status === "error" ? "failed" : m.status;
+			status.textContent = word;
 			meta.appendChild(status);
 		}
 		return meta;

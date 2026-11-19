@@ -69,6 +69,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 			for (m in msgs) {
 				val obj = JSONObject().put("me", m.fromMe).put("text", m.text).put("at", m.at)
 				obj.putOpt("status", m.status)
+				obj.putOpt("failReason", m.failReason)
 				obj.putOpt("opId", m.opId)
 				if (m.epoch != 0L) obj.put("epoch", m.epoch)
 				if (m.seq != 0L) obj.put("seq", m.seq)
@@ -189,13 +190,11 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 						isPeer = isPeer,
 						record = m.optJSONObject("record")?.let(::loadRecord),
 						quiet = m.optBoolean("quiet"),
+						failReason = m.optString("failReason").takeIf { s -> s.isNotEmpty() },
 					)
 				}
-					// Stored threads can hold a "waking" row, from when the cold-wake wait was a transcript
-					// row rather than a notice card (ChatState.wakingTeams). Nothing resolves such a row,
-					// so drop it. "pending" echoes WITH an opId are kept for the service's idempotent
-					// reconcile; legacy ones without an opId cannot be re-sent safely, so they demote to
-					// retriable here (and never strand a forever-working chip if the service fails early).
+					// Nothing resolves a stored "waking" row, so drop it. A "pending" echo with an opId is
+					// kept for reconcile; one without cannot be re-sent, so it demotes to retriable.
 					.filterNot { !it.fromMe && it.status == "waking" }
 					.map { if (it.fromMe && it.status == "pending" && it.opId == null) it.copy(status = "error") else it }
 				merged.getOrPut(canonicalKey) { mutableListOf() }.addAll(loaded)

@@ -60,7 +60,7 @@ internal class RenameOps(private val host: RenameHost) {
 				host.persistLabels()
 				reverted = next.labels[team] != before
 			}
-			if (reverted) host.state.update { it.copy(transientMessages = it.transientMessages + "Could not rename to \"$trimmed\"") }
+			if (reverted) host.state.update { it.withNotice(renameLine(trimmed), team = team) }
 		}
 		host.refreshPresence()
 	}

@@ -80,7 +80,7 @@ internal fun goalOffered(paneEligible: Boolean, word: HarnessWord): Boolean = pa
  * ends, which is the point.
  */
 internal fun goalStep(rec: PendingGoal, now: Long, screen: String?): GoalStep {
-	if (now - rec.armedAt >= GOAL_TIMEOUT_MS) return GoalStep.Expire("its terminal never took one")
+	if (now - rec.armedAt >= GOAL_TIMEOUT_MS) return GoalStep.Expire("its terminal never took it")
 	if (rec.sentAt == null || screen == null) return GoalStep.Wait
 	// isReady rejects a pane held by a dialog, where a slash command would answer it instead.
 	return if (AgentScreen.isReady(screen) && composerIsEmpty(screen)) GoalStep.Inject else GoalStep.Wait

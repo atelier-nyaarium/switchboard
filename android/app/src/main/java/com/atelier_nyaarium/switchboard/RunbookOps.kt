@@ -144,7 +144,7 @@ internal class RunbookOps(
 		unattended = { left -> tell(leftLine(left.draft.name, "Runbook", left.said?.reason.orEmpty())) },
 	)
 
-	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
+	private fun tell(message: String) = state.update { it.withNotice(message) }
 
 	private fun owns(began: Long): Boolean = provision.isCurrent(began)
 

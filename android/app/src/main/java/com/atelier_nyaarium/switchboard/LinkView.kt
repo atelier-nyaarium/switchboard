@@ -40,23 +40,23 @@ internal fun linkView(state: ChatState): LinkView {
 }
 
 internal fun missLine(miss: Miss): String = when (miss) {
-	Miss.NO_NETWORK -> "Offline - no network"
-	Miss.UNREACHABLE -> "Can't reach the server - retrying"
-	Miss.INTERRUPTED -> "Secure connection interrupted - retrying"
-	Miss.SERVER_FAULT -> "Server error - retrying"
+	Miss.NO_NETWORK -> "No network."
+	Miss.UNREACHABLE -> "The Router can't be reached. Retrying."
+	Miss.INTERRUPTED -> "Secure connection interrupted. Retrying."
+	Miss.SERVER_FAULT -> "The Router had an error. Retrying."
 }
 
 internal fun refusalLine(refusal: Refusal): String = when (refusal) {
-	Refusal.CERT_CHANGED -> "Server certificate changed - re-run setup.sh"
-	Refusal.TOKEN_REJECTED -> "Sign-in rejected - re-run setup.sh and re-import the setup blob"
-	Refusal.OUT_OF_DATE -> "App is out of date - update the app, or re-run setup.sh"
-	Refusal.NOT_SET_UP -> "Server not set up - run setup.sh on the server"
-	Refusal.NOT_ADMITTED -> "Not enrolled - re-run setup.sh and re-import the setup blob"
-	Refusal.CLOCK_SKEW -> "Your device clock is off - sync the time"
+	Refusal.CERT_CHANGED -> "The Router's certificate changed. Run setup.sh again."
+	Refusal.TOKEN_REJECTED -> "The Router rejected this phone. Run setup.sh again and import the new code."
+	Refusal.OUT_OF_DATE -> "This app is out of date. Update it, or run setup.sh again."
+	Refusal.NOT_SET_UP -> "The Router is not set up. Run setup.sh on it."
+	Refusal.NOT_ADMITTED -> "This phone is not enrolled. Run setup.sh again and import the new code."
+	Refusal.CLOCK_SKEW -> "This phone's clock is off. Sync it to network time."
 }
 
-/** A thrown call, worded for a notice. */
-internal fun failureLine(e: Throwable): String {
+/** A thrown call's link or local cause, if it has one. */
+internal fun linkCause(e: Throwable): String? {
 	val event = when (e) {
 		is RouterStatus -> eventOfOwnerOpStatus(e.code)
 		is java.io.IOException -> eventOfFailure(e)
@@ -66,7 +66,7 @@ internal fun failureLine(e: Throwable): String {
 	return when (event) {
 		is RouterEvent.Refused -> refusalLine(event.why)
 		is RouterEvent.Missed -> missLine(event.why)
-		else -> "Error: ${e.message?.take(100) ?: e.javaClass.simpleName}"
+		else -> null
 	}
 }
 
@@ -91,7 +91,7 @@ internal fun headerLine(view: LinkView): Pair<LinkTone, String> = when (view) {
 }
 
 /** A conversation's banner. A wake hides a passing cause. */
-internal fun threadBanner(notice: String?, view: LinkView, waking: Boolean): String? = notice ?: when (view) {
+internal fun threadBanner(view: LinkView, waking: Boolean): String? = when (view) {
 	is LinkView.Refused -> view.cause
 	is LinkView.Offline -> view.cause.takeUnless { waking }
 	else -> null

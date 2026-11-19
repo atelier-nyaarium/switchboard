@@ -29,8 +29,8 @@ data class ChatState(
 	/** Login state remains separate from working state. */
 	val sessionNeedsLogin: Map<String, Boolean> = emptyMap(),
 	val drafts: Map<String, Draft> = emptyMap(),
-	/** One-shot notices; never the link's cause. */
-	val error: String? = null,
+	/** Dismissible failures, in memory only; never the link's cause. */
+	val notices: List<Notice> = emptyList(),
 	val biometricLock: Boolean = false,
 	val deviceName: String = "",
 	val labels: Map<String, String> = emptyMap(),
@@ -54,8 +54,6 @@ data class ChatState(
 	val owner: OwnerFacts? = null,
 	/** Distinguishes a rooted friend from an unadmitted administrator. */
 	val firstRooted: Boolean = false,
-	/** Snackbar messages do not drive sticky health state. */
-	val transientMessages: List<String> = emptyList(),
 	/** Wiped without a confirmed purge. */
 	val wipeUnconfirmed: Boolean = false,
 	/** At most one scheduled send belongs to each team. */

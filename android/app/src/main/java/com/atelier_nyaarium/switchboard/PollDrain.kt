@@ -42,6 +42,7 @@ internal fun knownPlanesJson(known: Map<String, HeldLineage>): JsonObject = buil
 internal const val PRESENCE_PLANE = "presence"
 internal const val ASSISTANT_HOME_PLANE = "assistantHome"
 internal const val VISIBLE_ROUTINE_REFRESH_MS = 60_000L
+internal const val POLL_NOTICE_KEY = "poll"
 
 /** Older rows are backlog. */
 internal fun arrivedWhileVisible(visible: Boolean, at: Long, foregroundSince: Long): Boolean =
@@ -390,6 +391,7 @@ internal class PollDrain(
 							lastVisibleRoutineRefreshAt = now
 						}
 						host.tickEnrollments()
+						host.state.update { it.withoutNoticeKey(POLL_NOTICE_KEY) }
 						withTimeoutOrNull(ChatRepository.POLL_INTERVAL_MS) { kick.receive() }
 						continue@pollLoop
 					}
@@ -397,6 +399,7 @@ internal class PollDrain(
 						drainOwnerInbox()
 						host.refreshRoutines()
 						host.tickEnrollments()
+						host.state.update { it.withoutNoticeKey(POLL_NOTICE_KEY) }
 						// Coordinator owns alarm scheduling.
 						park(host.plan(false, owed).wait, kick, ChatRepository.BACKGROUND_TICK_MS)
 						continue@pollLoop
@@ -406,7 +409,7 @@ internal class PollDrain(
 					DebugLog.log("Poll", "pass failed: ${e.javaClass.simpleName}: ${e.message?.take(120)}")
 					failed = true
 					// A door told the link of its own failures.
-					if (e !is java.io.IOException && e !is RouterStatus) host.state.update { it.copy(error = failureLine(e)) }
+					if (e !is java.io.IOException && e !is RouterStatus) host.state.update { it.withNotice(thrownSentence(Act.CHECKING, e), POLL_NOTICE_KEY) }
 					DebugLog.flushToIngest()
 				}
 				if (!host.isVisible) {

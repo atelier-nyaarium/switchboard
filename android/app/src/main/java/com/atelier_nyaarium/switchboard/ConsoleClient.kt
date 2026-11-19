@@ -202,7 +202,7 @@ class ConsoleClient internal constructor(
 	internal fun requireDelivery(answer: JsonElement?, op: String) {
 		if (answer == null) error("$op timed out")
 		val body = wireJson.decodeFromJsonElement<OwnerOpAnswer>(answer)
-		if (!body.ok) throw OwnerOpFailure(body.outcome, "$op failed: ${body.error ?: "unknown error"}")
+		if (!body.ok) throw OwnerOpFailure(body.outcome, "$op failed: ${body.error ?: "unknown error"}", body.error)
 	}
 
 	internal fun localDomainId(): String = boot.domainId

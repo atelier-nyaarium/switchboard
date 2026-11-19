@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -51,7 +50,7 @@ class VaultOpsTest {
 
 		assertFalse(ops.answer(pending, "deny"))
 		assertNull(manager.request(request.requestId))
-		assertEquals("Vault: policy changed", state.value.error)
+		assertTrue(state.value.notices.single().text.contains("policy changed"))
 	}
 
 	private fun ops(

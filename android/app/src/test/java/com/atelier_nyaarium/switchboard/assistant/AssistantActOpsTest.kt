@@ -73,7 +73,7 @@ class AssistantActOpsTest {
 
 		assertEquals(AssistantActAnswer.Refused("request expired"), ops.answer(pending, "deny"))
 		assertTrue(ops.pending.value.isEmpty())
-		assertTrue(state.value.error.orEmpty().contains("request expired"))
+		assertTrue(state.value.notices.single().text.contains("request expired"))
 	}
 
 	private fun actRequest() = AssistantActRequest(

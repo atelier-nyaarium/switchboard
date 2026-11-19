@@ -165,9 +165,31 @@ class PhoneEncodedFixtureTest {
 			"a preview of a text with holes" to
 				ConsoleOp.AutomationPreview(edited[0].second.toAutomation(offer)!!.trigger, text = "It is {value} at {device}."),
 			"a preview of a trigger alone" to ConsoleOp.AutomationPreview(edited[2].second.toAutomation(offer)!!.trigger),
-		).map { (name, op) -> case(name, ConsoleOp.serializer(), op) }
+		).map { (name, op) -> case(name, ConsoleOp.serializer(), op) } +
+		Case(
+			"a scheduled message with a file",
+			"ScheduledBody",
+			sortedKeys(
+				wireJson.parseToJsonElement(
+					String(
+						scheduledPlaintext(
+							"Morning standup notes",
+							"sched-op",
+							listOf(MessageFile("notes.txt", "text/plain", src = "/tmp/sched-op/notes.txt", size = 12, blobId = "sha256-${"ab".repeat(32)}", role = ROLE_ATTACHMENT)),
+						),
+					),
+				),
+			),
+		)
 
 	private class Case(val name: String, val schema: String, val value: JsonElement)
+
+	/** Upstream org.json keeps no key order. */
+	private fun sortedKeys(value: JsonElement): JsonElement = when (value) {
+		is kotlinx.serialization.json.JsonObject -> kotlinx.serialization.json.JsonObject(value.toSortedMap().mapValues { sortedKeys(it.value) })
+		is kotlinx.serialization.json.JsonArray -> kotlinx.serialization.json.JsonArray(value.map(::sortedKeys))
+		else -> value
+	}
 
 	/** Labelled by the class encoded. */
 	private fun <T> case(name: String, serializer: KSerializer<T>, value: T) =

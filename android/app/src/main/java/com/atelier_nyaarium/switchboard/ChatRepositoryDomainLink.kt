@@ -28,13 +28,15 @@ internal suspend fun ChatRepository.reportCapabilitiesToRouter() {
 		.onFailure { DebugLog.log("Plugins", "capability report failed, retrying next toggle: ${it.message?.take(80)}") }
 }
 
-suspend fun ChatRepository.provision(blob: String) = withContext(Dispatchers.IO) {
+/** Null on success; else the reason. */
+suspend fun ChatRepository.provision(blob: String): String? = withContext(Dispatchers.IO) {
 	// Reject malformed blobs before persisting.
 	val prov = try {
 		ConsoleCredentials.parse(blob, store)
 	} catch (e: Exception) {
-		_state.update { it.copy(error = "Invalid provisioning blob: ${e.message?.take(160) ?: "unparseable"}") }
-		return@withContext
+		e.rethrowIfCancellation()
+		DebugLog.log("Provision", "setup code refused: ${e.message?.take(160)}")
+		return@withContext Line.SETUP_CODE_UNREADABLE.text
 	}
 	assistantOps.forgetHome {
 		identity.provision(blob)
@@ -43,8 +45,9 @@ suspend fun ChatRepository.provision(blob: String) = withContext(Dispatchers.IO)
 	sttsClient = null
 	// Mirror the reset in UI state.
 	_state.update {
-		it.copy(provisioned = true, error = null, deviceName = prov.device, firstRooted = false, teams = emptyList())
+		it.copy(provisioned = true, deviceName = prov.device, firstRooted = false, teams = emptyList())
 	}
+	null
 }
 
 /** Normalize a SHA-256 leaf fingerprint. */
@@ -78,19 +81,13 @@ fun ChatRepository.currentRouterEndpoint(fallbackPort: Int): RouterEndpoint? {
 	return RouterEndpoint(host, port, json.optString("routerCertFp"), direct)
 }
 
-/** Change transport fields only. */
-suspend fun ChatRepository.setEndpoint(host: String, port: Int, certFp: String) = withContext(Dispatchers.IO) {
+/** Change transport fields only. Null on success; else the reason. */
+suspend fun ChatRepository.setEndpoint(host: String, port: Int, certFp: String): String? = withContext(Dispatchers.IO) {
 	// Allow endpoint setup before provisioning.
 	val blob = store.load() ?: "{}"
 	val trimmedHost = host.trim().removeSuffix("/")
-	if (trimmedHost.isEmpty()) {
-		_state.update { it.copy(error = "Enter a domain or IP.") }
-		return@withContext
-	}
-	val fp = normalizeCertFp(certFp) ?: run {
-		_state.update { it.copy(error = "Fingerprint must be 64 hex characters (SHA-256).") }
-		return@withContext
-	}
+	if (trimmedHost.isEmpty()) return@withContext Line.ENTER_HOST.text
+	val fp = normalizeCertFp(certFp) ?: return@withContext Line.BAD_FINGERPRINT.text
 	val url = if (trimmedHost.startsWith("http")) "$trimmedHost:$port" else "https://$trimmedHost:$port"
 	val edited = JSONObject(blob).apply {
 		put("transport", "direct")
@@ -100,13 +97,14 @@ suspend fun ChatRepository.setEndpoint(host: String, port: Int, certFp: String) 
 	try {
 		ConsoleCredentials.parse(edited, store)
 	} catch (e: Exception) {
-		_state.update { it.copy(error = "Invalid endpoint: ${e.message?.take(160) ?: "unparseable"}") }
-		return@withContext
+		e.rethrowIfCancellation()
+		DebugLog.log("Provision", "endpoint refused: ${e.message?.take(160)}")
+		return@withContext Line.BAD_ENDPOINT.text
 	}
 	identity.saveBlob(edited)
 	linkChanged()
 	sttsClient = null
-	_state.update { it.copy(error = null) }
+	null
 }
 
 /** This device's blob changed or went: its client is dropped and setup starts over. */
@@ -134,7 +132,7 @@ suspend fun ChatRepository.setDeviceName(name: String) = withContext(Dispatchers
 	val blob = store.load() ?: return@withContext
 	val updated = runCatchingCancellable { JSONObject(blob).put("device", name).toString() }
 		.getOrElse { e ->
-			_state.update { it.copy(transientMessages = it.transientMessages + (e.message ?: "Invalid provisioning blob")) }
+			_state.update { it.withNotice(Line.RENAME_DEVICE_FAILED.text) }
 			return@withContext
 		}
 	identity.saveBlob(updated)

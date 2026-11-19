@@ -76,19 +76,11 @@ class LinkViewTest {
 	}
 
 	@Test
-	fun aConversationShowsANoticeFirstAndHidesAPassingCauseWhileItWakes() {
+	fun aConversationShowsTheLinkCauseAndHidesAPassingOneWhileItWakes() {
 		val offline = LinkView.Offline("down")
-		assertEquals("notice", threadBanner("notice", offline, waking = false))
-		assertEquals("down", threadBanner(null, offline, waking = false))
-		assertNull(threadBanner(null, offline, waking = true))
-		assertEquals("re-run setup", threadBanner(null, LinkView.Refused("re-run setup"), waking = true))
-		assertNull(threadBanner(null, LinkView.Reconnecting("blip"), waking = false))
-	}
-
-	@Test
-	fun aThrownCallIsWordedByItsType() {
-		assertEquals(refusalLine(Refusal.TOKEN_REJECTED), failureLine(RouterStatus(401, "Unauthorized")))
-		assertEquals(missLine(Miss.NO_NETWORK), failureLine(java.net.UnknownHostException("router")))
-		assertEquals(true, failureLine(IllegalStateException("send failed: no holder")).contains("no holder"))
+		assertEquals("down", threadBanner(offline, waking = false))
+		assertNull(threadBanner(offline, waking = true))
+		assertEquals("re-run setup", threadBanner(LinkView.Refused("re-run setup"), waking = true))
+		assertNull(threadBanner(LinkView.Reconnecting("blip"), waking = false))
 	}
 }

@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -59,6 +58,6 @@ class GoalOpsTest {
 		assertTrue(fake.sends.isEmpty())
 		assertTrue(fake.typed.isEmpty())
 		assertEquals(emptyMap<String, PendingGoal>(), state.value.goals)
-		assertNotNull(state.value.error)
+		assertEquals(team, state.value.notices.single().team)
 	}
 }

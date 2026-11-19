@@ -74,7 +74,7 @@ internal val NO_TAP_AWAY = DialogProperties(dismissOnClickOutside = false)
  * seeds both steps (5 minutes out for a fresh schedule, the current fire time for a reschedule). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScheduleSendDialog(initialAtMillis: Long, submitting: Boolean, onConfirm: (Long) -> Unit, onDismiss: () -> Unit) {
+fun ScheduleSendDialog(initialAtMillis: Long, submitting: Boolean, fileCount: Int, onConfirm: (Long) -> Unit, onDismiss: () -> Unit) {
 	val context = LocalContext.current
 	// NOT remember-cached: a device timezone change while this composable stays mounted must be
 	// picked up on the next recomposition, mirroring IdlePushbackManager's own fresh-read-per-call
@@ -89,12 +89,7 @@ fun ScheduleSendDialog(initialAtMillis: Long, submitting: Boolean, onConfirm: (L
 		initialMinute = seed.minute,
 		is24Hour = android.text.format.DateFormat.is24HourFormat(context),
 	)
-	// rememberSaveable: a rotation/theme/font-scale change destroys and recreates the Activity (no
-	// android:configChanges declared anywhere in this app), and dateState/timeState already survive
-	// that via their own internal Saver (confirmed - rememberDatePickerState/rememberTimePickerState
-	// use rememberSaveable internally) - but this flag deciding WHICH step shows was still plain
-	// remember, so the config change closed the dialog outright even though the underlying picker
-	// selections would have survived to show it correctly.
+	// Saveable: a config change recreates the Activity.
 	var pickingTime by rememberSaveable { mutableStateOf(false) }
 
 	val pickedMillis = dateState.selectedDateMillis?.let { dateMillis ->
@@ -107,9 +102,7 @@ fun ScheduleSendDialog(initialAtMillis: Long, submitting: Boolean, onConfirm: (L
 	// default year range is 1900-2100), so a stray far-future pick is rejected too - this feature is
 	// for hours-to-days-out reminders, not an unbounded storage commitment (SCHEDULED_SEND_MAX_HORIZON_MS,
 	// which ScheduledSendOps.scheduleSend/rescheduleSend also enforce as the authoritative check).
-	val tooSoon = pickedMillis == null || pickedMillis <= System.currentTimeMillis() + 60_000
-	val tooFarOut = pickedMillis != null && pickedMillis - System.currentTimeMillis() > ChatRepository.SCHEDULED_SEND_MAX_HORIZON_MS
-	val isFarEnoughOut = !tooSoon && !tooFarOut
+	val blocker = scheduleBlocker(pickedMillis, System.currentTimeMillis(), fileCount)
 
 	if (!pickingTime) {
 		DatePickerDialog(
@@ -134,12 +127,8 @@ fun ScheduleSendDialog(initialAtMillis: Long, submitting: Boolean, onConfirm: (L
 				) {
 					Text("Send at", style = MaterialTheme.typography.titleMedium)
 					TimePicker(state = timeState)
-					if (!isFarEnoughOut) {
-						Text(
-							if (tooFarOut) "Pick a time no more than 30 days out." else "Pick a time at least a minute from now.",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.error,
-						)
+					blocker?.let {
+						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 					}
 					Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
 						TextButton(onClick = hapticClick { pickingTime = false }) { Text("Back") }
@@ -148,7 +137,7 @@ fun ScheduleSendDialog(initialAtMillis: Long, submitting: Boolean, onConfirm: (L
 							// Disabled once tapped, until the caller's async schedule/reschedule call
 							// resolves - prevents a double-tap (or a bounced/ghost touch) from launching
 							// two overlapping calls that race on the composer's draft.
-							enabled = isFarEnoughOut && !submitting,
+							enabled = blocker == null && !submitting,
 							onClick = hapticClick { pickedMillis?.let(onConfirm) },
 						) { Text("Schedule") }
 					}
@@ -319,7 +308,7 @@ internal fun CreateSessionDialog(
 		},
 		confirmButton = {
 			TextButton(
-				// A project is now part of the answer, not a default, so Spawn waits for one.
+				// Spawn waits for a project.
 				enabled = selectedTarget != null && harness != null && trimmed.isNotEmpty() && !isPending && dirOk,
 				onClick = hapticClick {
 					val project = selectedProject ?: return@hapticClick

@@ -105,7 +105,7 @@ internal val wireJson = Json { ignoreUnknownKeys = true }
 /** A refusal retires the queued action; other failures retry. */
 class BoardRefused(val reason: String) : Exception(reason)
 
-class OwnerOpFailure(val outcome: String?, message: String) : Exception(message) {
+class OwnerOpFailure(val outcome: String?, message: String, val reason: String? = null) : Exception(message) {
 	/** A replay changes nothing. */
 	val settled: Boolean get() = outcome == Protocol.Wire.SocketFrame.REFUSED || outcome == "conflict"
 }

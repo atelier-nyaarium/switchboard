@@ -151,13 +151,13 @@ internal class BoardOps(
 		val (staged, refused) =
 			if (add.isEmpty()) emptyList<OutgoingFile>() to null else collaborators.admitPicked(add, "pick-${UUID.randomUUID()}")
 		if (refused != null) {
-			state.update { it.copy(error = refused.message()) }
+			state.update { it.withNotice(refused.message()) }
 			return
 		}
 		// Limit count, not size.
 		if (keep.size + staged.size > Protocol.BOARD_ATTACHMENTS_MAX) {
 			collaborators.attachmentHost.cleanup(staged)
-			state.update { it.copy(error = "An entry holds at most ${Protocol.BOARD_ATTACHMENTS_MAX} attachments") }
+			state.update { it.withNotice(boardCapLine(Protocol.BOARD_ATTACHMENTS_MAX)) }
 			return
 		}
 		val client = collaborators.attachmentHost.clientOrReject(staged) ?: return
@@ -165,7 +165,7 @@ internal class BoardOps(
 			staged.forEach { client.uploadSealedBlob(it.source) }
 		} catch (e: Exception) {
 			e.rethrowIfCancellation()
-			state.update { it.copy(error = e.message ?: "Attachment upload failed") }
+			state.update { it.withNotice(thrownSentence(Act.UPLOADING, e)) }
 			return
 		}
 		val sources = mutableMapOf<String, String>()

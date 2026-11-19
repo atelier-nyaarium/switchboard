@@ -10,7 +10,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -88,7 +87,19 @@ class MainActivity : FragmentActivity() {
 		consume(intent, restored = savedInstanceState != null)
 		setContent {
 			SwitchboardTheme {
-				App(repo, injected, openTeamRequest, openQueueRequest, vaultRequestRequest, assistantSendRequestRequest, assistantActRequestRequest)
+				var noticeAt by remember { mutableStateOf(NoticeAt.NONE) }
+				NoticeFrame(repo, noticeAt) {
+					App(
+						repo,
+						injected,
+						openTeamRequest,
+						openQueueRequest,
+						vaultRequestRequest,
+						assistantSendRequestRequest,
+						assistantActRequestRequest,
+						onNoticeAt = { noticeAt = it },
+					)
+				}
 			}
 		}
 	}
@@ -196,6 +207,8 @@ fun App(
 	vaultRequestRequest: MutableState<String?> = remember { mutableStateOf(null) },
 	assistantSendRequestRequest: MutableState<Pair<String, String>?> = remember { mutableStateOf(null) },
 	assistantActRequestRequest: MutableState<Pair<String, String>?> = remember { mutableStateOf(null) },
+	/** Where the drawn screen wants notices; the frame above draws the shell's strip. */
+	onNoticeAt: (NoticeAt) -> Unit = {},
 ) {
 	val state by repo.state.collectAsState()
 	val bootState by repo.bootState.collectAsState()
@@ -459,6 +472,8 @@ fun App(
 		assistantOpen = assistantOpen,
 	)
 	val screen = nav.drawn(shellFacts)
+	val noticePlace = noticeAt(screen, shellFacts.editorOpen)
+	SideEffect { onNoticeAt(noticePlace) }
 	val assistantShown = showsAssistant(screen)
 	LaunchedEffect(assistantShown) {
 		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
@@ -548,8 +563,7 @@ fun App(
 			Need.PROVISIONING in missingBoot?.needs.orEmpty() ->
 				ProvisionScreen(
 					repo = repo,
-					state = state,
-					onProvision = { repo.command { provision(it) } },
+					onProvision = { blob, refused -> repo.command { provision(blob)?.let(refused) } },
 					onSettings = { nav = nav.openSettings() },
 					onFederation = { nav = nav.openSettings(SettingsRoute.FEDERATION) },
 				)
@@ -647,7 +661,12 @@ fun App(
 				tabLabel = { tabLabelFor(state, it) },
 				onReorderTabs = repo::reorderTabs,
 				messages = state.threads[team].orEmpty(),
-				error = threadBanner(state.error, linkView(state), presence == SessionWord.WAKING),
+				banner = threadBanner(linkView(state), presence == SessionWord.WAKING),
+				notices = if (noticePlace.host == NoticeHost.THREAD) {
+					noticeLines(state.notices, team) { tabLabelFor(state, it) }
+				} else emptyList(),
+				onDismissNotice = repo::dismissNotice,
+				onClearNotices = repo::clearNotices,
 				rendererPool = rendererPool,
 				canRename = kind == "loose",
 				openNonce = screen.openNonce,
@@ -789,15 +808,6 @@ fun App(
 			}
 		}
 		is Drawn.Root -> {
-			val snackbarHostState = remember { SnackbarHostState() }
-			// Transient failures use snackbar, once no editor covers it.
-			LaunchedEffect(state.transientMessages, shellFacts.editorOpen) {
-				if (shellFacts.editorOpen) return@LaunchedEffect
-				state.transientMessages.firstOrNull()?.let {
-					repo.sessions.consumeTransientMessage()
-					snackbarHostState.showSnackbar(it)
-				}
-			}
 			// Fold board once per revision.
 			val boardOnHere = pluginManager.isActive("taskboard")
 			val boardRevisionForCards by repo.boardOps.boardRevision
@@ -831,7 +841,6 @@ fun App(
 				drawerBadged = anyBadge(menuBadges),
 				onOpenDrawer = openMenu,
 				onBack = { nav = nav.back(BackLayer.OVER, shellFacts, state.provisioned) }.takeIf { over != null },
-				snackbarHostState = snackbarHostState,
 				onRefresh = {
 					repo.setup.retry()
 					repo.command { presence.refreshTeams() }

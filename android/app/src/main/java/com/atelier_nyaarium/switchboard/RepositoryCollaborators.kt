@@ -55,9 +55,8 @@ internal class ChatRepositoryDeviceApprovalCollaborators(private val repo: ChatR
 		 signed,
 		 { repo.client().enroll(com.atelier_nyaarium.switchboard.proto.EnrollOp.SubmitAdmission(it)) },
 		 repo.identity::mergeAdmission,
-		"Approve failed",
+		Act.APPROVING_DEVICE,
 	)
-	override fun reportError() = repo._state.value.error
 }
 
 internal class ChatRepositoryDomainAdminCollaborators(private val repo: ChatRepository) : DomainAdminOpsCollaborators {

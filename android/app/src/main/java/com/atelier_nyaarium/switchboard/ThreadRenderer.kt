@@ -85,6 +85,7 @@ internal fun rowsToJson(
 		if (m.fromMe && m.seq == 0L) obj.put("ownSend", true)
 		if (!m.arrivedVisible) obj.put("arrivedVisible", false)
 		m.status?.let { obj.put("status", it) }
+		if (m.status == "error") m.failReason?.let { obj.put("reason", it) }
 		// Hidden entries are already dropped and the order is already decided, so the renderer draws
 		// the list as given rather than re-deciding what an attachment is.
 		val shown = displayAttachments(m.files, decorate)

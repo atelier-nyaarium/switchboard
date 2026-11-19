@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.SessionHarness
 import kotlinx.coroutines.flow.update
 
@@ -54,6 +55,29 @@ internal fun seedSandboxIdentity(identity: PhoneIdentity, domainId: String?) {
 	domainId?.let { identity.learnDomainId(it, SANDBOX_PROVISIONING) }
 }
 
+internal fun sandboxFailedSends(threads: Map<String, List<Message>>, tab: String?, now: Long): Map<String, List<Message>> {
+	tab ?: return threads
+	val failed = listOf(
+		Message(true, "Can you rerun the deploy?", now - 120_000, status = "error", opId = "sandbox-failed", failReason = reasonSentence(Act.SENDING, "no_holder")),
+		Message(
+			true,
+			"Morning standup notes",
+			now - 60_000,
+			status = "error",
+			opId = "sandbox-scheduled-failed",
+			failReason = reasonSentence(Act.SENDING_SCHEDULED, Protocol.Wire.ScheduledFailureReason.TARGET_MISMATCH),
+		),
+	)
+	val held = threads[tab].orEmpty()
+	if (held.any { it.opId == "sandbox-failed" }) return threads
+	val nextId = (held.maxOfOrNull { it.id } ?: -1L) + 1
+	return threads + (tab to held + failed.mapIndexed { i, m -> m.copy(id = nextId + i) })
+}
+
+internal fun sandboxNotices(tab: String?): List<Notice> =
+	raiseNotice(emptyList(), settledSentence("fired"), scheduledNoticeKey(tab.orEmpty()), tab)
+		.let { raiseNotice(it, keyEpochLine(3)) }
+
 /** Seeded tabs, never the assistant. */
 internal fun sandboxTabs(teams: List<Team>, threads: Map<String, List<Message>>): List<String> =
 	threads.keys.filter { key -> teams.none { it.name == key && it.role == ASSISTANT_ROLE } }
@@ -95,15 +119,17 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 		seedPendingGateway()
 		this.dirs = dirs
 		drawLink()
+		val tab = sandboxTabs(teams, threads).firstOrNull()
+		val seeded = sandboxFailedSends(threads, tab, System.currentTimeMillis())
 		repo._state.update { s ->
 			s.copy(
 				teams = teams,
-				threads = threads,
-				openTabs = sandboxTabs(teams, threads),
+				threads = seeded,
+				openTabs = sandboxTabs(teams, seeded),
 				roles = rolesAfter(s.roles, teams),
-				unread = threads.mapValues { (team, msgs) -> unreadCount(msgs, s.readAnchors[team]) },
+				unread = seeded.mapValues { (team, msgs) -> unreadCount(msgs, s.readAnchors[team]) },
 				provisioned = true,
-				error = null,
+				notices = sandboxNotices(tab),
 				drafts = drafts,
 				goals = goals,
 				gateways = gateways,

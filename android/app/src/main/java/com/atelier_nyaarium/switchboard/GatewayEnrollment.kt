@@ -50,7 +50,7 @@ internal class GatewayEnrollment(private val repo: ChatRepository) {
 			?: return@withContext EnrollDelivery(false, "This phone has not confirmed its Domain yet.")
 		val heldIncarnation = repo.state.value.gateways.entry(scanned.gatewayId)?.incarnation ?: 0L
 		val signed = repo.ownerFacts.admitGateway(scanned.gatewayId, scanned.signPub, scanned.boxPub)
-			?: return@withContext EnrollDelivery(false, repo._state.value.error ?: "Couldn't add the Gateway. Try again.")
+			.getOrElse { return@withContext EnrollDelivery(false, it.message ?: reasonSentence(Act.ADDING_GATEWAY, null)) }
 		val result = try {
 			repo.client().requestGatewayTransport(repo.federation.signTransportRequest(System.currentTimeMillis()))
 		} catch (e: Exception) {

@@ -23,7 +23,7 @@ class RenameOpsTest {
 		host.setLabel(team, "before")
 		RenameOps(host).rename(team, "renamed")
 		assertEquals("before", host.state.value.labels[team])
-		assertEquals(listOf("Could not rename to \"renamed\""), host.state.value.transientMessages)
+		assertEquals(team, host.state.value.notices.single().team)
 		assertEquals(1, host.presenceRefreshes)
 	}
 

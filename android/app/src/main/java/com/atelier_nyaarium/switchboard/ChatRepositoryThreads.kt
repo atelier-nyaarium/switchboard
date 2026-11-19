@@ -75,7 +75,7 @@ fun ChatRepository.markScheduledResultRead(team: String, candidate: ReadAnchor) 
  * `spawn.session` while the board and inbound replies use the full canonical address, so
  * canonicalize before adding or the same session lands as two tabs. Returns the canonical key so
  * the caller can point its active-tab pointer at the same value. Does NOT clear unread - reading
- * a thread is what clears it now (the scroll-driven receipt model), not the act of opening it. */
+ * a thread clears it (the scroll-driven receipt model), not opening it. */
 fun ChatRepository.openThread(team: String): String? {
 	val key = fromCanonical(team) ?: return null
 	if (tabsAfterOpen(_state.value, key) == null) return null
@@ -155,7 +155,7 @@ fun ChatRepository.closeSession(team: String) {
 		drain.scope?.launch(Dispatchers.IO) {
 			runCatchingCancellable { client().closeSession(team) }
 				.onSuccess { drain.scope?.launch(Dispatchers.IO) { presence.refreshAfterAction() } }
-				.onFailure { e -> _state.update { it.copy(transientMessages = it.transientMessages + (e.message ?: "close failed")) } }
+				.onFailure { e -> _state.update { it.withNotice(thrownSentence(Act.CLOSING, e), team = team) } }
 		}
 	}
 }

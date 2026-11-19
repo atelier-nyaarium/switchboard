@@ -166,15 +166,17 @@ internal class VaultOps(
 		typedValue: String?,
 		note: String?,
 	): Boolean {
+		val key = "vault:${pending.requestId}"
+		fun report(line: String) = this.report(line, key)
 		val client = collaborators.client
-		if (client == null && valueAnswer == null) return false.also { report("Vault: not connected") }
+		if (client == null && valueAnswer == null) return false.also { report(Line.VAULT_NOT_CONNECTED.text) }
 		val began = provision.capture()
 		val value = typedValue?.let { text ->
 			collaborators.sealing()?.seal(text, VAULT_TYPED_KIND, pending.requestId)
-				?: return false.also { report("Vault: no content key to seal the value") }
+				?: return false.also { report(Line.VAULT_NO_KEY.text) }
 		}
 		val gatewayId = runIsolated { gatewayOf(pending.team) }.getOrNull()
-			?: return false.also { report("Vault: the request names no gateway") }
+			?: return false.also { report(Line.VAULT_NO_GATEWAY.text) }
 		val op = ConsoleOp.VaultAnswer(
 			requestId = pending.requestId,
 			decision = decision,
@@ -184,28 +186,29 @@ internal class VaultOps(
 		val answer = runCatchingCancellable {
 			valueAnswer?.invoke(gatewayId, op) ?: client?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
 		}.onFailure { DebugLog.log("Vault", "answer failed: ${it.message?.take(80)}") }.getOrNull()
-			?: return false.also { report("Vault: the gateway could not be reached") }
+			?: return false.also { report(Line.VAULT_UNREACHABLE.text) }
 		if (!answerDeliverySettled(answer)) {
 			when (answer) {
-				is ConsoleClient.ValueAnswer.Undelivered -> report("Vault: the Router did not deliver the answer: ${answer.reason}")
-				ConsoleClient.ValueAnswer.Unreachable -> report("Vault: the gateway could not be reached")
+				is ConsoleClient.ValueAnswer.Undelivered -> report(reasonSentence(Act.VAULT_ANSWER, answer.reason))
+				ConsoleClient.ValueAnswer.Unreachable -> report(Line.VAULT_UNREACHABLE.text)
 				else -> Unit
 			}
 			return false
 		}
 		manager.settleRequest(pending.requestId)
 		if (answer is ConsoleClient.ValueAnswer.Refused) {
-			report("Vault: ${answer.reason}")
+			report(reasonSentence(Act.VAULT_ANSWER, answer.reason))
 			return false
 		}
 		if (answer !is ConsoleClient.ValueAnswer.Answered) return false
 		val result = runIsolated {
 			wireJson.decodeFromJsonElement<ConsoleVaultAnswerResult>(answer.result)
-		}.getOrNull() ?: return false.also { report("Vault: the answer could not be read") }
+		}.getOrNull() ?: return false.also { report(Line.VAULT_UNREADABLE.text) }
 		if (result.ok) {
+			state.update { it.withoutNoticeKey(key) }
 			if (decision != VAULT_DECISION_DENY) provision.land(began) { manager.recordAnswer(pending) }
 		} else {
-			report("Vault: ${result.reason ?: "the answer was refused"}")
+			report(reasonSentence(Act.VAULT_ANSWER, result.reason))
 		}
 		if (result.ok && decision != VAULT_DECISION_DENY) refreshGrantsNow(gatewayId)
 		return result.ok
@@ -247,8 +250,8 @@ internal class VaultOps(
 		}
 	}
 
-	private fun report(message: String) {
-		state.update { it.copy(error = message) }
+	private fun report(message: String, key: String? = null) {
+		state.update { it.withNotice(message, key) }
 	}
 
 	private fun newOpId(): String = UUID.randomUUID().toString()

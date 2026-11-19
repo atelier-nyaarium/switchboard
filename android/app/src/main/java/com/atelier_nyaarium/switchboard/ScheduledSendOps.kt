@@ -71,12 +71,13 @@ internal class ScheduledSendOps(
 	var onScheduledSendFailed: ((team: String, opId: String) -> Unit)? = null
 
 	suspend fun scheduleSend(team: String, text: String, files: List<MessageFile>, fireAtMillis: Long): Boolean = withContext(Dispatchers.IO) {
-		if (!validTime(fireAtMillis)) return@withContext false
+		if (!validTime(team, fireAtMillis)) return@withContext false
+		if (files.size > Protocol.CHANNEL_FILES_MAX) { tell(team, scheduleFilesLine(Protocol.CHANNEL_FILES_MAX)); return@withContext false }
 		val (picked, refused) = collaborators.admitFiles(files)
-		if (refused != null) { state.update { it.copy(error = refused.message()) }; return@withContext false }
+		if (refused != null) { tell(team, refused.message()); return@withContext false }
 		val opId = java.util.UUID.randomUUID().toString()
 		val fileRefs = Attachments.storeOutgoing(filesDir, "sched-$opId", picked)
-		if (collaborators.fromCanonical(team) == null) { state.update { it.copy(error = "That session has no address to send to.") }; return@withContext false }
+		if (collaborators.fromCanonical(team) == null) { tell(team, Line.NO_ADDRESS.text); return@withContext false }
 		pass {
 			// Replacement names prior version.
 			val prior = state.value.scheduledSends[team]
@@ -88,7 +89,7 @@ internal class ScheduledSendOps(
 	}
 
 	fun rescheduleSend(team: String, fireAtMillis: Long): Boolean {
-		if (!validTime(fireAtMillis)) return false
+		if (!validTime(team, fireAtMillis)) return false
 		repoScope.launch(Dispatchers.IO) {
 			rescheduleNow(team, fireAtMillis)
 			drainPending()
@@ -118,7 +119,7 @@ internal class ScheduledSendOps(
 	/** Accepted records become cancellations. */
 	internal suspend fun cancelNow(team: String, edit: Boolean) = pass {
 		val rec = state.value.scheduledSends[team] ?: return@pass
-		if (edit && !rec.draftTaken) withSources(rec).let { files -> land { collaborators.takeBackIntoDraft(team, rec.text, files) } }
+		if (edit && !rec.draftTaken) withSources(team, rec).let { files -> land { collaborators.takeBackIntoDraft(team, rec.text, files) } }
 		if (rec.routerVersion == null) {
 			remove(team, rec)
 			if (!edit) deleteSourcesIfUnreferenced(team, rec)
@@ -134,22 +135,43 @@ internal class ScheduledSendOps(
 		val version = rec.routerVersion ?: return
 		val cancel = ScheduleCancelValue(target = target, expectedVersion = version)
 		val op = wireJson.encodeToJsonElement(ScheduleCancelValue.serializer(), cancel).jsonObject
-		val answer = collaborators.postOwnerOp(op, "cancel:${rec.opId}") ?: return
+		val answer = posted(team) { collaborators.postOwnerOp(op, "cancel:${rec.opId}") } ?: return
 		val reason = answer.jsonObject["reason"]?.jsonPrimitive?.content
+		val outcome = answer.jsonObject["outcome"]?.jsonPrimitive?.content
 		when {
-			answer.jsonObject["outcome"]?.jsonPrimitive?.content == Protocol.Wire.OP_OUTCOME_ACCEPTED -> {
+			outcome == Protocol.Wire.OP_OUTCOME_ACCEPTED -> {
 				remove(team, rec)
 				if (!rec.draftTaken) deleteSourcesIfUnreferenced(team, rec)
 			}
-			reason == "settled" -> {
+			reason == SCHEDULE_SETTLED -> {
+				// Its result row echoes or marks it.
+				val settled = answer.jsonObject["state"]?.jsonPrimitive?.content
+				remove(team, rec)
+				if (settled == "cancelled" && !rec.draftTaken) deleteSourcesIfUnreferenced(team, rec)
+				tell(team, settledSentence(settled))
+			}
+			outcome == SCHEDULE_CONFLICT -> {
 				put(team, rec.copy(cancelRequested = false))
-				setError("already sent")
+				tell(team, Line.SENDING_NOW.text)
 			}
 			else -> {
 				remove(team, rec)
-				setError(reason ?: "conflict")
+				tell(team, reasonSentence(Act.CANCELLING_SCHEDULED, reason))
 			}
 		}
+	}
+
+	/** A thrown post is told once, keyed; a later answer clears it. */
+	private suspend fun posted(team: String, post: suspend () -> kotlinx.serialization.json.JsonElement?): kotlinx.serialization.json.JsonElement? {
+		val answer = try {
+			post()
+		} catch (e: Exception) {
+			e.rethrowIfCancellation()
+			tell(team, Line.SCHEDULE_UNREACHED.text)
+			return null
+		}
+		if (answer != null) land { state.update { it.withoutNoticeKey(scheduledNoticeKey(team)) } }
+		return answer
 	}
 
 	suspend fun drainPending() = pass {
@@ -163,8 +185,7 @@ internal class ScheduledSendOps(
 				e.rethrowIfCancellation()
 				continue
 			}
-			val plaintext = org.json.JSONObject().put("text", rec.text).put("messageId", rec.opId).put("files", org.json.JSONArray().also { a -> files.forEach { a.put(fileJson(it)) } }).toString().toByteArray()
-			val body = collaborators.sealScheduledBody(plaintext, rec.opId) ?: continue
+			val body = collaborators.sealScheduledBody(scheduledPlaintext(rec.text, rec.opId, files), rec.opId) ?: continue
 			if (files != rec.fileRefs) put(team, rec.copy(fileRefs = files))
 			val value = ScheduleSendValue(
 				target = target,
@@ -174,9 +195,22 @@ internal class ScheduledSendOps(
 				body = body,
 				expectedVersion = rec.replacesVersion,
 			)
-			val answer = collaborators.postOwnerOp(wireJson.encodeToJsonElement(ScheduleSendValue.serializer(), value).jsonObject, rec.opId)
-			val outcome = answer?.jsonObject?.get("outcome")?.jsonPrimitive?.content
+			val answer = posted(team) {
+				collaborators.postOwnerOp(wireJson.encodeToJsonElement(ScheduleSendValue.serializer(), value).jsonObject, rec.opId)
+			} ?: continue
+			val outcome = answer.jsonObject["outcome"]?.jsonPrimitive?.content
+			val reason = answer.jsonObject["reason"]?.jsonPrimitive?.content
 			val current = state.value.scheduledSends[team]?.takeIf { it.opId == rec.opId } ?: continue
+			if (outcome != Protocol.Wire.OP_OUTCOME_ACCEPTED && reason == SCHEDULE_SETTLED) {
+				// The replaced send finished; its result row echoes or marks it.
+				val settled = answer.jsonObject["state"]?.jsonPrimitive?.content
+				if (settled == "cancelled") takeBack(team, current, settledSentence(settled))
+				else {
+					remove(team, current)
+					tell(team, settledSentence(settled))
+				}
+				continue
+			}
 			when (outcome) {
 				Protocol.Wire.OP_OUTCOME_ACCEPTED -> {
 					val version = answer.jsonObject["version"]?.jsonPrimitive?.long
@@ -186,7 +220,7 @@ internal class ScheduledSendOps(
 							land { collaborators.append(team, Message(true, current.text, System.currentTimeMillis(), files = current.fileRefs, opId = current.opId)) }
 							remove(team, current)
 						}
-						"cancelled" -> takeBack(team, current, "cancelled elsewhere")
+						"cancelled" -> takeBack(team, current, Line.CANCELLED_ELSEWHERE.text)
 						"error" -> {
 							remove(team, current)
 							onScheduledSendFailed?.invoke(team, current.opId)
@@ -194,13 +228,19 @@ internal class ScheduledSendOps(
 						else -> put(team, current.copy(routerVersion = version, replacesVersion = null))
 					}
 				}
-				"conflict" -> {
+				SCHEDULE_CONFLICT -> {
 					val adopted = adoptRouterRecord(team)
-					if (current.replacesVersion == null || !adopted) {
-						takeBack(team, current, if (adopted) "another send is already scheduled" else "conflict")
+					when {
+						current.replacesVersion == null ->
+							takeBack(team, current, if (adopted) Line.ANOTHER_SCHEDULED.text else Line.CHANGED_ELSEWHERE.text)
+						// The replaced send is firing.
+						!adopted -> {
+							remove(team, current)
+							tell(team, Line.SENDING_NOW.text)
+						}
 					}
 				}
-				Protocol.Wire.SocketFrame.REFUSED -> takeBack(team, current, answer.jsonObject["reason"]?.jsonPrimitive?.content ?: outcome)
+				Protocol.Wire.SocketFrame.REFUSED -> takeBack(team, current, reasonSentence(Act.SCHEDULING, reason))
 			}
 		}
 		for ((team, rec) in ordered.filter { it.value.cancelRequested && it.value.routerVersion != null }) {
@@ -231,31 +271,41 @@ internal class ScheduledSendOps(
 				val (text, files) = decodedBody(wire) ?: return@pass
 				land { collaborators.append(team, Message(true, text, System.currentTimeMillis(), files = files, opId = wire.opId)) }
 			}
-			"failed" -> found?.let { (team, rec) ->
+			"failed" -> {
+				val reason = reasonSentence(Act.SENDING_SCHEDULED, row.reason)
+				val echoed = state.value.threads.entries.firstOrNull { (_, msgs) -> msgs.any { it.fromMe && it.opId == row.opId } }?.key
+				val team = found?.key ?: echoed ?: return@pass
 				synchronized(failurePositionLock) {
-					failurePositions[rec.opId] = position
+					failurePositions[row.opId] = position
 					while (failurePositions.size > 128) failurePositions.remove(failurePositions.keys.first())
 				}
-				remove(team, rec)
-				onScheduledSendFailed?.invoke(team, rec.opId)
+				if (echoed != null) {
+					found?.let { (_, rec) -> remove(team, rec) }
+					val fresh = java.util.UUID.randomUUID().toString()
+					land {
+						state.update { s -> s.copy(threads = s.threads + (team to withFailedSend(s.threads[team].orEmpty(), row.opId, reason, fresh))) }
+						persistence.persistThreads()
+					}
+				} else found?.let { (_, rec) -> takeBack(team, rec, reason) }
+				onScheduledSendFailed?.invoke(team, row.opId)
 			}
 		}
 	}
 
 	/** Files with a local source as they are; Router-only ones fetched back, or dropped and named. */
-	private suspend fun withSources(rec: ScheduledSend): List<MessageFile> {
+	private suspend fun withSources(team: String, rec: ScheduledSend): List<MessageFile> {
 		val fetched = rec.fileRefs.map { file -> if (file.src != null) file else collaborators.fetchFile(file, "sched-${rec.opId}") }
 		val lost = rec.fileRefs.size - fetched.count { it != null }
-		if (lost > 0) setError("$lost attachment(s) could not be fetched back")
+		if (lost > 0) land { state.update { it.withNotice(lostFilesLine(lost), team = team) } }
 		return fetched.filterNotNull()
 	}
 
 	/** The record leaves; its text and files go to the composer. */
-	private suspend fun takeBack(team: String, rec: ScheduledSend, reason: String?) {
+	private suspend fun takeBack(team: String, rec: ScheduledSend, sentence: String) {
 		remove(team, rec)
-		val files = withSources(rec)
+		val files = withSources(team, rec)
 		land { collaborators.takeBackIntoDraft(team, rec.text, files) }
-		setError(reason)
+		tell(team, handedBack(sentence))
 	}
 
 	private suspend fun routerRecords(opId: String): List<ScheduledRecord> {
@@ -296,15 +346,33 @@ internal class ScheduledSendOps(
 		return adopt(team, wire)
 	}
 
-	private fun validTime(at: Long): Boolean {
+	private fun validTime(team: String, at: Long): Boolean {
 		val now = System.currentTimeMillis()
-		if (at <= now) state.update { it.copy(error = "That time has already passed - try scheduling again.") }
-		else if (at - now > ChatRepository.SCHEDULED_SEND_MAX_HORIZON_MS) state.update { it.copy(error = "Can't schedule more than 30 days out.") }
+		if (at <= now) tell(team, Line.TIME_PASSED.text)
+		else if (at - now > ChatRepository.SCHEDULED_SEND_MAX_HORIZON_MS) tell(team, Line.TOO_FAR.text)
 		return at > now && at - now <= ChatRepository.SCHEDULED_SEND_MAX_HORIZON_MS
 	}
 
 	private fun put(team: String, rec: ScheduledSend) = land { state.update { it.copy(scheduledSends = it.scheduledSends + (team to rec)) }; persistence.persistScheduledSends() }
 	private fun remove(team: String, rec: ScheduledSend) = land { if (state.value.scheduledSends[team]?.opId == rec.opId) { state.update { it.copy(scheduledSends = it.scheduledSends - team) }; persistence.persistScheduledSends() } }
 	private fun deleteSourcesIfUnreferenced(team: String, rec: ScheduledSend) { if (state.value.threads[team]?.any { it.opId == rec.opId } != true) collaborators.scheduleAttachmentDelete(rec.fileRefs.mapNotNull(MessageFile::src)) }
-	private fun setError(reason: String?) { state.update { it.copy(error = "Scheduled send: ${reason ?: "unavailable"}") } }
+	/** One notice per send, in its conversation. */
+	private fun tell(team: String, line: String) = state.update { it.withNotice(line, scheduledNoticeKey(team), team) }
 }
+
+internal const val SCHEDULE_SETTLED = "settled"
+internal const val SCHEDULE_CONFLICT = "conflict"
+
+/** The sealed plaintext the Router fires; `phone-encoded/cases.json` holds a case of it. */
+internal fun scheduledPlaintext(text: String, opId: String, files: List<MessageFile>): ByteArray =
+	org.json.JSONObject()
+		.put("text", text)
+		.put("messageId", opId)
+		.put("files", org.json.JSONArray().also { a -> files.forEach { a.put(fileJson(it)) } })
+		.toString()
+		.toByteArray()
+
+internal fun scheduledNoticeKey(team: String) = "scheduled:$team"
+
+/** Past its time, a dock waits on the Router's result. */
+internal fun scheduledSending(rec: ScheduledSend, now: Long): Boolean = now >= rec.fireAtMillis

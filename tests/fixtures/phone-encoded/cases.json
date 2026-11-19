@@ -421,6 +421,24 @@
 					"everyMin": 120
 				}
 			}
+		},
+		{
+			"name": "a scheduled message with a file",
+			"schema": "ScheduledBody",
+			"value": {
+				"files": [
+					{
+						"blobId": "sha256-abababababababababababababababababababababababababababababababab",
+						"mime": "text/plain",
+						"name": "notes.txt",
+						"role": "attachment",
+						"size": 12,
+						"src": "/tmp/sched-op/notes.txt"
+					}
+				],
+				"messageId": "sched-op",
+				"text": "Morning standup notes"
+			}
 		}
 	]
 }

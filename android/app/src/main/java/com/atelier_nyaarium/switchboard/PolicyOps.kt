@@ -44,7 +44,7 @@ internal class PolicyOps(
 		unattended = { left -> tell(leftLine(left.draft.name, "Policy", left.said?.reason.orEmpty())) },
 	)
 
-	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
+	private fun tell(message: String) = state.update { it.withNotice(message) }
 
 	private val reads = GatewayReadFence()
 

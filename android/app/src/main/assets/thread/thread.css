@@ -165,6 +165,12 @@ html, body {
 /* The two ways out of a failed send, anchored to the row's bottom-right. Sized as real touch
    targets rather than inline text: they are the only actions in the thread that resend or discard
    something, so they should be hard to hit by accident and easy to hit on purpose. */
+.failed-reason {
+	margin-top: 8px;
+	font-size: 13px;
+	color: var(--error);
+}
+
 .failed-actions {
 	display: flex;
 	justify-content: flex-end;

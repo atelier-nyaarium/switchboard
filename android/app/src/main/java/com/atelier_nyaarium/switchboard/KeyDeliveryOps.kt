@@ -192,7 +192,7 @@ internal class KeyDeliveryOps(
 		val current = ambient.now()
 		val due = synchronized(missing) {
 			val expired = missing.filterValues { current - it >= MISSING_WINDOW_MS }.keys.toList()
-			expired.forEach { missing.remove(it); collaborators.reportError("Content key epoch $it remains unavailable") }
+			expired.forEach { missing.remove(it); collaborators.reportError(keyEpochLine(it)) }
 			if (current - missingLastSentAt >= MISSING_RETRY_MS) missing.keys.toList() else emptyList()
 		}
 		if (due.isNotEmpty()) {

@@ -69,12 +69,8 @@ internal class SessionOps(
 				withContext(Dispatchers.IO) { host.createSession(target, displayLabel = label, workdir = workdir, opId = opId, harness = harness.wire) }
 			}
 				.onSuccess { result ->
-					host.state.update {
-						it.copy(
-							transientMessages = if (result.labelSanitized == true) {
-								it.transientMessages + "\"$label\" has unsupported characters; the session was created using its id as the name instead"
-							} else it.transientMessages,
-						)
+					if (result.labelSanitized == true) {
+						host.state.update { it.withNotice(labelLine(label)) }
 					}
 					refreshAfterAction()
 					// Re-press joins until settled.
@@ -87,8 +83,7 @@ internal class SessionOps(
 					}
 				}
 				.onFailure { e ->
-					val reason = e.message ?: "Failed to create \"$label\""
-					host.state.update { it.copy(transientMessages = it.transientMessages + reason) }
+					host.state.update { it.withNotice(thrownSentence(Act.CREATING_SESSION, e)) }
 				}
 		} finally {
 			// Op id stays for retry.
@@ -111,15 +106,6 @@ internal class SessionOps(
 	/** Spares a newer same-key id. */
 	private fun forgetOpId(key: Pair<String, String>, opId: String) {
 		recentSpawnOpIds[key]?.takeIf { it.first == opId }?.let { recentSpawnOpIds.remove(key, it) }
-	}
-
-	fun consumeTransientMessage(): String? {
-		var msg: String? = null
-		host.state.update { state ->
-			msg = state.transientMessages.firstOrNull()
-			state.copy(transientMessages = if (msg == null) state.transientMessages else state.transientMessages.drop(1))
-		}
-		return msg
 	}
 
 	suspend fun tmuxSend(team: String, text: String? = null, key: String? = null, submit: Boolean = true) =
@@ -183,13 +169,14 @@ internal class SessionOps(
 			runCatchingCancellable { host.wake(target, opId, harness) }
 				.onSuccess {
 					settleReceipt(team, opId, ActionReceipt.Outcome.ACCEPTED)
+					host.state.update { it.withoutNoticeKey("wake:$team") }
 					refreshAfterAction()
 				}
 				.onFailure { e ->
 					DebugLog.log("Wake", "wake $team failed: ${e.javaClass.simpleName}: ${e.message?.take(160)}")
 					settleReceipt(team, opId, ActionReceipt.Outcome.FAILED)
 					presence.reapplyCachedTeams()
-					host.state.update { it.copy(transientMessages = it.transientMessages + (e.message ?: "wake failed")) }
+					host.state.update { it.withNotice(thrownSentence(Act.WAKING, e), key = "wake:$team", team = team) }
 				}
 		}
 	}
@@ -340,16 +327,15 @@ internal class SessionOps(
 		val applied = runCatchingCancellable { host.forget(p.team, p.boardDisposition, p.opId) }
 			.getOrElse { e ->
 				DebugLog.log("Forget", "team=${p.team} failed: ${e.message?.take(160)}")
-				if (announce) host.state.update { it.copy(transientMessages = it.transientMessages + (e.message ?: "Forget failed")) }
+				if (announce) host.state.update { it.withNotice(thrownSentence(Act.FORGETTING, e), key = "forget:${p.team}") }
 				if (e is OwnerOpFailure && e.settled) retireForget(p) else scheduleForgetRetry()
 				return
 			}
 		retireForget(p)
+		host.state.update { it.withoutNoticeKey("forget:${p.team}") }
 		refreshAfterAction()
 		if (p.boardDisposition != null && applied != p.boardDisposition) {
-			host.state.update {
-				it.copy(transientMessages = it.transientMessages + "Gateway needs an update; that session's tasks went back to the backlog.")
-			}
+			host.state.update { it.withNotice(Line.TASKS_BACKLOG.text) }
 		}
 	}
 

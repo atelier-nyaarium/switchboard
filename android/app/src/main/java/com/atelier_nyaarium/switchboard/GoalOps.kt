@@ -23,12 +23,12 @@ internal class GoalOps(
 
 	suspend fun armAndSend(team: String, goal: String, text: String, files: List<MessageFile>): Boolean {
 		if (!takesGoals(harnessOf(state.value.sessions().firstOrNull { it.name == team }))) {
-			state.update { it.copy(error = "That session's CLI takes no goal.") }
+			state.update { it.withNotice(Line.NO_GOAL_CLI.text, team = team) }
 			return false
 		}
 		val clean = sanitizeGoalText(goal)
 		if (clean.isEmpty()) {
-		state.update { it.copy(error = "Type what the goal is before setting one.") }
+		state.update { it.withNotice(Line.GOAL_EMPTY.text, team = team) }
 			return false
 		}
 		putGoal(team, PendingGoal(clean, System.currentTimeMillis()))
@@ -38,7 +38,7 @@ internal class GoalOps(
 		val settled = opId?.let { id -> state.value.threads[team]?.firstOrNull { it.opId == id } }
 		if (settled == null || settled.status == "error") {
 			clearGoal(team)
-			state.update { it.copy(error = "That message did not send, so no goal was set.") }
+			state.update { it.withNotice(Line.GOAL_UNSENT.text, team = team) }
 			return false
 		}
 		updateGoal(team) { it.copy(sentAt = System.currentTimeMillis()) }
@@ -65,7 +65,7 @@ internal class GoalOps(
 					when (val step = goalStep(rec, System.currentTimeMillis(), capturePane(team))) {
 						is GoalStep.Expire -> {
 							clearGoal(team)
-							state.update { it.copy(error = "Goal dropped: ${step.reason}.") }
+							state.update { it.withNotice(goalDroppedLine(step.reason), team = team) }
 							DebugLog.log("Goal", "expired for $team: ${step.reason}")
 							return@launch
 						}
@@ -99,7 +99,7 @@ internal class GoalOps(
 			.onSuccess { DebugLog.log("Goal", "typed into $team") }
 			.onFailure { e ->
 				DebugLog.log("Goal", "typing into $team failed: ${e.javaClass.simpleName}")
-				state.update { it.copy(error = "Could not type the goal into that session: ${failureLine(e)}") }
+				state.update { it.withNotice(thrownSentence(Act.TYPING_GOAL, e), team = team) }
 			}
 	}
 

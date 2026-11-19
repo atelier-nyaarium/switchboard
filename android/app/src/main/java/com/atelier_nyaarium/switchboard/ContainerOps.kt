@@ -35,9 +35,9 @@ internal const val CONTAINER_SETTLE_CAP_MS = 60_000L
 
 /** A container's Start and Stop, keyed by its spawn point address. */
 internal class ContainerOps(private val host: ContainerHost) {
-	fun start(target: String) = act(target) { gateway, opId -> gateway.start(target, opId) }
+	fun start(target: String) = act(target, Act.STARTING_CONTAINER) { gateway, opId -> gateway.start(target, opId) }
 
-	fun stop(target: String) = act(target) { gateway, opId -> gateway.stop(target, opId) }
+	fun stop(target: String) = act(target, Act.STOPPING_CONTAINER) { gateway, opId -> gateway.stop(target, opId) }
 
 	/** Starts [target] and tells [settled] once, when it runs or when its start fails. */
 	fun startThen(target: String, settled: (ContainerSettle) -> Unit) {
@@ -52,7 +52,8 @@ internal class ContainerOps(private val host: ContainerHost) {
 	}
 
 	/** Op answers at acceptance, so busy until state moves. */
-	private fun act(target: String, call: suspend (ContainerGateway, String) -> Unit) {
+	private fun act(target: String, doing: Act, call: suspend (ContainerGateway, String) -> Unit) {
+		val key = "container:$target"
 		val from = containerAt(host.state.value, target)
 		val before = host.state.getAndUpdate {
 			if (target in it.containerOpsInFlight) it else it.copy(containerOpsInFlight = it.containerOpsInFlight + target)
@@ -65,8 +66,8 @@ internal class ContainerOps(private val host: ContainerHost) {
 					call(gateway, UUID.randomUUID().toString())
 				}.onFailure { e ->
 					DebugLog.log("Container", "target=$target failed: ${e.message?.take(160)}")
-					host.state.update { it.copy(transientMessages = it.transientMessages + (e.message ?: "Failed")) }
-				}.isSuccess
+					host.state.update { it.withNotice(thrownSentence(doing, e), key = key) }
+				}.onSuccess { host.state.update { it.withoutNoticeKey(key) } }.isSuccess
 				if (accepted) withTimeoutOrNull(host.settleCapMs) { host.state.first { containerAt(it, target) != from } }
 			} finally {
 				host.state.update { it.copy(containerOpsInFlight = it.containerOpsInFlight - target) }

@@ -20,8 +20,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,65 +38,41 @@ import kotlinx.coroutines.delay
 ////////////////////////////////
 //  Composables
 
-/** Dock for a pending scheduled send: a plain sibling in ThreadScreen's Column, stacking above the
- * composer like the Designer dock's threadDockSlots. Tapping reopens [ScheduleSendDialog] to retime
- * it (see onEdit's doc at the ThreadScreen call site for why this is time-only); the trailing icon
- * cancels outright. */
+/** A pending scheduled send; tap retimes it, the icon cancels. */
 @Composable
 fun ScheduledSendDock(rec: ScheduledSend, onEdit: () -> Unit, onCancel: () -> Unit, cancelEnabled: Boolean) {
-	// NOT remember-cached: a device timezone change while this composable stays mounted must be
-	// picked up on the next recomposition, mirroring IdlePushbackManager's own fresh-read-per-call
-	// discipline for the identical value (it takes zone as a supplier invoked fresh every decide()).
+	// Not remembered: a zone change must show.
 	val zone = java.time.ZoneId.systemDefault()
-	// Recomputed roughly every minute while the thread is open - "live-ish", not truly ticking
-	// per-second, mirroring the cross-domain-presence freshness chip's own periodic-ticker pattern.
 	var now by remember { mutableStateOf(System.currentTimeMillis()) }
-	LaunchedEffect(rec.opId) {
+	LaunchedEffect(rec.opId, rec.fireAtMillis) {
 		while (true) {
-			delay(60_000)
+			delay(nextDockTick(rec, now))
 			now = System.currentTimeMillis()
 		}
 	}
+	val text = scheduledDockText(rec, now, zone)
+	val canCancel = cancelEnabled && text.acts
 	Surface(
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
 		color = MaterialTheme.colorScheme.secondaryContainer,
 		shape = MaterialTheme.shapes.medium,
 	) {
 		Row(
-			Modifier.fillMaxWidth().clickable(onClick = hapticClick(onEdit)).padding(12.dp),
+			Modifier.fillMaxWidth().clickable(enabled = text.acts, onClick = hapticClick(onEdit)).padding(12.dp),
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(10.dp),
 		) {
 			Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
 			Column(Modifier.weight(1f)) {
-				Text(
-					when {
-						rec.cancelRequested -> "Cancelling"
-						rec.routerVersion == null -> "Waiting for the Router"
-						else -> "Sending at ${absoluteTimeText(rec.fireAtMillis, zone)}"
-					},
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSecondaryContainer,
-				)
-				Text(
-					when {
-						rec.cancelRequested -> "Waiting for the Router"
-						rec.routerVersion == null -> "Edit or cancel anytime"
-						else -> countdownText(rec.fireAtMillis - now)
-					},
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSecondaryContainer,
-				)
+				Text(text.headline, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+				Text(text.detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
 			}
-			// Disabled while the composer holds text, purely as UX - cancelling hands this send's own
-			// text and files back into the draft (ChatRepository.takeBackIntoDraft), which itself
-			// guards against overwriting whatever is being typed regardless of this flag. Matches the
-			// failed-send row's own Cancel.
-			IconButton(onClick = hapticClick(onCancel), enabled = cancelEnabled) {
+			// Cancel hands the send back; takeBackIntoDraft guards typed text.
+			IconButton(onClick = hapticClick(onCancel), enabled = canCancel) {
 				Icon(
 					Icons.Default.Close,
 					contentDescription = "Cancel scheduled send",
-					tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = if (cancelEnabled) 1f else 0.4f),
+					tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = if (canCancel) 1f else 0.4f),
 				)
 			}
 		}
@@ -192,8 +170,9 @@ fun LaunchErrorDock(line: String, onDismiss: () -> Unit) {
 		color = MaterialTheme.colorScheme.errorContainer,
 		shape = MaterialTheme.shapes.medium,
 	) {
+		// Height follows the text; the padding keeps a wrapped last line inside.
 		Row(
-			Modifier.fillMaxWidth().padding(start = 12.dp),
+			Modifier.fillMaxWidth().padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(10.dp),
 		) {
@@ -203,6 +182,20 @@ fun LaunchErrorDock(line: String, onDismiss: () -> Unit) {
 				Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = content)
 			}
 		}
+	}
+}
+
+/** Held notices, newest last, each dismissible. */
+@Composable
+internal fun NoticeStack(lines: List<NoticeLine>, onDismiss: (Long) -> Unit, onClearAll: () -> Unit) {
+	if (lines.isEmpty()) return
+	Column {
+		if (showsClearAll(lines.size)) {
+			TextButton(onClick = hapticClick(onClearAll), modifier = Modifier.align(Alignment.End).padding(horizontal = 12.dp)) {
+				Text("Clear all")
+			}
+		}
+		lines.forEach { line -> key(line.id) { LaunchErrorDock(line.text) { onDismiss(line.id) } } }
 	}
 }
 

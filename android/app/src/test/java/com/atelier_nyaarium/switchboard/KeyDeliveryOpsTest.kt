@@ -327,7 +327,7 @@ class KeyDeliveryOpsTest {
 		assertEquals(2, sent.size)
 		timer.advance(24 * 60 * 60 * 1000L)
 		assertEquals(2, errors.size)
-		assertTrue(errors.all { it.contains("epoch 1") || it.contains("epoch 2") })
+		assertEquals(setOf(keyEpochLine(1), keyEpochLine(2)), errors.toSet())
 	}
 
 	@Test

@@ -58,7 +58,7 @@ internal class RoutineOps(
 		unattended = { left -> tell(leftLine(left.draft.name, "Routine", left.said?.reason.orEmpty())) },
 	)
 
-	private fun tell(message: String) = state.update { it.copy(transientMessages = it.transientMessages + message) }
+	private fun tell(message: String) = state.update { it.withNotice(message) }
 
 	private val reads = GatewayReadFence()
 

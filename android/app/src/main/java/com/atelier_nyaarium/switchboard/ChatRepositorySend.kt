@@ -12,7 +12,7 @@ suspend fun ChatRepository.send(team: String, text: String, files: List<MessageF
 	val (picked, refused) = rebuildFiles(files)
 	if (refused != null) {
 		DebugLog.log("Send", "admission refused before the wire: ${refused.message()}")
-		_state.update { it.copy(transientMessages = it.transientMessages + refused.message()) }
+		_state.update { it.withNotice(refused.message(), team = team) }
 		return@withContext null
 	}
 	// Bucket attachments by opId so concurrent sends cannot share deletion paths.
@@ -52,17 +52,15 @@ suspend fun ChatRepository.retrySend(team: String, messageId: Long, targetDomain
 		persistence.persistThreads()
 		val (files, refused) = rebuildFiles(msg)
 		if (refused != null) {
-			setMessageStatus(team, messageId, "error")
-			_state.update { it.copy(transientMessages = it.transientMessages + refused.message()) }
+			setMessageStatus(team, messageId, "error", refused.message())
 			return@withContext
 		}
 		if (msg.text.isBlank() && files.isEmpty()) {
-			setMessageStatus(team, messageId, "error")
-			_state.update { it.copy(transientMessages = it.transientMessages + "Attachments are no longer on this device; cannot retry.") }
+			setMessageStatus(team, messageId, "error", Line.ATTACHMENTS_GONE.text)
 			return@withContext
 		}
 		if (files.size < msg.files.size) {
-			_state.update { it.copy(transientMessages = it.transientMessages + "Some attachments are no longer on this device; resending the rest.") }
+			_state.update { it.withNotice(Line.SOME_ATTACHMENTS_GONE.text, team = team) }
 		}
 		deliver(team, messageId, msg.text, files, msg.opId ?: java.util.UUID.randomUUID().toString(), false, targetDomainOverride)
 	}
@@ -77,10 +75,7 @@ internal suspend fun ChatRepository.deliver(
 	targetDomainOverride: String? = null,
 ) {
 	var succeeded = false
-	fun fail(message: String?) {
-		_state.update { it.copy(transientMessages = it.transientMessages + (message ?: "send failed")) }
-		setMessageStatus(team, echoId, "error")
-	}
+	fun fail(reason: String) = setMessageStatus(team, echoId, "error", reason)
 	try {
 		// Board edits must reach the gateway before the message that reports them.
 		try {
@@ -102,7 +97,7 @@ internal suspend fun ChatRepository.deliver(
 		when {
 			!r.ok -> {
 				DebugLog.log("Send", "op=${opId.take(8)} refused: ${r.error?.take(160)}")
-				fail(r.error)
+				fail(reasonSentence(Act.SENDING, r.error))
 			}
 			else -> {
 				DebugLog.log("Send", "op=${opId.take(8)} ok")
@@ -114,7 +109,7 @@ internal suspend fun ChatRepository.deliver(
 		// Cancellation must remain pending so reconciliation can retry it.
 		e.rethrowIfCancellation()
 		DebugLog.log("Send", "op=${opId.take(8)} threw: ${e::class.simpleName}: ${e.message?.take(160)}")
-		fail(failureLine(e))
+		fail(thrownSentence(Act.SENDING, e))
 	} finally {
 		// Clear wake state on failed or cancelled attempts, but preserve successful notices.
 		if (!succeeded && raisedWakeNotice) _state.update { it.copy(wakingTeams = it.wakingTeams - team) }
@@ -153,13 +148,18 @@ private fun ChatRepository.removeMessage(team: String, id: Long) {
 	persistence.persistThreads()
 }
 
-private fun ChatRepository.setMessageStatus(team: String, id: Long, status: String?) {
+/** Only a failure keeps a reason. */
+private fun ChatRepository.setMessageStatus(team: String, id: Long, status: String?, reason: String? = null) {
 	_state.update { s ->
 		val thread = s.threads[team] ?: return@update s
-		s.copy(threads = s.threads + (team to thread.map { if (it.id == id) it.copy(status = status) else it }))
+		s.copy(threads = s.threads + (team to thread.map { if (it.id == id) it.copy(status = status, failReason = reason) else it }))
 	}
 	persistence.persistThreads()
 }
+
+/** Fresh op id, so Retry is not a replay. */
+internal fun withFailedSend(thread: List<Message>, opId: String, reason: String, fresh: String): List<Message> =
+	thread.map { if (it.fromMe && it.opId == opId) it.copy(status = "error", failReason = reason, opId = fresh) else it }
 
 /** A shared screen in its own bucket, as `screen` files [send] admits with the rest. Blocks on disk. */
 internal fun ChatRepository.stageScreen(png: ByteArray?, text: String?): List<MessageFile> {
@@ -213,13 +213,13 @@ suspend fun ChatRepository.reconcilePending() = withContext(Dispatchers.IO) {
 			val key = "$team:${m.id}"
 			if (!reconciled.add(key)) continue
 			if (m.opId == null) {
-				// Legacy rows without an opId cannot be safely re-sent.
-				setMessageStatus(team, m.id, "error")
+				// A row with no opId cannot be re-sent.
+				setMessageStatus(team, m.id, "error", Line.CUT_OFF.text)
 				continue
 			}
 			val (rebuilt, refusedRow) = rebuildFiles(m)
 			if (refusedRow != null) {
-				setMessageStatus(team, m.id, "error")
+				setMessageStatus(team, m.id, "error", refusedRow.message())
 				DebugLog.log("Reconcile", "re-send of $key refused: ${refusedRow.reason}")
 				continue
 			}
@@ -231,7 +231,7 @@ suspend fun ChatRepository.reconcilePending() = withContext(Dispatchers.IO) {
 				throw e
 			} catch (e: Throwable) {
 				// Settle unexpected errors as retriable so one row cannot crash-loop the app.
-				setMessageStatus(team, m.id, "error")
+				setMessageStatus(team, m.id, "error", thrownSentence(Act.SENDING, e))
 				DebugLog.log("Reconcile", "re-send of $key failed non-retriably: $e")
 			}
 		}

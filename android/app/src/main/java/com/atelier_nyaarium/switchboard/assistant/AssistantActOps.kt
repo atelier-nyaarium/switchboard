@@ -1,7 +1,10 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.fragment.app.FragmentActivity
+import com.atelier_nyaarium.switchboard.Act
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.reasonSentence
+import com.atelier_nyaarium.switchboard.withNotice
 import com.atelier_nyaarium.switchboard.ClearsOnReprovision
 import com.atelier_nyaarium.switchboard.ConsoleClient
 import com.atelier_nyaarium.switchboard.DebugLog
@@ -171,7 +174,7 @@ internal class AssistantActOps(
 
 	/** Error outlives the settled card. */
 	private fun refused(reason: String): AssistantActAnswer.Refused {
-		state.update { it.copy(error = "Assistant: $reason") }
+		state.update { it.withNotice(reasonSentence(Act.ASSISTANT_ACTION, reason)) }
 		return AssistantActAnswer.Refused(reason)
 	}
 }

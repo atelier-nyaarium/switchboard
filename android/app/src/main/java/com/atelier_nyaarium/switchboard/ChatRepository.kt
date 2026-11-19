@@ -168,7 +168,7 @@ class ChatRepository(
 					signOwnerOp = { op -> ownerOpsOrNull()?.sign(op) },
 					sendOwnerOp = { client().postOwnerOp(it) },
 					install = { envelope, trust -> identity.installContentKey(boot, envelope, trust) },
-					reportError = { message -> _state.update { it.copy(error = message) } },
+					reportError = { message -> _state.update { it.withNotice(message) } },
 				),
 			)
 		}
@@ -254,7 +254,7 @@ class ChatRepository(
 		SupervisorJob() + Dispatchers.IO +
 			CoroutineExceptionHandler { _, e ->
 				DebugLog.log("Repo", "uncaught in repo scope: ${e.javaClass.simpleName}: ${e.message}")
-				_state.update { it.copy(error = "Something went wrong: ${e.javaClass.simpleName}") }
+				_state.update { it.withNotice(Line.BACKGROUND.text) }
 			},
 	)
 
