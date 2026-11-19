@@ -12,11 +12,13 @@ import com.atelier_nyaarium.switchboard.assistant.holePaint
 import com.atelier_nyaarium.switchboard.assistant.nameShapes
 import com.atelier_nyaarium.switchboard.assistant.namesHere
 import com.atelier_nyaarium.switchboard.assistant.offerOf
+import com.atelier_nyaarium.switchboard.assistant.pickCompletion
 import com.atelier_nyaarium.switchboard.assistant.refusedSpan
 import com.atelier_nyaarium.switchboard.assistant.textAt
 import com.atelier_nyaarium.switchboard.assistant.textParam
 import com.atelier_nyaarium.switchboard.assistant.withEntity
 import com.atelier_nyaarium.switchboard.assistant.withName
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleCompletion
 import com.atelier_nyaarium.switchboard.liveconsole.HolePart
 import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.consoleAssist
@@ -52,6 +54,22 @@ class HoleTextRulesTest {
 		"event",
 		listOf(AutomationPreviewName("event", "Fix the build"), AutomationPreviewName("source", "GitHub")),
 	)
+
+	@Test
+	fun aPickThatFinishesAnOpenHoleClosesItAndOneStillBeingTypedLeavesItOpen() {
+		val entities = setOf("sensors")
+		val pick = { typed: String, insert: String, start: Int, end: Int -> pickCompletion(typed, ConsoleCompletion(insert, insert, start, end), entities) }
+		val offered = holeAssist("On {sou", 7, console, null, nameShapes(names, emptyList())).completions.single()
+
+		assertEquals("On {source}" to 11, pickCompletion("On {sou", offered, entities))
+		assertEquals("On {source}" to 10, pick("On {sou}", "source", 4, 7))
+		assertEquals("{event.reason" to 13, pick("{event.re", "reason", 7, 9))
+		assertEquals("{round(" to 7, pick("{rou", "round(", 1, 4))
+		assertEquals("{round(source" to 13, pick("{round(sou", "source", 7, 10))
+		assertEquals("{sensors" to 8, pick("{sens", "sensors", 1, 5))
+		assertEquals("{source and more" to 7, pick("{sou and more", "source", 1, 4))
+		assertEquals("{round(value) + source}" to 23, pick("{round(value) + sou", "source", 16, 19))
+	}
 
 	@Test
 	fun aTextMayUseTheServedRowsNamesBeforeItsTriggerIsCompleteAndTheirValuesOnceAnswered() {

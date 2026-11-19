@@ -2,11 +2,15 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.CodeToken
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleAssist
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleCompletion
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleTokenKind
 import com.atelier_nyaarium.switchboard.liveconsole.HolePart
 import com.atelier_nyaarium.switchboard.liveconsole.PaintSpan
 import com.atelier_nyaarium.switchboard.liveconsole.VariableShape
+import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.consoleAssist
 import com.atelier_nyaarium.switchboard.liveconsole.consolePaint
+import com.atelier_nyaarium.switchboard.liveconsole.lexConsole
 import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
@@ -90,6 +94,29 @@ internal fun holeAssist(
 	val inner = hole.start + 1
 	val assist = consoleAssist(hole.source, cursor - inner, description, ids, names, noSlow = true)
 	return assist.copy(completions = assist.completions.map { it.copy(start = it.start + inner, end = it.end + inner) })
+}
+
+/** Closes a finished hole. */
+internal fun pickCompletion(text: String, completion: ConsoleCompletion, entities: Set<String>): Pair<String, Int> {
+	val (next, cursor) = completion.applyTo(text)
+	val hole = holeAt(text, completion.start) ?: return next to cursor
+	val finishes = !hole.closed &&
+		completion.end == hole.end &&
+		!completion.insert.endsWith("(") &&
+		completion.insert !in entities &&
+		text.substring(hole.start + 1, completion.start).trimEnd().lastOrNull() != '.' &&
+		openCalls(next.substring(hole.start + 1, cursor)) == 0
+	return if (finishes) "${next.substring(0, cursor)}}${next.substring(cursor)}" to cursor + 1 else next to cursor
+}
+
+/** Open parenthesis count. */
+private fun openCalls(source: String): Int = lexConsole(source).sumOf { token ->
+	when {
+		token.kind != ConsoleTokenKind.PUNCT -> 0
+		token.text == "(" -> 1
+		token.text == ")" -> -1
+		else -> 0
+	}
 }
 
 /** A space where `\{` would escape the brace. */

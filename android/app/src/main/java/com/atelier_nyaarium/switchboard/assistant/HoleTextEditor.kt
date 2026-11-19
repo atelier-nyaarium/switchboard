@@ -54,7 +54,6 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.liveconsole.AssistRows
 import com.atelier_nyaarium.switchboard.liveconsole.CODE
 import com.atelier_nyaarium.switchboard.liveconsole.VariableShape
-import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.paintedCode
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
@@ -158,7 +157,7 @@ internal fun HoleTextEditor(
 				)
 			}
 			AssistRows(assist) { completion ->
-				val (text, cursor) = completion.applyTo(field.text)
+				val (text, cursor) = pickCompletion(field.text, completion, entities)
 				edit(TextFieldValue(text, TextRange(cursor)))
 			}
 		}
@@ -209,7 +208,7 @@ private fun NameRow(name: String, says: String, enabled: Boolean, onPick: () -> 
 			says,
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			maxLines = 1,
+			maxLines = 2,
 			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.weight(1f),
 		)
