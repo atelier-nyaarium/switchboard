@@ -1785,7 +1785,7 @@ A step calls a function and never an automation (Q74), so a function has no swit
 
 ## Phase 2.7e.1 - Engine prep and the one walk (slices 1 and 2)
 
-Design: Phase 2.7e above. Nothing on the wire, nothing a phone sees.
+Design: Phase 2.7e above. Nothing on the wire. One answer a phone sees changes: a tap on a plug that never accepts a connection answers `unreachable` in about five seconds, where it waited out the lease and answered `timeout`.
 
 1. **Engine prep** (Gateway, M). The words and the hold beside them with the device table, the attempt bound, the backoff and the fair runner, natures, every restart rule, an outcome kept per step, runs keyed by step path with one started per automation, "Keep trying for" as ten minutes per action. Effects of a flat list run in order. A fire of a shape this build cannot read is dropped and logged `uncertain`.
 2. **The walk** (Gateway and phone, S). The one walk over today's flat actions and its residue test on both runtimes, so every reader is ready before a function exists.
@@ -1794,7 +1794,7 @@ Gates: a restore of the state 8.14.84 wrote; a fair-runner test with a held fake
 
 Decided while building slice 1:
 
-- **An attempt is bounded at 15 seconds** on a device-road surface of its own. A bound that passes while the op waits in the device queue is a hold; one that passes after the command was written is `no_answer`. One that passes after its turn began but before anything was written, a connect that never opened, is `unreachable` on the automation surface alone, so a Toggle to a dead plug ends at once and an On retries; the console's and the assistant's answers are unchanged.
+- **An attempt is bounded at 15 seconds,** a bound each caller hands the device road; the road knows no surface. A connect has its own bound of five seconds in the Kasa transport and ends `unreachable` for every caller, so a Toggle to a dead plug ends at once and an On retries. A bound that passes while the op waits in the device queue, or before a connect gave up, is a hold; one that passes after the command was written is `no_answer`. An IFTTT attempt has the same 15 seconds, its vault read counted.
 - **Retries back off** from 5 to 60 seconds, counted from each answer. A hold takes its attempt back.
 - **Natures sit beside the runners** on the Gateway until the slice where the phone reads them, when they move to the action table.
 - **A step that only ever held** and runs out of its ten minutes ends `unreachable`. `timeout` is the word after a restart alone. A step that never began an attempt forgets its start at a restart.
@@ -1802,9 +1802,10 @@ Decided while building slice 1:
 - **Each ended step logs one fixed phrase per word.** A stored fire that cannot be read logs one `uncertain` row, none when its automation id cannot be read, and the restore that dropped it writes once.
 - **A throw before anything was sent** (the engine itself, a hole read) is a hold. A throw from an action's port is `no_answer`, judged by nature like any attempt with no word back.
 - **A rollback to 8.14.84 drops every fire stored in the new shape** in memory, with one console line and no run row, so the outcome of a step that was in flight is lost without a trace in the log. The file keeps them until that build next writes its state, so going forward again before then reads them back and runs an unbegun step late, under Question 70's "however late". The automations themselves are untouched.
-- **A newer setting of a switch ends an older one still waiting.** When a set lands, every older open set of the same device, from any automation, ends refused ("a newer setting of this switch landed first"), so a retried On cannot land after the Off that followed it. A Toggle is a nudge, so a Toggle never ends an older Toggle: two automations that each flip a lamp flip it twice. Steps of one run are never touched. A switch flipped by hand between retries is not seen. The device is the one the effect that ran named, so an edit of the newer automation during its attempt hides nothing.
-- **A step whose turn has begun is started,** whether or not an attempt went out, so a newer fire cannot replace it and renew its ten minutes.
-- **The runner takes whichever has waited longest** once anything has waited longer than one attempt and the shortest gap, a first attempt or a retry alike; until then first attempts go before retries. Neither a stream of new runs nor a row of dead plugs can starve the other.
+- **A fire reads the body it fired with.** The state holds each automation body a held fire refers to, keyed by automation, incarnation and revision. The state write is its one writer: it keeps what held fires refer to, takes a missing one from the live record while that record is still at the fire's revision, and drops the rest. Every question about a step after the fire is asked of that body: its nature, the kind on its log row, the switch a landed set names, the runner and the tell's text. A fire with no body retires as "the automation changed"; what may have landed is told by its steps' own rows, not by that row. A build before this ignores the table and drops it at its next write; this build, given a state without it, pins each fire whose record still matches and retires the rest.
+- **A newer setting of a switch ends an older one still waiting.** When a set lands, every older open set of the same device, from any automation, ends refused ("a newer setting of this switch landed first"), so a retried On cannot land after the Off that followed it. A Toggle is a nudge, so a Toggle never ends an older Toggle: two automations that each flip a lamp flip it twice. Steps of one run are never touched. A switch flipped by hand between retries is not seen. The device is read from the body the landed fire fired with, so an edit of the newer automation during its attempt hides nothing.
+- **A run is started once a step's turn has come,** read from the fire's active list and from no step field, whether or not an attempt went out. A newer fire cannot replace it and renew its ten minutes, and a restart that erases a held step's clock leaves it started.
+- **The runner takes whichever step fell due first:** a first attempt is due at its turn, a retry at its last answer plus its gap, and fire order breaks a tie. A retry before its gap is no candidate. Neither a stream of new runs nor a row of dead plugs can starve the other.
 - **An IFTTT post is not retried on a failure today**, since its client cannot yet tell a post that never left from one that left with no word, and answers both as `no_answer`. The word table already retries `unreachable` for it, for the day the client can. On the board.
 
 ### Bug Classes
@@ -1819,14 +1820,24 @@ Mechanisms patched for the same class in more than one audit round of this phase
 
 ### Architecture pass
 
-The audit behind this is `architecture-27e1-synthesis.md` in the session scratchpad: one lens per bug class above, plus the engine's structure. Taken in this phase, in this order, each leaving the tree green:
+Built, one change per bug class above, each leaving the tree green. The audit behind it is `architecture-27e1-synthesis.md` in the session scratchpad.
 
-1. **A run is started when its active list is not empty.** `started` reads the one field `advance` sets, never a step's fields. Ends the first class.
-2. **One due time orders the runner.** A first attempt is due at its turn, a retry at its last answer plus its gap, and the runner takes the smallest. The two-tier rule, the overdue bound and the side set go. This replaces "a first attempt before a due retry": a first attempt now waits behind retries that fell due before its turn, at most one attempt bound each. Ends the third class.
-3. **A fire reads the version it fired.** The state holds each automation body a held fire fired with, written by `commit` alone and read through one function. Every read about a step after the fire comes from it, never from the live record. Ends the fourth class, and is the table Question 73 needs: the functions phase pins a function's revision in it.
-4. **The transport says when a plug never accepted.** A connect has its own bound of about five seconds and ends `unreachable`; the road has one decline rule and takes a bound, not a surface; the automation port maps the road's outcome directly. The automation's IFTTT attempt gets the same fifteen seconds. Ends the second class. Seen by the owner: a tap on a dead plug from the phone answers "unreachable" in about five seconds, where it waited out the lease and answered "timeout".
+1. **A run is started when its active list is not empty.** `started` reads the one field `advance` sets, never a step's fields, and the fire's schema refuses an active path that names no step. A fire the 8.14.84 build stored reads started only when one of its effects was claimed or done. Ends the first class.
+2. **One due time orders the runner** (`dueAt`, `nextEffect` over a list of runnable steps). The two-tier rule, the overdue bound that copied the device road's 15 seconds, and the side set are gone, and a step is named by its path as text. Ends the third class.
+3. **A fire reads the version it fired** (`versions` in the state, `bodyOf` and `stepAt`). `commit` is the one writer. The answer of an attempt no longer carries the nature or the switch of what ran, since the body holds them. Ends the fourth class, and is the table Question 73 needs: the functions phase pins a function's revision in it.
+4. **The transport says when a plug never accepted** (`KASA_CONNECT_MS`, `connectBy`). The road has one decline rule and takes a bound, with the table of bounds in `composeDevices.ts`; `attemptOf` maps the road's outcome for the automation port, beside the IFTTT mapping; the IFTTT client takes a bound. Ends the second class.
+
+Also renamed: the runner's map of kind to nature is `KIND_NATURES`, apart from the `NATURES` tuple of the three words.
 
 Moved to the first step of 2.7e.2, where the record shapes are rewritten anyway: sealing `actions` in the type so only the walk can open it (the fifth class). The widened residue test holds until then.
+
+Red team of the pass (five lenses and a verifying synthesis, `redteam-27e1-arch-synthesis.md` in the session scratchpad). The active list and the one due time held under every trace. What it found, and the rule each fix lands as:
+
+- **A fire that retires is never resumed or retried.** Its steps are judged with no nature, so a claim a restart found on an edited automation ends `no_answer` with an `uncertain` row, where the version table had let it resume silently and be dropped as `suppressed`. Retirement is decided before recovery and before answers land. A run that finished in the same pass logs no retire row. A second read found the sibling the first fix missed, a step between attempts whose last word was `no_answer`, so the rule is whole: a retiring fire ends every step it began with what is known, a claim as `no_answer` and a waiting step with the last word it heard. Two rounds in one mechanism (what a retiring fire says of an attempt that may have landed), so it counts as a sixth bug class; the frame walk of 2.7e.3 should end a run in one place.
+- **The effect latch alone says whether an effect's command went out.** A timeout with the latch unmarked is not started, whatever an earlier read of the same operation wrote. Before this, our own deadline cutting the identify read ended a Toggle as "could not be reached" with nothing sent to the relay. Third round of the second bug class: the first patched a connect that never opened, the second a turn with too little bound left, and the pass itself removed the floor that guarded the second.
+- **No effect starts with under about two seconds of its bound left,** for every caller, in the road.
+- **An IFTTT attempt whose bound is gone when its vault read returns is a hold.**
+- **The assistant's plug read waits longer than a connect,** so a dead plug reads `unreachable`.
 
 ## Phase 2.7e.2 - Functions as records (slice 3)
 
