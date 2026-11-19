@@ -1776,6 +1776,14 @@ Later, on the same footing: a block whose steps start together, a block that gro
 
 ## Phase 2.7d - Walk-through and cleanup
 
+Installed 2026-11-18 as 8.14.83, on the owner's word (Questions 61 and 71): the plugin release, the Gateway and the host daemon restarted with a fresh host token, then the app over adb. Riding along: the Copilot delivery typed mid-turn, the host token read by the daemon's own script, the op store's eviction line said once a minute, and two message editor fixes. Every gate passed first, and emulator walk 16 passed.
+
+On start the Gateway turned the four stored GitHub rules into event automations and the stored "Outside below 2 °C" threshold into a crossing. Five automations, all enabled.
+
+Walked on the owner's phone against the real Gateway, with the phone lent for it: Sessions, the menu, Sources with live readings, a sensor's page, both editors, the message editor with a live preview, the leave dialogue, a save and a delete of a test automation, and a Console read. Nothing of the owner's was changed. Not walked: Routines, Runbooks, Vault and Policies, a crossing reaching the assistant, the Copilot typing change. Four small things seen are on the board.
+
+Still owed here: the owner's own use of it, and the list below.
+
 - With the owner: the Sources and Automations pages on the phone, GitHub's four wake automations checked or re-entered, one added and one edited, a real notification and a sensor crossing reaching the assistant.
 - Remove the dated legacy readers; rewrite `plans/watcher-instances.md` on the new vocabulary; docs.
 - **Dated shims become a table** (from the 2.7b architecture review, class "a skew window opened for the reader and not the writer"): one row per window naming its writer, its readers and its closing date, shim sites tagged with the row, and a residue test that fails on a passed date or a tag with no row. Six dates in `schemasAssistant.ts`, `schemasRoutine.ts` and `boardService.ts` have already passed and each needs tightening or a new date. The twins `rulesOf` and `rulesOfAutomations` go with the rules on 2026-11-28, and the sandbox stops composing a sentence.
