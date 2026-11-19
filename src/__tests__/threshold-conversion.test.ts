@@ -118,7 +118,7 @@ function fixture(seed: Seed = {}, failWrites = 0) {
 						write: (intent) => {
 							if (faults.automationWrites === 0) return held.write(intent);
 							faults.automationWrites -= 1;
-							return { written: false, reason: "not saved; try again" };
+							return { written: false, reason: "not saved; try again", refusal: { code: "gone" } };
 						},
 					},
 					record: (id) => devices.record(id),

@@ -186,6 +186,8 @@ export interface AssistantStage {
 	bindAutomations: (automations: AssistantAutomations) => void;
 	/** Null when the trigger can run. */
 	eventIssue: (trigger: EventTrigger) => string | null;
+	/** A source's declared event fields; null when not held. */
+	eventFields: (source: string) => readonly string[] | null;
 	eventSentence: (trigger: EventTrigger) => string;
 	/** Over the live first page. */
 	previewTrigger: (trigger: AutomationTrigger) => Promise<ConsoleAutomationPreviewResult>;
@@ -293,6 +295,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if (source.selfTold) return `${source.label} events are told by their own automations`;
 		return conditionsIssue(canonicalConditions(trigger.conditions), source.fieldSpecs);
 	};
+	const eventFields = (sourceId: string): readonly string[] | null =>
+		sources.find((candidate) => candidate.id === sourceId)?.fieldSpecs.map((spec) => spec.field) ?? null;
 	const eventSentence = (trigger: EventTrigger): string => {
 		const source = sources.find((candidate) => candidate.id === trigger.source);
 		const said = trigger.conditions.map((condition) => {
@@ -902,6 +906,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			);
 		},
 		eventIssue,
+		eventFields,
 		eventSentence,
 		iftttTrigger: (params, bound) => ifttt.trigger(params, bound),
 		previewTrigger: async (trigger) => {

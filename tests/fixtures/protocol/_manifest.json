@@ -124,6 +124,13 @@
 			"file": "automation-action-future-kind.json",
 			"schema": "AutomationAction",
 			"expect": { "ts": "fail", "kotlin": "unknown" }
+		},
+		{ "file": "automation-action-run-function.json", "schema": "AutomationAction", "expect": "pass" },
+		{ "file": "automation-function.json", "schema": "AutomationFunction", "expect": "pass" },
+		{
+			"file": "function-step-future-kind.json",
+			"schema": "FunctionStep",
+			"expect": { "ts": "fail", "kotlin": "unknown" }
 		}
 	]
 }

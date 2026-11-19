@@ -48,6 +48,48 @@
 				]
 			},
 			"reached": [{ "path": "0", "kind": "ifttt_trigger" }, { "path": "1", "kind": "device_set" }]
+		},
+		{
+			"name": "a pointer reaches its function's steps under the call's path",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "event", "source": "github", "conditions": [] },
+				"actions": [
+					{ "kind": "run_function", "function": "warm-up", "values": { "room": "aa:bb:cc:dd:ee:01" } }
+				]
+			},
+			"functions": {
+				"warm-up": {
+					"name": "Warm up",
+					"params": [{ "name": "room", "type": "device" }],
+					"steps": [
+						{
+							"kind": "do",
+							"action": "device_set",
+							"args": {
+								"device": { "kind": "expression", "text": "room" },
+								"verb": { "kind": "literal", "value": "on" }
+							}
+						},
+						{
+							"kind": "do",
+							"action": "tell_assistant",
+							"args": { "when": { "kind": "literal", "value": "now" } }
+						}
+					]
+				}
+			},
+			"reached": [{ "path": "0.0", "kind": "device_set" }, { "path": "0.1", "kind": "tell_assistant" }]
+		},
+		{
+			"name": "a pointer to a function that is not held reaches the pointer itself",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "event", "source": "github", "conditions": [] },
+				"actions": [{ "kind": "run_function", "function": "gone" }]
+			},
+			"functions": {},
+			"reached": [{ "path": "0", "kind": "run_function" }]
 		}
 	]
 }

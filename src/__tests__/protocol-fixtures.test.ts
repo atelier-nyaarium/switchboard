@@ -33,6 +33,7 @@ import {
 	ConsoleDeviceScanResultSchema,
 	ConsoleDeviceSchedulePutResultSchema,
 } from "../shared/schemasDevices.js";
+import { FunctionSchema, FunctionStepSchema } from "../shared/schemasFunction.js";
 import {
 	FileHistoryAnswerSchema,
 	FileMutationAnswerSchema,
@@ -68,6 +69,8 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	AssistantFieldSpec: AssistantFieldSpecSchema,
 	AutomationTrigger: AutomationTriggerSchema,
 	AutomationAction: AutomationActionSchema,
+	AutomationFunction: FunctionSchema,
+	FunctionStep: FunctionStepSchema,
 	ConsoleAutomationListResult: ConsoleAutomationListResultSchema,
 	ConsoleAutomationPutResult: ConsoleAutomationPutResultSchema,
 	ConsoleAutomationPreviewResult: ConsoleAutomationPreviewResultSchema,

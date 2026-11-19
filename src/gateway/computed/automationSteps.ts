@@ -1,6 +1,7 @@
 // One step's attempts and its end, decided from its nature and the words it heard.
 
 import { z } from "zod";
+import { KEEP_TRYING_MIN_DEFAULT } from "../../shared/schemasAutomation.js";
 import type { RunRow } from "./automationLog.js";
 
 /** What one attempt answers. */
@@ -15,7 +16,7 @@ export const NATURES = ["sets", "sends", "nudges"] as const;
 export type Nature = (typeof NATURES)[number];
 
 /** Each step's own, from its turn. */
-export const KEEP_TRYING_MS = 10 * 60_000;
+export const KEEP_TRYING_MS = KEEP_TRYING_MIN_DEFAULT * 60_000;
 export const BACKOFF_MIN_MS = 5_000;
 export const BACKOFF_MAX_MS = 60_000;
 

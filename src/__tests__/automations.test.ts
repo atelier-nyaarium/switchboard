@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -118,6 +119,8 @@ function world(dir: string, home = true) {
 				isHome: () => home,
 				onQueued: () => pokes++,
 				eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
+				eventFields: (source) => (source === "github" ? ["reason", "repo"] : null),
+				entropy: (size) => crypto.randomBytes(size),
 				holes: () => {
 					if (holesThrow) {
 						holesThrow = false;
@@ -951,6 +954,7 @@ describe("automations", () => {
 				actions: [{ kind: "device_set", device: "fan", verb: "toggle" }],
 			},
 			0,
+			true,
 		);
 		automations.ownerPut(
 			"heat",
@@ -1135,6 +1139,7 @@ describe("automations", () => {
 				actions: [{ kind: "device_set", device: "plug", verb: "toggle" }],
 			},
 			0,
+			true,
 		);
 		const event = (at: number) => ({
 			automation: "flash",
@@ -1468,6 +1473,7 @@ describe("automations", () => {
 					actions: [toggle, { kind: "tell_assistant", when: "quietly", message: "rang" }],
 				},
 				0,
+				true,
 			);
 			const count = WAITING_EVENTS_MAX + 3;
 			automations.fireEvents(
@@ -1504,8 +1510,8 @@ describe("automations", () => {
 			const unanswered = async () => {
 				const w = world(fresh());
 				const { automations } = w.open();
-				automations.ownerPut("light", { enabled: true, trigger: event, actions: [on] }, 0);
-				automations.ownerPut("dark", { enabled: true, trigger: event, actions: [off] }, 0);
+				automations.ownerPut("light", { enabled: true, trigger: event, actions: [on] }, 0, true);
+				automations.ownerPut("dark", { enabled: true, trigger: event, actions: [off] }, 0, true);
 				w.answerDevices(() => ({ word: "unreachable" }));
 				automations.fireEvents([{ automation: "light", key: "event:github:light", names: {} }], 5_000);
 				await automations.settled();
@@ -1573,8 +1579,8 @@ describe("automations", () => {
 			it("runs both when two automations set the switch from one event", async () => {
 				const w = world(fresh());
 				const { automations } = w.open();
-				automations.ownerPut("light", { enabled: true, trigger: event, actions: [on] }, 0);
-				automations.ownerPut("dark", { enabled: true, trigger: event, actions: [off] }, 0);
+				automations.ownerPut("light", { enabled: true, trigger: event, actions: [on] }, 0, true);
+				automations.ownerPut("dark", { enabled: true, trigger: event, actions: [off] }, 0, true);
 				automations.fireEvents(
 					[
 						{ automation: "light", key: "event:github:1", names: {} },
@@ -1595,8 +1601,8 @@ describe("automations", () => {
 				w.plugIn("lamp");
 				const flip = { kind: "device_set", device: "lamp", verb: "toggle" } as const;
 				const cold = { kind: "device_set", device: "heater", verb: "off" } as const;
-				automations.ownerPut("night", { enabled: true, trigger: event, actions: [cold, flip] }, 0);
-				automations.ownerPut("blink", { enabled: true, trigger: event, actions: [flip] }, 0);
+				automations.ownerPut("night", { enabled: true, trigger: event, actions: [cold, flip] }, 0, true);
+				automations.ownerPut("blink", { enabled: true, trigger: event, actions: [flip] }, 0, true);
 				w.answerDevices((effect) => (effect === "heater:off" ? { word: "unreachable" } : { word: "done" }));
 				automations.fireEvents([{ automation: "night", key: "event:github:night", names: {} }], 5_000);
 				await automations.settled();
@@ -1676,13 +1682,13 @@ describe("automations", () => {
 			const w = world(fresh());
 			const { automations } = w.open();
 			const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
-			automations.ownerPut("held", { enabled: true, trigger: event, actions: [on] }, 0);
+			automations.ownerPut("held", { enabled: true, trigger: event, actions: [on] }, 0, true);
 			// Another switch, so no newer set outdates the held one.
 			w.plugIn("fan");
 			const flip = { kind: "device_set", device: "fan", verb: "toggle" } as const;
 			const others = Array.from({ length: 9 }, (_, at) => `other${at}`);
 			for (const id of others) {
-				automations.ownerPut(id, { enabled: true, trigger: event, actions: [flip] }, 0);
+				automations.ownerPut(id, { enabled: true, trigger: event, actions: [flip] }, 0, true);
 			}
 			const firing = (automation: string, at: number) => ({
 				automation,
@@ -1731,6 +1737,72 @@ describe("automations", () => {
 					.filter((run) => run.seq === 1)
 					.map((run) => `${run.action} ${run.outcome}`),
 			).toEqual(["tell_assistant ran", "device_set ran", "device_set ran", "ifttt_trigger ran"]);
+		});
+
+		it("lists today's automations beside a stored function, counts the function in the one total, and keeps it as written", () => {
+			const dir = fresh();
+			fs.cpSync(path.join(import.meta.dirname, "fixtures", "automation-state-8.14.84"), dir, { recursive: true });
+			const file = path.join(dir, "automations.json");
+			const fn = {
+				id: "warm-up",
+				kind: "function",
+				revision: 1,
+				incarnation: "f1",
+				body: {
+					name: "Warm up",
+					params: [],
+					steps: [
+						{
+							kind: "do",
+							action: "device_set",
+							args: {
+								device: { kind: "literal", value: "plug" },
+								verb: { kind: "literal", value: "on" },
+							},
+						},
+					],
+				},
+			};
+			fs.writeFileSync(file, JSON.stringify([...JSON.parse(fs.readFileSync(file, "utf8")), fn]));
+			const w = world(dir);
+			const { fields, automations } = w.open();
+			fields.put("band", hotBand, 0);
+
+			const listed = automations.list().map((record) => record.id);
+			const room = Array.from({ length: AUTOMATIONS_MAX - 2 }, (_, at) =>
+				automations.ownerPut(`a${at}`, iceBucket(), 0),
+			).every((put) => put.stored);
+			const over = automations.ownerPut("over", iceBucket(), 0);
+
+			expect([listed, room, over.stored]).toEqual([["heat"], true, false]);
+			expect(
+				JSON.parse(fs.readFileSync(file, "utf8")).find((row: { id: string }) => row.id === "warm-up"),
+			).toEqual(fn);
+		});
+
+		it("refuses a pointer at a function it does not hold or one whose step it cannot run, and takes one it holds", () => {
+			const dir = fresh();
+			const fn = (id: string, action: string) => ({
+				id,
+				kind: "function",
+				revision: 1,
+				incarnation: id,
+				body: { name: id, params: [], steps: [{ kind: "do", action, args: {} }] },
+			});
+			fs.writeFileSync(
+				path.join(dir, "automations.json"),
+				JSON.stringify([fn("tell", "tell_assistant"), fn("odd", "launch_rocket")]),
+			);
+			const { automations } = world(dir).open();
+			const pointing = (function_: string): AutomationInput => ({
+				enabled: true,
+				trigger: { kind: "event", source: "github", conditions: [] },
+				actions: [{ kind: "run_function", function: function_ }],
+			});
+
+			expect(
+				["gone", "odd", "tell"].map((id) => automations.ownerPut(`to-${id}`, pointing(id), 0).stored),
+			).toEqual([false, false, true]);
 		});
 
 		const storedWith = (fires: (held: Record<string, unknown>[]) => unknown[]) => {
@@ -1941,14 +2013,14 @@ describe("automations", () => {
 			actions: [{ kind: "device_set", device: "plug", verb: "toggle" }],
 		};
 		const elsewhere = { ...onMention, actions: [{ kind: "device_set", device: "lamp", verb: "on" }] };
-		automations.ownerPut("flash", onMention, 0);
+		automations.ownerPut("flash", onMention, 0, true);
 		const matched = (at: number) => [{ automation: "flash", key: memberKey("github", { id: "1", at }), names: {} }];
 
 		automations.fireEvents(matched(1), 5_000);
 		automations.fireEvents(matched(1), 6_000);
 		automations.fireEvents(matched(2), 7_000);
 		await automations.settled();
-		const refused = automations.ownerPut("lamp", elsewhere, 0);
+		const refused = automations.ownerPut("lamp", elsewhere, 0, true);
 		w.unplug();
 
 		expect(w.effects).toEqual(["plug:toggle", "plug:toggle"]);
@@ -2030,6 +2102,7 @@ describe("automations", () => {
 			"flash",
 			{ enabled: true, trigger: event, actions: [{ kind: "device_set", device: "plug", verb: "toggle" }] },
 			0,
+			true,
 		);
 		automations.ownerPut(
 			"messaged",

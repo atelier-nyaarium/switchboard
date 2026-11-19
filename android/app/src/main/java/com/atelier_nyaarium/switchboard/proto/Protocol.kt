@@ -159,6 +159,12 @@ object Protocol {
 		const val AUTOMATION_ACTIONS_MAX: Int = 8
 		const val AUTOMATION_INTERVAL_MAX_MIN: Int = 10080
 		const val AUTOMATION_COOL_DOWN_MAX_SEC: Int = 86400
+		const val KEEP_TRYING_MIN_DEFAULT: Int = 10
+		const val KEEP_TRYING_MIN_MIN: Int = 1
+		const val KEEP_TRYING_MIN_MAX: Int = 60
+		const val FUNCTIONS_MAX: Int = 32
+		const val FUNCTION_STEPS_MAX: Int = 8
+		const val FUNCTION_PARAMS_MAX: Int = 8
 
 		val CONSOLE_INSTANT_KEYS: Set<String> = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
 
@@ -177,11 +183,27 @@ object Protocol {
 			WORD("word"),
 			SWITCH("switch"),
 			CHOICE("choice"),
+			FUNCTION("function"),
+			VALUES("values"),
 		}
 
 		enum class CrossingDirection(val wire: String) {
 			ABOVE("above"),
 			BELOW("below"),
+		}
+
+		enum class GivenType(val wire: String) {
+			EVENT("event"),
+			TEXT("text"),
+			NUMBER("number"),
+			DEVICE("device"),
+			TIME("time"),
+		}
+
+		enum class FunctionParamType(val wire: String) {
+			DEVICE("device"),
+			TEXT("text"),
+			NUMBER("number"),
 		}
 
 		enum class PolicyRefusalCode(val wire: String) {
@@ -2616,6 +2638,18 @@ sealed class AutomationAction {
 		val value3: String? = null,
 	) : AutomationAction()
 
+	@Serializable
+	@SerialName("run_function")
+	data class RunFunction(
+		val function: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val values: JsonObject? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val keepTryingMin: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val coolDownSec: Long? = null,
+	) : AutomationAction()
+
 	/** Unknown member, preserved as sent. */
 	data class Unknown(val kind: String, val raw: JsonObject) : AutomationAction()
 }
@@ -2631,6 +2665,7 @@ object AutomationActionSerializer : KSerializer<AutomationAction> {
 			"tell_assistant" -> input.json.decodeFromJsonElement(AutomationAction.TellAssistant.serializer(), body)
 			"device_set" -> input.json.decodeFromJsonElement(AutomationAction.DeviceSet.serializer(), body)
 			"ifttt_trigger" -> input.json.decodeFromJsonElement(AutomationAction.IftttTrigger.serializer(), body)
+			"run_function" -> input.json.decodeFromJsonElement(AutomationAction.RunFunction.serializer(), body)
 			else -> AutomationAction.Unknown(kind ?: "", raw)
 		}
 	}
@@ -2641,6 +2676,7 @@ object AutomationActionSerializer : KSerializer<AutomationAction> {
 			is AutomationAction.TellAssistant -> tagged("tell_assistant", output.json.encodeToJsonElement(AutomationAction.TellAssistant.serializer(), value))
 			is AutomationAction.DeviceSet -> tagged("device_set", output.json.encodeToJsonElement(AutomationAction.DeviceSet.serializer(), value))
 			is AutomationAction.IftttTrigger -> tagged("ifttt_trigger", output.json.encodeToJsonElement(AutomationAction.IftttTrigger.serializer(), value))
+			is AutomationAction.RunFunction -> tagged("run_function", output.json.encodeToJsonElement(AutomationAction.RunFunction.serializer(), value))
 			is AutomationAction.Unknown -> value.raw
 		}
 		output.encodeJsonElement(element)
@@ -2658,6 +2694,76 @@ data class Automation(
 	val trigger: AutomationTrigger,
 	@property:OpensWalk
 	val actions: List<AutomationAction>,
+)
+
+@Serializable
+data class FunctionParam(
+	val name: String,
+	val type: String,
+)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class StepArg {
+	@Serializable
+	@SerialName("literal")
+	data class Literal(
+		val value: JsonElement,
+	) : StepArg()
+
+	@Serializable
+	@SerialName("expression")
+	data class Expression(
+		val text: String,
+	) : StepArg()
+}
+
+@Serializable(with = FunctionStepSerializer::class)
+sealed class FunctionStep {
+	@Serializable
+	@SerialName("do")
+	data class Do(
+		val action: String,
+		val args: JsonObject,
+	) : FunctionStep()
+
+	/** Unknown member, preserved as sent. */
+	data class Unknown(val kind: String, val raw: JsonObject) : FunctionStep()
+}
+
+object FunctionStepSerializer : KSerializer<FunctionStep> {
+	override val descriptor: SerialDescriptor = buildClassSerialDescriptor("FunctionStep")
+
+	override fun deserialize(decoder: Decoder): FunctionStep {
+		val input = decoder as? JsonDecoder ?: throw SerializationException("FunctionStep reads JSON only")
+		val raw = input.decodeJsonElement().jsonObject
+		val body = JsonObject(raw - "kind")
+		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
+			"do" -> input.json.decodeFromJsonElement(FunctionStep.Do.serializer(), body)
+			else -> FunctionStep.Unknown(kind ?: "", raw)
+		}
+	}
+
+	override fun serialize(encoder: Encoder, value: FunctionStep) {
+		val output = encoder as? JsonEncoder ?: throw SerializationException("FunctionStep writes JSON only")
+		val element = when (value) {
+			is FunctionStep.Do -> tagged("do", output.json.encodeToJsonElement(FunctionStep.Do.serializer(), value))
+			is FunctionStep.Unknown -> value.raw
+		}
+		output.encodeJsonElement(element)
+	}
+
+	private fun tagged(kind: String, body: JsonElement): JsonObject =
+		JsonObject(mapOf("kind" to JsonPrimitive(kind)) + body.jsonObject)
+}
+
+@Serializable
+data class AutomationFunction(
+	val name: String,
+	val params: List<FunctionParam>,
+	@property:OpensWalk
+	val steps: List<FunctionStep>,
 )
 
 @Serializable
@@ -5616,4 +5722,17 @@ object FieldTypes {
 	val UNIT_DISPLAYS: List<UnitDisplay> = listOf(UnitDisplay("C", "F", 1.8, 32.0))
 	const val CONVERTED_DECIMALS: Int = 2
 	const val BYTES_PER_ROW: Int = 8
+}
+
+/** `of_field`: the watched field's own type. */
+data class TriggerGive(val name: String, val type: String)
+
+object TriggerGives {
+	val BY_TRIGGER: Map<String, List<TriggerGive>> = mapOf(
+		"event" to listOf(TriggerGive("event", "event"), TriggerGive("source", "text")),
+		"value" to listOf(TriggerGive("value", "of_field"), TriggerGive("field", "text")),
+		"crossing" to listOf(TriggerGive("value", "number"), TriggerGive("device", "device"), TriggerGive("measure", "text"), TriggerGive("threshold", "number")),
+		"time" to listOf(TriggerGive("time", "time")),
+		"interval" to listOf(TriggerGive("time", "time")),
+	)
 }

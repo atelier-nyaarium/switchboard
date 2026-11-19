@@ -8,6 +8,7 @@ import {
 	SignedAdmissionSchema,
 	SignedRevocationSchema,
 } from "../src/shared/admission.js";
+import { AUTOMATION_TRIGGER_GIVES, GIVEN_TYPES } from "../src/shared/automation-fit.js";
 import { CHANNEL_FILES_MAX } from "../src/shared/channel-file.js";
 import {
 	CONSOLE_ANSWER_WAIT_MS,
@@ -182,6 +183,9 @@ import {
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
 	CROSSING_DIRECTIONS,
+	KEEP_TRYING_MIN_DEFAULT,
+	KEEP_TRYING_MIN_MAX,
+	KEEP_TRYING_MIN_MIN,
 } from "../src/shared/schemasAutomation.js";
 import {
 	BoardActorSchema,
@@ -242,6 +246,16 @@ import {
 	KasaDeviceSettingsSchema,
 	KasaSettingPutSchema,
 } from "../src/shared/schemasDevices.js";
+import {
+	FUNCTION_PARAM_TYPES,
+	FUNCTION_PARAMS_MAX,
+	FUNCTION_STEPS_MAX,
+	FUNCTIONS_MAX,
+	FunctionParamSchema,
+	FunctionSchema,
+	FunctionStepSchema,
+	StepArgSchema,
+} from "../src/shared/schemasFunction.js";
 import { RowRecipientSchema, RowStampSchema } from "../src/shared/schemasInbox.js";
 import {
 	ACT_TIERS,
@@ -575,6 +589,10 @@ const ROOTS: z.ZodType[] = [
 	AutomationTriggerSchema,
 	AutomationActionSchema,
 	AutomationSchema,
+	FunctionParamSchema,
+	StepArgSchema,
+	FunctionStepSchema,
+	FunctionSchema,
 	CarriedAutomationSchema,
 	AutomationRowSchema,
 	ConsoleAutomationListResultSchema,
@@ -781,6 +799,8 @@ const SEALED_ROOTS = new Map<string, DecodePolicy>([
 	["AssistantFieldSpec", "preserve"],
 	["AutomationTrigger", "preserve"],
 	["AutomationAction", "preserve"],
+	["StepArg", "strict"],
+	["FunctionStep", "preserve"],
 	["ConsoleDeviceReadResult", "preserve"],
 ]);
 
@@ -1313,6 +1333,12 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["AUTOMATION_ACTIONS_MAX", AUTOMATION_ACTIONS_MAX],
 	["AUTOMATION_INTERVAL_MAX_MIN", AUTOMATION_INTERVAL_MAX_MIN],
 	["AUTOMATION_COOL_DOWN_MAX_SEC", AUTOMATION_COOL_DOWN_MAX_SEC],
+	["KEEP_TRYING_MIN_DEFAULT", KEEP_TRYING_MIN_DEFAULT],
+	["KEEP_TRYING_MIN_MIN", KEEP_TRYING_MIN_MIN],
+	["KEEP_TRYING_MIN_MAX", KEEP_TRYING_MIN_MAX],
+	["FUNCTIONS_MAX", FUNCTIONS_MAX],
+	["FUNCTION_STEPS_MAX", FUNCTION_STEPS_MAX],
+	["FUNCTION_PARAMS_MAX", FUNCTION_PARAMS_MAX],
 ];
 const KOTLIN_INT_MAX = 2_147_483_647;
 const kotlinConstType = (value: string | number) =>
@@ -1758,6 +1784,10 @@ ${wireEnumBlock("ActionParamKind", ACTION_PARAM_KINDS)}
 
 ${wireEnumBlock("CrossingDirection", CROSSING_DIRECTIONS)}
 
+${wireEnumBlock("GivenType", GIVEN_TYPES)}
+
+${wireEnumBlock("FunctionParamType", FUNCTION_PARAM_TYPES)}
+
 ${wireEnumBlock("PolicyRefusalCode", POLICY_REFUSAL_CODES)}
 
 ${schemaConstantBlock("ConsoleOpKind", consoleOpKinds)}
@@ -1863,7 +1893,27 @@ function emitFieldTypeTable(): string {
 	].join("\n");
 }
 
-const output = `${[header, ...blocks, emitFieldTypeTable()].join("\n\n")}\n`;
+/** Mirrors automation-fit.ts's gives table. */
+function emitTriggerGives(): string {
+	const rows = Object.entries(AUTOMATION_TRIGGER_GIVES).map(
+		([kind, gives]) =>
+			`${INDENT}${INDENT}${kotlinString(kind)} to listOf(${gives
+				.map(({ name, type }) => `TriggerGive(${kotlinString(name)}, ${kotlinString(type)})`)
+				.join(", ")}),`,
+	);
+	return [
+		`/** \`of_field\`: the watched field's own type. */`,
+		`data class TriggerGive(val name: String, val type: String)`,
+		"",
+		`object TriggerGives {`,
+		`${INDENT}val BY_TRIGGER: Map<String, List<TriggerGive>> = mapOf(`,
+		...rows,
+		`${INDENT})`,
+		`}`,
+	].join("\n");
+}
+
+const output = `${[header, ...blocks, emitFieldTypeTable(), emitTriggerGives()].join("\n\n")}\n`;
 const phoneCapabilityRegistryOutput = emitPhoneCapabilityRegistry();
 const integrationRegistryOutput = emitIntegrationRegistry();
 const deviceDefinitionsOutput = emitDeviceDefinitions();

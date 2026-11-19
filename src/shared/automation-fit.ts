@@ -1,0 +1,152 @@
+// Whether a trigger and an automation's values fill what a function takes.
+
+import { written } from "./automation-walk.js";
+import { type ConsoleNode, parseConsole } from "./live-console-grammar.js";
+import type { AutomationTriggerKind, FunctionValue } from "./schemasAutomation.js";
+import type { AutomationFunction, FunctionParam, FunctionParamType } from "./schemasFunction.js";
+import { scanHoles } from "./text-holes.js";
+
+export const GIVEN_TYPES = ["event", "text", "number", "device", "time"] as const;
+export type GivenType = (typeof GIVEN_TYPES)[number];
+
+/** The watched field's type. */
+export type GivesType = GivenType | "of_field";
+
+/** In `AUTOMATION_TRIGGERS` order. */
+export const AUTOMATION_TRIGGER_GIVES = {
+	event: [
+		{ name: "event", type: "event" },
+		{ name: "source", type: "text" },
+	],
+	value: [
+		{ name: "value", type: "of_field" },
+		{ name: "field", type: "text" },
+	],
+	crossing: [
+		{ name: "value", type: "number" },
+		{ name: "device", type: "device" },
+		{ name: "measure", type: "text" },
+		{ name: "threshold", type: "number" },
+	],
+	time: [{ name: "time", type: "time" }],
+	interval: [{ name: "time", type: "time" }],
+} as const satisfies Record<AutomationTriggerKind, readonly { name: string; type: GivesType }[]>;
+
+export interface TriggerGiven {
+	names: readonly { name: string; type: GivenType }[];
+	/** Event triggers only. */
+	eventFields?: readonly string[];
+}
+
+export interface FunctionReads {
+	names: readonly string[];
+	/** Read by name. */
+	eventFields: readonly string[];
+}
+
+export interface FitAnswer {
+	fits: boolean;
+	/** Another source's event. */
+	hidden: boolean;
+	/** Names this trigger lacks. */
+	requires: string[];
+	/** Still to set. */
+	unset: string[];
+	/** Wrong type. */
+	wrong: { name: string; wants: FunctionParamType; gets: GivenType }[];
+}
+
+const TRIGGER_NAMES: ReadonlySet<string> = new Set(
+	Object.values(AUTOMATION_TRIGGER_GIVES).flatMap((names) => names.map((held) => held.name)),
+);
+
+const childrenOf = (node: ConsoleNode): (ConsoleNode | null)[] => {
+	switch (node.kind) {
+		case "member":
+			return [node.target];
+		case "call":
+			return [node.target, ...node.args];
+		case "index":
+			return [node.target, node.index];
+		case "unary":
+			return [node.operand];
+		case "binary":
+			return [node.left, node.right];
+		case "list":
+			return node.items;
+		case "dict":
+			return node.entries.map((entry) => entry.value);
+		case "ident":
+		case "literal":
+			return [];
+	}
+};
+
+function collect(node: ConsoleNode | null, into: { names: Set<string>; eventFields: Set<string> }): void {
+	if (!node) return;
+	if (node.kind === "ident" && TRIGGER_NAMES.has(node.name)) into.names.add(node.name);
+	if (node.kind === "member" && node.target.kind === "ident" && node.target.name === "event")
+		into.eventFields.add(node.name);
+	for (const child of childrenOf(node)) collect(child, into);
+}
+
+export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionReads {
+	const into = { names: new Set<string>(), eventFields: new Set<string>() };
+	const read = (source: string) => {
+		for (const statement of parseConsole(source).statements) collect(statement.node, into);
+	};
+	for (const step of written(fn)) {
+		for (const arg of Object.values(step.args)) {
+			if (arg.kind === "expression") read(arg.text);
+			else if (typeof arg.value === "string") {
+				for (const part of scanHoles(arg.value)) if (part.kind === "hole") read(part.source);
+			}
+		}
+	}
+	return { names: [...into.names].sort(), eventFields: [...into.eventFields].sort() };
+}
+
+export function triggerGiven(
+	kind: AutomationTriggerKind,
+	context: { fieldType?: GivenType; eventFields?: readonly string[] } = {},
+): TriggerGiven {
+	const names = AUTOMATION_TRIGGER_GIVES[kind].map(({ name, type }) => ({
+		name,
+		type: type === "of_field" ? (context.fieldType ?? "text") : type,
+	}));
+	return kind === "event" ? { names, eventFields: context.eventFields ?? [] } : { names };
+}
+
+const valueType = (value: FunctionValue): GivenType => (typeof value === "number" ? "number" : "text");
+
+/** A text may fill a device. */
+const takes = (wants: FunctionParamType, gets: GivenType): boolean =>
+	wants === gets || (wants === "device" && gets === "text");
+
+export function fitOf(
+	given: TriggerGiven,
+	fn: { params: readonly FunctionParam[]; reads: FunctionReads },
+	values: Readonly<Record<string, FunctionValue>>,
+): FitAnswer {
+	const gives = new Map(given.names.map(({ name, type }) => [name, type]));
+	const declared = new Set(fn.params.map((param) => param.name));
+	const requires = fn.reads.names.filter((name) => !declared.has(name) && !gives.has(name));
+	const hidden =
+		given.eventFields !== undefined && fn.reads.eventFields.some((field) => !given.eventFields?.includes(field));
+	const unset: string[] = [];
+	const wrong: FitAnswer["wrong"] = [];
+	for (const { name, type } of fn.params) {
+		const fromTrigger = gives.get(name);
+		const set = Object.hasOwn(values, name) ? values[name] : undefined;
+		const gets = fromTrigger ?? (set === undefined ? undefined : valueType(set));
+		if (gets === undefined) unset.push(name);
+		else if (!(fromTrigger ? fromTrigger === type : takes(type, gets))) wrong.push({ name, wants: type, gets });
+	}
+	return {
+		fits: !hidden && requires.length === 0 && unset.length === 0 && wrong.length === 0,
+		hidden,
+		requires,
+		unset,
+		wrong,
+	};
+}

@@ -36,8 +36,14 @@ internal data class ParamOffer(
 	val options: List<ParamOption> = emptyList(),
 )
 
-/** Null for a kind this build cannot draw. */
+/** Null for a kind this build cannot read. */
 internal val ParamOffer.paramKind: ActionParamKind? get() = ActionParamKind.entries.find { it.wire == kind }
+
+/** Whether the action form draws it. */
+internal fun drawn(kind: ActionParamKind): Boolean = when (kind) {
+	ActionParamKind.TEXT, ActionParamKind.WORD, ActionParamKind.SWITCH, ActionParamKind.CHOICE -> true
+	ActionParamKind.FUNCTION, ActionParamKind.VALUES -> false
+}
 
 internal data class ActionOffer(
 	val kind: String,
@@ -48,7 +54,7 @@ internal data class ActionOffer(
 	val params: List<ParamOffer> = emptyList(),
 ) {
 	/** False once a parameter is of a kind this build cannot draw. */
-	val drawable: Boolean get() = params.all { it.paramKind != null }
+	val drawable: Boolean get() = params.all { param -> param.paramKind?.let(::drawn) == true }
 
 	fun param(name: String): ParamOffer? = params.find { it.name == name }
 }
@@ -197,7 +203,7 @@ internal fun freshAction(kind: String, offer: AutomationOffer): ActionDraft? {
 		param.name to when (param.paramKind) {
 			ActionParamKind.CHOICE -> param.options.firstOrNull()?.value.orEmpty()
 			ActionParamKind.SWITCH -> offer.switches.firstOrNull()?.device ?: return null
-			ActionParamKind.TEXT, ActionParamKind.WORD, null -> ""
+			ActionParamKind.TEXT, ActionParamKind.WORD, ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> ""
 		}
 	}
 	return ActionDraft.Filled(kind, values)
@@ -221,7 +227,7 @@ internal fun actionLine(action: AutomationAction, offer: AutomationOffer): Strin
 			ActionParamKind.CHOICE -> param.options.find { it.value == value }?.label
 			ActionParamKind.SWITCH -> offer.switches.find { it.device == value }?.name
 			ActionParamKind.WORD -> value.takeIf { it.isNotBlank() }
-			ActionParamKind.TEXT, null -> null
+			ActionParamKind.TEXT, ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> null
 		}
 	}
 	return if (set.isEmpty()) row.label else "${row.label}: ${set.joinToString(", ")}"

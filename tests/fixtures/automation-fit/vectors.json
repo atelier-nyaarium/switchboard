@@ -1,0 +1,97 @@
+{
+	"_comment": "What src/shared/automation-fit.ts answers for a trigger, a function's values and reads, and the values an automation sets. The phone's twin replays these cases.",
+	"cases": [
+		{
+			"name": "a function taking nothing fits any trigger",
+			"given": { "kind": "time" },
+			"params": [],
+			"reads": { "names": [], "eventFields": [] },
+			"values": {},
+			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
+		},
+		{
+			"name": "a crossing fills the number it gives by name and the automation sets the room",
+			"given": { "kind": "crossing" },
+			"params": [{ "name": "value", "type": "number" }, { "name": "room", "type": "device" }],
+			"reads": { "names": [], "eventFields": [] },
+			"values": { "room": "aa:bb:cc:dd:ee:01" },
+			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
+		},
+		{
+			"name": "a value the automation has not set waits",
+			"given": { "kind": "crossing" },
+			"params": [{ "name": "room", "type": "device" }],
+			"reads": { "names": [], "eventFields": [] },
+			"values": {},
+			"expect": { "fits": false, "hidden": false, "requires": [], "unset": ["room"], "wrong": [] }
+		},
+		{
+			"name": "a value set as the wrong type",
+			"given": { "kind": "interval" },
+			"params": [{ "name": "degrees", "type": "number" }],
+			"reads": { "names": [], "eventFields": [] },
+			"values": { "degrees": "warm" },
+			"expect": {
+				"fits": false,
+				"hidden": false,
+				"requires": [],
+				"unset": [],
+				"wrong": [{ "name": "degrees", "wants": "number", "gets": "text" }]
+			}
+		},
+		{
+			"name": "a trigger gives the name as another type",
+			"given": { "kind": "value", "fieldType": "text" },
+			"params": [{ "name": "value", "type": "number" }],
+			"reads": { "names": [], "eventFields": [] },
+			"values": { "value": 3 },
+			"expect": {
+				"fits": false,
+				"hidden": false,
+				"requires": [],
+				"unset": [],
+				"wrong": [{ "name": "value", "wants": "number", "gets": "text" }]
+			}
+		},
+		{
+			"name": "a name it reads that the trigger does not give",
+			"given": { "kind": "time" },
+			"params": [],
+			"reads": { "names": ["value", "time"], "eventFields": [] },
+			"values": {},
+			"expect": { "fits": false, "hidden": false, "requires": ["value"], "unset": [], "wrong": [] }
+		},
+		{
+			"name": "a declared value covers a name the trigger does not give",
+			"given": { "kind": "time" },
+			"params": [{ "name": "value", "type": "number" }],
+			"reads": { "names": ["value"], "eventFields": [] },
+			"values": { "value": 3 },
+			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
+		},
+		{
+			"name": "another source's event is hidden",
+			"given": { "kind": "event", "eventFields": ["subject", "from"] },
+			"params": [],
+			"reads": { "names": ["event"], "eventFields": ["reason"] },
+			"values": {},
+			"expect": { "fits": false, "hidden": true, "requires": [], "unset": [], "wrong": [] }
+		},
+		{
+			"name": "an event field its source declares fits",
+			"given": { "kind": "event", "eventFields": ["reason", "repo"] },
+			"params": [],
+			"reads": { "names": ["event", "source"], "eventFields": ["reason"] },
+			"values": {},
+			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
+		},
+		{
+			"name": "an event's fields mean nothing to a clock",
+			"given": { "kind": "time" },
+			"params": [],
+			"reads": { "names": ["event"], "eventFields": ["reason"] },
+			"values": {},
+			"expect": { "fits": false, "hidden": false, "requires": ["event"], "unset": [], "wrong": [] }
+		}
+	]
+}

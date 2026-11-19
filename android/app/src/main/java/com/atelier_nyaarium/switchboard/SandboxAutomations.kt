@@ -87,6 +87,16 @@ internal val SANDBOX_SERVES = AutomationServes(
 			params = listOf(AutomationActionParam("event", "Event name", "word", max = 80L)) +
 				(1..3).map { AutomationActionParam("value$it", "Value $it", "text", max = 500L, optional = true) },
 		),
+		AutomationActionOffer(
+			"run_function",
+			"Run a function",
+			danger = false,
+			home = false,
+			params = listOf(
+				AutomationActionParam("function", "Function", "function"),
+				AutomationActionParam("values", "Values", "values", optional = true),
+			),
+		),
 	),
 	numbers = listOf(
 		AutomationNumberOffer(SANDBOX_SENSOR, "temperature", "Outside thermometer temperature", "C", 1L),

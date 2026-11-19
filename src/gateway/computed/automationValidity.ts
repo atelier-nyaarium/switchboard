@@ -1,18 +1,33 @@
 // What makes an automation invalid or unarmed on this Gateway.
 
-import { reached } from "../../shared/automation-walk.js";
+import { type FunctionOf, reached } from "../../shared/automation-walk.js";
 import { AUTOMATION_TRIGGER_NAMES, type Automation } from "../../shared/schemasAutomation.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
-import { effectIssue, isEffect } from "./automationRunner.js";
+import { type EffectKind, effectIssue, isEffect } from "./automationRunner.js";
 import type { AutomationsDeps } from "./automations.js";
 import { holeOwnerIssue, holeTexts } from "./automationText.js";
 import { crossingField } from "./crossingBand.js";
 
 export type ValidityDeps = Pick<AutomationsDeps, "fields" | "reading" | "eventIssue" | "holes" | "actions">;
 
-export function createAutomationValidity(deps: ValidityDeps) {
+const STEP_ACTIONS: Readonly<Record<EffectKind | "tell_assistant", true>> = {
+	tell_assistant: true,
+	device_set: true,
+	ifttt_trigger: true,
+};
+const stepAction = (kind: string): boolean => Object.hasOwn(STEP_ACTIONS, kind);
+
+export const FUNCTION_GONE = "the function it runs is gone";
+export const FUNCTION_UNREAD = "the function it runs was written by a newer build; update this Gateway";
+
+/** `unread`: a function row held but not readable here. */
+export function createAutomationValidity(
+	deps: ValidityDeps,
+	functionOf: FunctionOf,
+	unread: (id: string) => boolean = () => false,
+) {
 	function triggerIssue(body: Pick<Automation, "trigger">): string | null {
 		if (body.trigger.kind === "event") {
 			return deps.eventIssue ? deps.eventIssue(body.trigger) : "this Gateway holds no sources";
@@ -50,11 +65,16 @@ export function createAutomationValidity(deps: ValidityDeps) {
 	}
 
 	/** Why this Gateway cannot run it. */
-	function automationIssue(body: Automation): string | null {
+	function automationIssue(body: Automation, functions: FunctionOf = functionOf): string | null {
 		const issue = triggerIssue(body);
 		if (issue !== null) return issue;
-		for (const { action } of reached(body)) {
-			const refused = isEffect(action) ? effectIssue(action, deps.actions) : null;
+		for (const at of reached(body, functions)) {
+			if (!("action" in at)) {
+				if (!stepAction(at.kind)) return "a step does what this Gateway cannot run";
+				continue;
+			}
+			if (at.action.kind === "run_function") return unread(at.action.function) ? FUNCTION_UNREAD : FUNCTION_GONE;
+			const refused = isEffect(at.action) ? effectIssue(at.action, deps.actions) : null;
 			if (refused !== null) return refused;
 		}
 		return holesIssue(body)?.message ?? null;

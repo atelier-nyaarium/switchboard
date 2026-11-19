@@ -96,7 +96,7 @@ internal fun ActionsSection(
 									enabled = enabled,
 									modifier = Modifier.fillMaxWidth(),
 								)
-								null -> Unit
+								ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> Unit
 							}
 						}
 						is ActionDraft.Kept -> Text(

@@ -158,6 +158,25 @@
 						"optional": true
 					}
 				]
+			},
+			{
+				"kind": "run_function",
+				"label": "Run a function",
+				"danger": false,
+				"home": false,
+				"params": [
+					{
+						"name": "function",
+						"label": "Function",
+						"kind": "function"
+					},
+					{
+						"name": "values",
+						"label": "Values",
+						"kind": "values",
+						"optional": true
+					}
+				]
 			}
 		],
 		"numbers": [

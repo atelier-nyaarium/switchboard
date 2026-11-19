@@ -3,6 +3,7 @@
 	"directories": [
 		"agent-screen",
 		"assistant-rules",
+		"automation-fit",
 		"automation-walk",
 		"ble-recognition",
 		"board-order",

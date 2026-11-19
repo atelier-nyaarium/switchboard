@@ -2,7 +2,9 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
+import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
@@ -32,6 +34,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTooLargeAnswer
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -73,6 +76,8 @@ class ProtocolFixturesTest {
 			"AssistantFieldSpec" -> wireJson.decodeFromString<AssistantFieldSpec>(body)
 			"AutomationTrigger" -> wireJson.decodeFromString<AutomationTrigger>(body)
 			"AutomationAction" -> wireJson.decodeFromString<AutomationAction>(body)
+			"AutomationFunction" -> wireJson.decodeFromString<AutomationFunction>(body)
+			"FunctionStep" -> wireJson.decodeFromString<FunctionStep>(body)
 			"ConsoleAutomationListResult" -> wireJson.decodeFromString<ConsoleAutomationListResult>(body)
 			"ConsoleAutomationPutResult" -> wireJson.decodeFromString<ConsoleAutomationPutResult>(body)
 			"ConsoleAutomationPreviewResult" -> wireJson.decodeFromString<ConsoleAutomationPreviewResult>(body)
@@ -103,6 +108,9 @@ class ProtocolFixturesTest {
 			assertNotNull("$file decoded as $schema", value)
 			val sent = wireJson.parseToJsonElement(fixture(file)).jsonObject["kind"]?.jsonPrimitive?.content
 			assertEquals("$file Unknown kind", if (expected == "unknown") sent else null, unknownKindOf(value!!))
+			if (expected == "unknown") {
+				assertEquals("$file re-encoded as sent", wireJson.parseToJsonElement(fixture(file)), reencoded(value))
+			}
 		}
 	}
 
@@ -112,6 +120,17 @@ class ProtocolFixturesTest {
 			is AutomationTrigger.Unknown -> value.kind
 			is AutomationAction.Unknown -> value.kind
 			is ConsoleDeviceReadResult.Unknown -> value.kind
+			is FunctionStep.Unknown -> value.kind
+			else -> null
+		}
+
+	private fun reencoded(value: Any): JsonElement? =
+		when (value) {
+			is AssistantFieldSpec -> wireJson.encodeToJsonElement(AssistantFieldSpec.serializer(), value)
+			is AutomationTrigger -> wireJson.encodeToJsonElement(AutomationTrigger.serializer(), value)
+			is AutomationAction -> wireJson.encodeToJsonElement(AutomationAction.serializer(), value)
+			is ConsoleDeviceReadResult -> wireJson.encodeToJsonElement(ConsoleDeviceReadResult.serializer(), value)
+			is FunctionStep -> wireJson.encodeToJsonElement(FunctionStep.serializer(), value)
 			else -> null
 		}
 

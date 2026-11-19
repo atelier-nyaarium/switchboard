@@ -13,7 +13,8 @@ import type { AttemptWord, Nature } from "./automationSteps.js";
 export type Attempt = { word: AttemptWord } | { hold: string };
 
 /** An action with an effect to run. */
-export type AutomationEffect = Exclude<AutomationAction, { kind: "tell_assistant" }>;
+export type AutomationEffect = Exclude<AutomationAction, { kind: "tell_assistant" | "run_function" }>;
+export type EffectKind = AutomationEffect["kind"];
 
 const VERB_NATURES: Readonly<Record<DeviceVerb, Nature>> = { on: "sets", off: "sets", toggle: "nudges" };
 
@@ -36,7 +37,8 @@ export interface AutomationActionPorts {
 	iftttTrigger: (params: IftttParams) => Promise<Attempt>;
 }
 
-export const isEffect = (action: AutomationAction): action is AutomationEffect => action.kind !== "tell_assistant";
+export const isEffect = (action: AutomationAction): action is AutomationEffect =>
+	action.kind !== "tell_assistant" && action.kind !== "run_function";
 
 type Runners = {
 	[K in AutomationEffect["kind"]]: (

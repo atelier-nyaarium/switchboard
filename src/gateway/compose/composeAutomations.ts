@@ -11,7 +11,12 @@ import { type Automations, type AutomationsDeps, createAutomations } from "../co
 import { type ComputedFields, type ComputedFieldsDeps, createComputedFields } from "../computed/computedFields.js";
 import type { AutomationConsoleHandlers } from "../console/consoleTypes.js";
 
-export type AutomationStoreName = "computed-fields" | "computed-state" | "automations" | "automation-state";
+export type AutomationStoreName =
+	| "computed-fields"
+	| "computed-state"
+	| "automations"
+	| "automation-state"
+	| "automation-function-key";
 
 export interface AutomationPairDeps {
 	dataDir: string;
@@ -20,7 +25,7 @@ export interface AutomationPairDeps {
 	input: ComputedFieldsDeps["input"];
 	/** Runs before each drain. */
 	beforeDrain?: () => void;
-	automations: Omit<AutomationsDeps, "records" | "state" | "fields" | "newIncarnation" | "now">;
+	automations: Omit<AutomationsDeps, "records" | "state" | "fields" | "newIncarnation" | "now" | "functionKey">;
 	/** Tests inject faults here. */
 	opened?: (name: AutomationStoreName, store: DurableStore) => void;
 }
@@ -55,6 +60,8 @@ export function openAutomationPair(deps: AutomationPairDeps): AutomationPair {
 			}),
 		),
 	);
+	// Opened alone; no shared quarantine.
+	const functionKey = open("automation-function-key", (store) => store);
 	const opened = open("automations", (records) =>
 		open("automation-state", (state) =>
 			createAutomations({
@@ -62,6 +69,7 @@ export function openAutomationPair(deps: AutomationPairDeps): AutomationPair {
 				records,
 				state,
 				fields,
+				functionKey,
 				newIncarnation: deps.newIncarnation,
 				now: deps.now,
 			}),

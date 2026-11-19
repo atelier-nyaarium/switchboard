@@ -27,6 +27,7 @@ export interface OwnerRecordsDeps<T> {
 	/** Invalid bodies remain unread. */
 	kinds: Readonly<Record<string, z.ZodType<T>>>;
 	max: number;
+	maxByKind?: Readonly<Record<string, number>>;
 	newIncarnation: () => string;
 	/** Put/read validation. */
 	refusal?: (candidate: OwnerRecord<T>, others: readonly OwnerRecord<T>[]) => OwnerIssue | string | null;
@@ -159,6 +160,9 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 			if (buriedAt(draft, id) !== undefined && !write.revive) return { ok: false, reason: "removed" };
 			if (draft.rows.length >= deps.max)
 				return { ok: false, reason: `this Gateway holds ${deps.max} already`, full: true };
+			const cap = deps.maxByKind?.[kind];
+			if (cap !== undefined && draft.rows.filter((held) => held.kind === kind).length >= cap)
+				return { ok: false, reason: `this Gateway holds ${cap} of these already`, full: true };
 		}
 		const record: OwnerRecord<T> = {
 			id,
@@ -254,6 +258,9 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 		},
 
 		unread: (): number => held.filter((row) => read(row) === null).length,
+
+		unreadOf: (id: string, kind: string): boolean =>
+			held.some((row) => row.id === id && row.kind === kind && read(row) === null),
 
 		/** `revive` allows a removed id. */
 		put(

@@ -678,18 +678,28 @@ class AutomationPartsTest {
 	}
 
 	@Test
-	fun everyActionTheGatewaysCatalogueServesIsDrawnAndReadsBackAsItWasStored() {
+	fun eachServedActionIsDrawnOnlyWhenEveryParameterIsAndReadsBackAsItWasStored() {
 		val body = javaClass.classLoader!!.getResourceAsStream("protocol/automation-list-result-serves.json")!!.bufferedReader().use { it.readText() }
 		val served = wireJson.decodeFromString<ConsoleAutomationListResult>(body).serves
 		val offer = offerOf(served, away = false)
+		val called = AutomationAction.RunFunction(
+			"warm-up",
+			values = buildJsonObject { put("room", "aa:bb:cc:dd:ee:01") },
+			keepTryingMin = 5,
+		)
 		val stored = listOf(
 			AutomationAction.TellAssistant("quietly", "It is {value}"),
 			AutomationAction.DeviceSet("aa:bb:cc:dd:ee:ff", "toggle"),
 			AutomationAction.IftttTrigger("door_open", value2 = "two"),
+			called,
 		)
 		val drafts = stored.map { actionDraftOf(it, offer) }
 
-		assertEquals(listOf(true, true, true), drafts.map { it is ActionDraft.Filled })
+		assertEquals(listOf(true, true, true, false), offer.actions.map { it.drawable })
+		assertEquals(listOf(true, true, true, false), drafts.map { it is ActionDraft.Filled })
+		assertEquals(ActionDraft.Kept(called), drafts.last())
+		assertEquals("Run a function", actionLine(called, offer))
+		assertEquals(listOf("tell_assistant", "device_set", "ifttt_trigger"), addableActions(offer, emptyList()).map { it.kind })
 		assertEquals(stored, drafts.map { actionOf(it, offer) })
 		assertEquals(SANDBOX_SERVES.actions, served?.actions)
 		assertEquals(SANDBOX_SERVES.triggers, served?.triggers)

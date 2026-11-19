@@ -1,6 +1,7 @@
 // Read shapes the seal refuses; `bun run lint` fails if one compiles.
 
 import type { Automation } from "../shared/schemasAutomation.js";
+import type { AutomationFunction } from "../shared/schemasFunction.js";
 
 export function sealSamples(automation: Automation, rows: Automation[]): unknown[] {
 	// @ts-expect-error a member read
@@ -21,4 +22,12 @@ export function sealSamples(automation: Automation, rows: Automation[]): unknown
 	// @ts-expect-error a length read
 	const count: number = automation.actions.length;
 	return [mapped, first, head, spread, looped, destructured, count];
+}
+
+export function stepSamples(fn: AutomationFunction): unknown[] {
+	// @ts-expect-error a function's steps read directly
+	const mapped = fn.steps.map((step) => step);
+	// @ts-expect-error an index read
+	const first = fn.steps[0];
+	return [mapped, first];
 }

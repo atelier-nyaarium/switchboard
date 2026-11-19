@@ -1,11 +1,13 @@
 // The automation store.
 
+import { createHmac } from "node:crypto";
 import { z } from "zod";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
+import { type TriggerGiven, triggerGiven } from "../../shared/automation-fit.js";
 import { reached } from "../../shared/automation-walk.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
-import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { commitChecked, type DurableStore, writeChecked } from "../../shared/durable-store.js";
 import { errorName } from "../../shared/error-name.js";
 import {
 	AUTOMATION_ACTIONS,
@@ -21,8 +23,16 @@ import {
 	type EventTrigger,
 	type TellWhen,
 } from "../../shared/schemasAutomation.js";
+import type { AutomationSaveRefusal } from "../../shared/schemasAutomationSave.js";
+import { type AutomationFunction, FUNCTIONS_MAX, FunctionSchema } from "../../shared/schemasFunction.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
-import { createOwnerRecords, type OwnerIssue, type OwnerRecord } from "../ownerRecords.js";
+import {
+	createOwnerRecords,
+	type OwnerBatchResult,
+	type OwnerIssue,
+	type OwnerRecord,
+	type OwnerWrite,
+} from "../ownerRecords.js";
 import { CLOCK_GRACE_MS, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
 import {
 	admit,
@@ -50,6 +60,7 @@ import {
 	AUTOMATION_KIND,
 	type AutomationIntent,
 	type DroppedAutomation,
+	FUNCTION_KIND,
 	judgeAutomationWrite,
 	NOT_HOME,
 } from "./automationJudge.js";
@@ -99,9 +110,19 @@ export type { WatchedReading } from "./automationWords.js";
 export { AUTOMATION_KIND };
 
 export type AutomationWritten =
-	/** `records` holds null for a remove. */
-	| { written: true; records: (OwnerRecord<Automation> | null)[]; dropped: readonly DroppedAutomation[] }
-	| { written: false; reason: string; record?: OwnerRecord<Automation>; confirm?: string[]; issue?: OwnerIssue };
+	| { written: true; records: (OwnerRecord<StoredBody> | null)[]; dropped: readonly DroppedAutomation[] }
+	| {
+			written: false;
+			reason: string;
+			refusal: AutomationSaveRefusal;
+			record?: OwnerRecord<StoredBody>;
+			confirm?: string[];
+			issue?: OwnerIssue;
+	  };
+
+export type AutomationSaved =
+	| { stored: true; automation: OwnerRecord<Automation>; function?: OwnerRecord<AutomationFunction> }
+	| { stored: false; refusal: AutomationSaveRefusal; reason: string };
 
 /** A filled effect parameter. */
 const EFFECT_TEXT_MAX = 500;
@@ -136,6 +157,16 @@ const StoredAutomationSchema = z.preprocess((body) => {
 	};
 }, AutomationSchema);
 
+const FUNCTION_KEY_BYTES = 32;
+const FunctionKeySchema = z.strictObject({ key: z.string().min(1) });
+
+type StoredBody = Automation | AutomationFunction;
+
+const isAutomationRecord = (record: OwnerRecord<StoredBody>): record is OwnerRecord<Automation> =>
+	record.kind === AUTOMATION_KIND;
+const isFunctionRecord = (record: OwnerRecord<StoredBody>): record is OwnerRecord<AutomationFunction> =>
+	record.kind === FUNCTION_KIND;
+
 /** Holes in a text, checked and filled. */
 export interface AutomationHoles {
 	issue: (text: string, names: readonly string[]) => { start: number; end: number; message: string } | null;
@@ -154,6 +185,10 @@ export interface AutomationsDeps {
 	onQueued?: () => void;
 	/** Why an event trigger cannot run here. */
 	eventIssue?: (trigger: EventTrigger) => string | null;
+	/** A source's declared event fields; null when not held. */
+	eventFields?: (source: string) => readonly string[] | null;
+	functionKey?: DurableStore;
+	entropy?: (size: number) => Buffer;
 	/** An event trigger in words. */
 	eventSentence?: (trigger: EventTrigger) => string;
 	/** Null when no number is read there. */
@@ -177,21 +212,72 @@ export function createAutomations(deps: AutomationsDeps) {
 	let unwritten = restored.changed;
 	/** Silence counts from here. */
 	const startedAt = deps.now();
-	const { triggerIssue, holesIssue, automationIssue, armed } = createAutomationValidity(deps);
+	const { triggerIssue, holesIssue, automationIssue, armed } = createAutomationValidity(
+		deps,
+		(id) => functionOf(id),
+		(id) => store.unreadOf(id, FUNCTION_KIND),
+	);
 	const { sentenceOf, watched, namesOf, crossingNames } = createAutomationWords(deps);
 
-	const store = createOwnerRecords<Automation>({
+	const store = createOwnerRecords<StoredBody>({
 		store: deps.records,
-		kinds: { [AUTOMATION_KIND]: StoredAutomationSchema },
+		kinds: { [AUTOMATION_KIND]: StoredAutomationSchema, [FUNCTION_KIND]: FunctionSchema },
 		max: AUTOMATIONS_MAX,
+		maxByKind: { [FUNCTION_KIND]: FUNCTIONS_MAX },
 		newIncarnation: deps.newIncarnation,
-		refusal: (candidate) => holesIssue(candidate.body) ?? automationIssue(candidate.body),
+		refusal: (candidate, others) => {
+			if (!isAutomationRecord(candidate)) return null;
+			// Includes the write's own functions.
+			const functions = (id: string) => {
+				const row = others.find((other) => other.id === id);
+				return row && isFunctionRecord(row) ? row.body : null;
+			};
+			return holesIssue(candidate.body) ?? automationIssue(candidate.body, functions);
+		},
 		// Remove 2026-11-28 with the legacy body.
 		settle: true,
 		label: "automations",
 	});
-	/** Reads; `write` alone commits. */
-	const records: Pick<typeof store, "list" | "get" | "invalidOf" | "count"> = store;
+	const records = {
+		list: (): OwnerRecord<Automation>[] => store.list().filter(isAutomationRecord),
+		get: (id: string): OwnerRecord<Automation> | null => {
+			const record = store.get(id);
+			return record && isAutomationRecord(record) ? record : null;
+		},
+		invalidOf: (id: string): string | null => store.invalidOf(id),
+		count: (): number => store.count(),
+	};
+	const givenOf = (trigger: AutomationTrigger): TriggerGiven => {
+		if (trigger.kind === "value") {
+			const type = deps.fields.typeOf(trigger.field)?.type;
+			return triggerGiven("value", { fieldType: type === "number" ? "number" : "text" });
+		}
+		if (trigger.kind === "event")
+			return triggerGiven("event", { eventFields: deps.eventFields?.(trigger.source) ?? [] });
+		return triggerGiven(trigger.kind);
+	};
+
+	const functionKey = (): Buffer => {
+		const held = FunctionKeySchema.safeParse(deps.functionKey?.load());
+		if (held.success) return Buffer.from(held.data.key, "base64");
+		if (!deps.entropy || !deps.functionKey) throw new Error("no key store for function ids");
+		const key = deps.entropy(FUNCTION_KEY_BYTES);
+		// An unsaved key renames rows next run.
+		if (!writeChecked(deps.functionKey, { key: key.toString("base64") }, "function key").landed)
+			throw new Error("the function key was not saved");
+		return key;
+	};
+
+	/** Same inputs, same row; unguessable. */
+	const derivedFunctionId = (purpose: "copy" | "carry", automationId: string, from: string): string => {
+		const digest = createHmac("sha256", functionKey()).update(`${purpose}\0${automationId}\0${from}`).digest("hex");
+		return `fn-${digest.slice(0, 16)}`;
+	};
+
+	const functionOf = (id: string): AutomationFunction | null => {
+		const record = store.get(id);
+		return record && isFunctionRecord(record) ? record.body : null;
+	};
 
 	/** Held fires' versions; unmatched drop. */
 	const pinned = (next: State): State["versions"] =>
@@ -895,10 +981,13 @@ export function createAutomations(deps: AutomationsDeps) {
 	const judged = (intent: AutomationIntent, held: readonly OwnerRecord<Automation>[]) =>
 		judgeAutomationWrite(intent, {
 			held,
+			functions: store.list().filter(isFunctionRecord),
 			count: records.count(),
 			max: AUTOMATIONS_MAX,
 			isHome: deps.isHome(),
-			issue: automationIssue,
+			issue: (body) => automationIssue(body),
+			givenOf,
+			copyIdOf: (automationId, from) => derivedFunctionId("copy", automationId, from),
 		});
 
 	/** What removed automations left queued. */
@@ -922,7 +1011,12 @@ export function createAutomations(deps: AutomationsDeps) {
 		const held = records.list();
 		const verdict = judged(intent, held);
 		if (verdict.kind === "refused") {
-			return { written: false, reason: verdict.reason, ...(verdict.confirm ? { confirm: verdict.confirm } : {}) };
+			return {
+				written: false,
+				reason: verdict.reason,
+				refusal: verdict.refusal,
+				...(verdict.confirm ? { confirm: verdict.confirm } : {}),
+			};
 		}
 		for (const { id, reason } of verdict.dropped) {
 			console.warn(`[automations] ${intent.kind}: ${id} dropped: ${reason}`);
@@ -932,6 +1026,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			return {
 				written: false,
 				reason: result.reason,
+				refusal: storeRefusal(result, verdict.writes[result.at]),
 				...(result.record ? { record: result.record } : {}),
 				...(result.issue ? { issue: result.issue } : {}),
 			};
@@ -945,6 +1040,39 @@ export function createAutomations(deps: AutomationsDeps) {
 		drain();
 		tick();
 		return { written: true, records: result.records, dropped: verdict.dropped };
+	}
+
+	const storeRefusal = (
+		refusal: Extract<OwnerBatchResult<StoredBody>, { stored: false }>,
+		write: OwnerWrite | undefined,
+	): AutomationSaveRefusal => {
+		const kind = write?.op === "put" ? write.kind : (store.get(write?.id ?? "")?.kind ?? AUTOMATION_KIND);
+		const record = kind === FUNCTION_KIND ? "function" : "automation";
+		if (refusal.full)
+			return { code: "full", kind: record, max: kind === FUNCTION_KIND ? FUNCTIONS_MAX : AUTOMATIONS_MAX };
+		const hole = holeSpanOf(refusal.issue);
+		if (hole)
+			return {
+				code: "hole",
+				record,
+				path: String(hole.action),
+				param: hole.param,
+				start: hole.start,
+				end: hole.end,
+			};
+		if (refusal.record) return { code: "moved", record, revision: refusal.record.revision };
+		if (refusal.issue) return { code: "invalid", record, path: refusal.issue.path.join(".") };
+		return { code: "gone", record };
+	};
+
+	function save(intent: Omit<Extract<AutomationIntent, { kind: "save" }>, "kind">): AutomationSaved {
+		const result = write({ kind: "save", ...intent });
+		if (!result.written) return { stored: false, refusal: result.refusal, reason: result.reason };
+		const automation = result.records.find((record) => record?.id === intent.id);
+		const fn = result.records.find((record) => record !== null && isFunctionRecord(record));
+		if (!automation || !isAutomationRecord(automation))
+			return { stored: false, refusal: { code: "gone", record: "automation" }, reason: "not saved; try again" };
+		return { stored: true, automation, ...(fn && isFunctionRecord(fn) ? { function: fn } : {}) };
 	}
 
 	drain();
@@ -962,9 +1090,11 @@ export function createAutomations(deps: AutomationsDeps) {
 			return refused ? { reason: refused.reason, full: refused.full === true } : null;
 		},
 		derivedFields,
+		save,
 		ownerPut(id: string, body: unknown, base: number, confirmed = false): ConsoleAutomationPutResult {
 			const result = write({ kind: "owner_put", id, body, base, confirmed });
-			const record = result.written ? result.records[0] : (result.record ?? records.get(id));
+			const landed = result.written ? result.records[0] : result.record;
+			const record = landed && isAutomationRecord(landed) ? landed : records.get(id);
 			if (result.written && record) return { stored: true, revision: record.revision, row: rowOf(record) };
 			return {
 				stored: false,

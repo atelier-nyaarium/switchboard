@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.assistant.kindOf
 import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.proto.Automation
+import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -28,7 +29,16 @@ class AutomationWalkVectorsTest {
 				row.jsonObject["path"]!!.jsonPrimitive.content to row.jsonObject["kind"]!!.jsonPrimitive.content
 			}
 
-			assertEquals(name, expected, reached(automation).map { it.path to kindOf(it.action) })
+			val functions = o["functions"]?.jsonObject?.mapValues { (_, fn) ->
+				wireJson.decodeFromJsonElement(AutomationFunction.serializer(), fn)
+			}
+			val walked = if (functions == null) {
+				reached(automation).map { it.path to kindOf(it.action) }
+			} else {
+				reached(automation) { id -> functions[id] }.map { it.path to it.kind }
+			}
+
+			assertEquals(name, expected, walked)
 		}
 	}
 }

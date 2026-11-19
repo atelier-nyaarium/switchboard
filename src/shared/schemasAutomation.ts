@@ -9,6 +9,7 @@ import {
 	RULE_ID_RE,
 } from "./schemasAssistantRules.js";
 import { DeviceVerbSchema } from "./schemasDevices.js";
+import { PARAM_NAME_RE, STEP_TEXT_MAX } from "./schemasFunction.js";
 import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
 
 export const AUTOMATIONS_MAX = 64;
@@ -21,6 +22,14 @@ export const ACTION_WORD_RE = /^[A-Za-z0-9_-]+$/;
 /** A week. */
 export const AUTOMATION_INTERVAL_MAX_MIN = 10_080;
 export const AUTOMATION_COOL_DOWN_MAX_SEC = 86_400;
+/** Per-step window, minutes. */
+export const KEEP_TRYING_MIN_DEFAULT = 10;
+export const KEEP_TRYING_MIN_MIN = 1;
+export const KEEP_TRYING_MIN_MAX = 60;
+
+/** Number in the stored unit. */
+export const FunctionValueSchema = z.union([z.string().max(STEP_TEXT_MAX), z.number().finite()]);
+export type FunctionValue = z.infer<typeof FunctionValueSchema>;
 
 export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -103,6 +112,17 @@ export const AutomationActionSchema = z
 			value2: z.string().max(IFTTT_VALUE_MAX).optional(),
 			value3: z.string().max(IFTTT_VALUE_MAX).optional(),
 		}),
+		/** A pointer, never an effect. */
+		z.strictObject({
+			kind: z.literal("run_function"),
+			function: z.string().regex(RULE_ID_RE),
+			/** Keyed by value name. */
+			values: z.record(z.string().regex(PARAM_NAME_RE), FunctionValueSchema).optional(),
+			/** Per-step window. */
+			keepTryingMin: z.number().int().min(KEEP_TRYING_MIN_MIN).max(KEEP_TRYING_MIN_MAX).optional(),
+			/** Only if trigger has none. */
+			coolDownSec: z.number().int().nonnegative().max(AUTOMATION_COOL_DOWN_MAX_SEC).optional(),
+		}),
 	])
 	.meta({ id: "AutomationAction" });
 
@@ -110,7 +130,7 @@ export type AutomationAction = z.infer<typeof AutomationActionSchema>;
 export type AutomationActionKind = AutomationAction["kind"];
 
 /** How a parameter is filled in. */
-export const ACTION_PARAM_KINDS = ["text", "word", "switch", "choice"] as const;
+export const ACTION_PARAM_KINDS = ["text", "word", "switch", "choice", "function", "values"] as const;
 export type ActionParamKind = (typeof ACTION_PARAM_KINDS)[number];
 
 export interface AutomationActionParam {
@@ -136,6 +156,8 @@ export interface AutomationActionRow {
 	home: boolean;
 	/** In the order an editor draws them. */
 	params: readonly AutomationActionParam[];
+	/** Never served. */
+	undrawn?: readonly string[];
 }
 
 const optionsOf = (values: readonly string[]) =>
@@ -189,6 +211,18 @@ export const AUTOMATION_ACTIONS = {
 			iftttValue(2),
 			iftttValue(3),
 		],
+	},
+	run_function: {
+		label: "Run a function",
+		runs: "gateway",
+		// Its steps carry their own.
+		danger: false,
+		home: false,
+		params: [
+			{ name: "function", label: "Function", kind: "function" },
+			{ name: "values", label: "Values", kind: "values", optional: true },
+		],
+		undrawn: ["keepTryingMin", "coolDownSec"],
 	},
 } as const satisfies Record<AutomationActionKind, AutomationActionRow>;
 

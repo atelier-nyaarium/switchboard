@@ -25,12 +25,14 @@ const open = (
 	changed: string[] = [],
 	max = 3,
 	kinds: Record<string, z.ZodType<Note>> = { note: NoteSchema },
+	maxByKind?: Record<string, number>,
 ) =>
 	openDurable(dataDir, "records", (store) =>
 		createOwnerRecords<Note>({
 			store,
 			kinds,
 			max,
+			...(maxByKind ? { maxByKind } : {}),
 			newIncarnation: () => `inc${++n}`,
 			refusal: (candidate) => (candidate.body.text === "refused" ? "refused here" : null),
 			onChanged: (id) => changed.push(id),
@@ -113,6 +115,20 @@ describe("owner records", () => {
 			["a", 2],
 		]);
 		expect(changed.sort()).toEqual(["a", "b", "c", "d"]);
+	});
+
+	it("caps a kind inside the total, its unread rows counted, and the total across every kind", () => {
+		const dir = fresh();
+		const unread = { id: "u", revision: 1, incarnation: "x", kind: "pin", body: { text: "" } };
+		fs.writeFileSync(path.join(dir, "records.json"), JSON.stringify([unread]));
+		const records = open(dir, [], 4, { note: NoteSchema, pin: NoteSchema }, { pin: 2 });
+
+		const pins = ["p1", "p2"].map((id) => records.put("pin", id, { text: id }, 0).stored);
+		const notes = ["a", "b", "c"].map((id) => records.put("note", id, { text: id }, 0).stored);
+
+		expect(pins).toEqual([true, false]);
+		expect(notes).toEqual([true, true, false]);
+		expect(records.put("note", "c", { text: "c" }, 0)).toMatchObject({ stored: false, full: true });
 	});
 
 	it("holds a row this build cannot read, writes it back on every commit, and reserves its id and its place in the cap", () => {

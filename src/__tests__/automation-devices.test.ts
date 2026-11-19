@@ -113,7 +113,8 @@ async function plugs() {
 		});
 		// Stops after the devices close, which ends held work.
 		cleanups.unshift(() => automations.stop());
-		for (const [id, body] of Object.entries(saved)) automations.ownerPut(id, body, 0);
+		// The owner confirmed what each does.
+		for (const [id, body] of Object.entries(saved)) automations.ownerPut(id, body, 0, true);
 		const fire = (automation: string) =>
 			automations.fireEvents([{ automation, key: `event:github:${automation}`, names: {} }], ambient.now());
 		return { automations, fire };

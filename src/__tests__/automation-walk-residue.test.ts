@@ -48,11 +48,15 @@ describe("the one walk", () => {
 		const importers = (opener: string) =>
 			filesUnder("src", ".ts", "src/__tests__").filter((file) =>
 				new RegExp(
-					`import\\s*\\{[^}]*\\b${opener}\\b[^}]*\\}\\s*from\\s*"[./]*shared/automation-walk\\.js"`,
+					`import\\s*\\{[^}]*\\b${opener}\\b[^}]*\\}\\s*from\\s*"[./]*(?:shared/)?automation-walk\\.js"`,
 				).test(read(file)),
 			);
 
-		expect(importers("written")).toEqual(["src/gateway/computed/automationText.ts"]);
+		expect(importers("written").sort()).toEqual([
+			"src/gateway/computed/automationJudge.ts",
+			"src/gateway/computed/automationText.ts",
+			"src/shared/automation-fit.ts",
+		]);
 		expect(importers("reached").length).toBeGreaterThan(0);
 	});
 
