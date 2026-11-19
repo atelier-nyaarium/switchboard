@@ -1683,96 +1683,100 @@ Asked, unanswered:
 
 - **Question 44 - A carry over the cap.** ✅ Answered: the refusal stays. The cap of 64 is shared by the event automations a move carries and the crossings, clocks and value automations that stay on a Gateway. The move is refused whole with the numbers before anything is written, and the home record keeps the sealed payload, which the phone carries onward at the next move.
 
-## Phase 2.7e - Flows: ordered steps, branches and calls (Q48 to Q59)
+## Phase 2.7e - Functions: reusable bodies, ordered steps, branches and calls (Q48 to Q71)
 
-Second draft, after one audit (five lenses, `plan-27e-audit-synthesis.md` in the session scratchpad; sized from `tree-impact-gateway.md` and `tree-impact-phone.md` there). Not built. Waits on the owner for the questions listed at the end.
+Third draft, rewritten around the owner's model: an automation is a trigger pointing at a function. Not built, not audited in this form. The first draft's audit (`plan-27e-audit-synthesis.md` in the session scratchpad) still applies wherever the mechanism is the same, and its findings are folded in below. 8.14.83 is the build on the Gateway, the daemon and the phone.
 
-Three phone builds are in play: 8.14.82 (deployed: event and value triggers, `tell_assistant { when }` alone, and its toggle already strips a message), N (this plan's 2.7c head, not yet installed) and N+1 (flows). Slice 2 deploys only once N is on the phone.
+The model, in the owner's words where they gave them:
+
+- **An automation is a trigger pointing at a function.** The trigger is the signature, the function is the body (Q65). Several triggers may point at one function, and a device may point at any function it fits (Q67).
+- **A function** holds a name, the values it takes with their types, and its steps. It is a record of its own.
+- **Users:** every automation pointing at a function and every function calling it. The editor shows the count and who else an edit reaches, and "Make unique" gives a user its own copy. A function with no users is deleted in the write that removes the last one (Q67).
+- **Fit** is by name and type. The trigger fills what it gives; the automation sets the rest, and those values are the automation's own (Q69). A value that can be neither given nor written, such as another source's event, makes the function unlistable for that trigger.
+- **The values a trigger gives:** an event gives `event`, typed from its source's declared fields, and `source`; a crossing gives `value`, `device`, `measure`, `threshold`; a clock gives `time`. A function's own values for these are read off its body, never typed (Q65). A value a caller or an automation supplies is declared by the owner, a name and a type.
+- **No "called" trigger.** A function used only by callers is a function (Q67, replacing Q51's helper).
+
+The language of a body (Q53 to Q64). Cards and script are two views of it (Q57):
+
+- **Statements:** a doing call, `if (cond) { } else if (cond) { } else { }`, `try { } catch (e) { }`, `exit`, `throw`, a variable assignment, `wait(minutes)`, a comment. Later, on the same footing: `parallel { }`, then tasks with `start`, `await`, `all` and `any` (Q64). No loops.
+- **A doing call** is a call in the console's grammar to a registered method built from its row in the action table: typed parameters, a description, a nature (Q58). Calling another function is one of them. Doing methods are served to a function's body alone; the console's eval, the agents' door and a message hole refuse them, and the read-only fence test holds that.
+- **Order:** top to bottom, each statement waiting for the one above (Q53). A call to another function waits for it (Q59).
+- **Failure:** outside any `try` a failure is noted and the run carries on. Inside one it jumps to the `catch` and the rest of the `try` is skipped; after the `catch` the body carries on (Q60). `e.code` is `refused`, `unreachable`, `no_answer`, `unread` or `timeout`; `e.message` is a sentence, and a bare `{e}` prints it (Q63). `exit` ends this function's run without failure, and a caller carries on. `throw` ends it as failed.
+- **A condition that cannot be read** is a failure with `unread` (Q56).
+- **A called function** reports failed when a failure in it went uncaught, once it has run to its end. One it caught stays there (Q60).
+- **Variables are typed** from what was assigned, the declared return narrowed by the value, so completions and hint cards follow a variable into its members (Q62). They live for the run.
+- **A comment** is a stored step, so cards keep it as a label line (Q62).
+- **Natures:** an action declares `sets`, `sends` or `nudges` where it is defined (Q54). One table, nature against word, decides the retry. "Keep trying for" is the automation's setting, ten minutes by default, each action its own (Q48, Q54).
+- **Downtime** judges the step that was in progress: not idempotent, it fails `no_answer`; idempotent and inside its wait, it resumes; past it, `timeout`. A step not yet started runs when its turn comes, and a `wait` that ran out is over (Q70).
+- **Outside reach** is asked once per automation, when an event-triggered automation first points at a body that does more than tell the assistant (Q52). Outside words reaching something that leaves the machine are named at the save.
+- **A move** carries a function with its users that move; where users stay too, the movers take a copy (Q68).
 
 Design held for the phase:
 
-- **One wire rule:** anything an older build cannot hold lives inside a kind it does not know. No new key on an existing kind or on the record. The rule covers durable state too: a new field on a stored fire or run row is optional, and each slice's restore reads the shape the slice before wrote. A new request shape is a new op kind, so an older Gateway answers `not_served` rather than dropping a key.
-- **Shape:** the record keeps `label`, `enabled`, `trigger`, `actions`.
-  - Trigger kind `called`, no fields, no names.
-  - Action kind `run_automation { automation }`.
-  - Action kind `flow { keepTryingMin?, coolDownSec?, steps }`. It is the record's only action when used, a refinement on the automation schema with a readable reason. `coolDownSec` is refused unless the trigger is an event, since a crossing and a value hold their own.
-  - Preserve root `AutomationStep`: `do { action, onFailure? }` and `if { when, unit, then?, else? }` with at least one side filled. A later step feature is a new step kind with its own future-kind fixture.
-  - Caps: a step cap over the whole tree and a depth cap for calls, both generated.
-- **Two families of action kind.** Port effects (`device_set`, `ifttt_trigger`) keep their rows and their runners. `tell_assistant`, `flow` and `run_automation` are run by the engine. `flow` and `run_automation` take no row in what a Gateway serves as actions, or phone N would offer them; what the editor needs for them rides a served field N ignores.
-- **One canonical form.** `canonicalAutomation` becomes the one shape rule: flat when the steps are a top-level list of plain actions with the default wait and no cool-down, defaults absent, empty sides absent, a label never null. It runs on every write intent and on the parse op's answer, and the phone adopts the stored row. Both runtimes replay one vector file, and the rule is idempotent.
-- **One walk over a body's actions.** `stepsOf` in `src/shared`, beside the action table, is the only reader of the actions a body holds at any depth. Its callers: `dangerousActions`, the judge's `unconfirmed`, the outside-reach ask, `effectIssue`, the hole texts and their check, `tellWhen`, `rulesOfAutomations`, and the phone's `actionWarning` and `freshAction`. A residue test refuses a direct `.actions` read outside it.
-- **Order:** a fire holds a cursor (a step path), when the cursor arrived, and per step its word, its verdict, its attempts, its time and the side an If took. One step per fire runs at a time. At most one started fire per automation: a newer one waits unstarted, a newer non-event one replaces a waiting one, and event fires wait in arrival order up to a small generated count. The fire queue holds more than the automation cap, so a full set of live runs still admits a crossing and a called run.
-- **The four words** from the part that talks to the device: `done`, `refused`, `unreachable`, `no_answer`. A connect that times out with nothing written is `unreachable`. Beside them sits a hold that is no attempt for any nature: ports not ready, devices not loaded, a lease that ended before its turn, the close fence. It is waited inside the step's wait, so a Toggle at boot does not fail at once. The words ride a `word` field beside a run row's `outcome`, and a run row names its step path, which the standing-refusal rule keys on.
-- **Natures:** `sets`, `sends`, `nudges`, declared beside the device verbs (the road's `DeviceEffect` derives from that table) and on the action row, served on the row and on each verb option. One pure table, nature against word, answers retry, ended well or ended failed, and what a claim found at a start means: `sets` goes back to pending, `sends` and `nudges` take `no_answer`. `nudges` is one attempt.
-- **An attempt is short and the runner is fair.** Each attempt has its own bound of about ten seconds, wired through to the plug. Retries back off from five seconds to a minute. The runner takes any step's first attempt before a retry that is due.
-- **Keep trying for:** 10 minutes by default, each step its own. Step k may start while the clock is before the fire's time plus the waits of steps 1 to k, its own included, and its attempts end at the earlier of its own start plus its wait and that sum. The start is the cursor's arrival, clamped to now so a clock stepped back stretches nothing. A step the bound skips ends failed. A tell waiting on a full outbox holds the cursor, adds no age and moves the bound of the steps below it by the time it waited.
-- **A failure branch** runs when its action ends failed, and the run ends at the branch's end. Without one the failure is logged and the run carries on. A branch's steps take their own waits from when the branch is reached.
-- **A tell is a step.** The lane tells only an event automation's leading tells with no message, before any other step, and only for a fire the lane caused. Every other tell, and every tell of a called or pressed run, goes through the outbox under a member built from the automation, its incarnation, the key and the step path, digested together. The lane's `decide` and the fire road read an event's cool-down through one function. The cool-down's last time lives in automation state beside `ran`.
-- **If:** read in the async slot beside the fill, its answer and side stored on the fire before the cursor moves. Exactly true takes `then`, exactly false takes `else`, and a condition that cannot be read takes neither, logs a failure and carries on (Q56). `and(a, b)`, `or(a, b)` and `sensors.value(device, key)` join the console. An If holds the display unit its condition was written in and is read in it, so a later change of unit does not move a threshold.
-- **Run an automation (Q59):** the caller waits. The called run is its own fire linked to the caller's step.
-  - The caller's step is held on the child's member. The child's end lands the caller's word in the same commit: failed when any step of the child ended failed, whether or not the child handled it.
-  - A child crowded out, retired or missing at a restart ends the caller's step failed. A target that is gone, off, unfit, or whose names cannot be read ends it `refused`. An edit of the caller lets the child finish, unlinked.
-  - The child's bound is the caller's bound for the call step plus the child's own waits.
-  - Every fire carries its call chain: the origin member, then each caller's id and step path. A run is refused when its target is already in its own chain. A child's member is the origin member plus the chain, so a restart replays nothing and two calls of one target stay distinct. A budget of children per origin and the depth cap bound the rest. The origin is an event's member, a crossing's or value's member, a clock's slot, or a pressed Run's call id.
-  - A called or pressed run never replaces a waiting fire and is never replaced, never moves a crossing's last time and never counts against an event's cool-down.
-  - A target fits when its trigger is `called`, or every hole and every condition in its steps names only names readable when called (`whenCalled` on each trigger name) or entities.
-- **Graph checks live in the judge, for an owner's put alone, as a change against the held record:** refused when the put adds or changes a call that closes a loop, names a target that is gone, or makes this automation stop fitting while a caller holds it. A toggle or an edit that leaves the calls and the fit alone asks nothing, so a row in a loop can always be switched off. A carry, an adoption and a conversion never refuse on the graph. A graph problem is its own line on the row. Removing a target is allowed and its confirmation names its callers.
-- **Outside reach** is asked once per automation: when the candidate has an event trigger and an action beyond telling the assistant, anywhere in its tree, and its incarnation has not been acknowledged. The acknowledged set lives in automation state, never on the wire. **Words** rides the same confirmation: a hole reading an event name inside a parameter of an action whose row says it leaves the Gateway is named with its span.
-- **An edit in the middle of a run** retires the fire, as today. The log names the step it stopped on and the row says which steps did not run.
-- **What the map reads:** per automation `lastRun { at, revision, steps }` with each step's word, verdict, attempts, time and side, and `current { path, since, attempts, state }` for a fire in flight, written from the landing that writes the log row and served on the row. Cleared when the steps change, never by a toggle.
-- **Cards draw one level:** a list, an If with two sides, a failure branch on any action, a side's action included. An If inside a side or a branch, and a branch inside a branch, are past cards. `cardsDraw` is a pure rule over the stored automation and the Gateway's offer; past cards, or for any node holding a field cards do not draw, the steps are edited as script alone. A node of a kind this build does not know is kept and saved raw.
-- **A move:** before one, the phone checks that the destination serves every trigger, action and step kind the carried set holds at any depth, and refuses with the reason when it does not. Unchecked, the destination drops what it cannot parse and the source's let-go then deletes it.
+- **One wire rule:** anything an older build cannot hold lives inside a kind or a record it does not know. No new key on an existing kind or on the automation record.
+- **Stored shape:**
+  - A function record in its own owner-record store: `name`, `params` (each a name and a type, the trigger-given ones derived by the Gateway at the save), `unit` (the display unit its numbers were written in), `steps`.
+  - An automation's one action is `run_function { function, values, keepTryingMin?, coolDownSec? }`. An older phone keeps it raw and shows the row read-only.
+  - A preserve root `Step`: `do { action }`, `if { when, then?, else? }`, `try { steps, catch }`, `exit`, `throw { text? }`, `let { name, value }`, `wait { minutes }`, `note { text }`. A later statement is a new step kind with its own future-kind fixture.
+  - **One form.** At its first start a Gateway turns each stored flat automation into a function and a `run_function`, once, under a dated conversion, and a put in the flat form is turned the same way. No second stored shape exists afterwards.
+  - Function ids are unguessable, so a carried call can never bind to another Gateway's function by accident.
+- **One walk** over every action a body holds, in `src/shared`: the danger confirm, outside reach, the home rule, the hole texts and the phone's warnings read it, across calls where the rule needs it. A residue test refuses a direct read of `actions` or `steps` outside it.
+- **Graph checks** (a call that closes a loop, a call or a pointer naming a function that is gone, a change that stops a user fitting) live in the judge, for an owner's put alone, as a change against the held records. A toggle never asks. A carry never refuses on the graph; what did not come with it lands unfit with its own line on the row.
+- **The engine** keeps a cursor per run: a path through the steps, the call stack, the variables, and per step its word, its verdict, its attempts, its time and the side an If took. At most one started run per automation; a newer trigger waits its turn. An edit of a function stops the runs of every automation using it, and the row says what did not run. A run's frames, variables and last outcomes are durable, each slice's restore reading the shape the one before wrote.
+- **An attempt** has its own short bound, retries back off, and the runner takes a first attempt before a due retry, so one silent plug holds nothing else. A hold that is no attempt (ports not ready, devices not loaded, a lease that ended before its turn) sits beside the words.
+- **A tell is a step.** The lane tells only an event automation's leading tells with no message, for a run the lane caused; every other tell goes through the outbox under a member that includes its step path.
+- **Loops:** a function may not call itself, directly or through others. Refused at the save, and held at the run by the call chain every frame carries, with a budget of calls per run.
+- **What the map reads:** per automation its last run's steps with word, verdict, attempts, time and side, and the step in flight, served on the row. Cleared when the body changes, never by a toggle.
 
 Slices, each ending green, the Gateway's part deployed before the phone's:
 
-1. **Engine prep, no wire** (Gateway, M). The four words and the hold beside them, the road's split of not begun from unreachable, the attempt bound, the backoff and the fair runner, the nature table and the verb natures, the restart rule by nature, an outcome kept per step, one started fire per automation with the larger queue, the wait and its bound, the run row's `word` and step. Effects of a flat list run in order; tells stay merged and outside the order until slice 3, so a tell may precede its effect by the step's wait. Gates: a restore test over today's state file, a held fake plug retrying while a second automation's step starts within one attempt bound, 64 stuck runs still admitting a crossing, bound vectors for a late clock slot, a crossing, and downtime before, inside and after a failing step.
-2. **The wire** (Gateway M, phone S). The schemas above with the canonical form and its vectors, `stepsOf` with its residue test, the two families, the served field, codegen for a recursive preserve root (failing on a cycle it does not resolve by id) with the future-kind fixtures, phone-encoded cases for a flow, a step and an unknown node at each depth re-encoded byte-equal. The judge refuses a put naming a new kind with a fixed reason until slice 3, and a carried row holding one reads invalid and never runs. The phone adopts the types and draws the new kinds as kept. Gate: every row phone N finds drawable builds a body the Gateway accepts.
-3. **The tree engine** (Gateway, L). The cursor walk, the failure branch, a tell per step with the lane's rule and the outbox member, the cool-down through one function, `lastRun` and `current`, outside reach and Words, the mid-run edit's log line. Gate: a restore test over slice 1's state file.
-4. **If** (Gateway, S to M). The step, the async slot, `and`, `or`, `sensors.value` with its row in the console's read-only test, the stored unit, and a condition preview as its own op answering true, false or why unread.
-5. **The phone's model** (phone, M to L). Steps addressed by path, `cardsDraw`, the canonical twin, the check before a move. Pure rules with a JUnit each: the path edits (insert, remove, move), `canRemoveStep`, `addableAt`, `stepIssue`, `textAt`.
-6. **The cards** (phone, M to L). The If card and the failure slot, the condition in the full-screen editor's expression mode with "true right now", the nature line, Keep trying for, an event's cool-down. Pure rules: `conditionPaint`, `conditionAssist`, `withBareName`, `truthPreviewOf`, `natureLine`.
-7. **Calls** (Gateway M to L, phone S to M). The linked child fire, the chain, the budget, the judge's graph checks with their vectors, the fit both ways, a Run op carrying a call id through `createOpDedupe` with a `runnable` reason served per row; the target picker, the "Only when another automation runs it" choice, the Run button, the carry's rule for called helpers. Pure rules: `runTargets`, `runsStored`, `runLine`.
+1. **Engine prep, no wire** (Gateway, M). The words and the hold beside them, the attempt bound, the backoff and the fair runner, natures, the restart rule by nature, an outcome kept per step, one started run per automation, the wait. Effects of a flat list run in order.
+2. **Functions as records** (Gateway L, phone L). The store, `run_function`, the one-time conversion, users and the delete at none, fit and the values an automation sets, the judge's graph checks, the carry with its copy. Bodies are still a list of `do` steps. Phone: the "Runs" block, the picker, "Make unique", the count on the list, as locked in the Designer.
+3. **The tree** (Gateway L, phone L). `if`, `try` and `catch`, `exit`, `wait`, the cursor walk, the downtime rule, tells as steps, the last run served. Phone: the If card, the Try card, Wait and Stop cards, the condition editor with "true right now", one level deep.
+4. **Calls** (Gateway M, phone M). A function calling another, waiting, with what comes back; the loop guards; the Run button; outside reach and outside words.
 
-Size: about 3,000 to 4,000 lines over both sides with tests.
+Size: about 5,000 to 7,000 lines over both sides with tests.
 
-Decided here, to be told to the owner with the slice list and changed if they object:
+Decided here and told to the owner, theirs to change:
 
-- An automation that fires again while its run is live waits its turn; a clock or a sensor replaces whatever of its own is still waiting; outside events wait in order up to a small count.
-- Run pressed on a switched-off automation runs it once, as a routine's Run does. A call from another automation still respects off.
-- An edit in the middle of a run stops that run, and the row says what did not run.
-- An IFTTT post that left and got no answer counts as failed, as accepted in Question 54.
+- An automation that fires again while its run is live waits its turn; a clock or a sensor replaces whatever of its own is still waiting.
+- Run pressed on a switched-off automation runs it once. A call respects nothing of the kind: a function has no switch.
+- A script writes a device or a function by its name when exactly one holds it, and by its id otherwise.
+- Numbers in a function are read in the unit it was written in.
 
-Asked, unanswered:
+Open, for the owner when the slice that needs it is near:
 
-- When the assistant moves to another Gateway, what happens to the automations its automations run. Recommended: they move with it, and one that something staying behind also runs blocks the move until fixed. Either way the destination lands a caller whose target did not come as unfit with a visible line, and never binds the call to another row holding that id.
-- Whether a failure branch still runs when the Gateway was down past the step's wait. Recommended: yes, however late, since it is usually the safe state.
-- Whether flows are built before or after what 2.7c already holds is installed and walked.
+- How a call to another function is spelled in script, given a name may hold spaces.
+- What Run does for an event automation, whose `event` cannot be invented.
+- Which types a declared value may take at first.
 
-## Phase 2.7f - The script and the map (Q50, Q57, Q58)
+## Phase 2.7f - The script (Q57, Q58, Q60 to Q63, Q65)
 
-Second draft with 2.7e. Stands on it.
+Stands on 2.7e.
 
-Design held for the phase:
-
-- **The script is a view of the steps, and the steps alone.** The trigger and the automation's own settings stay in their forms above it, and the script page heads with the Gateway's sentence for the trigger. The view is part of the draft (`AutomationDraft.view`: cards, or script with its text, its last parse and the text that parse was asked for), so the changed check, the inner page and the leave rule read one value.
-- **An action is a call (Q58).** Each action kind is one registered method built from its row in the action table, with typed parameters, a description and its nature. A doing method is served to the script alone: the console's eval, the agents' door and a message hole refuse it, and the read-only fence test holds that.
-- **A statement** is one call to a doing method with an optional failure block, or an If with its blocks. There are no expression statements. The spelling of the failure block is Question 60.
-- **The console's lexer is untouched:** `lexConsole`, its keywords and its token vectors stay as they are, since `if` as a keyword there would turn the builtin `if(...)` and every stored hole using it into a literal. The script's words are read by their text at statement position alone. Gate: every console vector and every hole fixture through the script path yields identical tokens.
-- **Round trip:** `parse(print(t))` equals `canonical(t)` for every tree the schema admits, pinned by a corpus over a fixed table of devices and automations. The printer has its own number encoder (no exponent, full precision) and string encoder (only `\\` and `\"`, so a hole's `\{` survives), each with vectors.
-- **Names:** the tree holds ids. The printer writes a device's or an automation's name when exactly one holds it and the id otherwise, with a label for the phone to draw beside an id. The parser reads an id first, then a unique name, and a reference that resolves to nothing is an issue at its span.
-- **Checked at save:** every call's arguments against its schema, a condition as a truth, every name, each with its span in script offsets, mapped through string escapes.
-- **The phone holds no parser.** A pure `scriptRegions(tokens)` finds statement positions, the condition between `if` and its brace, and strings with an offset map through escapes, pinned by vectors generated from the Gateway's parser. `scriptPaint(tokens, offer)` paints the structural words, compiled in, and the action names, from the served rows. Completions come per region from `consoleAssist` or `holeAssist`. A parse is asked after typing settles and an answer for text that has since changed is dropped.
-- **The map** draws from `lastRun` and `current` alone. `edgeStyle`'s spec names, for each styling channel the owner approved in Question 50, the field that feeds it, a skipped step and a step never reached included.
+- **The script is a view of a function's steps, and the steps alone.** The trigger and the automation's settings stay in their forms; the page heads with the signature, shown and not typed (Q65).
+- **The console's lexer is untouched.** `if` as a keyword there would turn the builtin `if(...)` and every stored hole using it into a literal. The script's words are read by their text at statement position alone, and every console vector and hole fixture through the script path yields identical tokens.
+- **Round trip:** `parse(print(f))` equals the canonical function, pinned by a corpus over a fixed table of devices and functions. The printer has its own number and string encoders, each with vectors. A step kind the printer does not know prints as a block that parses back unchanged.
+- **Checked at save:** every call's arguments against its schema, a condition as a truth, every name and its type, each with a span in script offsets.
+- **The phone holds no parser.** It paints structure from a pure rule over tokens, pinned by vectors from the Gateway's parser, and asks the Gateway for the tree, the issues and what is in scope where.
+- **The view is part of the draft**, so the changed check and the leave rule read one value. Cards open whatever they can draw; past that the body is script alone.
 
 Slices:
 
-1. **The script on the Gateway, read-only on the phone** (Gateway M to L, phone S to M). The grammar, the parser, the printer, the doing methods under their own audience, a print op and a parse op, the corpus; the phone's read-only script page. Pure rules: `scriptSpans`, `scriptRegions`, `scriptPaint`. The parser lands with the printer, or the corpus cannot run.
-2. **Script editing** (phone, M to L). Pure rules: `viewsOffered`, `toScript` (refused while the draft is unfit), `toCards` (refused on an issue or a tree past cards, the text kept), `scriptChanged`, `parseAfter`.
-3. **The flow map** (phone, L). `flowLayout`, `edgeStyle`, `replayFrames`, `mapChosen`, `pillOf`, the Map and List toggle, replay per automation.
+1. **The script on the Gateway, read-only on the phone** (Gateway L, phone M). The grammar, the parser and the printer landing together, the doing methods under their own audience, variables, `throw` and comments, the corpus.
+2. **Script editing** (phone L). Typed completions and hints through a variable's members.
 
-Size: about 1,500 to 2,000 lines over both sides with tests.
+Size: about 2,500 to 3,500 lines.
 
-Later, on the same footing: a block whose steps start together, a block that groups several steps under one failure branch, a name held across steps, a state written as an assignment, the owner running a doing call from the Console page, the assistant's own actions read from the action table.
+## Phase 2.7g - Side by side, and the map (Q50, Q64)
+
+Stands on 2.7e and 2.7f.
+
+1. **`parallel { }`** (Gateway L, phone M). Several steps in flight in one run under a cap, each with its own wait, outcome and claim; two calls to one device run in the order written; `e.errors`. A "Together" card.
+2. **Tasks** (Gateway M, phone S). `start`, `await`, `all`, `any`, typed. Nothing is left behind: a run does not end while something it started still runs. Script only.
+3. **The flow map** (phone L). Triggers, functions and what they act on, with calls and shared functions drawn, the styling locked in Question 50, replay per automation.
+
+Size: about 2,500 to 3,500 lines.
 
 ## Phase 2.7d - Walk-through and cleanup
 
