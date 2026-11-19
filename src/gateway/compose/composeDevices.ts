@@ -477,6 +477,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		op: Op,
 		approval: "approved" | undefined,
 		shape: Shape<A>,
+		surface: Extract<Surface, "assistant" | "automation"> = "assistant",
 	): Promise<A> => {
 		if (approval !== "approved" && "id" in op && dangerActOf(op, road.reads.get(op.id)?.driver)) {
 			return Promise.resolve(
@@ -485,7 +486,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		}
 		// Assistant schema narrows the body.
 		const narrowed = shape as unknown as Shape<DeviceConsoleResult<Op["kind"]>>;
-		return body(op.kind)("assistant", narrowed, op) as unknown as Promise<A>;
+		return body(op.kind)(surface, narrowed, op) as unknown as Promise<A>;
 	};
 
 	const assistant: DeviceAssistant = <Op extends DeviceToolOp>(op: Op, approval?: "approved") => {
@@ -496,10 +497,12 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 
 	const automationSet: DeviceStage["automationSet"] = (id, verb) => {
 		const shape = assistantShape("device_set");
-		return assistantRun({ kind: "device_set", id, verb }, undefined, {
-			...shape,
-			decline: (why) => (why.kind === "notStarted" ? "not_started" : shape.decline(why)),
-		});
+		return assistantRun(
+			{ kind: "device_set", id, verb },
+			undefined,
+			{ ...shape, decline: (why) => (why.kind === "notStarted" ? "not_started" : shape.decline(why)) },
+			"automation",
+		);
 	};
 
 	return {

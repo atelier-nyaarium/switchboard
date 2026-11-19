@@ -1,0 +1,16 @@
+{
+	"band": {
+		"incarnation": "a1",
+		"basis": "316c0de6d71af1f3",
+		"epoch": "a2",
+		"seq": 3,
+		"changes": [
+			{ "seq": 1, "previous": "ok", "value": "high", "at": 2000 },
+			{ "seq": 2, "previous": "high", "value": "ok", "at": 3000 },
+			{ "seq": 3, "previous": "ok", "value": "high", "at": 4000 }
+		],
+		"sides": { "1": "high" },
+		"value": "high",
+		"at": 4000
+	}
+}

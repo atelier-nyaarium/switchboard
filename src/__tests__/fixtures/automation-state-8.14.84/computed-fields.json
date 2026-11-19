@@ -1,0 +1,15 @@
+[
+	{
+		"id": "band",
+		"kind": "computed_field",
+		"revision": 1,
+		"incarnation": "a1",
+		"body": {
+			"label": "Freezer band",
+			"nodes": [
+				{ "kind": "field", "ref": { "source": "device", "device": "ce:1c:44:06:3c:5d", "key": "temperature" } },
+				{ "kind": "band", "input": 0, "high": -10, "deadZone": 1 }
+			]
+		}
+	}
+]

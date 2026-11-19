@@ -1,5 +1,6 @@
 // What makes an automation invalid or unarmed on this Gateway.
 
+import { reached } from "../../shared/automation-walk.js";
 import { AUTOMATION_TRIGGER_NAMES, type Automation } from "../../shared/schemasAutomation.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
@@ -52,7 +53,7 @@ export function createAutomationValidity(deps: ValidityDeps) {
 	function automationIssue(body: Automation): string | null {
 		const issue = triggerIssue(body);
 		if (issue !== null) return issue;
-		for (const action of body.actions) {
+		for (const { action } of reached(body)) {
 			const refused = isEffect(action) ? effectIssue(action, deps.actions) : null;
 			if (refused !== null) return refused;
 		}

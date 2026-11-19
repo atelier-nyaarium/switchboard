@@ -1,5 +1,6 @@
 // An automation's texts with holes, and how its tells are told.
 
+import { reached } from "../../shared/automation-walk.js";
 import {
 	type Automation,
 	type AutomationAction,
@@ -18,8 +19,13 @@ type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 export const isTell = (action: AutomationAction): action is Tell => action.kind === "tell_assistant";
 
 export function holeTexts(body: Pick<Automation, "actions">): { action: number; param: string; text: string }[] {
-	return body.actions.flatMap((action, at) => actionTexts(action).map((held) => ({ action: at, ...held })));
+	return reached(body).flatMap(({ path, action }) =>
+		actionTexts(action).map((held) => ({ action: Number(path), ...held })),
+	);
 }
+
+const tellsOf = (body: Pick<Automation, "actions">): Tell[] =>
+	reached(body).flatMap(({ action }) => (isTell(action) ? [action] : []));
 
 /** Path: actions, index, parameter, start, end. */
 export const holeOwnerIssue = (
@@ -51,13 +57,11 @@ export interface TellPlan {
 
 /** Message-less event tells are the lane's. */
 export function tellPlan(body: Automation): TellPlan {
-	const tells = body.actions
-		.filter(isTell)
-		.filter((tell) => body.trigger.kind !== "event" || tell.message !== undefined);
+	const tells = tellsOf(body).filter((tell) => body.trigger.kind !== "event" || tell.message !== undefined);
 	const messages = tells.flatMap((tell) => (tell.message === undefined ? [] : [tell.message]));
 	return { when: tellWhen({ actions: tells }), messages, filling: messages.some(hasHoles) };
 }
 
 /** Message-less tells. */
 export const laneTellWhen = (body: Automation): TellWhen | null =>
-	tellWhen({ actions: body.actions.filter(isTell).filter((tell) => tell.message === undefined) });
+	tellWhen({ actions: tellsOf(body).filter((tell) => tell.message === undefined) });

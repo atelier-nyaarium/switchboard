@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
+import { reached } from "../../shared/automation-walk.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
@@ -10,6 +11,7 @@ import {
 	AUTOMATION_ACTIONS,
 	AUTOMATIONS_MAX,
 	type Automation,
+	type AutomationAction,
 	type AutomationActionParam,
 	type AutomationRow,
 	AutomationSchema,
@@ -25,23 +27,23 @@ import { CLOCK_GRACE_MS, clockShown, isClock, nextSlot, walkSlots } from "./auto
 import {
 	admit,
 	claim,
-	EFFECT_LATE_MS,
-	EFFECT_RETRY_MS,
+	claimedPaths,
 	type EffectRef,
 	effectKey,
-	effectsIn,
 	type Fire,
 	type FireNames,
 	finished,
 	holdsClaim,
-	mayWait,
+	type LandedSet,
+	mayRun,
 	nextEffect,
 	nextFill,
-	pendingEffects,
-	retryDue,
-	type Sighting,
-	sighted,
-	withEffect,
+	outdatedSets,
+	type SwitchTarget,
+	stepsOf,
+	turnOf,
+	WAITING_EVENTS_MAX,
+	withStep,
 } from "./automationFires.js";
 import {
 	AUTOMATION_KIND,
@@ -52,8 +54,23 @@ import {
 } from "./automationJudge.js";
 import { type AutomationRun, fireRun, logged } from "./automationLog.js";
 import { clip, type Dropped, memberOf, outboxOf, ownerOf, QUEUE_FULL, told } from "./automationOutbox.js";
-import { type AutomationActionPorts, type AutomationEffect, isEffect, runEffect } from "./automationRunner.js";
+import { type Attempt, type AutomationActionPorts, isEffect, natureOf, runEffect } from "./automationRunner.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State } from "./automationState.js";
+import {
+	attemptDue,
+	begun,
+	clamped,
+	endRun,
+	heard,
+	isEnded,
+	type Nature,
+	outOfTime,
+	recovered,
+	refusedUnsent,
+	type Step,
+	timedOut,
+	unsent,
+} from "./automationSteps.js";
 import { holeSpanOf, holeTexts, laneTellWhen, tellPlan } from "./automationText.js";
 import { createAutomationValidity } from "./automationValidity.js";
 import { createAutomationWords, fieldsOf, type WatchedReading } from "./automationWords.js";
@@ -61,7 +78,7 @@ import type { ComputedFields, DerivedField } from "./computedFields.js";
 import { crossingField, crossingFieldId } from "./crossingBand.js";
 import { type HeardSensor, silenceNotices } from "./sensorSilence.js";
 
-export { EFFECT_LATE_MS, EFFECT_RETRY_MS, EFFECT_WAIT_MS, FIRES_MAX } from "./automationFires.js";
+export { FIRES_MAX, WAITING_EVENTS_MAX } from "./automationFires.js";
 export { type AutomationRun, RUN_OUTCOMES } from "./automationLog.js";
 export {
 	type AutomationOutbox,
@@ -69,6 +86,7 @@ export {
 	QUEUE_MAX_BYTES,
 	QUEUE_MAX_EVENTS,
 } from "./automationOutbox.js";
+export { BACKOFF_MAX_MS, BACKOFF_MIN_MS, KEEP_TRYING_MS } from "./automationSteps.js";
 export type { WatchedReading } from "./automationWords.js";
 export { AUTOMATION_KIND };
 
@@ -79,8 +97,13 @@ export type AutomationWritten =
 
 /** A filled effect parameter. */
 const EFFECT_TEXT_MAX = 500;
-const NOT_READY = "its service was not ready";
-const TOO_LATE = "too late after its trigger";
+const NO_RUNNER = "this Gateway runs no such action";
+export const NEWER_SET = "a newer setting of this switch landed first";
+
+const actionAt = (body: Automation, path: string): AutomationAction | undefined =>
+	reached(body).find((at) => at.path === path)?.action;
+
+const hasEffects = (body: Automation): boolean => reached(body).some(({ action }) => isEffect(action));
 /** A walk whose write failed is retried after this. */
 const CLOCK_RETRY_MS = 30_000;
 
@@ -140,7 +163,10 @@ export interface AutomationsDeps {
 }
 
 export function createAutomations(deps: AutomationsDeps) {
-	let state: State = restore(deps.state.load(), deps.now());
+	const restored = restore(deps.state.load(), deps.now());
+	let state: State = restored.state;
+	/** A restore that dropped fires writes once. */
+	let unwritten = restored.changed;
 	/** Silence counts from here. */
 	const startedAt = deps.now();
 	const { triggerIssue, holesIssue, automationIssue, armed } = createAutomationValidity(deps);
@@ -211,7 +237,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				: plan.filling
 					? { when: plan.when, fields: told, fill: true }
 					: { when: plan.when, fields: withMessage(told, plan.messages.map(unescapedText)) };
-		const effects = record.body.actions.some(isEffect);
+		const effects = hasEffects(record.body);
 		if (!tell && !effects) return false;
 		const recorded: Fire = {
 			...fired,
@@ -219,13 +245,16 @@ export function createAutomations(deps: AutomationsDeps) {
 			incarnation: record.incarnation,
 			revision: record.revision,
 			names,
-			effects: pendingEffects(record.body.actions),
+			steps: stepsOf(record.body),
+			active: [],
 			...(tell ? { tell } : {}),
 		};
+		const event = record.body.trigger.kind === "event";
 		const verdict = admit(work.fires, recorded, {
 			// Each event carries its own.
-			supersede: effects && record.body.trigger.kind !== "event",
+			supersede: effects && !event,
 			earlier: (member) => state.fires.some((stored) => stored.member === member),
+			...(event ? { waitingMax: WAITING_EVENTS_MAX } : {}),
 		});
 		work.fires = verdict.fires;
 		for (const run of verdict.runs) work.log = logged(work.log, fireRun(run.fire, run.outcome, run.reason));
@@ -321,7 +350,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	let clock: { handle: () => TimerHandle } | null = null;
 	let stopped = false;
 
-	/** The next slot of every armed clock; an unlanded walk is retried. */
+	/** Arms the next slot; retries an unlanded walk. */
 	const rearm = (now: number, landed = true): void => {
 		if (clock) deps.timers?.clearTimer(clock.handle());
 		clock = null;
@@ -340,7 +369,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		});
 	};
 
-	/** Fires every slot that came round; a slot past its grace is only counted. */
+	/** Fires due slots; a late one is counted only. */
 	function tick(): boolean {
 		if (stopped) return true;
 		const now = deps.now();
@@ -389,12 +418,114 @@ export function createAutomations(deps: AutomationsDeps) {
 	let running: { ref: EffectRef; done: Promise<void> } | null = null;
 	/** The fill beside it. */
 	let filling: Promise<void> | null = null;
-	/** Effect outcomes, until their write lands; `unsent` sent nothing. */
-	const spent = new Map<string, { ref: EffectRef; runs: AutomationRun[]; unsent?: string }>();
-	/** Effects this process saw unable to start. */
-	const sightings = new Map<string, Sighting>();
+	/** Until their write lands. */
+	const spent = new Map<
+		string,
+		{
+			ref: EffectRef;
+			runs: AutomationRun[];
+			attempt: Attempt;
+			reason?: string;
+			/** Of the effect as it ran. */
+			nature?: Nature;
+			switched?: SwitchTarget;
+		}
+	>();
+	/** Carried steps are judged once. */
+	let recovering = true;
 
 	const isRunning = (ref: EffectRef): boolean => running !== null && effectKey(running.ref) === effectKey(ref);
+
+	/** The action as it fired; null once edited. */
+	const effectAt = (fire: Fire, path: string) => {
+		const record = records.get(fire.automation);
+		if (!record || record.incarnation !== fire.incarnation || record.revision !== fire.revision) return null;
+		const action = actionAt(record.body, path);
+		return action && isEffect(action) ? action : null;
+	};
+
+	const natureAt = (fire: Fire, path: string): Nature | null => {
+		const action = effectAt(fire, path);
+		return action ? natureOf(action) : null;
+	};
+
+	/** An ended step's row. */
+	const endedRun = (fire: Fire, path: string, step: Step, reason?: string): AutomationRun => {
+		const run = endRun(step.word);
+		const held = records.get(fire.automation);
+		const kind = effectAt(fire, path)?.kind ?? (held ? actionAt(held.body, path)?.kind : undefined);
+		return fireRun(fire, run.outcome, reason ?? run.reason, kind);
+	};
+
+	/** Judges steps a restart found. */
+	const recoverFire = (fire: Fire, held: AutomationRun[], now: number) => {
+		let log = held;
+		let landed = fire;
+		for (const [path, step] of Object.entries(fire.steps)) {
+			const next = recovered(step, natureAt(fire, path), now);
+			landed = withStep(landed, path, next);
+			if (!isEnded(step) && isEnded(next)) log = logged(log, endedRun(fire, path, next));
+		}
+		return { fire: landed, log };
+	};
+
+	/** The switch an effect at that path acts on. */
+	const targetOf = (fire: Fire, path: string): SwitchTarget | null => {
+		const action = effectAt(fire, path);
+		return action?.kind === "device_set" ? { device: action.device, nature: natureOf(action) } : null;
+	};
+
+	/** Lands answers; a newer set ends older ones. */
+	const settle = (stored: readonly Fire[], held: Pick<State, "log" | "ran">, now: number, recover: boolean) => {
+		let { log, ran } = held;
+		const sets: LandedSet[] = [];
+		const settled = stored.map((found) => {
+			let fire = found;
+			if (recover) ({ fire, log } = recoverFire(fire, log, now));
+			let landedSets: LandedSet[];
+			({ fire, log, ran, sets: landedSets } = landClaims(fire, { log, ran }, now));
+			sets.push(...landedSets);
+			return fire;
+		});
+		const outdated = outdatedSets(settled, sets, targetOf);
+		const fires = settled.map((fire) =>
+			outdated
+				.filter((at) => at.member === fire.member)
+				.reduce((held, { path }) => {
+					const ended = refusedUnsent(held.steps[path] as Step);
+					log = logged(log, endedRun(held, path, ended, NEWER_SET));
+					return withStep(held, path, ended);
+				}, fire),
+		);
+		return { fires, log, ran };
+	};
+
+	const landClaims = (fire: Fire, held: Pick<State, "log" | "ran">, now: number) => {
+		let { log, ran } = held;
+		let landed = fire;
+		const sets: LandedSet[] = [];
+		for (const path of claimedPaths(fire)) {
+			const ref = { member: fire.member, action: Number(path) };
+			if (isRunning(ref)) continue;
+			const answer = spent.get(effectKey(ref));
+			if (!answer) continue;
+			const step = fire.steps[path] as Step;
+			if ("hold" in answer.attempt) {
+				landed = withStep(landed, path, unsent(step, now));
+				continue;
+			}
+			log = answer.runs.reduce(logged, log);
+			const next = heard(step, answer.nature ?? natureAt(fire, path) ?? "nudges", answer.attempt.word, now);
+			landed = withStep(landed, path, next);
+			if (!isEnded(next)) continue;
+			log = logged(log, endedRun(fire, path, next, answer.reason));
+			if (next.verdict !== "done") continue;
+			ran = { ...ran, [fire.automation]: fire.at };
+			// The effect that ran, though its record moved since.
+			if (answer.switched) sets.push({ member: fire.member, ...answer.switched, at: fire.at });
+		}
+		return { fire: landed, log, ran, sets };
+	};
 
 	/** Why a fire no longer runs. */
 	const retireOf = (fire: Fire): AutomationRun | null => {
@@ -406,48 +537,35 @@ export function createAutomations(deps: AutomationsDeps) {
 		return issue === null ? null : fireRun(fire, "refused", issue);
 	};
 
-	/** Claimed effects' outcomes; `lost`: a claim with none never runs again. */
-	const landClaims = (fire: Fire, held: Pick<State, "log" | "ran">, lost: boolean) => {
-		let { log, ran } = held;
-		let landed = fire;
-		for (const action of effectsIn(fire, "claimed")) {
-			const ref = { member: fire.member, action };
-			if (isRunning(ref)) continue;
-			const key = effectKey(ref);
-			const outcome = spent.get(key);
-			const kind = records.get(fire.automation)?.body.actions[action]?.kind;
-			let runs = outcome?.runs ?? (lost ? [fireRun(fire, "uncertain", "interrupted mid-run", kind)] : null);
-			if (outcome?.unsent !== undefined) {
-				const now = deps.now();
-				const seen = sightings.get(key);
-				if (seen && !mayWait(seen, now)) runs = [fireRun(fire, "refused", outcome.unsent, kind)];
-				else {
-					sightings.set(key, sighted(seen, now, outcome.unsent, now + EFFECT_RETRY_MS, true));
-					landed = withEffect(landed, action, "pending");
-					continue;
-				}
+	/** To the step whose turn it is. */
+	const advance = (
+		start: Fire,
+		held: Pick<State, "log">,
+		at: { now: number; home: boolean; goes: Set<string> },
+	): { fire: Fire; log: AutomationRun[] } => {
+		let { log } = held;
+		let fire = start;
+		for (let path = turnOf(fire); path !== null; path = turnOf(fire)) {
+			const step = begun(clamped(fire.steps[path] as Step, at.now), at.now);
+			fire = { ...withStep(fire, path, step), active: [path] };
+			if (step.claimed) return { fire, log };
+			const effect = effectAt(fire, path);
+			let ended: { step: Step; reason?: string };
+			if (!effect) ended = { step: refusedUnsent(step) };
+			else if (outOfTime(step, at.now)) ended = { step: timedOut(step) };
+			else if (AUTOMATION_ACTIONS[effect.kind].home && !at.home) {
+				ended = { step: refusedUnsent(step), reason: NOT_HOME };
+			} else {
+				// A hold waits unclaimed.
+				const ready = deps.actions?.ready(effect) ?? true;
+				if (ready && attemptDue(step, at.now))
+					at.goes.add(effectKey({ member: fire.member, action: Number(path) }));
+				return { fire, log };
 			}
-			if (!runs) continue;
-			log = runs.reduce(logged, log);
-			if (runs.some((run) => run.outcome === "ran")) ran = { ...ran, [fire.automation]: fire.at };
-			landed = withEffect(landed, action, "done");
+			fire = withStep(fire, path, ended.step);
+			log = logged(log, endedRun(fire, path, ended.step, ended.reason));
 		}
-		return { fire: landed, log, ran };
-	};
-
-	/** Waits alone while it cannot start; refused once the wait has passed. */
-	const effectStep = (effect: AutomationEffect, key: string, now: number): "go" | "wait" | { refused: string } => {
-		const seen = sightings.get(key);
-		if (!(deps.actions?.ready(effect) ?? true)) {
-			if (seen && !mayWait(seen, now)) return { refused: NOT_READY };
-			// Attempted keeps its retry gap.
-			if (!seen?.attempted) sightings.set(key, sighted(seen, now, NOT_READY));
-			return "wait";
-		}
-		// Never attempted: a later wait starts at its first attempt.
-		if (seen && !seen.attempted) sightings.delete(key);
-		else if (seen && !retryDue(seen, now)) return "wait";
-		return "go";
+		return { fire: { ...fire, active: [] }, log };
 	};
 
 	const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
@@ -499,7 +617,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		return landed;
 	}
 
-	/** Lands outcomes and queues every tell that is ready, in one write with the next claim; then runs it. */
+	/** Lands outcomes and queues tells with the next claim. */
 	function pump(): void {
 		if (stopped) return;
 		const now = deps.now();
@@ -511,33 +629,22 @@ export function createAutomations(deps: AutomationsDeps) {
 		const dropped: Dropped = new Map();
 		/** Takes an unowned drop's row. */
 		let droppedBy: Fire | null = null;
-		for (const held of state.fires) {
-			let fire: Fire;
-			({ fire, log, ran } = landClaims(held, { log, ran }, true));
+		/** Retired, awaiting their claim. */
+		const retiring = new Set<string>();
+		let settled: Fire[];
+		({ fires: settled, log, ran } = settle(state.fires, { log, ran }, now, recovering));
+		for (const stored of settled) {
+			let fire: Fire = stored;
 			const retired = retireOf(fire);
 			if (retired) {
 				// Retired once its effect lands.
-				if (holdsClaim(fire)) fires.push(fire);
-				else log = logged(log, retired);
+				if (holdsClaim(fire)) {
+					fires.push(fire);
+					retiring.add(fire.member);
+				} else log = logged(log, retired);
 				continue;
 			}
 			const record = records.get(fire.automation) as OwnerRecord<Automation>;
-			for (const action of effectsIn(fire, "pending")) {
-				const effect = record.body.actions[action];
-				if (!effect || !isEffect(effect)) continue;
-				const key = effectKey({ member: fire.member, action });
-				const step =
-					now - fire.at > EFFECT_LATE_MS
-						? { refused: TOO_LATE }
-						: AUTOMATION_ACTIONS[effect.kind].home && !home
-							? { refused: NOT_HOME }
-							: effectStep(effect, key, now);
-				if (step === "go") goes.add(key);
-				else if (step !== "wait") {
-					log = logged(log, fireRun(fire, "refused", step.refused, effect.kind));
-					fire = withEffect(fire, action, "done");
-				}
-			}
 			if (fire.tell && !home) {
 				log = logged(log, fireRun(fire, "refused", NOT_HOME, "tell_assistant"));
 				fire = untold(fire);
@@ -559,29 +666,31 @@ export function createAutomations(deps: AutomationsDeps) {
 					fire = untold(fire);
 				}
 			}
-			if (!finished(fire)) fires.push(fire);
+			fires.push(fire);
 		}
+		const turns = mayRun(fires);
+		fires = fires.flatMap((held) => {
+			let fire = held;
+			if (turns.has(fire.member) && !retiring.has(fire.member)) {
+				({ fire, log } = advance(fire, { log }, { now, home, goes }));
+			}
+			return finished(fire) ? [] : [fire];
+		});
 		log = droppedRuns(log, dropped, now, droppedBy);
-		const effect = running ? null : nextEffect(fires, (ref) => goes.has(effectKey(ref)));
-		if (effect) fires = claim(fires, effect);
+		const effect = running ? null : nextEffect(fires, (ref) => goes.has(effectKey(ref)), now);
+		if (effect) fires = claim(fires, effect, now);
 		const toFill = filling ? null : nextFill(fires);
 		const moved: State = { ...state, queue, log, ran, fires };
 		// An unlanded pass is retried whole, its claim with it.
-		if (canonicalJson(moved) !== canonicalJson(state) && !commit(moved)) return;
+		if ((unwritten || canonicalJson(moved) !== canonicalJson(state)) && !commit(moved)) return;
+		recovering = false;
+		unwritten = false;
 		for (const [key, { ref }] of [...spent]) {
 			const claimed = state.fires.some(
-				(held) => held.member === ref.member && held.effects[ref.action] === "claimed",
+				(held) => held.member === ref.member && held.steps[String(ref.action)]?.claimed,
 			);
 			if (!claimed) spent.delete(key);
 		}
-		const open = new Set(
-			state.fires.flatMap((held) =>
-				Object.entries(held.effects)
-					.filter(([, effect]) => effect !== "done")
-					.map(([action]) => effectKey({ member: held.member, action: Number(action) })),
-			),
-		);
-		for (const key of [...sightings.keys()]) if (!open.has(key)) sightings.delete(key);
 		// The claim's runner registers first.
 		if (effect) startEffect(effect);
 		if (toFill) startFill(toFill);
@@ -611,7 +720,13 @@ export function createAutomations(deps: AutomationsDeps) {
 		const held = heldWork(ref.member);
 		if (!held) return;
 		const done = launch(
-			() => runOne(held.fire, held.record, ref.action),
+			() =>
+				runOne(held.fire, held.record, ref.action).catch((error) => {
+					// Ports never throw here, so nothing was sent.
+					console.error(`[automations] a run failed: ${errorName(error)}`);
+					spent.set(effectKey(ref), { ref, runs: [], attempt: { hold: "it could not be started" } });
+					return true;
+				}),
 			() => {
 				running = null;
 			},
@@ -667,14 +782,14 @@ export function createAutomations(deps: AutomationsDeps) {
 	async function runOne(fire: Fire, record: OwnerRecord<Automation>, action: number): Promise<boolean> {
 		const ref = { member: fire.member, action };
 		const runs: AutomationRun[] = [];
-		const effect = record.body.actions[action];
+		const effect = actionAt(record.body, String(action));
 		if (!effect || !isEffect(effect)) {
-			spent.set(effectKey(ref), { ref, runs });
+			spent.set(effectKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NO_RUNNER });
 			return true;
 		}
 		const row = AUTOMATION_ACTIONS[effect.kind];
 		if (row.home && !deps.isHome()) {
-			spent.set(effectKey(ref), { ref, runs: [fireRun(fire, "refused", NOT_HOME, effect.kind)] });
+			spent.set(effectKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NOT_HOME });
 			return true;
 		}
 		const filled = fillerOf(fire, runs);
@@ -684,15 +799,14 @@ export function createAutomations(deps: AutomationsDeps) {
 			const max = params.find((held) => held.name === param)?.max ?? EFFECT_TEXT_MAX;
 			texts[param] = (await filled(text, effect.kind)).slice(0, max);
 		}
-		const done = deps.actions
-			? await runEffect({ ...effect, ...texts }, deps.actions)
-			: ({ outcome: "refused", reason: "this Gateway runs no such action" } as const);
-		if (done.outcome === "not_started") {
-			spent.set(effectKey(ref), { ref, runs: [], unsent: done.reason });
+		if (!deps.actions) {
+			spent.set(effectKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NO_RUNNER });
 			return true;
 		}
-		runs.push(fireRun(fire, done.outcome, done.outcome === "ran" ? undefined : done.reason, effect.kind));
-		spent.set(effectKey(ref), { ref, runs });
+		const nature = natureOf(effect);
+		const attempt = await runEffect({ ...effect, ...texts }, deps.actions);
+		const switched = effect.kind === "device_set" ? { switched: { device: effect.device, nature } } : {};
+		spent.set(effectKey(ref), { ref, runs, attempt, nature, ...switched });
 		return true;
 	}
 
@@ -713,13 +827,9 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** Outcomes in one write. */
 	const landSpent = (): void => {
-		let { log, ran } = state;
-		const fires = state.fires.flatMap((held) => {
-			const landed = landClaims(held, { log, ran }, false);
-			({ log, ran } = landed);
-			return finished(landed.fire) ? [] : [landed.fire];
-		});
-		const next: State = { ...state, log, ran, fires };
+		const landed = settle(state.fires, state, deps.now(), false);
+		const fires = landed.fires.filter((fire) => !finished(fire));
+		const next: State = { ...state, log: landed.log, ran: landed.ran, fires };
 		if (canonicalJson(next) !== canonicalJson(state) && commit(next)) spent.clear();
 	};
 
@@ -854,7 +964,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				const record = records.get(automation);
 				if (!record || !armed(record)) continue;
 				const member = memberOf(record.id, record.incarnation, key);
-				const runs = record.body.actions.some(isEffect) || tellPlan(record.body).when !== null;
+				const runs = hasEffects(record.body) || tellPlan(record.body).when !== null;
 				if (!runs || fired.includes(member)) continue;
 				fired.push(member);
 				fire(work, record, { member, seq: 0, at }, names, fieldsOf(names));
@@ -878,7 +988,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		},
 		/** Read-time validity; never stored. */
 		invalidOf: (id: string): string | null => records.invalidOf(id),
-		/** A trigger's names as they stand now; throws what a put would refuse. */
+		/** Current trigger names; throws what a put would. */
 		namesNow(trigger: Exclude<AutomationTrigger, EventTrigger>): FireNames {
 			const probe: Automation = {
 				enabled: true,

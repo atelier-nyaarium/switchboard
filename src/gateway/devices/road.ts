@@ -31,7 +31,10 @@ export const INGEST_SKEW_MS = 2 * 60_000;
 
 export const TOGGLE_DOUBT = "read the device first; the last toggle's outcome is unknown";
 
-export type Surface = "console" | "assistant";
+export type Surface = "console" | "assistant" | "automation";
+
+/** One automation attempt, the queue counted. */
+export const AUTOMATION_ATTEMPT_MS = 15_000;
 export type Effect = "none" | "unknown";
 export type DeviceEffect = "confirms-relay" | "toggles-relay";
 
@@ -125,7 +128,18 @@ interface Lease extends Linked {
 const SURFACE_BOUND_MS: Readonly<Record<Surface, number>> = {
 	console: CONSOLE_ANSWER_WAIT_MS - CONSOLE_HOP_MARGIN_MS,
 	assistant: ASSISTANT_WAITS.action,
+	automation: AUTOMATION_ATTEMPT_MS,
 };
+
+/** An automation retries by word, so a dead connect must say so. */
+const CONNECTING: Readonly<Record<Surface, "held" | "failed">> = {
+	console: "held",
+	assistant: "held",
+	automation: "failed",
+};
+
+/** Less left at the turn is a queue wait, not a dead connect. */
+export const CONNECT_FLOOR_MS = 2_000;
 
 const NOT_STARTED: Declined = { kind: "notStarted" };
 
@@ -222,12 +236,22 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		return held.signal.aborted;
 	};
 
-	const declineFrom = (error: unknown, marked: boolean, record: DeviceRecord | null): Declined => {
+	const tooLateToConnect = (held: Lease, surface: Surface): boolean =>
+		CONNECTING[surface] === "failed" && held.deadlineAt - deps.ambient.now() < CONNECT_FLOOR_MS;
+
+	/** `connecting`: a connect that never opened is a failure, not a hold. */
+	const declineFrom = (
+		error: unknown,
+		marked: boolean,
+		record: DeviceRecord | null,
+		connecting: "held" | "failed",
+	): Declined => {
 		if (error instanceof Decline) return error.why;
 		const effect: Effect = marked ? "unknown" : "none";
 		if (error instanceof DeviceDriverFailure) {
 			const failure = error.failure;
-			if (!marked && failure.kind === "timeout" && failure.sent === false) return NOT_STARTED;
+			const unsent = !marked && failure.kind === "timeout" && failure.sent === false;
+			if (unsent && connecting === "held") return NOT_STARTED;
 			return withRecord({ kind: "failed", failure, effect }, record);
 		}
 		console.warn(`[device] operation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -235,7 +259,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		return withRecord({ kind: "failed", failure, effect }, record);
 	};
 
-	const makeSlot = (id: string, held: Lease): Slot => {
+	const makeSlot = (id: string, held: Lease, surface: Surface): Slot => {
 		const record = store.get(id);
 		const driver = record?.kind === "switch" ? drivers[record.driver as DriverOf<"switch">] : drivers.kasa;
 		const slot: Slot = {
@@ -282,7 +306,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 					if (effect) doubt.delete(id);
 					return value;
 				} catch (error) {
-					const why = declineFrom(error, latch.marked, record);
+					const why = declineFrom(error, latch.marked, record, CONNECTING[surface]);
 					if (effect === "toggles-relay" && why.kind === "failed" && why.effect === "unknown") doubt.add(id);
 					throw new Decline(why);
 				}
@@ -291,7 +315,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 				try {
 					return { ok: true, value: await slot.drive(work) };
 				} catch (error) {
-					return { ok: false, why: declineFrom(error, false, record) };
+					return { ok: false, why: declineFrom(error, false, record, CONNECTING[surface]) };
 				}
 			},
 			async identify(address, expected) {
@@ -342,9 +366,9 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 				});
 				const turn = store.perDevice(id, async (): Promise<Outcome<T>> => {
 					begin();
-					if (expired(held)) return { ok: false, why: NOT_STARTED };
+					if (expired(held) || tooLateToConnect(held, surface)) return { ok: false, why: NOT_STARTED };
 					heldIds.add(id);
-					const slot = makeSlot(id, held);
+					const slot = makeSlot(id, held, surface);
 					try {
 						if (asPlug) {
 							if (!slot.record) return { ok: false, why: { kind: "refused", code: "not_found" } };
@@ -372,7 +396,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 						}
 						return { ok: true, value: await work(slot) };
 					} catch (error) {
-						return { ok: false, why: declineFrom(error, false, slot.record) };
+						return { ok: false, why: declineFrom(error, false, slot.record, CONNECTING[surface]) };
 					} finally {
 						heldIds.delete(id);
 					}
@@ -403,7 +427,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 			const value = await run(op);
 			return shape.schema ? shape.schema.parse(value) : value;
 		} catch (error) {
-			return shape.decline(declineFrom(error, false, null));
+			return shape.decline(declineFrom(error, false, null, CONNECTING[surface]));
 		} finally {
 			root.end("device operation ended");
 			root.dispose();

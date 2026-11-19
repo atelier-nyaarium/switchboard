@@ -1,0 +1,19 @@
+[
+	{
+		"id": "heat",
+		"kind": "automation",
+		"revision": 1,
+		"incarnation": "a3",
+		"body": {
+			"label": "Heat",
+			"enabled": true,
+			"trigger": { "kind": "value", "field": "band", "becomes": "high", "coolDownSec": 0 },
+			"actions": [
+				{ "kind": "device_set", "device": "plug", "verb": "on" },
+				{ "kind": "device_set", "device": "plug", "verb": "off" },
+				{ "kind": "ifttt_trigger", "event": "freezer" },
+				{ "kind": "tell_assistant", "when": "quietly" }
+			]
+		}
+	}
+]

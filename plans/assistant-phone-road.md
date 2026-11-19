@@ -1792,6 +1792,31 @@ Design: Phase 2.7e above. Nothing on the wire, nothing a phone sees.
 
 Gates: a restore of the state 8.14.84 wrote; a fair-runner test with a held fake plug; a vector per device refusal code; the walk residue test.
 
+Decided while building slice 1:
+
+- **An attempt is bounded at 15 seconds** on a device-road surface of its own. A bound that passes while the op waits in the device queue is a hold; one that passes after the command was written is `no_answer`. One that passes after its turn began but before anything was written, a connect that never opened, is `unreachable` on the automation surface alone, so a Toggle to a dead plug ends at once and an On retries; the console's and the assistant's answers are unchanged.
+- **Retries back off** from 5 to 60 seconds, counted from each answer. A hold takes its attempt back.
+- **Natures sit beside the runners** on the Gateway until the slice where the phone reads them, when they move to the action table.
+- **A step that only ever held** and runs out of its ten minutes ends `unreachable`. `timeout` is the word after a restart alone. A step that never began an attempt forgets its start at a restart.
+- **At most 8 event fires not yet started per automation.** The newcomer past that has its run dropped and logged `suppressed` ("too many of its runs are waiting"), once until a run comes between. Its tell still goes, as a fire with no steps, while the queue has room.
+- **Each ended step logs one fixed phrase per word.** A stored fire that cannot be read logs one `uncertain` row, none when its automation id cannot be read, and the restore that dropped it writes once.
+- **A throw before anything was sent** (the engine itself, a hole read) is a hold. A throw from an action's port is `no_answer`, judged by nature like any attempt with no word back.
+- **A rollback to 8.14.84 drops every fire stored in the new shape** in memory, with one console line and no run row, so the outcome of a step that was in flight is lost without a trace in the log. The file keeps them until that build next writes its state, so going forward again before then reads them back and runs an unbegun step late, under Question 70's "however late". The automations themselves are untouched.
+- **A newer setting of a switch ends an older one still waiting.** When a set lands, every older open set of the same device, from any automation, ends refused ("a newer setting of this switch landed first"), so a retried On cannot land after the Off that followed it. A Toggle is a nudge, so a Toggle never ends an older Toggle: two automations that each flip a lamp flip it twice. Steps of one run are never touched. A switch flipped by hand between retries is not seen. The device is the one the effect that ran named, so an edit of the newer automation during its attempt hides nothing.
+- **A step whose turn has begun is started,** whether or not an attempt went out, so a newer fire cannot replace it and renew its ten minutes.
+- **The runner takes whichever has waited longest** once anything has waited longer than one attempt and the shortest gap, a first attempt or a retry alike; until then first attempts go before retries. Neither a stream of new runs nor a row of dead plugs can starve the other.
+- **An IFTTT post is not retried on a failure today**, since its client cannot yet tell a post that never left from one that left with no word, and answers both as `no_answer`. The word table already retries `unreachable` for it, for the day the client can. On the board.
+
+### Bug Classes
+
+Mechanisms patched for the same class in more than one audit round of this phase, for the architecture step:
+
+- **What counts as a started run** (`started`, `unstarted`, `live` in `automationFires.ts`, read by `admit` and `victimOf`). Class: a run that has begun is read as not begun, so a newer fire replaces or evicts it. The predicate is inferred from several step fields, and each round found a field it missed: the first alignment pass patched a restored step that an older build had finished (`verdict` with no attempt); the red team patched a step whose turn had come but that only held (`startedAt` with no attempt). A run that says it has begun once, in one field set when its first step's turn comes, would not need the inference.
+- **Whether a device attempt sent anything** (`declineFrom`, `CONNECTING` and `tooLateToConnect` in `road.ts`, `deviceAttempt` in `automationActions.ts`). Class: an attempt that reached nobody is read as a hold, or a hold as a failure, so a Toggle is retried or dropped wrongly. The first pass patched a connect that never opened (a hold where a failure was meant, by surface); the second patched a turn with too little of its bound left (a failure where a hold was meant) and a default argument that would have brought the first back. The road answers "not started" for several distinct facts, and the automation surface needs them apart.
+- **The runner's order** (`nextEffect`, `overdue` and `dueSince`). Class: a fixed priority starves the other side. First attempts always first starved a due retry (first red team); overdue retries first starved a healthy first attempt (second red team). It now takes whichever has waited longest once anything is overdue. One ordering by waiting time from the start would have had no sides.
+- **What a landed effect did** (`landClaims`, the `spent` entry, `outdatedSets`). Class: the engine asks the stored record what an effect was after it ran, and the record has moved. The newer-setting rule read the device from the record and missed a set whose automation was edited mid-attempt; the same pass found it treated a toggle as a setting because it never read the nature. The answer now carries the device and the nature of the effect that ran. Anything else the engine reads about a finished attempt (its kind for the row, its home rule) still comes from the record.
+- **The walk's residue test** (`automation-walk-residue.test.ts`). Class: a textual gate that misses a way of reading `actions`. Each pass widened a regex or added a rule (member reads through `!.` and brackets, destructured parameters, a spread of a body, an exemption that proved nothing). A check on the type, such as a branded body that only the walk can open, would end the list of shapes.
+
 ## Phase 2.7e.2 - Functions as records (slice 3)
 
 Design: Phase 2.7e above. Gateway L, phone L, the first app update (N).
@@ -1808,6 +1833,8 @@ Design: Phase 2.7e above. The second app update (N+1).
 5. **The tree, phone** (phone N+1, L). Steps addressed by path, `cardsDraw`, the If, Try, Wait and Exit cards, the condition editor with "true right now".
 
 Gates: the failure table's vectors; phone-encoded nested unknown steps re-encoded byte-equal; a run in a `wait` survives 64 newer fires; one function reached twice tells twice.
+
+Carried from the 2.7e.1 red team, to decide when `wait` and branches arrive: the newer-setting rule ends any open set of an older fire, including one whose turn has not come. With only immediate steps that window is short. Behind a `wait` an older run's later set can sit for a long time, so "on, wait 30, off" must not lose its Off to another automation's On: the rule then has to compare when a step's turn comes, not when its fire began, and say whose fire a set inside a called function belongs to. Also: a pre-send path that can throw repeatedly should log once, and the full-queue refusal needs revisiting if one live run per automation ever changes.
 
 ## Phase 2.7e.4 - Calls (slice 6)
 

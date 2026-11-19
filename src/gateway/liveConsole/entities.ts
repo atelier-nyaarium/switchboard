@@ -1,6 +1,7 @@
 // Projections, never secrets.
 
 import { z } from "zod";
+import { reached } from "../../shared/automation-walk.js";
 import type { Advert } from "../../shared/ble-recognition.js";
 import { familyOf, unsupported } from "../../shared/ble-recognition.js";
 import {
@@ -15,6 +16,7 @@ import { readingInDisplay } from "../../shared/field-values.js";
 import { HostBleScanResultSchema, type HostOpResult } from "../../shared/host-op.js";
 import type { ConsoleAssistantStateResult, TemperatureUnit } from "../../shared/schemasAssistant.js";
 import { conditionsMatch } from "../../shared/schemasAssistantRules.js";
+import type { Automation } from "../../shared/schemasAutomation.js";
 import type { DeviceReadingSchema, DeviceRecord } from "../../shared/schemasDevices.js";
 import { CONSOLE_LISTEN_DEFAULT_S, CONSOLE_LISTEN_MAX_S, type ConsoleIds } from "../../shared/schemasLiveConsole.js";
 import type { DeviceStage } from "../compose/composeDevices.js";
@@ -178,6 +180,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		return found;
 	};
 	const labelOf = (automationId: string) => automations().sentenceOf(automationId);
+	const actionsOf = (body: Automation) => reached(body).map(({ action }) => action);
 
 	return [
 		{
@@ -346,6 +349,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 							.map((record) => ({
 								id: record.id,
 								...record.body,
+								actions: actionsOf(record.body),
 								label: labelOf(record.id),
 								invalid: automations().invalidOf(record.id),
 							})),
@@ -373,6 +377,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 						return {
 							id: record.id,
 							...record.body,
+							actions: actionsOf(record.body),
 							label: labelOf(record.id),
 							invalid: automations().invalidOf(record.id),
 						};
@@ -413,14 +418,14 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					params: [sourceParam],
 					returns: "Source",
 					call: ([id]) => {
-						const found = source(id as string);
+						const sourced = source(id as string);
 						return {
-							id: found.id,
-							label: found.label,
-							enabled: found.enabled,
-							triggers: found.triggers,
-							fieldSpecs: found.fieldSpecs,
-							actions: found.actions,
+							id: sourced.id,
+							label: sourced.label,
+							enabled: sourced.enabled,
+							triggers: sourced.triggers,
+							fieldSpecs: sourced.fieldSpecs,
+							actions: sourced.actions,
 						};
 					},
 				},

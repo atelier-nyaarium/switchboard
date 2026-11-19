@@ -6,8 +6,9 @@ export const LOG_MAX = 64;
 export const REPLACED = "a newer run replaced it";
 export const CROWDED = "dropped for room";
 export const TOO_MANY = "too many runs are waiting";
+export const BEHIND = "too many of its runs are waiting";
 /** Standing; logged again after an intervening run. */
-const LOST_RUNS: ReadonlySet<string> = new Set([REPLACED, CROWDED, TOO_MANY]);
+const LOST_RUNS: ReadonlySet<string> = new Set([REPLACED, CROWDED, TOO_MANY, BEHIND]);
 
 export const RUN_OUTCOMES = ["ran", "refused", "uncertain", "suppressed"] as const;
 

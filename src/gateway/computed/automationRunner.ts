@@ -7,12 +7,23 @@ import {
 	type AutomationActionParam,
 } from "../../shared/schemasAutomation.js";
 import type { DeviceVerb } from "../devices/driver.js";
+import type { AttemptWord, Nature } from "./automationSteps.js";
 
-/** `uncertain` may have landed; `not_started` sent nothing. */
-export type ActionOutcome = { outcome: "ran" } | { outcome: "refused" | "uncertain" | "not_started"; reason: string };
+/** A word, or a hold: nothing was sent. */
+export type Attempt = { word: AttemptWord } | { hold: string };
 
 /** An action with an effect to run. */
 export type AutomationEffect = Exclude<AutomationAction, { kind: "tell_assistant" }>;
+
+const VERB_NATURES: Readonly<Record<DeviceVerb, Nature>> = { on: "sets", off: "sets", toggle: "nudges" };
+
+const NATURES: { [K in AutomationEffect["kind"]]: (action: Extract<AutomationEffect, { kind: K }>) => Nature } = {
+	device_set: (action) => VERB_NATURES[action.verb],
+	ifttt_trigger: () => "sends",
+};
+
+export const natureOf = (action: AutomationEffect): Nature =>
+	(NATURES[action.kind] as (action: AutomationEffect) => Nature)(action);
 
 export type IftttParams = Omit<Extract<AutomationAction, { kind: "ifttt_trigger" }>, "kind">;
 
@@ -21,8 +32,8 @@ export interface AutomationActionPorts {
 	ready: (action: AutomationEffect) => boolean;
 	/** Null when no switch is held under it. */
 	switchName: (device: string) => string | null;
-	deviceSet: (device: string, verb: DeviceVerb) => Promise<ActionOutcome>;
-	iftttTrigger: (params: IftttParams) => Promise<ActionOutcome>;
+	deviceSet: (device: string, verb: DeviceVerb) => Promise<Attempt>;
+	iftttTrigger: (params: IftttParams) => Promise<Attempt>;
 }
 
 export const isEffect = (action: AutomationAction): action is AutomationEffect => action.kind !== "tell_assistant";
@@ -31,7 +42,7 @@ type Runners = {
 	[K in AutomationEffect["kind"]]: (
 		action: Extract<AutomationEffect, { kind: K }>,
 		ports: AutomationActionPorts,
-	) => Promise<ActionOutcome>;
+	) => Promise<Attempt>;
 };
 
 const RUNNERS: Runners = {
@@ -39,17 +50,17 @@ const RUNNERS: Runners = {
 	ifttt_trigger: ({ kind: _kind, ...params }, ports) => ports.iftttTrigger(params),
 };
 
-/** Never throws; a throw is uncertain, its message never kept. */
-export async function runEffect(action: AutomationEffect, ports: AutomationActionPorts): Promise<ActionOutcome> {
+/** A throw is no answer; its message is dropped. */
+export async function runEffect(action: AutomationEffect, ports: AutomationActionPorts): Promise<Attempt> {
 	try {
 		const run = RUNNERS[action.kind] as (
 			action: AutomationEffect,
 			ports: AutomationActionPorts,
-		) => Promise<ActionOutcome>;
+		) => Promise<Attempt>;
 		return await run(action, ports);
 	} catch (error) {
 		console.warn(`[automations] an action threw: ${errorName(error)}`);
-		return { outcome: "uncertain", reason: "the action failed unexpectedly" };
+		return { word: "no_answer" };
 	}
 }
 

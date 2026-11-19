@@ -8,12 +8,13 @@ import { PollAnswerSchema, told } from "../gateway/assistant/source.js";
 import { memberKey } from "../gateway/assistant/sourceLane.js";
 import { FRESH_STATE, type SourceState } from "../gateway/assistant/sourceState.js";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
-import type { ActionOutcome } from "../gateway/computed/automationRunner.js";
+import type { Attempt } from "../gateway/computed/automationRunner.js";
 import {
+	BACKOFF_MIN_MS,
 	type createAutomations,
-	EFFECT_LATE_MS,
-	EFFECT_RETRY_MS,
-	EFFECT_WAIT_MS,
+	KEEP_TRYING_MS,
+	NEWER_SET,
+	WAITING_EVENTS_MAX,
 } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
@@ -57,22 +58,27 @@ const iceBucket = (over: Partial<Automation> & Partial<ValueTrigger> = {}): Auto
 	};
 };
 
-/** Reopenable Gateway fixture. */
 function world(dir: string, home = true) {
 	const readings = new Map<string, Value>([[TEMP, known(-18)]]);
 	let clock = 1_000;
+	/** Added on every read of the clock. */
+	let drift = 0;
 	let n = 0;
 	let pokes = 0;
 	let failing = 0;
 	const effects: string[] = [];
 	let switches = ["plug"];
 	let readable = true;
+	/** The next hole reader throws. */
+	let holesThrow = false;
 	let broken = false;
 	/** Fills wait on it. */
 	let fillGate: Promise<void> = Promise.resolve();
 	let iftttReady = true;
 	/** An Error is thrown. */
-	let iftttAnswer: ActionOutcome | Error = { outcome: "refused", reason: "not_granted" };
+	let iftttAnswer: Attempt | Error = { word: "refused" };
+	/** By `device:verb`. */
+	let deviceAnswer: (effect: string) => Attempt = () => ({ word: "done" });
 	/** Effects wait on it. */
 	let gate: Promise<void> = Promise.resolve();
 	/** Only this effect waits; null: all. */
@@ -81,7 +87,10 @@ function world(dir: string, home = true) {
 		const pair = openAutomationPair({
 			dataDir: dir,
 			newIncarnation: () => `a${++n}`,
-			now: () => clock,
+			now: () => {
+				clock += drift;
+				return clock;
+			},
 			input: (ref) => ({ type: NUMBER, value: readings.get(refKey(ref)) ?? unknown("not heard") }),
 			opened: (name, state) => {
 				if (name !== "automation-state") return;
@@ -98,8 +107,12 @@ function world(dir: string, home = true) {
 				isHome: () => home,
 				onQueued: () => pokes++,
 				eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
-				holes: () =>
-					readable
+				holes: () => {
+					if (holesThrow) {
+						holesThrow = false;
+						throw new Error("holes broke");
+					}
+					return readable
 						? {
 								issue: (text, names) => holeIssue(text, names, REGISTRY),
 								fill: async (text, names) => {
@@ -108,17 +121,20 @@ function world(dir: string, home = true) {
 									return fillHoles(text, names, REGISTRY);
 								},
 							}
-						: undefined,
+						: undefined;
+				},
 				actions: {
 					ready: (action) => action.kind !== "ifttt_trigger" || iftttReady,
 					switchName: (device) => (switches.includes(device) ? "Heater" : null),
 					deviceSet: async (device, verb) => {
 						effects.push(`${device}:${verb}`);
 						if (gated === null || gated === `${device}:${verb}`) await gate;
-						return { outcome: "ran" };
+						return deviceAnswer(`${device}:${verb}`);
 					},
 					iftttTrigger: async ({ event, value1 }) => {
-						effects.push(value1 === undefined ? `ifttt:${event}` : `ifttt:${event}:${value1}`);
+						const sent = value1 === undefined ? `ifttt:${event}` : `ifttt:${event}:${value1}`;
+						effects.push(sent);
+						if (gated === sent) await gate;
 						if (iftttAnswer instanceof Error) throw iftttAnswer;
 						return iftttAnswer;
 					},
@@ -171,9 +187,15 @@ function world(dir: string, home = true) {
 	const unplug = () => {
 		switches = [];
 	};
+	const plugIn = (device: string) => {
+		switches = [...switches, device];
+	};
 	/** No hole reader. */
 	const unreadable = () => {
 		readable = false;
+	};
+	const breakHolesOnce = () => {
+		holesThrow = true;
 	};
 	/** Fills throw. */
 	const breakFills = () => {
@@ -193,14 +215,21 @@ function world(dir: string, home = true) {
 	const setIftttReady = (ready: boolean) => {
 		iftttReady = ready;
 	};
-	const answerIfttt = (answer: ActionOutcome | Error) => {
+	const answerIfttt = (answer: Attempt | Error) => {
 		iftttAnswer = answer;
+	};
+	const answerDevices = (answer: (effect: string) => Attempt) => {
+		deviceAnswer = answer;
 	};
 	const advance = (ms: number) => {
 		clock += ms;
 	};
+	const driftEachRead = (ms: number) => {
+		drift = ms;
+	};
 	return {
 		advance,
+		driftEachRead,
 		open,
 		read,
 		missed,
@@ -210,12 +239,15 @@ function world(dir: string, home = true) {
 		effects,
 		holdEffects,
 		unplug,
+		plugIn,
 		unreadable,
+		breakHolesOnce,
 		breakFills,
 		holdFills,
 		setHome,
 		setIftttReady,
 		answerIfttt,
+		answerDevices,
 	};
 }
 
@@ -514,7 +546,7 @@ describe("automations", () => {
 		]);
 	});
 
-	it("refuses unsent an effect it finds long after its trigger, and still tells the fire", async () => {
+	it("runs an effect held across a long downtime, its time starting again, and still tells the fire", async () => {
 		const dir = fresh();
 		const old = fullQueue(dir, "now");
 		const w = world(dir);
@@ -532,18 +564,18 @@ describe("automations", () => {
 		w.read(before.fields, -5);
 		await before.automations.settled();
 		w.setIftttReady(true);
-		w.answerIfttt({ outcome: "ran" });
-		w.advance(EFFECT_LATE_MS + 1);
+		w.answerIfttt({ word: "done" });
+		w.advance(3 * 60 * 60_000);
 
 		const after = w.open().automations;
 		after.clear(old);
 		await after.settled();
 
-		expect(w.effects).toEqual([]);
+		expect(w.effects).toEqual(["ifttt:freezer"]);
 		expect(after.runs().map((run) => [run.action, run.outcome])).toEqual([
 			["tell_assistant", "refused"],
-			["ifttt_trigger", "refused"],
 			["tell_assistant", "ran"],
+			["ifttt_trigger", "ran"],
 		]);
 		expect(await queued(after)).toEqual(["high"]);
 	});
@@ -893,16 +925,18 @@ describe("automations", () => {
 		expect(await queued(automations)).toHaveLength(80);
 	});
 
-	it("lets a flood of one automation crowd out only its own waiting runs, never another automation's", async () => {
+	it("caps a flood of one automation's events behind its run, never refusing another automation's", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
+		// Another switch, so no newer set outdates the heater.
+		w.plugIn("fan");
 		automations.ownerPut(
 			"flash",
 			{
 				enabled: true,
 				trigger: { kind: "event", source: "github", conditions: [] },
-				actions: [{ kind: "device_set", device: "plug", verb: "toggle" }],
+				actions: [{ kind: "device_set", device: "fan", verb: "toggle" }],
 			},
 			0,
 		);
@@ -924,7 +958,10 @@ describe("automations", () => {
 		await automations.settled();
 
 		expect(crowded).toEqual([["flash", "suppressed"]]);
-		expect([w.effects.filter((at) => at === "plug:toggle").length, w.effects.at(-1)]).toEqual([63, "plug:on"]);
+		expect([w.effects.filter((at) => at === "fan:toggle").length, w.effects.at(-1)]).toEqual([
+			WAITING_EVENTS_MAX,
+			"plug:on",
+		]);
 	});
 
 	it("leaves a fire queued while its effect cannot be attempted, runs the others, and sends it once it can", async () => {
@@ -966,7 +1003,7 @@ describe("automations", () => {
 			.filter((run) => run.action === "ifttt_trigger")
 			.map((run) => run.outcome);
 
-	it("runs a fire's plug and tell while its unready effect waits alone, refuses it unsent once the wait has passed, and sends it once ready however long it queues", async () => {
+	it("runs a fire's plug and tell while its unready effect holds, ends it past its own time, and gives it a full time from when its turn came", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -975,12 +1012,11 @@ describe("automations", () => {
 		w.read(fields, -5);
 		await automations.settled();
 		const held = [[...w.effects], (await queued(automations)).length, ifttt(automations)];
-		w.advance(EFFECT_WAIT_MS);
+		w.advance(KEEP_TRYING_MS);
 		automations.tick();
 		await automations.settled();
 
-		/** Unready once, then past the wait. */
-		const afterQueue = async (first: ActionOutcome) => {
+		const afterQueue = async (first: Attempt) => {
 			const queues = world(fresh());
 			const b = queues.open();
 			b.fields.put("band", hotBand, 0);
@@ -990,12 +1026,12 @@ describe("automations", () => {
 			const release = queues.holdEffects();
 			queues.read(b.fields, -5);
 			queues.setIftttReady(true);
-			queues.advance(EFFECT_WAIT_MS + 1);
+			queues.advance(KEEP_TRYING_MS + 1);
 			b.automations.tick();
 			release();
 			await b.automations.settled();
-			queues.answerIfttt({ outcome: "ran" });
-			queues.advance(EFFECT_RETRY_MS);
+			queues.answerIfttt({ word: "done" });
+			queues.advance(BACKOFF_MIN_MS);
 			b.automations.tick();
 			await b.automations.settled();
 			return [queues.effects, ifttt(b.automations)];
@@ -1004,19 +1040,19 @@ describe("automations", () => {
 		expect(held).toEqual([["plug:on"], 1, []]);
 		expect(w.effects).toEqual(["plug:on"]);
 		expect(ifttt(automations)).toEqual(["refused"]);
-		expect(await afterQueue({ outcome: "ran" })).toEqual([["plug:on", "ifttt:freezer"], ["ran"]]);
-		expect(await afterQueue({ outcome: "not_started", reason: "not_ready" })).toEqual([
+		expect(await afterQueue({ word: "done" })).toEqual([["plug:on", "ifttt:freezer"], ["ran"]]);
+		expect(await afterQueue({ hold: "not_ready" })).toEqual([
 			["plug:on", "ifttt:freezer", "ifttt:freezer"],
 			["ran"],
 		]);
 	});
 
-	it("keeps an attempted effect's wait and retry gap while its port flaps, and refuses it once the wait has passed since its first attempt", async () => {
+	it("keeps a held effect's retry gap while its port flaps, and ends it once its own time has passed", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
 		automations.ownerPut("door", { ...iceBucket(), actions: [{ kind: "ifttt_trigger", event: "door" }] }, 0, true);
-		w.answerIfttt({ outcome: "not_started", reason: "not_ready" });
+		w.answerIfttt({ hold: "not_ready" });
 		w.read(fields, -5);
 		await automations.settled();
 		const flap = async (ms: number) => {
@@ -1031,25 +1067,25 @@ describe("automations", () => {
 			return w.effects.length;
 		};
 
-		const attempts = [await flap(1_000), await flap(EFFECT_RETRY_MS), await flap(EFFECT_WAIT_MS)];
+		const attempts = [await flap(1_000), await flap(BACKOFF_MIN_MS), await flap(KEEP_TRYING_MS)];
 
-		expect(attempts).toEqual([1, 2, 3]);
+		expect(attempts).toEqual([1, 2, 2]);
 		expect(ifttt(automations)).toEqual(["refused"]);
 	});
 
-	it("retries an effect that sent nothing while its plug and tell go ahead, holds no retry for a clock stepped back, and refuses it once the wait has passed", async () => {
+	it("retries an effect that sent nothing after its plug while its tell goes ahead, holds no retry for a clock stepped back, and ends it once its time has passed", async () => {
 		const sends = world(fresh());
 		const a = sends.open();
 		a.fields.put("band", hotBand, 0);
 		a.automations.ownerPut("bell", bell, 0, true);
-		sends.answerIfttt({ outcome: "not_started", reason: "not_ready" });
+		sends.answerIfttt({ hold: "not_ready" });
 		sends.read(a.fields, -5);
 		await a.automations.settled();
 		const first = [[...sends.effects], (await queued(a.automations)).length, ifttt(a.automations)];
 		a.automations.tick();
 		await a.automations.settled();
 		const resting = [...sends.effects];
-		sends.answerIfttt({ outcome: "ran" });
+		sends.answerIfttt({ word: "done" });
 		sends.advance(-60 * 60_000);
 		a.automations.tick();
 		await a.automations.settled();
@@ -1058,10 +1094,10 @@ describe("automations", () => {
 		const b = lapses.open();
 		b.fields.put("band", hotBand, 0);
 		b.automations.ownerPut("bell", bell, 0, true);
-		lapses.answerIfttt({ outcome: "not_started", reason: "not_ready" });
+		lapses.answerIfttt({ hold: "not_ready" });
 		lapses.read(b.fields, -5);
 		await b.automations.settled();
-		for (const step of [EFFECT_RETRY_MS, EFFECT_WAIT_MS, EFFECT_RETRY_MS]) {
+		for (const step of [BACKOFF_MIN_MS, KEEP_TRYING_MS]) {
 			lapses.advance(step);
 			b.automations.tick();
 			await b.automations.settled();
@@ -1071,7 +1107,7 @@ describe("automations", () => {
 		expect(resting).toEqual(["plug:on", "ifttt:freezer"]);
 		expect([sends.effects, ifttt(a.automations)]).toEqual([["plug:on", "ifttt:freezer", "ifttt:freezer"], ["ran"]]);
 		expect([lapses.effects, ifttt(b.automations)]).toEqual([
-			["plug:on", "ifttt:freezer", "ifttt:freezer", "ifttt:freezer"],
+			["plug:on", "ifttt:freezer", "ifttt:freezer"],
 			["refused"],
 		]);
 	});
@@ -1151,58 +1187,542 @@ describe("automations", () => {
 		]);
 	});
 
-	it("never reruns a fire a restart found claimed: uncertain after a crash, ran after a graceful stop", async () => {
-		const heat = { ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] };
-		const started = (w: ReturnType<typeof world>) => {
-			const before = w.open();
-			before.fields.put("band", hotBand, 0);
-			before.automations.ownerPut("heat", heat, 0);
-			const release = w.holdEffects();
-			w.read(before.fields, -5);
-			return { before, release };
-		};
-		const crashed = world(fresh());
-		started(crashed);
-		const lost = crashed.open().automations;
-		await lost.settled();
-
-		const stopped = world(fresh());
-		const { before, release } = started(stopped);
-		const stopping = before.automations.stop();
-		release();
-		await stopping;
-		const kept = stopped.open().automations;
-		await kept.settled();
-
-		expect([crashed.effects, stopped.effects]).toEqual([["plug:on"], ["plug:on"]]);
-		expect([lost.runs().map((run) => run.outcome), kept.runs().map((run) => run.outcome)]).toEqual([
-			["uncertain"],
-			["ran"],
-		]);
-	});
-
-	it("after a crash mid-run, runs the effects not yet started, logs the one in flight uncertain, and repeats none", async () => {
+	it("never reruns a fire a graceful stop let land", async () => {
 		const w = world(fresh());
 		const before = w.open();
 		before.fields.put("band", hotBand, 0);
-		const three: Automation = {
-			...iceBucket(),
-			actions: [
-				{ kind: "device_set", device: "plug", verb: "on" },
-				{ kind: "device_set", device: "plug", verb: "off" },
-				{ kind: "device_set", device: "plug", verb: "toggle" },
-			],
-		};
-		before.automations.ownerPut("three", three, 0);
-		w.holdEffects("plug:off");
+		before.automations.ownerPut(
+			"heat",
+			{ ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] },
+			0,
+		);
+		const release = w.holdEffects();
 		w.read(before.fields, -5);
-		await vi.waitFor(() => expect(w.effects).toContain("plug:off"));
+		const stopping = before.automations.stop();
+		release();
+		await stopping;
+		const kept = w.open().automations;
+		await kept.settled();
 
-		const after = w.open().automations;
-		await after.settled();
+		expect(w.effects).toEqual(["plug:on"]);
+		expect(kept.runs().map((run) => run.outcome)).toEqual(["ran"]);
+	});
 
-		expect(w.effects).toEqual(["plug:on", "plug:off", "plug:toggle"]);
-		expect(after.runs().map((run) => run.outcome)).toEqual(["ran", "uncertain", "ran"]);
+	describe("a run's steps", () => {
+		const toggle = { kind: "device_set", device: "plug", verb: "toggle" } as const;
+		const on = { kind: "device_set", device: "plug", verb: "on" } as const;
+		const bell = { kind: "ifttt_trigger", event: "bell" } as const;
+		const setUp = (actions: Automation["actions"]) => {
+			const w = world(fresh());
+			const { fields, automations } = w.open();
+			fields.put("band", hotBand, 0);
+			automations.ownerPut("run", { ...iceBucket(), actions }, 0, true);
+			return { w, fields, automations };
+		};
+		const pass = async (
+			w: ReturnType<typeof world>,
+			automations: ReturnType<typeof createAutomations>,
+			ms: number,
+		) => {
+			for (let left = ms; left > 0; left -= 60_000) {
+				w.advance(Math.min(60_000, left));
+				automations.tick();
+				await automations.settled();
+			}
+		};
+
+		it("starts each step once the one above it ended, and carries on past one that failed", async () => {
+			const { w, fields, automations } = setUp([toggle, bell]);
+			w.answerDevices(() => ({ word: "no_answer" }));
+			w.answerIfttt({ word: "done" });
+			const release = w.holdEffects("plug:toggle");
+			w.read(fields, -5);
+			await vi.waitFor(() => expect(w.effects).toContain("plug:toggle"));
+			const waiting = [...w.effects];
+			release();
+			await automations.settled();
+
+			expect(waiting).toEqual(["plug:toggle"]);
+			expect(w.effects).toEqual(["plug:toggle", "ifttt:bell"]);
+			expect(automations.runs().map((run) => `${run.action} ${run.outcome}`)).toEqual([
+				"device_set uncertain",
+				"ifttt_trigger ran",
+			]);
+		});
+
+		it("gives each step its own time from when its turn came", async () => {
+			const { w, fields, automations } = setUp([on, bell]);
+			w.answerDevices(() => ({ word: "unreachable" }));
+			w.answerIfttt({ word: "unreachable" });
+			w.read(fields, -5);
+			await automations.settled();
+			await pass(w, automations, 8 * 60_000);
+			w.answerDevices(() => ({ word: "done" }));
+			await pass(w, automations, 60_000);
+			await pass(w, automations, 8 * 60_000);
+			const still = automations.runs().map((run) => `${run.action} ${run.outcome}`);
+			w.answerIfttt({ word: "done" });
+			await pass(w, automations, 60_000);
+
+			expect(still).toEqual(["device_set ran"]);
+			expect(automations.runs().map((run) => `${run.action} ${run.outcome}`)).toEqual([
+				"device_set ran",
+				"ifttt_trigger ran",
+			]);
+		});
+
+		it("starts a second fire of one automation only once the first has ended", async () => {
+			const { w, fields, automations } = setUp([on]);
+			w.answerDevices(() => ({ word: "unreachable" }));
+			w.read(fields, -5);
+			await automations.settled();
+			w.read(fields, -15);
+			w.read(fields, -5);
+			await pass(w, automations, 60_000);
+			const behind = w.effects.length;
+			w.answerDevices(() => ({ word: "done" }));
+			await pass(w, automations, 60_000);
+			await pass(w, automations, 60_000);
+
+			expect(behind).toBe(2);
+			expect(w.effects).toEqual(["plug:on", "plug:on", "plug:on", "plug:on"]);
+			expect(automations.runs().map((run) => run.outcome)).toEqual(["ran", "ran"]);
+		});
+
+		it("tells every event's message past its automation's waiting cap, dropping only the runs", async () => {
+			const w = world(fresh());
+			const { automations } = w.open();
+			const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
+			automations.ownerPut(
+				"bell",
+				{
+					enabled: true,
+					trigger: event,
+					actions: [toggle, { kind: "tell_assistant", when: "quietly", message: "rang" }],
+				},
+				0,
+			);
+			const count = WAITING_EVENTS_MAX + 3;
+			automations.fireEvents(
+				Array.from({ length: count }, (_, at) => ({
+					automation: "bell",
+					key: memberKey("github", { id: String(at), at }),
+					names: {},
+				})),
+				5_000,
+			);
+			await automations.settled();
+			const answer = await polled(automations);
+
+			expect(answer.kind === "events" ? answer.events.length : 0).toBe(count);
+			expect(automations.runs().filter((run) => run.outcome === "suppressed")).toHaveLength(1);
+		});
+
+		it("hands back a claim whose runner threw before sending, and sends its toggle once the throw clears", async () => {
+			const { w, fields, automations } = setUp([toggle]);
+			w.read(fields, -5);
+			w.breakHolesOnce();
+			await automations.settled();
+			const unsent = [...w.effects];
+			await pass(w, automations, 60_000);
+
+			expect(unsent).toEqual([]);
+			expect(w.effects).toEqual(["plug:toggle"]);
+			expect(automations.runs().map((run) => `${run.action} ${run.outcome}`)).toEqual(["device_set ran"]);
+		});
+
+		describe("two automations setting one switch", () => {
+			const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
+			const off = { kind: "device_set", device: "plug", verb: "off" } as const;
+			const unanswered = async () => {
+				const w = world(fresh());
+				const { automations } = w.open();
+				automations.ownerPut("light", { enabled: true, trigger: event, actions: [on] }, 0);
+				automations.ownerPut("dark", { enabled: true, trigger: event, actions: [off] }, 0);
+				w.answerDevices(() => ({ word: "unreachable" }));
+				automations.fireEvents([{ automation: "light", key: "event:github:light", names: {} }], 5_000);
+				await automations.settled();
+				await pass(w, automations, 5 * 60_000);
+				const dark = async () => {
+					automations.fireEvents([{ automation: "dark", key: "event:github:dark", names: {} }], 305_000);
+					await automations.settled();
+				};
+				return { w, automations, dark, sent: w.effects.length };
+			};
+			const rows = (automations: ReturnType<typeof createAutomations>) =>
+				automations.runs().map((run) => `${run.automation} ${run.outcome}`);
+
+			it("ends an older On once a newer Off on the same switch lands first, and never sends it", async () => {
+				const { w, automations, dark } = await unanswered();
+				await dark();
+				const sent = w.effects.length;
+				w.answerDevices(() => ({ word: "done" }));
+				w.advance(BACKOFF_MIN_MS);
+				automations.tick();
+				await automations.settled();
+				await pass(w, automations, 2 * 60_000);
+
+				expect(w.effects.slice(sent)).toEqual(["plug:off"]);
+				expect(rows(automations)).toEqual(["dark ran", "light refused"]);
+				expect(automations.runs().at(-1)?.reason).toBe(NEWER_SET);
+			});
+
+			it("ends the older On even when the newer Off's automation is edited while its set is in flight", async () => {
+				const { w, automations } = await unanswered();
+				const release = w.holdEffects("plug:off");
+				w.answerDevices((effect) => (effect === "plug:off" ? { word: "done" } : { word: "unreachable" }));
+				automations.fireEvents([{ automation: "dark", key: "event:github:dark", names: {} }], 305_000);
+				await vi.waitFor(() => expect(w.effects.at(-1)).toBe("plug:off"));
+				const edited = automations.ownerPut(
+					"dark",
+					{ enabled: true, label: "Night", trigger: event, actions: [off] },
+					1,
+				);
+				w.answerDevices(() => ({ word: "done" }));
+				release();
+				await automations.settled();
+				await pass(w, automations, 2 * 60_000);
+
+				expect(edited.stored).toBe(true);
+				expect(w.effects.at(-1)).toBe("plug:off");
+				expect(
+					automations
+						.runs()
+						.filter((run) => run.automation === "light")
+						.map((run) => run.reason),
+				).toEqual([NEWER_SET]);
+			});
+
+			it("runs both in order when the older On lands first", async () => {
+				const { w, automations, dark, sent } = await unanswered();
+				w.answerDevices(() => ({ word: "done" }));
+				await pass(w, automations, 60_000);
+				await dark();
+
+				expect(w.effects.slice(sent)).toEqual(["plug:on", "plug:off"]);
+				expect(rows(automations)).toEqual(["light ran", "dark ran"]);
+			});
+
+			it("runs both when two automations set the switch from one event", async () => {
+				const w = world(fresh());
+				const { automations } = w.open();
+				automations.ownerPut("light", { enabled: true, trigger: event, actions: [on] }, 0);
+				automations.ownerPut("dark", { enabled: true, trigger: event, actions: [off] }, 0);
+				automations.fireEvents(
+					[
+						{ automation: "light", key: "event:github:1", names: {} },
+						{ automation: "dark", key: "event:github:1", names: {} },
+					],
+					5_000,
+				);
+				await automations.settled();
+
+				expect(w.effects).toEqual(["plug:on", "plug:off"]);
+				expect(rows(automations)).toEqual(["light ran", "dark ran"]);
+			});
+
+			it("never lets a toggle outdate another automation's toggle that has not had its turn", async () => {
+				const w = world(fresh());
+				const { automations } = w.open();
+				w.plugIn("heater");
+				w.plugIn("lamp");
+				const flip = { kind: "device_set", device: "lamp", verb: "toggle" } as const;
+				const cold = { kind: "device_set", device: "heater", verb: "off" } as const;
+				automations.ownerPut("night", { enabled: true, trigger: event, actions: [cold, flip] }, 0);
+				automations.ownerPut("blink", { enabled: true, trigger: event, actions: [flip] }, 0);
+				w.answerDevices((effect) => (effect === "heater:off" ? { word: "unreachable" } : { word: "done" }));
+				automations.fireEvents([{ automation: "night", key: "event:github:night", names: {} }], 5_000);
+				await automations.settled();
+				automations.fireEvents([{ automation: "blink", key: "event:github:blink", names: {} }], 6_000);
+				await automations.settled();
+				w.answerDevices(() => ({ word: "done" }));
+				await pass(w, automations, 60_000);
+
+				expect(w.effects.filter((effect) => effect === "lamp:toggle")).toHaveLength(2);
+				expect(automations.runs().map((run) => run.outcome)).toEqual(["ran", "ran", "ran"]);
+			});
+		});
+
+		it("lands an answer at the pass's own reading of the clock, so a clock that moves on every read keeps the gap", async () => {
+			const { w, fields, automations } = setUp([on]);
+			let answers = 0;
+			// Then done, so a lost gap shows as a second send, never a spin.
+			w.answerDevices(() => (++answers === 1 ? { word: "unreachable" } : { word: "done" }));
+			w.driftEachRead(1);
+			w.read(fields, -5);
+			await automations.settled();
+			automations.tick();
+			await automations.settled();
+
+			expect(w.effects).toEqual(["plug:on"]);
+		});
+
+		const neverThrough = async (blocked: (w: ReturnType<typeof world>) => void) => {
+			const w = world(fresh());
+			const { automations } = w.open();
+			automations.ownerPut(
+				"bell",
+				{ enabled: true, trigger: { kind: "interval", everyMin: 5 }, actions: [bell] },
+				0,
+				true,
+			);
+			blocked(w);
+			for (let second = 0; second < 16 * 60; second += 3) {
+				w.advance(3_000);
+				automations.tick();
+				await automations.settled();
+			}
+			const ended = automations.runs().filter((run) => run.outcome === "refused");
+			const replaced = automations.runs().filter((run) => run.outcome === "suppressed");
+			return {
+				ended: ended.map((run) => run.action),
+				replacedIt: replaced.filter((run) => run.at === ended[0]?.at),
+			};
+		};
+
+		it("keeps a holding run whose turn began through newer fires of its clock, and ends it unreachable at its time", async () => {
+			const held = await neverThrough((w) => w.answerIfttt({ hold: "not_ready" }));
+			const unready = await neverThrough((w) => w.setIftttReady(false));
+
+			expect(held).toEqual({ ended: ["ifttt_trigger"], replacedIt: [] });
+			expect(unready).toEqual({ ended: ["ifttt_trigger"], replacedIt: [] });
+		});
+
+		it("finishes a run held on an unreachable plug behind 64 newer fires of other automations, and logs it ran once answered", async () => {
+			const w = world(fresh());
+			const { automations } = w.open();
+			const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
+			automations.ownerPut("held", { enabled: true, trigger: event, actions: [on] }, 0);
+			// Another switch, so no newer set outdates the held one.
+			w.plugIn("fan");
+			const flip = { kind: "device_set", device: "fan", verb: "toggle" } as const;
+			const others = Array.from({ length: 9 }, (_, at) => `other${at}`);
+			for (const id of others) {
+				automations.ownerPut(id, { enabled: true, trigger: event, actions: [flip] }, 0);
+			}
+			const firing = (automation: string, at: number) => ({
+				automation,
+				key: memberKey("github", { id: `${automation}:${at}`, at }),
+				names: {},
+			});
+			w.answerDevices((effect) => (effect === "plug:on" ? { word: "unreachable" } : { word: "done" }));
+			automations.fireEvents([firing("held", 0)], 5_000);
+			await automations.settled();
+			const release = w.holdEffects("fan:toggle");
+			automations.fireEvents(
+				others.flatMap((id) => Array.from({ length: 8 }, (_, at) => firing(id, at))).slice(0, 64),
+				6_000,
+			);
+			w.answerDevices(() => ({ word: "done" }));
+			release();
+			await pass(w, automations, 5 * 60_000);
+
+			expect(
+				automations
+					.runs()
+					.filter((run) => run.automation === "held")
+					.map((run) => run.outcome),
+			).toEqual(["ran"]);
+		});
+	});
+
+	describe("a stored state", () => {
+		it("carries on the fires an 8.14.84 build stored, its claimed step judged as a restart judges it", async () => {
+			const dir = fresh();
+			fs.cpSync(path.join(import.meta.dirname, "fixtures", "automation-state-8.14.84"), dir, { recursive: true });
+			const w = world(dir);
+			w.advance(10_000);
+			w.answerIfttt({ word: "done" });
+			const { automations } = w.open();
+			await automations.settled();
+			for (let at = 0; at < 4; at++) {
+				automations.tick();
+				await automations.settled();
+			}
+
+			expect(w.effects).toEqual(["plug:off", "ifttt:freezer", "plug:on", "plug:off", "ifttt:freezer"]);
+			expect(
+				automations
+					.runs()
+					.filter((run) => run.seq === 1)
+					.map((run) => `${run.action} ${run.outcome}`),
+			).toEqual(["tell_assistant ran", "device_set ran", "device_set ran", "ifttt_trigger ran"]);
+		});
+
+		const storedWith = (fires: (held: Record<string, unknown>[]) => unknown[]) => {
+			const dir = fresh();
+			fs.cpSync(path.join(import.meta.dirname, "fixtures", "automation-state-8.14.84"), dir, { recursive: true });
+			const file = path.join(dir, "automation-state.json");
+			const stored = JSON.parse(fs.readFileSync(file, "utf8"));
+			stored.fires = fires(stored.fires);
+			fs.writeFileSync(file, JSON.stringify(stored));
+			return dir;
+		};
+		const uncertain = (automations: ReturnType<typeof createAutomations>) =>
+			automations
+				.runs()
+				.filter((run) => run.outcome === "uncertain")
+				.map((run) => run.seq);
+
+		it("drops a stored fire of a shape it cannot read, logging it uncertain once across two opens, and one with no automation not at all", async () => {
+			const dir = storedWith(([first]) => [
+				{ ...first, effects: { "0": "later" } },
+				{ seq: 9, effects: {} },
+			]);
+			const w = world(dir);
+			const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const once = uncertain(w.open().automations);
+			const again = uncertain(w.open().automations);
+			const drops = warned.mock.calls.filter(([line]) => String(line).includes("another shape")).length;
+			warned.mockRestore();
+
+			expect([once, again, drops]).toEqual([[1], [1], 1]);
+		});
+
+		it("never resends an IFTTT post an 8.14.84 build left claimed, and runs the next fire", async () => {
+			const dir = storedWith(([first, second]) => [
+				{ ...first, effects: { "0": "done", "1": "done", "2": "claimed" } },
+				second,
+			]);
+			const w = world(dir);
+			w.advance(10_000);
+			w.answerIfttt({ word: "done" });
+			const { automations } = w.open();
+			for (let at = 0; at < 4; at++) {
+				automations.tick();
+				await automations.settled();
+			}
+
+			expect(w.effects).toEqual(["plug:on", "plug:off", "ifttt:freezer"]);
+			expect(uncertain(automations)).toEqual([1]);
+		});
+
+		it("keeps a stored run whose first effect ran started, so a newer crossing waits behind it", async () => {
+			const dir = storedWith(([first]) => [{ ...first, effects: { "0": "done", "1": "done", "2": "pending" } }]);
+			const w = world(dir);
+			w.advance(10_000);
+			w.answerIfttt({ word: "done" });
+			w.setIftttReady(false);
+			const { fields, automations } = w.open();
+			w.read(fields, -5);
+			await automations.settled();
+			w.setIftttReady(true);
+			for (let at = 0; at < 4; at++) {
+				automations.tick();
+				await automations.settled();
+			}
+
+			expect(w.effects).toEqual(["ifttt:freezer", "plug:on", "plug:off", "ifttt:freezer"]);
+		});
+	});
+
+	describe("a restart", () => {
+		const crash = async (actions: Automation["actions"], held: string, later: number, w = world(fresh())) => {
+			const before = w.open();
+			before.fields.put("band", hotBand, 0);
+			before.automations.ownerPut("run", { ...iceBucket(), actions }, 0, true);
+			w.answerIfttt({ word: "done" });
+			w.holdEffects(held);
+			w.read(before.fields, -5);
+			await vi.waitFor(() => expect(w.effects).toContain(held));
+			w.holdEffects("none");
+			w.advance(later);
+			const after = w.open().automations;
+			await after.settled();
+			return { w, after, outcomes: after.runs().map((run) => `${run.action} ${run.outcome}`) };
+		};
+		const on = { kind: "device_set", device: "plug", verb: "on" } as const;
+		const toggle = { kind: "device_set", device: "plug", verb: "toggle" } as const;
+		const bell = { kind: "ifttt_trigger", event: "bell" } as const;
+
+		it("ends a claimed toggle or IFTTT post with no answer, and runs the next step", async () => {
+			const toggled = await crash([toggle, bell], "plug:toggle", 1_000);
+			const posted = await crash([bell, toggle], "ifttt:bell", 1_000);
+
+			expect([toggled.w.effects, toggled.outcomes]).toEqual([
+				["plug:toggle", "ifttt:bell"],
+				["device_set uncertain", "ifttt_trigger ran"],
+			]);
+			expect([posted.w.effects, posted.outcomes]).toEqual([
+				["ifttt:bell", "plug:toggle"],
+				["ifttt_trigger uncertain", "device_set ran"],
+			]);
+		});
+
+		it("resumes a claimed On inside its time, and ends it past its time with a later step still run however late", async () => {
+			const inside = await crash([on], "plug:on", 1_000);
+			const past = await crash([on, bell], "plug:on", 3 * 60 * 60_000);
+
+			expect([inside.w.effects, inside.outcomes]).toEqual([["plug:on", "plug:on"], ["device_set ran"]]);
+			expect([past.w.effects, past.outcomes]).toEqual([
+				["plug:on", "ifttt:bell"],
+				["device_set refused", "ifttt_trigger ran"],
+			]);
+		});
+
+		it("resumes a step between attempts inside its time whatever its nature, and ends it past", async () => {
+			const between = async (later: number) => {
+				const w = world(fresh());
+				const before = w.open();
+				before.fields.put("band", hotBand, 0);
+				before.automations.ownerPut("run", { ...iceBucket(), actions: [bell] }, 0, true);
+				w.answerIfttt({ word: "unreachable" });
+				w.read(before.fields, -5);
+				await before.automations.settled();
+				w.answerIfttt({ word: "done" });
+				w.advance(later);
+				const after = w.open().automations;
+				await after.settled();
+				return [w.effects.length, after.runs().map((run) => run.outcome)];
+			};
+
+			expect(await between(BACKOFF_MIN_MS)).toEqual([2, ["ran"]]);
+			expect(await between(KEEP_TRYING_MS)).toEqual([1, ["refused"]]);
+		});
+
+		it("clamps a step started ahead of the clock, so its time restarts from the restart", async () => {
+			const w = world(fresh());
+			const before = w.open();
+			before.fields.put("band", hotBand, 0);
+			before.automations.ownerPut("run", { ...iceBucket(), actions: [bell] }, 0, true);
+			w.answerIfttt({ word: "unreachable" });
+			w.read(before.fields, -5);
+			await before.automations.settled();
+			w.advance(-60 * 60_000);
+			const after = w.open().automations;
+			await after.settled();
+			w.advance(KEEP_TRYING_MS);
+			after.tick();
+			await after.settled();
+
+			expect(after.runs().map((run) => run.outcome)).toEqual(["refused"]);
+		});
+
+		it("gives a step that only held a full time after a long downtime", async () => {
+			const w = world(fresh());
+			const before = w.open();
+			before.fields.put("band", hotBand, 0);
+			before.automations.ownerPut("run", { ...iceBucket(), actions: [bell] }, 0, true);
+			w.answerIfttt({ word: "done" });
+			w.setIftttReady(false);
+			w.read(before.fields, -5);
+			await before.automations.settled();
+			w.advance(3 * 60 * 60_000);
+			const after = w.open().automations;
+			for (let minute = 0; minute < 9; minute++) {
+				w.advance(60_000);
+				after.tick();
+				await after.settled();
+			}
+			const waiting = after.runs().length;
+			w.setIftttReady(true);
+			after.tick();
+			await after.settled();
+
+			expect(waiting).toBe(0);
+			expect(after.runs().map((run) => run.outcome)).toEqual(["ran"]);
+		});
 	});
 
 	it("runs an event's effects once per member, again for later activity on it, and refuses an action whose switch this Gateway lacks", async () => {
@@ -1269,7 +1789,7 @@ describe("automations", () => {
 			0,
 			true,
 		);
-		w.answerIfttt({ outcome: "ran" });
+		w.answerIfttt({ word: "done" });
 		w.breakFills();
 
 		const key = memberKey("github", { id: "7", at: 7 });

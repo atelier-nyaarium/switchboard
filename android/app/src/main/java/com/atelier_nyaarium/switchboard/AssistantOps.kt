@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.assistant.field
 import com.atelier_nyaarium.switchboard.assistant.fieldLabel
 import com.atelier_nyaarium.switchboard.assistant.label
+import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedIntegration
@@ -103,7 +104,7 @@ internal fun rulesOf(sourceId: String, events: List<AutomationRow>): AssistantWa
 	val waking = events.mapNotNull { row ->
 		val trigger = row.automation.trigger as? AutomationTrigger.Event
 		val wakes = row.automation.enabled && row.invalid == null &&
-			row.automation.actions.any { it is AutomationAction.TellAssistant && it.`when` == "now" }
+			reached(row.automation).any { (_, action) -> action is AutomationAction.TellAssistant && action.`when` == "now" }
 		trigger?.takeIf { it.source == sourceId && wakes }?.let { row.id to it.conditions }
 	}
 	val rules = waking.filter { it.second.isNotEmpty() }.take(Protocol.Wire.ASSISTANT_RULES_MAX).map { (id, conditions) ->

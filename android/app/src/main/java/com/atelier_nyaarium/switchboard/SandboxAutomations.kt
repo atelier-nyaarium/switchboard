@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
+import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.testLabel
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.liveconsole.HolePart
@@ -198,8 +199,8 @@ internal class SandboxAutomationGateway(
 
 	/** An IFTTT action the held row lacks asks first. */
 	private fun unconfirmed(automation: Automation, held: AutomationRow?): List<String> {
-		val known = held?.automation?.actions.orEmpty().filterIsInstance<AutomationAction.IftttTrigger>().toSet()
-		val asks = automation.actions.filterIsInstance<AutomationAction.IftttTrigger>().any { it !in known }
+		val known = held?.automation?.let(::reached).orEmpty().map { it.action }.filterIsInstance<AutomationAction.IftttTrigger>().toSet()
+		val asks = reached(automation).map { it.action }.filterIsInstance<AutomationAction.IftttTrigger>().any { it !in known }
 		return if (asks) listOf("Send to IFTTT") else emptyList()
 	}
 
@@ -260,7 +261,7 @@ internal class SandboxAutomationGateway(
 	/** The first hole that is not one of the trigger's names. */
 	private fun unreadHole(automation: Automation): Pair<AutomationHoleSpan, String>? {
 		val names = namesOf(automation.trigger).map { it.name }
-		automation.actions.forEachIndexed { at, action ->
+		reached(automation).forEachIndexed { at, (_, action) ->
 			for ((param, held) in wireJson.encodeToJsonElement(AutomationAction.serializer(), action).jsonObject) {
 				val text = (held as? JsonPrimitive)?.takeIf { it.isString && param != "kind" }?.content ?: continue
 				val hole = scanHoles(text).filterIsInstance<HolePart.Hole>().firstOrNull { !it.closed || it.source.trim() !in names } ?: continue

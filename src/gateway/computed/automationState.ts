@@ -1,15 +1,17 @@
 // The automation state file: its shape and its restore.
 
 import { z } from "zod";
-import { FIRES_MAX, type Fire, FireSchema } from "./automationFires.js";
-import { type AutomationRun, LOG_MAX, RunSchema } from "./automationLog.js";
+import { FIRES_MAX, type Fire, readFire } from "./automationFires.js";
+import { type AutomationRun, fireRun, LOG_MAX, logged, RunSchema } from "./automationLog.js";
 import { QUEUE_MAX_EVENTS, QueueEntrySchema, type QueueState, retained } from "./automationOutbox.js";
+import { clamped } from "./automationSteps.js";
 import { NO_SILENCES, type Silences, SilencesSchema } from "./sensorSilence.js";
 
 /** Ids may be prototype keys. */
 export const own = <T>(held: Record<string, T>, id: string): T | undefined =>
 	Object.hasOwn(held, id) ? held[id] : undefined;
 export const FIRED_MAX = 256;
+const STORED_UNREAD = "a run stored in a shape this build cannot read";
 
 const SlotSchema = z.object({
 	revision: z.number().int().positive(),
@@ -71,15 +73,37 @@ const LooseStateSchema = z.object({
 	silences: SilencesSchema.catch(NO_SILENCES),
 });
 
-/** A fire of another shape never runs. */
-function restoreFires(rows: unknown[], pick: (rows: unknown[], schema: typeof FireSchema) => Fire[]): Fire[] {
-	const fires = pick(rows, FireSchema);
-	const lost = rows.length - fires.length;
+/** Without an automation id, no row. */
+const DroppedFireSchema = z.object({
+	automation: z.string().min(1),
+	seq: z.number().int().catch(0),
+	at: z.number().int().catch(0),
+});
+
+/** A fire of another shape never runs, and logs once. */
+function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: AutomationRun[]; lost: number } {
+	const fires: Fire[] = [];
+	const dropped: AutomationRun[] = [];
+	let lost = 0;
+	for (const row of rows) {
+		const fire = readFire(row);
+		if (fire) {
+			const steps = Object.fromEntries(
+				Object.entries(fire.steps).map(([path, step]) => [path, clamped(step, now)]),
+			);
+			fires.push({ ...fire, steps });
+			continue;
+		}
+		lost++;
+		const named = DroppedFireSchema.safeParse(row);
+		if (named.success) dropped.push(fireRun(named.data, "uncertain", STORED_UNREAD));
+	}
 	if (lost > 0) console.warn(`[automations] ${lost} stored runs of another shape were dropped and will not run`);
-	return fires.slice(-FIRES_MAX);
+	return { fires: fires.slice(-FIRES_MAX), dropped, lost };
 }
 
-export function restore(raw: unknown, now: number): State {
+/** `changed`: the first write must land it. */
+export function restore(raw: unknown, now: number): { state: State; changed: boolean } {
 	const loose = LooseStateSchema.parse(raw ?? EMPTY);
 	const automations: State["automations"] = {};
 	for (const [id, row] of Object.entries(loose.automations)) {
@@ -96,7 +120,8 @@ export function restore(raw: unknown, now: number): State {
 	for (const [id, row] of Object.entries(automations)) {
 		if (row.firedAt !== undefined) ran[id] = Math.max(ran[id] ?? 0, row.firedAt);
 	}
-	return {
+	const { fires, dropped, lost } = restoreFires(loose.fires, now);
+	const state: State = {
 		automations,
 		queue: {
 			lastAt: loose.queue.lastAt,
@@ -104,9 +129,9 @@ export function restore(raw: unknown, now: number): State {
 				.filter((event) => retained(event, now))
 				.slice(-QUEUE_MAX_EVENTS),
 		},
-		log: pick(loose.log, RunSchema).slice(-LOG_MAX),
+		log: dropped.reduce(logged, pick(loose.log, RunSchema)).slice(-LOG_MAX),
 		ran,
-		fires: restoreFires(loose.fires, pick),
+		fires,
 		fired: loose.fired.slice(-FIRED_MAX),
 		slots: Object.fromEntries(
 			Object.entries(loose.slots).flatMap(([id, row]) => {
@@ -116,4 +141,5 @@ export function restore(raw: unknown, now: number): State {
 		),
 		silences: loose.silences,
 	};
+	return { state, changed: lost > 0 };
 }

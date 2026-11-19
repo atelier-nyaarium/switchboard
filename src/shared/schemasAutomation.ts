@@ -1,6 +1,7 @@
 // One automation: a trigger and what it does.
 
 import { z } from "zod";
+import { reached } from "./automation-walk.js";
 import {
 	AssistantRuleConditionSchema,
 	type AssistantWatcherRules,
@@ -247,7 +248,9 @@ export const AUTOMATION_TRIGGER_NAMES: Readonly<Record<AutomationTriggerKind, re
 };
 
 export const dangerousActions = (automation: { actions: readonly AutomationAction[] }): AutomationAction[] =>
-	automation.actions.filter((action) => AUTOMATION_ACTIONS[action.kind].danger);
+	reached(automation)
+		.map(({ action }) => action)
+		.filter((action) => AUTOMATION_ACTIONS[action.kind].danger);
 
 export const AutomationSchema = z
 	.strictObject({
@@ -263,7 +266,7 @@ export type Automation = z.infer<typeof AutomationSchema>;
 
 /** Now outranks quietly. */
 export function tellWhen(automation: Pick<Automation, "actions">): TellWhen | null {
-	const told = automation.actions.filter((action) => action.kind === "tell_assistant");
+	const told = reached(automation).flatMap(({ action }) => (action.kind === "tell_assistant" ? [action] : []));
 	if (told.length === 0) return null;
 	return told.some((action) => action.when === "now") ? "now" : "quietly";
 }

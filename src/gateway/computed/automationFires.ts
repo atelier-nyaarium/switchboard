@@ -1,53 +1,37 @@
-// A fired trigger's progress, effect by effect.
+// A fired trigger's step progress.
 
 import { z } from "zod";
+import { reached } from "../../shared/automation-walk.js";
 import { type AutomationAction, TELL_WHEN } from "../../shared/schemasAutomation.js";
-import { CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
+import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
 import { isEffect } from "./automationRunner.js";
+import {
+	claimed,
+	dueSince,
+	FRESH_STEP,
+	isEnded,
+	type Nature,
+	overdue,
+	type Step,
+	StepPathSchema,
+	StepSchema,
+} from "./automationSteps.js";
 
-/** Runs waiting on their effects. */
+/** Runs waiting on their steps. */
 export const FIRES_MAX = 64;
-/** An effect that sent nothing waits this long, from when this process first saw it. */
-export const EFFECT_WAIT_MS = 120_000;
-/** Between attempts of an effect that sent nothing. */
-export const EFFECT_RETRY_MS = 5_000;
-/** An effect this long after its trigger is refused. */
-export const EFFECT_LATE_MS = 10 * 60_000;
+/** Event fires of one automation not yet started. */
+export const WAITING_EVENTS_MAX = 8;
 
-/** An effect seen unable to start. */
-export interface Sighting {
-	since: number;
-	reason: string;
-	retryAt: number;
-	/** An attempt sent nothing. */
-	attempted?: true;
-}
+const NamesSchema = z.record(z.string(), z.object({ value: z.unknown(), shown: z.string().optional() }));
 
-/** A clock stepped back restarts the wait. */
-export const sighted = (
-	held: Sighting | undefined,
-	now: number,
-	reason: string,
-	retryAt = now,
-	attempted = false,
-): Sighting => ({
-	since: Math.min(held?.since ?? now, now),
-	reason,
-	retryAt,
-	...(attempted || held?.attempted ? { attempted: true } : {}),
+const TellSchema = z.strictObject({
+	when: z.enum(TELL_WHEN),
+	fields: z.record(z.string(), z.string()),
+	/** Its messages' holes are unread. */
+	fill: z.literal(true).optional(),
 });
 
-export const mayWait = (seen: Sighting, now: number): boolean => now - seen.since < EFFECT_WAIT_MS;
-
-/** A clock stepped back is due. */
-export const retryDue = (seen: Sighting, now: number): boolean =>
-	now >= seen.retryAt || seen.retryAt - now > EFFECT_RETRY_MS;
-
-export const EFFECT_STATES = ["pending", "claimed", "done"] as const;
-export type EffectState = (typeof EFFECT_STATES)[number];
-
-/** A fired trigger awaiting its run. */
-export const FireSchema = z.strictObject({
+const FireBase = {
 	member: z.string(),
 	automation: z.string(),
 	incarnation: z.string(),
@@ -57,22 +41,50 @@ export const FireSchema = z.strictObject({
 	seq: z.number().int().nonnegative(),
 	at: z.number().int(),
 	/** What the trigger read, for its texts' holes. */
-	names: z.record(z.string(), z.object({ value: z.unknown(), shown: z.string().optional() })).optional(),
-	/** By action index. A claim is written before its effect runs and never runs again. */
-	effects: z.record(z.string().regex(/^\d+$/), z.enum(EFFECT_STATES)),
-	tell: z
-		.strictObject({
-			when: z.enum(TELL_WHEN),
-			fields: z.record(z.string(), z.string()),
-			/** Its messages' holes are unread. */
-			fill: z.literal(true).optional(),
-		})
-		.optional(),
+	names: NamesSchema.optional(),
+	tell: TellSchema.optional(),
 	/** The outbox had no room. */
 	waiting: z.literal(true).optional(),
+};
+
+/** A fired trigger awaiting its run. */
+export const FireSchema = z.strictObject({
+	...FireBase,
+	/** By step path. */
+	steps: z.record(StepPathSchema, StepSchema),
+	/** The step whose turn it is. */
+	active: z.array(StepPathSchema).max(1),
 });
 export type Fire = z.infer<typeof FireSchema>;
 export type FireNames = NonNullable<Fire["names"]>;
+
+// Remove 2026-12-16: a fire stored by 8.14.84.
+const LegacyFireSchema = z.strictObject({
+	...FireBase,
+	effects: z.record(StepPathSchema, z.enum(["pending", "claimed", "done"])),
+});
+
+const LEGACY_STEPS: Readonly<Record<"pending" | "claimed" | "done", (at: number) => Step>> = {
+	pending: () => FRESH_STEP,
+	claimed: (at) => ({ attempts: 1, startedAt: at, lastAt: at, claimed: true }),
+	// Counted begun, so its run stays started.
+	done: () => ({ attempts: 1, verdict: "ended" }),
+};
+
+/** This shape, or the one before it; null otherwise. */
+export function readFire(row: unknown): Fire | null {
+	const parsed = FireSchema.safeParse(row);
+	if (parsed.success) return parsed.data;
+	const legacy = LegacyFireSchema.safeParse(row);
+	if (!legacy.success) return null;
+	const { effects, ...rest } = legacy.data;
+	const steps = Object.fromEntries(
+		Object.entries(effects).map(([path, held]) => [path, LEGACY_STEPS[held](rest.at)]),
+	);
+	const fire: Fire = { ...rest, steps, active: [] };
+	const turn = Object.entries(effects).find(([, held]) => held === "claimed")?.[0] ?? turnOf(fire);
+	return { ...fire, active: turn === null ? [] : [turn] };
+}
 
 export interface EffectRef {
 	member: string;
@@ -81,45 +93,114 @@ export interface EffectRef {
 
 export const effectKey = (ref: EffectRef): string => `${ref.member}#${ref.action}`;
 
-/** Action indices in that state, in order. */
-export const effectsIn = (fire: Fire, state: EffectState): number[] =>
-	Object.entries(fire.effects)
-		.filter(([, held]) => held === state)
-		.map(([action]) => Number(action))
-		.sort((a, b) => a - b);
+/** Step paths in the order written. */
+export const pathsOf = (fire: Fire): string[] => Object.keys(fire.steps).sort((a, b) => Number(a) - Number(b));
 
-export const pendingEffects = (actions: readonly AutomationAction[]): Fire["effects"] =>
-	Object.fromEntries(actions.flatMap((action, at) => (isEffect(action) ? [[String(at), "pending"]] : [])));
+export const stepsOf = (automation: { actions: readonly AutomationAction[] }): Fire["steps"] =>
+	Object.fromEntries(
+		reached(automation).flatMap(({ path, action }) => (isEffect(action) ? [[path, FRESH_STEP]] : [])),
+	);
 
-export const withEffect = (fire: Fire, action: number, state: EffectState): Fire => ({
+/** The first step not ended. */
+export const turnOf = (fire: Fire): string | null =>
+	pathsOf(fire).find((path) => !isEnded(fire.steps[path] as Step)) ?? null;
+
+export const withStep = (fire: Fire, path: string, step: Step): Fire => ({
 	...fire,
-	effects: { ...fire.effects, [String(action)]: state },
+	steps: { ...fire.steps, [path]: step },
 });
 
-export const finished = (fire: Fire): boolean =>
-	!fire.tell && effectsIn(fire, "done").length === Object.keys(fire.effects).length;
+export const claimedPaths = (fire: Fire): string[] => pathsOf(fire).filter((path) => fire.steps[path]?.claimed);
 
-export const holdsClaim = (fire: Fire): boolean => effectsIn(fire, "claimed").length > 0;
+const hasOpenSteps = (fire: Fire): boolean => turnOf(fire) !== null;
 
-/** Has effects, none of them started. */
-export const unstarted = (fire: Fire): boolean => {
-	const held = Object.keys(fire.effects).length;
-	return held > 0 && effectsIn(fire, "pending").length === held;
-};
+export const finished = (fire: Fire): boolean => !fire.tell && !hasOpenSteps(fire);
+
+export const holdsClaim = (fire: Fire): boolean => claimedPaths(fire).length > 0;
+
+/** A step's turn came. */
+const started = (fire: Fire): boolean =>
+	Object.values(fire.steps).some((step) => step.claimed || step.attempts > 0 || step.startedAt !== undefined);
+
+/** Started with steps left; never evicted. */
+export const live = (fire: Fire): boolean => started(fire) && hasOpenSteps(fire);
+
+/** Steps left, no turn begun. */
+export const unstarted = (fire: Fire): boolean => hasOpenSteps(fire) && !started(fire);
 
 /** Oldest fire first. */
 export const nextFill = (fires: readonly Fire[]): string | null =>
 	fires.find((fire) => fire.tell?.fill)?.member ?? null;
 
-/** Oldest fire first. */
-export function nextEffect(fires: readonly Fire[], goes: (ref: EffectRef) => boolean): EffectRef | null {
+/** Its automation's oldest fire with steps left. */
+export function mayRun(fires: readonly Fire[]): Set<string> {
+	const seen = new Set<string>();
+	const runs = new Set<string>();
 	for (const fire of fires) {
-		for (const action of effectsIn(fire, "pending")) {
-			const ref = { member: fire.member, action };
-			if (goes(ref)) return ref;
-		}
+		if (!hasOpenSteps(fire) || seen.has(fire.automation)) continue;
+		seen.add(fire.automation);
+		runs.add(fire.member);
 	}
-	return null;
+	return runs;
+}
+
+/** First attempts before retries. */
+export function nextEffect(fires: readonly Fire[], goes: (ref: EffectRef) => boolean, now: number): EffectRef | null {
+	let first: EffectRef | null = null;
+	let retry: EffectRef | null = null;
+	/** Starved too long: the one due longest ago goes. */
+	let starved: { ref: EffectRef; since: number } | null = null;
+	for (const fire of fires) {
+		const path = fire.active[0];
+		const step = path === undefined ? undefined : fire.steps[path];
+		if (path === undefined || !step || isEnded(step) || step.claimed) continue;
+		const ref = { member: fire.member, action: Number(path) };
+		if (!goes(ref)) continue;
+		const since = dueSince(step);
+		if (overdue(step, now) && since !== null && (starved === null || since < starved.since))
+			starved = { ref, since };
+		if (step.attempts === 0) first ??= ref;
+		else retry ??= ref;
+	}
+	return starved?.ref ?? first ?? retry;
+}
+
+/** A switch step that landed: its device, its nature, and when its fire fired. */
+export interface LandedSet {
+	member: string;
+	device: string;
+	nature: Nature;
+	at: number;
+}
+
+/** A switch a step acts on, and how. */
+export interface SwitchTarget {
+	device: string;
+	nature: Nature;
+}
+
+/** Open, unclaimed steps on the same switch in older fires; a toggle never outdates a toggle. */
+export function outdatedSets(
+	fires: readonly Fire[],
+	landed: readonly LandedSet[],
+	targetOf: (fire: Fire, path: string) => SwitchTarget | null,
+): { member: string; path: string }[] {
+	return fires.flatMap((fire) =>
+		pathsOf(fire).flatMap((path) => {
+			const step = fire.steps[path] as Step;
+			if (isEnded(step) || step.claimed) return [];
+			const target = targetOf(fire, path);
+			if (target === null) return [];
+			const newer = landed.some(
+				(set) =>
+					set.member !== fire.member &&
+					set.device === target.device &&
+					set.at > fire.at &&
+					!(set.nature === "nudges" && target.nature === "nudges"),
+			);
+			return newer ? [{ member: fire.member, path }] : [];
+		}),
+	);
 }
 
 export interface Admitted {
@@ -128,21 +209,20 @@ export interface Admitted {
 	runs: { fire: Fire; outcome: "suppressed" | "refused"; reason: string }[];
 }
 
-/** Holds no claim and only waits to tell. */
-const onlyTelling = (fire: Fire): boolean =>
-	fire.waiting === true && effectsIn(fire, "done").length === Object.keys(fire.effects).length;
+/** Only waits to tell. */
+const onlyTelling = (fire: Fire): boolean => fire.waiting === true && !hasOpenSteps(fire);
 
-/** Its least advanced unclaimed fire, oldest first. */
+/** Its least advanced idle fire. */
 const victimOf = (held: readonly Fire[]): Fire | undefined => {
-	const free = held.filter((fire) => !holdsClaim(fire));
+	const free = held.filter((fire) => !live(fire));
 	return free.find(onlyTelling) ?? free.find(unstarted) ?? free[0];
 };
 
-/** Past the bound, the automation holding the most fires gives up its least advanced unclaimed one. */
+/** Past the bound, the heaviest automation drops one. */
 export function admit(
 	fires: readonly Fire[],
 	incoming: Fire,
-	rule: { supersede: boolean; earlier: (member: string) => boolean },
+	rule: { supersede: boolean; earlier: (member: string) => boolean; waitingMax?: number },
 ): Admitted {
 	const held = [...fires];
 	const runs: Admitted["runs"] = [];
@@ -158,13 +238,24 @@ export function admit(
 	const replaced = held[older];
 	if (replaced) {
 		runs.push({ fire: replaced, outcome: "suppressed", reason: REPLACED });
-		const spent = effectsIn(replaced, "pending").reduce(
-			(fire, action) => withEffect(fire, action, "done"),
-			replaced,
-		);
-		if (replaced.tell) held[older] = spent;
+		if (replaced.tell) held[older] = { ...replaced, steps: {}, active: [] };
 		else held.splice(older, 1);
 	}
+	let admitted = incoming;
+	if (rule.waitingMax !== undefined && hasOpenSteps(incoming)) {
+		const waiting = held.filter((fire) => fire.automation === incoming.automation && unstarted(fire));
+		if (waiting.length >= rule.waitingMax) {
+			runs.push({ fire: incoming, outcome: "suppressed", reason: BEHIND });
+			// Its tell goes while there is room.
+			if (!incoming.tell || held.length >= FIRES_MAX) return { fires: held, admitted: false, runs };
+			admitted = { ...incoming, steps: {}, active: [] };
+		}
+	}
+	return room(held, admitted, runs);
+}
+
+/** Past the bound, the largest holder gives one up. */
+function room(held: readonly Fire[], incoming: Fire, runs: Admitted["runs"]): Admitted {
 	if (held.length < FIRES_MAX) return { fires: [...held, incoming], admitted: true, runs };
 	const holders = new Map<string, Fire[]>();
 	for (const fire of [...held, incoming])
@@ -175,11 +266,14 @@ export function admit(
 	const victim = largest.map(victimOf).find((fire) => fire !== undefined);
 	if (!victim || victim === incoming) {
 		runs.push({ fire: incoming, outcome: "refused", reason: TOO_MANY });
-		return { fires: held, admitted: false, runs };
+		return { fires: [...held], admitted: false, runs };
 	}
 	runs.push({ fire: victim, outcome: "suppressed", reason: CROWDED });
 	return { fires: [...held.filter((fire) => fire !== victim), incoming], admitted: true, runs };
 }
 
-export const claim = (fires: readonly Fire[], ref: EffectRef): Fire[] =>
-	fires.map((fire) => (fire.member === ref.member ? withEffect(fire, ref.action, "claimed") : fire));
+export const claim = (fires: readonly Fire[], ref: EffectRef, now: number): Fire[] =>
+	fires.map((fire) => {
+		const step = fire.steps[String(ref.action)];
+		return fire.member === ref.member && step ? withStep(fire, String(ref.action), claimed(step, now)) : fire;
+	});

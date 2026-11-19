@@ -1,0 +1,53 @@
+{
+	"_comment": "What src/shared/automation-walk.ts reaches for each automation: a path and a kind per row, in written order. The phone's twin replays these cases.",
+	"cases": [
+		{
+			"name": "one tell",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "event", "source": "github", "conditions": [] },
+				"actions": [{ "kind": "tell_assistant", "when": "now" }]
+			},
+			"reached": [{ "path": "0", "kind": "tell_assistant" }]
+		},
+		{
+			"name": "effects and tells keep their written order",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "time", "time": "07:30", "weekdays": [1, 2, 3, 4, 5], "zone": "UTC" },
+				"actions": [
+					{ "kind": "device_set", "device": "aa:bb:cc:dd:ee:01", "verb": "on" },
+					{ "kind": "tell_assistant", "when": "quietly", "message": "Heater on at {time}" },
+					{ "kind": "ifttt_trigger", "event": "heater" },
+					{ "kind": "device_set", "device": "aa:bb:cc:dd:ee:01", "verb": "toggle" }
+				]
+			},
+			"reached": [
+				{ "path": "0", "kind": "device_set" },
+				{ "path": "1", "kind": "tell_assistant" },
+				{ "path": "2", "kind": "ifttt_trigger" },
+				{ "path": "3", "kind": "device_set" }
+			]
+		},
+		{
+			"name": "effects only",
+			"automation": {
+				"enabled": false,
+				"trigger": {
+					"kind": "crossing",
+					"device": "ce:1c:44:06:3c:5d",
+					"measure": "temperature",
+					"direction": "above",
+					"threshold": -10,
+					"deadZone": 1,
+					"coolDownSec": 0
+				},
+				"actions": [
+					{ "kind": "ifttt_trigger", "event": "freezer", "value1": "{value}" },
+					{ "kind": "device_set", "device": "aa:bb:cc:dd:ee:02", "verb": "off" }
+				]
+			},
+			"reached": [{ "path": "0", "kind": "ifttt_trigger" }, { "path": "1", "kind": "device_set" }]
+		}
+	]
+}

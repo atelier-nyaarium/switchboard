@@ -1,0 +1,57 @@
+{
+	"automations": {
+		"heat": { "revision": 1, "incarnation": "a3", "fieldEpoch": "a2", "handledSeq": 3, "firedAt": 4000 }
+	},
+	"queue": {
+		"lastAt": 4000,
+		"events": [
+			{
+				"member": "automation:heat:a3:a2:1",
+				"at": 2000,
+				"body": {
+					"title": "Heat",
+					"fields": { "automation": "Heat", "field": "Freezer band", "value": "high" }
+				}
+			},
+			{
+				"member": "automation:heat:a3:a2:3",
+				"at": 4000,
+				"body": {
+					"title": "Heat",
+					"fields": { "automation": "Heat", "field": "Freezer band", "value": "high" }
+				}
+			}
+		]
+	},
+	"log": [
+		{ "automation": "heat", "seq": 1, "at": 2000, "outcome": "ran", "action": "tell_assistant" },
+		{ "automation": "heat", "seq": 1, "at": 2000, "outcome": "ran", "action": "device_set" },
+		{ "automation": "heat", "seq": 3, "at": 4000, "outcome": "ran", "action": "tell_assistant" }
+	],
+	"ran": { "heat": 4000 },
+	"fires": [
+		{
+			"automation": "heat",
+			"seq": 1,
+			"at": 2000,
+			"member": "automation:heat:a3:a2:1",
+			"incarnation": "a3",
+			"revision": 1,
+			"names": { "value": { "value": "high" }, "field": { "value": "Freezer band" } },
+			"effects": { "0": "done", "1": "claimed", "2": "pending" }
+		},
+		{
+			"automation": "heat",
+			"seq": 3,
+			"at": 4000,
+			"member": "automation:heat:a3:a2:3",
+			"incarnation": "a3",
+			"revision": 1,
+			"names": { "value": { "value": "high" }, "field": { "value": "Freezer band" } },
+			"effects": { "0": "pending", "1": "pending", "2": "pending" }
+		}
+	],
+	"fired": [],
+	"slots": {},
+	"silences": { "told": {}, "recovered": {} }
+}
