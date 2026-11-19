@@ -844,11 +844,31 @@ Put back to the owner:
 - **`e.code` and `e.message`.** "Word" was the drafter's own term. `e.code` is the short fixed value to branch on (`refused`, `unreachable`, `no_answer`, and `unread` for a condition); `e.message` is a sentence for people, and a bare `{e}` prints it.
 - **In cards,** a Try card beside the If card, each with two slots, and no failure slot per action.
 
-## Question 67 - What happens to called functions when the assistant moves Gateways? (open)
+## Question 67 - What happens to called functions when the assistant moves Gateways?
 
 An outside-event automation lives where the assistant lives and moves with it; a sensor or clock automation stays with its Gateway; a called automation has no trigger tying it anywhere, and a call works only when both sit on one Gateway.
 
 Asked as: functions follow what calls them, and one that something staying also calls stops the move first and names it (recommended); a copy lands on the new Gateway when both sides call it; or nothing follows and a call that lost its function is marked broken. Under every answer a call that lost its function reads broken on its row and is never bound to another automation holding that id.
+
+A: Functions follow what uses them, "sort of": the answer came with a larger model. A function is a reusable block, as a data-block is in Blender. A trigger points at a function, several may point at one, and a device may point at any function it is compatible with. The editor shows how many things use the function, so an edit's reach is known, and offers a copy that is this user's alone. A function with no users is deleted. The design is mocked in the Designer before anything else.
+
+> A. sort of.
+> Functions as a reusable. Devices uses functions. You can point 2 thermostats at a function. Can point a device at a function as long as it's compatible.
+> We can potentially show a count on the editor so you know how many you are going to impact. Or copy off to be unique.
+> Kinda like Bledner and "users" where you can point multiple nodes to the same data block.
+>
+> functions with 0 uses are deleted.
+>
+> Designer first
+
+Read as, and mocked in the Designer dock (`functions-automations-list.html`, `functions-editor.html`, `functions-picker.html`, group "Phase 2.7e Functions"):
+
+- An automation is a trigger pointing at a function. The common case is one function with one user, drawn as today.
+- A function's signature is the values it takes, each with a type. A trigger fits a function when it can fill every one, by name and type; a function that takes nothing fits anything.
+- The editor's "Runs" block names the function, shows "Used by N", lists who else an edit reaches, and offers "Make unique". Its arrow points the automation at another function, from a list split into what fits and what does not, with the reason.
+- The Automations list shows each row's function and its user count when above one.
+- The "only when another automation runs it" trigger of Question 51 falls away: a function used only by callers is simply a function.
+- On a move, a function goes with its users that move; where users stay too, the mover takes a copy. To be confirmed with the owner.
 
 ## Question 62 - What else belongs in the script's first version?
 
