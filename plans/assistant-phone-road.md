@@ -1047,6 +1047,15 @@ A: It finishes on the version it started with. New runs use the new version. A r
 
 Recommended: most bodies that wait are "on, wait, off", and stopping halfway leaves the device on. It costs keeping the steps a run started with until it ends. This replaces the default told with Question 71, that an edit in the middle of a run stops it.
 
+## Question 74 - May a step run another automation, or only call a function?
+
+Q: Both kinds of step, or functions only for now?
+A: Functions only. "Run an automation" can come later as one more step kind, with nothing stored changing. This replaces Question 51's "any automation, off means off" and the default told with Question 71 that a call respects an off switch.
+
+> B it is
+
+Recommended: it is the smaller language, with one kind of step and one kind of "used by". What it gives up: switching one automation off does not stop another that points at the same function.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
@@ -1779,9 +1788,7 @@ Size: about 6,000 to 8,000 lines over both sides with tests.
 
 Decided here and told to the owner, theirs to change: an automation that fires again while its run is live waits its turn; Run pressed on a switched-off automation runs it once; a script writes a device or a function by its name when exactly one holds it; a called function hands nothing back in the first version; a function's edit that widens what an outside-triggered automation reaches asks once for it.
 
-Asked, unanswered:
-
-- Whether a step may run another automation, with the values set on it and respecting its switch, as well as call a function (Question 74).
+A step calls a function and never an automation (Q74), so a function has no switch and an automation is used by nothing.
 
 ## Phase 2.7f - The script (Q57, Q58, Q60 to Q63, Q65)
 
