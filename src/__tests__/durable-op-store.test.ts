@@ -136,6 +136,28 @@ describe("DurableOpStore", () => {
 		expect(store.get("conv-a", "op-3")).toBeDefined();
 	});
 
+	it("says so once a minute however many entries a full conversation evicts", () => {
+		let now = 1_000_000;
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const store = new DurableOpStore(
+				fakeDurable(),
+				fakeAmbient({ now: () => now }),
+				14 * 24 * 60 * 60 * 1000,
+				2,
+				500,
+			);
+			for (let op = 1; op <= 6; op++) mark(store, "conv-a", `op-${op}`);
+			expect(warn).toHaveBeenCalledOnce();
+
+			now += 60_000;
+			mark(store, "conv-a", "op-7");
+			expect(warn).toHaveBeenCalledTimes(2);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
 	it("caps the number of distinct conversations tracked, evicting the oldest conversation first", () => {
 		const store = new DurableOpStore(fakeDurable(), processAmbient(), 14 * 24 * 60 * 60 * 1000, 256, 2);
 		mark(store, "conv-a", "op-1");

@@ -20,10 +20,14 @@ const DEFAULT_MAX_CONVERSATIONS = 500;
 
 const DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
+const EVICTION_WARN_MS = 60_000;
+
 /** Durable idempotency records. Only markers persist, never requests. */
 export class DurableOpStore<Result = ConsoleOpResult> {
 	private byConversation = new Map<string, Map<string, Entry<Result>>>();
 	private nextGeneration = 1;
+	private evictions = 0;
+	private warnedAt = Number.NEGATIVE_INFINITY;
 
 	public constructor(
 		private readonly durable: DurableStore,
@@ -184,9 +188,19 @@ export class DurableOpStore<Result = ConsoleOpResult> {
 		map.set(key, value);
 		const before = map.size;
 		capFifo(map, max);
-		if (map.size < before) {
-			console.warn(`[durableOpStore] ${label} cap reached (${max}) - evicted the least-recently-written entry`);
-		}
+		if (map.size < before) this.noteEviction(label, max);
+	}
+
+	// One line a minute.
+	private noteEviction(label: string, max: number): void {
+		this.evictions += 1;
+		const now = this.now();
+		if (now - this.warnedAt < EVICTION_WARN_MS) return;
+		console.warn(
+			`[durableOpStore] cap reached, ${this.evictions} evicted since the last line (latest: ${label}, cap ${max})`,
+		);
+		this.warnedAt = now;
+		this.evictions = 0;
 	}
 
 	private persist(): void {
