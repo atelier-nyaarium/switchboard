@@ -14,6 +14,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -79,6 +80,7 @@ fun PolicyEditor(
 	val saving = session.busy
 	val refused = session.said?.reason
 	val refusedAt = session.said?.heldRevision
+	val marked = session.said?.marks
 	var confirmingDelete by remember(gatewayId, policyId) { mutableStateOf(false) }
 
 	val addExample = {
@@ -176,6 +178,15 @@ fun PolicyEditor(
 							example = key
 						},
 						label = { Text(key, fontFamily = FontFamily.Monospace) },
+						// Refused command.
+						colors = if (key == marked) {
+							InputChipDefaults.inputChipColors(
+								containerColor = MaterialTheme.colorScheme.errorContainer,
+								labelColor = MaterialTheme.colorScheme.onErrorContainer,
+							)
+						} else {
+							InputChipDefaults.inputChipColors()
+						},
 						trailingIcon = {
 							IconButton(onClick = hapticClick {
 								draft = draft.copy(examples = draft.examples - key)

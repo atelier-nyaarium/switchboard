@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.updateAndGet
 internal data class EditKey(val gatewayId: String, val id: String?)
 
 /** Why a save or delete was turned down, and the revision held instead. */
-internal data class SaveSaid(val reason: String, val heldRevision: Long? = null)
+/** Typed value refused. */
+internal data class SaveSaid(val reason: String, val heldRevision: Long? = null, val marks: String? = null)
 
 /** An edit in progress. Its opening is its identity. */
 internal data class EditSession<D, S>(

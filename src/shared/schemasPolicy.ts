@@ -41,6 +41,36 @@ export const ConsolePolicyListResultSchema = z
 	.object({ policies: z.array(AuthorizationPolicySchema) })
 	.meta({ id: "ConsolePolicyListResult" });
 
+export const POLICY_REFUSAL_CODES = [
+	"same_command",
+	"taken",
+	"no_command",
+	"none",
+	"full",
+	"moved",
+	"gone",
+	"deleted",
+	"spent",
+	"unwritten",
+] as const;
+
+export type PolicyRefusalCode = (typeof POLICY_REFUSAL_CODES)[number];
+
+/** Code and its facts. */
+export const PolicyRefusalSchema = z
+	.object({
+		code: z.enum(POLICY_REFUSAL_CODES),
+		/** As the owner typed it. */
+		example: z.string().optional(),
+		key: z.string().optional(),
+		/** The other policy's name. */
+		policy: z.string().optional(),
+		max: z.number().int().positive().optional(),
+	})
+	.meta({ id: "PolicyRefusal" });
+
+export type PolicyRefusal = z.infer<typeof PolicyRefusalSchema>;
+
 export const ConsolePolicyPutResultSchema = z
 	.object({
 		stored: z.boolean(),
@@ -48,12 +78,14 @@ export const ConsolePolicyPutResultSchema = z
 		revision: z.number().int().nonnegative(),
 		/** Adopted by the phone. */
 		policy: AuthorizationPolicySchema.optional(),
+		/** For an older phone. */
 		reason: z.string().optional(),
+		refusal: PolicyRefusalSchema.optional(),
 	})
 	.meta({ id: "ConsolePolicyPutResult" });
 
 export const ConsolePolicyDeleteResultSchema = z
-	.object({ deleted: z.boolean(), reason: z.string().optional() })
+	.object({ deleted: z.boolean(), reason: z.string().optional(), refusal: PolicyRefusalSchema.optional() })
 	.meta({ id: "ConsolePolicyDeleteResult" });
 
 export type ConsolePolicyListResult = z.infer<typeof ConsolePolicyListResultSchema>;
@@ -63,6 +95,45 @@ export type ConsolePolicyDeleteResult = z.infer<typeof ConsolePolicyDeleteResult
 /** Canonicalize before refusal. */
 export function canonicalPolicy(policy: AuthorizationPolicy): AuthorizationPolicy {
 	return { ...policy, selectorKeys: policy.selectorKeys.map(selectorKey) };
+}
+
+/** Before keys hide the collision. */
+export function examplesRefusal(examples: readonly string[]): PolicyRefusal | null {
+	if (examples.length === 0) return { code: "none" };
+	const first = new Map<string, string>();
+	for (const example of examples) {
+		const key = selectorKey(example);
+		if (key === "" || selectorKey(key) !== key) return { code: "no_command", example };
+		if (first.has(key)) return { code: "same_command", example, key };
+		first.set(key, example);
+	}
+	return null;
+}
+
+/** For a phone reading no code. */
+export function refusalReason(refusal: PolicyRefusal): string {
+	switch (refusal.code) {
+		case "same_command":
+			return `"${refusal.example}" is already covered by "${refusal.key}".`;
+		case "taken":
+			return `"${refusal.key}" is already answered by ${refusal.policy}.`;
+		case "no_command":
+			return `"${refusal.example}" is not a command.`;
+		case "none":
+			return "Add a command first.";
+		case "full":
+			return `This Gateway holds ${refusal.max} policies already.`;
+		case "moved":
+			return "Changed on another device.";
+		case "gone":
+			return "That policy no longer exists.";
+		case "deleted":
+			return "That policy was deleted. Save it as a new one.";
+		case "spent":
+			return "That policy cannot be changed again. Save it as a new one.";
+		case "unwritten":
+			return "The Gateway could not save it. Try again.";
+	}
 }
 
 /** Expects canonical form. */

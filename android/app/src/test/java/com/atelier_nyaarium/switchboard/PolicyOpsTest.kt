@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
 import com.atelier_nyaarium.switchboard.proto.PolicyBinding
+import com.atelier_nyaarium.switchboard.proto.PolicyRefusal
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -36,6 +37,8 @@ class PolicyOpsTest {
 		val unreachable = mutableSetOf<String>()
 		val staleIds = mutableSetOf<String>()
 		val puts = mutableListOf<Pair<String, Long?>>()
+		/** Next put's answer. */
+		val refusals = mutableMapOf<String, ConsolePolicyPutResult>()
 		/** The next list, or the next enable, of that gateway waits here once. */
 		val holds = mutableMapOf<String, TestHold>()
 		val enableHolds = mutableMapOf<String, TestHold>()
@@ -51,6 +54,7 @@ class PolicyOpsTest {
 
 		override suspend fun put(gatewayId: String, policy: AuthorizationPolicy, baseRevision: Long?): ConsolePolicyPutResult {
 			puts += policy.id to baseRevision
+			refusals.remove(policy.id)?.let { return it }
 			if (policy.id in staleIds) {
 				return ConsolePolicyPutResult(stored = false, revision = 5L, reason = "revision 5 is stored; this edits ${baseRevision ?: 0}")
 			}
@@ -278,5 +282,40 @@ class PolicyOpsTest {
 		assertEquals(null, ops.edits.state.value.shown)
 		assertEquals(null, ops.edits.state.value.held[key])
 		assertEquals(listOf("apt"), fake.shelves["sakura"].orEmpty().map { it.id })
+	}
+
+	@Test
+	fun aRefusedSaveReachesTheEditAsASentenceNamingTheTypedCommand() {
+		val fake = FakeGateway()
+		val ops = PolicyOps(admitting("sakura"), Host(fake))
+		val key = EditKey("sakura", "apt")
+		ops.edits.show(key)
+		val opening = ops.edits.open(key, com.atelier_nyaarium.switchboard.policies.PolicyDraft.of(policy("apt", examples = listOf("sudo apt", "sudo apt mark"))))!!
+		fake.refusals["apt"] = ConsolePolicyPutResult(
+			stored = false,
+			revision = 1L,
+			reason = "a selector is named twice",
+			refusal = PolicyRefusal("same_command", example = "sudo apt mark", key = "sudo apt"),
+		)
+
+		runBlocking { ops.commit(key, opening) }
+
+		assertEquals(
+			SaveSaid(sameCommandLine("sudo apt mark", "sudo apt"), 1L, marks = "sudo apt mark"),
+			ops.edits.state.value.held.getValue(key).said,
+		)
+		assertEquals(listOf<String>(), fake.shelves["sakura"].orEmpty().map { it.id })
+	}
+
+	@Test
+	fun anOlderGatewaysRefusalKeepsItsOwnLine() {
+		val fake = FakeGateway()
+		val ops = PolicyOps(admitting("sakura"), Host(fake))
+		fake.refusals["apt"] = ConsolePolicyPutResult(stored = false, revision = 1L, reason = "a selector is named twice")
+
+		val refused = runBlocking { ops.save(policy("apt"), null, "sakura") } as PolicySaved.Refused
+
+		assertEquals("a selector is named twice", refused.reason)
+		assertEquals(null, refused.marks)
 	}
 }

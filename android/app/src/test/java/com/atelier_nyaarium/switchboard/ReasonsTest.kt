@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.PolicyRefusal
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -38,6 +39,32 @@ class ReasonsTest {
 		assertEquals(Line.ALREADY_FAILED.text, settledSentence("error"))
 	}
 
+	@Test
+	fun aPolicyRefusalReadsAsItsCodesSentence() {
+		val prose = "the Gateway's own line"
+		fun line(code: String, example: String? = null, key: String? = null, policy: String? = null, max: Long? = null) =
+			policyRefusalLine(PolicyRefusal(code, example, key, policy, max), prose)
+
+		assertEquals(sameCommandLine("sudo apt mark", "sudo apt"), line("same_command", example = "sudo apt mark", key = "sudo apt"))
+		assertEquals(takenLine("sudo apt", "Sakura Sudo"), line("taken", key = "sudo apt", policy = "Sakura Sudo"))
+		assertEquals(noCommandLine("x"), line("no_command", example = "x"))
+		assertEquals(policiesFullLine(256), line("full", max = 256))
+		assertEquals(Line.POLICY_NONE.text, line("none"))
+		assertEquals(Line.POLICY_MOVED.text, line("moved"))
+		assertEquals(Line.POLICY_GONE.text, line("gone"))
+		assertEquals(Line.POLICY_DELETED.text, line("deleted"))
+		assertEquals(Line.POLICY_SPENT.text, line("spent"))
+		assertEquals(Line.POLICY_UNWRITTEN.text, line("unwritten"))
+		// Falls back to prose.
+		assertEquals(prose, line("same_command", example = "sudo apt mark"))
+		assertEquals(prose, line("not_yet_known"))
+		assertEquals(prose, policyRefusalLine(null, prose))
+
+		assertEquals("sudo apt mark", policyRefusalMarks(PolicyRefusal("same_command", example = "sudo apt mark", key = "sudo apt")))
+		assertEquals("x", policyRefusalMarks(PolicyRefusal("no_command", example = "x")))
+		assertEquals(null, policyRefusalMarks(PolicyRefusal("taken", key = "sudo apt", policy = "Sakura Sudo")))
+	}
+
 	/** The owner's review list, from the mapping itself: `build/reports/error-prose.md`. */
 	@Test
 	fun writesTheProseTable() {
@@ -56,6 +83,10 @@ class ReasonsTest {
 		rows += Triple(lostFilesLine(1), "A scheduled message came back to the composer without one of its attachments.", "1 attachment(s) could not be fetched back")
 		rows += Triple(lostFilesLine(2), "A scheduled message came back to the composer without some of its attachments.", "2 attachment(s) could not be fetched back")
 		rows += Triple(boardCapLine(10), "You attached too many files to a task.", "An entry holds at most 10 attachments")
+		rows += Triple(sameCommandLine("sudo apt mark", "sudo apt"), "You saved a policy with two commands that share a key.", "a selector is named twice")
+		rows += Triple(takenLine("sudo apt", "Sakura Sudo"), "You saved a policy whose command another enabled policy answers.", "sudo apt is already answered by Sakura Sudo")
+		rows += Triple(noCommandLine("x"), "You saved a policy with a command that is not a command.", "<prose>")
+		rows += Triple(policiesFullLine(256), "You saved a policy on a Gateway that holds the most it can.", "<prose>")
 		rows += Triple(scheduleFilesLine(10), "In the schedule dialog, the message holds more than 10 files.", "(nothing; the Router refused it)")
 		rows += Triple(goalDroppedLine("its terminal never took it"), "A goal waited too long for its session.", "Goal dropped: its terminal never took one.")
 		Refusal.entries.forEach { rows += Triple(refusalLine(it), "The Router refused this phone (link status).", OLD_REFUSALS.getValue(it)) }

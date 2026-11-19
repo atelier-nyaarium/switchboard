@@ -29,6 +29,7 @@ internal enum class Act(val doing: String) {
 	WAKING("Waking the session"),
 	FORGETTING("Forgetting the session"),
 	COMPACTING("Compacting the conversation"),
+	SAVING_POLICY("Saving the policy"),
 }
 
 /** The owner's words for an outdated build. */
@@ -101,6 +102,14 @@ internal enum class Line(val text: String, val situation: String, val replaces: 
 		"Vault: the gateway could not be reached",
 	),
 	VAULT_UNREADABLE("The Gateway's reply could not be read.", "You answered a vault request and the reply was garbled.", "Vault: the answer could not be read"),
+	POLICY_NONE("Add a command first.", "You saved a policy with no command.", "a policy names no selector"),
+	POLICY_MOVED("Changed on another device.", "You saved a policy someone changed meanwhile.", "revision 3 is stored; this edits 2"),
+	POLICY_GONE("That policy no longer exists.", "You saved or deleted a policy removed meanwhile.", "no policy <id>"),
+	POLICY_DELETED("That policy was deleted. Save it as a new one.", "You saved a policy deleted meanwhile.", "revision <n> was deleted"),
+	POLICY_SPENT("That policy cannot be changed again. Save it as a new one.", "You saved a policy with no revision left.", "no revision left"),
+	POLICY_UNWRITTEN("The Gateway could not save it. Try again.", "The Gateway failed to write the policy.", "could not be written"),
+	POLICY_NOT_STORED("This Gateway holds a different copy.", "An older Gateway refused a policy save and said nothing.", "This Gateway holds a different copy"),
+	POLICY_KEPT("This Gateway kept it.", "An older Gateway refused a policy delete and said nothing.", "This Gateway kept it"),
 	TASKS_BACKLOG(
 		GATEWAY_OUTDATED,
 		"You forgot a session and asked to keep its tasks, on an older Gateway; the tasks went back to the backlog.",
@@ -185,3 +194,44 @@ internal fun boardCapLine(max: Int): String = "A task holds at most $max attachm
 internal fun goalDroppedLine(reason: String): String = "The goal was dropped. ${reason.replaceFirstChar { it.uppercase() }}."
 
 internal fun scheduleFilesLine(max: Int): String = "A scheduled message carries at most $max files."
+
+internal fun sameCommandLine(example: String, key: String): String = "\"$example\" is already covered by \"$key\"."
+
+internal fun takenLine(key: String, policy: String): String = "\"$key\" is already answered by $policy."
+
+internal fun noCommandLine(example: String): String = "\"$example\" is not a command."
+
+internal fun policiesFullLine(max: Long): String = "This Gateway holds $max policies already."
+
+/** Unknown code falls back to the Gateway's line. */
+internal fun policyRefusalLine(refusal: com.atelier_nyaarium.switchboard.proto.PolicyRefusal?, reason: String?): String {
+	val fallback = reason ?: reasonSentence(Act.SAVING_POLICY, null)
+	refusal ?: return fallback
+	val code = Protocol.Wire.PolicyRefusalCode.entries.find { it.wire == refusal.code } ?: return fallback
+	return when (code) {
+		Protocol.Wire.PolicyRefusalCode.SAME_COMMAND -> {
+			val example = refusal.example ?: return fallback
+			sameCommandLine(example, refusal.key ?: return fallback)
+		}
+		Protocol.Wire.PolicyRefusalCode.TAKEN -> {
+			val key = refusal.key ?: return fallback
+			takenLine(key, refusal.policy ?: return fallback)
+		}
+		Protocol.Wire.PolicyRefusalCode.NO_COMMAND -> noCommandLine(refusal.example ?: return fallback)
+		Protocol.Wire.PolicyRefusalCode.FULL -> policiesFullLine(refusal.max ?: return fallback)
+		Protocol.Wire.PolicyRefusalCode.NONE -> Line.POLICY_NONE.text
+		Protocol.Wire.PolicyRefusalCode.MOVED -> Line.POLICY_MOVED.text
+		Protocol.Wire.PolicyRefusalCode.GONE -> Line.POLICY_GONE.text
+		Protocol.Wire.PolicyRefusalCode.DELETED -> Line.POLICY_DELETED.text
+		Protocol.Wire.PolicyRefusalCode.SPENT -> Line.POLICY_SPENT.text
+		Protocol.Wire.PolicyRefusalCode.UNWRITTEN -> Line.POLICY_UNWRITTEN.text
+	}
+}
+
+/** Command the refusal names. */
+internal fun policyRefusalMarks(refusal: com.atelier_nyaarium.switchboard.proto.PolicyRefusal?): String? = when (
+	refusal?.code?.let { code -> Protocol.Wire.PolicyRefusalCode.entries.find { it.wire == code } }
+) {
+	Protocol.Wire.PolicyRefusalCode.SAME_COMMAND, Protocol.Wire.PolicyRefusalCode.NO_COMMAND -> refusal?.example
+	else -> null
+}

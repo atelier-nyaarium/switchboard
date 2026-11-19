@@ -41,8 +41,9 @@ So `sudo -A apt install foo` keys as `sudo apt`, and so does the helper's brief 
 not a wrapper: `sudo sh -c …` keys as `sudo sh`. The phone
 sends examples as the owner typed them; `canonicalPolicy` derives the keys and the stored record
 holds keys only. `policyRefusal` expects keys: it refuses an empty list, a key that names no
-command, a key that is not canonical, and a key named twice. A put canonicalizes first, so only a
-restore meets a non-canonical one. `schemas-policy.test.ts` pins
+command, a key that is not canonical, and a key named twice. A put reads the typed examples with `examplesRefusal` before it canonicalizes, since the
+keys no longer say which command collided, then canonicalizes, so only a restore meets a
+non-canonical key. `schemas-policy.test.ts` pins
 `selectorKey(askpassBrief(line)) === selectorKey(line)`.
 
 ## The store
@@ -50,8 +51,14 @@ restore meets a non-canonical one. `schemas-policy.test.ts` pins
 `createPolicyStore` in `gateway/policies/store.ts`. Frozen records; `list` sorted by name then id;
 `get`; `byKey`, the one enabled policy naming a key, unique by construction.
 
-**Refusals.** `policyRefusal` on the record; then `contextRefusal`: over the cap, or an enabled
-policy whose keys another enabled policy already holds, refused naming the holder. Overlap is
+**Refusals.** A write's refusal is a code with its facts, never prose alone: `POLICY_REFUSAL_CODES`
+(`same_command`, `taken`, `no_command`, `none`, `full`, `moved`, `gone`, `deleted`, `spent`,
+`unwritten`) and `PolicyRefusalSchema`, whose optional facts are `example` (as typed), `key`,
+`policy` (the other policy's name) and `max`. `put` and `remove` answer it as `refusal` beside
+`reason`, and `refusalReason` writes that `reason` from the same facts for a phone that reads no
+code. `examplesRefusal` names the typed example that repeats a key or names no command;
+`policyRefusal` on the record guards the store; then `contextRefusal`: over the cap (`full`), or an
+enabled policy whose keys another enabled policy already holds (`taken`), naming the holder. Overlap is
 unrepresentable, so the resolver never meets one. A disabled policy may hold anything; enabling it
 over a taken key is refused on the toggle with the holder's name.
 
@@ -132,9 +139,10 @@ view and editor are in `docs/console.md` under Android app.
 
 ## File map
 
-- `src/shared/schemasPolicy.ts` - the record, its bounds, the three console answers, `canonicalPolicy`, `policyRefusal`.
+- `src/shared/schemasPolicy.ts` - the record, its bounds, the three console answers, `canonicalPolicy`, `policyRefusal`, `POLICY_REFUSAL_CODES`, `PolicyRefusalSchema`, `examplesRefusal`, `refusalReason`.
 - `src/shared/selector-key.ts` - the key pipeline the helper's brief and a policy's keys both take.
-- `src/gateway/policies/store.ts` - the store: refusals, the base rule, the buried set, the commit.
+- `src/gateway/policies/store.ts` - the store: refusals as codes, the base rule, the buried set, the commit.
+- `android/.../Reasons.kt` - `policyRefusalLine`, the phone's sentence for a code, and `policyRefusalMarks`, the chip it names.
 - `src/gateway/compose/composePolicies.ts` - the stage, its console operations, `onPolicyMoved` and `onPoliciesListed`.
 - `src/gateway/vault/vaultRoutes.ts` - the askpass resolver.
 - `src/gateway/vault/decisions.ts`, `requests.ts` - `covers`, `qualificationRefusal`, `policyMoved`, the tap validation.

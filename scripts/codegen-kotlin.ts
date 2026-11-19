@@ -296,7 +296,9 @@ import {
 	ConsolePolicyDeleteResultSchema,
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
+	POLICY_REFUSAL_CODES,
 	PolicyBindingSchema,
+	PolicyRefusalSchema,
 } from "../src/shared/schemasPolicy.js";
 import {
 	FriendPresenceProjectionSchema,
@@ -532,6 +534,7 @@ const ROOTS: z.ZodType[] = [
 	CrossDomainUnlinkResultSchema,
 	PolicyBindingSchema,
 	AuthorizationPolicySchema,
+	PolicyRefusalSchema,
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
 	ConsolePolicyDeleteResultSchema,
@@ -1748,6 +1751,8 @@ ${wireEnumBlock("ConsoleCompletes", CONSOLE_COMPLETES)}
 ${wireEnumBlock("ActionParamKind", ACTION_PARAM_KINDS)}
 
 ${wireEnumBlock("CrossingDirection", CROSSING_DIRECTIONS)}
+
+${wireEnumBlock("PolicyRefusalCode", POLICY_REFUSAL_CODES)}
 
 ${schemaConstantBlock("ConsoleOpKind", consoleOpKinds)}
 

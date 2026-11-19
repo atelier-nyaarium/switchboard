@@ -8,8 +8,11 @@ import {
 	type AuthorizationPolicy,
 	AuthorizationPolicySchema,
 	canonicalPolicy,
+	examplesRefusal,
 	MAX_POLICIES_PER_GATEWAY,
+	type PolicyRefusal,
 	policyRefusal,
+	refusalReason,
 } from "../../shared/schemasPolicy.js";
 import { REVISION_CEILING } from "../../shared/schemasRunbook.js";
 
@@ -26,6 +29,7 @@ export interface PolicyPutResult {
 	/** Adopted by the caller. */
 	policy?: AuthorizationPolicy;
 	reason?: string;
+	refusal?: PolicyRefusal;
 }
 
 export interface PolicyPutOptions {
@@ -36,7 +40,21 @@ export interface PolicyPutOptions {
 export interface PolicyDeleteResult {
 	deleted: boolean;
 	reason?: string;
+	refusal?: PolicyRefusal;
 }
+
+const putRefused = (revision: number, refusal: PolicyRefusal): PolicyPutResult => ({
+	stored: false,
+	revision,
+	reason: refusalReason(refusal),
+	refusal,
+});
+
+const deleteRefused = (refusal: PolicyRefusal): PolicyDeleteResult => ({
+	deleted: false,
+	reason: refusalReason(refusal),
+	refusal,
+});
 
 const PoliciesSchema = z.array(AuthorizationPolicySchema);
 
@@ -59,16 +77,14 @@ function sameContent(a: AuthorizationPolicy, b: AuthorizationPolicy): boolean {
 }
 
 /** One enabled policy per key, naming the holder; the binding is soft and never refused here. */
-function contextRefusal(candidate: AuthorizationPolicy, others: AuthorizationPolicy[]): string | null {
+function contextRefusal(candidate: AuthorizationPolicy, others: AuthorizationPolicy[]): PolicyRefusal | null {
 	const rest = others.filter((other) => other.id !== candidate.id);
-	if (rest.length >= MAX_POLICIES_PER_GATEWAY) {
-		return `this Gateway holds ${MAX_POLICIES_PER_GATEWAY} policies already`;
-	}
+	if (rest.length >= MAX_POLICIES_PER_GATEWAY) return { code: "full", max: MAX_POLICIES_PER_GATEWAY };
 	if (!candidate.enabled) return null;
 	for (const other of rest) {
 		if (!other.enabled) continue;
 		const taken = candidate.selectorKeys.find((key) => other.selectorKeys.includes(key));
-		if (taken !== undefined) return `${taken} is already answered by ${other.name}`;
+		if (taken !== undefined) return { code: "taken", key: taken, policy: other.name };
 	}
 	return null;
 }
@@ -80,7 +96,8 @@ function restoreRefusal(policies: AuthorizationPolicy[]): string | null {
 	for (const policy of policies) {
 		if (ids.has(policy.id)) return `${policy.id} is stored twice`;
 		ids.add(policy.id);
-		const refusal = policyRefusal(policy) ?? contextRefusal(policy, policies);
+		const context = contextRefusal(policy, policies);
+		const refusal = policyRefusal(policy) ?? (context ? refusalReason(context) : null);
 		if (refusal) return `${policy.id}: ${refusal}`;
 	}
 	return null;
@@ -121,10 +138,15 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 	const put = (incoming: AuthorizationPolicy, options: PolicyPutOptions = {}): PolicyPutResult => {
 		const current = held(incoming.id);
 		const held0 = current?.revision ?? 0;
+		// Examples vanish when canonical.
+		const typed = examplesRefusal(incoming.selectorKeys);
+		if (typed) return putRefused(held0, typed);
 		// Canonical before comparison.
 		const candidate = frozen(canonicalPolicy(incoming));
-		const refusal = policyRefusal(candidate) ?? contextRefusal(candidate, policies);
-		if (refusal) return { stored: false, revision: held0, reason: refusal };
+		// Same shape restore reads.
+		if (policyRefusal(candidate) !== null) return putRefused(held0, { code: "no_command" });
+		const context = contextRefusal(candidate, policies);
+		if (context) return putRefused(held0, context);
 		if (current) {
 			// A repeat is a lost answer.
 			const echoesFirst = options.base === undefined && current.revision === 1;
@@ -132,58 +154,37 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 			if ((echoesFirst || echoesEdit) && sameContent(candidate, current)) {
 				return { stored: true, revision: current.revision, policy: current };
 			}
-			if (options.base !== current.revision) {
-				return {
-					stored: false,
-					revision: current.revision,
-					reason: `revision ${current.revision} is stored; this edits ${options.base ?? "nothing"}`,
-				};
-			}
+			if (options.base !== current.revision) return putRefused(current.revision, { code: "moved" });
 		}
-		if (!current && options.base !== undefined) {
-			return { stored: false, revision: 0, reason: "no policy with that id is stored" };
-		}
-		const grave = buried.get(incoming.id);
-		if (!current && grave !== undefined) {
-			return { stored: false, revision: 0, reason: `revision ${grave} was deleted; save it as a new policy` };
-		}
-		if (held0 >= REVISION_CEILING) {
-			return { stored: false, revision: held0, reason: "this policy has no revision left to write" };
-		}
+		if (!current && options.base !== undefined) return putRefused(0, { code: "gone" });
+		if (!current && buried.has(incoming.id)) return putRefused(0, { code: "deleted" });
+		if (held0 >= REVISION_CEILING) return putRefused(held0, { code: "spent" });
 		const policy = frozen({ ...candidate, revision: held0 + 1 });
 		const next = current
 			? policies.map((existing) => (existing.id === policy.id ? policy : existing))
 			: [...policies, policy];
-		if (!commit(next, policy.id)) return { stored: false, revision: held0, reason: "could not be written" };
+		if (!commit(next, policy.id)) return putRefused(held0, { code: "unwritten" });
 		return { stored: true, revision: policy.revision, policy };
 	};
 
 	/** A whole-record write at the revision the phone read, so a stale toggle is refused like a put. */
 	const setEnabled = (id: string, enabled: boolean, base: number): PolicyPutResult => {
 		const current = held(id);
-		if (!current) return { stored: false, revision: 0, reason: "no policy with that id is stored" };
-		if (base !== current.revision) {
-			return {
-				stored: false,
-				revision: current.revision,
-				reason: `revision ${current.revision} is stored; this edits ${base}`,
-			};
-		}
+		if (!current) return putRefused(0, { code: "gone" });
+		if (base !== current.revision) return putRefused(current.revision, { code: "moved" });
 		if (current.enabled === enabled) return { stored: true, revision: current.revision, policy: current };
 		return put({ ...current, enabled }, { base: current.revision });
 	};
 
 	const remove = (id: string, base: number): PolicyDeleteResult => {
 		const going = held(id);
-		if (!going) return { deleted: false, reason: "no policy with that id is stored" };
-		if (base !== going.revision) {
-			return { deleted: false, reason: `revision ${going.revision} is stored; this deletes ${base}` };
-		}
+		if (!going) return deleteRefused({ code: "gone" });
+		if (base !== going.revision) return deleteRefused({ code: "moved" });
 		const deleted = commit(
 			policies.filter((policy) => policy.id !== id),
 			id,
 		);
-		if (!deleted) return { deleted: false, reason: "could not be written" };
+		if (!deleted) return deleteRefused({ code: "unwritten" });
 		buried.set(id, going.revision);
 		capFifo(buried, MAX_BURIED);
 		return { deleted: true };

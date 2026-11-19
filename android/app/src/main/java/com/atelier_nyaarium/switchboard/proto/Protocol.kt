@@ -179,6 +179,19 @@ object Protocol {
 			BELOW("below"),
 		}
 
+		enum class PolicyRefusalCode(val wire: String) {
+			SAME_COMMAND("same_command"),
+			TAKEN("taken"),
+			NO_COMMAND("no_command"),
+			NONE("none"),
+			FULL("full"),
+			MOVED("moved"),
+			GONE("gone"),
+			DELETED("deleted"),
+			SPENT("spent"),
+			UNWRITTEN("unwritten"),
+		}
+
 		object ConsoleOpKind {
 			const val SEND: String = "send"
 			const val RESPOND: String = "respond"
@@ -1935,6 +1948,19 @@ data class AuthorizationPolicy(
 )
 
 @Serializable
+data class PolicyRefusal(
+	val code: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val example: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val key: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val policy: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val max: Long? = null,
+)
+
+@Serializable
 data class ConsolePolicyListResult(
 	val policies: List<AuthorizationPolicy>,
 )
@@ -1947,6 +1973,8 @@ data class ConsolePolicyPutResult(
 	val policy: AuthorizationPolicy? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val refusal: PolicyRefusal? = null,
 )
 
 @Serializable
@@ -1954,6 +1982,8 @@ data class ConsolePolicyDeleteResult(
 	val deleted: Boolean,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val refusal: PolicyRefusal? = null,
 )
 
 @Serializable

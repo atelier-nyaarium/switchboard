@@ -4,7 +4,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPolicyStore } from "../gateway/policies/store.js";
 import { type DurableStore, DurableStoreInstalledError, openDurable } from "../shared/durable-store.js";
-import type { AuthorizationPolicy } from "../shared/schemasPolicy.js";
+import { type AuthorizationPolicy, MAX_POLICIES_PER_GATEWAY } from "../shared/schemasPolicy.js";
+import { REVISION_CEILING } from "../shared/schemasRunbook.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -64,8 +65,10 @@ describe("policy store", () => {
 		const store = open(fresh());
 		store.put(policy("apt", { name: "Package administration" }));
 		const clash = store.put(policy("other", { selectorKeys: ["sudo apt remove"] }));
-		expect(clash.stored).toBe(false);
-		expect(clash.reason).toContain("Package administration");
+		expect(clash).toMatchObject({
+			stored: false,
+			refusal: { code: "taken", key: "sudo apt", policy: "Package administration" },
+		});
 
 		expect(store.put(policy("other", { selectorKeys: ["sudo apt remove"], enabled: false }))).toMatchObject({
 			stored: true,
@@ -81,9 +84,17 @@ describe("policy store", () => {
 		const store = open(fresh());
 		store.put(policy("apt"));
 		store.put(policy("apt", { name: "Renamed" }), { base: 1 });
-		expect(store.put(policy("apt", { name: "Older" }), { base: 1 })).toMatchObject({ stored: false, revision: 2 });
-		expect(store.setEnabled("apt", false, 1)).toMatchObject({ stored: false, revision: 2 });
-		expect(store.remove("apt", 1)).toMatchObject({ deleted: false });
+		const moved = { refusal: { code: "moved" } };
+		expect(store.put(policy("apt", { name: "Older" }), { base: 1 })).toMatchObject({
+			stored: false,
+			revision: 2,
+			...moved,
+		});
+		expect(store.setEnabled("apt", false, 1)).toMatchObject({ stored: false, revision: 2, ...moved });
+		expect(store.remove("apt", 1)).toMatchObject({ deleted: false, ...moved });
+		const gone = { refusal: { code: "gone" } };
+		expect(store.setEnabled("nobody", true, 1)).toMatchObject({ stored: false, ...gone });
+		expect(store.remove("nobody", 1)).toMatchObject({ deleted: false, ...gone });
 		expect(store.get("apt")?.name).toBe("Renamed");
 		expect(store.remove("apt", 2)).toEqual({ deleted: true });
 	});
@@ -93,20 +104,52 @@ describe("policy store", () => {
 		const store = open(dataDir);
 		store.put(policy("apt"));
 		store.remove("apt", 1);
-		expect(store.put(policy("apt"), { base: 1 })).toMatchObject({ stored: false });
-		expect(store.put(policy("apt"))).toMatchObject({ stored: false });
+		expect(store.put(policy("apt"), { base: 1 })).toMatchObject({ stored: false, refusal: { code: "gone" } });
+		expect(store.put(policy("apt"))).toMatchObject({ stored: false, refusal: { code: "deleted" } });
 		expect(store.list()).toEqual([]);
 		expect(open(dataDir).put(policy("apt"))).toMatchObject({ stored: true, revision: 1 });
 	});
 
-	it("refuses an invalid edit and keeps the held record", () => {
+	it("names the typed command a refused edit is about, and keeps the held record", () => {
 		const store = open(fresh());
-		store.put(policy("apt"));
-		expect(store.put(policy("apt", { selectorKeys: ["   "] }), { base: 1 })).toMatchObject({ stored: false });
-		expect(
-			store.put(policy("apt", { selectorKeys: ["sudo apt install", "sudo apt remove"] }), { base: 1 }),
-		).toMatchObject({ stored: false });
-		expect(store.get("apt")).toMatchObject({ revision: 1, selectorKeys: ["sudo apt"] });
+		store.put(policy("apt", { selectorKeys: ["sudo apt", "sudo apt-get", "sudo install"] }));
+		const edit = (selectorKeys: string[]) => store.put(policy("apt", { selectorKeys }), { base: 1 });
+
+		expect(edit(["sudo apt", "sudo apt-get", "sudo install", "sudo apt mark"])).toMatchObject({
+			stored: false,
+			revision: 1,
+			refusal: { code: "same_command", example: "sudo apt mark", key: "sudo apt" },
+			// An older phone reads this.
+			reason: expect.any(String),
+		});
+		expect(edit(["sudo apt install", "sudo apt remove"])).toMatchObject({
+			refusal: { code: "same_command", example: "sudo apt remove", key: "sudo apt" },
+		});
+		expect(edit(["sudo apt", "   "])).toMatchObject({ refusal: { code: "no_command", example: "   " } });
+		expect(edit([])).toMatchObject({ refusal: { code: "none" } });
+		expect(store.get("apt")).toMatchObject({
+			revision: 1,
+			selectorKeys: ["sudo apt", "sudo apt-get", "sudo install"],
+		});
+	});
+
+	it("refuses a policy past the Gateway's limit, and one with no revision left", () => {
+		const dataDir = fresh();
+		const store = open(dataDir);
+		for (let n = 0; n < MAX_POLICIES_PER_GATEWAY; n++) store.put(policy(`p${n}`, { selectorKeys: [`sudo p${n}`] }));
+		expect(store.put(policy("one-more", { selectorKeys: ["sudo more"] }))).toMatchObject({
+			stored: false,
+			refusal: { code: "full", max: MAX_POLICIES_PER_GATEWAY },
+		});
+
+		fs.writeFileSync(
+			path.join(dataDir, "policies.json"),
+			JSON.stringify([policy("old", { selectorKeys: ["sudo old"], revision: REVISION_CEILING })]),
+		);
+		expect(open(dataDir).put(policy("old", { name: "again" }), { base: REVISION_CEILING })).toMatchObject({
+			stored: false,
+			refusal: { code: "spent" },
+		});
 	});
 
 	it("starts fresh from a file a put could not have written", () => {
@@ -140,7 +183,7 @@ describe("policy store", () => {
 		} as unknown as DurableStore;
 		const store = createPolicyStore({ store: durable, onChanged: (id) => moved.push(id) });
 
-		expect(store.put(policy("apt"))).toMatchObject({ stored: false, revision: 0 });
+		expect(store.put(policy("apt"))).toMatchObject({ stored: false, revision: 0, refusal: { code: "unwritten" } });
 		expect(store.list()).toEqual([]);
 		expect(moved).toEqual([]);
 

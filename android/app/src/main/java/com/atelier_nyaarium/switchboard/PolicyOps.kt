@@ -25,7 +25,7 @@ internal interface PolicyHost {
 /** A gateway answer, never a Boolean. */
 internal sealed interface PolicySaved {
 	data class Stored(val policy: AuthorizationPolicy) : PolicySaved
-	data class Refused(val reason: String, val heldRevision: Long) : PolicySaved
+	data class Refused(val reason: String, val heldRevision: Long, val marks: String? = null) : PolicySaved
 	data object Unreachable : PolicySaved
 }
 
@@ -60,7 +60,7 @@ internal class PolicyOps(
 		val candidate = draft.toPolicy() ?: return@send EditOutcome.Stays(SaveSaid("Not a complete policy"))
 		when (val saved = save(candidate, draft.revision.takeIf { it > 0L }, key.gatewayId)) {
 			is PolicySaved.Stored -> EditOutcome.Done
-			is PolicySaved.Refused -> EditOutcome.Stays(SaveSaid(saved.reason, saved.heldRevision))
+			is PolicySaved.Refused -> EditOutcome.Stays(SaveSaid(saved.reason, saved.heldRevision, saved.marks))
 			PolicySaved.Unreachable -> EditOutcome.Stays(SaveSaid(GATEWAY_UNREACHABLE))
 		}
 	}
@@ -100,7 +100,11 @@ internal class PolicyOps(
 		if (gatewayId.isBlank()) return PolicyDeleted.Unreachable
 		val answer = attempt { client.delete(gatewayId, policyId, baseRevision) } ?: return PolicyDeleted.Unreachable
 		refresh(gatewayId)
-		return if (answer.deleted) PolicyDeleted.Deleted else PolicyDeleted.Refused(answer.reason ?: "This Gateway kept it")
+		return if (answer.deleted) {
+			PolicyDeleted.Deleted
+		} else {
+			PolicyDeleted.Refused(policyRefusalLine(answer.refusal, answer.reason ?: Line.POLICY_KEPT.text))
+		}
 	}
 
 	suspend fun setEnabled(policyId: String, enabled: Boolean, baseRevision: Long, gatewayId: String): PolicySaved {
@@ -125,7 +129,11 @@ internal class PolicyOps(
 	private fun saved(answer: ConsolePolicyPutResult): PolicySaved {
 		val stored = answer.policy
 		if (!answer.stored || stored == null) {
-			return PolicySaved.Refused(answer.reason ?: "This Gateway holds a different copy", answer.revision)
+			return PolicySaved.Refused(
+				policyRefusalLine(answer.refusal, answer.reason ?: Line.POLICY_NOT_STORED.text),
+				answer.revision,
+				policyRefusalMarks(answer.refusal),
+			)
 		}
 		return PolicySaved.Stored(stored)
 	}
