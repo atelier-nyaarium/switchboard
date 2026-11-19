@@ -6,6 +6,13 @@ import com.atelier_nyaarium.switchboard.Repo
 import com.atelier_nyaarium.switchboard.plugins.designer.DesignStore
 import com.atelier_nyaarium.switchboard.sandboxRegistry
 import com.atelier_nyaarium.switchboard.plugins.designer.storedCardFrom
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private const val TAKEOVER_AFTER_MS = 20_000L
 
 /**
  * The `emulator` build type's entry point.
@@ -54,7 +61,8 @@ class SandboxApp : Application() {
 		// Distinct allowlists, so every binding line shows.
 		repo.seedSandboxVault(
 			listOf(
-				com.atelier_nyaarium.switchboard.vault.VaultDraft(id = "deploy-key", publicTitle = "Deploy key", value = "hunter2"),
+				// Unlisted Gateways hold no value.
+				com.atelier_nyaarium.switchboard.vault.VaultDraft(id = "deploy-key", publicTitle = "Deploy key", value = "hunter2", gateways = gateways),
 				com.atelier_nyaarium.switchboard.vault.VaultDraft(
 					id = "elsewhere-key",
 					publicTitle = "Elsewhere key",
@@ -65,6 +73,13 @@ class SandboxApp : Application() {
 				com.atelier_nyaarium.switchboard.vault.VaultDraft(
 					id = "sakura-nyaarium",
 					privateTitle = "Sakura Nyaarium",
+					value = "hunter3",
+					gateways = gateways.take(1),
+				),
+				// Same value; the answering secret wins.
+				com.atelier_nyaarium.switchboard.vault.VaultDraft(
+					id = "setfacl-twin",
+					publicTitle = "sudo setfacl",
 					value = "hunter3",
 					gateways = gateways.take(1),
 				),
@@ -114,24 +129,68 @@ class SandboxApp : Application() {
 		val now = System.currentTimeMillis()
 		val key = "sudo apt-mark"
 		val sudo = com.atelier_nyaarium.switchboard.proto.PolicyRef("sakura-sudo", 2L)
-		fun typed(id: String, answering: List<com.atelier_nyaarium.switchboard.proto.VaultAnswering>?) =
-			com.atelier_nyaarium.switchboard.proto.VaultRequest.Typed(
-				v = 1L,
-				requestId = id,
-				operation = "/usr/bin/sudo apt-mark hold containerd.io docker-ce docker-ce-cli",
-				displayShape = key,
-				coveredShapes = listOf(key),
-				sessionTarget = "host.demo",
-				deadlineAt = now + 19 * 3_600_000L,
-				why = com.atelier_nyaarium.switchboard.proto.VaultTypedWhy(code = "no_policy"),
-				answering = answering,
-			)
-		repo.vaultOps.onRequest(
-			session,
-			typed("sandbox-sudo-suggested", listOf(com.atelier_nyaarium.switchboard.proto.VaultAnswering("sakura-nyaarium", sudo))),
+		val answering = listOf(com.atelier_nyaarium.switchboard.proto.VaultAnswering("sakura-nyaarium", sudo))
+		fun typed(
+			id: String,
+			why: com.atelier_nyaarium.switchboard.proto.VaultTypedWhy? = com.atelier_nyaarium.switchboard.proto.VaultTypedWhy(code = "no_policy"),
+			answering: List<com.atelier_nyaarium.switchboard.proto.VaultAnswering>? = null,
+			shape: String = key,
+			runsAnything: Boolean? = null,
+			cannotRemember: Boolean? = null,
+		) = com.atelier_nyaarium.switchboard.proto.VaultRequest.Typed(
+			v = 1L,
+			requestId = id,
+			operation = "/usr/bin/$shape hold containerd.io docker-ce docker-ce-cli",
+			displayShape = shape,
+			coveredShapes = listOf(shape),
+			sessionTarget = "host.demo",
+			deadlineAt = now + 19 * 3_600_000L,
+			why = why,
+			runsAnything = runsAnything,
+			answering = answering,
+			cannotRemember = cannotRemember,
 		)
-		repo.vaultOps.onRequest(session, typed("sandbox-sudo-open", null))
-		repo.vaultOps.onRequest("${session.substringBefore('.')}.unlisted.host.worker", typed("sandbox-sudo-none", null))
+		val requests = listOf(
+			typed("sandbox-sudo-suggested", answering = answering),
+			typed("sandbox-sudo-open"),
+			typed("sandbox-sudo-off", com.atelier_nyaarium.switchboard.proto.VaultTypedWhy(code = "policy_off", policyId = "old", policyName = "Sakura Old")),
+			typed(
+				"sandbox-sudo-unusable",
+				com.atelier_nyaarium.switchboard.proto.VaultTypedWhy(
+					code = "binding_unusable",
+					policyId = "sakura-sudo",
+					policyName = "Sakura Sudo",
+					entryId = "gone-key",
+					unusable = "missing",
+				),
+			),
+			typed("sandbox-sudo-bash", shape = "sudo bash", runsAnything = true),
+			typed("sandbox-sudo-unrememberable", cannotRemember = true),
+			typed("sandbox-sudo-older", why = null),
+			typed("sandbox-sudo-refused", answering = answering),
+			typed("sandbox-sudo-takeover", answering = answering),
+		)
+		for (request in requests) repo.vaultOps.onRequest(session, request)
+		repo.vaultOps.onRequest("${session.substringBefore('.')}.unlisted.host.worker", typed("sandbox-sudo-none"))
+		// A policy comes to cover it.
+		CoroutineScope(Dispatchers.Main + CoroutineExceptionHandler { _, _ -> }).launch {
+			delay(TAKEOVER_AFTER_MS)
+			repo.vaultOps.onRequest(
+				session,
+				com.atelier_nyaarium.switchboard.proto.VaultRequest.Entry(
+					entryId = "sakura-nyaarium",
+					v = 1L,
+					requestId = "sandbox-sudo-taken",
+					operation = "/usr/bin/$key hold containerd.io docker-ce docker-ce-cli",
+					displayShape = key,
+					coveredShapes = listOf(key),
+					sessionTarget = "host.demo",
+					deadlineAt = now + 19 * 3_600_000L,
+					policy = sudo,
+					replaces = "sandbox-sudo-takeover",
+				),
+			)
+		}
 		repo.vault.setGrants(
 			gateway,
 			listOf(

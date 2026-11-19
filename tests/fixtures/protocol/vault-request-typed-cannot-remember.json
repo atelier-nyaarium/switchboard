@@ -1,0 +1,12 @@
+{
+	"v": 1,
+	"kind": "typed",
+	"requestId": "request-5",
+	"operation": "sudo -u root tee /etc/very/long/path",
+	"displayShape": "sudo -u root tee /etc/very/long/path",
+	"coveredShapes": ["tee /etc/very/long/path"],
+	"sessionTarget": "host.82d560",
+	"deadlineAt": 1757000540000,
+	"why": { "code": "no_policy" },
+	"cannotRemember": true
+}

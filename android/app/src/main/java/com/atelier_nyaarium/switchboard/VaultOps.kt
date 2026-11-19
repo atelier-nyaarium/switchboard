@@ -10,13 +10,16 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleVaultGrantsResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleVaultRevokeResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
+import com.atelier_nyaarium.switchboard.proto.VaultAnswering
 import com.atelier_nyaarium.switchboard.proto.VaultPut
-import com.atelier_nyaarium.switchboard.proto.VaultRemember
 import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.proto.VaultStoredEntry
 import com.atelier_nyaarium.switchboard.vault.ApprovalGate
 import com.atelier_nyaarium.switchboard.vault.EntryAnswered
+import com.atelier_nyaarium.switchboard.vault.NewSecretSeed
 import com.atelier_nyaarium.switchboard.vault.SavedAnswer
+import com.atelier_nyaarium.switchboard.vault.SecretChoice
+import com.atelier_nyaarium.switchboard.vault.TypedSave
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_DENY
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_ONCE
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_SESSION
@@ -30,12 +33,17 @@ import com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome
 import com.atelier_nyaarium.switchboard.vault.VaultSealing
 import com.atelier_nyaarium.switchboard.vault.entryAnswerOp
 import com.atelier_nyaarium.switchboard.vault.entryAnswerOutcome
-import com.atelier_nyaarium.switchboard.vault.grantableOn
 import com.atelier_nyaarium.switchboard.vault.matchingSecret
 import com.atelier_nyaarium.switchboard.vault.refusedAnswerLine
+import com.atelier_nyaarium.switchboard.vault.rememberOf
+import com.atelier_nyaarium.switchboard.vault.rememberPlan
+import com.atelier_nyaarium.switchboard.vault.rememberedName
 import com.atelier_nyaarium.switchboard.vault.sealDraft
+import com.atelier_nyaarium.switchboard.vault.secretChoices
 import java.util.UUID
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +51,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.decodeFromJsonElement
 
 internal interface VaultOpsCollaborators {
@@ -62,6 +71,8 @@ internal class VaultOps(
 	private val valueAnswer: (suspend (String, ConsoleOp) -> ConsoleClient.ValueAnswer)? = null,
 	/** Re-reads that Gateway's policies. */
 	private val policyWritten: (String) -> Unit = {},
+	/** Off the main thread. */
+	private val matching: CoroutineDispatcher = Dispatchers.Default,
 ) {
 	private val manager get() = collaborators.vault
 
@@ -156,33 +167,64 @@ internal class VaultOps(
 	/**
 	 * Answers one request; a typed value seals under the request id, and a deny may carry a steering
 	 * note. Runs on the repository's scope, so closing the card that asked cannot cut it short.
+	 * Typing a value needs no presence.
 	 */
 	suspend fun answer(
 		pending: VaultPendingRequest,
 		decision: String,
+		presence: suspend () -> Boolean,
 		typedValue: String? = null,
 		note: String? = null,
-	): Boolean = repoScope.async { answerNow(pending, decision, typedValue, note) }.await()
+	): Boolean {
+		if (decision != VAULT_DECISION_DENY && pending.entryId != null && !presence()) return false
+		return repoScope.async { answerNow(pending, decision, typedValue, note) }.await()
+	}
 
-	/** A held secret with exactly this value, allowed on that Gateway. */
-	fun matchFor(typed: String, gatewayId: String): String? {
-		val candidates = views().grantableOn(gatewayId).mapNotNull { view -> reveal(view.id)?.let { view.id to it } }
+	/** Answering secrets match first. */
+	private fun matchFor(typed: String, gatewayId: String, answering: List<VaultAnswering>?): String? {
+		val candidates = secretChoices(views(), gatewayId, answering).mapNotNull { choice -> reveal(choice.entryId)?.let { choice.entryId to it } }
 		return matchingSecret(typed, candidates)
 	}
 
-	/** The Gateway answers the typed request from that entry. */
-	suspend fun answerWithEntry(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry): EntryAnswered =
-		repoScope.async { answerWithEntryNow(pending, op) }.await()
+	/** Presence precedes matching. */
+	suspend fun saveTyped(pending: VaultPendingRequest, typed: String, presence: suspend () -> Boolean): TypedSave {
+		val request = pending.request as? VaultRequest.Typed ?: return TypedSave.Declined
+		if (!presence()) return TypedSave.Declined
+		if (!manager.listed) return TypedSave.Refused(VAULT_UNLISTED)
+		val gatewayId = runIsolated { gatewayOf(pending.team) }.getOrNull() ?: return TypedSave.Refused(Line.VAULT_NO_GATEWAY.text)
+		val match = withContext(matching) { matchFor(typed, gatewayId, request.answering) }
+		return match?.let(TypedSave::Matched) ?: TypedSave.Form(NewSecretSeed(typed, gatewayId, newEntryId(), newPolicyId()))
+	}
 
-	/** Saves the typed secret, then answers through it with a new policy. */
-	suspend fun saveAndAnswer(pending: VaultPendingRequest, draft: VaultDraft): SavedAnswer = repoScope.async {
-		val outcome = save(draft)
-		if (outcome !is VaultSaveOutcome.Applied) return@async SavedAnswer.NotSaved(vaultSaveLine(outcome) ?: Line.VAULT_UNREACHABLE.text)
-		val name = draft.privateTitle.trim().ifEmpty { draft.publicTitle.trim() }
-		val op = entryAnswerOp(pending.requestId, outcome.id, VAULT_DECISION_ONCE, VaultRemember(newPolicyId(), name = name))
-			?: return@async SavedAnswer.Saved(outcome.id, EntryAnswered.Stays(ENTRY_REFUSED))
-		SavedAnswer.Saved(outcome.id, answerWithEntryNow(pending, op))
-	}.await()
+	/** Needs presence first. */
+	suspend fun answerWithEntry(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry, presence: suspend () -> Boolean): EntryAnswered {
+		if (!presence()) return EntryAnswered.Declined
+		return repoScope.async { answerWithEntryNow(pending, op) }.await()
+	}
+
+	/** Save, then answer. */
+	suspend fun saveAndAnswer(
+		pending: VaultPendingRequest,
+		draft: VaultDraft,
+		seed: NewSecretSeed,
+		presence: suspend () -> Boolean,
+	): SavedAnswer {
+		if (!presence()) return SavedAnswer.Declined
+		return repoScope.async {
+			val request = pending.request as? VaultRequest.Typed ?: return@async SavedAnswer.NotSaved(ENTRY_REFUSED)
+			if (!manager.listed) return@async SavedAnswer.NotSaved(VAULT_UNLISTED)
+			// Match the final value.
+			withContext(matching) { matchFor(draft.value.orEmpty(), seed.gatewayId, request.answering) }
+				?.let { return@async SavedAnswer.Matched(it) }
+			val outcome = save(draft.copy(id = seed.entryId))
+			if (outcome !is VaultSaveOutcome.Applied) return@async SavedAnswer.NotSaved(vaultSaveLine(outcome) ?: Line.VAULT_UNREACHABLE.text)
+			val name = rememberedName(draft.privateTitle.ifBlank { draft.publicTitle })
+			val plan = rememberPlan(request, SecretChoice(outcome.id, name)) { null }
+			val op = entryAnswerOp(pending.requestId, outcome.id, VAULT_DECISION_ONCE, rememberOf(plan, seed.policyId))
+				?: return@async SavedAnswer.Saved(outcome.id, EntryAnswered.Stays(ENTRY_REFUSED))
+			SavedAnswer.Saved(outcome.id, answerWithEntryNow(pending, op))
+		}.await()
+	}
 
 	private suspend fun answerWithEntryNow(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry): EntryAnswered {
 		val key = "vault:${pending.requestId}"
@@ -216,6 +258,7 @@ internal class VaultOps(
 				outcome.line?.let { report(it, key) } ?: state.update { it.withoutNoticeKey(key) }
 			}
 			is EntryAnswered.Stays -> report(outcome.line, key)
+			EntryAnswered.Declined -> Unit
 		}
 		return outcome
 	}

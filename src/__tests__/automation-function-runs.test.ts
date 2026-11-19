@@ -10,8 +10,8 @@ import { FUNCTION_GONE, FUNCTION_UNREAD } from "../gateway/computed/automationVa
 import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { unknown } from "../shared/expressions.js";
-import type { AutomationInput, AutomationTrigger } from "../shared/schemasAutomation.js";
-import type { AutomationFunctionInput, StepArg } from "../shared/schemasFunction.js";
+import { type AutomationInput, AutomationSchema, type AutomationTrigger } from "../shared/schemasAutomation.js";
+import { type AutomationFunctionInput, FunctionSchema, type StepArg } from "../shared/schemasFunction.js";
 
 const REGISTRY = createConsoleRegistry([]);
 const roots: string[] = [];
@@ -220,6 +220,30 @@ describe("a run through a function", () => {
 			"suppressed",
 			"inside its cool-down",
 		]);
+	});
+
+	it("starts a revived automation's cool-down afresh", async () => {
+		const w = world();
+		w.save(pointing(event, { coolDownSec: 60 }), [ifttt("bell")]);
+		const ring = async (key: string, after: number) => {
+			w.automations.fireEvents([{ automation: "warm", key, names: {} }], w.at() + after);
+			await w.automations.settled();
+		};
+		await ring("one", 0);
+		w.automations.write({ kind: "carry", rows: [], functions: [] });
+		w.automations.write({
+			kind: "carry",
+			rows: [{ id: "warm", automation: AutomationSchema.parse(pointing(event, { coolDownSec: 60 })) }],
+			functions: [
+				{
+					id: "warm-up",
+					function: FunctionSchema.parse({ name: "Warm up", params: room, steps: [ifttt("bell")] }),
+				},
+			],
+		});
+		await ring("two", 10_000);
+
+		expect(w.effects).toEqual(["ifttt:bell", "ifttt:bell"]);
 	});
 
 	it("admits nothing inside the call's cool-down, logging it once until a run comes between", async () => {

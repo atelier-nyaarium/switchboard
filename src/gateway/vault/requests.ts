@@ -38,6 +38,7 @@ export type VaultRequestInput =
 			asker?: string;
 			why?: VaultTypedWhy;
 			runsAnything?: boolean;
+			cannotRemember?: boolean;
 			answering?: VaultAnswering[];
 	  };
 
@@ -142,6 +143,7 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 							...common,
 							...(input.why ? { why: input.why } : {}),
 							...(input.runsAnything ? { runsAnything: true as const } : {}),
+							...(input.cannotRemember ? { cannotRemember: true as const } : {}),
 							...(input.answering?.length ? { answering: input.answering } : {}),
 						};
 			},

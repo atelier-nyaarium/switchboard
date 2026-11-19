@@ -100,6 +100,9 @@ class VaultManager(
 
 	val routerRevision: Long get() = snapshot().revision
 
+	/** Unlisted is never empty. */
+	val listed: Boolean get() = snapshot().listed
+
 	/** What the plane fold compares against; durable, so never observed. */
 	fun planeLineage(): HeldLineage {
 		val current = snapshot()
@@ -114,7 +117,7 @@ class VaultManager(
 				epoch -> return
 				0L -> persist(current.copy(routerEpoch = epoch, revision = 0L))
 				else -> {
-					if (persist(current.copy(routerEpoch = epoch, revision = 0L, stored = emptyList()))) generation++
+					if (persist(current.copy(routerEpoch = epoch, revision = 0L, stored = emptyList(), listed = false))) generation++
 				}
 			}
 		}
@@ -134,7 +137,7 @@ class VaultManager(
 			)
 			return when (fold) {
 				is VersionedFold.Apply -> {
-					persist(current.copy(revision = fold.revision, stored = fold.entries, lastRouterSyncAt = at))
+					persist(current.copy(revision = fold.revision, stored = fold.entries, lastRouterSyncAt = at, listed = true))
 				}
 				VersionedFold.Restart -> {
 					persist(current.copy(revision = 0L))

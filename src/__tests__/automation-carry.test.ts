@@ -101,7 +101,14 @@ function destination(held: readonly (readonly string[])[], now = { at: 1_000 }) 
 			.filter((row) => row.kind === "function")
 			.map((row) => [row.id, row.body.name])
 			.sort();
-	return { automations, functions };
+	const revisionOf = (id: string) =>
+		(
+			JSON.parse(fs.readFileSync(path.join(dir, "automations.json"), "utf8")) as {
+				id: string;
+				revision: number;
+			}[]
+		).find((row) => row.id === id)?.revision;
+	return { automations, functions, revisionOf };
 }
 
 describe("the carry vectors", () => {
@@ -248,7 +255,21 @@ describe("a carry claiming a derived id", () => {
 		);
 	});
 
-	it("keeps its own function in a move in place, from either phone", () => {
+	it("refuses with its own code when every id on the chain is a function a staying automation runs", () => {
+		const chain = ["warm-up"];
+		while (chain.length < 8) chain.push(carryId(chain[chain.length - 1] ?? ""));
+		const { automations } = destination(
+			chain.flatMap((id, at) => [
+				[id, "function", `F${at}`],
+				[`s${at}`, `runs:${id}`],
+			]),
+		);
+		const moved = carry(automations, [["a", "warm-up"]], [["warm-up", "Moved"]]);
+
+		expect(moved).toMatchObject({ written: false, refusal: { code: "no_free_id" } });
+	});
+
+	it("keeps its own function as held in a move in place, from either phone, whatever body the move carries", () => {
 		const held = [
 			["m", "event"],
 			["stays", "automation"],
@@ -256,12 +277,12 @@ describe("a carry claiming a derived id", () => {
 		];
 		const newer = destination(held);
 		const older = destination(held);
-		carry(newer.automations, [["m", "warm-up"]], [["warm-up", "Shared"]]);
+		carry(newer.automations, [["m", "warm-up"]], [["warm-up", "Stale"]]);
 		carry(older.automations, [["m", "warm-up"]], null);
 
-		for (const { automations, functions } of [newer, older]) {
+		for (const { automations, functions, revisionOf } of [newer, older]) {
 			expect([pointOf(automations, "m"), automations.invalidOf("m")]).toEqual(["warm-up", null]);
-			expect(functions()).toEqual([["warm-up", "Shared"]]);
+			expect([functions(), revisionOf("warm-up")]).toEqual([[["warm-up", "Shared"]], 1]);
 		}
 	});
 });

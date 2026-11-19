@@ -36,6 +36,7 @@ import {
 	type OwnerIssue,
 	type OwnerRecord,
 	type OwnerWrite,
+	TOTAL_CAP,
 } from "../ownerRecords.js";
 import { CLOCK_GRACE_MS, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
 import {
@@ -357,10 +358,20 @@ export function createAutomations(deps: AutomationsDeps) {
 		);
 
 	/** The one writer of the versions. */
+	/** Drops clocks and sets of gone records. */
+	const pruned = (next: State): Pick<State, "firedAt" | "landedSets"> => ({
+		firedAt: Object.fromEntries(
+			Object.entries(next.firedAt).filter(([id, held]) => records.get(id)?.incarnation === held.incarnation),
+		),
+		landedSets: Object.fromEntries(
+			Object.entries(next.landedSets).filter(([device]) => (deps.actions?.switchName(device) ?? null) !== null),
+		),
+	});
+
 	const commit = (next: State): boolean =>
 		commitChecked(
 			deps.state,
-			{ ...next, versions: pinned(next), functionVersions: pinnedFunctions(next) },
+			{ ...next, versions: pinned(next), functionVersions: pinnedFunctions(next), ...pruned(next) },
 			(landed) => {
 				state = landed;
 			},
@@ -457,7 +468,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		const call = callOf(record.body);
 		if (call?.coolDownSec !== undefined) {
 			// From admission, as a trigger's own.
-			const last = own(work.firedAt, record.id);
+			const held = own(work.firedAt, record.id);
+			const last = held?.incarnation === record.incarnation ? held.at : undefined;
 			if (last !== undefined && at.at - last < call.coolDownSec * 1000) {
 				work.log = logged(work.log, fireRow(fired, "suppressed", COOLING));
 				return false;
@@ -494,7 +506,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		});
 		work.fires = verdict.fires;
 		for (const row of verdict.rows) work.log = logged(work.log, fireRow(row.fire, row.outcome, row.reason));
-		if (verdict.admitted && call?.coolDownSec !== undefined) work.firedAt = { ...work.firedAt, [record.id]: at.at };
+		if (verdict.admitted && call?.coolDownSec !== undefined)
+			work.firedAt = { ...work.firedAt, [record.id]: { incarnation: record.incarnation, at: at.at } };
 		return verdict.admitted;
 	};
 
@@ -1395,7 +1408,10 @@ export function createAutomations(deps: AutomationsDeps) {
 		const kind = write?.op === "put" ? write.kind : (store.get(write?.id ?? "")?.kind ?? AUTOMATION_KIND);
 		const record = kind === FUNCTION_KIND ? "function" : "automation";
 		const { cause } = refusal;
-		if (typeof cause === "object") return { code: "full", kind: record, max: cause.max };
+		if (typeof cause === "object") {
+			if (cause.cap === TOTAL_CAP) return { code: "full", max: cause.max };
+			return { code: "full", kind: cause.cap === FUNCTION_KIND ? "function" : "automation", max: cause.max };
+		}
 		switch (cause) {
 			case "invalid": {
 				const hole = holeSpanOf(refusal.issue);
@@ -1417,7 +1433,9 @@ export function createAutomations(deps: AutomationsDeps) {
 					? { code: "moved", record, revision: refusal.record.revision }
 					: { code: "moved", record };
 			case "newer_build":
-				return { code: "newer_function", record, ...(write ? { id: write.id } : {}) };
+				return record === "function"
+					? { code: "newer_function", record, ...(write ? { id: write.id } : {}) }
+					: { code: "newer_automation", ...(write ? { id: write.id } : {}) };
 			case "spent":
 				return { code: "invalid", record, path: "revision" };
 			case "bad_id":

@@ -19,6 +19,7 @@ afterEach(() => {
 });
 
 const PLUG = "aa:bb:cc:dd:ee:01";
+const LAMP = "aa:bb:cc:dd:ee:02";
 const event: AutomationTrigger = { kind: "event", source: "github", conditions: [] };
 const hourly: AutomationTrigger = { kind: "interval", everyMin: 60 };
 
@@ -56,7 +57,7 @@ function open(home = true, seed: object[] = [], keyFile?: string) {
 	if (keyFile !== undefined) fs.writeFileSync(path.join(dir, "automation-function-key.json"), keyFile);
 	let n = 0;
 	let atHome = home;
-	const switches = new Set([PLUG]);
+	const switches = new Set([PLUG, LAMP]);
 	const { automations } = openAutomationPair({
 		dataDir: dir,
 		newIncarnation: () => `a${++n}`,
@@ -93,7 +94,7 @@ function open(home = true, seed: object[] = [], keyFile?: string) {
 		functions,
 		dir,
 		leave: () => (atHome = false),
-		unplug: () => switches.delete(PLUG),
+		unplug: (device = PLUG) => switches.delete(device),
 	};
 }
 
@@ -377,6 +378,26 @@ describe("an automation that runs a function", () => {
 			]);
 		});
 
+		it("lets an edit of a shared function through when another user's plug went before it", () => {
+			const { save, unplug } = open();
+			save("a", pointing(hourly, "warm-up", { room: PLUG }), 0, {
+				as: "edit",
+				id: "warm-up",
+				body: fn([on], room),
+				base: 0,
+			});
+			save("b", pointing(hourly, "warm-up", { room: LAMP }), 0);
+			unplug(LAMP);
+			const renamed = save("a", pointing(hourly, "warm-up", { room: PLUG }), 1, {
+				as: "edit",
+				id: "warm-up",
+				body: { ...fn([on], room), name: "Warm up, renamed" },
+				base: 1,
+			});
+
+			expect(renamed.stored).toBe(true);
+		});
+
 		it("reads an automation invalid once the plug its value names goes", () => {
 			const { save, automations, unplug } = open();
 			save("warm", pointing(hourly, "warm-up", { room: PLUG }), 0, {
@@ -465,6 +486,39 @@ describe("an automation that runs a function", () => {
 			expect(refusalOf(copied)).toEqual({ code: "no_key" });
 			expect(fs.readFileSync(path.join(dir, "automation-function-key.json"), "utf8")).toBe("{ not json");
 		});
+	});
+
+	it("names each store refusal by its own code: the total cap, a kind's cap, and a row a newer build holds", () => {
+		const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
+		const flat = { enabled: true, trigger: hourly, actions: [{ kind: "tell_assistant", when: "now" }] };
+		const atTotal = open(
+			true,
+			Array.from({ length: 64 }, (_, at) => row(`f${at}`, "automation", flat)),
+		);
+		const atFunctions = open(
+			true,
+			Array.from({ length: 32 }, (_, at) => row(`fn${at}`, "function", fn([tell]))),
+		);
+		const newer = open(true, [
+			row("later", "automation", { enabled: true, trigger: { kind: "geofence" }, actions: [] }),
+		]);
+
+		expect([
+			refusalOf(atTotal.save("one-more", flat as AutomationInput, 0)),
+			refusalOf(
+				atFunctions.save("a", pointing(hourly, "fresh"), 0, {
+					as: "edit",
+					id: "fresh",
+					body: fn([tell]),
+					base: 0,
+				}),
+			),
+			refusalOf(newer.save("later", flat as AutomationInput, 0)),
+		]).toEqual([
+			{ code: "full", max: 64 },
+			{ code: "full", kind: "function", max: 32 },
+			{ code: "newer_automation", id: "later" },
+		]);
 	});
 
 	it("repoints to a new function at the cap, the old one's removal making the room", () => {

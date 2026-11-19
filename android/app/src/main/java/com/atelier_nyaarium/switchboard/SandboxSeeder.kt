@@ -185,5 +185,11 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 				generation = repo.vault.generation,
 			)
 		}
+		// The seed is the list.
+		val held = repo.vault.snapshot()
+		repo.vault.applyList(
+			com.atelier_nyaarium.switchboard.proto.VaultListResult(revision = held.revision, since = 0L, entries = held.stored),
+			generation = repo.vault.generation,
+		)
 	}
 }

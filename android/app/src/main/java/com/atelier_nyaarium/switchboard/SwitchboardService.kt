@@ -21,6 +21,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.VaultPrompt
+import com.atelier_nyaarium.switchboard.vault.takeoverOf
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -329,7 +330,14 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				val ids = if (plugins.isActive("vault")) pending.mapTo(HashSet()) { it.requestId } else emptySet()
 				for (gone in posted - ids) {
 					notifications.cancelVaultRequest(gone)
-					mainHandler.post { vaultPrompt?.clear(gone) }
+					// Takeover moves quietly.
+					val taken = takeoverOf(gone, pending)?.takeIf { it.requestId in ids }
+					if (taken != null && posted.add(taken.requestId)) {
+						notifications.notifyVaultRequest(repo, taken, silent = true)
+						mainHandler.post { vaultPrompt?.move(gone, taken.requestId) }
+					} else {
+						mainHandler.post { vaultPrompt?.clear(gone) }
+					}
 				}
 				posted.retainAll(ids)
 				for (request in pending) {

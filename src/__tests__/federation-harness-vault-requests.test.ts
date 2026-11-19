@@ -307,6 +307,7 @@ describe("federation harness: vault requests", () => {
 			why: { code: "no_policy" },
 		});
 		expect(request).not.toHaveProperty("runsAnything");
+		expect(request).not.toHaveProperty("cannotRemember");
 		const row = h.phone
 			.entries(await h.phone.inboxRead())
 			.find((entry) => entry.kind === "plugin_action" && entry.payload?.requestId === request.requestId);
@@ -640,6 +641,7 @@ describe("federation harness: vault requests", () => {
 
 		const long = await ask(`sudo -u root echo ${"x".repeat(600)}`);
 		expect(long).not.toHaveProperty("answering");
+		expect(long).toMatchObject({ kind: "typed", cannotRemember: true });
 		expect(await answerEntry({ requestId: long.requestId, entryId, decision: "once", remember: add })).toEqual({
 			ok: false,
 			refusal: { code: "cannot_remember", max: MAX_SELECTOR_LEN },

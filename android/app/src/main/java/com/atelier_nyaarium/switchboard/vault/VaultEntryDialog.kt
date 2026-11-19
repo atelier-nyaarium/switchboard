@@ -81,6 +81,8 @@ internal fun VaultEntryForm(
 	onClose: () -> Unit,
 	saveDraft: suspend (VaultDraft) -> String?,
 	closeLabel: String = "Cancel",
+	/** Close waits for save. */
+	holdCloseWhileSaving: Boolean = false,
 ) {
 	val entryId = existing?.id
 	val activity = hostActivity()
@@ -191,7 +193,7 @@ internal fun VaultEntryForm(
 				}
 			}
 			Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
-				TextButton(onClick = onClose) { Text(closeLabel) }
+				TextButton(onClick = onClose, enabled = !(holdCloseWhileSaving && busy)) { Text(closeLabel) }
 				Button(
 					enabled = titled && !busy,
 					onClick = hapticClick {

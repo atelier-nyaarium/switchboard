@@ -140,6 +140,8 @@ data class VaultBlob(
 	/** Approvals inside the repeat window, oldest first. */
 	val answered: List<VaultAnswered> = emptyList(),
 	val lastRouterSyncAt: Long = 0,
+	/** Listed since lineage. */
+	val listed: Boolean = false,
 )
 
 /** One entry with every field but the value opened. */

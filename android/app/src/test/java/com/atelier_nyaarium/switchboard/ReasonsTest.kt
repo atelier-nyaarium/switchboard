@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.PolicyRefusal
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import java.io.File
@@ -67,6 +68,15 @@ class ReasonsTest {
 		assertEquals("sudo apt mark", policyRefusalMarks(PolicyRefusal("same_command", example = "sudo apt mark", key = "sudo apt")))
 		assertEquals("x", policyRefusalMarks(PolicyRefusal("no_command", example = "x")))
 		assertEquals(null, policyRefusalMarks(PolicyRefusal("taken", key = "sudo apt", policy = "Sakura Sudo")))
+	}
+
+	@Test
+	fun aFullSaveNamesTheCapItHit() {
+		fun line(kind: String?, max: Long?) =
+			automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.FULL, AutomationSaveRefusal(code = "full", kind = kind, max = max))
+		val lines = listOf(line(null, null), line("function", 32), line("automation", 32), line(null, 64))
+		assertEquals(lines.size, lines.toSet().size)
+		assertTrue(line(null, 64).contains("64"))
 	}
 
 	/** The owner's review list, from the mapping itself: `build/reports/error-prose.md`. */

@@ -58,6 +58,7 @@
 		{ "file": "vault-answer-result-refusal.json", "schema": "ConsoleVaultAnswerResult", "expect": "pass" },
 		{ "file": "vault-request-typed-why.json", "schema": "VaultRequest", "expect": "pass" },
 		{ "file": "vault-request-typed-binding-unusable.json", "schema": "VaultRequest", "expect": "pass" },
+		{ "file": "vault-request-typed-cannot-remember.json", "schema": "VaultRequest", "expect": "pass" },
 		{ "file": "vault-request-entry-replaces.json", "schema": "VaultRequest", "expect": "pass" },
 		{
 			"file": "vault-answer-entry-result-refusal.json",

@@ -52,7 +52,26 @@ const FIELDS = {
 const AUTOMATIONS = {
 	list: () => [
 		{ id: "threshold-low", revision: 1, body: { label: "Freezer temperature below 21.0 °C", enabled: true } },
+		{
+			id: "warm",
+			revision: 1,
+			body: {
+				enabled: true,
+				trigger: { kind: "interval", everyMin: 60 },
+				actions: [{ kind: "run_function", function: "warm-up" }],
+			},
+		},
 	],
+	functionOf: (id: string) =>
+		id === "warm-up"
+			? {
+					name: "Warm up",
+					params: [],
+					steps: [
+						{ kind: "do", action: "ifttt_trigger", args: { event: { kind: "literal", value: "bell" } } },
+					],
+				}
+			: null,
 	sentenceOf: () => "Freezer temperature below 21.0 °C",
 	log: () => [
 		{ automation: "threshold-low", seq: 1, at: 1_794_694_000_000, outcome: "ran" },
@@ -250,6 +269,10 @@ describe("live console stage", () => {
 				"unknown: not heard for 31 minutes",
 			);
 			expect(await gateway.ask('fields.read("nope")')).toMatchObject({ issue: { code: "not_found" } });
+			const actions = (await gateway.ask('automations.get("warm").actions')).text;
+			expect(actions).toContain("step: 0.0");
+			expect(actions).toContain("function: warm-up");
+			expect(actions).toContain("kind: ifttt_trigger");
 		} finally {
 			await gateway.close();
 		}

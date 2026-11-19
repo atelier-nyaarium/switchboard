@@ -144,6 +144,7 @@ object Protocol {
 		const val ROUTINE_FORGET_DAYS_DEFAULT: Int = 7
 		const val ROUTINE_FORGET_DAYS_MIN: Int = 1
 		const val ROUTINE_FORGET_DAYS_MAX: Int = 365
+		const val MAX_POLICY_NAME_LEN: Int = 128
 		const val ASSISTANT_RULES_MAX: Int = 50
 		const val ASSISTANT_RULE_CONDITIONS_MAX: Int = 8
 		const val ASSISTANT_RULE_VALUE_MAX: Int = 200
@@ -224,6 +225,8 @@ object Protocol {
 			NEWER_FUNCTION("newer_function"),
 			NO_KEY("no_key"),
 			UNWRITTEN("unwritten"),
+			NEWER_AUTOMATION("newer_automation"),
+			NO_FREE_ID("no_free_id"),
 		}
 
 		enum class AutomationSaveRecord(val wire: String) {
@@ -4122,6 +4125,8 @@ sealed class VaultRequest {
 		val why: VaultTypedWhy? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val runsAnything: Boolean? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val cannotRemember: Boolean? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val answering: List<VaultAnswering>? = null,
 	) : VaultRequest()

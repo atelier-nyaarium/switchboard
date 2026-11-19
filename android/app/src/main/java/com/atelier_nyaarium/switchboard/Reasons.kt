@@ -35,6 +35,7 @@ internal enum class Act(val doing: String) {
 	FORGETTING("Forgetting the session"),
 	COMPACTING("Compacting the conversation"),
 	SAVING_POLICY("Saving the policy"),
+	SAVING_SECRET("Saving the secret"),
 }
 
 /** The owner's words for an outdated build. */
@@ -239,7 +240,15 @@ internal fun rememberLabel(key: String): String = "Remember for \"$key\""
 
 internal fun saveForLabel(key: String): String = "Save for \"$key\""
 
-internal fun saveForSub(gateway: String): String = "New secret and policy on $gateway."
+internal fun saveForSub(): String = "Saves it as a new secret, or uses the one that matches."
+
+internal fun newSecretSub(gateway: String): String = "New secret on $gateway."
+
+internal const val MAY_END_APPROVALS = "May end approvals."
+
+internal const val CANNOT_REMEMBER_LINE = "This command cannot be remembered."
+
+internal const val VAULT_UNLISTED = "Still reading your vault. Try again in a moment."
 
 internal fun addsToLine(policy: String?): String = if (policy != null) "Adds to $policy." else "Adds to its policy."
 
@@ -264,7 +273,7 @@ internal fun entryRefusalLine(code: Protocol.Wire.VaultAnswerRefusalCode, unusab
 		}
 		Protocol.Wire.VaultAnswerRefusalCode.BOUND_ELSEWHERE -> "That policy uses another secret."
 		Protocol.Wire.VaultAnswerRefusalCode.TARGET_OFF -> "That policy is off."
-		Protocol.Wire.VaultAnswerRefusalCode.CANNOT_REMEMBER -> "This command cannot be remembered."
+		Protocol.Wire.VaultAnswerRefusalCode.CANNOT_REMEMBER -> CANNOT_REMEMBER_LINE
 	}
 
 internal const val ENTRY_REFUSED = "The Gateway refused the answer."
@@ -273,7 +282,7 @@ internal const val ENTRY_REFUSED = "The Gateway refused the answer."
 internal fun vaultSaveLine(outcome: com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome): String? = when (outcome) {
 	is com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Applied -> null
 	com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Conflict -> "Changed elsewhere since you opened it. Reopen to edit the latest."
-	is com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Refused -> "Refused: ${outcome.reason}"
+	is com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Refused -> reasonSentence(Act.SAVING_SECRET, outcome.reason)
 	com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Unreachable -> "The Router could not be reached."
 }
 
@@ -327,12 +336,13 @@ internal fun automationSaveLine(
 		Protocol.Wire.AutomationSaveRefusalCode.GONE ->
 			if (function) "That function no longer exists." else "That automation no longer exists."
 		Protocol.Wire.AutomationSaveRefusalCode.FULL -> {
-			val functions = refusal?.kind == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire
 			val max = refusal?.max
+			// No kind: the total cap.
 			when {
 				max == null -> "This Gateway holds as many as it can."
-				functions -> "This Gateway holds $max functions already."
-				else -> "This Gateway holds $max automations already."
+				refusal?.kind == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire -> "This Gateway holds $max functions already."
+				refusal?.kind == Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire -> "This Gateway holds $max automations already."
+				else -> "This Gateway holds $max automations and functions already."
 			}
 		}
 		Protocol.Wire.AutomationSaveRefusalCode.INVALID -> "The Gateway could not save it."
@@ -350,6 +360,8 @@ internal fun automationSaveLine(
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_FUNCTION -> "Its function needs a newer Gateway."
 		Protocol.Wire.AutomationSaveRefusalCode.NO_KEY -> "This Gateway cannot make a copy right now."
 		Protocol.Wire.AutomationSaveRefusalCode.UNWRITTEN -> "The Gateway could not save it. Try again."
+		Protocol.Wire.AutomationSaveRefusalCode.NEWER_AUTOMATION -> "Edit this automation in the newer app."
+		Protocol.Wire.AutomationSaveRefusalCode.NO_FREE_ID -> "This Gateway has no room for another copy of that function."
 		null -> "The Gateway refused it."
 	}
 }

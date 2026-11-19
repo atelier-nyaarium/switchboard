@@ -59,8 +59,12 @@ export interface State {
 	/** The newest set landed, per switch. */
 	landedSets: Record<string, LandedSwitch>;
 	/** A call's cool-down clock, set at admission. */
-	firedAt: Record<string, number>;
+	firedAt: Record<string, CallFired>;
 }
+
+/** Incarnation separates a revived id. */
+const CallFiredSchema = z.strictObject({ incarnation: z.string(), at: z.number().int() });
+export type CallFired = z.infer<typeof CallFiredSchema>;
 
 const LandedSwitchSchema = z.strictObject({
 	member: z.string(),
@@ -103,7 +107,7 @@ const LooseStateSchema = z.object({
 	functionVersions: z.record(z.string(), z.unknown()).catch({}),
 	unusedFunctions: z.record(z.string(), z.number()).catch({}),
 	landedSets: z.record(z.string(), z.unknown()).catch({}),
-	firedAt: z.record(z.string(), z.number()).catch({}),
+	firedAt: z.record(z.string(), z.unknown()).catch({}),
 });
 
 /** Without an automation id, no row. */
@@ -186,7 +190,7 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 		functionVersions: readable(loose.functionVersions, FunctionSchema),
 		unusedFunctions: loose.unusedFunctions,
 		landedSets: readable(loose.landedSets, LandedSwitchSchema),
-		firedAt: loose.firedAt,
+		firedAt: readable(loose.firedAt, CallFiredSchema),
 	};
 	return { state, changed: lost > 0 };
 }

@@ -194,6 +194,8 @@ export const VaultRequestSchema = z
 			why: VaultTypedWhySchema.optional(),
 			/** The key's program runs anything; set only true. */
 			runsAnything: z.boolean().optional(),
+			/** The key cannot be remembered; set only true. */
+			cannotRemember: z.boolean().optional(),
 			/** One per entry; a single row is the suggestion. */
 			answering: z.array(VaultAnsweringSchema).min(1).max(MAX_POLICIES_PER_GATEWAY).optional(),
 		}),

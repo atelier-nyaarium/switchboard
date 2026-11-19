@@ -94,6 +94,14 @@ class VaultPrompt(
 		visible.value = requestId
 	}
 
+	/** Takeover keeps the card. */
+	fun move(from: String, to: String) {
+		if (parked.remove(from)) parked.add(to)
+		if (drawn.value != from) return
+		drawn.value = to
+		visible.value = to
+	}
+
 	/** Settled or gone: nothing to answer, so nothing is drawn. */
 	fun clear(requestId: String) {
 		parked.remove(requestId)

@@ -330,8 +330,9 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		}
 		const why = typedWhy(shape, policy, bound);
 		// Remember would be refused: by the key's holder, or the key itself.
+		const cannotRemember = !rememberable(shape);
 		const answering =
-			why.code === "binding_unusable" || !rememberable(shape)
+			why.code === "binding_unusable" || cannotRemember
 				? []
 				: answeringOf(
 						shape,
@@ -345,6 +346,7 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 			asker,
 			why,
 			...(runsAnything(shape) ? { runsAnything: true as const } : {}),
+			...(cannotRemember ? { cannotRemember: true as const } : {}),
 			...(answering.length > 0 ? { answering } : {}),
 		});
 		if (opened.kind !== "opened") return unopened(opened.reason);

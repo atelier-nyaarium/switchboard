@@ -243,12 +243,19 @@ function judgeSave(
 	];
 
 	if (!toggle) {
-		const issueOf = (body: Automation) => {
+		const issueUnder = (body: Automation, functions: (id: string) => AutomationFunction | null) => {
 			const at = pointerOf(body);
-			const fn = at ? functionNext(at.function) : null;
+			const fn = at ? functions(at.function) : null;
 			return fn ? view.callIssue(body, fn) : null;
 		};
-		const own = issueOf(next);
+		/** Held users only fail on new reach. */
+		const issueOf = (body: Automation, own: boolean) => {
+			const after = issueUnder(body, functionNext);
+			if (own || after === null) return after;
+			const before = issueUnder(body, functionHeld);
+			return before !== null && canonicalJson(before) === canonicalJson(after) ? null : after;
+		};
+		const own = issueOf(next, true);
 		if (own?.kind === "switch") {
 			return refused("no such switch on this Gateway", {
 				code: "invalid",
@@ -256,7 +263,7 @@ function judgeSave(
 				path: `values.${own.param}`,
 			});
 		}
-		const unfit = users.filter(({ body }) => issueOf(body) !== null);
+		const unfit = users.filter(({ id, body }) => issueOf(body, id === intent.id) !== null);
 		if (unfit.length > 0) {
 			return refused("it would stop fitting what runs it", {
 				code: "unfit",
@@ -346,7 +353,7 @@ function copyEchoOf(
 const claimRefusal = (claim: Extract<Claim, { refused: string }>): AutomationVerdict =>
 	claim.refused === "no_key"
 		? refused("the key for derived ids cannot be read", { code: "no_key" })
-		: refused("no derived id is free", { code: "invalid", record: "function" });
+		: refused("no derived id is free", { code: "no_free_id" });
 
 function unused(view: AutomationJudgeView, id: string, next: Automation | null): OwnerWrite[] {
 	const held = view.held.find((record) => record.id === id);
@@ -411,6 +418,8 @@ function judgeCarry(
 		if ("refused" in claim) return claimRefusal(claim);
 		landing.set(id, claim.id);
 		claimedBy.set(claim.id, id);
+		// Held function stays in place.
+		if (inPlace.has(id) && functionAt(id)) continue;
 		fnPuts.push(putFunction(claim.id, body, functionAt(claim.id)?.revision ?? 0, { revive: true, unfit: true }));
 	}
 	/** Never bound to a staying function. */

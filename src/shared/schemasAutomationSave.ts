@@ -15,7 +15,7 @@ export const AUTOMATION_SAVE_REFUSALS = [
 	"moved",
 	/** `record`. */
 	"gone",
-	/** `kind`, `max`. */
+	/** `max`; `kind` for a kind's cap, absent for the total. */
 	"full",
 	/** `record`, `path`. */
 	"invalid",
@@ -38,6 +38,10 @@ export const AUTOMATION_SAVE_REFUSALS = [
 	"no_key",
 	/** The disk refused it. */
 	"unwritten",
+	/** `id`: an automation row held by a newer build. */
+	"newer_automation",
+	/** Every derived id it may take is held. */
+	"no_free_id",
 ] as const;
 export type AutomationSaveRefusalCode = (typeof AUTOMATION_SAVE_REFUSALS)[number];
 

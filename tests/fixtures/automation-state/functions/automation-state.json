@@ -103,5 +103,5 @@
 			"at": 5600000
 		}
 	},
-	"firedAt": { "warm": 5600000 }
+	"firedAt": { "warm": { "incarnation": "inc-warm", "at": 5600000 } }
 }

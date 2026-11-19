@@ -27,6 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -45,7 +47,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.atelier_nyaarium.switchboard.AppLock
 import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.appLockAsks
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.PickMenu
@@ -78,12 +82,24 @@ fun VaultRequestSheet(
 	// A request settled elsewhere closes the sheet after this frame.
 	LaunchedEffect(request == null) { if (request == null) onClose() }
 	if (request == null) return
+	val back = remember { CardBack() }
 	Dialog(
-		onDismissRequest = onClose,
+		onDismissRequest = {
+			when (back.step()) {
+				BackStep.CLOSE -> onClose()
+				BackStep.FORM_BACK -> back.formBack()
+				BackStep.HOLD -> Unit
+			}
+		},
 		properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false),
 	) {
-		VaultRequestCard(repo, state, request, onClose)
+		VaultRequestCard(repo, state, request, onClose, back = back)
 	}
+}
+
+class CardBack {
+	internal var step: () -> BackStep = { BackStep.CLOSE }
+	internal var formBack: () -> Unit = {}
 }
 
 /**
@@ -100,6 +116,7 @@ fun VaultRequestCard(
 	/** Only the head and one line of the command. */
 	collapsed: Boolean = false,
 	exits: VaultPromptExits? = null,
+	back: CardBack? = null,
 ) {
 	val requestId = request.requestId
 	val activity = hostActivity()
@@ -129,14 +146,15 @@ fun VaultRequestCard(
 
 	val gatewayId = remember(request.team) { runIsolated { gatewayOf(request.team) }.getOrNull() ?: "" }
 	val grants by repo.vault.grants
-	val everyPending by repo.vault.pending.collectAsState()
 	val views = remember(revision) { repo.vaultOps.views() }
-	val facts = TypedCardFacts(gatewayId, views, grants[gatewayId].orEmpty(), everyPending, policyNameOf(state.gateways, gatewayId))
-	var card by remember(requestId) {
-		mutableStateOf(typedRequest?.let { typedCardStart(it, secretChoices(views, gatewayId, it.answering)) })
-	}
+	val facts = TypedCardFacts(gatewayId, views, grants[gatewayId], policyNameOf(state.gateways, gatewayId))
+	var card by remember(requestId) { mutableStateOf(typedRequest?.let(::typedCardStart)) }
 	val held = card
 	val view = if (typedRequest != null && held != null) typedCardView(typedRequest, held, facts) else null
+	val shownNow by rememberUpdatedState(requestId)
+	val unlocked by AppLock.unlocked.collectAsState()
+	var revealed by remember(requestId) { mutableStateOf(false) }
+	val named = namesChoices(appLockAsks(state, unlocked), revealed)
 	fun on(event: CardEvent) {
 		card = card?.let { typedCardAfter(it, event) }
 	}
@@ -148,65 +166,88 @@ fun VaultRequestCard(
 			}
 		}
 	}
+	SideEffect {
+		back?.step = { card?.let { backStep(it, busy) } ?: BackStep.CLOSE }
+		back?.formBack = { on(CardEvent.FormBack) }
+	}
 
 	suspend fun present(): Boolean = exits?.confirmPresence?.invoke() ?: repo.vaultOps.ownerPresent(activity)
 
-	fun answer(decision: String) {
+	/** Lands only on its card. */
+	fun launchOp(work: suspend (owns: () -> Boolean) -> Unit) {
 		busy = true
+		val sentFor = requestId
 		scope.launch {
-			val approving = decision != VAULT_DECISION_DENY
-			// A typed value never prompts: typing it is the owner's act.
-			if (approving && typedRequest == null && !present()) {
+			try {
+				work { ownsCard(sentFor, shownNow) }
+			} finally {
 				busy = false
-				return@launch
 			}
-			val value = if (approving && typedRequest != null) held?.typed else null
-			val ok = repo.vaultOps.answer(request, decision, value, if (approving) null else note)
-			busy = false
-			if (ok) onClose()
 		}
 	}
 
-	fun withEntry(op: ConsoleOp.VaultAnswerEntry) {
-		busy = true
-		scope.launch {
-			if (!present()) {
-				busy = false
-				return@launch
-			}
-			val outcome = repo.vaultOps.answerWithEntry(request, op)
-			busy = false
-			if (outcome !is EntryAnswered.Stays) onClose()
+	fun answer(decision: String) = launchOp { owns ->
+		val approving = decision != VAULT_DECISION_DENY
+		val value = if (approving && typedRequest != null) held?.typed else null
+		val ok = repo.vaultOps.answer(request, decision, { present() }, value, if (approving) null else note)
+		if (ok && owns()) onClose()
+	}
+
+	fun withEntry(op: ConsoleOp.VaultAnswerEntry) = launchOp { owns ->
+		when (val outcome = repo.vaultOps.answerWithEntry(request, op) { present() }) {
+			is EntryAnswered.Answered, is EntryAnswered.Gone -> if (owns()) onClose()
+			is EntryAnswered.Stays -> if (owns()) on(CardEvent.Refused(outcome.line))
+			EntryAnswered.Declined -> Unit
+		}
+	}
+
+	fun saveTyped(typed: String) = launchOp { owns ->
+		val found = repo.vaultOps.saveTyped(request, typed) { present() }
+		if (!owns()) return@launchOp
+		when (found) {
+			TypedSave.Declined -> Unit
+			is TypedSave.Refused -> on(CardEvent.Refused(found.line))
+			is TypedSave.Matched -> on(CardEvent.Landed(found.entryId))
+			is TypedSave.Form -> on(CardEvent.OpenForm(found.seed))
 		}
 	}
 
 	fun act(decision: String) {
 		val typed = typedRequest ?: return answer(decision)
-		val state = card ?: return
-		when (state.mode) {
-			CardMode.PICK -> approveOp(typed, state, facts, decision, repo.vaultOps::newPolicyId)?.let(::withEntry)
-			CardMode.TYPE, CardMode.NEW_SECRET -> {
-				val matchOf = { value: String -> repo.vaultOps.matchFor(value, gatewayId) }
-				when (val step = sendStep(typed, state, facts, matchOf, repo.vaultOps::newPolicyId)) {
-					is SendStep.Typed -> answer(VAULT_DECISION_ONCE)
-					is SendStep.WithEntry -> withEntry(step.op)
-					is SendStep.OpenForm -> on(CardEvent.OpenForm(step.seed))
-				}
+		val current = card ?: return
+		when (view?.mode) {
+			CardMode.PICK -> {
+				mintFor(typed, current, facts)?.let { on(CardEvent.Minted(it, repo.vaultOps.newPolicyId())) }
+				card?.let { approveOp(typed, it, facts, decision) }?.let(::withEntry)
 			}
+			CardMode.TYPE, CardMode.NEW_SECRET, null -> if (savesTyped(typed, current)) saveTyped(current.typed) else answer(VAULT_DECISION_ONCE)
 		}
 	}
 
 	suspend fun saveFromForm(draft: VaultDraft): String? {
-		if (!present()) return null
-		return when (val saved = repo.vaultOps.saveAndAnswer(request, draft)) {
-			is SavedAnswer.NotSaved -> saved.line
-			is SavedAnswer.Saved -> {
-				when (saved.answered) {
-					is EntryAnswered.Stays -> on(CardEvent.Saved(saved.entryId))
-					is EntryAnswered.Answered, is EntryAnswered.Gone -> onClose()
+		val seed = card?.seed ?: return null
+		val sentFor = requestId
+		busy = true
+		try {
+			val saved = repo.vaultOps.saveAndAnswer(request, draft, seed) { present() }
+			if (!ownsCard(sentFor, shownNow)) return null
+			return when (saved) {
+				SavedAnswer.Declined -> null
+				is SavedAnswer.NotSaved -> saved.line
+				is SavedAnswer.Matched -> null.also { on(CardEvent.Landed(saved.entryId)) }
+				is SavedAnswer.Saved -> null.also {
+					when (val answered = saved.answered) {
+						is EntryAnswered.Answered, is EntryAnswered.Gone -> onClose()
+						is EntryAnswered.Stays -> {
+							on(CardEvent.Landed(saved.entryId))
+							on(CardEvent.Refused(answered.line))
+						}
+						EntryAnswered.Declined -> on(CardEvent.Landed(saved.entryId))
+					}
 				}
-				null
 			}
+		} finally {
+			busy = false
 		}
 	}
 
@@ -221,6 +262,7 @@ fun VaultRequestCard(
 				onClose = { on(CardEvent.FormBack) },
 				saveDraft = ::saveFromForm,
 				closeLabel = "Back",
+				holdCloseWhileSaving = true,
 			)
 			return@Surface
 		}
@@ -256,6 +298,12 @@ fun VaultRequestCard(
 				view?.warning?.let {
 					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 				}
+				view?.quiet?.let {
+					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				}
+				view?.refused?.let {
+					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+				}
 				windowCovers(request)?.let {
 					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
@@ -273,14 +321,23 @@ fun VaultRequestCard(
 					LaunchedEffect(Unit) { steerFocus.requestFocus() }
 				} else if (view != null) {
 					view.choices?.let { choices ->
-						PickMenu(
-							label = "Secret",
-							choices = choices,
-							picked = view.picked,
-							labelOf = { it.title },
-							onPick = { on(CardEvent.Picked(it.entryId)) },
-							enabled = !busy,
-						)
+						if (named) {
+							PickMenu(
+								label = "Secret",
+								choices = choices,
+								picked = view.picked,
+								labelOf = { it.title },
+								onPick = { on(CardEvent.Picked(it.entryId)) },
+								enabled = !busy,
+							)
+						} else {
+							Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+								Text(view.picked?.title.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+								TextButton(onClick = hapticClick { scope.launch { if (present()) revealed = true } }, enabled = !busy) {
+									Text("Other secrets")
+								}
+							}
+						}
 					}
 					if (view.field) {
 						OutlinedTextField(
@@ -306,7 +363,7 @@ fun VaultRequestCard(
 							Switch(
 								checked = switch.on,
 								enabled = switch.enabled && !busy,
-								onCheckedChange = { checked -> held?.let { on(switchEvent(it, checked)) } },
+								onCheckedChange = { checked -> on(switchEvent(view.mode, checked)) },
 							)
 						}
 					}

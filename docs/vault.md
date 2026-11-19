@@ -45,7 +45,7 @@ and the delta list are in `docs/federation.md` under Owner state.
   read, delete and enable included. The record, the store and the resolver are in `docs/policies.md`.
   When the first argument is a flag, the whole line is the shape, since a flag's value could hide
   the target. `displayShape` applies it to the words as written, which is what the grants tab lists
-  and what a saved typed value is titled, and it holds for text no parser accepts. On the wire it
+  and what a remembered command adds to a policy, and it holds for text no parser accepts. On the wire it
   is `displayShape`, beside `coveredShapes`.
 - **A window covers a set, not the shape:** `operationSet` in `gateway/vault/operationSet.ts` reads
   the line with `unbash` and names every simple command in it, reaching commands nested in shell
@@ -161,8 +161,9 @@ which the assistant's send guard shares.
   a label.** The line's selector key is looked up in the policy store, and the one enabled policy
   naming it, whose bound entry exists, holds a value and is allowed here, opens an entry request
   carrying the policy and its revision; a covering grant answers at once. No policy, a disabled
-  one, or a binding this Gateway cannot use opens a typed request that says which (`why`). A
-  capture creates an entry and never a policy. The request lands in the session's thread and its
+  one, or a binding this Gateway cannot use opens a typed request that says which (`why`), and
+  carries `cannotRemember` when its key could never be remembered (`rememberable`), so the phone
+  offers no Remember. A capture creates an entry and never a policy. The request lands in the session's thread and its
   grants apply.
 - The answer is `VaultValueAnswer`: `approved` with the decision and the value, `refused` with a
   reason, or `pending`.
@@ -283,8 +284,17 @@ session holds a binding token. `vaultRun.ts` is the child run.
   lives. The sheet answers with `vault_answer` through the gateway value op. Its content scrolls and
   the footer does not, so no length of operation or covered set can push the answers off the dialog.
   The footer is Deny as text and a split button: `Approve` answers once, and the arrow holds 30 min
-  and This session; for a typed value, `Send`, with Send and save behind the arrow, which stores the
-  value under the shape as its title. Deny opens a `Steer` field whose note rides the refusal.
+  and This session. Deny opens a `Steer` field whose note rides the refusal.
+- **A typed request answers with a held secret where it can** (`vault/TypedRequestRules.kt`, the
+  card's every decision): the card says why the Gateway asks, offers the secrets allowed there,
+  answering ones first, and pre-picks the one the Gateway names. Remember adds the command to the
+  policy that secret answers, or makes one named after it, and says what that ends; only then do the
+  30 min and This session tiers appear. `vault_answer_entry` carries the pick and the remember, and
+  the Gateway converts the request. Typing instead, Save first passes presence, then matches the
+  value against the held secrets in that order: a match lands the card on that secret, so the card
+  shows what Approve will do; no match opens the vault's new-entry form with the value, both ids
+  minted once, and its save matches the final value again before it writes. A refusal that keeps
+  the request stays on the card. `VaultOps` holds the presence gate for every approval of an entry.
 - **The overlay is the same card:** `VaultPrompt` draws `VaultRequestCard`, the sheet's own body,
   over the app in front, in the system theme. It opens as a one-line banner; a tap expands it, a
   swipe parks it, and Go to session sits beside Deny. An entry approval there passes the same
