@@ -1006,9 +1006,13 @@ A: From the start. The "only when another automation runs it" trigger holds decl
 
 > A
 
-## Question 61 - What goes first: installing what 2.7c built, or building flows? (open)
+## Question 61 - What goes first: installing what 2.7c built, or building flows?
 
 Asked as: install and walk what is built, then build flows (recommended); build flows in cards first and install together; or build everything, script and map included, then install. The reasons given: the app on the phone (8.14.82) strips a message from an automation on a toggle, so the newer app must be installed before a flow can be stored safely; what exists gets used and corrected before more sits on it; real use finds what an audit does not.
+
+A: Install what is finished and walk it with the owner, then build the new design on top. The owner asked which quick patches should ride along with the update and restart.
+
+> A. any quick patches you want to hitchhike in with this update and restart?
 
 Told with it, as defaults the owner may change: an automation that triggers again while running waits its turn; Run pressed on a switched-off automation runs it once while a call still respects off; an edit in the middle of a run stops that run and the row says what did not run; a script writes a device by its name when unique and by its id otherwise; an If keeps the unit its condition was typed in.
 
