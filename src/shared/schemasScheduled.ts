@@ -14,6 +14,24 @@ const targetShape = {
 
 export const ScheduledTargetSchema = z.object(targetShape).meta({ id: "ScheduledTarget" });
 
+/** Failure reasons. */
+export const SCHEDULED_FAILURE_REASONS = [
+	"malformed_body",
+	"bad_tag",
+	"delivery_unavailable",
+	"target_mismatch",
+	"delivery_refused",
+	"delivery_failed",
+] as const;
+
+export type ScheduledFailureReason = (typeof SCHEDULED_FAILURE_REASONS)[number];
+
+/** Maps reason to token. */
+export function scheduledFailureReason(reason: string | undefined): ScheduledFailureReason {
+	const known = SCHEDULED_FAILURE_REASONS.find((token) => token === reason);
+	return known ?? "delivery_failed";
+}
+
 export const ScheduledRecordSchema = z
 	.object({
 		target: ScheduledTargetSchema,
@@ -26,6 +44,8 @@ export const ScheduledRecordSchema = z
 		files: z.array(z.string()).max(64),
 		body: ContentEnvelopeSchema,
 		state: z.enum(["armed", "firing", "fired", "error", "cancelled"]),
+		// Only on an `error` record.
+		reason: z.enum(SCHEDULED_FAILURE_REASONS).optional(),
 		attempts: z.number().int().nonnegative(),
 		version: z.number().int().positive(),
 	})
@@ -59,24 +79,6 @@ export const ScheduleListValueSchema = z.object({ kind: z.literal("schedule_list
 
 /** Too many files. */
 export const SCHEDULE_REFUSED_TOO_MANY_FILES = "too_many_files";
-
-/** Failure reasons. */
-export const SCHEDULED_FAILURE_REASONS = [
-	"malformed_body",
-	"bad_tag",
-	"delivery_unavailable",
-	"target_mismatch",
-	"delivery_refused",
-	"delivery_failed",
-] as const;
-
-export type ScheduledFailureReason = (typeof SCHEDULED_FAILURE_REASONS)[number];
-
-/** Maps reason to token. */
-export function scheduledFailureReason(reason: string | undefined): ScheduledFailureReason {
-	const known = SCHEDULED_FAILURE_REASONS.find((token) => token === reason);
-	return known ?? "delivery_failed";
-}
 
 export const ScheduledResultRowSchema = z
 	.object({

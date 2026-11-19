@@ -14,6 +14,7 @@ import { DomainQuota } from "../federation-server/owner/domainQuota.js";
 import { signAdmission, signRevocation } from "../shared/admission.js";
 import { processAmbient } from "../shared/ambient.js";
 import { generateIdentity } from "../shared/crypto.js";
+import { CONSOLE_ROWS_PER_FRAME } from "../shared/schemasConsoleSocket.js";
 import { signOwnerOp, signRowEnvelope } from "../shared/schemasInbox.js";
 
 const domainA = "domain-a";
@@ -314,7 +315,7 @@ describe("console sockets", () => {
 
 		expect(client.frames[0]).toMatchObject({ type: "welcome" });
 		expect(client.frames.some((frame) => frame.type === "inbox_rows")).toBe(false);
-		fixture.hub.pushOwnerRow(domainA, null, row(fixture, domainA, "pushed"));
+		fixture.hub.pushOwnerRow(domainA, row(fixture, domainA, "pushed"));
 		expect(client.frames.some((frame) => frame.type === "inbox_rows")).toBe(false);
 		fixture.hub.pushPlane(domainA, "presence", { epoch: 1, version: 3 }, { rows: [] });
 		expect(client.frames.at(-1)).toMatchObject({
@@ -333,8 +334,8 @@ describe("console sockets", () => {
 		const key = keyRow(fixture, "key_grant", domainA, "pushed-key");
 		const message = row(fixture, domainA, "pushed-message");
 
-		fixture.hub.pushOwnerRow(domainA, null, key);
-		fixture.hub.pushOwnerRow(domainA, null, message);
+		fixture.hub.pushOwnerRow(domainA, key);
+		fixture.hub.pushOwnerRow(domainA, message);
 
 		expect(client.frames.at(-1)).toMatchObject({ type: "inbox_rows", rows: [key] });
 		expect(client.frames.filter((frame) => frame.type === "inbox_rows")).toHaveLength(1);
@@ -520,13 +521,81 @@ describe("console sockets", () => {
 		await fixture.hub.message(b, JSON.stringify({ type: "hello", ownerOp: hello(fixture, domainB, "b") }));
 		const pushed = row(fixture, domainA, "push");
 
-		fixture.hub.pushOwnerRow(domainA, null, pushed);
+		fixture.hub.pushOwnerRow(domainA, pushed);
 		fixture.hub.pushPlane(domainA, "board", { epoch: 1, version: 5 }, { changed: true });
 
 		expect(a.frames.at(-2)).toMatchObject({ type: "inbox_rows", rows: [pushed] });
 		expect(a.frames.at(-1)).toMatchObject({ type: "plane", name: "board", lineage: { epoch: 1, version: 5 } });
 		expect(b.frames).not.toContainEqual(expect.objectContaining({ type: "plane" }));
 		expect(b.frames).not.toContainEqual(expect.objectContaining({ type: "inbox_rows" }));
+		fixture.registry.close();
+	});
+
+	it("sends rows nobody pushed with the next push, in order, so no ack passes one unread", async () => {
+		const fixture = setup();
+		const client = socket();
+		fixture.hub.open(client);
+		await fixture.hub.message(client, JSON.stringify({ type: "hello", ownerOp: hello(fixture) }));
+		const unpushed = [row(fixture, domainA, "silent-1"), row(fixture, domainA, "silent-2")];
+		const pushed = row(fixture, domainA, "pushed");
+
+		fixture.hub.pushOwnerRow(domainA, pushed);
+		fixture.hub.pushOwnerRow(domainA, pushed);
+
+		const sent = client.frames.filter((frame) => frame.type === "inbox_rows");
+		expect(sent).toEqual([expect.objectContaining({ rows: [...unpushed, pushed], cursor: pushed.seq })]);
+		fixture.registry.close();
+	});
+
+	it("resends what follows an ack below what was sent, so no later ack passes a row unsent", async () => {
+		const fixture = setup();
+		const client = socket();
+		fixture.hub.open(client);
+		await fixture.hub.message(client, JSON.stringify({ type: "hello", ownerOp: hello(fixture) }));
+		const welcome = client.frames[0] as { incarnation: number; cursorEpoch: number };
+		const rows = [row(fixture, domainA, "r-1"), row(fixture, domainA, "r-2"), row(fixture, domainA, "r-3")];
+		const ack = (cursor: number) =>
+			fixture.hub.message(
+				client,
+				JSON.stringify({
+					type: "ack",
+					incarnation: welcome.incarnation,
+					cursor,
+					cursorEpoch: welcome.cursorEpoch,
+				}),
+			);
+
+		fixture.hub.pushOwnerRow(domainA, rows[2]);
+		await ack(rows[0].seq);
+		await ack(rows[2].seq);
+
+		const frames = client.frames.filter((frame) => frame.type === "inbox_rows") as Array<{ rows: unknown[] }>;
+		expect(frames.map((frame) => frame.rows)).toEqual([rows, rows.slice(1)]);
+		fixture.registry.close();
+	});
+
+	it("pages a backlog a push uncovered, and the ack pages on from its own cursor", async () => {
+		const fixture = setup();
+		const client = socket();
+		fixture.hub.open(client);
+		await fixture.hub.message(client, JSON.stringify({ type: "hello", ownerOp: hello(fixture) }));
+		const welcome = client.frames[0] as { incarnation: number; cursorEpoch: number };
+		const backlog = Array.from({ length: CONSOLE_ROWS_PER_FRAME + 2 }, (_, n) => row(fixture, domainA, `b-${n}`));
+
+		fixture.hub.pushOwnerRow(domainA, backlog.at(-1)!);
+		const first = client.frames.at(-1) as { rows: unknown[]; cursor: number };
+		expect(first.rows).toEqual(backlog.slice(0, CONSOLE_ROWS_PER_FRAME));
+		await fixture.hub.message(
+			client,
+			JSON.stringify({
+				type: "ack",
+				incarnation: welcome.incarnation,
+				cursor: first.cursor,
+				cursorEpoch: welcome.cursorEpoch,
+			}),
+		);
+
+		expect(client.frames.at(-1)).toMatchObject({ rows: backlog.slice(CONSOLE_ROWS_PER_FRAME) });
 		fixture.registry.close();
 	});
 

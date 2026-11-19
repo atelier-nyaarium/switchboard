@@ -483,11 +483,6 @@ export class GatewayBridge implements ToolProvider {
 		this.inboxFrames.setPeerRowGate(gate);
 	}
 
-	/** Owner rows a gateway appends reach the bound console sockets through this. */
-	public setOwnerRowPush(push: (domainId: string, row: InboxRow) => void): void {
-		this.inboxFrames.setOwnerRowPush(push);
-	}
-
 	public setPhoneHoldReader(read: (domainId: string, now: number) => PhoneHoldRecord | null): void {
 		this.inboxFrames.setPhoneHoldReader(read);
 	}

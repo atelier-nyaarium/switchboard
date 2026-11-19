@@ -55,7 +55,7 @@ function make() {
 	});
 	frames.setPhoneHoldReader((id, at) => hold.read(id, at));
 	const pushed: ReturnType<typeof inbox.rows> = [];
-	frames.setOwnerRowPush((_id, row) => pushed.push(row));
+	inbox.onRowAppended((_id, _address, row) => pushed.push(row));
 	const address: InboxAddress = { kind: "owner", domainId, ownerSignPub: owner.sign.pub };
 	const reg: GatewayRegistration = {
 		domainId,

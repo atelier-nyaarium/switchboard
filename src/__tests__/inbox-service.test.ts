@@ -389,6 +389,57 @@ describe("InboxService", () => {
 		registry.close();
 	});
 
+	it("tells its listener of every row that lands, a retirement's result included, and never of a replay", () => {
+		let now = 100;
+		const { service, registry, owner, producer } = make({ now: () => now });
+		const landed: Array<{ address: string; opId: string }> = [];
+		service.onRowAppended((_domain, address, row) => landed.push({ address, opId: row.envelope.opKey.opId }));
+		const session: InboxAddress = { kind: "session", domainId, gatewayId: "gateway", sessionId: "spawn.session" };
+		const row = rowFor(producer, "to-session");
+		service.appendRow({ address: session, row, producerSignPub: producer.sign.pub });
+		service.appendRow({ address: session, row, producerSignPub: producer.sign.pub });
+		service.appendRouterRow({
+			address: ownerAddress(owner),
+			kind: "op_result",
+			opKey: { conversationId: "router", opId: "from-router" },
+			body: { outcome: "accepted" },
+		});
+		now += INBOX_ROW_TTL_MS + 1;
+		service.sweep(now);
+
+		const ownerText = `owner:${domainId}/${owner.sign.pub}`;
+		expect(landed).toEqual([
+			{ address: `session:${domainId}/gateway/spawn.session`, opId: "to-session" },
+			{ address: ownerText, opId: "from-router" },
+			{ address: ownerText, opId: "to-session" },
+		]);
+		registry.close();
+	});
+
+	it("keeps an append, a retirement and the sweep whole when a row listener throws", () => {
+		let now = 100;
+		const { service, registry, owner, producer } = make({ now: () => now });
+		service.onRowAppended(() => {
+			throw new Error("listener down");
+		});
+		const retired: string[] = [];
+		service.onRowRetired((_domain, _address, row) => retired.push(row.envelope.opKey.opId));
+		const session: InboxAddress = { kind: "session", domainId, gatewayId: "gateway", sessionId: "spawn.session" };
+		const first = service.appendRow({
+			address: session,
+			row: rowFor(producer, "first"),
+			producerSignPub: producer.sign.pub,
+		});
+		service.appendRow({ address: session, row: rowFor(producer, "second"), producerSignPub: producer.sign.pub });
+		now += INBOX_ROW_TTL_MS + 1;
+		service.sweep(now);
+
+		expect(first.outcome).toBe("accepted");
+		expect(retired).toEqual(["first", "second"]);
+		expect(service.rows(ownerAddress(owner), 1, 10)).toHaveLength(2);
+		registry.close();
+	});
+
 	it("expires owner rows and raises the consumer floor", () => {
 		let now = 100;
 		const { service, registry, owner, producer } = make({ now: () => now });

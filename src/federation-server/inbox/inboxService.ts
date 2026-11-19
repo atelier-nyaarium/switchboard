@@ -1,4 +1,5 @@
 import { mintEpoch } from "../../shared/epoch.js";
+import { errorName } from "../../shared/error-name.js";
 import {
 	formatInboxAddress,
 	type InboxAddress,
@@ -15,7 +16,7 @@ import type { OwnerStateStore } from "../owner/ownerStateStore.js";
 import { appendInboxRow, sessionExists } from "./inboxAppend.js";
 import { durabilityOutcome, floorOf, guarded, ledgerTransaction, ownerAddress, recordId } from "./inboxCore.js";
 import { appendRouterOpResultRow, readOpResult } from "./inboxOpResult.js";
-import { type RetiredListener, type RowRetirement, retireRow } from "./inboxRetire.js";
+import { type AppendedListener, type RetiredListener, type RowRetirement, retireRow } from "./inboxRetire.js";
 import { compactInbox, sweepInbox } from "./inboxSweep.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 
@@ -45,6 +46,23 @@ export class InboxService {
 		for (const listener of this.retiredListeners) listener(domainId, address, row, retirement);
 	}
 
+	private readonly appendedListeners: AppendedListener[] = [];
+
+	/** Every landed row. */
+	onRowAppended(listener: AppendedListener): void {
+		this.appendedListeners.push(listener);
+	}
+	/** The row is durable whatever a listener throws. */
+	private rowAppended(domainId: string, address: string, row: InboxRow): void {
+		for (const listener of this.appendedListeners) {
+			try {
+				listener(domainId, address, row);
+			} catch (error) {
+				console.warn(`[inbox] row listener failed: ${errorName(error)}`);
+			}
+		}
+	}
+
 	constructor(
 		private readonly registry: OwnerStoreRegistry,
 		private readonly routerIdentity: { signPub: string; signPriv: string },
@@ -67,7 +85,12 @@ export class InboxService {
 		shareGeneration?: number;
 		nonce?: { signerSignPub: string; nonce: string; at: number };
 	}): OpResultEnvelope & { row?: InboxRow } {
-		return appendInboxRow(this.registry, input, this.refs);
+		return this.landed(input.address, appendInboxRow(this.registry, input, this.refs));
+	}
+
+	private landed<T extends { row?: InboxRow }>(address: InboxAddress, result: T): T {
+		if (result.row) this.rowAppended(address.domainId, formatInboxAddress(address), result.row);
+		return result;
 	}
 
 	ownerOpNonce(domainId: string, signerSignPub: string, nonce: string): { at: number } | null {
@@ -195,7 +218,10 @@ export class InboxService {
 		body: Record<string, unknown>;
 		contentRefs?: string[];
 	}): OpResultEnvelope & { row?: InboxRow } {
-		return appendRouterOpResultRow(this.registry, this.routerIdentity, input, this.refs);
+		return this.landed(
+			input.address,
+			appendRouterOpResultRow(this.registry, this.routerIdentity, input, this.refs),
+		);
 	}
 
 	pendingFor(domainId: string, gatewayId: string): Array<{ address: string; rows: InboxRow[] }> {
@@ -402,6 +428,7 @@ export class InboxService {
 			(domainId, signerSignPub) => this.forgetConsumer(domainId, signerSignPub),
 			now,
 			this.refs,
+			(domainId, address, row) => this.rowAppended(domainId, address, row),
 		);
 	}
 
@@ -440,6 +467,7 @@ export class InboxService {
 			reason,
 			(d, a, r, retirement) => this.rowRetired(d, a, r, retirement),
 			this.refs,
+			(d, a, r) => this.rowAppended(d, a, r),
 		);
 	}
 }

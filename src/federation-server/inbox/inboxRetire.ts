@@ -23,6 +23,9 @@ export interface RowRetirement {
 
 export type RetiredListener = (domainId: string, address: string, row: InboxRow, retirement: RowRetirement) => void;
 
+/** A landed row. */
+export type AppendedListener = (domainId: string, address: string, row: InboxRow) => void;
+
 function senderAddress(
 	registry: OwnerStoreRegistry,
 	domainId: string,
@@ -86,6 +89,7 @@ export function retireRow(
 	reason: string | undefined,
 	notifyRetired: RetiredListener,
 	refs?: Pick<ReferenceHeldStore, "publish">,
+	notifyAppended?: AppendedListener,
 ): OpResultEnvelope | null {
 	const opKey = row.envelope.opKey;
 	const ledger = store.get("op", recordId(opKey, registry.ownerKey(domainId).ownerSignPub));
@@ -123,6 +127,7 @@ export function retireRow(
 			? refs.publish(domainId, [{ ref: { kind: "row", address, seq: row.seq }, blobIds: [] }], mutate)
 			: ledgerTransaction(store, mutate);
 	if (!landed(write)) return null;
+	if (sender && resultRow) notifyAppended?.(sender.domainId, sender.address, resultRow);
 	notifyRetired(domainId, addressText, row, { outcome, ...(reason ? { reason } : {}) });
 	return result;
 }

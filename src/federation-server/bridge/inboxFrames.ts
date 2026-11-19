@@ -45,7 +45,6 @@ export interface InboxFramesDeps {
 /** Inbox operations and forwarding. */
 export class InboxFrames {
 	private peerRowGate: PeerRowGate | null = null;
-	private ownerRowPush: ((domainId: string, row: InboxRow) => void) | null = null;
 	private phoneHoldRead: ((domainId: string, now: number) => PhoneHoldRecord | null) | null = null;
 	private pendingValues = new Map<
 		string,
@@ -57,11 +56,6 @@ export class InboxFrames {
 	/** Gate peer rows. */
 	setPeerRowGate(gate: PeerRowGate): void {
 		this.peerRowGate = gate;
-	}
-
-	/** Owner rows a gateway appends reach the bound console sockets through this. */
-	setOwnerRowPush(push: (domainId: string, row: InboxRow) => void): void {
-		this.ownerRowPush = push;
 	}
 
 	setPhoneHoldReader(read: (domainId: string, now: number) => PhoneHoldRecord | null): void {
@@ -167,11 +161,8 @@ export class InboxFrames {
 	}
 
 	private pushRow(address: InboxAddress, row: InboxRow): boolean {
-		if (address.kind === "owner") {
-			// Bound console sockets get the row now; the cursor covers the rest.
-			this.ownerRowPush?.(address.domainId, row);
-			return true;
-		}
+		// Pushed on landing.
+		if (address.kind === "owner") return true;
 		const connId = this.deps.getConnectionId(address.domainId, address.gatewayId);
 		const reg = connId ? this.deps.getRegistration(connId) : undefined;
 		if (!reg || reg.incarnation === null) return false;

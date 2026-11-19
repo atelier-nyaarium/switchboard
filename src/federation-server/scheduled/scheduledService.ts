@@ -130,7 +130,13 @@ export function createScheduledService(deps: ScheduledDeps) {
 			address: ownerAddress(domainId),
 			kind: "scheduled_result",
 			opKey: resultKey(record, outcome),
-			body: { opId: record.opId, outcome, ...(seq === undefined ? {} : { seq }), body: record.body },
+			body: {
+				opId: record.opId,
+				outcome,
+				...(seq === undefined ? {} : { seq }),
+				...(record.reason ? { reason: record.reason } : {}),
+				body: record.body,
+			},
 			contentRefs: record.files,
 		});
 	const scheduledRef = (target: ScheduledTarget): BlobReference => ({ kind: "scheduled", target });
@@ -291,7 +297,7 @@ export function createScheduledService(deps: ScheduledDeps) {
 		const store = deps.registry.for(domainId);
 		const current = store.get("scheduled", recordId(target));
 		if (current?.clear.opId !== opId || current.clear.state !== "fired") return;
-		store.put("scheduled", current.id, current.version, { clear: { ...current.clear, state: "error" } });
+		store.put("scheduled", current.id, current.version, { clear: { ...current.clear, state: "error", reason } });
 	}
 
 	/** Retry store failures; silently abort lost races. */
@@ -348,14 +354,13 @@ export function createScheduledService(deps: ScheduledDeps) {
 				retryLater(domainId, target);
 			return sent;
 		}
-		const failed = store.put("scheduled", current.id, firingVersion, {
-			clear: { ...record, state: "error", attempts },
-		});
+		const unsent = { ...record, state: "error" as const, reason: "delivery_failed" as const, attempts };
+		const failed = store.put("scheduled", current.id, firingVersion, { clear: unsent });
 		if (!foldWriteResult(failed).applied && foldWriteResult(failed).outcome !== "conflict") {
 			retryLater(domainId, target);
 			return sent;
 		}
-		const result = resultRow(domainId, record, "failed");
+		const result = resultRow(domainId, unsent, "failed");
 		if (result.outcome === "refused" || result.outcome === "durability_failure") {
 			const retry = store.put("scheduled", current.id, writeVersion(failed, firingVersion), {
 				clear: { ...record, state: "armed", attempts },

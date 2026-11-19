@@ -10,7 +10,7 @@ import {
 import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import { OwnerQuarantined, type OwnerStateStore } from "../owner/ownerStateStore.js";
 import { floorOf, ledgerTransaction, ownerAddress } from "./inboxCore.js";
-import { type RetiredListener, retireRow } from "./inboxRetire.js";
+import { type AppendedListener, type RetiredListener, retireRow } from "./inboxRetire.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 
 const JOURNAL_COMPACT_BYTES = 4 * 1024 * 1024;
@@ -86,6 +86,7 @@ function sweepDomain(
 	domainId: string,
 	now: number,
 	refs?: Pick<ReferenceHeldStore, "publish">,
+	notifyAppended?: AppendedListener,
 ): void {
 	const store = registry.for(domainId);
 	if (store.health().quarantined) return;
@@ -107,6 +108,7 @@ function sweepDomain(
 					undefined,
 					notifyRetired,
 					refs,
+					notifyAppended,
 				);
 		}
 	compactInbox(registry, domainId);
@@ -120,10 +122,11 @@ export function sweepInbox(
 	forgetConsumer: (domainId: string, signerSignPub: string) => void,
 	now: number,
 	refs?: Pick<ReferenceHeldStore, "publish">,
+	notifyAppended?: AppendedListener,
 ): void {
 	for (const domainId of registry.domains()) {
 		try {
-			sweepDomain(registry, routerIdentity, notifyRetired, forgetConsumer, domainId, now, refs);
+			sweepDomain(registry, routerIdentity, notifyRetired, forgetConsumer, domainId, now, refs, notifyAppended);
 		} catch (error) {
 			if (error instanceof OwnerQuarantined) continue;
 			console.warn(`[inbox] sweep skipped ${domainId}: ${(error as Error).message}`);

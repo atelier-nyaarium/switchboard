@@ -65,6 +65,8 @@ interface Bound {
 	cursorEpoch: number;
 	/** Plane delivery only. */
 	planesOnly: boolean;
+	/** Highest seq sent here. */
+	sent: number;
 }
 
 export interface ConsoleHelloAnswer {
@@ -109,6 +111,7 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 		pending.set(socket, timer);
 	}
 
+	/** Next frame past `cursor`. */
 	function drain(socket: ConsoleSocket, at: Bound, cursor: number): void {
 		const rows = deps.readOwner(at.domainId, at.signerSignPub, cursor + 1, CONSOLE_ROWS_PER_FRAME, at.cursorEpoch);
 		if (!Array.isArray(rows) && rows.outcome === "durability_uncertain") {
@@ -120,12 +123,9 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 			return;
 		}
 		if (rows.length === 0) return;
-		send(socket, {
-			type: "inbox_rows",
-			incarnation: at.incarnation,
-			rows,
-			cursor: rows[rows.length - 1].seq,
-		});
+		const last = rows[rows.length - 1].seq;
+		at.sent = Math.max(at.sent, last);
+		send(socket, { type: "inbox_rows", incarnation: at.incarnation, rows, cursor: last });
 	}
 
 	async function hello(socket: ConsoleSocket, ownerOp: unknown, planesOnly: boolean): Promise<void> {
@@ -157,7 +157,13 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 			if (at.domainId === identity.domainId && at.signerSignPub === identity.signerSignPub)
 				refuse(other, "superseded");
 		}
-		const at: Bound = { ...identity, incarnation, cursorEpoch: consumer.cursorEpoch, planesOnly };
+		const at: Bound = {
+			...identity,
+			incarnation,
+			cursorEpoch: consumer.cursorEpoch,
+			planesOnly,
+			sent: consumer.cursor,
+		};
 		bound.set(socket, at);
 		send(socket, {
 			type: "welcome",
@@ -227,13 +233,16 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 		drain(socket, at, frame.data.cursor);
 	}
 
-	/** Push is best effort. Hello drains the cursor. */
-	function pushOwnerRow(domainId: string, signerSignPub: string | null, row: InboxRow): void {
+	/** Sends what this socket lacks. */
+	function pushOwnerRow(domainId: string, row: InboxRow): void {
 		for (const [socket, at] of bound) {
 			if (at.domainId !== domainId) continue;
-			if (at.planesOnly && row.envelope.kind !== "key_request" && row.envelope.kind !== "key_grant") continue;
-			if (signerSignPub !== null && at.signerSignPub !== signerSignPub) continue;
-			send(socket, { type: "inbox_rows", incarnation: at.incarnation, rows: [row], cursor: row.seq });
+			if (at.planesOnly) {
+				if (row.envelope.kind === "key_request" || row.envelope.kind === "key_grant")
+					send(socket, { type: "inbox_rows", incarnation: at.incarnation, rows: [row], cursor: row.seq });
+				continue;
+			}
+			if (row.seq > at.sent) drain(socket, at, at.sent);
 		}
 	}
 

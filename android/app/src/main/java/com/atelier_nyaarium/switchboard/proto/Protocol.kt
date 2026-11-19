@@ -4075,6 +4075,8 @@ data class ScheduledRecord(
 	val files: List<String>,
 	val body: ContentEnvelope,
 	val state: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val reason: String? = null,
 	val attempts: Long,
 	val version: Long,
 )

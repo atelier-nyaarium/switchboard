@@ -411,8 +411,8 @@ describe("GatewayBridge inbox", () => {
 		}
 	});
 
-	it("pushes an owner row a gateway appends to the bound console sockets", async () => {
-		const pushed: Array<{ domainId: string; seq: number }> = [];
+	it("leaves an owner row a gateway appends to the inbox's own push, marking nothing waking", async () => {
+		const waking: unknown[] = [];
 		const { bridge, gateway, owner } = await registered(
 			fakeInbox({
 				appendRow: (input: { row: Record<string, unknown> }) => ({
@@ -421,9 +421,9 @@ describe("GatewayBridge inbox", () => {
 					seq: 14,
 					row: { ...input.row, seq: 14, acceptedAt: 1, size: 10 },
 				}),
+				markWaking: (...args: unknown[]) => waking.push(args),
 			}),
 		);
-		bridge.setOwnerRowPush((domainId, row) => pushed.push({ domainId, seq: row.seq }));
 		const row = signedRow(
 			{
 				origin: { kind: "gateway" as const, domainId: "domain", gatewayId: "gateway" },
@@ -441,7 +441,7 @@ describe("GatewayBridge inbox", () => {
 			incarnation: 1,
 		});
 		expect(answer).toMatchObject({ outcome: "accepted" });
-		expect(pushed).toEqual([{ domainId: "domain", seq: 14 }]);
+		expect(waking).toEqual([]);
 	});
 
 	// Producer hash defines operation identity.

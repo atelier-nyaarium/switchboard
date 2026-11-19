@@ -7,6 +7,7 @@ import {
 	type InboxRow,
 	type OpKey,
 	type PlaneLineage,
+	parseInboxAddress,
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
 import type { WriteOutcome } from "../shared/write-result.js";
@@ -82,12 +83,13 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		gatewayIncarnation: (domainId, gatewayId) => bridge.gatewayIncarnation(domainId, gatewayId),
 		connectedGateways: connected,
 	};
-	/** Owner rows use durable cursors. */
+	// Sole owner-row push.
+	inbox.onRowAppended((domainId, address, row) => {
+		if (parseInboxAddress(address)?.kind === "owner") deps.consoleSockets?.pushOwnerRow(domainId, row);
+	});
+	/** Owner rows push on landing. */
 	const deliver = (domainId: string, address: InboxAddress, row: InboxRow): void => {
-		if (address.kind === "owner") {
-			deps.consoleSockets?.pushOwnerRow(domainId, null, row);
-			return;
-		}
+		if (address.kind === "owner") return;
 		if (!bridge.pushInboxRows(domainId, formatInboxAddress(address), [row]))
 			inbox.markWaking(domainId, row.envelope.opKey);
 	};

@@ -174,7 +174,6 @@ export class RouterServer {
 					.map((admission) => admission.admission.signPub);
 			},
 		});
-		this.bridge.setOwnerRowPush((domainId, row) => this.consoleSockets.pushOwnerRow(domainId, null, row));
 		this.ownerServices = createOwnerServices({
 			ambient,
 			registry: this.domain.ownerRegistry,

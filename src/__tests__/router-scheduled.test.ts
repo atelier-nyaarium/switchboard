@@ -512,7 +512,7 @@ describe("scheduled service", () => {
 			["op-1.failed", "failed"],
 		]);
 		expect(results[2]?.body).toMatchObject({ opId: "op-1", reason: "malformed_body", seq: fired.seq, body });
-		expect(made.service.list("domain-a")[0]?.state).toBe("error");
+		expect(made.service.list("domain-a")[0]).toMatchObject({ state: "error", reason: "malformed_body" });
 		made.registry.close();
 	});
 
@@ -720,11 +720,13 @@ describe("scheduled service", () => {
 		expect(timers).toHaveLength(1);
 		expect(timerDelays.get(2)).toBe(60_000);
 		await service.fire("domain-a", target);
-		expect(service.list("domain-a")[0]).toMatchObject({ state: "error", attempts: 2 });
+		expect(service.list("domain-a")[0]).toMatchObject({ state: "error", reason: "delivery_failed", attempts: 2 });
 		expect(released).toEqual([
 			{ blobId: "blob-1", ref: { kind: "scheduled", id: "domain-a/gateway-a/spawn.session" } },
 		]);
-		expect(rows.at(-1)).toMatchObject({ body: { opId: "op-1", outcome: "failed", body } });
+		expect(rows.at(-1)).toMatchObject({
+			body: { opId: "op-1", outcome: "failed", reason: "delivery_failed", body },
+		});
 		registry.close();
 	});
 
