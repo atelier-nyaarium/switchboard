@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.atelier_nyaarium.switchboard.Applied
+import com.atelier_nyaarium.switchboard.EXACT_TEXT_KEYBOARD
 import com.atelier_nyaarium.switchboard.RawPaint
 import com.atelier_nyaarium.switchboard.Window
 import com.atelier_nyaarium.switchboard.WindowOps
@@ -283,6 +284,7 @@ private fun SpanField(key: String, text: String, paint: RawPaint?, onType: (Stri
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
 		textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
 		visualTransformation = transformation,
+		keyboardOptions = EXACT_TEXT_KEYBOARD,
 		colors = OutlinedTextFieldDefaults.colors(
 			focusedBorderColor = MaterialTheme.colorScheme.primary,
 			unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),

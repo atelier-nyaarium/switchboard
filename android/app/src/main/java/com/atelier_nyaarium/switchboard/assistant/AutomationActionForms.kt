@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.ActionParamKind
@@ -91,6 +92,7 @@ internal fun ActionsSection(
 									onValueChange = { typed -> set(param.name, typed) },
 									label = { Text(param.label) },
 									singleLine = true,
+									keyboardOptions = EXACT_KEYBOARD,
 									enabled = enabled,
 									modifier = Modifier.fillMaxWidth(),
 								)

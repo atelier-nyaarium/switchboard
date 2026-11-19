@@ -150,6 +150,7 @@ internal fun SttsVoiceSection(repo: ChatRepository) {
 			onCredsEdit()
 		},
 		label = { Text("Service URL") },
+		keyboardOptions = EXACT_KEYBOARD,
 		singleLine = true,
 		modifier = Modifier.fillMaxWidth(),
 	)
@@ -162,6 +163,7 @@ internal fun SttsVoiceSection(repo: ChatRepository) {
 			},
 			label = { Text("API key") },
 			singleLine = true,
+			keyboardOptions = EXACT_KEYBOARD,
 			visualTransformation = PasswordVisualTransformation(),
 			modifier = Modifier.weight(1f),
 		)

@@ -122,6 +122,7 @@ fun OwnerBackupCard(repo: ChatRepository) {
 				onValueChange = { pass1 = it },
 				label = { Text("Passphrase (min 8)") },
 				visualTransformation = PasswordVisualTransformation(),
+				keyboardOptions = EXACT_KEYBOARD,
 				modifier = Modifier.fillMaxWidth(),
 			)
 			OutlinedTextField(
@@ -129,6 +130,7 @@ fun OwnerBackupCard(repo: ChatRepository) {
 				onValueChange = { pass2 = it },
 				label = { Text("Confirm passphrase") },
 				visualTransformation = PasswordVisualTransformation(),
+				keyboardOptions = EXACT_KEYBOARD,
 				modifier = Modifier.fillMaxWidth(),
 			)
 			Button(
@@ -150,6 +152,7 @@ fun OwnerBackupCard(repo: ChatRepository) {
 				value = restoreBlob,
 				onValueChange = { restoreBlob = it },
 				label = { Text("Backup text") },
+				keyboardOptions = EXACT_TEXT_KEYBOARD,
 				modifier = Modifier.fillMaxWidth(),
 			)
 			OutlinedTextField(
@@ -157,6 +160,7 @@ fun OwnerBackupCard(repo: ChatRepository) {
 				onValueChange = { restorePass = it },
 				label = { Text("Passphrase") },
 				visualTransformation = PasswordVisualTransformation(),
+				keyboardOptions = EXACT_KEYBOARD,
 				modifier = Modifier.fillMaxWidth(),
 			)
 			Button(
@@ -306,6 +310,7 @@ fun AddGatewayScreen(repo: ChatRepository, onBack: () -> Unit, onDone: () -> Uni
 					value = pasteText,
 					onValueChange = { pasteText = it },
 					label = { Text("Paste enrollment JSON") },
+					keyboardOptions = EXACT_TEXT_KEYBOARD,
 					modifier = Modifier.fillMaxWidth(),
 					minLines = 3,
 					maxLines = 6,

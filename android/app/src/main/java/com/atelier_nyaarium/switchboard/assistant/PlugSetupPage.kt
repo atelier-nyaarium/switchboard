@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.PasswordSource
 import com.atelier_nyaarium.switchboard.SetupRun
 import com.atelier_nyaarium.switchboard.SetupStage
@@ -220,6 +221,7 @@ private fun PasswordField(value: String, onChange: (String) -> Unit) {
 		onValueChange = onChange,
 		label = { Text("Password") },
 		singleLine = true,
+		keyboardOptions = EXACT_KEYBOARD,
 		visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
 		trailingIcon = {
 			IconButton(onClick = hapticClick { shown = !shown }) {

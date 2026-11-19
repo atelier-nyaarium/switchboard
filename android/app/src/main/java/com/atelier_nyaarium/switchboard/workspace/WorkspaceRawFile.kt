@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.atelier_nyaarium.switchboard.EXACT_TEXT_KEYBOARD
 import com.atelier_nyaarium.switchboard.RawEdit
 import com.atelier_nyaarium.switchboard.RawFileOps
 import com.atelier_nyaarium.switchboard.RawNotice
@@ -175,6 +176,7 @@ private fun RawField(edit: RawEdit, paint: RawPaint?, modifier: Modifier, onType
 		modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
 		textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
 		visualTransformation = transformation,
+		keyboardOptions = EXACT_TEXT_KEYBOARD,
 		colors = OutlinedTextFieldDefaults.colors(
 			focusedBorderColor = MaterialTheme.colorScheme.primary,
 			unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),

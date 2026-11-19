@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -28,7 +27,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -36,6 +34,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.hostActivity
 import kotlinx.coroutines.launch
@@ -137,7 +136,7 @@ fun VaultEntryDialog(
 							value = held,
 							onValueChange = { value = it },
 							label = { Text("Value") },
-							keyboardOptions = SECRET_KEYBOARD,
+							keyboardOptions = EXACT_KEYBOARD,
 							visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
 							textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
 							trailingIcon = {
@@ -231,7 +230,6 @@ fun VaultEntryDialog(
 }
 
 /** No suggestions and no autocorrect over a secret. */
-internal val SECRET_KEYBOARD = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
 
 @Composable
 private fun ScopeChip(label: String, on: Boolean, onClick: () -> Unit) {

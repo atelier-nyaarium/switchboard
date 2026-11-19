@@ -46,6 +46,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.hostActivity
 import kotlinx.coroutines.delay
@@ -185,7 +186,7 @@ fun VaultRequestCard(
 						onValueChange = { typed = it },
 						singleLine = true,
 						label = { Text("Password") },
-						keyboardOptions = SECRET_KEYBOARD,
+						keyboardOptions = EXACT_KEYBOARD,
 						visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
 						trailingIcon = { TextButton(onClick = { shown = !shown }) { Text(if (shown) "Hide" else "Show") } },
 						modifier = Modifier.fillMaxWidth().focusRequester(secretFocus),

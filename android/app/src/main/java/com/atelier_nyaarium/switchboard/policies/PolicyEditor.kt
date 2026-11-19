@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
+import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.EditKey
 import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.EditorWaiting
@@ -162,6 +163,7 @@ fun PolicyEditor(
 					onValueChange = { example = it },
 					label = { Text("Command") },
 					singleLine = true,
+					keyboardOptions = EXACT_KEYBOARD,
 					modifier = Modifier.weight(1f),
 				)
 				TextButton(onClick = hapticClick(addExample), enabled = example.isNotBlank()) {

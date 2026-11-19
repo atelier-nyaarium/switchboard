@@ -514,6 +514,7 @@ fun DirectoryField(
 			label = { Text("Directory") },
 			placeholder = { Text("(default)") },
 			singleLine = true,
+			keyboardOptions = EXACT_KEYBOARD,
 			// A failed listing takes the supporting line, since a rooted path the picker could not read
 			// is the more useful thing to say about it than the rooting rule it already satisfies.
 			isError = isError || failure != null,

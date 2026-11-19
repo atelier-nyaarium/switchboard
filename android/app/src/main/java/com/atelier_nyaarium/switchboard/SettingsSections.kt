@@ -370,6 +370,7 @@ internal fun RouterEndpointCard(repo: ChatRepository) {
 		onValueChange = { host = it },
 		singleLine = true,
 		label = { Text("Domain or IP") },
+		keyboardOptions = EXACT_KEYBOARD,
 		supportingText = { Text("Either address works. The Router tells this phone its others.") },
 		modifier = Modifier.fillMaxWidth(),
 	)
@@ -385,6 +386,7 @@ internal fun RouterEndpointCard(repo: ChatRepository) {
 		onValueChange = { certFp = it.trim() },
 		singleLine = true,
 		label = { Text("Certificate fingerprint") },
+		keyboardOptions = EXACT_KEYBOARD,
 		supportingText = { Text("SHA-256, 64 hex characters. Colons are fine.") },
 		modifier = Modifier.fillMaxWidth(),
 	)

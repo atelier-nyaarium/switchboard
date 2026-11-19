@@ -319,6 +319,7 @@ private fun RendezvousPanel(
 				onValueChange = onTokenChange,
 				label = { Text("Friend's code") },
 				singleLine = true,
+				keyboardOptions = EXACT_KEYBOARD,
 				modifier = Modifier.fillMaxWidth(),
 			)
 			Button(

@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ClockPickerDialog
+import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
@@ -152,6 +153,7 @@ private fun EventForm(
 				onValueChange = { value -> edit { now -> now.changed(index) { it.copy(value = value) } } },
 				label = { Text("Value") },
 				singleLine = true,
+				keyboardOptions = EXACT_KEYBOARD,
 				enabled = enabled,
 				modifier = Modifier.fillMaxWidth(),
 			)

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -40,7 +39,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
@@ -50,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.atelier_nyaarium.switchboard.CodePalette
+import com.atelier_nyaarium.switchboard.EXACT_TEXT_KEYBOARD
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.liveconsole.AssistRows
 import com.atelier_nyaarium.switchboard.liveconsole.CODE
@@ -58,7 +57,6 @@ import com.atelier_nyaarium.switchboard.liveconsole.paintedCode
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
 
-private val PROSE_KEYBOARD = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
 private val TEXT_STYLE = CODE.copy(fontSize = 15.sp, lineHeight = 22.sp)
 
 private class HoleHighlight(
@@ -131,7 +129,7 @@ internal fun HoleTextEditor(
 					textStyle = TEXT_STYLE,
 					cursorBrush = SolidColor(Color(CodePalette.TEXT)),
 					visualTransformation = remember(entities, named, issue) { HoleHighlight(entities, named, issue) },
-					keyboardOptions = PROSE_KEYBOARD,
+					keyboardOptions = EXACT_TEXT_KEYBOARD,
 					modifier =
 						Modifier.fillMaxWidth()
 							.focusRequester(focus)

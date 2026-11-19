@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -71,6 +70,7 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.CodePalette
 import com.atelier_nyaarium.switchboard.ConsoleEntry
+import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.LiveConsoleView
 import com.atelier_nyaarium.switchboard.ViewScope
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -78,8 +78,6 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleEntityDescription
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardType
 import com.atelier_nyaarium.switchboard.AssistantHome
 
 internal val CODE = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = Color(CodePalette.TEXT))
@@ -118,10 +116,6 @@ internal fun paintedCode(source: String, spans: List<PaintSpan>, issue: IntRange
 private class ConsoleHighlight(private val names: Names) : VisualTransformation {
 	override fun filter(text: AnnotatedString) = TransformedText(painted(text.text, names), OffsetMapping.Identity)
 }
-
-/** Code is typed as written. */
-private val CODE_KEYBOARD =
-	KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Password)
 
 @Composable
 internal fun ConsoleScreen(
@@ -523,7 +517,7 @@ private fun Dock(
 				textStyle = CODE,
 				cursorBrush = SolidColor(Color(CodePalette.TEXT)),
 				visualTransformation = remember(names) { ConsoleHighlight(names) },
-				keyboardOptions = CODE_KEYBOARD,
+				keyboardOptions = EXACT_KEYBOARD,
 				modifier =
 					Modifier.weight(1f)
 						.focusRequester(focus)

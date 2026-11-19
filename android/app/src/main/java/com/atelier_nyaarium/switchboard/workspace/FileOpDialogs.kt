@@ -20,6 +20,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.FileAction
 import com.atelier_nyaarium.switchboard.FileOpConfirm
 import com.atelier_nyaarium.switchboard.PathAsk
@@ -40,6 +41,7 @@ internal fun PathDialog(ask: PathAsk, onChosen: (FileAction) -> Unit, onDismiss:
 				onValueChange = { typed = it },
 				modifier = Modifier.focusRequester(focus),
 				singleLine = true,
+				keyboardOptions = EXACT_KEYBOARD,
 				textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
 			)
 		},
