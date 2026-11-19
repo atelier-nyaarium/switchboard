@@ -31,6 +31,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
+/** A sealed list; only its walk reads it. */
+@RequiresOptIn(level = RequiresOptIn.Level.ERROR, message = "Read through the walk")
+@kotlin.annotation.Target(AnnotationTarget.PROPERTY)
+annotation class OpensWalk
+
 object Protocol {
 	const val CONSOLE_PROTOCOL_VERSION: Int = 3
 	const val CONSOLE_ANSWER_WAIT_MS: Long = 35000L
@@ -2651,6 +2656,7 @@ data class Automation(
 	val label: String? = null,
 	val enabled: Boolean,
 	val trigger: AutomationTrigger,
+	@property:OpensWalk
 	val actions: List<AutomationAction>,
 )
 

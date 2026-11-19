@@ -1,7 +1,7 @@
 // One automation: a trigger and what it does.
 
 import { z } from "zod";
-import { reached } from "./automation-walk.js";
+import { reached, walked } from "./automation-walk.js";
 import {
 	AssistantRuleConditionSchema,
 	type AssistantWatcherRules,
@@ -247,7 +247,7 @@ export const AUTOMATION_TRIGGER_NAMES: Readonly<Record<AutomationTriggerKind, re
 	interval: triggerNames("interval"),
 };
 
-export const dangerousActions = (automation: { actions: readonly AutomationAction[] }): AutomationAction[] =>
+export const dangerousActions = (automation: Pick<Automation, "actions">): AutomationAction[] =>
 	reached(automation)
 		.map(({ action }) => action)
 		.filter((action) => AUTOMATION_ACTIONS[action.kind].danger);
@@ -258,18 +258,24 @@ export const AutomationSchema = z
 		label: z.string().min(1).max(80).nullish(),
 		enabled: z.boolean(),
 		trigger: AutomationTriggerSchema,
-		actions: z.array(AutomationActionSchema).min(1).max(AUTOMATION_ACTIONS_MAX),
+		actions: walked(z.array(AutomationActionSchema).min(1).max(AUTOMATION_ACTIONS_MAX)),
 	})
 	.meta({ id: "Automation" });
 
-export type Automation = z.infer<typeof AutomationSchema>;
+/** Parsed: `actions` opens only through the walk. */
+export type Automation = z.output<typeof AutomationSchema>;
+/** What a writer builds, then parses. */
+export type AutomationInput = z.input<typeof AutomationSchema>;
 
 /** Now outranks quietly. */
-export function tellWhen(automation: Pick<Automation, "actions">): TellWhen | null {
-	const told = reached(automation).flatMap(({ action }) => (action.kind === "tell_assistant" ? [action] : []));
+export function tellWhenOf(actions: readonly AutomationAction[]): TellWhen | null {
+	const told = actions.flatMap((action) => (action.kind === "tell_assistant" ? [action] : []));
 	if (told.length === 0) return null;
 	return told.some((action) => action.when === "now") ? "now" : "quietly";
 }
+
+export const tellWhen = (automation: Pick<Automation, "actions">): TellWhen | null =>
+	tellWhenOf(reached(automation).map(({ action }) => action));
 
 /** As stored and matched: no null label, event conditions trimmed. */
 export function canonicalAutomation(automation: Automation): Automation {
@@ -289,11 +295,12 @@ export type CarriedAutomation = z.infer<typeof CarriedAutomationSchema>;
 // Remove 2026-11-28 with the stored rules.
 /** Each rule that woke, as an automation under its id. */
 export function automationsOfRules(sourceId: string, held: AssistantWatcherRules): CarriedAutomation[] {
-	const wake = (conditions: EventTrigger["conditions"]): Automation => ({
-		enabled: true,
-		trigger: { kind: "event", source: sourceId, conditions: canonicalConditions(conditions) },
-		actions: [{ kind: "tell_assistant", when: "now" }],
-	});
+	const wake = (conditions: EventTrigger["conditions"]): Automation =>
+		AutomationSchema.parse({
+			enabled: true,
+			trigger: { kind: "event", source: sourceId, conditions: canonicalConditions(conditions) },
+			actions: [{ kind: "tell_assistant", when: "now" }],
+		} satisfies AutomationInput);
 	const carried = held.rules
 		.filter((rule) => rule.action === "wake")
 		.map((rule) => ({ id: rule.id, automation: wake(rule.conditions) }));

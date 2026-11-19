@@ -23,8 +23,8 @@ import {
 } from "../shared/schemasAssistantRules.js";
 import {
 	AUTOMATIONS_MAX,
-	type Automation,
 	type AutomationCondition,
+	type AutomationInput,
 	automationsOfRules,
 } from "../shared/schemasAutomation.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
@@ -316,7 +316,7 @@ describe("an event automation", () => {
 	it("starts unrun again once a move replaced it, and a move spares an automation that stays on its Gateway", async () => {
 		const { automations, stop } = await placed([listing()], freshDir(), null, bandField("band-a", "ce:1c"));
 		const all = { id: "a", automation: eventAutomation("github", []) };
-		const watch: Automation = {
+		const watch: AutomationInput = {
 			enabled: true,
 			trigger: { kind: "value", field: "band-a", becomes: "low", coolDownSec: 0 },
 			actions: [{ kind: "tell_assistant", when: "quietly" }],

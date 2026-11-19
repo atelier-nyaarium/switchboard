@@ -8,7 +8,7 @@ import {
 	outdatedSets,
 	readFire,
 } from "../gateway/computed/automationFires.js";
-import { type AutomationRun, fireRun, logged, REPLACED } from "../gateway/computed/automationLog.js";
+import { fireRow, logged, REPLACED, type RunRow } from "../gateway/computed/automationLog.js";
 import { QUEUE_MAX_EVENTS, roomFor } from "../gateway/computed/automationOutbox.js";
 import type { AutomationEffect } from "../gateway/computed/automationRunner.js";
 import {
@@ -53,7 +53,7 @@ describe("admission past the bound", () => {
 
 		expect(answer.admitted).toBe(true);
 		expect(members(answer.fires)).toEqual([...members(held).filter((member) => member !== "busy:1"), "late:999"]);
-		expect(answer.runs.map((run) => [run.fire.member, run.outcome])).toEqual([["busy:1", "suppressed"]]);
+		expect(answer.rows.map((row) => [row.fire.member, row.outcome])).toEqual([["busy:1", "suppressed"]]);
 	});
 
 	it("keeps a started run through 64 newer fires, even where its automation holds the most", () => {
@@ -73,7 +73,7 @@ describe("admission past the bound", () => {
 		const told = admit(waiting, telling, { ...rule, waitingMax: 2 });
 		const replaced = admit(waiting, fire("bell", 3), { supersede: true, earlier: () => true });
 
-		expect([capped.admitted, capped.runs.map((run) => run.outcome)]).toEqual([false, ["suppressed"]]);
+		expect([capped.admitted, capped.rows.map((row) => row.outcome)]).toEqual([false, ["suppressed"]]);
 		expect(told.fires.at(-1)).toMatchObject({ member: "bell:4", steps: {} });
 		expect(members(replaced.fires)).toEqual(["bell:0", "bell:2", "bell:3"]);
 	});
@@ -84,7 +84,7 @@ describe("admission past the bound", () => {
 
 		const answer = admit(held, telling, { ...rule, waitingMax: 2 });
 
-		expect([answer.admitted, answer.fires, answer.runs.map((run) => run.outcome)]).toEqual([
+		expect([answer.admitted, answer.fires, answer.rows.map((row) => row.outcome)]).toEqual([
 			false,
 			held,
 			["suppressed"],
@@ -239,8 +239,8 @@ describe("room in the outbox", () => {
 });
 
 describe("the run log", () => {
-	const run = (outcome: AutomationRun["outcome"], reason?: string, action?: string) =>
-		fireRun({ automation: "heat", seq: 0, at: 1 }, outcome, reason, action);
+	const run = (outcome: RunRow["outcome"], reason?: string, action?: string) =>
+		fireRow({ automation: "heat", seq: 0, at: 1 }, outcome, reason, action);
 
 	it("logs a replaced run again once another run came between, and a repeat in a row once", () => {
 		const between = [run("suppressed", REPLACED), run("ran", undefined, "device_set"), run("suppressed", REPLACED)];

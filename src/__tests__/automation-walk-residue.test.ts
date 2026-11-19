@@ -3,75 +3,13 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const REPO = path.join(import.meta.dirname, "..", "..");
-
-/** Scanned source roots. */
-const ROOTS: readonly { dir: string; ext: string; skip?: string }[] = [
-	{ dir: "src", ext: ".ts", skip: "src/__tests__" },
-	{ dir: "android/app/src/main", ext: ".kt" },
-];
-
 const PHONE = "android/app/src/main/java/com/atelier_nyaarium/switchboard";
 
 /** The walk itself. */
 const WALK = "src/shared/automation-walk.ts";
 
-/** Unrelated `actions` receivers, with why. */
-const EXEMPT: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-	"src/gateway/assistant/actionDispatch.ts": { deps: "a source's own action table" },
-	"src/gateway/computed/automations.ts": { deps: "the ports that run an effect" },
-	"src/gateway/computed/automationValidity.ts": { deps: "the ports that run an effect" },
-	"src/gateway/liveConsole/entities.ts": {
-		sourced: "a source's own commands",
-	},
-	"src/mcp/assistant/actionFront.ts": { answer: "the assistant's action listing" },
-	[`${PHONE}/assistant/AutomationWalk.kt`]: { automation: "the phone's walk itself" },
-	[`${PHONE}/assistant/AutomationActionForms.kt`]: { draft: "the editor's own draft list" },
-	[`${PHONE}/assistant/AutomationActions.kt`]: {
-		draft: "the editor's own draft list",
-		offer: "what a Gateway offers",
-	},
-	[`${PHONE}/assistant/AutomationDraft.kt`]: {
-		draft: "the editor's own draft list",
-		opened: "the editor's draft as it opened",
-	},
-	[`${PHONE}/assistant/HoleTextRules.kt`]: { draft: "the editor's own draft list" },
-	[`${PHONE}/assistant/AutomationParts.kt`]: { serves: "what a Gateway serves" },
-	[`${PHONE}/assistant/AssistantSourcePage.kt`]: { source: "a source's own commands" },
-	[`${PHONE}/SandboxGateways.kt`]: { source: "a source's own commands" },
-	[`${PHONE}/AssistantNotificationListener.kt`]: { notification: "a notification's actions" },
-};
-
-// Known gaps, none in the tree:
-// - Kotlin: a bare `actions` in `with(x) { }`, `x.run { }`, `x.apply { }` or a `fun Automation.x()` extension;
-//   positional destructuring.
-// - R2: nested destructuring (`{ body: { actions } }`) and array patterns.
-// - R4: a spread of a bare local, of `row.automation`, or through `!.`, `[0]`, `(...)` or a call.
-
-// R1: a member read, `.actions` after a name, `]` or `)`, through `?.`, `!.` or `!!.`; or a bracket read.
-const MEMBER =
-	/(?:\b([A-Za-z_$][\w$]*)|([\])]))\s*!{0,2}\s*\??\.\s*actions\b|\b([A-Za-z_$][\w$]*)\s*(?:\?\.|!{1,2})?\s*\[\s*["']actions["']\s*\]/g;
-// R2: a destructured read: a declaration, a for-of, or a parameter in any place.
-const DESTRUCTURE =
-	/\b(?:const|let|var)\s*\{[^{}]*\bactions\b[^{}]*\}\s*(?:=|of\b)|[(,]\s*\{[^{}]*\bactions\b[^{}]*\}\s*(?::[^)=]*)?\)\s*(?:=>|\{|:)/g;
-// R3: a Kotlin property reference, `Automation::actions`.
-const REFERENCE = /::\s*actions\b/g;
-// R4: a body spread not followed by an `actions` from the walk.
-const SPREAD = /\.\.\.\s*((?:[A-Za-z_$][\w$]*\??\.)+body)\b(?!\s*,\s*actions\s*:)/g;
-
-/** Every read: a receiver, `{}`, `::` or the spread. */
-const allReads = (source: string): string[] => [
-	...[...source.matchAll(MEMBER)].map((match) => match[1] ?? match[2] ?? match[3] ?? ""),
-	...[...source.matchAll(DESTRUCTURE)].map(() => "{}"),
-	...[...source.matchAll(REFERENCE)].map(() => "::"),
-	...[...source.matchAll(SPREAD)].map((match) => `...${match[1]}`),
-];
-
-/** Reads outside the walk and its exemptions. */
-function readsOf(file: string, source: string): string[] {
-	if (file === WALK) return [];
-	const exempt = EXEMPT[file] ?? {};
-	return allReads(source).filter((read) => !Object.hasOwn(exempt, read));
-}
+/** The compiler-checked read shapes. */
+const SAMPLES = "src/__tests__/automation-walk-seal.ts";
 
 function filesUnder(dir: string, ext: string, skip: string | undefined, acc: string[] = []): string[] {
 	for (const entry of fs.readdirSync(path.join(REPO, dir), { withFileTypes: true })) {
@@ -83,58 +21,54 @@ function filesUnder(dir: string, ext: string, skip: string | undefined, acc: str
 	return acc;
 }
 
+const read = (file: string) => fs.readFileSync(path.join(REPO, file), "utf8");
+
+/** Casts that would unseal a list. */
+const UNSEAL =
+	/\bas\s+(?:readonly\s+)?AutomationAction\[\]|\bas\s+Sealed\b|\bactions\b[^\n]*\bas\s+unknown\s+as\b|\bas\s+unknown\s+as[^\n]*\bactions\b/;
+
 describe("the one walk", () => {
-	it("is the only reader of an automation's actions", () => {
-		const offenders = ROOTS.flatMap(({ dir, ext, skip }) =>
-			filesUnder(dir, ext, skip).flatMap((file) =>
-				readsOf(file, fs.readFileSync(path.join(REPO, file), "utf8")).map((read) => `${file}: ${read}`),
-			),
+	it("keeps a sample of every read shape the seal refuses", () => {
+		const expected = read(SAMPLES).match(/@ts-expect-error/g) ?? [];
+
+		expect(expected.length).toBeGreaterThanOrEqual(7);
+	});
+
+	it("names OpensWalk only where the phone's walk takes it", () => {
+		const naming = filesUnder("android/app/src/main", ".kt", undefined).filter((file) =>
+			/\bOpensWalk\b/.test(read(file)),
 		);
 
-		expect(offenders).toEqual([]);
+		const allowed = [`${PHONE}/assistant/AutomationWalk.kt`, `${PHONE}/proto/Protocol.kt`];
+		expect(naming.filter((file) => !allowed.includes(file))).toEqual([]);
+		expect(naming).toContain(`${PHONE}/proto/Protocol.kt`);
 	});
 
-	it("names every exempt file, and each exemption is still used", () => {
-		const stale = Object.entries(EXEMPT).flatMap(([file, receivers]) => {
-			const reads = allReads(fs.readFileSync(path.join(REPO, file), "utf8"));
-			return Object.keys(receivers).filter((receiver) => !reads.includes(receiver));
-		});
+	it("opens a list as written only where syntax is read, and everything else through the walk", () => {
+		const importers = (opener: string) =>
+			filesUnder("src", ".ts", "src/__tests__").filter((file) =>
+				new RegExp(
+					`import\\s*\\{[^}]*\\b${opener}\\b[^}]*\\}\\s*from\\s*"[./]*shared/automation-walk\\.js"`,
+				).test(read(file)),
+			);
 
-		expect(stale).toEqual([]);
+		expect(importers("written")).toEqual(["src/gateway/computed/automationText.ts"]);
+		expect(importers("reached").length).toBeGreaterThan(0);
 	});
 
-	it("refuses each read shape and accepts what is not a read", () => {
-		const file = "src/gateway/computed/automations.ts";
+	it("casts no list open outside the walk", () => {
+		const casting = filesUnder("src", ".ts", "src/__tests__").filter(
+			(file) => file !== WALK && UNSEAL.test(read(file)),
+		);
 
-		expect(readsOf(file, "record.body.actions.some(isEffect)")).toEqual(["body"]);
-		expect(readsOf(file, 'held?.actions[0]; body["actions"]; held?.["actions"]; held!["actions"]')).toEqual([
-			"held",
-			"body",
-			"held",
-			"held",
-		]);
-		expect(readsOf(file, "const { actions, trigger } = record.body;")).toEqual(["{}"]);
-		expect(readsOf(file, "held!.actions; held!!.actions; rows[0].actions; f()?.actions")).toEqual([
-			"held",
-			"held",
-			"]",
-			")",
-		]);
-		expect(readsOf(file, "for (const { actions } of rows) {}")).toEqual(["{}"]);
-		expect(readsOf(file, "const tells = ({ actions }: Automation) => actions;")).toEqual(["{}"]);
-		expect(readsOf(file, "rows.map((row, { actions }) => actions);")).toEqual(["{}"]);
-		expect(readsOf(file, "rows.map(Automation::actions)")).toEqual(["::"]);
-		expect(readsOf(file, "rows.map(::actionsOf)")).toEqual([]);
-		expect(readsOf(file, "return { id, ...record.body };")).toEqual(["...record.body"]);
-		expect(readsOf(file, "return { ...record.body, actions: actionsOf(record.body) };")).toEqual([]);
-		expect(readsOf(file, "deps.actions?.ready(effect)")).toEqual([]);
-		expect(readsOf(file, "tellWhen({ actions: tells }); const actions = 1;")).toEqual([]);
-		expect(readsOf(file, "for (const { param } of holeTexts({ actions: [effect] })) {}")).toEqual([]);
-		expect(readsOf(WALK, "automation.actions.map(read)")).toEqual([]);
-	});
-
-	it("reads the phone's sources by the same rules", () => {
-		expect(readsOf(`${PHONE}/AssistantOps.kt`, "automation.actions.map { it.kind }")).toEqual(["automation"]);
-		expect(readsOf(`${PHONE}/assistant/AutomationDraft.kt`, "draft.actions.size")).toEqual([]);
+		expect(casting).toEqual([]);
+		expect(
+			[
+				"x as AutomationAction[]",
+				"x as readonly AutomationAction[]",
+				"x as Sealed<A>",
+				"a.actions as unknown as B",
+			].map((sample) => UNSEAL.test(sample)),
+		).toEqual([true, true, true, true]);
 	});
 });

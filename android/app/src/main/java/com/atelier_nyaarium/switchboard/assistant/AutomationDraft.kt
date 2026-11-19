@@ -243,7 +243,7 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 	return AutomationDraft(
 		id = row.id,
 		trigger = trigger,
-		actions = reached(row.automation).map { (_, action) -> actionDraftOf(action, offer) },
+		actions = written(row.automation).map { action -> actionDraftOf(action, offer) },
 		enabled = row.automation.enabled,
 		revision = row.revision,
 		context = context,

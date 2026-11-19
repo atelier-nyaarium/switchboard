@@ -9,7 +9,7 @@ import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { alertId, alertPrefix, createThresholdConversion } from "../gateway/devices/thresholdConversion.js";
 import { openDurable } from "../shared/durable-store.js";
-import type { Automation } from "../shared/schemasAutomation.js";
+import type { Automation, AutomationInput } from "../shared/schemasAutomation.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 const MAC = "ce:1c:44:06:3c:5d";
@@ -22,7 +22,7 @@ afterEach(() => {
 	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-const tells: Automation["actions"] = [{ kind: "tell_assistant", when: "quietly" }];
+const tells: AutomationInput["actions"] = [{ kind: "tell_assistant", when: "quietly" }];
 const bandId = (device: string) => `${alertPrefix(device)}temperature`;
 
 /** Stored threshold fixture. */
@@ -214,7 +214,7 @@ describe("a sensor's stored thresholds", () => {
 			expect(triggerOf(world, high)).toMatchObject({ kind: "crossing", direction: "above", threshold: 30 });
 			expect(row).toMatchObject({ lastRanAt: 900, sentence: expect.stringContaining("Freezer") });
 			expect(row?.automation.label).toBeUndefined();
-			expect(world.automations.runs().map((run) => run.outcome)).toEqual(["suppressed"]);
+			expect(world.automations.log().map((run) => run.outcome)).toEqual(["suppressed"]);
 
 			const edited = { ...(row?.automation as Automation), enabled: false };
 			expect(world.automations.ownerPut(low, edited, row?.revision ?? 0)).toMatchObject({ stored: true });

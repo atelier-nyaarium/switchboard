@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { reached } from "../../shared/automation-walk.js";
-import { type AutomationAction, TELL_WHEN } from "../../shared/schemasAutomation.js";
+import { type Automation, TELL_WHEN } from "../../shared/schemasAutomation.js";
 import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
 import { claimed, FRESH_STEP, isEnded, type Nature, type Step, StepPathSchema, StepSchema } from "./automationSteps.js";
@@ -95,7 +95,7 @@ export interface Runnable {
 /** Step paths in the order written. */
 export const pathsOf = (fire: Fire): string[] => Object.keys(fire.steps).sort((a, b) => Number(a) - Number(b));
 
-export const stepsOf = (automation: { actions: readonly AutomationAction[] }): Fire["steps"] =>
+export const stepsOf = (automation: Pick<Automation, "actions">): Fire["steps"] =>
 	Object.fromEntries(
 		reached(automation).flatMap(({ path, action }) => (isEffect(action) ? [[path, FRESH_STEP]] : [])),
 	);
@@ -186,7 +186,7 @@ export function outdatedSets(
 export interface Admitted {
 	fires: Fire[];
 	admitted: boolean;
-	runs: { fire: Fire; outcome: "suppressed" | "refused"; reason: string }[];
+	rows: { fire: Fire; outcome: "suppressed" | "refused"; reason: string }[];
 }
 
 /** Only waits to tell. */
@@ -205,7 +205,7 @@ export function admit(
 	rule: { supersede: boolean; earlier: (member: string) => boolean; waitingMax?: number },
 ): Admitted {
 	const held = [...fires];
-	const runs: Admitted["runs"] = [];
+	const rows: Admitted["rows"] = [];
 	const older = rule.supersede
 		? held.findIndex(
 				(fire) =>
@@ -217,7 +217,7 @@ export function admit(
 		: -1;
 	const replaced = held[older];
 	if (replaced) {
-		runs.push({ fire: replaced, outcome: "suppressed", reason: REPLACED });
+		rows.push({ fire: replaced, outcome: "suppressed", reason: REPLACED });
 		if (replaced.tell) held[older] = { ...replaced, steps: {}, active: [] };
 		else held.splice(older, 1);
 	}
@@ -225,18 +225,18 @@ export function admit(
 	if (rule.waitingMax !== undefined && hasOpenSteps(incoming)) {
 		const waiting = held.filter((fire) => fire.automation === incoming.automation && unstarted(fire));
 		if (waiting.length >= rule.waitingMax) {
-			runs.push({ fire: incoming, outcome: "suppressed", reason: BEHIND });
+			rows.push({ fire: incoming, outcome: "suppressed", reason: BEHIND });
 			// Its tell goes while there is room.
-			if (!incoming.tell || held.length >= FIRES_MAX) return { fires: held, admitted: false, runs };
+			if (!incoming.tell || held.length >= FIRES_MAX) return { fires: held, admitted: false, rows };
 			admitted = { ...incoming, steps: {}, active: [] };
 		}
 	}
-	return room(held, admitted, runs);
+	return room(held, admitted, rows);
 }
 
 /** Past the bound, the largest holder gives one up. */
-function room(held: readonly Fire[], incoming: Fire, runs: Admitted["runs"]): Admitted {
-	if (held.length < FIRES_MAX) return { fires: [...held, incoming], admitted: true, runs };
+function room(held: readonly Fire[], incoming: Fire, rows: Admitted["rows"]): Admitted {
+	if (held.length < FIRES_MAX) return { fires: [...held, incoming], admitted: true, rows };
 	const holders = new Map<string, Fire[]>();
 	for (const fire of [...held, incoming])
 		holders.set(fire.automation, [...(holders.get(fire.automation) ?? []), fire]);
@@ -245,11 +245,11 @@ function room(held: readonly Fire[], incoming: Fire, runs: Admitted["runs"]): Ad
 	const largest = [...holders.values()].sort((a, b) => b.length - a.length || own(b) - own(a));
 	const victim = largest.map(victimOf).find((fire) => fire !== undefined);
 	if (!victim || victim === incoming) {
-		runs.push({ fire: incoming, outcome: "refused", reason: TOO_MANY });
-		return { fires: [...held], admitted: false, runs };
+		rows.push({ fire: incoming, outcome: "refused", reason: TOO_MANY });
+		return { fires: [...held], admitted: false, rows };
 	}
-	runs.push({ fire: victim, outcome: "suppressed", reason: CROWDED });
-	return { fires: [...held.filter((fire) => fire !== victim), incoming], admitted: true, runs };
+	rows.push({ fire: victim, outcome: "suppressed", reason: CROWDED });
+	return { fires: [...held.filter((fire) => fire !== victim), incoming], admitted: true, rows };
 }
 
 export const claim = (fires: readonly Fire[], ref: StepRef, now: number): Fire[] =>

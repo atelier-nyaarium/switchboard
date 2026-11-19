@@ -1052,6 +1052,7 @@ function emitParams(node: Json, defs: Map<string, Json>, omit: Set<string>): str
 		const constValue = prop.const;
 		const description = prop.description as string | undefined;
 		if (description) lines.push(`${INDENT}/** ${escapeKdoc(description)} */`);
+		if (prop.walked === true) lines.push(`${INDENT}@property:OpensWalk`);
 		if (typeof constValue === "string") {
 			if (required.has(name)) lines.push(`${INDENT}@EncodeDefault`);
 			lines.push(`${INDENT}val ${kotlinIdentifier(name)}: ${baseType} = ${kotlinString(constValue)},`);
@@ -1731,6 +1732,11 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+
+/** A sealed list; only its walk reads it. */
+@RequiresOptIn(level = RequiresOptIn.Level.ERROR, message = "Read through the walk")
+@kotlin.annotation.Target(AnnotationTarget.PROPERTY)
+annotation class OpensWalk
 
 object Protocol {
 ${INDENT}const val CONSOLE_PROTOCOL_VERSION: Int = ${CONSOLE_PROTOCOL_VERSION}

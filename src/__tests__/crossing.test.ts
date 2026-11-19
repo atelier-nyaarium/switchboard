@@ -13,7 +13,7 @@ import {
 	AUTOMATION_SERVES,
 	AUTOMATION_TRIGGER_NAMES,
 	AUTOMATION_TRIGGERS,
-	type Automation,
+	type AutomationInput,
 	AutomationTriggerSchema,
 	ConsoleAutomationListResultSchema,
 } from "../shared/schemasAutomation.js";
@@ -79,7 +79,7 @@ function world() {
 	return { automations: opened, fields, read, told, messages };
 }
 
-const above = (over: Partial<Automation> = {}, threshold = -10): Automation => ({
+const above = (over: Partial<AutomationInput> = {}, threshold = -10): AutomationInput => ({
 	enabled: true,
 	trigger: {
 		kind: "crossing",

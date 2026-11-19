@@ -36,7 +36,7 @@ export interface ConsoleReaders {
 	devices: () => Pick<DeviceStage, "records" | "sensorRead"> | undefined;
 	fields: () => Pick<ComputedFields, "list" | "get" | "value" | "stateOf" | "invalidOf"> | undefined;
 	automations: () =>
-		| Pick<Automations, "list" | "runs" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf" | "eventsOf">
+		| Pick<Automations, "list" | "log" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf" | "eventsOf">
 		| undefined;
 	assistant: () => ConsoleAssistantStateResult;
 	temperatureUnit: () => TemperatureUnit;
@@ -359,7 +359,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					description: "The run log, newest first.",
 					type: "List<Run>",
 					get: () =>
-						[...automations().runs()].reverse().map((run) => ({ label: labelOf(run.automation), ...run })),
+						[...automations().log()].reverse().map((row) => ({ label: labelOf(row.automation), ...row })),
 				},
 				queue: {
 					kind: "property",

@@ -9,7 +9,7 @@ import { type Automations, BACKOFF_MIN_MS } from "../gateway/computed/automation
 import { type DeviceDriverError, DeviceDriverFailure } from "../gateway/devices/driver.js";
 import { createKasaTransport, KASA_CONNECT_MS } from "../gateway/devices/kasa/transport.js";
 import { unknown } from "../shared/expressions.js";
-import type { Automation } from "../shared/schemasAutomation.js";
+import type { AutomationInput } from "../shared/schemasAutomation.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 import { createFakeKasaPlug, type FakeKasaPlug } from "../testing/fakeKasaPlug.js";
 
@@ -21,7 +21,7 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-const switched = (device: string, verb: "on" | "toggle" = "on"): Automation => ({
+const switched = (device: string, verb: "on" | "toggle" = "on"): AutomationInput => ({
 	enabled: true,
 	trigger: { kind: "event", source: "github", conditions: [] },
 	actions: [{ kind: "device_set", device, verb }],
@@ -103,7 +103,7 @@ async function plugs() {
 	});
 	let n = 0;
 	/** Saves each automation and fires it by name. */
-	const automationsOf = (saved: Record<string, Automation>) => {
+	const automationsOf = (saved: Record<string, AutomationInput>) => {
 		const { automations } = openAutomationPair({
 			dataDir: dir,
 			newIncarnation: () => `a${++n}`,
@@ -132,7 +132,7 @@ async function plugs() {
 	};
 }
 
-const outcomes = (automations: Automations) => automations.runs().map((run) => `${run.automation} ${run.outcome}`);
+const outcomes = (automations: Automations) => automations.log().map((run) => `${run.automation} ${run.outcome}`);
 
 describe("automations on real plugs", () => {
 	it("answers a hold when the attempt's bound passes in the device's queue, and no answer once the command was written", async () => {

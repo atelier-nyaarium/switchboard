@@ -10,37 +10,37 @@ export const BEHIND = "too many of its runs are waiting";
 /** Standing; logged again after an intervening run. */
 const LOST_RUNS: ReadonlySet<string> = new Set([REPLACED, CROWDED, TOO_MANY, BEHIND]);
 
-export const RUN_OUTCOMES = ["ran", "refused", "uncertain", "suppressed"] as const;
+export const ROW_OUTCOMES = ["ran", "refused", "uncertain", "suppressed"] as const;
 
-export const RunSchema = z.strictObject({
+export const RunRowSchema = z.strictObject({
 	automation: z.string(),
 	seq: z.number().int(),
 	at: z.number().int(),
-	outcome: z.enum(RUN_OUTCOMES),
+	outcome: z.enum(ROW_OUTCOMES),
 	reason: z.string().optional(),
 	/** The action kind, for an effect. */
 	action: z.string().optional(),
 });
-export type AutomationRun = z.infer<typeof RunSchema>;
+export type RunRow = z.infer<typeof RunRowSchema>;
 
 /** Standing rows log once per automation and action. */
-export const logged = (log: readonly AutomationRun[], run: AutomationRun): AutomationRun[] => {
-	const isLost = (held: AutomationRun) => held.reason !== undefined && LOST_RUNS.has(held.reason);
-	const lost = isLost(run);
+export const logged = (log: readonly RunRow[], row: RunRow): RunRow[] => {
+	const isLost = (held: RunRow) => held.reason !== undefined && LOST_RUNS.has(held.reason);
+	const lost = isLost(row);
 	const last = log.findLast(
-		(held) => held.automation === run.automation && (lost || (held.action === run.action && !isLost(held))),
+		(held) => held.automation === row.automation && (lost || (held.action === row.action && !isLost(held))),
 	);
-	const stands = run.outcome === "refused" || lost;
-	const standing = stands && last?.outcome === run.outcome && last.reason === run.reason;
-	return standing ? [...log] : [...log, run].slice(-LOG_MAX);
+	const stands = row.outcome === "refused" || lost;
+	const standing = stands && last?.outcome === row.outcome && last.reason === row.reason;
+	return standing ? [...log] : [...log, row].slice(-LOG_MAX);
 };
 
-export const fireRun = (
+export const fireRow = (
 	fire: { automation: string; seq: number; at: number },
-	outcome: AutomationRun["outcome"],
+	outcome: RunRow["outcome"],
 	reason?: string,
 	action?: string,
-): AutomationRun => ({
+): RunRow => ({
 	automation: fire.automation,
 	seq: fire.seq,
 	at: fire.at,

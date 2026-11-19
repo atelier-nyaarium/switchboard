@@ -7,7 +7,7 @@ import { CLOCK_GRACE_MS, clockIssue, clockSentence, nextSlot } from "../gateway/
 import { createAutomations } from "../gateway/computed/automations.js";
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { openDurable } from "../shared/durable-store.js";
-import type { Automation, ClockTrigger } from "../shared/schemasAutomation.js";
+import type { AutomationInput, ClockTrigger } from "../shared/schemasAutomation.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
 const roots: string[] = [];
@@ -33,7 +33,7 @@ const NO_FIELDS = {
 	check: () => null,
 } as unknown as ComputedFields;
 
-const tells = (trigger: ClockTrigger): Automation => ({
+const tells = (trigger: ClockTrigger): AutomationInput => ({
 	enabled: true,
 	trigger,
 	actions: [{ kind: "tell_assistant", when: "quietly" }],
@@ -122,7 +122,7 @@ describe("an automation's clock", () => {
 		const after = open(dir, fakeAmbient({ drive: "manual", now: () => late }));
 
 		expect(await after.told()).toEqual([["Every hour", "21:00 UTC"]]);
-		expect(after.automations.runs().map((run) => [run.outcome, run.reason])).toEqual([
+		expect(after.automations.log().map((run) => [run.outcome, run.reason])).toEqual([
 			["uncertain", "missed 2 slots"],
 			["ran", undefined],
 		]);
@@ -154,7 +154,7 @@ describe("an automation's clock", () => {
 
 		const after = open(dir, fakeAmbient({ drive: "manual", now: () => late }));
 
-		expect(after.automations.runs().map((run) => [run.outcome, run.reason])).toEqual([
+		expect(after.automations.log().map((run) => [run.outcome, run.reason])).toEqual([
 			["uncertain", "missed 2999 slots"],
 			["ran", undefined],
 		]);
@@ -203,7 +203,7 @@ describe("an automation's clock", () => {
 
 		expect(once).toEqual([["Every day at 18:05", "18:05"]]);
 		expect((await told()).map(([, time]) => time)).toEqual(["18:05", "18:05"]);
-		expect(automations.runs().map((run) => run.outcome)).toEqual(["ran", "suppressed", "ran"]);
+		expect(automations.log().map((run) => run.outcome)).toEqual(["ran", "suppressed", "ran"]);
 	});
 
 	it("starts over from now when it is edited or switched back on, so an edit never fires", async () => {

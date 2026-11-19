@@ -1,7 +1,7 @@
 // One step's attempts and its end, decided from its nature and the words it heard.
 
 import { z } from "zod";
-import type { AutomationRun } from "./automationLog.js";
+import type { RunRow } from "./automationLog.js";
 
 /** What one attempt answers. */
 export const ATTEMPT_WORDS = ["done", "refused", "unreachable", "no_answer"] as const;
@@ -139,7 +139,7 @@ const WORD_REASONS: Readonly<Record<Exclude<StepWord, "done">, string>> = {
 };
 
 /** How an ended step logs. */
-export function endRun(word: StepWord | undefined): { outcome: AutomationRun["outcome"]; reason?: string } {
+export function endedOutcome(word: StepWord | undefined): { outcome: RunRow["outcome"]; reason?: string } {
 	if (word === "done") return { outcome: "ran" };
 	if (word === "no_answer") return { outcome: "uncertain", reason: WORD_REASONS.no_answer };
 	return { outcome: "refused", reason: WORD_REASONS[word ?? "unreachable"] };

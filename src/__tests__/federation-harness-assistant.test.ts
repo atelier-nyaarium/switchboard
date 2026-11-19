@@ -3,11 +3,12 @@ import type { Source, SourceEvent } from "../gateway/assistant/source.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
 import type { AssistantHomeCarried } from "../shared/schemasAssistantHome.js";
-import type {
-	Automation,
-	ConsoleAutomationDeleteResult,
-	ConsoleAutomationListResult,
-	ConsoleAutomationPutResult,
+import {
+	type AutomationInput,
+	AutomationSchema,
+	type ConsoleAutomationDeleteResult,
+	type ConsoleAutomationListResult,
+	type ConsoleAutomationPutResult,
 } from "../shared/schemasAutomation.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { composeSessionName } from "../shared/session-id.js";
@@ -300,7 +301,7 @@ describe("a source event reaching the assistant", () => {
 		const poke = () => h.phone.value({ kind: "assistant_source_grants", sourceId: "fake", entryIds: [] });
 		const mention = { field: "kind", test: "is", value: "mention" } as const;
 		await h.phone.value({ kind: "device_add", mac: PLUG, address: "127.0.0.1", name: "Desk lamp" });
-		const lamp: Automation = {
+		const lamp: AutomationInput = {
 			enabled: true,
 			trigger: { kind: "event", source: "fake", conditions: [mention] },
 			actions: [{ kind: "device_set", device: PLUG, verb: "on" }],
@@ -312,7 +313,7 @@ describe("a source event reaching the assistant", () => {
 				{ id: "mentions", automation: eventAutomation("fake", [mention]) },
 				{ id: "every-mention", automation: eventAutomation("fake", [mention]) },
 				{ id: "reviews", automation: eventAutomation("fake", [{ ...mention, value: "review" }], "quietly") },
-				{ id: "lamp", automation: lamp },
+				{ id: "lamp", automation: AutomationSchema.parse(lamp) },
 			],
 		});
 		if (!placement.record) throw new Error("the Router did not hold the home choice");

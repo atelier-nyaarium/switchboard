@@ -4,7 +4,12 @@ import type { AssistantStage } from "../gateway/compose/composeAssistant.js";
 import { createAutomations } from "../gateway/computed/automations.js";
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { openDurable } from "../shared/durable-store.js";
-import type { Automation, AutomationCondition } from "../shared/schemasAutomation.js";
+import {
+	type Automation,
+	type AutomationCondition,
+	type AutomationInput,
+	AutomationSchema,
+} from "../shared/schemasAutomation.js";
 
 let minted = 0;
 
@@ -58,8 +63,9 @@ export const eventAutomation = (
 	source: string,
 	conditions: AutomationCondition[],
 	when: "now" | "quietly" = "now",
-): Automation => ({
-	enabled: true,
-	trigger: { kind: "event", source, conditions },
-	actions: [{ kind: "tell_assistant", when }],
-});
+): Automation =>
+	AutomationSchema.parse({
+		enabled: true,
+		trigger: { kind: "event", source, conditions },
+		actions: [{ kind: "tell_assistant", when }],
+	} satisfies AutomationInput);

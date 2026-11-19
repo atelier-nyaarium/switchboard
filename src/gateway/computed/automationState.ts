@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { type Automation, AutomationSchema } from "../../shared/schemasAutomation.js";
 import { FIRES_MAX, type Fire, readFire } from "./automationFires.js";
-import { type AutomationRun, fireRun, LOG_MAX, logged, RunSchema } from "./automationLog.js";
+import { fireRow, LOG_MAX, logged, type RunRow, RunRowSchema } from "./automationLog.js";
 import { QUEUE_MAX_EVENTS, QueueEntrySchema, type QueueState, retained } from "./automationOutbox.js";
 import { clamped } from "./automationSteps.js";
 import { NO_SILENCES, type Silences, SilencesSchema } from "./sensorSilence.js";
@@ -38,7 +38,7 @@ export type Checkpoint = z.infer<typeof CheckpointSchema>;
 export interface State {
 	automations: Record<string, Checkpoint>;
 	queue: QueueState;
-	log: AutomationRun[];
+	log: RunRow[];
 	/** When each automation last ran. */
 	ran: Record<string, number>;
 	/** Oldest first. */
@@ -90,9 +90,9 @@ const DroppedFireSchema = z.object({
 });
 
 /** A fire of another shape never runs, and logs once. */
-function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: AutomationRun[]; lost: number } {
+function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: RunRow[]; lost: number } {
 	const fires: Fire[] = [];
-	const dropped: AutomationRun[] = [];
+	const dropped: RunRow[] = [];
 	let lost = 0;
 	for (const row of rows) {
 		const fire = readFire(row);
@@ -105,7 +105,7 @@ function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: A
 		}
 		lost++;
 		const named = DroppedFireSchema.safeParse(row);
-		if (named.success) dropped.push(fireRun(named.data, "uncertain", STORED_UNREAD));
+		if (named.success) dropped.push(fireRow(named.data, "uncertain", STORED_UNREAD));
 	}
 	if (lost > 0) console.warn(`[automations] ${lost} stored runs of another shape were dropped and will not run`);
 	return { fires: fires.slice(-FIRES_MAX), dropped, lost };
@@ -138,7 +138,7 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 				.filter((event) => retained(event, now))
 				.slice(-QUEUE_MAX_EVENTS),
 		},
-		log: dropped.reduce(logged, pick(loose.log, RunSchema)).slice(-LOG_MAX),
+		log: dropped.reduce(logged, pick(loose.log, RunRowSchema)).slice(-LOG_MAX),
 		ran,
 		fires,
 		fired: loose.fired.slice(-FIRED_MAX),

@@ -3,7 +3,12 @@
 import { z } from "zod";
 import { definitionOf } from "../../shared/device-definitions/index.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
-import type { Automation, CrossingDirection } from "../../shared/schemasAutomation.js";
+import {
+	type Automation,
+	type AutomationInput,
+	AutomationSchema,
+	type CrossingDirection,
+} from "../../shared/schemasAutomation.js";
 import type { DeviceRecord } from "../../shared/schemasDevices.js";
 import type { Automations } from "../computed/automations.js";
 import type { ComputedFields } from "../computed/computedFields.js";
@@ -52,19 +57,20 @@ export interface ThresholdConversionDeps {
 	holds: (id: string) => boolean;
 }
 
-const crossing = (entry: Entry, side: Side, threshold: number): Automation => ({
-	enabled: true,
-	trigger: {
-		kind: "crossing",
-		device: entry.device,
-		measure: entry.measure,
-		direction: SIDES[side],
-		threshold,
-		deadZone: entry.deadZone,
-		coolDownSec: entry.coolDownSec,
-	},
-	actions: [{ kind: "tell_assistant", when: "quietly" }],
-});
+const crossing = (entry: Entry, side: Side, threshold: number): Automation =>
+	AutomationSchema.parse({
+		enabled: true,
+		trigger: {
+			kind: "crossing",
+			device: entry.device,
+			measure: entry.measure,
+			direction: SIDES[side],
+			threshold,
+			deadZone: entry.deadZone,
+			coolDownSec: entry.coolDownSec,
+		},
+		actions: [{ kind: "tell_assistant", when: "quietly" }],
+	} satisfies AutomationInput);
 
 /** One crossing per side its definition offers. */
 function alertsOf(record: DeviceRecord, entries: readonly Entry[]): Map<string, Automation> {

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { holeTexts } from "../gateway/computed/automationText.js";
+import { holeTextsOf } from "../gateway/computed/automationText.js";
 import {
 	ACTION_WORD_RE,
 	AUTOMATION_ACTIONS,
@@ -78,7 +78,7 @@ describe("the action catalogue", () => {
 			serves: { ...AUTOMATION_SERVES, numbers: [], switches: [] },
 		});
 
-		expect(holeTexts({ actions })).toEqual([
+		expect(holeTextsOf(actions)).toEqual([
 			{ action: 1, param: "message", text: "It is {value}" },
 			{ action: 2, param: "value2", text: "two" },
 		]);

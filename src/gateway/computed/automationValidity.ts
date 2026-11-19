@@ -13,7 +13,7 @@ import { crossingField } from "./crossingBand.js";
 export type ValidityDeps = Pick<AutomationsDeps, "fields" | "reading" | "eventIssue" | "holes" | "actions">;
 
 export function createAutomationValidity(deps: ValidityDeps) {
-	function triggerIssue(body: Automation): string | null {
+	function triggerIssue(body: Pick<Automation, "trigger">): string | null {
 		if (body.trigger.kind === "event") {
 			return deps.eventIssue ? deps.eventIssue(body.trigger) : "this Gateway holds no sources";
 		}

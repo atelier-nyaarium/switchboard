@@ -10,6 +10,7 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.EditContext
+import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.assistant.HomeSources
 import com.atelier_nyaarium.switchboard.assistant.IntervalUnit
 import com.atelier_nyaarium.switchboard.assistant.NumberOffer
@@ -223,7 +224,7 @@ class AutomationDraftTest {
 		val saved = draft.toAutomation(LEGACY)!!
 
 		assertEquals("Kept", saved.label)
-		assertEquals(listOf(future, AutomationAction.TellAssistant("quietly")), saved.actions)
+		assertEquals(listOf(future, AutomationAction.TellAssistant("quietly")), written(saved))
 		assertEquals(3L, draft.revision)
 	}
 
@@ -728,7 +729,7 @@ class AutomationPartsTest {
 		assertNotNull(actionIssue(toldDraft("now", "Hi"), LEGACY))
 		assertNull(actionOf(toldDraft("now", "Hi"), LEGACY))
 		assertEquals(AutomationAction.TellAssistant("now"), actionOf(toldDraft("now", " "), LEGACY))
-		assertEquals(lamp, automationDraftOf(row("a", event().copy(actions = listOf(lamp))), EditContext(retired, emptyList()))!!.toAutomation(retired)!!.actions.single())
+		assertEquals(lamp, automationDraftOf(row("a", event().copy(actions = listOf(lamp))), EditContext(retired, emptyList()))!!.toAutomation(retired)!!.let(::written).single())
 	}
 
 	@Test
@@ -741,7 +742,7 @@ class AutomationPartsTest {
 		assertEquals(listOf("when" to true, "message" to false), actionFields(told, LEGACY).map { it.name to (it.param != null) })
 		assertEquals(null, draft.toAutomation(LEGACY))
 		assertEquals(null, actionIssue(cleared.actions.single(), LEGACY))
-		assertEquals(AutomationAction.TellAssistant("now"), cleared.toAutomation(LEGACY)?.actions?.single())
+		assertEquals(AutomationAction.TellAssistant("now"), cleared.toAutomation(LEGACY)?.let(::written)?.single())
 		assertEquals(true, actionFields(told, FULL).all { it.param != null })
 		assertEquals(told, withoutValue(told, "voice"))
 		assertEquals(listOf(false, true, true), listOf(canRemove(draft, 0, FULL), canRemove(draft, 0, retired), canRemove(draft.plusAction(told), 0, FULL)))

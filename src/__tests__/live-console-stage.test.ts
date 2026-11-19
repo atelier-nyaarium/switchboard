@@ -54,7 +54,7 @@ const AUTOMATIONS = {
 		{ id: "threshold-low", revision: 1, body: { label: "Freezer temperature below 21.0 °C", enabled: true } },
 	],
 	sentenceOf: () => "Freezer temperature below 21.0 °C",
-	runs: () => [
+	log: () => [
 		{ automation: "threshold-low", seq: 1, at: 1_794_694_000_000, outcome: "ran" },
 		{ automation: "threshold-low", seq: 2, at: 1_794_694_500_000, outcome: "suppressed" },
 	],
@@ -506,7 +506,7 @@ describe("live console read-only fence", () => {
 		};
 		const stage = composeLiveConsole({ ambient, readers, callerOf: () => "host" });
 		try {
-			expect(automations.runs().length).toBeGreaterThan(0);
+			expect(automations.log().length).toBeGreaterThan(0);
 			const members = consoleEntities(readers).flatMap((entity) =>
 				Object.keys(entity.members).map((name) => `${entity.name}.${name}`),
 			);

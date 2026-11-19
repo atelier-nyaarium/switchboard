@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.reached
+import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.assistant.testLabel
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.liveconsole.HolePart
@@ -261,7 +262,7 @@ internal class SandboxAutomationGateway(
 	/** The first hole that is not one of the trigger's names. */
 	private fun unreadHole(automation: Automation): Pair<AutomationHoleSpan, String>? {
 		val names = namesOf(automation.trigger).map { it.name }
-		reached(automation).forEachIndexed { at, (_, action) ->
+		written(automation).forEachIndexed { at, action ->
 			for ((param, held) in wireJson.encodeToJsonElement(AutomationAction.serializer(), action).jsonObject) {
 				val text = (held as? JsonPrimitive)?.takeIf { it.isString && param != "kind" }?.content ?: continue
 				val hole = scanHoles(text).filterIsInstance<HolePart.Hole>().firstOrNull { !it.closed || it.source.trim() !in names } ?: continue

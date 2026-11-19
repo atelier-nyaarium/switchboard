@@ -125,8 +125,8 @@ internal fun newAutomationGateways(registry: GatewayRegistry, reachable: List<St
 
 /** Unknown names kinds raw. */
 internal fun doesText(automation: Automation, served: Served): String = when (served) {
-	is Served.Known -> reached(automation).joinToString(" · ") { (_, action) ->
+	is Served.Known -> written(automation).joinToString(" · ") { action ->
 		actionLine(action, served.offer) + if (homeOnly(kindOf(action), served.offer)) " (only where the assistant lives)" else ""
 	}
-	is Served.Unknown -> reached(automation).joinToString(" · ") { (_, action) -> kindOf(action) }
+	is Served.Unknown -> written(automation).joinToString(" · ") { action -> kindOf(action) }
 }
