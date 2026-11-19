@@ -247,6 +247,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			fields?.inputsChanged(devices?.sensorInputKeys() ?? []);
 			thresholdConversion?.run();
 			automations?.tick();
+			automations?.watchSensors();
 		},
 	});
 	const host = composeHost({
@@ -607,6 +608,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			}),
 			holes: () => liveConsole.holes,
 			timers: bootstrap.ambient,
+			sensorsHeard: () => devices?.sensorsHeard() ?? [],
+			gatewayName: bootstrap.localGatewayId,
 		},
 		offers: () => devices?.automationOffers() ?? { numbers: [], switches: [] },
 		previewEvent: assistant.previewEvent,

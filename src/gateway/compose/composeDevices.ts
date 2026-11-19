@@ -27,13 +27,14 @@ import {
 import { deviceCapabilitiesOf } from "../../shared/schemasIntegrations.js";
 import type { WatchedReading } from "../computed/automations.js";
 import type { FieldInput } from "../computed/computedFields.js";
+import type { HeardSensor } from "../computed/sensorSilence.js";
 import type { DeviceConsole } from "../console/consoleTypes.js";
 import type { DeviceVerb, SensorReads } from "../devices/driver.js";
 import { createHomeNetwork, type WifiNetworkRelay } from "../devices/homeNetwork.js";
 import type { KasaTransport } from "../devices/kasa/transport.js";
 import { createDeviceRoad, Decline, type Plug, type Shape, type Slot, type Surface, unwrap } from "../devices/road.js";
 import { createDeviceScan, type KasaScanRelay } from "../devices/scan.js";
-import { createSensorReadings } from "../devices/sensorReadings.js";
+import { createSensorReadings, staleAt } from "../devices/sensorReadings.js";
 import { assistantShape, consoleShape } from "../devices/shapes.js";
 import type { DeviceStore } from "../devices/store.js";
 
@@ -84,6 +85,8 @@ export interface DeviceStage {
 	/** What an automation may watch and set here. */
 	automationOffers: () => { numbers: AutomationNumberOffer[]; switches: AutomationSwitchOffer[] };
 	sensorRead: (id: string) => SensorAnswer | null;
+	/** Every paired sensor, judged as its page is. */
+	sensorsHeard: () => HeardSensor[];
 	ingestGatewayAdvert: (mac: string, advert: Advert, at: number) => string[];
 	flushReadings: () => boolean;
 	close: () => Promise<void>;
@@ -510,6 +513,16 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			const record = road.reads.get(id);
 			return record?.kind === "sensor" ? sensorAnswer(record) : null;
 		},
+		sensorsHeard: () =>
+			road.reads.list().records.flatMap((record) => {
+				if (record.kind !== "sensor") return [];
+				const radio = record.radio ?? "gateway";
+				const heard = road.readings.latest(record.id);
+				const at = heard
+					? { heardAt: heard.at, staleAt: staleAt(heard.at, radio, DEVICE_SENSOR_STALE_AFTER_MS) }
+					: {};
+				return [{ id: record.id, name: record.name, radio, ...at }];
+			}),
 		deviceWatch,
 		sensorInput,
 		watchedReading,

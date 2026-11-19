@@ -26,6 +26,10 @@ export interface SensorReadingsDeps {
 	extremes?: (mac: string, measure: string) => Extremes;
 }
 
+/** Shared with silence. */
+export const staleAt = (heardAt: number, radio: DeviceRadio, staleAfterMs: Readonly<Record<DeviceRadio, number>>) =>
+	heardAt + staleAfterMs[radio];
+
 const typeOf = (spec: Definition["readings"][number]["spec"]): ExprType =>
 	spec.kind === "number"
 		? { type: "number", integral: spec.decimals === 0 }
@@ -44,9 +48,11 @@ export function createSensorReadings(deps: SensorReadingsDeps): SensorReads & {
 
 	const staleness = (record: DeviceRecord, heard: Heard | null): string | undefined => {
 		if (!heard) return "not heard yet";
-		const quiet = deps.now() - heard.at;
-		const limit = deps.staleAfterMs[record.radio ?? "gateway"];
-		return quiet > limit ? `not heard for ${Math.round(quiet / 60_000)} minutes` : undefined;
+		const now = deps.now();
+		const quiet = now - heard.at;
+		return now > staleAt(heard.at, record.radio ?? "gateway", deps.staleAfterMs)
+			? `not heard for ${Math.round(quiet / 60_000)} minutes`
+			: undefined;
 	};
 
 	const read = (record: DeviceRecord): SensorReadAnswer => {

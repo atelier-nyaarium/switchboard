@@ -59,6 +59,7 @@ import { createAutomationValidity } from "./automationValidity.js";
 import { createAutomationWords, fieldsOf, type WatchedReading } from "./automationWords.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
 import { crossingField, crossingFieldId } from "./crossingBand.js";
+import { type HeardSensor, silenceNotices } from "./sensorSilence.js";
 
 export { EFFECT_LATE_MS, EFFECT_RETRY_MS, EFFECT_WAIT_MS, FIRES_MAX } from "./automationFires.js";
 export { type AutomationRun, RUN_OUTCOMES } from "./automationLog.js";
@@ -132,10 +133,16 @@ export interface AutomationsDeps {
 	holes?: () => AutomationHoles | undefined;
 	/** Without it a clock moves only on `tick`. */
 	timers?: Pick<Ambient, "setTimer" | "clearTimer">;
+	/** Paired sensors; without it no silence is told. */
+	sensorsHeard?: () => readonly HeardSensor[];
+	/** Names this Gateway in a silence. */
+	gatewayName?: string;
 }
 
 export function createAutomations(deps: AutomationsDeps) {
 	let state: State = restore(deps.state.load(), deps.now());
+	/** Silence counts from here. */
+	const startedAt = deps.now();
 	const { triggerIssue, holesIssue, automationIssue, armed } = createAutomationValidity(deps);
 	const { sentenceOf, watched, namesOf, crossingNames } = createAutomationWords(deps);
 
@@ -445,6 +452,53 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
 
+	/** `unowned` takes the rest. */
+	const droppedRuns = (
+		log: AutomationRun[],
+		dropped: Dropped,
+		now: number,
+		unowned: Fire | null,
+	): AutomationRun[] => {
+		let next = log;
+		for (const [owner, count] of dropped) {
+			const reason = `dropped ${count} older quiet event${count === 1 ? "" : "s"} for room`;
+			const by = owner === null ? unowned : { automation: owner, seq: 0, at: now };
+			if (by) next = logged(next, fireRun(by, "suppressed", reason, "tell_assistant"));
+		}
+		return next;
+	};
+
+	/** A notice with no room waits. */
+	function watchSensors(): boolean {
+		// Home only.
+		if (stopped || !deps.sensorsHeard || !deps.isHome()) return true;
+		const now = deps.now();
+		const gateway = deps.gatewayName ?? "This Gateway";
+		const found = silenceNotices(state.silences, deps.sensorsHeard(), now, gateway, startedAt);
+		let { queue, log } = state;
+		let silences = found.held;
+		const dropped: Dropped = new Map();
+		for (const notice of found.notices) {
+			const room = told(
+				queue,
+				{ member: notice.member, when: notice.when, fields: notice.fields },
+				notice.sentence,
+				now,
+			);
+			if (!room) continue;
+			queue = room.queue;
+			silences = notice.settle(silences);
+			for (const [owner, count] of room.dropped) dropped.set(owner, (dropped.get(owner) ?? 0) + count);
+		}
+		log = droppedRuns(log, dropped, now, null);
+		const next: State = { ...state, queue, log, silences };
+		if (canonicalJson(next) === canonicalJson(state)) return true;
+		const queued = next.queue.lastAt !== state.queue.lastAt;
+		const landed = commit(next);
+		if (landed && queued) deps.onQueued?.();
+		return landed;
+	}
+
 	/** Lands outcomes and queues every tell that is ready, in one write with the next claim; then runs it. */
 	function pump(): void {
 		if (stopped) return;
@@ -507,11 +561,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			}
 			if (!finished(fire)) fires.push(fire);
 		}
-		for (const [owner, count] of dropped) {
-			const reason = `dropped ${count} older quiet event${count === 1 ? "" : "s"} for room`;
-			const by = owner === null ? droppedBy : { automation: owner, seq: 0, at: now };
-			if (by) log = logged(log, fireRun(by, "suppressed", reason, "tell_assistant"));
-		}
+		log = droppedRuns(log, dropped, now, droppedBy);
 		const effect = running ? null : nextEffect(fires, (ref) => goes.has(effectKey(ref)));
 		if (effect) fires = claim(fires, effect);
 		const toFill = filling ? null : nextFill(fires);
@@ -853,6 +903,10 @@ export function createAutomations(deps: AutomationsDeps) {
 		/** Clocks that a timer missed. */
 		tick: (): void => {
 			tick();
+		},
+		/** Sensors gone silent, or heard again. */
+		watchSensors: (): void => {
+			watchSensors();
 		},
 		/** Stops clocks and runs; awaits the run in flight. */
 		async stop(): Promise<void> {

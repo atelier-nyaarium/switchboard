@@ -4,6 +4,7 @@ import { z } from "zod";
 import { FIRES_MAX, type Fire, FireSchema } from "./automationFires.js";
 import { type AutomationRun, LOG_MAX, RunSchema } from "./automationLog.js";
 import { QUEUE_MAX_EVENTS, QueueEntrySchema, type QueueState, retained } from "./automationOutbox.js";
+import { NO_SILENCES, type Silences, SilencesSchema } from "./sensorSilence.js";
 
 /** Ids may be prototype keys. */
 export const own = <T>(held: Record<string, T>, id: string): T | undefined =>
@@ -43,6 +44,8 @@ export interface State {
 	fired: string[];
 	/** Each clock's last slot handled. */
 	slots: Record<string, Slot>;
+	/** Sensor silences told. */
+	silences: Silences;
 }
 
 const EMPTY: State = {
@@ -53,6 +56,7 @@ const EMPTY: State = {
 	fires: [],
 	fired: [],
 	slots: {},
+	silences: NO_SILENCES,
 };
 
 /** Invalid rows drop. */
@@ -64,6 +68,7 @@ const LooseStateSchema = z.object({
 	fires: z.array(z.unknown()).catch([]),
 	fired: z.array(z.string()).catch([]),
 	slots: z.record(z.string(), z.unknown()).catch({}),
+	silences: SilencesSchema.catch(NO_SILENCES),
 });
 
 /** A fire of another shape never runs. */
@@ -109,5 +114,6 @@ export function restore(raw: unknown, now: number): State {
 				return parsed.success ? [[id, parsed.data]] : [];
 			}),
 		),
+		silences: loose.silences,
 	};
 }
