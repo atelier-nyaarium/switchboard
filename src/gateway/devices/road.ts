@@ -1,7 +1,6 @@
 import type { z } from "zod";
 import { type Ambient, type Linked, linkedSignal } from "../../shared/ambient.js";
 import type { Advert } from "../../shared/ble-recognition.js";
-import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../../shared/console-protocol.js";
 import { definitionOf, inputsOf, matches, readingsOf } from "../../shared/device-definitions/index.js";
 import { openDurable } from "../../shared/durable-store.js";
 import { refKey } from "../../shared/expressions.js";
@@ -13,12 +12,12 @@ import {
 	type DriverOf,
 	deviceRefusal,
 } from "../../shared/schemasDevices.js";
-import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import {
 	type DeviceDriver,
 	type DeviceDriverError,
 	DeviceDriverFailure,
 	type DeviceOperationContext,
+	type EffectLatch,
 	effectLatch,
 } from "./driver.js";
 import { createKasaDriver } from "./kasa/kasaDriver.js";
@@ -31,10 +30,9 @@ export const INGEST_SKEW_MS = 2 * 60_000;
 
 export const TOGGLE_DOUBT = "read the device first; the last toggle's outcome is unknown";
 
-export type Surface = "console" | "assistant" | "automation";
+/** Less left cannot hear an effect's answer. */
+export const EFFECT_FLOOR_MS = 2_000;
 
-/** One automation attempt, the queue counted. */
-export const AUTOMATION_ATTEMPT_MS = 15_000;
 export type Effect = "none" | "unknown";
 export type DeviceEffect = "confirms-relay" | "toggles-relay";
 
@@ -107,9 +105,10 @@ export interface DeviceRoadDeps {
 }
 
 export interface DeviceRoad {
-	operation<A>(surface: Surface, shape: Shape<A>, run: (op: Operation) => Promise<A>): Promise<A>;
-	onSlot<A>(surface: Surface, shape: Shape<A>, id: string, run: (slot: Slot) => Promise<A>): Promise<A>;
-	onDevice<A>(surface: Surface, shape: Shape<A>, id: string, run: (plug: Plug) => Promise<A>): Promise<A>;
+	/** `bound`: the lease, the device queue counted. */
+	operation<A>(bound: number, shape: Shape<A>, run: (op: Operation) => Promise<A>): Promise<A>;
+	onSlot<A>(bound: number, shape: Shape<A>, id: string, run: (slot: Slot) => Promise<A>): Promise<A>;
+	onDevice<A>(bound: number, shape: Shape<A>, id: string, run: (plug: Plug) => Promise<A>): Promise<A>;
 	ingest(id: string, advert: Advert, at: number, radio: DeviceRadio): string[] | null;
 	reads: {
 		list(): ReturnType<DeviceStore["list"]>;
@@ -124,22 +123,6 @@ export interface DeviceRoad {
 interface Lease extends Linked {
 	deadlineAt: number;
 }
-
-const SURFACE_BOUND_MS: Readonly<Record<Surface, number>> = {
-	console: CONSOLE_ANSWER_WAIT_MS - CONSOLE_HOP_MARGIN_MS,
-	assistant: ASSISTANT_WAITS.action,
-	automation: AUTOMATION_ATTEMPT_MS,
-};
-
-/** An automation retries by word, so a dead connect must say so. */
-const CONNECTING: Readonly<Record<Surface, "held" | "failed">> = {
-	console: "held",
-	assistant: "held",
-	automation: "failed",
-};
-
-/** Less left at the turn is a queue wait, not a dead connect. */
-export const CONNECT_FLOOR_MS = 2_000;
 
 const NOT_STARTED: Declined = { kind: "notStarted" };
 
@@ -236,22 +219,14 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		return held.signal.aborted;
 	};
 
-	const tooLateToConnect = (held: Lease, surface: Surface): boolean =>
-		CONNECTING[surface] === "failed" && held.deadlineAt - deps.ambient.now() < CONNECT_FLOOR_MS;
-
-	/** `connecting`: a connect that never opened is a failure, not a hold. */
-	const declineFrom = (
-		error: unknown,
-		marked: boolean,
-		record: DeviceRecord | null,
-		connecting: "held" | "failed",
-	): Declined => {
+	/** A timeout unwritten, or an effect's latch unmarked: not started. */
+	const declineFrom = (error: unknown, latch: EffectLatch | null, record: DeviceRecord | null): Declined => {
 		if (error instanceof Decline) return error.why;
+		const marked = latch?.marked ?? false;
 		const effect: Effect = marked ? "unknown" : "none";
 		if (error instanceof DeviceDriverFailure) {
 			const failure = error.failure;
-			const unsent = !marked && failure.kind === "timeout" && failure.sent === false;
-			if (unsent && connecting === "held") return NOT_STARTED;
+			if (!marked && failure.kind === "timeout" && (failure.sent === false || latch?.carries)) return NOT_STARTED;
 			return withRecord({ kind: "failed", failure, effect }, record);
 		}
 		console.warn(`[device] operation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -259,7 +234,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		return withRecord({ kind: "failed", failure, effect }, record);
 	};
 
-	const makeSlot = (id: string, held: Lease, surface: Surface): Slot => {
+	const makeSlot = (id: string, held: Lease): Slot => {
 		const record = store.get(id);
 		const driver = record?.kind === "switch" ? drivers[record.driver as DriverOf<"switch">] : drivers.kasa;
 		const slot: Slot = {
@@ -300,13 +275,13 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 						withRecord({ kind: "refused", code: "toggle_unknown", text: TOGGLE_DOUBT }, record),
 					);
 				}
-				const latch = effectLatch();
+				const latch = effectLatch(() => held.deadlineAt - deps.ambient.now() >= EFFECT_FLOOR_MS);
 				try {
 					const value = await work({ ambient: deps.ambient, signal: held.signal, effect: latch });
 					if (effect) doubt.delete(id);
 					return value;
 				} catch (error) {
-					const why = declineFrom(error, latch.marked, record, CONNECTING[surface]);
+					const why = declineFrom(error, latch, record);
 					if (effect === "toggles-relay" && why.kind === "failed" && why.effect === "unknown") doubt.add(id);
 					throw new Decline(why);
 				}
@@ -315,7 +290,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 				try {
 					return { ok: true, value: await slot.drive(work) };
 				} catch (error) {
-					return { ok: false, why: declineFrom(error, false, record, CONNECTING[surface]) };
+					return { ok: false, why: declineFrom(error, null, record) };
 				}
 			},
 			async identify(address, expected) {
@@ -347,8 +322,8 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 		return slot;
 	};
 
-	const operation = async <A>(surface: Surface, shape: Shape<A>, run: (op: Operation) => Promise<A>): Promise<A> => {
-		const root = lease(null, SURFACE_BOUND_MS[surface]);
+	const operation = async <A>(bound: number, shape: Shape<A>, run: (op: Operation) => Promise<A>): Promise<A> => {
+		const root = lease(null, bound);
 		const heldIds = new Set<string>();
 		const device = async <T>(
 			id: string,
@@ -366,9 +341,9 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 				});
 				const turn = store.perDevice(id, async (): Promise<Outcome<T>> => {
 					begin();
-					if (expired(held) || tooLateToConnect(held, surface)) return { ok: false, why: NOT_STARTED };
+					if (expired(held)) return { ok: false, why: NOT_STARTED };
 					heldIds.add(id);
-					const slot = makeSlot(id, held, surface);
+					const slot = makeSlot(id, held);
 					try {
 						if (asPlug) {
 							if (!slot.record) return { ok: false, why: { kind: "refused", code: "not_found" } };
@@ -396,7 +371,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 						}
 						return { ok: true, value: await work(slot) };
 					} catch (error) {
-						return { ok: false, why: declineFrom(error, false, slot.record, CONNECTING[surface]) };
+						return { ok: false, why: declineFrom(error, null, slot.record) };
 					} finally {
 						heldIds.delete(id);
 					}
@@ -427,7 +402,7 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 			const value = await run(op);
 			return shape.schema ? shape.schema.parse(value) : value;
 		} catch (error) {
-			return shape.decline(declineFrom(error, false, null, CONNECTING[surface]));
+			return shape.decline(declineFrom(error, null, null));
 		} finally {
 			root.end("device operation ended");
 			root.dispose();
@@ -446,8 +421,8 @@ export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 
 	return {
 		operation,
-		onSlot: (surface, shape, id, run) => operation(surface, shape, async (op) => unwrap(await op.device(id, run))),
-		onDevice: (surface, shape, id, run) => operation(surface, shape, async (op) => unwrap(await op.plug(id, run))),
+		onSlot: (bound, shape, id, run) => operation(bound, shape, async (op) => unwrap(await op.device(id, run))),
+		onDevice: (bound, shape, id, run) => operation(bound, shape, async (op) => unwrap(await op.plug(id, run))),
 		ingest,
 		reads: { list: () => store.list(), get: (id) => store.get(id), holds: (id) => store.holds(id) },
 		readings: { latest: readings.latest, payloads: readings.payloads, extremes: readings.extremes },

@@ -1,7 +1,5 @@
 // Automation effects to devices and IFTTT.
 
-import type { DeviceRefusalCode } from "../../shared/schemasDevices.js";
-import type { DeviceToolResult } from "../../shared/schemasDeviceTool.js";
 import type {
 	IftttTriggerAnswer,
 	IftttTriggerRequest,
@@ -10,43 +8,33 @@ import type {
 import { GatewayCapabilityRefusal } from "../assistant/gatewayCapabilityRefusal.js";
 import type { Attempt, AutomationActionPorts, AutomationEffect } from "../computed/automationRunner.js";
 import type { AttemptWord } from "../computed/automationSteps.js";
-import type { DeviceStage } from "./composeDevices.js";
+import type { DeviceDriverError } from "../devices/driver.js";
+import type { Outcome } from "../devices/road.js";
+import { AUTOMATION_ATTEMPT_MS, type DeviceStage } from "./composeDevices.js";
 
 export interface AutomationActionsDeps {
 	/** Undefined until composed. */
 	devices: () => Pick<DeviceStage, "record" | "automationSet"> | undefined;
-	ifttt: (params: IftttTriggerRequest) => Promise<IftttTriggerAnswer>;
+	ifttt: (params: IftttTriggerRequest, bound?: number) => Promise<IftttTriggerAnswer>;
 	/** Vault can answer reads. */
 	vaultReady: () => boolean;
 }
 
-/** Latch unmarked; marked is no answer. */
-const DEVICE_CODE_WORDS: Readonly<Record<DeviceRefusalCode, AttemptWord>> = {
-	not_found: "refused",
-	stale: "refused",
-	exists: "refused",
-	full: "refused",
-	invalid: "refused",
-	wrong_device: "refused",
-	not_supported: "refused",
-	toggle_unknown: "refused",
+/** A driver failure whose effect did not land. */
+const FAILURE_WORDS: Readonly<Record<DeviceDriverError["kind"], AttemptWord>> = {
 	unreachable: "unreachable",
 	timeout: "unreachable",
-	device_error: "refused",
-	write_failed: "refused",
-	daemon_away: "unreachable",
-	scan_failed: "unreachable",
-	no_radio: "unreachable",
+	refused: "refused",
+	invalid: "refused",
+	wrong_device: "refused",
 };
 
-type DeviceAnswer = DeviceToolResult<"device_set"> | "not_started";
-
-/** `not_started`: the lease ended before its turn. */
-export function deviceAttempt(answer: DeviceAnswer): Attempt {
-	if (answer === "not_started") return { hold: "nothing was sent in time" };
-	if (answer.kind === "ok") return { word: "done" };
-	const { code, effect } = answer.refusal;
-	return { word: effect === "unknown" ? "no_answer" : DEVICE_CODE_WORDS[code] };
+export function attemptOf(outcome: Outcome<void>): Attempt {
+	if (outcome.ok) return { word: "done" };
+	const why = outcome.why;
+	if (why.kind === "notStarted") return { hold: "nothing was sent in time" };
+	if (why.effect === "unknown") return { word: "no_answer" };
+	return { word: why.kind === "refused" ? "refused" : FAILURE_WORDS[why.failure.kind] };
 }
 
 /** Otherwise refused. */
@@ -71,11 +59,11 @@ export function automationActions(deps: AutomationActionsDeps): AutomationAction
 		deviceSet: async (device, verb) => {
 			const devices = deps.devices();
 			if (!devices) return { hold: "devices are not loaded" };
-			return deviceAttempt(await devices.automationSet(device, verb));
+			return attemptOf(await devices.automationSet(device, verb));
 		},
 		iftttTrigger: async (params) => {
 			try {
-				const { ok, status } = await deps.ifttt(params);
+				const { ok, status } = await deps.ifttt(params, AUTOMATION_ATTEMPT_MS);
 				if (ok) return { word: "done" };
 				// No response may still have fired.
 				return { word: status === 0 ? "no_answer" : "refused" };

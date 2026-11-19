@@ -4,18 +4,8 @@ import { z } from "zod";
 import { reached } from "../../shared/automation-walk.js";
 import { type AutomationAction, TELL_WHEN } from "../../shared/schemasAutomation.js";
 import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
-import { isEffect } from "./automationRunner.js";
-import {
-	claimed,
-	dueSince,
-	FRESH_STEP,
-	isEnded,
-	type Nature,
-	overdue,
-	type Step,
-	StepPathSchema,
-	StepSchema,
-} from "./automationSteps.js";
+import { type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
+import { claimed, FRESH_STEP, isEnded, type Nature, type Step, StepPathSchema, StepSchema } from "./automationSteps.js";
 
 /** Runs waiting on their steps. */
 export const FIRES_MAX = 64;
@@ -35,7 +25,7 @@ const FireBase = {
 	member: z.string(),
 	automation: z.string(),
 	incarnation: z.string(),
-	/** The record as it fired; an edit retires the fire. */
+	/** Version key; an edit retires the fire. */
 	revision: z.number().int().positive(),
 	/** The transition it answers; zero for a slot or an event. */
 	seq: z.number().int().nonnegative(),
@@ -48,13 +38,15 @@ const FireBase = {
 };
 
 /** A fired trigger awaiting its run. */
-export const FireSchema = z.strictObject({
-	...FireBase,
-	/** By step path. */
-	steps: z.record(StepPathSchema, StepSchema),
-	/** The step whose turn it is. */
-	active: z.array(StepPathSchema).max(1),
-});
+export const FireSchema = z
+	.strictObject({
+		...FireBase,
+		/** By step path. */
+		steps: z.record(StepPathSchema, StepSchema),
+		/** The step whose turn it is; set by `advance` alone. */
+		active: z.array(StepPathSchema).max(1),
+	})
+	.refine((fire) => fire.active.every((path) => Object.hasOwn(fire.steps, path)));
 export type Fire = z.infer<typeof FireSchema>;
 export type FireNames = NonNullable<Fire["names"]>;
 
@@ -67,8 +59,7 @@ const LegacyFireSchema = z.strictObject({
 const LEGACY_STEPS: Readonly<Record<"pending" | "claimed" | "done", (at: number) => Step>> = {
 	pending: () => FRESH_STEP,
 	claimed: (at) => ({ attempts: 1, startedAt: at, lastAt: at, claimed: true }),
-	// Counted begun, so its run stays started.
-	done: () => ({ attempts: 1, verdict: "ended" }),
+	done: () => ({ attempts: 0, verdict: "ended" }),
 };
 
 /** This shape, or the one before it; null otherwise. */
@@ -82,16 +73,24 @@ export function readFire(row: unknown): Fire | null {
 		Object.entries(effects).map(([path, held]) => [path, LEGACY_STEPS[held](rest.at)]),
 	);
 	const fire: Fire = { ...rest, steps, active: [] };
+	// An all-pending fire never began.
+	const begun = Object.values(effects).some((held) => held !== "pending");
 	const turn = Object.entries(effects).find(([, held]) => held === "claimed")?.[0] ?? turnOf(fire);
-	return { ...fire, active: turn === null ? [] : [turn] };
+	return { ...fire, active: begun && turn !== null ? [turn] : [] };
 }
 
-export interface EffectRef {
+export interface StepRef {
 	member: string;
-	action: number;
+	path: string;
 }
 
-export const effectKey = (ref: EffectRef): string => `${ref.member}#${ref.action}`;
+export const stepKey = (ref: StepRef): string => `${ref.member}#${ref.path}`;
+
+/** A step whose attempt may go, and when it fell due. */
+export interface Runnable {
+	ref: StepRef;
+	dueAt: number;
+}
 
 /** Step paths in the order written. */
 export const pathsOf = (fire: Fire): string[] => Object.keys(fire.steps).sort((a, b) => Number(a) - Number(b));
@@ -119,8 +118,7 @@ export const finished = (fire: Fire): boolean => !fire.tell && !hasOpenSteps(fir
 export const holdsClaim = (fire: Fire): boolean => claimedPaths(fire).length > 0;
 
 /** A step's turn came. */
-const started = (fire: Fire): boolean =>
-	Object.values(fire.steps).some((step) => step.claimed || step.attempts > 0 || step.startedAt !== undefined);
+export const started = (fire: Fire): boolean => fire.active.length > 0;
 
 /** Started with steps left; never evicted. */
 export const live = (fire: Fire): boolean => started(fire) && hasOpenSteps(fire);
@@ -144,26 +142,10 @@ export function mayRun(fires: readonly Fire[]): Set<string> {
 	return runs;
 }
 
-/** First attempts before retries. */
-export function nextEffect(fires: readonly Fire[], goes: (ref: EffectRef) => boolean, now: number): EffectRef | null {
-	let first: EffectRef | null = null;
-	let retry: EffectRef | null = null;
-	/** Starved too long: the one due longest ago goes. */
-	let starved: { ref: EffectRef; since: number } | null = null;
-	for (const fire of fires) {
-		const path = fire.active[0];
-		const step = path === undefined ? undefined : fire.steps[path];
-		if (path === undefined || !step || isEnded(step) || step.claimed) continue;
-		const ref = { member: fire.member, action: Number(path) };
-		if (!goes(ref)) continue;
-		const since = dueSince(step);
-		if (overdue(step, now) && since !== null && (starved === null || since < starved.since))
-			starved = { ref, since };
-		if (step.attempts === 0) first ??= ref;
-		else retry ??= ref;
-	}
-	return starved?.ref ?? first ?? retry;
-}
+/** Due longest ago; fire order breaks a tie. */
+export const nextEffect = (runnable: readonly Runnable[]): StepRef | null =>
+	runnable.reduce<Runnable | null>((best, next) => (best === null || next.dueAt < best.dueAt ? next : best), null)
+		?.ref ?? null;
 
 /** A switch step that landed: its device, its nature, and when its fire fired. */
 export interface LandedSet {
@@ -173,23 +155,21 @@ export interface LandedSet {
 	at: number;
 }
 
-/** A switch a step acts on, and how. */
-export interface SwitchTarget {
-	device: string;
-	nature: Nature;
-}
+/** The switch an effect acts on, and how. */
+export const switchOf = (effect: AutomationEffect | null): { device: string; nature: Nature } | null =>
+	effect?.kind === "device_set" ? { device: effect.device, nature: natureOf(effect) } : null;
 
 /** Open, unclaimed steps on the same switch in older fires; a toggle never outdates a toggle. */
 export function outdatedSets(
 	fires: readonly Fire[],
 	landed: readonly LandedSet[],
-	targetOf: (fire: Fire, path: string) => SwitchTarget | null,
+	stepAt: (fire: Fire, path: string) => AutomationEffect | null,
 ): { member: string; path: string }[] {
 	return fires.flatMap((fire) =>
 		pathsOf(fire).flatMap((path) => {
 			const step = fire.steps[path] as Step;
 			if (isEnded(step) || step.claimed) return [];
-			const target = targetOf(fire, path);
+			const target = switchOf(stepAt(fire, path));
 			if (target === null) return [];
 			const newer = landed.some(
 				(set) =>
@@ -272,8 +252,8 @@ function room(held: readonly Fire[], incoming: Fire, runs: Admitted["runs"]): Ad
 	return { fires: [...held.filter((fire) => fire !== victim), incoming], admitted: true, runs };
 }
 
-export const claim = (fires: readonly Fire[], ref: EffectRef, now: number): Fire[] =>
+export const claim = (fires: readonly Fire[], ref: StepRef, now: number): Fire[] =>
 	fires.map((fire) => {
-		const step = fire.steps[String(ref.action)];
-		return fire.member === ref.member && step ? withStep(fire, String(ref.action), claimed(step, now)) : fire;
+		const step = fire.steps[ref.path];
+		return fire.member === ref.member && step ? withStep(fire, ref.path, claimed(step, now)) : fire;
 	});

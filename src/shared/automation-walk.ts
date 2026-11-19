@@ -3,7 +3,7 @@
 import type { AutomationAction } from "./schemasAutomation.js";
 
 export interface Reached {
-	/** The engine's step path. */
+	/** The step's path; in a flat list, its index. */
 	path: string;
 	action: AutomationAction;
 }

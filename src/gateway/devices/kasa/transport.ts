@@ -4,10 +4,16 @@ import { frame, unframe } from "./codec.js";
 
 export const KASA_PORT = 9999;
 export const KASA_MAX_ANSWER_BYTES = 64 * 1024;
+const NEVER_ACCEPTED = "Kasa plug did not accept a connection";
+
+export const KASA_CONNECT_MS = 5_000;
 
 export interface KasaTransport {
-	request(address: string, command: object, signal: AbortSignal): Promise<unknown>;
+	/** `connectBy` ending first sent nothing. */
+	request(address: string, command: object, signal: AbortSignal, connectBy?: AbortSignal): Promise<unknown>;
 }
+
+export type KasaConnect = (options: { host: string; port: number }) => Socket;
 
 function unreachable(detail: string, sent?: boolean): DeviceDriverFailure {
 	return new DeviceDriverFailure(
@@ -37,18 +43,22 @@ function parseAnswer(packet: Uint8Array): unknown {
 }
 
 /** One connection per command. */
-export function createKasaTransport(port = KASA_PORT): KasaTransport {
+export function createKasaTransport(port = KASA_PORT, connect: KasaConnect = createConnection): KasaTransport {
 	return {
-		request(address, command, signal) {
+		request(address, command, signal, connectBy) {
 			return new Promise((resolve, reject) => {
 				if (signal.aborted) {
 					reject(notSent("Kasa operation ended before the connection opened"));
 					return;
 				}
+				if (connectBy?.aborted) {
+					reject(unreachable(NEVER_ACCEPTED, false));
+					return;
+				}
 
 				let socket: Socket;
 				try {
-					socket = createConnection({ host: address, port });
+					socket = connect({ host: address, port });
 				} catch (error) {
 					reject(
 						unreachable(
@@ -68,6 +78,7 @@ export function createKasaTransport(port = KASA_PORT): KasaTransport {
 					if (settled) return;
 					settled = true;
 					signal.removeEventListener("abort", abort);
+					connectBy?.removeEventListener("abort", neverAccepted);
 					socket.destroy();
 					void socketClosed.then(() => {
 						if (error) reject(error);
@@ -86,9 +97,15 @@ export function createKasaTransport(port = KASA_PORT): KasaTransport {
 					);
 				};
 
+				const neverAccepted = (): void => {
+					if (!sent && !signal.aborted) finish(unreachable(NEVER_ACCEPTED, false));
+				};
+
 				signal.addEventListener("abort", abort, { once: true });
+				connectBy?.addEventListener("abort", neverAccepted, { once: true });
 				socket.on("connect", () => {
 					if (settled || signal.aborted) return;
+					connectBy?.removeEventListener("abort", neverAccepted);
 					try {
 						sent = true;
 						socket.write(frame(JSON.stringify(command)));

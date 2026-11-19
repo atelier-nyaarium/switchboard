@@ -1,4 +1,4 @@
-// Queue and checkpoint, atomically.
+// The automation store.
 
 import { z } from "zod";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
@@ -28,8 +28,6 @@ import {
 	admit,
 	claim,
 	claimedPaths,
-	type EffectRef,
-	effectKey,
 	type Fire,
 	type FireNames,
 	finished,
@@ -39,8 +37,11 @@ import {
 	nextEffect,
 	nextFill,
 	outdatedSets,
-	type SwitchTarget,
+	type Runnable,
+	type StepRef,
+	stepKey,
 	stepsOf,
+	switchOf,
 	turnOf,
 	WAITING_EVENTS_MAX,
 	withStep,
@@ -54,12 +55,19 @@ import {
 } from "./automationJudge.js";
 import { type AutomationRun, fireRun, logged } from "./automationLog.js";
 import { clip, type Dropped, memberOf, outboxOf, ownerOf, QUEUE_FULL, told } from "./automationOutbox.js";
-import { type Attempt, type AutomationActionPorts, isEffect, natureOf, runEffect } from "./automationRunner.js";
-import { type Checkpoint, FIRED_MAX, own, restore, type State } from "./automationState.js";
 import {
-	attemptDue,
+	type Attempt,
+	type AutomationActionPorts,
+	type AutomationEffect,
+	isEffect,
+	natureOf,
+	runEffect,
+} from "./automationRunner.js";
+import { type Checkpoint, FIRED_MAX, own, restore, type State, versionKey } from "./automationState.js";
+import {
 	begun,
 	clamped,
+	dueAt,
 	endRun,
 	heard,
 	isEnded,
@@ -185,15 +193,47 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Reads; `write` alone commits. */
 	const records: Pick<typeof store, "list" | "get" | "invalidOf" | "count"> = store;
 
+	/** Held fires' versions; unmatched drop. */
+	const pinned = (next: State): State["versions"] =>
+		Object.fromEntries(
+			next.fires.flatMap((fire) => {
+				const key = versionKey(fire);
+				const record = records.get(fire.automation);
+				const current =
+					record?.incarnation === fire.incarnation && record.revision === fire.revision
+						? record.body
+						: undefined;
+				const held = own(next.versions, key) ?? current;
+				return held ? [[key, held]] : [];
+			}),
+		);
+
+	/** The one writer of the versions. */
 	const commit = (next: State): boolean =>
 		commitChecked(
 			deps.state,
-			next,
+			{ ...next, versions: pinned(next) },
 			(landed) => {
 				state = landed;
 			},
 			{ label: "automation state" },
 		).landed;
+
+	{
+		const versions = pinned(state);
+		if (canonicalJson(versions) !== canonicalJson(state.versions)) unwritten = true;
+		state = { ...state, versions };
+	}
+
+	/** The body a fire fired with. */
+	const bodyOf = (fire: Fire): Automation | null => own(state.versions, versionKey(fire)) ?? null;
+
+	/** The effect at that path, as it fired. */
+	const stepAt = (fire: Fire, path: string): AutomationEffect | null => {
+		const body = bodyOf(fire);
+		const action = body ? actionAt(body, path) : undefined;
+		return action && isEffect(action) ? action : null;
+	};
 
 	/** Baselines whose write has not landed. */
 	let unsaved: State["automations"] = {};
@@ -415,64 +455,52 @@ export function createAutomations(deps: AutomationsDeps) {
 	}
 
 	/** The effect in flight. */
-	let running: { ref: EffectRef; done: Promise<void> } | null = null;
+	let running: { ref: StepRef; done: Promise<void> } | null = null;
 	/** The fill beside it. */
 	let filling: Promise<void> | null = null;
-	/** Until their write lands. */
-	const spent = new Map<
-		string,
-		{
-			ref: EffectRef;
-			runs: AutomationRun[];
-			attempt: Attempt;
-			reason?: string;
-			/** Of the effect as it ran. */
-			nature?: Nature;
-			switched?: SwitchTarget;
-		}
-	>();
-	/** Carried steps are judged once. */
+	/** Answers kept until written. */
+	const spent = new Map<string, { ref: StepRef; runs: AutomationRun[]; attempt: Attempt; reason?: string }>();
+	/** Judged each pass until committed. */
 	let recovering = true;
 
-	const isRunning = (ref: EffectRef): boolean => running !== null && effectKey(running.ref) === effectKey(ref);
+	const isRunning = (ref: StepRef): boolean => running !== null && stepKey(running.ref) === stepKey(ref);
 
-	/** The action as it fired; null once edited. */
-	const effectAt = (fire: Fire, path: string) => {
-		const record = records.get(fire.automation);
-		if (!record || record.incarnation !== fire.incarnation || record.revision !== fire.revision) return null;
-		const action = actionAt(record.body, path);
-		return action && isEffect(action) ? action : null;
-	};
-
-	const natureAt = (fire: Fire, path: string): Nature | null => {
-		const action = effectAt(fire, path);
-		return action ? natureOf(action) : null;
+	/** A retiring fire never retries, so it has none. */
+	const natureAt = (fire: Fire, path: string, retiring: boolean): Nature | null => {
+		const effect = retiring ? null : stepAt(fire, path);
+		return effect ? natureOf(effect) : null;
 	};
 
 	/** An ended step's row. */
 	const endedRun = (fire: Fire, path: string, step: Step, reason?: string): AutomationRun => {
 		const run = endRun(step.word);
-		const held = records.get(fire.automation);
-		const kind = effectAt(fire, path)?.kind ?? (held ? actionAt(held.body, path)?.kind : undefined);
-		return fireRun(fire, run.outcome, reason ?? run.reason, kind);
+		return fireRun(fire, run.outcome, reason ?? run.reason, stepAt(fire, path)?.kind);
 	};
 
 	/** Judges steps a restart found. */
-	const recoverFire = (fire: Fire, held: AutomationRun[], now: number) => {
+	const recoverFire = (fire: Fire, held: AutomationRun[], now: number, retiring: boolean) => {
 		let log = held;
 		let landed = fire;
 		for (const [path, step] of Object.entries(fire.steps)) {
-			const next = recovered(step, natureAt(fire, path), now);
+			const next = recovered(step, natureAt(fire, path, retiring), now);
 			landed = withStep(landed, path, next);
 			if (!isEnded(step) && isEnded(next)) log = logged(log, endedRun(fire, path, next));
 		}
 		return { fire: landed, log };
 	};
 
-	/** The switch an effect at that path acts on. */
-	const targetOf = (fire: Fire, path: string): SwitchTarget | null => {
-		const action = effectAt(fire, path);
-		return action?.kind === "device_set" ? { device: action.device, nature: natureOf(action) } : null;
+	/** A retiring fire's open steps end with their last word. */
+	const endHeard = (fire: Fire, held: AutomationRun[]) => {
+		let log = held;
+		let landed = fire;
+		for (const [path, step] of Object.entries(fire.steps)) {
+			// A claim ends when it answers.
+			if (isEnded(step) || step.claimed || step.word === undefined) continue;
+			const ended = timedOut(step);
+			landed = withStep(landed, path, ended);
+			log = logged(log, endedRun(fire, path, ended));
+		}
+		return { fire: landed, log };
 	};
 
 	/** Lands answers; a newer set ends older ones. */
@@ -480,14 +508,16 @@ export function createAutomations(deps: AutomationsDeps) {
 		let { log, ran } = held;
 		const sets: LandedSet[] = [];
 		const settled = stored.map((found) => {
+			const retiring = retireOf(found) !== null;
 			let fire = found;
-			if (recover) ({ fire, log } = recoverFire(fire, log, now));
+			if (recover) ({ fire, log } = recoverFire(fire, log, now, retiring));
 			let landedSets: LandedSet[];
-			({ fire, log, ran, sets: landedSets } = landClaims(fire, { log, ran }, now));
+			({ fire, log, ran, sets: landedSets } = landAnswers(fire, { log, ran }, now, retiring));
 			sets.push(...landedSets);
+			if (retiring) ({ fire, log } = endHeard(fire, log));
 			return fire;
 		});
-		const outdated = outdatedSets(settled, sets, targetOf);
+		const outdated = outdatedSets(settled, sets, stepAt);
 		const fires = settled.map((fire) =>
 			outdated
 				.filter((at) => at.member === fire.member)
@@ -500,14 +530,15 @@ export function createAutomations(deps: AutomationsDeps) {
 		return { fires, log, ran };
 	};
 
-	const landClaims = (fire: Fire, held: Pick<State, "log" | "ran">, now: number) => {
+	/** Lands the answers to its claimed steps. */
+	const landAnswers = (fire: Fire, held: Pick<State, "log" | "ran">, now: number, retiring: boolean) => {
 		let { log, ran } = held;
 		let landed = fire;
 		const sets: LandedSet[] = [];
 		for (const path of claimedPaths(fire)) {
-			const ref = { member: fire.member, action: Number(path) };
+			const ref = { member: fire.member, path };
 			if (isRunning(ref)) continue;
-			const answer = spent.get(effectKey(ref));
+			const answer = spent.get(stepKey(ref));
 			if (!answer) continue;
 			const step = fire.steps[path] as Step;
 			if ("hold" in answer.attempt) {
@@ -515,14 +546,14 @@ export function createAutomations(deps: AutomationsDeps) {
 				continue;
 			}
 			log = answer.runs.reduce(logged, log);
-			const next = heard(step, answer.nature ?? natureAt(fire, path) ?? "nudges", answer.attempt.word, now);
+			const next = heard(step, natureAt(fire, path, retiring), answer.attempt.word, now);
 			landed = withStep(landed, path, next);
 			if (!isEnded(next)) continue;
 			log = logged(log, endedRun(fire, path, next, answer.reason));
 			if (next.verdict !== "done") continue;
 			ran = { ...ran, [fire.automation]: fire.at };
-			// The effect that ran, though its record moved since.
-			if (answer.switched) sets.push({ member: fire.member, ...answer.switched, at: fire.at });
+			const switched = switchOf(stepAt(fire, path));
+			if (switched) sets.push({ member: fire.member, ...switched, at: fire.at });
 		}
 		return { fire: landed, log, ran, sets };
 	};
@@ -532,7 +563,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		const record = records.get(fire.automation);
 		if (!record || record.incarnation !== fire.incarnation)
 			return fireRun(fire, "uncertain", "the automation is gone");
-		if (record.revision !== fire.revision) return fireRun(fire, "suppressed", "the automation changed");
+		if (!bodyOf(fire) || record.revision !== fire.revision)
+			return fireRun(fire, "suppressed", "the automation changed");
 		const issue = automationIssue(record.body);
 		return issue === null ? null : fireRun(fire, "refused", issue);
 	};
@@ -541,7 +573,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	const advance = (
 		start: Fire,
 		held: Pick<State, "log">,
-		at: { now: number; home: boolean; goes: Set<string> },
+		at: { now: number; home: boolean; runnable: Runnable[] },
 	): { fire: Fire; log: AutomationRun[] } => {
 		let { log } = held;
 		let fire = start;
@@ -549,7 +581,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			const step = begun(clamped(fire.steps[path] as Step, at.now), at.now);
 			fire = { ...withStep(fire, path, step), active: [path] };
 			if (step.claimed) return { fire, log };
-			const effect = effectAt(fire, path);
+			const effect = stepAt(fire, path);
 			let ended: { step: Step; reason?: string };
 			if (!effect) ended = { step: refusedUnsent(step) };
 			else if (outOfTime(step, at.now)) ended = { step: timedOut(step) };
@@ -558,8 +590,8 @@ export function createAutomations(deps: AutomationsDeps) {
 			} else {
 				// A hold waits unclaimed.
 				const ready = deps.actions?.ready(effect) ?? true;
-				if (ready && attemptDue(step, at.now))
-					at.goes.add(effectKey({ member: fire.member, action: Number(path) }));
+				const due = dueAt(step);
+				if (ready && due <= at.now) at.runnable.push({ ref: { member: fire.member, path }, dueAt: due });
 				return { fire, log };
 			}
 			fire = withStep(fire, path, ended.step);
@@ -624,7 +656,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const home = deps.isHome();
 		let { queue, log, ran } = state;
 		let fires: Fire[] = [];
-		const goes = new Set<string>();
+		const runnable: Runnable[] = [];
 		let queued = false;
 		const dropped: Dropped = new Map();
 		/** Takes an unowned drop's row. */
@@ -641,16 +673,16 @@ export function createAutomations(deps: AutomationsDeps) {
 				if (holdsClaim(fire)) {
 					fires.push(fire);
 					retiring.add(fire.member);
-				} else log = logged(log, retired);
+				} else if (!finished(fire)) log = logged(log, retired);
 				continue;
 			}
-			const record = records.get(fire.automation) as OwnerRecord<Automation>;
+			const body = bodyOf(fire) as Automation;
 			if (fire.tell && !home) {
 				log = logged(log, fireRun(fire, "refused", NOT_HOME, "tell_assistant"));
 				fire = untold(fire);
 			} else if (fire.tell && !fire.tell.fill) {
 				const entry = { member: fire.member, when: fire.tell.when, fields: fire.tell.fields };
-				const room = told(queue, entry, sentenceOf(record.body), now);
+				const room = told(queue, entry, sentenceOf(body), now);
 				if (!room) {
 					if (!fire.waiting) log = logged(log, fireRun(fire, "refused", QUEUE_FULL, "tell_assistant"));
 					fire = { ...fire, waiting: true };
@@ -672,12 +704,12 @@ export function createAutomations(deps: AutomationsDeps) {
 		fires = fires.flatMap((held) => {
 			let fire = held;
 			if (turns.has(fire.member) && !retiring.has(fire.member)) {
-				({ fire, log } = advance(fire, { log }, { now, home, goes }));
+				({ fire, log } = advance(fire, { log }, { now, home, runnable }));
 			}
 			return finished(fire) ? [] : [fire];
 		});
 		log = droppedRuns(log, dropped, now, droppedBy);
-		const effect = running ? null : nextEffect(fires, (ref) => goes.has(effectKey(ref)), now);
+		const effect = running ? null : nextEffect(runnable);
 		if (effect) fires = claim(fires, effect, now);
 		const toFill = filling ? null : nextFill(fires);
 		const moved: State = { ...state, queue, log, ran, fires };
@@ -686,9 +718,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		recovering = false;
 		unwritten = false;
 		for (const [key, { ref }] of [...spent]) {
-			const claimed = state.fires.some(
-				(held) => held.member === ref.member && held.steps[String(ref.action)]?.claimed,
-			);
+			const claimed = state.fires.some((held) => held.member === ref.member && held.steps[ref.path]?.claimed);
 			if (!claimed) spent.delete(key);
 		}
 		// The claim's runner registers first.
@@ -697,10 +727,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (queued) deps.onQueued?.();
 	}
 
+	/** A held fire and the body it fired with. */
 	const heldWork = (member: string) => {
 		const fire = state.fires.find((held) => held.member === member);
-		const record = fire && records.get(fire.automation);
-		return fire && record ? { fire, record } : null;
+		const body = fire && bodyOf(fire);
+		return fire && body ? { fire, body } : null;
 	};
 
 	/** `thrown`: whether a throw pumps again. */
@@ -716,15 +747,15 @@ export function createAutomations(deps: AutomationsDeps) {
 				if (moved) pump();
 			});
 
-	function startEffect(ref: EffectRef): void {
+	function startEffect(ref: StepRef): void {
 		const held = heldWork(ref.member);
 		if (!held) return;
 		const done = launch(
 			() =>
-				runOne(held.fire, held.record, ref.action).catch((error) => {
-					// Ports never throw here, so nothing was sent.
+				runOne(held.fire, held.body, ref).catch((error) => {
+					// `runEffect` keeps port throws, so this one came before sending.
 					console.error(`[automations] a run failed: ${errorName(error)}`);
-					spent.set(effectKey(ref), { ref, runs: [], attempt: { hold: "it could not be started" } });
+					spent.set(stepKey(ref), { ref, runs: [], attempt: { hold: "it could not be started" } });
 					return true;
 				}),
 			() => {
@@ -739,7 +770,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const held = heldWork(member);
 		if (!held) return;
 		filling = launch(
-			() => fill(held.fire, held.record),
+			() => fill(held.fire, held.body),
 			() => {
 				filling = null;
 			},
@@ -779,17 +810,16 @@ export function createAutomations(deps: AutomationsDeps) {
 	};
 
 	/** One claimed effect; the pump lands its outcome. */
-	async function runOne(fire: Fire, record: OwnerRecord<Automation>, action: number): Promise<boolean> {
-		const ref = { member: fire.member, action };
+	async function runOne(fire: Fire, body: Automation, ref: StepRef): Promise<boolean> {
 		const runs: AutomationRun[] = [];
-		const effect = actionAt(record.body, String(action));
+		const effect = actionAt(body, ref.path);
 		if (!effect || !isEffect(effect)) {
-			spent.set(effectKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NO_RUNNER });
+			spent.set(stepKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NO_RUNNER });
 			return true;
 		}
 		const row = AUTOMATION_ACTIONS[effect.kind];
 		if (row.home && !deps.isHome()) {
-			spent.set(effectKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NOT_HOME });
+			spent.set(stepKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NOT_HOME });
 			return true;
 		}
 		const filled = fillerOf(fire, runs);
@@ -800,21 +830,19 @@ export function createAutomations(deps: AutomationsDeps) {
 			texts[param] = (await filled(text, effect.kind)).slice(0, max);
 		}
 		if (!deps.actions) {
-			spent.set(effectKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NO_RUNNER });
+			spent.set(stepKey(ref), { ref, runs, attempt: { word: "refused" }, reason: NO_RUNNER });
 			return true;
 		}
-		const nature = natureOf(effect);
 		const attempt = await runEffect({ ...effect, ...texts }, deps.actions);
-		const switched = effect.kind === "device_set" ? { switched: { device: effect.device, nature } } : {};
-		spent.set(effectKey(ref), { ref, runs, attempt, nature, ...switched });
+		spent.set(stepKey(ref), { ref, runs, attempt });
 		return true;
 	}
 
 	/** A message's holes; false when nothing moved. */
-	async function fill(fire: Fire, record: OwnerRecord<Automation>): Promise<boolean> {
+	async function fill(fire: Fire, body: Automation): Promise<boolean> {
 		const runs: AutomationRun[] = [];
 		const filled = fillerOf(fire, runs);
-		const written = tellPlan(record.body).messages;
+		const written = tellPlan(body).messages;
 		const messages: string[] = [];
 		for (const message of written) messages.push(await filled(message, "tell_assistant"));
 		const log = runs.reduce(logged, state.log);
@@ -974,7 +1002,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			if (commit({ ...state, fires: work.fires, fired: fired.slice(-FIRED_MAX), log: work.log })) pump();
 			else console.warn(`[automations] ${lost} event fires were not recorded and will not run`);
 		},
-		/** Resolves once no run is in flight. */
+		/** Resolves once no effect or fill is in flight. */
 		async settled(): Promise<void> {
 			while (running || filling) await Promise.all([running?.done, filling]);
 		},

@@ -15,17 +15,37 @@ export type DeviceVerb = z.infer<typeof DeviceVerbSchema>;
 /** Marked while any attempt is undenied. */
 export interface EffectLatch {
 	readonly marked: boolean;
-	/** Returns a one-shot deny. */
+	/** Operation mutates the device. */
+	readonly carries: boolean;
+	/** Before its first command, reads included. */
+	carry(): void;
+	/** Returns a one-shot deny; throws unsent when `mayStart` refuses. */
 	attempt(): () => void;
 }
 
-export function effectLatch(): EffectLatch {
+/** `mayStart`: read at each attempt. */
+export function effectLatch(mayStart: () => boolean): EffectLatch {
 	let open = 0;
+	let carries = false;
 	return {
 		get marked() {
 			return open > 0;
 		},
+		get carries() {
+			return carries;
+		},
+		carry() {
+			carries = true;
+		},
 		attempt() {
+			carries = true;
+			if (!mayStart()) {
+				throw new DeviceDriverFailure({
+					kind: "timeout",
+					detail: "too little time left to start",
+					sent: false,
+				});
+			}
 			open += 1;
 			let denied = false;
 			return () => {

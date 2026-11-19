@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { GatewayCapabilityRefusal } from "../gateway/assistant/gatewayCapabilityRefusal.js";
-import { automationActions, deviceAttempt } from "../gateway/compose/automationActions.js";
+import { attemptOf, automationActions } from "../gateway/compose/automationActions.js";
 import {
 	ATTEMPT_WORDS,
-	attemptDue,
 	BACKOFF_MIN_MS,
 	backoffMs,
 	begun,
+	claimed,
 	clamped,
+	dueAt,
 	heard,
 	isEnded,
 	KEEP_TRYING_MS,
@@ -17,20 +18,20 @@ import {
 	retries,
 	type Step,
 	timedOut,
+	unsent,
 } from "../gateway/computed/automationSteps.js";
-import { DEVICE_REFUSAL_CODES } from "../shared/schemasDevices.js";
+import type { DeviceDriverError } from "../gateway/devices/driver.js";
+import type { Effect } from "../gateway/devices/road.js";
 import type { IftttTriggerAnswer } from "../shared/schemasPhoneCapabilities.js";
 
 describe("the backoff", () => {
-	it("doubles from the shortest gap to its cap, and waits the shortest gap after a hold", () => {
+	it("doubles from the shortest gap to its cap, and after a hold waits the gap its answered attempts earned", () => {
 		expect([0, 1, 2, 3, 4, 5, 6, 7].map(backoffMs)).toEqual([
 			5_000, 5_000, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000,
 		]);
-		const afterHold: Step = { attempts: 0, startedAt: 0, lastAt: 0 };
-		expect([attemptDue(afterHold, BACKOFF_MIN_MS - 1), attemptDue(afterHold, BACKOFF_MIN_MS)]).toEqual([
-			false,
-			true,
-		]);
+		const held = (answered: number) =>
+			dueAt(begun(unsent(claimed({ attempts: answered, startedAt: 0 }, 0), 1_000), 1_000)) - 1_000;
+		expect([held(0), held(4)]).toEqual([BACKOFF_MIN_MS, 40_000]);
 	});
 });
 
@@ -79,7 +80,7 @@ describe("a step found at a restart", () => {
 
 	/** Ended with a word, or when its next attempt goes. */
 	const next = (step: Step, now: number) =>
-		isEnded(step) ? `${step.verdict} ${step.word}` : attemptDue(step, now) ? "tries now" : "waits";
+		isEnded(step) ? `${step.verdict} ${step.word}` : dueAt(begun(step, now)) <= now ? "tries now" : "waits";
 
 	it("is judged by nature when claimed, by its time when between attempts, and not at all when unbegun", () => {
 		const late = KEEP_TRYING_MS + 1;
@@ -111,31 +112,32 @@ describe("a step found at a restart", () => {
 });
 
 describe("a device's answer", () => {
-	it("is a word for every refusal code, and no answer once the effect may have landed", () => {
-		const words = DEVICE_REFUSAL_CODES.map((code) => [
-			code,
-			deviceAttempt({ kind: "refused", refusal: { code, effect: "none" } }),
-			deviceAttempt({ kind: "refused", refusal: { code, effect: "unknown" } }),
-		]);
+	it("is a word for every decline, no answer once the effect may have landed, and a hold when nothing started", () => {
+		const failures: DeviceDriverError[] = [
+			{ kind: "unreachable", detail: "" },
+			{ kind: "timeout", detail: "", sent: true },
+			{ kind: "refused", code: -1, message: "" },
+			{ kind: "invalid", detail: "" },
+			{ kind: "wrong_device", detail: "" },
+		];
+		const words = (effect: Effect) => [
+			attemptOf({ ok: false, why: { kind: "refused", code: "not_found", effect } }),
+			...failures.map((failure) => attemptOf({ ok: false, why: { kind: "failed", failure, effect } })),
+		];
 
-		expect(words).toEqual([
-			["not_found", { word: "refused" }, { word: "no_answer" }],
-			["stale", { word: "refused" }, { word: "no_answer" }],
-			["exists", { word: "refused" }, { word: "no_answer" }],
-			["full", { word: "refused" }, { word: "no_answer" }],
-			["invalid", { word: "refused" }, { word: "no_answer" }],
-			["wrong_device", { word: "refused" }, { word: "no_answer" }],
-			["not_supported", { word: "refused" }, { word: "no_answer" }],
-			["toggle_unknown", { word: "refused" }, { word: "no_answer" }],
-			["unreachable", { word: "unreachable" }, { word: "no_answer" }],
-			["timeout", { word: "unreachable" }, { word: "no_answer" }],
-			["device_error", { word: "refused" }, { word: "no_answer" }],
-			["write_failed", { word: "refused" }, { word: "no_answer" }],
-			["daemon_away", { word: "unreachable" }, { word: "no_answer" }],
-			["scan_failed", { word: "unreachable" }, { word: "no_answer" }],
-			["no_radio", { word: "unreachable" }, { word: "no_answer" }],
+		expect([words("none"), words("unknown")]).toEqual([
+			[
+				{ word: "refused" },
+				{ word: "unreachable" },
+				{ word: "unreachable" },
+				{ word: "refused" },
+				{ word: "refused" },
+				{ word: "refused" },
+			],
+			Array(6).fill({ word: "no_answer" }),
 		]);
-		expect(deviceAttempt("not_started")).toHaveProperty("hold");
+		expect(attemptOf({ ok: true, value: undefined })).toEqual({ word: "done" });
+		expect(attemptOf({ ok: false, why: { kind: "notStarted" } })).toHaveProperty("hold");
 	});
 });
 

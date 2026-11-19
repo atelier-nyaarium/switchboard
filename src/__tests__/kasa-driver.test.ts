@@ -1,9 +1,14 @@
-import { createServer, type Socket } from "node:net";
+import { createConnection, createServer, Socket } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 import { DeviceDriverFailure, type DeviceOperationContext, effectLatch } from "../gateway/devices/driver.js";
 import { frame } from "../gateway/devices/kasa/codec.js";
 import { createKasaDriver } from "../gateway/devices/kasa/kasaDriver.js";
-import { createKasaTransport, KASA_MAX_ANSWER_BYTES } from "../gateway/devices/kasa/transport.js";
+import {
+	createKasaTransport,
+	KASA_CONNECT_MS,
+	KASA_MAX_ANSWER_BYTES,
+	KASA_PORT,
+} from "../gateway/devices/kasa/transport.js";
 import { linkedSignal } from "../shared/ambient.js";
 import type { DeviceRecord } from "../shared/schemasDevices.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -26,7 +31,7 @@ async function withContext<T>(work: (ctx: DeviceOperationContext) => Promise<T>,
 	const ambient = fakeAmbient({ drive: "real" });
 	const linked = linkedSignal(ambient, { ms, reason: "test deadline" });
 	try {
-		return await work({ ambient, signal: linked.signal, effect: effectLatch() });
+		return await work({ ambient, signal: linked.signal, effect: effectLatch(() => true) });
 	} finally {
 		linked.dispose();
 	}
@@ -207,7 +212,11 @@ describe("Kasa driver", () => {
 		try {
 			const failure = await failureOf(() =>
 				driver
-					.schedule(record(), { ambient: fakeAmbient(), signal: linked.signal, effect: effectLatch() })
+					.schedule(record(), {
+						ambient: fakeAmbient(),
+						signal: linked.signal,
+						effect: effectLatch(() => true),
+					})
 					.put({
 						enabled: false,
 						rules: [
@@ -304,7 +313,7 @@ describe("Kasa driver", () => {
 				const context = () => ({
 					ambient: fakeAmbient(),
 					signal: new AbortController().signal,
-					effect: effectLatch(),
+					effect: effectLatch(() => true),
 				});
 				const mismatched = context();
 				await failureOf(() => driver.set(record(), "on", mismatched));
@@ -404,7 +413,7 @@ describe("Kasa driver", () => {
 			const linked = linkedSignal(ambient, { ms: 25, reason: "test deadline" });
 			try {
 				const operation = failureOf(() =>
-					driver.read(record(), { ambient, signal: linked.signal, effect: effectLatch() }),
+					driver.read(record(), { ambient, signal: linked.signal, effect: effectLatch(() => true) }),
 				);
 				await vi.waitFor(() => expect(plug.received()).toHaveLength(1));
 				await ambient.advance(25);
@@ -436,7 +445,7 @@ describe("Kasa driver", () => {
 				const linked = linkedSignal(ambient, { ms: 20, reason: "test deadline" });
 				try {
 					const operation = failureOf(() =>
-						driver.set(record(), "on", { ambient, signal: linked.signal, effect: effectLatch() }),
+						driver.set(record(), "on", { ambient, signal: linked.signal, effect: effectLatch(() => true) }),
 					);
 					await plug.waitForHeldReply();
 					await ambient.advance(20);
@@ -468,12 +477,87 @@ describe("Kasa driver", () => {
 		);
 	});
 
+	it("answers unreachable when the plug never accepts, and a timeout when the caller cuts the connect first", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
+		const sockets: Socket[] = [];
+		const driver = createKasaDriver({
+			transport: createKasaTransport(KASA_PORT, () => {
+				const socket = new Socket();
+				sockets.push(socket);
+				return socket;
+			}),
+		});
+		const dial = (ms: number) => {
+			const lease = linkedSignal(ambient, { ms, reason: "test deadline" });
+			return failureOf(() =>
+				driver.identify("127.0.0.1", { ambient, signal: lease.signal, effect: effectLatch(() => true) }),
+			).finally(() => lease.dispose());
+		};
+
+		const neverAccepted = dial(KASA_CONNECT_MS + 10_000);
+		const cutFirst = dial(1_000);
+		await ambient.advance(1_000);
+		const cut = await cutFirst;
+		await ambient.advance(KASA_CONNECT_MS - 1_000);
+
+		expect([cut, await neverAccepted]).toMatchObject([
+			{ kind: "timeout", sent: false },
+			{ kind: "unreachable", sent: false },
+		]);
+		expect(sockets.every((socket) => socket.destroyed)).toBe(true);
+	});
+
+	it("gives each command its own connect bound: a relay that never accepts after a slow identify ends unreachable, unmarked", async () => {
+		await withPlug(
+			{ behavior: (request) => (request.command === "get_sysinfo" ? { kind: "hold" } : undefined) },
+			async (plug) => {
+				const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
+				let dials = 0;
+				const driver = createKasaDriver({
+					transport: createKasaTransport(plug.port, (options) =>
+						dials++ === 0 ? createConnection(options) : new Socket(),
+					),
+				});
+				const lease = linkedSignal(ambient, { ms: 60_000, reason: "test deadline" });
+				const latch = effectLatch(() => true);
+				let settled = false;
+				const set = failureOf(() =>
+					driver.set(record(), "toggle", { ambient, signal: lease.signal, effect: latch }),
+				).finally(() => {
+					settled = true;
+				});
+				try {
+					await plug.waitForHeldReply();
+					await ambient.advance(KASA_CONNECT_MS - 1_000);
+					plug.releaseHeldReplies();
+					await vi.waitFor(() => expect(dials).toBe(2));
+					await ambient.advance(KASA_CONNECT_MS - 1_000);
+					const early = settled;
+					await ambient.advance(1_000);
+
+					expect([early, await set, latch.marked]).toMatchObject([
+						false,
+						{ kind: "unreachable", sent: false },
+						false,
+					]);
+					expect(commandNames(plug)).toEqual(["get_sysinfo"]);
+				} finally {
+					lease.dispose();
+				}
+			},
+		);
+	});
+
 	it("answers not sent when the signal is already aborted", async () => {
 		await withPlug({}, async (plug, driver) => {
 			const controller = new AbortController();
 			controller.abort("test deadline");
 			const failure = await failureOf(() =>
-				driver.read(record(), { ambient: fakeAmbient(), signal: controller.signal, effect: effectLatch() }),
+				driver.read(record(), {
+					ambient: fakeAmbient(),
+					signal: controller.signal,
+					effect: effectLatch(() => true),
+				}),
 			);
 			expect(failure).toMatchObject({ kind: "timeout", sent: false });
 			expect(plug.received()).toHaveLength(0);
@@ -579,7 +663,7 @@ describe("Kasa driver", () => {
 				try {
 					const cut = failureOf(() =>
 						driver
-							.schedule(record(), { ambient, signal: linked.signal, effect: effectLatch() })
+							.schedule(record(), { ambient, signal: linked.signal, effect: effectLatch(() => true) })
 							.put(schedule),
 					);
 					await plug.waitForHeldReply();

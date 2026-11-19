@@ -166,7 +166,7 @@ export interface AssistantStageDeps {
 export interface AssistantStage {
 	temperatureUnit: () => TemperatureUnit;
 	/** Refuses when no key is granted. */
-	iftttTrigger: (params: IftttTriggerRequest) => Promise<IftttTriggerAnswer>;
+	iftttTrigger: (params: IftttTriggerRequest, bound?: number) => Promise<IftttTriggerAnswer>;
 	/** Identifies sweep-exempt sessions. */
 	reserves: (team: string) => boolean;
 	/** Check-ins use this session. */
@@ -903,7 +903,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		eventIssue,
 		eventSentence,
-		iftttTrigger: (params) => ifttt.trigger(params),
+		iftttTrigger: (params, bound) => ifttt.trigger(params, bound),
 		previewTrigger: async (trigger) => {
 			if (trigger.kind !== "event") throw new Error("only an event trigger previews");
 			return (await previewEvent(trigger)).preview;

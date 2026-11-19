@@ -3,9 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { automationActions } from "../gateway/compose/automationActions.js";
-import { composeDevices, DEVICE_IDENTIFY_WAIT_MS, DEVICE_READ_WAIT_MS } from "../gateway/compose/composeDevices.js";
+import {
+	AUTOMATION_ATTEMPT_MS,
+	composeDevices,
+	DEVICE_IDENTIFY_WAIT_MS,
+	DEVICE_READ_WAIT_MS,
+} from "../gateway/compose/composeDevices.js";
 import { createKasaTransport, type KasaTransport } from "../gateway/devices/kasa/transport.js";
-import { AUTOMATION_ATTEMPT_MS, createDeviceRoad, Decline, type Shape, unwrap } from "../gateway/devices/road.js";
+import { createDeviceRoad, Decline, type Shape, unwrap } from "../gateway/devices/road.js";
 import { consoleShape } from "../gateway/devices/shapes.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../shared/console-protocol.js";
@@ -102,7 +107,7 @@ describe("device road", () => {
 		}
 	});
 
-	it("answers an automation's switch unreachable when its command never left by the deadline, and refused for a device it lacks", async () => {
+	it("holds an automation's switch whose command our deadline cut before it left, and refuses a device it lacks", async () => {
 		const dataDir = fresh("automation");
 		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
 		const plug = await createFakeKasaPlug({ mac: MAC });
@@ -125,9 +130,119 @@ describe("device road", () => {
 		});
 		try {
 			await stage.console(addLamp);
-			expect(await actions.deviceSet(MAC, "toggle")).toEqual({ word: "unreachable" });
+			expect(await actions.deviceSet(MAC, "toggle")).toHaveProperty("hold");
 			expect(await actions.deviceSet(MAC, "toggle")).toEqual({ word: "done" });
 			expect(await actions.deviceSet("aa:bb:cc:dd:ee:00", "on")).toEqual({ word: "refused" });
+		} finally {
+			await stage.close();
+			await plug.close();
+			fs.rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("holds an automation's Toggle whose identify read our deadline cut after it was written, and leaves no doubt", async () => {
+		const dataDir = fresh("identify-cut");
+		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
+		let reads = 0;
+		const plug = await createFakeKasaPlug({
+			mac: MAC,
+			behavior: (request) => (request.command === "get_sysinfo" && ++reads === 2 ? { kind: "hold" } : undefined),
+		});
+		const stage = composeDevices({
+			dataDir,
+			ambient,
+			transport: createKasaTransport(plug.port),
+			relayToHost: noHost,
+		});
+		const actions = automationActions({
+			devices: () => stage,
+			ifttt: () => Promise.reject(new Error("no IFTTT here")),
+			vaultReady: () => true,
+		});
+		try {
+			await stage.console(addLamp);
+			const cut = actions.deviceSet(MAC, "toggle");
+			await plug.waitForHeldReply();
+			await ambient.advance(AUTOMATION_ATTEMPT_MS);
+
+			expect(await cut).toHaveProperty("hold");
+			expect(plug.received().filter((row) => row.command === "set_relay_state")).toHaveLength(0);
+			expect(await actions.deviceSet(MAC, "toggle")).toEqual({ word: "done" });
+		} finally {
+			await stage.close();
+			await plug.close();
+			fs.rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("checks the floor as the effect starts, so an identify that spent the bound leaves the relay unwritten", async () => {
+		const dataDir = fresh("floor-after-identify");
+		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
+		let reads = 0;
+		let relays = 0;
+		const plug = await createFakeKasaPlug({
+			mac: MAC,
+			behavior: (request) => {
+				// Console relay, then identify.
+				if (request.command === "set_relay_state" && ++relays === 1) return { kind: "hold" };
+				if (request.command === "get_sysinfo" && ++reads === 4) return { kind: "hold" };
+				return undefined;
+			},
+		});
+		const stage = composeDevices({
+			dataDir,
+			ambient,
+			transport: createKasaTransport(plug.port),
+			relayToHost: noHost,
+		});
+		const actions = automationActions({
+			devices: () => stage,
+			ifttt: () => Promise.reject(new Error("no IFTTT here")),
+			vaultReady: () => true,
+		});
+		try {
+			await stage.console(addLamp);
+			const busy = stage.console({ kind: "device_set", id: MAC, verb: "on" });
+			await plug.waitForHeldReply();
+			const late = actions.deviceSet(MAC, "toggle");
+			await ambient.advance(AUTOMATION_ATTEMPT_MS - 2_500);
+			plug.releaseHeldReplies();
+			await busy;
+			await plug.waitForHeldReply();
+			await ambient.advance(2_200);
+			plug.releaseHeldReplies();
+
+			expect(await late).toEqual({ hold: "nothing was sent in time" });
+			expect(plug.received().filter((row) => row.command === "set_relay_state")).toHaveLength(1);
+		} finally {
+			await stage.close();
+			await plug.close();
+			fs.rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("answers a read our deadline cut after it was written as a timeout with its detail, as before", async () => {
+		const dataDir = fresh("read-cut");
+		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
+		let reads = 0;
+		const plug = await createFakeKasaPlug({
+			mac: MAC,
+			behavior: (request) => (request.command === "get_sysinfo" && ++reads === 2 ? { kind: "hold" } : undefined),
+		});
+		const stage = composeDevices({
+			dataDir,
+			ambient,
+			transport: createKasaTransport(plug.port),
+			relayToHost: noHost,
+		});
+		try {
+			await stage.console(addLamp);
+			const read = stage.console({ kind: "device_read", id: MAC });
+			await plug.waitForHeldReply();
+			await ambient.advance(CONSOLE_BOUND_MS);
+
+			expect(await read).toMatchObject({ kind: "refused", refusal: { code: "timeout", effect: "none" } });
+			expect(await read).toHaveProperty("refusal.detail");
 		} finally {
 			await stage.close();
 			await plug.close();
@@ -145,21 +260,21 @@ describe("device road", () => {
 		const road = createDeviceRoad({ dataDir, ambient: fakeAmbient(), transport: createKasaTransport(plug.port) });
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			await road.onSlot("console", consoleShape("device_add"), MAC, async (slot) => {
+			await road.onSlot(CONSOLE_BOUND_MS, consoleShape("device_add"), MAC, async (slot) => {
 				await slot.identify("127.0.0.1", MAC);
 				return {
 					kind: "ok" as const,
 					record: unwrap(slot.write.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" })),
 				};
 			});
-			const answer = await road.operation("console", consoleShape("device_read"), async (op) => {
+			const answer = await road.operation(CONSOLE_BOUND_MS, consoleShape("device_read"), async (op) => {
 				void op.plug(MAC, (plug) => plug.drive((ctx) => plug.driver.read(plug.record, ctx)));
 				await plug.waitForHeldReply();
 				throw new Error("left behind");
 			});
 			expect(answer).toMatchObject({ kind: "refused", refusal: { code: "unreachable" } });
 			expect(
-				await road.onDevice("console", anyShape, MAC, async (plug) => {
+				await road.onDevice(CONSOLE_BOUND_MS, anyShape, MAC, async (plug) => {
 					return (await plug.drive((ctx) => plug.driver.read(plug.record, ctx))).state;
 				}),
 			).toMatchObject({ state: "off" });
@@ -301,14 +416,14 @@ describe("device road", () => {
 		const plug = await createFakeKasaPlug({ mac: MAC });
 		const road = createDeviceRoad({ dataDir, ambient: fakeAmbient(), transport: createKasaTransport(plug.port) });
 		try {
-			await road.onSlot("console", consoleShape("device_add"), MAC, async (slot) => {
+			await road.onSlot(CONSOLE_BOUND_MS, consoleShape("device_add"), MAC, async (slot) => {
 				await slot.identify("127.0.0.1", MAC);
 				return {
 					kind: "ok" as const,
 					record: unwrap(slot.write.add({ mac: MAC, address: "127.0.0.1", name: "Lamp" })),
 				};
 			});
-			const answer = await road.operation("console", anyShape, async (op) => {
+			const answer = await road.operation(CONSOLE_BOUND_MS, anyShape, async (op) => {
 				const outcome = await op.plug(MAC, async (plug) => {
 					await expect(op.plug(MAC, async () => ({}))).rejects.toThrow();
 					return (await plug.drive((ctx) => plug.driver.read(plug.record, ctx))).state;

@@ -18,8 +18,6 @@ export type Nature = (typeof NATURES)[number];
 export const KEEP_TRYING_MS = 10 * 60_000;
 export const BACKOFF_MIN_MS = 5_000;
 export const BACKOFF_MAX_MS = 60_000;
-/** One device attempt's bound and the shortest gap. */
-export const OVERDUE_MS = 15_000 + BACKOFF_MIN_MS;
 
 /** The words each nature tries again. */
 const RETRIED: Readonly<Record<Nature, ReadonlySet<AttemptWord>>> = {
@@ -38,7 +36,7 @@ export const StepPathSchema = z.string().regex(/^\d+$/);
 export const StepSchema = z.strictObject({
 	/** Begun; a hold is taken back off. */
 	attempts: z.number().int().nonnegative(),
-	/** Its turn came. */
+	/** Window begun; unbegun erased on restart. */
 	startedAt: z.number().int().optional(),
 	/** The last attempt began, then answered. */
 	lastAt: z.number().int().optional(),
@@ -70,19 +68,12 @@ export const outOfTime = (step: Step, now: number): boolean =>
 export const backoffMs = (attempts: number): number =>
 	Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** Math.max(0, attempts - 1));
 
-/** A last attempt ahead of the clock is due. */
-export const attemptDue = (step: Step, now: number): boolean =>
-	step.lastAt === undefined || step.lastAt > now || now >= step.lastAt + backoffMs(step.attempts);
+/** A step whose window has begun. */
+export type Begun = Step & { startedAt: number };
 
-/** A step due this long ago goes first. */
-export const overdue = (step: Step, now: number): boolean => {
-	const since = dueSince(step);
-	return since !== null && since <= now && now - since > OVERDUE_MS;
-};
-
-/** Its last answer plus its gap, else its turn. */
-export const dueSince = (step: Step): number | null =>
-	step.lastAt !== undefined ? step.lastAt + backoffMs(step.attempts) : (step.startedAt ?? null);
+/** Its window's start, else its last answer plus its gap. */
+export const dueAt = (step: Begun): number =>
+	step.lastAt === undefined ? step.startedAt : step.lastAt + backoffMs(step.attempts);
 
 const unclaimed = ({ claimed: _claimed, ...step }: Step): Step => step;
 
@@ -93,8 +84,8 @@ const ending = (step: Step, word: StepWord, verdict: "done" | "failed"): Step =>
 });
 
 /** The step's turn has come. */
-export const begun = (step: Step, now: number): Step =>
-	step.startedAt === undefined ? { ...step, startedAt: now } : step;
+export const begun = (step: Step, now: number): Begun =>
+	step.startedAt === undefined ? { ...step, startedAt: now } : (step as Begun);
 
 export const claimed = (step: Step, now: number): Step => ({
 	...step,
@@ -103,17 +94,17 @@ export const claimed = (step: Step, now: number): Step => ({
 	claimed: true,
 });
 
-/** Nothing sent; shortest gap. */
+/** Nothing sent; waits the gap its answers earned. */
 export const unsent = (step: Step, now: number): Step => ({
 	...unclaimed(step),
 	attempts: Math.max(0, step.attempts - 1),
 	lastAt: now,
 });
 
-/** Backs off from the answer. */
-export function heard(step: Step, nature: Nature, word: AttemptWord, now: number): Step {
+/** Backs off from the answer; an unknown nature never retries. */
+export function heard(step: Step, nature: Nature | null, word: AttemptWord, now: number): Step {
 	if (word === "done") return ending(step, word, "done");
-	if (!retries(nature, word) || outOfTime(step, now)) return ending(step, word, "failed");
+	if (nature === null || !retries(nature, word) || outOfTime(step, now)) return ending(step, word, "failed");
 	return { ...unclaimed(step), word, lastAt: now };
 }
 

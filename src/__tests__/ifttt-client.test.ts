@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createIftttClient } from "../gateway/assistant/iftttClient.js";
 import { createPhoneDispatch } from "../gateway/assistant/phoneDispatch.js";
+import { automationActions } from "../gateway/compose/automationActions.js";
+import { AUTOMATION_ATTEMPT_MS } from "../gateway/compose/composeDevices.js";
 import type { VaultRelease } from "../gateway/vault/vaultUse.js";
 import {
 	type IftttTriggerAnswer,
@@ -205,5 +207,88 @@ describe("IFTTT trigger client", () => {
 		await ambient.advance(15_000);
 
 		expect(await answer).toEqual({ kind: "unavailable", reason: "timeout" });
+	});
+
+	it("gives an automation's attempt its own short bound, a vault read counted", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => 10_000 });
+		const trigger = client({
+			ambient,
+			entryId: "webhook-entry",
+			readForService: () => new Promise<VaultRelease>(() => {}),
+			fetch: async () => {
+				throw new Error("nothing is posted");
+			},
+		});
+		const port = automationActions({
+			devices: () => undefined,
+			ifttt: (request, bound) => trigger.trigger(request, bound),
+			vaultReady: () => true,
+		});
+		const attempt = port.iftttTrigger({ event: "bell" });
+
+		await ambient.advance(AUTOMATION_ATTEMPT_MS);
+
+		expect(await Promise.race([attempt, Promise.resolve("still waiting")])).toEqual({
+			hold: "its service was not ready",
+		});
+	});
+
+	it("cuts an automation's post at its own bound, the vault read counted", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => 10_000 });
+		let answer!: (release: VaultRelease) => void;
+		let posting = false;
+		const trigger = client({
+			ambient,
+			entryId: "webhook-entry",
+			readForService: () =>
+				new Promise<VaultRelease>((resolve) => {
+					answer = resolve;
+				}),
+			fetch: (_url, init) => {
+				posting = true;
+				return new Promise<Response>((_resolve, reject) => {
+					init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+				});
+			},
+		});
+		const port = automationActions({
+			devices: () => undefined,
+			ifttt: (request, bound) => trigger.trigger(request, bound),
+			vaultReady: () => true,
+		});
+		const attempt = port.iftttTrigger({ event: "bell" });
+		await ambient.advance(10_000);
+		answer({ kind: "released", value: "webhook-key" });
+		await vi.waitFor(() => expect(posting).toBe(true));
+		await ambient.advance(AUTOMATION_ATTEMPT_MS - 10_000);
+
+		expect(await Promise.race([attempt, Promise.resolve("still waiting")])).toEqual({ word: "no_answer" });
+	});
+
+	it("posts nothing once its bound is spent by the time the vault answers", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => 10_000 });
+		const posts: string[] = [];
+		const trigger = client({
+			ambient,
+			entryId: "webhook-entry",
+			readForService: () => {
+				const read = Promise.resolve<VaultRelease>({ kind: "released", value: "webhook-key" });
+				// Bound ends with read.
+				void read.then(() => ambient.advance(AUTOMATION_ATTEMPT_MS));
+				return read;
+			},
+			fetch: async (url) => {
+				posts.push(url);
+				return new Response(null, { status: 200 });
+			},
+		});
+		const port = automationActions({
+			devices: () => undefined,
+			ifttt: (request, bound) => trigger.trigger(request, bound),
+			vaultReady: () => true,
+		});
+
+		expect(await port.iftttTrigger({ event: "bell" })).toEqual({ hold: "its service was not ready" });
+		expect(posts).toEqual([]);
 	});
 });

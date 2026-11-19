@@ -6,12 +6,19 @@ import {
 	mayRun,
 	nextEffect,
 	outdatedSets,
-	type SwitchTarget,
+	readFire,
 } from "../gateway/computed/automationFires.js";
 import { type AutomationRun, fireRun, logged, REPLACED } from "../gateway/computed/automationLog.js";
 import { QUEUE_MAX_EVENTS, roomFor } from "../gateway/computed/automationOutbox.js";
-import { BACKOFF_MIN_MS, backoffMs, type Nature, OVERDUE_MS, type Step } from "../gateway/computed/automationSteps.js";
-import { AUTOMATION_ATTEMPT_MS } from "../gateway/devices/road.js";
+import type { AutomationEffect } from "../gateway/computed/automationRunner.js";
+import {
+	begun,
+	dueAt,
+	KEEP_TRYING_MS,
+	type Nature,
+	recovered,
+	type Step,
+} from "../gateway/computed/automationSteps.js";
 
 const fire = (automation: string, at: number, steps: Fire["steps"] = { "0": { attempts: 0 } }): Fire => ({
 	member: `${automation}:${at}`,
@@ -23,7 +30,8 @@ const fire = (automation: string, at: number, steps: Fire["steps"] = { "0": { at
 	steps,
 	active: [],
 });
-const begun = { "0": { attempts: 1, startedAt: 0, lastAt: 0, word: "unreachable" as const } };
+const retrying = { "0": { attempts: 1, startedAt: 0, lastAt: 0, word: "unreachable" as const } };
+const running = (automation: string, at: number): Fire => ({ ...fire(automation, at, retrying), active: ["0"] });
 const others = (count: number) => Array.from({ length: count }, (_, n) => fire(`a${n}`, 100 + n));
 const rule = { supersede: false, earlier: () => false };
 const members = (fires: readonly Fire[]) => fires.map((held) => held.member);
@@ -39,7 +47,7 @@ describe("admission past the bound", () => {
 	});
 
 	it("gives up the largest holder's oldest fire that has not started, whoever asks", () => {
-		const held = [fire("busy", 0, begun), fire("busy", 1), fire("busy", 2), ...others(FIRES_MAX - 3)];
+		const held = [running("busy", 0), fire("busy", 1), fire("busy", 2), ...others(FIRES_MAX - 3)];
 
 		const answer = admit(held, fire("late", 999), rule);
 
@@ -50,7 +58,7 @@ describe("admission past the bound", () => {
 
 	it("keeps a started run through 64 newer fires, even where its automation holds the most", () => {
 		const telling: Fire = { ...fire("busy", 1, {}), tell: { when: "now", fields: {} } };
-		let held = [fire("busy", 0, begun), telling, ...others(FIRES_MAX - 2)];
+		let held = [running("busy", 0), telling, ...others(FIRES_MAX - 2)];
 		for (let at = 0; at < 64; at++) held = admit(held, fire(`new${at}`, 500 + at), rule).fires;
 
 		expect(members(held)).toContain("busy:0");
@@ -58,7 +66,7 @@ describe("admission past the bound", () => {
 	});
 
 	it("drops an event's run past its automation's waiting cap but keeps its tell, and still replaces a clock's own waiting fire", () => {
-		const waiting = [fire("bell", 0, begun), fire("bell", 1), fire("bell", 2)];
+		const waiting = [running("bell", 0), fire("bell", 1), fire("bell", 2)];
 		const telling: Fire = { ...fire("bell", 4), tell: { when: "now", fields: {} } };
 
 		const capped = admit(waiting, fire("bell", 3), { ...rule, waitingMax: 2 });
@@ -71,7 +79,7 @@ describe("admission past the bound", () => {
 	});
 
 	it("refuses a capped event's tell when every slot is held, costing no other run", () => {
-		const held = [fire("bell", 0, begun), fire("bell", 1), fire("bell", 2), ...others(FIRES_MAX - 3)];
+		const held = [running("bell", 0), fire("bell", 1), fire("bell", 2), ...others(FIRES_MAX - 3)];
 		const telling: Fire = { ...fire("bell", 4), tell: { when: "now", fields: {} } };
 
 		const answer = admit(held, telling, { ...rule, waitingMax: 2 });
@@ -85,42 +93,36 @@ describe("admission past the bound", () => {
 });
 
 describe("the runner's next attempt", () => {
-	const turn = (held: Fire): Fire => ({ ...held, active: ["0"] });
+	const offer = (member: string, step: Step) => ({ ref: { member, path: "0" }, dueAt: dueAt(begun(step, 0)) });
 
-	it("takes a first attempt of a newer run before an older run's due retry, until the retry is overdue", () => {
-		const fires = [turn(fire("silent", 0, begun)), turn(fire("lamp", 1))];
-		// Due at `backoffMs(1)` after its last attempt.
-		const due = backoffMs(1);
+	it("takes a retry that fell due ahead of every first attempt whose turn came later", () => {
+		const retry = offer("silent:0", { attempts: 1, startedAt: 0, lastAt: 0, word: "unreachable" });
+		const later = [
+			offer("lamp:1", { attempts: 0, startedAt: 6_000 }),
+			offer("fan:2", { attempts: 0, startedAt: 7_000 }),
+		];
 
-		expect(nextEffect(fires, () => true, due)?.member).toBe("lamp:1");
-		expect(nextEffect(fires, () => true, due + OVERDUE_MS)?.member).toBe("lamp:1");
-		expect(nextEffect(fires, () => true, due + OVERDUE_MS + 1)?.member).toBe("silent:0");
-		expect(nextEffect([fires[0] as Fire], () => true, due)?.member).toBe("silent:0");
+		expect(nextEffect([...later, retry])?.member).toBe("silent:0");
+		expect(nextEffect(later)?.member).toBe("lamp:1");
 	});
 
-	it("takes a healthy first attempt that has waited longest ahead of three dead plugs' overdue retries", () => {
-		const dead = (name: string, lastAt: number) =>
-			turn(fire(name, 0, { "0": { attempts: 3, startedAt: 0, lastAt, word: "unreachable" } }));
-		const healthy = turn(fire("lamp", 1, { "0": { attempts: 0, startedAt: 10_000 } }));
-		const fires = [dead("a", 10_000), dead("b", 12_000), dead("c", 14_000), healthy];
-		// The dead ones came due at their last answer plus 20 s.
-		const now = 10_000 + OVERDUE_MS + 1;
+	it("takes a healthy first attempt ahead of dead plugs whose gaps put them later, and a resumed retry from its turn", () => {
+		const dead = (member: string, lastAt: number) =>
+			offer(member, { attempts: 3, startedAt: 0, lastAt, word: "unreachable" });
+		const healthy = offer("lamp:1", { attempts: 0, startedAt: 10_000 });
+		const resumed = offer("heat:0", { attempts: 1, startedAt: 9_000 });
 
-		expect(nextEffect(fires, () => true, now)?.member).toBe("lamp:1");
-		expect(nextEffect(fires.slice(1), () => true, 200_000)?.member).toBe("lamp:1");
-		expect(nextEffect(fires.slice(1, 3), () => true, 200_000)?.member).toBe("b:0");
+		expect(nextEffect([dead("a:0", 10_000), dead("b:0", 12_000), dead("c:0", 14_000), healthy])?.member).toBe(
+			"lamp:1",
+		);
+		expect(nextEffect([healthy, resumed])?.member).toBe("heat:0");
 	});
 
-	it("measures a resumed retry with no last attempt from its turn, so a stream of first attempts cannot starve it", () => {
-		const resumed = turn(fire("heat", 0, { "0": { attempts: 1, startedAt: 0 } }));
-		const fresh = (at: number) => turn(fire(`new${at}`, at, { "0": { attempts: 0, startedAt: at } }));
+	it("breaks a tie by fire order", () => {
+		const tied = [offer("a:0", { attempts: 0, startedAt: 5_000 }), offer("b:0", { attempts: 0, startedAt: 5_000 })];
 
-		expect(nextEffect([resumed, fresh(OVERDUE_MS)], () => true, OVERDUE_MS)?.member).toBe("new20000:20000");
-		expect(nextEffect([resumed, fresh(OVERDUE_MS + 1)], () => true, OVERDUE_MS + 1)?.member).toBe("heat:0");
-	});
-
-	it("bounds the overdue rule by one device attempt and the shortest gap", () => {
-		expect(OVERDUE_MS).toBe(AUTOMATION_ATTEMPT_MS + BACKOFF_MIN_MS);
+		expect(nextEffect(tied)?.member).toBe("a:0");
+		expect(nextEffect([])).toBeNull();
 	});
 
 	it("gives an automation's turn to its oldest fire with steps, past a fire waiting only to tell", () => {
@@ -133,9 +135,10 @@ describe("the runner's next attempt", () => {
 describe("a switch set that landed", () => {
 	const on = (automation: string, at: number, step: Step = { attempts: 1, startedAt: 0, lastAt: 0 }) =>
 		fire(automation, at, { "0": step, "1": { attempts: 0 } });
-	const targetOf = (held: Fire, path: string): SwitchTarget => ({
+	const targetOf = (held: Fire, path: string): AutomationEffect => ({
+		kind: "device_set",
 		device: held.automation === "fan" ? "fan-plug" : `plug-${path}`,
-		nature: held.automation.startsWith("flip") ? "nudges" : "sets",
+		verb: held.automation.startsWith("flip") ? "toggle" : "on",
 	});
 	const landedSet = (at: number, nature: Nature = "sets") => [{ member: `cool:${at}`, device: "plug-0", nature, at }];
 
@@ -174,15 +177,44 @@ describe("a switch set that landed", () => {
 });
 
 describe("a fire whose step's turn began", () => {
-	it("is started, so neither a newer fire of its own nor a crowd replaces it", () => {
-		const holding = fire("bell", 0, { "0": { attempts: 0, startedAt: 0 } });
+	it("is started even once a restart erased its window, so neither a newer fire of its own nor a crowd replaces it", () => {
+		const held = { attempts: 0, startedAt: 0, lastAt: 0 };
+		const holding: Fire = {
+			...fire("bell", 0, { "0": recovered(held, "sends", KEEP_TRYING_MS * 3) }),
+			active: ["0"],
+		};
 
 		const replaced = admit([holding], fire("bell", 1), { supersede: true, earlier: () => true });
-		let held = [holding, ...others(FIRES_MAX - 1)];
-		for (let at = 0; at < 64; at++) held = admit(held, fire(`new${at}`, 500 + at), rule).fires;
+		let crowd = [holding, ...others(FIRES_MAX - 1)];
+		for (let at = 0; at < 64; at++) crowd = admit(crowd, fire(`new${at}`, 500 + at), rule).fires;
 
 		expect(members(replaced.fires)).toEqual(["bell:0", "bell:1"]);
-		expect(members(held)).toContain("bell:0");
+		expect(members(crowd)).toContain("bell:0");
+	});
+});
+
+describe("a fire an 8.14.84 build stored", () => {
+	const legacy = (at: number, effects: Record<string, string>) => ({
+		member: `bell:${at}`,
+		automation: "bell",
+		incarnation: "i",
+		revision: 1,
+		seq: 0,
+		at,
+		effects,
+	});
+
+	it("reads unstarted while every effect was pending, so it is replaced and counted waiting, and started once one ran", () => {
+		const waiting = readFire(legacy(0, { "0": "pending", "1": "pending" })) as Fire;
+		const ran = readFire(legacy(1, { "0": "done", "1": "pending" })) as Fire;
+
+		const replaced = admit([waiting], fire("bell", 9), { supersede: true, earlier: () => true });
+		const capped = admit([waiting], fire("bell", 9), { ...rule, waitingMax: 1 });
+		const kept = admit([ran], fire("bell", 9), { supersede: true, earlier: () => true });
+
+		expect(members(replaced.fires)).toEqual(["bell:9"]);
+		expect(capped.admitted).toBe(false);
+		expect(members(kept.fires)).toEqual(["bell:1", "bell:9"]);
 	});
 });
 

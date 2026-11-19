@@ -1,3 +1,4 @@
+import { linkedSignal } from "../../../shared/ambient.js";
 import type { DeviceRecord } from "../../../shared/schemasDevices.js";
 import { DeviceSettingPutSchema, DeviceSettingsSchema, normalizeDeviceMac } from "../../../shared/schemasDevices.js";
 import {
@@ -12,9 +13,10 @@ import {
 } from "../driver.js";
 import { cloudBound, disconnectCloud, getCloudInfo } from "./cloud.js";
 import { deviceSchedule, putSchedule, rulesFromAnswer } from "./schedule.js";
-import { createKasaTransport, type KasaTransport } from "./transport.js";
+import { createKasaTransport, KASA_CONNECT_MS, type KasaTransport } from "./transport.js";
 
 type JsonRecord = Record<string, unknown>;
+type Wire = Pick<DeviceOperationContext, "ambient" | "signal">;
 
 const TIMEZONE_NAMES = [
 	"Etc/GMT+12",
@@ -268,22 +270,30 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 		module: string,
 		name: string,
 		args: JsonRecord,
-		signal: AbortSignal,
+		ctx: Wire,
 	): Promise<JsonRecord> => {
+		const connect = linkedSignal(ctx.ambient, { ms: KASA_CONNECT_MS, reason: "Kasa connect bound" });
 		try {
-			const response = await transport.request(address, { [module]: { [name]: args } }, signal);
+			const response = await transport.request(
+				address,
+				{ [module]: { [name]: args } },
+				ctx.signal,
+				connect.signal,
+			);
 			return responseBody(response, module, name);
 		} catch (error) {
 			if (error instanceof DeviceDriverFailure) throw error;
 			throw new DeviceDriverFailure({ kind: "unreachable", detail: messageOf(error) });
+		} finally {
+			connect.dispose();
 		}
 	};
 
-	const sysinfo = (address: string, signal: AbortSignal) =>
-		command(address, "system", "get_sysinfo", {}, signal).then(normalizeSysinfo);
+	const sysinfo = (address: string, ctx: Wire) =>
+		command(address, "system", "get_sysinfo", {}, ctx).then(normalizeSysinfo);
 
 	const identifyInfo = async (record: DeviceRecord, ctx: DeviceOperationContext): Promise<JsonRecord> => {
-		const info = await sysinfo(record.address, ctx.signal);
+		const info = await sysinfo(record.address, ctx);
 		const actual = sysinfoMac(info);
 		if (actual !== record.id) {
 			throw new DeviceDriverFailure({
@@ -301,12 +311,13 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 		build: (identity: JsonRecord) => { args: JsonRecord; value: T },
 		ctx: DeviceOperationContext,
 	): Promise<{ response: JsonRecord; value: T }> => {
+		ctx.effect.carry();
 		const identity = await identifyInfo(record, ctx);
 		const mutation = build(identity);
 		const deny = ctx.effect.attempt();
 		let response: JsonRecord;
 		try {
-			response = await command(record.address, module, name, mutation.args, ctx.signal);
+			response = await command(record.address, module, name, mutation.args, ctx);
 		} catch (error) {
 			if (error instanceof DeviceDriverFailure) {
 				const failure = error.failure;
@@ -328,7 +339,7 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 	};
 
 	const readScheduleVerified = async (record: DeviceRecord, ctx: DeviceOperationContext) => {
-		const answer = await command(record.address, "schedule", "get_rules", {}, ctx.signal);
+		const answer = await command(record.address, "schedule", "get_rules", {}, ctx);
 		return deviceSchedule(answer, rulesFromAnswer(answer));
 	};
 
@@ -339,11 +350,9 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 	): Promise<DeviceSettings> => {
 		const ledOff = flag(info.led_off);
 		if (ledOff === null) failUnreachable("Kasa system info omitted led_off");
-		const time = await command(record.address, "time", "get_time", {}, ctx.signal);
-		const timezone = await command(record.address, "time", "get_timezone", {}, ctx.signal);
-		const cloud = await getCloudInfo((module, name, args) =>
-			command(record.address, module, name, args, ctx.signal),
-		);
+		const time = await command(record.address, "time", "get_time", {}, ctx);
+		const timezone = await command(record.address, "time", "get_timezone", {}, ctx);
+		const cloud = await getCloudInfo((module, name, args) => command(record.address, module, name, args, ctx));
 		const clock = clockValue(time, timezone);
 		const parsed = DeviceSettingsSchema.safeParse({
 			driver: "kasa",
@@ -366,10 +375,11 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 			return readScheduleVerified(record, ctx);
 		},
 		put: async (schedule: DeviceSchedule) => {
+			ctx.effect.carry();
 			await identifyInfo(record, ctx);
 			return putSchedule(schedule, {
 				signal: ctx.signal,
-				getRules: () => command(record.address, "schedule", "get_rules", {}, ctx.signal),
+				getRules: () => command(record.address, "schedule", "get_rules", {}, ctx),
 				mutate: (name, args) => mutate(record, "schedule", name, args, ctx),
 				readBack: async () => {
 					await identifyInfo(record, ctx);
@@ -382,6 +392,7 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 	const settingsAccess = (record: DeviceRecord, ctx: DeviceOperationContext) => ({
 		read: () => readSettings(record, ctx),
 		put: async (setting: DeviceSetting) => {
+			ctx.effect.carry();
 			const checked = DeviceSettingPutSchema.safeParse(setting);
 			if (!checked.success || checked.data.driver !== "kasa") invalid("Invalid setting");
 			const put = checked.data.setting;
@@ -391,7 +402,7 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 				await mutate(record, "system", "set_led_off", { off: put.value ? 0 : 1 }, ctx);
 			} else {
 				await disconnectCloud(
-					(module, name, args) => command(record.address, module, name, args, ctx.signal),
+					(module, name, args) => command(record.address, module, name, args, ctx),
 					(name, args) => mutate(record, "cnCloud", name, args, ctx),
 				);
 			}
@@ -401,7 +412,7 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 
 	return {
 		kinds: () => ["switch"],
-		identify: async (address, ctx) => sysinfoMac(await sysinfo(address, ctx.signal)),
+		identify: async (address, ctx) => sysinfoMac(await sysinfo(address, ctx)),
 		read: async (record, ctx): Promise<DeviceReadAnswer> => {
 			const info = await identifyInfo(record, ctx);
 			const state = stateFromSysinfo(info);

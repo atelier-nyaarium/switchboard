@@ -1,5 +1,6 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { type Advert, familyOf, unsupported } from "../../shared/ble-recognition.js";
+import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../../shared/console-protocol.js";
 import { definitionOf, identifies, SHIPPED_DEFINITIONS } from "../../shared/device-definitions/index.js";
 import { type FieldRef, refKey } from "../../shared/expressions.js";
 import { toDisplay } from "../../shared/field-types.js";
@@ -25,14 +26,15 @@ import {
 	dangerActOf,
 } from "../../shared/schemasDeviceTool.js";
 import { deviceCapabilitiesOf } from "../../shared/schemasIntegrations.js";
+import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import type { WatchedReading } from "../computed/automations.js";
 import type { FieldInput } from "../computed/computedFields.js";
 import type { HeardSensor } from "../computed/sensorSilence.js";
 import type { DeviceConsole } from "../console/consoleTypes.js";
 import type { DeviceVerb, SensorReads } from "../devices/driver.js";
 import { createHomeNetwork, type WifiNetworkRelay } from "../devices/homeNetwork.js";
-import type { KasaTransport } from "../devices/kasa/transport.js";
-import { createDeviceRoad, Decline, type Plug, type Shape, type Slot, type Surface, unwrap } from "../devices/road.js";
+import { KASA_CONNECT_MS, type KasaTransport } from "../devices/kasa/transport.js";
+import { createDeviceRoad, Decline, type Outcome, type Plug, type Shape, type Slot, unwrap } from "../devices/road.js";
 import { createDeviceScan, type KasaScanRelay } from "../devices/scan.js";
 import { createSensorReadings, staleAt } from "../devices/sensorReadings.js";
 import { assistantShape, consoleShape } from "../devices/shapes.js";
@@ -43,9 +45,21 @@ const isSensorDriver = (family: string): family is DriverOf<"sensor"> =>
 
 /** Per-plug bounds. */
 export const DEVICE_IDENTIFY_WAIT_MS = 3_000;
-export const DEVICE_READ_WAIT_MS = 5_000;
+/** Past the connect bound, so a dead plug reads unreachable. */
+export const DEVICE_READ_WAIT_MS = KASA_CONNECT_MS + 2_000;
 /** Phones listen at low power. */
 const DEVICE_SENSOR_STALE_AFTER_MS = { gateway: 15 * 60_000, phones: 30 * 60_000 } as const;
+
+type Surface = "console" | "assistant";
+
+/** Each surface's lease, the queue counted. */
+const BOUND_MS: Readonly<Record<Surface, number>> = {
+	console: CONSOLE_ANSWER_WAIT_MS - CONSOLE_HOP_MARGIN_MS,
+	assistant: ASSISTANT_WAITS.action,
+};
+
+/** One automation attempt, the queue counted. */
+export const AUTOMATION_ATTEMPT_MS = 15_000;
 
 export interface DeviceStageDeps {
 	dataDir: string;
@@ -71,8 +85,7 @@ export type DeviceAssistant = <Op extends DeviceToolOp>(
 export interface DeviceStage {
 	console: DeviceConsole;
 	assistant: DeviceAssistant;
-	/** `not_started`: nothing sent by its deadline. */
-	automationSet: (id: string, verb: DeviceVerb) => Promise<DeviceToolResult<"device_set"> | "not_started">;
+	automationSet: (id: string, verb: DeviceVerb) => Promise<Outcome<void>>;
 	record: (id: string) => DeviceRecord | null;
 	records: () => readonly DeviceRecord[];
 	/** Unread rows included. */
@@ -217,11 +230,11 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		plug: (plug: Plug) => Promise<A>,
 	): Promise<A> =>
 		road.reads.get(id)?.kind === "sensor"
-			? road.onSlot(surface, shape, id, async (slot) => {
+			? road.onSlot(BOUND_MS[surface], shape, id, async (slot) => {
 					if (slot.record?.kind !== "sensor") throw new Decline({ kind: "refused", code: "not_found" });
 					return sensor({ ...slot, record: slot.record });
 				})
-			: road.onDevice(surface, shape, id, plug);
+			: road.onDevice(BOUND_MS[surface], shape, id, plug);
 
 	/** No identify for sensors. */
 	const addSensor = (
@@ -275,7 +288,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 
 	const bodies: Bodies = {
 		device_list: (surface, shape) =>
-			road.operation(surface, shape, async () => {
+			road.operation(BOUND_MS[surface], shape, async () => {
 				const bluetooth = runScan.bluetooth();
 				return { kind: "ok", ...road.reads.list(), ...(bluetooth === undefined ? {} : { bluetooth }) };
 			}),
@@ -309,7 +322,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 			return { kind: "ok" };
 		},
 		device_scan: (surface, shape) =>
-			road.operation(surface, shape, async (op) => {
+			road.operation(BOUND_MS[surface], shape, async (op) => {
 				const found = await op.race(runScan());
 				if (found.kind === "refused") throw new Decline({ kind: "refused", code: found.code });
 				nearbySightings.clear();
@@ -339,13 +352,13 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				};
 			}),
 		device_home_network: (surface, shape) =>
-			road.operation(surface, shape, async (op) => {
+			road.operation(BOUND_MS[surface], shape, async (op) => {
 				const found = await op.race(readHomeNetwork());
 				if (found.kind === "refused") throw new Decline({ kind: "refused", code: found.code });
 				return { kind: "ok", ssid: found.ssid };
 			}),
 		device_add: (surface, shape, op) =>
-			road.onSlot(surface, shape, op.mac, async (slot) => {
+			road.onSlot(BOUND_MS[surface], shape, op.mac, async (slot) => {
 				const refusal = deviceNameRefusal(op.name);
 				if (refusal) throw new Decline({ kind: "refused", code: "invalid", text: refusal });
 				if (op.radio !== undefined) return { kind: "ok", record: addSensor(slot, op, op.radio) };
@@ -385,17 +398,17 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				},
 			),
 		device_remove: (surface, shape, op) =>
-			road.onSlot(surface, shape, op.id, async (slot) => {
+			road.onSlot(BOUND_MS[surface], shape, op.id, async (slot) => {
 				unwrap(slot.write.remove(op.revision));
 				return { kind: "ok" };
 			}),
 		device_set: (surface, shape, op) =>
-			road.onDevice(surface, shape, op.id, async (plug) => ({
+			road.onDevice(BOUND_MS[surface], shape, op.id, async (plug) => ({
 				kind: "ok",
 				state: await relay(plug, op.verb),
 			})),
 		device_schedule_put: (surface, shape, op) =>
-			road.onDevice(surface, shape, op.id, async (plug) => {
+			road.onDevice(BOUND_MS[surface], shape, op.id, async (plug) => {
 				plug.expect(op.revision);
 				const held = await plug.drive((ctx) => plug.driver.schedule(plug.record, ctx).read());
 				if (!sameSchedule(held, op.base)) {
@@ -409,7 +422,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 				return { kind: "ok", schedule };
 			}),
 		device_setting_put: (surface, shape, op) =>
-			road.onDevice(surface, shape, op.id, async (plug) => {
+			road.onDevice(BOUND_MS[surface], shape, op.id, async (plug) => {
 				plug.expect(op.revision);
 				const settings = await plug.drive((ctx) => plug.driver.settings(plug.record, ctx).put(op.setting));
 				return { kind: "ok", settings };
@@ -423,7 +436,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		body(op.kind)("console", consoleShape(op.kind), op) as Promise<DeviceConsoleResult<never>>;
 
 	const listForAssistant = (): Promise<DeviceToolResult<"device_list">> =>
-		road.operation("assistant", assistantShape("device_list"), async (op) => {
+		road.operation(BOUND_MS.assistant, assistantShape("device_list"), async (op) => {
 			const devices = await Promise.all(
 				road.reads.list().records.map(async (record) => {
 					if (record.kind === "sensor") {
@@ -477,7 +490,6 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		op: Op,
 		approval: "approved" | undefined,
 		shape: Shape<A>,
-		surface: Extract<Surface, "assistant" | "automation"> = "assistant",
 	): Promise<A> => {
 		if (approval !== "approved" && "id" in op && dangerActOf(op, road.reads.get(op.id)?.driver)) {
 			return Promise.resolve(
@@ -486,7 +498,7 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		}
 		// Assistant schema narrows the body.
 		const narrowed = shape as unknown as Shape<DeviceConsoleResult<Op["kind"]>>;
-		return body(op.kind)(surface, narrowed, op) as unknown as Promise<A>;
+		return body(op.kind)("assistant", narrowed, op) as unknown as Promise<A>;
 	};
 
 	const assistant: DeviceAssistant = <Op extends DeviceToolOp>(op: Op, approval?: "approved") => {
@@ -495,15 +507,12 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 		return assistantRun(op, approval, assistantShape(op.kind as DeviceToolOpKind)) as Result;
 	};
 
-	const automationSet: DeviceStage["automationSet"] = (id, verb) => {
-		const shape = assistantShape("device_set");
-		return assistantRun(
-			{ kind: "device_set", id, verb },
-			undefined,
-			{ ...shape, decline: (why) => (why.kind === "notStarted" ? "not_started" : shape.decline(why)) },
-			"automation",
+	const automationSet: DeviceStage["automationSet"] = (id, verb) =>
+		road.operation(AUTOMATION_ATTEMPT_MS, { decline: (why): Outcome<void> => ({ ok: false, why }) }, (op) =>
+			op.plug(id, async (plug) => {
+				await relay(plug, verb);
+			}),
 		);
-	};
 
 	return {
 		console: deviceConsole,

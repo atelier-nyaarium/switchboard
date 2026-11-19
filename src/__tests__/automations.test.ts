@@ -9,7 +9,9 @@ import { memberKey } from "../gateway/assistant/sourceLane.js";
 import { FRESH_STATE, type SourceState } from "../gateway/assistant/sourceState.js";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
+import { versionKey } from "../gateway/computed/automationState.js";
 import {
+	BACKOFF_MAX_MS,
 	BACKOFF_MIN_MS,
 	type createAutomations,
 	KEEP_TRYING_MS,
@@ -1187,6 +1189,161 @@ describe("automations", () => {
 		]);
 	});
 
+	describe("a fire whose automation is edited while it runs", () => {
+		const on = { kind: "device_set", device: "plug", verb: "on" } as const;
+		const toggle = { kind: "device_set", device: "plug", verb: "toggle" } as const;
+		const editedMidAttempt = (w: ReturnType<typeof world>, other: Automation["actions"][number]) => {
+			const { fields, automations } = w.open();
+			fields.put("band", hotBand, 0);
+			automations.ownerPut("run", { ...iceBucket(), actions: [on] }, 0);
+			const release = w.holdEffects("plug:on");
+			w.read(fields, -5);
+			const edited = automations.ownerPut("run", { ...iceBucket(), actions: [other] }, 1, true);
+			return { automations, release, edited };
+		};
+
+		it("logs the kind that ran, and keeps the body each held fire fired with", async () => {
+			const dir = fresh();
+			const w = world(dir);
+			const { automations, release, edited } = editedMidAttempt(w, { kind: "ifttt_trigger", event: "bell" });
+			const stored = JSON.parse(fs.readFileSync(path.join(dir, "automation-state.json"), "utf8"));
+			release();
+			await automations.settled();
+
+			expect(edited.stored).toBe(true);
+			expect(
+				stored.fires.every((held: Parameters<typeof versionKey>[0]) => versionKey(held) in stored.versions),
+			).toBe(true);
+			expect(automations.runs().map((run) => [run.action, run.outcome])).toEqual([["device_set", "ran"]]);
+		});
+
+		it("ends an On a crash left out as no answer, never resumed, logging what ran", async () => {
+			const dir = fresh();
+			const w = world(dir);
+			editedMidAttempt(w, toggle);
+			w.holdEffects("none");
+			const after = w.open().automations;
+			await after.settled();
+
+			expect(w.effects).toEqual(["plug:on"]);
+			expect(after.runs().map((run) => [run.action, run.outcome])).toEqual([["device_set", "uncertain"]]);
+		});
+
+		it("ends an On that answered no answer as uncertain, not retried, once it was edited", async () => {
+			const w = world(fresh());
+			w.answerDevices(() => ({ word: "no_answer" }));
+			const { automations, release } = editedMidAttempt(w, toggle);
+			release();
+			await automations.settled();
+			w.advance(BACKOFF_MAX_MS);
+			automations.tick();
+			await automations.settled();
+
+			expect(w.effects).toEqual(["plug:on"]);
+			expect(automations.runs().map((run) => [run.action, run.outcome])).toEqual([["device_set", "uncertain"]]);
+		});
+
+		describe("an On waiting to retry after no answer", () => {
+			const waiting = (w: ReturnType<typeof world>, actions: Automation["actions"]) => {
+				const { fields, automations } = w.open();
+				fields.put("band", hotBand, 0);
+				automations.ownerPut("run", { ...iceBucket(), actions }, 0);
+				w.answerDevices(() => ({ word: "no_answer" }));
+				w.read(fields, -5);
+				return automations;
+			};
+			const rows = (automations: ReturnType<ReturnType<typeof world>["open"]>["automations"]) =>
+				automations.runs().map((run) => [run.action, run.outcome]);
+
+			it("ends with that word when its automation is edited in the gap, then one row for the steps unreached", async () => {
+				const alone = world(fresh());
+				const one = waiting(alone, [on]);
+				await one.settled();
+				one.ownerPut("run", { ...iceBucket(), actions: [toggle] }, 1, true);
+				await one.settled();
+				const pair = world(fresh());
+				const two = waiting(pair, [on, toggle]);
+				await two.settled();
+				two.ownerPut("run", { ...iceBucket(), actions: [toggle] }, 1, true);
+				await two.settled();
+				for (const [w, automations] of [
+					[alone, one],
+					[pair, two],
+				] as const) {
+					w.advance(BACKOFF_MAX_MS);
+					automations.tick();
+					await automations.settled();
+				}
+
+				expect([alone.effects, pair.effects]).toEqual([["plug:on"], ["plug:on"]]);
+				expect(rows(one)).toEqual([["device_set", "uncertain"]]);
+				expect(rows(two)).toEqual([
+					["device_set", "uncertain"],
+					[undefined, "suppressed"],
+				]);
+			});
+
+			it("ends with that word when a restart finds its automation edited in the gap", async () => {
+				const dir = fresh();
+				const w = world(dir);
+				const before = waiting(w, [on]);
+				await before.settled();
+				w.failWrites(100);
+				const edited = before.ownerPut("run", { ...iceBucket(), actions: [toggle] }, 1, true);
+				await before.settled();
+				w.failWrites(0);
+				const after = w.open().automations;
+				await after.settled();
+
+				expect(edited.stored).toBe(true);
+				expect(w.effects).toEqual(["plug:on"]);
+				expect(rows(after)).toEqual([["device_set", "uncertain"]]);
+			});
+		});
+
+		it("logs one suppressed row for the steps an edit left unreached", async () => {
+			const w = world(fresh());
+			const { fields, automations } = w.open();
+			fields.put("band", hotBand, 0);
+			automations.ownerPut("run", { ...iceBucket(), actions: [on, toggle] }, 0);
+			const release = w.holdEffects("plug:on");
+			w.read(fields, -5);
+			automations.ownerPut("run", { ...iceBucket(), actions: [toggle] }, 1, true);
+			release();
+			await automations.settled();
+
+			expect(w.effects).toEqual(["plug:on"]);
+			expect(automations.runs().map((run) => [run.action, run.outcome])).toEqual([
+				["device_set", "ran"],
+				[undefined, "suppressed"],
+			]);
+		});
+	});
+
+	it("pins and resumes a claimed On from a state written with no versions, its record unchanged", async () => {
+		const dir = fresh();
+		const w = world(dir);
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut(
+			"heat",
+			{ ...iceBucket(), actions: [{ kind: "device_set", device: "plug", verb: "on" }] },
+			0,
+		);
+		w.holdEffects("plug:on");
+		w.read(fields, -5);
+		const file = path.join(dir, "automation-state.json");
+		const { versions: _versions, ...live } = JSON.parse(fs.readFileSync(file, "utf8"));
+		fs.writeFileSync(file, JSON.stringify(live));
+		w.holdEffects("none");
+		const after = w.open().automations;
+		await after.settled();
+
+		expect(live.fires[0].steps["0"].claimed).toBe(true);
+		expect(w.effects).toEqual(["plug:on", "plug:on"]);
+		expect(after.runs().map((run) => [run.action, run.outcome])).toEqual([["device_set", "ran"]]);
+	});
+
 	it("never reruns a fire a graceful stop let land", async () => {
 		const w = world(fresh());
 		const before = w.open();
@@ -1457,6 +1614,23 @@ describe("automations", () => {
 			expect(w.effects).toEqual(["plug:on"]);
 		});
 
+		it("retries a step the moment its gap ends, not a millisecond before", async () => {
+			const { w, fields, automations } = setUp([on]);
+			let answers = 0;
+			w.answerDevices(() => (++answers === 1 ? { word: "unreachable" } : { word: "done" }));
+			w.read(fields, -5);
+			await automations.settled();
+			w.advance(BACKOFF_MIN_MS - 1);
+			automations.tick();
+			await automations.settled();
+			const early = [...w.effects];
+			w.advance(1);
+			automations.tick();
+			await automations.settled();
+
+			expect([early, w.effects]).toEqual([["plug:on"], ["plug:on", "plug:on"]]);
+		});
+
 		const neverThrough = async (blocked: (w: ReturnType<typeof world>) => void) => {
 			const w = world(fresh());
 			const { automations } = w.open();
@@ -1558,6 +1732,29 @@ describe("automations", () => {
 			fs.writeFileSync(file, JSON.stringify(stored));
 			return dir;
 		};
+		it("retires the fires of a state with no versions whose automation was edited since, sending nothing", async () => {
+			const dir = storedWith((fires) => fires);
+			const records = path.join(dir, "automations.json");
+			const [held] = JSON.parse(fs.readFileSync(records, "utf8"));
+			fs.writeFileSync(records, JSON.stringify([{ ...held, revision: 2 }]));
+			const w = world(dir);
+			w.advance(10_000);
+			const { automations } = w.open();
+			await automations.settled();
+
+			expect(w.effects).toEqual([]);
+			expect(
+				automations
+					.runs()
+					.filter((run) => run.outcome !== "ran")
+					.map((run) => [run.seq, run.outcome]),
+			).toEqual([
+				[1, "uncertain"],
+				[1, "suppressed"],
+				[3, "suppressed"],
+			]);
+		});
+
 		const uncertain = (automations: ReturnType<typeof createAutomations>) =>
 			automations
 				.runs()

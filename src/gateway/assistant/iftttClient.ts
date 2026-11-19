@@ -28,8 +28,12 @@ function bounded<T>(promise: Promise<T>, signal: Linked): Promise<T> {
 
 export function createIftttClient(deps: IftttClientDeps) {
 	return {
-		async trigger(params: IftttTriggerRequest): Promise<IftttTriggerAnswer> {
-			const action = linkedSignal(deps.ambient, { ms: ASSISTANT_WAITS.action, reason: TIMEOUT });
+		/** `bound`: the whole call, the vault read counted. */
+		async trigger(
+			params: IftttTriggerRequest,
+			bound: number = ASSISTANT_WAITS.action,
+		): Promise<IftttTriggerAnswer> {
+			const action = linkedSignal(deps.ambient, { ms: bound, reason: TIMEOUT });
 			try {
 				const entryId = deps.vault.entryId();
 				if (entryId === undefined) throw new GatewayCapabilityRefusal("not_granted");
@@ -41,7 +45,8 @@ export function createIftttClient(deps: IftttClientDeps) {
 					throw new GatewayCapabilityRefusal("not_ready");
 				}
 				if (grant.kind === "unusable") throw new GatewayCapabilityRefusal("not_granted");
-				if (grant.kind !== "released") throw new GatewayCapabilityRefusal("not_ready");
+				// Bound spent; nothing sent.
+				if (grant.kind !== "released" || action.signal.aborted) throw new GatewayCapabilityRefusal("not_ready");
 
 				const request = linkedSignal(deps.ambient, {
 					parent: action.signal,

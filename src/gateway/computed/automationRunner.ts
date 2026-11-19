@@ -17,13 +17,13 @@ export type AutomationEffect = Exclude<AutomationAction, { kind: "tell_assistant
 
 const VERB_NATURES: Readonly<Record<DeviceVerb, Nature>> = { on: "sets", off: "sets", toggle: "nudges" };
 
-const NATURES: { [K in AutomationEffect["kind"]]: (action: Extract<AutomationEffect, { kind: K }>) => Nature } = {
+const KIND_NATURES: { [K in AutomationEffect["kind"]]: (action: Extract<AutomationEffect, { kind: K }>) => Nature } = {
 	device_set: (action) => VERB_NATURES[action.verb],
 	ifttt_trigger: () => "sends",
 };
 
 export const natureOf = (action: AutomationEffect): Nature =>
-	(NATURES[action.kind] as (action: AutomationEffect) => Nature)(action);
+	(KIND_NATURES[action.kind] as (action: AutomationEffect) => Nature)(action);
 
 export type IftttParams = Omit<Extract<AutomationAction, { kind: "ifttt_trigger" }>, "kind">;
 

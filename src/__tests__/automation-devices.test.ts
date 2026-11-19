@@ -4,11 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { automationActions } from "../gateway/compose/automationActions.js";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
-import { composeDevices } from "../gateway/compose/composeDevices.js";
+import { AUTOMATION_ATTEMPT_MS, composeDevices } from "../gateway/compose/composeDevices.js";
 import { type Automations, BACKOFF_MIN_MS } from "../gateway/computed/automations.js";
-import { DeviceDriverFailure } from "../gateway/devices/driver.js";
-import { createKasaTransport } from "../gateway/devices/kasa/transport.js";
-import { AUTOMATION_ATTEMPT_MS, CONNECT_FLOOR_MS } from "../gateway/devices/road.js";
+import { type DeviceDriverError, DeviceDriverFailure } from "../gateway/devices/driver.js";
+import { createKasaTransport, KASA_CONNECT_MS } from "../gateway/devices/kasa/transport.js";
 import { unknown } from "../shared/expressions.js";
 import type { Automation } from "../shared/schemasAutomation.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -66,17 +65,25 @@ async function plugs() {
 		dataDir: dir,
 		ambient,
 		transport: {
-			request: (address, command, signal) => {
+			request: (address, command, signal, connectBy) => {
 				if (JSON.stringify(command).includes("set_relay_state")) relayOrder.push(address);
 				if (!dead.has(address))
-					return createKasaTransport(ports[address] as number).request("127.0.0.1", command, signal);
+					return createKasaTransport(ports[address] as number).request(
+						"127.0.0.1",
+						command,
+						signal,
+						connectBy,
+					);
 				dials++;
-				// As the transport answers a connect its deadline cut.
-				return new Promise((_, reject) =>
-					signal.addEventListener("abort", () =>
-						reject(new DeviceDriverFailure({ kind: "timeout", detail: "never opened", sent: false })),
-					),
-				);
+				// Mirrors the real transport
+				return new Promise((_, reject) => {
+					const never = (failure: DeviceDriverError) => () => reject(new DeviceDriverFailure(failure));
+					signal.addEventListener("abort", never({ kind: "timeout", detail: "cut", sent: false }));
+					connectBy?.addEventListener(
+						"abort",
+						never({ kind: "unreachable", detail: "never accepted", sent: false }),
+					);
+				});
 			},
 		},
 		relayToHost: async () => ({ ok: false, errorKind: "daemon_away" }) as never,
@@ -148,28 +155,79 @@ describe("automations on real plugs", () => {
 		expect(await written).toEqual({ word: "no_answer" });
 	});
 
-	it("answers a hold when the queue leaves less than a connect's floor of its bound", async () => {
+	it("starts an effect only with its floor of the bound left: three seconds lands, a third of a second holds unwritten", async () => {
 		const { lamp, ambient, devices, actions } = await plugs();
-
 		const busy = devices.console({ kind: "device_set", id: LAMP, verb: "on" });
 		await lamp.waitForHeldReply();
-		const queued = actions.deviceSet(LAMP, "on");
-		await ambient.advance(AUTOMATION_ATTEMPT_MS - CONNECT_FLOOR_MS + 1);
+		const roomy = actions.deviceSet(LAMP, "on");
+		await ambient.advance(AUTOMATION_ATTEMPT_MS - 3_000);
 		lamp.releaseHeldReplies();
 		await busy;
+		const landed = await roomy;
 
-		expect(await queued).toHaveProperty("hold");
+		const { lamp: blocker, ambient: later, devices: again, actions: then } = await plugs();
+		const held = again.console({ kind: "device_set", id: LAMP, verb: "toggle" });
+		await blocker.waitForHeldReply();
+		const tight = then.deviceSet(LAMP, "toggle");
+		await later.advance(AUTOMATION_ATTEMPT_MS - 300);
+		blocker.releaseHeldReplies();
+		await held;
+		const skipped = await tight;
+		const written = relays(blocker);
+
+		expect(landed).toEqual({ word: "done" });
+		expect([skipped, written]).toEqual([{ hold: "nothing was sent in time" }, 1]);
+		expect(await then.deviceSet(LAMP, "toggle")).toEqual({ word: "done" });
 	});
 
-	it("ends a Toggle at once and retries an On when a plug's connect never opens, leaving the assistant's hold as it was", async () => {
+	it("reads a plug that never accepts as unreachable in the assistant's device list", async () => {
+		const { ambient, devices, kill, dials } = await plugs();
+		kill("10.0.0.1");
+		const listing = devices.assistant({ kind: "device_list" });
+		await vi.waitFor(() => expect(dials()).toBe(1));
+		await ambient.advance(KASA_CONNECT_MS);
+
+		const answer = await listing;
+		const states =
+			answer.kind === "ok"
+				? answer.devices.map((device) => [device.id, "state" in device ? device.state : null])
+				: answer;
+		expect(states).toEqual(
+			expect.arrayContaining([
+				[LAMP, "unreachable"],
+				[FAN, "off"],
+				[HEATER, "off"],
+			]),
+		);
+	});
+
+	it("holds a dead plug's turn that the bound cuts before its connect gives up", async () => {
+		const { lamp: blocker, ambient: later, devices: again, actions: then, kill, dials } = await plugs();
+		const held = again.console({ kind: "device_set", id: LAMP, verb: "on" });
+		await blocker.waitForHeldReply();
+		const cut = then.deviceSet(LAMP, "on");
+		await later.advance(AUTOMATION_ATTEMPT_MS - 2_000 - KASA_CONNECT_MS);
+		kill("10.0.0.1");
+		blocker.releaseHeldReplies();
+		// Read back dials it
+		await vi.waitFor(() => expect(dials()).toBe(1));
+		await later.advance(KASA_CONNECT_MS);
+		await held;
+		await vi.waitFor(() => expect(dials()).toBe(2));
+		await later.advance(2_000);
+
+		expect(await cut).toHaveProperty("hold");
+	});
+
+	it("ends a Toggle at once and retries an On when a plug never accepts, and tells the assistant unreachable at the connect bound", async () => {
 		const { ambient, devices, automationsOf, kill, dials } = await plugs();
 		kill("10.0.0.1");
 		const { automations, fire } = automationsOf({ flip: switched(LAMP, "toggle"), light: switched(LAMP) });
 
-		/** Waits for the dial, then cuts it. */
+		/** Waits for the dial. */
 		const cut = async (dialed: number) => {
 			await vi.waitFor(() => expect(dials()).toBe(dialed));
-			await ambient.advance(AUTOMATION_ATTEMPT_MS);
+			await ambient.advance(KASA_CONNECT_MS);
 			await automations.settled();
 		};
 
@@ -182,11 +240,11 @@ describe("automations on real plugs", () => {
 		await cut(3);
 		const assistant = devices.assistant({ kind: "device_set", id: LAMP, verb: "on" });
 		await vi.waitFor(() => expect(dials()).toBe(4));
-		await ambient.advance(60_000);
+		await ambient.advance(KASA_CONNECT_MS);
 
 		expect(outcomes(automations)).toEqual(["flip refused"]);
-		expect(await assistant).toMatchObject({ kind: "refused", refusal: { code: "timeout", effect: "none" } });
-		expect(await assistant).not.toHaveProperty("refusal.detail");
+		expect(await assistant).toMatchObject({ kind: "refused", refusal: { code: "unreachable", effect: "none" } });
+		expect(JSON.stringify(await assistant)).not.toContain("never accepted");
 	});
 
 	it("lands another automation's effect while a silent plug's run backs off", async () => {
@@ -209,7 +267,7 @@ describe("automations on real plugs", () => {
 		expect(outcomes(automations)).toEqual(["fast ran", "slow ran"]);
 	});
 
-	it("takes another run's first attempt before a silent plug's retry that is already due", async () => {
+	it("takes whichever step fell due first: a run whose turn came before a silent plug's retry fell due goes ahead of it", async () => {
 		const { lamp, heater, ambient, automationsOf, relayOrder } = await plugs();
 		const { automations, fire } = automationsOf({
 			slow: switched(LAMP),
@@ -228,5 +286,29 @@ describe("automations on real plugs", () => {
 		await automations.settled();
 
 		expect(relayOrder).toEqual(["10.0.0.1", "10.0.0.3", "10.0.0.2", "10.0.0.1"]);
+	});
+
+	it("takes a retry that fell due before a later run's turn came, though it is barely overdue", async () => {
+		const { lamp, heater, fan, ambient, automationsOf, relayOrder } = await plugs();
+		const { automations, fire } = automationsOf({
+			slow: switched(LAMP),
+			warm: switched(HEATER),
+			fast: switched(FAN),
+		});
+
+		fire("slow");
+		await lamp.waitForHeldReply();
+		fire("warm");
+		await ambient.advance(AUTOMATION_ATTEMPT_MS);
+		await heater.waitForHeldReply();
+		// Lamp retry already due.
+		await ambient.advance(BACKOFF_MIN_MS + 2_000);
+		fire("fast");
+		await ambient.advance(AUTOMATION_ATTEMPT_MS - BACKOFF_MIN_MS - 2_000);
+		await vi.waitFor(() => expect(relays(fan)).toBe(1));
+		await automations.settled();
+
+		expect(relays(lamp)).toBe(2);
+		expect(relayOrder).toEqual(["10.0.0.1", "10.0.0.3", "10.0.0.1", "10.0.0.2"]);
 	});
 });

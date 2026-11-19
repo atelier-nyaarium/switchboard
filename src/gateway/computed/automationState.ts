@@ -1,6 +1,7 @@
 // The automation state file: its shape and its restore.
 
 import { z } from "zod";
+import { type Automation, AutomationSchema } from "../../shared/schemasAutomation.js";
 import { FIRES_MAX, type Fire, readFire } from "./automationFires.js";
 import { type AutomationRun, fireRun, LOG_MAX, logged, RunSchema } from "./automationLog.js";
 import { QUEUE_MAX_EVENTS, QueueEntrySchema, type QueueState, retained } from "./automationOutbox.js";
@@ -48,7 +49,13 @@ export interface State {
 	slots: Record<string, Slot>;
 	/** Sensor silences told. */
 	silences: Silences;
+	/** Each body a held fire fired with, by `versionKey`. */
+	versions: Record<string, Automation>;
 }
+
+/** An automation body as one revision of one incarnation. */
+export const versionKey = (fire: { automation: string; incarnation: string; revision: number }): string =>
+	`${fire.automation}:${fire.incarnation}:${fire.revision}`;
 
 const EMPTY: State = {
 	automations: {},
@@ -59,6 +66,7 @@ const EMPTY: State = {
 	fired: [],
 	slots: {},
 	silences: NO_SILENCES,
+	versions: {},
 };
 
 /** Invalid rows drop. */
@@ -71,6 +79,7 @@ const LooseStateSchema = z.object({
 	fired: z.array(z.string()).catch([]),
 	slots: z.record(z.string(), z.unknown()).catch({}),
 	silences: SilencesSchema.catch(NO_SILENCES),
+	versions: z.record(z.string(), z.unknown()).catch({}),
 });
 
 /** Without an automation id, no row. */
@@ -140,6 +149,13 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 			}),
 		),
 		silences: loose.silences,
+		// An unreadable one leaves its fires unpinned.
+		versions: Object.fromEntries(
+			Object.entries(loose.versions).flatMap(([key, row]) => {
+				const parsed = AutomationSchema.safeParse(row);
+				return parsed.success ? [[key, parsed.data]] : [];
+			}),
+		),
 	};
 	return { state, changed: lost > 0 };
 }
