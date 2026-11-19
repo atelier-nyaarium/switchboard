@@ -11,7 +11,7 @@ import {
 	opencodeAuth,
 	parseOpencodeVersion,
 } from "../shared/opencode.js";
-import { HARNESS, versionRefusal } from "../shared/session-harness.js";
+import { HARNESS, untestedVersionNote, withUntestedNote } from "../shared/session-harness.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -171,9 +171,11 @@ export async function runLauncher(args: LaunchArgs, ports: LauncherPorts): Promi
 			ports.log(`could not write the launch status: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	};
+	let note: string | null = null;
 	const fail = (error: string): number => {
-		ports.log(`Switchboard could not start OpenCode: ${error}`);
-		writeStatus({ state: "failed", pid, error: error.slice(0, 2048) });
+		const said = withUntestedNote(error, note, 2048);
+		ports.log(`Switchboard could not start OpenCode: ${said}`);
+		writeStatus({ state: "failed", pid, error: said });
 		return 1;
 	};
 
@@ -182,8 +184,8 @@ export async function runLauncher(args: LaunchArgs, ports: LauncherPorts): Promi
 	const binary = findBinary(ports);
 	if (!binary) return fail("OpenCode is not installed");
 	const version = parseOpencodeVersion((await ports.readVersion(binary)) ?? "");
-	const refusal = versionRefusal("opencode", version);
-	if (refusal) return fail(refusal);
+	note = untestedVersionNote("opencode", version);
+	if (note) ports.log(note);
 
 	const password = ports.randomPassword();
 	const privateDir = ports.makePrivateDir();
@@ -273,7 +275,8 @@ export async function runLauncher(args: LaunchArgs, ports: LauncherPorts): Promi
 	const watching = { on: true };
 	// The UI reconnects forever to a dead server, so the daemon must hear it and relaunch.
 	void server.exited.then(() => {
-		if (watching.on) writeStatus({ state: "failed", pid, error: "the OpenCode server exited" });
+		if (watching.on)
+			writeStatus({ state: "failed", pid, error: withUntestedNote("the OpenCode server exited", note, 2048) });
 	});
 	// OpenCode never restarts a dead MCP child, and the session is offline without it. Silent, since
 	// the terminal UI owns the pane.

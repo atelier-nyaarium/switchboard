@@ -10,7 +10,8 @@ import {
 	SESSION_HARNESSES,
 	type SessionHarness,
 	UNPICKED_WORD,
-	versionRefusal,
+	untestedVersionNote,
+	withUntestedNote,
 } from "../shared/session-harness.js";
 
 describe("a session CLI named on the wire", () => {
@@ -97,14 +98,23 @@ describe("where a session CLI may launch", () => {
 	});
 });
 
-describe("the versions a launch accepts", () => {
-	it("accepts any version of a CLI that pins none", () => {
-		expect([versionRefusal("claude", undefined), versionRefusal("copilot", "0.0.1")]).toEqual([null, null]);
+describe("a failure on an untested version", () => {
+	it("names only a read version that differs from the tested one", () => {
+		expect(
+			[
+				untestedVersionNote("claude", "0.0.1"),
+				untestedVersionNote("opencode", OPENCODE_PIN),
+				untestedVersionNote("opencode", undefined),
+			].every((note) => note === null),
+		).toBe(true);
+		expect(untestedVersionNote("opencode", "9.9.9")).toContain("9.9.9");
 	});
 
-	it("accepts OpenCode's pin and refuses another version by its number, or none read", () => {
-		expect(versionRefusal("opencode", OPENCODE_PIN)).toBeNull();
-		expect(versionRefusal("opencode", "9.9.9")).toContain("9.9.9");
-		expect(typeof versionRefusal("opencode", undefined)).toBe("string");
+	it("keeps the whole line within the bound, cutting only the failure", () => {
+		const note = untestedVersionNote("opencode", "9.9.9") ?? "";
+		const said = withUntestedNote("x".repeat(300), note, 200);
+		expect(said.length).toBeLessThanOrEqual(200);
+		expect(said.endsWith(note)).toBe(true);
+		expect(withUntestedNote("x".repeat(300), null, 200)).toHaveLength(200);
 	});
 });

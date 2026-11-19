@@ -6,6 +6,7 @@ import type { AgentChild, TargetSupervisor } from "../mcp/devcontainer/agentTarg
 import { startBridge } from "../opencode-agent/bridge.js";
 import { OPENCODE_BACKEND } from "../shared/agent-backend.js";
 import { promptIdOf } from "../shared/opencode.js";
+import { OPENCODE_PIN } from "../shared/session-harness.js";
 import { createFakeOpencodeServer } from "../testing/fakeOpencodeServer.js";
 
 const OWNER_KEY = "recipe-app.work";
@@ -56,7 +57,7 @@ async function rig() {
 		env: { PATH: "/bin" },
 		home: "/home/test",
 		isExecutable: () => true,
-		readVersion: async () => "opencode v2.2.5",
+		readVersion: async () => `opencode v${OPENCODE_PIN}`,
 		startServer: () => ({
 			url: Promise.resolve(server.url),
 			exited: new Promise<void>(() => undefined),

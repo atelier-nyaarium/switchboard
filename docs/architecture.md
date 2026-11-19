@@ -254,7 +254,9 @@ file inside the container (`execEventsFile` in `copilotCompaction.ts`).
 
 ### OpenCode
 
-Pinned to one version (`OPENCODE_PIN`); a launch refuses any other with its number. Setup's
+Any installed version launches. `OPENCODE_PIN` is the version this build was tested with, and a
+launch failure, or an agent failure where OpenCode answered a shape this build does not expect, on
+another version names both (`untestedVersionNote`). Nothing is said while it works. Setup's
 "Install OpenCode" installs the pin on the host (`scripts/setup-opencode.ts`), and the phone's
 "Install OpenCode" shell macro does the same inside a container. Both run `OPENCODE_INSTALL_CMD`.
 Each session runs its own server, since OpenCode's shared service gives every MCP child the

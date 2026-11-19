@@ -39,12 +39,12 @@ export const OpencodeModelSchema = z
 export type OpencodeModel = z.infer<typeof OpencodeModelSchema>;
 
 export const BridgeReadySchema = z.discriminatedUnion("ok", [
-	z.object({ type: z.literal("ready"), ok: z.literal(true), version: z.string().min(1) }).strict(),
+	z.object({ type: z.literal("ready"), ok: z.literal(true), version: z.string().min(1).optional() }).strict(),
 	z
 		.object({
 			type: z.literal("ready"),
 			ok: z.literal(false),
-			code: z.enum(["binary_missing", "version_refused", "server_failed"]),
+			code: z.enum(["binary_missing", "server_failed"]),
 			message: z.string().min(1).max(1024),
 		})
 		.strict(),

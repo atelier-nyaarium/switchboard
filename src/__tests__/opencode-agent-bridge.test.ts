@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { startBridge } from "../opencode-agent/bridge.js";
 import { promptIdOf } from "../shared/opencode.js";
 import { type BridgeMessage, BridgeMessageSchema } from "../shared/opencode-agent.js";
+import { OPENCODE_PIN, untestedVersionNote } from "../shared/session-harness.js";
 import { createFakeOpencodeServer } from "../testing/fakeOpencodeServer.js";
 
 const PASSWORD = "0123456789abcdef0123456789abcdef";
@@ -28,7 +29,12 @@ function waitFor<T>(read: () => T | undefined, timeoutMs = 1_000): Promise<T> {
 }
 
 async function rig(
-	options: { abortOn?: string; loseAnswerOn?: string; sleep?: (ms: number) => Promise<void> | undefined } = {},
+	options: {
+		abortOn?: string;
+		loseAnswerOn?: string;
+		sleep?: (ms: number) => Promise<void> | undefined;
+		version?: string | null;
+	} = {},
 ) {
 	const server = createFakeOpencodeServer({ url: URL, password: PASSWORD });
 	const lines: BridgeMessage[] = [];
@@ -40,7 +46,8 @@ async function rig(
 		env: { PATH: "/bin" },
 		home: "/home/test",
 		isExecutable: () => true,
-		readVersion: async () => "opencode v2.2.5",
+		readVersion: async () =>
+			options.version === null ? undefined : `opencode v${options.version ?? OPENCODE_PIN}`,
 		startServer: () => ({
 			url: Promise.resolve(server.url),
 			exited: new Promise<void>(() => undefined),
@@ -104,7 +111,7 @@ function posted(r: Awaited<ReturnType<typeof rig>>, promptId: string) {
 describe("the OpenCode bridge", () => {
 	it("opens a thread and lists the models it offers", async () => {
 		const r = await rig();
-		expect(r.ready).toMatchObject({ type: "ready", ok: true, version: "2.2.5" });
+		expect(r.ready).toMatchObject({ type: "ready", ok: true, version: OPENCODE_PIN });
 		const threadId = await open(r);
 		expect(threadId).toMatch(/^ses_sb[0-9a-f]+$/);
 
@@ -116,6 +123,35 @@ describe("the OpenCode bridge", () => {
 		});
 		r.bridge.closed();
 		await r.bridge.done;
+	});
+
+	it("runs on an untested version or an unread one", async () => {
+		for (const version of ["9.9.9", null]) {
+			const r = await rig({ version });
+			expect(r.ready).toEqual({ type: "ready", ok: true, ...(version ? { version } : {}) });
+			expect(await open(r)).toMatch(/^ses_sb[0-9a-f]+$/);
+			r.bridge.closed();
+			await r.bridge.done;
+		}
+	});
+
+	it("names an untested version on a refused route, and on no other failure", async () => {
+		const untested = await rig({ version: "9.9.9" });
+		const tested = await rig();
+		const note = untestedVersionNote("opencode", "9.9.9") ?? "";
+		const failure = async (r: Awaited<ReturnType<typeof rig>>, status: number): Promise<string> => {
+			r.server.failNext(status, 1, "/api/model");
+			const answer = await r.error(r.send({ op: "models" }));
+			return answer.type === "error" ? answer.message : "";
+		};
+
+		const said = [await failure(untested, 404), await failure(tested, 404), await failure(untested, 503)];
+		expect(said.map((message) => message.length > 0)).toEqual([true, true, true]);
+		expect(said.map((message) => message.includes(note))).toEqual([true, false, false]);
+		for (const r of [untested, tested]) {
+			r.bridge.closed();
+			await r.bridge.done;
+		}
 	});
 
 	it("resumes a held thread and refuses a missing one", async () => {

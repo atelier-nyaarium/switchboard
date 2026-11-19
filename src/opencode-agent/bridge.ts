@@ -13,7 +13,7 @@ import {
 	type OpencodeTerminal,
 	splitOpencodeModel,
 } from "../shared/opencode-agent.js";
-import { versionRefusal } from "../shared/session-harness.js";
+import { untestedVersionNote, withUntestedNote } from "../shared/session-harness.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -98,6 +98,8 @@ class BridgeFailure extends Error {
 	constructor(
 		readonly code: BridgeErrorCode,
 		message: string,
+		/** Unknown answer shape. */
+		readonly unexpected = false,
 	) {
 		super(message);
 	}
@@ -123,6 +125,8 @@ const UNDELIVERED: OpencodeTerminal = {
 };
 const LOST: OpencodeTerminal = { status: "failed", error: "the OpenCode turn was lost" };
 const UNREADABLE = "the OpenCode server sent an answer this bridge cannot read";
+/** A route or body refused. */
+const SHAPE_STATUSES: ReadonlySet<number> = new Set([400, 404, 405, 415, 422]);
 const HISTORY_LIMIT = 200;
 const SESSION_LIST_PAGE = 100;
 const SESSION_LIST_PAGES = 2_000;
@@ -183,7 +187,11 @@ function responseMessage(data: unknown): string | undefined {
 
 function httpFailure(action: string, status: number, data: unknown): BridgeFailure {
 	const message = responseMessage(data);
-	return new BridgeFailure("http", `OpenCode answered HTTP ${status} ${action}${message ? `: ${message}` : ""}`);
+	return new BridgeFailure(
+		"http",
+		`OpenCode answered HTTP ${status} ${action}${message ? `: ${message}` : ""}`,
+		SHAPE_STATUSES.has(status),
+	);
 }
 
 function rowOf(value: unknown): Row | undefined {
@@ -326,8 +334,9 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 		ports.write(JSON.stringify(message));
 	};
 
-	const failReady = (code: "binary_missing" | "version_refused" | "server_failed", message: string): Bridge => {
-		send({ type: "ready", ok: false, code, message: safeMessage(message) });
+	let note: string | null = null;
+	const failReady = (code: "binary_missing" | "server_failed", message: string): Bridge => {
+		send({ type: "ready", ok: false, code, message: withUntestedNote(safeMessage(message), note, 1024) });
 		server?.stop();
 		resolveDone();
 		return { receive: () => undefined, closed: () => undefined, done };
@@ -336,8 +345,8 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 	const binary = findBinary(ports);
 	if (!binary) return failReady("binary_missing", "OpenCode is not installed");
 	const version = parseOpencodeVersion((await ports.readVersion(binary)) ?? "");
-	const refusal = versionRefusal("opencode", version);
-	if (refusal) return failReady("version_refused", refusal);
+	note = untestedVersionNote("opencode", version);
+	if (note) ports.log(note);
 
 	const password = ports.randomHex(24);
 	let baseUrl: string;
@@ -406,7 +415,7 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 		if (status === 404) throw new BridgeFailure("not_found", "the OpenCode session was not found");
 		if (status !== 200) throw httpFailure("reading messages", status, data);
 		const held = recordOf(data)?.data;
-		if (!Array.isArray(held)) throw new BridgeFailure("http", UNREADABLE);
+		if (!Array.isArray(held)) throw new BridgeFailure("http", UNREADABLE, true);
 		const next = stringOf(recordOf(recordOf(data)?.cursor)?.next);
 		return { rows: held.flatMap((row) => rowOf(row) ?? []), ...(next ? { next } : {}) };
 	};
@@ -433,7 +442,7 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 		const { status, data } = await call("GET", "/api/session/active");
 		if (status !== 200) throw httpFailure("reading active sessions", status, data);
 		const held = recordOf(recordOf(data)?.data);
-		if (!held) throw new BridgeFailure("http", UNREADABLE);
+		if (!held) throw new BridgeFailure("http", UNREADABLE, true);
 		return new Set(Object.keys(held));
 	};
 
@@ -442,7 +451,7 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 		const { status, data } = await call("GET", `/api/session/${threadId}/inbox`);
 		if (status !== 200) throw httpFailure("reading the inbox", status, data);
 		const rows = recordOf(data)?.data;
-		if (!Array.isArray(rows)) throw new BridgeFailure("http", UNREADABLE);
+		if (!Array.isArray(rows)) throw new BridgeFailure("http", UNREADABLE, true);
 		return rows.flatMap((row) => stringOf(recordOf(row)?.id) ?? []);
 	};
 
@@ -1028,7 +1037,7 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 		return failReady("server_failed", "the OpenCode event stream did not connect");
 	}
 
-	send({ type: "ready", ok: true, version: version ?? "" });
+	send({ type: "ready", ok: true, ...(version ? { version } : {}) });
 
 	/** Answers `late` at the limit. Work already posting may still finish. */
 	const bounded = <T>(work: Promise<T>, limit: AbortSignal, late: string): Promise<T> =>
@@ -1249,14 +1258,14 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 					if (status >= 300) throw httpFailure("listing sessions", status, data);
 					const body = data as { data?: unknown; cursor?: { next?: unknown } } | undefined;
 					if (!Array.isArray(body?.data))
-						throw new BridgeFailure("http", "OpenCode answered no session list");
+						throw new BridgeFailure("http", "OpenCode answered no session list", true);
 					for (const held of body.data as Array<{
 						id?: unknown;
 						parentID?: unknown;
 						time?: { updated?: unknown };
 					}>) {
 						if (typeof held?.id !== "string" || !held.id)
-							throw new BridgeFailure("http", "OpenCode listed a session with no id");
+							throw new BridgeFailure("http", "OpenCode listed a session with no id", true);
 						const at = Number(held.time?.updated);
 						listed.push({
 							threadId: held.id,
@@ -1333,7 +1342,7 @@ export async function startBridge(ports: BridgePorts): Promise<Bridge> {
 					type: "error",
 					id: parsed.data.id,
 					code: failure.code,
-					message: safeMessage(failure.message),
+					message: withUntestedNote(safeMessage(failure.message), failure.unexpected ? note : null, 2048),
 				});
 			});
 	};

@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { OpencodeBackendSession, opencodeFailureCode } from "../mcp/agents/opencodeSession.js";
 import { promptIdOf } from "../shared/opencode.js";
+import { OPENCODE_PIN, untestedVersionNote } from "../shared/session-harness.js";
 
 interface RequestLine {
 	type: "request";
@@ -69,7 +70,7 @@ function fakeChild() {
 async function opened() {
 	const fake = fakeChild();
 	const opening = OpencodeBackendSession.open(fake.child);
-	fake.send({ type: "ready", ok: true, version: "2.2.5" });
+	fake.send({ type: "ready", ok: true, version: OPENCODE_PIN });
 	const session = await opening;
 	return { ...fake, session };
 }
@@ -199,13 +200,23 @@ describe("the OpenCode driver", () => {
 		await expect(opening).rejects.toThrow("binary_missing: OpenCode is not installed");
 	});
 
-	it("reads a failure's class off its text", () => {
-		expect(opencodeFailureCode("version_refused: OpenCode 2.3.0 is outside the supported range")).toBe(
+	it("reads a failure's class off its text, whatever version note it carries", () => {
+		const samples = [
+			"http: incompatible protocol",
+			"authentication_required: login required",
+			"binary_missing: OpenCode is not installed",
+			"server_failed: the OpenCode server did not start",
+			"something else",
+		];
+		const classes = [
 			"protocol_incompatible",
-		);
-		expect(opencodeFailureCode("authentication_required: login required")).toBe("authentication_required");
-		expect(opencodeFailureCode("binary_missing: OpenCode is not installed")).toBe("daemon_unavailable");
-		expect(opencodeFailureCode("server_failed: the OpenCode server did not start")).toBe("app_server_unavailable");
-		expect(opencodeFailureCode("something else")).toBe("protocol_error");
+			"authentication_required",
+			"daemon_unavailable",
+			"app_server_unavailable",
+			"protocol_error",
+		];
+		const note = untestedVersionNote("opencode", "9.9.9");
+		expect(samples.map(opencodeFailureCode)).toEqual(classes);
+		expect(samples.map((sample) => opencodeFailureCode(`${sample} ${note}`))).toEqual(classes);
 	});
 });

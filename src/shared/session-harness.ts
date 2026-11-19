@@ -94,8 +94,8 @@ export interface HarnessRow {
 	readonly conversation:
 		| { readonly delete: "files" }
 		| { readonly delete: "thread"; readonly backend: AgentBackendId };
-	/** Exact versions a launch accepts. Absent accepts any. */
-	readonly versions?: readonly string[];
+	/** Tested version; never refuses. */
+	readonly tested?: string;
 	/** Claude's slash commands and plugin UI. */
 	readonly claudeSlashTools: boolean;
 	readonly workflowTools: boolean;
@@ -174,7 +174,7 @@ const COPILOT_PLUGINS: PluginProvisioning = {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The one accepted OpenCode release. */
+/** Tested OpenCode release. */
 export const OPENCODE_PIN = "2.2.5";
 
 /** Installs the pin into the running user's home; setup and the phone's macro share it. */
@@ -229,7 +229,7 @@ export const HARNESS: Readonly<Record<SessionHarness, HarnessRow>> = {
 		road: { kind: "api", server: "opencode" },
 		baseline: "session",
 		conversation: { delete: "thread", backend: "opencode" },
-		versions: [OPENCODE_PIN],
+		tested: OPENCODE_PIN,
 		claudeSlashTools: false,
 		workflowTools: true,
 		guidance: "instructions",
@@ -387,13 +387,17 @@ export function typesDelivery(harness: SessionHarness): boolean {
 	return paneRoad(harness)?.delivery === "typed";
 }
 
-/** Why a launch refuses this version, or null. */
-export function versionRefusal(harness: SessionHarness, version: string | undefined): string | null {
-	const row = HARNESS[harness];
-	if (!row.versions) return null;
-	if (version === undefined) return `${row.label} did not report its version`;
-	if (row.versions.includes(version)) return null;
-	return `${row.label} ${version} is outside the supported range (${row.versions.join(", ")})`;
+/** A failure's untested-version line. */
+export function untestedVersionNote(harness: SessionHarness, version: string | undefined): string | null {
+	const { label, tested } = HARNESS[harness];
+	if (tested === undefined || version === undefined || version === tested) return null;
+	return `${label} ${version} is not the version this build was tested with (${tested}).`;
+}
+
+/** Appends it within `max`. */
+export function withUntestedNote(text: string, note: string | null, max: number): string {
+	if (!note) return text.slice(0, max);
+	return `${text.slice(0, Math.max(0, max - note.length - 1))} ${note}`;
 }
 
 /** A resume id safe on that CLI's command line, or undefined. */

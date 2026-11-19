@@ -1420,9 +1420,13 @@ same Bun.
 
 ### OpenCode pin
 
+`OPENCODE_PIN` is the version this build was tested with and the one setup installs. It refuses nothing: any installed version runs, and a failure on another version names both (`untestedVersionNote` in `src/shared/session-harness.ts`).
+
 On any work in this repo, compare `OPENCODE_PIN` with the newest OpenCode release at least 7 days old.
 - Compatible: bump `OPENCODE_PIN`, reinstall it on the host (setup's "Install OpenCode"), bump `docker-workspace`'s `OPENCODE_VERSION`, run the gates, and say so in the report.
 - Needs work: ask the owner whether to handle it first, naming what breaks.
+
+The agent bridge marks a failure `unexpected` when OpenCode answered a shape it cannot read or a route refused (HTTP 400, 404, 405, 415, 422), and only those carry the line. `opencodeFailureCode` must not classify by the word "version", or every noted failure reads as `protocol_incompatible`.
 
 ### Synced leaves
 

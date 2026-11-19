@@ -68,7 +68,7 @@ function mintedTurnId(): string {
 }
 
 export function opencodeFailureCode(error: string): AgentDaemonFailureCode {
-	if (/version|outside the supported range|protocol|incompatible/i.test(error)) return "protocol_incompatible";
+	if (/protocol|incompatible/i.test(error)) return "protocol_incompatible";
 	if (/auth|login|unauthori[sz]ed|credential/i.test(error)) return "authentication_required";
 	if (/binary|not installed|container|target|unavailable/i.test(error)) return "daemon_unavailable";
 	if (/timed out|timeout|exited|closed|broken pipe|server|event stream/i.test(error)) return "app_server_unavailable";
@@ -86,7 +86,7 @@ export class OpencodeBackendSession implements AgentBackendSession {
 	private nextId = 0;
 	private ready = false;
 	private closed = false;
-	private readyResolve: ((version: string) => void) | undefined;
+	private readyResolve: (() => void) | undefined;
 	private readyReject: ((error: Error) => void) | undefined;
 	private activityListener: ((turnId: string, text: string, itemId?: string) => void) | undefined;
 	private counterListener: ((turnId: string, counter: TurnCounter) => void) | undefined;
@@ -257,7 +257,7 @@ export class OpencodeBackendSession implements AgentBackendSession {
 				return;
 			}
 			this.ready = true;
-			this.readyResolve?.(message.version);
+			this.readyResolve?.();
 			this.readyResolve = undefined;
 			this.readyReject = undefined;
 			return;

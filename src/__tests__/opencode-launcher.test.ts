@@ -8,7 +8,7 @@ import {
 } from "../opencode-launch/launcher.js";
 import { readLaunchStatus } from "../shared/launch-status.js";
 import { OPENCODE_GREETING_ID, OPENCODE_SERVER_ENV, OpencodeServerFileSchema } from "../shared/opencode.js";
-import { OPENCODE_PIN } from "../shared/session-harness.js";
+import { OPENCODE_PIN, untestedVersionNote } from "../shared/session-harness.js";
 import { createFakeOpencodeServer, type FakeOpencodeServer } from "../testing/fakeOpencodeServer.js";
 
 const SESSION = "ses_sb0f8b2a4c1d3e4f5a9b6c7d8e9f0a1b2c";
@@ -36,7 +36,7 @@ interface Rig {
 	statusOf(): ReturnType<typeof readLaunchStatus>;
 }
 
-function rig(options: { version?: string; uiStays?: boolean; serverSaid?: string } = {}): Rig {
+function rig(options: { version?: string | null; uiStays?: boolean; serverSaid?: string } = {}): Rig {
 	const server = createFakeOpencodeServer();
 	const files = new Map<string, string>();
 	const serverEnv: Rig["serverEnv"] = [];
@@ -56,7 +56,8 @@ function rig(options: { version?: string; uiStays?: boolean; serverSaid?: string
 		root: "/sb",
 		greeting: "hello there",
 		isExecutable: (file) => file === BINARY,
-		readVersion: async () => `opencode v${options.version ?? OPENCODE_PIN}`,
+		readVersion: async () =>
+			options.version === null ? undefined : `opencode v${options.version ?? OPENCODE_PIN}`,
 		startServer: (_binary, env) => {
 			serverEnv.push(env);
 			const exited = new Promise<void>((resolve) => {
@@ -160,12 +161,33 @@ describe("the OpenCode launcher's arguments and finds", () => {
 });
 
 describe("an OpenCode launch", () => {
-	it("refuses a version outside the pin by its number, and starts no server", async () => {
-		const r = rig({ version: "9.9.9" });
+	it("launches on an untested version or an unread one", async () => {
+		const untested = rig({ version: "9.9.9", uiStays: true });
+		const running = launch(untested);
+		await waitUntil(() => untested.uiRuns.length === 1);
+		expect(untested.statusOf()).toEqual({ state: "ready", pid: PID, version: "9.9.9" });
+		untested.exitUi(0);
+		expect(await running).toBe(0);
 
-		expect(await launch(r)).toBe(1);
-		expect(r.statusOf()).toMatchObject({ state: "failed", error: expect.stringContaining("9.9.9") });
-		expect(r.serverEnv).toEqual([]);
+		const unread = rig({ version: null });
+		expect(await launch(unread)).toBe(0);
+		expect(unread.uiRuns).toHaveLength(1);
+	});
+
+	it("says why the server did not start, naming only an untested version", async () => {
+		const untested = rig({ version: "9.9.9", serverSaid: "unknown flag --stdio" });
+		const tested = rig({ serverSaid: "unknown flag --stdio" });
+		const unread = rig({ version: null, serverSaid: "unknown flag --stdio" });
+		const note = untestedVersionNote("opencode", "9.9.9") ?? "";
+
+		expect([await launch(untested), await launch(tested), await launch(unread)]).toEqual([1, 1, 1]);
+		const errors = [untested, tested, unread].map((r) => {
+			const status = r.statusOf();
+			return status?.state === "failed" ? status.error : undefined;
+		});
+		expect(errors.map((error) => error?.includes("unknown flag --stdio"))).toEqual([true, true, true]);
+		expect(errors.map((error) => error?.includes(note))).toEqual([true, false, false]);
+		expect(untested.uiRuns).toEqual([]);
 	});
 
 	it("creates an absent session with the UI's last model and no permissions, then leaves a held one alone", async () => {
@@ -225,14 +247,6 @@ describe("an OpenCode launch", () => {
 		expect(whileBooting.length).toBeGreaterThan(0);
 		for (const status of whileBooting) expect(status).toEqual({ state: "starting", pid: PID });
 		expect(atUi).toEqual({ state: "ready", pid: PID, version: OPENCODE_PIN });
-	});
-
-	it("says why the server did not start, in its own words", async () => {
-		const r = rig({ serverSaid: "listen EADDRINUSE 127.0.0.1" });
-
-		expect(await launch(r)).toBe(1);
-		expect(r.statusOf()).toMatchObject({ state: "failed", error: expect.stringContaining("EADDRINUSE") });
-		expect(r.uiRuns).toEqual([]);
 	});
 
 	it.each([
