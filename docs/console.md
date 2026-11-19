@@ -134,7 +134,7 @@ repairs a slot the phone could not read. `clearProvisioning` drops the Router sl
 `ChatState.router` is this device's standing with the Router, a `RouterLink`. It cannot be built or
 copied outside `RouterLink.kt`: its nested `Writer` holds the only fold, and
 `ChatRepository.noteRouter` is the only caller. Nothing else stores a connection fact, and
-`ChatState.error` holds one-shot notices only.
+`ChatState.notices` holds dismissible failures only.
 
 **The doors feed it:** each Router round trip records one event where it happens.
 `ConsoleRouterTransport` notes every call it makes: `withReachFailover` notes a call no address
@@ -186,8 +186,31 @@ steps. The assistant's landing reads the Router as unreachable only before setup
 (`routerUnreachable`), when no home record was read.
 
 A poll pass that fails past its door, such as an answer that does not decode, is not a link fact:
-it leaves a notice in `ChatState.error`. `router-link-residue.test.ts` holds the feed to the doors
+it leaves a notice in `ChatState.notices`. `router-link-residue.test.ts` holds the feed to the doors
 and setup, keeps the link's parts behind `linkView`, and refuses the old flag names.
+
+### Notices
+
+`ChatState.notices` is a list of at most five `Notice` rows, in memory only (`Notices.kt`). Each
+holds its sentence, an optional key and an optional conversation.
+
+- **Raising a keyed notice replaces the one holding that key**, and a later success of the same act
+  clears the key. The same unkeyed line raised again replaces itself. Nothing else clears a notice:
+  no foreground edge, no timer. The X removes one, and more than two show "Clear all".
+- **One composable, two hosts:** `NoticeStack` draws in a conversation's Chat view above the
+  composer. On every other screen, and in Chat while an editor is over it, `NoticeFrame`, wrapped around `App`, lays it out as a strip at
+  the top of the window and pushes the screen down, so it covers nothing; the strip pads for the
+  status bar and consumes it for the screen below. `App` tells the frame where the drawn screen wants
+  notices (`noticeAt`). A notice with a conversation shows there unprefixed, and elsewhere behind
+  that session's label (`noticeLines`).
+- **Every sentence lives in `Reasons.kt`:** `REASONS` maps a wire token to a sentence, `Line` holds
+  the fixed ones, and an unknown token reads as its `Act` failed with the token in brackets. The
+  link status lines stay in `LinkView.kt`. `thrownSentence` never names a class. A writer passes
+  what was being done and the reason, never prose, and `ReasonsTest` writes the whole list to
+  `build/reports/error-prose.md` for review.
+- **A failed send says why on its own row:** `Message.failReason` rides the thread and is drawn as
+  "Not delivered" with the sentence above Retry and Cancel. It never also goes to a notice.
+  `notice-residue.test.ts` refuses the retired one-line error and the snackbar queue.
 
 ### Plane lineage, the one reader rule
 
@@ -986,3 +1009,13 @@ no TTL.
   record another device placed is adopted rather than left invisible. A `sent` row naming a record
   this phone no longer holds is resolved from the Router and echoed once, since the message did go
   out; the thread's own op ids are what stop a replayed row echoing it twice.
+  The fired row is a `message` row with a Router origin that carries this device (`isFiredSchedule`). The
+  Gateway's pump lands it as an ordinary send under the row's conversation and op id (`landScheduled`),
+  parsing the sealed `ScheduledBodySchema` (`text`, optional `messageId`, `files`) and mapping each file
+  through `scheduledWireFile`, so the reply route is the ordinary send's and no `sent` mirror is written
+  for it. A retryable outcome is tried again on `FIRE_RETRY_MS` and then acked `failed`
+  `delivery_unavailable` once; a repeat dispatch is a duplicate (`firedDeliveryId`). A fired row that is
+  refused, expires or is revoked writes one `failed` `scheduled_result` with a reason from
+  `SCHEDULED_FAILURE_REASONS` and moves the record to `error`, which the phone echoes like any result.
+  More than `CHANNEL_FILES_MAX` files is refused `too_many_files` when scheduled, and a cancel or a
+  reschedule naming a version against a settled record answers `settled` with its `state`.
