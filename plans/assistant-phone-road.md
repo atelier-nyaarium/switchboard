@@ -1764,7 +1764,7 @@ Design held for the phase:
 - **A function write holds the move lock** when any of its users moves with the home.
 - **The engine:** a run holds frames keyed by step path, each with the function, incarnation and revision it runs and the steps of that revision, its variables, its first uncaught failure, and per step the word, the verdict, the attempts, the time and the side an If took; and a set of active steps, one in this phase, so side-by-side work later needs no new shape. A run is started once a step has landed or a wait or an attempt has begun; a started run is never evicted, at most one per automation is started, and waiting event fires are capped per automation. Frames, variables and step records are bounded per run.
 - **An edit and the runs in flight** (Q73): a run finishes on the version it started with. Each frame holds the steps it entered with, so an edit, a repoint or a delete of a function changes nothing under a run, and a frame entered after the save reads the new version. Switching the automation off stops its run, and the row then says what did not run, computed from the frames the run holds.
-- **An attempt** has its own short bound, retries back off, and the runner takes a first attempt before a due retry. The device answers map to the words by one table keyed on the refusal code and the effect, with a vector per code; a hold that is no attempt sits beside them.
+- **An attempt** has its own short bound, retries back off, and the runner takes whichever step fell due first. The device answers map to the words by one table keyed on the refusal code and the effect, with a vector per code; a hold that is no attempt sits beside them.
 - **A tell is a step.** The lane tells only an event automation's leading tells with no message, for a run the lane caused. Every other tell goes through the outbox under a member built from the automation, its incarnation, the key and the call-site path of every frame, so one function called twice tells twice. A tell with no room counts against "Keep trying for" and then fails `timeout`.
 - **Loops:** a function may not call itself, directly or through others: refused at the save, held at the run by the chain every frame carries (`loop`), with a generated budget of calls per run.
 - **Served with the list:** an automation list answers the functions too: id, name, params with types, revision, users, and whether any user moves with the home. One fenced read lands both, so a count never disagrees with its rows.
@@ -1817,9 +1817,27 @@ Mechanisms patched for the same class in more than one audit round of this phase
 - **What a landed effect did** (`landClaims`, the `spent` entry, `outdatedSets`). Class: the engine asks the stored record what an effect was after it ran, and the record has moved. The newer-setting rule read the device from the record and missed a set whose automation was edited mid-attempt; the same pass found it treated a toggle as a setting because it never read the nature. The answer now carries the device and the nature of the effect that ran. Anything else the engine reads about a finished attempt (its kind for the row, its home rule) still comes from the record.
 - **The walk's residue test** (`automation-walk-residue.test.ts`). Class: a textual gate that misses a way of reading `actions`. Each pass widened a regex or added a rule (member reads through `!.` and brackets, destructured parameters, a spread of a body, an exemption that proved nothing). A check on the type, such as a branded body that only the walk can open, would end the list of shapes.
 
+### Architecture pass
+
+The audit behind this is `architecture-27e1-synthesis.md` in the session scratchpad: one lens per bug class above, plus the engine's structure. Taken in this phase, in this order, each leaving the tree green:
+
+1. **A run is started when its active list is not empty.** `started` reads the one field `advance` sets, never a step's fields. Ends the first class.
+2. **One due time orders the runner.** A first attempt is due at its turn, a retry at its last answer plus its gap, and the runner takes the smallest. The two-tier rule, the overdue bound and the side set go. This replaces "a first attempt before a due retry": a first attempt now waits behind retries that fell due before its turn, at most one attempt bound each. Ends the third class.
+3. **A fire reads the version it fired.** The state holds each automation body a held fire fired with, written by `commit` alone and read through one function. Every read about a step after the fire comes from it, never from the live record. Ends the fourth class, and is the table Question 73 needs: the functions phase pins a function's revision in it.
+4. **The transport says when a plug never accepted.** A connect has its own bound of about five seconds and ends `unreachable`; the road has one decline rule and takes a bound, not a surface; the automation port maps the road's outcome directly. The automation's IFTTT attempt gets the same fifteen seconds. Ends the second class. Seen by the owner: a tap on a dead plug from the phone answers "unreachable" in about five seconds, where it waited out the lease and answered "timeout".
+
+Moved to the first step of 2.7e.2, where the record shapes are rewritten anyway: sealing `actions` in the type so only the walk can open it (the fifth class). The widened residue test holds until then.
+
 ## Phase 2.7e.2 - Functions as records (slice 3)
 
 Design: Phase 2.7e above. Gateway L, phone L, the first app update (N).
+
+First steps, carried from the 2.7e.1 architecture pass:
+
+- **Seal `actions`, and `steps` as it is defined, in the type,** so a direct read does not compile on either runtime and the residue test shrinks to compiler-checked samples. Two probes first: whether a Kotlin data class's destructuring inherits a property's opt-in, and whether the schema's meta survives into the generated Kotlin.
+- **Pin a function's version in the fire's version table,** and make the retire rule Question 73's: a gone record retires, switching the automation off retires, a revision change retires only an unstarted fire.
+- **Split the reader:** `reached` follows calls; a one-level `written` serves the editor and hole addresses, which read syntax, not reach.
+- **Rename the log row** away from "run", which will mean a pinned run.
 
 3. **Functions as records.** The kinds in one store with a cap each, `run_function`, the Save op, users and the delete at none, fit and the values an automation sets, the judge's graph checks, outside reach and the danger confirm across users, the carry, the list answering functions, a run pinned to the steps it started with (Q73). Bodies are still a list of `do` steps. Phone N: the "Runs" block, the picker, "Make unique", the count on the list, as locked in the Designer. Pure rules, a JUnit each: `valueRows`, `valueIssue`, `runsIssue`, `functionLine`, `usersLine`, `reachLine`, `automationDeleteLine`.
 
@@ -1833,6 +1851,8 @@ Design: Phase 2.7e above. The second app update (N+1).
 5. **The tree, phone** (phone N+1, L). Steps addressed by path, `cardsDraw`, the If, Try, Wait and Exit cards, the condition editor with "true right now".
 
 Gates: the failure table's vectors; phone-encoded nested unknown steps re-encoded byte-equal; a run in a `wait` survives 64 newer fires; one function reached twice tells twice.
+
+First step, carried from the 2.7e.1 architecture pass: take the pump's pass out as a pure function of the state, the answers and the clock, with the active list as the authority for whose turn it is, and drop the fill slot.
 
 Carried from the 2.7e.1 red team, to decide when `wait` and branches arrive: the newer-setting rule ends any open set of an older fire, including one whose turn has not come. With only immediate steps that window is short. Behind a `wait` an older run's later set can sit for a long time, so "on, wait 30, off" must not lose its Off to another automation's On: the rule then has to compare when a step's turn comes, not when its fire began, and say whose fire a set inside a called function belongs to. Also: a pre-send path that can throw repeatedly should log once, and the full-queue refusal needs revisiting if one live run per automation ever changes.
 
