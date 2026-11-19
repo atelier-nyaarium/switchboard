@@ -904,6 +904,12 @@ A: Yes. Each value the function takes shows its source in the "Runs" block: from
 
 Following from the two answers, the picker's "Incompatible triggers" group has nothing left to list: a value the trigger does not give is set on the automation, and a function bound to another source is hidden. The group leaves the card and would return only for a value that can be neither given nor written. Mocked: the picker and the editor updated, and `functions-runs-block.html` showing the block with every value from the trigger, with values set on the automation (one still to set, which Save waits for), and one function shared by two thermometers with a room each.
 
+## Question 70 - What happens to the rest of a run the Gateway's downtime interrupted? (open)
+
+Set apart from "Keep trying for", which is about a device that does not answer and is settled. The case put: fan on, `wait(10)`, fan off, and the machine goes down for three hours during the wait.
+
+Asked as: resume everything however late; late means failed, jumping to a `catch` inside a `try` and skipped outside one; or by what the action is (recommended): an action that sets a state still runs late, a one-shot action (a toggle, an IFTTT event, a message to the assistant) fails with `e.code == "late"`, and a `catch` runs however late under the same two rules. A trigger that should have fired while the Gateway was down is a separate matter and still does not fire.
+
 ## Question 62 - What else belongs in the script's first version?
 
 The language as it stood when asked: a statement is one doing call, an `if (cond) { } else if (cond) { } else { }`, a `try { } catch (e) { }`, or `stop`. Conditions are the console's reading language with `and`, `or` and `sensors.value`. Text takes `{ }` holes. `e.word` is refused, unreachable or no answer, and a bare `{e}` prints a sentence.
