@@ -1014,6 +1014,17 @@ A: Install what is finished and walk it with the owner, then build the new desig
 
 > A. any quick patches you want to hitchhike in with this update and restart?
 
+## Question 71 - Which quick patches ride along with the install?
+
+Offered: the host token read by the daemon's own script and replaced with a fresh one; two message editor fixes (the "Names here" row clipping an event's value, a picked completion leaving its hole open); the op store's eviction line said once a minute; a notice when every sensor on a Gateway's radio falls silent.
+
+Q: The three small ones today with the notice right after as its own update, all four together a day later, or the three alone?
+A: The three small ones today, then the sensor notice as its own update. The owner gave the go-ahead for the checks, the plugin release and the Gateway and daemon restarts. The phone waits for a separate word.
+
+> Go ahead
+> A.
+> all fixes sound good
+
 Told with it, as defaults the owner may change: an automation that triggers again while running waits its turn; Run pressed on a switched-off automation runs it once while a call still respects off; an edit in the middle of a run stops that run and the row says what did not run; a script writes a device by its name when unique and by its id otherwise; an If keeps the unit its condition was typed in.
 
 ## Question 50 - Where does the flow map live?
