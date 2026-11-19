@@ -892,9 +892,17 @@ The picker card, as the owner reworded it: no "Fits this trigger" label; the sec
 
 Explained to the owner as structural typing: a trigger is a call site nobody writes, passing one fixed object type, and a function fits when that type is assignable to its parameters. Compared side by side on request: a function taking a GitHub `event` takes a value that can only be received, from a GitHub trigger or from a caller that was itself given one; a function taking `lamp` and `times` takes values no trigger gives but any code can write. Asked from it: whether an automation may fill a function's remaining values itself, so a device can point at such a function (Question 69).
 
-## Question 69 - May an automation fill a function's values itself? (open)
+## Question 69 - May an automation fill a function's values itself?
 
 Asked as: the "Runs" block lists each value the function takes with its source, "from the trigger" or a value the owner sets there, so any function whose leftover values can be written is pointable (recommended; routines already keep a runbook's answers this way, and the Run button asks for the same values); or a trigger only ever passes what it gives, and such functions are reached by calls alone.
+
+A: Yes. Each value the function takes shows its source in the "Runs" block: from the trigger, or a value set on the automation. The values set there belong to the automation, not to the function. In the picker, a function that takes another source's event, such as a GitHub event, is not listed at all.
+
+> A.
+>
+> And looks good. If it is a source like GitHub, don't show it where Incompatible.
+
+Following from the two answers, the picker's "Incompatible triggers" group has nothing left to list: a value the trigger does not give is set on the automation, and a function bound to another source is hidden. The group leaves the card and would return only for a value that can be neither given nor written. Mocked: the picker and the editor updated, and `functions-runs-block.html` showing the block with every value from the trigger, with values set on the automation (one still to set, which Save waits for), and one function shared by two thermometers with a room each.
 
 ## Question 62 - What else belongs in the script's first version?
 
