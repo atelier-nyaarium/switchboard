@@ -46,6 +46,8 @@ export function createSessionRoutes({ auth, relayToHost }: SessionRoutesDeps) {
 			kind: "typeIntoPane",
 			target,
 			text: parsed.data.text,
+			// Deliveries land mid-turn.
+			midTurn: true,
 			// Scoped to the session, so one session's key never replays another's.
 			...(key ? { dedupKey: `type:${record.spawn}.${record.id}:${key}` } : {}),
 		});

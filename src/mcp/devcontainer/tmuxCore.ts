@@ -287,6 +287,8 @@ export interface TypeIntoPaneOptions {
 	timeoutMs?: number;
 	pollMs?: number;
 	enterPauseMs?: number;
+	/** Types mid-turn. */
+	midTurn?: boolean;
 }
 
 /**
@@ -322,7 +324,7 @@ export function typeIntoPane(
 			if (
 				Date.now() < deadline &&
 				isAgentReady(screen) &&
-				!isAgentWorking(screen) &&
+				(options.midTurn === true || !isAgentWorking(screen)) &&
 				isAgentComposerEmpty(screen)
 			) {
 				const bufferName = `switchboard-${crypto.randomUUID()}`;

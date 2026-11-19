@@ -60,13 +60,15 @@ keeps it across reconnects.
   caps text at 128 KB. A pane that reads logged out answers busy. The host serializes typing with other sends,
   polls the pane once per second, drops control characters but tab and newline so nothing ends the
   bracketed paste early, and answers `{ typed: false, reason: "busy" }` when its 200-second wait
-  expires.
+  expires. The route asks for `midTurn`, so the host types as soon as the composer is ready and
+  empty, while a turn runs too. A filled composer, a menu and a signed-out pane still wait. An older
+  daemon ignores the field and waits for idle.
 - A typing request carries a key, the delivery id when there is one, which the host scopes to the
   session and holds past the sender's last retry of it (`TYPED_GIVE_UP_MS`, read by both ends), so a
   retry after a lost answer replays rather than types twice. A busy answer is not held. The hold is
   in memory, so a daemon restart inside the window can type a retried tag again.
 - Copilot channel and response pushes share one arrival-order queue. A busy answer retries after one
-  second for as long as the turn runs. A 503, a 504 or a network failure backs off up to 30 seconds and
+  second for as long as the composer is filled or the pane is not ready. A 503, a 504 or a network failure backs off up to 30 seconds and
   gives up after 15 minutes, leaving a channel row held for the next connection. A channel row is
   acknowledged only after the tag is typed and submitted.
 - A Copilot session gets the channel rules and the full capability guidance as MCP server

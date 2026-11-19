@@ -35,7 +35,7 @@ export function createAssistantRestart(deps: AssistantRestartDeps): AssistantRes
 		if (!stopped) timer = deps.ambient.setTimer(() => void tryExit(), RESTART_GRACE_MS);
 	};
 
-	/** Typed delivery refuses a working pane or a filled composer, so `/exit` lands only on an idle one. */
+	/** No `midTurn`: lands only on an idle pane. */
 	async function tryExit(): Promise<void> {
 		timer = undefined;
 		if (deps.busy()) return schedule();

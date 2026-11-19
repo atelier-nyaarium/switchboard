@@ -30,6 +30,7 @@ describe("assistant restart on an installed update", () => {
 		await ambient.advance(RESTART_GRACE_MS);
 		expect(ops).toHaveLength(2);
 		expect(ops[1]).toMatchObject({ kind: "typeIntoPane", text: "/exit", target: { sessionName: "assistant" } });
+		expect(ops[1]).not.toHaveProperty("midTurn");
 		await ambient.advance(RESTART_GRACE_MS * 3);
 		expect(ops).toHaveLength(2);
 	});

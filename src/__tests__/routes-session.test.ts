@@ -86,6 +86,7 @@ describe("POST /session/type", () => {
 			kind: "typeIntoPane",
 			target: { kind, name: spawn, sessionName: "copilot-one" },
 			text: body.text,
+			midTurn: true,
 		});
 	});
 });

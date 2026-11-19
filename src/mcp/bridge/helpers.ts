@@ -134,7 +134,7 @@ function serializeQueuedDelivery<T>(work: () => Promise<T>): Promise<T> {
 const typingRetries = (err: unknown): boolean =>
 	!(err instanceof RouterHttpError) || err.status === 503 || err.status === 504;
 
-/** Types once idle; `key` makes a retry replay. A daemon down past the deadline leaves the row held. */
+/** Types once the composer is empty, mid-turn too; `key` makes a retry replay. A daemon down past the deadline leaves the row held. */
 async function emitTypedChannelTag(payload: ChannelPushPayload | ResponsePushPayload, key: string): Promise<void> {
 	const text = await renderChannelTag(payload);
 	let retries = 0;

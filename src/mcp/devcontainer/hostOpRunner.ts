@@ -54,7 +54,7 @@ export interface TmuxOps {
 	bleScan?: () => Promise<HostBleScanResult>;
 	bleListen?: (windowMs: number) => Promise<HostBleScanResult>;
 	wifiNetwork: () => Promise<HostWifiNetworkResult>;
-	typeIntoPane: (target: TmuxTarget, text: string) => Promise<TypeIntoPaneResult>;
+	typeIntoPane: (target: TmuxTarget, text: string, options: { midTurn: boolean }) => Promise<TypeIntoPaneResult>;
 	agentModels?: (backend: AgentBackendId, target: AgentExecutionTarget) => Promise<HostAgentModelsResult>;
 	claudeRun?: (op: HostClaudeRunOp) => HostClaudeRunReply;
 	claudeCancel?: (op: HostClaudeCancelOp) => Promise<{ cancelled: boolean }>;
@@ -136,10 +136,11 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 
 	/** A repeat of typed text replays; a busy answer is not held, so the retry waits again. */
 	async function runTyping(op: Extract<HostOp, { kind: "typeIntoPane" }>): Promise<unknown> {
-		if (!op.dedupKey) return ops.typeIntoPane(op.target, op.text);
+		const type = () => ops.typeIntoPane(op.target, op.text, { midTurn: op.midTurn === true });
+		if (!op.dedupKey) return type();
 		try {
 			return await typedDedupe.once(op.dedupKey, async () => {
-				const outcome = await ops.typeIntoPane(op.target, op.text);
+				const outcome = await type();
 				if (!outcome.typed) throw PANE_BUSY;
 				return outcome;
 			});

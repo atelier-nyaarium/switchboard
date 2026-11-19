@@ -68,13 +68,15 @@ describe("createHostOpRunner", () => {
 		expect(h.ops.sendKey).toHaveBeenCalledWith(T, "C-c");
 	});
 
-	it("relays typeIntoPane and returns its idle outcome", async () => {
+	it("relays typeIntoPane, waiting for idle unless the op types mid-turn", async () => {
 		const h = makeOps();
 		const runner = createHostOpRunner(h.ops);
 		expect(await runner.run({ kind: "typeIntoPane", target: T, text: "<channel>hi</channel>" })).toEqual({
 			typed: true,
 		});
-		expect(h.ops.typeIntoPane).toHaveBeenCalledWith(T, "<channel>hi</channel>");
+		await runner.run({ kind: "typeIntoPane", target: T, text: "<channel>now</channel>", midTurn: true });
+		expect(h.ops.typeIntoPane).toHaveBeenNthCalledWith(1, T, "<channel>hi</channel>", { midTurn: false });
+		expect(h.ops.typeIntoPane).toHaveBeenNthCalledWith(2, T, "<channel>now</channel>", { midTurn: true });
 	});
 
 	it("types a keyed text once, but waits again after a busy answer", async () => {

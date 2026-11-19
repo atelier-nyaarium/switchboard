@@ -249,6 +249,22 @@ describe("tmuxCore typeIntoPane", () => {
 		expect(calls.some((call) => call.includes("send-keys"))).toBe(false);
 	});
 
+	it("types mid-turn into a working Copilot pane once its composer is empty", async () => {
+		const vectors = JSON.parse(
+			fs.readFileSync(path.join(import.meta.dirname, "../../tests/fixtures/agent-screen/vectors.json"), "utf8"),
+		) as { vectors: Array<{ name: string; screen: string }> };
+		const working = vectors.vectors.find((vector) => vector.name === "copilot-working-bytes")?.screen ?? "";
+		captureScreens.push("──────\n❯ a draft\n──────\n◎ Working · 470 B esc interrupt", working);
+
+		expect(
+			await typeIntoPane(target, "hello", { timeoutMs: 100, pollMs: 1, enterPauseMs: 0, midTurn: true }),
+		).toEqual({ typed: true });
+		expect(working).not.toBe("");
+		expect(calls.filter((call) => call.includes("capture-pane"))).toHaveLength(2);
+		expect(stdinWrites).toEqual(["hello"]);
+		expect(calls.at(-1)).toEqual(["tmux", "send-keys", "-t", "=copilot.0", "Enter"]);
+	});
+
 	it("keeps stdin attached when loading a buffer inside Docker", async () => {
 		captureScreens.push("──────\n❯ \n──────");
 		const target: TmuxTarget = { kind: "devcontainer", name: "recipe-app", sessionName: "copilot" };

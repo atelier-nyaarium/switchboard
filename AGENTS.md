@@ -872,7 +872,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
 - `src/shared/workspace-op.ts` - the workspace plane's wire vocabulary, beside `host-op.ts` and for the same reason: Gateway to an MCP-side process, never to Kotlin
-- `src/shared/host-op.ts` / `src/mcp/devcontainer/hostOpRunner.ts` / `tmuxCore.ts` / `hostDaemon.ts` - `typeIntoPane` wire, dispatch, idle polling, bracketed paste, and host handler
+- `src/shared/host-op.ts` / `src/mcp/devcontainer/hostOpRunner.ts` / `tmuxCore.ts` / `hostDaemon.ts` - `typeIntoPane` wire, dispatch, composer polling, bracketed paste, and host handler
+  - **A delivery types mid-turn, an `/exit` waits for idle:** `/session/type` sends `midTurn`, so a channel tag lands once the composer is ready and empty while a turn runs. The assistant's restart sends none. No test here runs a live Copilot pane; the working-screen fixtures only show its composer stays drawn and empty.
   - **Enter waits behind typed keys:** every Enter the daemon presses after text, a paste or a menu's cursor moves is held `ENTER_PAUSE_MS` (`pressEnter` in `tmuxCore.ts`). A CLI reads keys that arrive together as one paste, where the Enter is a newline and the line is never submitted. The phone's goal typing gets the same gap by sending Enter as its own op.
   - **`WORKSPACE_BOUNDS` owns every wait on one op:** each class's plane wait and handler budget sit
     inside the phone's read timeout, `CONSOLE_ANSWER_WAIT_MS` in `console-protocol.ts`, generated into

@@ -83,7 +83,14 @@ export type HostOp =
 	/** Read-only, daemon-bounded. */
 	| { kind: "bleListen"; windowMs: number }
 	| { kind: "wifiNetwork" }
-	| { kind: "typeIntoPane"; target: TmuxTarget; text: string; dedupKey?: string }
+	| {
+			kind: "typeIntoPane";
+			target: TmuxTarget;
+			text: string;
+			dedupKey?: string;
+			/** Types mid-turn. An older daemon waits for idle. */
+			midTurn?: boolean;
+	  }
 	// Mutations replay by dedupKey.
 	| { kind: "sendText"; target: TmuxTarget; text: string; submit?: boolean; dedupKey?: string }
 	| { kind: "sendKey"; target: TmuxTarget; key: string; dedupKey?: string }

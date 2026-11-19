@@ -70,7 +70,15 @@ describe("agent-screen: real captured panes, both platforms", () => {
 
 	it("finds empty composers in Claude and Copilot captures", () => {
 		const byName = new Map(vectors.map((vector) => [vector.name, vector]));
-		for (const name of ["lin-composer", "win-composer", "copilot-idle", "copilot-done"]) {
+		for (const name of [
+			"lin-composer",
+			"win-composer",
+			"copilot-idle",
+			"copilot-done",
+			"copilot-working-plain",
+			"copilot-working-bytes",
+			"copilot-working-ctrl-c",
+		]) {
 			expect(isAgentComposerEmpty(byName.get(name)!.screen), name).toBe(true);
 		}
 		expect(isAgentComposerEmpty(byName.get("copilot-typing")!.screen)).toBe(false);
