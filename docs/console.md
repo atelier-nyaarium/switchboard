@@ -1002,13 +1002,11 @@ no TTL.
 - **Scheduled send** (`ScheduledSend.kt`, `ScheduledSendOps.kt`): one record per team, held by the
   Router. The local record is an intent until the Router accepts it: the drain uploads its files,
   posts `schedule_send` under the record's own op id, and stamps the accepted version. The Router
-  fires it and writes a `scheduled_result` row, which the phone echoes into the thread. A cancel of
-  an accepted record is an intent too, re-posted until answered; a reschedule is a fresh intent
-  naming the version it replaces. Every transition runs under one mutex beside the ops class.
-  A refused post reads what the Router holds before the text goes back to the composer, so an armed
-  record another device placed is adopted rather than left invisible. A `sent` row naming a record
-  this phone no longer holds is resolved from the Router and echoed once, since the message did go
-  out; the thread's own op ids are what stop a replayed row echoing it twice.
+  fires it and writes a `scheduled_result` row. A cancel of an accepted record is an intent too,
+  re-posted until answered; a reschedule is a fresh intent naming the version it replaces. Every
+  transition runs under one mutex beside the ops class. A refused post reads what the Router holds
+  before anything is handed back, so an armed record another device placed is adopted rather than
+  left invisible, and only an `armed` or `firing` record is adopted.
   The fired row is a `message` row with a Router origin that carries this device (`isFiredSchedule`). The
   Gateway's pump lands it as an ordinary send under the row's conversation and op id (`landScheduled`),
   parsing the sealed `ScheduledBodySchema` (`text`, optional `messageId`, `files`) and mapping each file
@@ -1016,6 +1014,17 @@ no TTL.
   for it. A retryable outcome is tried again on `FIRE_RETRY_MS` and then acked `failed`
   `delivery_unavailable` once; a repeat dispatch is a duplicate (`firedDeliveryId`). A fired row that is
   refused, expires or is revoked writes one `failed` `scheduled_result` with a reason from
-  `SCHEDULED_FAILURE_REASONS` and moves the record to `error`, which the phone echoes like any result.
+  `SCHEDULED_FAILURE_REASONS` and moves the record to `error`, keeping the reason on
+  `ScheduledRecord.reason`, which `schedule_list` answers.
   More than `CHANNEL_FILES_MAX` files is refused `too_many_files` when scheduled, and a cancel or a
   reschedule naming a version against a settled record answers `settled` with its `state`.
+  The phone settles from the Router's record and needs no row. Once `SETTLE_GRACE_MS` has passed a held
+  record's fire time, `settlePastDue` asks `schedule_list` on a backoff to `SETTLE_BACKOFF_MAX_MS`, and
+  `settleFromRouter` decides from the answer: `fired` appends the message stamped with its fire time,
+  `error` lands it in the thread as "Not delivered" with the record's reason under `failedSendOpId`
+  (`<opId>.retry`) and never returns it to the composer, `cancelled` takes it back, no record at all
+  hands it back as changed elsewhere, and `armed` or `firing` waits. A list that could not be read is a
+  wait, never gone. A result row for a record this phone no longer holds is resolved from the Router
+  and echoed once (`echoRouter`); one consumer applies the rows in row order and the thread's own op ids
+  stop a replay echoing twice, so every order of one schedule's rows ends the same. The dock's tick asks
+  for the pass; nothing decides in the composable.

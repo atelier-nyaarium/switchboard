@@ -789,17 +789,28 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     between the check and the delete is not seen.
 - `android/.../ThreadCut.kt` / `RowMenu.kt` - Clear above, and the Compact and clear above that runs it: `rowAbove`, `threadCut`, the cut's id floor and swallowed echoes, the confirmation's lines; the row menu and its confirmation. `docs/console.md` holds the rules
   - **A cut tells the plugins what it took:** once the cut is on disk, `clearThrough` hands the rows cleared and the rows left to every `ThreadCutSubscriber`, and the plugin bridge fans them to `threadCutHandlers`. A handler's `claims` and `onCut` read one rule, so the confirmation counts what the cut drops. The Designer's is `cardsAfterCut`.
-- `android/.../ScheduledSendOps.kt` - scheduled sends as Router-held intents: the drain, the cancel intent, and the Router's result rows, all under one mutex
+- `android/.../ScheduledSend.kt` / `ScheduledSendOps.kt` - scheduled sends as Router-held intents: the record and its pure settle rules, the drain, the cancel intent, and the Router's result rows, all under one mutex
   - **The Router fires; the phone intends:** a record is pending until `schedule_send` is accepted,
     a cancel of an accepted record is pending until `schedule_cancel` is, and a reschedule is a
     fresh intent naming the version it replaces. `drainPending`, `cancelNow`, `rescheduleNow` and
     `applyRouterResult` are the only transitions, so a JVM test drives every one.
   - **A refusal is read against what the Router holds, never assumed to leave it empty:** a conflict
     adopts the armed record before handing the local text back, or the phone shows nothing scheduled
-    while a send it cannot reach is still armed. A `sent` row matching no held record is resolved
-    through `routerRecord` and echoed, since a record replaced or taken back before its row arrived
-    still fired. The thread's own op ids gate that echo, because `ChatRepository.append` dedupes
-    nothing and a replayed row would otherwise show the message twice.
+    while a send it cannot reach is still armed. `mirror` adopts only an `armed` or `firing` record,
+    since a settled one is no dock.
+  - **A record past its time settles from the Router's record, row or not:** `settlePastDue` runs in
+    the pass for a held record with a `routerVersion` once `SETTLE_GRACE_MS` has passed its fire time,
+    asks `schedule_list` on a backoff to `SETTLE_BACKOFF_MAX_MS` (`firstSettleAsk`, `nextSettleAsk`,
+    kept in memory so a restart asks at once), and `settleFromRouter` answers a `Settle`: wait, sent,
+    failed with the record's reason, cancelled, or gone. An unread list (`routerRecordsRead` null) is
+    wait, never gone. The dock's tick (`nextDockTick`, `settleDue`) asks the repository for a pass, and
+    no decision sits in the composable.
+  - **One road settles a record, whichever order the evidence comes in:** `settle` is the only one. A
+    send appends the message stamped with its fire time. A failed send lands in the thread as "Not
+    delivered" under `failedSendOpId` (`<opId>.retry`), never back in the composer, and `echoRouter`
+    echoes a send this phone no longer holds once per thread, the thread's own op ids gating it since
+    `ChatRepository.append` dedupes nothing. A single consumer applies the Router's result rows in row
+    order, so `sent` and `failed` of one schedule end the same either way round.
 - `android/.../GoalOps.kt` / `Goal.kt` - armed goals and `/goal` line production
 - `android/.../PresenceOps.kt` - team presence and read-anchor reporting
 - `android/.../SessionOps.kt` - terminal and session controls
@@ -1045,6 +1056,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Every write copies the whole store:** `OwnerStateStore.commit` clones the state before it applies a line. A sweep that touches many records takes one `batch`, never a write per record, and reads through `pick` when it only needs a few fields.
 - `src/federation-server/inbox/` - inbox service, op ledger, consumer and session registries, gateway incarnation, OwnerOp intake
 - `src/federation-server/inbox/inboxAppend.ts` / `inboxRetire.ts` / `inboxSweep.ts` / `inboxOpResult.ts` / `inboxCore.ts` - row append and admission, row retirement, the expiry sweep, router-authored result rows, and shared primitives (`recordId`, `guarded`, `ledgerTransaction`, `ownerAddress`, `floorOf`) behind `InboxService`
+  - **A landed owner row is announced once and pushed from one place:** `InboxService.onRowAppended` tells a listener of every row that lands (an append, `appendRouterRow`, a retirement's result row, never a replay), a listener's throw is caught where it is called, and the one listener in `ownerServices.ts` pushes owner-address rows through `pushOwnerRow`. `owner-row-push-residue.test.ts` refuses another caller. Session-address delivery keeps its own callers.
+- `src/federation-server/console/consoleSockets.ts` - the console sockets: hello, the owner-row drain and the push
+  - **A push never lets a console skip a row:** `Bound.sent` is the highest seq sent on a consumer socket, set at the welcome to the consumer's cursor, and `pushOwnerRow` drains from it, so rows no writer pushed go out with the next push. An ack drains from its own cursor, so a phone that dropped frames gets them again; a row may be sent twice and the phone tolerates it. A planes-only socket keeps the key-row rule.
 - `src/federation-server/blobs/referenceHeldStore.ts` - the one blob holder: staged bytes under a lease, reference sets in the owner journal, `publish` binding a record write and its references in one line, the staged sweep, and boot reconcile
 - `src/federation-server/blobs/blobService.ts` - the four blob owner ops and the four gateway blob frames over the held store, with the per-process chunk ledger
 - `src/federation-server/ownerServices.ts` / `ownerServiceHooks.ts` - the owner-state services behind one hook surface: OwnerOp kinds, gateway frames, register and drop listeners, and the sweepers the fence holds
@@ -1094,7 +1108,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     schedule over it names no version, and the write is still a CAS over it. The phone has no
     version to name once a cancel or a fire lands. Deleting settled records instead would break
     the echo a send retried after a crash relies on.
-  - **A fired row carries the scheduling device, and its failure is told once:** more than `CHANNEL_FILES_MAX` files is refused `too_many_files` at `schedule_send`. A fired row that is refused, expires or is revoked (`rowRetired`, the inbox's retire listener) writes one `failed` `scheduled_result` with a reason from `SCHEDULED_FAILURE_REASONS` and moves the record to `error`. A cancel or a reschedule naming a version against a terminal record answers `settled` with its `state`.
+  - **A fired row carries the scheduling device, and its failure is told once:** more than `CHANNEL_FILES_MAX` files is refused `too_many_files` at `schedule_send`. A fired row that is refused, expires or is revoked (`rowRetired`, the inbox's retire listener) writes one `failed` `scheduled_result` with a reason from `SCHEDULED_FAILURE_REASONS` and moves the record to `error`, keeping that reason on `ScheduledRecord.reason`, which `schedule_list` answers; a send the Router gives up on itself reads `delivery_failed`. A cancel or a reschedule naming a version against a terminal record answers `settled` with its `state`.
 - `src/federation-server/tier1/` - capability fold and read anchors
 - `src/federation-server/migration/` - leases, serve gate, and cursor translation
 - `src/shared/board-authority.ts` / `board-cascade.ts` / `board-structure.ts` / `board-observations.ts` - pure board rules shared by the gateway and the Router
