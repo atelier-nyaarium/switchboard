@@ -1773,14 +1773,7 @@ Design held for the phase:
 - **Cards** draw one level: a list, an If with two sides, a Try with its catch, Wait, Exit. A body past that opens read-only with a line saying so, until the script exists.
 - **What the map reads:** per automation its last run's steps and the step in flight, served on the row, cleared when the body changes and never by a toggle.
 
-Slices, each ending green and each restoring the state the one before wrote, the Gateway's part deployed before the phone's:
-
-1. **Engine prep, no wire** (Gateway, M). The words and the hold beside them with the device table, the attempt bound, the backoff and the fair runner, natures, every restart rule, an outcome kept per step, runs keyed on a cursor with one started per automation, the wait. Effects of a flat list run in order. A rollback drops fires in flight and logs each `uncertain`.
-2. **The walk, no wire** (Gateway and phone, S). The one walk over today's flat actions and its residue test, so every reader is ready before a function exists.
-3. **Functions as records** (Gateway L, phone L). The kinds in one store, `run_function`, the Save op, users and the delete at none, fit and the values an automation sets, the judge's graph checks, outside reach and the danger confirm across users, the carry, the list answering functions. Bodies are still a list of `do` steps. Phone N: the "Runs" block, the picker, "Make unique", the count on the list, as locked in the Designer. Pure rules, a JUnit each: `valueRows`, `valueIssue`, `runsIssue`, `functionLine`, `usersLine`, `reachLine`, `automationDeleteLine`.
-4. **The tree, engine** (Gateway, L). `if`, `try` and `catch`, `exit`, `throw`, `wait`, the frame walk, the failure table, tells as steps, the last run served.
-5. **The tree, phone** (phone N+1, L). Steps addressed by path, `cardsDraw`, the If, Try, Wait and Exit cards, the condition editor with "true right now".
-6. **Calls** (Gateway M, phone M). A function calling another, the loop guards, the Run button under a call id, where a function used only by callers is edited.
+Built as four phases below (2.7e.1 to 2.7e.4), six slices in all, each ending green and each restoring the state the one before wrote, the Gateway's part deployed before the phone's.
 
 Gates that must exist: a restore test per slice over the previous slice's state; the walk residue test; the fit corpus on both runtimes; a fair-runner test with a held fake plug; phone-encoded nested unknown steps re-encoded byte-equal; a JVM test of 8.14.83's `editable`, `canRemove` and `actionLine` over a `run_function` row; a restore of the five live automations by both builds; after a function is stored, the four live wakes and the crossing still tell, and an IFTTT step inside a function still asks. No gate here sees the owner's real phone on a new row, the deploy order across real Gateways, or a real rollback.
 
@@ -1789,6 +1782,40 @@ Size: about 6,000 to 8,000 lines over both sides with tests.
 Decided here and told to the owner, theirs to change: an automation that fires again while its run is live waits its turn; Run pressed on a switched-off automation runs it once; a script writes a device or a function by its name when exactly one holds it; a called function hands nothing back in the first version; a function's edit that widens what an outside-triggered automation reaches asks once for it.
 
 A step calls a function and never an automation (Q74), so a function has no switch and an automation is used by nothing.
+
+## Phase 2.7e.1 - Engine prep and the one walk (slices 1 and 2)
+
+Design: Phase 2.7e above. Nothing on the wire, nothing a phone sees.
+
+1. **Engine prep** (Gateway, M). The words and the hold beside them with the device table, the attempt bound, the backoff and the fair runner, natures, every restart rule, an outcome kept per step, runs keyed by step path with one started per automation, "Keep trying for" as ten minutes per action. Effects of a flat list run in order. A fire of a shape this build cannot read is dropped and logged `uncertain`.
+2. **The walk** (Gateway and phone, S). The one walk over today's flat actions and its residue test on both runtimes, so every reader is ready before a function exists.
+
+Gates: a restore of the state 8.14.84 wrote; a fair-runner test with a held fake plug; a vector per device refusal code; the walk residue test.
+
+## Phase 2.7e.2 - Functions as records (slice 3)
+
+Design: Phase 2.7e above. Gateway L, phone L, the first app update (N).
+
+3. **Functions as records.** The kinds in one store with a cap each, `run_function`, the Save op, users and the delete at none, fit and the values an automation sets, the judge's graph checks, outside reach and the danger confirm across users, the carry, the list answering functions, a run pinned to the steps it started with (Q73). Bodies are still a list of `do` steps. Phone N: the "Runs" block, the picker, "Make unique", the count on the list, as locked in the Designer. Pure rules, a JUnit each: `valueRows`, `valueIssue`, `runsIssue`, `functionLine`, `usersLine`, `reachLine`, `automationDeleteLine`.
+
+Gates: the fit corpus on both runtimes; a JVM test of 8.14.83's `editable`, `canRemove` and `actionLine` over a `run_function` row; a restore of the five live automations by both builds; after a function is stored, the four live wakes and the crossing still tell, and an IFTTT step inside a function still asks; the carry vectors.
+
+## Phase 2.7e.3 - The tree (slices 4 and 5)
+
+Design: Phase 2.7e above. The second app update (N+1).
+
+4. **The tree, engine** (Gateway, L). `if`, `try` and `catch`, `exit`, `throw`, `wait`, the frame walk, the failure table, tells as steps, the last run served.
+5. **The tree, phone** (phone N+1, L). Steps addressed by path, `cardsDraw`, the If, Try, Wait and Exit cards, the condition editor with "true right now".
+
+Gates: the failure table's vectors; phone-encoded nested unknown steps re-encoded byte-equal; a run in a `wait` survives 64 newer fires; one function reached twice tells twice.
+
+## Phase 2.7e.4 - Calls (slice 6)
+
+Design: Phase 2.7e above.
+
+6. **Calls** (Gateway M, phone M). A function calling another, the loop guards, the Run button under a call id, where a function used only by callers is edited.
+
+Gates: a loop refused at the save and held at the run; a callee failing outside a `try` while its caller sits inside one; an edit of a callee while a run waits inside it.
 
 ## Phase 2.7f - The script (Q57, Q58, Q60 to Q63, Q65)
 
