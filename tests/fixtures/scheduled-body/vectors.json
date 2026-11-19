@@ -1,0 +1,104 @@
+{
+	"_comment": "The plaintext the phone seals for a scheduled send, byte for byte as ScheduledSendOps.drainPending writes it through org.json (keys in insertion order, a slash escaped), with files from fileJson in MessageFile.kt. `decoded` is what the plaintext holds. `wire` is the ChannelFile list an ordinary send carries for the same files, the phone's OutgoingFile.wireFile and its TypeScript twin scheduledWireFile; a file with no size has no wire form. Read by inbox-delivery-pump.test.ts; a Kotlin test pins fileJson and wireFile to the same file.",
+	"cases": [
+		{
+			"name": "text-only",
+			"plaintext": "{\"text\":\"Check the deploy\",\"messageId\":\"sched-1\",\"files\":[]}",
+			"decoded": { "text": "Check the deploy", "messageId": "sched-1", "files": [] },
+			"wire": []
+		},
+		{
+			"name": "slash-escaped",
+			"plaintext": "{\"text\":\"Open src\\/main.ts and look\",\"messageId\":\"sched-2\",\"files\":[]}",
+			"decoded": { "text": "Open src/main.ts and look", "messageId": "sched-2", "files": [] },
+			"wire": []
+		},
+		{
+			"name": "attachment",
+			"plaintext": "{\"text\":\"See the photo\",\"messageId\":\"sched-3\",\"files\":[{\"name\":\"photo.jpg\",\"mime\":\"image\\/jpeg\",\"src\":\"https:\\/\\/appassets.androidplatform.net\\/attachments\\/sched-sched-3\\/photo.jpg\",\"size\":2048,\"blobId\":\"sha256-0000000000000000000000000000000000000000000000000000000000000001\",\"role\":\"attachment\"}]}",
+			"decoded": {
+				"text": "See the photo",
+				"messageId": "sched-3",
+				"files": [
+					{
+						"name": "photo.jpg",
+						"mime": "image/jpeg",
+						"src": "https://appassets.androidplatform.net/attachments/sched-sched-3/photo.jpg",
+						"size": 2048,
+						"blobId": "sha256-0000000000000000000000000000000000000000000000000000000000000001",
+						"role": "attachment"
+					}
+				]
+			},
+			"wire": [
+				{
+					"filename": "photo.jpg",
+					"mime": "image/jpeg",
+					"size": 2048,
+					"descriptiveKey": "photo.jpg",
+					"blobId": "sha256-0000000000000000000000000000000000000000000000000000000000000001",
+					"role": "attachment"
+				}
+			]
+		},
+		{
+			"name": "files-only-no-role",
+			"plaintext": "{\"text\":\"\",\"messageId\":\"sched-4\",\"files\":[{\"name\":\"notes.txt\",\"mime\":\"text\\/plain\",\"size\":12,\"blobId\":\"sha256-0000000000000000000000000000000000000000000000000000000000000002\"}]}",
+			"decoded": {
+				"text": "",
+				"messageId": "sched-4",
+				"files": [
+					{
+						"name": "notes.txt",
+						"mime": "text/plain",
+						"size": 12,
+						"blobId": "sha256-0000000000000000000000000000000000000000000000000000000000000002"
+					}
+				]
+			},
+			"wire": [
+				{
+					"filename": "notes.txt",
+					"mime": "text/plain",
+					"size": 12,
+					"descriptiveKey": "notes.txt",
+					"blobId": "sha256-0000000000000000000000000000000000000000000000000000000000000002",
+					"role": "attachment"
+				}
+			]
+		},
+		{
+			"name": "file-without-size",
+			"plaintext": "{\"text\":\"Two files\",\"messageId\":\"sched-5\",\"files\":[{\"name\":\"a.png\",\"mime\":\"image\\/png\",\"blobId\":\"sha256-0000000000000000000000000000000000000000000000000000000000000003\",\"role\":\"attachment\"},{\"name\":\"b.png\",\"mime\":\"image\\/png\",\"size\":5,\"blobId\":\"sha256-0000000000000000000000000000000000000000000000000000000000000004\",\"role\":\"attachment\"}]}",
+			"decoded": {
+				"text": "Two files",
+				"messageId": "sched-5",
+				"files": [
+					{
+						"name": "a.png",
+						"mime": "image/png",
+						"blobId": "sha256-0000000000000000000000000000000000000000000000000000000000000003",
+						"role": "attachment"
+					},
+					{
+						"name": "b.png",
+						"mime": "image/png",
+						"size": 5,
+						"blobId": "sha256-0000000000000000000000000000000000000000000000000000000000000004",
+						"role": "attachment"
+					}
+				]
+			},
+			"wire": [
+				{
+					"filename": "b.png",
+					"mime": "image/png",
+					"size": 5,
+					"descriptiveKey": "b.png",
+					"blobId": "sha256-0000000000000000000000000000000000000000000000000000000000000004",
+					"role": "attachment"
+				}
+			]
+		}
+	]
+}

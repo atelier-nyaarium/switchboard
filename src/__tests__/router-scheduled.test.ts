@@ -9,13 +9,15 @@ import {
 	createScheduledService,
 	ORPHAN_SEND_MS,
 	type ScheduledDeps,
+	scheduledMessageEnvelope,
 } from "../federation-server/scheduled/scheduledService.js";
 import { processAmbient } from "../shared/ambient.js";
 import { type BlobReference, formatBlobReference } from "../shared/blob-reference.js";
+import { CHANNEL_FILES_MAX } from "../shared/channel-file.js";
 import { generateIdentity } from "../shared/crypto.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
-import { formatInboxAddress, type InboxRowInput, signRowEnvelope } from "../shared/schemasInbox.js";
-import type { ScheduledTarget } from "../shared/schemasScheduled.js";
+import { formatInboxAddress, type InboxRow, type InboxRowInput, signRowEnvelope } from "../shared/schemasInbox.js";
+import { SCHEDULED_FAILURE_REASONS, type ScheduledTarget, scheduledFailureReason } from "../shared/schemasScheduled.js";
 
 const roots: string[] = [];
 const body: ContentEnvelope = {
@@ -98,15 +100,9 @@ function make(
 				return { opKey: input.opKey, outcome: options.resultOutcome ?? "accepted", seq: 1 };
 			},
 		},
-		appendScheduledMessage: (domainId, address, opKey, messageBody, contentRefs) => {
+		appendScheduledMessage: (domainId, address, opKey, messageBody, contentRefs, device) => {
 			if (realInbox) {
-				const envelope = {
-					origin: { kind: "router" as const, domainId },
-					opKey,
-					epoch: messageBody.epoch,
-					kind: "message" as const,
-					contentRefs,
-				};
+				const envelope = scheduledMessageEnvelope(domainId, opKey, messageBody, contentRefs, device);
 				const row = {
 					envelope,
 					producerSig: signRowEnvelope(envelope, router.sign.priv),
@@ -301,7 +297,6 @@ describe("scheduled service", () => {
 		registry.close();
 	});
 
-	// Release current set.
 	it("conflicts when an edit lands on a firing record", () => {
 		const { service, registry, released } = make();
 		service.schedule(
@@ -478,6 +473,111 @@ describe("scheduled service", () => {
 		registry.close();
 	});
 
+	it("fires a row naming the device that scheduled it, and leaves out one the row cannot carry", async () => {
+		const fired = async (device: string) => {
+			const made = make({ durableInbox: true });
+			made.service.schedule(
+				"domain-a",
+				{ conversationId: "conversation", device, opId: "op-1" },
+				{ kind: "schedule_send", target, fireAt: 200, opId: "op-1", files: [], body },
+			);
+			await made.service.fire("domain-a", target);
+			const rows = made.registry.for("domain-a").rows(formatInboxAddress({ kind: "session", ...target }), 1, 10);
+			made.registry.close();
+			return rows.map((row) => (row.row as { envelope: { origin: unknown } }).envelope.origin);
+		};
+		expect(await fired("pixel")).toEqual([{ kind: "router", domainId: "domain-a", device: "pixel" }]);
+		expect(await fired("a/b")).toEqual([{ kind: "router", domainId: "domain-a" }]);
+	});
+
+	it("tells the owner once that a fired send was refused, as a closed reason, and settles the record", async () => {
+		const made = make({ durableInbox: true });
+		made.service.schedule(
+			"domain-a",
+			{ conversationId: "conversation", device: "phone", opId: "op-1" },
+			{ kind: "schedule_send", target, fireAt: 200, opId: "op-1", files: [], body },
+		);
+		await made.service.fire("domain-a", target);
+		const store = made.registry.for("domain-a");
+		const sessionAddress = formatInboxAddress({ kind: "session", ...target });
+		const fired = store.rows(sessionAddress, 1, 10)[0]?.row as unknown as InboxRow;
+		made.service.rowRetired("domain-a", sessionAddress, fired, { outcome: "delivered" });
+		made.service.rowRetired("domain-a", sessionAddress, fired, { outcome: "failed", reason: "malformed_body" });
+		made.service.rowRetired("domain-a", sessionAddress, fired, { outcome: "failed", reason: "malformed_body" });
+		const owner = formatInboxAddress({ kind: "owner", domainId: "domain-a", ownerSignPub: made.owner.sign.pub });
+		const results = store.rows(owner, 1, 10).map((entry) => entry.row as unknown as InboxRow);
+		expect(results.map((row) => [row.envelope.opKey.opId, (row.body as { outcome: string }).outcome])).toEqual([
+			["op-1.pending", "pending"],
+			["op-1.sent", "sent"],
+			["op-1.failed", "failed"],
+		]);
+		expect(results[2]?.body).toMatchObject({ opId: "op-1", reason: "malformed_body", seq: fired.seq, body });
+		expect(made.service.list("domain-a")[0]?.state).toBe("error");
+		made.registry.close();
+	});
+
+	it("tells the owner a fired send its Gateway never took before the row expired", async () => {
+		const made = make({ durableInbox: true });
+		made.service.schedule(
+			"domain-a",
+			{ conversationId: "conversation", device: "phone", opId: "op-1" },
+			{ kind: "schedule_send", target, fireAt: 200, opId: "op-1", files: [], body },
+		);
+		await made.service.fire("domain-a", target);
+		const store = made.registry.for("domain-a");
+		const sessionAddress = formatInboxAddress({ kind: "session", ...target });
+		const fired = store.rows(sessionAddress, 1, 10)[0]?.row as unknown as InboxRow;
+		made.service.rowRetired("domain-a", sessionAddress, fired, { outcome: "expired" });
+		const owner = formatInboxAddress({ kind: "owner", domainId: "domain-a", ownerSignPub: made.owner.sign.pub });
+		const failed = store
+			.rows(owner, 1, 10)
+			.map((entry) => (entry.row as unknown as InboxRow).body as { outcome: string; reason?: string })
+			.filter((result) => result.outcome === "failed");
+		expect(failed).toMatchObject([{ reason: "delivery_failed" }]);
+		made.registry.close();
+	});
+
+	it("refuses a schedule with more files than one message carries", () => {
+		const { service, registry } = make();
+		const files = Array.from({ length: CHANNEL_FILES_MAX + 1 }, (_, n) => `blob-${n}`);
+		expect(
+			service.schedule(
+				"domain-a",
+				{ conversationId: "conversation", device: "phone", opId: "op-1" },
+				{ kind: "schedule_send", target, fireAt: 200, opId: "op-1", files, body },
+			),
+		).toMatchObject({ outcome: "refused", reason: "too_many_files" });
+		expect(service.list("domain-a")).toEqual([]);
+		registry.close();
+	});
+
+	it("names any other refusal, an expiry or a revocation as a failed delivery", () => {
+		expect(scheduledFailureReason("send to x failed")).toBe("delivery_failed");
+		expect(scheduledFailureReason(undefined)).toBe("delivery_failed");
+		for (const token of SCHEDULED_FAILURE_REASONS) expect(scheduledFailureReason(token)).toBe(token);
+	});
+
+	it("answers settled to a cancel or a replacement after the fire, whatever version it names", async () => {
+		const { service, registry } = make();
+		service.schedule(
+			"domain-a",
+			{ conversationId: "conversation", device: "phone", opId: "op-1" },
+			{ kind: "schedule_send", target, fireAt: 200, opId: "op-1", files: [], body },
+		);
+		await service.fire("domain-a", target);
+		const settled = { outcome: "refused", reason: "settled", state: "fired" };
+		expect(service.cancel("domain-a", target, 1)).toMatchObject(settled);
+		expect(
+			service.schedule(
+				"domain-a",
+				{ conversationId: "conversation", device: "phone", opId: "op-2" },
+				{ kind: "schedule_send", target, fireAt: 300, opId: "op-2", files: [], body, expectedVersion: 1 },
+			),
+		).toMatchObject(settled);
+		expect(service.list("domain-a")[0]).toMatchObject({ opId: "op-1", state: "fired" });
+		registry.close();
+	});
+
 	it("dedupes a message after reopening following a crash", async () => {
 		const first = make({ durableInbox: true });
 		first.service.schedule(
@@ -600,7 +700,7 @@ describe("scheduled service", () => {
 		service.schedule(
 			"domain-a",
 			{ conversationId: "conversation", device: "phone", opId: "op-2" },
-			{ kind: "schedule_send", target, fireAt: 200, opId: "op-2", files: [], body, expectedVersion: 2 },
+			{ kind: "schedule_send", target, fireAt: 200, opId: "op-2", files: [], body },
 		);
 		await service.fire("domain-a", target);
 		expect(await service.fire("domain-a", target)).toMatchObject({ outcome: "ignored" });

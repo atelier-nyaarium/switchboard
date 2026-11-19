@@ -10,7 +10,7 @@ import {
 import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import { OwnerQuarantined, type OwnerStateStore } from "../owner/ownerStateStore.js";
 import { floorOf, ledgerTransaction, ownerAddress } from "./inboxCore.js";
-import { retireRow } from "./inboxRetire.js";
+import { type RetiredListener, retireRow } from "./inboxRetire.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 
 const JOURNAL_COMPACT_BYTES = 4 * 1024 * 1024;
@@ -81,7 +81,7 @@ export function compactInbox(registry: OwnerStoreRegistry, domainId: string): vo
 function sweepDomain(
 	registry: OwnerStoreRegistry,
 	routerIdentity: { signPub: string; signPriv: string },
-	notifyRetired: (domainId: string, address: string, row: InboxRow) => void,
+	notifyRetired: RetiredListener,
 	forgetConsumer: (domainId: string, signerSignPub: string) => void,
 	domainId: string,
 	now: number,
@@ -116,7 +116,7 @@ function sweepDomain(
 export function sweepInbox(
 	registry: OwnerStoreRegistry,
 	routerIdentity: { signPub: string; signPriv: string },
-	notifyRetired: (domainId: string, address: string, row: InboxRow) => void,
+	notifyRetired: RetiredListener,
 	forgetConsumer: (domainId: string, signerSignPub: string) => void,
 	now: number,
 	refs?: Pick<ReferenceHeldStore, "publish">,

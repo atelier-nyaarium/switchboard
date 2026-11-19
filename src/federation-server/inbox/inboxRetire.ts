@@ -15,6 +15,14 @@ import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 
 type Terminal = "failed" | "expired" | "target_revoked";
 
+/** Row exit outcome. */
+export interface RowRetirement {
+	outcome: "delivered" | Terminal;
+	reason?: string;
+}
+
+export type RetiredListener = (domainId: string, address: string, row: InboxRow, retirement: RowRetirement) => void;
+
 function senderAddress(
 	registry: OwnerStoreRegistry,
 	domainId: string,
@@ -76,7 +84,7 @@ export function retireRow(
 	row: InboxRow,
 	outcome: Terminal,
 	reason: string | undefined,
-	notifyRetired: (domainId: string, address: string, row: InboxRow) => void,
+	notifyRetired: RetiredListener,
 	refs?: Pick<ReferenceHeldStore, "publish">,
 ): OpResultEnvelope | null {
 	const opKey = row.envelope.opKey;
@@ -115,6 +123,6 @@ export function retireRow(
 			? refs.publish(domainId, [{ ref: { kind: "row", address, seq: row.seq }, blobIds: [] }], mutate)
 			: ledgerTransaction(store, mutate);
 	if (!landed(write)) return null;
-	notifyRetired(domainId, addressText, row);
+	notifyRetired(domainId, addressText, row, { outcome, ...(reason ? { reason } : {}) });
 	return result;
 }

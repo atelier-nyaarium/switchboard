@@ -57,11 +57,34 @@ export const ScheduleCancelValueSchema = z
 
 export const ScheduleListValueSchema = z.object({ kind: z.literal("schedule_list") }).meta({ id: "ScheduleListValue" });
 
+/** Too many files. */
+export const SCHEDULE_REFUSED_TOO_MANY_FILES = "too_many_files";
+
+/** Failure reasons. */
+export const SCHEDULED_FAILURE_REASONS = [
+	"malformed_body",
+	"bad_tag",
+	"delivery_unavailable",
+	"target_mismatch",
+	"delivery_refused",
+	"delivery_failed",
+] as const;
+
+export type ScheduledFailureReason = (typeof SCHEDULED_FAILURE_REASONS)[number];
+
+/** Maps reason to token. */
+export function scheduledFailureReason(reason: string | undefined): ScheduledFailureReason {
+	const known = SCHEDULED_FAILURE_REASONS.find((token) => token === reason);
+	return known ?? "delivery_failed";
+}
+
 export const ScheduledResultRowSchema = z
 	.object({
 		opId: z.string().min(1).max(128),
 		outcome: z.enum(["pending", "sent", "failed"]),
 		seq: z.number().int().positive().optional(),
+		// Absent when unknown.
+		reason: z.enum(SCHEDULED_FAILURE_REASONS).optional(),
 		body: ContentEnvelopeSchema,
 	})
 	.meta({ id: "ScheduledResultRow" });

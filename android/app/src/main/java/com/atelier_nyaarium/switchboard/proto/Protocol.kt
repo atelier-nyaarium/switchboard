@@ -126,6 +126,7 @@ object Protocol {
 		const val OP_REASON_NOT_ADMITTED: String = "not admitted"
 		const val OP_REASON_CLOCK_SKEW: String = "clock_skew"
 		const val OP_REASON_NOT_SERVED: String = "not_served"
+		const val SCHEDULE_REFUSED_TOO_MANY_FILES: String = "too_many_files"
 		const val BOARD_OUTCOME_APPLIED: String = "applied"
 		const val CONSOLE_REASON_CURSOR_STALE: String = "cursor_stale"
 		const val GATEWAY_ERROR_STALE_INCARNATION: String = "stale_incarnation"
@@ -326,6 +327,15 @@ object Protocol {
 			const val UNREACHABLE: String = "unreachable"
 		}
 
+		object ScheduledFailureReason {
+			const val MALFORMED_BODY: String = "malformed_body"
+			const val BAD_TAG: String = "bad_tag"
+			const val DELIVERY_UNAVAILABLE: String = "delivery_unavailable"
+			const val TARGET_MISMATCH: String = "target_mismatch"
+			const val DELIVERY_REFUSED: String = "delivery_refused"
+			const val DELIVERY_FAILED: String = "delivery_failed"
+		}
+
 		object DeviceKind {
 			const val SWITCH: String = "switch"
 			const val SENSOR: String = "sensor"
@@ -423,6 +433,9 @@ object Protocol {
 
 	/** Board attachment limit. */
 	const val BOARD_ATTACHMENTS_MAX: Int = 10
+
+	/** File cap per message. */
+	const val CHANNEL_FILES_MAX: Int = 10
 }
 
 @Serializable
@@ -4093,6 +4106,8 @@ data class ScheduledResultRow(
 	val outcome: String,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val seq: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val reason: String? = null,
 	val body: ContentEnvelope,
 )
 

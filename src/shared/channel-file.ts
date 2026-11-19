@@ -147,7 +147,10 @@ export const ChannelFileSchema = z
  * Ten matches the tightest renderer bound in the path (a Discord message) and is far above any real
  * reply.
  */
-export const ChannelFilesSchema = z.array(ChannelFileSchema).max(10);
+/** File cap per message. */
+export const CHANNEL_FILES_MAX = 10;
+
+export const ChannelFilesSchema = z.array(ChannelFileSchema).max(CHANNEL_FILES_MAX);
 
 ////////////////////////////////
 //  Types

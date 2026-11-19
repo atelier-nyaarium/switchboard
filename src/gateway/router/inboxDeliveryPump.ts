@@ -1,7 +1,9 @@
+import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import { opPayloadAadKind, opResultAadKind, scheduledBodyAadKind } from "../../shared/content-envelope.js";
 import { SealedEnvelopeSchema } from "../../shared/crypto.js";
 import { type FederatedOp, FederatedOpSchema } from "../../shared/federation-protocol.js";
+import { isFiredSchedule, ScheduledBodySchema, scheduledWireFile } from "../../shared/scheduled-body.js";
 import { BoardObservationRowSchema, type BoardStoredEntry } from "../../shared/schemasBoardState.js";
 import {
 	ConsoleOpSchema,
@@ -16,19 +18,23 @@ import {
 	type InboxRow,
 	InboxRowSchema,
 	parseInboxAddress,
+	type RowOrigin,
 	signRowEnvelope,
 } from "../../shared/schemasInbox.js";
 import { isReplyDisposition } from "../../shared/types.js";
 import { OP_OUTCOME_ACCEPTED } from "../../shared/wire-vocabulary.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
+import { SendRefusedError } from "../console/consoleTypes.js";
 import type { ContentKeyStore } from "../federation/contentKeyStore.js";
 import type { Sealer } from "../federation/sealer.js";
+import { fireAndForget } from "../fireAndForget.js";
 import type { InboxClaims } from "./inboxClaims.js";
 
 type AckOutcome = "delivered" | "waking" | "failed";
 type AckReply = { error?: string; result?: { outcome?: string; error?: string } };
 
 export interface InboxDeliveryPumpDeps {
+	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
 	claims: InboxClaims;
 	routerClient: { callInboxTool: (action: string, params: Record<string, unknown>) => Promise<unknown> };
 	/** Drops frames for another registration. */
@@ -56,6 +62,7 @@ export interface InboxDeliveryPumpDeps {
 		conversationId: string,
 		opId: string,
 		ownerSignPub: string,
+		origin?: RowOrigin["kind"],
 	) => Promise<unknown>;
 	producerSignPriv?: string;
 	coordinator?: Pick<ChannelDeliveryCoordinator, "accept" | "acknowledge">;
@@ -84,9 +91,14 @@ interface DeliveryPayload {
 }
 
 const deliveryIdOf = (address: string, seq: number, deliveryEpoch: number) => `${address}:${seq}:${deliveryEpoch}`;
+/** About two minutes. */
+const FIRE_RETRY_MS = [5_000, 10_000, 20_000, 40_000, 60_000];
+const senderDevice = (row: InboxRow): string => row.envelope.origin.device ?? "";
 
 export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 	const waiting = new Map<string, { epoch: number; address: string; row: InboxRow; deliveryEpoch: number }>();
+	/** Retries by delivery id. */
+	const fireRetries = new Map<string, { tries: number; timer?: TimerHandle }>();
 	const inFlight = new Set<Promise<unknown>>();
 	let accepting = true;
 	const track = <T>(work: () => Promise<T>, declined: T): Promise<T> => {
@@ -134,7 +146,9 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 					deliveryEpoch,
 					{ ok: false, error: "lost" },
 				);
-			return ack(address, row.seq, deliveryEpoch, claim.outcome);
+			// Re-sent as a duplicate.
+			if (!(isFiredSchedule(row.envelope) && claim.outcome === "waking"))
+				return ack(address, row.seq, deliveryEpoch, claim.outcome);
 		}
 		const parsed = parseInboxAddress(address);
 		if (!parsed || parsed.kind === "owner")
@@ -151,10 +165,9 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		}
 		const ownerSignPub = deps.ownerSignPub();
 		if (!ownerSignPub) return ack(address, row.seq, deliveryEpoch, "waking", "missing_epoch", false);
-		const kind =
-			row.envelope.origin.kind === "router" && row.envelope.kind === "message"
-				? scheduledBodyAadKind(row.envelope.opKey.conversationId, row.envelope.opKey.opId)
-				: opPayloadAadKind();
+		const kind = isFiredSchedule(row.envelope)
+			? scheduledBodyAadKind(row.envelope.opKey.conversationId, row.envelope.opKey.opId)
+			: opPayloadAadKind();
 		const content = ContentEnvelopeSchema.safeParse(row.body);
 		if (!content.success) return ack(address, row.seq, deliveryEpoch, "failed", "malformed_body");
 		const opened = deps.contentKeyStore.open(content.data, {
@@ -254,7 +267,7 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		try {
 			const result = await deps.consoleDispatch(
 				op.data,
-				row.envelope.origin.device ?? "",
+				senderDevice(row),
 				row.envelope.opKey.conversationId,
 				row.envelope.opKey.opId,
 				ownerSignPub,
@@ -323,6 +336,79 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		return ack(address, row.seq, deliveryEpoch, "delivered");
 	}
 
+	/** Fires as a send. */
+	async function landScheduled(
+		address: string,
+		parsed: Extract<InboxAddress, { kind: "session" }>,
+		row: InboxRow,
+		deliveryEpoch: number,
+		body: unknown,
+	): Promise<void> {
+		const scheduled = ScheduledBodySchema.safeParse(body);
+		if (!scheduled.success) return ack(address, row.seq, deliveryEpoch, "failed", "malformed_body");
+		if (parsed.domainId !== deps.domainId || parsed.gatewayId !== deps.gatewayId)
+			return ack(address, row.seq, deliveryEpoch, "failed", "target_mismatch");
+		const ownerSignPub = deps.ownerSignPub();
+		if (!ownerSignPub || !deps.consoleDispatch) return retryFire(address, row, deliveryEpoch);
+		const files = scheduled.data.files.flatMap((file) => scheduledWireFile(file) ?? []);
+		const unsized = scheduled.data.files.length - files.length;
+		if (unsized > 0) console.warn(`[inbox] ${address} seq=${row.seq}: ${unsized} scheduled file(s) without a size`);
+		const op = ConsoleOpSchema.safeParse({
+			kind: "send",
+			to: `${parsed.domainId}.${parsed.gatewayId}.${parsed.sessionId}`,
+			body: scheduled.data.text,
+			...(files.length > 0 ? { files } : {}),
+		});
+		if (!op.success) return ack(address, row.seq, deliveryEpoch, "failed", "malformed_body");
+		try {
+			await deps.consoleDispatch(
+				op.data,
+				senderDevice(row),
+				row.envelope.opKey.conversationId,
+				row.envelope.opKey.opId,
+				ownerSignPub,
+				row.envelope.origin.kind,
+			);
+		} catch (error) {
+			// Only refusals are final.
+			if (error instanceof SendRefusedError && !error.retryable)
+				return settleFire(address, row, deliveryEpoch, "failed", "delivery_refused");
+			return retryFire(address, row, deliveryEpoch);
+		}
+		return settleFire(address, row, deliveryEpoch, "delivered");
+	}
+
+	function settleFire(address: string, row: InboxRow, deliveryEpoch: number, outcome: AckOutcome, reason?: string) {
+		const retry = fireRetries.get(deliveryIdOf(address, row.seq, deliveryEpoch));
+		if (retry?.timer) deps.ambient.clearTimer(retry.timer);
+		fireRetries.delete(deliveryIdOf(address, row.seq, deliveryEpoch));
+		return ack(address, row.seq, deliveryEpoch, outcome, reason);
+	}
+
+	/** Nothing else retries a fire. */
+	async function retryFire(address: string, row: InboxRow, deliveryEpoch: number): Promise<void> {
+		const id = deliveryIdOf(address, row.seq, deliveryEpoch);
+		const held = fireRetries.get(id);
+		if (held?.timer) deps.ambient.clearTimer(held.timer);
+		const tries = held?.tries ?? 0;
+		const delay = FIRE_RETRY_MS[tries];
+		if (delay === undefined) return settleFire(address, row, deliveryEpoch, "failed", "delivery_unavailable");
+		// Closing: the claim stays `waking`.
+		if (!accepting) {
+			fireRetries.delete(id);
+			return;
+		}
+		const retry: { tries: number; timer?: TimerHandle } = { tries: tries + 1 };
+		fireRetries.set(id, retry);
+		retry.timer = deps.ambient.setTimer(() => {
+			retry.timer = undefined;
+			fireAndForget(
+				"inbox fire retry",
+				track(() => deliver(address, row, deliveryEpoch), undefined),
+			);
+		}, delay);
+	}
+
 	async function land(address: string, parsed: InboxAddress, row: InboxRow, deliveryEpoch: number, body: unknown) {
 		if (parsed.kind === "gateway") {
 			if (row.envelope.kind === "key_grant") {
@@ -376,6 +462,7 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			deps.boardObservation(parsed.sessionId, observation.data);
 			return ack(address, row.seq, deliveryEpoch, "delivered");
 		}
+		if (isFiredSchedule(row.envelope)) return landScheduled(address, parsed, row, deliveryEpoch, body);
 		const payload = (body ?? {}) as DeliveryPayload;
 		if (!payload.to || !payload.from) return ack(address, row.seq, deliveryEpoch, "failed", "malformed_body");
 		if (!deps.coordinator) return ack(address, row.seq, deliveryEpoch, "failed", "delivery_unavailable");
@@ -389,9 +476,7 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			...(payload.files ? { files: payload.files as never } : {}),
 			...(isReplyDisposition(payload.disposition) ? { disposition: payload.disposition } : {}),
 			enqueuedAt: row.acceptedAt,
-			// A scheduled send is the owner's.
-			origin:
-				row.envelope.origin.kind === "router" || row.envelope.origin.kind === "console" ? "owner" : "gateway",
+			origin: row.envelope.origin.kind === "console" ? "owner" : "gateway",
 		});
 		if (outcome === "refused") return ack(address, row.seq, deliveryEpoch, "failed", "delivery_refused");
 		// The receiver's channel_delivery_ack retires socket deliveries.
@@ -464,8 +549,11 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		await Promise.allSettled([...inFlight]);
 	}
 
+	/** Claims stay `waking` for retry. */
 	async function stop(): Promise<void> {
 		accepting = false;
+		for (const retry of fireRetries.values()) if (retry.timer) deps.ambient.clearTimer(retry.timer);
+		fireRetries.clear();
 		await drain();
 	}
 

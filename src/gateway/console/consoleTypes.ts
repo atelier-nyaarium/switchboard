@@ -63,6 +63,21 @@ import type { DurableOpStore } from "./durableOpStore.js";
 /** This build holds no stage for the op. */
 export class NotServedError extends Error {}
 
+/** Route refusal. */
+export class SendRefusedError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
+	}
+
+	/** 503 accepted nothing. */
+	get retryable(): boolean {
+		return this.status === 503;
+	}
+}
+
 export interface ConsoleRoutes {
 	// Owner-only console door.
 	/** `scheduled`: a routine's, which never reads as the owner present. */

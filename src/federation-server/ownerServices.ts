@@ -26,7 +26,7 @@ import { createLeaseService, readRouterMigrationWindow } from "./migration/lease
 import type { OwnerServiceHooks } from "./ownerServiceHooks.js";
 import { createPhoneHoldService } from "./phone/phoneHoldService.js";
 import { createPresenceService } from "./presence/presenceService.js";
-import { createScheduledService } from "./scheduled/scheduledService.js";
+import { createScheduledService, scheduledMessageEnvelope } from "./scheduled/scheduledService.js";
 import { createShareService } from "./share/shareService.js";
 import { createCapabilitiesService } from "./tier1/capabilitiesService.js";
 import { createReadAnchorsService } from "./tier1/readAnchorsService.js";
@@ -195,14 +195,9 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		opKey: OpKey,
 		body: ContentEnvelope,
 		contentRefs: string[],
+		device: string,
 	) => {
-		const envelope = {
-			origin: { kind: "router" as const, domainId },
-			opKey,
-			epoch: body.epoch,
-			kind: "message" as const,
-			contentRefs,
-		};
+		const envelope = scheduledMessageEnvelope(domainId, opKey, body, contentRefs, device);
 		const row = { envelope, producerSig: signRowEnvelope(envelope, deps.routerIdentity.signPriv), body };
 		const result = inbox.appendRow({ address, row, producerSignPub: deps.routerIdentity.signPub });
 		if (result.row) deliver(domainId, address, result.row);
@@ -227,6 +222,14 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		},
 		reported,
 		now: () => registry.now(),
+	});
+	inbox.onRowRetired((domainId, address, row, retirement) => {
+		try {
+			scheduled.rowRetired(domainId, address, row, retirement);
+		} catch (error) {
+			// The retire already landed.
+			console.warn(`[scheduled] retire listener failed: ${(error as Error).name}`);
+		}
 	});
 
 	const capabilities = createCapabilitiesService({ registry });

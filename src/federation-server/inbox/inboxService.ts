@@ -15,7 +15,7 @@ import type { OwnerStateStore } from "../owner/ownerStateStore.js";
 import { appendInboxRow, sessionExists } from "./inboxAppend.js";
 import { durabilityOutcome, floorOf, guarded, ledgerTransaction, ownerAddress, recordId } from "./inboxCore.js";
 import { appendRouterOpResultRow, readOpResult } from "./inboxOpResult.js";
-import { retireRow } from "./inboxRetire.js";
+import { type RetiredListener, type RowRetirement, retireRow } from "./inboxRetire.js";
 import { compactInbox, sweepInbox } from "./inboxSweep.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 
@@ -35,14 +35,14 @@ const CONSUMER_SEEN_REFRESH_MS = 60 * 60 * 1000;
 
 export class InboxService {
 	private peerGate: PeerRowGate | null = null;
-	private readonly retiredListeners: Array<(domainId: string, address: string, row: InboxRow) => void> = [];
+	private readonly retiredListeners: RetiredListener[] = [];
 
 	/** Final row transition. */
-	onRowRetired(listener: (domainId: string, address: string, row: InboxRow) => void): void {
+	onRowRetired(listener: RetiredListener): void {
 		this.retiredListeners.push(listener);
 	}
-	private rowRetired(domainId: string, address: string, row: InboxRow): void {
-		for (const listener of this.retiredListeners) listener(domainId, address, row);
+	private rowRetired(domainId: string, address: string, row: InboxRow, retirement: RowRetirement): void {
+		for (const listener of this.retiredListeners) listener(domainId, address, row, retirement);
 	}
 
 	constructor(
@@ -166,7 +166,8 @@ export class InboxService {
 			if (input.outcome === "delivered") tx.remove(formatInboxAddress(address), input.seq);
 		});
 		if (!landed(write)) return { opKey: row.envelope.opKey, outcome: durabilityOutcome(write.kind) };
-		if (input.outcome === "delivered") this.rowRetired(address.domainId, formatInboxAddress(address), row);
+		if (input.outcome === "delivered")
+			this.rowRetired(address.domainId, formatInboxAddress(address), row, { outcome: "delivered" });
 		return { opKey: row.envelope.opKey, outcome: input.outcome, seq: input.seq };
 	}
 
@@ -397,7 +398,7 @@ export class InboxService {
 		sweepInbox(
 			this.registry,
 			this.routerIdentity,
-			(domainId, address, row) => this.rowRetired(domainId, address, row),
+			(domainId, address, row, retirement) => this.rowRetired(domainId, address, row, retirement),
 			(domainId, signerSignPub) => this.forgetConsumer(domainId, signerSignPub),
 			now,
 			this.refs,
@@ -437,7 +438,7 @@ export class InboxService {
 			row,
 			outcome,
 			reason,
-			(d, a, r) => this.rowRetired(d, a, r),
+			(d, a, r, retirement) => this.rowRetired(d, a, r, retirement),
 			this.refs,
 		);
 	}

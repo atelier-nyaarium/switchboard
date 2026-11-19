@@ -1,16 +1,30 @@
 import type { BlobReference } from "../../shared/blob-reference.js";
+import { CHANNEL_FILES_MAX } from "../../shared/channel-file.js";
+import { isFiredSchedule } from "../../shared/scheduled-body.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
-import type { InboxAddress, OpKey, OpResultEnvelope, OwnerOp } from "../../shared/schemasInbox.js";
 import {
+	type InboxAddress,
+	type InboxRow,
+	type OpKey,
+	type OpResultEnvelope,
+	type OwnerOp,
+	parseInboxAddress,
+	type RowEnvelope,
+	RowOriginSchema,
+} from "../../shared/schemasInbox.js";
+import {
+	SCHEDULE_REFUSED_TOO_MANY_FILES,
 	type ScheduledRecord,
 	ScheduledRecordSchema,
 	type ScheduledTarget,
 	ScheduleSendValueSchema,
+	scheduledFailureReason,
 } from "../../shared/schemasScheduled.js";
 import { isComposite } from "../../shared/session-id.js";
 import { OP_OUTCOME_ACCEPTED } from "../../shared/wire-vocabulary.js";
 import { foldWriteResult } from "../../shared/write-result.js";
 import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
+import type { RowRetirement } from "../inbox/inboxRetire.js";
 import type { InboxService } from "../inbox/inboxService.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
 import type { OwnerServiceHooks } from "../ownerServiceHooks.js";
@@ -29,6 +43,7 @@ export interface ScheduledDeps {
 		opKey: OpKey,
 		body: ContentEnvelope,
 		contentRefs: string[],
+		device: string,
 	) => OpResultEnvelope & { seq?: number };
 	referenceHeld: Pick<ReferenceHeldStore, "has" | "publish">;
 	scheduler: ScheduledScheduler;
@@ -41,6 +56,12 @@ const RETRY_MS = 60_000;
 /** A send armed for a session no Gateway reports is cancelled once this old. */
 export const ORPHAN_SEND_MS = 24 * 60 * 60 * 1000;
 const TERMINAL = new Set(["fired", "cancelled", "error"]);
+/** Settled answer fields. */
+const settledFields = (current: { version: number; clear: Record<string, unknown> }) => ({
+	reason: "settled",
+	state: String(current.clear.state),
+	version: current.version,
+});
 const recordId = (target: ScheduledTarget): string => `${target.domainId}/${target.gatewayId}/${target.sessionId}`;
 const addressOf = (target: ScheduledTarget): InboxAddress => ({ kind: "session", ...target });
 /** Adjacent ledger keys. */
@@ -53,6 +74,25 @@ const resultKey = (record: { sender: { conversationId: string }; opId: string },
 	opId: `${record.opId}.${outcome}`,
 });
 const writeVersion = (write: { kind: string; version?: number }, fallback: number): number => write.version ?? fallback;
+
+export function scheduledMessageEnvelope(
+	domainId: string,
+	opKey: OpKey,
+	body: ContentEnvelope,
+	contentRefs: string[],
+	device: string,
+): RowEnvelope {
+	const origin = { kind: "router" as const, domainId };
+	const named = { ...origin, device };
+	return {
+		// Drops an unrepresentable device.
+		origin: RowOriginSchema.safeParse(named).success ? named : origin,
+		opKey,
+		epoch: body.epoch,
+		kind: "message",
+		contentRefs,
+	};
+}
 const foldAppendResult = (result: OpResultEnvelope) =>
 	foldWriteResult(
 		result.outcome === OP_OUTCOME_ACCEPTED
@@ -133,21 +173,27 @@ export function createScheduledService(deps: ScheduledDeps) {
 		const input = parsed.data;
 		if (!isComposite(input.target.sessionId)) return envelope(sender, "refused", { reason: "spawn point" });
 		if (input.target.domainId !== domainId) return envelope(sender, "refused", { reason: "domain" });
+		// An ordinary send's cap.
+		if (input.files.length > CHANNEL_FILES_MAX)
+			return envelope(sender, "refused", { reason: SCHEDULE_REFUSED_TOO_MANY_FILES });
 		const store = deps.registry.for(domainId);
 		const existing = store.list("scheduled").find((record) => record.clear.opId === input.opId);
 		if (existing) {
 			const record = ScheduledRecordSchema.parse({ ...existing.clear, version: existing.version });
 			return envelope(sender, OP_OUTCOME_ACCEPTED, { state: record.state, version: record.version });
 		}
-		for (const file of input.files)
-			if (!deps.referenceHeld.has(domainId, file)) return envelope(sender, "refused", { reason: "file" });
 		const id = recordId(input.target);
 		const current = store.get("scheduled", id);
 		if (current?.clear.state === "firing") return envelope(sender, "conflict", { version: current.version });
 		// Settled keeps the slot for its opId echo only.
 		const settled = current !== null && TERMINAL.has(String(current.clear.state));
+		// Settled has nothing to replace.
+		if (current && settled && input.expectedVersion !== undefined)
+			return envelope(sender, "refused", settledFields(current));
+		for (const file of input.files)
+			if (!deps.referenceHeld.has(domainId, file)) return envelope(sender, "refused", { reason: "file" });
 		const admitted = current
-			? input.expectedVersion === current.version || (settled && input.expectedVersion === undefined)
+			? input.expectedVersion === current.version || settled
 			: input.expectedVersion === undefined;
 		if (!admitted) return envelope(sender, "conflict", { version: current?.version });
 		const record = {
@@ -176,11 +222,13 @@ export function createScheduledService(deps: ScheduledDeps) {
 	function cancel(domainId: string, target: ScheduledTarget, expectedVersion: number) {
 		const store = deps.registry.for(domainId);
 		const current = store.get("scheduled", recordId(target));
+		// Settled outranks a stale version.
+		if (current && TERMINAL.has(String(current.clear.state)))
+			return { outcome: "refused", ...settledFields(current) };
 		if (!current || current.version !== expectedVersion)
 			return { outcome: "refused", reason: "conflict", version: current?.version };
 		if (current.clear.state === "firing")
 			return { outcome: "refused", reason: "conflict", version: current.version };
-		if (TERMINAL.has(String(current.clear.state))) return { outcome: "refused", reason: "settled" };
 		const record = ScheduledRecordSchema.parse({
 			...current.clear,
 			state: "cancelled",
@@ -222,6 +270,30 @@ export function createScheduledService(deps: ScheduledDeps) {
 			.map((record) => ScheduledRecordSchema.parse({ ...record.clear, version: record.version }));
 	}
 
+	/** Tells the owner once. */
+	function rowRetired(domainId: string, addressText: string, row: InboxRow, retirement: RowRetirement): void {
+		if (retirement.outcome === "delivered") return;
+		if (!isFiredSchedule(row.envelope)) return;
+		const address = parseInboxAddress(addressText);
+		if (address?.kind !== "session") return;
+		const { conversationId, opId } = row.envelope.opKey;
+		const reason = scheduledFailureReason(retirement.outcome === "failed" ? retirement.reason : undefined);
+		// Blob hold is gone.
+		const told = deps.inbox.appendRouterRow({
+			address: ownerAddress(domainId),
+			kind: "scheduled_result",
+			opKey: resultKey({ sender: { conversationId }, opId }, "failed"),
+			// Reuses the fired body.
+			body: { opId, outcome: "failed", seq: row.seq, reason, body: row.body as ContentEnvelope },
+		});
+		if (!foldAppendResult(told).applied) console.warn(`[scheduled] failure of ${opId} not told: ${told.outcome}`);
+		const target = { domainId: address.domainId, gatewayId: address.gatewayId, sessionId: address.sessionId };
+		const store = deps.registry.for(domainId);
+		const current = store.get("scheduled", recordId(target));
+		if (current?.clear.opId !== opId || current.clear.state !== "fired") return;
+		store.put("scheduled", current.id, current.version, { clear: { ...current.clear, state: "error" } });
+	}
+
 	/** Retry store failures; silently abort lost races. */
 	const retryLater = (domainId: string, target: ScheduledTarget) =>
 		scheduleTimer(domainId, target, deps.now() + RETRY_MS);
@@ -247,6 +319,7 @@ export function createScheduledService(deps: ScheduledDeps) {
 			messageKey(record),
 			record.body,
 			record.files,
+			record.sender.device,
 		);
 		if (foldAppendResult(sent).applied) {
 			const done = putHolding(domainId, target, [], current.id, firingVersion, {
@@ -317,6 +390,7 @@ export function createScheduledService(deps: ScheduledDeps) {
 		list,
 		fire,
 		rearm,
+		rowRetired,
 		forgetSession,
 		sweepOrphans,
 		register(hooks: OwnerServiceHooks) {

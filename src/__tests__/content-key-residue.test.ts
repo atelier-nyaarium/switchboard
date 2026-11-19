@@ -99,6 +99,7 @@ describe("content key boundaries", () => {
 		const calls: unknown[] = [];
 		const claims = createInboxClaims(residueRoot, processAmbient());
 		const pump = createInboxDeliveryPump({
+			ambient: processAmbient(),
 			claims,
 			routerClient: { callInboxTool: async (_action, params) => calls.push(params) },
 			domainId: "domain",

@@ -1,5 +1,6 @@
 import { withinMs } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
+import { sha256Hex } from "../../shared/canonical-json.js";
 import { type CliRefusal, pickAt } from "../../shared/cli-resolve.js";
 import {
 	type ConsoleOp,
@@ -13,6 +14,7 @@ import { ownerKeyId } from "../../shared/owner-id.js";
 import { type ConsoleAssistantRulesResult, DEFAULT_RULES } from "../../shared/schemasAssistantRules.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { isDeviceConsoleOp } from "../../shared/schemasDevices.js";
+import type { RowOrigin } from "../../shared/schemasInbox.js";
 import { type HolderKey, HolderKeySchema } from "../../shared/schemasPhoneHold.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import type { CutPick } from "../../shared/schemasSessionCut.js";
@@ -40,8 +42,13 @@ import {
 	CreateSessionFailedError,
 	FAKE_REQ,
 	NotServedError,
+	SendRefusedError,
 	type SendRouteJson,
 } from "./consoleTypes.js";
+
+/** Stable fire delivery id. */
+export const firedDeliveryId = (conversationId: string, opId: string): string =>
+	`fired-${sha256Hex(`${conversationId}\n${opId}`).slice(0, 32)}`;
 
 export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
 
@@ -190,10 +197,14 @@ export function createConsoleDispatcher({
 		ownerSignPub: string,
 		signer: HolderKey | null,
 		generation = 0,
+		origin: RowOrigin["kind"] = "console",
 	): Promise<ConsoleOpResult> {
 		if (isDeviceConsoleOp(op)) return requireDevices()(op);
 		switch (op.kind) {
 			case "send": {
+				const fired = origin === "router";
+				// Router wrote the result.
+				const mirror = !fired;
 				const expectedSession = routes.ownerSessionKey(op.to, op.domainId);
 				// Waits on a launch, so a failure reads on the message.
 				const sendPromise = routes.sendFromOwner({
@@ -203,6 +214,8 @@ export function createConsoleDispatcher({
 					body: op.body,
 					files: op.files,
 					channelOnly: true,
+					// Redelivered, the same delivery.
+					...(fired ? { deliveryId: firedDeliveryId(conversationId, opId) } : {}),
 				});
 
 				const winner = await withinMs(ambient, sendPromise, sendBoundMs);
@@ -211,17 +224,19 @@ export function createConsoleDispatcher({
 					void sendPromise
 						.then(async (res) => {
 							if (res.ok) {
-								const appended = appendIfLive(
-									conversationId,
-									{
-										kind: "sent",
-										session_id: expectedSession,
-										opId,
-										body: op.body,
-										files: op.files,
-									},
-									`sent:${conversationId}:${opId}`,
-								);
+								const appended = mirror
+									? appendIfLive(
+											conversationId,
+											{
+												kind: "sent",
+												session_id: expectedSession,
+												opId,
+												body: op.body,
+												files: op.files,
+											},
+											`sent:${conversationId}:${opId}`,
+										)
+									: undefined;
 								if (appended === MIGRATING) {
 									evictOpCacheIfStillOwned(conversationId, opId, op.kind, generation);
 									return;
@@ -248,13 +263,15 @@ export function createConsoleDispatcher({
 				}
 
 				const json = (await winner.json()) as SendRouteJson;
-				if (!winner.ok) throw new Error(json.error ?? "send failed");
+				if (!winner.ok) throw new SendRefusedError(json.error ?? "send failed", winner.status);
 				const sendResult = { session_id: json.session_id ?? "", status: json.status ?? "running" };
-				const appended = appendIfLive(
-					conversationId,
-					{ kind: "sent", session_id: expectedSession, opId, body: op.body, files: op.files },
-					`sent:${conversationId}:${opId}`,
-				);
+				const appended = mirror
+					? appendIfLive(
+							conversationId,
+							{ kind: "sent", session_id: expectedSession, opId, body: op.body, files: op.files },
+							`sent:${conversationId}:${opId}`,
+						)
+					: undefined;
 				if (appended === MIGRATING) throw new Error(MIGRATING);
 				durableOpStore?.markComplete(conversationId, durableOpKey(op.kind, opId), sendResult);
 				return sendResult;
@@ -661,11 +678,12 @@ export function createConsoleDispatcher({
 		conversationId: string,
 		opId: string,
 		ownerSignPub: string,
+		origin: RowOrigin["kind"] = "console",
 	): Promise<ConsoleOpResult> {
 		if (!DELIVERY_OP_KINDS.has(op.kind) && !TOLERATED_DELIVERY_OP_KINDS.has(op.kind))
 			throw new Error("delivery op kind is not allowed");
 		ownerByConversation.set(conversationId, ownerKeyId(ownerSignPub));
-		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub, null);
+		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub, null, 0, origin);
 	}
 
 	/** A routine's session, named from the routine; recreated if gone. */

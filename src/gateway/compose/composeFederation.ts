@@ -5,6 +5,7 @@ import type { Ambient } from "../../shared/ambient.js";
 import { DurableStore, restoreDurable } from "../../shared/durable-store.js";
 import { spawnPointFields } from "../../shared/host-spawn.js";
 import { stableHash } from "../../shared/plane-registry.js";
+import type { RowOrigin } from "../../shared/schemasInbox.js";
 import { ShareMirrorSnapshotSchema } from "../../shared/schemasShare.js";
 import { WIRE_NONCE_BYTES } from "../../shared/wire-vocabulary.js";
 import type { FederationSlice, GatewayBootstrap } from "../boot.js";
@@ -48,6 +49,7 @@ type ConsoleDeliveryHandler = (
 	conversationId: string,
 	opId: string,
 	ownerSignPub: string,
+	origin?: RowOrigin["kind"],
 ) => Promise<unknown>;
 
 type PeerHandleOp = ReturnType<typeof createGatewayRelayHandler>["handleOp"];
@@ -355,6 +357,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			},
 		});
 		inboxPump = createInboxDeliveryPump({
+			ambient,
 			claims: stores.inboxClaims,
 			routerClient,
 			boardObservation: (sessionKey, row) =>
@@ -372,10 +375,10 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			gatewaySignPub: federationIdentity.sign.pub,
 			ownerSignPub: () => allowlist.ownerSignPub,
 			contentKeyStore: gatewayBootstrap.contentKeys,
-			consoleDispatch: (op, device, conversationId, opId, ownerSignPub) => {
+			consoleDispatch: (op, device, conversationId, opId, ownerSignPub, origin) => {
 				const handler = deps.consoleDispatch();
 				return handler
-					? handler(op, device, conversationId, opId, ownerSignPub)
+					? handler(op, device, conversationId, opId, ownerSignPub, origin)
 					: Promise.reject(new Error("console handler unavailable"));
 			},
 			producerSignPriv: federationIdentity.sign.priv,

@@ -8,6 +8,7 @@ import {
 	SignedAdmissionSchema,
 	SignedRevocationSchema,
 } from "../src/shared/admission.js";
+import { CHANNEL_FILES_MAX } from "../src/shared/channel-file.js";
 import {
 	CONSOLE_ANSWER_WAIT_MS,
 	CONSOLE_PROTOCOL_VERSION,
@@ -325,6 +326,8 @@ import {
 	RunbookSchema,
 } from "../src/shared/schemasRunbook.js";
 import {
+	SCHEDULE_REFUSED_TOO_MANY_FILES,
+	SCHEDULED_FAILURE_REASONS,
 	ScheduleCancelValueSchema,
 	ScheduledRecordSchema,
 	ScheduledResultRowSchema,
@@ -1278,6 +1281,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["OP_REASON_NOT_ADMITTED", OP_REASON_NOT_ADMITTED],
 	["OP_REASON_CLOCK_SKEW", OP_REASON_CLOCK_SKEW],
 	["OP_REASON_NOT_SERVED", OP_REASON_NOT_SERVED],
+	["SCHEDULE_REFUSED_TOO_MANY_FILES", SCHEDULE_REFUSED_TOO_MANY_FILES],
 	["BOARD_OUTCOME_APPLIED", BOARD_OUTCOME_APPLIED],
 	["CONSOLE_REASON_CURSOR_STALE", CONSOLE_REASON_CURSOR_STALE],
 	["GATEWAY_ERROR_STALE_INCARNATION", GATEWAY_ERROR_STALE_INCARNATION],
@@ -1757,6 +1761,8 @@ ${schemaConstantBlock("PhoneCapabilityKey", [...PHONE_CAPABILITY_KEYS])}
 
 ${schemaConstantBlock("PhoneUnavailableReason", [...UNAVAILABLE_REASONS])}
 
+${schemaConstantBlock("ScheduledFailureReason", [...SCHEDULED_FAILURE_REASONS])}
+
 ${schemaConstantBlock("DeviceKind", [...DEVICE_KINDS])}
 
 ${schemaConstantBlock("DeviceDriver", [...DEVICE_DRIVERS])}
@@ -1808,6 +1814,9 @@ ${INDENT}const val BOARD_AUTO_DOWNLOAD_MAX_BYTES: Long = ${BOARD_AUTO_DOWNLOAD_M
 
 ${INDENT}/** Board attachment limit. */
 ${INDENT}const val BOARD_ATTACHMENTS_MAX: Int = ${BOARD_ATTACHMENTS_MAX}
+
+${INDENT}/** File cap per message. */
+${INDENT}const val CHANNEL_FILES_MAX: Int = ${CHANNEL_FILES_MAX}
 }`;
 
 /** Mirrors FieldRules.kt metadata. */

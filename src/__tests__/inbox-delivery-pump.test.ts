@@ -2,12 +2,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { SendRefusedError } from "../gateway/console/consoleTypes.js";
+import { ContentKeyStore } from "../gateway/federation/contentKeyStore.js";
 import { createInboxClaims } from "../gateway/router/inboxClaims.js";
 import { createInboxDeliveryPump } from "../gateway/router/inboxDeliveryPump.js";
 import { processAmbient } from "../shared/ambient.js";
-import { inboxBodyAadKind, opPayloadAadKind } from "../shared/content-envelope.js";
+import { inboxBodyAadKind, opPayloadAadKind, scheduledBodyAadKind, sealContent } from "../shared/content-envelope.js";
 import { generateIdentity } from "../shared/crypto.js";
 import type { PendingDelivery } from "../shared/pending-delivery-store.js";
+import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 const roots: string[] = [];
 const address = "session:domain/gateway/session";
@@ -43,6 +46,7 @@ const setup = (root = fs.mkdtempSync(path.join(os.tmpdir(), "delivery-pump-"))) 
 	};
 	const pump = (overrides: Record<string, unknown> = {}) =>
 		createInboxDeliveryPump({
+			ambient: processAmbient(),
 			claims,
 			routerClient: { callInboxTool: async (action, params) => calls.push({ action, params }) },
 			domainId: "domain",
@@ -63,6 +67,94 @@ const setup = (root = fs.mkdtempSync(path.join(os.tmpdir(), "delivery-pump-"))) 
 afterEach(() => {
 	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
+
+const scheduledCases = (
+	JSON.parse(
+		fs.readFileSync(path.join(import.meta.dirname, "../../tests/fixtures/scheduled-body/vectors.json"), "utf8"),
+	) as { cases: Array<{ name: string; plaintext: string; decoded: unknown; wire: unknown[] }> }
+).cases;
+
+/** Real keyring, epoch 1. */
+const realKeys = () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "delivery-pump-keys-"));
+	roots.push(root);
+	const key = Buffer.alloc(32, 9);
+	const store = new ContentKeyStore(root, generateIdentity().box.priv, processAmbient());
+	store.commit(new Map([[1, key]]));
+	return { store, key, ownerSignPub: generateIdentity().sign.pub };
+};
+
+/** Phone seal, Router fire. */
+const fireScheduled = async (
+	plaintext: string,
+	options: {
+		device?: string;
+		address?: string;
+		/** Per-dispatch throw. */
+		refuse?: (call: number) => Error | undefined;
+		noDispatcher?: boolean;
+		/** Left by a dead process. */
+		claimedBefore?: boolean;
+	} = {},
+) => {
+	const harness = setup();
+	const ambient = fakeAmbient({ drive: "manual" });
+	if (options.claimedBefore) harness.claims.claim(options.address ?? address, 1, 1);
+	const keys = realKeys();
+	const body = sealContent(Buffer.from(plaintext, "utf8"), keys.key, {
+		domainId: "domain",
+		ownerSignPub: keys.ownerSignPub,
+		epoch: 1,
+		kind: scheduledBodyAadKind("conversation", "operation"),
+	});
+	const dispatched: Array<{ op: unknown; device: string; conversationId: string; opId: string; origin: unknown }> =
+		[];
+	const delivery = harness.pump({
+		ambient,
+		gatewayId: "gateway",
+		contentKeyStore: keys.store,
+		ownerSignPub: () => keys.ownerSignPub,
+		consoleDispatch: options.noDispatcher
+			? undefined
+			: async (
+					op: unknown,
+					device: string,
+					conversationId: string,
+					opId: string,
+					_owner: string,
+					origin: unknown,
+				) => {
+					dispatched.push({ op, device, conversationId, opId, origin });
+					const refusal = options.refuse?.(dispatched.length - 1);
+					if (refusal) throw refusal;
+					return { session_id: "job", status: "running" };
+				},
+	});
+	const routerOrigin = { kind: "router", domainId: "domain", ...(options.device ? { device: options.device } : {}) };
+	await delivery.onFrame({
+		address: options.address ?? address,
+		rows: [{ ...row(1, body), envelope: { ...envelope(1), origin: routerOrigin } }],
+		deliveryEpoch: 1,
+	});
+	const acks = () => harness.calls.filter((call) => call.action === "inbox_ack");
+	return {
+		dispatched,
+		ambient,
+		delivery,
+		claim: () => harness.claims.get(options.address ?? address, 1, 1),
+		/** Waits out every retry delay. */
+		settle: async () => {
+			await ambient.advance(10 * 60_000);
+			await delivery.drain();
+		},
+		get outcomes() {
+			return acks().map((call) => call.params.outcome);
+		},
+		get reasons() {
+			return acks().flatMap((call) => (call.params.reason === undefined ? [] : [call.params.reason]));
+		},
+	};
+};
 
 describe("inbox delivery pump", () => {
 	it("offers a live row once and a receiver ack delivers it", async () => {
@@ -203,14 +295,24 @@ describe("inbox delivery pump", () => {
 		const contentBody = (ciphertext: string) => ({ v: 1, epoch: 1, nonce: "AAAAAAAAAAAAAAAA", ciphertext });
 		const open = (body: unknown, aad: { kind: string }) => {
 			kinds.push(aad.kind);
-			if (
-				aad.kind.startsWith(inboxBodyAadKind("", "").split("\n")[0]) &&
-				(body as { ciphertext: string }).ciphertext === payloadCiphertext
-			)
+			const scheduled = aad.kind.startsWith(inboxBodyAadKind("", "").split("\n")[0]);
+			if (scheduled && (body as { ciphertext: string }).ciphertext === payloadCiphertext)
 				return { kind: "bad_tag" };
-			return { kind: "ok", plaintext: Buffer.from('{"to":"session","from":"source","body":"hi"}') };
+			return {
+				kind: "ok",
+				plaintext: Buffer.from(
+					scheduled
+						? '{"text":"hi","messageId":"operation","files":[]}'
+						: '{"to":"session","from":"source","body":"hi"}',
+				),
+			};
 		};
-		const routerMessage = setup().pump({ contentKeyStore: { open } } as never);
+		const routerSetup = setup();
+		const routerMessage = routerSetup.pump({
+			gatewayId: "gateway",
+			contentKeyStore: { open },
+			consoleDispatch: async () => ({ session_id: "job", status: "running" }),
+		} as never);
 		await routerMessage.onFrame({
 			address,
 			rows: [
@@ -221,6 +323,7 @@ describe("inbox delivery pump", () => {
 			],
 			deliveryEpoch: 1,
 		});
+		expect(routerSetup.calls.at(-1)).toMatchObject({ params: { outcome: "delivered" } });
 		const failedSetup = setup();
 		const failed = failedSetup.pump({ contentKeyStore: { open } } as never);
 		await failed.onFrame({
@@ -250,6 +353,90 @@ describe("inbox delivery pump", () => {
 			inboxBodyAadKind("conversation", "operation"),
 			opPayloadAadKind(),
 		]);
+	});
+
+	it.each(scheduledCases)("sends the phone's scheduled plaintext as an ordinary send: $name", async (vector) => {
+		expect(JSON.parse(vector.plaintext)).toEqual(vector.decoded);
+		const fired = await fireScheduled(vector.plaintext, { device: "pixel" });
+		expect(fired.dispatched).toEqual([
+			{
+				op: {
+					kind: "send",
+					to: "domain.gateway.session",
+					body: (vector.decoded as { text: string }).text,
+					...(vector.wire.length > 0 ? { files: vector.wire } : {}),
+				},
+				device: "pixel",
+				conversationId: "conversation",
+				opId: "operation",
+				origin: "router",
+			},
+		]);
+		expect(fired.outcomes).toEqual(["delivered"]);
+	});
+
+	it("names no device when the Router sent none, and refuses what is not the scheduled shape", async () => {
+		const plain = '{"text":"hi","messageId":"operation","files":[]}';
+		expect((await fireScheduled(plain)).dispatched.map((call) => call.device)).toEqual([""]);
+		const madeUp = await fireScheduled('{"to":"session","from":"source","body":"hi"}');
+		expect(madeUp.dispatched).toEqual([]);
+		expect(madeUp.reasons).toEqual(["malformed_body"]);
+		const foreign = await fireScheduled(plain, { address: "session:domain/other-gateway/session" });
+		expect(foreign.dispatched).toEqual([]);
+		expect(foreign.reasons).toEqual(["target_mismatch"]);
+		const refused = await fireScheduled(plain, { refuse: () => new SendRefusedError("no session", 404) });
+		expect(refused.outcomes).toEqual(["failed"]);
+		expect(refused.reasons).toEqual(["delivery_refused"]);
+	});
+
+	it("tries a fire nothing accepted again itself, and lands it on the third try", async () => {
+		const plain = '{"text":"hi","files":[]}';
+		const firstTwo = (error: Error) => (call: number) => (call < 2 ? error : undefined);
+		const nothingAccepted = {
+			"handler unavailable": firstTwo(new Error("unavailable")),
+			migrating: firstTwo(new SendRefusedError("migrating", 503)),
+			"too many waiting": firstTwo(new SendRefusedError("full", 503)),
+		};
+		for (const [name, refuse] of Object.entries(nothingAccepted)) {
+			const fired = await fireScheduled(plain, { refuse });
+			expect(fired.outcomes, name).toEqual([]);
+			expect(fired.claim()?.outcome, name).toBe("waking");
+			await fired.ambient.advance(5_000);
+			await fired.delivery.drain();
+			expect(fired.outcomes, name).toEqual([]);
+			await fired.ambient.advance(10_000);
+			await fired.delivery.drain();
+			expect(fired.dispatched.length, name).toBe(3);
+			expect(fired.outcomes, name).toEqual(["delivered"]);
+			expect(fired.ambient.scheduled(), name).toBe(0);
+		}
+	});
+
+	it("gives a fire up after its last try and tells the Router once", async () => {
+		const always = await fireScheduled('{"text":"hi","files":[]}', { refuse: () => new Error("unavailable") });
+		await always.settle();
+		expect(always.dispatched).toHaveLength(6);
+		expect(always.outcomes).toEqual(["failed"]);
+		expect(always.reasons).toEqual(["delivery_unavailable"]);
+		const unwired = await fireScheduled('{"text":"hi","files":[]}', { noDispatcher: true });
+		await unwired.settle();
+		expect(unwired.outcomes).toEqual(["failed"]);
+		expect(unwired.ambient.scheduled()).toBe(0);
+	});
+
+	it("leaves no timer and a waking claim when it closes mid-wait", async () => {
+		const fired = await fireScheduled('{"text":"hi","files":[]}', { refuse: () => new Error("unavailable") });
+		expect(fired.ambient.scheduled()).toBe(1);
+		await fired.delivery.stop();
+		expect(fired.ambient.scheduled()).toBe(0);
+		expect(fired.claim()?.outcome).toBe("waking");
+		expect(fired.outcomes).toEqual([]);
+	});
+
+	it("sends again a fire whose process died mid-dispatch, and acks it delivered", async () => {
+		const fired = await fireScheduled('{"text":"hi","files":[]}', { claimedBefore: true });
+		expect(fired.dispatched).toHaveLength(1);
+		expect(fired.outcomes).toEqual(["delivered"]);
 	});
 
 	it("refuses console delivery addressed to another Domain or Gateway", async () => {
@@ -367,8 +554,7 @@ describe("inbox delivery pump", () => {
 		expect(dispatched).toBe(0);
 	});
 
-	// A refused body and a kind this road does not carry are different faults, and only the first tells
-	// the sender what to change. One message for both sent a reader hunting the kind for a bad field.
+	// Refusal must name the field, not the kind.
 	it("names the field a refused body failed on, rather than blaming the op kind", async () => {
 		const identity = generateIdentity();
 		const refused = setup();
@@ -384,7 +570,6 @@ describe("inbox delivery pump", () => {
 			contentKeyStore: {
 				open: () => ({
 					kind: "ok",
-					// A send whose one attachment carries a blob id the schema's shape refuses.
 					plaintext: Buffer.from(
 						JSON.stringify({
 							kind: "send",
