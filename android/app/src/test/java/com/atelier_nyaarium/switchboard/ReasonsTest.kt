@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.PolicyRefusal
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -49,6 +50,9 @@ class ReasonsTest {
 		assertEquals(takenLine("sudo apt", "Sakura Sudo"), line("taken", key = "sudo apt", policy = "Sakura Sudo"))
 		assertEquals(noCommandLine("x"), line("no_command", example = "x"))
 		assertEquals(policiesFullLine(256), line("full", max = 256))
+		assertEquals(commandsFullLine(64), line("too_many_commands", max = 64))
+		assertEquals(Line.POLICY_COMMAND_TOO_LONG.text, line("command_too_long", max = 200))
+		assertEquals(Line.POLICY_INVALID.text, line("invalid"))
 		assertEquals(Line.POLICY_NONE.text, line("none"))
 		assertEquals(Line.POLICY_MOVED.text, line("moved"))
 		assertEquals(Line.POLICY_GONE.text, line("gone"))
@@ -87,6 +91,21 @@ class ReasonsTest {
 		rows += Triple(takenLine("sudo apt", "Sakura Sudo"), "You saved a policy whose command another enabled policy answers.", "sudo apt is already answered by Sakura Sudo")
 		rows += Triple(noCommandLine("x"), "You saved a policy with a command that is not a command.", "<prose>")
 		rows += Triple(policiesFullLine(256), "You saved a policy on a Gateway that holds the most it can.", "<prose>")
+		rows += Triple(commandsFullLine(64), "You saved a policy with more commands than one holds.", "(new)")
+		rows += Triple(noPolicyLine("sudo apt-mark"), "A sudo card, when no policy names the command.", "(nothing said why)")
+		rows += Triple(policyOffLine("sudo apt-mark", "Sakura Old"), "A sudo card, when only a policy that is off names it.", "(nothing said why)")
+		Protocol.Wire.VaultUnusableCode.entries.forEach {
+			rows += Triple(unusableLine("Sakura Sudo", "Old Pass", it, "sakura"), "A sudo card, when the policy's secret cannot be used (${it.wire}).", "(nothing said why)")
+		}
+		rows += Triple(noSecretFitsLine("sakura"), "A sudo card, when no saved secret is allowed on that Gateway.", "(new)")
+		rows += Triple(runsAnythingLine("sudo bash"), "A sudo card for a command that runs anything.", "(new)")
+		rows += Triple(addsToLine("Sakura Sudo") + " " + endsApprovalsLine(1), "Under Remember, adding to a policy that holds an approval.", "(new)")
+		rows += Triple(newPolicyLine("Sakura Nyaarium"), "Under Remember, when no policy uses that secret yet.", "(new)")
+		rows += Triple(PICK_SECRET_FIRST, "Under Remember, before a secret is picked.", "(new)")
+		Protocol.Wire.VaultAnswerRefusalCode.entries.forEach {
+			rows += Triple(entryRefusalLine(it, null), "You answered a sudo card with a secret and the Gateway refused (${it.wire}).", "(new)")
+		}
+		rows += Triple(ENTRY_REFUSED, "You answered a sudo card with a secret and the Gateway refused for a reason this phone does not know.", "(new)")
 		rows += Triple(scheduleFilesLine(10), "In the schedule dialog, the message holds more than 10 files.", "(nothing; the Router refused it)")
 		rows += Triple(goalDroppedLine("its terminal never took it"), "A goal waited too long for its session.", "Goal dropped: its terminal never took one.")
 		Refusal.entries.forEach { rows += Triple(refusalLine(it), "The Router refused this phone (link status).", OLD_REFUSALS.getValue(it)) }

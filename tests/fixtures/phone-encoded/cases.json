@@ -423,6 +423,33 @@
 			}
 		},
 		{
+			"name": "a sudo request answered with a secret, remembered into its policy",
+			"schema": "ConsoleOp",
+			"value": {
+				"kind": "vault_answer_entry",
+				"requestId": "req-1",
+				"entryId": "nyaarium",
+				"decision": "window",
+				"remember": {
+					"policyId": "sakura-sudo"
+				}
+			}
+		},
+		{
+			"name": "a sudo request answered with a secret, remembered as a new policy",
+			"schema": "ConsoleOp",
+			"value": {
+				"kind": "vault_answer_entry",
+				"requestId": "req-2",
+				"entryId": "old-pass",
+				"decision": "once",
+				"remember": {
+					"policyId": "policy-1a2b3c4d",
+					"name": "Old Pass"
+				}
+			}
+		},
+		{
 			"name": "a scheduled message with a file",
 			"schema": "ScheduledBody",
 			"value": {

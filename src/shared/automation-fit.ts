@@ -10,7 +10,8 @@ export const GIVEN_TYPES = ["event", "text", "number", "device", "time"] as cons
 export type GivenType = (typeof GIVEN_TYPES)[number];
 
 /** The watched field's type. */
-export type GivesType = GivenType | "of_field";
+export const GIVES_OF_FIELD = "of_field";
+export type GivesType = GivenType | typeof GIVES_OF_FIELD;
 
 /** In `AUTOMATION_TRIGGERS` order. */
 export const AUTOMATION_TRIGGER_GIVES = {
@@ -19,18 +20,23 @@ export const AUTOMATION_TRIGGER_GIVES = {
 		{ name: "source", type: "text" },
 	],
 	value: [
-		{ name: "value", type: "of_field" },
+		{ name: "value", type: GIVES_OF_FIELD },
 		{ name: "field", type: "text" },
 	],
 	crossing: [
 		{ name: "value", type: "number" },
-		{ name: "device", type: "device" },
+		// The sensor's name, never a switch.
+		{ name: "device", type: "text" },
 		{ name: "measure", type: "text" },
 		{ name: "threshold", type: "number" },
 	],
 	time: [{ name: "time", type: "time" }],
 	interval: [{ name: "time", type: "time" }],
 } as const satisfies Record<AutomationTriggerKind, readonly { name: string; type: GivesType }[]>;
+
+/** Every event gives these beside its source's declared fields. */
+export const EVENT_GIVEN_FIELDS = ["id", "title", "url"] as const;
+export type EventGivenField = (typeof EVENT_GIVEN_FIELDS)[number];
 
 export interface TriggerGiven {
 	names: readonly { name: string; type: GivenType }[];
@@ -87,6 +93,10 @@ function collect(node: ConsoleNode | null, into: { names: Set<string>; eventFiel
 	if (node.kind === "ident" && TRIGGER_NAMES.has(node.name)) into.names.add(node.name);
 	if (node.kind === "member" && node.target.kind === "ident" && node.target.name === "event")
 		into.eventFields.add(node.name);
+	if (node.kind === "index" && node.target.kind === "ident" && node.target.name === "event") {
+		const at = node.index;
+		if (at?.kind === "literal" && typeof at.value === "string") into.eventFields.add(at.value);
+	}
 	for (const child of childrenOf(node)) collect(child, into);
 }
 
@@ -112,9 +122,11 @@ export function triggerGiven(
 ): TriggerGiven {
 	const names = AUTOMATION_TRIGGER_GIVES[kind].map(({ name, type }) => ({
 		name,
-		type: type === "of_field" ? (context.fieldType ?? "text") : type,
+		type: type === GIVES_OF_FIELD ? (context.fieldType ?? "text") : type,
 	}));
-	return kind === "event" ? { names, eventFields: context.eventFields ?? [] } : { names };
+	return kind === "event"
+		? { names, eventFields: [...new Set([...(context.eventFields ?? []), ...EVENT_GIVEN_FIELDS])] }
+		: { names };
 }
 
 const valueType = (value: FunctionValue): GivenType => (typeof value === "number" ? "number" : "text");

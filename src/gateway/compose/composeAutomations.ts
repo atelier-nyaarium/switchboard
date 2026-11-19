@@ -94,8 +94,9 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 	return {
 		...pair,
 		console: {
-			list: () => ({ automations: automations.rows(), serves: { ...AUTOMATION_SERVES, ...deps.offers() } }),
+			list: () => ({ ...automations.listing(), serves: { ...AUTOMATION_SERVES, ...deps.offers() } }),
 			put: (id, automation, base, confirmed) => automations.ownerPut(id, automation, base, confirmed),
+			save: (op) => automations.saveOp(op),
 			remove: (id, base) => automations.ownerRemove(id, base),
 			preview: (trigger, text) =>
 				previewAutomation(

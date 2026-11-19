@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
-import { MAX_POLICY_ID_LEN } from "./schemasPolicy.js";
+import {
+	AuthorizationPolicySchema,
+	MAX_POLICIES_PER_GATEWAY,
+	MAX_POLICY_ID_LEN,
+	MAX_POLICY_NAME_LEN,
+	PolicyRefusalSchema,
+} from "./schemasPolicy.js";
 import { REVISION_CEILING } from "./schemasRunbook.js";
 
 /** Router stores fields without opening them. */
@@ -135,6 +141,30 @@ export const VaultPolicyRefSchema = z
 
 export type PolicyRef = z.infer<typeof VaultPolicyRefSchema>;
 
+/** Why this Gateway may not use an entry. */
+export const VAULT_UNUSABLE_CODES = ["missing", "empty", "not_allowed"] as const;
+export type VaultUnusableCode = (typeof VAULT_UNUSABLE_CODES)[number];
+
+export const VAULT_TYPED_WHY_CODES = ["no_policy", "policy_off", "binding_unusable"] as const;
+
+/** Why askpass asks the owner to type. */
+export const VaultTypedWhySchema = z
+	.object({
+		code: z.enum(VAULT_TYPED_WHY_CODES),
+		policyId: z.string().min(1).max(MAX_POLICY_ID_LEN).optional(),
+		policyName: z.string().min(1).max(MAX_POLICY_NAME_LEN).optional(),
+		entryId: entryId.optional(),
+		unusable: z.enum(VAULT_UNUSABLE_CODES).optional(),
+	})
+	.meta({ id: "VaultTypedWhy" });
+
+export type VaultTypedWhy = z.infer<typeof VaultTypedWhySchema>;
+
+/** A usable entry already answering the key's program, and the policy remember would add to. */
+export const VaultAnsweringSchema = z.object({ entryId, policy: VaultPolicyRefSchema }).meta({ id: "VaultAnswering" });
+
+export type VaultAnswering = z.infer<typeof VaultAnsweringSchema>;
+
 const requestFields = {
 	v: z.literal(1),
 	requestId,
@@ -149,8 +179,24 @@ const requestFields = {
 /** Phone prompt; `typed` requests a value. */
 export const VaultRequestSchema = z
 	.discriminatedUnion("kind", [
-		z.object({ kind: z.literal("entry"), entryId, ...requestFields, policy: VaultPolicyRefSchema.optional() }),
-		z.object({ kind: z.literal("typed"), ...requestFields }),
+		z.object({
+			kind: z.literal("entry"),
+			entryId,
+			...requestFields,
+			policy: VaultPolicyRefSchema.optional(),
+			/** The typed request it took over. */
+			replaces: requestId.optional(),
+		}),
+		z.object({
+			kind: z.literal("typed"),
+			...requestFields,
+			// Required from 2026-12-03.
+			why: VaultTypedWhySchema.optional(),
+			/** The key's program runs anything; set only true. */
+			runsAnything: z.boolean().optional(),
+			/** One per entry; a single row is the suggestion. */
+			answering: z.array(VaultAnsweringSchema).min(1).max(MAX_POLICIES_PER_GATEWAY).optional(),
+		}),
 	])
 	.meta({ id: "VaultRequest" });
 
@@ -201,9 +247,66 @@ export const VaultGrantSchema = VaultGrantRecordSchema.refine(holderFitsTier, "t
 	id: "VaultGrant",
 });
 
+/** Tiers an entry answer takes. */
+export const VaultEntryTierSchema = z.enum(["once", "window", "session"]);
+export type VaultEntryTier = z.infer<typeof VaultEntryTierSchema>;
+
+/** A `name` creates the policy; none adds to it, at the revision held at the tap. */
+export const VaultRememberSchema = z
+	.object({
+		policyId: z
+			.string()
+			.min(1)
+			.max(MAX_POLICY_ID_LEN)
+			.regex(/^[^/\r\n]+$/),
+		name: z.string().min(1).max(MAX_POLICY_NAME_LEN).optional(),
+	})
+	.meta({ id: "VaultRemember" });
+
+export type VaultRemember = z.infer<typeof VaultRememberSchema>;
+
+export const VAULT_ANSWER_REFUSAL_CODES = [
+	"expired",
+	"answered",
+	"not_typed",
+	"unready",
+	"unusable",
+	"bound_elsewhere",
+	"target_off",
+	"cannot_remember",
+] as const;
+
+export const VaultAnswerRefusalSchema = z
+	.object({
+		code: z.enum(VAULT_ANSWER_REFUSAL_CODES),
+		unusable: z.enum(VAULT_UNUSABLE_CODES).optional(),
+		/** The target policy's name. */
+		policy: z.string().optional(),
+		/** Longest key a policy holds. */
+		max: z.number().int().positive().optional(),
+	})
+	.meta({ id: "VaultAnswerRefusal" });
+
+export type VaultAnswerRefusal = z.infer<typeof VaultAnswerRefusalSchema>;
+
+/** `reason` for an older phone. */
 export const ConsoleVaultAnswerResultSchema = z
-	.object({ ok: z.boolean(), reason: z.string().optional() })
+	.object({ ok: z.boolean(), reason: z.string().optional(), refusal: VaultAnswerRefusalSchema.optional() })
 	.meta({ id: "ConsoleVaultAnswerResult" });
+
+export const ConsoleVaultAnswerEntryResultSchema = z
+	.object({
+		ok: z.boolean(),
+		refusal: VaultAnswerRefusalSchema.optional(),
+		policyRefusal: PolicyRefusalSchema.optional(),
+		/** The remembered record. */
+		policy: AuthorizationPolicySchema.optional(),
+	})
+	.meta({ id: "ConsoleVaultAnswerEntryResult" });
+
+export type ConsoleVaultAnswerEntryResult = z.infer<typeof ConsoleVaultAnswerEntryResultSchema>;
+export type ConsoleVaultAnswerResult = z.infer<typeof ConsoleVaultAnswerResultSchema>;
+
 export const ConsoleVaultGrantsResultSchema = z
 	.object({ grants: z.array(VaultGrantSchema) })
 	.meta({ id: "ConsoleVaultGrantsResult" });

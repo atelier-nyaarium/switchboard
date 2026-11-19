@@ -9,6 +9,7 @@ import {
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
 } from "./schemasAutomation.js";
+import { ConsoleAutomationSaveResultSchema } from "./schemasAutomationSave.js";
 import { BoardEntrySchema } from "./schemasBoard.js";
 import { CrossDomainShareTargetSchema, MailboxEntrySchema } from "./schemasConsoleOp.js";
 import { DomainStatusSchema } from "./schemasCore.js";
@@ -46,6 +47,7 @@ import {
 } from "./schemasRunbook.js";
 import { ConsoleSessionCutPlanResultSchema, ConsoleSessionCutStartResultSchema } from "./schemasSessionCut.js";
 import {
+	ConsoleVaultAnswerEntryResultSchema,
 	ConsoleVaultAnswerResultSchema,
 	ConsoleVaultGrantsResultSchema,
 	ConsoleVaultRevokeResultSchema,
@@ -386,6 +388,7 @@ export const ConsoleOpResultSchema = z.union([
 	CrossDomainListPeersResultSchema,
 	CrossDomainUnlinkResultSchema,
 	ConsoleVaultAnswerResultSchema,
+	ConsoleVaultAnswerEntryResultSchema,
 	ConsoleVaultGrantsResultSchema,
 	ConsoleVaultRevokeResultSchema,
 	ConsoleRunbookListResultSchema,
@@ -414,6 +417,7 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleAssistantSendAnswerResultSchema,
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPutResultSchema,
+	ConsoleAutomationSaveResultSchema,
 	ConsoleAutomationDeleteResultSchema,
 	ConsoleAutomationPreviewResultSchema,
 ]);

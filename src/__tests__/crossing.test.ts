@@ -6,7 +6,7 @@ import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { previewAutomation } from "../gateway/computed/automationPreview.js";
 import type { AutomationHoles } from "../gateway/computed/automations.js";
-import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { known, refKey, type Value } from "../shared/expressions.js";
 import {
@@ -28,6 +28,7 @@ const REGISTRY = createConsoleRegistry([]);
 const HOLES: AutomationHoles = {
 	issue: (text, names) => holeIssue(text, names, REGISTRY),
 	fill: (text, names) => fillHoles(text, names, REGISTRY),
+	evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
 };
 const TEMP = refKey({ source: "device", device: FREEZER, key: "temperature" });
 

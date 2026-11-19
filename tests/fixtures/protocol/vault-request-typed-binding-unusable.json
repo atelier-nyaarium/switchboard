@@ -1,0 +1,17 @@
+{
+	"v": 1,
+	"kind": "typed",
+	"requestId": "request-3",
+	"operation": "sudo apt install foo",
+	"displayShape": "sudo apt",
+	"coveredShapes": ["apt install"],
+	"sessionTarget": "host.82d560",
+	"deadlineAt": 1757000540000,
+	"why": {
+		"code": "binding_unusable",
+		"policyId": "sakura-sudo",
+		"policyName": "Sakura Sudo",
+		"entryId": "old-pass",
+		"unusable": "not_allowed"
+	}
+}

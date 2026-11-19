@@ -1,11 +1,14 @@
 // Recheck the entry and grant at release.
 
 import type { Ambient } from "../../shared/ambient.js";
+import type { VaultUnusableCode } from "../../shared/schemasVault.js";
 import type { VaultClient, VaultEntryView } from "../router/vaultClient.js";
 import type { VaultDecisions } from "./decisions.js";
 
 export type VaultUnready = { kind: "unready"; reason: string };
 export type VaultUnusable = { kind: "unusable"; reason: string; status: 403 | 404 | 409 };
+/** The entry itself, not a grant. */
+export type VaultEntryUnusable = VaultUnusable & { code: VaultUnusableCode };
 
 export type VaultRelease =
 	| { kind: "released"; value: string }
@@ -20,6 +23,8 @@ export interface VaultUseDeps {
 	registered?: () => boolean;
 	decisions: Pick<VaultDecisions, "covers">;
 	ambient: Pick<Ambient, "now">;
+	/** After each landed read. */
+	onRefreshed?: () => void;
 }
 
 export function createVaultUse(deps: VaultUseDeps) {
@@ -28,19 +33,21 @@ export function createVaultUse(deps: VaultUseDeps) {
 		if (!client) return { kind: "unready", reason: "this Gateway is not enrolled" };
 		const refreshed = await client.refresh();
 		if (refreshed.kind !== "ok") return { kind: "unready", reason: refreshed.error };
+		deps.onRefreshed?.();
 		return { kind: "ready", client };
 	}
 
 	function usable(
 		client: VaultClient,
 		entryId: string,
-	): { kind: "usable"; entry: VaultEntryView; value: () => string | null } | VaultUnusable {
+	): { kind: "usable"; entry: VaultEntryView; value: () => string | null } | VaultEntryUnusable {
 		const stored = client.stored(entryId);
-		if (!stored) return { kind: "unusable", reason: "no such entry", status: 404 };
+		if (!stored) return { kind: "unusable", code: "missing", reason: "no such entry", status: 404 };
 		const entry = client.view(stored);
-		if (!entry.hasValue) return { kind: "unusable", reason: "the entry holds no value", status: 409 };
+		if (!entry.hasValue)
+			return { kind: "unusable", code: "empty", reason: "the entry holds no value", status: 409 };
 		if (!client.allowedHere(entry))
-			return { kind: "unusable", reason: "this Gateway may not use the entry", status: 403 };
+			return { kind: "unusable", code: "not_allowed", reason: "this Gateway may not use the entry", status: 403 };
 		return { kind: "usable", entry, value: () => client.openValue(stored) };
 	}
 

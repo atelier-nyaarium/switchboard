@@ -3,8 +3,9 @@
 import { z } from "zod";
 import { INTEGRATION_IDS, TemperatureUnitSchema } from "./schemasAssistant.js";
 import { AssistantWatcherRulesSchema } from "./schemasAssistantRules.js";
-import { AUTOMATIONS_MAX, CarriedAutomationSchema } from "./schemasAutomation.js";
+import { AUTOMATIONS_MAX, CarriedAutomationSchema, CarriedFunctionSchema } from "./schemasAutomation.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
+import { FUNCTIONS_MAX } from "./schemasFunction.js";
 
 export const ASSISTANT_HOME_SEALED_MAX_BYTES = 65_536;
 export const ASSISTANT_HOME_REASON_MAX = 512;
@@ -44,6 +45,8 @@ export const AssistantHomeCarriedSchema = z
 		watchers: z.array(AssistantHomeCarriedWatcherSchema).max(WATCHERS_MAX),
 		/** The sources' event automations; unset from an older phone or home. */
 		automations: z.array(CarriedAutomationSchema).max(AUTOMATIONS_MAX).nullish(),
+		/** Unset from older phone. */
+		functions: z.array(CarriedFunctionSchema).max(FUNCTIONS_MAX).nullish(),
 		// Required starting 2026-11-15. Null from a phone that read an older Gateway.
 		integrations: z.array(AssistantHomeCarriedIntegrationSchema).nullish(),
 	})
@@ -73,6 +76,7 @@ export function readableSealed(raw: unknown): { sealed: unknown; dropped: number
 	const carried = {
 		...raw.carried,
 		automations: kept(raw.carried.automations, CarriedAutomationSchema),
+		functions: kept(raw.carried.functions, CarriedFunctionSchema),
 		integrations: kept(raw.carried.integrations, AssistantHomeCarriedIntegrationSchema),
 	};
 	return { sealed: { ...raw, carried }, dropped };

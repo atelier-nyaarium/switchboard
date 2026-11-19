@@ -50,7 +50,7 @@ function bench() {
 		use,
 		decisions,
 		requests,
-		policies: () => ({ byKey: () => null }),
+		policies: () => ({ byKey: () => null, list: () => [] }),
 		ambient,
 		resolveCaller: () => "host.alice",
 		notifyOwner: () => undefined,

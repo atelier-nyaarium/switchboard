@@ -128,7 +128,28 @@ describe("owner records", () => {
 
 		expect(pins).toEqual([true, false]);
 		expect(notes).toEqual([true, true, false]);
-		expect(records.put("note", "c", { text: "c" }, 0)).toMatchObject({ stored: false, full: true });
+		expect(records.put("pin", "p2", { text: "p2" }, 0)).toMatchObject({ cause: { cap: "pin", max: 2 } });
+		expect(records.put("note", "c", { text: "c" }, 0)).toMatchObject({ cause: { cap: "total", max: 4 } });
+	});
+
+	it("caps a batch on its final count, so a removal listed after a create still makes room", () => {
+		const records = open(fresh(), [], 2);
+		records.put("note", "a", { text: "a" }, 0);
+		records.put("note", "b", { text: "b" }, 0);
+
+		const swapped = records.batch([
+			{ op: "put", kind: "note", id: "c", body: { text: "c" }, base: 0 },
+			{ op: "remove", id: "a", base: 1 },
+		]);
+		const grown = records.batch([
+			{ op: "put", kind: "note", id: "d", body: { text: "d" }, base: 0 },
+			{ op: "put", kind: "note", id: "e", body: { text: "e" }, base: 0 },
+			{ op: "remove", id: "b", base: 1 },
+		]);
+
+		expect(swapped.stored).toBe(true);
+		expect(grown).toMatchObject({ stored: false, at: 0, cause: { cap: "total", max: 2 } });
+		expect(records.list().map((record) => record.id)).toEqual(["b", "c"]);
 	});
 
 	it("holds a row this build cannot read, writes it back on every commit, and reserves its id and its place in the cap", () => {

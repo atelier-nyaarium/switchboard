@@ -42,6 +42,38 @@
 		{ "file": "invalid-vault-answer-missing-decision.json", "schema": "ConsoleOp", "expect": "fail" },
 		{ "file": "owner-row-vault-request.json", "schema": "MailboxEntry", "expect": "pass" },
 		{ "file": "invalid-owner-row-vault-request-bare.json", "schema": "MailboxEntry", "expect": "fail" },
+		{ "file": "console-op-vault-answer-entry-once.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "console-op-vault-answer-entry-remember-add.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "console-op-vault-answer-entry-remember-create.json", "schema": "ConsoleOp", "expect": "pass" },
+		{
+			"file": "invalid-vault-answer-entry-window-no-remember.json",
+			"schema": "ConsoleOp",
+			"expect": { "ts": "fail", "kotlin": "pass" }
+		},
+		{
+			"file": "invalid-vault-answer-entry-deny.json",
+			"schema": "ConsoleOp",
+			"expect": { "ts": "fail", "kotlin": "pass" }
+		},
+		{ "file": "vault-answer-result-refusal.json", "schema": "ConsoleVaultAnswerResult", "expect": "pass" },
+		{ "file": "vault-request-typed-why.json", "schema": "VaultRequest", "expect": "pass" },
+		{ "file": "vault-request-typed-binding-unusable.json", "schema": "VaultRequest", "expect": "pass" },
+		{ "file": "vault-request-entry-replaces.json", "schema": "VaultRequest", "expect": "pass" },
+		{
+			"file": "vault-answer-entry-result-refusal.json",
+			"schema": "ConsoleVaultAnswerEntryResult",
+			"expect": "pass"
+		},
+		{
+			"file": "vault-answer-entry-result-policy-refusal.json",
+			"schema": "ConsoleVaultAnswerEntryResult",
+			"expect": "pass"
+		},
+		{
+			"file": "vault-answer-entry-result-policy.json",
+			"schema": "ConsoleVaultAnswerEntryResult",
+			"expect": "pass"
+		},
 		{ "file": "console-op-workspace-save-span.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "invalid-workspace-save-span-missing-hash.json", "schema": "ConsoleOp", "expect": "fail" },
 		{ "file": "workspace-save-span-answer.json", "schema": "WorkspaceSaveSpanAnswer", "expect": "pass" },
@@ -127,6 +159,12 @@
 		},
 		{ "file": "automation-action-run-function.json", "schema": "AutomationAction", "expect": "pass" },
 		{ "file": "automation-function.json", "schema": "AutomationFunction", "expect": "pass" },
+		{ "file": "automation-list-result-functions.json", "schema": "ConsoleAutomationListResult", "expect": "pass" },
+		{ "file": "console-op-automation-save.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "console-op-automation-save-copy.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "automation-save-result-stored.json", "schema": "ConsoleAutomationSaveResult", "expect": "pass" },
+		{ "file": "automation-save-result-refused.json", "schema": "ConsoleAutomationSaveResult", "expect": "pass" },
+		{ "file": "assistant-home-carried-functions.json", "schema": "AssistantHomeCarried", "expect": "pass" },
 		{
 			"file": "function-step-future-kind.json",
 			"schema": "FunctionStep",

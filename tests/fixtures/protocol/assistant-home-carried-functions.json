@@ -1,0 +1,32 @@
+{
+	"approveEverySend": true,
+	"temperatureUnit": "C",
+	"watchers": [{ "id": "github", "grant": null, "enabled": true }],
+	"automations": [
+		{
+			"id": "gong",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "event", "source": "github", "conditions": [] },
+				"actions": [{ "kind": "run_function", "function": "gong-fn" }]
+			}
+		}
+	],
+	"functions": [
+		{
+			"id": "gong-fn",
+			"function": {
+				"name": "Gong",
+				"params": [],
+				"steps": [
+					{
+						"kind": "do",
+						"action": "tell_assistant",
+						"args": { "when": { "kind": "literal", "value": "now" } }
+					}
+				]
+			}
+		}
+	],
+	"integrations": [{ "id": "ifttt", "grant": null }]
+}

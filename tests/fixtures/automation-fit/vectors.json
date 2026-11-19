@@ -86,6 +86,36 @@
 			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
 		},
 		{
+			"name": "every event gives its id, title and link beside its source's fields",
+			"given": { "kind": "event", "eventFields": ["reason"] },
+			"params": [],
+			"reads": { "names": ["event"], "eventFields": ["id", "title", "url"] },
+			"values": {},
+			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
+		},
+		{
+			"name": "a field read by index that its source does not declare is hidden",
+			"given": { "kind": "event", "eventFields": ["reason"] },
+			"params": [],
+			"reads": { "names": ["event"], "eventFields": ["nope"] },
+			"values": {},
+			"expect": { "fits": false, "hidden": true, "requires": [], "unset": [], "wrong": [] }
+		},
+		{
+			"name": "a crossing's device is the sensor's name, not a plug",
+			"given": { "kind": "crossing" },
+			"params": [{ "name": "device", "type": "device" }],
+			"reads": { "names": [], "eventFields": [] },
+			"values": {},
+			"expect": {
+				"fits": false,
+				"hidden": false,
+				"requires": [],
+				"unset": [],
+				"wrong": [{ "name": "device", "wants": "device", "gets": "text" }]
+			}
+		},
+		{
 			"name": "an event's fields mean nothing to a clock",
 			"given": { "kind": "time" },
 			"params": [],

@@ -1,0 +1,7 @@
+{
+	"kind": "vault_answer_entry",
+	"requestId": "request-1",
+	"entryId": "sudo-pw",
+	"decision": "session",
+	"remember": { "policyId": "policy-7f3a", "name": "Sakura Nyaarium" }
+}

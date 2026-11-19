@@ -8,6 +8,7 @@ import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
 import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.AutomationTriggerName
@@ -44,6 +45,8 @@ internal data class AutomationOffer(
 	val switches: List<SwitchOffer> = emptyList(),
 	/** Not the assistant's home: no event arrives, and an action that needs the home does nothing. */
 	val away: Boolean,
+	/** Null: this Gateway holds no functions. */
+	val functions: FunctionOffer? = null,
 ) {
 	fun action(kind: String): ActionOffer? = actions.find { it.kind == kind }
 
@@ -67,7 +70,8 @@ private val LEGACY_EVENT = TriggerOffer(
 
 // Remove 2026-11-29: every listing names what it serves.
 /** A listing with no `serves` holds an event and a bare tell. */
-internal fun offerOf(serves: AutomationServes?, away: Boolean): AutomationOffer =
+/** `functions` from the same listing as `serves`. */
+internal fun offerOf(serves: AutomationServes?, away: Boolean, functions: List<AutomationFunctionRow>? = null): AutomationOffer =
 	if (serves == null) AutomationOffer(triggers = listOf(LEGACY_EVENT), actions = listOf(DEFAULT_TELL), away = away)
 	else AutomationOffer(
 		triggers = serves.triggers.map { TriggerOffer(it.kind, it.names) },
@@ -75,6 +79,7 @@ internal fun offerOf(serves: AutomationServes?, away: Boolean): AutomationOffer 
 		numbers = serves.numbers.map { NumberOffer(it.device, it.measure, it.label, it.unit, it.decimals.toInt()) },
 		switches = serves.switches.map { SwitchOffer(it.device, it.name) },
 		away = away,
+		functions = serves.functions?.let { FunctionOffer(it, functions.orEmpty()) },
 	)
 
 /** Stored text, minted while its unit was unknown. */

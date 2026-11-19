@@ -441,6 +441,7 @@ class ChatRepository(
 		repoScope = repoScope,
 		collaborators = vaultCollaborators,
 		provision = provision,
+		policyWritten = { gatewayId -> repoScope.launch { policyOps.refresh(gatewayId) } },
 	)
 	internal val runbookOps = RunbookOps(state = _state, host = ChatRepositoryRunbookHost(this), provision = provision)
 

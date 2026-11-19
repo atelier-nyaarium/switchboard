@@ -107,12 +107,21 @@ which the assistant's send guard shares.
   alike. A deny may carry a `note`, the owner's steering, which rides the refused answer to the
   session's tool result and to the helper's stderr. A request already answered answers
   `already answered`; an unknown or lapsed one answers `request expired`.
+- **A typed request can be answered from a held entry:** `vault_answer_entry` names the entry, and
+  the phone never sends an entry's value as a typed answer. The answer's `source` decides how the
+  value leaves, not the request's kind: an entry source goes through `release` like any entry
+  request. Its refusals are `VaultAnswerRefusal` codes. `remember` writes the key into a policy
+  first; `docs/policies.md` (Remember) holds the order.
+- **A typed request a policy comes to cover is taken over:** a covering grant answers it, or an entry
+  request opens under its deadline and it settles `moved`, the waiter and a withdraw following the
+  new id. `docs/policies.md` (One reconcile over the open requests) holds the rules.
 - An entry request resolved through a policy carries the same `policy` reference, and a retry
   joins only a request open under the same policy. A typed request carries none. **The policy is read again at the tap:** an approval
   is validated against the store's current record before any grant is minted, and a policy that is
   gone, disabled, rebound, no longer naming the selector, or at another revision settles the
   request refused with that reason, which the phone's answer also carries. A policy that moves
-  while a request is open refuses it; the asker resolves again.
+  while a request is open keeps it, restated at the new revision, while it still selects the line
+  with a usable entry, and refuses it otherwise; the asker then resolves again.
 - An approval on an entry request also records the grant, qualified as the request was. The answer
   waits for its collector until the deadline, and the first collector `take`s it.
 - **The value is read as it leaves, never from a snapshot taken when it was asked for:** `release`
@@ -152,8 +161,9 @@ which the assistant's send guard shares.
   a label.** The line's selector key is looked up in the policy store, and the one enabled policy
   naming it, whose bound entry exists, holds a value and is allowed here, opens an entry request
   carrying the policy and its revision; a covering grant answers at once. No policy, a disabled
-  one, or a binding this Gateway cannot use opens a typed request. A capture creates an entry and
-  never a policy. The request lands in the session's thread and its grants apply.
+  one, or a binding this Gateway cannot use opens a typed request that says which (`why`). A
+  capture creates an entry and never a policy. The request lands in the session's thread and its
+  grants apply.
 - The answer is `VaultValueAnswer`: `approved` with the decision and the value, `refused` with a
   reason, or `pending`.
 - **The value leaves the gateway only in an approved answer.**

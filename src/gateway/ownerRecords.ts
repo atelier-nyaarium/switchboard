@@ -38,9 +38,21 @@ export interface OwnerRecordsDeps<T> {
 	label: string;
 }
 
-export type OwnerPutResult<T> =
-	| { stored: true; record: OwnerRecord<T> }
-	| { stored: false; reason: string; issue?: OwnerIssue; record?: OwnerRecord<T> };
+/** Why a write was refused; `cap` names "total" or a kind. */
+export type OwnerCause =
+	| "bad_id"
+	| "invalid"
+	| "newer_build"
+	| "moved"
+	| "spent"
+	| "absent"
+	| "removed"
+	| "unsaved"
+	| { cap: string; max: number };
+
+type OwnerRefusal<T> = { reason: string; cause: OwnerCause; issue?: OwnerIssue; record?: OwnerRecord<T> };
+
+export type OwnerPutResult<T> = { stored: true; record: OwnerRecord<T> } | ({ stored: false } & OwnerRefusal<T>);
 
 export type OwnerRemoveResult = { removed: true } | { removed: false; reason: string };
 
@@ -49,10 +61,13 @@ export type OwnerWrite =
 	| { op: "put"; kind: string; id: string; body: unknown; base: number; revive?: boolean; unfit?: boolean }
 	| { op: "remove"; id: string; base: number };
 
-/** `records` holds null for a remove; `full` when the cap refused. */
+/** `records` holds null for a remove. */
 export type OwnerBatchResult<T> =
 	| { stored: true; records: (OwnerRecord<T> | null)[] }
-	| { stored: false; at: number; reason: string; issue?: OwnerIssue; record?: OwnerRecord<T>; full?: true };
+	| ({ stored: false; at: number } & OwnerRefusal<T>);
+
+/** Total cap. */
+export const TOTAL_CAP = "total";
 
 const EnvelopeSchema = z.strictObject({
 	id: z.string().regex(RULE_ID_RE),
@@ -117,9 +132,7 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 		changed: Set<string>;
 	}
 
-	type Planned =
-		| { ok: true; record: OwnerRecord<T> | null }
-		| { ok: false; reason: string; issue?: OwnerIssue; record?: OwnerRecord<T>; full?: true };
+	type Planned = { ok: true; record: OwnerRecord<T> | null; created?: true } | ({ ok: false } & OwnerRefusal<T>);
 
 	const draftOf = (): Draft => ({ rows: held, bury: new Map(), changed: new Set() });
 
@@ -129,9 +142,10 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 	const planPut = (draft: Draft, write: Extract<OwnerWrite, { op: "put" }>): Planned => {
 		const { kind, id, body, base } = write;
 		// Avoid prototype-key semantics.
-		if (!RULE_ID_RE.test(id) || id === "__proto__") return { ok: false, reason: "not a record id" };
+		if (!RULE_ID_RE.test(id) || id === "__proto__")
+			return { ok: false, reason: "not a record id", cause: "bad_id" };
 		const schema = deps.kinds[kind];
-		if (!schema) return { ok: false, reason: `unknown kind ${kind}` };
+		if (!schema) return { ok: false, reason: `unknown kind ${kind}`, cause: "invalid" };
 		const parsed = schema.safeParse(body);
 		if (!parsed.success) {
 			const first = parsed.error.issues[0];
@@ -140,11 +154,12 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 				message: first?.message ?? "not valid",
 				code: first?.code ?? "invalid_value",
 			};
-			return { ok: false, reason: issue.message, issue };
+			return { ok: false, reason: issue.message, cause: "invalid", issue };
 		}
 		const row = draft.rows.find((candidate) => candidate.id === id);
 		const current = row ? read(row) : null;
-		if (row && !current) return { ok: false, reason: "held by a newer build; update this Gateway" };
+		if (row && !current)
+			return { ok: false, reason: "held by a newer build; update this Gateway", cause: "newer_build" };
 		if (current) {
 			// Lost replies allow retries.
 			// Matching create retries echo.
@@ -152,17 +167,14 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 			if (echoes && current.kind === kind && sameBody(current.body, parsed.data))
 				return { ok: true, record: current };
 			if (base !== current.revision) {
-				return { ok: false, reason: `revision ${current.revision} is stored`, record: current };
+				return { ok: false, reason: `revision ${current.revision} is stored`, cause: "moved", record: current };
 			}
-			if (current.revision >= REVISION_CEILING) return { ok: false, reason: "revision ceiling", record: current };
+			if (current.revision >= REVISION_CEILING)
+				return { ok: false, reason: "revision ceiling", cause: "spent", record: current };
 		} else {
-			if (base !== 0) return { ok: false, reason: "not stored; it may have been removed" };
-			if (buriedAt(draft, id) !== undefined && !write.revive) return { ok: false, reason: "removed" };
-			if (draft.rows.length >= deps.max)
-				return { ok: false, reason: `this Gateway holds ${deps.max} already`, full: true };
-			const cap = deps.maxByKind?.[kind];
-			if (cap !== undefined && draft.rows.filter((held) => held.kind === kind).length >= cap)
-				return { ok: false, reason: `this Gateway holds ${cap} of these already`, full: true };
+			if (base !== 0) return { ok: false, reason: "not stored; it may have been removed", cause: "absent" };
+			if (buriedAt(draft, id) !== undefined && !write.revive)
+				return { ok: false, reason: "removed", cause: "removed" };
 		}
 		const record: OwnerRecord<T> = {
 			id,
@@ -176,21 +188,24 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 		if (refused) {
 			const issue = typeof refused === "string" ? {} : { issue: refused };
 			const reason = typeof refused === "string" ? refused : refused.message;
-			return { ok: false, reason, ...issue, ...(current ? { record: current } : {}) };
+			return { ok: false, reason, cause: "invalid", ...issue, ...(current ? { record: current } : {}) };
 		}
 		draft.rows = row
 			? draft.rows.map((candidate) => (candidate.id === id ? record : candidate))
 			: [...draft.rows, record];
 		draft.changed.add(id);
-		return { ok: true, record };
+		return row ? { ok: true, record } : { ok: true, record, created: true };
 	};
 
 	const planRemove = (draft: Draft, { id, base }: Extract<OwnerWrite, { op: "remove" }>): Planned => {
 		const row = draft.rows.find((candidate) => candidate.id === id);
 		if (!row)
-			return buriedAt(draft, id) === base ? { ok: true, record: null } : { ok: false, reason: "not stored" };
-		if (read(row) === null) return { ok: false, reason: "held by a newer build; update this Gateway" };
-		if (row.revision !== base) return { ok: false, reason: `revision ${row.revision} is stored` };
+			return buriedAt(draft, id) === base
+				? { ok: true, record: null }
+				: { ok: false, reason: "not stored", cause: "absent" };
+		if (read(row) === null)
+			return { ok: false, reason: "held by a newer build; update this Gateway", cause: "newer_build" };
+		if (row.revision !== base) return { ok: false, reason: `revision ${row.revision} is stored`, cause: "moved" };
 		draft.rows = draft.rows.filter((candidate) => candidate.id !== id);
 		draft.bury.set(id, base);
 		draft.changed.add(id);
@@ -231,15 +246,36 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 		| Extract<OwnerBatchResult<T>, { stored: false }> => {
 		const draft = draftOf();
 		const records: (OwnerRecord<T> | null)[] = [];
+		const created: { at: number; kind: string }[] = [];
 		for (const [at, write] of writes.entries()) {
 			const planned = write.op === "put" ? planPut(draft, write) : planRemove(draft, write);
 			if (!planned.ok) {
 				const { ok: _ok, ...refusal } = planned;
 				return { stored: false, at, ...refusal };
 			}
+			if (planned.created && write.op === "put") created.push({ at, kind: write.kind });
 			records.push(planned.record);
 		}
+		const full = capOf(draft.rows);
+		if (full) {
+			const at = created.find((row) => full.cap === TOTAL_CAP || row.kind === full.cap)?.at ?? 0;
+			const reason =
+				full.cap === TOTAL_CAP
+					? `this Gateway holds ${full.max} already`
+					: `this Gateway holds ${full.max} of these already`;
+			return { stored: false, at, reason, cause: full };
+		}
 		return { stored: true, draft, records };
+	};
+
+	/** Only a batch that grows past a cap; a kind's first. */
+	const capOf = (after: readonly Row[]): { cap: string; max: number } | null => {
+		const count = (rows: readonly Row[], kind: string) => rows.filter((row) => row.kind === kind).length;
+		for (const [kind, max] of Object.entries(deps.maxByKind ?? {})) {
+			const now = count(after, kind);
+			if (now > max && now > count(held, kind)) return { cap: kind, max };
+		}
+		return after.length > deps.max && after.length > held.length ? { cap: TOTAL_CAP, max: deps.max } : null;
 	};
 
 	return {
@@ -262,6 +298,9 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 		unreadOf: (id: string, kind: string): boolean =>
 			held.some((row) => row.id === id && row.kind === kind && read(row) === null),
 
+		/** Rows of a kind this build cannot read. */
+		unreadCount: (kind: string): number => held.filter((row) => row.kind === kind && read(row) === null).length,
+
 		/** `revive` allows a removed id. */
 		put(
 			kind: string,
@@ -270,14 +309,16 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 			base: number,
 			options: { revive?: boolean } = {},
 		): OwnerPutResult<T> {
-			const draft = draftOf();
-			const planned = planPut(draft, { op: "put", kind, id, body, base, ...options });
-			if (!planned.ok) {
-				const { ok: _ok, ...refusal } = planned;
+			const planned = plan([{ op: "put", kind, id, body, base, ...options }]);
+			if (!planned.stored) {
+				const { stored: _stored, at: _at, ...refusal } = planned;
 				return { stored: false, ...refusal };
 			}
-			if (planned.record === null) return { stored: false, reason: NOT_SAVED };
-			return land(draft) ? { stored: true, record: planned.record } : { stored: false, reason: NOT_SAVED };
+			const [record] = planned.records;
+			if (!record) return { stored: false, reason: NOT_SAVED, cause: "unsaved" };
+			return land(planned.draft)
+				? { stored: true, record }
+				: { stored: false, reason: NOT_SAVED, cause: "unsaved" };
 		},
 
 		remove(id: string, base: number): OwnerRemoveResult {
@@ -293,7 +334,7 @@ export function createOwnerRecords<T>(deps: OwnerRecordsDeps<T>) {
 			if (!planned.stored) return planned;
 			return land(planned.draft)
 				? { stored: true, records: planned.records }
-				: { stored: false, at: 0, reason: NOT_SAVED };
+				: { stored: false, at: 0, reason: NOT_SAVED, cause: "unsaved" };
 		},
 
 		/** What `batch` would refuse; writes nothing. */

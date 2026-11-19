@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { FUNCTION_STEPS_MAX, FunctionSchema } from "../shared/schemasFunction.js";
+import { AUTOMATION_ACTIONS } from "../shared/schemasAutomation.js";
+import { FUNCTION_STEPS_MAX, FunctionSchema, STEP_ARGS_MAX } from "../shared/schemasFunction.js";
 
 const on = {
 	kind: "do",
@@ -24,7 +25,28 @@ describe("a function record", () => {
 				{ ...held, steps: Array(FUNCTION_STEPS_MAX + 1).fill(on) },
 				{ ...held, steps: [{ kind: "wait", minutes: 1 }] },
 				{ ...held, as: "result" },
+				{
+					...held,
+					steps: [
+						{
+							...on,
+							args: Object.fromEntries(
+								Array.from({ length: STEP_ARGS_MAX + 1 }, (_, at) => [`v${at}`, on.args.verb]),
+							),
+						},
+					],
+				},
 			].map((body) => FunctionSchema.safeParse(body).success),
-		).toEqual([false, false, false, false, false, false]);
+		).toEqual([false, false, false, false, false, false, false]);
+	});
+
+	it("bounds a step's values by the widest action it can name", () => {
+		const widest = Math.max(
+			...Object.entries(AUTOMATION_ACTIONS)
+				.filter(([kind]) => kind !== "run_function")
+				.map(([, row]) => row.params.length),
+		);
+
+		expect(STEP_ARGS_MAX).toBe(widest);
 	});
 });

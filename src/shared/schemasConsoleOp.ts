@@ -8,6 +8,7 @@ import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
 import { AUTOMATION_MESSAGE_MAX, AutomationSchema, AutomationTriggerSchema } from "./schemasAutomation.js";
+import { AutomationSaveOpShape } from "./schemasAutomationSave.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { DEVICE_CONSOLE_OP_KINDS, DEVICE_CONSOLE_REQUESTS } from "./schemasDevices.js";
 import { CONSOLE_LIMIT_MAX, ConsoleVariablesSchema } from "./schemasLiveConsole.js";
@@ -16,7 +17,7 @@ import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
 import { CUT_MODES, CUT_ROW_TEXT_MAX } from "./schemasSessionCut.js";
-import { VaultDecisionSchema } from "./schemasVault.js";
+import { VaultDecisionSchema, VaultEntryTierSchema, VaultRememberSchema } from "./schemasVault.js";
 import { FileMutationSchema, SymbolFacetSchema } from "./schemasWorkspace.js";
 import { SESSION_HARNESSES } from "./session-harness.js";
 import { MAX_RAW_EDIT_BYTES } from "./workspace-op.js";
@@ -244,6 +245,15 @@ export const ConsoleOpSchema = z
 			value: ContentEnvelopeSchema.optional(),
 			note: z.string().max(2048).optional(),
 		}),
+		z
+			.object({
+				kind: z.literal("vault_answer_entry"),
+				requestId: z.string().min(1).max(128),
+				entryId: z.string().min(1).max(64),
+				decision: VaultEntryTierSchema,
+				remember: VaultRememberSchema.optional(),
+			})
+			.refine((op) => op.decision === "once" || op.remember !== undefined, "this tier needs remember"),
 		z.object({ kind: z.literal("vault_grants") }),
 		z.object({ kind: z.literal("vault_revoke"), grantId: z.string().min(1).max(128) }),
 		z.object({ kind: z.literal("runbook_list") }),
@@ -354,6 +364,8 @@ export const ConsoleOpSchema = z
 			/** The owner confirmed its dangerous actions. */
 			confirmed: z.boolean().optional(),
 		}),
+		/** Automation plus function, one write. */
+		z.object(AutomationSaveOpShape),
 		z.object({
 			kind: z.literal("automation_delete"),
 			automationId: z.string().regex(RULE_ID_RE),
@@ -476,6 +488,7 @@ export const VALUE_OP_KINDS = new Set([
 	"cross_domain_unlink",
 	"cross_domain_untrust",
 	"vault_answer",
+	"vault_answer_entry",
 	"vault_grants",
 	"vault_revoke",
 	"runbook_list",
@@ -505,6 +518,7 @@ export const VALUE_OP_KINDS = new Set([
 	"assistant_source_check",
 	"automation_list",
 	"automation_put",
+	"automation_save",
 	"automation_delete",
 	"automation_preview",
 	"assistant_watcher_grants",

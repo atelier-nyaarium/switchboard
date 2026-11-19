@@ -28,12 +28,13 @@ export function holeTextsOf(actions: readonly AutomationAction[]): { action: num
 const tellsOf = (body: Pick<Automation, "actions">): Tell[] =>
 	reached(body).flatMap(({ action }) => (isTell(action) ? [action] : []));
 
-/** Path: actions, index, parameter, start, end. */
+/** Path: list, index, parameter, start, end. */
 export const holeOwnerIssue = (
 	at: { action: number; param: string },
 	issue: { start: number; end: number; message: string },
+	list: "actions" | "steps" = "actions",
 ): OwnerIssue => ({
-	path: ["actions", at.action, at.param, issue.start, issue.end],
+	path: [list, at.action, at.param, issue.start, issue.end],
 	message: issue.message,
 	code: HOLE_ISSUE_CODE,
 });

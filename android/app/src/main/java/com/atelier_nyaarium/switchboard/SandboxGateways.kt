@@ -184,6 +184,7 @@ internal class SandboxPolicyGateway : PolicyGateway {
 			policy("apt", "Package administration", "deploy-key", listOf("sudo apt", "sudo systemctl")),
 			policy("docker", "Container restarts", "elsewhere-key", listOf("sudo docker"), enabled = false),
 			policy(REFUSING_ID, "Held elsewhere", "deploy-key", listOf("sudo held")),
+			policy("sakura-sudo", "Sakura Sudo", "sakura-nyaarium", listOf("sudo setfacl")),
 		)
 	}
 

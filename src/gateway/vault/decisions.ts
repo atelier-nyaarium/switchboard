@@ -2,18 +2,20 @@
 
 import { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
+import { basenameOf } from "../../shared/command-wrappers.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
-import type { AuthorizationPolicy } from "../../shared/schemasPolicy.js";
+import { type AuthorizationPolicy, MAX_SELECTOR_LEN } from "../../shared/schemasPolicy.js";
 import {
 	type PolicyRef,
 	VAULT_SESSION_GRANT_CAP_MS,
 	VAULT_WINDOW_MS,
+	type VaultAnswering,
 	type VaultDecision,
 	type VaultGrant,
 	VaultGrantSchema,
 	type VaultHolder,
 } from "../../shared/schemasVault.js";
-import { selectorKey } from "../../shared/selector-key.js";
+import { keyProgram, parseSudo, selectorKey, sudoCommand } from "../../shared/selector-key.js";
 import { coveredBy } from "./operationSet.js";
 
 export interface VaultDecisionsDeps {
@@ -79,7 +81,7 @@ export function qualificationRefusal(
 /** A standing grant is entry-wide and carries none. */
 const policyOf = (grant: VaultGrant): PolicyRef | undefined => (grant.tier === "standing" ? undefined : grant.policy);
 
-/** The policy no longer answers for this grant. */
+/** The policy does not answer for this grant. */
 function disqualified(grant: VaultGrant, current: AuthorizationPolicy | null): boolean {
 	const policy = policyOf(grant);
 	if (policy === undefined) return false;
@@ -95,6 +97,48 @@ function disqualified(grant: VaultGrant, current: AuthorizationPolicy | null): b
 /** The selector key: what the owner reads and what a policy selects on. */
 export function displayShape(operation: string): string {
 	return selectorKey(operation);
+}
+
+/** Blatant only; never a block. */
+const RUNS_ANYTHING = new Set(["bash", "sh", "zsh", "dash", "fish", "ksh", "su"]);
+
+/** The key's program runs any command, or sudo's options ask for a shell. */
+export function runsAnything(key: string): boolean {
+	return shellWords(key.split(" "));
+}
+
+/** Sees through what the key sees through, and a nested sudo. */
+function shellWords(words: readonly string[]): boolean {
+	const line = parseSudo(words);
+	if (!line) return words[0] !== undefined && RUNS_ANYTHING.has(basenameOf(words[0]));
+	if (line.shell) return true;
+	const command = sudoCommand(line);
+	const head = command[0];
+	if (head === undefined) return false;
+	return basenameOf(head) === "sudo" ? shellWords(command) : RUNS_ANYTHING.has(basenameOf(head));
+}
+
+/** The key stored is the key shown, within the store's bound. */
+export function rememberable(key: string): boolean {
+	return key.length <= MAX_SELECTOR_LEN && selectorKey(key) === key;
+}
+
+/** Usable entries bound by enabled policies sharing the key's program; per entry, the first policy in order. */
+export function answeringOf(
+	key: string,
+	policies: readonly AuthorizationPolicy[],
+	usable: (entryId: string) => boolean,
+): VaultAnswering[] {
+	const program = keyProgram(key);
+	const byEntry = new Map<string, VaultAnswering>();
+	for (const policy of policies) {
+		const { entryId } = policy.binding;
+		if (!policy.enabled || byEntry.has(entryId)) continue;
+		if (!policy.selectorKeys.some((held) => keyProgram(held) === program)) continue;
+		if (!usable(entryId)) continue;
+		byEntry.set(entryId, { entryId, policy: { policyId: policy.id, policyRevision: policy.revision } });
+	}
+	return [...byEntry.values()];
 }
 
 export function createVaultDecisions(deps: VaultDecisionsDeps) {

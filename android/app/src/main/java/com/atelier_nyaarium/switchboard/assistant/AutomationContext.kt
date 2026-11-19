@@ -10,6 +10,7 @@ import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.sourcesOf
@@ -43,7 +44,9 @@ internal fun automationContext(registry: GatewayRegistry, home: AssistantHome, g
 	}
 	val away = gatewayId != placed
 	val served = when (registry.listOn(gatewayId) { it.automations }) {
-		is GatewayList.Listed -> Served.Known(offerOf(registry.entry(gatewayId)?.automationServes, away))
+		is GatewayList.Listed -> registry.entry(gatewayId).let { entry ->
+			Served.Known(offerOf(entry?.automationServes, away, entry?.automationFunctions))
+		}
 		GatewayList.Unread -> Served.Unknown(ListEmpty.Reading)
 		GatewayList.Unreachable -> Served.Unknown(ListEmpty.Unreachable)
 		GatewayList.NotServed -> Served.Unknown(ListEmpty.NotServed(listOf(gatewayId)))
@@ -122,6 +125,28 @@ internal fun newAutomationGateways(registry: GatewayRegistry, reachable: List<St
 		}
 	}
 }
+
+/** What a Gateway says of functions; unread is never none. */
+internal sealed interface FunctionsServed {
+	data class Serves(val served: AutomationFunctionServes) : FunctionsServed
+
+	data object None : FunctionsServed
+
+	data object Reading : FunctionsServed
+
+	data object Unreachable : FunctionsServed
+}
+
+internal fun functionsServed(registry: GatewayRegistry, home: AssistantHome, gatewayId: String): FunctionsServed =
+	when (val served = automationContext(registry, home, gatewayId).served) {
+		is Served.Known -> served.offer.functions?.served?.let(FunctionsServed::Serves) ?: FunctionsServed.None
+		is Served.Unknown -> when (served.why) {
+			ListEmpty.NoRoster, ListEmpty.Reading, ListEmpty.None -> FunctionsServed.Reading
+			ListEmpty.Unreachable, ListEmpty.NoGateway -> FunctionsServed.Unreachable
+			// An older build lists none.
+			is ListEmpty.NotServed -> FunctionsServed.None
+		}
+	}
 
 /** Unknown names kinds raw. */
 internal fun doesText(automation: Automation, served: Served): String = when (served) {

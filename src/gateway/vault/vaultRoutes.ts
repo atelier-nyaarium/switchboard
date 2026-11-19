@@ -2,6 +2,7 @@
 
 import { type Ambient, withinMs } from "../../shared/ambient.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
+import type { AuthorizationPolicy } from "../../shared/schemasPolicy.js";
 import {
 	VAULT_ROUTE_WAIT_CAP_MS,
 	type VaultApprovedDecision,
@@ -11,6 +12,7 @@ import {
 	type VaultPublicEntry,
 	type VaultRequest,
 	VaultSearchRequestSchema,
+	type VaultTypedWhy,
 	VaultUseRequestSchema,
 	type VaultValueAnswer,
 	VaultWithdrawRequestSchema,
@@ -19,7 +21,14 @@ import { jsonResponse as json } from "../agentRouteEnvelope.js";
 import type { PolicyStore } from "../policies/store.js";
 import type { VaultEntryView } from "../router/vaultClient.js";
 import { presentedByRequest } from "../sessionAuthority.js";
-import { displayShape, type GrantScope, type VaultDecisions } from "./decisions.js";
+import {
+	answeringOf,
+	displayShape,
+	type GrantScope,
+	rememberable,
+	runsAnything,
+	type VaultDecisions,
+} from "./decisions.js";
 import { operationSet } from "./operationSet.js";
 import type { VaultRequestAnswer, VaultRequests } from "./requests.js";
 import type { VaultRelease, VaultUnready, VaultUnusable, VaultUse } from "./vaultUse.js";
@@ -32,7 +41,7 @@ export interface VaultRoutesDeps {
 	decisions: Pick<VaultDecisions, "covers">;
 	requests: VaultRequests;
 	/** Read late. */
-	policies: () => Pick<PolicyStore, "byKey">;
+	policies: () => Pick<PolicyStore, "byKey" | "list">;
 	ambient: Pick<Ambient, "now" | "newId" | "setTimer" | "clearTimer">;
 	/** Resolve requests to session teams. */
 	resolveCaller: (req: Request) => string | null;
@@ -99,6 +108,10 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		}
 	}
 
+	/** The grant is read again after the refresh, as a service's is. */
+	const stillCovered = (scope: GrantScope) => (): VaultUnusable | null =>
+		deps.decisions.covers(scope, deps.ambient.now()) ? null : { kind: "unusable", reason: REFUSAL, status: 403 };
+
 	/** Grants answer immediately; otherwise requests wait. A retry joins the request still open. */
 	async function decide(
 		req: Request,
@@ -108,14 +121,7 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		asker?: string,
 	): Promise<Response> {
 		const covering = deps.decisions.covers(scope, deps.ambient.now());
-		if (covering) {
-			// The grant is read again after the refresh, as a service's is.
-			const stillCovered = (): VaultUnusable | null =>
-				deps.decisions.covers(scope, deps.ambient.now())
-					? null
-					: { kind: "unusable", reason: REFUSAL, status: 403 };
-			return (await release(covering.tier, scope.entryId, stillCovered)).response;
-		}
+		if (covering) return (await release(covering.tier, scope.entryId, stillCovered(scope))).response;
 		const input = {
 			kind: "entry" as const,
 			entryId: scope.entryId,
@@ -155,7 +161,8 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 
 	/**
 	 * An entry approval is shared: it named this caller's own operation, so every waiter joined to
-	 * the request takes the value. A typed value is delivered once, to whoever collects first.
+	 * the request takes the value. A typed value is delivered once, to whoever collects first. The
+	 * answer's source decides, not the request's kind: a typed request can be answered from an entry.
 	 */
 	async function settle(answer: VaultRequestAnswer | null | "gone", request: VaultRequest): Promise<Response> {
 		if (answer === null || answer === "gone")
@@ -168,17 +175,26 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 			deps.requests.take(request.requestId);
 			return refused(REFUSAL, 403, answer.note);
 		}
-		if (request.kind === "typed") {
-			const taken = deps.requests.take(request.requestId);
-			return taken && answer.typedValue !== undefined
+		// The askpass helper collects the id each pending answer names.
+		if (answer.kind === "moved") {
+			deps.requests.take(request.requestId);
+			return json({
+				outcome: "pending",
+				requestId: answer.requestId,
+				deadlineAt: answer.deadlineAt,
+			} satisfies VaultValueAnswer);
+		}
+		if (answer.source.kind === "typed") {
+			return deps.requests.take(request.requestId)
 				? json({
 						outcome: "approved",
 						decision: answer.decision,
-						value: answer.typedValue,
+						value: answer.source.value,
 					} satisfies VaultValueAnswer)
 				: refused(REFUSAL);
 		}
-		const released = await release(answer.decision, request.entryId);
+		const { covered } = answer.source;
+		const released = await release(answer.decision, answer.source.entryId, covered && stillCovered(covered));
 		if (released.kind !== "unavailable") deps.requests.take(request.requestId);
 		return released.response;
 	}
@@ -265,6 +281,28 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		return json({ id });
 	};
 
+	/** Only an unusable binding involves the enabled holder. */
+	const typedWhy = (
+		shape: string,
+		holder: AuthorizationPolicy | null,
+		bound: ReturnType<VaultUse["usable"]> | null,
+	): VaultTypedWhy => {
+		if (holder && bound?.kind === "unusable") {
+			return {
+				code: "binding_unusable",
+				policyId: holder.id,
+				policyName: holder.name,
+				entryId: holder.binding.entryId,
+				unusable: bound.code,
+			};
+		}
+		const off = deps
+			.policies()
+			.list()
+			.find((policy) => policy.selectorKeys.includes(shape));
+		return off ? { code: "policy_off", policyId: off.id, policyName: off.name } : { code: "no_policy" };
+	};
+
 	/** The one enabled policy for the line's key selects its entry; otherwise the owner types. */
 	const askpass: Handler = async (req, body) => {
 		const who = principal(req);
@@ -290,7 +328,25 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 			};
 			return decide(req, scope, parsed.data.cmdline, waitMs, asker);
 		}
-		const opened = deps.requests.open({ kind: "typed", operation: parsed.data.cmdline, sessionTarget, asker });
+		const why = typedWhy(shape, policy, bound);
+		// Remember would be refused: by the key's holder, or the key itself.
+		const answering =
+			why.code === "binding_unusable" || !rememberable(shape)
+				? []
+				: answeringOf(
+						shape,
+						deps.policies().list(),
+						(entryId) => deps.use.usable(ready.client, entryId).kind === "usable",
+					);
+		const opened = deps.requests.open({
+			kind: "typed",
+			operation: parsed.data.cmdline,
+			sessionTarget,
+			asker,
+			why,
+			...(runsAnything(shape) ? { runsAnything: true as const } : {}),
+			...(answering.length > 0 ? { answering } : {}),
+		});
 		if (opened.kind !== "opened") return unopened(opened.reason);
 		return settle(await waitAnswer(opened.answer, waitMs, req.signal), opened.request);
 	};

@@ -39,7 +39,11 @@ export interface FederationHarnessOptions {
 	assistantSources?: readonly Source[];
 	kasaPort?: number;
 	workflowProgressIntervalMsForTests?: number;
+	/** Refused by default. */
+	fetch?: GatewayFetch;
 }
+
+type GatewayFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 export interface GatewayComposeOptions {
 	seedContentKey?: boolean;
@@ -48,6 +52,7 @@ export interface GatewayComposeOptions {
 	assistantSources?: readonly Source[];
 	kasaPort?: number;
 	workflowProgressIntervalMsForTests?: number;
+	fetch?: GatewayFetch;
 }
 
 export interface RouterOnlyHarness {
@@ -143,6 +148,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 			assistantSources: options.assistantSources,
 			kasaPort: options.kasaPort,
 			workflowProgressIntervalMsForTests: options.workflowProgressIntervalMsForTests,
+			fetch: options.fetch,
 		});
 	} catch (error) {
 		await base.close();
@@ -234,6 +240,7 @@ async function attachDomain(
 		assistantSources?: readonly Source[];
 		kasaPort?: number;
 		workflowProgressIntervalMsForTests?: number;
+		fetch?: GatewayFetch;
 	},
 ): Promise<DomainPeer> {
 	set = admitSecondConsole(set);
@@ -245,6 +252,7 @@ async function attachDomain(
 			assistantSources: options.assistantSources,
 			kasaPort: options.kasaPort,
 			workflowProgressIntervalMsForTests: options.workflowProgressIntervalMsForTests,
+			fetch: options.fetch,
 		});
 	// Threads survive daemon restarts.
 	const agents = scriptedAgents();
@@ -445,9 +453,11 @@ export async function startRouterOnly(
 				},
 				ambient: gatewayAmbient,
 				allowFixtureIdentity: true,
-				fetch: async () => {
-					throw new Error("the harness reaches no network");
-				},
+				fetch:
+					gatewayOptions.fetch ??
+					(async () => {
+						throw new Error("the harness reaches no network");
+					}),
 				...(gatewayOptions.assistantSources ? { assistantSources: gatewayOptions.assistantSources } : {}),
 				...(gatewayOptions.kasaPort === undefined
 					? {}

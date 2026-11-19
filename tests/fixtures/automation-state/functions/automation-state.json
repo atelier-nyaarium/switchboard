@@ -1,0 +1,107 @@
+{
+	"automations": {
+		"freezer-cold": { "revision": 1, "incarnation": "inc-freezer", "fieldEpoch": "a1", "handledSeq": 0 }
+	},
+	"queue": { "lastAt": 0, "events": [] },
+	"log": [
+		{ "automation": "lamp-off", "seq": 0, "at": 5600000, "outcome": "uncertain", "reason": "missed 1 slot" },
+		{ "automation": "lamp-off", "seq": 0, "at": 5600000, "outcome": "ran", "action": "device_set" }
+	],
+	"ran": { "lamp-off": 5600000 },
+	"fires": [
+		{
+			"automation": "fan-on",
+			"seq": 0,
+			"at": 5600000,
+			"member": "automation:fan-on:inc-fan-on:slot:5600000",
+			"incarnation": "inc-fan-on",
+			"revision": 1,
+			"names": { "time": { "value": 5600000, "shown": "01:33 UTC" } },
+			"steps": { "0": { "attempts": 1, "startedAt": 5600000, "word": "unreachable", "lastAt": 5600000 } },
+			"active": ["0"]
+		},
+		{
+			"automation": "warm",
+			"seq": 0,
+			"at": 5600000,
+			"member": "automation:warm:inc-warm:slot:5600000",
+			"incarnation": "inc-warm",
+			"revision": 1,
+			"names": { "time": { "value": 5600000, "shown": "01:33 UTC" } },
+			"steps": {
+				"0.0": { "attempts": 1, "startedAt": 5600000, "word": "unreachable", "lastAt": 5600000 },
+				"0.1": { "attempts": 0 }
+			},
+			"active": ["0.0"],
+			"fields": { "time": "01:33 UTC" },
+			"frames": {
+				"0": {
+					"function": "warm-up",
+					"incarnation": "inc-warm-up",
+					"revision": 1,
+					"resolved": { "0.0": { "kind": "device_set", "device": "aa:bb:cc:dd:ee:02", "verb": "on" } }
+				}
+			}
+		}
+	],
+	"fired": [],
+	"slots": {
+		"lamp-off": { "revision": 1, "incarnation": "inc-lamp-off", "at": 5600000 },
+		"fan-on": { "revision": 1, "incarnation": "inc-fan-on", "at": 5600000 },
+		"warm": { "revision": 1, "incarnation": "inc-warm", "at": 5600000 }
+	},
+	"silences": { "told": {}, "recovered": {} },
+	"versions": {
+		"fan-on:inc-fan-on:1": {
+			"enabled": true,
+			"trigger": { "kind": "interval", "everyMin": 60 },
+			"actions": [{ "kind": "device_set", "device": "aa:bb:cc:dd:ee:02", "verb": "on" }]
+		},
+		"warm:inc-warm:1": {
+			"enabled": true,
+			"trigger": { "kind": "interval", "everyMin": 60 },
+			"actions": [
+				{
+					"kind": "run_function",
+					"function": "warm-up",
+					"values": { "room": "aa:bb:cc:dd:ee:02" },
+					"keepTryingMin": 60,
+					"coolDownSec": 120
+				}
+			]
+		}
+	},
+	"functionVersions": {
+		"warm-up:inc-warm-up:1": {
+			"name": "Warm up",
+			"params": [{ "name": "room", "type": "device" }],
+			"steps": [
+				{
+					"kind": "do",
+					"action": "device_set",
+					"args": {
+						"device": { "kind": "expression", "text": "room" },
+						"verb": { "kind": "literal", "value": "on" }
+					}
+				},
+				{
+					"kind": "do",
+					"action": "tell_assistant",
+					"args": {
+						"when": { "kind": "literal", "value": "quietly" },
+						"message": { "kind": "literal", "value": "Warmed {room}" }
+					}
+				}
+			]
+		}
+	},
+	"unusedFunctions": { "left-behind": 5600000 },
+	"landedSets": {
+		"aa:bb:cc:dd:ee:01": {
+			"member": "automation:lamp-off:inc-lamp-off:slot:5600000",
+			"nature": "sets",
+			"at": 5600000
+		}
+	},
+	"firedAt": { "warm": 5600000 }
+}

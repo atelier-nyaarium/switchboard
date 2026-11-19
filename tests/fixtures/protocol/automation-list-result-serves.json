@@ -193,6 +193,11 @@
 				"device": "aa:bb:cc:dd:ee:ff",
 				"name": "Desk lamp"
 			}
-		]
+		],
+		"functions": {
+			"max": 32,
+			"steps": ["tell_assistant", "device_set", "ifttt_trigger"],
+			"paramTypes": ["device", "text", "number"]
+		}
 	}
 }

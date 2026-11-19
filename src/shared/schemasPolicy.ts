@@ -47,6 +47,9 @@ export const POLICY_REFUSAL_CODES = [
 	"no_command",
 	"none",
 	"full",
+	"too_many_commands",
+	"command_too_long",
+	"invalid",
 	"moved",
 	"gone",
 	"deleted",
@@ -123,6 +126,12 @@ export function refusalReason(refusal: PolicyRefusal): string {
 			return "Add a command first.";
 		case "full":
 			return `This Gateway holds ${refusal.max} policies already.`;
+		case "too_many_commands":
+			return `A policy holds ${refusal.max} commands at most.`;
+		case "command_too_long":
+			return `A command is ${refusal.max} characters at most.`;
+		case "invalid":
+			return "This policy cannot be saved.";
 		case "moved":
 			return "Changed on another device.";
 		case "gone":

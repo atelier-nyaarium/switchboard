@@ -13,6 +13,7 @@ interface Row {
 	requestId: string;
 	sessionTarget: string;
 	deadlineAt: number;
+	label?: string;
 }
 
 interface Payload {
@@ -129,6 +130,79 @@ describe("owner requests", () => {
 		expect(requests.collect(opened.request.requestId, "host.a")).toBeDefined();
 		setNow(1_000 + CLAIMED_ANSWER_GRACE_MS);
 		expect(requests.collect(opened.request.requestId, "host.a")).toBeUndefined();
+	});
+
+	it("restates a waiting request under its own id, session and deadline, and nothing else", async () => {
+		let saves = 0;
+		const ledger = { load: () => null, save: () => void saves++ };
+		const { requests, open, timers, setNow } = bench({ ledger });
+		const row = requireOpen(open()).request;
+		const armed = () => timers.filter((timer) => timer.active).map((timer) => timer.delay);
+		const due = armed();
+		const before = saves;
+
+		expect(requests.revise({ ...row, requestId: "other" })).toBe(false);
+		expect(requests.revise({ ...row, sessionTarget: "host.b" })).toBe(false);
+		expect(requests.revise({ ...row, deadlineAt: row.deadlineAt + 1 })).toBe(false);
+		expect(requests.revise({ ...row, label: "two" })).toBe(true);
+		expect(requests.waiting(() => true)).toEqual([{ ...row, label: "two" }]);
+		expect([armed(), saves]).toEqual([due, before]);
+
+		const claimed = requireOpen(open()).request;
+		requests.claim(claimed.requestId);
+		expect(requests.revise({ ...claimed, label: "x" })).toBe(false);
+		const settled = requireOpen(open());
+		requests.settle(settled.request.requestId, "done");
+		expect(requests.revise({ ...settled.request, label: "x" })).toBe(false);
+
+		const late = requireOpen(open());
+		setNow(late.request.deadlineAt);
+		expect(requests.revise({ ...late.request, label: "x" })).toBe(false);
+		await expect(late.answer).resolves.toBe("expired");
+	});
+
+	it("opens a replacement past a full share, under the deadline it inherits", () => {
+		const { requests, open } = bench({ maxOpenPerTarget: 2 });
+		const first = requireOpen(open()).request;
+		requireOpen(open());
+		const build = (requestId: string, deadlineAt: number): Row => ({
+			requestId,
+			sessionTarget: "host.a",
+			deadlineAt,
+		});
+		const payload = { conversationId: "conversation-a" };
+		const replacement = requests.open({
+			sessionTarget: "host.a",
+			payload,
+			build,
+			replacing: first.requestId,
+			deadlineAt: first.deadlineAt - 10,
+		});
+		expect(replacement).toMatchObject({ kind: "opened", request: { deadlineAt: first.deadlineAt - 10 } });
+		expect(requests.open({ sessionTarget: "host.a", payload, build })).toEqual({
+			kind: "undeliverable",
+			reason: "flooded",
+		});
+	});
+
+	it("lists only waiting requests, and a claim given back waits again under its deadline", async () => {
+		const { requests, open, setNow } = bench();
+		const waiting = requireOpen(open()).request;
+		const claimed = requireOpen(open());
+		const settled = requireOpen(open());
+		requests.claim(claimed.request.requestId);
+		requests.settle(settled.request.requestId, "done");
+		expect(requests.waiting(() => true)).toEqual([waiting]);
+
+		expect(requests.unclaim(claimed.request.requestId)).toBe(true);
+		expect(requests.unclaim(claimed.request.requestId)).toBe(false);
+		expect(requests.waiting(() => true).map((row) => row.requestId)).toEqual([
+			waiting.requestId,
+			claimed.request.requestId,
+		]);
+		setNow(claimed.request.deadlineAt);
+		expect(requests.waiting(() => true)).toEqual([]);
+		await expect(claimed.answer).resolves.toBe("expired");
 	});
 
 	it("keeps a denial collectable as an answered result", async () => {

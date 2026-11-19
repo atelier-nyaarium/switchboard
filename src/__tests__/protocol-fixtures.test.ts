@@ -16,6 +16,7 @@ import {
 	PlanesReadValueSchema,
 } from "../shared/schemas.js";
 import { ConsoleAssistantStateResultSchema } from "../shared/schemasAssistant.js";
+import { AssistantHomeCarriedSchema } from "../shared/schemasAssistantHome.js";
 import { AssistantFieldSpecSchema } from "../shared/schemasAssistantRules.js";
 import {
 	AutomationActionSchema,
@@ -24,6 +25,7 @@ import {
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
 } from "../shared/schemasAutomation.js";
+import { ConsoleAutomationSaveResultSchema } from "../shared/schemasAutomationSave.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
 	ConsoleDeviceListResultSchema,
@@ -34,6 +36,11 @@ import {
 	ConsoleDeviceSchedulePutResultSchema,
 } from "../shared/schemasDevices.js";
 import { FunctionSchema, FunctionStepSchema } from "../shared/schemasFunction.js";
+import {
+	ConsoleVaultAnswerEntryResultSchema,
+	ConsoleVaultAnswerResultSchema,
+	VaultRequestSchema,
+} from "../shared/schemasVault.js";
 import {
 	FileHistoryAnswerSchema,
 	FileMutationAnswerSchema,
@@ -73,6 +80,8 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	FunctionStep: FunctionStepSchema,
 	ConsoleAutomationListResult: ConsoleAutomationListResultSchema,
 	ConsoleAutomationPutResult: ConsoleAutomationPutResultSchema,
+	ConsoleAutomationSaveResult: ConsoleAutomationSaveResultSchema,
+	AssistantHomeCarried: AssistantHomeCarriedSchema,
 	ConsoleAutomationPreviewResult: ConsoleAutomationPreviewResultSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
@@ -81,6 +90,9 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	WorkspaceSymbolFacetAnswer: SymbolFacetAnswerSchema,
 	WorkspaceFileHistoryAnswer: FileHistoryAnswerSchema,
 	WorkspaceTooLargeAnswer: TooLargeAnswerSchema,
+	VaultRequest: VaultRequestSchema,
+	ConsoleVaultAnswerResult: ConsoleVaultAnswerResultSchema,
+	ConsoleVaultAnswerEntryResult: ConsoleVaultAnswerEntryResultSchema,
 };
 
 interface ManifestEntry {

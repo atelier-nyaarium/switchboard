@@ -18,6 +18,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonPrimitive
@@ -114,7 +115,15 @@ internal data class AutomationDraft(
 	val text: TextRef? = null,
 	/** Unit its numbers are typed in. */
 	val display: String? = null,
+	/** Its own, or a function's head; `actions` are the cards. */
+	val runs: RunsHead = RunsHead.Own(),
+	/** The function picker is open. */
+	val picking: Boolean = false,
 ) {
+	fun runsDraft(): RunsDraft = runsOf(runs, actions)
+
+	fun withRuns(next: RunsDraft): AutomationDraft = headOf(next).let { (head, cards) -> copy(runs = head, actions = cards) }
+
 	private val event: TriggerDraft.Event? get() = trigger as? TriggerDraft.Event
 
 	/** Blank unless an event triggers it. */
@@ -190,7 +199,7 @@ internal data class AutomationDraft(
 	}
 
 	fun changedFrom(opened: AutomationDraft): Boolean =
-		trigger != opened.trigger || actions != opened.actions || enabled != opened.enabled
+		trigger != opened.trigger || actions != opened.actions || enabled != opened.enabled || runs != opened.runs
 }
 
 /** A crossing of that device's first number; null when not offered. */
@@ -240,7 +249,7 @@ internal fun unopenedLine(slot: AutomationSlot, standing: EditStanding): String?
 internal fun automationDraftOf(row: AutomationRow, context: EditContext, display: String? = null): AutomationDraft? {
 	val offer = context.offer
 	val trigger = triggerDraftOf(row.automation.trigger, offer, display) ?: return null
-	return AutomationDraft(
+	val draft = AutomationDraft(
 		id = row.id,
 		trigger = trigger,
 		actions = written(row.automation).map { action -> actionDraftOf(action, offer) },
@@ -250,6 +259,9 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 		original = row.automation,
 		display = display,
 	)
+	// Functions only where served.
+	val functions = offer.functions ?: return draft
+	return draft.withRuns(runsDraftOf(row.id, row.automation, functions.rows, offer))
 }
 
 /** The draft's source's fields. */
@@ -258,6 +270,40 @@ internal fun fieldsOf(draft: AutomationDraft, sources: List<AssistantSource>): S
 
 internal fun fittingAutomation(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): Automation? =
 	draft.toAutomation(offer)?.takeIf { draft.conditions.all { condition -> fields.issueOf(condition) == null } }
+
+/** What its trigger gives a function. */
+internal fun givenOf(draft: AutomationDraft, fields: SourceFields): TriggerGiven =
+	triggerGiven(draft.trigger.kind, eventFields = fields.specs.map { it.field })
+
+/** A crossing's measure; null otherwise. */
+internal fun measureOf(draft: AutomationDraft): String? = (draft.trigger as? TriggerDraft.Crossing)?.measure?.takeIf { it.isNotBlank() }
+
+/** What blocks Save in its Runs block; null where functions are not served. */
+internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): RunsIssue? {
+	val functions = offer.functions ?: return null
+	val runs = draft.runsDraft()
+	val reads = (runs as? RunsDraft.Pointing)?.let { functions.row(it.functionId)?.reads }
+	return runsIssue(runs, givenOf(draft, fields), offer, functions.served.steps, reads)
+}
+
+/** The save op; null when unservable or unwritable. */
+internal fun functionSaveOf(
+	draft: AutomationDraft,
+	fields: SourceFields,
+	offer: AutomationOffer,
+	confirmed: Boolean,
+	freshFunctionId: () -> String,
+): ConsoleOp.AutomationSave? {
+	if (offer.functions == null) return null
+	val built = draft.builtTrigger(offer) ?: return null
+	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer) != null) return null
+	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed, freshFunctionId) { actions ->
+		Automation(label = draft.original?.label, enabled = draft.enabled, trigger = built, actions = actions)
+	}
+}
+
+/** A function id as the editor mints one. */
+internal fun freshFunctionId(): String = "fn-${java.util.UUID.randomUUID()}"
 
 /** The trigger a preview asks about; null while it could not be saved here. */
 internal fun askedTrigger(
@@ -290,6 +336,9 @@ internal fun sourceChoices(sources: List<AssistantSource>, held: String): List<S
 
 internal data class AutomationEditing(val edit: Boolean, val save: Boolean, val delete: Boolean)
 
+/** Never sent. */
+private const val PROBE_ID = "probe"
+
 /** An unfit draft stays editable. */
 internal fun automationEditing(
 	slot: AutomationSlot,
@@ -303,7 +352,11 @@ internal fun automationEditing(
 	val edit = !busy && !gone
 	return AutomationEditing(
 		edit = edit,
-		save = edit && offered && fittingAutomation(draft, fields, offer) != null,
+		save = edit && offered && if (offer.functions != null) {
+			functionSaveOf(draft, fields, offer, confirmed = false) { PROBE_ID } != null
+		} else {
+			fittingAutomation(draft, fields, offer) != null
+		},
 		delete = edit && slot is AutomationSlot.Held,
 	)
 }

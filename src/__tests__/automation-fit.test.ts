@@ -43,7 +43,10 @@ describe("fit", () => {
 					action: "tell_assistant",
 					args: {
 						when: { kind: "literal", value: "now" },
-						message: { kind: "literal", value: "It is {event.reason} on {source} in {room}, \\{time\\}" },
+						message: {
+							kind: "literal",
+							value: 'It is {event.reason} on {source} in {room} by {event["by"]}, \\{time\\}',
+						},
 					},
 				},
 				{
@@ -59,7 +62,7 @@ describe("fit", () => {
 
 		expect(functionReads(fn)).toEqual({
 			names: ["event", "source", "threshold", "value"],
-			eventFields: ["reason"],
+			eventFields: ["by", "reason"],
 		});
 	});
 

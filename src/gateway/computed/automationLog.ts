@@ -7,8 +7,9 @@ export const REPLACED = "a newer run replaced it";
 export const CROWDED = "dropped for room";
 export const TOO_MANY = "too many runs are waiting";
 export const BEHIND = "too many of its runs are waiting";
+export const COOLING = "inside its cool-down";
 /** Standing; logged again after an intervening run. */
-const LOST_RUNS: ReadonlySet<string> = new Set([REPLACED, CROWDED, TOO_MANY, BEHIND]);
+const LOST_RUNS: ReadonlySet<string> = new Set([REPLACED, CROWDED, TOO_MANY, BEHIND, COOLING]);
 
 export const ROW_OUTCOMES = ["ran", "refused", "uncertain", "suppressed"] as const;
 

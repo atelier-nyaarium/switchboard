@@ -9,7 +9,9 @@ import { type Address, storeKey } from "../../shared/session-id.js";
 import type { VaultConsoleHandlers } from "../console/consoleTypes.js";
 import type { PolicyStore } from "../policies/store.js";
 import { createAddressing } from "../routes/addressing.js";
+import { createAnswerEntry } from "../vault/answerEntry.js";
 import { createVaultDecisions, legacyHolder, qualificationRefusal } from "../vault/decisions.js";
+import { createVaultReconcile } from "../vault/reconcile.js";
 import { createVaultRequests } from "../vault/requests.js";
 import { createVaultRoutes } from "../vault/vaultRoutes.js";
 import { createVaultUse, type VaultRelease } from "../vault/vaultUse.js";
@@ -29,7 +31,7 @@ export interface VaultStageDeps {
 	/** Record unanswered secrets for their occurrence. */
 	secretUnanswered: (sessionTarget: string, entryId: string) => void;
 	/** Resolve the policy store on each use. */
-	policies: () => Pick<PolicyStore, "get" | "byKey">;
+	policies: () => Pick<PolicyStore, "get" | "byKey" | "list" | "put">;
 }
 
 export interface VaultStage {
@@ -54,6 +56,10 @@ export interface VaultStage {
 	usableHere: (entryId: string) => Promise<boolean>;
 	/** Retracts stale cards when routable. */
 	retractStale: () => void;
+	/** The persist tick: tries kept takeovers again. */
+	tick: () => void;
+	/** Close: a pass in flight takes nothing over. */
+	stop: () => void;
 }
 
 export function composeVault(deps: VaultStageDeps): VaultStage {
@@ -121,27 +127,16 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 			},
 			openTyped: (envelope, requestId) => context.slice()?.vaultClient.openTyped(envelope, requestId) ?? null,
 			// Recheck policy on answer.
-			validate: (request) => {
-				if (request.kind !== "entry" || request.policy === undefined) return null;
-				return qualificationRefusal(deps.policies().get(request.policy.policyId), {
-					entryId: request.entryId,
-					policyRevision: request.policy.policyRevision,
-					displayShape: request.displayShape,
+			validate: (scope) => {
+				if (scope.policy === undefined) return null;
+				return qualificationRefusal(deps.policies().get(scope.policy.policyId), {
+					entryId: scope.entryId,
+					policyRevision: scope.policy.policyRevision,
+					displayShape: scope.displayShape,
 				});
 			},
-			onApproved: (request, decision) => {
-				if (request.kind !== "entry") return;
-				decisions.grant(
-					decision,
-					{
-						entryId: request.entryId,
-						displayShape: request.displayShape,
-						coveredShapes: request.coveredShapes,
-						sessionTarget: request.sessionTarget,
-						...(request.policy ? { policy: request.policy } : {}),
-					},
-					ambient.now(),
-				);
+			onApproved: (scope, decision) => {
+				decisions.grant(decision, scope, ambient.now());
 			},
 		}),
 	);
@@ -151,6 +146,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		registered: () => context.slice()?.routerClient.isRegistered() ?? false,
 		decisions,
 		ambient,
+		onRefreshed: () => reconciler.landed(),
 	});
 
 	const routes = createVaultRoutes({
@@ -185,10 +181,25 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		},
 	});
 
+	const answerEntry: VaultConsoleHandlers["answerEntry"] = createAnswerEntry({
+		use,
+		requests,
+		policies: deps.policies,
+	});
+
+	const reconciler = createVaultReconcile({
+		requests,
+		policies: deps.policies,
+		use,
+		heldClient: () => context.slice()?.vaultClient ?? null,
+		covers: (scope) => decisions.covers(scope, ambient.now())?.tier ?? null,
+	});
+
 	return {
 		routes,
 		console: {
 			answer: (requestId, decision, value, note) => requests.answer(requestId, decision, value, note),
+			answerEntry,
 			grants: () => ({ grants: decisions.list(ambient.now()).map(legacyHolder) }),
 			revoke: (grantId) => ({ revoked: decisions.revoke(grantId) }),
 		},
@@ -201,8 +212,10 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		// Prune only after policy commit.
 		policyMoved: (policyId) => {
 			decisions.policyMoved(policyId, deps.policies().get(policyId));
-			requests.policyMoved(policyId);
+			reconciler.reconcile();
 		},
+		tick: () => reconciler.reconcile(),
+		stop: () => reconciler.stop(),
 		policiesListed: (policies) => {
 			const byId = new Map(policies.map((policy) => [policy.id, policy]));
 			decisions.policiesListed((policyId) => byId.get(policyId) ?? null);

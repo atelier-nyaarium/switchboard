@@ -1,0 +1,33 @@
+{
+	"stored": true,
+	"automation": {
+		"id": "warm",
+		"revision": 1,
+		"automation": {
+			"enabled": true,
+			"trigger": { "kind": "interval", "everyMin": 60 },
+			"actions": [
+				{ "kind": "run_function", "function": "fn-0a1b2c3d4e5f6a7b", "values": { "room": "aa:bb:cc:dd:ee:ff" } }
+			]
+		},
+		"sentence": "Every hour"
+	},
+	"function": {
+		"id": "fn-0a1b2c3d4e5f6a7b",
+		"revision": 1,
+		"function": {
+			"name": "Warm up, the study",
+			"params": [{ "name": "room", "type": "device" }],
+			"steps": [
+				{
+					"kind": "do",
+					"action": "ifttt_trigger",
+					"args": { "event": { "kind": "literal", "value": "warm" } }
+				}
+			]
+		},
+		"users": ["warm"],
+		"moves": false,
+		"reads": { "names": [], "eventFields": [] }
+	}
+}

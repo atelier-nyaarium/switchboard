@@ -326,8 +326,8 @@ describe("an event automation", () => {
 		automations.noteEvents(["a"], T0);
 		const ran = automations.rows().find((row) => row.id === "a")?.lastRanAt;
 
-		automations.write({ kind: "carry", rows: [] });
-		automations.write({ kind: "carry", rows: [all] });
+		automations.write({ kind: "carry", rows: [], functions: [] });
+		automations.write({ kind: "carry", rows: [all], functions: [] });
 		automations.ownerPut("toString", all.automation, 0);
 		const edited = automations.ownerPut("watch", { ...watch, enabled: false }, 1);
 		const rows = new Map(automations.rows().map((row) => [row.id, row]));

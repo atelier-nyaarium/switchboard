@@ -2,6 +2,7 @@ import type { DomainSnapshot } from "../../shared/admission.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { BoardDisposition } from "../../shared/board-authority.js";
 import type {
+	ConsoleOp,
 	CrossDomainConfirmResult,
 	CrossDomainListenResult,
 	CrossDomainListenStateResult,
@@ -23,6 +24,7 @@ import type {
 	ConsoleAutomationPreviewResult,
 	ConsoleAutomationPutResult,
 } from "../../shared/schemasAutomation.js";
+import type { ConsoleAutomationSaveResult } from "../../shared/schemasAutomationSave.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type { DeviceConsoleOp, DeviceConsoleResult } from "../../shared/schemasDevices.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
@@ -44,7 +46,14 @@ import type {
 	Routine,
 } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
-import type { VaultDecision, VaultGrant } from "../../shared/schemasVault.js";
+import type {
+	ConsoleVaultAnswerEntryResult,
+	ConsoleVaultAnswerResult,
+	VaultDecision,
+	VaultEntryTier,
+	VaultGrant,
+	VaultRemember,
+} from "../../shared/schemasVault.js";
 import type { SessionControlOp, SessionControlResult } from "../../shared/session-control.js";
 import type { SessionHarness } from "../../shared/session-harness.js";
 import type { SessionStore } from "../../shared/session-store.js";
@@ -208,6 +217,7 @@ export interface AssistantConsoleHandlers {
 export interface AutomationConsoleHandlers {
 	list: () => ConsoleAutomationListResult;
 	put: (automationId: string, automation: Automation, base: number, confirmed: boolean) => ConsoleAutomationPutResult;
+	save: (op: Omit<Extract<ConsoleOp, { kind: "automation_save" }>, "kind">) => ConsoleAutomationSaveResult;
 	remove: (automationId: string, base: number) => ConsoleAutomationDeleteResult;
 	/** `text` is a message whose holes to fill. */
 	preview: (trigger: AutomationTrigger, text?: string) => Promise<ConsoleAutomationPreviewResult>;
@@ -252,7 +262,13 @@ export interface VaultConsoleHandlers {
 		decision: VaultDecision,
 		value?: ContentEnvelope,
 		note?: string,
-	) => { ok: boolean; reason?: string };
+	) => ConsoleVaultAnswerResult;
+	answerEntry: (answer: {
+		requestId: string;
+		entryId: string;
+		decision: VaultEntryTier;
+		remember?: VaultRemember;
+	}) => Promise<ConsoleVaultAnswerEntryResult>;
 	grants: () => { grants: VaultGrant[] };
 	revoke: (grantId: string) => { revoked: boolean };
 }

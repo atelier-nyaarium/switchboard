@@ -5,11 +5,14 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import type { SavedFunction } from "../gateway/computed/automationJudge.js";
-import { FUNCTION_UNREAD } from "../gateway/computed/automationValidity.js";
+import { FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
+import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { unknown } from "../shared/expressions.js";
 import type { AutomationInput, AutomationTrigger } from "../shared/schemasAutomation.js";
-import type { AutomationFunctionInput } from "../shared/schemasFunction.js";
+import type { AutomationFunctionInput, StepArg } from "../shared/schemasFunction.js";
 
+const REGISTRY = createConsoleRegistry([]);
 const roots: string[] = [];
 afterEach(() => {
 	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
@@ -46,12 +49,14 @@ const pointing = (
 });
 
 /** `seed`: records as a file already holds them. */
-function open(home = true, seed: object[] = []) {
+function open(home = true, seed: object[] = [], keyFile?: string) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "automation-functions-"));
 	roots.push(dir);
 	if (seed.length > 0) fs.writeFileSync(path.join(dir, "automations.json"), JSON.stringify(seed));
+	if (keyFile !== undefined) fs.writeFileSync(path.join(dir, "automation-function-key.json"), keyFile);
 	let n = 0;
 	let atHome = home;
+	const switches = new Set([PLUG]);
 	const { automations } = openAutomationPair({
 		dataDir: dir,
 		newIncarnation: () => `a${++n}`,
@@ -62,9 +67,14 @@ function open(home = true, seed: object[] = []) {
 			eventIssue: () => null,
 			eventFields: () => ["reason"],
 			entropy: (size) => crypto.randomBytes(size),
+			holes: () => ({
+				issue: (text, names) => holeIssue(text, names, REGISTRY),
+				fill: (text, names) => fillHoles(text, names, REGISTRY),
+				evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
+			}),
 			actions: {
 				ready: () => true,
-				switchName: (device) => (device === PLUG ? "Lamp" : null),
+				switchName: (device) => (switches.has(device) ? "Lamp" : null),
 				deviceSet: async () => ({ word: "done" }),
 				iftttTrigger: async () => ({ word: "done" }),
 			},
@@ -77,7 +87,14 @@ function open(home = true, seed: object[] = []) {
 			.filter((row) => row.kind === "function")
 			.map((row) => row.id)
 			.sort();
-	return { automations, save, functions, leave: () => (atHome = false) };
+	return {
+		automations,
+		save,
+		functions,
+		dir,
+		leave: () => (atHome = false),
+		unplug: () => switches.delete(PLUG),
+	};
 }
 
 const refusalOf = (saved: ReturnType<ReturnType<typeof open>["save"]>) => (saved.stored ? null : saved.refusal);
@@ -209,7 +226,7 @@ describe("an automation that runs a function", () => {
 
 		expect([automations.invalidOf("x"), refusalOf(save("y", pointing(hourly, "later"), 0))]).toEqual([
 			FUNCTION_UNREAD,
-			{ code: "unknown_function", id: "later" },
+			{ code: "newer_function", record: "function", id: "later" },
 		]);
 	});
 
@@ -312,6 +329,157 @@ describe("an automation that runs a function", () => {
 		save("c", pointing(hourly, "fresh"), 1, { as: "edit", id: "fresh", body: fn([tell]), base: 0 });
 
 		expect([kept, functions()]).toEqual([["alone", "shared"], ["fresh"]]);
+	});
+
+	it("counts an automation it cannot read as a user, deleting no function while one is held", () => {
+		const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
+		const runs = [{ kind: "run_function", function: "shared" }];
+		const { automations, functions } = open(true, [
+			row("shared", "function", fn([tell])),
+			row("later", "automation", { enabled: true, trigger: { kind: "geofence", place: "home" }, actions: runs }),
+			row("mine", "automation", { enabled: true, trigger: hourly, actions: runs }),
+		]);
+
+		const removed = automations.ownerRemove("mine", 1);
+		const swept = automations.write({ kind: "sweep", ids: ["shared"] });
+
+		expect([removed.deleted, swept.written]).toEqual([true, true]);
+		expect(functions()).toEqual(["shared"]);
+	});
+
+	describe("a function's steps, checked as a flat action is", () => {
+		const step = (args: Record<string, StepArg>, action = "device_set") => ({ kind: "do", action, args }) as const;
+		const saveWith = (steps: AutomationFunctionInput["steps"], values: Record<string, string> = { room: PLUG }) => {
+			const { save } = open();
+			return save("warm", pointing(hourly, "warm-up", values), 0, {
+				as: "edit",
+				id: "warm-up",
+				body: fn(steps, room),
+				base: 0,
+			});
+		};
+
+		it("refuses a hole outside a text, a value its action does not take, a choice it does not offer, and a plug it does not hold", () => {
+			const refused = [
+				saveWith([step({ device: lit("{room}"), verb: lit("on") })]),
+				saveWith([step({ device: lit(PLUG), verb: lit("on"), colour: lit("red") })]),
+				saveWith([step({ device: lit(PLUG), verb: lit("sideways") })]),
+				saveWith([step({ device: lit("aa:bb:cc:dd:ee:99"), verb: lit("on") })]),
+				saveWith([on], { room: "aa:bb:cc:dd:ee:99" }),
+			].map(refusalOf);
+
+			expect(refused).toEqual([
+				{ code: "hole", record: "function", path: "0", param: "device", start: 0, end: 6 },
+				{ code: "invalid", record: "function", path: "steps.0.colour" },
+				{ code: "invalid", record: "function", path: "steps.0.verb" },
+				{ code: "invalid", record: "function", path: "steps.0.device" },
+				{ code: "invalid", record: "automation", path: "values.room" },
+			]);
+		});
+
+		it("reads an automation invalid once the plug its value names goes", () => {
+			const { save, automations, unplug } = open();
+			save("warm", pointing(hourly, "warm-up", { room: PLUG }), 0, {
+				as: "edit",
+				id: "warm-up",
+				body: fn([on], room),
+				base: 0,
+			});
+			const before = automations.invalidOf("warm");
+			unplug();
+
+			expect([before, automations.invalidOf("warm")]).toEqual([null, NO_SWITCH]);
+		});
+
+		it("lets a function read an event's link and id, as the fire gives them", () => {
+			const { save } = open();
+			const linked = save("linked", pointing(event, "linked-fn"), 0, {
+				as: "edit",
+				id: "linked-fn",
+				body: fn([step({ when: lit("now"), message: lit("See {event.url} ({event.id})") }, "tell_assistant")]),
+				base: 0,
+			});
+
+			expect(linked.stored).toBe(true);
+		});
+	});
+
+	it("asks nothing again when a flat automation's dangerous action becomes a function's step", () => {
+		const { save } = open();
+		const flat: AutomationInput = {
+			enabled: true,
+			trigger: hourly,
+			actions: [{ kind: "ifttt_trigger", event: "bell" }],
+		};
+		save("x", flat, 0);
+		const named = save(
+			"x",
+			pointing(hourly, "ring"),
+			1,
+			{ as: "edit", id: "ring", body: fn([bell]), base: 0 },
+			false,
+		);
+
+		expect(named.stored).toBe(true);
+	});
+
+	describe("make unique", () => {
+		const copyOf = (body: AutomationFunctionInput) => ({ as: "copy", from: "shared", fromBase: 1, body }) as const;
+		const saved = (result: ReturnType<ReturnType<typeof open>["save"]>) =>
+			result.stored ? (result.function?.id ?? null) : null;
+
+		it("never writes over a copy another automation runs, and mints again once its copy was removed", () => {
+			const { save, functions } = open();
+			save("a", pointing(hourly, "shared"), 0, { as: "edit", id: "shared", body: fn([tell]), base: 0 });
+			save("b", pointing(hourly, "shared"), 0);
+			save("keeps", pointing(hourly, "shared"), 0);
+			const first = saved(save("a", pointing(hourly, "shared"), 1, copyOf(fn([tell, tell]))));
+			save("b", pointing(hourly, first ?? ""), 1);
+			save("a", pointing(hourly, "shared"), 2);
+			const second = saved(save("a", pointing(hourly, "shared"), 3, copyOf(fn([bell]))));
+			save("b", pointing(hourly, "shared"), 2);
+			save("a", pointing(hourly, "shared"), 4);
+			const third = saved(save("a", pointing(hourly, "shared"), 5, copyOf(fn([bell]))));
+
+			expect(first).not.toBeNull();
+			expect(second === first || second === null).toBe(false);
+			expect(third).toBe(first);
+			expect(functions()).toEqual([first, "shared"].sort());
+		});
+
+		it("answers a retry whose answer was lost as stored, though the source is gone", () => {
+			const { save, functions } = open();
+			save("a", pointing(hourly, "shared"), 0, { as: "edit", id: "shared", body: fn([tell]), base: 0 });
+			const made = save("a", pointing(hourly, "shared"), 1, copyOf(fn([tell, tell])));
+			const retried = save("a", pointing(hourly, "shared"), 1, copyOf(fn([tell, tell])));
+
+			expect([saved(made), saved(retried)]).toEqual([saved(made), saved(made)]);
+			expect(functions()).toEqual([saved(made)]);
+		});
+
+		it("refuses a copy with a coded refusal when the key file cannot be read, and leaves the file as it was", () => {
+			const { save, dir } = open(true, [], "{ not json");
+			save("a", pointing(hourly, "shared"), 0, { as: "edit", id: "shared", body: fn([tell]), base: 0 });
+			const copied = save("a", pointing(hourly, "shared"), 1, copyOf(fn([tell, tell])));
+
+			expect(refusalOf(copied)).toEqual({ code: "no_key" });
+			expect(fs.readFileSync(path.join(dir, "automation-function-key.json"), "utf8")).toBe("{ not json");
+		});
+	});
+
+	it("repoints to a new function at the cap, the old one's removal making the room", () => {
+		const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
+		const flat = { enabled: true, trigger: hourly, actions: [{ kind: "tell_assistant", when: "now" }] };
+		const { save, functions } = open(true, [
+			...Array.from({ length: 62 }, (_, at) => row(`f${at}`, "automation", flat)),
+			row("old", "function", fn([tell])),
+			row("x", "automation", pointing(hourly, "old")),
+		]);
+
+		const moved = save("x", pointing(hourly, "new"), 1, { as: "edit", id: "new", body: fn([tell]), base: 0 });
+
+		expect(moved.stored).toBe(true);
+		expect(functions()).toEqual(["new"]);
 	});
 
 	it("names a copy under the Gateway's key, the same for a retried save and another for another automation", () => {

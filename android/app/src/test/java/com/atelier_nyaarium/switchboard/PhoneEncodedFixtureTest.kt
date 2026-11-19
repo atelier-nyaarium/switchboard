@@ -24,6 +24,10 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusAnswer
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusKey
+import com.atelier_nyaarium.switchboard.proto.VaultRemember
+import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_ONCE
+import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_WINDOW
+import com.atelier_nyaarium.switchboard.vault.entryAnswerOp
 import java.io.File
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
@@ -165,6 +169,10 @@ class PhoneEncodedFixtureTest {
 			"a preview of a text with holes" to
 				ConsoleOp.AutomationPreview(edited[0].second.toAutomation(offer)!!.trigger, text = "It is {value} at {device}."),
 			"a preview of a trigger alone" to ConsoleOp.AutomationPreview(edited[2].second.toAutomation(offer)!!.trigger),
+			"a sudo request answered with a secret, remembered into its policy" to
+				entryAnswerOp("req-1", "nyaarium", VAULT_DECISION_WINDOW, VaultRemember(policyId = "sakura-sudo"))!!,
+			"a sudo request answered with a secret, remembered as a new policy" to
+				entryAnswerOp("req-2", "old-pass", VAULT_DECISION_ONCE, VaultRemember(policyId = "policy-1a2b3c4d", name = "Old Pass"))!!,
 		).map { (name, op) -> case(name, ConsoleOp.serializer(), op) } +
 		Case(
 			"a scheduled message with a file",

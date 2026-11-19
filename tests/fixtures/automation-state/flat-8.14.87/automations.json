@@ -1,0 +1,82 @@
+[
+	{
+		"id": "gh-mentions",
+		"revision": 1,
+		"incarnation": "inc-mentions",
+		"kind": "automation",
+		"body": {
+			"enabled": true,
+			"trigger": {
+				"kind": "event",
+				"source": "github",
+				"conditions": [{ "field": "reason", "test": "is", "value": "mention" }]
+			},
+			"actions": [{ "kind": "tell_assistant", "when": "now" }]
+		}
+	},
+	{
+		"id": "gh-reviews",
+		"revision": 2,
+		"incarnation": "inc-reviews",
+		"kind": "automation",
+		"body": {
+			"enabled": true,
+			"trigger": {
+				"kind": "event",
+				"source": "github",
+				"conditions": [{ "field": "reason", "test": "is", "value": "review_requested" }]
+			},
+			"actions": [{ "kind": "tell_assistant", "when": "now" }]
+		}
+	},
+	{
+		"id": "gh-assigned",
+		"revision": 1,
+		"incarnation": "inc-assigned",
+		"kind": "automation",
+		"body": {
+			"enabled": true,
+			"trigger": {
+				"kind": "event",
+				"source": "github",
+				"conditions": [{ "field": "reason", "test": "is", "value": "assign" }]
+			},
+			"actions": [{ "kind": "tell_assistant", "when": "now" }]
+		}
+	},
+	{
+		"id": "gh-ci",
+		"revision": 3,
+		"incarnation": "inc-ci",
+		"kind": "automation",
+		"body": {
+			"label": "A build broke",
+			"enabled": true,
+			"trigger": {
+				"kind": "event",
+				"source": "github",
+				"conditions": [{ "field": "reason", "test": "is", "value": "ci_activity" }]
+			},
+			"actions": [{ "kind": "tell_assistant", "when": "now" }]
+		}
+	},
+	{
+		"id": "freezer-cold",
+		"revision": 1,
+		"incarnation": "inc-freezer",
+		"kind": "automation",
+		"body": {
+			"enabled": true,
+			"trigger": {
+				"kind": "crossing",
+				"device": "ce:1c:44:06:3c:5d",
+				"measure": "temperature",
+				"direction": "below",
+				"threshold": -10,
+				"deadZone": 1,
+				"coolDownSec": 0
+			},
+			"actions": [{ "kind": "tell_assistant", "when": "quietly" }]
+		}
+	}
+]

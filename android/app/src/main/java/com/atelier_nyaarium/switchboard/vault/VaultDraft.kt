@@ -22,7 +22,9 @@ data class VaultDraft(
 	val value: String? = null,
 	/** Null admits every gateway, or keeps a scope this phone cannot open. */
 	val gateways: List<String>? = null,
-)
+) {
+	override fun toString(): String = "VaultDraft(id=$id, gateways=$gateways)"
+}
 
 sealed interface VaultSaveOutcome {
 	data class Applied(val id: String) : VaultSaveOutcome

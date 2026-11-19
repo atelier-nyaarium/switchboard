@@ -10,11 +10,14 @@ import {
 	canonicalPolicy,
 	examplesRefusal,
 	MAX_POLICIES_PER_GATEWAY,
+	MAX_SELECTOR_LEN,
+	MAX_SELECTORS_PER_POLICY,
 	type PolicyRefusal,
 	policyRefusal,
 	refusalReason,
 } from "../../shared/schemasPolicy.js";
 import { REVISION_CEILING } from "../../shared/schemasRunbook.js";
+import { selectorKey } from "../../shared/selector-key.js";
 
 export interface PolicyStoreDeps {
 	/** Poisoned files start fresh. */
@@ -56,7 +59,39 @@ const deleteRefused = (refusal: PolicyRefusal): PolicyDeleteResult => ({
 	refusal,
 });
 
-const PoliciesSchema = z.array(AuthorizationPolicySchema);
+/** Keys of any length. */
+const StoredPoliciesSchema = z.array(
+	AuthorizationPolicySchema.extend({
+		selectorKeys: z.array(z.string().min(1)).min(1).max(MAX_SELECTORS_PER_POLICY),
+	}),
+);
+
+/**
+ * A key that is not its own `selectorKey`, or is over the bound, is dropped, never re-keyed:
+ * re-keying could select lines the owner never approved. A policy left with none is dropped.
+ */
+function heldKeys(stored: AuthorizationPolicy[]): { held: AuthorizationPolicy[]; dropped: boolean } {
+	let dropped = false;
+	const held: AuthorizationPolicy[] = [];
+	for (const policy of stored) {
+		const keys = policy.selectorKeys.filter((key) => key.length <= MAX_SELECTOR_LEN && selectorKey(key) === key);
+		if (keys.length < policy.selectorKeys.length) {
+			dropped = true;
+			const gone = policy.selectorKeys.length - keys.length;
+			console.warn(
+				`[policy] restore dropped ${gone} key(s) from ${policy.id}${keys.length ? "" : " and the policy"}`,
+			);
+		}
+		if (keys.length === 0) continue;
+		// Pruned: the next revision.
+		const revision =
+			keys.length < policy.selectorKeys.length
+				? Math.min(policy.revision + 1, REVISION_CEILING)
+				: policy.revision;
+		held.push(frozen({ ...policy, selectorKeys: keys, revision }));
+	}
+	return { held, dropped };
+}
 
 /** Bounds the buried set. */
 const MAX_BURIED = 256;
@@ -89,6 +124,16 @@ function contextRefusal(candidate: AuthorizationPolicy, others: AuthorizationPol
 	return null;
 }
 
+/** Restore parses every record, so a put refuses what would not parse. */
+function shapeRefusal(candidate: AuthorizationPolicy): PolicyRefusal | null {
+	if (AuthorizationPolicySchema.safeParse({ ...candidate, revision: 1 }).success) return null;
+	if (candidate.selectorKeys.length > MAX_SELECTORS_PER_POLICY)
+		return { code: "too_many_commands", max: MAX_SELECTORS_PER_POLICY };
+	if (candidate.selectorKeys.some((key) => key.length > MAX_SELECTOR_LEN))
+		return { code: "command_too_long", max: MAX_SELECTOR_LEN };
+	return { code: "invalid" };
+}
+
 /** Only what a put could write. */
 function restoreRefusal(policies: AuthorizationPolicy[]): string | null {
 	if (policies.length > MAX_POLICIES_PER_GATEWAY) return `${policies.length} policies stored`;
@@ -105,10 +150,11 @@ function restoreRefusal(policies: AuthorizationPolicy[]): string | null {
 
 export function createPolicyStore(deps: PolicyStoreDeps) {
 	const { store } = deps;
-	const restored = PoliciesSchema.parse(store.load() ?? []).map(frozen);
+	const { held: restored, dropped } = heldKeys(StoredPoliciesSchema.parse(store.load() ?? []));
 	const poisoned = restoreRefusal(restored);
 	if (poisoned) throw new Error(poisoned);
 	let policies: AuthorizationPolicy[] = restored;
+	if (dropped) commitChecked(store, restored, () => undefined, { label: "policy" });
 
 	/** What a deleted id last held, so a delayed put cannot land it back. Not durable. */
 	const buried = new Map<string, number>();
@@ -143,8 +189,9 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 		if (typed) return putRefused(held0, typed);
 		// Canonical before comparison.
 		const candidate = frozen(canonicalPolicy(incoming));
-		// Same shape restore reads.
 		if (policyRefusal(candidate) !== null) return putRefused(held0, { code: "no_command" });
+		const shape = shapeRefusal(candidate);
+		if (shape) return putRefused(held0, shape);
 		const context = contextRefusal(candidate, policies);
 		if (context) return putRefused(held0, context);
 		if (current) {

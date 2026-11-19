@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.FUNCTION_UNLISTED
 import com.atelier_nyaarium.switchboard.NoneLine
 import com.atelier_nyaarium.switchboard.emptyLine
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -82,7 +83,11 @@ private fun AutomationRowView(
 	) {
 		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
 			Text(row.sentence, style = MaterialTheme.typography.bodyLarge)
-			Text(doesText(row.automation, served), style = MaterialTheme.typography.bodySmall, color = dim)
+			when (val function = rowFunction(row, served)) {
+				null -> Text(doesText(row.automation, served), style = MaterialTheme.typography.bodySmall, color = dim)
+				is FunctionLine.Named -> FunctionName(function.name, function.count)
+				FunctionLine.Unlisted -> Text(FUNCTION_UNLISTED, style = MaterialTheme.typography.bodySmall, color = dim)
+			}
 			Text(
 				row.invalid ?: ranText(row, ::agoText, ::untilText),
 				style = MaterialTheme.typography.bodySmall,

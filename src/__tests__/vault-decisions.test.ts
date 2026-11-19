@@ -2,7 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createVaultDecisions, displayShape } from "../gateway/vault/decisions.js";
+import {
+	answeringOf,
+	createVaultDecisions,
+	displayShape,
+	rememberable,
+	runsAnything,
+} from "../gateway/vault/decisions.js";
 import { operationSet } from "../gateway/vault/operationSet.js";
 import { openDurable } from "../shared/durable-store.js";
 import type { AuthorizationPolicy } from "../shared/schemasPolicy.js";
@@ -407,5 +413,85 @@ describe("vault decisions", () => {
 				.list(2_000)
 				.map((grant) => grant.grantId),
 		).toEqual([window?.grantId]);
+	});
+});
+
+describe("what a typed request offers", () => {
+	const held = (id: string, entryId: string, selectorKeys: string[], enabled = true): AuthorizationPolicy => ({
+		id,
+		name: id,
+		binding: { kind: "entry", entryId },
+		selectorKeys,
+		enabled,
+		revision: 3,
+	});
+
+	it("offers each usable entry an enabled policy binds under the key's program, once, with its first policy", () => {
+		const policies = [
+			held("a-sudo", "pw", ["sudo apt"]),
+			held("b-sudo", "pw", ["sudo setfacl"]),
+			held("c-ssh", "deploy", ["ssh deploy@prod"]),
+			held("d-off", "old", ["sudo install"], false),
+			held("e-gone", "missing", ["sudo rm"]),
+			held("f-sudo", "admin", ["sudo -u root id"]),
+		];
+		const usable = (entryId: string) => entryId !== "missing";
+		expect(answeringOf("sudo apt-mark", policies, usable)).toEqual([
+			{ entryId: "pw", policy: { policyId: "a-sudo", policyRevision: 3 } },
+			{ entryId: "admin", policy: { policyId: "f-sudo", policyRevision: 3 } },
+		]);
+		expect(answeringOf("ssh other", policies, usable)).toEqual([
+			{ entryId: "deploy", policy: { policyId: "c-ssh", policyRevision: 3 } },
+		]);
+		expect(answeringOf("git push", policies, usable)).toEqual([]);
+	});
+
+	it("warns for a shell program, and for sudo's own shell options past their values", () => {
+		const warned = [
+			"sudo bash",
+			"sudo /bin/sh",
+			"sudo su",
+			"zsh",
+			"sudo -s",
+			"sudo -i",
+			"sudo -E -s",
+			"sudo -iu root",
+			"sudo --login",
+			"sudo --shell id",
+			"sudo -u root bash -c x",
+			"sudo -E bash",
+			"sudo --user root bash",
+			"sudo -- bash",
+			"sudo -E env bash",
+			"sudo -E FOO=1 bash",
+			"sudo sudo -s",
+			"sudo env sudo -s",
+			"sudo -E sudo -i",
+			"sudo -R /x bash",
+			"sudo --chroot /x bash",
+		];
+		const quiet = [
+			"sudo apt",
+			"sudo python3",
+			"sudo -u simon apt",
+			"sudo -usimon apt",
+			"sudo --user=simon apt",
+			"sudo -g wheel id",
+			"sudo -E apt",
+			"sudo -R /srv apt",
+			"sudo --chroot /srv apt",
+			"sudo -E env apt",
+			"sudo --she",
+			"ssh -i key host",
+			"git status",
+		];
+		expect(warned.filter((key) => !runsAnything(key))).toEqual([]);
+		expect(quiet.filter(runsAnything)).toEqual([]);
+	});
+
+	it("remembers only a key that is its own fixed point and fits the store", () => {
+		expect(rememberable("sudo apt-mark")).toBe(true);
+		expect(rememberable("sudo -A bash -c id")).toBe(false);
+		expect(rememberable(`sudo -u root echo ${"x".repeat(600)}`)).toBe(false);
 	});
 });

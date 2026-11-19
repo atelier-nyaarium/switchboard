@@ -8,12 +8,15 @@ import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.IntervalUnit
 import com.atelier_nyaarium.switchboard.assistant.TextRef
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.assistant.EditContext
@@ -118,6 +121,15 @@ class AutomationOpsTest {
 
 		override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?): ConsoleAutomationPreviewResult? =
 			ConsoleAutomationPreviewResult(matched = 1L, of = 3L, matches = emptyList(), filled = text)
+
+		val saves = mutableListOf<ConsoleOp.AutomationSave>()
+
+		override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult {
+			saves += op
+			val stored = automationRow(id = op.automationId, revision = op.automationBase + 1L, automation = op.automation)
+			shelves[gatewayId] = shelves[gatewayId].orEmpty().filterNot { it.id == op.automationId } + stored
+			return ConsoleAutomationSaveResult(stored = true, automation = stored)
+		}
 	}
 
 	private class Host(override val gateway: AutomationGateway?) : AutomationHost
@@ -400,6 +412,31 @@ class AutomationOpsTest {
 
 		assertEquals(AutomationSaved.Stored(null), runBlocking { ops.delete("sakura", "review", 1L, automation()) })
 		assertEquals(1L, runBlocking { ops.preview("sakura", automation().trigger) }?.matched)
+	}
+
+	@Test
+	fun onlyAGatewayServingFunctionsIsSentTheNewSaveAndTheOtherIsSentTodaysPut() = runBlocking {
+		val fake = FakeGateway().apply { shelves["sakura"] = listOf(automationRow()) }
+		val ops = AutomationOps(admitting("sakura"), Host(fake))
+		val serving = EditContext(
+			offerOf(SERVES.copy(functions = AutomationFunctionServes(32L, listOf("tell_assistant"), listOf("device", "text", "number"))), away = false, functions = emptyList()),
+			emptyList(),
+		)
+		fun commit(context: EditContext): EditOutcome<AutomationDraft, AutomationSaid>? {
+			val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+			ops.edits.show(key)
+			val draft = automationDraftOf(fake.shelves.getValue("sakura").single(), context)!!.withAction(0) { toldDraft("quietly") }
+			val shown = ops.edits.open(key, draft)!!
+			return runBlocking { ops.commit(key, shown, confirmed = false) }
+		}
+
+		assertEquals(EditOutcome.Done, commit(HERE))
+		assertEquals(1 to 0, fake.puts.size to fake.saves.size)
+		assertEquals(EditOutcome.Done, commit(serving))
+		assertEquals(1 to 1, fake.puts.size to fake.saves.size)
+		val sent = fake.saves.single()
+		assertNull(sent.function)
+		assertEquals("review" to 2L, sent.automationId to sent.automationBase)
 	}
 
 	@Test

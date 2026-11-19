@@ -165,6 +165,8 @@ object Protocol {
 		const val FUNCTIONS_MAX: Int = 32
 		const val FUNCTION_STEPS_MAX: Int = 8
 		const val FUNCTION_PARAMS_MAX: Int = 8
+		const val STEP_ARGS_MAX: Int = 4
+		const val ASSISTANT_HOME_SEALED_MAX_BYTES: Int = 65536
 
 		val CONSOLE_INSTANT_KEYS: Set<String> = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
 
@@ -206,17 +208,66 @@ object Protocol {
 			NUMBER("number"),
 		}
 
+		enum class AutomationSaveRefusalCode(val wire: String) {
+			MOVED("moved"),
+			GONE("gone"),
+			FULL("full"),
+			INVALID("invalid"),
+			HOLE("hole"),
+			UNFIT("unfit"),
+			UNKNOWN_FUNCTION("unknown_function"),
+			MIXED("mixed"),
+			NEWER_APP("newer_app"),
+			NOT_HOME("not_home"),
+			CONFIRM("confirm"),
+			COOL_DOWN_TWICE("cool_down_twice"),
+			NEWER_FUNCTION("newer_function"),
+			NO_KEY("no_key"),
+			UNWRITTEN("unwritten"),
+		}
+
+		enum class AutomationSaveRecord(val wire: String) {
+			AUTOMATION("automation"),
+			FUNCTION("function"),
+		}
+
 		enum class PolicyRefusalCode(val wire: String) {
 			SAME_COMMAND("same_command"),
 			TAKEN("taken"),
 			NO_COMMAND("no_command"),
 			NONE("none"),
 			FULL("full"),
+			TOO_MANY_COMMANDS("too_many_commands"),
+			COMMAND_TOO_LONG("command_too_long"),
+			INVALID("invalid"),
 			MOVED("moved"),
 			GONE("gone"),
 			DELETED("deleted"),
 			SPENT("spent"),
 			UNWRITTEN("unwritten"),
+		}
+
+		enum class VaultTypedWhyCode(val wire: String) {
+			NO_POLICY("no_policy"),
+			POLICY_OFF("policy_off"),
+			BINDING_UNUSABLE("binding_unusable"),
+		}
+
+		enum class VaultUnusableCode(val wire: String) {
+			MISSING("missing"),
+			EMPTY("empty"),
+			NOT_ALLOWED("not_allowed"),
+		}
+
+		enum class VaultAnswerRefusalCode(val wire: String) {
+			EXPIRED("expired"),
+			ANSWERED("answered"),
+			NOT_TYPED("not_typed"),
+			UNREADY("unready"),
+			UNUSABLE("unusable"),
+			BOUND_ELSEWHERE("bound_elsewhere"),
+			TARGET_OFF("target_off"),
+			CANNOT_REMEMBER("cannot_remember"),
 		}
 
 		object ConsoleOpKind {
@@ -257,6 +308,7 @@ object Protocol {
 			const val CROSS_DOMAIN_UNLINK: String = "cross_domain_unlink"
 			const val CROSS_DOMAIN_UNTRUST: String = "cross_domain_untrust"
 			const val VAULT_ANSWER: String = "vault_answer"
+			const val VAULT_ANSWER_ENTRY: String = "vault_answer_entry"
 			const val VAULT_GRANTS: String = "vault_grants"
 			const val VAULT_REVOKE: String = "vault_revoke"
 			const val RUNBOOK_LIST: String = "runbook_list"
@@ -296,6 +348,7 @@ object Protocol {
 			const val ASSISTANT_SOURCE_CHECK: String = "assistant_source_check"
 			const val AUTOMATION_LIST: String = "automation_list"
 			const val AUTOMATION_PUT: String = "automation_put"
+			const val AUTOMATION_SAVE: String = "automation_save"
 			const val AUTOMATION_DELETE: String = "automation_delete"
 			const val AUTOMATION_PREVIEW: String = "automation_preview"
 			const val ASSISTANT_SAFETY: String = "assistant_safety"
@@ -1176,6 +1229,16 @@ sealed class ConsoleOp {
 	) : ConsoleOp()
 
 	@Serializable
+	@SerialName("vault_answer_entry")
+	data class VaultAnswerEntry(
+		val requestId: String,
+		val entryId: String,
+		val decision: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val remember: VaultRemember? = null,
+	) : ConsoleOp()
+
+	@Serializable
 	@SerialName("vault_grants")
 	data object VaultGrants : ConsoleOp()
 
@@ -1433,6 +1496,18 @@ sealed class ConsoleOp {
 		val automationId: String,
 		val automation: Automation,
 		val baseRevision: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val confirmed: Boolean? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("automation_save")
+	data class AutomationSave(
+		val automationId: String,
+		val automation: Automation,
+		val automationBase: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val function: AutomationSaveFunction? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val confirmed: Boolean? = null,
 	) : ConsoleOp()
@@ -2773,6 +2848,12 @@ data class CarriedAutomation(
 )
 
 @Serializable
+data class CarriedFunction(
+	val id: String,
+	val function: AutomationFunction,
+)
+
+@Serializable
 data class AutomationRow(
 	val id: String,
 	val revision: Long,
@@ -2787,10 +2868,30 @@ data class AutomationRow(
 )
 
 @Serializable
+data class FunctionReads(
+	val names: List<String>,
+	val eventFields: List<String>,
+)
+
+@Serializable
+data class AutomationFunctionRow(
+	val id: String,
+	val revision: Long,
+	val function: AutomationFunction,
+	val users: List<String>,
+	val moves: Boolean,
+	val reads: FunctionReads,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val invalid: String? = null,
+)
+
+@Serializable
 data class ConsoleAutomationListResult(
 	val automations: List<AutomationRow>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val serves: AutomationServes? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val functions: List<AutomationFunctionRow>? = null,
 )
 
 @Serializable
@@ -2828,6 +2929,65 @@ data class ConsoleAutomationPreviewResult(
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("as")
+sealed class AutomationSaveFunction {
+	@Serializable
+	@SerialName("edit")
+	data class Edit(
+		val id: String,
+		val body: AutomationFunction,
+		val base: Long,
+	) : AutomationSaveFunction()
+
+	@Serializable
+	@SerialName("copy")
+	data class Copy(
+		val from: String,
+		val fromBase: Long,
+		val body: AutomationFunction,
+	) : AutomationSaveFunction()
+}
+
+@Serializable
+data class AutomationSaveRefusal(
+	val code: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val record: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val revision: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val kind: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val max: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val path: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val param: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val start: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val end: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val automations: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val labels: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val id: String? = null,
+)
+
+@Serializable
+data class ConsoleAutomationSaveResult(
+	val stored: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val automation: AutomationRow? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val function: AutomationFunctionRow? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val refusal: AutomationSaveRefusal? = null,
+)
+
+@Serializable
 data class AssistantHomeCarriedWatcher(
 	val id: String,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -2846,6 +3006,8 @@ data class AssistantHomeCarried(
 	val watchers: List<AssistantHomeCarriedWatcher>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val automations: List<CarriedAutomation>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val functions: List<CarriedFunction>? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val integrations: List<AssistantHomeCarriedIntegration>? = null,
 )
@@ -3940,6 +4102,8 @@ sealed class VaultRequest {
 		val asker: String? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val policy: PolicyRef? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val replaces: String? = null,
 	) : VaultRequest()
 
 	@Serializable
@@ -3954,6 +4118,12 @@ sealed class VaultRequest {
 		val deadlineAt: Long,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val asker: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val why: VaultTypedWhy? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val runsAnything: Boolean? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val answering: List<VaultAnswering>? = null,
 	) : VaultRequest()
 }
 
@@ -4004,6 +4174,19 @@ data class ConsoleVaultAnswerResult(
 	val ok: Boolean,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val refusal: VaultAnswerRefusal? = null,
+)
+
+@Serializable
+data class ConsoleVaultAnswerEntryResult(
+	val ok: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val refusal: VaultAnswerRefusal? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val policyRefusal: PolicyRefusal? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val policy: AuthorizationPolicy? = null,
 )
 
 @Serializable
@@ -4951,6 +5134,13 @@ data class XDomainLink(
 )
 
 @Serializable
+data class VaultRemember(
+	val policyId: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val name: String? = null,
+)
+
+@Serializable
 data class DeviceAdvert(
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val name: String? = null,
@@ -5249,6 +5439,8 @@ data class AutomationServes(
 	val actions: List<AutomationActionOffer>,
 	val numbers: List<AutomationNumberOffer>,
 	val switches: List<AutomationSwitchOffer>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val functions: AutomationFunctionServes? = null,
 )
 
 @Serializable
@@ -5307,6 +5499,13 @@ data class AutomationNumberOffer(
 data class AutomationSwitchOffer(
 	val device: String,
 	val name: String,
+)
+
+@Serializable
+data class AutomationFunctionServes(
+	val max: Long,
+	val steps: List<String>,
+	val paramTypes: List<String>,
 )
 
 @Serializable
@@ -5655,6 +5854,36 @@ data class PolicyRef(
 )
 
 @Serializable
+data class VaultTypedWhy(
+	val code: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val policyId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val policyName: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val entryId: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val unusable: String? = null,
+)
+
+@Serializable
+data class VaultAnswering(
+	val entryId: String,
+	val policy: PolicyRef,
+)
+
+@Serializable
+data class VaultAnswerRefusal(
+	val code: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val unusable: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val policy: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val max: Long? = null,
+)
+
+@Serializable
 data class RoutineAttention(
 	val occurrenceId: String,
 	val scheduledAt: Long,
@@ -5728,10 +5957,13 @@ object FieldTypes {
 data class TriggerGive(val name: String, val type: String)
 
 object TriggerGives {
+	const val OF_FIELD: String = "of_field"
+	/** Every event gives these beside its source's fields. */
+	val EVENT_FIELDS: List<String> = listOf("id", "title", "url")
 	val BY_TRIGGER: Map<String, List<TriggerGive>> = mapOf(
 		"event" to listOf(TriggerGive("event", "event"), TriggerGive("source", "text")),
 		"value" to listOf(TriggerGive("value", "of_field"), TriggerGive("field", "text")),
-		"crossing" to listOf(TriggerGive("value", "number"), TriggerGive("device", "device"), TriggerGive("measure", "text"), TriggerGive("threshold", "number")),
+		"crossing" to listOf(TriggerGive("value", "number"), TriggerGive("device", "text"), TriggerGive("measure", "text"), TriggerGive("threshold", "number")),
 		"time" to listOf(TriggerGive("time", "time")),
 		"interval" to listOf(TriggerGive("time", "time")),
 	)

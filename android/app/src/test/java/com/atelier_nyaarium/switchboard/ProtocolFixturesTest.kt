@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
@@ -8,6 +9,10 @@ import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleVaultAnswerEntryResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleVaultAnswerResult
+import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleDeviceReadingPostResult
@@ -78,6 +83,11 @@ class ProtocolFixturesTest {
 			"AutomationAction" -> wireJson.decodeFromString<AutomationAction>(body)
 			"AutomationFunction" -> wireJson.decodeFromString<AutomationFunction>(body)
 			"FunctionStep" -> wireJson.decodeFromString<FunctionStep>(body)
+			"ConsoleAutomationSaveResult" -> wireJson.decodeFromString<ConsoleAutomationSaveResult>(body)
+			"VaultRequest" -> wireJson.decodeFromString<VaultRequest>(body)
+			"AssistantHomeCarried" -> wireJson.decodeFromString<AssistantHomeCarried>(body)
+			"ConsoleVaultAnswerResult" -> wireJson.decodeFromString<ConsoleVaultAnswerResult>(body)
+			"ConsoleVaultAnswerEntryResult" -> wireJson.decodeFromString<ConsoleVaultAnswerEntryResult>(body)
 			"ConsoleAutomationListResult" -> wireJson.decodeFromString<ConsoleAutomationListResult>(body)
 			"ConsoleAutomationPutResult" -> wireJson.decodeFromString<ConsoleAutomationPutResult>(body)
 			"ConsoleAutomationPreviewResult" -> wireJson.decodeFromString<ConsoleAutomationPreviewResult>(body)

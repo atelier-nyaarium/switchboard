@@ -1,5 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.CarryRefusal
+import com.atelier_nyaarium.switchboard.assistant.RunsIssue
+import com.atelier_nyaarium.switchboard.assistant.TypeWord
+import com.atelier_nyaarium.switchboard.assistant.ValueIssue
+import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.Protocol
 
 // Every sentence a notice or a failed row shows lives here.
@@ -108,6 +113,8 @@ internal enum class Line(val text: String, val situation: String, val replaces: 
 	POLICY_DELETED("That policy was deleted. Save it as a new one.", "You saved a policy deleted meanwhile.", "revision <n> was deleted"),
 	POLICY_SPENT("That policy cannot be changed again. Save it as a new one.", "You saved a policy with no revision left.", "no revision left"),
 	POLICY_UNWRITTEN("The Gateway could not save it. Try again.", "The Gateway failed to write the policy.", "could not be written"),
+	POLICY_COMMAND_TOO_LONG("That command is too long.", "You saved a policy with a command past the length a policy keeps.", "(new)"),
+	POLICY_INVALID("The Gateway could not save it.", "The Gateway found the policy malformed.", "(new)"),
 	POLICY_NOT_STORED("This Gateway holds a different copy.", "An older Gateway refused a policy save and said nothing.", "This Gateway holds a different copy"),
 	POLICY_KEPT("This Gateway kept it.", "An older Gateway refused a policy delete and said nothing.", "This Gateway kept it"),
 	TASKS_BACKLOG(
@@ -203,6 +210,73 @@ internal fun noCommandLine(example: String): String = "\"$example\" is not a com
 
 internal fun policiesFullLine(max: Long): String = "This Gateway holds $max policies already."
 
+internal fun commandsFullLine(max: Long): String = "A policy holds at most $max commands."
+
+// Sudo request card.
+
+internal fun noPolicyLine(key: String): String = "No policy covers \"$key\"."
+
+internal fun policyOffLine(key: String, policy: String?): String =
+	if (policy != null) "\"$key\" is in $policy, which is off." else "\"$key\" is in a policy that is off."
+
+/** Why its secret fails. */
+internal fun unusableLine(policy: String?, secret: String?, unusable: Protocol.Wire.VaultUnusableCode?, gateway: String): String {
+	val holder = policy ?: "A policy"
+	val named = secret ?: "its secret"
+	return when (unusable) {
+		Protocol.Wire.VaultUnusableCode.MISSING -> "$holder has this, but its secret is gone."
+		Protocol.Wire.VaultUnusableCode.EMPTY -> "$holder has this, but $named holds no value."
+		Protocol.Wire.VaultUnusableCode.NOT_ALLOWED -> "$holder has this, but $named is not allowed on $gateway."
+		null -> "$holder has this, but its secret cannot be used."
+	}
+}
+
+internal fun noSecretFitsLine(gateway: String): String = "No saved secret works on $gateway."
+
+internal fun runsAnythingLine(key: String): String = "\"$key\" runs anything."
+
+internal fun rememberLabel(key: String): String = "Remember for \"$key\""
+
+internal fun saveForLabel(key: String): String = "Save for \"$key\""
+
+internal fun saveForSub(gateway: String): String = "New secret and policy on $gateway."
+
+internal fun addsToLine(policy: String?): String = if (policy != null) "Adds to $policy." else "Adds to its policy."
+
+internal fun newPolicyLine(name: String): String = "New policy $name."
+
+internal fun endsApprovalsLine(count: Int): String = if (count == 1) "Ends 1 approval." else "Ends $count approvals."
+
+internal const val PICK_SECRET_FIRST = "Pick a secret first."
+
+/** A refused entry answer. */
+internal fun entryRefusalLine(code: Protocol.Wire.VaultAnswerRefusalCode, unusable: Protocol.Wire.VaultUnusableCode?): String =
+	when (code) {
+		Protocol.Wire.VaultAnswerRefusalCode.EXPIRED -> "That request expired."
+		Protocol.Wire.VaultAnswerRefusalCode.ANSWERED -> "That request was already answered."
+		Protocol.Wire.VaultAnswerRefusalCode.NOT_TYPED -> "That request changed. Answer the new one."
+		Protocol.Wire.VaultAnswerRefusalCode.UNREADY -> "The Gateway is not ready. Try again."
+		Protocol.Wire.VaultAnswerRefusalCode.UNUSABLE -> when (unusable) {
+			Protocol.Wire.VaultUnusableCode.MISSING -> "That secret is gone."
+			Protocol.Wire.VaultUnusableCode.EMPTY -> "That secret holds no value."
+			Protocol.Wire.VaultUnusableCode.NOT_ALLOWED -> "That secret is not allowed on this Gateway."
+			null -> "That secret cannot be used here."
+		}
+		Protocol.Wire.VaultAnswerRefusalCode.BOUND_ELSEWHERE -> "That policy uses another secret."
+		Protocol.Wire.VaultAnswerRefusalCode.TARGET_OFF -> "That policy is off."
+		Protocol.Wire.VaultAnswerRefusalCode.CANNOT_REMEMBER -> "This command cannot be remembered."
+	}
+
+internal const val ENTRY_REFUSED = "The Gateway refused the answer."
+
+/** A vault write that did not land. */
+internal fun vaultSaveLine(outcome: com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome): String? = when (outcome) {
+	is com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Applied -> null
+	com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Conflict -> "Changed elsewhere since you opened it. Reopen to edit the latest."
+	is com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Refused -> "Refused: ${outcome.reason}"
+	com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome.Unreachable -> "The Router could not be reached."
+}
+
 /** Unknown code falls back to the Gateway's line. */
 internal fun policyRefusalLine(refusal: com.atelier_nyaarium.switchboard.proto.PolicyRefusal?, reason: String?): String {
 	val fallback = reason ?: reasonSentence(Act.SAVING_POLICY, null)
@@ -219,6 +293,9 @@ internal fun policyRefusalLine(refusal: com.atelier_nyaarium.switchboard.proto.P
 		}
 		Protocol.Wire.PolicyRefusalCode.NO_COMMAND -> noCommandLine(refusal.example ?: return fallback)
 		Protocol.Wire.PolicyRefusalCode.FULL -> policiesFullLine(refusal.max ?: return fallback)
+		Protocol.Wire.PolicyRefusalCode.TOO_MANY_COMMANDS -> commandsFullLine(refusal.max ?: return fallback)
+		Protocol.Wire.PolicyRefusalCode.COMMAND_TOO_LONG -> Line.POLICY_COMMAND_TOO_LONG.text
+		Protocol.Wire.PolicyRefusalCode.INVALID -> Line.POLICY_INVALID.text
 		Protocol.Wire.PolicyRefusalCode.NONE -> Line.POLICY_NONE.text
 		Protocol.Wire.PolicyRefusalCode.MOVED -> Line.POLICY_MOVED.text
 		Protocol.Wire.PolicyRefusalCode.GONE -> Line.POLICY_GONE.text
@@ -234,4 +311,100 @@ internal fun policyRefusalMarks(refusal: com.atelier_nyaarium.switchboard.proto.
 ) {
 	Protocol.Wire.PolicyRefusalCode.SAME_COMMAND, Protocol.Wire.PolicyRefusalCode.NO_COMMAND -> refusal?.example
 	else -> null
+}
+
+// Functions.
+
+/** A refused `automation_save`; `code` null for one this build does not know. */
+internal fun automationSaveLine(
+	code: Protocol.Wire.AutomationSaveRefusalCode?,
+	refusal: AutomationSaveRefusal?,
+): String {
+	val function = refusal?.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire
+	return when (code) {
+		Protocol.Wire.AutomationSaveRefusalCode.MOVED ->
+			if (function) "Its function changed on another device. Reopen it to edit the latest." else "Changed on another device."
+		Protocol.Wire.AutomationSaveRefusalCode.GONE ->
+			if (function) "That function no longer exists." else "That automation no longer exists."
+		Protocol.Wire.AutomationSaveRefusalCode.FULL -> {
+			val functions = refusal?.kind == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire
+			val max = refusal?.max
+			when {
+				max == null -> "This Gateway holds as many as it can."
+				functions -> "This Gateway holds $max functions already."
+				else -> "This Gateway holds $max automations already."
+			}
+		}
+		Protocol.Wire.AutomationSaveRefusalCode.INVALID -> "The Gateway could not save it."
+		Protocol.Wire.AutomationSaveRefusalCode.HOLE -> "That text cannot be filled here."
+		Protocol.Wire.AutomationSaveRefusalCode.UNFIT -> when (val count = refusal?.automations?.size ?: 0) {
+			0, 1 -> "Another automation would stop fitting it."
+			else -> "$count automations would stop fitting it."
+		}
+		Protocol.Wire.AutomationSaveRefusalCode.UNKNOWN_FUNCTION -> "That function no longer exists."
+		Protocol.Wire.AutomationSaveRefusalCode.MIXED -> "A function runs alone."
+		Protocol.Wire.AutomationSaveRefusalCode.NEWER_APP -> "Edit this in the newer app."
+		Protocol.Wire.AutomationSaveRefusalCode.NOT_HOME -> "Only the assistant's Gateway can save this."
+		Protocol.Wire.AutomationSaveRefusalCode.CONFIRM -> "It needs your go-ahead."
+		Protocol.Wire.AutomationSaveRefusalCode.COOL_DOWN_TWICE -> "Its trigger cools down already."
+		Protocol.Wire.AutomationSaveRefusalCode.NEWER_FUNCTION -> "Its function needs a newer Gateway."
+		Protocol.Wire.AutomationSaveRefusalCode.NO_KEY -> "This Gateway cannot make a copy right now."
+		Protocol.Wire.AutomationSaveRefusalCode.UNWRITTEN -> "The Gateway could not save it. Try again."
+		null -> "The Gateway refused it."
+	}
+}
+
+/** How a value's type reads. */
+internal fun typeWordText(word: TypeWord): String = when (word) {
+	is TypeWord.Measure -> word.measure.replaceFirstChar { it.uppercase() }
+	is TypeWord.Given -> when (word.type) {
+		Protocol.Wire.GivenType.EVENT -> "Event"
+		Protocol.Wire.GivenType.TEXT -> "Text"
+		Protocol.Wire.GivenType.NUMBER -> "Number"
+		Protocol.Wire.GivenType.DEVICE -> "Device"
+		Protocol.Wire.GivenType.TIME -> "Time"
+	}
+	is TypeWord.Declared -> when (word.type) {
+		Protocol.Wire.FunctionParamType.DEVICE.wire -> "Device"
+		Protocol.Wire.FunctionParamType.TEXT.wire -> "Text"
+		Protocol.Wire.FunctionParamType.NUMBER.wire -> "Number"
+		else -> word.type
+	}
+}
+
+/** What blocks Save in the Runs block. */
+internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
+	RunsIssue.NoSteps -> "Add a step first."
+	is RunsIssue.Step -> issue.line
+	is RunsIssue.NotAStep -> "Step ${issue.index + 1} cannot run in a function."
+	is RunsIssue.Unset -> "Set a value for ${issue.name}."
+	is RunsIssue.BadValue -> when (issue.issue) {
+		ValueIssue.UNKNOWN_DEVICE -> "Pick a device for ${issue.name} again."
+		ValueIssue.NOT_A_NUMBER -> "${issue.name} is a number."
+	}
+	is RunsIssue.Unfit -> when {
+		issue.fit.hidden -> "It reads another source's event."
+		issue.fit.requires.isNotEmpty() -> "Requires ${issue.fit.requires.joinToString(", ")}."
+		else -> issue.fit.wrong.joinToString(" ") { "This trigger gives ${it.name} as ${it.gets.wire}." }
+	}
+	is RunsIssue.SharedName -> "Used by ${issue.users}. Make unique first."
+}
+
+internal fun usedByLine(count: Int): String = "Used by $count"
+
+internal const val REACHES_HEADER = "Changes here also apply to:"
+
+internal const val UNIQUE_LINE = "Saving makes this automation's own copy."
+
+internal const val FUNCTION_UNLISTED = "Its function is not listed here."
+
+internal fun deleteTakesLine(function: String): String = "This also deletes its function, $function."
+
+/** A destination that cannot take the carried functions. */
+internal fun carryRefusalLine(refusal: CarryRefusal): String = when (refusal) {
+	CarryRefusal.NoFunctions -> "That Gateway cannot hold functions."
+	is CarryRefusal.StepNotServed -> "That Gateway cannot run ${refusal.kind} in a function."
+	CarryRefusal.Reading -> "Still reading that Gateway. Try again in a moment."
+	CarryRefusal.TooLarge -> "The assistant's settings are too large to move."
+	CarryRefusal.Unreachable -> "That Gateway could not be read. Try again once it answers."
 }

@@ -214,7 +214,9 @@ class VaultManager(
 				attempt = (recent.maxOfOrNull { it.attempt } ?: 0) + 1,
 				sinceAnswerMs = recent.minOfOrNull { now - it.answeredAt },
 			)
-			return persist(blob.copy(requests = blob.requests + pending))
+			// A takeover drops the typed card.
+			val replaced = (request as? VaultRequest.Entry)?.replaces
+			return persist(blob.copy(requests = blob.requests.filterNot { it.requestId == replaced } + pending))
 		}
 	}
 

@@ -6,6 +6,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -18,7 +19,7 @@ internal suspend fun ConsoleClient.automationList(gatewayId: String): Automation
 	}
 	val rows = listAnswerOf(answer, ProseRefusal.OLDER_BUILD) { listed?.automations }
 	val prose = answer is ConsoleClient.ValueAnswer.Refused && answer.reason != Protocol.Wire.OP_REASON_NOT_SERVED
-	return AutomationListing(rows, listed?.serves, prose)
+	return AutomationListing(rows, listed?.serves, prose, functions = listed?.functions)
 }
 
 internal suspend fun ConsoleClient.automationPut(
@@ -40,6 +41,10 @@ internal suspend fun ConsoleClient.automationPut(
 		),
 		Protocol.Wire.ConsoleOpKind.AUTOMATION_PUT,
 	)
+
+/** The automation with its function, as one write. */
+internal suspend fun ConsoleClient.automationSave(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult =
+	valueResult(sendValueOp(gatewayId, op), Protocol.Wire.ConsoleOpKind.AUTOMATION_SAVE)
 
 internal suspend fun ConsoleClient.automationDelete(
 	gatewayId: String,

@@ -1,0 +1,37 @@
+{
+	"kind": "automation_save",
+	"automationId": "warm",
+	"automation": {
+		"enabled": true,
+		"trigger": { "kind": "interval", "everyMin": 60 },
+		"actions": [
+			{
+				"kind": "run_function",
+				"function": "warm-up",
+				"values": { "room": "aa:bb:cc:dd:ee:ff" },
+				"keepTryingMin": 5
+			}
+		]
+	},
+	"automationBase": 0,
+	"function": {
+		"as": "edit",
+		"id": "warm-up",
+		"body": {
+			"name": "Warm up",
+			"params": [{ "name": "room", "type": "device" }],
+			"steps": [
+				{
+					"kind": "do",
+					"action": "device_set",
+					"args": {
+						"device": { "kind": "expression", "text": "room" },
+						"verb": { "kind": "literal", "value": "on" }
+					}
+				}
+			]
+		},
+		"base": 0
+	},
+	"confirmed": true
+}

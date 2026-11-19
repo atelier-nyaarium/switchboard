@@ -32,7 +32,8 @@ export const retries = (nature: Nature, word: AttemptWord): boolean => RETRIED[n
 /** `ended`: closed by a build that kept no word. */
 export const VERDICTS = ["done", "failed", "ended"] as const;
 
-export const StepPathSchema = z.string().regex(/^\d+$/);
+/** Call site, then index. */
+export const StepPathSchema = z.string().regex(/^\d+(\.\d+)*$/);
 
 export const StepSchema = z.strictObject({
 	/** Begun; a hold is taken back off. */
@@ -63,8 +64,8 @@ export const clamped = (found: Step, now: number): Step => {
 	};
 };
 
-export const outOfTime = (step: Step, now: number): boolean =>
-	step.startedAt !== undefined && now - Math.min(step.startedAt, now) >= KEEP_TRYING_MS;
+export const outOfTime = (step: Step, now: number, windowMs = KEEP_TRYING_MS): boolean =>
+	step.startedAt !== undefined && now - Math.min(step.startedAt, now) >= windowMs;
 
 export const backoffMs = (attempts: number): number =>
 	Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** Math.max(0, attempts - 1));
@@ -103,21 +104,24 @@ export const unsent = (step: Step, now: number): Step => ({
 });
 
 /** Backs off from the answer; an unknown nature never retries. */
-export function heard(step: Step, nature: Nature | null, word: AttemptWord, now: number): Step {
+export function heard(step: Step, nature: Nature | null, word: AttemptWord, now: number, windowMs?: number): Step {
 	if (word === "done") return ending(step, word, "done");
-	if (nature === null || !retries(nature, word) || outOfTime(step, now)) return ending(step, word, "failed");
+	if (nature === null || !retries(nature, word) || outOfTime(step, now, windowMs))
+		return ending(step, word, "failed");
 	return { ...unclaimed(step), word, lastAt: now };
 }
 
 /** Ends with its last word; only holds never got through. */
 export const timedOut = (step: Step): Step => ending(step, step.word ?? "unreachable", "failed");
 
+export const expired = (step: Step): Step => ending(step, "timeout", "failed");
+
 /** Unbegun steps are not judged. */
-export function recovered(found: Step, nature: Nature | null, now: number): Step {
+export function recovered(found: Step, nature: Nature | null, now: number, windowMs?: number): Step {
 	const step = clamped(found, now);
 	if (isEnded(step)) return step;
 	if (step.claimed && nature !== "sets") return ending(step, "no_answer", "failed");
-	if ((step.claimed || step.attempts > 0) && outOfTime(step, now)) return ending(step, "timeout", "failed");
+	if ((step.claimed || step.attempts > 0) && outOfTime(step, now, windowMs)) return ending(step, "timeout", "failed");
 	if (!step.claimed && step.attempts === 0) {
 		// Only holds: its time starts again.
 		const { startedAt: _startedAt, ...unbegun } = step;

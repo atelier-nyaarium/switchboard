@@ -21,6 +21,8 @@ import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.MirroredDraft
 import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.assistantGateway
+import com.atelier_nyaarium.switchboard.deleteTakesLine
+import com.atelier_nyaarium.switchboard.keptRow
 import com.atelier_nyaarium.switchboard.homeDisplayUnit
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.rememberEdit
@@ -94,6 +96,22 @@ internal fun AutomationEditorPage(
 
 	val edit: ((AutomationDraft) -> AutomationDraft) -> Unit = { change -> draft = change(draft) }
 
+	val functions = offer.functions
+	if (draft.picking && functions != null) {
+		val pointed = (draft.runs as? RunsHead.Points)?.pointing?.functionId
+		FunctionPicker(
+			subtitle = lookup?.let(::keptRow)?.sentence,
+			choices = pickerChoices(givenOf(draft, fields), functions.rows, measureOf(draft)),
+			current = pointed,
+			onBack = { edit { it.copy(picking = false) } },
+			onFresh = { edit { it.freshBody() } },
+			onPick = { choice -> edit { it.pointedTo(choice.function, offer) } },
+		)
+		return
+	}
+	val rows = automationGroups(state.gateways, state.assistantHome).firstOrNull { it.gatewayId == gatewayId }?.rows.orEmpty()
+	val runs = runsView(draft, fields, offer, rows)
+
 	val ref = draft.text
 	val textOf = ref?.let { textParam(draft, it, offer) }
 	val shownText = ref?.let { textAt(draft, it, offer) }
@@ -132,16 +150,19 @@ internal fun AutomationEditorPage(
 		TriggerSection(draft, offer, sources, fields, zone, can.edit, triggerRead, edit)
 
 		HorizontalDivider()
-		Text("Do", style = MaterialTheme.typography.labelLarge)
-		ActionsSection(
-			draft = draft,
-			offer = offer,
-			enabled = can.edit,
-			said = session.said,
-			textRead = { text -> previewRead(ops, gatewayId, trigger.takeIf { text != null }, text) },
-			asked = trigger != null,
-			edit = edit,
-		)
+		Text(if (runs != null) "Runs" else "Do", style = MaterialTheme.typography.labelLarge)
+		runs?.let { RunsBlock(it, offer, can.edit, edit) }
+		if (runs?.kept != true) {
+			ActionsSection(
+				draft = draft,
+				offer = offer,
+				enabled = can.edit,
+				said = session.said,
+				textRead = { text -> previewRead(ops, gatewayId, trigger.takeIf { text != null }, text) },
+				asked = trigger != null,
+				edit = edit,
+			)
+		}
 		generalLine(session.said, draft, offer)?.let {
 			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
@@ -150,7 +171,7 @@ internal fun AutomationEditorPage(
 	if (confirmingDelete) {
 		ConfirmDialog(
 			title = "Delete this automation?",
-			body = null,
+			body = lookup?.let(::keptRow)?.let { automationDeleteTakes(it, functions?.rows) }?.let(::deleteTakesLine),
 			confirmText = "Delete",
 			onConfirm = {
 				confirmingDelete = false

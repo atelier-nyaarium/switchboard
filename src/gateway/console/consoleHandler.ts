@@ -430,6 +430,9 @@ export function createConsoleDispatcher({
 			case "vault_answer":
 				return requireVault().answer(op.requestId, op.decision, op.value, op.note);
 
+			case "vault_answer_entry":
+				return requireVault().answerEntry(op);
+
 			case "vault_grants":
 				return requireVault().grants();
 
@@ -536,6 +539,11 @@ export function createConsoleDispatcher({
 
 			case "automation_put":
 				return requireAutomations().put(op.automationId, op.automation, op.baseRevision, op.confirmed === true);
+
+			case "automation_save": {
+				const { kind: _kind, ...save } = op;
+				return requireAutomations().save(save);
+			}
 
 			case "automation_delete":
 				return requireAutomations().remove(op.automationId, op.baseRevision);

@@ -248,6 +248,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			thresholdConversion?.run();
 			automations?.tick();
 			automations?.watchSensors();
+			automations?.sweepFunctions();
+			vault?.tick();
 		},
 	});
 	const host = composeHost({
@@ -729,6 +731,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				await capture(() => workflows?.stop());
 				await capture(() => agents.stopRelays());
 				await capture(() => assistant.stop());
+				await capture(() => vault?.stop());
 				await capture(() => stores.jobsDurable.saveChecked(stores.jobs.snapshot()));
 				await capture(() => stores.sessionResumeDurable.saveChecked(sessions.sessionResumeSnapshot(true)));
 				await capture(() => persistence.persistDelivery(true));

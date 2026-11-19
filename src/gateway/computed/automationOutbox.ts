@@ -19,12 +19,16 @@ export const QUEUE_FULL = "the automations outbox is full";
 const MEMBER_HEAD = "automation";
 
 /** A long member keeps its head and a digest of the whole. */
-export function memberOf(automation: string, ...parts: (string | number)[]): string {
-	const member = [MEMBER_HEAD, automation, ...parts].join(":");
+const bounded = (member: string): string => {
 	if (member.length <= MEMBER_MAX) return member;
 	const digest = createHash("sha256").update(member).digest("hex");
 	return `${member.slice(0, MEMBER_MAX - digest.length - 1)}:${digest}`;
-}
+};
+
+export const memberOf = (automation: string, ...parts: (string | number)[]): string =>
+	bounded([MEMBER_HEAD, automation, ...parts].join(":"));
+
+export const stepMember = (member: string, path: string): string => bounded(`${member}:${path}`);
 
 /** Ids hold no colon, and a digest keeps the head. */
 export function ownerOf(member: string): string | null {

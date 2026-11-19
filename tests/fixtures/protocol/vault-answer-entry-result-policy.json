@@ -1,0 +1,11 @@
+{
+	"ok": true,
+	"policy": {
+		"id": "sakura-sudo",
+		"name": "Sakura Sudo",
+		"binding": { "kind": "entry", "entryId": "sudo-pw" },
+		"selectorKeys": ["sudo apt", "sudo apt-mark"],
+		"enabled": true,
+		"revision": 4
+	}
+}

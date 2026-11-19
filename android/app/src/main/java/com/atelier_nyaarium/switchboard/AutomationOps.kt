@@ -1,17 +1,26 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
+import com.atelier_nyaarium.switchboard.assistant.AutomationOffer
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.fieldsOf
+import com.atelier_nyaarium.switchboard.assistant.SaveAnswer
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
+import com.atelier_nyaarium.switchboard.assistant.freshFunctionId
+import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
+import com.atelier_nyaarium.switchboard.assistant.holeSpanOf
+import com.atelier_nyaarium.switchboard.assistant.movedAutomation
 import com.atelier_nyaarium.switchboard.assistant.movesWithHome
+import com.atelier_nyaarium.switchboard.assistant.pointerOf
+import com.atelier_nyaarium.switchboard.assistant.saveAnswerOf
 import com.atelier_nyaarium.switchboard.assistant.automationContext
 import com.atelier_nyaarium.switchboard.assistant.over
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.Automation
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
@@ -19,6 +28,9 @@ import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -28,6 +40,8 @@ internal data class AutomationListing(
 	val serves: AutomationServes? = null,
 	/** Not served read from prose, not the token. */
 	val prose: Boolean = false,
+	/** From the same read as the rows. */
+	val functions: List<AutomationFunctionRow>? = null,
 )
 
 internal interface AutomationGateway {
@@ -43,6 +57,9 @@ internal interface AutomationGateway {
 	): ConsoleAutomationPutResult
 
 	suspend fun delete(gatewayId: String, automationId: String, baseRevision: Long): ConsoleAutomationDeleteResult
+
+	/** With its function, as one write. */
+	suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult
 
 	/** `text` is a message whose holes to fill. */
 	suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?): ConsoleAutomationPreviewResult?
@@ -106,7 +123,7 @@ internal class AutomationOps(
 	val edits = EditorSessions<AutomationDraftKey, AutomationDraft, AutomationSaid>(
 		changed = { draft, opened -> draft.changedFrom(opened) },
 		unattended = { left -> tell(leftLine("", "Automation", left.said?.line.orEmpty())) },
-		inner = { draft -> draft.takeIf { it.text != null }?.copy(text = null) },
+		inner = { draft -> draft.takeIf { it.text != null || it.picking }?.copy(text = null, picking = false) },
 		clears = { said -> said is AutomationSaid.Confirm },
 	)
 
@@ -131,9 +148,46 @@ internal class AutomationOps(
 
 	suspend fun commit(key: AutomationDraftKey, opening: Long, confirmed: Boolean): EditOutcome<AutomationDraft, AutomationSaid>? =
 		send(key, opening, deleting = false) { sent, heard ->
-			fittingAutomation(sent, fieldsOf(sent, heard.sources), heard.offer)
-				?.let { save(key.gatewayId, sent.id, it, sent.revision, sent.original, confirmed) }
-				?: AutomationSaved.Refused("Not a complete automation")
+			val fields = fieldsOf(sent, heard.sources)
+			// Functions only where served.
+			if (heard.offer.functions != null) {
+				functionSaveOf(sent, fields, heard.offer, confirmed, ::freshFunctionId)
+					?.let { saveWithFunction(key.gatewayId, it, sent.original, heard.offer) }
+					?: AutomationSaved.Refused("Not a complete automation")
+			} else {
+				fittingAutomation(sent, fields, heard.offer)
+					?.let { save(key.gatewayId, sent.id, it, sent.revision, sent.original, confirmed) }
+					?: AutomationSaved.Refused("Not a complete automation")
+			}
+		}
+
+	/** A function write moves when any of its users does. */
+	private suspend fun saveWithFunction(gatewayId: String, op: ConsoleOp.AutomationSave, stored: Automation?, offer: AutomationOffer): AutomationSaved {
+		val functionMoves = listOfNotNull(op.automation, stored).any { body ->
+			movesWithHome(body) || pointerOf(body)?.let { offer.functions?.row(it)?.moves } == true
+		}
+		return when (val written = write(gatewayId, functionMoves) { it.save(gatewayId, op) }) {
+			Written.Moved -> AutomationSaved.Refused(HOME_MOVED)
+			Written.Unreachable -> AutomationSaved.Unreachable
+			is Written.Answered -> {
+				refresh(gatewayId)
+				savedWithFunction(written.answer, gatewayId, op.automationId)
+			}
+		}
+	}
+
+	private fun savedWithFunction(answer: ConsoleAutomationSaveResult, gatewayId: String, id: String): AutomationSaved =
+		when (val read = saveAnswerOf(answer)) {
+			is SaveAnswer.Stored -> AutomationSaved.Stored(read.automation)
+			is SaveAnswer.Confirm -> AutomationSaved.Refused(automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.CONFIRM, answer.refusal), confirm = read.labels)
+			is SaveAnswer.Hole -> AutomationSaved.Refused(
+				automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.HOLE, answer.refusal),
+				hole = holeSpanOf(read),
+			)
+			is SaveAnswer.Refused -> AutomationSaved.Refused(
+				automationSaveLine(read.code, read.refusal),
+				heldRow = keptRow(state.value.gateways.automationOn(gatewayId, id)).takeIf { movedAutomation(read) },
+			)
 		}
 
 	suspend fun remove(key: AutomationDraftKey, opening: Long): EditOutcome<AutomationDraft, AutomationSaid>? =
@@ -165,11 +219,13 @@ internal class AutomationOps(
 		if (gatewayId.isBlank()) return
 		val client = host.gateway
 		var listedServes: AutomationServes? = null
+		var listedFunctions: List<AutomationFunctionRow>? = null
 		var prose = false
 		val call = client?.let { held ->
 			suspend {
 				val listing = held.list(gatewayId)
 				listedServes = listing.serves
+				listedFunctions = listing.functions
 				prose = listing.prose
 				listing.rows
 			}
@@ -184,7 +240,7 @@ internal class AutomationOps(
 					val after = it.copy(automations = it.automations.after(answer))
 					// Only a listed answer says what is served.
 					when (answer) {
-						is ListAnswer.Listed -> after.copy(automationServes = listedServes)
+						is ListAnswer.Listed -> after.copy(automationServes = listedServes, automationFunctions = listedFunctions)
 						ListAnswer.NotServed, ListAnswer.Unreachable -> after
 					}
 				},

@@ -1,0 +1,48 @@
+{
+	"automations": [
+		{
+			"id": "warm",
+			"revision": 2,
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "interval", "everyMin": 60 },
+				"actions": [
+					{ "kind": "run_function", "function": "warm-up", "values": { "room": "aa:bb:cc:dd:ee:ff" } }
+				]
+			},
+			"sentence": "Every hour",
+			"nextRunAt": 1763000000000
+		}
+	],
+	"functions": [
+		{
+			"id": "warm-up",
+			"revision": 1,
+			"function": {
+				"name": "Warm up",
+				"params": [{ "name": "room", "type": "device" }],
+				"steps": [
+					{
+						"kind": "do",
+						"action": "device_set",
+						"args": {
+							"device": { "kind": "expression", "text": "room" },
+							"verb": { "kind": "literal", "value": "on" }
+						}
+					},
+					{
+						"kind": "do",
+						"action": "tell_assistant",
+						"args": {
+							"when": { "kind": "literal", "value": "quietly" },
+							"message": { "kind": "literal", "value": "Warmed at {time}" }
+						}
+					}
+				]
+			},
+			"users": ["warm"],
+			"moves": false,
+			"reads": { "names": ["time"], "eventFields": [] }
+		}
+	]
+}

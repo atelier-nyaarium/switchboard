@@ -1,0 +1,52 @@
+{
+	"automations": {
+		"freezer-cold": {
+			"revision": 1,
+			"incarnation": "inc-freezer",
+			"fieldEpoch": "epoch-1",
+			"handledSeq": 3,
+			"firedAt": 1000000
+		}
+	},
+	"queue": { "lastAt": 0, "events": [] },
+	"log": [{ "automation": "freezer-cold", "seq": 2, "at": 900000, "outcome": "ran", "action": "tell_assistant" }],
+	"ran": { "freezer-cold": 900000, "gh-mentions": 950000 },
+	"fires": [
+		{
+			"member": "automation:freezer-cold:inc-freezer:epoch-1:3",
+			"automation": "freezer-cold",
+			"incarnation": "inc-freezer",
+			"revision": 1,
+			"seq": 3,
+			"at": 1000000,
+			"names": {
+				"value": { "value": -12, "shown": "-12 C" },
+				"device": { "value": "Freezer" },
+				"measure": { "value": "Temperature" },
+				"threshold": { "value": -10, "shown": "-10 C" }
+			},
+			"tell": { "when": "quietly", "fields": { "field": "Freezer temperature", "value": "-12 C" } },
+			"waiting": true,
+			"steps": {},
+			"active": []
+		}
+	],
+	"fired": ["automation:gh-mentions:inc-mentions:github:n-1"],
+	"slots": {},
+	"silences": { "told": {}, "recovered": {} },
+	"versions": {
+		"freezer-cold:inc-freezer:1": {
+			"enabled": true,
+			"trigger": {
+				"kind": "crossing",
+				"device": "ce:1c:44:06:3c:5d",
+				"measure": "temperature",
+				"direction": "below",
+				"threshold": -10,
+				"deadZone": 1,
+				"coolDownSec": 0
+			},
+			"actions": [{ "kind": "tell_assistant", "when": "quietly" }]
+		}
+	}
+}

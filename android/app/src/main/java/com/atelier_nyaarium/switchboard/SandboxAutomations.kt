@@ -1,6 +1,20 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
+import com.atelier_nyaarium.switchboard.assistant.pointerOf
+import com.atelier_nyaarium.switchboard.proto.AutomationFunction
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
+import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
+import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.FunctionReads
+import com.atelier_nyaarium.switchboard.proto.FunctionStep
+import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.StepArg
+import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.assistant.testLabel
@@ -98,6 +112,11 @@ internal val SANDBOX_SERVES = AutomationServes(
 			),
 		),
 	),
+	functions = AutomationFunctionServes(
+		max = Protocol.Wire.FUNCTIONS_MAX.toLong(),
+		steps = listOf("tell_assistant", "device_set", "ifttt_trigger"),
+		paramTypes = listOf("device", "text", "number"),
+	),
 	numbers = listOf(
 		AutomationNumberOffer(SANDBOX_SENSOR, "temperature", "Outside thermometer temperature", "C", 1L),
 		AutomationNumberOffer(SANDBOX_SENSOR, "humidity", "Outside thermometer humidity", "%", 0L),
@@ -183,6 +202,57 @@ internal class SandboxAutomationGateway(
 		)
 	}
 
+	private fun pointing(id: String, trigger: AutomationTrigger, function: String, values: Map<String, String> = emptyMap()): AutomationRow {
+		val automation = Automation(
+			enabled = true,
+			trigger = trigger,
+			actions = listOf(
+				AutomationAction.RunFunction(
+					function = function,
+					values = values.takeIf { it.isNotEmpty() }?.let { held -> JsonObject(held.mapValues { JsonPrimitive(it.value) }) },
+				),
+			),
+		)
+		return AutomationRow(id, 1L, automation, sandboxSentence(automation))
+	}
+
+	private fun stepArg(arg: StepArg) = wireJson.encodeToJsonElement(StepArg.serializer(), arg)
+
+	private fun step(action: String, vararg args: Pair<String, StepArg>) =
+		FunctionStep.Do(action = action, args = JsonObject(args.associate { (name, arg) -> name to stepArg(arg) }))
+
+	/** Revision and body, by id. */
+	private val functionShelves = mutableMapOf<String, MutableMap<String, Pair<Long, AutomationFunction>>>()
+
+	private var copies = 0
+
+	private fun functions(gatewayId: String) = functionShelves.getOrPut(gatewayId) {
+		if (gatewayId == EMPTY_GATEWAY) return@getOrPut mutableMapOf()
+		mutableMapOf(
+			"too-warm" to (2L to AutomationFunction(
+				name = "Too warm",
+				params = emptyList(),
+				steps = listOf(
+					step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("It is {value}."))),
+					step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("on"))),
+				),
+			)),
+			"blink" to (1L to AutomationFunction(
+				name = "Blink",
+				params = listOf(FunctionParam("lamp", "device"), FunctionParam("times", "number")),
+				steps = listOf(step("device_set", "device" to StepArg.Expression("lamp"), "verb" to StepArg.Literal(JsonPrimitive("toggle")))),
+			)),
+		)
+	}
+
+	/** A function with no users is unlisted. */
+	private fun functionRows(gatewayId: String): List<AutomationFunctionRow> = functions(gatewayId).mapNotNull { (id, held) ->
+		val users = shelf(gatewayId).filter { pointerOf(it.automation) == id }.map { it.id }
+		users.takeIf { it.isNotEmpty() }?.let {
+			AutomationFunctionRow(id, held.first, held.second, it, moves = false, reads = FunctionReads(emptyList(), emptyList()))
+		}
+	}
+
 	private fun shelf(gatewayId: String): List<AutomationRow> = shelves.getOrPut(gatewayId) {
 		if (gatewayId == EMPTY_GATEWAY) {
 			emptyList()
@@ -195,6 +265,9 @@ internal class SandboxAutomationGateway(
 				crossing("threshold-ce1c44063c5d-temperature-low", "below", 2.0, enabled = true, ranAgoMs = 26 * HOUR_MS),
 				crossing("outside-hot", "above", 30.0, enabled = false, ranAgoMs = null),
 				evening(),
+				pointing("warm-room", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 26.0, 0.5, 1_800L), "too-warm"),
+				pointing("warm-hall", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 28.0, 0.5, 1_800L), "too-warm"),
+				pointing("blink-evening", AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH)),
 			)
 		}
 	}
@@ -204,8 +277,48 @@ internal class SandboxAutomationGateway(
 		return when (gatewayId) {
 			SANDBOX_NEVER_REGISTERED -> AutomationListing(ListAnswer.Unreachable)
 			SECOND_SANDBOX_GATEWAY -> AutomationListing(ListAnswer.NotServed)
-			else -> AutomationListing(ListAnswer.Listed(shelf(gatewayId)), SANDBOX_SERVES)
+			else -> AutomationListing(ListAnswer.Listed(shelf(gatewayId)), SANDBOX_SERVES, functions = functionRows(gatewayId))
 		}
+	}
+
+	/** Lands the automation and its function together, or neither. */
+	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult {
+		pause()
+		fun refused(code: String, record: String? = null, revision: Long? = null) =
+			ConsoleAutomationSaveResult(stored = false, refusal = AutomationSaveRefusal(code = code, record = record, revision = revision))
+		val held = shelf(gatewayId).find { it.id == op.automationId }
+		val revision = held?.revision ?: 0L
+		if (revision != op.automationBase) return refused("moved", "automation", revision)
+		val bodies = functions(gatewayId)
+		var automation = op.automation
+		var landed: Pair<String, Pair<Long, AutomationFunction>>? = null
+		when (val function = op.function) {
+			null -> Unit
+			is AutomationSaveFunction.Edit -> {
+				val stored = bodies[function.id]?.first ?: 0L
+				if (stored != function.base) return refused("moved", "function", stored)
+				landed = function.id to (stored + 1 to function.body)
+			}
+			is AutomationSaveFunction.Copy -> {
+				val from = bodies[function.from] ?: return refused("gone", "function")
+				if (from.first != function.fromBase) return refused("moved", "function", from.first)
+				val id = "copy-${++copies}"
+				landed = id to (1L to function.body)
+				val pointer = written(automation).singleOrNull() as? AutomationAction.RunFunction ?: AutomationAction.RunFunction(function = id)
+				automation = automation.copy(actions = listOf(pointer.copy(function = id)))
+			}
+		}
+		val asks = unconfirmed(automation, held)
+		if (asks.isNotEmpty() && op.confirmed != true) {
+			return ConsoleAutomationSaveResult(stored = false, refusal = AutomationSaveRefusal(code = "confirm", labels = asks))
+		}
+		landed?.let { (id, body) -> bodies[id] = body }
+		val row = AutomationRow(op.automationId, revision + 1, automation, sandboxSentence(automation), lastRanAt = held?.lastRanAt)
+		shelves[gatewayId] = if (held == null) shelf(gatewayId) + row else shelf(gatewayId).map { if (it.id == op.automationId) row else it }
+		// Deleted at none.
+		val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
+		bodies.keys.retainAll(running)
+		return ConsoleAutomationSaveResult(stored = true, automation = row, function = functionRows(gatewayId).firstOrNull { it.id == pointerOf(automation) })
 	}
 
 	/** An IFTTT action the held row lacks asks first. */
@@ -250,6 +363,8 @@ internal class SandboxAutomationGateway(
 		val held = shelf(gatewayId).find { it.id == automationId } ?: return ConsoleAutomationDeleteResult(false, "not stored")
 		if (held.revision != baseRevision) return ConsoleAutomationDeleteResult(false, "revision ${held.revision} is stored")
 		shelves[gatewayId] = shelf(gatewayId) - held
+		val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
+		functions(gatewayId).keys.retainAll(running)
 		return ConsoleAutomationDeleteResult(true)
 	}
 

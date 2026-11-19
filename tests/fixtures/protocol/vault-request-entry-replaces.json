@@ -1,0 +1,13 @@
+{
+	"v": 1,
+	"kind": "entry",
+	"requestId": "request-4",
+	"entryId": "sudo-pw",
+	"operation": "sudo -A apt-mark hold docker-ce",
+	"displayShape": "sudo apt-mark",
+	"coveredShapes": ["apt-mark hold"],
+	"sessionTarget": "host.82d560",
+	"deadlineAt": 1757000540000,
+	"policy": { "policyId": "sakura-sudo", "policyRevision": 4 },
+	"replaces": "request-2"
+}

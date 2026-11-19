@@ -37,6 +37,7 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.hostActivity
+import com.atelier_nyaarium.switchboard.vaultSaveLine
 import kotlinx.coroutines.launch
 
 /** One entry as a modal; a null id composes one. An unrevealed value stays sealed through Save. */
@@ -53,6 +54,35 @@ fun VaultEntryDialog(
 	// An entry deleted elsewhere closes the editor after this frame.
 	LaunchedEffect(gone) { if (gone) onClose() }
 	if (gone) return
+	Dialog(
+		onDismissRequest = onClose,
+		properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false),
+	) {
+		Surface(shape = RoundedCornerShape(28.dp), tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth(0.95f)) {
+			VaultEntryForm(
+				repo = repo,
+				state = state,
+				existing = existing,
+				seed = null,
+				onClose = onClose,
+				saveDraft = { draft -> vaultSaveLine(repo.vaultOps.save(draft)).also { if (it == null) onClose() } },
+			)
+		}
+	}
+}
+
+/** `saveDraft` answers a line to show, or null once done. */
+@Composable
+internal fun VaultEntryForm(
+	repo: ChatRepository,
+	state: ChatState,
+	existing: VaultEntryView?,
+	seed: NewSecretSeed?,
+	onClose: () -> Unit,
+	saveDraft: suspend (VaultDraft) -> String?,
+	closeLabel: String = "Cancel",
+) {
+	val entryId = existing?.id
 	val activity = hostActivity()
 	val scope = rememberCoroutineScope()
 	var publicTitle by remember(entryId) { mutableStateOf(existing?.publicTitle.orEmpty()) }
@@ -60,152 +90,134 @@ fun VaultEntryDialog(
 	var privateTitle by remember(entryId) { mutableStateOf(existing?.privateTitle.orEmpty()) }
 	var privateDescription by remember(entryId) { mutableStateOf(existing?.privateDescription.orEmpty()) }
 	// Null means the sealed value stays as it is.
-	var value by remember(entryId) { mutableStateOf<String?>(if (existing?.hasValue == true) null else "") }
+	var value by remember(entryId) { mutableStateOf<String?>(if (existing?.hasValue == true) null else seed?.value.orEmpty()) }
 	var shown by remember(entryId) { mutableStateOf(false) }
-	var gateways by remember(entryId) { mutableStateOf(existing?.gateways) }
+	var gateways by remember(entryId) { mutableStateOf(seed?.let { listOf(it.gatewayId) } ?: existing?.gateways) }
 	var busy by remember { mutableStateOf(false) }
 	var notice by remember { mutableStateOf<String?>(null) }
 	var confirmDelete by remember { mutableStateOf(false) }
 	val titled = publicTitle.isNotBlank() || privateTitle.isNotBlank()
 
-	fun finish(outcome: VaultSaveOutcome) {
-		busy = false
-		when (outcome) {
-			is VaultSaveOutcome.Applied -> onClose()
-			VaultSaveOutcome.Conflict -> notice = "Changed elsewhere since you opened it. Reopen to edit the latest."
-			is VaultSaveOutcome.Refused -> notice = "Refused: ${outcome.reason}"
-			VaultSaveOutcome.Unreachable -> notice = "The Router could not be reached."
-		}
-	}
-
-	Dialog(
-		onDismissRequest = onClose,
-		properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false),
-	) {
-		Surface(shape = RoundedCornerShape(28.dp), tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth(0.95f)) {
-			Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-				Column(
-					Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
-					verticalArrangement = Arrangement.spacedBy(12.dp),
-				) {
-					Text(if (existing == null) "New entry" else existing.title, style = MaterialTheme.typography.titleMedium)
-					notice?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
-					OutlinedTextField(
-						value = publicTitle,
-						onValueChange = { publicTitle = it },
-						singleLine = true,
-						label = { Text("Public title") },
-						supportingText = { Text("Agents search public fields.") },
-						modifier = Modifier.fillMaxWidth(),
-					)
-					OutlinedTextField(
-						value = publicDescription,
-						onValueChange = { publicDescription = it },
-						label = { Text("Public description") },
-						modifier = Modifier.fillMaxWidth(),
-					)
-					OutlinedTextField(
-						value = privateTitle,
-						onValueChange = { privateTitle = it },
-						singleLine = true,
-						label = { Text("Private title") },
-						modifier = Modifier.fillMaxWidth(),
-					)
-					OutlinedTextField(
-						value = privateDescription,
-						onValueChange = { privateDescription = it },
-						label = { Text("Private description") },
-						modifier = Modifier.fillMaxWidth(),
-					)
-					val held = value
-					if (held == null) {
-						Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-							TextButton(
-								onClick = hapticClick {
-									scope.launch {
-										if (!repo.vaultOps.ownerPresent(activity)) return@launch
-										value = repo.vaultOps.reveal(entryId!!) ?: return@launch
-										shown = true
-									}
-								},
-							) { Text("Reveal value") }
-							TextButton(onClick = hapticClick { value = "" }) { Text("Clear value") }
-						}
-					} else {
-						OutlinedTextField(
-							value = held,
-							onValueChange = { value = it },
-							label = { Text("Value") },
-							keyboardOptions = EXACT_KEYBOARD,
-							visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
-							textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-							trailingIcon = {
-								TextButton(onClick = { shown = !shown }) { Text(if (shown) "Hide" else "Show") }
-							},
-							modifier = Modifier.fillMaxWidth(),
-						)
-					}
-					if (existing?.gatewaysUnreadable == true && gateways == null) {
-						Text(
-							"Fields this phone cannot open stay as they are when saved.",
-							style = MaterialTheme.typography.labelSmall,
-							color = MaterialTheme.colorScheme.error,
-						)
-					}
-					Text("Gateways", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-					FlowRow(
-						horizontalArrangement = Arrangement.spacedBy(7.dp),
-						verticalArrangement = Arrangement.spacedBy(7.dp),
-						modifier = Modifier.fillMaxWidth(),
-					) {
-						// Every gateway is the one chip that clears the scope; an empty scope admits none.
-						ScopeChip("Every gateway", gateways == null && existing?.gatewaysUnreadable != true) { gateways = null }
-						for (id in (state.gateways.ids() + gateways.orEmpty()).distinct().sorted()) {
-							val on = gateways?.contains(id) == true
-							ScopeChip(id, on) {
-								val current = gateways.orEmpty()
-								gateways = if (on) current - id else current + id
-							}
-						}
-					}
-				}
+	Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+		Column(
+			Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
+		) {
+			Text(existing?.title ?: "New entry", style = MaterialTheme.typography.titleMedium)
+			notice?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+			OutlinedTextField(
+				value = publicTitle,
+				onValueChange = { publicTitle = it },
+				singleLine = true,
+				label = { Text("Public title") },
+				supportingText = { Text("Agents search public fields.") },
+				modifier = Modifier.fillMaxWidth(),
+			)
+			OutlinedTextField(
+				value = publicDescription,
+				onValueChange = { publicDescription = it },
+				label = { Text("Public description") },
+				modifier = Modifier.fillMaxWidth(),
+			)
+			OutlinedTextField(
+				value = privateTitle,
+				onValueChange = { privateTitle = it },
+				singleLine = true,
+				label = { Text("Private title") },
+				modifier = Modifier.fillMaxWidth(),
+			)
+			OutlinedTextField(
+				value = privateDescription,
+				onValueChange = { privateDescription = it },
+				label = { Text("Private description") },
+				modifier = Modifier.fillMaxWidth(),
+			)
+			val held = value
+			if (held == null) {
 				Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-					if (existing != null) {
-						TextButton(onClick = hapticClick { confirmDelete = true }, enabled = !busy) {
-							Text("Delete", color = MaterialTheme.colorScheme.error)
-						}
-					}
-					Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
-						TextButton(onClick = onClose) { Text("Cancel") }
-						Button(
-							enabled = titled && !busy,
-							onClick = hapticClick {
-								busy = true
-								// Changing or clearing a stored value passes the gate, as a reveal does.
-								val touchesValue = existing?.hasValue == true && value != null
-								scope.launch {
-									if (touchesValue && !repo.vaultOps.ownerPresent(activity)) {
-										busy = false
-										return@launch
-									}
-									finish(
-										repo.vaultOps.save(
-											VaultDraft(
-												id = entryId,
-												publicTitle = publicTitle,
-												publicDescription = publicDescription,
-												privateTitle = privateTitle,
-												privateDescription = privateDescription,
-												value = value,
-												gateways = gateways,
-											),
-										),
-									)
-								}
-							},
-						) { Text(if (busy) "Saving..." else "Save") }
+					TextButton(
+						onClick = hapticClick {
+							scope.launch {
+								if (!repo.vaultOps.ownerPresent(activity)) return@launch
+								value = repo.vaultOps.reveal(entryId!!) ?: return@launch
+								shown = true
+							}
+						},
+					) { Text("Reveal value") }
+					TextButton(onClick = hapticClick { value = "" }) { Text("Clear value") }
+				}
+			} else {
+				OutlinedTextField(
+					value = held,
+					onValueChange = { value = it },
+					label = { Text("Value") },
+					keyboardOptions = EXACT_KEYBOARD,
+					visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
+					textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+					trailingIcon = {
+						TextButton(onClick = { shown = !shown }) { Text(if (shown) "Hide" else "Show") }
+					},
+					modifier = Modifier.fillMaxWidth(),
+				)
+			}
+			if (existing?.gatewaysUnreadable == true && gateways == null) {
+				Text(
+					"Fields this phone cannot open stay as they are when saved.",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.error,
+				)
+			}
+			Text("Gateways", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			FlowRow(
+				horizontalArrangement = Arrangement.spacedBy(7.dp),
+				verticalArrangement = Arrangement.spacedBy(7.dp),
+				modifier = Modifier.fillMaxWidth(),
+			) {
+				// Every gateway is the one chip that clears the scope; an empty scope admits none.
+				ScopeChip("Every gateway", gateways == null && existing?.gatewaysUnreadable != true) { gateways = null }
+				for (id in (state.gateways.ids() + gateways.orEmpty()).distinct().sorted()) {
+					val on = gateways?.contains(id) == true
+					ScopeChip(id, on) {
+						val current = gateways.orEmpty()
+						gateways = if (on) current - id else current + id
 					}
 				}
+			}
+		}
+		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			if (existing != null) {
+				TextButton(onClick = hapticClick { confirmDelete = true }, enabled = !busy) {
+					Text("Delete", color = MaterialTheme.colorScheme.error)
+				}
+			}
+			Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
+				TextButton(onClick = onClose) { Text(closeLabel) }
+				Button(
+					enabled = titled && !busy,
+					onClick = hapticClick {
+						busy = true
+						// Changing or clearing a stored value passes the gate, as a reveal does.
+						val touchesValue = existing?.hasValue == true && value != null
+						scope.launch {
+							if (touchesValue && !repo.vaultOps.ownerPresent(activity)) {
+								busy = false
+								return@launch
+							}
+							notice = saveDraft(
+								VaultDraft(
+									id = entryId,
+									publicTitle = publicTitle,
+									publicDescription = publicDescription,
+									privateTitle = privateTitle,
+									privateDescription = privateDescription,
+									value = value,
+									gateways = gateways,
+								),
+							)
+							busy = false
+						}
+					},
+				) { Text(if (busy) "Saving..." else "Save") }
 			}
 		}
 	}
@@ -220,7 +232,11 @@ fun VaultEntryDialog(
 					onClick = hapticClick {
 						confirmDelete = false
 						busy = true
-						scope.launch { finish(repo.vaultOps.delete(entryId)) }
+						scope.launch {
+							notice = vaultSaveLine(repo.vaultOps.delete(entryId))
+							busy = false
+							if (notice == null) onClose()
+						}
 					},
 				) { Text("Delete", color = MaterialTheme.colorScheme.error) }
 			},
@@ -228,8 +244,6 @@ fun VaultEntryDialog(
 		)
 	}
 }
-
-/** No suggestions and no autocorrect over a secret. */
 
 @Composable
 private fun ScopeChip(label: String, on: Boolean, onClick: () -> Unit) {

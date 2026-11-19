@@ -1,7 +1,7 @@
 // One automation: a trigger and what it does.
 
 import { z } from "zod";
-import { reached, walked } from "./automation-walk.js";
+import { walked } from "./automation-walk.js";
 import {
 	AssistantRuleConditionSchema,
 	type AssistantWatcherRules,
@@ -9,7 +9,13 @@ import {
 	RULE_ID_RE,
 } from "./schemasAssistantRules.js";
 import { DeviceVerbSchema } from "./schemasDevices.js";
-import { PARAM_NAME_RE, STEP_TEXT_MAX } from "./schemasFunction.js";
+import {
+	FUNCTION_PARAM_TYPES,
+	FUNCTIONS_MAX,
+	FunctionSchema,
+	PARAM_NAME_RE,
+	STEP_TEXT_MAX,
+} from "./schemasFunction.js";
 import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
 
 export const AUTOMATIONS_MAX = 64;
@@ -281,11 +287,6 @@ export const AUTOMATION_TRIGGER_NAMES: Readonly<Record<AutomationTriggerKind, re
 	interval: triggerNames("interval"),
 };
 
-export const dangerousActions = (automation: Pick<Automation, "actions">): AutomationAction[] =>
-	reached(automation)
-		.map(({ action }) => action)
-		.filter((action) => AUTOMATION_ACTIONS[action.kind].danger);
-
 export const AutomationSchema = z
 	.strictObject({
 		/** Replaces the row's sentence; a sealed payload holds null. */
@@ -308,9 +309,6 @@ export function tellWhenOf(actions: readonly AutomationAction[]): TellWhen | nul
 	return told.some((action) => action.when === "now") ? "now" : "quietly";
 }
 
-export const tellWhen = (automation: Pick<Automation, "actions">): TellWhen | null =>
-	tellWhenOf(reached(automation).map(({ action }) => action));
-
 /** As stored and matched: no null label, event conditions trimmed. */
 export function canonicalAutomation(automation: Automation): Automation {
 	const { label, ...rest } = automation;
@@ -325,6 +323,13 @@ export const CarriedAutomationSchema = z
 	.meta({ id: "CarriedAutomation" });
 
 export type CarriedAutomation = z.infer<typeof CarriedAutomationSchema>;
+
+/** By value. */
+export const CarriedFunctionSchema = z
+	.object({ id: z.string().regex(RULE_ID_RE), function: FunctionSchema })
+	.meta({ id: "CarriedFunction" });
+
+export type CarriedFunction = z.infer<typeof CarriedFunctionSchema>;
 
 // Remove 2026-11-28 with the stored rules.
 /** Each rule that woke, as an automation under its id. */
@@ -378,8 +383,35 @@ export const AutomationRowSchema = z
 
 export type AutomationRow = z.infer<typeof AutomationRowSchema>;
 
+export const FunctionReadsSchema = z
+	.object({ names: z.array(z.string().max(32)).max(16), eventFields: z.array(z.string().max(64)).max(32) })
+	.meta({ id: "FunctionReads" });
+
+export const AutomationFunctionRowSchema = z
+	.object({
+		id: z.string().regex(RULE_ID_RE),
+		revision: z.number().int().positive(),
+		function: FunctionSchema,
+		/** In list order. */
+		users: z.array(z.string()).max(AUTOMATIONS_MAX),
+		/** Users move with the home. */
+		moves: z.boolean(),
+		reads: FunctionReadsSchema,
+		/** Why it cannot run. */
+		invalid: z.string().optional(),
+	})
+	.meta({ id: "AutomationFunctionRow" });
+export type AutomationFunctionRow = z.infer<typeof AutomationFunctionRowSchema>;
+
+export const FUNCTION_STEP_KINDS = [
+	"tell_assistant",
+	"device_set",
+	"ifttt_trigger",
+] as const satisfies readonly Exclude<AutomationActionKind, "run_function">[];
+
 /** The kinds this Gateway's automations can hold. */
 export const AUTOMATION_SERVES = {
+	functions: { max: FUNCTIONS_MAX, steps: [...FUNCTION_STEP_KINDS], paramTypes: [...FUNCTION_PARAM_TYPES] },
 	triggers: Object.entries(AUTOMATION_TRIGGERS).map(([kind, row]) => ({
 		kind,
 		names: row.names.map((held) => ({ ...held })),
@@ -478,9 +510,20 @@ export const ConsoleAutomationListResultSchema = z
 				/** What this Gateway's devices offer a trigger and an action. */
 				numbers: z.array(AutomationNumberOfferSchema).max(OFFERED_MAX),
 				switches: z.array(AutomationSwitchOfferSchema).max(OFFERED_MAX),
+				/** Absent from older builds. */
+				functions: z
+					.object({
+						max: z.number().int().positive(),
+						steps: z.array(z.string().max(32)).max(16),
+						paramTypes: z.array(z.string().max(16)).max(8),
+					})
+					.meta({ id: "AutomationFunctionServes" })
+					.optional(),
 			})
 			.meta({ id: "AutomationServes" })
 			.optional(),
+		/** Absent from older builds. */
+		functions: z.array(AutomationFunctionRowSchema).max(FUNCTIONS_MAX).optional(),
 	})
 	.meta({ id: "ConsoleAutomationListResult" });
 

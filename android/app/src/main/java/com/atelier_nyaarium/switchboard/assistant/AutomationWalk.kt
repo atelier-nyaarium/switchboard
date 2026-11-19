@@ -45,6 +45,10 @@ internal fun reached(automation: Automation, functionOf: (String) -> AutomationF
 		}
 	}
 
+/** A function's steps as written. */
+@OptIn(OpensWalk::class)
+internal fun written(function: AutomationFunction): List<FunctionStep> = function.steps
+
 /** The list as written, one level; a call is never followed. */
 @OptIn(OpensWalk::class)
 internal fun written(automation: Automation): List<AutomationAction> = automation.actions

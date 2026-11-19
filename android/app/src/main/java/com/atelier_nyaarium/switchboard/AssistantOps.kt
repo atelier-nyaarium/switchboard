@@ -3,7 +3,11 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.assistant.field
 import com.atelier_nyaarium.switchboard.assistant.fieldLabel
 import com.atelier_nyaarium.switchboard.assistant.label
+import com.atelier_nyaarium.switchboard.assistant.carriedFunctionsOf
+import com.atelier_nyaarium.switchboard.assistant.carryRefusal
+import com.atelier_nyaarium.switchboard.assistant.functionsServed
 import com.atelier_nyaarium.switchboard.assistant.reached
+import com.atelier_nyaarium.switchboard.assistant.sealedRefusal
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedIntegration
@@ -17,9 +21,11 @@ import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
+import com.atelier_nyaarium.switchboard.proto.CarriedFunction
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -46,6 +52,9 @@ internal interface AssistantGateway {
 
 	/** Old home's list. */
 	suspend fun automations(gatewayId: String): ListAnswer<AutomationRow>
+
+	/** With its functions, from one read. */
+	suspend fun automationListing(gatewayId: String): AutomationListing = AutomationListing(automations(gatewayId))
 }
 
 internal interface AssistantHost {
@@ -114,9 +123,14 @@ internal fun rulesOf(sourceId: String, events: List<AutomationRow>): AssistantWa
 	return AssistantWatcherRules(rules, AssistantRuleOtherwise(otherwise, 0L), 0L)
 }
 
-/** Settings a move carries; `automations` null is a Gateway that lists none. */
-internal fun carriedOf(state: ConsoleAssistantStateResult, automations: List<AutomationRow>?): AssistantHomeCarried {
+/** Move payload; null `automations` lists none. */
+internal fun carriedOf(
+	state: ConsoleAssistantStateResult,
+	automations: List<AutomationRow>?,
+	functions: List<AutomationFunctionRow>? = null,
+): AssistantHomeCarried {
 	val events = automations?.filter { it.automation.trigger is AutomationTrigger.Event }
+	val carried = events?.map { CarriedAutomation(it.id, it.automation) }
 	// Remove 2026-11-28: an older Gateway's rules.
 	val held = state.watchers.orEmpty().associate { it.id to it.rules }
 	return AssistantHomeCarried(
@@ -132,10 +146,14 @@ internal fun carriedOf(state: ConsoleAssistantStateResult, automations: List<Aut
 				enabled = source.enabled,
 			)
 		},
-		automations = events?.map { CarriedAutomation(it.id, it.automation) },
+		automations = carried,
 		integrations = state.integrations?.map { integration ->
 			AssistantHomeCarriedIntegration(id = integration.id, grant = integration.grants.firstOrNull())
 		},
+		// None carried sends none.
+		functions = carried?.let { moving ->
+			carriedFunctionsOf(moving, functions.orEmpty().map { CarriedFunction(it.id, it.function) })
+		}?.takeIf { it.isNotEmpty() },
 	)
 }
 
@@ -477,6 +495,9 @@ internal class AssistantOps(
 			abandoning == home -> null
 			else -> return@owned failed(ticket, homeRefusalText(UNROUTABLE, home))
 		}
+		val held = state.value
+		carryRefusal(carried?.functions.orEmpty(), functionsServed(held.gateways, held.assistantHome, target))
+			?.let { return@owned failed(ticket, carryRefusalLine(it)) }
 		put(ticket, base, target, AssistantHomeSealed(workdirPath = workdir, carried = carried))
 	}
 
@@ -500,6 +521,7 @@ internal class AssistantOps(
 		} else {
 			null
 		}
+		envelope?.let(::sealedRefusal)?.let { return failed(ticket, carryRefusalLine(it)) }
 		if (!fence.holds(ticket)) return null
 		fence.land(ticket, HomeEffect.Failure(null))
 		when (val result = attempt { router.put(base, target, envelope) } ?: HomePut.Uncertain(null)) {
@@ -531,19 +553,21 @@ internal class AssistantOps(
 		val answer = attempt { client.call(gatewayId, ConsoleOp.AssistantState) } as? AssistantAnswer.State ?: return null
 		fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Answered(answer.state)))
 		val listed = eventRows(client, gatewayId, answer.state) ?: return null
-		return carriedOf(answer.state, listed.rows)
+		return carriedOf(answer.state, listed.rows, listed.functions)
 	}
 
 	/** `rows` null from a build that lists none. */
-	private class EventRows(val rows: List<AutomationRow>?)
+	private class EventRows(val rows: List<AutomationRow>?, val functions: List<AutomationFunctionRow>? = null)
 
 	/** Null when unread; a refusal counts only from an older build. */
-	private suspend fun eventRows(client: AssistantGateway, gatewayId: String, held: ConsoleAssistantStateResult): EventRows? =
-		when (val listed = attempt { client.automations(gatewayId) }) {
-			is ListAnswer.Listed -> EventRows(listed.rows)
+	private suspend fun eventRows(client: AssistantGateway, gatewayId: String, held: ConsoleAssistantStateResult): EventRows? {
+		val listing = attempt { client.automationListing(gatewayId) }
+		return when (val listed = listing?.rows) {
+			is ListAnswer.Listed -> EventRows(listed.rows, listing.functions)
 			ListAnswer.NotServed -> EventRows(null).takeUnless { servesSources(held) }
 			ListAnswer.Unreachable, null -> null
 		}
+	}
 
 	/** Fresh answers from the roster as asked; an owner choice wins. */
 	private suspend fun seed() {
@@ -562,7 +586,7 @@ internal class AssistantOps(
 			writes.withLock {
 				val now = state.value.gateways
 				if (!fence.current(ticket) || !now.current || seenAt(now) != asked) return@withLock
-				val carried = carriedOf(choice.state, listed.rows)
+				val carried = carriedOf(choice.state, listed.rows, listed.functions)
 				put(ticket, 0L, choice.gatewayId, AssistantHomeSealed(workdirPath = choice.workdir, carried = carried))
 			}
 		} finally {

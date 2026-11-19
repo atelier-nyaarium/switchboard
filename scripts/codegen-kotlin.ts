@@ -8,7 +8,12 @@ import {
 	SignedAdmissionSchema,
 	SignedRevocationSchema,
 } from "../src/shared/admission.js";
-import { AUTOMATION_TRIGGER_GIVES, GIVEN_TYPES } from "../src/shared/automation-fit.js";
+import {
+	AUTOMATION_TRIGGER_GIVES,
+	EVENT_GIVEN_FIELDS,
+	GIVEN_TYPES,
+	GIVES_OF_FIELD,
+} from "../src/shared/automation-fit.js";
 import { CHANNEL_FILES_MAX } from "../src/shared/channel-file.js";
 import {
 	CONSOLE_ANSWER_WAIT_MS,
@@ -135,6 +140,7 @@ import {
 	ConsoleAssistantStateResultSchema,
 } from "../src/shared/schemasAssistant.js";
 import {
+	ASSISTANT_HOME_SEALED_MAX_BYTES,
 	AssistantHomeCarriedSchema,
 	AssistantHomeCarriedWatcherSchema,
 	AssistantHomePutResultSchema,
@@ -174,19 +180,29 @@ import {
 	AUTOMATION_INTERVAL_MAX_MIN,
 	AutomationActionSchema,
 	AutomationConditionSchema,
+	AutomationFunctionRowSchema,
 	AutomationRowSchema,
 	AutomationSchema,
 	AutomationTriggerSchema,
 	CarriedAutomationSchema,
+	CarriedFunctionSchema,
 	ConsoleAutomationDeleteResultSchema,
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
 	CROSSING_DIRECTIONS,
+	FunctionReadsSchema,
 	KEEP_TRYING_MIN_DEFAULT,
 	KEEP_TRYING_MIN_MAX,
 	KEEP_TRYING_MIN_MIN,
 } from "../src/shared/schemasAutomation.js";
+import {
+	AUTOMATION_SAVE_REFUSALS,
+	AutomationSaveFunctionSchema,
+	AutomationSaveRefusalSchema,
+	ConsoleAutomationSaveResultSchema,
+	SAVE_RECORDS,
+} from "../src/shared/schemasAutomationSave.js";
 import {
 	BoardActorSchema,
 	BoardObservationRowSchema,
@@ -254,6 +270,7 @@ import {
 	FunctionParamSchema,
 	FunctionSchema,
 	FunctionStepSchema,
+	STEP_ARGS_MAX,
 	StepArgSchema,
 } from "../src/shared/schemasFunction.js";
 import { RowRecipientSchema, RowStampSchema } from "../src/shared/schemasInbox.js";
@@ -365,9 +382,13 @@ import {
 	ReportReadSchema,
 } from "../src/shared/schemasTier1.js";
 import {
+	ConsoleVaultAnswerEntryResultSchema,
 	ConsoleVaultAnswerResultSchema,
 	ConsoleVaultGrantsResultSchema,
 	ConsoleVaultRevokeResultSchema,
+	VAULT_ANSWER_REFUSAL_CODES,
+	VAULT_TYPED_WHY_CODES,
+	VAULT_UNUSABLE_CODES,
 	VaultDeleteValueSchema,
 	VaultGrantSchema,
 	VaultHolderSchema,
@@ -594,11 +615,17 @@ const ROOTS: z.ZodType[] = [
 	FunctionStepSchema,
 	FunctionSchema,
 	CarriedAutomationSchema,
+	CarriedFunctionSchema,
 	AutomationRowSchema,
+	FunctionReadsSchema,
+	AutomationFunctionRowSchema,
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPutResultSchema,
 	ConsoleAutomationDeleteResultSchema,
 	ConsoleAutomationPreviewResultSchema,
+	AutomationSaveFunctionSchema,
+	AutomationSaveRefusalSchema,
+	ConsoleAutomationSaveResultSchema,
 	AssistantHomeCarriedWatcherSchema,
 	AssistantHomeCarriedSchema,
 	AssistantHomeSealedSchema,
@@ -700,6 +727,7 @@ const ROOTS: z.ZodType[] = [
 	VaultRetractSchema,
 	VaultGrantSchema,
 	ConsoleVaultAnswerResultSchema,
+	ConsoleVaultAnswerEntryResultSchema,
 	ConsoleVaultGrantsResultSchema,
 	ConsoleVaultRevokeResultSchema,
 	RunbookParameterSchema,
@@ -801,6 +829,7 @@ const SEALED_ROOTS = new Map<string, DecodePolicy>([
 	["AutomationAction", "preserve"],
 	["StepArg", "strict"],
 	["FunctionStep", "preserve"],
+	["AutomationSaveFunction", "strict"],
 	["ConsoleDeviceReadResult", "preserve"],
 ]);
 
@@ -1339,6 +1368,8 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["FUNCTIONS_MAX", FUNCTIONS_MAX],
 	["FUNCTION_STEPS_MAX", FUNCTION_STEPS_MAX],
 	["FUNCTION_PARAMS_MAX", FUNCTION_PARAMS_MAX],
+	["STEP_ARGS_MAX", STEP_ARGS_MAX],
+	["ASSISTANT_HOME_SEALED_MAX_BYTES", ASSISTANT_HOME_SEALED_MAX_BYTES],
 ];
 const KOTLIN_INT_MAX = 2_147_483_647;
 const kotlinConstType = (value: string | number) =>
@@ -1788,7 +1819,17 @@ ${wireEnumBlock("GivenType", GIVEN_TYPES)}
 
 ${wireEnumBlock("FunctionParamType", FUNCTION_PARAM_TYPES)}
 
+${wireEnumBlock("AutomationSaveRefusalCode", AUTOMATION_SAVE_REFUSALS)}
+
+${wireEnumBlock("AutomationSaveRecord", SAVE_RECORDS)}
+
 ${wireEnumBlock("PolicyRefusalCode", POLICY_REFUSAL_CODES)}
+
+${wireEnumBlock("VaultTypedWhyCode", VAULT_TYPED_WHY_CODES)}
+
+${wireEnumBlock("VaultUnusableCode", VAULT_UNUSABLE_CODES)}
+
+${wireEnumBlock("VaultAnswerRefusalCode", VAULT_ANSWER_REFUSAL_CODES)}
 
 ${schemaConstantBlock("ConsoleOpKind", consoleOpKinds)}
 
@@ -1906,6 +1947,9 @@ function emitTriggerGives(): string {
 		`data class TriggerGive(val name: String, val type: String)`,
 		"",
 		`object TriggerGives {`,
+		`${INDENT}const val OF_FIELD: String = ${kotlinString(GIVES_OF_FIELD)}`,
+		`${INDENT}/** Every event gives these beside its source's fields. */`,
+		`${INDENT}val EVENT_FIELDS: List<String> = listOf(${EVENT_GIVEN_FIELDS.map(kotlinString).join(", ")})`,
 		`${INDENT}val BY_TRIGGER: Map<String, List<TriggerGive>> = mapOf(`,
 		...rows,
 		`${INDENT})`,

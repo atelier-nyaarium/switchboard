@@ -1,6 +1,5 @@
 // Every automation write, judged once.
 
-import { fitOf, functionReads, type TriggerGiven } from "../../shared/automation-fit.js";
 import { type Reached, reached, written } from "../../shared/automation-walk.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import {
@@ -10,13 +9,14 @@ import {
 	type AutomationActionKind,
 	type AutomationInput,
 	AutomationSchema,
-	type AutomationTrigger,
 	type CarriedAutomation,
+	type CarriedFunction,
 	canonicalAutomation,
 } from "../../shared/schemasAutomation.js";
 import type { AutomationSaveRefusal } from "../../shared/schemasAutomationSave.js";
 import { type AutomationFunction, FunctionSchema } from "../../shared/schemasFunction.js";
 import type { OwnerRecord, OwnerWrite } from "../ownerRecords.js";
+import type { CallIssue } from "./automationValidity.js";
 
 type RunFunction = Extract<AutomationAction, { kind: "run_function" }>;
 
@@ -40,8 +40,9 @@ export type AutomationIntent =
 			confirmed?: boolean;
 	  }
 	| { kind: "owner_remove"; id: string; base: number }
-	/** The home's whole moving set. */
-	| { kind: "carry"; rows: readonly CarriedAutomation[] }
+	/** Null functions: older phone. */
+	| { kind: "carry"; rows: readonly CarriedAutomation[]; functions: readonly CarriedFunction[] | null }
+	| { kind: "sweep"; ids: readonly string[] }
 	// Remove 2026-11-28 with the stored rules.
 	| { kind: "adoption"; rows: readonly CarriedAutomation[] }
 	// Remove 2027-01-15 with the stored thresholds.
@@ -52,14 +53,19 @@ export interface AutomationJudgeView {
 	/** Readable rows. */
 	held: readonly OwnerRecord<Automation>[];
 	functions: readonly OwnerRecord<AutomationFunction>[];
-	/** Unread rows included. */
-	count: number;
-	max: number;
+	/** Automation rows this build cannot read. */
+	unreadAutomations: number;
 	isHome: boolean;
 	/** Why this Gateway cannot run it. */
 	issue: (body: Automation) => string | null;
-	givenOf: (trigger: AutomationTrigger) => TriggerGiven;
-	copyIdOf: (automationId: string, from: string) => string;
+	/** Fit and the switches its values name. */
+	callIssue: (body: Automation, fn: AutomationFunction) => CallIssue | null;
+	/** Null without a key. */
+	copyIdOf: (automationId: string, from: string) => string | null;
+	/** Null without a key. */
+	carryIdOf: (from: string) => string | null;
+	/** A row this build cannot read holds it. */
+	unreadAt: (id: string) => boolean;
 }
 
 export interface DroppedAutomation {
@@ -91,13 +97,12 @@ const put = (id: string, body: unknown, base: number, revive = false, unfit = fa
 	...(unfit ? { unfit } : {}),
 });
 
-const putFunction = (id: string, body: AutomationFunction, base: number): OwnerWrite => ({
-	op: "put",
-	kind: FUNCTION_KIND,
-	id,
-	body,
-	base,
-});
+const putFunction = (
+	id: string,
+	body: AutomationFunction,
+	base: number,
+	options: { revive?: true; unfit?: true } = {},
+): OwnerWrite => ({ op: "put", kind: FUNCTION_KIND, id, body, base, ...options });
 
 const remove = ({ id, revision }: { id: string; revision: number }): OwnerWrite => ({
 	op: "remove",
@@ -111,8 +116,16 @@ export const pointerOf = (body: Automation): RunFunction | null =>
 const onlyEnabledMoved = (next: Automation, held: Automation | undefined): boolean =>
 	held !== undefined && canonicalJson({ ...next, enabled: true }) === canonicalJson({ ...held, enabled: true });
 
-const dangerKey = (at: Reached): string | null =>
-	stepDanger(at.kind) ? canonicalJson("action" in at ? at.action : { kind: at.kind, args: at.step.args }) : null;
+/** One key for an action, flat or as a step. */
+const dangerKey = (at: Reached): string | null => {
+	if (!stepDanger(at.kind)) return null;
+	if ("action" in at) return canonicalJson(at.action);
+	const values = Object.entries(at.step.args).map(([name, arg]) => [
+		name,
+		arg.kind === "literal" ? arg.value : { expression: arg.text },
+	]);
+	return canonicalJson({ kind: at.kind, ...Object.fromEntries(values) });
+};
 
 const stepDanger = (kind: string): boolean =>
 	Object.hasOwn(AUTOMATION_ACTIONS, kind) && AUTOMATION_ACTIONS[kind as AutomationActionKind].danger;
@@ -152,7 +165,7 @@ function judgeSave(
 	if (intent.kind === "owner_put" && heldPointer && !pointerOf(next))
 		return refused("edit this in the newer app", { code: "newer_app", record: "automation" });
 
-	let fnWrite: { id: string; body: AutomationFunction; base: number } | null = null;
+	let fnWrite: { id: string; body: AutomationFunction; base: number; revive?: true } | null = null;
 	const sent = intent.kind === "save" ? intent.function : undefined;
 	if (sent) {
 		const body = FunctionSchema.safeParse(sent.body);
@@ -161,23 +174,38 @@ function judgeSave(
 			return refused(body.error.issues[0]?.message ?? "not valid", { code: "invalid", record: "function", path });
 		}
 		if (sent.as === "copy") {
-			const from = functionAt(sent.from);
-			if (!from) return refused("the function is gone", { code: "gone", record: "function" });
-			if (from.revision !== sent.fromBase) {
-				return refused(`revision ${from.revision} is stored`, {
-					code: "moved",
-					record: "function",
-					revision: from.revision,
-				});
-			}
-			const id = view.copyIdOf(intent.id, sent.from);
 			const pointer = pointerOf(next);
 			if (!pointer) return refused("a copy needs a pointer", { code: "invalid", record: "automation" });
+			const start = view.copyIdOf(intent.id, sent.from);
+			if (start === null) return claimRefusal({ refused: "no_key" });
+			const step = (at: string) => view.copyIdOf(intent.id, at);
+			const from = functionAt(sent.from);
+			// A retry whose answer was lost.
+			const echoed = from ? null : copyEchoOf(view, intent.id, start, step, body.data);
+			let id: string;
+			if (echoed) id = echoed;
+			else {
+				if (!from) return refused("the function is gone", { code: "gone", record: "function" });
+				if (from.revision !== sent.fromBase) {
+					return refused(`revision ${from.revision} is stored`, {
+						code: "moved",
+						record: "function",
+						revision: from.revision,
+					});
+				}
+				const claim = claimDerived(
+					start,
+					step,
+					takeableBy(view, (user) => user === intent.id),
+				);
+				if ("refused" in claim) return claimRefusal(claim);
+				id = claim.id;
+			}
 			next = AutomationSchema.parse({
 				...next,
 				actions: actions.map((action) => (action === pointer ? { ...pointer, function: id } : action)),
 			} satisfies AutomationInput);
-			fnWrite = { id, body: body.data, base: functionAt(id)?.revision ?? 0 };
+			fnWrite = { id, body: body.data, base: functionAt(id)?.revision ?? 0, revive: true };
 		} else {
 			if (pointerOf(next)?.function !== sent.id)
 				return refused("the automation does not run it", { code: "invalid", record: "function" });
@@ -193,8 +221,15 @@ function judgeSave(
 	const functionNext = (id: string): AutomationFunction | null =>
 		fnWrite?.id === id ? fnWrite.body : (functionAt(id)?.body ?? null);
 	const functionHeld = (id: string): AutomationFunction | null => functionAt(id)?.body ?? null;
-	if (pointer && !functionNext(pointer.function))
-		return refused("the function it runs is gone", { code: "unknown_function", id: pointer.function });
+	if (pointer && !functionNext(pointer.function)) {
+		return view.unreadAt(pointer.function)
+			? refused("a newer build wrote that function", {
+					code: "newer_function",
+					record: "function",
+					id: pointer.function,
+				})
+			: refused("the function it runs is gone", { code: "unknown_function", id: pointer.function });
+	}
 
 	const toggle = !sent && onlyEnabledMoved(next, held?.body);
 	// Includes other users of an edited function.
@@ -208,13 +243,20 @@ function judgeSave(
 	];
 
 	if (!toggle) {
-		const unfit = users.filter(({ body }) => {
+		const issueOf = (body: Automation) => {
 			const at = pointerOf(body);
 			const fn = at ? functionNext(at.function) : null;
-			if (!at || !fn) return false;
-			const reads = functionReads(fn);
-			return !fitOf(view.givenOf(body.trigger), { params: fn.params, reads }, at.values ?? {}).fits;
-		});
+			return fn ? view.callIssue(body, fn) : null;
+		};
+		const own = issueOf(next);
+		if (own?.kind === "switch") {
+			return refused("no such switch on this Gateway", {
+				code: "invalid",
+				record: "automation",
+				path: `values.${own.param}`,
+			});
+		}
+		const unfit = users.filter(({ body }) => issueOf(body) !== null);
 		if (unfit.length > 0) {
 			return refused("it would stop fitting what runs it", {
 				code: "unfit",
@@ -241,18 +283,79 @@ function judgeSave(
 	}
 
 	// The function lands first, so the automation's check sees it.
-	const writes: OwnerWrite[] = fnWrite ? [putFunction(fnWrite.id, fnWrite.body, fnWrite.base)] : [];
+	const writes: OwnerWrite[] = fnWrite
+		? [putFunction(fnWrite.id, fnWrite.body, fnWrite.base, fnWrite.revive ? { revive: true } : {})]
+		: [];
 	writes.push(put(intent.id, next, intent.base));
 	return { kind: "writes", writes: [...writes, ...unused(view, intent.id, next)], dropped: [] };
 }
+
+/** Who runs a function; unknown while an unread automation is held. */
+export function usersOf(
+	view: Pick<AutomationJudgeView, "held" | "unreadAutomations">,
+	id: string,
+): readonly string[] | "unknown" {
+	if (view.unreadAutomations > 0) return "unknown";
+	return view.held.filter((record) => pointerOf(record.body)?.function === id).map((record) => record.id);
+}
+
+const DERIVED_HOPS = 8;
+
+type Claim = { id: string } | { refused: "no_key" | "exhausted" };
+
+/** The first id on a chain this intent may write. */
+function claimDerived(start: string, next: (id: string) => string | null, takeable: (id: string) => boolean): Claim {
+	let id: string | null = start;
+	for (let hop = 0; hop < DERIVED_HOPS; hop++) {
+		if (id === null) return { refused: "no_key" };
+		if (takeable(id)) return { id };
+		id = next(id);
+	}
+	return { refused: "exhausted" };
+}
+
+/** Absent, buried, or a function only `allowed` users run. */
+function takeableBy(view: AutomationJudgeView, allowed: (user: string) => boolean) {
+	return (id: string): boolean => {
+		if (view.unreadAt(id) || view.held.some((record) => record.id === id)) return false;
+		if (!view.functions.some((record) => record.id === id)) return true;
+		const users = usersOf(view, id);
+		return users !== "unknown" && users.every(allowed);
+	};
+}
+
+/** The copy a held automation already runs, with this body. */
+function copyEchoOf(
+	view: AutomationJudgeView,
+	automationId: string,
+	start: string,
+	next: (id: string) => string | null,
+	body: AutomationFunction,
+): string | null {
+	const held = view.held.find((record) => record.id === automationId);
+	const runs = held ? pointerOf(held.body)?.function : undefined;
+	let id: string | null = start;
+	for (let hop = 0; hop < DERIVED_HOPS && id !== null; hop++) {
+		const copy = view.functions.find((record) => record.id === id);
+		if (id === runs && copy && canonicalJson(copy.body) === canonicalJson(body)) return id;
+		id = next(id);
+	}
+	return null;
+}
+
+const claimRefusal = (claim: Extract<Claim, { refused: string }>): AutomationVerdict =>
+	claim.refused === "no_key"
+		? refused("the key for derived ids cannot be read", { code: "no_key" })
+		: refused("no derived id is free", { code: "invalid", record: "function" });
 
 function unused(view: AutomationJudgeView, id: string, next: Automation | null): OwnerWrite[] {
 	const held = view.held.find((record) => record.id === id);
 	const was = held ? pointerOf(held.body)?.function : undefined;
 	if (was === undefined || (next && pointerOf(next)?.function === was)) return [];
-	const others = view.held.some((record) => record.id !== id && pointerOf(record.body)?.function === was);
+	const users = usersOf(view, was);
 	const fn = view.functions.find((record) => record.id === was);
-	return others || !fn ? [] : [remove(fn)];
+	// Unknown means used.
+	return users === "unknown" || users.some((user) => user !== id) || !fn ? [] : [remove(fn)];
 }
 
 /** Last of an id wins. */
@@ -271,6 +374,72 @@ function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView, 
 	return { wanted, dropped };
 }
 
+/** Never refused; unfit rows land invalid. */
+function judgeCarry(
+	intent: Extract<AutomationIntent, { kind: "carry" }>,
+	view: AutomationJudgeView,
+): AutomationVerdict {
+	const heldAt = (id: string) => view.held.find((record) => record.id === id);
+	const functionAt = (id: string) => view.functions.find((record) => record.id === id);
+	// Kept invalid; nothing lost.
+	const { wanted, dropped } = fitting(intent.rows, view, false);
+	const leaving = view.held.filter((record) => movesWithHome(record.body) && !wanted.has(record.id));
+	const moves = (user: string) => {
+		const held = heldAt(user);
+		return wanted.has(user) || (held !== undefined && movesWithHome(held.body));
+	};
+	const takeable = takeableBy(view, moves);
+	/** A move in place keeps its own functions. */
+	const inPlace = new Set(
+		[...wanted.keys()].flatMap((id) => {
+			const held = heldAt(id);
+			const own = held && movesWithHome(held.body) ? pointerOf(held.body)?.function : undefined;
+			return own && !view.unreadAt(own) ? [own] : [];
+		}),
+	);
+	/** Landing id to its source. */
+	const claimedBy = new Map<string, string>();
+	const claimFor = (source: string): Claim =>
+		inPlace.has(source)
+			? { id: source }
+			: claimDerived(source, view.carryIdOf, (at) => (claimedBy.get(at) ?? source) === source && takeable(at));
+	const landing = new Map<string, string>();
+	const fnPuts: OwnerWrite[] = [];
+	for (const { id, function: body } of intent.functions ?? []) {
+		if (landing.has(id)) continue;
+		const claim = claimFor(id);
+		if ("refused" in claim) return claimRefusal(claim);
+		landing.set(id, claim.id);
+		claimedBy.set(claim.id, id);
+		fnPuts.push(putFunction(claim.id, body, functionAt(claim.id)?.revision ?? 0, { revive: true, unfit: true }));
+	}
+	/** Never bound to a staying function. */
+	const repointed = (automation: Automation): Automation | Extract<Claim, { refused: string }> => {
+		const pointer = pointerOf(automation);
+		if (!pointer) return automation;
+		const landed = landing.get(pointer.function);
+		const claim = landed === undefined ? claimFor(pointer.function) : { id: landed };
+		if ("refused" in claim || claim.id === pointer.function) return "refused" in claim ? claim : automation;
+		return AutomationSchema.parse({
+			...automation,
+			actions: written(automation).map((action) =>
+				action === pointer ? { ...pointer, function: claim.id } : action,
+			),
+		} satisfies AutomationInput);
+	};
+	const puts: OwnerWrite[] = [];
+	for (const [id, automation] of wanted) {
+		const current = heldAt(id);
+		if ((current && !movesWithHome(current.body)) || functionAt(id))
+			return refused(`another record holds the id ${id}`, { code: "invalid", id });
+		const body = repointed(automation);
+		if ("refused" in body) return claimRefusal(body);
+		puts.push(put(id, body, current?.revision ?? 0, true, true));
+	}
+	// The store caps the final count.
+	return { kind: "writes", writes: [...leaving.map(remove), ...fnPuts, ...puts], dropped };
+}
+
 export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJudgeView): AutomationVerdict {
 	const heldAt = (id: string) => view.held.find((record) => record.id === id);
 	switch (intent.kind) {
@@ -283,28 +452,15 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 				writes: [{ op: "remove", id: intent.id, base: intent.base }, ...unused(view, intent.id, null)],
 				dropped: [],
 			};
-		case "carry": {
-			// Kept and reads invalid, so a move loses nothing.
-			const { wanted, dropped } = fitting(intent.rows, view, false);
-			const leaving = view.held.filter((record) => movesWithHome(record.body) && !wanted.has(record.id));
-			const puts: OwnerWrite[] = [];
-			let created = 0;
-			for (const [id, automation] of wanted) {
-				const current = heldAt(id);
-				if (current && !movesWithHome(current.body))
-					return refused(`another automation holds the id ${id}`, { code: "invalid", id });
-				if (!current) created += 1;
-				puts.push(put(id, automation, current?.revision ?? 0, true, true));
-			}
-			const staying = view.count - leaving.length;
-			const over = staying + created - view.max;
-			if (over > 0) {
-				return refused(
-					`${over} of the carried automations do not fit: this Gateway holds ${staying} of ${view.max}`,
-					{ code: "full", kind: "automation", max: view.max },
-				);
-			}
-			return { kind: "writes", writes: [...leaving.map(remove), ...puts], dropped };
+		case "carry":
+			return judgeCarry(intent, view);
+		case "sweep": {
+			const unusedNow = (id: string) => {
+				const users = usersOf(view, id);
+				return users !== "unknown" && users.length === 0;
+			};
+			const writes = view.functions.filter((fn) => intent.ids.includes(fn.id) && unusedNow(fn.id)).map(remove);
+			return { kind: "writes", writes, dropped: [] };
 		}
 		case "adoption": {
 			const { wanted, dropped } = fitting(intent.rows, view, true);

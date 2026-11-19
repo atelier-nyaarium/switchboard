@@ -4,7 +4,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPolicyStore } from "../gateway/policies/store.js";
 import { type DurableStore, DurableStoreInstalledError, openDurable } from "../shared/durable-store.js";
-import { type AuthorizationPolicy, MAX_POLICIES_PER_GATEWAY } from "../shared/schemasPolicy.js";
+import {
+	type AuthorizationPolicy,
+	MAX_POLICIES_PER_GATEWAY,
+	MAX_SELECTOR_LEN,
+	MAX_SELECTORS_PER_POLICY,
+} from "../shared/schemasPolicy.js";
 import { REVISION_CEILING } from "../shared/schemasRunbook.js";
 
 const roots: string[] = [];
@@ -141,6 +146,21 @@ describe("policy store", () => {
 			stored: false,
 			refusal: { code: "full", max: MAX_POLICIES_PER_GATEWAY },
 		});
+		const commands = Array.from({ length: MAX_SELECTORS_PER_POLICY + 1 }, (_, n) => `sudo c${n}`);
+		expect(store.put(policy("p0", { selectorKeys: commands }), { base: 1 })).toMatchObject({
+			stored: false,
+			refusal: { code: "too_many_commands", max: MAX_SELECTORS_PER_POLICY },
+		});
+		const longKey = `sudo -u root ${"x".repeat(MAX_SELECTOR_LEN)}`;
+		expect(store.put(policy("p0", { selectorKeys: [longKey] }), { base: 1 })).toMatchObject({
+			stored: false,
+			refusal: { code: "command_too_long", max: MAX_SELECTOR_LEN },
+		});
+		expect(store.put(policy("p0", { name: "n".repeat(500) }), { base: 1 })).toMatchObject({
+			stored: false,
+			refusal: { code: "invalid" },
+		});
+		expect(open(dataDir).get("p0")).toMatchObject({ revision: 1 });
 
 		fs.writeFileSync(
 			path.join(dataDir, "policies.json"),
@@ -159,8 +179,12 @@ describe("policy store", () => {
 		const poisoned = [
 			[policy("a", key), policy("b", key)],
 			[policy("a", key), policy("a", { name: "twice", selectorKeys: ["sudo rm"] })],
-			[policy("a")],
 			Array.from({ length: 257 }, (_, i) => policy(`p${i}`, { selectorKeys: [`sudo p${i}`] })),
+			[
+				policy("a", {
+					selectorKeys: Array.from({ length: MAX_SELECTORS_PER_POLICY + 1 }, (_, i) => `sudo c${i}`),
+				}),
+			],
 		];
 		for (const records of poisoned) {
 			fs.writeFileSync(file, JSON.stringify(records));
@@ -170,6 +194,31 @@ describe("policy store", () => {
 			const healed = open(dataDir).list();
 			expect(healed.map((row) => row.id)).toEqual(["kept"]);
 		}
+	});
+
+	it("drops at restore only a key it cannot hold, never re-keys it, and writes the file back", () => {
+		const dataDir = fresh();
+		const file = path.join(dataDir, "policies.json");
+		const longKey = `sudo -u root ${"x".repeat(MAX_SELECTOR_LEN)}`;
+		const clean = policy("b", { selectorKeys: ["sudo rm"], revision: 4 });
+		fs.writeFileSync(
+			file,
+			JSON.stringify([
+				policy("a", { selectorKeys: ["sudo apt", "sudo -A apt-get", longKey], revision: 3 }),
+				clean,
+				policy("c", { selectorKeys: ["sudo apt install foo"] }),
+			]),
+		);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		const store = open(dataDir);
+
+		// A stale save answers `moved`.
+		const pruned = policy("a", { selectorKeys: ["sudo apt"], revision: 4 });
+		expect(store.list()).toEqual([pruned, clean]);
+		expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual([pruned, clean]);
+		expect(warn).toHaveBeenCalledTimes(2);
+		warn.mockRestore();
 	});
 
 	it("reports a refused disk write and accepts an installed snapshot", () => {

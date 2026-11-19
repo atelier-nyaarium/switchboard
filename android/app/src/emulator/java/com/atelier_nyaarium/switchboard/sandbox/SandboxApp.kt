@@ -62,8 +62,15 @@ class SandboxApp : Application() {
 					gateways = gateways.drop(1).ifEmpty { listOf("elsewhere") },
 				),
 				com.atelier_nyaarium.switchboard.vault.VaultDraft(id = "a-note", publicTitle = "A note, no value"),
+				com.atelier_nyaarium.switchboard.vault.VaultDraft(
+					id = "sakura-nyaarium",
+					privateTitle = "Sakura Nyaarium",
+					value = "hunter3",
+					gateways = gateways.take(1),
+				),
 			),
 		)
+		fixtures.teams().firstOrNull()?.let { session -> seedSudoRequests(repo, session.name, gateways.first()) }
 		// Notification send card.
 		val domain = fixtures.teams().firstOrNull()?.domainId ?: "home"
 		gateways.firstOrNull()?.let { gatewayId ->
@@ -100,6 +107,45 @@ class SandboxApp : Application() {
 				for (file in row.files) storedCardFrom(file, row.at)?.let { DesignStore.upsert(team, it) }
 			}
 		}
+	}
+
+	/** The sudo card's three frames: suggested, open pick, nothing fits. */
+	private fun seedSudoRequests(repo: com.atelier_nyaarium.switchboard.ChatRepository, session: String, gateway: String) {
+		val now = System.currentTimeMillis()
+		val key = "sudo apt-mark"
+		val sudo = com.atelier_nyaarium.switchboard.proto.PolicyRef("sakura-sudo", 2L)
+		fun typed(id: String, answering: List<com.atelier_nyaarium.switchboard.proto.VaultAnswering>?) =
+			com.atelier_nyaarium.switchboard.proto.VaultRequest.Typed(
+				v = 1L,
+				requestId = id,
+				operation = "/usr/bin/sudo apt-mark hold containerd.io docker-ce docker-ce-cli",
+				displayShape = key,
+				coveredShapes = listOf(key),
+				sessionTarget = "host.demo",
+				deadlineAt = now + 19 * 3_600_000L,
+				why = com.atelier_nyaarium.switchboard.proto.VaultTypedWhy(code = "no_policy"),
+				answering = answering,
+			)
+		repo.vaultOps.onRequest(
+			session,
+			typed("sandbox-sudo-suggested", listOf(com.atelier_nyaarium.switchboard.proto.VaultAnswering("sakura-nyaarium", sudo))),
+		)
+		repo.vaultOps.onRequest(session, typed("sandbox-sudo-open", null))
+		repo.vaultOps.onRequest("${session.substringBefore('.')}.unlisted.host.worker", typed("sandbox-sudo-none", null))
+		repo.vault.setGrants(
+			gateway,
+			listOf(
+				com.atelier_nyaarium.switchboard.proto.VaultGrant.Window(
+					grantId = "sandbox-window",
+					entryId = "sakura-nyaarium",
+					holder = com.atelier_nyaarium.switchboard.proto.VaultHolder.Session("host.demo"),
+					displayShape = "sudo setfacl",
+					coveredShapes = listOf("sudo setfacl"),
+					expiresAt = now + 30 * 60_000L,
+					policy = sudo,
+				),
+			),
+		)
 	}
 
 }

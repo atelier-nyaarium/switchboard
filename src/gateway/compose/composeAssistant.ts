@@ -9,6 +9,7 @@ import {
 	ASSISTANT_TEAM,
 	isAssistantRecord,
 } from "../../shared/assistant-session.js";
+import { EVENT_GIVEN_FIELDS, type EventGivenField } from "../../shared/automation-fit.js";
 import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
 import { openDurable } from "../../shared/durable-store.js";
 import { errorName } from "../../shared/error-name.js";
@@ -273,10 +274,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const decide = (sourceId: string, event: SourceEvent): RuleAction =>
 		told(event) ?? (wakers(sourceId, event).length > 0 ? "wake" : "inbox");
 	/** What a text's holes read of an event. */
-	const eventNames = (sourceId: string, { id, title, url, fields }: SourceEvent) => ({
-		event: { value: { ...fields, id, title, ...(url ? { url } : {}) }, shown: title },
-		source: { value: sources.find((source) => source.id === sourceId)?.label ?? sourceId },
-	});
+	const eventNames = (sourceId: string, { id, title, url, fields }: SourceEvent) => {
+		const given: Record<EventGivenField, string | undefined> = { id, title, url };
+		const named = EVENT_GIVEN_FIELDS.flatMap((name) => (given[name] ? [[name, given[name]]] : []));
+		return {
+			event: { value: { ...fields, ...Object.fromEntries(named) }, shown: title },
+			source: { value: sources.find((source) => source.id === sourceId)?.label ?? sourceId },
+		};
+	};
 	/** Each match fires once per member, as the lane counts one. */
 	const arrived = (sourceId: string, events: readonly SourceEvent[]): void => {
 		const specs = specsOf(sourceId) ?? [];
@@ -733,6 +738,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		return carried?.automations ?? fromRules;
 	};
 
+	const carryOf = (carried: AssistantHomeSealed["carried"]) =>
+		({ kind: "carry", rows: carriedEvents(carried), functions: carried?.functions ?? null }) as const;
+
 	/** With lanes stopped, the carried settings land; lanes start only once all of it is saved. */
 	const apply = async (record: AssistantHomeRecord): Promise<string | null> => {
 		await stopLanes();
@@ -742,7 +750,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const refused = placeRefusal(workdirPath, sessions);
 		if (refused) return refused;
 		// Refuse the move before anything is written.
-		const unfit = automations?.refusalOf({ kind: "carry", rows: carriedEvents(carried) });
+		const unfit = automations?.refusalOf(carryOf(carried));
 		if (unfit) return `the automations could not be saved: ${unfit.reason}`;
 		marker.ended();
 		for (const id of grantTargets()) deps.vault.setServiceGrants(id, []);
@@ -759,7 +767,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			throw error;
 		}
 		const byId = new Map((carried?.watchers ?? []).map((source) => [source.id, source]));
-		const moved = automations?.write({ kind: "carry", rows: carriedEvents(carried) });
+		const moved = automations?.write(carryOf(carried));
 		if (!moved?.written) return `the automations could not be saved${moved ? `: ${moved.reason}` : ""}`;
 		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
 		if (!temperature.set(carried?.temperatureUnit ?? "C")) return "the temperature unit could not be saved";
@@ -804,7 +812,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}
 		if (!grantTargets().every((id) => grantsLanded(id, []))) return false;
 		const ids = sources.map((source) => source.id);
-		if (automations && !automations.write({ kind: "carry", rows: [] }).written) return false;
+		if (automations && !automations.write({ kind: "carry", rows: [], functions: [] }).written) return false;
 		if (automations && !automations.emptyOutbox()) return false;
 		if (!openDurable(deps.dataDir, "assistant-rules", clearStoredRules)) return false;
 		if (!safety.approveEverySend() && !safety.set(true)) return false;

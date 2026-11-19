@@ -171,6 +171,8 @@ data class GatewayEntry(
 	val automations: GatewayList<AutomationRow> = GatewayList.Unread,
 	/** Read only by `automationContext`. */
 	val automationServes: com.atelier_nyaarium.switchboard.proto.AutomationServes? = null,
+	/** Landed with the rows; read only by `automationContext`. */
+	val automationFunctions: List<com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow>? = null,
 	val peers: GatewayList<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = GatewayList.Unread,
 	val assistant: AssistantRead = AssistantRead.Reading,
 ) {

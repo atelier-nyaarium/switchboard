@@ -17,10 +17,11 @@ import {
 	type createAutomations,
 	KEEP_TRYING_MS,
 	NEWER_SET,
+	SWITCHED_OFF,
 	WAITING_EVENTS_MAX,
 } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
-import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { openDurable } from "../shared/durable-store.js";
 import { type FieldRef, known, refKey, unknown, type Value } from "../shared/expressions.js";
@@ -134,6 +135,7 @@ function world(dir: string, home = true) {
 									if (broken) throw new Error("fill broke");
 									return fillHoles(text, names, REGISTRY);
 								},
+								evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
 							}
 						: undefined;
 				},
@@ -594,7 +596,7 @@ describe("automations", () => {
 		expect(await queued(after)).toEqual(["high"]);
 	});
 
-	it("drops a waiting fire once its automation is edited, and starts no run after a stop", async () => {
+	it("drops a waiting fire once its automation is switched off, and starts no run after a stop", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -617,7 +619,7 @@ describe("automations", () => {
 		await stopped.open().automations.settled();
 
 		expect(w.effects).toEqual(["plug:on"]);
-		expect(edited).toEqual([["suppressed", "the automation changed"]]);
+		expect(edited).toEqual([["suppressed", SWITCHED_OFF]]);
 		expect([idle, stopped.effects]).toEqual([[], ["plug:on"]]);
 	});
 
@@ -818,11 +820,15 @@ describe("automations", () => {
 			});
 		const ids = () => automations.list().map((record) => record.id);
 		automations.ownerPut("bucket", iceBucket(), 0);
-		automations.write({ kind: "carry", rows: [{ id: "old", automation: event() }] });
+		automations.write({ kind: "carry", rows: [{ id: "old", automation: event() }], functions: [] });
 		const many = Array.from({ length: AUTOMATIONS_MAX }, (_, at) => ({ id: `e${at}`, automation: event() }));
 
-		const over = automations.write({ kind: "carry", rows: many });
-		const taken = automations.write({ kind: "carry", rows: [{ id: "bucket", automation: event() }] });
+		const over = automations.write({ kind: "carry", rows: many, functions: [] });
+		const taken = automations.write({
+			kind: "carry",
+			rows: [{ id: "bucket", automation: event() }],
+			functions: [],
+		});
 		const kept = ids();
 		const fits = automations.write({
 			kind: "carry",
@@ -831,6 +837,7 @@ describe("automations", () => {
 				{ id: "elsewhere", automation: event("gmail") },
 				{ id: "local", automation: parsed(iceBucket()) },
 			],
+			functions: [],
 		});
 
 		expect([over.written, taken.written]).toEqual([false, false]);
@@ -1207,20 +1214,19 @@ describe("automations", () => {
 	describe("a fire whose automation is edited while it runs", () => {
 		const on = { kind: "device_set", device: "plug", verb: "on" } as const;
 		const toggle = { kind: "device_set", device: "plug", verb: "toggle" } as const;
-		const editedMidAttempt = (w: ReturnType<typeof world>, other: AutomationInput["actions"][number]) => {
-			const { fields, automations } = w.open();
-			fields.put("band", hotBand, 0);
-			automations.ownerPut("run", { ...iceBucket(), actions: [on] }, 0);
-			const release = w.holdEffects("plug:on");
-			w.read(fields, -5);
-			const edited = automations.ownerPut("run", { ...iceBucket(), actions: [other] }, 1, true);
-			return { automations, release, edited };
-		};
+		const bell = { kind: "ifttt_trigger", event: "bell" } as const;
 
-		it("logs the kind that ran, and keeps the body each held fire fired with", async () => {
+		it("finishes a started run on the body it fired with, and retires a waiting one, keeping each body pinned", async () => {
 			const dir = fresh();
 			const w = world(dir);
-			const { automations, release, edited } = editedMidAttempt(w, { kind: "ifttt_trigger", event: "bell" });
+			const { fields, automations } = w.open();
+			fields.put("band", hotBand, 0);
+			automations.ownerPut("run", { ...iceBucket(), actions: [on, toggle] }, 0);
+			const release = w.holdEffects("plug:on");
+			w.read(fields, -5);
+			w.read(fields, -15);
+			w.read(fields, -5);
+			const edited = automations.ownerPut("run", { ...iceBucket(), actions: [bell] }, 1, true);
 			const stored = JSON.parse(fs.readFileSync(path.join(dir, "automation-state.json"), "utf8"));
 			release();
 			await automations.settled();
@@ -1229,13 +1235,33 @@ describe("automations", () => {
 			expect(
 				stored.fires.every((held: Parameters<typeof versionKey>[0]) => versionKey(held) in stored.versions),
 			).toBe(true);
-			expect(automations.log().map((run) => [run.action, run.outcome])).toEqual([["device_set", "ran"]]);
+			expect(w.effects).toEqual(["plug:on", "plug:toggle"]);
+			expect(automations.log().map((run) => [run.action, run.outcome, run.reason])).toEqual([
+				[undefined, "suppressed", "the automation changed"],
+				["device_set", "ran", undefined],
+				["device_set", "ran", undefined],
+			]);
 		});
+	});
+
+	describe("a fire whose automation is switched off while it runs", () => {
+		const on = { kind: "device_set", device: "plug", verb: "on" } as const;
+		const toggle = { kind: "device_set", device: "plug", verb: "toggle" } as const;
+		const off = (actions: AutomationInput["actions"]) => ({ ...iceBucket(), actions, enabled: false });
+		const offMidAttempt = (w: ReturnType<typeof world>) => {
+			const { fields, automations } = w.open();
+			fields.put("band", hotBand, 0);
+			automations.ownerPut("run", { ...iceBucket(), actions: [on] }, 0);
+			const release = w.holdEffects("plug:on");
+			w.read(fields, -5);
+			automations.ownerPut("run", off([on]), 1, true);
+			return { automations, release };
+		};
 
 		it("ends an On a crash left out as no answer, never resumed, logging what ran", async () => {
 			const dir = fresh();
 			const w = world(dir);
-			editedMidAttempt(w, toggle);
+			offMidAttempt(w);
 			w.holdEffects("none");
 			const after = w.open().automations;
 			await after.settled();
@@ -1244,10 +1270,10 @@ describe("automations", () => {
 			expect(after.log().map((run) => [run.action, run.outcome])).toEqual([["device_set", "uncertain"]]);
 		});
 
-		it("ends an On that answered no answer as uncertain, not retried, once it was edited", async () => {
+		it("ends an On that answered no answer as uncertain, not retried, once it was switched off", async () => {
 			const w = world(fresh());
 			w.answerDevices(() => ({ word: "no_answer" }));
-			const { automations, release } = editedMidAttempt(w, toggle);
+			const { automations, release } = offMidAttempt(w);
 			release();
 			await automations.settled();
 			w.advance(BACKOFF_MAX_MS);
@@ -1270,16 +1296,16 @@ describe("automations", () => {
 			const rows = (automations: ReturnType<ReturnType<typeof world>["open"]>["automations"]) =>
 				automations.log().map((run) => [run.action, run.outcome]);
 
-			it("ends with that word when its automation is edited in the gap, then one row for the steps unreached", async () => {
+			it("ends with that word when its automation is switched off in the gap, then one row for the steps unreached", async () => {
 				const alone = world(fresh());
 				const one = waiting(alone, [on]);
 				await one.settled();
-				one.ownerPut("run", { ...iceBucket(), actions: [toggle] }, 1, true);
+				one.ownerPut("run", off([on]), 1, true);
 				await one.settled();
 				const pair = world(fresh());
 				const two = waiting(pair, [on, toggle]);
 				await two.settled();
-				two.ownerPut("run", { ...iceBucket(), actions: [toggle] }, 1, true);
+				two.ownerPut("run", off([on, toggle]), 1, true);
 				await two.settled();
 				for (const [w, automations] of [
 					[alone, one],
@@ -1298,13 +1324,13 @@ describe("automations", () => {
 				]);
 			});
 
-			it("ends with that word when a restart finds its automation edited in the gap", async () => {
+			it("ends with that word when a restart finds its automation switched off in the gap", async () => {
 				const dir = fresh();
 				const w = world(dir);
 				const before = waiting(w, [on]);
 				await before.settled();
 				w.failWrites(100);
-				const edited = before.ownerPut("run", { ...iceBucket(), actions: [toggle] }, 1, true);
+				const edited = before.ownerPut("run", off([on]), 1, true);
 				await before.settled();
 				w.failWrites(0);
 				const after = w.open().automations;
@@ -1316,14 +1342,14 @@ describe("automations", () => {
 			});
 		});
 
-		it("logs one suppressed row for the steps an edit left unreached", async () => {
+		it("logs one suppressed row for the steps a switch-off left unreached", async () => {
 			const w = world(fresh());
 			const { fields, automations } = w.open();
 			fields.put("band", hotBand, 0);
 			automations.ownerPut("run", { ...iceBucket(), actions: [on, toggle] }, 0);
 			const release = w.holdEffects("plug:on");
 			w.read(fields, -5);
-			automations.ownerPut("run", { ...iceBucket(), actions: [toggle] }, 1, true);
+			automations.ownerPut("run", off([on, toggle]), 1, true);
 			release();
 			await automations.settled();
 

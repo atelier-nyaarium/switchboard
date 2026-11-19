@@ -253,6 +253,8 @@ internal class ConsoleAssistantGateway(private val client: ConsoleClient) : Assi
 	override suspend fun call(gatewayId: String, op: ConsoleOp) = client.assistantOp(gatewayId, op)
 
 	override suspend fun automations(gatewayId: String) = client.automationList(gatewayId).rows
+
+	override suspend fun automationListing(gatewayId: String) = client.automationList(gatewayId)
 }
 
 internal class ConsoleAutomationGateway(private val client: ConsoleClient) : AutomationGateway {
@@ -266,6 +268,8 @@ internal class ConsoleAutomationGateway(private val client: ConsoleClient) : Aut
 
 	override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?) =
 		client.automationPreview(gatewayId, trigger, text)
+
+	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave) = client.automationSave(gatewayId, op)
 }
 
 internal class ChatRepositoryAutomationHost(private val repo: ChatRepository) : AutomationHost {

@@ -1,0 +1,200 @@
+{
+	"_comment": "A home move's functions. `pick` is src/shared/automation-carry.ts, which the phone twins: which functions a move carries. `land` is the destination's carry, replayed by the Gateway alone. A held row is [id, shape, name]: `automation` is a clock automation running warm-up (it stays), `event` an event automation running warm-up (it moves), `flat` a clock automation telling the assistant, `function` a function of that name telling the assistant, `unread` an automation this build cannot read running warm-up. Each carried automation is an event automation running warm-up; each carried function is [id, name]; null functions is an older phone. `times` repeats the carry. A `{ \"copyOf\": id }` is the id the Gateway derives for a carried function whose own is taken. `invalid` names the line an automation reads, `left` being the function that did not come.",
+	"pick": [
+		{
+			"name": "each function a carried automation runs, once, in listing order",
+			"automations": [
+				{
+					"id": "a",
+					"automation": {
+						"enabled": true,
+						"trigger": { "kind": "event", "source": "github", "conditions": [] },
+						"actions": [{ "kind": "run_function", "function": "warm-up" }]
+					}
+				},
+				{
+					"id": "b",
+					"automation": {
+						"enabled": true,
+						"trigger": { "kind": "event", "source": "github", "conditions": [] },
+						"actions": [{ "kind": "run_function", "function": "warm-up" }]
+					}
+				},
+				{
+					"id": "c",
+					"automation": {
+						"enabled": true,
+						"trigger": { "kind": "event", "source": "github", "conditions": [] },
+						"actions": [{ "kind": "run_function", "function": "chime" }]
+					}
+				},
+				{
+					"id": "d",
+					"automation": {
+						"enabled": true,
+						"trigger": { "kind": "event", "source": "github", "conditions": [] },
+						"actions": [{ "kind": "tell_assistant", "when": "now" }]
+					}
+				}
+			],
+			"listed": [
+				{
+					"id": "chime",
+					"function": {
+						"name": "Chime",
+						"params": [],
+						"steps": [
+							{
+								"kind": "do",
+								"action": "tell_assistant",
+								"args": { "when": { "kind": "literal", "value": "now" } }
+							}
+						]
+					}
+				},
+				{
+					"id": "warm-up",
+					"function": {
+						"name": "Warm up",
+						"params": [],
+						"steps": [
+							{
+								"kind": "do",
+								"action": "tell_assistant",
+								"args": { "when": { "kind": "literal", "value": "now" } }
+							}
+						]
+					}
+				},
+				{
+					"id": "other",
+					"function": {
+						"name": "Other",
+						"params": [],
+						"steps": [
+							{
+								"kind": "do",
+								"action": "tell_assistant",
+								"args": { "when": { "kind": "literal", "value": "now" } }
+							}
+						]
+					}
+				}
+			],
+			"expect": ["chime", "warm-up"]
+		},
+		{
+			"name": "a function the listing does not hold stays behind",
+			"automations": [
+				{
+					"id": "a",
+					"automation": {
+						"enabled": true,
+						"trigger": { "kind": "event", "source": "github", "conditions": [] },
+						"actions": [{ "kind": "run_function", "function": "gone" }]
+					}
+				}
+			],
+			"listed": [
+				{
+					"id": "warm-up",
+					"function": {
+						"name": "Warm up",
+						"params": [],
+						"steps": [
+							{
+								"kind": "do",
+								"action": "tell_assistant",
+								"args": { "when": { "kind": "literal", "value": "now" } }
+							}
+						]
+					}
+				}
+			],
+			"expect": []
+		}
+	],
+	"land": [
+		{
+			"name": "lands each function under its own id where the destination holds none",
+			"held": [],
+			"carried": { "automations": ["a"], "functions": [["warm-up", "Moved"]] },
+			"expect": {
+				"points": { "a": "warm-up" },
+				"functions": [["warm-up", "Moved"]],
+				"invalid": { "a": null }
+			}
+		},
+		{
+			"name": "takes a derived id where a staying automation runs the function, and lands the same rows when run again",
+			"held": [["stays", "automation"], ["warm-up", "function", "Stays"]],
+			"carried": { "automations": ["a"], "functions": [["warm-up", "Moved"]] },
+			"times": 2,
+			"expect": {
+				"points": { "a": { "copyOf": "warm-up" }, "stays": "warm-up" },
+				"functions": [["warm-up", "Stays"], [{ "copyOf": "warm-up" }, "Moved"]],
+				"invalid": { "a": null, "stays": null }
+			}
+		},
+		{
+			"name": "writes over a function only moving automations ran",
+			"held": [["moving", "event"], ["warm-up", "function", "Old"]],
+			"carried": { "automations": ["a"], "functions": [["warm-up", "Moved"]] },
+			"expect": {
+				"points": { "a": "warm-up" },
+				"functions": [["warm-up", "Moved"]],
+				"invalid": { "a": null }
+			}
+		},
+		{
+			"name": "takes a derived id where an automation holds the function's id",
+			"held": [["warm-up", "flat"]],
+			"carried": { "automations": ["a"], "functions": [["warm-up", "Moved"]] },
+			"expect": {
+				"points": { "a": { "copyOf": "warm-up" } },
+				"functions": [[{ "copyOf": "warm-up" }, "Moved"]],
+				"invalid": { "a": null }
+			}
+		},
+		{
+			"name": "takes a derived id where an automation this build cannot read may run the function",
+			"held": [["later", "unread"], ["warm-up", "function", "Held"]],
+			"carried": { "automations": ["a"], "functions": [["warm-up", "Moved"]] },
+			"expect": {
+				"points": { "a": { "copyOf": "warm-up" } },
+				"functions": [["warm-up", "Held"], [{ "copyOf": "warm-up" }, "Moved"]],
+				"invalid": { "a": null }
+			}
+		},
+		{
+			"name": "an older phone's move lands its automation reading that the function did not come",
+			"held": [],
+			"carried": { "automations": ["a"], "functions": null },
+			"expect": {
+				"points": { "a": "warm-up" },
+				"functions": [],
+				"invalid": { "a": "left" }
+			}
+		},
+		{
+			"name": "an older phone's move never binds to a function a staying automation runs",
+			"held": [["stays", "automation"], ["warm-up", "function", "Stays"]],
+			"carried": { "automations": ["a"], "functions": null },
+			"expect": {
+				"points": { "a": { "copyOf": "warm-up" }, "stays": "warm-up" },
+				"functions": [["warm-up", "Stays"]],
+				"invalid": { "a": "left", "stays": null }
+			}
+		},
+		{
+			"name": "an older phone's move back finds the function the let-go kept",
+			"held": [["warm-up", "function", "Kept"]],
+			"carried": { "automations": ["a"], "functions": null },
+			"expect": {
+				"points": { "a": "warm-up" },
+				"functions": [["warm-up", "Kept"]],
+				"invalid": { "a": null }
+			}
+		}
+	]
+}

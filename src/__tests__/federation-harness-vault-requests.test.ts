@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runWithValue } from "../mcp/vault/vaultRun.js";
 import { createVaultTools, type VaultPost } from "../mcp/vault/vaultTools.js";
+import type { ConsoleOp } from "../shared/console-protocol.js";
 import {
 	VAULT_GATEWAYS_KIND,
 	VAULT_PUBLIC_TITLE_KIND,
@@ -8,6 +9,7 @@ import {
 	VAULT_VALUE_KIND,
 	vaultAadKind,
 } from "../shared/content-envelope.js";
+import { type AuthorizationPolicy, MAX_SELECTOR_LEN, MAX_SELECTORS_PER_POLICY } from "../shared/schemasPolicy.js";
 import {
 	VAULT_ROUTE_WAIT_CAP_MS,
 	VaultListResultSchema,
@@ -302,7 +304,9 @@ describe("federation harness: vault requests", () => {
 			requestId: typed.requestId,
 			sessionTarget: alice.team,
 			asker: "4242:100",
+			why: { code: "no_policy" },
 		});
+		expect(request).not.toHaveProperty("runsAnything");
 		const row = h.phone
 			.entries(await h.phone.inboxRead())
 			.find((entry) => entry.kind === "plugin_action" && entry.payload?.requestId === request.requestId);
@@ -462,10 +466,20 @@ describe("federation harness: vault requests", () => {
 		await putPolicy("missing", "nowhere", "ssh missing");
 		await putEntry("elsewhere", 0, ["other-gateway"]);
 		await putPolicy("else", "elsewhere", "ssh elsewhere");
-		for (const [i, line] of ["ssh dis x", "ssh missing x", "ssh elsewhere x"].entries()) {
+		const whys = [
+			["ssh dis x", { code: "policy_off", policyId: "dis", policyName: "dis" }],
+			[
+				"ssh missing x",
+				{ code: "binding_unusable", policyId: "missing", entryId: "nowhere", unusable: "missing" },
+			],
+			["ssh elsewhere x", { code: "binding_unusable", policyId: "else", unusable: "not_allowed" }],
+		] as const;
+		for (const [i, [line, why]] of whys.entries()) {
 			expect(await askpass(line, 200)).toMatchObject({ outcome: "pending" });
 			const typed = await nextRequest(seen + i);
-			expect(typed.kind).toBe("typed");
+			expect(typed).toMatchObject({ kind: "typed", why });
+			const offered = typed.kind === "typed" ? typed.answering?.map((row) => row.entryId) : undefined;
+			expect(offered).toEqual(why.code === "binding_unusable" ? undefined : ["prod-ssh"]);
 			await gatewayPost("/vault/withdraw", session, { requestId: typed.requestId });
 		}
 
@@ -488,6 +502,245 @@ describe("federation harness: vault requests", () => {
 			outcome: "refused",
 			reason: "this Gateway may not use the entry",
 		});
+	});
+
+	it("a typed request answered from a held secret: once leaves nothing, remember writes the key, a refusal writes nothing", async () => {
+		const session = { "x-session-token": alice.sessionToken ?? "" };
+		const askpass = async (cmdline: string): Promise<UseAnswer> =>
+			(await gatewayPost("/vault/askpass", session, { cmdline, waitMs: 200 })).json() as Promise<UseAnswer>;
+		const collect = async (requestId: string) =>
+			(await gatewayPost("/vault/collect", session, { requestId, waitMs: 5_000 })).json();
+		const withdraw = (requestId: string) => gatewayPost("/vault/withdraw", session, { requestId });
+		const answerEntry = async (op: Omit<Extract<ConsoleOp, { kind: "vault_answer_entry" }>, "kind">) =>
+			(await h.phone.value({ kind: "vault_answer_entry", ...op })).result;
+		const policies = async () =>
+			((await h.phone.value({ kind: "policy_list" })).result as { policies: AuthorizationPolicy[] }).policies;
+		const held = async (id: string) => (await policies()).find((policy) => policy.id === id);
+		let seen = (await requestRows()).length;
+		const ask = async (cmdline: string): Promise<VaultRequest> => {
+			expect(await askpass(cmdline)).toMatchObject({ outcome: "pending" });
+			const request = await nextRequest(seen);
+			seen += 1;
+			return request;
+		};
+
+		const once = await ask("sudo bash -c id");
+		expect(once).toMatchObject({ kind: "typed", displayShape: "sudo bash", runsAnything: true });
+		expect(once).not.toHaveProperty("answering");
+		const before = await policies();
+		expect(await answerEntry({ requestId: once.requestId, entryId, decision: "once" })).toEqual({ ok: true });
+		expect(await collect(once.requestId)).toEqual({ outcome: "approved", decision: "once", value: "hunter2" });
+		expect(await policies()).toEqual(before);
+		await retracted(once.requestId);
+
+		const created = await ask("sudo apt-mark hold foo");
+		const remember = { policyId: "apt-mark", name: "Apt mark" };
+		expect(
+			await answerEntry({ requestId: created.requestId, entryId, decision: "window", remember }),
+		).toMatchObject({
+			ok: true,
+			policy: {
+				id: "apt-mark",
+				name: "Apt mark",
+				binding: { kind: "entry", entryId },
+				selectorKeys: ["sudo apt-mark"],
+				enabled: true,
+				revision: 1,
+			},
+		});
+		expect(await collect(created.requestId)).toEqual({ outcome: "approved", decision: "window", value: "hunter2" });
+		expect(await askpass("sudo apt-mark hold foo")).toEqual({
+			outcome: "approved",
+			decision: "window",
+			value: "hunter2",
+		});
+		const selected = await ask("sudo apt-mark unhold foo");
+		expect(selected).toMatchObject({ kind: "entry", entryId, policy: { policyId: "apt-mark", policyRevision: 1 } });
+		expect(await answerEntry({ requestId: selected.requestId, entryId, decision: "once" })).toEqual({
+			ok: false,
+			refusal: { code: "not_typed" },
+		});
+		await withdraw(selected.requestId);
+
+		const pending = await ask("sudo apt-get install foo");
+		expect(pending.kind === "typed" && pending.answering).toEqual([
+			{ entryId, policy: { policyId: "apt-mark", policyRevision: 1 } },
+		]);
+		const add = { policyId: "apt-mark" };
+		expect(
+			await answerEntry({
+				requestId: pending.requestId,
+				entryId,
+				decision: "once",
+				remember: { policyId: "apt-mark", name: "Again" },
+			}),
+		).toMatchObject({ ok: false, policyRefusal: { code: "moved" } });
+		expect(
+			await answerEntry({ requestId: pending.requestId, entryId: "prod-ssh", decision: "once", remember: add }),
+		).toEqual({ ok: false, refusal: { code: "bound_elsewhere", policy: "Apt mark" } });
+		const off = await h.phone.value({
+			kind: "policy_put",
+			policy: {
+				id: "off",
+				name: "Off",
+				binding: { kind: "entry", entryId },
+				selectorKeys: ["sudo off-tool"],
+				enabled: false,
+				revision: 1,
+			},
+		});
+		expect(off.result).toMatchObject({ stored: true });
+		expect(
+			await answerEntry({
+				requestId: pending.requestId,
+				entryId,
+				decision: "once",
+				remember: { policyId: "off" },
+			}),
+		).toEqual({ ok: false, refusal: { code: "target_off", policy: "Off" } });
+		const unusable = { policyId: "elsewhere-sudo", name: "Elsewhere" };
+		expect(
+			await answerEntry({
+				requestId: pending.requestId,
+				entryId: "elsewhere",
+				decision: "once",
+				remember: unusable,
+			}),
+		).toEqual({ ok: false, refusal: { code: "unusable", unusable: "not_allowed" } });
+		expect(await held("apt-mark")).toMatchObject({ revision: 1, selectorKeys: ["sudo apt-mark"] });
+		expect(await held("elsewhere-sudo")).toBeUndefined();
+
+		// Remember ends earlier approvals.
+		expect(
+			await answerEntry({ requestId: pending.requestId, entryId, decision: "once", remember: add }),
+		).toMatchObject({ ok: true, policy: { revision: 2, selectorKeys: ["sudo apt-mark", "sudo apt-get"] } });
+		expect(await collect(pending.requestId)).toEqual({ outcome: "approved", decision: "once", value: "hunter2" });
+		const reasked = await ask("sudo apt-mark hold foo");
+		expect(reasked).toMatchObject({ kind: "entry", policy: { policyId: "apt-mark", policyRevision: 2 } });
+		await withdraw(reasked.requestId);
+
+		const answered = await ask("sudo zz-tool run");
+		const typedValue = h.phone.seal("t0ps3cret", vaultAadKind(VAULT_TYPED_KIND, answered.requestId));
+		await h.phone.value({
+			kind: "vault_answer",
+			requestId: answered.requestId,
+			decision: "once",
+			value: typedValue,
+		});
+		expect(await answerEntry({ requestId: answered.requestId, entryId, decision: "once", remember: add })).toEqual({
+			ok: false,
+			refusal: { code: "answered" },
+		});
+		const withdrawn = await ask("sudo yy-tool run");
+		await withdraw(withdrawn.requestId);
+		expect(await answerEntry({ requestId: withdrawn.requestId, entryId, decision: "once", remember: add })).toEqual(
+			{ ok: false, refusal: { code: "expired" } },
+		);
+		expect(await held("apt-mark")).toMatchObject({ revision: 2, selectorKeys: ["sudo apt-mark", "sudo apt-get"] });
+
+		const long = await ask(`sudo -u root echo ${"x".repeat(600)}`);
+		expect(long).not.toHaveProperty("answering");
+		expect(await answerEntry({ requestId: long.requestId, entryId, decision: "once", remember: add })).toEqual({
+			ok: false,
+			refusal: { code: "cannot_remember", max: MAX_SELECTOR_LEN },
+		});
+		expect(await held("apt-mark")).toMatchObject({ revision: 2 });
+		await withdraw(long.requestId);
+
+		const crowdedKeys = Array.from({ length: MAX_SELECTORS_PER_POLICY }, (_, i) => `sudo k${i}`);
+		const full = { id: "full", name: "Full", binding: { kind: "entry" as const, entryId } };
+		const stored = await h.phone.value({
+			kind: "policy_put",
+			policy: { ...full, selectorKeys: crowdedKeys, enabled: true, revision: 1 },
+		});
+		expect(stored.result).toMatchObject({ stored: true, revision: 1 });
+		const crowded = await ask("sudo k64 now");
+		expect(
+			await answerEntry({
+				requestId: crowded.requestId,
+				entryId,
+				decision: "once",
+				remember: { policyId: "full" },
+			}),
+		).toEqual({ ok: false, policyRefusal: { code: "too_many_commands", max: MAX_SELECTORS_PER_POLICY } });
+		expect(await held("full")).toMatchObject({ revision: 1, selectorKeys: crowdedKeys });
+		await withdraw(crowded.requestId);
+	});
+
+	it("a waiting typed request resolves when a policy comes to cover it", async () => {
+		const session = { "x-session-token": alice.sessionToken ?? "" };
+		const askpass = async (cmdline: string, token = session): Promise<UseAnswer> =>
+			(await gatewayPost("/vault/askpass", token, { cmdline, waitMs: 200 })).json() as Promise<UseAnswer>;
+		const collect = async (requestId: string, token = session) =>
+			(await gatewayPost("/vault/collect", token, { requestId, waitMs: 5_000 })).json();
+		const putPolicy = (id: string, key: string) =>
+			h.phone.value({
+				kind: "policy_put",
+				policy: {
+					id,
+					name: id,
+					binding: { kind: "entry", entryId },
+					selectorKeys: [key],
+					enabled: true,
+					revision: 1,
+				},
+			});
+
+		// Entry request keeps the deadline.
+		let seen = (await requestRows()).length;
+		expect(await askpass("sudo foo-tool run")).toMatchObject({ outcome: "pending" });
+		const typed = await nextRequest(seen);
+		expect(typed.kind).toBe("typed");
+		expect((await putPolicy("foo-tool", "sudo foo-tool")).result).toMatchObject({ stored: true });
+		const takeover = await nextRequest(seen + 1);
+		expect(takeover).toMatchObject({
+			kind: "entry",
+			entryId,
+			replaces: typed.requestId,
+			deadlineAt: typed.deadlineAt,
+			policy: { policyId: "foo-tool", policyRevision: 1 },
+		});
+		await retracted(typed.requestId);
+		const late = await h.phone.value({ kind: "vault_answer", requestId: typed.requestId, decision: "deny" });
+		expect(late.result).toMatchObject({ ok: false, refusal: { code: "answered" } });
+		expect(await collect(typed.requestId)).toEqual({
+			outcome: "pending",
+			requestId: takeover.requestId,
+			deadlineAt: typed.deadlineAt,
+		});
+		const again = await h.phone.value({
+			kind: "policy_put",
+			policy: {
+				id: "foo-tool",
+				name: "foo-tool",
+				binding: { kind: "entry", entryId },
+				selectorKeys: ["sudo foo-tool", "sudo foo-other"],
+				enabled: true,
+				revision: 1,
+			},
+			baseRevision: 1,
+		});
+		expect(again.result).toMatchObject({ stored: true, revision: 2 });
+		const answered = await h.phone.value({ kind: "vault_answer", requestId: takeover.requestId, decision: "once" });
+		expect(answered.result).toEqual({ ok: true });
+		expect(await collect(takeover.requestId)).toEqual({ outcome: "approved", decision: "once", value: "hunter2" });
+
+		const dora = await launch("Dora");
+		const doraToken = { "x-session-token": dora.sessionToken ?? "" };
+		seen = (await requestRows()).length;
+		const used = post(dora, "/vault/use", { entryId, operation: "ssh deploy@prod", waitMs: 10_000 });
+		const asked = await nextRequest(seen);
+		await h.phone.value({ kind: "vault_answer", requestId: asked.requestId, decision: "session" });
+		expect((await used).json).toMatchObject({ outcome: "approved", decision: "session" });
+		expect(await askpass("sudo bar-tool run", doraToken)).toMatchObject({ outcome: "pending" });
+		const waiting = await nextRequest(seen + 1);
+		expect((await putPolicy("bar-tool", "sudo bar-tool")).result).toMatchObject({ stored: true });
+		expect(await collect(waiting.requestId, doraToken)).toEqual({
+			outcome: "approved",
+			decision: "session",
+			value: "hunter2",
+		});
+		expect((await requestRows()).length).toBe(seen + 2);
 	});
 
 	it("the session's tools run a command with the value injected after the phone approves, and capture an entry", async () => {

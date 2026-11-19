@@ -2,10 +2,11 @@
 
 import { z } from "zod";
 import { type Automation, AutomationSchema } from "../../shared/schemasAutomation.js";
+import { type AutomationFunction, FunctionSchema } from "../../shared/schemasFunction.js";
 import { FIRES_MAX, type Fire, readFire } from "./automationFires.js";
 import { fireRow, LOG_MAX, logged, type RunRow, RunRowSchema } from "./automationLog.js";
 import { QUEUE_MAX_EVENTS, QueueEntrySchema, type QueueState, retained } from "./automationOutbox.js";
-import { clamped } from "./automationSteps.js";
+import { clamped, NATURES } from "./automationSteps.js";
 import { NO_SILENCES, type Silences, SilencesSchema } from "./sensorSilence.js";
 
 /** Ids may be prototype keys. */
@@ -51,7 +52,22 @@ export interface State {
 	silences: Silences;
 	/** Each body a held fire fired with, by `versionKey`. */
 	versions: Record<string, Automation>;
+	/** By `frameKey`. */
+	functionVersions: Record<string, AutomationFunction>;
+	/** Unused since. */
+	unusedFunctions: Record<string, number>;
+	/** The newest set landed, per switch. */
+	landedSets: Record<string, LandedSwitch>;
+	/** A call's cool-down clock, set at admission. */
+	firedAt: Record<string, number>;
 }
+
+const LandedSwitchSchema = z.strictObject({
+	member: z.string(),
+	at: z.number().int(),
+	nature: z.enum(NATURES),
+});
+export type LandedSwitch = z.infer<typeof LandedSwitchSchema>;
 
 /** An automation body as one revision of one incarnation. */
 export const versionKey = (fire: { automation: string; incarnation: string; revision: number }): string =>
@@ -67,6 +83,10 @@ const EMPTY: State = {
 	slots: {},
 	silences: NO_SILENCES,
 	versions: {},
+	functionVersions: {},
+	unusedFunctions: {},
+	landedSets: {},
+	firedAt: {},
 };
 
 /** Invalid rows drop. */
@@ -80,6 +100,10 @@ const LooseStateSchema = z.object({
 	slots: z.record(z.string(), z.unknown()).catch({}),
 	silences: SilencesSchema.catch(NO_SILENCES),
 	versions: z.record(z.string(), z.unknown()).catch({}),
+	functionVersions: z.record(z.string(), z.unknown()).catch({}),
+	unusedFunctions: z.record(z.string(), z.number()).catch({}),
+	landedSets: z.record(z.string(), z.unknown()).catch({}),
+	firedAt: z.record(z.string(), z.number()).catch({}),
 });
 
 /** Without an automation id, no row. */
@@ -110,6 +134,14 @@ function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: R
 	if (lost > 0) console.warn(`[automations] ${lost} stored runs of another shape were dropped and will not run`);
 	return { fires: fires.slice(-FIRES_MAX), dropped, lost };
 }
+
+const readable = <T>(rows: Record<string, unknown>, schema: z.ZodType<T>): Record<string, T> =>
+	Object.fromEntries(
+		Object.entries(rows).flatMap(([key, row]) => {
+			const parsed = schema.safeParse(row);
+			return parsed.success ? [[key, parsed.data]] : [];
+		}),
+	);
 
 /** `changed`: the first write must land it. */
 export function restore(raw: unknown, now: number): { state: State; changed: boolean } {
@@ -150,12 +182,11 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 		),
 		silences: loose.silences,
 		// An unreadable one leaves its fires unpinned.
-		versions: Object.fromEntries(
-			Object.entries(loose.versions).flatMap(([key, row]) => {
-				const parsed = AutomationSchema.safeParse(row);
-				return parsed.success ? [[key, parsed.data]] : [];
-			}),
-		),
+		versions: readable(loose.versions, AutomationSchema),
+		functionVersions: readable(loose.functionVersions, FunctionSchema),
+		unusedFunctions: loose.unusedFunctions,
+		landedSets: readable(loose.landedSets, LandedSwitchSchema),
+		firedAt: loose.firedAt,
 	};
 	return { state, changed: lost > 0 };
 }

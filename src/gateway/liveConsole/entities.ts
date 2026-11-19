@@ -36,7 +36,10 @@ export interface ConsoleReaders {
 	devices: () => Pick<DeviceStage, "records" | "sensorRead"> | undefined;
 	fields: () => Pick<ComputedFields, "list" | "get" | "value" | "stateOf" | "invalidOf"> | undefined;
 	automations: () =>
-		| Pick<Automations, "list" | "log" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf" | "eventsOf">
+		| Pick<
+				Automations,
+				"list" | "log" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf" | "eventsOf" | "functionOf"
+		  >
 		| undefined;
 	assistant: () => ConsoleAssistantStateResult;
 	temperatureUnit: () => TemperatureUnit;
@@ -180,7 +183,11 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		return found;
 	};
 	const labelOf = (automationId: string) => automations().sentenceOf(automationId);
-	const actionsOf = (body: Automation) => reached(body).map(({ action }) => action);
+	/** Through its function, each step by path. */
+	const actionsOf = (body: Automation) =>
+		reached(body, (id) => automations().functionOf(id)).map((at) =>
+			"action" in at ? at.action : { kind: at.kind, step: at.path, function: at.via, args: at.step.args },
+		);
 
 	return [
 		{

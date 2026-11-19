@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { GrantScope } from "../gateway/vault/decisions.js";
 import { createVaultRequests, MAX_OPEN_PER_TARGET } from "../gateway/vault/requests.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { VAULT_REQUEST_DEADLINE_MS, type VaultRequest } from "../shared/schemasVault.js";
@@ -6,10 +7,10 @@ import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 const envelope = (text: string): ContentEnvelope => ({ v: 1, epoch: 1, nonce: "AAAA", ciphertext: text });
 
-function bench(options: { deliverable?: boolean; validate?: (request: VaultRequest) => string | null } = {}) {
+function bench(options: { deliverable?: boolean; validate?: (scope: GrantScope) => string | null } = {}) {
 	const ambient = fakeAmbient({ drive: "manual", now: () => 1_000_000 });
 	const delivered: VaultRequest[] = [];
-	const approved: Array<{ requestId: string; decision: string }> = [];
+	const approved: Array<{ sessionTarget: string; entryId: string; decision: string; policyId?: string }> = [];
 	const settled: string[] = [];
 	const requests = createVaultRequests({
 		ambient,
@@ -20,7 +21,13 @@ function bench(options: { deliverable?: boolean; validate?: (request: VaultReque
 		},
 		openTyped: (value, requestId) => (value.ciphertext === `typed:${requestId}` ? "hunter2" : null),
 		validate: options.validate,
-		onApproved: (request, decision) => approved.push({ requestId: request.requestId, decision }),
+		onApproved: (scope, decision) =>
+			approved.push({
+				sessionTarget: scope.sessionTarget,
+				entryId: scope.entryId,
+				decision,
+				...(scope.policy ? { policyId: scope.policy.policyId } : {}),
+			}),
 		onSettled: (request) => Boolean(settled.push(request.requestId)),
 	});
 	return { ambient, requests, delivered, approved, settled };
@@ -46,10 +53,17 @@ describe("vault requests", () => {
 			deadlineAt: 1_000_000 + VAULT_REQUEST_DEADLINE_MS,
 		});
 		expect(requests.answer(opened.request.requestId, "window")).toEqual({ ok: true });
-		await expect(opened.answer).resolves.toEqual({ kind: "approved", decision: "window" });
-		expect(approved).toEqual([{ requestId: opened.request.requestId, decision: "window" }]);
-		expect(requests.answer(opened.request.requestId, "deny")).toMatchObject({ ok: false });
-		expect(requests.answer("unknown", "once")).toMatchObject({ ok: false });
+		await expect(opened.answer).resolves.toEqual({
+			kind: "approved",
+			decision: "window",
+			source: { kind: "entry", entryId: "deploy" },
+		});
+		expect(approved).toEqual([{ sessionTarget: "host.alice", entryId: "deploy", decision: "window" }]);
+		expect(requests.answer(opened.request.requestId, "deny")).toMatchObject({
+			ok: false,
+			refusal: { code: "answered" },
+		});
+		expect(requests.answer("unknown", "once")).toMatchObject({ ok: false, refusal: { code: "expired" } });
 	});
 
 	it("a deny and the deadline both refuse, and an undeliverable row never opens", async () => {
@@ -136,12 +150,76 @@ describe("vault requests", () => {
 		expect(requests.collect(requestId, "host.carol")?.request.requestId).toBe(requestId);
 		// A typed value is once, whatever tier the phone named.
 		expect(requests.answer(requestId, "session", envelope(`typed:${requestId}`))).toEqual({ ok: true });
-		await expect(typed.answer).resolves.toEqual({ kind: "approved", decision: "once", typedValue: "hunter2" });
+		await expect(typed.answer).resolves.toEqual({
+			kind: "approved",
+			decision: "once",
+			source: { kind: "typed", value: "hunter2" },
+		});
 		// Typed values never grant.
 		expect(approved).toEqual([]);
 		expect(requests.take(requestId)).toBe(true);
 		expect(requests.take(requestId)).toBe(false);
 		expect(requests.collect(requestId, "host.carol")).toBeUndefined();
+	});
+
+	it("a typed request answered from an entry grants that entry under the policy, and only once", async () => {
+		const { requests, approved, delivered } = bench();
+		const typed = requests.open({
+			kind: "typed",
+			operation: "sudo apt-mark hold foo",
+			sessionTarget: "host.carol",
+			why: { code: "no_policy" },
+			runsAnything: true,
+		});
+		const entry = requests.open({
+			kind: "entry",
+			entryId: "deploy",
+			operation: "ssh x",
+			sessionTarget: "host.carol",
+		});
+		if (typed.kind !== "opened" || entry.kind !== "opened") throw new Error("the requests did not open");
+		expect(delivered[0]).toMatchObject({ kind: "typed", why: { code: "no_policy" }, runsAnything: true });
+		const policy = { policyId: "apt", policyRevision: 2 };
+
+		expect(requests.claimTyped(entry.request.requestId)).toEqual({ code: "not_typed" });
+		const claimed = requests.claimTyped(typed.request.requestId);
+		if ("code" in claimed) throw new Error("the request was not claimed");
+		expect(requests.claimTyped(typed.request.requestId)).toEqual({ code: "answered" });
+		expect(requests.answerEntry(claimed, "window", "sudo-pass", policy)).toBeNull();
+		await expect(typed.answer).resolves.toEqual({
+			kind: "approved",
+			decision: "window",
+			source: { kind: "entry", entryId: "sudo-pass" },
+		});
+		expect(approved).toEqual([
+			{ sessionTarget: "host.carol", entryId: "sudo-pass", decision: "window", policyId: "apt" },
+		]);
+		expect(requests.claimTyped(typed.request.requestId)).toEqual({ code: "answered" });
+		expect(requests.claimTyped("unknown")).toEqual({ code: "expired" });
+		expect(approved).toHaveLength(1);
+	});
+
+	it("reads a claimed request's life once: answered past its deadline, or lapsed once given back", async () => {
+		const { ambient, requests } = bench();
+		const open = (operation: string) => {
+			const opened = requests.open({ kind: "typed", operation, sessionTarget: "host.carol" });
+			if (opened.kind !== "opened") throw new Error("the request did not open");
+			return opened;
+		};
+		const kept = open("sudo foo x");
+		const given = open("sudo bar y");
+		const claimedKept = requests.claimTyped(kept.request.requestId);
+		const claimedGiven = requests.claimTyped(given.request.requestId);
+		if ("code" in claimedKept || "code" in claimedGiven) throw new Error("the requests were not claimed");
+
+		// Deadline passes mid-answer.
+		await ambient.advance(VAULT_REQUEST_DEADLINE_MS + 1);
+		expect(requests.answerEntry(claimedKept, "once", "pw")).toBeNull();
+		await expect(kept.answer).resolves.toMatchObject({ kind: "approved", source: { entryId: "pw" } });
+
+		requests.unclaim(given.request.requestId);
+		await ambient.advance(1);
+		await expect(given.answer).resolves.toEqual({ kind: "refused" });
 	});
 
 	it("only the opener withdraws, an answer already given stands, and a late answer grants nothing", async () => {
@@ -216,13 +294,70 @@ describe("vault requests", () => {
 			operation: "ssh prod",
 			sessionTarget: "host.bob",
 		});
-		if (second.kind !== "opened" || bare.kind !== "opened") throw new Error("the requests did not open");
-		requests.policyMoved("apt");
+		const still = requests.open({ ...input, sessionTarget: "host.carol" });
+		if (second.kind !== "opened" || bare.kind !== "opened" || still.kind !== "opened")
+			throw new Error("the requests did not open");
+		// Selects carol's line, not alice's.
+		requests.reviseEntries((request) => (request.sessionTarget === "host.carol" ? { revision: 2 } : "refuse"));
 		await expect(second.answer).resolves.toMatchObject({ kind: "refused" });
 		expect(requests.collect(second.request.requestId, "host.alice")).toBeUndefined();
 		expect(requests.collect(bare.request.requestId, "host.bob")).toBeDefined();
 		expect(requests.answer(bare.request.requestId, "window")).toEqual({ ok: true });
-		expect(approved).toEqual([{ requestId: bare.request.requestId, decision: "window" }]);
+		const revised = { ...input, sessionTarget: "host.carol", policy: { policyId: "apt", policyRevision: 2 } };
+		expect(requests.find(revised)?.request.requestId).toBe(still.request.requestId);
+		expect(requests.answer(still.request.requestId, "window")).toEqual({ ok: true });
+		expect(approved).toEqual([
+			{ sessionTarget: "host.bob", entryId: "deploy", decision: "window" },
+			{ sessionTarget: "host.carol", entryId: "deploy", decision: "window", policyId: "apt" },
+		]);
+	});
+
+	it("a policy takes over a typed request under its deadline, or answers it from a covering grant", async () => {
+		const { ambient, requests, delivered } = bench();
+		const policy = { policyId: "foo", policyRevision: 1 };
+		const typed = (operation: string, sessionTarget = "host.carol") => {
+			const opened = requests.open({ kind: "typed", operation, sessionTarget });
+			if (opened.kind !== "opened") throw new Error("the request did not open");
+			return opened;
+		};
+		const moving = typed("sudo foo x");
+		await ambient.advance(60_000);
+
+		expect(requests.takeOver(moving.request.requestId, "pw", policy, () => null)).toBe("moved");
+		const takeover = delivered.at(-1);
+		expect(takeover).toMatchObject({
+			kind: "entry",
+			entryId: "pw",
+			replaces: moving.request.requestId,
+			deadlineAt: moving.request.deadlineAt,
+			policy,
+		});
+		await expect(moving.answer).resolves.toEqual({
+			kind: "moved",
+			requestId: takeover?.requestId,
+			deadlineAt: moving.request.deadlineAt,
+		});
+		expect(requests.claimTyped(moving.request.requestId)).toEqual({ code: "answered" });
+
+		const covered = typed("sudo bar y");
+		expect(requests.takeOver(covered.request.requestId, "pw", policy, () => "session")).toBe("covered");
+		await expect(covered.answer).resolves.toMatchObject({
+			kind: "approved",
+			decision: "session",
+			source: { kind: "entry", entryId: "pw" },
+		});
+
+		const crowded = Array.from({ length: MAX_OPEN_PER_TARGET }, (_, i) => typed(`sudo c${i} z`, "host.dan"));
+		const first = crowded[0]?.request.requestId ?? "";
+		expect(requests.takeOver(first, "pw", policy, () => null)).toBe("moved");
+		expect(requests.open({ kind: "typed", operation: "sudo more", sessionTarget: "host.dan" })).toMatchObject({
+			kind: "undeliverable",
+			reason: "flooded",
+		});
+
+		const replacement = delivered.at(-1)?.requestId ?? "";
+		expect(requests.withdraw(first, "host.dan")).toBe(true);
+		expect(requests.collect(replacement, "host.dan")).toBeUndefined();
 	});
 
 	it("one caller cannot bury the phone: past the cap the request does not open", () => {

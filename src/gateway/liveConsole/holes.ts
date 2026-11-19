@@ -121,13 +121,31 @@ export interface FilledText {
 	failed: number;
 }
 
+const variablesOf = (names: Readonly<Record<string, HoleName>>) =>
+	Object.fromEntries(Object.entries(names).map(([name, held]) => [name, { value: held.value }]));
+
+/** Null when it fails. */
+export async function evaluateHole(
+	source: string,
+	names: Readonly<Record<string, HoleName>>,
+	registry: ConsoleRegistry,
+): Promise<{ value: unknown } | null> {
+	const answer = await evaluateConsole(source, registry, AUDIENCE, {
+		variables: variablesOf(names),
+		stepsMax: HOLE_STEPS_MAX,
+		noSlow: true,
+	});
+	const [only, more] = answer.ok ? answer.results : [];
+	return only && !more && !only.assigned ? { value: only.value } : null;
+}
+
 /** Never throws. */
 export async function fillHoles(
 	text: string,
 	names: Readonly<Record<string, HoleName>>,
 	registry: ConsoleRegistry,
 ): Promise<FilledText> {
-	const variables = Object.fromEntries(Object.entries(names).map(([name, held]) => [name, { value: held.value }]));
+	const variables = variablesOf(names);
 	let filled = "";
 	let failed = 0;
 	for (const part of scanHoles(text)) {

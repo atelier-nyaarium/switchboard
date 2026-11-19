@@ -54,6 +54,11 @@ export class DurableStore {
 		this.quarantined = true;
 	}
 
+	/** Whether the file is on disk, readable or not. */
+	exists(): boolean {
+		return fs.existsSync(this.file);
+	}
+
 	/** Throws when the file exists and cannot be removed. */
 	remove(): void {
 		fs.rmSync(this.file, { force: true });

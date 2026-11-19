@@ -192,7 +192,7 @@ class VaultPrompt(
 			val open by expanded.collectAsState()
 			val pending by repo.vault.pending.collectAsState()
 			val state by repo.state.collectAsState()
-			val request = pending.firstOrNull { it.requestId == id } ?: return@SwitchboardTheme
+			val request = shownRequest(id, pending) ?: return@SwitchboardTheme
 			val exits = remember(request.requestId) {
 				VaultPromptExits(
 					goToSession = {
@@ -226,7 +226,7 @@ class VaultPrompt(
 					repo = repo,
 					state = state,
 					request = request,
-					onClose = { clear(request.requestId) },
+					onClose = { clear(id ?: request.requestId) },
 					modifier = gestures.then(tap),
 					collapsed = !open,
 					exits = exits,

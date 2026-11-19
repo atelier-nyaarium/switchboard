@@ -2,7 +2,12 @@
 
 import { z } from "zod";
 import { reached } from "../../shared/automation-walk.js";
-import { type Automation, TELL_WHEN } from "../../shared/schemasAutomation.js";
+import {
+	type Automation,
+	type AutomationAction,
+	AutomationActionSchema,
+	TELL_WHEN,
+} from "../../shared/schemasAutomation.js";
 import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
 import { claimed, FRESH_STEP, isEnded, type Nature, type Step, StepPathSchema, StepSchema } from "./automationSteps.js";
@@ -37,6 +42,18 @@ const FireBase = {
 	waiting: z.literal(true).optional(),
 };
 
+export const FrameSchema = z.strictObject({
+	function: z.string(),
+	incarnation: z.string(),
+	revision: z.number().int().positive(),
+	/** Pinned at start. */
+	resolved: z.record(StepPathSchema, AutomationActionSchema).optional(),
+});
+export type Frame = z.infer<typeof FrameSchema>;
+
+export const frameKey = (frame: Pick<Frame, "function" | "incarnation" | "revision">): string =>
+	`${frame.function}:${frame.incarnation}:${frame.revision}`;
+
 /** A fired trigger awaiting its run. */
 export const FireSchema = z
 	.strictObject({
@@ -45,11 +62,20 @@ export const FireSchema = z
 		steps: z.record(StepPathSchema, StepSchema),
 		/** The step whose turn it is; set by `advance` alone. */
 		active: z.array(StepPathSchema).max(1),
+		/** By call path. */
+		frames: z.record(StepPathSchema, FrameSchema).optional(),
+		/** Tell fields. */
+		fields: z.record(z.string(), z.string()).optional(),
 	})
 	.refine((fire) => fire.active.every((path) => Object.hasOwn(fire.steps, path)));
 export type Fire = z.infer<typeof FireSchema>;
 export type FireNames = NonNullable<Fire["names"]>;
 
+/** Call site; null at top. */
+export const callSiteOf = (path: string): string | null => {
+	const at = path.lastIndexOf(".");
+	return at < 0 ? null : path.slice(0, at);
+};
 // Remove 2026-12-16: a fire stored by 8.14.84.
 const LegacyFireSchema = z.strictObject({
 	...FireBase,
@@ -92,13 +118,23 @@ export interface Runnable {
 	dueAt: number;
 }
 
+const byPath = (a: string, b: string): number => {
+	const left = a.split(".").map(Number);
+	const right = b.split(".").map(Number);
+	for (let at = 0; at < Math.min(left.length, right.length); at++) {
+		const order = (left[at] as number) - (right[at] as number);
+		if (order !== 0) return order;
+	}
+	return left.length - right.length;
+};
+
 /** Step paths in the order written. */
-export const pathsOf = (fire: Fire): string[] => Object.keys(fire.steps).sort((a, b) => Number(a) - Number(b));
+export const pathsOf = (fire: Fire): string[] => Object.keys(fire.steps).sort(byPath);
+
+export const isStep = (action: AutomationAction): boolean => isEffect(action) || action.kind === "run_function";
 
 export const stepsOf = (automation: Pick<Automation, "actions">): Fire["steps"] =>
-	Object.fromEntries(
-		reached(automation).flatMap(({ path, action }) => (isEffect(action) ? [[path, FRESH_STEP]] : [])),
-	);
+	Object.fromEntries(reached(automation).flatMap(({ path, action }) => (isStep(action) ? [[path, FRESH_STEP]] : [])));
 
 /** The first step not ended. */
 export const turnOf = (fire: Fire): string | null =>

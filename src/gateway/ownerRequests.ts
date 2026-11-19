@@ -56,14 +56,16 @@ interface Entry<R, A, P> {
 	timer: TimerHandle | null;
 }
 
-type Event<A> =
+type Event<R, A> =
 	| { tag: "tick" }
 	| { tag: "claim" }
 	| { tag: "answer"; answer: A }
 	| { tag: "withdraw"; sessionTarget: string }
 	| { tag: "end" }
 	| { tag: "close"; answer: A }
-	| { tag: "take" };
+	| { tag: "take" }
+	| { tag: "revise"; request: R }
+	| { tag: "unclaim" };
 
 export const CLAIMED_ANSWER_GRACE_MS = 30 * 60 * 1000;
 
@@ -108,7 +110,7 @@ export function createOwnerRequests<R extends OwnerRequestRow, A, P = undefined>
 	};
 
 	/** The only phase mutator. */
-	let step: (requestId: string, event: Event<A>) => boolean = () => false;
+	let step: (requestId: string, event: Event<R, A>) => boolean = () => false;
 
 	const schedule = (entry: Entry<R, A, P>) => {
 		if (entry.timer) ambient.clearTimer(entry.timer);
@@ -188,6 +190,13 @@ export function createOwnerRequests<R extends OwnerRequestRow, A, P = undefined>
 				schedule(entry);
 				return true;
 			}
+			case "unclaim": {
+				// Its deadline is read again on the next tick.
+				if (entry.phase.tag !== "claimed") return false;
+				entry.phase = { tag: "waiting", payload: entry.phase.payload };
+				schedule(entry);
+				return true;
+			}
 			case "answer": {
 				if (entry.phase.tag === "settled") return false;
 				if (entry.phase.tag === "waiting" && ambient.now() >= entry.request.deadlineAt) {
@@ -219,15 +228,27 @@ export function createOwnerRequests<R extends OwnerRequestRow, A, P = undefined>
 			}
 			case "take":
 				return entry.phase.tag === "settled" ? retire(requestId) : false;
+			case "revise": {
+				// Same id, session and deadline; only a waiting request.
+				if (entry.phase.tag !== "waiting") return false;
+				const next = event.request;
+				const same =
+					next.requestId === entry.request.requestId &&
+					next.sessionTarget === entry.request.sessionTarget &&
+					next.deadlineAt === entry.request.deadlineAt;
+				if (!same) return false;
+				entry.request = next;
+				return true;
+			}
 		}
 	};
 
-	const openFor = (sessionTarget: string): number => {
+	const openFor = (sessionTarget: string, replacing?: string): number => {
 		let count = 0;
 		for (const requestId of [...pending.keys()]) {
 			step(requestId, { tag: "tick" });
 			const entry = pending.get(requestId);
-			if (!entry || entry.request.sessionTarget !== sessionTarget) continue;
+			if (!entry || entry.request.sessionTarget !== sessionTarget || requestId === replacing) continue;
 			if (entry.phase.tag === "claimed" || entry.phase.tag === "waiting") count += 1;
 		}
 		return count;
@@ -238,12 +259,17 @@ export function createOwnerRequests<R extends OwnerRequestRow, A, P = undefined>
 		requestId?: string;
 		build: (requestId: string, deadlineAt: number) => R;
 		payload: P;
+		/** A takeover keeps the wait it replaces. */
+		deadlineAt?: number;
+		/** Not counted against the cap. */
+		replacing?: string;
 	}): OwnerRequestOpened<R, A> => {
-		if (openFor(input.sessionTarget) >= deps.maxOpenPerTarget) return { kind: "undeliverable", reason: "flooded" };
+		if (openFor(input.sessionTarget, input.replacing) >= deps.maxOpenPerTarget)
+			return { kind: "undeliverable", reason: "flooded" };
 		const requestId = input.requestId ?? ambient.newId();
 		if (pending.has(requestId) || stale.some((stub) => stub.requestId === requestId))
 			return { kind: "undeliverable", reason: "unreachable" };
-		const request = input.build(requestId, ambient.now() + deps.deadlineMs);
+		const request = input.build(requestId, input.deadlineAt ?? ambient.now() + deps.deadlineMs);
 		let resolve: (answer: A) => void = () => undefined;
 		const answer = new Promise<A>((done) => {
 			resolve = done;
@@ -281,6 +307,17 @@ export function createOwnerRequests<R extends OwnerRequestRow, A, P = undefined>
 				return { request: entry.request, answer: entry.answer, payload: entry.phase.payload };
 		}
 		return undefined;
+	};
+
+	/** Every request still waiting on the owner. */
+	const waiting = (match: (request: R) => boolean): R[] => {
+		const held: R[] = [];
+		for (const requestId of [...pending.keys()]) {
+			step(requestId, { tag: "tick" });
+			const entry = pending.get(requestId);
+			if (entry?.phase.tag === "waiting" && match(entry.request)) held.push(entry.request);
+		}
+		return held;
 	};
 
 	const live = (requestId: string): R | null => {
@@ -329,6 +366,15 @@ export function createOwnerRequests<R extends OwnerRequestRow, A, P = undefined>
 
 	const take = (requestId: string): boolean => step(requestId, { tag: "take" });
 
+	/** A waiting request restated under its own id, session and deadline. */
+	const revise = (request: R): boolean => {
+		step(request.requestId, { tag: "tick" });
+		return step(request.requestId, { tag: "revise", request });
+	};
+
+	/** A claim given back: waiting again, under its deadline. */
+	const unclaim = (requestId: string): boolean => step(requestId, { tag: "unclaim" });
+
 	const payloads = (): IterableIterator<P> => {
 		const held: P[] = [];
 		for (const requestId of [...pending.keys()]) {
@@ -356,12 +402,15 @@ export function createOwnerRequests<R extends OwnerRequestRow, A, P = undefined>
 	return {
 		open,
 		find,
+		waiting,
 		live,
 		claim,
 		settle,
 		answered,
 		collect,
 		take,
+		revise,
+		unclaim,
 		withdraw,
 		sessionEnded,
 		closeWhere,

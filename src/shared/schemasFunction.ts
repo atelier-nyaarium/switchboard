@@ -9,6 +9,8 @@ export const FUNCTION_STEPS_MAX = 8;
 export const FUNCTION_PARAMS_MAX = 8;
 export const FUNCTION_NAME_MAX = 80;
 export const STEP_TEXT_MAX = 1_000;
+/** The widest action row's parameters. */
+export const STEP_ARGS_MAX = 4;
 export const FUNCTION_PARAM_TYPES = ["device", "text", "number"] as const;
 export type FunctionParamType = (typeof FUNCTION_PARAM_TYPES)[number];
 
@@ -35,7 +37,9 @@ export const FunctionStepSchema = z
 		z.strictObject({
 			kind: z.literal("do"),
 			action: z.string().min(1).max(32),
-			args: z.record(z.string().max(32), StepArgSchema),
+			args: z
+				.record(z.string().max(32), StepArgSchema)
+				.refine((args) => Object.keys(args).length <= STEP_ARGS_MAX, { message: "too many values" }),
 		}),
 	])
 	.meta({ id: "FunctionStep" });

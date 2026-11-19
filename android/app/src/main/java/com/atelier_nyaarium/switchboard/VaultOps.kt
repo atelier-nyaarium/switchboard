@@ -3,16 +3,22 @@ package com.atelier_nyaarium.switchboard
 import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.crypto.VAULT_TYPED_KIND
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.policies.PolicyDraft
+import com.atelier_nyaarium.switchboard.proto.ConsoleVaultAnswerEntryResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleVaultAnswerResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleVaultGrantsResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleVaultRevokeResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
 import com.atelier_nyaarium.switchboard.proto.VaultPut
+import com.atelier_nyaarium.switchboard.proto.VaultRemember
 import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.proto.VaultStoredEntry
 import com.atelier_nyaarium.switchboard.vault.ApprovalGate
+import com.atelier_nyaarium.switchboard.vault.EntryAnswered
+import com.atelier_nyaarium.switchboard.vault.SavedAnswer
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_DENY
+import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_ONCE
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_SESSION
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_WINDOW
 import com.atelier_nyaarium.switchboard.vault.VaultDraft
@@ -22,6 +28,11 @@ import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.VaultRouterWriter
 import com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome
 import com.atelier_nyaarium.switchboard.vault.VaultSealing
+import com.atelier_nyaarium.switchboard.vault.entryAnswerOp
+import com.atelier_nyaarium.switchboard.vault.entryAnswerOutcome
+import com.atelier_nyaarium.switchboard.vault.grantableOn
+import com.atelier_nyaarium.switchboard.vault.matchingSecret
+import com.atelier_nyaarium.switchboard.vault.refusedAnswerLine
 import com.atelier_nyaarium.switchboard.vault.sealDraft
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +60,8 @@ internal class VaultOps(
 	private val collaborators: VaultOpsCollaborators,
 	private val provision: ProvisionFence,
 	private val valueAnswer: (suspend (String, ConsoleOp) -> ConsoleClient.ValueAnswer)? = null,
+	/** Re-reads that Gateway's policies. */
+	private val policyWritten: (String) -> Unit = {},
 ) {
 	private val manager get() = collaborators.vault
 
@@ -149,16 +162,63 @@ internal class VaultOps(
 		decision: String,
 		typedValue: String? = null,
 		note: String? = null,
-		/** Also store the typed value as an entry, scoped to the gateway that asked. */
-		saveTyped: Boolean = false,
-	): Boolean = repoScope.async {
-		val ok = answerNow(pending, decision, typedValue, note)
-		if (ok && saveTyped && typedValue != null) {
-			val gateway = runIsolated { gatewayOf(pending.team) }.getOrNull()
-			save(VaultDraft(publicTitle = pending.displayShape, value = typedValue, gateways = listOfNotNull(gateway)))
-		}
-		ok
+	): Boolean = repoScope.async { answerNow(pending, decision, typedValue, note) }.await()
+
+	/** A held secret with exactly this value, allowed on that Gateway. */
+	fun matchFor(typed: String, gatewayId: String): String? {
+		val candidates = views().grantableOn(gatewayId).mapNotNull { view -> reveal(view.id)?.let { view.id to it } }
+		return matchingSecret(typed, candidates)
+	}
+
+	/** The Gateway answers the typed request from that entry. */
+	suspend fun answerWithEntry(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry): EntryAnswered =
+		repoScope.async { answerWithEntryNow(pending, op) }.await()
+
+	/** Saves the typed secret, then answers through it with a new policy. */
+	suspend fun saveAndAnswer(pending: VaultPendingRequest, draft: VaultDraft): SavedAnswer = repoScope.async {
+		val outcome = save(draft)
+		if (outcome !is VaultSaveOutcome.Applied) return@async SavedAnswer.NotSaved(vaultSaveLine(outcome) ?: Line.VAULT_UNREACHABLE.text)
+		val name = draft.privateTitle.trim().ifEmpty { draft.publicTitle.trim() }
+		val op = entryAnswerOp(pending.requestId, outcome.id, VAULT_DECISION_ONCE, VaultRemember(newPolicyId(), name = name))
+			?: return@async SavedAnswer.Saved(outcome.id, EntryAnswered.Stays(ENTRY_REFUSED))
+		SavedAnswer.Saved(outcome.id, answerWithEntryNow(pending, op))
 	}.await()
+
+	private suspend fun answerWithEntryNow(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry): EntryAnswered {
+		val key = "vault:${pending.requestId}"
+		fun stays(line: String) = EntryAnswered.Stays(line).also { report(line, key) }
+		val client = collaborators.client
+		if (client == null && valueAnswer == null) return stays(Line.VAULT_NOT_CONNECTED.text)
+		val began = provision.capture()
+		val gatewayId = runIsolated { gatewayOf(pending.team) }.getOrNull() ?: return stays(Line.VAULT_NO_GATEWAY.text)
+		val answer = runCatchingCancellable {
+			valueAnswer?.invoke(gatewayId, op) ?: client?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
+		}.onFailure { DebugLog.log("Vault", "entry answer failed: ${it.message?.take(80)}") }.getOrNull()
+			?: return stays(Line.VAULT_UNREACHABLE.text)
+		val outcome = when (answer) {
+			is ConsoleClient.ValueAnswer.Undelivered -> return stays(reasonSentence(Act.VAULT_ANSWER, answer.reason))
+			ConsoleClient.ValueAnswer.Unreachable -> return stays(Line.VAULT_UNREACHABLE.text)
+			is ConsoleClient.ValueAnswer.Refused -> return stays(reasonSentence(Act.VAULT_ANSWER, answer.reason))
+			is ConsoleClient.ValueAnswer.Answered -> runIsolated {
+				wireJson.decodeFromJsonElement<ConsoleVaultAnswerEntryResult>(answer.result)
+			}.getOrNull()?.let(::entryAnswerOutcome) ?: return stays(Line.VAULT_UNREADABLE.text)
+		}
+		when (outcome) {
+			is EntryAnswered.Answered -> {
+				manager.settleRequest(pending.requestId)
+				state.update { it.withoutNoticeKey(key) }
+				provision.land(began) { manager.recordAnswer(pending) }
+				refreshGrantsNow(gatewayId)
+				if (op.remember != null) policyWritten(gatewayId)
+			}
+			is EntryAnswered.Gone -> {
+				manager.settleRequest(pending.requestId)
+				outcome.line?.let { report(it, key) } ?: state.update { it.withoutNoticeKey(key) }
+			}
+			is EntryAnswered.Stays -> report(outcome.line, key)
+		}
+		return outcome
+	}
 
 	private suspend fun answerNow(
 		pending: VaultPendingRequest,
@@ -208,7 +268,7 @@ internal class VaultOps(
 			state.update { it.withoutNoticeKey(key) }
 			if (decision != VAULT_DECISION_DENY) provision.land(began) { manager.recordAnswer(pending) }
 		} else {
-			report(reasonSentence(Act.VAULT_ANSWER, result.reason))
+			refusedAnswerLine(result.refusal, result.reason)?.let(::report) ?: state.update { it.withoutNoticeKey(key) }
 		}
 		if (result.ok && decision != VAULT_DECISION_DENY) refreshGrantsNow(gatewayId)
 		return result.ok
@@ -257,6 +317,9 @@ internal class VaultOps(
 	private fun newOpId(): String = UUID.randomUUID().toString()
 
 	private fun newEntryId(): String = UUID.randomUUID().toString().replace("-", "").take(32)
+
+	/** As the policy editor mints one. */
+	fun newPolicyId(): String = PolicyDraft.fresh().id
 
 	private companion object {
 		val REFRESH_RETRY_DELAYS_MS = listOf(5_000L, 30_000L)

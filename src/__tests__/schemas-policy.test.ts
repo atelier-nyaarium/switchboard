@@ -41,6 +41,94 @@ describe("selectorKey", () => {
 		expect(selectorKey("sudo sudo apt update")).toBe("sudo apt");
 	});
 
+	it("is its own fixed point, so the key shown is the key stored", () => {
+		const lines = [
+			"sudo -AA bash -c id",
+			"sudo -A -A apt update",
+			"sudo -AE bash",
+			"sudo -EA bash",
+			"sudo -AH --askpass -u root apt update",
+			"sudo -Au root apt",
+			"sudo -A -- apt update",
+			"sudo -A nice -n 5 nohup apt-get upgrade",
+			"sudo env X=1 apt-get install x",
+			"sudo -u bob env X=1 apt-get install x",
+			"sudo -u root bash -c id",
+			"sudo X=1 --foo",
+			"sudo sudo apt update",
+			"sudo -s",
+			"sudo -i",
+			"/usr/bin/sudo -A apt",
+			"sudo /usr/bin/apt install",
+			"ssh -v deploy@prod uptime",
+			"sudo sh -c 'apt-get update'",
+			"sudo env -S 'apt-get update'",
+		];
+		for (const line of lines) {
+			const key = selectorKey(line);
+			expect({ line, again: selectorKey(key) }).toEqual({ line, again: key });
+		}
+		expect(selectorKey("sudo -AA bash -c id")).toBe("sudo bash");
+	});
+
+	it("is a fixed point for every line of up to four words over sudo's awkward tokens", () => {
+		const alphabet = [
+			"-A",
+			"-AA",
+			"-E",
+			"-u",
+			"root",
+			"-uA",
+			"-uAlice",
+			"--",
+			"--askpass",
+			"-s",
+			"-i",
+			"env",
+			"X=1",
+			"nice",
+			"bash",
+			"apt",
+			"-R",
+			"--user",
+			"-",
+			"sudo",
+		];
+		const unstable: string[] = [];
+		const walk = (words: string[], depth: number): void => {
+			if (words.length > 0) {
+				const key = selectorKey(["sudo", ...words].join(" "));
+				if (selectorKey(key) !== key) unstable.push(words.join(" "));
+			}
+			if (depth > 0) for (const token of alphabet) walk([...words, token], depth - 1);
+		};
+		walk([], 4);
+		expect(unstable).toEqual([]);
+	});
+
+	it("keys the live lines as before, and changes only lines the old walk misread", () => {
+		for (const key of ["sudo apt", "sudo apt-get", "sudo install", "sudo apt-mark"]) {
+			const program = key.slice(5);
+			expect([key, `sudo -A ${program} x`, `sudo -A -- ${program} y`].map(selectorKey)).toEqual([key, key, key]);
+		}
+		const changed: Array<[string, string, string]> = [
+			["sudo -uAlice bash", "sudo -ulice bash", "sudo -uAlice bash"],
+			["sudo -A -uA apt", "sudo -u apt", "sudo -uA apt"],
+			// sudo runs a program named `--`.
+			["sudo -- -- foo", "sudo -- foo", "sudo -- -- foo"],
+			["sudo -- -- bash", "sudo -- bash", "sudo -- -- bash"],
+			["sudo -A -- -- apt", "sudo -- apt", "sudo -- -- apt"],
+			["sudo -u postgres -- -- psql", "sudo -u postgres -- psql", "sudo -u postgres -- -- psql"],
+			["sudo -- -- -- bash", "sudo -- -- bash", "sudo -- -- bash"],
+			["sudo X=1 -- bash", "sudo bash", "sudo X=1 -- bash"],
+			["sudo -A -- -s", "sudo -s", "sudo -- -s"],
+			["sudo -u -- apt", "sudo -u apt", "sudo -u -- apt"],
+			["sudo -R -A bash", "sudo -R bash", "sudo -R -A bash"],
+			["sudo --user root -A apt", "sudo --user root -A apt", "sudo --user root apt"],
+		];
+		expect(changed.map(([line]) => selectorKey(line))).toEqual(changed.map(([, , now]) => now));
+	});
+
 	it("derives distinct keys for a prefix and for a substring of a target", () => {
 		expect(selectorKey("ssh deploy@prod uptime")).toBe("ssh deploy@prod");
 		expect(selectorKey("ssh deploy@prod uptime")).not.toBe(selectorKey("ssh deploy"));
