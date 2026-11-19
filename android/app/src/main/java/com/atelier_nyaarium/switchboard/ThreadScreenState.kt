@@ -37,6 +37,8 @@ data class ScheduledSendState(
 	val onReschedule: suspend (Long) -> Boolean,
 	/** Cancels and hands the content back into the draft; the dock reads the result through it. */
 	val onCancel: () -> Unit,
+	/** Past its time: asks the repository to settle it. */
+	val onDue: () -> Unit = {},
 )
 
 /** This team's armed goal: the record driving the dock, and its lifecycle. */

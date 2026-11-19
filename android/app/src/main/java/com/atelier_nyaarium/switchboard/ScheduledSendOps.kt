@@ -10,6 +10,7 @@ import com.atelier_nyaarium.switchboard.proto.ScheduledTarget
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -216,15 +217,9 @@ internal class ScheduledSendOps(
 					val version = answer.jsonObject["version"]?.jsonPrimitive?.long
 					when (answer.jsonObject["state"]?.jsonPrimitive?.content) {
 						// Echoes a prior fire.
-						"fired" -> {
-							land { collaborators.append(team, Message(true, current.text, System.currentTimeMillis(), files = current.fileRefs, opId = current.opId)) }
-							remove(team, current)
-						}
-						"cancelled" -> takeBack(team, current, Line.CANCELLED_ELSEWHERE.text)
-						"error" -> {
-							remove(team, current)
-							onScheduledSendFailed?.invoke(team, current.opId)
-						}
+						"fired" -> settle(team, current, Settle.Sent)
+						"cancelled" -> settle(team, current, Settle.Cancelled)
+						"error" -> settle(team, current, Settle.Failed(reason))
 						else -> put(team, current.copy(routerVersion = version, replacesVersion = null))
 					}
 				}
@@ -246,13 +241,94 @@ internal class ScheduledSendOps(
 		for ((team, rec) in ordered.filter { it.value.cancelRequested && it.value.routerVersion != null }) {
 			if (state.value.scheduledSends[team]?.opId == rec.opId) postCancel(team, rec)
 		}
+		settlePastDue()
+	}
+
+	/** In memory, so a restart asks at once. */
+	private val settleAsks = HashMap<String, SettleAsk>()
+
+	/** Settles from the Router's record, row or not. */
+	private suspend fun settlePastDue() {
+		val now = System.currentTimeMillis()
+		val held = state.value.scheduledSends.entries.filter { it.value.routerVersion != null && !it.value.cancelRequested }
+		settleAsks.keys.retainAll(held.map { it.value.opId }.toSet())
+		val due = held.filter { (_, rec) -> now >= (settleAsks[rec.opId] ?: firstSettleAsk(rec)).dueAt }
+		if (due.isEmpty()) return
+		val records = routerRecordsRead("settle:${java.util.UUID.randomUUID()}")
+		for ((team, rec) in due) {
+			if (records == null) {
+				settleAsks[rec.opId] = nextSettleAsk(settleAsks[rec.opId] ?: firstSettleAsk(rec), now)
+				continue
+			}
+			val current = state.value.scheduledSends[team]?.takeIf { it.opId == rec.opId } ?: continue
+			when (val decided = settleFromRouter(current, records.firstOrNull { it.opId == rec.opId }, now)) {
+				Settle.Wait -> settleAsks[rec.opId] = nextSettleAsk(settleAsks[rec.opId] ?: firstSettleAsk(rec), now)
+				else -> {
+					settleAsks.remove(rec.opId)
+					settle(team, current, decided)
+				}
+			}
+		}
+	}
+
+	/** The one settle road. */
+	private suspend fun settle(team: String, rec: ScheduledSend, decided: Settle) {
+		when (decided) {
+			Settle.Wait -> Unit
+			Settle.Sent -> {
+				land { collaborators.append(team, Message(true, rec.text, rec.fireAtMillis, files = rec.fileRefs, opId = rec.opId)) }
+				remove(team, rec)
+				if (!rec.draftTaken) deleteSourcesIfUnreferenced(team, rec)
+			}
+			is Settle.Failed -> {
+				val failed = Message(
+					true,
+					rec.text,
+					rec.fireAtMillis,
+					files = rec.fileRefs,
+					status = "error",
+					opId = failedSendOpId(rec.opId),
+					failReason = reasonSentence(Act.SENDING_SCHEDULED, decided.reason),
+				)
+				land { collaborators.append(team, failed) }
+				remove(team, rec)
+				onScheduledSendFailed?.invoke(team, rec.opId)
+			}
+			Settle.Cancelled ->
+				if (rec.draftTaken) remove(team, rec) else takeBack(team, rec, Line.CANCELLED_ELSEWHERE.text)
+			Settle.Gone -> takeBack(team, rec, Line.CHANGED_ELSEWHERE.text)
+		}
 	}
 
 	fun kickDrain() { repoScope.launch(Dispatchers.IO) { drainPending() } }
 
-	fun onRouterResult(row: ScheduledResultRow, position: ReadAnchor) {
-		repoScope.launch(Dispatchers.IO) { applyRouterResult(row, position) }
+	/** One at a time, in row order. */
+	private val results = Channel<Pair<ScheduledResultRow, ReadAnchor>>(Channel.UNLIMITED)
+
+	init {
+		repoScope.launch(Dispatchers.IO) {
+			for ((row, position) in results) applyInOrder(row, position)
+		}
 	}
+
+	fun onRouterResult(row: ScheduledResultRow, position: ReadAnchor) {
+		results.trySend(row to position)
+	}
+
+	/** A throw costs one row. */
+	private suspend fun applyInOrder(row: ScheduledResultRow, position: ReadAnchor) {
+		try {
+			applyRouterResult(row, position)
+		} catch (e: Exception) {
+			e.rethrowIfCancellation()
+			DebugLog.log("Scheduled", "result not applied: ${e.javaClass.simpleName}")
+		} finally {
+			resultsApplied.incrementAndGet()
+		}
+	}
+
+	/** Taken off the queue. */
+	internal val resultsApplied = java.util.concurrent.atomic.AtomicInteger()
 
 	internal fun takeFailurePosition(opId: String): ReadAnchor? = synchronized(failurePositionLock) {
 		failurePositions.remove(opId)
@@ -263,32 +339,54 @@ internal class ScheduledSendOps(
 		when (row.outcome) {
 			"pending" -> if (found == null) mirror(row)
 			"sent" -> found?.let { (team, rec) ->
-				land { collaborators.append(team, Message(true, rec.text, System.currentTimeMillis(), files = rec.fileRefs, opId = rec.opId)) }
+				land { collaborators.append(team, Message(true, rec.text, rec.fireAtMillis, files = rec.fileRefs, opId = rec.opId)) }
 				remove(team, rec)
 				if (!rec.draftTaken) deleteSourcesIfUnreferenced(team, rec)
-			} ?: routerRecord(row.opId)?.let { (team, wire) ->
-				if (state.value.threads[team]?.any { it.opId == wire.opId } == true) return@pass
-				val (text, files) = decodedBody(wire) ?: return@pass
-				land { collaborators.append(team, Message(true, text, System.currentTimeMillis(), files = files, opId = wire.opId)) }
-			}
+			} ?: routerRecord(row.opId)?.let { (team, wire) -> echoRouter(team, wire) }
 			"failed" -> {
-				val reason = reasonSentence(Act.SENDING_SCHEDULED, row.reason)
-				val echoed = state.value.threads.entries.firstOrNull { (_, msgs) -> msgs.any { it.fromMe && it.opId == row.opId } }?.key
-				val team = found?.key ?: echoed ?: return@pass
 				synchronized(failurePositionLock) {
 					failurePositions[row.opId] = position
 					while (failurePositions.size > 128) failurePositions.remove(failurePositions.keys.first())
 				}
-				if (echoed != null) {
-					found?.let { (_, rec) -> remove(team, rec) }
-					val fresh = java.util.UUID.randomUUID().toString()
-					land {
-						state.update { s -> s.copy(threads = s.threads + (team to withFailedSend(s.threads[team].orEmpty(), row.opId, reason, fresh))) }
-						persistence.persistThreads()
+				val echoed = state.value.threads.entries.firstOrNull { (_, msgs) -> msgs.any { it.fromMe && it.opId == row.opId } }?.key
+				when {
+					echoed != null -> {
+						found?.let { (_, rec) -> remove(echoed, rec) }
+						val reason = reasonSentence(Act.SENDING_SCHEDULED, row.reason)
+						land {
+							state.update { s -> s.copy(threads = s.threads + (echoed to withFailedSend(s.threads[echoed].orEmpty(), row.opId, reason))) }
+							persistence.persistThreads()
+						}
+						onScheduledSendFailed?.invoke(echoed, row.opId)
 					}
-				} else found?.let { (_, rec) -> takeBack(team, rec, reason) }
-				onScheduledSendFailed?.invoke(team, row.opId)
+					found != null -> settle(found.key, found.value, Settle.Failed(row.reason))
+					else -> routerRecord(row.opId)?.let { (team, wire) -> echoRouter(team, wire) }
+				}
 			}
+		}
+	}
+
+	/** Another device's send ended; once per thread. */
+	private suspend fun echoRouter(team: String, wire: ScheduledRecord) {
+		if (state.value.threads[team]?.any { it.opId == wire.opId || it.opId == failedSendOpId(wire.opId) } == true) return
+		val (text, files) = decodedBody(wire) ?: return
+		val firedAt = wire.fireAt
+		when (wire.state) {
+			"cancelled" -> Unit
+			"error" -> {
+				val failed = Message(
+					true,
+					text,
+					firedAt,
+					files = files,
+					status = "error",
+					opId = failedSendOpId(wire.opId),
+					failReason = reasonSentence(Act.SENDING_SCHEDULED, wire.reason),
+				)
+				land { collaborators.append(team, failed) }
+				onScheduledSendFailed?.invoke(team, wire.opId)
+			}
+			else -> land { collaborators.append(team, Message(true, text, firedAt, files = files, opId = wire.opId)) }
 		}
 	}
 
@@ -315,6 +413,18 @@ internal class ScheduledSendOps(
 		return records.mapNotNull { runIsolated { wireJson.decodeFromJsonElement<ScheduledRecord>(it) }.getOrNull() }
 	}
 
+	/** Null when unread, never gone. */
+	private suspend fun routerRecordsRead(opId: String): List<ScheduledRecord>? {
+		val answer = try {
+			collaborators.postOwnerOp(buildJsonObject { put("kind", Protocol.Wire.OWNER_OP_SCHEDULE_LIST) }, opId)
+		} catch (e: Exception) {
+			e.rethrowIfCancellation()
+			return null
+		}
+		val records = answer as? JsonArray ?: return null
+		return runIsolated { records.map { wireJson.decodeFromJsonElement<ScheduledRecord>(it) } }.getOrNull()
+	}
+
 	/** Adopts Router record. */
 	private fun adopt(team: String, wire: ScheduledRecord): Boolean {
 		val (text, files) = decodedBody(wire) ?: return false
@@ -329,9 +439,10 @@ internal class ScheduledSendOps(
 		return json.optString("text") to files
 	}
 
+	/** Waiting only; a settled send is no dock. */
 	private suspend fun mirror(row: ScheduledResultRow) {
 		val (team, wire) = routerRecord(row.opId) ?: return
-		adopt(team, wire)
+		if (wire.state == "armed" || wire.state == "firing") adopt(team, wire)
 	}
 
 	private suspend fun routerRecord(opId: String): Pair<String, ScheduledRecord>? {

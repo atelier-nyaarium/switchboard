@@ -157,9 +157,9 @@ private fun ChatRepository.setMessageStatus(team: String, id: Long, status: Stri
 	persistence.persistThreads()
 }
 
-/** Fresh op id, so Retry is not a replay. */
-internal fun withFailedSend(thread: List<Message>, opId: String, reason: String, fresh: String): List<Message> =
-	thread.map { if (it.fromMe && it.opId == opId) it.copy(status = "error", failReason = reason, opId = fresh) else it }
+/** Own op id, so Retry is no replay. */
+internal fun withFailedSend(thread: List<Message>, opId: String, reason: String): List<Message> =
+	thread.map { if (it.fromMe && it.opId == opId) it.copy(status = "error", failReason = reason, opId = failedSendOpId(opId)) else it }
 
 /** A shared screen in its own bucket, as `screen` files [send] admits with the rest. Blocks on disk. */
 internal fun ChatRepository.stageScreen(png: ByteArray?, text: String?): List<MessageFile> {

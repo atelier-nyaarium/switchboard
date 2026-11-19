@@ -45,9 +45,51 @@ internal fun scheduleBlocker(pickedMillis: Long?, now: Long, fileCount: Int): St
 	else -> null
 }
 
-/** A minute, or sooner when the fire time comes first. */
-internal fun nextDockTick(rec: ScheduledSend, now: Long): Long =
-	(rec.fireAtMillis - now).takeIf { it > 0 }?.coerceAtMost(60_000L) ?: 60_000L
+/** Next dock wake. */
+internal fun nextDockTick(rec: ScheduledSend, now: Long): Long {
+	val untilFire = rec.fireAtMillis - now
+	if (untilFire > 0) return untilFire.coerceAtMost(60_000L)
+	return (rec.fireAtMillis + SETTLE_GRACE_MS - now).takeIf { it > 0 } ?: SETTLE_GRACE_MS
+}
+
+/** Due for an ask. */
+internal fun settleDue(rec: ScheduledSend, now: Long): Boolean =
+	rec.routerVersion != null && now >= rec.fireAtMillis + SETTLE_GRACE_MS
+
+/** Wait for the result row. */
+internal const val SETTLE_GRACE_MS = 15_000L
+internal const val SETTLE_BACKOFF_MAX_MS = 5 * 60_000L
+
+/** Outcome per the Router's record. */
+internal sealed interface Settle {
+	data object Wait : Settle
+	data object Sent : Settle
+	data class Failed(val reason: String?) : Settle
+	data object Cancelled : Settle
+	/** The Router holds no record for it. */
+	data object Gone : Settle
+}
+
+internal fun settleFromRouter(held: ScheduledSend, router: com.atelier_nyaarium.switchboard.proto.ScheduledRecord?, now: Long): Settle = when {
+	held.cancelRequested || !settleDue(held, now) -> Settle.Wait
+	router == null -> Settle.Gone
+	router.state == "fired" -> Settle.Sent
+	router.state == "error" -> Settle.Failed(router.reason)
+	router.state == "cancelled" -> Settle.Cancelled
+	else -> Settle.Wait
+}
+
+/** Next ask time and wait. */
+internal data class SettleAsk(val dueAt: Long, val waitMs: Long)
+
+internal fun firstSettleAsk(held: ScheduledSend): SettleAsk = SettleAsk(held.fireAtMillis + SETTLE_GRACE_MS, SETTLE_GRACE_MS)
+
+/** Doubles to five minutes. */
+internal fun nextSettleAsk(ask: SettleAsk, now: Long): SettleAsk =
+	SettleAsk(now + ask.waitMs, (ask.waitMs * 2).coerceAtMost(SETTLE_BACKOFF_MAX_MS))
+
+/** Own op id, so Retry is no replay. */
+internal fun failedSendOpId(opId: String): String = "$opId.retry"
 
 /** A data-plane consumer of new inbound messages, invoked once per message at the drain gate. */
 fun interface InboundSubscriber {

@@ -534,6 +534,7 @@ internal fun ThreadScreen(
 					},
 					cancelEnabled = !composer.draft.isOccupied,
 					onCancel = scheduled.onCancel,
+					onDue = scheduled.onDue,
 				)
 			}
 			goal.record?.let { rec -> GoalDock(rec = rec, onCancel = goal.onCancel) }

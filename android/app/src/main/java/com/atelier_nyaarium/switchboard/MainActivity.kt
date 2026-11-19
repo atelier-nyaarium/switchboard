@@ -750,6 +750,7 @@ fun App(
 					onSchedule = { text, files, at -> repo.scheduled.scheduleSend(team, text, files, at) },
 					onReschedule = { at -> repo.scheduled.rescheduleSend(team, at) },
 					onCancel = { repo.scheduled.cancelScheduledSendForEdit(team) },
+					onDue = { repo.scheduled.kickDrain() },
 				),
 				goal = GoalState(
 					offered = goalOffered(ConversationView.TERMINAL in offered, sessionCli),

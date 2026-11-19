@@ -40,12 +40,13 @@ import kotlinx.coroutines.delay
 
 /** A pending scheduled send; tap retimes it, the icon cancels. */
 @Composable
-fun ScheduledSendDock(rec: ScheduledSend, onEdit: () -> Unit, onCancel: () -> Unit, cancelEnabled: Boolean) {
+fun ScheduledSendDock(rec: ScheduledSend, onEdit: () -> Unit, onCancel: () -> Unit, cancelEnabled: Boolean, onDue: () -> Unit = {}) {
 	// Not remembered: a zone change must show.
 	val zone = java.time.ZoneId.systemDefault()
 	var now by remember { mutableStateOf(System.currentTimeMillis()) }
 	LaunchedEffect(rec.opId, rec.fireAtMillis) {
 		while (true) {
+			if (settleDue(rec, now)) onDue()
 			delay(nextDockTick(rec, now))
 			now = System.currentTimeMillis()
 		}
