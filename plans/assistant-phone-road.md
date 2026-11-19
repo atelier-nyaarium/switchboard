@@ -1056,6 +1056,17 @@ A: Functions only. "Run an automation" can come later as one more step kind, wit
 
 Recommended: it is the smaller language, with one kind of step and one kind of "used by". What it gives up: switching one automation off does not stop another that points at the same function.
 
+## Question 75 - Where does a function get its name?
+
+Q: In the Runs block, or does the picker ask for one?
+A: In the Runs block. Every automation shows the block. An automation's own steps show an empty name field reading "Name"; typing a name and saving makes it a function others can point at. "+ New function" in the picker gives a fresh empty body, unnamed until named. Tapping the name renames. Nothing asks for a name. Mocked as `functions-naming-a.html`, group "Phase 2.7e Functions".
+
+> demonstratw A again > "Name"
+>
+> looks good
+
+Recommended: one place to name and rename, no dialog, the five live automations look the same until one is named, and it matches the stored form (named is a function record, unnamed is the automation's own steps).
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
@@ -1853,6 +1864,36 @@ First steps, carried from the 2.7e.1 architecture pass:
 3. **Functions as records.** The kinds in one store with a cap each, `run_function`, the Save op, users and the delete at none, fit and the values an automation sets, the judge's graph checks, outside reach and the danger confirm across users, the carry, the list answering functions, a run pinned to the steps it started with (Q73). Bodies are still a list of `do` steps. Phone N: the "Runs" block, the picker, "Make unique", the count on the list, as locked in the Designer. Pure rules, a JUnit each: `valueRows`, `valueIssue`, `runsIssue`, `functionLine`, `usersLine`, `reachLine`, `automationDeleteLine`.
 
 Gates: the fit corpus on both runtimes; a JVM test of 8.14.83's `editable`, `canRemove` and `actionLine` over a `run_function` row; a restore of the five live automations by both builds; after a function is stored, the four live wakes and the crossing still tell, and an IFTTT step inside a function still asks; the carry vectors.
+
+### Decided while building slice 3
+
+The lead's rulings on the wire proposal's questions, and what the build found:
+
+- **A revision change retires only an unstarted fire**, and that is the automation's own revision. A function frame is pinned when it is entered. A started run finishes on the body and frame it pinned. Switching the automation off, deleting it, or another incarnation stops a started run. The owner is told this in plain words, since it is theirs to change.
+- **A function gone or unreadable when its frame would be entered** ends that step refused with a fixed reason, never a throw.
+- **Caps:** 64 records across kinds, functions at most 32, 8 steps and 8 params a function.
+- **`call` is its own step kind in slice 6.** A `do` step never names `run_function`, which stays the automation's pointer.
+- **`run_function.values` are literals only** in this slice. A device value is an id checked against the offered switches at the save.
+- **`keepTryingMin`** is each step's own window, default 10. **`coolDownSec`** is the automation's cool-down only where the trigger carries none; beside a trigger's own it is refused `cool_down_twice`. Both keys are declared now, since a kind may not gain a key later. The phone draws neither in this slice.
+- **An older phone's home move** carries a `run_function` automation without its function: it lands unfit with its own line. Functions left behind stay unlisted for a named constant of 7 days.
+- **The copy id's key** is in its own file, never logged or answered. The Gateway names a "Make unique" copy (`copyIdOf`) and the save answers the row.
+- **One id space across kinds:** an automation id held by a function, or the reverse, is refused `invalid`.
+- **Every save refusal is a code** (`AUTOMATION_SAVE_REFUSALS`), prose beside it for an older phone.
+- **A function from a newer build** is held unread, counted in the caps, and its automation reads invalid with its own line (`FUNCTION_UNREAD`) and never fires.
+- **Outside reach asks for a flat automation too:** a new event-triggered automation that reaches more than a tell answers `confirm` once. 8.14.83 already handles `confirm`.
+- **The function list row carries `reads`,** since the phone has no grammar to compute them; the phone twins `triggerGiven` and `fitOf` only.
+
+Built: all seven Gateway steps (the store, `run_function` and the walk, fit, the judge, the engine with frames and `functionVersions`, the `automation_save` op and the list answer, the carry). Phone N is wired and under test. Steps 1 to 4 are committed.
+
+### Bug Classes
+
+From the adversarial read of the Gateway half (six lenses and a verifying synthesis, sixteen confirmed findings, each with a probe). None changes what the five live flat automations do, none loses data on a rollback, and no function can exist on the live Gateway until phone N ships.
+
+- **A. Write order against an in-order cap.** Mechanism: `planPut` counts caps as each write of a batch is planned; `judgeCarry` and `judgeSave` list creates before removals, so a carry or a repoint near the cap is refused as full. One change: `batch` checks the batch's final row count.
+- **B. A derived id assumed free.** Mechanism: the copy branch of `judgeSave`, the carry's landing loop and the `repointed` fallback each write at a deterministic HMAC id at whatever revision is held there. A carry could write over a function a staying automation runs; "Make unique" could write over another automation's copy, could not mint again after a buried copy, and a retry answered `gone`. One change: one helper claims a derived id, walking to the first one that is free for this intent.
+- **C. Unread rows ignored as users.** Mechanism: `unused`, `free` and the sweep each read who runs a function; only the sweep guards unread rows, so removing the last readable user deleted a function an unread automation ran. One change: one `usersOf` reader, unknown meaning used.
+- **E. The function form lacks the flat form's checks.** Mechanism: validity and the save check different subsets, and fit's event names differ from the fire's. A carried function with a refused hole armed; a device value was never checked against the switches (a ruling not built); a hole in a device arg filled with the shown name; `event.url` and `event.id` read as hidden; a crossing's `device`, a sensor name, was typed as a switch. One change: one `stepIssue` read at the save and on every read, and one table of what an event gives.
+- **Slips:** a newer set did not end an older function step not yet resolved (high); a move in place treated the home's own event automations as arriving; the call's cool-down measured from the last finished run; store refusals guessing their code; the function key minted inside the preflight and written over when unreadable; the console entity not following the function; the danger key differing between flat and step forms; no restore test for the plan's cross-build gate.
 
 ## Phase 2.7e.3 - The tree (slices 4 and 5)
 
