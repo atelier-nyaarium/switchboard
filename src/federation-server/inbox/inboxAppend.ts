@@ -23,6 +23,11 @@ type OpKeyInput = OpKey | { conversationId: string; opId: string; hash?: string 
 type RowRefs = Pick<ReferenceHeldStore, "publish">;
 type Tx = Parameters<Parameters<OwnerStateStore["batch"]>[0]>[0];
 
+// #region debug forget-race
+const TERMINAL_LEDGER = new Set(["failed", "expired", "target_revoked"]);
+const terminalLedger = (state: unknown): boolean => typeof state === "string" && TERMINAL_LEDGER.has(state);
+// #endregion
+
 /** Binds row bytes. */
 function rowTransaction(
 	store: OwnerStateStore,
@@ -83,12 +88,39 @@ export function appendInboxRow(
 				return appendResultRow(registry, store, address, row, existing, refs, input.stamp);
 			}
 		}
+		// #region debug forget-race (HYP-B): true result over a terminal ledger
+		if (
+			row.envelope.kind === "op_result" &&
+			row.envelope.origin.kind === "gateway" &&
+			terminalLedger(clear.state)
+		) {
+			console.warn(
+				`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "B", where: "appendInboxRow", opId: key.opId, conversationId: key.conversationId, state: clear.state })}`,
+			);
+		}
+		// #endregion
 		if (clear.address && clear.address !== formatInboxAddress(address)) return { opKey: key, outcome: "conflict" };
 		// Matching op hash replays. Differing hash conflicts.
 		if (clear.opHash === opHash && clear.result && typeof clear.result === "object") {
 			const result = OpResultEnvelopeSchema.safeParse(clear.result);
-			if (result.success) return result.data;
+			if (result.success) {
+				// #region debug forget-race (HYP-C): retry replays a terminal result
+				if (terminalLedger(clear.state)) {
+					console.warn(
+						`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "C", where: "appendInboxRow", opId: key.opId, state: clear.state, replay: result.data.outcome, reason: result.data.reason ?? null })}`,
+					);
+				}
+				// #endregion
+				return result.data;
+			}
 		}
+		// #region debug forget-race (HYP-C): retry conflicts over a terminal ledger
+		if (terminalLedger(clear.state)) {
+			console.warn(
+				`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "C", where: "appendInboxRow", opId: key.opId, state: clear.state, answer: "conflict" })}`,
+			);
+		}
+		// #endregion
 		return { opKey: key, outcome: "conflict" };
 	}
 	if (input.recipientNoHolder) return { opKey: key, outcome: "refused", reason: "no_holder" };

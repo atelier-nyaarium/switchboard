@@ -265,6 +265,13 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			return appendConsoleResult(address, parsed, row, deliveryEpoch, { ok: false, error: "target_mismatch" });
 		}
 		try {
+			// #region debug forget-race (HYP-A/D): dispatch ordering
+			if (op.data.kind === "forget") {
+				console.log(
+					`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "pump.dispatch", at: "start", opId: row.envelope.opKey.opId, target })}`,
+				);
+			}
+			// #endregion
 			const result = await deps.consoleDispatch(
 				op.data,
 				senderDevice(row),
@@ -272,6 +279,13 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 				row.envelope.opKey.opId,
 				ownerSignPub,
 			);
+			// #region debug forget-race (HYP-A/D): dispatch ordering
+			if (op.data.kind === "forget") {
+				console.log(
+					`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "pump.dispatch", at: "settled", opId: row.envelope.opKey.opId })}`,
+				);
+			}
+			// #endregion
 			return appendConsoleResult(address, parsed, row, deliveryEpoch, { ok: true, result });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -308,6 +322,13 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			row: { envelope, producerSig: signRowEnvelope(envelope, deps.producerSignPriv), body: sealed.envelope },
 		})) as AckReply | undefined;
 		const outcome = reply?.result?.outcome;
+		// #region debug forget-race (HYP-B): true result refused
+		if (outcome !== OP_OUTCOME_ACCEPTED) {
+			console.log(
+				`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "B", where: "pump.appendConsoleResult", opId: row.envelope.opKey.opId, outcome: outcome ?? "unreachable" })}`,
+			);
+		}
+		// #endregion
 		if (outcome !== OP_OUTCOME_ACCEPTED && outcome !== "conflict")
 			return ack(address, row.seq, deliveryEpoch, "waking", "result_pending", false);
 		return ack(address, row.seq, deliveryEpoch, "delivered");

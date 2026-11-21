@@ -173,7 +173,14 @@ export class InboxService {
 		} catch {
 			return { opKey: ackKey, outcome: "durability_uncertain" };
 		}
-		if (!found || found.seq !== input.seq) return { opKey: ackKey, outcome: "gone" };
+		// #region debug forget-race (HYP-A): ack after the row left
+		if (!found || found.seq !== input.seq) {
+			console.warn(
+				`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "ack", address: formatInboxAddress(address), seq: input.seq, outcome: input.outcome, reason: input.reason ?? null })}`,
+			);
+			return { opKey: ackKey, outcome: "gone" };
+		}
+		// #endregion
 		const row = found.row as unknown as InboxRow;
 		if (input.outcome === "failed")
 			return (
@@ -371,8 +378,19 @@ export class InboxService {
 			const record = store.get("session", id);
 			if (record) store.del("session", id, record.version);
 			const address: InboxAddress = { kind: "session", domainId, gatewayId, sessionId };
-			for (const row of this.rows(address, 1, Number.MAX_SAFE_INTEGER))
-				this.retire(store, domainId, address, row, "failed", "session_forgotten");
+			const pending = this.rows(address, 1, Number.MAX_SAFE_INTEGER);
+			// #region debug forget-race (HYP-A/D): rows retired by session_forget
+			for (const row of pending) {
+				const ledger = store.get(
+					"op",
+					recordId(row.envelope.opKey, this.registry.ownerKey(domainId).ownerSignPub),
+				);
+				console.warn(
+					`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "forgetSession", sessionId, seq: row.seq, kind: row.envelope.kind, opId: row.envelope.opKey.opId, ledger: ledger?.clear.state ?? "absent" })}`,
+				);
+			}
+			// #endregion
+			for (const row of pending) this.retire(store, domainId, address, row, "failed", "session_forgotten");
 			// Forgetting fails rows and advances the epoch.
 			this.recreateAddress(address);
 		}, undefined);
