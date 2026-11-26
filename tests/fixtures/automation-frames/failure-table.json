@@ -1,0 +1,219 @@
+{
+	"about": "The failure table. Each case enters a body and applies one event per step whose turn comes. `visits` is each step's address in order, `caught` the try whose catch a visit entered (else null), `end` how the frame ended.",
+	"cases": [
+		{
+			"name": "an empty body ends done",
+			"body": [],
+			"events": [],
+			"visits": [],
+			"caught": [],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "outside a try a failure is noted, the body carries on, and the frame ends failed with the first",
+			"body": [{ "kind": "do" }, { "kind": "do" }, { "kind": "do" }],
+			"events": [
+				{ "how": "failed", "failure": { "code": "refused", "message": "a" } },
+				{ "how": "failed", "failure": { "code": "timeout", "message": "b" } },
+				{ "how": "done" }
+			],
+			"visits": [[0], [1], [2]],
+			"caught": [null, null, null],
+			"end": { "end": "failed", "code": "refused" }
+		},
+		{
+			"name": "inside a try a failure jumps to the catch, the rest of the try is skipped, and a caught failure is not remembered",
+			"body": [
+				{ "kind": "try", "steps": [{ "kind": "do" }, { "kind": "do" }], "catch": [{ "kind": "do" }] },
+				{ "kind": "do" }
+			],
+			"events": [
+				{ "how": "took", "side": "try" },
+				{ "how": "failed", "failure": { "code": "unreachable", "message": "a" } },
+				{ "how": "done" },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "try", 0], [0, "catch", 0], [1]],
+			"caught": [null, null, { "by": [0], "code": "unreachable" }, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "a try that does not fail skips its catch",
+			"body": [{ "kind": "try", "steps": [{ "kind": "do" }], "catch": [{ "kind": "do" }] }, { "kind": "do" }],
+			"events": [{ "how": "took", "side": "try" }, { "how": "done" }, { "how": "done" }],
+			"visits": [[0], [0, "try", 0], [1]],
+			"caught": [null, null, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "an empty catch still catches",
+			"body": [{ "kind": "try", "steps": [{ "kind": "do" }, { "kind": "do" }], "catch": [] }, { "kind": "do" }],
+			"events": [
+				{ "how": "took", "side": "try" },
+				{ "how": "failed", "failure": { "code": "no_answer", "message": "a" } },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "try", 0], [1]],
+			"caught": [null, null, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "throw unwinds to the nearest try in its frame, through an if",
+			"body": [
+				{
+					"kind": "try",
+					"steps": [{ "kind": "if", "steps": [{ "kind": "throw" }, { "kind": "do" }] }, { "kind": "do" }],
+					"catch": [{ "kind": "do" }]
+				},
+				{ "kind": "do" }
+			],
+			"events": [
+				{ "how": "took", "side": "try" },
+				{ "how": "took", "side": "then" },
+				{ "how": "thrown", "failure": { "code": "thrown", "message": "stop" } },
+				{ "how": "done" },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "try", 0], [0, "try", 0, "then", 0], [0, "catch", 0], [1]],
+			"caught": [null, null, null, { "by": [0], "code": "thrown" }, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "throw with no try ends the frame failed, the steps after it unreached",
+			"body": [{ "kind": "do" }, { "kind": "throw" }, { "kind": "do" }],
+			"events": [{ "how": "done" }, { "how": "thrown", "failure": { "code": "thrown", "message": "stop" } }],
+			"visits": [[0], [1]],
+			"caught": [null, null],
+			"end": { "end": "failed", "code": "thrown" }
+		},
+		{
+			"name": "a frame ended by a throw carries the failure noted before it",
+			"body": [{ "kind": "do" }, { "kind": "throw" }],
+			"events": [
+				{ "how": "failed", "failure": { "code": "refused", "message": "a" } },
+				{ "how": "thrown", "failure": { "code": "thrown", "message": "stop" } }
+			],
+			"visits": [[0], [1]],
+			"caught": [null, null],
+			"end": { "end": "failed", "code": "refused" }
+		},
+		{
+			"name": "exit ends the frame and adds no failure",
+			"body": [{ "kind": "do" }, { "kind": "exit" }, { "kind": "do" }],
+			"events": [{ "how": "done" }, { "how": "exit" }],
+			"visits": [[0], [1]],
+			"caught": [null, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "a failure noted before an exit still counts",
+			"body": [{ "kind": "do" }, { "kind": "exit" }, { "kind": "do" }],
+			"events": [{ "how": "failed", "failure": { "code": "no_answer", "message": "a" } }, { "how": "exit" }],
+			"visits": [[0], [1]],
+			"caught": [null, null],
+			"end": { "end": "failed", "code": "no_answer" }
+		},
+		{
+			"name": "a failure inside a catch is caught by the try that encloses its own",
+			"body": [
+				{
+					"kind": "try",
+					"steps": [{ "kind": "try", "steps": [{ "kind": "do" }], "catch": [{ "kind": "do" }] }],
+					"catch": [{ "kind": "do" }]
+				},
+				{ "kind": "do" }
+			],
+			"events": [
+				{ "how": "took", "side": "try" },
+				{ "how": "took", "side": "try" },
+				{ "how": "failed", "failure": { "code": "refused", "message": "a" } },
+				{ "how": "failed", "failure": { "code": "timeout", "message": "b" } },
+				{ "how": "done" },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "try", 0], [0, "try", 0, "try", 0], [0, "try", 0, "catch", 0], [0, "catch", 0], [1]],
+			"caught": [
+				null,
+				null,
+				null,
+				{ "by": [0, "try", 0], "code": "refused" },
+				{ "by": [0], "code": "timeout" },
+				null
+			],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "a failure inside a catch that nothing encloses is noted, and the catch carries on",
+			"body": [{ "kind": "try", "steps": [{ "kind": "do" }], "catch": [{ "kind": "do" }, { "kind": "do" }] }],
+			"events": [
+				{ "how": "took", "side": "try" },
+				{ "how": "failed", "failure": { "code": "refused", "message": "a" } },
+				{ "how": "failed", "failure": { "code": "timeout", "message": "b" } },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "try", 0], [0, "catch", 0], [0, "catch", 1]],
+			"caught": [null, null, { "by": [0], "code": "refused" }, null],
+			"end": { "end": "failed", "code": "timeout" }
+		},
+		{
+			"name": "an if takes a side, and leaving it at any depth continues after its owner",
+			"body": [
+				{ "kind": "if", "steps": [{ "kind": "if", "steps": [{ "kind": "do" }] }], "else": [{ "kind": "do" }] },
+				{ "kind": "do" }
+			],
+			"events": [
+				{ "how": "took", "side": "then" },
+				{ "how": "took", "side": "then" },
+				{ "how": "done" },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "then", 0], [0, "then", 0, "then", 0], [1]],
+			"caught": [null, null, null, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "an absent side, an empty side and no side all lead on",
+			"body": [
+				{ "kind": "if", "steps": [{ "kind": "do" }] },
+				{ "kind": "if", "steps": [] },
+				{ "kind": "if" },
+				{ "kind": "do" }
+			],
+			"events": [
+				{ "how": "took", "side": "else" },
+				{ "how": "took", "side": "then" },
+				{ "how": "took", "side": null },
+				{ "how": "done" }
+			],
+			"visits": [[0], [1], [2], [3]],
+			"caught": [null, null, null, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "a condition that cannot be read fails where the if stands: caught inside a try",
+			"body": [
+				{
+					"kind": "try",
+					"steps": [{ "kind": "if", "steps": [{ "kind": "do" }] }, { "kind": "do" }],
+					"catch": [{ "kind": "do" }]
+				}
+			],
+			"events": [
+				{ "how": "took", "side": "try" },
+				{ "how": "failed", "failure": { "code": "unread", "message": "a" } },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "try", 0], [0, "catch", 0]],
+			"caught": [null, null, { "by": [0], "code": "unread" }],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "a condition that cannot be read fails where the if stands: noted outside one, neither side taken",
+			"body": [{ "kind": "if", "steps": [{ "kind": "do" }], "else": [{ "kind": "do" }] }, { "kind": "do" }],
+			"events": [{ "how": "failed", "failure": { "code": "unread", "message": "a" } }, { "how": "done" }],
+			"visits": [[0], [1]],
+			"caught": [null, null],
+			"end": { "end": "failed", "code": "unread" }
+		}
+	]
+}

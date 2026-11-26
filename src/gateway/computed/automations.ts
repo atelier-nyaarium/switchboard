@@ -54,28 +54,17 @@ import {
 import { CLOCK_GRACE_MS, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
 import {
 	admit,
-	claim,
-	claimedPaths,
 	type Fire,
 	type FireNames,
 	type Frame,
 	finished,
 	frameKey,
-	holdsClaim,
-	type LandedSet,
-	mayRun,
-	nextEffect,
-	nextFill,
-	outdatedSets,
-	type Runnable,
 	type StepRef,
 	started,
 	stepKey,
 	stepsOf,
 	switchOf,
-	turnOf,
 	WAITING_EVENTS_MAX,
-	withStep,
 } from "./automationFires.js";
 import {
 	AUTOMATION_KIND,
@@ -87,37 +76,20 @@ import {
 	movesWithHome,
 	NOT_HOME,
 } from "./automationJudge.js";
-import { COOLING, fireRow, logged, type RowWhere, type RunRow } from "./automationLog.js";
-import { clip, type Dropped, memberOf, outboxOf, ownerOf, QUEUE_FULL, stepMember, told } from "./automationOutbox.js";
+import { COOLING, fireRow, logged, type RunRow } from "./automationLog.js";
+import { clip, type Dropped, memberOf, outboxOf, ownerOf, told } from "./automationOutbox.js";
+import { createPass, droppedRows, FRAME_UNREAD, NEWER_SET, untold } from "./automationPass.js";
 import {
 	type Attempt,
 	type AutomationActionPorts,
 	type AutomationEffect,
 	isEffect,
-	natureOf,
 	runEffect,
 } from "./automationRunner.js";
 import { holeScope } from "./automationScope.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, versionKey } from "./automationState.js";
-import {
-	begun,
-	clamped,
-	dueAt,
-	endedOutcome,
-	expired,
-	FRESH_STEP,
-	heard,
-	isEnded,
-	KEEP_TRYING_MS,
-	type Nature,
-	outOfTime,
-	recovered,
-	refusedUnsent,
-	type Step,
-	timedOut,
-	unsent,
-} from "./automationSteps.js";
-import { holeSpanOf, holeTextsOf, isTell, laneTellWhen, tellPlan } from "./automationText.js";
+import { FRESH_STEP, isEnded, KEEP_TRYING_MS, refusedUnsent } from "./automationSteps.js";
+import { holeSpanOf, holeTextsOf, laneTellWhen, tellPlan } from "./automationText.js";
 import {
 	createAutomationValidity,
 	FUNCTION_GONE,
@@ -138,6 +110,7 @@ export {
 	QUEUE_MAX_BYTES,
 	QUEUE_MAX_EVENTS,
 } from "./automationOutbox.js";
+export { FRAME_UNREAD, NEWER_SET } from "./automationPass.js";
 export { BACKOFF_MAX_MS, BACKOFF_MIN_MS, KEEP_TRYING_MS } from "./automationSteps.js";
 export type { WatchedReading } from "./automationWords.js";
 export { AUTOMATION_KIND };
@@ -160,12 +133,9 @@ export type AutomationSaved =
 /** A filled effect parameter. */
 const EFFECT_TEXT_MAX = 500;
 const NO_RUNNER = "this Gateway runs no such action";
-export const NEWER_SET = "a newer setting of this switch landed first";
-
 export const SWITCHED_OFF = "it was switched off";
 export { STEP_UNFIT };
 export const VALUE_UNREAD = "a value it takes could not be read";
-export const FRAME_UNREAD = "the function it ran could not be read";
 
 const flatAt = (body: Automation, path: string): FlatEntry | undefined => reached(body).find((at) => at.path === path);
 
@@ -179,7 +149,6 @@ const actionAt = (body: Automation, path: string): AutomationAction | undefined 
 };
 
 type Call = RunFunction;
-type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 
 const callAt = (body: Automation, path: string): Call | null => {
 	const at = flatAt(body, path);
@@ -709,119 +678,6 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const isRunning = (ref: StepRef): boolean => running !== null && stepKey(running.ref) === stepKey(ref);
 
-	/** A retiring fire never retries, so it has none. */
-	const natureAt = (fire: Fire, path: string, retiring: boolean): Nature | null => {
-		const effect = retiring ? null : stepAt(fire, path);
-		return effect ? natureOf(effect) : null;
-	};
-
-	/** A call names its function. */
-	const whereAt = (fire: Fire, path: string): RowWhere => {
-		const site = siteOf(path) ?? path;
-		const body = bodyOf(fire);
-		return {
-			step: path,
-			function: fire.frames?.[site]?.function ?? (body ? callAt(body, site)?.function : undefined),
-		};
-	};
-
-	/** An ended step's row. */
-	const endedRow = (fire: Fire, path: string, step: Step, reason?: string): RunRow => {
-		const ended = endedOutcome(step.word);
-		return fireRow(fire, ended.outcome, reason ?? ended.reason, kindAt(fire, path), whereAt(fire, path));
-	};
-
-	/** Judges steps a restart found. */
-	const recoverFire = (fire: Fire, held: RunRow[], now: number, retiring: boolean) => {
-		let log = held;
-		let landed = fire;
-		for (const [path, step] of Object.entries(fire.steps)) {
-			const next = recovered(step, natureAt(fire, path, retiring), now, windowOf(fire, path));
-			landed = withStep(landed, path, next);
-			if (!isEnded(step) && isEnded(next)) log = logged(log, endedRow(fire, path, next));
-		}
-		return { fire: landed, log };
-	};
-
-	/** A retiring fire's open steps end with their last word. */
-	const endHeard = (fire: Fire, held: RunRow[]) => {
-		let log = held;
-		let landed = fire;
-		for (const [path, step] of Object.entries(fire.steps)) {
-			// A claim ends when it answers.
-			if (isEnded(step) || step.claimed || step.word === undefined) continue;
-			const ended = timedOut(step);
-			landed = withStep(landed, path, ended);
-			log = logged(log, endedRow(fire, path, ended));
-		}
-		return { fire: landed, log };
-	};
-
-	/** Lands answers; a newer set ends older ones. */
-	const settle = (
-		stored: readonly Fire[],
-		held: Pick<State, "log" | "ran" | "landedSets">,
-		now: number,
-		recover: boolean,
-	) => {
-		let { log, ran } = held;
-		const sets: LandedSet[] = [];
-		const settled = stored.map((found) => {
-			const retiring = retireOf(found) !== null;
-			let fire = found;
-			if (recover) ({ fire, log } = recoverFire(fire, log, now, retiring));
-			let landedSets: LandedSet[];
-			({ fire, log, ran, sets: landedSets } = landAnswers(fire, { log, ran }, now, retiring));
-			sets.push(...landedSets);
-			if (retiring) ({ fire, log } = endHeard(fire, log));
-			return fire;
-		});
-		const outdated = outdatedSets(settled, sets, stepAt);
-		const fires = settled.map((fire) =>
-			outdated
-				.filter((at) => at.member === fire.member)
-				.reduce((held, { path }) => {
-					const ended = refusedUnsent(held.steps[path] as Step);
-					log = logged(log, endedRow(held, path, ended, NEWER_SET));
-					return withStep(held, path, ended);
-				}, fire),
-		);
-		const landedSets = { ...held.landedSets };
-		for (const { device, ...set } of sets) {
-			const before = own(landedSets, device);
-			if (!before || before.at <= set.at) landedSets[device] = set;
-		}
-		return { fires, log, ran, landedSets };
-	};
-
-	/** Lands the answers to its claimed steps. */
-	const landAnswers = (fire: Fire, held: Pick<State, "log" | "ran">, now: number, retiring: boolean) => {
-		let { log, ran } = held;
-		let landed = fire;
-		const sets: LandedSet[] = [];
-		for (const path of claimedPaths(fire)) {
-			const ref = { member: fire.member, path };
-			if (isRunning(ref)) continue;
-			const answer = spent.get(stepKey(ref));
-			if (!answer) continue;
-			const step = fire.steps[path] as Step;
-			if ("hold" in answer.attempt) {
-				landed = withStep(landed, path, unsent(step, now));
-				continue;
-			}
-			log = answer.rows.reduce(logged, log);
-			const next = heard(step, natureAt(fire, path, retiring), answer.attempt.word, now, windowOf(fire, path));
-			landed = withStep(landed, path, next);
-			if (!isEnded(next)) continue;
-			log = logged(log, endedRow(fire, path, next, answer.reason));
-			if (next.verdict !== "done") continue;
-			ran = { ...ran, [fire.automation]: fire.at };
-			const switched = switchOf(stepAt(fire, path));
-			if (switched) sets.push({ member: fire.member, ...switched, at: fire.at });
-		}
-		return { fire: landed, log, ran, sets };
-	};
-
 	/** Why a fire stops; started ones finish pinned. */
 	const retireOf = (fire: Fire): RunRow | null => {
 		const record = records.get(fire.automation);
@@ -853,85 +709,20 @@ export function createAutomations(deps: AutomationsDeps) {
 		return { ...fire, steps, active: [], frames: { ...fire.frames, [path]: frame } };
 	};
 
-	/** To the step whose turn it is. */
-	const advance = (
-		start: Fire,
-		held: Pick<State, "log">,
-		at: {
-			now: number;
-			home: boolean;
-			runnable: Runnable[];
-			/** Unread steps. */
-			unread: StepRef[];
-			tell: (fire: Fire, path: string, action: Tell) => "told" | "full" | "away";
-		},
-	): { fire: Fire; log: RunRow[] } => {
-		let { log } = held;
-		let fire = start;
-		for (let path = turnOf(fire); path !== null; path = turnOf(fire)) {
-			const step = begun(clamped(fire.steps[path] as Step, at.now), at.now);
-			fire = { ...withStep(fire, path, step), active: [path] };
-			if (step.claimed) return { fire, log };
-			const body = bodyOf(fire);
-			const call = body && siteOf(path) === null ? callAt(body, path) : null;
-			if (call) {
-				const entered = enter(fire, path, call);
-				if (!("refused" in entered)) {
-					fire = entered;
-					continue;
-				}
-				const ended = refusedUnsent(step);
-				fire = withStep(fire, path, ended);
-				log = logged(log, endedRow(fire, path, ended, entered.refused));
-				continue;
-			}
-			const window = windowOf(fire, path);
-			const site = siteOf(path);
-			const action = actionOf(fire, path);
-			if (site !== null && !action && writtenStep(fire, path)) {
-				at.unread.push({ member: fire.member, path });
-				return { fire, log };
-			}
-			let ended: { step: Step; reason?: string };
-			if (site !== null && !action) ended = { step: refusedUnsent(step), reason: FRAME_UNREAD };
-			else if (action && isTell(action)) {
-				const told = at.tell(fire, path, action);
-				if (told === "told") ended = { step: heard(step, null, "done", at.now) };
-				else if (told === "away") ended = { step: refusedUnsent(step), reason: NOT_HOME };
-				else if (outOfTime(step, at.now, window)) ended = { step: expired(step) };
-				else {
-					log = logged(log, fireRow(fire, "refused", QUEUE_FULL, "tell_assistant", whereAt(fire, path)));
-					return { fire, log };
-				}
-			} else if (!action || !isEffect(action)) ended = { step: refusedUnsent(step) };
-			else if (outOfTime(step, at.now, window)) ended = { step: timedOut(step) };
-			else if (AUTOMATION_ACTIONS[action.kind].home && !at.home) {
-				ended = { step: refusedUnsent(step), reason: NOT_HOME };
-			} else {
-				// A hold waits unclaimed.
-				const ready = deps.actions?.ready(action) ?? true;
-				const due = dueAt(step);
-				if (ready && due <= at.now) at.runnable.push({ ref: { member: fire.member, path }, dueAt: due });
-				return { fire, log };
-			}
-			fire = withStep(fire, path, ended.step);
-			log = logged(log, endedRow(fire, path, ended.step, ended.reason));
-		}
-		return { fire: { ...fire, active: [] }, log };
-	};
-
-	const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
-
-	/** `unowned` takes the rest. */
-	const droppedRows = (log: RunRow[], dropped: Dropped, now: number, unowned: Fire | null): RunRow[] => {
-		let next = log;
-		for (const [owner, count] of dropped) {
-			const reason = `dropped ${count} older quiet event${count === 1 ? "" : "s"} for room`;
-			const by = owner === null ? unowned : { automation: owner, seq: 0, at: now };
-			if (by) next = logged(next, fireRow(by, "suppressed", reason, "tell_assistant"));
-		}
-		return next;
-	};
+	const automationPass = createPass({
+		retireOf,
+		enter,
+		bodyOf,
+		actionOf,
+		stepAt,
+		kindAt,
+		writtenStep,
+		windowOf,
+		callAt,
+		ready: (action) => deps.actions?.ready(action as AutomationEffect) ?? true,
+		sentenceOf,
+		withMessage,
+	});
 
 	/** Unused a week, then removed. */
 	function sweepFunctions(): void {
@@ -991,95 +782,23 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (stopped) return;
 		const now = deps.now();
 		const home = deps.isHome();
-		let { queue, log, ran } = state;
-		let fires: Fire[] = [];
-		const runnable: Runnable[] = [];
-		let queued = false;
-		const dropped: Dropped = new Map();
-		/** Takes an unowned drop's row. */
-		let droppedBy: Fire | null = null;
-		/** Retired, awaiting their claim. */
-		const retiring = new Set<string>();
-		const pass = settle(state.fires, { ...state, log, ran }, now, recovering);
-		const { fires: settled, landedSets } = pass;
-		({ log, ran } = pass);
-		for (const stored of settled) {
-			let fire: Fire = stored;
-			const retired = retireOf(fire);
-			if (retired) {
-				// Retired once its effect lands.
-				if (holdsClaim(fire)) {
-					fires.push(fire);
-					retiring.add(fire.member);
-				} else if (!finished(fire)) log = logged(log, retired);
-				continue;
-			}
-			const body = bodyOf(fire) as Automation;
-			if (fire.tell && !home) {
-				log = logged(log, fireRow(fire, "refused", NOT_HOME, "tell_assistant"));
-				fire = untold(fire);
-			} else if (fire.tell && !fire.tell.fill) {
-				const entry = { member: fire.member, when: fire.tell.when, fields: fire.tell.fields };
-				const room = told(queue, entry, sentenceOf(body), now);
-				if (!room) {
-					if (!fire.waiting) log = logged(log, fireRow(fire, "refused", QUEUE_FULL, "tell_assistant"));
-					fire = { ...fire, waiting: true };
-				} else {
-					queue = room.queue;
-					for (const [owner, count] of room.dropped) {
-						dropped.set(owner, (dropped.get(owner) ?? 0) + count);
-						if (owner === null) droppedBy = fire;
-					}
-					log = logged(log, fireRow(fire, "ran", undefined, "tell_assistant"));
-					ran = { ...ran, [fire.automation]: fire.at };
-					queued = true;
-					fire = untold(fire);
-				}
-			}
-			fires.push(fire);
-		}
-		const unread: StepRef[] = [];
-		const tell = (fire: Fire, path: string, action: Tell): "told" | "full" | "away" => {
-			const body = bodyOf(fire);
-			if (!home || !body) return "away";
-			const message = action.message === undefined ? [] : [action.message];
-			const written = writtenStep(fire, path)?.step.args.message;
-			const note = written?.kind === "literal" && typeof written.value === "string" ? written.value : null;
-			const fields = withMessage(fire.fields ?? {}, message, note !== null && hasHoles(note) ? [note] : []);
-			const entry = { member: stepMember(fire.member, path), when: action.when, fields };
-			const room = told(queue, entry, sentenceOf(body), now);
-			if (!room) return "full";
-			queue = room.queue;
-			for (const [owner, count] of room.dropped) {
-				dropped.set(owner, (dropped.get(owner) ?? 0) + count);
-				if (owner === null) droppedBy = fire;
-			}
-			ran = { ...ran, [fire.automation]: fire.at };
-			queued = true;
-			return "told";
-		};
-		const advanced = new Set<string>();
-		const turnsOf = (held: Fire[]): Fire[] => {
-			const turns = mayRun(held);
-			return held.flatMap((found) => {
-				let fire = found;
-				if (turns.has(fire.member) && !retiring.has(fire.member) && !advanced.has(fire.member)) {
-					advanced.add(fire.member);
-					({ fire, log } = advance(fire, { log }, { now, home, runnable, unread, tell }));
-				}
-				return finished(fire) ? [] : [fire];
-			});
-		};
-		// Ended run passes its turn.
-		fires = turnsOf(turnsOf(fires));
-		log = droppedRows(log, dropped, now, droppedBy);
-		const effect = running ? null : nextEffect(runnable);
-		if (effect) fires = claim(fires, effect, now);
-		const toFill = filling ? null : nextFill(fires);
-		const toRead = reading ? null : (unread[0] ?? null);
-		const moved: State = { ...state, queue, log, ran, fires, landedSets };
+		const {
+			next,
+			effect,
+			fill: toFill,
+			read: toRead,
+			queued,
+		} = automationPass.pass({
+			state,
+			now,
+			home,
+			recover: recovering,
+			answers: spent,
+			inFlight: isRunning,
+			busy: { effect: running !== null, fill: filling !== null, read: reading !== null },
+		});
 		// An unlanded pass is retried whole, its claim with it.
-		if ((unwritten || canonicalJson(moved) !== canonicalJson(state)) && !commit(moved)) return;
+		if ((unwritten || canonicalJson(next) !== canonicalJson(state)) && !commit(next)) return;
 		recovering = false;
 		unwritten = false;
 		for (const [key, { ref }] of [...spent]) {
@@ -1199,7 +918,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		if ("refused" in read) {
 			const ended = refusedUnsent(step);
 			const fires = patched(ref.member, { steps: { ...current.steps, [ref.path]: ended } });
-			return commit({ ...state, fires, log: logged(log, endedRow(current, ref.path, ended, read.refused)) });
+			return commit({
+				...state,
+				fires,
+				log: logged(log, automationPass.endedRow(current, ref.path, ended, read.refused)),
+			});
 		}
 		const resolved = { ...frame.resolved, [ref.path]: read.action };
 		const fires = patched(ref.member, { frames: { ...current.frames, [site]: { ...frame, resolved } } });
@@ -1323,7 +1046,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** Outcomes in one write. */
 	const landSpent = (): void => {
-		const landed = settle(state.fires, state, deps.now(), false);
+		const landed = automationPass.settle(state.fires, state, deps.now(), false, spent, isRunning);
 		const fires = landed.fires.filter((fire) => !finished(fire));
 		const next: State = { ...state, log: landed.log, ran: landed.ran, landedSets: landed.landedSets, fires };
 		if (canonicalJson(next) !== canonicalJson(state) && commit(next)) spent.clear();

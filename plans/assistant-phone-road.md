@@ -2159,6 +2159,26 @@ Design: Phase 2.7e above. The second app update (N+1).
 
 Gates: the failure table's vectors; phone-encoded nested unknown steps re-encoded byte-equal; a run in a `wait` survives 64 newer fires; one function reached twice tells twice.
 
+### How slice 4 is being built
+
+Written before the code, so a restart of the work reads it here. Each line is a ruling until the code says otherwise.
+
+- **The pass is a module** (`automationPass.ts`, `createPass(ports)`): `pass(input)` reads the state, the answers that came back, the clock and read-only lookups, and answers the next state with the one effect, read and fill to start. `pump()` commits and starts them. The move is byte for byte first; the tree changes it afterwards.
+- **The frame walk is its own pure module** (`automationFrames.ts`): given a function's steps, a frame (the path whose turn it is, its variables, its first uncaught failure, the error a catch holds) and how the current step ended, it answers the next path or how the frame ended. The failure table's vectors drive this function alone, with no pump. Nothing scans `steps` to find a turn: `fire.active` is the authority, moved only by the walk's answer.
+- **A step's record is made when its turn comes,** so a side not taken and steps skipped by a jump hold no record, and "what did not run" is the body minus the records.
+- **Built so far:** the pass moved out byte for byte (`automationPass.ts`, with `withMessage` as one more port, and `untold` and `droppedRows` exported for `dropOwned` and `watchSensors`); the frame walk and its sixteen vectors (`automationFrames.ts`, `moved` and `entered`), not yet called by the pass.
+- **Key names:** an `if` is stored `{ when, steps?, else? }`, not `then`: an object literal that defines `then` trips the linter's thenable rule at every place a step is written, and `steps` is already a `try`'s guarded side. The side is still called "then" in an address. `when`, `else` and `catch` are Kotlin keywords, which the codegen backticks.
+- **The failure table is a Gateway-only corpus** (`tests/fixtures/automation-frames/failure-table.json`), named so that the cross-runtime vectors inventory, which forces every `vectors.json` through Kotlin, does not claim it.
+- **Step kinds** in `FunctionStepSchema`, recursive: `if { when, then?, else? }` (`when` is one expression), `try { steps, catch }`, `exit`, `throw { text? }`, `let { name, value }`, `wait { minutes }`, `note { text }`. A list holds at most `FUNCTION_STEPS_MAX`; a function holds at most a generated total across depths and a generated depth. Unknown kinds stay preserved at every depth.
+- **The path** is typed in the walk (a list of segments: a step's index, a side, a call boundary) with one encoder and decoder; its spelling is Question 89's. `siteOf`, `byPath` and the phone's twin read segments, never the string.
+- **What a failure is:** `{ code, message }` with `code` one of `refused`, `unreachable`, `no_answer`, `unread`, `timeout`, `thrown`, `call_failed`, `loop`. A step's ended word maps to a code by one table. Outside a `try` it is noted on the frame (the first one stays) and the body carries on; inside one the walk jumps to the `catch` with `e` bound; a failure inside a `catch` is judged by what encloses the `try`. `throw` outside any `try` ends the frame failed. `exit` ends it with whatever was noted.
+- **Reads are steps of the read slot:** an `if`'s condition, a `let`'s value, a `wait`'s minutes and a `do` step's arguments are each read once when the step's turn comes, through the one async read the pump already has. A condition or value that cannot be read is the failure `unread`.
+- **`as`** keeps what an action gives. None of today's three actions gives anything, so the catalogue row says so (`gives` absent) and a save refuses `as` on them with its own line; the key and the frame's variable slot exist for the action that will.
+- **`wait`** ends at a stored time on the step's record; the pump's timer wakes for it as it wakes for a retry. A run in a wait is started, so it is never evicted.
+- **A tell is a step** for every automation: its message is read at its turn through the read slot and told through the outbox under the member of its call-site path. The lane keeps only an event automation's leading tells with no message. The fire's own `tell` and the fill slot go; a fire stored with one is told as it stands by a dated reader.
+- **The log row** gets a `kind` (`step`, `tell`, `lost`, `trigger`) that names its own key, and standing refusals are a small state map beside the log, so no call site assembles a key. The row type is renamed away from "run" here.
+- **The last run** is served on the automation's row from the run's own step records: per step its path, kind, outcome and reason, and the step in flight. It is kept after the fire ends until the next run or an edit of the body.
+
 First step, carried from the 2.7e.1 architecture pass: take the pump's pass out as a pure function of the state, the answers and the clock, with the active list as the authority for whose turn it is, and drop the fill slot.
 
 Order of work for slice 4, each a child of its board card (`bd_57a7ad81b206819572775b4c9ba5682d`):
