@@ -87,17 +87,27 @@ Router's record names. That Gateway feeds it events. The session decides what to
       matches. A crossing takes a Value from the numbers the Gateway's sensors read, "Goes below"
       or "Goes above", a Threshold and a Dead zone in the owner's unit, and a Cool-down in minutes.
       A clock is "At a time" (a time picked on a clock, in the phone's zone, and the weekdays) or
-      "Every" (a count of minutes, hours or days). Do is a list of actions, each in a card with its
-      remove, and "+ Add action" listing what the Gateway offers (where it serves functions, the
-      Runs block, `runsView`, also offers "Run a function" and draws a pointer with its values, who
-      else runs it and what an edit reaches; `docs/fields.md`, Functions): "Tell the assistant" with Now or
+      "Every" (a count of minutes, hours or days). An event also takes an optional Cool-down, and every
+      automation a "Keep trying" in minutes, blank for the Gateway's ten. Runs is a list of cards
+      (`cardsDraw` in `assistant/CardsDraw.kt`): an action, an If with its Condition and its two
+      sides ("Otherwise" for the second), a Try with "If it fails", a Wait, "Stop here" and a Note,
+      each side indented under its card and each list ending in "+ Add", which offers the Gateway's
+      actions and then the statements it runs (`statementsOffered`). A card has a move menu (up or
+      down its own list) and its remove, and shows how the last run went on it while the editor
+      shows what is stored (`lastRunShown`). A body holding a statement the Gateway does not run
+      opens read-only. With no name, cards that are all plain actions save flat, anything else as
+      an unnamed function (`docs/fields.md`, Functions). Where the Gateway serves functions, the Runs block
+      (`runsView`) also offers "Run a function" and draws a pointer with its values, who else runs it
+      and what an edit reaches (`docs/fields.md`, Functions). The action cards are "Tell the assistant" with Now or
       Quietly and a Message; "Switch a plug" with the plug and On, Off or Toggle; "Send to IFTTT"
       with an event name and three values. A Message or an IFTTT value opens on its own page
       when tapped (`HoleTextEditor`): the text with each hole coloured as the Console colours an
       expression, a count against its cap, "Names here" with the trigger's names from its Gateway's row, each with its description and,
       once the preview has answered, what it holds now (`namesHere`), and then the Console's entities, and the Console's hint and completions above the
       keyboard for the hole under the cursor. Its back arrow returns to the automation with the
-      text kept. Any text that holds a hole shows the Gateway's filled form in a box labelled
+      text kept. An If's Condition opens the same page in expression mode (`TextMode.EXPRESSION`):
+      one expression, bare names, and under it "True right now", "False right now" or why it cannot
+      tell, from `automation_preview`'s `condition` (`conditionAsk`). Any text that holds a hole shows the Gateway's filled form in a box labelled
       Preview, or the hole it refused, on both pages. A dangerous action says "Asks once when saved", and the save asks "Run
       without asking?" before it sends again. Delete sits in the top bar's menu and asks first, as
       every record page's removal does (`RemoveMenu`). Back on a changed draft asks "Leave and
